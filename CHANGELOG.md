@@ -1,5 +1,29 @@
 # 变更日志
 
+## [2026-10-22] fix(chat)：MessageAttachmentAdapter 数据入口加固（不删死链）
+
+查 `MessageAttachmentAdapter` 的结果。绑定骨架本身是稳的（空附件走 `GONE + setAdapter(null)`、非空必调
+`setAttachments`、复用 adapter 不重建），但数据入口有三处会崩/会脏，另有一处时序隐患：
+
+- **DiffUtil 裸解引用**：`areItemsTheSame` 里 `oldItem.attachment.id.equals(...)` 不防 null。
+  `Attachment.id` 是 `final` 且两个构造器都赋 UUID，但类**没有无参构造** → Gson 恢复历史会话时绕过构造器，
+  id 为 null，绑定时 NPE。改为 `idOf`/`sameId` null 安全；`areContentsTheSame` 同样补 attachment 判空。
+- **列表里的 null 元素**：`setAttachments` 直接 `fromChatAttachment(null)` 就崩 → 跳过 null。
+  顺带统一 `ChatAdapter.bindAttachments` 里 `hasMultipleImages` 的口径（原来用 `stream().allMatch(a -> a.isImage())`
+  不防 null，而同方法上面那个循环显式防了——两套口径）。
+- **`setAttachments(null)` 只 clear 不派发**：adapter 还挂在 RecyclerView 上时旧条目留在屏幕。改走 `computeDiff(空列表)`。
+- **复用 holder 不重设点击监听**：原来只在新建 adapter 时 `setOnAttachmentClickListener`，
+  复用分支不设 → 监听器晚装的那批气泡附件永远点不动。改成每绑必设（AI 与用户两条路径）。
+
+**明确保留**：`setAttachmentsWithModelLinks` 目前零调用（连带 `TYPE_MODEL_LINK`、`bindModelLink`、
+`ModelLinkViewHolder`、`item_message_model_link.xml`、Activity 里的空 `onModelLinkClick` 都不可达）。
+我一度把其中三块删了，被用户驳回「删他干什么，说不准还能用上」→ 已 `git checkout` 完整还原（580 行、三块俱在），
+本轮只加固不删链。死代码状态记录在此，将来要清理需单独拍。
+
+测试：新增 `MessageAttachmentAdapterTest` 4 项（null 列表真清空、null 元素跳过、**id 为 null 不 NPE**、
+同 id 重绑仍 1 项）——对旧代码这几条就是 NPE。全量 `--offline` **597** 全绿（+4，0 skip/fail/err）、
+`assembleDebug` 通过。附件区在 `attachmentsRecycler`（属 `vCol`），parts 接管不碰，故与双渲/双思考那两个冲突无关。
+
 ## [2026-10-22] fix(parts)：修接管与 legacy 的两个并行写者冲突（产物双渲 / 思考行双份）
 
 排查"接管之外还有哪些界面"时查实两处真实冲突（都因 `PartsRendererFlag` 只在 `bindMessageContent:3600`

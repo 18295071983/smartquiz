@@ -1664,6 +1664,23 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 6. 同日排查记录：聊天流**没有 OCR 识别布局**（进度/汇总是 SYSTEM 消息、识别文本静默进 prompt、
    Agent 侧仅通用工具卡且图卡不含识别文字）→ 属新功能设计，非接管遗漏。
 
+### 4.80 fix(chat)：MessageAttachmentAdapter 数据入口加固（只加固不删链）（2026-10-22）
+
+1. 骨架没问题：空附件走 `GONE + setAdapter(null)`、非空必调 `setAttachments`、复用 adapter 不重建 → 接管不会在附件区留残影。
+2. 修三处会崩/会脏 + 一处时序隐患：
+   - DiffUtil `areItemsTheSame` 裸 `attachment.id.equals(...)`：`Attachment.id` 是 final 且构造器都赋值，
+     但**类无无参构造 → Gson 恢复历史会话绕过构造器，id 为 null** → 绑定 NPE。改 `idOf`/`sameId` null 安全，
+     `areContentsTheSame` 也补判空。
+   - `setAttachments` 遇列表内 null 元素即崩（`fromChatAttachment(null)`）→ 跳过；
+     并统一 `bindAttachments` 里 `hasMultipleImages` 的 null 口径（原来 `stream().allMatch` 不防，同方法上面循环却防了）。
+   - `setAttachments(null)` 原来只 clear 不派发 → adapter 可见时旧条目留屏；改走 `computeDiff(空)`。
+   - 复用 holder 分支不重设 `OnAttachmentClickListener`（只新建时设）→ 监听器晚装的那批气泡附件永远点不动；改每绑必设。
+3. **死链按用户意见保留**：`setAttachmentsWithModelLinks` 零调用（连带 `TYPE_MODEL_LINK`/`bindModelLink`/
+   `ModelLinkViewHolder`/`item_message_model_link.xml`/Activity 空 `onModelLinkClick` 不可达）。
+   我一度删了三块被驳回「删他干什么，说不准还能用上」→ `git checkout` 完整还原（580 行）。**将来清理需单独拍**。
+4. **验证**：新增 `MessageAttachmentAdapterTest` 4 项（对旧代码即 NPE：null 元素、null id、null 列表清空、同 id 重绑）；
+   全量 597 全绿（+4）、`assembleDebug` 通过。附件区属 `vCol`，parts 接管不碰。
+
 ---
 
 ## 5. 关键文件 / 改动地图

@@ -5004,9 +5004,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 attachmentAdapter = (MessageAttachmentAdapter) holder.attachmentsRecycler.getAdapter();
             } else {
                 attachmentAdapter = new MessageAttachmentAdapter();
-                attachmentAdapter.setOnAttachmentClickListener(attachmentClickListener);
                 holder.attachmentsRecycler.setAdapter(attachmentAdapter);
             }
+            // 监听器每绑必设：原来只在新建时设，复用 holder 拿到的是上一条消息留下的 adapter，
+            // 若监听器是在那之后才装上（Activity 重建/延迟装配），这批气泡的附件就永远点不动。
+            attachmentAdapter.setOnAttachmentClickListener(attachmentClickListener);
 
             attachmentAdapter.setAttachments(message.attachments);
         } else {
@@ -5042,7 +5044,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             clearImageGridSlot(holder);
 
             // 根据附件类型选择 LayoutManager，ViewHolder 复用时需检查是否需要切换
-            boolean hasMultipleImages = message.attachments.stream().allMatch(a -> a.isImage()) && message.attachments.size() > 1;
+            // （与上面 allImages 判定同一口径：显式防 null，否则列表里一个 null 就 NPE）
+            boolean hasMultipleImages = true;
+            int imageCount = 0;
+            for (ChatMessage.Attachment a : message.attachments) {
+                if (a == null || !a.isImage()) { hasMultipleImages = false; break; }
+                imageCount++;
+            }
+            hasMultipleImages = hasMultipleImages && imageCount > 1;
             boolean needGridLayout = hasMultipleImages;
             boolean isCurrentGrid = holder.attachmentsRecycler.getLayoutManager()
                     instanceof androidx.recyclerview.widget.GridLayoutManager;
@@ -5073,9 +5082,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 attachmentAdapter = (MessageAttachmentAdapter) holder.attachmentsRecycler.getAdapter();
             } else {
                 attachmentAdapter = new MessageAttachmentAdapter();
-                attachmentAdapter.setOnAttachmentClickListener(attachmentClickListener);
                 holder.attachmentsRecycler.setAdapter(attachmentAdapter);
             }
+            // 监听器每绑必设：原来只在新建时设，复用 holder 拿到的是上一条消息留下的 adapter，
+            // 若监听器是在那之后才装上（Activity 重建/延迟装配），这批气泡的附件就永远点不动。
+            attachmentAdapter.setOnAttachmentClickListener(attachmentClickListener);
 
             attachmentAdapter.setAttachments(message.attachments);
         } else {

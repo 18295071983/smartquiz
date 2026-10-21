@@ -86,10 +86,13 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
 
     public void setAttachments(List<ChatMessage.Attachment> chatAttachments) {
         if (chatAttachments == null) {
-            this.attachments.clear();
+            // 原来只 attachments.clear() 不派发更新：adapter 仍挂在 RecyclerView 上时，
+            // 旧条目会留在屏幕上（与内部数据不一致）。走 computeDiff 才能把删除动画/刷新发出去。
+            computeDiff(new ArrayList<>());
         } else {
             List<AttachmentItem> newItems = new ArrayList<>();
             for (ChatMessage.Attachment att : chatAttachments) {
+                if (att == null) continue; // 列表里混进 null 会让下面 DiffUtil 比较时 NPE
                 newItems.add(AttachmentItem.fromChatAttachment(att));
             }
             computeDiff(newItems);
@@ -117,8 +120,17 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
         computeDiff(newItems);
     }
 
-    private void computeDiff(List<AttachmentItem> newItems) {
-        DiffUtil.DiffResult diffResult = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+    /** 附件的稳定标识；附件对象或 id 缺失时返回 null（历史数据反序列化可能出现）。 */
+    private static String idOf(AttachmentItem item) {
+        return item == null || item.attachment == null ? null : item.attachment.id;
+    }
+
+    /** null 安全的 id 比较。 */
+    private static boolean sameId(String a, String b) {
+        return a == null ? b == null : a.equals(b);
+    }
+
+    private void computeDiff(List<AttachmentItem> newItems) {        DiffUtil.DiffResult diffResult = DiffUtil.calculateDiff(new DiffUtil.Callback() {
             @Override
             public int getOldListSize() {
                 return attachments.size();
@@ -137,7 +149,9 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
                 if (oldItem.type == TYPE_MODEL_LINK) {
                     return oldItem.modelName != null && oldItem.modelName.equals(newItem.modelName);
                 }
-                return oldItem.attachment != null && oldItem.attachment.id.equals(newItem.attachment.id);
+                // 附件 id 由构造器赋 UUID，但 Gson 反序列化走无参构造：历史会话里缺 id 的记录
+                // 恢复回来就是 null，原来这里 oldItem.attachment.id.equals(...) 会在绑定时抛 NPE。
+                return sameId(idOf(oldItem), idOf(newItem));
             }
 
             @Override
@@ -148,8 +162,12 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
                     return oldItem.modelStatus == newItem.modelStatus
                             && oldItem.latencyMs == newItem.latencyMs;
                 }
-                return oldItem.attachment.status == newItem.attachment.status
-                        && oldItem.attachment.uploadProgress == newItem.attachment.uploadProgress;
+                ChatMessage.Attachment o = oldItem.attachment;
+                ChatMessage.Attachment n = newItem.attachment;
+                if (o == null || n == null) {
+                    return o == n;
+                }
+                return o.status == n.status && o.uploadProgress == n.uploadProgress;
             }
         }, false);
         this.attachments = newItems;
