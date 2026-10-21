@@ -1413,6 +1413,17 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    uiautomator 读不到 WebView 内文本，data 卡档位差异需目视确认。
 5. **验证**：+1 单测（HIDDEN/INLINE），全量 546 全绿、`assembleDebug` 通过、无回归。
 
+### 4.61 parts P3e：能力覆盖才接管（修 flag=true 子布局失效）（2026-10-21）
+
+1. 真机反馈：flag=true 时 parts 接管把未复刻的子布局清掉了（"原生子布局都失效"）。根因：gate 太宽，
+   parts 只忠实覆盖 text/reasoning，但 `bindWithParts` 先 `contentHost.removeAllViews()`。
+2. 收紧：`bindWithParts` 在动 contentHost 前判覆盖——`canRenderAll` + 只允许 text/reasoning +
+   text 无 mermaid/公式；任一不满足 → return false、容器不动 → 整条回落 legacy。含工具/data 的消息现在走 legacy。
+3. `PartsTurnBinder.bind(AssistantTurn)` 复用判定时的 turn，避免二次构建。
+4. 逐类放开路线：data 卡(已做档位)/工具卡(单卡已做，组折叠待做)/mermaid/公式 各自复刻并真机确认后，
+   再把这些类型移出"回落名单"。
+5. **验证**：+1 单测；真机 flag=true 进聊天页无崩溃、纯文本正常；全量 547 全绿、`assembleDebug` 通过。
+
 ---
 
 ## 5. 关键文件 / 改动地图

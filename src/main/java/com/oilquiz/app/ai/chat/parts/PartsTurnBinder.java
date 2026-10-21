@@ -31,6 +31,11 @@ public final class PartsTurnBinder {
         engine.bind(partsOf(msg));
     }
 
+    /** 绑定已构建好的 turn（供宿主先做能力覆盖判定后复用同一 turn，避免二次构建）。 */
+    public void bind(AssistantTurn turn) {
+        engine.bind(turn != null ? turn.parts : null);
+    }
+
     /** holder 回收/消息切换时清空（释放所有视图）。 */
     public void clear() {
         engine.bind(null);

@@ -14,6 +14,21 @@ import org.junit.Test;
  */
 public class PartRendererRegistryTest {
 
+    @Test
+    public void canRenderAllRequiresEveryPartCovered() {
+        PartRendererRegistry r = PartRendererRegistry.createDefault();
+        java.util.List<AssistantTurn.Part> covered = java.util.Arrays.asList(
+                part(AssistantTurn.Part.TYPE_TEXT, "t"),
+                part(AssistantTurn.Part.TYPE_REASONING, "t"),
+                AssistantTurn.Part.toolCall("x", "c1", "weather", "{}", "done", 1L),
+                AssistantTurn.Part.data("d", null, 1L));
+        assertTrue(r.canRenderAll(covered));
+
+        java.util.List<AssistantTurn.Part> withGap = new java.util.ArrayList<>(covered);
+        withGap.add(part("unknown_type", "t")); // 未注册
+        assertFalse("有未覆盖类型 → false（宿主应回落 legacy）", r.canRenderAll(withGap));
+    }
+
     private static AssistantTurn.Part part(String type, String text) {
         AssistantTurn.Part p = new AssistantTurn.Part();
         p.id = "id-" + type;

@@ -42,6 +42,26 @@ public final class PartRendererRegistry {
     }
 
     /**
+     * 是否所有 part 都能被本注册表解析到渲染器（"能力全覆盖"判定）。
+     * 任一部分解析不出（如尚未注册的 data/自定义类型）→ false，宿主应回落 legacy，
+     * 避免 parts 只渲一部分、把没覆盖的原生子布局清掉。null part 视为可跳过。
+     */
+    public boolean canRenderAll(java.util.List<AssistantTurn.Part> parts) {
+        if (parts == null) {
+            return false;
+        }
+        for (AssistantTurn.Part p : parts) {
+            if (p == null) {
+                continue;
+            }
+            if (resolve(p) == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * P2.7 默认注册表：text + reasoning + error + approval + tool_call + tool_result + data。
      * tool_result 与 tool_call/data 共用组件工厂（都走 ComponentRegistry）。
      */

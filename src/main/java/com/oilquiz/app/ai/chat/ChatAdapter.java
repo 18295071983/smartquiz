@@ -3516,6 +3516,33 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (holder.contentHost == null) {
             return false;
         }
+        // 能力覆盖闸门：先构建 parts（fromMessageForParts，不改 live assistantTurn）并判定
+        // ① 每个 part 都有注册渲染器；② 现阶段只接管 text/reasoning（工具组折叠、data 档位等
+        //    尚未忠实复刻，含这些 part 的消息整条回落 legacy，避免"旧的清掉、新的没补"）；
+        // ③ text part 不含 parts 未复刻的 mermaid/公式结构。
+        // 任一不满足 → 直接 return false，**不碰 contentHost**。
+        final com.oilquiz.app.ai.chat.turn.AssistantTurn partsTurn =
+                com.oilquiz.app.ai.chat.turn.AssistantTurn.fromMessageForParts(message);
+        final com.oilquiz.app.ai.chat.parts.PartRendererRegistry partsRegistry =
+                com.oilquiz.app.ai.chat.parts.PartRendererRegistry.createDefault();
+        if (partsTurn == null || !partsRegistry.canRenderAll(partsTurn.parts)) {
+            return false;
+        }
+        for (com.oilquiz.app.ai.chat.turn.AssistantTurn.Part p : partsTurn.parts) {
+            if (p == null) {
+                continue;
+            }
+            boolean allowed = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TEXT.equals(p.type)
+                    || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_REASONING.equals(p.type);
+            if (!allowed) {
+                return false; // 含工具/数据/错误等未忠实复刻的 part → 整条回落 legacy
+            }
+            if (com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TEXT.equals(p.type)
+                    && com.oilquiz.app.ai.chat.component.MermaidMathSplitter.containsStructure(p.text)) {
+                return false; // 含 mermaid/公式：parts 未复刻，交回 legacy
+            }
+        }
+
         if (holder.partsHost == null) {
             holder.partsHost = new ChatPartsHost(ctx, new ChatPartsHost.Callback() {
                 @Override
@@ -3556,11 +3583,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         if (holder.partsBinder == null) {
             holder.partsBinder = new com.oilquiz.app.ai.chat.parts.PartsTurnBinder(
-                    holder.partsContainer,
-                    com.oilquiz.app.ai.chat.parts.PartRendererRegistry.createDefault(),
-                    holder.partsHost);
+                    holder.partsContainer, partsRegistry, holder.partsHost);
         }
-        holder.partsBinder.bind(message);
+        holder.partsBinder.bind(partsTurn);
         return true;
     }
 

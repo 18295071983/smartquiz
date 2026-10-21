@@ -1,5 +1,20 @@
 # 变更日志
 
+## [2026-10-21] parts P3e：能力覆盖才接管，否则整条回落 legacy（修 flag=true 子布局失效）
+
+真机反馈：flag=true 时 parts 接管把未复刻的原生子布局清掉了（"原生子布局都失效"）。根因：接管 gate 太宽
+（completed+assistantTurn 就接管），而 parts 只忠实覆盖了 text/reasoning，工具组折叠/data 档位/mermaid 未复刻，
+`bindWithParts` 又先 `contentHost.removeAllViews()` → 旧清掉、新没补。
+
+- 收紧接管闸门（`bindWithParts`，在**动 contentHost 之前**判，不覆盖直接 return false、容器不动 → 整条走 legacy）：
+  ① `PartRendererRegistry.canRenderAll(parts)` 每个 part 有渲染器；② 现阶段只允许 `text`/`reasoning` 两种 part
+  （含工具/data/error/approval 的消息整条回落，等各自忠实复刻后再逐类放开）；③ text part 不含 `MermaidMathSplitter` 结构。
+- `PartsTurnBinder.bind(AssistantTurn)` 复用已构建 turn；ChatAdapter 覆盖判定与渲染共用一次 fromMessageForParts。
+- flag=false 现网不变；flag=true 现在对"未覆盖"消息自动回落 legacy，不再抹掉子布局。
+
+真机（本次连的机）：装带闸门的包、flag=true、进聊天页，无崩溃；纯文本/思考回答正常。含工具/组件卡的具体会话需目视再确认回落生效。
+测试：+1（canRenderAll 全覆盖/有空洞），全量 `--offline` **547** 全绿（0/0/0），`assembleDebug` 通过。
+
 ## [2026-10-21] parts P3d：data 卡按 ComponentDisplay 档位对齐（HIDDEN/PEEK/INLINE）
 
 - `DataPartRenderer` 复用公共 `ComponentDisplay`（`resolve/mounts/peekLabel`）+ `ChatMessage` 展开态，与 legacy
