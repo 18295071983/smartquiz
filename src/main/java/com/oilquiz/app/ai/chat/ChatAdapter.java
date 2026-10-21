@@ -3575,12 +3575,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (holder.partsContainer.getParent() instanceof ViewGroup) {
             ((ViewGroup) holder.partsContainer.getParent()).removeView(holder.partsContainer);
         }
-        holder.contentHost.removeAllViews();
+        // parts 引擎独占容器：holder 从"流式(旧路径)"切到"完成(parts)"时，旧路径可能已往 contentHost
+        // 塞过正文/组件子 View（含流式 mermaid/公式的 WebView）。这里让 contentHost 只保留 partsContainer
+        // （其余子 View 摘掉，messageText/markdownView 由旧路径的 ensurePlainTextHostViews 在需要时再挂回），
+        // 避免旧内容残留在 parts 树旁。清空前先深度 release，否则旧 WebView 的原生渲染器进程会随滚动一直泄漏。
+        releaseAndClearComponents(holder.contentHost);
         holder.contentHost.addView(holder.partsContainer);
-        // 组件容器也清空：parts 模式不再走 bindComponents，残留的是上一轮旧渲染。
-        if (holder.componentContainer != null) {
-            holder.componentContainer.removeAllViews();
-        }
+        // 组件容器也清空：parts 模式不再走 bindComponents，残留的是上一轮旧渲染（同样先 release）。
+        releaseAndClearComponents(holder.componentContainer);
 
         if (holder.partsBinder == null) {
             holder.partsBinder = new com.oilquiz.app.ai.chat.parts.PartsTurnBinder(

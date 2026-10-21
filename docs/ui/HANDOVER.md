@@ -1462,6 +1462,19 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 3. flag=false 现网不变；接管闸门无需改（无归属 data 仍 allowed）。现 flag=true 覆盖文本/思考/单卡(+产物)/组折叠(+成员产物)/产物/mermaid/公式，仅 error/approval 回落。
 4. **验证**：+4 单测（折入移顶层 / 无归属+名字退化 / 产物变→工具指纹变 / 工具卡渲产物在卡下·裸工具不碰产品工厂），全量 555 全绿、`assembleDebug` 通过。待真机：产物视觉/peek 展开/组内归属。
 
+### 4.66 parts P3j：内置组件体系接管核对 + 修 WebView 释放泄漏（2026-10-21）
+
+1. 核对"内置组件/工具卡/内置卡片/原生 JS 桥/工作区/原生控件"是否接通：结论**已接通、无需另造渲染器**。
+   这些渲染器本就是 `ComponentRegistry` 的插件（Chart/Weather/AppCardView 导航/HtmlCardView=JS 桥/
+   LayoutCardView·LayoutPrimitiveCardView=原生控件/Video·Audio 原生播放器/FeedbackBar chip），`render(activityCtx,comp)`
+   自包含挂 style+actions；parts 的 `DataPartRenderer`/`ProductCards`/`ToolCallPartRenderer` 全委派到它；
+   `ChatPartsHost.context()`=`itemView.getContext()`（Activity）→ 依赖 Activity 的卡片不降级。
+2. 新增单测：12 类内置组件经 `fromMessageForParts` 均成 data part、`canRenderAll` 全覆盖（不丢任一内置类型）。
+3. 修真实泄漏：`bindWithParts` 原裸 `removeAllViews` 清 contentHost/componentContainer，切换接管前旧流式的
+   mermaid/公式 WebView 不被 `ComponentLifecycle.release` → 渲染器进程随滚动泄漏；改用既有 `releaseAndClearComponents`。
+4. 工具卡"重试/编辑参数"属独立 `ToolCallViewHolder`（非 AI 消息 parts 范围）；`ToolCallCardView` 已显示名称/参数/状态/结果/查看全部/耗时。"AI 深度解读" chip 仍按 §11.2 有意延后（无 parts 生产者）。
+5. **验证**：+1 单测，全量 556 全绿、`assembleDebug` 通过。待真机：内置卡片交互可用性与不泄漏。
+
 ---
 
 ## 5. 关键文件 / 改动地图

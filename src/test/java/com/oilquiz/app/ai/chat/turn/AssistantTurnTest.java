@@ -557,6 +557,38 @@ public class AssistantTurnTest {
     }
 
     @Test
+    public void allBuiltinComponentTypesBecomeRenderableParts() {
+        // 逐类内置组件（图表/天气/应用/表格/视频/音频/html/布局树/产物…）都必须成为 data part，
+        // 且被默认注册表全覆盖（闸门不丢任一内置类型）。工具类走 tool_call，不单列 data。
+        ChatMessage msg = ChatMessage.createAIMessage("a1", "正文", 1L);
+        msg.turnId = "T7";
+        msg.components = new ArrayList<>();
+        String[] types = {
+                "chart", "info_card", "table_card", "weather", "app_operation",
+                "video", "audio", "html", "layout", "todo_card", "progress", "quiz"
+        };
+        int i = 0;
+        for (String t : types) {
+            ComponentData c = ComponentData.of(t, props("title", t));
+            c.id = "cmp" + (i++);
+            msg.components.add(c);
+        }
+        // 一个工具组件应走工具路径，不占 data 名额
+        ComponentData tool = ComponentData.of("tool_call", props("toolName", "weather"));
+        tool.id = "cmp_tool";
+        msg.components.add(tool);
+
+        AssistantTurn turn = AssistantTurn.fromMessageForParts(msg, false);
+
+        assertEquals("每个内置组件都应成为 data part", types.length,
+                countType(turn, AssistantTurn.Part.TYPE_DATA));
+        // 闸门全覆盖：默认注册表能解析所有 part（含刚造的组卡若有），任一内置类型不被丢
+        assertTrue("默认注册表应覆盖全部内置 data part",
+                com.oilquiz.app.ai.chat.parts.PartRendererRegistry.createDefault()
+                        .canRenderAll(turn.parts));
+    }
+
+    @Test
     public void fromMessageForPartsDoesNotMutateLiveAssistantTurn() {
         ChatMessage msg = ChatMessage.createAIMessage("a",
                 "文\n```component:chart\n{\"title\":\"A\"}\n```", 1L);

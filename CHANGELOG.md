@@ -1,5 +1,27 @@
 # 变更日志
 
+## [2026-10-21] parts P3j：内置组件体系接管核对 + 修 WebView 释放泄漏
+
+"接内置组件/工具卡/内置卡片/原生 JS 桥/工作区/原生控件"——核对 parts 接管路径是否真的把它们接上：
+- 结论：这些**已接通**，无需在 parts 层另造渲染器。内置的每类渲染器本就作为插件存在
+  （ChartCardView/WeatherCardView/AppCardView 导航/HtmlCardView=原生 JS 桥/LayoutCardView·
+  LayoutPrimitiveCardView=原生控件/VideoCardView·AudioCardView=原生播放器/FeedbackBarCardView chip），
+  全部经 `ComponentRegistry.render(activityCtx, comp)` 自包含渲染（style + actions 行也在此内联挂上）。
+  parts 侧 `DataPartRenderer`/`ProductCards`/`ToolCallPartRenderer` 都委派到这一注册表；
+  且 `ChatPartsHost.context()` 返回的就是 `itemView.getContext()`（Activity），故依赖 Activity 的
+  卡片（AppCardView 跳转、CardShell 更多面板、Html/File/Image 预览、ComponentActions link/file）不降级。
+- 模型侧证明无任一内置类型被丢：`appendDataParts` 把每条非 `tool_call` 组件都建成 data part，
+  接管闸门 allowed 含 `data`。新增单测逐一验 12 类内置组件 → 均成可渲染、闸门全覆盖的 data part。
+- 修一处真实泄漏：`bindWithParts` 之前用裸 `contentHost.removeAllViews()`/`componentContainer.removeAllViews()`
+  清空，切换接管前若旧路径（流式）塞过 mermaid/公式的 WebView，其原生渲染器进程不随 Java GC 回收、
+  长会话滚动会一直堆。改为复用既有 `releaseAndClearComponents`（先 `ComponentLifecycle.release` 深度释放再清）。
+- 工具卡的"重试/编辑参数"按钮属独立的 `ToolCallViewHolder`（单条工具消息行），不在 AI 消息 assistantTurn
+  parts 接管范围内；`ToolCallCardView` 本身已显示 名称/参数/状态/结果/查看全部/耗时。"AI 深度解读" chip
+  仍按 §11.2 有意延后（依赖模型可用性 + 异步回调，parts 侧无生产者）。
+
+flag=false 现网不变；全量 `--offline` **556** 全绿（0 skip/fail/err），`assembleDebug` 通过。
+待真机：内置卡片交互（导航/预览/JS 桥出图/原生播放器/工作区输入）在 flag=true 下的实际可用性与不泄漏。
+
 ## [2026-10-21] parts P3i：产物归所属工具卡下（§11.3，模型层归属 + 单写者渲染）
 
 按"把数据接上 + 自造渲染器"补 §11.3——产物卡随其生产工具出现，而非散在顶层：
