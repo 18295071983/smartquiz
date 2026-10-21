@@ -1,5 +1,26 @@
 # 变更日志
 
+## [2026-10-21] fix(component)：饼图不出图——图表别名的 props 形状归一到 chartType/series
+
+真机截图抓到（用户报"piechart 错误"）：模型按工具说明调 `ui_component(create, component_type=pie_chart,
+props={data:[{name,value}]})`，出来的不是饼图，而是一张"收起原始 JSON"的文本卡；模型还回答"饼图已经在上面了"。
+
+根因是**名字归一了、参数没归一**：`pie_chart/bar_chart/line_chart/sparkline` 被 `ComponentTypes` canonical
+归一到 `ChartCardView`（原生实现赢名字），但本卡只读 `chartType`+`series`，而工具说明教它们的参数仍是
+layout 原语那套 `data` → `canRender=false` → `ComponentRegistry.render:174` 静默落 `DynamicCardView` 兜底。
+（同属 §2 P0"两套命名重叠"，这次真的咬到用户了。）
+
+修在渲染器侧（历史会话里已存量的 `pie_chart{data}` 也必须能渲）：
+- `ChartCardView.normalize(requestedType, props)`：`chartType` 缺省时按别名补（pie→pie、bar→bar、line/sparkline→line）；
+  `series` 缺省而 `data` 存在时，把 `data:[{name,value}]` 拆成 `categories=[names]` + 单条 `series{data:[values]}`，
+  `data:[数值…]` 直接成单条 series；显式 `series` 优先。`canRender` 与 `createView` 同走归一，口径不分叉。
+- **只读不改**：归一返回副本，不原地写回 `data.props`（它会被持久化，写回等于改用户存档数据）。
+
+测试：新增 `ChartAliasShapeTest` 7 项——真机那条 `pie_chart+data` 必须 `canRender`、别名推导图型、
+纯数值数组成 series、显式 series 老口径不回归、两种形状都没有仍判不可渲、归一不改源 props、
+**走真注册表端到端渲出的视图里含 `ChartView`**（证明不再掉 JSON 兜底）。
+全量 `--offline` **589** 全绿（+7，0 skip/fail/err）、`assembleDebug` 通过；已重新装机待用户复验。
+
 ## [2026-10-21] fix(component)：目录必填/可选再纠 3 条 + 把字段守卫改成"从目录派生"
 
 上一批的 `ComponentFieldIntegrityTest` 用**手抄 fixture** 校验，有个真实弱点：目录再写错一个新字段名，

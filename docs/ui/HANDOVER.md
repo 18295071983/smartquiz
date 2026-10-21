@@ -1567,6 +1567,21 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 4. **验证**：全量 582 全绿（+1，0 skip/fail/err）、`assembleDebug` 通过；golden 未内联 props 表，
    `OnlinePromptBuilderAssemblyTest` 7 项仍绿。这条守卫的价值=将来目录再漂移会自动红。
 
+### 4.74 fix(component)：饼图不出图——图表别名 props 形状归一（真机抓到）（2026-10-21）
+
+用户报"piechart 错误"，截图坐实：模型按工具说明传 `pie_chart` + `data:[{name,value}]`，
+出来的却是"收起原始 JSON"文本卡，模型还回答"饼图已经在上面了"。
+
+1. 根因＝**名字归一了、参数没归一**：`pie_chart/bar_chart/line_chart/sparkline` 被 canonical 归一到
+   `ChartCardView`（原生赢名字），但本卡只读 `chartType`+`series`，工具说明教的参数仍是 layout 原语那套 `data`
+   → `canRender=false` → `ComponentRegistry.render:174` 静默落 `DynamicCardView`。属 §2 P0"两套命名重叠"真咬到用户的一例。
+2. 修在渲染器侧（历史会话存量也得能渲）：`ChartCardView.normalize(type, props)`——chartType 缺省按别名补
+   （pie/bar/line|sparkline）；series 缺省而有 `data:[{name,value}]` 则拆成 categories+单 series；
+   `data:[数值…]` 直接成单 series；显式 series 优先。`canRender` 与 `createView` 同走归一，口径不分叉。
+3. **只读不改**：归一返回**副本**，不原地写回 `data.props`（会被持久化，写回＝改用户存档）。
+4. **验证**：`ChartAliasShapeTest` 7 项（真机那条必须 canRender、别名推图型、纯数值成 series、显式 series 不回归、
+   两形状皆无仍判不可渲、不改源 props、**走真注册表渲出的视图含 `ChartView`**）；全量 589 全绿、`assembleDebug` 通过、已装机待复验。
+
 ---
 
 ## 5. 关键文件 / 改动地图

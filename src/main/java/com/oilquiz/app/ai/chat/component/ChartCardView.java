@@ -43,16 +43,99 @@ public class ChartCardView implements ChatComponent {
 
     @Override
     public boolean canRender(ComponentData data) {
-        if (data == null || data.props == null) return false;
-        String chartType = data.props.optString("chartType", "");
+        if (data == null) return false;
+        JSONObject n = normalize(data.type, data.props);
+        if (n == null) return false;
+        String chartType = n.optString("chartType", "");
         if (chartType.isEmpty()) return false;
-        JSONArray series = data.props.optJSONArray("series");
+        JSONArray series = n.optJSONArray("series");
         return series != null && series.length() > 0;
+    }
+
+    /**
+     * 把"图表别名"的 props 形状归一到本卡真正读的 {@code chartType}/{@code series}/{@code categories}。
+     *
+     * <p>坑的来路：{@code pie_chart}/{@code bar_chart}/{@code line_chart}/{@code sparkline} 这些名字
+     * 被 {@link ComponentTypes} 归一到本卡（原生实现赢名字），但工具说明教它们的参数仍是 layout 原语那套
+     * {@code data}（如 {@code pie_chart(data:[{name,value}])}）。名字归一了、参数没归一 →
+     * 模型照说明传就 {@code canRender=false} → {@code ComponentRegistry.render} 静默落
+     * {@code DynamicCardView}，用户看到的是一张"收起原始 JSON"的文本卡，而模型以为图已经画出来了。</p>
+     *
+     * <p>只读不改：返回归一后的<b>副本</b>，绝不原地写回 {@code data.props}（它会被持久化/共享）。</p>
+     */
+    static JSONObject normalize(String requestedType, JSONObject p) {
+        if (p == null) return null;
+        JSONObject out;
+        try {
+            out = new JSONObject(p.toString());
+        } catch (Exception e) {
+            return p;
+        }
+        String chartType = p.optString("chartType", "");
+        if (chartType.isEmpty()) {
+            chartType = chartTypeOfTypeName(requestedType);
+        }
+        if (!chartType.isEmpty() && !out.has("chartType")) {
+            putQuiet(out, "chartType", chartType);
+        }
+
+        JSONArray series = p.optJSONArray("series");
+        boolean seriesUsable = series != null && series.length() > 0;
+        JSONArray data = p.optJSONArray("data");
+        if (!seriesUsable && data != null && data.length() > 0) {
+            JSONArray cats = new JSONArray();
+            JSONArray vals = new JSONArray();
+            boolean namedPairs = true;
+            for (int i = 0; i < data.length(); i++) {
+                JSONObject o = data.optJSONObject(i);
+                if (o == null) {
+                    namedPairs = false;
+                    break;
+                }
+                putArr(cats, o.optString("name", o.optString("label", "")));
+                putArr(vals, o.optDouble("value", o.optDouble("y", 0d)));
+            }
+            JSONObject s = new JSONObject();
+            putQuiet(s, "name", p.optString("seriesName", "数值"));
+            putQuiet(s, "data", namedPairs ? vals : data);
+            JSONArray built = new JSONArray();
+            putArr(built, s);
+            putQuiet(out, "series", built);
+            if (namedPairs && !p.has("categories")) {
+                putQuiet(out, "categories", cats);
+            }
+        }
+        return out;
+    }
+
+    /** 别名本身带着图型时（pie_chart/bar_chart/line_chart/sparkline），据此补 chartType。 */
+    private static String chartTypeOfTypeName(String type) {
+        if (type == null) return "";
+        String t = ComponentTypes.normalize(type);
+        if (t.contains("pie")) return "pie";
+        if (t.contains("bar")) return "bar";
+        if (t.contains("line")) return "line";
+        return "";
+    }
+
+    private static void putQuiet(JSONObject o, String k, Object v) {
+        try {
+            o.put(k, v);
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Android 的 {@code JSONArray.put(double/Object)} 会抛 JSONException；归一是尽力而为，不因单点失败炸整张卡。 */
+    private static void putArr(JSONArray a, Object v) {
+        try {
+            a.put(v);
+        } catch (Exception ignored) {
+        }
     }
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props != null ? data.props : new JSONObject();
+        JSONObject p = normalize(data.type, data.props != null ? data.props : new JSONObject());
         String chartType = p.optString("chartType", "bar");
         String title = p.optString("title", "");
         JSONArray categories = p.optJSONArray("categories");
