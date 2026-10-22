@@ -31,6 +31,8 @@ public class PythonCalculateTool extends BaseAITool {
     private static final String TAG = "PythonCalculateTool";
     private final Context context;
     private final PythonToolManager toolManager;
+    /** Python 侧执行预算（秒）；对外申报由 {@link PythonToolBudget} 加余量，两处同源 */
+    private static final int EXEC_BUDGET_SECONDS = 10;
     
     public PythonCalculateTool(Context context) {
         super("python_calculate", "使用Python进行数学计算");
@@ -38,6 +40,12 @@ public class PythonCalculateTool extends BaseAITool {
         this.toolManager = PythonToolManager.getInstance(context);
     }
     
+    /** 申报单次执行所需超时（毫秒），口径见 {@link PythonToolBudget} */
+    @Override
+    public long executionTimeoutMs(Map<String, Object> args) {
+        return PythonToolBudget.declaredMs(EXEC_BUDGET_SECONDS);
+    }
+
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
         Log.i(TAG, "Executing Python calculation");
@@ -58,7 +66,7 @@ public class PythonCalculateTool extends BaseAITool {
             
             String code = buildCalculationCode(expression, task);
             // 数学计算场景给短超时（默认30s对纯计算过长；防死循环残留线程）
-            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null, 10);
+            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null, EXEC_BUDGET_SECONDS);
             
             return formatResult(result, expression);
             

@@ -924,7 +924,10 @@ result = {{
             
             if attempt < max_attempts - 1:
                 error = test_result["error"] or "测试失败"
-                fixed_code = self.engine._fix_code(
+                # engine 上没有 _fix_code（私有名写错了），只有公开的 fix_code，且它返回
+                # (fixed_code, was_fixed) 二元组。原写法在"生成的工具自测失败"时必然
+                # AttributeError —— 自动修复路径从来没真的跑通过。
+                fixed_code, _was_fixed = self.engine.fix_code(
                     spec.code,
                     {"type": "TestError", "message": error, "traceback": ""}
                 )

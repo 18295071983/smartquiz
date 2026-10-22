@@ -52,11 +52,23 @@ public class PythonChartTool extends BaseAITool {
     private static final String TAG = "PythonChartTool";
     private final Context context;
     private final PythonToolManager toolManager;
+    /**
+     * Python 侧执行预算（秒）：matplotlib 冷启动 + 出图本来就要几十秒，旧值是 60 却从没生效过——
+     * 调用方只给 30 秒，图片还在生成就被掐断，模型看到的是一条通用超时。
+     * 现在按"预算 + 余量"申报（{@link PythonToolBudget}），让工具自己的超时先到。
+     */
+    private static final int EXEC_BUDGET_SECONDS = 60;
 
     public PythonChartTool(Context context) {
         super("python_chart", "Python绘图工具(Pillow/matplotlib)：数据可视化生成PNG图片。环境已装matplotlib/Pillow/numpy/pandas；需要子图/对数轴/热力图等复杂图表时，改用python_execute直接编写matplotlib代码");
         this.context = context.getApplicationContext();
         this.toolManager = PythonToolManager.getInstance(context);
+    }
+
+    /** 申报单次执行所需超时（毫秒），口径见 {@link PythonToolBudget} */
+    @Override
+    public long executionTimeoutMs(Map<String, Object> args) {
+        return PythonToolBudget.declaredMs(EXEC_BUDGET_SECONDS);
     }
 
     @Override
@@ -74,7 +86,7 @@ public class PythonChartTool extends BaseAITool {
                 return AIToolResult.fail("缺少参数: data（图表数据JSON）");
             }
             String code = buildChartCode(action, data, parameters);
-            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null, 60);
+            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null, EXEC_BUDGET_SECONDS);
             return formatResult(result, action);
         } catch (Exception e) {
             Log.e(TAG, "Error: " + e.getMessage(), e);

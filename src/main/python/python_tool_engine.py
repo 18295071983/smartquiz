@@ -751,11 +751,9 @@ class PythonToolEngine:
         fixed_code = code
         
         if error_type == "ModuleNotFoundError":
-            match = re.search(r"No module named '(\w+)'", error_msg)
-            if match:
-                module_name = match.group(1)
-                _ = self.install_package(module_name)
-                return code, True
+            # 不再在这里装包并谎报"改过了"：装包与重试由 execute_with_auto_fix 统一负责
+            # （那里才知道剩余预算，也才知道装完该不该重试）。返回未修改，让上层走它自己的分支。
+            return code, False
         
         elif error_type == "SyntaxError":
             fixed_code = self._fix_syntax_error(code, error)
@@ -880,10 +878,52 @@ class PythonToolEngine:
         fixes_applied: list[dict[str, str | int]] = []
         last_error: dict[str, str] | None = None
         
-        for attempt in range(max_attempts):
-            packages_result = self.check_and_install_packages(current_code)
+        # timeout 是**整次调用的墙钟总预算**（含装包与自动修复轮次），不是每一轮的预算。
+        # 为什么必须这样：Java 层按"预算 + 固定余量"向调用方申报超时
+        # （PythonExecuteTool.executionTimeoutMs → OnlineToolManager 取较大者），
+        # 而这里以前每轮各吃满 timeout —— 最多 3 轮就能把申报值放大成约 3 倍的谎话，
+        # 结果仍然是框架先掐断，模型只拿到通用超时文案，丢掉结构化的 TimeoutError/stdout。
+        deadline = time.time() + timeout
+        # 预置 result：预算在第一次执行前就用尽时，函数末尾仍要读它（不能 NameError）
+        result: dict = {"environment_error": False}
+        # 真实执行轮数：以前失败出口固定报 max_attempts，预算用尽/无可修复时只有 1 轮也说成 3 轮，
+        # 模型据此判断"引擎试了三次都不行"，会错判该不该继续改代码。
+        attempts_used = 0
 
-            result = self.execute_code(current_code, timeout=timeout, variables=variables)
+        # 自动装包/重试的门限（秒）：装包走网络且中途不可取消，剩余预算不够就别开这一枪，
+        # 否则会出现"包还在下、脚本一次都没跑"就被总预算掐死的情况。
+        auto_install_min_remaining = 25
+
+        for attempt in range(max_attempts):
+            remaining = deadline - time.time()
+            if remaining < 1:
+                last_error = {
+                    "type": "TimeoutError",
+                    "message": "总执行预算 %ds 已用尽（第 %d 轮未开始，前面用在了执行与自动修复上）"
+                               % (timeout, attempt + 1),
+                    "traceback": ""
+                }
+                break
+
+            if remaining > auto_install_min_remaining:
+                packages_result = self.check_and_install_packages(current_code)
+            else:
+                packages_result = {"packages_installed": [], "skipped": "预算不足，本轮跳过自动装包"}
+
+            # 装包走网络，可能把预算整段吃掉：这时脚本一次都没跑，必须如实说明，
+            # 否则模型看到的是一条"超时"却根本不知道是自己的 import 触发了安装。
+            remaining = deadline - time.time()
+            if remaining < 1:
+                last_error = {
+                    "type": "TimeoutError",
+                    "message": "总执行预算 %ds 已用尽（缺失依赖的安装/检查耗尽），脚本尚未开始执行。"
+                               "请改用已预装库，或单独调一次 pip_install 把包先装上。" % timeout,
+                    "traceback": ""
+                }
+                break
+
+            attempts_used += 1
+            result = self.execute_code(current_code, timeout=max(1, int(remaining)), variables=variables)
             
             if result["success"]:
                 return {
@@ -918,6 +958,18 @@ class PythonToolEngine:
                     "environment_error": True,
                 }
             
+            # 缺模块：以前 fix_code "装完包就 return code, True"，而外层条件是
+            # `was_fixed and fixed_code != current_code` —— 代码没变就直接 break，
+            # 装好的包从没被重跑验证过，整条修复分支是死的。现在由这里带预算判断去装，
+            # 装成功立刻用同一份代码重试一次（仍然计入总预算，不会变成无限循环）。
+            if (last_error or {}).get("type") == "ModuleNotFoundError":
+                missing_match = re.search(r"No module named '([\w.]+)'",
+                                           (last_error or {}).get("message", "") or "")
+                if missing_match and (deadline - time.time()) > auto_install_min_remaining:
+                    install_res = self.install_package(missing_match.group(1).split('.')[0])
+                    if install_res.get("success"):
+                        continue
+
             fixed_code, was_fixed = self.fix_code(
                 current_code, last_error or {}, attempt, max_attempts
             )
@@ -939,7 +991,7 @@ class PythonToolEngine:
             "stdout": last_error.get("message", "") if last_error else "",
             "stderr": last_error.get("traceback", "") if last_error else "",
             "error": last_error,
-            "attempts": max_attempts,
+            "attempts": attempts_used,
             "fixes_applied": fixes_applied,
             "final_code": current_code,
             "environment_error": bool(result.get("environment_error"))

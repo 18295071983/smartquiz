@@ -54,11 +54,19 @@ public class PythonFileOpsTool extends BaseAITool {
     private static final String TAG = "PythonFileOpsTool";
     private final Context context;
     private final PythonToolManager toolManager;
+    /** Python 侧执行预算（秒）：以前直接吃 PythonToolManager 的默认 30，与框架超时同点撞车；此处显式化，申报走 {@link PythonToolBudget} */
+    private static final int EXEC_BUDGET_SECONDS = 30;
 
     public PythonFileOpsTool(Context context) {
         super("python_file_ops", "Python文件工具：阅读与修改文件(标准库+openpyxl+docx/pptx/pypdf)");
         this.context = context.getApplicationContext();
         this.toolManager = PythonToolManager.getInstance(context);
+    }
+
+    /** 申报单次执行所需超时（毫秒），口径见 {@link PythonToolBudget} */
+    @Override
+    public long executionTimeoutMs(Map<String, Object> args) {
+        return PythonToolBudget.declaredMs(EXEC_BUDGET_SECONDS);
     }
 
     @Override
@@ -72,7 +80,7 @@ public class PythonFileOpsTool extends BaseAITool {
             String action = parameters.get("action") != null
                     ? String.valueOf(parameters.get("action")) : "read";
             String code = buildCode(action, parameters);
-            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null);
+            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null, EXEC_BUDGET_SECONDS);
             return formatResult(result, action);
         } catch (Exception e) {
             Log.e(TAG, "Error: " + e.getMessage(), e);

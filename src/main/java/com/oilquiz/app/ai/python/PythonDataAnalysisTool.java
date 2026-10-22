@@ -37,6 +37,8 @@ public class PythonDataAnalysisTool extends BaseAITool {
     private static final String TAG = "PythonDataAnalysisTool";
     private final Context context;
     private final PythonToolManager toolManager;
+    /** Python 侧执行预算（秒）；申报值由 {@link PythonToolBudget} 加余量，保证不再是"预算=框架超时"的对撞 */
+    private static final int EXEC_BUDGET_SECONDS = 30;
     
     public PythonDataAnalysisTool(Context context) {
         super("python_analyze_data", "使用Python分析数据(统计/清洗/转换/图表计算等)。与python_execute的区别：本工具专注数据分析场景，适合处理用户提供的数据或表格内容；python_execute可执行任意Python代码(含文件/网络/UI组件等)。数据量大时用本工具，复杂任务用python_execute；data 支持 JSON 数组/对象、带表头 CSV、逗号或换行分隔列表(如 10, 20, 30)");
@@ -44,6 +46,12 @@ public class PythonDataAnalysisTool extends BaseAITool {
         this.toolManager = PythonToolManager.getInstance(context);
     }
     
+    /** 申报单次执行所需超时（毫秒），口径见 {@link PythonToolBudget} */
+    @Override
+    public long executionTimeoutMs(Map<String, Object> args) {
+        return PythonToolBudget.declaredMs(EXEC_BUDGET_SECONDS);
+    }
+
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
         Log.i(TAG, "Executing Python data analysis");
@@ -99,7 +107,7 @@ public class PythonDataAnalysisTool extends BaseAITool {
             
             // 数据已作为字面量注入脚本，不依赖 contextData（executeCode 3参版不透传 ctx）；
             // 数据分析给 30s 超时
-            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null, 30);
+            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null, EXEC_BUDGET_SECONDS);
             
             return formatResult(result, dataList.size());
             

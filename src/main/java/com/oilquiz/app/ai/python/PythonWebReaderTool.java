@@ -48,11 +48,19 @@ public class PythonWebReaderTool extends BaseAITool {
     private static final String TAG = "PythonWebReaderTool";
     private final Context context;
     private final PythonToolManager toolManager;
+    /** Python 侧执行预算（秒，含网页请求耗时）；申报值由 {@link PythonToolBudget} 加余量 */
+    private static final int EXEC_BUDGET_SECONDS = 30;
 
     public PythonWebReaderTool(Context context) {
         super("python_web_reader", "Python网页工具(requests+bs4)：抓取网页/API并提取信息");
         this.context = context.getApplicationContext();
         this.toolManager = PythonToolManager.getInstance(context);
+    }
+
+    /** 申报单次执行所需超时（毫秒），口径见 {@link PythonToolBudget} */
+    @Override
+    public long executionTimeoutMs(Map<String, Object> args) {
+        return PythonToolBudget.declaredMs(EXEC_BUDGET_SECONDS);
     }
 
     @Override
@@ -78,7 +86,7 @@ public class PythonWebReaderTool extends BaseAITool {
                     code = buildFetchCode(parameters, false);
                     break;
             }
-            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null);
+            PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null, EXEC_BUDGET_SECONDS);
             return formatResult(result, action);
         } catch (Exception e) {
             Log.e(TAG, "Error: " + e.getMessage(), e);

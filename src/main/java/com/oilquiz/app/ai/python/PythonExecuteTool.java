@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
         @Param(name = "file_path", type = "string", description = "Python文件路径(用于run_file)", required = false),
         @Param(name = "file_name", type = "string", description = "Python文件名(用于run_file创建文件)", required = false),
         @Param(name = "args", type = "string", description = "运行参数(用于run_file)", required = false),
-        @Param(name = "timeout", type = "integer", description = "执行超时秒数(默认30，范围5~120)", required = false)
+        @Param(name = "timeout", type = "integer", description = "本次调用的总执行预算秒数(默认30，范围5~120；含自动修复与缺失依赖安装的全部轮次，不是每轮各给一份)。脚本里用 ask_input/ask_choice/get_component_result(wait_seconds=N) 等用户时会自动把预算抬到 N+10，也可显式传更大值；action=pip_install 固定 180 秒预算，不受本参数影响", required = false)
     }
 )
 public class PythonExecuteTool extends BaseAITool {
@@ -45,6 +45,18 @@ public class PythonExecuteTool extends BaseAITool {
     private static final int MAX_CODE_LENGTH = 200 * 1024;
     /** 默认执行超时（秒） */
     private static final int DEFAULT_TIMEOUT_SECONDS = 30;
+    /** 执行超时上限（秒）：模型可显式传 timeout，但单次调用不许无限占着 Python 锁 */
+    private static final int MAX_TIMEOUT_SECONDS = 120;
+    /**
+     * pip_install 的预算（秒）：一次调用要串"阿里云 → 失败再清华"两个镜像，
+     * 30 秒连依赖解析都跑不完（旧值就是 30 秒硬编码，所以装包动作几乎必被掐断）。
+     */
+    private static final int PIP_BUDGET_SECONDS = 180;
+    /** UI 阻塞等待的抬升余量（秒）：等到用户点完还得把脚本收尾跑完 */
+    private static final int UI_WAIT_SLACK_SECONDS = 10;
+    /** android_ui 的 ask_input/ask_choice 不写 wait_seconds 时的默认等待（秒），与 python 侧签名一致 */
+    private static final int UI_DEFAULT_WAIT_SECONDS = 60;
+
     private final Context context;
     private final PythonToolManager toolManager;
     private final FileReaderTool fileReaderTool;
@@ -70,7 +82,7 @@ public class PythonExecuteTool extends BaseAITool {
                 return handlePipInstall(parameters);
             }
             if ("list_modules".equals(action)) {
-                return handleListModules();
+                return handleListModules(parameters);
             }
             if ("run_file".equals(action)) {
                 return handleRunFile(parameters);
@@ -100,8 +112,8 @@ public class PythonExecuteTool extends BaseAITool {
                 }
             }
             
-            // 尝试 Python 执行
-            int timeout = parseTimeout(parameters.get("timeout"));
+            // 尝试 Python 执行（预算与 executionTimeoutMs 申报值同源）
+            int timeout = resolveExecutionSeconds(parameters);
             AIToolResult pythonResult = tryPythonExecute(code, task, contextData, timeout);
             
             // 如果 Python 成功，直接返回
@@ -114,7 +126,9 @@ public class PythonExecuteTool extends BaseAITool {
             AIToolResult fallbackResult = tryFileParseFallback(inputText, parameters);
             if (fallbackResult != null) {
                 Log.i(TAG, "Python failed, fallback to Java file parser succeeded");
-                return fallbackResult;
+                // 回退结果不能原样返回：那等于把"你的脚本没跑成"这件事从模型眼前抹掉，
+                // 它会拿着一份 Java 解析器读出来的内容，以为是自己那段代码的产物。
+                return withFallbackProvenance(pythonResult, fallbackResult, parameters);
             }
             
             // 回退也失败或不是文件任务，返回 Python 原始结果
@@ -218,7 +232,8 @@ public class PythonExecuteTool extends BaseAITool {
             "    else:\n" +
             "        print(f'安装失败: {msg2}')\n";
         
-        AIToolResult result = tryPythonExecute(pipCode, null, null, DEFAULT_TIMEOUT_SECONDS);
+        // 装包要串两个镜像，预算由 resolveExecutionSeconds 统一给（旧值是 30 秒硬编码，几乎必被掐断）
+        AIToolResult result = tryPythonExecute(pipCode, null, null, resolveExecutionSeconds(parameters));
         if (result != null && result.isSuccess()) {
             return result;
         }
@@ -228,7 +243,7 @@ public class PythonExecuteTool extends BaseAITool {
     /**
      * 列出可用的 Python 模块
      */
-    private AIToolResult handleListModules() {
+    private AIToolResult handleListModules(Map<String, Object> parameters) {
         String listCode =
             "import sys, importlib.util\n" +
             "modules = []\n" +
@@ -256,7 +271,7 @@ public class PythonExecuteTool extends BaseAITool {
             "  print(f'  [{cat}] {name}')\n" +
             "print(f'\\n总计: {len(modules)} 个模块')\n";
         
-        AIToolResult result = tryPythonExecute(listCode, null, null, DEFAULT_TIMEOUT_SECONDS);
+        AIToolResult result = tryPythonExecute(listCode, null, null, resolveExecutionSeconds(parameters));
         if (result != null && result.isSuccess()) {
             return result;
         }
@@ -329,7 +344,8 @@ public class PythonExecuteTool extends BaseAITool {
             return AIToolResult.fail("需要提供 code(代码) 或 file_path(文件路径)");
         }
         
-        AIToolResult result = tryPythonExecute(pyCode, null, null, DEFAULT_TIMEOUT_SECONDS);
+        // run_file 以前也硬编码 30 秒，把模型传的 timeout 整个忽略掉了
+        AIToolResult result = tryPythonExecute(pyCode, null, null, resolveExecutionSeconds(parameters));
         if (result != null && result.isSuccess()) {
             return result;
         }
@@ -375,7 +391,7 @@ public class PythonExecuteTool extends BaseAITool {
     }
 
     /** 解析超时参数（秒）：默认 30，范围 5~120 */
-    private int parseTimeout(Object v) {
+    private static int parseTimeout(Object v) {
         int timeout = DEFAULT_TIMEOUT_SECONDS;
         if (v instanceof Number) {
             timeout = ((Number) v).intValue();
@@ -385,9 +401,144 @@ public class PythonExecuteTool extends BaseAITool {
             } catch (Exception ignored) {
             }
         }
-        return Math.max(5, Math.min(120, timeout));
+        return Math.max(5, Math.min(MAX_TIMEOUT_SECONDS, timeout));
     }
+
+    /**
+     * 本次调用给 Python 侧的<b>执行预算</b>（秒）—— 预算的<b>唯一写者</b>。
+     *
+     * <p>为什么要有这个方法：调用方（{@code OnlineToolManager}）对所有工具套 30s 默认超时，
+     * 而本工具的默认预算也是 30s —— 两边同时到点，框架先掐断，模型只拿到
+     * "工具 python_execute 执行超时（已等待 30s）"这一句通用文案，Python 端辛苦产出的
+     * {@code TimeoutError}/{@code environment_error}/stdout 全丢。工具自己最清楚要等多久，
+     * 所以由 {@link #executionTimeoutMs(Map)} 把这里的预算 + {@link PythonToolBudget#MARGIN_SECONDS}
+     * 申报给调用方（remote_dsh 已按这套跑，见其同名方法；余量公式与 Python 系其它工具共用
+     * {@link PythonToolBudget}，不在本类另写一份）。
+     *
+     * <p>同一个值还必须被 {@link #execute(Map)} 用作 Python 侧的真实预算，
+     * 否则"申报值"和"实际值"就是两个写者、迟早漂移。
+     */
+    static int resolveExecutionSeconds(Map<String, Object> parameters) {
+        Object rawAction = parameters == null ? null : parameters.get("action");
+        String action = rawAction instanceof String ? (String) rawAction : null;
+        if (action != null) {
+            String a = action.trim().toLowerCase();
+            if ("pip_install".equals(a)) {
+                return PIP_BUDGET_SECONDS;
+            }
+            if ("list_modules".equals(a)) {
+                return DEFAULT_TIMEOUT_SECONDS;
+            }
+        }
+        int budget = parseTimeout(parameters == null ? null : parameters.get("timeout"));
+        // UI 阻塞：ask_input/ask_choice/get_component_result(wait_seconds=N) 会把脚本整段卡在
+        // "等用户点"上，而 Python 的 join(timeout) 一到就弃线程 —— 用户还没点，脚本已判超时。
+        // 因此按源码里声明的等待时长抬升预算（沿用 timeout 的 5~120 上限，不放开成无界）。
+        int uiWait = detectUiWaitSeconds(uiWaitSource(parameters));
+        if (uiWait > 0) {
+            budget = Math.max(budget, Math.min(MAX_TIMEOUT_SECONDS, uiWait + UI_WAIT_SLACK_SECONDS));
+        }
+        return budget;
+    }
+
+    /** 参与 UI 等待探测的文本：代码原文或任务描述（run_file 只有 file_path 时无从探测，靠显式 timeout） */
+    private static String uiWaitSource(Map<String, Object> parameters) {
+        if (parameters == null) {
+            return null;
+        }
+        Object code = parameters.get("code");
+        if (code instanceof String && !((String) code).isEmpty()) {
+            return (String) code;
+        }
+        Object task = parameters.get("task");
+        return task instanceof String ? (String) task : null;
+    }
+
+    /**
+     * 从源码里读阻塞等待秒数（对源码文本的启发式，可能把字符串/注释里的同名文本也算进来 ——
+     * 后果只是预算抬高、不会让本该失败的调用变成功，所以是可接受的保守方向）。
+     *
+     * @return 需要等待的秒数，0 表示没有阻塞等待
+     */
+    private static int detectUiWaitSeconds(String source) {
+        if (source == null || source.isEmpty()) {
+            return 0;
+        }
+        int max = 0;
+        java.util.regex.Matcher m = UI_WAIT_PATTERN.matcher(source);
+        while (m.find()) {
+            try {
+                max = Math.max(max, Integer.parseInt(m.group(1)));
+            } catch (Exception ignored) {
+            }
+        }
+        // 便捷函数不写 wait_seconds 时走 Python 侧默认值（ask_input/ask_choice=60）
+        if (max == 0 && (source.contains("ask_input(") || source.contains("ask_choice("))) {
+            max = UI_DEFAULT_WAIT_SECONDS;
+        }
+        return max;
+    }
+
+    private static final java.util.regex.Pattern UI_WAIT_PATTERN =
+            java.util.regex.Pattern.compile("wait_seconds\\s*=\\s*'?(\\d+)'?");
+
+    /**
+     * 申报本工具单次执行所需超时（毫秒）：Python 侧预算 + 引擎余量，受全局硬上限约束。
+     * 与 {@link #resolveExecutionSeconds(Map)} 同源（同一个数字既当内部预算、又当对外申报），
+     * 两处不会各自漂移；余量与硬上限的公式由 {@link PythonToolBudget} 统一持有。
+     */
+    @Override
+    public long executionTimeoutMs(Map<String, Object> args) {
+        return PythonToolBudget.declaredMs(resolveExecutionSeconds(args));
+    }
+
     
+    /**
+     * 给回退结果加上<b>来源说明</b>：Python 没跑成，这份输出其实是 Java 解析器给的。
+     *
+     * <p>为什么要包一层：{@link #tryFileParseFallback} 用正则从代码/任务文本里抓文件路径，猜
+     * "这是个解析任务"，猜中就返回 Java 的解析结果。以前这个结果是<b>原样</b>交出去的 —— 模型看到的
+     * 是一份看起来正常的成功输出，脚本里的 traceback 被整个吞掉，于是下一轮它会基于"我的代码跑通了"
+     * 继续往下推。这里保留 Python 侧错误原文并标清来源：功能留白不变（文件确实读出来了），
+     * 但不再假装那是脚本的产物。
+     */
+    @SuppressWarnings("unchecked")
+    private AIToolResult withFallbackProvenance(AIToolResult pythonResult, AIToolResult fallbackResult,
+                                                Map<String, Object> parameters) {
+        Map<String, Object> merged = new HashMap<>();
+        Object fb = fallbackResult.getResult();
+        if (fb instanceof Map) {
+            merged.putAll((Map<String, Object>) fb);
+        } else {
+            merged.put("output", String.valueOf(fb));
+        }
+        merged.put("status", "fallback");
+        merged.put("fallback_from", "python_execute");
+        merged.put("fallback_by", "file_reader（Java 解析器）");
+        String pythonError;
+        if (pythonResult == null) {
+            pythonError = "(Python 未执行：初始化失败或缺少 code/task 参数)";
+        } else if (pythonResult.getErrorMessage() != null) {
+            pythonError = pythonResult.getErrorMessage();
+        } else {
+            pythonError = String.valueOf(pythonResult.getResult());
+        }
+        merged.put("python_error", pythonError);
+        if (pythonResult != null && pythonResult.getAdditionalInfo() != null) {
+            Map<String, Object> pyInfo = pythonResult.getAdditionalInfo();
+            if (pyInfo.get("attempts") != null) {
+                merged.put("python_attempts", pyInfo.get("attempts"));
+            }
+            if (pyInfo.get("fixes_applied") != null) {
+                merged.put("python_fixes_applied", pyInfo.get("fixes_applied"));
+            }
+        }
+        merged.put("hint", "注意：下面这份内容不是你那段 Python 的输出。Python 执行未成功，"
+                + "系统检测到代码里出现过文件路径，改用 Java 的 file_reader 把那个文件读了出来。"
+                + "请按 python_error 修脚本；如果本来就要原始文件内容，显式调用 file_reader / file_analyzer 更可靠。");
+        return new AIToolResult(merged, parameters);
+    }
+
     /**
      * 当 Python 执行失败时，检查输入是否包含文件解析任务，
      * 如果是则自动回退到 Java 内置的文件解析工具。
