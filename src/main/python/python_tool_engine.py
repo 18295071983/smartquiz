@@ -18,7 +18,10 @@ import threading
 # NameError: name 'tempfile' is not defined。必须放在模块级。
 import tempfile
 import re
-from contextlib import redirect_stdout, redirect_stderr
+# 捕获用线程绑定代理，不用 contextlib.redirect_stdout —— 后者换的是全进程的 sys.stdout，
+# 而超时的脚本线程杀不掉，两次调用之间会把 sys.stdout 还原成上一轮那个已关闭的 buffer
+# （详见 py_stream_capture 模块头的说明）。
+import py_stream_capture
 
 
 # ==================== 标准库预置命名空间 ====================
@@ -374,7 +377,7 @@ class PythonToolEngine:
                         to_exec = _wrap_top_level_return(to_exec)
 
                 if capture_output:
-                    with redirect_stdout(stdout_buffer), redirect_stderr(stderr_file):
+                    with py_stream_capture.capture(stdout_buffer, stderr_file):
                         exec(to_exec, namespace, namespace)
                 else:
                     exec(to_exec, namespace, namespace)
@@ -784,6 +787,29 @@ class PythonToolEngine:
         
         return fixed_code, fixed_code != code
 
+    def _describe_code_change(self, before: str, after: str) -> str:
+        """把"引擎把代码改成了什么样"压成几句摘要。
+
+        不贴整份代码：那会把 token 成本翻倍，而模型需要知道的只是
+        "实际执行的版本与你提交的那份不同，不同在哪几行"。
+        """
+        b_lines = (before or '').splitlines()
+        a_lines = (after or '').splitlines()
+        a_set = set(a_lines)
+        b_set = set(b_lines)
+        added = [l for l in a_lines if l not in b_set]
+        removed = [l for l in b_lines if l not in a_set]
+        parts = []
+        if added:
+            parts.append("新增 %d 行: %s" % (len(added),
+                                             " | ".join(x.strip()[:60] for x in added[:2])))
+        if removed:
+            parts.append("删除 %d 行: %s" % (len(removed),
+                                             " | ".join(x.strip()[:60] for x in removed[:2])))
+        if not parts:
+            return "整份代码被重写（行内容全部不同）"
+        return "；".join(parts)[:200]
+
     def _fix_syntax_error(self, code: str, error: dict[str, str]) -> str:
         """修复语法错误"""
         fixed = code
@@ -979,7 +1005,12 @@ class PythonToolEngine:
                     "attempt": attempt + 1,
                     "error_type": last_error.get("type", "") if last_error else "",
                     "original_code": current_code,
-                    "fixed_code": fixed_code
+                    "fixed_code": fixed_code,
+                    # 模型必须知道"实际跑的不是它提交的那份"，而且要知道改了哪里 ——
+                    # 以前只上报 error_type，模型下一轮仍按自己的原始代码推断，
+                    # 于是同一个错误能反复被"修复"掉再犯。改动摘要控制在几行内，
+                    # 不把整份代码贴回上下文（那是 token 成本）。
+                    "change_summary": self._describe_code_change(current_code, fixed_code)
                 })
                 current_code = fixed_code
             else:

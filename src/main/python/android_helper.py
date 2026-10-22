@@ -479,7 +479,9 @@ def run_python_file(file_path, args=None, timeout=60):
     timeout: 超时秒数（默认 60），防止死循环脚本永久卡住（偶发故障根因之一）。
     """
     import io as _io
-    from contextlib import redirect_stdout, redirect_stderr
+    # 与 python_tool_engine 同一套线程绑定捕获；这里以前用进程级 redirect_*，
+    # 超时被弃的脚本线程会把后续调用的 sys.stdout 还原成上一轮已关闭的 buffer。
+    import py_stream_capture
     if not os.path.exists(file_path):
         return f"错误: 文件不存在 {file_path}"
     with open(file_path, 'r', encoding='utf-8') as f:
@@ -500,7 +502,7 @@ def run_python_file(file_path, args=None, timeout=60):
 
     def _run():
         try:
-            with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            with py_stream_capture.capture(stdout_buf, stderr_buf):
                 exec(compile(code, file_path, 'exec'), namespace, namespace)
             output = stdout_buf.getvalue()
             err = stderr_buf.getvalue()

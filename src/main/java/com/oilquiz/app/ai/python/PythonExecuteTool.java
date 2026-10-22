@@ -713,6 +713,37 @@ public class PythonExecuteTool extends BaseAITool {
         return params;
     }
     
+    /**
+     * 把"引擎替你改过代码"这件事如实写进模型可见的输出里。
+     *
+     * <p>自动修复会改写脚本再重跑，<b>实际执行的版本与模型提交的那份不同</b>。以前这里只打印
+     * 错误类型（甚至只算数量塞进 additionalInfo，而 additionalInfo 根本不进模型上下文），
+     * 于是模型下一轮仍按自己原始的代码推断，同一个错误会被反复"修好"再犯。
+     * 现在带上改动摘要，但只给几行 —— 贴整份代码是把 token 成本翻倍，代价太大。
+     *
+     * <p>成功与失败两条出口共用本方法，避免两处格式各自漂移。
+     */
+    private static void appendFixes(StringBuilder output, java.util.List<Map<String, String>> fixes,
+                                    String header) {
+        if (fixes == null || fixes.isEmpty()) {
+            return;
+        }
+        output.append("\n").append(header).append("\n");
+        output.append("注意：实际执行的代码不是你提交的那一份，引擎改写过；下面的摘要就是改动点。\n");
+        for (Map<String, String> fix : fixes) {
+            String type = fix.get("error_type");
+            String change = fix.get("change_summary");
+            if ((type == null || type.isEmpty()) && (change == null || change.isEmpty())) {
+                continue;
+            }
+            output.append("- ").append(type == null || type.isEmpty() ? "修复" : type);
+            if (change != null && !change.isEmpty()) {
+                output.append(" → ").append(change);
+            }
+            output.append("\n");
+        }
+    }
+
     private AIToolResult formatResult(PythonToolManager.ExecutionResult result) {
         Map<String, Object> additionalInfo = new HashMap<>();
         additionalInfo.put("attempts", result.attempts);
@@ -741,13 +772,7 @@ public class PythonExecuteTool extends BaseAITool {
             }
             
             if (!result.fixes.isEmpty()) {
-                output.append("\n=== 自动修复 ===\n");
-                for (Map<String, String> fix : result.fixes) {
-                    String type = fix.get("error_type");
-                    if (type != null) {
-                        output.append("- 修复: ").append(type).append("\n");
-                    }
-                }
+                appendFixes(output, result.fixes, "=== 自动修复 ===");
             }
             
             additionalInfo.put("stdout", result.stdout);
@@ -776,13 +801,7 @@ public class PythonExecuteTool extends BaseAITool {
             }
             
             if (!result.fixes.isEmpty()) {
-                output.append("\n=== 尝试的修复 ===\n");
-                for (Map<String, String> fix : result.fixes) {
-                    String type = fix.get("error_type");
-                    if (type != null) {
-                        output.append("- 尝试修复: ").append(type).append("\n");
-                    }
-                }
+                appendFixes(output, result.fixes, "=== 尝试的修复 ===");
             }
             
             additionalInfo.put("error", result.error);

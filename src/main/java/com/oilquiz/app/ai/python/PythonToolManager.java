@@ -724,6 +724,11 @@ public class PythonToolManager {
                         if (typeObj != null) {
                             fixEntry.put("error_type", typeObj.toString());
                         }
+                        // 引擎改过代码就必须让模型看到"改在哪"，否则它下一轮仍按原始代码推断
+                        PyObject changeObj = getFromPyMap(fixMap, "change_summary");
+                        if (changeObj != null) {
+                            fixEntry.put("change_summary", changeObj.toString());
+                        }
                         result.fixes.add(fixEntry);
                     }
                 } catch (Exception e) {
