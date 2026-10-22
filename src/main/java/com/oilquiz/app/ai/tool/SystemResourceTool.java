@@ -1219,13 +1219,18 @@ public class SystemResourceTool implements AITool {
                         + "https 由 App 内下载服务(127.0.0.1)代理，可直接 wget -O 文件 URL");
             }
             if (outcome.timedOut) {
-                result.put("hint", "命令未在 " + SHELL_TIMEOUT_SECONDS + " 秒内结束，已终止该 shell 进程（子进程未必随之退出，"
-                        + "需要后台长跑请用 tmux 托管）。"
+                result.put("hint", "命令未在 " + SHELL_TIMEOUT_SECONDS + " 秒内结束，已终止"
+                        + (outcome.killedDescendants > 0
+                                ? "该 shell 及其 " + outcome.killedDescendants + " 个子进程"
+                                : "该 shell 及其子进程")
+                        + "。因此用 & 丢在后面的任务也会一起结束 —— 需要跨调用长跑请交给 tmux "
+                        + "（server 不在这条命令的进程树里，不会被杀）。"
                         + "请改用能自行结束的写法重试：如加 timeout 5 前缀、限制输出条数（head -n 20）、"
                         + "或改用 dumpsys/pm 等一次性查询命令；不要在 shell 里写 sleep/长轮询。");
             } else if (outcome.truncated) {
-                result.put("hint", "输出超过 " + MAX_SHELL_OUTPUT_CHARS + " 字符，已截断并终止进程。"
-                        + "请用 head -n / tail -n / rg --max-count 限流，或先写文件再用 file_reader 读。");
+                result.put("hint", "输出超过 " + MAX_SHELL_OUTPUT_CHARS + " 字符，已截断并终止该命令的进程树"
+                        + (outcome.killedDescendants > 0 ? "（含 " + outcome.killedDescendants + " 个子进程）" : "")
+                        + "。请用 head -n / tail -n / rg --max-count 限流，或先写文件再用 file_reader 读。");
             } else if (exitCode != null && exitCode != 0) {
                 result.put("hint", "退出码 " + exitCode + "（非零）。其中一部分是正常语义而非工具坏了："
                         + "grep/rg 无匹配=1、diff 有差异=1、test 条件不成立=1、curl 拒绝=22、找不到文件=2；"
@@ -1980,13 +1985,21 @@ public class SystemResourceTool implements AITool {
         final boolean truncated;
         /** 非 null 表示进程未能正常执行完（启动失败等），语义上必为失败 */
         final String error;
+        /** 强杀时一并终止的子孙进程数（0 = 没有子孙，或取不到 pid/发信号失败） */
+        final int killedDescendants;
 
         ShellOutcome(String output, Integer exitCode, boolean timedOut, boolean truncated, String error) {
+            this(output, exitCode, timedOut, truncated, error, 0);
+        }
+
+        ShellOutcome(String output, Integer exitCode, boolean timedOut, boolean truncated,
+                     String error, int killedDescendants) {
             this.output = output;
             this.exitCode = exitCode;
             this.timedOut = timedOut;
             this.truncated = truncated;
             this.error = error;
+            this.killedDescendants = killedDescendants;
         }
 
         static ShellOutcome failure(String message) {
@@ -2027,9 +2040,16 @@ public class SystemResourceTool implements AITool {
         final StringBuilder output = new StringBuilder();
         final boolean[] truncated = new boolean[1];
         final Integer[] exitCode = new Integer[1];
+        final int[] killedDescendants = new int[1];
         final BufferedReader[] readerRef = new BufferedReader[1];
+        // Android 的 java.lang.Process 没有 pid()（不是 JDK 那边），可我们要杀的正是"那个 sh 的子孙"。
+        // 办法是让 sh 自己把 $$ 写进一个临时文件：正常路径没人去读，零成本；只有真要收尾杀进程时
+        // 才读一次拿根 pid。用完由 finally 删掉。
+        final String shellPidFile = new File(context.getCacheDir(),
+                "shell_pid_" + System.nanoTime() + ".pid").getAbsolutePath();
         try {
-            ProcessBuilder pb = new ProcessBuilder("/system/bin/sh", "-c", command);
+            ProcessBuilder pb = new ProcessBuilder("/system/bin/sh", "-c",
+                    "echo $$ > '" + shellPidFile + "'; " + command);
             // 原生合并 stderr → stdout，避免两路管道缓冲写满导致死锁（不再拼 " 2>&1"）
             pb.redirectErrorStream(true);
             // 把内置 busybox 工具链目录放到 PATH 最前面：sed/awk/grep/find/tar/wget/vi 等直接可用
@@ -2095,16 +2115,24 @@ public class SystemResourceTool implements AITool {
                             synchronized (output) {
                                 output.append(line).append("\n");
                                 if (output.length() > MAX_SHELL_OUTPUT_CHARS) {
-                                    // 输出超限（如 top、cat 大文件）：停止读取并立即终止进程。
-                                    // 只 break 不杀的话，子进程会阻塞在写满的管道上直到 25s 超时，
+                                    // 输出超限（如 top、cat 大文件）：停止读取并终止进程树。
+                                    // 只 break 不杀的话，子进程会阻塞在写满的管道上直到超时，
                                     // 整次调用白等 —— 截断本身就是"够了，别再产出了"的信号。
                                     truncated[0] = true;
-                                    try {
-                                        proc.destroyForcibly();
-                                    } catch (Exception ignored) {
-                                    }
                                     break;
                                 }
+                            }
+                        }
+                        // 出锁再杀：terminateDescendants 要起子进程发信号，不能抱着 output 锁做 IO
+                        if (truncated[0]) {
+                            try {
+                                killedDescendants[0] = ProcessTreeKiller.terminateDescendants(
+                                        readShellPid(shellPidFile));
+                            } catch (Exception ignored) {
+                            }
+                            try {
+                                proc.destroyForcibly();
+                            } catch (Exception ignored) {
                             }
                         }
                     } catch (Exception ignored) {
@@ -2116,9 +2144,16 @@ public class SystemResourceTool implements AITool {
             readerThread.start();
 
             if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
-                // 真超时：强杀进程，等待读取线程收尾，返回已产生的部分输出。
-                // 注意 destroyForcibly 只杀 /system/bin/sh 本身，命令树里的子孙进程可能存活
-                // （这也是"长任务用 tmux 托管"能成立的原因），所以这里不谎称"进程树已清理"。
+                // 真超时：<b>先杀子孙、再杀 sh</b>。反过来的话 sh 先没了，子孙被 reparent 到 init，
+                // 我们再也认不出它们属于这条命令 —— destroyForcibly 单独用正是旧泄漏的根因
+                // （工具报"已终止"，手机上那个 curl/sleep 还在跑）。
+                int shPid = readShellPid(shellPidFile);
+                if (shPid > 1) {
+                    try {
+                        killedDescendants[0] = ProcessTreeKiller.terminateDescendants(shPid);
+                    } catch (Exception ignored) {
+                    }
+                }
                 process.destroyForcibly();
                 process.waitFor(2, TimeUnit.SECONDS);
                 if (readerThread != null) {
@@ -2127,11 +2162,14 @@ public class SystemResourceTool implements AITool {
                 String partial = snapshot(output);
                 StringBuilder sb = new StringBuilder();
                 sb.append("(命令执行超时(").append(timeoutSeconds).append("s)，已终止)");
+                if (killedDescendants[0] > 0) {
+                    sb.append("（连同 ").append(killedDescendants[0]).append(" 个子进程一起终止）");
+                }
                 if (!partial.isEmpty()) {
                     sb.append("\n--- 超时前已产生的输出 ---\n").append(partial);
                 }
                 // 退出码取不到（进程是被强杀的），如实留 null 让调用方省略 exit_code
-                return new ShellOutcome(sb.toString(), null, true, truncated[0], null);
+                return new ShellOutcome(sb.toString(), null, true, truncated[0], null, killedDescendants[0]);
             }
 
             // 进程已退出：给它 1 秒把管道里剩余内容读完，避免丢尾部输出
@@ -2152,7 +2190,8 @@ public class SystemResourceTool implements AITool {
             if (truncated[0]) {
                 out = out + "\n...(输出超过 " + MAX_SHELL_OUTPUT_CHARS + " 字符已截断，进程已终止)";
             }
-            return new ShellOutcome(out.isEmpty() ? "(无输出)" : out, exitCode[0], false, truncated[0], null);
+            return new ShellOutcome(out.isEmpty() ? "(无输出)" : out, exitCode[0], false,
+                    truncated[0], null, killedDescendants[0]);
         } catch (Exception e) {
             if (process != null) {
                 process.destroyForcibly();
@@ -2165,6 +2204,45 @@ public class SystemResourceTool implements AITool {
                     readerRef[0].close();
                 }
             } catch (Exception ignored) {
+            }
+            // pid 文件是一次性的：不删就会在 cache 里按调用次数堆积
+            try {
+                File pidFile = new File(shellPidFile);
+                if (pidFile.exists() && !pidFile.delete()) {
+                    AILogger.d(TAG, "shell pid 文件删除失败: " + shellPidFile);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /**
+     * 读出那层 sh 自报的 pid（见 {@code runShell} 里的 {@code echo $$} 包装）。
+     *
+     * @return pid；文件还没被写出、内容不可解析、或已被清理时返回 -1（调用方据此不杀）
+     */
+    private static int readShellPid(String pidFile) {
+        java.io.BufferedReader r = null;
+        try {
+            File f = new File(pidFile);
+            if (!f.exists()) {
+                return -1;
+            }
+            r = new java.io.BufferedReader(new java.io.InputStreamReader(
+                    new java.io.FileInputStream(f), "UTF-8"));
+            String line = r.readLine();
+            if (line == null) {
+                return -1;
+            }
+            return Integer.parseInt(line.trim());
+        } catch (Exception e) {
+            return -1;
+        } finally {
+            if (r != null) {
+                try {
+                    r.close();
+                } catch (Exception ignored) {
+                }
             }
         }
     }
