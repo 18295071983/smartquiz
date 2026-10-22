@@ -1,5 +1,59 @@
 # 变更日志
 
+## [2026-10-23] fix(tool-results)：别名表把 `output` 当路径键，产物卡与 shell 摘要一起被带坏
+
+真机反馈"卡片文件链接打不开"。定位到的第一现场是我 03:45 那次读侧键名合并
+（`3d5687b8`）自己引入的回归——合并时按"概念"把各处历史键并成一张全局表，
+却没有区分"键名本身就是这个概念"和"含义随工具而变"：
+
+- `output` 在 shell / python / 绝大多数动态工具里是**标准输出正文**，只有写入类工具拿它当落盘路径。
+  并进 `ToolResultFields.PATH` 后，`systemResourceTemplate` 的"📄 文件："行把整段 stdout
+  又当路径打了一遍；并进 `ARTIFACT` 后，`DynamicToolResultRenderer` 把
+  `{name, output:"已保存3条"}` 归成产物文件，生成一张 `path` 指向一段文本的 file_card——
+  卡片外观正常、点开就是"文件不存在"，正是用户看到的"文件链接有问题"。
+- 同一毛病：`target`（落盘目标 / 跳转地址 / ssh 主机名三义）进了 `PATH` 与 `URL`，
+  `name`（工具名 / 应用名 / 系列名 / 文件名）进了 `PATH`，`result`（整段载荷 / 报告正文）进了 `SUMMARY`。
+
+修法在顶层口径，不在各卡片打补丁：
+
+- 新增第四条边界规则并写进类注释：**全局表只收键名即该概念的键**；需要降级语义的读取处
+  改用点名的组合表。全局 `PATH` 去掉 `output/target/name/file_name/filename`，
+  `URL` 去掉 `target`，`SUMMARY` 去掉 `result`，`ARTIFACT` 去掉 `output`（`file→path→url`
+  相对顺序保持不动，否则同类结果归类会变）。
+- 组合表：`PATH_OR_NAME`（file_reader / file_analyzer 的"只给名字"降级）、
+  `PATH_FILE_OPS`（写入类工具老清单 `file_path,file_name,path,output,target` 原样保留）、
+  `URL_APP_OPS`（app_operation 的 `url,target`）、`SUMMARY_OR_RESULT`（smart_research 的正文）。
+  5 处读取点改为按各自语义问对应表，shell 那一处仍问 `PATH`（因此不再命中 stdout）。
+- 守卫：`ToolResultFieldsTest` 的"迁移前快照"从"并进一张表就算覆盖"改成**按读取处对号入座**
+  （这正是上次引入事故的合并方式），并加 `contentShapedKeysStayOutOfGlobalTables` 正反钉住；
+  新增 `ToolResultUiTemplateTest`（4 条：stdout 不许当路径、真路径键与裸名降级、写入类 output
+  仍当路径）与 `DynamicToolResultRendererTest` 回归 2 条（文本不生成产物卡、真产物键仍归类）。
+
+测试：全量 `--offline` **661** 全绿（74 类 / 0 skipped / 0 failures / 0 errors，四数核过）。
+
+## [2026-10-23] fix(chat-cards)：file_list/file_card 条目路径补齐（目录 + 文件名形态）
+
+同一条反馈的第二处：模型写的卡片是 `path:"…/agent_workspace/files/"` + `name:"x.mp4"`
+（真机会话原样），而 file_list 的行一直是按 `path` 打开 → `ComponentActions.openLink`
+命中"暂不支持打开文件夹"。这条不是回归，是**口径一直没被教过也没被归一**：
+`ui_component` 建卡时的路径解析只判 `isFile()`，目录形态被原样写回 props；
+工具说明里 `files:[{name,path,size,type}]` 三处手抄本都只列字段名不列形态。
+
+- 条目定位口径落到 `MediaPathResolver`（本就是"路径口径唯一实现"）：
+  `resolveEntryToFile` 做目录+文件名补齐、省略号截断名（`前缀…后缀`）**目录内唯一**匹配才认、
+  补齐失败退回目录本身（目录行仍可卡内进下一级，绝不跨目录抓同名文件）；
+  `resolveEntryOnDisk` 是渲染期版本，只做 `exists()` 判断不走工作区同名搜索——
+  一卡最多 30 行，逐行扫盘会肉眼卡。
+- 调用处：`FileListCardView.buildRow`（顺带把目录/文件判定从"信模型写的 `type`"改成上盘实测，
+  模型写过 `type:"视频 720P 无水印"`）、`FileCardView.normalizePath`（含"只有名字"的卡片
+  先按名字定位再给按钮）、`SystemUIComponentTool.resolveWorkspacePath(path, name)`
+  在**建卡落盘前**就把完整文件路径写回 props（新卡片存的就是对的）。
+- 模型可见口径收成一份 `ComponentTypes.PROPS_DOC_FILE_CARDS`，原先 `@Param(props)` 注解、
+  `getParameterDescriptions()`、`AIToolManager` 的 ToolDefinition 三处手抄各写各的；
+  目录 `SCHEMA.file_list` 的 note 同步补上"path 必须是含文件名的完整路径"。
+- `MediaPathResolverEntryTest` 16 条钉住规则（含"目录行不许被补齐成 目录/目录名"这条
+  最容易做错的）与两处模型可见文案仍指向同一份口径。
+
 ## [2026-10-22] fix(workspace)：写者侧统一到"当前"工作区（承接上一条的两侧漂移）
 
 上一条给解析器补了跨侧兜底；本轮治源头——写者不再硬编码私有目录，产物直接落**当前**工作区

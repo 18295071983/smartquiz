@@ -25,9 +25,13 @@ import com.oilquiz.app.theme.ThemeColors;
  *   "size": "2.3 MB",           // 可选
  *   "type": "pdf",              // 可选：用于图标
  *   "uri": "content://...",     // 可选：可打开的 URI
- *   "path": "/storage/..."      // 可选：本地路径
+ *   "path": "/storage/..."      // 可选：本地路径（<b>完整文件路径</b>，含文件名）
  * }
  * </pre>
+ *
+ * <p>{@code path} 只给到目录、文件名留在 {@code name} 里时（模型常见写法），
+ * 打开/分享前由 {@link MediaPathResolver#resolveEntryToFile} 补齐成真实文件；
+ * 完全没给路径时按 {@code name} 在工作区定位。都定位不到才显示"无路径"错误态。</p>
  */
 public class FileCardView implements ChatComponent {
 
@@ -48,30 +52,39 @@ public class FileCardView implements ChatComponent {
         String size = p.optString("size", "");
         String type = p.optString("type", "");
         final String uri = p.optString("uri", "");
-        final String path = p.optString("path", "");
+        String path = p.optString("path", "");
 
         int iconRes = FileGlyph.iconRes(type, name);
         CardShell shell = CardShell.create(context)
                 .setHeaderIcon(iconRes, FileGlyph.tint(context, iconRes))
                 .setHeader(name, TextUtils.isEmpty(size) ? null : size);
 
-        if (TextUtils.isEmpty(uri) && TextUtils.isEmpty(path)) {
+        // 只给了名字、没给路径的卡片：先按名字在工作区定位（这类文件常真的存在），
+        // 定位到才给按钮——否则就是"卡片显示一个永远点不开的文件"
+        if (path.isEmpty() && uri.isEmpty() && !TextUtils.isEmpty(name)) {
+            String byName = normalizePath(context, "", name);
+            if (!TextUtils.isEmpty(byName)) path = byName;
+        }
+        final String target = path;
+
+        if (TextUtils.isEmpty(uri) && TextUtils.isEmpty(target)) {
             // 模型只给了名字没有落地路径：明说，不给一个点了没反应的按钮
             shell.setState(CardShell.State.ERROR,
                     context.getString(R.string.card_file_no_target));
             return shell;
         }
         shell.addAction(context.getString(R.string.card_file_open), true,
-                () -> openFile(context, uri, path));
+                () -> openFile(context, uri, target, name));
         shell.addAction(context.getString(R.string.card_file_share), false,
-                () -> shareFile(context, uri, path));
+                () -> shareFile(context, uri, target, name));
         return shell;
     }
 
-    private static void openFile(Context context, String uri, String path) {
+    private static void openFile(Context context, String uri, String path, String name) {
         try {
-            // 规范化 path：剥离 file:// 前缀（模型可能传 file:///data/...），解析相对路径
-            path = normalizePath(context, path);
+            // 规范化 path：剥离 file:// 前缀（模型可能传 file:///data/...）、解析相对路径、
+            // path 只给到目录时按 name 补齐
+            path = normalizePath(context, path, name);
             // 无路径/URI：明确提示（模型创建 file_card 时可能只传了 name 没传真实路径）
             if (TextUtils.isEmpty(uri) && TextUtils.isEmpty(path)) {
                 Toast.makeText(context, "该文件卡片没有可打开的路径（文件可能未生成或路径缺失）",
@@ -206,7 +219,7 @@ public class FileCardView implements ChatComponent {
     /** 分享文件（通过系统分享面板）。
      *  私有目录文件先复制到公共 Download 目录再分享——直接 FileProvider 分享私有目录文件时，
      *  部分目标 App 无法读取（表现为"需要 root"/"文件不存在"）。 */
-    private static void shareFile(Context context, String uri, String path) {
+    private static void shareFile(Context context, String uri, String path, String name) {
         try {
             Intent share = new Intent(Intent.ACTION_SEND);
             share.setType("*/*");
@@ -214,8 +227,8 @@ public class FileCardView implements ChatComponent {
                 share.putExtra(Intent.EXTRA_STREAM, Uri.parse(uri));
                 share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             } else if (!TextUtils.isEmpty(path)) {
-                // 规范化 path（剥离 file:// 前缀/解析相对路径）
-                path = normalizePath(context, path);
+                // 规范化 path（剥离 file:// 前缀、解析相对路径、目录+名字补齐）
+                path = normalizePath(context, path, name);
                 java.io.File file = new java.io.File(path);
                 if (!file.exists() || !file.isFile()) {
                     Toast.makeText(context, "文件不存在: " + file.getName(), Toast.LENGTH_SHORT).show();
@@ -258,21 +271,36 @@ public class FileCardView implements ChatComponent {
     }
 
     /** 规范化文件路径：剥离 file:// 前缀；相对路径（工作区文件）解析为绝对路径；
-     *  路径不存在时按文件名在工作区 files/、tmp/、根目录兜底搜索（模型常传相对名/缩写/幻觉路径）。 */
-    private static String normalizePath(Context context, String path) {
-        if (TextUtils.isEmpty(path)) return path;
-        String p = path.trim();
-        if (p.startsWith("file://")) {
-            p = android.net.Uri.parse(p).getPath();
+     *  路径不存在时按文件名在工作区 files/、tmp/、根目录兜底搜索（模型常传相对名/缩写/幻觉路径）。
+     *
+     * <p>{@code name} 一并参与定位：模型写 file_card 时常把 {@code path} 给成<b>目录</b>、
+     * 文件名只留在 {@code name} 里（与 file_list 同一形态问题），直接按 path 打开就是
+     * "文件不存在/打不开文件夹"。补齐口径交 {@link MediaPathResolver#resolveEntryToFile}
+     * （与 file_list 行、ui_component 建卡时同一份实现）。file_card 没有"进目录"这回事，
+     * 落在目录上时再按文件名在工作区搜一次。</p> */
+    private static String normalizePath(Context context, String path, String name) {
+        String raw = path == null ? "" : path.trim();
+        String bareName = name == null ? "" : name.trim();
+
+        java.io.File t = TextUtils.isEmpty(raw) ? null
+                : MediaPathResolver.resolveEntryToFile(context, raw, bareName);
+        if (t != null && t.isFile()) return t.getAbsolutePath();
+
+        if (!TextUtils.isEmpty(bareName)) {
+            java.io.File byName = MediaPathResolver.resolveToFile(context, bareName);
+            if (byName != null && byName.isFile()) return byName.getAbsolutePath();
         }
-        if (p == null || p.isEmpty()) return path;
-        try {
-            com.oilquiz.app.ai.agent.online.AgentWorkspace ws =
-                    com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context);
-            java.io.File resolved = ws.resolveExistingFile(p);
-            if (resolved != null) return resolved.getAbsolutePath();
-        } catch (Throwable t) {
-            android.util.Log.w("FileCardView", "workspace resolve failed: " + t.getMessage());
+        if (t != null) return t.getAbsolutePath();          // 只剩目录：调用方按"不是文件"处理
+        if (TextUtils.isEmpty(raw)) return "";
+
+        // 全都没命中：保留原值（剥 file:// 后），让下游给出"文件不存在"这类可见提示
+        String p = raw;
+        if (p.startsWith("file://")) {
+            try {
+                String only = android.net.Uri.parse(p).getPath();
+                if (only != null && !only.isEmpty()) p = only;
+            } catch (Throwable ignored) {
+            }
         }
         return p;
     }

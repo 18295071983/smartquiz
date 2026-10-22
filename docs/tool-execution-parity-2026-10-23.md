@@ -51,6 +51,21 @@
    `source` 不进 URL（它是来源站点名，当链接渲染会错）。
    自我更正：原盘点把"count 六套"也算漂移，实测多数是**不同的量**
    （rows/words/pages/lines/sources/matches 各有别名），并成一张表反而会显示错数字。
+6. **上一条自己引入的回归（同日修掉）**：合并时没区分"键名本身就是这个概念"与
+   "含义随工具而变"，把 `output` 当路径别名并进了 `PATH` 与 `ARTIFACT`。
+   `output` 在 shell / python / 动态工具里是**标准输出正文**，于是
+   `systemResourceTemplate` 把整段 stdout 又打一行"📄 文件："，
+   `DynamicToolResultRenderer` 更把 `{name, output:"已保存3条"}` 归成产物文件、
+   生成一张 path 指向一段文本的 file_card（真机现象：卡片外观正常、每条链接点开都失败）。
+   `target`（落盘目标/跳转地址/ssh 主机）、`name`（工具名/应用名/系列名/文件名）、
+   `result`（整段载荷/报告正文）同病。
+   修法在**口径**不在卡片：全局表只收键名即该概念的键，降级语义改用点名表
+   （`PATH_OR_NAME` / `PATH_FILE_OPS` / `URL_APP_OPS` / `SUMMARY_OR_RESULT`），
+   5 处读取点各按自己语义问对应表。`ToolResultFieldsTest` 的快照改成"按读取处对号入座"，
+   并加正反向边界（内容键不得进全局表、点名表必须包住核心表），
+   另加 `ToolResultUiTemplateTest` 与 `DynamicToolResultRendererTest` 回归。
+   **教训**：合并手抄键清单时，"并集覆盖所有历史写法"不是正确性标准——
+   全局表会同时把每个读取处的接受面放大到全部工具的键空间。
 
 ## 三、未收口的差异（按建议顺序）
 

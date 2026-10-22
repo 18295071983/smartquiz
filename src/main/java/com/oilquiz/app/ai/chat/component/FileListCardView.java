@@ -36,9 +36,15 @@ import java.util.Locale;
  * {
  *   "title": "目录内容",
  *   "path": "/sdcard/Documents",
- *   "files": [{"name":"report.pdf","size":"1.2 MB","type":"file|dir","path":"..."}]
+ *   "files": [{"name":"report.pdf","size":"1.2 MB","type":"file|dir","path":"/sdcard/Documents/report.pdf"}]
  * }
  * </pre>
+ *
+ * <p>条目 {@code path} 期望是<b>完整文件路径</b>；模型实际常写成"目录 + 单独一个 name 字段"
+ * （如 {@code path:"/…/files/"} + {@code name:"x.mp4"}，真机卡片实测）。这种形态由
+ * {@link MediaPathResolver#resolveEntryToFile} 在渲染时补齐成真实文件（历史会话里的旧卡片
+ * 一起治好），目录/文件的判定也随之以上盘结果为准，不按 {@code type} 字面判——
+ * 模型写过 {@code type:"视频 720P 无水印"} 这种自由文本。</p>
  */
 public class FileListCardView implements ChatComponent {
 
@@ -100,10 +106,18 @@ public class FileListCardView implements ChatComponent {
     /** 一行：类型图标 + 名称（+ 路径）+ 大小 */
     private View buildRow(Context context, JSONObject f) {
         String type = f.optString("type", "file");
-        final String rowPath = f.optString("path", "");
-        boolean isDir = "dir".equals(type);
-        String name = f.optString("name", "");
+        final String rawPath = f.optString("path", "");
+        final String name = f.optString("name", "");
         String size = f.optString("size", "");
+
+        // 条目定位统一走 MediaPathResolver：模型常把 path 写成目录、文件名只留在 name 里
+        // （真机卡片实测），按原 path 打开就是"暂不支持打开文件夹"；这里补齐成真实文件，
+        // 目录/文件的判定也随之以上盘结果为准，不再信模型随手写的 type（见过"视频 720P 无水印"）。
+        // 渲染期只做 exists() 判断，全量工作区搜索留在点击时做一次（一卡 30 行，逐行扫盘会卡）。
+        java.io.File target = MediaPathResolver.resolveEntryOnDisk(rawPath, name);
+        final String rowPath = target != null ? target.getAbsolutePath()
+                : (!TextUtils.isEmpty(rawPath) ? rawPath : name.trim());
+        boolean isDir = target != null ? target.isDirectory() : "dir".equals(type);
 
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);

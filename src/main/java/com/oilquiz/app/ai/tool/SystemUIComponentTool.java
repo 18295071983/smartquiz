@@ -71,11 +71,11 @@ import java.util.Map;
             + "list_card:{title,items:[{icon,title,description,value}]}; alert_card:{type:'success|warning|error|info',title,content}; "
             + "metric_card:{title,metrics:[{label,value,color}]}; json_viewer:{title,data,maxHeight}; "
             + "steps_card:{title,steps:[{status:'done|current|failed|todo',title,description}]}; "
-            + "file_list:{title,files:[{name,path,size,type}]}; "
+            + com.oilquiz.app.ai.chat.component.ComponentTypes.PROPS_DOC_FILE_CARDS + " "
             + "quote:{text 或 content,author}(引用块/笔记，替代已删除的 note_card); contact_card:{type:'phone|sms|email',title,value,description}; "
             + "todo_card:{title,items:[{done:bool,text}]}; quiz_card:{type:'single|multiple|judge',question,options:[],answer,analysis}; "
             + "weather_card:{city,temp,text,icon,humidity,windDir,windScale,forecast:[{date,text,tempMin,tempMax}]}; "
-            + "file_card:{name,size,type,path}; code_card:{language,code,title}; progress_card:{title,progress,description}; "
+            + "code_card:{language,code,title}; progress_card:{title,progress,description}; "
             + "html:{html:'<h3>标题</h3>...' 或 url:'https://...'(网页链接直接加载,web组件同款),title,maxHeight(可选,内容区最大高度dp,超出内部滚动),style(内容级生效:{background:'#0F172A',color:'#E2E8F0',fontSize:15} 整页应用,像浏览器);html内容支持双指缩放/横向滚动/图片点击全屏预览,卡片内链接自身加载并可返回(右上角←浮标); markdown_card:{content:'**加粗** 文本',title}; 任务需要用户提供信息/反馈(确认/选择/输入/点赞等)时加actions:[{label:'按钮文字',value:'回传值',action:'callback'}]或[{label,link:url}]/[{label,copy:文本}],创建后get_result取回用户点击值", required = false),
         @Param(name = "wait_seconds", type = "int", description = "等待秒数(get_result用,默认30)", required = false),
         @Param(name = "auto_close", type = "int", description = "自动关闭秒数(create时指定,到点自动关闭并置result=closed;如提示类组件auto_close=5五秒后消失)", required = false),
@@ -500,7 +500,7 @@ public class SystemUIComponentTool implements AITool {
                         // 本地网页文件：只放行 Agent 工作区目录内文件（防注入读取任意路径），
                         // 存在则转 file:// 让 WebView 加载，否则提示（不渲染错误路径）
                         String raw = url.startsWith("file://") ? android.net.Uri.parse(url).getPath() : url;
-                        String resolved = resolveWorkspacePath(raw);
+                        String resolved = resolveWorkspacePath(raw, null);
                         java.io.File f = new java.io.File(resolved);
                         if (f.exists() && f.isFile() && isInsideWorkspace(f)) {
                             props.put("url", "file://" + f.getAbsolutePath());
@@ -599,7 +599,11 @@ public class SystemUIComponentTool implements AITool {
             }
 
             // file_card/file_list 路径解析：模型常传工作区相对路径（如 "report.md" / "files/报告.pdf"）
-            // 或缩写/幻觉路径，统一解析为真实存在的绝对路径，否则打开/分享"文件不存在"
+            // 或缩写/幻觉路径，更常见的是把 path 写成**目录**、文件名只留在 name 里
+            // （2026-10-23 真机卡片实测：path="/storage/.../agent_workspace/files/" + name="x.mp4"）。
+            // 这里在落盘前统一补齐成完整文件路径，否则卡片外观正常、每一条链接点开都是
+            // "暂不支持打开文件夹"。补齐口径只在 MediaPathResolver 一处实现，
+            // 渲染端(FileListCardView/FileCardView)走同一份逻辑，历史会话里的旧卡片同样能治好。
             try {
                 if ("file_card".equals(renderType) && !props.has("uri")) {
                     Object topPath = props.has("path") ? props.opt("path")
@@ -607,7 +611,8 @@ public class SystemUIComponentTool implements AITool {
                     if (topPath == null) topPath = parameters.get("path");
                     if (topPath == null) topPath = parameters.get("file_path");
                     if (topPath != null && !topPath.toString().trim().isEmpty()) {
-                        props.put("path", resolveWorkspacePath(topPath.toString()));
+                        props.put("path", resolveWorkspacePath(topPath.toString(),
+                                props.optString("name", "")));
                     }
                 } else if ("file_list".equals(renderType)) {
                     org.json.JSONArray files = props.optJSONArray("files");
@@ -618,7 +623,7 @@ public class SystemUIComponentTool implements AITool {
                             String p = f.optString("path", "");
                             if (p.isEmpty()) p = f.optString("file_path", "");
                             if (!p.isEmpty()) {
-                                f.put("path", resolveWorkspacePath(p));
+                                f.put("path", resolveWorkspacePath(p, f.optString("name", "")));
                             }
                         }
                     }
@@ -866,25 +871,28 @@ public class SystemUIComponentTool implements AITool {
     }
 
     /**
-     * 解析文件路径为真实存在的绝对路径：
-     * - content:// / file:// → 原样（content:// 由 FileCardView 按 URI 处理）
-     * - 绝对路径存在 → 原样
+     * 解析卡片条目路径为真实存在的绝对路径（{@code name} 参与补齐）：
+     * - content:// → 原样（content:// 由 FileCardView 按 URI 处理）
+     * - 指向文件 → 规范化为绝对路径
+     * - 指向<b>目录</b>而文件名只留在 {@code name} 里 → 目录 + 文件名补齐（模型最常见写法）
      * - 相对路径（"report.md"、"files/报告.pdf"、"tmp/xx"）→ AgentWorkspace 解析
      * - 路径不存在 → 按文件名在工作区 files/、tmp/、根目录兜底搜索（模型常传缩写/幻觉路径）
-     * 解析失败返回原值（FileCardView 会提示无路径）。
+     * 解析失败返回原值（渲染端还有一次补齐机会，卡片自己会提示无路径）。
+     *
+     * <p>本方法只是薄一层：条目定位口径在
+     * {@link com.oilquiz.app.ai.chat.component.MediaPathResolver#resolveEntryToFile}，
+     * 与 {@code FileListCardView} / {@code FileCardView} 同一份实现，避免"建卡时一套、
+     * 渲染时另一套"（这次真机 bug 的成因就是只判 isFile、目录形态被原样写回 props）。</p>
      */
-    private String resolveWorkspacePath(String path) {
+    private String resolveWorkspacePath(String path, String name) {
         if (path == null || path.trim().isEmpty()) return path;
         String p = path.trim();
-        // content:// 或 file:// 原样（file:// 由 FileCardView/WebView 处理）
-        if (p.startsWith("content://") || p.startsWith("file://")) return p;
+        // content:// 原样（不是本地文件，交给 FileCardView 按 URI 处理）
+        if (p.startsWith("content://")) return p;
         try {
-            com.oilquiz.app.ai.agent.online.AgentWorkspace ws =
-                    com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context);
-            java.io.File f = ws.resolveExistingFile(p);
-            if (f != null && f.isFile()) {
-                return f.getAbsolutePath();
-            }
+            java.io.File f = com.oilquiz.app.ai.chat.component.MediaPathResolver
+                    .resolveEntryToFile(context, p, name);
+            if (f != null) return f.getAbsolutePath();
         } catch (Throwable t) {
             Log.w(TAG, "resolveWorkspacePath failed: " + t.getMessage());
         }
@@ -942,7 +950,7 @@ public class SystemUIComponentTool implements AITool {
         desc.put("default_value", "默认值(input/date/time/image用)");
         desc.put("input_hint", "输入框提示(input用)");
         desc.put("action_label", "按钮文字(snackbar用)");
-        desc.put("props", "内置组件参数(component_type为内置类型时用)。各类型字段：chart:{chartType:'bar|line|pie',title,categories:[分类],series:[{name,data:[数值]}]}; info_card:{title,items:[{label,value}]}; table_card:{title,headers:[列名],rows:[[值]]}; image_grid:{images:[url],columns}; link_card:{url,title,description}; list_card:{title,items:[{icon,title,description,value}]}; alert_card:{type:'success|warning|error|info',title,content}; metric_card:{title,metrics:[{label,value,color}]}; json_viewer:{title,data,maxHeight}; steps_card:{title,steps:[{status:'done|current|failed|todo',title,description}]}; file_list:{title,files:[{name,path,size,type}]}; contact_card:{type:'phone|sms|email',title,value,description}; todo_card:{title,items:[{done:bool,text}]}; quiz_card:{type:'single|multiple|judge',question,options:[],answer,analysis}; weather_card:{city,temp,text,icon,humidity,windDir,windScale,forecast:[{date,text,tempMin,tempMax}]}; file_card:{name,size,type,path}; code_card:{language,code,title}; progress_card:{title,progress,description}; html:{html:'<h3>标题</h3>...',title,maxHeight}; markdown_card:{content:'**加粗** 文本',title}; 任务需要用户提供信息/反馈(确认/选择/输入/点赞等)时加actions:[{label:'按钮文字',value:'回传值',action:'callback'}]或[{label,link:url}]/[{label,copy:文本}],创建后get_result取回用户点击值");
+        desc.put("props", "内置组件参数(component_type为内置类型时用)。各类型字段：chart:{chartType:'bar|line|pie',title,categories:[分类],series:[{name,data:[数值]}]}; info_card:{title,items:[{label,value}]}; table_card:{title,headers:[列名],rows:[[值]]}; image_grid:{images:[url],columns}; link_card:{url,title,description}; list_card:{title,items:[{icon,title,description,value}]}; alert_card:{type:'success|warning|error|info',title,content}; metric_card:{title,metrics:[{label,value,color}]}; json_viewer:{title,data,maxHeight}; steps_card:{title,steps:[{status:'done|current|failed|todo',title,description}]}; " + com.oilquiz.app.ai.chat.component.ComponentTypes.PROPS_DOC_FILE_CARDS + "; contact_card:{type:'phone|sms|email',title,value,description}; todo_card:{title,items:[{done:bool,text}]}; quiz_card:{type:'single|multiple|judge',question,options:[],answer,analysis}; weather_card:{city,temp,text,icon,humidity,windDir,windScale,forecast:[{date,text,tempMin,tempMax}]}; file_card 见上；code_card:{language,code,title}; progress_card:{title,progress,description}; html:{html:'<h3>标题</h3>...',title,maxHeight}; markdown_card:{content:'**加粗** 文本',title}; 任务需要用户提供信息/反馈(确认/选择/输入/点赞等)时加actions:[{label:'按钮文字',value:'回传值',action:'callback'}]或[{label,link:url}]/[{label,copy:文本}],创建后get_result取回用户点击值");
         desc.put("wait_seconds", "等待秒数(get_result用,默认30)");
         desc.put("auto_close", "自动关闭秒数(create时指定,到点自动关闭并置result=closed;如提示类组件auto_close=5五秒后消失)");
         return desc;

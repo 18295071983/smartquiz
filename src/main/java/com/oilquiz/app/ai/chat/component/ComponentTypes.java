@@ -30,6 +30,22 @@ import java.util.Map;
  */
 public final class ComponentTypes {
 
+    /**
+     * 文件类卡片教给模型的 props 形状（<b>模型可见文案唯一出处</b>）。
+     *
+     * <p>这段文字此前在 {@code ui_component} 的 {@code @Param(props)} 注解、
+     * {@code SystemUIComponentTool#getParameterDescriptions()} 与
+     * {@code AIToolManager} 的 ToolDefinition 里各抄了一份，改一处漏两处。
+     * 2026-10-23 真机 bug 就出在这里：三处都只写 {@code files:[{name,path,size,type}]}，
+     * 没说什么形态，模型于是把 {@code path} 写成目录、文件名只留在 {@code name}，
+     * 卡片渲染正常但每条链接都打不开。现在把口径写进同一句，三处引用本常量。</p>
+     */
+    public static final String PROPS_DOC_FILE_CARDS =
+            "file_list:{title,files:[{name,path,size,type}]}; file_card:{name,size,type,path}"
+                    + "（两者 path 都必须是**含文件名的完整路径**，不能只给目录；"
+                    + "name 只放文件名；type 填 file 或 dir；"
+                    + "file_list 浏览目录可另给顶层 path=目录，点目录行在卡内进下一级）";
+
     /** canonical 名 → 注册表里原生实现占用的 key（即该组件 getType() 的返回值） */
     public static final Map<String, String> CANONICAL_TARGET;
 
@@ -169,8 +185,11 @@ public final class ComponentTypes {
         SCHEMA.put("weather", new String[]{CATEGORY_SCENE, "温度 temp", "城市 city",
                 "天气 text, 图标 icon, 湿度 humidity, 风向 windDir, 风级 windScale, 预报 forecast[{date,text,tempMin,tempMax}]"});
         // file_list 是场景卡但以前不进目录 → 模型只能从工具那行长名单里猜字段
+        // 2026-10-23：目录里只列字段名不列形态，模型就把 path 写成目录、文件名留在 name，
+        // 卡片每条链接都打不开（真机实测）；note 位补上路径口径，与 PROPS_DOC_FILE_CARDS 同说
         SCHEMA.put("file_list", new String[]{CATEGORY_MEDIA, "文件 files[{name,path,size,type}]",
-                "标题 title", ""});
+                "标题 title, 当前目录 path",
+                "条目 path 必须是含文件名的完整路径（只给目录时卡片按 name 补齐）；type=file|dir"});
         SCHEMA.put("todo", new String[]{CATEGORY_SCENE, "待办 items[{text,done}]", "标题 title", ""});
     }
 
