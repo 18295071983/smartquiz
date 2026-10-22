@@ -169,32 +169,14 @@ public class PythonCalculateTool extends BaseAITool {
         }
         
         if (result.success) {
-            StringBuilder output = new StringBuilder();
-            output.append("计算成功\n\n");
-            
-            if (result.stdout != null && !result.stdout.isEmpty()) {
-                output.append("=== 输出 ===\n");
-                output.append(result.stdout).append("\n");
-            } else if (result.result != null) {
-                output.append("结果: ").append(result.result).append("\n");
-            }
-            
             additionalInfo.put("stdout", result.stdout);
             additionalInfo.put("result", result.result);
-            
-            return new AIToolResult(output.toString(), additionalInfo, true);
-        } else {
-            StringBuilder output = new StringBuilder();
-            output.append("计算失败\n\n");
-            
-            if (result.error != null) {
-                output.append("错误: ").append(result.error).append("\n");
-            }
-            if (result.stderr != null && !result.stderr.isEmpty()) {
-                output.append("详细信息: ").append(result.stderr).append("\n");
-            }
-            
-            return new AIToolResult(output.toString(), additionalInfo, false);
         }
+
+        // 文本渲染交给共用出口（COMPACT：算式的 stdout 就是答案，别再套段落名把同一个数字打两遍）
+        return new AIToolResult(
+                PythonExecutionResultText.render(result, "计算成功", "计算失败",
+                        PythonExecutionResultText.Style.COMPACT),
+                additionalInfo, result.success);
     }
 }

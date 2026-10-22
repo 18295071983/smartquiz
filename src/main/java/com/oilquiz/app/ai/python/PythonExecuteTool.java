@@ -714,100 +714,34 @@ public class PythonExecuteTool extends BaseAITool {
     }
     
     /**
-     * 把"引擎替你改过代码"这件事如实写进模型可见的输出里。
-     *
-     * <p>自动修复会改写脚本再重跑，<b>实际执行的版本与模型提交的那份不同</b>。以前这里只打印
-     * 错误类型（甚至只算数量塞进 additionalInfo，而 additionalInfo 根本不进模型上下文），
-     * 于是模型下一轮仍按自己原始的代码推断，同一个错误会被反复"修好"再犯。
-     * 现在带上改动摘要，但只给几行 —— 贴整份代码是把 token 成本翻倍，代价太大。
-     *
-     * <p>成功与失败两条出口共用本方法，避免两处格式各自漂移。
+     * 渲染模型可见文本统一走 {@link PythonExecutionResultText}（六个 Python 工具共用一份），
+     * 这里只负责卡片通道 additionalInfo —— 它的键与分支保持原样，因为
+     * {@code ToolResultCardBinder} 正是按 success/failure 分别读 stdout/result 与 error/stderr 的。
      */
-    private static void appendFixes(StringBuilder output, java.util.List<Map<String, String>> fixes,
-                                    String header) {
-        if (fixes == null || fixes.isEmpty()) {
-            return;
-        }
-        output.append("\n").append(header).append("\n");
-        output.append("注意：实际执行的代码不是你提交的那一份，引擎改写过；下面的摘要就是改动点。\n");
-        for (Map<String, String> fix : fixes) {
-            String type = fix.get("error_type");
-            String change = fix.get("change_summary");
-            if ((type == null || type.isEmpty()) && (change == null || change.isEmpty())) {
-                continue;
-            }
-            output.append("- ").append(type == null || type.isEmpty() ? "修复" : type);
-            if (change != null && !change.isEmpty()) {
-                output.append(" → ").append(change);
-            }
-            output.append("\n");
-        }
-    }
-
     private AIToolResult formatResult(PythonToolManager.ExecutionResult result) {
         Map<String, Object> additionalInfo = new HashMap<>();
         additionalInfo.put("attempts", result.attempts);
         additionalInfo.put("success", result.success);
-        
+
         if (result.code != null && !result.code.isEmpty()) {
             additionalInfo.put("code", result.code);
         }
-        
+
         if (!result.fixes.isEmpty()) {
             additionalInfo.put("fixes_applied", result.fixes.size());
         }
-        
+
         if (result.success) {
-            StringBuilder output = new StringBuilder();
-            output.append("执行成功\n\n");
-            
-            if (result.stdout != null && !result.stdout.isEmpty()) {
-                output.append("=== 输出 ===\n");
-                output.append(result.stdout).append("\n\n");
-            }
-            
-            if (result.result != null && !result.result.isEmpty()) {
-                output.append("=== 结果 ===\n");
-                output.append(result.result).append("\n");
-            }
-            
-            if (!result.fixes.isEmpty()) {
-                appendFixes(output, result.fixes, "=== 自动修复 ===");
-            }
-            
             additionalInfo.put("stdout", result.stdout);
             additionalInfo.put("result", result.result);
-            
-            return new AIToolResult(output.toString(), additionalInfo, true);
         } else {
-            StringBuilder output = new StringBuilder();
-            output.append("执行失败\n\n");
-            
-            output.append("尝试次数: ").append(result.attempts).append("\n\n");
-            
-            if (result.error != null) {
-                output.append("=== 错误 ===\n");
-                output.append(result.error).append("\n\n");
-            }
-            
-            if (result.stderr != null && !result.stderr.isEmpty()) {
-                output.append("=== 错误输出 ===\n");
-                output.append(result.stderr).append("\n\n");
-            }
-            
-            if (result.stdout != null && !result.stdout.isEmpty()) {
-                output.append("=== 部分输出 ===\n");
-                output.append(result.stdout).append("\n");
-            }
-            
-            if (!result.fixes.isEmpty()) {
-                appendFixes(output, result.fixes, "=== 尝试的修复 ===");
-            }
-            
             additionalInfo.put("error", result.error);
             additionalInfo.put("stderr", result.stderr);
-            
-            return new AIToolResult(output.toString(), additionalInfo, false);
         }
+
+        return new AIToolResult(
+                PythonExecutionResultText.render(result, "执行成功", "执行失败"),
+                additionalInfo,
+                result.success);
     }
 }

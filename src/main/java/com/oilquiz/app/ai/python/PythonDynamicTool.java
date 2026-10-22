@@ -103,70 +103,25 @@ public class PythonDynamicTool implements AITool, com.oilquiz.app.ai.tool.openai
             additionalInfo.put("parameters", parameters);
             additionalInfo.put("attempts", result.attempts);
             
+            // 文本渲染交给共用出口（这条以前是 python_execute 那份的复制品，
+            // 所以自动修复摘要、环境错误标记这些后加的东西它都没跟上）
             if (result.success) {
-                StringBuilder output = new StringBuilder();
-                output.append("✅ 工具执行成功\n\n");
-                
-                if (result.stdout != null && !result.stdout.isEmpty()) {
-                    output.append("=== 输出 ===\n");
-                    output.append(result.stdout).append("\n\n");
-                }
-                
-                if (result.result != null) {
-                    output.append("=== 结果 ===\n");
-                    output.append(result.result).append("\n");
-                }
-                
-                if (!result.fixes.isEmpty()) {
-                    output.append("\n=== 自动修复 ===\n");
-                    for (Map<String, String> fix : result.fixes) {
-                        String type = fix.get("error_type");
-                        if (type != null) {
-                            output.append("- 修复: ").append(type).append("\n");
-                        }
-                    }
-                }
-                
                 additionalInfo.put("stdout", result.stdout);
                 additionalInfo.put("result", result.result);
                 additionalInfo.put("fixes_applied", result.fixes.size());
-
-                return AIToolResult.success(output.toString(), additionalInfo);
-            } else {
-                StringBuilder output = new StringBuilder();
-                output.append("❌ 工具执行失败\n\n");
-                output.append("尝试次数: ").append(result.attempts).append("\n\n");
-                
-                if (result.error != null) {
-                    output.append("=== 错误 ===\n");
-                    output.append(result.error).append("\n\n");
-                }
-                
-                if (result.stderr != null && !result.stderr.isEmpty()) {
-                    output.append("=== 错误输出 ===\n");
-                    output.append(result.stderr).append("\n\n");
-                }
-                
-                if (result.stdout != null && !result.stdout.isEmpty()) {
-                    output.append("=== 部分输出 ===\n");
-                    output.append(result.stdout).append("\n");
-                }
-                
-                if (!result.fixes.isEmpty()) {
-                    output.append("\n=== 尝试的修复 ===\n");
-                    for (Map<String, String> fix : result.fixes) {
-                        String type = fix.get("error_type");
-                        if (type != null) {
-                            output.append("- 尝试修复: ").append(type).append("\n");
-                        }
-                    }
-                }
-                
-                additionalInfo.put("error", result.error);
-                additionalInfo.put("stderr", result.stderr);
-                
-                return new AIToolResult(output.toString(), additionalInfo);
+                return AIToolResult.success(
+                        PythonExecutionResultText.render(result, "✅ 工具执行成功", "❌ 工具执行失败"),
+                        additionalInfo);
             }
+
+            additionalInfo.put("error", result.error);
+            additionalInfo.put("stderr", result.stderr);
+            // 注意：两参构造 new AIToolResult(text, info) 的 success 是 true，
+            // 旧代码在这里用的正是它 —— 动态工具执行失败一直被当成成功上报（引擎/卡片都不降级）。
+            // 现在显式走三参构造，把成败标志还回去。
+            return new AIToolResult(
+                    PythonExecutionResultText.render(result, "✅ 工具执行成功", "❌ 工具执行失败"),
+                    additionalInfo, false);
             
         } catch (Exception e) {
             Log.e(TAG, "Error executing Python dynamic tool " + name + ": " + e.getMessage(), e);

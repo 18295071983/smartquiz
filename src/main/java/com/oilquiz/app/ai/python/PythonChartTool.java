@@ -354,12 +354,16 @@ public class PythonChartTool extends BaseAITool {
             String output = result.stdout != null && !result.stdout.isEmpty()
                     ? result.stdout : (result.result != null ? result.result : "");
             info.put("stdout", output);
-            return new AIToolResult(output, info, true);
+        } else {
+            String error = result.error != null ? result.error
+                    : (result.stderr != null && !result.stderr.isEmpty() ? result.stderr : "未知错误");
+            info.put("error", error);
         }
-        String error = result.error != null ? result.error
-                : (result.stderr != null && !result.stderr.isEmpty() ? result.stderr : "未知错误");
-        info.put("error", error);
-        return new AIToolResult("Python绘图失败: " + error, info, false);
+        // 共用出口（COMPACT）：图片路径就在 stdout 里，卡片那条读的是 info.stdout，两者互不影响
+        return new AIToolResult(
+                PythonExecutionResultText.render(result, "绘图成功", "Python绘图失败",
+                        PythonExecutionResultText.Style.COMPACT),
+                info, result.success);
     }
 
     // ===== 参数工具 =====

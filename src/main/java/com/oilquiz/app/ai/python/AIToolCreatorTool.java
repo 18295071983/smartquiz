@@ -328,40 +328,27 @@ public class AIToolCreatorTool implements AITool {
         
         PythonToolManager.ExecutionResult result = creatorManager.executeTool(toolName, toolParams);
         
-        StringBuilder output = new StringBuilder();
         Map<String, Object> additionalInfo = new HashMap<>();
         additionalInfo.put("tool_name", toolName);
         additionalInfo.put("success", result.success);
-        
+
+        // 第六处各自拼文本的地方，统一走共用出口。失败不再绕 createErrorResult：
+        // 那个helper会把 additionalInfo 换成只含 error 的新 map（tool_name 丢了），
+        // 还会在已经带 ❌ 的文本前再叠一个 ❌。
         if (result.success) {
-            output.append("✅ 工具执行成功\n\n");
-            
-            if (result.stdout != null && !result.stdout.isEmpty()) {
-                output.append("=== 输出 ===\n");
-                output.append(result.stdout).append("\n\n");
-            }
-            
-            if (result.result != null) {
-                output.append("=== 结果 ===\n");
-                output.append(result.result).append("\n");
-            }
-            
             additionalInfo.put("stdout", result.stdout);
             additionalInfo.put("result", result.result);
-            
-            return AIToolResult.success(output.toString(), additionalInfo);
-        } else {
-            output.append("❌ 工具执行失败\n\n");
-            
-            if (result.error != null) {
-                output.append("错误: ").append(result.error).append("\n");
-            }
-            if (result.stderr != null && !result.stderr.isEmpty()) {
-                output.append("详细信息: ").append(result.stderr).append("\n");
-            }
-            
-            return createErrorResult(output.toString());
+            return AIToolResult.success(
+                    PythonExecutionResultText.render(result, "✅ 工具执行成功", "❌ 工具执行失败"),
+                    additionalInfo);
         }
+
+        additionalInfo.put("error", result.error);
+        additionalInfo.put("stderr", result.stderr);
+        Log.w(TAG, "动态工具试运行失败: " + toolName);
+        return new AIToolResult(
+                PythonExecutionResultText.render(result, "✅ 工具执行成功", "❌ 工具执行失败"),
+                additionalInfo, false);
     }
     
     private AIToolResult handleList(Map<String, Object> parameters) {

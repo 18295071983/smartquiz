@@ -388,26 +388,15 @@ public class PythonDataAnalysisTool extends BaseAITool {
         }
         
         if (result.success) {
-            StringBuilder output = new StringBuilder();
-            output.append("数据分析完成\n\n");
-            
-            if (result.stdout != null && !result.stdout.isEmpty()) {
-                output.append(result.stdout);
-            }
-            
             additionalInfo.put("stdout", result.stdout);
             additionalInfo.put("result", result.result);
-            
-            return new AIToolResult(output.toString(), additionalInfo, true);
-        } else {
-            StringBuilder output = new StringBuilder();
-            output.append("数据分析失败\n\n");
-            
-            if (result.error != null) {
-                output.append("错误: ").append(result.error).append("\n");
-            }
-            
-            return new AIToolResult(output.toString(), additionalInfo, false);
         }
+
+        // 共用出口（COMPACT：分析结论就是 stdout 本身）。
+        // 顺带修掉一条真丢信息的旧行为：这里失败时以前只打 error，stderr/traceback 整个丢掉。
+        return new AIToolResult(
+                PythonExecutionResultText.render(result, "数据分析完成", "数据分析失败",
+                        PythonExecutionResultText.Style.COMPACT),
+                additionalInfo, result.success);
     }
 }

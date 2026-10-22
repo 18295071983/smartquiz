@@ -712,6 +712,16 @@ public class PythonToolManager {
             if (attemptsObj != null) {
                 result.attempts = attemptsObj.toInt();
             }
+
+            // environment_error：Python 侧为"别让 agent 对着环境问题改自己代码"专门产出的标记，
+            // 之前这里没解析，标记过桥即丢。
+            PyObject envErrObj = getFromPyMap(pyMap, "environment_error");
+            if (envErrObj != null) {
+                try {
+                    result.environmentError = envErrObj.toBoolean();
+                } catch (Exception ignored) {
+                }
+            }
             
             PyObject fixesObj = getFromPyMap(pyMap, "fixes");
             if (fixesObj != null && fixesObj != PyObject.fromJava(null)) {
@@ -880,6 +890,12 @@ public class PythonToolManager {
         public String code;
         public int attempts;
         public List<Map<String, String>> fixes;
+        /**
+         * 引擎/环境错误标记（Python 侧 run_code 一直有产出）：区分"用户代码错了"与
+         * "执行器/环境坏了"。以前 Java 解析时把它丢了，于是模型看到的永远像"你代码写错了"，
+         * 只能对着坏掉的环境反复改自己的脚本。
+         */
+        public boolean environmentError;
         
         public ExecutionResult() {
             this.success = false;
