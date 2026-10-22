@@ -116,8 +116,6 @@ public class RemoteDshTool implements AITool {
     private static final int DEFAULT_TIMEOUT_SECONDS = 120;
     private static final int MAX_TIMEOUT_SECONDS = 600;
     private static final int OUTPUT_LIMIT = 20000; // 输出截断，防撑爆对话
-    /** 工具自声明超时的硬上限，与 OnlineToolManager.MAX_TOOL_TIMEOUT_MS 对齐 */
-    private static final long MAX_TOOL_TIMEOUT_MS = 660_000L;
 
     private final Context context;
 
@@ -925,11 +923,12 @@ public class RemoteDshTool implements AITool {
      * 声明本工具单次执行需要的超时（毫秒）。
      * 工具管理器默认只给 30s，但这里的任务是"在电脑上真跑"（起 dsh agent/跑命令，几十秒很常见）：
      * 实测传 timeout=150 仍在 30s 被掐断、模型只拿到空结果。故按 timeout + 45s 余量申报。
+     * 硬上限与"基线 vs 申报取较大者"的裁定都在 {@link ToolTimeouts}，两条执行路径共用。
      */
     @Override
     public long executionTimeoutMs(Map<String, Object> args) {
         int t = resolveTimeout(args);
-        return Math.min(MAX_TOOL_TIMEOUT_MS, (t + 45L) * 1000L);
+        return Math.min(ToolTimeouts.MAX_TOOL_TIMEOUT_MS, (t + 45L) * 1000L);
     }
 
     /** 解析 timeout 参数（秒；5~600，默认 120） */

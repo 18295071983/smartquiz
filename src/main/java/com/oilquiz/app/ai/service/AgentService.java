@@ -4,6 +4,8 @@ import android.content.Context;
 import com.oilquiz.app.ai.tool.AITool;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.tool.AIToolResult;
+import com.oilquiz.app.ai.tool.ToolSideEffects;
+import com.oilquiz.app.ai.tool.ToolTimeouts;
 import com.oilquiz.app.ai.tool.ToolSchemaExtractor;
 import com.oilquiz.app.ai.tool.ToolSchemaExtractor.ExtractedSchema;
 import com.oilquiz.app.ai.tool.ToolDependencyChecker;
@@ -850,16 +852,6 @@ public class AgentService {
         AILogger.i(TAG, "Executing tool: " + call.name + " with args: " + call.arguments);
         long startTime = System.currentTimeMillis();
 
-        // ui_component 不缓存：create 必须重新执行（注册新组件/新 id），
-        // get_result 超时后的 "pending" 若被缓存，二次调用瞬间返回 pending 永远取不回点击（Bug2/3）
-        boolean noCacheTool = "ui_component".equals(call.name);
-        String cacheKey = call.name + ":" + call.arguments;
-        String cached = noCacheTool ? null : getCachedResult(cacheKey);
-        if (cached != null) {
-            AILogger.d(TAG, "Tool cache HIT: " + call.name);
-            return new ToolResult(call.name, cached, true, 0, 0);
-        }
-
         Map<String, Object> params = parseArguments(call.arguments);
         call.resolvedArgs = params;
 
@@ -867,6 +859,20 @@ public class AgentService {
         if (realToolName == null) {
             AILogger.w(TAG, "Unknown tool: " + call.name + ", attempting direct execution");
             realToolName = call.name;
+        }
+
+        // 缓存判据与 OnlineToolManager 共用 ToolSideEffects：只有只读/幂等工具的结果才允许复用。
+        // 以前这里只排除 ui_component，其余工具一律缓存 300 秒 —— 于是 python_execute /
+        // linux_shell / database 写 / file_generator 同参数二次调用会被**静默跳过**：
+        // 模型以为又跑了一遍，拿到的却是上一次的旧结果（ui_component 的 "pending" 缓存
+        // 曾按 Bug2/3 单点修过，但同类问题在其它工具上一直留着）。
+        // ui_component 不在只读白名单里，因此被这条判据天然覆盖。
+        boolean noCacheTool = ToolSideEffects.hasSideEffects(realToolName);
+        String cacheKey = call.name + ":" + call.arguments;
+        String cached = noCacheTool ? null : getCachedResult(cacheKey);
+        if (cached != null) {
+            AILogger.d(TAG, "Tool cache HIT: " + call.name);
+            return new ToolResult(call.name, cached, true, 0, 0);
         }
 
         // P2: 检查并执行工具依赖
@@ -941,11 +947,28 @@ public class AgentService {
                 // 避免 30s 默认超时中断等待导致 Agent"越过交互"直接继续（Bug2）
                 boolean isInteractionWait = "ui_component".equals(realToolName)
                         && "get_result".equals(String.valueOf(params.get("action")));
-                long effectiveTimeout = isInteractionWait ? 120000L : TOOL_TIMEOUT_MS;
+                int baseTimeoutMs = isInteractionWait ? 120000 : (int) TOOL_TIMEOUT_MS;
+                // 工具自声明超时：与本文件这份 30s 硬编码不同，OnlineToolManager 早就支持工具申报
+                // （remote_dsh 在用）。两条执行路径必须共用同一口径（ToolTimeouts），否则同一个工具
+                // 在两条路径上有两种死法 —— 例如 python_chart 自己写了 60s 预算，在这条路径上仍然
+                // 30s 就被掐断，模型只拿到通用超时文案、拿不回图，也看不到 Python 侧的结构化错误。
+                long effectiveTimeout = ToolTimeouts.effectiveMs(
+                        toolManager != null ? toolManager.getTool(realToolName) : null, params, baseTimeoutMs);
                 return future.get(effectiveTimeout, TimeUnit.MILLISECONDS);
             } catch (TimeoutException e) {
                 lastException = e;
                 AILogger.w(TAG, "Tool " + realToolName + " timeout on attempt " + (attempt + 1));
+                if (ToolSideEffects.hasSideEffects(realToolName)) {
+                    // 超时 ≠ 没执行：命令/写入很可能已经生效，只是结果没来得及回传。
+                    // 对这类工具重试就是**把副作用做第二遍**（重复导入、重复生成文件、重复删除）。
+                    // 与 OnlineToolManager 同判据（见 ToolSideEffects），并给模型明确的下一步，
+                    // 而不是让它以为"再试一次就好"。
+                    return new ToolResult(displayName,
+                            "工具 " + realToolName + " 执行超时，已停止等待。该工具有副作用，超时不代表未执行，"
+                                    + "因此不自动重试：请先确认前一次是否已经生效（列目录/查数据库/看文件是否已生成），"
+                                    + "再决定要不要缩小范围重跑。",
+                            false, 0, attempt);
+                }
                 if (attempt < maxRetries) {
                     try { Thread.sleep(500); } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();

@@ -2,9 +2,10 @@ package com.oilquiz.app.ai.agent.online;
 
 import android.content.Context;
 
-import com.oilquiz.app.ai.tool.AITool;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.tool.AIToolResult;
+import com.oilquiz.app.ai.tool.ToolSideEffects;
+import com.oilquiz.app.ai.tool.ToolTimeouts;
 import com.oilquiz.app.util.AILogger;
 
 import org.json.JSONArray;
@@ -42,24 +43,14 @@ public class OnlineToolManager {
     private static final int PERMISSION_TOOL_TIMEOUT_MS = 120_000;
     /** 知识库文件导入（OCR/PDF/Office 解析/AI 语音识别转写）耗时长，超时放宽到 180 秒 */
     private static final int KNOWLEDGE_IMPORT_TIMEOUT_MS = 180_000;
-    /** 工具自声明超时的硬上限（11 分钟）：防止个别工具把调用方拖死 */
-    private static final int MAX_TOOL_TIMEOUT_MS = 660_000;
     private static final int MAX_RETRY = 2;
     /** 工具结果截断上限：防止超大结果撑爆上下文/请求体（截断后带标记，提示模型分片读取） */
     private static final int RESULT_MAX_LENGTH = 16 * 1024;
     private static final Gson resultGson = new GsonBuilder().disableHtmlEscaping().create();
 
-    /**
-     * 只读/幂等工具白名单：结果可安全缓存复用。
-     * 写/交互/播放/有副作用工具（app_operation、speech_synthesis、voice_input、file_generator、
-     * database 写操作、memory、workspace、image_gen、python_*、excel_tool 写等）一律不缓存，
-     * 避免"同参数二次调用被静默跳过"或返回过期数据。
-     */
-    private static final java.util.Set<String> READONLY_CACHE_TOOLS = new java.util.HashSet<>(java.util.Arrays.asList(
-            "ai_weather", "network_search", "webpage_reader", "smart_research",
-            "location", "time_date", "calculator", "python_calculate",
-            "file_reader", "file_analyzer", "tool_registry", "get_models_profile"
-    ));
+    // 只读/幂等工具白名单在 ToolSideEffects（与 AgentService 共用同一判据）：
+    // 有副作用工具（app_operation、file_generator、database 写、memory、workspace、image_gen、
+    // python_*、linux_shell、excel_tool 写等）一律不缓存、超时不重试。
 
     private final AIToolManager aiToolManager;
     private final OnlineToolRegistry registry;
@@ -486,7 +477,7 @@ public class OnlineToolManager {
         // 只读/幂等工具才允许缓存复用；写/交互/播放类工具（app_operation、speech_synthesis、
         // voice_input、file_generator、database 写、memory、workspace、image_gen、python_* 等）
         // 一律不缓存——避免"同参数二次调用被静默跳过"或返回过期数据
-        boolean noCacheTool = !READONLY_CACHE_TOOLS.contains(toolName);
+        boolean noCacheTool = !ToolSideEffects.isReadOnlyIdempotent(toolName);
 
         // 检查缓存（只读工具跳过权限/ui_component 等，带 TTL 过期）
         String cacheKey = toolName + ":" + arguments;
@@ -532,22 +523,18 @@ public class OnlineToolManager {
                 ? KNOWLEDGE_IMPORT_TIMEOUT_MS
                 : ((isPermissionRequest || isUserInteractionWait || isMediaSubmit || isDouyinDownload)
                         ? PERMISSION_TOOL_TIMEOUT_MS : TOOL_TIMEOUT_MS);
-        // 工具自声明超时（2026-09-27）：耗时不可控的工具（如 remote_dsh 在电脑上真跑任务）自己声明要等多久。
-        // 实测踩到的坑：手机端 remote_dsh 传 timeout=150，仍被这里的 30s 默认值掐断，
-        // 且超时后模型拿到的是空结果 → 只能盲目重试（token 从 137 万烧到 196 万，用户看到"有些问题"）。
-        int declaredTimeout = 0;
+        // 工具自声明超时（2026-09-27）：耗时不可控的工具（如 remote_dsh 在电脑上真跑任务、
+        // Python 画图/装依赖）自己声明要等多久。实测踩到的坑：手机端 remote_dsh 传 timeout=150，
+        // 仍被这里的 30s 默认值掐断，且超时后模型拿到的是空结果 → 只能盲目重试
+        // （token 从 137 万烧到 196 万，用户看到"有些问题"）。判定公式抽到 ToolTimeouts，
+        // 与 AgentService（对话页另一条执行路径）共用，避免同一个工具两条路径两种死法。
+        int effectiveTimeout;
         try {
-            AITool toolImpl = aiToolManager.getTool(toolName);
-            if (toolImpl != null) {
-                long declared = toolImpl.executionTimeoutMs(params);
-                if (declared > 0) {
-                    declaredTimeout = (int) Math.min(MAX_TOOL_TIMEOUT_MS, declared);
-                }
-            }
+            effectiveTimeout = ToolTimeouts.effectiveMs(aiToolManager.getTool(toolName), params, baseTimeout);
         } catch (Exception e) {
             AILogger.w(TAG, "读取工具自声明超时失败(" + toolName + "): " + e.getMessage());
+            effectiveTimeout = baseTimeout;
         }
-        int effectiveTimeout = Math.max(baseTimeout, declaredTimeout);
 
         // 带重试的执行
         Exception lastException = null;
