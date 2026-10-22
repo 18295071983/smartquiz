@@ -26,33 +26,74 @@ import java.util.Set;
  *       {@link #COUNT_TOTAL} 这种真正通用的，其余保持各处显式的种类清单。</li>
  * </ol>
  *
- * <p>一个键可以属于两个概念（{@code target} 既可能是产物路径也可能是链接地址），
- * 这不算冲突：调用处知道自己是在渲染文件还是渲染链接，选一个概念问就是了。
+ * <p><b>第四条规则是 2026-10-23 用真机 bug 换来的</b>（前一次合并时漏了这条）：
+ * <b>全局表只收"键名本身就表示这个概念"的键；含义随工具而变的键一律不进表</b>，
+ * 由真的需要它的那一处点名。反例就是这次的 {@code output}：
+ * 它在 shell / python / 大多数动态工具里是<b>正文（stdout）</b>，只有个别写入类工具拿它当
+ * 落盘路径。我把它并进 {@link #PATH} 与 {@link #ARTIFACT} 之后，"第一个命中"的语义让
+ * 每个没有真路径键的结果都把 stdout 当文件——shell 结果的 UI 摘要多出一行
+ * "📄 文件：&lt;整段输出&gt;"，动态工具结果更被 {@code DynamicToolResultRenderer} 归成
+ * 产物卡、渲染出一个指向文本的 file_card（用户看到的就是"卡片文件链接全坏了"）。
+ * {@code target}（既可能是落盘目标也可能是跳转地址/连接主机）、{@code name}
+ * （工具名/应用名/系列名/文件名）、{@code result}（既可能是正文也可能是执行结果对象）同理。
+ * 需要它们的读取处改用本类里点名的组合表（{@link #PATH_OR_NAME} 等），
+ * 组合关系写在调用处，不再靠全局表兜。</p>
  */
 public final class ToolResultFields {
 
-    /** 文件路径（含显示名兜底：{@code name} 放最后，只在没有任何路径键时才当路径用） */
+    /**
+     * 文件路径：<b>只收键名本身就是路径的键</b>（见类注释第四条）。
+     *
+     * <p>{@code output}/{@code target}/{@code name} 不在这里——它们在别的工具里是正文、
+     * 跳转目标、显示名；要那种降级请问 {@link #PATH_OR_NAME} / {@link #PATH_FILE_OPS}。</p>
+     */
     public static final String[] PATH = {
             "file_path", "filePath", "filepath", "path", "output_path", "source_path",
             "target_path", "save_path", "local_path", "dir_path", "directory_path",
             "apk_path", "image_path", "audio_path", "pdf_path", "html_path", "json_path",
-            "icon_path", "model_path", "file", "output", "target",
-            "file_name", "filename", "name"
+            "icon_path", "model_path", "file"
     };
 
     /**
-     * 链接地址。
-     *
-     * <p>{@code target} 在键表里同时出现在 {@link #PATH} 和本表，是有意的：有的工具用它表示
-     * 写入目标文件、有的表示跳转地址，由调用处按语义挑一张表问。
-     *
-     * <p>{@code source} <b>不放进来</b>：它在网页提取里是"来源站点名"而不是链接，
-     * 收进来会把站点名当 URL 渲染。历史上也没有任何 URL 读取处用过它（别名表只收观测到的键）。
+     * {@link #PATH} 加"只有名字"降级：读取处明确知道结果里可能只有裸文件名时用
+     * （迁移前 {@code file_reader} / {@code file_analyzer} 两处清单尾项就是
+     * {@code file_path,path,file,name}）。
      */
-    public static final String[] URL = {"url", "link", "linkUrl", "href", "target"};
+    public static final String[] PATH_OR_NAME =
+            union(PATH, new String[]{"file_name", "filename", "name"});
 
-    /** 产物引用：文件或 URL 都算（动态工具结果收集、卡片归类用） */
-    public static final String[] ARTIFACT = {"file", "file_path", "path", "output", "url", "link"};
+    /**
+     * 写入类文件工具的老清单，<b>原样保留</b>（{@code output}/{@code target} 在这类结果里
+     * 确实就是落盘路径）：{@code file_path,file_name,path,output,target}。
+     * 只有 {@code fileOperationsTemplate} 一处用；别的读取处问 {@link #PATH}。
+     */
+    public static final String[] PATH_FILE_OPS = {
+            "file_path", "file_name", "path", "output", "target"
+    };
+
+    /**
+     * 链接地址（同样只收键名就是链接的键）。
+     *
+     * <p>{@code target} <b>不放进来</b>：它在系统设置类结果里是"目标页面/设置项"、
+     * 在 ssh 里是"连接主机"，收进全局表会把主机名当链接渲染。需要它的
+     * {@code appOperationTemplate} 用 {@link #URL_APP_OPS}。
+     * {@code source} 也不放进来：它在网页提取里是"来源站点名"。</p>
+     */
+    public static final String[] URL = {"url", "link", "linkUrl", "href"};
+
+    /** 应用操作类结果的老清单：{@code url,target}（这里的 target 就是跳转地址） */
+    public static final String[] URL_APP_OPS = union(new String[]{"url"}, URL, new String[]{"target"});
+
+    /**
+     * 产物引用：文件或 URL 都算（动态工具结果收集、卡片归类用）。
+     *
+     * <p><b>这里的键会被直接写进卡片的 path/url</b>，所以最讲究：{@code output} 曾经被收进来，
+     * 于是 {@code {output:"已保存3条"}} 这种结果被归成文件、生成一张点开就是
+     * "文件不存在"的卡（本次真机现象）。表里只留键名就是路径或链接的键，
+     * 并保持迁移前那三处的相对顺序（{@code file} 先于 {@code path} 先于 {@code url}），
+     * 否则同类结果的归类会变。</p>
+     */
+    public static final String[] ARTIFACT = {"file", "file_path", "path", "url", "link"};
 
     /** 文件类型 */
     public static final String[] FILE_TYPE = {"file_type", "type", "format"};
@@ -67,9 +108,18 @@ public final class ToolResultFields {
     /** 错误原文 */
     public static final String[] ERROR = {"error", "err", "exception"};
 
-    /** 正文摘要 */
+    /**
+     * 正文摘要：只收键名就是"摘要/正文"的键。
+     *
+     * <p>{@code result} <b>不放进来</b>：它在多数结果里是整个执行载荷（ {@code ui_component}
+     * 返回的 {@code result:"executed"}、动态工具返回的对象），收进来会把载荷当摘要整段渲出来。
+     * 迁移前只有 {@code smart_research} 一处把它当正文，用 {@link #SUMMARY_OR_RESULT}。</p>
+     */
     public static final String[] SUMMARY = {"summary", "conclusion", "analysis_summary", "report",
-            "overview", "abstract", "description", "answer", "result"};
+            "overview", "abstract", "description", "answer"};
+
+    /** 智能研究的老清单：摘要系列键加 {@code result}（那里的 result 就是报告正文） */
+    public static final String[] SUMMARY_OR_RESULT = union(SUMMARY, new String[]{"result"});
 
     /** 通用总数（仅此一个通用概念；行数/词数/页数等各自成表，见类注释规则 3） */
     public static final String[] COUNT_TOTAL = {"count", "total", "totalQuestions", "successCount"};

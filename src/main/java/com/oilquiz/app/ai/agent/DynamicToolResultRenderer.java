@@ -178,8 +178,11 @@ public final class DynamicToolResultRenderer {
             String p = "";
             if (raw instanceof JSONObject) {
                 JSONObject o = (JSONObject) raw;
-                // 键名取自 ToolResultFields.ARTIFACT：产物引用可能是 file / path / url 三种写法，
-                // 硬写三个键时，新工具换个名（file_path / output / link）就归不进任何一类
+                // 键名取自 ToolResultFields.ARTIFACT：产物引用可能是 file / file_path / path /
+                // url / link 几种写法，硬写三个键时新工具换个名就归不进任何一类。
+                // 但表里**不能有 output**：动态工具的 results 数组常带 output=正文，
+                // 一旦被当路径取走，这里就会生成一张指向一段文本的 file_card
+                //（2026-10-23 别名合并引入的卡片链接故障，规则见 ToolResultFields 类注释第四条）
                 for (String key : com.oilquiz.app.ai.tool.ToolResultFields.ARTIFACT) {
                     String candidate = o.optString(key, "");
                     if (!candidate.isEmpty()) {

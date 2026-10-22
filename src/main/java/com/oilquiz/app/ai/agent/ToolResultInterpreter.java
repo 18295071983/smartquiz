@@ -884,7 +884,7 @@ public class ToolResultInterpreter {
         JsonObject obj = toJsonObject(result);
         if (obj == null) return fallbackPretty(result);
         StringBuilder sb = new StringBuilder();
-        String path = strDeep(obj, ToolResultFields.PATH);
+        String path = strDeep(obj, ToolResultFields.PATH_OR_NAME);
         String content = strDeep(obj, "content", "text", "data", "body");
         String lines = strDeep(obj, "total_lines", "lines_count", "lines");
         String encoding = strDeep(obj, "encoding");
@@ -925,7 +925,7 @@ public class ToolResultInterpreter {
         JsonObject obj = toJsonObject(result);
         if (obj == null) return fallbackPretty(result);
         StringBuilder sb = new StringBuilder("📊 文件分析\n");
-        String path = strDeep(obj, ToolResultFields.PATH);
+        String path = strDeep(obj, ToolResultFields.PATH_OR_NAME);
         String type = strDeep(obj, ToolResultFields.FILE_TYPE);
         String size = strDeep(obj, ToolResultFields.SIZE);
         String lines = strDeep(obj, "lines", "total_lines");
@@ -970,7 +970,7 @@ public class ToolResultInterpreter {
         String status = strDeep(obj, "status");
         String msg = strDeep(obj, ToolResultFields.MESSAGE);
         String action = strDeep(obj, "action", "operation", "type");
-        String path = strDeep(obj, ToolResultFields.PATH);
+        String path = strDeep(obj, ToolResultFields.PATH_FILE_OPS);
         String source = strDeep(obj, "source_path", "source");
         String size = strDeep(obj, ToolResultFields.SIZE);
         String count = strDeep(obj, "count", "lines_written", "written_lines");
@@ -1066,7 +1066,7 @@ public class ToolResultInterpreter {
         if (obj == null) return fallbackPretty(result);
         StringBuilder sb = new StringBuilder("🔎 智能研究\n");
         String topic = strDeep(obj, "topic", "query", "subject", "keyword");
-        String summary = strDeep(obj, ToolResultFields.SUMMARY);
+        String summary = strDeep(obj, ToolResultFields.SUMMARY_OR_RESULT);
         String sources = strDeep(obj, "sources_count", "count", "total_references");
         String findings = strDeep(obj, "findings", "insights", "main_points");
 
@@ -1112,7 +1112,7 @@ public class ToolResultInterpreter {
         String msg = strDeep(obj, ToolResultFields.MESSAGE);
         String action = strDeep(obj, "action");
         String app = strDeep(obj, "app_name", "app", "package_name");
-        String url = strDeep(obj, ToolResultFields.URL);
+        String url = strDeep(obj, ToolResultFields.URL_APP_OPS);
         String phone = strDeep(obj, "phone_number", "phone", "to");
         String st = strDeep(obj, "sent", "sent_status", "call_status");
 
@@ -1171,6 +1171,8 @@ public class ToolResultInterpreter {
             if (exitCode != null) sb.append("退出码: ").append(exitCode).append("\n");
             if (hint != null) sb.append("💡 ").append(hint).append("\n");
             if (toolkit != null) sb.append("ℹ️ ").append(toolkit).append("\n");
+            // 只问 PATH：shell 结果里 output 就是刚才那段 stdout，别名表一旦收 output，
+            // 这里会把整段输出当成"文件："再打一遍（2026-10-23 别名合并引入，已回退）
             String file = strDeep(obj, ToolResultFields.PATH);
             String bytes = strDeep(obj, "bytes", "size");
             if (file != null) sb.append("\uD83D\uDCC4 文件：").append(file).append('\n');
