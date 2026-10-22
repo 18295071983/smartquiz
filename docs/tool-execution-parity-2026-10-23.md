@@ -14,14 +14,15 @@
 | D 导入用 v2 小路径 | `ai/importing/v2/ImportToolManager.java` | 无 ✓ | 熔断：单会话最多 2 次调用 ✓ | 无 | 无 | 3 个工具自有实现，不经 `AIToolManager` ✓ |
 
 裸调用点（**绕过以上全部策略**）：`UiInteractor.java:91,278`、`AgentToolView.java:250`、
-`DynamicToolExecutor.java:645`（call_tool 只有嵌套深度限制，无超时 ✓）、
+`DynamicToolExecutor.java:645`（call_tool 嵌套执行**现已带超时**，见第二节第 4 条）、
 `infra/DebugLayoutInjectActivity`、`MediaGenActivity`、`AIImportActivity`、
 `ChatSpeechInputController`、`DynamicToolManagerTool:463`、`AIChatActivity` 多处 `new Thread` ✓。
+这些点仍没有缓存/重试/截断策略，只有嵌套执行补上了超时。
 
 死副本：`ai/agent/ToolExecutionOrchestrator.java` —— 全仓库零引用（我 grep 复核），
 其类注释自证"抽取了一半未接线" ✓。按既定规矩保留不动，等拍板。
 
-## 二、本轮已收口的三条
+## 二、本轮已收口的四条
 
 1. **超时判定**：`ToolTimeouts.effectiveMs(tool, args, base)`，A/B 共用，硬上限 660s 只剩一份。
 2. **副作用判据**：`ToolSideEffects`（只读/幂等白名单，白名单而非黑名单）。B 路径原来是
@@ -32,6 +33,14 @@
    `output`/`exit_code`/`hint`）在这条路径上变成一句 `[工具执行失败]` 后面空无一物。
    现在成功失败都全量 dump、按 `error→stderr→output→exit_code→hint` 排序，
    且**认不出的 status 不再回落成"成功"**（旧代码 `isSuccess = true` 默认值会说谎）。
+4. **嵌套 `call_tool` 超时**：`DynamicToolExecutor.runNestedWithTimeout` 按
+   `ToolTimeouts.effectiveMs` 取预算并压到 60s 上限——这条路径以前完全没有超时。
+   两个 ThreadLocal 必须显式带进工作线程，否则"挪个线程"就等于弄丢两道保护：
+   `CALL_DEPTH`（不传就每层重置成 0，A→B→A 递归失去 `MAX_CALL_DEPTH` 上限）与卡片抑制
+   （`ToolResultCardBinder.SUPPRESS_COUNT` 同为 ThreadLocal，不传就会给子调用挂卡）。
+   线程池线程会被复用，退出时是 `remove()` 而不是只设置。
+   顺带修一条静默说谎：旧实现在子调用 `isSuccess()==false` 时因为 `getResult()` 为 null
+   而回落到字符串"工具执行完成"，嵌套失败被报成完成。
 
 ## 三、未收口的差异（按建议顺序）
 
@@ -53,9 +62,12 @@
    `ChatContextBuilder` 6000/2500/1200/300/512、`ToolCallCardView` 50、
    `DynamicCardView` 4000、`ToolResultCardBinder` 调用处传 60/120/160/200/400 字面量、
    `ActivityTimeline` 与 `ChatAdapter` 各有一份 48 ✓/△。
-5. **裸调用点**：`DynamicToolExecutor.java:645`（模型 `call_tool` 嵌套调用）完全没有超时，
-   一个卡住的被调工具会吊住整轮。这是当前唯一"无超时"的可控执行点，建议优先接线
-   `ToolTimeouts` 而不是等它出问题。
+5. **裸调用点的其余策略**：`DynamicToolExecutor` 的超时已补（第二节第 4 条），但
+   `UiInteractor`、`AgentToolView`、`MediaGenActivity`、`AIImportActivity`、
+   `DebugLayoutInjectActivity`、`DynamicToolManagerTool:463` 这些直接
+   `tool.execute(...)` 的点仍然没有超时/缓存/截断，也不申报 `executionTimeoutMs`。
+   它们多数是 UI 触发或调试入口（不在模型轮次里），要不要统一取决于你是否希望
+   "任何工具调用都受同一套约束"——这条需要你拍板，我不自行扩面。
 
 ## 四、我明确没做的
 

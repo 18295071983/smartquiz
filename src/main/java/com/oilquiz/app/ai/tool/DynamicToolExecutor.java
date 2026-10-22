@@ -7,6 +7,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -17,6 +20,14 @@ public class DynamicToolExecutor {
     private static final int MAX_CALL_DEPTH = 5;
     /** 当前线程的 call_tool 嵌套深度（ThreadLocal：并发调用互不干扰） */
     private static final ThreadLocal<Integer> CALL_DEPTH = ThreadLocal.withInitial(() -> 0);
+
+    /**
+     * 嵌套 call_tool 的基线超时（毫秒）。这条路径以前<b>没有任何超时</b>，
+     * 见 docs/tool-execution-parity-2026-10-23.md 第五节。
+     */
+    private static final int NESTED_BASE_TIMEOUT_MS = 30_000;
+    /** 嵌套超时的上限：外层还有一道预算在管，嵌套只需要"够用但不无限" */
+    private static final int NESTED_MAX_TIMEOUT_MS = 60_000;
 
     private final Context context;
     private final Map<String, Object> variables = new HashMap<>();
@@ -634,29 +645,86 @@ public class DynamicToolExecutor {
             }
             
             AIToolManager toolManager = AIToolManager.getInstance(context);
-            if (toolManager.hasTool(toolName)) {
-                CALL_DEPTH.set(depth + 1);
-                try {
-                    // 动态工具内部的嵌套子调用：卡片只跟随最外层结果，子调用不挂卡
-                    com.oilquiz.app.ai.agent.ToolResultCardBinder.BridgeScope uiScope =
-                            com.oilquiz.app.ai.agent.ToolResultCardBinder.suppress();
-                    AIToolResult result;
-                    try {
-                        result = toolManager.executeTool(toolName, toolParams);
-                    } finally {
-                        uiScope.close();
-                    }
-                    return result.getResult() != null ? result.getResult().toString() : "工具执行完成";
-                } finally {
-                    CALL_DEPTH.set(depth);
-                }
-            } else {
+            if (!toolManager.hasTool(toolName)) {
                 return "工具不存在: " + toolName;
+            }
+            CALL_DEPTH.set(depth + 1);
+            try {
+                return runNestedWithTimeout(toolManager, toolName, toolParams, depth + 1);
+            } finally {
+                CALL_DEPTH.set(depth);
             }
             
         } catch (Exception e) {
             Log.e(TAG, "Error calling tool: " + e.getMessage());
             return "调用工具失败: " + e.getMessage();
+        }
+    }
+
+    /**
+     * 带超时上限地执行一次嵌套 {@code call_tool}，返回给动态脚本看的文本。
+     *
+     * <p>为什么必须加：这条路径以前<b>完全没有超时</b>——动态工具里一句 {@code call_tool}
+     * 可以无限吊住整轮；外层（在线/对话页路径）到点放弃之后，被调工具还在跑，
+     * 而它的结果永远不会有人再读。预算与两条主路径同源
+     * （{@link ToolTimeouts#effectiveMs}），只把上限压到 {@link #NESTED_MAX_TIMEOUT_MS}：
+     * 外层还有一道预算在管，嵌套只需要"够用但不无限"。
+     *
+     * <p>两个 ThreadLocal 必须<b>显式带进工作线程</b>，否则"挪个线程"就等于弄丢两道保护：
+     * {@link #CALL_DEPTH}（不传就每层重置成 0，A→B→A 的递归失去 MAX_CALL_DEPTH 上限）和
+     * {@code ToolResultCardBinder} 的卡片抑制（不传就会给子调用挂卡，同一结果出现多张卡）。
+     * 线程池线程会被复用，所以退出时必须清理而不是只设置。
+     *
+     * <p>顺带修一条静默说谎：旧实现在子调用 {@code isSuccess()==false} 时，因为
+     * {@code getResult()} 为 null 而回落到字符串"工具执行完成"——嵌套失败被报成完成。
+     */
+    private String runNestedWithTimeout(final AIToolManager toolManager, final String toolName,
+                                        final Map<String, Object> toolParams, final int nestedDepth) {
+        final int budgetMs = Math.min(NESTED_MAX_TIMEOUT_MS, ToolTimeouts.effectiveMs(
+                toolManager.getTool(toolName), toolParams, NESTED_BASE_TIMEOUT_MS));
+        CompletableFuture<AIToolResult> future;
+        try {
+            future = CompletableFuture.supplyAsync(() -> {
+                CALL_DEPTH.set(nestedDepth);
+                com.oilquiz.app.ai.agent.ToolResultCardBinder.BridgeScope uiScope =
+                        com.oilquiz.app.ai.agent.ToolResultCardBinder.suppress();
+                try {
+                    return toolManager.executeTool(toolName, toolParams);
+                } finally {
+                    try {
+                        uiScope.close();
+                    } finally {
+                        // 复用线程必须清，否则深度会串到下一个任务上
+                        CALL_DEPTH.remove();
+                    }
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "嵌套调用起线程失败(" + toolName + "): " + e.getMessage());
+            return "调用工具失败: " + (e.getMessage() != null ? e.getMessage() : "无法启动子调用");
+        }
+
+        try {
+            AIToolResult result = future.get(budgetMs, TimeUnit.MILLISECONDS);
+            if (result == null) {
+                return "嵌套工具 " + toolName + " 返回空结果";
+            }
+            if (!result.isSuccess()) {
+                return "嵌套工具 " + toolName + " 失败: "
+                        + (result.getErrorMessage() != null ? result.getErrorMessage() : "未知错误");
+            }
+            return result.getResult() != null ? result.getResult().toString() : "工具执行完成";
+        } catch (TimeoutException e) {
+            // cancel 只能中断等待，被调工具本身停不下来 —— 必须如实说明，
+            // 否则动态脚本以为没发生，重跑一遍有副作用的调用
+            future.cancel(true);
+            return "嵌套工具 " + toolName + " 超过 " + (budgetMs / 1000) + "s 未回传，已停止等待；"
+                    + "它可能仍在执行（不会自动重试，也不会替你重跑）。"
+                    + "需要更稳的结果请把这次子调用缩小范围。";
+        } catch (Exception e) {
+            future.cancel(true);
+            Log.e(TAG, "嵌套调用失败(" + toolName + "): " + e.getMessage());
+            return "调用工具失败: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
         }
     }
     
