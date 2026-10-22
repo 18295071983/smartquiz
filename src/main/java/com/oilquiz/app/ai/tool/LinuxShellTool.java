@@ -27,7 +27,8 @@ import java.util.Map;
         + "action=exec 执行命令；action=tools 列出内置工具与版本；action=download 下载 URL 到文件。"
         + "单条命令 25 秒超时（超时返回已产生的输出）；超时或输出超限会连同该命令的子进程一起终止，"
         + "所以 & 丢后面的任务也随之结束 —— 要跨调用长跑请交给 tmux（server 不在这条命令的进程树里）。"
-        + "默认不做任何命令拦截（可用 system_resource 的 shell_mode 开只读）。"
+        + "默认不做任何命令拦截（system_resource 的 shell_mode=readonly 可开启防误操作黑名单——它按命令文本匹配，"
+        + "不是安全边界，也不是权限开关）。"
         + "结果含 exit_code/timed_out/truncated：退出码非零按 status=failed 上报，但其中一部分是正常语义"
         + "（grep/rg 无匹配=1、diff 有差异=1、test 不成立=1），请按 output 判断而不是无脑重试。"
         + "注意 action=route 的 command 参数是**命令名**（如 curl），不是整条命令",

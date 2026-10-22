@@ -59,7 +59,9 @@ import java.util.concurrent.atomic.AtomicReference;
         @Action(name = "ssh_exec", description = "SSH 连接任意远程主机并执行单条命令（JSch 纯 Java 实现，不依赖本地 Termux/内置二进制；可连电脑、云服务器、路由器、NAS 等任何开 sshd 的机器）。支持密钥免密或密码认证（JSch 原生，开箱即用）。注意：① 非交互，单条命令执行完即断开，25 秒超时；② 默认跳过主机指纹校验（StrictHostKeyChecking=no）方便首次连接；③ 参数 host=目标IP/域名、user=用户名、command=远程命令、port=端口(默认22)、password=密码、key_file=私钥路径"),
         @Action(name = "termux_exec", description = "在 Termux 中执行命令（完整 Linux 环境，可 apt/pip/ssh/git 等；需已装 Termux 并授予 RUN_COMMAND 权限）。注意：① 本工具同一时刻只执行一条命令，多条命令必须串行调用，不要并发（并发会串输出）；② 用 proot-distro login ubuntu 进容器后，容器内裸 git/gcc/make/cmake 等命令可能命中 Termux 的二进制（PATH 被继承），简单容器命令会被自动注入容器优先 PATH，复杂命令请自行用绝对路径 /usr/bin/git）"),
         @Action(name = "http_download", description = "下载 URL 到本地（App 内 okhttp 实现，https 走系统证书校验，比 shell 里的 wget 更可靠）"),
-        @Action(name = "shell_mode", description = "切换 shell 拦截模式：full=不拦截(默认，用户自己的设备) / readonly=恢复危险命令与敏感路径拦截 / query=查询当前"),
+        @Action(name = "shell_mode", description = "切换 shell 防误操作黑名单：full=不拦(默认，用户自己的设备) / readonly=开启命令与路径黑名单 / query=查询当前。"
+            + "注意它不是安全边界：黑名单是对命令文本的匹配，变量替换、别名、改名都能绕过；这个开关本身也由本工具切换，"
+            + "App 里没有设置页能锁住它。别把 readonly 当成限制来依赖。"),
         @Action(name = "read_setting", description = "读取系统设置"),
         @Action(name = "write_setting", description = "修改系统设置"),
         @Action(name = "get_current_app", description = "获取当前前台应用信息")
@@ -1148,14 +1150,14 @@ public class SystemResourceTool implements AITool {
             String[] parts = lower.split("[;&|$()\\s]+");
             for (String bannedPath : BANNED_PATHS) {
                 if (lower.contains(bannedPath)) {
-                    return new AIToolResult("[readonly] 不允许访问敏感路径: " + bannedPath, parameters);
+                    return new AIToolResult("[readonly] 不允许访问敏感路径: " + bannedPath + READONLY_NOTE, parameters);
                 }
                 // 带尾斜杠的黑名单条目（/proc/、/sys/）也要拦住 "ls /proc" 这种无斜杠写法
                 if (bannedPath.endsWith("/")) {
                     String bare = bannedPath.substring(0, bannedPath.length() - 1);
                     for (String part : parts) {
                         if (part.equals(bare) || part.startsWith(bare + "/")) {
-                            return new AIToolResult("[readonly] 不允许访问敏感路径: " + bannedPath, parameters);
+                            return new AIToolResult("[readonly] 不允许访问敏感路径: " + bannedPath + READONLY_NOTE, parameters);
                         }
                     }
                 }
@@ -1167,7 +1169,7 @@ public class SystemResourceTool implements AITool {
                 }
                 for (String banned : BANNED_COMMANDS) {
                     if (p.equals(banned) || p.startsWith(banned + " ")) {
-                        return new AIToolResult("[readonly] 不允许执行危险命令: " + command, parameters);
+                        return new AIToolResult("[readonly] 不允许执行危险命令: " + command + READONLY_NOTE, parameters);
                     }
                 }
             }
@@ -1177,7 +1179,8 @@ public class SystemResourceTool implements AITool {
                 }
                 try {
                     if (Double.parseDouble(parts[i + 1]) >= SHELL_TIMEOUT_SECONDS) {
-                        return new AIToolResult("[readonly] sleep 超过 " + SHELL_TIMEOUT_SECONDS + " 秒必然超时，已拒绝", parameters);
+                        return new AIToolResult("[readonly] sleep 超过 " + SHELL_TIMEOUT_SECONDS
+                                + " 秒必然超时，已拒绝" + READONLY_NOTE, parameters);
                     }
                 } catch (NumberFormatException ignored) {
                 }
@@ -1670,7 +1673,16 @@ public class SystemResourceTool implements AITool {
     }
 
     // ===== shell 拦截模式开关（默认 full：不拦；readonly 恢复旧的命令/路径拦截）=====
-    // ===== shell 拦截模式开关（默认 full：不拦；readonly 恢复旧的命令/路径拦截）=====
+    /**
+     * readonly 拒绝时统一带上的说明（单一写者，别四处各写一句）。
+     *
+     * <p>为什么要写出来：这个黑名单是对命令文本的匹配（lowercase + split），变量替换、别名、
+     * 改名都绕得过去，也不是权限边界 —— 开关本身就能被本工具关掉，App 里没有设置页锁得住。
+     * 所以措辞按"防误操作"讲，并给出下一步，免得模型撞了拒绝就反复重试同一条命令。
+     */
+    private static final String READONLY_NOTE =
+            "（这是防误操作黑名单，不是安全边界：变量替换/别名都能绕过。"
+                    + "确需执行请先向用户说明，再用 system_resource(action=shell_mode, mode=full) 关闭）";
     private static final String PREF_NAME = "system_resource_prefs";
     private static final String PREF_GUARD = "shell_guard_enabled";
 
@@ -1707,7 +1719,11 @@ public class SystemResourceTool implements AITool {
         Map<String, Object> result = new HashMap<>();
         result.put("status", "success");
         result.put("shell_guard", on ? "readonly" : "full");
-        result.put("description", on ? "readonly：拦截危险命令(rm/dd/chmod/kill/mount/su…)与敏感路径(/data/data、/proc、/sys)，sleep 超限直接拒" : "full：不拦截任何命令（默认，用户自己的设备）");
+        result.put("description", on
+                ? "readonly：对命令文本做黑名单匹配（rm/dd/chmod/kill/mount/su…，以及 /data/data、/proc、/sys 等路径），"
+                  + "sleep 超限直接拒。这只是防误操作，不是安全边界：变量替换/别名/改名可绕过，"
+                  + "而且开关本身由本工具切换，App 内没有设置页能锁住"
+                : "full：不拦截任何命令（默认，用户自己的设备）");
         result.put("changed", changed);
         return new AIToolResult(result, parameters);
     }
