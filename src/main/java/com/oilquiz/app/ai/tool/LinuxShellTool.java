@@ -25,7 +25,10 @@ import java.util.Map;
         + "busybox(ash/awk/vi/telnet/tar/gzip…)、openssl(真 TLS)、ssh/scp/sftp/ssh-keygen、curl、aria2c、"
         + "rg(ripgrep)、jq、sqlite3、zstd、zip/unzip、file、tree、ncdu、htop/ps/free、tmux、nano、gawk。"
         + "action=exec 执行命令；action=tools 列出内置工具与版本；action=download 下载 URL 到文件。"
-        + "单条命令 25 秒超时（超时返回已产生的输出）；默认不做任何命令拦截（可用 system_resource 的 shell_mode 开只读）",
+        + "单条命令 25 秒超时（超时返回已产生的输出）；默认不做任何命令拦截（可用 system_resource 的 shell_mode 开只读）。"
+        + "结果含 exit_code/timed_out/truncated：退出码非零按 status=failed 上报，但其中一部分是正常语义"
+        + "（grep/rg 无匹配=1、diff 有差异=1、test 不成立=1），请按 output 判断而不是无脑重试。"
+        + "注意 action=route 的 command 参数是**命令名**（如 curl），不是整条命令",
     category = "system",
     actions = {
         @Action(name = "exec", description = "执行 shell 命令（/system/bin/sh -c，带完整内置工具环境）"),
@@ -36,7 +39,7 @@ import java.util.Map;
     params = {
         @Param(name = "action", type = "string", description = "操作: exec/tools/download/route", required = true),
         @Param(name = "order", type = "string", description = "route 用：路由顺序，如 bskt/stkb/b；reset 恢复默认", required = false),
-        @Param(name = "command", type = "string", description = "要执行的命令（exec 用）", required = false),
+        @Param(name = "command", type = "string", description = "要执行的命令（exec 用）；action=route 时改为填**命令名**（如 curl）", required = false),
         @Param(name = "url", type = "string", description = "下载地址（download 用）", required = false),
         @Param(name = "path", type = "string", description = "保存路径（download 用；缺省存工作区 files/ 并用 URL 文件名）", required = false)
     }
@@ -64,7 +67,7 @@ public class LinuxShellTool implements AITool {
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> descriptions = new HashMap<>();
         descriptions.put("action", "操作: exec(执行命令)/tools(列出内置工具与版本)/download(下载URL到文件)");
-        descriptions.put("command", "要执行的命令（exec 用，如 curl -sI https://example.com | head -3、rg -n TODO /sdcard/Download、jq . f.json）");
+        descriptions.put("command", "要执行的命令（exec 用，如 curl -sI https://example.com | head -3、rg -n TODO /sdcard/Download、jq . f.json）；action=route 时填命令名（如 curl）");
         descriptions.put("url", "下载地址（download 用，https 走系统证书校验）");
         descriptions.put("path", "保存路径（download 用；缺省存工作区 files/ 并用 URL 文件名）");
         descriptions.put("order", "route 用：路由顺序（b=内置 s=系统 k=busybox t=toybox），如 bskt、stkb；reset 恢复默认");

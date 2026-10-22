@@ -55,7 +55,7 @@ import java.util.concurrent.atomic.AtomicReference;
         @Action(name = "list_apps", description = "列出已安装应用"),
         @Action(name = "get_app_info", description = "获取应用信息"),
         @Action(name = "app_control", description = "控制应用：强制停止/清除数据/获取详细信息"),
-        @Action(name = "shell_command", description = "执行Shell命令"),
+        @Action(name = "shell_command", description = "执行Shell命令（与 linux_shell(action=exec) 同一套环境）。结果含 exit_code/timed_out/truncated；退出码非零时 status=failed（grep 无匹配=1、diff 有差异=1 属正常语义，别当工具坏了）"),
         @Action(name = "ssh_exec", description = "SSH 连接任意远程主机并执行单条命令（JSch 纯 Java 实现，不依赖本地 Termux/内置二进制；可连电脑、云服务器、路由器、NAS 等任何开 sshd 的机器）。支持密钥免密或密码认证（JSch 原生，开箱即用）。注意：① 非交互，单条命令执行完即断开，25 秒超时；② 默认跳过主机指纹校验（StrictHostKeyChecking=no）方便首次连接；③ 参数 host=目标IP/域名、user=用户名、command=远程命令、port=端口(默认22)、password=密码、key_file=私钥路径"),
         @Action(name = "termux_exec", description = "在 Termux 中执行命令（完整 Linux 环境，可 apt/pip/ssh/git 等；需已装 Termux 并授予 RUN_COMMAND 权限）。注意：① 本工具同一时刻只执行一条命令，多条命令必须串行调用，不要并发（并发会串输出）；② 用 proot-distro login ubuntu 进容器后，容器内裸 git/gcc/make/cmake 等命令可能命中 Termux 的二进制（PATH 被继承），简单容器命令会被自动注入容器优先 PATH，复杂命令请自行用绝对路径 /usr/bin/git）"),
         @Action(name = "http_download", description = "下载 URL 到本地（App 内 okhttp 实现，https 走系统证书校验，比 shell 里的 wget 更可靠）"),
@@ -1078,7 +1078,7 @@ public class SystemResourceTool implements AITool {
                 }
                 case "clear_data": {
                     // 使用 pm clear 命令清除应用数据
-                    String output = executeShell("pm clear " + packageName);
+                    String output = runShell("pm clear " + packageName).output;
                     Map<String, Object> result = new HashMap<>();
                     if (output != null && output.contains("Success")) {
                         result.put("status", "success");
@@ -1184,23 +1184,53 @@ public class SystemResourceTool implements AITool {
             }
         }
         try {
-            String output = executeShell(command);
-            boolean timedOut = output != null && output.startsWith("(命令执行超时");
-            
+            ShellOutcome outcome = runShell(command);
+            Integer exitCode = outcome.exitCode;
+
             Map<String, Object> result = new HashMap<>();
-            result.put("status", timedOut ? "timeout" : "success");
+            // 状态判定与 termux_exec / ssh_exec 同口径：timeout → 非零退出 failed → 其余 success。
+            // 不再从输出文本里猜（旧代码用 output.startsWith("(命令执行超时") 当哨兵）。
+            String status;
+            if (outcome.timedOut) {
+                status = "timeout";
+            } else if (outcome.error != null || (exitCode != null && exitCode != 0)) {
+                status = "failed";
+            } else {
+                status = "success";
+            }
+            result.put("status", status);
             result.put("command", command);
-            result.put("output", output != null ? output : "(无输出)");
+            result.put("output", outcome.output != null ? outcome.output : "(无输出)");
+            // 取不到退出码（超时强杀 / 截断主动杀 / 进程没起来）时省略该键，
+            // 而不是填 -1/0 —— 让"没有码"和"码是 0"在模型眼里是两件事。
+            if (exitCode != null) {
+                result.put("exit_code", exitCode);
+            }
+            if (outcome.timedOut) {
+                result.put("timed_out", true);
+            }
+            if (outcome.truncated) {
+                result.put("truncated", true);
+            }
             String binDir = ensureBusyboxBinDir();
             if (binDir != null) {
-                result.put("linux_toolkit", "内置 busybox 在 PATH 末尾，另有 " + binDir + "（环境变量 BUSYBOX_BIN_DIR）："
+                result.put("linux_toolkit", "内置目录在 PATH 最前（命令名先过路由器：内置→系统→busybox→toybox，坏了自动回退），另有 " + binDir + "（环境变量 BUSYBOX_BIN_DIR）："
                         + "ash/awk/vi/nc/tar/gzip 等可直接用；wget/curl 已换成包装脚本，"
                         + "https 由 App 内下载服务(127.0.0.1)代理，可直接 wget -O 文件 URL");
             }
-            if (timedOut) {
-                result.put("hint", "命令未在 " + SHELL_TIMEOUT_SECONDS + " 秒内结束，已被强制终止。"
+            if (outcome.timedOut) {
+                result.put("hint", "命令未在 " + SHELL_TIMEOUT_SECONDS + " 秒内结束，已终止该 shell 进程（子进程未必随之退出，"
+                        + "需要后台长跑请用 tmux 托管）。"
                         + "请改用能自行结束的写法重试：如加 timeout 5 前缀、限制输出条数（head -n 20）、"
                         + "或改用 dumpsys/pm 等一次性查询命令；不要在 shell 里写 sleep/长轮询。");
+            } else if (outcome.truncated) {
+                result.put("hint", "输出超过 " + MAX_SHELL_OUTPUT_CHARS + " 字符，已截断并终止进程。"
+                        + "请用 head -n / tail -n / rg --max-count 限流，或先写文件再用 file_reader 读。");
+            } else if (exitCode != null && exitCode != 0) {
+                result.put("hint", "退出码 " + exitCode + "（非零）。其中一部分是正常语义而非工具坏了："
+                        + "grep/rg 无匹配=1、diff 有差异=1、test 条件不成立=1、curl 拒绝=22、找不到文件=2；"
+                        + "127 表示命令名不在内置/系统 PATH 里（可用 exec 跑 command -v 命令名 确认）；"
+                        + "请按 output 判断下一步，不要默认重试同一条命令。");
             }
             return new AIToolResult(result, parameters);
         } catch (Exception e) {
@@ -1410,39 +1440,21 @@ public class SystemResourceTool implements AITool {
                 sb.append("...(剩余 ").append(names.length - done).append(" 个工具跳过：列举超时)").append('\n');
                 break;
             }
-            String out = t.shellCapture(n + " --version 2>&1 | head -1", 3);
-            sb.append(n).append(": ").append(out == null || out.isEmpty() ? "(无)" : out).append('\n');
+            // 必须走 runShell：只有它注入内置工具目录（PATH 最前 + 命令路由器）。
+            // 以前的 shellCapture 用裸 ProcessBuilder，探的是系统 PATH，
+            // 于是"列出内置工具与版本"这个动作把 jq/rg/sqlite3/busybox 全报成找不到 —— 而工具描述
+            // 和 route 的报错提示都在引导模型用它。单条探测限 3 秒，整体 12 秒预算，撞不到框架超时。
+            ShellOutcome probe = t.runShell(n + " --version 2>&1 | head -1", 3);
+            String out = probe.output == null || probe.output.isEmpty() || "(无输出)".equals(probe.output)
+                    ? "(无)" : probe.output;
+            if (probe.exitCode != null && probe.exitCode == 127) {
+                out = "(无)"; // 命令名不在 PATH 里：等价于"这个内置工具没打包"，不必把 sh 的报错原文塞进清单
+            }
+            sb.append(n).append(": ").append(out).append('\n');
             done++;
         }
         result.put("tools", sb.toString().trim());
         return new AIToolResult(result, parameters);
-    }
-
-    /** 同步跑一条命令并取输出（内部用） */
-    private String shellCapture(String command, long timeoutSec) {
-        Process p = null;
-        try {
-            p = new ProcessBuilder("/system/bin/sh", "-c", command).redirectErrorStream(true).start();
-            p.getOutputStream().close();
-            BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), "UTF-8"));
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = r.readLine()) != null) {
-                sb.append(line);
-                if (sb.length() > 200) {
-                    break;
-                }
-            }
-            if (!p.waitFor(timeoutSec, TimeUnit.SECONDS)) {
-                p.destroyForcibly();
-            }
-            return sb.toString().trim();
-        } catch (Exception e) {
-            if (p != null) {
-                p.destroyForcibly();
-            }
-            return "";
-        }
     }
 
     /** 按 libtoolkit_manifest.so 清单解包依赖库并把工具软链接进 PATH */
@@ -1946,9 +1958,46 @@ public class SystemResourceTool implements AITool {
     }
 
     /**
-     * 执行 Shell 命令并返回输出（真正带超时，防止命令挂起永久阻塞 Agent）。
+     * 一次 shell 执行的结构化结果 —— shell 状态判定的<b>唯一产出方</b>。
      *
-     * <p>旧实现有两个致命问题：
+     * <p>为什么不再返回 String：旧实现把退出码整个丢掉，调用方只能靠
+     * {@code output.startsWith("(命令执行超时")} 这种<b>字符串哨兵</b>猜状态 ——
+     * 命令自己 echo 这句就误判成 timeout，进程启动异常回的 "执行失败: xxx" 又被标成
+     * success，而 curl 404（exit 22）、命令不存在（127）、文件不存在（1）在模型眼里
+     * 全是 {@code status:"success"}，只能把错误输出当事实继续往下推。
+     *
+     * <p>同文件的 {@code termux_exec}、{@code ssh_exec} 一直上报 exit_code 并据此判
+     * success/failed；本类把本地 shell 对齐到<b>同一口径</b>，避免"三个 shell 入口三套
+     * 状态语义"这种并行写者漂移。
+     */
+    private static final class ShellOutcome {
+        /** 原样输出（含超时/截断的可读标记，供模型阅读） */
+        final String output;
+        /** 退出码；被强杀（超时、截断）或进程没起来时为 null —— 调用方据此<b>省略</b> exit_code，
+         *  不用 -1/0 冒充，免得模型把"取不到"读成"失败码 -1" */
+        final Integer exitCode;
+        final boolean timedOut;
+        final boolean truncated;
+        /** 非 null 表示进程未能正常执行完（启动失败等），语义上必为失败 */
+        final String error;
+
+        ShellOutcome(String output, Integer exitCode, boolean timedOut, boolean truncated, String error) {
+            this.output = output;
+            this.exitCode = exitCode;
+            this.timedOut = timedOut;
+            this.truncated = truncated;
+            this.error = error;
+        }
+
+        static ShellOutcome failure(String message) {
+            return new ShellOutcome(message, null, false, false, message);
+        }
+    }
+
+    /**
+     * 执行 Shell 命令并返回结构化结果（真正带超时，防止命令挂起永久阻塞 Agent）。
+     *
+     * <p>历史上有三个致命问题，都在这里收掉：
      * <ol>
      *   <li>在主线程里 {@code while ((line = reader.readLine()) != null)} 读输出，
      *       一旦命令挂起（如 {@code sleep 30}、等待 stdin 的交互命令），readLine() 永远不返回，
@@ -1956,16 +2005,28 @@ public class SystemResourceTool implements AITool {
      *       返回一个空的 "工具执行失败: null"。</li>
      *   <li>把 {@code command + " 2>&1"} 拼进 sh -c 的字符串，命令末尾若带注释或换行会破坏语义，
      *       并且多套了一层 shell 解析。</li>
+     *   <li>退出码没有出口（见 {@link ShellOutcome}），调用方只能靠输出文本猜成败。</li>
      * </ol>
-     * 现在改为：ProcessBuilder + redirectErrorStream（原生合并 stderr）+ 关闭子进程 stdin
+     * 现在：ProcessBuilder + redirectErrorStream（原生合并 stderr）+ 关闭子进程 stdin
      * （交互命令立即得到 EOF 而不是干等）+ 独立读取线程收割输出 + 主线程 waitFor 限时 +
-     * 超时 destroyForcibly，并保留已产生的部分输出。
+     * 超时 destroyForcibly 并保留已产生的部分输出 + 读取线程取退出码。
      */
-    private String executeShell(String command) {
+    private ShellOutcome runShell(String command) {
+        return runShell(command, SHELL_TIMEOUT_SECONDS);
+    }
+
+    /**
+     * @param timeoutSeconds 本次执行的超时（秒）。默认走 {@code SHELL_TIMEOUT_SECONDS}；
+     *  批量探测类调用（{@link #toolkitStatus}）必须自己给一个小值，否则单条探测会一路占着
+     *  25 秒，把整次调用拖过框架超时 —— 那正是 {@code shellCapture} 老实现被废弃的原因：
+     *  它没有内置工具链的环境，列出来的全是系统 PATH 的东西。
+     */
+    private ShellOutcome runShell(String command, long timeoutSeconds) {
         Process process = null;
         Thread readerThread = null;
         final StringBuilder output = new StringBuilder();
         final boolean[] truncated = new boolean[1];
+        final Integer[] exitCode = new Integer[1];
         final BufferedReader[] readerRef = new BufferedReader[1];
         try {
             ProcessBuilder pb = new ProcessBuilder("/system/bin/sh", "-c", command);
@@ -2034,8 +2095,14 @@ public class SystemResourceTool implements AITool {
                             synchronized (output) {
                                 output.append(line).append("\n");
                                 if (output.length() > MAX_SHELL_OUTPUT_CHARS) {
-                                    // 输出超限（如 top、cat 大文件）：停止读并终止进程
+                                    // 输出超限（如 top、cat 大文件）：停止读取并立即终止进程。
+                                    // 只 break 不杀的话，子进程会阻塞在写满的管道上直到 25s 超时，
+                                    // 整次调用白等 —— 截断本身就是"够了，别再产出了"的信号。
                                     truncated[0] = true;
+                                    try {
+                                        proc.destroyForcibly();
+                                    } catch (Exception ignored) {
+                                    }
                                     break;
                                 }
                             }
@@ -2048,8 +2115,10 @@ public class SystemResourceTool implements AITool {
             readerThread.setDaemon(true);
             readerThread.start();
 
-            if (!process.waitFor(SHELL_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                // 真超时：强杀进程，等待读取线程收尾，返回已产生的部分输出
+            if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
+                // 真超时：强杀进程，等待读取线程收尾，返回已产生的部分输出。
+                // 注意 destroyForcibly 只杀 /system/bin/sh 本身，命令树里的子孙进程可能存活
+                // （这也是"长任务用 tmux 托管"能成立的原因），所以这里不谎称"进程树已清理"。
                 process.destroyForcibly();
                 process.waitFor(2, TimeUnit.SECONDS);
                 if (readerThread != null) {
@@ -2057,11 +2126,12 @@ public class SystemResourceTool implements AITool {
                 }
                 String partial = snapshot(output);
                 StringBuilder sb = new StringBuilder();
-                sb.append("(命令执行超时(").append(SHELL_TIMEOUT_SECONDS).append("s)，已终止)");
+                sb.append("(命令执行超时(").append(timeoutSeconds).append("s)，已终止)");
                 if (!partial.isEmpty()) {
                     sb.append("\n--- 超时前已产生的输出 ---\n").append(partial);
                 }
-                return sb.toString();
+                // 退出码取不到（进程是被强杀的），如实留 null 让调用方省略 exit_code
+                return new ShellOutcome(sb.toString(), null, true, truncated[0], null);
             }
 
             // 进程已退出：给它 1 秒把管道里剩余内容读完，避免丢尾部输出
@@ -2069,16 +2139,26 @@ public class SystemResourceTool implements AITool {
                 readerThread.join(1000);
             }
 
+            // 退出码在这里取：waitFor 已返回 true，进程确实结束了。
+            // 截断时是我们主动杀的，那个码没有意义 → 留 null，由 truncated 标记说明一切。
+            if (!truncated[0]) {
+                try {
+                    exitCode[0] = process.exitValue();
+                } catch (Exception ignored) {
+                }
+            }
+
             String out = snapshot(output);
             if (truncated[0]) {
-                out = out + "\n...(输出超过 " + MAX_SHELL_OUTPUT_CHARS + " 字符已截断)";
+                out = out + "\n...(输出超过 " + MAX_SHELL_OUTPUT_CHARS + " 字符已截断，进程已终止)";
             }
-            return out.isEmpty() ? "(无输出)" : out;
+            return new ShellOutcome(out.isEmpty() ? "(无输出)" : out, exitCode[0], false, truncated[0], null);
         } catch (Exception e) {
             if (process != null) {
                 process.destroyForcibly();
             }
-            return "执行失败: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            return ShellOutcome.failure("执行失败: "
+                    + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
         } finally {
             try {
                 if (readerRef[0] != null) {

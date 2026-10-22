@@ -13,7 +13,8 @@ public abstract class BaseAITool implements AITool {
     /** 内置 Linux 工具箱说明：注解(注解值必须是编译期常量)与工具描述共用一份文案 */
     public static final String TOOLKIT_HINT = "shell_command 已内置 busybox 1.38（Termux 官方 bionic 构建，无需安装 Termux、无需任何权限）："
             + "ash(完整 Linux shell)/awk/vi/telnet/tar/gzip/md5sum/base64/httpd/… 400+ 命令可直接按名字调用（wget/curl 已支持 https，走 App 内下载服务）；"
-            + "系统自带的 toybox 命令优先（sed/grep/find/sort/head 等），busybox 在 PATH 末尾补足系统没有的，"
+            + "内置目录在 shell 的 PATH 最前，但每个命令名都先过命令路由器（默认顺序 内置→系统→busybox→toybox），"
+            + "某个实现不可用会自动回退，不会把系统更好用的命令劫持成会崩的版本（顺序可用 linux_shell(action=route) 改）；"
             + "也可用 $BUSYBOX_BIN_DIR 下的绝对路径调用。Python 子进程同样可用（js_execute 在 WebView 里没有子进程能力，用不了这些命令）（App 启动时已把 PATH/LD_LIBRARY_PATH 注入，"
             + "python_execute 里 subprocess 直接调 busybox/sed 等即可）。复杂逻辑建议写成脚本放工作区再执行（sh /路径/脚本.sh）："
             + "Android 禁止执行工作区/数据目录里的二进制文件（Permission denied），但脚本由解释器读取，不受限";
