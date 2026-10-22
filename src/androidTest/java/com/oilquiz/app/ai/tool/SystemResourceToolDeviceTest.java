@@ -239,7 +239,11 @@ public class SystemResourceToolDeviceTest {
         AIToolResult t = shell.execute(p);
         String tools = String.valueOf(((java.util.Map<?, ?>) t.getResult()).get("tools")).replace('\n', '|');
         System.out.println("[EXP] linux_shell tools => " + tools.substring(0, Math.min(400, tools.length())));
-        assertTrue("tools 应列出内置工具", t.isSuccess() && tools.contains("openssl"));
+        // 这条断言以前只写 tools.contains("openssl") —— 那是每行的**名字标签**，永远成立，
+        // 所以 action=tools 走裸 ProcessBuilder（探系统 PATH、内置 jq/rg/sqlite3 全报找不到）时它照样绿。
+        // 现在钉住"版本号真探到了"，即 action=tools 必须走注入内置目录的那条执行路径。
+        assertTrue("tools 应列出内置工具的真实版本: " + tools,
+                t.isSuccess() && tools.contains("jq-") && tools.contains("ripgrep"));
     }
 
     /** Python 也能用同一套内置工具（android_shell 模块） */

@@ -226,10 +226,13 @@ public class TermuxEnvSetupDeviceTest {
         Context themed = new android.view.ContextThemeWrapper(base, base.getApplicationInfo().theme);
         android.view.View root = android.view.LayoutInflater.from(themed)
                 .inflate(com.oilquiz.app.R.layout.activity_termux_env_setup, null);
+        // 095545df（删内置 SSH 终端页面、瘦身 33MB）把这几个按钮换掉了，测试当时没跟着改，
+        // 于是 compileDebugAndroidTestJavaWithJavac 一直红着 —— 任何真机测试都跑不起来。
+        // 这里按当前布局的真实控件重新钉住（不是放宽断言，是把已删的控件名换回存在的）。
         int[] ids = {com.oilquiz.app.R.id.env_status, com.oilquiz.app.R.id.env_log,
-                com.oilquiz.app.R.id.btn_install_termux, com.oilquiz.app.R.id.btn_export_rootfs,
-                com.oilquiz.app.R.id.btn_run_setup, com.oilquiz.app.R.id.btn_grant,
-                com.oilquiz.app.R.id.btn_fix_channel, com.oilquiz.app.R.id.btn_copy_cmd};
+                com.oilquiz.app.R.id.btn_open_termux, com.oilquiz.app.R.id.btn_open_ubuntu,
+                com.oilquiz.app.R.id.btn_enable_ssh, com.oilquiz.app.R.id.btn_refresh,
+                com.oilquiz.app.R.id.btn_view_logs, com.oilquiz.app.R.id.btn_copy_cmd};
         StringBuilder missing = new StringBuilder();
         for (int id : ids) {
             if (root.findViewById(id) == null) {
