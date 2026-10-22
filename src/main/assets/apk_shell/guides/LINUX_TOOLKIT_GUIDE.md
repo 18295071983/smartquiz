@@ -1,6 +1,8 @@
 # 内置 Linux 命令行工具箱指南（linux_shell）
 
-> 版本：v1.0 · 随 App 打包，**无需安装 Termux、无需任何权限**
+> 版本：v1.1 · 随 App 打包，**无需安装 Termux、无需任何权限**
+> v1.1 变更：结果口径改为结构化（`exit_code` / `status` / `timed_out` / `truncated`），
+> 超时与输出超限改为**连同子进程一起终止**，`readonly` 档按"防误操作黑名单"重新定位。
 > 相关文件：`files/使用速查表.md`（速查）、`files/核心工具速查.md`（工具清单）
 
 ## 一、为什么要有它
@@ -73,7 +75,7 @@ aria2c -x8 -s8 -d $HOME -o big.zip "https://example.com/big.zip"
 echo | openssl s_client -connect www.baidu.com:443 -servername www.baidu.com 2>&1 | head -5
 # SSH（注意 Termux 默认 ~/.ssh 路径不可写，用 -o 指定）
 ssh -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o IdentityFile=$HOME/.ssh/id_ed25519 -p 443 git@ssh.github.com
-# 长任务放 tmux，避免被工具超时打断
+# 长任务放 tmux：tmux server 会脱离本命令的进程树，超时强杀杀不到它
 tmux new-session -d -s job 'aria2c -d $HOME -o f.iso URL'
 ```
 
@@ -81,8 +83,11 @@ tmux new-session -d -s job 'aria2c -d $HOME -o f.iso URL'
 
 | 项 | 说明 |
 |---|---|
-| 单条命令超时 | **25 秒**（框架上限 30s）；超时会强杀并返回已产生的输出。长任务用 `tmux`/分段 |
-| 输出上限 | 20 万字符，超出截断 |
+| 单条命令超时 | **25 秒**（框架默认 30s，这里留 5s 余量让自己的超时信息先到）。超时返回已产生的输出并带 `timed_out: true`，同时**连同该 shell 的子进程一起终止** —— 用 `&` 丢在后面的任务也会结束，要跨调用长跑请用 `tmux`（server 已脱离本命令的进程树，杀不到）。超时那次取不到退出码，结果里**没有** `exit_code` |
+| 输出上限 | **2 万字符**；超限立即终止进程树并标 `truncated: true`（不是继续读到超时）。请改用 `head -n` / `rg --max-count` 限流，或先写文件再用 `file_reader` 读 |
+| 结果字段 | `status`（`success`/`failed`/`timeout`）、`exit_code`（取不到时省略该键，不填 -1 冒充）、`timed_out` / `truncated`（只在真发生时出现）、`output`、`hint` |
+| 退出码非零 | 判为 `status: "failed"`，但其中一部分是**正常语义**不是工具坏了：`grep`/`rg` 无匹配=1、`diff` 有差异=1、`test` 条件不成立=1、`curl` 拒绝=22、文件不存在=2、命令名不在 PATH=127。请按 `output` 决定下一步，别默认重试同一条命令 |
+| 命令拦截 | 默认 `full`＝不拦截（用户自己的设备）。`system_resource(action=shell_mode, mode=readonly)` 开的是**防误操作黑名单**：按命令文本匹配，变量替换/别名/改名都能绕；而且这个开关本身也能被工具切换，App 里没有设置页能锁住它——别把它当权限边界依赖 |
 | 脚本 vs 二进制 | 脚本放工作区用 `sh 路径/脚本.sh` 跑没问题；**二进制不能**（见第一节） |
 | 公共目录 | `/sdcard/Download/OilQuiz/...` 是 FUSE **noexec**，只能当数据/脚本仓库 |
 | 同名命令 | 路由默认先内置；若某命令在系统里有更好实现，用 `route` 调成 `stkb` |

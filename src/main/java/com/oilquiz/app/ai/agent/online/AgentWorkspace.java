@@ -114,7 +114,10 @@ public class AgentWorkspace {
         ensureDirs();
         // 工作区长期文件区生成"创建工具指南"与"使用速查表"（纯静态内容，无外部依赖，幂等）
         ensureGuideFiles();
-        // 内置 APK 壳指导文档（HTML 设计规则 + 壳源码指导）：删除后工作区重建时从 assets 恢复
+        // 内置 APK 壳指导文档（HTML 设计规则 + 壳源码指导）：从 assets 恢复。
+        // 注意语义是<b>每次构造都全量重写</b>（整份读进内存后无条件覆盖），不是只在缺失时拷 ——
+        // 所以改完 assets/apk_shell/guides/*.md 只要重装并重启 App，工作区那份就会跟着更新；
+        // 也意味着用户手改这几份内置文档会被下次启动覆盖（内置文档归 App 所有，见 BUILTIN_GUIDE_NAMES）。
         ensureBuiltinGuideAssets();
         // 公共↔私有切换时迁移另一侧的用户文件（内置指南/busybox 已就绪后再判定，避免误删）
         migrateFromOtherSide();

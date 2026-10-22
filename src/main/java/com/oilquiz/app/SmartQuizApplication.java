@@ -139,8 +139,13 @@ public class SmartQuizApplication extends Application {
         } catch (Throwable ignored) {
         }
 
-        // 预热 Agent 工作区（构造单例并生成内置指南文件：使用速查表/工具创建指南/
-        // HTML_DESIGN_RULES.md/APK_SOURCE_GUIDE.md；被删除后应用启动自动重建；无服务/权限副作用）
+        // 预热 Agent 工作区（构造单例即刷新内置文档，两类都无条件重写、不是只在缺失时拷）：
+        // ① 代码生成的三份 —— 工具创建指南.md / 使用速查表.md / 核心工具速查.md；
+        // ② assets/apk_shell/guides/ 下自动发现的全部文件（LINUX_TOOLKIT_GUIDE.md、
+        //    MEDIA_TOOLKIT_GUIDE.md、HTML_DESIGN_RULES.md、APK_SOURCE_GUIDE.md 等，
+        //    新增只要丢进目录、不用改代码）。
+        // 因此模型读到的工作区说明永远跟着 APK 里的内容；提示词若引用某份文档而 assets 里没有，
+        // 模型就会"照指引去找一个不存在的文件"—— 加引用时记得同步加文档。无服务/权限副作用。
         try {
             com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(this);
         } catch (Throwable ignored) {
