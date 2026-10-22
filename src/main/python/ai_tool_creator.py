@@ -25,6 +25,9 @@ class ToolSpecification:
     examples: List[str]
     category: str = "general"
     version: str = "1.0.0"
+    # 落盘路径由 _save_tool 填：Java 侧要能把它回给模型，
+    # 否则"创建完看不见逻辑、也找不到文件"（ai_create_tool 之前连 show 动作都没有）。
+    file: str = ""
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -949,6 +952,8 @@ result = {{
         """保存工具"""
         tool_file = os.path.join(self.tools_dir, f"{spec.name}.py")
         tool_meta = os.path.join(self.tools_dir, f"{spec.name}.json")
+        # 回填路径：ToolSpecification.to_dict() 走 asdict，Java 侧因此能拿到它
+        spec.file = tool_file
         
         with open(tool_file, 'w', encoding='utf-8') as f:
             f.write(spec.code)

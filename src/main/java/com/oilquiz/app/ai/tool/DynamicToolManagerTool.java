@@ -177,8 +177,14 @@ public class DynamicToolManagerTool implements AITool {
                 }
             }
             
-            if (logic != null && !logic.isEmpty()) {
-                result.append("执行逻辑: 已定义\n");
+            int logicLines = CodeSnippet.lineCount(logic);
+            if (logicLines > 0) {
+                // 与 ai_create_tool 同口径：创建出口只给摘要，全文让模型用 show 取
+                //（这条工具本来就有 show 动作，之前却没在创建结果里告诉模型去哪儿读）
+                result.append("执行逻辑: 共 ").append(logicLines).append(" 行\n");
+                result.append(CodeSnippet.preview(logic, 10));
+                result.append("看完整逻辑: create_dynamic_tool(action=show, tool_name=")
+                        .append(toolName).append(")\n");
             } else {
                 result.append("执行逻辑: 未定义(将使用默认逻辑)\n");
             }

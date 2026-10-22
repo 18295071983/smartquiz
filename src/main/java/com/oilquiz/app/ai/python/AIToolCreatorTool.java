@@ -6,6 +6,7 @@ import android.util.Log;
 import com.oilquiz.app.ai.tool.AITool;
 import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.AIToolManager;
+import com.oilquiz.app.ai.tool.CodeSnippet;
 import com.oilquiz.app.ai.tool.DynamicAITool;
 import com.oilquiz.app.ai.tool.annotation.Action;
 import com.oilquiz.app.ai.tool.annotation.Param;
@@ -18,14 +19,17 @@ import java.util.Map;
 
 @Tool(
     value = "ai_create_tool",
-    description = "AI创建工具，使用AI自动生成新工具",
+    description = "AI创建工具，使用AI自动生成新工具。创建成功后逻辑会落盘，"
+        + "用 action=show(tool_name=...) 读回完整定义与执行逻辑，"
+        + "action=list 只给元信息（不含逻辑）。",
     category = "tool_creation",
     aliases = {"create_tool", "tool_creator", "创建工具"},
     actions = {
         @Action(name = "analyze", description = "分析需求是否需要新工具"),
         @Action(name = "create", description = "创建新工具"),
         @Action(name = "execute", description = "执行工具"),
-        @Action(name = "list", description = "列出已创建的工具"),
+        @Action(name = "show", description = "查看已创建工具的完整定义与执行逻辑（含落盘路径）"),
+        @Action(name = "list", description = "列出已创建的工具（只有元信息，看逻辑用 show）"),
         @Action(name = "delete", description = "删除工具")
     },
     params = {
@@ -100,13 +104,17 @@ public class AIToolCreatorTool implements AITool {
                     return handleCreate(parameters);
                 case "execute":
                     return handleExecute(parameters);
+                case "show":
+                case "get":
+                    return handleShow(parameters);
                 case "list":
                     return handleList(parameters);
                 case "delete":
                 case "remove":
                     return handleDelete(parameters);
                 default:
-                    return createErrorResult("未知操作类型: " + action + "，支持的操作：analyze, create, execute, list, delete");
+                    return createErrorResult("未知操作类型: " + action
+                            + "，支持的操作：analyze, create, execute, show, list, delete");
             }
             
         } catch (Exception e) {
@@ -247,13 +255,33 @@ public class AIToolCreatorTool implements AITool {
                 }
             }
             
-            result.append("\n🎉 工具 ").append(toolName).append(" 已注册并可以使用！");
+            // 执行逻辑进模型通道，但只给摘要：创建时就把几十行源码灌进上下文是把 token
+            // 花在模型没要求的地方，全文留给它自己 action=show 读。
+            String createdCode = creationResult.spec != null ? creationResult.spec.code : null;
+            int codeLines = CodeSnippet.lineCount(createdCode);
+            if (codeLines > 0) {
+                result.append("\n执行逻辑: 共 ").append(codeLines).append(" 行\n");
+                result.append(CodeSnippet.preview(createdCode, 10));
+            }
+            String createdFile = creationResult.spec != null ? creationResult.spec.filePath : null;
+            if (createdFile != null && !createdFile.isEmpty()) {
+                result.append("文件: ").append(createdFile).append("\n");
+            }
+
+            result.append("\n🎉 工具 ").append(toolName).append(" 已注册并可以使用！")
+                    .append("\n看完整逻辑: ai_create_tool(action=show, tool_name=").append(toolName).append(")");
             
             Map<String, Object> additionalInfo = new HashMap<>();
             additionalInfo.put("tool_name", toolName);
             additionalInfo.put("success", true);
             additionalInfo.put("attempts", creationResult.attempts);
             additionalInfo.put("registered", true);
+            if (codeLines > 0) {
+                additionalInfo.put("code_lines", codeLines);
+            }
+            if (createdFile != null && !createdFile.isEmpty()) {
+                additionalInfo.put("file", createdFile);
+            }
             
             if (creationResult.spec != null) {
                 additionalInfo.put("code", creationResult.spec.code);
@@ -351,6 +379,67 @@ public class AIToolCreatorTool implements AITool {
                 additionalInfo, false);
     }
     
+    /**
+     * 读回一个已创建工具的完整定义（含执行逻辑全文与落盘路径）。
+     *
+     * <p>补这条动作的原因：原先本工具只有 analyze/create/execute/list/delete，而 {@code list}
+     * 只回元信息 —— 工具一旦创建，模型就再也看不见自己那份逻辑，改不动也无从确认注册时
+     * 到底存了什么代码，只能凭记忆重新 create 覆盖（盲改）。Python 侧的 {@code get_tool}
+     * 早就连 code 带 file 一起返回，只是 Java 一直没接。
+     *
+     * <p>全文只在这个动作下输出：创建出口给的是摘要，模型主动要才付这份 token。
+     */
+    private AIToolResult handleShow(Map<String, Object> parameters) {
+        String toolName = getStringParam(parameters, "tool_name", null);
+        if (toolName == null || toolName.trim().isEmpty()) {
+            return createErrorResult("缺少参数: tool_name（要查看哪个已创建的工具？）");
+        }
+
+        AIToolCreatorManager.ToolInfo info = creatorManager.getToolInfo(toolName.trim());
+        if (info == null) {
+            return createErrorResult("找不到已创建的工具: " + toolName
+                    + "（用 action=list 看现有工具；注意 list 只含 ai_create_tool 创建的那批）");
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("🔧 工具定义: ").append(info.name).append("\n\n");
+        if (info.description != null && !info.description.isEmpty()) {
+            sb.append("描述: ").append(info.description).append("\n");
+        }
+        if (info.category != null && !info.category.isEmpty()) {
+            sb.append("分类: ").append(info.category).append("\n");
+        }
+        if (info.version != null && !info.version.isEmpty()) {
+            sb.append("版本: ").append(info.version).append("\n");
+        }
+        if (info.parameters != null && !info.parameters.isEmpty()) {
+            sb.append("参数定义:\n");
+            for (Map.Entry<String, String> entry : info.parameters.entrySet()) {
+                sb.append("  - ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
+            }
+        }
+        int lines = CodeSnippet.lineCount(info.code);
+        sb.append("\n执行逻辑: 共 ").append(lines).append(" 行\n");
+        if (info.filePath != null && !info.filePath.isEmpty()) {
+            sb.append("文件: ").append(info.filePath).append("\n");
+        }
+        sb.append("=== 代码 ===\n");
+        sb.append(info.code == null || info.code.isEmpty() ? "(没读到代码文件，可能已被删除)" : info.code);
+
+        Map<String, Object> additionalInfo = new HashMap<>();
+        additionalInfo.put("tool_name", info.name);
+        additionalInfo.put("action", "show");
+        additionalInfo.put("code_lines", lines);
+        additionalInfo.put("registered", true);
+        if (info.filePath != null && !info.filePath.isEmpty()) {
+            additionalInfo.put("file", info.filePath);
+        }
+        if (info.code != null && !info.code.isEmpty()) {
+            additionalInfo.put("code", info.code);
+        }
+        return AIToolResult.success(sb.toString(), additionalInfo);
+    }
+
     private AIToolResult handleList(Map<String, Object> parameters) {
         // 统一列 AIToolManager 的全部动态工具（含 ai_create_tool 与 create_dynamic_tool 创建的），
         // 避免只看 Python 侧导致清单不完整

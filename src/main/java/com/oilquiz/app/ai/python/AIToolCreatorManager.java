@@ -246,6 +246,11 @@ public class AIToolCreatorManager {
             if (versionObj != null) {
                 spec.version = versionObj.toString();
             }
+
+            PyObject fileObj = pySpec.get("file");
+            if (fileObj != null) {
+                spec.filePath = fileObj.toString();
+            }
             
             PyObject paramsObj = pySpec.get("parameters");
             if (paramsObj != null) {
@@ -290,6 +295,38 @@ public class AIToolCreatorManager {
         return tools;
     }
     
+    /**
+     * 读回单个已创建工具的完整定义（含执行逻辑全文与落盘路径）。
+     *
+     * <p>为什么要单独接这条：{@code ai_create_tool} 原本只有 analyze/create/execute/list/delete，
+     * 而 {@code list_tools} 只回元信息 —— 工具一旦创建，模型就再也看不见自己那份逻辑，
+     * 后续只能凭记忆盲改。Python 侧的 {@code get_tool} 早就把 code 与 file 一起返回了，
+     * 只是 Java 从没接过来。
+     *
+     * @return 找不到该工具时返回 null
+     */
+    public ToolInfo getToolInfo(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            return null;
+        }
+        if (!initialized) {
+            if (!initialize()) {
+                return null;
+            }
+        }
+        try {
+            PyObject toolObj = creator.callAttr("get_tool", name.trim());
+            if (toolObj == null) {
+                return null;
+            }
+            ToolInfo info = parseToolInfo(toolObj);
+            return info.name == null || info.name.isEmpty() ? null : info;
+        } catch (Exception e) {
+            Log.e(TAG, "读取动态工具定义失败(" + name + "): " + e.getMessage(), e);
+            return null;
+        }
+    }
+
     private ToolInfo parseToolInfo(PyObject pyTool) {
         ToolInfo info = new ToolInfo();
         
@@ -312,6 +349,17 @@ public class AIToolCreatorManager {
             PyObject versionObj = pyTool.get("version");
             if (versionObj != null) {
                 info.version = versionObj.toString();
+            }
+
+            // list_tools 的条目里没有这两项（Python 侧 list_tools 只回元信息），
+            // get_tool 会补上 —— 缺键时保持 null，调用方据此区分。
+            PyObject fileObj = pyTool.get("file");
+            if (fileObj != null) {
+                info.filePath = fileObj.toString();
+            }
+            PyObject codeObj = pyTool.get("code");
+            if (codeObj != null) {
+                info.code = codeObj.toString();
             }
             
             PyObject paramsObj = pyTool.get("parameters");
@@ -485,6 +533,8 @@ public class AIToolCreatorManager {
         public String code;
         public String category;
         public String version;
+        /** 落盘路径（<work_dir>/ai_tools/<name>.py）；创建成功后由 Python 侧 _save_tool 回填 */
+        public String filePath;
         
         public ToolSpec() {
             this.parameters = new HashMap<>();
@@ -499,6 +549,9 @@ public class AIToolCreatorManager {
         public String category;
         public String version;
         public Map<String, String> parameters;
+        /** 仅 getToolInfo（Python 侧 get_tool）会填：落盘路径与执行逻辑全文 */
+        public String filePath;
+        public String code;
         
         public ToolInfo() {
             this.parameters = new HashMap<>();
