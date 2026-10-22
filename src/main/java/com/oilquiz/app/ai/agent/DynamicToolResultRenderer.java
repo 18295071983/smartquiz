@@ -178,7 +178,15 @@ public final class DynamicToolResultRenderer {
             String p = "";
             if (raw instanceof JSONObject) {
                 JSONObject o = (JSONObject) raw;
-                p = firstNonEmpty(o.optString("file"), o.optString("path"), o.optString("url"));
+                // 键名取自 ToolResultFields.ARTIFACT：产物引用可能是 file / path / url 三种写法，
+                // 硬写三个键时，新工具换个名（file_path / output / link）就归不进任何一类
+                for (String key : com.oilquiz.app.ai.tool.ToolResultFields.ARTIFACT) {
+                    String candidate = o.optString(key, "");
+                    if (!candidate.isEmpty()) {
+                        p = candidate;
+                        break;
+                    }
+                }
             } else if (raw != null) {
                 p = String.valueOf(raw);
             }

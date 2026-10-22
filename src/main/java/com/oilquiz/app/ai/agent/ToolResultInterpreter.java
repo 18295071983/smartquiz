@@ -14,6 +14,7 @@ import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.engine.ALChat;
+import com.oilquiz.app.ai.tool.ToolResultFields;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.service.OnlineInferenceService;
 
@@ -629,7 +630,7 @@ public class ToolResultInterpreter {
 
         // --- 普通搜索：query + count + 5 条结果 ---
         String query = strDeep(obj, "query", "keyword", "q");
-        String count = strDeep(obj, "count", "total");
+        String count = strDeep(obj, ToolResultFields.COUNT_TOTAL);
         String engine = strDeep(obj, "engine");
 
         StringBuilder sb = new StringBuilder();
@@ -681,7 +682,7 @@ public class ToolResultInterpreter {
             }
         }
         if (!found) {
-            String err = strDeep(obj, "error", "message", "msg");
+            String err = strDeep(obj, ToolResultFields.union(ToolResultFields.ERROR, ToolResultFields.MESSAGE));
             if (err != null) return "⚠️ 搜索失败：" + err;
         }
         return sb.toString().trim();
@@ -696,7 +697,7 @@ public class ToolResultInterpreter {
         String action   = strDeep(obj, "action");
         String keyword  = strDeep(obj, "keyword");
         String count    = strDeep(obj, "count", "total", "totalQuestions");
-        String msg      = strDeep(obj, "message");
+        String msg      = strDeep(obj, ToolResultFields.MESSAGE);
         String status   = strDeep(obj, "status");
         String easy     = strDeep(obj, "easyQuestions");
         String medium   = strDeep(obj, "mediumQuestions");
@@ -712,7 +713,7 @@ public class ToolResultInterpreter {
             sb.append("❌ ");
             if (msg != null) sb.append(msg);
             else sb.append("操作失败");
-            String err = strDeep(obj, "error");
+            String err = strDeep(obj, ToolResultFields.ERROR);
             if (err != null) sb.append("：").append(err);
             return sb.toString();
         } else if (keyword != null && count != null) {
@@ -791,7 +792,7 @@ public class ToolResultInterpreter {
         JsonObject obj = toJsonObject(result);
         if (obj == null) return fallbackPretty(result);
 
-        String err = strDeep(obj, "error", "message");
+        String err = strDeep(obj, ToolResultFields.union(ToolResultFields.ERROR, ToolResultFields.MESSAGE));
         String permDenied = strDeep(obj, "permission_required");
         if ("error".equalsIgnoreCase(strDeep(obj, "status")) || err != null) {
             StringBuilder sb = new StringBuilder("⚠️ ");
@@ -853,9 +854,9 @@ public class ToolResultInterpreter {
         if (obj == null) return fallbackPretty(result);
         StringBuilder sb = new StringBuilder();
         String status = strDeep(obj, "status", "code");
-        String msg = strDeep(obj, "message", "msg", "info");
+        String msg = strDeep(obj, ToolResultFields.MESSAGE);
         String target = strDeep(obj, "target", "page", "setting", "destination");
-        String count  = strDeep(obj, "count");
+        String count  = strDeep(obj, ToolResultFields.COUNT_TOTAL);
         String pages  = strDeep(obj, "pages", "available_pages");
         String appNm  = strDeep(obj, "app_name", "app");
         String ver    = strDeep(obj, "version", "ver");
@@ -883,7 +884,7 @@ public class ToolResultInterpreter {
         JsonObject obj = toJsonObject(result);
         if (obj == null) return fallbackPretty(result);
         StringBuilder sb = new StringBuilder();
-        String path = strDeep(obj, "file_path", "path", "file", "name");
+        String path = strDeep(obj, ToolResultFields.PATH);
         String content = strDeep(obj, "content", "text", "data", "body");
         String lines = strDeep(obj, "total_lines", "lines_count", "lines");
         String encoding = strDeep(obj, "encoding");
@@ -924,13 +925,13 @@ public class ToolResultInterpreter {
         JsonObject obj = toJsonObject(result);
         if (obj == null) return fallbackPretty(result);
         StringBuilder sb = new StringBuilder("📊 文件分析\n");
-        String path = strDeep(obj, "file_path", "path", "file", "name");
-        String type = strDeep(obj, "file_type", "type", "format");
-        String size = strDeep(obj, "size", "file_size", "length");
+        String path = strDeep(obj, ToolResultFields.PATH);
+        String type = strDeep(obj, ToolResultFields.FILE_TYPE);
+        String size = strDeep(obj, ToolResultFields.SIZE);
         String lines = strDeep(obj, "lines", "total_lines");
         String words = strDeep(obj, "words", "words_count", "word_count");
         String chars = strDeep(obj, "chars", "characters", "char_count");
-        String summary = strDeep(obj, "summary", "analysis_summary", "overview");
+        String summary = strDeep(obj, ToolResultFields.SUMMARY);
         String encoding = strDeep(obj, "encoding");
         String rows = strDeep(obj, "rows", "row_count", "num_rows");
         String cols = strDeep(obj, "columns", "cols", "col_count", "column_count");
@@ -967,11 +968,11 @@ public class ToolResultInterpreter {
         if (obj == null) return fallbackPretty(result);
         StringBuilder sb = new StringBuilder();
         String status = strDeep(obj, "status");
-        String msg = strDeep(obj, "message", "msg");
+        String msg = strDeep(obj, ToolResultFields.MESSAGE);
         String action = strDeep(obj, "action", "operation", "type");
-        String path = strDeep(obj, "file_path", "file_name", "path", "output", "target");
+        String path = strDeep(obj, ToolResultFields.PATH);
         String source = strDeep(obj, "source_path", "source");
-        String size = strDeep(obj, "size", "bytes_written", "file_size");
+        String size = strDeep(obj, ToolResultFields.SIZE);
         String count = strDeep(obj, "count", "lines_written", "written_lines");
         String rows = strDeep(obj, "rows_written", "rows", "question_count");
         String contentUri = strDeep(obj, "contentUri", "content_uri", "uri");
@@ -1008,8 +1009,8 @@ public class ToolResultInterpreter {
         if (obj == null) return fallbackPretty(result);
         StringBuilder sb = new StringBuilder();
         String title = strDeep(obj, "title");
-        String url = strDeep(obj, "url", "link");
-        String summary = strDeep(obj, "summary", "abstract", "overview", "description");
+        String url = strDeep(obj, ToolResultFields.URL);
+        String summary = strDeep(obj, ToolResultFields.SUMMARY);
         String content = strDeep(obj, "content", "text", "body");
         String pub = strDeep(obj, "published_at", "publish_time", "date", "time");
         String author = strDeep(obj, "author", "writer", "source");
@@ -1065,7 +1066,7 @@ public class ToolResultInterpreter {
         if (obj == null) return fallbackPretty(result);
         StringBuilder sb = new StringBuilder("🔎 智能研究\n");
         String topic = strDeep(obj, "topic", "query", "subject", "keyword");
-        String summary = strDeep(obj, "summary", "conclusion", "report", "overview", "result", "answer");
+        String summary = strDeep(obj, ToolResultFields.SUMMARY);
         String sources = strDeep(obj, "sources_count", "count", "total_references");
         String findings = strDeep(obj, "findings", "insights", "main_points");
 
@@ -1108,10 +1109,10 @@ public class ToolResultInterpreter {
         if (obj == null) return fallbackPretty(result);
         StringBuilder sb = new StringBuilder();
         String status = strDeep(obj, "status");
-        String msg = strDeep(obj, "message", "msg", "info");
+        String msg = strDeep(obj, ToolResultFields.MESSAGE);
         String action = strDeep(obj, "action");
         String app = strDeep(obj, "app_name", "app", "package_name");
-        String url = strDeep(obj, "url", "target");
+        String url = strDeep(obj, ToolResultFields.URL);
         String phone = strDeep(obj, "phone_number", "phone", "to");
         String st = strDeep(obj, "sent", "sent_status", "call_status");
 
@@ -1170,7 +1171,7 @@ public class ToolResultInterpreter {
             if (exitCode != null) sb.append("退出码: ").append(exitCode).append("\n");
             if (hint != null) sb.append("💡 ").append(hint).append("\n");
             if (toolkit != null) sb.append("ℹ️ ").append(toolkit).append("\n");
-            String file = strDeep(obj, "file", "filePath", "path");
+            String file = strDeep(obj, ToolResultFields.PATH);
             String bytes = strDeep(obj, "bytes", "size");
             if (file != null) sb.append("\uD83D\uDCC4 文件：").append(file).append('\n');
             if (bytes != null) sb.append("\uD83D\uDCE6 大小：").append(bytes).append(" 字节").append('\n');
@@ -1189,7 +1190,7 @@ public class ToolResultInterpreter {
         if (obj == null) return fallbackPretty(result);
         StringBuilder sb = new StringBuilder("🔐 权限操作\n");
         String status = strDeep(obj, "status");
-        String msg = strDeep(obj, "message", "msg");
+        String msg = strDeep(obj, ToolResultFields.MESSAGE);
         String perm = strDeep(obj, "permission", "perm", "name");
         String granted = strDeep(obj, "granted", "is_granted", "allowed", "status_detail");
         String req = strDeep(obj, "can_request", "requestable", "should_show");
@@ -1233,7 +1234,7 @@ public class ToolResultInterpreter {
         if (obj == null) return fallbackPretty(result);
         String expr = strDeep(obj, "expression", "expr", "formula", "input");
         String res = strDeep(obj, "result", "value", "answer", "output");
-        String err = strDeep(obj, "error", "err", "exception");
+        String err = strDeep(obj, ToolResultFields.ERROR);
         StringBuilder sb = new StringBuilder();
         if (expr != null) sb.append("🧮 表达式：").append(expr).append("\n");
         if (err != null) sb.append("❌ 计算错误：").append(err);

@@ -22,7 +22,7 @@
 死副本：`ai/agent/ToolExecutionOrchestrator.java` —— 全仓库零引用（我 grep 复核），
 其类注释自证"抽取了一半未接线" ✓。按既定规矩保留不动，等拍板。
 
-## 二、本轮已收口的四条
+## 二、本轮已收口的五条
 
 1. **超时判定**：`ToolTimeouts.effectiveMs(tool, args, base)`，A/B 共用，硬上限 660s 只剩一份。
 2. **副作用判据**：`ToolSideEffects`（只读/幂等白名单，白名单而非黑名单）。B 路径原来是
@@ -41,6 +41,16 @@
    线程池线程会被复用，退出时是 `remove()` 而不是只设置。
    顺带修一条静默说谎：旧实现在子调用 `isSuccess()==false` 时因为 `getResult()` 为 null
    而回落到字符串"工具执行完成"，嵌套失败被报成完成。
+5. **工具结果字段别名表**：`ToolResultFields`（PATH / URL / ARTIFACT / FILE_TYPE / SIZE /
+   MESSAGE / ERROR / SUMMARY / COUNT_TOTAL）。迁移前实测的漂移：文件路径三套、摘要三套、
+   大小两套、URL 两套、消息两套。已改问表的有 23 处（`ToolResultInterpreter` 22 +
+   `DynamicToolResultRenderer` 的产物归类 1），**仍有 79 处 `strDeep` 是就地键清单**
+   （多为各工具专属字段与"种类计数"，本来就不该合并）。
+   守卫测试 `ToolResultFieldsTest` 把"迁移前各处实际用过的键集合"抄成快照逐个要求覆盖
+   （谁精简表项就红），并钉住三条边界：`message` 不进 ERROR、种类计数不并进通用 count、
+   `source` 不进 URL（它是来源站点名，当链接渲染会错）。
+   自我更正：原盘点把"count 六套"也算漂移，实测多数是**不同的量**
+   （rows/words/pages/lines/sources/matches 各有别名），并成一张表反而会显示错数字。
 
 ## 三、未收口的差异（按建议顺序）
 
@@ -53,11 +63,9 @@
    `chat/parts/ToolCallPartRenderer.java:110-135`（归一层）✓。
    `chat/context/ChatContextBuilder.java:129-130` 只让 `success`/`failed` 两种卡片进上下文 ✓。
    统一要动渲染层，风险与本轮不同级，建议单独一轮。
-3. **字段名多键兜底各写一套**：`ToolResultInterpreter.strDeep` 一份实现约 150 处调用，
-   另有 6 份 `firstNonEmpty`（`DynamicToolResultRenderer`、`ToolResultCardBinder`、
-   `DynamicCardView`、`NativeLayoutRenderer`、`NetworkSearchTool`、`ComponentDisplay`）△。
-   同一概念的键名集合互不相同（文件路径、error、url、count 至少四例）。
-   这解释了两件事：为什么卡片"有时直接吃原始 JSON"，以及为什么新工具加字段要到处补键名。
+3. **字段名多键兜底已收成别名表**：见本节第 5 条；剩余的读取处（另三份 `firstNonEmpty`、
+   `DynamicCardView`、`NativeLayoutRenderer`、`NetworkSearchTool`）仍带自己的键清单，
+   逐个迁移的风险与收益不同级，见第三节第 3 条。
 4. **二次摘要阈值 10 份左右**：`chat/util/ToolResultText` 2000/8 行、
    `ChatContextBuilder` 6000/2500/1200/300/512、`ToolCallCardView` 50、
    `DynamicCardView` 4000、`ToolResultCardBinder` 调用处传 60/120/160/200/400 字面量、
