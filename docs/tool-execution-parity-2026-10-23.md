@@ -58,11 +58,26 @@
    `TOOL_RESULT_MAX_LENGTH=Integer.MAX_VALUE` + 空壳 `smartTruncate()`（都是死代码）✓。
    同一个 `file_reader` 结果，A 给 16K、B 给 400 字符。需要拍板"模型该看到多少"，
    不是我能自行统一的（涉及 token 预算）。
-2. **UI 侧还有三份 status 词表**：`chat/ui/ToolRowStyle.java:25-40`、
-   `chat/component/ToolCallCardView.java:44,72-84` + `chat/ActivityTimeline.java:302-307`、
-   `chat/parts/ToolCallPartRenderer.java:110-135`（归一层）✓。
-   `chat/context/ChatContextBuilder.java:129-130` 只让 `success`/`failed` 两种卡片进上下文 ✓。
-   统一要动渲染层，风险与本轮不同级，建议单独一轮。
+2. **工具卡状态：等 parts 落地后一起改（已拍定，勿重复盘）**。我原样写"UI 侧三份词表"是错的，
+   核完生产侧后是**两个概念共用一个字段名**：
+   · `tool_call` 状态只有三个词，唯一写入方是 `AIChatActivity:7114`（`running`）与
+     `:7129`（`success`/`failed`）；
+   · `done/current/todo` 属于**步骤项**（`StepsCardView:30,152`、`AgentStatusChipCardView:68,139`），
+     `PENDING` 属于**执行块**（`ActivityTimeline:33` 的 `Status`，它还接 `BlockStatus`）。
+     `ActivityTimeline.parseStatus` 词表最宽，是因为它同时在给这两类归一，不是"第三份工具状态表"。
+   真正的问题不是用词不同，是**未知词的默认值四处不一致**：`ToolRowStyle` 与
+   `ToolCallCardView` 落"⏳ 执行中"、`ActivityTimeline` 落 `PENDING`、
+   `ChatContextBuilder:129-130` 直接**不让该卡片进上下文**。今天不炸（生产侧只有三词），
+   炸在加第四个终态时（`timeout`/`cancelled`/provider 的 `incomplete`）——
+   用户看到永久转圈，模型那边这次工具结果根本不进上下文，双面静默失灵。
+   修法（拍定）：① 抽纯函数 `ToolCallStatus.parse(String)` → `RUNNING/SUCCESS/FAILED/UNKNOWN`，
+   **UNKNOWN 显式化**（中性"已结束（状态未知）"，不回落成"执行中"），且 `ChatContextBuilder`
+   放行 UNKNOWN；三个消费者各改几行。② 步骤/块那套词从 `ActivityTimeline` 提名成 `StepStatus`，
+   别让下一个消费者再手抄 `done/current/todo`。③ **不要**并 `ResponsesStreamParser.Result.status`
+   （`completed/incomplete/failed`，response 级概念）——同词不同概念。
+   待核清的一点：`ToolCallPartRenderer.normalizeStatus` 注释称"快照兜底路径写的是 `done`"，
+   我 grep 不到任何写 `done` 进 `tool_call` props 的路径，该注释可能已过期；
+   别把它当"必须兼容 done"的依据抄到下一处，改之前先复核。
 3. **字段名多键兜底已收成别名表**：见本节第 5 条；剩余的读取处（另三份 `firstNonEmpty`、
    `DynamicCardView`、`NativeLayoutRenderer`、`NetworkSearchTool`）仍带自己的键清单，
    逐个迁移的风险与收益不同级，见第三节第 3 条。
@@ -81,6 +96,7 @@
 
 - 没改 A/B/C 任何一条路径的重试次数与基线超时数值（只统一了判定方式）。
 - 没动 UI 词表、没动字段名兜底集合、没动截断预算 —— 都需要你先定口径。
+  其中**卡状态那一条已拍定：等 parts 任务落地后一起改**（第三节第 2 条含结论与修法，勿重复盘）。
 - 没删 `ToolExecutionOrchestrator`、`smartTruncate`、`TOOL_RESULT_MAX_LENGTH` 这三处死残留。
 - 全程未真机验证；`AgentService` 抬头与内容顺序变化影响 native FC 那条路径的模型输入，
   值得设备上跑一次带失败命令的对话确认。
