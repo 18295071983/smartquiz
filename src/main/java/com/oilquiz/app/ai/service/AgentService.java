@@ -4,6 +4,7 @@ import android.content.Context;
 import com.oilquiz.app.ai.tool.AITool;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.tool.AIToolResult;
+import com.oilquiz.app.ai.tool.ToolStatusVocabulary;
 import com.oilquiz.app.ai.tool.ToolSideEffects;
 import com.oilquiz.app.ai.tool.ToolTimeouts;
 import com.oilquiz.app.ai.tool.ToolSchemaExtractor;
@@ -19,9 +20,11 @@ import org.json.JSONObject;
 import org.json.JSONTokener;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -1111,6 +1114,33 @@ public class AgentService {
     private static final int TOOL_CONTENT_PREVIEW_LENGTH = 400;
     private static final int WEATHER_CONTENT_PREVIEW_LENGTH = 1500;
 
+    /**
+     * 决定工具结果 map 里各键发给模型的先后：错误与原始输出排前面，其余按原顺序跟在后面。
+     *
+     * <p>{@code status} 已经被单独用作抬头，不再重复出现在正文里。HashMap 的迭代顺序不保证，
+     * 所以失败结果必须先做这一步排序，否则"exit_code/output"可能出现在一大段无关字段之后。
+     */
+    private static List<Map.Entry<?, ?>> orderResultEntriesForModel(Map<?, ?> resultMap) {
+        String[] priority = {"error", "error_message", "message", "stderr", "output", "stdout",
+                "exit_code", "hint", "python_error", "status_detail"};
+        List<Map.Entry<?, ?>> ordered = new ArrayList<>(resultMap.size());
+        Set<Object> taken = new HashSet<>();
+        taken.add("status");
+        for (String key : priority) {
+            for (Map.Entry<?, ?> entry : resultMap.entrySet()) {
+                if (key.equals(entry.getKey()) && taken.add(entry.getKey())) {
+                    ordered.add(entry);
+                }
+            }
+        }
+        for (Map.Entry<?, ?> entry : resultMap.entrySet()) {
+            if (taken.add(entry.getKey())) {
+                ordered.add(entry);
+            }
+        }
+        return ordered;
+    }
+
     private String formatToolOutput(Object result) {
         if (result == null) return "工具返回空结果";
         
@@ -1132,41 +1162,24 @@ public class AgentService {
             StringBuilder sb = new StringBuilder();
 
             Object statusObj = resultMap.get("status");
-            boolean isSuccess = true;
-            if (statusObj != null) {
-                if ("success".equals(statusObj.toString())) {
-                    isSuccess = true;
-                } else if ("failed".equals(statusObj.toString()) || "error".equals(statusObj.toString())) {
-                    isSuccess = false;
-                } else if (statusObj instanceof Boolean) {
-                    isSuccess = (Boolean) statusObj;
-                }
+            // 抬头由 ToolStatusVocabulary 统一决定；**不认识的 status 值不回落成"成功"**。
+            String label = ToolStatusVocabulary.modelLabel(statusObj);
+            if (label == null) {
+                label = (statusObj == null) ? "[工具执行完成]"
+                        : "[工具执行完成，状态值未识别: " + statusObj + "]";
             }
+            sb.append(label).append("\n\n");
 
-            if (!isSuccess) {
-                sb.append("[工具执行失败]\n");
-                if (resultMap.containsKey("error")) {
-                    sb.append("错误信息: ").append(resultMap.get("error")).append("\n");
-                }
-                if (resultMap.containsKey("error_message")) {
-                    sb.append("详细错误: ").append(resultMap.get("error_message")).append("\n");
-                }
-                if (resultMap.containsKey("message")) {
-                    sb.append("信息: ").append(resultMap.get("message")).append("\n");
-                }
-                return sb.toString();
-            }
-
-            sb.append("[工具执行成功]\n\n");
-
-            for (Map.Entry<?, ?> entry : resultMap.entrySet()) {
+            // 失败/超时也要把 output/stdout/exit_code/hint 全量给模型。
+            // 旧实现在 status 非 success 时只挑 error/error_message/message 三个键就 return，
+            // 于是 linux_shell 非零退出（结果里只有 output + exit_code + hint）在这条路径上
+            // 变成一句"[工具执行失败]"后面什么内容都没有 —— 模型拿不到任何线索，只能瞎重试。
+            for (Map.Entry<?, ?> entry : orderResultEntriesForModel(resultMap)) {
                 Object key = entry.getKey();
                 Object value = entry.getValue();
-                
-                if ("status".equals(key)) continue;
-                
+
                 sb.append(key).append(": ");
-                
+
                 if (value == null) {
                     sb.append("null\n");
                 } else if (value instanceof String) {
