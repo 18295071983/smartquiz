@@ -12,12 +12,16 @@
   已更新为新图型 + playlist/agenda/location/diff + quiz 的 fill/short。App 冷启动会重建该文件，
   真机已核对到新关键字落盘。
 - **注解 / getParameterDescriptions 路径**（动态工具、本地引擎用）：此前已更新，本次一并纳入守卫。
+- **Python 侧 `android_ui` 组件说明**（模型在 python_execute 里读得到）：原文档还在教
+  **已删除的 note_card / grid_card**，且完全没有新卡。已换成现行清单 + 新图型 + 四个新卡 +
+  quiz 的 fill/short，并删掉死实现示例。
 
-守卫测试（直接对"模型实际拿到的 schema"断言，而不是只对常量断言）：
-`ToolSchemaVisibilityTest`（在线 `ToolDefinition` 两条）+ `ComponentPropsSchemaVisibilityTest`
+守卫测试（直接对"模型实际拿到的 schema/文档"断言，而不是只对常量断言）：
+`ToolSchemaVisibilityTest`（在线 `ToolDefinition` 两条 + 源码级检查 android_ui.py 与工作区
+速查表生成源，含"不许再教 note_card/grid_card"）+ `ComponentPropsSchemaVisibilityTest`
 （注解路径与参数表）。
 
-测试：全量 `--offline` **708** 全绿（86 类 / 0 skipped / 0 failures / 0 errors）；
+测试：全量 `--offline` **709** 全绿（86 类 / 0 skipped / 0 failures / 0 errors）；
 `assembleDebug` 通过、覆盖安装 Success。schema 随每次请求下发，下一轮对话即生效。
 
 ## [2026-10-23] feat(chart)：图表扩型（面积/堆叠柱/散点/雷达）+ 两个真实生产者

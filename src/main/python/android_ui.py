@@ -227,17 +227,25 @@ def create_component(component_type, title="", message="", component_id=None,
         r = get_component_result(cid, wait_seconds=60)
         if r["result"] != "cancelled": fmt = r["result"]
 
-        # 内置 UI 组件（项目自带组件库，直接填参数渲染成卡片弹窗展示）:
-        #   chart / info_card / table_card / image_grid / link_card / list_card /
-        #   alert_card / metric_card / json_viewer / steps_card / note_card /
-        #   file_list / grid_card / contact_card / todo_card / quiz_card /
-        #   weather_card / file_card / code_card / progress_card / html / markdown_card
+        # 内置 UI 组件（项目自带组件库，create_component("类型", props={...}) 渲染成聊天流卡片）:
+        #   通用: info_card / table_card / list_card / alert_card / metric_card / json_viewer /
+        #         steps_card / code_card / link_card / image_grid / file_card / file_list /
+        #         contact_card / todo_card / progress_card / weather_card / quiz_card / quote /
+        #         html / markdown_card
+        #   媒体: video(url) / audio(url,title,artist) / playlist(items=[{name,url,artist,size}])  # 队列+上下首
+        #   图表: chart(chartType=bar|line|area|stacked_bar|pie|scatter|radar, categories, series=[{name,data}])
+        #         scatter 用 series=[{name,points:[[x,y],...]}]；radar 以 categories 为轴
+        #   其它: agenda(items=[{date,time,title,desc,status}])  # 按天分组日程
+        #         location(address,city,latitude,longitude)     # 带"在地图中打开/复制坐标"
+        #         diff(before,after 或 hunks=[{type:"ctx|add|del",text}])  # 变更对比
+        #   题库卡 type: single/multiple/judge/fill/short；fill 的 answer 可用 | 分隔多个可接受答案
         # 用法：create_component("类型", props={...参数...})
         # 例如：
         #   create_component("info_card", props={"title":"用户信息","items":[{"label":"姓名","value":"张三"}]})
         #   create_component("table_card", props={"title":"成绩表","headers":["科目","分数"],"rows":[["语文","90"],["数学","95"]]})
         #   create_component("alert_card", props={"type":"success","title":"操作成功","content":"已保存"})
         #   create_component("chart", props={"chartType":"bar","title":"销量","categories":["1月","2月"],"series":[{"name":"销量","data":[120,200]}]})
+        #   # chartType 还可用 line/area/stacked_bar/pie/scatter/radar
         #   create_component("metric_card", props={"title":"今日数据","metrics":[{"label":"做题数","value":"120","color":"success"}]})
         #   create_component("steps_card", props={"title":"执行步骤","steps":[{"status":"done","title":"解析","description":"..."},{"status":"current","title":"导入"}]})
         #   create_component("list_card", props={"title":"清单","items":[{"icon":"📁","title":"报告","description":"说明"}]})
@@ -247,8 +255,14 @@ def create_component(component_type, title="", message="", component_id=None,
         #   create_component("quiz_card", props={"type":"single","question":"1+1=?","options":["A. 1","B. 2"],"answer":"B","analysis":"2"})
         #   create_component("weather_card", props={"city":"北京","temp":"26℃","text":"多云","icon":"⛅"})
         #   create_component("json_viewer", props={"title":"数据","data":{...}})
-        #   create_component("note_card", props={"type":"tip","content":"提示内容"})
-        #   create_component("grid_card", props={"title":"宫格","columns":3,"items":[{"icon":"📁","label":"标签"}]})
+        #   create_component("quote", props={"text":"要点摘录","author":"来源"})
+        #   create_component("playlist", props={"title":"播放列表","items":[{"name":"歌名","url":"/sdcard/a.mp3"}]})
+        #   create_component("agenda", props={"items":[{"date":"2026-10-23","time":"09:00","title":"晨会","status":"done"}]})
+        #   create_component("location", props={"address":"上海市黄浦区","latitude":31.2304,"longitude":121.4737})
+        #   create_component("diff", props={"before":"a
+b","after":"a
+c"})
+        #   create_component("quiz_card", props={"type":"fill","question":"中国的首都？","answer":"北京|首都北京"})
         #   create_component("link_card", props={"title":"文章","url":"https://..."})
         #   create_component("contact_card", props={"type":"phone","value":"13800138000","title":"联系人"})
         #   create_component("code_card", props={"language":"python","code":"print('hi')","title":"代码"})

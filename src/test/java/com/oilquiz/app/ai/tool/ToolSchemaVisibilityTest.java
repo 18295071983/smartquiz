@@ -50,6 +50,40 @@ public class ToolSchemaVisibilityTest {
         assertTrue("在线 schema 没列原生图型", schema.contains("stacked_bar"));
     }
 
+    /**
+     * 另外两份"模型会读到"的文档：Python 侧 android_ui 的组件说明、工作区《使用速查表》的生成源。
+     * 前者曾经在教已删除的 note_card/grid_card 且完全没有新卡——这类文档没有编译期约束，
+     * 只能靠源码级断言兜住。
+     */
+    @Test
+    public void otherModelVisibleDocsTeachNewCardsWithoutDeadOnes() throws Exception {
+        String py = read("src/main/python/android_ui.py");
+        String guideSource = read(
+                "src/main/java/com/oilquiz/app/ai/agent/online/AgentWorkspace.java");
+
+        for (String doc : new String[]{py, guideSource}) {
+            for (String kw : new String[]{"playlist", "agenda", "location", "diff"}) {
+                assertTrue("模型可见文档缺新卡 " + kw, doc.contains(kw));
+            }
+            for (String kw : new String[]{"fill", "short"}) {
+                assertTrue("模型可见文档缺题型 " + kw, doc.contains(kw));
+            }
+            for (String kw : new String[]{"stacked_bar", "scatter", "radar", "area"}) {
+                assertTrue("模型可见文档缺图型 " + kw, doc.contains(kw));
+            }
+        }
+        // 已删除的实现不许再被教给模型（有 alias 兜底渲染，但目录/示例不该售卖）
+        assertTrue("android_ui 仍在教 note_card", !py.contains("note_card"));
+        assertTrue("android_ui 仍在教 grid_card", !py.contains("grid_card"));
+    }
+
+    private static String read(String path) throws Exception {
+        java.io.File f = new java.io.File(path);
+        assertTrue("找不到文档（测试需从模块根目录跑）: " + path, f.isFile());
+        return new String(java.nio.file.Files.readAllBytes(f.toPath()),
+                java.nio.charset.StandardCharsets.UTF_8);
+    }
+
     private static String dump(ToolDefinition d) {
         StringBuilder sb = new StringBuilder();
         sb.append(d.getDescription()).append('\n');
