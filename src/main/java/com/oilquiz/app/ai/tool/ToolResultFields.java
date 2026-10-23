@@ -1,155 +1,165 @@
 package com.oilquiz.app.ai.tool;
 
-import java.util.LinkedHashSet;
-import java.util.Set;
-
 /**
- * 工具结果<b>读侧</b>的字段别名表（单一写者）。
+ * 工具结果<b>读侧</b>的键名清单（唯一出处）。
  *
- * <p>为什么要收：同一个概念在不同读取处各写一份键名清单，是本项目"卡片/摘要读不到就静默
- * 掉原始 JSON"的根因之一（另一类根因在组件 props 侧，见 {@code ComponentFieldIntegrityTest}）。
- * 实测漂移样例：文件路径三套
- * （{@code file_path,path,file,name} / {@code file,filePath,path} /
- * {@code file_path,file_name,path,output,target}）、摘要三套、大小两套、URL 两套、消息两套。
- * 新工具换个键名，就得在每个读取处补一遍，漏一处就少一处。
+ * <h3>本类为什么长这样</h3>
+ * <p>同一个概念在不同读取处各抄一份键清单，是本项目"卡片/摘要读不到就静默掉原始 JSON"的
+ * 根因之一（另一类在组件 props 侧，见 {@code ComponentFieldIntegrityTest}）。实测漂移样例：
+ * 文件路径三套、摘要三套、大小两套、URL 两套、消息两套。新工具换个键名，就得在每个读取处
+ * 补一遍，漏一处就少一处。所以清单必须集中在一处。</p>
  *
- * <p>三条边界规则（比"全都并起来"重要，都是看着实际代码定的）：
+ * <h3>集中的单位是"读取处"，不是"概念"</h3>
+ * <p>2026-10-23 两次踩过同一坑，记死在这里：
  * <ol>
- *   <li><b>不发明键名。</b>每个概念里的键都是全仓库实际出现过的（用
- *       {@code grep '"[a-zA-Z_]*path[a-zA-Z_]*"'} 之类穷举过），凭常识补进来的键名
- *       只会让表看起来更全、实际永远匹配不上。</li>
- *   <li><b>{@code message} 不属于 {@link #ERROR}。</b>很多工具的 {@code message} 是
- *       成功提示（天气、权限、导入都用它），把它当错误原文会把一句正常提示渲成错误。
- *       确实需要"没 error 就退回 message"的读取处，用 {@link #union} 显式组合。</li>
- *   <li><b>计数按种类分，不合并。</b>{@code rows/words/pages/lines/sources/matches/chars}
- *       看着都像 count，实际是不同的量；并成一个表会显示错数字。所以本表只收
- *       {@link #COUNT_TOTAL} 这种真正通用的，其余保持各处显式的种类清单。</li>
+ *   <li>第一版把各处清单按<b>概念</b>并成全局表（一张 {@code PATH}、一张 {@code SUMMARY}…），
+ *       读取处一律问概念表。并集配上"第一个命中"的语义，等于把每个读取处的接受面
+ *       <b>放大到全部工具的键空间</b>：{@code output} 在 shell/python/多数动态工具里是
+ *       <b>标准输出正文</b>，只有写入类工具拿它当落盘路径，并进 PATH/ARTIFACT 之后
+ *       shell 摘要多打一行"📄 文件：&lt;整段 stdout&gt;"，动态工具结果被归成产物文件、
+ *       生成一张 path 指向一段文本的 file_card（真机现象：卡片外观正常、每条链接点开都失败）。
+ *       {@code target}（落盘目标/跳转地址/ssh 主机三义）、{@code name}
+ *       （工具名/应用名/系列名/文件名）、{@code result}（整段载荷/报告正文）同病。</li>
+ *   <li>第二版只摘掉那几个坏键、其余仍问概念表——顺序仍然和历史上不一样：
+ *       {@code file,filePath,path} 变成 {@code filePath,path,…,file}，
+ *       {@code size,bytes_written,file_size} 变成 {@code size,file_size,bytes_written}，
+ *       {@code url,target} 变成 {@code url,link,linkUrl,href,target}。
+ *       first-hit 语义就写在顺序里，顺序变了就是行为变了，而这类变化没人审得过来。</li>
  * </ol>
+ * 所以现在<b>每个读取处一张表，逐字照抄 {@code git show 3d5687b8^} 的原清单（含顺序）</b>，
+ * 由 {@code ToolResultFieldsTest} 按"模板名 + 变量名"逐个比对到字面一致。
+ * 本类<b>不提供 union/并表能力</b>——合并正是引入事故的那个动作；
+ * 一处想放宽，就在那一处把键写出来，并在测试里留下"旧顺序仍是新顺序的子序列"的证据。</p>
  *
- * <p><b>第四条规则是 2026-10-23 用真机 bug 换来的</b>（前一次合并时漏了这条）：
- * <b>全局表只收"键名本身就表示这个概念"的键；含义随工具而变的键一律不进表</b>，
- * 由真的需要它的那一处点名。反例就是这次的 {@code output}：
- * 它在 shell / python / 大多数动态工具里是<b>正文（stdout）</b>，只有个别写入类工具拿它当
- * 落盘路径。我把它并进 {@link #PATH} 与 {@link #ARTIFACT} 之后，"第一个命中"的语义让
- * 每个没有真路径键的结果都把 stdout 当文件——shell 结果的 UI 摘要多出一行
- * "📄 文件：&lt;整段输出&gt;"，动态工具结果更被 {@code DynamicToolResultRenderer} 归成
- * 产物卡、渲染出一个指向文本的 file_card（用户看到的就是"卡片文件链接全坏了"）。
- * {@code target}（既可能是落盘目标也可能是跳转地址/连接主机）、{@code name}
- * （工具名/应用名/系列名/文件名）、{@code result}（既可能是正文也可能是执行结果对象）同理。
- * 需要它们的读取处改用本类里点名的组合表（{@link #PATH_OR_NAME} 等），
- * 组合关系写在调用处，不再靠全局表兜。</p>
+ * <h3>唯一保留的放宽</h3>
+ * <p>{@link #DYNAMIC_ARTIFACT}：动态工具产物归类历史上只看 {@code file,path,url}，
+ * 现在多认 {@code file_path,link} 两个键。逐键核过：都是路径/链接形状、
+ * 历史三键的相对顺序不变，只会把原本"静默漏识别"的结果认出来，不会改变原有正确选择。</p>
  */
 public final class ToolResultFields {
-
-    /**
-     * 文件路径：<b>只收键名本身就是路径的键</b>（见类注释第四条）。
-     *
-     * <p>{@code output}/{@code target}/{@code name} 不在这里——它们在别的工具里是正文、
-     * 跳转目标、显示名；要那种降级请问 {@link #PATH_OR_NAME} / {@link #PATH_FILE_OPS}。</p>
-     */
-    public static final String[] PATH = {
-            "file_path", "filePath", "filepath", "path", "output_path", "source_path",
-            "target_path", "save_path", "local_path", "dir_path", "directory_path",
-            "apk_path", "image_path", "audio_path", "pdf_path", "html_path", "json_path",
-            "icon_path", "model_path", "file"
-    };
-
-    /**
-     * {@link #PATH} 加"只有名字"降级：读取处明确知道结果里可能只有裸文件名时用
-     * （迁移前 {@code file_reader} / {@code file_analyzer} 两处清单尾项就是
-     * {@code file_path,path,file,name}）。
-     */
-    public static final String[] PATH_OR_NAME =
-            union(PATH, new String[]{"file_name", "filename", "name"});
-
-    /**
-     * 写入类文件工具的老清单，<b>原样保留</b>（{@code output}/{@code target} 在这类结果里
-     * 确实就是落盘路径）：{@code file_path,file_name,path,output,target}。
-     * 只有 {@code fileOperationsTemplate} 一处用；别的读取处问 {@link #PATH}。
-     */
-    public static final String[] PATH_FILE_OPS = {
-            "file_path", "file_name", "path", "output", "target"
-    };
-
-    /**
-     * 链接地址（同样只收键名就是链接的键）。
-     *
-     * <p>{@code target} <b>不放进来</b>：它在系统设置类结果里是"目标页面/设置项"、
-     * 在 ssh 里是"连接主机"，收进全局表会把主机名当链接渲染。需要它的
-     * {@code appOperationTemplate} 用 {@link #URL_APP_OPS}。
-     * {@code source} 也不放进来：它在网页提取里是"来源站点名"。</p>
-     */
-    public static final String[] URL = {"url", "link", "linkUrl", "href"};
-
-    /** 应用操作类结果的老清单：{@code url,target}（这里的 target 就是跳转地址） */
-    public static final String[] URL_APP_OPS = union(new String[]{"url"}, URL, new String[]{"target"});
-
-    /**
-     * 产物引用：文件或 URL 都算（动态工具结果收集、卡片归类用）。
-     *
-     * <p><b>这里的键会被直接写进卡片的 path/url</b>，所以最讲究：{@code output} 曾经被收进来，
-     * 于是 {@code {output:"已保存3条"}} 这种结果被归成文件、生成一张点开就是
-     * "文件不存在"的卡（本次真机现象）。表里只留键名就是路径或链接的键，
-     * 并保持迁移前那三处的相对顺序（{@code file} 先于 {@code path} 先于 {@code url}），
-     * 否则同类结果的归类会变。</p>
-     */
-    public static final String[] ARTIFACT = {"file", "file_path", "path", "url", "link"};
-
-    /** 文件类型 */
-    public static final String[] FILE_TYPE = {"file_type", "type", "format"};
-
-    /** 体积/长度 */
-    public static final String[] SIZE = {"size", "file_size", "bytes", "bytes_written",
-            "size_bytes", "sizeBytes", "apk_size_mb", "model_size_mb", "content_length", "length"};
-
-    /** 提示消息（也可能是失败原因，但默认按"消息"理解，见类注释规则 2） */
-    public static final String[] MESSAGE = {"message", "msg", "info"};
-
-    /** 错误原文 */
-    public static final String[] ERROR = {"error", "err", "exception"};
-
-    /**
-     * 正文摘要：只收键名就是"摘要/正文"的键。
-     *
-     * <p>{@code result} <b>不放进来</b>：它在多数结果里是整个执行载荷（ {@code ui_component}
-     * 返回的 {@code result:"executed"}、动态工具返回的对象），收进来会把载荷当摘要整段渲出来。
-     * 迁移前只有 {@code smart_research} 一处把它当正文，用 {@link #SUMMARY_OR_RESULT}。</p>
-     */
-    public static final String[] SUMMARY = {"summary", "conclusion", "analysis_summary", "report",
-            "overview", "abstract", "description", "answer"};
-
-    /** 智能研究的老清单：摘要系列键加 {@code result}（那里的 result 就是报告正文） */
-    public static final String[] SUMMARY_OR_RESULT = union(SUMMARY, new String[]{"result"});
-
-    /** 通用总数（仅此一个通用概念；行数/词数/页数等各自成表，见类注释规则 3） */
-    public static final String[] COUNT_TOTAL = {"count", "total", "totalQuestions", "successCount"};
-
-    /** 状态词（值域见 {@link ToolStatusVocabulary}） */
-    public static final String[] STATUS = {"status"};
 
     private ToolResultFields() {
     }
 
+    // ==================== network_search ====================
+
+    /** networkSearchTemplate 的结果数（原清单；{@code totalQuestions}/{@code successCount} 是别的量，不收） */
+    public static final String[] SEARCH_COUNT = {"count", "total"};
+
+    /** networkSearchTemplate 的失败原因（搜索工具确实把提示放在 error→message→msg） */
+    public static final String[] SEARCH_ERROR = {"error", "message", "msg"};
+
+    // ==================== database ====================
+
+    /** databaseTemplate 的提示文本（工具只写 message 一个键） */
+    public static final String[] DATABASE_MESSAGE = {"message"};
+
+    /** databaseTemplate 的错误原文 */
+    public static final String[] DATABASE_ERROR = {"error"};
+
+    // ==================== location ====================
+
+    /** locationTemplate 的错误原文（无 error 时退到 message） */
+    public static final String[] LOCATION_ERROR = {"error", "message"};
+
+    // ==================== app_operation ====================
+
+    /** appOperationTemplate 的消息（原清单就是 message,msg,info 三个） */
+    public static final String[] APP_OPERATION_MESSAGE = {"message", "msg", "info"};
+
+    /** appOperationTemplate 的计数（只认 count；total/successCount 在这类结果里是别的量） */
+    public static final String[] APP_OPERATION_COUNT = {"count"};
+
+    // ==================== file_reader / file_analyzer ====================
+
     /**
-     * 按顺序拼多个概念并去重，用于"这个读取处确实想先试 error、再退到 message"的组合。
+     * fileReaderTemplate 与 fileAnalyzerTemplate 的路径（两处原清单相同）。
      *
-     * <p>保留这个显式组合而不是偷偷把 message 塞进 ERROR，是为了让每一处的降级链在代码里
-     * 看得见 —— 读取处之间的差异应当是有意选择的，不是表里混着的。
+     * <p>尾项 {@code name} 是有意的：读取类结果常只给文件名。{@code dir_path} 之类
+     * "路径形状的键"没在历史清单里，不收——收了就可能把目录当被读文件显示。</p>
      */
-    public static String[] union(String[]... groups) {
-        Set<String> ordered = new LinkedHashSet<>();
-        if (groups != null) {
-            for (String[] group : groups) {
-                if (group == null) {
-                    continue;
-                }
-                for (String key : group) {
-                    if (key != null && !key.isEmpty()) {
-                        ordered.add(key);
-                    }
-                }
-            }
-        }
-        return ordered.toArray(new String[0]);
-    }
+    public static final String[] PATH_WITH_NAME = {"file_path", "path", "file", "name"};
+
+    /** fileAnalyzerTemplate 的类型（就是这三个键，两个读取处共用） */
+    public static final String[] FILE_TYPE = {"file_type", "type", "format"};
+
+    /** fileAnalyzerTemplate 的大小 */
+    public static final String[] ANALYZER_SIZE = {"size", "file_size", "length"};
+
+    /** fileAnalyzerTemplate 的摘要 */
+    public static final String[] ANALYZER_SUMMARY = {"summary", "analysis_summary", "overview"};
+
+    // ==================== file_generator（写入类） ====================
+
+    /** fileGeneratorTemplate 的消息 */
+    public static final String[] FILE_GENERATOR_MESSAGE = {"message", "msg"};
+
+    /**
+     * fileGeneratorTemplate 的路径——<b>只有这一处可以把 {@code output}/{@code target}
+     * 当路径</b>：写入类工具拿这两个键存落盘目标。别的读取处不许借用这张表。
+     */
+    public static final String[] FILE_GENERATOR_PATH =
+            {"file_path", "file_name", "path", "output", "target"};
+
+    /** fileGeneratorTemplate 的大小（顺序照旧：bytes_written 在 file_size 之前） */
+    public static final String[] FILE_GENERATOR_SIZE = {"size", "bytes_written", "file_size"};
+
+    // ==================== webpage_reader ====================
+
+    /** webpageReaderTemplate 的链接 */
+    public static final String[] WEBPAGE_URL = {"url", "link"};
+
+    /** webpageReaderTemplate 的摘要 */
+    public static final String[] WEBPAGE_SUMMARY = {"summary", "abstract", "overview", "description"};
+
+    // ==================== smart_research ====================
+
+    /**
+     * smartResearchTemplate 的正文——这一处的 {@code result} 就是报告正文，
+     * 所以它有；别的读取处不许据此把 {@code result} 当摘要。
+     */
+    public static final String[] RESEARCH_SUMMARY =
+            {"summary", "conclusion", "report", "overview", "result", "answer"};
+
+    // ==================== system_resource（shell / ssh） ====================
+
+    /** systemResourceTemplate 的消息 */
+    public static final String[] SYSTEM_RESOURCE_MESSAGE = {"message", "msg", "info"};
+
+    /**
+     * systemResourceTemplate 的链接位：{@code url} 优先，没有才退到 {@code target}
+     * ——ssh 类结果的 target 是连接目标，历史上就是被这样显示的，顺序不许调。
+     */
+    public static final String[] SYSTEM_RESOURCE_URL = {"url", "target"};
+
+    /**
+     * systemResourceTemplate 的产物文件位：<b>{@code file} 在 {@code path} 之前</b>。
+     *
+     * <p>不收 {@code output}——shell 结果里它就是那段 stdout，收进来等于把整段输出
+     * 当"📄 文件："再打一遍（2026-10-23 真机故障）。顺序也不许并成
+     * {@code filePath,path,…,file}：shell/python 工具常同时带 {@code file} 与 {@code path}，
+     * 谁先命中渲出来的就是谁。</p>
+     */
+    public static final String[] SYSTEM_RESOURCE_FILE = {"file", "filePath", "path"};
+
+    // ==================== permission_manager / python_calculate ====================
+
+    /** permissionManagerTemplate 的消息 */
+    public static final String[] PERMISSION_MESSAGE = {"message", "msg"};
+
+    /** pythonCalculateTemplate 的错误原文 */
+    public static final String[] CALCULATE_ERROR = {"error", "err", "exception"};
+
+    // ==================== 动态工具产物归类 ====================
+
+    /**
+     * 产物引用：文件或 URL 都算（{@code DynamicToolResultRenderer} 归类用）。
+     *
+     * <p><b>这里的值会被直接写进卡片的 path/url</b>，所以最讲究：{@code output} 曾在表里，
+     * 于是 {@code {output:"已保存3条"}} 被归成文件、生成一张点开就"文件不存在"的卡。
+     * 历史清单是 {@code file,path,url}；现表多认 {@code file_path,link}（见类注释
+     * "唯一保留的放宽"），且 {@code file→path→url} 的相对顺序一字未动——
+     * 顺序变了同类结果的归类就会变。</p>
+     */
+    public static final String[] DYNAMIC_ARTIFACT = {"file", "file_path", "path", "url", "link"};
 }

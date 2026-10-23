@@ -16,20 +16,24 @@
 
 修法在顶层口径，不在各卡片打补丁：
 
-- 新增第四条边界规则并写进类注释：**全局表只收键名即该概念的键**；需要降级语义的读取处
-  改用点名的组合表。全局 `PATH` 去掉 `output/target/name/file_name/filename`，
-  `URL` 去掉 `target`，`SUMMARY` 去掉 `result`，`ARTIFACT` 去掉 `output`（`file→path→url`
-  相对顺序保持不动，否则同类结果归类会变）。
-- 组合表：`PATH_OR_NAME`（file_reader / file_analyzer 的"只给名字"降级）、
-  `PATH_FILE_OPS`（写入类工具老清单 `file_path,file_name,path,output,target` 原样保留）、
-  `URL_APP_OPS`（app_operation 的 `url,target`）、`SUMMARY_OR_RESULT`（smart_research 的正文）。
-  5 处读取点改为按各自语义问对应表，shell 那一处仍问 `PATH`（因此不再命中 stdout）。
-- 守卫：`ToolResultFieldsTest` 的"迁移前快照"从"并进一张表就算覆盖"改成**按读取处对号入座**
-  （这正是上次引入事故的合并方式），并加 `contentShapedKeysStayOutOfGlobalTables` 正反钉住；
-  新增 `ToolResultUiTemplateTest`（4 条：stdout 不许当路径、真路径键与裸名降级、写入类 output
-  仍当路径）与 `DynamicToolResultRendererTest` 回归 2 条（文本不生成产物卡、真产物键仍归类）。
+- **改为"每个读取处一张表，逐字照抄迁移前原清单（含顺序）"**，不再按概念并全局表。
+  第一版只摘掉坏键、其余仍问概念表，顺序仍和历史上不一样（`file,filePath,path`
+  变成 `filePath,path,…,file`；`size,bytes_written,file_size` 变成
+  `size,file_size,bytes_written`；`url,target` 变成 `url,link,linkUrl,href,target`）——
+  `strDeep` 的 first-hit 语义就写在顺序里，顺序变了就是行为变了。
+  23 处统一改成 `SEARCH_COUNT`／`PATH_WITH_NAME`／`FILE_GENERATOR_PATH`／
+  `SYSTEM_RESOURCE_FILE`／`SYSTEM_RESOURCE_URL`… 这类按站点命名的表；
+  `ToolResultFields` 不再提供并表能力（`union` 已删——合并正是引入事故的动作）。
+- 唯一保留的放宽：`DYNAMIC_ARTIFACT`（动态工具产物归类）在原 `file,path,url` 之外多认
+  `file_path,link`，逐键核过都是路径/链接形状、历史三键相对顺序不变，只把原本静默漏识别的
+  结果认出来；`output` 仍然不许进表。
+- 守卫：`ToolResultFieldsTest` 用 `git show 3d5687b8^` 抄下来的期望值做**数组等值**比对
+  （顺序含语义，集合包含抓不到这类回归），另加"内容键只许出现在点名允许它的那一处"
+  正反向断言、重复键与空键检查。
+  另新增 `ToolResultUiTemplateTest`（4 条：stdout 不许当路径、真路径键与裸名降级、
+  写入类 `output` 仍当路径）与 `DynamicToolResultRendererTest` 回归 2 条。
 
-测试：全量 `--offline` **661** 全绿（74 类 / 0 skipped / 0 failures / 0 errors，四数核过）。
+测试：全量 `--offline` **659** 全绿（74 类 / 0 skipped / 0 failures / 0 errors，四数核过）。
 
 ## [2026-10-23] fix(chat-cards)：file_list/file_card 条目路径补齐（目录 + 文件名形态）
 

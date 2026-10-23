@@ -59,13 +59,22 @@
    生成一张 path 指向一段文本的 file_card（真机现象：卡片外观正常、每条链接点开都失败）。
    `target`（落盘目标/跳转地址/ssh 主机）、`name`（工具名/应用名/系列名/文件名）、
    `result`（整段载荷/报告正文）同病。
-   修法在**口径**不在卡片：全局表只收键名即该概念的键，降级语义改用点名表
-   （`PATH_OR_NAME` / `PATH_FILE_OPS` / `URL_APP_OPS` / `SUMMARY_OR_RESULT`），
-   5 处读取点各按自己语义问对应表。`ToolResultFieldsTest` 的快照改成"按读取处对号入座"，
-   并加正反向边界（内容键不得进全局表、点名表必须包住核心表），
-   另加 `ToolResultUiTemplateTest` 与 `DynamicToolResultRendererTest` 回归。
+   修法在**口径**不在卡片，且**集中的单位是"读取处"不是"概念"**：
+   每个读取处一张按站点命名的表，逐字照抄 `git show 3d5687b8^` 的原清单（含顺序），
+   23 处改为 `SEARCH_COUNT` / `PATH_WITH_NAME` / `FILE_GENERATOR_PATH` /
+   `SYSTEM_RESOURCE_FILE` / `SYSTEM_RESOURCE_URL` 等；`ToolResultFields` 删除 `union`
+   与全部概念并表（合并正是引入事故的动作）。中间一版"只摘坏键、其余仍问概念表"
+   也不行——`file,filePath,path` 被并成 `filePath,path,…,file`、
+   `size,bytes_written,file_size` 被并成 `size,file_size,bytes_written`，
+   first-hit 语义就写在顺序里，顺序变了就是行为变了。
+   唯一保留的放宽是 `DYNAMIC_ARTIFACT`（多认 `file_path,link`，历史三键相对顺序不变）。
+   守卫：`ToolResultFieldsTest` 与历史原清单做**数组等值**比对（集合包含抓不到顺序回归），
+   外加"内容键只许出现在点名允许它的那一处"正反向断言；
+   `ToolResultUiTemplateTest`（4）与 `DynamicToolResultRendererTest` 回归（2）覆盖
+   stdout 不当路径、写入类 `output` 仍当路径、文本不生成产物卡。
    **教训**：合并手抄键清单时，"并集覆盖所有历史写法"不是正确性标准——
-   全局表会同时把每个读取处的接受面放大到全部工具的键空间。
+   全局表会同时把每个读取处的接受面放大到全部工具的键空间；
+   而 first-hit 顺序是行为的一部分，必须逐处还原。
 
 ## 三、未收口的差异（按建议顺序）
 
