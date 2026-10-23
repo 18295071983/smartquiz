@@ -206,9 +206,17 @@ public class VideoCardView implements ChatComponent {
                     surfaceBound[0] = false;
                 }
                 loading.setVisibility(View.GONE);
-                errorTv.setVisibility(View.GONE);
+                // 服务没连上（没有 mediaId 却带 error）要说出来，不能只是"点了没反应"
+                boolean serviceDown = state.error != null && state.mediaId.isEmpty();
+                if (serviceDown) {
+                    errorTv.setText("⚠ 播放服务连接失败");
+                    errorTv.setVisibility(View.VISIBLE);
+                } else {
+                    errorTv.setVisibility(View.GONE);
+                }
                 playOverlay.setVisibility(View.VISIBLE);
-                hint.setText("▶ 点击播放（划走不中断，回来接着播）");
+                hint.setText(serviceDown ? "▶ 点此重试（播放器服务未连接）"
+                        : "▶ 点击播放（划走不中断，回来接着播）");
                 return;
             }
             playOverlay.setVisibility(state.ended ? View.VISIBLE : View.GONE);

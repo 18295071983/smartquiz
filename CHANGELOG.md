@@ -1,5 +1,42 @@
 # 变更日志
 
+## [2026-10-23] fix(playback)：音频/视频卡片点开没反应——清单少了 MediaSessionService 的 intent-filter
+
+真机：音频卡、视频卡、播放队列点 ▶ 全部毫无反应，进度条停在 00:00、视频区全黑，
+控制台一条 App 日志都没有。**不是播放器代码坏了，是清单少了一行**：
+
+```
+E/AudioPlaybackManager: bind failed: java.lang.IllegalArgumentException:
+  Failed to resolve SessionToken for ComponentInfo{...AudioPlaybackService}.
+  Manifest doesn't declare one of either MediaSessionService, MediaLibraryService,
+  MediaBrowserService or MediaBrowserServiceCompat.
+  at androidx.media3.session.SessionToken.<init>
+  at AudioPlaybackManager.ensureController(AudioPlaybackManager.java:350)
+```
+
+- **根因**：`new SessionToken(context, ComponentName)` 不是纯数据对象——它会在构造时用
+  PackageManager 按 `androidx.media3.session.MediaSessionService` 这个 action **反查**服务，
+  校验目标组件真的是 MediaSessionService。`AudioPlaybackService` 的 `<service>` 当时只有
+  name/exported/foregroundServiceType，没有 intent-filter，反查不到 → 直接抛
+  `IllegalArgumentException`。`ensureController` 把它吞成 `lastError`，而卡片只在
+  "本卡是当前曲目"时才画 ⚠——连接失败时 mediaId 为空、永远不是当前曲目，于是失败被完全隐藏，
+  表现就是"点了没反应"。音频与视频共用这一个控制器，所以两条链路一起死。
+- **修**：manifest 给 `AudioPlaybackService` 补
+  `<intent-filter><action android:name="androidx.media3.session.MediaSessionService"/></intent-filter>`
+  （media3 的标准声明形态；`exported` 仍为 false，只给本进程连）。顺手把失败变成可见：
+  连接失败/断连改为 `Log.e` 持续记录；音频卡显示 ⚠ + "播放服务未连接"，视频卡显示
+  "⚠ 播放服务连接失败 / 点此重试"，不再静默。连接成功时会清掉上一轮的 lastError。
+- **守卫**：`AudioPlaybackServiceDeclarationTest`（Robolectric）两条——按 action
+  `queryIntentServices` 必须能查到该服务、`SessionToken` 必须能构造出来。已反向验证：
+  把 intent-filter 删掉，两条都红，且报的正是线上那句 `Failed to resolve SessionToken`；
+  加回即绿。避免下次整理清单时又把这一行"顺手"删掉而全绿。
+- **真机验证**（19:44 构建覆盖安装）：冷启动即见 `controller connected, player=ExoPlayerImpl@...`；
+  `dumpsys media_session` 出现 `com.oilquiz.app/androidx.media3.session.id./...`，
+  `state=PLAYING`、`Audio playback: uid=10433 packages=com.oilquiz.app`。视频卡出画面并带
+  PlayerView 控制条（02:07 / 02:07）；点音频卡的 ▶ 后同一会话的 metadata 换成
+  `本地 BGM 测试`、`state=PLAYING position=2869`，卡片图标变 ⏸、时长由 `--:--` 变 `02:06`
+  且进度条随播放前进——音频、视频两条链路都通了（音视频共用一个播放器，天然互切）。
+
 ## [2026-10-23] fix(schema)：新卡片/新图型补进"模型真正看到的那几份"文案
 
 "写了文档"不等于"模型看得到"。核了一遍模型可见的三条通道，补两处漏网：

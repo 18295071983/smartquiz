@@ -449,11 +449,19 @@
             android:name=".ai.tool.MediaProjectionService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
-        <!-- 音频播放单例：MediaSessionService 前台常驻，视图回收/切后台/锁屏时继续播放 -->
+        <!-- 音频播放单例：MediaSessionService 前台常驻，视图回收/切后台/锁屏时继续播放。
+             这个 intent-filter 不是可选的：media3 的 SessionToken(Context, ComponentName) 会在
+             构造时用 PackageManager 按 action 反查服务来校验"它确实是 MediaSessionService"，
+             查不到就抛 IllegalArgumentException —— 少了它 AudioPlaybackManager 一次都连不上，
+             卡片点了没反应（2026-10-23 真机定位）。 -->
         <service
             android:name=".ai.chat.media.AudioPlaybackService"
             android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
         <receiver
             android:name=".receiver.StreamTestReceiver"
             android:exported="true">

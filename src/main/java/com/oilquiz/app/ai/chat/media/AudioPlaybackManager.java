@@ -4,6 +4,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 
 import androidx.core.content.ContextCompat;
 import androidx.media3.common.C;
@@ -38,6 +39,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * mediaId，多张卡片因此能各自判断"是不是我在放"。</p>
  */
 public final class AudioPlaybackManager {
+
+    private static final String TAG = "AudioPlaybackManager";
 
     /** 播放状态快照（不可变，给卡片渲染用） */
     public static final class State {
@@ -347,6 +350,11 @@ public final class AudioPlaybackManager {
     private void ensureController() {
         if (controller != null || controllerFuture != null) return;
         try {
+            // 这个 SessionToken 会在构造时用 PackageManager 按 action 反查清单里的服务，
+            // 校验"你确实是 MediaSessionService"。所以 AudioPlaybackService 的 <service>
+            // 必须带 androidx.media3.session.MediaSessionService 的 intent-filter，
+            // 否则这里直接抛 IllegalArgumentException，一次都连不上（2026-10-23 真机根因：
+            // 卡片点了没反应，旧代码把异常吞成 lastError，UI 完全看不出来）。
             SessionToken token = new SessionToken(appContext,
                     new ComponentName(appContext, AudioPlaybackService.class));
             MediaController.Builder builder = new MediaController.Builder(appContext, token);
@@ -355,6 +363,8 @@ public final class AudioPlaybackManager {
             controllerFuture.addListener(() -> {
                 try {
                     controller = controllerFuture.get();
+                    lastError = null;   // 连上了：清掉上一次"连接失败"，别让卡片一直挂着 ⚠
+                    Log.i(TAG, "controller connected, player=" + AudioPlaybackService.sharedPlayer());
                     controller.addListener(playerListener);
                     // 服务 onCreate 已经把真实播放器建好，视频卡在这里拿到实例绑 Surface
                     dispatchPlayerReady();
@@ -375,11 +385,14 @@ public final class AudioPlaybackManager {
                 } catch (Throwable t) {
                     controllerFuture = null;
                     lastError = "播放服务连接失败";
+                    Log.e(TAG, "connect failed", t);
                     notifyState();
                 }
             }, ContextCompat.getMainExecutor(appContext));
         } catch (Throwable t) {
             lastError = "播放服务连接失败";
+            Log.e(TAG, "bind failed", t);
+            notifyState();
         }
     }
 

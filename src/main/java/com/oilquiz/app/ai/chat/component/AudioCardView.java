@@ -188,11 +188,14 @@ public class AudioCardView implements ChatComponent {
 
         final AudioPlaybackManager.Listener listener = state -> {
             boolean current = state.isTrack(trackUri);
+            // 播放器服务根本没连上（不是"这一首放失败"）：此时没有 mediaId，但带着 error。
+            // 以前这种失败只在"本卡是当前曲目"时才画 ⚠，于是连接失败看起来就是"点了没反应"。
+            boolean serviceDown = state.error != null && state.mediaId.isEmpty();
             isCurrent[0] = current;
             currentDuration[0] = state.durationMs;
             boolean known = current && state.durationMs > 0;
 
-            btnPlay.setText(state.error != null && current ? "⚠"
+            btnPlay.setText(serviceDown || (state.error != null && current) ? "⚠"
                     : (current && state.playing ? "⏸" : "▶"));
             seekBar.setEnabled(known);
 
@@ -200,7 +203,7 @@ public class AudioCardView implements ChatComponent {
                 // 别的曲目在放：这张卡回到待播状态（时长未知显示 --:--）
                 lastProgress[0] = -1;
                 if (seekBar.getProgress() != 0) seekBar.setProgress(0);
-                String idle = formatProgressText(0, 0);
+                String idle = serviceDown ? "播放服务未连接" : formatProgressText(0, 0);
                 if (!idle.contentEquals(timeTv.getText())) timeTv.setText(idle);
                 return;
             }
