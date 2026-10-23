@@ -2,6 +2,8 @@ package com.oilquiz.app.ai.chat.component;
 
 import android.content.Context;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
@@ -146,6 +148,7 @@ public class AudioCardView implements ChatComponent {
         sbLp.weight = 1f;
         seekBar.setLayoutParams(sbLp);
         seekBar.setMax(1000);
+        seekBar.setEnabled(false);   // 时长未知前不可拖；READY 后由 syncUi 打开
         controls.addView(seekBar);
 
         final TextView timeTv = new TextView(context);
@@ -159,6 +162,59 @@ public class AudioCardView implements ChatComponent {
 
         final ExoPlayer[] player = {null};
         final boolean[] userSeeking = {false};
+        // 进度刷新只能在主线程做：Media3 的 ExoPlayer 只能在创建它的线程上访问。
+        // 旧实现用后台线程轮询 isPlaying()/getCurrentPosition()，每一轮都在后台线程抛
+        // IllegalStateException，又被 catch(Exception ignored) 吞掉 → 循环空转，
+        // 进度条和秒数永远停在 00:00（真机现象）。改为主线程 Handler 定时同步，
+        // 与 FileRenderActivity#startAudioProgress 同一套写法（postDelayed + 自引用退出）。
+        final Handler ticker = new Handler(Looper.getMainLooper());
+        final int[] lastProgress = {-1};
+        final Runnable[] syncUi = {null};
+        final Runnable[] tick = {null};
+
+        // 用播放器真实位置刷新进度条/秒数；未知时长（流媒体/尚未解析）显示 --:-- 并禁用拖动
+        syncUi[0] = () -> {
+            ExoPlayer mp = player[0];
+            if (mp == null) return;
+            try {
+                long dur = mp.getDuration();
+                long pos = Math.max(0, mp.getCurrentPosition());
+                boolean known = dur > 0;
+                seekBar.setEnabled(known);
+                if (!userSeeking[0] && known) {
+                    int progress = progressOf(pos, dur);
+                    if (progress != lastProgress[0]) {
+                        lastProgress[0] = progress;
+                        seekBar.setProgress(progress);
+                    }
+                }
+                String text = formatProgressText(pos, dur);
+                if (!text.contentEquals(timeTv.getText())) timeTv.setText(text);
+            } catch (Throwable ignored) {
+            }
+        };
+
+        tick[0] = new Runnable() {
+            @Override
+            public void run() {
+                if (tick[0] != this) return;
+                ExoPlayer mp = player[0];
+                if (mp == null) return;
+                int state = mp.getPlaybackState();
+                // 暂停时也同步：拖动/暂停后秒数要立刻对得上；ENDED 交给它自己的回调收尾
+                if (state == Player.STATE_READY || state == Player.STATE_BUFFERING) {
+                    syncUi[0].run();
+                }
+                if (tick[0] == this) ticker.postDelayed(this, 400);
+            }
+        };
+
+        final Runnable startTicker = () -> {
+            // 只在已入树时轮询：视图创建后没被挂上（丢弃/复用失败）就 post 会一直空转
+            if (tick[0] == null || !card.isAttachedToWindow()) return;
+            ticker.removeCallbacks(tick[0]);
+            ticker.post(tick[0]);
+        };
 
         try {
             player[0] = new ExoPlayer.Builder(context).build();
@@ -176,10 +232,12 @@ public class AudioCardView implements ChatComponent {
                 @Override
                 public void onPlaybackStateChanged(int playbackState) {
                     if (playbackState == Player.STATE_READY) {
-                        long dur = player[0].getDuration();
-                        timeTv.setText("00:00 / " + formatTime(dur));
+                        // 不要写死 "00:00"：缓冲/暂停续播时当前位置可能不在开头
+                        syncUi[0].run();
+                        startTicker.run();
                     } else if (playbackState == Player.STATE_ENDED) {
                         btnPlay.setText("▶");
+                        lastProgress[0] = -1;
                         seekBar.setProgress(0);
                         timeTv.setText("00:00 / " + formatTime(player[0].getDuration()));
                     }
@@ -188,82 +246,98 @@ public class AudioCardView implements ChatComponent {
                 @Override
                 public void onIsPlayingChanged(boolean isPlaying) {
                     btnPlay.setText(isPlaying ? "⏸" : "▶");
+                    if (isPlaying) startTicker.run();
+                    else syncUi[0].run();
                 }
 
                 @Override
                 public void onPlayerError(PlaybackException error) {
                     btnPlay.setText("⚠");
+                    seekBar.setEnabled(false);
                 }
             });
 
             btnPlay.setOnClickListener(v -> {
                 try {
-                    if (player[0] == null) return;
-                    if (player[0].isPlaying()) {
-                        player[0].pause();
+                    ExoPlayer mp = player[0];
+                    if (mp == null) return;
+                    if (mp.isPlaying()) {
+                        mp.pause();
                     } else {
-                        player[0].play();
+                        // ENDED 之后 ExoPlayer 不会自己回到开头，play() 前必须 seekTo(0)，
+                        // 否则按钮变了图标却没有声音
+                        if (mp.getPlaybackState() == Player.STATE_ENDED) {
+                            lastProgress[0] = -1;
+                            mp.seekTo(0);
+                            seekBar.setProgress(0);
+                            syncUi[0].run();
+                        }
+                        mp.play();
+                        startTicker.run();
                     }
-                } catch (Exception e) {
+                } catch (Throwable e) {
                     btnPlay.setText("⚠");
                 }
             });
 
             seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {}
+                @Override
+                public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                    if (!fromUser) return;      // 程序刷新进度不能覆盖用户拖动
+                    ExoPlayer mp = player[0];
+                    if (mp == null) return;
+                    try {
+                        long dur = mp.getDuration();
+                        if (dur > 0) {
+                            // 拖动中先显示落点，松手才真正跳转
+                            timeTv.setText(formatProgressText(dur * progress / 1000, dur));
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+
                 @Override public void onStartTrackingTouch(SeekBar sb) { userSeeking[0] = true; }
-                @Override public void onStopTrackingTouch(SeekBar sb) {
+
+                @Override
+                public void onStopTrackingTouch(SeekBar sb) {
                     userSeeking[0] = false;
                     try {
-                        if (player[0] != null) {
-                            long dur = player[0].getDuration();
+                        ExoPlayer mp = player[0];
+                        if (mp != null) {
+                            long dur = mp.getDuration();
                             if (dur > 0) {
-                                player[0].seekTo(dur * sb.getProgress() / 1000);
+                                lastProgress[0] = -1;
+                                mp.seekTo(dur * sb.getProgress() / 1000);
                             }
+                            syncUi[0].run();
                         }
-                    } catch (Exception ignored) {}
-                }
-            });
-
-            // 进度刷新线程
-            final Thread[] updater = {null};
-            updater[0] = new Thread(() -> {
-                while (player[0] != null) {
-                    try {
-                        final ExoPlayer mp = player[0];
-                        if (mp.isPlaying() && !userSeeking[0]) {
-                            final long pos = mp.getCurrentPosition();
-                            final long dur = mp.getDuration();
-                            card.post(() -> {
-                                if (dur > 0) {
-                                    seekBar.setProgress((int) (pos * 1000 / dur));
-                                    timeTv.setText(formatTime(pos) + " / " + formatTime(dur));
-                                }
-                            });
-                        }
-                        Thread.sleep(500);
-                    } catch (InterruptedException e) {
-                        break;
-                    } catch (Exception ignored) {
+                    } catch (Throwable ignored) {
                     }
                 }
             });
-            updater[0].setDaemon(true);
-            updater[0].start();
 
-            // 卡片移除时释放播放器
+            // 卡片移除时停刷新并释放播放器（detach 回调在主线程，符合 Media3 线程要求）
             card.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
-                @Override public void onViewAttachedToWindow(View v) {}
-                @Override public void onViewDetachedFromWindow(View v) {
+                @Override
+                public void onViewAttachedToWindow(View v) {
+                    startTicker.run();
+                }
+
+                @Override
+                public void onViewDetachedFromWindow(View v) {
                     try {
-                        if (updater[0] != null) updater[0].interrupt();
+                        ticker.removeCallbacks(tick[0]);
+                        tick[0] = null;
                         if (player[0] != null) {
                             player[0].release();
                             player[0] = null;
                         }
-                    } catch (Exception ignored) {}
+                    } catch (Throwable ignored) {
+                    }
                 }
             });
+            // 视图已入树（复用场景）时 attach 回调不会再触发，这里补一次
+            if (card.isAttachedToWindow()) startTicker.run();
         } catch (Exception e) {
             try { if (player[0] != null) player[0].release(); } catch (Exception ignored) {}
             return createErrorView(context, "音频初始化失败: " + e.getMessage());
@@ -276,6 +350,25 @@ public class AudioCardView implements ChatComponent {
         if (ms < 0) ms = 0;
         long totalSec = ms / 1000;
         return String.format(java.util.Locale.US, "%02d:%02d", totalSec / 60, totalSec % 60);
+    }
+
+    /**
+     * 进度文字：总时长未知（<= 0，流媒体或尚未 READY）时显示 {@code --:--}，
+     * 不要拿 {@code C.TIME_UNSET} 去格式化成 00:00 冒充"零时长"。
+     */
+    static String formatProgressText(long posMs, long durMs) {
+        return formatTime(posMs) + " / " + (durMs > 0 ? formatTime(durMs) : "--:--");
+    }
+
+    /**
+     * 当前位置 → SeekBar(0..1000) 进度；时长未知返回 -1（调用方据此跳过 setProgress
+     * 并禁用拖动）。位置超界时夹取，避免 setProgress 抛 IllegalArgumentException。
+     */
+    static int progressOf(long posMs, long durMs) {
+        if (durMs <= 0) return -1;
+        long p = posMs * 1000 / durMs;
+        if (p < 0) return 0;
+        return (int) Math.min(1000, p);
     }
 
     /** 解析媒体地址：工作区相对路径（files/xxx、tmp/xxx）→ 绝对路径 */

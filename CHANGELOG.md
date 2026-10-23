@@ -1,5 +1,34 @@
 # 变更日志
 
+## [2026-10-23] fix(audio-card)：进度条与秒数不跟随播放——后台线程轮询 ExoPlayer 的旧实现
+
+真机反馈"能听，但进度条和当前秒数不追踪"。根因在 `AudioCardView` 的进度刷新：
+用后台 `Thread` 每 500ms 轮询 `isPlaying()/getCurrentPosition()/getDuration()`，
+而 Media3 的 `ExoPlayer` **只能在创建它的线程（主线程）访问**——每一轮都在后台线程抛
+`IllegalStateException`，又被 `catch (Exception ignored)` 吞掉，循环空转，UI 一次都没更新过。
+`seekBar` 也就永远停在初始值、`timeTv` 停在 `00:00 / 00:00`。
+
+修法（照 `FileRenderActivity#startAudioProgress` 已在用的主线程轮询写法，不新造轮子）：
+
+- 后台线程换成主线程 `Handler` 每 400ms 一拍的 ticker（自引用退出 + attach 才启动、
+  detach 移除回调），所有播放器调用回到主线程；
+- 长度未知（直播 / 未 READY / `C.TIME_UNSET`）不再把总时长格式化成 00:00：显示 `--:--`
+  并禁用拖动，时长就绪后自动打开；
+- 拖动时实时显示落点时间，松手才 `seekTo` 并立即同步一次（暂停状态下也准）；
+- `READY` 不再写死 `00:00 / dur`（缓冲续播/暂停恢复时会显示错位），改为按真实位置同步；
+- 顺手修同组件两处"点了没反应"：播完（`STATE_ENDED`）再点播放按钮图标变了却没声音
+  ——`play()` 前必须 `seekTo(0)`；进度值越界会撑爆 `SeekBar.setProgress`（抛
+  `IllegalArgumentException`），现在夹取到 0..1000；
+- 进度换算/文案抽成 `progressOf` / `formatProgressText` 纯函数，`AudioCardViewProgressTest`
+  3 条钉住（未知时长不出假 00:00、越界夹取、mm:ss 文案）。
+
+已知限制（本轮未改，属产品决策）：卡片移除/滚出屏幕即释放播放器并停止播放——
+要做"后台持续播放"需要把播放器提升为跨视图单例，不在本次范围。
+
+测试：全量 `--offline` 662 全绿（75 类 / 0 skipped / 0 failures / 0 errors）；
+`assembleDebug` 通过并覆盖安装（Success）。真机待验：播放时进度条与秒数跟随、
+拖动跳转、播完再播、暂停时拖动。
+
 ## [2026-10-23] fix(tool-results)：别名表把 `output` 当路径键，产物卡与 shell 摘要一起被带坏
 
 真机反馈"卡片文件链接打不开"。定位到的第一现场是我 03:45 那次读侧键名合并
