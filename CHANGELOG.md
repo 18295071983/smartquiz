@@ -1,5 +1,27 @@
 # 变更日志
 
+## [2026-10-23] refactor(video)：视频卡共用播放器单例——划走声音不断，划回来续播
+
+用户："视频组件也是"。视频卡旧实现同样在每条消息里 new ExoPlayer、detach 即 release，
+划出屏幕视频就停。现在与音频共用 `AudioPlaybackService` 里的唯一播放器。
+
+- `PlayerView` 需要真实 `ExoPlayer` 才能出画面（`MediaController` 不提供 Surface），
+  所以服务在 `onCreate` 暴露 `sharedPlayer()`，视频卡经
+  `AudioPlaybackManager.whenPlayerReady()` 拿到实例后绑 `PlayerView`（同进程、主线程）。
+- 只有"本卡是当前曲目"时才绑 Surface；其他视频卡显示 ▶ 遮罩，点它才切歌并挂画面。
+  划出屏幕只 `setPlayer(null)` 解绑 Surface，**播放继续**（声音不断）；划回来重新绑上，
+  位置就是播放器当前的位置。
+- 播完显示 ▶ 遮罩，点击走 `playOrToggle`（ENDED 会先 `seekTo(0)`）重播。
+- `autoPlay` 只在"当前没有别的东西在播"时生效，避免列表回收重绑时抢掉正在播的音频/视频。
+- 与音频互斥：同一个播放器只有一个当前曲目；放视频会自然停掉音频，反之亦然（通知栏
+  的标题也随之切换）。
+- 顺带与音频对齐：路径统一走 `MediaPathResolver`，修 `file://` 被拼成 `file://file://…`。
+
+测试：全量 `--offline` 662 全绿（75 类 / 0 skipped / 0 failures / 0 errors）；
+`assembleDebug` 通过、覆盖安装 Success；冷启动无崩溃。
+真机待验：播放视频后划过卡片/换页声音继续、回来续播；点另一个视频卡会切歌；
+播完点遮罩能重播；与音频互相切换正确。
+
 ## [2026-10-23] refactor(audio)：播放器提升为进程级单例，划走/切后台/锁屏继续播
 
 上一条修好了"进度条不跟随"，但播放器仍建在每张卡片里：聊天卡片是 RecyclerView 的子视图，

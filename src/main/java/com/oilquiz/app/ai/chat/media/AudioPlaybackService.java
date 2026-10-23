@@ -11,7 +11,7 @@ import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
 
 /**
- * 音频播放的<b>唯一</b>播放器宿主（2026-10-23）。
+ * 音频/视频播放的<b>唯一</b>播放器宿主（2026-10-23）。
  *
  * <p>为什么必须是服务而不是把 ExoPlayer 放进某个单例对象：聊天卡片是 RecyclerView 的
  * 子视图，划出屏幕就会 detach。旧实现把 ExoPlayer 建在卡片里、detach 即 release，
@@ -24,13 +24,23 @@ import androidx.media3.session.MediaSessionService;
  *   <li>系统媒体通知/耳机按键/锁屏控件通过 {@code MediaSession} 免开发接入。</li>
  * </ul>
  *
- * <p>界面侧不直接碰这里的播放器，一律经 {@link AudioPlaybackManager} 的
- * {@code MediaController} 拿状态、发指令——多张卡片同时存在时共享同一进度。</p>
+ * <p>界面侧：音频卡不直接碰这里的播放器，一律经 {@link AudioPlaybackManager} 的
+ * {@code MediaController} 拿状态、发指令；<b>视频卡需要把画面渲染出来</b>，
+ * MediaController 不提供 Surface，所以通过 {@link #sharedPlayer()} 拿真实实例绑
+ * {@code PlayerView}（同进程、主线程访问）。两者操作的是同一个播放器：
+ * 放视频会自然停掉音频，反之亦然。</p>
  *
  * <p>生命周期：播放时由媒体通知维持前台；暂停后用户划掉最近任务，Media3 默认
  * {@code onTaskRemoved} 会停掉服务并释放播放器（不会留一个无声的常驻服务）。</p>
  */
 public class AudioPlaybackService extends MediaSessionService {
+
+    /** 供视频卡绑 Surface 用的真实播放器（服务未启动时为 null；只在主线程读写） */
+    private static volatile ExoPlayer sharedPlayer;
+
+    public static ExoPlayer sharedPlayer() {
+        return sharedPlayer;
+    }
 
     private ExoPlayer player;
     private MediaSession session;
@@ -45,6 +55,7 @@ public class AudioPlaybackService extends MediaSessionService {
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_NETWORK)
                 .build();
+        sharedPlayer = player;
         PendingIntent openApp = PendingIntent.getActivity(this, 0,
                 new Intent(this, com.oilquiz.app.MainActivity.class)
                         .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
@@ -62,6 +73,7 @@ public class AudioPlaybackService extends MediaSessionService {
 
     @Override
     public void onDestroy() {
+        sharedPlayer = null;
         if (session != null) {
             session.release();
             session = null;

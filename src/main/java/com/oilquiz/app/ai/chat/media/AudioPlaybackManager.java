@@ -26,6 +26,10 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * 所以<b>卡片只是控制器，不是播放器</b>——卡片 detach、消息列表回收、切换页面
  * 都不会中断播放；重新出现的卡片从 {@link #snapshot()} 拿到当前位置继续画进度。</p>
  *
+ * <p><b>视频卡也走这里</b>：播放/暂停/切歌同样调 {@link #playOrToggle}，只是画面需要
+ * 真实播放器实例，额外通过 {@link #whenPlayerReady} 拿到 {@code ExoPlayer} 绑
+ * {@code PlayerView}。音频与视频共用一个播放器，天然互斥。</p>
+ *
  * <p>线程约定：Media3 的 MediaController 只能在应用主线程调用，本类所有公开方法都应在
  * 主线程调用（卡片点击/回调本来就在主线程）。进度轮询也走主线程 Handler
  * （400ms），与旧实现的后台线程轮询不同——ExoPlayer/Controller 跨线程访问会抛异常。</p>
@@ -71,6 +75,14 @@ public final class AudioPlaybackManager {
         void onAudioStateChanged(State state);
     }
 
+    /**
+     * 视频卡要把画面渲染出来，需要的是<b>真实播放器实例</b>（MediaController 不提供 Surface）。
+     * 播放器由 {@link AudioPlaybackService} 持有，服务连接完成时回调一次。
+     */
+    public interface PlayerReadyListener {
+        void onPlayerReady(androidx.media3.exoplayer.ExoPlayer player);
+    }
+
     private static volatile AudioPlaybackManager instance;
 
     public static AudioPlaybackManager get(Context context) {
@@ -90,6 +102,8 @@ public final class AudioPlaybackManager {
     private final Context appContext;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final CopyOnWriteArrayList<Listener> listeners = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<PlayerReadyListener> playerReadyListeners =
+            new CopyOnWriteArrayList<>();
 
     private MediaController controller;
     private ListenableFuture<MediaController> controllerFuture;
@@ -129,6 +143,43 @@ public final class AudioPlaybackManager {
         if (listener == null) return;
         listeners.remove(listener);
         if (listeners.isEmpty()) main.removeCallbacks(tick);
+    }
+
+    // ==================== 视频卡用：拿真实播放器实例渲染 Surface ====================
+
+    /** 确保播放服务已连接（视频卡绑 Surface 前调用；重复调用无副作用） */
+    public void ensureService() {
+        ensureController();
+    }
+
+    /** 服务持有的真实播放器；未连接时为 null */
+    public androidx.media3.exoplayer.ExoPlayer playerOrNull() {
+        return AudioPlaybackService.sharedPlayer();
+    }
+
+    /** 播放器可用时回调一次（已可用则立即回调；回调都在主线程） */
+    public void whenPlayerReady(PlayerReadyListener listener) {
+        if (listener == null) return;
+        androidx.media3.exoplayer.ExoPlayer p = playerOrNull();
+        if (p != null) {
+            listener.onPlayerReady(p);
+            return;
+        }
+        playerReadyListeners.add(listener);
+        ensureController();
+    }
+
+    private void dispatchPlayerReady() {
+        if (playerReadyListeners.isEmpty()) return;
+        androidx.media3.exoplayer.ExoPlayer p = playerOrNull();
+        if (p == null) return;
+        for (PlayerReadyListener l : playerReadyListeners) {
+            try {
+                l.onPlayerReady(p);
+            } catch (Throwable ignored) {
+            }
+        }
+        playerReadyListeners.clear();
     }
 
     /** 播放/暂停这张卡片；换成别的曲目则切歌。uri 用卡片解析后的完整地址做 mediaId */
@@ -235,6 +286,8 @@ public final class AudioPlaybackManager {
                 try {
                     controller = controllerFuture.get();
                     controller.addListener(playerListener);
+                    // 服务 onCreate 已经把真实播放器建好，视频卡在这里拿到实例绑 Surface
+                    dispatchPlayerReady();
                     String u = pendingUri, t = pendingTitle, a = pendingArtist;
                     boolean lp = pendingLoop;
                     float sp = pendingSpeed;
@@ -300,8 +353,10 @@ public final class AudioPlaybackManager {
         @Override
         public void onDisconnected(MediaController controller) {
             // 服务被系统/用户停掉：清掉连接，下次点播放会重新连
-            controller = null;
+            AudioPlaybackManager.this.controller = null;
             controllerFuture = null;
+            // 等待播放器的回调是持有 View 的一次性任务，服务没了就别留着（防泄漏）
+            playerReadyListeners.clear();
             notifyState();
         }
     };
