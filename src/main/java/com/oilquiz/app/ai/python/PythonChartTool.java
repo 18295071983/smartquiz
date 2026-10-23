@@ -28,7 +28,7 @@ import java.util.Map;
  */
 @Tool(
     value = "python_chart",
-    description = "Python绘图工具(Pillow/matplotlib)：数据可视化生成PNG图片。bar=柱状图/line=折线图/pie=饼图/scatter=散点图，传data(JSON)+title即可，输出图片文件。与image_gen(AI生图)不同，本工具画数据图表。环境已装matplotlib/Pillow/numpy/pandas；需要子图/对数轴/热力图等复杂图表时，改用python_execute直接编写matplotlib代码",
+    description = "Python绘图工具(Pillow/matplotlib 或原生图表卡)：bar/line/pie/scatter 默认生成PNG图片；render=card 时不出图，直接把数据交给原生图表卡（bar/line/area/stacked_bar/pie/scatter/radar，可交互、可看数据表）。与image_gen(AI生图)不同，本工具画数据图表。环境已装matplotlib/Pillow/numpy/pandas；需要子图/对数轴/热力图等复杂图表时，改用python_execute直接编写matplotlib代码",
     category = "python",
     aliases = {"绘图", "图表", "画图", "chart", "数据可视化", "py_chart"},
     actions = {
@@ -41,6 +41,8 @@ import java.util.Map;
         @Param(name = "action", type = "string", description = "图表类型: bar/line/pie/scatter", required = true),
         @Param(name = "data", type = "object", description = "数据JSON(必填)", required = true),
         @Param(name = "title", type = "string", description = "图表标题(可选)", required = false),
+        @Param(name = "render", type = "string", description = "输出形态: image(默认,生成PNG) / card(原生图表卡，不生成图片)", required = false),
+        @Param(name = "chartType", type = "string", description = "card 模式的图型: bar/line/area/stacked_bar/pie/scatter/radar（默认=action）", required = false),
         @Param(name = "width", type = "integer", description = "图片宽度(默认800)", required = false),
         @Param(name = "height", type = "integer", description = "图片高度(默认500)", required = false),
         @Param(name = "output_path", type = "string", description = "保存路径(默认工作区files/xxx.png)；支持相对路径，如 files/chart.png 或 chart.png，会自动解析到工作区", required = false),
@@ -85,12 +87,82 @@ public class PythonChartTool extends BaseAITool {
             if (data == null) {
                 return AIToolResult.fail("缺少参数: data（图表数据JSON）");
             }
+            // render=card：不出 PNG，直接把数据交给原生图表卡（多一个生产者，见 ChartCardView 扩型）
+            if ("card".equalsIgnoreCase(strParam(parameters, "render", "image").trim())) {
+                org.json.JSONObject props = buildCardProps(action, data,
+                        strParam(parameters, "chartType", ""), strParam(parameters, "title", ""));
+                if (props == null) {
+                    return AIToolResult.fail("card 模式需要 data 里有 labels+values、series[].values 或 points");
+                }
+                // 图表数据走 additionalInfo（UI 卡片通道），模型侧只回一句人话：
+                // 否则整段图表 JSON 会进上下文，也会被 fallbackPretty 摊在气泡里
+                Map<String, Object> info = new java.util.HashMap<>();
+                info.put("status", "success");
+                info.put("chart", props);
+                String chartTitle = props.optString("title", "数据图表");
+                return new AIToolResult("已生成图表卡片：" + chartTitle
+                        + "（可点「查看数据表」核对数据）", info, true);
+            }
             String code = buildChartCode(action, data, parameters);
             PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null, EXEC_BUDGET_SECONDS);
             return formatResult(result, action);
         } catch (Exception e) {
             Log.e(TAG, "Error: " + e.getMessage(), e);
             return AIToolResult.fail("Python绘图失败: " + errText(e));
+        }
+    }
+
+    /**
+     * card 模式的 props 构造（纯函数，单测用）：把工具的 data 归一成图表的
+     * categories + series 形状；点图用 points。解析不出来返回 null（调用方报错，不造假图）。
+     */
+    static org.json.JSONObject buildCardProps(String action, String dataJson,
+                                              String chartTypeOverride, String title) {
+        try {
+            org.json.JSONObject data = new org.json.JSONObject(dataJson);
+            String type = chartTypeOverride != null && !chartTypeOverride.trim().isEmpty()
+                    ? chartTypeOverride.trim().toLowerCase(java.util.Locale.US) : action;
+            if (type == null || type.isEmpty()) type = "bar";
+            org.json.JSONObject out = new org.json.JSONObject();
+            out.put("chartType", type);
+            if (title != null && !title.trim().isEmpty()) out.put("title", title.trim());
+
+            if ("scatter".equals(type)) {
+                org.json.JSONArray points = data.optJSONArray("points");
+                if (points == null || points.length() == 0) return null;
+                org.json.JSONObject s = new org.json.JSONObject()
+                        .put("name", title == null || title.trim().isEmpty() ? "数据" : title.trim())
+                        .put("points", points);
+                out.put("series", new org.json.JSONArray().put(s));
+                return out;
+            }
+
+            org.json.JSONArray labels = data.optJSONArray("labels");
+            if (labels == null) labels = data.optJSONArray("categories");
+            org.json.JSONArray values = data.optJSONArray("values");
+            org.json.JSONArray inSeries = data.optJSONArray("series");
+            org.json.JSONArray outSeries = new org.json.JSONArray();
+            if (inSeries != null && inSeries.length() > 0) {
+                for (int i = 0; i < inSeries.length(); i++) {
+                    org.json.JSONObject s = inSeries.optJSONObject(i);
+                    if (s == null) continue;
+                    org.json.JSONArray vals = s.optJSONArray("values");
+                    if (vals == null) vals = s.optJSONArray("data");
+                    if (vals == null) continue;
+                    outSeries.put(new org.json.JSONObject()
+                            .put("name", s.optString("name", "系列" + (i + 1)))
+                            .put("data", vals));
+                }
+            } else if (values != null) {
+                outSeries.put(new org.json.JSONObject().put("name", "数值").put("data", values));
+            }
+            if (outSeries.length() == 0) return null;
+            if ("radar".equals(type) && (labels == null || labels.length() < 3)) return null;
+            if (labels != null) out.put("categories", labels);
+            out.put("series", outSeries);
+            return out;
+        } catch (Throwable t) {
+            return null;
         }
     }
 
@@ -430,6 +502,8 @@ public class PythonChartTool extends BaseAITool {
         params.put("action", "图表类型: bar(柱状图)/line(折线图)/pie(饼图)/scatter(散点图)");
         params.put("data", "数据JSON(必填)。bar/line: {\"labels\":[\"A\",\"B\"],\"values\":[1,2]}或多系列{\"labels\":[...],\"series\":[{\"name\":\"系列1\",\"values\":[...]}]}；pie: {\"labels\":[...],\"values\":[...]}；scatter: {\"points\":[[1,2],[3,4]]}");
         params.put("title", "图表标题(可选)");
+        params.put("render", "输出形态: image(默认,生成PNG图片) / card(原生图表卡，不生成图片；可交互、可看数据表)");
+        params.put("chartType", "card 模式的图型: bar/line/area/stacked_bar/pie/scatter/radar（默认=action）");
         params.put("width", "图片宽度(默认800)");
         params.put("height", "图片高度(默认500)");
         params.put("output_path", "保存路径(默认工作区files/xxx.png)；相对路径自动解析到工作区(files/chart.png 或 chart.png)");

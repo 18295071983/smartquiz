@@ -1,5 +1,30 @@
 # 变更日志
 
+## [2026-10-23] feat(chart)：图表扩型（面积/堆叠柱/散点/雷达）+ 两个真实生产者
+
+用户意见：别把卡片限制在"python_chart 只出 PNG"这一个生产者的能力上——生产者多了，UI 就该扩。
+
+- **ChartCardView** 支持 `bar/line/area/stacked_bar/pie/scatter/radar`：
+  散点用数值 `points:[[x,y]]`（缺省时用 data 下标做 x）；堆叠柱按"每类各系列之和"取坐标上限；
+  雷达以 `categories` 为轴、每系列一条闭合折线；面积图先填色到基线再画线。
+  坐标上限、散点边界、点回退与刻度文案抽成纯函数（`maxStackedTotal / scatterBounds /
+  pointsOf / fmt`），有单测——上限算错会让柱子直接冲出画布。
+- **生产者 1：表格类结果自动出图**（`ChartDataExtractor`）。接 `excel_tool`（headers+rows）与
+  `database`（columns+rows）：识别"一列非数值分类 + ≥1 列数值（非空单元格 ≥80% 可解析、
+  非常量）"，2..30 行、最多 4 个系列；日期/月份/季度类走折线，否则柱状；
+  识别不出就**不出图**（保留原表格卡，不硬凑）。
+- **生产者 2：`python_chart` 支持 `render=card`**——不跑 matplotlib、不生成 PNG，把
+  labels/values、多系列或 points 直接交给原生图表卡（`chartType` 可覆盖
+  area/stacked_bar/radar）。图表数据走 `additionalInfo`（UI 通道），模型只收到一句人话，
+  不把整段图表 JSON 塞进上下文。
+- 别名：`area_chart / stacked_bar_chart / scatter_chart / radar_chart` → `chart`；
+  目录 chart 条目与三处 props 文案（共享常量 `PROPS_DOC_CHART`）同步扩型。
+
+测试：全量 `--offline` **705** 全绿（84 类 / 0 skipped / 0 failures / 0 errors）；
+`assembleDebug` 通过、覆盖安装 Success、冷启动无崩溃。
+真机待验：excel/数据库查询出"表格 + 图表"两张卡；`python_chart(render=card)` 出原生图；
+面积/堆叠/散点/雷达的观感。
+
 ## [2026-10-23] feat(cards)：新增 playlist / agenda / location / diff，题库卡补填空/简答
 
 按"缺形态不缺点数"的盘点落地（用户拍板：没有生产者的卡也先做，当预留接口）。

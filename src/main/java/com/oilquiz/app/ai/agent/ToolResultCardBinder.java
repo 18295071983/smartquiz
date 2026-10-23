@@ -235,9 +235,9 @@ public final class ToolResultCardBinder {
             case "location":
                 return wrap(locationCard(result));
             case "database":
-                return wrap(databaseCard(result, params));
+                return databaseCards(result, params);
             case "excel_tool":
-                return wrap(excelCard(result, params));
+                return excelCards(result, params);
             case "task":
                 return wrap(taskCard(result));
             case "reminder":
@@ -465,6 +465,37 @@ public final class ToolResultCardBinder {
         String provider = str(m.get("provider"));
         if (!provider.isEmpty()) p.put("provider", provider);
         return ComponentData.of("location", p);
+    }
+
+    // ==================== 表格 → 自动图表（2026-10-23） ====================
+
+    /** 表格类结果：原表格卡 + 能识别出"分类列 + 数值列"时加一张图表卡（见 ChartDataExtractor 的保守规则） */
+    private static List<ComponentData> excelCards(AIToolResult result, Map<String, Object> params)
+            throws Exception {
+        List<ComponentData> out = new ArrayList<>();
+        ComponentData table = excelCard(result, params);
+        if (table != null) out.add(table);
+        Map<String, Object> m = asMap(result.getResult());
+        if (m != null && out.size() < MAX_CARDS_PER_CALL) {
+            JSONObject chart = com.oilquiz.app.ai.chat.component.ChartDataExtractor
+                    .fromTable(asList(m.get("headers")), asList(m.get("rows")));
+            if (chart != null) out.add(ComponentData.of("chart", chart));
+        }
+        return out;
+    }
+
+    private static List<ComponentData> databaseCards(AIToolResult result, Map<String, Object> params)
+            throws Exception {
+        List<ComponentData> out = new ArrayList<>();
+        ComponentData card = databaseCard(result, params);
+        if (card != null) out.add(card);
+        Map<String, Object> m = asMap(result.getResult());
+        if (m != null && out.size() < MAX_CARDS_PER_CALL) {
+            JSONObject chart = com.oilquiz.app.ai.chat.component.ChartDataExtractor
+                    .fromTable(asList(m.get("columns")), asList(m.get("rows")));
+            if (chart != null) out.add(ComponentData.of("chart", chart));
+        }
+        return out;
     }
 
     // ==================== 数据库 ====================
@@ -1264,7 +1295,19 @@ public final class ToolResultCardBinder {
     }
 
     private static ComponentData pythonChartCard(AIToolResult result) throws Exception {
+        // render=card：图表数据走 additionalInfo（不占模型上下文），这里出原生图表卡
         Map<String, Object> info = asMap(result.getAdditionalInfo());
+        Object chartObj = info != null ? info.get("chart") : null;
+        if (chartObj == null) {
+            Map<String, Object> m = asMap(result.getResult());
+            chartObj = m != null ? m.get("chart") : null;
+        }
+        if (chartObj != null) {
+            JSONObject chart = chartObj instanceof JSONObject ? (JSONObject) chartObj
+                    : new JSONObject(String.valueOf(chartObj));
+            if (chart.optString("title", "").isEmpty()) chart.put("title", "数据图表");
+            return ComponentData.of("chart", chart);
+        }
         String stdout = info != null ? str(info.get("stdout")) : textOf(result);
         Matcher mt = Pattern.compile("图片已保存:\\s*(\\S+)").matcher(stdout);
         if (mt.find()) {

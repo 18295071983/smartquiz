@@ -717,6 +717,10 @@
     <string name="card_chart_type_bar">柱状图</string>
     <string name="card_chart_type_line">折线图</string>
     <string name="card_chart_type_pie">饼图</string>
+    <string name="card_chart_type_area">面积图</string>
+    <string name="card_chart_type_stacked_bar">堆叠柱状图</string>
+    <string name="card_chart_type_scatter">散点图</string>
+    <string name="card_chart_type_radar">雷达图</string>
     <!-- Agent 状态徽章（agent_status） -->
     <string name="agent_status_thinking">思考中</string>
     <string name="agent_status_tool">调用 %1$s</string>

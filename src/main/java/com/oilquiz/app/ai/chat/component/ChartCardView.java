@@ -22,19 +22,34 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 图表卡片组件：柱状图 / 折线图 / 饼图。
+ * 图表卡片组件：柱状 / 折线 / 面积 / 堆叠柱 / 饼 / 散点 / 雷达（2026-10-23 扩型）。
  *
- * 数据格式（ComponentData.props）：
+ * <p>扩型的原因是"生产者不止 python_chart 一个"：表格类结果（excel_tool / database）现在
+ * 会自动挑出"一列标签 + 数值列"生成图表卡，python_chart 也能 render=card 直接给数据。
+ * 只要数据是 `categories + series` 形状，这些类型就能画，不必等某个工具出 PNG。</p>
+ *
+ * <p>数据格式（ComponentData.props）：
  * <pre>
  * {
- *   "chartType": "bar" | "line" | "pie",
+ *   "chartType": "bar | line | area | stacked_bar | pie | scatter | radar",
  *   "title": "图表标题",
- *   "categories": ["1月","2月","3月"],
- *   "series": [{"name":"系列名","data":[120,200,150]}]
+ *   "categories": ["1月","2月","3月"],                  // 饼图时与 series[0].data 一一对应
+ *   "series": [
+ *     {"name":"系列名","data":[120,200,150]},            // 轴类/饼/雷达
+ *     {"name":"散点","points":[[1,2],[2,4]]}             // scatter：数值 x/y（缺省时用 data 的下标做 x）
+ *   ]
  * }
  * </pre>
  */
 public class ChartCardView implements ChatComponent {
+
+    /** 卡片正文高度（dp）：饼/散点/雷达需要更多空间 */
+    static int bodyHeightDp(String chartType) {
+        if ("pie".equals(chartType)) return 190;
+        if ("scatter".equals(chartType)) return 190;
+        if ("radar".equals(chartType)) return 200;
+        return 170;
+    }
 
     @Override
     public String getType() {
@@ -108,11 +123,15 @@ public class ChartCardView implements ChatComponent {
         return out;
     }
 
-    /** 别名本身带着图型时（pie_chart/bar_chart/line_chart/sparkline），据此补 chartType。 */
+    /** 别名本身带着图型时（pie_chart/area_chart/…），据此补 chartType。 */
     private static String chartTypeOfTypeName(String type) {
         if (type == null) return "";
         String t = ComponentTypes.normalize(type);
         if (t.contains("pie")) return "pie";
+        if (t.contains("stacked")) return "stacked_bar";
+        if (t.contains("area")) return "area";
+        if (t.contains("scatter")) return "scatter";
+        if (t.contains("radar")) return "radar";
         if (t.contains("bar")) return "bar";
         if (t.contains("line")) return "line";
         return "";
@@ -155,6 +174,17 @@ public class ChartCardView implements ChatComponent {
                     sd.values.add((float) dataArr.optDouble(j, 0));
                 }
             }
+            JSONArray pointsArr = s.optJSONArray("points");
+            if (pointsArr != null) {
+                for (int j = 0; j < pointsArr.length(); j++) {
+                    JSONArray pair = pointsArr.optJSONArray(j);
+                    if (pair != null && pair.length() >= 2) {
+                        sd.points.add(new float[]{
+                                (float) pair.optDouble(0, 0),
+                                (float) pair.optDouble(1, 0)});
+                    }
+                }
+            }
             seriesList.add(sd);
         }
         if (seriesList.isEmpty()) return null;
@@ -174,7 +204,7 @@ public class ChartCardView implements ChatComponent {
 
         int points = 0;
         for (Series s : seriesList) {
-            points += s.values.size();
+            points += s.values.size() + s.points.size();
         }
         if (points == 0) {
             shell.setState(CardShell.State.EMPTY);
@@ -187,8 +217,7 @@ public class ChartCardView implements ChatComponent {
                 + "：" + seriesList.size() + " 组 / " + points + " 个数据点");
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                "pie".equals(chartType) ? ComponentTheme.dp(context, 190)
-                        : ComponentTheme.dp(context, 170));
+                ComponentTheme.dp(context, bodyHeightDp(chartType)));
         shell.addBody(chartView, lp);
         // 图表读不出数（分类多、色弱、TalkBack）时的降级入口：同一份数据渲染成表格
         shell.addAction(context.getString(R.string.component_chart_data_table), false,
@@ -208,13 +237,22 @@ public class ChartCardView implements ChatComponent {
             headers.put(cats.isEmpty() ? "项" : "分类");
             for (Series s : seriesList) headers.put(s.name);
             int rows = Math.max(cats.size(), 1);
-            for (Series s : seriesList) rows = Math.max(rows, s.values.size());
+            for (Series s : seriesList) {
+                rows = Math.max(rows, Math.max(s.values.size(), s.points.size()));
+            }
             org.json.JSONArray rowsArr = new org.json.JSONArray();
             for (int i = 0; i < rows; i++) {
                 org.json.JSONArray row = new org.json.JSONArray();
                 row.put(i < cats.size() ? cats.get(i) : "第 " + (i + 1) + " 项");
                 for (Series s : seriesList) {
-                    row.put(i < s.values.size() ? String.valueOf(s.values.get(i)) : "");
+                    if (i < s.values.size()) {
+                        row.put(String.valueOf(s.values.get(i)));
+                    } else if (i < s.points.size()) {
+                        float[] pt = s.points.get(i);
+                        row.put(fmt(pt[0]) + ", " + fmt(pt[1]));
+                    } else {
+                        row.put("");
+                    }
                 }
                 rowsArr.put(row);
             }
@@ -241,14 +279,98 @@ public class ChartCardView implements ChatComponent {
         if ("pie".equals(chartType)) {
             return context.getString(R.string.card_chart_type_pie);
         }
+        if ("area".equals(chartType)) {
+            return context.getString(R.string.card_chart_type_area);
+        }
+        if ("stacked_bar".equals(chartType)) {
+            return context.getString(R.string.card_chart_type_stacked_bar);
+        }
+        if ("scatter".equals(chartType)) {
+            return context.getString(R.string.card_chart_type_scatter);
+        }
+        if ("radar".equals(chartType)) {
+            return context.getString(R.string.card_chart_type_radar);
+        }
         return context.getString(R.string.card_chart_type_bar);
     }
 
+    // ---------------------------------------------------------------- 纯数据口径（可单测）
+
+    /** 单系列最大值（负值按 0） */
+    static float maxValue(List<Series> seriesList) {
+        float max = 0;
+        if (seriesList == null) return 0;
+        for (Series s : seriesList) {
+            for (Float v : s.values) {
+                if (v != null && v > max) max = v;
+            }
+        }
+        return max;
+    }
+
+    /** 堆叠柱：按"每类各系列之和"的最大值取坐标上限 */
+    static float maxStackedTotal(List<Series> seriesList) {
+        if (seriesList == null) return 0;
+        int categories = 0;
+        for (Series s : seriesList) categories = Math.max(categories, s.values.size());
+        float max = 0;
+        for (int i = 0; i < categories; i++) {
+            float sum = 0;
+            for (Series s : seriesList) {
+                if (i < s.values.size()) sum += Math.max(0f, s.values.get(i));
+            }
+            if (sum > max) max = sum;
+        }
+        return max;
+    }
+
+    /** 散点边界 {minX,maxX,minY,maxY}；没有点也没值返回 null */
+    static float[] scatterBounds(List<Series> seriesList) {
+        if (seriesList == null) return null;
+        float minX = Float.MAX_VALUE, maxX = -Float.MAX_VALUE;
+        float minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+        boolean any = false;
+        for (Series s : seriesList) {
+            for (float[] pt : pointsOf(s)) {
+                any = true;
+                minX = Math.min(minX, pt[0]);
+                maxX = Math.max(maxX, pt[0]);
+                minY = Math.min(minY, pt[1]);
+                maxY = Math.max(maxY, pt[1]);
+            }
+        }
+        return any ? new float[]{minX, maxX, minY, maxY} : null;
+    }
+
+    /** 散点用点：显式 points 优先，否则把 data 下标当 x */
+    static List<float[]> pointsOf(Series s) {
+        if (s == null) return new ArrayList<>();
+        if (!s.points.isEmpty()) return s.points;
+        List<float[]> out = new ArrayList<>();
+        for (int i = 0; i < s.values.size(); i++) {
+            out.add(new float[]{i + 1, s.values.get(i)});
+        }
+        return out;
+    }
+
+    /** 轴刻度文案：整数不带小数，其余保留一位 */
+    static String fmt(float v) {
+        float r = Math.round(v);
+        if (Math.abs(v - r) < 0.05f) return String.valueOf((int) r);
+        return String.format(java.util.Locale.US, "%.1f", v);
+    }
+
+    static int withAlpha(int color, int alpha) {
+        return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color));
+    }
+
     /** 系列数据 */
-    private static class Series {
+    static class Series {
         String name;
         int color;
         List<Float> values = new ArrayList<>();
+        /** 散点专用：数值 x/y */
+        List<float[]> points = new ArrayList<>();
     }
 
     /** 图表绘制 View */
@@ -280,12 +402,16 @@ public class ChartCardView implements ChatComponent {
             if (seriesList.isEmpty()) return;
             if ("pie".equals(chartType)) {
                 drawPie(canvas);
+            } else if ("scatter".equals(chartType)) {
+                drawScatter(canvas);
+            } else if ("radar".equals(chartType)) {
+                drawRadar(canvas);
             } else {
                 drawAxisChart(canvas);
             }
         }
 
-        /** 柱状图 / 折线图（共用坐标轴逻辑） */
+        /** 柱状图 / 折线图 / 面积图 / 堆叠柱（共用坐标轴逻辑） */
         private void drawAxisChart(Canvas canvas) {
             int w = getWidth();
             int h = getHeight();
@@ -296,13 +422,11 @@ public class ChartCardView implements ChatComponent {
             int chartW = w - padLeft - padRight;
             int chartH = h - padTop - padBottom;
 
-            // 数据最大值（含 0 兜底；负值按 0 处理）
-            float maxVal = 0;
+            // 数据最大值：堆叠柱要按"每类总和"取，否则柱会冲出坐标区
+            float maxVal = "stacked_bar".equals(chartType)
+                    ? maxStackedTotal(seriesList) : maxValue(seriesList);
             int pointCount = 0;
             for (Series s : seriesList) {
-                for (Float v : s.values) {
-                    if (v != null && v > maxVal) maxVal = v;
-                }
                 pointCount = Math.max(pointCount, s.values.size());
             }
             if (maxVal <= 0) maxVal = 1;
@@ -324,7 +448,11 @@ public class ChartCardView implements ChatComponent {
             float slotW = chartW / (float) n;
 
             if ("line".equals(chartType)) {
-                drawLines(canvas, padLeft, padTop, chartH, slotW, maxVal, n);
+                drawLines(canvas, padLeft, padTop, chartH, slotW, maxVal, n, false);
+            } else if ("area".equals(chartType)) {
+                drawLines(canvas, padLeft, padTop, chartH, slotW, maxVal, n, true);
+            } else if ("stacked_bar".equals(chartType)) {
+                drawStackedBars(canvas, padLeft, padTop, chartH, slotW, maxVal, n);
             } else {
                 drawBars(canvas, padLeft, padTop, chartH, slotW, maxVal, n);
             }
@@ -359,7 +487,35 @@ public class ChartCardView implements ChatComponent {
             }
         }
 
+        private void drawStackedBars(Canvas canvas, int padLeft, int padTop, int chartH,
+                                     float slotW, float maxVal, int n) {
+            float barW = slotW * 0.55f;
+            for (int i = 0; i < n; i++) {
+                float bottom = padTop + chartH;
+                for (Series series : seriesList) {
+                    if (i >= series.values.size()) continue;
+                    float v = Math.max(0f, series.values.get(i));
+                    float barH = (v / maxVal) * chartH;
+                    if (barH <= 0) continue;
+                    paint.setColor(series.color);
+                    paint.setStyle(Paint.Style.FILL);
+                    RectF r = new RectF(
+                            padLeft + slotW * i + (slotW - barW) / 2f,
+                            bottom - barH,
+                            padLeft + slotW * i + (slotW + barW) / 2f,
+                            bottom);
+                    canvas.drawRoundRect(r, dp(2), dp(2), paint);
+                    bottom -= barH;
+                }
+            }
+        }
+
         private void drawLines(Canvas canvas, int padLeft, int padTop, int chartH, float slotW, float maxVal, int n) {
+            drawLines(canvas, padLeft, padTop, chartH, slotW, maxVal, n, false);
+        }
+
+        private void drawLines(Canvas canvas, int padLeft, int padTop, int chartH, float slotW,
+                               float maxVal, int n, boolean fillArea) {
             for (Series series : seriesList) {
                 Path path = new Path();
                 paint.setColor(series.color);
@@ -367,16 +523,31 @@ public class ChartCardView implements ChatComponent {
                 paint.setStrokeWidth(dp(2));
                 paint.setStrokeCap(Paint.Cap.ROUND);
                 boolean first = true;
+                float firstX = 0, lastX = 0;
                 for (int i = 0; i < series.values.size() && i < n; i++) {
                     float v = series.values.get(i);
                     float x = padLeft + slotW * i + slotW / 2f;
                     float y = padTop + chartH - (v / maxVal) * chartH;
                     if (first) {
                         path.moveTo(x, y);
+                        firstX = x;
                         first = false;
                     } else {
                         path.lineTo(x, y);
                     }
+                    lastX = x;
+                }
+                // 面积图：先填色到基线，再画线
+                if (fillArea && !first) {
+                    Path area = new Path(path);
+                    area.lineTo(lastX, padTop + chartH);
+                    area.lineTo(firstX, padTop + chartH);
+                    area.close();
+                    paint.setStyle(Paint.Style.FILL);
+                    paint.setColor(withAlpha(series.color, 0x40));
+                    canvas.drawPath(area, paint);
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setColor(series.color);
                 }
                 canvas.drawPath(path, paint);
 
@@ -389,6 +560,117 @@ public class ChartCardView implements ChatComponent {
                     canvas.drawCircle(x, y, dp(3), paint);
                 }
                 paint.setStyle(Paint.Style.STROKE);
+            }
+            paint.setStyle(Paint.Style.FILL);
+        }
+
+        /** 散点图：数值 x/y 轴（series 未给 points 时用 data 的下标做 x） */
+        private void drawScatter(Canvas canvas) {
+            int w = getWidth();
+            int h = getHeight();
+            int padLeft = dp(34);
+            int padRight = dp(10);
+            int padTop = dp(8);
+            int padBottom = dp(22);
+            int chartW = w - padLeft - padRight;
+            int chartH = h - padTop - padBottom;
+            float[] bounds = scatterBounds(seriesList);
+            if (bounds == null || chartW <= 0 || chartH <= 0) return;
+            float minX = bounds[0], maxX = bounds[1], minY = bounds[2], maxY = bounds[3];
+            if (maxX - minX < 1e-6f) { minX -= 1; maxX += 1; }
+            if (maxY - minY < 1e-6f) { minY -= 1; maxY += 1; }
+            float xSpan = maxX - minX, ySpan = maxY - minY;
+
+            textPaint.setTextAlign(Paint.Align.LEFT);
+            for (int i = 0; i <= 4; i++) {
+                float ratio = i / 4f;
+                float y = padTop + chartH * (1 - ratio);
+                paint.setColor(ComponentColors.border(getContext()));
+                paint.setStrokeWidth(dp(1));
+                paint.setStyle(Paint.Style.STROKE);
+                canvas.drawLine(padLeft, y, w - padRight, y, paint);
+                canvas.drawText(fmt(minY + ySpan * ratio), dp(2), y - dp(3), textPaint);
+            }
+            textPaint.setTextAlign(Paint.Align.CENTER);
+            for (int i = 0; i <= 4; i++) {
+                float ratio = i / 4f;
+                float x = padLeft + chartW * ratio;
+                canvas.drawText(fmt(minX + xSpan * ratio), x, h - dp(5), textPaint);
+            }
+            for (Series s : seriesList) {
+                paint.setColor(s.color);
+                paint.setStyle(Paint.Style.FILL);
+                for (float[] pt : pointsOf(s)) {
+                    float px = padLeft + (pt[0] - minX) / xSpan * chartW;
+                    float py = padTop + chartH - (pt[1] - minY) / ySpan * chartH;
+                    canvas.drawCircle(px, py, dp(3.2f), paint);
+                }
+            }
+            paint.setStyle(Paint.Style.FILL);
+        }
+
+        /** 雷达图：categories 是轴；每个系列一条闭合折线（值按最大值归一） */
+        private void drawRadar(Canvas canvas) {
+            int n = 0;
+            for (Series s : seriesList) {
+                n = Math.max(n, Math.max(s.values.size(), s.points.size()));
+            }
+            n = Math.max(n, categories.size());
+            if (n < 3) return;
+            int w = getWidth();
+            int h = getHeight();
+            float cx = w / 2f;
+            float cy = h / 2f;
+            float radius = Math.min(w, h) / 2f - dp(26);
+            if (radius <= dp(10)) return;
+            float maxVal = maxValue(seriesList);
+            if (maxVal <= 0) maxVal = 1;
+
+            for (int ring = 1; ring <= 4; ring++) {
+                Path p = new Path();
+                for (int i = 0; i < n; i++) {
+                    double a = -Math.PI / 2 + 2 * Math.PI * i / n;
+                    float x = cx + (float) Math.cos(a) * radius * ring / 4f;
+                    float y = cy + (float) Math.sin(a) * radius * ring / 4f;
+                    if (i == 0) p.moveTo(x, y); else p.lineTo(x, y);
+                }
+                p.close();
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(dp(1));
+                paint.setColor(ComponentColors.border(getContext()));
+                canvas.drawPath(p, paint);
+            }
+            textPaint.setTextAlign(Paint.Align.CENTER);
+            for (int i = 0; i < n; i++) {
+                double a = -Math.PI / 2 + 2 * Math.PI * i / n;
+                float x = cx + (float) Math.cos(a) * radius;
+                float y = cy + (float) Math.sin(a) * radius;
+                canvas.drawLine(cx, cy, x, y, paint);
+                if (i < categories.size() && n <= 12) {
+                    canvas.drawText(categories.get(i),
+                            cx + (float) Math.cos(a) * (radius + dp(12)),
+                            cy + (float) Math.sin(a) * (radius + dp(12)) + dp(3),
+                            textPaint);
+                }
+            }
+            for (Series s : seriesList) {
+                Path p = new Path();
+                for (int i = 0; i < n; i++) {
+                    float v = i < s.values.size() ? Math.max(0f, s.values.get(i)) : 0f;
+                    double a = -Math.PI / 2 + 2 * Math.PI * i / n;
+                    float r = radius * (v / maxVal);
+                    float x = cx + (float) Math.cos(a) * r;
+                    float y = cy + (float) Math.sin(a) * r;
+                    if (i == 0) p.moveTo(x, y); else p.lineTo(x, y);
+                }
+                p.close();
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(withAlpha(s.color, 0x40));
+                canvas.drawPath(p, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(dp(2));
+                paint.setColor(s.color);
+                canvas.drawPath(p, paint);
             }
             paint.setStyle(Paint.Style.FILL);
         }

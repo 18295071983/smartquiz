@@ -56,8 +56,19 @@ public final class ComponentTypes {
                     + "short=简答题：提交后展示参考答案由用户自评，不自动判分）";
 
     /**
+     * 图表卡形状（三处 props 长说明共用）。2026-10-23 扩型：生产者不再只有 python_chart
+     * 的 PNG——表格类结果会自动挑数值列出图，python_chart 也能 render=card 直出原生图表。
+     */
+    public static final String PROPS_DOC_CHART =
+            "chart:{chartType:'bar|line|area|stacked_bar|pie|scatter|radar',title,categories:[分类],"
+                    + "series:[{name,data:[数值]}]}（scatter 用 series:[{name,points:[[x,y],...]}] 给数值坐标，"
+                    + "缺省时用 data 下标做 x；stacked_bar 多系列按分类堆叠；"
+                    + "radar 以 categories 为轴、每个系列一条闭合折线；pie 用 series[0].data 对应 categories）";
+
+
+    /**
      * playlist / agenda / location / diff 四张卡的 props 形状（三处 props 长说明共用）。
-     * playlist 与刚完成的播放器单例配套（队列 + 上下首）；diff 目前无工具生产者，属预留接口。
+     * playlist 与播放器单例配套（队列 + 上下首）；diff 目前无工具生产者，属预留接口。
      */
     public static final String PROPS_DOC_EXTRA_CARDS =
             "playlist:{title,items:[{name,url,artist,size}]}（音频队列：多曲目用一张卡，行点击从该首开始，"
@@ -148,6 +159,11 @@ public final class ComponentTypes {
         alias.put("bar_chart", "chart");
         alias.put("pie_chart", "chart");
         alias.put("sparkline", "chart");
+        // 2026-10-23 扩型：面积/堆叠柱/散点/雷达（产物可以是 python_chart render=card 或表格自动出图）
+        alias.put("area_chart", "chart");
+        alias.put("stacked_bar_chart", "chart");
+        alias.put("scatter_chart", "chart");
+        alias.put("radar_chart", "chart");
         alias.put("code_card", "code");
         alias.put("json_viewer", "json");
         alias.put("markdown_card", "markdown");
@@ -181,8 +197,10 @@ public final class ComponentTypes {
                 "标题 title, align=left|center", ""});
         // chart 两个都是必填：ChartCardView.canRender 要求 chartType 非空 **且** series 非空数组，
         // 此前 series 被归到"可选"、categories 混在注释里 → 模型只给 chartType+categories 就渲不出卡。
-        SCHEMA.put("chart", new String[]{CATEGORY_DATA, "类型 chartType=bar|line|pie, 系列 series[{name,data[]}]",
-                "分类 categories[], 标题 title", ""});
+        SCHEMA.put("chart", new String[]{CATEGORY_DATA,
+                "类型 chartType=bar|line|area|stacked_bar|pie|scatter|radar, 系列 series[{name,data[]}]",
+                "分类 categories[], 标题 title, 散点 points[[x,y]]",
+                "scatter 可用 points 给数值坐标；stacked_bar 多系列按分类堆叠；radar 以 categories 为轴"});
         SCHEMA.put("metric", new String[]{CATEGORY_DATA, "指标 metrics[{label,value,color}]", "标题 title",
                 "单位 unit, trend"});
         // progress 的必填名必须是 progress：ProgressCardView.canRender 就是 props.has("progress")，
