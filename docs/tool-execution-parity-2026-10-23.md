@@ -41,14 +41,16 @@
    线程池线程会被复用，退出时是 `remove()` 而不是只设置。
    顺带修一条静默说谎：旧实现在子调用 `isSuccess()==false` 时因为 `getResult()` 为 null
    而回落到字符串"工具执行完成"，嵌套失败被报成完成。
-5. **工具结果字段别名表**：`ToolResultFields`（PATH / URL / ARTIFACT / FILE_TYPE / SIZE /
-   MESSAGE / ERROR / SUMMARY / COUNT_TOTAL）。迁移前实测的漂移：文件路径三套、摘要三套、
-   大小两套、URL 两套、消息两套。已改问表的有 23 处（`ToolResultInterpreter` 22 +
-   `DynamicToolResultRenderer` 的产物归类 1），**仍有 79 处 `strDeep` 是就地键清单**
-   （多为各工具专属字段与"种类计数"，本来就不该合并）。
-   守卫测试 `ToolResultFieldsTest` 把"迁移前各处实际用过的键集合"抄成快照逐个要求覆盖
-   （谁精简表项就红），并钉住三条边界：`message` 不进 ERROR、种类计数不并进通用 count、
-   `source` 不进 URL（它是来源站点名，当链接渲染会错）。
+5. **工具结果字段键名清单**：`ToolResultFields`——<b>每个读取处一张按站点命名的表</b>
+   （`SEARCH_COUNT` / `PATH_WITH_NAME` / `FILE_GENERATOR_PATH` / `SYSTEM_RESOURCE_FILE` …），
+   逐字沿用迁移前的原清单（含顺序）。**不再有按概念并的全局表，也不提供 `union`**——
+   合并正是本节第 6 条那次真机事故的动作，原因与经过写在那里。
+   迁移前实测的漂移：文件路径三套、摘要三套、大小两套、URL 两套、消息两套。
+   23 处已迁移（`ToolResultInterpreter` 22 + `DynamicToolResultRenderer` 的产物归类 1），
+   **仍有 79 处 `strDeep` 是就地键清单**（多为各工具专属字段与"种类计数"，本就不该合并）。
+   守卫 `ToolResultFieldsTest`：把 `git show 3d5687b8^` 抄出的原清单与每张表做**数组等值**
+   比对（顺序含 first-hit 语义，集合包含抓不到回归），外加"内容键只许出现在点名允许它的
+   那一处"正反向断言、重复键与空键检查。
    自我更正：原盘点把"count 六套"也算漂移，实测多数是**不同的量**
    （rows/words/pages/lines/sources/matches 各有别名），并成一张表反而会显示错数字。
 6. **上一条自己引入的回归（同日修掉）**：合并时没区分"键名本身就是这个概念"与
@@ -75,6 +77,8 @@
    **教训**：合并手抄键清单时，"并集覆盖所有历史写法"不是正确性标准——
    全局表会同时把每个读取处的接受面放大到全部工具的键空间；
    而 first-hit 顺序是行为的一部分，必须逐处还原。
+   **真机复验（2026-10-23）**：用户确认"都正常了"——卡片文件链接（含历史会话里的旧卡）、
+   shell 结果摘要、动态工具产物卡均恢复正常。
 
 ## 三、未收口的差异（按建议顺序）
 

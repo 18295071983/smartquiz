@@ -33,7 +33,9 @@
   另新增 `ToolResultUiTemplateTest`（4 条：stdout 不许当路径、真路径键与裸名降级、
   写入类 `output` 仍当路径）与 `DynamicToolResultRendererTest` 回归 2 条。
 
-测试：全量 `--offline` **659** 全绿（74 类 / 0 skipped / 0 failures / 0 errors，四数核过）。
+测试：全量 `--offline` **659** 全绿（74 类 / 0 skipped / 0 failures / 0 errors，四数核过）；
+`assembleDebug` 通过并覆盖安装，真机复验（2026-10-23）用户确认"都正常了"——
+卡片文件链接（含历史会话旧卡）、shell 结果摘要、动态工具产物卡均恢复正常。
 
 ## [2026-10-23] fix(chat-cards)：file_list/file_card 条目路径补齐（目录 + 文件名形态）
 
