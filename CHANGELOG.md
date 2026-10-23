@@ -1,5 +1,29 @@
 # 变更日志
 
+## [2026-10-23] feat(playback)：支持 m3u8 / HLS 直播与点播（补 media3-exoplayer-hls + 显式 MIME）
+
+用户拿直播源（`http://….m3u8?key=…&playlive=1`）试原生播放器，点开就失败，App 侧只能
+退化成"用 html 卡 + hls.js 在 WebView 里播"。**HLS 在 media3 里是独立模块**，只引
+`media3-exoplayer` 时 `DefaultMediaSourceFactory` 找不到 `HlsMediaSource.Factory`，
+prepare 阶段直接抛 `IllegalStateException: No suitable media source factory found for
+content type: 2`（2 = HLS）。
+
+- **依赖**：`build.gradle` 补 `androidx.media3:media3-exoplayer-hls:1.3.1`（约 +100KB，
+  首次联网解析后已进离线缓存，`--offline` 照常能构建）。
+- **MIME**：`AudioPlaybackManager` 新增 `mimeTypeOf()`，`.m3u8`（含 `?token=`/`&playlive=1`
+  这类带 query 的直播地址、大小写、本地路径）显式给 `MimeTypes.APPLICATION_M3U8`，
+  `playOrToggle` 与 `playQueue` 两处建 `MediaItem` 都带上；其它扩展名继续走默认推断，
+  不改变 mp4/mp3 行为。
+- **守卫**：`AudioPlaybackManagerHlsTest` 两条——m3u8/带 query/大小写/本地路径都要判成 HLS，
+  且 `DefaultMediaSourceFactory` 必须真能造出 `HlsMediaSource`。已反向验证：把依赖注释掉，
+  第二条立刻红，报的正是线上那句 `No suitable media source factory found for content type: 2`；
+  加回即绿。顺带钉住 `.m3u8.mp4` 这类假扩展名不许误判。
+- **真机验证**（20:02 构建覆盖安装）：点「湖南卫视（原生播放器 · 直连）」→
+  `dumpsys media_session` `state=PLAYING`、`description=湖南卫视…`、position 为负（直播窗口），
+  画面出电视直播帧、角落有台标；卡片提示从"点击播放"变"点画面显示控制条（进度/倍速/手势）"。
+- **边界**：DASH（`.mpd`）仍未支持，需要时再加 `media3-exoplayer-dash`；HLS 直播没有总时长，
+  卡片按既有约定显示 `--:--` 且禁用拖动（直播窗口内可拖）。
+
 ## [2026-10-23] fix(playback)：音频/视频卡片点开没反应——清单少了 MediaSessionService 的 intent-filter
 
 真机：音频卡、视频卡、播放队列点 ▶ 全部毫无反应，进度条停在 00:00、视频区全黑，

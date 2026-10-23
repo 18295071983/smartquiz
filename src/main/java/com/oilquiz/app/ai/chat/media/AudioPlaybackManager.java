@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.session.MediaController;
@@ -223,14 +224,16 @@ public final class AudioPlaybackManager {
             return;
         }
         lastError = null;
-        MediaItem item = new MediaItem.Builder()
+        MediaItem.Builder itemBuilder = new MediaItem.Builder()
                 .setUri(uri)
                 .setMediaId(uri)
                 .setMediaMetadata(new MediaMetadata.Builder()
                         .setTitle(title == null ? "" : title)
                         .setArtist(artist == null ? "" : artist)
-                        .build())
-                .build();
+                        .build());
+        String mime = mimeTypeOf(uri);
+        if (mime != null) itemBuilder.setMimeType(mime);
+        MediaItem item = itemBuilder.build();
         c.setRepeatMode(loop ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
         c.setPlaybackSpeed(speed > 0.1f && speed <= 2.0f ? speed : 1.0f);
         c.setMediaItem(item);
@@ -270,11 +273,13 @@ public final class AudioPlaybackManager {
             String uri = uris.get(i);
             if (uri == null || uri.isEmpty()) continue;
             String t = titles != null && i < titles.size() ? titles.get(i) : "";
-            items.add(new MediaItem.Builder()
+            MediaItem.Builder itemBuilder = new MediaItem.Builder()
                     .setUri(uri)
                     .setMediaId(uri)
-                    .setMediaMetadata(new MediaMetadata.Builder().setTitle(t).build())
-                    .build());
+                    .setMediaMetadata(new MediaMetadata.Builder().setTitle(t).build());
+            String mime = mimeTypeOf(uri);
+            if (mime != null) itemBuilder.setMimeType(mime);
+            items.add(itemBuilder.build());
         }
         if (items.isEmpty()) return;
         lastError = null;
@@ -402,6 +407,22 @@ public final class AudioPlaybackManager {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /**
+     * HLS（.m3u8）地址显式给 MIME：DefaultMediaSourceFactory 靠 MIME（或扩展名）挑
+     * HlsMediaSource。显式给的好处是带 query 的直播地址（token/时间戳/签名）也能认出来；
+     * 其它地址返回 null，继续走默认推断（mp4/mp3/flac/…）。
+     */
+    static String mimeTypeOf(String uri) {
+        if (uri == null) return null;
+        String path = uri;
+        int cut = path.indexOf('#');
+        if (cut >= 0) path = path.substring(0, cut);
+        cut = path.indexOf('?');
+        if (cut >= 0) path = path.substring(0, cut);
+        return path.toLowerCase(java.util.Locale.US).endsWith(".m3u8")
+                ? MimeTypes.APPLICATION_M3U8 : null;
     }
 
     private static String currentMediaId(MediaController c) {
