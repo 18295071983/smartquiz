@@ -89,8 +89,10 @@ public class ComponentTypesTest {
         for (String canonical : ComponentTypes.CANONICAL_TARGET.keySet()) {
             assertTrue("目录缺少 canonical 类型 " + canonical, types.toString().contains(canonical + ","));
         }
-        assertTrue("面向模型的目录应控制在 22 条以内，实际 " + catalog.length(),
-                catalog.length() <= 22);
+        // 2026-10-23：新增 playlist/agenda/location/diff 四张卡后上限从 22 提到 26。
+        // 这个断言的意义是"目录不能无限膨胀"，不是固定 22；再加类型请连带评估提示词体积。
+        assertTrue("面向模型的目录应控制在 26 条以内，实际 " + catalog.length(),
+                catalog.length() <= 26);
     }
 
     @Test

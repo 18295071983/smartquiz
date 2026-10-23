@@ -446,17 +446,25 @@ public final class ToolResultCardBinder {
         if (m == null || !"success".equalsIgnoreCase(str(m.get("status")))) {
             return null;
         }
-        JSONArray items = new JSONArray();
-        putIfNotEmpty(items, "城市", str(m.get("city")));
-        putIfNotEmpty(items, "纬度", str(m.get("latitude")));
-        putIfNotEmpty(items, "经度", str(m.get("longitude")));
-        String accuracy = str(m.get("accuracy"));
-        if (!accuracy.isEmpty()) {
-            items.put(kv("精度", formatDouble(accuracy) + " 米"));
+        String address = str(m.get("address"));
+        String city = str(m.get("city"));
+        String lat = str(m.get("latitude"));
+        String lng = str(m.get("longitude"));
+        if (address.isEmpty() && city.isEmpty() && lat.isEmpty() && lng.isEmpty()) {
+            return null;
         }
-        putIfNotEmpty(items, "地址", str(m.get("address")));
-        putIfNotEmpty(items, "来源", str(m.get("provider")));
-        return items.length() > 0 ? infoCard("当前位置", items) : null;
+        // 2026-10-23：从 info_card 换成 location 卡——地址+坐标结构化，并带"在地图中打开/复制坐标"
+        JSONObject p = new JSONObject();
+        p.put("title", "当前位置");
+        if (!address.isEmpty()) p.put("address", address);
+        if (!city.isEmpty()) p.put("city", city);
+        if (!lat.isEmpty()) p.put("latitude", lat);
+        if (!lng.isEmpty()) p.put("longitude", lng);
+        String accuracy = str(m.get("accuracy"));
+        if (!accuracy.isEmpty()) p.put("accuracy", formatDouble(accuracy));
+        String provider = str(m.get("provider"));
+        if (!provider.isEmpty()) p.put("provider", provider);
+        return ComponentData.of("location", p);
     }
 
     // ==================== 数据库 ====================
@@ -1021,10 +1029,21 @@ public final class ToolResultCardBinder {
             out.add(ComponentData.of("video", new JSONObject()
                     .put("url", p).put("title", fileNameOf(p))));
         }
-        for (String p : audios) {
-            if (out.size() >= MAX_CARDS_PER_CALL) break;
+        if (audios.size() == 1 && out.size() < MAX_CARDS_PER_CALL) {
+            String p = audios.get(0);
             out.add(ComponentData.of("audio", new JSONObject()
                     .put("url", p).put("title", fileNameOf(p))));
+        } else if (audios.size() > 1 && out.size() < MAX_CARDS_PER_CALL) {
+            // 多个音频不再堆 N 张独立 audio 卡：同一批产物交给播放列表卡（队列 + 上下首），
+            // 播放器是进程级单例，队列语义由 AudioPlaybackManager.playQueue 提供
+            JSONArray arr = new JSONArray();
+            for (String p : audios) {
+                if (arr.length() >= 30) break;
+                arr.put(new JSONObject().put("name", fileNameOf(p)).put("url", p)
+                        .put("size", sizeText(p)));
+            }
+            out.add(ComponentData.of("playlist", new JSONObject()
+                    .put("title", "播放列表 · " + audios.size() + " 首").put("items", arr)));
         }
         if (!others.isEmpty() && out.size() < MAX_CARDS_PER_CALL) {
             if (others.size() == 1) {

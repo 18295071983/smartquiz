@@ -1,5 +1,30 @@
 # 变更日志
 
+## [2026-10-23] feat(cards)：新增 playlist / agenda / location / diff，题库卡补填空/简答
+
+按"缺形态不缺点数"的盘点落地（用户拍板：没有生产者的卡也先做，当预留接口）。
+
+- **playlist**：音频队列，与播放器单例配套。`AudioPlaybackManager` 新增
+  `playQueue / skipToNext / skipToPrevious`；行点击从该首开始，当前曲目高亮，
+  通知栏/锁屏可上下首。生产者已接：`media_toolkit` 与动态工具的多音频从
+  "N 张独立 audio 卡"改成"1 张队列卡"。
+- **quiz_card 补 fill / short**：填空提交即判（`QuizAnswerMatcher`：忽略空白、全角/半角、
+  大小写，`answer` 用 `|` 分隔多个可接受答案）；简答提交后展示参考答案 + 用户自评，
+  **不冒充自动判分**。判题口径只有一份，回传仍是 `quiz_answer`（带 answer/correct/reference）。
+- **location**：地址 + 坐标结构化，带「在地图中打开（geo:）/ 复制坐标」动作；
+  `location` 工具从 info_card 换成这张卡。0,0 与越界视为未定位，不给假坐标。
+- **agenda**：按天分组的时间轴（date/time/title/desc/status），预留接口
+  （reminder/task 暂未接生产者）。
+- **diff**：`hunks` 或 `before/after`（渲染端本地行级 LCS，+/- 着色；>400 行退化为
+  整段替换），预留接口（写侧还没有保留前后内容的生产者）。
+- 组件目录 22 → 26 条（测试上限同步调整）；模型可见文案继续收成共享常量
+  （`PROPS_DOC_QUIZ_CARD` / `PROPS_DOC_EXTRA_CARDS`），三处抄本引用同一份，避免各教一套。
+
+测试：全量 `--offline` **685** 全绿（81 类 / 0 skipped / 0 failures / 0 errors）；
+`assembleDebug` 通过、覆盖安装 Success、冷启动无崩溃。
+真机待验：多音频出一张队列卡并可切歌；填空/简答作答与回传；位置卡能调起地图；
+手动建 agenda/diff 卡渲染正常。
+
 ## [2026-10-23] refactor(video)：视频卡共用播放器单例——划走声音不断，划回来续播
 
 用户："视频组件也是"。视频卡旧实现同样在每条消息里 new ExoPlayer、detach 即 release，

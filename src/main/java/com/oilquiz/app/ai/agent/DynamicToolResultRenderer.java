@@ -144,10 +144,19 @@ public final class DynamicToolResultRenderer {
             out.add(ComponentData.of("video", new JSONObject()
                     .put("url", s).put("title", firstNonEmpty(o.optString("name"), title))));
         }
-        for (String s : audios) {
-            if (out.size() >= MAX_CARDS) break;
+        if (audios.size() == 1 && out.size() < MAX_CARDS) {
+            String s = audios.iterator().next();
             out.add(ComponentData.of("audio", new JSONObject()
                     .put("url", s).put("title", firstNonEmpty(o.optString("name"), title))));
+        } else if (audios.size() > 1 && out.size() < MAX_CARDS) {
+            // 多个音频 → 一张播放列表卡（队列 + 上下首），不再堆 N 张独立 audio 卡
+            JSONArray arr = new JSONArray();
+            for (String s : audios) {
+                if (arr.length() >= 30) break;
+                arr.put(new JSONObject().put("name", fileName(s)).put("url", s));
+            }
+            out.add(ComponentData.of("playlist", new JSONObject()
+                    .put("title", "播放列表 · " + audios.size() + " 首").put("items", arr)));
         }
         if (!files.isEmpty() && out.size() < MAX_CARDS) {
             if (files.size() == 1) {

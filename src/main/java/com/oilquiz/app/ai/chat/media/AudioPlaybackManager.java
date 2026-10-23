@@ -110,6 +110,9 @@ public final class AudioPlaybackManager {
     private String pendingUri, pendingTitle, pendingArtist;
     private boolean pendingLoop;
     private float pendingSpeed = 1.0f;
+    /** 控制器未连上时暂存的队列（播放列表卡点了某一首） */
+    private java.util.List<String> pendingQueueUris, pendingQueueTitles;
+    private int pendingQueueIndex;
     private String lastError;
 
     private final Runnable tick = new Runnable() {
@@ -243,6 +246,72 @@ public final class AudioPlaybackManager {
         }
     }
 
+    /**
+     * 用一组曲目建<b>播放队列</b>并从 {@code startIndex} 开始播（播放列表卡 / 通知栏上下首）。
+     *
+     * @param uris   已解析的完整地址（同时作为 mediaId）
+     * @param titles 与 uris 等长的标题，可 null
+     */
+    public void playQueue(java.util.List<String> uris, java.util.List<String> titles, int startIndex) {
+        if (uris == null || uris.isEmpty()) return;
+        MediaController c = controller;
+        if (c == null) {
+            pendingQueueUris = new java.util.ArrayList<>(uris);
+            pendingQueueTitles = titles == null ? null : new java.util.ArrayList<>(titles);
+            pendingQueueIndex = startIndex;
+            ensureController();
+            return;
+        }
+        java.util.List<MediaItem> items = new java.util.ArrayList<>();
+        for (int i = 0; i < uris.size(); i++) {
+            String uri = uris.get(i);
+            if (uri == null || uri.isEmpty()) continue;
+            String t = titles != null && i < titles.size() ? titles.get(i) : "";
+            items.add(new MediaItem.Builder()
+                    .setUri(uri)
+                    .setMediaId(uri)
+                    .setMediaMetadata(new MediaMetadata.Builder().setTitle(t).build())
+                    .build());
+        }
+        if (items.isEmpty()) return;
+        lastError = null;
+        int index = Math.max(0, Math.min(startIndex, items.size() - 1));
+        c.setMediaItems(items, index, 0);
+        c.prepare();
+        c.play();
+        notifyState();
+    }
+
+    /** 队列下一首（没有下一首时什么都不做） */
+    public void skipToNext() {
+        MediaController c = controller;
+        if (c == null) return;
+        try {
+            if (c.hasNextMediaItem()) {
+                lastError = null;
+                c.seekToNextMediaItem();
+                c.play();
+                notifyState();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 队列上一首 */
+    public void skipToPrevious() {
+        MediaController c = controller;
+        if (c == null) return;
+        try {
+            if (c.hasPreviousMediaItem()) {
+                lastError = null;
+                c.seekToPreviousMediaItem();
+                c.play();
+                notifyState();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     /** 当前播放状态；控制器尚未连上时返回空状态（不阻塞 UI） */
     public State snapshot() {
         MediaController c = controller;
@@ -292,8 +361,13 @@ public final class AudioPlaybackManager {
                     String u = pendingUri, t = pendingTitle, a = pendingArtist;
                     boolean lp = pendingLoop;
                     float sp = pendingSpeed;
+                    java.util.List<String> qu = pendingQueueUris, qt = pendingQueueTitles;
+                    int qi = pendingQueueIndex;
                     pendingUri = pendingTitle = pendingArtist = null;
-                    if (u != null) {
+                    pendingQueueUris = pendingQueueTitles = null;
+                    if (qu != null) {
+                        playQueue(qu, qt, qi);
+                    } else if (u != null) {
                         playOrToggle(u, t, a, lp, sp);
                     } else {
                         notifyState();

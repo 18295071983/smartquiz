@@ -46,6 +46,29 @@ public final class ComponentTypes {
                     + "name 只放文件名；type 填 file 或 dir；"
                     + "file_list 浏览目录可另给顶层 path=目录，点目录行在卡内进下一级）";
 
+    /**
+     * 题库卡（含 2026-10-23 补的填空/简答）的形状，三处 props 长说明共用。
+     * 填空 {@code answer} 可用 {@code |} 分隔多个可接受答案；简答给参考答案后由用户自评。
+     */
+    public static final String PROPS_DOC_QUIZ_CARD =
+            "quiz_card:{type:'single|multiple|judge|fill|short',question,options:[],answer,analysis,placeholder}"
+                    + "（fill=填空题：answer 可用 | 分隔多个可接受答案，忽略空白/全半角/大小写；"
+                    + "short=简答题：提交后展示参考答案由用户自评，不自动判分）";
+
+    /**
+     * playlist / agenda / location / diff 四张卡的 props 形状（三处 props 长说明共用）。
+     * playlist 与刚完成的播放器单例配套（队列 + 上下首）；diff 目前无工具生产者，属预留接口。
+     */
+    public static final String PROPS_DOC_EXTRA_CARDS =
+            "playlist:{title,items:[{name,url,artist,size}]}（音频队列：多曲目用一张卡，行点击从该首开始，"
+                    + "通知栏/锁屏可上下首）; "
+                    + "agenda:{title,items:[{date,time,title,desc,status:'done|current|todo|failed'}]}"
+                    + "（按天分组的时间轴/日程）; "
+                    + "location:{title,address,city,latitude,longitude,accuracy,provider}"
+                    + "（地址+坐标，自带「在地图中打开/复制坐标」动作）; "
+                    + "diff:{title,path,before,after 或 hunks:[{type:'ctx|add|del',text}]}"
+                    + "（变更对比，+/- 着色；before/after 由渲染端本地算行级差异）";
+
     /** canonical 名 → 注册表里原生实现占用的 key（即该组件 getType() 的返回值） */
     public static final Map<String, String> CANONICAL_TARGET;
 
@@ -190,6 +213,19 @@ public final class ComponentTypes {
         SCHEMA.put("file_list", new String[]{CATEGORY_MEDIA, "文件 files[{name,path,size,type}]",
                 "标题 title, 当前目录 path",
                 "条目 path 必须是含文件名的完整路径（只给目录时卡片按 name 补齐）；type=file|dir"});
+        // 2026-10-23 新增：队列 / 日程 / 位置 / 变更对比
+        SCHEMA.put("playlist", new String[]{CATEGORY_MEDIA, "曲目 items[{name,url,artist,size}]",
+                "标题 title",
+                "url 支持 http(s)/本地路径/工作区相对路径；多曲目进同一队列，通知栏可上下首"});
+        SCHEMA.put("agenda", new String[]{CATEGORY_SCENE, "日程 items[{date,time,title,desc,status}]",
+                "标题 title",
+                "按 date 首次出现顺序分组；status=done|current|todo|failed（默认 todo）"});
+        SCHEMA.put("location", new String[]{CATEGORY_SCENE, "地址 address",
+                "城市 city, 纬度 latitude, 经度 longitude, 精度 accuracy, 来源 provider",
+                "有经纬度时提供「在地图中打开 / 复制坐标」动作；0,0 视为未定位"});
+        SCHEMA.put("diff", new String[]{CATEGORY_CONTENT, "改动 hunks[{type,text}]",
+                "标题 title, 路径 path, 旧内容 before, 新内容 after",
+                "hunks 优先；否则用 before/after 本地算行级差异；type=ctx|add|del"});
         SCHEMA.put("todo", new String[]{CATEGORY_SCENE, "待办 items[{text,done}]", "标题 title", ""});
     }
 

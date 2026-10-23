@@ -68,6 +68,12 @@ public class QuizCardView implements ChatComponent {
         String type = p.optString("type", "single");
         boolean multiple = "multiple".equals(type);
 
+        // 填空/简答：没有选项，走文本作答分支（2026-10-23 补齐题库 5 类里的后两类）
+        if (isTextType(type)) {
+            return createTextAnswerView(context, data, type, question, answer, analysis,
+                    p.optString("placeholder", ""));
+        }
+
         List<String> choices = normalizeChoices(options, type);
         List<Integer> correctIndexes = resolveAnswerIndexes(answer, choices);
 
@@ -224,6 +230,150 @@ public class QuizCardView implements ChatComponent {
         shell.addAction(context.getString(R.string.card_quiz_submit), true, submitRef[0]);
     }
 
+    // ---------------------------------------------------------------- 填空 / 简答
+
+    private static boolean isTextType(String type) {
+        return "fill".equals(type) || "short".equals(type);
+    }
+
+    /**
+     * 填空/简答：输入框作答（2026-10-23 补齐题库 5 类题型里的后两类）。
+     *
+     * <p>填空提交即判：{@code answer} 支持用 {@code |} 分隔多个可接受答案，
+     * 比较时忽略空白、全角/半角和大小写（{@link QuizAnswerMatcher}）。</p>
+     *
+     * <p>简答<b>不冒充自动判分</b>：先给参考答案，再让用户点「答对了 / 没答对」自评，
+     * 自评结果照旧通过 {@code quiz_answer} 回传给 Agent。</p>
+     */
+    private static View createTextAnswerView(final Context context, final ComponentData data,
+                                             final String type, String question, final String answer,
+                                             final String analysis, String placeholder) {
+        final boolean shortType = "short".equals(type);
+        final CardShell shell = CardShell.create(context)
+                .setHeaderIcon(R.drawable.ic_quiz)
+                .setHeader(typeLabel(context, type), null)
+                .setSubtitle(question);
+
+        if (TextUtils.isEmpty(answer)) {
+            // 没有参考答案就没法判/对照：只展示题目，不给一个永远判"错"的输入框
+            shell.setState(CardShell.State.EMPTY, context.getString(R.string.card_quiz_no_answer));
+            appendAnalysis(shell, context, analysis);
+            return shell;
+        }
+
+        final android.widget.EditText input = new android.widget.EditText(context);
+        input.setTextSize(ComponentTheme.bodyTextSize());
+        input.setTextColor(ComponentTheme.textPrimary(context));
+        input.setHint(TextUtils.isEmpty(placeholder)
+                ? context.getString(R.string.card_quiz_input_hint) : placeholder);
+        input.setBackground(ComponentTheme.chipBackground(context, false));
+        input.setPadding(ComponentTheme.dp(context, 10), ComponentTheme.dp(context, 8),
+                ComponentTheme.dp(context, 10), ComponentTheme.dp(context, 8));
+        if (shortType) {
+            input.setMinLines(3);
+            input.setGravity(Gravity.TOP | Gravity.START);
+            input.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                    | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        } else {
+            input.setSingleLine(true);
+            input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        }
+        shell.addBody(input);
+
+        final TextView feedback = new TextView(context);
+        feedback.setTextSize(ComponentTheme.bodyTextSize());
+        feedback.setVisibility(View.GONE);
+        shell.addBody(feedback);
+
+        final long startedAt = System.currentTimeMillis();
+        final boolean[] done = {false};   // 已提交（简答=已自评）
+        final TextView[] referenceView = {null};
+        final TextView[] askView = {null};
+        final TextView[] analysisView = {null};
+        final Runnable[] submitRef = new Runnable[1];
+        final Runnable[] redoRef = new Runnable[1];
+
+        final Runnable finish = () -> {
+            input.setEnabled(false);
+            feedback.setVisibility(View.VISIBLE);
+            if (analysisView[0] == null && !TextUtils.isEmpty(analysis)) {
+                analysisView[0] = shell.addBodyText(
+                        context.getString(R.string.card_quiz_analysis, analysis),
+                        ComponentTheme.metaTextSize(),
+                        ComponentTheme.textSecondary(context), false);
+            }
+            if (analysisView[0] != null) analysisView[0].setVisibility(View.VISIBLE);
+            if (referenceView[0] != null) referenceView[0].setVisibility(View.VISIBLE);
+            if (askView[0] != null) askView[0].setVisibility(View.GONE);
+            shell.clearActions().addAction(context.getString(R.string.card_quiz_redo), false,
+                    redoRef[0]);
+        };
+
+        submitRef[0] = () -> {
+            if (done[0]) return;
+            final String user = input.getText().toString();
+            if (user.trim().isEmpty()) return;
+
+            if (shortType) {
+                // 简答：先给参考答案，再让用户自评——不冒充自动判分
+                input.setEnabled(false);
+                referenceView[0] = shell.addBodyText(
+                        context.getString(R.string.card_quiz_reference, answer.replace("|", "\n")),
+                        ComponentTheme.metaTextSize(), ComponentTheme.textPrimary(context), false);
+                askView[0] = shell.addBodyText(context.getString(R.string.card_quiz_self_check),
+                        ComponentTheme.metaTextSize(), ComponentTheme.textSecondary(context), false);
+                shell.clearActions();
+                shell.addAction(context.getString(R.string.card_quiz_self_right), true, () -> {
+                    if (done[0]) return;
+                    done[0] = true;
+                    feedback.setText(context.getString(R.string.card_quiz_correct, "—"));
+                    feedback.setTextColor(ComponentTheme.success(context));
+                    finish.run();
+                    dispatchTextAnswer(context, data, type, user, true,
+                            System.currentTimeMillis() - startedAt, answer);
+                });
+                shell.addAction(context.getString(R.string.card_quiz_self_wrong), false, () -> {
+                    if (done[0]) return;
+                    done[0] = true;
+                    feedback.setText(context.getString(R.string.card_quiz_wrong,
+                            answer.replace("|", " / ")));
+                    feedback.setTextColor(ComponentTheme.danger(context));
+                    finish.run();
+                    dispatchTextAnswer(context, data, type, user, false,
+                            System.currentTimeMillis() - startedAt, answer);
+                });
+                return;
+            }
+
+            // 填空：本地判题，多个可接受答案用 | 分隔
+            done[0] = true;
+            boolean correct = QuizAnswerMatcher.matchesAny(user, answer);
+            feedback.setText(context.getString(correct
+                            ? R.string.card_quiz_correct : R.string.card_quiz_wrong,
+                    answer.replace("|", " / ")));
+            feedback.setTextColor(correct ? ComponentTheme.success(context)
+                    : ComponentTheme.danger(context));
+            finish.run();
+            dispatchTextAnswer(context, data, type, user, correct,
+                    System.currentTimeMillis() - startedAt, answer);
+        };
+
+        redoRef[0] = () -> {
+            done[0] = false;
+            input.setEnabled(true);
+            input.setText("");
+            feedback.setVisibility(View.GONE);
+            if (referenceView[0] != null) referenceView[0].setVisibility(View.GONE);
+            if (askView[0] != null) askView[0].setVisibility(View.GONE);
+            if (analysisView[0] != null) analysisView[0].setVisibility(View.GONE);
+            shell.clearActions().addAction(
+                    context.getString(R.string.card_quiz_submit), true, submitRef[0]);
+        };
+
+        shell.addAction(context.getString(R.string.card_quiz_submit), true, submitRef[0]);
+        return shell;
+    }
+
     /**
      * 回传答题结果：{@code quiz_answer} + 紧凑 JSON。
      * 有 component_id 时按 id 回传（Agent 用 get_result 取），否则走聊天 UI 通道。
@@ -239,6 +389,26 @@ public class QuizCardView implements ChatComponent {
             payload.put("correct", correct);
             payload.put("costMs", costMs);
             payload.put("optionCount", optionCount);
+            String channel = data != null && !TextUtils.isEmpty(data.id)
+                    ? data.id : QUIZ_CHANNEL;
+            ComponentActions.dispatchResult(context, channel, payload.toString());
+        } catch (Throwable ignored) {
+            // 回传失败不影响本地判题与解析展示
+        }
+    }
+
+    /** 填空/简答的作答回传：{@code answer} 是用户输入，{@code correct} 是判题或自评结果 */
+    private static void dispatchTextAnswer(Context context, ComponentData data, String type,
+                                           String userAnswer, boolean correct,
+                                           long costMs, String reference) {
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("event", "quiz_answer");
+            payload.put("type", type);
+            payload.put("answer", userAnswer);
+            payload.put("correct", correct);
+            payload.put("costMs", costMs);
+            payload.put("reference", reference);
             String channel = data != null && !TextUtils.isEmpty(data.id)
                     ? data.id : QUIZ_CHANNEL;
             ComponentActions.dispatchResult(context, channel, payload.toString());
@@ -350,6 +520,12 @@ public class QuizCardView implements ChatComponent {
         }
         if ("judge".equals(type)) {
             return context.getString(R.string.card_quiz_type_judge);
+        }
+        if ("fill".equals(type)) {
+            return context.getString(R.string.card_quiz_type_fill);
+        }
+        if ("short".equals(type)) {
+            return context.getString(R.string.card_quiz_type_short);
         }
         return context.getString(R.string.card_quiz_type_single);
     }
