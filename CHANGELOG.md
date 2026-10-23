@@ -1,5 +1,34 @@
 # 变更日志
 
+## [2026-10-23] fix(playback)：直播 HLS 放到 25 秒就停——起播点太靠后、且没有自愈
+
+用户："不能连续取流？只能放 25 秒"。先量后改，结论分两半：一半是播放器参数，一半是源。
+
+- **量到的形态**：这类源是 5×5s=25s 的滑动窗口（`#EXT-X-TARGETDURATION:6`、5 条
+  `#EXTINF:5`、无 ENDLIST，`MEDIA-SEQUENCE` 每 ~5s 前进）。日志里的确凿错误是
+  `ExoPlaybackException: Source error ← BehindLiveWindowException`（`HlsChunkSource.getNextChunk`），
+  报错时起播位置约 **-18.5s**。
+- **起播点**：ExoPlayer 默认从"直播边缘后 3 个 targetDuration"起播，25s 的窗口只剩 6~7s 余量，
+  一次卡顿/切后台就被窗口甩下。HLS 直播项改设
+  `LiveConfiguration.targetOffsetMs = 10s`（约两个分片），余量翻倍。
+- **自愈**：`BehindLiveWindowException` 不再只是画成 ⚠ 等用户手点——自动
+  `setMediaItem(item, true)`（resetPosition → 回直播边缘）+ `prepare()` + `play()`；
+  连续 5 次失败才报"请检查源"，播稳（READY）后计数清零。
+- **卡死看门狗**：源真卡住时 ExoPlayer 只是安静 BUFFERING、不给错误回调（卡片一直转圈）。
+  新增 2s 一次的看门狗：live 项连续 12s「在缓冲且 `isLoading()==false`」→ 回直播边缘重连。
+  **判据必须带 `isLoading()`**：还在下载说明只是慢，此时重启会扔掉已缓冲数据、越修越卡
+  （第一版没带，实测在慢源上 12s 一次反复重连，已改）。
+- **错误文案**：`PlaybackException` 按 errorCode 翻成人话（网络失败 / HTTP 拒绝 / 格式不支持 /
+  解码器不可用），不再只显示 "Source error"。
+- **调试入口**：`DebugLayoutInjectActivity` 新增 `mode=play`（仅 debug 包）：
+  `am start -n .../DebugLayoutInjectActivity --es mode play --es url '<m3u8>'` 直接交给播放器，
+  并每 5s 打一行 `play-tick` 状态，连续观察几十秒不用每次造卡片。
+- **另一半不是 App 能修的**：这个 IPTV 源单分片 **5.15MB / 5s ≈ 8Mbps**，设备实测下行
+  **0.35~0.93MB/s（≈2.8~7.4Mbps）**，低于源码率——缓冲永远填不满，表现就是"放一段就卡"。
+  换低码率源或更好的网络才是解；App 侧现在至少不会静默卡死，慢但活着时也不会乱重启。
+- 测试：`AudioPlaybackManagerLiveTest` 4 条（起播点 10s、非 HLS 不带偏移、cause 链识别
+  BehindLiveWindow、错误文案）；全量单测 **717 全绿**（89 类，0 skipped / 0 failures / 0 errors）。
+
 ## [2026-10-23] feat(playback)：支持 m3u8 / HLS 直播与点播（补 media3-exoplayer-hls + 显式 MIME）
 
 用户拿直播源（`http://….m3u8?key=…&playlive=1`）试原生播放器，点开就失败，App 侧只能

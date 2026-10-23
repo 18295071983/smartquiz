@@ -13,6 +13,7 @@ import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.exoplayer.source.BehindLiveWindowException;
 import androidx.media3.session.MediaController;
 import androidx.media3.session.SessionToken;
 
@@ -42,6 +43,32 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class AudioPlaybackManager {
 
     private static final String TAG = "AudioPlaybackManager";
+
+    /**
+     * HLS 直播起播点：离直播边缘 10s（约两个 5s 分片）。
+     *
+     * <p>ExoPlayer 默认从"直播边缘后 3 个 targetDuration"起播；对 IPTV 这类只有 5 个分片
+     * （5×5s=25s）的小窗口，起播就落后 ~15-18s，只剩 6-7s 余量——一次卡顿、切后台、或清单
+     * 刷新慢一点，下一片就被窗口淘汰，抛 BehindLiveWindowException（真机表现：放 20 多秒
+     * 就停住/报 Source error）。收到 10s 把余量翻倍，又离直播足够近。</p>
+     */
+    private static final long LIVE_TARGET_OFFSET_MS = 10_000L;
+
+    /** 直播窗口过期后的自动重连延迟（给网络/清单一点恢复时间，避免立刻再撞窗口） */
+    private static final long LIVE_RECOVER_DELAY_MS = 1_200L;
+
+    /** 连续自动重连上限：坏源不能无限重试，超过就老老实实报错 */
+    private static final int MAX_LIVE_RECOVERIES = 5;
+
+    /** 直播卡在 BUFFERING 多久算卡死（IPTV 分片/清单偶发拉不动，超过就回直播边缘重连） */
+    private static final long LIVE_STALL_TIMEOUT_MS = 12_000L;
+
+    /** 卡死看门狗检查间隔 */
+    private static final long LIVE_STALL_CHECK_MS = 2_000L;
+
+    private int liveRecoveries;
+    private boolean watchDogRunning;
+    private long liveBufferingSince;
 
     /** 播放状态快照（不可变，给卡片渲染用） */
     public static final class State {
@@ -118,6 +145,14 @@ public final class AudioPlaybackManager {
     private java.util.List<String> pendingQueueUris, pendingQueueTitles;
     private int pendingQueueIndex;
     private String lastError;
+    /**
+     * 最近一次下发的播放项。直播自愈要拿"原始 uri + MIME + 直播起播配置"重新 prepare，
+     * 而 MediaController 回读的 MediaItem 可能丢了 localConfiguration（uri/mime 为空），
+     * 所以本地留一份自己建的。
+     */
+    private MediaItem lastItem;
+    /** 最近一次下发的队列（播放列表卡），切上下首后用它把 lastItem 同步到当前那首 */
+    private java.util.List<MediaItem> lastQueue;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -224,21 +259,14 @@ public final class AudioPlaybackManager {
             return;
         }
         lastError = null;
-        MediaItem.Builder itemBuilder = new MediaItem.Builder()
-                .setUri(uri)
-                .setMediaId(uri)
-                .setMediaMetadata(new MediaMetadata.Builder()
-                        .setTitle(title == null ? "" : title)
-                        .setArtist(artist == null ? "" : artist)
-                        .build());
-        String mime = mimeTypeOf(uri);
-        if (mime != null) itemBuilder.setMimeType(mime);
-        MediaItem item = itemBuilder.build();
+        MediaItem item = buildMediaItem(uri, title, artist);
+        lastItem = item;   // 自愈重连要用本地这份（见 recoverBehindLiveWindow）
         c.setRepeatMode(loop ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
         c.setPlaybackSpeed(speed > 0.1f && speed <= 2.0f ? speed : 1.0f);
         c.setMediaItem(item);
         c.prepare();
         c.play();
+        ensureStallWatchdog();
         notifyState();
     }
 
@@ -273,20 +301,17 @@ public final class AudioPlaybackManager {
             String uri = uris.get(i);
             if (uri == null || uri.isEmpty()) continue;
             String t = titles != null && i < titles.size() ? titles.get(i) : "";
-            MediaItem.Builder itemBuilder = new MediaItem.Builder()
-                    .setUri(uri)
-                    .setMediaId(uri)
-                    .setMediaMetadata(new MediaMetadata.Builder().setTitle(t).build());
-            String mime = mimeTypeOf(uri);
-            if (mime != null) itemBuilder.setMimeType(mime);
-            items.add(itemBuilder.build());
+            items.add(buildMediaItem(uri, t, ""));
         }
         if (items.isEmpty()) return;
         lastError = null;
         int index = Math.max(0, Math.min(startIndex, items.size() - 1));
+        lastItem = items.get(index);   // 自愈重连要用本地这份（见 recoverBehindLiveWindow）
+        lastQueue = items;
         c.setMediaItems(items, index, 0);
         c.prepare();
         c.play();
+        ensureStallWatchdog();
         notifyState();
     }
 
@@ -298,6 +323,7 @@ public final class AudioPlaybackManager {
             if (c.hasNextMediaItem()) {
                 lastError = null;
                 c.seekToNextMediaItem();
+                syncLastItem(c);
                 c.play();
                 notifyState();
             }
@@ -313,9 +339,20 @@ public final class AudioPlaybackManager {
             if (c.hasPreviousMediaItem()) {
                 lastError = null;
                 c.seekToPreviousMediaItem();
+                syncLastItem(c);
                 c.play();
                 notifyState();
             }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 切上下首后把 lastItem 换成队列里的当前那首（否则直播自愈会重连回上一首） */
+    private void syncLastItem(MediaController c) {
+        if (lastQueue == null || lastQueue.isEmpty()) return;
+        try {
+            int i = c.getCurrentMediaItemIndex();
+            if (i >= 0 && i < lastQueue.size()) lastItem = lastQueue.get(i);
         } catch (Throwable ignored) {
         }
     }
@@ -410,6 +447,32 @@ public final class AudioPlaybackManager {
     }
 
     /**
+     * 建播放项（单曲与队列共用）：HLS 显式 MIME + 直播起播点，其它格式原样交给默认推断。
+     *
+     * <p>HLS 的 MIME 不只用于选 HlsMediaSource，还决定直播起播偏移
+     * （{@link MediaItem.LiveConfiguration#targetOffsetMs}）——见 {@link #LIVE_TARGET_OFFSET_MS}。</p>
+     */
+    static MediaItem buildMediaItem(String uri, String title, String artist) {
+        MediaItem.Builder builder = new MediaItem.Builder()
+                .setUri(uri)
+                .setMediaId(uri)
+                .setMediaMetadata(new MediaMetadata.Builder()
+                        .setTitle(title == null ? "" : title)
+                        .setArtist(artist == null ? "" : artist)
+                        .build());
+        String mime = mimeTypeOf(uri);
+        if (mime != null) {
+            builder.setMimeType(mime);
+            if (MimeTypes.APPLICATION_M3U8.equals(mime)) {
+                builder.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder()
+                        .setTargetOffsetMs(LIVE_TARGET_OFFSET_MS)
+                        .build());
+            }
+        }
+        return builder.build();
+    }
+
+    /**
      * HLS（.m3u8）地址显式给 MIME：DefaultMediaSourceFactory 靠 MIME（或扩展名）挑
      * HlsMediaSource。显式给的好处是带 query 的直播地址（token/时间戳/签名）也能认出来；
      * 其它地址返回 null，继续走默认推断（mp4/mp3/flac/…）。
@@ -445,6 +508,150 @@ public final class AudioPlaybackManager {
         }
     }
 
+    /**
+     * 直播窗口过期（{@code HlsChunkSource} 抛的 {@link BehindLiveWindowException}）：
+     * 自动把播放项重置到直播边缘重连，而不是让卡片停在 ERROR 上等用户手动再点。
+     *
+     * @return true 表示已接管这次错误（调用方不要再把它画成 ⚠）
+     */
+    private boolean recoverBehindLiveWindow(PlaybackException error) {
+        if (!isBehindLiveWindow(error)) return false;
+        if (controller == null) return false;
+        if (liveRecoveries >= MAX_LIVE_RECOVERIES) {
+            lastError = "直播窗口反复过期，已停止自动重连";
+            return false;
+        }
+        Log.w(TAG, "behind live window, re-prepare at live edge");
+        // 立刻 prepare 往往还会撞一次旧窗口，等一拍让清单刷新
+        main.postDelayed(() -> restartLiveAtEdge("behind live window"), LIVE_RECOVER_DELAY_MS);
+        return true;
+    }
+
+    /**
+     * 把当前播放项重置到直播边缘并重新 prepare。
+     *
+     * <p>两个入口：①窗口过期（{@link BehindLiveWindowException}）；②{@link #liveStallWatchdog}
+     * 发现直播卡在 BUFFERING 太久——IPTV 常见的是分片/清单拉不动，表现正是"放到 25 秒
+     * 那一帧就停住，既不报错也不再前进"。</p>
+     */
+    private void restartLiveAtEdge(String reason) {
+        MediaController c = controller;
+        if (c == null) return;
+        if (liveRecoveries >= MAX_LIVE_RECOVERIES) {
+            lastError = "直播连续 " + MAX_LIVE_RECOVERIES + " 次重连失败，请检查源";
+            notifyState();
+            return;
+        }
+        liveRecoveries++;
+        lastError = null;
+        Log.w(TAG, "live restart #" + liveRecoveries + " (" + reason + ")");
+        try {
+            MediaItem item = lastItem != null ? lastItem : c.getCurrentMediaItem();
+            if (item != null) {
+                // resetPosition=true：直播项回到"默认起播点"（LIVE_TARGET_OFFSET_MS 处）。
+                // 只 prepare() 会从旧位置继续，而旧位置已被窗口淘汰，会立刻再抛一次。
+                c.setMediaItem(item, true);
+            }
+            c.prepare();
+            c.play();
+            ensureStallWatchdog();
+            notifyState();
+        } catch (Throwable t) {
+            Log.e(TAG, "live restart failed", t);
+        }
+    }
+
+    /**
+     * 直播卡死看门狗：live 项连续 BUFFERING 超过阈值就回直播边缘重连。
+     *
+     * <p>为什么要它：窗口过期会抛异常（有 {@link #recoverBehindLiveWindow} 接），但源"拉不动"
+     * 时 ExoPlayer 只是安静地停在 BUFFERING——没有错误回调，卡片就一直转圈。</p>
+     *
+     * <p><b>只在"真的没在拉数据"时才重启</b>：{@code isLoading()} 为 true 说明播放器还在下载，
+     * 只是源码率高于带宽（真机实测 IPTV 分片 5.1MB/5s ≈ 8Mbps，设备下行只有 0.3~0.9MB/s）。
+     * 这种"慢但活着"的情况重启只会把已缓冲的数据扔掉、从头再卡一次，所以不碰它。</p>
+     */
+    private final Runnable liveStallWatchdog = new Runnable() {
+        @Override
+        public void run() {
+            MediaController c = controller;
+            boolean live;
+            try {
+                live = c != null && c.isCurrentMediaItemLive();
+            } catch (Throwable t) {
+                live = false;
+            }
+            if (!live) {          // 非直播（或已断开）：看门狗自行退出，下次起播再启动
+                watchDogRunning = false;
+                liveBufferingSince = 0;
+                return;
+            }
+            boolean buffering;
+            boolean loading;
+            try {
+                buffering = c.getPlayWhenReady() && c.getPlaybackState() == Player.STATE_BUFFERING;
+                loading = c.isLoading();
+            } catch (Throwable t) {
+                buffering = false;
+                loading = true;
+            }
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (!buffering || loading) {
+                // 没在缓冲，或还在拉数据（慢但活着）：都不算卡死
+                liveBufferingSince = 0;
+            } else if (liveBufferingSince == 0) {
+                liveBufferingSince = now;
+            } else if (now - liveBufferingSince >= LIVE_STALL_TIMEOUT_MS) {
+                long stalled = now - liveBufferingSince;
+                liveBufferingSince = 0;
+                restartLiveAtEdge("stalled " + stalled + "ms (no loading)");
+                main.postDelayed(this, LIVE_STALL_CHECK_MS);
+                return;
+            }
+            main.postDelayed(this, LIVE_STALL_CHECK_MS);
+        }
+    };
+
+    private void ensureStallWatchdog() {
+        if (watchDogRunning) return;
+        watchDogRunning = true;
+        liveBufferingSince = 0;
+        main.postDelayed(liveStallWatchdog, LIVE_STALL_CHECK_MS);
+    }
+
+    /** 是否为"播放位置被直播窗口甩下"（可自愈）；沿 cause 链找，PlaybackException 通常包一层 */
+    static boolean isBehindLiveWindow(Throwable error) {
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t instanceof BehindLiveWindowException) return true;
+        }
+        return false;
+    }
+
+    /** 把 PlaybackException 翻成卡片上能看懂的一句话（errorCode 优先，其次原始 message） */
+    static String describeError(PlaybackException error) {
+        if (error == null) return "播放失败";
+        switch (error.errorCode) {
+            case PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED:
+            case PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT:
+                return "网络连接失败";
+            case PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS:
+                return "服务器拒绝请求（HTTP 错误）";
+            case PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND:
+                return "文件不存在或无权访问";
+            case PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED:
+            case PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED:
+                return "媒体格式无法解析";
+            case PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED:
+                return "不支持的封装格式";
+            case PlaybackException.ERROR_CODE_DECODER_INIT_FAILED:
+            case PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED:
+                return "解码器不可用";
+            default:
+                String msg = error.getMessage();
+                return msg == null || msg.isEmpty() ? "播放失败" : msg;
+        }
+    }
+
     private final Player.Listener playerListener = new Player.Listener() {
         @Override
         public void onEvents(Player player, Player.Events events) {
@@ -452,8 +659,18 @@ public final class AudioPlaybackManager {
         }
 
         @Override
+        public void onPlaybackStateChanged(int playbackState) {
+            if (playbackState == Player.STATE_READY) {
+                liveRecoveries = 0;   // 播稳了再重置计数
+            } else if (playbackState == Player.STATE_BUFFERING) {
+                ensureStallWatchdog();   // 直播卡死没有错误回调，只能靠这只狗
+            }
+        }
+
+        @Override
         public void onPlayerError(PlaybackException error) {
-            lastError = error == null ? "播放失败" : String.valueOf(error.getMessage());
+            if (recoverBehindLiveWindow(error)) return;
+            lastError = describeError(error);
             notifyState();
         }
     };

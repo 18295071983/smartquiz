@@ -51,6 +51,10 @@ public class DebugLayoutInjectActivity extends Activity {
             org.json.JSONObject layout = new org.json.JSONObject(layoutJson);
             if ("chat".equals(mode)) {
                 injectToChat(layout, title);
+            } else if ("play".equals(mode)) {
+                // 调试用直通播放：不经聊天流，直接把地址交给播放器单例。
+                // 用于 HLS 连续取流/直播窗口这类"要连续观察几十秒"的回归，省得每次造卡片。
+                playDirect(getIntent().getStringExtra("url"), title);
             } else if ("card".equals(mode)) {
                 // 内置组件卡片测试：card_type=内置类型名，props=JSON 字符串 → ui_component create
                 // （createBuiltinChatComponent → 聊天流卡片渲染）。延迟到 AIChatActivity resume 后执行。
@@ -211,6 +215,50 @@ public class DebugLayoutInjectActivity extends Activity {
                 injectIme(vg.getChildAt(i), depth + 1);
             }
         }
+    }
+
+    /**
+     * 调试直通播放：把 url 直接交给 {@code AudioPlaybackManager}，并每 5s 打一行状态。
+     * 用于"要连续观察几十秒"的回归（HLS 连续取流、直播窗口过期自愈），不必每次造卡片。
+     * 只在 debug 构建生效。
+     */
+    private void playDirect(String url, String title) {
+        finish();
+        if (url == null || url.isEmpty()) {
+            Log.w(TAG, "play: 缺少 url");
+            return;
+        }
+        // 只在 debug 包生效（release 没有 BuildConfig，用 FLAG_DEBUGGABLE 判）
+        boolean debuggable = (getApplicationInfo().flags
+                & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        if (!debuggable) {
+            Log.w(TAG, "play: 仅 debug 构建可用");
+            return;
+        }
+        final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+        final android.content.Context app = getApplicationContext();
+        h.postDelayed(() -> {
+            try {
+                final com.oilquiz.app.ai.chat.media.AudioPlaybackManager mgr =
+                        com.oilquiz.app.ai.chat.media.AudioPlaybackManager.get(app);
+                mgr.playOrToggle(url, title == null ? "调试播放" : title, "");
+                Log.i(TAG, "play: " + url);
+                for (int i = 0; i < 24; i++) {
+                    final int tick = i;
+                    h.postDelayed(() -> {
+                        try {
+                            com.oilquiz.app.ai.chat.media.AudioPlaybackManager.State s = mgr.snapshot();
+                            Log.i(TAG, "play-tick " + tick + " playing=" + s.playing
+                                    + " pos=" + s.positionMs + " dur=" + s.durationMs
+                                    + " err=" + (s.error == null ? "null" : s.error));
+                        } catch (Throwable ignored) {
+                        }
+                    }, 5000L * (i + 1));
+                }
+            } catch (Throwable t) {
+                Log.e(TAG, "play 失败", t);
+            }
+        }, 600);
     }
 
     /** 聊天流模式：通过 ui_component 工具创建卡片（走 withComponent → 聊天流渲染）。
