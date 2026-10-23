@@ -1,5 +1,25 @@
 # 变更日志
 
+## [2026-10-23] fix(schema)：新卡片/新图型补进"模型真正看到的那几份"文案
+
+"写了文档"不等于"模型看得到"。核了一遍模型可见的三条通道，补两处漏网：
+
+- **在线主路径**（`AIToolManager.getToolDefinition` 的硬编码定义）：`ui_component` 的 props
+  文档与 component_type 清单已含新卡/新图型；但 `python_chart` 走的是**另一份**硬编码定义，
+  原先没有 `render=card` 与 `chartType`——在线模型根本不知道能直出原生图表。已补，
+  并说明 card 模式支持 bar/line/area/stacked_bar/pie/scatter/radar。
+- **工作区《使用速查表.md》**（模型会去读）：内置卡片清单还写着 `chart(bar/line/pie)` 与旧卡列表，
+  已更新为新图型 + playlist/agenda/location/diff + quiz 的 fill/short。App 冷启动会重建该文件，
+  真机已核对到新关键字落盘。
+- **注解 / getParameterDescriptions 路径**（动态工具、本地引擎用）：此前已更新，本次一并纳入守卫。
+
+守卫测试（直接对"模型实际拿到的 schema"断言，而不是只对常量断言）：
+`ToolSchemaVisibilityTest`（在线 `ToolDefinition` 两条）+ `ComponentPropsSchemaVisibilityTest`
+（注解路径与参数表）。
+
+测试：全量 `--offline` **708** 全绿（86 类 / 0 skipped / 0 failures / 0 errors）；
+`assembleDebug` 通过、覆盖安装 Success。schema 随每次请求下发，下一轮对话即生效。
+
 ## [2026-10-23] feat(chart)：图表扩型（面积/堆叠柱/散点/雷达）+ 两个真实生产者
 
 用户意见：别把卡片限制在"python_chart 只出 PNG"这一个生产者的能力上——生产者多了，UI 就该扩。

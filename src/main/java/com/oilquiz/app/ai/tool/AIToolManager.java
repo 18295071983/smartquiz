@@ -1497,10 +1497,12 @@ public class AIToolManager {
                     .category("python")
                     .build();
             case "python_chart":
-                return ToolDefinition.builder("python_chart", "Python绘图工具(Pillow/matplotlib)：数据可视化生成PNG图片。bar=柱状图(支持多系列)/line=折线图(支持多系列)/pie=饼图/scatter=散点图。data传JSON：bar/line用{\"labels\":[\"A\",\"B\"],\"values\":[1,2]}或多系列{\"labels\":[...],\"series\":[{\"name\":\"系列1\",\"values\":[...]}]}；pie用{\"labels\":[...],\"values\":[...]}；scatter用{\"points\":[[x,y],...]}。图片默认保存到工作区files/(用workspace查看)，可指定output_path。与image_gen(AI生图)不同，本工具画数据图表。环境已装matplotlib/Pillow/numpy/pandas；需要子图/对数轴/热力图等复杂图表时，改用python_execute直接编写matplotlib代码")
+                return ToolDefinition.builder("python_chart", "数据可视化工具：bar/line/pie/scatter 默认用 matplotlib 生成 PNG；render=card 时不生成图片，直接把数据交给原生图表卡（bar/line/area/stacked_bar/pie/scatter/radar，可交互、可点「查看数据表」核对）。data 传 JSON：bar/line 用{\"labels\":[\"A\",\"B\"],\"values\":[1,2]}或多系列{\"labels\":[...],\"series\":[{\"name\":\"系列1\",\"values\":[...]}]}；pie 用{\"labels\":[...],\"values\":[...]}；scatter 用{\"points\":[[x,y],...]}。图片默认保存到工作区 files/(用 workspace 查看)，可指定 output_path。与 image_gen(AI生图)不同，本工具画数据图表。环境已装 matplotlib/Pillow/numpy/pandas；需要子图/对数轴/热力图等复杂图表时，改用 python_execute 直接编写 matplotlib 代码")
                     .addParameter("action", "string", "图表类型: bar/line/pie/scatter", true)
                     .addParameter("data", "object", "数据JSON(必填，格式见描述)", true)
                     .addParameter("title", "string", "图表标题(可选)", false)
+                    .addParameter("render", "string", "输出形态: image(默认,生成PNG) / card(原生图表卡，不生成图片)", false, "image")
+                    .addParameter("chartType", "string", "card 模式的图型: bar/line/area/stacked_bar/pie/scatter/radar（默认=action）", false)
                     .addParameter("width", "integer", "图片宽度(默认800)", false, 800)
                     .addParameter("height", "integer", "图片高度(默认500)", false, 500)
                     .addParameter("output_path", "string", "保存路径(默认工作区files/)", false)
