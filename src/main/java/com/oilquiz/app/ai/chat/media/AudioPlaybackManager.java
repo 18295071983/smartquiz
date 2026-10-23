@@ -209,6 +209,7 @@ public final class AudioPlaybackManager {
             if (c.isPlaying()) {
                 c.pause();
             } else {
+                lastError = null;   // 重试播放时清掉上一轮错误态，否则卡片一直挂着 ⚠
                 if (c.getPlaybackState() == Player.STATE_ENDED) c.seekTo(0);
                 c.play();
             }
