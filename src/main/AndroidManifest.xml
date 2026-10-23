@@ -46,6 +46,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- 系统级悬浮窗（system_connect floating_window） -->
@@ -448,6 +449,11 @@
             android:name=".ai.tool.MediaProjectionService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
+        <!-- 音频播放单例：MediaSessionService 前台常驻，视图回收/切后台/锁屏时继续播放 -->
+        <service
+            android:name=".ai.chat.media.AudioPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
         <receiver
             android:name=".receiver.StreamTestReceiver"
             android:exported="true">

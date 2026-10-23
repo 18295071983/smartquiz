@@ -2,8 +2,6 @@ package com.oilquiz.app.ai.chat.component;
 
 import android.content.Context;
 import android.net.Uri;
-import android.os.Handler;
-import android.os.Looper;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
@@ -11,30 +9,36 @@ import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
-import androidx.media3.common.MediaItem;
-import androidx.media3.common.PlaybackException;
-import androidx.media3.common.Player;
-import androidx.media3.exoplayer.ExoPlayer;
+import com.oilquiz.app.ai.chat.media.AudioPlaybackManager;
 
 import org.json.JSONObject;
 
 import java.io.File;
 
 /**
- * 音乐/音频播放组件（ExoPlayer/Media3）：消息内播放音频。
+ * 音乐/音频播放组件（消息内播放音频）。
  *
- * 数据格式（ComponentData.props）：
+ * <p><b>2026-10-23：播放器改成进程级单例</b>。卡片不再自己 new ExoPlayer，播放器由
+ * {@link com.oilquiz.app.ai.chat.media.AudioPlaybackService}（MediaSessionService）持有，
+ * 本卡片只通过 {@link AudioPlaybackManager} 读状态、发指令：
+ * <ul>
+ *   <li>卡片划出屏幕/列表回收/切页面 → 只注销监听，<b>播放继续</b>（旧实现 detach 即 release）；</li>
+ *   <li>切后台/锁屏继续播，通知栏与系统媒体键可控制；</li>
+ *   <li>同一首歌出现两张卡时，两张卡的进度天然一致（同一个播放器）。</li>
+ * </ul>
+ *
+ * <p>数据格式（ComponentData.props）：
  * <pre>
  * {
  *   "url": "https://.../a.mp3 | /storage/.../a.mp3 | file://... | content://... | files/xxx.mp3(工作区)",
  *   "title": "可选标题（如歌曲名）",
  *   "artist": "可选艺术家",
  *   "loop": false,
- *   "speed": 1.0         // 可选倍速
+ *   "speed": 1.0         // 可选倍速（切到本卡时应用）
  * }
  * </pre>
  *
- * 支持：网络 URL（http/https，含流媒体）、本地绝对路径、file:// 、content:// 、工作区相对路径。
+ * <p>支持：网络 URL（http/https，含流媒体）、本地绝对路径、file:// 、content:// 、工作区相对路径。
  * 播放控制：播放/暂停、进度条拖动、当前/总时长、倍速。
  */
 public class AudioCardView implements ChatComponent {
@@ -70,15 +74,26 @@ public class AudioCardView implements ChatComponent {
         boolean loop = p.optBoolean("loop", false);
         float speed = (float) p.optDouble("speed", 1.0);
 
-        String resolved = resolveMediaPath(context, url);
-        if (resolved == null) {
+        // 路径口径走 MediaPathResolver（工作区相对路径/省略号截断名等统一兜底）
+        String resolved = url == null ? "" : url.trim();
+        if (!resolved.isEmpty()) {
+            resolved = MediaPathResolver.resolve(context, resolved);
+        }
+        if (resolved.isEmpty()) {
             return createErrorView(context, "无法解析音频地址: " + url);
         }
-        Uri uri = Uri.parse(resolved.startsWith("content://") || resolved.startsWith("http://")
-                || resolved.startsWith("https://") ? resolved : "file://" + resolved);
+        // file:// 必须原样认识，否则会拼成 file://file://…（旧实现有这个坑）
+        Uri uri;
+        if (resolved.startsWith("content://") || resolved.startsWith("http://")
+                || resolved.startsWith("https://") || resolved.startsWith("file://")) {
+            uri = Uri.parse(resolved);
+        } else {
+            uri = Uri.parse("file://" + resolved);
+        }
         File f = null;
-        if (!uri.getScheme().equals("http") && !uri.getScheme().equals("https")
-                && !uri.getScheme().equals("content")) {
+        String scheme = uri.getScheme();
+        if (scheme != null && !scheme.equals("http") && !scheme.equals("https")
+                && !scheme.equals("content")) {
             f = new File(uri.getPath());
         }
         if (f != null && !f.exists()) {
@@ -148,11 +163,11 @@ public class AudioCardView implements ChatComponent {
         sbLp.weight = 1f;
         seekBar.setLayoutParams(sbLp);
         seekBar.setMax(1000);
-        seekBar.setEnabled(false);   // 时长未知前不可拖；READY 后由 syncUi 打开
+        seekBar.setEnabled(false);   // 不是当前曲目/时长未知时不可拖
         controls.addView(seekBar);
 
         final TextView timeTv = new TextView(context);
-        timeTv.setText("00:00 / 00:00");
+        timeTv.setText(formatProgressText(0, 0));
         timeTv.setTextSize(10);
         timeTv.setTextColor(ComponentColors.textTertiary(context));
         timeTv.setPadding(dp(context, 8), 0, 0, 0);
@@ -160,187 +175,90 @@ public class AudioCardView implements ChatComponent {
 
         card.addView(controls);
 
-        final ExoPlayer[] player = {null};
+        // ==================== 单例播放器的界面壳 ====================
+        // 这张卡片只是"遥控器"：播放/暂停/跳转都发给 AudioPlaybackManager，进度由它
+        // 在主线程按 ticker 推回来；detach 只注销监听，播放器仍活在 AudioPlaybackService 里。
+        final String trackUri = uri.toString();
+        final AudioPlaybackManager mgr = AudioPlaybackManager.get(context);
         final boolean[] userSeeking = {false};
-        // 进度刷新只能在主线程做：Media3 的 ExoPlayer 只能在创建它的线程上访问。
-        // 旧实现用后台线程轮询 isPlaying()/getCurrentPosition()，每一轮都在后台线程抛
-        // IllegalStateException，又被 catch(Exception ignored) 吞掉 → 循环空转，
-        // 进度条和秒数永远停在 00:00（真机现象）。改为主线程 Handler 定时同步，
-        // 与 FileRenderActivity#startAudioProgress 同一套写法（postDelayed + 自引用退出）。
-        final Handler ticker = new Handler(Looper.getMainLooper());
+        final boolean[] registered = {false};
+        final boolean[] isCurrent = {false};
+        final long[] currentDuration = {0};
         final int[] lastProgress = {-1};
-        final Runnable[] syncUi = {null};
-        final Runnable[] tick = {null};
 
-        // 用播放器真实位置刷新进度条/秒数；未知时长（流媒体/尚未解析）显示 --:-- 并禁用拖动
-        syncUi[0] = () -> {
-            ExoPlayer mp = player[0];
-            if (mp == null) return;
-            try {
-                long dur = mp.getDuration();
-                long pos = Math.max(0, mp.getCurrentPosition());
-                boolean known = dur > 0;
-                seekBar.setEnabled(known);
-                if (!userSeeking[0] && known) {
-                    int progress = progressOf(pos, dur);
-                    if (progress != lastProgress[0]) {
-                        lastProgress[0] = progress;
-                        seekBar.setProgress(progress);
-                    }
-                }
-                String text = formatProgressText(pos, dur);
-                if (!text.contentEquals(timeTv.getText())) timeTv.setText(text);
-            } catch (Throwable ignored) {
+        final AudioPlaybackManager.Listener listener = state -> {
+            boolean current = state.isTrack(trackUri);
+            isCurrent[0] = current;
+            currentDuration[0] = state.durationMs;
+            boolean known = current && state.durationMs > 0;
+
+            btnPlay.setText(state.error != null && current ? "⚠"
+                    : (current && state.playing ? "⏸" : "▶"));
+            seekBar.setEnabled(known);
+
+            if (!current) {
+                // 别的曲目在放：这张卡回到待播状态（时长未知显示 --:--）
+                lastProgress[0] = -1;
+                if (seekBar.getProgress() != 0) seekBar.setProgress(0);
+                String idle = formatProgressText(0, 0);
+                if (!idle.contentEquals(timeTv.getText())) timeTv.setText(idle);
+                return;
             }
+            if (!userSeeking[0] && known) {
+                int progress = progressOf(state.positionMs, state.durationMs);
+                if (progress != lastProgress[0]) {
+                    lastProgress[0] = progress;
+                    seekBar.setProgress(progress);
+                }
+            }
+            String text = formatProgressText(state.positionMs, state.durationMs);
+            if (!text.contentEquals(timeTv.getText())) timeTv.setText(text);
         };
 
-        tick[0] = new Runnable() {
+        btnPlay.setOnClickListener(v ->
+                mgr.playOrToggle(trackUri, title, artist, loop, speed));
+
+        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
-            public void run() {
-                if (tick[0] != this) return;
-                ExoPlayer mp = player[0];
-                if (mp == null) return;
-                int state = mp.getPlaybackState();
-                // 暂停时也同步：拖动/暂停后秒数要立刻对得上；ENDED 交给它自己的回调收尾
-                if (state == Player.STATE_READY || state == Player.STATE_BUFFERING) {
-                    syncUi[0].run();
-                }
-                if (tick[0] == this) ticker.postDelayed(this, 400);
+            public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                if (!fromUser || !isCurrent[0] || currentDuration[0] <= 0) return;
+                // 拖动中先显示落点，松手才真正跳转
+                String text = formatProgressText(currentDuration[0] * progress / 1000,
+                        currentDuration[0]);
+                if (!text.contentEquals(timeTv.getText())) timeTv.setText(text);
             }
-        };
 
-        final Runnable startTicker = () -> {
-            // 只在已入树时轮询：视图创建后没被挂上（丢弃/复用失败）就 post 会一直空转
-            if (tick[0] == null || !card.isAttachedToWindow()) return;
-            ticker.removeCallbacks(tick[0]);
-            ticker.post(tick[0]);
-        };
+            @Override public void onStartTrackingTouch(SeekBar sb) { userSeeking[0] = true; }
 
-        try {
-            player[0] = new ExoPlayer.Builder(context).build();
-            MediaItem mediaItem = new MediaItem.Builder()
-                    .setUri(uri)
-                    .build();
-            player[0].setMediaItem(mediaItem);
-            player[0].setRepeatMode(loop ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
-            if (speed > 0.1f && speed <= 2.0f) {
-                player[0].setPlaybackSpeed(speed);
+            @Override
+            public void onStopTrackingTouch(SeekBar sb) {
+                userSeeking[0] = false;
+                if (!isCurrent[0] || currentDuration[0] <= 0) return;
+                lastProgress[0] = -1;
+                mgr.seekTo(currentDuration[0] * sb.getProgress() / 1000);
             }
-            player[0].prepare();
+        });
 
-            player[0].addListener(new Player.Listener() {
-                @Override
-                public void onPlaybackStateChanged(int playbackState) {
-                    if (playbackState == Player.STATE_READY) {
-                        // 不要写死 "00:00"：缓冲/暂停续播时当前位置可能不在开头
-                        syncUi[0].run();
-                        startTicker.run();
-                    } else if (playbackState == Player.STATE_ENDED) {
-                        btnPlay.setText("▶");
-                        lastProgress[0] = -1;
-                        seekBar.setProgress(0);
-                        timeTv.setText("00:00 / " + formatTime(player[0].getDuration()));
-                    }
-                }
+        card.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(View v) {
+                if (registered[0]) return;
+                registered[0] = true;
+                mgr.addListener(listener);
+            }
 
-                @Override
-                public void onIsPlayingChanged(boolean isPlaying) {
-                    btnPlay.setText(isPlaying ? "⏸" : "▶");
-                    if (isPlaying) startTicker.run();
-                    else syncUi[0].run();
-                }
-
-                @Override
-                public void onPlayerError(PlaybackException error) {
-                    btnPlay.setText("⚠");
-                    seekBar.setEnabled(false);
-                }
-            });
-
-            btnPlay.setOnClickListener(v -> {
-                try {
-                    ExoPlayer mp = player[0];
-                    if (mp == null) return;
-                    if (mp.isPlaying()) {
-                        mp.pause();
-                    } else {
-                        // ENDED 之后 ExoPlayer 不会自己回到开头，play() 前必须 seekTo(0)，
-                        // 否则按钮变了图标却没有声音
-                        if (mp.getPlaybackState() == Player.STATE_ENDED) {
-                            lastProgress[0] = -1;
-                            mp.seekTo(0);
-                            seekBar.setProgress(0);
-                            syncUi[0].run();
-                        }
-                        mp.play();
-                        startTicker.run();
-                    }
-                } catch (Throwable e) {
-                    btnPlay.setText("⚠");
-                }
-            });
-
-            seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                @Override
-                public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
-                    if (!fromUser) return;      // 程序刷新进度不能覆盖用户拖动
-                    ExoPlayer mp = player[0];
-                    if (mp == null) return;
-                    try {
-                        long dur = mp.getDuration();
-                        if (dur > 0) {
-                            // 拖动中先显示落点，松手才真正跳转
-                            timeTv.setText(formatProgressText(dur * progress / 1000, dur));
-                        }
-                    } catch (Throwable ignored) {
-                    }
-                }
-
-                @Override public void onStartTrackingTouch(SeekBar sb) { userSeeking[0] = true; }
-
-                @Override
-                public void onStopTrackingTouch(SeekBar sb) {
-                    userSeeking[0] = false;
-                    try {
-                        ExoPlayer mp = player[0];
-                        if (mp != null) {
-                            long dur = mp.getDuration();
-                            if (dur > 0) {
-                                lastProgress[0] = -1;
-                                mp.seekTo(dur * sb.getProgress() / 1000);
-                            }
-                            syncUi[0].run();
-                        }
-                    } catch (Throwable ignored) {
-                    }
-                }
-            });
-
-            // 卡片移除时停刷新并释放播放器（detach 回调在主线程，符合 Media3 线程要求）
-            card.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
-                @Override
-                public void onViewAttachedToWindow(View v) {
-                    startTicker.run();
-                }
-
-                @Override
-                public void onViewDetachedFromWindow(View v) {
-                    try {
-                        ticker.removeCallbacks(tick[0]);
-                        tick[0] = null;
-                        if (player[0] != null) {
-                            player[0].release();
-                            player[0] = null;
-                        }
-                    } catch (Throwable ignored) {
-                    }
-                }
-            });
-            // 视图已入树（复用场景）时 attach 回调不会再触发，这里补一次
-            if (card.isAttachedToWindow()) startTicker.run();
-        } catch (Exception e) {
-            try { if (player[0] != null) player[0].release(); } catch (Exception ignored) {}
-            return createErrorView(context, "音频初始化失败: " + e.getMessage());
+            @Override
+            public void onViewDetachedFromWindow(View v) {
+                // 只注销 UI 监听：播放器在服务里，划走继续播
+                if (!registered[0]) return;
+                registered[0] = false;
+                mgr.removeListener(listener);
+            }
+        });
+        // 复用已有视图时 attach 回调不会再触发，这里补一次
+        if (card.isAttachedToWindow()) {
+            registered[0] = true;
+            mgr.addListener(listener);
         }
 
         return card;
@@ -369,26 +287,6 @@ public class AudioCardView implements ChatComponent {
         long p = posMs * 1000 / durMs;
         if (p < 0) return 0;
         return (int) Math.min(1000, p);
-    }
-
-    /** 解析媒体地址：工作区相对路径（files/xxx、tmp/xxx）→ 绝对路径 */
-    private String resolveMediaPath(Context context, String url) {
-        if (url == null || url.isEmpty()) return null;
-        String u = url.trim();
-        if (u.startsWith("content://") || u.startsWith("http://") || u.startsWith("https://")
-                || u.startsWith("file://") || u.startsWith("/")) {
-            return u;
-        }
-        try {
-            com.oilquiz.app.ai.agent.online.AgentWorkspace ws =
-                    com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context);
-            File resolved = ws.resolveExistingFile(u);
-            if (resolved != null && resolved.exists()) {
-                return resolved.getAbsolutePath();
-            }
-        } catch (Exception ignored) {
-        }
-        return u;
     }
 
     private View createErrorView(Context context, String msg) {

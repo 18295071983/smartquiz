@@ -1,5 +1,28 @@
 # 变更日志
 
+## [2026-10-23] refactor(audio)：播放器提升为进程级单例，划走/切后台/锁屏继续播
+
+上一条修好了"进度条不跟随"，但播放器仍建在每张卡片里：聊天卡片是 RecyclerView 的子视图，
+划出屏幕就 detach、旧实现 detach 即 `release()`，所以"边听边翻聊天"做不到；普通后台进程
+还会被系统冻结/回收。按用户要求改成单例常驻。
+
+- 新增 `AudioPlaybackService`（`MediaSessionService`）：<b>唯一</b>的 ExoPlayer + MediaSession，
+  播放中以前台服务常驻（`foregroundServiceType=mediaPlayback`），锁屏/切后台/划掉最近任务
+  继续播；系统媒体通知、耳机按键、锁屏控件由 MediaSession 免开发接入；音频焦点与
+  "拔耳机暂停"交给 ExoPlayer（`setAudioAttributes(..., true)` + `setHandleAudioBecomingNoisy`）。
+- 新增 `AudioPlaybackManager`（进程内单例）：只持有一个 `MediaController`，负责连接服务、
+  状态快照、`playOrToggle/seekTo`、400ms 主线程 ticker 与监听器分发。
+- `AudioCardView` 降级为"遥控器"：不再 new ExoPlayer、不再在 detach 释放；attach 加监听、
+  detach 只注销。多张卡（同曲目）进度天然一致；点别的卡即切歌；`loop/speed` 在切到该卡时
+  应用。顺带修 `file://` 地址被拼成 `file://file://…` 的旧坑，路径统一走 `MediaPathResolver`。
+- 依赖：新增 `androidx.media3:media3-session:1.3.1`（首次联网解析后已进离线缓存）；
+  manifest 增 `FOREGROUND_SERVICE_MEDIA_PLAYBACK` 与 service 声明。
+- 边界：进程被用户强杀即停播（后台不会自动重启）；停止入口是通知栏暂停后划掉任务。
+
+测试：全量 `--offline` 662 全绿（75 类 / 0 skipped / 0 failures / 0 errors）；
+`assembleDebug` 通过、覆盖安装 Success；冷启动无崩溃，服务与权限已在安装包里核对到。
+真机待验：播放时划走卡片/切到别的页面仍继续、通知栏可控、锁屏可控、切歌后再回来进度正确。
+
 ## [2026-10-23] fix(audio-card)：进度条与秒数不跟随播放——后台线程轮询 ExoPlayer 的旧实现
 
 真机反馈"能听，但进度条和当前秒数不追踪"。根因在 `AudioCardView` 的进度刷新：
