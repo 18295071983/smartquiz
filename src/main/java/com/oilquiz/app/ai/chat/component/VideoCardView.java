@@ -62,6 +62,7 @@ import java.util.List;
  *     "User-Agent": "...", "Referer": "...", "Cookie": "..."
  *   }
  *   "artwork": "https://.../cover.jpg"   // 可选：通知栏/锁屏封面
+ *   "drm": {"scheme":"widevine", "licenseUrl":"https://...", "headers":{...}}
  * }
  * </pre>
  *
@@ -102,6 +103,7 @@ public class VideoCardView implements ChatComponent {
         final List<MediaItem.SubtitleConfiguration> subtitles = parseSubtitles(context, p);
         final java.util.Map<String, String> headers = PlaybackHeaderParser.parse(p);
         ArtworkResolver.apply(context, p);
+        DrmResolver.apply(p);
 
         // 路径口径与音频卡一致：统一走 MediaPathResolver
         String resolved = url == null ? "" : url.trim();

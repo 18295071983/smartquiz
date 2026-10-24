@@ -40,6 +40,7 @@ import java.io.File;
  *     "User-Agent": "...", "Referer": "...", "Cookie": "..."
  *   }
  *   "artwork": "https://.../cover.jpg"   // 可选：通知栏/锁屏封面
+ *   "drm": {"scheme":"widevine", "licenseUrl":"https://...", "headers":{...}}
  * }
  * </pre>
  *
@@ -80,6 +81,7 @@ public class AudioCardView implements ChatComponent {
         float speed = (float) p.optDouble("speed", 1.0);
         final java.util.Map<String, String> headers = PlaybackHeaderParser.parse(p);
         ArtworkResolver.apply(context, p);
+        DrmResolver.apply(p);
 
         // 路径口径走 MediaPathResolver（工作区相对路径/省略号截断名等统一兜底）
         String resolved = url == null ? "" : url.trim();

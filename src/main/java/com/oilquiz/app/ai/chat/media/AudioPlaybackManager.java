@@ -191,6 +191,8 @@ public final class AudioPlaybackManager {
     /** 睡眠定时：到点只暂停，不销毁播放器/服务（用户还能继续听）。 */
     private Runnable sleepRunnable;
     private long sleepAtElapsed;
+    /** 续播位置落盘节流（tick 400ms，不必每次都写 prefs）。 */
+    private long lastPositionSaveElapsed;
 
     /** HLS 302 解析线程（不能在主线程做网络） */
     private final ExecutorService resolver = Executors.newCachedThreadPool();
@@ -341,6 +343,7 @@ public final class AudioPlaybackManager {
         lastError = null;
         httpRetries = 0;
         resolveSeq++;   // 取消可能还在解析的上一张 HLS 卡
+        savePositionNow();
         if (MimeTypes.APPLICATION_M3U8.equals(mimeTypeOf(uri))) {
             // HLS 清单可能 302 到另一台主机，分片又是相对路径；media3 会按原始清单
             // 地址拼分片 → 404/403。视频卡和壳播放器一样，先解析出最终清单地址。
@@ -400,6 +403,16 @@ public final class AudioPlaybackManager {
         c.setPlaybackSpeed(speed > 0.1f && speed <= 2.0f ? speed : 1.0f);
         c.setMediaItem(item);
         c.prepare();
+        // 点播续播：HLS/DASH/SS/RTSP/RTMP 可能是直播，不恢复旧位置；只有普通文件/直链恢复。
+        if (mimeTypeOf(mediaIdUri) == null && !mediaIdUri.startsWith("rtmp")) {
+            long resume = savedPosition(mediaIdUri);
+            if (resume > 5_000L) {
+                try {
+                    c.seekTo(resume);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
         c.play();
         ensureStallWatchdog();
         notifyState();
@@ -465,6 +478,7 @@ public final class AudioPlaybackManager {
     public void playQueue(java.util.List<String> uris, java.util.List<String> titles, int startIndex) {
         if (uris == null || uris.isEmpty()) return;
         resolveSeq++;   // 取消可能还在解析的视频卡 HLS
+        savePositionNow();
         MediaController c = controller;
         if (c == null) {
             pendingQueueUris = new java.util.ArrayList<>(uris);
@@ -490,6 +504,7 @@ public final class AudioPlaybackManager {
         lastHeaders = null;
         PlaybackHeaders.clear();
         PlaybackArtwork.clear();
+        PlaybackDrm.clear();
         int index = Math.max(0, Math.min(startIndex, items.size() - 1));
         lastItem = items.get(index);   // 自愈重连要用本地这份（见 recoverBehindLiveWindow）
         // 队列起播不能继承上一首单曲的倍速/循环；统一从默认档开始。
@@ -821,6 +836,8 @@ public final class AudioPlaybackManager {
         if (subtitles != null && !subtitles.isEmpty()) {
             builder.setSubtitleConfigurations(subtitles);
         }
+        MediaItem.DrmConfiguration drm = PlaybackDrm.get();
+        if (drm != null) builder.setDrmConfiguration(drm);
         String mime = mimeTypeOf(playUri);
         if (mime == null) mime = mimeTypeOf(mediaIdUri);
         if (mime != null) {
@@ -845,6 +862,9 @@ public final class AudioPlaybackManager {
      */
     static String mimeTypeOf(String uri) {
         if (uri == null) return null;
+        String lowerFull = uri.toLowerCase(java.util.Locale.US);
+        if (lowerFull.startsWith("rtsp://")) return MimeTypes.APPLICATION_RTSP;
+        if (lowerFull.startsWith("rtmp://")) return null;   // 交给默认 progressive + RtmpDataSource
         String path = uri;
         int cut = path.indexOf('#');
         if (cut >= 0) path = path.substring(0, cut);
@@ -853,6 +873,8 @@ public final class AudioPlaybackManager {
         String lower = path.toLowerCase(java.util.Locale.US);
         if (lower.endsWith(".m3u8")) return MimeTypes.APPLICATION_M3U8;
         if (lower.endsWith(".mpd")) return MimeTypes.APPLICATION_MPD;
+        if (lower.endsWith(".ism") || lower.endsWith(".isml")
+                || lower.contains(".ism/manifest")) return MimeTypes.APPLICATION_SS;
         return null;
     }
 
@@ -866,6 +888,7 @@ public final class AudioPlaybackManager {
     }
 
     private void notifyState() {
+        maybeSavePosition();
         if (listeners.isEmpty()) return;
         State s = snapshot();
         for (Listener l : listeners) {
@@ -874,6 +897,48 @@ public final class AudioPlaybackManager {
             } catch (Throwable ignored) {
             }
         }
+    }
+
+    private static final String POSITION_PREFIX = "playback_pos:";
+
+    private long savedPosition(String mediaId) {
+        if (mediaId == null || mediaId.isEmpty()) return 0;
+        try {
+            return appContext.getSharedPreferences("ai_chat_prefs", Context.MODE_PRIVATE)
+                    .getLong(POSITION_PREFIX + mediaId, 0);
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /** 立即保存当前点播位置（切歌/暂停/错误/退出时用）；直播/已结束不保存。 */
+    private void savePositionNow() {
+        MediaController c = controller;
+        if (c == null) return;
+        try {
+            MediaItem item = c.getCurrentMediaItem();
+            if (item == null || item.mediaId == null || item.mediaId.isEmpty()) return;
+            if (c.isCurrentMediaItemLive()) return;
+            long pos = c.getCurrentPosition();
+            long dur = c.getDuration();
+            android.content.SharedPreferences.Editor e =
+                    appContext.getSharedPreferences("ai_chat_prefs", Context.MODE_PRIVATE).edit();
+            if (c.getPlaybackState() == Player.STATE_ENDED || pos <= 5_000L
+                    || (dur > 0 && pos >= dur - 5_000L)) {
+                e.remove(POSITION_PREFIX + item.mediaId);
+            } else {
+                e.putLong(POSITION_PREFIX + item.mediaId, pos);
+            }
+            e.apply();
+            lastPositionSaveElapsed = SystemClock.elapsedRealtime();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void maybeSavePosition() {
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastPositionSaveElapsed < 5_000L) return;
+        savePositionNow();
     }
 
     /**
@@ -1040,11 +1105,14 @@ public final class AudioPlaybackManager {
                 httpRetries = 0;
             } else if (playbackState == Player.STATE_BUFFERING) {
                 ensureStallWatchdog();   // 直播卡死没有错误回调，只能靠这只狗
+            } else if (playbackState == Player.STATE_ENDED) {
+                savePositionNow();
             }
         }
 
         @Override
         public void onPlayerError(PlaybackException error) {
+            savePositionNow();
             if (recoverBehindLiveWindow(error)) return;
             // HLS 302 token 过期 / 分片主机变化：按原始地址重新解析再试 2 次
             if (error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
@@ -1065,6 +1133,7 @@ public final class AudioPlaybackManager {
         @Override
         public void onDisconnected(MediaController controller) {
             // 服务被系统/用户停掉：清掉连接，下次点播放会重新连
+            savePositionNow();
             AudioPlaybackManager.this.controller = null;
             controllerFuture = null;
             // 等待播放器的回调是持有 View 的一次性任务，服务没了就别留着（防泄漏）

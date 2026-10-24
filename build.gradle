@@ -521,6 +521,11 @@ dependencies {
     // "No suitable media source factory found for content type: 0"（0 = DASH）。
     // 有了它 HlsMediaSource/DashMediaSource 都在，ExoPlayer 才能按 MIME 自动选源。
     implementation "androidx.media3:media3-exoplayer-dash:1.3.1"
+    // P2 源适配：RTSP（摄像头/直播）、SmoothStreaming（.ism）、RTMP（推流拉流）。
+    // 这三个都是独立模块；DefaultMediaSourceFactory 有对应类才会按 scheme/MIME 选源。
+    implementation "androidx.media3:media3-exoplayer-rtsp:1.3.1"
+    implementation "androidx.media3:media3-exoplayer-smoothstreaming:1.3.1"
+    implementation "androidx.media3:media3-datasource-rtmp:1.3.1"
     // MediaSessionService：音频播放器单例 + 前台服务常驻（离开聊天页/切后台/锁屏仍播，
     // 通知栏与媒体键可控）。只用 ExoPlayer 的话视图一回收播放就断了。
     implementation "androidx.media3:media3-session:1.3.1"

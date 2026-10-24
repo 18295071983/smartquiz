@@ -2,18 +2,25 @@ package com.oilquiz.app.ai.chat.media;
 
 import android.app.PendingIntent;
 import android.content.Intent;
+import android.net.Uri;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.datasource.TransferListener;
+import androidx.media3.datasource.rtmp.RtmpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -56,19 +63,7 @@ public class AudioPlaybackService extends MediaSessionService {
         super.onCreate();
         // AudioAttributes.DEFAULT + handleAudioFocus=true：来电/别的 App 放声时自动让路；
         // becoming noisy（拔耳机）自动暂停，避免突然外放
-        DataSource.Factory dataSourceFactory = () -> {
-            DefaultHttpDataSource.Factory f = new DefaultHttpDataSource.Factory()
-                    .setAllowCrossProtocolRedirects(true)
-                    .setConnectTimeoutMs(15_000)
-                    .setReadTimeoutMs(15_000);
-            Map<String, String> headers = new HashMap<>(PlaybackHeaders.get());
-            if (!headers.containsKey("User-Agent")) {
-                headers.put("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 "
-                        + "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
-            }
-            f.setDefaultRequestProperties(headers);
-            return f.createDataSource();
-        };
+        DataSource.Factory dataSourceFactory = SchemeDataSource::new;
         player = new ExoPlayer.Builder(this)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(dataSourceFactory))
                 .setAudioAttributes(AudioAttributes.DEFAULT, /* handleAudioFocus= */ true)
@@ -103,5 +98,63 @@ public class AudioPlaybackService extends MediaSessionService {
             player = null;
         }
         super.onDestroy();
+    }
+
+    private static DataSource httpDataSource() {
+        DefaultHttpDataSource.Factory f = new DefaultHttpDataSource.Factory()
+                .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(15_000)
+                .setReadTimeoutMs(15_000);
+        Map<String, String> headers = new HashMap<>(PlaybackHeaders.get());
+        if (!headers.containsKey("User-Agent")) {
+            headers.put("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 "
+                    + "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
+        }
+        f.setDefaultRequestProperties(headers);
+        return f.createDataSource();
+    }
+
+    /**
+     * 按 URI scheme 选 DataSource：RTMP 走 RtmpDataSource，其余走带请求头的 HTTP。
+     * ExoPlayer 的 MediaSourceFactory 只有一个 DataSource，但 RTMP 与 HTTP 是两套实现，
+     * 所以在这里按每次 open 的 DataSpec 延迟选择。
+     */
+    private static final class SchemeDataSource implements DataSource {
+        private final List<TransferListener> listeners = new ArrayList<>();
+        private DataSource delegate;
+
+        @Override
+        public void addTransferListener(TransferListener transferListener) {
+            if (transferListener != null) listeners.add(transferListener);
+        }
+
+        @Override
+        public long open(DataSpec dataSpec) throws IOException {
+            Uri uri = dataSpec.uri;
+            String scheme = uri == null ? "" : uri.getScheme();
+            delegate = "rtmp".equalsIgnoreCase(scheme)
+                    ? new RtmpDataSource.Factory().createDataSource()
+                    : httpDataSource();
+            for (TransferListener listener : listeners) {
+                delegate.addTransferListener(listener);
+            }
+            return delegate.open(dataSpec);
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            return delegate.read(buffer, offset, length);
+        }
+
+        @Nullable
+        @Override
+        public Uri getUri() {
+            return delegate == null ? null : delegate.getUri();
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (delegate != null) delegate.close();
+        }
     }
 }

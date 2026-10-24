@@ -21,6 +21,11 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.AspectRatioFrameLayout;
+import androidx.media3.ui.PlayerView;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.ui.base.BaseActivity;
@@ -56,8 +61,9 @@ public class FileRenderActivity extends BaseActivity {
 
     private File currentFile;
     private PreviewRenderBridge previewRenderBridge;
-    private android.widget.VideoView videoView;
-    private android.media.MediaPlayer audioPlayer;
+    private PlayerView videoView;
+    private ExoPlayer videoPlayer;
+    private ExoPlayer audioPlayer;
     private android.widget.ProgressBar audioProgress;
     private Runnable audioProgressRunnable;
 
@@ -313,60 +319,58 @@ public class FileRenderActivity extends BaseActivity {
     /** 隐藏/释放已展示的视频（切换渲染内容或退出时调用） */
     private void hideVideoView() {
         if (videoView != null) {
-            try {
-                videoView.stopPlayback();
-            } catch (Throwable ignored) {
-            }
+            videoView.setKeepScreenOn(false);
+            videoView.setPlayer(null);
             contentLayout.removeView(videoView);
             videoView = null;
         }
+        if (videoPlayer != null) {
+            videoPlayer.release();
+            videoPlayer = null;
+        }
     }
 
-    /** 应用内视频播放（VideoView，不依赖系统播放器）；加载失败提示可用"用其他应用打开" */
+    /** 应用内视频播放（ExoPlayer + PlayerView，与聊天卡同一内核）；加载失败提示可用"用其他应用打开" */
     private void showVideo(String videoPath) {
         final java.io.File vf = new java.io.File(videoPath);
         if (!vf.exists()) {
             showError("视频不存在", "找不到视频文件: " + videoPath);
             return;
         }
-        final android.widget.VideoView vv = new android.widget.VideoView(this);
-        videoView = vv;
+        final PlayerView pv = new PlayerView(this);
+        pv.setUseController(true);
+        pv.setControllerShowTimeoutMs(3000);
+        pv.setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS);
+        pv.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        pv.setKeepScreenOn(true);
+        videoView = pv;
         // 插入到内容区（weight=1 撑满剩余空间，与图片/文本一致）
-        contentLayout.addView(vv, 1, new LinearLayout.LayoutParams(
+        contentLayout.addView(pv, 1, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
-        vv.setOnPreparedListener(mp -> {
-            try {
-                mp.setLooping(false);
-                mp.setOnVideoSizeChangedListener((m, w, h) -> {
-                    if (w > 0 && h > 0) {
-                        vv.post(() -> {
-                            int width = vv.getWidth();
-                            if (width > 0) {
-                                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                                        LinearLayout.LayoutParams.MATCH_PARENT,
-                                        (int) (width * h / (float) w));
-                                vv.setLayoutParams(lp);
-                            }
-                        });
-                    }
-                });
-                vv.start();
-            } catch (Throwable ignored) {
+
+        ExoPlayer player = new ExoPlayer.Builder(this).build();
+        videoPlayer = player;
+        videoPlayer.setAudioAttributes(androidx.media3.common.AudioAttributes.DEFAULT, true);
+        videoPlayer.setHandleAudioBecomingNoisy(true);
+        pv.setPlayer(player);
+        player.addListener(new Player.Listener() {
+            @Override
+            public void onPlayerError(androidx.media3.common.PlaybackException error) {
+                Toast.makeText(FileRenderActivity.this,
+                        getString(R.string.h_cefb7ec9), Toast.LENGTH_LONG).show();
             }
         });
-        vv.setOnErrorListener((mp, what, extra) -> {
-            Toast.makeText(this, getString(R.string.h_cefb7ec9), Toast.LENGTH_LONG).show();
-            return true;
-        });
         try {
-            vv.setVideoURI(Uri.fromFile(vf));
-            vv.requestFocus();
+            player.setMediaItem(MediaItem.fromUri(Uri.fromFile(vf)));
+            player.prepare();
+            player.play();
         } catch (Throwable t) {
-            Toast.makeText(this, getString(R.string.h_8c57a982) + t.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_8c57a982) + t.getMessage(),
+                    Toast.LENGTH_SHORT).show();
         }
     }
 
-    /** 应用内音频播放（MediaPlayer，不依赖系统播放器）：文件名 + 进度条 + 播放/暂停 + 停止 */
+    /** 应用内音频播放（ExoPlayer，与聊天/视频同一内核）：文件名 + 进度 + 播放/暂停 + 停止 */
     private void showAudio(String audioPath, String fileName, String fileType) {
         final java.io.File af = new java.io.File(audioPath);
         if (!af.exists()) {
@@ -374,11 +378,13 @@ public class FileRenderActivity extends BaseActivity {
             return;
         }
         hideAudioPlayer();
-        final android.media.MediaPlayer mp = new android.media.MediaPlayer();
-        audioPlayer = mp;
+        final ExoPlayer player = new ExoPlayer.Builder(this).build();
+        audioPlayer = player;
+        player.setAudioAttributes(androidx.media3.common.AudioAttributes.DEFAULT, true);
+        player.setHandleAudioBecomingNoisy(true);
         try {
-            mp.setDataSource(audioPath);
-            mp.setAudioStreamType(android.media.AudioManager.STREAM_MUSIC);
+            player.setMediaItem(MediaItem.fromUri(Uri.fromFile(af)));
+            player.prepare();
         } catch (Throwable t) {
             showError("音频打开失败", t.getMessage());
             return;
@@ -441,63 +447,58 @@ public class FileRenderActivity extends BaseActivity {
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
 
         btnPlay.setOnClickListener(v -> {
-            if (mp == null) return;
             try {
-                if (mp.isPlaying()) {
-                    mp.pause();
+                if (player.isPlaying()) {
+                    player.pause();
                     btnPlay.setText("▶ 播放");
                     stopAudioProgress();
                 } else {
-                    mp.start();
+                    if (player.getPlaybackState() == Player.STATE_ENDED) player.seekTo(0);
+                    player.play();
                     btnPlay.setText("⏸ 暂停");
-                    startAudioProgress(mp, pb, tvTime);
+                    startAudioProgress(player, pb, tvTime);
                 }
             } catch (Throwable t) {
                 Toast.makeText(this, "播放失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
             }
         });
         btnStop.setOnClickListener(v -> {
-            if (mp == null) return;
             try {
-                mp.stop();
-                mp.reset();
+                player.pause();
+                player.seekTo(0);
                 btnPlay.setText("▶ 播放");
                 pb.setProgress(0);
-                tvTime.setText("00:00 / 00:00");
+                tvTime.setText("00:00 / " + formatDuration(player.getDuration()));
                 stopAudioProgress();
             } catch (Throwable ignored) {
             }
         });
 
-        mp.setOnPreparedListener(m -> {
-            m.setLooping(false);
-            tvTime.setText("00:00 / " + formatDuration(m.getDuration()));
+        player.addListener(new Player.Listener() {
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                if (state == Player.STATE_READY) {
+                    tvTime.setText("00:00 / " + formatDuration(player.getDuration()));
+                } else if (state == Player.STATE_ENDED) {
+                    btnPlay.setText("▶ 播放");
+                    pb.setProgress(pb.getMax());
+                    stopAudioProgress();
+                }
+            }
+
+            @Override
+            public void onPlayerError(androidx.media3.common.PlaybackException error) {
+                stopAudioProgress();
+                Toast.makeText(FileRenderActivity.this,
+                        "音频播放错误，可尝试用其他应用打开", Toast.LENGTH_LONG).show();
+            }
         });
-        mp.setOnCompletionListener(m -> {
-            btnPlay.setText("▶ 播放");
-            pb.setProgress(pb.getMax());
-            stopAudioProgress();
-        });
-        mp.setOnErrorListener((m, what, extra) -> {
-            stopAudioProgress();
-            Toast.makeText(this, "音频播放错误(what=" + what + ", extra=" + extra + ")，可尝试用其他应用打开", Toast.LENGTH_LONG).show();
-            return true;
-        });
-        try {
-            mp.prepareAsync();
-        } catch (Throwable t) {
-            showError("音频打开失败", t.getMessage());
-        }
     }
 
     /** 隐藏/释放已展示的音频播放器（切换渲染内容或退出时调用） */
     private void hideAudioPlayer() {
         stopAudioProgress();
         if (audioPlayer != null) {
-            try {
-                audioPlayer.stop();
-            } catch (Throwable ignored) {
-            }
             try {
                 audioPlayer.release();
             } catch (Throwable ignored) {
@@ -507,19 +508,19 @@ public class FileRenderActivity extends BaseActivity {
         audioProgress = null;
     }
 
-    private void startAudioProgress(final android.media.MediaPlayer mp,
+    private void startAudioProgress(final ExoPlayer player,
                                     final android.widget.ProgressBar pb,
                                     final android.widget.TextView tvTime) {
         stopAudioProgress();
         audioProgressRunnable = new Runnable() {
             @Override
             public void run() {
-                if (mp == null || pb == null || tvTime == null || audioProgressRunnable != this) return;
+                if (player == null || pb == null || tvTime == null || audioProgressRunnable != this) return;
                 try {
-                    int dur = mp.getDuration();
-                    int pos = mp.getCurrentPosition();
+                    long dur = player.getDuration();
+                    long pos = player.getCurrentPosition();
                     if (dur > 0) {
-                        pb.setProgress((int) ((long) pos * pb.getMax() / dur));
+                        pb.setProgress((int) (pos * pb.getMax() / dur));
                         tvTime.setText(formatDuration(pos) + " / " + formatDuration(dur));
                     }
                 } catch (Throwable ignored) {
@@ -537,9 +538,9 @@ public class FileRenderActivity extends BaseActivity {
         audioProgressRunnable = null;
     }
 
-    private String formatDuration(int ms) {
+    private String formatDuration(long ms) {
         if (ms < 0) return "00:00";
-        int s = ms / 1000;
+        long s = ms / 1000;
         return String.format(java.util.Locale.US, "%02d:%02d", s / 60, s % 60);
     }
 

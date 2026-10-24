@@ -21,15 +21,22 @@ final class PlaybackHeaderParser {
         if (p == null) return out;
         JSONObject h = p.optJSONObject("headers");
         if (h != null) {
-            java.util.Iterator<String> it = h.keys();
-            while (it.hasNext()) {
-                String name = it.next();
-                add(out, name, h.optString(name, ""));
-            }
+            out.putAll(parseObject(h));
         }
         add(out, "User-Agent", firstNonEmpty(p, "userAgent", "user_agent", "ua"));
         add(out, "Referer", firstNonEmpty(p, "referer", "referrer"));
         add(out, "Cookie", p.optString("cookie", ""));
+        return out;
+    }
+
+    static Map<String, String> parseObject(JSONObject h) {
+        Map<String, String> out = new LinkedHashMap<>();
+        if (h == null) return out;
+        java.util.Iterator<String> it = h.keys();
+        while (it.hasNext()) {
+            String name = it.next();
+            add(out, name, h.optString(name, ""));
+        }
         return out;
     }
 
