@@ -1,5 +1,25 @@
 # 变更日志
 
+## [2026-10-25] fix(chat-components)：image_grid 恢复整卡显示，捞回 grid_card/note_card
+
+用户反馈 `image_grid` 卡片"没了"，同批删除的其他卡片也要捞回。
+
+- **image_grid 没被删**：文件一直在注册表里；是 2026-10-20 的 `ComponentDisplay`
+  默认档 `peek` 把它收成"图集 · N 张图"一行。把 `image_grid`/`image` 加进
+  `ALWAYS_INLINE_TYPES`，图集恢复整卡；同时把恢复的 `grid_card`/`note_card`
+  及短名 `grid`/`note` 一起设为整卡。
+- **真正被删的两张卡**：`baafa107` 删了 `GridCardView`/`NoteCardView`（当时 alias
+  把它们归一到 info/list，原生实现永远不命中）。本次从 `baafa107^` 原样恢复两个类，
+  重新注册；`ComponentTypes` 删除 `note_card→info`、`grid_card→list` 归一，改成
+  `note→note_card`、`grid→grid_card`，并补回两条 SCHEMA。
+- **模型可见文案**：`SystemUIComponentTool`、`AIToolManager`、Python `android_ui`
+  重新教 `note_card:{type,content,author}` 与 `grid_card:{title,columns,items}`。
+- **验证**：全量 **868 tests / 0 skipped / 0 failures / 0 errors**；APK 01:52:34
+  （949,737,738 字节），已覆盖安装（01:53:06）并启动到 AIChatActivity。
+  **具体图集/宫格/便签的真机呈现尚未逐项点过**。
+- 同批没有其他卡片被删（`QuickToolChipModule` 是快捷工具模块，不是卡）。
+- 提交 `32733f3a`；并行会话的 markdown_doc 已单独提交 `df007533`。
+
 ## [2026-10-25] feat(chat)：块级公式回归正文 + markdown_doc 文档卡 + html 卡 .md 路由
 
 这一轮解决"同一篇 markdown，网页卡片正常、主气泡退化"的结构性问题，并补上整篇

@@ -2185,6 +2185,24 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 5. **边界**：默认 Receiver 不支持自定义 headers/DRM/自有 UI；需要这些再换自建接收端
    App ID。手动下载管理 UI 仍未做。提交 `d69c3f74`。
 
+### 4.99 fix(chat-components)：image_grid 恢复整卡，捞回 grid_card/note_card（2026-10-25）
+
+1. **先纠正归因**：`image_grid` 文件没被删，`ComponentRegistry` 一直注册着
+   `ImageGridCardView`；是 2026-10-20 的 display 默认档 `peek` 把它收成一行摘要。
+   把 `image_grid`/`image` 加进 `ALWAYS_INLINE_TYPES`，图集恢复整卡；恢复的
+   `grid_card`/`note_card` 与短名 `grid`/`note` 同步加进去。
+2. **真正被删的两张卡**：`baafa107` 删了 `GridCardView`/`NoteCardView`（当时 alias
+   把 note_card→info、grid_card→list，原生实现从注册起就不命中）。本次从
+   `baafa107^` 原样恢复两个类并重新注册。
+3. **名字/目录**：`ComponentTypes` 删除 note_card→info、grid_card→list 归一；
+   短名 note→note_card、grid→grid_card；补 note_card/grid_card 两条 SCHEMA。
+   `SystemUIComponentTool`/`AIToolManager`/`android_ui.py` 重新教两张卡的字段。
+4. **验证**：全量 **868 / 0 skipped / 0 failures / 0 errors**；APK 01:52:34，
+   949,737,738 字节；已覆盖安装（01:53:06）并启动到 `AIChatActivity`。
+   **图集/宫格/便签的真机呈现尚未逐项点过**。提交 `32733f3a`。
+5. **同批无其他卡片删除**（`QuickToolChipModule` 是工具模块，不是卡）。并行会话的
+   markdown_doc/公式/html .md 路由已单独提交 `df007533`。
+
 ---
 
 ## 5. 关键文件 / 改动地图
