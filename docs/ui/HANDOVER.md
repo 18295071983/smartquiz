@@ -1725,6 +1725,41 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    还有一条备选路径没执行：用 adb 往 `files/conversations/` 推手工构造的**真旧格式** JSON
    （无 `assistantTurn` + 有边界 / 无边界 / 无 `toolCallId` 三种形状），比在老包上跑会话更贴近 2026-10-21 前的形态。
 
+### 4.82 docs(parts)：把"error/approval 命中就整条回落 legacy"等三处过期口径按代码实况更正（零行为改动）（2026-10-24）
+
+1. 起因：用户问"parts 改造完了吗"，我照 `bindWithParts` 的注释答了"error/approval 命中就整条回落 legacy"。
+   回头核生产者才发现**这句是复述注释、不是事实**：`fromMessageForParts` 只产
+   text/reasoning/tool_call/tool_result/tool_group/data 六种，生产代码里没有任何 error/approval part 的写者
+   （`Part.approval(...)` 只出现在 `ApprovalPartRendererTest`/`PartRendererRegistryTest`；`TYPE_ERROR` 只出现在
+   `ErrorPartRenderer.canRender` 与测试；`AssistantTurn` 里那处 `new Part()` 是 `copy()` 的逐字段拷贝）。
+   所以 `bindWithParts` 的 `if (!allowed) return false` 是**当前不可达的防御分支**。
+2. 这两类内容在 UI 上的真实通道（都不归 parts 管，**翻 P4 也不改变其显示**）：
+   error = ①独立错误行 `ChatMessage.createErrorMessage()` → `MessageType.ERROR` → `VIEW_TYPE_ERROR`
+   → `ErrorMessageViewHolder`/`bindErrorMessage`（`bindMessageContent` 只对 `AIMessageViewHolder` 调用，
+   故根本碰不到；调用方 `AIChatActivity:9834`、`AIChatCoordinator:210`、`AIChatViewModel:461`、
+   `AgentDebugActivity:632`）；②AI 消息自身失败：`ChatAdapter.failMessage`/`cancelMessage` 置
+   `MessageStatus.FAILED` + `errorDetail`，展示在 holder 的状态行与 v2 操作段（`:1177-1199`，
+   失败才留状态行、ERROR/FAILED 也显示"重新生成"）——接管只换 `contentHost`，这两处按设计继续由 legacy 写。
+   approval = `permission_manager(action=request_and_wait)` 是一次**普通工具调用**（弹系统权限框，聊天流里是工具卡）
+   + `ui_component` 的 `get_result` 阻塞回传（`OnlineAgentEngine:851-854` 单独长超时），**两者 parts 都已接管**。
+3. 另一处容易看错：`createDefault()` **已经注册** `ErrorPartRenderer`/`ApprovalPartRenderer`，
+   所以 `canRenderAll` 挡不住它们，只有 allowed 名单挡得住——"renderer 存在"≠"会被接管"，也≠"会回落"。
+4. 改动清单（**只动文档与 Java 注释，无一行行为**）：任务书 `docs/ui/parts-architecture-upgrade.md`
+   §11 开场（"闸门只允许 text/reasoning，其余整条回落" → 六种已放开 + 回落不可达）、§11.1 标 P3h 已做、
+   §11.3 标 P3i 已做**并写清实现与草案不同**（走 `attachOwnedProducts` + `producerToolCallId`/`producerToolName`
+   的模型层归属 + 单写者竖排，不是草案设想的 `DataPartRenderer.anchorIdFor`）、§11.4 标 P3g 已做
+   （mermaid/katex 由 `MermaidMathSplitter` 直接产 **html 组件**交 `HtmlCardView`，不是独立注册组件；
+   `renderMermaidMath` 位置从文档写的 `:3527` 漂到 `:3003`）、§11.7 重写为本节 1–3 的准确口径、
+   §11.8 五步标注 1–4 已做、第 5 步留 P4/P5。代码侧：`ChatAdapter` 闸门头注释 + `!allowed` 分支注释、
+   `PartRendererRegistry.canRenderAll` javadoc（补第 3 点那条区分）。
+5. 与 4.81 的交界：恢复护栏"落盘 turn 含 `fromMessage` 造不出的 part → 保留落盘"说明**磁盘上并非零可能**，
+   但渲染侧始终 `fromMessageForParts` 重建，闸门依旧不可达——已按这个措辞写进 §11.7。
+6. **验证**：本轮无行为改动，未跑 gradle/单测（同一工作树正被 4.81 的并行会话改着 `AssistantTurn`/
+   `ChatHistoryManager`/`AIChatActivity`，跑构建会争用 `build/` 输出；注释改动也不需要构建来证明）。
+   基线数字以 4.81 的 **769 tests / 0 skipped / 0 failures / 0 errors** 为准，别再引用旧的 597。
+
+---
+
 ### 4.83 perf(chat/history)：ModelCall 正文与思考改 transient，落盘去重一层（2026-10-24）
 
 1. 起因是 4.81 之后按真机视角核"历史文件到底长什么样"。实测一条"3 轮×400 字正文 + 3 个各带 500 字
@@ -1766,6 +1801,187 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    **这也就是 4.81 第 8 条挂着的那次真机验证里"数据形状"那一半已经验过**，剩下没验的仍只有
    View 层的视觉呈现。
 
+### 4.84 feat(parts)：流式生成中的消息也交给 parts 渲染（P6，子开关出厂 true）（2026-10-24）
+
+1. 用户指令"把流式 part 修好，之前有问题我特意关了，修好就打开"。**先纠正一个会把人带偏的前提**：
+   本工程的流式不是逐 token 重绘——`ROUND_BATCH_RENDER=true`（`AIChatActivity:345`）让
+   `safeUpdateMessage()` 直接 return（`:7620`），正文只在轮次边界（`flushRoundContentToMessage:7602`）
+   刷进 `msg.content`，逐 token 刷新的只有思考行（120ms 节流）与状态栏统计。所以**不需要**给
+   `PartsTurnBinder` 造"按 part id 就地更新"的通道：`TurnPartsHost.bind()` 每次全量喂进去，
+   增量成本由它的 id + 指纹早退吸收（`TurnPartsHost:183-188`）。§11 原文那条"流式保持现状"已作废，
+   新口径写进任务书 §11.11。
+2. **之前"有问题"的实底是顺序真值**：`fromMessage` 首选 `roundSnapshots`，而快照要 `onRoundComplete`
+   才追加，`msg.content` 却已在边界被 flush 成当前累积正文 → 生成中用完成态那条分支重建会**整段丢掉
+   正在写的这一轮**（观感：正文永远落后一条）。新增产出侧构建器 `AssistantTurn.fromMessageForStreaming`：
+   按 `contentRoundBounds` 切片（共 `nBounds+1` 段，末段即 live 轮），live 轮思考取
+   `msg.thinkingContent` 并**按同 id 覆盖**（不新增，否则思考翻倍）；无边界时把 `thinkingRounds`
+   里已定稿的各轮思考各铺一条（legacy 思考段是"一个入口 + 一步一行"，只渲 live 那条就是回归），
+   并把**最后一条定稿当 live 快照**交给同一个 id 覆盖，避免同一段思考出现两遍。
+3. **id 稳定是能早退的前提**：callId = `turnId + 轮号`（轮号只增不改）、工具 part 以 `toolCallId` 为键、
+   组 id 取组内首个工具 id → 逐 tick 只有 live 段指纹变化。坑：轮号是十进制拼接，
+   `T-R1` 是 `T-R11` 的前缀，所以 `markLiveStreaming` 只认两个**精确** id，别改成前缀匹配
+   （会把已完成轮标成流式，测试 `roundNumberPrefixCollisionDoesNotMarkEarlierRounds` 钉住）。
+4. **容器只装一次 + 接管标记延续**（这两条是同一条观感问题的两面）：`bindWithParts` 开头那段
+   `releaseAndClearComponents` + 重挂 `partsContainer` 是给**首次**接管用的，每 tick 走一遍就把上一
+   tick 建好的图表/播放器连根释放，复用白做 → 新增 `AIMessageViewHolder.partsTakenOverForId`，
+   只在换消息/回收/开关被关时重装；同时 `bindAIMessage` 里"每次绑定无条件复位 `partsTookOver`"
+   改成"同一条消息且开关仍开就延续"，否则轮次边界那次全量绑定会先复位、legacy 两个写者照常跑、
+   接管再重装容器，观感就是**每过一轮闪一次**。复位仍在 `onViewRecycled` 做（两个字段一起清）。
+5. **legacy 写者的第三个入口**：4.79 只防了全量绑定那条，而流式的 `PAYLOAD_THINKING_UPDATE`
+   （逐 token 节流）与 `PAYLOAD_CONTENT_UPDATE` 都直接调 `updateThinkingContent` → 与 parts 的
+   reasoning part 双份；两处都补了 `partsTookOver` 判定。
+6. **闸门不再拿 `assistantTurn` 当令牌（本轮唯一的既有设计变更，别再改回去）**：渲染每次都是现场重建，
+   落盘 turn 从来不是渲染输入，只当"生产者跑过了"的令牌。以它当闸门会造出一类新倒退——停止/出错那
+   六处终态（`onGenerationStopped`/`onGenerationError`/`handleGenerationError` 及各自 `uiDetached` 分支，
+   flush 站点见 `AIChatActivity:6074/6148/6169/6210/6225/6528`）都没人补 turn，于是流式期被接管、
+   一落到终态就判回 legacy，用户看到"点停止那一刻整条重排"。逐个终态补 turn = 再开一个写者，
+   所以修到真值本身：能构建出可渲 part 就接管，空 parts 照旧回落。
+   **副作用（已在 CHANGELOG 主动报）**：`parts_renderer=true` 时接管面比原来宽，含以前没有 turn
+   而留在 legacy 的完成态消息。唯一**故意没放宽**的是 `OutputRouter.onError:1538`——它把 `content`
+   覆盖成"错误: …"，此时补 turn 会让快照分支用 parts 反投影把那句错误冲掉。
+7. **开关语义**：新 `PartsStreamingFlag`＝`ai_chat_prefs/parts_streaming`，是 `parts_renderer` 的
+   **子开关**（父关则整条不接管，子开关自然无效），出厂默认 **true**；单独一个键是为了出问题能
+   单独退回"只有完成态进 parts"，不必连整条 parts 一起关。产品里**没有**设置页入口（同
+   `parts_renderer`，只能改 prefs）。`parts_renderer` 出厂兜底**仍是 false**——P4 没动，别混。
+8. **验证**：新增 `AssistantTurnStreamingTest` 12 项；全量 **792 tests / 0 skipped / 0 failures /
+   0 errors**（这轮基线里含并行会话的 `LegacyShapeRestoreTest` 等，数字只在本轮有效，权威见
+   [[unit-test-baseline-failures]]）、`assembleDebug` 通过（`build/outputs/apk/debug/答题宝-debug-2.0.apk` 21:05）。
+   flag=false 路径行为不变：`partsTakenOverForId` 只在接管成功时赋值，父开关关着它恒为 null
+   → `partsTookOver` 仍每绑复位，payload 防护与容器重装判定都走原分支。
+   ⚠️ **真机未验**（JVM 证不了，装新包即生效）：① 逐 tick 有无闪烁/跳动/滚动位置被抢；② 未闭合的
+   component/mermaid 围栏被切成半截 data part 又消失时子段 id（`:p{seq}`）重排是否可见抖动；
+   ③ 本地引擎（非在线 Agent）的流式消息是否始终拿得到 `contentRoundBounds`；④ 停止/出错两条终态
+   切换是否还重排一次。前置见 [[parts-restore-device-verification-deferred]]（`parts_renderer` 设备上
+   已是 true，`parts_streaming` 无键即默认 true）。
+   注：本条第 7 点当时写的"`parts_renderer` 出厂兜底**仍是 false**——P4 没动"已被
+   **4.85 作废**（同日用户指令翻成出厂 true）。
+
+### 4.85 feat(parts)：P4 落地——`parts_renderer` 出厂档翻成 true（2026-10-24）
+
+1. 用户指令"parts_renderer 出厂仍是 false，也打开"。这句判定原来卡的是"真机有没有整体确认观感"，
+   现在由用户明确放行；4.84 挂着的四条真机项仍是未验状态，不再阻塞出厂档。
+2. 改动：`PartsRendererFlag.DEFAULT_ENABLED = true`，`getBoolean(PREF_KEY, DEFAULT_ENABLED)`，
+   并把**拿不到 Context 时也回默认档（开）**——原来那版是 `null → false`，翻默认后不改这里就会出现
+   "无 Context 静默走 legacy"的第二套口径（与 `HtmlSubmitFlag`/`LayoutCanvasConstraints` 的写法对齐）。
+3. **退路变了，要记清**：出厂即开之后，删掉 prefs 键不再等于关；退回 legacy 必须**显式写 false**，
+   而产品里没有设置页入口，只能 `adb shell run-as com.oilquiz.app` 改 `shared_prefs/ai_chat_prefs.xml`。
+   所以 legacy 那条渲染路径（`contentRoundBounds` 组装 + `bindComponents` + 全局思考行）在 P5 之前
+   **一行都不许删**——它就是这条退路本身。只退流式则写 `parts_streaming=false`，完成态接管照旧。
+4. 测试口径跟着翻：`PartsRendererFlagTest` 原来钉的是"默认关、显式开才生效 / null ctx 关"，
+   现改成三条——无键＝开、显式 false 被 honour、null ctx 按默认档（开）。
+5. 文档同步：任务书 §2 清单那条 flag 勾掉并标注 P4 已翻、§7 回滚段改成"显式写 false（删键无效）"、
+   §11.8 第 5 步把 P4 划掉只剩 P5 剩余；§7 风险表里"`assistantTurn == null` 全走旧路径"那行也顺手更正
+   （4.84 已把闸门改成看能否构出可渲 part，不再拿 turn 当令牌）。
+6. **验证**：全量 **792 tests / 0 skipped / 0 failures / 0 errors**、`assembleDebug` 通过
+   （APK 21:14:38，晚于三处源码改动 mtime，已核）；`adb install -r` Success，设备 prefs 未动
+   （`parts_renderer` 一直是显式 true，所以这台机观感零变化）。
+   过程中我自己踩了一次假绿：第一次跑挂在 `compileDebugUnitTestJavaWithJavac`（我在新测试里把
+   `ctx()` 写成 `ctx`），而我差点拿清理前残留的旧 XML 报"792 全绿"——汇总前必须
+   `rm -rf build/test-results`，这条见 [[green-tests-must-count-skipped]]。
+7. **剩下**：P5（新消息不再写 `contentRoundBounds`、删 legacy 分支）单独拍；4.84 那四条真机项仍未验，
+   现在出厂即开，任何一条不对都会影响全新安装而不只是这台机。
+
+### 4.86 fix(cards/chat-parts)：目录路径不再挂成文件卡 + 接管下补回逐块错峰入场（2026-10-24）
+
+1. 用户给真机截图点两件事，核完**一件是 bug、一件是记忆错位但牵出真缺口**。
+2. **目录挂成文件卡（bug）**：`workspace(action=path)` 返回工作区**目录**绝对路径，卡面却是文档图标 +
+   目录名 + 打开/分享，点进去空。根因在产出侧：`DynamicToolResultRenderer.mediaCards()` 只按扩展名分类
+   `path`（无扩展名 → files → 单条直接 `file_card`），**没有 `isDirectory()` 判定**；
+   `ToolResultCardBinder.mediaCard()` 同一个洞（workspace 在它的 `SKIP_TOOLS` 里所以这次没触发）。
+3. 修法收成**一处共用判定**，两个生产者同时接（见 [[fix-at-producer-not-each-consumer]]）：
+   `ToolResultCardBinder.isDirectoryPath(path)`（与 `isWebDocument` 同样带**存在性检查**——
+   模型给缩写/幻觉路径时维持 file_card 原形状，不去展开不存在的目录）+
+   `dirListCard(path, title)` → 复用已注册的 `file_list` 浏览卡（`files[].{name,path,size,type=dir|file}`、
+   顶层 `path=目录` 支持卡内进下一级、目录行在前 + 名称升序、上限 12 条、标题带目录名）。
+   接点：`mediaCards()` 的 web/plain 分流、`mediaCardForPath()`、`mediaCard()`。**没造新卡型**。
+4. **"思考里的刮刀动画"不是 parts 漏做**：它在 `GenerationStatusBar.startThinkingRollerAnim()`
+   （顶部状态条 `tvGenPhase`，Alpha 0.3→1 + Translate −0.6→0，只在思考**换段**播），
+   属 Activity 顶部条、不在气泡 `contentHost` 内 → parts 接管不碰它；legacy 气泡思考行本来也没刮刀，
+   `ReasoningPartRenderer` 无动画不算回归。
+5. **但确有真缺口，已补**：完成态逐块错峰入场 `scheduleContentReveal`（`ChatAdapter:6327`）遍历
+   `contentHost` 子 View，接管后那里只剩一个 `partsContainer` → 错峰退化成"整条一起淡入"。
+   现在在 post 里判 `partsTookOver` 并把编排对象换成 `partsContainer` 的子 View
+   （一个 part 一块，粒度对齐 legacy 的思考行/工具卡/正文段）；非接管路径一行没动。
+6. **验证**：`DynamicToolResultRendererTest` +3 条（真目录只出 `file_list` 且目录行在前、标题带目录名 /
+   真存在的单文件仍出 `file_card` / 不存在路径维持 `file_card`）；全量 **795 / 0 skipped / 0 fail / 0 err**、
+   `assembleDebug` 通过（APK 21:24:43）、`adb install -r` Success。
+   ⚠️ 未验：错峰动画与目录浏览卡的真实观感（JVM 证不了动画）。
+
+### 4.87 feat(parts)：刮刀滑入抽成共用原语，气泡里的思考段也播（2026-10-24）
+
+1. 承接 4.86 第 4 点（"顶部状态条的刮刀不受 parts 影响"），用户追问"能做吗"。答案是能，
+   但**不能再抄一份形状**——这个仓库在 `GenerationStatusBar` 上修过两次"两份复制各自判断换段"
+   导致的闪烁与「处理提示」循环重播（见其 `lastThinkLen` / `lastPhase` 注释、
+   `AIChatActivity:9268` 那段"两份复制"的说明）。
+2. 新共用处 `ai/chat/ui/SegmentScraper`：`slideIn(View)` 形状原样保留
+   （Alpha 0.3→1 + Translate −0.6→0 自身比例、320ms、Decelerate），并把两条规则固化进去——
+   播前必 `clearAnimation()`（叠加/重启就是闪烁）、`areAnimatorsEnabled()` 关了就不播。
+   判据同处：`segmentSignal(text)`＝换行数、`isNewSegment(prev,next)`＝只在变大时算换段。
+3. `GenerationStatusBar` 改为委托：删私有动画实现与 `countNewlines()`、清掉四个 animation import。
+   顶部条行为不变（同一形状同一判据），只是少了一份可漂移的副本。
+4. `ReasoningPartRenderer`：`Row` 带 `segmentSignal`（随视图复用保留），`bindView` 里比对，
+   **新增一整段思考**才给 header 播一次。逐 token 追加不播；首次绑定不播（入场归 4.86 的逐块错峰），
+   所以不会和错峰叠成两层。
+5. 有意没做的：text part 的逐段滑入。正文换行 ≠ 新段，判据要另定，且完成态已有错峰——
+   那是观感取向，要加就一行调用，单独拍。
+6. **验证**：新增 `SegmentScraperTest` 3 条（信号只数整行 / 只有变大才播、相等与回退都不播 /
+   模拟逐 tick 变长的思考：两段只滑两次）；全量 **798 / 0 skipped / 0 failures / 0 errors**、
+   `assembleDebug` 通过（APK 21:35:45）、`adb install -r` Success。
+   ⚠️ 动画本身仍未真机目视：要看"思考逐段刮进来且不闪不跳"，以及顶部条与气泡不再各播一套。
+
+### 4.88 fix(html-card/parts)：网页卡打字不被弹焦点（量高让路 + 重绑不重建产物）（2026-10-24）
+
+1. 用户在手机上测 html 卡，Agent 的探针页自己报回"focus 拿到但同一秒 blur、keys:0；点击与滑块正常"。
+   读设备会话记录 `files/conversations/df0ccbb8….json` 取证：两条 html 卡
+   （`html_interaction_demo.html`、`input_probe.html`）都是 `display=inline` + 带 `actions`。
+2. **根因一（`HtmlCardView`）**：内容自适应高度按 `{120,450,1000,2000}ms` 梯量，每次变高都
+   `webContainer.setLayoutParams` → 沿条目 requestLayout → WebView 重测把内部编辑焦点弹掉。
+   "同一秒"就是 1000/2000 那两拍；一次完成的点击/滑块看不出来。
+   修：改高度前查 `webView.hasFocus() || webView.findFocus() != null`，编辑中就推迟 800ms 复查（上限 6 次），
+   超上限**放弃这次高度更新**——宁可卡片停在当前高度（超出可内部滚动）也不抢用户正在打的字。
+   `appliedHeightPx` 只在真正应用时记账，否则推迟后会永久丢掉这次更新。
+3. **根因二（parts 侧，比第一条更普遍）**：`ToolCallPartRenderer.bindView` 与
+   `ToolGroupPartRenderer.bindView` 都无条件 `releaseAll`/`releaseChildren` + `mountAll`，
+   而流式期任一工具 running→success、完成态那次全量绑定都会改指纹重绑 →
+   html/图表/播放器 WebView 被打回起点（焦点、滚动、播放进度全丢）。
+   修：产物集合摘要（id+type+props，顺序敏感）记在容器 `R.id.product_mount_digest` tag 上，
+   **摘要没变就原地保留**，变了才整体重建。刻意**不做 diff/重排**——那正是
+   "anchor 视图 removeAllViews 抹掉产物"双写 bug 的老路（见 4.65/P3i 记录）。
+   工具卡本体照旧重绑、组卡紧凑成员行照旧重排（轻）。
+4. 验证：`PartsCoverageTest` +2 条（重绑后工具卡造 2 张而产物仍 1 张且**同一 View 实例**；
+   改产物 props 才造第 2 张；组卡同口径）；全量 **800 / 0 / 0 / 0**、`assembleDebug`（APK 21:50:41，
+   已 `adb install -r` Success）。
+5. ⚠️ 未验：真机在 `input_probe.html` 里再打一次字——焦点应站得住，且卡片高度在焦点释放后补上
+   （推迟≠放弃）。另外 html 卡回传三档前置（`LOCAL_FILE` 档 + `props.actions` +
+   `html_component_submit`）缺任一条就是静默 no-op，别判成"桥坏了"，见 [[webview-jsbridge-security]]。
+6. **本节归因已被 4.90 更正**：上面两条（量高梯子 / 产物重建）都是真问题、修复保留，
+   但**不是那次复现的元凶**。真凶是聊天页自己的键盘监听在抢焦点。
+
+### 4.90 fix(chat-focus)：网页卡打字被弹焦点的真凶是键盘监听抢焦点（更正 4.88 的归因）（2026-10-24）
+
+1. 用户反问"是不是 AI 对话界面本土的点击聚焦问题"——一查就中，**我上一轮归因归错了**。
+2. 元凶：`AIChatActivity.setupKeyboardListener()`（全页唯一一个
+   `android.R.id.content` 上的 `OnGlobalLayoutListener`）。它按"键盘高度 > 屏高 15%"判定键盘弹出，
+   随后 `postDelayed(() -> inputMessage.requestFocus(), 100)`。完整链路＝
+   点卡片里的 `<input>` → WebView 内部编辑视图拿到焦点 → 软键盘弹出 → 监听判定"键盘出现"
+   → 100ms 后把焦点抢回聊天输入框 → WebView 编辑会话被终止。探针页那句
+   "focus→blur 在同一秒、keys:0"就是这一拍。**真正的指纹是"只有打字会弹键盘"**
+   （点击/滑块不弹键盘所以不受影响），我当时却把这条指纹归给了量高梯子。
+3. 修法按**焦点归属**放行，不删功能：键盘出现时先取 `rootView.findFocus()`，
+   不是 `inputMessage`（例如落在消息列表/卡片里）就直接 return——不抢焦点也不滚动；
+   聊天输入框自己唤起键盘时照旧滚到底 + 保持可见。语音填词、快捷模板填词那两处
+   `requestFocus` 之后焦点本就在输入框上，行为不变。
+4. 4.88 的两处修复**保留**（都是真问题，只是不是这次的主因）：编辑期不改容器高度、
+   产物摘要没变就不重建子树。
+5. **验证**：全量 **804 tests / 0 skipped / 0 failures / 0 errors**、`assembleDebug` 通过
+   （APK 22:19:13）。⚠️ 焦点路径 JVM 证不了，且**设备此刻已从 adb 掉线 → 新包未安装**；
+   重连后 `adb -s <serial> install -r "build/outputs/apk/debug/答题宝-debug-2.0.apk"`，
+   在 `input_probe.html` 里打字复验（预期：光标站得住、字符进页面输入框；卡片高度在停止输入后补上）。
+6. 教训已进记忆：[[webview-card-state-lost-on-rebind]] 改成"三类根因，键盘监听是真凶"，
+   归因纪律见 [[reproduce-own-hypothesis-before-claiming]]。
+
+---
+
 ### 4.89 fix(chat-ids)：子 id 改为"从落盘数据认领"派发，切会话复位当前回合（2026-10-24）
 
 1. 用户报"我的用户消息与 AI 回复对不上"。先核配对：真机那份会话（12 条，`conversations/512fb797….json`）
@@ -1802,6 +2018,36 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 7. **没做**：`ChatSessionController.switchTo` 那条平行实现（当前只有它自己的文档注释在用，UI 走
    Activity 的 `switchToSession`）等真接线时要一并复位 turn 锚点；隐式 `applySubId(type)` 在无当前回合时
    仍会开新主 id（思考轮兜底依赖它，见 `ChatMessage:343-350`），本次只保证"开的是新回合、不挂回旧会话"。
+
+### 4.91 feat(cards)：html 卡"放大档"——同一份卡在全屏宿主里再渲一遍（2026-10-24）
+
+1. 用户三连问："内置卡片有没有原生聚焦功能，点一下临时转成原生卡，从源头杜绝"→"工作量大不大"→"开干"。
+   定位先说清：4.90 已把抢焦点从源头修掉，放大档不是补 bug，是**结构性的一档**——
+   卡片只要还长在 RecyclerView 里，"列表节奏打断页面输入"就可能再来一次。
+2. **新 `ai/chat/component/ComponentFocusHost`**：`canOpen`（必须有前台 Activity）/ `focusClone` /
+   `open`。宿主形状抄 `HtmlCardView` 里 previewImage 那条现成的全屏 Dialog（`FEATURE_NO_TITLE` +
+   `window.setLayout(MATCH_PARENT)`），顶部"关闭"栏 + 卡片 `weight=1`（不套 ScrollView 抢手势），
+   窗口 `SOFT_INPUT_ADJUST_RESIZE`，背景走 `?android:attr/colorBackground` 主题解析（不新增硬编码色），
+   弱引用防叠窗。**onDismiss 必 `ComponentLifecycle.release`**——`PythonToolManager:1403/2873`
+   那两处 AlertDialog 渲完不释放就是现成反例，别照抄。
+3. **三条约束写进类注释**：① 必须渲副本（`props` 是活实例且整棵落盘，宿主键 `fillHeight` 只能长在
+   `focusClone` 的深拷上；transient 的 `internalTemplate` 要带过去，丢了掉沙箱档 mermaid/katex 渲不出）；
+   ② 关闭必 release；③ 绝不跳 `WebViewActivity`/系统浏览器（那条路没有 `Android.submit` 桥与
+   componentId 绑定，回传静默断）。
+4. **入口是卡内浮标**（`HtmlCardView` 右下角 `ic_card_fullscreen`，右上角已被"← 返回"占着）：
+   不走 `shell.addAction`（footer 的 `MAX_INLINE_ACTIONS=2` 预算是留给 Agent 声明的 actions 的），
+   也不扩 `ComponentActions` 词表（模型可见契约、且会落盘）。放大档下 `scheduleMeasure()` 直接 return，
+   整卡按"视口高 − 约 150dp chrome"一次定高；气泡那份的焦点让路逻辑（4.88）保留没删。
+5. **回传链宿主无关（已核）**：`resolveComponentId` 只读 `props.actions[].component_id`，
+   `dispatchResult` → 引擎按 id 的结果槽（非一次性、后写覆盖先写）→ 全屏提交与气泡提交写同一个
+   等待中的 `get_result`。已知边界：`layout`/`ui_component` 的 `registerInputCollector` 是**覆盖式**
+   注册，双宿主会互顶输入收集器——本档只对 html 开，二期扩 layout 卡前先处理那条。
+6. **验证**：`ComponentFocusHostTest` 4 条（副本带 `fillHeight` 且原件 props 零污染、深拷非共享 map、
+   id/type/internalTemplate 带过去、null props 不炸）；全量 **808 / 0 skipped / 0 failures / 0 errors**、
+   `assembleDebug`（APK 23:13:25）。⚠️ 设备不在 `adb devices`，**未安装**；重连后装包真机看：
+   放大按钮不挡内容、全屏打字稳、关窗回气泡无残留、**全屏里点提交结果能回 Agent**。
+
+---
 
 ## 5. 关键文件 / 改动地图
 

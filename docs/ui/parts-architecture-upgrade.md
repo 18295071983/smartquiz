@@ -282,7 +282,7 @@ PartHost.partsOwnToolCards = true; // parts 渲染器接管
 - [ ] `TextPartRenderer` 复用 Markdown 渲染；
 - [ ] `ReasoningPartRenderer` 复用 think line；
 - [ ] `TurnPartsHost` 支持 viewById + fingerprint；
-- [ ] feature flag：`ai_chat_prefs.parts_renderer` 默认 false。
+- [x] feature flag：`ai_chat_prefs.parts_renderer` —— P2 建时默认 false，**P4 已于 2026-10-24 翻成出厂 true**。
 
 验收：纯文本、标题、列表、表格、代码块在 flag=true 时与旧 UI 一致；
 flag=false 完全走旧路径。
@@ -353,13 +353,15 @@ flag=false 完全走旧路径。
 | 工具卡双渲染 | `partsOwnToolCards` + 单测断言组件数 |
 | WebView 泄漏 | `releaseView` 必须 destroy；缓存上限 |
 | 状态丢失 | viewById 复用；不 removeAllViews |
-| 旧数据崩溃 | `assistantTurn == null` 全走旧路径 |
+| 旧数据崩溃 | ~~`assistantTurn == null` 全走旧路径~~（P6 起闸门不再拿它当令牌；真正的兜底是"构不出可渲 part 就回落"） |
 | 表格宽度错 | 复用 `MarkdownWebView` 完成态重载 |
 | 性能回退 | flag 可关；对比旧路径 |
 
 回滚：
 
-- 关闭 `ai_chat_prefs.parts_renderer`；
+- 把 `ai_chat_prefs.parts_renderer` **显式写成 false**（出厂档 P4 起是 true，所以删键无效——
+  产品里没有设置页入口，只能 `adb shell run-as com.oilquiz.app` 改 prefs）；只退流式就写
+  `parts_streaming=false`，完成态接管照旧；
 - 保留 `content/bounds` 投影；
 - 不删旧字段，直到 P5 验收通过。
 
@@ -426,11 +428,12 @@ git switch -c feat/chat-parts-renderer
 
 ## 11. 完整接管剩余设计（P3f 起，逐类复刻→逐类放开→最后接线）
 
-现状：接管闸门只允许 `text`/`reasoning`，其余 part 的消息整条回落 legacy（P3e）。要"全量接管"，
-每类都要复刻 legacy 在 `contentHost`/`componentContainer` 里手搭的子布局，逐类真机验证后才从回落名单移出。
+现状（2026-10-24 更新，原文写于 P3e 当时）：闸门 allowed 已扩到 `text`/`reasoning`/`tool_call`/`tool_result`/
+`tool_group`/`data`（P3f–P3j 逐类复刻后放开），"其余 part 整条回落"在现网**已不可达**——见 §11.7。
+仍要记住的机制：每类都要复刻 legacy 在 `contentHost`/`componentContainer` 里手搭的子布局，逐类真机验证后才从回落名单移出。
 下列每项 = 目标 legacy 行为 + parts 侧做法 + 需要的 PartHost 能力 + 验收。
 
-### 11.1 工具：单卡（已做）→ 组级折叠（待做）
+### 11.1 工具：单卡（已做）→ 组级折叠（P3h 已做）
 
 - legacy 目标：`buildActivityGroups` 把一轮内连续 TOOL 过程聚成"已运行 N 个工具"一行，
   全部完成后**默认折叠**、点击展开列每个工具+结果；执行中保持实时展开（`ChatAdapter:1906/3401`）。
@@ -453,22 +456,28 @@ git switch -c feat/chat-parts-renderer
   或**列入回落**直到做齐。决策：解读 chip 依赖模型可用性 + 点击回调，放最后；先保证不崩、不重复卡。
 - PartHost 新增：`void requestInterpret(String toolCallId)`；`boolean canInterpret(...)`。
 
-### 11.3 产物 / data 卡（档位已做）→ 与工具卡同属分组挂载（待做）
+### 11.3 产物 / data 卡（档位已做）→ 与工具卡同属分组挂载（P3i 已做）
 
 - legacy：`mountRoundComponent` 里 tool_call 不参与 `ComponentDisplay` 分档；产物卡 INLINE/PEEK/HIDDEN，
-  PEEK 用 `wrapProductPeek`（已复刻到 `DataPartRenderer`）。**产物挂在所属工具卡下**（§4.6）尚未做：
-  data part 若其 ComponentData 关联某 toolCallId → `anchorIdFor` 锚到该工具组卡，而非独立顶层。
-- 做法：`DataPartRenderer.anchorIdFor`：`comp.props.optString("toolCallId")` 命中某 tool_call → 返回其组卡 id。
-  无归属 → 独立 data part（顶层）。HIDDEN 不挂（已做）。
+  PEEK 用 `wrapProductPeek`（已复刻到 `DataPartRenderer`）。**产物挂在所属工具卡下**（§4.6）已由 P3i 落地。
+- 做法（草案 → 实际实现有差别，别再照草案找 `anchorIdFor`）：草案设想由 `DataPartRenderer.anchorIdFor`
+  把 data part 锚进工具卡视图；实际改走**模型层归属**——`AssistantTurn.attachOwnedProducts`
+  （`AssistantTurn:367`，在 `expandInline` 之后、`groupTools` 之前）读
+  `ComponentData.props` 里的 **`producerToolCallId`/`producerToolName`**（不是 `toolCallId`，与 legacy
+  `productOwnerKey` 同口径），把带生产者的 data part 折进所属 `tool_call` 的 `Part.products`，
+  渲染由工具卡一侧作**单写者竖排 `[工具卡]+[产物卡…]`**。原因：attached 机制要在 anchor 视图里
+  `removeAllViews` 再挂子 View，会与"工具卡自身重绑"互抹（同"工具丢结果"那一类双写 bug）。
+  无归属（内联/mermaid）留顶层；HIDDEN 不挂（已做）。
 - 验收：天气/图表等产物卡，随工具出现时挂在卡下、独立时顶层，peek/hide 与 legacy 一致。
 
-### 11.4 mermaid / 数学公式（当前回落，待做）
+### 11.4 mermaid / 数学公式（P3g 已做，回落已去掉）
 
-- legacy：`renderMermaidMath`（`ChatAdapter:3527` 分支）把 ` ```mermaid ` 与 `$$..$$` 交 WebView(html) 专门渲染。
-- parts 做法：`expandInline` 里，text 段命中 `MermaidMathSplitter.containsStructure` 时，**不再回落**，
-  而是切成 `data` part（type=chart? 用现成 html/mermaid 组件），交 `ComponentRegistry` 的 Html/Mermaid 卡渲染。
-  即把 mermaid/math 归一到"内联 data part"，与 §11.3 同一渲染器。
-- 前置：确认 `ComponentRegistry` 有 mermaid/katex 组件（有 `HtmlCardView`；mermaid 是否独立组件需核）。
+- legacy：`renderMermaidMath`（现位于 `ChatAdapter:3003`，原文档写的 `:3527` 已漂移）把 ` ```mermaid ` 与 `$$..$$`
+  交 WebView(html) 专门渲染。
+- parts 做法（已落地）：`expandInline(base, dark)` 里 text 段含 component 围栏标记时用 `ComponentContentSplitter`；
+  否则命中 `MermaidMathSplitter.containsStructure` 时用 `MermaidMathSplitter.split(text, dark)` 切成**交错 text+html data part**
+  （与 legacy 同一组件源），交 `ComponentRegistry` 的 html 卡渲 mermaid.js / katex。**不再整条回落**。
+- 前置（已核）：mermaid/katex 不是独立注册组件，是 `MermaidMathSplitter` 直接产 **html 组件**、由 `HtmlCardView` 渲。
 - 验收：含流程图/公式的回答在 parts 下正常出图，不再整条回落。
 
 ### 11.5 围栏代码（web 关时的 CodeCardView）
@@ -477,23 +486,44 @@ git switch -c feat/chat-parts-renderer
   web 关：legacy 用 `renderWithCodeCards`/CodeCardView；parts 原生走 `renderInto`（Markwon+Prism4j 高亮，内联代码块）。
 - 决策：parts 原生代码块用 renderInto 的高亮即可，不强求 CodeCardView 卡壳；若目视不一致再补 data part 化。
 
-### 11.6 流式（保持现状）
+### 11.6 流式（本文原写"保持现状"，已由 §11.11 接管）
 
-- 流式（未完成）仍走 legacy 旧路径，不进 parts；parts 只接管已完成消息。§11 全部完成后仍维持此边界
-  （AI SDK 也是"定稿结构 + 局部流式"分离）。`part.state=streaming/cancelled` 留给在线引擎在需要时写。
+- 原边界：流式（未完成）走 legacy，parts 只接管已完成消息。**2026-10-24 这条已经作废**，见 §11.11；
+  仍保留的设计判断是"`part.state=streaming` 由产出侧写、渲染器按 state 收尾"。
 
-### 11.7 审批 / error part（无生产者，暂不参与接管）
+### 11.7 审批 / error part（无生产者；且这两类内容在本工程根本不以 part 形态存在）
 
 - 无 part 生产者前不进 allowed 名单；审批源接入（在线引擎产出 approval part）后再单独做交互卡 + 回调。
+- **2026-10-24 核实（更正早前"命中就整条回落 legacy"的说法）**：`fromMessageForParts` 只产
+  text/reasoning/tool_call/tool_result/tool_group/data 六种，生产代码里**没有任何写者**造 error/approval part
+  （`Part.approval(...)`、`TYPE_ERROR` 仅出现在测试与各自渲染器的 `canRender`）。
+  于是 `bindWithParts` 里那句 `if (!allowed) return false` 目前是**不可达的防御分支**，不是现网会走到的回落路径。
+- 这两类内容现在的真实通道（都不受 parts 接管影响，翻 P4 也不改变其显示）：
+  - error：① 独立错误消息行 `ChatMessage.createErrorMessage()` → `MessageType.ERROR` → `VIEW_TYPE_ERROR`
+    → `ErrorMessageViewHolder`/`bindErrorMessage`（另一个 ViewHolder，`bindMessageContent` 只对
+    `AIMessageViewHolder` 调用）；调用方 `AIChatActivity:9834`、`AIChatCoordinator:210`、`AIChatViewModel:461`、
+    `AgentDebugActivity:632`。② AI 消息自身失败/取消：`ChatAdapter.failMessage`/`cancelMessage`
+    置 `MessageStatus.FAILED` + `errorDetail`，展示在 holder 的**状态行**与 v2 **操作段**
+    （失败才留状态行、ERROR/FAILED 也显示"重新生成"，`ChatAdapter:1177-1199`）——接管只换 `contentHost`，
+    这两处按设计继续由 legacy 写。
+  - approval：① `permission_manager(action=request_and_wait, permission=…)` 是一次**普通工具调用**，
+    弹 Android 系统权限对话框，聊天流里就是工具卡（已接管）；② `ui_component` 的 `get_result` 阻塞等用户点
+    组件按钮（`OnlineAgentEngine:851-854` 给它单独长超时），走 data part（已接管）；html 卡 `submit` 同族。
+- 因此 `ApprovalPartRenderer` + `PartHost.onApprovalDecision` 是为"审批块进气泡（同意/拒绝按钮）"这种**尚未决定要做**
+  的形态预留；`ChatAdapter:3551-3555` 的 `onApprovalDecision` 实现是空占位，`PartHost` 里也**没有** §11.2 设想的
+  `requestInterpret/canInterpret`。按"有渲染器无生产者"记为死链保留，不是接管缺陷。
 
 ### 11.8 放开顺序与接线（“接”留最后）
 
-1. data 独立卡（11.3 顶层部分）→ 真机对齐 → allowed 加 `data`；
-2. 工具组折叠（11.1）→ 真机 → 加 `tool_call/tool_result`；
-3. 产物归工具卡（11.3 归属）→ 真机；
-4. mermaid/公式（11.4）→ 真机 → 去掉 `MermaidMathSplitter` 回落；
-5. 全绿后 P4：`parts_renderer` 默认 true；P5：新消息不再写 `contentRoundBounds`、旧数据补 `assistantTurn`、删 legacy 分支。
+1. ~~data 独立卡（11.3 顶层部分）→ 真机对齐 → allowed 加 `data`~~（已做：P3d/P3f）；
+2. ~~工具组折叠（11.1）→ 真机 → 加 `tool_call/tool_result`~~（已做：P3h，组内为 legacy 紧凑行）；
+3. ~~产物归工具卡（11.3 归属）→ 真机~~（已做：P3i，改走模型层 `attachOwnedProducts`）；
+4. ~~mermaid/公式（11.4）→ 真机 → 去掉 `MermaidMathSplitter` 回落~~（已做：P3g，切成 html data part）；
+5. ~~全绿后 P4：`parts_renderer` 默认 true~~（**已做，2026-10-24 用户指令"出厂仍是 false，也打开"**，
+   `PartsRendererFlag.DEFAULT_ENABLED=true`，`PartsStreamingFlag` 出厂同样 true）；
+   P5 剩余未做：新消息不再写 `contentRoundBounds`、删 legacy 分支（旧数据补 `assistantTurn` 已做，见 §11.9）。
 - 每步只扩 `ChatAdapter.bindWithParts` 的 allowed 判定（覆盖不了仍整条回落，见 P3e），单步可回退。
+  注：闸门保留是为了"将来真加 error/approval 生产者时不会被半吊子渲染吃掉"，**当前不可达**（见 §11.7）。
 
 ### 11.9 历史恢复的 parts 归一（P5 第一步，2026-10-24 已做）
 
@@ -578,3 +608,58 @@ turn 本身 **6859 → 4963（−27.7%）**，正文份数 4 → 3。
 理论上能再收一层——但 `fromMessage` 的每轮全文就是从 `roundSnapshots` 读的，动它等于改"谁是每轮权威"，
 是设计取向不是纯去重。工具结果两份同理（legacy 渲染仍以组件为源，要连 `Part.products` 的
 transient 口径一起想）。
+
+### 11.11 流式接管（P6，2026-10-24 已做，子开关 `parts_streaming` 出厂 true）
+
+先纠正一个把人带偏的前提：**本工程的"流式"不是逐 token 重绘**。`AIChatActivity.ROUND_BATCH_RENDER=true`
+（:345）让 `safeUpdateMessage()` 直接 return（:7620），正文只在**轮次边界**（工具调用前
+`flushRoundContentToMessage` :7602）刷进 `msg.content`；逐 token 刷新的只有思考行
+（`scheduleThinkingRefresh` 120ms 节流）和状态栏统计。所以"流式接管"**不需要**给
+`PartsTurnBinder` 造一条"按 part id 就地更新"的通道——`TurnPartsHost.bind()` 每次全量喂进去，
+增量成本由它的 id + 指纹早退吸收（:183-188）。真正要解决的只有四件事：
+
+1. **顺序真值换源**（产出侧，`AssistantTurn.fromMessageForStreaming`）。`fromMessage` 首选
+   `roundSnapshots`，而快照是 `onRoundComplete` 才追加的，`msg.content` 却已经在边界被 flush 成
+   当前累积正文——生成中用快照分支重建，**正在写的这一轮**（还没有快照）整段不见，观感是"正文永远
+   落后一轮"。流式这条改按 `contentRoundBounds` 切片（共 `nBounds+1` 段，最后一段即 live 轮），
+   live 轮的思考取 `msg.thinkingContent` 并按同 id 覆盖（不新增，否则思考翻倍）。
+   id 稳定是前提：callId = `turnId + 轮号`（轮号只增不改），工具 part 以 `toolCallId` 为键，
+   组 id 取组内首个工具 id → 逐 tick 只有 live 段指纹变，前面各段一律不重绑。
+   无边界时也要把 `thinkingRounds` 里**已定稿**的各轮思考各铺一条（legacy 思考段是"一个入口 + 一步一行"，
+   只渲 live 那条就是回归），并把最后一条定稿当 live 快照交给同一个 id 覆盖，避免重复。
+2. **容器只装一次**。`bindWithParts` 开头那段 `releaseAndClearComponents(contentHost)` +
+   重挂 `partsContainer` 是给**首次**接管用的（legacy 可能已塞过正文/组件）。流式每 tick 都重进就会
+   把上一 tick 建好的图表/播放器连根释放，复用白做 → 新增 `AIMessageViewHolder.partsTakenOverForId`，
+   只在换消息（或 holder 回收、或开关被关）时重装。配套地，`bindAIMessage` 里那句
+   "每次绑定无条件复位 `partsTookOver`" 改成"同一条消息且开关仍开就延续"，否则轮次边界那次全量绑定
+   会先把标记复位、legacy 两个写者照常跑、接管再重装容器 —— 每过一轮闪一次。
+3. **legacy 的两个并行写者在流式路径上也要让路**。§4.79 只防了全量绑定那条，而流式的
+   `PAYLOAD_THINKING_UPDATE`（每 token 节流）与 `PAYLOAD_CONTENT_UPDATE` 都会直接调
+   `updateThinkingContent` → 与 parts 的 reasoning part 双份，两处都补了 `partsTookOver` 判定。
+4. **闸门不再拿 `assistantTurn` 当令牌**（这是本轮唯一的既有设计变更）。渲染每次都是现场重建，
+   落盘 turn 从来不是渲染输入；以"生产者跑过了"当闸门会造出一类新倒退——停止/出错那六处终态
+   （`onGenerationStopped` / `onGenerationError` / `handleGenerationError` 及各自 `uiDetached` 分支）
+   都没人补 turn，于是流式期被接管、一落到终态就判回 legacy，用户看到"点停止那一刻整条重排"。
+   逐个终态补 turn 等于再开一个写者，所以修到真值本身：能构建出可渲 part 就接管，空 parts 照旧回落。
+   副作用（主动报）：`parts_renderer=true` 时接管面比原来宽，包含以前没有 turn 而留在 legacy 的完成态消息。
+   唯一**故意没放宽**的是 `OutputRouter.onError`（:1538）——它把 `content` 覆盖成"错误: …"，
+   此时补 turn 会让快照分支用 parts 反投影把那句错误冲掉，所以那条维持 legacy。
+
+开关：新 `PartsStreamingFlag`＝`ai_chat_prefs/parts_streaming`，是 `parts_renderer` 的**子开关**
+（父开关关则整条不接管，本开关自然无效），出厂默认 true —— "修好就打开"是用户 2026-10-24 的明确要求。
+单独一个键的理由：流式换了正文顺序真值、又要在生成期让 legacy 思考行/组件容器让路，出问题时要能
+单独退回"只有完成态进 parts"，而不必连整条 parts 一起关。产品里仍**没有**设置页入口（与
+`parts_renderer` 一样只能改 prefs）。
+
+已证（JVM）：`AssistantTurnStreamingTest` 12 条 —— live 轮不掉段 / 完成态生产者的丢弃行为被钉住（
+谁把闸门改回复用 `fromMessageForParts` 立刻变红）/ 已完成轮的 id 与指纹逐 tick 不漂 /
+轮号十进制前缀碰撞（`R1` 是 `R11` 的前缀，误匹配会把已完成轮标成流式）/ 定稿思考与 live 不重复 /
+running 工具的产物在流式期就折进所属工具卡。全量 **792 tests / 0 skipped / 0 failures / 0 errors**，
+`assembleDebug` 通过。
+
+未证（真机，JVM 证不了）：① 逐 tick 观感——是否还有闪烁/跳动/滚动位置被抢；② 未闭合的
+` ```component``` ` / mermaid 围栏在流式期被 `expandInline` 切成半截 data part 再消失时，
+子段 id（`:p{seq}`）重排是否造成可见抖动；③ 本地引擎（非在线 Agent）的流式消息形状是否始终
+拿得到 `contentRoundBounds`；④ 停止/出错那两条终态切换是否还重排一次。装新包后按
+[[parts-restore-device-verification-deferred]] 的前置走（`parts_renderer` 设备上已是 true，
+`parts_streaming` 无键即默认 true）。
