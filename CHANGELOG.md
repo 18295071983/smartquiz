@@ -1,5 +1,27 @@
 # 变更日志
 
+## [2026-10-25] feat(chat-player)：P1——字幕/音轨选择、PiP、请求头、封面、睡眠定时
+
+P0 把基础控制补齐后，P1 补"能看/能带源/能进系统"的一层；仍复用同一个进程级 ExoPlayer。
+
+- **字幕与音轨**：视频卡 props 支持 `subtitles` 数组或单条 `subtitle`（srt/vtt/ass/ssa/ttml），
+  地址走 `MediaPathResolver`，默认轨标 `SELECTION_FLAG_DEFAULT`；`MediaItem.SubtitleConfiguration`
+  随播放项下发，PlayerView 直接渲染。全屏页加"字幕/音轨"对话框，按 `Tracks.Group` 选轨或关闭。
+- **PiP**：`VideoFullscreenActivity` 声明 `supportsPictureInPicture`，Home 键按视频宽高比进画中画，
+  PiP 中隐藏自绘按钮，退出恢复沉浸；仍不新建/不释放播放器。
+- **请求头**：新增 `PlaybackHeaders` 当前请求头表；`AudioPlaybackService` 改用带
+  UA/Referer/Cookie 的 `DefaultHttpDataSource` + 跨协议 302；卡片 props `headers` /
+  `userAgent` / `referer` / `cookie` 解析（CRLF 与非法头名拦截），HLS 302 解析也带头。
+- **封面**：新增 `PlaybackArtwork`；`MediaMetadata.artworkUri` 进 MediaSession 通知/锁屏，
+  `props.artwork/cover/image/poster` 支持；新曲目无封面会清掉上一首的。
+- **睡眠定时**：音频卡"定时"按 0/15/30/60 分钟循环，到点只 pause（不销毁播放器/服务）。
+- **验证**：新增 `VideoSubtitleTest` 3、`PlaybackHeaderParserTest` 4、`ArtworkResolverTest` 2、
+  睡眠档位 1；全量 **861 tests / 0 skipped / 0 failures / 0 errors**；`assembleDebug` 通过
+  （APK 01:25:07）。**未装机**：PiP、外挂字幕、音轨选择、防盗链源、通知封面/睡眠定时
+  都只能真机验。
+- **边界**：队列内 HLS 302 仍未逐项预解析；RTSP/RTMP/SmoothStreaming/DRM、文件预览统一、
+  离线/投屏/续播是 P2。提交 `ad720f21`。
+
 ## [2026-10-25] feat(chat-player)：内置播放器 P0——音频控制条/队列修正、视频全屏/比例、列表随机循环
 
 用户反馈"内置播放器功能不强"。审计结论：播放内核（ExoPlayer + MediaSessionService、HLS/DASH、

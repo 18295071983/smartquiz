@@ -2113,6 +2113,27 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    封面/睡眠定时属 P1；RTSP/RTMP/SmoothStreaming/DRM、文件预览统一、离线/投屏/续播属 P2。
    提交 `2876bf77`/`2e3a4661`/`f9899cf7`。
 
+### 4.95 feat(chat-player)：P1——字幕/音轨选择、PiP、请求头、封面、睡眠定时（2026-10-25）
+
+1. **字幕/音轨**：视频卡 props 支持 `subtitles` 数组或单条 `subtitle`（srt/vtt/ass/ssa/ttml），
+   地址走 `MediaPathResolver`，有显式默认轨时第一条不再重复标默认；`MediaItem` 带
+   `SubtitleConfiguration`，PlayerView 自动显示。全屏页按 `Tracks.Group` 弹"字幕/音轨"
+   对话框，可选轨或关闭（`TrackSelectionOverride` / `setTrackTypeDisabled`）。
+2. **PiP**：`VideoFullscreenActivity` 声明 `supportsPictureInPicture`；Home 键按视频宽高比
+   进画中画，PiP 中隐藏适应/字幕/音轨/关闭按钮，退出恢复沉浸；仍只解绑 Surface，不 release。
+3. **请求头**：`PlaybackHeaders` 当前头表 + `AudioPlaybackService` 的
+   `DefaultHttpDataSource`（跨协议 302、15s 超时）；卡片 props `headers`/`userAgent`/
+   `referer`/`cookie` 解析，头名 token 白名单、值拦 CR/LF；单曲/HLS 302 都带同一份。
+4. **封面**：`PlaybackArtwork` 当前封面表 → `MediaMetadata.artworkUri`；新曲目没有封面时
+   组件会 `clear`，队列起播也清，避免通知栏留上一首。
+5. **睡眠定时**：音频卡"定时"0/15/30/60 循环，到点 `pause` 不销毁服务；`nextSleepMinutes`
+   与 `timerLabel` 有单测。
+6. **验证**：字幕 3、请求头 4、封面 2、睡眠 1；全量 **861 / 0 skipped / 0 failures /
+   0 errors**；`assembleDebug` 通过（APK 01:25:07）。**未装机**；PiP/字幕/音轨/防盗链/
+   通知封面/睡眠只能真机验。
+7. **边界**：队列内 HLS 302 逐项预解析未做；RTSP/RTMP/SmoothStreaming/DRM、文件预览统一、
+   离线/投屏/续播属 P2。提交 `ad720f21`。
+
 ---
 
 ## 5. 关键文件 / 改动地图
