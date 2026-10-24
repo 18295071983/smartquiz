@@ -206,14 +206,16 @@ public class ToolboxActivity extends AppCompatActivity {
             "数据备份",
             "命令路由（Linux 工具箱）",
             "远程连接（电脑）",
-            "完整 Python 环境（Termux + Ubuntu）"
+            "完整 Python 环境（Termux + Ubuntu）",
+            "开源许可（第三方组件）"
         }, new Class<?>[]{
             ThemeActivity.class,
             LanguageActivity.class,
             BackupActivity.class,
             LinuxRouteActivity.class,
             com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class,
-            com.oilquiz.app.ai.tool.TermuxEnvSetupActivity.class
+            com.oilquiz.app.ai.tool.TermuxEnvSetupActivity.class,
+            AboutLicensesActivity.class
         });
     }
 

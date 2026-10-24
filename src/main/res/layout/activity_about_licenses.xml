@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  开源许可 / 第三方组件声明页（2026-10-24）
+  内容来自 assets/apk_shell/guides/THIRD_PARTY_NOTICES.md（与 docs/ 下的副本逐字节一致）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorBackground"
+    android:orientation="vertical"
+    tools:context=".ui.activity.AboutLicensesActivity">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:elevation="@dimen/elev_0">
+
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="?attr/colorSurface"
+            app:title="开源许可"
+            app:titleTextColor="?attr/colorControlText" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="@dimen/space_16"
+        android:paddingTop="@dimen/space_16"
+        android:text="本页为随安装包分发的第三方组件与许可声明（Apache-2.0 / LGPL / GPL / MIT / BSD 等）。\n按各许可要求在应用内可查；完整原文见下方各组件条目。"
+        android:textColor="?attr/colorControlTextSecondary"
+        android:textSize="@dimen/text_14" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_0"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <TextView
+            android:id="@+id/licenses_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:lineSpacingExtra="4dp"
+            android:padding="@dimen/space_16"
+            android:textColor="?attr/colorControlText"
+            android:textIsSelectable="true"
+            android:textSize="@dimen/text_14" />
+    </ScrollView>
+</LinearLayout>

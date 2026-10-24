@@ -1,5 +1,41 @@
 # 变更日志
 
+## [2026-10-24] feat(shell)：WebView APK 壳新增电视直播基础设施（v9.11 / bridgeApi 6）
+
+给导出壳补上 IPTV 直播能力，HTML 应用不再依赖 WebView 的 m3u8 兼容性：
+
+- **原生播放器**：`LivePlayerActivity`（ExoPlayer + media3-exoplayer-hls + PlayerView）全屏播放，
+  上下悬浮控制条、频道列表、画面比例切换、遥控器左右切台/确认键暂停；沿用主应用验证过的
+  10s 直播起播偏移、BehindLiveWindow 自动回边、12s 卡死看门狗（只在 `isLoading=false` 时重连）。
+- **频道源**：`M3uParser` 支持 `#EXTINF` 的 `tvg-name/tvg-logo/group-title`、`#EXTGRP`、
+  `#EXTVLCOPT:http-user-agent/http-referrer`、`#EXTHTTP`、相对流地址；`LivePlaylistRepository`
+  负责重定向/超时/UA/gzip/8MB 上限 + 磁盘缓存回退（离线也能出列表）。
+- **持久化**：`LiveStore` 管频道源/收藏/上次播放；打开临时源不自动落盘，保存/收藏必须显式调用。
+- **JS 桥 13 个**：`openLive/openLiveTv/loadLiveChannels/parseLiveChannels/openLiveChannels/
+  stopLive/saveLiveSource/deleteLiveSource/getLiveSources/getLiveFavorites/toggleLiveFavorite/
+  getLastLiveChannel/clearLiveHistory`；播放器事件走 `window.addEventListener('liveevent')`。
+- **两套壳同步**：`apk_shell`（主项目内置模板）与 `html2apk`（PC 导出脚本）同一份 tv 实现；
+  模板 `base.apk` 已重建并跑 `gen_meta.py`，`shell v9.11 / versionCode 25 / bridge_api 6`。
+- **验证**：M3U 解析 23 项 JVM 用例全过；真机（279b6c51）导出「直播自测」APK，
+  内置源→频道列表→原生播放器→HLS 解码出声/出画，无崩溃。真机首轮抓到
+  `ExoPlayer setWakeMode(NETWORK)` 缺 `WAKE_LOCK` 导致起播即崩，已补权限并复测通过。
+- 体积代价：模板 2.4MB → 5.1MB（media3 HLS/UI 约 +2.6MB），每个导出 APK 同步增加。
+
+## [2026-10-24] feat(about)：新增「开源许可」页——把第三方声明真正摆到用户面前
+
+之前 `THIRD_PARTY_NOTICES.md` 只随包放在 assets、启动后恢复到工作区 `files/`，普通用户根本
+找不到，等于"声明了但看不见"（Apache-2.0 要求保留版权与许可、LGPL/GPL 要求用户能拿到源码
+获取方式）。
+
+- 新增 `AboutLicensesActivity`：直接读 `assets/apk_shell/guides/THIRD_PARTY_NOTICES.md`，
+  用应用已有的 `MarkdownRenderer`（Markwon + 表格 + 链接插件）渲染；链接可点、文本可选中复制；
+  资源缺失时显示降级提示而不是空白页。许可文本只在那一份 md 里维护，代码里不复制副本，
+  避免两份漂移。
+- 入口：**工具集 → 设置与系统环境 → 开源许可（第三方组件）**；manifest 注册为
+  `exported=false`。
+- 真机验证（10:34 构建覆盖安装）：从入口进入 `AboutLicensesActivity`，标题/引用块/代码段/
+  链接正常渲染，长文可滚动；返回键回工具箱。
+
 ## [2026-10-24] fix(playback)：DASH 直播也应用 10s 起播偏移（不再是 HLS 专属）
 
 上一版只给 m3u8 设了 `LiveConfiguration.targetOffsetMs`，DASH 直播仍用 ExoPlayer 默认的
