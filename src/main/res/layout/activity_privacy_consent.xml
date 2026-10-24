@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  隐私政策同意页（2026-10-24）：独立 Launcher，未同意前不进入主界面、不初始化业务。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorBackground"
+    android:orientation="vertical"
+    android:padding="@dimen/space_16">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_0"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="@dimen/space_16">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="隐私政策与使用须知"
+                android:textColor="?attr/colorControlText"
+                android:textSize="@dimen/text_20"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_12"
+                android:lineSpacingExtra="4dp"
+                android:text="使用前请阅读并同意《隐私政策》。\n\n答题宝不运营收集用户数据的服务器：题库、答题记录、AI 对话与工作区文件默认只保存在本机；只有你主动使用联网功能时，相关内容才会发送到你自行配置的第三方服务（模型服务商、天气、语音等），并受这些服务商自己的隐私政策约束。\n\n应用会按功能申请相机、麦克风、定位、通讯录、通知等权限，均可在系统设置中随时撤回；不收集 IMEI、MAC、Android ID 等设备标识，不投放广告、不做用户画像。"
+                android:textColor="?attr/colorControlTextSecondary"
+                android:textSize="@dimen/text_14" />
+        </LinearLayout>
+    </ScrollView>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_agree"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_12"
+        android:text="同意并继续" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_view"
+        style="@style/Widget.MaterialComponents.Button.TextButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="查看完整《隐私政策》" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_refuse"
+        style="@style/Widget.MaterialComponents.Button.TextButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="不同意，退出"
+        app:iconTint="?attr/colorControlTextSecondary" />
+</LinearLayout>

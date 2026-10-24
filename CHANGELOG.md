@@ -27,6 +27,8 @@
   点同意 → `shared_prefs/privacy_consent.xml` 写入 accepted+version，`MainActivity` 正常渲染首页
 - 顺带修：许可页布局里那段固定文案（"本页为随安装包分发的第三方组件…"）会跟着隐私政策页
   一起显示，已从布局移除——两份 Markdown 自己都有标题与前言
+- **门禁升级为独立 Launcher**（11:42）：新增 `PrivacyConsentActivity`（MAIN/LAUNCHER 从 MainActivity 移过来）——已同意直接转主界面；未同意只能「查看完整《隐私政策》」或「不同意，退出」。这样通知栏/深链/系统恢复的任意页面都绕不过入口；MainActivity 内保留同样的门禁作二道防线
+- 真机验证：清掉同意状态 → 冷启动直接进同意页（三按钮可点）；点「同意并继续」→ `privacy_consent.xml` 落盘、`MainActivity` 正常渲染首页
 
 ## [2026-10-24] refactor(pdf)：PDF 导出从 iText 7 迁到 PDFBox，字体换 OFL 的 Noto Sans SC
 

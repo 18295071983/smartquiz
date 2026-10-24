@@ -185,8 +185,9 @@
         <activity
             android:name=".ui.activity.ForgotPasswordActivity"
             android:exported="false" />
+        <!-- 隐私政策同意门禁：独立 Launcher，未同意前不进主界面 -->
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.activity.PrivacyConsentActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -194,6 +195,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".MainActivity"
+            android:exported="true" />
 
         <activity
             android:name=".ui.activity.QuestionActivity"
