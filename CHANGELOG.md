@@ -12,6 +12,8 @@ App 按 AGPL 开源，否则买商业许可），`simhei.ttf` 是**中易专有�
     进度回调不变
   - `AdvancedFileParserUtil` 的 PDF 文本抽取与文档信息改用 PDFBox（`PDFTextStripper`、
     `PDDocumentInformation`）
+  - PDFBox 统一在 `SmartQuizApplication.onCreate` 初始化（`PdfBoxInitializer`）：
+    `AdvancedFileParserUtil` 的解析方法没有 Context 参数，逐个改签名会波及一串调用方
   - 移除 `com.itextpdf:itext7-core`；pdfbox-android 自带的 BouncyCastle `jdk15to18:1.72`
     与项目已有 `jdk18on:1.76` 类重复，排掉旧的、统一用 1.76
 - **字体 simhei → Noto Sans SC（OFL-1.1）**：`assets/fonts/NotoSansSC-Regular.ttf`

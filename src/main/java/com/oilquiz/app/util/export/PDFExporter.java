@@ -4,7 +4,6 @@ import android.content.Context;
 import android.util.Log;
 
 import com.oilquiz.app.model.Question;
-import com.tom_roush.pdfbox.android.PDFBoxResourceLoader;
 import com.tom_roush.pdfbox.pdmodel.PDDocument;
 import com.tom_roush.pdfbox.pdmodel.PDPage;
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream;
@@ -46,8 +45,6 @@ public class PDFExporter implements Exporter {
     private static final int ALIGN_LEFT = 0;
     private static final int ALIGN_CENTER = 1;
     private static final int ALIGN_RIGHT = 2;
-
-    private static volatile boolean pdfBoxInited = false;
 
     @Override
     public File export(ExportManager.ExportTask task) throws Exception {
@@ -226,25 +223,12 @@ public class PDFExporter implements Exporter {
 
     // ==================== 字体 ====================
 
-    private static void initPdfBox(Context context) {
-        if (pdfBoxInited) return;
-        synchronized (PDFExporter.class) {
-            if (pdfBoxInited) return;
-            try {
-                PDFBoxResourceLoader.init(context.getApplicationContext());
-                pdfBoxInited = true;
-            } catch (Throwable t) {
-                Log.w(TAG, "PDFBoxResourceLoader 初始化失败: " + t);
-            }
-        }
-    }
-
     /**
      * 加载中文字体：assets 里的 Noto Sans SC → 系统 CJK 兜底 → 明确报错。
      * 不再像旧实现那样"字体缺失就用默认字体"——那样导出来的中文全是空框，比报错更难查。
      */
     private static PDFont loadFont(PDDocument document, Context context) throws IOException {
-        initPdfBox(context);
+        com.oilquiz.app.util.PdfBoxInitializer.ensure(context);
         if (context != null) {
             try (InputStream in = context.getAssets().open(FONT_ASSET)) {
                 return PDType0Font.load(document, in, true);

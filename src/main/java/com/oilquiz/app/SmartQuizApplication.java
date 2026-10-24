@@ -127,6 +127,10 @@ public class SmartQuizApplication extends Application {
         // NPU 引擎开关镜像（只读 SharedPreferences + 静态标记，不做任何原生初始化）
         try { com.oilquiz.app.ai.engine.NpuEngineRouter.init(this); } catch (Throwable ignored) { }
 
+        // PDFBox-Android 必须在使用前 init 一次（PDF 导出/抽取都靠它加载字体与 CMap 资源）。
+        // 放在这里而不是各调用点：AdvancedFileParserUtil 的解析方法没有 Context 参数。
+        try { com.oilquiz.app.util.PdfBoxInitializer.ensure(this); } catch (Throwable ignored) { }
+
         // BACKEND-INIT-EARLY(2026-10-09)：GPU 后端偏好必须在这里读，不能等到 Activity。
         // 模型加载由后台线程在启动时就发起（比 Activity.onCreate 早数秒），若等到那时才读
         // SharedPreferences，读到的仍是 LlamaHelper 的静态默认值 "opencl"，会出现
