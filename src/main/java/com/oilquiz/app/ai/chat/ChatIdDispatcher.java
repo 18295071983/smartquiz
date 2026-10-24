@@ -25,10 +25,13 @@ import java.util.concurrent.atomic.AtomicLong;
  * - reset()：对话历史清空时调用，只清当前回合/子序号，**不回收主 id 计数器**。
  *
  * 线程安全：AtomicLong + synchronized 保证并发申请不重号。
- * 唯一性说明（2026-10-21）：主 id 计数器持久化在
- * {@code chat_id_dispatcher.next_master}，清空历史、杀进程、重进都不会把 Tn 发第二遍；
- * 子 id 都带主 id 前缀，因此 T/C 等子 id 也跨会话唯一。消息级全局唯一 id 仍由
- * ChatMessage.id（UUID）承担。
+ * 唯一性说明（2026-10-21，2026-10-24 补齐子 id 那一半）：主 id 计数器持久化在
+ * {@code chat_id_dispatcher.next_master}，清空历史、杀进程、重进都不会把 Tn 发第二遍。
+ * 子 id 的<b>分桶序号</b>原本是纯进程内状态，重启后每张桶从 1 重新开始 —— 恢复历史时先补发
+ * 就会与已落盘的 {@code Tn-Ck}/{@code Tn-Kk} 重号（真机实测过）。现在恢复出口必须先调
+ * {@link #adoptIds} 把看到过的 id 认领回来（序号从落盘数据派生，而不是从进程状态猜），
+ * 再补发缺 id 的那批；同时 {@link #seedFromTurnIds} 无条件清掉"当前回合"，
+ * 免得隐式 {@code applySubId(type)} 把子 id 挂到上一个会话的 turnId 下。
  */
 public class ChatIdDispatcher {
 
@@ -154,6 +157,67 @@ public class ChatIdDispatcher {
         return currentMasterId;
     }
 
+    // ---------------------------------------------------------------- 认领（动态派发）
+
+    /**
+     * 认领一个"已经发出去的 id"：把对应 {@code 主id|类型码} 分桶的序号抬到它之后（只前进，不后退，幂等）。
+     *
+     * <p>为什么必须有：{@link #subCounters} 是<b>进程内</b>状态，杀掉应用重进后每张桶都从 1 开始，
+     * 而 {@code subId} / 组件 id / 思考轮 id 是随消息持久化的。恢复历史时若先补发再认领，
+     * 给旧回合补出的 id 就会与历史里已存在的 id <b>重号</b>——真机实测：{@code T310} 已有
+     * {@code C1/C2/C3} 三个产物卡，同一条消息里 12 个没 id 的工具组件从 {@code C1} 开始补，
+     * 两张卡拿到同一个 id；{@code AssistantTurn} 的 data part id 就是 {@code data:<组件id>}，
+     * 于是 keyed diff 会把两张卡当一个更新，表现就是"消息/卡片对不上"。</p>
+     *
+     * <p>主 id 计数器已经靠 prefs 做到"跨进程不回收"，子 id 分桶靠这里认领补上另一半：
+     * 序号不是从进程状态猜的，而是<b>从落盘数据里派生</b>出来的。</p>
+     *
+     * @param issuedId 形如 {@code T307-C10}／{@code T310-K3}／{@code T305-A1} 的已发 id
+     * @return 认领成功返回 true；null/空/非 {@code T<数字>-<类型码><数字>} 形态（脏数据、自定义）忽略
+     */
+    public synchronized boolean adoptId(String issuedId) {
+        if (issuedId == null) return false;
+        String s = issuedId.trim();
+        int dash = s.lastIndexOf('-');
+        if (dash <= 0 || dash >= s.length() - 1) return false;
+        String base = s.substring(0, dash);
+        if (!isMasterIdForm(base)) return false;
+        String tail = s.substring(dash + 1);
+        String code = tail.substring(0, 1);
+        String num = tail.substring(1);
+        long n;
+        try {
+            n = Long.parseLong(num);
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+        if (n < 1) return false;
+        // 只前进不后退：与主计数器同一条规则，认领到一个更小的编号说明那是旧数据，不该压低现状
+        AtomicLong counter = subCounters.computeIfAbsent(base + "|" + code, k -> new AtomicLong(1));
+        if (counter.get() <= n) counter.set(n + 1);
+        return true;
+    }
+
+    /** 批量认领（恢复出口用）。
+     *  @return 实际认领成功的个数（用于日志：脏数据/自定义形态不计） */
+    public synchronized int adoptIds(java.util.Collection<String> issuedIds) {
+        if (issuedIds == null || issuedIds.isEmpty()) return 0;
+        int ok = 0;
+        for (String id : issuedIds) {
+            if (adoptId(id)) ok++;
+        }
+        return ok;
+    }
+
+    /** 是否是 {@code T<数字>} 形态的主 id。 */
+    private static boolean isMasterIdForm(String s) {
+        if (s == null || s.length() < 2 || s.charAt(0) != 'T') return false;
+        for (int i = 1; i < s.length(); i++) {
+            if (!Character.isDigit(s.charAt(i))) return false;
+        }
+        return true;
+    }
+
     /**
      * 清空对话时调用：只清当前回合计与子序号，<b>不回收主 id 计数器</b>。
      * 主计数器已落盘，回收会让下一个回合又拿 T1，与已导出的历史/残留组件重号。
@@ -201,8 +265,12 @@ public class ChatIdDispatcher {
         if (max > 0 && max >= masterCounter.get()) {
             masterCounter.set(max + 1);
             persistLocked();
-            currentMasterId = null;
         }
+        // 「当前回合」必须**无条件**清掉，与计数器抬没抬无关：切到一个更老的会话时
+        // max 小于当前计数器、上面的条件不成立，若留着 currentMasterId，它就还是
+        // 上一个会话最后那个回合 —— 之后任何隐式 applySubId(type) 都会把子 id
+        // 挂到别的会话的 turnId 下（跨会话串号，UI 上表现为消息/卡片对不上）。
+        currentMasterId = null;
         return masterCounter.get();
     }
 }

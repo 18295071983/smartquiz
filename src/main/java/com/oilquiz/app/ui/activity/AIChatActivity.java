@@ -7919,6 +7919,29 @@ public class AIChatActivity extends BaseActivity {
         } catch (Throwable t) {
             android.util.Log.w(TAG, "seedFromTurnIds failed: " + t.getMessage());
         }
+        // 再认领子 id：subCounters 是进程内状态，杀进程重进后每张「主id|类型」桶都从 1 开始，
+        // 而 subId / 组件 id / 思考轮 id 随消息持久化。不先认领就补发，旧回合里补出的
+        // Tn-Ck 会与历史中已存在的同号 id 撞车（真机实测 T310 已有 C1..C3，12 个无 id 的
+        // 工具组件从 C1 起补 → 两张卡同一个 id，而 data part 的 id 就是 data:<组件id>，
+        // keyed diff 会把两张当一个更新，表现即"消息/卡片对不上"）。
+        try {
+            java.util.List<String> issuedIds = new java.util.ArrayList<>();
+            for (ChatMessage m : messages) {
+                if (m == null) continue;
+                if (m.subId != null && !m.subId.isEmpty()) issuedIds.add(m.subId);
+                if (m.thinkingRoundIds != null) issuedIds.addAll(m.thinkingRoundIds);
+                if (m.components != null) {
+                    for (com.oilquiz.app.ai.chat.component.ComponentData cd : m.components) {
+                        if (cd != null && cd.id != null && !cd.id.isEmpty()) issuedIds.add(cd.id);
+                    }
+                }
+            }
+            int adopted = ChatIdDispatcher.getInstance().adoptIds(issuedIds);
+            android.util.Log.i(TAG, "ChatIdDispatcher adopted " + adopted + "/" + issuedIds.size()
+                    + " issued sub ids from recovered history");
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "adoptIds failed: " + t.getMessage());
+        }
         for (ChatMessage m : messages) {
             if (m == null) continue;
             // 无回合锚点的旧消息（turnId 为空）不补发：补发会消耗派发器主 id（推进 T 序号），
@@ -8643,6 +8666,12 @@ public class AIChatActivity extends BaseActivity {
                             endGeneration();
                         }
                         // 替换当前聊天历史
+                        // 「当前回合」必须跟着会话走：切过来时 currentTurnId 还指着上一个会话
+                        // 最后那个 turnId，之后到达的迟到回调（流式完成 / 工具卡片 / 组件补发）
+                        // 会把消息挂到别的会话的回合下 —— 本会话里就变成"AI 回复没有对应的用户消息"。
+                        // startNewConversation 早就这么做了（见那段的 currentTurnId = null），
+                        // 切会话这条路一直漏着。派发器侧由 seedFromTurnIds 无条件清空。
+                        currentTurnId = null;
                         currentSessionId = session.id; // 跟踪当前加载的会话 ID
                         historySourceSessionId = session.id;
                         sessionFrontSkipped = tSkipped[0];

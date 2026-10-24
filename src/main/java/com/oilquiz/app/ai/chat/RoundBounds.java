@@ -47,6 +47,44 @@ public final class RoundBounds {
         int count = toolCount > 0 ? toolCount : bounds.size();
         List<Integer> outBounds = new ArrayList<>(count);
         List<String> outIds = new ArrayList<>(count);
+        // id 两遍解析：先保留仍然对得上组件的 id（顺序真值优先，绝不重排），
+        // 再把空槽与**失效槽**按组件顺序补一个未认领的 id。
+        // 失效槽是坏数据留下的（工具卡组件被替换/丢失后 id 还写在历史里）：
+        // 留着它，恢复出的 tool_call part 既匹配不到组件又没有名字，会渲一张空白工具行，
+        // 而真正存在的组件因为没人认领被补到正文末尾——顺序就错了。
+        java.util.Set<String> known = new java.util.HashSet<>(toolIds);
+        java.util.Set<Integer> claimed = new java.util.HashSet<>();
+        List<String> original = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            String stored = i < ids.size() && ids.get(i) != null ? ids.get(i) : "";
+            original.add(stored);
+            // 只在"确实有工具组件可比对"时才判定失效：toolCount==0 时历史里的 id 是
+            // legacy 手工路径留的槽位记号（消息可能压根没有 tool_call 组件），照旧原样保留。
+            boolean usable = !stored.isEmpty() && (toolCount == 0 || known.contains(stored));
+            if (usable) {
+                outIds.add(stored);
+                if (known.contains(stored)) claimed.add(toolIds.indexOf(stored));
+            } else {
+                outIds.add(null);
+            }
+        }
+        int cursor = 0;
+        for (int i = 0; i < count; i++) {
+            if (outIds.get(i) != null) continue;
+            while (cursor < toolIds.size() && claimed.contains(cursor)) cursor++;
+            if (cursor >= toolIds.size()) {
+                // 没有未认领的组件可顶：维持历史原值（可能是空串，也可能就是那个失效 id），
+                // 不凭空造信息，也不抹掉 legacy 写过的东西。
+                outIds.set(i, original.get(i));
+                continue;
+            }
+            String cand = toolIds.get(cursor);
+            claimed.add(cursor);
+            cursor++;
+            // 组件自己也没有 id：留给 AssistantTurn 的"按序就地归位"配对
+            outIds.set(i, cand == null ? original.get(i) : cand);
+        }
+
         int prev = 0;
         for (int i = 0; i < count; i++) {
             Integer raw = i < bounds.size() ? bounds.get(i) : null;
@@ -55,10 +93,6 @@ public final class RoundBounds {
             if (message.content != null) offset = Math.min(offset, contentLen);
             prev = offset;
             outBounds.add(offset);
-
-            String id = i < ids.size() ? ids.get(i) : null;
-            if ((id == null || id.isEmpty()) && i < toolIds.size()) id = toolIds.get(i);
-            outIds.add(id != null ? id : "");
         }
         message.contentRoundBounds = outBounds;
         message.contentRoundToolIds = outIds;
