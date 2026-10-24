@@ -23,6 +23,10 @@
   `BaseActivity` 的显式钩子，而不是在子类里提前 return
 - 构建通过；APK 内已核对包含 `assets/apk_shell/guides/PRIVACY_POLICY.md` 且
   `PrivacyPolicyActivity` 已注册进合并后的 Manifest；真机验证：未同意时弹门禁、同意后正常进首页
+- 真机验证（11:38）：清掉同意状态后冷启动 → 出现「查看全文 / 不同意 / 同意并继续」三选一；
+  点同意 → `shared_prefs/privacy_consent.xml` 写入 accepted+version，`MainActivity` 正常渲染首页
+- 顺带修：许可页布局里那段固定文案（"本页为随安装包分发的第三方组件…"）会跟着隐私政策页
+  一起显示，已从布局移除——两份 Markdown 自己都有标题与前言
 
 ## [2026-10-24] refactor(pdf)：PDF 导出从 iText 7 迁到 PDFBox，字体换 OFL 的 Noto Sans SC
 

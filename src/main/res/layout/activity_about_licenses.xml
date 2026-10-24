@@ -26,15 +26,6 @@
             app:titleTextColor="?attr/colorControlText" />
     </com.google.android.material.appbar.AppBarLayout>
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingHorizontal="@dimen/space_16"
-        android:paddingTop="@dimen/space_16"
-        android:text="本页为随安装包分发的第三方组件与许可声明（Apache-2.0 / LGPL / GPL / MIT / BSD 等）。\n按各许可要求在应用内可查；完整原文见下方各组件条目。"
-        android:textColor="?attr/colorControlTextSecondary"
-        android:textSize="@dimen/text_14" />
-
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="@dimen/size_0"
