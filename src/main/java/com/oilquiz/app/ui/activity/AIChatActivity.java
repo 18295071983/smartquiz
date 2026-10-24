@@ -355,6 +355,13 @@ public class AIChatActivity extends BaseActivity {
     private volatile long toolPhaseStartTime = 0;
     /** 上一拍是否有工具在跑：状态翻转时强制重绑一次流式消息（工具卡文案要跟着换/收尾） */
     private volatile boolean lastToolRunning = false;
+    /**
+     * 本轮结束时给"完成态短摘要"用的类型（{@link com.oilquiz.app.ai.chat.InferenceStatusPhrases}
+     * 的 FINISH_COMPLETED / FINISH_STOPPED；0=不显示）。endGeneration 消费后清零。
+     */
+    private volatile int pendingFinishKind = 0;
+    /** 完成态文案的收起定时器（2 秒后随生成行一起收起；新一轮开始/结束时清掉） */
+    private Runnable completionHideRunnable;
     /** 文案推进心跳：1.2s 一次，只在生成中跑（与 genStatusBar 的心跳相互独立） */
     private final Runnable statusPhraseTicker = new Runnable() {
         @Override
@@ -7116,6 +7123,8 @@ public class AIChatActivity extends BaseActivity {
             }
             if (agentTotalTokens <= 0) agentTotalTokens = statsTokens;
             
+            // 完成态短摘要：正常完成（endGeneration 里展示"已完成 · 用时 X 秒"约 2 秒）
+            pendingFinishKind = com.oilquiz.app.ai.chat.InferenceStatusPhrases.FINISH_COMPLETED;
             endGeneration();
             // 统计块只放 token 读数（输入/输出/缓存/上下文）：
             // 工具次数/思考轮次已经由气泡里的工具行/折叠头承担，这里再写一遍就是同一组数字两处展示，
@@ -7952,6 +7961,12 @@ public class AIChatActivity extends BaseActivity {
         startGenerationTicker();
         totalTokensGenerated = 0;
         generationStartTime = System.currentTimeMillis();
+        // 清掉上一轮"完成态文案"的收起定时器与待消费状态（避免串到新一轮）
+        if (completionHideRunnable != null) {
+            uiHandler.removeCallbacks(completionHideRunnable);
+            completionHideRunnable = null;
+        }
+        pendingFinishKind = 0;
         // 重置流式 token 统计
         streamingTokenCount = 0;
         streamingStartTime = 0;
@@ -7998,6 +8013,11 @@ public class AIChatActivity extends BaseActivity {
     private void endGeneration() {
         isGenerating = false;
         isDirectStreaming = false;
+        // 完成态短摘要（完成后展示约 2 秒）：先取本轮真实耗时，再清 generationStartTime
+        final long finishedElapsedMs = generationStartTime > 0
+                ? Math.max(0L, System.currentTimeMillis() - generationStartTime) : 0L;
+        final int finishKind = pendingFinishKind;
+        pendingFinishKind = 0;
         stopGenerationTicker();
         // 多套状态文案的心跳随生成结束一起停；阶段词表清空，下一轮 beginGeneration 重新起步
         uiHandler.removeCallbacks(statusPhraseTicker);
@@ -8034,10 +8054,51 @@ public class AIChatActivity extends BaseActivity {
         // 保证任何结束路径（完成 / 出错 / 取消）都不残留。
         clearAgentStatusBar();
 
+        // 完成态文案：已完成 / 已停止 · 用时 X 秒，展示约 2 秒后随生成行收起。
+        // 过程 trace 已由思考折叠块 / 工具卡 / token 统计承载，这里只补一句收尾，
+        // 避免生成结束瞬间"状态行突然消失、什么都没留下"。
+        if (finishKind != 0) {
+            showCompletionStatus(finishKind, finishedElapsedMs);
+        }
+
         // 显示最终 Token 统计（由 tokenStatsCallback 更新为 "🔵 X tokens" 格式）
         showTokenStats(true);
 
         // 生成状态行随 hideLoadingUI()→toggleStopButton(false) 收起，速度/余额在收起时清空
+    }
+
+    /**
+     * 完成态文案（2026-10-25）：生成结束后给一句短摘要再收起，而不是瞬间无痕。
+     *
+     * <p>业界口径（AI UX Playground · Progress Steps）：过程 trace 收起后留一句可核对的短摘要
+     * （ChatGPT "Thought for 8s"、Cursor "Task completed in 12s"），但不常驻状态行。
+     * 这里与 token 统计块同一节奏：显示约 2 秒后收起；只做展示，不改变任何生成/统计状态。</p>
+     */
+    private void showCompletionStatus(int finishKind, long elapsedMs) {
+        if (chatInputBar == null) return;
+        String text = com.oilquiz.app.ai.chat.InferenceStatusPhrases
+                .completionPhrase(finishKind, elapsedMs);
+        if (text == null) return;
+        try {
+            // hideLoadingUI() 刚把行收起；这里重新点亮 2 秒（速度位不显示，避免"已完成还飙速度"）
+            chatInputBar.setGeneratingHint(true, null);
+            chatInputBar.setInferencePhase(text);
+            chatInputBar.setInferenceSpeed(0f);
+            if (completionHideRunnable != null) {
+                uiHandler.removeCallbacks(completionHideRunnable);
+            }
+            completionHideRunnable = () -> {
+                try {
+                    if (chatInputBar != null && !isGenerating) {
+                        chatInputBar.setGeneratingHint(false, null);
+                    }
+                } catch (Throwable ignored) {
+                }
+            };
+            uiHandler.postDelayed(completionHideRunnable, 2000);
+        } catch (Throwable ignored) {
+            // 展示兜底：文案失败不影响生成结束流程
+        }
     }
 
     private void resetStreamingState() {
@@ -10042,6 +10103,8 @@ public class AIChatActivity extends BaseActivity {
         try {
             if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
             if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
+            // 完成态短摘要：用户主动停止（endGeneration 里展示"已停止 · 用时 X 秒"约 2 秒）
+            pendingFinishKind = com.oilquiz.app.ai.chat.InferenceStatusPhrases.FINISH_STOPPED;
             endGeneration();
             showToast(getString(R.string.h_9b2011e3));
             addSystemMessage("生成已停止");

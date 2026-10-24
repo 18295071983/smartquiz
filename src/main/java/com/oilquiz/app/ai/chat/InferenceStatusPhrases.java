@@ -17,7 +17,42 @@ package com.oilquiz.app.ai.chat;
  */
 public final class InferenceStatusPhrases {
 
+    /** 结束态类型：正常完成（完成态短摘要用） */
+    public static final int FINISH_COMPLETED = 1;
+    /** 结束态类型：用户主动停止 */
+    public static final int FINISH_STOPPED = 2;
+
     private InferenceStatusPhrases() {
+    }
+
+    /**
+     * 完成态文案：过程 trace 收起后给一句短摘要，展示约 2 秒后收起（业界口径：
+     * 结束后不常驻状态行，但也不"瞬间无痕"）。例：{@code 已完成 · 12.3 秒}、
+     * {@code 已停止 · 5 秒}；未知类型返回 null。
+     */
+    public static String completionPhrase(int finishKind, long elapsedMs) {
+        String duration = formatElapsed(elapsedMs);
+        if (finishKind == FINISH_COMPLETED) return "已完成 · " + duration;
+        if (finishKind == FINISH_STOPPED) return "已停止 · " + duration;
+        return null;
+    }
+
+    /** 耗时格式化：{@code 0.5 秒 / 12.3 秒 / 1 分 5 秒} */
+    private static String formatElapsed(long elapsedMs) {
+        long tenths = Math.max(0L, elapsedMs) / 100L;
+        if (tenths < 10) {
+            return "0." + tenths + " 秒";
+        }
+        long seconds = tenths / 10;
+        long frac = tenths % 10;
+        if (seconds < 60) {
+            return frac == 0 ? seconds + " 秒" : seconds + "." + frac + " 秒";
+        }
+        long minutes = seconds / 60;
+        long rest = seconds % 60;
+        return frac == 0
+                ? minutes + " 分 " + rest + " 秒"
+                : minutes + " 分 " + rest + "." + frac + " 秒";
     }
 
     /** 阶段 + 本阶段已耗时(ms) → 当前状态文案；完成/失败/空闲返回 null。 */

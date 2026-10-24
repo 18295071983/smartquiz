@@ -1,5 +1,23 @@
 # 变更日志
 
+## [2026-10-25] feat(chat-ui)：补"完成态文案"（已完成/已停止 · 用时 X 秒，2 秒后收起）
+
+用户："完成态的文案呢？"——等待/思考/生成/工具都有推进文案，但生成结束瞬间状态行直接消失，
+用户什么都没看到。
+
+- 业界口径：ChatGPT 结束后留 "Thought for 8s"、Cursor "Task completed in 12s"、
+  Perplexity "Completed"——给一句可核对的短摘要，但不常驻、不打断阅读；
+- 新增 `InferenceStatusPhrases.completionPhrase`：
+  `已完成 · 12.3 秒` / `已停止 · 5 秒`（耗时格式 `0.5 秒 / 12.3 秒 / 1 分 5 秒`）；
+- `AIChatActivity`：`completeGeneration` 置 `FINISH_COMPLETED`、`stopGeneration` 置
+  `FINISH_STOPPED`，`endGeneration` 取本轮真实耗时后调用 `showCompletionStatus`——
+  重新点亮底部生成行约 2 秒（速度位隐藏，避免"已完成还飙速度"），定时器到点收起；
+  新一轮 `beginGeneration` 清掉残留定时器/状态，避免串轮；
+- 出错路径不显示"已完成"（错误气泡 + 系统消息已承载原因）；token 统计块（2 秒）照旧，
+  一个在消息下、一个在输入区，各自表达"这一轮花了多少"；
+- **验证**：`InferenceStatusPhrasesTest#完成态文案_已完成与已停止带耗时`；全量
+  `testDebugUnitTest --offline --no-build-cache` **971 / 0 skipped / 0 failures / 0 errors**；
+  `assembleDebug --offline` 通过（APK 07:42:39）并已装机；按用户要求未做真机测试。
 ## [2026-10-25] fix(chat-ui)：撤回"第 N 轮"轮号，多步思考按业界 Progress Steps 交给可折叠 trace
 
 用户："不对吧显示轮号还是怪异，你看看业界是怎么弄的"。

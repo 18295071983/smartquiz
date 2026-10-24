@@ -2720,6 +2720,15 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
     - 保留：每轮开始重置 reasoning 速度统计；
     - 测试：`InferenceStatusPhrasesTest#多步深度思考_全局文案不报轮号`；全量 **970 / 0 skipped /
       0 failures / 0 errors**；APK 07:39:03 已装机，未做真机验证。设计文档 §9 已按此改写。
+17. **完成态文案（同日第十二轮，用户："完成态的文案呢？"）**：
+    - 新增 `InferenceStatusPhrases.completionPhrase`：`已完成 · 12.3 秒` / `已停止 · 5 秒`
+      （耗时格式 `0.5 秒 / 12.3 秒 / 1 分 5 秒`）；
+    - `completeGeneration` 置 `FINISH_COMPLETED`、`stopGeneration` 置 `FINISH_STOPPED`；
+      `endGeneration` 取本轮真实耗时后 `showCompletionStatus` 重新点亮底部生成行约 2 秒
+      （速度位隐藏），定时器收起；`beginGeneration` 清残留定时器/状态防串轮；
+    - 出错路径不显示"已完成"（错误气泡+系统消息已承载）；token 统计块 2 秒照旧；
+    - 测试：`InferenceStatusPhrasesTest#完成态文案_已完成与已停止带耗时`；全量 **971 /
+      0 skipped / 0 failures / 0 errors**；APK 07:42:39 已装机，未做真机验证。设计文档 §10。
 
 ---
 

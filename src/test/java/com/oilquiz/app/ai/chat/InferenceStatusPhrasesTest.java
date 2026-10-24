@@ -90,4 +90,18 @@ public class InferenceStatusPhrasesTest {
         assertEquals("正在撰写回答…", InferenceStatusPhrases.phrase(
                 ChatMessage.InferencePhase.GENERATING, 5 * S));
     }
+
+    @Test
+    public void 完成态文案_已完成与已停止带耗时() {
+        assertEquals("已完成 · 12.3 秒", InferenceStatusPhrases.completionPhrase(
+                InferenceStatusPhrases.FINISH_COMPLETED, 12_345));
+        assertEquals("已停止 · 5 秒", InferenceStatusPhrases.completionPhrase(
+                InferenceStatusPhrases.FINISH_STOPPED, 5_000));
+        assertEquals("已完成 · 0.5 秒", InferenceStatusPhrases.completionPhrase(
+                InferenceStatusPhrases.FINISH_COMPLETED, 543));
+        assertEquals("已停止 · 1 分 5 秒", InferenceStatusPhrases.completionPhrase(
+                InferenceStatusPhrases.FINISH_STOPPED, 65_000));
+        // 未知结束类型不产生活动文案（避免结束路径误显示"已完成"）
+        assertNull(InferenceStatusPhrases.completionPhrase(0, 1_000));
+    }
 }

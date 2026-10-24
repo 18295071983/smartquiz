@@ -261,3 +261,34 @@ APK 07:28:45 已装机，未做真机测试。
 
 `InferenceStatusPhrasesTest#多步深度思考_全局文案不报轮号` 断言思考文案不含"轮/第"；
 全量 970 / 0 skipped / 0 failures / 0 errors；APK 07:39:03 已装机，未做真机测试。
+## 10. 完成态文案（2026-10-25 追加）
+
+用户："完成态的文案呢？"。过程（等待/思考/生成/工具）都有推进文案，但生成结束瞬间状态行直接消失，
+用户什么都看不到——补一句收尾摘要。
+
+### 10.1 业界口径
+
+- ChatGPT：思考收起后留 "Thought for 8s"；
+- Cursor Agent：任务结束留 "Task completed in 12s"；
+- Perplexity：结束显示 "Completed"（配合耗时）；
+- 共同点：结束后**给一句可核对的短摘要**，但不常驻、不打断阅读。
+
+### 10.2 落地
+
+| 结束方式 | 文案 | 展示 |
+|---|---|---|
+| 正常完成 | `已完成 · 12.3 秒` | 底部生成状态行展示约 2 秒后收起 |
+| 用户停止 | `已停止 · 5 秒` | 同上；同时保留 toast/系统消息"生成已停止" |
+| 出错 | 不显示（错误气泡 + 系统消息已承载原因） | 避免误报"已完成" |
+
+- 实现：`InferenceStatusPhrases.completionPhrase(FINISH_COMPLETED/FINISH_STOPPED, elapsedMs)`
+  （耗时格式 `0.5 秒 / 12.3 秒 / 1 分 5 秒`）；
+  `AIChatActivity` 在 `completeGeneration` / `stopGeneration` 里置 `pendingFinishKind`，
+  `endGeneration` 消费后调用 `showCompletionStatus(...)`：重新点亮生成行 2 秒（速度位隐藏），
+  定时器收起；新一轮 `beginGeneration` 会清掉残留定时器，避免串轮；
+- 与 token 统计块（显示 2 秒）同一节奏：一个在消息下、一个在输入区，各自表达"这一轮花了多少"。
+
+### 10.3 验证
+
+`InferenceStatusPhrasesTest#完成态文案_已完成与已停止带耗时`；全量 971 / 0 skipped /
+0 failures / 0 errors；APK 07:42:39 已装机，未做真机测试。
