@@ -75,6 +75,8 @@ public class ComponentRegistry {
         register(new HtmlCardView());
         // Markdown 富文本（内容框架文本承载组件，渲染加粗/列表/链接/代码块等）
         register(new MarkdownCardView());
+        // 整篇 Markdown 文档（.md 文件/全文；markdown-it + 插件 + KaTeX + 代码高亮）
+        register(new MarkdownDocCardView());
         // 媒体播放（原生播放器：视频/音频）
         register(new VideoCardView());
         register(new AudioCardView());

@@ -609,7 +609,7 @@ public class AssistantTurn {
                     .containsComponent(p.text)) {
                 emitSegments(out, splitComponent(p.text), p);
             } else if (com.oilquiz.app.ai.chat.component.MermaidMathSplitter
-                    .containsStructure(p.text)) {
+                    .containsMermaid(p.text)) {
                 emitSegments(out, splitMermaidMath(p.text, dark), p);
             } else {
                 out.add(p);
@@ -640,7 +640,7 @@ public class AssistantTurn {
     private static java.util.List<Seg> splitMermaidMath(String text, boolean dark) {
         java.util.List<Seg> r = new java.util.ArrayList<>();
         for (com.oilquiz.app.ai.chat.component.MermaidMathSplitter.Segment s
-                : com.oilquiz.app.ai.chat.component.MermaidMathSplitter.split(text, dark)) {
+                : com.oilquiz.app.ai.chat.component.MermaidMathSplitter.splitMermaidOnly(text, dark)) {
             r.add(new Seg() {
                 public boolean isComponent() { return s.isComponent; }
                 public String text() { return s.text; }

@@ -3026,7 +3026,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
                 == android.content.res.Configuration.UI_MODE_NIGHT_YES;
         List<com.oilquiz.app.ai.chat.component.MermaidMathSplitter.Segment> segs =
-                com.oilquiz.app.ai.chat.component.MermaidMathSplitter.split(message.content, isDark);
+                com.oilquiz.app.ai.chat.component.MermaidMathSplitter.splitMermaidOnly(message.content, isDark);
         StringBuilder fp = new StringBuilder();
         for (com.oilquiz.app.ai.chat.component.MermaidMathSplitter.Segment seg : segs) {
             if (seg.isComponent && seg.component != null && seg.component.props != null) {
@@ -3704,7 +3704,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             // Mermaid/数学公式图形化：```mermaid 块与 $$ 公式 → WebView(html 组件) 渲染
             // （mermaid.js 画图 / katex 渲染公式），文本段保持 Markdown 渲染
             boolean hasMermaidMath = com.oilquiz.app.ai.chat.component.MermaidMathSplitter
-                    .containsStructure(message.content);
+                    .containsMermaid(message.content);
             boolean hasFenced = !hasMermaidMath && hasFencedCode(message.content);
             if (holder.contentHost != null && hasMermaidMath) {
                 renderMermaidMath(holder, message, availableWidth, ctx);

@@ -1,5 +1,29 @@
 # 变更日志
 
+## [2026-10-25] feat(chat)：块级公式回归正文 + markdown_doc 文档卡 + html 卡 .md 路由
+
+这一轮解决"同一篇 markdown，网页卡片正常、主气泡退化"的结构性问题，并补上整篇
+markdown 文件的卡片基础设施。
+
+- **块级公式不再切组件**：`MermaidMathSplitter` 新增 `containsMermaid()` /
+  `splitMermaidOnly()`；`AssistantTurn.expandInline` 与 `ChatAdapter` 改用 mermaid-only
+  判定。`$$…$$` 留在 text part，由正文 WebView 的 KaTeX auto-render 同页渲染（居中、
+  按内容高），不再变成独立 html 组件。
+- **修公式卡空白**：`HtmlCardView` 的 JS 量高下限 `Math.max(…,200)` → `60`；块级公式
+  卡（历史会话/其它生产者）不再固定顶出 200px 空白。
+- **新增 `markdown_doc` 卡**：`MarkdownDocCardView` + `MarkdownDocPage`。props 支持
+  `path`（工作区 .md）或 `content`（原文）、`title`、`maxHeight`；解析用
+  markdown-it + footnote/deflist/tasklists + KaTeX + highlight.js，生成**单文件 HTML**
+  落盘到 cache，再交 `HtmlCardView` 以 `LOCAL_FILE` 档加载——沙箱、桥、量高、放大浮标
+  全部复用。KaTeX 常用 9 个 woff2 内联，离线可用。
+- **html 卡**：`url`/`path` 以 `.md`/`.markdown` 结尾自动转交 `markdown_doc`；`path`/`file`
+  作为 `url` 别名；新增 `assets/js/markdown-it*.js` 四个资源。
+- **目录/工具文案**：`ComponentTypes` 增 `markdown_doc` 条目（别名 `md`）与
+  `PROPS_DOC_MARKDOWN`；`ui_component` 类型清单与 props 说明同步。
+- **验证**：全量 `testDebugUnitTest --offline --rerun` **868 tests / 0 skipped /
+  0 failures / 0 errors**（与卡片恢复同批）；`assembleDebug` 通过；APK 已装机并启动。
+  **markdown_doc 实际渲染、主气泡公式位置、html 卡 .md 路由还要真机逐项验**。
+
 ## [2026-10-25] feat(player)：P2.2——Cast 投屏（默认 Media Receiver，无需自建 App ID）
 
 用 Chromecast 默认 Media Receiver 做基础投屏，不引入自有接收端/App ID。

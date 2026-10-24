@@ -99,6 +99,20 @@ public final class ComponentTypes {
                     + "那就退回 actions)）";
 
     /**
+     * markdown_doc 卡的 props 形状（与 {@link #PROPS_DOC_HTML} 同一处 props 长说明共用）。
+     *
+     * <p>与 markdown_card 的分工写进模型可见文案：小段富文本走 markdown_card（Markwon/TextView），
+     * 整篇 .md 文档走 markdown_doc（markdown-it + 插件 + KaTeX + 代码高亮），否则模型会拿
+     * 小文本卡去渲染整篇文档、脚注/公式/表格一类的语法全退化。</p>
+     */
+    public static final String PROPS_DOC_MARKDOWN =
+            "markdown_doc:{path:'files/报告.md'(工作区 .md 文件) 或 content:'# 标题…'(markdown 原文),"
+                    + " title, maxHeight(默认560dp,超出内部滚动)}"
+                    + "（整篇文档渲染：markdown-it + 脚注/定义列表/任务列表 + KaTeX 公式 + 代码高亮，"
+                    + "按内容量高、超出内部滚动；文件不存在/读取失败会返回错误卡，不会静默空白。"
+                    + "正文里的一小段富文本仍用 markdown_card，整篇 .md 才用 markdown_doc）";
+
+    /**
      * playlist / agenda / location / diff 四张卡的 props 形状（三处 props 长说明共用）。
      * playlist 与播放器单例配套（队列 + 上下首）；diff 由写文件工具在
      * additionalInfo.diff 里产出（file_generator / python_file_ops）。
@@ -197,6 +211,8 @@ public final class ComponentTypes {
         alias.put("code_card", "code");
         alias.put("json_viewer", "json");
         alias.put("markdown_card", "markdown");
+        // 2026-10-25：整篇文档卡（.md 文件/全文）。短名 md 方便模型直接写 component_type=md
+        alias.put("md", "markdown_doc");
         alias.put("image_grid", "image");
         alias.put("file_card", "file");
         alias.put("link_card", "link");
@@ -221,6 +237,9 @@ public final class ComponentTypes {
         SCHEMA.put("steps", new String[]{CATEGORY_CONTENT, "步骤 steps[{title,status,description}]", "标题 title", "status=done|current|todo|failed"});
         SCHEMA.put("alert", new String[]{CATEGORY_CONTENT, "正文 content", "级别 level=info|success|warning|error", "标题 title, actions[]"});
         SCHEMA.put("markdown", new String[]{CATEGORY_CONTENT, "正文 content", "标题 title", ""});
+        // 2026-10-25：整篇 markdown 文档（.md 文件/全文）独立成卡，避免与"正文小段"共用一条弱管线
+        SCHEMA.put("markdown_doc", new String[]{CATEGORY_CONTENT, "path 或 content", "标题 title, maxHeight(dp)",
+                "整篇 .md 文档：markdown-it + 脚注/定义列表/任务列表 + KaTeX 公式 + 代码高亮"});
         SCHEMA.put("code", new String[]{CATEGORY_CONTENT, "代码 code", "语言 language", "标题 title"});
         SCHEMA.put("html", new String[]{CATEGORY_CONTENT, "html 或 url", "标题 title",
                 "maxHeight(dp)；脚本/回传按来源分档——内联串禁脚本、页内按钮无效；"

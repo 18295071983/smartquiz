@@ -27,6 +27,17 @@ public class MermaidMathSplitter {
     private static final Pattern BRACKET_MATH_BLOCK = Pattern.compile(
             Pattern.quote("\\[") + "(.+?)" + Pattern.quote("\\]"), Pattern.DOTALL);
 
+    /** 内容是否含 mermaid 块（不含数学；2026-10-25 起块级数学不再切分） */
+    public static boolean containsMermaid(String content) {
+        if (content == null || content.isEmpty()) return false;
+        try {
+            return hasMermaidBlock(content);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "containsMermaid failed: " + t.getMessage());
+            return false;
+        }
+    }
+
     /** 内容是否含可图形化的片段（mermaid 块或块级数学） */
     public static boolean containsStructure(String content) {
         if (content == null || content.isEmpty()) return false;
@@ -91,10 +102,26 @@ public class MermaidMathSplitter {
      * 都降级为单个纯文本段，绝不让聊天界面渲染崩溃。
      */
     public static List<Segment> split(String content, boolean isDark) {
+        return split(content, isDark, true);
+    }
+
+    /**
+     * 只切 mermaid、把块级数学留在正文里（2026-10-25）。
+     *
+     * <p>为什么不再切数学：切出去后每条公式变成一个独立 WebView 组件，
+     * 高度至少 200px（HtmlCardView 的量高下限），一个积分式就撑出一大块空白；
+     * 而正文 WebView 的 KaTeX auto-render 本来就支持 {@code $$…$$}，同页渲染、
+     * 按内容量高、居中，和行内公式一致。</p>
+     */
+    public static List<Segment> splitMermaidOnly(String content, boolean isDark) {
+        return split(content, isDark, false);
+    }
+
+    private static List<Segment> split(String content, boolean isDark, boolean includeMath) {
         List<Segment> segs = new ArrayList<>();
         if (content == null || content.isEmpty()) return segs;
         try {
-            return doSplit(content, isDark);
+            return doSplit(content, isDark, includeMath);
         } catch (Throwable t) {
             android.util.Log.w(TAG, "split failed, fallback to plain text: " + t.getMessage());
             segs.clear();
@@ -104,7 +131,7 @@ public class MermaidMathSplitter {
     }
 
     /** 实际拆分逻辑（被 split 防御包裹） */
-    private static List<Segment> doSplit(String content, boolean isDark) {
+    private static List<Segment> doSplit(String content, boolean isDark, boolean includeMath) {
         List<Segment> segs = new ArrayList<>();
 
         StringBuilder textBuf = new StringBuilder();
@@ -162,7 +189,7 @@ public class MermaidMathSplitter {
             String trimmed = line.trim();
             boolean dollarOpen = trimmed.startsWith("$$");
             boolean bracketOpen = trimmed.startsWith("\\[");
-            if (dollarOpen || bracketOpen) {
+            if (includeMath && (dollarOpen || bracketOpen)) {
                 String open = dollarOpen ? "$$" : "\\[";
                 String close = dollarOpen ? "$$" : "\\]";
                 StringBuilder math = new StringBuilder();

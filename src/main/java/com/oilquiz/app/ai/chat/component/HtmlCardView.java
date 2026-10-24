@@ -77,8 +77,14 @@ public class HtmlCardView implements ChatComponent {
         JSONObject p = data.props != null ? data.props : new JSONObject();
         // 兼容多字段名 + 嵌套结构提取 HTML 内容
         String html = extractHtml(p);
-        String url = p.optString("url", "");
+        // path/file 是 .md/.html 文件卡的自然写法：统一当 url 处理，避免调用方两套字段
+        String url = p.optString("url", p.optString("path", p.optString("file", "")));
         String title = extractTitle(p);
+        // .md 不是网页：转交 markdown_doc（整篇文档渲染器），否则会当纯文本网页加载
+        String lowerUrl = url == null ? "" : url.trim().toLowerCase(java.util.Locale.US);
+        if (lowerUrl.endsWith(".md") || lowerUrl.endsWith(".markdown")) {
+            return new MarkdownDocCardView().createView(context, data);
+        }
         int maxHeightDp = p.optInt("maxHeight", DEFAULT_MAX_HEIGHT_DP);
         if (maxHeightDp <= 0) maxHeightDp = DEFAULT_MAX_HEIGHT_DP;
         // 放大档（全屏宿主 {@link ComponentFocusHost}）：那个键只存在于宿主自己的 props 副本上，
@@ -428,7 +434,7 @@ public class HtmlCardView implements ChatComponent {
                 try {
                     webView.evaluateJavascript(
                             "(function(){var b=document.body;var d=document.documentElement;"
-                                    + "var h=Math.max(b.scrollHeight,d.scrollHeight,200);"
+                                    + "var h=Math.max(b.scrollHeight,d.scrollHeight,60);"
                                     + "return String(h);})()",
                             value -> applyMeasuredHeight(parseScrollHeight(value)));
                 } catch (Throwable t) {

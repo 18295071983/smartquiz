@@ -93,7 +93,7 @@ public final class ComponentDisplay {
                     "toggle", "stepper", "slider_range", "tag_input",
                     "checkbox_group", "radio_group", "search_bar",
                     // 正文与学习交互（html 不在列，理由见上方注释）
-                    "markdown", "markdown_card", "code", "code_card",
+                    "markdown", "markdown_card", "markdown_doc", "code", "code_card",
                     "quiz", "quiz_card", "marquee",
                     // 媒体/网格/备注：图集、宫格、便签本身就是内容，收成一行等于把内容藏了
                     "image_grid", "image", "grid_card", "grid", "note_card", "note"));

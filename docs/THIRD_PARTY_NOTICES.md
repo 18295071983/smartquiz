@@ -183,5 +183,8 @@ APK 还链接了下列开源库，按各自许可保留版权与许可声明（�
   和风天气开发者条款（专有 SDK）
 - **apksig 8.0.2**（`libs/apksig-8.0.2.jar`）：Apache-2.0
 - 前端库：mermaid（MIT）、KaTeX（MIT）、highlight.js（BSD-3-Clause）
+- Markdown 文档渲染（2026-10-25，`assets/js/markdown-it*.js`）：markdown-it 14.1（MIT）、
+  markdown-it-footnote 4.0（MIT）、markdown-it-deflist 3.0（MIT）、
+  markdown-it-task-lists 2.1（MIT）
 
 
