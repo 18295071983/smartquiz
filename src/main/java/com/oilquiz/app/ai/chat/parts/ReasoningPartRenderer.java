@@ -206,18 +206,25 @@ public final class ReasoningPartRenderer implements PartRenderer {
     }
 
     /**
-     * 折叠头的"活动态"文案：与底部生成状态行共用同一套词
-     * （{@link com.oilquiz.app.ai.chat.InferenceStatusLabel}）——思考中显示"思考中"，
-     * 不再用"正在思考…"，避免同屏两套说法（2026-10-25 用户反馈）。
+     * 折叠头的"活动态"文案：与底部生成状态行共用同一套多段文案
+     * （{@link com.oilquiz.app.ai.chat.InferenceStatusPhrases}），按"本阶段已耗时"推进：
+     * 理解问题 → 梳理思路 → 推敲关键点 → 验证推理 → 收敛结论（超长还有"仍在继续"）。
      *
      * <p>只有当前活跃的思考块（{@code part.isStreaming()}）才会走到这里；其它思考块走
-     * {@link #doneLabel} 显示"已深度思考"，所以多个思考块时只有正在跑的那一块会切换状态文字。</p>
+     * {@link #doneLabel} 显示"已深度思考"，所以多个思考块时只有正在跑的那一块切换状态文字。</p>
      */
     private static String stateLabel(Row row) {
         ChatMessage msg = row.host != null ? row.host.message() : null;
         if (msg != null && msg.inferenceProgress != null) {
-            String label = com.oilquiz.app.ai.chat.InferenceStatusLabel
-                    .shortLabel(msg.inferenceProgress.phase);
+            ChatMessage.InferencePhase phase = msg.inferenceProgress.phase;
+            long start = msg.inferenceProgress.phaseStartTime;
+            if (start <= 0 && msg.timestamp > 0) start = msg.timestamp;
+            if (start > 0) {
+                String phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
+                        .phrase(phase, System.currentTimeMillis() - start);
+                if (phrase != null) return phrase;
+            }
+            String label = com.oilquiz.app.ai.chat.InferenceStatusLabel.shortLabel(phase);
             if (label != null) return label;
         }
         return thinkingNow(row.header.getContext());

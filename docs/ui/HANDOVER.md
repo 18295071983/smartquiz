@@ -2626,6 +2626,21 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    - `ChatAdapter` legacy 思考行（`thinkingHeaderText` / round activity view）同口径，
      phase 进 `GENERATING` 即回"已深度思考"；未知阶段退回旧资源文案；
    - 测试：`InferenceStatusLabelTest` 5 条；全量 954 / 0 skipped / 0 failures / 0 errors。
+9. **多套备用状态文案（同日第四轮，用户反馈"防止用户等不及，按推理/生成进度切换文案，看看业界"）**：
+   调研结论 + 完整文案表见 **`docs/ui/inference-status-phrases.md`**（NN/g 三档响应时间、
+   Perplexity 阶段状态、Ant Design X 生成过程规范、ChatGPT/Claude 的 thought-for 模式）。
+   实现要点：
+   - `ai/chat/InferenceStatusPhrases#phrase(phase, phaseElapsedMs)` 纯函数：等待 4 档 /
+     思考 6 档（理解→梳理→推敲→验证→收敛→仍在继续）/ 生成 4 档（组织→撰写→补充→收尾），
+     每句 ≤10 汉字，一行放得下"文案 + 速度 + 余额"；
+   - `ChatMessage.InferenceProgress#phaseStartTime`（transient）由 `markStreamingPhase` 在
+     阶段切换时重置；渲染侧与底部行都按 `now - phaseStartTime` 选文案（不编假百分比）；
+   - `AIChatActivity#statusPhraseTicker` 每 1.2s 推进一次（生成中才跑，结束移除）；
+     底部状态行与当前活跃思考块折叠头共用同一句；文案变化时对流式消息发
+     `PAYLOAD_STATUS_UPDATE` 让折叠头跟上（非活跃思考块仍"已深度思考 X 秒"）；
+   - 速度仍由 `updateStreamingTokenStats` / `noteReasoningTokenForSpeed` 单独刷新。
+   - 测试：`InferenceStatusPhrasesTest` 5 条；全量 959 / 0 skipped / 0 failures / 0 errors；
+     APK 07:01:39（装机时设备离线，未做真机验证）。
 
 ---
 

@@ -1,5 +1,33 @@
 # 变更日志
 
+## [2026-10-25] feat(chat-ui)：推理/生成状态改多套文案，按"阶段 + 阶段耗时"推进（防等不及）
+
+用户："思考中推理状态你可以设计多套备用文案，按照推理进度及生成进度切换可以吗。防止用户等不及，
+你看看业界是怎么设计这套文案的。"
+
+**调研**（详见 `docs/ui/inference-status-phrases.md`）：
+- NN/g 响应时间三档：>1s 要让用户知道"在工作"，>10s 要有持续进度反馈 + 明确中断入口；
+  工作量不可知时用绝对工作量（tokens/s）或通用忙碌指示，而不是编假百分比；
+- Perplexity 把等待拆成 `Searching the web… → Reading sources… → Writing answer…`
+  的阶段状态（"show the process, not just results"）；
+- Ant Design X 生成过程规范：可感知 / 可中断 / 可确认；
+- ChatGPT / Claude 的 thinking 模式：生成中活动态，结束后折叠成 "thought for Xs"
+  （我们已有"已深度思考 X 秒"，方向一致）。
+
+**实现**：
+- 新增 `InferenceStatusPhrases#phrase(phase, phaseElapsedMs)` 纯函数（可单测）：
+  等待响应 4 档、思考 6 档（理解→梳理→推敲→验证→收敛→仍在继续）、
+  生成 4 档（组织→撰写→补充→收尾），每句 ≤10 个汉字；
+- `ChatMessage.InferenceProgress` 增加 `transient phaseStartTime`，`markStreamingPhase`
+  阶段切换时重置，避免用上一阶段时长选文案；
+- 底部生成状态行加 1.2s 文案心跳（`statusPhraseTicker`），阶段内按耗时换句，生成结束停；
+- 气泡内**当前活跃**的「深度思考」折叠头共用同一函数（parts `ReasoningPartRenderer` +
+  legacy `ChatAdapter`），文案变化时 `PAYLOAD_STATUS_UPDATE` 局部重绑；非活跃块仍是
+  "已深度思考 X 秒"；速度/tokens 单独刷新，不参与文案选择。
+
+**验证**：`InferenceStatusPhrasesTest` 5 条；全量 `testDebugUnitTest --offline --no-build-cache`
+**959 / 0 skipped / 0 failures / 0 errors**；`assembleDebug --offline` 通过（APK 07:01:39）。
+按用户要求未做真机测试；本轮装机时设备离线（adb: no devices），APK 已产出，设备恢复后可装。
 ## [2026-10-25] fix(chat-ui)：生成状态行与气泡内「深度思考」折叠头共用同一套状态词
 
 用户反馈：底部"生成中"和主气泡里的深度思考同时出现、但文字不同；希望深度思考折叠头用同一套

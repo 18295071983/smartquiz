@@ -2014,14 +2014,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 String header;
                 ChatMessage.InferencePhase thinkPhase = message.inferenceProgress != null
                         ? message.inferenceProgress.phase : null;
-                if (streaming && lastGroup
+                // 活跃思考块：与输入区上方的生成状态行共用同一套多段文案
+                // （理解问题→梳理思路→推敲关键点→验证推理→收敛结论）；非活跃块走完成态文案。
+                String activePhrase = (streaming && lastGroup) ? activeThinkingPhrase(message) : null;
+                if (activePhrase != null) {
+                    header = activePhrase;
+                } else if (streaming && lastGroup
                         && com.oilquiz.app.ai.chat.InferenceStatusLabel.isReasoningActive(thinkPhase)) {
-                    // 与输入区上方的生成状态行同一套词（思考中 / 等待响应）：
-                    // 阶段未知时退回旧文案，避免同屏两处说法不同（2026-10-25 用户反馈）
-                    String statusLabel = com.oilquiz.app.ai.chat.InferenceStatusLabel
-                            .shortLabel(thinkPhase);
-                    header = statusLabel != null
-                            ? statusLabel : ctx.getString(R.string.chat_v2_thinking_now);
+                    // 阶段未知（历史/旧引擎）：保留旧文案
+                    header = ctx.getString(R.string.chat_v2_thinking_now);
                 } else if (duration > 0L) {
                     header = ctx.getString(R.string.chat_v2_thought_for_steps,
                             formatThinkingDuration(duration), count);
@@ -2555,9 +2556,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 ? message.inferenceProgress.phase : null;
         // 只有「这一轮还在思考」时头部才挂活动态；进正文/结束就回到"已深度思考"（含多个思考块时
         // 只作用于当前活跃块——非流式轮次走下面的完成态分支）。
-        if (streaming && com.oilquiz.app.ai.chat.InferenceStatusLabel.isReasoningActive(phase)) {
-            String label = com.oilquiz.app.ai.chat.InferenceStatusLabel.shortLabel(phase);
-            return label != null ? label : ctx.getString(R.string.chat_v2_thinking_now);
+        if (streaming) {
+            String activePhrase = activeThinkingPhrase(message);
+            if (activePhrase != null) return activePhrase;
+            if (com.oilquiz.app.ai.chat.InferenceStatusLabel.isReasoningActive(phase)) {
+                return ctx.getString(R.string.chat_v2_thinking_now);
+            }
         }
         if (model.thinkingSteps > 0) {
             return model.thinkingDurationMs > 0L
@@ -2568,6 +2572,25 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 非流式但没有结构化 thinkingSteps（常见：本地 Agent 只回填了 thinkingContent）：
         // 不能回落成“正在思考”，否则完成后轮次头永远停在生成态。
         return ctx.getString(R.string.chat_v2_thought_done);
+    }
+
+    /**
+     * 活跃思考块的动态文案：与底部生成状态行共用 {@code InferenceStatusPhrases}，
+     * 按"本阶段已耗时"推进（阶段起点由 Activity 在 markStreamingPhase 里重置）。
+     * 返回 null 表示"没有可用的活动文案"（阶段未知/无起点），调用方自行回落旧资源文案。
+     */
+    private static String activeThinkingPhrase(ChatMessage message) {
+        if (message == null || message.inferenceProgress == null) return null;
+        ChatMessage.InferencePhase phase = message.inferenceProgress.phase;
+        if (!com.oilquiz.app.ai.chat.InferenceStatusLabel.isReasoningActive(phase)) return null;
+        long start = message.inferenceProgress.phaseStartTime;
+        if (start <= 0 && message.timestamp > 0) start = message.timestamp;
+        if (start > 0) {
+            String phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
+                    .phrase(phase, System.currentTimeMillis() - start);
+            if (phrase != null) return phrase;
+        }
+        return com.oilquiz.app.ai.chat.InferenceStatusLabel.shortLabel(phase);
     }
 
     /** 思考行指纹（只管思考/规划/反思；工具已拆到 toolCard） */

@@ -131,6 +131,12 @@ public class ChatMessage {
         public long estimatedRemainingMs;
         public int overallProgress;
         public String additionalInfo;
+        /**
+         * 当前推理阶段的开始时刻（毫秒）。多套状态文案按"本阶段已耗时"切换，
+         * 跨阶段必须重置，否则思考结束进入生成后仍会按思考的时长选文案。
+         * 运行时字段，不落盘。
+         */
+        public transient long phaseStartTime;
 
         public InferenceProgress() {
             this.phase = InferencePhase.IDLE;

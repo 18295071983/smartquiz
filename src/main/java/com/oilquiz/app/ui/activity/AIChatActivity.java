@@ -342,6 +342,27 @@ public class AIChatActivity extends BaseActivity {
     private volatile long reasoningTokenCount = 0;
     private volatile long reasoningStartTime = 0;
     private volatile long lastReasoningSpeedUiTime = 0;
+
+    /**
+     * 多套状态文案（2026-10-25）：按"本阶段已耗时"在 等待/思考/生成 各阶段内切换文案，
+     * 让用户感到在推进而不是卡死（业界：Perplexity 分阶段状态、ChatGPT/Claude 的
+     * thinking → thought for Xs；NN/g：>1s 要有反馈、>10s 要给持续进度与中断入口）。
+     */
+    private volatile ChatMessage.InferencePhase statusPhrasePhase = null;
+    private volatile long statusPhraseStartTime = 0;
+    private volatile String lastStatusPhrase = "";
+    /** 文案推进心跳：1.2s 一次，只在生成中跑（与 genStatusBar 的心跳相互独立） */
+    private final Runnable statusPhraseTicker = new Runnable() {
+        @Override
+        public void run() {
+            if (!isGenerating) return;
+            try {
+                updateStatusPhrase();
+            } catch (Throwable ignored) {
+            }
+            uiHandler.postDelayed(this, 1200);
+        }
+    };
     private volatile int currentStreamingMessageIndex = -1;
     private volatile String currentStreamingMessageId = null;
     private volatile int agentToolLoopCount = 0;
@@ -6105,6 +6126,11 @@ public class AIChatActivity extends BaseActivity {
             runOnUiThread(() -> markStreamingPhase(phase));
             return;
         }
+        // 阶段切换（或首帧）才重置"本阶段开始时刻"，否则同一阶段重复回调会把文案一直拉回第一句
+        if (phase != statusPhrasePhase) {
+            statusPhrasePhase = phase;
+            statusPhraseStartTime = System.currentTimeMillis();
+        }
         updateInferenceStatusRow(phase);
         final int idx = resolveStreamingIndex();
         if (idx < 0 || idx >= chatHistory.size()) return;
@@ -6112,26 +6138,61 @@ public class AIChatActivity extends BaseActivity {
         if (msg == null) return;
         if (msg.inferenceProgress == null) {
             msg.inferenceProgress = new ChatMessage.InferenceProgress(phase);
-        } else if (msg.inferenceProgress.phase != phase) {
-            msg.inferenceProgress.phase = phase;
+            msg.inferenceProgress.phaseStartTime = statusPhraseStartTime;
+        } else {
+            if (msg.inferenceProgress.phase != phase) {
+                msg.inferenceProgress.phase = phase;
+                msg.inferenceProgress.phaseStartTime = statusPhraseStartTime;
+            } else if (msg.inferenceProgress.phaseStartTime <= 0) {
+                msg.inferenceProgress.phaseStartTime = statusPhraseStartTime;
+            }
         }
     }
 
     /**
-     * 生成状态行（输入胶囊上方）：把推理阶段映射成"推理状态机"文案。
-     * 词表与气泡内「深度思考」折叠头共用 {@link com.oilquiz.app.ai.chat.InferenceStatusLabel}，
+     * 生成状态行（输入胶囊上方）：按"当前阶段 + 本阶段已耗时"给一句推进文案。
+     * 文案表与气泡内「深度思考」折叠头共用 {@link com.oilquiz.app.ai.chat.InferenceStatusPhrases}，
      * 保证同屏两处说法一致；速度由 {@link #updateStreamingTokenStats} 单独刷新。
      */
     private void updateInferenceStatusRow(final ChatMessage.InferencePhase phase) {
         if (chatInputBar == null || phase == null) {
             return;
         }
-        String label = com.oilquiz.app.ai.chat.InferenceStatusLabel.shortLabel(phase);
-        if (label == null) {
+        long start = statusPhraseStartTime > 0 ? statusPhraseStartTime : generationStartTime;
+        if (start <= 0) start = System.currentTimeMillis();
+        String text = com.oilquiz.app.ai.chat.InferenceStatusPhrases
+                .phrase(phase, System.currentTimeMillis() - start);
+        if (text == null) {
+            text = com.oilquiz.app.ai.chat.InferenceStatusLabel.shortLabel(phase);
+        }
+        if (text == null) {
             return;
         }
+        lastStatusPhrase = text;
         try {
-            chatInputBar.setInferencePhase(label);
+            chatInputBar.setInferencePhase(text);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 文案推进心跳：本阶段内按耗时换下一句；必要时让流式消息重绑，折叠头跟着换同一句 */
+    private void updateStatusPhrase() {
+        if (chatInputBar == null || statusPhrasePhase == null) return;
+        long start = statusPhraseStartTime > 0 ? statusPhraseStartTime : generationStartTime;
+        if (start <= 0) return;
+        String phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
+                .phrase(statusPhrasePhase, System.currentTimeMillis() - start);
+        if (phrase == null || phrase.contentEquals(lastStatusPhrase)) return;
+        lastStatusPhrase = phrase;
+        try {
+            chatInputBar.setInferencePhase(phrase);
+            // 气泡里的活跃思考块也按同一套文案推进（只重绑流式那一条，payload 局部刷新）
+            if (statusPhrasePhase == ChatMessage.InferencePhase.THINKING) {
+                int idx = resolveStreamingIndex();
+                if (idx >= 0 && chatAdapter != null) {
+                    chatAdapter.notifyItemChanged(idx, ChatAdapter.PAYLOAD_STATUS_UPDATE);
+                }
+            }
         } catch (Throwable ignored) {
         }
     }
@@ -6151,10 +6212,9 @@ public class AIChatActivity extends BaseActivity {
         if (elapsed <= 100) return;
         final float tps = reasoningTokenCount * 1000f / elapsed;
         runOnUiThread(() -> {
+            // 只刷速度：状态文案由 updateInferenceStatusRow / 文案心跳统一推进，
+            // 这里再写一次"思考中"会把多套备用文案打回去。
             if (chatInputBar != null) {
-                // 与气泡内活跃思考块同一个词（见 InferenceStatusLabel）
-                chatInputBar.setInferencePhase(
-                        com.oilquiz.app.ai.chat.InferenceStatusLabel.THINKING);
                 chatInputBar.setInferenceSpeed(tps);
             }
         });
@@ -7779,12 +7839,25 @@ public class AIChatActivity extends BaseActivity {
         // 后续 markStreamingPhase 更新推理阶段，updateStreamingTokenStats 更新速度。
         // 右端余额：每轮开始刷一次（仅在线模型真正发请求；异步完成后再写入该行）
         updateApiBalanceDisplay();
+
+        // 多套状态文案：从"等待模型响应…"开始，1.2s 心跳按本阶段耗时推进（防"等不及"）
+        statusPhrasePhase = ChatMessage.InferencePhase.WAITING;
+        statusPhraseStartTime = System.currentTimeMillis();
+        lastStatusPhrase = "";
+        uiHandler.removeCallbacks(statusPhraseTicker);
+        updateInferenceStatusRow(statusPhrasePhase);
+        uiHandler.postDelayed(statusPhraseTicker, 1200);
     }
 
     private void endGeneration() {
         isGenerating = false;
         isDirectStreaming = false;
         stopGenerationTicker();
+        // 多套状态文案的心跳随生成结束一起停；阶段词表清空，下一轮 beginGeneration 重新起步
+        uiHandler.removeCallbacks(statusPhraseTicker);
+        statusPhrasePhase = null;
+        statusPhraseStartTime = 0;
+        lastStatusPhrase = "";
 
         // 清理Agent执行组
         if (currentAgentGroupId != null && chatAdapter != null) {
