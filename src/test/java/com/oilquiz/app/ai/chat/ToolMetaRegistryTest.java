@@ -34,16 +34,17 @@ public class ToolMetaRegistryTest {
     }
 
     @Test
-    public void unknownToolsFallBackToChineseCategoryLabel() {
-        // 2026-10-25：用户反馈"一堆洋文感到困惑"——未知工具不再 Foo Bar，而是按活动分类给中文兜底
-        assertEquals("自定义工具", ToolMetaRegistry.displayName("foo_bar"));
-        assertEquals("自定义工具", ToolMetaRegistry.displayName("newthing"));
-        assertEquals("搜索工具", ToolMetaRegistry.displayName("custom_search_tool"));
-        assertEquals("文件读取工具", ToolMetaRegistry.displayName("my_read_file_tool"));
-        assertEquals("文件生成工具", ToolMetaRegistry.displayName("internal_docx_writer"));
+    public void unknownToolsGetPolishedEnglishNames() {
+        // 2026-10-25：用户"也不是必须中文名，英文名也行，别设计太死板"——
+        // 表外工具保留润色后的英文名：去尾部技术后缀、缩写大写、下划线转空格
+        assertEquals("Foo Bar", ToolMetaRegistry.displayName("foo_bar"));
+        assertEquals("Newthing", ToolMetaRegistry.displayName("newthing"));
+        assertEquals("Custom Search", ToolMetaRegistry.displayName("custom_search_tool"));
+        assertEquals("My Read File", ToolMetaRegistry.displayName("my_read_file_tool"));
+        assertEquals("Internal DOCX Writer", ToolMetaRegistry.displayName("internal_docx_writer"));
         String fallback = ToolMetaRegistry.displayName("some_brand_new_tool");
         assertFalse("不能把内部名直接给用户看", fallback.contains("_"));
-        assertFalse("兜底也不该是洋文", fallback.matches(".*[A-Za-z].*"));
+        assertEquals("Some Brand New", fallback);
         assertFalse(ToolMetaRegistry.isKnown("some_brand_new_tool"));
     }
 

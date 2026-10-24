@@ -9,7 +9,10 @@ import java.util.Map;
  *
  * <p>此前只有 {@code ChatMessage.formatToolDisplayName} 里 9 个 case，其余工具直接把
  * {@code python_execute} 这类内部名甩给用户看。这里收成一张表 + 一个兜底：
- * 表里没有的工具按 {@code foo_bar → Foo Bar} 人性化，仍然不暴露原始下划线名。
+ * 表里没有的工具做<b>轻度润色</b>（去技术后缀、缩写大写、下划线转空格），
+ * 例如 {@code custom_search_tool → Custom Search}、{@code foo_bar → Foo Bar}。
+ * 不强行翻译成"搜索工具/自定义工具"这类生硬中文（2026-10-25 用户："也不是必须中文名，
+ * 英文名也行，别设计太死板"）。
  *
  * <p>名单以 {@code AITool#getName()} 的实际注册名为准（外加少量历史别名，
  * 如 {@code get_weather} 与 {@code ai_weather} 并存、{@code python_*} 由
@@ -20,6 +23,24 @@ import java.util.Map;
 public final class ToolMetaRegistry {
 
     private static final Map<String, String> NAMES;
+    /** 常见技术缩写：兜底润色时保持大写（ocr→OCR、docx→DOCX…） */
+    private static final Map<String, String> ACRONYMS = new HashMap<>();
+    /** 尾部技术后缀：润色时只削掉最外层（custom_search_tool → Custom Search） */
+    private static final java.util.Set<String> TECH_SUFFIXES = new java.util.HashSet<>();
+
+    static {
+        String[][] acronyms = {
+                {"ai", "AI"}, {"ocr", "OCR"}, {"ui", "UI"}, {"api", "API"}, {"pdf", "PDF"},
+                {"apk", "APK"}, {"js", "JS"}, {"db", "DB"}, {"url", "URL"}, {"html", "HTML"},
+                {"json", "JSON"}, {"csv", "CSV"}, {"docx", "DOCX"}, {"xlsx", "XLSX"},
+                {"pptx", "PPTX"}, {"sql", "SQL"}, {"mcp", "MCP"}, {"npu", "NPU"},
+                {"llm", "LLM"}, {"tts", "TTS"}, {"asr", "ASR"}, {"gpu", "GPU"},
+                {"cpu", "CPU"}, {"http", "HTTP"}, {"https", "HTTPS"}, {"ip", "IP"}
+        };
+        for (String[] pair : acronyms) ACRONYMS.put(pair[0], pair[1]);
+        java.util.Collections.addAll(TECH_SUFFIXES, "tool", "execute", "executor", "manager",
+                "handler", "service", "runner", "helper", "util", "impl", "action");
+    }
 
     static {
         Map<String, String> m = new HashMap<>();
@@ -100,18 +121,45 @@ public final class ToolMetaRegistry {
     private ToolMetaRegistry() {
     }
 
-    /** 工具中文名；表里没有时按引擎侧活动分类给中文兜底（不再把内部名/洋文甩给用户） */
+    /** 工具展示名：表内中文名优先；表外做轻度英文润色（不做生硬中文翻译） */
     public static String displayName(String toolName) {
         if (toolName == null || toolName.isEmpty()) return "";
         String name = NAMES.get(toolName);
         if (name != null) return name;
-        // 2026-10-25 用户反馈："一堆洋文有时候会感到困惑"——未知工具按分类兜底成
-        // "搜索工具/文件生成工具/自定义工具"，而不是 Foo Bar。
-        return com.oilquiz.app.ai.chat.status.AgentActivityKind.classify(toolName).displayLabel();
+        // 2026-10-25：用户反馈"也不是必须中文名，英文名也行，别设计太死板"——
+        // 表外工具保留润色后的英文名（去技术后缀/缩写大写），不再强翻成"搜索工具"这类怪名字。
+        return polish(toolName);
     }
 
     /** 是否已在名单里（单测与排查用） */
     public static boolean isKnown(String toolName) {
         return toolName != null && NAMES.containsKey(toolName);
+    }
+
+    /**
+     * 表外工具名的轻度润色：{@code custom_search_tool → Custom Search}、
+     * {@code internal_docx_writer → Internal DOCX Writer}、{@code foo_bar → Foo Bar}。
+     * 只削一层尾部技术后缀；常见缩写保持大写；全空时退回 "Tool"。
+     */
+    static String polish(String toolName) {
+        String[] parts = toolName.split("[_\\-\\s]+");
+        int last = parts.length - 1;
+        while (last > 0 && TECH_SUFFIXES.contains(parts[last].toLowerCase(java.util.Locale.ROOT))) {
+            last--;
+        }
+        StringBuilder sb = new StringBuilder(toolName.length());
+        for (int i = 0; i <= last; i++) {
+            String p = parts[i];
+            if (p.isEmpty()) continue;
+            String acronym = ACRONYMS.get(p.toLowerCase(java.util.Locale.ROOT));
+            if (sb.length() > 0) sb.append(' ');
+            if (acronym != null) {
+                sb.append(acronym);
+            } else {
+                sb.append(Character.toUpperCase(p.charAt(0))).append(p.substring(1));
+            }
+        }
+        String out = sb.toString().trim();
+        return out.isEmpty() ? "Tool" : out;
     }
 }

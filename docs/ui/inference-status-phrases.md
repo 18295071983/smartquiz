@@ -166,13 +166,15 @@
 用户："工具名是否可以有文案别名啊…一堆洋文有时候会感到困惑…还有是否可以追加，比如正在干什么。
 引擎侧基础设施不够的话可以追加设计啊。还有就是没有在文案里的工具名，是否就是通用工具？"
 
-### 7.1 别名（中文名）三层口径
+### 7.1 别名口径（中文优先，表外轻度英文润色）
 
 1. **登记表**：`ToolMetaRegistry`（已有约 60 条：`python_execute → Python 执行`、
    `network_search → 网络搜索`、`excel_tool → Excel 处理` …）；
-2. **分类兜底**：表里没有的工具 → `AgentActivityKind#displayLabel`
-   （搜索工具 / 文件读取工具 / 文件生成工具 / 图片生成工具 / 图表生成工具 / 代码执行工具 /
-   下载工具 / 数据查询工具 / 自定义工具）；**不再**输出 `Foo Bar` 这种英文；
+2. **表外润色**：不做生硬中文分类翻译（用户 2026-10-25 反馈"也不是必须中文名，英文名也行，
+   别设计太死板"，并指出"自定义工具/搜索工具"这类名字怪异）。改为轻度英文润色：
+   去尾部技术后缀（`tool/execute/manager/...`）、常见缩写大写（`ocr→OCR`、`docx→DOCX`）、
+   下划线转空格。示例：`custom_search_tool → Custom Search`、
+   `internal_docx_writer → Internal DOCX Writer`、`foo_bar → Foo Bar`；
 3. **使用点**：`ToolCallCardView`（单工具卡名字）、`ActivityTimeline`（工具行标题）、
    `ChatMessage.ToolCallInfo.toolDisplayName` 都走同一个 `ToolMetaRegistry`，没有第二套口径。
 
@@ -192,9 +194,10 @@
 
 是：分类落到 `AgentActivityKind.GENERIC`，文案走通用四段
 （`正在调用工具… → 工具执行中… → 工具耗时较长… → 仍在等待工具结果…`），
-卡片名显示兜底中文标签（如"自定义工具"）。不会出现空文案，也不会露出内部下划线名/洋文。
+卡片名显示润色后的英文名（如 `Foo Bar`/`Custom Search`）。不会出现空文案，也不会露出
+原始下划线名；中文/英文都行，不强求翻译。
 
 ### 7.4 验证
 
-`ToolMetaRegistryTest`（未知工具中文兜底）、`AgentActivityKindTest`（快照 displayName/target、
+`ToolMetaRegistryTest`（表外工具英文润色）、`AgentActivityKindTest`（快照 displayName/target、
 文案追加）覆盖；全量 967 / 0 skipped / 0 failures / 0 errors；APK 07:21:26 已装机，未做真机测试。

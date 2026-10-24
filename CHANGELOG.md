@@ -1,5 +1,22 @@
 # 变更日志
 
+## [2026-10-25] fix(chat-ui)：工具名兜底去掉生硬中文分类，改轻度英文润色
+
+用户："也不是必须时中文名英文名也行，不用设计的太死板了"——并指出
+"自定义工具/搜索工具/文件读取工具"这些兜底名看着怪异。
+
+- `ToolMetaRegistry` 表外兜底不再按分类翻成生硬中文（`AgentActivityKind#displayLabel` 删除），
+  改为**轻度英文润色**：去尾部技术后缀（`tool/execute/executor/manager/handler/service/...`）、
+  常见缩写保持大写（`ocr→OCR`、`docx→DOCX`、`ui→UI`…）、下划线转空格；
+  示例：`custom_search_tool → Custom Search`、`internal_docx_writer → Internal DOCX Writer`、
+  `foo_bar → Foo Bar`；
+- 表内中文别名保持不变（`python_execute → Python 执行`、`network_search → 网络搜索`、
+  `excel_tool → Excel 处理`…）；中文优先、英文兜底，不强求翻译；
+- 未知工具的状态文案仍是通用四段（`正在调用工具… → 工具执行中… → …`），
+  只是卡片名从"自定义工具"改成润色英文名；
+- 测试：`ToolMetaRegistryTest` 表外用例改为断言英文润色结果；全量
+  `testDebugUnitTest --offline --no-build-cache` **967 / 0 skipped / 0 failures / 0 errors**；
+  `assembleDebug --offline` 通过；按用户要求未做真机测试。
 ## [2026-10-25] feat(chat-ui)：工具中文别名兜底 + 状态文案追加"正在干什么"
 
 用户："工具名是否可以有文案别名啊，毕竟用户不懂，一堆洋文有时候会感到困惑…还有是否可以追加，

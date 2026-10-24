@@ -2684,6 +2684,12 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
     - 测试：`ToolMetaRegistryTest` 更新；`AgentActivityKindTest` 加"快照带别名/目标"与
       "文案可追加正在干什么"；全量 **967 / 0 skipped / 0 failures / 0 errors**；
       APK 07:21:26 已装机，未做真机验证。设计文档 §7。
+13. **别名兜底修正（同日第八轮，用户："也不是必须中文名，英文名也行，不用设计太死板" +
+    指出"自定义工具/搜索工具"类名字怪异）**：`ToolMetaRegistry` 表外兜底不再按分类翻中文
+    （`AgentActivityKind#displayLabel` 删除），改为**轻度英文润色**：去尾部技术后缀、常见缩写
+    大写、下划线转空格（`custom_search_tool → Custom Search`、`foo_bar → Foo Bar`）；
+    表内中文别名不变，中文优先、英文兜底；未知工具的文案仍是通用四段。
+    测试更新；全量 967 / 0 skipped / 0 failures / 0 errors。
 
 ---
 

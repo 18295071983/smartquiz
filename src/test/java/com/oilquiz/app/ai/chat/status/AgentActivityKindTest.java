@@ -103,11 +103,11 @@ public class AgentActivityKindTest {
         assertEquals("季度报告.docx", snap.target);
         AgentActivityBus.clear();
 
-        // 未知工具 → 分类兜底的中文名，不再是洋文
+        // 未知工具 → 润色英文名（中文优先/英文兜底，不强行翻译）
         AgentActivityBus.started("foo_bar_tool", null);
         snap = AgentActivityBus.current();
         assertNotNull(snap);
-        assertEquals("自定义工具", snap.displayName);
+        assertEquals("Foo Bar", snap.displayName);
         assertEquals("", snap.target);
         AgentActivityBus.clear();
     }
