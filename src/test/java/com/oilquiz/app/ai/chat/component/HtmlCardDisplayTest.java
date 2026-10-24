@@ -103,6 +103,54 @@ public class HtmlCardDisplayTest {
     }
 
     @Test
+    public void bracketDisplayMathIsExtractedAsInlineHtml() {
+        String content = "前面\n\\[\na + b\n\n= c\n\\]\n后面";
+        assertTrue("\\[...\\] 必须被识别成块级数学",
+                MermaidMathSplitter.containsStructure(content));
+        List<MermaidMathSplitter.Segment> segs = MermaidMathSplitter.split(content, false);
+        ComponentData math = firstMathComponent(segs);
+        assertNotNull("\\[...\\] 段必须切成 html 组件", math);
+        assertEquals("html", math.type);
+        assertTrue(math.internalTemplate);
+        assertEquals("inline", math.props.optString("display"));
+        String html = math.props.optString("html");
+        assertTrue("公式必须走 katex displayMode", html.contains("katex.render"));
+        assertTrue(html.contains("displayMode:true"));
+        String text = textOf(segs);
+        assertTrue(text.contains("前面") && text.contains("后面"));
+    }
+
+    @Test
+    public void unclosedBracketMathStaysText() {
+        String content = "前面\n\\[\na + b\n";
+        assertFalse("没闭合的 \\[ 不能算结构",
+                MermaidMathSplitter.containsStructure(content));
+        List<MermaidMathSplitter.Segment> segs = MermaidMathSplitter.split(content, false);
+        assertEquals("不能抽成组件", null, firstMathComponent(segs));
+        assertTrue("原文必须保留 \\[", textOf(segs).contains("\\["));
+    }
+
+    @Test
+    public void mathInsideCodeFenceStaysText() {
+        String content = "```\n\\[\na + b\n\\]\n$$\nc\n$$\n```";
+        assertFalse("代码块里的公式不能把整条消息路由到 mermaid/math 路径",
+                MermaidMathSplitter.containsStructure(content));
+        List<MermaidMathSplitter.Segment> segs = MermaidMathSplitter.split(content, false);
+        assertEquals("代码块里的公式不能抽成 html 组件",
+                null, firstMathComponent(segs));
+        String text = textOf(segs);
+        assertTrue(text.contains("\\[") && text.contains("$$"));
+    }
+
+    @Test
+    public void dollarDisplayMathStillExtracted() {
+        String content = "前\n$$\na + b\n$$\n后";
+        ComponentData math = firstMathComponent(MermaidMathSplitter.split(content, false));
+        assertNotNull("$$ 原有路径不能回归", math);
+        assertTrue(math.props.optString("html").contains("katex.render"));
+    }
+
+    @Test
     public void inlineComponentMarkerDeclaresInlineForHtmlOnly() {
         ComponentData html = firstComponent(
                 "```component:html\n{\"html\":\"<table><tr><td>1</td></tr></table>\"}\n```");
@@ -168,6 +216,21 @@ public class HtmlCardDisplayTest {
         assertEquals(ComponentDisplay.Mode.PEEK, ComponentDisplay.defaultTier(ctx));
 
         ComponentDisplay.setDefaultTier(ctx, ComponentDisplay.name(ComponentDisplay.Mode.PEEK));
+    }
+
+    private static ComponentData firstMathComponent(List<MermaidMathSplitter.Segment> segs) {
+        for (MermaidMathSplitter.Segment s : segs) {
+            if (s.isComponent && s.component != null) return s.component;
+        }
+        return null;
+    }
+
+    private static String textOf(List<MermaidMathSplitter.Segment> segs) {
+        StringBuilder sb = new StringBuilder();
+        for (MermaidMathSplitter.Segment s : segs) {
+            if (!s.isComponent && s.text != null) sb.append(s.text);
+        }
+        return sb.toString();
     }
 
     private static ComponentData firstComponent(String content) {

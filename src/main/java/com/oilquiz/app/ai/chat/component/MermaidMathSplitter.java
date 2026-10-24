@@ -6,11 +6,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Mermaid/数学公式拆分器：检测聊天内容中的 ```mermaid 代码块 与 $$ 块级数学公式，
- * 生成 HTML 交给 html 组件（WebView）渲染——
+ * Mermaid/数学公式拆分器：检测聊天内容中的 ```mermaid 代码块 与块级数学公式
+ * （{@code $$...$$} 或 {@code \[...\]}），生成 HTML 交给 html 组件（WebView）渲染——
  * - mermaid 用本地 mermaid.js 渲染 SVG 图表（流程图/时序图/思维导图等）
  * - 数学用本地 katex 渲染真实公式（完整 LaTeX 支持）
- * 其余文本段保持 Markdown 渲染。仅提取完整结构（闭合的 mermaid 块/配对的 $$）。
+ * 其余文本段保持 Markdown 渲染。仅提取完整结构（闭合的 mermaid 块/配对的 $$ 或 \[...\]）；
+ * 普通代码围栏里的同样字符原样保留，不误当公式。
  */
 public class MermaidMathSplitter {
 
@@ -22,16 +23,66 @@ public class MermaidMathSplitter {
     /** 块级数学公式 $$ ... $$（跨行） */
     private static final Pattern MATH_BLOCK = Pattern.compile("\\$\\$(.+?)\\$\\$", Pattern.DOTALL);
 
+    /** 块级数学公式 \[ ... \]（跨行；KaTeX 与 __qzBoot 的 display 档同口径） */
+    private static final Pattern BRACKET_MATH_BLOCK = Pattern.compile(
+            Pattern.quote("\\[") + "(.+?)" + Pattern.quote("\\]"), Pattern.DOTALL);
+
     /** 内容是否含可图形化的片段（mermaid 块或块级数学） */
     public static boolean containsStructure(String content) {
         if (content == null || content.isEmpty()) return false;
         try {
-            return MERMAID_OPEN.matcher(content).find() || MATH_BLOCK.matcher(content).find();
+            // 先跳代码围栏再判数学：代码块里的 $$ / \[ 不是公式，不能把整条消息
+            // 误路由到 mermaid/math 原生渲染路径。
+            return hasMermaidBlock(content) || hasMathOutsideFences(content);
         } catch (Throwable t) {
             // 防御：异常输入不阻断渲染
             android.util.Log.w(TAG, "containsStructure failed: " + t.getMessage());
             return false;
         }
+    }
+
+    /** 顶层 mermaid 围栏（代码块里的 ```mermaid 不算）。 */
+    private static boolean hasMermaidBlock(String content) {
+        String[] lines = splitLines(content);
+        Fence fence = null;
+        for (String line : lines) {
+            if (fence != null) {
+                if (fenceClose(line, fence)) fence = null;
+                continue;
+            }
+            if (MERMAID_OPEN.matcher(line).find()) return true;
+            Fence opened = fenceOpen(line);
+            if (opened != null) fence = opened;
+        }
+        return false;
+    }
+
+    /** 去掉普通代码围栏后再看 $$ / \[...\] 是否成对。 */
+    private static boolean hasMathOutsideFences(String content) {
+        String stripped = stripFencedCode(content);
+        return MATH_BLOCK.matcher(stripped).find()
+                || BRACKET_MATH_BLOCK.matcher(stripped).find();
+    }
+
+    private static String stripFencedCode(String content) {
+        String[] lines = splitLines(content);
+        StringBuilder out = new StringBuilder(content.length());
+        Fence fence = null;
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            if (fence != null) {
+                if (fenceClose(line, fence)) fence = null;
+                continue;
+            }
+            Fence opened = fenceOpen(line);
+            if (opened != null) {
+                fence = opened;
+                continue;
+            }
+            out.append(line);
+            if (i < lines.length - 1) out.append('\n');
+        }
+        return out.toString();
     }
 
     /**
@@ -89,21 +140,48 @@ public class MermaidMathSplitter {
                 // 未闭合：按文本处理（fall through）
             }
 
-            // 2) 块级数学 $$...$$（跨行累积）
-            if (line.trim().startsWith("$$")) {
-                StringBuilder math = new StringBuilder();
-                math.append(line.replace("$$", "")).append('\n');
-                // j 从当前行开始扫描（单行公式 $$x$$ 的闭合就在本行，没有独立的闭合行）
-                int j = i;
-                boolean closed = line.trim().endsWith("$$") && line.trim().length() > 2;
-                while (!closed && j + 1 < lines.length) {
-                    j++;
-                    if (lines[j].trim().endsWith("$$")) {
-                        math.append(lines[j].replace("$$", ""));
+            // 2) 普通代码围栏：整块按文本保留，别把里面的 $$ / \[ 当公式
+            Fence fence = fenceOpen(line);
+            if (fence != null) {
+                appendLine(textBuf, line, i, lines.length);
+                int j = i + 1;
+                boolean closed = false;
+                while (j < lines.length) {
+                    appendLine(textBuf, lines[j], j, lines.length);
+                    if (fenceClose(lines[j], fence)) {
                         closed = true;
                         break;
                     }
-                    math.append(lines[j]).append('\n');
+                    j++;
+                }
+                i = closed ? j : lines.length - 1;
+                continue;
+            }
+
+            // 3) 块级数学：$$...$$ 或 \[...\]（跨行；单行闭合也支持）
+            String trimmed = line.trim();
+            boolean dollarOpen = trimmed.startsWith("$$");
+            boolean bracketOpen = trimmed.startsWith("\\[");
+            if (dollarOpen || bracketOpen) {
+                String open = dollarOpen ? "$$" : "\\[";
+                String close = dollarOpen ? "$$" : "\\]";
+                StringBuilder math = new StringBuilder();
+                int j = i;
+                boolean closed = trimmed.length() > open.length() && trimmed.endsWith(close);
+                if (closed) {
+                    math.append(line.replace(open, "").replace(close, ""));
+                } else {
+                    math.append(line.replace(open, "")).append('\n');
+                    while (j + 1 < lines.length) {
+                        j++;
+                        String next = lines[j];
+                        if (next.trim().endsWith(close)) {
+                            math.append(next.replace(close, ""));
+                            closed = true;
+                            break;
+                        }
+                        math.append(next).append('\n');
+                    }
                 }
                 if (closed) {
                     flushText(textBuf, segs);
@@ -113,15 +191,13 @@ public class MermaidMathSplitter {
                                 htmlProps(mathHtml(formula, true, isDark)))));
                     }
                     // j 恒为最后消费的行号：单行公式 j==i，多行公式 j==闭合行。
-                    // for 循环 ++ 后自然从下一行继续，不会跳过/越过下一行。
                     i = j;
                     continue;
                 }
                 // 未闭合：按文本处理（fall through）
             }
 
-            textBuf.append(line);
-            if (i < lines.length - 1) textBuf.append('\n');
+            appendLine(textBuf, line, i, lines.length);
         }
 
         flushText(textBuf, segs);
@@ -147,6 +223,45 @@ public class MermaidMathSplitter {
         }
         out.add(content.substring(start));
         return out.toArray(new String[0]);
+    }
+
+    /** 普通围栏（``` / ~~~）：只用于把代码块整块当文本、防止里面的 $$ / \[ 被抽成公式。 */
+    private static final class Fence {
+        final char ch;
+        final int len;
+
+        Fence(char ch, int len) {
+            this.ch = ch;
+            this.len = len;
+        }
+    }
+
+    private static Fence fenceOpen(String line) {
+        String t = line.trim();
+        if (t.length() < 3) return null;
+        char c = t.charAt(0);
+        if (c != '`' && c != '~') return null;
+        int n = 0;
+        while (n < t.length() && t.charAt(n) == c) n++;
+        if (n < 3) return null;
+        return new Fence(c, n);
+    }
+
+    private static boolean fenceClose(String line, Fence fence) {
+        String t = line.trim();
+        int n = 0;
+        while (n < t.length() && t.charAt(n) == fence.ch) n++;
+        if (n < fence.len) return false;
+        for (int i = n; i < t.length(); i++) {
+            char c = t.charAt(i);
+            if (c != ' ' && c != '\t') return false;
+        }
+        return true;
+    }
+
+    private static void appendLine(StringBuilder buf, String line, int index, int total) {
+        buf.append(line);
+        if (index < total - 1) buf.append('\n');
     }
 
     /** mermaid HTML：引用本地 mermaid.js，渲染 SVG 图表 */
