@@ -1,5 +1,22 @@
 # 变更日志
 
+## [2026-10-25] fix(chat-markdown)：主气泡表格改用滚动容器 + 脚注预处理
+
+主气泡仍走 `MarkdownHtmlConverter`（commonmark + GFM tables/strikethrough），
+上一轮只修了公式切分，表格/脚注还没补齐。
+
+- **表格**：`table{display:block;overflow-x:auto}` 会拆掉表格布局；改为 JS 给每个
+  `<table>` 包一层 `.table-wrap` 横向滚动容器，`table` 恢复 `table-layout:auto`，
+  `th/td` 允许 `word-break`。整篇和流式闭块/尾巴都走同一 `qzTables`。
+- **脚注**：`MarkdownHtmlConverter.preprocessFootnotes` 抽出 `[^id]: 文本`（含四空格
+  续行），正文 `[^id]` 转 `sup` 锚点，末尾追加 `.qz-footnotes` 列表；代码围栏内的
+  定义不处理。commonmark 没有脚注扩展，这是主气泡的最小可用实现。
+- **仍不支持**：定义列表（`term\n: definition`）；需要完整语法仍用 `markdown_doc`
+  卡（markdown-it + footnote/deflist）。
+- **验证**：新增 `MarkdownHtmlConverterTest` 3 条（表格 wrapper、脚注、围栏不误伤）；
+  全量 **876 tests / 0 skipped / 0 failures / 0 errors**；APK 02:24:11，已装机
+  （02:24:41）。主气泡表格/脚注尚未逐条真机点过。
+
 ## [2026-10-25] feat(webview)：WebViewActivity 的 Markdown 预览换 MarkdownDocPage
 
 `WebViewActivity.loadTextFile` 里的 `.md` 预览此前是十几行正则替换（代码块/标题/粗体/链接/

@@ -8,8 +8,12 @@ import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
 
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Markdown → HTML 转换器（基于 classpath 已有的 commonmark 0.13.0，零新增依赖）。
@@ -47,9 +51,81 @@ public final class MarkdownHtmlConverter {
     /** 渲染 markdown 为 body 片段 HTML（不含 <html>/<head>）。null/空返回空串。 */
     public static String markdownToBodyHtml(String markdown) {
         if (markdown == null || markdown.isEmpty()) return "";
-        String safe = closeUnclosedCodeFence(markdown);
+        String withFootnotes = preprocessFootnotes(markdown);
+        String safe = closeUnclosedCodeFence(withFootnotes);
         String html = RENDERER.render(PARSER.parse(safe));
         return renderTaskLists(sanitize(html));
+    }
+
+    private static final Pattern FOOTNOTE_DEF =
+            Pattern.compile("^\\[\\^([^\\]]+)\\]:[ \\t]*(.*)$");
+
+    /**
+     * 主气泡的 commonmark 没有脚注扩展，这里做最小可用的脚注预处理：
+     * 抽出 {@code [^id]: 文本}（含四空格续行），把正文引用换成 sup 链接，
+     * 末尾追加脚注区。代码围栏内原样保留；脚注文本交后续 HTML 净化。
+     */
+    static String preprocessFootnotes(String markdown) {
+        if (markdown == null || markdown.indexOf("[^") < 0) return markdown;
+        Map<String, String> defs = new LinkedHashMap<>();
+        StringBuilder body = new StringBuilder(markdown.length());
+        String[] lines = markdown.split("\n", -1);
+        boolean inFence = false;
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            String trimmed = line.trim();
+            if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+                inFence = !inFence;
+                body.append(line).append('\n');
+                continue;
+            }
+            if (!inFence) {
+                Matcher m = FOOTNOTE_DEF.matcher(line);
+                if (m.matches()) {
+                    String id = m.group(1).trim();
+                    StringBuilder text = new StringBuilder(m.group(2).trim());
+                    while (i + 1 < lines.length) {
+                        String next = lines[i + 1];
+                        if (next.startsWith("    ")) {
+                            text.append('\n').append(next.substring(4));
+                            i++;
+                        } else if (next.startsWith("\t")) {
+                            text.append('\n').append(next.substring(1));
+                            i++;
+                        } else {
+                            break;
+                        }
+                    }
+                    if (!id.isEmpty()) defs.put(id, text.toString());
+                    continue;
+                }
+            }
+            body.append(line).append('\n');
+        }
+        if (defs.isEmpty()) return markdown;
+
+        String text = body.toString();
+        for (Map.Entry<String, String> e : defs.entrySet()) {
+            String id = e.getKey();
+            text = text.replace("[^" + id + "]",
+                    "<sup class=\"qz-fn-ref\" id=\"fnref-" + footnoteId(id)
+                            + "\"><a href=\"#fn-" + footnoteId(id) + "\">" + id + "</a></sup>");
+        }
+        StringBuilder out = new StringBuilder(text);
+        out.append("\n<section class=\"qz-footnotes\"><ol>");
+        for (Map.Entry<String, String> e : defs.entrySet()) {
+            String id = footnoteId(e.getKey());
+            out.append("<li id=\"fn-").append(id).append("\">")
+                    .append(e.getValue())
+                    .append(" <a class=\"qz-fn-back\" href=\"#fnref-").append(id)
+                    .append("\">↩</a></li>");
+        }
+        out.append("</ol></section>\n");
+        return out.toString();
+    }
+
+    private static String footnoteId(String id) {
+        return id.replaceAll("[^A-Za-z0-9_-]", "-");
     }
 
     /**
@@ -301,7 +377,14 @@ public final class MarkdownHtmlConverter {
                 + "function qzAnchors(root){qzEach(root,'a',function(a){a.style.cursor='pointer';"
                 + "if(a.target){a.removeAttribute('target');}a.rel='noopener';});}"
                 // 装饰开关：闭块 true/true/true；尾巴 false/false/false（linkify/图片/锚点仍做）
+                // 宽表格：包一层横向滚动容器（不能给 table 本身 display:block，会拆掉表格布局）
+                + "function qzTables(root){var tbs=root.querySelectorAll?root.querySelectorAll('table'):[];"
+                + "for(var i=0;i<tbs.length;i++){var tb=tbs[i];var pn=tb.parentNode;"
+                + "if(pn&&pn.className==='table-wrap')continue;"
+                + "if(!pn)continue;var wr=document.createElement('div');wr.className='table-wrap';"
+                + "pn.insertBefore(wr,tb);wr.appendChild(tb);}}"
                 + "function qzDecorate(root,doHl,doMath,doCopy){"
+                + "try{qzTables(root);}catch(e){}"
                 + "if(doMath){try{qzMath(root);}catch(e){}}"
                 + "try{qzLinkify(root);}catch(e){}"
                 + "if(doHl){try{qzHl(root);}catch(e){}}"
@@ -374,11 +457,17 @@ public final class MarkdownHtmlConverter {
                 + ";background:" + btnBg + ";border:none;border-radius:4px;padding:2px 8px;cursor:pointer}"
                 + "blockquote{margin:0.6em 0;padding:0.2em 0.9em;border-left:4px solid " + quoteBar
                 + ";color:" + muted + ";background:" + (night ? "#111827" : "#f8fafc") + ";border-radius:0 6px 6px 0}"
-                + "table{border-collapse:collapse;width:100%;margin:0.6em 0;font-size:0.92em;display:block;overflow-x:auto}"
-                + "th,td{border:1px solid " + border + ";padding:7px 10px;text-align:left;vertical-align:top}"
+                + "table{border-collapse:collapse;width:100%;margin:0;font-size:0.92em;table-layout:auto}"
+                + ".table-wrap{overflow-x:auto;margin:0.6em 0;-webkit-overflow-scrolling:touch}"
+                + ".table-wrap table{min-width:100%}"
+                + "th,td{border:1px solid " + border + ";padding:7px 10px;text-align:left;vertical-align:top;word-break:break-word}"
                 + "th{background:" + thBg + ";font-weight:700}"
                 + "tr:nth-child(even) td{background:" + rowAlt + "}"
                 + "hr{border:none;border-top:1px solid " + border + ";margin:1em 0}"
-                + "del{color:" + muted + "}";
+                + "del{color:" + muted + "}"
+                + ".qz-footnotes{margin-top:1.2em;border-top:1px solid " + border + ";padding-top:.6em;font-size:.9em;color:" + muted + "}"
+                + ".qz-footnotes ol{margin:.4em 0;padding-left:1.4em}"
+                + ".qz-fn-ref{font-size:.75em;vertical-align:super;line-height:0}"
+                + ".qz-fn-back{text-decoration:none;margin-left:.3em}";
     }
 }

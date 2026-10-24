@@ -2203,6 +2203,20 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 5. **同批无其他卡片删除**（`QuickToolChipModule` 是工具模块，不是卡）。并行会话的
    markdown_doc/公式/html .md 路由已单独提交 `df007533`。
 
+### 4.100 fix(chat-markdown)：主气泡表格/脚注补齐（2026-10-25）
+
+1. **背景**：主气泡仍走 `MarkdownHtmlConverter`（commonmark + GFM tables/strikethrough），
+   `df007533` 只修了块级公式不再切组件；表格仍 `table{display:block}` 破坏布局，
+   commonmark 也没有脚注扩展。
+2. **表格**：JS `qzTables` 给每个 `<table>` 包 `.table-wrap` 横向滚动容器，CSS 去掉
+   table 的 `display:block`，恢复 `table-layout:auto`，th/td 加 `word-break`；
+   整篇/闭块/尾巴共享。
+3. **脚注**：`preprocessFootnotes` 抽定义（四空格续行）、`[^id]` 转 sup 锚点、
+   末尾追加 `.qz-footnotes`；代码围栏内不处理。脚注文本不做完整 markdown 解析。
+4. **边界**：定义列表仍不支持；完整语法（脚注/定义列表）仍走 `markdown_doc`。
+5. **验证**：`MarkdownHtmlConverterTest` 3 条；全量 **876 / 0 skipped / 0 failures /
+   0 errors**；APK 02:24:11，已装机（02:24:41）。真机逐条还没点。
+
 ---
 
 ## 5. 关键文件 / 改动地图
