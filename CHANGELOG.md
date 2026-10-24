@@ -1,5 +1,39 @@
 # 变更日志
 
+## [2026-10-24] docs(python-ui)：create_component 的展示面按实现写清——是弹窗，不是聊天流卡片
+
+核 `Android.submit` 用法时顺带查到一条文案与实现不符，且它同时存在于**四条模型可见通道**：
+
+- 实现事实：`android_ui.set_ui_callback` 由 `PythonToolManager` 注入，内置组件走
+  `createComponent` → `registry.render(fAct, data)` 装进 **AlertDialog**；没有前台 Activity 时
+  整条降级成 Toast；全程不碰 `ComponentCollector`——所以脚本建的卡片**不进聊天流、关掉就不留档**。
+- 而 `python_execute` 的三份描述（`@Tool` 注解、`super()` 构造串=运行期 `getDescription()`、
+  `AIToolManager` 在线硬编码定义）和 `android_ui.py` 注释都写着"渲染成聊天流卡片"。
+  模型照这个预期写脚本，产物只是弹一下的对话框，还会以为用户能在气泡里点它。
+- 改法：四份统一写成"同一套原生卡片渲染，展示面是前台 Activity 的弹窗；props 带 actions 可交互、
+  `get_component_result` 取回点击值；无前台 Activity 降级 Toast；**要挂进 AI 消息气泡请用
+  `ui_component` 工具(action=create)**；工具产物(.html/.png/.xlsx)由 UI 桥接层自动补挂卡片"。
+  没动实现——把 python 路径改成进聊天流是另一个决定（涉及消息落盘与组件生命周期）。
+- 同轮把 `Android.submit` 的用法补进 `ComponentTypes.PROPS_DOC_HTML`（三处 props 说明共用一份）、
+  目录 html 行 note、工作区速查表与 `android_ui.py`：口径是"只有工作区本地网页文件 + 卡带 actions"
+  才拿得到这条桥，payload≤16KB 当不透明串，`component_id` 由 native 绑定页面 JS 改不了；
+  并写明**开关 `html_component_submit` 被关掉时 submit 静默无效、`get_result` 只等到 pending，
+  那就退回 actions**——教用法的同时把失效形态也告诉模型，才不会当成链路坏了反复重试。
+- **同轮把 `html_component_submit` 的出厂默认从 false 翻成 true**（用户拍板；设计文档§6 的顺序就是
+  "真机验通 → 翻默认 → 补文案"，真机 prefs 已开着跑通端到端）。`HtmlSubmitFlag` 抽出
+  `DEFAULT_ENABLED` 常量，读不到偏好（Context 为空/异常）也统一按默认档兜底，不再出现
+  "null→false、读失败→true"两种相反答案。能力增量与设计文档§4 一致：只有 `LOCAL_FILE` 档
+  + 卡带 `actions` 时，页面 JS 能往**自己这张卡**的结果槽写一个 ≤16KB 不透明串；id 由 native
+  绑定、payload 不解析不执行不进任何执行路径。回滚就是把这条 pref 置 false，逐字节回到旧行为。
+- 验证：`ToolSchemaVisibilityTest` 新增 `pythonCreateComponentTeachesDialogSurfaceNotChatStream`
+  （三份来源 + android_ui 必须含"弹窗/ui_component"、禁止再出现"渲染成聊天流卡片"）；
+  `HtmlBridgeSubmitTest` 的默认档断言从"默认必须关"改成"默认必须是开 + 仍能关回去"。
+  翻默认后重跑：定向 `HtmlBridgeSubmitTest` 8 / `ToolSchemaVisibilityTest` 4 /
+  `ComponentPropsSchemaVisibilityTest` 1 / `HtmlCardDisplayTest` 8 全绿；
+  全量 testDebugUnitTest --offline **773 tests / 0 skipped / 0 failures / 0 errors**（98 类，
+  与并行会话共用同一棵构建树），`assembleDebug` 通过。
+  真机待验：本地网页报表里点页面按钮 → 卡内 Toast「已提交」且模型 `get_result` 能复述出 payload。
+
 ## [2026-10-24] perf(chat/history)：落盘去重——ModelCall 的正文与思考不再入库
 
 上一条恢复改动把 turn 摊到了旧数据上，顺势按真机视角核了一遍"历史文件到底长什么样"，
