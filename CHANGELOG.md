@@ -1,5 +1,34 @@
 # 变更日志
 
+## [2026-10-25] fix(chat-parts)：折叠头只显示状态；思考正文实时整块刷新
+
+用户定稿："不刮了，切换显示就行了。折叠头显示状态就行。"（打字机效果试过一版，用户要求回退，
+现已改为整块实时刷新）
+
+- **折叠头**：只挂状态——思考中是状态机阶段（"正在思考..."，取 `msg.inferenceProgress.phase`），
+  思考结束换成"已深度思考 X 秒 / 已深度思考"。`setText` 直接切换，**没有任何动画、没有定时器**。
+- **正文区（思考正文，不是回答正文）**：思考中展开、**整块实时刷新**（每次到达新内容直接
+  `setText`，不排队 markdown、无动画、无打字机）；思考结束自动收起，点折叠头展开全文（那时才交
+  宿主 markdown 渲染）；用户思考中手动收起不会被重绑顶开。
+  （打字机：`30ms` 一拍、落后字数/8 的追平策略，已按要求回退删除。）
+- **状态机（方案 A，已接到真实链路）**：`AIChatActivity#markStreamingPhase` 把阶段写进
+  `msg.inferenceProgress.phase`——`appendAgentThinkingToken` / `appendBridgeThinkingToken` 写
+  `THINKING`；`AgentCallbackImpl#onToken`（第一个正文 token）、`finalizeAgentThinking`、旧协议
+  `[THINK_END]` 写 `GENERATING`（后台线程回调自动切主线程，且不额外 notify，token 本身每 tick 都在刷）。
+  `AssistantTurn.fromMessageForStreaming` 据此收口 live reasoning part 的 `streaming`——正文一开始
+  折叠头立刻定格"已深度思考"，不用等整条消息结束。
+  **上一版只接在 `AIChatViewModel` 那条路，而真实聊天走的是 Activity 的 Agent/桥接回调，等于没接上；
+  这次补的是 Activity 侧**。`AIChatViewModel` 的同名钩子保留（其他入口仍在用）。
+- **阶段未知（null）按旧行为**：历史消息、没打标记的路径（多模态视觉等）不受影响。
+- **删除**：ticker 三拍、`ThinkingPreview.paragraphs` / `activeParagraphIndex` / `lastLine` 及其
+  测试（折叠头不再消费摘要；`ThinkingPreview` 的摘要口径仍被 ChatAdapter 折叠行使用）；
+  打字机的 `Handler` / `TYPE_*` 常量与补打逻辑。
+- **验证**：`TextAndReasoningRendererTest` 9 条（折叠头只显示状态 / 正文整块刷新 / 换段不换文案 /
+  用户收起 / 定稿收起 + 点击展开）、`ThinkingPreviewTest` 6 条、`AssistantTurnStreamingTest` 13 条
+  （含状态机收口）；全量 **906 / 0 skipped / 0 failures / 0 errors**；APK 04:20:31，
+  已装机（04:21:04）。真机要看的是：思考中折叠头"正在思考..."、下文逐段冒出（无打字机），
+  正文第一个字到达时折叠头变"已深度思考 X 秒 / 已深度思考"、下面思考正文收起。
+
 ## [2026-10-25] feat(chat)：输入区/已发送消息的附件行也挂缩略图（md 优先）
 
 上一轮只给聊天 `file_card` 接了缩略图；输入区选中的附件、已发送消息的附件行还是 emoji + 文件名。

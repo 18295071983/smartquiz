@@ -73,10 +73,10 @@ public class TextAndReasoningRendererTest {
         View view = r.createView(new TestHost(ctx, false), parent);
         assertTrue(view instanceof LinearLayout);
         LinearLayout row = (LinearLayout) view;
-        assertEquals("header + body 两段", 2, row.getChildCount());
+        assertEquals("折叠头 + 正文区两段（动画只在折叠头）", 2, row.getChildCount());
         assertTrue(row.getChildAt(0) instanceof TextView);
         assertTrue(row.getChildAt(1) instanceof TextView);
-        assertEquals("思考默认折叠", View.GONE, row.getChildAt(1).getVisibility());
+        assertEquals("正文区默认收起", View.GONE, row.getChildAt(1).getVisibility());
     }
 
     @Test
@@ -107,8 +107,124 @@ public class TextAndReasoningRendererTest {
         r.bindView(row, part(AssistantTurn.Part.TYPE_REASONING, "思考内容"), host);
 
         assertEquals(1, host.mdCalls.size());
-        assertSame(row.getChildAt(1), host.mdTargets.get(0)); // 写进 body，不是 header
+        assertSame(row.getChildAt(1), host.mdTargets.get(0)); // 写进全文 body，不是 header
         assertEquals("思考内容", host.mdCalls.get(0));
+    }
+
+    /**
+     * 2026-10-25 定稿口径：折叠头只挂状态；思考正文整块实时刷新（打字机已按用户要求回退）。
+     */
+    @Test
+    public void reasoningStreamsFullThinkingTextIntoBody() {
+        Context ctx = ApplicationProvider.getApplicationContext();
+        RecordingHost host = new RecordingHost(ctx);
+        ReasoningPartRenderer r = new ReasoningPartRenderer();
+
+        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
+        final String full = "第一步：通读题目，找出已知条件";
+        AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, full);
+        p.state = AssistantTurn.Part.STATE_STREAMING;
+        r.bindView(row, p, host);
+
+        TextView header = (TextView) row.getChildAt(0);
+        TextView body = (TextView) row.getChildAt(1);
+        assertTrue("折叠头只显示状态（" + header.getText() + "）",
+                header.getText().toString().contains("正在思考"));
+        assertFalse("折叠头不该塞思考内容", header.getText().toString().contains("通读题目"));
+        assertEquals("思考中正文区要展开", View.VISIBLE, body.getVisibility());
+        assertEquals("正文整块实时刷新，不做打字机", full, body.getText().toString());
+        assertEquals("流式期间不走宿主的 markdown 渲染", 0, host.mdCalls.size());
+
+        p.text = full + "\n第二步：列方程";
+        r.bindView(row, p, host);
+        assertEquals("新内容到达就整块刷新", p.text, body.getText().toString());
+    }
+
+    /** 折叠头文案在思考期间不变（没有 ticker、没有滑入），换段也不换文案。 */
+    @Test
+    public void headerStaysStateWhileThinking() {
+        Context ctx = ApplicationProvider.getApplicationContext();
+        RecordingHost host = new RecordingHost(ctx);
+        ReasoningPartRenderer r = new ReasoningPartRenderer();
+
+        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
+        AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, "第一段：读题\n\n");
+        p.state = AssistantTurn.Part.STATE_STREAMING;
+        r.bindView(row, p, host);
+        TextView header = (TextView) row.getChildAt(0);
+        String first = header.getText().toString();
+
+        p.text = "第一段：读题\n\n第二段：列方程\n\n";
+        r.bindView(row, p, host);
+        assertEquals("换段也还是状态文案", first, header.getText().toString());
+
+        idle(2500);
+        assertEquals("没有任何延迟动画改文案", first, header.getText().toString());
+        assertEquals("正文区跟着整块刷新成最新全文", p.text,
+                ((TextView) row.getChildAt(1)).getText().toString());
+    }
+
+    /** 思考中用户点折叠头可收起正文；下一次绑定不会被自动顶开。 */
+    @Test
+    public void userCollapseDuringThinkingWins() {
+        Context ctx = ApplicationProvider.getApplicationContext();
+        RecordingHost host = new RecordingHost(ctx);
+        ReasoningPartRenderer r = new ReasoningPartRenderer();
+
+        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
+        AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, "一段思考正文\n\n");
+        p.state = AssistantTurn.Part.STATE_STREAMING;
+        r.bindView(row, p, host);
+
+        row.getChildAt(0).performClick();
+        assertEquals(View.GONE, row.getChildAt(1).getVisibility());
+
+        p.text = "一段思考正文\n\n第二段";
+        r.bindView(row, p, host);
+        assertEquals("用户收起后，重绑不能自动展开", View.GONE, row.getChildAt(1).getVisibility());
+    }
+
+    /** 走一段虚拟时间（ticker 的停留：700ms / 900ms）。 */
+    private static void idle(long ms) {
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+                .idleFor(java.time.Duration.ofMillis(ms));
+    }
+
+    @Test
+    public void reasoningHeaderFallsBackToThinkingNowBeforeAnyText() {
+        Context ctx = ApplicationProvider.getApplicationContext();
+        RecordingHost host = new RecordingHost(ctx);
+        ReasoningPartRenderer r = new ReasoningPartRenderer();
+
+        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
+        AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, "");
+        p.state = AssistantTurn.Part.STATE_STREAMING;
+        r.bindView(row, p, host);
+
+        assertTrue("还没有思考文本时退回'正在思考…'",
+                ((TextView) row.getChildAt(0)).getText().toString().contains("正在思考"));
+    }
+
+    @Test
+    public void reasoningDoneCollapsesAndExpandsOnClick() {
+        Context ctx = ApplicationProvider.getApplicationContext();
+        RecordingHost host = new RecordingHost(ctx);
+        ReasoningPartRenderer r = new ReasoningPartRenderer();
+
+        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
+        AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, "定稿思考");
+        p.durationMs = 3_200L;
+        r.bindView(row, p, host);
+
+        TextView header = (TextView) row.getChildAt(0);
+        TextView body = (TextView) row.getChildAt(1);
+        assertEquals("定稿后正文收起", View.GONE, body.getVisibility());
+        assertTrue("定稿 header 用上思考时长", header.getText().toString().contains("已深度思考 3 秒"));
+
+        header.performClick();
+        assertEquals("点 header 能展开", View.VISIBLE, body.getVisibility());
+        assertTrue("展开后正文要有 markdown 渲染", host.mdCalls.size() >= 1);
+        assertEquals("定稿思考", host.mdCalls.get(host.mdCalls.size() - 1));
     }
 
     /** 记录 renderMarkdown 调用；renderMarkdown 故意不调 setText，以证明 renderer 没自渲染。 */

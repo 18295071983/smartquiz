@@ -12,6 +12,7 @@ import com.oilquiz.app.ai.chat.render.MarkdownRenderer;
 import com.oilquiz.app.ai.chat.render.RenderExecutor;
 import com.oilquiz.app.ai.chat.ui.ChatV2ActionSheet;
 import com.oilquiz.app.ai.chat.ui.MarkdownWebView;
+import com.oilquiz.app.ai.chat.ui.ThinkingPreview;
 import com.oilquiz.app.ai.chat.util.ToolResultText;
 import android.content.res.Configuration;
 
@@ -2793,62 +2794,18 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     /**
      * dsh ReasoningRow.latestCompletedParagraphFirstLine 移植：取"最新已完成段落"的首行作折叠摘要。
-     * - 段落按双换行（\n\n 及以上）分隔；
-     * - 流式时：末段后无空行结尾视为"进行中"段落，摘要取上一个已完成段落；无已完成段落时退回进行中段；
-     * - 非流式：取首个段落（思考的开篇即结论性内容）；
-     * - 去掉 ** 强调与 ` 行内代码标记、压缩空白，超长截断（由调用方追加省略号）。
+     * 实现已抽到 {@link ThinkingPreview}（parts 的 reasoning 折叠头共用同一份）。
      */
     private static String thinkingPreview(String content, boolean streaming) {
-        if (content == null || content.trim().isEmpty()) return "";
-        String t = content.trim();
-        String[] paras = t.split("\n\\s*\n");
-        // 用末尾扫描判断末段是否进行中（避免 matches 正则在长文本上回溯）：
-        // 若原始 content 去掉尾部空白后以 \n 结尾（即存在空行分隔符），则末段已完成。
-        int idx;
-        if (streaming) {
-            boolean lastInProgress = !endsWithParagraphBreak(content);
-            idx = (lastInProgress && paras.length >= 2) ? paras.length - 2 : paras.length - 1;
-        } else {
-            idx = 0; // 非流式：取首段（思考开篇）
-        }
-        if (idx < 0 || idx >= paras.length) idx = paras.length - 1;
-        String target = paras[idx].trim();
-        int nl = target.indexOf('\n');
-        if (nl >= 0) target = target.substring(0, nl).trim();
-        target = target.replace("**", "").replace("`", "");
-        // 压缩连续空白为单空格（手动循环替代 replaceAll 正则）
-        StringBuilder sb = new StringBuilder(target.length());
-        boolean lastWasSpace = false;
-        for (int i = 0; i < target.length(); i++) {
-            char c = target.charAt(i);
-            if (c == ' ' || c == '\t') {
-                if (!lastWasSpace && sb.length() > 0) sb.append(' ');
-                lastWasSpace = true;
-            } else {
-                sb.append(c);
-                lastWasSpace = false;
-            }
-        }
-        target = sb.toString();
-        if (target.length() > 48) target = target.substring(0, 48);
-        return target;
+        return ThinkingPreview.preview(content, streaming, ThinkingPreview.MAX_CHARS);
     }
 
     /**
-     * 检查字符串是否以"段落分隔符"结尾（\n 后跟可选空白再跟 \n + 可选空白）。
-     * 等价于原 (?s).*\\n\\s*\\n\\s*$ 正则，但只做 O(n) 尾部扫描无回溯。
+     * 检查字符串是否以"段落分隔符"结尾。实现已抽到
+     * {@link ThinkingPreview#endsWithParagraphBreak}。
      */
     private static boolean endsWithParagraphBreak(String s) {
-        int len = s.length();
-        int i = len - 1;
-        // 跳过尾部空格/tab
-        while (i >= 0 && (s.charAt(i) == ' ' || s.charAt(i) == '\t')) i--;
-        if (i < 0 || s.charAt(i) != '\n') return false;
-        i--; // 跳过这个 \n
-        // 跳过中间空白（\n 与 \n 之间允许空格/tab）
-        while (i >= 0 && (s.charAt(i) == ' ' || s.charAt(i) == '\t')) i--;
-        if (i < 0 || s.charAt(i) != '\n') return false;
-        return true;
+        return ThinkingPreview.endsWithParagraphBreak(s);
     }
 
 
@@ -5213,17 +5170,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     /**
      * 去除思考标签标记（保留内容），用于渲染思考气泡时兜底清理模板声明的标签。
-     * 优先用 chat template 的标签（非硬编码）；模板不可用时回退到旧的 <think> 系正则，
-     * 保持对未识别模型的兼容。
+     * 实现已抽到 {@link ThinkingPreview#stripTagMarkers}（思考折叠头摘要要用同一份）。
      */
     private static String stripThinkingTagMarkers(String content) {
-        if (content == null || content.isEmpty()) return content;
-        ThinkingTagConfig cfg = LlamaHelper.getThinkingTags();
-        String cleaned = cfg.removeTagMarkers(content);
-        if (!cfg.isAvailable()) {
-            cleaned = content.replaceAll("<think[^>]*>", "").replace("</think>", "").replace("<think>", "");
-        }
-        return cleaned.trim();
+        return ThinkingPreview.stripTagMarkers(content);
     }
 
     public void updateMessageThinkingContent(int position, String thinkingContent) {

@@ -742,9 +742,32 @@ public class AIChatViewModel extends AndroidViewModel {
             if (currentThinkingContent == null) {
                 currentThinkingContent = new StringBuilder();
             }
+            // 引擎进入思考段：把阶段写回消息（parts 的 reasoning 渲染据此判断"还在思考"）
+            setInferencePhase(ChatMessage.InferencePhase.THINKING);
         }
         currentThinkingContent.append(reasoning);
         mainHandler.post(this::updateStreamingMessage);
+    }
+
+    /**
+     * 把当前消息的推理阶段写进 {@code inferenceProgress.phase}。
+     *
+     * <p>这是"引擎状态机 → 消息 → parts 渲染"的唯一通道：本地引擎的 THINKING/GENERATING
+     * 由 reasoning / content 两类 token 的真实先后决定（与 {@code GenSignal} 同源），
+     * 在线引擎由 {@code onThinkingToken} 与正文 token 决定。折叠头据此在进入正文那一刻
+     * 定格成"已深度思考"，不用等整条消息结束。</p>
+     *
+     * <p>刻意不在这里 notifyItemChanged：token 本身每 tick 都会通知，额外通知只会多一次全量重绑。</p>
+     */
+    private void setInferencePhase(ChatMessage.InferencePhase phase) {
+        if (phase == null) return;
+        if (currentStreamingMessageIndex < 0 || currentStreamingMessageIndex >= chatMessages.size()) return;
+        ChatMessage msg = chatMessages.get(currentStreamingMessageIndex);
+        if (msg.inferenceProgress == null) {
+            msg.inferenceProgress = new ChatMessage.InferenceProgress(phase);
+        } else if (msg.inferenceProgress.phase != phase) {
+            msg.inferenceProgress.phase = phase;
+        }
     }
 
     // ========== 流式处理 ==========
@@ -755,11 +778,13 @@ public class AIChatViewModel extends AndroidViewModel {
         // 处理思考标签
         if (token.equals("[THINK_BEGIN]")) {
             isInThinking = true;
+            setInferencePhase(ChatMessage.InferencePhase.THINKING);
             pushHeartbeat(0, currentStreamingContent.length(), "thinking");
             return;
         }
         if (token.equals("[THINK_END]")) {
             isInThinking = false;
+            setInferencePhase(ChatMessage.InferencePhase.GENERATING);
             updateMessageThinkingContent();
             pushHeartbeat(0, currentStreamingContent.length(), "generating");
             return;
@@ -770,6 +795,8 @@ public class AIChatViewModel extends AndroidViewModel {
             currentThinkingContent.append(token);
         } else {
             currentStreamingContent.append(token);
+            // 正文 token 到了：思考段已结束（在线/本地两条路都在这里收口）
+            setInferencePhase(ChatMessage.InferencePhase.GENERATING);
         }
 
         // 每收到 token 推送心跳 —— 重置 watchdog

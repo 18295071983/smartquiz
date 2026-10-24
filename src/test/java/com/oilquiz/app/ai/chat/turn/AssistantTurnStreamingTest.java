@@ -117,6 +117,37 @@ public class AssistantTurnStreamingTest {
     }
 
     /**
+     * 状态机集成（2026-10-25）：正文 token 一到（{@code phase=GENERATING}），live 的 reasoning part
+     * 就不能再挂 {@code streaming}——否则折叠头在整个写答案期间都停在"思考中"、不定格成"已深度思考"。
+     *
+     * <p>阶段未知（{@code inferenceProgress=null}）必须维持旧行为（仍算思考中），
+     * 历史消息与未被状态机覆盖的旧路径都不受影响。</p>
+     */
+    @Test
+    public void reasoningPartStopsStreamingOnceEngineEntersAnswerPhase() {
+        ChatMessage thinking = streamingTwoRounds();
+        thinking.inferenceProgress =
+                new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.THINKING);
+        assertTrue("思考阶段：live 思考段仍是 streaming",
+                byId(AssistantTurn.fromMessageForStreaming(thinking, false),
+                        "T1-R2:reasoning").isStreaming());
+
+        ChatMessage answering = streamingTwoRounds();
+        answering.inferenceProgress =
+                new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.GENERATING);
+        AssistantTurn liveAnswer = AssistantTurn.fromMessageForStreaming(answering, false);
+        assertFalse("进入正文：live 思考段必须收口",
+                byId(liveAnswer, "T1-R2:reasoning").isStreaming());
+        assertTrue("正文段自己仍然是 streaming",
+                byId(liveAnswer, "T1-R2:text").isStreaming());
+
+        ChatMessage unknown = streamingTwoRounds();
+        assertTrue("阶段未知时保持旧行为（仍算思考中）",
+                byId(AssistantTurn.fromMessageForStreaming(unknown, false),
+                        "T1-R2:reasoning").isStreaming());
+    }
+
+    /**
      * 这条是本轮改造的理由本身：完成态生产者读 {@code roundSnapshots} 优先，
      * 拿它渲流式消息就会把"正在写的这一段"整段吃掉。若哪天有人把闸门改成
      * "流式也走 fromMessageForParts"，这条会立刻变红。

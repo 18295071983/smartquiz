@@ -365,7 +365,7 @@ public class AssistantTurn {
         appendDataParts(turn, msg);
 
         applyLiveThinking(turn, msg, liveCallId, liveRoundIndex, base);
-        markLiveStreaming(turn, liveCallId);
+        markLiveStreaming(turn, liveCallId, !isReasoningClosed(msg));
 
         expandInline(turn, dark);
         attachOwnedProducts(turn);
@@ -444,8 +444,12 @@ public class AssistantTurn {
      * callId 是 {@code turnId + "-R" + 轮号}，"R1" 是 "R11" 的前缀，误匹配会把已完成轮标成流式）；
      * 工具与 data part 不打，它们靠自己的 status 推进。本方法必须在 {@link #expandInline} 之前调，
      * 展开出的子段会继承源 part 的 state。
+     *
+     * @param markReasoning 思考段是否仍算"进行中"：引擎一进正文（状态机 phase=GENERATING）就传
+     *                      false——否则 reasoning part 会一直挂着 streaming，折叠头在写答案期间
+     *                      还停在思考摘要、不定格成"已深度思考"。
      */
-    private static void markLiveStreaming(AssistantTurn turn, String liveCallId) {
+    private static void markLiveStreaming(AssistantTurn turn, String liveCallId, boolean markReasoning) {
         if (turn == null || turn.parts == null || liveCallId == null) {
             return;
         }
@@ -455,10 +459,26 @@ public class AssistantTurn {
             if (p == null || p.id == null) {
                 continue;
             }
-            if (liveTextId.equals(p.id) || liveReasoningId.equals(p.id)) {
+            if (liveTextId.equals(p.id) || (markReasoning && liveReasoningId.equals(p.id))) {
                 p.state = Part.STATE_STREAMING;
             }
         }
+    }
+
+    /**
+     * 思考段是否已经结束（引擎状态机口径）。
+     *
+     * <p>阶段由 {@code AIChatViewModel} 按 reasoning / 正文两类 token 的真实先后写入：
+     * 正文 token 一到就是 {@code GENERATING}。**阶段未知（null）按"还在思考"处理**——
+     * 历史消息、旧路径以及没被状态机覆盖的引擎都保持改造前的行为，不会突然把思考当成已完成。</p>
+     */
+    private static boolean isReasoningClosed(ChatMessage msg) {
+        if (msg == null || msg.inferenceProgress == null) {
+            return false;
+        }
+        ChatMessage.InferencePhase phase = msg.inferenceProgress.phase;
+        return phase == ChatMessage.InferencePhase.GENERATING
+                || phase == ChatMessage.InferencePhase.DECODING;
     }
 
     private static boolean hasText(String s) {

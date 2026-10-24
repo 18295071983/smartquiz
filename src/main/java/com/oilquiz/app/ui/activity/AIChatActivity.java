@@ -6028,6 +6028,33 @@ public class AIChatActivity extends BaseActivity {
     }
 
 
+    /**
+     * 轻量写推理阶段：只改 {@code msg.inferenceProgress.phase}，**不通知 RecyclerView**。
+     *
+     * <p>这是引擎状态机 → 气泡思考折叠头的通道：{@code AssistantTurn#isReasoningClosed} 读这个字段，
+     * 决定 reasoning part 还打不打 streaming——正文一开始，折叠头立刻从"正在思考..."换成
+     * "已深度思考"并收起思考正文，不用等整条消息结束。</p>
+     *
+     * <p>刻意不 notify：token 本身每 tick 都会刷新，额外通知只会多一次全量重绑。</p>
+     */
+    private void markStreamingPhase(final ChatMessage.InferencePhase phase) {
+        if (phase == null) return;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            // 引擎回调常在推理线程：chatHistory 的读写必须回主线程（与既有 token 路径一致）
+            runOnUiThread(() -> markStreamingPhase(phase));
+            return;
+        }
+        final int idx = resolveStreamingIndex();
+        if (idx < 0 || idx >= chatHistory.size()) return;
+        ChatMessage msg = chatHistory.get(idx);
+        if (msg == null) return;
+        if (msg.inferenceProgress == null) {
+            msg.inferenceProgress = new ChatMessage.InferenceProgress(phase);
+        } else if (msg.inferenceProgress.phase != phase) {
+            msg.inferenceProgress.phase = phase;
+        }
+    }
+
     private void updateInferencePhase(int messageIndex, ChatMessage.InferencePhase phase, String additionalInfo) {
         if (messageIndex < 0 || messageIndex >= chatHistory.size()) return;
         
@@ -6310,6 +6337,8 @@ public class AIChatActivity extends BaseActivity {
             snapshot = currentThinkingContent.toString();
         }
         isInThinking = true;
+        // 状态机：思考 token 到达 → 阶段 THINKING（折叠头据此显示"正在思考..."并展开思考正文）
+        markStreamingPhase(ChatMessage.InferencePhase.THINKING);
         ChatMessage msg = chatHistory.get(idx);
         msg.thinkingContent = snapshot;
         // 定时渲染（120ms 批量），防每 reasoning 事件 notify 导致思考区抽搐
@@ -6361,6 +6390,8 @@ public class AIChatActivity extends BaseActivity {
             snapshot = currentThinkingContent.toString();
         }
         isInThinking = true;
+        // 状态机：思考 token 到达 → 阶段 THINKING（折叠头据此显示"正在思考..."并展开思考正文）
+        markStreamingPhase(ChatMessage.InferencePhase.THINKING);
         ChatMessage msg = chatHistory.get(idx);
         msg.thinkingContent = snapshot;
         // 注意：不在此处设置 thinkingExpanded=false（保持用户手动展开状态），
@@ -6402,6 +6433,8 @@ public class AIChatActivity extends BaseActivity {
     private void finalizeAgentThinking() {
         final int idx = resolveStreamingIndex();
         if (idx < 0) return;
+        // 状态机：思考结束 → 阶段 GENERATING（折叠头立刻定格"已深度思考"并收起思考正文）
+        markStreamingPhase(ChatMessage.InferencePhase.GENERATING);
         String snapshot;
         synchronized (streamingLock) {
             snapshot = currentThinkingContent != null ? currentThinkingContent.toString() : "";
@@ -6606,6 +6639,8 @@ public class AIChatActivity extends BaseActivity {
         if (token.equals("[TOOL_CALL]")) return;
         if (token.equals("[THINK_END]")) {
             isInThinking = false;
+            // 状态机：思考段结束 → 阶段 GENERATING（折叠头据此定格"已深度思考"）
+            markStreamingPhase(ChatMessage.InferencePhase.GENERATING);
             final int idx = resolveStreamingIndex();
             if (idx >= 0) {
                 String thinkingSnapshot;
@@ -7198,6 +7233,8 @@ public class AIChatActivity extends BaseActivity {
                     currentStreamingContent.append(token);
                 }
             }
+            // 状态机：正文 token 到达 → 阶段 GENERATING（折叠头在第一个字就定格"已深度思考"）
+            markStreamingPhase(ChatMessage.InferencePhase.GENERATING);
             if (uiDetached) return; // UI 已分离：内容持续累积供落盘，跳过所有界面更新
             feedStreamingTts(token);
             // 流式 token 统计：实时累计 + 节流刷新状态栏（解决 tokens 显示不及时）

@@ -2241,6 +2241,38 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    `NpuLlmChat` 等 23 个类），表现为 `AIServiceTest`/`NpuEngineRouterPhaseTest` 报
    `NoClassDefFoundError`——与本改动无关，加 `--no-build-cache` 即恢复全绿。
 
+### 4.102 fix(chat-parts)：折叠头只显示状态；思考正文实时整块刷新（2026-10-25）
+
+1. **现象**：用户"之前创建了刮刀，但一直是深度思考这几个字一直刮，没有替换成实际的深度思考内容"。
+   方向纠正六轮后定稿："不刮了，切换显示就行了。折叠头显示状态就行" → 打字机试过一版，用户要求回退。
+2. **真因（历史）**：`ReasoningPartRenderer` 折叠头文案恒为 `HEADER_PLAIN`（"深度思考"），刮刀每换段
+   滑它 → 永远同一句。中途的"两拍""ticker 三拍（状态→摘要→正文本行）"均按用户口径逐步砍掉。
+3. **最终形态**：
+   - **折叠头**：只挂状态——思考中 = 状态机阶段（`msg.inferenceProgress.phase.getDisplayText()`，
+     "正在思考..."），结束 = "已深度思考 X 秒 / 已深度思考"。`setText` 直接切换，无动画、无定时器。
+   - **正文区（思考正文，不是回答正文）**：思考中展开、**整块实时刷新**（`setText`，无动画、无打字机）；
+     结束收起，点折叠头展开全文（那时才交宿主 markdown）。
+   - `userExpandedOverride` 记住用户点折叠头的显式选择，重绑不会被顶开。
+4. **状态机集成（方案 A）——**首版接错层，现已修正**：
+   - `AIChatActivity#markStreamingPhase(phase)` 是唯一写入点：`appendAgentThinkingToken` /
+     `appendBridgeThinkingToken` 写 `THINKING`；`AgentCallbackImpl#onToken`（首个正文 token）、
+     `finalizeAgentThinking`、旧协议 `[THINK_END]` 写 `GENERATING`。后台线程回调自动切主线程，
+     且**不额外 notify**（token 本身每 tick 都在刷）。
+   - `AssistantTurn.fromMessageForStreaming` 用 `isReasoningClosed(msg)` 决定 live reasoning part
+     还打不打 `streaming`；正文一开始折叠头立刻定格"已深度思考"并收起正文。
+   - **坑（本轮教训）**：`AIChatViewModel.setInferencePhase` 那条钩子实际聊天根本不走（Activity 用的是
+     自己的 Agent/桥接/本地回调），只接它会看起来"接上了"但真机毫无变化。写状态机接口必须顺着
+     **真实 token 路径**插，不能只看哪层名字最像。
+5. **删除**：ticker 三拍、`ThinkingPreview.paragraphs` / `activeParagraphIndex` / `lastLine` 及对应测试；
+   打字机的 `Handler` / `TYPE_INTERVAL_MS` / `TYPE_MAX_BACKLOG` / 补打逻辑（用户要求回退）。
+   `ThinkingPreview` 保留摘要口径（ChatAdapter 折叠行仍在用），`SegmentScraper` 只服务顶部状态条。
+6. **验证**：`TextAndReasoningRendererTest` 9 条（折叠头只显示状态 / 正文整块刷新 / 换段不换文案 /
+   定稿收起 + 点击展开）、`ThinkingPreviewTest` 6 条、`AssistantTurnStreamingTest` 13 条（含状态机收口）；
+   全量 **906 / 0 skipped / 0 failures / 0 errors**；APK 04:20:31，已装机（04:21:04）。真机判据：
+   思考中折叠头"正在思考..."、下文随 token 整块冒出，正文第一个字到达时折叠头变"已深度思考"、思考正文收起。
+7. **遗留**：`ActivityTimeline#preview` 仍是摘要口径的精简版（注释里的"S2 共用这份"应并到
+   `ThinkingPreview`）；方案 B（在线也并入 `GenSignal` 契约）未做。
+
 ---
 
 ## 5. 关键文件 / 改动地图
