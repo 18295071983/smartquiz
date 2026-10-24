@@ -158,9 +158,11 @@
             android:exported="false"
             android:permission="com.oilquiz.app.permission.DEBUG_INJECT"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <!-- 调试注入入口：仅 debug 包对外可见；release 由 build.gradle 的 manifestPlaceholders
+             置为 false（Activity 内还有一层 FLAG_DEBUGGABLE 兜底） -->
         <activity
             android:name=".infra.DebugLayoutInjectActivity"
-            android:exported="true"
+            android:exported="${debugExported}"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <!-- Termux RUN_COMMAND 运行时授权弹窗（HyperOS/MIUI 禁用了 adb 的 pm grant，只能 App 内请求） -->
         <activity

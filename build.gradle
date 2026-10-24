@@ -258,12 +258,16 @@ android {
             debuggable true
             minifyEnabled false
             signingConfig signingConfigs.release
+            // 调试注入入口（DebugLayoutInjectActivity）只在 debug 包对外可见；
+            // release 走另一个占位值，清单里 exported=false（见 AndroidManifest.xml）
+            manifestPlaceholders = [debugExported: "true"]
         }
         release {
             minifyEnabled false
             shrinkResources false
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
             signingConfig signingConfigs.release
+            manifestPlaceholders = [debugExported: "false"]
         }
     }
 

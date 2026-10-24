@@ -27,6 +27,16 @@ public class DebugLayoutInjectActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // 仅 debug 包可用（release 构建里清单还会把 exported 置 false，这里是第二道防线）：
+        // 这个入口能用 adb 注入任意卡片/直接播放媒体，绝不能留在正式包里。
+        boolean debuggable = (getApplicationInfo().flags
+                & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        if (!debuggable) {
+            android.util.Log.w(TAG, "release 构建不允许使用调试注入入口，finish()");
+            finish();
+            return;
+        }
+
         String layoutJson = getIntent().getStringExtra("layout");
         // 支持 base64 编码传入（adb shell 传 JSON 转义易错，base64 最稳）
         String layoutB64 = getIntent().getStringExtra("layout_b64");
