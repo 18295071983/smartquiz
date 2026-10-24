@@ -65,4 +65,13 @@ public class InferenceStatusPhrasesTest {
         assertNull(InferenceStatusPhrases.phrase(ChatMessage.InferencePhase.IDLE, 5 * S));
         assertNull(InferenceStatusPhrases.phrase(null, 5 * S));
     }
+
+    @Test
+    public void 工具侧思考文案_随工具执行时长推进() {
+        assertEquals("正在调用工具…", InferenceStatusPhrases.toolPhrase(0));
+        assertEquals("正在调用工具…", InferenceStatusPhrases.toolPhrase(2 * S));
+        assertEquals("工具执行中…", InferenceStatusPhrases.toolPhrase(5 * S));
+        assertEquals("工具耗时较长，仍在执行…", InferenceStatusPhrases.toolPhrase(20 * S));
+        assertEquals("仍在等待工具结果…", InferenceStatusPhrases.toolPhrase(45 * S));
+    }
 }

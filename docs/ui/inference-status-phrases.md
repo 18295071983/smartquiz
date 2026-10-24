@@ -75,3 +75,34 @@
   `InferenceStatusLabelTest` 5 条保留（短标签回退/活跃判定）。
 - 全量 `testDebugUnitTest --offline --no-build-cache` **959 / 0 skipped / 0 failures / 0 errors**；
   `assembleDebug --offline` 通过。按用户要求未做真机测试。
+
+## 5. 工具侧「思考」文案（2026-10-25 追加）
+
+用户："工具侧思考指纹是否可以加，文案啊"。工具执行阶段（工具卡/工具组）同样需要随耗时推进的文案；
+但**文案必须进指纹**，否则视图会停在绑定那一刻的旧句子（TurnPartsHost 按 `Part.fingerprint()` 早退）。
+
+### 文案表
+
+| 工具已耗时 | 文案 |
+|---|---|
+| 0–3s | 正在调用工具… |
+| 3–10s | 工具执行中… |
+| 10–30s | 工具耗时较长，仍在执行… |
+| ≥30s | 仍在等待工具结果… |
+
+### 指纹与刷新链路
+
+1. `ChatMessage.runningToolStartTime`（transient）：本轮第一个工具开始时刻；
+2. `AIChatActivity` 1.2s 文案心跳里检测"还有工具在跑"：
+   - parts：流式消息 `components` 里 `tool_call` 的 `props.status == running`；
+   - legacy：最近 TOOL_CALL 消息的 `toolCallInfo.status == RUNNING`；
+   首次检测到记起点并同步到流式消息，工具全部结束清 0；
+3. `AssistantTurn.fromMessageForStreaming` 为 running 的工具组算 `Part.statusText`；
+   **`statusText` 参与 `Part.fingerprint()`** → 文案推进时指纹变化 → 重绑工具卡；
+4. `ToolGroupPartRenderer` 运行中显示 `⏳ + statusText`（无字段退回"N 个工具执行中"）；
+   legacy `ChatAdapter` 工具卡同样用 `toolPhrase`；
+5. 底部生成状态行：有工具在跑时优先显示工具侧文案、速度位暂时收起；工具结束回到推理/生成文案。
+
+### 验证
+
+`InferenceStatusPhrasesTest` 覆盖工具文案 4 档；全量 960 / 0 skipped / 0 failures / 0 errors。

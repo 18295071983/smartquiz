@@ -66,4 +66,18 @@ public final class InferenceStatusPhrases {
         if (s < 25) return "正在补充细节…";
         return "正在收尾…";
     }
+
+    /**
+     * 工具执行阶段的推进文案（"工具侧思考"）：工具卡/工具行在 running 时用它，
+     * 与推理/生成状态行同一套设计（阶段 + 已耗时；不编假百分比）。
+     *
+     * @param toolElapsedMs 从"本轮第一个工具开始执行"到现在的毫秒数；≤0 视为刚开始
+     */
+    public static String toolPhrase(long toolElapsedMs) {
+        long s = Math.max(0L, toolElapsedMs) / 1000L;
+        if (s < 3) return "正在调用工具…";
+        if (s < 10) return "工具执行中…";
+        if (s < 30) return "工具耗时较长，仍在执行…";
+        return "仍在等待工具结果…";
+    }
 }

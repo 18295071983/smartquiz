@@ -351,6 +351,10 @@ public class AIChatActivity extends BaseActivity {
     private volatile ChatMessage.InferencePhase statusPhrasePhase = null;
     private volatile long statusPhraseStartTime = 0;
     private volatile String lastStatusPhrase = "";
+    /** 工具侧「思考」文案：本轮第一个工具开始时刻（0=没有工具在跑） */
+    private volatile long toolPhaseStartTime = 0;
+    /** 上一拍是否有工具在跑：状态翻转时强制重绑一次流式消息（工具卡文案要跟着换/收尾） */
+    private volatile boolean lastToolRunning = false;
     /** 文案推进心跳：1.2s 一次，只在生成中跑（与 genStatusBar 的心跳相互独立） */
     private final Runnable statusPhraseTicker = new Runnable() {
         @Override
@@ -6158,6 +6162,10 @@ public class AIChatActivity extends BaseActivity {
         if (chatInputBar == null || phase == null) {
             return;
         }
+        // 工具在跑：底部状态行与工具卡都切到"工具侧思考"文案，别停在旧的推理阶段
+        if (updateToolRunningStatusRow()) {
+            return;
+        }
         long start = statusPhraseStartTime > 0 ? statusPhraseStartTime : generationStartTime;
         if (start <= 0) start = System.currentTimeMillis();
         String text = com.oilquiz.app.ai.chat.InferenceStatusPhrases
@@ -6175,9 +6183,107 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
-    /** 文案推进心跳：本阶段内按耗时换下一句；必要时让流式消息重绑，折叠头跟着换同一句 */
+    /**
+     * 工具侧「思考」文案（用户："工具侧思考指纹是否可以加，文案"）：
+     * 有工具在跑时按"本轮第一个工具开始到现在"的耗时给一句推进文案，同时把开始时刻同步到
+     * 流式消息 —— {@code AssistantTurn} 用它算 {@code part.statusText}（参与 part 指纹），
+     * 文案推进时工具卡/工具组会重绑；底部状态行也优先显示这句。
+     *
+     * @return true 表示当前状态由工具侧文案接管
+     */
+    private boolean updateToolRunningStatusRow() {
+        if (chatInputBar == null) return false;
+        boolean running = isAnyToolRunning();
+        if (running) {
+            if (toolPhaseStartTime <= 0) {
+                toolPhaseStartTime = System.currentTimeMillis();
+            }
+            syncRunningToolStartTime(toolPhaseStartTime);
+            String phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
+                    .toolPhrase(System.currentTimeMillis() - toolPhaseStartTime);
+            if (!phrase.contentEquals(lastStatusPhrase)) {
+                lastStatusPhrase = phrase;
+                try {
+                    chatInputBar.setInferencePhase(phrase);
+                } catch (Throwable ignored) {
+                }
+            }
+            // 工具执行期间没有推理速度可言；回到模型流式后由统计重新点亮
+            try {
+                chatInputBar.setInferenceSpeed(0f);
+            } catch (Throwable ignored) {
+            }
+            if (!lastToolRunning) {
+                lastToolRunning = true;
+                notifyStreamingStatusRebind();
+            }
+            return true;
+        }
+        if (toolPhaseStartTime > 0) {
+            toolPhaseStartTime = 0;
+            syncRunningToolStartTime(0);
+            // 回到模型阶段：清掉工具侧文案，让下一句推理/生成文案重新写入
+            lastStatusPhrase = "";
+        }
+        if (lastToolRunning) {
+            lastToolRunning = false;
+            notifyStreamingStatusRebind();
+        }
+        return false;
+    }
+
+    /** 只重绑流式那一条消息（payload 局部刷新，不整表刷新） */
+    private void notifyStreamingStatusRebind() {
+        try {
+            int idx = resolveStreamingIndex();
+            if (idx >= 0 && chatAdapter != null) {
+                chatAdapter.notifyItemChanged(idx, ChatAdapter.PAYLOAD_STATUS_UPDATE);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 把"本轮第一个工具开始时刻"同步到流式 AI 消息，供 AssistantTurn 计算工具侧文案。 */
+    private void syncRunningToolStartTime(long start) {
+        int idx = resolveStreamingIndex();
+        if (idx < 0 || idx >= chatHistory.size()) return;
+        ChatMessage msg = chatHistory.get(idx);
+        if (msg != null) msg.runningToolStartTime = start;
+    }
+
+    /**
+     * 当前是否还有工具在跑：parts 模式看流式消息 components 里的 tool_call.status；
+     * legacy 模式看最近几条 TOOL_CALL 消息的 toolCallInfo.status。
+     */
+    private boolean isAnyToolRunning() {
+        int idx = resolveStreamingIndex();
+        if (idx >= 0 && idx < chatHistory.size()) {
+            ChatMessage msg = chatHistory.get(idx);
+            if (msg != null && msg.components != null) {
+                for (com.oilquiz.app.ai.chat.component.ComponentData c : msg.components) {
+                    if (c == null || !"tool_call".equals(c.type) || c.props == null) continue;
+                    if ("running".equals(c.props.optString("status", ""))) return true;
+                }
+            }
+        }
+        int from = Math.max(0, chatHistory.size() - 8);
+        for (int i = chatHistory.size() - 1; i >= from; i--) {
+            ChatMessage m = chatHistory.get(i);
+            if (m != null && m.type == ChatMessage.MessageType.TOOL_CALL && m.toolCallInfo != null
+                    && m.toolCallInfo.status == ChatMessage.ToolCallInfo.ToolCallStatus.RUNNING) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 文案推进心跳：工具在跑 → 工具侧文案；否则本阶段内按耗时换推理/生成文案 */
     private void updateStatusPhrase() {
-        if (chatInputBar == null || statusPhrasePhase == null) return;
+        if (chatInputBar == null) return;
+        if (updateToolRunningStatusRow()) {
+            return;
+        }
+        if (statusPhrasePhase == null) return;
         long start = statusPhraseStartTime > 0 ? statusPhraseStartTime : generationStartTime;
         if (start <= 0) return;
         String phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
@@ -6188,10 +6294,7 @@ public class AIChatActivity extends BaseActivity {
             chatInputBar.setInferencePhase(phrase);
             // 气泡里的活跃思考块也按同一套文案推进（只重绑流式那一条，payload 局部刷新）
             if (statusPhrasePhase == ChatMessage.InferencePhase.THINKING) {
-                int idx = resolveStreamingIndex();
-                if (idx >= 0 && chatAdapter != null) {
-                    chatAdapter.notifyItemChanged(idx, ChatAdapter.PAYLOAD_STATUS_UPDATE);
-                }
+                notifyStreamingStatusRebind();
             }
         } catch (Throwable ignored) {
         }
@@ -7844,6 +7947,8 @@ public class AIChatActivity extends BaseActivity {
         statusPhrasePhase = ChatMessage.InferencePhase.WAITING;
         statusPhraseStartTime = System.currentTimeMillis();
         lastStatusPhrase = "";
+        toolPhaseStartTime = 0;
+        lastToolRunning = false;
         uiHandler.removeCallbacks(statusPhraseTicker);
         updateInferenceStatusRow(statusPhrasePhase);
         uiHandler.postDelayed(statusPhraseTicker, 1200);
@@ -7858,6 +7963,8 @@ public class AIChatActivity extends BaseActivity {
         statusPhrasePhase = null;
         statusPhraseStartTime = 0;
         lastStatusPhrase = "";
+        toolPhaseStartTime = 0;
+        lastToolRunning = false;
 
         // 清理Agent执行组
         if (currentAgentGroupId != null && chatAdapter != null) {

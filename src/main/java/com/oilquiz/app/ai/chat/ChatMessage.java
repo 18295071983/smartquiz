@@ -513,6 +513,12 @@ public class ChatMessage {
      */
     public transient String agentSummary;
 
+    /**
+     * 本轮第一个工具开始执行的时刻（毫秒）；0=当前没有工具在跑。
+     * 工具卡/工具组的"工具侧思考"文案按它算已耗时。运行时字段，不落盘。
+     */
+    public transient long runningToolStartTime;
+
     /** 错误信息 */
     public String errorDetail;
 

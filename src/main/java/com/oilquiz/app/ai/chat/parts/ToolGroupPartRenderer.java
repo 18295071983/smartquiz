@@ -88,9 +88,16 @@ public final class ToolGroupPartRenderer implements PartRenderer {
             }
         }
         int n = members.size();
-        v.header.setText(anyRunning
-                ? ("⏳ " + n + " 个工具执行中")
-                : ("🔧 已运行 " + n + " 个工具"));
+        if (anyRunning) {
+            // 工具侧「思考」文案：AssistantTurn 按"本轮第一个工具开始到现在"的耗时算好并放进
+            // part.statusText（参与指纹）；这里只负责显示。旧数据没有该字段时退回计数文案。
+            String phrase = part.statusText;
+            v.header.setText(phrase != null && !phrase.isEmpty()
+                    ? ("⏳ " + phrase)
+                    : ("⏳ " + n + " 个工具执行中"));
+        } else {
+            v.header.setText("🔧 已运行 " + n + " 个工具");
+        }
 
         // 成员行（对齐 legacy 紧凑行 item_chat_v2_tool_row，不是整张 ToolCallCardView），
         // 折叠也预建，展开即时；产物进常显区。

@@ -1,5 +1,25 @@
 # 变更日志
 
+## [2026-10-25] feat(chat-ui)：工具侧也有多套「思考」文案，且把文案纳入 part 指纹
+
+用户："工具侧思考指纹是否可以加，文案啊"——工具执行阶段（工具卡/工具组）也要有随耗时推进的
+文案；而文案若不在指纹里，视图会停在绑定那一刻的旧句子，所以必须"指纹带上文案"。
+
+- `InferenceStatusPhrases` 新增 `toolPhrase(工具已耗时)`：
+  `正在调用工具…`（<3s）→ `工具执行中…`（<10s）→ `工具耗时较长，仍在执行…`（<30s）→
+  `仍在等待工具结果…`；与推理/生成文案同一套设计（阶段 + 已耗时，不编假百分比）；
+- `ChatMessage` 增加 transient `runningToolStartTime`；`AIChatActivity` 的 1.2s 文案心跳里检测
+  "还有工具在跑"（parts 看流式消息 components 的 `tool_call.status`，legacy 看最近 TOOL_CALL
+  消息状态）：首次检测到时记起点并同步给流式消息，工具全部结束清 0；
+- `AssistantTurn.Part` 增加 transient `statusText`：`fromMessageForStreaming` 为 running 的
+  工具组算好工具侧文案；**`statusText` 参与 `Part.fingerprint()`** —— 文案推进时指纹变化 →
+  `TurnPartsHost` 重绑，工具卡不会停在旧句子（即"工具侧思考指纹加上文案"）；
+- `ToolGroupPartRenderer` 运行中显示 `⏳ + statusText`（旧数据无该字段时退回"N 个工具执行中"）；
+  legacy `ChatAdapter` 工具卡同样用 `toolPhrase`；底部生成状态行在有工具时**优先显示工具侧文案**、
+  速度位暂时收起（工具阶段没有推理速度），工具结束回到推理/生成文案；
+- **验证**：`InferenceStatusPhrasesTest` 增加工具文案用例（共 6 条）；全量
+  `testDebugUnitTest --offline --no-build-cache` **960 / 0 skipped / 0 failures / 0 errors**；
+  `assembleDebug --offline` 通过（APK 07:08:13），已装到设备；按用户要求未做真机测试。
 ## [2026-10-25] feat(chat-ui)：推理/生成状态改多套文案，按"阶段 + 阶段耗时"推进（防等不及）
 
 用户："思考中推理状态你可以设计多套备用文案，按照推理进度及生成进度切换可以吗。防止用户等不及，

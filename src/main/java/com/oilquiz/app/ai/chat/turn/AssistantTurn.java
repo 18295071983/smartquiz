@@ -125,6 +125,14 @@ public class AssistantTurn {
          * 权威真值仍是 {@code ChatMessage.components}，这里只是渲染期引用，供指纹区分内容变化。
          */
         public transient java.util.List<com.oilquiz.app.ai.chat.component.ComponentData> products;
+        /**
+         * 工具侧「思考」文案（"正在调用工具… / 工具执行中… / 工具耗时较长…"）。
+         * transient 的 UI 提示：由 {@code fromMessageForStreaming} 按
+         * {@code ChatMessage.runningToolStartTime} + 当前时刻算出来，供
+         * {@code ToolGroupPartRenderer} 直接显示。<b>会参与指纹</b>——文案推进时指纹变化，
+         * 视图才会重绑（否则时间文案永远是绑定那一刻的旧句子）。
+         */
+        public transient String statusText;
 
         public Part() {
         }
@@ -248,6 +256,8 @@ public class AssistantTurn {
             h = fnvField(h, result);
             h = fnvField(h, status);
             h = fnvField(h, Long.toString(durationMs));
+            // 工具侧「思考」文案参与指纹：文案随耗时推进时必须触发重绑，否则工具卡停在旧句子
+            h = fnvField(h, statusText);
             if (products != null) {
                 for (com.oilquiz.app.ai.chat.component.ComponentData pd : products) {
                     h = fnvField(h, pd != null ? contentDigest(pd) : "-"); // 产物变化→工具卡重绑（§11.3）
@@ -370,7 +380,39 @@ public class AssistantTurn {
         expandInline(turn, dark);
         attachOwnedProducts(turn);
         groupTools(turn);
+        applyToolStatusText(turn, msg);
         return turn;
+    }
+
+    /**
+     * 给工具组 part 挂"工具侧思考"文案：工具还在跑时按"本轮第一个工具开始到现在"的耗时
+     * 选一句（{@link com.oilquiz.app.ai.chat.InferenceStatusPhrases#toolPhrase}），
+     * 写进 {@code part.statusText}。它参与 part 指纹 → 文案推进时视图会重绑，
+     * 不会停在绑定那一刻的旧句子。
+     */
+    private static void applyToolStatusText(AssistantTurn turn, ChatMessage msg) {
+        if (turn == null || turn.parts == null) {
+            return;
+        }
+        long start = msg != null ? msg.runningToolStartTime : 0L;
+        for (Part p : turn.parts) {
+            if (p == null || !Part.TYPE_TOOL_GROUP.equals(p.type) || p.group == null) {
+                continue;
+            }
+            boolean running = false;
+            for (Part m : p.group) {
+                if (m != null && "running".equals(m.status)) {
+                    running = true;
+                    break;
+                }
+            }
+            if (!running) {
+                p.statusText = null;
+                continue;
+            }
+            long elapsed = start > 0 ? System.currentTimeMillis() - start : 0L;
+            p.statusText = com.oilquiz.app.ai.chat.InferenceStatusPhrases.toolPhrase(elapsed);
+        }
     }
 
     /**

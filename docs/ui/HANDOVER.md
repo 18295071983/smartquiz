@@ -2641,6 +2641,21 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    - 速度仍由 `updateStreamingTokenStats` / `noteReasoningTokenForSpeed` 单独刷新。
    - 测试：`InferenceStatusPhrasesTest` 5 条；全量 959 / 0 skipped / 0 failures / 0 errors；
      APK 07:01:39（装机时设备离线，未做真机验证）。
+10. **工具侧「思考」文案 + 指纹（同日第五轮，用户："工具侧思考指纹是否可以加，文案啊"）**：
+    - 文案：`InferenceStatusPhrases#toolPhrase(工具已耗时)`——正在调用工具…（<3s）/
+      工具执行中…（<10s）/ 工具耗时较长，仍在执行…（<30s）/ 仍在等待工具结果…（≥30s）；
+    - 起点：`ChatMessage.runningToolStartTime`（transient）。`AIChatActivity` 的 1.2s 文案心跳里
+      检测"还有工具在跑"（parts 看流式消息 `components` 的 `tool_call.status`；legacy 看最近
+      `TOOL_CALL` 消息的 `toolCallInfo.status`），首次检测到记起点并同步给流式消息，结束清 0；
+    - **指纹带文案**：`AssistantTurn.Part.statusText`（transient）由
+      `fromMessageForStreaming` 按 running 工具组算好，并加入 `Part#fingerprint()`——
+      文案推进 → 指纹变化 → `TurnPartsHost` 重绑工具卡，不会停在绑定那一刻的旧句子；
+    - 展示：`ToolGroupPartRenderer` 运行中 `⏳ + statusText`（旧数据退回"N 个工具执行中"）；
+      legacy `ChatAdapter` 工具卡同样用 `toolPhrase`；底部生成状态行有工具时优先显示工具文案，
+      速度位暂时收起（工具阶段没有推理速度）；
+    - 测试：`InferenceStatusPhrasesTest` 加工具文案用例；全量 **960 / 0 skipped / 0 failures /
+      0 errors**；APK 07:08:13 已装机，未做真机验证。设计文档见
+      `docs/ui/inference-status-phrases.md` §5。
 
 ---
 

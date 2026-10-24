@@ -2501,7 +2501,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView text = holder.toolCard.findViewById(R.id.chat_v2_tool_card_text);
         if (text != null) {
             if (running > 0) {
-                text.setText(R.string.chat_v2_tool_running_now);
+                // 工具侧「思考」文案：与本轮"第一个工具开始时刻"联动，和底部状态行同一套
+                // （正在调用工具… / 工具执行中… / 工具耗时较长… / 仍在等待工具结果…）
+                long start = message.runningToolStartTime;
+                text.setText(com.oilquiz.app.ai.chat.InferenceStatusPhrases
+                        .toolPhrase(start > 0 ? System.currentTimeMillis() - start : 0L));
             } else {
                 // 时间单独放在右侧 timeView（demo 的 .tool-time），标题只报数量，避免写两遍
                 text.setText(ctx.getString(R.string.chat_v2_tools_ran, toolItems.size()));
