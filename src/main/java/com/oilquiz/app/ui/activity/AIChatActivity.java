@@ -8018,6 +8018,12 @@ public class AIChatActivity extends BaseActivity {
                             || fileLast.status == ChatMessage.MessageStatus.FAILED)
                             && uiLast.status != fileLast.status) {
                         uiLast.status = fileLast.status;
+                        // 终态时把文件里已归一的 canonical turn 一起接上（加载出口已经过
+                        // AssistantTurnRestore 归一）。缺这一步时界面这条会停在"没有 assistantTurn"
+                        // 的状态，parts 闸门把它判回 legacy，与退出重进后看到的 parts 不一致。
+                        if (fileLast.assistantTurn != null) {
+                            uiLast.assistantTurn = fileLast.assistantTurn.copy();
+                        }
                         updated = true;
                     }
                 }

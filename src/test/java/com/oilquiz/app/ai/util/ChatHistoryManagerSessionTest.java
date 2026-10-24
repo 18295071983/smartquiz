@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider;
 import com.oilquiz.app.ai.chat.ActivityTimeline;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.component.ComponentData;
+import com.oilquiz.app.ai.chat.turn.AssistantTurn;
 
 import org.json.JSONObject;
 import org.junit.Before;
@@ -232,6 +233,130 @@ public class ChatHistoryManagerSessionTest {
             if (it.kind == ActivityTimeline.Kind.TOOL) toolIds.add(it.toolCallId);
         }
         assertEquals("恢复后仍应按保存的 toolCallId 配对", Arrays.asList("b", "a"), toolIds);
+    }
+
+    // ---- 2026-10-24：四个加载出口的 canonical turn 归一（真文件链路，不是纯函数推断） ----
+
+    private static final String LEGACY_CONTENT = "开头分析\n\n中间结论\n\n最终回答";
+
+    private static final List<String> LEGACY_PART_ORDER = Arrays.asList(
+            AssistantTurn.Part.TYPE_REASONING,
+            AssistantTurn.Part.TYPE_TEXT,
+            AssistantTurn.Part.TYPE_TOOL_CALL,
+            AssistantTurn.Part.TYPE_TOOL_RESULT,
+            AssistantTurn.Part.TYPE_REASONING,
+            AssistantTurn.Part.TYPE_TEXT,
+            AssistantTurn.Part.TYPE_TOOL_CALL,
+            AssistantTurn.Part.TYPE_REASONING,
+            AssistantTurn.Part.TYPE_TEXT);
+
+    /**
+     * 旧数据形态：有轮次边界 + 工具组件，但<b>没有</b>逐轮快照、也<b>没有</b>落盘 assistantTurn。
+     * 这正是 2026-10-21 之前存下来的会话。
+     */
+    private ChatMessage legacyToolRoundMsg(String id) throws Exception {
+        ChatMessage msg = ChatMessage.createAIMessage(id, LEGACY_CONTENT, System.currentTimeMillis());
+        msg.turnId = "T-" + id;
+        msg.contentRoundBounds = new ArrayList<>(Arrays.asList(6, 12));
+        msg.contentRoundToolIds = new ArrayList<>(Arrays.asList("call_1", "call_2"));
+        msg.thinkingRounds = new ArrayList<>(Arrays.asList("想1", "想2", "想3"));
+        JSONObject p1 = new JSONObject();
+        p1.put("toolCallId", "call_1");
+        p1.put("toolName", "查天气");
+        p1.put("status", "success");
+        p1.put("result", "晴");
+        msg.components = new ArrayList<>(Arrays.asList(
+                ComponentData.of("tool_call", p1), tool("call_2", "算温度")));
+        return msg;
+    }
+
+    private static ChatMessage byId(List<ChatMessage> list, String id) {
+        for (ChatMessage m : list) {
+            if (m != null && id.equals(m.id)) return m;
+        }
+        return null;
+    }
+
+    private static List<String> partTypes(AssistantTurn turn) {
+        List<String> out = new ArrayList<>();
+        for (AssistantTurn.Part p : turn.parts) out.add(p.type);
+        return out;
+    }
+
+    private static String readAll(File f) throws Exception {
+        return new String(java.nio.file.Files.readAllBytes(f.toPath()),
+                java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** 断言一条恢复出来的消息：turn 补上了、顺序按边界归位、正文与边界一个字都没改。 */
+    private void assertLegacyTurnRestored(ChatMessage restored, ChatMessage saved) {
+        assertNotNull("用例前提：这条消息要能从文件里读回来", restored);
+        assertNotNull("加载出口必须补上 canonical turn", restored.assistantTurn);
+        assertEquals("恢复的 parts 顺序 = 思考→正文→工具→下一轮", LEGACY_PART_ORDER,
+                partTypes(restored.assistantTurn));
+        assertEquals("正文不能被恢复改写", saved.content, restored.content);
+        assertEquals("轮次边界不能被恢复改写", saved.contentRoundBounds, restored.contentRoundBounds);
+        assertTrue("切片口径的 turn 不许回写正文", restored.assistantTurn.textPartsAreSlices);
+    }
+
+    /** 挂钩 1/4：单文件 AI 历史 {@code loadAIChatHistory}。 */
+    @Test
+    public void legacyAiHistoryLoadBackfillsCanonicalTurn() throws Exception {
+        ChatMessage msg = legacyToolRoundMsg("a-legacy-hist");
+        manager.saveAIChatHistory(Collections.singletonList(msg));
+
+        String file = readAll(new File(context.getFilesDir(), "ai_chat_history.json"));
+        assertFalse("用例前提：落盘必须是「没有 assistantTurn」的旧形态",
+                file.contains("\"assistantTurn\""));
+
+        assertLegacyTurnRestored(byId(manager.loadAIChatHistory(), "a-legacy-hist"), msg);
+    }
+
+    /** 挂钩 2/4：Agent 历史 {@code loadAgentChatHistory}。 */
+    @Test
+    public void legacyAgentHistoryLoadBackfillsCanonicalTurn() throws Exception {
+        ChatMessage msg = legacyToolRoundMsg("a-legacy-agent");
+        manager.saveAgentChatHistory(Collections.singletonList(msg));
+
+        assertFalse(readAll(new File(context.getFilesDir(), "agent_chat_history.json"))
+                .contains("\"assistantTurn\""));
+
+        assertLegacyTurnRestored(byId(manager.loadAgentChatHistory(), "a-legacy-agent"), msg);
+    }
+
+    /** 挂钩 3/4：整份会话对象 {@code loadConversationSession}（热更新轮询走的就是它）。 */
+    @Test
+    public void legacySessionObjectLoadBackfillsCanonicalTurn() throws Exception {
+        ChatMessage msg = legacyToolRoundMsg("a-legacy-obj");
+        ConversationSession saved = manager.saveCurrentChatAsSession(
+                new ArrayList<>(Arrays.asList(user("u-legacy-obj", "查一下"), msg)));
+        assertNotNull(saved);
+
+        ConversationSession loaded = manager.loadConversationSession(saved.id);
+        assertNotNull(loaded);
+        assertLegacyTurnRestored(byId(loaded.messages, "a-legacy-obj"), msg);
+    }
+
+    /**
+     * 挂钩 4/4：分段读 {@code loadConversationSessionMessages}（进会话页取首页/翻页走它）。
+     * 顺带钉住"恢复出的 turn 与实时生产者逐 part 同 id"——顺序只剩一个来源这件事本身也要有回归网。
+     */
+    @Test
+    public void legacyPagedSessionLoadBackfillsSameTurnAsLiveProducer() throws Exception {
+        ChatMessage msg = legacyToolRoundMsg("a-legacy-page");
+        ConversationSession saved = manager.saveCurrentChatAsSession(
+                new ArrayList<>(Arrays.asList(user("u-legacy-page", "查一下"), msg)));
+        assertNotNull(saved);
+
+        List<ChatMessage> page = manager.loadConversationSessionMessages(saved.id, 0, 10);
+        ChatMessage restored = byId(page, "a-legacy-page");
+        assertLegacyTurnRestored(restored, msg);
+
+        List<String> liveIds = new ArrayList<>();
+        for (AssistantTurn.Part p : AssistantTurn.fromMessage(msg).parts) liveIds.add(p.id);
+        List<String> restoredIds = new ArrayList<>();
+        for (AssistantTurn.Part p : restored.assistantTurn.parts) restoredIds.add(p.id);
+        assertEquals("恢复顺序必须等于实时 fromMessage 顺序", liveIds, restoredIds);
     }
 
     private static ComponentData tool(String id, String name) throws Exception {

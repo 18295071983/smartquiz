@@ -27,6 +27,14 @@ public class AssistantTurn {
 
     public int version = VERSION;
     public String turnId;
+    /**
+     * text parts 是否是 {@code ChatMessage.content} 的连续切片（恢复旧数据、无逐轮快照时为 true，
+     * 见 {@link #addRoundsFromBounds}）。此时正文/边界的真值就在 content/bounds 上，
+     * {@link #applyToMessage} 必须原样跳过：切片里"只有空白"的段不进 parts，拼回去会丢那截空白，
+     * 而 {@code "\n\n"} 分隔规则又会凭空加行——一来一回，每次重开历史正文都在漂移。
+     * 持久化字段，缺省 false（新数据与旧 JSON 都按逐轮快照口径投影）。
+     */
+    public boolean textPartsAreSlices;
     public List<ModelCall> modelCalls = new ArrayList<>();
     public List<Part> parts = new ArrayList<>();
 
@@ -489,7 +497,22 @@ public class AssistantTurn {
         }
     }
 
-    /** 从当前 ChatMessage 的兼容字段构建 canonical turn。 */
+    /**
+     * 从当前 ChatMessage 的兼容字段构建 canonical turn。
+     *
+     * <p><b>这是 parts 顺序的唯一生产者</b>：实时提交（{@code AIChatActivity} 完成回调）与历史恢复
+     * （{@link AssistantTurnRestore}）都走这里，故同一条消息在"刚生成完"和"退出重进"两种形态下
+     * 的 part 顺序必然一致——顺序不再有第二个来源。</p>
+     *
+     * <p>顺序真值按可得性三选一，优先级即数据权威度：</p>
+     * <ol>
+     *   <li>{@code roundSnapshots}：每轮全量正文 + 该轮 toolCallIds（2026-10-21 起的权威）；</li>
+     *   <li>{@code contentRoundBounds} + {@code contentRoundToolIds}：旧数据没有逐轮快照，但
+     *       legacy 把"第 i 个工具挂在正文第 i 个偏移处"记在边界里，按它切正文即可复刻
+     *       {@code ChatAdapter.renderRoundAssembled} 的时序（思考→正文→工具→下一轮正文）；</li>
+     *   <li>都没有：一条 model call + 一个 text part。</li>
+     * </ol>
+     */
     public static AssistantTurn fromMessage(ChatMessage msg) {
         if (msg == null) return null;
         AssistantTurn turn = new AssistantTurn();
@@ -497,42 +520,9 @@ public class AssistantTurn {
         long base = msg.timestamp > 0 ? msg.timestamp : System.currentTimeMillis();
 
         if (msg.roundSnapshots != null && !msg.roundSnapshots.isEmpty()) {
-            for (ChatMessage.RoundSnapshot snap : msg.roundSnapshots) {
-                if (snap == null) continue;
-                String callId = turn.turnId != null
-                        ? turn.turnId + "-R" + snap.round
-                        : "R" + snap.round;
-                ModelCall call = new ModelCall(callId, snap.round,
-                        snap.content, snap.thinking, "", snap.timestamp > 0 ? snap.timestamp : base);
-                if (snap.toolCallIds != null) call.toolCallIds.addAll(snap.toolCallIds);
-                turn.modelCalls.add(call);
-
-                if (snap.thinking != null && !snap.thinking.trim().isEmpty()) {
-                    Part rp = Part.reasoning(callId + Part.ID_REASONING_SUFFIX, snap.thinking,
-                            call.timestamp);
-                    // 接上该轮思考耗时（legacy 用同一来源），供渲染器显示"已深度思考 Xs"。
-                    try {
-                        rp.durationMs = msg.thinkingRoundDurationMs(snap.round - 1);
-                    } catch (Throwable ignore) {
-                        rp.durationMs = 0L;
-                    }
-                    turn.parts.add(rp);
-                }
-                if (snap.content != null && !snap.content.trim().isEmpty()) {
-                    turn.parts.add(Part.text(callId + Part.ID_TEXT_SUFFIX, snap.content,
-                            call.timestamp));
-                }
-                // 工具调用按该轮顺序挂到 text 后；id 以 toolCallId 为键，保证跨重建稳定、
-                // 且不随其它轮次或前序工具的增减而漂移。缺 toolCallId 的脏数据跳过。
-                if (snap.toolCallIds != null) {
-                    for (String toolId : snap.toolCallIds) {
-                        if (toolId == null || toolId.isEmpty()) continue;
-                        turn.parts.add(Part.toolCall(
-                                callId + Part.ID_TOOL_PREFIX + toolId,
-                                toolId, "", "", "done", call.timestamp));
-                    }
-                }
-            }
+            addRoundsFromSnapshots(turn, msg, base);
+        } else if (msg.contentRoundBounds != null && !msg.contentRoundBounds.isEmpty()) {
+            addRoundsFromBounds(turn, msg, base);
         } else {
             // 旧数据/无逐轮快照：至少保留一条 model call + text part
             String callId = turn.turnId != null ? turn.turnId + "-R1" : "R1";
@@ -550,6 +540,112 @@ public class AssistantTurn {
         fillToolPartsFromComponents(turn, msg);
         appendDataParts(turn, msg);
         return turn;
+    }
+
+    /** 逐轮快照分支：每轮 reasoning → text → 该轮工具。 */
+    private static void addRoundsFromSnapshots(AssistantTurn turn, ChatMessage msg, long base) {
+        for (ChatMessage.RoundSnapshot snap : msg.roundSnapshots) {
+            if (snap == null) continue;
+            String callId = callId(turn.turnId, snap.round);
+            ModelCall call = new ModelCall(callId, snap.round,
+                    snap.content, snap.thinking, "", snap.timestamp > 0 ? snap.timestamp : base);
+            if (snap.toolCallIds != null) call.toolCallIds.addAll(snap.toolCallIds);
+            turn.modelCalls.add(call);
+
+            if (snap.thinking != null && !snap.thinking.trim().isEmpty()) {
+                Part rp = Part.reasoning(callId + Part.ID_REASONING_SUFFIX, snap.thinking,
+                        call.timestamp);
+                // 接上该轮思考耗时（legacy 用同一来源），供渲染器显示"已深度思考 Xs"。
+                rp.durationMs = thinkingRoundDurationMs(msg, snap.round - 1);
+                turn.parts.add(rp);
+            }
+            if (snap.content != null && !snap.content.trim().isEmpty()) {
+                turn.parts.add(Part.text(callId + Part.ID_TEXT_SUFFIX, snap.content,
+                        call.timestamp));
+            }
+            // 工具调用按该轮顺序挂到 text 后；id 以 toolCallId 为键，保证跨重建稳定、
+            // 且不随其它轮次或前序工具的增减而漂移。缺 toolCallId 的脏数据跳过。
+            if (snap.toolCallIds != null) {
+                for (String toolId : snap.toolCallIds) {
+                    if (toolId == null || toolId.isEmpty()) continue;
+                    turn.parts.add(Part.toolCall(
+                            callId + Part.ID_TOOL_PREFIX + toolId,
+                            toolId, "", "", "done", call.timestamp));
+                }
+            }
+        }
+    }
+
+    /**
+     * 旧数据分支：按 {@code contentRoundBounds} 把正文切成每轮一段，工具插在所属段之后。
+     *
+     * <p>切片规则与 {@code ChatAdapter.renderRoundAssembled} 逐字对齐（第 i 段 =
+     * {@code content[bound[i-1], bound[i])}，第 i 个工具跟在段 i 之后），因此旧消息恢复后
+     * 拿到的 parts 顺序 = 它今天在 legacy 里被渲染的顺序。思考取 {@code thinkingRounds[i]}，
+     * 与"第 i 轮思考产出第 i 段正文"的 legacy 约定一致。</p>
+     *
+     * <p>边界里的工具 id 可能为空（早于 toolCallId 落库的数据）：此时 part 的 toolCallId 留空、
+     * id 用 {@code #i} 占位，交给 {@link #fillToolPartsFromComponents} 按序号就地认领组件，
+     * 不再退化到"补到末尾"——那正是恢复后顺序错乱的来源。</p>
+     */
+    private static void addRoundsFromBounds(AssistantTurn turn, ChatMessage msg, long base) {
+        turn.textPartsAreSlices = true;
+        String content = msg.content != null ? msg.content : "";
+        java.util.List<Integer> bounds = msg.contentRoundBounds;
+        java.util.List<String> ids = msg.contentRoundToolIds;
+        int n = bounds.size();
+        int start = 0;
+        for (int i = 0; i <= n; i++) {
+            int end = content.length();
+            if (i < n) {
+                Integer raw = bounds.get(i);
+                end = raw == null ? start : Math.max(start, Math.min(raw, content.length()));
+            }
+            String seg = start < content.length() ? content.substring(start, end) : "";
+            String think = thinkingRoundAt(msg, i);
+            String callId = callId(turn.turnId, i + 1);
+            ModelCall call = new ModelCall(callId, i + 1, seg, think, "", base);
+            turn.modelCalls.add(call);
+
+            if (think != null && !think.trim().isEmpty()) {
+                Part rp = Part.reasoning(callId + Part.ID_REASONING_SUFFIX, think, base);
+                rp.durationMs = thinkingRoundDurationMs(msg, i);
+                turn.parts.add(rp);
+            }
+            if (!seg.trim().isEmpty()) {
+                turn.parts.add(Part.text(callId + Part.ID_TEXT_SUFFIX, seg, base));
+            }
+            if (i < n) {
+                String toolId = (ids != null && i < ids.size() && ids.get(i) != null)
+                        ? ids.get(i) : "";
+                if (!toolId.isEmpty()) call.toolCallIds.add(toolId);
+                turn.parts.add(Part.toolCall(
+                        callId + Part.ID_TOOL_PREFIX + (toolId.isEmpty() ? ("#" + i) : toolId),
+                        toolId, "", "", "done", base));
+            }
+            start = end;
+        }
+    }
+
+    private static String callId(String turnId, int round) {
+        return turnId != null ? turnId + "-R" + round : "R" + round;
+    }
+
+    private static String thinkingRoundAt(ChatMessage msg, int index) {
+        if (msg.thinkingRounds == null || index < 0 || index >= msg.thinkingRounds.size()) {
+            return "";
+        }
+        String v = msg.thinkingRounds.get(index);
+        return v != null ? v : "";
+    }
+
+    /** 第 index 轮（0 基）思考耗时；越界或旧数据缺列表时按 0 处理。 */
+    private static long thinkingRoundDurationMs(ChatMessage msg, int index) {
+        try {
+            return msg.thinkingRoundDurationMs(index);
+        } catch (Throwable ignore) {
+            return 0L;
+        }
     }
 
     /**
@@ -596,42 +692,75 @@ public class AssistantTurn {
         }
         java.util.Set<org.json.JSONObject> used =
                 java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
-        int seq = 0;
         // 遍历时会向 turn.parts 插入 result part，故对快照列表迭代，避免 ConcurrentModificationException；
         // 插入位置用 indexOf(真实列表) 计算，新插入的 result 不参与本轮匹配。
         for (Part p : new ArrayList<>(turn.parts)) {
             if (p == null || !Part.TYPE_TOOL_CALL.equals(p.type)) continue;
-            org.json.JSONObject props = p.toolCallId != null ? byId.get(p.toolCallId) : null;
+            if (p.toolCallId == null || p.toolCallId.isEmpty()) continue;
+            org.json.JSONObject props = byId.get(p.toolCallId);
             if (props == null) continue;
             used.add(props);
-            p.toolName = props.optString("toolName", p.toolName);
-            p.args = props.optString("args", p.args);
-            p.status = props.optString("status", p.status);
-            p.durationMs = props.optLong("durationMs", props.optLong("executionTimeMs", 0L));
-            String result = props.optString("result", "");
-            if (!result.isEmpty()) {
-                Part r = Part.toolResult(p, result, p.timestamp);
-                int at = turn.parts.indexOf(p) + 1;
-                turn.parts.add(at, r);
+            attachToolProps(turn, p, props);
+        }
+        // ② 无 toolCallId 的 part（旧数据的轮次边界里没记 id）按出现顺序与"无 id 的工具组件"
+        //    对齐、就地回填。缺这一步时它们会全部掉进下面的"补到末尾"分支，恢复后工具卡
+        //    顺序就与实时（按轮内联）不一致——这正是"恢复后 part 顺序混乱"的来源。
+        java.util.List<Part> idlessParts = new ArrayList<>();
+        for (Part p : new ArrayList<>(turn.parts)) {
+            if (p != null && Part.TYPE_TOOL_CALL.equals(p.type)
+                    && (p.toolCallId == null || p.toolCallId.isEmpty())) idlessParts.add(p);
+        }
+        java.util.List<org.json.JSONObject> idlessProps = new ArrayList<>();
+        for (org.json.JSONObject props : all) {
+            if (!used.contains(props) && props.optString("toolCallId", "").isEmpty()) {
+                idlessProps.add(props);
             }
         }
-        // 没有快照/没有 toolCallIds 的旧数据：组件里的工具调用补到末尾。
-        // id 以 toolCallId 为键，缺失时退化为稳定前缀 + 序号。
+        int paired = Math.min(idlessParts.size(), idlessProps.size());
+        for (int i = 0; i < paired; i++) {
+            org.json.JSONObject props = idlessProps.get(i);
+            used.add(props);
+            attachToolProps(turn, idlessParts.get(i), props);
+        }
+        // 配不上组件的空壳 part（既无 id 也无可回填的组件）：摘掉，避免渲出一张空白工具行，
+        // 也避免它随后与 ③ 补进末尾的真组件重复成两张卡。
+        for (int i = paired; i < idlessParts.size(); i++) {
+            turn.parts.remove(idlessParts.get(i));
+        }
+        // ③ 仍没有任何 part 认领的组件（轮次边界比组件少、或回调乱序）：补到末尾兜底，
+        //    保证"一个工具都不丢"。时间戳取消息时间而非构建时刻，恢复与实时才可能一致。
+        int seq = 0;
         for (org.json.JSONObject props : all) {
             if (used.contains(props)) continue;
             String toolCallId = props.optString("toolCallId", "");
             String partId = toolCallId.isEmpty()
                     ? "legacy:ord" + (seq++)
                     : "legacy:" + toolCallId;
+            long ts = msg.timestamp > 0 ? msg.timestamp : 0L;
             Part p = Part.toolCall(partId, toolCallId,
                     props.optString("toolName", ""), props.optString("args", ""),
-                    props.optString("status", "done"), System.currentTimeMillis());
+                    props.optString("status", "done"), ts);
             p.durationMs = props.optLong("durationMs", props.optLong("executionTimeMs", 0L));
             turn.parts.add(p);
             String result = props.optString("result", "");
             if (!result.isEmpty()) {
                 turn.parts.add(Part.toolResult(p, result, p.timestamp));
             }
+        }
+    }
+
+    /** 把 tool_call 组件的 props 写进已就位的 part，并在其后补一条 tool_result part。 */
+    private static void attachToolProps(AssistantTurn turn, Part p, org.json.JSONObject props) {
+        if (turn == null || p == null || props == null) return;
+        p.toolName = props.optString("toolName", p.toolName);
+        p.args = props.optString("args", p.args);
+        p.status = props.optString("status", p.status);
+        p.durationMs = props.optLong("durationMs", props.optLong("executionTimeMs", 0L));
+        String result = props.optString("result", "");
+        if (!result.isEmpty()) {
+            Part r = Part.toolResult(p, result, p.timestamp);
+            int at = turn.parts.indexOf(p) + 1;
+            turn.parts.add(at, r);
         }
     }
 
@@ -644,6 +773,7 @@ public class AssistantTurn {
      */
     public void applyToMessage(ChatMessage msg) {
         if (msg == null) return;
+        if (textPartsAreSlices) return; // 正文/边界的真值本来就在 msg 上，切片 turn 不回写（见字段注释）
         StringBuilder sb = new StringBuilder();
         java.util.List<Integer> bounds = new java.util.ArrayList<>();
         java.util.List<String> ids = new java.util.ArrayList<>();
@@ -683,6 +813,7 @@ public class AssistantTurn {
         AssistantTurn t = new AssistantTurn();
         t.version = version;
         t.turnId = turnId;
+        t.textPartsAreSlices = textPartsAreSlices;
         for (ModelCall c : modelCalls) {
             if (c == null) continue;
             ModelCall n = new ModelCall(c.id, c.round, c.content, c.reasoning,

@@ -3527,7 +3527,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 com.oilquiz.app.ai.chat.turn.AssistantTurn.fromMessageForParts(message, isNightMode(ctx));
         final com.oilquiz.app.ai.chat.parts.PartRendererRegistry partsRegistry =
                 com.oilquiz.app.ai.chat.parts.PartRendererRegistry.createDefault();
-        if (partsTurn == null || !partsRegistry.canRenderAll(partsTurn.parts)) {
+        if (partsTurn == null || partsTurn.parts == null || partsTurn.parts.isEmpty()
+                || !partsRegistry.canRenderAll(partsTurn.parts)) {
+            // 空 parts（正文已清空但消息仍标记完成的历史行）必须回落 legacy：canRenderAll 对空列表
+            // 返回真，接管后会渲出一个空气泡，把 legacy 本来还能显示的内容吃掉。
             return false;
         }
         for (com.oilquiz.app.ai.chat.turn.AssistantTurn.Part p : partsTurn.parts) {

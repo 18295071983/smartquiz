@@ -320,6 +320,9 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             reader.close();
             if (chatHistory == null) chatHistory = new ArrayList<>();
             RoundBounds.normalizeAll(chatHistory);
+            // 恢复期把 canonical turn 归一到与实时同一个生产者：旧数据补 assistantTurn，
+            // 新数据用同一份重建覆盖落盘值，避免"落盘顺序"和"渲染顺序"两套真值漂移。
+            com.oilquiz.app.ai.chat.turn.AssistantTurnRestore.restoreAll(chatHistory);
             return chatHistory;
         } catch (OutOfMemoryError e) {
             // 兜底：大文件解析内存不足时保命，不删用户文件（后续保存已按上限裁剪）
@@ -376,6 +379,9 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             reader.close();
             if (chatHistory == null) chatHistory = new ArrayList<>();
             RoundBounds.normalizeAll(chatHistory);
+            // 恢复期把 canonical turn 归一到与实时同一个生产者：旧数据补 assistantTurn，
+            // 新数据用同一份重建覆盖落盘值，避免"落盘顺序"和"渲染顺序"两套真值漂移。
+            com.oilquiz.app.ai.chat.turn.AssistantTurnRestore.restoreAll(chatHistory);
             return chatHistory;
         } catch (OutOfMemoryError e) {
             Log.e(TAG, "OutOfMemory loading Agent chat history, keep file intact", e);
@@ -522,7 +528,10 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             FileReader reader = new FileReader(file);
             ConversationSession session = gson.fromJson(reader, ConversationSession.class);
             reader.close();
-            if (session != null) RoundBounds.normalizeAll(session.messages);
+            if (session != null) {
+                RoundBounds.normalizeAll(session.messages);
+                com.oilquiz.app.ai.chat.turn.AssistantTurnRestore.restoreAll(session.messages);
+            }
             return session;
         } catch (OutOfMemoryError e) {
             // 兜底：超大会话解析内存不足时保命（不删文件，后续保存已按上限裁剪）
@@ -1124,6 +1133,7 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
                 ChatMessage m = gson.fromJson(reader, ChatMessage.class);
                 if (m != null) {
                     RoundBounds.normalize(m);
+                    com.oilquiz.app.ai.chat.turn.AssistantTurnRestore.restore(m);
                     out.add(m);
                 }
             } else {
