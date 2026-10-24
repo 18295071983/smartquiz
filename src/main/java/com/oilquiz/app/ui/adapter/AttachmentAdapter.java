@@ -19,6 +19,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.ChatMessage.Attachment;
+import com.oilquiz.app.ai.chat.attachment.AttachmentThumbnails;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -314,6 +315,33 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
 
     private void bindFileAttachment(FileAttachmentViewHolder holder, Attachment attachment, int position) {
         holder.fileIcon.setText(attachment.getEmoji());
+        holder.fileIcon.setVisibility(View.VISIBLE);
+        holder.fileThumb.setImageDrawable(null);
+        holder.fileThumb.setVisibility(View.GONE);
+        holder.fileThumb.setTag(null);
+        // md/文本/PDF/图片附件：有专用缩略图引擎时用缩略图盖住 emoji（与已发送附件行、
+        // 聊天文件卡共用 AttachmentThumbnails；后台生成、主线程回填）
+        File local = AttachmentThumbnails.localFileOf(attachment);
+        if (local != null && AttachmentThumbnails.supports(local)) {
+            holder.fileThumb.setTag(attachment);
+            AttachmentThumbnails.load(context, local, 256, new AttachmentThumbnails.Callback() {
+                @Override
+                public void onThumbnail(android.graphics.Bitmap bitmap) {
+                    // 列表复用后 holder 可能已绑到别的附件：对不上就丢弃
+                    if (holder.fileThumb.getTag() != attachment) {
+                        bitmap.recycle();
+                        return;
+                    }
+                    holder.fileIcon.setVisibility(View.GONE);
+                    holder.fileThumb.setImageBitmap(bitmap);
+                    holder.fileThumb.setVisibility(View.VISIBLE);
+                }
+
+                @Override
+                public void onUnavailable() {
+                }
+            });
+        }
 
         if (holder.fileName != null) {
             holder.fileName.setText(attachment.name != null ? attachment.name : context.getString(R.string.h_94cd9443));
@@ -624,6 +652,7 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
     static class FileAttachmentViewHolder extends RecyclerView.ViewHolder {
         MaterialCardView cardView;
         TextView fileIcon;
+        ImageView fileThumb;
         TextView fileName;
         TextView fileSize;
         ImageView arrowIcon;
@@ -633,6 +662,7 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             super(itemView);
             cardView = itemView.findViewById(R.id.attachment_file_card);
             fileIcon = itemView.findViewById(R.id.attachment_file_icon);
+            fileThumb = itemView.findViewById(R.id.attachment_file_thumb);
             fileName = itemView.findViewById(R.id.attachment_file_name);
             fileSize = itemView.findViewById(R.id.attachment_file_size);
             arrowIcon = itemView.findViewById(R.id.attachment_file_arrow);

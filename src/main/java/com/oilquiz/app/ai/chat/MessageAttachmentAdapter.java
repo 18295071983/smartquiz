@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.ai.chat.attachment.AttachmentThumbnails;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -342,6 +343,34 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
 
     private void bindFileAttachment(FileAttachmentViewHolder holder, ChatMessage.Attachment attachment) {
         holder.fileIcon.setText(attachment.getEmoji());
+        holder.fileIcon.setVisibility(View.VISIBLE);
+        holder.fileThumb.setImageDrawable(null);
+        holder.fileThumb.setVisibility(View.GONE);
+        holder.fileThumb.setTag(null);
+        // md/文本/PDF/图片附件：有专用缩略图引擎时用缩略图盖住 emoji 图标
+        // （与输入区 chip、聊天文件卡共用 AttachmentThumbnails；后台生成、主线程回填）
+        File local = AttachmentThumbnails.localFileOf(attachment);
+        if (local != null && AttachmentThumbnails.supports(local)) {
+            holder.fileThumb.setTag(attachment);
+            AttachmentThumbnails.load(holder.itemView.getContext(), local, 256,
+                    new AttachmentThumbnails.Callback() {
+                        @Override
+                        public void onThumbnail(android.graphics.Bitmap bitmap) {
+                            // RecyclerView 可能已把 holder 复用到别的附件：对不上就丢弃
+                            if (holder.fileThumb.getTag() != attachment) {
+                                bitmap.recycle();
+                                return;
+                            }
+                            holder.fileIcon.setVisibility(View.GONE);
+                            holder.fileThumb.setImageBitmap(bitmap);
+                            holder.fileThumb.setVisibility(View.VISIBLE);
+                        }
+
+                        @Override
+                        public void onUnavailable() {
+                        }
+                    });
+        }
         holder.fileName.setText(attachment.name != null ? attachment.name : SmartQuizApplication.getAppContext().getString(R.string.h_94cd9443));
         holder.fileSize.setText(attachment.getDisplaySize());
 
@@ -557,6 +586,7 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
 
     static class FileAttachmentViewHolder extends RecyclerView.ViewHolder {
         TextView fileIcon;
+        ImageView fileThumb;
         TextView fileName;
         TextView fileSize;
         TextView fileStatus;
@@ -566,6 +596,7 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
         FileAttachmentViewHolder(View itemView) {
             super(itemView);
             fileIcon = itemView.findViewById(R.id.file_icon);
+            fileThumb = itemView.findViewById(R.id.file_thumb);
             fileName = itemView.findViewById(R.id.file_name);
             fileSize = itemView.findViewById(R.id.file_size);
             fileStatus = itemView.findViewById(R.id.file_status);

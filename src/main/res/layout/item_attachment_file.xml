@@ -15,12 +15,26 @@
         android:gravity="center_vertical"
         android:padding="@dimen/space_8">
 
-        <TextView
-            android:id="@+id/attachment_file_icon"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textSize="@dimen/text_24"
-            android:layout_marginEnd="@dimen/space_8" />
+        <FrameLayout
+            android:layout_width="@dimen/size_36"
+            android:layout_height="@dimen/size_36"
+            android:layout_marginEnd="@dimen/space_8">
+
+            <TextView
+                android:id="@+id/attachment_file_icon"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:textSize="@dimen/text_24"
+                android:gravity="center" />
+
+            <!-- md/文本/PDF/图片附件：有专用缩略图引擎时盖住 emoji 图标 -->
+            <ImageView
+                android:id="@+id/attachment_file_thumb"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="fitCenter"
+                android:visibility="gone" />
+        </FrameLayout>
 
         <LinearLayout
             android:layout_width="@dimen/size_0"

@@ -1,5 +1,23 @@
 # 变更日志
 
+## [2026-10-25] feat(chat)：输入区/已发送消息的附件行也挂缩略图（md 优先）
+
+上一轮只给聊天 `file_card` 接了缩略图；输入区选中的附件、已发送消息的附件行还是 emoji + 文件名。
+
+- **新增 `AttachmentThumbnails`**：统一“附件 → 本地文件 → 缩略图”的口径与线程模型。
+  `localFilePath` 优先、`file://` url 兜底；白名单与文件卡一致（md 家族 / txt·log·json·xml·csv /
+  pdf / 图片），Office 仍不接（X5/TBS）。后台生成、主线程回调，缩略图落 FilePreviewManager 缓存。
+- **输入区 `AttachmentAdapter`**（item_attachment_file）与**已发送消息 `MessageAttachmentAdapter`**
+  （item_message_attachment_file）：36dp emoji 图标位改成“图标 / 缩略图”叠层，有引擎才显示图；
+  ViewHolder 复用用 tag 校验，回调对不上就回收，避免串图。
+- **`FileCardView`** 改用同一加载器，三处共用一份白名单/缩放逻辑（行为不变）。
+- **修 `file://` 解析**：JVM/Windows 下 `Uri.fromFile` 会生成“盘符当 authority”的形式，
+  `Uri.parse().getPath()` 取回空路径；改为按前缀切 + `Uri.decode`，Android 与单测环境都正确。
+- **验证**：新增 `AttachmentThumbnailsTest` 4 条、`AttachmentThumbnailDeviceTest` 2 条
+  （真机把输入区附件行、已发送附件行画进 Bitmap 并 pull 出图确认）；全量 **894 tests /
+  0 skipped / 0 failures / 0 errors**；`assembleDebug` 通过（APK 03:18:15），已装机。
+  真机截图：附件行左侧显示 md 首页缩略图（标题/表格可辨）。
+
 ## [2026-10-25] feat(chat)：file_card 挂缩略图（md 优先，文本/PDF/图片一并支持）
 
 上一轮把 md 缩略图引擎（MarkdownDocPage + 离屏 WebView 截图）做出来了，但全项目没有任何
