@@ -1,5 +1,21 @@
 # 变更日志
 
+## [2026-10-25] feat(player)：P2.1——队列 HLS 302 预解析 + 播放缓存（离线重放）
+
+补齐 P1/P2 里明确留的两个坑；仍不涉及 Cast/下载管理 UI。
+
+- **队列 HLS 302**：`playQueue` 起播项是 m3u8 时，先在 resolver 线程跟到最终清单地址
+  再建队列；其余 HLS 项最多 8 个后台解析，解析完 `replaceMediaItem` 替换非当前项，
+  当前项不替换（避免刚切过去被重置）。`resolveSeq` 继续防"用户又点了别的队列"。
+- **播放缓存**：`AudioPlaybackService` 建 `SimpleCache`（LRU 256MB）+ `CacheDataSource`，
+  HTTP/HLS/DASH 边播边缓存；完整听过的内容断网可重放。RTMP 仍直连；缓存目录/数据库
+  初始化失败自动退回纯网络；Service 销毁 release。
+- **验证**：全量 `testDebugUnitTest --offline --rerun` **867 tests / 0 skipped /
+  0 failures / 0 errors**；`assembleDebug` 通过（APK 01:37:27）。**未装机**：队列 HLS
+  302、断网重放、RTMP 直连都要真机验。
+- **边界**：这是"播放缓存"，不是下载管理 UI（没有手动下载/清理/离线列表）；Cast 投屏
+  仍需要接收端 App ID/产品确认，没有硬塞。提交 `b11b7342`。
+
 ## [2026-10-25] feat(player)：P2——文件预览统一 ExoPlayer、RTSP/SS/RTMP、DRM、续播
 
 P2 把第二条播放链路收口，并补协议/DRM/续播；投屏与离线缓存需要额外 SDK/下载管理 UI，

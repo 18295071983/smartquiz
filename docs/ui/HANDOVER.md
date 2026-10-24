@@ -2158,6 +2158,19 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    （`SimpleCache` + 下载管理 UI/存储策略）没有硬塞；需要产品确认接收端/存储/版权策略。
    提交 `a57d3f16`。
 
+### 4.97 feat(player)：P2.1——队列 HLS 302 预解析 + 播放缓存（2026-10-25）
+
+1. **队列 HLS 302**：`playQueue` 起播项是 m3u8 时先在 resolver 线程 `resolveFinalUrl`
+   再建队列；其余 HLS 项最多 8 个后台解析，完成后 `replaceMediaItem` 替换非当前项，
+   当前项跳过（避免刚切过去被重置）；`resolveSeq` 防用户换队列后旧回调串入。
+2. **播放缓存**：`AudioPlaybackService` 用 `SimpleCache`（LRU 256MB）+ `CacheDataSource`
+   包住 HTTP；HLS/DASH 分片一起缓存，完整听过的内容断网可重放。RTMP 仍直连；
+   缓存目录/数据库初始化失败退回纯网络；Service 销毁 `release`。
+3. **验证**：全量 **867 / 0 skipped / 0 failures / 0 errors**；`assembleDebug` 通过
+   （APK 01:37:27）。**未装机**；队列 HLS 302、断网重放、RTMP 直连要真机验。
+4. **边界**：这是播放缓存，不是下载管理 UI（无手动下载/清理/离线列表）；Cast 仍待
+   接收端 App ID/产品确认。提交 `b11b7342`。
+
 ---
 
 ## 5. 关键文件 / 改动地图
