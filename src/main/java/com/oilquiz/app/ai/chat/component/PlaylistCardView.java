@@ -98,6 +98,14 @@ public class PlaylistCardView implements ChatComponent {
         final boolean[] registered = {false};
         final int shown = Math.min(rows.size(), MAX_ROWS);
 
+        final TextView shuffleTv = chip(context, "随机关");
+        final TextView repeatTv = chip(context, "队列不循环");
+        final TextView speedTv = chip(context, "1x");
+        shuffleTv.setOnClickListener(v -> mgr.toggleShuffle());
+        repeatTv.setOnClickListener(v -> mgr.toggleQueueRepeat());
+        speedTv.setOnClickListener(v ->
+                mgr.setSpeed(AudioPlaybackManager.nextSpeed(mgr.snapshot().speed)));
+
         for (int i = 0; i < shown; i++) {
             final int index = i;
             Row row = rows.get(i);
@@ -166,11 +174,25 @@ public class PlaylistCardView implements ChatComponent {
         }
 
         if (rows.size() > 1) {
+            LinearLayout tools = new LinearLayout(context);
+            tools.setOrientation(LinearLayout.HORIZONTAL);
+            tools.setGravity(Gravity.CENTER_VERTICAL);
+            tools.addView(shuffleTv);
+            tools.addView(repeatTv);
+            tools.addView(speedTv);
+            shell.addBody(tools);
+        }
+
+        if (rows.size() > 1) {
             shell.addAction(context.getString(R.string.card_playlist_prev), false, mgr::skipToPrevious);
             shell.addAction(context.getString(R.string.card_playlist_next), false, mgr::skipToNext);
         }
 
         final AudioPlaybackManager.Listener listener = state -> {
+            shuffleTv.setText(state.shuffle ? "随机开" : "随机关");
+            repeatTv.setText(state.repeatAll ? "队列循环" : "队列不循环");
+            speedTv.setText(AudioCardView.formatSpeed(state.speed));
+
             int currentIndex = -1;
             for (int i = 0; i < uris.size(); i++) {
                 if (state.isTrack(uris.get(i))) {
@@ -239,6 +261,18 @@ public class PlaylistCardView implements ChatComponent {
             out.add(r);
         }
         return out;
+    }
+
+    private static TextView chip(Context context, String text) {
+        TextView tv = new TextView(context);
+        tv.setText(text);
+        tv.setTextSize(ComponentTheme.metaTextSize());
+        tv.setTextColor(ComponentTheme.textSecondary(context));
+        tv.setPadding(0, ComponentTheme.dp(context, 4),
+                ComponentTheme.dp(context, 16), ComponentTheme.dp(context, 4));
+        tv.setClickable(true);
+        tv.setFocusable(true);
+        return tv;
     }
 
     static final class Row {

@@ -94,14 +94,16 @@ public final class AudioPlaybackManager {
         public final boolean live;
         public final float speed;
         public final boolean loop;
+        public final boolean shuffle;
+        public final boolean repeatAll;
         public final int queueIndex;
         public final int queueSize;
         public final String error;
 
         State(String mediaId, String title, String artist, long positionMs, long durationMs,
               boolean playing, boolean buffering, boolean ended, boolean playWhenReady,
-              boolean live, float speed, boolean loop, int queueIndex, int queueSize,
-              String error) {
+              boolean live, float speed, boolean loop, boolean shuffle, boolean repeatAll,
+              int queueIndex, int queueSize, String error) {
             this.mediaId = mediaId == null ? "" : mediaId;
             this.title = title == null ? "" : title;
             this.artist = artist == null ? "" : artist;
@@ -114,6 +116,8 @@ public final class AudioPlaybackManager {
             this.live = live;
             this.speed = speed > 0 ? speed : 1.0f;
             this.loop = loop;
+            this.shuffle = shuffle;
+            this.repeatAll = repeatAll;
             this.queueIndex = Math.max(0, queueIndex);
             this.queueSize = Math.max(0, queueSize);
             this.error = error;
@@ -424,6 +428,7 @@ public final class AudioPlaybackManager {
         lastItem = items.get(index);   // 自愈重连要用本地这份（见 recoverBehindLiveWindow）
         // 队列起播不能继承上一首单曲的倍速/循环；统一从默认档开始。
         c.setRepeatMode(Player.REPEAT_MODE_OFF);
+        c.setShuffleModeEnabled(false);
         c.setPlaybackSpeed(1.0f);
         c.setMediaItems(items, index, 0);
         c.prepare();
@@ -499,6 +504,30 @@ public final class AudioPlaybackManager {
         }
     }
 
+    /** 播放列表随机开关（只影响当前队列；新队列起播时重置为关）。 */
+    public void toggleShuffle() {
+        MediaController c = controller;
+        if (c == null) return;
+        try {
+            c.setShuffleModeEnabled(!c.getShuffleModeEnabled());
+            notifyState();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 队列循环开关（REPEAT_MODE_ALL；与单曲循环互斥）。 */
+    public void toggleQueueRepeat() {
+        MediaController c = controller;
+        if (c == null) return;
+        try {
+            boolean all = c.getRepeatMode() != Player.REPEAT_MODE_ALL;
+            c.setRepeatMode(all ? Player.REPEAT_MODE_ALL : Player.REPEAT_MODE_OFF);
+            lastLoop = false;
+            notifyState();
+        } catch (Throwable ignored) {
+        }
+    }
+
     /** 下一档倍速（0.5/0.75/1/1.25/1.5/2），UI 与测试共用。 */
     public static float nextSpeed(float current) {
         float[] speeds = {0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f};
@@ -538,7 +567,7 @@ public final class AudioPlaybackManager {
         MediaController c = controller;
         if (c == null) {
             return new State("", "", "", 0, 0, false, false, false,
-                    false, false, 1.0f, false, 0, 0, lastError);
+                    false, false, 1.0f, false, false, false, 0, 0, lastError);
         }
         MediaItem item = c.getCurrentMediaItem();
         String id = item != null && item.mediaId != null ? item.mediaId : "";
@@ -560,6 +589,8 @@ public final class AudioPlaybackManager {
         boolean live = false;
         float speed = 1.0f;
         boolean loop = false;
+        boolean shuffle = false;
+        boolean repeatAll = false;
         int queueIndex = 0;
         int queueSize = 0;
         try {
@@ -568,13 +599,16 @@ public final class AudioPlaybackManager {
             live = c.isCurrentMediaItemLive();
             speed = c.getPlaybackParameters().speed;
             loop = c.getRepeatMode() == Player.REPEAT_MODE_ONE;
+            shuffle = c.getShuffleModeEnabled();
+            repeatAll = c.getRepeatMode() == Player.REPEAT_MODE_ALL;
             queueIndex = c.getCurrentMediaItemIndex();
             queueSize = c.getMediaItemCount();
         } catch (Throwable ignored) {
         }
         return new State(id, title, artist, pos, dur,
                 c.isPlaying(), st == Player.STATE_BUFFERING, st == Player.STATE_ENDED,
-                playWhenReady, live, speed, loop, queueIndex, queueSize, lastError);
+                playWhenReady, live, speed, loop, shuffle, repeatAll,
+                queueIndex, queueSize, lastError);
     }
 
     // ==================== 服务连接 ====================
