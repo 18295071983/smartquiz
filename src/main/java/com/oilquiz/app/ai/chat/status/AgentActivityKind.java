@@ -56,6 +56,33 @@ public enum AgentActivityKind {
     }
 
     /**
+     * 中文短标签：给"工具名没有中文别名"的兜底用（{@link com.oilquiz.app.ai.chat.ToolMetaRegistry}），
+     * 例如未知的 {@code foo_bar} 显示"自定义工具"而不是把洋文甩给用户。
+     */
+    public String displayLabel() {
+        switch (this) {
+            case SEARCH:
+                return "搜索工具";
+            case READ_FILE:
+                return "文件读取工具";
+            case GENERATE_FILE:
+                return "文件生成工具";
+            case GENERATE_IMAGE:
+                return "图片生成工具";
+            case GENERATE_CHART:
+                return "图表生成工具";
+            case RUN_CODE:
+                return "代码执行工具";
+            case DOWNLOAD:
+                return "下载工具";
+            case QUERY_DATA:
+                return "数据查询工具";
+            default:
+                return "自定义工具";
+        }
+    }
+
+    /**
      * 工具名 → 活动分类（引擎/UI 共用的唯一口径）。
      *
      * <p>顺序有意义：先判"读文件"再判"生成文件"（{@code pdf_read} 应归读），

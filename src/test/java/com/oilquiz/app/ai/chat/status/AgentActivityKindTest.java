@@ -88,4 +88,39 @@ public class AgentActivityKindTest {
         assertFalse(AgentActivityBus.isRunning());
         AgentActivityBus.clear();
     }
+
+    @Test
+    public void 活动快照_带中文别名与正在干什么的目标() {
+        AgentActivityBus.clear();
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("file_name", "C:\\temp\\季度报告.docx");
+        AgentActivityBus.started("file_generator", params);
+        AgentActivityBus.Snapshot snap = AgentActivityBus.current();
+        assertNotNull(snap);
+        // 中文别名来自 ToolMetaRegistry（已知工具）
+        assertEquals("文件生成", snap.displayName);
+        // 目标：去掉目录、只留文件名
+        assertEquals("季度报告.docx", snap.target);
+        AgentActivityBus.clear();
+
+        // 未知工具 → 分类兜底的中文名，不再是洋文
+        AgentActivityBus.started("foo_bar_tool", null);
+        snap = AgentActivityBus.current();
+        assertNotNull(snap);
+        assertEquals("自定义工具", snap.displayName);
+        assertEquals("", snap.target);
+        AgentActivityBus.clear();
+    }
+
+    @Test
+    public void 状态文案可追加正在干什么() {
+        String withTarget = com.oilquiz.app.ai.chat.InferenceStatusPhrases.toolPhrase(
+                AgentActivityKind.GENERATE_FILE, 1_000, "季度报告.docx");
+        assertEquals("正在生成文件 · 季度报告.docx", withTarget);
+        // 没有目标时保持原句（带省略号）
+        assertEquals("正在生成文件…", com.oilquiz.app.ai.chat.InferenceStatusPhrases
+                .toolPhrase(AgentActivityKind.GENERATE_FILE, 1_000, null));
+        assertEquals("正在生成文件…", com.oilquiz.app.ai.chat.InferenceStatusPhrases
+                .toolPhrase(AgentActivityKind.GENERATE_FILE, 1_000, "  "));
+    }
 }

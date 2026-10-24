@@ -57,7 +57,9 @@ public class ToolCallCardView implements ChatComponent {
         row.addView(iconTv);
 
         TextView nameTv = new TextView(context);
-        nameTv.setText(toolName);
+        // 工具名 → 中文别名（ToolMetaRegistry；未知工具按分类兜底成"自定义工具"），
+        // 不再把 python_execute 这类内部名甩给用户（2026-10-25 反馈"一堆洋文感到困惑"）。
+        nameTv.setText(com.oilquiz.app.ai.chat.ToolMetaRegistry.displayName(toolName));
         nameTv.setTextSize(12);
         nameTv.setTextColor(ComponentColors.textSecondary(context));
         nameTv.setSingleLine(true);

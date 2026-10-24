@@ -100,29 +100,18 @@ public final class ToolMetaRegistry {
     private ToolMetaRegistry() {
     }
 
-    /** 工具中文名；表里没有时人性化兜底，绝不回吐原始下划线名 */
+    /** 工具中文名；表里没有时按引擎侧活动分类给中文兜底（不再把内部名/洋文甩给用户） */
     public static String displayName(String toolName) {
         if (toolName == null || toolName.isEmpty()) return "";
         String name = NAMES.get(toolName);
         if (name != null) return name;
-        String humanized = humanize(toolName);
-        return humanized.isEmpty() ? toolName : humanized;
+        // 2026-10-25 用户反馈："一堆洋文有时候会感到困惑"——未知工具按分类兜底成
+        // "搜索工具/文件生成工具/自定义工具"，而不是 Foo Bar。
+        return com.oilquiz.app.ai.chat.status.AgentActivityKind.classify(toolName).displayLabel();
     }
 
     /** 是否已在名单里（单测与排查用） */
     public static boolean isKnown(String toolName) {
         return toolName != null && NAMES.containsKey(toolName);
-    }
-
-    /** {@code foo_bar_baz → Foo Bar Baz} */
-    private static String humanize(String toolName) {
-        String[] parts = toolName.split("_");
-        StringBuilder sb = new StringBuilder(toolName.length());
-        for (String p : parts) {
-            if (p.isEmpty()) continue;
-            if (sb.length() > 0) sb.append(' ');
-            sb.append(Character.toUpperCase(p.charAt(0))).append(p.substring(1));
-        }
-        return sb.toString();
     }
 }

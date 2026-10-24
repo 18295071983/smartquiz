@@ -87,4 +87,21 @@ public final class InferenceStatusPhrases {
                 kind != null ? kind : com.oilquiz.app.ai.chat.status.AgentActivityKind.GENERIC;
         return k.statusText(toolElapsedMs);
     }
+
+    /**
+     * 工具执行文案 + "正在干什么"的追加（文件名/查询词等）：如
+     * {@code 正在生成文件 · 季度报告.docx}。detail 为空时等价于不带追加的版本。
+     */
+    public static String toolPhrase(com.oilquiz.app.ai.chat.status.AgentActivityKind kind,
+                                    long toolElapsedMs, CharSequence detail) {
+        String base = toolPhrase(kind, toolElapsedMs);
+        if (detail == null) return base;
+        String d = String.valueOf(detail).trim();
+        if (d.isEmpty()) return base;
+        // 有具体目标时去掉句尾省略号："正在生成文件 · 季度报告.docx"（而不是"… · 文件"）
+        if (base.endsWith("…")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        return base + " · " + d;
+    }
 }

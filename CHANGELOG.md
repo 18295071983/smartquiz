@@ -1,5 +1,24 @@
 # 变更日志
 
+## [2026-10-25] feat(chat-ui)：工具中文别名兜底 + 状态文案追加"正在干什么"
+
+用户："工具名是否可以有文案别名啊，毕竟用户不懂，一堆洋文有时候会感到困惑…还有是否可以追加，
+比如正在干什么。引擎侧基础设施不够的话可以追加设计啊。还有就是没有在文案里的工具名，是否就是通用工具？"
+
+- **中文别名兜底**：`ToolCallCardView` 不再直接显示内部名（如 `python_execute`），统一走
+  `ToolMetaRegistry`；表里没有的工具，兜底从英文 `Foo Bar` 改为**按活动分类的中文标签**——
+  搜索工具 / 文件读取工具 / 文件生成工具 / 图片生成工具 / 图表生成工具 / 代码执行工具 /
+  下载工具 / 数据查询工具 / 自定义工具（`AgentActivityKind#displayLabel`），不再露出洋文；
+- **追加"正在干什么"**：`AgentActivityBus` 快照扩展 `displayName` + `target`，
+  `AIToolManager#executeTool` 把工具参数一起发布；从参数里提取文件名/查询词/网址等目标
+  （去目录、最多 18 字）；`InferenceStatusPhrases.toolPhrase(kind, elapsed, target)`
+  生成 `正在生成文件 · 季度报告.docx` 这类句子，底部状态行、工具组标题、单工具卡状态位共用；
+- **未知工具**：分类落在 `GENERIC`，文案"正在调用工具…"、卡片名"自定义工具"——
+  有兜底、不会空，也不会把内部名/洋文甩给用户；
+- **验证**：`ToolMetaRegistryTest` 更新未知工具中文兜底；`AgentActivityKindTest` 增
+  "活动快照带中文别名/目标"与"文案可追加正在干什么"两条；全量
+  `testDebugUnitTest --offline --no-build-cache` **967 / 0 skipped / 0 failures / 0 errors**；
+  `assembleDebug --offline` 通过（APK 07:21:26）并已装机；按用户要求未做真机测试。
 ## [2026-10-25] feat(chat-ui)：引擎侧活动总线 + 工具文案多样化（生成文件/搜索/读文件…），补齐指纹
 
 用户："你看看还有哪些指纹需要文案，一起弄上。多样化，比如正在生成文件，引擎侧是否可以提供基础设施"。

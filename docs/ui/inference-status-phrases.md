@@ -161,3 +161,40 @@
 
 `AgentActivityKindTest` 5 条（分类、文案多样化、通用四段、短名还原、总线生命周期）；
 全量 965 / 0 skipped / 0 failures / 0 errors；APK 07:16:36 已装机，未做真机测试。
+## 7. 工具中文别名 + "正在干什么"追加（2026-10-25 追加）
+
+用户："工具名是否可以有文案别名啊…一堆洋文有时候会感到困惑…还有是否可以追加，比如正在干什么。
+引擎侧基础设施不够的话可以追加设计啊。还有就是没有在文案里的工具名，是否就是通用工具？"
+
+### 7.1 别名（中文名）三层口径
+
+1. **登记表**：`ToolMetaRegistry`（已有约 60 条：`python_execute → Python 执行`、
+   `network_search → 网络搜索`、`excel_tool → Excel 处理` …）；
+2. **分类兜底**：表里没有的工具 → `AgentActivityKind#displayLabel`
+   （搜索工具 / 文件读取工具 / 文件生成工具 / 图片生成工具 / 图表生成工具 / 代码执行工具 /
+   下载工具 / 数据查询工具 / 自定义工具）；**不再**输出 `Foo Bar` 这种英文；
+3. **使用点**：`ToolCallCardView`（单工具卡名字）、`ActivityTimeline`（工具行标题）、
+   `ChatMessage.ToolCallInfo.toolDisplayName` 都走同一个 `ToolMetaRegistry`，没有第二套口径。
+
+### 7.2 "正在干什么"（目标追加）
+
+- 引擎侧：`AIToolManager.executeTool` 把工具参数一并发布到 `AgentActivityBus`
+  （`started(toolName, parameters)`）；快照新增 `displayName` + `target`；
+- `target` 提取：优先取 `file_name/filename/path/file_path/output/title/name/query/q/url/keyword/text`，
+  去目录只留文件名、去协议、最长 18 字（避免把整段 JSON 甩到状态行）；
+- 文案组装：`InferenceStatusPhrases.toolPhrase(kind, elapsed, target)` →
+  `正在生成文件 · 季度报告.docx`（有目标时去掉句尾省略号）；没有目标时保持
+  `正在生成文件…`；
+- 展示位置：底部生成状态行、工具组标题（`⏳ + statusText`）、单工具卡状态位
+  （`⏳ 正在生成文件 · 季度报告.docx`）共用同一句；legacy 工具卡标题同口径。
+
+### 7.3 未知工具 = 通用工具吗？
+
+是：分类落到 `AgentActivityKind.GENERIC`，文案走通用四段
+（`正在调用工具… → 工具执行中… → 工具耗时较长… → 仍在等待工具结果…`），
+卡片名显示兜底中文标签（如"自定义工具"）。不会出现空文案，也不会露出内部下划线名/洋文。
+
+### 7.4 验证
+
+`ToolMetaRegistryTest`（未知工具中文兜底）、`AgentActivityKindTest`（快照 displayName/target、
+文案追加）覆盖；全量 967 / 0 skipped / 0 failures / 0 errors；APK 07:21:26 已装机，未做真机测试。

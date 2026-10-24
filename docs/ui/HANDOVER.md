@@ -2671,6 +2671,19 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
     - UI：底部状态行工具期间优先显示分类文案、速度收起；开始/结束 `AgentActivityBus.clear()` 兜底；
     - 测试：`AgentActivityKindTest` 5 条；全量 **965 / 0 skipped / 0 failures / 0 errors**；
       APK 07:16:36 已装机，未做真机验证。设计文档 §6。
+12. **工具中文别名 + "正在干什么"追加（同日第七轮，用户："工具名是否可以有文案别名…一堆洋文
+    会感到困惑…是否可以追加…没有在文案里的工具名是否就是通用工具？"）**：
+    - 别名三层：`ToolMetaRegistry` 登记表（约 60 条）→ 表外按 `AgentActivityKind#displayLabel`
+      中文兜底（搜索工具/文件读取工具/文件生成工具/图片生成工具/图表生成工具/代码执行工具/
+      下载工具/数据查询工具/自定义工具）→ `ToolCallCardView` / `ActivityTimeline` /
+      `ToolCallInfo` 同一入口，单工具卡不再显示 `python_execute` 这类内部名；
+    - 追加目标：`AgentActivityBus` 快照新增 `displayName` + `target`，`AIToolManager` 发布工具
+      参数；`extractTarget` 取 file_name/filename/path/query/url 等（去目录、去协议、截断 18 字）；
+      `InferenceStatusPhrases.toolPhrase(kind, elapsed, target)` → `正在生成文件 · 季度报告.docx`；
+    - 未知工具：`GENERIC` + 通用四段文案 + "自定义工具"别名，有兜底不裸露内部名；
+    - 测试：`ToolMetaRegistryTest` 更新；`AgentActivityKindTest` 加"快照带别名/目标"与
+      "文案可追加正在干什么"；全量 **967 / 0 skipped / 0 failures / 0 errors**；
+      APK 07:21:26 已装机，未做真机验证。设计文档 §7。
 
 ---
 

@@ -403,6 +403,8 @@ public class AssistantTurn {
         com.oilquiz.app.ai.chat.status.AgentActivityKind kind =
                 com.oilquiz.app.ai.chat.status.AgentActivityKind.fromName(
                         msg != null ? msg.runningToolKind : null);
+        // "正在干什么"的追加：文件名/查询词等（引擎侧从工具参数里提取）
+        String target = msg != null ? msg.runningToolTarget : null;
         for (Part p : turn.parts) {
             if (p == null) {
                 continue;
@@ -420,11 +422,13 @@ public class AssistantTurn {
                     }
                 }
                 p.statusText = running
-                        ? com.oilquiz.app.ai.chat.InferenceStatusPhrases.toolPhrase(kind, elapsed)
+                        ? com.oilquiz.app.ai.chat.InferenceStatusPhrases
+                        .toolPhrase(kind, elapsed, target)
                         : null;
             } else if (Part.TYPE_TOOL_CALL.equals(p.type)) {
                 p.statusText = "running".equals(p.status)
-                        ? com.oilquiz.app.ai.chat.InferenceStatusPhrases.toolPhrase(kind, elapsed)
+                        ? com.oilquiz.app.ai.chat.InferenceStatusPhrases
+                        .toolPhrase(kind, elapsed, target)
                         : null;
             }
         }

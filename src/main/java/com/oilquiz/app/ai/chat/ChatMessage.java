@@ -524,6 +524,11 @@ public class ChatMessage {
      * 运行时字段，不落盘。
      */
     public transient String runningToolKind;
+    /**
+     * 运行中工具的"目标摘要"（文件名/查询词/网址等，引擎侧 AgentActivityBus 从参数里提取）：
+     * 用于把状态文案追加成"正在生成文件 · 季度报告.docx"。运行时字段，不落盘。
+     */
+    public transient String runningToolTarget;
 
     /** 错误信息 */
     public String errorDetail;

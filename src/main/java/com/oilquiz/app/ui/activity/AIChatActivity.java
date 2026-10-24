@@ -6200,21 +6200,24 @@ public class AIChatActivity extends BaseActivity {
         boolean running = activity != null || isAnyToolRunning();
         if (running) {
             com.oilquiz.app.ai.chat.status.AgentActivityKind kind;
+            String target;
             if (activity != null) {
                 if (toolPhaseStartTime <= 0 || activity.startTime < toolPhaseStartTime) {
                     toolPhaseStartTime = activity.startTime;
                 }
                 kind = activity.kind;
-                syncRunningTool(toolPhaseStartTime, kind.name());
+                target = activity.target;
             } else {
                 if (toolPhaseStartTime <= 0) {
                     toolPhaseStartTime = System.currentTimeMillis();
                 }
                 kind = com.oilquiz.app.ai.chat.status.AgentActivityKind.GENERIC;
-                syncRunningTool(toolPhaseStartTime, kind.name());
+                target = "";
             }
+            syncRunningTool(toolPhaseStartTime, kind.name(), target);
+            // 文案 + "正在干什么"（文件名/查询词）；未知工具用分类兜底的中文名
             String phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
-                    .toolPhrase(kind, System.currentTimeMillis() - toolPhaseStartTime);
+                    .toolPhrase(kind, System.currentTimeMillis() - toolPhaseStartTime, target);
             if (!phrase.contentEquals(lastStatusPhrase)) {
                 lastStatusPhrase = phrase;
                 try {
@@ -6235,7 +6238,7 @@ public class AIChatActivity extends BaseActivity {
         }
         if (toolPhaseStartTime > 0) {
             toolPhaseStartTime = 0;
-            syncRunningTool(0, null);
+            syncRunningTool(0, null, null);
             // 回到模型阶段：清掉工具侧文案，让下一句推理/生成文案重新写入
             lastStatusPhrase = "";
         }
@@ -6258,16 +6261,17 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 把运行中工具的开始时刻 + 活动分类同步到流式 AI 消息，
+     * 把运行中工具的开始时刻 + 活动分类 + "正在干什么"的目标同步到流式 AI 消息，
      * 供 {@code AssistantTurn} 计算工具卡/工具组的"工具侧思考"文案。
      */
-    private void syncRunningTool(long start, String kindName) {
+    private void syncRunningTool(long start, String kindName, String target) {
         int idx = resolveStreamingIndex();
         if (idx < 0 || idx >= chatHistory.size()) return;
         ChatMessage msg = chatHistory.get(idx);
         if (msg == null) return;
         msg.runningToolStartTime = start;
         msg.runningToolKind = kindName;
+        msg.runningToolTarget = target;
     }
 
     /**
