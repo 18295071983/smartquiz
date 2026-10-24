@@ -1,5 +1,24 @@
 # 变更日志
 
+## [2026-10-25] feat(chat)：输入统计改为"显示 2 秒后自动隐藏"
+
+用户："改为显示2秒后隐藏。" 在上一轮"统计只跟最新一条 AI 回复"的基础上：
+
+- 完成回合写入统计后调用 `scheduleStatsAutoHide(messageId)`：`uiHandler.postDelayed(2s)` 里按
+  **消息 id** 定位并清空 `agentSummary` + `notifyItemChanged(PAYLOAD_STATUS_UPDATE)`，统计块立刻
+  收起、不常驻对话；`statsHideToken` 自增作废旧定时器（新统计到达 / 发新消息 / 清空时不会误隐藏
+  刚出现的新内容）。
+- `ChatMessage.agentSummary` 改为 `transient`：不落盘。否则历史恢复后旧统计会常驻在最新一条回复上，
+  重启又回到"统计停在旧回复"的观感。
+- **验证**：新增 `ChatMessageStatsTransientTest` 2 条（Gson 序列化不含 `agentSummary` / 反序列化为
+  null / 运行时字段仍可用）；全量 `testDebugUnitTest --offline --no-build-cache` **949 / 0 skipped /
+  0 failures / 0 errors**；`assembleDebug --offline` 通过（APK 05:55:47）。真机 279b6c51：
+  - 完成瞬间截屏：统计块在最新回复下方可见（输入 11003 / 输出 217 / 缓存 98% / 上下文 1M 用 1%）；
+  - 3.4 秒后再截屏：统计块已消失，列表回收该高度、无残留。
+  截图：`docs/chat_stats_shots/04_stats_visible_then_hide.png`、`05_stats_hidden_after_2s.png`。
+- 边界：隐藏会让列表高度收缩约 3 行——贴底时跟随贴底，用户上滑阅读时由 `ScrollAnchorKeeper` 保持
+  阅读位置；本地模型只有输入/输出行（无缓存/上下文 usage）。
+
 ## [2026-10-25] fix(chat)：输入统计只跟最新一条 AI 回复（不再停在旧轮/时有时无）
 
 用户反馈："AI 回复后追加的输入统计，显示的不稳定；我之前设计的是显示在最新的对话后面。"

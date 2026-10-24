@@ -375,6 +375,10 @@ public class AIChatActivity extends BaseActivity {
     private long lastUpdateTime = 0;
     private boolean isUpdateScheduled = false;
     private android.os.Handler uiHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    /** token 统计块"显示 2 秒后隐藏"的定时器代号：自增即作废旧定时器（新统计/新一轮/清空） */
+    private int statsHideToken = 0;
+    /** token 统计块展示时长（用户口径：显示 2 秒后隐藏） */
+    private static final long STATS_VISIBLE_MS = 2000L;
 
     /** 文件历史是否已加载完成：文件是权威持久化源（含最新组件），
      *  VM 的 chatMessages 是 initialize 时的一次性快照，旋转重建后不含本次会话新组件，
@@ -6930,6 +6934,8 @@ public class AIChatActivity extends BaseActivity {
                 chatHistory.get(messageIndex).agentSummary = sum.toString();
                 // 只保留最新一条 AI 回复上的统计（其它旧轮清掉 + 局部刷新，立刻消失）
                 clearAgentSummaryExcept(messageIndex);
+                // 用户口径：统计只显示 2 秒，随后自动隐藏（不常驻在对话里）
+                scheduleStatsAutoHide(chatHistory.get(messageIndex).id);
                 AppLogger.i(TAG, "Agent summary written: " + sum.toString()
                     + " (cacheHit=" + cacheHitTokens + ")");
                 // 独立展示：插入一条 AGENT_SUMMARY 系统消息（Agent 执行汇总卡片）
@@ -7157,6 +7163,8 @@ public class AIChatActivity extends BaseActivity {
      * keepIndex &lt; 0 表示全部清掉（新的一轮开始、旧统计已不属于"最新对话"）。
      */
     private void clearAgentSummaryExcept(int keepIndex) {
+        // 任何一轮清空/替换统计都作废旧的自隐藏定时器，避免把刚出现的新统计提前隐藏
+        statsHideToken++;
         if (chatAdapter == null || chatHistory == null) return;
         for (int i = 0; i < chatHistory.size(); i++) {
             if (i == keepIndex) continue;
@@ -7166,6 +7174,31 @@ public class AIChatActivity extends BaseActivity {
             m.agentSummary = "";
             chatAdapter.notifyItemChanged(i, ChatAdapter.PAYLOAD_STATUS_UPDATE);
         }
+    }
+
+    /**
+     * token 统计块只显示 2 秒（用户口径）。用自增 token 作废旧定时器：
+     * 新统计/新一轮到达时旧回调直接失效，不会把新出现的统计提前隐藏。
+     *
+     * @param messageId 本轮 AI 消息 id（按 id 定位，避免列表插入导致下标漂移）
+     */
+    private void scheduleStatsAutoHide(String messageId) {
+        final int token = ++statsHideToken;
+        uiHandler.postDelayed(() -> {
+            if (token != statsHideToken) return;
+            if (isFinishing() || isDestroyed()) return;
+            if (chatAdapter == null || chatHistory == null) return;
+            for (int i = chatHistory.size() - 1; i >= 0; i--) {
+                ChatMessage m = chatHistory.get(i);
+                if (m == null || m.type != ChatMessage.MessageType.AI) continue;
+                if (messageId != null && !messageId.equals(m.id)) continue;
+                if (m.agentSummary == null || m.agentSummary.isEmpty()) return;
+                m.agentSummary = "";
+                chatAdapter.notifyItemChanged(i, ChatAdapter.PAYLOAD_STATUS_UPDATE);
+                saveHistoryAsync();
+                return;
+            }
+        }, STATS_VISIBLE_MS);
     }
 
     private void processTagBuffer(String tagContent) {

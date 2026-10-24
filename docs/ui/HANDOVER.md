@@ -2500,6 +2500,32 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
      再发一轮即被新格式覆盖；
    - 独立 `AGENT_SUMMARY` 系统消息仍按旧条件插入（v2 隐藏），仅作历史/旧档记录。
 
+### 4.108 feat(chat)：输入统计"显示 2 秒后自动隐藏"（2026-10-25）
+
+1. **需求**：用户"改为显示2秒后隐藏。"（承接 §4.107：统计只跟最新一条 AI 回复）
+2. **实现**：
+   - `AIChatActivity#scheduleStatsAutoHide(messageId)`：`uiHandler.postDelayed(2s)`，回调里按
+     **消息 id** 反查列表（防插入导致下标漂移），清空该消息 `agentSummary` 并
+     `notifyItemChanged(PAYLOAD_STATUS_UPDATE)`；随后 `saveHistoryAsync()`。
+   - `statsHideToken` 自增代号：`clearAgentSummaryExcept()`（发新消息/新一轮/替换统计）与
+     `scheduleStatsAutoHide()` 都会 ++，旧 `postDelayed` 回调发现 token 不等就直接返回 ——
+     不会把后来出现的新统计提前隐藏。
+   - 回调里 `isFinishing() || isDestroyed()` 防御，不依赖 onDestroy 移除（`uiHandler` 还承担
+     其它 UI 任务，不做 `removeCallbacksAndMessages(null)`）。
+   - `ChatMessage.agentSummary` 改 `transient`：Gson 不落盘 → 历史恢复不会把旧统计重新挂回
+     最新回复上（否则重启后又像"统计停在旧回复"）。
+3. **验证**：新增 `ChatMessageStatsTransientTest` 2 条（序列化 JSON 不含 `agentSummary`、
+   反序列化为 null、运行时字段仍可携带）；全量 `testDebugUnitTest --offline --no-build-cache`
+   **949 / 0 skipped / 0 failures / 0 errors**；`assembleDebug --offline` 通过（APK 05:55:47）。
+   真机：点"重新生成"，用 logcat 看 `Agent summary written` 作为完成时刻 →
+   - 完成瞬间 `adb exec-out screencap`：统计块可见（04 截图）；
+   - 3.4 秒后再截：统计块消失、列表回收高度（05 截图）。
+4. **边界 / 遗留**：
+   - 隐藏会让列表高度收缩约 3 行：pinned 时 `StickToBottom` 跟随贴底；unpinned 阅读时由
+     `ScrollAnchorKeeper` 保持阅读位置（§4.106），不额外做动画；
+   - 2 秒内页面被杀/重启：transient 不落盘 → 恢复后没有残留统计（符合预期）；
+   - 本地模型只有输入/输出两行；缓存命中率/上下文依赖在线 usage。
+
 ---
 
 ## 5. 关键文件 / 改动地图

@@ -501,8 +501,11 @@ public class ChatMessage {
     /** Agent 执行步骤状态（实时显示在气泡内：🔍思考中/🔧调用X/✅完成），运行时字段 */
     public String agentStepStatus;
 
-    /** Agent 任务汇总文本（完成后：工具数/轮次/耗时），运行时字段 */
-    public String agentSummary;
+    /**
+     * 本轮 token 统计文本（输入/输出/缓存/上下文，完成后只显示 2 秒）。
+     * 运行时字段：transient 不落盘，避免历史恢复后旧统计又常驻最新一条回复上。
+     */
+    public transient String agentSummary;
 
     /** 错误信息 */
     public String errorDetail;
