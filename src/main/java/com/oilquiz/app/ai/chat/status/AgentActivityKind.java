@@ -63,6 +63,15 @@ public enum AgentActivityKind {
      */
     public static AgentActivityKind classify(String toolName) {
         if (toolName == null || toolName.isEmpty()) return GENERIC;
+        try {
+            return classifyInner(toolName);
+        } catch (Throwable t) {
+            // 分类只用于选文案：任何异常都退回通用，绝不影响工具执行
+            return GENERIC;
+        }
+    }
+
+    private static AgentActivityKind classifyInner(String toolName) {
         String n = toolName.toLowerCase(Locale.ROOT);
 
         if (containsAny(n, "search", "web_search", "brave", "bing", "google", "tavily",

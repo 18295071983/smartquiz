@@ -54,6 +54,9 @@ public final class ToolGroupPartRenderer implements PartRenderer {
         header.setPadding(pad, pad, pad, pad);
         header.setClickable(true);
         header.setFocusable(true);
+        // 工具侧文案可能追加"正在干什么"（文件名/查询词）：单行省略，避免长目标把卡片撑高
+        header.setSingleLine(true);
+        header.setEllipsize(android.text.TextUtils.TruncateAt.END);
         LinearLayout body = new LinearLayout(ctx);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setVisibility(View.GONE);

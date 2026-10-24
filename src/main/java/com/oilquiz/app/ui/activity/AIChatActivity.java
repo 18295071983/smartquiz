@@ -6192,6 +6192,15 @@ public class AIChatActivity extends BaseActivity {
      * @return true 表示当前状态由工具侧文案接管
      */
     private boolean updateToolRunningStatusRow() {
+        // 状态行只是展示层：任何异常都不能影响生成/工具执行链路（"不要造成新 bug"兜底）
+        try {
+            return updateToolRunningStatusRowInner();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private boolean updateToolRunningStatusRowInner() {
         if (chatInputBar == null) return false;
         // 优先读引擎侧活动总线（AIToolManager#executeTool 发布）：分类准确、有开始时刻；
         // 总线没有时退回 components/TOOL_CALL 状态扫描（异常/旧路径兜底）。

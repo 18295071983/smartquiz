@@ -395,6 +395,14 @@ public class AssistantTurn {
      * 透传到卡片的状态文案。</p>
      */
     private static void applyToolStatusText(AssistantTurn turn, ChatMessage msg) {
+        // 展示辅助：任何异常都不影响 parts 构建/消息渲染（"不要造成新 bug"兜底）
+        try {
+            applyToolStatusTextInner(turn, msg);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void applyToolStatusTextInner(AssistantTurn turn, ChatMessage msg) {
         if (turn == null || turn.parts == null) {
             return;
         }

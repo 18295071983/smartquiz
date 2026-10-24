@@ -201,3 +201,33 @@
 
 `ToolMetaRegistryTest`（表外工具英文润色）、`AgentActivityKindTest`（快照 displayName/target、
 文案追加）覆盖；全量 967 / 0 skipped / 0 failures / 0 errors；APK 07:21:26 已装机，未做真机测试。
+## 8. 表外工具兜底契约（2026-10-25 追加）
+
+用户："如果工具不在这个表中，不用强求，照样让用，不要造成新 bug 了。你做好兜底。"
+
+### 8.1 边界
+
+- `ToolMetaRegistry` / `AgentActivityBus` / `AgentActivityKind` **只服务显示**；
+  执行链路（`AIToolManager` 模糊解析、权限检查、`tool.execute`）一律用原始 `toolName`，
+  表外工具照常执行，显示别名只影响 UI 文案，不回写、不拦截、不影响注册。
+- 因此"表里没有" ≠ "不可用"：只是文案走润色英文名 + 通用四段状态。
+
+### 8.2 兜底清单
+
+| 位置 | 兜底 |
+|---|---|
+| `ToolMetaRegistry.displayName` | try/catch；超长截断 48 字 + …；控制字符清理；全空 → `Tool`；润色失败 → safeFallback；中文/怪名不抛异常 |
+| `AgentActivityBus.started/current/finished` | 全部 try/catch，异常不冒泡进工具执行；空名/未知名静默忽略 |
+| `AgentActivityBus.extractTarget` | 只认 String；去控制字符/换行；去目录；截断 18 字；非字符串/超长参数跳过；异常返回空串 |
+| `AgentActivityKind.classify` | 异常 → GENERIC，只影响文案 |
+| `AIChatActivity#updateToolRunningStatusRow` | 整体 try/catch，异常按"没有工具在跑"处理，不影响生成 |
+| `AssistantTurn#applyToolStatusText` | 整体 try/catch，异常不影响 parts 构建/消息渲染 |
+| `ToolGroupPartRenderer` 标题 | 单行 + 省略号，长目标不撑高卡片 |
+| `ToolCallCardView` | 展示名为空 → "工具"；状态位单行省略 |
+| `InferenceStatusPhrases.toolPhrase(..., detail)` | 目标去换行、最长 24 字 |
+
+### 8.3 验证
+
+`ToolMetaRegistryTest#weirdNamesNeverThrowAndNeverExposeRaw`、`AgentActivityKindTest#表外工具与空值_兜底不抛异常`、
+`#目标提取_脏参数也安全` 覆盖；全量 969 / 0 skipped / 0 failures / 0 errors；
+APK 07:28:45 已装机，未做真机测试。

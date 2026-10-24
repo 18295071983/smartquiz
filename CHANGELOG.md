@@ -1,5 +1,23 @@
 # 变更日志
 
+## [2026-10-25] fix(chat-ui)：表外工具兜底加固（照常执行；显示名永不抛异常）
+
+用户："如果工具不再这个表中，不用强求，照样让用，不要造成新 bug 了。你做好兜底。"
+
+- **明确边界**：`ToolMetaRegistry` / `AgentActivityBus` / `AgentActivityKind` 只服务**显示**；
+  执行链路一律用原始 `toolName`（`AIToolManager` 内部照旧解析/执行），表外工具照常可用，
+  不会被改名、拦截或影响注册；
+- `ToolMetaRegistry.displayName`：整体 try/catch、超长截断（48 字 + …）、控制字符清理、
+  全空退回 `Tool`；英文润色失败还有 safeFallback；中文/怪名/非 ASCII 均不抛异常；
+- `AgentActivityBus`：`started/current/finished` 全部 try/catch，异常绝不冒泡进工具执行链；
+  `extractTarget` 只认 String、去控制字符/换行、去目录、截断 18 字，非字符串/超长参数直接跳过；
+- `AgentActivityKind.classify`：异常 → GENERIC（只影响选文案，不影响执行）；
+- UI 侧兜底：工具状态行更新与 `AssistantTurn` 工具文案注入包 try/catch（异常不影响生成/渲染）；
+  工具组标题单行省略；单工具卡展示名为空时退回"工具"；目标追加最长 24 字；
+- **测试**：`ToolMetaRegistryTest` 覆盖怪名/超长/中文/控制字符/全分隔符；
+  `AgentActivityKindTest` 覆盖表外工具+空值+脏参数目标提取；全量
+  `testDebugUnitTest --offline --no-build-cache` **969 / 0 skipped / 0 failures / 0 errors**；
+  `assembleDebug --offline` 通过（APK 07:28:45）并已装机；按用户要求未做真机测试。
 ## [2026-10-25] fix(chat-ui)：工具名兜底去掉生硬中文分类，改轻度英文润色
 
 用户："也不是必须时中文名英文名也行，不用设计的太死板了"——并指出

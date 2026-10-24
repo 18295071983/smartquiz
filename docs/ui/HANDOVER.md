@@ -2690,6 +2690,16 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
     大写、下划线转空格（`custom_search_tool → Custom Search`、`foo_bar → Foo Bar`）；
     表内中文别名不变，中文优先、英文兜底；未知工具的文案仍是通用四段。
     测试更新；全量 967 / 0 skipped / 0 failures / 0 errors。
+14. **表外工具兜底加固（同日第九轮，用户："如果工具不在表中，不用强求，照样让用，
+    不要造成新 bug 了。你做好兜底"）**：
+    - 边界定性：`ToolMetaRegistry` / `AgentActivityBus` / `AgentActivityKind` **只服务显示**，
+      执行链路一律用原始 `toolName`；表外工具照常执行，显示别名不回写/不拦截；
+    - 防崩兜底：`displayName`（try/catch + 48 字截断 + 控制字符清理 + 全空"Tool"）、
+      `AgentActivityBus` 全部入口 try/catch、`extractTarget` 只认 String + 去换行/目录 + 18 字截断、
+      `classify` 异常 → GENERIC；UI 侧状态行/`applyToolStatusText` 包 try/catch，
+      工具组标题单行省略、单卡名为空退回"工具"、目标追加最长 24 字；
+    - 测试：怪名/超长/中文/控制字符、表外工具+空值+脏参数；全量 **969 / 0 skipped /
+      0 failures / 0 errors**；APK 07:28:45 已装机，未做真机验证。设计文档 §8。
 
 ---
 

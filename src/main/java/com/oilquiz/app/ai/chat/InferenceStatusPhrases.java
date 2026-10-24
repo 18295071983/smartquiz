@@ -96,8 +96,10 @@ public final class InferenceStatusPhrases {
                                     long toolElapsedMs, CharSequence detail) {
         String base = toolPhrase(kind, toolElapsedMs);
         if (detail == null) return base;
-        String d = String.valueOf(detail).trim();
+        String d = String.valueOf(detail).replace('\n', ' ').replace('\r', ' ').trim();
         if (d.isEmpty()) return base;
+        // 追加的目标最长 24 字：模板是单行状态，太长会把"速度/余额"挤掉
+        if (d.length() > 24) d = d.substring(0, 24) + "…";
         // 有具体目标时去掉句尾省略号："正在生成文件 · 季度报告.docx"（而不是"… · 文件"）
         if (base.endsWith("…")) {
             base = base.substring(0, base.length() - 1);

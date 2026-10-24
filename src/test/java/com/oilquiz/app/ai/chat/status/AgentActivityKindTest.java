@@ -122,5 +122,55 @@ public class AgentActivityKindTest {
                 .toolPhrase(AgentActivityKind.GENERATE_FILE, 1_000, null));
         assertEquals("正在生成文件…", com.oilquiz.app.ai.chat.InferenceStatusPhrases
                 .toolPhrase(AgentActivityKind.GENERATE_FILE, 1_000, "  "));
+        // 目标带换行/超长也要能安全用于单行状态
+        String dirty = com.oilquiz.app.ai.chat.InferenceStatusPhrases.toolPhrase(
+                AgentActivityKind.GENERATE_FILE, 1_000, "季度\n报告" + "x".repeat(60));
+        assertFalse(dirty.contains("\n"));
+        assertTrue(dirty.length() < 60);
+    }
+
+    @Test
+    public void 表外工具与空值_兜底不抛异常() {
+        // 表外工具：照样记账、照样给通用分类；显示名是润色英文名
+        AgentActivityBus.clear();
+        AgentActivityBus.started("totally_unknown_tool", null);
+        AgentActivityBus.Snapshot snap = AgentActivityBus.current();
+        assertNotNull(snap);
+        assertEquals(AgentActivityKind.GENERIC, snap.kind);
+        assertEquals("Totally Unknown", snap.displayName);
+        AgentActivityBus.finished("totally_unknown_tool");
+        AgentActivityBus.clear();
+
+        // 空名/空参数/结束未知工具都不允许抛异常
+        AgentActivityBus.started(null);
+        AgentActivityBus.started("");
+        AgentActivityBus.started("x", null);
+        AgentActivityBus.finished(null);
+        AgentActivityBus.finished("never_started");
+        AgentActivityBus.clear();
+        assertNull(AgentActivityBus.current());
+        assertFalse(AgentActivityBus.isRunning());
+    }
+
+    @Test
+    public void 目标提取_脏参数也安全() {
+        assertEquals("", AgentActivityBus.extractTarget(null));
+        java.util.Map<String, Object> m = new java.util.HashMap<>();
+        m.put("file_name", 123);
+        assertEquals("", AgentActivityBus.extractTarget(m));
+        m.put("file_name", "a".repeat(200));
+        assertEquals("", AgentActivityBus.extractTarget(m));
+        m.put("file_name", "C:\\tmp\\季度\n报告.docx");
+        String t = AgentActivityBus.extractTarget(m);
+        assertFalse(t.contains("\n"));
+        assertTrue(t.endsWith(".docx"));
+        m.clear();
+        m.put("query", "  https://example.com/a?b=1  ");
+        String q = AgentActivityBus.extractTarget(m);
+        assertFalse(q.startsWith("http"));
+        assertTrue(q.length() <= 24);
+        // 分类对怪名字也只返回 GENERIC，不抛异常
+        assertEquals(AgentActivityKind.GENERIC, AgentActivityKind.classify("@@@"));
+        assertEquals(AgentActivityKind.GENERIC, AgentActivityKind.classify(null));
     }
 }

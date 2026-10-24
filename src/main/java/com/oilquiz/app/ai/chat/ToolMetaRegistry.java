@@ -121,14 +121,27 @@ public final class ToolMetaRegistry {
     private ToolMetaRegistry() {
     }
 
-    /** 工具展示名：表内中文名优先；表外做轻度英文润色（不做生硬中文翻译） */
+    /** 展示名最大长度：超长内部名截断，避免把工具卡/状态行撑爆 */
+    private static final int MAX_DISPLAY_LENGTH = 48;
+
+    /**
+     * 工具展示名：表内中文名优先；表外做轻度英文润色（不做生硬中文翻译）。
+     *
+     * <p><b>兜底约定（2026-10-25 "不要造成新 bug"）</b>：本方法只服务于<b>显示</b>，
+     * 任何工具名（含表外、超长、全分隔符、中文、非 ASCII）都必须返回一个非 null 的字符串、
+     * 不允许抛异常；执行链路一律用原始 {@code toolName}，不经这里改名。</p>
+     */
     public static String displayName(String toolName) {
         if (toolName == null || toolName.isEmpty()) return "";
-        String name = NAMES.get(toolName);
-        if (name != null) return name;
-        // 2026-10-25：用户反馈"也不是必须中文名，英文名也行，别设计太死板"——
-        // 表外工具保留润色后的英文名（去技术后缀/缩写大写），不再强翻成"搜索工具"这类怪名字。
-        return polish(toolName);
+        try {
+            String name = NAMES.get(toolName);
+            if (name != null) return name;
+            // 表外工具保留润色后的英文名（去技术后缀/缩写大写），不强翻成"搜索工具"这类怪名字。
+            return polish(toolName);
+        } catch (Throwable t) {
+            // 展示兜底：润色失败也绝不让 UI 崩，退回一个安全短名
+            return safeFallback(toolName);
+        }
     }
 
     /** 是否已在名单里（单测与排查用） */
@@ -139,9 +152,10 @@ public final class ToolMetaRegistry {
     /**
      * 表外工具名的轻度润色：{@code custom_search_tool → Custom Search}、
      * {@code internal_docx_writer → Internal DOCX Writer}、{@code foo_bar → Foo Bar}。
-     * 只削一层尾部技术后缀；常见缩写保持大写；全空时退回 "Tool"。
+     * 只削一层尾部技术后缀；常见缩写保持大写；全空时退回 "Tool"；超长截断。
      */
     static String polish(String toolName) {
+        if (toolName == null) return "Tool";
         String[] parts = toolName.split("[_\\-\\s]+");
         int last = parts.length - 1;
         while (last > 0 && TECH_SUFFIXES.contains(parts[last].toLowerCase(java.util.Locale.ROOT))) {
@@ -159,7 +173,27 @@ public final class ToolMetaRegistry {
                 sb.append(Character.toUpperCase(p.charAt(0))).append(p.substring(1));
             }
         }
-        String out = sb.toString().trim();
-        return out.isEmpty() ? "Tool" : out;
+        return cap(sb.toString().trim());
+    }
+
+    private static String cap(String s) {
+        if (s == null || s.isEmpty()) return "Tool";
+        return s.length() > MAX_DISPLAY_LENGTH
+                ? s.substring(0, MAX_DISPLAY_LENGTH) + "…" : s;
+    }
+
+    /** 兜底安全名：只保留可显示字符，超长截断；仍为空则 "Tool" */
+    private static String safeFallback(String toolName) {
+        try {
+            StringBuilder sb = new StringBuilder(toolName.length());
+            for (int i = 0; i < toolName.length() && sb.length() < MAX_DISPLAY_LENGTH; i++) {
+                char c = toolName.charAt(i);
+                if (!Character.isISOControl(c)) sb.append(c);
+            }
+            String out = sb.toString().trim().replace('_', ' ');
+            return out.isEmpty() ? "Tool" : cap(out);
+        } catch (Throwable ignored) {
+            return "Tool";
+        }
     }
 }

@@ -56,17 +56,28 @@ public class ToolMetaRegistryTest {
     }
 
     @Test
-    public void everyMappedNameHasChineseLabel() {
-        // 抽查：新增工具时若只登记名字不写中文名，这里会先失败
-        String[] mustHave = {"app_operation", "chat_history", "memory", "task", "reminder",
-                "file_reader", "file_generator", "file_analyzer", "image_gen", "speech_synthesis",
-                "voice_input", "permission_manager", "tool_registry", "knowledge_base",
-                "import_start", "export_apk", "linux_shell", "calculator", "unit_converter"};
-        for (String name : mustHave) {
-            assertTrue(name + " 必须登记中文名", ToolMetaRegistry.isKnown(name));
-            String label = ToolMetaRegistry.displayName(name);
-            assertFalse(name + " 的中文名不能还是原始名", label.contains("_"));
-            assertTrue(name + " 的中文名需含非 ASCII 字符", !label.equals(name));
+    public void weirdNamesNeverThrowAndNeverExposeRaw() {
+        // 2026-10-25 "表外工具不用强求，照样让用，不要造成新 bug"：显示名必须永远安全
+        assertEquals("", ToolMetaRegistry.displayName(null));
+        assertEquals("", ToolMetaRegistry.displayName(""));
+        assertEquals("Tool", ToolMetaRegistry.displayName("_"));
+        assertEquals("Tool", ToolMetaRegistry.displayName("___"));
+        assertEquals("Tool", ToolMetaRegistry.displayName("   "));
+        assertEquals("Foo Bar", ToolMetaRegistry.displayName("foo__bar"));
+        assertEquals("Foo Bar", ToolMetaRegistry.displayName("foo\nbar"));
+        // 超长内部名截断，避免把工具卡/状态行撑爆
+        String longName = "very_long_internal_tool_name_" + "x".repeat(200);
+        String label = ToolMetaRegistry.displayName(longName);
+        assertTrue("超长名要截断", label.length() <= 49);
+        assertTrue(label.endsWith("…"));
+        // 非 ASCII / 中文工具名原样可见、不抛异常
+        assertEquals("天气查询", ToolMetaRegistry.displayName("天气查询"));
+        // 全部分支都不允许抛异常
+        for (String weird : new String[]{"a", "-", "_-_", "UPPER_TOOL", "mcp/v2",
+                "tool.with.dots", "emoji_😀_tool"}) {
+            String l = ToolMetaRegistry.displayName(weird);
+            assertTrue("displayName 必须是非 null 字符串: " + weird, l != null);
+            assertFalse("不能回吐下划线内部名: " + weird, l.contains("_"));
         }
     }
 }
