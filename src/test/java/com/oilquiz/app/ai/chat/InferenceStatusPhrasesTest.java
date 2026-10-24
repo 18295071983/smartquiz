@@ -2,8 +2,8 @@ package com.oilquiz.app.ai.chat;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -78,17 +78,27 @@ public class InferenceStatusPhrasesTest {
     }
 
     @Test
-    public void 多步深度思考_全局文案不报轮号() {
-        // 业界 Progress Steps 口径：轮次/耗时属于可折叠 trace（每轮块自身"已深度思考 X 秒"），
-        // 全局状态文案只描述"当前在做什么"，不出现"第 N 轮"这类内部计数
-        for (long sec : new long[]{1, 6, 14, 28, 48, 90}) {
-            String p = InferenceStatusPhrases.phrase(ChatMessage.InferencePhase.THINKING, sec * S);
-            assertNotNull(p);
-            assertFalse("思考文案不应出现轮号: " + p, p.contains("轮"));
-            assertFalse("思考文案不应出现'第': " + p, p.contains("第"));
+    public void 思考文案_只由耗时决定且不暴露内部计数() {
+        // 轮号方案撤回后，接口只剩 (phase, elapsed)——没有"轮次"参数可传（编译期约束）。
+        // 这里用"文案表 + 格式不变量"正向钉住；不再用"不含'轮'/'第'"这种负向断言：
+        // 那种断言只能证明当前实现的表面形式，合法文案（如"本轮…"）也会被误杀。
+        ChatMessage.InferencePhase p = ChatMessage.InferencePhase.THINKING;
+        String[] expected = {"正在理解问题…", "正在梳理思路…", "正在推敲关键点…",
+                "正在验证推理…", "正在收敛结论…", "思考较久，仍在继续…"};
+        long[] at = {0, 4 * S, 10 * S, 20 * S, 35 * S, 60 * S};
+        java.util.Set<String> distinct = new java.util.HashSet<>();
+        for (int i = 0; i < expected.length; i++) {
+            String phrase = InferenceStatusPhrases.phrase(p, at[i]);
+            assertEquals("第 " + at[i] + "ms 档位文案", expected[i], phrase);
+            assertTrue("每个档位文案应不同: " + phrase, distinct.add(phrase));
+            // 状态文案不应暴露内部计数（轮号/步数/百分比若回流，最先以阿拉伯数字出现）
+            assertFalse("状态文案不能带数字计数: " + phrase, phrase.matches(".*\\d.*"));
+            assertTrue("状态文案要短（≤10 字）: " + phrase, phrase.length() <= 10);
+            assertTrue("活动文案以省略号收尾: " + phrase, phrase.endsWith("…"));
         }
-        assertEquals("正在撰写回答…", InferenceStatusPhrases.phrase(
-                ChatMessage.InferencePhase.GENERATING, 5 * S));
+        // 只依赖耗时：同一耗时多次调用稳定
+        assertEquals(InferenceStatusPhrases.phrase(p, 14 * S),
+                InferenceStatusPhrases.phrase(p, 14 * S));
     }
 
     @Test
