@@ -2217,6 +2217,30 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 5. **验证**：`MarkdownHtmlConverterTest` 3 条；全量 **876 / 0 skipped / 0 failures /
    0 errors**；APK 02:24:11，已装机（02:24:41）。真机逐条还没点。
 
+### 4.101 fix(player)：聊天卡播不了工作区本地文件——共享播放器数据源补 scheme 分派（2026-10-25）
+
+1. **现象**：用户"升级了音乐/视频播放器卡片后文件连不上、显示资源错误"。真机点视频卡 ▶ 立即
+   `⚠ 视频播放失败: Source error`；重试无效；把文件改成纯英文名也无效（先前的"全角符号导致
+   路径解析失败"是误判）。
+2. **真因**（logcat 03:09:55）：`ClassCastException: FileURLConnection cannot be cast to
+   HttpURLConnection`，栈在 `DefaultHttpDataSource.openConnection`，入口
+   `AudioPlaybackService$SchemeDataSource.open → CacheDataSource → DefaultHttpDataSource`。
+   `AudioPlaybackService` 自 2026-10-23 建服务起唯一数据源就是 `DefaultHttpDataSource`；P2 的
+   `SchemeDataSource` 只把 `rtmp://` 分出去。卡片里的工作区媒体是 `file://`，于是被当 HTTP 打开。
+3. **修法**：删除 `SchemeDataSource`，改用 media3 `DefaultDataSource.Factory`（新方法
+   `AudioPlaybackService.createDataSourceFactory(context, networkFactory)`）：`file://`/
+   `content://`/`asset://`/`rawresource://`/`rtmp://` 由它分派，其余（http(s)/HLS/DASH/SS）回落
+   网络工厂——请求头与播放缓存都还在那一层。`content://`、`asset://` 的本地播放顺带补齐。
+4. **错误文案**：`describeError` 对 `ERROR_CODE_IO_UNSPECIFIED` 且 message 为 `Source error`/空
+   时改说"媒体源读取失败（文件不可读或地址不可用）"，有具体原因仍原样透出。
+5. **验证**：`PlaybackDataSourceTest` 2 条（本地文件真读出、http 仍走网络工厂）、
+   `AudioPlaybackManagerLiveTest` +2 断言；全量 **894 / 0 skipped / 0 failures / 0 errors**；
+   `assembleDebug` 通过（APK 03:18:15，949,737,738 字节），03:19 覆盖安装；真机同一张卡由
+   `Source error` 变为正常播放（用户确认"播放正常了"），音乐卡/播放列表同步恢复。
+6. **坑**：`--rerun` 会用 Gradle 构建缓存里坏掉的 `bundleDebugClassesToRuntimeJar`（缺 Kotlin 的
+   `NpuLlmChat` 等 23 个类），表现为 `AIServiceTest`/`NpuEngineRouterPhaseTest` 报
+   `NoClassDefFoundError`——与本改动无关，加 `--no-build-cache` 即恢复全绿。
+
 ---
 
 ## 5. 关键文件 / 改动地图

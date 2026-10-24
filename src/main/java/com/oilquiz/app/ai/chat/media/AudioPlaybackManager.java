@@ -1157,6 +1157,16 @@ public final class AudioPlaybackManager {
             case PlaybackException.ERROR_CODE_DECODER_INIT_FAILED:
             case PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED:
                 return "解码器不可用";
+            case PlaybackException.ERROR_CODE_IO_UNSPECIFIED: {
+                // 媒体源根本建不起来（本地文件读不到、DataSource 不认识这个 scheme…）。
+                // 这类错误 ExoPlayer 的 message 常常只有一句 "Source error"，卡片上等于没说
+                // （2026-10-25 真机：file:// 被丢给 HTTP 数据源，用户只看到 "视频播放失败: Source error"）。
+                String detail = error.getMessage();
+                if (detail == null || detail.isEmpty() || "Source error".equalsIgnoreCase(detail)) {
+                    return "媒体源读取失败（文件不可读或地址不可用）";
+                }
+                return detail;
+            }
             default:
                 String msg = error.getMessage();
                 return msg == null || msg.isEmpty() ? "播放失败" : msg;

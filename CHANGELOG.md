@@ -18,6 +18,40 @@
   0 skipped / 0 failures / 0 errors**；`assembleDebug` 通过（APK 03:18:15），已装机。
   真机截图：附件行左侧显示 md 首页缩略图（标题/表格可辨）。
 
+## [2026-10-25] fix(player)：聊天音频/视频卡播不了工作区本地文件——共享播放器把所有非 RTMP 地址都交给了 HTTP 数据源
+
+用户反馈："之前升级了音乐播放器与视频播放器卡片，现在出现问题了，文件连不上了，显示资源错误。"
+真机复现：点视频卡的 ▶ 立刻显示 `⚠ 视频播放失败: Source error`，点"重试"无效；把文件重命名成
+纯英文 `dy_7694217665674769650.mp4` 也一样——所以**不是文件名/全角符号的问题**。
+
+- **真因（logcat 03:09:55）**：
+  `ClassCastException: sun.net.www.protocol.file.FileURLConnection cannot be cast to
+  java.net.HttpURLConnection`，抛出点 `DefaultHttpDataSource.openConnection`，调用链
+  `AudioPlaybackService$SchemeDataSource.open → CacheDataSource → DefaultHttpDataSource`。
+  卡片指向的是 Agent 落在工作区的本地文件
+  （`file:///storage/emulated/0/Download/OilQuiz/agent_workspace/files/*.mp4`），而播放器仍在用
+  HTTP 数据源——`DefaultHttpDataSource` 只认 http(s)，对 `file://` 就是这样炸的，ExoPlayer 把
+  它报成 `Source error`。
+- **回归点**：2026-10-23 把音频/视频卡提升为进程级播放服务（`AudioPlaybackService`）时，唯一数据源
+  就是 `DefaultHttpDataSource`；P2 加的 `SchemeDataSource` 只把 `rtmp://` 分出去，其余（含
+  `file://`、`content://`）继续走 HTTP。此前真机验的都是网络地址，工作区本地媒体没被这条链路覆盖到。
+- **修法**：删掉自制 `SchemeDataSource`，新增
+  `AudioPlaybackService.createDataSourceFactory(context, networkFactory)`，用 media3 的
+  `DefaultDataSource` 做 scheme 分派：`file://` → FileDataSource、`content://` → ContentDataSource、
+  `asset://`/`rawresource://` 各有实现、`rtmp://` → RtmpDataSource（反射加载
+  `media3-datasource-rtmp`），其余才回落到网络工厂（HTTP + 播放缓存，防盗链头仍在）。顺带补齐
+  `content://`（文件选择器/媒体库）与 `asset://` 的本地播放。
+- **错误文案**：`AudioPlaybackManager.describeError` 给 `ERROR_CODE_IO_UNSPECIFIED` 补一条——
+  message 只有 "Source error" 这种没信息量的内容时改说"媒体源读取失败（文件不可读或地址不可用）"；
+  有具体原因（如 `Unrecognized input format`）仍原样透出。
+- **验证**：新增 `PlaybackDataSourceTest` 2 条（本地文件经共享工厂能真读出内容；http(s) 仍落在
+  网络工厂上），`AudioPlaybackManagerLiveTest` 补 2 条错误文案断言；全量
+  `testDebugUnitTest --offline --rerun --no-build-cache` **894 tests / 0 skipped / 0 failures /
+  0 errors**（顺手排除一个假红：Gradle 构建缓存里 `bundleDebugClassesToRuntimeJar` 存了不含
+  `NpuLlmChat` 的坏 jar，会让 `AIServiceTest`/`NpuEngineRouterPhaseTest` 报
+  `NoClassDefFoundError`，与本改动无关）；`assembleDebug` 通过（__APK__），已装机。真机：
+  __DEVICE__
+
 ## [2026-10-25] feat(chat)：file_card 挂缩略图（md 优先，文本/PDF/图片一并支持）
 
 上一轮把 md 缩略图引擎（MarkdownDocPage + 离屏 WebView 截图）做出来了，但全项目没有任何

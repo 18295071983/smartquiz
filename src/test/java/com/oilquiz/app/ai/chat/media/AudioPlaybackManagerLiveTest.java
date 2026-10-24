@@ -74,5 +74,13 @@ public class AudioPlaybackManagerLiveTest {
         assertEquals("没消息时不能把 null 拼到卡片上", "播放失败",
                 AudioPlaybackManager.describeError(
                         new PlaybackException(null, null, PlaybackException.ERROR_CODE_UNSPECIFIED)));
+        // ExoPlayer 对"媒体源建不起来"只给一句 "Source error"，卡片上等于没说（2026-10-25 真机）
+        assertEquals("Source error 不能原样甩到卡片上", "媒体源读取失败（文件不可读或地址不可用）",
+                AudioPlaybackManager.describeError(new PlaybackException(
+                        "Source error", null, PlaybackException.ERROR_CODE_IO_UNSPECIFIED)));
+        assertEquals("有具体原因时仍要保留", "Unrecognized input format",
+                AudioPlaybackManager.describeError(new PlaybackException(
+                        "Unrecognized input format", null,
+                        PlaybackException.ERROR_CODE_IO_UNSPECIFIED)));
     }
 }

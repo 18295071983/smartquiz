@@ -1,32 +1,27 @@
 package com.oilquiz.app.ai.chat.media;
 
 import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
-import android.net.Uri;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.database.StandaloneDatabaseProvider;
 import androidx.media3.datasource.DataSource;
-import androidx.media3.datasource.DataSpec;
+import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
-import androidx.media3.datasource.TransferListener;
 import androidx.media3.datasource.cache.Cache;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor;
 import androidx.media3.datasource.cache.SimpleCache;
-import androidx.media3.datasource.rtmp.RtmpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
 
 import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -86,11 +81,10 @@ public class AudioPlaybackService extends MediaSessionService {
             // 缓存目录/数据库不可用：退回纯网络，不影响播放
             mediaCache = null;
         }
-        final DataSource.Factory cacheDataSourceFactory = cacheFactory;
-        DataSource.Factory dataSourceFactory =
-                () -> new SchemeDataSource(cacheDataSourceFactory, new RtmpDataSource.Factory());
+        final DataSource.Factory networkFactory = cacheFactory;
         player = new ExoPlayer.Builder(this)
-                .setMediaSourceFactory(new DefaultMediaSourceFactory(dataSourceFactory))
+                .setMediaSourceFactory(new DefaultMediaSourceFactory(
+                        createDataSourceFactory(this, networkFactory)))
                 .setAudioAttributes(AudioAttributes.DEFAULT, /* handleAudioFocus= */ true)
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_NETWORK)
@@ -144,53 +138,28 @@ public class AudioPlaybackService extends MediaSessionService {
     }
 
     /**
-     * 按 URI scheme 选 DataSource：RTMP 走 RtmpDataSource，其余走带请求头的 HTTP。
-     * ExoPlayer 的 MediaSourceFactory 只有一个 DataSource，但 RTMP 与 HTTP 是两套实现，
-     * 所以在这里按每次 open 的 DataSpec 延迟选择。
+     * 播放器唯一的 {@link DataSource.Factory}：按 URI scheme 分派，{@code http(s)} 走
+     * {@code networkFactory}（带防盗链头的 HTTP + 播放缓存），其余交给 media3 的
+     * {@link DefaultDataSource}。
+     *
+     * <p><b>为什么必须分派，而不是只给 HTTP</b>（2026-10-25 真机回归）：聊天里的
+     * 音频/视频卡多数指向 Agent 落在工作区的<b>本地文件</b>
+     * （{@code file:///storage/emulated/0/Download/OilQuiz/agent_workspace/files/x.mp4}），
+     * 而 {@link DefaultHttpDataSource} 只会认 http(s)：它对 {@code file://} 拿到的是
+     * {@code FileURLConnection}，强转 {@code HttpURLConnection} 直接抛
+     * {@code ClassCastException: ... cannot be cast to java.net.HttpURLConnection}，
+     * ExoPlayer 再把它报成 {@code Source error}，卡片上就是"视频播放失败: Source error"
+     * （点重试也一样，重命名文件同样无效——和文件名里的全角符号无关）。</p>
+     *
+     * <p>{@link DefaultDataSource} 正好是这件事的标准实现：{@code file://} → FileDataSource、
+     * {@code content://} → ContentDataSource、{@code asset://}/{@code rawresource://} 各有实现、
+     * {@code rtmp://} → RtmpDataSource（反射加载 media3-datasource-rtmp），
+     * 其余（含 http(s)/HLS/DASH/SS 的清单与分片）才回落到 {@code networkFactory}。</p>
+     *
+     * @param networkFactory 网络侧的工厂（这里传入套了播放缓存的 HTTP 工厂）
      */
-    private static final class SchemeDataSource implements DataSource {
-        private final List<TransferListener> listeners = new ArrayList<>();
-        private final DataSource.Factory httpFactory;
-        private final RtmpDataSource.Factory rtmpFactory;
-        private DataSource delegate;
-
-        SchemeDataSource(DataSource.Factory httpFactory, RtmpDataSource.Factory rtmpFactory) {
-            this.httpFactory = httpFactory;
-            this.rtmpFactory = rtmpFactory;
-        }
-
-        @Override
-        public void addTransferListener(TransferListener transferListener) {
-            if (transferListener != null) listeners.add(transferListener);
-        }
-
-        @Override
-        public long open(DataSpec dataSpec) throws IOException {
-            Uri uri = dataSpec.uri;
-            String scheme = uri == null ? "" : uri.getScheme();
-            delegate = "rtmp".equalsIgnoreCase(scheme)
-                    ? rtmpFactory.createDataSource()
-                    : httpFactory.createDataSource();
-            for (TransferListener listener : listeners) {
-                delegate.addTransferListener(listener);
-            }
-            return delegate.open(dataSpec);
-        }
-
-        @Override
-        public int read(byte[] buffer, int offset, int length) throws IOException {
-            return delegate.read(buffer, offset, length);
-        }
-
-        @Nullable
-        @Override
-        public Uri getUri() {
-            return delegate == null ? null : delegate.getUri();
-        }
-
-        @Override
-        public void close() throws IOException {
-            if (delegate != null) delegate.close();
-        }
+    static DataSource.Factory createDataSourceFactory(
+            Context context, DataSource.Factory networkFactory) {
+        return new DefaultDataSource.Factory(context, networkFactory);
     }
 }
