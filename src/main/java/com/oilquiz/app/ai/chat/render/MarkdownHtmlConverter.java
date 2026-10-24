@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.chat.render;
 import org.commonmark.Extension;
 import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension;
 import org.commonmark.ext.gfm.tables.TablesExtension;
+import org.commonmark.node.Node;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
 
@@ -69,13 +70,34 @@ public final class MarkdownHtmlConverter {
     }
 
     /** 流式兜底：行首 ``` 奇数个时末尾补闭合，防半截代码围栏吞掉后续正文。 */
-    private static String closeUnclosedCodeFence(String markdown) {
+    static String closeUnclosedCodeFence(String markdown) {
         int fenceCount = 0;
         for (String line : markdown.split("\n", -1)) {
             String t = line.trim();
             if (t.startsWith("```")) fenceCount++;
         }
         return (fenceCount & 1) == 1 ? markdown + "\n```" : markdown;
+    }
+
+    /**
+     * 流式块切分专用：按整篇定稿同一套“未闭合围栏兜底”解析成 AST。
+     *
+     * <p>块切分器用顶层节点切块、逐节点渲染；这里补闭合是为了让“尾巴”里未闭合围栏的
+     * HTML 与 {@link #toBodyHtml(String)} 完全一致（否则 commonmark 原生到 EOF 会少一个
+     * 换行，定稿时出现一次可见跳变）。是否真的算“已闭合”由切分器看原始串的行尾决定，
+     * 不看这个补出来的闭合围栏。</p>
+     */
+    static Node parseForBlocks(String markdown) {
+        return PARSER.parse(closeUnclosedCodeFence(markdown == null ? "" : markdown));
+    }
+
+    /**
+     * 单个顶层节点的正文 HTML：与 {@link #toBodyHtml(String)} 同一条净化 + 任务列表后处理，
+     * 供流式切分器逐块渲染。只接受 Parser 产出的顶层块节点。
+     */
+    static String renderBlock(Node node) {
+        if (node == null) return "";
+        return renderTaskLists(sanitize(RENDERER.render(node)));
     }
 
     /**
