@@ -47,8 +47,8 @@ import java.util.Map;
  *
  * 接线状态：已由 {@code ChatAdapter} 在 {@code webMarkdownEnabled} 时接管 AI 正文气泡
  * （与 messageText 二选一）。链接/图片点击统一走 {@link MarkdownLinkRouter}，与原生
- * Markwon 气泡同一套行为，不再各说各话。块级流式默认关（见 {@link MarkdownStreamTailFlag}），
- * 定稿/回退/主题重载仍走整篇路径。
+ * Markwon 气泡同一套行为，不再各说各话。块级流式默认开（见 {@link MarkdownStreamTailFlag}），
+ * 显式写 false 回退整篇路径；定稿/回退/主题重载仍走整篇路径。
  */
 public class MarkdownWebView extends FrameLayout {
 

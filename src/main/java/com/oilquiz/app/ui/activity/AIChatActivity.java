@@ -339,8 +339,8 @@ public class AIChatActivity extends BaseActivity {
     private final Object streamingLock = new Object();
 
     /**
-     * 轮内流式（P7，2026-10-25）：只有 {@code markdown_stream_tail=true} 且 WebView 正文路径
-     * 开启时才逐 tick 上屏；默认 false，保持原有“只在轮次边界刷新”的行为。
+     * 轮内流式（P7，2026-10-25）：默认 true（用户显式拍板），但只在 WebView 正文路径开启时
+     * 才逐 tick 上屏；显式把 {@code markdown_stream_tail} 写 false 即回退轮次批量。
      */
     private boolean streamTailEnabled;
 

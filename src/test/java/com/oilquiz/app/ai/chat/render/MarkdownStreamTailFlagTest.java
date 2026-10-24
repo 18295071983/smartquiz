@@ -16,8 +16,8 @@ import static org.junit.Assert.assertTrue;
 /**
  * {@link MarkdownStreamTailFlag} 的出厂档与读写口径（轮内流式 P7）。
  *
- * <p>默认 false 是硬约束：不开 prefs 时，80ms 逐 tick 刷新与 WebView 块路径都不能生效；
- * 打开后也必须由 Activity 侧再与 {@code web_markdown_render} 相与。</p>
+ * <p>默认 true 是 2026-10-25 用户显式拍板；显式写 false 才是回退，且必须由 Activity 侧
+ * 再与 {@code web_markdown_render} 相与，Markwon 路径不放开逐 tick 刷新。</p>
  */
 @RunWith(RobolectricTestRunner.class)
 public class MarkdownStreamTailFlagTest {
@@ -38,22 +38,22 @@ public class MarkdownStreamTailFlagTest {
     }
 
     @Test
-    public void defaultsToDisabledWhenKeyAbsent() {
-        assertFalse("出厂档必须是关：无键不能进块级流式",
+    public void defaultsToEnabledWhenKeyAbsent() {
+        assertTrue("出厂档必须是开：无键就走轮内块级上屏",
                 MarkdownStreamTailFlag.enabled(ctx()));
     }
 
     @Test
-    public void explicitTrueAndFalseRoundTrip() {
+    public void explicitFalseAndTrueRoundTrip() {
+        MarkdownStreamTailFlag.setEnabled(ctx(), false);
+        assertFalse("显式 false 是回退途径", MarkdownStreamTailFlag.enabled(ctx()));
+
         MarkdownStreamTailFlag.setEnabled(ctx(), true);
         assertTrue(MarkdownStreamTailFlag.enabled(ctx()));
-
-        MarkdownStreamTailFlag.setEnabled(ctx(), false);
-        assertFalse(MarkdownStreamTailFlag.enabled(ctx()));
     }
 
     @Test
-    public void missingContextFallsBackToDisabled() {
-        assertFalse(MarkdownStreamTailFlag.enabled(null));
+    public void missingContextFallsBackToEnabled() {
+        assertTrue(MarkdownStreamTailFlag.enabled(null));
     }
 }

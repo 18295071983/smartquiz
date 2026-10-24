@@ -7,8 +7,8 @@ import android.content.Context;
  *
  * <p>它是 {@code web_markdown_render} 的子开关：WebView 正文路径没开时本开关无效，
  * 80ms 节流刷新也不能放开（否则会把 3cab5a48 的“逐 token 全文重排”放回来）。
- * 出厂档 <b>false</b>，产品里没有设置页入口；要试只能显式把
- * {@code ai_chat_prefs.markdown_stream_tail} 写成 true。</p>
+ * 出厂档 <b>true</b>（2026-10-25 用户显式指令“打开默认 true”）；产品里没有设置页入口，
+ * 回退只能显式把 {@code ai_chat_prefs.markdown_stream_tail} 写成 false。</p>
  *
  * <p>沿用项目既有口径（{@code ai_chat_prefs}、lower_snake_case 键、读值包 try/catch
  * 兜底默认），与 {@link com.oilquiz.app.ai.chat.parts.PartsRendererFlag} /
@@ -23,13 +23,13 @@ public final class MarkdownStreamTailFlag {
     static final String PREFS_NAME = "ai_chat_prefs";
     static final String PREF_KEY = "markdown_stream_tail";
 
-    /** 出厂档：关。显式写 true 才进入轮内块级上屏。 */
-    static final boolean DEFAULT_ENABLED = false;
+    /** 出厂档：开。显式写 false 回退到原轮次批量上屏（无设置页入口，只能改 prefs）。 */
+    static final boolean DEFAULT_ENABLED = true;
 
     private MarkdownStreamTailFlag() {
     }
 
-    /** 读取开关；context 为空或读失败时按默认档（关）返回。 */
+    /** 读取开关；context 为空或读失败时按默认档（开）返回。 */
     public static boolean enabled(Context context) {
         if (context == null) {
             return DEFAULT_ENABLED;
