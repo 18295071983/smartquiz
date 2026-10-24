@@ -231,3 +231,30 @@
 `ToolMetaRegistryTest#weirdNamesNeverThrowAndNeverExposeRaw`、`AgentActivityKindTest#表外工具与空值_兜底不抛异常`、
 `#目标提取_脏参数也安全` 覆盖；全量 969 / 0 skipped / 0 failures / 0 errors；
 APK 07:28:45 已装机，未做真机测试。
+## 9. 多步深度思考文案（2026-10-25 追加）
+
+用户："还有个遗漏点，多步深度思考。你是不是也要有文案啊"。
+
+### 9.1 文案
+
+- 第 1 轮：保持原来的推进句（`正在理解问题… → 正在梳理思路… → …`），不加前缀避免噪音；
+- 第 2 轮起：前缀轮号 `第N轮 · 正在推敲关键点…`（底部状态行、活跃思考块折叠头同句）；
+- 历史轮次：折叠头仍回 `已深度思考 X 秒`（不挂活动态）；
+- 生成阶段不显示轮号（轮号只属于思考）。
+
+### 9.2 实现
+
+- `InferenceStatusPhrases.phrase(phase, elapsedMs, thinkingRound)`：THINKING 阶段按轮号加前缀；
+  原两参重载等价于 `thinkingRound=1`；
+- `ChatMessage.thinkingRoundIndex`（transient）：Activity 在 Agent 每轮思考开始时同步
+  （`onThinkingToken` 新一轮 + `markStreamingPhase(THINKING)` 兜底）；
+- 折叠头：`ReasoningPartRenderer#stateLabel` 与 `ChatAdapter#activeThinkingPhrase` 读同一个
+  `thinkingRoundIndex`，配合 `part.isStreaming()` / `lastGroup` 只作用于当前活跃块；
+- 速度：每轮开始重置 `reasoningTokenCount/reasoningStartTime`，避免第 2 轮 t/s 把第 1 轮和
+  工具空窗平均进去；
+- 优先级：工具运行中底部状态行显示工具侧文案；工具结束回到"第 N 轮 · 思考/生成"。
+
+### 9.3 验证
+
+`InferenceStatusPhrasesTest#多步深度思考_第二轮起文案带轮次前缀`；全量
+970 / 0 skipped / 0 failures / 0 errors；APK 07:34:57 已装机，未做真机测试。

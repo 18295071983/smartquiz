@@ -220,8 +220,10 @@ public final class ReasoningPartRenderer implements PartRenderer {
             long start = msg.inferenceProgress.phaseStartTime;
             if (start <= 0 && msg.timestamp > 0) start = msg.timestamp;
             if (start > 0) {
+                // 多步深度思考：活跃块带"第 N 轮"前缀（其它块仍走 doneLabel → 已深度思考）
                 String phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
-                        .phrase(phase, System.currentTimeMillis() - start);
+                        .phrase(phase, System.currentTimeMillis() - start,
+                                msg.thinkingRoundIndex);
                 if (phrase != null) return phrase;
             }
             String label = com.oilquiz.app.ai.chat.InferenceStatusLabel.shortLabel(phase);

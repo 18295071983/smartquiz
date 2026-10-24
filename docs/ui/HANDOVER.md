@@ -2700,6 +2700,16 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
       工具组标题单行省略、单卡名为空退回"工具"、目标追加最长 24 字；
     - 测试：怪名/超长/中文/控制字符、表外工具+空值+脏参数；全量 **969 / 0 skipped /
       0 failures / 0 errors**；APK 07:28:45 已装机，未做真机验证。设计文档 §8。
+15. **多步深度思考文案（同日第十轮，用户："还有个遗漏点，多步深度思考。你是不是也要有文案啊"）**：
+    - `InferenceStatusPhrases.phrase(phase, elapsed, thinkingRound)`：第 1 轮不加前缀，
+      第 2 轮起 `第N轮 · 正在推敲关键点…`（底部状态行 + 活跃思考块折叠头同句）；
+    - `ChatMessage.thinkingRoundIndex`（transient）：`onThinkingToken` 新一轮时同步 +
+      `markStreamingPhase(THINKING)` 兜底；folded header 仍只给活跃块加前缀，历史块
+      "已深度思考 X 秒"；
+    - 多轮速度：每轮开始重置 reasoning 速度计数，避免 t/s 把上一轮/工具空窗平均进去；
+    - 工具文案优先级不变：工具运行中底部显示工具侧文案，结束回"第 N 轮 · 思考/生成"；
+    - 测试：`InferenceStatusPhrasesTest` 新增轮号用例；全量 **970 / 0 skipped / 0 failures /
+      0 errors**；APK 07:34:57 已装机，未做真机验证。设计文档 §9。
 
 ---
 

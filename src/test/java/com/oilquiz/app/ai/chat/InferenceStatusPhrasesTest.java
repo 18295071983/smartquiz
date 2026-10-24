@@ -74,4 +74,22 @@ public class InferenceStatusPhrasesTest {
         assertEquals("工具耗时较长，仍在执行…", InferenceStatusPhrases.toolPhrase(20 * S));
         assertEquals("仍在等待工具结果…", InferenceStatusPhrases.toolPhrase(45 * S));
     }
+
+    @Test
+    public void 多步深度思考_第二轮起文案带轮次前缀() {
+        // 第 1 轮不加前缀（避免多余噪音）
+        assertEquals("正在梳理思路…", InferenceStatusPhrases.phrase(
+                ChatMessage.InferencePhase.THINKING, 6 * S, 1));
+        // 第 2 轮起加"第N轮 · "，让用户知道模型在分多轮推进
+        assertEquals("第2轮 · 正在梳理思路…", InferenceStatusPhrases.phrase(
+                ChatMessage.InferencePhase.THINKING, 6 * S, 2));
+        assertEquals("第5轮 · 正在推敲关键点…", InferenceStatusPhrases.phrase(
+                ChatMessage.InferencePhase.THINKING, 14 * S, 5));
+        // 非思考阶段不受轮号影响
+        assertEquals("正在撰写回答…", InferenceStatusPhrases.phrase(
+                ChatMessage.InferencePhase.GENERATING, 5 * S, 3));
+        // 不带轮号的重载等价于第 1 轮
+        assertEquals(InferenceStatusPhrases.phrase(ChatMessage.InferencePhase.THINKING, 6 * S, 1),
+                InferenceStatusPhrases.phrase(ChatMessage.InferencePhase.THINKING, 6 * S));
+    }
 }

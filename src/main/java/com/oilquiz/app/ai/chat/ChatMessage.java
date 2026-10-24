@@ -519,6 +519,11 @@ public class ChatMessage {
      */
     public transient long runningToolStartTime;
     /**
+     * 当前正在进行的"多步深度思考"轮号（从 1 开始；Agent 多轮推理时递增）。
+     * 状态文案据此加"第 N 轮 · "前缀，运行时字段，不落盘。
+     */
+    public transient int thinkingRoundIndex = 1;
+    /**
      * 运行中工具的活动分类（{@code AgentActivityKind.name()}，引擎侧
      * {@code AgentActivityBus} 发布）：决定"正在联网搜索…/正在生成文件…"等多样化文案。
      * 运行时字段，不落盘。

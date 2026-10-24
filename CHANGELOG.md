@@ -1,5 +1,22 @@
 # 变更日志
 
+## [2026-10-25] feat(chat-ui)：多步深度思考也有文案（第 N 轮 + 速度按轮重置）
+
+用户："还有个遗漏点，多步深度思考。你是不是也要有文案啊"。
+
+- 推理状态文案新增轮号：`InferenceStatusPhrases.phrase(phase, elapsed, thinkingRound)`；
+  **第 1 轮不加前缀**（避免噪音），第 2 轮起显示 `第2轮 · 正在推敲关键点…`，
+  底部生成状态行同句；
+- `ChatMessage` 新增 transient `thinkingRoundIndex`：Activity 在 Agent 每轮思考开始时同步
+  （`onThinkingToken` 新一轮 + `markStreamingPhase(THINKING)` 兜底）；
+- 思考折叠头同口径：parts `ReasoningPartRenderer` 与 legacy `ChatAdapter#activeThinkingPhrase`
+  都读 `thinkingRoundIndex`，只给**当前活跃块**加"第 N 轮"前缀，历史块仍显示"已深度思考 X 秒"；
+- 多轮速度：每轮开始重置 reasoning 速度统计（否则第 2 轮的 t/s 会把第 1 轮和工具空窗平均进去）；
+- 与工具文案的优先级不变：有工具在跑时底部状态行优先显示工具侧文案，工具结束回到
+  "第 N 轮 · 思考/生成"文案；
+- **验证**：`InferenceStatusPhrasesTest` 新增"多步深度思考_第二轮起文案带轮次前缀"；
+  全量 `testDebugUnitTest --offline --no-build-cache` **970 / 0 skipped / 0 failures / 0 errors**；
+  `assembleDebug --offline` 通过（APK 07:34:57）并已装机；按用户要求未做真机测试。
 ## [2026-10-25] fix(chat-ui)：表外工具兜底加固（照常执行；显示名永不抛异常）
 
 用户："如果工具不再这个表中，不用强求，照样让用，不要造成新 bug 了。你做好兜底。"

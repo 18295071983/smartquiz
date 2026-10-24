@@ -22,6 +22,17 @@ public final class InferenceStatusPhrases {
 
     /** 阶段 + 本阶段已耗时(ms) → 当前状态文案；完成/失败/空闲返回 null。 */
     public static String phrase(ChatMessage.InferencePhase phase, long phaseElapsedMs) {
+        return phrase(phase, phaseElapsedMs, 1);
+    }
+
+    /**
+     * 同上，带"多步深度思考"的轮次：第 2 轮起给文案加前缀
+     * （{@code 第2轮 · 正在推敲关键点…}），让用户知道模型在分多轮推进而不是卡住。
+     *
+     * @param thinkingRound 当前思考轮号（&lt;=1 不加前缀；非 THINKING 阶段忽略）
+     */
+    public static String phrase(ChatMessage.InferencePhase phase, long phaseElapsedMs,
+                                int thinkingRound) {
         if (phase == null) return null;
         long seconds = Math.max(0L, phaseElapsedMs) / 1000L;
         switch (phase) {
@@ -32,7 +43,8 @@ public final class InferenceStatusPhrases {
             case PREFILL:
                 return waiting(seconds);
             case THINKING:
-                return thinking(seconds);
+                String base = thinking(seconds);
+                return thinkingRound > 1 ? ("第" + thinkingRound + "轮 · " + base) : base;
             case GENERATING:
             case DECODING:
                 return generating(seconds);
