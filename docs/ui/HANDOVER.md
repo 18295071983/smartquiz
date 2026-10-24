@@ -2171,6 +2171,20 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 4. **边界**：这是播放缓存，不是下载管理 UI（无手动下载/清理/离线列表）；Cast 仍待
    接收端 App ID/产品确认。提交 `b11b7342`。
 
+### 4.98 feat(player)：P2.2——Cast 投屏（默认 Media Receiver）（2026-10-25）
+
+1. 引入 `media3-cast` + Cast SDK；`CastOptionsProvider` 用
+   `CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID`，不依赖自建接收端。
+2. 全屏页 `MediaRouteButton`；`SessionManagerListener` 在 started/resumed 时取当前
+   mediaItem 的 `localConfiguration.uri`，以 `MediaInfo` 加载到电视并暂停本地。
+   `file://` 提示不支持；HLS/MP4/WebM/MP3 按扩展名给 content type，直播用 LIVE。
+3. 无 Play Services/Cast 初始化失败时按钮隐藏，不影响本地播放；PiP 中隐藏；
+   Activity 销毁移除 session listener。
+4. **验证**：全量 **867 / 0 skipped / 0 failures / 0 errors**；`assembleDebug` 通过
+   （APK 01:42:15，949 MB）。**未装机、无 Cast 设备**，投屏只能代码级验证。
+5. **边界**：默认 Receiver 不支持自定义 headers/DRM/自有 UI；需要这些再换自建接收端
+   App ID。手动下载管理 UI 仍未做。提交 `d69c3f74`。
+
 ---
 
 ## 5. 关键文件 / 改动地图

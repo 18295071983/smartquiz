@@ -1,5 +1,21 @@
 # 变更日志
 
+## [2026-10-25] feat(player)：P2.2——Cast 投屏（默认 Media Receiver，无需自建 App ID）
+
+用 Chromecast 默认 Media Receiver 做基础投屏，不引入自有接收端/App ID。
+
+- 引入 `media3-cast` + Cast SDK；`CastOptionsProvider` 使用
+  `CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID`。
+- 全屏页加系统 `MediaRouteButton`；CastSession started/resumed 时把当前网络
+  mediaItem 的 URI 以 `MediaInfo` 加载到电视，并暂停本地 ExoPlayer。`file://` 明确
+  提示不支持；HLS/MP4/WebM/MP3 按扩展名给 content type，直播用 LIVE。
+- 无 Play Services/Cast 初始化失败时按钮不显示，不影响本地播放；PiP 中隐藏。
+- **验证**：全量 **867 tests / 0 skipped / 0 failures / 0 errors**；`assembleDebug`
+  通过（APK 01:42:15，949 MB）。**未装机、无 Cast 设备**：投屏只能代码级验证。
+- **边界**：默认 Receiver 不支持自定义 headers/DRM/自有 UI；需要这些再换自建接收端
+  App ID。手动下载管理 UI 仍未做，当前离线能力是"边播边缓存、断网重放"。
+- 提交 `d69c3f74`。
+
 ## [2026-10-25] feat(player)：P2.1——队列 HLS 302 预解析 + 播放缓存（离线重放）
 
 补齐 P1/P2 里明确留的两个坑；仍不涉及 Cast/下载管理 UI。
