@@ -1708,7 +1708,9 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    后者把四个加载出口逐个钉住（旧格式 JSON 无 `assistantTurn` → 读回来必须补上、顺序按边界、正文不改），
    并做过 A/B：注掉四处挂钩恰好这 4 条变红，放回即全绿。
    全量 **769 tests / 0 skipped / 0 failures / 0 errors**、`assembleDebug` 通过。
-   `parts_renderer` 出厂兜底仍 false → 现网默认旧路径不变（真机 prefs 里这台机已是 true）。
+   `parts_renderer` 当时出厂兜底仍 false（**已被 §4.85 的 P4 翻成 true**，2026-10-24 同日用户指令
+   "出厂仍是 false，也打开"）→ 写这条时现网默认旧路径不变；现在默认就是 parts 接管，
+   本文件里"flag=false 零影响"那套前提全部作废，读的时候按 flag=true 的现网算。
 7. **未做（P5 其余）**：不再写 `contentRoundBounds`、删 legacy 分支；P4 默认翻 true。
 8. ⚠️ **真机渲染层未验 —— 2026-10-24 用户拍板"先挂着，有问题再回来"**。已证的是顺序/持久化层（本轮新增 15 条单测：
    `AssistantTurnRestoreTest` 11 + `ChatHistoryManagerSessionTest` 四个出口各 1），
@@ -1764,7 +1766,42 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    **这也就是 4.81 第 8 条挂着的那次真机验证里"数据形状"那一半已经验过**，剩下没验的仍只有
    View 层的视觉呈现。
 
----
+### 4.89 fix(chat-ids)：子 id 改为"从落盘数据认领"派发，切会话复位当前回合（2026-10-24）
+
+1. 用户报"我的用户消息与 AI 回复对不上"。先核配对：真机那份会话（12 条，`conversations/512fb797….json`）
+   里 `T305…T310` 六对 turnId **全部同号**，配对规则没错。`turnId` 由 Activity 的字段 `currentTurnId`
+   驱动（发送时 `AIChatActivity:9726` 发主 id，user/AI/工具/组件都拿同一个值），
+   **不是**"从我回应的那条用户消息上取"——所以它脆。
+2. 真根因是**子 id 重号**：`ChatIdDispatcher.subCounters`（`主id|类型码` 分桶）是进程内状态，
+   杀进程重进后每张桶从 1 重新开始，而 `subId`/组件 id/思考轮 id 随消息持久化。
+   真数据实证：`T310` 已有 `C1/C2/C3` 三个产物卡，同一条消息 12 个 `tool_call` 组件的 `id` 是 `null`，
+   `ensureRecoveredIds` 补发正好从 `C1` 起 → 两张卡同一个 id；而 data part 的 id 是 `data:<组件id>`，
+   keyed diff 把两张当一个更新，表现就是"消息/卡片对不上"。
+3. 改成**认领式（动态派发）**：新增 `adoptId`/`adoptIds` —— 把已发出去的 id 喂回派发器，
+   对应桶序号抬到它之后（只前进不后退、幂等；非 `T<数字>-<类型码><数字>` 形态的脏 id 忽略）。
+   `ensureRecoveredIds` 在补发**之前**先认领窗口里看到的全部 id（`subId` + `thinkingRoundIds` + 组件 id）。
+   序号不再从进程状态猜，而是从落盘数据派生——主 id 那半边靠 prefs 早做到了，这次补子 id 这半边。
+4. 两处会话隔离口子一起堵：① `switchToSession` 一直漏 `currentTurnId = null`
+   （`startNewConversation` 早就有），切过去时若还有生成在跑，迟到回调会把消息挂到**上一个会话**的回合；
+   ② `seedFromTurnIds` 原来只在"历史最大 T 号 ≥ 当前计数器"时才清 `currentMasterId`，
+   切到**更老**会话时条件不成立 → 之后隐式 `applySubId(type)` 挂错会话；改成**无条件清**。
+5. 顺带修 `RoundBounds.normalize` 的**失效槽**：历史 id 指向已不存在的组件时，旧实现原样留着 →
+   恢复出一张没名字的空白工具行，真组件反而被补到正文末尾。现两遍认领（先保留对得上组件的 id、
+   绝不重排；空槽/失效槽按组件顺序顶未认领的 id）。约束：只在 `toolCount>0` 时才判定失效——
+   `toolCount==0` 时那些 id 是 legacy 手工路径写的槽位记号，必须原样保留
+   （第一版改太宽，把既有用例 `saveCopyKeepsRoundDataAndDropsTransientExpansionState` 的
+   `[T7-F1,T7-F2]` 抹成空串，跑红才收敛到这条规则）。
+6. **验证**：`LegacyShapeRestoreTest` 7 条（真旧格式数据走真文件往返：工具夹正文中间、
+   `bounds=[0,0]` 工具在正文前、组件无 `toolCallId`、失效槽顶位、纯正文、空正文不补 turn、
+   恢复顺序 == 实时 `fromMessage` 且二次读写不漂）+ `ChatIdDispatcherTest` 4 条
+   （切更老会话清锚点、恢复后隐式补发不挂旧会话、认领后从 `C4` 起不重号、认领只前进且忽略脏 id）。
+   四条都做了 A/B：撤认领 → 2 红（`expected T900005-C4 but was T900005-C1`）；
+   "无条件清锚点"改回条件式 → 另 2 红（`expected null, but was:<T900005>`）。
+   第一次做锚点 A/B 时补丁没生效，跑出"6 全过"的假证据，已重做。
+   全量 **804 tests / 0 skipped / 0 failures / 0 errors**、`assembleDebug` 通过。
+7. **没做**：`ChatSessionController.switchTo` 那条平行实现（当前只有它自己的文档注释在用，UI 走
+   Activity 的 `switchToSession`）等真接线时要一并复位 turn 锚点；隐式 `applySubId(type)` 在无当前回合时
+   仍会开新主 id（思考轮兜底依赖它，见 `ChatMessage:343-350`），本次只保证"开的是新回合、不挂回旧会话"。
 
 ## 5. 关键文件 / 改动地图
 

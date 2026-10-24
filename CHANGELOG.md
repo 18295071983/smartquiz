@@ -1,5 +1,89 @@
 # 变更日志
 
+## [2026-10-24] feat(cards)：html 卡新增"放大档"——同一份卡片在全屏宿主里再渲一遍
+
+用户先问"内置卡片有没有原生聚焦功能，点一下临时转成原生卡，从源头杜绝"，又问工作量、说"开干"。
+做了。定位要说清：这不是补 bug（键盘监听抢焦点那条已在上一条从源头修掉），而是**结构性的一档**——
+只要卡片还长在 RecyclerView 里，"列表节奏打断页面输入"这类问题就还可能再来一次。
+
+- **新 `ai/chat/component/ComponentFocusHost`**：`canOpen(ctx)`（必须有前台 Activity，非 Activity 弹不出窗）、
+  `focusClone(data)`、`open(ctx, data)`。宿主照 `HtmlCardView` 里 previewImage 那条现成的全屏形状
+  （`Dialog` + `FEATURE_NO_TITLE` + `window.setLayout(MATCH_PARENT)`），顶部一条"关闭"栏、
+  卡片吃掉剩余高度（`weight=1`，不套 ScrollView 抢手势），窗口 `SOFT_INPUT_ADJUST_RESIZE`
+  让键盘弹起时压缩而不是盖住输入框；背景走 `?android:attr/colorBackground` 主题解析，
+  不新增硬编码色（项目口径）。防叠窗用弱引用记当前 dialog，重开先 dismiss 旧的。
+- **三条实现约束都写进类注释**，因为这个仓库每条都有反例：① **必须渲副本**——
+  `ComponentData.props` 是活实例且整棵随会话落盘，宿主键 put 到原件上会污染历史并被 registry
+  当 style/actions 误读，所以 `focusClone` 深拷 props、只给副本打 `fillHeight`，
+  并把 transient 的 `internalTemplate` 带过去（丢了就掉沙箱档，mermaid/katex 放大后渲不出）；
+  ② **关闭必 `ComponentLifecycle.release`**——`PythonToolManager:1403/2873` 那两处 AlertDialog
+  渲完不释放，WebView 原生内存随开合线性堆，这次不照抄；③ **绝不跳 `WebViewActivity`/系统浏览器**——
+  那条路上没有 `Android.submit` 桥也没有 componentId 绑定，看着能用但回传静默断。
+- **入口是卡内浮标，不占 footer 动作位**：`HtmlCardView` 右下角一个 `ic_card_fullscreen` 矢量按钮
+  （右上角已被"← 返回"占着，错开免得互盖）。刻意不走 `shell.addAction`——CardShell footer 的
+  `MAX_INLINE_ACTIONS=2` 预算是留给 Agent 自己声明的 actions（提交/回传按钮）的，挤进去会把
+  业务按钮推到「更多」里；也不扩 `ComponentActions` 动作词表（那是模型可见契约、且会落盘）。
+- **放大档不参与内容量高**：`fillHeight` 为真时整卡按"视口高 − 约 150dp chrome"一次定高，
+  `SandboxWebViewClient.scheduleMeasure()` 直接 return。气泡那份的焦点让路逻辑原样保留，
+  没顺手删——全屏里如果将来又加回自适应，那条还得靠它。
+- **回传链核实过是宿主无关的**：`ComponentActions.resolveComponentId` 只读 `props.actions[].component_id`
+  （不看 View、不看挂载），`dispatchResult` → 引擎侧按 id 的结果槽（`PythonToolManager` 的
+  `dynamicComponents`，非一次性、后写覆盖先写）。所以全屏提交与气泡提交写的是同一个等待中的
+  `get_result`。已知边界：`layout`/`ui_component` 那类卡有 `registerInputCollector` 的**覆盖式**注册，
+  双宿主会互相顶掉输入收集器——本档只对 html 开，二期要扩到 layout 卡得先处理那条。
+- 验证：新增 `ComponentFocusHostTest` 4 条（副本带 `fillHeight` 且**原件 props 零污染**、深拷不是共享
+  map、id/type/`internalTemplate` 都带过去、props 为 null 也不炸）；全量 **808 tests / 0 skipped /
+  0 failures / 0 errors**、`assembleDebug` 通过（APK 23:13:25）。
+- ⚠️ **未装到手机**：设备此刻仍不在 `adb devices` 里。重连后
+  `adb -s <序列号> install -r "build/outputs/apk/debug/答题宝-debug-2.0.apk"`，
+  真机要看：右下角放大按钮是否显眼不挡内容、全屏里打字是否彻底稳、关闭后回到气泡有没有残留状态、
+  以及**全屏里点提交按钮结果能不能回到 Agent**（这条是放大档的价值证明，也是唯一可能翻车的点）。
+
+## [2026-10-24] fix(chat-ids)：子 id 改成从落盘数据认领派发，切会话复位"当前回合"
+
+用户报"我的用户消息与 AI 回复对不上"。先核配对逻辑：真机那份会话（12 条）里 `T305…T310`
+六对 turnId **全部对上**，所以配对规则本身没错——错在两处"回合锚点"的生命周期，
+以及子 id 的序号来源。
+
+- **真根因是子 id 重号**：`ChatIdDispatcher.subCounters` 是**进程内**分桶（`主id|类型码`），
+  杀进程重进后每张桶从 1 重新开始，而 `subId`/组件 id/思考轮 id 都随消息持久化。恢复时
+  `ensureRecoveredIds` 先给没有 id 的组件补发，就会与历史里已有的同号 id 撞车。真数据实证：
+  `T310` 已有 `C1/C2/C3`（三个产物卡），同一条消息里 12 个 `tool_call` 组件的 id 是 `null`，
+  补发正好从 `C1` 起。而 `AssistantTurn` 的 data part id 就是 `data:<组件id>` —— 两张卡一个 id，
+  keyed diff 把它们当一个更新，看起来就是"消息/卡片对不上"。
+- **改成认领式（动态派发）**：新增 `adoptId/adoptIds`，把"已经发出去的 id"喂回派发器，
+  对应桶的序号抬到它之后（**只前进不后退**、幂等；非 `T<数字>-<类型码><数字>` 形态的脏 id 忽略）。
+  `ensureRecoveredIds` 在补发之前先认领窗口里看到的所有 id（消息 `subId` + `thinkingRoundIds`
+  + 组件 id）。序号从此**从落盘数据派生**，不再从进程状态猜——主 id 那半边早就靠 prefs 做到不回收，
+  这次补上子 id 这半边。
+- **切会话复位 `currentTurnId`**：`startNewConversation` 一直有 `currentTurnId = null`，
+  `switchToSession` 漏了。切过去时若还有生成在跑，之后到达的迟到回调（流式完成/工具卡片/组件补发）
+  会把消息挂到**上一个会话**的 turnId 下，本会话里就成了没有对应用户消息的孤儿回复。
+- **派发器侧同一条口子**：`seedFromTurnIds` 只在"历史最大 T 号 ≥ 当前计数器"时才清 `currentMasterId`，
+  切到一个**更老**的会话时条件不成立，"当前回合"仍指着上个会话最后一个 T，
+  之后任何隐式 `applySubId(type)` 都会挂错会话。改成**无条件清**（计数器抬不抬是另一件事）。
+- **顺带修 `RoundBounds.normalize` 的失效槽**：历史里 `contentRoundToolIds` 写着 id、对应组件却没了
+  （工具卡被替换/丢失），旧实现原样留着 → 恢复出一张没有名字的空白工具行，而真组件因为没人认领
+  被补到正文末尾。现在两遍认领：先保留仍对得上组件的 id（顺序真值优先、绝不重排），
+  空槽/失效槽按组件顺序顶一个未认领的 id；**只在确实有工具组件可比对时**才判定失效，
+  `toolCount==0` 时历史里的 id 是 legacy 手工路径的槽位记号，照原样保留（这条被既有用例
+  `saveCopyKeepsRoundDataAndDropsTransientExpansionState` 逼出来——我第一版改太宽，把它的
+  `[T7-F1, T7-F2]` 抹成了空串，跑出来就红了）。没有可认领组件时也保留原值，不凭空造也不抹掉。
+- 验证：新增 `LegacyShapeRestoreTest` 7 条（真旧格式落盘数据走**真文件往返**，覆盖工具夹正文中间、
+  `bounds=[0,0]` 工具在正文前、组件无 `toolCallId`、失效槽顶位、纯正文、空正文不补 turn、
+  恢复顺序 == 实时 `fromMessage` 顺序且二次读写不漂）+ `ChatIdDispatcherTest` 4 条
+  （切更老会话必须清锚点、恢复后隐式补发不得挂上个会话、认领后补发从 `C4` 起不重号、
+  认领只前进且忽略脏 id）。**四条新用例都做了 A/B**：去掉认领 → 对应 2 条红（实测报
+  `expected T900005-C4 but was T900005-C1`）；把"无条件清锚点"改回条件式 → 另外 2 条红
+  （`expected null, but was:<T900005>`）。第一次做锚点 A/B 时我补丁没生效，跑出"6 全过"的假证据，
+  已重做并留在这里。
+  全量 `testDebugUnitTest --offline` **804 tests / 0 skipped / 0 failures / 0 errors**，`assembleDebug` 通过。
+- **没做的**：`ChatSessionController.switchTo` 里同样有"保存当前→加载目标"这条链（当前只有它自己的
+  文档注释在用，UI 实际走 `AIChatActivity.switchToSession`），等它真接线时要一并复位 turn 锚点。
+  派发器的隐式 `applySubId(type)` 在无当前回合时仍会自动开新主 id（思考轮兜底路径依赖这个行为），
+  本次只保证"开的是新回合、不会挂回旧会话"。
+
+
 ## [2026-10-24] docs(python-ui)：create_component 的展示面按实现写清——是弹窗，不是聊天流卡片
 
 核 `Android.submit` 用法时顺带查到一条文案与实现不符，且它同时存在于**四条模型可见通道**：
