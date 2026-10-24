@@ -89,10 +89,19 @@ public final class AudioPlaybackManager {
         public final boolean playing;
         public final boolean buffering;
         public final boolean ended;
+        /** playWhenReady（缓冲时仍为 true，UI 据此显示暂停键而不是误判成待播） */
+        public final boolean playWhenReady;
+        public final boolean live;
+        public final float speed;
+        public final boolean loop;
+        public final int queueIndex;
+        public final int queueSize;
         public final String error;
 
         State(String mediaId, String title, String artist, long positionMs, long durationMs,
-              boolean playing, boolean buffering, boolean ended, String error) {
+              boolean playing, boolean buffering, boolean ended, boolean playWhenReady,
+              boolean live, float speed, boolean loop, int queueIndex, int queueSize,
+              String error) {
             this.mediaId = mediaId == null ? "" : mediaId;
             this.title = title == null ? "" : title;
             this.artist = artist == null ? "" : artist;
@@ -101,6 +110,12 @@ public final class AudioPlaybackManager {
             this.playing = playing;
             this.buffering = buffering;
             this.ended = ended;
+            this.playWhenReady = playWhenReady;
+            this.live = live;
+            this.speed = speed > 0 ? speed : 1.0f;
+            this.loop = loop;
+            this.queueIndex = Math.max(0, queueIndex);
+            this.queueSize = Math.max(0, queueSize);
             this.error = error;
         }
 
@@ -159,8 +174,6 @@ public final class AudioPlaybackManager {
      * 所以本地留一份自己建的。
      */
     private MediaItem lastItem;
-    /** 最近一次下发的队列（播放列表卡），切上下首后用它把 lastItem 同步到当前那首 */
-    private java.util.List<MediaItem> lastQueue;
 
     /** HLS 302 解析线程（不能在主线程做网络） */
     private final ExecutorService resolver = Executors.newCachedThreadPool();
@@ -269,6 +282,16 @@ public final class AudioPlaybackManager {
             } else {
                 lastError = null;   // 重试播放时清掉上一轮错误态，否则卡片一直挂着 ⚠
                 if (c.getPlaybackState() == Player.STATE_ENDED) c.seekTo(0);
+                // 错误后播放器处于 IDLE，单靠 play() 不会重新 prepare；有队列时 prepare
+                // 当前项（不能 setMediaItem，否则把队列压成单曲），无队列时才用 lastItem 重下。
+                if (c.getPlaybackState() == Player.STATE_IDLE) {
+                    if (c.getMediaItemCount() > 0) {
+                        c.prepare();
+                    } else if (lastItem != null) {
+                        c.setMediaItem(lastItem);
+                        c.prepare();
+                    }
+                }
                 c.play();
             }
             notifyState();
@@ -393,12 +416,19 @@ public final class AudioPlaybackManager {
         }
         if (items.isEmpty()) return;
         lastError = null;
+        httpRetries = 0;
+        liveRecoveries = 0;
+        lastLoop = false;
+        lastSpeed = 1.0f;
         int index = Math.max(0, Math.min(startIndex, items.size() - 1));
         lastItem = items.get(index);   // 自愈重连要用本地这份（见 recoverBehindLiveWindow）
-        lastQueue = items;
+        // 队列起播不能继承上一首单曲的倍速/循环；统一从默认档开始。
+        c.setRepeatMode(Player.REPEAT_MODE_OFF);
+        c.setPlaybackSpeed(1.0f);
         c.setMediaItems(items, index, 0);
         c.prepare();
         c.play();
+        syncLastItem(c);
         ensureStallWatchdog();
         notifyState();
     }
@@ -435,12 +465,65 @@ public final class AudioPlaybackManager {
         }
     }
 
-    /** 切上下首后把 lastItem 换成队列里的当前那首（否则直播自愈会重连回上一首） */
-    private void syncLastItem(MediaController c) {
-        if (lastQueue == null || lastQueue.isEmpty()) return;
+    /** 当前曲目倍速；范围 0.5x～2.0x。控制器未连时先记下来，连上后起播用。 */
+    public void setSpeed(float speed) {
+        float v = Math.max(0.5f, Math.min(2.0f, speed));
+        MediaController c = controller;
+        if (c == null) {
+            pendingSpeed = v;
+            return;
+        }
         try {
-            int i = c.getCurrentMediaItemIndex();
-            if (i >= 0 && i < lastQueue.size()) lastItem = lastQueue.get(i);
+            c.setPlaybackSpeed(v);
+            lastSpeed = v;
+            notifyState();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 单曲循环开关（队列循环/随机在 P1 再扩，不复用这一个字段）。 */
+    public void toggleLoop() {
+        MediaController c = controller;
+        if (c == null) return;
+        try {
+            boolean loop = c.getRepeatMode() != Player.REPEAT_MODE_ONE;
+            c.setRepeatMode(loop ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
+            lastLoop = loop;
+            notifyState();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 下一档倍速（0.5/0.75/1/1.25/1.5/2），UI 与测试共用。 */
+    public static float nextSpeed(float current) {
+        float[] speeds = {0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f};
+        for (int i = 0; i < speeds.length; i++) {
+            if (current < speeds[i] - 0.001f) return speeds[i];
+        }
+        return speeds[0];
+    }
+
+    /** 切上下首/队列自动前进后，把 last* 同步到当前那首（否则 HLS 重试/直播自愈会重连回上一首） */
+    private void syncLastItem(MediaController c) {
+        if (c == null) return;
+        try {
+            MediaItem item = c.getCurrentMediaItem();
+            if (item == null) return;
+            lastItem = item;
+            if (item.mediaId != null && !item.mediaId.isEmpty()) {
+                lastOriginalUri = item.mediaId;
+            }
+            if (item.mediaMetadata != null) {
+                if (item.mediaMetadata.title != null) {
+                    lastTitle = item.mediaMetadata.title.toString();
+                }
+                if (item.mediaMetadata.artist != null) {
+                    lastArtist = item.mediaMetadata.artist.toString();
+                }
+            }
+            lastLoop = c.getRepeatMode() == Player.REPEAT_MODE_ONE;
+            lastSpeed = c.getPlaybackParameters().speed;
+            httpRetries = 0;
         } catch (Throwable ignored) {
         }
     }
@@ -449,7 +532,8 @@ public final class AudioPlaybackManager {
     public State snapshot() {
         MediaController c = controller;
         if (c == null) {
-            return new State("", "", "", 0, 0, false, false, false, lastError);
+            return new State("", "", "", 0, 0, false, false, false,
+                    false, false, 1.0f, false, 0, 0, lastError);
         }
         MediaItem item = c.getCurrentMediaItem();
         String id = item != null && item.mediaId != null ? item.mediaId : "";
@@ -467,12 +551,25 @@ public final class AudioPlaybackManager {
         } catch (Throwable ignored) {
         }
         int st = Player.STATE_IDLE;
+        boolean playWhenReady = false;
+        boolean live = false;
+        float speed = 1.0f;
+        boolean loop = false;
+        int queueIndex = 0;
+        int queueSize = 0;
         try {
             st = c.getPlaybackState();
+            playWhenReady = c.getPlayWhenReady();
+            live = c.isCurrentMediaItemLive();
+            speed = c.getPlaybackParameters().speed;
+            loop = c.getRepeatMode() == Player.REPEAT_MODE_ONE;
+            queueIndex = c.getCurrentMediaItemIndex();
+            queueSize = c.getMediaItemCount();
         } catch (Throwable ignored) {
         }
         return new State(id, title, artist, pos, dur,
-                c.isPlaying(), st == Player.STATE_BUFFERING, st == Player.STATE_ENDED, lastError);
+                c.isPlaying(), st == Player.STATE_BUFFERING, st == Player.STATE_ENDED,
+                playWhenReady, live, speed, loop, queueIndex, queueSize, lastError);
     }
 
     // ==================== 服务连接 ====================
@@ -759,6 +856,13 @@ public final class AudioPlaybackManager {
     private final Player.Listener playerListener = new Player.Listener() {
         @Override
         public void onEvents(Player player, Player.Events events) {
+            notifyState();
+        }
+
+        @Override
+        public void onMediaItemTransition(MediaItem mediaItem, int reason) {
+            // 队列自动前进/通知栏切歌：恢复状态跟着当前项走，避免 HLS 重试拿旧 URI
+            syncLastItem(controller);
             notifyState();
         }
 

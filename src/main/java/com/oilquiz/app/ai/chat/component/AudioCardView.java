@@ -6,6 +6,7 @@ import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
@@ -157,6 +158,24 @@ public class AudioCardView implements ChatComponent {
         btnPlay.setClickable(true);
         controls.addView(btnPlay);
 
+        final TextView btnPrev = new TextView(context);
+        btnPrev.setText("上一首");
+        btnPrev.setTextSize(10);
+        btnPrev.setTextColor(ComponentColors.textSecondary(context));
+        btnPrev.setPadding(0, 0, dp(context, 8), 0);
+        btnPrev.setClickable(true);
+        btnPrev.setEnabled(false);
+        controls.addView(btnPrev);
+
+        final TextView btnNext = new TextView(context);
+        btnNext.setText("下一首");
+        btnNext.setTextSize(10);
+        btnNext.setTextColor(ComponentColors.textSecondary(context));
+        btnNext.setPadding(0, 0, dp(context, 8), 0);
+        btnNext.setClickable(true);
+        btnNext.setEnabled(false);
+        controls.addView(btnNext);
+
         final SeekBar seekBar = new SeekBar(context);
         LinearLayout.LayoutParams sbLp = new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -175,6 +194,46 @@ public class AudioCardView implements ChatComponent {
 
         card.addView(controls);
 
+        // 工具行：倍速 / 单曲循环 / 队列位置 / 缓冲态。只在"本卡是当前曲目"时可点，
+        // 避免在 A 卡上点倍速却改了正在播的 B 曲。
+        LinearLayout tools = new LinearLayout(context);
+        tools.setOrientation(LinearLayout.HORIZONTAL);
+        tools.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        tools.setPadding(0, dp(context, 6), 0, 0);
+
+        final TextView speedTv = new TextView(context);
+        speedTv.setText(formatSpeed(speed));
+        speedTv.setTextSize(10);
+        speedTv.setTextColor(ComponentColors.textSecondary(context));
+        speedTv.setPadding(0, 0, dp(context, 14), 0);
+        speedTv.setClickable(true);
+        speedTv.setEnabled(false);
+        tools.addView(speedTv);
+
+        final TextView loopTv = new TextView(context);
+        loopTv.setText(loop ? "单曲循环" : "循环关");
+        loopTv.setTextSize(10);
+        loopTv.setTextColor(ComponentColors.textSecondary(context));
+        loopTv.setPadding(0, 0, dp(context, 14), 0);
+        loopTv.setClickable(true);
+        loopTv.setEnabled(false);
+        tools.addView(loopTv);
+
+        final TextView queueTv = new TextView(context);
+        queueTv.setTextSize(10);
+        queueTv.setTextColor(ComponentColors.textTertiary(context));
+        queueTv.setPadding(0, 0, dp(context, 10), 0);
+        tools.addView(queueTv);
+
+        final ProgressBar bufferBar = new ProgressBar(context, null,
+                android.R.attr.progressBarStyleSmall);
+        int bufSize = dp(context, 16);
+        bufferBar.setLayoutParams(new LinearLayout.LayoutParams(bufSize, bufSize));
+        bufferBar.setVisibility(View.GONE);
+        tools.addView(bufferBar);
+
+        card.addView(tools);
+
         // ==================== 单例播放器的界面壳 ====================
         // 这张卡片只是"遥控器"：播放/暂停/跳转都发给 AudioPlaybackManager，进度由它
         // 在主线程按 ticker 推回来；detach 只注销监听，播放器仍活在 AudioPlaybackService 里。
@@ -185,6 +244,8 @@ public class AudioCardView implements ChatComponent {
         final boolean[] isCurrent = {false};
         final long[] currentDuration = {0};
         final int[] lastProgress = {-1};
+        final float[] speedNow = {speed};
+        final boolean[] loopNow = {loop};
 
         final AudioPlaybackManager.Listener listener = state -> {
             boolean current = state.isTrack(trackUri);
@@ -195,9 +256,29 @@ public class AudioCardView implements ChatComponent {
             currentDuration[0] = state.durationMs;
             boolean known = current && state.durationMs > 0;
 
+            boolean playingUi = current && (state.playing || state.playWhenReady);
             btnPlay.setText(serviceDown || (state.error != null && current) ? "⚠"
-                    : (current && state.playing ? "⏸" : "▶"));
+                    : (playingUi ? "⏸" : "▶"));
             seekBar.setEnabled(known);
+            speedTv.setEnabled(current);
+            loopTv.setEnabled(current);
+            btnPrev.setEnabled(current && state.queueSize > 1 && state.queueIndex > 0);
+            btnNext.setEnabled(current && state.queueSize > 1
+                    && state.queueIndex + 1 < state.queueSize);
+            bufferBar.setVisibility(current && state.buffering ? View.VISIBLE : View.GONE);
+
+            if (current) {
+                speedNow[0] = state.speed;
+                loopNow[0] = state.loop;
+                speedTv.setText(formatSpeed(state.speed));
+                loopTv.setText(state.loop ? "单曲循环" : "循环关");
+                queueTv.setText(state.queueSize > 1
+                        ? (state.queueIndex + 1) + "/" + state.queueSize : "");
+            } else {
+                speedTv.setText(formatSpeed(speed));
+                loopTv.setText(loop ? "单曲循环" : "循环关");
+                queueTv.setText("");
+            }
 
             if (!current) {
                 // 别的曲目在放：这张卡回到待播状态（时长未知显示 --:--）
@@ -220,6 +301,14 @@ public class AudioCardView implements ChatComponent {
 
         btnPlay.setOnClickListener(v ->
                 mgr.playOrToggle(trackUri, title, artist, loop, speed));
+        btnPrev.setOnClickListener(v -> mgr.skipToPrevious());
+        btnNext.setOnClickListener(v -> mgr.skipToNext());
+        speedTv.setOnClickListener(v -> {
+            if (isCurrent[0]) mgr.setSpeed(AudioPlaybackManager.nextSpeed(speedNow[0]));
+        });
+        loopTv.setOnClickListener(v -> {
+            if (isCurrent[0]) mgr.toggleLoop();
+        });
 
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
@@ -271,6 +360,14 @@ public class AudioCardView implements ChatComponent {
         if (ms < 0) ms = 0;
         long totalSec = ms / 1000;
         return String.format(java.util.Locale.US, "%02d:%02d", totalSec / 60, totalSec % 60);
+    }
+
+    /** 倍速文案：1x / 0.75x / 1.25x / 2x（去掉多余尾零）。 */
+    static String formatSpeed(float speed) {
+        String s = String.format(java.util.Locale.US, "%.2f", speed);
+        while (s.endsWith("0")) s = s.substring(0, s.length() - 1);
+        if (s.endsWith(".")) s = s.substring(0, s.length() - 1);
+        return s + "x";
     }
 
     /**

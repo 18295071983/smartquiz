@@ -2,6 +2,8 @@ package com.oilquiz.app.ai.chat.component;
 
 import static org.junit.Assert.assertEquals;
 
+import com.oilquiz.app.ai.chat.media.AudioPlaybackManager;
+
 import org.junit.Test;
 
 /**
@@ -40,5 +42,21 @@ public class AudioCardViewProgressTest {
         assertEquals("00:00 / --:--", AudioCardView.formatProgressText(0, -1));
         assertEquals("00:00 / --:--", AudioCardView.formatProgressText(0, 0));
         assertEquals("10:00 / 10:00", AudioCardView.formatProgressText(600_000, 600_000));
+    }
+
+    @Test
+    public void speedCyclesAndFormats() {
+        assertEquals("1x", AudioCardView.formatSpeed(1.0f));
+        assertEquals("0.5x", AudioCardView.formatSpeed(0.5f));
+        assertEquals("0.75x", AudioCardView.formatSpeed(0.75f));
+        assertEquals("1.25x", AudioCardView.formatSpeed(1.25f));
+        assertEquals("2x", AudioCardView.formatSpeed(2.0f));
+
+        assertEquals(0.75f, AudioPlaybackManager.nextSpeed(0.5f), 0.001f);
+        assertEquals(1.0f, AudioPlaybackManager.nextSpeed(0.75f), 0.001f);
+        assertEquals(1.25f, AudioPlaybackManager.nextSpeed(1.0f), 0.001f);
+        assertEquals(2.0f, AudioPlaybackManager.nextSpeed(1.5f), 0.001f);
+        assertEquals("2x 之后回到 0.5x", 0.5f,
+                AudioPlaybackManager.nextSpeed(2.0f), 0.001f);
     }
 }
