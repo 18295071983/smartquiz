@@ -35,7 +35,10 @@ import org.json.JSONObject;
  * <pre>
  * {
  *   "columns": 3,                                   // 可选，默认 3
- *   "images": ["https://.../a.jpg", "content://...", {"url":"..."}]
+ *   "images": ["https://.../a.jpg", "content://...",
+ *              "file:///storage/emulated/0/DCIM/Screenshots/a.jpg",
+ *              "/storage/emulated/0/DCIM/Screenshots/b.jpg", {"url":"..."}]
+ *   // 本地项必须是完整 file:// 或绝对路径；不要只传文件名，也不要猜目录
  * }
  * </pre>
  */
@@ -274,6 +277,13 @@ public class ImageGridCardView implements ChatComponent {
         return MediaPathResolver.resolve(context, url);
     }
 
+    /** 仅 file:// 与绝对路径：用于把"文件不存在"和网络加载失败区分开。 */
+    private static boolean isLocalFilePath(String url) {
+        if (url == null) return false;
+        String u = url.trim();
+        return u.startsWith("file://") || u.startsWith("/");
+    }
+
     /** 失败提示层：点击重新加载 */
     private void showFailedLayer(FrameLayout root, ImageView iv, String url, boolean single) {
         // 移除旧的失败层
@@ -282,7 +292,14 @@ public class ImageGridCardView implements ChatComponent {
             if (child instanceof TextView) root.removeViewAt(i);
         }
         TextView failed = new TextView(root.getContext());
-        failed.setText("⚠ 图片加载失败\n点击重试");
+        String message = "⚠ 图片加载失败\n点击重试";
+        if (isLocalFilePath(url)
+                && MediaPathResolver.resolveToFile(root.getContext(), url) == null) {
+            String name = MediaPathResolver.bareName(url);
+            message = "⚠ 图片文件不存在\n" + name + "\n点击重试";
+            android.util.Log.w("ImageGridCardView", "local image missing: " + url);
+        }
+        failed.setText(message);
         failed.setTextSize(11);
         failed.setTextColor(ComponentColors.textTertiary(root.getContext()));
         failed.setGravity(Gravity.CENTER);

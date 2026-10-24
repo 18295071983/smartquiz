@@ -281,7 +281,8 @@ c"})
         #   create_component("code_card", props={"language":"python","code":"print('hi')","title":"代码"})
         #   create_component("file_card", props={"name":"文件.txt","size":"1KB","path":"/sdcard/..."})
         #   create_component("file_list", props={"title":"目录","files":[{"name":"a.txt","size":"1KB","path":"/sdcard/a.txt"}]})
-        #   create_component("image_grid", props={"images":["url1","url2"],"columns":2})
+        #   create_component("image_grid", props={"images":["file:///storage/emulated/0/DCIM/Screenshots/a.jpg","https://.../b.jpg"],"columns":2})
+        #   # 本地图片必须给完整 file:// 或绝对路径；不要只传文件名、不要猜目录（工具返回裸文件名时先用 find/ls 确认真实目录）
         #   create_component("web", url="https://...")   # 网页卡片(等价html, 传url或html)
         #   create_component("image", default_value="/sdcard/photo.jpg")  # 图片卡片(等价image_grid, 单图)
         #   create_component("custom_panel", props={...任意自定义字段...})  # 未注册类型自动通用卡片兜底

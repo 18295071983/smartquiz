@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
 import android.content.Context;
+import android.os.Environment;
 import android.util.Log;
 
 import java.io.File;
@@ -76,6 +77,10 @@ public final class MediaPathResolver {
         try {
             File direct = new File(p);
             if (direct.isAbsolute() && direct.exists()) return direct;
+            // 2026-10-25 窄兜底：Agent 曾把 DCIM/Screenshots 的裸文件名猜成
+            // Pictures/Screenshots；该目录不存在时按同名文件去 DCIM/Screenshots 找。
+            File screenshot = screenshotFallback(p);
+            if (screenshot != null) return screenshot;
             if (context != null) {
                 File r = com.oilquiz.app.ai.agent.online.AgentWorkspace
                         .getInstance(context).resolveExistingFile(p);
@@ -85,6 +90,30 @@ public final class MediaPathResolver {
             Log.w(TAG, "路径解析失败(" + raw + "): " + t.getMessage());
         }
         return null;
+    }
+
+    /**
+     * 仅修复一类历史脏数据：{@code .../Pictures/Screenshots/<name>} 不存在时，
+     * 去 {@code <external>/DCIM/Screenshots/<name>} 找同名文件。
+     *
+     * <p>不做通用"按文件名全盘搜索"；只在截图目录这一对已知路径间兜底，
+     * 避免把路径错误掩盖成随机命中。</p>
+     */
+    static File screenshotFallback(String raw) {
+        File dcim = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM);
+        return screenshotFallback(dcim, raw);
+    }
+
+    static File screenshotFallback(File dcimRoot, String raw) {
+        if (dcimRoot == null || raw == null) return null;
+        String path = raw.trim().replace('\\', '/');
+        String marker = "/Pictures/Screenshots/";
+        int idx = path.indexOf(marker);
+        if (idx < 0) return null;
+        String name = path.substring(idx + marker.length());
+        if (name.isEmpty() || name.contains("/") || name.contains("..")) return null;
+        File candidate = new File(new File(dcimRoot, "Screenshots"), name);
+        return candidate.isFile() ? candidate : null;
     }
 
     /** 是否远程/媒体库地址（调用方据此决定走 Glide/系统还是本地解码） */

@@ -265,7 +265,9 @@ public final class ComponentTypes {
         SCHEMA.put("json", new String[]{CATEGORY_DATA, "数据 data(对象/数组，或字符串形态的 JSON 也会美化)",
                 "标题 title, 展示 display=inline|peek|hidden",
                 "旧字段 collapsed=true 等效 peek；交互/正文类仍强制 inline"});
-        SCHEMA.put("image", new String[]{CATEGORY_MEDIA, "图片 images[]", "标题 title", "columns"});
+        SCHEMA.put("image", new String[]{CATEGORY_MEDIA,
+                "图片 images[]（每项完整 http(s)、content://、file:// 或绝对路径；不要只给文件名/猜目录）",
+                "标题 title", "columns"});
         SCHEMA.put("video", new String[]{CATEGORY_MEDIA, "地址 url", "标题 title", "封面 poster"});
         SCHEMA.put("audio", new String[]{CATEGORY_MEDIA, "地址 url", "标题 title", "时长 duration"});
         SCHEMA.put("file", new String[]{CATEGORY_MEDIA, "文件名 name", "路径 path 或 uri", "大小 size, 类型 type"});
