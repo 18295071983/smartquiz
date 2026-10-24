@@ -795,6 +795,8 @@ public class AgentWorkspace {
                 + "   progress_card / html / markdown_card；web=网页卡片, image=图片卡片\n"
                 + "   html 按来源分档：内联串剥掉 script/onclick(页内按钮无效，要点击就给卡片加 actions)；\n"
                 + "   url=file:///…/report.html(工作区内本地网页)才可跑页面脚本；工作区 .html/.htm 产物会自动挂网页卡\n"
+                + "   本地网页卡页内回传：create 时带 actions(才有 component_id)，页面 JS 调 Android.submit(payload)"
+                + "(不透明串≤16KB) → get_result 取回；出厂已启用(应用侧可关，关掉时静默无效、只等到 pending，就退回按钮 actions)\n"
                 + "   卡片可加 actions=[{\"label\":\"文字\",\"value\":\"回传值\",\"action\":\"callback\"}] 收集点击\n\n"
                 + "四、动态插件（ui_component_plugin）\n"
                 + "----------------------------------------------------------------\n"

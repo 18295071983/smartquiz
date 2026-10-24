@@ -111,16 +111,21 @@ public class HtmlBridgeSubmitTest {
         assertFalse(HtmlSandbox.allowsBridge(HtmlSandbox.Trust.REMOTE_PAGE));
     }
 
-    /** 开关默认 false：现网行为逐字节同今天（submit 不接地址）。 */
+    /**
+     * 开关出厂默认是<b>开</b>（2026-10-24 真机端到端验通后翻的；建的时候默认 false 是为了
+     * "JS↔native 只能真机验"这段试验期）。翻默认的同时要把"能关掉"钉住——
+     * 这是能力增量，出问题时把这条 pref 置 false 就是逐字节的旧行为。
+     */
     @Test
-    public void submitFlagDefaultsToOff() {
-        assertFalse("默认必须关", HtmlSubmitFlag.enabled(ctx));
-        assertFalse(HtmlSubmitFlag.enabled(null));
+    public void submitFlagDefaultsOnAndStillSwitchable() {
+        assertTrue("出厂默认必须是开", HtmlSubmitFlag.enabled(ctx));
+        // 读不到偏好（Context 为空）也按默认档，不留两种相反的兜底
+        assertTrue(HtmlSubmitFlag.enabled(null));
 
+        HtmlSubmitFlag.setEnabled(ctx, false);
+        assertFalse("关掉即回到 submit 静默 no-op 的旧行为", HtmlSubmitFlag.enabled(ctx));
         HtmlSubmitFlag.setEnabled(ctx, true);
         assertTrue(HtmlSubmitFlag.enabled(ctx));
-        HtmlSubmitFlag.setEnabled(ctx, false);
-        assertFalse(HtmlSubmitFlag.enabled(ctx));
     }
 
     /** 开关开着时，地址从 actions[].component_id 取（与非交互卡区分的依据）。 */

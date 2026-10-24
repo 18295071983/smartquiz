@@ -1,11 +1,18 @@
 # 设计：让本地 HTML 卡把用户操作回传 Agent（js 桥 submit）
 
-状态：**第 1、2 步已落地（开关默认 false）；第 3 步（模型可见文案）主动推迟**。日期 2026-10-21。分支 `feat/chat-parts-renderer`。
-落地记录：`99e77714` 抽 `ComponentActions.resolveComponentId`（纯重构）；`349e3b85` `HtmlJsBridge.submit` + `HtmlSubmitFlag`（默认 false）+ `HtmlBridgeSubmitTest` 8 项。
+状态：**三步全部落地，出厂默认已翻成 true**。日期 2026-10-21 立项，2026-10-24 收尾。分支 `feat/chat-parts-renderer`。
+落地记录：`99e77714` 抽 `ComponentActions.resolveComponentId`（纯重构）；`349e3b85` `HtmlJsBridge.submit` + `HtmlSubmitFlag`（当时默认 false）+ `HtmlBridgeSubmitTest` 8 项。
 决策落定（用户"你开始把"，按文档推荐取值）：id 来源＝方案 A（只带 `actions` 的卡可回传，不改生产者）；payload 上限 16 KB；prefs 开关默认 false。
-**§7 第 4 条偏离原推荐**：文案**暂不写**。理由是 `@Param(props)` 的工具说明是静态文本，没法跟着开关状态变；而开关现在默认 false、`submit` 静默 no-op，
-此时告诉模型"页面内可用 `Android.submit` 回传"就是在提示词里画一条死路（模型以为能 `get_result`，实际永远拿不到）——与"别教没有通路的能力"同一条规矩。
-等真机验收通过、`html_component_submit` 翻成默认 true 之后再补这段文案（写进 `ComponentTypes.SCHEMA` 的 html 行 + `SystemUIComponentTool` props 说明）。
+**§7 第 4 条的偏离已于 2026-10-24 晚按本文档自己的顺序解除**：真机 prefs 里 `html_component_submit=true` 端到端验通后，
+①把出厂默认从 false 翻成 true（`HtmlSubmitFlag.DEFAULT_ENABLED` 抽出，Context 为空/读失败同口径按默认档），
+②同时把用法写进模型可见文案——收在 `ComponentTypes.PROPS_DOC_HTML` 一份（三处 props 长说明同源）
++ `ComponentTypes.SCHEMA` 的 html note + 工作区速查表 + `android_ui.py`。
+写法上把**生效条件与失效形态一起教**："只有工作区本地网页文件（`LOCAL_FILE` 才有桥）+ 卡带 `actions`
+（否则没有可寻址 `component_id`）"，以及"开关被关掉时 `submit` 静默无效、`get_result` 只等到 pending，
+那就退回 footer actions"——这样即使哪天回滚默认，提示词里也不是死路。
+守卫：`HtmlBridgeSubmitTest` 钉"默认必须是开 + 仍能关回去/只 `LOCAL_FILE` 挂桥/id 由 native 绑定/超限拒收"；
+两份可见性守卫（`ToolSchemaVisibilityTest`、`ComponentPropsSchemaVisibilityTest`）用 `Android.submit`、`16KB`
+关键词钉住四通道同源。回滚：`html_component_submit` 置 false 即逐字节回到旧行为（其余四个低危桥方法不受影响）。
 
 关联：`component-system-review.md §7`（可操作三档清单）、`parts-architecture-upgrade.md`（内置组件靠 `ComponentRegistry` 自包含）。
 安全前提：记忆 `webview-jsbridge-security`——桥只挂低危方法、不暴露 execTool/queryDb；本方案不改这条。

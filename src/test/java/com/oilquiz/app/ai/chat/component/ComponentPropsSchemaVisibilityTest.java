@@ -33,7 +33,9 @@ public class ComponentPropsSchemaVisibilityTest {
                 "fill|short",                                 // 题库卡新题型
                 "area|stacked_bar|pie|scatter|radar",         // 图表扩型
                 "script/onclick",                             // html 按来源分档（2026-10-24）
-                ".html/.htm"                                  // 工作区网页产物自动出卡
+                ".html/.htm",                                 // 工作区网页产物自动出卡
+                "Android.submit",                             // 本地网页页内回传（2026-10-24）
+                "16KB"                                        // submit payload 上限
         };
         for (String kw : keywords) {
             assertTrue("参数表缺: " + kw, viaMap.contains(kw));

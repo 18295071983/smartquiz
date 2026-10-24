@@ -227,7 +227,11 @@ def create_component(component_type, title="", message="", component_id=None,
         r = get_component_result(cid, wait_seconds=60)
         if r["result"] != "cancelled": fmt = r["result"]
 
-        # 内置 UI 组件（项目自带组件库，create_component("类型", props={...}) 渲染成聊天流卡片）:
+        # 内置 UI 组件（项目自带组件库，create_component("类型", props={...}) 用同一套原生卡片渲染，
+        #   但展示面是**前台 Activity 上的弹窗**：不是聊天流卡片，关掉弹窗就不留档；
+        #   没有前台 Activity 时整个组件降级成 Toast（PythonToolManager.createComponent 的口径）。
+        #   要让卡片挂进 AI 消息气泡请用 ui_component 工具(action=create)，那条路径才进聊天流；
+        #   工具产物（.html/.png/.xlsx 等）也会被 UI 桥接层自动补挂对应卡片，不必手动建）:
         #   通用: info_card / table_card / list_card / alert_card / metric_card / json_viewer /
         #         steps_card / code_card / link_card / image_grid / file_card / file_list /
         #         contact_card / todo_card / progress_card / weather_card / quiz_card / quote /
@@ -254,6 +258,10 @@ def create_component(component_type, title="", message="", component_id=None,
         #   # html 的能力按来源分档、不由 props 决定：内联 html 串会剥掉 script/onclick(页内按钮点了没反应，
         #   #   要收集点击请给卡片加 actions)；传 url="file:///…/report.html"(工作区内本地网页)才能跑页面脚本
         #   #   (图表能画、目录内可导航)；Agent 产在工作区里的 .html/.htm 会被自动挂成网页卡，不必手动建
+        #   # 本地网页的页内回传：props 带 actions 时才有 component_id，页面 JS 可调
+        #   #   Android.submit(payload)  # payload=不透明字符串,≤16KB,纯值或 {"action":..,"inputs":{..}}
+        #   # 之后 get_component_result(cid) 就拿到该值；页内回传出厂已启用(2026-10-24)，
+        #   #   被应用侧 html_component_submit 关掉时 submit 静默无效(等到 pending 就退回 actions 按钮，别当成链路坏了反复重试)
         #   create_component("todo_card", props={"title":"待办","items":[{"text":"完成报告","done":true},{"text":"回复邮件","done":false}]})
         #   create_component("quiz_card", props={"type":"single","question":"1+1=?","options":["A. 1","B. 2"],"answer":"B","analysis":"2"})
         #   create_component("weather_card", props={"city":"北京","temp":"26℃","text":"多云","icon":"⛅"})

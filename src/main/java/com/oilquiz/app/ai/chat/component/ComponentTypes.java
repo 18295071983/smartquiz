@@ -72,18 +72,31 @@ public final class ComponentTypes {
      * "图片点击全屏预览 / 卡片内链接自身加载"，可这两项只在
      * {@code LOCAL_FILE}（工作区本地网页）与 {@code REMOTE_PAGE} 成立：模型直给的 HTML 字符串
      * 走 {@code INLINE_UNTRUSTED}——JS 关、{@code on*}/script 被净化剥掉、卡片内不导航，
-     * 页内按钮必然点不动（真机口径见 {@link HtmlSandbox}）。文案照实现写，模型才不会给用户画死路。
-     * 页面内向 Agent 回传（{@code Android.submit}）在 {@code html_component_submit} 翻默认前
-     * 不写进这里——教一条走不通的通路比不教更糟。</p>
+     * 页内按钮必然点不动（真机口径见 {@link HtmlSandbox}）。文案照实现写，模型才不会给用户画死路。</p>
+     *
+     * <p>页内回传（{@code Android.submit}）的用法 2026-10-24 写进来，同日把
+     * {@code html_component_submit} 的出厂默认从 false 翻成 true（真机端到端验通：页面按钮 →
+     * 本卡结果槽 → {@code get_result}）。它今天仍只对这几个条件成立：档位是 {@code LOCAL_FILE}、
+     * 卡片创建时带 {@code actions}（否则没有可寻址的 component_id）、开关没被关掉。
+     * 所以文案把"被关掉时静默无效、只会等到 pending"一起写清——模型拿到空结果时知道退回 actions，
+     * 而不是以为链路坏了反复重试。</p>
      */
     public static final String PROPS_DOC_HTML =
             "html:{html:'<h3>标题</h3>…'(内联串) 或 url:'file:///…/report.html'(工作区内本地网页)"
                     + " 或 'https://…'(远程页), title, maxHeight(默认360dp,超出内部滚动),"
                     + " style(内容级:{background,color,fontSize})}"
                     + "（能力按来源分档、不由 props 决定：内联 HTML 会剥掉 script/onclick/表单、"
-                    + "卡片内不导航(外链交回应用浏览器)，页内按钮点了没反应——要用户操作请给卡片加 actions；"
+                    + "卡片内不导航(外链交回应用浏览器)，页内按钮点了没反应；"
                     + "工作区 .html 文件与 https 页可跑页面脚本(图表能画)、可卡内导航；"
-                    + "Agent 产在工作区里的 .html/.htm 会被自动挂成 html 卡，不用手动建）";
+                    + "Agent 产在工作区里的 .html/.htm 会被自动挂成 html 卡，不用手动建。"
+                    + "收集用户操作两条路：①任何卡都行——create 时带 actions:[{label,value,action:'callback'}]，"
+                    + "按钮回传写死的 value；②只有工作区本地网页文件、且卡带 actions——页面 JS 调"
+                    + "Android.submit(payload) 把运行时值(选中项/表单值/图表 drill-down)送进**本卡**结果槽，"
+                    + "payload 当不透明字符串、上限 16KB、形状用纯值或 {\"action\":..,\"inputs\":{..}}，"
+                    + "随后 ui_component(action=get_result, component_id=…) 取回；"
+                    + "component_id 由 native 绑定、页面 JS 改不了，值来自页面内容需自行校验；"
+                    + "页内回传出厂已启用(应用侧可关；被关掉时 submit 静默无效、get_result 只等到 pending，"
+                    + "那就退回 actions)）";
 
     /**
      * playlist / agenda / location / diff 四张卡的 props 形状（三处 props 长说明共用）。
@@ -211,8 +224,9 @@ public final class ComponentTypes {
         SCHEMA.put("markdown", new String[]{CATEGORY_CONTENT, "正文 content", "标题 title", ""});
         SCHEMA.put("code", new String[]{CATEGORY_CONTENT, "代码 code", "语言 language", "标题 title"});
         SCHEMA.put("html", new String[]{CATEGORY_CONTENT, "html 或 url", "标题 title",
-                "maxHeight(dp)；脚本/回传按来源分档——内联串禁脚本、页内按钮无效，"
-                        + "工作区 .html 文件可跑脚本（见 PROPS_DOC_HTML）"});
+                "maxHeight(dp)；脚本/回传按来源分档——内联串禁脚本、页内按钮无效；"
+                        + "工作区 .html 文件可跑脚本，页内可用 Android.submit(payload) 回传"
+                        + "（需卡带 actions，见 PROPS_DOC_HTML）"});
         // table 两个都是必填：TableCardView.canRender 同时要求 headers 与 rows 数组存在，
         // rows 此前被放进"可选"，模型只给 headers 就会掉原始 JSON 兜底。
         SCHEMA.put("table", new String[]{CATEGORY_DATA, "表头 headers[], 数据 rows[[]]",

@@ -1,5 +1,6 @@
 package com.oilquiz.app.ai.tool;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
@@ -43,6 +44,9 @@ public class ToolSchemaVisibilityTest {
         // 此前三份抄本都在售卖"图片全屏预览/卡内导航"，而模型直给的内联串根本拿不到这些能力
         assertTrue("在线 schema 没教 html 分档（内联串剥脚本）", schema.contains("script/onclick"));
         assertTrue("在线 schema 没教 .html 产物自动出卡", schema.contains(".html/.htm"));
+        // 页内回传的用法（2026-10-24 第 3 步）：不教就等于让模型继续只会 footer 按钮
+        assertTrue("在线 schema 没教 Android.submit", schema.contains("Android.submit"));
+        assertTrue("在线 schema 没教 submit 的 payload 上限", schema.contains("16KB"));
         // component_type 那段此前另写了一份"图片点击全屏预览"，没提这能力只有本地网页/远程页才有
         assertTrue("在线 schema 还在无档位地售卖图片预览", !schema.contains("图片点击全屏预览"));
     }
@@ -54,6 +58,31 @@ public class ToolSchemaVisibilityTest {
         assertTrue("在线 schema 没教 card 形态", schema.contains("card"));
         assertTrue("在线 schema 没教 chartType 覆盖", schema.contains("chartType"));
         assertTrue("在线 schema 没列原生图型", schema.contains("stacked_bar"));
+    }
+
+    /**
+     * python 侧 {@code create_component} 的展示面（2026-10-24 订正）。
+     *
+     * <p>实现事实：{@code android_ui.set_ui_callback} 由 {@code PythonToolManager} 注入，
+     * 内置组件走 {@code createComponent} → {@code registry.render(fAct, data)} 装进
+     * <b>AlertDialog</b>，无前台 Activity 时降级 Toast；整条路径一次都没调
+     * {@code ComponentCollector}，所以脚本建的卡片<b>不进聊天流、也不留档</b>。
+     * 而三份 python_execute 描述（注解 / 构造 / 在线硬编码定义）与 android_ui 注释此前都写
+     * "渲染成聊天流卡片"——模型照这个预期写脚本，产物就只是弹一下的对话框。</p>
+     */
+    @Test
+    public void pythonCreateComponentTeachesDialogSurfaceNotChatStream() throws Exception {
+        assertDialogSurface(dump(AIToolManager.getInstance(context)
+                .getToolDefinition("python_execute")), "在线定义");
+        assertDialogSurface(read(
+                "src/main/java/com/oilquiz/app/ai/python/PythonExecuteTool.java"), "注解+构造两份抄本");
+        assertDialogSurface(read("src/main/python/android_ui.py"), "android_ui 组件说明");
+    }
+
+    private static void assertDialogSurface(String doc, String channel) {
+        assertTrue(channel + " 没说清是弹窗", doc.contains("弹窗"));
+        assertFalse(channel + " 仍在教 python 侧出聊天流卡片", doc.contains("渲染成聊天流卡片"));
+        assertTrue(channel + " 没指引改用 ui_component", doc.contains("ui_component"));
     }
 
     /**
@@ -77,8 +106,9 @@ public class ToolSchemaVisibilityTest {
             for (String kw : new String[]{"stacked_bar", "scatter", "radar", "area"}) {
                 assertTrue("模型可见文档缺图型 " + kw, doc.contains(kw));
             }
-            for (String kw : new String[]{"script/onclick", ".html/.htm"}) {
-                assertTrue("模型可见文档缺 html 分档口径 " + kw, doc.contains(kw));
+            for (String kw : new String[]{"script/onclick", ".html/.htm",
+                    "Android.submit", "16KB"}) {
+                assertTrue("模型可见文档缺 html 分档/回传口径 " + kw, doc.contains(kw));
             }
         }
         // 已删除的实现不许再被教给模型（有 alias 兜底渲染，但目录/示例不该售卖）
