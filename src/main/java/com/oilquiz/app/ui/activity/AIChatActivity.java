@@ -9405,15 +9405,23 @@ public class AIChatActivity extends BaseActivity {
                     // 思考 token 数（reasoning_tokens）
                     int reasoningTokens = agentChatHandler.getLastReasoningTokens();
                     if (reasoningTokens > 0) {
-                        text += " · 思考" + reasoningTokens + "t";
+                        // 2026-10-25：状态胶囊加回来后这一串太长——第一行只放输入/输出/命中率，
+                        // "思考 + 上下文"另起第二行，避免自然折行把 "思考 15t" 拆到两行。
+                        text += "\n思考" + reasoningTokens + "t";
                     }
                     // 追加上下文用量（窗口/已用/剩余）——来自模型 API 上下文大小推断 + 最近请求输入
                     try {
                         int[] ctx = agentChatHandler.getContextWindowInfo();
                         if (ctx != null && ctx.length == 3 && ctx[0] > 0) {
-                            text += String.format(getString(R.string.h_d7a0f347),
+                            String ctxPart = String.format(getString(R.string.h_d7a0f347),
                                     formatCtxWindow(ctx[0]),
                                     Math.min(100.0, ctx[1] * 100.0 / ctx[0]));
+                            if (text.indexOf('\n') < 0) {
+                                // 没有思考行：上下文自己也另起一行（去掉开头的 " · "）
+                                text += "\n" + ctxPart.replaceFirst("^\\s*·\\s*", "");
+                            } else {
+                                text += ctxPart;
+                            }
                         }
                     } catch (Throwable ignored) {
                     }

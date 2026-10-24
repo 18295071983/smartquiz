@@ -111,17 +111,11 @@ public final class ChatUiV2Chrome {
     }
 
     private static void doApply(Activity activity) {
-        hide(activity, R.id.service_status_bar);
+        // 2026-10-25（用户口径"隐藏的可以加回来"）：顶部状态胶囊不再藏起来，按 v2 浅底适配后常驻。
+        // 视图与数据源一直都在（ServiceStatusManager/AIChatActivity 仍在刷新），只是原先被这里 GONE 了。
+        restoreStatusBar(activity);
         hide(activity, R.id.remote_dsh_bar);
         hide(activity, R.id.log_container);
-        // 旧头部胶囊（状态信息 + 右侧「工具中心」抽屉按钮）是同一行的两个子控件，
-        // 真机上只隐藏状态条会留下一条空白胶囊 + 一个孤零零的汉堡键（2026-10-19 实测），
-        // 所以整行收起；工具中心改由「⋯」面板提供。
-        View statusBar = activity.findViewById(R.id.service_status_bar);
-        if (statusBar != null && statusBar.getParent() instanceof View) {
-            ((View) statusBar.getParent()).setVisibility(View.GONE);
-        }
-        hide(activity, R.id.btn_back);
         // demo 没有左下角历史悬浮球：v2 的历史入口就是顶栏汉堡键，悬浮球会盖住正文
         hide(activity, R.id.btn_history_fab);
         // 会话统计胶囊条（token/耗时/轮次/上下文仪表）：demo 的输入区上方只有模式 chip，
@@ -158,6 +152,98 @@ public final class ChatUiV2Chrome {
         View header = buildHeader(activity, root);
         header.setTag(TAG_HEADER);
         root.addView(header, 0);
+        // 状态胶囊已经承载"模型/状态"文案，顶栏的副标题与状态点是同一信息，收掉避免同一行说两遍
+        View v2Subtitle = header.findViewById(R.id.chat_v2_subtitle);
+        if (v2Subtitle != null) v2Subtitle.setVisibility(View.GONE);
+        View v2Dot = header.findViewById(R.id.chat_v2_status_dot);
+        if (v2Dot != null) v2Dot.setVisibility(View.GONE);
+    }
+
+    /**
+     * 把 v1 的顶部状态胶囊加回来，并按当前 v2 浅底适配（2026-10-25）。
+     *
+     * <p>只改外观与去重，不动数据：`service_status_text` / `tv_token_stats` / `tv_gen_phase` /
+     * `tv_kv_stats` 仍由原逻辑刷新（「⋯」面板也读同一批值）。适配点：</p>
+     * <ul>
+     *   <li>底：{@code status_bar_background}（壁纸渐变）→ {@code chat_v2_status_card}（白面细边 16dp）；</li>
+     *   <li>字/图标/进度条：换 {@code chat_v2_*} token，浅底上可读；</li>
+     *   <li>右侧「工具中心」汉堡键收掉（v2 顶栏右侧已有「＋/⋮」，工具中心在「⋯」里），
+     *       胶囊占满整行；</li>
+     *   <li>v2 顶栏副标题/状态点由调用方在插顶栏后隐藏（模型/状态已由胶囊显示）。</li>
+     * </ul>
+     */
+    private static void restoreStatusBar(Activity activity) {
+        try {
+            View statusBar = activity.findViewById(R.id.service_status_bar);
+            if (statusBar == null || !(statusBar.getParent() instanceof View)) return;
+            View row = (View) statusBar.getParent();
+            row.setVisibility(View.VISIBLE);
+            row.setBackgroundResource(R.drawable.chat_v2_status_card);
+            int padH = dp(activity, 12);
+            int padV = dp(activity, 8);
+            row.setPadding(padH, padV, padH, padV);
+            // 与 v2 顶栏同一条内容边线（appbar 左右 padding = chat_v2_composer_pad 14dp），
+            // 顶栏贴着胶囊，所以上边距只留 2dp，避免出现"两条头之间一道大缝"。
+            if (row.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams lp =
+                        (ViewGroup.MarginLayoutParams) row.getLayoutParams();
+                lp.leftMargin = dp(activity, 14);
+                lp.rightMargin = dp(activity, 14);
+                lp.topMargin = dp(activity, 2);
+                row.setLayoutParams(lp);
+            }
+
+            // 右侧的「工具中心」汉堡键：和 v2 顶栏右侧按钮挤在一起，工具中心改走「⋯」
+            hide(activity, R.id.btn_back);
+
+            tintText(activity, R.id.service_status_text, R.color.chat_v2_text);
+            tintText(activity, R.id.tv_api_balance, R.color.chat_v2_text_2);
+            tintText(activity, R.id.service_status_elapsed, R.color.chat_v2_text_2);
+            tintText(activity, R.id.tv_token_stats, R.color.chat_v2_brand_ink);
+            tintText(activity, R.id.tv_gen_phase, R.color.chat_v2_text_3);
+            tintText(activity, R.id.tv_kv_stats, R.color.chat_v2_text_3);
+
+            // token 统计是一长串（输入/输出/命中率/思考/上下文/累计）：v2 里不让它无限长高，
+            // 最多两行、超出省略；完整值仍在「⋯」面板里。
+            View tokenStats = activity.findViewById(R.id.tv_token_stats);
+            if (tokenStats instanceof TextView) {
+                TextView tv = (TextView) tokenStats;
+                tv.setMaxLines(2);
+                tv.setEllipsize(TextUtils.TruncateAt.END);
+            }
+
+            // 左侧状态图标：品牌柔光圆底（原 status_icon_bg 用的是 colorPrimaryContainer）
+            View icon = activity.findViewById(R.id.service_status_icon);
+            if (icon != null && icon.getParent() instanceof View) {
+                android.graphics.drawable.Drawable bg =
+                        ((View) icon.getParent()).getBackground();
+                if (bg != null) {
+                    bg.mutate().setTint(ContextCompat.getColor(activity, R.color.chat_v2_brand_soft));
+                }
+            }
+            // 进度条：品牌色 + 浅轨道
+            View progress = activity.findViewById(R.id.service_status_progress);
+            if (progress instanceof android.widget.ProgressBar) {
+                android.widget.ProgressBar pb = (android.widget.ProgressBar) progress;
+                pb.setProgressTintList(android.content.res.ColorStateList.valueOf(
+                        ContextCompat.getColor(activity, R.color.chat_v2_brand)));
+                pb.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                        ContextCompat.getColor(activity, R.color.chat_v2_border)));
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "restoreStatusBar skipped: " + t.getMessage());
+        }
+    }
+
+    /** 状态胶囊里的文字统一换 v2 token；视图不存在时静默跳过 */
+    private static void tintText(Activity activity, int viewId, int colorRes) {
+        try {
+            View v = activity.findViewById(viewId);
+            if (v instanceof TextView) {
+                ((TextView) v).setTextColor(ContextCompat.getColor(activity, colorRes));
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     // ---------------------------------------------------------------- 顶栏

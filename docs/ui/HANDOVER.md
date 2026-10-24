@@ -1,4 +1,4 @@
-# HANDOVER · 答题宝 AI 对话 / Agent UI 改版
+﻿# HANDOVER · 答题宝 AI 对话 / Agent UI 改版
 
 > 交接时间：2026-10-19（B0 / C0 / B1 / A0 / demo UI 落地与接线 / A1 前三段已落地；C1、B2 各完成一部分；A1 剩余与 A2 未开始）
 > 交接对象：在 Qoder 中继续开发的 Agent
@@ -2525,6 +2525,45 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
      `ScrollAnchorKeeper` 保持阅读位置（§4.106），不额外做动画；
    - 2 秒内页面被杀/重启：transient 不落盘 → 恢复后没有残留统计（符合预期）；
    - 本地模型只有输入/输出两行；缓存命中率/上下文依赖在线 usage。
+
+### 4.109 feat(chat-ui)：顶部状态栏加回来（2026-10-25）
+
+1. **需求**：用户"隐藏的可以加回来，再把状态栏弄回来就行，弄回来之后要与现在的界面适配一下。"
+   调查见 `docs/ui/v1-ui-restore-investigation.md`：状态栏视图与数据管线一直在，只是
+   `ChatUiV2Chrome.doApply()` 把整行 GONE 了。
+2. **实现**（`ai/chat/ui/ChatUiV2Chrome.java`）：
+   - 删掉 `hide(service_status_bar)` / 整行 GONE；新增 `restoreStatusBar(activity)`：
+     行可见、底换新 `res/drawable/chat_v2_status_card.xml`（`chat_v2_surface` + `chat_v2_border`
+     1dp + 16dp 圆角）、边距改左右 14dp（= appbar 的 `chat_v2_composer_pad`）/上 2dp、padding 12/8；
+   - 颜色：`service_status_text`→`chat_v2_text`、`tv_api_balance`/`service_status_elapsed`→
+     `chat_v2_text_2`、`tv_token_stats`→`chat_v2_brand_ink`、`tv_gen_phase`/`tv_kv_stats`→
+     `chat_v2_text_3`；图标圆底 tint `chat_v2_brand_soft`；`service_status_progress` 用
+     `setProgressTintList(chat_v2_brand)` + `setProgressBackgroundTintList(chat_v2_border)`；
+   - 去重：`btn_back`（右侧工具中心汉堡）收掉；v2 顶栏的 `chat_v2_subtitle` / `chat_v2_status_dot`
+     在顶栏插入后隐藏（模型/状态改由状态胶囊承载，`ChatUiV2Chrome.updateSubtitle/updateStatusDot`
+     照旧写但不可见）。
+   - 长文本：`tv_token_stats.setMaxLines(2) + ellipsize`；`AIChatActivity.updateTokenStatsUI` 在
+     "思考/上下文"前换行（第一行 输入/输出/命中率；第二行 思考/上下文/会话累计）。
+3. **数据源不动**：`ServiceStatusManager:602-609`（双写 `service_status_text` 与 v2 副标题）、
+   `AIChatActivity.updateTokenStatsUI`（`tv_token_stats`）、`refreshNativeStateUI`
+   （`tv_gen_phase`/`tv_kv_stats`）、`ChatStatsBar.update` 仍然在跑；「⋯」面板读同一批视图值。
+4. **仍隐藏**：`remote_dsh_bar`（电脑连接条）、`log_container`（运行日志）、`session_stats_bar`
+   （输入框上统计胶囊，`setSuppressed(true)`）——与顶部状态胶囊信息重复，未一起开；
+   要开每条都是一行改动（`session_stats_bar` 用 `setSuppressed(false)`）。
+5. **验证**：全量 `testDebugUnitTest --offline --no-build-cache` **949 / 0 skipped / 0 failures /
+   0 errors**；`assembleDebug --offline` 通过（APK 06:13）。真机 279b6c51：
+   - 空闲：单行（模型/状态 + 余额），与 v2 顶栏对齐（`docs/statusbar_shots/01`）；
+   - 生成完成：token 统计两行（输入/输出/命中率 + 思考/上下文/累计），不出现"思考 15t"被折到
+     两行的错位（`02`）；
+   - 键盘弹起且 pinned：状态栏常驻、底部最新内容仍贴输入框上方（`03`）。
+6. **边界 / 遗留**：
+   - 头部高度比 v2 原来（56dp）多约 80–110dp：列表可用高度变小；pinned 跟随与 unpinned 锚点
+     都按"viewport 变化"走，不存死值；真机上未发现内容被状态栏遮挡；
+   - 状态胶囊左侧状态图标仍是 v1 的 emoji（☁️/🧠/⏳/✅），在浅底上偏淡；要彻底 v2 化需把
+     `service_status_icon` 换成 v2 状态点并让 `ServiceStatusManager` 只写 dot 颜色（未做）；
+   - 状态栏行点击的旧"状态详情"弹层仍可用（Activity 原监听未动）；
+   - 消息卡系列（`AGENT_STEP`/`AGENT_SUMMARY` 独立行等）仍由 `shouldHideLegacyRow()` 隐藏，
+     本次未动；见 `docs/ui/v1-ui-restore-investigation.md` §2。
 
 ---
 

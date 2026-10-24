@@ -1,4 +1,29 @@
-# 变更日志
+﻿# 变更日志
+
+## [2026-10-25] feat(chat-ui)：顶部状态栏加回来（复用隐藏视图 + 按 v2 浅底适配）
+
+用户："隐藏的可以加回来，再把状态栏弄回来就行，弄回来之后要与现在的界面适配一下。"
+
+- `ChatUiV2Chrome` 不再隐藏 `service_status_bar` 整行；新增 `restoreStatusBar()`，把 v1 状态胶囊
+  按当前 v2 界面重新适配：
+  - 底：壁纸渐变 `status_bar_background` → 新 `chat_v2_status_card`（白面 + 1dp 细边 + 16dp 圆角）；
+  - 文案/读数换 `chat_v2_*` token（状态正文 / 余额 / 耗时 / token 统计 / 阶段 / KV），进度条品牌色、
+    图标圆底品牌柔光；
+  - 边距对齐 v2 顶栏内容线（左右 14dp、上 2dp）；右侧「工具中心」汉堡键收掉（v2 顶栏右侧已有
+    ＋/⋮，工具中心在「⋯」面板里）；
+  - v2 顶栏的副标题与状态点隐藏——模型/状态已由状态胶囊承载，同一行不再说两遍。
+- 长文本适配：`tv_token_stats` 最多两行、超出省略；`updateTokenStatsUI` 在"思考/上下文"前主动换行
+  （第一行输入/输出/命中率，第二行思考/上下文/会话累计），「⋯」面板也按两行展示同一段文本。
+- 数据源不动：`ServiceStatusManager` / `updateTokenStatsUI` / `refreshNativeStateUI` 原本就一直在刷新
+  这些隐藏视图（「⋯」面板读的就是它们），恢复只是把视图重新显示出来。
+- 仍保持隐藏（与顶部重复/低频）：`remote_dsh_bar`（电脑连接）、`log_container`（运行日志）、
+  `session_stats_bar`（输入框上方统计胶囊）——需要的话可以再单独开。
+- **验证**：全量 `testDebugUnitTest --offline --no-build-cache` **949 / 0 skipped / 0 failures /
+  0 errors**；`assembleDebug --offline` 通过（APK 06:13），真机 279b6c51：
+  - 空闲态：状态栏一行（模型/状态 + 余额），与 v2 顶栏同一条内容线（截图 01）；
+  - 生成后：token 统计两行（输入/输出/命中率 + 思考/上下文/累计），无自然折行错位（截图 02）；
+  - 键盘弹起（pinned）：状态栏常驻、底部最新内容仍在输入框上方（截图 03）。
+  截图 `docs/statusbar_shots/`。
 
 ## [2026-10-25] feat(chat)：输入统计改为"显示 2 秒后自动隐藏"
 
