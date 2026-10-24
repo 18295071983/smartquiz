@@ -87,11 +87,11 @@ public class ToolSchemaVisibilityTest {
 
     /**
      * 另外两份"模型会读到"的文档：Python 侧 android_ui 的组件说明、工作区《使用速查表》的生成源。
-     * 前者曾经在教已删除的 note_card/grid_card 且完全没有新卡——这类文档没有编译期约束，
-     * 只能靠源码级断言兜住。
+     * 2026-10-25 起 note_card/grid_card 已恢复原生实现，文档必须重新教它们，
+     * 不能再把名字写成"已删除"。
      */
     @Test
-    public void otherModelVisibleDocsTeachNewCardsWithoutDeadOnes() throws Exception {
+    public void otherModelVisibleDocsTeachRestoredCards() throws Exception {
         String py = read("src/main/python/android_ui.py");
         String guideSource = read(
                 "src/main/java/com/oilquiz/app/ai/agent/online/AgentWorkspace.java");
@@ -111,9 +111,9 @@ public class ToolSchemaVisibilityTest {
                 assertTrue("模型可见文档缺 html 分档/回传口径 " + kw, doc.contains(kw));
             }
         }
-        // 已删除的实现不许再被教给模型（有 alias 兜底渲染，但目录/示例不该售卖）
-        assertTrue("android_ui 仍在教 note_card", !py.contains("note_card"));
-        assertTrue("android_ui 仍在教 grid_card", !py.contains("grid_card"));
+        // 恢复的实现必须继续教给模型（历史会话与新建都要能命中）
+        assertTrue("android_ui 未教恢复的 note_card", py.contains("note_card"));
+        assertTrue("android_ui 未教恢复的 grid_card", py.contains("grid_card"));
         // update 不许再说"所有类型通用"：聊天流卡片（info_card/html/chart…）传 props
         // 在 PythonToolManager.updateComponent 里明确返回 not_supported，教了就是让模型白跑一次调用
         String uiTool = read("src/main/java/com/oilquiz/app/ai/tool/SystemUIComponentTool.java");

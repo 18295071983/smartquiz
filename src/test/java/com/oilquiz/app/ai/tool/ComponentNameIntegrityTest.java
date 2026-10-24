@@ -25,8 +25,8 @@ import java.util.Map;
  *   <li>canonical 卡片短名不许出现在原生弹窗拦截表里（曾经 {@code list}/{@code progress}
  *       被弹窗抢走，模型照目录用就拿不到卡片）；</li>
  *   <li>canonical 短名最终要命中"原生卡片实现"，而不是被 Layout 原语占着；</li>
- *   <li>被 alias 归一吃掉的原名（note_card/grid_card）不许再留下一份独立实现——
- *       实现已删，旧名仍必须可渲染（历史数据）。</li>
+ *   <li>2026-10-25 从 baafa107^ 恢复的 note_card/grid_card 必须命中各自原生实现，
+ *       note/grid 短名同步指向它们（不再归一到 info/list）。</li>
  * </ol>
  */
 public class ComponentNameIntegrityTest {
@@ -64,15 +64,18 @@ public class ComponentNameIntegrityTest {
         assertTrue(registry.componentFor("primitive_table") instanceof LayoutPrimitiveCardView);
     }
 
-    /** ③：被归一的名字仍可用，但不再留着永远不被命中的独立实现 */
+    /** ③：恢复的 note_card/grid_card 必须有自己的实现，短名也不许再归一到 info/list */
     @Test
-    public void aliasedLegacyNamesStillRenderButHaveNoDeadImplementation() {
+    public void restoredLegacyNamesResolveToTheirOwnCards() {
         ComponentRegistry registry = ComponentRegistry.getInstance();
-        assertEquals("info", ComponentTypes.resolve("note_card"));
-        assertEquals("list", ComponentTypes.resolve("grid_card"));
-        // 旧名必须落到归一后的实现——这才是用户可见契约（历史会话里的 note_card 不能渲染失败）
-        assertEquals("InfoCardView", registry.componentFor("note_card").getClass().getSimpleName());
-        assertEquals("ListCardView", registry.componentFor("grid_card").getClass().getSimpleName());
+        assertEquals("note_card", ComponentTypes.resolve("note_card"));
+        assertEquals("grid_card", ComponentTypes.resolve("grid_card"));
+        assertEquals("note_card", ComponentTypes.resolve("note"));
+        assertEquals("grid_card", ComponentTypes.resolve("grid"));
+        assertEquals("NoteCardView", registry.componentFor("note_card").getClass().getSimpleName());
+        assertEquals("GridCardView", registry.componentFor("grid_card").getClass().getSimpleName());
+        assertEquals("NoteCardView", registry.componentFor("note").getClass().getSimpleName());
+        assertEquals("GridCardView", registry.componentFor("grid").getClass().getSimpleName());
     }
 
     /** 原语逃生口现在有名字可用，且目录把这件事告诉了模型 */
@@ -117,7 +120,8 @@ public class ComponentNameIntegrityTest {
         for (Map.Entry<String, String> e : ComponentTypes.ALIAS.entrySet()) {
             assertTrue("alias 目标不是 canonical: " + e.getKey() + " → " + e.getValue(),
                     ComponentTypes.CANONICAL_TARGET.containsKey(e.getValue())
-                            || ComponentTypes.isScene(e.getValue()));
+                            || ComponentTypes.isScene(e.getValue())
+                            || ComponentRegistry.getInstance().hasType(e.getValue()));
         }
     }
 }

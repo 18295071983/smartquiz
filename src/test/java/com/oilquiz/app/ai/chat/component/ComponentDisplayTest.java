@@ -84,6 +84,18 @@ public class ComponentDisplayTest {
     }
 
     @Test
+    public void imageGridAndRestoredCardsNeverCollapse() {
+        // 图集/宫格/便签是内容本体，默认 peek 会把内容收成一行；2026-10-25 恢复为整卡
+        for (String type : new String[]{
+                "image_grid", "image", "grid_card", "grid", "note_card", "note"}) {
+            ComponentData c = comp(type, "{}");
+            assertEquals(type + " 不应被收起", ComponentDisplay.Mode.INLINE,
+                    ComponentDisplay.resolveMode(c, ComponentDisplay.Mode.PEEK));
+            assertTrue(type + " 应在 always-inline 名单", ComponentDisplay.isAlwaysInline(c));
+        }
+    }
+
+    @Test
     public void legacyCollapsedFlagWorks() {
         ComponentData collapsed = comp("json_viewer", "{\"title\":\"数据\",\"collapsed\":true}");
         assertEquals(ComponentDisplay.Mode.PEEK,

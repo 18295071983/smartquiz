@@ -43,7 +43,9 @@ public class ComponentFieldIntegrityTest {
     public void catalogRequiredFieldsSatisfyCardGates() {
         Map<String, JSONObject> taughtByCatalog = new HashMap<>();
         taughtByCatalog.put("info", obj("items", arr()));
+        taughtByCatalog.put("note_card", obj("content", "关键结论"));
         taughtByCatalog.put("list", obj("items", arr()));
+        taughtByCatalog.put("grid_card", obj("items", arr()));
         taughtByCatalog.put("steps", obj("steps", arr()));
         taughtByCatalog.put("alert", obj("content", "已完成"));
         taughtByCatalog.put("markdown", obj("content", "**加粗**"));
@@ -182,26 +184,29 @@ public class ComponentFieldIntegrityTest {
         }
     }
 
-    /** 已删实现（note_card/grid_card）不许再出现在任何模型可见文案里。 */
+    /** 恢复的 note_card/grid_card 必须进目录、进工具文案，并能用真实字段渲染。 */
     @Test
-    public void deletedImplementationsAreNotAdvertised() {
+    public void restoredCardsAreAdvertisedAndRender() {
         Map<String, String> descs = new SystemUIComponentTool(
                 ApplicationProvider.getApplicationContext()).getParameterDescriptions();
         String typeParam = String.valueOf(descs.get("component_type"));
         String propsParam = String.valueOf(descs.get("props"));
         assertFalse("参数说明缺失", typeParam.isEmpty() || propsParam.isEmpty());
-        for (String dead : new String[]{"note_card", "grid_card"}) {
-            assertFalse("工具仍向模型售卖已删除实现: component_type 含 " + dead,
-                    typeParam.contains(dead));
-            // props 说明里 "替代已删除的 note_card" 这类解释性提法是允许的，只禁"名字:字段结构"式售卖
-            assertFalse("工具仍给出已删除实现的字段结构: " + dead,
-                    propsParam.contains(dead + ":{"));
+        for (String restored : new String[]{"note_card", "grid_card"}) {
+            assertTrue("component_type 未列出恢复的卡片: " + restored,
+                    typeParam.contains(restored));
+            assertTrue("props 未给出恢复卡片的字段结构: " + restored,
+                    propsParam.contains(restored + ":{"));
+            assertNotNull("恢复的卡片未进目录: " + restored, schemaEntry(restored));
         }
-        // 但历史数据仍必须能渲染（alias 不许删）
-        assertTrue(ComponentRegistry.getInstance()
-                .componentFor("note_card").canRender(ComponentData.of("note_card", obj("items", arr()))));
-        assertTrue(ComponentRegistry.getInstance()
-                .componentFor("grid_card").canRender(ComponentData.of("grid_card", obj("items", arr()))));
+        ChatComponent note = ComponentRegistry.getInstance().componentFor("note_card");
+        ChatComponent grid = ComponentRegistry.getInstance().componentFor("grid_card");
+        assertEquals("NoteCardView", note.getClass().getSimpleName());
+        assertEquals("GridCardView", grid.getClass().getSimpleName());
+        assertTrue("note_card 应读 content",
+                note.canRender(ComponentData.of("note_card", obj("content", "关键结论"))));
+        assertTrue("grid_card 应读 items",
+                grid.canRender(ComponentData.of("grid_card", obj("items", arr()))));
     }
 
     // ---- helpers ----

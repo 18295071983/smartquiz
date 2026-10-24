@@ -94,14 +94,16 @@ public final class ComponentDisplay {
                     "checkbox_group", "radio_group", "search_bar",
                     // 正文与学习交互（html 不在列，理由见上方注释）
                     "markdown", "markdown_card", "code", "code_card",
-                    "quiz", "quiz_card", "marquee"));
+                    "quiz", "quiz_card", "marquee",
+                    // 媒体/网格/备注：图集、宫格、便签本身就是内容，收成一行等于把内容藏了
+                    "image_grid", "image", "grid_card", "grid", "note_card", "note"));
 
     /**
      * 摘要行的兜底中文名：props 里没有 title 时用（{@code ToolMetaRegistry} 只管工具名，
      * 组件类型名此前只在各渲染器内部硬编码，折叠行需要一个不依赖渲染器的来源）。
      *
-     * <p>里面保留了 note_card/grid_card 两条：它们的原生实现已删（被 ComponentTypes 归一到
-     * info/list），但历史会话持久化的 {@code type} 仍是旧名，摘要行必须还能念得出中文名。
+     * <p>里面保留了 note_card/grid_card 两条：2026-10-25 已从 baafa107^ 恢复原生实现；
+     * 历史会话持久化的 {@code type} 无论旧名还是短名，摘要行都要能念出中文名。</p>
      */
     private static final java.util.Map<String, String> TYPE_CN;
     static {

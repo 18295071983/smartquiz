@@ -26,7 +26,10 @@ public class ComponentTypesTest {
         assertEquals("chart", ComponentTypes.resolve("bar_chart"));
         assertEquals("html", ComponentTypes.resolve("web"));
         assertEquals("quiz", ComponentTypes.resolve("question_card"));
-        assertEquals("list", ComponentTypes.resolve("grid"));
+        assertEquals("note_card", ComponentTypes.resolve("note"));
+        assertEquals("note_card", ComponentTypes.resolve("note_card"));
+        assertEquals("grid_card", ComponentTypes.resolve("grid"));
+        assertEquals("grid_card", ComponentTypes.resolve("grid_card"));
     }
 
     @Test
@@ -90,9 +93,10 @@ public class ComponentTypesTest {
             assertTrue("目录缺少 canonical 类型 " + canonical, types.toString().contains(canonical + ","));
         }
         // 2026-10-23：新增 playlist/agenda/location/diff 四张卡后上限从 22 提到 26。
+        // 2026-10-25：恢复 note_card/grid_card 后上限到 28。
         // 这个断言的意义是"目录不能无限膨胀"，不是固定 22；再加类型请连带评估提示词体积。
-        assertTrue("面向模型的目录应控制在 26 条以内，实际 " + catalog.length(),
-                catalog.length() <= 26);
+        assertTrue("面向模型的目录应控制在 28 条以内，实际 " + catalog.length(),
+                catalog.length() <= 28);
     }
 
     @Test
@@ -101,7 +105,8 @@ public class ComponentTypesTest {
             String canonical = ComponentTypes.resolve(alias);
             assertTrue("alias 指向了不存在的 canonical: " + alias + "→" + canonical,
                     ComponentTypes.CANONICAL_TARGET.containsKey(canonical)
-                            || ComponentTypes.isScene(canonical));
+                            || ComponentTypes.isScene(canonical)
+                            || ComponentRegistry.getInstance().hasType(canonical));
         }
     }
 }

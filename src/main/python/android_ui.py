@@ -232,7 +232,7 @@ def create_component(component_type, title="", message="", component_id=None,
         #   没有前台 Activity 时整个组件降级成 Toast（PythonToolManager.createComponent 的口径）。
         #   要让卡片挂进 AI 消息气泡请用 ui_component 工具(action=create)，那条路径才进聊天流；
         #   工具产物（.html/.png/.xlsx 等）也会被 UI 桥接层自动补挂对应卡片，不必手动建）:
-        #   通用: info_card / table_card / list_card / alert_card / metric_card / json_viewer /
+        #   通用: info_card / note_card / table_card / list_card / grid_card / alert_card / metric_card / json_viewer /
         #         steps_card / code_card / link_card / image_grid / file_card / file_list /
         #         contact_card / todo_card / progress_card / weather_card / quiz_card / quote /
         #         html / markdown_card
@@ -253,6 +253,8 @@ def create_component(component_type, title="", message="", component_id=None,
         #   create_component("metric_card", props={"title":"今日数据","metrics":[{"label":"做题数","value":"120","color":"success"}]})
         #   create_component("steps_card", props={"title":"执行步骤","steps":[{"status":"done","title":"解析","description":"..."},{"status":"current","title":"导入"}]})
         #   create_component("list_card", props={"title":"清单","items":[{"icon":"📁","title":"报告","description":"说明"}]})
+        #   create_component("note_card", props={"type":"quote","content":"关键结论","author":"来源"})
+        #   create_component("grid_card", props={"title":"快捷入口","columns":3,"items":[{"icon":"📱","label":"微信","link":"https://..."}]})
         #   create_component("progress_card", props={"title":"任务进度","progress":60,"description":"已完成60%"})
         #   create_component("html", props={"html":"<h3>标题</h3><p>富文本内容</p>","title":"可选标题"})
         #   # html 的能力按来源分档、不由 props 决定：内联 html 串会剥掉 script/onclick(页内按钮点了没反应，

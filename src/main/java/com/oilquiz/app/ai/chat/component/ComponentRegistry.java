@@ -51,20 +51,17 @@ public class ComponentRegistry {
         // 通用展示
         register(new ChartCardView());
         register(new InfoCardView());
+        register(new NoteCardView());
         register(new TableCardView());
         register(new ImageGridCardView());
         register(new LinkCardView());
         // Agent 常用
         register(new ListCardView());
+        register(new GridCardView());
         register(new AlertCardView());
         register(new MetricCardView());
         register(new JsonViewerCard());
         register(new StepsCardView());
-        // note_card / grid_card 的原生实现已删（2026-10-20）：ComponentTypes 的 alias 把
-        // note_card→info、grid_card→list，而 render() 先按 canonical 解析（见本类 :158），
-        // 所以这两个键从注册那天起就永远不被命中——NoteCardView/GridCardView 是死实现。
-        // 语义去处：条目型用 info_card，引用/笔记用 quote 原语（真读 text/content + author），
-        // 网格式列表用 list_card。目录里不再推销这两个名字。
         register(new FileListCardView());
         register(new ContactCardView());
         register(new TodoCardView());

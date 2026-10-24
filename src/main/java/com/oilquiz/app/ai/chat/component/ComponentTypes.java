@@ -171,16 +171,13 @@ public final class ComponentTypes {
         SCENE_TARGET = Collections.unmodifiableMap(scene);
 
         Map<String, String> alias = new LinkedHashMap<>();
-        // 2026-10-20：note_card / grid_card 的原生实现（NoteCardView/GridCardView）已删——
-        // 下面这两条 alias 让 render() 先归一到 info/list，那两个注册键从建立起就永不被命中。
-        // alias 必须保留：历史会话里持久化的 type="note_card"/"grid_card" 仍要能渲染
-        // （note_card 落到 info 卡，props 里的 content 由 DynamicCardView 兜底通道显示）。
+        // 2026-10-25：NoteCardView/GridCardView 从 baafa107^ 恢复（用户要求捞回）。
+        // note_card/grid_card 不再归一到 info/list；短名 note/grid 指向各自卡片。
+        // 历史会话里的 type="note_card"/"grid_card" 现在会命中恢复后的原生实现。
+        alias.put("note", "note_card");
+        alias.put("grid", "grid_card");
         alias.put("info_card", "info");
-        alias.put("note_card", "info");
-        alias.put("note", "info");
         alias.put("list_card", "list");
-        alias.put("grid_card", "list");
-        alias.put("grid", "list");
         alias.put("table_card", "table");
         alias.put("steps_card", "steps");
         alias.put("timeline", "steps");
@@ -215,10 +212,12 @@ public final class ComponentTypes {
         // info 的必填是 items：InfoCardView.canRender 就是 optJSONArray("items") != null，
         // title 反而可选。此前必填/可选写反（目录教"必填 title"），派生式守卫抓到后改正。
         SCHEMA.put("info", new String[]{CATEGORY_CONTENT, "条目 items[{label,value}]", "标题 title", ""});
+        SCHEMA.put("note_card", new String[]{CATEGORY_CONTENT, "正文 content", "类型 type=note|quote|tip|summary", "作者 author"});
         // list 的可选字段按 ListCardView 真读的字段写（icon/title/description/value/url）；
         // 此前目录里承诺的 "布局 variant=list|grid, columns" 渲染器一个字都不读，2026-10-20 删掉。
         SCHEMA.put("list", new String[]{CATEGORY_CONTENT, "条目 items[{icon,title,description,value}]", "标题 title",
                 "网格长相请直接用 grid 之外的 list 卡片；variant/columns 未被 ListCardView 支持"});
+        SCHEMA.put("grid_card", new String[]{CATEGORY_CONTENT, "条目 items[{icon,label,link,copy}]", "标题 title", "列数 columns"});
         SCHEMA.put("steps", new String[]{CATEGORY_CONTENT, "步骤 steps[{title,status,description}]", "标题 title", "status=done|current|todo|failed"});
         SCHEMA.put("alert", new String[]{CATEGORY_CONTENT, "正文 content", "级别 level=info|success|warning|error", "标题 title, actions[]"});
         SCHEMA.put("markdown", new String[]{CATEGORY_CONTENT, "正文 content", "标题 title", ""});
