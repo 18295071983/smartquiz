@@ -74,10 +74,17 @@ public final class InferenceStatusPhrases {
      * @param toolElapsedMs 从"本轮第一个工具开始执行"到现在的毫秒数；≤0 视为刚开始
      */
     public static String toolPhrase(long toolElapsedMs) {
-        long s = Math.max(0L, toolElapsedMs) / 1000L;
-        if (s < 3) return "正在调用工具…";
-        if (s < 10) return "工具执行中…";
-        if (s < 30) return "工具耗时较长，仍在执行…";
-        return "仍在等待工具结果…";
+        return toolPhrase(com.oilquiz.app.ai.chat.status.AgentActivityKind.GENERIC, toolElapsedMs);
+    }
+
+    /**
+     * 工具执行阶段文案（带引擎侧分类）：{"正在联网搜索…","正在生成文件…","正在读取文件…"…}。
+     * 分类由引擎侧的 {@code AgentActivityBus} 发布，UI 只按分类 + 已耗时选句。
+     */
+    public static String toolPhrase(com.oilquiz.app.ai.chat.status.AgentActivityKind kind,
+                                    long toolElapsedMs) {
+        com.oilquiz.app.ai.chat.status.AgentActivityKind k =
+                kind != null ? kind : com.oilquiz.app.ai.chat.status.AgentActivityKind.GENERIC;
+        return k.statusText(toolElapsedMs);
     }
 }

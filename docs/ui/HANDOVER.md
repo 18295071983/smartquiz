@@ -2656,6 +2656,21 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
     - 测试：`InferenceStatusPhrasesTest` 加工具文案用例；全量 **960 / 0 skipped / 0 failures /
       0 errors**；APK 07:08:13 已装机，未做真机验证。设计文档见
       `docs/ui/inference-status-phrases.md` §5。
+11. **引擎侧活动总线 + 多样化工具文案 + 指纹补齐（同日第六轮，用户："还有哪些指纹需要文案，一起弄上。
+    多样化，比如正在生成文件，引擎侧是否可以提供基础设施"）**：
+    - 引擎侧基础设施：新增 `ai/chat/status/AgentActivityBus`——`AIToolManager#executeTool` 外层
+      包一层，开始发布 / `finally` 清理，快照 = 分类 + 开始时刻 + 入队序（并发取最早开始）；
+      新增 `ai/chat/status/AgentActivityKind`：工具名 → 分类唯一口径（SEARCH/READ_FILE/
+      GENERATE_FILE/GENERATE_IMAGE/GENERATE_CHART/RUN_CODE/DOWNLOAD/QUERY_DATA/GENERIC），
+      每类自带"早期/较久"两句文案（如 `正在生成文件…` → `文件较大，仍在生成…`）；
+    - 指纹补齐：`Part.statusText` 除 tool_group 外也写单个 `tool_call`；
+      `ToolCallPartRenderer` 透传到 `tool_call` props，`ToolCallCardView` 运行中状态位显示
+      `⏳ 正在生成文件…`；其余指纹（thinkingFingerprint / toolCardFingerprint header 文本、
+      agentSummaryFp / componentSegmentsFingerprint / roundStructureFingerprint）经审计不需要塞文案
+      （header 每次 bind 重写、其余只表达内容/结构），审计表见设计文档 §6.3；
+    - UI：底部状态行工具期间优先显示分类文案、速度收起；开始/结束 `AgentActivityBus.clear()` 兜底；
+    - 测试：`AgentActivityKindTest` 5 条；全量 **965 / 0 skipped / 0 failures / 0 errors**；
+      APK 07:16:36 已装机，未做真机验证。设计文档 §6。
 
 ---
 

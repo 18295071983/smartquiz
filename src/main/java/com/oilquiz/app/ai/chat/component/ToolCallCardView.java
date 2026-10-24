@@ -79,7 +79,11 @@ public class ToolCallCardView implements ChatComponent {
                 statusColor = ComponentColors.error(context);
                 break;
             default:
-                statusText = " ⏳ 执行中";
+                // 运行中：优先显示引擎分类的"工具侧思考"文案（正在联网搜索…/正在生成文件…）；
+                // 没有该字段（旧数据/非 parts 路径）时退回"执行中"。
+                String runningHint = p.optString("statusText", "");
+                statusText = TextUtils.isEmpty(runningHint)
+                        ? " ⏳ 执行中" : " ⏳ " + runningHint;
                 statusColor = ComponentColors.accent(context);
                 break;
         }

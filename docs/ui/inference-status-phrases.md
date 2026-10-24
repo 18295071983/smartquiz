@@ -83,7 +83,7 @@
 
 ### 文案表
 
-| 工具已耗时 | 文案 |
+| 工具已耗时 | 通用文案（GENERIC） |
 |---|---|
 | 0–3s | 正在调用工具… |
 | 3–10s | 工具执行中… |
@@ -106,3 +106,58 @@
 ### 验证
 
 `InferenceStatusPhrasesTest` 覆盖工具文案 4 档；全量 960 / 0 skipped / 0 failures / 0 errors。
+## 6. 引擎侧活动总线 + 分类文案（2026-10-25 追加）
+
+用户："你看看还有哪些指纹需要文案，一起弄上。多样化，比如正在生成文件，引擎侧是否可以提供基础设施"。
+
+### 6.1 引擎侧基础设施
+
+- `ai/chat/status/AgentActivityBus`：工具执行统一收口 `AIToolManager#executeTool` 外层包一层——
+  开始 `started(toolName)` 发布、`finally finished(toolName)` 清理，异常/提前返回也不会脏；
+  快照 = 分类 + 开始时刻 + 入队序号（并发工具取**最早开始**的那个，毫秒相同也稳定）。
+- `ai/chat/status/AgentActivityKind`：工具名 → 活动分类的唯一口径（引擎/UI 共用）：
+  `SEARCH / READ_FILE / GENERATE_FILE / GENERATE_IMAGE / GENERATE_CHART / RUN_CODE /
+  DOWNLOAD / QUERY_DATA / GENERIC`。
+  顺序有讲究：先判"下载"再判"读文件"（`download_file` 含 `load_file`），
+  先判"读文件"再判"生成文件"（`pdf_read` 归读）；由单测钉住。
+- UI 不再逐 tick 猜工具名：文案心跳读总线快照，按 `分类 + 已耗时` 选句；
+  总线为空时退回 components/TOOL_CALL 状态扫描（旧路径兜底）。
+- 每轮生成开始/结束 `AgentActivityBus.clear()` 兜底。
+
+### 6.2 多样化文案（按分类）
+
+| 分类 | 早期（<10s） | 较久（≥10s） |
+|---|---|---|
+| SEARCH | 正在联网搜索… | 搜索较久，仍在检索… |
+| READ_FILE | 正在读取文件… | 文件读取较久，仍在继续… |
+| **GENERATE_FILE** | **正在生成文件…** | **文件较大，仍在生成…** |
+| GENERATE_IMAGE | 正在生成图片… | 图片生成较久，仍在继续… |
+| GENERATE_CHART | 正在生成图表… | 图表绘制较久，仍在继续… |
+| RUN_CODE | 正在运行代码… | 代码执行较久，仍在运行… |
+| DOWNLOAD | 正在下载文件… | 下载较慢，仍在继续… |
+| QUERY_DATA | 正在查询数据… | 查询较久，仍在进行… |
+| GENERIC | 正在调用工具… → 工具执行中… → 工具耗时较长… → 仍在等待工具结果… | 同左（四段） |
+
+### 6.3 指纹审计（"还有哪些指纹需要文案"）
+
+| 指纹 | 是否承载状态文案 | 结论 |
+|---|---|---|
+| `Part.fingerprint()`（parts 增量引擎） | 是 | 已加入 `statusText`：覆盖 reasoning 折叠头、tool_group、**单个 tool_call**；文案推进 → 指纹变化 → 重绑 |
+| `thinkingFingerprint`（legacy 思考行） | 否（header 每次 bind 都重写） | 不塞文案（塞了只会无意义重建）；由 1.2s payload 通知重绑刷新 |
+| `toolCardFingerprint`（legacy 工具卡） | 否（header 每次 bind 都重写） | 同上；工具卡状态文案来自 `message.runningToolStartTime + runningToolKind` |
+| `agentSummaryFp` | 否 | 汇总卡内容型指纹，状态文案不参与 |
+| `componentSegmentsFingerprint` | 否 | 组件内容 digest；产物卡（文件/图片）完成才出现，运行中状态在工具卡/工具组 |
+| `roundStructureFingerprint` | 否 | 结构指纹（正文段/产物/流式态），不承载文案 |
+
+### 6.4 展示位置
+
+- parts：`ToolGroupPartRenderer` 标题 = `⏳ + statusText`（多工具）；
+  `ToolCallPartRenderer` 把 `statusText` 透传进 `tool_call` props，
+  `ToolCallCardView` 运行中状态位显示 `⏳ 正在生成文件…`；
+- legacy：`ChatAdapter` 工具卡标题用同一个 `toolPhrase(kind, elapsed)`；
+- 底部生成状态行：工具运行期间优先显示分类文案、速度位收起；工具结束回到推理/生成文案。
+
+### 6.5 验证
+
+`AgentActivityKindTest` 5 条（分类、文案多样化、通用四段、短名还原、总线生命周期）；
+全量 965 / 0 skipped / 0 failures / 0 errors；APK 07:16:36 已装机，未做真机测试。

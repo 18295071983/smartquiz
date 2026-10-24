@@ -1,5 +1,30 @@
 # 变更日志
 
+## [2026-10-25] feat(chat-ui)：引擎侧活动总线 + 工具文案多样化（生成文件/搜索/读文件…），补齐指纹
+
+用户："你看看还有哪些指纹需要文案，一起弄上。多样化，比如正在生成文件，引擎侧是否可以提供基础设施"。
+
+- **引擎侧基础设施**：
+  - `ai/chat/status/AgentActivityBus`：工具执行统一收口 `AIToolManager#executeTool` 包一层——
+    开始时发布"正在执行哪个工具"，`finally` 清理；快照含分类 + 开始时刻 + 入队序
+    （并发工具取最早开始的那个，毫秒相同也稳定）；
+  - `ai/chat/status/AgentActivityKind`：工具名 → 活动分类的**唯一口径**
+    （SEARCH / READ_FILE / GENERATE_FILE / GENERATE_IMAGE / GENERATE_CHART / RUN_CODE /
+    DOWNLOAD / QUERY_DATA / GENERIC），每类自带"早期 / 较久"两句文案，
+    例：`正在生成文件…` → `文件较大，仍在生成…`；`正在联网搜索…` → `搜索较久，仍在检索…`；
+- **指纹补齐**（文案不在指纹里，视图就会停在旧句子）：
+  - `Part.statusText` 覆盖 tool_group 与**单个 tool_call**；
+    `ToolCallPartRenderer` 把它透传到 `ToolCallCardView` 状态位（`⏳ 正在生成文件…`），
+    `ToolGroupPartRenderer` 标题显示同一句；
+  - 其余指纹审计结论：`thinkingFingerprint` / `toolCardFingerprint` 的 header 文案每次 bind
+    都会重写（不靠指纹），由 1.2s payload 通知驱动刷新；`agentSummaryFp` /
+    `componentSegmentsFingerprint` / `roundStructureFingerprint` 只表达内容与结构，
+    状态文案统一走 `Part.statusText`，不再重复塞（避免无意义重建）；
+- **UI**：底部状态行在工具运行时优先显示分类文案、速度位收起；工具结束回到推理/生成文案；
+  每轮开始/结束 `AgentActivityBus.clear()` 兜底，异常路径不留脏活动。
+- **验证**：新增 `AgentActivityKindTest` 5 条（分类、文案多样化、通用四段、短名还原、总线生命周期）；
+  全量 `testDebugUnitTest --offline --no-build-cache` **965 / 0 skipped / 0 failures / 0 errors**；
+  `assembleDebug --offline` 通过（APK 07:16:36）并已装机；按用户要求未做真机测试。
 ## [2026-10-25] feat(chat-ui)：工具侧也有多套「思考」文案，且把文案纳入 part 指纹
 
 用户："工具侧思考指纹是否可以加，文案啊"——工具执行阶段（工具卡/工具组）也要有随耗时推进的

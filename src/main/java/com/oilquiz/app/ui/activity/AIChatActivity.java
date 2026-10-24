@@ -6193,14 +6193,28 @@ public class AIChatActivity extends BaseActivity {
      */
     private boolean updateToolRunningStatusRow() {
         if (chatInputBar == null) return false;
-        boolean running = isAnyToolRunning();
+        // 优先读引擎侧活动总线（AIToolManager#executeTool 发布）：分类准确、有开始时刻；
+        // 总线没有时退回 components/TOOL_CALL 状态扫描（异常/旧路径兜底）。
+        com.oilquiz.app.ai.chat.status.AgentActivityBus.Snapshot activity =
+                com.oilquiz.app.ai.chat.status.AgentActivityBus.current();
+        boolean running = activity != null || isAnyToolRunning();
         if (running) {
-            if (toolPhaseStartTime <= 0) {
-                toolPhaseStartTime = System.currentTimeMillis();
+            com.oilquiz.app.ai.chat.status.AgentActivityKind kind;
+            if (activity != null) {
+                if (toolPhaseStartTime <= 0 || activity.startTime < toolPhaseStartTime) {
+                    toolPhaseStartTime = activity.startTime;
+                }
+                kind = activity.kind;
+                syncRunningTool(toolPhaseStartTime, kind.name());
+            } else {
+                if (toolPhaseStartTime <= 0) {
+                    toolPhaseStartTime = System.currentTimeMillis();
+                }
+                kind = com.oilquiz.app.ai.chat.status.AgentActivityKind.GENERIC;
+                syncRunningTool(toolPhaseStartTime, kind.name());
             }
-            syncRunningToolStartTime(toolPhaseStartTime);
             String phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
-                    .toolPhrase(System.currentTimeMillis() - toolPhaseStartTime);
+                    .toolPhrase(kind, System.currentTimeMillis() - toolPhaseStartTime);
             if (!phrase.contentEquals(lastStatusPhrase)) {
                 lastStatusPhrase = phrase;
                 try {
@@ -6221,7 +6235,7 @@ public class AIChatActivity extends BaseActivity {
         }
         if (toolPhaseStartTime > 0) {
             toolPhaseStartTime = 0;
-            syncRunningToolStartTime(0);
+            syncRunningTool(0, null);
             // 回到模型阶段：清掉工具侧文案，让下一句推理/生成文案重新写入
             lastStatusPhrase = "";
         }
@@ -6243,12 +6257,17 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
-    /** 把"本轮第一个工具开始时刻"同步到流式 AI 消息，供 AssistantTurn 计算工具侧文案。 */
-    private void syncRunningToolStartTime(long start) {
+    /**
+     * 把运行中工具的开始时刻 + 活动分类同步到流式 AI 消息，
+     * 供 {@code AssistantTurn} 计算工具卡/工具组的"工具侧思考"文案。
+     */
+    private void syncRunningTool(long start, String kindName) {
         int idx = resolveStreamingIndex();
         if (idx < 0 || idx >= chatHistory.size()) return;
         ChatMessage msg = chatHistory.get(idx);
-        if (msg != null) msg.runningToolStartTime = start;
+        if (msg == null) return;
+        msg.runningToolStartTime = start;
+        msg.runningToolKind = kindName;
     }
 
     /**
@@ -7949,6 +7968,8 @@ public class AIChatActivity extends BaseActivity {
         lastStatusPhrase = "";
         toolPhaseStartTime = 0;
         lastToolRunning = false;
+        // 兜底清空引擎侧活动总线：异常中断可能留下上一轮的工具活动
+        com.oilquiz.app.ai.chat.status.AgentActivityBus.clear();
         uiHandler.removeCallbacks(statusPhraseTicker);
         updateInferenceStatusRow(statusPhrasePhase);
         uiHandler.postDelayed(statusPhraseTicker, 1200);
@@ -7965,6 +7986,7 @@ public class AIChatActivity extends BaseActivity {
         lastStatusPhrase = "";
         toolPhaseStartTime = 0;
         lastToolRunning = false;
+        com.oilquiz.app.ai.chat.status.AgentActivityBus.clear();
 
         // 清理Agent执行组
         if (currentAgentGroupId != null && chatAdapter != null) {

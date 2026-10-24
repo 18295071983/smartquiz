@@ -154,6 +154,11 @@ public final class ToolCallPartRenderer implements PartRenderer {
                 o.put("status", normalizeStatus(call.status));
                 o.put("result", nz(call.result));
                 o.put("durationMs", call.durationMs);
+                // 运行中的"工具侧思考"文案（引擎分类：正在联网搜索/正在生成文件…），
+                // 由 ToolCallCardView 显示在状态位；定稿后移除，避免卡片停在活动态。
+                if (call.statusText != null && !call.statusText.isEmpty()) {
+                    o.put("statusText", call.statusText);
+                }
             } catch (JSONException ignore) {
             }
             return o;
@@ -175,6 +180,11 @@ public final class ToolCallPartRenderer implements PartRenderer {
                 }
                 if (call.result != null && !call.result.isEmpty()) {
                     props.put("result", call.result);
+                }
+                if (call.statusText != null && !call.statusText.isEmpty()) {
+                    props.put("statusText", call.statusText);
+                } else {
+                    props.remove("statusText");
                 }
             } catch (JSONException ignore) {
             }

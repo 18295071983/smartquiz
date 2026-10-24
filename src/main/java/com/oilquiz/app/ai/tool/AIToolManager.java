@@ -401,6 +401,19 @@ public class AIToolManager {
      * @return 执行结果
      */
     public AIToolResult executeTool(String toolName, Map<String, Object> parameters) {
+        // 引擎侧基础设施（2026-10-25）：把"正在执行哪个工具"发布到活动总线，
+        // 聊天页据此显示多样化状态文案（正在联网搜索/正在生成文件/正在读取文件…），
+        // 不再靠 UI 每 tick 猜工具名。异常/提前返回也保证清干净。
+        com.oilquiz.app.ai.chat.status.AgentActivityBus.started(toolName);
+        try {
+            return executeToolInner(toolName, parameters);
+        } finally {
+            com.oilquiz.app.ai.chat.status.AgentActivityBus.finished(toolName);
+        }
+    }
+
+    /** {@link #executeTool(String, Map)} 的真实实现（活动总线只包一层）。 */
+    private AIToolResult executeToolInner(String toolName, Map<String, Object> parameters) {
         // 模糊解析：模型可能把工具名猜错（weather→ai_weather 等），先归一化再执行
         String resolved = resolveToolNameFuzzy(toolName);
         if (resolved == null) {

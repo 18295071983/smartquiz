@@ -518,6 +518,12 @@ public class ChatMessage {
      * 工具卡/工具组的"工具侧思考"文案按它算已耗时。运行时字段，不落盘。
      */
     public transient long runningToolStartTime;
+    /**
+     * 运行中工具的活动分类（{@code AgentActivityKind.name()}，引擎侧
+     * {@code AgentActivityBus} 发布）：决定"正在联网搜索…/正在生成文件…"等多样化文案。
+     * 运行时字段，不落盘。
+     */
+    public transient String runningToolKind;
 
     /** 错误信息 */
     public String errorDetail;

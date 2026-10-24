@@ -385,33 +385,48 @@ public class AssistantTurn {
     }
 
     /**
-     * 给工具组 part 挂"工具侧思考"文案：工具还在跑时按"本轮第一个工具开始到现在"的耗时
-     * 选一句（{@link com.oilquiz.app.ai.chat.InferenceStatusPhrases#toolPhrase}），
+     * 给工具 part 挂"工具侧思考"文案：工具还在跑时按"本轮第一个工具开始到现在"的耗时 +
+     * 引擎侧活动分类（{@code ChatMessage.runningToolKind}）选一句，
      * 写进 {@code part.statusText}。它参与 part 指纹 → 文案推进时视图会重绑，
      * 不会停在绑定那一刻的旧句子。
+     *
+     * <p>覆盖面：{@code tool_group}（多工具折叠卡）与单个 {@code tool_call}（单工具卡）都写，
+     * 前者由 {@code ToolGroupPartRenderer} 显示标题，后者由 {@code ToolCallPartRenderer}
+     * 透传到卡片的状态文案。</p>
      */
     private static void applyToolStatusText(AssistantTurn turn, ChatMessage msg) {
         if (turn == null || turn.parts == null) {
             return;
         }
         long start = msg != null ? msg.runningToolStartTime : 0L;
+        long elapsed = start > 0 ? System.currentTimeMillis() - start : 0L;
+        com.oilquiz.app.ai.chat.status.AgentActivityKind kind =
+                com.oilquiz.app.ai.chat.status.AgentActivityKind.fromName(
+                        msg != null ? msg.runningToolKind : null);
         for (Part p : turn.parts) {
-            if (p == null || !Part.TYPE_TOOL_GROUP.equals(p.type) || p.group == null) {
+            if (p == null) {
                 continue;
             }
-            boolean running = false;
-            for (Part m : p.group) {
-                if (m != null && "running".equals(m.status)) {
-                    running = true;
-                    break;
+            if (Part.TYPE_TOOL_GROUP.equals(p.type)) {
+                if (p.group == null) {
+                    p.statusText = null;
+                    continue;
                 }
+                boolean running = false;
+                for (Part m : p.group) {
+                    if (m != null && "running".equals(m.status)) {
+                        running = true;
+                        break;
+                    }
+                }
+                p.statusText = running
+                        ? com.oilquiz.app.ai.chat.InferenceStatusPhrases.toolPhrase(kind, elapsed)
+                        : null;
+            } else if (Part.TYPE_TOOL_CALL.equals(p.type)) {
+                p.statusText = "running".equals(p.status)
+                        ? com.oilquiz.app.ai.chat.InferenceStatusPhrases.toolPhrase(kind, elapsed)
+                        : null;
             }
-            if (!running) {
-                p.statusText = null;
-                continue;
-            }
-            long elapsed = start > 0 ? System.currentTimeMillis() - start : 0L;
-            p.statusText = com.oilquiz.app.ai.chat.InferenceStatusPhrases.toolPhrase(elapsed);
         }
     }
 
