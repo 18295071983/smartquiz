@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        应用名占位（长度=22 个 UTF-16 单元，同时是 ApkPacker 的补丁槽位）：
+        导出时 ApkPacker 会搜索此占位串并原位改写为 agent 指定的应用名（≤22 字符）。
+        直接安装本模板 APK 时会显示此占位名，属正常现象。
+    -->
+    <string name="app_name">SmartQuizExportAppName</string>
+</resources>

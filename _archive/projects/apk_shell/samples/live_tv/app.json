@@ -1,0 +1,9 @@
+{
+  "name": "国内电视",
+  "live": {
+    "url": "config/channels.m3u",
+    "name": "国内频道",
+    "start": "",
+    "autoplay": false
+  }
+}

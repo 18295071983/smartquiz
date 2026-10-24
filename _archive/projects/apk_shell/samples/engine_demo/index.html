@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>壳能力自测台</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(170deg, #0b1020 0%, #141a33 55%, #0d1226 100%);
+    color: #e2e8f0; min-height: 100vh; padding-bottom: 40px;
+  }
+  /* ===== 顶栏（仿 ChatShellView 状态区） ===== */
+  .topbar {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: calc(14px + env(safe-area-inset-top)) 16px 12px;
+    background: rgba(11,16,32,.85); backdrop-filter: blur(14px);
+    border-bottom: 1px solid rgba(148,163,184,.12);
+  }
+  .brand { font-size: 17px; font-weight: 700; color: #fff; letter-spacing: .5px; }
+  .brand .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #34d399; margin-right: 8px; box-shadow: 0 0 10px #34d399; }
+  .pill {
+    font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+    background: rgba(99,102,241,.18); color: #a5b4fc; border: 1px solid rgba(99,102,241,.35);
+  }
+  .pill.green { background: rgba(52,211,153,.14); color: #6ee7b7; border-color: rgba(52,211,153,.35); }
+  .pill.amber { background: rgba(251,191,36,.14); color: #fcd34d; border-color: rgba(251,191,36,.35); }
+
+  /* ===== 卡片 ===== */
+  .wrap { padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+  .card {
+    background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.07);
+    border-radius: 16px; overflow: hidden;
+  }
+  .card-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 14px; border-bottom: 1px solid rgba(255,255,255,.06);
+  }
+  .card-head .idx {
+    font-size: 10px; font-weight: 800; color: #0b1020; background: #a5b4fc;
+    width: 20px; height: 20px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+  }
+  .card-head h2 { font-size: 13px; font-weight: 600; color: #e2e8f0; flex: 1; letter-spacing: .5px; }
+  .card-head .hint { font-size: 10px; color: #64748b; }
+  .card-body { padding: 12px 14px; }
+
+  /* ===== 版本信息条（仿 TokenStatsBar） ===== */
+  .ver-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .ver-cell { background: rgba(255,255,255,.05); border-radius: 12px; padding: 10px 6px; text-align: center; }
+  .ver-cell b { display: block; font-size: 17px; color: #fff; font-family: "SF Mono", Consolas, monospace; }
+  .ver-cell span { font-size: 10px; color: #94a3b8; }
+
+  /* ===== 能力列表 ===== */
+  .cap-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 4px; border-bottom: 1px solid rgba(255,255,255,.045);
+  }
+  .cap-row:last-child { border-bottom: none; }
+  .cap-name { font-family: "SF Mono", Consolas, monospace; font-size: 12px; flex: 1; color: #cbd5e1; }
+  .cap-group { font-size: 9px; padding: 2px 7px; border-radius: 6px; background: rgba(148,163,184,.15); color: #94a3b8; }
+  .cap-group.v7 { background: rgba(251,191,36,.16); color: #fcd34d; }
+  .cap-group.perm { background: rgba(52,211,153,.14); color: #6ee7b7; }
+  .light { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .light.on { background: #34d399; box-shadow: 0 0 8px #34d399; }
+  .light.off { background: #64748b; opacity: .5; }
+  .cap-sub { font-size: 10px; color: #64748b; margin-top: 6px; }
+
+  /* ===== 权限 chip ===== */
+  .perm-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .perm-chip {
+    display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;
+    padding: 7px 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,.1);
+    background: rgba(255,255,255,.05); color: #cbd5e1;
+  }
+  .perm-chip .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .perm-chip.ok .dot { background: #34d399; box-shadow: 0 0 8px #34d399; }
+  .perm-chip.no .dot { background: #f87171; box-shadow: 0 0 8px #f87171; }
+  .perm-chip.no { border-color: rgba(248,113,113,.3); }
+
+  /* ===== 测试按钮（仿 ModeChipGroup） ===== */
+  .btn-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tbtn {
+    font-size: 12px; font-weight: 600; color: #e2e8f0;
+    background: rgba(99,102,241,.16); border: 1px solid rgba(99,102,241,.4);
+    border-radius: 10px; padding: 9px 13px; cursor: pointer; flex: 1; min-width: 88px; text-align: center;
+    transition: transform .08s, opacity .15s;
+  }
+  .tbtn:active { transform: scale(.96); opacity: .8; }
+  .tbtn.green { background: rgba(52,211,153,.12); border-color: rgba(52,211,153,.35); }
+  .tbtn.amber { background: rgba(251,191,36,.12); border-color: rgba(251,191,36,.35); }
+  .tbtn.red { background: rgba(248,113,113,.12); border-color: rgba(248,113,113,.35); }
+
+  /* ===== 日志控制台（仿 GenerationStatusBar 流） ===== */
+  .console {
+    background: rgba(2,6,17,.6); border: 1px solid rgba(255,255,255,.07);
+    border-radius: 12px; padding: 10px 12px; height: 240px; overflow-y: auto;
+    font-family: "SF Mono", Consolas, "Courier New", monospace; font-size: 11px; line-height: 1.65;
+  }
+  .console .line { white-space: pre-wrap; word-break: break-all; }
+  .console .t { color: #475569; margin-right: 6px; }
+  .console .s { color: #7dd3fc; margin-right: 6px; }
+  .console .ok { color: #6ee7b7; }
+  .console .err { color: #fca5a5; }
+  .console .cb { color: #c4b5fd; }
+  .console .dim { color: #64748b; }
+  .clr-btn { float: right; font-size: 10px; color: #94a3b8; background: none; border: none; cursor: pointer; }
+  .result-box { margin-top: 10px; font-size: 11px; color: #a5b4fc; font-family: monospace; word-break: break-all; }
+</style>
+</head>
+<body>
+
+<!-- 顶栏：壳版本 + 状态胶囊 -->
+<div class="topbar">
+  <div class="brand"><span class="dot"></span>壳能力自测台</div>
+  <span class="pill green" id="pillShell">壳 --</span>
+  <span class="pill" id="pillApi">桥API --</span>
+  <span class="pill amber" id="pillMode">--</span>
+</div>
+
+<div class="wrap">
+
+  <!-- 版本信息 -->
+  <div class="card">
+    <div class="card-head"><span class="idx">i</span><h2>版本信息</h2><span class="hint">getVersion() · dex 内嵌</span></div>
+    <div class="card-body">
+      <div class="ver-row">
+        <div class="ver-cell"><b id="vShell">--</b><span>壳版本</span></div>
+        <div class="ver-cell"><b id="vApi">--</b><span>桥 API</span></div>
+        <div class="ver-cell"><b id="vName">--</b><span>versionName</span></div>
+        <div class="ver-cell"><b id="vCode">--</b><span>versionCode</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 能力检测（自动枚举） -->
+  <div class="card">
+    <div class="card-head"><span class="idx">◎</span><h2>桥能力检测</h2><span class="hint" id="capCount">-- 个方法</span></div>
+    <div class="card-body" id="capList"><div class="cap-sub">检测中…</div></div>
+  </div>
+
+  <!-- 权限状态 -->
+  <div class="card">
+    <div class="card-head"><span class="idx">🔒</span><h2>权限状态</h2><span class="hint">checkPermission()</span></div>
+    <div class="card-body"><div class="perm-row" id="permRow"></div></div>
+  </div>
+
+  <!-- 一键实测：基础交互 -->
+  <div class="card">
+    <div class="card-head"><span class="idx">▶</span><h2>基础交互实测</h2></div>
+    <div class="card-body">
+      <div class="btn-grid">
+        <div class="tbtn" onclick="t_toast()">🍞 Toast</div>
+        <div class="tbtn" onclick="t_vibrate()">📳 振动</div>
+        <div class="tbtn" onclick="t_copy()">📋 复制</div>
+        <div class="tbtn green" onclick="t_share()">📤 分享文本</div>
+        <div class="tbtn amber" onclick="t_notify()">🔔 通知</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 一键实测：系统交互（v7） -->
+  <div class="card">
+    <div class="card-head"><span class="idx">⚙</span><h2>系统交互实测 <span class="cap-group v7">v7</span></h2></div>
+    <div class="card-body">
+      <div class="btn-grid">
+        <div class="tbtn green" onclick="t_clip()">📋 剪贴板监听</div>
+        <div class="tbtn" onclick="t_deeplink()">🔗 读取深链</div>
+        <div class="tbtn" onclick="t_permPanel()">🛡 权限面板</div>
+        <div class="tbtn amber" onclick="t_fg(true)">⬆ 前台服务开</div>
+        <div class="tbtn amber" onclick="t_fg(false)">⏹ 前台服务关</div>
+      </div>
+      <div class="result-box" id="boxV7"></div>
+    </div>
+  </div>
+
+  <!-- 一键实测：注入 & 缓存（v7） -->
+  <div class="card">
+    <div class="card-head"><span class="idx">⚡</span><h2>注入 & 离线缓存实测 <span class="cap-group v7">v7</span></h2></div>
+    <div class="card-body">
+      <div class="btn-grid">
+        <div class="tbtn" onclick="t_inject()">💉 注入脚本</div>
+        <div class="tbtn green" onclick="t_cache(1)">💾 缓存:本地优先</div>
+        <div class="tbtn" onclick="t_cache(0)">🌐 缓存:默认</div>
+        <div class="tbtn amber" onclick="t_shot()">📷 截图</div>
+      </div>
+      <div class="result-box" id="boxV7b"></div>
+    </div>
+  </div>
+
+  <!-- 日志控制台 -->
+  <div class="card">
+    <div class="card-head"><span class="idx">⌘</span><h2>调试日志</h2><button class="clr-btn" onclick="clearLog()">清空</button></div>
+    <div class="card-body"><div class="console" id="console"></div></div>
+  </div>
+
+</div>
+
+<script>
+var AB = window.AndroidApp || {};
+var BRIDGE_V6 = ["showToast","vibrate","haptic","exit","getVersion","getDeviceInfo","getNetworkType","copyText","shareText","shareFile","openBrowser","checkPermission","requestPermission","openAppSettings","getBatteryLevel","isCharging","getStorageInfo","setKeepScreenOn","openFilePicker","screenshot","readClipboard","request"];
+var BRIDGE_V7 = ["getShellVersion","getBridgeApi","startClipboardWatch","stopClipboardWatch","showNotification","cancelNotification","cancelAllNotifications","startForeground","stopForeground","getDeepLink","openPermissionPanel","addScriptInjector","clearScriptInjectors","injectNow","setCacheMode","getCacheMode","precacheUrl","clearCache"];
+
+// ---------- 日志 ----------
+var $c = document.getElementById("console");
+function log(kind, text) {
+  var d = new Date();
+  var ts = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + ":" + ("0" + d.getSeconds()).slice(-2);
+  var line = document.createElement("div");
+  line.className = "line";
+  line.innerHTML = '<span class="t">' + ts + '</span><span class="s">[' + kind + ']</span>' + text;
+  $c.appendChild(line);
+  $c.scrollTop = $c.scrollHeight;
+  while ($c.children.length > 120) $c.removeChild($c.firstChild);
+}
+function clearLog() { $c.innerHTML = ""; log("sys", "日志已清空"); }
+
+// ---------- 版本 ----------
+var VER = {};
+try { VER = JSON.parse(AB.getVersion ? AB.getVersion() : "{}"); } catch (e) {}
+document.getElementById("vShell").textContent = VER.shellVersion || "?";
+document.getElementById("vApi").textContent = VER.bridgeApi ?? "?";
+document.getElementById("vName").textContent = VER.versionName || "?";
+document.getElementById("vCode").textContent = VER.versionCode ?? "?";
+document.getElementById("pillShell").textContent = "壳 " + (VER.shellVersion || "?");
+document.getElementById("pillApi").textContent = "桥API " + (VER.bridgeApi ?? "?");
+var mode = (AB.getDeviceInfo) ? (JSON.parse(AB.getDeviceInfo() || "{}").launchMode || "?") : "?";
+document.getElementById("pillMode").textContent = "模式 " + mode;
+log("sys", "桥注入: " + (AB === window.AndroidApp ? "OK" : "缺失"));
+
+// ---------- 能力枚举 ----------
+var KEYS = [];
+for (var k in AB) { if (typeof AB[k] === "function") KEYS.push(k); }
+KEYS.sort();
+document.getElementById("capCount").textContent = KEYS.length + " 个方法";
+var listEl = document.getElementById("capList");
+listEl.innerHTML = "";
+KEYS.forEach(function (k) {
+  var row = document.createElement("div");
+  row.className = "cap-row";
+  var grp = "core";
+  if (BRIDGE_V7.indexOf(k) >= 0) grp = "v7";
+  else if (k.indexOf("Permission") >= 0 || k.indexOf("Settings") >= 0 || k === "checkPermission" || k === "requestPermission") grp = "perm";
+  var tag = grp === "v7" ? '<span class="cap-group v7">v7</span>'
+        : grp === "perm" ? '<span class="cap-group perm">权限</span>'
+        : '<span class="cap-group">核心</span>';
+  var light = '<span class="light on"></span>';
+  row.innerHTML = light + tag + '<span class="cap-name">' + k + '</span>';
+  listEl.appendChild(row);
+});
+// v7 方法缺失提示
+var missV7 = BRIDGE_V7.filter(function (k) { return KEYS.indexOf(k) < 0; });
+if (missV7.length) {
+  var note = document.createElement("div");
+  note.className = "cap-sub";
+  note.textContent = "⚠ 缺失 v7 方法: " + missV7.join(", ");
+  listEl.appendChild(note);
+} else {
+  var note = document.createElement("div");
+  note.className = "cap-sub";
+  note.textContent = "✅ 全部 18 个 v7 新方法就绪";
+  listEl.appendChild(note);
+}
+
+// ---------- 权限 ----------
+var PERMS = ["camera", "mic", "storage", "notification", "location"];
+var PERM_LABEL = { camera: "摄像头", mic: "麦克风", storage: "媒体", notification: "通知", location: "定位" };
+var permRow = document.getElementById("permRow");
+PERMS.forEach(function (p) {
+  var ok = false;
+  try { ok = AB.checkPermission && AB.checkPermission(p) === "true"; } catch (e) {}
+  var chip = document.createElement("div");
+  chip.className = "perm-chip " + (ok ? "ok" : "no");
+  chip.innerHTML = '<span class="dot"></span>' + (PERM_LABEL[p] || p) + (ok ? " · 已授权" : " · 未授权");
+  chip.onclick = function () { t_perm(p); };
+  permRow.appendChild(chip);
+});
+
+// ---------- 实测 ----------
+function t_toast() { if (AB.showToast) { AB.showToast("Toast 桥 OK"); log("ok", "showToast() 已调用"); } else log("err", "showToast 缺失"); }
+function t_vibrate() { if (AB.vibrate) { AB.vibrate(120); log("ok", "vibrate(120) 已调用"); } else log("err", "vibrate 缺失"); }
+function t_copy() { if (AB.copyText) { AB.copyText("来自壳自测台的复制"); log("ok", "copyText() 已调用"); } else log("err", "copyText 缺失"); }
+function t_share() { if (AB.shareText) { AB.shareText("壳能力自测台 · SmartQuiz v7"); log("ok", "shareText() 已调用"); } else log("err", "shareText 缺失"); }
+function t_notify() {
+  if (!AB.showNotification) return log("err", "showNotification 缺失");
+  AB.showNotification("壳 v7 通知", "通知栏桥测试 · " + new Date().toLocaleTimeString());
+  log("ok", "showNotification() 已调用（需通知权限）");
+}
+function t_clip() {
+  if (!AB.startClipboardWatch) return log("err", "startClipboardWatch 缺失");
+  AB.startClipboardWatch("cbClip");
+  log("ok", "剪贴板监听已开启——现在去任意应用复制一段文字试试");
+}
+window.cbClip = function (r) { log("cb", "剪贴板 → " + (r.text || "").slice(0, 60)); };
+function t_deeplink() {
+  var link = AB.getDeepLink ? AB.getDeepLink() : "";
+  log("cb", "深链: " + (link || "（无，可用浏览器打开本应用 http 链接测试）"));
+  var box = document.getElementById("boxV7");
+  if (box) box.textContent = "getDeepLink() = " + (link || "空");
+}
+function t_permPanel() { if (AB.openPermissionPanel) { AB.openPermissionPanel(); log("ok", "权限面板已弹出"); } else log("err", "openPermissionPanel 缺失"); }
+function t_fg(on) {
+  if (on) {
+    if (AB.startForeground) { var r = AB.startForeground("壳 v7 前台服务", "常驻通知测试中…"); log("ok", "startForeground → " + r); }
+    else log("err", "startForeground 缺失");
+  } else {
+    if (AB.stopForeground) { AB.stopForeground(); log("ok", "前台服务已停止"); }
+    else log("err", "stopForeground 缺失");
+  }
+}
+function t_inject() {
+  if (AB.injectNow) {
+    AB.injectNow("document.body.dataset.injected='v7'; console.log('injectNow ok')");
+    log("ok", "injectNow() 已执行（页面 data-injected 已写入）");
+    AB.addScriptInjector("document.body.dataset.autoInject='v7'");
+    log("dim", "addScriptInjector() 已注册（下次加载自动注入）");
+  } else log("err", "injectNow 缺失");
+}
+function t_cache(mode) {
+  if (AB.setCacheMode) { AB.setCacheMode(mode); log("ok", "setCacheMode(" + mode + ") 已设置（0=默认 1=本地优先 2=仅离线）"); }
+  else log("err", "setCacheMode 缺失");
+}
+function t_shot() {
+  if (!AB.screenshot) return log("err", "screenshot 缺失");
+  AB.screenshot("cbShot");
+  log("ok", "screenshot() 已调用（等待回调…）");
+}
+window.cbShot = function (res) {
+  if (res && res.error) return log("err", "截图失败: " + res.error);
+  log("cb", "截图成功 " + res.width + "×" + res.height + "，base64 " + (res.dataBase64 || "").length + " 字符");
+};
+function t_perm(p) {
+  if (!AB.requestPermission) return log("err", "requestPermission 缺失");
+  AB.requestPermission(p, "cbPerm");
+  log("ok", "requestPermission(" + p + ") 已发起");
+}
+window.cbPerm = function (r) {
+  log("cb", "权限 " + r.permission + " → " + (String(r.granted) === "true" ? "已授权" : "未授权"));
+  // 刷新权限灯
+  try {
+    var chip = permRow.children[PERMS.indexOf(r.permission)];
+    if (chip) {
+      var ok = String(r.granted) === "true";
+      chip.className = "perm-chip " + (ok ? "ok" : "no");
+      chip.innerHTML = '<span class="dot"></span>' + (PERM_LABEL[r.permission] || r.permission) + (ok ? " · 已授权" : " · 未授权");
+    }
+  } catch (e) {}
+};
+window.cbFile = function (f) { log("cb", "文件选择 → " + (f.name || "?") + " (" + f.size + "B)"); };
+</script>
+</body>
+</html>

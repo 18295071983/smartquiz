@@ -326,7 +326,23 @@ _shots/
 _netdiag.py
 build_run.pid
 # ============ 本地归档（整理时移入, 不入库） ============
-_archive/
+# 默认整目录不入库，但两套 WebView APK 壳工程是例外：它们是 base.apk 里那些
+# 直播/桥能力的唯一源码，不入库就没有回滚点（2026-10-24 起）。
+_archive/*
+!_archive/projects/
+_archive/projects/*
+!_archive/projects/apk_shell/
+!_archive/projects/html2apk/
+# 壳工程只排构建产物、本机配置与签名密钥
+_archive/**/build/
+_archive/**/out/
+_archive/**/.gradle/
+_archive/**/.idea/
+_archive/**/local.properties
+_archive/**/keystore/
+_archive/**/*.keystore
+_archive/**/*.jks
+_archive/**/*.bak*
 
 # ============ 调试临时物（截图/日志/commit 草稿/env，重生成即用，不入库） ============
 .dbg/
