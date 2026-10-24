@@ -153,18 +153,20 @@ APK 还链接了下列开源库，按各自许可保留版权与许可声明（�
 | 组件 | 许可 | 用途 |
 |---|---|---|
 | Apache POI 5.2.3（poi / poi-ooxml / poi-scratchpad） | Apache-2.0 | Excel / Word 读写 |
-| **iText 7 Core 7.2.3** | **AGPL-3.0** | PDF 生成与文本抽取 |
+| PDFBox-Android 2.0.27（`com.tom-roush:pdfbox-android`） | Apache-2.0 | PDF 生成与文本抽取 |
 
-> **iText 7 采用 GNU Affero GPL v3**：分发本应用时须按 AGPL 提供完整对应源码；
-> 闭源商业分发需另行向 iText 购买商业许可。仅自用、不对外分发则不受此限。
-> 若需换成宽松许可，可迁移到 Apache PDFBox（Apache-2.0）。
+> **已移除 iText 7**：iText 7 Core 是 AGPL-3.0，分发会要求整个 App 按 AGPL 开源。
+> 2026-10-24 已迁移到 Apache-2.0 的 PDFBox-Android，功能等价；BouncyCastle 统一用
+> `jdk18on:1.76`（Apache-2.0 风格 / MIT）。
 
 ## 16. 字体
 
 | 字体 | 许可 / 来源 | 备注 |
 |---|---|---|
-| `assets/fonts/simhei.ttf`（黑体） | **专有字体**（中易中标 SimHei） | 随包分发需确认授权；可替换为 Noto Sans CJK（OFL-1.1） |
+| `assets/fonts/NotoSansSC-Regular.ttf` | **SIL Open Font License 1.1（OFL-1.1）**，Noto Sans SC | PDF 导出嵌入字体，可自由分发/嵌入 |
 | `assets/fonts/qweather-icons.ttf` | 和风天气 SDK 资产 | 随 SDK 使用 |
+
+> 原 `simhei.ttf`（中易专有黑体）已移除，改为 OFL 的 Noto Sans SC。
 
 ## 17. 模型权重
 

@@ -3,9 +3,9 @@ package com.oilquiz.app.util;
 import android.content.Context;
 import android.util.Log;
 
-import com.itextpdf.kernel.pdf.PdfDocument;
-import com.itextpdf.kernel.pdf.PdfReader;
-import com.itextpdf.kernel.pdf.canvas.parser.PdfTextExtractor;
+import com.tom_roush.pdfbox.pdmodel.PDDocument;
+import com.tom_roush.pdfbox.pdmodel.PDDocumentInformation;
+import com.tom_roush.pdfbox.text.PDFTextStripper;
 
 import org.apache.commons.compress.archivers.ArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
@@ -44,15 +44,10 @@ public class AdvancedFileParserUtil {
         }
 
         StringBuilder text = new StringBuilder();
-        try (PdfReader reader = new PdfReader(file);
-             PdfDocument pdfDoc = new PdfDocument(reader)) {
-
+        try (PDDocument pdfDoc = PDDocument.load(file)) {
             int numPages = pdfDoc.getNumberOfPages();
-            for (int i = 1; i <= numPages; i++) {
-                String pageText = PdfTextExtractor.getTextFromPage(pdfDoc.getPage(i));
-                text.append(pageText).append("\n\n");
-            }
-
+            String all = new PDFTextStripper().getText(pdfDoc);
+            text.append(all).append("\n\n");
             Log.i(TAG, "PDF解析成功，共" + numPages + "页");
             return text.toString();
         } catch (Exception e) {
@@ -70,16 +65,16 @@ public class AdvancedFileParserUtil {
             return info;
         }
 
-        try (PdfReader reader = new PdfReader(file);
-             PdfDocument pdfDoc = new PdfDocument(reader)) {
-
+        try (PDDocument pdfDoc = PDDocument.load(file)) {
             info.put("page_count", pdfDoc.getNumberOfPages());
             info.put("file_size", file.length());
-            info.put("title", pdfDoc.getDocumentInfo().getTitle());
-            info.put("author", pdfDoc.getDocumentInfo().getAuthor());
-            info.put("subject", pdfDoc.getDocumentInfo().getSubject());
-            info.put("keywords", pdfDoc.getDocumentInfo().getKeywords());
-
+            PDDocumentInformation meta = pdfDoc.getDocumentInformation();
+            if (meta != null) {
+                info.put("title", meta.getTitle());
+                info.put("author", meta.getAuthor());
+                info.put("subject", meta.getSubject());
+                info.put("keywords", meta.getKeywords());
+            }
         } catch (Exception e) {
             Log.e(TAG, "获取PDF信息失败: " + e.getMessage(), e);
         }

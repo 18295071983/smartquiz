@@ -283,7 +283,26 @@ src/main/assets/asr/*.onnx
 
 ---
 
-## 三、`src/main/jniLibs/` 下的 native 库（合计约 527 MB）
+## 三、`src/main/assets/fonts/NotoSansSC-Regular.ttf` —— PDF 导出中文字体（约 17 MB，**可自动获取**）
+
+| 项 | 内容 |
+| --- | --- |
+| 路径 | `src/main/assets/fonts/NotoSansSC-Regular.ttf`（17,772,300 字节） |
+| 用途 | PDF 导出（`PDFExporter`，PDFBox 嵌入字体）；缺了会导致导出报"缺少中文字体" |
+| 许可 | **SIL Open Font License 1.1（OFL-1.1）**，可自由分发、可嵌入 PDF |
+| 来源 | Google Fonts 仓库 `ofl/notosanssc`（Noto Sans SC，可变字体，默认实例即 Regular） |
+| 获取 | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-font.ps1` |
+
+> **为什么换成 Noto Sans SC**：原来的 `simhei.ttf` 是**中易（ZhongYi）专有黑体**，
+> 随包分发需要授权；换 OFL 字体后分发无此顾虑。
+>
+> **不要提交进 Git**：`src/main/assets/fonts/` 在 `.gitignore` 里（大文件策略）。
+> 缺字体时构建仍能通过，但运行期 PDF 导出会明确报错（而不是导出方框）。
+> 系统兜底只剩 `DroidSansFallback*.ttf`（TrueType），PDFBox 2.x 读不了 `.ttc`/CFF `.otf`。
+
+---
+
+## 四、`src/main/jniLibs/` 下的 native 库（合计约 527 MB）
 
 | 项 | 内容 |
 | --- | --- |

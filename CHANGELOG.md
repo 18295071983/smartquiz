@@ -1,5 +1,28 @@
 # 变更日志
 
+## [2026-10-24] refactor(pdf)：PDF 导出从 iText 7 迁到 PDFBox，字体换 OFL 的 Noto Sans SC
+
+审计随包组件时发现两个"分发即咬人"的许可：iText 7 Core 是 **AGPL-3.0**（对外分发就要求整个
+App 按 AGPL 开源，否则买商业许可），`simhei.ttf` 是**中易专有黑体**（随包分发需授权）。
+这次一起换掉，PDF 导出能力不变。
+
+- **iText 7 → PDFBox-Android 2.0.27（Apache-2.0）**
+  - `PDFExporter` 重写为 PDFBox 版式：A4、36pt 边距、按可用宽度自动换行、到底自动翻页；
+    标题 / 导出时间 / 总数 / 题型分组 / 题干 / 元信息 / 选项 / 答案 / 解析 / 标签等逐项保留，
+    进度回调不变
+  - `AdvancedFileParserUtil` 的 PDF 文本抽取与文档信息改用 PDFBox（`PDFTextStripper`、
+    `PDDocumentInformation`）
+  - 移除 `com.itextpdf:itext7-core`；pdfbox-android 自带的 BouncyCastle `jdk15to18:1.72`
+    与项目已有 `jdk18on:1.76` 类重复，排掉旧的、统一用 1.76
+- **字体 simhei → Noto Sans SC（OFL-1.1）**：`assets/fonts/NotoSansSC-Regular.ttf`
+  （17.7 MB，`src/main/assets/fonts/` 被 ignore，用 `scripts/fetch-font.ps1` 获取；
+  已写入 BINARY_ASSETS.md）。内置字体缺失时退系统 `DroidSansFallback`，再没有就明确报错——
+  旧实现"字体加载失败就用默认字体"会静默导出满屏方框
+- **守卫**：`PdfExportStackTest` 三条——①源码里不许再出现 `com.itextpdf`；②PDFBox 类可加载；
+  ③用随包字体生成 PDF 再抽取，中文必须读得回（字体缺失时跳过）。变量字体存在康熙部首变体
+  （目 U+76EE / ⽬ U+2F6C），抽取结果用 NFKC 归一后断言，视觉不受影响
+- 全量单测 **723 全绿**（91 类，0 skipped / 0 failures / 0 errors）；`assembleDebug` 通过
+
 ## [2026-10-24] feat(shell)：WebView APK 壳新增电视直播基础设施（v9.11 / bridgeApi 6）
 
 给导出壳补上 IPTV 直播能力，HTML 应用不再依赖 WebView 的 m3u8 兼容性：

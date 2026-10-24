@@ -451,7 +451,16 @@ dependencies {
     implementation "org.apache.poi:poi:5.2.3"
     implementation "org.apache.poi:poi-ooxml:5.2.3"
     implementation "org.apache.poi:poi-scratchpad:5.2.3"
-    implementation "com.itextpdf:itext7-core:7.2.3"
+    // PDF 读写：PDFBox-Android（Apache-2.0）。**不要换回 iText 7**——iText 7 Core 是 AGPL-3.0，
+    // 分发即要求整个 App 按 AGPL 开源（或买商业许可）。PDFBox 只做 Apache-2.0 的等价能力。
+    // pdfbox-android 会带 bcprov/bcpkix/bcutil 的 jdk15to18:1.72，而项目里其它依赖已经有
+    // jdk18on:1.76（同一批类，包名相同）→ 不排掉就 "Duplicate class org.bouncycastle..." 打包失败。
+    // 排掉旧的 jdk15to18，统一用 jdk18on:1.76（Android 本来就是 Java 8+，API 兼容）。
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0") {
+        exclude group: 'org.bouncycastle', module: 'bcprov-jdk15to18'
+        exclude group: 'org.bouncycastle', module: 'bcpkix-jdk15to18'
+        exclude group: 'org.bouncycastle', module: 'bcutil-jdk15to18'
+    }
     implementation "com.google.code.gson:gson:2.10.1"
 
     // 阿里云百炼（DashScope）官方 Java SDK：在线 TTS/ASR 改用官方 SDK（2.22.28 已含 Qwen-TTS / CosyVoice / Qwen3-ASR）
