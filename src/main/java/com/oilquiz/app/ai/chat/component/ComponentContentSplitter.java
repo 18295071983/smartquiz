@@ -145,6 +145,15 @@ public class ComponentContentSplitter {
             props = htmlBodyFallback(body);
         }
         if (props == null) props = new org.json.JSONObject();
+        // 消息正文里内联的 component 标记本身就是正文：html 卡已从类型级"强制整卡"名单里摘出去
+        // 跟随用户默认档（2026-10-24），所以这里替它声明 inline——否则默认档是 peek 时，
+        // Agent 写在正文里的富文本/表格会收成一行，等于正文消失。模型自己给了 display 就尊重模型。
+        if (!props.has("display") && "html".equals(ComponentTypes.resolve(type))) {
+            try {
+                props.put("display", "inline");
+            } catch (Exception ignored) {
+            }
+        }
         segments.add(Segment.component(new ComponentData(type, props)));
     }
 

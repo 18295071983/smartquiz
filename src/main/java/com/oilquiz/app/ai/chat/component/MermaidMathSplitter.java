@@ -182,12 +182,20 @@ public class MermaidMathSplitter {
                 + "</body></html>";
     }
 
-    /** 构造 html 组件 props（html 内容 + 高度上限） */
+    /**
+     * 构造 html 组件 props（html 内容 + 高度上限 + 显示档）。
+     *
+     * <p>{@code display=inline} 是必须的（2026-10-24）：html 卡已从
+     * {@code ComponentDisplay.ALWAYS_INLINE_TYPES} 里摘出去跟随用户默认档，而流程图/公式
+     * 是**正文本身**——被收成一行就等于图没了。正文型生产者自己声明档位，
+     * 产物型（工作区 .html、工具结果里的 html 字段）不声明、交给默认档。</p>
+     */
     private static org.json.JSONObject htmlProps(String html) {
         org.json.JSONObject props = new org.json.JSONObject();
         try {
             props.put("html", html);
             props.put("maxHeight", 400);
+            props.put("display", "inline");
         } catch (Exception ignored) {
         }
         return props;

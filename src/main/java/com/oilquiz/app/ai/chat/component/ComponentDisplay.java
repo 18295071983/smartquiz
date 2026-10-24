@@ -63,12 +63,20 @@ public final class ComponentDisplay {
             "display:'inline|peek|hidden' 通用可选（放 props 内或顶层）：结果本身就是答案用 inline，"
                     + "过程性数据/长表格/图集用 peek（收成一行，用户点开才展开），"
                     + "刷屏又无价值用 hidden（不挂载）；交互类（按钮/表单/进度/答题）与正文类"
-                    + "（markdown/html/code）会被强制 inline，声明无效";
+                    + "（markdown/code）会被强制 inline，声明无效；网页卡(html)按默认档走，"
+                    + "要整卡展示就传 display=inline";
 
     /**
      * 永远整卡显示的类型：交互控件（收起就点不到）+ 实时状态（进度/任务监控折叠会丢可见反馈）
      * + 正文型卡片（折叠等于正文消失）。canonical 名与 alias 名都列进来，
      * 因为 {@code ComponentData.type} 存的是注册表 key（如 info_card），不保证是 canonical。
+     *
+     * <p><b>html 已从这个名单里摘掉（2026-10-24）</b>：自动挂的网页卡（工作区 .html 产物、
+     * 工具结果里的 html 字段）常常是一整页报表，硬摊开会把正文顶出屏幕，收成一行更合适。
+     * 而"折叠等于正文消失"那类 html——mermaid/katex 内置模板、消息里内联的 component 标记——
+     * 改由<b>生产者自己声明 {@code display=inline}</b>（见 {@code MermaidMathSplitter#htmlProps}
+     * 与 {@code ComponentContentSplitter}），不再靠类型名单一刀切：名单管不了"同一类型里
+     * 既有正文又有产物"这两种身份。带 {@code actions} 的 html 卡仍被强制 inline（下方通用规则）。</p>
      */
     private static final java.util.Set<String> ALWAYS_INLINE_TYPES = new java.util.HashSet<>(
             java.util.Arrays.asList(
@@ -84,8 +92,8 @@ public final class ComponentDisplay {
                     // 用户要拨的就是卡片本体，收起来等于把控件藏掉）
                     "toggle", "stepper", "slider_range", "tag_input",
                     "checkbox_group", "radio_group", "search_bar",
-                    // 正文与学习交互
-                    "markdown", "markdown_card", "html", "web", "code", "code_card",
+                    // 正文与学习交互（html 不在列，理由见上方注释）
+                    "markdown", "markdown_card", "code", "code_card",
                     "quiz", "quiz_card", "marquee"));
 
     /**
@@ -256,10 +264,27 @@ public final class ComponentDisplay {
         if (type != null && ALWAYS_INLINE_TYPES.contains(type)) return true;
         JSONObject props = comp.props;
         if (props == null) return false;
+        // 历史会话兼容：mermaid/katex 模板卡是在 html 退出名单之前持久化的，props 里没有 display，
+        // 直接跟随默认档会把流程图/公式收成一行（等于正文消失）。新数据由生产者声明 inline，
+        // 旧数据只能靠模板指纹认回来。
+        if ("html".equals(ComponentTypes.resolve(type)) && looksLikeTemplateHtml(props)) return true;
         // 任何带交互动作的卡片（提交/回调/链接按钮）都不可收起——收起后用户点不到，
         // 依赖 get_result 的链路会直接卡死
         return props.optJSONArray("actions") != null
                 || props.optJSONArray("buttons") != null;
+    }
+
+    /**
+     * 只看内容头部窗口里的模板指纹（{@link HtmlSandbox#looksLikeInternalTemplate}）。
+     * 这条跑在 RecyclerView 绑定路径上，不能对最长 512KB 的整串做小写化；
+     * 指纹（js/mermaid.min.js + class="mermaid"、css/katex.min.js + js/katex.min.js）
+     * 都在我们自己模板的 {@code <head>}/{@code <body>} 开头几百字符内。
+     */
+    private static boolean looksLikeTemplateHtml(JSONObject props) {
+        String html = props.optString("html", "");
+        if (html.isEmpty()) return false;
+        String window = html.length() > 1200 ? html.substring(0, 1200) : html;
+        return HtmlSandbox.looksLikeInternalTemplate(window);
     }
 
     /**
@@ -459,6 +484,14 @@ public final class ComponentDisplay {
                 if (percent >= 0) return percent + "%";
                 return label.isEmpty() ? null : label;
             }
+            case "html":
+            case "web": {
+                // 收起时只给一行：自动网页卡的标题就是文件名（ToolResultCardBinder#webCard），
+                // 有标题就别重复 url 尾部；没标题（模型内联 HTML）才退回 url 的文件名
+                if (!props.optString("title", "").trim().isEmpty()) return null;
+                String url = props.optString("url", "");
+                return url.isEmpty() ? null : shortTail(url);
+            }
             case "alert_card":
             case "alert":
             case "note_card":
@@ -466,8 +499,6 @@ public final class ComponentDisplay {
             case "quote":
             case "markdown_card":
             case "markdown":
-            case "html":
-            case "web":
             case "info_card":
             case "info": {
                 String content = firstNonEmpty(props.optString("content", ""),

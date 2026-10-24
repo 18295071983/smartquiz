@@ -1,5 +1,34 @@
 # 变更日志
 
+## [2026-10-24] feat(cards)：html 卡默认收成一行（peek），正文型生产者自己声明整卡
+
+上一条把 `.html` 产物自动挂成网页卡之后，卡片固定占 360dp 会把正文顶出屏幕——用户拍板改默认档。
+
+- **html 退出 `ComponentDisplay.ALWAYS_INLINE_TYPES`**：此前 html/web 与 markdown/code 一起被
+  "正文类"名单硬按成整卡，模型声明和用户默认档都压不动。现在网页卡跟随用户默认档
+  （出厂默认 peek：收成一行摘要，点开才展开）；显式传 `display` 仍然优先，
+  `display=inline/hidden` 照旧生效。
+- **两类"折叠等于正文消失"的 html 改由生产者声明 `display=inline`**（名单管不了同一类型里
+  既有正文又有产物这两种身份）：`MermaidMathSplitter.htmlProps`（mermaid 流程图 / katex 公式）、
+  `ComponentContentSplitter`（消息正文里内联的 ```component:html 标记，模型自己给了 display 时不覆盖）。
+  带 `actions` 的 html 卡仍被通用底线强制 inline——收起后按钮点不到，回传链会断。
+- **历史会话兼容**：以前持久化的 mermaid/katex 卡 props 里没有 `display`，直接跟随默认档会把
+  流程图收成一行（等于图没了）。`isAlwaysInline` 加了一条 html 模板指纹判定，
+  且**只在内容头部 1200 字符窗口里找**（这条跑在 RecyclerView 绑定路径上，不能对最长 512KB
+  的整串做小写化）；新数据仍靠生产者声明。
+- **peek 摘要行补 html 分支**：`TYPE_CN` 里有"网页"但 `peekDetail` 没有对应 case，收起时只会显示
+  "N 项数据"；现在自动网页卡显示文件名、无标题时显示"网页 · x.html"。
+- 验证：新增 `HtmlCardDisplayTest` 8 条（默认档生效 / display 声明优先 / 带 actions 不许收 /
+  旧模板数据靠指纹仍整卡 / peek 摘要不是"N 项数据" / mermaid 模板确实带 inline /
+  内联标记只对 html 加 display / **抽屉开关整条链路**：`setDefaultTier("inline")` 写进 prefs →
+  `defaultTier` 读回 → `resolve` 把网页卡切回整卡，非法值按 peek 落盘）。
+  `ComponentDisplayTest` 12 条不受影响；全量 754 tests / 0 skipped / 0 failures / 0 errors。
+- **没改出厂默认档**：`defaultTier` 的兜底仍是 peek。把出厂档翻成 inline 会一次性把所有自动卡片
+  重新摊开（表格/图集/长列表），正好抵掉这轮"网页卡不再刷屏"的目的；要整卡的用户在抽屉里点一下就有，
+  不需要动出厂值。
+  真机待验：① 长网页报告收成一行、点开能展开且不丢滚动位置；② mermaid/katex 仍直接整卡出图；
+  ③ 把默认档设成 inline 后网页卡回到整卡。
+
 ## [2026-10-24] fix(html-card)：网页卡按真实档位说清，并接上 .html 产物的自动生产者
 
 审了一轮 html 卡（渲染链 `HtmlCardView` → `HtmlWebView` + `HtmlSandbox` 四档信任），
