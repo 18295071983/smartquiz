@@ -1,5 +1,36 @@
 # 变更日志
 
+## [2026-10-25] fix(attachment)：Agent 增强消息与真实工具集对齐（去幽灵工具名 / Qwen 字面量）
+
+附件进 Agent 引擎的文本通道（`AttachmentPromptBuilder#buildAgentAugmentedMessage`）一直点名两个
+**从未注册**的工具：`file_parse_text` / `file_read_lines`。真实工具是 `file_reader`（按行读 =
+action=read_lines、解析表格 = action=parse_structured）与 `ocr_recognize`（识别图片 =
+action=ocr_recognize、识别 PDF = action=ocr_recognize_pdf、看图 = action=image_understand）。
+在线 Agent 照提示词点名只能拿到「工具不存在」；本地 Agent 常驻工具只有 4 个，更无从调起。
+同一段提示词还把 Qwen 原生 `<|tool_call_begin|>ai_weather|{...}` 调用格式字面量塞进在线
+OpenAI tools 路径，协议串味。
+
+- **单点收口**：`buildAgentAugmentedMessage` 新增 `boolean fileToolsAvailable` 入参。
+  在线模型传 true → 工具指引只用真实工具名，并按真实 schema 写 action/参数；
+  本地模型传 false → 整段工具指引不出现（本地 native PEG 按 tools 数组逐字枚举，未注入的名字
+  根本生成不出来），截断/成功摘要改用「基于摘录回答，必要时请用户分段发送」的文案。
+- **删掉 Qwen 调用格式字面量**（含资源 `h_db5abb31`）：调用格式归各引擎所有，提示词不再描述。
+- **工具集兜底**：新增 `AttachmentToolHints`（提示词 → 本轮必备工具名识别：locale 无关，
+  只认真实注册名，幽灵名不再触发）；`OnlineAgentEngine#execute` 组装本轮 core tools 时把提示词
+  点名的 `file_reader` / `ocr_recognize` 补进去 —— 提示词点名的工具必须真的在 tools 里，
+  否则模型点名只会拿到「工具不存在」。（`OnlineToolManager` 那套按关键词注入的工具方法是
+  **零调用方**的旧代码，本次未动。）
+- **i18n 同步**：`values/`、`values-en/`、`values-zh-rTW/` 三份 `strings_migrated.xml` 与
+  `tools/i18n_migrate/translations_{zh,en,tw}.tsv` 一起改；新增 `h_d6d43061`（本地模式截断后缀）、
+  `h_98c42f39`（本地模式成功摘要），删除 `h_db5abb31`。
+- **验证**：新增 `AttachmentPromptBuilderTest` 7 条 + `AttachmentToolHintsTest` 6 条（在线点名
+  真实工具 / 无 Qwen 字面量、本地零工具指引、提示词→工具识别（含幽灵名不触发、action 名命中
+  所属工具）、在线/本地截断分支、在线/本地失败分支、跳过文件）；全量
+  `testDebugUnitTest --offline` **919 tests / 0 skipped / 0 failures / 0 errors**；
+  `assembleDebug --offline` 通过（答题宝-debug-2.0.apk 04:39:36），已装机（279b6c51）。
+  未做真机对话复测：本次只改提示词内容与工具注入，无 UI/渲染改动；要复测就在聊天页发一个文件
+  附件，看 Agent 是否直接基于摘录回答、需要时调 `file_reader` 而不是报「工具不存在」。
+
 ## [2026-10-25] fix(chat-parts)：折叠头只显示状态；思考正文实时整块刷新
 
 用户定稿："不刮了，切换显示就行了。折叠头显示状态就行。"（打字机效果试过一版，用户要求回退，

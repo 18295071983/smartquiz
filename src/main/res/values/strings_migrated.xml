@@ -275,22 +275,23 @@
     <string name="h_1e7d25f8">  内容如下:\n</string>
     <string name="h_24984e0c">--- 附件内容开始 ---\n</string>
     <string name="h_55a2a38e">\n...(内容过长已截断，完整内容共 </string>
-    <string name="h_6b35290e"> 字符，可用 file_read_lines 工具读取本地路径获取剩余部分)\n</string>
+    <string name="h_6b35290e"> 字符，可用 file_reader（action=read_lines）读取本地路径获取剩余部分)\n</string>
+    <string name="h_d6d43061"> 字符，内容已截断；请基于已提供内容回答，必要时提示用户分段发送)\n</string>
     <string name="h_dae5a2ac">--- 附件内容结束 ---\n</string>
     <string name="h_bf63260f">  解析状态: FAILED\n</string>
     <string name="h_5d89be82">  错误码: </string>
     <string name="h_41d16b3d">  失败原因: </string>
-    <string name="h_cad33dfa">  可选操作: 可尝试用工具重新解析（file_parse_text/ocr_recognize）\n</string>
+    <string name="h_cad33dfa">  可选操作: 可尝试用工具重新解析（file_reader 读取文件 / ocr_recognize 识别图片文字或 PDF）\n</string>
     <string name="h_03670db5">  失败原因: 未获取到解析结果\n</string>
     <string name="h_d7824330">⚠️ 以下文件已跳过: </string>
     <string name="h_9e0ee86a">=== 重要规则 ===\n</string>
     <string name="h_ee31e1e3">- 以上 </string>
-    <string name="h_fe85860b"> 个附件的内容已由系统解析并摘录提供（可能不完整；多工作表表格仅展示系统判定的主表）。这是摘要而非全文，如需核对原始内容、工作表结构或字段，请重新调用解析工具读取\n</string>
+    <string name="h_fe85860b"> 个附件的内容已由系统解析并摘录提供（可能不完整；多工作表表格仅展示系统判定的主表）。这是摘要而非全文，如需核对原始内容、工作表结构或字段，请用 file_reader 读取上面的本地路径\n</string>
+    <string name="h_98c42f39"> 个附件的内容已由系统解析并摘录提供（可能不完整；多工作表表格仅展示系统判定的主表）。这是摘要而非全文；当前模式没有可用的文件解析工具，请基于摘录回答，必要时提示用户分段发送或重新上传\n</string>
     <string name="h_f6a98d86">- 附件确实已上传，严禁说“未检测到附件”或要求用户重新上传\n</string>
     <string name="h_447064b9">- 若某附件解析失败，向用户说明具体失败原因（见错误码），并给出建议\n</string>
-    <string name="h_30890ceb">- 若内容被截断且需要完整内容，可用 file_read_lines 工具按行读取本地路径\n\n</string>
+    <string name="h_30890ceb">- 若内容被截断且需要完整内容，可用 file_reader（action=read_lines）按行读取上面的本地路径\n\n</string>
     <string name="h_b07b6bc9">=== 备用工具（仅在内容截断或需重试时使用） ===\n</string>
-    <string name="h_db5abb31">调用格式: &lt;|tool_call_begin|&gt;ai_weather|{\&quot;city\&quot;: \&quot;银川\&quot;}&lt;|tool_call_end|&gt;\n</string>
     <string name="h_cf88fe4b">请基于附件内容回答用户问题。</string>
     <string name="h_926e80d4">开始分析。</string>
     <string name="h_a234ecf9">=== 文件: </string>

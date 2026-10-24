@@ -2273,6 +2273,32 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 7. **遗留**：`ActivityTimeline#preview` 仍是摘要口径的精简版（注释里的"S2 共用这份"应并到
    `ThinkingPreview`）；方案 B（在线也并入 `GenSignal` 契约）未做。
 
+### 4.103 fix(attachment)：Agent 增强消息与真实工具集对齐（2026-10-25）
+
+1. **问题（用户问"附件适配器接到 agent 引擎了吗"）**：文本通道接线在，但
+   `AttachmentPromptBuilder#buildAgentAugmentedMessage` 点名的 `file_parse_text` /
+   `file_read_lines` 从未注册；真实工具是 `file_reader`（按行读 = action=read_lines、解析表格 =
+   action=parse_structured）与 `ocr_recognize`（action=ocr_recognize / ocr_recognize_pdf /
+   image_understand）。在线 Agent 照提示词点名只会拿到「工具不存在」；本地 Agent 常驻工具只有
+   4 个（time_date/location/ai_weather/network_search），更无从调起。另外同一段提示词把 Qwen
+   原生 `<|tool_call_begin|>ai_weather|{...}` 调用格式字面量塞进了在线 OpenAI tools 路径。
+2. **改法**：`buildAgentAugmentedMessage` 增加 `boolean fileToolsAvailable` 入参——
+   在线=true 只写真实工具名/action；本地=false 整段工具指引不出现（本地 native PEG 按 tools
+   数组逐字枚举，未注入的名字生成不出来），截断/成功摘要换成"基于摘录回答、必要时让用户分段
+   发送"。删除 Qwen 调用格式字面量（资源 `h_db5abb31`）。`AIChatActivity` 用
+   `shouldUseOnlineModel()` 传入；新增 `AttachmentToolHints`（提示词 → 工具名识别，locale 无关、
+   只认真实注册名），`OnlineAgentEngine#execute` 组装本轮 core tools 时把点名的
+   file_reader/ocr_recognize 补进去。注意：`OnlineToolManager#getToolDefinitionsForMessageAndCore`
+   是零调用方的旧方法，别指望它生效（本轮一度改在那里，编译能过但实际不接线上）。
+3. **i18n**：`values/`、`values-en/`、`values-zh-rTW/` 三份 `strings_migrated.xml` 与
+   `tools/i18n_migrate/translations_{zh,en,tw}.tsv` 同步；新增 `h_d6d43061`（本地模式截断
+   后缀）、`h_98c42f39`（本地模式成功摘要），删除 `h_db5abb31`。
+4. **验证**：`AttachmentPromptBuilderTest` 7 条 + `AttachmentToolHintsTest` 6 条；全量
+   `testDebugUnitTest --offline` **919 / 0 skipped / 0 failures / 0 errors**；`assembleDebug
+   --offline` 通过（APK 04:39:36），已装机 279b6c51。
+5. **未做**：图片"看图"通道（`routeImagesToVision` 直连视觉推理）仍不进 Agent 引擎——属既有
+   产品取舍；要并进去需把引擎 user content 从 string 改成 parts（另立任务）。
+
 ---
 
 ## 5. 关键文件 / 改动地图

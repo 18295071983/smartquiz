@@ -604,6 +604,12 @@ public class OnlineAgentEngine {
         // 其余（weather/file_generator/task/memory/knowledge_base/permission/control…）一律走
         // tool_registry 发现 + getToolDefinitionsForMessageAndCore 关键词意图按需注入（能力不降，每轮省 ~12K）
         java.util.Set<String> coreTools = new java.util.LinkedHashSet<>(CORE_TOOLS);
+        // 附件增强消息（AttachmentPromptBuilder）会点名 file_reader / ocr_recognize：
+        // 提示词里出现的工具必须在**本轮** tools 里真实可用，否则模型照着提示词点名只会拿到
+        // 「工具不存在」。用工具名本身做触发词（英文/繁中 locale 的提示词里名字一致），
+        // 只认真实注册名；本地 Agent 走自己的 4 工具集，不经过这里。
+        coreTools.addAll(com.oilquiz.app.ai.chat.attachment.AttachmentToolHints
+                .mentionedTools(effectiveUserMessage));
         // 模型驱动工具注入（2026-09-23 v4，dsh-agent-loop 对齐）：
         // 每轮 tools = 核心 6（稳定前缀，缓存命中）+ 高频预载（≤2）+ 本轮调用即注册。
         // 零预判——不按关键词/KB/意图注入工具；模型要新工具 → tool_registry(get) 发现，

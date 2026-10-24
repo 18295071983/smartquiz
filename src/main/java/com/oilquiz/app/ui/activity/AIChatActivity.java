@@ -4292,12 +4292,18 @@ public class AIChatActivity extends BaseActivity {
     /**
      * Agent 增强消息（落盘路径 + 预解析确定性状态）：实现见 AttachmentPromptBuilder，
      * 与本地 OCR 路径共用同一份截断阈值（单文件 12000 字），不再两处各写一遍。
+     *
+     * <p>工具指引按引擎能力给：在线 Agent 有 file_reader/ocr_recognize
+     * （AttachmentToolHints 会从提示词里识别出工具名，OnlineAgentEngine 组装本轮 tools 时补进去）；
+     * 本地 Agent 的常驻工具只有 time_date/location/ai_weather/network_search，传 false 后
+     * 提示词不再点名工具，避免模型去调不存在的工具。</p>
      */
     private String buildAgentAugmentedMessage(String originalMessage, List<ChatMessage.Attachment> attachments,
                                                java.util.Map<Uri, String> localFileMap, List<String> skippedFiles,
                                                java.util.Map<String, com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult> parseResults) {
         return getAttachmentPromptBuilder().buildAgentAugmentedMessage(
-                originalMessage, attachments, localFileMap, skippedFiles, parseResults);
+                originalMessage, attachments, localFileMap, skippedFiles, parseResults,
+                shouldUseOnlineModel());
     }
 
     private String formatFileSize(long size) {

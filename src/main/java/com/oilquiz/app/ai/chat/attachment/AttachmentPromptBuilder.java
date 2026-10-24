@@ -192,10 +192,26 @@ public class AttachmentPromptBuilder {
         return sb.toString();
     }
 
-    /** 构建 Agent 增强消息（落盘路径 + 预解析结果 → 上下文） */
+    /**
+     * 构建 Agent 增强消息（落盘路径 + 预解析结果 → 上下文）。
+     *
+     * <p>提示词里点名的工具必须是 {@code AIToolManager} 真实注册的工具名（{@code file_reader}
+     * 的 read_lines / parse_structured / read，{@code ocr_recognize} 的 ocr_recognize /
+     * ocr_recognize_pdf / image_understand），否则模型照提示词点名只会拿到「工具不存在」。
+     * 这里也不再手写任何「调用格式」字面量：在线 Agent 走 OpenAI tools 协议、本地 Agent 走
+     * Qwen 原生 &lt;tool_call&gt; 协议，调用格式由各自引擎决定，提示词只描述工具能力。</p>
+     *
+     * @param fileToolsAvailable 本轮 Agent 引擎是否真的带文件/OCR 工具。在线 Agent 传 true
+     *        （附件消息里点名的工具会由 {@code OnlineAgentEngine#execute} 补进本轮核心 tools，
+     *        见 {@link AttachmentToolHints}）；本地 Agent 的常驻工具只有
+     *        time_date/location/ai_weather/network_search，传 false —— 否则提示词会让
+     *        模型去调它 schema 里根本没有的工具（本地 native PEG 按 tools 数组逐字枚举，
+     *        未注入的工具名根本生成不出来）。
+     */
     public String buildAgentAugmentedMessage(String originalMessage, List<ChatMessage.Attachment> attachments,
                                              Map<Uri, String> localFileMap, List<String> skippedFiles,
-                                             Map<String, AttachmentPreParser.ParseResult> parseResults) {
+                                             Map<String, AttachmentPreParser.ParseResult> parseResults,
+                                             boolean fileToolsAvailable) {
         StringBuilder sb = new StringBuilder();
         sb.append(AppServices.strings().get(R.string.h_793176ee)).append(originalMessage).append("\n\n");
         sb.append(AppServices.strings().get(R.string.h_11214c64));
@@ -231,7 +247,8 @@ public class AttachmentPromptBuilder {
                 if (content.length() > maxLen) {
                     sb.append(content, 0, maxLen);
                     sb.append(AppServices.strings().get(R.string.h_55a2a38e)).append(content.length())
-                      .append(AppServices.strings().get(R.string.h_6b35290e));
+                      .append(AppServices.strings().get(fileToolsAvailable
+                              ? R.string.h_6b35290e : R.string.h_d6d43061));
                 } else {
                     sb.append(content).append("\n");
                 }
@@ -241,7 +258,8 @@ public class AttachmentPromptBuilder {
                 if (r != null) {
                     sb.append(AppServices.strings().get(R.string.h_5d89be82)).append(r.errorCode).append("\n");
                     sb.append(AppServices.strings().get(R.string.h_41d16b3d)).append(r.errorMessage).append("\n");
-                    if (localPath != null) {
+                    // 重试指引只在引擎真有工具时给；本地 Agent 没有文件/OCR 工具，给了只会让模型空转
+                    if (localPath != null && fileToolsAvailable) {
                         sb.append(AppServices.strings().get(R.string.h_cad33dfa));
                     }
                 } else {
@@ -258,16 +276,23 @@ public class AttachmentPromptBuilder {
 
         sb.append(AppServices.strings().get(R.string.h_9e0ee86a));
         if (successCount > 0) {
-            sb.append(AppServices.strings().get(R.string.h_ee31e1e3)).append(successCount).append(AppServices.strings().get(R.string.h_fe85860b));
+            sb.append(AppServices.strings().get(R.string.h_ee31e1e3)).append(successCount)
+              .append(AppServices.strings().get(fileToolsAvailable
+                      ? R.string.h_fe85860b : R.string.h_98c42f39));
         }
         sb.append(AppServices.strings().get(R.string.h_f6a98d86));
         sb.append(AppServices.strings().get(R.string.h_447064b9));
-        sb.append(AppServices.strings().get(R.string.h_30890ceb));
 
-        sb.append(AppServices.strings().get(R.string.h_b07b6bc9));
-        sb.append(AppServices.strings().get(R.string.h_db5abb31));
-        sb.append("- file_parse_text: file_path | file_read_lines: file_path, start_line, line_count\n");
-        sb.append("- ocr_recognize: image_path | ocr_recognize_pdf: pdf_path\n\n");
+        // 工具指引只在引擎真有这些工具时给（在线 Agent）。工具名与 action 必须按真实 schema 写：
+        // file_reader 的 action=read_lines/parse_structured/read，ocr_recognize 的
+        // action=ocr_recognize/ocr_recognize_pdf/image_understand。不写任何调用格式字面量 ——
+        // 在线引擎是 OpenAI tools、本地引擎是 Qwen 原生协议，格式由各自引擎负责。
+        if (fileToolsAvailable) {
+            sb.append(AppServices.strings().get(R.string.h_30890ceb));
+            sb.append(AppServices.strings().get(R.string.h_b07b6bc9));
+            sb.append("- file_reader：action=read_lines（file_path=上面的本地路径，start_line/end_line 指定行区间）按行读取；action=parse_structured 解析表格/CSV/JSON/XML；action=read 读取全文\n");
+            sb.append("- ocr_recognize：action=ocr_recognize（image_path=图片路径）识别图片文字；action=ocr_recognize_pdf（pdf_path=PDF 路径）识别 PDF 文字；action=image_understand（image_path+question）看图理解\n\n");
+        }
 
         if (!DEFAULT_ATTACHMENT_MESSAGE.equals(originalMessage)) {
             sb.append(AppServices.strings().get(R.string.h_cf88fe4b));
