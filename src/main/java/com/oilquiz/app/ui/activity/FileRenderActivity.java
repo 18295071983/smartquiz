@@ -28,9 +28,12 @@ import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.ai.chat.render.MarkdownDocView;
 import com.oilquiz.app.ui.base.BaseActivity;
 import com.oilquiz.app.util.PreviewRenderBridge;
+import com.oilquiz.app.util.render.FileEncodingUtil;
 import com.oilquiz.app.util.render.FileRenderEngine;
+import com.oilquiz.app.util.render.MarkdownRenderEngine;
 
 import java.io.File;
 import java.io.IOException;
@@ -42,6 +45,9 @@ public class FileRenderActivity extends BaseActivity {
     public static final String EXTRA_FILE_PATH = "file_path";
     public static final String EXTRA_FILE_URI = "file_uri";
 
+    /** md 全文上限（字符）：整篇文档视图不再按引擎的 1 万字符截断，但也不吃下超大文件 */
+    private static final int MARKDOWN_MAX_CHARS = 2_000_000;
+
     private MaterialToolbar toolbar;
     private LinearLayout loadingLayout;
     private ProgressBar progressHorizontal;
@@ -51,6 +57,7 @@ public class FileRenderActivity extends BaseActivity {
     private PhotoView ivImage;
     private TextView tvText;
     private WebView wvHtml;
+    private MarkdownDocView mdDoc;
     private LinearLayout errorLayout;
     private TextView tvErrorTitle;
     private TextView tvErrorMessage;
@@ -85,6 +92,7 @@ public class FileRenderActivity extends BaseActivity {
         ivImage = findViewById(R.id.iv_image);
         tvText = findViewById(R.id.tv_text);
         wvHtml = findViewById(R.id.wv_html);
+        mdDoc = findViewById(R.id.md_doc);
         errorLayout = findViewById(R.id.error_layout);
         tvErrorTitle = findViewById(R.id.tv_error_title);
         tvErrorMessage = findViewById(R.id.tv_error_message);
@@ -184,6 +192,15 @@ public class FileRenderActivity extends BaseActivity {
             Log.d(TAG, "未找到适合的引擎");
         }
 
+        // .md 分支（2026-10-25）：工厂把 md/markdown/mdown/mkd/mkdn 交给 MarkdownRenderEngine，
+        // 它产出的是 flexmark 片段，塞进通用 WebView 后没有版式/公式，且正文按 1 万字符截断。
+        // 整篇文档改交 MarkdownDocView（markdown-it + footnote/deflist/tasklists + KaTeX +
+        // highlight.js，与 markdown_doc 卡片、开源许可页同源），相对图片按 md 所在目录解析。
+        if (engine instanceof MarkdownRenderEngine) {
+            renderMarkdownDoc(file);
+            return;
+        }
+
         previewRenderBridge.renderFile(file, new PreviewRenderBridge.PreviewCallback() {
             @Override
             public void onSuccess(Object previewContent) {
@@ -217,6 +234,43 @@ public class FileRenderActivity extends BaseActivity {
         });
     }
 
+    /** .md 分支：后台读全文（UTF-8 优先、GBK 回退），再交 MarkdownDocView 渲染。 */
+    private void renderMarkdownDoc(final File file) {
+        new Thread(() -> {
+            String markdown;
+            try {
+                markdown = FileEncodingUtil.readText(file, MARKDOWN_MAX_CHARS);
+            } catch (Throwable t) {
+                Log.e(TAG, "读取 Markdown 失败: " + t.getMessage(), t);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    showError("渲染失败", "无法读取 Markdown 文件: " + t.getMessage());
+                });
+                return;
+            }
+            final String content = markdown;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (content == null || content.trim().isEmpty()) {
+                    showError("文档为空", "该 Markdown 文件没有正文");
+                    return;
+                }
+                hideLoading();
+                displayMarkdownDoc(content, file);
+            });
+        }, "md-render").start();
+    }
+
+    /** 整篇 md 交 MarkdownDocView：base 用 md 所在目录，文档里的相对图片才能显示。 */
+    private void displayMarkdownDoc(String markdown, File file) {
+        if (mdDoc == null) {
+            showError("渲染失败", "Markdown 视图不可用");
+            return;
+        }
+        mdDoc.setMarkdownForFile(markdown, file);
+        mdDoc.setVisibility(View.VISIBLE);
+    }
+
     private void showLoading() {
         loadingLayout.setVisibility(View.VISIBLE);
         contentLayout.setVisibility(View.GONE);
@@ -244,6 +298,9 @@ public class FileRenderActivity extends BaseActivity {
         ivImage.setVisibility(View.GONE);
         tvText.setVisibility(View.GONE);
         wvHtml.setVisibility(View.GONE);
+        if (mdDoc != null) {
+            mdDoc.setVisibility(View.GONE);
+        }
         hideVideoView();
         hideAudioPlayer();
 
@@ -552,6 +609,14 @@ public class FileRenderActivity extends BaseActivity {
     protected void onDestroy() {
         hideVideoView();
         hideAudioPlayer();
+        try {
+            if (mdDoc != null) {
+                mdDoc.stopLoading();
+                mdDoc.destroy();
+            }
+        } catch (Throwable ignored) {
+        }
+        mdDoc = null;
         super.onDestroy();
     }
 

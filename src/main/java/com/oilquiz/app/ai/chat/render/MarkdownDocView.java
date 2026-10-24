@@ -12,12 +12,15 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import java.io.File;
 import java.util.Locale;
 
 /**
  * 整篇 Markdown 文档的阅读视图（2026-10-25）。
  *
- * <p>用途：开源许可 / 隐私政策这类"随包 md 文档"页面。此前用 Markwon 渲进 TextView，
+ * <p>用途：开源许可 / 隐私政策这类"随包 md 文档"页面，以及 2026-10-25 起的整篇 md
+ * 文件预览（FileRenderActivity，{@link #setMarkdownForFile(String, java.io.File)}）。
+ * 此前用 Markwon 渲进 TextView，
  * 表格、长代码块、脚注、公式都会退化，而且没有页面级排版；这里直接复用
  * {@link MarkdownDocPage}（markdown-it + 插件 + KaTeX + highlight.js）生成的单文件 HTML，
  * 交 WebView 渲染，排版与 {@code markdown_doc} 卡片完全同源。</p>
@@ -26,6 +29,8 @@ import java.util.Locale;
  * 外链一律交给系统浏览器，file/javascript 等协议一律拦掉。</p>
  */
 public class MarkdownDocView extends WebView {
+
+    private static final String ASSET_BASE = "file:///android_asset/";
 
     public MarkdownDocView(Context context) {
         super(context);
@@ -71,16 +76,56 @@ public class MarkdownDocView extends WebView {
         });
     }
 
-    /** 渲染整篇 markdown（night=深色）。 */
+    /** 渲染整篇 markdown（night=深色）；base 为 assets，相对图片按工作区解析。 */
     public void setMarkdown(String markdown, boolean night) {
-        String page;
+        load(pageOf(markdown, night, true), ASSET_BASE);
+    }
+
+    /**
+     * 文件预览：整篇 md 文件，相对图片按 md 所在目录解析（{@link #fileBaseUrl(File)}），
+     * 主题跟随系统深浅色。
+     *
+     * <p>与 {@link #setMarkdown(String, boolean)} 的区别：文件里的 {@code ![](./a.png)} 是相对
+     * md 自己所在目录，而不是应用工作区，所以不能走工作区改写，交给 baseUrl 解析。</p>
+     */
+    public void setMarkdownForFile(String markdown, File mdFile) {
+        load(pageOf(markdown, isNightMode(getContext()), false), fileBaseUrl(mdFile));
+    }
+
+    private String pageOf(String markdown, boolean night, boolean resolveWorkspaceImages) {
         try {
-            page = MarkdownDocPage.buildForScreen(getContext(), markdown, night);
+            return MarkdownDocPage.buildForScreen(getContext(), markdown, night, resolveWorkspaceImages);
         } catch (Throwable t) {
-            page = "<!DOCTYPE html><html><body style=\"padding:16px;font-family:sans-serif\">"
+            return "<!DOCTYPE html><html><body style=\"padding:16px;font-family:sans-serif\">"
                     + "文档渲染失败：" + escape(t.getMessage()) + "</body></html>";
         }
-        loadDataWithBaseURL("file:///android_asset/", page, "text/html", "UTF-8", null);
+    }
+
+    private void load(String page, String baseUrl) {
+        loadDataWithBaseURL(baseUrl, page, "text/html", "UTF-8", null);
+    }
+
+    /** md 文件所在目录的 file:// base（相对图片用）；无父目录时退回 assets。 */
+    static String fileBaseUrl(File mdFile) {
+        try {
+            File dir = mdFile == null ? null : mdFile.getAbsoluteFile().getParentFile();
+            if (dir == null) return ASSET_BASE;
+            String url = Uri.fromFile(dir).toString();
+            return url.endsWith("/") ? url : url + "/";
+        } catch (Throwable t) {
+            return ASSET_BASE;
+        }
+    }
+
+    /** 系统是否深色主题（文件预览没有自己的主题开关，跟随系统）。 */
+    static boolean isNightMode(Context context) {
+        try {
+            return (context.getResources().getConfiguration().uiMode
+                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                    == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     private boolean handleUrl(String url) {

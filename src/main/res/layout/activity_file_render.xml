@@ -63,6 +63,14 @@
                 android:layout_height="@dimen/size_0"
                 android:layout_weight="1"
                 android:visibility="gone"/>
+
+            <!-- 整篇 Markdown：与 markdown_doc 卡片/开源许可页同源（markdown-it + KaTeX + highlight.js） -->
+            <com.oilquiz.app.ai.chat.render.MarkdownDocView
+                android:id="@+id/md_doc"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/size_0"
+                android:layout_weight="1"
+                android:visibility="gone"/>
         </LinearLayout>
 
         <!-- 加载态叠加层 -->

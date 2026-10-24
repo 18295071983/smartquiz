@@ -1,5 +1,33 @@
 # 变更日志
 
+## [2026-10-25] feat(file-preview)：FileRenderActivity 的 .md 走 MarkdownDocView + md 缩略图改离屏截图
+
+文件预览入口此前对 `.md` 只有一条路：`PreviewRenderBridge.RenderEngineFactory.getEngineForFile`
+把 md/markdown/mdown/mkd/mkdn 交给 `MarkdownRenderEngine`，产出 flexmark 片段塞进通用
+`WebView`（`wv_html`）——没有版式，公式/脚注/任务列表全退化，正文还按 1 万字符截断。
+
+- **FileRenderActivity**：先取工厂返回的引擎，`instanceof MarkdownRenderEngine` 时改交
+  `MarkdownDocView`（markdown-it + footnote/deflist/tasklists + KaTeX + highlight.js，
+  与 `markdown_doc` 卡、开源许可页同源）。正文后台线程读取（UTF-8 优先、GBK 回退，上限
+  200 万字符），布局新增 `md_doc`，`onDestroy` 里 stopLoading + destroy。
+- **MarkdownDocView**：新增 `setMarkdownForFile(markdown, mdFile)` —— baseUrl 取 md 所在
+  目录（`file://<dir>/`），相对图片按文件目录解析而不是工作区；主题跟随系统深浅色。
+- **MarkdownPreviewEngine**：缩略图从"正则转 HTML → `Html.fromHtml` 去标签 →
+  `Canvas.drawText` 逐行画"改为 `MarkdownDocPage` 单文件 HTML + 离屏 WebView 截图
+  （软件层 + measure/layout + draw，与 `WebRenderTool` 同一做法）：按屏宽（上限 1080、
+  4:3）截完缩到 720px 宽，按内容哈希缓存；读文件/建页面在后台线程，WebView 建/画在主线程。
+  等待页面完成必须用 `MAIN.postDelayed` 而不是 `view.postDelayed` —— 这个 WebView 从没
+  attach 到窗口，后者会进 attach 前的 RunQueue 永不执行（首版真机 12s 超时才出图，改后 435ms）。
+- **未动**：`WebViewFilePreviewActivity` 保持原样；`WebViewActivity` 的文件阅读工具条
+  （文件名/字号/分享/用其他应用打开）保留。
+- **验证**：新增 `MarkdownDocPageTest` 5 条、`MarkdownPreviewEngineTest` 3 条；全量
+  `testDebugUnitTest --offline --rerun` **884 tests / 0 skipped / 0 failures / 0 errors**；
+  `assembleDebug` BUILD SUCCESSFUL，APK 02:38:26 已装机。真机 工具集 → 文件预览工具 →
+  文件渲染 → 选择文件 走通 .md：标题/表格/块级与行内公式/代码块（复制按钮）/任务列表/脚注
+  全部正常。缩略图目前没有 UI 入口（`PreviewViewModel.previewFile` 无人调用），新增
+  `MarkdownThumbnailDeviceTest` 真机 instrument 跑通：720×960、非全白（ink>0.5%）、
+  截图可 `adb pull` 肉眼确认排版。
+
 ## [2026-10-25] fix(chat-markdown)：主气泡表格改用滚动容器 + 脚注预处理
 
 主气泡仍走 `MarkdownHtmlConverter`（commonmark + GFM tables/strikethrough），
