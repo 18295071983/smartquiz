@@ -150,12 +150,12 @@ public class ChatInputBar extends LinearLayout {
 
     /** 推理状态机阶段（等待响应 / 思考中 / 生成中）；null 或空串隐藏该段 */
     public void setInferencePhase(CharSequence phase) {
-        setSegment(genInfer, phase, " · ", true);
+        setSegment(genInfer, phase, " · 推理 ", true);
     }
 
     /** 模型状态机（就绪 / 加载模型… / 初始化失败）；null 或空串隐藏该段 */
     public void setModelState(CharSequence modelState) {
-        setSegment(genModel, modelState, " · ", true);
+        setSegment(genModel, modelState, " · 模型 ", true);
     }
 
     /** 余额（最右端）；null 或空串隐藏 */
