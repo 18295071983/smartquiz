@@ -2734,6 +2734,15 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
     改为正向契约：6 个时间档位的精确文案 + 档位互不重复 + ≤10 字 + 以 `…` 收尾 +
     **不含阿拉伯数字**（内部计数回流最先体现在数字）+ 同耗时结果稳定；轮号参数已删，
     属编译期约束。全量 **971 / 0 skipped / 0 failures / 0 errors**；仅测试改动，APK 无变化。
+19. **状态系统审计（同日第十四轮，用户："你在排查一下，看看还有问题吗"）**：发现并修复 5 个问题：
+    ① 工具卡文案推进不刷新（只在底部更新）→ 文案变化时 `notifyStreamingStatusRebind()`；
+    ② 停止后误报"已完成"（cancel 竞态）→ `userStoppedCurrentGeneration` 在 stopGeneration
+    一开始置位，完成回调不再改写；③ 迟到阶段回调覆盖完成态 → `markStreamingPhase` 加
+    `isGenerating` 守卫；④ 旧工具 RUNNING 消息卡住新一轮状态行 → 只认
+    `timestamp >= generationStartTime`；⑤ 底部状态行文字可能溢出 → XML `maxWidth=180dp +
+    ellipsize=end`。附带：`AgentActivityBus` 加会话号与同名嵌套深度（停止后立刻重试同一工具、
+    工具内部嵌套调用都不会互相误清）。新增 2 条总线回归用例；全量 **973 / 0 skipped /
+    0 failures / 0 errors**；APK 07:49:58 已装机，未做真机验证。设计文档 §11。
 
 ---
 

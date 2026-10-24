@@ -153,6 +153,38 @@ public class AgentActivityKindTest {
     }
 
     @Test
+    public void 同名工具嵌套_内层结束不提前清掉外层() {
+        AgentActivityBus.clear();
+        AgentActivityBus.started("python_execute");
+        AgentActivityBus.started("python_execute"); // 工具内部再次调用同名 executeTool
+        assertTrue(AgentActivityBus.isRunning());
+        AgentActivityBus.finished("python_execute"); // 内层结束
+        assertTrue("内层结束不能让外层从总线上消失", AgentActivityBus.isRunning());
+        assertNotNull(AgentActivityBus.current());
+        AgentActivityBus.finished("python_execute"); // 外层结束
+        assertFalse(AgentActivityBus.isRunning());
+        AgentActivityBus.clear();
+    }
+
+    @Test
+    public void 旧会话迟到的结束_不会清掉新会话活动() {
+        AgentActivityBus.clear();
+        // 旧会话：工具还在跑时用户停止并立刻发新消息（新一轮换会话号）
+        long oldSession = AgentActivityBus.started("python_execute", null);
+        AgentActivityBus.newSession();
+        AgentActivityBus.started("python_execute", null);
+        assertTrue(AgentActivityBus.isRunning());
+        // 旧会话里那个工具此刻才结束：不能误删新会话的同名活动
+        AgentActivityBus.finished("python_execute", oldSession);
+        assertTrue("旧会话迟到 finished 不能清掉新会话的活动", AgentActivityBus.isRunning());
+        assertEquals(AgentActivityBus.currentSession(), AgentActivityBus.current().session);
+        // 新会话的工具正常结束
+        AgentActivityBus.finished("python_execute");
+        assertFalse(AgentActivityBus.isRunning());
+        AgentActivityBus.clear();
+    }
+
+    @Test
     public void 目标提取_脏参数也安全() {
         assertEquals("", AgentActivityBus.extractTarget(null));
         java.util.Map<String, Object> m = new java.util.HashMap<>();

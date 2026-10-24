@@ -360,6 +360,8 @@ public class AIChatActivity extends BaseActivity {
      * 的 FINISH_COMPLETED / FINISH_STOPPED；0=不显示）。endGeneration 消费后清零。
      */
     private volatile int pendingFinishKind = 0;
+    /** 本轮是否被用户主动停止：晚到的完成回调不能把它改写成"已完成"（2026-10-25 审计） */
+    private volatile boolean userStoppedCurrentGeneration = false;
     /** 完成态文案的收起定时器（2 秒后随生成行一起收起；新一轮开始/结束时清掉） */
     private Runnable completionHideRunnable;
     /** 文案推进心跳：1.2s 一次，只在生成中跑（与 genStatusBar 的心跳相互独立） */
@@ -6137,6 +6139,11 @@ public class AIChatActivity extends BaseActivity {
             runOnUiThread(() -> markStreamingPhase(phase));
             return;
         }
+        // 生成已结束（含完成/停止/出错）后不再接受迟到回调，避免把完成态文案
+        // 覆盖回"等待响应/生成中"（2026-10-25 审计）
+        if (!isGenerating) {
+            return;
+        }
         // 阶段切换（或首帧）才重置"本阶段开始时刻"，否则同一阶段重复回调会把文案一直拉回第一句
         if (phase != statusPhrasePhase) {
             statusPhrasePhase = phase;
@@ -6236,7 +6243,8 @@ public class AIChatActivity extends BaseActivity {
             // 文案 + "正在干什么"（文件名/查询词）；未知工具用分类兜底的中文名
             String phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
                     .toolPhrase(kind, System.currentTimeMillis() - toolPhaseStartTime, target);
-            if (!phrase.contentEquals(lastStatusPhrase)) {
+            boolean phraseChanged = !phrase.contentEquals(lastStatusPhrase);
+            if (phraseChanged) {
                 lastStatusPhrase = phrase;
                 try {
                     chatInputBar.setInferencePhase(phrase);
@@ -6248,8 +6256,10 @@ public class AIChatActivity extends BaseActivity {
                 chatInputBar.setInferenceSpeed(0f);
             } catch (Throwable ignored) {
             }
-            if (!lastToolRunning) {
+            if (phraseChanged || !lastToolRunning) {
                 lastToolRunning = true;
+                // 工具卡标题/单工具卡状态位也吃 part.statusText 指纹：文案推进（如
+                // 工具执行中… → 工具耗时较长…）时必须重绑，否则气泡里会停在第一句
                 notifyStreamingStatusRebind();
             }
             return true;
@@ -6311,7 +6321,10 @@ public class AIChatActivity extends BaseActivity {
         for (int i = chatHistory.size() - 1; i >= from; i--) {
             ChatMessage m = chatHistory.get(i);
             if (m != null && m.type == ChatMessage.MessageType.TOOL_CALL && m.toolCallInfo != null
-                    && m.toolCallInfo.status == ChatMessage.ToolCallInfo.ToolCallStatus.RUNNING) {
+                    && m.toolCallInfo.status == ChatMessage.ToolCallInfo.ToolCallStatus.RUNNING
+                    // 只认本轮生成开始之后的工具消息：上一轮被停止/中断留下的 RUNNING
+                    // 不能把新一轮状态行卡在"正在调用工具…"（2026-10-25 审计）
+                    && (generationStartTime <= 0 || m.timestamp >= generationStartTime)) {
                 return true;
             }
         }
@@ -7123,8 +7136,11 @@ public class AIChatActivity extends BaseActivity {
             }
             if (agentTotalTokens <= 0) agentTotalTokens = statsTokens;
             
-            // 完成态短摘要：正常完成（endGeneration 里展示"已完成 · 用时 X 秒"约 2 秒）
-            pendingFinishKind = com.oilquiz.app.ai.chat.InferenceStatusPhrases.FINISH_COMPLETED;
+            // 完成态短摘要：正常完成（endGeneration 里展示"已完成 · 用时 X 秒"约 2 秒）；
+            // 用户已点停止时不能改写成"已完成"——cancel 可能同步触发完成回调走到这里
+            if (!userStoppedCurrentGeneration) {
+                pendingFinishKind = com.oilquiz.app.ai.chat.InferenceStatusPhrases.FINISH_COMPLETED;
+            }
             endGeneration();
             // 统计块只放 token 读数（输入/输出/缓存/上下文）：
             // 工具次数/思考轮次已经由气泡里的工具行/折叠头承担，这里再写一遍就是同一组数字两处展示，
@@ -7967,6 +7983,7 @@ public class AIChatActivity extends BaseActivity {
             completionHideRunnable = null;
         }
         pendingFinishKind = 0;
+        userStoppedCurrentGeneration = false;
         // 重置流式 token 统计
         streamingTokenCount = 0;
         streamingStartTime = 0;
@@ -8003,8 +8020,8 @@ public class AIChatActivity extends BaseActivity {
         lastStatusPhrase = "";
         toolPhaseStartTime = 0;
         lastToolRunning = false;
-        // 兜底清空引擎侧活动总线：异常中断可能留下上一轮的工具活动
-        com.oilquiz.app.ai.chat.status.AgentActivityBus.clear();
+        // 新一轮生成：换活动总线会话号（旧会话里迟到的工具结束不会误删新会话的活动）
+        com.oilquiz.app.ai.chat.status.AgentActivityBus.newSession();
         uiHandler.removeCallbacks(statusPhraseTicker);
         updateInferenceStatusRow(statusPhrasePhase);
         uiHandler.postDelayed(statusPhraseTicker, 1200);
@@ -10091,6 +10108,10 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void stopGeneration() {
+        // 先标记"用户停止"：cancel()/stopGeneration 可能同步触发完成回调，
+        // 必须让 completeGeneration 知道这是停止而不是正常完成（否则会闪一下"已完成"）
+        userStoppedCurrentGeneration = true;
+        pendingFinishKind = com.oilquiz.app.ai.chat.InferenceStatusPhrases.FINISH_STOPPED;
         // NPU-STOP: NPU 引擎下走 GenieX stopStream()（否则点停止对 NPU 生成无效）
         try {
             if (isNpuEngineOn()) {
@@ -10103,8 +10124,6 @@ public class AIChatActivity extends BaseActivity {
         try {
             if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
             if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
-            // 完成态短摘要：用户主动停止（endGeneration 里展示"已停止 · 用时 X 秒"约 2 秒）
-            pendingFinishKind = com.oilquiz.app.ai.chat.InferenceStatusPhrases.FINISH_STOPPED;
             endGeneration();
             showToast(getString(R.string.h_9b2011e3));
             addSystemMessage("生成已停止");

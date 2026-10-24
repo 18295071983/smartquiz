@@ -1,5 +1,36 @@
 # 变更日志
 
+## [2026-10-25] fix(chat-ui)：状态系统排查修复 5 个问题（工具卡文案/完成态/会话隔离/迟到回调/溢出）
+
+用户："你在排查一下，看看还有问题吗"。
+
+审计发现并修复：
+
+1. **工具卡文案推进不刷新**：工具运行中 `工具执行中… → 工具耗时较长…` 只更新了底部状态行，
+   没有通知流式消息重绑 → 气泡里的工具卡/单工具卡停在第一句。改为文案变化时
+   `notifyStreamingStatusRebind()`（与进入/退出工具阶段的刷新合并）；
+2. **停止后误报"已完成"**：`completeGeneration` 晚到（cancel 竞态）会先写
+   `FINISH_COMPLETED`。新增 `userStoppedCurrentGeneration`：`stopGeneration` 一开始就置位
+   （早于 cancel 触发回调），停止后完成回调不再改写完成态；
+3. **迟到阶段回调覆盖完成态**：`markStreamingPhase` 没有 `isGenerating` 守卫，生成结束后
+   迟到的 WAITING/GENERATING 可能把"已完成 · X 秒"覆盖回活动文案；加
+   `if (!isGenerating) return;`；
+4. **旧工具消息卡住新一轮状态行**：`isAnyToolRunning` 的 legacy 扫描只看最近 8 条，
+   上一轮被停止/中断留下的 RUNNING 会让新一轮一直显示"正在调用工具…"；改为只认
+   `timestamp >= generationStartTime` 的工具消息；
+5. **状态行文字可能溢出**：底部 genText 原为 wrap_content 且无 ellipsize，工具文案 + 目标
+   可能把速度/余额挤掉；XML 加 `maxWidth=180dp + ellipsize=end`（完整目标仍在工具卡里）。
+
+附带加固：`AgentActivityBus` 增加**会话号**（`newSession`）与**同名嵌套深度**——
+停止后立刻重试同一工具时，旧会话迟到的 `finished` 不会清掉新会话活动；同名工具嵌套时
+内层结束不会提前清外层。
+
+**验证**：新增 2 条总线回归用例（同名嵌套、旧会话迟到结束）；全量
+`testDebugUnitTest --offline --no-build-cache` **973 / 0 skipped / 0 failures / 0 errors**；
+`assembleDebug --offline` 通过（APK 07:49:58）并已装机；未做真机测试。
+
+已排查未发现问题（保持原样）：完成态 2 秒收起与 token 统计同节奏、`showCompletionStatus`
+异常兜底、总线参数提取兜底、`ToolMetaRegistry` 表外显示兜底、思考/生成/工具文案与折叠头一致性。
 ## [2026-10-25] test(chat-ui)：状态文案测试改成正向文案表 + 计数不变量
 
 用户："assertFalse(p.contains("轮"))…这个对吗"——对，那两条负向断言不合格：只能证明当前实现的

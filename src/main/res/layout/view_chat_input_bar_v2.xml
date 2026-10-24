@@ -39,7 +39,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/chat_v2_line_gap"
+            android:ellipsize="end"
             android:maxLines="1"
+            android:maxWidth="180dp"
             android:text="等待响应"
             android:textColor="@color/chat_v2_text_2"
             android:textSize="@dimen/chat_v2_status_text" />

@@ -2507,7 +2507,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 text.setText(com.oilquiz.app.ai.chat.InferenceStatusPhrases.toolPhrase(
                         com.oilquiz.app.ai.chat.status.AgentActivityKind.fromName(
                                 message.runningToolKind),
-                        start > 0 ? System.currentTimeMillis() - start : 0L));
+                        start > 0 ? System.currentTimeMillis() - start : 0L,
+                        message.runningToolTarget));
             } else {
                 // 时间单独放在右侧 timeView（demo 的 .tool-time），标题只报数量，避免写两遍
                 text.setText(ctx.getString(R.string.chat_v2_tools_ran, toolItems.size()));

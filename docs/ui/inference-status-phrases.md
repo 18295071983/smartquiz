@@ -292,3 +292,35 @@ APK 07:28:45 已装机，未做真机测试。
 
 `InferenceStatusPhrasesTest#完成态文案_已完成与已停止带耗时`；全量 971 / 0 skipped /
 0 failures / 0 errors；APK 07:42:39 已装机，未做真机测试。
+## 11. 状态系统审计（2026-10-25 第五轮，用户："你在排查一下，看看还有问题吗"）
+
+### 11.1 发现并修复的问题
+
+| # | 问题 | 根因 | 修复 |
+|---|---|---|---|
+| 1 | 工具卡文案推进不刷新 | 工具运行中只更新底部行，没通知流式消息重绑；`part.statusText` 在指纹里但没人触发 bind | 文案变化时 `notifyStreamingStatusRebind()`（与进入/退出工具阶段合并，避免重复通知） |
+| 2 | 停止后误报"已完成" | `completeGeneration` 晚到（cancel 竞态）会写 FINISH_COMPLETED | 新增 `userStoppedCurrentGeneration`，`stopGeneration` 一开始置位（早于 cancel），完成回调看到它就不改写 |
+| 3 | 迟到阶段回调覆盖完成态 | `markStreamingPhase` 无 `isGenerating` 守卫 | 生成结束后直接 return，不再改阶段/文案 |
+| 4 | 旧工具消息卡住新一轮状态行 | legacy 扫描最近 8 条 TOOL_CALL，上一轮 RUNNING 残留会命中 | 只认 `timestamp >= generationStartTime` 的工具消息 |
+| 5 | 状态行文字可能溢出 | genText wrap_content 无 ellipsize，长文案+目标会挤掉速度/余额 | XML `maxWidth=180dp + ellipsize=end`；完整目标仍在工具卡 |
+
+### 11.2 附带加固（引擎侧总线）
+
+- 会话号：`AgentActivityBus.newSession()` 在每轮 `beginGeneration` 递增并清空；工具结束用
+  `finished(toolName, session)` 配对——停止后立刻重试同一工具时，旧会话迟到的结束不会
+  误删新会话的活动；
+- 同名嵌套深度：`executeTool` 被工具内部再次调用（同名）时只记最外层快照，内层结束
+  不会提前清掉外层；
+- `current()` 只返回当前会话的活动，`isRunning()` 同口径。
+
+### 11.3 排查过但未发现问题的点
+
+- 完成态 2 秒收起与 token 统计块同节奏，`showCompletionStatus` 全程 try/catch；
+- `AgentActivityBus` 参数提取（非 String/超长/换行/目录）与 `ToolMetaRegistry` 表外显示兜底；
+- 思考/生成/工具文案与折叠头、底部行同源同词；
+- `onDestroy` 的 `uiHandler.removeCallbacksAndMessages(null)` 已覆盖完成态收起定时器。
+
+### 11.4 验证
+
+新增 `同名工具嵌套_内层结束不提前清掉外层`、`旧会话迟到的结束_不会清掉新会话活动`；
+全量 973 / 0 skipped / 0 failures / 0 errors；APK 07:49:58 已装机，未做真机测试。

@@ -404,11 +404,13 @@ public class AIToolManager {
         // 引擎侧基础设施（2026-10-25）：把"正在执行哪个工具"发布到活动总线，
         // 聊天页据此显示多样化状态文案（正在联网搜索/正在生成文件/正在读取文件…），
         // 不再靠 UI 每 tick 猜工具名。异常/提前返回也保证清干净。
-        com.oilquiz.app.ai.chat.status.AgentActivityBus.started(toolName, parameters);
+        long activitySession = com.oilquiz.app.ai.chat.status.AgentActivityBus
+                .started(toolName, parameters);
         try {
             return executeToolInner(toolName, parameters);
         } finally {
-            com.oilquiz.app.ai.chat.status.AgentActivityBus.finished(toolName);
+            // 用会话号配对：用户停止后立刻重试同一工具时，旧会话迟到的结束不会清掉新会话
+            com.oilquiz.app.ai.chat.status.AgentActivityBus.finished(toolName, activitySession);
         }
     }
 
