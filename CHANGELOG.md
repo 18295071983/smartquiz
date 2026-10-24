@@ -1,5 +1,87 @@
 # 变更日志
 
+## [2026-10-25] feat(chat-scroll)：流式滚动改用贴底状态机（stick-to-bottom）
+
+用户问"流式刷新滚动屏幕，业界是怎么设计的"。查现状：流式中每拍 `scrollToPosition(last)`，
+最后一条比屏幕高时 RecyclerView 会把 **item 顶部**对齐视口顶（文档行为）→ 最新流式内容长在屏幕
+下方看不到；`isUserAtBottom()` 用"最后一项完全可见"判，超高气泡永远不满足；还有 8 处
+`scrollToBottom(true)` 会在用户上滑阅读时把人拽回底部。这轮按业界 stick-to-bottom 模型重做。
+
+- **新增 `StickToBottom` + `StickToBottomState`**（`ai/chat/`）：pinned = 距底 ≤32dp；用户拖拽
+  立刻 unpin；只有用户自己滚回底部 / 发消息 / 点回底按钮才重新 pin；程序化高度收缩（思考收起）
+  不解除"用户接管"。跟随在下一帧 `OnPreDraw` 里 `scrollBy(0, gap)`（不为超高 item 定位），
+  同一帧多次请求合并；gap 优先按末项 `getBottom()` 精确算（`computeVerticalScrollRange` 是估算，
+  超高 WebView 列表会偏小），没到底就下一帧继续纠偏，连续滚不动才强制定位末项。
+- **Activity 收口**：`scrollToBottom()` = `follow()`（只有 pinned 才动）；`scrollToBottom(true)`
+  只保留 8 处"用户主动/初始化/切会话"（发消息、带附件发送、历史加载、切会话、onNewIntent/重进页面）；
+  `addAIMessage` / `addSystemMessage`×2 / 系统提示词行 / 上下文注入行 全改非强制——这些是状态展示
+  行，用户上滑阅读时不该被拽走。`isUserAtBottom()` 改为 `stickToBottom.isPinned()`。
+- **内容尺寸变化统一喂 follow**：`ChatAdapter.setOnContentSizeChanged(...)`（parts/WebView 高度
+  回调）+ 思考节流刷新每拍 + 各 token 写回，都只"请求跟随"，真正滚不滚由状态机决定；回底按钮 =
+  平滑回底 + 重新 pin，显隐 = `!pinned`。
+- **删除死代码** `StreamingScrollHelper`（全仓库无引用，且"用户滚动 3 秒后自动恢复滚动"是业界
+  明确的反模式）。
+- **验证**：新增 `StickToBottomStateTest` 12 条（默认贴底 / 内容增长不抖掉 pin / 拖拽即停 /
+  拖回阈值内重新 pin / 惯性甩回底部重新 pin / 程序化收缩不解除接管 / 显式 pin / 平滑期间暂停跟随 /
+  阈值边界）；全量 `testDebugUnitTest --offline --no-build-cache` **937 / 0 skipped / 0 failures /
+  0 errors**；`assembleDebug --offline` 通过（APK 05:24 前后），装机 279b6c51 后真机验证：
+  - 启动/进入会话：列表贴底、回底按钮隐藏、最新消息可见（不再像旧实现那样停在"气泡顶部"）；
+  - 生成中：最新思考/回答始终贴底可见（旧实现最后一条超高时会把 item 顶部钉在屏幕顶，
+    最新内容长在屏幕下方看不到）；
+  - 生成中从左侧边距上滑：回底按钮出现；等 6 秒（期间生成结束）视口保持原阅读位置、**没有被拽回底部**；
+  - 点回底按钮：平滑回底并恢复跟随（按钮隐藏，后续内容继续贴底）；无崩溃。
+  截图：`docs/scroll_shots/`（01 启动贴底 / 02 生成中贴底 / 03 生成中上滑 / 04 等 6 秒不拽回 /
+  05 点回底后恢复跟随）。
+- **已知边界**：不做 anchor 恢复（在视口上方展开/收起历史项时，RecyclerView 仍按像素偏移保位，
+  可能轻微顶动）；没有采用"反向列表"方案（单条消息自身长高仍需贴底跟随）；键盘/insets 变化没有
+  单独做"贴底跟随"处理。
+
+## [2026-10-25] feat(chat-parts)：思考正文接入轮内流式（WebView 块级尾巴）
+
+用户问"正文气泡接入了流式，思考正文接入流式了吗"——确认没接：回答正文走 `MarkdownWebView` 块级增量，
+思考正文还是第一版口径（`TextView` 整块 `setText`，定稿才交宿主 markdown）。本轮把思考正文接到与回答
+正文同一条渲染通路，并顺带修好一个真 bug：parts 接管后，思考增量根本不会重绑 parts。
+
+- **思考正文换渲染器**：新增子开关 `ReasoningWebRenderFlag`（`ai_chat_prefs.reasoning_web_render`，
+  **默认 true**）。`web_markdown_render` 与它都开时，`ReasoningPartRenderer` 正文区用
+  `MarkdownWebView`（与 `TextPartRenderer` 同一个入口 `setContent(text, streaming)`）：流式期走
+  `MarkdownStreamSplitter` 块级尾巴（`markdown_stream_tail` 口径不变），定稿
+  `setContent(text, false)` 整篇重载。任一开关关掉退回 `TextView`（第一版整块刷新，回退路保留）。
+- **收起不跑 WebView**：思考定稿默认收起、历史消息也是收起态；WebView 正文只在展开时加载
+  （`Row#webLoadedText` 记录已加载内容，同内容不重复加载），点折叠头展开才 `setContent`，
+  避免历史滚动为每条收起态思考白建页面。展开选择 `userExpandedOverride` 与原生正文的
+  "空则重发渲染"自愈都保留。
+- **思考正文与回答正文的排版区分（同日真机反馈）**：刚接 WebView 时两者同 15px 同前景色，
+  用户反馈"一个字体，我无法区分"。`MarkdownHtmlConverter.wrapDocument` 新增 `reasoning` 重载：
+  body 加 `qz-reasoning` 类，CSS 走次级排版（**13px / `--muted` / 2px 左侧竖线 + 11px 缩进**，
+  标题等比缩小、代码 0.85em）；`MarkdownWebView.setReasoningStyle(true)` 由
+  `ReasoningPartRenderer` 创建思考 WebView 时置位，整篇加载/块级流式/主题重载都保留这个类；
+  高度缓存 key 加 `r:`/`b:` 前缀，防两种排版串高。原生回退路同步 13sp + `chat_v2_text_2` 次级色。
+- **思考增量重绑 parts（真 bug）**：旧 `ChatAdapter` 只在 `PAYLOAD_CONTENT_UPDATE` 里
+  `bindMessageContent`；思考期只有 `PAYLOAD_THINKING_UPDATE`，而 parts 接管后 legacy 思考行已
+  隐藏 → reasoning 正文冻在上一次内容。现在 THINKING payload 在 `parts_renderer` +
+  `parts_streaming` 开时也走新抽的 `refreshStreamingContent(...)`（与正文同一条宽度兜底 +
+  `bindMessageContent` 入口），120ms 思考节流每拍重绑 reasoning part。
+- **本地普通对话的思考不收起（状态机漏接）**：真机看到单轮无工具对话里，回答已经开始生成、
+  思考正文还一直展开。根因：本地普通对话走 chatJson 桥接，思考结束既没有旧协议 `[THINK_END]`
+  也不回调 `onThinkingEnd`，而 `BridgeCallback#onToken` 没写 `GENERATING`；Agent 路径有
+  `AgentCallbackImpl#onToken` 补这一拍，桥接路径漏了。修法：桥接 `onToken`（第一个正文 token）
+  也调 `markStreamingPhase(GENERATING)`——`markStreamingPhase` 只写字段不 notify，token 本身
+  下一拍就会重绑，折叠头立刻定格"已深度思考"并收起思考正文。
+- **验证**：`TextAndReasoningRendererTest` 14 条 + `MarkdownHtmlConverterTest` 4 条（新增：
+  web 正文形态 / 页面就绪后流式 tick 走 `__qzStream` 块级尾巴 / 定稿收起+点开才整篇渲染 /
+  `reasoning_web_render=false` 退回 TextView / 思考文档带 `qz-reasoning` 次级排版 /
+  回答正文不带思考样式）；全量 `testDebugUnitTest --offline --no-build-cache`
+  **925 / 0 skipped / 0 failures / 0 errors**；`assembleDebug --offline` 通过（APK 05:01:52），
+  装机 279b6c51（05:02 前后）后真机验证：思考正文与回答正文一眼可分（更小、更淡、带左竖线）；
+  思考中折叠头"正在思考..."、正文逐块长出且 markdown 已渲染；回答正文一开始折叠头立即定格
+  "已深度思考 X 秒 / 已深度思考"并收起思考正文（多轮工具/Agent 路径抓到了中间帧；本地桥接单轮
+  对话回答极短，1.3s 截屏只抓到"正在思考 → 完成收起"，桥接 `onToken` 已补 GENERATING 写入）；
+  收起态点折叠头展开是完整 markdown。截图：`docs/thinking_stream_shots/`。
+- **已知边界**：思考期刷新节流仍是 120ms（正文 50–80ms），观感略钝但不再整块跳；在线视觉两条流
+  （`generateStreamWithImageParts` 的 `onThinkingToken`）仍是每 token 全量 notify，未接节流；
+  回退键 `ai_chat_prefs.reasoning_web_render=false`（只退思考正文）。
+
 ## [2026-10-25] fix(attachment)：Agent 增强消息与真实工具集对齐（去幽灵工具名 / Qwen 字面量）
 
 附件进 Agent 引擎的文本通道（`AttachmentPromptBuilder#buildAgentAugmentedMessage`）一直点名两个

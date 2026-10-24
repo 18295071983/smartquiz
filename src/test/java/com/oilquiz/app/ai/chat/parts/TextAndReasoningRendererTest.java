@@ -9,6 +9,7 @@ import static org.junit.Assert.assertTrue;
 import android.content.Context;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.WebView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -19,6 +20,8 @@ import com.oilquiz.app.ai.chat.turn.AssistantTurn;
 import com.oilquiz.app.ai.chat.ui.MarkdownWebView;
 
 import org.junit.Test;
+import org.robolectric.Shadows;
+import org.robolectric.shadows.ShadowWebView;
 
 import java.util.ArrayList;
 import org.junit.runner.RunWith;
@@ -30,6 +33,10 @@ import org.robolectric.RobolectricTestRunner;
  * <p>只验 canRender 与 createView 的视图形状（native→TextView、web→MarkdownWebView、
  * reasoning→折叠行）；实际 markdown 内容由 {@link com.oilquiz.app.ai.chat.render.MarkdownRenderer}
  * 负责、由引擎用假 renderer 覆盖绑定计数，此处不重复触发 Markwon，避免与旧路径耦合的脆弱断言。</p>
+ *
+ * <p>2026-10-25 起思考正文在 web 开时也走 {@link MarkdownWebView}（与 text part 同一条
+ * 流式通路），这里用 Robolectric 的 {@code ShadowWebView} 验"流式 tick 走块级尾巴
+ * （__qzStream）、定稿收起、点开才整篇渲染"这条接线；原生 TextView 回退路保持原断言。</p>
  */
 @RunWith(RobolectricTestRunner.class)
 public class TextAndReasoningRendererTest {
@@ -190,6 +197,122 @@ public class TextAndReasoningRendererTest {
                 .idleFor(java.time.Duration.ofMillis(ms));
     }
 
+    // ==================== 2026-10-25：思考正文接入 WebView 流式渲染 ====================
+
+    /** web 开 → 思考正文与回答正文同一条 WebView 通路；折叠头仍是普通 TextView。 */
+    @Test
+    public void reasoningRendererBuildsWebBodyWhenWebMarkdownEnabled() {
+        Context ctx = ApplicationProvider.getApplicationContext();
+        ReasoningPartRenderer r = new ReasoningPartRenderer();
+        LinearLayout row = (LinearLayout) r.createView(new TestHost(ctx, true), new LinearLayout(ctx));
+
+        assertEquals("折叠头 + 正文区两段", 2, row.getChildCount());
+        assertTrue(row.getChildAt(0) instanceof TextView);
+        assertTrue("web 开 → 思考正文用 MarkdownWebView（与 TextPartRenderer 同通路）",
+                row.getChildAt(1) instanceof MarkdownWebView);
+    }
+
+    /** 流式期：正文进 WebView；页面就绪后每个 tick 走块级尾巴（__qzStream），不是整篇重载。 */
+    @Test
+    public void reasoningStreamingDrivesWebViewBlockTail() {
+        Context ctx = ApplicationProvider.getApplicationContext();
+        RecordingHost host = new RecordingHost(ctx, true);
+        ReasoningPartRenderer r = new ReasoningPartRenderer();
+        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
+
+        AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, "第一段思考。\n\n");
+        p.state = AssistantTurn.Part.STATE_STREAMING;
+        r.bindView(row, p, host);
+
+        MarkdownWebView body = (MarkdownWebView) row.getChildAt(1);
+        assertEquals("思考中正文区默认展开", View.VISIBLE, body.getVisibility());
+        WebView inner = (WebView) body.getChildAt(0);
+        ShadowWebView shadow = Shadows.shadowOf(inner);
+        assertNotNull("首帧整篇加载", shadow.getLastLoadDataWithBaseURL());
+        assertTrue("思考文本已进 WebView",
+                shadow.getLastLoadDataWithBaseURL().data.contains("第一段思考"));
+        assertTrue("思考正文走次级排版（body.qz-reasoning，13px/--muted/左竖线），与回答正文区分",
+                shadow.getLastLoadDataWithBaseURL().data.contains("qz-reasoning")
+                        && shadow.getLastLoadDataWithBaseURL().data
+                        .contains("body.qz-reasoning{font-size:13px"));
+        assertEquals("流式期不走宿主 markdown", 0, host.mdCalls.size());
+
+        // 页面就绪后下一 tick：markdown_stream_tail 出厂 true → 块级尾巴增量
+        shadow.getWebViewClient().onPageFinished(inner, "file:///android_asset/");
+        p.text = "第一段思考。\n\n第二段思考有 **加粗**。\n\n";
+        r.bindView(row, p, host);
+
+        String js = shadow.getLastEvaluatedJavascript();
+        assertNotNull("页面就绪后应走 JS 增量", js);
+        assertTrue("流式 tick 走 __qzStream（块级尾巴），而不是整篇重载：" + js,
+                js.contains("__qzStream"));
+    }
+
+    /** 定稿：先收起；点折叠头展开时才把全文交给 WebView 整篇渲染（收起期间不跑 WebView）。 */
+    @Test
+    public void reasoningDoneCollapsesThenClickRendersFinalMarkdownInWebView() {
+        Context ctx = ApplicationProvider.getApplicationContext();
+        RecordingHost host = new RecordingHost(ctx, true);
+        ReasoningPartRenderer r = new ReasoningPartRenderer();
+        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
+
+        AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, "第一段思考。\n\n");
+        p.state = AssistantTurn.Part.STATE_STREAMING;
+        r.bindView(row, p, host);
+
+        MarkdownWebView body = (MarkdownWebView) row.getChildAt(1);
+        WebView inner = (WebView) body.getChildAt(0);
+        ShadowWebView shadow = Shadows.shadowOf(inner);
+        shadow.getWebViewClient().onPageFinished(inner, "file:///android_asset/");
+
+        p.state = null;
+        p.durationMs = 3_200L;
+        r.bindView(row, p, host);
+        TextView header = (TextView) row.getChildAt(0);
+        assertEquals("定稿后正文收起", View.GONE, body.getVisibility());
+        assertTrue("定稿 header 用上思考时长：" + header.getText(),
+                header.getText().toString().contains("已深度思考 3 秒"));
+
+        header.performClick();
+        assertEquals("点折叠头展开", View.VISIBLE, body.getVisibility());
+        String js = shadow.getLastEvaluatedJavascript();
+        assertNotNull("展开时把定稿全文交给 WebView", js);
+        assertTrue("定稿走整篇 body 替换：" + js, js.contains("innerHTML"));
+        assertEquals("WebView 通路不该再调宿主 markdown", 0, host.mdCalls.size());
+    }
+
+    /** 回答正文（text part）必须保持主排版 15px，不能被思考正文的次级排版串到。 */
+    @Test
+    public void textPartRendererStaysPrimaryTypography() {
+        Context ctx = ApplicationProvider.getApplicationContext();
+        RecordingHost host = new RecordingHost(ctx, true);
+        TextPartRenderer r = new TextPartRenderer();
+        View view = r.createView(host, new LinearLayout(ctx));
+        r.bindView(view, part(AssistantTurn.Part.TYPE_TEXT, "回答正文"), host);
+
+        WebView inner = (WebView) ((ViewGroup) view).getChildAt(0);
+        String doc = Shadows.shadowOf(inner).getLastLoadDataWithBaseURL().data;
+        assertTrue("回答正文保持 15px 主排版", doc.contains("font-size:15px"));
+        assertFalse("回答正文不能带思考样式", doc.contains("qz-reasoning"));
+    }
+
+    /** 回退键：reasoning_web_render=false → 思考正文退回 TextView（第一版整块刷新口径）。 */
+    @Test
+    public void reasoningWebBodyFallsBackToNativeWhenFlagDisabled() {
+        Context ctx = ApplicationProvider.getApplicationContext();
+        assertTrue("出厂档应为开", ReasoningWebRenderFlag.enabled(ctx));
+        ReasoningWebRenderFlag.setEnabled(ctx, false);
+        try {
+            ReasoningPartRenderer r = new ReasoningPartRenderer();
+            LinearLayout row = (LinearLayout) r.createView(
+                    new RecordingHost(ctx, true), new LinearLayout(ctx));
+            assertTrue("关掉 reasoning_web_render → 正文退回 TextView",
+                    row.getChildAt(1) instanceof TextView);
+        } finally {
+            ReasoningWebRenderFlag.setEnabled(ctx, true);
+        }
+    }
+
     @Test
     public void reasoningHeaderFallsBackToThinkingNowBeforeAnyText() {
         Context ctx = ApplicationProvider.getApplicationContext();
@@ -232,8 +355,13 @@ public class TextAndReasoningRendererTest {
         final java.util.List<String> mdCalls = new ArrayList<>();
         final java.util.List<android.widget.TextView> mdTargets = new ArrayList<>();
         private final Context ctx;
+        private final boolean web;
         RecordingHost(Context ctx) {
+            this(ctx, false);
+        }
+        RecordingHost(Context ctx, boolean web) {
             this.ctx = ctx;
+            this.web = web;
         }
         @Override
         public Context context() {
@@ -249,7 +377,7 @@ public class TextAndReasoningRendererTest {
         }
         @Override
         public boolean webMarkdownEnabled() {
-            return false;
+            return web;
         }
         @Override
         public boolean dark() {

@@ -107,6 +107,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private OnMessageClickListener messageClickListener;
     private MessageAttachmentAdapter.OnAttachmentClickListener attachmentClickListener;
     private RecyclerView attachedRecyclerView;
+    /**
+     * parts 内容尺寸变化回调（2026-10-25 流式滚动）：思考正文/正文 WebView 高度变化时通知宿主，
+     * 由 {@code StickToBottom} 决定是否贴底跟随（只有 pinned 才动）。
+     */
+    private Runnable onContentSizeChanged;
+
+    /** 设置 parts 内容尺寸变化监听（Activity 侧接贴底控制器）。 */
+    public void setOnContentSizeChanged(Runnable listener) {
+        this.onContentSizeChanged = listener;
+    }
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault());
     private final SimpleDateFormat groupDateFormat = new SimpleDateFormat("yyyy年MM月dd日", Locale.getDefault());
@@ -847,20 +857,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (PAYLOAD_CONTENT_UPDATE.equals(payload)) {
                 if (holder instanceof AIMessageViewHolder) {
                     AIMessageViewHolder aiHolder = (AIMessageViewHolder) holder;
-                    aiHolder.itemView.post(() -> {
-                        int availableWidth = aiHolder.itemView.getWidth()
-                            - aiHolder.itemView.getPaddingLeft()
-                            - aiHolder.itemView.getPaddingRight()
-                            - dpToPx(2, aiHolder.itemView.getContext());
-                        if (availableWidth <= 0) {
-                            // 未布局完成（新建/重建 holder 首帧）：等布局后按真实宽度渲染，
-                            // 避免表格按全屏宽兜底导致列宽错位（重进页面正常、生成完成错位即此根因）
-                            renderWithCorrectWidth(aiHolder, message);
-                            return;
-                        }
-                        // 插入式组件渲染：文本段/组件段交替，组件标记在流式中实时生效
-                        bindMessageContent(aiHolder, message, availableWidth);
-                    });
+                    // 插入式组件渲染：文本段/组件段交替，组件标记在流式中实时生效
+                    refreshStreamingContent(aiHolder, message);
                     // 接管中跳过：思考由 parts 的 reasoning part 渲。§4.79 那轮修的是完成态的双份，
                     // 流式接管后这条 payload 每个 tick 都会来，不防就每 tick 把全局思考行重新点亮一次。
                     if (!aiHolder.partsTookOver) {
@@ -907,6 +905,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             } else if (PAYLOAD_THINKING_UPDATE.equals(payload)) {
                 if (holder instanceof AIMessageViewHolder) {
                     AIMessageViewHolder aiHolder = (AIMessageViewHolder) holder;
+                    // 思考增量也要灌进 parts（2026-10-25 思考正文接流式）：
+                    // parts 接管后，思考正文由 reasoning part 渲染（流式期走 WebView 块级尾巴），
+                    // 只发 payload 不重绑 parts 的话，reasoning 正文会冻在上一次内容——
+                    // 而 legacy 思考行在接管时是隐藏的，现场就表现为"思考正文不动"。
+                    // 未接管时下面仍走 legacy 思考行，两条路径不会同时上屏。
+                    if (com.oilquiz.app.ai.chat.parts.PartsRendererFlag.enabled(
+                                aiHolder.itemView.getContext())
+                            && com.oilquiz.app.ai.chat.parts.PartsStreamingFlag.enabled(
+                                aiHolder.itemView.getContext())) {
+                        refreshStreamingContent(aiHolder, message);
+                    }
                     // 接管中跳过：全局思考行与 parts 的 reasoning part 同源两份内容，
                     // 流式期这条 payload 是按 token 节流发过来的，不防就会反复把旧行点亮。
                     if (!aiHolder.partsTookOver) {
@@ -917,6 +926,35 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
             }
         }
+    }
+
+    /**
+     * 流式期把最新 {@code message.content / thinkingContent} 重新灌进这条 item 的渲染器。
+     *
+     * <p>CONTENT_UPDATE 与 THINKING_UPDATE 共用：parts 接管后，正文由 text part、思考由
+     * reasoning part 各自增量渲染，payload 必须走到 {@link #bindMessageContent} 才会重新构建
+     * parts turn（{@code TurnPartsHost} 再按 part id 复用视图、按内容指纹只重绑变化的那一段）。
+     * 旧实现只在 CONTENT_UPDATE 里做这件事，思考期只有 THINKING_UPDATE → parts 已接管时
+     * reasoning 正文不刷新（2026-10-25 思考正文接流式时一并修）。</p>
+     *
+     * <p>宽度未就绪（新建/重建 holder 首帧）时与 CONTENT_UPDATE 同路径回落
+     * {@link #renderWithCorrectWidth}，避免按全屏宽兜底渲染表格。</p>
+     */
+    private void refreshStreamingContent(AIMessageViewHolder aiHolder, ChatMessage message) {
+        aiHolder.itemView.post(() -> {
+            int availableWidth = aiHolder.itemView.getWidth()
+                - aiHolder.itemView.getPaddingLeft()
+                - aiHolder.itemView.getPaddingRight()
+                - dpToPx(2, aiHolder.itemView.getContext());
+            if (availableWidth <= 0) {
+                // 未布局完成（新建/重建 holder 首帧）：等布局后按真实宽度渲染，
+                // 避免表格按全屏宽兜底导致列宽错位（重进页面正常、生成完成错位即此根因）
+                renderWithCorrectWidth(aiHolder, message);
+                return;
+            }
+            // 插入式组件渲染：文本段/组件段交替，组件标记在流式中实时生效
+            bindMessageContent(aiHolder, message, availableWidth);
+        });
     }
 
     /**
@@ -3549,6 +3587,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 public void onPartsContentChanged() {
                     if (holder.contentHost != null) {
                         holder.contentHost.post(holder.contentHost::requestLayout);
+                    }
+                    // 2026-10-25 流式滚动：parts 内容/WebView 高度变化（思考正文长高、正文流式
+                    // 逐块变高）也要喂给贴底跟随。Activity 端只有 pinned 时才会真正滚，
+                    // 用户上滑阅读时这里等于空操作。
+                    if (onContentSizeChanged != null) {
+                        onContentSizeChanged.run();
                     }
                 }
 

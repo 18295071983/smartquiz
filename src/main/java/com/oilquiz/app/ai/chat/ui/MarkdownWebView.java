@@ -80,6 +80,12 @@ public class MarkdownWebView extends FrameLayout {
     private final int epsilonPx;
 
     private boolean night;
+    /**
+     * 思考正文样式（2026-10-25）：true 时页面走 {@code qz-reasoning} 次级排版
+     * （13px / --muted / 左侧竖线缩进），与回答正文 15px 主排版区分开。
+     * 只在首次 {@link #setContent} 前设置（思考正文视图创建时就定死），不参与运行时切换。
+     */
+    private boolean reasoningStyle;
     private boolean pageReady;
     /**
      * 文档代号。每次真正发起整篇加载都 +1，用于回答两个布尔值答不出的问题：
@@ -213,6 +219,16 @@ public class MarkdownWebView extends FrameLayout {
     }
 
     /**
+     * 标记本视图渲染的是思考正文（次级排版：13px / muted / 左侧竖线缩进）。
+     *
+     * <p>必须在第一次 {@link #setContent} 之前调用；样式烤进整篇文档的 {@code <body>} 类与
+     * CSS 里，之后只随内容增量更新，不再参与运行时切换。</p>
+     */
+    public void setReasoningStyle(boolean reasoningStyle) {
+        this.reasoningStyle = reasoningStyle;
+    }
+
+    /**
      * 气泡内导航的统一出口：除页内锚点（{@code #}）外一律不在气泡内导航，
      * 交 {@link MarkdownLinkRouter} 按 scheme 分流——应用内预览文件/图片、
      * 系统浏览器打开网页、{@code tel:}/{@code mailto:}/{@code geo:} 等交系统能力。
@@ -285,7 +301,9 @@ public class MarkdownWebView extends FrameLayout {
     @SuppressLint("SetJavaScriptEnabled")
     public void setContent(String content, boolean streaming) {
         final String md = content == null ? "" : content;
-        String hash = hashOf(content);
+        // hash 带样式前缀：思考正文（13px 次级排版）与回答正文（15px）即使内容相同，
+        // 高度缓存也不能串用
+        String hash = (reasoningStyle ? "r:" : "b:") + hashOf(content);
         // 内容一换，之前排队写缓存的动作作废（防止旧页迟到的测量写到新 hash 下）
         cancelPendingCacheWrite();
         currentContentHash = hash;
@@ -311,7 +329,7 @@ public class MarkdownWebView extends FrameLayout {
         // 锚点同理：工作区相对路径的链接在这里解析成绝对 file://，
         // 解析不到的保留原串，交给点链接时的 MarkdownLinkRouter 给可读提示
         bodyHtml = MarkdownHtmlConverter.resolveLocalLinkHrefs(bodyHtml, getContext());
-        String doc = MarkdownHtmlConverter.wrapDocument(bodyHtml, night, themeVars);
+        String doc = MarkdownHtmlConverter.wrapDocument(bodyHtml, night, themeVars, reasoningStyle);
         pendingHtml = doc;
         boolean documentReady = pageReady && docGeneration > 0 && readyGeneration == docGeneration;
         // 表格在流式页面里按旧的 body/宽度算过列宽；完成时 swapBody 不一定重算表格布局，

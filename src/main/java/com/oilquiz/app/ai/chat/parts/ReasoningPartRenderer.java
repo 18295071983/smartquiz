@@ -12,18 +12,34 @@ import android.widget.TextView;
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.turn.AssistantTurn;
+import com.oilquiz.app.ai.chat.ui.MarkdownWebView;
 
 /**
  * 推理/思考 part 渲染器（parts 架构升级 P2，2026-10-21）。
  *
- * <p><b>2026-10-25 定稿：折叠头只显示状态；思考正文实时整块刷新（不做动画、不做打字机）。</b></p>
+ * <p><b>2026-10-25 定稿（第二版）：折叠头只显示状态；思考正文与回答正文同一条流式渲染通路。</b></p>
  * <ul>
  *   <li><b>折叠头</b>：只挂状态——思考中是状态机的阶段（"正在思考..."），思考结束换成
  *       "已深度思考 X 秒 / 已深度思考"。文字直接切换，不做滑入动画。</li>
- *   <li><b>正文区（思考正文，不是回答正文）</b>：思考中展开，把 {@code msg.thinkingContent}
- *       直接铺出来（每次到达新内容就整块刷新，纯 {@code setText}）；思考结束自动收起，
- *       点折叠头展开全文（那时才交宿主 markdown 渲染）。</li>
+ *   <li><b>正文区（思考正文，不是回答正文）</b>：
+ *       <ul>
+ *         <li>{@code web_markdown_render} + {@link ReasoningWebRenderFlag} 都开（出厂档）→
+ *             {@link MarkdownWebView}：流式期 {@code setContent(text, true)}，与主气泡同一套
+ *             {@code MarkdownStreamSplitter} 块级尾巴（{@code markdown_stream_tail}）；定稿
+ *             {@code setContent(text, false)} 整篇重载。思考中默认展开，正文随 token 逐块长出来。</li>
+ *         <li><b>排版必须与回答正文区分</b>：同一字形同字号时用户分不清哪段是思考（2026-10-25
+ *             真机反馈"一个字体，我无法区分"）。WebView 走 {@code qz-reasoning} 次级排版
+ *             （13px / {@code --muted} / 左侧竖线缩进），原生回退路同样 13sp + 次级文字色。</li>
+ *         <li>任一开关关掉 → 退回 {@code TextView}：流式期纯 {@code setText} 整块刷新，
+ *             定稿才交宿主 markdown（2026-10-25 第一版口径，作为回退路保留）。</li>
+ *       </ul>
+ *   </li>
  * </ul>
+ *
+ * <p><b>收起时不跑 WebView</b>：思考定稿后默认收起、历史消息里的思考也是收起态。WebView 正文只在
+ * "展开"时 {@code setContent}（{@code Row#webLoadedText} 记录已加载内容，同内容不重复加载），
+ * 收起期间只更新 {@code part.text}，点折叠头展开才加载——否则历史列表滚动会为每条收起态思考
+ * 白建一次页面。展开自愈逻辑对原生正文保持不变。</p>
  *
  * <p><b>状态机集成</b>：思考段到底"还在思考"还是"已经进入回答"，以引擎状态机为准——
  * {@code AIChatActivity} 按思考 / 正文两类 token 把阶段写进 {@code msg.inferenceProgress.phase}，
@@ -57,34 +73,64 @@ public final class ReasoningPartRenderer implements PartRenderer {
         header.setSingleLine(true);
         header.setEllipsize(TextUtils.TruncateAt.END);
 
-        // 思考正文：思考中整块实时刷新，定稿收起，点开看全文
-        final TextView body = new TextView(ctx);
-        body.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
-        body.setPadding(pad, 0, pad, pad);
-        body.setTextIsSelectable(true);
-        body.setMovementMethod(LinkMovementMethod.getInstance());
-        body.setVisibility(View.GONE);
+        // 正文区：默认与回答正文同一条 WebView 流式通路；开关关掉时退回原生 TextView。
+        final boolean webBody = host.webMarkdownEnabled() && ReasoningWebRenderFlag.enabled(ctx);
+        final TextView bodyText;
+        final MarkdownWebView bodyWeb;
+        if (webBody) {
+            MarkdownWebView web = new MarkdownWebView(ctx);
+            // 思考正文用次级排版（13px / --muted / 左侧竖线缩进），与回答正文 15px 主排版区分开：
+            // 两个 WebView 若同字号同色，真机上用户分不清哪段是思考（2026-10-25 反馈）。
+            web.setReasoningStyle(true);
+            // 与 TextPartRenderer 同口径：WebView 内部按内容高回调，宿主据此重排 item。
+            web.setOnContentHeightChanged(heightPx -> host.invalidateSize());
+            web.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            bodyText = null;
+            bodyWeb = web;
+        } else {
+            TextView tv = new TextView(ctx);
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
+            tv.setPadding(pad, 0, pad, pad);
+            tv.setTextIsSelectable(true);
+            tv.setTextColor(secondaryTextColor(ctx));
+            tv.setMovementMethod(LinkMovementMethod.getInstance());
+            tv.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            bodyText = tv;
+            bodyWeb = null;
+        }
+        View bodyView = bodyWeb != null ? bodyWeb : bodyText;
+        // 默认收起（思考中由绑定态展开、定稿后收起；与第一版一致）
+        bodyView.setVisibility(View.GONE);
 
-        final Row row = new Row(header, body);
+        final Row row = new Row(header, bodyText, bodyWeb);
         header.setOnClickListener(v -> {
             boolean expanded = isExpanded(row, row.part != null && row.part.isStreaming());
             row.userExpandedOverride = !expanded;
             applyBodyVisibility(row, !expanded);
             applyHeader(row, !expanded);
             if (!expanded) {
-                // 自愈：折叠期间异步渲染结果可能因代次过期被丢弃（视图当时未 attach 等），
-                // 展开这一刻若正文仍为空就重发一次，避免"点开是空的"。
-                PartHost h = row.host;
+                // 展开这一刻才真正渲染正文：
+                // - WebView：收起期间没 load（见 Row#webLoadedText），这里补一次；
+                // - 原生：沿用"折叠期间异步渲染结果可能因代次过期被丢弃"的自愈重发。
                 AssistantTurn.Part p = row.part;
-                if (h != null && p != null && body.getText().length() == 0
-                        && p.text != null && !p.text.isEmpty()) {
-                    h.renderMarkdown(body, p.text);
+                if (row.bodyWeb != null) {
+                    if (p != null) {
+                        loadWebBody(row, p.text != null ? p.text : "", p.isStreaming());
+                    }
+                } else if (row.bodyText != null) {
+                    PartHost h = row.host;
+                    if (h != null && p != null && row.bodyText.getText().length() == 0
+                            && p.text != null && !p.text.isEmpty()) {
+                        h.renderMarkdown(row.bodyText, p.text);
+                    }
                 }
             }
         });
 
         root.addView(header);
-        root.addView(body);
+        root.addView(bodyView);
         root.setTag(row);
         return root;
     }
@@ -97,30 +143,67 @@ public final class ReasoningPartRenderer implements PartRenderer {
         }
         String text = part.text != null ? part.text : "";
         if (part.id != null && !part.id.equals(row.partId)) {
-            // 视图复用到另一条 part：展开选择属于上一条，不能带过来
+            // 视图复用到另一条 part：展开选择/WebView 正文加载状态都属于上一条，不能带过来
             row.partId = part.id;
             row.userExpandedOverride = null;
+            row.webLoadedText = null;
         }
         row.part = part;
         row.host = host;
         final boolean streaming = part.isStreaming();
 
-        if (streaming) {
-            // 思考中：直接铺思考正文（整块刷新），不排队 markdown、不做动画
-            row.body.setText(text);
-            row.baseLabel = stateLabel(row);
-        } else {
-            // 定稿：全文交给宿主的 markdown 原语（后台渲染 + 链接 + 图片 + 主题）
-            host.renderMarkdown(row.body, text);
-            row.baseLabel = doneLabel(row, part);
-        }
-
+        row.baseLabel = streaming ? stateLabel(row) : doneLabel(row, part);
         boolean expanded = isExpanded(row, streaming);
         applyBodyVisibility(row, expanded);
         applyHeader(row, expanded);
+
+        if (row.bodyWeb != null) {
+            // WebView 正文：展开才上屏（收起期间不跑 WebView，历史列表滚动不为收起态思考白建页面）；
+            // 流式期每 tick 走块级尾巴，定稿整篇重载一次。
+            if (expanded) {
+                loadWebBody(row, text, streaming);
+            }
+        } else if (row.bodyText != null) {
+            // 原生回退路：流式期整块 setText，定稿走宿主 markdown（与第一版逐字一致）。
+            if (streaming) {
+                row.bodyText.setText(text);
+            } else {
+                host.renderMarkdown(row.bodyText, text);
+            }
+        }
+    }
+
+    /**
+     * WebView 正文加载：内容或流式态变化才 {@code setContent}，重复绑定（同内容同态）直接早退，
+     * 避免 120ms 思考刷新里做无效整篇重载；收起期间未加载过的内容在点开时由这里补上。
+     */
+    private static void loadWebBody(Row row, String text, boolean streaming) {
+        MarkdownWebView web = row.bodyWeb;
+        if (web == null) {
+            return;
+        }
+        String t = text != null ? text : "";
+        if (t.equals(row.webLoadedText) && streaming == row.webLoadedStreaming) {
+            return;
+        }
+        PartHost h = row.host;
+        web.setNight(h != null && h.dark());
+        web.setThemeColors(h != null ? h.markdownThemeVars() : "");
+        web.setContent(t, streaming);
+        row.webLoadedText = t;
+        row.webLoadedStreaming = streaming;
     }
 
     // ==================== 文案 / 可见性 ====================
+
+    /** 原生回退路的次级文字色（与 Web 态 {@code --muted} 同一个主题 token：chat_v2_text_2）。 */
+    private static int secondaryTextColor(Context ctx) {
+        try {
+            return androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_2);
+        } catch (Throwable t) {
+            return 0xFF8A8F98;
+        }
+    }
 
     /** 状态机状态文案（消息当前的推理阶段，取不到退回"正在思考…"）。 */
     private static String stateLabel(Row row) {
@@ -160,8 +243,15 @@ public final class ReasoningPartRenderer implements PartRenderer {
         return row.userExpandedOverride != null ? row.userExpandedOverride : streaming;
     }
 
+    private static View bodyView(Row row) {
+        return row.bodyWeb != null ? row.bodyWeb : row.bodyText;
+    }
+
     private static void applyBodyVisibility(Row row, boolean expanded) {
-        row.body.setVisibility(expanded ? View.VISIBLE : View.GONE);
+        View body = bodyView(row);
+        if (body != null) {
+            body.setVisibility(expanded ? View.VISIBLE : View.GONE);
+        }
     }
 
     private static void applyHeader(Row row, boolean expanded) {
@@ -170,23 +260,35 @@ public final class ReasoningPartRenderer implements PartRenderer {
 
     @Override
     public void releaseView(View view) {
-        // 无重资源；视图随容器移除即可。
+        // 无重资源；WebView 走 markdown 缓存/文档身份重置，避免复用串台。
+        Row row = view instanceof LinearLayout ? (Row) view.getTag() : null;
+        if (row != null && row.bodyWeb != null) {
+            row.bodyWeb.resetForReuse();
+        }
     }
 
-    /** 折叠行的两个子视图句柄，挂在 root 的 tag 上，bindView 复用同实例时取回。 */
+    /** 折叠行的子视图句柄，挂在 root 的 tag 上，bindView 复用同实例时取回。 */
     private static final class Row {
         final TextView header;
-        final TextView body;
+        /** 原生正文；web 正文时 null。 */
+        final TextView bodyText;
+        /** WebView 正文；原生正文时 null。 */
+        final MarkdownWebView bodyWeb;
         String baseLabel = HEADER_PLAIN;
-        /** 当前绑定的 part id：换了一条 part 就重置展开选择。 */
+        /** 当前绑定的 part id：换了一条 part 就重置展开选择与正文加载状态。 */
         String partId;
         /** 用户点折叠头的显式选择；null = 跟随状态（思考中展开、定稿收起）。 */
         Boolean userExpandedOverride;
         AssistantTurn.Part part;
         PartHost host;
-        Row(TextView header, TextView body) {
+        /** 最近一次真正喂给 WebView 的文本与流式态，用于同内容复用早退。 */
+        String webLoadedText;
+        boolean webLoadedStreaming;
+
+        Row(TextView header, TextView bodyText, MarkdownWebView bodyWeb) {
             this.header = header;
-            this.body = body;
+            this.bodyText = bodyText;
+            this.bodyWeb = bodyWeb;
         }
     }
 

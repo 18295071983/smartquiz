@@ -2299,6 +2299,130 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 5. **未做**：图片"看图"通道（`routeImagesToVision` 直连视觉推理）仍不进 Agent 引擎——属既有
    产品取舍；要并进去需把引擎 user content 从 string 改成 parts（另立任务）。
 
+### 4.104 feat(chat-parts)：思考正文接入轮内流式（WebView 块级尾巴）（2026-10-25）
+
+1. **问题（用户问"正文气泡接入了流式，思考正文接入流式了吗"）**：回答正文在 2026-10-25 已接
+   `MarkdownWebView` 块级尾巴（§4.92），思考正文还是 §4.102 的第一版口径——流式期纯
+   `TextView.setText` 整块刷新、不渲染 markdown、无打字机。两条正文的渲染通路不一致。
+2. **改法**：`ReasoningPartRenderer` 的正文区按开关选渲染器。`web_markdown_render` +
+   新增 `ReasoningWebRenderFlag`（`ai_chat_prefs.reasoning_web_render`，**默认 true**）都开时，
+   用 `MarkdownWebView`：`bindView` 里流式 → `setContent(text, true)`（走
+   `MarkdownStreamSplitter` 块级尾巴 / `markdown_stream_tail`），定稿 → `setContent(text, false)`
+   整篇重载；高度回调接 `host.invalidateSize()`、`releaseView` 走 `resetForReuse()`，与
+   `TextPartRenderer` 逐项对齐。任一开关关掉退回 `TextView`（第一版整块刷新，回退路保留）。
+   **收起不跑 WebView**：`Row#webLoadedText/webLoadedStreaming` 记已加载内容，只有展开（流式默认
+   展开、定稿点开）才 `setContent`；历史里收起态的思考不白建页面。`userExpandedOverride` 与原生
+   正文的自愈重发逻辑原样保留。
+3. **顺带修的真 bug（思考增量不重绑 parts）**：`ChatAdapter` 的 payload 分派里，
+   `PAYLOAD_CONTENT_UPDATE` 会 `bindMessageContent` 重绑 parts，但 `PAYLOAD_THINKING_UPDATE`
+   只更新 legacy 思考行（`if (!partsTookOver) updateThinkingContent`）。parts 接管后 legacy 行
+   是隐藏的 → **思考正文在 parts 模式下停在接管那一刻**，流式期不刷新。修法：把正文那条
+   "宽度兜底 + `bindMessageContent`"抽成 `refreshStreamingContent(aiHolder, message)`，
+   THINKING payload 在 `parts_renderer` + `parts_streaming` 开时也走它。未接管时仍走 legacy 行，
+   两条路径不并行上屏。
+4. **排版区分（同日真机反馈："思考内容与正文是一个字体，我无法区分啊"）**：两条正文共用
+   `MarkdownWebView` 后默认都是 15px + `--fg`，比第一版 13sp TextView 还难分。做法：
+   - `MarkdownHtmlConverter.wrapDocument(..., boolean reasoning)` 重载：`<body class="light qz-reasoning">`，
+     样式拼一段 `reasoningCss()`——正文 13px/1.62、色 `var(--muted,#8A8F98)`、
+     `padding-left:11px` + `border-left:2px rgba(138,143,152,.45)`、标题等比缩小（1.35/1.22/1.12/1.03em）、
+     行内代码 0.85em、代码块 0.82em。链接/代码块/表格仍走基础 CSS，别把思考里的代码和公式压到不可读。
+   - `MarkdownWebView.setReasoningStyle(true)`：把 `reasoningStyle` 烤进整篇文档；块级流式
+     `__qzStream`/`qzReset` 只换 `body.innerHTML`（body 的 class 保留），定稿整篇与主题重载都重新拼
+     同一份文档，样式不会丢。高度缓存 key 加 `r:`/`b:` 前缀，防两种排版串高。
+   - `ReasoningPartRenderer` 创建思考 WebView 时置位；原生回退路由 `TextView` 同步 13sp +
+     `chat_v2_text_2` 次级色，两条通路观感一致。
+   - 测试钉住双向边界：思考文档必须含 `class="light qz-reasoning"` 与
+     `body.qz-reasoning{font-size:13px`；`TextPartRenderer` 的回答正文必须 `font-size:15px` 且
+     **不含** `qz-reasoning`（防思考样式串到回答）。
+5. **坑 / 边界**：
+   - 思考刷新节流仍是 `THINKING_REFRESH_INTERVAL_MS=120`（正文 50–80ms），观感略钝于正文；
+     要更顺可下调，但每拍会多一次 parts turn 构建（`TurnPartsHost` 按 id 复用、按指纹只重绑
+     reasoning part，其他 part 早退）。
+   - 在线视觉两条流（`AIChatActivity` 的 `generateStreamWithImageParts` 回调）仍是每个 reasoning
+     token `notifyItemChanged(aiIndex)` 全量重绑，未接节流；思考 WebView 会跟着每 token
+     `setContent`，性能待真机观察（该路径本来就是每 token 全量 notify 的旧写法）。
+   - `ReasoningWebRenderFlag` 在 `createView` 时读一次，切开关要重进页面（与其它渲染开关同口径）。
+   - `qz-reasoning` 的 CSS 覆盖按"整段观感"取舍：表格/代码/链接保留主配色，若真机上仍觉得抢眼，
+     下一步应只调 `reasoningCss()`，不要再往 `css(night)` 里加思考专属规则（两态共用一份基础 CSS）。
+   - **状态机漏接（本轮真机发现并修）**：本地普通对话走 chatJson 桥接，思考结束没有旧协议
+     `[THINK_END]`、也不回调 `onThinkingEnd`，而 `createBridgeCallback().onToken` 原先只
+     `handleStreamToken` 不写阶段 → 单轮无工具对话的思考正文一直展开到整条消息结束
+     （Agent 路径由 `AgentCallbackImpl#onToken` 写了 GENERATING，所以多轮工具场景看起来正常）。
+     修法：桥接 `onToken` 第一拍也 `markStreamingPhase(GENERATING)`；该方法只改字段不 notify，
+     靠下一个正文 token 的重绑完成"定格 + 收起"。**教训同 §4.102 坑**：状态机要按真实 token
+     路径逐条接，不能只看名字最像的那层。
+6. **验证**：`TextAndReasoningRendererTest` 14 条 + `MarkdownHtmlConverterTest` 4 条（新增：
+   web 正文形态 / 页面就绪后流式 tick 的 JS 含 `__qzStream`（块级尾巴，不是整篇重载）/
+   定稿收起、点折叠头才整篇渲染（JS 含 `innerHTML`）/ 关 `reasoning_web_render` 退回
+   `TextView` / 思考文档带 `qz-reasoning` 次级排版 / 回答正文不带思考样式）；全量
+   `testDebugUnitTest --offline --no-build-cache` **925 / 0 skipped / 0 failures / 0 errors**；
+   `assembleDebug --offline` 通过（APK 05:01:52），装机 279b6c51 后**真机已验证**：
+   - 思考正文与回答正文一眼可分：更小（13px vs 15px）、更淡（`--muted`）、整段带左竖线缩进；
+   - 思考中折叠头"正在思考..."、思考正文逐块长出且是 markdown 渲染态（段落/列表），uiautomator
+     同时能数到思考正文与回答正文两个 WebView；
+   - 回答一开始折叠头立即"已深度思考 X 秒 / 已深度思考"并收起思考正文（多轮工具/Agent 路径
+     抓到了"正在生成 + 已收起"的中间帧；本地桥接单轮对话回答只有一句，1.3s 截屏没抓到中间态，
+     但首 token 写 GENERATING 的补丁已入库，结束态收起正确）；
+   - 收起态点折叠头展开为完整 markdown（说明"收起不 load、展开才 load"的延迟加载通路没问题）。
+   截图 `docs/thinking_stream_shots/`（01 思考流式 / 02 回答开始已收起 / 03 点开全文 /
+   04 排版对比）。
+7. **坑（测试口径）**：自动化点按/滑动时，MarkdownWebView 的 OnTouchListener 会
+   `requestDisallowInterceptTouchEvent`，从思考正文上起手的滑动不会滚 RecyclerView；真机回归要
+   顺着空白边距/折叠头滑动，别把"滑不动"误判成渲染问题。
+
+### 4.105 feat(chat-scroll)：流式滚动改用贴底状态机（stick-to-bottom）（2026-10-25）
+
+1. **问题（用户问"流式刷新滚动屏幕，业界是怎么设计的"）**。先按业界口径审计现状，发现三处硬伤：
+   - 流式中每拍 `scrollToBottom()` → `scrollToPosition(lastPosition)`。最后一条消息比屏幕高时，
+     RecyclerView 会把**该 item 的顶部**对齐视口顶（文档行为）→ 最新流式内容长在屏幕下方，
+     用户看不到"正在写的那一行"；
+   - `isUserAtBottom()` 用 `findLastCompletelyVisibleItemPosition() >= total-2` 判，正在流式的
+     超高气泡永远"不完全可见"，判据退化成"倒数第二项完全可见"；
+   - 8 处 `scrollToBottom(true)` 在系统/工具/提示行插入时无条件把人拽回底部。
+   业界模型（assistant-ui、Flutter `StickToBottomController`、ChatGPT/Slack 等）：pinned
+   状态机 —— 只有用户停在底部且没在拖拽时才跟随；用户上滑立刻停手；只有用户自己滚回底部、
+   发消息或点回底按钮才重新 pin；**不做"几秒后自动恢复滚动"**；跟随用"距底距离/增量"而不是
+   对 item 调 position。
+2. **新增 `StickToBottom` + `StickToBottomState`**（`ai/chat/`，前者 RecyclerView 包装、后者纯逻辑
+   可单测）：threshold 32dp；用户拖拽 → 立刻丢排队滚动 + unpin；用户松手后的惯性（SETTLING）
+   用于"自己甩回底部重新 pin"；程序化高度收缩（思考收起）**不**解除"用户接管"（`userOptedOut`）。
+   跟随在下一帧 `OnPreDraw` 里执行（本轮 layout 已完成，gap 是新值），同一帧多次请求合并；
+   gap 优先按末项 `getBottom()` 精确算（`computeVerticalScrollRange` 是估算值，超高 WebView 列表
+   会偏小），一次没到底就下一帧继续纠偏，连续滚不动才强制定位末项；平滑回底 >2 屏距离时改瞬时，
+   避免 OverScroller 动画跑几秒。
+3. **Activity 收口**：`scrollToBottom()` = `follow()`；`scrollToBottom(true)` 只保留用户主动/初始化/
+   切会话 8 处（发消息、带附件发送、历史加载 ×2、切会话、onNewIntent、重进页面）；
+   `addAIMessage` / `addSystemMessage`（两个重载）/ 系统提示词行 / 上下文注入行 改非强制。
+   `isUserAtBottom()` 改为 `stickToBottom.isPinned()`（历史归档等判断同一口径）。
+   `onDestroy` 释放控制器（preDraw 监听器强引用 Activity，必须解绑）。
+4. **内容尺寸变化统一喂 follow**：`ChatAdapter.setOnContentSizeChanged(...)` 在
+   `onPartsContentChanged`（parts/WebView 高度回调）里回调；思考节流刷新每拍也补一次 follow；
+   token 写回路径本就有。回底按钮 = `pinAndSmooth()` + 重新 pin，显隐 = `!pinned`。
+5. **删除死代码** `StreamingScrollHelper`（全仓库无引用；里面"用户滚动 3 秒后自动恢复滚动"是
+   业界明确反模式，别再接线）。
+6. **验证**：新增 `StickToBottomStateTest` 12 条（默认贴底 / 内容增长不抖掉 pin / 拖拽即停 /
+   拖回阈值内重新 pin / 惯性甩回底部重新 pin / 程序化收缩不解除接管 / 显式 pin / 平滑期间暂停跟随 /
+   阈值边界 / 构造参数兜底）；全量 `testDebugUnitTest --offline --no-build-cache` **937 /
+   0 skipped / 0 failures / 0 errors**；`assembleDebug --offline` 通过，装机 279b6c51 后**真机已验证**：
+   - 启动/进入会话：列表贴底、回底按钮隐藏、最新消息可见；
+   - 生成中：最新思考/回答始终贴底可见（旧实现最后一条超高时把 item 顶部钉在屏幕顶，最新内容
+     长在屏幕下方看不到）；
+   - 生成中从左侧边距上滑：回底按钮出现；等 6 秒（期间生成结束）视口保持原阅读位置、没有被拽回；
+   - 点回底按钮：平滑回底并恢复跟随（按钮隐藏、后续内容继续贴底）；闪退 0。
+   截图 `docs/scroll_shots/`（01 启动贴底 / 02 生成中贴底 / 03 生成中上滑 / 04 等 6 秒不拽回 /
+   05 点回底后恢复跟随）。
+7. **边界 / 教训**：
+   - 没做 anchor 恢复：在视口上方展开/收起历史项时 RecyclerView 仍按像素偏移保位，可能轻微顶动；
+   - 没采用反向列表方案：单条消息自身长高仍需要贴底跟随，反向列表只解决"新条目从底部生长"；
+   - 键盘/insets 变化没单独做贴底跟随，依赖下一拍 follow；
+   - **真机教训一**：第一版用 `onDistance<=threshold` 直接重新 pin，结果"思考收起"导致内容骤缩、
+     视口被动变成"贴底"→ 把正在阅读的用户拽到新轮底部。修法是区分"用户主动回底"（拖拽/惯性）
+     与"程序化收缩"，后者不解除 `userOptedOut`。
+   - **真机教训二**：末项没 layout 出来时曾退回 `computeVerticalScrollRange()` 估算值——超高 WebView
+     列表里这个估算会严重偏小，惯性滚动中被误判成"已贴底"→ 重新 pin → 拽回底部。现在末项不可见
+     时返回 `FAR_FROM_BOTTOM`（大值）表示"离底很远"，不用估算冒充精确值。
+   - 写状态机别只测理想路径，要把"布局突变 / 高度估算失准 / 手势惯性"当一等输入。
+
 ---
 
 ## 5. 关键文件 / 改动地图

@@ -171,6 +171,11 @@ public class AIChatActivity extends BaseActivity {
     // ===== dsh 对齐：上下文仪表 / 发送队列 / 回底按钮 / 展示行（2026-09-23） =====
     // 上下文仪表已并入 session_stats_bar（ContextMeter pill），2026-09-23
     private android.widget.TextView btnScrollBottom;
+    /**
+     * 流式滚动贴底控制器（2026-10-25）：只有用户停在底部、且没在拖拽时才跟随新内容；
+     * 用"距底距离 + 下一帧 scrollBy"替代旧的 {@code scrollToPosition(last)}（超高气泡会被钉顶）。
+     */
+    private com.oilquiz.app.ai.chat.StickToBottom stickToBottom;
     private android.widget.LinearLayout queueBar;
     private android.widget.TextView tvQueueInfo;
     private android.widget.TextView btnQueueCancel;
@@ -408,6 +413,9 @@ public class AIChatActivity extends BaseActivity {
                         lastThinkShown = disp;
                     }
                 }
+                // 思考正文长高后跟一拍贴底（pinned 才生效；用户上滑阅读时是空操作）。
+                // 放在 adapter 更新之后：下一帧 OnPreDraw 时本轮 layout 已完成，距底距离是新值。
+                scrollToBottom();
             } catch (IndexOutOfBoundsException e) {
                 currentStreamingMessageIndex = -1;
             }
@@ -653,7 +661,7 @@ public class AIChatActivity extends BaseActivity {
             restorePendingQueue();
             // 上下文仪表 pill 点击 → 上下文明细（2026-09-23：并入统计条）
             if (sessionStatsBar != null) sessionStatsBar.setOnContextPillClick(this::showContextMeterDialog);
-            if (btnScrollBottom != null) btnScrollBottom.setOnClickListener(v -> { scrollToBottom(true); updateScrollBottomButton(); });
+            if (btnScrollBottom != null) btnScrollBottom.setOnClickListener(v -> { smoothScrollToBottom(); updateScrollBottomButton(); });
             if (queueBar != null) queueBar.setOnClickListener(v -> cycleBusyMode());
             if (btnQueueCancel != null) btnQueueCancel.setOnClickListener(v -> { pendingQueue.clear(); updateQueueBar(); persistPendingQueue(); });
 
@@ -675,6 +683,12 @@ public class AIChatActivity extends BaseActivity {
                     updateScrollBottomButton();
                     updateLoadMoreButton();
                 }
+            });
+            // 流式贴底控制器（2026-10-25）：内容增长时只在 pinned 状态下下一帧滚到新底部
+            //（scrollBy 距底距离，不为超高 item 做定位）；用户拖拽即停手，回底按钮/发消息才重新 pin。
+            stickToBottom = new com.oilquiz.app.ai.chat.StickToBottom(messageList);
+            chatAdapter.setOnContentSizeChanged(() -> {
+                if (stickToBottom != null) stickToBottom.follow();
             });
             // 初始刷新上下文仪表（历史加载完成后会再次刷新）
             messageList.post(() -> refreshContextMeter());
@@ -6156,7 +6170,15 @@ public class AIChatActivity extends BaseActivity {
                     int tokens = nativeTokens > 0 ? nativeTokens : tokenCount[0];
                     runOnUiThread(() -> updateInferenceProgress(resolveStreamingIndex(), tokens, tps));
                 }
-                runOnUiThread(() -> handleStreamToken(token));
+                runOnUiThread(() -> {
+                    // 状态机：正文 token 一到就是 GENERATING —— reasoning part 据此立刻从
+                    // streaming 收口，折叠头定格"已深度思考"并收起思考正文。
+                    // 本地普通对话走 chatJson 桥接（无工具、单轮），思考结束既没有旧协议的
+                    // [THINK_END] 也不回调 onThinkingEnd，不在这里补一拍，思考正文会一直展开到
+                    // 整条消息结束（2026-10-25 真机所见；Agent 路径由 AgentCallbackImpl#onToken 补）。
+                    markStreamingPhase(ChatMessage.InferencePhase.GENERATING);
+                    handleStreamToken(token);
+                });
             }
 
             @Override
@@ -9850,7 +9872,10 @@ public class AIChatActivity extends BaseActivity {
         if (chatAdapter != null) {
             chatAdapter.notifyItemInserted(chatHistory.size() - 1);
         }
-        scrollToBottom(true);
+        // 非流式回复（缓存/远程直连）到达：按贴底状态跟随即可。
+        // 用户刚发消息时本来就是 pinned（发送已 pin + 贴底），回复会自然跟上；
+        // 用户生成期间上滑阅读时则不动视口（别学旧实现无条件拽回底部）。
+        scrollToBottom();
         saveHistoryAsync();
     }
 
@@ -9916,7 +9941,8 @@ public class AIChatActivity extends BaseActivity {
         if (chatAdapter != null) {
             chatAdapter.notifyItemInserted(chatHistory.size() - 1);
         }
-        scrollToBottom(true);
+        // 系统消息（状态提示）不是用户主动产生的：只在 pinned 时跟随，不把正在阅读的用户拽回底部。
+        scrollToBottom();
         saveHistoryAsync();
     }
 
@@ -10350,7 +10376,8 @@ public class AIChatActivity extends BaseActivity {
                     ChatMessage.SystemMessageType.SYSTEM_PROMPT, System.currentTimeMillis());
             chatHistory.add(row);
             if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
-            scrollToBottom(true);
+            // 系统提示词变更行：状态展示行，跟贴底状态走（用户上滑阅读时不动）。
+            scrollToBottom();
         } catch (Throwable t) {
             AILogger.w(TAG, "maybeInsertSystemPromptRow failed: " + t.getMessage());
         }
@@ -10377,53 +10404,46 @@ public class AIChatActivity extends BaseActivity {
                     ChatMessage.SystemMessageType.CONTEXT_INJECTION, System.currentTimeMillis());
             chatHistory.add(row);
             if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
-            scrollToBottom(true);
+            // 上下文注入行：状态展示行，跟贴底状态走（用户上滑阅读时不动）。
+            scrollToBottom();
         } catch (Throwable t) {
             AILogger.w(TAG, "maybeInsertContextInjectionRow failed: " + t.getMessage());
         }
     }
 
-    private volatile boolean scrollPending = false;
+    // ==================== 流式滚动（2026-10-25 重做：stick-to-bottom） ====================
+    //
+    // 旧实现流式中每拍 scrollToPosition(lastPosition)：最后一条比屏幕高时 RecyclerView 会把该
+    // item 的**顶部**对齐视口顶，最新流式内容一直长在屏幕下方（用户看不到"正在写的行"）；
+    // 且 isUserAtBottom() 用"最后一项完全可见"判，超高气泡永远不完全可见 → 误判。
+    // 现在统一走 StickToBottom：pinned（距底 ≤32dp、非拖拽）才跟随，跟随时下一帧
+    // scrollBy(距底距离)；用户拖拽立刻停手；只有发消息/点回底/进页面才强制重新 pin。
 
     private void scrollToBottom() {
-        scrollToBottom(false);
+        if (stickToBottom != null) stickToBottom.follow();
     }
 
+    /**
+     * @param force true = 用户自己发消息 / 进入页面 / 切换会话：重新 pin 并立刻贴底；
+     *              false = 普通内容增长：只有当前 pinned 才在下一帧跟随（用户上滑阅读时不动）。
+     */
     private void scrollToBottom(boolean force) {
-        if (messageList == null || chatAdapter == null || chatAdapter.getItemCount() == 0) return;
-        if (!force && !isUserAtBottom()) return;
-        // 防抖：已有滚动任务在队列中时不再重复 post，避免高频 token 刷新堆积大量滚动任务卡住主线程
-        if (!force && scrollPending) return;
-        scrollPending = true;
-        messageList.post(() -> {
-            scrollPending = false;
-            // 关键：lastPosition 必须在 post 执行时取。发送用户消息后 AI 占位消息会紧接着
-            // 插入，若在 post 之前捕获旧 index，滚动会停在"上一对消息"，新 AI 消息在下面
-            // 首次绑定/流式刷新，看起来像"先滑到别处再重新渲染"。
-            int lastPosition = chatAdapter.getItemCount() - 1;
-            if (lastPosition < 0) return;
-            boolean isStreaming;
-            synchronized (streamingLock) {
-                isStreaming = isInThinking || (currentStreamingContent != null && currentStreamingContent.length() > 0);
-            }
-            if (force || isStreaming) {
-                // force（重进页面/加载完成定位）与流式中：直接定位（立即生效，不依赖平滑滚动动画）
-                messageList.scrollToPosition(lastPosition);
-            } else {
-                messageList.smoothScrollToPosition(lastPosition);
-            }
-        });
+        if (stickToBottom == null) return;
+        if (force) {
+            stickToBottom.pinAndJump();
+        } else {
+            stickToBottom.follow();
+        }
     }
 
+    /** 回底按钮：平滑回底并重新 pin（平滑期间暂停逐帧跟随，结束后恢复）。 */
+    private void smoothScrollToBottom() {
+        if (stickToBottom != null) stickToBottom.pinAndSmooth();
+    }
+
+    /** 当前是否贴底（回底按钮显隐、历史归档等判断统一用它）。 */
     private boolean isUserAtBottom() {
-        if (messageList == null) return false;
-        androidx.recyclerview.widget.LinearLayoutManager layoutManager =
-            (androidx.recyclerview.widget.LinearLayoutManager) messageList.getLayoutManager();
-        if (layoutManager == null) return false;
-        int lastVisible = layoutManager.findLastCompletelyVisibleItemPosition();
-        int total = chatAdapter != null ? chatAdapter.getItemCount() : 0;
-        // 最后一项完全可见，或离底部 2 项以内，认为用户在底部
-        return lastVisible >= total - 2;
+        return stickToBottom != null && stickToBottom.isPinned();
     }
 
     /**
@@ -12127,7 +12147,8 @@ public class AIChatActivity extends BaseActivity {
         pendingVoiceInputSource = false;
         chatHistory.add(userMessage);
         if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
-        scrollToBottom();
+        // 用户主动发消息：强制重新 pin 并贴底（与文本发送同一口径）。
+        scrollToBottom(true);
         saveHistoryAsync();
 
         // 图片附件统一走 OCR + Agent 路径（在线模型优先）
@@ -12409,6 +12430,11 @@ public class AIChatActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
+        // 贴底控制器持有 messageList 的 preDraw/scroll 监听器，必须解绑，避免强引用泄漏。
+        if (stickToBottom != null) {
+            stickToBottom.release();
+            stickToBottom = null;
+        }
         try {
             npuIdleHandler.removeCallbacks(npuIdleRelease);
             if (isFinishing() && isNpuEngineOn()) {
@@ -12573,7 +12599,8 @@ public class AIChatActivity extends BaseActivity {
         if (chatAdapter != null) {
             chatAdapter.notifyItemInserted(chatHistory.size() - 1);
         }
-        scrollToBottom(true);
+        // 系统/提示行不是用户主动产生的：只在 pinned 时跟随，不把正在阅读的用户拽回底部。
+        scrollToBottom();
         saveHistoryAsync();
     }
 

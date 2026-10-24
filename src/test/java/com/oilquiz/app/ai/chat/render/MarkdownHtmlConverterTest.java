@@ -36,4 +36,18 @@ public class MarkdownHtmlConverterTest {
         assertFalse(html.contains("qz-footnotes"));
         assertTrue(html.contains("[^1]: 不是脚注"));
     }
+
+    /** 思考正文与回答正文同用一个 WebView 渲染器，必须靠 body 类 + CSS 拉开排版差异。 */
+    @Test
+    public void reasoningDocumentUsesSecondaryTypography() {
+        String doc = MarkdownHtmlConverter.wrapDocument("<p>思考</p>", false, null, true);
+        assertTrue(doc.contains("class=\"light qz-reasoning\""));
+        assertTrue(doc.contains("body.qz-reasoning{font-size:13px"));
+        assertTrue(doc.contains("--muted"));
+
+        // 普通回答正文绝不能带思考类/思考 CSS（两者共用 MarkdownWebView）
+        String plain = MarkdownHtmlConverter.wrapDocument("<p>回答</p>", false);
+        assertFalse(plain.contains("qz-reasoning"));
+        assertTrue(plain.contains("font-size:15px"));
+    }
 }

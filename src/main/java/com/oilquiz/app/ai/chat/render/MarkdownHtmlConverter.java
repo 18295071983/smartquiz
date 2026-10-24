@@ -302,26 +302,63 @@ public final class MarkdownHtmlConverter {
     }
 
     public static String wrapDocument(String bodyHtml, boolean night, String themeVars) {
-        String theme = night ? "dark" : "light";
-        String vars = (themeVars == null || themeVars.trim().isEmpty()) ? "" : themeVars.trim();
-        String hljsCss = night ? "css/hljs-github-dark.min.css" : "css/hljs-github.min.css";
-        return "<!DOCTYPE html><html lang=\"zh\"><head><meta charset=\"UTF-8\">"
-                + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=1\">"
-                + "<link rel=\"stylesheet\" href=\"" + hljsCss + "\">"
-                + "<link rel=\"stylesheet\" href=\"css/katex.min.css\">"
-                + "<style>" + css(night) + "</style>"
-                + "<script src=\"js/highlight.min.js\"></script>"
-                + "<script src=\"js/katex.min.js\"></script>"
-                + "<script src=\"js/katex-auto-render.min.js\"></script>"
-                + "</head>"
-                + "<body class=\"" + theme + "\" style=\"" + vars + "\">"
-                + (bodyHtml == null ? "" : bodyHtml)
-                + "</body><script>" + bootstrapJs() + "</script></html>";
+        return wrapDocument(bodyHtml, night, themeVars, false);
     }
 
     /** 便捷重载：无自定义主题变量。 */
     public static String wrapDocument(String bodyHtml, boolean night) {
-        return wrapDocument(bodyHtml, night, null);
+        return wrapDocument(bodyHtml, night, null, false);
+    }
+
+    /**
+     * 完整重载：{@code reasoning=true} 时给 body 加 {@code qz-reasoning} 类。
+     *
+     * <p>思考正文与回答正文共用同一个 WebView 渲染器，如果排版完全一致，用户分不清哪段是
+     * 思考、哪段是回答（2026-10-25 真机反馈"一个字体，我无法区分"）。这里把思考态做成
+     * <b>次级排版</b>：字号 13px（回答 15px）、正文色走 {@code --muted}、整段左移出 2px 竖线
+     * 缩进，标题按比例缩小。类加在 {@code <body>} 上，流式块替换（{@code __qzStream} 只换子节点）
+     * 不会丢；定稿整篇重载与主题重载同样沿用。</p>
+     */
+    public static String wrapDocument(String bodyHtml, boolean night, String themeVars,
+                                      boolean reasoning) {
+        String theme = night ? "dark" : "light";
+        String vars = (themeVars == null || themeVars.trim().isEmpty()) ? "" : themeVars.trim();
+        String hljsCss = night ? "css/hljs-github-dark.min.css" : "css/hljs-github.min.css";
+        String bodyClass = reasoning ? theme + " qz-reasoning" : theme;
+        return "<!DOCTYPE html><html lang=\"zh\"><head><meta charset=\"UTF-8\">"
+                + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=1\">"
+                + "<link rel=\"stylesheet\" href=\"" + hljsCss + "\">"
+                + "<link rel=\"stylesheet\" href=\"css/katex.min.css\">"
+                + "<style>" + css(night) + (reasoning ? reasoningCss() : "") + "</style>"
+                + "<script src=\"js/highlight.min.js\"></script>"
+                + "<script src=\"js/katex.min.js\"></script>"
+                + "<script src=\"js/katex-auto-render.min.js\"></script>"
+                + "</head>"
+                + "<body class=\"" + bodyClass + "\" style=\"" + vars + "\">"
+                + (bodyHtml == null ? "" : bodyHtml)
+                + "</body><script>" + bootstrapJs() + "</script></html>";
+    }
+
+    /**
+     * 思考正文（reasoning）专用排版覆盖，拼在 {@link #css(boolean)} 之后。
+     *
+     * <p>只覆盖"整段观感"相关的几项：字号/行高/正文色/左竖线缩进 + 标题等比缩小；
+     * 链接色、代码块、表格边框等仍走基础 CSS，别让思考里的代码/公式变得不可读。</p>
+     */
+    private static String reasoningCss() {
+        return ""
+                // body 选择器优先级高于基础 html,body（0,1,1 > 0,0,1），字号/颜色可以稳定覆盖
+                + "body.qz-reasoning{font-size:13px;line-height:1.62;color:var(--muted,#8A8F98);"
+                + "padding:2px 2px 2px 11px;border-left:2px solid rgba(138,143,152,0.45);margin-left:1px}"
+                + "body.qz-reasoning h1,body.qz-reasoning h2,body.qz-reasoning h3,"
+                + "body.qz-reasoning h4,body.qz-reasoning h5,body.qz-reasoning h6{"
+                + "color:var(--muted,#8A8F98);font-weight:600}"
+                + "body.qz-reasoning h1{font-size:1.35em}body.qz-reasoning h2{font-size:1.22em}"
+                + "body.qz-reasoning h3{font-size:1.12em}body.qz-reasoning h4{font-size:1.03em}"
+                + "body.qz-reasoning strong{color:inherit}"
+                + "body.qz-reasoning blockquote{color:var(--muted,#8A8F98)}"
+                // 行内代码/代码块字号跟着 13px 等比缩，避免比正文还抢眼
+                + "body.qz-reasoning code{font-size:0.85em}body.qz-reasoning pre code{font-size:0.82em}";
     }
 
     /**
