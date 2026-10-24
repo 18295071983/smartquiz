@@ -31,7 +31,9 @@ public class ComponentPropsSchemaVisibilityTest {
         String[] keywords = {
                 "playlist", "agenda", "location", "diff",   // 四张新卡
                 "fill|short",                                 // 题库卡新题型
-                "area|stacked_bar|pie|scatter|radar"          // 图表扩型
+                "area|stacked_bar|pie|scatter|radar",         // 图表扩型
+                "script/onclick",                             // html 按来源分档（2026-10-24）
+                ".html/.htm"                                  // 工作区网页产物自动出卡
         };
         for (String kw : keywords) {
             assertTrue("参数表缺: " + kw, viaMap.contains(kw));

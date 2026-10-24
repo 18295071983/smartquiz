@@ -793,6 +793,8 @@ public class AgentWorkspace {
                 + "   location(地址+经纬度，带在地图中打开/复制坐标) / diff(before/after 或 hunks 变更对比) /\n"
                 + "   quiz_card(single/multiple/judge/fill/short；fill 的 answer 可用 | 分隔多个可接受答案) /\n"
                 + "   progress_card / html / markdown_card；web=网页卡片, image=图片卡片\n"
+                + "   html 按来源分档：内联串剥掉 script/onclick(页内按钮无效，要点击就给卡片加 actions)；\n"
+                + "   url=file:///…/report.html(工作区内本地网页)才可跑页面脚本；工作区 .html/.htm 产物会自动挂网页卡\n"
                 + "   卡片可加 actions=[{\"label\":\"文字\",\"value\":\"回传值\",\"action\":\"callback\"}] 收集点击\n\n"
                 + "四、动态插件（ui_component_plugin）\n"
                 + "----------------------------------------------------------------\n"

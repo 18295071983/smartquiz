@@ -23,7 +23,8 @@ import java.util.Set;
  *
  * <p>已有的 {@link ToolResultCardBinder} 是按工具名 switch 的静态映射；没命中的工具
  * 以前没有卡片，只能在正文里看文本。这里按 **结果形状** 兜底：
- * 有媒体路径→原生媒体卡；headers/rows→表格；items→列表；metrics→指标；
+ * 有媒体路径→原生媒体卡（工作区内确实存在的 .html/.htm → html 网页卡）；
+ * headers/rows→表格；items→列表；metrics→指标；
  * html→网页卡；url→链接卡；其余标量对象→info_card。</p>
  *
  * <p>只在静态 binder 没有产出卡片时调用；纯文本/无结构结果不硬造卡，避免刷屏。</p>
@@ -159,21 +160,34 @@ public final class DynamicToolResultRenderer {
                     .put("title", "播放列表 · " + audios.size() + " 首").put("items", arr)));
         }
         if (!files.isEmpty() && out.size() < MAX_CARDS) {
-            if (files.size() == 1) {
-                String p = files.iterator().next();
-                out.add(ComponentData.of("file_card", new JSONObject()
-                        .put("name", fileName(p)).put("path", p)
-                        .put("type", ext(p)).put("title", title)));
-            } else {
-                JSONArray arr = new JSONArray();
-                for (String p : files) {
-                    arr.put(new JSONObject().put("name", fileName(p)).put("path", p)
-                            .put("type", ext(p)));
-                    if (arr.length() >= 8) break;
+            // 本地 HTML 文档 → 网页卡（判定与 ToolResultCardBinder 共用一处，免得同一个产物出两种形状）
+            List<String> webDocs = new ArrayList<>();
+            Set<String> plain = new LinkedHashSet<>();
+            for (String p : files) {
+                if (ToolResultCardBinder.isWebDocument(p)) webDocs.add(p);
+                else plain.add(p);
+            }
+            for (String p : webDocs) {
+                if (out.size() >= MAX_CARDS) break;
+                out.add(ToolResultCardBinder.webCard(p));
+            }
+            if (!plain.isEmpty() && out.size() < MAX_CARDS) {
+                if (plain.size() == 1) {
+                    String p = plain.iterator().next();
+                    out.add(ComponentData.of("file_card", new JSONObject()
+                            .put("name", fileName(p)).put("path", p)
+                            .put("type", ext(p)).put("title", title)));
+                } else {
+                    JSONArray arr = new JSONArray();
+                    for (String p : plain) {
+                        arr.put(new JSONObject().put("name", fileName(p)).put("path", p)
+                                .put("type", ext(p)));
+                        if (arr.length() >= 8) break;
+                    }
+                    out.add(ComponentData.of("file_list", new JSONObject()
+                            .put("title", title + " · " + plain.size() + " 个文件")
+                            .put("files", arr)));
                 }
-                out.add(ComponentData.of("file_list", new JSONObject()
-                        .put("title", title + " · " + files.size() + " 个文件")
-                        .put("files", arr)));
             }
         }
         return out;
@@ -218,6 +232,9 @@ public final class DynamicToolResultRenderer {
 
     private static ComponentData mediaCardForPath(String p, String toolName) throws Exception {
         if (p == null || p.isEmpty() || p.contains(" ") || p.length() > 500) return null;
+        if (ToolResultCardBinder.isWebDocument(p)) {
+            return ToolResultCardBinder.webCard(p);
+        }
         String ext = ext(p);
         if (IMAGE_EXT.contains(ext)) {
             return ComponentData.of("image_grid", new JSONObject()

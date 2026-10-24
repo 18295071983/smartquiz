@@ -177,10 +177,20 @@ public class HtmlCardView implements ChatComponent {
         webContainer.addView(webView);
         webContainer.addView(backBtn, backLp);
 
-        webView.setWebChromeClient(new WebChromeClient());
         final boolean bridgeEnabled = HtmlSandbox.allowsBridge(trust);
-        webView.setWebViewClient(new SandboxWebViewClient(context, trust, webView,
-                webContainer, backBtn, maxHeightPx, scriptEnabled, bridgeEnabled));
+        final SandboxWebViewClient sandboxClient = new SandboxWebViewClient(context, trust,
+                webView, webContainer, backBtn, maxHeightPx, scriptEnabled, bridgeEnabled);
+        webView.setWebViewClient(sandboxClient);
+        // 页面进度到 100% 时再量一次：图片/字体/CSS 常在 onPageFinished 之后才把内容撑高，
+        // 只按"加载完成"量一次会把长报告永久压在初始高度里（真机症状：卡片只有一条窗口）
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onProgressChanged(WebView view, int newProgress) {
+                if (newProgress >= 100) {
+                    sandboxClient.scheduleMeasure();
+                }
+            }
+        });
 
         if (!TextUtils.isEmpty(decision.loadUrl)) {
             webView.loadUrl(decision.loadUrl);
@@ -312,8 +322,34 @@ public class HtmlCardView implements ChatComponent {
             if (scriptEnabled && bridgeEnabled) {
                 injectImagePreview(view);
             }
-            // 延迟取高度：等 CSS/JS 渲染完成；失败保持初始高度（内容可滚动，不算失败）
-            view.postDelayed(this::measureContentHeight, 150L);
+            scheduleMeasure();
+        }
+
+        /**
+         * 量高时刻表（2026-10-24）。
+         *
+         * <p>此前只在 {@code onPageFinished} 后 150ms 量一次：内联档（JS 关闭）靠已废弃的
+         * {@code getContentHeight()}，那一刻常常还是 0，于是容器永久停在初始 160dp，
+         * 长报告只剩一条窗口；带图片/CSS 延后布局的页面同理。这里按几个时间点各量一次，
+         * {@link #applyMeasuredHeight} 只增不减，所以后量到的更高值才会改写容器高度。</p>
+         */
+        private static final long[] MEASURE_DELAYS_MS = {120L, 450L, 1000L, 2000L};
+
+        /** 进度回调会连发，用它给重复排期做一次节流 */
+        private long lastScheduleAtMs;
+
+        /** 已应用的内容高度（只增不减，避免每次量到更小值就来回抖） */
+        private int appliedHeightPx;
+
+        /** 排一次多时刻量高（页面加载完成、以及进度到 100% 时各来一轮） */
+        void scheduleMeasure() {
+            if (webView.isComponentReleased()) return;
+            long now = System.currentTimeMillis();
+            if (now - lastScheduleAtMs < 250L) return;
+            lastScheduleAtMs = now;
+            for (long delay : MEASURE_DELAYS_MS) {
+                webView.postDelayed(this::measureContentHeight, delay);
+            }
         }
 
         /** 图片点击预览（浏览器级体验）：仅放开脚本的档位注入 */
@@ -374,6 +410,10 @@ public class HtmlCardView implements ChatComponent {
             if (heightPx == null || heightPx <= 0 || webView.isComponentReleased()) return;
             try {
                 int target = Math.min(heightPx + dp(context, 16), maxHeightPx);
+                // 多轮量高：只接受更高的值，量到更小值（图片还没下来）不改回去，
+                // 否则容器会在几轮回调之间来回抖
+                if (target <= appliedHeightPx) return;
+                appliedHeightPx = target;
                 webView.post(() -> {
                     if (webView.isComponentReleased()) return;
                     ViewGroup.LayoutParams lp = webContainer.getLayoutParams();

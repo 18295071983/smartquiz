@@ -44,7 +44,9 @@ import java.util.List;
  * 只有 MermaidMathSplitter 这类应用内代码能置位）；历史会话里的旧数据没有该标记，
  * 靠 {@link #looksLikeInternalTemplate(String)} 的模板指纹兜底——即便模型伪造该指纹，
  * 拿到的也只是"无桥 + 无文件访问 + 只能执行自己页面内脚本"的 JS 环境，
- * 外发通道（connect-src / form / 导航 / 新窗口）都在此关闭。
+ * 外发通道（connect-src / worker / form / 嵌套框架 / 导航 / 新窗口）都在此关闭——导航由
+ * {@code HtmlCardView} 的 WebViewClient 拦，其余靠 {@link #cspMetaFor(Trust)} 给该档注入 CSP：
+ * 这一档 JS 是开的（mermaid/katex 要跑脚本），只靠"没有桥"拦不住 fetch。
  */
 public final class HtmlSandbox {
 
@@ -446,8 +448,19 @@ public final class HtmlSandbox {
     }
 
     /**
-     * 不可信内联内容的 CSP。JS 已在该档关闭，这里是纵深防御：
-     * 即便将来有人放开 JS 或系统 WebView 有绕过，脚本/外发/表单/嵌套框架仍是关的。
+     * 各档的 CSP。
+     *
+     * <p>两档需要注入，且各自守的是不同的洞：
+     * <ul>
+     *   <li>{@code INLINE_UNTRUSTED}：该档 JS 已关，CSP 是纵深防御（将来手滑放开 JS 仍拦得住）；</li>
+     *   <li>{@code INTERNAL_TEMPLATE}：<b>JS 是开的</b>（mermaid/katex 必须跑脚本），而且
+     *       {@link #looksLikeInternalTemplate(String)} 的指纹兜底让模型给的字符串也可能落进这一档
+     *       ——所以这一档必须自己把外发通道关掉。{@code script-src} 留 {@code 'self' + unsafe-inline/eval}
+     *       是因为模板里就有内联初始化脚本、mermaid 内部用到动态函数，收紧会直接把图渲没；
+     *       关的是 connect/websocket/worker/form/frame/object/base 这些能把页面内容送出去的口子。</li>
+     * </ul>
+     * {@code LOCAL_FILE}（Agent 自己产在工作区里的报表，脚本要连本地数据）与
+     * {@code REMOTE_PAGE}（远程页本来就要发请求）不注入，维持原行为。
      */
     public static String cspMetaFor(Trust trust) {
         switch (trust) {
@@ -460,6 +473,16 @@ public final class HtmlSandbox {
                         + "font-src https: data:; "
                         + "media-src https:; "
                         + "connect-src 'none'; "
+                        + "object-src 'none'; frame-src 'none'; "
+                        + "base-uri 'none'; form-action 'none'\"/>";
+            case INTERNAL_TEMPLATE:
+                return "<meta http-equiv=\"Content-Security-Policy\" content="
+                        + "\"default-src 'self' data:; "
+                        + "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+                        + "style-src 'self' 'unsafe-inline'; "
+                        + "img-src 'self' data: https:; "
+                        + "font-src 'self' data:; "
+                        + "connect-src 'none'; worker-src 'none'; "
                         + "object-src 'none'; frame-src 'none'; "
                         + "base-uri 'none'; form-action 'none'\"/>";
             default:

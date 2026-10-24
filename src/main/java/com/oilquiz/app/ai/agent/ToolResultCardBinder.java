@@ -74,12 +74,18 @@ public final class ToolResultCardBinder {
             "mp4", "mkv", "mov", "avi", "webm", "flv", "m4v", "3gp", "ts"));
     private static final Set<String> AUDIO_EXT = new HashSet<>(Arrays.asList(
             "mp3", "m4a", "wav", "aac", "ogg", "amr", "flac", "opus"));
+    /**
+     * 本地网页文档：出 html 卡而不是 file_card（2026-10-24）。
+     * file:// 且落在工作区内会走 {@code HtmlSandbox.Trust.LOCAL_FILE} 档——页面脚本能跑（图表画得出）、
+     * 目录内链接可继续点、图片可点按全屏；file_card 只会把 .html 当普通文件丢给预览页。
+     */
+    private static final Set<String> HTML_EXT = new HashSet<>(Arrays.asList("html", "htm"));
 
     /** 产物路径通用探测：绝对路径或工作区相对路径 + 已知扩展名 */
     private static final Pattern ARTIFACT_PATH = Pattern.compile(
             "(?:/storage/emulated/0/|/data/data/|/sdcard/|[A-Za-z]:\\\\|files/|tmp/)"
                     + "[^\\s'\"`,;()（）\\[\\]{}<>]*?"
-                    + "\\.(png|jpe?g|webp|gif|bmp|mp4|mkv|mov|webm|m4a|mp3|wav|flac|ogg|apk)");
+                    + "\\.(png|jpe?g|webp|gif|bmp|mp4|mkv|mov|webm|m4a|mp3|wav|flac|ogg|apk|html?)");
 
     /** 这些工具自己已经 withComponent（或本就产出组件），桥接层不再插手 */
     private static final Set<String> SELF_COMPONENT_TOOLS = new HashSet<>(Arrays.asList(
@@ -1197,7 +1203,7 @@ public final class ToolResultCardBinder {
         return out;
     }
 
-    /** 按扩展名/提示词挑卡片：image_grid / video / audio / file_card */
+    /** 按扩展名/提示词挑卡片：image_grid / video / audio / html / file_card */
     private static ComponentData mediaCard(String path, String kindHint) throws Exception {
         if (path == null || path.trim().isEmpty()) {
             return null;
@@ -1208,6 +1214,10 @@ public final class ToolResultCardBinder {
         String name = fileNameOf(p);
         String size = sizeText(p);
 
+        // 本地网页文档优先出网页卡（判定与 DynamicToolResultRenderer 共用同一处）
+        if (isWebDocument(p)) {
+            return webCard(p);
+        }
         if (IMAGE_EXT.contains(ext) || "image".equals(kind) || "img".equals(kind)) {
             return ComponentData.of("image_grid", new JSONObject()
                     .put("columns", 1).put("images", new JSONArray().put(p)));
@@ -1224,6 +1234,36 @@ public final class ToolResultCardBinder {
         return ComponentData.of("file_card", new JSONObject()
                 .put("name", name).put("path", p)
                 .put("size", size).put("type", ext));
+    }
+
+    /**
+     * 该路径是否<b>确实存在</b>的本地 HTML 文档——"扩展名对 + 文件在"才算。
+     *
+     * <p>存在性检查是刻意的：模型常给缩写或幻觉路径，那种情况继续出 file_card
+     * （至少能看到文件名、点开有"未找到"提示），而不是渲染一张空白网页卡。
+     * {@link com.oilquiz.app.ai.agent.DynamicToolResultRenderer} 走同一个判定，
+     * 免得两张卡对同一个产物给出两种形状。</p>
+     */
+    static boolean isWebDocument(String path) {
+        if (path == null || path.trim().isEmpty()) return false;
+        String p = path.trim();
+        if (p.startsWith("http://") || p.startsWith("https://") || p.startsWith("content://")) {
+            return false;
+        }
+        if (!HTML_EXT.contains(extensionOf(p))) return false;
+        try {
+            return new File(stripScheme(p)).isFile();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 本地 HTML 文档 → html 卡（url 用 file://，交给 HtmlSandbox 判档） */
+    static ComponentData webCard(String path) throws Exception {
+        String p = stripScheme(path.trim());
+        return ComponentData.of("html", new JSONObject()
+                .put("title", fileNameOf(p))
+                .put("url", "file://" + p));
     }
 
     // ==================== 文件类 ====================
@@ -1272,9 +1312,14 @@ public final class ToolResultCardBinder {
         if (path.isEmpty()) {
             return null;
         }
+        String resolved = resolvePath(context, path);
+        // Agent 写的网页报告直接渲进消息流（file_card 只会把它当普通文件丢给预览页）
+        if (isWebDocument(resolved)) {
+            return webCard(resolved);
+        }
         JSONObject p = new JSONObject();
         p.put("name", fileNameOf(path));
-        p.put("path", resolvePath(context, path));
+        p.put("path", resolved);
         p.put("type", extensionOf(path));
         p.put("size", sizeText(path));
         String uri = str(m.get("contentUri"));

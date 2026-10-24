@@ -251,6 +251,9 @@ def create_component(component_type, title="", message="", component_id=None,
         #   create_component("list_card", props={"title":"清单","items":[{"icon":"📁","title":"报告","description":"说明"}]})
         #   create_component("progress_card", props={"title":"任务进度","progress":60,"description":"已完成60%"})
         #   create_component("html", props={"html":"<h3>标题</h3><p>富文本内容</p>","title":"可选标题"})
+        #   # html 的能力按来源分档、不由 props 决定：内联 html 串会剥掉 script/onclick(页内按钮点了没反应，
+        #   #   要收集点击请给卡片加 actions)；传 url="file:///…/report.html"(工作区内本地网页)才能跑页面脚本
+        #   #   (图表能画、目录内可导航)；Agent 产在工作区里的 .html/.htm 会被自动挂成网页卡，不必手动建
         #   create_component("todo_card", props={"title":"待办","items":[{"text":"完成报告","done":true},{"text":"回复邮件","done":false}]})
         #   create_component("quiz_card", props={"type":"single","question":"1+1=?","options":["A. 1","B. 2"],"answer":"B","analysis":"2"})
         #   create_component("weather_card", props={"city":"北京","temp":"26℃","text":"多云","icon":"⛅"})

@@ -39,6 +39,12 @@ public class ToolSchemaVisibilityTest {
         assertTrue("在线 schema 没教新图型",
                 schema.contains("area|stacked_bar|pie|scatter|radar"));
         assertTrue("在线 schema 没教散点坐标", schema.contains("points"));
+        // html 的能力按来源分档 + 工作区 .html 产物自动出卡（2026-10-24）：
+        // 此前三份抄本都在售卖"图片全屏预览/卡内导航"，而模型直给的内联串根本拿不到这些能力
+        assertTrue("在线 schema 没教 html 分档（内联串剥脚本）", schema.contains("script/onclick"));
+        assertTrue("在线 schema 没教 .html 产物自动出卡", schema.contains(".html/.htm"));
+        // component_type 那段此前另写了一份"图片点击全屏预览"，没提这能力只有本地网页/远程页才有
+        assertTrue("在线 schema 还在无档位地售卖图片预览", !schema.contains("图片点击全屏预览"));
     }
 
     @Test
@@ -71,10 +77,17 @@ public class ToolSchemaVisibilityTest {
             for (String kw : new String[]{"stacked_bar", "scatter", "radar", "area"}) {
                 assertTrue("模型可见文档缺图型 " + kw, doc.contains(kw));
             }
+            for (String kw : new String[]{"script/onclick", ".html/.htm"}) {
+                assertTrue("模型可见文档缺 html 分档口径 " + kw, doc.contains(kw));
+            }
         }
         // 已删除的实现不许再被教给模型（有 alias 兜底渲染，但目录/示例不该售卖）
         assertTrue("android_ui 仍在教 note_card", !py.contains("note_card"));
         assertTrue("android_ui 仍在教 grid_card", !py.contains("grid_card"));
+        // update 不许再说"所有类型通用"：聊天流卡片（info_card/html/chart…）传 props
+        // 在 PythonToolManager.updateComponent 里明确返回 not_supported，教了就是让模型白跑一次调用
+        String uiTool = read("src/main/java/com/oilquiz/app/ai/tool/SystemUIComponentTool.java");
+        assertTrue("ui_component 仍在教 update 所有类型通用", !uiTool.contains("所有类型通用"));
     }
 
     private static String read(String path) throws Exception {

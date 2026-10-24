@@ -10,6 +10,7 @@ import com.oilquiz.app.ai.tool.AIToolResult;
 import org.json.JSONArray;
 import org.junit.Test;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -17,10 +18,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 内置卡片的生产者接线（2026-10-24）：agenda ← reminder、diff ← 写文件工具。
+ * 内置卡片的生产者接线（2026-10-24）：agenda ← reminder、diff ← 写文件工具、
+ * 网页卡 ← 工作区里的 .html/.htm 产物。
  *
  * <p>钉住的是"工具结果 → 具体卡片类型"这一层，不涉及 Android View：agenda/diff
- * 此前只有渲染端，这轮补的是自动生产。</p>
+ * 此前只有渲染端，html 产物此前只会出 file_card，这轮补的都是生产侧。</p>
  */
 public class AutoCardProducerTest {
 
@@ -128,6 +130,81 @@ public class AutoCardProducerTest {
         assertEquals(1, cards.size());
         assertEquals("file_card", cards.get(0).type);
         assertNull(find(cards, "diff"));
+    }
+
+    // ------------------------------------------------------ html 产物 → 网页卡（2026-10-24）
+
+    @Test
+    public void workspaceHtmlArtifactBecomesHtmlCard() throws Exception {
+        File f = writeTemp("report_", ".html", "<html><body><h3>周报</h3></body></html>");
+        try {
+            Map<String, Object> result = new HashMap<>();
+            result.put("status", "success");
+            result.put("filePath", f.getAbsolutePath());
+
+            List<ComponentData> cards = ToolResultCardBinder.build(
+                    null, "file_generator", AIToolResult.success(result), null);
+
+            assertEquals(1, cards.size());
+            assertEquals("html", cards.get(0).type);
+            // file:// 才能被 HtmlSandbox 判成 LOCAL_FILE（脚本可跑那一档）
+            assertEquals("file://" + f.getAbsolutePath(), cards.get(0).props.optString("url"));
+            assertEquals("report_", cards.get(0).props.optString("title").substring(0, 7));
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            f.delete();
+        }
+    }
+
+    @Test
+    public void missingHtmlPathKeepsFileCardInsteadOfBlankWebCard() {
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", "success");
+        result.put("filePath", "/data/data/com.oilquiz.app/files/不存在的报告.html");
+
+        List<ComponentData> cards = ToolResultCardBinder.build(
+                null, "file_generator", AIToolResult.success(result), null);
+
+        assertEquals(1, cards.size());
+        assertEquals("file_card", cards.get(0).type);
+    }
+
+    @Test
+    public void artifactScanPicksUpHtmlPath() throws Exception {
+        File f = writeTemp("page_", ".htm", "<html><body>x</body></html>");
+        try {
+            List<ComponentData> cards = ToolResultCardBinder.build(null, "python_execute",
+                    AIToolResult.success("已生成网页: " + f.getAbsolutePath()), null);
+            assertEquals(1, cards.size());
+            assertEquals("html", cards.get(0).type);
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            f.delete();
+        }
+    }
+
+    @Test
+    public void dynamicRendererUsesSameHtmlRule() throws Exception {
+        File f = writeTemp("dyn_", ".html", "<html><body>y</body></html>");
+        try {
+            Map<String, Object> result = new HashMap<>();
+            result.put("file", f.getAbsolutePath());
+            List<ComponentData> cards = DynamicToolResultRenderer.render(
+                    "some_dynamic_tool", AIToolResult.success(result));
+            assertEquals(1, cards.size());
+            assertEquals("html", cards.get(0).type);
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            f.delete();
+        }
+    }
+
+    private static File writeTemp(String prefix, String suffix, String content) throws Exception {
+        File f = File.createTempFile(prefix, suffix);
+        try (java.io.FileWriter w = new java.io.FileWriter(f)) {
+            w.write(content);
+        }
+        return f;
     }
 
     private static Map<String, Object> agendaItem(String date, String time, String title,

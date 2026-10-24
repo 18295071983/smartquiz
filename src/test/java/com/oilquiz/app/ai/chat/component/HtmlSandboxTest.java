@@ -107,6 +107,33 @@ public class HtmlSandboxTest {
     }
 
     @Test
+    public void templateTierGetsCspTooBecauseItsScriptsAreOn() {
+        // 模板档 JS 必须开（mermaid/katex 靠脚本渲染），而 looksLikeInternalTemplate 的指纹兜底
+        // 让模型给的字符串也可能落进这一档——"没挂桥"拦不住页面里的 fetch，所以外发通道得靠 CSP 关。
+        String meta = HtmlSandbox.cspMetaFor(HtmlSandbox.Trust.INTERNAL_TEMPLATE);
+        assertNotNull("模板档必须有自己的 CSP", meta);
+        assertTrue(meta.contains("connect-src 'none'"));
+        assertTrue(meta.contains("form-action 'none'"));
+        assertTrue(meta.contains("frame-src 'none'"));
+        assertTrue(meta.contains("worker-src 'none'"));
+        // 脚本通道必须留着：收紧会把流程图/公式直接渲没
+        assertTrue(meta.contains("script-src 'self' 'unsafe-inline'"));
+
+        String doc = HtmlSandbox.injectCsp(
+                "<!DOCTYPE html><html><head></head><body>"
+                        + "<script src=\"js/mermaid.min.js\"></script></body></html>",
+                HtmlSandbox.Trust.INTERNAL_TEMPLATE);
+        assertTrue("完整文档要把 meta 落进 head", doc.contains("Content-Security-Policy"));
+    }
+
+    @Test
+    public void localFileAndRemotePageStayWithoutCsp() {
+        // 本地报表要连本地数据、远程页本来就要发请求——这两档注入 CSP 会直接砍掉功能
+        assertNull(HtmlSandbox.cspMetaFor(HtmlSandbox.Trust.LOCAL_FILE));
+        assertNull(HtmlSandbox.cspMetaFor(HtmlSandbox.Trust.REMOTE_PAGE));
+    }
+
+    @Test
     public void oversizedInlineHtmlIsTruncatedNotDumpedWhole() {
         StringBuilder big = new StringBuilder();
         for (int i = 0; i < 40000; i++) {

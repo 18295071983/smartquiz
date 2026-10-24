@@ -1,5 +1,43 @@
 # 变更日志
 
+## [2026-10-24] fix(html-card)：网页卡按真实档位说清，并接上 .html 产物的自动生产者
+
+审了一轮 html 卡（渲染链 `HtmlCardView` → `HtmlWebView` + `HtmlSandbox` 四档信任），
+改了五件事——都是"说的和做的不一致"或"缺一环"，没有新增渲染器：
+
+- **`.html` 产物自动出网页卡**：此前 Agent 写的工作区网页报告只会挂 `file_card`（丢给预览页当普通文件）。
+  现在 `ToolResultCardBinder` 与 `DynamicToolResultRenderer` 共用一处判定（`isWebDocument`：
+  扩展名 html/htm **且文件确实存在**）自动挂 html 卡，产物路径探测也认 `.html/.htm`。
+  判定刻意带存在性检查：模型给缩写/幻觉路径时仍出 file_card，不渲一张空白网页卡。
+  ⚠ 能力面有 widening：workspace 内的 HTML 从此会自动拿到 `LOCAL_FILE` 档（JS 开）——
+  这条档位本来就为"Agent 产在本地的报表"设计、模型用 `ui_component(html, url=file://…)` 也已经能拿到，
+  本改动只是省掉显式那一步；页面内向 Agent 回传仍受 `html_component_submit`（默认 false）挡着，没放开。
+- **模型可见文案按档位改准**：四处通道（`AIToolManager` 在线硬编码定义的 props 与 component_type /
+  `@Param` 注解 / `getParameterDescriptions`）此前都在售卖"图片点击全屏预览、卡片内链接自身加载、← 浮标可返回"，
+  可这三项只在 `LOCAL_FILE`/`REMOTE_PAGE` 成立——模型直给的内联串走 `INLINE_UNTRUSTED`：
+  JS 关、`script`/`on*` 被 jsoup 剥掉、卡内不导航，页内按钮必然点不动。
+  现收成一处 `ComponentTypes.PROPS_DOC_HTML`，四档能力照实现写，并明说"要用户操作就给卡片加 actions"；
+  工作区速查表与 `android_ui.py` 同步。`Android.submit` 仍**不教**（开关默认 false，教了就是画死路）。
+- **修 `update` 的误导说明**：描述写"所有类型通用，传 props 刷新"，而
+  `PythonToolManager.updateComponent` 对聊天流卡片明确返回 `not_supported`。改成按实现说：
+  弹窗/插件/通知/注册类型可 update，聊天流卡片要重新 create，收集点击走 actions。
+- **`INTERNAL_TEMPLATE` 档补 CSP**：这一档 JS 是开的，而 `looksLikeInternalTemplate` 的指纹兜底
+  意味着模型给的字符串也可能落进来——类注释此前写"外发通道都在此关闭"，实际该档根本不注入 CSP，
+  只有"没挂桥 + 没文件访问"。现补一条 `connect-src/worker/form/frame/object/base` 全关的 CSP，
+  `script-src 'self' 'unsafe-inline' 'unsafe-eval'` 保留（mermaid 有内联初始化、katex 要本地字体，
+  收紧会直接把图渲没）。`LOCAL_FILE`/`REMOTE_PAGE` 不注入，维持原行为。
+- **测高改多轮**：此前只在 `onPageFinished` 后 150ms 量一次，内联档靠已废弃的 `getContentHeight()`，
+  那一刻常是 0 → 容器永久停在初始 160dp（默认 maxHeight 360dp 根本用不上），延后撑高的图片/图表也不再量。
+  现按 120/450/1000/2000ms 量四轮，外加进度到 100% 再排一轮，并只增不减防抖。
+
+验证：`HtmlSandboxTest` 19 条（新增 2 条钉模板档 CSP 与其它两档不注入）、
+`AutoCardProducerTest` 9 条（新增 4 条：file_generator/.htm 产物探测/动态渲染/幻觉路径仍出 file_card）、
+`ToolSchemaVisibilityTest` 与 `ComponentPropsSchemaVisibilityTest` 各加 html 分档关键词与"不许再说所有类型通用"的源码守卫；
+全量 `testDebugUnitTest --offline` **746 tests / 0 skipped / 0 failures / 0 errors**（96 类），`assembleDebug` 通过。
+**真机待验（JVM 证不了）**：① 工作区 .html 报表出的是网页卡且图表能跑；② 内联 HTML 长报告高度是否按新量高
+撑开（不再只有 160dp 一条）；③ mermaid/katex 在加了 CSP 后仍正常出图出公式；④ 内联 HTML 里的页内按钮
+确实无反应、卡片底部 actions 可用。
+
 ## [2026-10-24] feat(cards)：给两张"预留接口"卡补上自动生产者（agenda / diff）
 
 上一轮只做了渲染端、没有生产者的两张卡，这轮接的是**写侧/工具侧**，不改模型可见的结果文本：

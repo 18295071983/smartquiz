@@ -65,6 +65,25 @@ public final class ComponentTypes {
                     + "缺省时用 data 下标做 x；stacked_bar 多系列按分类堆叠；"
                     + "radar 以 categories 为轴、每个系列一条闭合折线；pie 用 series[0].data 对应 categories）";
 
+    /**
+     * html 卡的 props 形状与**按来源分档的能力口径**（模型可见文案唯一出处，三处 props 长说明共用）。
+     *
+     * <p>此前三份 props 抄本（外加在线定义里 component_type 那段单独抄的一句）都在售卖
+     * "图片点击全屏预览 / 卡片内链接自身加载"，可这两项只在
+     * {@code LOCAL_FILE}（工作区本地网页）与 {@code REMOTE_PAGE} 成立：模型直给的 HTML 字符串
+     * 走 {@code INLINE_UNTRUSTED}——JS 关、{@code on*}/script 被净化剥掉、卡片内不导航，
+     * 页内按钮必然点不动（真机口径见 {@link HtmlSandbox}）。文案照实现写，模型才不会给用户画死路。
+     * 页面内向 Agent 回传（{@code Android.submit}）在 {@code html_component_submit} 翻默认前
+     * 不写进这里——教一条走不通的通路比不教更糟。</p>
+     */
+    public static final String PROPS_DOC_HTML =
+            "html:{html:'<h3>标题</h3>…'(内联串) 或 url:'file:///…/report.html'(工作区内本地网页)"
+                    + " 或 'https://…'(远程页), title, maxHeight(默认360dp,超出内部滚动),"
+                    + " style(内容级:{background,color,fontSize})}"
+                    + "（能力按来源分档、不由 props 决定：内联 HTML 会剥掉 script/onclick/表单、"
+                    + "卡片内不导航(外链交回应用浏览器)，页内按钮点了没反应——要用户操作请给卡片加 actions；"
+                    + "工作区 .html 文件与 https 页可跑页面脚本(图表能画)、可卡内导航；"
+                    + "Agent 产在工作区里的 .html/.htm 会被自动挂成 html 卡，不用手动建）";
 
     /**
      * playlist / agenda / location / diff 四张卡的 props 形状（三处 props 长说明共用）。
@@ -191,7 +210,9 @@ public final class ComponentTypes {
         SCHEMA.put("alert", new String[]{CATEGORY_CONTENT, "正文 content", "级别 level=info|success|warning|error", "标题 title, actions[]"});
         SCHEMA.put("markdown", new String[]{CATEGORY_CONTENT, "正文 content", "标题 title", ""});
         SCHEMA.put("code", new String[]{CATEGORY_CONTENT, "代码 code", "语言 language", "标题 title"});
-        SCHEMA.put("html", new String[]{CATEGORY_CONTENT, "html 或 url", "标题 title", "maxHeight(dp)；脚本按来源分档，见 HtmlSandbox"});
+        SCHEMA.put("html", new String[]{CATEGORY_CONTENT, "html 或 url", "标题 title",
+                "maxHeight(dp)；脚本/回传按来源分档——内联串禁脚本、页内按钮无效，"
+                        + "工作区 .html 文件可跑脚本（见 PROPS_DOC_HTML）"});
         // table 两个都是必填：TableCardView.canRender 同时要求 headers 与 rows 数组存在，
         // rows 此前被放进"可选"，模型只给 headers 就会掉原始 JSON 兜底。
         SCHEMA.put("table", new String[]{CATEGORY_DATA, "表头 headers[], 数据 rows[[]]",
