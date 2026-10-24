@@ -493,10 +493,14 @@ public class SystemUIComponentTool implements AITool {
             if (props.has("layout") || props.has("render")) {
                 renderType = "layout";
             }
-            // web 组件适配：url 参数 → html 组件的 url 字段（WebView 卡片直接加载网页）；
-            // html 内容 → html 组件的 html 字段（富文本渲染）
-            if ("web".equals(componentType)) {
+            // web/html 组件适配：顶层 url/path/file → props.url（HtmlCardView 直接加载）；
+            // 顶层 html/content/text → props.html。此前只处理 web，component_type=html
+            // 带顶层 url 时会被丢掉，卡片只能显示"未获取到 HTML 内容"。
+            if ("web".equals(componentType) || "html".equals(componentType)) {
                 Object urlObj = parameters.get("url");
+                if (urlObj == null) urlObj = parameters.get("src");
+                if (urlObj == null) urlObj = parameters.get("path");
+                if (urlObj == null) urlObj = parameters.get("file");
                 if (urlObj != null && !props.has("html") && !props.has("url")) {
                     String url = urlObj.toString().trim();
                     if (url.startsWith("http://") || url.startsWith("https://")) {
