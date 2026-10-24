@@ -105,6 +105,10 @@
              libdmabufheap.so / libion.so（本机 public.libraries.txt 里没有）→ 链接器建名字空间失败
              → App 启动即 SIGABRT 秒退（连 Java 日志都没有）。libcdsprpc.so 在该清单里，安全。 -->
         <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+        <!-- P2 投屏：Cast SDK 初始化入口（默认 Media Receiver，无需自建接收端 App ID） -->
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="com.oilquiz.app.cast.CastOptionsProvider" />
         <receiver
             android:name=".infra.DebugKeyReceiver"
             android:exported="false"

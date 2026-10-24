@@ -26,6 +26,7 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
+import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
@@ -35,10 +36,19 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
+import com.google.android.gms.cast.MediaInfo;
+import com.google.android.gms.cast.MediaMetadata;
+import com.google.android.gms.cast.framework.CastButtonFactory;
+import com.google.android.gms.cast.framework.CastContext;
+import com.google.android.gms.cast.framework.CastSession;
+import com.google.android.gms.cast.framework.SessionManagerListener;
+import com.google.android.gms.cast.framework.media.RemoteMediaClient;
+import com.oilquiz.app.ai.chat.media.AudioPlaybackManager;
+
+import androidx.mediarouter.app.MediaRouteButton;
+
 import java.util.ArrayList;
 import java.util.List;
-
-import com.oilquiz.app.ai.chat.media.AudioPlaybackManager;
 
 /**
  * 视频全屏页（2026-10-25，播放器 P0）。
@@ -58,6 +68,34 @@ public class VideoFullscreenActivity extends Activity {
     private TextView subtitleButton;
     private TextView audioButton;
     private TextView closeButton;
+    private CastContext castContext;
+    private MediaRouteButton castButton;
+
+    private final SessionManagerListener<CastSession> castListener =
+            new SessionManagerListener<CastSession>() {
+                @Override
+                public void onSessionStarted(CastSession session, String sessionId) {
+                    castCurrent(session);
+                }
+
+                @Override
+                public void onSessionResumed(CastSession session, boolean wasSuspended) {
+                    castCurrent(session);
+                }
+
+                @Override
+                public void onSessionStartFailed(CastSession session, int error) {
+                    Toast.makeText(VideoFullscreenActivity.this,
+                            "投屏连接失败", Toast.LENGTH_SHORT).show();
+                }
+
+                @Override public void onSessionEnded(CastSession session, int error) { }
+                @Override public void onSessionStarting(CastSession session) { }
+                @Override public void onSessionEnding(CastSession session) { }
+                @Override public void onSessionResuming(CastSession session, String sessionId) { }
+                @Override public void onSessionResumeFailed(CastSession session, int error) { }
+                @Override public void onSessionSuspended(CastSession session, int reason) { }
+            };
 
     /** 从卡片打开；非 Activity Context 补 NEW_TASK，避免 crash。 */
     public static void start(Context context) {
@@ -123,12 +161,28 @@ public class VideoFullscreenActivity extends Activity {
         audio.setLayoutParams(audioLp);
         audio.setOnClickListener(v -> showTrackDialog(C.TRACK_TYPE_AUDIO));
 
+        try {
+            castContext = CastContext.getSharedInstance(this);
+            castContext.getSessionManager().addSessionManagerListener(castListener, CastSession.class);
+        } catch (Throwable ignored) {
+            castContext = null;   // 无 Play Services / 未配置 Cast：不显示按钮，不影响播放
+        }
+
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
         topBar.addView(ratio);
         topBar.addView(subs);
         topBar.addView(audio);
+        if (castContext != null) {
+            castButton = new MediaRouteButton(this);
+            CastButtonFactory.setUpMediaRouteButton(getApplicationContext(), castButton);
+            LinearLayout.LayoutParams castLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            castLp.leftMargin = dp(8);
+            castButton.setLayoutParams(castLp);
+            topBar.addView(castButton);
+        }
         FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP | Gravity.START);
@@ -188,6 +242,57 @@ public class VideoFullscreenActivity extends Activity {
                     player.setTrackSelectionParameters(b.build());
                 })
                 .show();
+    }
+
+    private void castCurrent(CastSession session) {
+        if (session == null || playerView == null) return;
+        Player player = playerView.getPlayer();
+        if (player == null) return;
+        MediaItem item = player.getCurrentMediaItem();
+        if (item == null || item.localConfiguration == null
+                || item.localConfiguration.uri == null) return;
+        String url = item.localConfiguration.uri.toString();
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            Toast.makeText(this, "本地文件不支持投屏，请用网络媒体", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String title = item.mediaMetadata == null || item.mediaMetadata.title == null
+                ? "答题宝" : item.mediaMetadata.title.toString();
+        MediaMetadata metadata = new MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE);
+        metadata.putString(MediaMetadata.KEY_TITLE, title);
+        boolean live = false;
+        try {
+            live = player.isCurrentMediaItemLive();
+        } catch (Throwable ignored) {
+        }
+        MediaInfo info = new MediaInfo.Builder(url)
+                .setStreamType(live ? MediaInfo.STREAM_TYPE_LIVE : MediaInfo.STREAM_TYPE_BUFFERED)
+                .setContentType(castContentType(url))
+                .setMetadata(metadata)
+                .build();
+        RemoteMediaClient client = session.getRemoteMediaClient();
+        if (client == null) return;
+        client.load(info).setResultCallback(result -> {
+            if (!result.getStatus().isSuccess()) {
+                Toast.makeText(VideoFullscreenActivity.this,
+                        "投屏加载失败：" + result.getStatus().getStatusMessage(),
+                        Toast.LENGTH_SHORT).show();
+            }
+        });
+        try {
+            player.pause();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static String castContentType(String url) {
+        String lower = url.toLowerCase(java.util.Locale.US);
+        if (lower.contains(".m3u8")) return "application/x-mpegURL";
+        if (lower.contains(".mpd")) return "application/dash+xml";
+        if (lower.endsWith(".mp3")) return "audio/mpeg";
+        if (lower.endsWith(".m4a") || lower.endsWith(".aac")) return "audio/mp4";
+        if (lower.endsWith(".webm")) return "video/webm";
+        return "video/mp4";
     }
 
     private void hideSystemBars() {
@@ -253,6 +358,9 @@ public class VideoFullscreenActivity extends Activity {
         if (closeButton != null) {
             closeButton.setVisibility(inPip ? View.GONE : View.VISIBLE);
         }
+        if (castButton != null) {
+            castButton.setVisibility(inPip ? View.GONE : View.VISIBLE);
+        }
         if (playerView != null) {
             if (inPip) {
                 playerView.hideController();
@@ -264,6 +372,10 @@ public class VideoFullscreenActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (castContext != null) {
+            castContext.getSessionManager()
+                    .removeSessionManagerListener(castListener, CastSession.class);
+        }
         // 只解绑 Surface，不 release：播放器属于前台服务，退出全屏后声音继续。
         if (playerView != null) {
             playerView.setPlayer(null);
