@@ -12,10 +12,11 @@
     android:paddingTop="@dimen/space_6"
     android:paddingBottom="@dimen/space_6">
 
-    <!-- 生成中状态行（2026-10-25 重设计）：原顶部状态条的两个读数搬到输入胶囊上方这一行——
-         ● 生成中 · 推理 思考中 · 模型 就绪        42.3 t/s    💰 余额 CNY ¥11.84
-         左：推理状态机（等待响应/思考中/生成中）+ 模型状态机（就绪/加载/错误）；
-         右：推理速度 + 余额（余额由 Activity 从 tv_api_balance 同步过来）。 -->
+    <!-- 生成中状态行（2026-10-25 二次重设计）：单一状态 + 速度 + 余额，不再堆"生成中 · 推理 X · 模型 Y"。
+         ● 思考中          42.3 t/s        💰 余额 CNY ¥11.84
+         左：当前状态（就一个）——推理状态机阶段：等待响应 / 思考中 / 生成中；
+             模型状态机只在异常/加载时补在后面（如「· 模型 加载模型…」），就绪时不显示（避免"就绪"没信息量）。
+         右：实时推理速度（思考阶段也算 reasoning tokens/s）、余额。 -->
     <LinearLayout
         android:id="@+id/chat_v2_gen_row"
         android:layout_width="match_parent"
@@ -39,17 +40,8 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/chat_v2_line_gap"
             android:maxLines="1"
-            android:text="生成中"
+            android:text="等待响应"
             android:textColor="@color/chat_v2_text_2"
-            android:textSize="@dimen/chat_v2_status_text" />
-
-        <TextView
-            android:id="@+id/chat_v2_gen_infer"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="@dimen/space_6"
-            android:maxLines="1"
-            android:textColor="@color/chat_v2_text_3"
             android:textSize="@dimen/chat_v2_status_text" />
 
         <TextView

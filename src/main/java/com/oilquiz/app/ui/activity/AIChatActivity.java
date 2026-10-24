@@ -335,6 +335,13 @@ public class AIChatActivity extends BaseActivity {
     private volatile long streamingTokenCount = 0;
     private volatile long streamingStartTime = 0;
     private volatile long lastTokenStatsUiUpdateTime = 0;
+    /**
+     * 思考阶段（reasoning）token 统计：思考阶段没有正文 token，但用户要看到**实时速度**，
+     * 否则速度只会在正文开始/结束时闪一下（2026-10-25 用户反馈）。
+     */
+    private volatile long reasoningTokenCount = 0;
+    private volatile long reasoningStartTime = 0;
+    private volatile long lastReasoningSpeedUiTime = 0;
     private volatile int currentStreamingMessageIndex = -1;
     private volatile String currentStreamingMessageId = null;
     private volatile int agentToolLoopCount = 0;
@@ -6141,6 +6148,28 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
+    /**
+     * 思考 token 的实时速度：思考阶段（reasoning tokens）原来不刷新速度，用户看到的是
+     * "推理快结束了才闪一下速度"。这里按 reasoning tokens 的滑动平均、300ms 节流写入生成状态行；
+     * 正文阶段的速度仍由 {@link #updateStreamingTokenStats} 接管。
+     */
+    private void noteReasoningTokenForSpeed() {
+        reasoningTokenCount++;
+        long now = System.currentTimeMillis();
+        if (reasoningStartTime <= 0) reasoningStartTime = now;
+        if (now - lastReasoningSpeedUiTime < 300) return;
+        lastReasoningSpeedUiTime = now;
+        long elapsed = now - reasoningStartTime;
+        if (elapsed <= 100) return;
+        final float tps = reasoningTokenCount * 1000f / elapsed;
+        runOnUiThread(() -> {
+            if (chatInputBar != null) {
+                chatInputBar.setInferencePhase("思考中");
+                chatInputBar.setInferenceSpeed(tps);
+            }
+        });
+    }
+
     private void updateInferencePhase(int messageIndex, ChatMessage.InferencePhase phase, String additionalInfo) {
         if (messageIndex < 0 || messageIndex >= chatHistory.size()) return;
         
@@ -6420,6 +6449,7 @@ public class AIChatActivity extends BaseActivity {
      */
     private void appendBridgeThinkingToken(String token) {
         if (token == null || token.isEmpty()) return;
+        noteReasoningTokenForSpeed();
         final int idx = resolveStreamingIndex();
         if (idx < 0) return;
         String snapshot;
@@ -6473,6 +6503,7 @@ public class AIChatActivity extends BaseActivity {
      */
     private void appendAgentThinkingToken(String token) {
         if (token == null || token.isEmpty()) return;
+        noteReasoningTokenForSpeed();
         final int idx = resolveStreamingIndex();
         if (idx < 0) return;
         String snapshot;
@@ -6763,6 +6794,7 @@ public class AIChatActivity extends BaseActivity {
         }
 
         if (isInThinking) {
+            noteReasoningTokenForSpeed();
             String thinkingSnapshot;
             synchronized (streamingLock) {
                 if (currentThinkingContent == null) return;
@@ -7732,6 +7764,9 @@ public class AIChatActivity extends BaseActivity {
         streamingTokenCount = 0;
         streamingStartTime = 0;
         lastTokenStatsUiUpdateTime = 0;
+        reasoningTokenCount = 0;
+        reasoningStartTime = 0;
+        lastReasoningSpeedUiTime = 0;
         
         streamingUpdateManager = new StreamingUpdateManager(new StreamingUpdateManager.UpdateCallback() {
             @Override

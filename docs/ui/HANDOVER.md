@@ -2606,6 +2606,16 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    - 模型状态机取的是"服务状态文本最后一段"，本质是服务/模型生命周期文案（就绪/加载/失败），
      不是逐 token 的引擎内部状态机（引擎内部阶段走推理状态机那一列）；
    - 状态行只在生成中出现（与旧 v2 demo 的 `.gen` 行一致），空闲不常驻。
+7. **二次收口（用户反馈后，2026-10-25 同一轮）**：用户指出"一行太乱；'生成中'和推理状态机
+   语义冲突；'模型 就绪'摸不着头脑；推理速度不是实时的（推理结束后才闪一下）"。改为：
+   - 布局删 `chat_v2_gen_infer`：一行 = `● 状态 [· 模型 异常后缀]　速度　余额`；
+   - 状态即推理状态机当前阶段（等待响应/思考中/生成中），不再叠"生成中"；
+   - 模型状态机只在加载/异常时出现（`· 模型 加载模型…`），就绪/空闲/可用不显示
+     （`ChatInputBar#isModelReadyState`）；
+   - **实时速度**：新增 `AIChatActivity#noteReasoningTokenForSpeed()`（reasoning token 计数 +
+     300ms 节流滑动平均），在 `appendAgentThinkingToken` / `appendBridgeThinkingToken` /
+     legacy 标签思考路径接入——原先只有正文 token 走 `updateStreamingTokenStats` 刷速度，
+     思考阶段没有速度、正文开始/结束时才闪一下。正文阶段仍由 `updateStreamingTokenStats` 接管。
 
 ---
 

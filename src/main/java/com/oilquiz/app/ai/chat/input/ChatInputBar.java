@@ -41,7 +41,6 @@ public class ChatInputBar extends LinearLayout {
     private android.view.View genRow;
     private android.view.View genDot;
     private android.widget.TextView genText;
-    private android.widget.TextView genInfer;
     private android.widget.TextView genModel;
     private android.widget.TextView genSpeed;
     private android.widget.TextView genBalance;
@@ -75,7 +74,6 @@ public class ChatInputBar extends LinearLayout {
         genRow = findViewById(R.id.chat_v2_gen_row);
         genDot = findViewById(R.id.chat_v2_gen_dot);
         genText = findViewById(R.id.chat_v2_gen_text);
-        genInfer = findViewById(R.id.chat_v2_gen_infer);
         genModel = findViewById(R.id.chat_v2_gen_model);
         genSpeed = findViewById(R.id.chat_v2_gen_speed);
         genBalance = findViewById(R.id.chat_v2_gen_balance);
@@ -108,17 +106,16 @@ public class ChatInputBar extends LinearLayout {
     /**
      * 显示/隐藏输入胶囊上方的生成状态行（2026-10-25 重设计：生成状态从顶部挪到这里）。
      *
-     * <p>行内只有四类信息：推理状态机（{@link #setInferencePhase}）、模型状态机
-     * （{@link #setModelState}）、推理速度（{@link #setInferenceSpeed}）、余额
-     * （{@link #setBalance}）。{@code show=false} 时整行收起，速度/余额等瞬时读数一并清空。</p>
+     * <p>整行只有：**一个当前状态** + 推理速度 + 余额；模型状态机只在加载/异常时作为后缀出现，
+     * 就绪不显示（"."就绪"对用户没有信息量，还和顶部副标题重复）。</p>
      *
      * @param show   是否生成中
-     * @param detail 追加在"生成中"后的细节（一般不用，阶段走 {@link #setInferencePhase}）
+     * @param detail 追加的状态细节；一般传 null，状态走 {@link #setInferencePhase}
      */
     public void setGeneratingHint(boolean show, CharSequence detail) {
         if (genRow == null) return;
         if (genText != null && !android.text.TextUtils.isEmpty(detail)) {
-            genText.setText("生成中 · " + detail);
+            setSegment(genText, detail, "", true);
         }
         genRow.setVisibility(show ? android.view.View.VISIBLE : android.view.View.GONE);
         if (!show) {
@@ -126,6 +123,7 @@ public class ChatInputBar extends LinearLayout {
             setModelState(null);
             setInferenceSpeed(0f);
             setBalance(null);
+            if (genText != null) genText.setVisibility(android.view.View.GONE);
         }
         if (genDot != null) {
             if (show) {
@@ -148,14 +146,29 @@ public class ChatInputBar extends LinearLayout {
         }
     }
 
-    /** 推理状态机阶段（等待响应 / 思考中 / 生成中）；null 或空串隐藏该段 */
+    /** 推理状态机阶段（等待响应 / 思考中 / 生成中）——整行唯一的主动态，不再和"生成中"重复 */
     public void setInferencePhase(CharSequence phase) {
-        setSegment(genInfer, phase, " · 推理 ", true);
+        setSegment(genText, phase, "", true);
     }
 
-    /** 模型状态机（就绪 / 加载模型… / 初始化失败）；null 或空串隐藏该段 */
+    /**
+     * 模型状态机：只在加载/异常时作为后缀出现（「· 模型 加载模型…」/「· 模型 初始化失败」）；
+     * 就绪/空闲不显示——顶部副标题已经写着模型与"就绪"，这里再写一遍就是噪音。
+     */
     public void setModelState(CharSequence modelState) {
-        setSegment(genModel, modelState, " · 模型 ", true);
+        if (modelState == null || isModelReadyState(modelState)) {
+            setSegment(genModel, null, "", true);
+            return;
+        }
+        setSegment(genModel, modelState, "· 模型 ", true);
+    }
+
+    /** 模型已就绪/空闲的文案：这些不作为状态行后缀显示 */
+    private static boolean isModelReadyState(CharSequence state) {
+        if (state == null) return true;
+        String s = state.toString();
+        return s.contains("就绪") || s.contains("空闲") || s.contains("运行中")
+                || s.contains("可用") || s.equalsIgnoreCase("ready");
     }
 
     /** 余额（最右端）；null 或空串隐藏 */
