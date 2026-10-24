@@ -2047,6 +2047,48 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    `assembleDebug`（APK 23:13:25）。⚠️ 设备不在 `adb devices`，**未安装**；重连后装包真机看：
    放大按钮不挡内容、全屏打字稳、关窗回气泡无残留、**全屏里点提交结果能回 Agent**。
 
+### 4.92 feat(chat-render)：轮内流式正文——AST 块切分 + WebView 尾巴替换（出厂 true）（2026-10-25）
+
+1. 用户要"轮内流式（打字机观感）"，先按开关式 PoC 起步，最后显式拍板"打开默认 true"。
+   不是每 token 全文重排：块级增量 + 未闭合容忍 + **闭合后才高亮**；定稿仍整篇 commonmark，
+   高度缓存/表格定稿重载/主题重载三条护栏不动。
+2. **切分器** `MarkdownStreamSplitter`：commonmark 0.13.0 的 AST 顶层节点即块边界，不依赖
+   0.16.1 的 source span，也不做原文切片。前面节点是已闭合块，最后一个默认尾巴；只有拿到
+   明确闭合证据才闭尾（闭栏 + 前面确有开栏、标题/分隔线行尾、段落/引用/表格后的空行）。
+   列表/缩进代码/HTML 块继续留尾。整篇 HTML、半截/跨块公式走整篇回退。
+3. **指纹同源**：`Block.key=sha256(逐节点 HTML)`，`prefixHash=sha256(闭块 key 序列)`；
+   `diff` 用 `fromIndex`（前缀不变，只追加闭块 + 换尾巴）。任何块 HTML 变化（后置引用定义）
+   同时改 key/prefixHash 并安全 reset；JS 只认 prefixHash，不会出现"prefixHash 说没变、
+   逐块 hash 说变了"的矛盾帧。
+4. **WebView/JS**：流式且页面就绪走块路径；首帧/回退/主题重载整体 reset；`__qzBoot` 按 root
+   装饰，新增 `__qzStream` reset/apply；新闭块跑 hljs/katex/复制按钮，尾巴只做 linkify/图片/
+   锚点；不新增 `JavascriptInterface`。块 HTML 按纯 HTML key 缓存并做本地图片/链接改写。
+5. **开关与单写者**：`MarkdownStreamTailFlag`（`markdown_stream_tail`，**默认 true**；
+   显式 false 回退；与 `web_markdown_render` 相与）。Activity 的 `ROUND_BATCH_RENDER` 换成
+   `streamTailEnabled`；正文只由 `safeUpdateMessage()`（80ms）与 `completeGeneration()` 写，
+   `onTextOutput` 旧的直接写分支删除；修正 `handleStreamToken` 里 `!isUpdateScheduled`
+   导致每 token 立即刷新的条件；TTS 仍按完成态整条朗读。
+6. **验证**：全量 `testDebugUnitTest --offline --rerun` **846 / 0 skipped / 0 failures / 0 errors**
+   （808 基线 + 31 切分 + 3 开关 + 4 公式）；Edge 无头 DOM 冒烟覆盖 reset/apply/basePrefix
+   不符/插块顺序/复制按钮/target 归一化；`assembleDebug` 通过（APK 01:02:14）。**未装机**，
+   WebView 观感/性能/键盘与 hljs/katex 只能真机验。
+7. **已知边界**：尾巴里的代码/公式闭合后才高亮，尾巴图片可能重载；Java 仍保留整篇渲染用于
+   `pendingHtml`/表格判定；后置引用定义只触发一次安全 reset。回退键：
+   `markdown_stream_tail=false`（或 `web_markdown_render=false`）。提交
+   `85d5d283`/`271f3a1c`/`c05963e9`。
+
+### 4.93 feat(chat-render)：公式抽取补 `\[...\]`，并跳过代码围栏（2026-10-25）
+
+1. 4.92 的 `UNBALANCED_MATH` 回退主要剩"完整 `\[...\]` 没被上游抽走"和"半截公式"。
+   优先扩上游 `MermaidMathSplitter`，不动 AST 切分器。
+2. 完整 `\[...\]`（单行/跨行）与 `$$...$$` 一样产出 trusted html + katex `displayMode`；
+   普通三反引号 / `~~~` 围栏整块按文本保留，代码里的 `$$`/`\[` 不再被抽成公式。
+   `containsStructure` 同步围栏感知，避免代码块里的公式把整条消息误路由到 mermaid/math 路径。
+3. 新增 4 条用例（`\[...\]` 跨行、未闭合保持文本、代码围栏不抽取、`$$` 回归）；全量仍是
+   **846 / 0 skipped / 0 failures / 0 errors**，`assembleDebug` 通过。
+4. 边界：完整的跨块显示公式在 parts/legacy 上游即被抽成组件，splitter 的公式回退只剩半截/
+   未闭合；整篇 HTML 与后置引用定义 reset 仍是既有边界。提交 `1b823198`。
+
 ---
 
 ## 5. 关键文件 / 改动地图

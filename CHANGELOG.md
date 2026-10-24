@@ -1,5 +1,46 @@
 # 变更日志
 
+## [2026-10-25] feat(chat-render)：轮内流式正文——AST 块切分 + WebView 尾巴替换（出厂 true）
+
+用户要求"轮内流式（打字机观感）"，先按开关式 PoC 起步，最后显式拍板"打开默认 true"。
+核心取舍：不回到"每 token 全文重排"，改成**块级增量 + 未闭合容忍 + 闭合后才高亮**；
+定稿仍走整篇 commonmark，现有高度缓存/表格定稿重载/主题重载不动。
+
+- **切分**：新增 `MarkdownStreamSplitter`，直接拿 commonmark 0.13.0 的 AST 顶层节点当块边界，
+  不依赖 0.16.1 才有的 source span，也不做原文切片。前面节点即已闭合块，最后一个默认是尾巴；
+  只有拿到明确证据才闭合尾巴（围栏闭栏 + 前面确有开栏、标题/分隔线行尾、段落/引用/表格后的空行）。
+  列表/缩进代码/HTML 块继续保守留尾。
+- **指纹同源**：`Block.key = sha256(逐节点 HTML)`，`prefixHash = sha256(已闭合块 key 序列)`；
+  `diff` 用 `fromIndex` 表达"前缀不变，只追加闭块 + 换尾巴"，任何块 HTML 变化（如后置引用定义）
+  都会同时改 key/prefixHash 并安全 reset。JS 只认 prefixHash。
+- **开关**：新增 `MarkdownStreamTailFlag`（`ai_chat_prefs.markdown_stream_tail`，默认 true；
+  显式写 false 回退；仍与 `web_markdown_render` 相与，Markwon 路径不放开逐 tick 刷新）。
+  `AIChatActivity` 的 `ROUND_BATCH_RENDER` 换成 `streamTailEnabled`；正文只由
+  `safeUpdateMessage()`（80ms）与 `completeGeneration()` 写，删掉 `onTextOutput` 旧的直接写分支；
+  修正 `handleStreamToken` 里 `!isUpdateScheduled` 导致每 token 立即刷新的条件；TTS 仍按完成态整条朗读。
+- **WebView/JS**：流式且页面就绪时走块路径，首帧/回退/主题重载整体 reset；`__qzBoot` 改为按 root
+  装饰，新增 `__qzStream` 的 reset/apply；新闭合块跑 hljs/katex/复制按钮，尾巴只做
+  linkify/图片/锚点；不新增 `JavascriptInterface`。块 HTML 按纯 HTML key 缓存并做本地图片/链接改写。
+- **验证**：全量 `testDebugUnitTest --offline --rerun` **846 tests / 0 skipped / 0 failures /
+  0 errors**（808 基线 + 31 切分 + 3 开关 + 4 公式）；Edge 无头 DOM 冒烟覆盖
+  reset/apply/basePrefix 不符/插块顺序/复制按钮/target 归一化；`assembleDebug` 通过
+  （APK 01:02:14）。**未装机**，Android WebView 观感/性能/键盘与 hljs/katex 只能真机验。
+- **已知边界**：整篇 HTML 仍走 document 模式；半截/跨块显示公式会整篇回退；后置引用定义改前缀
+  触发一次安全 reset；尾巴里的代码/公式闭合后才高亮，尾巴图片可能重载；Java 仍保留整篇渲染
+  用于 `pendingHtml`/表格判定。回退键：`markdown_stream_tail=false`（或 `web_markdown_render=false`）。
+- 提交：`85d5d283`（切分地基）、`271f3a1c`（接线，默认关）、`c05963e9`（翻 true）。
+
+## [2026-10-25] feat(chat-render)：公式抽取补 \[...\]，并跳过代码围栏
+
+- `MermaidMathSplitter` 识别完整 `\[...\]`（单行/跨行），继续产出 trusted html +
+  katex `displayMode`；普通三反引号 / `~~~` 围栏整块按文本保留，代码里的 `$$` / `\[` 不再被抽成公式。
+- `containsStructure` 同步围栏感知：代码块里的公式不会把整条消息误路由到 mermaid/math 原生路径。
+- 新增 4 条用例（`\[...\]` 跨行抽取、未闭合保持文本、代码围栏不抽取、`$$` 回归）；
+  全量仍是 **846 / 0 skipped / 0 failures / 0 errors**，`assembleDebug` 通过。
+- 这样完整的跨块显示公式在 parts/legacy 上游就被抽成 html 组件，`MarkdownStreamSplitter` 的
+  `UNBALANCED_MATH` 回退只剩半截/未闭合等边缘；AST 切分器未改。
+- 整篇 HTML 与后置引用定义 reset 仍是既有边界，不在本次扩展内。提交 `1b823198`。
+
 ## [2026-10-24] feat(cards)：html 卡新增"放大档"——同一份卡片在全屏宿主里再渲一遍
 
 用户先问"内置卡片有没有原生聚焦功能，点一下临时转成原生卡，从源头杜绝"，又问工作量、说"开干"。
