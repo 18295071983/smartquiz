@@ -195,7 +195,11 @@ src/main/cpp/native-lib-clean.cpp
 答题宝Anki记忆.html
 
 # ============ Fonts (large files) ============
-src/main/assets/fonts/
+# 目录整体忽略；但 PDF 导出必需的 Noto Sans SC（OFL-1.1，17.7MB）与许可文本入库：
+# 它远低于 Gitee 单文件 50MB 限制，而且新克隆/CI 少了它 PDF 导出直接报「缺少中文字体」。
+src/main/assets/fonts/*
+!src/main/assets/fonts/NotoSansSC-Regular.ttf
+!src/main/assets/fonts/OFL.txt
 
 # ============ Security/Crypto ============
 *.pem

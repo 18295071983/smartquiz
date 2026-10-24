@@ -283,22 +283,22 @@ src/main/assets/asr/*.onnx
 
 ---
 
-## 三、`src/main/assets/fonts/NotoSansSC-Regular.ttf` —— PDF 导出中文字体（约 17 MB，**可自动获取**）
+## 三、`src/main/assets/fonts/NotoSansSC-Regular.ttf` —— PDF 导出中文字体（约 17 MB，**已入库**）
 
 | 项 | 内容 |
 | --- | --- |
-| 路径 | `src/main/assets/fonts/NotoSansSC-Regular.ttf`（17,772,300 字节） |
+| 路径 | `src/main/assets/fonts/NotoSansSC-Regular.ttf`（17,772,300 字节）+ `OFL.txt`（许可文本） |
 | 用途 | PDF 导出（`PDFExporter`，PDFBox 嵌入字体）；缺了会导致导出报"缺少中文字体" |
 | 许可 | **SIL Open Font License 1.1（OFL-1.1）**，可自由分发、可嵌入 PDF |
 | 来源 | Google Fonts 仓库 `ofl/notosanssc`（Noto Sans SC，可变字体，默认实例即 Regular） |
-| 获取 | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-font.ps1` |
+| 入库 | **已提交进 Git**（`.gitignore` 为它开了例外）。17.7 MB 远低于 Gitee 单文件 50 MB 限制，且是构建/测试/导出的必需资源 |
+| 更新 | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-font.ps1`（兜底/升级字体时用） |
 
 > **为什么换成 Noto Sans SC**：原来的 `simhei.ttf` 是**中易（ZhongYi）专有黑体**，
-> 随包分发需要授权；换 OFL 字体后分发无此顾虑。
+> 随包分发需要授权；换 OFL 字体后分发无此顾虑。OFL 要求随字体附许可文本，所以
+> `OFL.txt` 与字体同目录一并入库。
 >
-> **不要提交进 Git**：`src/main/assets/fonts/` 在 `.gitignore` 里（大文件策略）。
-> 缺字体时构建仍能通过，但运行期 PDF 导出会明确报错（而不是导出方框）。
-> 系统兜底只剩 `DroidSansFallback*.ttf`（TrueType），PDFBox 2.x 读不了 `.ttc`/CFF `.otf`。
+> 系统兜底只剩 `DroidSansFallback*.ttf`（TrueType）——PDFBox 2.x 读不了 `.ttc`/CFF `.otf`。
 
 ---
 

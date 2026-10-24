@@ -20,6 +20,9 @@ App 按 AGPL 开源，否则买商业许可），`simhei.ttf` 是**中易专有�
   （17.7 MB，`src/main/assets/fonts/` 被 ignore，用 `scripts/fetch-font.ps1` 获取；
   已写入 BINARY_ASSETS.md）。内置字体缺失时退系统 `DroidSansFallback`，再没有就明确报错——
   旧实现"字体加载失败就用默认字体"会静默导出满屏方框
+- **字体已入库**：17.7 MB 远低于托管平台单文件限制，且是构建/测试/导出的必需资源——
+  `.gitignore` 给 `NotoSansSC-Regular.ttf` 与 `OFL.txt` 开了例外，新克隆/CI 不再需要手工下载
+  （OFL-1.1 要求随字体附许可文本，两份一起提交）
 - **守卫**：`PdfExportStackTest` 三条——①源码里不许再出现 `com.itextpdf`；②PDFBox 类可加载；
   ③用随包字体生成 PDF 再抽取，中文必须读得回（字体缺失时跳过）。变量字体存在康熙部首变体
   （目 U+76EE / ⽬ U+2F6C），抽取结果用 NFKC 归一后断言，视觉不受影响

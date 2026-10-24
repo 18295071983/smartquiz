@@ -167,6 +167,8 @@ APK 还链接了下列开源库，按各自许可保留版权与许可声明（�
 | `assets/fonts/qweather-icons.ttf` | 和风天气 SDK 资产 | 随 SDK 使用 |
 
 > 原 `simhei.ttf`（中易专有黑体）已移除，改为 OFL 的 Noto Sans SC。
+> OFL-1.1 要求随字体附许可文本：`assets/fonts/OFL.txt` 与字体同目录打包。
+> 该字体与许可文本均已纳入版本库（17.7 MB，低于托管平台单文件限制），新克隆无需额外下载。
 
 ## 17. 模型权重
 
