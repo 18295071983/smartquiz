@@ -14,12 +14,16 @@ import java.util.List;
  * <pre>
  * AssistantTurn
  *   turnId
- *   modelCalls[]   // 每次模型生成一条：fullText / reasoning / stopReason / tool ids
+ *   modelCalls[]   // 每次模型生成一条：round / stopReason / timestamp / tool ids
+ *                  //   （content/reasoning 只在内存里有，transient 不落库，见 ModelCall）
  *   parts[]        // 有序：reasoning → text → tool_call → tool_result → ...
  * </pre>
  *
- * <p><b>单一权威</b>：parts + modelCalls 是持久化真值；{@link ChatMessage#content}
- * 只是兼容/搜索/复制用的投影，不由它反向推导 parts。</p>
+ * <p><b>单一权威</b>：{@link #parts} 是顺序与内容的持久化真值，{@link ChatMessage#content}
+ * 只是兼容/搜索/复制用的投影。投影方向默认是 parts → content（{@link #applyToMessage}）；
+ * 唯一的反向例外是"旧数据没有逐轮快照"——那时 content + {@code contentRoundBounds} 才是原始记录，
+ * 由 {@link #addRoundsFromBounds} 从它们切出 parts，并且 {@code textPartsAreSlices} 会挡住回写，
+ * 免得每次重开历史都在互相规范化。</p>
  */
 public class AssistantTurn {
 
@@ -41,10 +45,19 @@ public class AssistantTurn {
     public static class ModelCall {
         public String id;
         public int round;
-        /** 该次模型生成的完整正文（清理后的 fullText） */
-        public String content;
-        /** 该次生成的 reasoning */
-        public String reasoning;
+        /**
+         * 该次模型生成的完整正文（清理后的 fullText）。<b>transient：不落库。</b>
+         *
+         * <p>同一条正文在落盘 JSON 里本来已经有两份权威的：{@link ChatMessage#content}（兼容投影，
+         * 搜索/复制用）和对应的 text part（顺序真值）；{@code roundSnapshots} 还存着每轮全量，
+         * {@link #fromMessage} 也正是从它重建的。第三份复制没有任何消费者（全仓只有本类的
+         * {@link #copy()} 和单测读 modelCalls），却把每条 AI 消息的落盘体积抬高约六分之一
+         * ——实测一条"3 轮×400 字 + 3 个带结果的工具"是 13224B，其中 modelCalls 占 2128B。
+         * 历史文件超 64MB 会按最早的 1/4 条裁剪，重复正文就是把用户历史往那把刀下推。</p>
+         */
+        public transient String content;
+        /** 该次生成的 reasoning。transient：同上，reasoning 的落库真值是 reasoning part。 */
+        public transient String reasoning;
         /** native / API 的停止原因，如 eos / ctx_full / stop_word */
         public String stopReason;
         public long timestamp;

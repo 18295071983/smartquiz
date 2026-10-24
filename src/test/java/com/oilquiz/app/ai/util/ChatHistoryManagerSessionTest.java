@@ -359,6 +359,69 @@ public class ChatHistoryManagerSessionTest {
         assertEquals("恢复顺序必须等于实时 fromMessage 顺序", liveIds, restoredIds);
     }
 
+    /**
+     * 反复"打开历史 → 自动保存"不能逐次漂移：第二次读回来的正文、边界与 parts（id + 文本）
+     * 必须与第一次完全一致。恢复会补一份重建的 turn 并落盘，这条钉住"补完再读"是幂等的，
+     * 不会每重开一次就规范化一遍空白/挪一次工具位。
+     */
+    @Test
+    public void reopeningLegacyHistoryTwiceDoesNotDrift() throws Exception {
+        ChatMessage msg = legacyToolRoundMsg("a-legacy-twice");
+        manager.saveAIChatHistory(Collections.singletonList(msg));
+        List<ChatMessage> first = Collections.singletonList(
+                byId(manager.loadAIChatHistory(), "a-legacy-twice"));
+        assertNotNull(first.get(0));
+        String content1 = first.get(0).content;
+        List<Integer> bounds1 = new ArrayList<>(first.get(0).contentRoundBounds);
+        List<String> parts1 = describeParts(first.get(0).assistantTurn);
+
+        manager.saveAIChatHistory(first);
+        ChatMessage second = byId(manager.loadAIChatHistory(), "a-legacy-twice");
+        assertNotNull(second);
+        assertEquals("第二次打开正文应一字不差", content1, second.content);
+        assertEquals("第二次打开边界应一致", bounds1, second.contentRoundBounds);
+        assertEquals("第二次打开 parts 应一致", parts1, describeParts(second.assistantTurn));
+    }
+
+    /** parts 的可比较快照：type + id + 文本/工具名，顺序敏感。 */
+    private static List<String> describeParts(AssistantTurn turn) {
+        List<String> out = new ArrayList<>();
+        if (turn == null) return out;
+        for (AssistantTurn.Part p : turn.parts) {
+            out.add(p.type + "|" + p.id + "|" + (p.text == null ? "" : p.text)
+                    + "|" + (p.toolName == null ? "" : p.toolName));
+        }
+        return out;
+    }
+
+    /**
+     * 落盘文件里同一段正文只允许出现两次：一次在 {@code content}（兼容投影，搜索/复制用），
+     * 一次在 {@code assistantTurn.parts[].text}（顺序真值）。
+     * 第三次复制来自 {@code ModelCall.content}——它零消费者，却把每条消息抬高约 1/6 体积，
+     * 而历史文件超上限会按最早的 1/4 条裁剪，等于把用户历史往刀下推。两个字段已标 transient，
+     * 这条把它们永久钉在门外。
+     */
+    @Test
+    public void persistedFileCarriesBodyTextOnlyTwice() throws Exception {
+        String marker = "唯一正文串ZQX-用于数副本";
+        ChatMessage msg = ChatMessage.createAIMessage("a-dup", "开头" + marker + "\n\n结尾", 1000L);
+        msg.turnId = "TDUP";
+        msg.contentRoundBounds = new ArrayList<>(Arrays.asList(2));
+        msg.contentRoundToolIds = new ArrayList<>(Arrays.asList("call_1"));
+        msg.components = new ArrayList<>(Arrays.asList(tool("call_1", "查天气")));
+        manager.saveAIChatHistory(Collections.singletonList(msg));
+
+        ChatMessage loaded = byId(manager.loadAIChatHistory(), "a-dup");
+        assertNotNull(loaded);
+        manager.saveAIChatHistory(Collections.singletonList(loaded)); // 打开过一次后再落盘
+
+        String file = readAll(new File(context.getFilesDir(), "ai_chat_history.json"));
+        int copies = 0;
+        for (int i = file.indexOf(marker); i >= 0; i = file.indexOf(marker, i + 1)) copies++;
+        assertEquals(marker + " 在落盘文件里应只有 content + text part 两份，实际=" + copies
+                + "；文件片段=" + file.substring(0, Math.min(file.length(), 400)), 2, copies);
+    }
+
     private static ComponentData tool(String id, String name) throws Exception {
         JSONObject props = new JSONObject();
         props.put("toolCallId", id);

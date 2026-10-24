@@ -6914,7 +6914,8 @@ public class AIChatActivity extends BaseActivity {
                     finalMsg.components.addAll(drained);
                 }
                 
-                // canonical 回合落库：parts/modelCalls 是权威，content 只做兼容投影
+                // canonical 回合落库：parts 是顺序与内容的权威，content 只做兼容投影
+                // （modelCalls 只留每轮的 round/stopReason/timestamp/toolIds 元信息，全文不落库）
                 finalMsg.assistantTurn =
                         com.oilquiz.app.ai.chat.turn.AssistantTurn.fromMessage(finalMsg);
                 // parts 是权威：提交时统一派生 content/bounds/toolIds

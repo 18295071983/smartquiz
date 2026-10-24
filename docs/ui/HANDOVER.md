@@ -1227,6 +1227,8 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 
 1. `AssistantTurn`：`modelCalls[]`（每轮 fullText/reasoning/stopReason/toolIds）+ 有序
    `parts[]`（reasoning/text/tool_call/tool_result/error）。
+   **口径已由 §4.83 收窄**：`modelCalls` 的 fullText/reasoning 自 2026-10-24 起是 transient、不落盘，
+   `modelCalls` 落库只剩每轮元信息；这里保留当时的原话不改写历史。
 2. `ChatMessage.assistantTurn` canonical；`content` 保留兼容投影。
 3. 完成时从 `roundSnapshots` 构建；旧消息回退单 call+text；`clone/deepCopy` 深拷贝。
 4. **未完成**：UI 仍读 content；在线 Agent 逐轮快照未接。
@@ -1680,6 +1682,73 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    我一度删了三块被驳回「删他干什么，说不准还能用上」→ `git checkout` 完整还原（580 行）。**将来清理需单独拍**。
 4. **验证**：新增 `MessageAttachmentAdapterTest` 4 项（对旧代码即 NPE：null 元素、null id、null 列表清空、同 id 重绑）；
    全量 597 全绿（+4）、`assembleDebug` 通过。附件区属 `vCol`，parts 接管不碰。
+
+---
+
+### 4.81 fix(parts)：历史恢复只留一个 parts 顺序生产者，旧数据补 canonical turn（P5 第一步）（2026-10-24）
+
+1. 先答用户问题「历史恢复是否是 part 恢复」：**半真**。`ChatMessage.assistantTurn` 非 transient、
+   `deepCopyForSave`(:249) 显式补拷 → 确实落盘；但 `bindWithParts`(:3526) 渲的是每次绑定
+   `fromMessageForParts(message)` 现建的那份，落盘那份只用于 `applyToMessage` 投影和当闸门令牌
+   （4.60-④ 当年记的"assistantTurn 不落盘"已过时）。**旧数据（2026-10-21 前）无该字段 → 闸门判回 legacy**。
+2. 顺序收成一个生产者：`fromMessage` 新增"无 `roundSnapshots` → 按 `contentRoundBounds` 切正文"分支
+   （`addRoundsFromBounds`），切片规则与 `renderRoundAssembled` 逐字对齐（第 i 段 = `[bound[i-1], bound[i])`、
+   工具跟段后、思考取 `thinkingRounds[i]`）。实时与恢复从此同函数同入参。
+3. 无 `toolCallId` 的极旧数据不再整体沉底：`fillToolPartsFromComponents` 加"按序就地归位"一趟
+   （无 id part ↔ 无 id 组件按出现顺序配对），配不上的空壳 part 摘除；末尾兜底保留但时间戳取消息时间
+   （原 `System.currentTimeMillis()` 让每次重建 part 时间都不同）。
+4. 新 `AssistantTurnRestore` 挂在加载出口与 `RoundBounds.normalizeAll` 同时机：`loadAIChatHistory`、
+   `loadAgentChatHistory`、`loadConversationSession`、分段 `readArrayInto`。护栏两条：重建不出 part 的不回填
+   （`canRenderAll(空)` 为真会渲空气泡，`bindWithParts` 也补了空判定）；落盘 turn 含 `fromMessage`
+   造不出的 part（error/approval，见设计文档 §11.7）→ 保留落盘不覆盖。
+5. **恢复不许改写正文**：新增落盘字段 `AssistantTurn.textPartsAreSlices`，切片口径下 content/bounds 才是真值，
+   `applyToMessage` 自行跳过（空白段不进 parts + `"\n\n"` 分隔规则 = 每次重开都漂一次）。
+   所以 `ChatAdapter` 投影接线没动。`pollHistoryForHotReload`(AIChatActivity) 同步终态时顺带拷入已归一的 turn。
+6. **验证**：新增 `AssistantTurnRestoreTest` 11 项 + `ChatHistoryManagerSessionTest`（Robolectric 真文件）4 项，
+   后者把四个加载出口逐个钉住（旧格式 JSON 无 `assistantTurn` → 读回来必须补上、顺序按边界、正文不改），
+   并做过 A/B：注掉四处挂钩恰好这 4 条变红，放回即全绿。
+   全量 **769 tests / 0 skipped / 0 failures / 0 errors**、`assembleDebug` 通过。
+   `parts_renderer` 出厂兜底仍 false → 现网默认旧路径不变（真机 prefs 里这台机已是 true）。
+7. **未做（P5 其余）**：不再写 `contentRoundBounds`、删 legacy 分支；P4 默认翻 true。
+8. ⚠️ **真机渲染层未验 —— 2026-10-24 用户拍板"先挂着，有问题再回来"**。已证的是顺序/持久化层（本轮新增 15 条单测：
+   `AssistantTurnRestoreTest` 11 + `ChatHistoryManagerSessionTest` 四个出口各 1），
+   没目视过的是"恢复出来的 parts 在真机 View 层长得对不对"（`Part.data`/`group`/`products` 是 transient，
+   靠 `ChatMessage.components` 现场重挂，JVM 证不了）。回来验的前置三条：
+   ① 设备上装的还是本轮改动**之前**那版，得先 `adb install -r build/outputs/apk/debug/答题宝-debug-2.0.apk`
+   （重装保留 prefs/数据）；② 这台机 279b6c51 的 `ai_chat_prefs/parts_renderer` **早就是 true**（2026-10-21 写入），
+   代码里**没有**它的 UI 入口（`PartsRendererFlag.setEnabled` 无调用点），别在设置页翻；
+   ③ `files/conversations/` 现在空、`ai_chat_history.json` 不存在 → 得先造一条会话落盘才有东西可看。
+   看四条：老会话重开后思考/正文/工具卡顺序与实时一致且工具不整体沉底；反复退出重进正文不增删空行；
+   生成中退出、后台跑完回前台那条也按 parts 显示；多轮工具的耗时/结果仍对上各自那轮。
+   还有一条备选路径没执行：用 adb 往 `files/conversations/` 推手工构造的**真旧格式** JSON
+   （无 `assistantTurn` + 有边界 / 无边界 / 无 `toolCallId` 三种形状），比在老包上跑会话更贴近 2026-10-21 前的形态。
+
+### 4.83 perf(chat/history)：ModelCall 正文与思考改 transient，落盘去重一层（2026-10-24）
+
+1. 起因是 4.81 之后按真机视角核"历史文件到底长什么样"。实测一条"3 轮×400 字正文 + 3 个各带 500 字
+   结果的工具"的消息：整条 JSON **13224B**，其中 `assistantTurn` 6859（`parts` 4654 + `modelCalls` 2128）、
+   `roundSnapshots` 2038、`components` 1816、`content` 1204。同一段正文文件里有**三份**：
+   `content`（投影）、`parts[].text`（顺序真值）、`modelCalls[].content`；思考三份；工具结果两份。
+2. `modelCalls` 全仓**零消费者**（`grep -rn "modelCalls\|ModelCall" src/main` 只命中本类 `copy()` 与一句注释；
+   渲染 / 上下文 / 恢复都不读，`fromMessage` 要每轮全文读的是 `roundSnapshots`）→ 第三份纯复制，占整条 16%。
+   这比例连着 `trimBySize`：单文件超 64MB 就砍最早的 1/4 条、最多 4 轮，重复正文等于把历史往刀下推。
+3. 做法：`ModelCall.content` / `.reasoning` 标 `transient`，只留
+   `id/round/stopReason/timestamp/toolCallIds` 这些 parts 没有的元信息。内存里全文照旧（`fromMessage` 仍填），
+   只是不落盘。实测同一条消息 **13224 → 11316（−14.4%）**、turn **6859 → 4963（−27.7%）**。
+4. **旧文件不用迁移**：Gson 读未知成员跳过，改版前落盘的 `modelCalls.content/reasoning` 不报错、也不再有人读。
+5. 口径同步：`AssistantTurn` 类注释、`AIChatActivity:6917` 那句"parts/modelCalls 是权威"、
+   设计文档 §1 架构图与 §2 字段块都改成"parts 是顺序与内容真值 / modelCalls 是每轮元信息"，
+   并新增设计文档 §11.10 记这组数字与理由。
+6. **验证**：两条副本守卫 `AssistantTurnRestoreTest.modelCallFullTextIsNotPersistedButMetadataIs`
+   （turn JSON 里正文/思考各只出现一次）+ `ChatHistoryManagerSessionTest.persistedFileCarriesBodyTextOnlyTwice`
+   （真文件里正文只两份），A/B 复现过：摘掉两个 `transient` 恰好这两条变红（真文件那条报"实际=3"），放回即全绿。
+   另补 `reopeningLegacyHistoryTwiceDoesNotDrift`（旧会话二次"打开→保存→打开"正文/边界/parts 一字不差）。
+   全量 `testDebugUnitTest --offline --rerun` **773 tests / 0 skipped / 0 failures / 0 errors**、
+   `assembleDebug` 通过。其中同一工作树里还有并行会话在途的用例与文档改动（`ComponentPropsSchemaVisibilityTest`
+   等），4.82 那条数字因此也应重读到这一档。
+7. **没动的重复，另拍**：正文两份（`content` + `parts`，§10「parts 为权威」的既定代价）、
+   工具结果两份（`components.props.result` + `parts[].result`，legacy 渲染仍以组件为源，
+   要连 `Part.products` 的 transient 口径一起想）。
 
 ---
 

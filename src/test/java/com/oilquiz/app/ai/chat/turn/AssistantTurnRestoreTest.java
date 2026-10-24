@@ -29,6 +29,50 @@ public class AssistantTurnRestoreTest {
 
     // ---- 夹具 --------------------------------------------------------------
 
+    /**
+     * modelCalls 的两个全文字段是 transient：落盘只留每轮的元信息。
+     * 同一段正文在文件里已有两份真值（content 投影 + text part），第三份没有任何消费者，
+     * 却把每条消息的体积抬高约六分之一，而历史文件超上限会按最早的 1/4 条裁剪。
+     */
+    @Test
+    public void modelCallFullTextIsNotPersistedButMetadataIs() {
+        ChatMessage msg = ChatMessage.createAIMessage("m9", "旧", 1000L);
+        msg.turnId = "T9";
+        msg.roundSnapshots = new ArrayList<>();
+        ChatMessage.RoundSnapshot r1 =
+                new ChatMessage.RoundSnapshot(1, "这轮的唯一正文串ZQX", "这轮的唯一思考串KFC", 11L);
+        r1.toolCallIds = new ArrayList<>(Arrays.asList("call_1"));
+        msg.roundSnapshots.add(r1);
+
+        AssistantTurn turn = AssistantTurn.fromMessage(msg);
+        // 内存里照旧拿得到全文（渲染/调试要用）
+        assertEquals("这轮的唯一正文串ZQX", turn.modelCalls.get(0).content);
+        assertEquals("这轮的唯一思考串KFC", turn.modelCalls.get(0).reasoning);
+
+        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+        String json = gson.toJson(turn);
+        // 整个 turn 的 JSON 里，正文/思考各只允许出现一次（text part / reasoning part），
+        // modelCalls 再抄一份就是第三份落盘重复
+        assertEquals(1, countOccurrences(json, "这轮的唯一正文串ZQX"));
+        assertEquals(1, countOccurrences(json, "这轮的唯一思考串KFC"));
+        assertTrue("元信息仍要落盘", json.contains("\"stopReason\"") && json.contains("\"round\":1"));
+
+        AssistantTurn back = gson.fromJson(json, AssistantTurn.class);
+        assertEquals(1, back.modelCalls.size());
+        assertEquals(1, back.modelCalls.get(0).round);
+        assertEquals(Arrays.asList("call_1"), back.modelCalls.get(0).toolCallIds);
+        assertNull("读回来的 ModelCall 不带全文", back.modelCalls.get(0).content);
+        // 全文没落盘也不丢：fromMessage 从 roundSnapshots 重建时照样填回内存
+        assertEquals("这轮的唯一正文串ZQX",
+                AssistantTurn.fromMessage(msg).modelCalls.get(0).content);
+    }
+
+    private static int countOccurrences(String haystack, String needle) {
+        int n = 0;
+        for (int i = haystack.indexOf(needle); i >= 0; i = haystack.indexOf(needle, i + 1)) n++;
+        return n;
+    }
+
     private static JSONObject props(String... kv) {
         JSONObject o = new JSONObject();
         try {

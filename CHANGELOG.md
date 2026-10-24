@@ -1,5 +1,89 @@
 # 变更日志
 
+## [2026-10-24] perf(chat/history)：落盘去重——ModelCall 的正文与思考不再入库
+
+上一条恢复改动把 turn 摊到了旧数据上，顺势按真机视角核了一遍"历史文件到底长什么样"，
+量出来的形状：一条"3 轮 × 400 字正文 + 3 个各带 500 字结果的工具"的消息，整条 JSON **13224 字节**，
+其中 `assistantTurn` 6859（`parts` 4654 + `modelCalls` 2128）、`roundSnapshots` 2038、
+`components` 1816、`content` 1204。**同一段正文在文件里存了三份**——`content`（兼容投影）、
+`parts[].text`（顺序真值）、`modelCalls[].content`；思考同样三份，工具结果两份。
+
+- **第三份是纯复制**：`AssistantTurn.modelCalls` 全仓零消费者（除 `copy()` 与单测，渲染 / 上下文 /
+  恢复都没读它，`fromMessage` 要每轮全文时读的是 `roundSnapshots`），却占整条消息的 16%。
+  比例本身要命：单文件超 64MB 就按最早的 1/4 条裁剪、最多 4 轮（`trimBySize`），
+  重复正文等于把用户历史往那把刀下推。
+- **改的是持久化边界不是数据**：`ModelCall.content` / `.reasoning` 标 `transient`，
+  `modelCalls` 只留 `id/round/stopReason/timestamp/toolCallIds` 这些 parts 没有的元信息。
+  内存里全文照旧可得（`fromMessage` 仍然填），只是不再落盘。实测同一条消息
+  **13224 → 11316（−14.4%）**，turn **6859 → 4963（−27.7%）**。
+- **旧文件不用迁移**：Gson 读未知成员直接跳过，改版前落盘的 `modelCalls.content/reasoning`
+  不报错、也不再有人读。
+- **口径跟着改**：`AssistantTurn` 类注释与 `AIChatActivity` 那句"parts/modelCalls 是权威"
+  都按"parts 是顺序与内容的真值，modelCalls 是每轮元信息"重写；设计文档 §1/§2 的字段图补
+  transient 标注，新增 §11.10 记下这组数字与理由。
+- 验证：新增 2 条副本守卫——`AssistantTurnRestoreTest.modelCallFullTextIsNotPersistedButMetadataIs`
+  （turn 的 JSON 里正文/思考各只出现一次）+ `ChatHistoryManagerSessionTest.persistedFileCarriesBodyTextOnlyTwice`
+  （**真文件**里正文只两份：content + text part）。A/B 复现：把两个 `transient` 摘掉，恰好这两条变红
+  （真文件那条报"实际=3"），放回即全绿。同轮还补了 `reopeningLegacyHistoryTwiceDoesNotDrift`
+  （旧会话二次"打开→保存→打开"，正文/边界/parts 一字不差）。
+  全量 **773 tests / 0 skipped / 0 failures / 0 errors**（我这轮净加 2 条；数字比 770+2 多一条，
+  是并行会话在同一工作树里加的在途用例），`assembleDebug` 通过。
+- **没动的重复，另拍**：正文两份（`content` + `parts`，§10「parts 为权威」的既定代价）、
+  工具结果两份（`components.props.result` + `parts[].result`）。后者理论上也能只留一份，但 legacy
+  渲染仍以组件为源，要连 `Part.products` 的 transient 口径一起想，不是这次这种纯去重。
+
+## [2026-10-24] fix(chat/parts)：历史恢复只留一个 parts 顺序生产者，旧数据也补上 canonical turn
+
+先核了一件事："历史恢复是不是 part 恢复"。答案是半真——`ChatMessage.assistantTurn` 确实落盘
+（非 transient，`deepCopyForSave` 还显式补拷），但渲染用的并不是读出来的那份：
+`ChatAdapter.bindWithParts` 每次绑定都 `fromMessageForParts(message)` 现场重建。于是同一条消息有
+**两套 part 顺序**（落盘的参与 `applyToMessage` 投影、重建的参与渲染），而旧数据（2026-10-21 之前）
+根本没有落盘 turn，闸门直接把整条判回 legacy。用户拍板：新旧数据用同一套 parts，且恢复不许把
+顺序搞乱。
+
+- **顺序收成一个生产者**：`AssistantTurn.fromMessage` 补了"无逐轮快照 → 按 `contentRoundBounds`
+  切正文"这一档（第 i 段 = `content[bound[i-1], bound[i])`，第 i 个工具跟在段 i 之后，思考取
+  `thinkingRounds[i]`），切片规则与 legacy `renderRoundAssembled` 逐字对齐。实时提交和历史恢复
+  从此调的是同一个方法、同一套入参。
+- **无 toolCallId 的极旧数据不再整体沉底**：`fillToolPartsFromComponents` 原先把认领不上快照轮次的
+  工具组件一律"补到末尾"，多轮工具重开后全挤在最后。现在多一趟按序就地归位（无 id 的 part ↔
+  无 id 的组件按出现顺序配对），配不上组件的空壳 part 摘掉，免得渲一张空白工具行。
+  末尾兜底仍保留（边界比组件少时不能丢工具），但时间戳从 `System.currentTimeMillis()` 改取消息时间，
+  否则每次重建 part 时间都在变。
+- **加载出口补 canonical turn**：新 `AssistantTurnRestore` 挂在 `RoundBounds.normalizeAll` 的同一时机
+  （`loadAIChatHistory` / `loadAgentChatHistory` / `loadConversationSession` / 分段 `readArrayInto`）：
+  旧数据由此拿到 turn（新旧同口径进 parts），新数据用同一份重建覆盖掉旧版本落盘的错位顺序。
+  两条护栏：重建不出任何 part 的消息不回填（`canRenderAll(空列表)` 为真，会接管后渲出空气泡——
+  `bindWithParts` 里也补了这条空判定）；落盘 turn 含 `fromMessage` 造不出的 part（error/approval）时
+  保留落盘原样，重建更弱的一方不抹更强的真值。
+- **恢复不许改写用户既有正文**：新增落盘字段 `AssistantTurn.textPartsAreSlices` 标记"text parts 是
+  content 的连续切片"，此时 content/bounds 才是真值，`applyToMessage` 原样跳过——切片里只剩空白的段
+  不进 parts，而 `"\n\n"` 分隔规则又会凭空加行，一来一回每次重开历史正文都在漂移。
+  所以 `ChatAdapter` 的投影接线一行没动，规则由产出侧自己把关。
+- **热更新合并接上 turn**：`pollHistoryForHotReload` 同步终态时一并拷入文件里已归一的
+  `assistantTurn`，否则界面这条停在"无 turn"被判回 legacy，与退出重进后看到的不一致。
+- 验证：新增 `AssistantTurnRestoreTest` 11 条（旧数据 parts 顺序 = 思考→正文→工具→下一轮且工具不沉底 /
+  恢复结果与 `fromMessage` 逐 part 同 id 同序 / 二次恢复幂等 / 不规整空白不改写正文 /
+  无 id 工具按序归位 / 兜底工具时间戳取消息时间 / 空正文不回填 / 含 approval 的落盘 turn 保留 /
+  非终态不动 / 快照口径仍投影 content 且二次恢复不改 / Gson 往返后顺序与 `textPartsAreSlices` 站住）；
+  另在 `ChatHistoryManagerSessionTest`（Robolectric + 真文件）补 4 条，把**四个加载出口**逐个钉住：
+  旧格式会话落盘后 JSON 里确实没有 `assistantTurn` → 从 `loadAIChatHistory` / `loadAgentChatHistory` /
+  `loadConversationSession` / `loadConversationSessionMessages` 读回来时必须补上 turn、顺序按边界归位、
+  正文与边界一字不改。A/B 复现过：把四处挂钩注掉，恰好这 4 条变红（"加载出口必须补上 canonical turn"），
+  挂钩放回即全绿——不是白跑的用例。
+  全量 **769 tests / 0 skipped / 0 failures / 0 errors**（上一条留下的基线 754 + 本轮新增 15），`assembleDebug` 通过。
+  `parts_renderer` 出厂兜底仍是 false → 现网默认走旧路径，行为不变。
+- ⚠️ **真机渲染层未验（2026-10-24 用户拍板：先挂着，出问题再回来查）**。顺序/持久化层有测试兜底，
+  但"恢复出来的 parts 在真机 View 层长得对不对"没目视过——`Part.data`/`group`/`products` 是 transient，
+  靠 `ChatMessage.components` 现场重挂，这段 JVM 证不了。要验时的前置：① 设备上装的仍是本轮改动**之前**
+  那版包，得先 `adb install -r build/outputs/apk/debug/答题宝-debug-2.0.apk`（重装保留 prefs 与数据）；
+  ② 这台机（279b6c51）`ai_chat_prefs/parts_renderer` **已经是 true**（2026-10-21 写入），代码里
+  **没有**这个开关的 UI 入口（`PartsRendererFlag.setEnabled` 无调用点），别去设置页找；
+  ③ 现在 `files/conversations/` 是空的、`ai_chat_history.json` 不存在 → 没有旧数据可看，
+  得先造一条会话并让它落盘。要看的四条：老会话重开后思考/正文/工具卡顺序与实时一致、工具不再整体挤到
+  正文末尾；同一会话反复退出重进正文不增删空行；生成中退出、后台跑完回前台那条也按 parts 显示；
+  多轮工具的耗时/结果仍对上各自那轮。
+
 ## [2026-10-24] feat(cards)：html 卡默认收成一行（peek），正文型生产者自己声明整卡
 
 上一条把 `.html` 产物自动挂成网页卡之后，卡片固定占 360dp 会把正文顶出屏幕——用户拍板改默认档。
