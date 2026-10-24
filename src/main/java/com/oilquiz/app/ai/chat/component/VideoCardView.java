@@ -7,15 +7,21 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
+import androidx.media3.common.VideoSize;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
+import com.oilquiz.app.R;
 import com.oilquiz.app.ai.chat.media.AudioPlaybackManager;
+import com.oilquiz.app.ui.activity.VideoFullscreenActivity;
 
 import org.json.JSONObject;
 
@@ -122,17 +128,19 @@ public class VideoCardView implements ChatComponent {
             card.addView(titleTv);
         }
 
-        // 视频容器：16:9 区域
+        // 视频容器：先给 220dp 占位，拿到视频尺寸后按比例重算（竖屏/超宽都不再硬塞 16:9）
         FrameLayout videoFrame = new FrameLayout(context);
         videoFrame.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 220)));
 
-        // PlayerView 自带控制条/手势（进度、音量、亮度、倍速）；只在本卡是"当前曲目"时绑播放器
+        // 只有 PlayerView 默认控制条；全屏/比例由卡片按钮 + VideoFullscreenActivity 提供
         final PlayerView playerView = new PlayerView(context);
         playerView.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         playerView.setUseController(true);
+        playerView.setControllerShowTimeoutMs(3000);
         playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER);
+        playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
 
         final ProgressBar loading = new ProgressBar(context);
         FrameLayout.LayoutParams lpLoading = new FrameLayout.LayoutParams(
@@ -168,10 +176,29 @@ public class VideoCardView implements ChatComponent {
         errorTv.setLayoutParams(lpErr);
         errorTv.setVisibility(View.GONE);
 
+        final ImageView fullscreen = new ImageView(context);
+        fullscreen.setImageResource(R.drawable.ic_card_fullscreen);
+        fullscreen.setColorFilter(android.graphics.Color.WHITE);
+        fullscreen.setContentDescription("全屏播放");
+        fullscreen.setPadding(dp(context, 8), dp(context, 8), dp(context, 8), dp(context, 8));
+        android.graphics.drawable.GradientDrawable fsBg =
+                new android.graphics.drawable.GradientDrawable();
+        fsBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        fsBg.setColor(0x99000000);
+        fullscreen.setBackground(fsBg);
+        FrameLayout.LayoutParams lpFs = new FrameLayout.LayoutParams(
+                dp(context, 36), dp(context, 36), Gravity.TOP | Gravity.END);
+        lpFs.topMargin = dp(context, 8);
+        lpFs.rightMargin = dp(context, 8);
+        fullscreen.setLayoutParams(lpFs);
+        fullscreen.setVisibility(View.GONE);
+        fullscreen.setClickable(true);
+
         videoFrame.addView(playerView);
         videoFrame.addView(loading);
         videoFrame.addView(playOverlay);
         videoFrame.addView(errorTv);
+        videoFrame.addView(fullscreen);
         card.addView(videoFrame);
 
         final TextView hint = new TextView(context);
@@ -187,29 +214,63 @@ public class VideoCardView implements ChatComponent {
         final boolean[] registered = {false};
         final boolean[] surfaceBound = {false};
         final boolean[] autoPlayTried = {false};
+        final Player.Listener[] videoSizeListener = {null};
+
+        // 只解绑 Surface，不停播放；同时把比例/常亮恢复成默认，避免回收视图留下旧尺寸。
+        final Runnable unbindSurface = () -> {
+            Player attached = playerView.getPlayer();
+            if (attached != null && videoSizeListener[0] != null) {
+                attached.removeListener(videoSizeListener[0]);
+            }
+            videoSizeListener[0] = null;
+            playerView.setPlayer(null);
+            playerView.setKeepScreenOn(false);
+            surfaceBound[0] = false;
+            fullscreen.setVisibility(View.GONE);
+            ViewGroup.LayoutParams lp = videoFrame.getLayoutParams();
+            if (lp != null) {
+                lp.height = dp(videoFrame.getContext(), 220);
+                videoFrame.setLayoutParams(lp);
+            }
+        };
+        // 进全屏前先交还卡片 Surface，否则同一个 ExoPlayer 会被两个 PlayerView 抢输出；
+        // 全屏页关闭时会 notifyStateNow()，卡片监听器收到状态后按当前曲目重新 bind。
+        fullscreen.setOnClickListener(v -> {
+            unbindSurface.run();
+            VideoFullscreenActivity.start(v.getContext());
+        });
 
         // 只在"本卡是当前曲目"时把真实播放器挂到 PlayerView 上（同进程实例，能出画面）
         final Runnable bindSurface = () -> mgr.whenPlayerReady(player -> {
             if (!card.isAttachedToWindow()) return;      // 视图已回收，别再持有
             if (!trackUri.equals(currentMediaId(player))) return;
             if (surfaceBound[0]) return;
+            if (videoSizeListener[0] == null) {
+                videoSizeListener[0] = new Player.Listener() {
+                    @Override
+                    public void onVideoSizeChanged(VideoSize videoSize) {
+                        applyVideoSize(videoFrame, card, videoSize.width, videoSize.height);
+                    }
+                };
+            }
+            player.addListener(videoSizeListener[0]);
             playerView.setPlayer(player);
             surfaceBound[0] = true;
             playOverlay.setVisibility(View.GONE);
+            fullscreen.setVisibility(View.VISIBLE);
+            VideoSize size = player.getVideoSize();
+            applyVideoSize(videoFrame, card, size.width, size.height);
         });
 
         final AudioPlaybackManager.Listener listener = state -> {
             boolean current = state.isTrack(trackUri);
             if (!current) {
-                if (surfaceBound[0]) {
-                    playerView.setPlayer(null);
-                    surfaceBound[0] = false;
-                }
+                unbindSurface.run();
                 loading.setVisibility(View.GONE);
                 // 服务没连上（没有 mediaId 却带 error）要说出来，不能只是"点了没反应"
                 boolean serviceDown = state.error != null && state.mediaId.isEmpty();
                 if (serviceDown) {
-                    errorTv.setText("⚠ 播放服务连接失败");
+                    errorTv.setText("⚠ 播放服务连接失败\n点此重试");
                     errorTv.setVisibility(View.VISIBLE);
                 } else {
                     errorTv.setVisibility(View.GONE);
@@ -219,23 +280,28 @@ public class VideoCardView implements ChatComponent {
                         : "▶ 点击播放（划走不中断，回来接着播）");
                 return;
             }
-            playOverlay.setVisibility(state.ended ? View.VISIBLE : View.GONE);
+            boolean error = state.error != null;
+            playOverlay.setVisibility(state.ended || error ? View.VISIBLE : View.GONE);
             loading.setVisibility(state.buffering ? View.VISIBLE : View.GONE);
-            errorTv.setVisibility(state.error != null ? View.VISIBLE : View.GONE);
-            if (state.error != null) {
-                errorTv.setText("⚠ 视频播放失败: " + state.error);
-                if (surfaceBound[0]) {
-                    playerView.setPlayer(null);
-                    surfaceBound[0] = false;
-                }
+            errorTv.setVisibility(error ? View.VISIBLE : View.GONE);
+            fullscreen.setVisibility(error ? View.GONE
+                    : (surfaceBound[0] ? View.VISIBLE : View.GONE));
+            playerView.setKeepScreenOn(!error && (state.playing || state.playWhenReady));
+            if (error) {
+                errorTv.setText("⚠ 视频播放失败: " + state.error + "\n点此重试");
+                unbindSurface.run();
+                hint.setText("▶ 点此重试");
                 return;
             }
             if (!surfaceBound[0]) bindSurface.run();
-            hint.setText("点画面显示控制条（进度/倍速/手势）");
+            hint.setText("点画面显示控制条；右上角可全屏");
         };
 
-        playOverlay.setOnClickListener(v ->
-                mgr.playOrToggle(trackUri, title, "", loop, speed));
+        View.OnClickListener retry = v ->
+                mgr.playOrToggle(trackUri, title, "", loop, speed);
+        playOverlay.setOnClickListener(retry);
+        errorTv.setClickable(true);
+        errorTv.setOnClickListener(retry);
 
         card.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             @Override
@@ -253,10 +319,7 @@ public class VideoCardView implements ChatComponent {
             @Override
             public void onViewDetachedFromWindow(View v) {
                 // 只解绑画面，不停播放：播放器在 AudioPlaybackService 里
-                if (surfaceBound[0]) {
-                    playerView.setPlayer(null);
-                    surfaceBound[0] = false;
-                }
+                unbindSurface.run();
                 if (!registered[0]) return;
                 registered[0] = false;
                 mgr.removeListener(listener);
@@ -272,6 +335,33 @@ public class VideoCardView implements ChatComponent {
         }
 
         return card;
+    }
+
+    /** 按视频宽高比算容器高度，夹在卡片的合理区间；竖屏/超宽都不硬塞 16:9。 */
+    static int fitHeight(int containerWidth, int videoWidth, int videoHeight,
+                         int minHeight, int maxHeight) {
+        if (containerWidth <= 0 || videoWidth <= 0 || videoHeight <= 0) return minHeight;
+        int h = Math.round(containerWidth * (float) videoHeight / videoWidth);
+        return Math.max(minHeight, Math.min(maxHeight, h));
+    }
+
+    private static void applyVideoSize(FrameLayout frame, View card, int videoWidth, int videoHeight) {
+        if (frame == null || videoWidth <= 0 || videoHeight <= 0) return;
+        frame.post(() -> {
+            if (!frame.isAttachedToWindow()) return;
+            int width = frame.getWidth();
+            if (width <= 0) {
+                width = card.getWidth() - card.getPaddingLeft() - card.getPaddingRight();
+            }
+            if (width <= 0) return;
+            int h = fitHeight(width, videoWidth, videoHeight,
+                    dp(frame.getContext(), 160), dp(frame.getContext(), 420));
+            ViewGroup.LayoutParams lp = frame.getLayoutParams();
+            if (lp != null && lp.height != h) {
+                lp.height = h;
+                frame.setLayoutParams(lp);
+            }
+        });
     }
 
     private static String currentMediaId(ExoPlayer player) {

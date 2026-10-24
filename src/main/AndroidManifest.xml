@@ -263,6 +263,13 @@
             android:name=".ui.activity.FileRenderActivity"
             android:exported="false" />
         <activity
+            android:name=".ui.activity.VideoFullscreenActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.OilQuizApp" />
+        <activity
             android:name=".ui.activity.ImportActivity"
             android:exported="false" />
         <activity android:name=".ui.activity.AIImportActivity" android:exported="true" android:label="AI 导入题库" android:parentActivityName=".ui.activity.ImportActivity" /><!-- TODO: 真机测试完成后改回 exported=false -->

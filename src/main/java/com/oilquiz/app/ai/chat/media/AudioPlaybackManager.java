@@ -449,6 +449,11 @@ public final class AudioPlaybackManager {
         }
     }
 
+    /** 强制推一次状态给卡片（全屏页关闭后让卡片重新绑 Surface 用）。 */
+    public void notifyStateNow() {
+        notifyState();
+    }
+
     /** 队列上一首 */
     public void skipToPrevious() {
         MediaController c = controller;
