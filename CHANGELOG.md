@@ -77,6 +77,37 @@
   正文份数从 4 份降到 3 份。
 
 
+## [2026-10-24] docs(parts)：更正三处过期口径——error/approval 的"命中就整条回落 legacy"其实不可达
+
+起因是用户问"AI 对话页的 parts 改造完了吗"，我照 `ChatAdapter.bindWithParts` 的注释答了一句
+"error/approval 没有生产者，命中就整条回落 legacy"。回头逐条核生产者，才发现那是**复述注释而不是事实**，
+而任务书 §11 里还有一串同样的过期状态（mermaid"当前回落"、工具组折叠"待做"、产物归属"待做"）。
+本轮**只改文档与 Java 注释，一行行为没动**。
+
+- **闸门那条分支当前不可达**：`fromMessageForParts` 只产 text/reasoning/tool_call/tool_result/tool_group/data
+  六种，生产代码里没有任何 error/approval part 的写者（`Part.approval(...)` 只出现在两个测试里，
+  `TYPE_ERROR` 只出现在 `ErrorPartRenderer.canRender` 与测试，`AssistantTurn` 里的 `new Part()` 是 `copy()`）。
+  所以 `if (!allowed) return false` 是给"将来真加生产者"留的防御，不是现网会走的路径。
+- **这两类内容的真实通道都不归 parts 管，翻 P4 也不改变其显示**：error = 独立错误行
+  （`createErrorMessage` → `MessageType.ERROR` → `VIEW_TYPE_ERROR` → `bindErrorMessage`，另一个 ViewHolder，
+  `bindMessageContent` 根本不处理它）+ AI 消息 `failMessage/cancelMessage` 置 FAILED 后的状态行与 v2 操作段
+  （接管只换 `contentHost`，这两处按设计留给 legacy）；approval = `permission_manager(request_and_wait)`
+  这张普通工具卡 + `ui_component` 的 `get_result` 阻塞回传，**两者 parts 都已接管**。
+- **"有渲染器"既不等于"会被接管"也不等于"会回落"**：`createDefault()` 其实已经注册 Error/Approval 渲染器，
+  `canRenderAll` 挡不住它们，只有宿主侧 allowed 名单挡得住——`canRenderAll` 的 javadoc 补了这条区分。
+- 任务书 `docs/ui/parts-architecture-upgrade.md`：§11 开场改成"allowed 已含六种、整条回落已不可达"；
+  §11.1 标 P3h 已做、§11.3 标 P3i 已做**并写清实现与草案不同**（实际走 `attachOwnedProducts` +
+  `producerToolCallId`/`producerToolName` 的模型层归属 + 单写者竖排 `[工具卡]+[产物卡…]`，
+  不是草案设想的 `DataPartRenderer.anchorIdFor`——后者会在 anchor 视图里 `removeAllViews` 与工具卡重绑互抹）、
+  §11.4 标 P3g 已做（mermaid/katex 是 `MermaidMathSplitter` 直接产 **html 组件**交 `HtmlCardView`，
+  不是独立注册组件；`renderMermaidMath` 位置从 `:3527` 漂到 `:3003`）、§11.7 重写为上面的准确口径、
+  §11.8 五步把 1–4 划掉标注对应阶段，第 5 步仍留 P4（`PartsRendererFlag` 出厂兜底 false）与 P5 剩余
+  （不再写 `contentRoundBounds`、删 legacy 分支；"旧数据补 `assistantTurn`"那半已由并行那轮 P5 第一步落地，
+  见本日志上一条与 HANDOVER §4.81/§11.9）。
+- **未跑构建与单测**：同一工作树正被并行会话改着 `AssistantTurn`/`ChatHistoryManager`/`AIChatActivity`
+  （见 HANDOVER §4.81），跑 gradle 会争用 `build/` 输出；本轮是文档 + 注释，不需要构建证明。
+  当前权威基线以 §4.81 的 **769 tests / 0 skipped / 0 failures / 0 errors** 为准。
+
 ## [2026-10-24] fix(chat/parts)：历史恢复只留一个 parts 顺序生产者，旧数据也补上 canonical turn
 
 先核了一件事："历史恢复是不是 part 恢复"。答案是半真——`ChatMessage.assistantTurn` 确实落盘
