@@ -33,9 +33,23 @@ public class FilePreviewManager {
      * 初始化预览引擎
      * @param context 上下文
      */
-    public void initialize(Context context) {
+    public synchronized void initialize(Context context) {
         this.appContext = context.getApplicationContext();
         initializeEngines();
+    }
+
+    /**
+     * 懒初始化（线程安全）：聊天卡片等图表/缩略图可能从多个后台线程同时首次调用，
+     * 不加锁时两个线程会同时 clear/add {@link #engines}，另一个线程正在遍历就会踩
+     * ConcurrentModificationException。
+     */
+    private void ensureInitialized(Context context) {
+        if (!engines.isEmpty()) return;
+        synchronized (this) {
+            if (engines.isEmpty()) {
+                initialize(context);
+            }
+        }
     }
 
     private void initializeEngines() {
@@ -63,9 +77,7 @@ public class FilePreviewManager {
     }
 
     public void preview(Context context, File file, PreviewEngine.PreviewCallback callback, PreviewEngine.PreviewProgressCallback progressCallback) {
-        if (engines.isEmpty()) {
-            initialize(context);
-        }
+        ensureInitialized(context);
         
         for (PreviewEngine engine : engines) {
             if (engine.supports(file)) {

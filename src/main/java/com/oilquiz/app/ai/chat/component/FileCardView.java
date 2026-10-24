@@ -2,11 +2,16 @@ package com.oilquiz.app.ai.chat.component;
 
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -15,6 +20,8 @@ import org.json.JSONObject;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.theme.ThemeColors;
+import com.oilquiz.app.util.preview.FilePreviewManager;
+import com.oilquiz.app.util.preview.PreviewEngine;
 /**
  * 文件卡片组件：图标 + 文件名 + 大小 + 打开按钮。
  *
@@ -73,11 +80,123 @@ public class FileCardView implements ChatComponent {
                     context.getString(R.string.card_file_no_target));
             return shell;
         }
+
+        // 有真实本地文件时先挂缩略图（md 走 MarkdownDocPage + 离屏 WebView 截图，
+        // 文本/PDF/图片走各自 PreviewEngine）。生成失败只是不显示，不影响打开/分享。
+        java.io.File local = TextUtils.isEmpty(target) ? null : new java.io.File(target);
+        if (local != null && local.isFile()) {
+            attachThumbnail(context, shell, local,
+                    () -> openFile(context, uri, target, name));
+        }
+
         shell.addAction(context.getString(R.string.card_file_open), true,
                 () -> openFile(context, uri, target, name));
         shell.addAction(context.getString(R.string.card_file_share), false,
                 () -> shareFile(context, uri, target, name));
         return shell;
+    }
+
+    // ---------------------------------------------------------------- 缩略图
+
+    /** 缩略图占位高度（dp）：先占位再填图，聊天列表不会因为图片到达而跳动 */
+    private static final int THUMB_HEIGHT_DP = 168;
+    /** 进卡片前把长边压到这个值内：卡片只有 168dp 高，原图分辨率没意义还费内存 */
+    private static final int THUMB_MAX_EDGE = 1024;
+
+    /**
+     * 能生成缩略图的扩展名（与 FilePreviewManager 里各 PreviewEngine 对齐）。
+     *
+     * <p>Office（doc/docx/xls/ppt…）不在这里：它们会落到 X5/TBS 引擎，依赖主线程与 TBS 内核，
+     * 聊天列表里批量取缩略图不能走那条路；要继续做得另用专用查看器截图。</p>
+     */
+    private static final String[] THUMB_EXTENSIONS = {
+            ".md", ".markdown", ".mdown", ".mkd", ".mkdn",
+            ".txt", ".log", ".json", ".xml", ".csv",
+            ".pdf",
+            ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"
+    };
+
+    /** 回填缩略图用主线程 Handler。不能用 {@code view.post}：卡片可能先建好、还没 attach
+     *  到窗口（弹窗/焦点卡/列表预建），那时 View.post 只进 attach 前的 RunQueue，图片永远不显示。 */
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
+
+    /** 该文件是否有可用的缩略图引擎（纯扩展名判断，供单测钉口径）。 */
+    static boolean supportsThumbnail(java.io.File file) {
+        if (file == null || !file.isFile() || file.length() <= 0) return false;
+        String name = file.getName().toLowerCase(java.util.Locale.ROOT);
+        for (String ext : THUMB_EXTENSIONS) {
+            if (name.endsWith(ext)) return true;
+        }
+        return false;
+    }
+
+    /** 卡片缩略图：占位图先上，缩略图在后台线程生成，主线程只负责 setImageBitmap。 */
+    private static void attachThumbnail(final Context context, CardShell shell,
+                                        final java.io.File file, final Runnable onClick) {
+        if (!supportsThumbnail(file)) return;
+        final Context app = context.getApplicationContext() != null
+                ? context.getApplicationContext() : context;
+
+        final ImageView view = new ImageView(context);
+        view.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        view.setClipToOutline(true);
+        if (onClick != null) {
+            // 点缩略图 = 点"打开"：看到的图就是文件本身
+            view.setOnClickListener(v -> onClick.run());
+            view.setContentDescription("预览：" + file.getName());
+        }
+        GradientDrawable placeholder = new GradientDrawable();
+        // 用卡片底色而不是 surfaceVariant：文档页是竖图，FIT_CENTER 后两侧会留边，
+        // 底色一致才看不出两条灰边（灰底在真机上很显眼）。
+        placeholder.setColor(ComponentTheme.surface(context));
+        placeholder.setCornerRadius(ComponentTheme.radius(context));
+        view.setBackground(placeholder);
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, ComponentTheme.dp(context, THUMB_HEIGHT_DP));
+        lp.topMargin = ComponentTheme.dp(context, 2);
+        shell.addBody(view, lp);
+
+        new Thread(() -> {
+            try {
+                FilePreviewManager.getInstance().preview(app, file,
+                        new PreviewEngine.PreviewCallback() {
+                            @Override
+                            public void onSuccess(Bitmap bitmap) {
+                                final Bitmap shown = fitForCard(bitmap);
+                                if (shown == null) return;
+                                MAIN.post(() -> view.setImageBitmap(shown));
+                            }
+
+                            @Override
+                            public void onFailure(String error) {
+                                android.util.Log.d("FileCardView", "缩略图不可用: "
+                                        + file.getName() + "（" + error + "）");
+                                MAIN.post(() -> view.setVisibility(View.GONE));
+                            }
+                        });
+            } catch (Throwable t) {
+                android.util.Log.w("FileCardView", "缩略图生成异常: " + t.getMessage());
+            }
+        }, "file-card-thumb").start();
+    }
+
+    /** 长边压到 {@link #THUMB_MAX_EDGE} 内（占用方返回新 Bitmap，旧的可回收）。 */
+    private static Bitmap fitForCard(Bitmap src) {
+        if (src == null) return null;
+        int w = src.getWidth();
+        int h = src.getHeight();
+        if (w <= 0 || h <= 0) return src;
+        if (w <= THUMB_MAX_EDGE && h <= THUMB_MAX_EDGE) return src;
+        try {
+            float scale = Math.min(THUMB_MAX_EDGE / (float) w, THUMB_MAX_EDGE / (float) h);
+            Bitmap scaled = Bitmap.createScaledBitmap(src,
+                    Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale)), true);
+            if (scaled != src) src.recycle();
+            return scaled;
+        } catch (Throwable t) {
+            return src;
+        }
     }
 
     private static void openFile(Context context, String uri, String path, String name) {

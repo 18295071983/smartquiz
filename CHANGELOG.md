@@ -1,5 +1,27 @@
 # 变更日志
 
+## [2026-10-25] feat(chat)：file_card 挂缩略图（md 优先，文本/PDF/图片一并支持）
+
+上一轮把 md 缩略图引擎（MarkdownDocPage + 离屏 WebView 截图）做出来了，但全项目没有任何
+入口在用它。这一轮先接最自然的消费方：聊天流里的 `file_card`——此前卡片只有图标+文件名+大小。
+
+- **FileCardView**：卡片头部下方新增 168dp 缩略图位（先占位后填图，列表不跳动）。只在有
+  真实本地文件且命中缩略图白名单时挂：md 家族、txt/log/json/xml/csv、pdf、png/jpg/webp/gif/bmp。
+  Office（docx/xlsx/pptx…）会落到 X5/TBS，依赖主线程与 TBS 内核，**明确不接**。点缩略图
+  等同"打开"（同一跳转：FileRenderActivity → MarkdownDocView / 其他渲染器）。
+- **线程**：`FilePreviewManager.preview` 在后台线程跑，回填统一走主线程 Handler。不能用
+  `view.post`——卡片可能先建好、还没 attach 到窗口（弹窗/预建/测试），View.post 只进 attach
+  前的 RunQueue，图片永远不显示（第一版真机测试等 20s 拿不到图就是这个）。
+- **FilePreviewManager**：懒初始化加锁（`initialize` synchronized + `ensureInitialized`）。
+  聊天列表可能多个后台线程同时首次取缩略图，原来的 `if (engines.isEmpty()) initialize(...)`
+  会并发 clear/add，另一个线程正在遍历就踩 ConcurrentModificationException。
+- **验证**：新增 `FileCardThumbnailTest` 4 条（白名单口径）、`FileCardThumbnailDeviceTest`
+  2 条（真机把卡片画进 Bitmap：md 卡片出缩略图、docx 不出）；全量 `testDebugUnitTest
+  --offline --rerun` **888 tests / 0 skipped / 0 failures / 0 errors**；APK 02:57:19 已装机。
+  真机卡片截图：标题 + 文档页缩略图 + 打开/分享，缩略图两侧不再有占位灰边。
+  **未在真实 AI 会话里点过**：调试注入要求对话处于"当前轮"态，在历史会话里注入的卡片没有
+  落库/显示；卡片本身用的是真机 device test 渲染的同一份 FileCardView/主题/引擎。
+
 ## [2026-10-25] feat(file-preview)：FileRenderActivity 的 .md 走 MarkdownDocView + md 缩略图改离屏截图
 
 文件预览入口此前对 `.md` 只有一条路：`PreviewRenderBridge.RenderEngineFactory.getEngineForFile`
