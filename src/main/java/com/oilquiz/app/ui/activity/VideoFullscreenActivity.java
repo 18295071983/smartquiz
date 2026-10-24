@@ -1,26 +1,42 @@
 package com.oilquiz.app.ui.activity;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.PictureInPictureParams;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.util.Rational;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.media3.common.C;
+import androidx.media3.common.Format;
+import androidx.media3.common.Player;
+import androidx.media3.common.TrackGroup;
+import androidx.media3.common.TrackSelectionOverride;
+import androidx.media3.common.TrackSelectionParameters;
+import androidx.media3.common.Tracks;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import com.oilquiz.app.ai.chat.media.AudioPlaybackManager;
 
@@ -38,6 +54,10 @@ import com.oilquiz.app.ai.chat.media.AudioPlaybackManager;
 public class VideoFullscreenActivity extends Activity {
 
     private PlayerView playerView;
+    private TextView ratioButton;
+    private TextView subtitleButton;
+    private TextView audioButton;
+    private TextView closeButton;
 
     /** 从卡片打开；非 Activity Context 补 NEW_TASK，避免 crash。 */
     public static void start(Context context) {
@@ -78,12 +98,7 @@ public class VideoFullscreenActivity extends Activity {
 
         final boolean[] zoom = {false};
         TextView ratio = chromeButton(zoom[0] ? "裁剪" : "适应");
-        FrameLayout.LayoutParams ratioLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP | Gravity.START);
-        ratioLp.topMargin = dp(16);
-        ratioLp.leftMargin = dp(16);
-        ratio.setLayoutParams(ratioLp);
+        ratioButton = ratio;
         ratio.setOnClickListener(v -> {
             zoom[0] = !zoom[0];
             playerView.setResizeMode(zoom[0]
@@ -91,9 +106,38 @@ public class VideoFullscreenActivity extends Activity {
                     : AspectRatioFrameLayout.RESIZE_MODE_FIT);
             ((TextView) v).setText(zoom[0] ? "裁剪" : "适应");
         });
-        root.addView(ratio);
+
+        TextView subs = chromeButton("字幕");
+        subtitleButton = subs;
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        subLp.leftMargin = dp(8);
+        subs.setLayoutParams(subLp);
+        subs.setOnClickListener(v -> showTrackDialog(C.TRACK_TYPE_TEXT));
+
+        TextView audio = chromeButton("音轨");
+        audioButton = audio;
+        LinearLayout.LayoutParams audioLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        audioLp.leftMargin = dp(8);
+        audio.setLayoutParams(audioLp);
+        audio.setOnClickListener(v -> showTrackDialog(C.TRACK_TYPE_AUDIO));
+
+        LinearLayout topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
+        topBar.addView(ratio);
+        topBar.addView(subs);
+        topBar.addView(audio);
+        FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.START);
+        topLp.topMargin = dp(16);
+        topLp.leftMargin = dp(16);
+        root.addView(topBar, topLp);
 
         TextView close = chromeButton("关闭");
+        closeButton = close;
         FrameLayout.LayoutParams closeLp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP | Gravity.END);
@@ -105,6 +149,45 @@ public class VideoFullscreenActivity extends Activity {
 
         setContentView(root);
         hideSystemBars();
+    }
+
+    private void showTrackDialog(int type) {
+        if (playerView == null) return;
+        Player player = playerView.getPlayer();
+        if (player == null) return;
+        List<TrackGroup> groups = new ArrayList<>();
+        for (Tracks.Group group : player.getCurrentTracks().getGroups()) {
+            if (group.getType() == type && group.isSupported()) {
+                groups.add(group.getMediaTrackGroup());
+            }
+        }
+        List<String> labels = new ArrayList<>();
+        labels.add("关闭");
+        for (TrackGroup group : groups) {
+            Format f = group.getFormat(0);
+            String label = f.label == null ? "" : f.label.toString();
+            if (label.isEmpty() && f.language != null) label = f.language;
+            if (label.isEmpty()) {
+                label = (type == C.TRACK_TYPE_TEXT ? "字幕 " : "音轨 ") + labels.size();
+            }
+            labels.add(label);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(type == C.TRACK_TYPE_TEXT ? "选择字幕" : "选择音轨")
+                .setItems(labels.toArray(new String[0]), (dialog, which) -> {
+                    TrackSelectionParameters.Builder b =
+                            player.getTrackSelectionParameters().buildUpon();
+                    if (which == 0) {
+                        b.setTrackTypeDisabled(type, true);
+                    } else {
+                        b.setTrackTypeDisabled(type, false);
+                        b.clearOverridesOfType(type);
+                        b.setOverrideForType(
+                                new TrackSelectionOverride(groups.get(which - 1), 0));
+                    }
+                    player.setTrackSelectionParameters(b.build());
+                })
+                .show();
     }
 
     private void hideSystemBars() {
@@ -134,6 +217,49 @@ public class VideoFullscreenActivity extends Activity {
     private int dp(float value) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value,
                 getResources().getDisplayMetrics());
+    }
+
+    @Override
+    public void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (playerView == null) return;
+        Player player = playerView.getPlayer();
+        if (player == null || !player.isPlaying()) return;
+        try {
+            int width = player.getVideoSize().width;
+            int height = player.getVideoSize().height;
+            Rational ratio = width > 0 && height > 0
+                    ? new Rational(width, height) : new Rational(16, 9);
+            enterPictureInPictureMode(new PictureInPictureParams.Builder()
+                    .setAspectRatio(ratio)
+                    .build());
+        } catch (Throwable ignored) {
+            // 设备/系统不支持 PiP：保持普通全屏，不让 Home 键变成崩溃
+        }
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean inPip, Configuration config) {
+        super.onPictureInPictureModeChanged(inPip, config);
+        if (ratioButton != null) {
+            ratioButton.setVisibility(inPip ? View.GONE : View.VISIBLE);
+        }
+        if (subtitleButton != null) {
+            subtitleButton.setVisibility(inPip ? View.GONE : View.VISIBLE);
+        }
+        if (audioButton != null) {
+            audioButton.setVisibility(inPip ? View.GONE : View.VISIBLE);
+        }
+        if (closeButton != null) {
+            closeButton.setVisibility(inPip ? View.GONE : View.VISIBLE);
+        }
+        if (playerView != null) {
+            if (inPip) {
+                playerView.hideController();
+            } else {
+                hideSystemBars();
+            }
+        }
     }
 
     @Override

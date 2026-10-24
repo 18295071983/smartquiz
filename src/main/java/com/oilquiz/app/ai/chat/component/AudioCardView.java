@@ -35,7 +35,11 @@ import java.io.File;
  *   "title": "可选标题（如歌曲名）",
  *   "artist": "可选艺术家",
  *   "loop": false,
- *   "speed": 1.0         // 可选倍速（切到本卡时应用）
+ *   "speed": 1.0,        // 可选倍速（切到本卡时应用）
+ *   "headers": {         // 可选：UA/Referer/Cookie 等防盗链头
+ *     "User-Agent": "...", "Referer": "...", "Cookie": "..."
+ *   }
+ *   "artwork": "https://.../cover.jpg"   // 可选：通知栏/锁屏封面
  * }
  * </pre>
  *
@@ -74,6 +78,8 @@ public class AudioCardView implements ChatComponent {
         String artist = p.optString("artist", "");
         boolean loop = p.optBoolean("loop", false);
         float speed = (float) p.optDouble("speed", 1.0);
+        final java.util.Map<String, String> headers = PlaybackHeaderParser.parse(p);
+        ArtworkResolver.apply(context, p);
 
         // 路径口径走 MediaPathResolver（工作区相对路径/省略号截断名等统一兜底）
         String resolved = url == null ? "" : url.trim();
@@ -225,6 +231,14 @@ public class AudioCardView implements ChatComponent {
         queueTv.setPadding(0, 0, dp(context, 10), 0);
         tools.addView(queueTv);
 
+        final TextView timerTv = new TextView(context);
+        timerTv.setText("定时关");
+        timerTv.setTextSize(10);
+        timerTv.setTextColor(ComponentColors.textSecondary(context));
+        timerTv.setPadding(0, 0, dp(context, 10), 0);
+        timerTv.setClickable(true);
+        tools.addView(timerTv);
+
         final ProgressBar bufferBar = new ProgressBar(context, null,
                 android.R.attr.progressBarStyleSmall);
         int bufSize = dp(context, 16);
@@ -266,6 +280,7 @@ public class AudioCardView implements ChatComponent {
             btnNext.setEnabled(current && state.queueSize > 1
                     && state.queueIndex + 1 < state.queueSize);
             bufferBar.setVisibility(current && state.buffering ? View.VISIBLE : View.GONE);
+            timerTv.setText(timerLabel(mgr.sleepTimerMinutesRemaining()));
 
             if (current) {
                 speedNow[0] = state.speed;
@@ -300,7 +315,7 @@ public class AudioCardView implements ChatComponent {
         };
 
         btnPlay.setOnClickListener(v ->
-                mgr.playOrToggle(trackUri, title, artist, loop, speed));
+                mgr.playOrToggle(trackUri, title, artist, loop, speed, null, headers));
         btnPrev.setOnClickListener(v -> mgr.skipToPrevious());
         btnNext.setOnClickListener(v -> mgr.skipToNext());
         speedTv.setOnClickListener(v -> {
@@ -309,6 +324,9 @@ public class AudioCardView implements ChatComponent {
         loopTv.setOnClickListener(v -> {
             if (isCurrent[0]) mgr.toggleLoop();
         });
+        timerTv.setOnClickListener(v ->
+                mgr.setSleepTimer(AudioPlaybackManager.nextSleepMinutes(
+                        mgr.sleepTimerMinutesRemaining())));
 
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
@@ -368,6 +386,10 @@ public class AudioCardView implements ChatComponent {
         while (s.endsWith("0")) s = s.substring(0, s.length() - 1);
         if (s.endsWith(".")) s = s.substring(0, s.length() - 1);
         return s + "x";
+    }
+
+    static String timerLabel(int minutes) {
+        return minutes > 0 ? "定时" + minutes + "m" : "定时关";
     }
 
     /**

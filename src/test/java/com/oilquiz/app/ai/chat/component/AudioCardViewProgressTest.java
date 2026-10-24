@@ -59,4 +59,14 @@ public class AudioCardViewProgressTest {
         assertEquals("2x 之后回到 0.5x", 0.5f,
                 AudioPlaybackManager.nextSpeed(2.0f), 0.001f);
     }
+
+    @Test
+    public void sleepTimerCyclesAndFormats() {
+        assertEquals(15, AudioPlaybackManager.nextSleepMinutes(0));
+        assertEquals(30, AudioPlaybackManager.nextSleepMinutes(15));
+        assertEquals(60, AudioPlaybackManager.nextSleepMinutes(30));
+        assertEquals(0, AudioPlaybackManager.nextSleepMinutes(60));
+        assertEquals("定时关", AudioCardView.timerLabel(0));
+        assertEquals("定时15m", AudioCardView.timerLabel(15));
+    }
 }

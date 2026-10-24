@@ -6,9 +6,15 @@ import android.content.Intent;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
+import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * 音频/视频播放的<b>唯一</b>播放器宿主（2026-10-23）。
@@ -50,7 +56,21 @@ public class AudioPlaybackService extends MediaSessionService {
         super.onCreate();
         // AudioAttributes.DEFAULT + handleAudioFocus=true：来电/别的 App 放声时自动让路；
         // becoming noisy（拔耳机）自动暂停，避免突然外放
+        DataSource.Factory dataSourceFactory = () -> {
+            DefaultHttpDataSource.Factory f = new DefaultHttpDataSource.Factory()
+                    .setAllowCrossProtocolRedirects(true)
+                    .setConnectTimeoutMs(15_000)
+                    .setReadTimeoutMs(15_000);
+            Map<String, String> headers = new HashMap<>(PlaybackHeaders.get());
+            if (!headers.containsKey("User-Agent")) {
+                headers.put("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 "
+                        + "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
+            }
+            f.setDefaultRequestProperties(headers);
+            return f.createDataSource();
+        };
         player = new ExoPlayer.Builder(this)
+                .setMediaSourceFactory(new DefaultMediaSourceFactory(dataSourceFactory))
                 .setAudioAttributes(AudioAttributes.DEFAULT, /* handleAudioFocus= */ true)
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_NETWORK)

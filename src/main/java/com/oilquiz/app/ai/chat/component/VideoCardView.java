@@ -12,7 +12,9 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.Player;
 import androidx.media3.common.VideoSize;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -23,9 +25,12 @@ import com.oilquiz.app.R;
 import com.oilquiz.app.ai.chat.media.AudioPlaybackManager;
 import com.oilquiz.app.ui.activity.VideoFullscreenActivity;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 视频播放组件（消息内直接播放视频）。
@@ -50,6 +55,13 @@ import java.io.File;
  *   "autoPlay": false,   // 可选：仅在当前没有别的媒体在播时自动开始，避免回滚列表时抢播
  *   "loop": false,       // 可选
  *   "speed": 1.0         // 可选：播放倍速（0.5~2.0）
+ *   "subtitles": [       // 可选：外挂字幕；也兼容 "subtitle": "单条地址"
+ *     {"url": "https://.../zh.srt", "lang": "zh", "label": "中文", "default": true}
+ *   ]
+ *   "headers": {         // 可选：UA/Referer/Cookie 等防盗链头
+ *     "User-Agent": "...", "Referer": "...", "Cookie": "..."
+ *   }
+ *   "artwork": "https://.../cover.jpg"   // 可选：通知栏/锁屏封面
  * }
  * </pre>
  *
@@ -87,6 +99,9 @@ public class VideoCardView implements ChatComponent {
         boolean loop = p.optBoolean("loop", false);
         boolean autoPlay = p.optBoolean("autoPlay", false);
         float speed = (float) p.optDouble("speed", 1.0);
+        final List<MediaItem.SubtitleConfiguration> subtitles = parseSubtitles(context, p);
+        final java.util.Map<String, String> headers = PlaybackHeaderParser.parse(p);
+        ArtworkResolver.apply(context, p);
 
         // 路径口径与音频卡一致：统一走 MediaPathResolver
         String resolved = url == null ? "" : url.trim();
@@ -298,7 +313,7 @@ public class VideoCardView implements ChatComponent {
         };
 
         View.OnClickListener retry = v ->
-                mgr.playOrToggle(trackUri, title, "", loop, speed);
+                mgr.playOrToggle(trackUri, title, "", loop, speed, subtitles, headers);
         playOverlay.setOnClickListener(retry);
         errorTv.setClickable(true);
         errorTv.setOnClickListener(retry);
@@ -312,7 +327,7 @@ public class VideoCardView implements ChatComponent {
                 // autoPlay 只在"当前没有别的媒体在播"时生效：列表回收重绑不该抢掉正在放的东西
                 if (autoPlay && !autoPlayTried[0] && mgr.snapshot().mediaId.isEmpty()) {
                     autoPlayTried[0] = true;
-                    mgr.playOrToggle(trackUri, title, "", loop, speed);
+                    mgr.playOrToggle(trackUri, title, "", loop, speed, subtitles, headers);
                 }
             }
 
@@ -330,11 +345,106 @@ public class VideoCardView implements ChatComponent {
             mgr.addListener(listener);
             if (autoPlay && !autoPlayTried[0] && mgr.snapshot().mediaId.isEmpty()) {
                 autoPlayTried[0] = true;
-                mgr.playOrToggle(trackUri, title, "", loop, speed);
+                mgr.playOrToggle(trackUri, title, "", loop, speed, subtitles, headers);
             }
         }
 
         return card;
+    }
+
+    /**
+     * 解析 props.subtitles（数组，或单条 props.subtitle）。地址走 MediaPathResolver，
+     * 与视频/音频同一套本地路径/工作区相对路径口径；MIME 按扩展名兜底。
+     */
+    static List<MediaItem.SubtitleConfiguration> parseSubtitles(Context context, JSONObject p) {
+        List<MediaItem.SubtitleConfiguration> out = new ArrayList<>();
+        if (context == null || p == null) return out;
+
+        JSONArray arr = p.optJSONArray("subtitles");
+        boolean hasDefault = false;
+        if (arr != null) {
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.optJSONObject(i);
+                if (o != null && o.optBoolean("default", o.optBoolean("is_default", false))) {
+                    hasDefault = true;
+                    break;
+                }
+            }
+        }
+        if (arr != null) {
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+                String raw = firstNonEmpty(o, "url", "src", "path", "uri");
+                if (raw.isEmpty()) continue;
+                String mime = firstNonEmpty(o, "mime", "type");
+                String lang = firstNonEmpty(o, "lang", "language");
+                String label = firstNonEmpty(o, "label", "name");
+                boolean isDefault = o.optBoolean("default", o.optBoolean("is_default", false))
+                        || (!hasDefault && out.isEmpty());
+                MediaItem.SubtitleConfiguration sub =
+                        buildSubtitle(context, raw, mime, lang, label, isDefault);
+                if (sub != null) out.add(sub);
+            }
+        }
+        if (out.isEmpty()) {
+            String single = p.optString("subtitle", "");
+            if (single.isEmpty()) single = p.optString("subtitle_url", "");
+            if (!single.isEmpty()) {
+                MediaItem.SubtitleConfiguration sub =
+                        buildSubtitle(context, single, "", "", "", true);
+                if (sub != null) out.add(sub);
+            }
+        }
+        return out;
+    }
+
+    private static MediaItem.SubtitleConfiguration buildSubtitle(
+            Context context, String raw, String mime, String lang, String label, boolean isDefault) {
+        String resolved = MediaPathResolver.resolve(context, raw);
+        if (resolved == null || resolved.isEmpty()) return null;
+        Uri uri;
+        String lower = resolved.toLowerCase(java.util.Locale.US);
+        if (lower.startsWith("http://") || lower.startsWith("https://")
+                || lower.startsWith("content://") || lower.startsWith("file://")) {
+            uri = Uri.parse(resolved);
+        } else {
+            uri = Uri.fromFile(new File(resolved));
+        }
+        String actualMime = mime == null || mime.isEmpty() ? subtitleMimeOf(resolved) : mime;
+        MediaItem.SubtitleConfiguration.Builder b =
+                new MediaItem.SubtitleConfiguration.Builder(uri)
+                        .setMimeType(actualMime)
+                        .setLanguage(lang == null || lang.isEmpty() ? "und" : lang);
+        if (label != null && !label.isEmpty()) b.setLabel(label);
+        if (isDefault) b.setSelectionFlags(C.SELECTION_FLAG_DEFAULT);
+        try {
+            return b.build();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    static String subtitleMimeOf(String uri) {
+        if (uri == null) return MimeTypes.APPLICATION_SUBRIP;
+        String path = uri;
+        int cut = path.indexOf('#');
+        if (cut >= 0) path = path.substring(0, cut);
+        cut = path.indexOf('?');
+        if (cut >= 0) path = path.substring(0, cut);
+        String lower = path.toLowerCase(java.util.Locale.US);
+        if (lower.endsWith(".vtt")) return MimeTypes.TEXT_VTT;
+        if (lower.endsWith(".ass") || lower.endsWith(".ssa")) return MimeTypes.TEXT_SSA;
+        if (lower.endsWith(".ttml") || lower.endsWith(".xml")) return MimeTypes.APPLICATION_TTML;
+        return MimeTypes.APPLICATION_SUBRIP;
+    }
+
+    private static String firstNonEmpty(JSONObject o, String... keys) {
+        for (String key : keys) {
+            String v = o.optString(key, "");
+            if (!v.isEmpty()) return v;
+        }
+        return "";
     }
 
     /** 按视频宽高比算容器高度，夹在卡片的合理区间；竖屏/超宽都不硬塞 16:9。 */

@@ -266,6 +266,8 @@
             android:name=".ui.activity.VideoFullscreenActivity"
             android:exported="false"
             android:launchMode="singleTop"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.OilQuizApp" />

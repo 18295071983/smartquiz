@@ -2,8 +2,10 @@ package com.oilquiz.app.ai.chat.media;
 
 import android.content.ComponentName;
 import android.content.Context;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 
 import androidx.core.content.ContextCompat;
@@ -168,6 +170,10 @@ public final class AudioPlaybackManager {
     private String pendingUri, pendingTitle, pendingArtist;
     private boolean pendingLoop;
     private float pendingSpeed = 1.0f;
+    /** 控制器未连上时暂存的字幕轨（单曲/视频用；队列暂不支持逐项字幕） */
+    private java.util.List<MediaItem.SubtitleConfiguration> pendingSubtitles;
+    /** 控制器未连上时暂存的请求头（UA/Referer/Cookie） */
+    private java.util.Map<String, String> pendingHeaders;
     /** 控制器未连上时暂存的队列（播放列表卡点了某一首） */
     private java.util.List<String> pendingQueueUris, pendingQueueTitles;
     private int pendingQueueIndex;
@@ -178,6 +184,13 @@ public final class AudioPlaybackManager {
      * 所以本地留一份自己建的。
      */
     private MediaItem lastItem;
+    /** 最近一次下发的字幕轨（HLS 302 重试要按同一份重建 MediaItem）。 */
+    private java.util.List<MediaItem.SubtitleConfiguration> lastSubtitles;
+    /** 最近一次下发的请求头（HLS 302 重试要沿用）。 */
+    private java.util.Map<String, String> lastHeaders;
+    /** 睡眠定时：到点只暂停，不销毁播放器/服务（用户还能继续听）。 */
+    private Runnable sleepRunnable;
+    private long sleepAtElapsed;
 
     /** HLS 302 解析线程（不能在主线程做网络） */
     private final ExecutorService resolver = Executors.newCachedThreadPool();
@@ -267,6 +280,28 @@ public final class AudioPlaybackManager {
      * @param speed 倍速，0.1~2.0 之外按 1.0 处理，同上只在切歌时应用
      */
     public void playOrToggle(String uri, String title, String artist, boolean loop, float speed) {
+        playOrToggle(uri, title, artist, loop, speed, null);
+    }
+
+    /**
+     * 带外挂字幕的播放入口（视频卡用；音频卡传 null）。
+     *
+     * @param subtitles 已解析的 MediaItem.SubtitleConfiguration；null/空表示不带字幕
+     */
+    public void playOrToggle(String uri, String title, String artist, boolean loop, float speed,
+                             java.util.List<MediaItem.SubtitleConfiguration> subtitles) {
+        playOrToggle(uri, title, artist, loop, speed, subtitles, null);
+    }
+
+    /**
+     * 带外挂字幕/请求头的播放入口（视频卡用；音频卡传 null）。
+     *
+     * @param subtitles 已解析的 MediaItem.SubtitleConfiguration；null/空表示不带字幕
+     * @param headers   本次请求头（UA/Referer/Cookie）；null/空表示用默认
+     */
+    public void playOrToggle(String uri, String title, String artist, boolean loop, float speed,
+                             java.util.List<MediaItem.SubtitleConfiguration> subtitles,
+                             java.util.Map<String, String> headers) {
         if (uri == null || uri.isEmpty()) return;
         MediaController c = controller;
         if (c == null) {
@@ -276,6 +311,8 @@ public final class AudioPlaybackManager {
             pendingArtist = artist;
             pendingLoop = loop;
             pendingSpeed = speed;
+            pendingSubtitles = copySubtitles(subtitles);
+            pendingHeaders = copyHeaders(headers);
             ensureController();
             return;
         }
@@ -307,35 +344,53 @@ public final class AudioPlaybackManager {
         if (MimeTypes.APPLICATION_M3U8.equals(mimeTypeOf(uri))) {
             // HLS 清单可能 302 到另一台主机，分片又是相对路径；media3 会按原始清单
             // 地址拼分片 → 404/403。视频卡和壳播放器一样，先解析出最终清单地址。
-            resolveAndPlay(uri, title, artist, loop, speed);
+            resolveAndPlay(uri, title, artist, loop, speed, subtitles, headers);
             return;
         }
-        playResolved(uri, uri, title, artist, loop, speed);
+        playResolved(uri, uri, title, artist, loop, speed, subtitles, headers);
+    }
+
+    private static java.util.Map<String, String> copyHeaders(java.util.Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) return null;
+        return new java.util.HashMap<>(headers);
+    }
+
+    private static java.util.List<MediaItem.SubtitleConfiguration> copySubtitles(
+            java.util.List<MediaItem.SubtitleConfiguration> subtitles) {
+        if (subtitles == null || subtitles.isEmpty()) return null;
+        return new java.util.ArrayList<>(subtitles);
     }
 
     /** 先把 HLS 的 301/302 跟到最终清单地址，再下发播放（主线程回调） */
     private void resolveAndPlay(final String uri, final String title, final String artist,
-                                final boolean loop, final float speed) {
+                                final boolean loop, final float speed,
+                                final java.util.List<MediaItem.SubtitleConfiguration> subtitles,
+                                final java.util.Map<String, String> headers) {
         final int seq = ++resolveSeq;
         lastError = null;
         notifyState();
         resolver.execute(() -> {
-            final String finalUrl = resolveFinalUrl(uri);
+            final String finalUrl = resolveFinalUrl(uri, headers);
             main.post(() -> {
                 if (seq != resolveSeq) return;          // 用户又点了别的卡片
                 if (controller == null) return;
-                playResolved(uri, finalUrl, title, artist, loop, speed);
+                playResolved(uri, finalUrl, title, artist, loop, speed, subtitles, headers);
             });
         });
     }
 
     private void playResolved(String mediaIdUri, String playUri, String title, String artist,
-                              boolean loop, float speed) {
+                              boolean loop, float speed,
+                              java.util.List<MediaItem.SubtitleConfiguration> subtitles,
+                              java.util.Map<String, String> headers) {
         MediaController c = controller;
         if (c == null) return;
         lastError = null;
-        MediaItem item = buildMediaItem(mediaIdUri, playUri, title, artist);
+        PlaybackHeaders.set(headers);
+        MediaItem item = buildMediaItem(mediaIdUri, playUri, title, artist, subtitles);
         lastItem = item;   // 自愈重连要用本地这份（见 recoverBehindLiveWindow）
+        lastSubtitles = copySubtitles(subtitles);
+        lastHeaders = copyHeaders(headers);
         lastOriginalUri = mediaIdUri;
         lastTitle = title;
         lastArtist = artist;
@@ -351,7 +406,7 @@ public final class AudioPlaybackManager {
     }
 
     /** 跟随 301/302 到最终地址；失败就退回原始地址，交给 ExoPlayer 自己处理 */
-    private static String resolveFinalUrl(String raw) {
+    private static String resolveFinalUrl(String raw, java.util.Map<String, String> headers) {
         String current = raw;
         HttpURLConnection conn = null;
         try {
@@ -365,6 +420,13 @@ public final class AudioPlaybackManager {
                         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 "
                                 + "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
                 conn.setRequestProperty("Accept", "*/*");
+                if (headers != null) {
+                    for (java.util.Map.Entry<String, String> e : headers.entrySet()) {
+                        if (e.getKey() != null && e.getValue() != null) {
+                            conn.setRequestProperty(e.getKey(), e.getValue());
+                        }
+                    }
+                }
                 int code = conn.getResponseCode();
                 if (code >= 300 && code < 400) {
                     String loc = conn.getHeaderField("Location");
@@ -424,6 +486,10 @@ public final class AudioPlaybackManager {
         liveRecoveries = 0;
         lastLoop = false;
         lastSpeed = 1.0f;
+        lastSubtitles = null;
+        lastHeaders = null;
+        PlaybackHeaders.clear();
+        PlaybackArtwork.clear();
         int index = Math.max(0, Math.min(startIndex, items.size() - 1));
         lastItem = items.get(index);   // 自愈重连要用本地这份（见 recoverBehindLiveWindow）
         // 队列起播不能继承上一首单曲的倍速/循环；统一从默认档开始。
@@ -537,6 +603,54 @@ public final class AudioPlaybackManager {
         return speeds[0];
     }
 
+    /** 睡眠定时下一档（0/15/30/60 分钟），UI 与测试共用。 */
+    public static int nextSleepMinutes(int current) {
+        if (current <= 0) return 15;
+        if (current <= 15) return 30;
+        if (current <= 30) return 60;
+        return 0;
+    }
+
+    /** 设置睡眠定时；minutes<=0 等于取消。到点暂停当前播放。 */
+    public void setSleepTimer(int minutes) {
+        cancelSleepTimer();
+        if (minutes <= 0) {
+            notifyState();
+            return;
+        }
+        sleepAtElapsed = SystemClock.elapsedRealtime() + minutes * 60_000L;
+        sleepRunnable = () -> {
+            sleepRunnable = null;
+            sleepAtElapsed = 0;
+            MediaController c = controller;
+            if (c != null) {
+                try {
+                    c.pause();
+                } catch (Throwable ignored) {
+                }
+            }
+            notifyState();
+        };
+        main.postDelayed(sleepRunnable, minutes * 60_000L);
+        notifyState();
+    }
+
+    public void cancelSleepTimer() {
+        if (sleepRunnable != null) {
+            main.removeCallbacks(sleepRunnable);
+            sleepRunnable = null;
+        }
+        sleepAtElapsed = 0;
+    }
+
+    /** 剩余分钟（向上取整）；未设置返回 0。 */
+    public int sleepTimerMinutesRemaining() {
+        if (sleepAtElapsed <= 0) return 0;
+        long rem = sleepAtElapsed - SystemClock.elapsedRealtime();
+        if (rem <= 0) return 0;
+        return (int) Math.ceil(rem / 60_000.0);
+    }
+
     /** 切上下首/队列自动前进后，把 last* 同步到当前那首（否则 HLS 重试/直播自愈会重连回上一首） */
     private void syncLastItem(MediaController c) {
         if (c == null) return;
@@ -554,6 +668,9 @@ public final class AudioPlaybackManager {
                 if (item.mediaMetadata.artist != null) {
                     lastArtist = item.mediaMetadata.artist.toString();
                 }
+            }
+            if (item.localConfiguration != null) {
+                lastSubtitles = copySubtitles(item.localConfiguration.subtitleConfigurations);
             }
             lastLoop = c.getRepeatMode() == Player.REPEAT_MODE_ONE;
             lastSpeed = c.getPlaybackParameters().speed;
@@ -637,14 +754,18 @@ public final class AudioPlaybackManager {
                     String u = pendingUri, t = pendingTitle, a = pendingArtist;
                     boolean lp = pendingLoop;
                     float sp = pendingSpeed;
+                    java.util.List<MediaItem.SubtitleConfiguration> ps = pendingSubtitles;
+                    java.util.Map<String, String> ph = pendingHeaders;
                     java.util.List<String> qu = pendingQueueUris, qt = pendingQueueTitles;
                     int qi = pendingQueueIndex;
                     pendingUri = pendingTitle = pendingArtist = null;
+                    pendingSubtitles = null;
+                    pendingHeaders = null;
                     pendingQueueUris = pendingQueueTitles = null;
                     if (qu != null) {
                         playQueue(qu, qt, qi);
                     } else if (u != null) {
-                        playOrToggle(u, t, a, lp, sp);
+                        playOrToggle(u, t, a, lp, sp, ps, ph);
                     } else {
                         notifyState();
                     }
@@ -677,22 +798,29 @@ public final class AudioPlaybackManager {
      * （{@link MediaItem.LiveConfiguration#targetOffsetMs}）——见 {@link #LIVE_TARGET_OFFSET_MS}。</p>
      */
     static MediaItem buildMediaItem(String uri, String title, String artist) {
-        return buildMediaItem(uri, uri, title, artist);
+        return buildMediaItem(uri, uri, title, artist, null);
     }
 
     /**
      * @param mediaIdUri 卡片侧用来匹配"是不是我在放"的原始地址
      * @param playUri    实际交给 ExoPlayer 的地址（HLS 可能是 302 后的最终清单地址）
+     * @param subtitles  外挂字幕；null/空不带
      */
     private static MediaItem buildMediaItem(String mediaIdUri, String playUri,
-                                            String title, String artist) {
+                                            String title, String artist,
+                                            java.util.List<MediaItem.SubtitleConfiguration> subtitles) {
+        MediaMetadata.Builder metadata = new MediaMetadata.Builder()
+                .setTitle(title == null ? "" : title)
+                .setArtist(artist == null ? "" : artist);
+        Uri artwork = PlaybackArtwork.get();
+        if (artwork != null) metadata.setArtworkUri(artwork);
         MediaItem.Builder builder = new MediaItem.Builder()
                 .setUri(playUri)
                 .setMediaId(mediaIdUri)
-                .setMediaMetadata(new MediaMetadata.Builder()
-                        .setTitle(title == null ? "" : title)
-                        .setArtist(artist == null ? "" : artist)
-                        .build());
+                .setMediaMetadata(metadata.build());
+        if (subtitles != null && !subtitles.isEmpty()) {
+            builder.setSubtitleConfigurations(subtitles);
+        }
         String mime = mimeTypeOf(playUri);
         if (mime == null) mime = mimeTypeOf(mediaIdUri);
         if (mime != null) {
@@ -924,7 +1052,8 @@ public final class AudioPlaybackManager {
                     && MimeTypes.APPLICATION_M3U8.equals(mimeTypeOf(lastOriginalUri))) {
                 httpRetries++;
                 Log.w(TAG, "HTTP status error, re-resolve retry #" + httpRetries);
-                resolveAndPlay(lastOriginalUri, lastTitle, lastArtist, lastLoop, lastSpeed);
+                resolveAndPlay(lastOriginalUri, lastTitle, lastArtist, lastLoop, lastSpeed,
+                        lastSubtitles, lastHeaders);
                 return;
             }
             lastError = describeError(error);
