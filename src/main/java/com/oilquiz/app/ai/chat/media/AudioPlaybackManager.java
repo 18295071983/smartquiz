@@ -188,6 +188,8 @@ public final class AudioPlaybackManager {
     private java.util.List<MediaItem.SubtitleConfiguration> lastSubtitles;
     /** 最近一次下发的请求头（HLS 302 重试要沿用）。 */
     private java.util.Map<String, String> lastHeaders;
+    /** 最近一次下发的队列（HLS 302 后台替换非当前项用）。 */
+    private java.util.List<MediaItem> lastQueueItems;
     /** 睡眠定时：到点只暂停，不销毁播放器/服务（用户还能继续听）。 */
     private Runnable sleepRunnable;
     private long sleepAtElapsed;
@@ -477,7 +479,7 @@ public final class AudioPlaybackManager {
      */
     public void playQueue(java.util.List<String> uris, java.util.List<String> titles, int startIndex) {
         if (uris == null || uris.isEmpty()) return;
-        resolveSeq++;   // 取消可能还在解析的视频卡 HLS
+        resolveSeq++;   // 取消可能还在解析的上一张 HLS 卡/队列
         savePositionNow();
         MediaController c = controller;
         if (c == null) {
@@ -487,14 +489,44 @@ public final class AudioPlaybackManager {
             ensureController();
             return;
         }
+        int index = Math.max(0, Math.min(startIndex, uris.size() - 1));
+        String start = uris.get(index);
+        if (start != null && !start.isEmpty()
+                && MimeTypes.APPLICATION_M3U8.equals(mimeTypeOf(start))) {
+            // 起播项若是 HLS，必须先跟到最终清单地址，否则相对分片会拼在旧主机上。
+            final int seq = resolveSeq;
+            resolver.execute(() -> {
+                final String finalUrl = resolveFinalUrl(start, null);
+                main.post(() -> {
+                    if (seq != resolveSeq || controller == null) return;
+                    java.util.List<String> playUris = new java.util.ArrayList<>(uris);
+                    playUris.set(index, finalUrl);
+                    playQueueNow(uris, playUris, titles, index);
+                });
+            });
+            return;
+        }
+        playQueueNow(uris, new java.util.ArrayList<>(uris), titles, index);
+    }
+
+    private void playQueueNow(java.util.List<String> ids, java.util.List<String> playUris,
+                              java.util.List<String> titles, int startIndex) {
+        MediaController c = controller;
+        if (c == null) return;
+        int requested = Math.max(0, Math.min(startIndex, ids.size() - 1));
+        int actualStart = 0;
         java.util.List<MediaItem> items = new java.util.ArrayList<>();
-        for (int i = 0; i < uris.size(); i++) {
-            String uri = uris.get(i);
-            if (uri == null || uri.isEmpty()) continue;
+        for (int i = 0; i < ids.size(); i++) {
+            String id = ids.get(i);
+            if (id == null || id.isEmpty()) continue;
+            if (i == requested) actualStart = items.size();
+            String play = playUris != null && i < playUris.size() ? playUris.get(i) : id;
+            if (play == null || play.isEmpty()) play = id;
             String t = titles != null && i < titles.size() ? titles.get(i) : "";
-            items.add(buildMediaItem(uri, t, ""));
+            items.add(buildMediaItem(id, play, t, "", null));
         }
         if (items.isEmpty()) return;
+        actualStart = Math.max(0, Math.min(actualStart, items.size() - 1));
         lastError = null;
         httpRetries = 0;
         liveRecoveries = 0;
@@ -505,18 +537,64 @@ public final class AudioPlaybackManager {
         PlaybackHeaders.clear();
         PlaybackArtwork.clear();
         PlaybackDrm.clear();
-        int index = Math.max(0, Math.min(startIndex, items.size() - 1));
-        lastItem = items.get(index);   // 自愈重连要用本地这份（见 recoverBehindLiveWindow）
+        lastItem = items.get(actualStart);   // 自愈重连要用本地这份（见 recoverBehindLiveWindow）
+        lastQueueItems = items;
         // 队列起播不能继承上一首单曲的倍速/循环；统一从默认档开始。
         c.setRepeatMode(Player.REPEAT_MODE_OFF);
         c.setShuffleModeEnabled(false);
         c.setPlaybackSpeed(1.0f);
-        c.setMediaItems(items, index, 0);
+        c.setMediaItems(items, actualStart, 0);
         c.prepare();
         c.play();
         syncLastItem(c);
         ensureStallWatchdog();
         notifyState();
+        resolveRemainingQueue(ids, playUris, titles, actualStart);
+    }
+
+    /**
+     * 队列里其余 HLS 的 302 在后台解析，解析完替换非当前项（最多 8 个，避免一次发几十个
+     * 网络请求）。当前项不替换，避免用户刚切过去就被重置。
+     */
+    private void resolveRemainingQueue(java.util.List<String> ids,
+                                       java.util.List<String> playUris,
+                                       java.util.List<String> titles,
+                                       int startIndex) {
+        MediaController c = controller;
+        if (c == null) return;
+        final int seq = resolveSeq;
+        int scheduled = 0;
+        for (int i = 0; i < ids.size() && scheduled < 8; i++) {
+            if (i == startIndex) continue;
+            final String id = ids.get(i);
+            if (id == null || id.isEmpty()) continue;
+            if (!MimeTypes.APPLICATION_M3U8.equals(mimeTypeOf(id))) continue;
+            String play = playUris != null && i < playUris.size() ? playUris.get(i) : id;
+            if (play != null && !play.equals(id)) continue;   // 起播项已解析
+            final int index = i;
+            final String title = titles != null && i < titles.size() ? titles.get(i) : "";
+            scheduled++;
+            resolver.execute(() -> {
+                final String finalUrl = resolveFinalUrl(id, null);
+                main.post(() -> {
+                    if (seq != resolveSeq || controller == null) return;
+                    if (finalUrl.equals(id)) return;
+                    try {
+                        if (index == controller.getCurrentMediaItemIndex()) return;
+                    } catch (Throwable ignored) {
+                        return;
+                    }
+                    MediaItem item = buildMediaItem(id, finalUrl, title, "", null);
+                    try {
+                        controller.replaceMediaItem(index, item);
+                        if (lastQueueItems != null && index < lastQueueItems.size()) {
+                            lastQueueItems.set(index, item);
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                });
+            });
+        }
     }
 
     /** 队列下一首（没有下一首时什么都不做） */

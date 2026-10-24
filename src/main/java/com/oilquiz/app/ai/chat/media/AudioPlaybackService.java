@@ -7,16 +7,22 @@ import android.net.Uri;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
+import androidx.media3.database.StandaloneDatabaseProvider;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.TransferListener;
+import androidx.media3.datasource.cache.Cache;
+import androidx.media3.datasource.cache.CacheDataSource;
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor;
+import androidx.media3.datasource.cache.SimpleCache;
 import androidx.media3.datasource.rtmp.RtmpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -57,13 +63,32 @@ public class AudioPlaybackService extends MediaSessionService {
 
     private ExoPlayer player;
     private MediaSession session;
+    /** 播放缓存（P2 离线）：边播边缓存，LRU 256MB；完整听过的内容断网可重放。 */
+    private Cache mediaCache;
 
     @Override
     public void onCreate() {
         super.onCreate();
         // AudioAttributes.DEFAULT + handleAudioFocus=true：来电/别的 App 放声时自动让路；
         // becoming noisy（拔耳机）自动暂停，避免突然外放
-        DataSource.Factory dataSourceFactory = SchemeDataSource::new;
+        DataSource.Factory httpFactory = AudioPlaybackService::httpDataSource;
+        DataSource.Factory cacheFactory = httpFactory;
+        try {
+            File cacheDir = new File(getCacheDir(), "media_cache");
+            mediaCache = new SimpleCache(cacheDir,
+                    new LeastRecentlyUsedCacheEvictor(256L * 1024 * 1024),
+                    new StandaloneDatabaseProvider(this));
+            cacheFactory = new CacheDataSource.Factory()
+                    .setCache(mediaCache)
+                    .setUpstreamDataSourceFactory(httpFactory)
+                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
+        } catch (Throwable ignored) {
+            // 缓存目录/数据库不可用：退回纯网络，不影响播放
+            mediaCache = null;
+        }
+        final DataSource.Factory cacheDataSourceFactory = cacheFactory;
+        DataSource.Factory dataSourceFactory =
+                () -> new SchemeDataSource(cacheDataSourceFactory, new RtmpDataSource.Factory());
         player = new ExoPlayer.Builder(this)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(dataSourceFactory))
                 .setAudioAttributes(AudioAttributes.DEFAULT, /* handleAudioFocus= */ true)
@@ -97,6 +122,10 @@ public class AudioPlaybackService extends MediaSessionService {
             player.release();
             player = null;
         }
+        if (mediaCache != null) {
+            mediaCache.release();
+            mediaCache = null;
+        }
         super.onDestroy();
     }
 
@@ -121,7 +150,14 @@ public class AudioPlaybackService extends MediaSessionService {
      */
     private static final class SchemeDataSource implements DataSource {
         private final List<TransferListener> listeners = new ArrayList<>();
+        private final DataSource.Factory httpFactory;
+        private final RtmpDataSource.Factory rtmpFactory;
         private DataSource delegate;
+
+        SchemeDataSource(DataSource.Factory httpFactory, RtmpDataSource.Factory rtmpFactory) {
+            this.httpFactory = httpFactory;
+            this.rtmpFactory = rtmpFactory;
+        }
 
         @Override
         public void addTransferListener(TransferListener transferListener) {
@@ -133,8 +169,8 @@ public class AudioPlaybackService extends MediaSessionService {
             Uri uri = dataSpec.uri;
             String scheme = uri == null ? "" : uri.getScheme();
             delegate = "rtmp".equalsIgnoreCase(scheme)
-                    ? new RtmpDataSource.Factory().createDataSource()
-                    : httpDataSource();
+                    ? rtmpFactory.createDataSource()
+                    : httpFactory.createDataSource();
             for (TransferListener listener : listeners) {
                 delegate.addTransferListener(listener);
             }
