@@ -1340,10 +1340,10 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 停止/发送按钮切换：生成中显示停止、隐藏发送；空闲反之（同位置切换）
+     * 停止/发送按钮切换：生成中显示停止、隐藏发送；空闲反之（同位置切换）。
      *
-     * <p>v2 还负责点亮输入胶囊上方的"正在生成"提示行（demo {@code .composer .gen}）；
-     * 旧版布局下 {@code ChatInputBar#setGeneratingHint} 是空操作。
+     * <p>2026-10-25：生成状态行挪到输入胶囊上方（{@code chat_v2_gen_row}），
+     * 这一行同时承载推理状态机 / 模型状态机 / 推理速度 / 余额。</p>
      */
     private void toggleStopButton(boolean show) {
         if (btnStopGeneration != null) {
@@ -1353,6 +1353,13 @@ public class AIChatActivity extends BaseActivity {
         updateComposerActions();
         if (chatInputBar != null) {
             chatInputBar.setGeneratingHint(show, null);
+            if (show) {
+                // 新一轮：推理状态机先置「等待响应」，速度清零；阶段由 markStreamingPhase 更新，
+                // 模型状态机从服务状态文本同步（避免行上只有"生成中 · 等待响应"两块空着）
+                chatInputBar.setInferencePhase("等待响应");
+                chatInputBar.setInferenceSpeed(0f);
+                updateModelStateFromStatusText();
+            }
         }
     }
 
@@ -6090,6 +6097,7 @@ public class AIChatActivity extends BaseActivity {
             runOnUiThread(() -> markStreamingPhase(phase));
             return;
         }
+        updateInferenceStatusRow(phase);
         final int idx = resolveStreamingIndex();
         if (idx < 0 || idx >= chatHistory.size()) return;
         ChatMessage msg = chatHistory.get(idx);
@@ -6098,6 +6106,38 @@ public class AIChatActivity extends BaseActivity {
             msg.inferenceProgress = new ChatMessage.InferenceProgress(phase);
         } else if (msg.inferenceProgress.phase != phase) {
             msg.inferenceProgress.phase = phase;
+        }
+    }
+
+    /**
+     * 生成状态行（输入胶囊上方）：把推理阶段映射成"推理状态机"文案。
+     * 速度由 {@link #updateStreamingTokenStats} 单独刷新，模型状态机由
+     * {@link #setStatusTextIfChanged} 从服务状态文本里同步。
+     */
+    private void updateInferenceStatusRow(final ChatMessage.InferencePhase phase) {
+        if (chatInputBar == null || phase == null) {
+            return;
+        }
+        try {
+            switch (phase) {
+                case THINKING:
+                    chatInputBar.setInferencePhase("思考中");
+                    break;
+                case GENERATING:
+                case DECODING:
+                    chatInputBar.setInferencePhase("生成中");
+                    break;
+                case INITIALIZING:
+                case LOADING_MODEL:
+                case ENCODING:
+                case PREFILL:
+                case WAITING:
+                    chatInputBar.setInferencePhase("等待响应");
+                    break;
+                default:
+                    break;
+            }
+        } catch (Throwable ignored) {
         }
     }
 
@@ -7710,6 +7750,10 @@ public class AIChatActivity extends BaseActivity {
 
         // 显示 Token 统计
         showTokenStats(true);
+        // 生成状态行（输入胶囊上方）：toggleStopButton(true) 已把它点亮并置"等待响应"，
+        // 后续 markStreamingPhase 更新推理阶段，updateStreamingTokenStats 更新速度。
+        // 右端余额：每轮开始刷一次（仅在线模型真正发请求；异步完成后再写入该行）
+        updateApiBalanceDisplay();
     }
 
     private void endGeneration() {
@@ -7745,6 +7789,8 @@ public class AIChatActivity extends BaseActivity {
 
         // 显示最终 Token 统计（由 tokenStatsCallback 更新为 "🔵 X tokens" 格式）
         showTokenStats(true);
+
+        // 生成状态行随 hideLoadingUI()→toggleStopButton(false) 收起，速度/余额在收起时清空
     }
 
     private void resetStreamingState() {
@@ -9714,6 +9760,11 @@ public class AIChatActivity extends BaseActivity {
                 } catch (Throwable ignored) {}
             }
 
+            // 生成状态行（输入胶囊上方）：刷新推理速度（阶段由 markStreamingPhase 驱动）
+            if (chatInputBar != null) {
+                chatInputBar.setInferenceSpeed(isGenerating && displayTps > 0 ? displayTps : 0f);
+            }
+
             if (isGenerating && displayTps > 0) {
                 String statsText = String.format("%s %.1f t/s | %d tokens", sourceTag, displayTps, displayTokens);
                 tvTokenStats.setText(statsText);
@@ -9826,8 +9877,11 @@ public class AIChatActivity extends BaseActivity {
                     if (balance != null && !balance.isEmpty()) {
                         tvApiBalance.setText("💰 " + balance);
                         tvApiBalance.setVisibility(View.VISIBLE);
+                        // 生成状态行右端也显示余额（同一份数据，不另起请求）
+                        if (chatInputBar != null) chatInputBar.setBalance("💰 " + balance);
                     } else {
                         tvApiBalance.setVisibility(View.GONE);
+                        if (chatInputBar != null) chatInputBar.setBalance(null);
                     }
                 }));
     }
@@ -11125,6 +11179,23 @@ public class AIChatActivity extends BaseActivity {
         serviceStatusText.setText(text);
         // v2 顶栏副标题跟着走（旧状态条在 v2 下是隐藏的，顶栏才是用户看到的那一行）
         com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateSubtitle(this, text);
+        updateModelStateFromStatusText();
+    }
+
+    /**
+     * 生成状态行里的"模型状态机"：取当前服务状态文本的最后一段
+     * （「在线模型 · deepseek-flash · 就绪」→「就绪」；「本地模型 · xx · 加载模型…」→「加载模型…」）。
+     */
+    private void updateModelStateFromStatusText() {
+        if (chatInputBar == null || serviceStatusText == null) return;
+        CharSequence cur = serviceStatusText.getText();
+        if (cur == null || cur.length() == 0) return;
+        String text = cur.toString();
+        int sep = text.lastIndexOf(" · ");
+        if (sep >= 0 && sep + 3 < text.length()) {
+            text = text.substring(sep + 3);
+        }
+        chatInputBar.setModelState(text);
     }
 
     /**

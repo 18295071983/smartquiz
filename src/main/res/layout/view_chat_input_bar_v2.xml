@@ -12,8 +12,10 @@
     android:paddingTop="@dimen/space_6"
     android:paddingBottom="@dimen/space_6">
 
-    <!-- 生成中提示（demo .gen）：一颗脉冲点 + 「正在生成 · Ns」，
-         取代旧版在气泡上方单独占一行的大段状态文案；显隐由 ChatInputManager.setGenerating 驱动 -->
+    <!-- 生成中状态行（2026-10-25 重设计）：原顶部状态条的两个读数搬到输入胶囊上方这一行——
+         ● 生成中 · 思考中 · 模型就绪        42.3 t/s    💰 余额 CNY ¥11.84
+         左：推理状态机（思考中/生成中）+ 模型状态机（就绪/加载/错误）；
+         右：推理速度 + 余额（余额由 Activity 从 tv_api_balance 同步过来）。 -->
     <LinearLayout
         android:id="@+id/chat_v2_gen_row"
         android:layout_width="match_parent"
@@ -21,6 +23,7 @@
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="@dimen/space_4"
+        android:paddingEnd="@dimen/space_2"
         android:paddingBottom="@dimen/space_6"
         android:visibility="gone">
 
@@ -28,16 +31,58 @@
             android:id="@+id/chat_v2_gen_dot"
             android:layout_width="@dimen/chat_v2_dot"
             android:layout_height="@dimen/chat_v2_dot"
-            android:background="@drawable/chat_v2_dot_brand"/>
+            android:background="@drawable/chat_v2_dot_brand" />
 
         <TextView
             android:id="@+id/chat_v2_gen_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/chat_v2_line_gap"
-            android:text="@string/chat_v2_generating"
+            android:maxLines="1"
+            android:text="生成中"
+            android:textColor="@color/chat_v2_text_2"
+            android:textSize="@dimen/chat_v2_status_text" />
+
+        <TextView
+            android:id="@+id/chat_v2_gen_infer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_6"
+            android:maxLines="1"
             android:textColor="@color/chat_v2_text_3"
-            android:textSize="@dimen/chat_v2_status_text"/>
+            android:textSize="@dimen/chat_v2_status_text" />
+
+        <TextView
+            android:id="@+id/chat_v2_gen_model"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_6"
+            android:maxLines="1"
+            android:textColor="@color/chat_v2_text_3"
+            android:textSize="@dimen/chat_v2_status_text" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/chat_v2_gen_speed"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:textColor="@color/chat_v2_brand_ink"
+            android:textSize="@dimen/chat_v2_status_text"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/chat_v2_gen_balance"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_10"
+            android:maxLines="1"
+            android:textColor="@color/chat_v2_text_3"
+            android:textSize="@dimen/chat_v2_status_text" />
     </LinearLayout>
 
     <LinearLayout

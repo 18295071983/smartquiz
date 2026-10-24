@@ -1,4 +1,27 @@
-﻿# 变更日志
+# 变更日志
+
+## [2026-10-25] feat(chat-ui)：生成状态挪到输入区上方（推理/模型状态机 + 速度 + 余额），顶部恢复模型·服务状态
+
+用户："好好设计……把你刚才加的状态栏去掉，把生成中改到下面。恢复之前的。生成中加推理状态机和
+模型状态机，以及推理速度。右边可以显示余额。把之前顶部的模型及ai服务状态显示加回来就行。"
+
+- **顶部**：去掉上一轮加在顶栏下方的「推理状态 + 速度」细条（`view_chat_v2_status_line` 整个删除）；
+  v2 顶栏副标题恢复为**「模型 · AI 服务状态」**（如 `在线模型 · deepseek-flash · 就绪`），状态点恢复；
+  旧 v1 状态胶囊（模型/余额/token/上下文/KV）继续收在「⋯」面板。
+- **底部生成状态行**（`view_chat_input_bar_v2.xml` 的 `chat_v2_gen_row`，输入胶囊上方）重做：
+  `● 生成中 · 思考中 · 就绪        42.3 t/s        💰 余额 CNY ¥11.84`
+  - 推理状态机：`markStreamingPhase` → 等待响应 / 思考中 / 生成中（`ChatInputBar#setInferencePhase`）；
+  - 模型状态机：`setStatusTextIfChanged` 取服务状态文本最后一段（就绪 / 加载模型… / 初始化失败），
+    同步到 `setModelState`；
+  - 推理速度：`updateStreamingTokenStats` 每拍写入 `setInferenceSpeed(tps)`（&lt;=0 隐藏）；
+  - 余额：`updateApiBalanceDisplay` 写入右端，每轮生成开始刷新一次；
+  - 生成结束（`hideLoadingUI→toggleStopButton(false)`）整行收起，速度/余额清空。
+- **旧「思考中」金色渐变细线**（`thinking_indicator`，3dp 全宽）v2 下不再显示：
+  `ChatUiV2Chrome.isApplied()` 判断后 `ServiceStatusManager.showThinkingIndicator()` 直接跳过并置 GONE
+  （留在列表底部像一条脏边）。
+- **验证**：`assembleDebug --offline` 通过；全量 `testDebugUnitTest --offline --no-build-cache`
+  **949 / 0 skipped / 0 failures / 0 errors**。按用户要求"你不用试，我会看"，
+  本轮**没有做真机验证**（没有截图）；旧版 `docs/statusbar_shots/` 已删除（属被推翻的前一版设计）。
 
 ## [2026-10-25] feat(chat-ui)：顶部状态栏加回来（复用隐藏视图 + 按 v2 浅底适配）
 

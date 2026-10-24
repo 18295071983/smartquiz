@@ -457,6 +457,13 @@ public class ServiceStatusManager {
     }
 
     public void showThinkingIndicator() {
+        // v2：生成状态改由输入区上方的状态行承载，v1 那条金色渐变细线（thinking_indicator）
+        // 不再点亮——留在列表底部像一条脏边（2026-10-25 用户反馈）。
+        if (activity != null
+                && com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.isApplied(activity)) {
+            if (thinkingIndicator != null) thinkingIndicator.setVisibility(View.GONE);
+            return;
+        }
         if (thinkingIndicator != null) thinkingIndicator.setVisibility(View.VISIBLE);
     }
 

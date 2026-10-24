@@ -34,10 +34,17 @@ public class ChatInputBar extends LinearLayout {
     private MaterialButton btnSend;
     private MaterialButton btnStopGeneration;
 
-    /** v2 独有：输入胶囊上方的"正在生成"提示行（demo .gen）；旧版布局下全为 null */
+    /**
+     * v2 生成状态行（2026-10-25 重设计）：输入胶囊上方一行，只放状态机 + 速度 + 余额。
+     * 结构：{@code ● 生成中 · 思考中 · 模型就绪   42.3 t/s   余额 CNY ¥11.84}
+     */
     private android.view.View genRow;
     private android.view.View genDot;
     private android.widget.TextView genText;
+    private android.widget.TextView genInfer;
+    private android.widget.TextView genModel;
+    private android.widget.TextView genSpeed;
+    private android.widget.TextView genBalance;
     private android.animation.ObjectAnimator genPulse;
 
     public ChatInputBar(Context context) {
@@ -68,6 +75,10 @@ public class ChatInputBar extends LinearLayout {
         genRow = findViewById(R.id.chat_v2_gen_row);
         genDot = findViewById(R.id.chat_v2_gen_dot);
         genText = findViewById(R.id.chat_v2_gen_text);
+        genInfer = findViewById(R.id.chat_v2_gen_infer);
+        genModel = findViewById(R.id.chat_v2_gen_model);
+        genSpeed = findViewById(R.id.chat_v2_gen_speed);
+        genBalance = findViewById(R.id.chat_v2_gen_balance);
     }
 
     // ==================== 控件 getter ====================
@@ -95,22 +106,27 @@ public class ChatInputBar extends LinearLayout {
     // ==================== 便捷接线 ====================
 
     /**
-     * v2：显示/隐藏输入胶囊上方的"正在生成"提示行（demo {@code .composer .gen}）。
+     * 显示/隐藏输入胶囊上方的生成状态行（2026-10-25 重设计：生成状态从顶部挪到这里）。
      *
-     * <p>旧版把生成状态写在大状态条与气泡上方，v2 收敛成胶囊上方这一行极淡的提示，
-     * 所以开关关着时（{@code genRow == null}）本方法什么都不做。
+     * <p>行内只有四类信息：推理状态机（{@link #setInferencePhase}）、模型状态机
+     * （{@link #setModelState}）、推理速度（{@link #setInferenceSpeed}）、余额
+     * （{@link #setBalance}）。{@code show=false} 时整行收起，速度/余额等瞬时读数一并清空。</p>
      *
      * @param show   是否生成中
-     * @param detail 追加在"正在生成"后的细节（阶段名等），null 时只显示默认文案
+     * @param detail 追加在"生成中"后的细节（一般不用，阶段走 {@link #setInferencePhase}）
      */
     public void setGeneratingHint(boolean show, CharSequence detail) {
         if (genRow == null) return;
-        if (genText != null) {
-            String base = genText.getContext().getString(R.string.chat_v2_generating);
-            genText.setText(android.text.TextUtils.isEmpty(detail)
-                    ? base : base + " · " + detail);
+        if (genText != null && !android.text.TextUtils.isEmpty(detail)) {
+            genText.setText("生成中 · " + detail);
         }
         genRow.setVisibility(show ? android.view.View.VISIBLE : android.view.View.GONE);
+        if (!show) {
+            setInferencePhase(null);
+            setModelState(null);
+            setInferenceSpeed(0f);
+            setBalance(null);
+        }
         if (genDot != null) {
             if (show) {
                 if (genPulse == null) {
@@ -129,6 +145,61 @@ public class ChatInputBar extends LinearLayout {
                 }
                 genDot.setAlpha(1f);
             }
+        }
+    }
+
+    /** 推理状态机阶段（等待响应 / 思考中 / 生成中）；null 或空串隐藏该段 */
+    public void setInferencePhase(CharSequence phase) {
+        setSegment(genInfer, phase, " · ", true);
+    }
+
+    /** 模型状态机（就绪 / 加载模型… / 初始化失败）；null 或空串隐藏该段 */
+    public void setModelState(CharSequence modelState) {
+        setSegment(genModel, modelState, " · ", true);
+    }
+
+    /** 余额（最右端）；null 或空串隐藏 */
+    public void setBalance(CharSequence balance) {
+        setSegment(genBalance, balance, "", false);
+    }
+
+    /** 推理速度（tokens/s）；&lt;=0 隐藏 */
+    public void setInferenceSpeed(float tokensPerSecond) {
+        if (genSpeed == null) return;
+        if (tokensPerSecond > 0.05f) {
+            String text = String.format(java.util.Locale.US, "%.1f t/s", tokensPerSecond);
+            if (!text.contentEquals(genSpeed.getText())) genSpeed.setText(text);
+            if (genSpeed.getVisibility() != android.view.View.VISIBLE) {
+                genSpeed.setVisibility(android.view.View.VISIBLE);
+            }
+        } else if (genSpeed.getVisibility() != android.view.View.GONE) {
+            genSpeed.setVisibility(android.view.View.GONE);
+        }
+    }
+
+    /** 单段文本的通用设置：空值隐藏、有值加前缀后显示（避免每 tick 重复 setText 触发重绘） */
+    private void setSegment(android.widget.TextView view, CharSequence text, String prefix,
+                            boolean trim) {
+        if (view == null) return;
+        if (android.text.TextUtils.isEmpty(text)) {
+            if (view.getVisibility() != android.view.View.GONE) {
+                view.setVisibility(android.view.View.GONE);
+            }
+            return;
+        }
+        String value = trim ? String.valueOf(text).trim() : String.valueOf(text);
+        if (value.isEmpty()) {
+            if (view.getVisibility() != android.view.View.GONE) {
+                view.setVisibility(android.view.View.GONE);
+            }
+            return;
+        }
+        CharSequence display = prefix.isEmpty() ? value : prefix + value;
+        if (!display.toString().contentEquals(view.getText())) {
+            view.setText(display);
+        }
+        if (view.getVisibility() != android.view.View.VISIBLE) {
+            view.setVisibility(android.view.View.VISIBLE);
         }
     }
 

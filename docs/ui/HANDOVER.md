@@ -1,4 +1,4 @@
-﻿# HANDOVER · 答题宝 AI 对话 / Agent UI 改版
+# HANDOVER · 答题宝 AI 对话 / Agent UI 改版
 
 > 交接时间：2026-10-19（B0 / C0 / B1 / A0 / demo UI 落地与接线 / A1 前三段已落地；C1、B2 各完成一部分；A1 剩余与 A2 未开始）
 > 交接对象：在 Qoder 中继续开发的 Agent
@@ -2564,6 +2564,48 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    - 状态栏行点击的旧"状态详情"弹层仍可用（Activity 原监听未动）；
    - 消息卡系列（`AGENT_STEP`/`AGENT_SUMMARY` 独立行等）仍由 `shouldHideLegacyRow()` 隐藏，
      本次未动；见 `docs/ui/v1-ui-restore-investigation.md` §2。
+   - **本方案已被 §4.110 推翻**：用户反馈顶部状态栏"有点丑"，要求去掉顶部状态条、把生成状态挪到
+     输入区上方；顶部只保留模型/AI 服务状态（顶栏副标题）。`docs/statusbar_shots/` 已删除。
+
+### 4.110 feat(chat-ui)：生成状态挪到输入区上方（最终设计，2026-10-25）
+
+1. **需求（用户原话）**："好好设计……把你刚才加的状态栏去掉，把生成中改到下面。恢复之前的。
+   生成中加推理状态机和模型状态机，以及推理速度。右边可以显示余额。把之前顶部的模型及ai服务状态
+   显示加回来就行。" 并明确"你不用试。我会看"（本轮不做真机验证）。
+2. **顶部**：
+   - 删除 `res/layout/view_chat_v2_status_line.xml`（上一轮加在顶栏下方的推理状态细条）；
+   - `ChatUiV2Chrome.doApply()` 不再隐藏 `chat_v2_subtitle` / `chat_v2_status_dot`：副标题恢复
+     「模型 · AI 服务状态」（由 `ServiceStatusManager.publishStatusText → updateSubtitle` 持续写）；
+   - v1 状态胶囊（`service_status_bar`）继续整行收起，读数仍在「⋯」面板。
+3. **底部生成状态行**（`view_chat_input_bar_v2.xml` 的 `chat_v2_gen_row`，输入胶囊正上方）：
+   ```
+   ● 生成中 · 思考中 · 就绪            42.3 t/s        💰 余额 CNY ¥11.84
+   ```
+   - 推理状态机：`ChatInputBar#setInferencePhase()`；由 `AIChatActivity#markStreamingPhase` 驱动
+     （`updateInferenceStatusRow` 做 InferencePhase→文案映射：等待响应 / 思考中 / 生成中）；
+   - 模型状态机：`ChatInputBar#setModelState()`；`setStatusTextIfChanged()` 里取服务状态文本最后一段
+     （`在线模型 · deepseek-flash · 就绪` → `就绪`；本地加载阶段 → `加载模型…`/`初始化失败`），
+     每轮开始 `toggleStopButton(true)` 再从当前状态文本同步一次；
+   - 推理速度：`ChatInputBar#setInferenceSpeed()`；`updateStreamingTokenStats()` 每拍写入
+     `%.1f t/s`（&lt;=0 隐藏）；
+   - 余额：`ChatInputBar#setBalance()`；`updateApiBalanceDisplay()` 回调写入（与 `tv_api_balance`
+     同源），并在每轮 `beginGeneration()` 触发一次刷新；
+   - 显隐：`beginGeneration → toggleStopButton(true)` 亮行；`endGeneration → hideLoadingUI →
+     toggleStopButton(false)` 整行收起并清空速度/余额（`setGeneratingHint(false, null)` 内部清理）。
+4. **旧「思考中」金色细线**：`ChatUiV2Chrome.doApply()` 隐藏 `thinking_indicator`；
+   `ServiceStatusManager.showThinkingIndicator()` 用 `ChatUiV2Chrome.isApplied(activity)` 判断，
+   v2 下不再点亮（v1 那条 3dp 全宽渐变线留在列表底部像脏边）。
+5. **验证**：`assembleDebug --offline` 通过；全量 `testDebugUnitTest --offline --no-build-cache`
+   **949 / 0 skipped / 0 failures / 0 errors**。按用户要求本轮**未做真机验证**，也没有截图；
+   `docs/statusbar_shots/`（前一版设计截图）已删除。用户真机验收时重点看：
+   - 空闲态：顶部只有「标题 + 模型 · 服务状态」两行，无额外状态条；
+   - 生成中：输入框上方出现一行 `● 生成中 · 思考中/生成中 · 模型状态 … t/s … 余额`；
+   - 生成结束：该行消失，底部恢复原样。
+6. **边界**：
+   - 余额只在在线模型且 `ApiBalanceChecker` 有返回时显示；本地模型右端为空；
+   - 模型状态机取的是"服务状态文本最后一段"，本质是服务/模型生命周期文案（就绪/加载/失败），
+     不是逐 token 的引擎内部状态机（引擎内部阶段走推理状态机那一列）；
+   - 状态行只在生成中出现（与旧 v2 demo 的 `.gen` 行一致），空闲不常驻。
 
 ---
 
