@@ -1727,10 +1727,11 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 
 1. 起因是 4.81 之后按真机视角核"历史文件到底长什么样"。实测一条"3 轮×400 字正文 + 3 个各带 500 字
    结果的工具"的消息：整条 JSON **13224B**，其中 `assistantTurn` 6859（`parts` 4654 + `modelCalls` 2128）、
-   `roundSnapshots` 2038、`components` 1816、`content` 1204。同一段正文文件里有**三份**：
-   `content`（投影）、`parts[].text`（顺序真值）、`modelCalls[].content`；思考三份；工具结果两份。
+   `roundSnapshots` 2038、`components` 1816、`content` 1204。同一段正文文件里有**四份**：
+   `content`（投影）、`parts[].text`（顺序真值）、`modelCalls[].content`、`roundSnapshots[].content`
+   （每轮全量）；思考四份；工具结果两份。
 2. `modelCalls` 全仓**零消费者**（`grep -rn "modelCalls\|ModelCall" src/main` 只命中本类 `copy()` 与一句注释；
-   渲染 / 上下文 / 恢复都不读，`fromMessage` 要每轮全文读的是 `roundSnapshots`）→ 第三份纯复制，占整条 16%。
+   渲染 / 上下文 / 恢复都不读，`fromMessage` 要每轮全文读的是 `roundSnapshots`）→ 那一份纯复制，占整条 16%。
    这比例连着 `trimBySize`：单文件超 64MB 就砍最早的 1/4 条、最多 4 轮，重复正文等于把历史往刀下推。
 3. 做法：`ModelCall.content` / `.reasoning` 标 `transient`，只留
    `id/round/stopReason/timestamp/toolCallIds` 这些 parts 没有的元信息。内存里全文照旧（`fromMessage` 仍填），
@@ -1741,14 +1742,27 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    并新增设计文档 §11.10 记这组数字与理由。
 6. **验证**：两条副本守卫 `AssistantTurnRestoreTest.modelCallFullTextIsNotPersistedButMetadataIs`
    （turn JSON 里正文/思考各只出现一次）+ `ChatHistoryManagerSessionTest.persistedFileCarriesBodyTextOnlyTwice`
-   （真文件里正文只两份），A/B 复现过：摘掉两个 `transient` 恰好这两条变红（真文件那条报"实际=3"），放回即全绿。
+   （真文件里正文只两份——夹具是切片口径、没有 `roundSnapshots`，别读成"全项目正文只两份"），
+   A/B 复现过：摘掉两个 `transient` 恰好这两条变红（真文件那条报"实际=3"），放回即全绿。
    另补 `reopeningLegacyHistoryTwiceDoesNotDrift`（旧会话二次"打开→保存→打开"正文/边界/parts 一字不差）。
    全量 `testDebugUnitTest --offline --rerun` **773 tests / 0 skipped / 0 failures / 0 errors**、
    `assembleDebug` 通过。其中同一工作树里还有并行会话在途的用例与文档改动（`ComponentPropsSchemaVisibilityTest`
    等），4.82 那条数字因此也应重读到这一档。
-7. **没动的重复，另拍**：正文两份（`content` + `parts`，§10「parts 为权威」的既定代价）、
-   工具结果两份（`components.props.result` + `parts[].result`，legacy 渲染仍以组件为源，
-   要连 `Part.products` 的 transient 口径一起想）。
+7. **没动的重复，另拍**：正文实际有**三份**——`content`（投影）、`parts[].text`（顺序真值）、
+   `roundSnapshots[].content`（每轮全量，也是 `fromMessage` 的输入）。摘掉 modelCalls 后剩这三份，
+   真机数据实测三者等长且拼接相等。`roundSnapshots` 与 `parts` 理论上可再收一层，但那改的是
+   "每轮全量从哪读"，是设计取向不是纯去重；工具结果两份（`components.props.result` + `parts[].result`）
+   同理，legacy 渲染仍以组件为源。
+8. **真机数据实测（用户 2026-10-24 20:29 刚产生的会话，12 条 / 139321B，由 19:35 那版老包写入）**：
+   `assistantTurn` 占整文件 **48.4%**（`parts` 53555B、`modelCalls` 13591B≈整文件 9.8%）、
+   `components` 28.1%（卡片与工具结果本体，非重复）、`roundSnapshots` 9.0%、`content` 2.1%。
+   把这份真文件放进 Robolectric 的 `filesDir/conversations/` 走**真加载出口**（`loadConversationSession`）
+   跑了一遍：6 条 AI 消息恢复后的 parts 顺序与落盘**逐条一致**（含一条 30 part 的长 Agent 回答、
+   一条边界全为 `[0,0,0,0,0]` 的"工具在正文之前"形状），`content` 零漂移；
+   再用新代码重落盘，文件 139361 → 129077B（−7.4%），正文份数 4 → 3。
+   探针脚本 `TmpRealDeviceShapeTest` 跑完已删（不留基线噪声）。
+   **这也就是 4.81 第 8 条挂着的那次真机验证里"数据形状"那一半已经验过**，剩下没验的仍只有
+   View 层的视觉呈现。
 
 ---
 

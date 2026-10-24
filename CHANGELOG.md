@@ -5,10 +5,11 @@
 上一条恢复改动把 turn 摊到了旧数据上，顺势按真机视角核了一遍"历史文件到底长什么样"，
 量出来的形状：一条"3 轮 × 400 字正文 + 3 个各带 500 字结果的工具"的消息，整条 JSON **13224 字节**，
 其中 `assistantTurn` 6859（`parts` 4654 + `modelCalls` 2128）、`roundSnapshots` 2038、
-`components` 1816、`content` 1204。**同一段正文在文件里存了三份**——`content`（兼容投影）、
-`parts[].text`（顺序真值）、`modelCalls[].content`；思考同样三份，工具结果两份。
+`components` 1816、`content` 1204。**同一段正文在文件里存了四份**——`content`（兼容投影）、
+`parts[].text`（顺序真值）、`modelCalls[].content`、`roundSnapshots[].content`（每轮全量）；
+思考同样四份，工具结果两份。
 
-- **第三份是纯复制**：`AssistantTurn.modelCalls` 全仓零消费者（除 `copy()` 与单测，渲染 / 上下文 /
+- **其中一份是纯复制**：`AssistantTurn.modelCalls` 全仓零消费者（除 `copy()` 与单测，渲染 / 上下文 /
   恢复都没读它，`fromMessage` 要每轮全文时读的是 `roundSnapshots`），却占整条消息的 16%。
   比例本身要命：单文件超 64MB 就按最早的 1/4 条裁剪、最多 4 轮（`trimBySize`），
   重复正文等于把用户历史往那把刀下推。
@@ -23,14 +24,24 @@
   transient 标注，新增 §11.10 记下这组数字与理由。
 - 验证：新增 2 条副本守卫——`AssistantTurnRestoreTest.modelCallFullTextIsNotPersistedButMetadataIs`
   （turn 的 JSON 里正文/思考各只出现一次）+ `ChatHistoryManagerSessionTest.persistedFileCarriesBodyTextOnlyTwice`
-  （**真文件**里正文只两份：content + text part）。A/B 复现：把两个 `transient` 摘掉，恰好这两条变红
+  （**真文件**里正文只两份：content + text part——那条夹具是切片口径、没有 `roundSnapshots`，
+  所以是两份；别把它读成"全项目正文只两份"）。A/B 复现：把两个 `transient` 摘掉，恰好这两条变红
   （真文件那条报"实际=3"），放回即全绿。同轮还补了 `reopeningLegacyHistoryTwiceDoesNotDrift`
   （旧会话二次"打开→保存→打开"，正文/边界/parts 一字不差）。
   全量 **773 tests / 0 skipped / 0 failures / 0 errors**（我这轮净加 2 条；数字比 770+2 多一条，
   是并行会话在同一工作树里加的在途用例），`assembleDebug` 通过。
-- **没动的重复，另拍**：正文两份（`content` + `parts`，§10「parts 为权威」的既定代价）、
-  工具结果两份（`components.props.result` + `parts[].result`）。后者理论上也能只留一份，但 legacy
-  渲染仍以组件为源，要连 `Part.products` 的 transient 口径一起想，不是这次这种纯去重。
+- **没动的重复，另拍**：正文其实有**三份**——`content`（投影）、`assistantTurn.parts[].text`（顺序真值）、
+  `roundSnapshots[].content`（每轮全量，也是 `fromMessage` 的输入）。摘掉 modelCalls 后剩这三份，
+  真数据实测过：一条消息里三者正文完全等长且拼接相等。理论上 `roundSnapshots` 与 `parts` 是同一信息的
+  两种表达，可以再收一层，但那等于改"每轮全量从哪读"，是设计取向不是纯去重，另拍。
+  工具结果也是两份（`components.props.result` + `parts[].result`），legacy 渲染仍以组件为源。
+- **真机数据实测**（用户 20:29 刚产生的会话，12 条 / 139321B，仍是 19:35 老包写的）：
+  `assistantTurn` 占 **48.4%**（其中 `parts` 53555B、`modelCalls` 13591B = 整文件的 9.8%）、
+  `components` 28.1%（卡片与工具结果本体，不是重复）、`roundSnapshots` 9.0%、`content` 2.1%。
+  把这份真文件灌进本项目的恢复出口跑了一遍：6 条 AI 消息（最复杂一条 30 个 part）恢复后的
+  parts 顺序与落盘**逐条一致**、`content` 零漂移；用新代码重落盘后文件 139361 → 129077B（−7.4%），
+  正文份数从 4 份降到 3 份。
+
 
 ## [2026-10-24] fix(chat/parts)：历史恢复只留一个 parts 顺序生产者，旧数据也补上 canonical turn
 
