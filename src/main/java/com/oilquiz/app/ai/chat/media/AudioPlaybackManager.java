@@ -45,12 +45,16 @@ public final class AudioPlaybackManager {
     private static final String TAG = "AudioPlaybackManager";
 
     /**
-     * HLS 直播起播点：离直播边缘 10s（约两个 5s 分片）。
+     * 流媒体（HLS / DASH）直播起播点：离直播边缘 10s。
      *
      * <p>ExoPlayer 默认从"直播边缘后 3 个 targetDuration"起播；对 IPTV 这类只有 5 个分片
      * （5×5s=25s）的小窗口，起播就落后 ~15-18s，只剩 6-7s 余量——一次卡顿、切后台、或清单
      * 刷新慢一点，下一片就被窗口淘汰，抛 BehindLiveWindowException（真机表现：放 20 多秒
      * 就停住/报 Source error）。收到 10s 把余量翻倍，又离直播足够近。</p>
+     *
+     * <p>HLS 与 DASH 共用这一个值：两者都按 {@code LiveConfiguration.targetOffsetMs} 决定
+     * 起播位置，只是清单/分片格式不同（m3u8+ts vs mpd+m4s）。10s 对 2~6s 的分片都是
+     * 2~5 个分片的余量，够用且不至于离直播太远。</p>
      */
     private static final long LIVE_TARGET_OFFSET_MS = 10_000L;
 
@@ -447,9 +451,9 @@ public final class AudioPlaybackManager {
     }
 
     /**
-     * 建播放项（单曲与队列共用）：HLS 显式 MIME + 直播起播点，其它格式原样交给默认推断。
+     * 建播放项（单曲与队列共用）：流媒体显式 MIME + 直播起播点，其它格式原样交给默认推断。
      *
-     * <p>HLS 的 MIME 不只用于选 HlsMediaSource，还决定直播起播偏移
+     * <p>HLS/DASH 的 MIME 不只用于选 HlsMediaSource/DashMediaSource，还决定直播起播偏移
      * （{@link MediaItem.LiveConfiguration#targetOffsetMs}）——见 {@link #LIVE_TARGET_OFFSET_MS}。</p>
      */
     static MediaItem buildMediaItem(String uri, String title, String artist) {
@@ -463,7 +467,8 @@ public final class AudioPlaybackManager {
         String mime = mimeTypeOf(uri);
         if (mime != null) {
             builder.setMimeType(mime);
-            if (MimeTypes.APPLICATION_M3U8.equals(mime)) {
+            if (MimeTypes.APPLICATION_M3U8.equals(mime) || MimeTypes.APPLICATION_MPD.equals(mime)) {
+                // 直播/点播共用同一个 MediaItem 配置：点播源不会读 targetOffsetMs，无副作用
                 builder.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder()
                         .setTargetOffsetMs(LIVE_TARGET_OFFSET_MS)
                         .build());

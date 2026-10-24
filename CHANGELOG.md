@@ -1,5 +1,21 @@
 # 变更日志
 
+## [2026-10-24] fix(playback)：DASH 直播也应用 10s 起播偏移（不再是 HLS 专属）
+
+上一版只给 m3u8 设了 `LiveConfiguration.targetOffsetMs`，DASH 直播仍用 ExoPlayer 默认的
+"直播边缘后 3 个 targetDuration"——小窗口下同样会被窗口甩下。现在两种流媒体共用同一套：
+
+- `buildMediaItem()` 的直播配置判据从 `mime == APPLICATION_M3U8` 扩到
+  `m3u8 || mpd`（点播源不会读 `targetOffsetMs`，无副作用）。
+- 守卫：`AudioPlaybackManagerDashTest` 新增 `dashItemGetsLiveStartOffset`——
+  `.mpd` 必须带 `targetOffsetMs == 10s`，与 HLS 那条对称。
+- 真机验证（10:11 构建覆盖安装）：播 DASH-IF 官方直播模拟器
+  `https://livesim.dashif.org/livesim/testpic_2s/Manifest.mpd`（`type="dynamic"`，
+  2s 分片、60s 时移窗口）→ `play-tick` 连续 `playing=true`、`dur=60000`、
+  position 稳定在 **49~50s**（= 窗口尾部再退 ~10s，正是设的偏移）、`error=null`；
+  `dumpsys media_session` `state=PLAYING`、`description=DASH live check`、buffered=60000。
+- 全量单测 **720 全绿**（90 类，0 skipped / 0 failures / 0 errors）。
+
 ## [2026-10-24] feat(playback)：支持 MPEG-DASH（.mpd）——补 media3-exoplayer-dash + 显式 MIME
 
 HLS 补完后同类问题轮到 DASH：media3 里它同样是**独立模块**，缺了会在 prepare 阶段报

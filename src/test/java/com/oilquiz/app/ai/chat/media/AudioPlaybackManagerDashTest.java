@@ -50,6 +50,17 @@ public class AudioPlaybackManagerDashTest {
     }
 
     @Test
+    public void dashItemGetsLiveStartOffset() {
+        MediaItem item = AudioPlaybackManager.buildMediaItem(
+                "https://livesim.dashif.org/livesim/testpic_2s/Manifest.mpd?token=1", "DASH live", "");
+        assertNotNull(item.localConfiguration);
+        assertEquals(MimeTypes.APPLICATION_MPD, item.localConfiguration.mimeType);
+        assertNotNull("DASH 直播项也必须带起播偏移（和 HLS 同一套窗口问题）", item.liveConfiguration);
+        assertEquals("起播点应收到离直播边缘 10s", 10_000L,
+                item.liveConfiguration.targetOffsetMs);
+    }
+
+    @Test
     public void dashMediaSourceCanBeBuilt() {
         Context context = ApplicationProvider.getApplicationContext();
         DefaultMediaSourceFactory factory = new DefaultMediaSourceFactory(context);
