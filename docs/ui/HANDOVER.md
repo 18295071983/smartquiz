@@ -2468,6 +2468,38 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    - 自动化回归注意：从 WebView 上起手的滑动会被 `requestDisallowInterceptTouchEvent` 吃掉，
      滚动测试要沿左侧边距/折叠头起手（同 §4.104 坑）。
 
+### 4.107 fix(chat)：输入统计只跟最新一条 AI 回复（2026-10-25）
+
+1. **问题（用户真机截图）**："AI 回复后追加的输入统计，显示的不稳定；我之前设计的是显示在
+   最新的对话后面。" 截图里统计块（📥输入/📤输出/⚡缓存命中率/🧠上下文）停在**旧回复**下面，
+   更新的回复反而没有。两个根因：
+   - 数据：统计文本写进**每轮** AI 消息的 `agentSummary`，历史轮不清；
+   - 渲染：`ChatAdapter#bindAgentStepStatus` 里 `toolLineTookOver`（该轮有思考/工具行）时把
+     `agentSummary` 一起 GONE——同一轮带不带过程行决定统计出不出来，观感就是"时有时无"。
+2. **数据侧**：`completeGeneration` 每个完成回合都生成 token 统计（不再只在
+   `isAgentModeRun || cacheHitTokens > 0` 时生成）；写入当前 AI 消息后
+   `clearAgentSummaryExcept(messageIndex)` 清掉其它 AI 消息的旧值并 `notifyItemChanged(PAYLOAD_STATUS_UPDATE)`
+   即时消失；新用户消息（`addUserMessage` / 两个附件发送入口）先 `clearAgentSummaryExcept(-1)`。
+3. **渲染侧**：只对**最后一条 AI 消息**显示统计块（`isLastAiMessage(messages.indexOf(message))`）；
+   **不再因 `toolLineTookOver` 隐藏**——统计文本只保留 token 读数，工具次数/思考轮次由工具行/
+   折叠头承担，不重复。`agentSummaryInfo` 结构化卡片（旧档）仍优先走卡片。
+4. **兜底**：拿不到 API usage 时用"最后一条 user 输入 + 本轮正文"估算（在线 `len/4`、本地
+   `LlamaHelper.countTokens`），保证每轮都有统计行，不会又变成"有时没有"。
+5. **验证**：全量 `testDebugUnitTest --offline --no-build-cache` **947 / 0 skipped / 0 failures /
+   0 errors**；`assembleDebug --offline` 通过（APK 05:51:10）。真机（279b6c51）：
+   - 修复前截图：统计块在旧回复下、最新回复无统计（`01_before_old_reply.png`）；
+   - 修复后：统计块紧跟最新回复（带"已深度思考"的轮也显示），旧轮残留消失
+     （`02_after_latest_reply.png`）；
+   - 再点"重新生成"：同位置更新为新数值（输入 8961 / 输出 117 / 缓存 97% / 上下文 1M 用 1%），
+     不重复堆叠（`03_after_regenerate.png`）。
+   截图 `docs/chat_stats_shots/`。
+6. **边界 / 遗留**：
+   - 缓存命中率/上下文两行只有在线 Agent（有 API usage / `getContextWindowInfo`）才有；本地模型
+     只有输入/输出行；
+   - 历史旧会话里已落盘的 `agentSummary` 不会自动重算，只在"最后一条 AI 消息"上展示旧文本；
+     再发一轮即被新格式覆盖；
+   - 独立 `AGENT_SUMMARY` 系统消息仍按旧条件插入（v2 隐藏），仅作历史/旧档记录。
+
 ---
 
 ## 5. 关键文件 / 改动地图

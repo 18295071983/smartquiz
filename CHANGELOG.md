@@ -1,5 +1,34 @@
 # 变更日志
 
+## [2026-10-25] fix(chat)：输入统计只跟最新一条 AI 回复（不再停在旧轮/时有时无）
+
+用户反馈："AI 回复后追加的输入统计，显示的不稳定；我之前设计的是显示在最新的对话后面。"
+真机确认两点：
+
+- 统计块（📥 输入 / 📤 输出 / ⚡缓存命中率 / 🧠上下文）写在**每轮** AI 消息的 `agentSummary` 上，
+  历史轮不清 → 旧统计停在对话中间（截图在旧回复下面、新回复上面）；
+- 渲染侧 `bindAgentStepStatus` 里"有过程行（思考/工具）就让位"→ 该轮带思考/工具时统计被一起隐藏，
+  于是看起来时有时无。
+
+按用户口径"只显示在最新的对话后面"重做：
+
+- **数据侧**：`completeGeneration` 每个完成回合都生成 token 统计（不再只在
+  "有工具/多轮思考/缓存命中"时生成）；写入当前 AI 消息后调用
+  `clearAgentSummaryExcept(messageIndex)` 清掉其它 AI 消息的旧统计并 `notifyItemChanged` 局部刷新；
+  新用户消息发出时先 `clearAgentSummaryExcept(-1)`（旧统计不再属于"最新对话"）。
+- **渲染侧**：`ChatAdapter#bindAgentStepStatus` 只对**最后一条 AI 消息**展示统计块，且**不再因
+  `toolLineTookOver` 隐藏**——统计文本只保留 token 读数（工具次数/思考轮次已由工具行/折叠头承担，
+  不会重复）。
+- **兜底**：拿不到 API usage 时用最后一条 user 输入与本轮正文估算（在线 len/4、本地 native 分词），
+  保证每轮都有统计行；AGENT_SUMMARY 独立系统消息仍只在 Agent/缓存命中轮插入（v2 隐藏，供历史/旧档）。
+- **验证**：全量 `testDebugUnitTest --offline --no-build-cache` **947 / 0 skipped / 0 failures /
+  0 errors**；`assembleDebug --offline` 通过（APK 05:51:10），装机 279b6c51 真机验证：
+  - 修复前：统计块停在旧回复下面，最新回复没有统计；
+  - 修复后：统计块始终紧跟最新一条 AI 回复（带思考的回复也正常显示），旧轮不再残留；
+  - 再点一次"重新生成"：同一位置更新为新数值（输入 8961 / 输出 117 / 缓存 97% / 上下文 1M 用 1%），
+    不会重复堆叠。
+  截图：`docs/chat_stats_shots/`。
+
 ## [2026-10-25] feat(chat-scroll)：滚动锚点保持 + insets 驱动贴底（键盘不再"最后一拍"）
 
 接上轮遗留三项边界（用户问"这你有什么好办法"后拍板"修"）：本轮做 **A 锚点恢复 + C 键盘/insets**；

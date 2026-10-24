@@ -1341,20 +1341,21 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             // 状态文案由活动区 header 承担，这一行不再显示（v1 已删除，保留视图占位避免树结构变动）
             holder.agentStatus.setVisibility(View.GONE);
         }
-        // 过程行（思考 + 工具）由活动区统一承载：有过程行时 agentSummary 文本/汇总卡让位
-        ActivityTimeline.Model model = ActivityTimeline.build(message);
-        boolean toolLineTookOver = !model.isEmpty();
+        // 过程行（思考 + 工具）由活动区统一承载；token 统计块独立于过程行展示（见下）。
         if (holder.agentSummary != null) {
-            if (toolLineTookOver) {
-                // 汇总文本与汇总卡片都要让位，否则同一组数字在气泡里出现两遍
+            boolean lastAi = isLastAiMessage(messages.indexOf(message));
+            clearAgentSummarySlot(holder);
+            if (!lastAi) {
+                // 2026-10-25：输入/输出/缓存/上下文统计只跟在**最新一条 AI 回复**后面，
+                // 历史轮即使有数据也不展示（否则旧统计停在对话中间，看起来"位置不稳定"）。
                 holder.agentSummary.setVisibility(View.GONE);
-                clearAgentSummarySlot(holder);
-            } else if (message.agentSummaryInfo != null
-                    && renderAgentSummaryMetricCard(holder, message)) {
+            } else if (message.agentSummaryInfo != null && renderAgentSummaryMetricCard(holder, message)) {
+                // Agent 汇总走结构化卡片（旧档）时，不再重复纯文本
                 holder.agentSummary.setVisibility(View.GONE);
             } else {
-                // 回退：清理可能残留的组件槽位，走纯文本
-                clearAgentSummarySlot(holder);
+                // 纯文本只放 token 统计（工具次数/思考轮次已在工具行/折叠头里，不重复）。
+                // 注意：**即使有过程行也要显示**——它回答的是"这轮花了多少 token"，
+                // 之前跟着 toolLineTookOver 一起让位，导致有时有、有时没有（用户报"不稳定"）。
                 String text = buildAgentSummaryText(message);
                 if (text == null || text.isEmpty()) {
                     holder.agentSummary.setVisibility(View.GONE);

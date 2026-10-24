@@ -3986,6 +3986,8 @@ public class AIChatActivity extends BaseActivity {
             pendingVoiceInputSource = false;
             chatHistory.add(userMessage);
             if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+            // 新一轮开始：旧统计隐藏，完成后挂到新回复上
+            clearAgentSummaryExcept(-1);
             scrollToBottom(true);
             saveHistoryAsync();
             if (inputManager != null) inputManager.clearAttachments();
@@ -6852,62 +6854,87 @@ public class AIChatActivity extends BaseActivity {
             if (agentTotalTokens <= 0) agentTotalTokens = statsTokens;
             
             endGeneration();
-            // Agent 汇总（在清空计数之前生成）：工具数 / 思考轮次 / 工具名 / 缓存命中
-            // 缓存命中独立判断：即使本轮无工具/多轮思考（简单追问），只要 API 返回缓存命中就显示
+            // 统计块只放 token 读数（输入/输出/缓存/上下文）：
+            // 工具次数/思考轮次已经由气泡里的工具行/折叠头承担，这里再写一遍就是同一组数字两处展示，
+            // 而且旧逻辑一旦"有过程行就让位"，会让这块统计时有时无（用户报"显示不稳定"）。
+            // 2026-10-25 用户口径："显示在最新的对话后面"——只挂在**最新一条 AI 回复**上：
+            // 旧轮残留的 agentSummary 清掉并局部刷新；每个完成回合都要有 token 行。
             boolean isAgentModeRun = agentGroupToolCount > 0 || thinkingRoundCount > 1;
             int cacheHitTokens = agentChatHandler != null ? agentChatHandler.getLastCacheHitTokens() : 0;
-            if (isAgentModeRun || cacheHitTokens > 0) {
-                StringBuilder sum = new StringBuilder();
-                if (agentGroupToolCount > 0) sum.append(getString(R.string.h_8680a44b)).append(agentGroupToolCount).append(" 次");
-                if (thinkingRoundCount > 1) {
-                    if (sum.length() > 0) sum.append(" · ");
-                    sum.append(getString(R.string.h_c053d0b8)).append(thinkingRoundCount).append(" 轮");
+            StringBuilder sum = new StringBuilder();
+            // 输入/输出 token：在线 Agent 取引擎累计（含多轮工具调用全部消耗）；
+            // 其它路径取 TokenStatsManager 请求级快照，输出再用流式统计兜底。
+            int inTokens = 0;
+            int outTokens = 0;
+            if (agentChatHandler != null) {
+                inTokens = agentChatHandler.getExecTotalPromptTokens();
+                outTokens = agentChatHandler.getExecTotalCompletionTokens();
+            }
+            if (inTokens <= 0 && outTokens <= 0) {
+                TokenStatsManager.TokenStats snap = TokenStatsManager.getInstance().getCurrentSnapshot();
+                inTokens = snap.requestPromptTokens;
+                outTokens = snap.requestCompletionTokens;
+            }
+            if (outTokens <= 0) outTokens = statsTokens;
+            // 兜底估算：恢复/跨进程等拿不到 usage 的场景也保证有 token 行（在线 len/4，本地 native 分词）
+            if (inTokens <= 0 && messageIndex >= 0) {
+                for (int i = Math.min(messageIndex, chatHistory.size()) - 1; i >= 0; i--) {
+                    ChatMessage pm = chatHistory.get(i);
+                    if (pm != null && pm.type == ChatMessage.MessageType.USER
+                            && pm.content != null && !pm.content.isEmpty()) {
+                        inTokens = shouldUseOnlineModel()
+                                ? Math.max(1, pm.content.length() / 4)
+                                : LlamaHelper.countTokens(pm.content);
+                        break;
+                    }
                 }
-                if (!agentToolNames.isEmpty()) {
-                    if (sum.length() > 0) sum.append("\n");
-                    sum.append(getString(R.string.h_59f941ba)).append(String.join("、", agentToolNames));
+            }
+            if (outTokens <= 0 && finalContent != null && !finalContent.isEmpty()) {
+                outTokens = shouldUseOnlineModel()
+                        ? Math.max(1, finalContent.length() / 4)
+                        : LlamaHelper.countTokens(finalContent);
+            }
+            if (inTokens > 0 || outTokens > 0) {
+                if (sum.length() > 0) sum.append("\n");
+                sum.append(getString(R.string.h_2e38da21)).append(inTokens)
+                        .append(getString(R.string.h_4522b4c6)).append(outTokens)
+                        .append(getString(R.string.h_ea69c145));
+            }
+            // 缓存命中统计（API 返回 usage 时才有；OpenAI prompt_tokens_details.cached_tokens / DeepSeek prompt_cache_hit_tokens）
+            if (cacheHitTokens > 0) {
+                int lastPrompt = agentChatHandler != null ? agentChatHandler.getLastPromptTokens() : 0;
+                if (sum.length() > 0) sum.append("\n");
+                if (lastPrompt > 0) {
+                    int hitRate = (int) Math.round(cacheHitTokens * 100.0 / lastPrompt);
+                    sum.append(getString(R.string.h_9efa4828)).append(hitRate).append("%（")
+                        .append(cacheHitTokens).append("/").append(lastPrompt).append(" tokens）");
+                } else {
+                    sum.append(getString(R.string.h_50a70621)).append(cacheHitTokens).append(getString(R.string.h_32a82817));
                 }
-                // 输入/输出 token 统计（引擎累计的 API 真实 usage：含多轮工具调用全部消耗）
-                if (agentChatHandler != null) {
-                    int inTokens = agentChatHandler.getExecTotalPromptTokens();
-                    int outTokens = agentChatHandler.getExecTotalCompletionTokens();
-                    if (inTokens > 0 || outTokens > 0) {
+            }
+            // 上下文窗口用量：窗口（配置时 API 检测/配置表推断）+ 已用（最近请求输入）
+            if (agentChatHandler != null) {
+                try {
+                    int[] ctx = agentChatHandler.getContextWindowInfo();
+                    if (ctx != null && ctx.length == 3 && ctx[0] > 0) {
                         if (sum.length() > 0) sum.append("\n");
-                        sum.append(getString(R.string.h_2e38da21)).append(inTokens).append(getString(R.string.h_4522b4c6)).append(outTokens).append(getString(R.string.h_ea69c145));
+                        sum.append(getString(R.string.h_0d4eba40)).append(formatCtxWindow(ctx[0])).append(" 用 ")
+                            .append(String.format(java.util.Locale.ROOT, "%.0f%%",
+                                    Math.min(100.0, ctx[1] * 100.0 / ctx[0])))
+                            .append(getString(R.string.h_8e24373f)).append(formatCtxWindow(ctx[2])).append("）");
                     }
+                } catch (Throwable ignored) {
                 }
-                // 缓存命中统计（API 返回 usage 时才有；OpenAI prompt_tokens_details.cached_tokens / DeepSeek prompt_cache_hit_tokens）
-                if (cacheHitTokens > 0) {
-                    int inTokens = agentChatHandler != null ? agentChatHandler.getLastPromptTokens() : 0;
-                    if (sum.length() > 0) sum.append("\n");
-                    if (inTokens > 0) {
-                        int hitRate = (int) Math.round(cacheHitTokens * 100.0 / inTokens);
-                        sum.append(getString(R.string.h_9efa4828)).append(hitRate).append("%（")
-                            .append(cacheHitTokens).append("/").append(inTokens).append(" tokens）");
-                    } else {
-                        sum.append(getString(R.string.h_50a70621)).append(cacheHitTokens).append(getString(R.string.h_32a82817));
-                    }
-                }
-                // 上下文窗口用量：窗口（配置时 API 检测/配置表推断）+ 已用（最近请求输入）
-                if (agentChatHandler != null) {
-                    try {
-                        int[] ctx = agentChatHandler.getContextWindowInfo();
-                        if (ctx != null && ctx.length == 3 && ctx[0] > 0) {
-                            if (sum.length() > 0) sum.append("\n");
-                            sum.append(getString(R.string.h_0d4eba40)).append(formatCtxWindow(ctx[0])).append(" 用 ")
-                                .append(String.format(java.util.Locale.ROOT, "%.0f%%",
-                                        Math.min(100.0, ctx[1] * 100.0 / ctx[0])))
-                                .append(getString(R.string.h_8e24373f)).append(formatCtxWindow(ctx[2])).append("）");
-                        }
-                    } catch (Throwable ignored) {
-                    }
-                }
-                if (sum.length() > 0 && messageIndex >= 0 && messageIndex < chatHistory.size()) {
-                    chatHistory.get(messageIndex).agentSummary = sum.toString();
-                    AppLogger.i(TAG, "Agent summary written: " + sum.toString()
-                        + " (cacheHit=" + cacheHitTokens + ")");
-                    // 独立展示：插入一条 AGENT_SUMMARY 系统消息（Agent 执行汇总卡片）
-                    // 放到 AI 消息之后，展示耗时/步骤/工具/Token 统计
+            }
+            if (sum.length() > 0 && messageIndex >= 0 && messageIndex < chatHistory.size()) {
+                chatHistory.get(messageIndex).agentSummary = sum.toString();
+                // 只保留最新一条 AI 回复上的统计（其它旧轮清掉 + 局部刷新，立刻消失）
+                clearAgentSummaryExcept(messageIndex);
+                AppLogger.i(TAG, "Agent summary written: " + sum.toString()
+                    + " (cacheHit=" + cacheHitTokens + ")");
+                // 独立展示：插入一条 AGENT_SUMMARY 系统消息（Agent 执行汇总卡片）
+                // 只给 Agent 轮/有缓存命中的轮插；v2 里该行隐藏，仅作历史/旧档记录
+                if (isAgentModeRun || cacheHitTokens > 0) {
                     try {
                         // 防御：generationStart 必须 >0（=0 时 totalTime 变成 1970 以来毫秒时间戳，
                         // 显示 "29787xxxm 23s" 天文耗时），回退 statsTime 或 0
@@ -7123,6 +7150,22 @@ public class AIChatActivity extends BaseActivity {
             refreshSessionStats();
             scrollToBottom();
         });
+    }
+
+    /**
+     * 「输入统计」只跟最新一条 AI 回复：清掉其它 AI 消息上残留的 agentSummary 并局部刷新。
+     * keepIndex &lt; 0 表示全部清掉（新的一轮开始、旧统计已不属于"最新对话"）。
+     */
+    private void clearAgentSummaryExcept(int keepIndex) {
+        if (chatAdapter == null || chatHistory == null) return;
+        for (int i = 0; i < chatHistory.size(); i++) {
+            if (i == keepIndex) continue;
+            ChatMessage m = chatHistory.get(i);
+            if (m == null || m.type != ChatMessage.MessageType.AI) continue;
+            if (m.agentSummary == null || m.agentSummary.isEmpty()) continue;
+            m.agentSummary = "";
+            chatAdapter.notifyItemChanged(i, ChatAdapter.PAYLOAD_STATUS_UPDATE);
+        }
     }
 
     private void processTagBuffer(String tagContent) {
@@ -9873,6 +9916,8 @@ public class AIChatActivity extends BaseActivity {
         if (chatAdapter != null) {
             chatAdapter.notifyItemInserted(chatHistory.size() - 1);
         }
+        // 新一轮开始：上一轮的"输入统计"不再属于"最新对话"，先隐藏（完成后再挂到新回复上）
+        clearAgentSummaryExcept(-1);
         scrollToBottom(true);
         // 2026-09-23：用户消息上屏即刷统计+上下文 pill（发送后立即反映上下文占用）
         refreshSessionStats();
@@ -12136,6 +12181,8 @@ public class AIChatActivity extends BaseActivity {
         pendingVoiceInputSource = false;
         chatHistory.add(userMessage);
         if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+        // 新一轮开始：旧统计隐藏，完成后挂到新回复上
+        clearAgentSummaryExcept(-1);
         // 用户主动发消息：强制重新 pin 并贴底（与文本发送同一口径）。
         scrollToBottom(true);
         saveHistoryAsync();
