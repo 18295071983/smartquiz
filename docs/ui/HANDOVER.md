@@ -2089,6 +2089,30 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 4. 边界：完整的跨块显示公式在 parts/legacy 上游即被抽成组件，splitter 的公式回退只剩半截/
    未闭合；整篇 HTML 与后置引用定义 reset 仍是既有边界。提交 `1b823198`。
 
+### 4.94 feat(chat-player)：内置播放器 P0——音频控制条/队列修正、视频全屏/比例、列表随机循环（2026-10-25）
+
+1. 用户反馈"内置播放器功能不强"。审计结论：后端（ExoPlayer + MediaSessionService、
+   HLS/DASH、后台/锁屏/音频焦点/直播自愈）不弱，弱在控制层、源适配和视频产品化；
+   P0 先补基础体验，不换内核。
+2. **音频**：`State` 增 `playWhenReady/live/speed/loop/shuffle/repeatAll/queueIndex/queueSize`；
+   `playQueue` 重置倍速/随机/循环；`syncLastItem` 跟当前项更新
+   `lastOriginalUri/title/artist/loop/speed`，修队列 HLS 报错按上一首旧 URI 重连；
+   错误后 IDLE 重试 `prepare` 当前队列项而不是 `setMediaItem`（不压扁队列）。
+   `AudioCardView` 加上/下一首、倍速 0.5x～2x、单曲循环、队列位置、缓冲态、错误重试。
+3. **视频**：新增 `VideoFullscreenActivity`（横屏沉浸、常亮、适应/裁剪、关闭），
+   复用进程级 ExoPlayer，退出只解绑 Surface；卡片进全屏前先交还 Surface，退出
+   `notifyStateNow()` 回绑。`VideoCardView` 去掉固定 220dp，按视频宽高比重算
+   160～420dp；右上角全屏按钮；播放中常亮；错误文案/遮罩可点重试；清掉
+   "PlayerView 自带音量/亮度手势"的错误注释。
+4. **播放列表**：`PlaylistCardView` 加随机/队列循环/倍速工具行，状态从 `State` 回读；
+   `toggleShuffle`/`toggleQueueRepeat` 走 MediaController，不在 UI 另存一份。
+5. **验证**：`VideoCardViewLayoutTest` 4 条 + `AudioCardViewProgressTest` 倍速档位；
+   全量 **851 / 0 skipped / 0 failures / 0 errors**；`assembleDebug` 通过（APK 01:16:50）。
+   **未装机**；全屏 Surface 交还/回绑、横屏、通知栏/锁屏控制仍需真机验。
+6. **边界**：队列内 HLS 302 逐项预解析、字幕/音轨、PiP、自定义 UA/Referer/Cookie、
+   封面/睡眠定时属 P1；RTSP/RTMP/SmoothStreaming/DRM、文件预览统一、离线/投屏/续播属 P2。
+   提交 `2876bf77`/`2e3a4661`/`f9899cf7`。
+
 ---
 
 ## 5. 关键文件 / 改动地图

@@ -1,5 +1,31 @@
 # 变更日志
 
+## [2026-10-25] feat(chat-player)：内置播放器 P0——音频控制条/队列修正、视频全屏/比例、列表随机循环
+
+用户反馈"内置播放器功能不强"。审计结论：播放内核（ExoPlayer + MediaSessionService、HLS/DASH、
+后台/锁屏/音频焦点/直播自愈）不弱，弱在控制层、源适配和视频产品化。P0 先补齐"像播放器"的
+基础体验，并修掉队列串台/继承状态这类真 bug。
+
+- **音频**：`State` 增 `playWhenReady/live/speed/loop/shuffle/repeatAll/queueIndex/queueSize`；
+  `playQueue` 起播重置倍速/随机/循环，`syncLastItem` 跟当前项同步
+  `lastOriginalUri/title/artist/loop/speed`——修"队列 HLS 报错时按上一首的旧 URI 重连"。
+  错误后 IDLE 重试改为 prepare 当前队列项，不再 `setMediaItem` 把队列压成单曲。
+  `AudioCardView` 增加上/下一首、倍速（0.5x～2x）、单曲循环、队列位置、缓冲态、错误重试。
+- **视频**：新增 `VideoFullscreenActivity`（横屏沉浸、常亮、适应/裁剪、关闭），复用进程级
+  ExoPlayer，退出只解绑 Surface；进全屏前卡片先交还 Surface，退出 `notifyStateNow()` 回绑。
+  `VideoCardView` 去掉固定 220dp，按视频宽高比重算高度（160～420dp 夹取），加右上角全屏按钮，
+  播放中保持常亮，错误文案/播放遮罩可点重试；清掉"PlayerView 自带音量/亮度手势"的错误注释。
+- **播放列表**：`PlaylistCardView` 增加随机/队列循环/倍速工具行，状态从 `State` 回读；
+  `toggleShuffle`/`toggleQueueRepeat` 走 MediaController，不在 UI 另存一份。
+- **验证**：新增 `VideoCardViewLayoutTest` 4 条 + `AudioCardViewProgressTest` 倍速档位；
+  全量 `testDebugUnitTest --offline --rerun` **851 tests / 0 skipped / 0 failures / 0 errors**；
+  `assembleDebug` 通过（APK 01:16:50）。**未装机**，全屏 Surface 交还/回绑、横屏、
+  通知栏/锁屏控制仍需真机验。
+- **P0 已知边界**：队列内 HLS 302 还未逐项预解析（P1）；字幕/音轨、PiP、自定义
+  UA/Referer/Cookie、封面/睡眠定时是 P1；RTSP/RTMP/SmoothStreaming/DRM、文件预览统一、
+  离线/投屏/续播是 P2。视频卡仍用 PlayerView 默认控制条，不做自绘手势层。
+- 提交：`2876bf77`（音频）、`2e3a4661`（视频）、`f9899cf7`（列表）。
+
 ## [2026-10-25] feat(chat-render)：轮内流式正文——AST 块切分 + WebView 尾巴替换（出厂 true）
 
 用户要求"轮内流式（打字机观感）"，先按开关式 PoC 起步，最后显式拍板"打开默认 true"。
