@@ -1,15 +1,16 @@
 package com.oilquiz.app.ui.activity;
 
 import android.os.Bundle;
-import android.text.method.LinkMovementMethod;
 import android.util.Log;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 
 import com.oilquiz.app.R;
-import com.oilquiz.app.ai.chat.render.MarkdownRenderer;
+import com.oilquiz.app.ai.chat.render.MarkdownDocView;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -100,15 +101,46 @@ public class AboutLicensesActivity extends AppCompatActivity {
             toolbar.setNavigationOnClickListener(v -> finish());
         }
 
-        TextView text = findViewById(R.id.licenses_text);
+        FrameLayout host = findViewById(R.id.licenses_host);
         String markdown = readAsset(assetPath());
         if (markdown == null || markdown.trim().isEmpty()) {
-            text.setText("未找到文档：assets/" + assetPath()
+            TextView fallback = new TextView(this);
+            fallback.setText("未找到文档：assets/" + assetPath()
                     + "\n请确认打包时包含该文件。");
+            int pad = (int) (16 * getResources().getDisplayMetrics().density);
+            fallback.setPadding(pad, pad, pad, pad);
+            host.addView(fallback, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             return;
         }
-        text.setText(MarkdownRenderer.render(markdown, this));
-        text.setMovementMethod(LinkMovementMethod.getInstance());
+        // 整篇 md 交 MarkdownDocView（markdown-it + 插件 + KaTeX + highlight.js，
+        // 与 markdown_doc 卡片同源）：表格、脚注、代码块、公式都不会再退化。
+        MarkdownDocView docView = new MarkdownDocView(this);
+        docView.setMarkdown(markdown, isNightMode());
+        host.addView(docView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        this.docView = docView;
+    }
+
+    private MarkdownDocView docView;
+
+    private boolean isNightMode() {
+        return (getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    @Override
+    protected void onDestroy() {
+        try {
+            if (docView != null) {
+                docView.stopLoading();
+                docView.destroy();
+            }
+        } catch (Throwable ignored) {
+        }
+        docView = null;
+        super.onDestroy();
     }
 
     @Override

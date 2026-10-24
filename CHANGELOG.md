@@ -1,5 +1,43 @@
 # 变更日志
 
+## [2026-10-25] feat(webview)：WebViewActivity 的 Markdown 预览换 MarkdownDocPage
+
+`WebViewActivity.loadTextFile` 里的 `.md` 预览此前是十几行正则替换（代码块/标题/粗体/链接/
+列表），表格、脚注、公式、任务列表全退化——就是"太简陋"的那一版。
+
+- `renderMarkdown` 改为 `MarkdownDocPage.buildForScreen(this, raw, night, false)`：
+  与 `markdown_doc` 卡、开源许可/隐私政策页同源（markdown-it + footnote/deflist/
+  tasklists + KaTeX + highlight.js）；`MarkdownDocPage` 抛异常时才回退旧正则版。
+- `MarkdownDocPage.buildForScreen` 增 `resolveWorkspaceImages` 开关：文件预览传 `false`，
+  相对图片交给 `loadDataWithBaseURL` 的 baseUrl（.md 所在目录）解析，不再按工作区改写。
+- `loadTextFile` 对 `.md` 改用 `file://<md 所在目录>/` 作 baseUrl，正文里的相对图片能显示。
+- 纯文本、HTML、图片、Office/PDF 分支未动。
+- **验证**：`:compileDebugJavaWithJavac` / `:assembleDebug` BUILD SUCCESSFUL、已装机。
+  **未逐项走通文件预览入口**：adb 直接带 `file_path` 拉起 WebViewActivity 会被它的
+  标签页首页逻辑盖掉（落到百度首页），需从应用内文件预览入口再点一次；页面构建本身与
+  已验证的开源许可页同一条链路。
+- 全量 `testDebugUnitTest --offline --rerun`：**873 tests / 0 skipped / 0 failures /
+  0 errors**（随本次提交同批）；APK 02:13:23，已装机。
+
+## [2026-10-25] feat(settings)：开源许可 / 隐私政策页改用 MarkdownDocView
+
+两份随包 md（`THIRD_PARTY_NOTICES.md` / `PRIVACY_POLICY.md`）此前用 Markwon 渲进
+TextView，宽表格会被挤成竖排、第三列截断。改成与 `markdown_doc` 卡片同源的全屏阅读视图。
+
+- **`AboutLicensesActivity`**：TextView + `MarkdownRenderer` → `MarkdownDocView`
+  （WebView + `MarkdownDocPage.buildForScreen`）；布局 `ScrollView+TextView` 换成
+  `FrameLayout` 容器；外链交系统浏览器，`file/javascript/data` 导航拦截；字体跟随系统
+  `fontScale`（`setTextZoom` 85–160%）；`onDestroy` 里 `stopLoading + destroy`。
+- **`MarkdownDocPage`**：补全屏排版（正文栏限宽 860px、左右 20px 留白、16px 字号）；
+  修表格样式——原先把 `display:block` 加在 `<table>` 上做横向滚动，会拆掉表格布局，
+  改为 JS 包一层 `.table-wrap` 滚动容器，`th/td` 加 `word-break:break-word`。
+- **验证**：`:compileDebugJavaWithJavac` / `:assembleDebug` BUILD SUCCESSFUL；
+  `ComponentTypesTest` / `ComponentFieldIntegrityTest` 通过；**已装机**，真机打开
+  工具箱 → 设置与系统环境 → 开源许可 / 隐私政策：标题、引用、列表、行内代码、表格
+  （三列完整、自动换行）、链接均正常。
+- 全量 `testDebugUnitTest --offline --rerun`：**873 tests / 0 skipped / 0 failures /
+  0 errors**（随本次提交同批）；APK 02:13:23，已装机。
+
 ## [2026-10-25] fix(chat-components)：image_grid 恢复整卡显示，捞回 grid_card/note_card
 
 用户反馈 `image_grid` 卡片"没了"，同批删除的其他卡片也要捞回。

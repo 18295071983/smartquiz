@@ -79,6 +79,13 @@ public class WebViewActivity extends BaseActivity {
     private android.widget.ProgressBar pageProgressBar;
     private TextView loadingStatusText;
 
+    // 文件阅读态工具条（2026-10-25）：文件名/大小 + 字号 + 分享 + 用其他应用打开
+    private LinearLayout fileInfoBar;
+    private TextView fileInfoTitle;
+    private TextView fileInfoMeta;
+    private java.io.File currentFile;
+    private int fileTextZoom = -1;
+
     private String customUrl;
     private String customTitle;
     private com.oilquiz.app.webview.js.JSAdvancedInterface advancedBridge;
@@ -228,6 +235,7 @@ public class WebViewActivity extends BaseActivity {
             tabContainer.setElevation(3);
         }
         rootLayout.addView(tabContainer);
+        buildFileInfoBar(rootLayout);
 
         // 创建WebView容器
         webViewContainer = new FrameLayout(this);
@@ -857,6 +865,7 @@ public class WebViewActivity extends BaseActivity {
      * @param url URL地址
      */
     private void loadUrl(String url) {
+        exitFileMode();
         try {
             if (isWeatherWebsite(url)) {
                 url = ensureWeatherHttps(url);
@@ -960,6 +969,7 @@ public class WebViewActivity extends BaseActivity {
     private void loadFile(File file) {
         String fileName = file.getName().toLowerCase();
         String fileUrl = "file://" + file.getAbsolutePath();
+        enterFileMode(file);
         
         // 根据文件类型选择不同的加载方式
         if (fileName.endsWith(".html") || fileName.endsWith(".htm")) {
@@ -992,6 +1002,150 @@ public class WebViewActivity extends BaseActivity {
         }
     }
     
+    // ---------------------------------------------------------------- 文件阅读态工具条
+
+    /** 顶部文件信息条：文件名 + 大小 + 字号 + 分享 + 用其他应用打开（仅本地文件预览显示） */
+    private void buildFileInfoBar(LinearLayout root) {
+        fileInfoBar = new LinearLayout(this);
+        fileInfoBar.setOrientation(LinearLayout.VERTICAL);
+        fileInfoBar.setVisibility(View.GONE);
+        fileInfoBar.setBackgroundColor(uiAdapter.getSurfaceColor());
+        fileInfoBar.setPadding(dp(16), dp(10), dp(16), dp(10));
+
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        fileInfoTitle = new TextView(this);
+        fileInfoTitle.setTextSize(14);
+        fileInfoTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        fileInfoTitle.setTextColor(uiAdapter.getTextPrimaryColor());
+        fileInfoTitle.setSingleLine(true);
+        fileInfoTitle.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        titleRow.addView(fileInfoTitle, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        fileInfoMeta = new TextView(this);
+        fileInfoMeta.setTextSize(11);
+        fileInfoMeta.setTextColor(uiAdapter.getTextSecondaryColor());
+        titleRow.addView(fileInfoMeta);
+        fileInfoBar.addView(titleRow);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setPadding(0, dp(7), 0, 0);
+        actions.addView(fileAction("A−", v -> changeFileTextZoom(-10)));
+        actions.addView(fileAction("A+", v -> changeFileTextZoom(10)));
+        actions.addView(fileAction("分享", v -> shareCurrentFile()));
+        actions.addView(fileAction("用其他应用打开", v -> openFileExternally()));
+        fileInfoBar.addView(actions);
+
+        root.addView(fileInfoBar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+    }
+
+    private TextView fileAction(String label, View.OnClickListener l) {
+        TextView tv = new TextView(this);
+        tv.setText(label);
+        tv.setTextSize(12);
+        tv.setTextColor(uiAdapter.getTextPrimaryColor());
+        tv.setPadding(dp(12), dp(6), dp(12), dp(6));
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setColor(uiAdapter.getBackgroundColor());
+        gd.setCornerRadius(dp(14));
+        tv.setBackground(gd);
+        tv.setOnClickListener(l);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.rightMargin = dp(8);
+        tv.setLayoutParams(lp);
+        return tv;
+    }
+
+    private void enterFileMode(File file) {
+        currentFile = file;
+        if (fileInfoBar == null) return;
+        fileInfoBar.setVisibility(View.VISIBLE);
+        if (tabContainer != null) tabContainer.setVisibility(View.GONE);
+        if (fileInfoTitle != null) fileInfoTitle.setText(file.getName());
+        if (fileInfoMeta != null) fileInfoMeta.setText(formatFileSize(file.length()));
+        if (getSupportActionBar() != null) getSupportActionBar().setTitle(file.getName());
+        applyFileTextZoom();
+    }
+
+    private void exitFileMode() {
+        currentFile = null;
+        if (fileInfoBar != null) fileInfoBar.setVisibility(View.GONE);
+        if (tabContainer != null) tabContainer.setVisibility(View.VISIBLE);
+    }
+
+    private void applyFileTextZoom() {
+        if (x5WebView == null) return;
+        if (fileTextZoom < 0) {
+            fileTextZoom = getSharedPreferences("webview_prefs", MODE_PRIVATE)
+                    .getInt("file_text_zoom", 100);
+        }
+        x5WebView.getSettings().setTextZoom(fileTextZoom);
+    }
+
+    private void changeFileTextZoom(int delta) {
+        int base = fileTextZoom < 0 ? 100 : fileTextZoom;
+        fileTextZoom = Math.max(85, Math.min(200, base + delta));
+        getSharedPreferences("webview_prefs", MODE_PRIVATE)
+                .edit().putInt("file_text_zoom", fileTextZoom).apply();
+        if (x5WebView != null) x5WebView.getSettings().setTextZoom(fileTextZoom);
+    }
+
+    /** 分享当前文件（FileProvider + ACTION_SEND，不暴露 file:// 路径） */
+    private void shareCurrentFile() {
+        if (currentFile == null || !currentFile.isFile()) return;
+        try {
+            android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                    this, "com.oilquiz.app.fileprovider", currentFile);
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType(mimeOf(currentFile));
+            send.putExtra(Intent.EXTRA_STREAM, uri);
+            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(send, "分享文件"));
+        } catch (Throwable t) {
+            android.widget.Toast.makeText(this, "分享失败：" + t.getMessage(),
+                    android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** 用其他应用打开当前文件（系统选择器） */
+    private void openFileExternally() {
+        if (currentFile == null || !currentFile.isFile()) return;
+        try {
+            android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                    this, "com.oilquiz.app.fileprovider", currentFile);
+            Intent view = new Intent(Intent.ACTION_VIEW);
+            view.setDataAndType(uri, mimeOf(currentFile));
+            view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(view, "用其他应用打开"));
+        } catch (Throwable t) {
+            android.widget.Toast.makeText(this, "打开失败：" + t.getMessage(),
+                    android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private String mimeOf(File f) {
+        String n = f.getName().toLowerCase();
+        if (n.endsWith(".md") || n.endsWith(".markdown")) return "text/markdown";
+        if (n.endsWith(".txt")) return "text/plain";
+        if (n.endsWith(".html") || n.endsWith(".htm")) return "text/html";
+        if (n.endsWith(".png")) return "image/png";
+        if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
+        if (n.endsWith(".gif")) return "image/gif";
+        if (n.endsWith(".pdf")) return "application/pdf";
+        if (n.endsWith(".csv")) return "text/csv";
+        return "*/*";
+    }
+
+    private int dp(int v) {
+        return (int) (v * getResources().getDisplayMetrics().density);
+    }
+
     /**
      * 检查网络连接状态
      * @return 是否有网络连接
@@ -1011,6 +1165,8 @@ public class WebViewActivity extends BaseActivity {
      * @param fileUrl 文件URL
      */
     private void loadOfficeFile(File file, String fileUrl) {
+        // Office/PDF 会跳到独立渲染页，本页不进入文件阅读态
+        exitFileMode();
         // 方案1：统一使用文件渲染页预览，避免两套渲染管线
         try {
             Intent intent = new Intent(this, com.oilquiz.app.ui.activity.FileRenderActivity.class);
@@ -1106,15 +1262,21 @@ public class WebViewActivity extends BaseActivity {
             boolean isMarkdown = fileName.toLowerCase().endsWith(".md") || fileName.toLowerCase().endsWith(".markdown");
             
             String htmlContent;
+            String baseUrl = null;
             if (isMarkdown) {
-                // Markdown文件使用简单的Markdown渲染
+                // Markdown文件：整篇文档渲染（MarkdownDocPage）
                 htmlContent = renderMarkdown(fileName, fileSize, escapedContent, content.toString());
+                // 相对图片按 .md 所在目录解析；页面内不再做工作区改写
+                File parent = file.getParentFile();
+                if (parent != null) {
+                    baseUrl = "file://" + parent.getAbsolutePath() + "/";
+                }
             } else {
                 // 普通文本文件
                 htmlContent = renderTextFile(fileName, fileSize, escapedContent, encoding);
             }
             
-            loadDataWithBaseURL(null, htmlContent, "text/html", "UTF-8", null);
+            loadDataWithBaseURL(baseUrl, htmlContent, "text/html", "UTF-8", null);
         } catch (Exception e) {
             AppLogger.e(TAG, "加载文本文件失败: " + e.getMessage(), e);
             showFileError(file, "无法读取文本文件: " + e.getMessage());
@@ -1197,6 +1359,18 @@ public class WebViewActivity extends BaseActivity {
      * 渲染Markdown文件为HTML
      */
     private String renderMarkdown(String fileName, long fileSize, String escapedContent, String rawContent) {
+        // 2026-10-25：整篇 md 交给 MarkdownDocPage（markdown-it + 脚注/定义列表/任务列表 +
+        // KaTeX + highlight.js），与 markdown_doc 卡、开源许可/隐私政策页同源；
+        // 只有它抛异常时才退回下面的简版正则转换。
+        try {
+            boolean night = (getResources().getConfiguration().uiMode
+                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                    == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+            return com.oilquiz.app.ai.chat.render.MarkdownDocPage
+                    .buildForScreen(this, rawContent, night, false);
+        } catch (Throwable t) {
+            AppLogger.w(TAG, "MarkdownDocPage 渲染失败，回退简版: " + t.getMessage());
+        }
         // 简单的Markdown转换
         String html = rawContent
             // 代码块

@@ -26,20 +26,9 @@
             app:titleTextColor="?attr/colorControlText" />
     </com.google.android.material.appbar.AppBarLayout>
 
-    <ScrollView
+    <FrameLayout
+        android:id="@+id/licenses_host"
         android:layout_width="match_parent"
         android:layout_height="@dimen/size_0"
-        android:layout_weight="1"
-        android:fillViewport="true">
-
-        <TextView
-            android:id="@+id/licenses_text"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:lineSpacingExtra="4dp"
-            android:padding="@dimen/space_16"
-            android:textColor="?attr/colorControlText"
-            android:textIsSelectable="true"
-            android:textSize="@dimen/text_14" />
-    </ScrollView>
+        android:layout_weight="1" />
 </LinearLayout>

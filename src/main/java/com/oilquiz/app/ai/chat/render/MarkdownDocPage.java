@@ -58,14 +58,36 @@ public final class MarkdownDocPage {
      * @param title    预留标题（当前不渲染进正文，卡片壳已有标题）
      */
     public static String build(Context context, String markdown, boolean night, String title) {
+        return build(context, markdown, night, title, false, true);
+    }
+
+    /** 全屏阅读页：比卡片更宽的正文栏、更大的左右留白。 */
+    public static String buildForScreen(Context context, String markdown, boolean night) {
+        return buildForScreen(context, markdown, night, true);
+    }
+
+    /**
+     * @param resolveWorkspaceImages true=把 md 里的相对图片按工作区解析成绝对 file://；
+     *                               false=保留相对地址，交给调用方的 baseUrl 解析
+     *                               （文件预览场景：图片就在 .md 同目录）
+     */
+    public static String buildForScreen(Context context, String markdown, boolean night,
+                                        boolean resolveWorkspaceImages) {
+        return build(context, markdown, night, "", true, resolveWorkspaceImages);
+    }
+
+    private static String build(Context context, String markdown, boolean night, String title,
+                                boolean screen, boolean resolveWorkspaceImages) {
         String md = MarkdownHtmlConverter.sanitize(markdown == null ? "" : markdown);
-        md = rewriteLocalImages(context, md);
+        if (resolveWorkspaceImages) {
+            md = rewriteLocalImages(context, md);
+        }
         String safeMd = md.replace("</script", "<\\/script").replace("</SCRIPT", "<\\/SCRIPT");
 
         return "<!DOCTYPE html><html lang=\"zh\"><head><meta charset=\"utf-8\">"
                 + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,maximum-scale=3,user-scalable=yes\">"
                 + "<style>" + katexCss(context) + "</style>"
-                + "<style>" + pageCss(night) + "</style>"
+                + "<style>" + pageCss(night) + (screen ? screenCss(night) : "") + "</style>"
                 + "<script>" + mdLibs(context) + "</script>"
                 + "<script>" + mathLibs(context) + "</script>"
                 + "</head><body class=\"" + (night ? "dark" : "light") + "\">"
@@ -88,6 +110,11 @@ public final class MarkdownDocPage {
                 + "try{if(window.markdownitTaskLists)md.use(window.markdownitTaskLists,{enabled:false});}catch(e){}"
                 + "var out=document.getElementById('out');"
                 + "try{out.innerHTML=md.render(src);}catch(e){out.textContent=src;}"
+                // 宽表格：包一层横向滚动容器（不能给 table 本身 display:block，会拆掉表格布局）
+                + "var tbs=out.querySelectorAll('table');"
+                + "for(var q=0;q<tbs.length;q++){var tb=tbs[q];var pn=tb.parentNode;"
+                + "if(pn&&pn.className==='table-wrap')continue;var wr=document.createElement('div');"
+                + "wr.className='table-wrap';pn.insertBefore(wr,tb);wr.appendChild(tb);}"
                 // 公式：$…$ / $$…$$ / \(…\) / \[…\]（KaTeX auto-render 默认跳过 code/pre）
                 + "if(window.renderMathInElement){try{renderMathInElement(out,{"
                 + "delimiters:[{left:'$$',right:'$$',display:true},{left:'\\\\[',right:'\\\\]',display:true},"
@@ -250,6 +277,15 @@ public final class MarkdownDocPage {
 
     // ------------------------------------------------------------------ 样式
 
+    /** 全屏阅读页的额外排版：正文栏限宽 + 左右留白，长文档不至于贴边。 */
+    private static String screenCss(boolean night) {
+        return "body{padding:18px 20px 36px;max-width:860px;margin:0 auto;font-size:16px;"
+                + "background:transparent}"
+                + "h1{font-size:1.7em}h2{font-size:1.4em}h3{font-size:1.2em}"
+                + "table{font-size:.95em}"
+                + "pre{font-size:.9em}";
+    }
+
     private static String pageCss(boolean night) {
         String fg = night ? "#E5E7EB" : "#1F2937";
         String muted = night ? "#9CA3AF" : "#6B7280";
@@ -284,8 +320,10 @@ public final class MarkdownDocPage {
                 + "pre code{background:transparent;padding:0;font-size:.85em;line-height:1.5}"
                 + "button.md-copy{position:absolute;top:5px;right:6px;font-size:11px;color:" + muted + ";"
                 + "background:rgba(127,127,127,.16);border:none;border-radius:4px;padding:2px 8px}"
-                + "table{border-collapse:collapse;width:100%;margin:.7em 0;font-size:.92em;display:block;overflow-x:auto}"
-                + "th,td{border:1px solid " + border + ";padding:7px 10px;vertical-align:top}"
+                + "table{border-collapse:collapse;width:100%;margin:0;font-size:.92em;table-layout:auto}"
+                + ".table-wrap{overflow-x:auto;margin:.7em 0;-webkit-overflow-scrolling:touch}"
+                + ".table-wrap table{min-width:100%}"
+                + "th,td{border:1px solid " + border + ";padding:7px 10px;vertical-align:top;word-break:break-word}"
                 + "th{background:" + thBg + ";font-weight:700}"
                 + "tr:nth-child(even) td{background:" + rowAlt + "}"
                 + "hr{border:none;border-top:1px solid " + border + ";margin:1.1em 0}"
