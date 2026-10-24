@@ -2134,6 +2134,30 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 7. **边界**：队列内 HLS 302 逐项预解析未做；RTSP/RTMP/SmoothStreaming/DRM、文件预览统一、
    离线/投屏/续播属 P2。提交 `ad720f21`。
 
+### 4.96 feat(player)：P2——文件预览统一 ExoPlayer、RTSP/SS/RTMP、DRM、续播（2026-10-25）
+
+1. **文件预览收口**：`FileRenderActivity` 的 `VideoView` / `MediaPlayer` 全换 ExoPlayer。
+   视频 `PlayerView` + 默认控制条 + `RESIZE_MODE_FIT` + 常亮 + 错误 Toast；音频保留原
+   文件名/进度/播放暂停/停止面板，底层换 ExoPlayer。`hideVideoView`/`hideAudioPlayer`
+   统一 `setPlayer(null)` + `release`，切换内容与 `onDestroy` 都走同一处。
+2. **协议**：`build.gradle` 加 `media3-exoplayer-rtsp` / `-smoothstreaming` /
+   `media3-datasource-rtmp`；`AudioPlaybackService` 的 `SchemeDataSource` 在
+   `RtmpDataSource` 与带请求头的 HTTP DataSource 间按 scheme 延迟选择；
+   `mimeTypeOf` 补 `APPLICATION_RTSP`、`APPLICATION_SS`，RTMP 返回 null 交给 progressive
+   （不能误标 HLS/DASH）。
+3. **DRM**：`PlaybackDrm` 当前配置表 + `DrmResolver`（widevine/clearkey/playready、
+   licenseUrl、headers、multiSession）→ MediaItem.DrmConfiguration；普通媒体会清空。
+4. **续播**：按 mediaId 写 `ai_chat_prefs`，`notifyState` 里 5s 节流，切歌/暂停/错误/
+   断开/结束时立即落盘；HLS/DASH/SS/RTSP/RTMP 不恢复（可能是直播），普通文件/直链
+   >5s 才 seek；结束/接近结尾清键。
+5. **验证**：`DrmResolverTest` 2（scheme/配置/清空）、`ProtocolMimeTest` 4
+   （SS/RTSP/RTMP/HLS 回归）；全量 **867 / 0 skipped / 0 failures / 0 errors**；
+   `assembleDebug` 通过（APK 01:33:25，含协议模块，931 MB）。**未装机**；RTSP/RTMP/SS、
+   DRM license、文件预览音视频、续播都只能真机验。
+6. **未做**：Cast 投屏（`media3-cast` + Cast SDK/接收端 App ID）与离线缓存
+   （`SimpleCache` + 下载管理 UI/存储策略）没有硬塞；需要产品确认接收端/存储/版权策略。
+   提交 `a57d3f16`。
+
 ---
 
 ## 5. 关键文件 / 改动地图

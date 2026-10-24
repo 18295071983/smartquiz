@@ -1,5 +1,30 @@
 # 变更日志
 
+## [2026-10-25] feat(player)：P2——文件预览统一 ExoPlayer、RTSP/SS/RTMP、DRM、续播
+
+P2 把第二条播放链路收口，并补协议/DRM/续播；投屏与离线缓存需要额外 SDK/下载管理 UI，
+没有硬塞进这一批。
+
+- **文件预览统一**：`FileRenderActivity` 的 `VideoView` / `MediaPlayer` 全部换成 ExoPlayer。
+  视频用 `PlayerView`（默认控制条、比例适配、错误提示、常亮）；音频保留原文件名/进度/
+  播放暂停/停止面板，底层换 ExoPlayer。切换内容与 `onDestroy` 统一 release，不再两套内核。
+- **协议模块**：引入 `media3-exoplayer-rtsp`、`media3-exoplayer-smoothstreaming`、
+  `media3-datasource-rtmp`；`AudioPlaybackService` 的 `SchemeDataSource` 按 URI scheme
+  在 `RtmpDataSource` 与带 UA/Referer/Cookie 的 HTTP DataSource 间选择；`mimeTypeOf`
+  补 RTSP/SmoothStreaming（RTMP 交给 progressive，不误标 HLS/DASH）。
+- **DRM**：`PlaybackDrm` + `DrmResolver` 支持 props.drm 的 widevine/clearkey/playready、
+  `licenseUrl`、license headers、`multiSession`，随 MediaItem 下发 `DrmConfiguration`；
+  普通媒体会清掉上一首的 DRM。
+- **续播**：点播媒体按 mediaId 把位置写入 `ai_chat_prefs`（5s 节流；HLS/DASH/SS/RTSP/RTMP
+  可能是直播，不恢复），再播 >5s 自动 seek；结束/接近结尾会清掉。
+- **验证**：新增 `DrmResolverTest` 2、`ProtocolMimeTest` 4；全量
+  **867 tests / 0 skipped / 0 failures / 0 errors**；`assembleDebug` 通过
+  （APK 01:33:25，含新增协议模块，931 MB）。**未装机**：RTSP/RTMP/SS、DRM license、
+  文件预览音视频、续播都只能真机验。
+- **未做**：Cast 投屏需要 `media3-cast` + Cast SDK/接收端 App ID；离线缓存需要
+  `SimpleCache` + 下载管理 UI/存储策略。这两项不是内核能力，留给产品确认后再接。
+- 提交 `a57d3f16`。
+
 ## [2026-10-25] feat(chat-player)：P1——字幕/音轨选择、PiP、请求头、封面、睡眠定时
 
 P0 把基础控制补齐后，P1 补"能看/能带源/能进系统"的一层；仍复用同一个进程级 ExoPlayer。
