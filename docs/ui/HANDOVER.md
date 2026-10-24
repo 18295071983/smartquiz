@@ -2616,6 +2616,16 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
      300ms 节流滑动平均），在 `appendAgentThinkingToken` / `appendBridgeThinkingToken` /
      legacy 标签思考路径接入——原先只有正文 token 走 `updateStreamingTokenStats` 刷速度，
      思考阶段没有速度、正文开始/结束时才闪一下。正文阶段仍由 `updateStreamingTokenStats` 接管。
+8. **状态词统一（同日第三轮，用户反馈"生成中和主气泡深度思考同时出现且文字不同"）**：
+   - 新增 `ai/chat/InferenceStatusLabel`：短标签唯一来源（思考中/生成中/等待响应，
+     完成/失败/空闲返回 null）+ `isReasoningActive(phase)`（未知阶段按激活，保持旧行为）；
+   - `AIChatActivity` 生成状态行改用该词表；
+   - `ReasoningPartRenderer#stateLabel` 改用该词表：**只有 `part.isStreaming()` 的活跃思考块**
+     显示动态状态，其它块走 `doneLabel` → "已深度思考"（parts 模式 `markLiveStreaming` 只给
+     live 轮打 streaming，所以多个思考块只有当前块切换）；
+   - `ChatAdapter` legacy 思考行（`thinkingHeaderText` / round activity view）同口径，
+     phase 进 `GENERATING` 即回"已深度思考"；未知阶段退回旧资源文案；
+   - 测试：`InferenceStatusLabelTest` 5 条；全量 954 / 0 skipped / 0 failures / 0 errors。
 
 ---
 

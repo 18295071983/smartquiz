@@ -205,13 +205,20 @@ public final class ReasoningPartRenderer implements PartRenderer {
         }
     }
 
-    /** 状态机状态文案（消息当前的推理阶段，取不到退回"正在思考…"）。 */
+    /**
+     * 折叠头的"活动态"文案：与底部生成状态行共用同一套词
+     * （{@link com.oilquiz.app.ai.chat.InferenceStatusLabel}）——思考中显示"思考中"，
+     * 不再用"正在思考…"，避免同屏两套说法（2026-10-25 用户反馈）。
+     *
+     * <p>只有当前活跃的思考块（{@code part.isStreaming()}）才会走到这里；其它思考块走
+     * {@link #doneLabel} 显示"已深度思考"，所以多个思考块时只有正在跑的那一块会切换状态文字。</p>
+     */
     private static String stateLabel(Row row) {
         ChatMessage msg = row.host != null ? row.host.message() : null;
-        if (msg != null && msg.inferenceProgress != null
-                && msg.inferenceProgress.phase != null) {
-            String text = msg.inferenceProgress.phase.getDisplayText();
-            if (text != null && !text.isEmpty()) return text;
+        if (msg != null && msg.inferenceProgress != null) {
+            String label = com.oilquiz.app.ai.chat.InferenceStatusLabel
+                    .shortLabel(msg.inferenceProgress.phase);
+            if (label != null) return label;
         }
         return thinkingNow(row.header.getContext());
     }

@@ -1,5 +1,25 @@
 # 变更日志
 
+## [2026-10-25] fix(chat-ui)：生成状态行与气泡内「深度思考」折叠头共用同一套状态词
+
+用户反馈：底部"生成中"和主气泡里的深度思考同时出现、但文字不同；希望深度思考折叠头用同一套
+状态词切换，只在激活时使用、结束后回到"已深度思考"，多个思考块只作用于当前激活块。
+
+- 新增 `ai/chat/InferenceStatusLabel` 作为推理状态机短标签的唯一来源：
+  `THINKING → 思考中`、`GENERATING/DECODING → 生成中`、等待类阶段 → `等待响应`、
+  完成/失败/空闲 → null；`isReasoningActive(phase)` 判"思考块是否还激活"（未知阶段按激活，
+  保持历史/旧引擎行为）。
+- 三处接入，保证同屏同词：
+  1. `AIChatActivity` 生成状态行（状态文案、实时速度时的阶段、新一轮初始化）；
+  2. `ReasoningPartRenderer#stateLabel`（parts 模式折叠头）——只有 `part.isStreaming()` 的
+     活跃块显示动态状态，其它块走 `doneLabel` → "已深度思考"；
+  3. `ChatAdapter` legacy 思考行（`thinkingHeaderText` + round activity view）同口径，
+     phase 一进 `GENERATING` 立刻回"已深度思考"。
+- 多个深度思考块：parts 模式 `AssistantTurn#markLiveStreaming` 只给 live 轮打 streaming，
+  legacy 只对 `lastGroup` 生效 → 只有当前激活块切换状态文字。
+- **验证**：新增 `InferenceStatusLabelTest` 5 条；全量 `testDebugUnitTest --offline --no-build-cache`
+  **954 / 0 skipped / 0 failures / 0 errors**；`assembleDebug --offline` 通过；
+  按用户要求未做真机测试（APK 已装到设备）。
 ## [2026-10-25] fix(chat-ui)：生成状态行收口为「单一状态 + 实时速度 + 余额」
 
 用户反馈上一版：一行太乱；"生成中"和推理状态机语义冲突；"模型 就绪"看不懂；

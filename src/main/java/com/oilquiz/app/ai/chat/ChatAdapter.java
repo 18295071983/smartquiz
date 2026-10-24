@@ -2012,8 +2012,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (label != null) {
                 label.setVisibility(View.VISIBLE);
                 String header;
-                if (streaming && lastGroup) {
-                    header = ctx.getString(R.string.chat_v2_thinking_now);
+                ChatMessage.InferencePhase thinkPhase = message.inferenceProgress != null
+                        ? message.inferenceProgress.phase : null;
+                if (streaming && lastGroup
+                        && com.oilquiz.app.ai.chat.InferenceStatusLabel.isReasoningActive(thinkPhase)) {
+                    // 与输入区上方的生成状态行同一套词（思考中 / 等待响应）：
+                    // 阶段未知时退回旧文案，避免同屏两处说法不同（2026-10-25 用户反馈）
+                    String statusLabel = com.oilquiz.app.ai.chat.InferenceStatusLabel
+                            .shortLabel(thinkPhase);
+                    header = statusLabel != null
+                            ? statusLabel : ctx.getString(R.string.chat_v2_thinking_now);
                 } else if (duration > 0L) {
                     header = ctx.getString(R.string.chat_v2_thought_for_steps,
                             formatThinkingDuration(duration), count);
@@ -2424,7 +2432,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (host != null) host.setVisibility(View.GONE);
             if (holder.thinkingDivider != null) holder.thinkingDivider.setVisibility(View.GONE);
         } else {
-            holder.thinkingLabel.setText(thinkingHeaderText(ctx, model, isStreaming, live));
+            holder.thinkingLabel.setText(thinkingHeaderText(ctx, message, model, isStreaming, live));
             holder.thinkingLabel.setTextColor(androidx.core.content.ContextCompat.getColor(ctx,
                     model.anyFailed && !isStreaming ? R.color.chat_v2_danger : R.color.chat_v2_text_2));
 
@@ -2541,9 +2549,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     /** 思考行 header 文案：流式看状态、完成看步数/耗时（demo 的 think-line 只讲思考） */
-    private String thinkingHeaderText(Context ctx, ActivityTimeline.Model model,
+    private String thinkingHeaderText(Context ctx, ChatMessage message, ActivityTimeline.Model model,
                                       boolean streaming, String live) {
-        if (streaming) return ctx.getString(R.string.chat_v2_thinking_now);
+        ChatMessage.InferencePhase phase = message != null && message.inferenceProgress != null
+                ? message.inferenceProgress.phase : null;
+        // 只有「这一轮还在思考」时头部才挂活动态；进正文/结束就回到"已深度思考"（含多个思考块时
+        // 只作用于当前活跃块——非流式轮次走下面的完成态分支）。
+        if (streaming && com.oilquiz.app.ai.chat.InferenceStatusLabel.isReasoningActive(phase)) {
+            String label = com.oilquiz.app.ai.chat.InferenceStatusLabel.shortLabel(phase);
+            return label != null ? label : ctx.getString(R.string.chat_v2_thinking_now);
+        }
         if (model.thinkingSteps > 0) {
             return model.thinkingDurationMs > 0L
                     ? ctx.getString(R.string.chat_v2_thought_for_steps,

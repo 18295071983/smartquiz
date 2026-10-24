@@ -1363,7 +1363,8 @@ public class AIChatActivity extends BaseActivity {
             if (show) {
                 // 新一轮：推理状态机先置「等待响应」，速度清零；阶段由 markStreamingPhase 更新，
                 // 模型状态机从服务状态文本同步（避免行上只有"生成中 · 等待响应"两块空着）
-                chatInputBar.setInferencePhase("等待响应");
+                chatInputBar.setInferencePhase(
+                        com.oilquiz.app.ai.chat.InferenceStatusLabel.WAITING);
                 chatInputBar.setInferenceSpeed(0f);
                 updateModelStateFromStatusText();
             }
@@ -6118,32 +6119,19 @@ public class AIChatActivity extends BaseActivity {
 
     /**
      * 生成状态行（输入胶囊上方）：把推理阶段映射成"推理状态机"文案。
-     * 速度由 {@link #updateStreamingTokenStats} 单独刷新，模型状态机由
-     * {@link #setStatusTextIfChanged} 从服务状态文本里同步。
+     * 词表与气泡内「深度思考」折叠头共用 {@link com.oilquiz.app.ai.chat.InferenceStatusLabel}，
+     * 保证同屏两处说法一致；速度由 {@link #updateStreamingTokenStats} 单独刷新。
      */
     private void updateInferenceStatusRow(final ChatMessage.InferencePhase phase) {
         if (chatInputBar == null || phase == null) {
             return;
         }
+        String label = com.oilquiz.app.ai.chat.InferenceStatusLabel.shortLabel(phase);
+        if (label == null) {
+            return;
+        }
         try {
-            switch (phase) {
-                case THINKING:
-                    chatInputBar.setInferencePhase("思考中");
-                    break;
-                case GENERATING:
-                case DECODING:
-                    chatInputBar.setInferencePhase("生成中");
-                    break;
-                case INITIALIZING:
-                case LOADING_MODEL:
-                case ENCODING:
-                case PREFILL:
-                case WAITING:
-                    chatInputBar.setInferencePhase("等待响应");
-                    break;
-                default:
-                    break;
-            }
+            chatInputBar.setInferencePhase(label);
         } catch (Throwable ignored) {
         }
     }
@@ -6164,7 +6152,9 @@ public class AIChatActivity extends BaseActivity {
         final float tps = reasoningTokenCount * 1000f / elapsed;
         runOnUiThread(() -> {
             if (chatInputBar != null) {
-                chatInputBar.setInferencePhase("思考中");
+                // 与气泡内活跃思考块同一个词（见 InferenceStatusLabel）
+                chatInputBar.setInferencePhase(
+                        com.oilquiz.app.ai.chat.InferenceStatusLabel.THINKING);
                 chatInputBar.setInferenceSpeed(tps);
             }
         });
