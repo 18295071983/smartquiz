@@ -1,10 +1,15 @@
-# HTML 设计规则 —— 面向 SmartQuiz 壳 APK（v8.1 专业版）
+# HTML 设计规则 —— 面向 SmartQuiz 壳 APK（v9.15 专业版）
 
 > 适用对象：应用内 agent（`export_apk` 工具）与开发者在生成"要导出为 APK 的 HTML"时应遵守的约定。
-> 目标：让内容用满壳的原生能力（**内置引擎库**/JS 桥/权限/分享/网络代理），避免踩 WebView 与安卓兼容坑。
+> 目标：让内容用满壳的原生能力（**内置引擎库**/JS 桥/权限/分享/网络代理/直播），避免踩 WebView 与安卓兼容坑。
 > 规则分级：**【必须】** 违反会导致打不开或功能异常；**【建议】** 体验优化；**【禁止】** 会造成安全/兼容问题。
-> 壳版本：**v8.1** = targetSdk 35 / **minSdk 26（不兼容 Android 8.0 以下旧机）**（Android 15 强制边缘到边）。
-> **v8.1 变更**（v8 基础上 + targetSdk 35）：沉浸全屏（enterFullscreen/isFullscreen，失焦自动重应用）、屏幕方向（setOrientation/getOrientation）、系统亮度（setBrightness/getBrightness）、TTS 朗读（speakText/stopSpeak）、壳内文件（saveFile/readFile/listFiles/deleteFile，仅 htmlDir 内防穿越）、原生日期/时间选择器（pickDate/pickTime）、原生确认框（showDialog）、系统信息（getSystemInfo）、应用探测/打开（isAppInstalled/openApp/openInApp）；壳版本号编译进 dex（`getShellVersion()`=`"v8.1"`、`getBridgeApi()`=`5`）；剪贴板监听、通知栏、前台服务、深链、权限状态面板、JS 注入通道、离线缓存、渲染进程崩溃保护；内置库 highlight.js / DOMPurify。
+> 壳版本：**v9.15** = targetSdk 35 / **minSdk 26（不兼容 Android 8.0 以下旧机）**（Android 15 强制边缘到边）。
+> **v9.15 变更**：支持 M3U 的 `tvg-logo`（远程/包内相对路径）并在原生首页/播放器渲染；新增 `config/channels.m3u` + `config/logos/` 配置目录（导出器改文件即可换频道/台标）；没台标或加载失败时用内置自适应台标（央视数字/卫视/地方分类图标）。
+> **v9.14 变更**：一键直播的包内 m3u 现在由进程级 localhost 静态服务提供，**相对流地址也能解析到包内文件**；直播首页重做（分组 chips、台标占位、卡片列表、搜索/收藏/换源），播放器重做（台标、主按钮、频道弹窗、缓冲卡片）。
+> **v9.13 修复**：HLS 清单 302 跳转到另一台主机、且分片是相对路径时，media3 会把分片拼到旧主机导致 `ERROR_CODE_IO_BAD_HTTP_STATUS`。播放器现在**先跟随跳转拿到最终清单地址**再 prepare；HTTP 错误会自动重解析重试 2 次，并在错误页显示真实 HTTP 状态码。
+> **v9.12 变更**：新增**一键直播**（`export_apk` 传 `live_url`，manifest 写入 live 配置，壳启动直接进原生直播首页；无需 HTML）。新增原生 `LiveTvHomeActivity`：频道列表/搜索/收藏/刷新/换源/错误重试；`live_autoplay=true` 或单频道源自动进播放器。
+> **v9.11 变更**：新增**电视直播**（原生 ExoPlayer + HLS；M3U/M3U8 频道源解析/缓存、频道源/收藏/上次播放、全屏播放器、`liveevent` 事件；`bridgeApi=6`）；壳版本号编译进 dex（`getShellVersion()`=`"v9.11"`、`getBridgeApi()`=`6`）。
+> **v8.x/v9.x 能力**：沉浸全屏、屏幕方向、亮度、TTS（音色/引擎）、壳内文件、原生选择器/对话框、系统信息、应用探测/打开、剪贴板监听、通知栏、前台服务、深链、权限状态面板、JS 注入、离线缓存、渲染进程崩溃保护；内置库 highlight.js / DOMPurify。
 
 ---
 
@@ -206,7 +211,7 @@ app/                              # 导出时传该目录给 html_dir
 
 ## 四、原生能力桥 `window.AndroidApp`【能力清单】
 
-壳 v8.1 注入 `window.AndroidApp`（JS 桥，**63 个方法**；完整源码清单见同目录 `APK_SOURCE_GUIDE.md` 第三节）。调用前做可用性检查：
+壳 v9.11 注入 `window.AndroidApp`（JS 桥，**80 个方法名 / 81 个 @JavascriptInterface**，其中 `speakText` 有两个重载；完整源码清单见同目录 `APK_SOURCE_GUIDE.md` 第三节）。调用前做可用性检查：
 
 ```js
 function bridge() { return window.AndroidApp || null; }
@@ -283,9 +288,9 @@ const pasted = window.AndroidApp.readClipboard();
 
 **① 版本探测（壳版本号已编译进 dex，无需依赖资源/manifest）**
 ```js
-window.AndroidApp.getShellVersion();   // "v8"
-window.AndroidApp.getBridgeApi();      // 4（桥 API 版本，能力探测用）
-JSON.parse(window.AndroidApp.getVersion());  // {shellVersion:"v8", bridgeApi:4, versionName:"8.0", versionCode:8}
+window.AndroidApp.getShellVersion();   // "v9.11"
+window.AndroidApp.getBridgeApi();      // 6（桥 API 版本，能力探测用）
+JSON.parse(window.AndroidApp.getVersion());  // {shellVersion:"v9.11", bridgeApi:6, versionName:"9.11", versionCode:25}
 ```
 
 **② 剪贴板监听（前台可见时有效）**
@@ -339,7 +344,7 @@ window.AndroidApp.clearCache();      // 清空离线缓存
 
 **⑨ 渲染进程崩溃保护**：页面渲染进程崩溃不会杀掉整个应用，壳自动回到错误重试页（API 26+ 的 `onRenderProcessGone`），无需 HTML 处理。
 
-> **⚠️ 回调参数铁律（真机实测教训）**：回调参数一律为 **JSON 对象字面量**（`window[cb]({...})`；v8.1 已修复历史版本把对象再包一层引号导致 JS 收到字符串的 bug，`r.dataBase64`/`r.ok` 等属性可直接取）。凡签名里带 `callbackName` 的桥方法（`request` / `requestPermission` / `openFilePicker` / `screenshot` / `startClipboardWatch` / `precacheUrl`），**回调名参数必填**，必须原样传一个字符串。WebView 桥对参数**数量**严格匹配，缺参或错数不会报"参数错误"，而是直接抛 **`Method not found`**。反面示例（自测页曾犯，运行日志报 Method not found）：
+> **⚠️ 回调参数铁律（真机实测教训）**：回调参数一律为 **JSON 对象字面量**（`window[cb]({...})`；v8.1 已修复历史版本把对象再包一层引号导致 JS 收到字符串的 bug，`r.dataBase64`/`r.ok` 等属性可直接取）。凡签名里带 `callbackName` 的桥方法（`request` / `requestPermission` / `openFilePicker` / `screenshot` / `startClipboardWatch` / `precacheUrl` / `openLiveTv` / `loadLiveChannels` / `parseLiveChannels`），**回调名参数必填**（直播的 `openLiveTv` 回调可空，但建议传），必须原样传一个字符串。WebView 桥对参数**数量**严格匹配，缺参或错数不会报"参数错误"，而是直接抛 **`Method not found`**。反面示例（自测页曾犯，运行日志报 Method not found）：
 >
 > ```js
 > // ❌ 错误：screenshot 少传回调名 → Error invoking screenshot: Method not found
@@ -354,6 +359,74 @@ window.AndroidApp.clearCache();      // 清空离线缓存
 >
 > 建议先传参、后定义回调函数（或先定义再传名均可，回调按名查找），并始终在调用前加 `typeof window.AndroidApp !== "undefined"` 守卫。
 
+### 电视直播（v9.11 / bridgeApi 6）
+
+壳内置**原生 ExoPlayer + HLS** 播放页，不依赖 WebView 对 m3u8 的支持。支持 M3U/M3U8 频道列表、UA/Referer、直播窗口自愈、重连、频道切换、画面比例、遥控器左右切台。**只支持 HTTP(S)**；RTSP/RTMP/RTSP 等协议会明确报错（未引入对应模块）；DASH(mpd) 暂不支持。
+
+| 方法 | 参数 | 返回 | 说明 |
+|---|---|---|---|
+| `openLive(url, title, headersJson)` | string×3 | string(JSON) | 播放单路 HLS/HTTP 流；headersJson 可空或 `{"User-Agent":"..","Referer":".."}`；返回 `{ok,error}` |
+| `openLiveTv(playlistUrl, sourceName, startChannel, callbackName)` | string×4 | — | 抓取 M3U/M3U8 → 打开播放器；`startChannel` 可为 id/名称/空；回调 `{ok,count,cached,warning,error}` |
+| `loadLiveChannels(playlistUrl, callbackName)` | string×2 | — | 只抓取/解析，不开播放器；回调 `{ok,count,channels,cached,singleStream,truncated,warning}`（channels 最多 3000 个） |
+| `parseLiveChannels(text, baseUrl, callbackName)` | string×3 | — | 解析页面已拿到的清单文本（本地文件/自定义鉴权）；baseUrl 用于相对流地址 |
+| `openLiveChannels(channelsJson, index, sourceName)` | string,int,string | — | 播放页面构造的频道数组（数组或 `{"channels":[...]}`），index 从 0 开始 |
+| `stopLive()` | — | — | 关闭当前播放器 |
+| `saveLiveSource(name, url)` | string×2 | string(JSON) | **显式**保存频道源（临时打开的源不会自动保存）；返回 `{ok,source}` |
+| `deleteLiveSource(id)` | string | string(JSON) | 删除已保存源；`{ok,deleted}` |
+| `getLiveSources()` | — | string(JSON) | `{ok,sources:[{id,name,url,channelCount,updatedAt}]}` |
+| `getLiveFavorites()` | — | string(JSON) | `{ok,channels:[频道对象]}` |
+| `toggleLiveFavorite(channelJson)` | string | string(JSON) | 收藏/取消；`{ok,favorite,channel}` |
+| `getLastLiveChannel()` | — | string(JSON) | `{ok,last:{channel,source,index,at}|null}` |
+| `clearLiveHistory()` | — | string(JSON) | 清除"上次播放"（不动收藏/源） |
+
+频道对象：`{id,name,group,logo,url,headers?}`。播放器事件通过 **DOM 事件**回传，不需要启动回调：
+
+```js
+window.addEventListener('liveevent', e => {
+  const d = e.detail; // {action:'started'|'error'|'closed', channel, index, count, source, message?}
+  if (d.action === 'error') console.warn(d.message);
+});
+
+// 典型：读取本地 m3u → 解析 → 播放第 0 个频道
+fetch('live.m3u').then(r => r.text()).then(text => {
+  window.__parsed = r => {
+    if (!r.ok) return;
+    window.AndroidApp.openLiveChannels(JSON.stringify(r.channels), 0, '我的直播源');
+  };
+  window.AndroidApp.parseLiveChannels(text, new URL('live.m3u', location.href).href, '__parsed');
+});
+```
+
+> 播放器打开时网页会进入后台（`onPause`），`liveevent` 会先排队，回到网页后补发；不要在播放器打开期间等待 JS 定时器。
+> 原生播放器会让每个导出 APK 增加约 **2.6MB**（media3 HLS + UI），这是"直播开箱即用"的体积代价。
+
+### 一键直播（v9.12，可完全不用写 HTML）
+
+调用 `export_apk` 时直接给 `live_url`，可省略 `html/url/html_file/html_dir`。工具会生成占位页，并把以下配置写进壳的 `assets/manifest.json`：
+
+```json
+{"main":"index.html","targver":1,
+ "live":{"url":"https://example.com/live.m3u","name":"我的电视","start":"CCTV1","autoplay":true}}
+```
+
+| 参数 | 说明 |
+|---|---|
+| `live_url` | **必填**。M3U/M3U8 的 http(s) 地址；或 `html_dir` 内的相对路径（如 `live.m3u`） |
+| `live_name` | 频道源显示名（可空，默认从 URL 推导） |
+| `live_start` | 启动频道 id/名称（可空=第一个） |
+| `live_autoplay` | `true`=加载完直接播放；默认 `false`=先显示原生频道首页 |
+
+> 频道表/台标推荐放 `html_dir/config/channels.m3u` 与 `html_dir/config/logos/`，`app.json.live.url` 指向前者；完整目录与台标规则见同目录 `CONFIG_GUIDE.md`。
+>
+> 也可以不传参数，在 `html_dir/app.json` 里写 `"live":{"url":"live.m3u","name":"国内频道","start":"","autoplay":false}`；导出器改这个配置文件就能换频道表。参数优先于 app.json。
+
+壳启动流程：`manifest.live` 存在 → 跳过 WebView → `LiveTvHomeActivity`（原生频道列表：搜索/收藏/刷新/换源/错误重试）→ 点频道或自动播放 → `LivePlayerActivity`。
+
+- **本地频道源**：`live.m3u` 和页面一起放进 `html_dir`，`live_url="live.m3u"`；壳解压后用**进程级 localhost 静态服务**挂起目录，m3u 里的相对流地址会解析成 `http://127.0.0.1:<port>/...`，可直接播放包内文件。若相对地址指向的是外部服务器路径，仍需改成绝对地址（包内没有那台服务器）。
+- **无 HTML 来源**：`live_url` 为远程地址时，工具自动生成占位入口页；旧壳也有 `openLiveTv` 兜底。
+- **作者仍想自定义首页**：给 `html_dir`（含 index.html）并同样传 `live_url`；一键直播优先，HTML 不会自动加载，但会作为包内资源保留。
+- **真实频道源必须用户提供并确认授权**，不要编造 M3U 地址；模板里的国内示例频道仅用于演示。
+
 ---
 
 ## 五、媒体播放【建议】
@@ -361,6 +434,7 @@ window.AndroidApp.clearCache();      // 清空离线缓存
 - 壳已开 `mediaPlaybackRequiresUserGesture=false`，**音频/视频可自动播放**
 - 建议仍提供用户手势触发（首次播放时静音策略：`video.muted = true; video.play()` 兼容性最好）
 - 音频格式用 mp3/aac；视频用 mp4(H.264)/webm；字体用 woff2
+- **电视直播/IPTV**：不要用 `<video src="xxx.m3u8">`（WebView 的 HLS 支持因机型而异）；改走 `AndroidApp.openLive/openLiveTv/openLiveChannels` 的**原生播放器**。页面负责频道列表/分类/收藏 UI，播放器负责解码、UA/Referer、直播窗口自愈与遥控器操作；详见第四节「电视直播」。
 
 ---
 
@@ -393,7 +467,7 @@ window.AndroidApp.clearCache();      // 清空离线缓存
 
 ## 九、可直接复用的入口模板
 
-> **能力自测台（推荐先跑一遍）**：① `apk_shell/samples/engine_demo/index.html` 已升级为 **壳能力自测台**（chatkit 风格）——自动枚举全部桥方法、权限状态灯、v8.1 新能力一键实测（全屏/方向/亮度/TTS/壳内文件/选择器/对话框/系统信息/应用 + 通知/前台服务/剪贴板监听/深链/注入/缓存/截图）、实时调试日志流。生成完 HTML 应用后，把它作为"能力冒烟页"参考，或直接复制其 UI 风格（顶栏状态胶囊 / 版本信息条 / 能力列表 / 权限 chip / 分组实测按钮 / 日志控制台）到自己的应用首页。② 独立自测工程 `shell_cap_test/index.html`：顶部「一键测试全部 28 项」按钮，一次跑版本/设备/状态栏/文件/剪贴板/TTS/截图/预缓存等非弹窗桥并集中打印日志；弹窗/方向/全屏/退出等破坏性桥单独手动逐测。
+> **能力自测台（推荐先跑一遍）**：① `apk_shell/samples/engine_demo/index.html` 已升级为 **壳能力自测台**（chatkit 风格）——自动枚举全部桥方法、权限状态灯、v8.1 新能力一键实测（全屏/方向/亮度/TTS/壳内文件/选择器/对话框/系统信息/应用 + 通知/前台服务/剪贴板监听/深链/注入/缓存/截图）、实时调试日志流。② **电视直播最小模板 `files/live_tv_template.html`**（随 App 打包进工作区，可直接复制修改）：自带国内频道示例，演示加载 M3U→频道列表→`openLiveChannels` 播放→`liveevent`；另有 `apk_shell/samples/live_tv/index.html` 完整自测页（收藏/源管理/续播）。③ 独立自测工程 `shell_cap_test/index.html`：顶部「一键测试全部 28 项」按钮，一次跑版本/设备/状态栏/文件/剪贴板/TTS/截图/预缓存等非弹窗桥并集中打印日志；弹窗/方向/全屏/退出等破坏性桥单独手动逐测。
 
 ```html
 <!DOCTYPE html>

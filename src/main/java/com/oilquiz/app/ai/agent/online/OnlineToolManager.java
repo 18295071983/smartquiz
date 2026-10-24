@@ -291,6 +291,13 @@ public class OnlineToolManager {
                         "导出", "report", "生成markdown", "生成md", "生成表格文件", "生成txt", "写入文件")) {
                     include.add("file_generator");
                 }
+                // APK/网页应用/电视直播：主动注入导出工具，避免只把需求当普通网页处理
+                if (containsAny(msg, "apk", "打包成", "打包为", "网页应用", "html应用", "html 应用",
+                        "电视直播", "一键直播", "直播app", "直播 app", "直播软件", "iptv", "网络电视", "看电视",
+                        "电视app", "电视 app", "电视频道", "频道列表", "频道表", "台标", "直播配置")) {
+                    include.add("export_apk");
+                    include.add("file_generator");
+                }
                 if (containsAny(msg, "生成图片", "生成图", "画图", "画一张", "image_gen", "图片生成", "绘制")) {
                     include.add("image_gen");
                 }
@@ -671,7 +678,10 @@ public class OnlineToolManager {
     // ==================== 工具定义入库（2026-09-23：工具即知识，交给知识库按需检索） ====================
 
     private static final String TOOL_DEFS_CATEGORY = "tool_defs";
-    private static final String TOOL_DEFS_VERSION = "20260923-v4";
+    // 2026-10-24 v5：export_apk 描述/参数补直播配置目录与台标（config/channels.m3u、
+    // config/logos、tvg-logo、自适应台标）——不升版本，已装机的 KB 里仍是旧描述，
+    // 语义检索召不回"改台标/换频道表"这类需求。
+    private static final String TOOL_DEFS_VERSION = "20261024-v5";
 
     /**
      * 工具定义入库（幂等 + 版本控制）：把全部启用工具的定义（描述/适用场景/参数）写入知识库

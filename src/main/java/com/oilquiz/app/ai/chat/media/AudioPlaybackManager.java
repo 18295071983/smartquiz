@@ -19,7 +19,11 @@ import androidx.media3.session.SessionToken;
 
 import com.google.common.util.concurrent.ListenableFuture;
 
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 音频播放的界面侧入口（进程内单例，2026-10-23）。
@@ -158,6 +162,14 @@ public final class AudioPlaybackManager {
     /** 最近一次下发的队列（播放列表卡），切上下首后用它把 lastItem 同步到当前那首 */
     private java.util.List<MediaItem> lastQueue;
 
+    /** HLS 302 解析线程（不能在主线程做网络） */
+    private final ExecutorService resolver = Executors.newCachedThreadPool();
+    private int resolveSeq;
+    private int httpRetries;
+    private String lastOriginalUri, lastTitle, lastArtist;
+    private boolean lastLoop;
+    private float lastSpeed = 1.0f;
+
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
@@ -263,8 +275,45 @@ public final class AudioPlaybackManager {
             return;
         }
         lastError = null;
-        MediaItem item = buildMediaItem(uri, title, artist);
+        httpRetries = 0;
+        resolveSeq++;   // 取消可能还在解析的上一张 HLS 卡
+        if (MimeTypes.APPLICATION_M3U8.equals(mimeTypeOf(uri))) {
+            // HLS 清单可能 302 到另一台主机，分片又是相对路径；media3 会按原始清单
+            // 地址拼分片 → 404/403。视频卡和壳播放器一样，先解析出最终清单地址。
+            resolveAndPlay(uri, title, artist, loop, speed);
+            return;
+        }
+        playResolved(uri, uri, title, artist, loop, speed);
+    }
+
+    /** 先把 HLS 的 301/302 跟到最终清单地址，再下发播放（主线程回调） */
+    private void resolveAndPlay(final String uri, final String title, final String artist,
+                                final boolean loop, final float speed) {
+        final int seq = ++resolveSeq;
+        lastError = null;
+        notifyState();
+        resolver.execute(() -> {
+            final String finalUrl = resolveFinalUrl(uri);
+            main.post(() -> {
+                if (seq != resolveSeq) return;          // 用户又点了别的卡片
+                if (controller == null) return;
+                playResolved(uri, finalUrl, title, artist, loop, speed);
+            });
+        });
+    }
+
+    private void playResolved(String mediaIdUri, String playUri, String title, String artist,
+                              boolean loop, float speed) {
+        MediaController c = controller;
+        if (c == null) return;
+        lastError = null;
+        MediaItem item = buildMediaItem(mediaIdUri, playUri, title, artist);
         lastItem = item;   // 自愈重连要用本地这份（见 recoverBehindLiveWindow）
+        lastOriginalUri = mediaIdUri;
+        lastTitle = title;
+        lastArtist = artist;
+        lastLoop = loop;
+        lastSpeed = speed;
         c.setRepeatMode(loop ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
         c.setPlaybackSpeed(speed > 0.1f && speed <= 2.0f ? speed : 1.0f);
         c.setMediaItem(item);
@@ -272,6 +321,40 @@ public final class AudioPlaybackManager {
         c.play();
         ensureStallWatchdog();
         notifyState();
+    }
+
+    /** 跟随 301/302 到最终地址；失败就退回原始地址，交给 ExoPlayer 自己处理 */
+    private static String resolveFinalUrl(String raw) {
+        String current = raw;
+        HttpURLConnection conn = null;
+        try {
+            for (int i = 0; i < 6; i++) {
+                URL url = new URL(current);
+                conn = (HttpURLConnection) url.openConnection();
+                conn.setInstanceFollowRedirects(false);
+                conn.setConnectTimeout(8000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("User-Agent",
+                        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 "
+                                + "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
+                conn.setRequestProperty("Accept", "*/*");
+                int code = conn.getResponseCode();
+                if (code >= 300 && code < 400) {
+                    String loc = conn.getHeaderField("Location");
+                    if (loc == null || loc.isEmpty()) break;
+                    current = new URL(url, loc).toString();
+                    conn.disconnect();
+                    conn = null;
+                    continue;
+                }
+                break;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "resolve HLS redirect failed: " + e.getMessage());
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+        return current;
     }
 
     public void seekTo(long positionMs) {
@@ -292,6 +375,7 @@ public final class AudioPlaybackManager {
      */
     public void playQueue(java.util.List<String> uris, java.util.List<String> titles, int startIndex) {
         if (uris == null || uris.isEmpty()) return;
+        resolveSeq++;   // 取消可能还在解析的视频卡 HLS
         MediaController c = controller;
         if (c == null) {
             pendingQueueUris = new java.util.ArrayList<>(uris);
@@ -457,14 +541,24 @@ public final class AudioPlaybackManager {
      * （{@link MediaItem.LiveConfiguration#targetOffsetMs}）——见 {@link #LIVE_TARGET_OFFSET_MS}。</p>
      */
     static MediaItem buildMediaItem(String uri, String title, String artist) {
+        return buildMediaItem(uri, uri, title, artist);
+    }
+
+    /**
+     * @param mediaIdUri 卡片侧用来匹配"是不是我在放"的原始地址
+     * @param playUri    实际交给 ExoPlayer 的地址（HLS 可能是 302 后的最终清单地址）
+     */
+    private static MediaItem buildMediaItem(String mediaIdUri, String playUri,
+                                            String title, String artist) {
         MediaItem.Builder builder = new MediaItem.Builder()
-                .setUri(uri)
-                .setMediaId(uri)
+                .setUri(playUri)
+                .setMediaId(mediaIdUri)
                 .setMediaMetadata(new MediaMetadata.Builder()
                         .setTitle(title == null ? "" : title)
                         .setArtist(artist == null ? "" : artist)
                         .build());
-        String mime = mimeTypeOf(uri);
+        String mime = mimeTypeOf(playUri);
+        if (mime == null) mime = mimeTypeOf(mediaIdUri);
         if (mime != null) {
             builder.setMimeType(mime);
             if (MimeTypes.APPLICATION_M3U8.equals(mime) || MimeTypes.APPLICATION_MPD.equals(mime)) {
@@ -672,6 +766,7 @@ public final class AudioPlaybackManager {
         public void onPlaybackStateChanged(int playbackState) {
             if (playbackState == Player.STATE_READY) {
                 liveRecoveries = 0;   // 播稳了再重置计数
+                httpRetries = 0;
             } else if (playbackState == Player.STATE_BUFFERING) {
                 ensureStallWatchdog();   // 直播卡死没有错误回调，只能靠这只狗
             }
@@ -680,6 +775,15 @@ public final class AudioPlaybackManager {
         @Override
         public void onPlayerError(PlaybackException error) {
             if (recoverBehindLiveWindow(error)) return;
+            // HLS 302 token 过期 / 分片主机变化：按原始地址重新解析再试 2 次
+            if (error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
+                    && httpRetries < 2 && lastOriginalUri != null
+                    && MimeTypes.APPLICATION_M3U8.equals(mimeTypeOf(lastOriginalUri))) {
+                httpRetries++;
+                Log.w(TAG, "HTTP status error, re-resolve retry #" + httpRetries);
+                resolveAndPlay(lastOriginalUri, lastTitle, lastArtist, lastLoop, lastSpeed);
+                return;
+            }
             lastError = describeError(error);
             notifyState();
         }

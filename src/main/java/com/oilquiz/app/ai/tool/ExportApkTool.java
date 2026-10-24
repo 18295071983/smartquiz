@@ -44,7 +44,7 @@ import java.util.Map;
 @Tool(
     value = "export_apk",
     category = "export",
-    description = "APK 导出工具：把 Agent 生成的 HTML 打包成可安装的安卓 APK 应用（设备端完成，无需电脑）。壳内暴露 68 个原生桥方法（window.AndroidApp，壳 v8.1）。如需桥方法细节或 HTML 设计规则（按需查看，不必每次读取）：工作区内置 files/APK_SOURCE_GUIDE.md（68 桥清单/回调契约）与 files/HTML_DESIGN_RULES.md（HTML 生成规则），可用 workspace 工具读取。注意：带回调的桥（screenshot/requestPermission/openFilePicker/request/startClipboardWatch/precacheUrl）回调名参数必填，缺参会在页面报 Method not found。"
+    description = "APK 导出工具：把 Agent 生成的 HTML 打包成可安装的安卓 APK 应用（设备端完成，无需电脑）。壳内暴露 80 个原生桥方法（window.AndroidApp，壳 v9.15；含电视直播）。如需桥方法细节或 HTML 设计规则（按需查看，不必每次读取）：工作区内置 files/APK_SOURCE_GUIDE.md（80 桥清单/回调契约）与 files/HTML_DESIGN_RULES.md（HTML 生成规则），可用 workspace 工具读取。直播页可直接复制工作区 files/live_tv_template.html；也可在 html_dir/app.json 写 live:{url,name,start,autoplay}（导出器改配置即可换频道表，参数优先）；频道表/台标放 html_dir/config/channels.m3u、config/logos/（频道行 `tvg-logo` 指路，相对路径 logos/x.png 或远程 URL；不填用内置自适应台标），详见 CONFIG_GUIDE.md。真实频道源需用户提供并确认授权。**一键直播**：传 live_url（可省略 html/url/html_file/html_dir），壳启动直接进原生直播首页；live_name/live_start/live_autoplay 可选。注意：带回调的桥（screenshot/requestPermission/openFilePicker/request/startClipboardWatch/precacheUrl/openLiveTv/loadLiveChannels/parseLiveChannels）回调名参数必填，缺参会在页面报 Method not found。"
             + "生成网页/HTML 内容后，用 file_generator 写入 Agent 工作区得到文件路径，再调用本工具（推荐 html_dir 或 html_file），"
             + "即可导出可安装 APK。HTML 来源三选一：html(内容字符串)/html_file(单文件路径)/html_dir(含 index.html 的目录，"
             + "支持 css/js/图片等相对资源)。可自定义：app_name（应用名，UTF-8 ≤22 字节/中文约 7 字，默认“背题”）、icon_path/icon_emoji（图标）；APK 生成后返回完整路径，可提示用户安装或分享。",
@@ -57,7 +57,11 @@ import java.util.Map;
         @Param(name = "app_name", type = "string", description = "应用名（桌面显示名，UTF-8 字节 ≤22 即中文约 7 字；默认“背题”；资源名补丁实现）", required = false),
         @Param(name = "icon_path", type = "string", description = "应用图标路径（PNG/JPEG 均可，JPEG 自动转 PNG；≥192×192 建议 512×512；未传自动用 html_dir 根目录 icon.png；默认壳自带图标）", required = false),
         @Param(name = "icon_emoji", type = "string", description = "用 emoji 生成应用图标（如 📚/🏆，无需图片文件；可配 icon_bg 背景色）", required = false),
-        @Param(name = "icon_bg", type = "string", description = "icon_emoji 图标背景色（#RRGGBB，默认 #4338CA 渐变）", required = false)
+        @Param(name = "icon_bg", type = "string", description = "icon_emoji 图标背景色（#RRGGBB，默认 #4338CA 渐变）", required = false),
+        @Param(name = "live_url", type = "string", description = "一键直播：M3U/M3U8 频道源（http/https，或 html_dir 内的相对路径如 live.m3u）。填了可省略 HTML 来源，启动直接进原生直播首页", required = false),
+        @Param(name = "live_name", type = "string", description = "一键直播：频道源显示名（可空，默认从 URL 推导）", required = false),
+        @Param(name = "live_start", type = "string", description = "一键直播：启动频道 id 或名称（可空=第一个）", required = false),
+        @Param(name = "live_autoplay", type = "boolean", description = "一键直播：加载完成后直接播放（true），默认 false=先显示原生频道列表", required = false)
     }
 )
 public class ExportApkTool implements AITool {
@@ -93,7 +97,16 @@ public class ExportApkTool implements AITool {
                 + "HTML 设计规则（遵循可最大化壳能力；不确定时可按需查看工作区内置 files/HTML_DESIGN_RULES.md，workspace 读取）：入口必须 index.html；资源全部相对路径；"
                 + "viewport 加 viewport-fit=cover；内置库自动注入 html_dir/libs/（jquery/vue3/axios/dayjs/echarts/katex/marked/lodash/"
                 + "highlight/dompurify/animate/normalize，直接相对路径引用）；远程 API 跨域受限时用壳原生桥 window.AndroidApp.request()（无 CORS）；"
-                + "壳注入 window.AndroidApp 提供 68 个原生桥方法（toast/vibrate/shareText/shareFile/openBrowser/getDeviceInfo/getNetworkType/"
+                + "壳注入 window.AndroidApp 提供 80 个原生桥方法（toast/vibrate/shareText/shareFile/openBrowser/getDeviceInfo/getNetworkType/"
+                + "**电视直播（v9.11+）**：频道源用 M3U/M3U8。一键播放 `AndroidApp.openLiveTv(url, 源名, 起始频道或空, 回调名)`；"                + "先取列表 `AndroidApp.loadLiveChannels(url, cb)`（回调 {ok,count,channels,...}）再 `AndroidApp.openLiveChannels(JSON.stringify(channels), 0, 源名)`；"
+                + "单路流 `AndroidApp.openLive(url, 标题, headersJson)`。播放器事件 `window.addEventListener('liveevent', e => e.detail.action)`（started/error/closed）；"
+                + "**一键直播（v9.12+）**：调用本工具时直接传 live_url（可省略 HTML 来源），壳启动进原生频道首页；传 live_autoplay=true 则加载完直接播放。"
+                + "播放器打开时页面会暂停，事件回前台补发。回调均为对象契约。"
+                + "可直接复制工作区 files/live_tv_template.html 作为直播页起点；也可在 html_dir/app.json 写 live:{url,name,start,autoplay}，改配置文件即可换内置频道表（参数优先）。真实频道源必须由用户提供并确认授权，**不要编造 M3U 地址**。"
+                + "**频道表/台标都是配置数据，不用写进壳代码**：推荐目录 html_dir/config/channels.m3u（M3U 频道表，用 file_generator 写入）+ html_dir/config/logos/*.png（台标），"
+                + "频道行支持 `tvg-name/tvg-logo/group-title`，tvg-logo 可写包内相对路径（如 `logos/cctv1.png`，相对 channels.m3u 解析）或远程图片 URL；"
+                + "没给台标时原生首页/播放器自动用内置自适应台标（CCTV 红底、卫视/地方/新闻/体育/电影/少儿分组配色+首字+图标），无需图片资源也能好看。"
+                + "目录结构、字段规则与常见变更方式见工作区 files/CONFIG_GUIDE.md。"
                 + "权限管理（返回中文人性化结果）/剪贴板监听/通知栏/前台服务/深链/JS注入/离线缓存/电池/存储/系统文件选择/截图/状态栏适配（setStatusBarStyle/getStatusBarHeight/getNavBarHeight，高度为物理 px 需 JS 除以 DPR）等，"
                 + "完整清单可按需查看工作区内置 files/APK_SOURCE_GUIDE.md（workspace 读取））。APK 生成后返回完整路径、包名与 SHA-256，可提示用户安装或分享。";
     }
@@ -104,12 +117,16 @@ public class ExportApkTool implements AITool {
         params.put("url", "远程 URL（http/https），导出在线网页 APK；与 html/html_file/html_dir 四选一（互斥）");
         params.put("html", "HTML 内容字符串（与 url/html_file/html_dir 四选一，互斥）");
         params.put("html_file", "单个 HTML 文件完整路径（file_generator 返回的 filePath）");
-        params.put("html_dir", "含 index.html 的 HTML 目录完整路径（支持相对资源，推荐）");
+        params.put("html_dir", "含 index.html 的 HTML 目录完整路径（支持相对资源，推荐；电视直播页把 m3u 与页面放同目录，用 AndroidApp.parseLiveChannels 读取。一键直播可放 config/channels.m3u + config/logos/*.png，目录原样打进 APK，台标由频道表 tvg-logo 指路；只有 app.json 时也可省略 index.html）");
         params.put("apk_name", "输出 APK 文件名（不含 .apk 后缀，默认 app_name，无则 exported_时间戳）");
         params.put("app_name", "应用名（桌面显示名，UTF-8 字节 ≤22，中文约 7 字；默认“背题”）");
         params.put("icon_path", "应用图标路径（PNG/JPEG 均可，JPEG 自动转 PNG；≥192×192 建议 512；未传自动用 html_dir/icon.png）");
         params.put("icon_emoji", "用 emoji 生成应用图标（如 📚/🏆，无需图片文件；可配 icon_bg 背景色）");
         params.put("icon_bg", "icon_emoji 图标背景色（#RRGGBB，默认 #4338CA 渐变）");
+        params.put("live_url", "一键直播频道源 M3U/M3U8：http(s) 地址，或 html_dir 内的相对路径（推荐 config/channels.m3u）。填了可省略 HTML 来源，启动直接进原生直播首页；频道表里 tvg-logo 可配 config/logos/*.png 台标，未配则用内置自适应台标");
+        params.put("live_name", "一键直播频道源显示名（可空）");
+        params.put("live_start", "一键直播启动频道 id/名称（可空=第一个）");
+        params.put("live_autoplay", "一键直播加载后直接播放：true/false，默认 false（先显示频道列表）");
         return params;
     }
 
@@ -130,6 +147,10 @@ public class ExportApkTool implements AITool {
                 return AIToolResult.fail("HTML 来源参数必须四选一，不能同时传多个：" + String.join(" / ", given)
                         + "。请只保留 url / html / html_file / html_dir 中的一个。");
             }
+
+            // 1.5 一键直播：参数优先；未传时读 html_dir/app.json 的 live 配置（导出器可改配置换频道表）
+            ApkPacker.LiveConfig live = resolveLiveConfig(parameters, htmlDirHint(parameters));
+            String liveUrl = live == null ? "" : live.url;
 
             // 2. 输出目录：Agent 工作区下 apk_export（公开工作区时用户可直接访问），失败回退私有目录
             File outDir = new File(AgentWorkspace.getInstance(context).getWorkspaceDir(), "apk_export");
@@ -166,7 +187,29 @@ public class ExportApkTool implements AITool {
                     : ApkPacker.AppMeta.ofLabel("背题").withPackage(pkg);
             Object urlObj = parameters.get("url");
             String remoteUrl = urlObj == null ? "" : String.valueOf(urlObj).trim();
-            if (!remoteUrl.isEmpty()) {
+            if (live != null) {
+                // 一键直播优先：manifest 的 live 配置会跳过 HTML，直接进原生直播首页
+                File htmlSrc = resolveHtmlSource(parameters);
+                boolean relativeLive = !(liveUrl.startsWith("http://") || liveUrl.startsWith("https://"));
+                if (relativeLive) {
+                    if (htmlSrc == null || !htmlSrc.isDirectory()) {
+                        return AIToolResult.fail("live_url 为相对路径时必须用 html_dir，并确保频道源文件在目录内（如 html_dir/live.m3u）");
+                    }
+                    File m3u = new File(htmlSrc, liveUrl);
+                    if (!m3u.isFile()) {
+                        return AIToolResult.fail("html_dir 内找不到频道源文件: " + liveUrl);
+                    }
+                    ApkPacker.buildApkFromDir(context, htmlSrc, outApk, finalMeta, live);
+                } else if (htmlSrc != null && htmlSrc.isDirectory()) {
+                    ApkPacker.buildApkFromDir(context, htmlSrc, outApk, finalMeta, live);
+                } else if (htmlSrc != null) {
+                    ApkPacker.buildApk(context, htmlSrc, outApk, finalMeta, live);
+                } else {
+                    // 没有 HTML 来源：生成占位页（live 模式下壳不会加载它，旧壳也有兜底）
+                    File placeholder = writeLivePlaceholder(liveUrl);
+                    ApkPacker.buildApk(context, placeholder, outApk, finalMeta, live);
+                }
+            } else if (!remoteUrl.isEmpty()) {
                 if (!(remoteUrl.startsWith("http://") || remoteUrl.startsWith("https://"))) {
                     return AIToolResult.fail("url 必须以 http:// 或 https:// 开头");
                 }
@@ -174,7 +217,7 @@ public class ExportApkTool implements AITool {
             } else {
                 File htmlSrc = resolveHtmlSource(parameters);
                 if (htmlSrc == null) {
-                    return AIToolResult.fail("请提供 HTML 来源参数之一：url(远程地址) / html(内容) / html_file(文件路径) / html_dir(目录，须含 index.html)");
+                    return AIToolResult.fail("请提供 HTML 来源参数之一：url(远程地址) / html(内容) / html_file(文件路径) / html_dir(目录，须含 index.html)；或提供 live_url 做一键直播");
                 }
                 // 目录 → 整目录打包；文件/内容 → 单文件打包
                 if (htmlSrc.isDirectory()) {
@@ -209,12 +252,17 @@ public class ExportApkTool implements AITool {
             info.put("version_code", 1);
             info.put("sha256", sha256);
             info.put("elapsed_ms", elapsed);
+            if (live != null) {
+                info.put("live_mode", "true");
+                info.put("live_url", liveUrl);
+            }
             String result = "APK 导出成功！\n"
                     + "APK 路径: " + outApk.getAbsolutePath() + "\n"
                     + "APK 大小: " + String.format(Locale.US, "%.2f", sizeMb) + " MB\n"
                     + "应用名: " + (finalMeta.label != null ? finalMeta.label : "背题") + "\n"
                     + "包名: " + pkg + "\n"
                     + "版本: 1.0 (1)\n"
+                    + (live != null ? "一键直播: 是（启动直接进原生直播首页，源: " + liveUrl + "）\n" : "")
                     + "SHA-256: " + sha256 + "\n"
                     + "生成耗时: " + (elapsed / 1000.0) + " 秒\n"
                     + "说明: 每个导出包包名唯一，可与之前的导出**同时安装共存**（不再互相覆盖）；"
@@ -404,8 +452,83 @@ public class ExportApkTool implements AITool {
     }
 
     /** 解析 HTML 来源：html(内容) / html_file(文件) / html_dir(目录)，返回 null 表示参数缺失 */
-    private File resolveHtmlSource(Map<String, Object> parameters) throws Exception {
-        Object htmlObj = parameters.get("html");
+    /** 字符串参数（null/空白 → ""） */
+    private static String paramText(Map<String, Object> parameters, String key) {
+        Object v = parameters == null ? null : parameters.get(key);
+        return v == null ? "" : String.valueOf(v).trim();
+    }
+
+    /** 布尔参数：兼容 true/"true"/"1"/"yes" */
+    private static boolean paramBool(Map<String, Object> parameters, String key) {
+        Object v = parameters == null ? null : parameters.get(key);
+        if (v instanceof Boolean) return (Boolean) v;
+        if (v == null) return false;
+        String s = String.valueOf(v).trim().toLowerCase(Locale.US);
+        return "true".equals(s) || "1".equals(s) || "yes".equals(s);
+    }
+
+    /**
+     * 解析一键直播配置：显式参数优先，其次 html_dir/app.json 的
+     * {@code "live":{"url":"live.m3u","name":"...","start":"...","autoplay":false}}。
+     * 频道表本身就是包内的 m3u 文件，导出器改 app.json 或替换 live.m3u 即可，无需改壳代码。
+     */
+    private ApkPacker.LiveConfig resolveLiveConfig(Map<String, Object> parameters,
+                                                  File htmlDirHint) {
+        String liveUrl = paramText(parameters, "live_url");
+        String liveName = paramText(parameters, "live_name");
+        String liveStart = paramText(parameters, "live_start");
+        boolean hasAutoplayParam = parameters != null && parameters.containsKey("live_autoplay");
+        boolean liveAutoplay = paramBool(parameters, "live_autoplay");
+
+        if (liveUrl.isEmpty() && htmlDirHint != null) {
+            JSONObject app = readAppJson(htmlDirHint);
+            JSONObject live = app == null ? null : app.optJSONObject("live");
+            if (live != null) {
+                liveUrl = live.optString("url", "").trim();
+                if (liveName.isEmpty()) liveName = live.optString("name", "").trim();
+                if (liveStart.isEmpty()) liveStart = live.optString("start", "").trim();
+                if (!hasAutoplayParam) liveAutoplay = live.optBoolean("autoplay", false);
+            }
+        }
+        if (liveUrl.isEmpty()) return null;
+
+        boolean liveHttp = liveUrl.startsWith("http://") || liveUrl.startsWith("https://");
+        if (!liveHttp) {
+            if (liveUrl.contains("://") || liveUrl.contains("..")
+                    || liveUrl.startsWith("/") || liveUrl.contains("\\")) {
+                throw new IllegalArgumentException("live_url 必须是 http(s) 地址，或 html_dir 内的相对路径（如 live.m3u），不能包含 .. / 反斜杠");
+            }
+            if (!(liveUrl.toLowerCase(Locale.US).endsWith(".m3u")
+                    || liveUrl.toLowerCase(Locale.US).endsWith(".m3u8")
+                    || liveUrl.toLowerCase(Locale.US).endsWith(".txt"))) {
+                throw new IllegalArgumentException("相对 live_url 必须是 .m3u / .m3u8 / .txt 文件（放在 html_dir 内）");
+            }
+        }
+        return ApkPacker.LiveConfig.of(liveUrl, liveName, liveStart, liveAutoplay);
+    }
+
+    /** 一键直播没有 HTML 来源时的占位入口（live 模式下壳不加载；给旧壳/异常兜底） */
+    private File writeLivePlaceholder(String liveUrl) throws Exception {
+        File dir = new File(context.getCacheDir(),
+                "export_live_" + java.util.UUID.randomUUID().toString().substring(0, 8));
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new IllegalStateException("无法创建直播占位目录: " + dir.getAbsolutePath());
+        }
+        File index = new File(dir, "index.html");
+        String html = "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
+                + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+                + "<title>电视直播</title></head>"
+                + "<body style=\"margin:0;background:#0b0f14;color:#e8eef5;font:15px system-ui;padding:24px\">"
+                + "<p>正在打开电视直播…</p><script>(function(){var b=window.AndroidApp;"
+                + "if(!b)return;try{b.openLiveTv(" + JSONObject.quote(liveUrl)
+                + ",'电视直播','','');}catch(e){}})();</script></body></html>";
+        java.io.FileOutputStream fos = new java.io.FileOutputStream(index);
+        fos.write(html.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        fos.close();
+        return index;
+    }
+
+    private File resolveHtmlSource(Map<String, Object> parameters) throws Exception {        Object htmlObj = parameters.get("html");
         if (htmlObj != null && String.valueOf(htmlObj).trim().length() > 0) {
             // UUID 临时目录：并发导出不互抢（R1：目录唯一 + 用完即弃）
             File tmp = new File(context.getCacheDir(), "export_apk_" + java.util.UUID.randomUUID().toString().substring(0, 8));
@@ -431,7 +554,8 @@ public class ExportApkTool implements AITool {
         if (dirObj != null && String.valueOf(dirObj).trim().length() > 0) {
             File dir = new File(String.valueOf(dirObj));
             if (!dir.isDirectory()) throw new IllegalStateException("HTML 目录不存在: " + dir.getAbsolutePath());
-            if (!new File(dir, "index.html").exists()) {
+            boolean liveMode = !paramText(parameters, "live_url").isEmpty();
+            if (!new File(dir, "index.html").exists() && !liveMode) {
                 throw new IllegalStateException("HTML 目录缺少入口文件 index.html: " + dir.getAbsolutePath());
             }
             return dir;

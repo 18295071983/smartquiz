@@ -62,6 +62,53 @@ public final class ApkPacker {
 
     private ApkPacker() {}
 
+    /**
+     * v9.12 一键直播配置：写入壳 manifest.json 的 live 字段。
+     * 壳启动时检测到 live.url 会跳过 HTML，直接进原生直播首页。
+     */
+    public static final class LiveConfig {
+        public final String url;
+        public final String name;
+        public final String start;
+        public final boolean autoplay;
+
+        public LiveConfig(String url, String name, String start, boolean autoplay) {
+            this.url = url == null ? "" : url.trim();
+            this.name = name == null ? "" : name.trim();
+            this.start = start == null ? "" : start.trim();
+            this.autoplay = autoplay;
+        }
+
+        public static LiveConfig of(String url, String name, String start, boolean autoplay) {
+            return new LiveConfig(url, name, start, autoplay);
+        }
+
+        public boolean isEmpty() {
+            return url.isEmpty();
+        }
+
+        org.json.JSONObject toJson() throws org.json.JSONException {
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("url", url);
+            if (!name.isEmpty()) o.put("name", name);
+            if (!start.isEmpty()) o.put("start", start);
+            if (autoplay) o.put("autoplay", true);
+            return o;
+        }
+    }
+
+    /** 本地 HTML 模式的 manifest；live 非空时追加 live 配置 */
+    private static byte[] localManifestBytes(LiveConfig live) throws Exception {
+        if (live == null || live.isEmpty()) {
+            return MANIFEST_JSON.getBytes(StandardCharsets.UTF_8);
+        }
+        org.json.JSONObject obj = new org.json.JSONObject();
+        obj.put("main", ENTRY_MAIN);
+        obj.put("targver", 1);
+        obj.put("live", live.toJson());
+        return obj.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
     /** 导出元信息：自定义应用名、图标与包名（均为可选项） */
     public static final class AppMeta {
         public final String label;
@@ -128,12 +175,18 @@ public final class ApkPacker {
 
     /** 由 HTML 构建签名 APK，支持自定义应用名/图标 */
     public static File buildApk(Context context, File indexHtml, File outApk, AppMeta meta) throws Exception {
+        return buildApk(context, indexHtml, outApk, meta, null);
+    }
+
+    /** 由 HTML 构建签名 APK，支持自定义应用名/图标 + 一键直播配置 */
+    public static File buildApk(Context context, File indexHtml, File outApk, AppMeta meta,
+                                LiveConfig live) throws Exception {
         byte[] html = readAll(indexHtml);
         Log.i(TAG, "HTML size: " + html.length);
 
         // 1. HTML → ZIP
         byte[] zip = htmlToZip(html, ENTRY_MAIN);
-        return buildApkFromZip(context, zip, MANIFEST_JSON.getBytes(StandardCharsets.UTF_8), meta, outApk);
+        return buildApkFromZip(context, zip, localManifestBytes(live), meta, outApk);
     }
 
     /**
@@ -153,15 +206,22 @@ public final class ApkPacker {
 
     /** 由 HTML 目录构建签名 APK，支持自定义应用名/图标（html_dir/icon.png 可作默认图标） */
     public static File buildApkFromDir(Context context, File htmlDir, File outApk, AppMeta meta) throws Exception {
+        return buildApkFromDir(context, htmlDir, outApk, meta, null);
+    }
+
+    /** 由 HTML 目录构建签名 APK，支持自定义应用名/图标 + 一键直播配置 */
+    public static File buildApkFromDir(Context context, File htmlDir, File outApk, AppMeta meta,
+                                       LiveConfig live) throws Exception {
         if (htmlDir == null || !htmlDir.isDirectory()) {
             throw new IllegalArgumentException("HTML 目录无效: " + htmlDir);
         }
-        if (!new File(htmlDir, ENTRY_MAIN).exists()) {
+        // 一键直播模式壳不加载 HTML，目录里可以只放 m3u；非直播模式仍必须 index.html
+        if (live == null && !new File(htmlDir, ENTRY_MAIN).exists()) {
             throw new IllegalArgumentException("HTML 目录缺少入口文件: " + ENTRY_MAIN);
         }
         byte[] zip = dirToZip(htmlDir);
         Log.i(TAG, "HTML dir: " + htmlDir.getAbsolutePath() + ", ZIP size: " + zip.length);
-        return buildApkFromZip(context, zip, MANIFEST_JSON.getBytes(StandardCharsets.UTF_8), meta, outApk);
+        return buildApkFromZip(context, zip, localManifestBytes(live), meta, outApk);
     }
 
     /** ZIP → dt.jet（AES 加密）→ 替换进壳模板 → apksig 签名（buildApk 共用链路） */

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>电视直播</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b0f14; --card:#151c24; --line:#24313d; --txt:#e8eef5; --muted:#8fa3b5; --accent:#3ea6ff; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; padding:calc(18px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));
+         background:var(--bg); color:var(--txt); font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  h1 { font-size:19px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:12px; margin-bottom:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; margin-bottom:12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  button { appearance:none; border:1px solid var(--line); background:#1e2935; color:var(--txt);
+           border-radius:10px; padding:9px 13px; font-size:13px; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#06121f; font-weight:600; }
+  input { flex:1; min-width:180px; background:#0f151c; color:var(--txt); border:1px solid var(--line);
+          border-radius:10px; padding:9px 11px; font-size:13px; }
+  .ch { display:flex; align-items:center; gap:8px; padding:9px 2px; border-bottom:1px solid var(--line); }
+  .ch:last-child { border-bottom:0; }
+  .ch .n { flex:1; min-width:0; }
+  .ch b { display:block; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ch span { color:var(--muted); font-size:11px; }
+  .log { font:11px/1.5 ui-monospace,Consolas,monospace; color:var(--muted); white-space:pre-wrap;
+         word-break:break-all; max-height:140px; overflow:auto; }
+  .ok { color:#6ee7a8; } .bad { color:#ff8a8a; }
+</style>
+</head>
+<body>
+  <h1>电视直播</h1>
+  <div class="sub" id="ver">检测壳版本…</div>
+
+  <div class="card">
+    <div class="row" style="margin-bottom:8px">
+      <input id="url" placeholder="M3U / M3U8 频道源 URL（http/https）">
+      <button class="primary" id="loadRemote">加载远程源</button>
+    </div>
+    <div class="row">
+      <button id="loadDemo">加载示例频道</button>
+      <button id="single">播放单路示例</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:4px">频道</div>
+    <div id="channels"><div style="color:var(--muted);font-size:13px;padding:8px 0">尚未加载频道</div></div>
+  </div>
+
+  <div class="card">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:4px">事件</div>
+    <div class="log" id="log">等待事件…</div>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+const B = window.AndroidApp || null;
+let channels = [];
+let sourceName = '';
+
+/* 国内频道示例；真实项目请替换成你有权使用的 M3U/M3U8 频道源 */
+const DEMO_M3U = `#EXTM3U
+#EXTINF:-1 tvg-name="CCTV-1 综合" group-title="央视",CCTV-1 综合
+http://74.91.26.218:82/live/cctv1hd.m3u8
+#EXTINF:-1 tvg-name="CCTV-2 财经" group-title="央视",CCTV-2 财经
+http://74.91.26.218:82/live/cctv2hd.m3u8
+#EXTINF:-1 tvg-name="浙江卫视" group-title="卫视",浙江卫视
+https://ali-m-l.cztv.com/channels/lantian/channel10/1080p.m3u8`;
+
+function log(msg, cls) {
+  const el = $('log');
+  const line = document.createElement('div');
+  line.className = cls || '';
+  line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+function reply(r) {
+  if (!r) return { ok:false, error:'空响应' };
+  try { return typeof r === 'string' ? JSON.parse(r) : r; } catch (e) { return { ok:false, error:'JSON 解析失败' }; }
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function parse(text, baseUrl, name) {
+  sourceName = name || '';
+  B.parseLiveChannels(text, baseUrl || '', '__parsed');
+}
+window.__parsed = r => {
+  r = reply(r);
+  if (!r.ok) { log('解析失败：' + r.error, 'bad'); return; }
+  channels = r.channels || [];
+  render();
+  log('解析到 ' + r.count + ' 个频道');
+};
+
+window.__loaded = r => {
+  r = reply(r);
+  if (!r.ok) { log('加载失败：' + r.error, 'bad'); return; }
+  channels = r.channels || [];
+  render();
+  log('加载 ' + r.count + ' 个频道' + (r.cached ? '（缓存）' : ''));
+};
+
+function render() {
+  const box = $('channels');
+  if (!channels.length) {
+    box.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">没有频道</div>';
+    return;
+  }
+  box.innerHTML = channels.map((c, i) =>
+    '<div class="ch"><div class="n"><b>' + esc(c.name) + '</b><span>' +
+    esc((c.group || '未分组') + ' · ' + (i + 1) + '/' + channels.length) +
+    '</span></div><button data-play="' + i + '">播放</button></div>').join('');
+  box.querySelectorAll('[data-play]').forEach(btn => {
+    btn.onclick = () => play(Number(btn.dataset.play));
+  });
+}
+
+function play(index) {
+  if (!B || !channels.length) { log('没有可播放的频道', 'bad'); return; }
+  B.openLiveChannels(JSON.stringify(channels), index, sourceName || '直播源');
+  log('打开播放器：' + channels[index].name);
+}
+
+$('loadDemo').onclick = () => parse(DEMO_M3U, '', '示例频道');
+
+$('loadRemote').onclick = () => {
+  const url = $('url').value.trim();
+  if (!url) { log('先填写频道源 URL', 'bad'); return; }
+  sourceName = url.split('/').pop().replace(/\.(m3u8?|txt)$/i, '') || '远程源';
+  B.loadLiveChannels(url, '__loaded');
+};
+
+$('single').onclick = () => {
+  // 单路流不经过频道列表；headersJson 可传 UA/Referer
+  const url = 'http://74.91.26.218:82/live/cctv1hd.m3u8';
+  const r = reply(B.openLive(url, 'CCTV-1 综合', ''));
+  log(r.ok ? '已打开单路播放器' : '打开失败：' + r.error, r.ok ? 'ok' : 'bad');
+};
+
+window.addEventListener('liveevent', e => {
+  const d = e.detail || {};
+  log('liveevent: ' + (d.action || '?') +
+      (d.message ? ' · ' + d.message : '') +
+      (d.channel ? ' · ' + d.channel.name : ''),
+      d.action === 'error' ? 'bad' : 'ok');
+});
+
+(function init() {
+  if (!B) { $('ver').textContent = '非壳环境：请用导出的 APK 打开'; return; }
+  let v = {};
+  try { v = reply(B.getVersion()); } catch (e) {}
+  const api = Number(v.bridgeApi || 0);
+  $('ver').textContent = '壳 ' + (v.shellVersion || '?') + ' · bridgeApi ' + api +
+    (api >= 6 ? ' · 直播能力已就绪' : ' · 需要 v9.11+ 壳');
+  if (api < 6) log('当前壳没有直播桥（需要 bridgeApi 6）', 'bad');
+})();
+</script>
+</body>
+</html>

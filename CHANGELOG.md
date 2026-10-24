@@ -1,5 +1,45 @@
 # 变更日志
 
+## [2026-10-24] feat(live)：台标配置目录 + 自适应内置图标（v9.15）
+
+- **tvg-logo 真正可用**：M3U 的 `tvg-logo` 支持远程 URL、包内相对路径（`logos/cctv1.png`，按 channels.m3u 地址解析）以及 file/content；新增 `LogoLoader`（尺寸采样 + LruCache + 主线程回调）。
+- **配置目录**：推荐 `html_dir/config/channels.m3u` + `html_dir/config/logos/`，`app.json.live.url` 指向 `config/channels.m3u`；导出器改文件即可换频道/台标，无需改壳。新增 `CONFIG_GUIDE.md`（目录树/文件变更/导出参数）。
+- **自适应台标**：没有台标或加载失败时，原生首页/播放器显示分组色块 + CCTV 数字/频道首字 + 内置向量小图标（央视/卫视/地方/新闻/体育/电影/少儿）。
+- **配置导入**：`export_apk` 未传 `live_url` 时读 `html_dir/app.json` 的 `live` 配置；参数优先。示例 `samples/live_tv/config/` 含 44 台频道表与 `logos/cctv1.png`。
+- 两套壳 v9.15 / versionCode 29；主项目编译通过。台标加载代码为本地测试图验证（CCTV-1 配置 logos/cctv1.png）。
+- **模型可见性补齐**：`export_apk` 的运行时描述（在线注入的 schema 用 `getDescription()`，不是注解）补上 `config/channels.m3u` / `config/logos/*.png` / `tvg-logo` 相对路径与远程 URL / 缺省走内置自适应台标 / 详见 `CONFIG_GUIDE.md`；`html_dir`、`live_url` 参数说明同步示例路径。工作区工具目录两处的 `export_apk` 行加上 CONFIG_GUIDE 引用；`OnlineToolManager` 意图关键词补「频道表/台标/直播配置」，用户说"改台标"也会注入导出工具。
+- **顺带修的既有红测**：`WorkspaceGuideReferenceTest` 早从隐私政策提交起就失败（`PRIVACY_POLICY.md` 进了 assets 但提示词一次没提）。已在内置指南清单补引用，并提示模型按原文回答隐私问题、不要编造条款。
+
+## [2026-10-24] feat(live)：包内 m3u 相对流地址 + 直播 UI 重做 + 国内频道列表（v9.14）
+
+- **相对流地址**：一键直播的包内 m3u 改为由进程级 localhost 静态服务提供（`LiveLocalServer`，不随 MainActivity finish 停止），m3u 里的相对流地址会解析到包内文件；不再要求全部绝对地址。
+- **直播 UI 重做**：首页增加渐变背景、标题/频道数副标题、分组 chips、台标占位、卡片式频道行、搜索/收藏/换源/刷新；播放器增加台标、主按钮高亮、缓冲卡片、带台标/当前高亮的频道弹窗。
+- **内置国内频道**：清理原 47 台列表中的海外频道（BRICS、CCTV+ 等「特色」组），保留 CCTV 1-17 + 卫视 + 地方台共 44 台；模板示例也换成国内频道。
+- **主应用视频卡**：`AudioPlaybackManager` 同步 HLS 302 预解析 + HTTP 错误重试 2 次，mediaId 仍用原始地址，卡片"是不是我在放"的判断不受影响。
+- **验证**：两套壳 v9.14 / versionCode 28 构建通过；一键直播首页/播放器真机截图见 `docs/live_tv_shots/home_ui_v2.png`、`player_ui_v2b.png`；CCTV-1 出画出声。
+- 测试包已卸载；用户原「直播电视」应用为旧的 v9.11，需要重装修复包或重新导出。
+
+## [2026-10-24] fix(shell)：HLS 302 跳转后分片拼到旧主机（v9.13）
+
+用户反馈直播 APK 播放 CCTV-2 报 `ERROR_CODE_IO_BAD_HTTP_STATUS`。排查结论是**壳的设计缺陷**，不是源挂了：
+
+- 源 `http://74.91.26.218:82/live/cctv2hd.m3u8` 会 302 到另一台主机（如 `63.141...:81/live/cctv2md.m3u8?token`），清单里的分片是相对路径（`cctv2md/segment_x.ts`）。
+- media3 的 HLS 解析器按**传入的原始清单 URI** 解析相对分片，于是请求打到旧主机 `74.91.../live/cctv2md/segment_x.ts` → 404/403。实测：最终主机分片 200，旧主机 404。
+- 修复：播放器 prepare 前先跟随 301/302 拿到**最终清单地址**再用它建 MediaItem（频道 UA/Referer 一起带）；HTTP 错误自动按原始地址重解析重试 2 次；错误页显示真实 HTTP 状态码。
+- 验证：最终 v9.13 壳播放 CCTV-2 出画出声（H.264+AAC，连续渲染 100+ 帧），截图见 `docs/live_tv_shots/c2_fix.png`；v9.12 旧壳同源仍报错，确认是壳侧修复。
+- 两套壳同步 v9.13 / versionCode 27；`base.apk` 与 `gen_meta` 已更新。
+
+## [2026-10-24] feat(shell)：一键直播模式（v9.12）——不再需要写入口页
+
+导出直播 APK 时不必再做一个"跳转网页"：
+
+- **manifest.live 直启**：壳读取 `assets/manifest.json` 的 `live.url`，跳过 WebView，直接进原生直播首页；`live.url` 支持 http(s) 或包内相对路径（如 `live.m3u`），相对路径由 dt.jet 解压后直接读文本，不依赖本地 HTTP 端口。
+- **原生直播首页**：`LiveTvHomeActivity` 提供频道列表、搜索、收藏筛选、刷新、换源、错误重试；`autoplay=true` 或单频道源加载完直接进播放器。
+- **导出参数**：`export_apk` 新增 `live_url` / `live_name` / `live_start` / `live_autoplay`；只传 `live_url` 可省略 HTML 来源（自动生成占位页）。`ApkPacker.LiveConfig` 写入 manifest；`ExportCli` 与 `html2apk/export_apk.ps1` 同步支持。
+- **统一起播**：新增 `LiveSessionLauncher`，桥和原生首页共用会话文件启动逻辑，避免上千频道走 Binder 大传输。
+- **验证**：`ExportCli --live-url live.m3u --live-autoplay` 导出零 HTML APK，真机（279b6c51）启动 → 原生首页 → 自动进播放器 → H.264 解码 300 帧/AAC 出声，无崩溃；首页搜索/收藏/换源可见。两套壳 `assembleRelease` 与主项目编译通过。
+- 模板 `base.apk` 升至 v9.12 / versionCode 26，已重跑 `gen_meta.py`；`HTML_DESIGN_RULES.md` / `APK_SOURCE_GUIDE.md` / 工作区指南已同步。
+
 ## [2026-10-24] feat(privacy)：新增隐私政策页（应用内可查）
 
 上架/合规需要一份能说清"数据去哪了"的隐私政策。本应用的特殊性在于：**没有自建服务器**，

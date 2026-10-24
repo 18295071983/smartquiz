@@ -758,11 +758,14 @@ public class AgentWorkspace {
                 + "   实测 exit 126），所以脚本(.sh)没问题 —— 用 sh /完整路径/脚本.sh 执行（解释器读取，不受限）；\n"
                 + "   二进制只能随 App 打包分发（例：shell_command 内置的 busybox，无需安装、无需权限）。\n"
                 + "   内置指南（删除后应用启动自动重建）：《工具创建指南.md》《使用速查表.md》\n"
-                + "   《HTML_DESIGN_RULES.md》(导出APK的HTML设计规则)《APK_SOURCE_GUIDE.md》(导出APK壳v8.1·62桥清单/回调契约)\n"
+                + "   《HTML_DESIGN_RULES.md》(导出APK的HTML设计规则·含电视直播/一键直播)《APK_SOURCE_GUIDE.md》(导出APK壳v9.15·80桥清单/回调契约)\n"
+                + "   《live_tv_template.html》(电视直播最小页面：加载 M3U/频道列表/播放/liveevent；可直接复制修改)\n"
+                + "   《CONFIG_GUIDE.md》(直播配置目录：config/channels.m3u、config/logos、app.json 的变更方式与自适应台标)\n"
                 + "   《douyin_downloader_GUIDE.md》(抖音下载内置工具v3.2:官方内核/UIFID自愈/双通道,删除自动恢复)。\n"
                 + "   《LINUX_TOOLKIT_GUIDE.md》(内置 Linux 工具箱: 工具清单/命令路由/示例/限制/如何加工具)。\n"
                 + "   《MEDIA_TOOLKIT_GUIDE.md》(本地媒体工具箱: 截帧/抽音轨/转WAV/剪切/转码/滤镜/图片处理 + 内置 ffmpeg 引擎 + android_media)。\n"
                 + "   《THIRD_PARTY_NOTICES.md》(第三方组件与许可声明: ffmpeg LGPL v3 源码地址、busybox GPL v2 等)。\n"
+                + "   《PRIVACY_POLICY.md》(本应用隐私政策全文：用户问「数据存在哪/会不会上传/怎么撤回同意/如何联系开发者」时读它按原文回答，不要凭记忆编造条款)。\n"
                 + "================================================================\n";
     }
 
@@ -867,7 +870,7 @@ public class AgentWorkspace {
                 + "   douyin_downloader  抖音下载(官方内核解析+UIFID自愈,自动解包落袋,支持链接/分享文案/BGM)\n"
                 + "   video_to_player  视频下载转播放(解析视频源/下载到工作区)\n"
                 + "   media_toolkit    本地媒体工具箱: probe信息/frame截帧/extract_audio抽音轨/to_wav/trim剪切/transcode转码/image_ops图片\n"
-                + "   export_apk       APK导出(把HTML打包成可安装安卓应用；规则见files/HTML_DESIGN_RULES.md)\n"
+                + "   export_apk       APK导出(把HTML打包成可安装安卓应用；含电视直播/一键直播/IPTV/台标配置；规则见files/HTML_DESIGN_RULES.md，频道表与台标目录见files/CONFIG_GUIDE.md)\n"
                 + "   control_lookup   控件查询(查找可用UI控件/组件)\n"
                 + "   layout_editor    动态画布编辑(set/add/patch/get 同一component_id)\n"
                 + "   get_models_profile   模型配置查询\n"
@@ -990,7 +993,7 @@ public class AgentWorkspace {
                 + "   douyin_downloader  抖音下载(官方内核解析+UIFID自愈,自动解包落袋,支持链接/分享文案/BGM)\n"
                 + "   video_to_player  视频下载转播放(解析视频源/下载到工作区)\n"
                 + "   media_toolkit    本地媒体工具箱: probe信息/frame截帧/extract_audio抽音轨/to_wav/trim剪切/transcode转码/image_ops图片\n"
-                + "   export_apk       APK导出(把HTML打包成可安装安卓应用；规则见files/HTML_DESIGN_RULES.md)\n"
+                + "   export_apk       APK导出(把HTML打包成可安装安卓应用；含电视直播/一键直播/IPTV/台标配置；规则见files/HTML_DESIGN_RULES.md，频道表与台标目录见files/CONFIG_GUIDE.md)\n"
                 + "   control_lookup   控件查询(查找可用UI控件/组件)\n"
                 + "   layout_editor    动态画布编辑(set/add/patch/get 同一component_id)\n"
                 + "   get_models_profile   模型配置查询\n"

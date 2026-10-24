@@ -74,12 +74,14 @@ public class ExportCli {
     /* ---------- 主流程 ---------- */
     public static void main(String[] args) {
         if (args.length < 2) {
-            System.out.println("用法: ExportCli <html_dir> <out.apk> [--label 应用名] [--icon icon.png] [--seed 包名seed]");
-            System.out.println("  html_dir  含 index.html 的多文件网页目录（支持 css/js/子目录相对资源）");
+            System.out.println("用法: ExportCli <html_dir> <out.apk> [--label 应用名] [--icon icon.png] [--seed 包名seed] [--live-url m3u] [--live-name 源名] [--live-start 频道] [--live-autoplay]");
+            System.out.println("  html_dir  含 index.html 的多文件网页目录（支持 css/js/子目录相对资源；--live-url 时可为空目录）");
             System.out.println("  out.apk   输出 APK 路径");
             System.out.println("  --label   可选，应用名，中文 ≤7 字（占位容量 22 UTF-16 单元 / 22 UTF-8 字节）");
             System.out.println("  --icon    可选，应用图标 PNG（≥192×192 建议 512），未传用壳自带图标");
             System.out.println("  --seed    可选，独立包名种子；同一 seed 重复导出 = 升级覆盖，不同 seed 可共存");
+            System.out.println("  --live-url 可选，一键直播频道源：http(s) 或 html_dir 内相对路径（如 live.m3u）");
+            System.out.println("  --live-name/--live-start 可选；--live-autoplay 打开应用后直接播放");
             System.out.println("环境变量: SHELL_TEMPLATE(默认 src/main/assets/apk_shell/base.apk)、SHELL_KEYSTORE(默认同目录 export.keystore)");
             System.exit(2);
         }
@@ -87,16 +89,35 @@ public class ExportCli {
             File htmlDir = new File(args[0]);
             File outApk = new File(args[1]);
             String label = null, seed = null;
+            String liveUrl = "", liveName = "", liveStart = "";
+            boolean liveAutoplay = false;
             File icon = null;
             for (int i = 2; i < args.length; i++) {
                 if ("--label".equals(args[i]) && i + 1 < args.length) label = args[++i];
                 else if ("--icon".equals(args[i]) && i + 1 < args.length) icon = new File(args[++i]);
                 else if ("--seed".equals(args[i]) && i + 1 < args.length) seed = args[++i];
+                else if ("--live-url".equals(args[i]) && i + 1 < args.length) liveUrl = args[++i].trim();
+                else if ("--live-name".equals(args[i]) && i + 1 < args.length) liveName = args[++i].trim();
+                else if ("--live-start".equals(args[i]) && i + 1 < args.length) liveStart = args[++i].trim();
+                else if ("--live-autoplay".equals(args[i])) liveAutoplay = true;
             }
 
             if (!htmlDir.isDirectory()) throw new IllegalStateException("HTML 目录无效: " + htmlDir);
             File entry = new File(htmlDir, ENTRY_MAIN);
-            if (!entry.isFile()) throw new IllegalStateException("HTML 目录缺少入口文件: " + entry);
+            boolean liveMode = !liveUrl.isEmpty();
+            boolean liveHttp = liveUrl.startsWith("http://") || liveUrl.startsWith("https://");
+            if (liveMode && !liveHttp) {
+                if (liveUrl.contains("://") || liveUrl.contains("..")
+                        || liveUrl.startsWith("/") || liveUrl.contains("\\")) {
+                    throw new IllegalStateException("--live-url 必须是 http(s) 地址或 html_dir 内相对路径");
+                }
+                if (!new File(htmlDir, liveUrl).isFile()) {
+                    throw new IllegalStateException("html_dir 内找不到频道源文件: " + liveUrl);
+                }
+            }
+            if (!entry.isFile() && !liveMode) {
+                throw new IllegalStateException("HTML 目录缺少入口文件: " + entry);
+            }
 
             String templatePath = System.getenv("SHELL_TEMPLATE");
             if (templatePath == null || templatePath.isEmpty()) templatePath = "src/main/assets/apk_shell/base.apk";
@@ -119,11 +140,13 @@ public class ExportCli {
                 log("派生包名: " + pkg);
             }
 
-            byte[] zip = dirToZip(htmlDir);
+            byte[] zip = entry.isFile() || (liveMode && !liveHttp)
+                    ? dirToZip(htmlDir) : livePlaceholderZip(liveUrl);
             log("HTML dir: " + htmlDir + ", ZIP size: " + zip.length);
             byte[] jet = aesEncrypt(zip);
             byte[] templateApk = readAll(template);
-            byte[] manifest = MANIFEST_JSON.getBytes(StandardCharsets.UTF_8);
+            byte[] manifest = manifestBytes(liveUrl, liveName, liveStart, liveAutoplay);
+            if (liveMode) log("一键直播 manifest: " + new String(manifest, StandardCharsets.UTF_8));
             byte[] unsignedApk = replaceInApk(templateApk, jet, manifest, meta, false, keystore);
             verifyArscAlignment(unsignedApk);
             signApk(unsignedApk, outApk, keystore);
@@ -137,8 +160,68 @@ public class ExportCli {
     }
 
     /* ---------- 目录 → ZIP ---------- */
-    static byte[] dirToZip(File htmlDir) throws Exception {
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+    /** manifest.json：可选 live 配置（一键直播） */
+    static byte[] manifestBytes(String liveUrl, String liveName, String liveStart,
+                                boolean liveAutoplay) {
+        if (liveUrl == null || liveUrl.trim().isEmpty()) {
+            return MANIFEST_JSON.getBytes(StandardCharsets.UTF_8);
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"main\":\"").append(ENTRY_MAIN).append("\",\"targver\":1,\"live\":{")
+          .append("\"url\":").append(jsonQuote(liveUrl.trim()));
+        if (liveName != null && !liveName.trim().isEmpty()) {
+            sb.append(",\"name\":").append(jsonQuote(liveName.trim()));
+        }
+        if (liveStart != null && !liveStart.trim().isEmpty()) {
+            sb.append(",\"start\":").append(jsonQuote(liveStart.trim()));
+        }
+        if (liveAutoplay) sb.append(",\"autoplay\":true");
+        sb.append("}}");
+        return sb.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static String jsonQuote(String s) {
+        StringBuilder sb = new StringBuilder("\"");
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"': sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default:
+                    if (c < 0x20) sb.append(String.format(Locale.US, "\\u%04x", (int) c));
+                    else sb.append(c);
+            }
+        }
+        return sb.append('"').toString();
+    }
+
+    /** live 模式没有 HTML 入口时的占位页（壳不会加载它；旧壳有 openLiveTv 兜底） */
+    static byte[] livePlaceholderZip(String liveUrl) throws Exception {
+        File tmp = Files.createTempDirectory("html2apk_live").toFile();
+        try {
+            String html = "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
+                    + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+                    + "<title>电视直播</title></head>"
+                    + "<body style=\"margin:0;background:#0b0f14;color:#e8eef5;font:15px system-ui;padding:24px\">"
+                    + "<p>正在打开电视直播…</p><script>(function(){var b=window.AndroidApp;"
+                    + "if(!b)return;try{b.openLiveTv(" + jsonQuote(liveUrl)
+                    + ",'电视直播','','');}catch(e){}})();</script></body></html>";
+            Files.write(new File(tmp, ENTRY_MAIN).toPath(), html.getBytes(StandardCharsets.UTF_8));
+            return dirToZip(tmp);
+        } finally {
+            try {
+                File[] fs = tmp.listFiles();
+                if (fs != null) for (File f : fs) f.delete();
+                tmp.delete();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    static byte[] dirToZip(File htmlDir) throws Exception {        ByteArrayOutputStream bos = new ByteArrayOutputStream();
         ZipOutputStream zos = new ZipOutputStream(bos);
         zos.setLevel(9);
         addDirToZip(zos, htmlDir, "");
