@@ -1,5 +1,27 @@
 # 变更日志
 
+## [2026-10-24] feat(playback)：支持 MPEG-DASH（.mpd）——补 media3-exoplayer-dash + 显式 MIME
+
+HLS 补完后同类问题轮到 DASH：media3 里它同样是**独立模块**，缺了会在 prepare 阶段报
+`No suitable media source factory found for content type: 0`（0 = DASH）。
+
+- **依赖**：`build.gradle` 补 `androidx.media3:media3-exoplayer-dash:1.3.1`
+  （首次联网解析，已进离线缓存，`--offline` 照常构建）。
+- **MIME**：`AudioPlaybackManager.mimeTypeOf()` 补 `.mpd → MimeTypes.APPLICATION_MPD`
+  （含带 query 的地址、大写扩展名、本地路径）；`playOrToggle` / `playQueue` 建的 MediaItem
+  自动带上，mp4/mp3 行为不变。
+- **守卫**：`AudioPlaybackManagerDashTest` 两条——MIME 判定（含 `.mpd.mp4` 这种假扩展名不许误判）
+  与 `DefaultMediaSourceFactory` 必须真能造出 `DashMediaSource`。已反向验证：注释掉依赖，
+  第二条立刻红，报的正是线上那句 `No suitable media source factory found for content type: 0`；
+  加回即绿。
+- **真机验证**（10:07 构建覆盖安装）：用 `DebugLayoutInjectActivity mode=play` 播
+  `https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd` →
+  `dumpsys media_session` `state=PLAYING`、`description=DASH check`、duration=634566ms、
+  position 2.8s → 7.7s → 12.7s 连续前进、`error=null`。
+- **边界**：DASH 直播没单独调起播偏移（`targetOffsetMs` 目前只对 m3u8 生效）；
+  真要播 DASH 直播再按窗口表现补。
+- 测试：全量 **719 全绿**（90 类，0 skipped / 0 failures / 0 errors）。
+
 ## [2026-10-23] fix(playback)：直播 HLS 放到 25 秒就停——起播点太靠后、且没有自愈
 
 用户："不能连续取流？只能放 25 秒"。先量后改，结论分两半：一半是播放器参数，一半是源。

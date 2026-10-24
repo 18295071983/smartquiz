@@ -473,9 +473,12 @@ public final class AudioPlaybackManager {
     }
 
     /**
-     * HLS（.m3u8）地址显式给 MIME：DefaultMediaSourceFactory 靠 MIME（或扩展名）挑
-     * HlsMediaSource。显式给的好处是带 query 的直播地址（token/时间戳/签名）也能认出来；
-     * 其它地址返回 null，继续走默认推断（mp4/mp3/flac/…）。
+     * 流媒体地址显式给 MIME：DefaultMediaSourceFactory 靠 MIME（或扩展名）挑
+     * {@code HlsMediaSource} / {@code DashMediaSource}。显式给的好处是带 query 的地址
+     * （token/时间戳/签名）也能认出来；其它地址返回 null，继续走默认推断（mp4/mp3/flac/…）。
+     *
+     * <p>两个 MIME 各自对应一个独立依赖模块（media3-exoplayer-hls / -dash），
+     * 缺模块时 prepare 会报 "No suitable media source factory found for content type: N"。</p>
      */
     static String mimeTypeOf(String uri) {
         if (uri == null) return null;
@@ -484,8 +487,10 @@ public final class AudioPlaybackManager {
         if (cut >= 0) path = path.substring(0, cut);
         cut = path.indexOf('?');
         if (cut >= 0) path = path.substring(0, cut);
-        return path.toLowerCase(java.util.Locale.US).endsWith(".m3u8")
-                ? MimeTypes.APPLICATION_M3U8 : null;
+        String lower = path.toLowerCase(java.util.Locale.US);
+        if (lower.endsWith(".m3u8")) return MimeTypes.APPLICATION_M3U8;
+        if (lower.endsWith(".mpd")) return MimeTypes.APPLICATION_MPD;
+        return null;
     }
 
     private static String currentMediaId(MediaController c) {
