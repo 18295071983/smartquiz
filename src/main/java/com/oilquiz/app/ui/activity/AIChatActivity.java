@@ -6151,10 +6151,6 @@ public class AIChatActivity extends BaseActivity {
                 msg.inferenceProgress.phaseStartTime = statusPhraseStartTime;
             }
         }
-        // 多步深度思考：进入思考阶段时确保消息带当前轮号（折叠头文案加"第 N 轮"）
-        if (phase == ChatMessage.InferencePhase.THINKING) {
-            msg.thinkingRoundIndex = Math.max(1, thinkingRoundCount);
-        }
     }
 
     /**
@@ -6172,9 +6168,10 @@ public class AIChatActivity extends BaseActivity {
         }
         long start = statusPhraseStartTime > 0 ? statusPhraseStartTime : generationStartTime;
         if (start <= 0) start = System.currentTimeMillis();
-        // 多步深度思考：第 2 轮起文案带"第 N 轮"前缀（让用户知道在分轮推进）
+        // 多步深度思考：业界口径不在全局状态文案里报轮号（轮次属于气泡内可折叠 trace），
+        // 这里只给"当前阶段 + 本阶段耗时"的推进句
         String text = com.oilquiz.app.ai.chat.InferenceStatusPhrases
-                .phrase(phase, System.currentTimeMillis() - start, thinkingRoundCount);
+                .phrase(phase, System.currentTimeMillis() - start);
         if (text == null) {
             text = com.oilquiz.app.ai.chat.InferenceStatusLabel.shortLabel(phase);
         }
@@ -6289,17 +6286,6 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 多步深度思考：把当前轮号写到流式消息，供底部状态行/思考折叠头加"第 N 轮"前缀。
-     * 只在 THINKING 阶段有意义；非思考阶段调用也安全。
-     */
-    private void syncThinkingRoundToStreamingMessage() {
-        int idx = resolveStreamingIndex();
-        if (idx < 0 || idx >= chatHistory.size()) return;
-        ChatMessage msg = chatHistory.get(idx);
-        if (msg != null) msg.thinkingRoundIndex = Math.max(1, thinkingRoundCount);
-    }
-
-    /**
      * 当前是否还有工具在跑：parts 模式看流式消息 components 里的 tool_call.status；
      * legacy 模式看最近几条 TOOL_CALL 消息的 toolCallInfo.status。
      */
@@ -6335,7 +6321,7 @@ public class AIChatActivity extends BaseActivity {
         long start = statusPhraseStartTime > 0 ? statusPhraseStartTime : generationStartTime;
         if (start <= 0) return;
         String phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
-                .phrase(statusPhrasePhase, System.currentTimeMillis() - start, thinkingRoundCount);
+                .phrase(statusPhrasePhase, System.currentTimeMillis() - start);
         if (phrase == null || phrase.contentEquals(lastStatusPhrase)) return;
         lastStatusPhrase = phrase;
         try {
@@ -7685,9 +7671,8 @@ public class AIChatActivity extends BaseActivity {
                 thinkingRoundCount++;
                 markThinkingRoundStarted();
                 setAgentStepStatus("🔍 思考中...（第" + thinkingRoundCount + "轮）");
-                // 多步深度思考：轮号同步给流式消息（状态行/折叠头加"第 N 轮"前缀），
-                // 并重置本轮实时速度（否则第 2 轮的速度会把第 1 轮和工具空窗平均进去）
-                syncThinkingRoundToStreamingMessage();
+                // 多步深度思考：轮号不进全局文案；每轮开始重置实时速度
+                //（否则第 2 轮的速度会把第 1 轮和工具空窗平均进去）
                 reasoningTokenCount = 0;
                 reasoningStartTime = 0;
                 lastReasoningSpeedUiTime = 0;

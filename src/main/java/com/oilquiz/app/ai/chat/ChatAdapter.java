@@ -2592,10 +2592,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         long start = message.inferenceProgress.phaseStartTime;
         if (start <= 0 && message.timestamp > 0) start = message.timestamp;
         if (start > 0) {
-            // 多步深度思考：活跃轮带"第 N 轮"前缀（非活跃块仍显示"已深度思考 X 秒"）
+            // 多步深度思考不报轮号：活跃块只显示当前阶段文案，历史块仍"已深度思考 X 秒"
             String phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
-                    .phrase(phase, System.currentTimeMillis() - start,
-                            message.thinkingRoundIndex);
+                    .phrase(phase, System.currentTimeMillis() - start);
             if (phrase != null) return phrase;
         }
         return com.oilquiz.app.ai.chat.InferenceStatusLabel.shortLabel(phase);

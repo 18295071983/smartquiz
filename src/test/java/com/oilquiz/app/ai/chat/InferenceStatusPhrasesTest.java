@@ -1,6 +1,8 @@
 package com.oilquiz.app.ai.chat;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 
 import org.junit.Test;
@@ -76,20 +78,16 @@ public class InferenceStatusPhrasesTest {
     }
 
     @Test
-    public void 多步深度思考_第二轮起文案带轮次前缀() {
-        // 第 1 轮不加前缀（避免多余噪音）
-        assertEquals("正在梳理思路…", InferenceStatusPhrases.phrase(
-                ChatMessage.InferencePhase.THINKING, 6 * S, 1));
-        // 第 2 轮起加"第N轮 · "，让用户知道模型在分多轮推进
-        assertEquals("第2轮 · 正在梳理思路…", InferenceStatusPhrases.phrase(
-                ChatMessage.InferencePhase.THINKING, 6 * S, 2));
-        assertEquals("第5轮 · 正在推敲关键点…", InferenceStatusPhrases.phrase(
-                ChatMessage.InferencePhase.THINKING, 14 * S, 5));
-        // 非思考阶段不受轮号影响
+    public void 多步深度思考_全局文案不报轮号() {
+        // 业界 Progress Steps 口径：轮次/耗时属于可折叠 trace（每轮块自身"已深度思考 X 秒"），
+        // 全局状态文案只描述"当前在做什么"，不出现"第 N 轮"这类内部计数
+        for (long sec : new long[]{1, 6, 14, 28, 48, 90}) {
+            String p = InferenceStatusPhrases.phrase(ChatMessage.InferencePhase.THINKING, sec * S);
+            assertNotNull(p);
+            assertFalse("思考文案不应出现轮号: " + p, p.contains("轮"));
+            assertFalse("思考文案不应出现'第': " + p, p.contains("第"));
+        }
         assertEquals("正在撰写回答…", InferenceStatusPhrases.phrase(
-                ChatMessage.InferencePhase.GENERATING, 5 * S, 3));
-        // 不带轮号的重载等价于第 1 轮
-        assertEquals(InferenceStatusPhrases.phrase(ChatMessage.InferencePhase.THINKING, 6 * S, 1),
-                InferenceStatusPhrases.phrase(ChatMessage.InferencePhase.THINKING, 6 * S));
+                ChatMessage.InferencePhase.GENERATING, 5 * S));
     }
 }

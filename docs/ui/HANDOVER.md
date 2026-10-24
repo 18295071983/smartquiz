@@ -2710,6 +2710,16 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
     - 工具文案优先级不变：工具运行中底部显示工具侧文案，结束回"第 N 轮 · 思考/生成"；
     - 测试：`InferenceStatusPhrasesTest` 新增轮号用例；全量 **970 / 0 skipped / 0 failures /
       0 errors**；APK 07:34:57 已装机，未做真机验证。设计文档 §9。
+16. **撤回轮号展示（同日第十一轮，用户："不对吧显示轮号还是怪异，你看看业界是怎么弄的"）**：
+    - 查业界（AI UX Playground · Progress Steps）：Perplexity 折叠 Steps、ChatGPT "Thought for Ns"、
+      Claude 可折叠 thinking、Cursor Agent 工具时间线——**多步信息属于可折叠 trace，全局状态
+      只描述当前活动**；把"第 N 轮"塞进状态文案是反模式；
+    - 撤回：删除 `InferenceStatusPhrases.phrase(..., thinkingRound)` 前缀、
+      `ChatMessage.thinkingRoundIndex` 及同步逻辑；状态行/活跃思考块只显示阶段推进句；
+    - 多步信息仍可读：每轮思考独立折叠块（历史"已深度思考 X 秒"）+ 工具组/工具卡（带耗时）；
+    - 保留：每轮开始重置 reasoning 速度统计；
+    - 测试：`InferenceStatusPhrasesTest#多步深度思考_全局文案不报轮号`；全量 **970 / 0 skipped /
+      0 failures / 0 errors**；APK 07:39:03 已装机，未做真机验证。设计文档 §9 已按此改写。
 
 ---
 

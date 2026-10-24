@@ -1,5 +1,22 @@
 # 变更日志
 
+## [2026-10-25] fix(chat-ui)：撤回"第 N 轮"轮号，多步思考按业界 Progress Steps 交给可折叠 trace
+
+用户："不对吧显示轮号还是怪异，你看看业界是怎么弄的"。
+
+- 查业界做法（[AI UX Playground · Progress Steps](https://aiuxplayground.com/pattern/status-steps/)）：
+  Perplexity 折叠 "Steps"、ChatGPT 收在 "Thought for Ns"、Claude extended thinking 可折叠块、
+  Cursor Agent 可展开工具时间线——**多步信息放 trace，全局状态只描述"现在在做什么"**，
+  把内部计数（"第 N 轮"）塞进状态文案属于反模式；
+- 撤回上一版轮号设计：删除 `InferenceStatusPhrases.phrase(..., thinkingRound)` 前缀与
+  `ChatMessage.thinkingRoundIndex` 及同步逻辑；底部状态行/活跃思考块只显示阶段推进句
+  （`正在梳理思路…` / `正在推敲关键点…`）；
+- 多步信息仍可读：每轮思考是独立折叠块（历史 `已深度思考 X 秒`），工具调用是独立工具组/卡片
+  （`⏳ 正在生成文件…`、`已运行 N 个工具`），都带耗时；
+- 保留多轮改进：每轮开始重置 reasoning 速度统计（避免第 2 轮 t/s 把第 1 轮和工具空窗平均进去）；
+- **验证**：`InferenceStatusPhrasesTest#多步深度思考_全局文案不报轮号` 断言思考文案不含
+  "轮/第"；全量 `testDebugUnitTest --offline --no-build-cache` **970 / 0 skipped / 0 failures /
+  0 errors**；`assembleDebug --offline` 通过（APK 07:39:03）并已装机；按用户要求未做真机测试。
 ## [2026-10-25] feat(chat-ui)：多步深度思考也有文案（第 N 轮 + 速度按轮重置）
 
 用户："还有个遗漏点，多步深度思考。你是不是也要有文案啊"。
