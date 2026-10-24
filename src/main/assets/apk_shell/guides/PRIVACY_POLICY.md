@@ -102,7 +102,7 @@
 
 ## 九、联系我们
 
+- 邮箱：**lzhcong@hotmail.com**（隐私相关咨询、数据删除请求、投诉建议）
 - 项目仓库：<https://github.com/18295071983/smartquiz>
-- 问题反馈：<https://github.com/18295071983/smartquiz/issues>
 
 我们会在合理期限内回复。若你对本政策有异议，请停止使用并卸载本应用。

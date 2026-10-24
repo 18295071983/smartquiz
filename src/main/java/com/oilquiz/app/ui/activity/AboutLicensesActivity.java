@@ -43,6 +43,48 @@ public class AboutLicensesActivity extends AppCompatActivity {
         return "开源许可";
     }
 
+    /** 子类可覆盖：是否在标题栏菜单里提供「撤回隐私授权」（隐私政策页用） */
+    protected boolean supportsWithdrawConsent() {
+        return false;
+    }
+
+    private static final int MENU_WITHDRAW_CONSENT = 0x51;
+
+    @Override
+    public boolean onCreateOptionsMenu(android.view.Menu menu) {
+        if (supportsWithdrawConsent()) {
+            menu.add(0, MENU_WITHDRAW_CONSENT, 0, "撤回隐私授权");
+        }
+        return super.onCreateOptionsMenu(menu) || supportsWithdrawConsent();
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(android.view.MenuItem item) {
+        if (item.getItemId() == MENU_WITHDRAW_CONSENT) {
+            showWithdrawConsentDialog();
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    /** 撤回同意：清掉同意状态并回到首页（首页门禁会再次弹出政策确认） */
+    private void showWithdrawConsentDialog() {
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("撤回隐私授权")
+                .setMessage("撤回后，需要联网/权限的功能将停止使用；下次启动会重新要求你阅读并同意《隐私政策》。\n\n确定撤回吗？")
+                .setPositiveButton("撤回", (d, w) -> {
+                    com.oilquiz.app.util.PrivacyConsent.revoke(this);
+                    android.content.Intent intent = new android.content.Intent(this,
+                            com.oilquiz.app.MainActivity.class);
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                            | android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    startActivity(intent);
+                    finish();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);

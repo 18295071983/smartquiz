@@ -116,6 +116,21 @@ import com.oilquiz.app.theme.ThemeColors;
 @AndroidEntryPoint
 public class AIChatActivity extends BaseActivity {
 
+    /**
+     * 隐私政策同意门禁（2026-10-24）：通知栏/深链直接拉起聊天页时同样要拦——
+     * 未同意就回到首页的门禁弹窗，避免绕过同意流程直接进入数据处理页面。
+     */
+    @Override
+    protected void onCreate(android.os.Bundle savedInstanceState) {
+        if (!com.oilquiz.app.util.PrivacyConsent.isAccepted(this)) {
+            startActivity(new android.content.Intent(this, com.oilquiz.app.MainActivity.class)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP));
+            finish();
+            return;
+        }
+        super.onCreate(savedInstanceState);
+    }
+
     private static final String TAG = "AIChatActivity";
     private static final int BATCH_TOKEN_COUNT = 20;
     private static final long BATCH_INTERVAL_MS = 50;

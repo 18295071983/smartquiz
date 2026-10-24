@@ -19,4 +19,9 @@ public class PrivacyPolicyActivity extends AboutLicensesActivity {
     protected String pageTitle() {
         return "隐私政策";
     }
+
+    @Override
+    protected boolean supportsWithdrawConsent() {
+        return true;
+    }
 }

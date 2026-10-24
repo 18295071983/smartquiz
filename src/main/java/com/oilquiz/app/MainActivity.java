@@ -47,6 +47,13 @@ public class MainActivity extends BaseActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // ===== 隐私政策同意门禁（2026-10-24）=====
+        // 未同意前不加载首页、不初始化任何联网/业务组件：只弹窗，同意后 recreate() 再走正常流程。
+        if (!com.oilquiz.app.util.PrivacyConsent.isAccepted(this)) {
+            super.onCreate(savedInstanceState);
+            showPrivacyConsentDialog();
+            return;
+        }
         resources = AppResourceManager.getInstance(this);
         
         // 检查是否使用 WebView 视图
@@ -100,6 +107,11 @@ public class MainActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // 未同意隐私政策：保持在门禁弹窗，不执行任何首页刷新（resources 也还没初始化）
+        if (!com.oilquiz.app.util.PrivacyConsent.isAccepted(this)) {
+            showPrivacyConsentDialog();
+            return;
+        }
         // 检查是否使用WebView视图，如果是则不执行更新操作
         boolean useWebView = resources.getConfigBoolean("home_view_web", false);
         if (useWebView) {
@@ -125,6 +137,46 @@ public class MainActivity extends BaseActivity {
         // 2026-10-03 踩坑：原生层（QNN/Genie/GenieX 都是）偶尔会 abort（signal 6，Java 层抓不到、
         // 连 FATAL EXCEPTION 都没有）→ 表现就是"一打开就秒退"。所以启动路径上只做轻量初始化，
         // NPU 一律走用户点按的入口：AI 服务状态详情 →「NPU 推理」（GenieX SDK 在那里才 init）。
+    }
+
+    // ==================== 隐私政策同意门禁（2026-10-24）====================
+
+    /** 未同意隐私政策时：BaseActivity 跳过布局与初始化（resources 也就不会被解引用） */
+    @Override
+    protected boolean shouldSkipInit() {
+        return !com.oilquiz.app.util.PrivacyConsent.isAccepted(this);
+    }
+
+    private android.app.AlertDialog privacyConsentDialog;
+
+    /**
+     * 首次启动（或政策版本更新后）的同意弹窗：不可取消，必须明确选择。
+     * 同意 → 落盘后 recreate() 走正常初始化；不同意 → 退出应用，不采集、不联网。
+     */
+    private void showPrivacyConsentDialog() {
+        if (isFinishing() || isDestroyed() || privacyConsentDialog != null) return;
+        privacyConsentDialog = new android.app.AlertDialog.Builder(this)
+                .setTitle("隐私政策")
+                .setMessage("使用前请阅读并同意《隐私政策》。\n\n"
+                        + "答题宝不运营收集用户数据的服务器：题库、答题记录、聊天与文件默认只保存在本机；"
+                        + "只有你主动使用联网功能时，内容才会发送到你自行配置的第三方服务。")
+                .setPositiveButton("同意并继续", (d, w) -> {
+                    privacyConsentDialog = null;
+                    com.oilquiz.app.util.PrivacyConsent.accept(this);
+                    recreate();
+                })
+                .setNeutralButton("查看全文", (d, w) -> {
+                    privacyConsentDialog = null;
+                    startActivity(new Intent(this,
+                            com.oilquiz.app.ui.activity.PrivacyPolicyActivity.class));
+                })
+                .setNegativeButton("不同意", (d, w) -> {
+                    privacyConsentDialog = null;
+                    finishAffinity();
+                })
+                .setCancelable(false)
+                .create();
+        privacyConsentDialog.show();
     }
     
     private AIService.DetailedStatusObserver aiStatusObserver;
@@ -705,5 +757,9 @@ public class MainActivity extends BaseActivity {
     protected void onDestroy() {
         super.onDestroy();
         unregisterAiStatusObserver();
+        if (privacyConsentDialog != null) {
+            privacyConsentDialog.dismiss();
+            privacyConsentDialog = null;
+        }
     }
 }

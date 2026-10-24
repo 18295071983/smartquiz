@@ -25,6 +25,11 @@ public abstract class BaseActivity extends AppCompatActivity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 隐私政策未同意等场景：子类可要求跳过布局与初始化（自己负责弹门禁/退出），
+        // 避免 initView/initData 在依赖尚未初始化时被调到（2026-10-24 隐私门禁）。
+        if (shouldSkipInit()) {
+            return;
+        }
         int layoutId = getLayoutId();
         if (layoutId > 0) {
             setContentView(layoutId);
@@ -32,6 +37,11 @@ public abstract class BaseActivity extends AppCompatActivity {
         initView();
         initData();
         initListener();
+    }
+
+    /** 子类可覆盖：返回 true 时跳过 setContentView / initView / initData / initListener */
+    protected boolean shouldSkipInit() {
+        return false;
     }
 
     /**

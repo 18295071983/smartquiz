@@ -12,8 +12,17 @@
 - `AboutLicensesActivity` 抽出 `assetPath()` / `pageTitle()` 两个钩子，新增
   `PrivacyPolicyActivity` 复用同一套 Markdown 渲染与返回逻辑
 - 入口：**工具集 → 设置与系统环境 → 隐私政策**
+- **首次启动同意门禁**：未同意前 `MainActivity` 不 setContentView、不跑 initData/联网初始化
+  （给 `BaseActivity` 加了 `shouldSkipInit()` 钩子）；不可取消弹窗「同意并继续 / 查看全文 /
+  不同意退出」；`AIChatActivity` 同样拦截，防止通知栏/深链绕过同意流程
+- **撤回入口**：隐私政策页标题栏 ⋮ →「撤回隐私授权」→ 清状态并回到门禁
+- 联系方式：`lzhcong@hotmail.com`
+- 踩坑记录：第一版门禁在 `MainActivity.onCreate` 里 `super.onCreate()` 后直接 return，
+  但 `BaseActivity.onCreate` 会继续 `initView/initData/initListener`，`initData` 解引用
+  `resources`（门禁分支没赋值）→ 启动即 `NullPointerException`。改法是把"跳过初始化"下沉成
+  `BaseActivity` 的显式钩子，而不是在子类里提前 return
 - 构建通过；APK 内已核对包含 `assets/apk_shell/guides/PRIVACY_POLICY.md` 且
-  `PrivacyPolicyActivity` 已注册进合并后的 Manifest
+  `PrivacyPolicyActivity` 已注册进合并后的 Manifest；真机验证：未同意时弹门禁、同意后正常进首页
 
 ## [2026-10-24] refactor(pdf)：PDF 导出从 iText 7 迁到 PDFBox，字体换 OFL 的 Noto Sans SC
 
