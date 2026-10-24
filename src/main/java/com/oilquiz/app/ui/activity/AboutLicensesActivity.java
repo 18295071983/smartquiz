@@ -30,8 +30,18 @@ public class AboutLicensesActivity extends AppCompatActivity {
 
     private static final String TAG = "AboutLicenses";
 
-    /** 随包声明的固定路径；改路径时同步 assets 与 docs 两份副本 */
-    static final String ASSET_PATH = "apk_shell/guides/THIRD_PARTY_NOTICES.md";
+    /** 默认展示第三方许可声明；子类可覆盖 {@link #assetPath()} 复用同一套渲染 */
+    static final String DEFAULT_ASSET = "apk_shell/guides/THIRD_PARTY_NOTICES.md";
+
+    /** 子类可覆盖：要展示的 Markdown 资源路径（如隐私政策） */
+    protected String assetPath() {
+        return DEFAULT_ASSET;
+    }
+
+    /** 子类可覆盖：页面标题 */
+    protected String pageTitle() {
+        return "开源许可";
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -40,6 +50,7 @@ public class AboutLicensesActivity extends AppCompatActivity {
 
         Toolbar toolbar = findViewById(R.id.toolbar);
         if (toolbar != null) {
+            toolbar.setTitle(pageTitle());
             setSupportActionBar(toolbar);
             if (getSupportActionBar() != null) {
                 getSupportActionBar().setDisplayHomeAsUpEnabled(true);
@@ -48,10 +59,10 @@ public class AboutLicensesActivity extends AppCompatActivity {
         }
 
         TextView text = findViewById(R.id.licenses_text);
-        String markdown = readAsset(ASSET_PATH);
+        String markdown = readAsset(assetPath());
         if (markdown == null || markdown.trim().isEmpty()) {
-            text.setText("未找到第三方许可声明：assets/" + ASSET_PATH
-                    + "\n请确认打包时包含 apk_shell/guides/THIRD_PARTY_NOTICES.md。");
+            text.setText("未找到文档：assets/" + assetPath()
+                    + "\n请确认打包时包含该文件。");
             return;
         }
         text.setText(MarkdownRenderer.render(markdown, this));

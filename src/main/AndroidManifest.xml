@@ -233,6 +233,11 @@
             android:name=".ui.activity.AboutLicensesActivity"
             android:exported="false"
             android:label="开源许可" />
+        <!-- 隐私政策（内容见 assets/apk_shell/guides/PRIVACY_POLICY.md） -->
+        <activity
+            android:name=".ui.activity.PrivacyPolicyActivity"
+            android:exported="false"
+            android:label="隐私政策" />
         <activity
             android:name=".ui.activity.LanguageActivity"
             android:exported="false" />

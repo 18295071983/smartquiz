@@ -1,5 +1,20 @@
 # 变更日志
 
+## [2026-10-24] feat(privacy)：新增隐私政策页（应用内可查）
+
+上架/合规需要一份能说清"数据去哪了"的隐私政策。本应用的特殊性在于：**没有自建服务器**，
+题库/聊天/文件默认只存本机，联网只发生在用户主动使用、且发往用户自己配置的第三方服务。
+
+- 新增 `PRIVACY_POLICY.md`（assets 随包 + docs 副本，逐字节一致），逐项写明：
+  默认仅存本机的信息 / 主动发送到第三方的数据与接收方 / **权限清单与用途（必需 or 可选）** /
+  第三方 SDK（和风天气、DashScope、ML Kit、ExoPlayer、Chaquopy、LibreOffice，并注明 TBS 未集成）/
+  不收集设备标识 / 删除与撤回方式 / 未成年人保护 / 联系方式
+- `AboutLicensesActivity` 抽出 `assetPath()` / `pageTitle()` 两个钩子，新增
+  `PrivacyPolicyActivity` 复用同一套 Markdown 渲染与返回逻辑
+- 入口：**工具集 → 设置与系统环境 → 隐私政策**
+- 构建通过；APK 内已核对包含 `assets/apk_shell/guides/PRIVACY_POLICY.md` 且
+  `PrivacyPolicyActivity` 已注册进合并后的 Manifest
+
 ## [2026-10-24] refactor(pdf)：PDF 导出从 iText 7 迁到 PDFBox，字体换 OFL 的 Noto Sans SC
 
 审计随包组件时发现两个"分发即咬人"的许可：iText 7 Core 是 **AGPL-3.0**（对外分发就要求整个
