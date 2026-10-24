@@ -1,5 +1,33 @@
 # 变更日志
 
+## [2026-10-25] fix(chat-ui)：文案四层联动修复（上下对不上 / 卡顿 / 完成与停止收尾）
+
+用户："文案变化时机你联动了吗，比如突然卡了。已完成的文案，你不结束？上下还是对不上。
+比如多个思考段与底部思考状态文案的联动"。
+
+排查出四层断裂并修复：
+
+1. **底部推进、气泡冻住**：`PAYLOAD_STATUS_UPDATE` 在 parts 模式下只刷新状态行，不重绑 parts；
+   而折叠头/工具卡文案在 parts 里 → 上下对不上。现在该 payload 在 parts 接管时会
+   `refreshStreamingContent`（legacy 则刷新思考行），状态文案推进立即反映到气泡；
+2. **卡顿没有新 token 时折叠头不推进**：活跃思考 part 的文案此前只在重绑时现算，没进指纹。
+   新增 `applyReasoningStatusText` 把"阶段 + 本阶段耗时"写进 `part.statusText`
+   （参与 `Part#fingerprint()`）——卡住也会随文案推进触发重绑，与底部同句；
+3. **完成/停止后折叠头仍是活动态**：`isReasoningClosed` 只认 GENERATING/DECODING，
+   COMPLETED/FAILED 仍被当成"思考中" → 底部已"已完成"，气泡里还挂"正在推敲…"。
+   改为只有 THINKING 才保持 streaming，其它阶段一律收口成"已深度思考 X 秒"；
+4. **停止后消息没有收尾**：`stopGeneration` 只收状态行，流式消息没定稿。
+   新增 `finalizeStoppedMessage`（partial 内容定稿 + phase COMPLETED + parts 收口 +
+   清流式 id/缓冲），底部"已停止"与气泡"已深度思考"一致，迟到回调也被幂等守卫忽略。
+
+另补**卡顿文案**（"比如突然卡了"）：新增 `InferenceStatusPhrases.stalledPhrase` +
+`lastStreamActivityTime`（token/阶段切换都会打点）：15 秒没有新数据时
+`生成较慢，仍在继续…` / `思考较久，仍在继续…`，45 秒生成仍无进展则
+`生成较久，可停止后重试`——不再让"正在收尾…"假装在推进。
+
+**验证**：新增 2 条单测（活跃思考 statusText 参与指纹且定稿清空、卡顿文案阈值）；
+全量 `testDebugUnitTest --offline --no-build-cache` **975 / 0 skipped / 0 failures / 0 errors**；
+`assembleDebug --offline` 通过（APK 07:57:52）并已装机；按用户要求未做真机测试。
 ## [2026-10-25] fix(chat-ui)：状态系统排查修复 5 个问题（工具卡文案/完成态/会话隔离/迟到回调/溢出）
 
 用户："你在排查一下，看看还有问题吗"。

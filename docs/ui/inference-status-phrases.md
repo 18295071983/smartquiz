@@ -324,3 +324,34 @@ APK 07:28:45 已装机，未做真机测试。
 
 新增 `同名工具嵌套_内层结束不提前清掉外层`、`旧会话迟到的结束_不会清掉新会话活动`；
 全量 973 / 0 skipped / 0 failures / 0 errors；APK 07:49:58 已装机，未做真机测试。
+## 12. 文案联动与收尾（2026-10-25 第六轮，用户："文案变化时机你联动了吗…上下还是对不上"）
+
+### 12.1 四层断裂与修复
+
+| # | 现象 | 根因 | 修复 |
+|---|---|---|---|
+| 1 | 底部在推进，气泡折叠头/工具卡冻住 | `PAYLOAD_STATUS_UPDATE` 在 parts 模式下只刷状态行，不重绑 parts | 该 payload 在 parts 接管时 `refreshStreamingContent`；legacy 刷新思考行 |
+| 2 | 卡住（无新 token）折叠头不推进 | 活跃思考文案只在重绑时现算，没进指纹 | `applyReasoningStatusText` 写 `part.statusText`（参与指纹），文案推进即触发重绑 |
+| 3 | 已完成/已停止后折叠头仍是活动态 | `isReasoningClosed` 只认 GENERATING/DECODING | 改为只有 THINKING 才 streaming，其它阶段收口成"已深度思考 X 秒" |
+| 4 | 停止后消息没收尾 | `stopGeneration` 只收状态行 | `finalizeStoppedMessage`：partial 定稿 + phase COMPLETED + parts 收口 + 清流式 id |
+
+### 12.2 卡顿文案（"比如突然卡了"）
+
+- `lastStreamActivityTime`：token（思考/正文）、阶段切换、统计刷新都会打点；
+- `InferenceStatusPhrases.stalledPhrase(phase, noDataMs)`：
+  - 15s 无数据：`生成较慢，仍在继续…` / `思考较久，仍在继续…` / `响应较慢，仍在等待…`；
+  - 生成 45s 无进展：`生成较久，可停止后重试`（给出行动建议，不再暗示"正在收尾"）；
+- 恢复正常 token 后自动回到正常推进句。
+
+### 12.3 多思考段与底部联动
+
+- 只有当前活跃段（`part.isStreaming()`）挂活动文案，且文案来自同一个
+  `InferenceStatusPhrases`（阶段 + 阶段耗时），与底部同源同词；
+- 历史段仍显示"已深度思考 X 秒"；工具阶段两者都切到工具侧文案（优先级不变）；
+- 活跃段文案写入 `part.statusText` 后，即使生成卡住，文案推进也会改变指纹 → 重绑。
+
+### 12.4 验证
+
+新增 `AssistantTurnStreamingTest#活跃思考挂状态文案并参与指纹_定稿后清空`、
+`InferenceStatusPhrasesTest#卡顿文案_长时间没数据要明说较慢可重试`；全量
+975 / 0 skipped / 0 failures / 0 errors；APK 07:57:52 已装机，未做真机测试。

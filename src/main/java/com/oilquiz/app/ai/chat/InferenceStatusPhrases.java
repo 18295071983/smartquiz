@@ -78,6 +78,36 @@ public final class InferenceStatusPhrases {
         }
     }
 
+    /**
+     * 卡顿（长时间没有新 token）专属文案：正常推进句在"卡住"时会显得在撒谎
+     * （比如生成阶段一直显示"正在收尾…"），所以一旦超过阈值就换成明确的"较慢/可重试"，
+     * 阈值见 {@code AIChatActivity#noteStreamActivity} 与状态心跳。
+     *
+     * @param phase     当前推理阶段
+     * @param noDataMs  距最近一次 token/阶段更新的毫秒数
+     * @return 卡顿文案；未达阈值返回 null（继续用正常推进句）
+     */
+    public static String stalledPhrase(ChatMessage.InferencePhase phase, long noDataMs) {
+        if (phase == null) return null;
+        long seconds = Math.max(0L, noDataMs) / 1000L;
+        switch (phase) {
+            case WAITING:
+            case INITIALIZING:
+            case LOADING_MODEL:
+            case ENCODING:
+            case PREFILL:
+                return seconds >= 15 ? "响应较慢，仍在等待…" : null;
+            case THINKING:
+                return seconds >= 15 ? "思考较久，仍在继续…" : null;
+            case GENERATING:
+            case DECODING:
+                if (seconds >= 45) return "生成较久，可停止后重试";
+                return seconds >= 15 ? "生成较慢，仍在继续…" : null;
+            default:
+                return null;
+        }
+    }
+
     /** 等首个 token / 准备上下文：让用户知道"已发出、在连、连接慢不是死了"。 */
     private static String waiting(long s) {
         if (s < 3) return "等待模型响应…";

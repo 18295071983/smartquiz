@@ -2743,6 +2743,16 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
     ellipsize=end`。附带：`AgentActivityBus` 加会话号与同名嵌套深度（停止后立刻重试同一工具、
     工具内部嵌套调用都不会互相误清）。新增 2 条总线回归用例；全量 **973 / 0 skipped /
     0 failures / 0 errors**；APK 07:49:58 已装机，未做真机验证。设计文档 §11。
+20. **文案联动与收尾（同日第十五轮，用户："文案变化时机你联动了吗，比如突然卡了。
+    已完成的文案，你不结束？上下还是对不上。比如多个思考段与底部思考状态文案的联动"）**：
+    ① `PAYLOAD_STATUS_UPDATE` 在 parts 模式下重绑 parts（此前只刷状态行 → 底部推进气泡冻住）；
+    ② `applyReasoningStatusText` 把活跃思考文案写进 `part.statusText`（参与指纹），
+    卡住没 token 也会随文案推进重绑；③ `isReasoningClosed` 改为只有 THINKING 才 streaming，
+    完成/停止后折叠头立即回"已深度思考 X 秒"；④ 停止新增 `finalizeStoppedMessage` 收口
+    （partial 定稿 + phase COMPLETED + 清流式 id）；⑤ 新增卡顿文案
+    `stalledPhrase` + `lastStreamActivityTime`：15s 无数据"生成较慢/思考较久"，
+    45s 生成无进展"可停止后重试"。新增 2 条单测；全量 **975 / 0 skipped / 0 failures /
+    0 errors**；APK 07:57:52 已装机，未做真机验证。设计文档 §12。
 
 ---
 

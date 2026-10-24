@@ -356,6 +356,11 @@ public class AIChatActivity extends BaseActivity {
     /** 上一拍是否有工具在跑：状态翻转时强制重绑一次流式消息（工具卡文案要跟着换/收尾） */
     private volatile boolean lastToolRunning = false;
     /**
+     * 最近一次流式活动（token / 阶段切换）的时间戳：用于"卡顿"文案——
+     * 长时间没有新数据时不要继续显示"正在收尾…"这种假装在推进的句子（2026-10-25 审计）。
+     */
+    private volatile long lastStreamActivityTime = 0;
+    /**
      * 本轮结束时给"完成态短摘要"用的类型（{@link com.oilquiz.app.ai.chat.InferenceStatusPhrases}
      * 的 FINISH_COMPLETED / FINISH_STOPPED；0=不显示）。endGeneration 消费后清零。
      */
@@ -6144,6 +6149,8 @@ public class AIChatActivity extends BaseActivity {
         if (!isGenerating) {
             return;
         }
+        // 阶段切换也算一次流式活动：卡顿判定不应把"刚进入思考阶段"算成卡住
+        noteStreamActivity();
         // 阶段切换（或首帧）才重置"本阶段开始时刻"，否则同一阶段重复回调会把文案一直拉回第一句
         if (phase != statusPhrasePhase) {
             statusPhrasePhase = phase;
@@ -6332,16 +6339,32 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /** 文案推进心跳：工具在跑 → 工具侧文案；否则本阶段内按耗时换推理/生成文案 */
+    /** 记录一次流式活动（token / 阶段切换）：卡顿文案据此判断"是不是突然不动了" */
+    private void noteStreamActivity() {
+        lastStreamActivityTime = System.currentTimeMillis();
+    }
+
+    /**
+     * 文案推进心跳：工具在跑 → 工具侧文案；卡顿 → 明确的"较慢/可重试"；
+     * 否则本阶段内按耗时换推理/生成文案。
+     */
     private void updateStatusPhrase() {
         if (chatInputBar == null) return;
         if (updateToolRunningStatusRow()) {
             return;
         }
         if (statusPhrasePhase == null) return;
-        long start = statusPhraseStartTime > 0 ? statusPhraseStartTime : generationStartTime;
-        if (start <= 0) return;
+        long now = System.currentTimeMillis();
+        long stalledMs = lastStreamActivityTime > 0 ? now - lastStreamActivityTime : 0L;
+        // 突然卡住（长时间没 token/阶段更新）：换成卡顿文案，不再假装"正在收尾…"
         String phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
-                .phrase(statusPhrasePhase, System.currentTimeMillis() - start);
+                .stalledPhrase(statusPhrasePhase, stalledMs);
+        if (phrase == null) {
+            long start = statusPhraseStartTime > 0 ? statusPhraseStartTime : generationStartTime;
+            if (start <= 0) return;
+            phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
+                    .phrase(statusPhrasePhase, now - start);
+        }
         if (phrase == null || phrase.contentEquals(lastStatusPhrase)) return;
         lastStatusPhrase = phrase;
         try {
@@ -6710,6 +6733,7 @@ public class AIChatActivity extends BaseActivity {
      */
     private void appendAgentThinkingToken(String token) {
         if (token == null || token.isEmpty()) return;
+        noteStreamActivity();
         noteReasoningTokenForSpeed();
         final int idx = resolveStreamingIndex();
         if (idx < 0) return;
@@ -6925,6 +6949,7 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void handleStreamToken(String token) {
+        noteStreamActivity();
         // 使用 OutputRouter 处理 token
         if (outputRouter != null) {
             outputRouter.processToken(token);
@@ -6968,6 +6993,7 @@ public class AIChatActivity extends BaseActivity {
      * 旧的 token 处理方式（兼容）
      */
     private void handleStreamTokenLegacy(String token) {
+        noteStreamActivity();
         if (token.equals("[TOOL_CALL]")) return;
         if (token.equals("[THINK_END]")) {
             isInThinking = false;
@@ -7984,6 +8010,7 @@ public class AIChatActivity extends BaseActivity {
         }
         pendingFinishKind = 0;
         userStoppedCurrentGeneration = false;
+        lastStreamActivityTime = System.currentTimeMillis();
         // 重置流式 token 统计
         streamingTokenCount = 0;
         streamingStartTime = 0;
@@ -8071,6 +8098,12 @@ public class AIChatActivity extends BaseActivity {
         // 保证任何结束路径（完成 / 出错 / 取消）都不残留。
         clearAgentStatusBar();
 
+        // 用户停止：必须把流式消息定稿（partial 内容 + phase COMPLETED + parts 收口），
+        // 否则气泡里的活跃思考块会一直停在"正在推敲…"，而底部已经写"已停止"——上下对不上。
+        if (finishKind == com.oilquiz.app.ai.chat.InferenceStatusPhrases.FINISH_STOPPED) {
+            finalizeStoppedMessage();
+        }
+
         // 完成态文案：已完成 / 已停止 · 用时 X 秒，展示约 2 秒后随生成行收起。
         // 过程 trace 已由思考折叠块 / 工具卡 / token 统计承载，这里只补一句收尾，
         // 避免生成结束瞬间"状态行突然消失、什么都没留下"。
@@ -8115,6 +8148,55 @@ public class AIChatActivity extends BaseActivity {
             uiHandler.postDelayed(completionHideRunnable, 2000);
         } catch (Throwable ignored) {
             // 展示兜底：文案失败不影响生成结束流程
+        }
+    }
+
+    /**
+     * 用户停止后的消息收口：把流式消息定稿，让气泡内的 parts 从"活动态"退回
+     * "已深度思考 X 秒"，与底部"已停止 · X 秒"一致；并清掉流式 id/缓冲，
+     * 迟到的完成回调会被幂等守卫忽略，不会再把这条消息改回"生成中"。
+     * 只做 UI/消息状态收尾，已生成的部分内容照常落盘。
+     */
+    private void finalizeStoppedMessage() {
+        try {
+            final int idx = resolveStreamingIndex();
+            String thinkingText = "";
+            String contentText = "";
+            synchronized (streamingLock) {
+                if (currentThinkingContent != null) {
+                    thinkingText = currentThinkingContent.toString();
+                }
+                if (currentStreamingContent != null) {
+                    contentText = currentStreamingContent.toString();
+                }
+            }
+            if (idx >= 0 && idx < chatHistory.size()) {
+                ChatMessage msg = chatHistory.get(idx);
+                if (msg != null) {
+                    if (!contentText.isEmpty()) msg.content = contentText;
+                    if (!thinkingText.isEmpty()) msg.thinkingContent = thinkingText;
+                    msg.status = ChatMessage.MessageStatus.COMPLETED;
+                    if (msg.inferenceProgress == null) {
+                        msg.inferenceProgress = new ChatMessage.InferenceProgress(
+                                ChatMessage.InferencePhase.COMPLETED);
+                    } else {
+                        msg.inferenceProgress.phase = ChatMessage.InferencePhase.COMPLETED;
+                    }
+                    msg.assistantTurn =
+                            com.oilquiz.app.ai.chat.turn.AssistantTurn.fromMessage(msg);
+                    msg.assistantTurn.applyToMessage(msg);
+                    if (chatAdapter != null) chatAdapter.notifyItemChanged(idx);
+                }
+            }
+            synchronized (streamingLock) {
+                currentStreamingContent = null;
+                currentThinkingContent = null;
+            }
+            currentStreamingMessageId = null;
+            currentStreamingMessageIndex = -1;
+            saveHistoryAsync();
+        } catch (Throwable ignored) {
+            // 收口失败不影响生成结束流程
         }
     }
 
@@ -10040,6 +10122,7 @@ public class AIChatActivity extends BaseActivity {
      *   - 回退：使用传入的估算值（基于本地累计 / 耗时计算）
      */
     private void updateStreamingTokenStats(int totalTokens, float tokensPerSecond) {
+        noteStreamActivity();
         // native 状态条（状态机阶段 + KV 缓存）随推理 token 流式更新实时刷新
         refreshNativeStateUI();
         // 自愈：个别生成路径未经 beginGeneration()（心跳没被拉起过），这里按 isGenerating 补开；

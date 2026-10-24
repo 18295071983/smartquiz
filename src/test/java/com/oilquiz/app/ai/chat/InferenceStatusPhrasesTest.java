@@ -102,6 +102,25 @@ public class InferenceStatusPhrasesTest {
     }
 
     @Test
+    public void 卡顿文案_长时间没数据要明说较慢可重试() {
+        ChatMessage.InferencePhase gen = ChatMessage.InferencePhase.GENERATING;
+        assertNull("刚开始不算卡", InferenceStatusPhrases.stalledPhrase(gen, 5 * S));
+        assertEquals("生成较慢，仍在继续…", InferenceStatusPhrases.stalledPhrase(gen, 20 * S));
+        assertEquals("生成较久，可停止后重试", InferenceStatusPhrases.stalledPhrase(gen, 50 * S));
+
+        ChatMessage.InferencePhase think = ChatMessage.InferencePhase.THINKING;
+        assertEquals("思考较久，仍在继续…", InferenceStatusPhrases.stalledPhrase(think, 20 * S));
+        assertNull(InferenceStatusPhrases.stalledPhrase(think, 5 * S));
+
+        ChatMessage.InferencePhase wait = ChatMessage.InferencePhase.WAITING;
+        assertEquals("响应较慢，仍在等待…", InferenceStatusPhrases.stalledPhrase(wait, 20 * S));
+
+        // 完成/失败等非活动阶段不进卡顿文案
+        assertNull(InferenceStatusPhrases.stalledPhrase(ChatMessage.InferencePhase.COMPLETED, 60 * S));
+        assertNull(InferenceStatusPhrases.stalledPhrase(null, 60 * S));
+    }
+
+    @Test
     public void 完成态文案_已完成与已停止带耗时() {
         assertEquals("已完成 · 12.3 秒", InferenceStatusPhrases.completionPhrase(
                 InferenceStatusPhrases.FINISH_COMPLETED, 12_345));

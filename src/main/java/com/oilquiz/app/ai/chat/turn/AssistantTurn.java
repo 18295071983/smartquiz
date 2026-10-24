@@ -381,7 +381,39 @@ public class AssistantTurn {
         attachOwnedProducts(turn);
         groupTools(turn);
         applyToolStatusText(turn, msg);
+        applyReasoningStatusText(turn, msg);
         return turn;
+    }
+
+    /**
+     * 给<b>活跃的思考 part</b>挂"思考中"文案（状态机阶段 + 本阶段耗时），写进
+     * {@code part.statusText}。它与底部状态行同源同词；因为参与 {@code Part#fingerprint()}，
+     * 即使生成突然卡住、没有新 token 到达，文案推进（如 梳理思路 → 推敲关键点）也会
+     * 触发重绑，折叠头不会冻在旧句子里——这是"底部在推进、气泡里不动"的根因修复。
+     * 已定稿的思考 part 一律清空，让渲染器回到"已深度思考 X 秒"。
+     */
+    private static void applyReasoningStatusText(AssistantTurn turn, ChatMessage msg) {
+        try {
+            ChatMessage.InferenceProgress prog = msg != null ? msg.inferenceProgress : null;
+            String phrase = null;
+            if (prog != null) {
+                long start = prog.phaseStartTime;
+                if (start <= 0 && msg.timestamp > 0) start = msg.timestamp;
+                if (start > 0) {
+                    phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
+                            .phrase(prog.phase, System.currentTimeMillis() - start);
+                }
+                if (phrase == null) {
+                    phrase = com.oilquiz.app.ai.chat.InferenceStatusLabel.shortLabel(prog.phase);
+                }
+            }
+            for (Part p : turn.parts) {
+                if (p == null || !Part.TYPE_REASONING.equals(p.type)) continue;
+                p.statusText = (p.isStreaming() && phrase != null) ? phrase : null;
+            }
+        } catch (Throwable ignored) {
+            // 展示辅助：异常不影响 parts 构建
+        }
     }
 
     /**
@@ -541,13 +573,16 @@ public class AssistantTurn {
      * 正文 token 一到就是 {@code GENERATING}。**阶段未知（null）按"还在思考"处理**——
      * 历史消息、旧路径以及没被状态机覆盖的引擎都保持改造前的行为，不会突然把思考当成已完成。</p>
      */
+    /**
+     * 思考是否已收口：只有"当前确实在思考"（THINKING）才让 reasoning part 保持 streaming。
+     * 此前只认 GENERATING/DECODING，导致 COMPLETED/FAILED 等结束态仍被当成"思考中"——
+     * 完成/停止后折叠头会停在活动文案上，和底部"已完成"对不上（2026-10-25 审计）。
+     */
     private static boolean isReasoningClosed(ChatMessage msg) {
         if (msg == null || msg.inferenceProgress == null) {
             return false;
         }
-        ChatMessage.InferencePhase phase = msg.inferenceProgress.phase;
-        return phase == ChatMessage.InferencePhase.GENERATING
-                || phase == ChatMessage.InferencePhase.DECODING;
+        return msg.inferenceProgress.phase != ChatMessage.InferencePhase.THINKING;
     }
 
     private static boolean hasText(String s) {

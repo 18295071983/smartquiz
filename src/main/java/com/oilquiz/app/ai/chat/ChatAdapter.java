@@ -887,9 +887,21 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
             } else if (PAYLOAD_STATUS_UPDATE.equals(payload)) {
                 if (holder instanceof AIMessageViewHolder) {
+                    AIMessageViewHolder aiHolder = (AIMessageViewHolder) holder;
                     // 状态与步骤状态同源，一并刷新，避免二者不同步
-                    bindAgentStepStatus((AIMessageViewHolder) holder, message);
-                    updateMessageStatus((AIMessageViewHolder) holder, message);
+                    bindAgentStepStatus(aiHolder, message);
+                    updateMessageStatus(aiHolder, message);
+                    // parts 接管后"活动态文案"在 parts 里（思考折叠头 / 工具卡 statusText，
+                    // 都参与 part 指纹）：只刷状态行不重绑 parts，会出现"底部在推进、
+                    // 气泡里冻住"的上下不一致（2026-10-25 审计）。
+                    boolean partsOn = com.oilquiz.app.ai.chat.parts.PartsRendererFlag.enabled(
+                            aiHolder.itemView.getContext());
+                    if (partsOn && aiHolder.partsTookOver) {
+                        refreshStreamingContent(aiHolder, message);
+                    } else if (!aiHolder.partsTookOver) {
+                        // legacy 思考行/工具卡标题也要跟着状态文案推进刷新
+                        updateThinkingContent(aiHolder, message);
+                    }
                 }
             } else if (PAYLOAD_INFERENCE_PROGRESS.equals(payload)) {
                 if (holder instanceof AIMessageViewHolder) {

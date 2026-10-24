@@ -152,7 +152,7 @@ public final class ReasoningPartRenderer implements PartRenderer {
         row.host = host;
         final boolean streaming = part.isStreaming();
 
-        row.baseLabel = streaming ? stateLabel(row) : doneLabel(row, part);
+        row.baseLabel = streaming ? activeLabel(row, part) : doneLabel(row, part);
         boolean expanded = isExpanded(row, streaming);
         applyBodyVisibility(row, expanded);
         applyHeader(row, expanded);
@@ -206,7 +206,19 @@ public final class ReasoningPartRenderer implements PartRenderer {
     }
 
     /**
-     * 折叠头的"活动态"文案：与底部生成状态行共用同一套多段文案
+     * 活跃思考块的文案：优先用 {@code AssistantTurn} 算好的 {@code part.statusText}
+     * （它参与 part 指纹，卡顿没有新 token 时文案推进也会触发重绑）；
+     * 老数据/无该字段时退回按消息状态机现场算 {@link #stateLabel}。
+     */
+    private static String activeLabel(Row row, AssistantTurn.Part part) {
+        if (part != null && part.statusText != null && !part.statusText.isEmpty()) {
+            return part.statusText;
+        }
+        return stateLabel(row);
+    }
+
+    /**
+     * 折叠头的"活动态"文案（回退路）：与底部生成状态行共用同一套多段文案
      * （{@link com.oilquiz.app.ai.chat.InferenceStatusPhrases}），按"本阶段已耗时"推进：
      * 理解问题 → 梳理思路 → 推敲关键点 → 验证推理 → 收敛结论（超长还有"仍在继续"）。
      *

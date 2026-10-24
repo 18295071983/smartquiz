@@ -375,4 +375,49 @@ public class AssistantTurnStreamingTest {
         assertEquals(1, group.group.get(0).products.size());
         assertEquals("cmp_chart", group.group.get(0).products.get(0).id);
     }
+
+    private static AssistantTurn.Part activeReasoning(AssistantTurn t) {
+        if (t == null) return null;
+        for (AssistantTurn.Part p : t.parts) {
+            if (p != null && AssistantTurn.Part.TYPE_REASONING.equals(p.type) && p.isStreaming()) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    @Test
+    public void 活跃思考挂状态文案并参与指纹_定稿后清空() {
+        // 卡住没有新 token 时，折叠头也要跟底部一起推进：statusText 进 part 指纹
+        ChatMessage msg = ChatMessage.createAIMessage("m2", "", 1000L);
+        msg.status = ChatMessage.MessageStatus.GENERATING;
+        msg.thinkingContent = "正在想";
+        msg.inferenceProgress =
+                new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.THINKING);
+        msg.inferenceProgress.phaseStartTime = System.currentTimeMillis() - 6_000L; // 6s → 梳理思路
+
+        AssistantTurn t1 = AssistantTurn.fromMessageForStreaming(msg, false);
+        AssistantTurn.Part active1 = activeReasoning(t1);
+        assertNotNull("应有活跃思考 part", active1);
+        assertEquals("正在梳理思路…", active1.statusText);
+
+        // 阶段继续推进（哪怕没有新 token）：文案变化 → 指纹变化 → 视图会重绑
+        msg.inferenceProgress.phaseStartTime = System.currentTimeMillis() - 15_000L; // 推敲关键点
+        AssistantTurn t2 = AssistantTurn.fromMessageForStreaming(msg, false);
+        AssistantTurn.Part active2 = activeReasoning(t2);
+        assertNotNull(active2);
+        assertEquals("正在推敲关键点…", active2.statusText);
+        assertFalse("文案推进必须改变 part 指纹", active1.fingerprint().equals(active2.fingerprint()));
+
+        // 定稿：活动文案清空、不再 streaming → 折叠头回到"已深度思考"
+        msg.status = ChatMessage.MessageStatus.COMPLETED;
+        msg.inferenceProgress.phase = ChatMessage.InferencePhase.COMPLETED;
+        AssistantTurn t3 = AssistantTurn.fromMessageForStreaming(msg, false);
+        assertNull("定稿后没有活跃思考 part", activeReasoning(t3));
+        for (AssistantTurn.Part p : t3.parts) {
+            if (p != null && AssistantTurn.Part.TYPE_REASONING.equals(p.type)) {
+                assertNull("定稿思考 part 不能挂活动文案", p.statusText);
+            }
+        }
+    }
 }
