@@ -122,7 +122,9 @@ public class FileGeneratorTool implements AITool {
         Object fpObj = parameters.get("file_path");
         if (fpObj instanceof String) {
             String fp = ((String) fpObj).trim();
-            boolean isAbsolute = fp.startsWith("/") || fp.startsWith("file://");
+            // File 判断绝对路径：Android 上是 "/…"，桌面单测可能是 "C:\…"；
+            // 只按 startsWith("/") 会把 Windows 绝对路径误当相对名塞进工作区。
+            boolean isAbsolute = new File(fp).isAbsolute() || fp.startsWith("file://");
             if (!isAbsolute) {
                 // 相对路径/纯文件名 → 工作区
                 String fileNameOnly = fp;
@@ -198,7 +200,11 @@ public class FileGeneratorTool implements AITool {
             if (parentDir != null && !parentDir.exists()) {
                 parentDir.mkdirs();
             }
-            
+
+            // diff 卡生产者（2026-10-24）：覆盖写前留一份旧文本，写成功后由 UI 桥接层出变更对比卡。
+            // 新建文件时 snapshot 返回 null，不会挂"全是新增"的噪音卡。
+            String diffBefore = FileChangeDiff.snapshot(context, filePath);
+
             // 维度六 P2-1 文件版本管理：覆盖前备份历史版本（保留最近 5 版，避免覆盖丢失）
             backupVersion(file);
             
@@ -253,7 +259,10 @@ public class FileGeneratorTool implements AITool {
                 result.put("openHint", "用户可通过以下链接" + desc + ": [" + fileName + "](" + contentUri + ")");
             }
             
-            return new AIToolResult(result, parameters);
+            Map<String, Object> info = new HashMap<>(parameters);
+            AIToolResult out = new AIToolResult(result, info);
+            FileChangeDiff.attach(context, out, filePath, diffBefore);
+            return out;
         } catch (Exception e) {
             return new AIToolResult("创建文件失败: " + e.getMessage(), parameters);
         }
@@ -295,6 +304,8 @@ public class FileGeneratorTool implements AITool {
                 return new AIToolResult("文件不存在: " + filePath, parameters);
             }
             
+            // diff 卡生产者：追加也会改变文件内容，写前快照旧文本
+            String diffBefore = FileChangeDiff.snapshot(context, filePath);
             String appendContent = newLine ? "\n" + content : content;
             
             try (OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(file, true), StandardCharsets.UTF_8)) {
@@ -307,7 +318,10 @@ public class FileGeneratorTool implements AITool {
             result.put("filePath", filePath);
             result.put("newSize", file.length());
             
-            return new AIToolResult(result, parameters);
+            Map<String, Object> info = new HashMap<>(parameters);
+            AIToolResult out = new AIToolResult(result, info);
+            FileChangeDiff.attach(context, out, filePath, diffBefore);
+            return out;
         } catch (Exception e) {
             return new AIToolResult("追加内容失败: " + e.getMessage(), parameters);
         }

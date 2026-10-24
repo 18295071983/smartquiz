@@ -1,5 +1,27 @@
 # 变更日志
 
+## [2026-10-24] feat(cards)：给两张"预留接口"卡补上自动生产者（agenda / diff）
+
+上一轮只做了渲染端、没有生产者的两张卡，这轮接的是**写侧/工具侧**，不改模型可见的结果文本：
+
+- **agenda ← reminder**：`reminder` 的 set/list 在 `additionalInfo` 里附带现成日程条目
+  （date=yyyy-MM-dd、time=HH:mm、title=提醒内容、desc=ID+重复规则、status=todo），
+  `ToolResultCardBinder` 优先出 agenda 卡；拿不到条目时仍按原来的 list_card 展示。
+  模型侧仍只看到 reminders/count/message，未新增字段。
+- **diff ← 写文件工具**：新增 `FileChangeDiff`（只收已知文本扩展名、单边≤256KB、≤400 行，
+  超限静默跳过）。`file_generator` 的覆盖写/追加、`python_file_ops` 的 write/append/replace
+  在写前快照旧文本、写成功后把 before/after 放进 `additionalInfo.diff`；
+  binder 据此自动挂 diff 卡（file_generator 是"文件卡 + 变更卡"两张，python_file_ops 只挂变更卡）。
+  新建文件没有旧内容，不挂"全是新增"的噪音卡。
+- **顺带**：`ComponentDisplay` 的摘要行中文名列了 agenda/diff/playlist/location 但 `peekDetail`
+  没有分支，收起时显示"N 项数据"；现按条目数/曲数/地址补齐。
+  `FileGeneratorTool.normalizeParameters` 的绝对路径判定从 `startsWith("/")` 改为
+  `new File(fp).isAbsolute()`——桌面单测的 `C:\…` 以前会被当相对名塞进工作区，
+  而 `AgentWorkspace` 构造在 Robolectric 下读 `Environment.isExternalStorageManager()` 会抛异常。
+- **验证**：新增 15 条用例（binder 5、FileChangeDiff 5、file_generator 落盘 3、reminder 转换 2）；
+  全量 `testDebugUnitTest --offline` 740 tests / 0 skipped / 0 failures / 0 errors，`assembleDebug` 通过。
+  真机待验：设提醒后消息里出现日程卡；覆盖写/替换文本后出现变更卡（点开看 +/- 行）。
+
 ## [2026-10-24] feat(live)：台标配置目录 + 自适应内置图标（v9.15）
 
 - **tvg-logo 真正可用**：M3U 的 `tvg-logo` 支持远程 URL、包内相对路径（`logos/cctv1.png`，按 channels.m3u 地址解析）以及 file/content；新增 `LogoLoader`（尺寸采样 + LruCache + 主线程回调）。

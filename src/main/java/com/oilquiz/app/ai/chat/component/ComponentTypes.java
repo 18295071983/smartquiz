@@ -68,7 +68,8 @@ public final class ComponentTypes {
 
     /**
      * playlist / agenda / location / diff 四张卡的 props 形状（三处 props 长说明共用）。
-     * playlist 与播放器单例配套（队列 + 上下首）；diff 目前无工具生产者，属预留接口。
+     * playlist 与播放器单例配套（队列 + 上下首）；diff 由写文件工具在
+     * additionalInfo.diff 里产出（file_generator / python_file_ops）。
      */
     public static final String PROPS_DOC_EXTRA_CARDS =
             "playlist:{title,items:[{name,url,artist,size}]}（音频队列：多曲目用一张卡，行点击从该首开始，"

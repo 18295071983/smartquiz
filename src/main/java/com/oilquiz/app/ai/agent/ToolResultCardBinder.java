@@ -6,6 +6,7 @@ import android.util.Log;
 import com.oilquiz.app.ai.agent.online.AgentWorkspace;
 import com.oilquiz.app.ai.chat.component.ComponentData;
 import com.oilquiz.app.ai.tool.AIToolResult;
+import com.oilquiz.app.ai.tool.FileChangeDiff;
 import com.oilquiz.app.util.QWeatherIconMapper;
 
 import org.json.JSONArray;
@@ -36,7 +37,7 @@ import java.util.regex.Pattern;
  *   <li><b>只复用不新建</b>：全部映射目标都是 {@code ComponentRegistry.registerBuiltin()}
  *       已注册的内置类型（weather_card / table_card / list_card / info_card / todo_card /
  *       image_grid / file_card / file_list / video / audio / link_card / progress_card /
- *       metric_card），不新增渲染器。</li>
+ *       metric_card / agenda / diff 等），不新增渲染器。</li>
  *   <li><b>只读工具已有结构</b>：工具的 result 多数本身就是 Map（见各类注释），
  *       本类按既有键名取值；对已被压成 String 的子结构（天气逐日/逐小时/预警）按既有
  *       行格式解析，<b>不改动工具输出</b>，保证模型侧文本与缓存前缀稳定。</li>
@@ -265,7 +266,9 @@ public final class ToolResultCardBinder {
             case "douyin_downloader":
                 return douyinCards(context, result);
             case "file_generator":
-                return wrap(fileGeneratorCard(context, result));
+                return fileGeneratorCards(context, result);
+            case "python_file_ops":
+                return pythonFileOpsCards(result);
             case "file_analyzer":
                 return wrap(fileAnalyzerCard(result));
             case "export_apk":
@@ -684,6 +687,12 @@ public final class ToolResultCardBinder {
         if (m == null) {
             return null;
         }
+        // 2026-10-24：reminder 在 additionalInfo 里附带现成的日程条目（UI-only），
+        // 优先出 agenda；拿不到时才退回原来的 list_card。
+        ComponentData agenda = agendaCard(asMap(result.getAdditionalInfo()));
+        if (agenda != null) {
+            return agenda;
+        }
         List<?> reminders = asList(m.get("reminders"));
         if (reminders == null || reminders.isEmpty()) {
             return null;
@@ -705,6 +714,39 @@ public final class ToolResultCardBinder {
         if ("daily".equalsIgnoreCase(repeat)) return " · 每日重复";
         if ("weekly".equalsIgnoreCase(repeat)) return " · 每周重复";
         return " · " + repeat;
+    }
+
+    /** additionalInfo.agenda_items → agenda 卡；条目形状与 {@code AgendaCardView} 文档一致 */
+    private static ComponentData agendaCard(Map<String, Object> info) throws Exception {
+        if (info == null) {
+            return null;
+        }
+        List<?> source = asList(info.get("agenda_items"));
+        if (source == null || source.isEmpty()) {
+            return null;
+        }
+        JSONArray items = new JSONArray();
+        for (Object o : source) {
+            Map<String, Object> im = asMap(o);
+            if (im == null) continue;
+            JSONObject item = new JSONObject();
+            putIfNotEmpty(item, "date", str(im.get("date")));
+            putIfNotEmpty(item, "time", str(im.get("time")));
+            putIfNotEmpty(item, "title", str(im.get("title")));
+            putIfNotEmpty(item, "desc", str(im.get("desc")));
+            putIfNotEmpty(item, "status", str(im.get("status")));
+            if (item.length() > 0) {
+                items.put(item);
+            }
+            if (items.length() >= MAX_LIST_ITEMS) break;
+        }
+        if (items.length() == 0) {
+            return null;
+        }
+        JSONObject props = new JSONObject();
+        props.put("title", firstNonEmpty(str(info.get("agenda_title")), "日程"));
+        props.put("items", items);
+        return ComponentData.of("agenda", props);
     }
 
     private static ComponentData memoryCard(AIToolResult result) throws Exception {
@@ -1186,6 +1228,40 @@ public final class ToolResultCardBinder {
 
     // ==================== 文件类 ====================
 
+    /** file_generator：文件卡 + （覆盖/追加时）变更对比卡，最多 2 张 */
+    private static List<ComponentData> fileGeneratorCards(Context context, AIToolResult result)
+            throws Exception {
+        List<ComponentData> out = new ArrayList<>(2);
+        ComponentData file = fileGeneratorCard(context, result);
+        if (file != null) out.add(file);
+        ComponentData diff = diffCard(result);
+        if (diff != null && out.size() < MAX_CARDS_PER_CALL) out.add(diff);
+        return out;
+    }
+
+    /** python_file_ops：结果本身是 stdout 文本，这里只补 UI 侧的 diff 卡 */
+    private static List<ComponentData> pythonFileOpsCards(AIToolResult result) throws Exception {
+        ComponentData diff = diffCard(result);
+        return diff == null ? Collections.emptyList() : Collections.singletonList(diff);
+    }
+
+    /** additionalInfo.diff（FileChangeDiff 写入的 before/after）→ diff 卡 */
+    private static ComponentData diffCard(AIToolResult result) throws Exception {
+        Map<String, Object> info = asMap(result.getAdditionalInfo());
+        if (info == null) return null;
+        Map<String, Object> diff = asMap(info.get(FileChangeDiff.INFO_KEY));
+        if (diff == null) return null;
+        String before = str(diff.get("before"));
+        String after = str(diff.get("after"));
+        if (before.equals(after)) return null;
+        JSONObject p = new JSONObject();
+        p.put("title", firstNonEmpty(str(diff.get("title")), "文件变更"));
+        putIfNotEmpty(p, "path", str(diff.get("path")));
+        p.put("before", before);
+        p.put("after", after);
+        return ComponentData.of("diff", p);
+    }
+
     private static ComponentData fileGeneratorCard(Context context, AIToolResult result)
             throws Exception {
         Map<String, Object> m = asMap(result.getResult());
@@ -1464,6 +1540,12 @@ public final class ToolResultCardBinder {
     private static void putIfNotEmpty(JSONArray items, String label, String value) throws Exception {
         if (value != null && !value.trim().isEmpty()) {
             items.put(kv(label, value));
+        }
+    }
+
+    private static void putIfNotEmpty(JSONObject obj, String key, String value) throws Exception {
+        if (value != null && !value.trim().isEmpty()) {
+            obj.put(key, value);
         }
     }
 

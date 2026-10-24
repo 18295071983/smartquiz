@@ -5,6 +5,7 @@ import android.util.Log;
 
 import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.BaseAITool;
+import com.oilquiz.app.ai.tool.FileChangeDiff;
 import com.oilquiz.app.ai.tool.annotation.Action;
 import com.oilquiz.app.ai.tool.annotation.Param;
 import com.oilquiz.app.ai.tool.annotation.Tool;
@@ -79,9 +80,18 @@ public class PythonFileOpsTool extends BaseAITool {
             }
             String action = parameters.get("action") != null
                     ? String.valueOf(parameters.get("action")) : "read";
+            // diff 卡生产者：写/追加/替换前快照旧文本，成功后由 UI 桥接层出变更对比卡。
+            // 读取类动作不碰文件；新建文件 snapshot 为 null，不会挂"全是新增"的噪音卡。
+            String filePath = strParam(parameters, "file_path", "");
+            boolean modifiesFile = "write".equals(action) || "append".equals(action)
+                    || "replace".equals(action);
+            String diffBefore = modifiesFile
+                    ? FileChangeDiff.snapshot(context, filePath) : null;
             String code = buildCode(action, parameters);
             PythonToolManager.ExecutionResult result = toolManager.executeCode(code, null, EXEC_BUDGET_SECONDS);
-            return formatResult(result, action);
+            AIToolResult out = formatResult(result, action);
+            FileChangeDiff.attach(context, out, filePath, diffBefore);
+            return out;
         } catch (Exception e) {
             Log.e(TAG, "Error: " + e.getMessage(), e);
             return AIToolResult.fail("Python文件工具失败: " + errText(e));

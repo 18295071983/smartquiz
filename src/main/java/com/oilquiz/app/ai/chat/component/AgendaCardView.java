@@ -37,7 +37,9 @@ import java.util.Map;
  * }
  * </pre>
  * 渲染时按 {@code date} 首次出现顺序分组；同一天内按给定顺序排列（调用方负责排序）。
- * 目前没有工具直接产出这张卡（预留接口），模型可通过 {@code ui_component(create, agenda)} 使用。
+ * 自动生产者（2026-10-24）：reminder 的 set/list 把提醒条目放进
+ * {@code additionalInfo.agenda_items}，由 {@code ToolResultCardBinder} 映射成本卡；
+ * 模型也可通过 {@code ui_component(create, agenda)} 手动建卡。
  */
 public class AgendaCardView implements ChatComponent {
 

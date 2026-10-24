@@ -123,6 +123,10 @@ public final class ComponentDisplay {
         m.put("markdown_card", "文本");
         m.put("html", "网页");
         m.put("quiz_card", "题目");
+        m.put("playlist", "播放列表");
+        m.put("agenda", "日程");
+        m.put("location", "位置");
+        m.put("diff", "变更");
         TYPE_CN = java.util.Collections.unmodifiableMap(m);
     }
 
@@ -428,6 +432,24 @@ public final class ComponentDisplay {
                             + (lineCount > 0 ? " · " + lineCount + " 行" : "");
                 }
                 return null;
+            }
+            case "agenda": {
+                JSONArray items = props.optJSONArray("items");
+                return items != null && items.length() > 0 ? items.length() + " 项" : null;
+            }
+            case "playlist": {
+                JSONArray items = props.optJSONArray("items");
+                return items != null && items.length() > 0 ? items.length() + " 首" : null;
+            }
+            case "location": {
+                String address = firstNonEmpty(props.optString("address", ""),
+                        props.optString("city", ""));
+                return address.isEmpty() ? null : clip(address, 40);
+            }
+            case "diff": {
+                JSONArray hunks = props.optJSONArray("hunks");
+                if (hunks != null && hunks.length() > 0) return hunks.length() + " 行";
+                return null; // 有标题（文件变更 · x）时不再重复路径
             }
             case "progress_card":
             case "progress":

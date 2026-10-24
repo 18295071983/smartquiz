@@ -14,10 +14,12 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 变更对比卡（diff，2026-10-23，预留接口）。
+ * 变更对比卡（diff，2026-10-23；2026-10-24 接通自动生产者）。
  *
- * <p>当前<b>没有工具直接产出</b>：改代码只有"行数 + 前 10 行"的文本输出。这张卡先把
- * 渲染侧做好，等写侧愿意保留前后内容（或新增 {@code apply_patch} 类动作）时直接接上。</p>
+ * <p>生产者：{@code file_generator} 的覆盖写/追加、{@code python_file_ops} 的
+ * write/append/replace 在写前快照旧文本，写成功后把 {@code before}/{@code after}
+ * 放进 {@code additionalInfo.diff}（只走 UI 通道，不改模型可见结果）；
+ * 模型也可通过 {@code ui_component(create, diff)} 手动建卡。</p>
  *
  * <p>两种输入形态，任给其一：
  * <ol>

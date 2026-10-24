@@ -8,6 +8,7 @@ import com.oilquiz.app.util.AILogger;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -107,7 +108,9 @@ public class ReminderTool implements AITool {
                     result.put("message", "已设置" + describeRepeat(entry) + "提醒：\"" + entry.content
                             + "\"，首次将于 " + fireText + " 通过系统通知提醒你"
                             + ("none".equals(entry.repeatType) ? "" : "（此后自动重复）"));
-                    return AIToolResult.success(result);
+                    // UI-only：给日程卡一张现成的条目，模型看到的 result 文本保持不变
+                    return AIToolResult.success(result,
+                            agendaInfo("提醒已设置", Collections.singletonList(entry)));
                 }
                 case "cancel": {
                     String id = parameters.get("id") != null ? String.valueOf(parameters.get("id")) : "";
@@ -145,7 +148,8 @@ public class ReminderTool implements AITool {
                     result.put("count", items.size());
                     result.put("reminders", items);
                     result.put("message", items.isEmpty() ? "暂无未触发的提醒" : "未触发提醒:\n" + summary);
-                    return AIToolResult.success(result);
+                    return AIToolResult.success(result, all.isEmpty()
+                            ? new HashMap<>() : agendaInfo("提醒日程", all));
                 }
             }
         } catch (Exception e) {
@@ -154,8 +158,44 @@ public class ReminderTool implements AITool {
         }
     }
 
+    /**
+     * 提醒条目 → agenda 卡的 UI-only 载荷。
+     *
+     * <p>只放进 {@code additionalInfo}，不改 {@code result}：模型侧仍只看到原来的
+     * reminders/count/message 结构，日程卡由 UI 桥接层按这份现成条目渲染。</p>
+     */
+    static Map<String, Object> agendaInfo(
+            String title, List<ReminderScheduler.ReminderEntry> entries) {
+        Map<String, Object> info = new HashMap<>();
+        info.put("agenda_title", title);
+        info.put("agenda_items", agendaItems(entries));
+        return info;
+    }
+
+    /** 提醒条目 → agenda.items：date=yyyy-MM-dd、time=HH:mm、status=todo */
+    static List<Map<String, Object>> agendaItems(
+            List<ReminderScheduler.ReminderEntry> entries) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (entries == null) return out;
+        SimpleDateFormat dayFmt = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+        SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm", Locale.US);
+        for (ReminderScheduler.ReminderEntry e : entries) {
+            if (e == null) continue;
+            Date fireAt = new Date(e.fireAt);
+            Map<String, Object> item = new HashMap<>();
+            item.put("date", dayFmt.format(fireAt));
+            item.put("time", timeFmt.format(fireAt));
+            item.put("title", e.content == null ? "" : e.content);
+            String repeat = describeRepeat(e);
+            item.put("desc", "ID: " + e.id + (repeat.isEmpty() ? "" : " · " + repeat));
+            item.put("status", "todo");
+            out.add(item);
+        }
+        return out;
+    }
+
     /** 重复方式的中文描述（一次性返回空串） */
-    private String describeRepeat(ReminderScheduler.ReminderEntry entry) {
+    private static String describeRepeat(ReminderScheduler.ReminderEntry entry) {
         if (entry == null) return "";
         if ("daily".equals(entry.repeatType)) return "每日";
         if ("weekly".equals(entry.repeatType)) {
