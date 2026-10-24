@@ -114,4 +114,77 @@ public class DynamicToolResultRendererTest {
         assertEquals("image_grid", cards.get(0).type);
         assertTrue(cards.get(0).props.toString().contains("/tmp/x.png"));
     }
+
+    // ---- 目录 ≠ 文件（2026-10-24 真机：workspace(action=path) 把目录挂成了文件卡）----
+
+    /** 真存在的目录：出浏览卡（带条目与目录 path），绝不能出 file_card。 */
+    @Test
+    public void directoryPathBecomesBrowseCardNotFileCard() throws Exception {
+        java.io.File dir = makeDirWithEntries();
+
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("path", dir.getAbsolutePath());
+        r.put("message", "工作区路径: " + dir.getAbsolutePath());
+        List<ComponentData> cards = DynamicToolResultRenderer.render(
+                "workspace", AIToolResult.success(r));
+
+        assertEquals("目录只该出一张卡: " + types(cards), 1, cards.size());
+        assertEquals("file_list", cards.get(0).type);
+        assertEquals(dir.getAbsolutePath(), cards.get(0).props.optString("path"));
+        org.json.JSONArray rows = cards.get(0).props.optJSONArray("files");
+        assertEquals(3, rows.length());
+        assertEquals("目录行要排在文件前", "dir", rows.getJSONObject(0).optString("type"));
+        assertEquals("子目录", rows.getJSONObject(0).optString("name"));
+        for (int i = 1; i < rows.length(); i++) {
+            assertEquals("file", rows.getJSONObject(i).optString("type"));
+        }
+        assertTrue("标题要带目录名，否则用户不知道在看哪个目录",
+                cards.get(0).props.optString("title").contains(dir.getName()));
+    }
+
+    /** 真存在的单个文件仍走 file_card（别把修目录改成"什么都不挂卡"）。 */
+    @Test
+    public void existingSingleFileStillBecomesFileCard() throws Exception {
+        java.io.File dir = makeDirWithEntries();
+        String file = new java.io.File(dir, "报告.md").getAbsolutePath();
+
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("path", file);
+        List<ComponentData> cards = DynamicToolResultRenderer.render(
+                "file_generator", AIToolResult.success(r));
+
+        assertTrue("应仍出文件卡: " + types(cards), containsType(cards, "file_card"));
+        assertFalse(containsType(cards, "file_list"));
+    }
+
+    /** 不存在的路径（模型缩写/幻觉）维持原形状：file_card 至少能看到文件名、点开有提示。 */
+    @Test
+    public void missingPathKeepsFileCardShape() {
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("path", "/data/never/exists/agent_workspace");
+        List<ComponentData> cards = DynamicToolResultRenderer.render(
+                "workspace", AIToolResult.success(r));
+
+        assertTrue("幻觉路径不该被当目录展开: " + types(cards), containsType(cards, "file_card"));
+        assertFalse(containsType(cards, "file_list"));
+    }
+
+    private static java.io.File makeDirWithEntries() throws Exception {
+        java.io.File dir = java.nio.file.Files.createTempDirectory("ws-dir-shape").toFile();
+        dir.deleteOnExit();
+        assertTrue(new java.io.File(dir, "报告.md").createNewFile());
+        assertTrue(new java.io.File(dir, "a.txt").createNewFile());
+        assertTrue(new java.io.File(dir, "子目录").mkdirs());
+        return dir;
+    }
+
+    private static List<String> types(List<ComponentData> cards) {
+        List<String> out = new ArrayList<>();
+        for (ComponentData c : cards) out.add(c.type);
+        return out;
+    }
+
+    private static boolean containsType(List<ComponentData> cards, String type) {
+        return types(cards).contains(type);
+    }
 }

@@ -4,10 +4,6 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
-import android.view.animation.AlphaAnimation;
-import android.view.animation.AnimationSet;
-import android.view.animation.DecelerateInterpolator;
-import android.view.animation.TranslateAnimation;
 import android.widget.TextView;
 
 import com.oilquiz.app.R;
@@ -152,16 +148,6 @@ public class GenerationStatusBar {
         v.setVisibility(visibility);
     }
 
-    /** 思考文本是否新增了完整一行（换段），用于决定是否滑入动画 */
-    private static int countNewlines(CharSequence s) {
-        if (s == null) return 0;
-        int n = 0;
-        for (int i = 0; i < s.length(); i++) {
-            if (s.charAt(i) == '\n') n++;
-        }
-        return n;
-    }
-
     // ==================== 轮询 ====================
 
     public void startPolling() {
@@ -190,8 +176,8 @@ public class GenerationStatusBar {
         setVisibilityIfChanged(tvGenPhase, View.VISIBLE);
         setTextIfChanged(tvGenPhase, disp);
         lastThinkShown = disp;
-        int nl = countNewlines(disp);
-        if (nl > lastThinkLen) {                   // 换段：滑入一次
+        int nl = SegmentScraper.segmentSignal(disp);
+        if (SegmentScraper.isNewSegment(lastThinkLen, nl)) {  // 换段：滑入一次
             startThinkingRollerAnim();
         }
         lastThinkLen = nl;
@@ -289,26 +275,14 @@ public class GenerationStatusBar {
         }
     }
 
-    /** 单行段落切换动画：新内容从左往右刮刀式滑入 + 柔和淡入（只在换段时调用一次） */
+    /**
+     * 单行段落切换动画：新内容从左往右刮刀式滑入 + 柔和淡入（只在换段时调用一次）。
+     *
+     * <p>形状已抽到共用处 {@link SegmentScraper}——parts 渲染器接管气泡后，思考段也在消息里
+     * 需要同一个原语，别再留两份（历史上"两份复制各自判断换段"正是闪烁的根因，见
+     * {@link #lastThinkLen}）。</p>
+     */
     private void startThinkingRollerAnim() {
-        try {
-            if (tvGenPhase == null) return;
-            // 先清掉上一段动画：若上一次还没播完就叠加/重启，alpha 会被打回 0.3、位移打回 -0.6，
-            // 视觉上就是闪烁；换段时应当"从干净状态滑入"。
-            tvGenPhase.clearAnimation();
-            AnimationSet set = new AnimationSet(true);
-            TranslateAnimation ta = new TranslateAnimation(
-                    TranslateAnimation.RELATIVE_TO_SELF, -0.6f,
-                    TranslateAnimation.RELATIVE_TO_SELF, 0f,
-                    TranslateAnimation.RELATIVE_TO_SELF, 0f,
-                    TranslateAnimation.RELATIVE_TO_SELF, 0f);
-            ta.setDuration(320);
-            ta.setInterpolator(new DecelerateInterpolator());
-            AlphaAnimation aa = new AlphaAnimation(0.3f, 1f);
-            aa.setDuration(320);
-            set.addAnimation(ta);
-            set.addAnimation(aa);
-            tvGenPhase.startAnimation(set);
-        } catch (Exception ignored) {}
+        SegmentScraper.slideIn(tvGenPhase);
     }
 }

@@ -1218,6 +1218,10 @@ public final class ToolResultCardBinder {
         if (isWebDocument(p)) {
             return webCard(p);
         }
+        // 目录 → 浏览卡，绝不落到下面的 file_card（file_card 只会把目录名当文件展示与"打开"）
+        if (isDirectoryPath(p)) {
+            return dirListCard(p, null);
+        }
         if (IMAGE_EXT.contains(ext) || "image".equals(kind) || "img".equals(kind)) {
             return ComponentData.of("image_grid", new JSONObject()
                     .put("columns", 1).put("images", new JSONArray().put(p)));
@@ -1264,6 +1268,67 @@ public final class ToolResultCardBinder {
         return ComponentData.of("html", new JSONObject()
                 .put("title", fileNameOf(p))
                 .put("url", "file://" + p));
+    }
+
+    /**
+     * 该路径是否<b>确实存在的目录</b>。目录绝不能出 {@code file_card}：那张卡把值当文件展示，
+     * 名字是目录名、图标是文档、"打开"走文件预览，用户点进去什么也看不到
+     * （实测 {@code workspace(action=path)} 返回的绝对目录就被挂成了文件卡）。
+     * 与 {@link #isWebDocument} 同样刻意做存在性检查：模型常给缩写或幻觉路径，那种情况维持原形状。
+     */
+    static boolean isDirectoryPath(String path) {
+        if (path == null || path.trim().isEmpty()) return false;
+        String p = path.trim();
+        if (p.startsWith("http://") || p.startsWith("https://") || p.startsWith("content://")) {
+            return false;
+        }
+        try {
+            return new File(stripScheme(p)).isDirectory();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 目录条目上限：再多也只在标题里报总数（卡内可点开进下一级，不必一次铺完）。 */
+    private static final int MAX_DIR_ITEMS = 12;
+
+    /**
+     * 目录 → {@code file_list} 浏览卡（{@code files[].{name,path,size,type}}，type 取 dir/file，
+     * 顶层再带 {@code path=目录} 供卡内点开下一级）。排序是"目录在前 + 名称升序"，
+     * 与 {@code file_analyzer} 的目录模式同一套字段形状，别另立一份。
+     */
+    static ComponentData dirListCard(String path, String title) throws Exception {
+        String p = stripScheme(path.trim());
+        File dir = new File(p);
+        File[] kids = dir.listFiles();
+        int total = kids == null ? 0 : kids.length;
+        List<File> ordered = new ArrayList<>(Arrays.asList(kids == null ? new File[0] : kids));
+        Collections.sort(ordered, (a, b) -> {
+            boolean ad = a.isDirectory(), bd = b.isDirectory();
+            if (ad != bd) return ad ? -1 : 1;
+            return String.valueOf(a.getName()).compareToIgnoreCase(String.valueOf(b.getName()));
+        });
+        JSONArray arr = new JSONArray();
+        for (File f : ordered) {
+            if (arr.length() >= MAX_DIR_ITEMS) break;
+            JSONObject row = new JSONObject()
+                    .put("name", f.getName())
+                    .put("path", f.getAbsolutePath())
+                    .put("type", f.isDirectory() ? "dir" : "file");
+            if (!f.isDirectory()) row.put("size", sizeText(f.getAbsolutePath()));
+            arr.put(row);
+        }
+        JSONObject props = new JSONObject()
+                .put("title", firstNonEmpty(title,
+                        (fileNameOf(p).isEmpty() ? "目录" : fileNameOf(p)) + " · " + total + " 项"))
+                .put("path", p)
+                .put("files", arr);
+        return ComponentData.of("file_list", props);
+    }
+
+    /** 路径是目录时给目录卡，否则返回 null 让调用方继续走原有形状。 */
+    static ComponentData dirCardIfDirectory(String path, String title) throws Exception {
+        return isDirectoryPath(path) ? dirListCard(path, title) : null;
     }
 
     // ==================== 文件类 ====================

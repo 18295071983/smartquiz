@@ -10400,6 +10400,15 @@ public class AIChatActivity extends BaseActivity {
             int screenHeight = rootView.getRootView().getHeight();
             int keypadHeight = screenHeight - r.bottom;
             if (keypadHeight > screenHeight * 0.15) {
+                // **先问键盘是谁唤起的**：气泡里的 html 卡（<input>/<textarea>）也会唤起键盘。
+                // 真机实测的抢焦点链就是这里：点卡片输入框 → WebView 拿到焦点 → 键盘弹出
+                // → 本监听判定"键盘出现" → 100ms 后 requestFocus(inputMessage) → WebView 的编辑焦点
+                // 被弹掉、字全打进聊天框（探针页报的"focus→blur 在同一秒、keys:0"）。
+                // 点击/滑块不弹键盘，所以只有文字输入受影响——症状一直对不齐到卡片身上就是这个原因。
+                android.view.View focused = rootView.findFocus();
+                if (focused != null && focused != inputMessage) {
+                    return;     // 焦点在消息列表/卡片里：这次键盘弹出不属于聊天输入框，别抢
+                }
                 // 键盘弹出：快捷工具在抽屉内不受影响，仅滚动到底部 + 确保输入框可见
                 scrollToBottom();
                 // 确保输入框区域可见：延迟等待布局稳定后滚动

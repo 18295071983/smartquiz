@@ -9,6 +9,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.oilquiz.app.ai.chat.turn.AssistantTurn;
+import com.oilquiz.app.ai.chat.ui.SegmentScraper;
 
 /**
  * 推理/思考 part 渲染器（parts 架构升级 P2，2026-10-21）。
@@ -86,6 +87,14 @@ public final class ReasoningPartRenderer implements PartRenderer {
         row.host = host;
         // 正文复用宿主 markdown 原语（后台渲染 + 链接 + 图片 + 主题），不在此自渲染。
         host.renderMarkdown(row.body, text);
+        // 刮刀滑入（与顶部生成状态条同一个原语）：只在"思考新增了一整段"时播一次。
+        // 逐 token 追加不播——2026-10-06 那次修的闪烁就是每片段重启动画（见 SegmentScraper 注释）。
+        // 首次绑定也不播（sig 从 0 起，新段判据要求变大），入场交给 ChatAdapter 的逐块错峰。
+        int signal = SegmentScraper.segmentSignal(text);
+        if (SegmentScraper.isNewSegment(row.segmentSignal, signal)) {
+            SegmentScraper.slideIn(row.header);
+        }
+        row.segmentSignal = signal;
         // header 用上接到的思考时长（"已深度思考 X 秒"），无时长则退回"深度思考"。
         row.baseLabel = part.durationMs > 0L
                 ? ("已深度思考 " + Math.round(part.durationMs / 1000.0) + " 秒")
@@ -107,6 +116,8 @@ public final class ReasoningPartRenderer implements PartRenderer {
         final TextView header;
         final TextView body;
         String baseLabel = HEADER_PLAIN;
+        /** 上次播刮刀时的"换段信号"（= 思考文本的换行数）。随视图复用而保留。 */
+        int segmentSignal;
         /** 最近一次绑定的 part/宿主，供展开时"正文为空就重发渲染"自愈用。 */
         AssistantTurn.Part part;
         PartHost host;

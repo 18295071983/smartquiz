@@ -162,10 +162,18 @@ public final class DynamicToolResultRenderer {
         if (!files.isEmpty() && out.size() < MAX_CARDS) {
             // 本地 HTML 文档 → 网页卡（判定与 ToolResultCardBinder 共用一处，免得同一个产物出两种形状）
             List<String> webDocs = new ArrayList<>();
+            List<String> dirs = new ArrayList<>();
             Set<String> plain = new LinkedHashSet<>();
             for (String p : files) {
                 if (ToolResultCardBinder.isWebDocument(p)) webDocs.add(p);
+                else if (ToolResultCardBinder.isDirectoryPath(p)) dirs.add(p);
                 else plain.add(p);
+            }
+            // 目录 → 浏览卡（file_card 只会把目录名当文件展示，"打开"点进去什么也没有；
+            // workspace(action=path) 就踩过这个）
+            for (String p : dirs) {
+                if (out.size() >= MAX_CARDS) break;
+                out.add(ToolResultCardBinder.dirListCard(p, null));
             }
             for (String p : webDocs) {
                 if (out.size() >= MAX_CARDS) break;
@@ -234,6 +242,10 @@ public final class DynamicToolResultRenderer {
         if (p == null || p.isEmpty() || p.contains(" ") || p.length() > 500) return null;
         if (ToolResultCardBinder.isWebDocument(p)) {
             return ToolResultCardBinder.webCard(p);
+        }
+        // 同一处目录判定：目录出浏览卡，不出 file_card
+        if (ToolResultCardBinder.isDirectoryPath(p)) {
+            return ToolResultCardBinder.dirListCard(p, null);
         }
         String ext = ext(p);
         if (IMAGE_EXT.contains(ext)) {

@@ -149,6 +149,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             // 接管标记随 holder 走，回收必须复位：残留 true 会让下一条（可能不被接管的）消息
             // 跳过 bindComponents/updateThinkingContent，表现为产物与思考行凭空消失。
             ai.partsTookOver = false;
+            // 接管归属也要随 holder 走：留着上一条消息的 id，下一条消息若恰好复用同一 holder
+            // 且 partsTookOver 被后面某条路径置真，就会跳过重装、把旧容器连带旧视图端上去。
+            ai.partsTakenOverForId = null;
             // 回收时重置 WebView 正文渲染器（清占位高/待渲染状态），复用到别的消息不残留
             if (ai.markdownView != null) ai.markdownView.resetForReuse();
         }
@@ -857,7 +860,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                         // 插入式组件渲染：文本段/组件段交替，组件标记在流式中实时生效
                         bindMessageContent(aiHolder, message, availableWidth);
                     });
-                    updateThinkingContent(aiHolder, message);
+                    // 接管中跳过：思考由 parts 的 reasoning part 渲。§4.79 那轮修的是完成态的双份，
+                    // 流式接管后这条 payload 每个 tick 都会来，不防就每 tick 把全局思考行重新点亮一次。
+                    if (!aiHolder.partsTookOver) {
+                        updateThinkingContent(aiHolder, message);
+                    }
                     // STEP-STATUS-PAYLOAD(2026-10-09)：气泡内「步骤状态」行（思考中/调用工具/
                     // 执行完成）此前只由 PAYLOAD_STATUS_UPDATE 刷新，而流式 token 走的是
                     // PAYLOAD_CONTENT_UPDATE 分支。两者都从同一个 message.agentStepStatus 取值，
@@ -898,7 +905,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
             } else if (PAYLOAD_THINKING_UPDATE.equals(payload)) {
                 if (holder instanceof AIMessageViewHolder) {
-                    updateThinkingContent((AIMessageViewHolder) holder, message);
+                    AIMessageViewHolder aiHolder = (AIMessageViewHolder) holder;
+                    // 接管中跳过：全局思考行与 parts 的 reasoning part 同源两份内容，
+                    // 流式期这条 payload 是按 token 节流发过来的，不防就会反复把旧行点亮。
+                    if (!aiHolder.partsTookOver) {
+                        updateThinkingContent(aiHolder, message);
+                    }
                 } else if (holder instanceof ThinkingMessageViewHolder) {
                     ((ThinkingMessageViewHolder) holder).bind(message);
                 }
@@ -1144,9 +1156,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private void bindAIMessage(AIMessageViewHolder holder, ChatMessage message, String timeStr, int position) {
         // 消息引用绑定（2026-09-14）：思考轮独立折叠状态 / 轮次组件 id 锚点读写
         holder.holderMessage = message;
-        // 每次绑定先复位接管标记：holder 已布局时接管在下面的 renderWithCorrectWidth 里同步发生，
-        // 未布局时延后到 onGlobalLayout——两种时序下，本方法后面的 legacy 写者都必须看到"本次"的结果。
-        holder.partsTookOver = false;
+        // 接管标记按"同一条消息 + 开关仍开着"延续，不再无条件复位（P6 流式接管，2026-10-24）。
+        // 一复位就有两处连锁：① 下面那两个 legacy 写者会照常跑，把产物与全局思考行再挂一遍；
+        // ② bindWithParts 那边必须重装容器，把上一个 tick 建好的图表/播放器连根释放再重建——
+        // 观感就是每过一轮闪一次（轮次边界/思考定稿/状态变化都会引发全量绑定）。
+        // 真正的复位时机是换消息、关掉 parts 开关、或 holder 回收（见 onViewRecycled）。
+        if (holder.partsTakenOverForId != null && holder.partsTakenOverForId.equals(message.id)
+                && com.oilquiz.app.ai.chat.parts.PartsRendererFlag.enabled(holder.itemView.getContext())) {
+            holder.partsTookOver = true;
+        } else {
+            holder.partsTookOver = false;
+        }
         // 获取 messageText 的实际宽度用于表格自动换行：
         // 已布局（rebind 场景）立即按真实宽度渲染；未布局则等测量完成后渲染。
         // 修复：生成完成 rebind 时 holder 已布局、onGlobalLayoutListener 不再触发，
@@ -3506,25 +3526,35 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * 无标记时走纯文本模式（messageText 渲染全文 + 消息级组件容器）。
      */
     /**
-     * parts 渲染器接管的绑定（P3b）。仅当 {@code parts_renderer=true} 且消息已完成、有
-     * canonical {@code assistantTurn} 时被调用。用一个 holder 独占的 {@code partsContainer}
-     * 让 {@link com.oilquiz.app.ai.chat.parts.TurnPartsHost} 增量渲染，旧正文视图隐藏；
-     * 旧渲染路径绝不往 partsContainer 里加 View，避免争抢子 View 顺序。
+     * parts 渲染器接管的绑定（P3b，P6 扩到流式，2026-10-24）。调用方已判过
+     * {@code parts_renderer}（出厂档已翻成开，见 {@link com.oilquiz.app.ai.chat.parts.PartsRendererFlag}）
+     * 且消息是完成态或（{@code parts_streaming} 开着时的）生成中态；完成态不再要求
+     * {@code assistantTurn} 非空——它不是渲染输入，见 {@link #bindMessageContent} 那段闸门注释。
+     * 用一个 holder 独占的 {@code partsContainer} 让 {@link com.oilquiz.app.ai.chat.parts.TurnPartsHost}
+     * 增量渲染，旧正文视图隐藏；旧渲染路径绝不往 partsContainer 里加 View，避免争抢子 View 顺序。
      *
-     * @return 成功接管返回 true；无法接管（contentHost 为空）返回 false，调用方回落旧路径。
+     * @return 成功接管返回 true；无法接管（contentHost 为空、parts 构不出可渲内容、含未复刻类型）
+     *         返回 false，调用方回落旧路径。
      */
     private boolean bindWithParts(AIMessageViewHolder holder, ChatMessage message,
                                   int availableWidth, Context ctx) {
         if (holder.contentHost == null) {
             return false;
         }
-        // 能力覆盖闸门：先构建 parts（fromMessageForParts，不改 live assistantTurn）并判定
-        // ① 每个 part 都有注册渲染器；② 现阶段只接管 text/reasoning（工具组折叠、data 档位等
-        //    尚未忠实复刻，含这些 part 的消息整条回落 legacy，避免"旧的清掉、新的没补"）；
-        // ③ text part 不含 parts 未复刻的 mermaid/公式结构。
+        // 能力覆盖闸门：先构建 parts（fromMessageForStreaming/Parts，不改 live assistantTurn）并判定
+        // ① 每个 part 都有注册渲染器；② 只接管 allowed 名单里的类型（P3f–P3j 已逐类复刻并放开：
+        //    text/reasoning/tool_call/tool_result/tool_group/data，见下方循环）；
+        // ③ mermaid/公式已由 P3g 的 expandInline 切成 html data part，不再触发回落。
         // 任一不满足 → 直接 return false，**不碰 contentHost**。
-        final com.oilquiz.app.ai.chat.turn.AssistantTurn partsTurn =
-                com.oilquiz.app.ai.chat.turn.AssistantTurn.fromMessageForParts(message, isNightMode(ctx));
+        //
+        // 流式的 parts 必须换真值来源：`roundSnapshots` 是每轮定稿才追加的，而 msg.content 在工具调用
+        // 边界就被 flush 成当前累积正文——用完成态的快照分支重建，"正在写的这一轮"（还没有快照）
+        // 会整段不见，观感就是正文永远落后一轮。所以这里按在不在生成中分叉。
+        final com.oilquiz.app.ai.chat.turn.AssistantTurn partsTurn = isStreamingMessage(message)
+                ? com.oilquiz.app.ai.chat.turn.AssistantTurn.fromMessageForStreaming(
+                        message, isNightMode(ctx))
+                : com.oilquiz.app.ai.chat.turn.AssistantTurn.fromMessageForParts(
+                        message, isNightMode(ctx));
         final com.oilquiz.app.ai.chat.parts.PartRendererRegistry partsRegistry =
                 com.oilquiz.app.ai.chat.parts.PartRendererRegistry.createDefault();
         if (partsTurn == null || partsTurn.parts == null || partsTurn.parts.isEmpty()
@@ -3544,7 +3574,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TOOL_GROUP.equals(p.type)
                     || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_DATA.equals(p.type);
             if (!allowed) {
-                return false; // 含 error/approval 等未忠实复刻的 part → 整条回落 legacy
+                // 闸门保留给"将来真加 error/approval 生产者"的场景；**当前不可达**——
+                // fromMessageForParts 只产上面这六种，生产代码里没有 error/approval part 的写者。
+                return false;
             }
             // mermaid/公式已被 expandInline 切成 html data part，text part 不再含其结构。
         }
@@ -3575,30 +3607,37 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.partsHost.setWebMarkdownEnabled(webMarkdownEnabled);
 
         // parts 引擎独占容器：holder 从"流式(旧路径)"切到"完成(parts)"时，旧路径可能已往 contentHost
-        // 塞过正文/组件子 View。这里让 contentHost 只保留 partsContainer（其余子 View 摘掉，messageText/
-        // markdownView 由旧路径的 ensurePlainTextHostViews 在需要时再挂回），避免旧内容残留在 parts 树旁。
-        if (holder.partsContainer == null) {
-            holder.partsContainer = new LinearLayout(ctx);
-            holder.partsContainer.setOrientation(LinearLayout.VERTICAL);
-            holder.partsContainer.setLayoutParams(new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        }
-        if (holder.partsContainer.getParent() instanceof ViewGroup) {
-            ((ViewGroup) holder.partsContainer.getParent()).removeView(holder.partsContainer);
-        }
-        // parts 引擎独占容器：holder 从"流式(旧路径)"切到"完成(parts)"时，旧路径可能已往 contentHost
         // 塞过正文/组件子 View（含流式 mermaid/公式的 WebView）。这里让 contentHost 只保留 partsContainer
         // （其余子 View 摘掉，messageText/markdownView 由旧路径的 ensurePlainTextHostViews 在需要时再挂回），
         // 避免旧内容残留在 parts 树旁。清空前先深度 release，否则旧 WebView 的原生渲染器进程会随滚动一直泄漏。
-        releaseAndClearComponents(holder.contentHost);
-        holder.contentHost.addView(holder.partsContainer);
-        // 组件容器也清空：parts 模式不再走 bindComponents，残留的是上一轮旧渲染（同样先 release）。
-        releaseAndClearComponents(holder.componentContainer);
-        // 作废组件缓存：接管期间不写 componentContainer，但缓存字段还留着上一条消息的指纹，
-        // 不清会让"关掉 flag 后回 legacy"的那次绑定误判成"组件未变"而早退 → 产物凭空消失。
-        holder.boundComponents = null;
-        holder.boundComponentsFingerprint = 0;
+        //
+        // **只在"换了消息 / 这条还没被接管过"时做**：流式每 tick 都重进本方法，若每次都释放清空，
+        // 上一个 tick 建好的 WebView/图表/播放器就白建了，TurnPartsHost 的按 id 复用随之失效。
+        final boolean remountContainer = !holder.partsTookOver
+                || message.id == null
+                || !message.id.equals(holder.partsTakenOverForId);
+        if (remountContainer) {
+            if (holder.partsContainer == null) {
+                holder.partsContainer = new LinearLayout(ctx);
+                holder.partsContainer.setOrientation(LinearLayout.VERTICAL);
+                holder.partsContainer.setLayoutParams(new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            }
+            if (holder.partsContainer.getParent() instanceof ViewGroup) {
+                ((ViewGroup) holder.partsContainer.getParent()).removeView(holder.partsContainer);
+            }
+            releaseAndClearComponents(holder.contentHost);
+            holder.contentHost.addView(holder.partsContainer);
+            // 组件容器也清空：parts 模式不再走 bindComponents，残留的是上一轮旧渲染（同样先 release）。
+            releaseAndClearComponents(holder.componentContainer);
+            // 作废组件缓存：接管期间不写 componentContainer，但缓存字段还留着上一条消息的指纹，
+            // 不清会让"关掉 flag 后回 legacy"的那次绑定误判成"组件未变"而早退 → 产物凭空消失。
+            holder.boundComponents = null;
+            holder.boundComponentsFingerprint = 0;
+            holder.partsTakenOverForId = message.id;
+        }
         // 全局思考行 / 工具卡让路：parts 自己渲 reasoning part 与工具组卡，留着会双份。
+        // 每 tick 都要重申：legacy 的思考行由 PAYLOAD_THINKING_UPDATE 刷新，只在首次重装时隐藏不够。
         if (holder.thinkSection != null) holder.thinkSection.setVisibility(View.GONE);
         if (holder.toolCard != null) holder.toolCard.setVisibility(View.GONE);
         holder.partsTookOver = true;
@@ -3611,6 +3650,18 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return true;
     }
 
+    /**
+     * 这条消息是否还在生成中（流式档）。与旧路径判据同源
+     * （{@code ensurePlainTextHostViews} 那边也是 GENERATING/IN_PROGRESS 两个态算流式）。
+     */
+    private static boolean isStreamingMessage(ChatMessage message) {
+        if (message == null) {
+            return false;
+        }
+        return message.status == ChatMessage.MessageStatus.GENERATING
+                || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+    }
+
     private void bindMessageContent(AIMessageViewHolder holder, ChatMessage message, int availableWidth) {
         Context ctx = holder.itemView.getContext();
         // canonical parts → 兼容投影：UI 在每次完成态绑定前都用 parts 重算
@@ -3618,11 +3669,25 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (message.isCompleted() && message.assistantTurn != null) {
             message.assistantTurn.applyToMessage(message);
         }
-        // parts 渲染器接管（P3b）。flag 默认 false → 整个分支跳过，下面旧路径字节级不变。
-        // 仅"已完成且有 canonical assistantTurn"的消息走 parts；流式/无 turn 仍走旧路径。
-        // 内联 ```component``` 标记由 fromMessageForParts 切成 text+data part，在 parts 内渲染。
+        // parts 渲染器接管（P3b）。flag=false → 整个分支跳过，下面旧路径字节级不变。
+        //
+        // 完成态**不再要求 message.assistantTurn 非空**（P6，2026-10-24）。那个字段从来不是渲染输入——
+        // 下面的构建每次绑定都从 content/roundSnapshots/components 现建（`fromMessageForParts`），
+        // 落盘 turn 只当"生产者跑过了"的令牌和 applyToMessage 的投影源。以令牌当闸门就出现第二类
+        // 倒退：停止/出错那六处终态（onGenerationStopped / onGenerationError / handleGenerationError
+        // 及各自的 uiDetached 分支）都没人补 turn，流式期明明在被接管，一落到终态就判回 legacy，
+        // 用户看到的是"停止那一刻整条重排"。逐个终态去补 turn 等于再开一个写者，所以把闸门修到
+        // 真值本身：能构建出可渲 part 就接管，构建不出来（空 parts）照旧回落。
+        //
+        // 流式（GENERATING/IN_PROGRESS）另吃一个子开关 `parts_streaming`：它换了正文的顺序真值
+        // （按 contentRoundBounds 切片而非按 roundSnapshots 重建），出问题时要能单独退回
+        // "只有完成态进 parts"，而不必连整条 parts 一起关。
+        // 这里**不能**调 applyToMessage：上面那段的 isCompleted 门控是故意的——流式期
+        // msg.content / contentRoundBounds 正是 Activity 侧 flush 的写入目标，反向投影会打断切片。
         if (com.oilquiz.app.ai.chat.parts.PartsRendererFlag.enabled(ctx)
-                && message.isCompleted() && message.assistantTurn != null) {
+                && (message.isCompleted()
+                    || (com.oilquiz.app.ai.chat.parts.PartsStreamingFlag.enabled(ctx)
+                        && isStreamingMessage(message)))) {
             if (bindWithParts(holder, message, availableWidth, ctx)) {
                 return;
             }
@@ -5419,6 +5484,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
          * 每次 {@code bindAIMessage} 开头复位（延后绑定时序下不能残留上一条的值）。</p>
          */
         boolean partsTookOver;
+        /**
+         * 当前被 parts 接管的是<b>哪一条消息</b>（流式接管，2026-10-24）。
+         *
+         * <p>流式期间每次刷新都会重进 {@code bindWithParts}，而接管开头那段"释放并清空 contentHost /
+         * componentContainer"是给<b>首次</b>接管用的（legacy 可能已经往里面塞过正文与组件）。
+         * 同一条消息的第 N 个 tick 再走一遍就会把上一个 tick 建好的 WebView/图表/播放器连根释放，
+         * {@code TurnPartsHost} 的视图复用随即失效——正是这次改造要消灭的抖动。所以容器只在
+         * "换了消息"或"这条消息此前没被接管过"时重装。</p>
+         */
+        String partsTakenOverForId;
         /** 宿主模式（插入式组件）组件段 View 缓存：流式更新时复用，避免 WebView/图表/图片反复重建闪烁 */
         List<View> componentSegmentViews;
         /** 组件段指纹（type|props 序列）：与缓存 View 对应，指纹不变则复用 */
@@ -6258,16 +6333,23 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final LinearLayout host = holder.contentHost;
         host.post(() -> {
             if (holder.holderMessage != message) return;
-            int count = host.getChildCount();
+            // 接管后 contentHost 只剩一个子 View（partsContainer），照 contentHost 编排就退化成
+            // "整条一起淡入"——用户看到的正是"错峰入场没了"。改成对 parts 容器自己的子 View 编排：
+            // 一个 part 一张卡，块粒度与 legacy 的思考行/工具卡/正文段一致。
+            final ViewGroup revealHost = holder.partsTookOver
+                    && holder.partsContainer != null
+                    && holder.partsContainer.getChildCount() > 0
+                    ? holder.partsContainer : host;
+            int count = revealHost.getChildCount();
             if (count <= 0) return;
             synchronized (revealedContentMessageIds) {
                 if (!revealedContentMessageIds.add(message.id)) return;
             }
             if (!android.animation.ValueAnimator.areAnimatorsEnabled()) return;
-            int dp6 = dpToPx(6, host.getContext());
+            int dp6 = dpToPx(6, revealHost.getContext());
             int i = 0;
             for (int c = 0; c < count; c++) {
-                View child = host.getChildAt(c);
+                View child = revealHost.getChildAt(c);
                 if (child == null || child.getVisibility() != View.VISIBLE) continue;
                 child.setAlpha(0f);
                 child.setTranslationY(dp6);

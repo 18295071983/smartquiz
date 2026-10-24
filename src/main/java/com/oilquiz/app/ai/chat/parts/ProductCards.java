@@ -6,6 +6,7 @@ import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.oilquiz.app.R;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.component.ComponentData;
 import com.oilquiz.app.ai.chat.component.ComponentDisplay;
@@ -75,6 +76,46 @@ final class ProductCards {
             ComponentLifecycle.release(group.getChildAt(i));
         }
         group.removeAllViews();
+    }
+
+    /**
+     * 产物集合摘要（顺序敏感：id + type + props 内容）。
+     *
+     * <p>用途是<b>产物没变就别重建子树</b>。此前工具卡每次重绑都 {@code releaseAll} 再重新
+     * {@code mountAll}，而重绑在流式期是常态（任一工具 running→success、完成态那一次全量绑定都会
+     * 改指纹）——html/图表/播放器这类带 WebView 的产物于是被打回起点：滚动位置、页面内输入焦点、
+     * 播放进度全丢（真机表现为"在网页卡里打字，焦点同一秒被弹掉"）。摘要相等就原样保留产物子树，
+     * 变了才整体重建（顺序变化也走重建，代价可控，不做 diff 以免重蹈"产物被抹掉"那类双写 bug）。</p>
+     */
+    static String digestOf(List<ComponentData> products) {
+        StringBuilder sb = new StringBuilder();
+        if (products != null) {
+            for (ComponentData c : products) {
+                if (c == null) {
+                    sb.append("|-");
+                    continue;
+                }
+                String key = c.type + "|" + (c.props != null ? c.props.toString() : "");
+                sb.append('|').append(c.id == null ? "" : c.id)
+                        .append(':').append(Integer.toHexString(key.hashCode()));
+            }
+        }
+        return sb.toString();
+    }
+
+    /** 产物容器当前挂的是不是这份摘要（{@code R.id.product_mount_digest} 记在容器 tag 上）。 */
+    static boolean unchanged(ViewGroup products, String digest) {
+        if (products == null || digest == null || products.getChildCount() == 0) {
+            return false;
+        }
+        return digest.equals(products.getTag(R.id.product_mount_digest));
+    }
+
+    /** 记下落在这个容器里的产物摘要（只在真正重建过子树后调用）。 */
+    static void markMounted(ViewGroup products, String digest) {
+        if (products != null) {
+            products.setTag(R.id.product_mount_digest, digest);
+        }
     }
 
     /** PEEK 摘要行 + 可展开卡体（展开态记在 {@link ChatMessage#isComponentBodyExpanded}，key 唯一）。 */

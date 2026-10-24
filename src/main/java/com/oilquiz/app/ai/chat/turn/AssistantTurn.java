@@ -308,6 +308,165 @@ public class AssistantTurn {
     }
 
     /**
+     * 流式（未完成）消息的 parts 构建（P6 流式接管，2026-10-24）。
+     *
+     * <p>与 {@link #fromMessageForParts} 的差别只有三件事，且每件事都是"未完成"这个状态带来的：</p>
+     * <ol>
+     *   <li><b>顺序真值取 {@code contentRoundBounds} 切片，不读 {@code roundSnapshots}</b>。快照是在
+     *       {@code onRoundComplete} 才追加的，而 {@code msg.content} 在每个轮次边界（工具调用前）就被
+     *       {@code flushRoundContentToMessage} 刷成当前累积正文——所以生成中用快照分支重建，
+     *       "正在生成的这一轮"（还没有快照）会整段凭空消失，观感就是正文永远落后一轮。</li>
+     *   <li><b>live 轮的思考取 {@code msg.thinkingContent}</b>（legacy 逐 token 写这份，
+     *       {@code thinkingRounds} 要到定稿才有它）。同 id 已有 reasoning part 时**就地覆盖**，
+     *       绝不新增一条，否则思考会在流式期翻倍。</li>
+     *   <li><b>live 轮的 part 打 {@link Part#STATE_STREAMING}</b>，让渲染器按流式档处理未闭合围栏/光标。
+     *       完成之后改走 {@link #fromMessageForParts}，state 归 null → 指纹变化 → 那一段重绑一次即收尾。</li>
+     * </ol>
+     *
+     * <p><b>id 稳定是这里成立的前提</b>（否则每 tick 都在重建含 WebView 的整段 parts）：callId 由
+     * {@code turnId + 轮号}决定而轮号只增不改，工具 part 以 {@code toolCallId} 为键，组 id 取组内首个
+     * 工具 id。所以逐次重建只会让 live 那一段的指纹变化，前面各段一律命中 {@code TurnPartsHost}
+     * 的指纹早退，不重绑、更不重建视图。</p>
+     *
+     * <p>注意：本方法**不**调 {@link #applyToMessage}——流式期间 {@code msg.content} 与
+     * {@code contentRoundBounds} 正是 Activity 侧 flush 的写入目标，反向投影会打断切片。</p>
+     */
+    public static AssistantTurn fromMessageForStreaming(ChatMessage msg, boolean dark) {
+        if (msg == null) {
+            return null;
+        }
+        AssistantTurn turn = new AssistantTurn();
+        turn.turnId = msg.turnId;
+        long base = msg.timestamp > 0 ? msg.timestamp : System.currentTimeMillis();
+        int nBounds = msg.contentRoundBounds != null ? msg.contentRoundBounds.size() : 0;
+        String liveCallId;
+        int liveRoundIndex;
+        if (nBounds > 0) {
+            addRoundsFromBounds(turn, msg, base);
+            // 切片共 nBounds+1 段，最后一段（下标 nBounds → 轮号 nBounds+1）就是正在生成的这一轮。
+            liveCallId = callId(turn.turnId, nBounds + 1);
+            liveRoundIndex = nBounds;
+        } else {
+            // 还没出现轮次边界：整条 content 就是正在生成的这一轮。
+            // 已落库的每轮思考仍要一条一条摆出来——legacy 的思考段是"一个入口 + 一步一行"，
+            // 只渲染 live 那条就是回归。轮号用"已落库轮数 + 1"，所以每轮定稿时 live 的 id 会前移
+            // 一次（一个 tick 序列内最多一次，不是逐 token 漂）。
+            int liveIndex = addRecordedThinkingRounds(turn, msg, base);
+            liveCallId = callId(turn.turnId, liveIndex + 1);
+            liveRoundIndex = liveIndex;
+            ModelCall call = new ModelCall(liveCallId, liveIndex + 1,
+                    msg.content, msg.thinkingContent, "", base);
+            turn.modelCalls.add(call);
+            if (hasText(msg.content)) {
+                turn.parts.add(Part.text(liveCallId + Part.ID_TEXT_SUFFIX, msg.content, base));
+            }
+        }
+        fillToolPartsFromComponents(turn, msg);
+        appendDataParts(turn, msg);
+
+        applyLiveThinking(turn, msg, liveCallId, liveRoundIndex, base);
+        markLiveStreaming(turn, liveCallId);
+
+        expandInline(turn, dark);
+        attachOwnedProducts(turn);
+        groupTools(turn);
+        return turn;
+    }
+
+    /**
+     * 无轮次边界时，把<b>已定稿</b>的各轮思考各铺一条 reasoning part，并返回 live 轮的 0 基下标。
+     *
+     * <p>规则与有边界那条完全同构：{@code thinkingRounds} 的最后一条按当前轮的快照对待（它可能刚由
+     * {@code finalizeAgentThinking} 写入，而 {@code msg.thinkingContent} 还留着同一份文本），
+     * 所以它<b>不</b>在这里产出，交给 {@link #applyLiveThinking} 用同一条 id 去覆盖。
+     * 否则同一段思考会在流式期显示两遍——这正是 legacy 侧"思考行双份"的老根因，别再犯。</p>
+     */
+    private static int addRecordedThinkingRounds(AssistantTurn turn, ChatMessage msg, long base) {
+        java.util.List<String> rounds = msg.thinkingRounds;
+        int n = rounds == null ? 0 : rounds.size();
+        int liveIndex = Math.max(0, n - 1);
+        for (int i = 0; i < liveIndex; i++) {
+            String think = rounds.get(i);
+            if (!hasText(think)) {
+                continue;
+            }
+            Part rp = Part.reasoning(callId(msg.turnId, i + 1) + Part.ID_REASONING_SUFFIX,
+                    think, base);
+            rp.durationMs = thinkingRoundDurationMs(msg, i);
+            turn.parts.add(rp);
+        }
+        return liveIndex;
+    }
+
+    /**
+     * 把 live 轮的思考文本对齐到 {@code msg.thinkingContent}：已有同 id 的 reasoning part 就地覆盖
+     * （只在新文本不更短时覆盖，避免把已定稿的更长思考截掉），没有就在 live 正文段之前插一条。
+     *
+     * @param liveRoundIndex live 轮的 0 基下标（= 已记录的轮次边界数），用于取该轮思考耗时
+     */
+    private static void applyLiveThinking(AssistantTurn turn, ChatMessage msg,
+                                         String liveCallId, int liveRoundIndex, long base) {
+        if (turn == null || turn.parts == null || !hasText(msg.thinkingContent)) {
+            return;
+        }
+        String reasoningId = liveCallId + Part.ID_REASONING_SUFFIX;
+        java.util.List<Part> parts = turn.parts;
+        for (int i = 0; i < parts.size(); i++) {
+            Part p = parts.get(i);
+            if (p != null && reasoningId.equals(p.id)) {
+                int curLen = p.text == null ? 0 : p.text.length();
+                if (msg.thinkingContent.length() >= curLen) {
+                    p.text = msg.thinkingContent;
+                }
+                return;
+            }
+        }
+        Part rp = Part.reasoning(reasoningId, msg.thinkingContent, base);
+        rp.durationMs = thinkingRoundDurationMs(msg, liveRoundIndex);
+        parts.add(liveReasoningInsertIndex(turn, liveCallId), rp);
+    }
+
+    /** live 轮思考的插入位：排在 live 正文段之前；没有正文段就排在首个 data part 之前。 */
+    private static int liveReasoningInsertIndex(AssistantTurn turn, String liveCallId) {
+        java.util.List<Part> parts = turn.parts;
+        String liveTextId = liveCallId + Part.ID_TEXT_SUFFIX;
+        for (int i = 0; i < parts.size(); i++) {
+            Part p = parts.get(i);
+            if (p != null && (liveTextId.equals(p.id) || (p.id != null && p.id.startsWith("data:")))) {
+                return i;
+            }
+        }
+        return parts.size();
+    }
+
+    /**
+     * 给 live 轮的 text/reasoning part 打流式态。只认这两个精确 id（不用前缀匹配：
+     * callId 是 {@code turnId + "-R" + 轮号}，"R1" 是 "R11" 的前缀，误匹配会把已完成轮标成流式）；
+     * 工具与 data part 不打，它们靠自己的 status 推进。本方法必须在 {@link #expandInline} 之前调，
+     * 展开出的子段会继承源 part 的 state。
+     */
+    private static void markLiveStreaming(AssistantTurn turn, String liveCallId) {
+        if (turn == null || turn.parts == null || liveCallId == null) {
+            return;
+        }
+        String liveTextId = liveCallId + Part.ID_TEXT_SUFFIX;
+        String liveReasoningId = liveCallId + Part.ID_REASONING_SUFFIX;
+        for (Part p : turn.parts) {
+            if (p == null || p.id == null) {
+                continue;
+            }
+            if (liveTextId.equals(p.id) || liveReasoningId.equals(p.id)) {
+                p.state = Part.STATE_STREAMING;
+            }
+        }
+    }
+
+    private static boolean hasText(String s) {
+        return s != null && !s.trim().isEmpty();
+    }
+
+
+    /**
      * 把 parts 里的工具序列整理成组卡（§11.1）：
      * ① 每条 {@code tool_result} 并入其 {@code tool_call}（按 toolCallId），删掉独立 result part；
      * ② 连续 {@code tool_call}（≥1 个即算一组）折叠成一个 {@link Part#TYPE_TOOL_GROUP}（成员存 {@link Part#group}）；

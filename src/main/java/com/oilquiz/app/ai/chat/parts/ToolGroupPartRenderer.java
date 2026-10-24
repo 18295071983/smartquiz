@@ -95,12 +95,27 @@ public final class ToolGroupPartRenderer implements PartRenderer {
         // 成员行（对齐 legacy 紧凑行 item_chat_v2_tool_row，不是整张 ToolCallCardView），
         // 折叠也预建，展开即时；产物进常显区。
         releaseChildren(v.body);
-        releaseChildren(v.products);
+        // 产物区：只在产物真的变了才重建（成员行每绑都重排，但 WebView 类产物重建会丢
+        // 输入焦点/滚动/播放进度，见 ProductCards.digestOf）。
+        java.util.List<ComponentData> allProducts = new java.util.ArrayList<>();
+        for (Part m : members) {
+            if (m != null && m.products != null) allProducts.addAll(m.products);
+        }
+        final String digest = ProductCards.digestOf(allProducts);
+        final boolean keepProducts = ProductCards.unchanged(v.products, digest);
+        if (!keepProducts) {
+            releaseChildren(v.products);
+        }
         int idx = 0;
         for (Part m : members) {
             v.body.addView(ToolActivityRowView.build(ctx, v.body, m, idx++, host));
             // 所属产物（§11.3）：进<b>产物区</b>而不是折叠体——折叠时仍可见（同 legacy）。
-            ProductCards.mountAll(productFactory, v.products, m.products, m.id + ":prod:", host);
+            if (!keepProducts) {
+                ProductCards.mountAll(productFactory, v.products, m.products, m.id + ":prod:", host);
+            }
+        }
+        if (!keepProducts) {
+            ProductCards.markMounted(v.products, digest);
         }
 
         final PartHost h = host;

@@ -81,14 +81,25 @@ public final class ToolCallPartRenderer implements PartRenderer {
         ToolCardProps.mergeCall(props, part);
         view.setTag(props);
         ViewGroup group = (ViewGroup) view;
-        ProductCards.releaseAll(group); // 先深度释放旧子树（含产物 WebView）
+        // 产物子树只在"产物真的变了"时重建（见 ProductCards.digestOf）；否则整棵 WebView 会被打回起点。
+        final String digest = ProductCards.digestOf(part.products);
+        final boolean keepProducts = ProductCards.unchanged(group, digest) && group.getChildCount() > 0;
+        if (keepProducts) {
+            // 只换第 0 张（工具卡本体），产物原样留着
+            com.oilquiz.app.ai.chat.component.ComponentLifecycle.release(group.getChildAt(0));
+            group.removeViewAt(0);
+        } else {
+            ProductCards.releaseAll(group); // 先深度释放旧子树（含产物 WebView）
+        }
         View card = factory.create(host.context(), ComponentData.of(ToolCardProps.TYPE, props));
         if (card != null) {
-            group.addView(card);
+            group.addView(card, 0);
         }
         // 所属产物（§11.3）：挂在工具卡下方，与工具同进同出。
-        ProductCards.mountAll(productFactory, group, part.products,
-                part.id + ":prod:", host);
+        if (!keepProducts) {
+            ProductCards.mountAll(productFactory, group, part.products, part.id + ":prod:", host);
+            ProductCards.markMounted(group, digest);
+        }
     }
 
     @Override

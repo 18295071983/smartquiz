@@ -81,6 +81,10 @@ public class HtmlCardView implements ChatComponent {
         String title = extractTitle(p);
         int maxHeightDp = p.optInt("maxHeight", DEFAULT_MAX_HEIGHT_DP);
         if (maxHeightDp <= 0) maxHeightDp = DEFAULT_MAX_HEIGHT_DP;
+        // 放大档（全屏宿主 {@link ComponentFocusHost}）：那个键只存在于宿主自己的 props 副本上，
+        // 气泡里那份永远不会有。为真时整卡按视口高一次定高，完全不进内容量高梯子——
+        // 梯子是为气泡的"自适应"服务的，在全屏里只会碍事（改高度＝重测＝打断输入）。
+        final boolean fillHeight = p.optBoolean(ComponentFocusHost.PROP_FILL_HEIGHT, false);
 
         CardShell shell = CardShell.create(context).setTitle(title);
 
@@ -142,11 +146,12 @@ public class HtmlCardView implements ChatComponent {
             return false; // 不消费事件，由 WebView 自身处理滚动与点击
         });
 
-        final int maxHeightPx = dp(context, maxHeightDp);
+        final int maxHeightPx = fillHeight ? fillViewportHeightPx(context) : dp(context, maxHeightDp);
         // WebView 外包 FrameLayout：承载"← 返回"浮标（canGoBack 时显示，卡片内可返回上一页）
         final android.widget.FrameLayout webContainer = new android.widget.FrameLayout(context);
         final LinearLayout.LayoutParams containerLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(context, FALLBACK_HEIGHT_DP));
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                fillHeight ? maxHeightPx : dp(context, FALLBACK_HEIGHT_DP));
         webContainer.setLayoutParams(containerLp);
         webView.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -177,9 +182,32 @@ public class HtmlCardView implements ChatComponent {
         webContainer.addView(webView);
         webContainer.addView(backBtn, backLp);
 
+        // 「放大」浮标：右下角（右上角是"←"返回，错开免得互相盖）。
+        // 刻意不占 CardShell 的 footer 动作位——那里 MAX_INLINE_ACTIONS=2 的预算是留给
+        // Agent 自己声明的 actions（提交/回传按钮）的，挤进去会把业务按钮推到「更多」里。
+        if (!fillHeight && ComponentFocusHost.canOpen(context)) {
+            final ComponentData focusData = data;
+            android.widget.ImageView expandBtn = new android.widget.ImageView(context);
+            expandBtn.setImageResource(R.drawable.ic_card_fullscreen);
+            expandBtn.setContentDescription(context.getString(R.string.card_html_expand_desc));
+            expandBtn.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
+            expandBtn.setPadding(dp(context, 5), dp(context, 5), dp(context, 5), dp(context, 5));
+            expandBtn.setBackground(roundedRect(context, dp(context, 18),
+                    androidx.core.content.ContextCompat.getColor(context, R.color.card_scrim)));
+            expandBtn.setOnClickListener(v -> ComponentFocusHost.open(context, focusData));
+            final android.widget.FrameLayout.LayoutParams expandLp =
+                    new android.widget.FrameLayout.LayoutParams(
+                            dp(context, 30), dp(context, 30));
+            expandLp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.END;
+            expandLp.bottomMargin = dp(context, 8);
+            expandLp.rightMargin = dp(context, 8);
+            webContainer.addView(expandBtn, expandLp);
+        }
+
         final boolean bridgeEnabled = HtmlSandbox.allowsBridge(trust);
         final SandboxWebViewClient sandboxClient = new SandboxWebViewClient(context, trust,
-                webView, webContainer, backBtn, maxHeightPx, scriptEnabled, bridgeEnabled);
+                webView, webContainer, backBtn, maxHeightPx, scriptEnabled, bridgeEnabled,
+                fillHeight);
         webView.setWebViewClient(sandboxClient);
         // 页面进度到 100% 时再量一次：图片/字体/CSS 常在 onPageFinished 之后才把内容撑高，
         // 只按"加载完成"量一次会把长报告永久压在初始高度里（真机症状：卡片只有一条窗口）
@@ -210,8 +238,10 @@ public class HtmlCardView implements ChatComponent {
         // 注意：不能走 shell.addBody()——那会把参数换成 WRAP_CONTENT，
         // WebView 在 wrap_content 下会塌成一条，量高失败时用户就看不到任何内容。
         // 这里显式给一个初始高度，自适应成功后由 WebViewClient 改写容器高度。
+        // 放大档例外：它不参与量高，所以这里直接给最终高度（视口高），一次到位。
         shell.getBody().addView(webContainer, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(context, FALLBACK_HEIGHT_DP)));
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                fillHeight ? maxHeightPx : dp(context, FALLBACK_HEIGHT_DP)));
         if (decision.truncated) {
             shell.setState(CardShell.State.TRUNCATED, context.getString(
                     R.string.card_html_truncated, HtmlSandbox.maxInlineHtmlKb()));
@@ -251,11 +281,13 @@ public class HtmlCardView implements ChatComponent {
         private final int maxHeightPx;
         private final boolean scriptEnabled;
         private final boolean bridgeEnabled;
+        /** 放大档：整卡按视口高定死，不参与内容量高梯子（改高度会打断页面里的输入） */
+        private final boolean fillHeight;
 
         SandboxWebViewClient(Context context, HtmlSandbox.Trust trust, HtmlWebView webView,
                             android.widget.FrameLayout webContainer,
                             android.widget.TextView backBtn, int maxHeightPx,
-                            boolean scriptEnabled, boolean bridgeEnabled) {
+                            boolean scriptEnabled, boolean bridgeEnabled, boolean fillHeight) {
             this.context = context;
             this.trust = trust;
             this.webView = webView;
@@ -264,6 +296,7 @@ public class HtmlCardView implements ChatComponent {
             this.maxHeightPx = maxHeightPx;
             this.scriptEnabled = scriptEnabled;
             this.bridgeEnabled = bridgeEnabled;
+            this.fillHeight = fillHeight;
         }
 
         @Override
@@ -344,6 +377,7 @@ public class HtmlCardView implements ChatComponent {
         /** 排一次多时刻量高（页面加载完成、以及进度到 100% 时各来一轮） */
         void scheduleMeasure() {
             if (webView.isComponentReleased()) return;
+            if (fillHeight) return;   // 放大档高度已按视口定死，量高只会打断输入
             long now = System.currentTimeMillis();
             if (now - lastScheduleAtMs < 250L) return;
             lastScheduleAtMs = now;
@@ -410,9 +444,23 @@ public class HtmlCardView implements ChatComponent {
             if (heightPx == null || heightPx <= 0 || webView.isComponentReleased()) return;
             try {
                 int target = Math.min(heightPx + dp(context, 16), maxHeightPx);
+                if (target <= appliedHeightPx) return;
+                // 页面里有输入框正在编辑时**绝不**改容器高度：改高度会顺着
+                // requestLayout 传到 WebView，Android 在重测时把内部编辑焦点弹掉
+                // （真机实测：focus 拿到后同一秒 blur、keys:0，而点击/滑块类一次完成的
+                // 交互不受影响——正是这条量高梯子的 1000ms / 2000ms 那两拍）。
+                // 所以推迟到焦点释放后再量；超过重试上限就直接放弃这次高度更新，
+                // 宁可卡片停在当前高度（内容超出可内部滚动），也不抢走用户正在打的字。
+                if (hasFocusedInputInPage()) {
+                    if (deferredMeasureRetries < MAX_DEFERRED_MEASURES) {
+                        deferredMeasureRetries++;
+                        webView.postDelayed(this::measureContentHeight, DEFERRED_MEASURE_MS);
+                    }
+                    return;
+                }
+                deferredMeasureRetries = 0;
                 // 多轮量高：只接受更高的值，量到更小值（图片还没下来）不改回去，
                 // 否则容器会在几轮回调之间来回抖
-                if (target <= appliedHeightPx) return;
                 appliedHeightPx = target;
                 webView.post(() -> {
                     if (webView.isComponentReleased()) return;
@@ -424,6 +472,24 @@ public class HtmlCardView implements ChatComponent {
                 });
                 Log.i(TAG, "html rendered, height=" + target + "px (max " + maxHeightPx + "px)");
             } catch (Throwable ignored) {
+            }
+        }
+
+        /** 量高推迟的重试节奏与上限：约 5 秒内还在编辑就放弃这次高度更新。 */
+        private static final long DEFERRED_MEASURE_MS = 800L;
+        private static final int MAX_DEFERRED_MEASURES = 6;
+        private int deferredMeasureRetries;
+
+        /**
+         * WebView 子树里是否还有焦点（页面内 {@code <input>} 正在编辑时，焦点在 WebView
+         * 内部的编辑视图上，{@code findFocus()} 非空；只有 WebView 自己拿到焦点时
+         * {@code hasFocus()} 为真）。
+         */
+        private boolean hasFocusedInputInPage() {
+            try {
+                return webView.hasFocus() || webView.findFocus() != null;
+            } catch (Throwable t) {
+                return false;
             }
         }
 
@@ -639,6 +705,14 @@ public class HtmlCardView implements ChatComponent {
     private static int dp(Context context, float value) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value,
                 context.getResources().getDisplayMetrics());
+    }
+
+    /** 放大档的一次定高：视口高减掉窗口顶部"关闭"栏与卡片自身 chrome（约 150dp）。 */
+    private static int fillViewportHeightPx(Context context) {
+        int heightPx = context.getResources().getDisplayMetrics().heightPixels;
+        int chromePx = dp(context, 150);
+        int min = dp(context, 320);
+        return Math.max(min, heightPx - chromePx);
     }
 
     /**

@@ -861,6 +861,12 @@
     <string name="card_html_fields">接收到的字段：%1$s</string>
     <string name="card_html_truncated">内容超过 %1$d KB，已截断显示（可让 Agent 生成 HTML 文件后打开完整版）</string>
     <string name="card_html_blocked_local">已拦截：只允许预览应用工作区内的本地文件</string>
+    <!-- 卡片放大档（全屏宿主）：气泡里的 html 卡点一下转全屏，输入框不再受列表重绑/键盘监听干扰 -->
+    <string name="card_html_expand">放大</string>
+    <string name="card_html_expand_desc">在全屏页里打开这张卡片</string>
+    <string name="card_html_expand_close">关闭</string>
+    <string name="card_html_expand_unavailable">这个内容暂时无法放大查看</string>
+
     <string name="card_html_blocked_http">已拦截：卡片内仅允许 https 页面（或本机地址），请复制链接到浏览器打开</string>
     <string name="card_html_blocked_scheme">已拦截：不支持的链接协议 %1$s</string>
 

@@ -323,6 +323,98 @@ public class PartsCoverageTest {
     }
 
     /**
+     * 工具卡<b>重绑不许顺手重建产物</b>（2026-10-24 真机：在网页卡里打字，焦点同一秒被弹掉）。
+     *
+     * <p>流式期任一工具 running→success 都会改这张 part 的指纹从而重绑；此前 bindView 无条件
+     * {@code releaseAll} + 重新 {@code mountAll}，带 WebView 的产物于是被打回起点
+     * （输入焦点、滚动位置、播放进度全丢）。现在产物摘要没变就原样保留同一个 View 实例。</p>
+     */
+    @Test
+    public void toolCardRebindKeepsOwnedProductViewWhenProductsUnchanged() {
+        FakeFactory toolF = new FakeFactory();
+        FakeFactory prodF = new FakeFactory();
+        ToolCallPartRenderer call = new ToolCallPartRenderer(toolF, prodF);
+
+        org.json.JSONObject pp = new org.json.JSONObject();
+        try {
+            pp.put("display", "inline");
+            pp.put("title", "天气图");
+        } catch (org.json.JSONException e) {
+            throw new RuntimeException(e);
+        }
+        ComponentData prod = ComponentData.of("chart", pp);
+        prod.id = "cmp_keep";
+        AssistantTurn.Part tc = AssistantTurn.Part.toolCall(
+                "c1", "c1", "weather", "{}", "running", 1L);
+        tc.products = new ArrayList<>();
+        tc.products.add(prod);
+
+        TestHost h = new TestHost(ctx);
+        View host = call.createView(h, container);
+        call.bindView(host, tc, h);
+        View productView = ((ViewGroup) host).getChildAt(1);
+        assertEquals(1, prodF.created.size());
+
+        // 状态推进 → 工具卡本体必须重绑，产物必须原地留着
+        tc.status = "success";
+        tc.result = "晴 26 度";
+        call.bindView(host, tc, h);
+
+        assertEquals("工具卡本体照常重绑", 2, toolF.created.size());
+        assertEquals("产物没变就不该再造一张", 1, prodF.created.size());
+        assertSame("产物 View 必须是同一个实例（WebView 没被重建）",
+                productView, ((ViewGroup) host).getChildAt(1));
+        assertEquals("宿主仍是 工具卡 + 产物卡", 2, ((ViewGroup) host).getChildCount());
+
+        // 产物内容变了才重建
+        try {
+            pp.put("title", "换了一张图");
+        } catch (org.json.JSONException e) {
+            throw new RuntimeException(e);
+        }
+        call.bindView(host, tc, h);
+        assertEquals("产物变了要重建", 2, prodF.created.size());
+    }
+
+    /** 组卡同理：成员行每次重排（紧凑行很轻），产物区摘要没变就保留。 */
+    @Test
+    public void groupRebindKeepsProductsUntilTheyChange() {
+        FakeFactory prodF = new FakeFactory();
+        ToolGroupPartRenderer r = new ToolGroupPartRenderer(prodF);
+
+        AssistantTurn.Part m1 = AssistantTurn.Part.toolCall("g:c1", "c1", "weather", "{}", "done", 1L);
+        org.json.JSONObject pp = new org.json.JSONObject();
+        try {
+            pp.put("display", "inline");
+            pp.put("title", "天气图");
+        } catch (org.json.JSONException e) {
+            throw new RuntimeException(e);
+        }
+        m1.products = new ArrayList<>();
+        ComponentData prod = ComponentData.of("chart", pp);
+        prod.id = "cmp_grp_keep";
+        m1.products.add(prod);
+        AssistantTurn.Part grp = AssistantTurn.Part.toolGroup("grp1",
+                new ArrayList<>(Arrays.asList(m1)), 1L);
+
+        TestHost h = new TestHost(ctx);
+        View root = r.createView(h, container);
+        r.bindView(root, grp, h);
+        assertEquals(1, prodF.created.size());
+
+        r.bindView(root, grp, h);
+        assertEquals("组卡重绑不该重建产物", 1, prodF.created.size());
+
+        try {
+            pp.put("title", "又变了");
+        } catch (org.json.JSONException e) {
+            throw new RuntimeException(e);
+        }
+        r.bindView(root, grp, h);
+        assertEquals("产物变了才重建", 2, prodF.created.size());
+    }
+
+    /**
      * 折叠组卡时<b>产物必须仍然可见</b>（对齐 legacy：工具行在 chat_v2_tool_card_body 里随折叠隐藏，
      * 产物挂在独立的 chat_v2_tool_card_products 上、在 expanded 判断之外）。
      *

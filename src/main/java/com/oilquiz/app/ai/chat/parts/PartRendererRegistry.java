@@ -43,8 +43,10 @@ public final class PartRendererRegistry {
 
     /**
      * 是否所有 part 都能被本注册表解析到渲染器（"能力全覆盖"判定）。
-     * 任一部分解析不出（如尚未注册的 data/自定义类型）→ false，宿主应回落 legacy，
+     * 任一部分解析不出（如未注册的自定义类型）→ false，宿主应回落 legacy，
      * 避免 parts 只渲一部分、把没覆盖的原生子布局清掉。null part 视为可跳过。
+     * <p>注意：本判定只看"有没有渲染器"，不看"复刻得忠不忠实"——{@code createDefault()} 已注册
+     * error/approval 渲染器，故它们能通过这里，但仍由宿主侧的 allowed 名单挡在接管之外。</p>
      */
     public boolean canRenderAll(java.util.List<AssistantTurn.Part> parts) {
         if (parts == null) {

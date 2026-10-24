@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <item name="thinking_expanded" type="id" />
+    <!-- 产物区已挂载内容的摘要：工具卡重绑时用它判断"产物没变就别重建 WebView"（parts §11.3） -->
+    <item name="product_mount_digest" type="id" />
 </resources>
