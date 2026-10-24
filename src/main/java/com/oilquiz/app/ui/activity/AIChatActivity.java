@@ -339,10 +339,16 @@ public class AIChatActivity extends BaseActivity {
     private final Object streamingLock = new Object();
 
     /**
-     * 按轮次刷新 UI：生成过程中不逐 token notify，只在「工具调用边界 / 最终完成」刷新。
-     * 目的：避免高频重排和 Markdown 半成品闪烁；生成中仍显示状态条/思考区。
+     * 轮内流式（P7，2026-10-25）：只有 {@code markdown_stream_tail=true} 且 WebView 正文路径
+     * 开启时才逐 tick 上屏；默认 false，保持原有“只在轮次边界刷新”的行为。
      */
-    private static final boolean ROUND_BATCH_RENDER = true;
+    private boolean streamTailEnabled;
+
+    /**
+     * TTS 仍按完成态整条朗读：轮内流式 v1 只改正文上屏，不把流式朗读一起放开，
+     * 避免音频跑在文字前。
+     */
+    private static final boolean TTS_ROUND_BATCH = true;
 
     /**
      * 历史持久化跨实例全局锁：旋转重建时旧 Activity 的异步保存线程与新 Activity 的
@@ -713,6 +719,10 @@ public class AIChatActivity extends BaseActivity {
             boolean webMarkdown = getSharedPreferences("ai_chat_prefs", MODE_PRIVATE)
                     .getBoolean("web_markdown_render", true);
             if (chatAdapter != null) chatAdapter.setWebMarkdownEnabled(webMarkdown);
+
+            // 轮内流式是 WebView 正文路径的子开关：Markwon 路径绝不放开逐 tick 刷新。
+            streamTailEnabled = com.oilquiz.app.ai.chat.render.MarkdownStreamTailFlag.enabled(this)
+                    && webMarkdown;
 
             setupKeyboardListener();
             updateEmptyState();
@@ -1401,10 +1411,7 @@ public class AIChatActivity extends BaseActivity {
             @Override
             public void onTextOutput(String text, boolean isComplete) {
                 runOnUiThread(() -> {
-                    final int idx = resolveStreamingIndex();
-                    if (idx < 0) return;
-                    // 加锁快照
-                    String contentSnapshot;
+                    if (resolveStreamingIndex() < 0) return;
                     synchronized (streamingLock) {
                         if (currentStreamingContent == null) return;
                         if (isComplete) {
@@ -1419,24 +1426,14 @@ public class AIChatActivity extends BaseActivity {
                         } else {
                             currentStreamingContent.append(text);
                         }
-                        contentSnapshot = currentStreamingContent.toString();
                     }
-                    // 完成事件只是全文重发，流式期间已逐 token 投喂过朗读，不能重复投喂
+                    // 完成事件只是全文重发；v1 TTS 仍按完成态整条朗读，这里不重复投喂。
                     if (!isComplete) {
                         feedStreamingTts(text);
                     }
-                    // 权威边界（2026-10-21）：轮次渲染下，token/预览缓冲绝不直接写
-                    // msg.content；只允许 flushRoundContentToMessage()（工具边界）和
-                    // completeGeneration()（最终 fullText）两个提交点写。
-                    // 否则完成事件里的流式文本会先一步覆盖消息，final 再改一次，
-                    // 既造成闪烁，也让“谁才是最终内容”变得不可判定。
-                    if (!ROUND_BATCH_RENDER && (isComplete || streamingUpdateManager == null)) {
-                        ChatMessage msg = chatHistory.get(idx);
-                        msg.content = contentSnapshot;
-                        if (chatAdapter != null) {
-                            chatAdapter.updateAIMessageContent(idx, contentSnapshot);
-                        }
-                    }
+                    // 权威边界（2026-10-25 轮内流式）：正文只由 safeUpdateMessage()（80ms tick）
+                    // 与 completeGeneration()（最终 fullText）两个提交点写；这里不再直接写
+                    // msg.content，避免 complete 时先覆盖、final 再改一次的双写闪烁。
                 });
             }
 
@@ -6575,13 +6572,29 @@ public class AIChatActivity extends BaseActivity {
         if (streamingUpdateManager != null) {
             streamingUpdateManager.addToken(token);
         } else {
+            // 80ms 节流：原条件里的 !isUpdateScheduled 会让每个 token 都立即刷新；
+            // batch 档 safeUpdateMessage 直接 return，所以看不出来，轮内流式打开后会变成
+            // 每 token 重绑。这里按 BATCH_TOKEN_COUNT / BATCH_INTERVAL_MS 正常排队。
             tokenCountSinceLastUpdate++;
             long now = System.currentTimeMillis();
-            if (tokenCountSinceLastUpdate >= BATCH_TOKEN_COUNT || now - lastUpdateTime >= BATCH_INTERVAL_MS || !isUpdateScheduled) {
+            boolean due = tokenCountSinceLastUpdate >= BATCH_TOKEN_COUNT
+                    || now - lastUpdateTime >= BATCH_INTERVAL_MS;
+            if (due) {
                 safeUpdateMessage();
+                tokenCountSinceLastUpdate = 0;
+                lastUpdateTime = now;
+                isUpdateScheduled = false;
             } else if (!isUpdateScheduled) {
                 isUpdateScheduled = true;
-                uiHandler.postDelayed(() -> { if (isUpdateScheduled) safeUpdateMessage(); }, BATCH_INTERVAL_MS - (now - lastUpdateTime));
+                long delay = Math.max(0, BATCH_INTERVAL_MS - (now - lastUpdateTime));
+                uiHandler.postDelayed(() -> {
+                    if (isUpdateScheduled) {
+                        safeUpdateMessage();
+                        tokenCountSinceLastUpdate = 0;
+                        lastUpdateTime = System.currentTimeMillis();
+                        isUpdateScheduled = false;
+                    }
+                }, delay);
             }
         }
     }
@@ -7617,7 +7630,7 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void safeUpdateMessage() {
-        if (ROUND_BATCH_RENDER) return;
+        if (!streamTailEnabled) return;
         try {
             final int idx = resolveStreamingIndex();
             if (idx < 0) return;
@@ -7646,7 +7659,7 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void safeUpdateMessageFromStreamingManager(String accumulatedContent, int tokensSinceLastUpdate) {
-        if (ROUND_BATCH_RENDER) return;
+        if (!streamTailEnabled) return;
         try {
             final int idx = resolveStreamingIndex();
             if (idx < 0) return;
@@ -11430,9 +11443,9 @@ public class AIChatActivity extends BaseActivity {
     /** 向流式朗读器投喂 token（仅自动朗读开启时生效） */
     private void feedStreamingTts(String token) {
         if (!autoTtsEnabled || token == null || token.isEmpty()) return;
-        // 按轮次渲染时正文还没上屏，逐 token 喂 TTS 会造成“语音先出现、文字后出现”。
-        // 本轮不流式朗读；complete 的 finishAutoSpeak 会在正文显示后再整条朗读。
-        if (ROUND_BATCH_RENDER) return;
+        // TTS 仍按完成态整条朗读（v1）：轮内流式只改正文上屏，不把流式朗读一起放开，
+        // 避免音频跑在文字前；complete 的 finishAutoSpeak 会在正文显示后再整条朗读。
+        if (TTS_ROUND_BATCH) return;
         if (streamingTtsSpeaker == null) return;
         streamTtsFed = true;
         streamingTtsSpeaker.feed(token);

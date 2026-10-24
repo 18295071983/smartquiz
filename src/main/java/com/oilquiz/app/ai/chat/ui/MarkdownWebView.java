@@ -19,9 +19,15 @@ import android.widget.FrameLayout;
 
 import com.oilquiz.app.ai.chat.render.MarkdownHtmlConverter;
 import com.oilquiz.app.ai.chat.render.MarkdownLinkRouter;
+import com.oilquiz.app.ai.chat.render.MarkdownStreamSplitter;
+import com.oilquiz.app.ai.chat.render.MarkdownStreamTailFlag;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -32,14 +38,17 @@ import java.util.Map;
  * 1) 自动撑高、无内部滚动上限：注入 ResizeObserver 监听 body 尺寸变化，经
  *    {@code @JavascriptInterface onHeight(cssPx)} 回传，原生按内容高设本容器 LayoutParams，
  *    父布局随之增长（区别于旧 HtmlCardView 的 360dp 截断内滚）。
- * 2) 流式不整页重载：首次 loadDataWithBaseURL 建文档；后续 token 增量用
- *    evaluateJavascript 原地替换 body.innerHTML，避免页面重加载导致的闪烁/滚动复位。
+ * 2) 流式不整页重载：首次 loadDataWithBaseURL 建文档；后续 token 默认仍原地替换
+ *    body.innerHTML（避免页面重加载导致闪烁/滚动复位）。{@code markdown_stream_tail=true}
+ *    时改走块级尾巴：{@link MarkdownStreamSplitter} 切出“已闭合块 + 开放尾巴”，
+ *    只追加新闭合块、替换尾巴节点；未闭合尾巴里的代码/公式等闭合后才高亮。
  * 3) 高度缓存：按内容 hash 缓存最终高度，RecyclerView 复用回绑已定稿消息时直接套用，
  *    不再重新测量 → 消除滚回时的抖动。
  *
  * 接线状态：已由 {@code ChatAdapter} 在 {@code webMarkdownEnabled} 时接管 AI 正文气泡
  * （与 messageText 二选一）。链接/图片点击统一走 {@link MarkdownLinkRouter}，与原生
- * Markwon 气泡同一套行为，不再各说各话。
+ * Markwon 气泡同一套行为，不再各说各话。块级流式默认关（见 {@link MarkdownStreamTailFlag}），
+ * 定稿/回退/主题重载仍走整篇路径。
  */
 public class MarkdownWebView extends FrameLayout {
 
@@ -103,6 +112,24 @@ public class MarkdownWebView extends FrameLayout {
     private String themeVars = "";
     private final int maxHeightPx;
     private OnContentHeightChanged heightListener;
+
+    /** 轮内块级状态；null=下一 tick 从头重建。只在 UI 线程读写。 */
+    private MarkdownStreamSplitter.Split lastStreamSplit;
+
+    /** 每次发给 JS 的块更新序号：迟到的失败回调不能把更新的状态清掉。 */
+    private int streamUpdateSeq;
+
+    /**
+     * 块 HTML 缓存：key 是 {@link MarkdownStreamSplitter.Block#key}（纯 HTML 哈希），
+     * value 是本地图片/链接改写后的 HTML。换绑/回收时清空，避免工作区解析结果串台。
+     */
+    private final Map<String, String> blockHtmlCache =
+            new LinkedHashMap<String, String>(64, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+                    return size() > 128;
+                }
+            };
 
     public MarkdownWebView(Context context) {
         this(context, null);
@@ -251,10 +278,13 @@ public class MarkdownWebView extends FrameLayout {
     private String pendingHtml;
 
     /**
-     * 设置/更新正文内容。markdown 或混排 HTML 均可。streaming=true 时优先原地换 body 不重载。
+     * 设置/更新正文内容。markdown 或混排 HTML 均可。streaming=true 时优先原地更新；
+     * {@code markdown_stream_tail=true} 且页面就绪时走块级尾巴（只换未闭合块），否则
+     * 仍整 body 替换；定稿/回退/主题重载保持整篇路径。
      */
     @SuppressLint("SetJavaScriptEnabled")
     public void setContent(String content, boolean streaming) {
+        final String md = content == null ? "" : content;
         String hash = hashOf(content);
         // 内容一换，之前排队写缓存的动作作废（防止旧页迟到的测量写到新 hash 下）
         cancelPendingCacheWrite();
@@ -274,7 +304,7 @@ public class MarkdownWebView extends FrameLayout {
             // 无缓存且未测量 → 先给占位高，避免 WebView 首帧塌陷为 0 高（随后 JS 实测再撑开）
             applyHeightPx(placeholderPx);
         }
-        String bodyHtml = MarkdownHtmlConverter.toBodyHtml(content == null ? "" : content);
+        String bodyHtml = MarkdownHtmlConverter.toBodyHtml(md);
         // 正文里的相对/裸文件名图片 → file:// 绝对地址（WebView baseUrl 是 android_asset，
         // 不改写必然裂图；JS 侧拿不到工作区路径，只能在这里做）
         bodyHtml = MarkdownHtmlConverter.resolveLocalImageSrcs(bodyHtml, getContext());
@@ -289,8 +319,25 @@ public class MarkdownWebView extends FrameLayout {
         // 让浏览器按最终气泡宽度重新排版。只发生一次，不会逐 token 重载。
         boolean finalTableNeedsReload = documentReady && wasStreaming && !streaming
                 && bodyHtml.contains("<table");
+        // 轮内流式（P7）：只在页面就绪、当前是流式、开关打开且切分器允许时走块级路径。
+        // 定稿 / 表格定稿重载 / 切分器回退 / 主题重载都继续走整篇路径（逐字不变）。
+        if (documentReady && !finalTableNeedsReload && streaming
+                && MarkdownStreamTailFlag.enabled(getContext())) {
+            MarkdownStreamSplitter.Split split = MarkdownStreamSplitter.split(md);
+            if (split.streamable) {
+                if (applyStreamingBlocks(split)) {
+                    return;
+                }
+                // JSON/JS 发送失败：清掉块状态，下面用整篇 body 兜底，至少不会停更
+                lastStreamSplit = null;
+            } else {
+                // 整篇 HTML / 公式跨块等要求回退：清掉块状态，下面走整篇 swap
+                lastStreamSplit = null;
+            }
+        }
         if (documentReady && !finalTableNeedsReload) {
             // 页面就是这份文档且已就绪：原地换 body，不重载（流式逐 token 也走这里，避免闪烁）
+            lastStreamSplit = null;
             swapBody(bodyHtml);
             return;
         }
@@ -307,6 +354,101 @@ public class MarkdownWebView extends FrameLayout {
         loadDocument(doc);
     }
 
+    /**
+     * 轮内流式块路径：首帧/回退后整体重建，否则只追加新闭合块并替换尾巴。
+     *
+     * <p>JS 侧 `__qzStream` 返回 false（例如 basePrefix 对不上）时，下一 tick 会走 reset；
+     * 这比“猜哪一块变了”安全。prefixHash 与逐块 key 同源（都由块 HTML 派生）。</p>
+     */
+    private boolean applyStreamingBlocks(MarkdownStreamSplitter.Split split) {
+        if (lastStreamSplit == null) {
+            if (!sendStreamUpdate(true, split, split.closed, "")) {
+                lastStreamSplit = null;
+                return false;
+            }
+        } else {
+            MarkdownStreamSplitter.Update update =
+                    MarkdownStreamSplitter.diff(lastStreamSplit, split);
+            if (update.reset) {
+                if (!sendStreamUpdate(true, split, split.closed, "")) {
+                    lastStreamSplit = null;
+                    return false;
+                }
+            } else {
+                List<MarkdownStreamSplitter.Block> appended =
+                        update.closed.subList(update.fromIndex, update.closed.size());
+                if (!appended.isEmpty()
+                        || !sameTail(lastStreamSplit.tail, update.tail)) {
+                    if (!sendStreamUpdate(false, split, appended,
+                            lastStreamSplit.prefixHash)) {
+                        lastStreamSplit = null;
+                        return false;
+                    }
+                }
+            }
+        }
+        lastStreamSplit = split;
+        return true;
+    }
+
+    private static boolean sameTail(MarkdownStreamSplitter.Block a,
+                                    MarkdownStreamSplitter.Block b) {
+        if (a == null) return b == null;
+        return b != null && a.key.equals(b.key);
+    }
+
+    /**
+     * 把块 HTML 包成 base64 JSON 发给 JS；不新增 JavascriptInterface。
+     *
+     * @param reset true=整体重建（blocks 为全部闭块）；false=只追加 blocks + 换尾巴
+     * @param base  仅 apply 用：上一次的 prefixHash，JS 用它确认前缀没变
+     */
+    private boolean sendStreamUpdate(boolean reset, MarkdownStreamSplitter.Split split,
+                                     List<MarkdownStreamSplitter.Block> blocks,
+                                     String base) {
+        try {
+            final int seq = ++streamUpdateSeq;
+            JSONObject payload = new JSONObject();
+            payload.put("mode", reset ? "reset" : "apply");
+            payload.put("base", reset ? "" : base);
+            payload.put("prefix", split.prefixHash);
+            JSONArray html = new JSONArray();
+            for (MarkdownStreamSplitter.Block block : blocks) {
+                html.put(resolvedBlockHtml(block));
+            }
+            payload.put("blocks", html);
+            payload.put("tail", split.tail == null ? "" : resolvedBlockHtml(split.tail));
+            String b64 = Base64.encodeToString(
+                    payload.toString().getBytes(StandardCharsets.UTF_8),
+                    Base64.NO_WRAP);
+            String js = "(function(){try{var p=JSON.parse(decodeURIComponent(escape(atob('"
+                    + b64 + "'))));return window.__qzStream?window.__qzStream(p):false;}"
+                    + "catch(e){return false;}})();";
+            webView.evaluateJavascript(js, value -> {
+                // apply 的 basePrefix 对不上 / JS 里 __qzStream 缺失：下一 tick 整体重建。
+                // 只回滚“这次发出去的那份”状态，迟到的旧回调不能清掉更新的状态。
+                if (("false".equals(value) || "null".equals(value))
+                        && seq == streamUpdateSeq) {
+                    lastStreamSplit = null;
+                }
+            });
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 块 HTML 的本地图片/链接改写；按纯 HTML key 缓存，避免每 tick 重做正则。 */
+    private String resolvedBlockHtml(MarkdownStreamSplitter.Block block) {
+        String cached = blockHtmlCache.get(block.key);
+        if (cached != null) return cached;
+        String html = MarkdownHtmlConverter.resolveLocalImageSrcs(block.html, getContext());
+        html = MarkdownHtmlConverter.resolveLocalLinkHrefs(html, getContext());
+        if (html == null) html = "";
+        blockHtmlCache.put(block.key, html);
+        return html;
+    }
+
     /** 看门狗：在途加载超时未就绪时补发一次（每份文档最多一次），保证不会永久空白。 */
     private void retryLoadIfNeeded() {
         if (pageReady && readyGeneration == docGeneration && docGeneration > 0) return;
@@ -318,6 +460,8 @@ public class MarkdownWebView extends FrameLayout {
     private static final long LOAD_SETTLE_MS = 1200L;
 
     private void loadDocument(String fullHtml) {
+        streamUpdateSeq++;
+        lastStreamSplit = null;
         docGeneration++;
         loadingGeneration = docGeneration;
         readyGeneration = -1;
@@ -330,6 +474,8 @@ public class MarkdownWebView extends FrameLayout {
 
     /** 原地替换 body：base64 传 HTML 规避引号/转义问题；ResizeObserver 会自动重报高度。 */
     private void swapBody(String bodyHtml) {
+        streamUpdateSeq++;
+        lastStreamSplit = null;
         String b64 = Base64.encodeToString(
                 (bodyHtml == null ? "" : bodyHtml).getBytes(StandardCharsets.UTF_8),
                 Base64.NO_WRAP);
@@ -422,6 +568,9 @@ public class MarkdownWebView extends FrameLayout {
         lastAppliedPx = -1;
         pageReady = false;
         currentContentHash = null;
+        lastStreamSplit = null;
+        streamUpdateSeq++;
+        blockHtmlCache.clear();
         // 文档身份一并清零：复用到新消息时必须重新整篇加载，
         // 且不能让 setNight/setThemeColors 用上一条消息的 pendingHtml 去插一次加载。
         pendingHtml = null;

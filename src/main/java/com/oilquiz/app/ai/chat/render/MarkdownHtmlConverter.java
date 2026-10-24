@@ -249,57 +249,89 @@ public final class MarkdownHtmlConverter {
     }
 
     /**
-     * JS 引导：定义 window.__qzBoot（自动链接裸 URL、给 <pre> 加复制按钮、图片点击预览），
-     * 首次 DOMContentLoaded 执行；流式换 body 后由原生再调 __qzBoot() 重挂。
-     * 通过 QZ.copy / QZ.previewImage 回调 Android。
+     * JS 引导：整篇路径保留 {@code window.__qzBoot}（自动链接、复制按钮、图片预览、锚点归一化、
+     * hljs/katex）；轮内块级路径额外提供 {@code window.__qzStream(payload)}：
+     * <ul>
+     *   <li>{@code __qzReset(prefix, blocks, tail)}：清空 body，按块重建；</li>
+     *   <li>{@code __qzApply(basePrefix, prefix, append, tail)}：前缀没变时只追加新闭块、
+     *       替换尾巴；新块插在旧尾巴节点之前。</li>
+     * </ul>
+     * 只有新闭合块跑 hljs/katex/复制按钮；尾巴只做 linkify/图片/锚点装饰，闭合后才高亮。
+     * 通过 QZ.copy / QZ.previewImage 回调 Android；不新增桥方法。
      */
     private static String bootstrapJs() {
         return ""
+                // 块级流式状态：每个已闭合块的顶层节点数组 + 尾巴节点数组 + JS 侧 prefixHash。
+                // __qzBoot（整篇路径）会清空它们，避免整篇 swap 后还残留旧块状态。
+                + "window.__qzPrefix=null;window.__qzBlocks=[];window.__qzTailNodes=[];"
+                + "function qzEach(root,sel,fn){if(!root||!root.querySelectorAll)return;"
+                + "var els=root.querySelectorAll(sel);for(var i=0;i<els.length;i++){fn(els[i]);}"
+                + "if(root.nodeType===1&&root.matches&&root.matches(sel)){fn(root);}}"
                 // KaTeX 数学：内联 $…$ / \(…\) 与块 $$…$$ /\[…\]（renderMathInElement 默认跳过 code/pre/script）
-                + "window.__qzBoot=function(){"
-                + "function math(){if(!window.renderMathInElement)return;try{renderMathInElement(document.body,{"
+                + "function qzMath(root){if(!window.renderMathInElement)return;try{renderMathInElement(root,{"
                 + "delimiters:[{left:'$$',right:'$$',display:true},{left:'\\\\[',right:'\\\\]',display:true},"
                 + "{left:'$',right:'$',display:false},{left:'\\\\(',right:'\\\\)',display:false}],throwOnError:false});}catch(e){}}"
                 // 自动链接：遍历文本节点，把裸 http(s) URL 包成 <a>
-                + "function linkify(){if(!document.createTreeWalker)return;"
-                + "var re=/(https?:\\/\\/[^\\s<>\"]+)/g;var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);var nodes=[];var n;"
+                + "function qzLinkify(root){if(!document.createTreeWalker)return;"
+                + "var re=/(https?:\\/\\/[^\\s<>\"]+)/g;var w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,null,false);var nodes=[];var n;"
                 + "while(n=w.nextNode()){if(n.parentNode&&/^(A|PRE|CODE|SCRIPT|STYLE)$/.test(n.parentNode.tagName))continue;if(re.test(n.nodeValue)){nodes.push(n);}}re.lastIndex=0;"
                 + "nodes.forEach(function(node){var frag=document.createDocumentFragment();var txt=node.nodeValue;var last=0,m;"
                 + "while((m=re.exec(txt))){frag.appendChild(document.createTextNode(txt.slice(last,m.index)));var a=document.createElement('a');a.href=m[1];a.textContent=m[1];frag.appendChild(a);last=m.index+m[1].length;}"
                 + "frag.appendChild(document.createTextNode(txt.slice(last)));node.parentNode.replaceChild(frag,node);});}"
-                // 代码块语法高亮（highlight.js）：先上色，再加复制按钮
-                + "function hl(){if(!window.hljs)return;var els=document.querySelectorAll('pre code');for(var i=0;i<els.length;i++){try{hljs.highlightElement(els[i]);}catch(e){}}}"
+                // 代码块语法高亮（highlight.js）：先上色，再加复制按钮；data-qz-hl 防同一块重复高亮
+                + "function qzHl(root){if(!window.hljs)return;qzEach(root,'pre code',function(el){"
+                + "if(el.getAttribute('data-qz-hl')==='1')return;try{hljs.highlightElement(el);}catch(e){}el.setAttribute('data-qz-hl','1');});}"
                 // 代码块复制按钮
-                + "function codeCopy(){var pres=document.querySelectorAll('pre');for(var i=0;i<pres.length;i++){var p=pres[i];if(p.getAttribute('data-qz')==='1')continue;p.setAttribute('data-qz','1');p.style.position='relative';"
+                + "function qzCopy(root){qzEach(root,'pre',function(p){if(p.getAttribute('data-qz')==='1')return;p.setAttribute('data-qz','1');p.style.position='relative';"
                 + "var b=document.createElement('button');b.className='qz-copy';b.textContent='复制';b.onclick=(function(pp){return function(){try{QZ.copy(pp.innerText);}catch(e){}};})(p);"
-                + "p.appendChild(b);}}"
-                // 图片点击预览（事件委托）
-                // 修两处（2026-10-13）：
-                // ① 监听去重：__qzBoot 每次 swapBody 都会被调一次，原先每次都 addEventListener
-                //    → 流式 N 个分片后点一张图会触发 N 次 previewImage，叠出 N 个预览窗；
-                // ② 取 currentSrc（浏览器解析后的**绝对**地址）而非 getAttribute('src')：
-                //    相对路径原样传给 Java 会命中 ImagePreviewUtil 的"无法识别的图片来源"Toast。
-                + "function imgPrev(){if(!window.__qzImgBound){window.__qzImgBound=1;"
+                + "p.appendChild(b);});}"
+                // 图片点击预览（事件委托）：只在 document 上绑一次，避免流式 N 个分片后叠 N 个预览窗
+                + "function qzBindImgs(){if(window.__qzImgBound)return;window.__qzImgBound=1;"
                 + "document.addEventListener('click',function(e){var el=e.target;while(el&&el.tagName!=='IMG'&&el!==document){el=el.parentElement;}"
                 + "if(el&&el.tagName==='IMG'){var s=el.currentSrc||el.src||el.getAttribute('src');"
                 + "if(s&&s.indexOf('data:')!==0){e.preventDefault();try{try{s=decodeURIComponent(s);}catch(y){}QZ.previewImage(s);}catch(x){}}}},true);}"
-                + "var imgs=document.getElementsByTagName('img');for(var i=0;i<imgs.length;i++){var g=imgs[i];g.style.cursor='zoom-in';"
-                // 图片加载失败给可读原因：原先只剩 Chromium 的裂图标，用户和模型都不知道是路径没解析到
+                // 图片样式 + 加载失败可读原因（取 currentSrc；相对路径原样传 Java 会命中“无法识别”Toast）
+                + "function qzImgs(root){qzBindImgs();qzEach(root,'img',function(g){g.style.cursor='zoom-in';"
                 + "if(!g.__qzErr){g.__qzErr=1;g.addEventListener('error',function(){try{this.style.display='none';"
                 + "var t=document.createElement('div');t.className='qz-imgfail';"
                 + "t.textContent='\\u26a0 \\u56fe\\u7247\\u65e0\\u6cd5\\u52a0\\u8f7d\\uff1a'+(this.getAttribute('src')||'\\uff08\\u7a7a\\u5730\\u5740\\uff09');"
                 + "this.parentNode.insertBefore(t,this);}catch(e){}});"
-                + "if(g.complete&&g.naturalWidth===0){g.dispatchEvent(new Event('error'));}}"
-                + "}}"
-                // 锚点归一化（**不调任何桥方法**，遵循"不扩桥"的最小权限约定）：
-                // ① 去掉 target=_blank —— 否则点击会走 window.open，绕开原生
-                //    shouldOverrideUrlLoading，链接就静默失效了；
-                // ② 补 cursor，让正文链接有可点的反馈。
-                // 真正的路由全在原生 WebViewClient 里，JS 侧只负责把点击变成一次普通导航。
-                + "function aNorm(){var as=document.getElementsByTagName('a');for(var j=0;j<as.length;j++){var a=as[j];"
-                + "a.style.cursor='pointer';if(a.target){a.removeAttribute('target');}a.rel='noopener';}}"
-                + "try{math();}catch(e){}try{linkify();}catch(e){}try{hl();}catch(e){}try{codeCopy();}catch(e){}try{imgPrev();}catch(e){}try{aNorm();}catch(e){}"
-                + "};"
+                + "if(g.complete&&g.naturalWidth===0){g.dispatchEvent(new Event('error'));}}});}"
+                // 锚点归一化（不调桥）：去 target=_blank、补 cursor；真正路由在原生 WebViewClient
+                + "function qzAnchors(root){qzEach(root,'a',function(a){a.style.cursor='pointer';"
+                + "if(a.target){a.removeAttribute('target');}a.rel='noopener';});}"
+                // 装饰开关：闭块 true/true/true；尾巴 false/false/false（linkify/图片/锚点仍做）
+                + "function qzDecorate(root,doHl,doMath,doCopy){"
+                + "if(doMath){try{qzMath(root);}catch(e){}}"
+                + "try{qzLinkify(root);}catch(e){}"
+                + "if(doHl){try{qzHl(root);}catch(e){}}"
+                + "if(doCopy){try{qzCopy(root);}catch(e){}}"
+                + "try{qzImgs(root);}catch(e){}"
+                + "try{qzAnchors(root);}catch(e){}}"
+                // 解析块 HTML：template 保住 <tr> 等被 div 解析会丢的节点；失败回退 div。
+                + "function qzHolder(html,doHl,doMath,doCopy){var holder=document.createElement('div');"
+                + "if(window.HTMLTemplateElement){var t=document.createElement('template');t.innerHTML=html;holder.appendChild(t.content);}"
+                + "else{holder.innerHTML=html;}qzDecorate(holder,doHl,doMath,doCopy);return holder;}"
+                + "function qzAppendBlock(html){var holder=qzHolder(html,true,true,true);var nodes=[];"
+                + "var ref=window.__qzTailNodes.length?window.__qzTailNodes[0]:null;"
+                + "while(holder.firstChild){var n=holder.firstChild;holder.removeChild(n);document.body.insertBefore(n,ref);nodes.push(n);}"
+                + "if(nodes.length){window.__qzBlocks.push({nodes:nodes});}}"
+                + "function qzAppendTail(html){if(!html)return;var holder=qzHolder(html,false,false,false);"
+                + "while(holder.firstChild){var n=holder.firstChild;holder.removeChild(n);document.body.appendChild(n);window.__qzTailNodes.push(n);}}"
+                + "function qzReset(prefix,blocks,tail){document.body.innerHTML='';window.__qzPrefix=null;"
+                + "window.__qzBlocks=[];window.__qzTailNodes=[];for(var i=0;i<blocks.length;i++){qzAppendBlock(blocks[i]);}"
+                + "qzAppendTail(tail||'');window.__qzPrefix=prefix;}"
+                + "function qzApply(base,prefix,blocks,tail){if(window.__qzPrefix!==base)return false;"
+                + "for(var i=0;i<blocks.length;i++){qzAppendBlock(blocks[i]);}"
+                + "for(var j=0;j<window.__qzTailNodes.length;j++){var n=window.__qzTailNodes[j];if(n.parentNode)n.parentNode.removeChild(n);}"
+                + "window.__qzTailNodes=[];qzAppendTail(tail||'');window.__qzPrefix=prefix;return true;}"
+                // 整篇路径：清空块状态并全量装饰（定稿/回退/主题重载仍走这里）
+                + "window.__qzBoot=function(){window.__qzPrefix=null;window.__qzBlocks=[];window.__qzTailNodes=[];"
+                + "qzDecorate(document.body,true,true,true);};"
+                // Java -> JS 的唯一块级入口；返回 false 让 Java 下一 tick 整体重建
+                + "window.__qzStream=function(p){if(!p)return false;"
+                + "if(p.mode==='reset'){qzReset(p.prefix,p.blocks||[],p.tail||'');return true;}"
+                + "if(p.mode==='apply'){return qzApply(p.base,p.prefix,p.blocks||[],p.tail||'');}return false;};"
                 + "if(document.readyState==='complete'||document.readyState==='interactive'){window.__qzBoot();}"
                 + "else{document.addEventListener('DOMContentLoaded',function(){window.__qzBoot();});}";
     }
