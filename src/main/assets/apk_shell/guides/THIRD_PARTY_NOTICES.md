@@ -53,3 +53,31 @@ aria2c（GPLv2+）、zip/unzip（Info-ZIP）、file（BSD）、tree（GPLv2）�
 - 来源：Ubuntu 官方 ubuntu-cdimage（分发镜像 https://mirrors.tuna.tsinghua.edu.cn/ubuntu-cdimage/ubuntu-base/releases/24.04/release/ ）
 - 许可：镜像内各组件的许可与版权声明见容器内 `/usr/share/doc/*/copyright`；Ubuntu 名称与镜像使用遵循 Canonical 的商标与再分发政策
 - 本项目未修改该镜像内容（原样分发官方压缩包）
+
+## 7. ExoPlayer / AndroidX Media3（Apache License 2.0）
+
+- 组件：`androidx.media3` 的 `media3-exoplayer`、`media3-exoplayer-hls`、`media3-exoplayer-dash`、
+  `media3-ui`、`media3-common`、`media3-session`、`media3-transformer`、`media3-effect`（版本 1.3.1）
+- 用途：聊天流音视频播放（HLS / DASH / 本地文件 / 网络直链）、媒体通知与前台播放服务、本地转码与特效
+- 许可：**Apache License 2.0**
+- 版权：Copyright (C) The Android Open Source Project
+- 许可全文：https://www.apache.org/licenses/LICENSE-2.0
+- 说明：按 Apache-2.0 第 4 条随包保留版权、许可与 NOTICE；各组件的完整 NOTICE 见对应
+  Maven 制品内的 `NOTICE` 文件，本文件只做汇总。播放优先走系统 MediaCodec 硬件解码，
+  不随包分发软件编解码器（FFmpeg 仅用于 `media_toolkit` 转码，见第 1 节）。
+
+## 8. 其它开源依赖（Maven，摘要）
+
+APK 还链接了下列开源库，按各自许可保留版权与许可声明（完整依赖树可用
+`./gradlew dependencies` 导出）：
+
+| 组件 | 许可 |
+|---|---|
+| AndroidX / Jetpack、Kotlin 标准库 | Apache-2.0 |
+| OkHttp、Retrofit、Gson、Coil、Markwon、Guava | Apache-2.0 |
+| Glide | BSD-2-Clause（部分 MIT / Apache-2.0） |
+| jsoup | MIT |
+| flexmark-java | BSD-2-Clause |
+
+各库的许可全文随 Maven 制品分发（`META-INF/LICENSE` 等），此处不重复粘贴全文。
+
