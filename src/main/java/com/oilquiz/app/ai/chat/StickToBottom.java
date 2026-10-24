@@ -147,6 +147,26 @@ public final class StickToBottom {
         rv.getViewTreeObserver().addOnPreDrawListener(preDrawListener);
     }
 
+    /**
+     * 视口尺寸变化（键盘/IME insets 动画、旋转、输入栏高度变化）后调用。
+     *
+     * <p>键盘弹起/收起时列表高度在动画中逐帧变化。旧实现靠 {@code setupKeyboardListener} 的
+     * 15% 阈值 + 100ms 延迟补滚，等于"最后一拍才跟"。现在由 insets 回调直接驱动：</p>
+     * <ul>
+     *   <li>变化前是 pinned → 下一帧立刻贴底（不依赖是否有新 token）；</li>
+     *   <li>变化前是 unpinned（用户在上方阅读）→ 什么都不做，位置由
+     *       {@link ScrollAnchorKeeper} 保持。</li>
+     * </ul>
+     *
+     * @param pinnedBefore 本次视口变化发生前是否处于贴底状态（调用方在改 padding 前取）
+     */
+    public void onViewportChanged(boolean pinnedBefore) {
+        if (released || !pinnedBefore) {
+            return;
+        }
+        pinAndJump();
+    }
+
     /** 当前是否处于"贴底"（回底按钮显隐 / 历史归档等判断都用它，别再数可见 item）。 */
     public boolean isPinned() {
         return state.isPinned();

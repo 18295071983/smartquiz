@@ -1,5 +1,37 @@
 # 变更日志
 
+## [2026-10-25] feat(chat-scroll)：滚动锚点保持 + insets 驱动贴底（键盘不再"最后一拍"）
+
+接上轮遗留三项边界（用户问"这你有什么好办法"后拍板"修"）：本轮做 **A 锚点恢复 + C 键盘/insets**；
+**B 反向列表不迁移**（只记录取舍）；顺手试了 `stackFromEnd` 又按真机结果回滚。
+
+- **A：滚动锚点保持**。新增 `ScrollAnchorKeeper` + `ScrollAnchorState`（纯逻辑可单测，等价 Web 的
+  `overflow-anchor`）：滚动时记"第一可见项 position + top + item 数 + 消息 id"，下一帧 `OnPreDraw`
+  里若用户未贴底且不在拖拽/惯性中，按 top 差 `scrollBy` 补偿——视口**上方**消息高度变化
+  （思考折叠/展开、WebView 异步测高、工具卡展开）不再顶动阅读位置；item 数变化（插入/删除/加载
+  更早历史）或同 position 换了消息（id 不同）时重捕、不乱补；贴底时完全让路给 `StickToBottom`。
+  Activity 挂载并在 `onDestroy` 释放，稳定键来自 `ChatAdapter#getItemKeyAt`。
+- **C：insets 事件驱动贴底**。`main_content` 的 `OnApplyWindowInsetsListener` 里检测 bottom inset
+  变化（键盘动画期间逐帧回调）：变化前 pinned → `StickToBottom#onViewportChanged` → 下一帧
+  `pinAndJump`；unpinned → 不动（由 A 保持阅读位置）。删除旧 `setupKeyboardListener`
+  （`getWindowVisibleDisplayFrame` 15% 阈值 + 100ms 延迟补滚 + 抢焦点）——键盘弹起/收起不再等
+  "下一拍 token follow"，气泡内 html 卡输入框也不会再被它切走焦点。
+- **B 反向列表：不迁移**。反向列表（`setReverseLayout` + 数据倒序）能天然同时解决锚点与贴底，
+  但要把 `notifyItemInserted(size-1)`/`scrollToPosition(last)`/`findLastVisible`/加载更早历史/无障碍
+  顺序等 **80+ 处**调用点全部反过来，收益与现方案重叠、风险高得多。记录为将来大重构候选。
+- **`stackFromEnd` 试了又回滚（真机教训）**：本想用 `LinearLayoutManager#setStackFromEnd(true)` 让
+  短对话贴底（1 行改动）。真机发现它会改变 LinearLayoutManager 的布局锚方向：视口高度变化
+  （键盘收起）时以"底部"为锚重排，第一可见项被顶掉、内容滚动约一屏——与 A 的"阅读位置不动"直接
+  冲突。已回滚，短对话贴底交给 pinned 逻辑。
+- **验证**：新增 `ScrollAnchorStateTest` 10 条（无锚点重捕 / 容差内不补 / 上方长高补正 / 上方收起补
+  负 / item 数变化重捕 / 同 position 换消息重捕 / null 键 / 补偿后不重复 / invalidate / 容差钳制）；
+  全量 `testDebugUnitTest --offline --no-build-cache` **947 / 0 skipped / 0 failures / 0 errors**；
+  `assembleDebug --offline` 通过（APK 05:38:11）。真机验证（临时日志实证后已删除）：
+  - unpinned 阅读中弹键盘：`pinnedBefore=false` → 不贴底，第一可见内容不变（截图 before/open）；
+  - 收起键盘：仍 `pinnedBefore=false`，阅读位置不变；
+  - pinned 弹键盘：`pinnedBefore=true` → `pinAndJump`，底部最新内容始终贴在输入框上方；
+  - 无崩溃。截图：`docs/scroll_shots/06~09`。
+
 ## [2026-10-25] feat(chat-scroll)：流式滚动改用贴底状态机（stick-to-bottom）
 
 用户问"流式刷新滚动屏幕，业界是怎么设计的"。查现状：流式中每拍 `scrollToPosition(last)`，

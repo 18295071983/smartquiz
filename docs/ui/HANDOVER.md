@@ -2423,6 +2423,51 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
      时返回 `FAR_FROM_BOTTOM`（大值）表示"离底很远"，不用估算冒充精确值。
    - 写状态机别只测理想路径，要把"布局突变 / 高度估算失准 / 手势惯性"当一等输入。
 
+### 4.106 feat(chat-scroll)：滚动锚点保持 + insets 驱动贴底（2026-10-25）
+
+1. **问题（上轮遗留三项边界，用户拍板"修"）**：
+   - 视口**上方**的消息高度变化（思考折叠/展开、WebView 异步测高、工具卡展开）时，RecyclerView
+     只按像素偏移保位 → 可见内容上下跳；
+   - 键盘/insets 变化靠 `setupKeyboardListener` 的 `getWindowVisibleDisplayFrame` 15% 阈值 +
+     100ms 延迟补滚，等于"最后一拍才跟"，且它会抢气泡内 html 卡输入框的焦点；
+   - 短对话没贴底观感（内容不足一屏时从顶部排）。
+2. **A：`ScrollAnchorKeeper` + `ScrollAnchorState`**（`ai/chat/`，后者纯逻辑可单测）：
+   - `onScrolled` 记"第一可见项 position + top + item 数 + 消息 id 稳定键"；
+   - 下一帧 `OnPreDraw`（layout 已完成）：仅当 **未贴底、`SCROLL_STATE_IDLE`** 时，找同一项比较
+     top 差，`rv.scrollBy(0, delta)` 拉回；补偿后同步锚点防重复补偿；
+   - item 数变化 / 同 position 换了消息（id 不同）/ 无锚点 → 重捕，不乱补；贴底时让路给
+     `StickToBottom`；滚不动时最多空转 2 帧再重捕。
+   - Activity 挂载并在 `onDestroy` 释放；稳定键由 `ChatAdapter#getItemKeyAt(position)` 提供。
+3. **C：insets 事件驱动**：`main_content` 的 `OnApplyWindowInsetsListener` 里比较 bottom inset
+   （键盘动画逐帧回调）：变化前 `pinnedBefore=true` → `StickToBottom#onViewportChanged(true)` →
+   下一帧 `pinAndJump`；`false` → 不动。**删除 `setupKeyboardListener` 整段**（阈值判断、100ms
+   延迟补滚、`requestFocus` 抢焦点都去掉），键盘弹起/收起不再依赖下一拍 token。
+4. **B：反向列表不迁移（取舍记录）**：`setReverseLayout(true)` + 数据倒序能天然解决"底部锚定/
+   锚点"，但 `notifyItemInserted(size-1)`、`scrollToPosition(last)`、`findLastVisible`、加载更早
+   历史、无障碍顺序等 80+ 调用点都要反过来，收益与现方案重叠、风险高；留作将来大重构候选。
+5. **`stackFromEnd` 试了又回滚（真机教训）**：为"短对话贴底"加了
+   `LinearLayoutManager#setStackFromEnd(true)`（1 行）。真机发现它改变了布局锚方向：视口高度变化
+   （键盘收起）时以底部为锚重排，第一可见项被顶掉、内容滚掉约一屏——与 A 直接冲突。已回滚；
+   短对话贴底交给 pinned 语义。
+6. **验证**：`ScrollAnchorStateTest` 10 条（无锚点重捕 / 容差内不补 / 上方长高 / 上方收起 /
+   item 数变化重捕 / 同 position 换消息重捕 / null 键 / 补偿后不重复 / invalidate / 容差钳制）；
+   全量 `testDebugUnitTest --offline --no-build-cache` **947 / 0 skipped / 0 failures / 0 errors**；
+   `assembleDebug --offline` 通过（APK 05:38:11）。真机用临时 `QZSCROLL` 日志实证（验证后已删）：
+   - unpinned 阅读中弹键盘：`insets bottom 65->1043 pinnedBefore=false` → 不贴底，截图第一可见内容
+     与弹键盘前一致；
+   - 收起键盘：`1043->65 pinnedBefore=false`，位置不变；
+   - pinned 弹键盘：`pinnedBefore=true` → `onViewportChanged -> pinAndJump`，底部最新内容始终贴在
+     输入框上方。
+   截图 `docs/scroll_shots/06~09`（06 阅读位置 / 07 弹键盘后位置不变 / 08 收起后仍不变 /
+   09 pinned 弹键盘底部可见）。
+7. **边界 / 遗留**：
+   - 锚点在 **setItemAnimator(null)** 下工作（本项目已禁用动画）；若将来开启动画，需在动画结束
+     后再补偿（`onLayoutCompleted` / `isRunning`）；
+   - 没做旋转/多窗口恢复后的位置记忆（`onSaveInstanceState` 只存列表，未存锚点）；
+   - 反向列表仍未采用，见第 4 条；
+   - 自动化回归注意：从 WebView 上起手的滑动会被 `requestDisallowInterceptTouchEvent` 吃掉，
+     滚动测试要沿左侧边距/折叠头起手（同 §4.104 坑）。
+
 ---
 
 ## 5. 关键文件 / 改动地图

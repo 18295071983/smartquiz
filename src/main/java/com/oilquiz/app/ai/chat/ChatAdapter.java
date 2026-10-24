@@ -5314,6 +5314,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return null;
     }
 
+    /**
+     * 列表 position 的稳定键（消息 id），供 {@code ScrollAnchorKeeper} 判断
+     * "同 position 是否还是同一条消息"（切会话/清空时 position 可能不变但内容全换了）。
+     * 越界或空消息返回 null。
+     */
+    public String getItemKeyAt(int position) {
+        if (position < 0 || position >= messages.size()) return null;
+        ChatMessage m = messages.get(position);
+        return m == null ? null : m.id;
+    }
+
     /** 按回合 ID 查找该回合内最后一条消息（消息对聚合用；未找到返回 null） */
     public ChatMessage getLastMessageByTurnId(String turnId) {
         if (turnId == null) return null;

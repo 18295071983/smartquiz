@@ -176,6 +176,11 @@ public class AIChatActivity extends BaseActivity {
      * 用"距底距离 + 下一帧 scrollBy"替代旧的 {@code scrollToPosition(last)}（超高气泡会被钉顶）。
      */
     private com.oilquiz.app.ai.chat.StickToBottom stickToBottom;
+    /**
+     * 滚动锚点保持（2026-10-25）：视口上方消息高度变化时补偿 scrollBy，等价 Web overflow-anchor；
+     * 仅在用户未贴底时生效（贴底让路给 {@link #stickToBottom}）。
+     */
+    private com.oilquiz.app.ai.chat.ScrollAnchorKeeper scrollAnchorKeeper;
     private android.widget.LinearLayout queueBar;
     private android.widget.TextView tvQueueInfo;
     private android.widget.TextView btnQueueCancel;
@@ -690,6 +695,12 @@ public class AIChatActivity extends BaseActivity {
             chatAdapter.setOnContentSizeChanged(() -> {
                 if (stickToBottom != null) stickToBottom.follow();
             });
+            // 滚动锚点（2026-10-25）：视口上方内容高度变化时保持第一可见项不动。
+            // 稳定键用消息 id：同 position 换消息（切会话/清空）时重捕，不拿旧锚点乱补。
+            scrollAnchorKeeper = new com.oilquiz.app.ai.chat.ScrollAnchorKeeper(
+                    messageList,
+                    () -> stickToBottom != null && stickToBottom.isPinned(),
+                    chatAdapter::getItemKeyAt);
             // 初始刷新上下文仪表（历史加载完成后会再次刷新）
             messageList.post(() -> refreshContextMeter());
             chatAdapter.setRetryClickListener(messageId -> regenerateLastMessage());
@@ -738,7 +749,6 @@ public class AIChatActivity extends BaseActivity {
             streamTailEnabled = com.oilquiz.app.ai.chat.render.MarkdownStreamTailFlag.enabled(this)
                     && webMarkdown;
 
-            setupKeyboardListener();
             updateEmptyState();
 
             // 程序化处理状态栏内边距（替代布局中的 fitsSystemWindows）
@@ -749,6 +759,9 @@ public class AIChatActivity extends BaseActivity {
             getWindow().setNavigationBarContrastEnforced(false);
             View mainContent = findViewById(R.id.main_content);
             if (mainContent != null) {
+                // insets 底部变化（键盘弹起/收起的动画、导航栏切换）→ 直接驱动贴底跟随，
+                // 不再依赖 setupKeyboardListener 的 15% 阈值 + 100ms 延迟补滚。
+                final int[] lastBottomInset = {-1};
                 androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(mainContent, (v, insets) -> {
                     int top = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top;
                     int left = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars()).left;
@@ -764,7 +777,14 @@ public class AIChatActivity extends BaseActivity {
                         // MIUI 个别版本手势条 inset 报 0：systemGestures 底部始终报手势区高度
                         bottom = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemGestures()).bottom;
                     }
+                    // pinned 必须在改 padding 之前取（改完布局会触发 pinned 状态变化）
+                    boolean pinnedBefore = stickToBottom != null && stickToBottom.isPinned();
                     v.setPadding(left, top, right, bottom);
+                    if (lastBottomInset[0] >= 0 && bottom != lastBottomInset[0] && stickToBottom != null) {
+                        // 键盘动画期间会逐帧回调：pinned 时每帧贴底，unpinned 时保持阅读位置
+                        stickToBottom.onViewportChanged(pinnedBefore);
+                    }
+                    lastBottomInset[0] = bottom;
                     return insets;
                 });
             }
@@ -10464,41 +10484,10 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
-    /**
-     * 设置键盘弹出时自动滚动到底部，并确保输入框可见
-     * 键盘弹出时自动折叠快捷工具栏，避免挤压输入框
-     */
-    private void setupKeyboardListener() {
-        final android.view.View rootView = findViewById(android.R.id.content);
-        rootView.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
-            android.graphics.Rect r = new android.graphics.Rect();
-            rootView.getWindowVisibleDisplayFrame(r);
-            int screenHeight = rootView.getRootView().getHeight();
-            int keypadHeight = screenHeight - r.bottom;
-            if (keypadHeight > screenHeight * 0.15) {
-                // **先问键盘是谁唤起的**：气泡里的 html 卡（<input>/<textarea>）也会唤起键盘。
-                // 真机实测的抢焦点链就是这里：点卡片输入框 → WebView 拿到焦点 → 键盘弹出
-                // → 本监听判定"键盘出现" → 100ms 后 requestFocus(inputMessage) → WebView 的编辑焦点
-                // 被弹掉、字全打进聊天框（探针页报的"focus→blur 在同一秒、keys:0"）。
-                // 点击/滑块不弹键盘，所以只有文字输入受影响——症状一直对不齐到卡片身上就是这个原因。
-                android.view.View focused = rootView.findFocus();
-                if (focused != null && focused != inputMessage) {
-                    return;     // 焦点在消息列表/卡片里：这次键盘弹出不属于聊天输入框，别抢
-                }
-                // 键盘弹出：快捷工具在抽屉内不受影响，仅滚动到底部 + 确保输入框可见
-                scrollToBottom();
-                // 确保输入框区域可见：延迟等待布局稳定后滚动
-                if (inputMessage != null) {
-                    inputMessage.postDelayed(() -> {
-                        inputMessage.requestFocus();
-                        scrollToBottom();
-                    }, 100);
-                }
-            } else {
-                // 键盘隐藏：快捷工具在抽屉内无需恢复
-            }
-        });
-    }
+    // 旧的 setupKeyboardListener（getWindowVisibleDisplayFrame 15% 阈值 + 100ms 延迟补滚）已删除：
+    // 2026-10-25 起键盘/insets 变化由 main_content 的 OnApplyWindowInsetsListener 直接驱动
+    // StickToBottom.onViewportChanged()，不再有"最后一拍才跟"的延迟；焦点抢占问题随整段删除一并消失
+    // （气泡内 html 卡输入框不会再被这里切走焦点）。
 
     private void handleAction(ChatMessage.Action action) {
         // 处理getString(R.string.h_17f74c43)按钮：优先处理，避免被 dialogHelper 当作未知 Action
@@ -12430,10 +12419,14 @@ public class AIChatActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
-        // 贴底控制器持有 messageList 的 preDraw/scroll 监听器，必须解绑，避免强引用泄漏。
+        // 贴底控制器 / 滚动锚点都持有 messageList 的 preDraw/scroll 监听器，必须解绑，避免强引用泄漏。
         if (stickToBottom != null) {
             stickToBottom.release();
             stickToBottom = null;
+        }
+        if (scrollAnchorKeeper != null) {
+            scrollAnchorKeeper.release();
+            scrollAnchorKeeper = null;
         }
         try {
             npuIdleHandler.removeCallbacks(npuIdleRelease);
