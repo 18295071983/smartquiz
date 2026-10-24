@@ -81,3 +81,103 @@ APK 还链接了下列开源库，按各自许可保留版权与许可声明（�
 
 各库的许可全文随 Maven 制品分发（`META-INF/LICENSE` 等），此处不重复粘贴全文。
 
+---
+
+> 以下为 **2026-10-24 按 APK 实际内容逐项核对**补充的条目：扫描了 `lib/arm64-v8a` 下
+> 133 个原生库（合计约 560 MB）、`assets/` 全部大文件与 Maven 依赖树。
+
+## 9. LibreOffice 引擎（MPL-2.0）及其内置第三方库
+
+- 组件：**LibreOffice 25.2 Android 引擎**
+  （`viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so`，171.3 MB），
+  以及 `assets/share`、`assets/unpack` 下的运行期资源
+- 用途：Office 文档（Word / Excel / PPT）高保真离线预览（`org.libreoffice` 查看器模块）
+- 许可：**Mozilla Public License 2.0（MPL-2.0）**
+- 来源：LibreOffice 官方源码构建（非预编译发布产物）；版本记录见
+  `viewer/src/main/assets/program/bootstraprc` 与 `versionrc`
+- 许可全文：https://www.libreoffice.org/download/license/
+- 源码获取：按 MPL-2.0 第 3 条，可向维护者索取对应版本的引擎源码或构建说明
+- **引擎内聚合的第三方库**（随 `liblo-native-code.so` 一起分发）：
+  PDFium（BSD-3-Clause）、FreeType（FTL / GPLv2 双许可）、libpng（libpng-2.0）、
+  NSS / NSPR（MPL-2.0）、SQLite（Public Domain）
+
+## 10. PDFium 渲染（Apache-2.0 / BSD-3-Clause）
+
+- 组件：PdfiumAndroid 1.9.0（`com.github.barteksc:pdfium-android`，随包 `libjniPdfium.so`）
+- 用途：PDF 预览（`PdfiumPreviewActivity`）
+- 许可：**Apache License 2.0**（封装层）；内置 PDFium 本体为 **BSD-3-Clause**
+- 源码：https://github.com/barteksc/PdfiumAndroid 、https://pdfium.googlesource.com/pdfium/
+
+## 11. Qualcomm GenieX / QNN / QAIRT（BSD-3-Clause + Qualcomm 条款）
+
+- 组件：`com.qualcomm.qti:geniex-android:0.8.0` 及其随包原生库（`libgeniex*`、`libQnn*`、
+  `libhta_hexagon_runtime_*`、`libPlatformValidatorShared.so`、`libcalculator*.so`）
+- 用途：骁龙 Hexagon NPU 端侧大模型推理
+- 许可：**BSD-3-Clause + Qualcomm Terms of Use**；其中 QNN / QAIRT 预编译库为 Qualcomm
+  专有二进制，再分发须遵守 Qualcomm 的许可条款
+- 上游：https://github.com/qualcomm/GenieX
+
+## 12. 端侧推理运行时与视觉库
+
+| 组件 | 许可 | 用途 |
+|---|---|---|
+| llama.cpp / ggml（`libllama*`、`libggml*`、`libmtmd`） | MIT | 本地 GGUF 大模型推理 |
+| ONNX Runtime 1.18（`libonnxruntime*`） | MIT | OCR / 语音识别 / 向量模型 |
+| TensorFlow Lite 2.15（`libtensorflowlite*`） | Apache-2.0 | 本地分类 / 检测 |
+| OpenCV 4.9（`libopencv_java4.so`） | Apache-2.0 | 图像预处理 |
+| RapidOCR4j 1.0.0（`io.github.hzkitty:rapidocr4j-android`） | Apache-2.0 | 中文 OCR |
+| libomp（LLVM OpenMP） | Apache-2.0（LLVM 例外） | 多线程运行时 |
+
+模型文件：`assets/models/mobilenet_v2_1.0_224.tflite`（Apache-2.0）、
+`assets/models/all-MiniLM-L6-v2_vocab.txt`（Apache-2.0）。
+
+## 13. Google ML Kit（Google 条款）
+
+- 组件：`com.google.mlkit:text-recognition*`、`image-labeling*`、`object-detection*`
+- 用途：离线文字识别、图像标注、目标检测
+- 许可：**Google ML Kit 使用条款**（免费使用，非开源）；随包模型见 `assets/mlkit-*`
+- 条款：https://developers.google.com/ml-kit/terms
+
+## 14. Python 运行时（Chaquopy + CPython + 科学计算包）
+
+- **Chaquopy 17**（`com.chaquo.python`）：MIT
+- **CPython 3.10**：PSF-2.0
+- 随包 Python 依赖（`assets/chaquopy`，74 MB）：numpy / pandas / matplotlib / openpyxl /
+  python-docx / pypdf 等，许可分别为 BSD / MIT / Apache-2.0 / PSF；原生依赖 libjpeg、
+  freetype、libpng、libxml2、libxslt、libyaml、openblas、libgfortran 各自许可见 wheel 内
+  `METADATA`
+- 源码：https://github.com/chaquo/chaquopy 、https://www.python.org/
+
+## 15. 文档处理
+
+| 组件 | 许可 | 用途 |
+|---|---|---|
+| Apache POI 5.2.3（poi / poi-ooxml / poi-scratchpad） | Apache-2.0 | Excel / Word 读写 |
+| **iText 7 Core 7.2.3** | **AGPL-3.0** | PDF 生成与文本抽取 |
+
+> **iText 7 采用 GNU Affero GPL v3**：分发本应用时须按 AGPL 提供完整对应源码；
+> 闭源商业分发需另行向 iText 购买商业许可。仅自用、不对外分发则不受此限。
+> 若需换成宽松许可，可迁移到 Apache PDFBox（Apache-2.0）。
+
+## 16. 字体
+
+| 字体 | 许可 / 来源 | 备注 |
+|---|---|---|
+| `assets/fonts/simhei.ttf`（黑体） | **专有字体**（中易中标 SimHei） | 随包分发需确认授权；可替换为 Noto Sans CJK（OFL-1.1） |
+| `assets/fonts/qweather-icons.ttf` | 和风天气 SDK 资产 | 随 SDK 使用 |
+
+## 17. 模型权重
+
+| 模型 | 来源 | 许可 |
+|---|---|---|
+| SenseVoice-Small int8（`assets/asr/model.int8.onnx`，228 MB） | FunAudioLLM/SenseVoice（经 sherpa-onnx 转换） | 以模型包内 LICENSE 为准，商用需自行确认 |
+| PaddleOCR 系模型（`assets/ch_PP-OCRv4_*`、`assets/ocr/*`） | PaddleOCR | Apache-2.0 |
+
+## 18. 其它 SDK 与前端库
+
+- **和风天气 Android SDK 5.3.0**（`libs/QWeather_Public_Android_V5.3.0.jar`）：
+  和风天气开发者条款（专有 SDK）
+- **apksig 8.0.2**（`libs/apksig-8.0.2.jar`）：Apache-2.0
+- 前端库：mermaid（MIT）、KaTeX（MIT）、highlight.js（BSD-3-Clause）
+
+
