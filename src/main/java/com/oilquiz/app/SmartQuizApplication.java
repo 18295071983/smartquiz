@@ -599,25 +599,15 @@ public class SmartQuizApplication extends Application {
             }
             com.oilquiz.app.util.AILogger.i(TAG, "开始预加载AI服务...");
 
-            // 仅当"激活"的在线模型时才跳过本地 GGUF 预加载（激活=当前主用在线，加载本地只会白占内存）。
-            // 已配置但未激活的在线模型不再跳过：用户可能随时切回本地模型
-            // （本地 Agent / 离线场景），启动即预加载本地模型实现热启动。
-            // M15：补充条件——本地 Agent 关闭时同样跳过预加载（按需懒加载，杜绝"不用也加载"的内存空转）
-            try {
-                com.oilquiz.app.ai.model.OnlineModelManager onlineManager =
-                        com.oilquiz.app.ai.model.OnlineModelManager.getInstance(this);
-                boolean localAgentEnabled = false;
-                try {
-                    localAgentEnabled = new com.oilquiz.app.ai.refactor.AIConfig(this).isLocalAgentEnabled();
-                } catch (Throwable ignored) {
-                }
-                if (onlineManager.hasActiveOnlineModel() || !localAgentEnabled) {
-                    com.oilquiz.app.util.AILogger.i(TAG,
-                            "检测到激活的在线模型或本地 Agent 关闭，跳过本地模型预加载（本地模型按需加载）");
-                    return;
-                }
-            } catch (Throwable t) {
-                com.oilquiz.app.util.AILogger.w(TAG, "检查在线模型配置失败，按默认流程预加载: " + t.getMessage());
+            // "要不要主动加载本地模型"统一走 LocalModelLoadPolicy（2026-10-25）：
+            // 已激活在线模型 → 跳过（加载本地只会白占内存）；本地 Agent 关闭 → 同样跳过（按需懒加载）。
+            // 已配置但未激活的在线模型不再触发跳过：用户可能随时切回本地模型。
+            // 与旧版的差异只有一处：以前"读在线模型状态抛异常"会落到 catch 里照常预加载，
+            // 现在按保守处理为不主动加载——宁可让用户显式点一次加载，也不要"不用也占 1GB"。
+            String preloadSkip = com.oilquiz.app.ai.model.LocalModelLoadPolicy.skipReason(this);
+            if (preloadSkip != null) {
+                com.oilquiz.app.util.AILogger.i(TAG, "跳过本地模型预加载：" + preloadSkip);
+                return;
             }
 
             // 调用 getInstance 仅获取单例并同步状态，不在此处阻塞加载模型
