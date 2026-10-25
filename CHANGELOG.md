@@ -1,5 +1,60 @@
 # 变更日志
 
+## [2026-10-25] fix(chat-render)：正文整篇构建移出绑定主线程（修 ANR）+ 崩溃计数按死因归因
+
+用户要求抓启动 logcat 排查，顺藤摸到"连续 2 次崩溃跳过模型自动加载"这条告警，
+追下去发现根本不是崩溃。
+
+### 查到的事实（出处）
+
+- `logcat -b crash` 空、本次启动窗口内无 `FATAL EXCEPTION`；但 dropbox 今天有 4 条
+  `data_app_anr`（11:23:03 / 19:57:23 / 19:57:54 / 20:01:07），Subject 全是
+  `Input dispatching timed out (... AIChatActivity ... Waited 5000ms for MotionEvent)`。
+- `files/ai_logs/ai_log_20261025.txt` 的计数生命周期与 ANR 时刻一一吻合：
+  每次启动先 +1、活满 30s 才 reset；11:22:24 与 19:57:05 两个会话都在 30s 内死掉，
+  于是 19:57:28 启动读到计数 2 → 触发"跳过模型自动加载"。
+- 19:57:15 那份 ANR 栈直接落在我们自己代码上：
+  `ChatAdapter.bindMessageContent → bindWithParts → PartsTurnBinder.bind → TurnPartsHost.bindOwn
+  → TextPartRenderer.bindView → MarkdownWebView.setContent → loadDocument →
+  WebView.loadDataWithBaseURL`，主线程停在 chromium 的 syscall 里。
+- 根因：进入存着多条定稿消息的会话时，RecyclerView 在**同一批绑定帧**里逐条同步跑
+  `toBodyHtml`（flexmark+净化正则）+ `resolveLocalImageSrcs/resolveLocalLinkHrefs`
+  （内含 `File` stat IO）+ 整篇加载；当天 `AICrashHandler` 有内存 90.4% 告警，
+  内存压力下整批吊住主线程 >5s。
+- 另证一处：19:57:19→19:57:27 那次计数 +1 是我抓日志前的 `am force-stop`——
+  旧口径把开发强杀也记成"模型崩溃"，阈值 2 一晚上就能被误触发两次。
+
+### 由此改掉的事
+
+1. **`MarkdownWebView`：HTML 构建挪后台、加载回主线程逐拍应用。** `setContent` 保留
+   原有主线程簿记（hash/高度占位/流式块级快路径），把"markdown→HTML+本地资源解析+包壳"
+   挪进 `BUILD_POOL`（2 线程、低优先级），完成后 `main.post` 回主线程，按原判定走
+   `swapBody` / `issuedDocHash` 去重 / `loadDocument`。`loadDataWithBaseURL` 必须主线程
+   （Android 硬约束）没法挪，但每帧只处理"已解析好的一份文档"，输入事件能在帧间分发。
+   `docGeneration`/看门狗补发/表格定稿重载/块级流式（P7）语义逐字未动。
+2. **`buildSeq` 代号守卫**：每次触发后台构建 +1，`resetForReuse` 也 +1——晚到的旧结果
+   一律丢弃，杜绝 holder 复用后上一条消息的文档盖到新消息上（与 `renderInto` 的
+   代次守卫同思路，防的是同一类串台）。
+3. **新增 `MainThreadWatchdog`**：哨兵线程每 500ms 往主线程投心跳，某拍 >5s 未被执行
+   就把 `anr_boot_id` 同步落进 `crash_protection_prefs`；正常路径不碰磁盘。
+4. **`SmartQuizApplication` 计数改按死因归因**：上次 Java 未捕获崩溃
+   （`GlobalExceptionHandler` 现在会先 `commit` 一个 boot 标记）或"没活满 30s 且无任何
+   标记"（native 崩溃/早于哨兵的强杀，进程外无法区分）才 +1；**ANR、以及活满 30s
+   之后被划掉/force-stop 一律清零**。阈值 2→3，给"无法区分的那类"留容错。
+   启动日志新增"上次退出归因: …"一行，之后再看这条告警能直接说出死因。
+
+### 验证
+
+- `compileDebugJavaWithJavac --offline` 通过；全量 `testDebugUnitTest --offline`
+  **1001 / 0 skipped / 0 failures / 0 errors**（清过 `build/test-results` 后聚合 XML
+  四个计数复核，非过滤跑残档）。
+- `TextAndReasoningRendererTest` 3 条原断言"绑定即同步出 HTML"的用例改为
+  `flushMarkdownBuild()` 等后台回流，断言内容未放宽；新增 `MainThreadWatchdogTest`
+  6 条覆盖归因纯函数（boot 不匹配/24h TTL/时钟回拨）。
+- **未做的验证**：真机没跑——占位高→后台解析→回主线程加载的时序、来回快速滚动的
+  抖动、"改完是否真不再触发 5s 超时"都只有 JVM 层证据；本次提交也**未重新打包 APK**。
+  流式块级路径里 `resolvedBlockHtml` 的 stat IO 仍在主线程（本次 ANR 栈不在那儿，
+  且 P7 并行会话在动这块，刻意没碰）。
 ## [2026-10-25] fix(chat-ui)：文案四层联动修复（上下对不上 / 卡顿 / 完成与停止收尾）
 
 用户："文案变化时机你联动了吗，比如突然卡了。已完成的文案，你不结束？上下还是对不上。
