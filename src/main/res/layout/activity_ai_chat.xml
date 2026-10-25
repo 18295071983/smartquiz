@@ -436,20 +436,6 @@
                     app:cornerRadius="@dimen/radius_16"
                     android:textAllCaps="false"/>
             </LinearLayout>
-            <ScrollView
-                android:id="@+id/log_scroll"
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/size_140">
-                <TextView
-                    android:id="@+id/log_content"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text=""
-                    android:textSize="@dimen/text_12"
-                    android:fontFamily="monospace"
-                    android:textColor="?attr/colorControlTextSecondary"
-                    android:padding="@dimen/space_12"/>
-            </ScrollView>
         </LinearLayout>
 
         <LinearLayout
