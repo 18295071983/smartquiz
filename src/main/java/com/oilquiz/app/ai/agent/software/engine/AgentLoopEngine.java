@@ -283,6 +283,22 @@ public class AgentLoopEngine {
     /** 最近一次用户消息原文：供 ai_weather 缺城市参数时提取城市名兜底（如"五台县的天气"→city=五台县） */
     private volatile String lastUserMessage = "";
 
+    /**
+     * 用户取消标志（2026-10-25 停止链路修复）。
+     *
+     * <p><b>为什么必须有 Java 侧标志</b>：此前取消只能靠 native {@code stopGeneration()}
+     * 让 {@code chatJson} 返回 null，循环在 {@code genResult == null} 那个分支 break ——
+     * 那是**间接**感知，且 break 之后
+     * 统一退出路径只要 {@code toolCallCount > 0} 就仍然调用 {@code generateFinalAnswer()}
+     * 再解码一轮。表现即"点了停止，手机反而更卖力地跑"。工具等待循环（单工具/并行）同样
+     * 不知道取消，最坏要多等一个 {@code TOOL_TIMEOUT_MS}。</p>
+     *
+     * <p>生命周期：每次 {@code run()} 入口复位（否则上一轮的取消会永久粘住实例——引擎实例
+     * 在 {@code AgentChatHandler} 里是常驻的，见该文件 :117），{@link #cancel()} 置位。</p>
+     */
+    private final java.util.concurrent.atomic.AtomicBoolean cancelRequested =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
     // ==================== KV 前缀稳定性（2026-09-23）====================
     // 本地 Agent 每轮 prompt = system + 会话序列 + 本轮用户消息。
     // 会话序列保存"上一轮实际发送给 native 的请求消息（去 system）+ 模型最终输出"，
@@ -347,6 +363,21 @@ public class AgentLoopEngine {
         this.callback = callback;
     }
 
+    /**
+     * 请求取消本次 Agent 运行。幂等，可从任意线程调用（UI 点"停止"即走这里）。
+     *
+     * <p>置位后：循环每轮开头 break、工具等待循环立即结束、统一退出路径**不再**生成最终答，
+     * 也不注入兜底话术；已流式到 UI 的部分正文由调用方收尾。下一轮 {@code run()} 入口自动复位。</p>
+     */
+    public void cancel() {
+        cancelRequested.set(true);
+    }
+
+    /** 当前是否已被请求取消（供调用方日志/测试断言）。 */
+    public boolean isCancelled() {
+        return cancelRequested.get();
+    }
+
     /** UI 运行态提示（toast）：本地 Agent 的实验性可见性——工具调用/结果/意图执行等
      *  关键事件直接弹给用户，无需翻日志。失败静默（无 Context/异常不崩）。 */
     private void showToast(String msg) {
@@ -389,6 +420,9 @@ public class AgentLoopEngine {
         long startTime = System.currentTimeMillis();
         int totalTokens = 0;
         int toolCallCount = 0;
+        // 新一轮开始：清除上一轮的取消标志。引擎实例是常驻的（AgentChatHandler 只 new 一次），
+        // 不复位就会出现"上一轮被用户停止 → 这一轮刚进循环就被判为取消"。
+        cancelRequested.set(false);
 
         // 超长问题先截断，避免单条消息撞穿预算
         if (userMessage != null && userMessage.length() > MAX_USER_MESSAGE_CHARS) {
@@ -570,6 +604,17 @@ public class AgentLoopEngine {
                     handled = true;
                 }
             }
+            if (cancelRequested.get()) {
+                // 取消发生在单次普通生成期间（用户点了停止）：不注入兜底话术——
+                // buildSimpleFallback 是给"模型没答上来"用的，给"用户不要了"用会莫名其妙。
+                // 也**故意不**调 persistSessionMessages：普通对话路径不设 lastRequestHistory，
+                // 此时持久化会把**上一轮**的请求当成本轮序列写进去，污染下一轮前缀。
+                AILogger.i(TAG, "Plain chat run cancelled, returning without fallback");
+                AgentResponse cancelledResponse = buildResponse("", totalTokens,
+                        System.currentTimeMillis() - startTime, toolCallCount, 1);
+                cancelledResponse.cancelled = true;
+                return cancelledResponse;
+            }
             if (!handled) {
                 // 普通生成失败 → 简单兜底
                 finalAnswer = buildSimpleFallback(userMessage);
@@ -606,6 +651,11 @@ public class AgentLoopEngine {
         lastStreamed = false;
 
         for (int iteration = 1; iteration <= getAgentMaxIterations(); iteration++) {
+            // 取消（2026-10-25）：用户已点停止 → 立即收尾，不再发起新一轮解码
+            if (cancelRequested.get()) {
+                AILogger.i(TAG, "Cancelled by user at iteration " + iteration + ", exiting loop");
+                break;
+            }
             // 总时长预算：超时直接收尾，避免长时间卡死
             if (System.currentTimeMillis() - startTime > TOTAL_TIME_BUDGET_MS) {
                 AILogger.w(TAG, "Total time budget exceeded, forcing final response");
@@ -873,7 +923,9 @@ public class AgentLoopEngine {
             // 等待全部完成（总超时 = TOOL_TIMEOUT_MS，单个工具卡死不拖住整轮）
             long parDeadline = System.currentTimeMillis() + TOOL_TIMEOUT_MS;
             synchronized (parDone) {
-                while (System.currentTimeMillis() < parDeadline) {
+                // 取消（2026-10-25）：用户点停止后不白等一个 TOOL_TIMEOUT_MS。worker 是 daemon
+                // 线程，这里只结束等待，让它们自己跑完；未回填的调用在下面按"已取消"标注。
+                while (System.currentTimeMillis() < parDeadline && !cancelRequested.get()) {
                     boolean allDone = true;
                     for (boolean f : parDone) {
                         if (!f) {
@@ -910,6 +962,9 @@ public class AgentLoopEngine {
                     result = (AIToolResult) parResults[i];
                 } else if (parResults[i] instanceof Throwable) {
                     result = AIToolResult.fail("工具异常: " + ((Throwable) parResults[i]).getMessage());
+                } else if (cancelRequested.get()) {
+                    // 取消时结束等待、该调用没跑完：不能说"超时"（用户会以为工具坏了）
+                    result = AIToolResult.fail("已取消，该工具未执行完成");
                 } else {
                     result = AIToolResult.fail("工具超时(" + (TOOL_TIMEOUT_MS / 1000) + "秒)");
                 }
@@ -958,12 +1013,23 @@ public class AgentLoopEngine {
         // 保证 tool_call/tool 配对完整，模型下次知道该工具被取消了。
         synthesizeAbortedToolResults(history);
 
+        // 取消优先（2026-10-25 停止链路修复）：用户点停止后**不得**再发起任何解码。
+        // 旧行为是 break 之后照旧走下面的"有工具调用就补一次总结"，于是"点了停止
+        // 手机反而再解一轮"；也不注入兜底话术（buildSimpleFallback），那是
+        // "模型没答上来"的补救，不是"用户不要了"的补救，混在一起用户会看到莫名其妙的句子。
+        final boolean cancelled = cancelRequested.get();
+
         // 最终回答生成：执行过工具调用但循环被强制收尾、尚未产出完整回答时，
         // 基于全部工具结果生成一次总结回复。单次调用、不注入工具（tool_choice=none），
         // 模型无法再发起工具调用 → 不会重新进入循环，也不会反复总结。
         String clean = null;
         String finalGenRaw = null;  // KV 前缀稳定：最终总结的原始输出
-        if (toolCallCount > 0) {
+        if (cancelled) {
+            // 只回收循环里已产出的正文；已流式过的正文不再重推（见下面 lastStreamed 判定）
+            clean = cleanResponse(lastMeaningfulResponse);
+            AILogger.i(TAG, "Run cancelled: skipping final-answer generation, partial len="
+                    + clean.length());
+        } else if (toolCallCount > 0) {
             GenerateResult finalGen = generateFinalAnswer(history, enableThinking, toolsJson);
             if (finalGen != null && finalGen.content != null && !finalGen.content.trim().isEmpty()) {
                 clean = cleanResponse(finalGen.content);
@@ -974,8 +1040,22 @@ public class AgentLoopEngine {
                 AILogger.w(TAG, "Final summary generation failed, falling back to last meaningful response");
             }
         }
-        if (clean == null || clean.isEmpty()) {
+        if (!cancelled && (clean == null || clean.isEmpty())) {
             clean = cleanResponse(lastMeaningfulResponse);
+        }
+        if (cancelled) {
+            // 取消收尾：有正文且此前没流式过 → 补一次流式，保证气泡里不是空白；
+            // 已流式过（正常停止大多如此）就什么都不推，正文已在界面上。
+            if (!clean.isEmpty() && !isPromptLeakage(clean) && !lastStreamed) {
+                streamDirectAnswer(clean);
+            }
+            // 会话序列只保存"本轮实际发送的请求"，不伪造 assistant 输出
+            // （与错误兜底同一口径：persistSessionMessages(null, …)）
+            persistSessionMessages(null, activeTools);
+            AgentResponse cancelledResponse = buildResponse(clean, totalTokens,
+                    System.currentTimeMillis() - startTime, toolCallCount, getAgentMaxIterations());
+            cancelledResponse.cancelled = true;
+            return cancelledResponse;
         }
         if (!clean.isEmpty() && !isPromptLeakage(clean)) {
             AILogger.i(TAG, "Using final answer: " + truncate(clean, 80));
@@ -2756,7 +2836,8 @@ public class AgentLoopEngine {
         try {
             synchronized (done) {
                 long start = System.currentTimeMillis();
-                while (!done[0]) {
+                // 取消（2026-10-25）：与并行等待同一口径，点停止不白等满工具超时
+                while (!done[0] && !cancelRequested.get()) {
                     long rem = TOOL_TIMEOUT_MS - (System.currentTimeMillis() - start);
                     if (rem <= 0) break;
                     done.wait(Math.min(rem, 500));
@@ -2766,6 +2847,9 @@ public class AgentLoopEngine {
 
         AIToolResult result = holder.get();
         if (result != null) return result;
+        if (cancelRequested.get()) {
+            return AIToolResult.fail("已取消，该工具未执行完成");
+        }
         return AIToolResult.fail("工具超时(" + (TOOL_TIMEOUT_MS / 1000) + "秒)");
     }
 

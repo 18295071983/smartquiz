@@ -61,6 +61,11 @@ public class AgentSoftwareLayer {
         void onToken(String token);
         void onComplete(AgentResponse response);
         void onError(String error);
+        /**
+         * 可选：本层正在处理上一条消息，本次请求被拒绝（2026-10-25）。
+         * 取代旧的"静默 return"——那条路径不给任何终态回调，UI 会永久停在"处理中"。
+         */
+        default void onBusy(String userMessage) {}
         void onInferenceProgress(int tokenCount, float tokensPerSecond);
         /** 工具声明化卡片意图（dsh presentCall/presentResult 对齐，2026-09-23）。card 为 null 表示无声明。 */
         default void onToolPresent(String toolName, Map<String, Object> card) {}
@@ -217,13 +222,32 @@ public class AgentSoftwareLayer {
     public void processMessage(String userMessage, boolean enableThinking,
                                java.util.List<AgentLoopEngine.HistoryEntry> history) {
         if (isProcessing.getAndSet(true)) {
-            AILogger.w(TAG, "Already processing a message");
+            // 重入（2026-10-25）：旧实现只打一行日志就静默 return。上层在调用前已经把
+            // 状态栏切成"⏳ 模型处理中…"并记好待回写的用户消息，于是被丢弃的这条消息
+            // 既没有 onComplete 也没有 onError —— 界面永久停在"处理中"。
+            // 现在给出明确的 busy 终态，由 UI 提示并回滚它自己记的待回写状态。
+            AILogger.w(TAG, "Already processing a message, notifying onBusy instead of dropping silently");
+            AgentCallback cb = callback;
+            if (cb != null) {
+                try {
+                    cb.onBusy(userMessage);
+                } catch (Throwable t) {
+                    AILogger.w(TAG, "onBusy callback failed: " + t.getMessage());
+                }
+            }
             return;
         }
         
         executor.execute(() -> {
             try {
                 AgentResponse response = processMessageInternal(userMessage, enableThinking, history);
+                if (response != null && response.cancelled) {
+                    // 取消收尾：仍然把"已产出的部分正文"作为完成事件交下去，
+                    // UI 侧沿用既有的 userStopped/FINISH_STOPPED 标注，不另造一套终态；
+                    // 引擎此时**没有**再发起任何解码（见 AgentLoopEngine 取消分支）。
+                    AILogger.i(TAG, "Run cancelled: delivering partial answer (len="
+                            + (response.finalAnswer != null ? response.finalAnswer.length() : 0) + ")");
+                }
                 if (callback != null) {
                     callback.onComplete(response);
                 }
@@ -298,10 +322,29 @@ public class AgentSoftwareLayer {
     }
     
     /**
-     * 取消当前处理（R3-2：先打断 native 生成，再置状态）
+     * 取消当前处理。
+     *
+     * <p>三步，顺序有意义：
+     * <ol>
+     *   <li><b>先置引擎取消标志</b>（{@link AgentLoopEngine#cancel()}）——循环、工具等待、
+     *       统一退出路径都看得到它，取消后不会再补一次最终答；</li>
+     *   <li>再按当前引擎打断在跑的 native 生成（NPU / llama.cpp 是两个不同的停止入口，
+     *       少打一个就表现为"点了停止没反应"）；</li>
+     *   <li><b>不动 {@code isProcessing}</b>（2026-10-25 修正）。旧实现在这里直接
+     *       {@code set(false)}，于是：循环线程其实还在收尾却被当成空闲 ——
+     *       ① 上层 {@code AgentChatHandler.cancel()} 的 {@code isProcessing()} 门立刻失效，
+     *       再按一次停止反而什么都不做；② 新消息被接受并排队，与上一轮残留回调混在同一个
+     *       callback 上。真正的复位由 {@code executor} 任务的 finally 负责。</li>
+     * </ol>
      */
     public void cancel() {
-        // NPU-AWARE(2026-10-07)：原实现只调 LlamaHelper.stopGeneration()，而 NPU 模式下
+        // 1) 软件层取消标志（必须先于 native 停止：native 停止只是让当前这次解码早点回来）
+        try {
+            loopEngine.cancel();
+        } catch (Throwable t) {
+            AILogger.w(TAG, "loopEngine.cancel failed: " + t.getMessage());
+        }
+        // 2) NPU-AWARE(2026-10-07)：原实现只调 LlamaHelper.stopGeneration()，而 NPU 模式下
         // 那条 native 路径根本没有在跑的生成 —— 表现为"Agent 跑起来后取消按钮停不掉"。
         // 这里按引擎分别打断。
         try {
@@ -316,7 +359,8 @@ public class AgentSoftwareLayer {
         } catch (Throwable t) {
             AILogger.w(TAG, "stopGeneration failed: " + t.getMessage());
         }
-        isProcessing.set(false);
+        // 3) 故意不在此处复位 isProcessing（旧实现会立刻置 false）：见方法注释第 3 条。
+        AILogger.i(TAG, "Cancel requested; loop will stop at next checkpoint");
     }
     
     /**

@@ -49,6 +49,11 @@ public class AgentChatHandler {
         default void onRoundComplete(int iteration, String fullText) {}
         void onComplete(String fullText);
         void onError(String error);
+        /**
+         * 可选：上一条本地 Agent 仍在执行，本次发送被拒绝（2026-10-25）。
+         * 旧行为是软件层静默 return：没有 onComplete 也没有 onError，界面停在"⏳ 模型处理中…"。
+         */
+        default void onAgentBusy(String userMessage) {}
         void onModeSwitched(String mode);
         void onAgentStep(ChatMessage.AgentStepInfo stepInfo);
         void onToolCallUI(String toolName, String args, int position);
@@ -204,6 +209,16 @@ public class AgentChatHandler {
             public void onComplete(AgentResponse response) {
                 if (isValid()) {
                     callback.onComplete(response.finalAnswer);
+                }
+            }
+
+            @Override
+            public void onBusy(String userMessage) {
+                // 本地 Agent 串行执行（单线程 executor + isProcessing 门）。
+                // 这里必须把事件透出去：否则上层已经为这条消息铺好"处理中"状态，
+                // 却收不到任何终态，界面永久挂住。
+                if (isValid()) {
+                    callback.onAgentBusy(userMessage);
                 }
             }
 
@@ -447,6 +462,9 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
 
     public void cancel() {
         // R3-2：本地软件层也需打断 native 生成（softwareLayer.cancel 内会调 stopGeneration）
+        // 2026-10-25：isProcessing 现在直到循环真正结束才复位（旧的 cancel() 会提前置 false，
+        // 导致这里再按一次停止时门不住、什么都不做），所以这道门是可信的。
+        // softwareLayer.cancel() 里第一步就是 loopEngine.cancel()（置循环取消标志）。
         if (softwareLayer != null && softwareLayer.isProcessing()) {
             softwareLayer.cancel();
         }
@@ -498,8 +516,21 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         engine.setModelId(modelId);
     }
 
+    /**
+     * 是否正在生成 —— **必须同时覆盖在线引擎与本地软件层**。
+     *
+     * <p>2026-10-25 修正：旧实现只返回 {@code engine.isGenerating()}，而
+     * {@code AgentRouter.isGenerating()} 内部只看 {@code onlineEngine}
+     * （见 {@code AgentRouter.isGenerating()}）。本地 Agent（{@code AgentSoftwareLayer}）跑着时它恒为 false，
+     * 于是 {@code AIChatActivity} 里 6 处
+     * {@code if (agentChatHandler.isGenerating()) agentChatHandler.cancel();}
+     * ——停止按钮、模式切换、新会话、退出界面等——**全都跳过取消**，
+     * 那套 R3-2 修好的 {@code softwareLayer.cancel()}（分别打断 NPU 与 llama.cpp）
+     * 根本没机会执行。表现为"本地 Agent 一跑就停不下来"。</p>
+     */
     public boolean isGenerating() {
-        return engine.isGenerating();
+        return (engine != null && engine.isGenerating())
+                || (softwareLayer != null && softwareLayer.isProcessing());
     }
 
     public int getToolLoopCount() {
