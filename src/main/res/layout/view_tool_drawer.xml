@@ -24,6 +24,166 @@
             android:textColor="?attr/colorControlText"
             android:paddingBottom="@dimen/space_12"/>
 
+        <!-- ===== 本次会话状态 =====
+             2026-10-25：这几行原本只存在于聊天页右上角「⋯」弹出的信息面板里，
+             面板已删，值搬到这里。值由 ChatDrawerStatusBinder 在抽屉打开时从
+             现成的活动控件（service_status_text / tv_api_balance / tv_token_stats /
+             tv_gen_phase / tv_kv_stats）复制过来——那几个控件仍是唯一事实源，
+             这里只是把同一份数在 v2 收起头部后重新露出来，不另算一遍。 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="状态"
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorControlTextSecondary"
+            android:paddingBottom="@dimen/space_4"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="?attr/colorSecondaryContainer"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp"
+            android:layout_marginBottom="@dimen/space_12">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingVertical="6dp">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.35"
+                    android:text="@string/chat_v2_model"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextSecondary"/>
+                <TextView
+                    android:id="@+id/tv_drawer_model"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.65"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlText"
+                    android:singleLine="true"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingVertical="6dp">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.35"
+                    android:text="@string/chat_v2_balance"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextSecondary"/>
+                <TextView
+                    android:id="@+id/tv_drawer_balance"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.65"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlText"
+                    android:singleLine="true"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingVertical="6dp">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.35"
+                    android:text="@string/chat_v2_tokens"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextSecondary"/>
+                <TextView
+                    android:id="@+id/tv_drawer_tokens"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.65"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlText"
+                    android:singleLine="true"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingVertical="6dp">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.35"
+                    android:text="@string/chat_v2_phase"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextSecondary"/>
+                <TextView
+                    android:id="@+id/tv_drawer_phase"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.65"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlText"
+                    android:singleLine="true"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingVertical="6dp">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.35"
+                    android:text="@string/chat_v2_kv"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextSecondary"/>
+                <TextView
+                    android:id="@+id/tv_drawer_kv"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.65"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlText"
+                    android:singleLine="true"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_drawer_log"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_40"
+            android:text="📄 运行日志"
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorOnSecondaryContainer"
+            app:backgroundTint="?attr/colorSecondaryContainer"
+            app:cornerRadius="@dimen/radius_12"
+            android:textAllCaps="false"
+            android:gravity="start|center_vertical"
+            android:paddingHorizontal="12dp"
+            android:minWidth="@dimen/min_0"
+            android:layout_marginBottom="@dimen/space_12"/>
+
+
         <!-- ===== 模型选择 ===== -->
         <TextView
             android:layout_width="wrap_content"

@@ -592,6 +592,8 @@ public class AIChatActivity extends BaseActivity {
                             getResources().getDisplayMetrics().density * 16f);
                 } catch (Throwable ignored) {
                 }
+                // 抽屉里的「本次会话状态」区块（原「⋯」信息面板搬过来的 5 行值 + 运行日志入口）
+                com.oilquiz.app.ai.chat.ui.ChatDrawerStatusBinder.bind(this);
             }
             inputMessage = findViewById(R.id.input_message);
             chatV2CharCount = findViewById(R.id.chat_v2_char_count);

@@ -6,21 +6,16 @@ import android.content.Intent;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.TypedValue;
-import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
-import android.widget.LinearLayout;
-import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.core.content.ContextCompat;
 
-import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.oilquiz.app.R;
-import com.oilquiz.app.theme.ThemeColors;
 
 /**
  * 聊天页 v2 外壳（Track A0）：一屏只留 顶栏 / 对话流 / 输入胶囊 三层。
@@ -198,9 +193,11 @@ public final class ChatUiV2Chrome {
      * 顶栏来自 {@code view_chat_appbar_v2}（demo header.appbar）：
      * 历史抽屉 / 会话标题 + 模型副标题 / 新建 / 更多。
      *
-     * <p>三个入口全部<b>转发给原控件</b>，不另写一套流程：历史 = {@code btn_history}，
-     * 新建 = {@code btn_new_conversation}，模型 = {@code btn_model_select}，
-     * 这些控件在 v2 下被隐藏但 performClick 依然有效。</p>
+     * <p>入口去向（2026-10-25 收敛）：历史 = 转发 {@code btn_history}，
+     * 新建 = 转发 {@code btn_new_conversation}，「⋯」= 转发 {@code btn_back} 打开工具中心
+     * （原先它弹自制的信息面板，面板已删、状态行搬进抽屉），
+     * 模型 = 直跳 {@code ModelCenterActivity}（原先弹 ModelSheet，那是个不接线的半成品）。
+     * 被转发的这些控件在 v2 下虽被隐藏，{@code performClick} 依然有效。</p>
      */
     private static View buildHeader(Activity activity, ViewGroup parent) {
         Context ctx = activity;
@@ -214,7 +211,9 @@ public final class ChatUiV2Chrome {
 
         click(header, R.id.chat_v2_btn_history, v -> perform(activity, R.id.btn_history));
         click(header, R.id.chat_v2_btn_new, v -> perform(activity, R.id.btn_new_conversation));
-        click(header, R.id.chat_v2_btn_more, v -> openInfoSheet(ctx));
+        // 「⋯」不再弹自制的信息面板（已删）：状态与运行日志都搬进了工具中心，
+        // 这里复用旧汉堡键的点击逻辑打开工具抽屉，不另写一套打开流程。
+        click(header, R.id.chat_v2_btn_more, v -> perform(activity, R.id.btn_back));
         // 模型入口直跳「模型选择」页（2026-10-25）：原先这里弹的是聊天页内的 ModelSheet 面板，
         // 但它本地 tab 的行根本没挂点击、"应用"也只写温度不切模型，却照样弹"已应用"——
         // 是个会骗人的半成品。切换模型/下载/删除的统一入口本来就在 ModelCenterActivity，
@@ -310,121 +309,6 @@ public final class ChatUiV2Chrome {
         c.setTextEndPadding(dp(ctx, 2));
     }
 
-    // ---------------------------------------------------------------- 信息面板
-
-    /**
-     * 「⋯」面板：模型 / token / 生成阶段 / KV / 余额 / 运行日志 / 智能体控制台 / 界面开关。
-     * 值直接读被收起的那几个 TextView（原逻辑仍在刷新它们）。
-     */
-    private static void openInfoSheet(Context ctx) {
-        try {
-            BottomSheetDialog sheet = new BottomSheetDialog(ctx);
-            LinearLayout box = new LinearLayout(ctx);
-            box.setOrientation(LinearLayout.VERTICAL);
-            int pad = dp(ctx, 18);
-            box.setPadding(pad, pad, pad, pad);
-
-            addRow(ctx, box, R.string.chat_v2_model, textOf(ctx, R.id.service_status_text));
-            addRow(ctx, box, R.string.chat_v2_balance, textOf(ctx, R.id.tv_api_balance));
-            addRow(ctx, box, R.string.chat_v2_tokens, textOf(ctx, R.id.tv_token_stats));
-            addRow(ctx, box, R.string.chat_v2_phase, textOf(ctx, R.id.tv_gen_phase));
-            addRow(ctx, box, R.string.chat_v2_kv, textOf(ctx, R.id.tv_kv_stats));
-            addLinkRow(ctx, box, R.string.chat_v2_log,
-                    v -> showPlainText(ctx, ctx.getString(R.string.chat_v2_log),
-                            textOf(ctx, R.id.log_content)));
-            addLinkRow(ctx, box, R.string.chat_v2_tools, v -> {
-                // 复用原头部那颗汉堡键的点击逻辑（工具抽屉），不另写一套打开流程
-                View tools = find(ctx, R.id.btn_back);
-                if (tools != null) {
-                    tools.performClick();
-                } else {
-                    Toast.makeText(ctx, R.string.chat_v2_no_data, Toast.LENGTH_SHORT).show();
-                }
-            });
-            addLinkRow(ctx, box, R.string.chat_v2_clear, v -> {
-                // v2 把旧空状态（里面有「清空」chip）整块收起来了，清空对话改从这里进
-                View clear = find(ctx, R.id.chip_clear_chat2);
-                if (clear != null) {
-                    clear.performClick();
-                } else {
-                    Toast.makeText(ctx, R.string.chat_v2_no_data, Toast.LENGTH_SHORT).show();
-                }
-            });
-            addLinkRow(ctx, box, R.string.chat_v2_console, v -> {
-                try {
-                    ctx.startActivity(new Intent(ctx,
-                            com.oilquiz.app.ui.activity.AgentManagerActivity.class));
-                } catch (Throwable t) {
-                    Toast.makeText(ctx, R.string.chat_v2_no_data, Toast.LENGTH_SHORT).show();
-                }
-            });
-            sheet.setContentView(box);
-            sheet.show();
-        } catch (Throwable t) {
-            Log.w(TAG, "info sheet failed: " + t.getMessage());
-        }
-    }
-
-    /** 纯文本弹层（运行日志用；日志面板收起后仍要能看到） */
-    private static void showPlainText(Context ctx, String title, String content) {
-        try {
-            TextView tv = new TextView(ctx);
-            tv.setText(TextUtils.isEmpty(content) ? ctx.getString(R.string.chat_v2_no_data) : content);
-            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
-            tv.setTextIsSelectable(true);
-            int pad = dp(ctx, 16);
-            tv.setPadding(pad, pad, pad, pad);
-            android.widget.ScrollView scroll = new android.widget.ScrollView(ctx);
-            scroll.addView(tv);
-            new androidx.appcompat.app.AlertDialog.Builder(ctx)
-                    .setTitle(title)
-                    .setView(scroll)
-                    .setNegativeButton(R.string.close, null)
-                    .show();
-        } catch (Throwable t) {
-            Log.w(TAG, "plain text dialog failed: " + t.getMessage());
-        }
-    }
-
-    private static void addRow(Context ctx, LinearLayout box, int labelRes, String value) {
-        LinearLayout row = new LinearLayout(ctx);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(ctx, 6), 0, dp(ctx, 6));
-
-        TextView label = new TextView(ctx);
-        label.setText(labelRes);
-        label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
-        label.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
-        row.addView(label, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 0.35f));
-
-        TextView valueTv = new TextView(ctx);
-        valueTv.setText(TextUtils.isEmpty(value) ? ctx.getString(R.string.chat_v2_no_data) : value);
-        valueTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
-        valueTv.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlText));
-        valueTv.setSingleLine(true);
-        valueTv.setEllipsize(TextUtils.TruncateAt.END);
-        row.addView(valueTv, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 0.65f));
-        box.addView(row);
-    }
-
-    /** 可点行（日志 / 控制台入口） */
-    private static void addLinkRow(Context ctx, LinearLayout box, int labelRes,
-                                   View.OnClickListener onClick) {
-        TextView row = new TextView(ctx);
-        row.setText(labelRes);
-        row.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
-        row.setTextColor(ThemeColors.attr(ctx, R.attr.colorPrimary));
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(dp(ctx, 40));
-        row.setClickable(true);
-        row.setFocusable(true);
-        row.setOnClickListener(onClick);
-        box.addView(row);
-    }
-
     // ---------------------------------------------------------------- 小工具
 
     private static void hide(Activity activity, int id) {
@@ -440,11 +324,6 @@ public final class ChatUiV2Chrome {
         } catch (Throwable t) {
             return null;
         }
-    }
-
-    private static String textOf(Context ctx, int id) {
-        TextView tv = find(ctx, id);
-        return tv == null || tv.getText() == null ? "" : tv.getText().toString();
     }
 
     private static int dp(Context ctx, float value) {
