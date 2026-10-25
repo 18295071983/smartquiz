@@ -1863,7 +1863,8 @@ public class AIToolManager {
                                 + "（可读 document.cookie / localStorage / DOM；否则默认 about:blank 内存页，origin=null，"
                                 + "document.cookie/localStorage 会被浏览器安全策略拒绝）。"
                                 + "限制：默认（无 url）时原生 fetch/XHR 跨域被 CORS 拦截（网络用 __http、文件用 __fs），不能访问 DOM/页面渲染。"
-                                + "代码顶层 return 已自动兼容（自动包 IIFE 并返回其结果），可直接 return 返回结果；"
+                                + "代码顶层 return 可用（引擎按 eval 完成值执行，遇顶层 return 抛 SyntaxError 时自动改按函数体执行取返回值，"
+                                + "不必自己包 IIFE）；末尾表达式即结果；"
                                 + "并发上限：单批同时执行≤4路（超出等待2s后明确报「JS执行并发已满」，不静默丢值）；"
                                 + "脚本内多次桥接调用请串行 await，勿 Promise.all 并发打桥；"
                                 + "死循环用 timeout 参数（秒，默认8，最大30）超时终止。")

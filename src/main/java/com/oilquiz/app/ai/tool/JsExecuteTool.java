@@ -87,11 +87,15 @@ public class JsExecuteTool implements AITool {
                 + ".at() / replaceAll / findLast / structuredClone 等）；老机型 WebView 版本较低时较新特性可能缺失，"
                 + "跨机型稳妥写法仍建议 ES6 核心语法；可用 console.log/error/warn 打印调试；"
                 + "适合：算法验证、数据转换/清洗、JSON 处理、正则测试、前端逻辑调试、URL 编解码、调用 HTTP API。"
-                + "**顶层 return 已自动兼容**：检测到代码顶层有 return 会自动包成立即执行函数 IIFE 并返回其结果，"
-                + "可直接写 return 值; 返回结果；也可用 console.log 输出。"
+                + "**顶层 return 与末尾表达式都可用**：脚本先按 `eval` 的完成值语义执行（末尾表达式即结果）；"
+                + "若代码在顶层写 return（eval 眼里是 SyntaxError），引擎会自动改按函数体执行并取 return 值，"
+                + "无需自己包 IIFE；console.log 输出也会一并回传。"
+                + "（2026-10-25 修正：此前靠 Java 侧猜行首 return 做 IIFE 包装，`const a=1; return a` "
+                + "这类同行多语句会被猜漏而报 Illegal return statement，现已改在引擎侧按语义兜底。）"
                 + "url=可选，传入 http/https 地址时先加载该真实网页，再在**真实页面上下文**执行代码"
                 + "（此时可读 document.cookie / localStorage、访问页面 DOM；否则默认在 about:blank 内存页执行，"
-                + "origin 为 null，document.cookie/localStorage 会被浏览器安全策略拒绝）。"
+                + "origin 为 null，document.cookie/localStorage 会被浏览器安全策略拒绝，"
+                + "**crypto.subtle 在非安全上下文不可用**——要哈希请手写实现或走 __http）。"
                 + "限制：默认（无 url）时原生 fetch/XHR 跨域会被 CORS 拦截（网络请用 __http，文件请用 __fs），不能访问 DOM/页面渲染。"
                 + "**并发上限：单批同时执行 ≤4 路**（超出会等待 2s 后明确报『JS 执行并发已满』，不会静默丢值）；"
                 + "**单个脚本内部多次桥接调用（__http/__fs）请串行 await**，勿用 Promise.all 并发打桥（会累积阻塞与并发压力）；"
@@ -116,11 +120,10 @@ public class JsExecuteTool implements AITool {
             return AIToolResult.fail("缺少参数: code（要执行的 JavaScript 代码）");
         }
         String code = String.valueOf(codeObj);
-        // 顶层 return 是 JS 语法错误（Illegal return statement）：检测到行首 return 且不在
-        // 函数体内时，自动包进立即执行函数 IIFE 并显式捕获返回值（与动态工具路径一致）
-        if (hasTopLevelReturn(code)) {
-            code = "const __js_ret = (() => {\n" + code + "\n})();\n__js_ret;";
-        }
+        // 顶层 return 的支持放在 JS 引擎侧（__run 里 eval 失败后改按函数体执行），
+        // 不在这里猜"哪一行是顶层 return"：`const a=1; return a` 这类同一行多语句、
+        // 字符串/模板量里的花括号都会让行首启发式猜漏，猜漏就表现为
+        // 「Illegal return statement」（2026-10-25 实测反馈）。
         int timeout = DEFAULT_TIMEOUT_SECONDS;
         try {
             Object t = parameters.get("timeout");
@@ -158,34 +161,6 @@ public class JsExecuteTool implements AITool {
         } finally {
             CONCURRENCY.release();
         }
-    }
-
-    /** 粗略检测脚本是否在顶层用了 return（行首 return 且不在函数体内）。
-     *  启发式足够覆盖常见写法：脚本末尾 `return xxx;` / `return xxx`。 */
-    private static boolean hasTopLevelReturn(String logic) {
-        String[] lines = logic.split("\n");
-        int braceDepth = 0;
-        for (String raw : lines) {
-            String line = raw.trim();
-            if (line.isEmpty() || line.startsWith("//") || line.startsWith("/*")
-                    || line.startsWith("*")) {
-                continue;
-            }
-            braceDepth += countChar(line, '{');
-            braceDepth -= countChar(line, '}');
-            if (braceDepth == 0 && line.startsWith("return")) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static int countChar(String s, char c) {
-        int n = 0;
-        for (int i = 0; i < s.length(); i++) {
-            if (s.charAt(i) == c) n++;
-        }
-        return n;
     }
 
     private AIToolResult runJs(String code, int timeoutSeconds, String pageUrl) {
@@ -290,7 +265,24 @@ public class JsExecuteTool implements AITool {
             } catch (Exception pe) {
                 return AIToolResult.fail("JS 桥接结果解析失败（" + pe.getMessage() + "），请降低并发后重试");
             }
-            JSONObject result = new JSONObject(String.valueOf(inner));
+            JSONObject result;
+            try {
+                // JSONTokener 对 "null" 给出的是 JSONObject.NULL，直接丢给 new JSONObject(String)
+                // 会抛「Value null of type org.json.JSONObject$1 cannot be converted to JSONObject」，
+                // 把引擎真实回传吞成一条看不懂的框架错（url 模式原先就是这样全量失败的）。
+                // 这里：本来就是对象则直接用（省一次 512KB 级别的重列），否则给明确诊断。
+                result = inner instanceof JSONObject ? (JSONObject) inner : null;
+                if (result == null) {
+                    if (inner == null || JSONObject.NULL.equals(inner)) {
+                        return AIToolResult.fail("JS 引擎回传了空值（结果不是约定的 JSON 对象）；"
+                                + "常见于注入脚本未 return 结果或页面把脚本吃掉。原始回传: " + raw);
+                    }
+                    result = new JSONObject(String.valueOf(inner));
+                }
+            } catch (Exception je) {
+                return AIToolResult.fail("JS 桥接返回值无法解析为结果对象（" + je.getMessage()
+                        + "），原始回传: " + raw);
+            }
             boolean ok = result.optBoolean("ok");
             StringBuilder sb = new StringBuilder(ok ? "执行成功" : "执行出错: " + result.optString("error", "未知错误"));
             Object value = result.opt("value");
@@ -344,7 +336,12 @@ public class JsExecuteTool implements AITool {
             + "window.__enc=function(v){return v===undefined?null:(typeof v==='object'?JSON.stringify(v):String(v));};"
             + "window.__errMsg=function(e){return (e&&e.message)?String(e.message):String(e);};"
             + "window.__run=function(c){"
-            + "try{var r=eval(c);"
+            + "try{var r;"
+            // 两种返回语义都要支持：直接 eval 走"末尾表达式=完成值"；
+            // 顶层 return 在 eval 里是 SyntaxError，此时改按函数体执行（函数体里 return 合法）。
+            // 不在 Java 侧猜行首——`const a=1; return a` 这类同行语句、字符串里的花括号都会猜漏。
+            + "try{r=eval(c);}"
+            + "catch(ie){if(!(ie instanceof SyntaxError))throw ie;r=(new Function(c))();}"
             + "if(r&&typeof r.then==='function'){"
             + "r.then(function(v){AndroidBridge.done(JSON.stringify({ok:true,value:window.__enc(v),logs:window.__jslogs}));})"
             + ".catch(function(e){AndroidBridge.done(JSON.stringify({ok:false,error:window.__errMsg(e),logs:window.__jslogs}));});"
@@ -393,14 +390,22 @@ public class JsExecuteTool implements AITool {
                 + "delete:function(p){return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.fsDelete(p)));});},"
                 + "exists:function(p){return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.fsExists(p)));});}};"
                 + "window.__run=function(c){"
-                + "try{var r=eval(c);"
+                + "try{var r;"
+                // 与 BOOTSTRAP_HTML 里的 __run 保持同一语义：eval 取完成值，
+                // 顶层 return 抛 SyntaxError 时改按函数体执行。两份实现要一起改。
+                + "try{r=eval(c);}"
+                + "catch(ie){if(!(ie instanceof SyntaxError))throw ie;r=(new Function(c))();}"
                 + "if(r&&typeof r.then==='function'){"
                 + "r.then(function(v){AndroidBridge.done(JSON.stringify({ok:true,value:window.__enc(v),logs:window.__jslogs}));})"
                 + ".catch(function(e){AndroidBridge.done(JSON.stringify({ok:false,error:window.__errMsg(e),logs:window.__jslogs}));});"
                 + "return JSON.stringify({ok:true,value:'__async_pending',logs:[]});}"
                 + "return JSON.stringify({ok:true,value:window.__enc(r),logs:window.__jslogs});}"
                 + "catch(e){return JSON.stringify({ok:false,error:window.__errMsg(e),logs:window.__jslogs});}};"
-                + "window.__run(" + quotedCode + ");"
+                // 必须 return：外层是 IIFE，少了 return 整段求值为 undefined，
+                // evaluateJavascript 回传 "null"，结果解析会抛
+                // 「Value null of type org.json.JSONObject$1 cannot be converted to JSONObject」
+                // ——这就是 url= 真实网页模式之前全量失败的原因（无 url 路径是裸 window.__run(...) 求值，有完成值）。
+                + "return window.__run(" + quotedCode + ");"
                 + "})()";
     }
 
