@@ -161,10 +161,11 @@ public class AgentLoopEngine {
      * 单靠改 prompt 或让模型猜名字都无效。</p>
      *
      * <p><b>2026-10-25 更新（本地专用薄工具适配层，见 {@link #LOCAL_THIN_TOOLS}）</b>：
-     * 上面说的"引擎侧注入通道"已用**静态**方式落地——核心集从 4 扩到 6，新增的是
-     * {@code read_file}/{@code write_file} 两个**单用途薄工具**（schema 里无 action enum、
+     * 上面说的"引擎侧注入通道"已用**静态**方式落地——核心集从 4 扩到 9，新增的都是
+     * **单用途薄工具**（{@code read_file}/{@code write_file}/{@code calculate}/
+     * {@code search_questions}/{@code recall_history}：schema 里无 action enum、
      * 参数只留必要一两个、描述一句话），执行时由 {@code executeToolSafely} 翻译成真实工具
-     * （{@code file_reader(action=read)}/{@code file_generator(action=create)}）。
+     * （如 read_file→file_reader(action=read)、calculate→calculator、search_questions→database(action=search_questions)）。
      * 之所以"薄"而不是直接注入 file_reader：大 schema 吃前缀、action enum 是 4B 选错的高发点；
      * 薄工具既省 token 又少可选值。只在**会话开始静态**注入（中途加会破坏 KV 前缀）。
      * 所以下方"移出 file_reader"的表述指的是**完整多 action 那份**，读文件能力现以薄工具回来了。</p>
@@ -183,7 +184,8 @@ public class AgentLoopEngine {
      * 因为核心集里唯一带"实时查询"语义的就是 ai_weather。</p>
      */
     private static final String[] DEFAULT_CORE_TOOLS = {
-            "time_date", "location", "ai_weather", "network_search", "read_file", "write_file"
+            "time_date", "location", "ai_weather", "network_search",
+            "read_file", "write_file", "calculate", "search_questions", "recall_history"
     };
 
     // ==================== 本地专用「薄工具」适配层（2026-10-25）====================
@@ -207,6 +209,21 @@ public class AgentLoopEngine {
                         {"content", "string", "要写入的文本内容", "1"},
                 },
                 "file_generator", "create",
+                new String[][]{}));
+        LOCAL_THIN_TOOLS.put("calculate", new ThinTool(
+                "计算算术表达式并返回结果，支持 + - * / % ^ 括号、小数与负数（如 2^10、3.5*(2+4)/7）。凡是要精确算数就用它，别自己心算。",
+                new String[][]{{"expression", "string", "算术表达式，如 2^10 或 (15-3)%4", "1"}},
+                "calculator", null,
+                new String[][]{}));
+        LOCAL_THIN_TOOLS.put("search_questions", new ThinTool(
+                "从本地题库按关键词搜索题目，返回匹配的题目（含选项/答案/解析等）。keyword 为关键词或知识点。",
+                new String[][]{{"keyword", "string", "搜索关键词/知识点", "1"}},
+                "database", "search_questions",
+                new String[][]{}));
+        LOCAL_THIN_TOOLS.put("recall_history", new ThinTool(
+                "搜索跨会话保存的聊天历史，回忆之前聊过或创建过的内容。keyword 为搜索关键词。",
+                new String[][]{{"keyword", "string", "搜索关键词", "1"}},
+                "chat_history", "search",
                 new String[][]{}));
     }
 
@@ -2067,8 +2084,8 @@ public class AgentLoopEngine {
         // 注：四工具全是只读查询，无外部副作用，故删掉了在线路径照抄来的"删除/覆盖文件先确认"
         // 死话（本地连该能力都没有），换成对四工具真实存在的风险：不许补充工具未返回的数据。
         // 全部为静态文本，同一天内字节不变，不破坏 buildCurrentTimeLine 的 KV 前缀复用设计。
-        sb.append("你的工作：与用户对话答疑；需要实时信息或读写文件时只能调用下列六个工具，"
-                + "不要调用这六个之外的任何工具。\n");
+        sb.append("你的工作：与用户对话答疑；需要实时信息或读写文件时只能调用下列九个工具，"
+                + "不要调用这九个之外的任何工具。\n");
         sb.append("你的方式：实时/时效性信息必须用工具查证，禁止用训练数据猜测；"
                 + "静态知识直接回答，不必调用工具；结构化信息用清晰的分段与列表展示。\n");
         // ACTION-LOCATION(2026-10-11)：ai_weather 的每个 action 都**必须有位置**
@@ -2090,9 +2107,10 @@ public class AgentLoopEngine {
                 + "如实告知查不到，不要用别的城市顶上。"
                 + "network_search 查其他实时信息（油价、股价、新闻、赛事等）。"
                 + "read_file 读取本地/工作区文本文件内容（传 path）；write_file 把文本写入工作区文件"
-                + "（file_name 用英文名、勿中文，content 为正文）。"
+                + "（file_name 用英文名、勿中文，content 为正文）；calculate 做算术求值（凡计算用它，别心算）；"
+                + "search_questions 按关键词查本地题库题目；recall_history 搜索跨会话聊天历史。"
                 + "禁止用天气工具回答非天气问题；日期与星期直接采用上面给出的【当前真实日期】，不必调工具。\n");
-        sb.append("你的边界：画图、运行代码、操作手机、联网之外的重任务等超出上述六个工具的能力，"
+        sb.append("你的边界：画图、运行代码、操作手机、联网之外的重任务等超出上述九个工具的能力，"
                 + "如实说明做不到，可建议用户换用在线模式，不要硬用不相关的工具凑答案；"
                 + "工具返回什么就说什么，禁止补充工具未返回的数据。\n");
         // RETRY-ON-TOOL-FAILURE(2026-10-11)：真机实测（问"五台县的空气质量"）暴露的行为缺陷 ——

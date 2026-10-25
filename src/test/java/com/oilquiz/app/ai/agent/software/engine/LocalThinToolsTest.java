@@ -49,9 +49,12 @@ public class LocalThinToolsTest {
                 StandardCharsets.UTF_8);
         // 只盯实际注入模型的 prompt 句子（不匹配历史注释里的"四个"字样）：
         // 提示词必须说"六个工具"，且旧的"下列四个工具"这句已不存在（防"说4实际6"漂移）。
-        assertTrue("FC 提示词应声明『只能调用下列六个工具』", src.contains("只能调用下列六个工具"));
+        assertTrue("FC 提示词应声明『只能调用下列九个工具』", src.contains("只能调用下列九个工具"));
         assertFalse("FC 提示词不应再写『只能调用下列四个工具』", src.contains("只能调用下列四个工具"));
         assertTrue("薄工具 read_file 应写进选用说明", src.contains("read_file 读取"));
         assertTrue("薄工具 write_file 应写进选用说明", src.contains("write_file 把文本写入"));
+        assertTrue("薄工具 calculate 应写进选用说明", src.contains("calculate 做算术求值"));
+        assertTrue("薄工具 search_questions 应写进选用说明", src.contains("search_questions 按关键词查本地题库"));
+        assertTrue("薄工具 recall_history 应写进选用说明", src.contains("recall_history 搜索跨会话聊天历史"));
     }
 }
