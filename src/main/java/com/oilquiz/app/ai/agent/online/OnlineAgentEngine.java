@@ -1586,7 +1586,8 @@ public class OnlineAgentEngine {
             }
         }
         eventBus.post(AgentEventBus.EventType.TOOL_RESULT, toolName,
-                result != null ? result.result : null);
+                // 失败时原因在 error 里（result 为 null）：走 displayText() 才能让会话日志/调试桥看到原因
+                result != null ? result.displayText() : null);
         int tokensAfter = execTotalPromptTokens + execTotalCompletionTokens;
         int resultLen = (result != null && result.result != null) ? result.result.length() : 0;
         AILogger.i(TAG, "Tool done: " + toolName + " | 调用后 token 累计: " + tokensAfter

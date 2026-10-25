@@ -40,6 +40,27 @@ public class OnlineToolResult {
         return new OnlineToolResult(toolCallId, toolName, null, false, error, executionTimeMs);
     }
 
+    /**
+     * 面向 UI 与会话记录的<b>唯一取文口径</b>：成功取 {@code result}，失败取 {@code error}。
+     *
+     * <p>背景（2026-10-25 真机会话实测）：{@link #failure} 把原因写进 {@code error} 而
+     * {@code result} 恒为 {@code null}，但 UI/持久化两处都只取 {@code result.result}，
+     * 于是失败的工具卡与会话组件里<b>没有任何失败原因</b>——人只能去翻 ai_logs 按时间戳反查，
+     * 历史恢复后也看不到。模型侧不受影响（引擎另走
+     * {@code "工具执行失败: " + error} 塞进 tool 消息），所以这个缺陷只在人这一侧。</p>
+     */
+    public String displayText() {
+        if (success) {
+            return result != null ? result : "";
+        }
+        if (error != null && !error.trim().isEmpty()) {
+            return error;
+        }
+        // 失败却连 error 都没给：留一条可辨识的占位，绝不再给出"空 result"这种看着像成功的样子
+        return (result != null && !result.trim().isEmpty())
+                ? result : "工具执行失败（引擎未给出原因）";
+    }
+
     @Override
     public String toString() {
         if (success) {

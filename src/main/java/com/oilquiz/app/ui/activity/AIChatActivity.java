@@ -7634,12 +7634,15 @@ public class AIChatActivity extends BaseActivity {
             // 工具调用完成：更新插入式卡片为成功/失败 + 状态栏恢复
             runOnUiThread(() -> {
                 boolean success = result != null && result.success;
-                String resultStr = result != null ? result.result : "无结果";
+                // 失败原因在 error 里、result 恒为 null：必须走 displayText()，
+                // 否则卡片/会话里只有"失败"两个字，原因彻底丢失（2026-10-25 实测）
+                String resultStr = result != null ? result.displayText() : "无结果";
                 // 聊天记录存完整工具结果（可追溯）；卡片显示时由 ToolCallCardView 自行 summarize 成单行摘要
                 appendAgentToolCall(toolCallId, toolName, success ? "success" : "failed", null,
                         resultStr);
                 setAgentStepStatus(success ? "✅ " + toolName + " 完成" : "⚠️ " + toolName + " 失败");
-                updateAgentStatusBar("✅ " + toolName + " 完成", false);
+                updateAgentStatusBar(success ? "✅ " + toolName + " 完成"
+                        : "⚠️ " + toolName + " 失败", false);
                 // Agent 模式：过程已插入 AI 消息组件，无独立工具卡片消息，跳过消息更新
                 // （否则 findLastSpecialMessage 返回 -1 时回退到最后一条消息，结果会写到错误消息上）
                 if (currentAgentGroupId == null) {
