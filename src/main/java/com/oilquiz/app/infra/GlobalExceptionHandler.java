@@ -49,6 +49,14 @@ public class GlobalExceptionHandler implements Thread.UncaughtExceptionHandler {
 
     @Override
     public void uncaughtException(Thread thread, Throwable throwable) {
+        // 死亡归因（2026-10-25）：先把"本次启动发生过 Java 未捕获崩溃"同步落进崩溃保护 prefs，
+        // 让 SmartQuizApplication 下次启动能把它计入模型相关崩溃，而不是把 ANR/被划掉也一视同仁。
+        // 放在最前、用 commit 同步写：进程马上要被默认处理器终止。
+        try {
+            com.oilquiz.app.SmartQuizApplication.recordJavaCrashForAttribution();
+        } catch (Throwable ignored) {
+        }
+
         try {
             // 刷新待写入的日志
             com.oilquiz.app.infra.AppLogger.flushLogs();

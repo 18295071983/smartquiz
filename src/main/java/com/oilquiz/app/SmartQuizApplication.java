@@ -29,8 +29,25 @@ public class SmartQuizApplication extends Application {
     private static final String CRASH_PREFS = "crash_protection_prefs";
     private static final String CRASH_COUNT_KEY = "consecutive_crash_count";
     private static final String CRASH_TIMESTAMP_KEY = "last_crash_timestamp";
-    private static final int MAX_CRASH_BEFORE_SKIP = 2;
+    /**
+     * 跳过模型自动加载的阈值（2026-10-25 由 2 提到 3）。
+     *
+     * <p>旧口径"任何没活满 30 秒的死亡都算崩溃、连续 2 次就跳过"在真机上被证伪：
+     * 一次聊天页 ANR 被杀 + 一次开发期 force-stop 就能把<b>模型自动加载</b>误判成崩溃源。
+     * 现在死亡按 {@code MainThreadWatchdog}/{@code GlobalExceptionHandler} 的标记归因，
+     * ANR 与体面停止不再计数；阈值 3 让"启动即被强杀"这类无法完全区分的情况至少容忍两轮。</p>
+     */
+    private static final int MAX_CRASH_BEFORE_SKIP = 3;
     private static final long SURVIVE_RESET_MS = 30_000; // 存活30秒后重置计数
+
+    /** 本次启动代次：所有"上一次怎么死的"归因都比对它。 */
+    private static final String BOOT_ID = Long.toHexString(System.currentTimeMillis())
+            + "-" + Integer.toHexString((int) (Math.random() * 0x10000));
+    /** onCreate 早期从 prefs 读到的上一次启动代次（此时 SESSION 键已被本次覆盖，必须提前留存）。 */
+    private static String prevBootId = null;
+    private static final String KEY_SESSION_BOOT = "session_boot_id";
+    private static final String KEY_HEALTHY_BOOT = "healthy_boot_id";
+    private static final String KEY_JAVA_CRASH_BOOT = "java_crash_boot_id";
 
     private static SmartQuizApplication instance;
     private static android.app.Activity currentActivity;
@@ -123,6 +140,17 @@ public class SmartQuizApplication extends Application {
         applyThemeMode();
         super.onCreate();
         instance = this;
+
+        // 死亡归因基座（2026-10-25）：先留存上一次启动代次，再写本次；启动主线程卡死哨兵。
+        // 越早在 onCreate 落 BOOT_ID，越好——启动阶段的主线程卡死/崩溃也要能被归因。
+        try {
+            android.content.SharedPreferences cp =
+                    getSharedPreferences(CRASH_PREFS, MODE_PRIVATE);
+            prevBootId = cp.getString(KEY_SESSION_BOOT, null);
+            cp.edit().putString(KEY_SESSION_BOOT, BOOT_ID).apply();
+        } catch (Throwable ignored) {
+        }
+        com.oilquiz.app.infra.MainThreadWatchdog.start(this, BOOT_ID);
 
         // NPU 引擎开关镜像（只读 SharedPreferences + 静态标记，不做任何原生初始化）
         try { com.oilquiz.app.ai.engine.NpuEngineRouter.init(this); } catch (Throwable ignored) { }
@@ -261,17 +289,21 @@ public class SmartQuizApplication extends Application {
                 try {
                     Thread.sleep(500); // 延迟启动，避免资源竞争
 
-                    // 崩溃保护：检查是否连续崩溃
-                    int crashCount = getCrashCount();
-                    com.oilquiz.app.util.AILogger.i(TAG, "连续崩溃计数: " + crashCount);
+                    // 崩溃保护：按上一次退出"死因"归因后再决定是否跳过模型自动加载。
+                    // 旧口径把任何没活满 30 秒的死亡都记成崩溃，导致聊天页 ANR 被杀 + 开发期
+                    // force-stop 也能凑够阈值、把模型自动加载误杀。现在：
+                    //   · 上次 Java 未捕获崩溃（GlobalExceptionHandler 落标记）→ 计数 +1
+                    //   · 上次主线程卡死≥5s（MainThreadWatchdog 落 ANR 标记）→ 清零（与模型无关）
+                    //   · 上次活满 30 秒后被停（划掉/force-stop/健康后崩溃）→ 清零
+                    //   · 上次没活满 30 秒、又没有任何上述标记（native 崩溃或早于哨兵的强杀）→ 计数 +1
+                    int crashCount = classifyPreviousExitAndCount();
+                    com.oilquiz.app.util.AILogger.i(TAG, "连续崩溃计数(按死因归因后): " + crashCount);
                     if (crashCount >= MAX_CRASH_BEFORE_SKIP) {
                         com.oilquiz.app.util.AILogger.w(TAG,
                             "检测到连续 " + crashCount + " 次崩溃，跳过模型自动加载，防止崩溃循环");
                         // 重置计数，下次启动允许重试
                         resetCrashCount();
                     } else {
-                        // 记录本次启动，如果崩溃则计数+1
-                        incrementCrashCount();
                         preloadAIServiceInternal();
                         // 调试钩子：prefs debug_fc_test.run=true 时自动跑一次原生 FC 生成测试
                         runFcDebugTestIfRequested();
@@ -284,11 +316,19 @@ public class SmartQuizApplication extends Application {
                     // 已整体删除 —— 当前 AI 对话/Agent 生成走 direct streaming
                     // （AgentChatHandler → ModelExecutionBridge → OutputRouter），不经服务。
 
-                    // 存活超过阈值后重置崩溃计数
+                    // 存活超过阈值：标记本次启动"健康"，并重置崩溃计数。
+                    // 标记健康后，本次进程无论之后是被划掉还是被 force-stop，下次启动都会
+                    // 归为"体面停止"而不再累加崩溃计数（这正是与旧口径的关键区别）。
                     new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                        try {
+                            getSharedPreferences(CRASH_PREFS, MODE_PRIVATE).edit()
+                                    .putString(KEY_HEALTHY_BOOT, BOOT_ID).apply();
+                        } catch (Throwable ignored) {
+                        }
                         resetCrashCount();
-                        com.oilquiz.app.util.AILogger.i(TAG, "应用存活超过30秒，重置崩溃计数");
+                        com.oilquiz.app.util.AILogger.i(TAG, "应用存活超过30秒，标记健康并重置崩溃计数");
                     }, SURVIVE_RESET_MS);
+
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -464,6 +504,73 @@ public class SmartQuizApplication extends Application {
         SharedPreferences prefs = getSharedPreferences(CRASH_PREFS, MODE_PRIVATE);
         prefs.edit().putInt(CRASH_COUNT_KEY, 0).apply();
     }
+
+    /** 本次启动代次（供 {@link GlobalExceptionHandler} 落 Java 崩溃标记时读取）。 */
+    public static String currentBootId() {
+        return BOOT_ID;
+    }
+
+    /**
+     * Java 未捕获崩溃时，把"崩溃发生在哪一次启动"落进崩溃保护 prefs（供下次启动归因）。
+     * 由 {@link GlobalExceptionHandler#uncaughtException} 调用。用 commit 同步写，
+     * 因为进程即将被系统终止，apply 可能来不及落盘。
+     */
+    public static void recordJavaCrashForAttribution() {
+        try {
+            if (instance == null) return;
+            instance.getSharedPreferences(CRASH_PREFS, MODE_PRIVATE).edit()
+                    .putString(KEY_JAVA_CRASH_BOOT, BOOT_ID)
+                    .commit();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 按上一次退出的死因归因，算出当前"模型相关连续崩溃"计数并落盘。
+     *
+     * <p>判据（越靠前优先级越高，都比对 {@link #prevBootId}）：
+     * <ol>
+     *   <li>无上一次 boot（首次安装/升级）→ 计数归 0；</li>
+     *   <li>上次 Java 未捕获崩溃 → 计数 +1；</li>
+     *   <li>上次主线程卡死（ANR 标记命中）→ 归 0（与模型自动加载无关，跳过模型治不了它）；</li>
+     *   <li>上次活满 30 秒后被判健康（划掉/force-stop/健康后崩溃）→ 归 0；</li>
+     *   <li>上次没活满 30 秒且无上述标记（native 崩溃、或早于哨兵起动的强杀，无法区分）→ 计数 +1，
+     *       靠提高后的阈值 {@link #MAX_CRASH_BEFORE_SKIP} 容忍偶发误判。</li>
+     * </ol></p>
+     *
+     * @return 归因后的最新计数
+     */
+    private int classifyPreviousExitAndCount() {
+        SharedPreferences prefs = getSharedPreferences(CRASH_PREFS, MODE_PRIVATE);
+        int base = prefs.getInt(CRASH_COUNT_KEY, 0);
+        String prev = prevBootId;
+        int next;
+        String reason;
+        if (prev == null) {
+            next = 0;
+            reason = "首次安装/升级";
+        } else if (prev.equals(prefs.getString(KEY_JAVA_CRASH_BOOT, null))) {
+            next = base + 1;
+            reason = "上次 Java 未捕获崩溃";
+        } else if (com.oilquiz.app.infra.MainThreadWatchdog.isAnrDeath(
+                prefs.getString(com.oilquiz.app.infra.MainThreadWatchdog.KEY_ANR_BOOT, null),
+                prev, android.os.SystemClock.elapsedRealtime(),
+                prefs.getLong(com.oilquiz.app.infra.MainThreadWatchdog.KEY_ANR_AT, 0))) {
+            next = 0;
+            reason = "上次主线程卡死(ANR)，与模型无关，清零";
+        } else if (prev.equals(prefs.getString(KEY_HEALTHY_BOOT, null))) {
+            next = 0;
+            reason = "上次健康运行后被停止(划掉/force-stop)，清零";
+        } else {
+            next = base + 1;
+            reason = "上次未活满30秒且无崩溃/ANR标记(native崩溃或早杀，无法区分)";
+        }
+        prefs.edit().putInt(CRASH_COUNT_KEY, next)
+                .putLong(CRASH_TIMESTAMP_KEY, System.currentTimeMillis()).apply();
+        com.oilquiz.app.util.AILogger.i(TAG, "上次退出归因: " + reason + " → 计数 " + base + "→" + next);
+        return next;
+    }
+
 
     /**
      * 预加载AI服务 - 在应用启动时就初始化AI模型，实现热启动

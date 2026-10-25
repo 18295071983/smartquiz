@@ -137,6 +137,32 @@ public class MarkdownWebView extends FrameLayout {
                 }
             };
 
+    /**
+     * 整篇文档构建（markdown→HTML + 本地图片/链接解析 + 包壳）后台线程池（2026-10-25 修 ANR）。
+     *
+     * <p>ANR 现场：进入一个存着多条定稿消息的会话时，RecyclerView 在主线程连续绑定，
+     * 每条正文都在绑定的同一帧里同步跑 {@link MarkdownHtmlConverter#toBodyHtml}
+     * ＋ {@code resolveLocalImageSrcs}/{@code resolveLocalLinkHrefs}（含 File stat IO）
+     * ＋ {@code loadDataWithBaseURL}，内存紧张时整批耗时吊住主线程 &gt; 5s
+     * → 输入分发超时被系统判 ANR 杀掉（本仓库 ai_logs 里 11:22 / 19:57 各中一次）。</p>
+     *
+     * <p>修法与既有原生路径同口径（{@code ChatAdapter.renderInto} 后台渲染 + 代次守卫）：
+     * 把<b>纯字符串与文件解析</b>挪到本池，解析完再 {@code main.post} 把整篇加载发回主线程，
+     * 用 {@link #buildSeq} 丢弃已被更新内容/回收取代的过期结果。{@code loadDataWithBaseURL}
+     * 本身是 Android 硬约束（WebView 只能主线程调用），保持主线程；
+     * 但由此每帧只处理"已解析好的一份文档"，输入事件能在帧间得到分发。</p>
+     */
+    private static final java.util.concurrent.ExecutorService BUILD_POOL =
+            java.util.concurrent.Executors.newFixedThreadPool(2, r -> {
+                Thread t = new Thread(r, "MarkdownHtmlBuild");
+                t.setPriority(Thread.MIN_PRIORITY + 1);
+                return t;
+            });
+
+    /** 每次 {@link #setContent} 触发后台整篇构建时自增；回调只认最新代号，过期结果直接丢弃。 */
+    private int buildSeq;
+
+
     public MarkdownWebView(Context context) {
         this(context, null);
     }
@@ -322,14 +348,71 @@ public class MarkdownWebView extends FrameLayout {
             // 无缓存且未测量 → 先给占位高，避免 WebView 首帧塌陷为 0 高（随后 JS 实测再撑开）
             applyHeightPx(placeholderPx);
         }
-        String bodyHtml = MarkdownHtmlConverter.toBodyHtml(md);
-        // 正文里的相对/裸文件名图片 → file:// 绝对地址（WebView baseUrl 是 android_asset，
-        // 不改写必然裂图；JS 侧拿不到工作区路径，只能在这里做）
-        bodyHtml = MarkdownHtmlConverter.resolveLocalImageSrcs(bodyHtml, getContext());
-        // 锚点同理：工作区相对路径的链接在这里解析成绝对 file://，
-        // 解析不到的保留原串，交给点链接时的 MarkdownLinkRouter 给可读提示
-        bodyHtml = MarkdownHtmlConverter.resolveLocalLinkHrefs(bodyHtml, getContext());
-        String doc = MarkdownHtmlConverter.wrapDocument(bodyHtml, night, themeVars, reasoningStyle);
+        boolean documentReady = pageReady && docGeneration > 0 && readyGeneration == docGeneration;
+        // 轮内流式（P7）：页面就绪、当前是流式、开关打开且切分器允许时走块级尾巴。
+        // 这条快路径只做 split(md) 的块结构 + 增量 JS，不整篇重载，保持逐字不变。
+        // （finalTableNeedsReload 需要 !streaming 才为真，故流式快路径无需判表格。）
+        if (documentReady && streaming && MarkdownStreamTailFlag.enabled(getContext())) {
+            MarkdownStreamSplitter.Split split = MarkdownStreamSplitter.split(md);
+            if (split.streamable) {
+                if (applyStreamingBlocks(split)) {
+                    return;
+                }
+                // JSON/JS 发送失败：清掉块状态，落到下面后台整篇构建兜底，至少不会停更
+                lastStreamSplit = null;
+            } else {
+                // 整篇 HTML / 公式跨块等要求回退：清掉块状态，落到下面后台整篇构建
+                lastStreamSplit = null;
+            }
+        }
+        // 其余（首帧 / 定稿 / 表格定稿重载 / 主题重载 / 块级回退）都走整篇文档路径：
+        // 把 markdown→HTML + 本地图片/链接解析这段 CPU + stat-IO 挪到后台线程，解析完
+        // 再把整篇加载发回主线程。绑定主线程不再逐条同步吊死，输入事件能在帧间分发
+        // （见 BUILD_POOL 注释里的 11:22 / 19:57 两次 ANR 现场）。
+        scheduleFullBuild(md, wasStreaming, streaming);
+    }
+
+    /**
+     * 后台构建整篇文档，完成后回主线程按原判定应用（原地换 body / 整篇加载 / 在途去重）。
+     *
+     * <p>只有 {@link #buildSeq} 仍是本次发出号时才应用；{@link #resetForReuse} 与新内容都会
+     * 推进代号，使晚到的旧结果被丢弃，绝不把上一条消息的文档盖到复用后的视图上。</p>
+     */
+    private void scheduleFullBuild(final String md, final boolean wasStreaming, final boolean streaming) {
+        final int seq = ++buildSeq;
+        final boolean nightSnap = night;
+        final String themeSnap = themeVars;
+        final boolean reasoningSnap = reasoningStyle;
+        final android.content.Context c = getContext();
+        try {
+            BUILD_POOL.execute(() -> {
+                String bodyHtml;
+                String doc;
+                try {
+                    bodyHtml = MarkdownHtmlConverter.toBodyHtml(md);
+                    // 正文里的相对/裸文件名图片 → file:// 绝对地址（WebView baseUrl 是 android_asset，
+                    // 不改写必然裂图；JS 侧拿不到工作区路径，只能在解析侧做）
+                    bodyHtml = MarkdownHtmlConverter.resolveLocalImageSrcs(bodyHtml, c);
+                    // 锚点同理：工作区相对路径的链接解析成绝对 file://，解析不到的保留原串交给点击路由
+                    bodyHtml = MarkdownHtmlConverter.resolveLocalLinkHrefs(bodyHtml, c);
+                    doc = MarkdownHtmlConverter.wrapDocument(bodyHtml, nightSnap, themeSnap, reasoningSnap);
+                } catch (Throwable t) {
+                    main.post(() -> applyBuildFailure(md, seq));
+                    return;
+                }
+                final String fBody = bodyHtml;
+                final String fDoc = doc;
+                main.post(() -> applyBuiltDoc(fBody, fDoc, wasStreaming, streaming, seq));
+            });
+        } catch (Throwable submitFail) {
+            // 线程池不可用（极端情况）：退回主线程同步构建，保证功能不丢
+            applyBuiltDocSyncFallback(md, wasStreaming, streaming);
+        }
+    }
+
+    /** 主线程应用后台构建结果（seq 守卫通过才生效），沿用原有整篇路径判定。 */
+    private void applyBuiltDoc(String bodyHtml, String doc, boolean wasStreaming, boolean streaming, int seq) {
+        if (seq != buildSeq) return; // 已被更新内容/回收取代：丢弃
         pendingHtml = doc;
         boolean documentReady = pageReady && docGeneration > 0 && readyGeneration == docGeneration;
         // 表格在流式页面里按旧的 body/宽度算过列宽；完成时 swapBody 不一定重算表格布局，
@@ -337,24 +420,8 @@ public class MarkdownWebView extends FrameLayout {
         // 让浏览器按最终气泡宽度重新排版。只发生一次，不会逐 token 重载。
         boolean finalTableNeedsReload = documentReady && wasStreaming && !streaming
                 && bodyHtml.contains("<table");
-        // 轮内流式（P7）：只在页面就绪、当前是流式、开关打开且切分器允许时走块级路径。
-        // 定稿 / 表格定稿重载 / 切分器回退 / 主题重载都继续走整篇路径（逐字不变）。
-        if (documentReady && !finalTableNeedsReload && streaming
-                && MarkdownStreamTailFlag.enabled(getContext())) {
-            MarkdownStreamSplitter.Split split = MarkdownStreamSplitter.split(md);
-            if (split.streamable) {
-                if (applyStreamingBlocks(split)) {
-                    return;
-                }
-                // JSON/JS 发送失败：清掉块状态，下面用整篇 body 兜底，至少不会停更
-                lastStreamSplit = null;
-            } else {
-                // 整篇 HTML / 公式跨块等要求回退：清掉块状态，下面走整篇 swap
-                lastStreamSplit = null;
-            }
-        }
         if (documentReady && !finalTableNeedsReload) {
-            // 页面就是这份文档且已就绪：原地换 body，不重载（流式逐 token 也走这里，避免闪烁）
+            // 页面就是这份文档且已就绪：原地换 body，不重载（避免闪烁）
             lastStreamSplit = null;
             swapBody(bodyHtml);
             return;
@@ -370,6 +437,33 @@ public class MarkdownWebView extends FrameLayout {
             return;
         }
         loadDocument(doc);
+    }
+
+    /** 后台构建抛错兜底：主线程同步再构建一次；仍失败则转义纯文本整篇加载，保证正文不空。 */
+    private void applyBuildFailure(String md, int seq) {
+        if (seq != buildSeq) return;
+        try {
+            // 兜底重建没有逐 token 的 wasStreaming 上下文，按"非流式定稿"处理
+            applyBuiltDocSyncFallback(md, false, lastStreaming);
+        } catch (Throwable t) {
+            String plain = md == null ? "" : md;
+            String doc = MarkdownHtmlConverter.wrapDocument(escapeHtml(plain), night, themeVars, reasoningStyle);
+            loadDocument(doc);
+        }
+    }
+
+    /** 极端情况（线程池不可用 / 后台失败）下的主线程同步整篇构建，沿用原有决策尾段。 */
+    private void applyBuiltDocSyncFallback(String md, boolean wasStreaming, boolean streaming) {
+        String bodyHtml = MarkdownHtmlConverter.toBodyHtml(md);
+        bodyHtml = MarkdownHtmlConverter.resolveLocalImageSrcs(bodyHtml, getContext());
+        bodyHtml = MarkdownHtmlConverter.resolveLocalLinkHrefs(bodyHtml, getContext());
+        String doc = MarkdownHtmlConverter.wrapDocument(bodyHtml, night, themeVars, reasoningStyle);
+        applyBuiltDoc(bodyHtml, doc, wasStreaming, streaming, buildSeq);
+    }
+
+    private static String escapeHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     /**
@@ -588,6 +682,9 @@ public class MarkdownWebView extends FrameLayout {
         currentContentHash = null;
         lastStreamSplit = null;
         streamUpdateSeq++;
+        // 推进整篇构建代号：任何还在后台跑、或已 post 回主线程待应用的旧文档结果，
+        // seq 都对不上而被丢弃，绝不会被套用到复用后的新消息上。
+        buildSeq++;
         blockHtmlCache.clear();
         // 文档身份一并清零：复用到新消息时必须重新整篇加载，
         // 且不能让 setNight/setThemeColors 用上一条消息的 pendingHtml 去插一次加载。

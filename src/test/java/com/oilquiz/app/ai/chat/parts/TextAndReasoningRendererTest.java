@@ -197,6 +197,28 @@ public class TextAndReasoningRendererTest {
                 .idleFor(java.time.Duration.ofMillis(ms));
     }
 
+    /**
+     * 等 MarkdownWebView 的后台整篇构建落回主线程（2026-10-25 修 ANR 后 setContent 改异步）。
+     *
+     * <p>BUILD_POOL 是真实线程，{@code main.post} 进 Robolectric 暂停的主队列：
+     * 短 sleep 让后台跑完，再 idle 主队列把 applyBuiltDoc 执行掉；轮询到足够次数，
+     * 短 markdown 的实际构建远小于此预算。</p>
+     */
+    private static void flushMarkdownBuild() {
+        org.robolectric.shadows.ShadowLooper mainLooper =
+                Shadows.shadowOf(android.os.Looper.getMainLooper());
+        for (int i = 0; i < 30; i++) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            mainLooper.idle();
+        }
+    }
+
+
     // ==================== 2026-10-25：思考正文接入 WebView 流式渲染 ====================
 
     /** web 开 → 思考正文与回答正文同一条 WebView 通路；折叠头仍是普通 TextView。 */
@@ -223,6 +245,7 @@ public class TextAndReasoningRendererTest {
         AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, "第一段思考。\n\n");
         p.state = AssistantTurn.Part.STATE_STREAMING;
         r.bindView(row, p, host);
+        flushMarkdownBuild();
 
         MarkdownWebView body = (MarkdownWebView) row.getChildAt(1);
         assertEquals("思考中正文区默认展开", View.VISIBLE, body.getVisibility());
@@ -259,6 +282,7 @@ public class TextAndReasoningRendererTest {
         AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, "第一段思考。\n\n");
         p.state = AssistantTurn.Part.STATE_STREAMING;
         r.bindView(row, p, host);
+        flushMarkdownBuild();
 
         MarkdownWebView body = (MarkdownWebView) row.getChildAt(1);
         WebView inner = (WebView) body.getChildAt(0);
@@ -275,6 +299,7 @@ public class TextAndReasoningRendererTest {
 
         header.performClick();
         assertEquals("点折叠头展开", View.VISIBLE, body.getVisibility());
+        flushMarkdownBuild();
         String js = shadow.getLastEvaluatedJavascript();
         assertNotNull("展开时把定稿全文交给 WebView", js);
         assertTrue("定稿走整篇 body 替换：" + js, js.contains("innerHTML"));
@@ -289,6 +314,7 @@ public class TextAndReasoningRendererTest {
         TextPartRenderer r = new TextPartRenderer();
         View view = r.createView(host, new LinearLayout(ctx));
         r.bindView(view, part(AssistantTurn.Part.TYPE_TEXT, "回答正文"), host);
+        flushMarkdownBuild();
 
         WebView inner = (WebView) ((ViewGroup) view).getChildAt(0);
         String doc = Shadows.shadowOf(inner).getLastLoadDataWithBaseURL().data;
