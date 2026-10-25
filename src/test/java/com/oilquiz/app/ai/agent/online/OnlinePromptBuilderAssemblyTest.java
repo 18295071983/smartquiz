@@ -41,6 +41,25 @@ public class OnlinePromptBuilderAssemblyTest {
         return s.replaceAll("\\n+", "\n").trim();
     }
 
+    /**
+     * 防漂移不变量：【工具目录】的"未注入"清单里绝不能出现任何核心工具。
+     * 历史上 knowledge_base / time_date 被提升进 CORE_TOOLS 后，这段仍写着"未注入需发现"，
+     * 与【核心工具】段自相矛盾（且两边都硬编码、golden 一致地错也全绿）。目录现按 coreTools() 过滤，
+     * 这条把它钉死：以后再加核心工具，若忘了过滤就会红。
+     */
+    @Test
+    public void notInjectedCatalogNeverContainsCoreTools() {
+        String prompt = new OnlinePromptBuilder(null).buildSystemPrompt();
+        int from = prompt.indexOf("【工具目录】");
+        int to = prompt.indexOf("【核心工具】");
+        assertTrue("缺【工具目录】或【核心工具】段", from >= 0 && to > from);
+        String block = prompt.substring(from, to);
+        for (String core : OnlineAgentEngine.coreTools()) {
+            assertFalse("核心工具 " + core + " 不该出现在【工具目录】未注入清单里",
+                    block.contains(core + "("));
+        }
+    }
+
     private static String golden(String name) throws Exception {
         return new String(Files.readAllBytes(
                 Paths.get("src/test/resources/golden/" + name)), StandardCharsets.UTF_8);
