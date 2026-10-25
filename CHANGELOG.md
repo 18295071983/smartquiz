@@ -1,5 +1,41 @@
 # 变更日志
 
+## [2026-10-25] fix(agent-local)：接通本地 Agent 停止链路四处断点
+
+用户："你在检查下本地引擎的基础设施" → "按你的建议，从修好停止逻辑开始"。
+
+体检发现"本地 Agent 一跑就停不下来"是**四处各断一段、单看每一段都像是对的**：
+
+1. **取消入口进不去**：`AgentChatHandler.isGenerating()` 只转发 `AgentRouter`，
+   而 `AgentRouter.isGenerating()` 只看 `onlineEngine`。本地 Agent 跑着时它恒 false，
+   于是 `AIChatActivity` 里 6 处 `if (isGenerating()) cancel()`（停止按钮/模式切换/
+   新会话/退出界面）全部跳过取消——R3-2 那套"分引擎打断 native 生成"的
+   `softwareLayer.cancel()` 从来没有机会被执行。现在门控同时看 `softwareLayer.isProcessing()`。
+2. **取消传不进循环**：`AgentLoopEngine` 内部没有取消标志，只能靠 native 让本次生成
+   返回 null 间接感知；break 之后统一退出路径只要 `toolCallCount > 0` 就仍调
+   `generateFinalAnswer()` 再解一轮——表现为"点了停止，手机反而更卖力地跑"。
+   新增 `cancelRequested`（`run()` 入口复位，引擎实例是常驻的），检查点覆盖
+   每轮循环开头、并行工具等待、单工具超时等待、统一退出；取消分支不发起任何解码，
+   也不注入 `buildSimpleFallback`（那是"模型没答上来"的补救，不是"用户不要了"的补救）。
+3. **停止谎报空闲**：`softwareLayer.cancel()` 立即把 `isProcessing` 置 false，
+   循环线程还在收尾却被当空闲 → 再按一次停止门不住，且新消息与上一轮残留回调
+   混用同一个 callback。复位交回 `executor` 任务的 finally。
+4. **重入静默丢弃**：`processMessage` 撞忙时只打日志就 return，不给任何终态回调，
+   界面永久停在"⏳ 模型处理中…"。新增 `onBusy`/`onAgentBusy` 透到 UI 提示，
+   并回滚待回写的用户消息（否则上一条完成时会把这条被拒的消息当成问题写进本地历史）。
+
+另两处 KV/UI 一致性：会话序列沿用 `persist(null)` 口径，不伪造 assistant 输出；
+普通对话路径**刻意不** persist（该路径不设 `lastRequestHistory`，持久化会把上一轮的
+请求当本轮序列写掉，反而毁前缀）。空正文不写本地推理历史；完成态文案按
+`userStoppedCurrentGeneration` 分叉为"⏹ 已停止"，不再在底部已写"已停止"时顶部闪"✅ 执行完成"。
+
+**验证**：新增 `LocalAgentCancelPathTest`（12 条结构断言：反射核 API 形状 + 源码钉住关键分支；
+过程中踩到两个坑并写进测试注释——`AIChatActivity` 有 7 个同名 `onComplete` 必须用"方法名+首行
+注释"定位，以及源文件是 CRLF、跨行锚点须先归一化换行）。全量
+`testDebugUnitTest --offline` **995 / 0 skipped / 0 failures / 0 errors**（131 个 suite），
+主源码编译随任务一起通过。真机行为未验：点停止后应看到
+`Run cancelled: skipping final-answer generation` 且其后**不再**跟 `Final summary generated`。
+
 ## [2026-10-25] fix(chat-ui)：文案四层联动修复（上下对不上 / 卡顿 / 完成与停止收尾）
 
 用户："文案变化时机你联动了吗，比如突然卡了。已完成的文案，你不结束？上下还是对不上。
