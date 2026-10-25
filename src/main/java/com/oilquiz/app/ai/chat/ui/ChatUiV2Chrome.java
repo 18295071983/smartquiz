@@ -63,7 +63,8 @@ public final class ChatUiV2Chrome {
      * 回聊天页时重算一次顶栏副标题（2026-10-25，模型入口改跳「模型选择」页之后需要它）。
      *
      * <p>顶栏副标题是<b>复制</b>自旧状态条的当前值，而 {@code OnlineModelManager} 的
-     * "激活模型变更"没有任何跨页监听者（notifyActiveChanged 只在自己类里被调），
+     * "激活模型变更"虽然定义了 {@code ModelChangeListener} 机制，全仓库却<b>没有任何注册方</b>
+     * （{@code notifyActiveChanged} 只会遍历空的 listener 列表），
      * 所以在模型中心切完在线模型返回聊天页时，顶栏会一直停在离开那一刻。
      * 由 {@code AIChatActivity.onResume} 调这里补刷一次；v2 顶栏没挂上时静默跳过。</p>
      */

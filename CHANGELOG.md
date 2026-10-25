@@ -1,5 +1,108 @@
 # 变更日志
 
+## [2026-10-25] refactor(chat-ui)：删掉聊天页的模型面板，模型入口直跳「模型选择」页
+
+用户："ai对话界面的模型设计ui，没有与后端接线啊" → 给三个选项后："把这个 ui 删了去，改为模型选择界面"。
+
+### 查到的事实（出处）
+
+- `ModelSheet` 本地 tab 每一行是 `modelRow(activity, name, 副标题, picked, null)`
+  （ModelSheet.java:220-221），第 5 参就是 `OnClickListener`——**传了 null**。
+  行本身 `setClickable(true)`，所以点本地模型项毫无反应，`selected[0]` 也不会被写。
+- "应用"按钮里唯一写模型的语句被 tab 条件圈住（136-138）：
+  `if (onlineTab[0] && picked != null && !picked.equals(now)) manager.setActiveModel(picked);`
+  → 本地 tab 下点"应用"只落温度、**不切模型**，却照样 `Toast(chat_v2_model_apply)` 弹"已应用"。
+  这比"点了没反应"更糟：界面在报假成功。
+- 上下文长度只是展示（121-127 读 `params.getContextSize()`），全文件没有给它挂点击，也没有写入路径。
+  温度那条是通的（应用时读 progress → `params.setTemperature`）。
+- 后端原语一直都在、只是没被调：`AIService.switchModelSafe(String)`（665）、
+  `initializeSafe(String)`（648）、`getDownloadedModelList()`（4816）、
+  `OnlineModelManager.stopActiveModel()`（713）。
+- 该面板唯一入口是 `ChatUiV2Chrome:202`，而设备 `chat_ui_v2=false`——所以用户看到的
+  可能不是这个表面，这条已在交付时公开请对方确认（见下面"未收口的疑问"）。
+
+### 由此改掉的事
+
+1. **删复制品，不补接线**：`chat_v2_btn_model` 改为 `startActivity(ModelCenterActivity)`。
+   依据是面板底部那个"打开模型中心"链接本来跳的就是它——切换/下载/删除模型的权威入口
+   一直只有一个，聊天页不该再摆一个"看着能切、其实不接线"的副本（比缺功能更误导人）。
+2. **连带删除**：`ModelSheet.java`、`view_chat_v2_model_sheet.xml`、
+   只被这两者使用的 `chat_v2_segment_bg` / `chat_v2_segment_selected` 两个 drawable、
+   以及 10 条随之变孤儿的字符串；`chat_v2_model`（"当前模型"）另有使用方，**保留**。
+   删前逐个 `grep` 过"删除后仍被引用数"，删后再 grep 一次确认只剩注释里的说明文字。
+3. **补一个真缺口**：`OnlineModelManager` 定义了 `ModelChangeListener` 机制
+   （`addListener`/`removeListener`/`notifyActiveChanged`），但全仓库**没有任何注册方**——
+   搜到的 `addListener` 全是媒体播放在用自己的监听器。于是 `notifyActiveChanged()` 只是
+   遍历一个空列表，在模型中心换完在线模型回聊天页，顶栏副标题会停在离开那一刻。
+   新增 `ChatUiV2Chrome.refreshSubtitleIfNeeded(Activity)`（内部仍复用现成的
+   `modelSubtitle`，不在 Activity 里堆逻辑），由 `AIChatActivity.onResume` 调一行，
+   挨着已有的 `genStatusBar.refresh()`，同一个"回前台补刷"理由。
+
+### 验证
+
+- `compileDebugJavaWithJavac --offline` 通过；全量 `testDebugUnitTest --no-build-cache --rerun-tasks`
+  **1017 / 0 skipped / 0 failures / 0 errors**（133 类）。
+- `assembleDebug` 通过，并核了资源删除没有误伤：APK 未压缩总和 1,398,154,876 对上一次
+  1,398,178,054，差 23,178 字节，正好是删掉的布局＋2 drawable＋10 条字符串的量。
+  （顺带由此推翻了我自己另一条关于包体积的推断，见上一条 chat-render 条目里的
+  "补记（同日，第二次）"。）
+- **未做的验证**：真机没跑——v2 顶栏点模型按钮是否打开模型中心、在模型中心切换在线模型后
+  返回聊天页副标题是否跟着变。且设备 `chat_ui_v2=false`，这条路径当前在真机上到不了。
+- **未收口的疑问**：用户说的"模型设计 ui"我按 `ModelSheet` 定位；但设备 `chat_ui_v2=false`
+  时那个面板根本到不了，所以他当时看到的可能是另一个表面。最可能的候选是
+  「⋯」会话信息面板里的"当前模型"行（ChatUiV2Chrome:326
+  `addRow(ctx, box, R.string.chat_v2_model, textOf(ctx, R.id.service_status_text))`）——
+  它也是**复制**旧状态条文案、只读不可操作。如果用户要的是"在那里也能切模型"，
+  那是另一条链，已请对方指认、尚未核。
+## [2026-10-25] fix(ai-feature)：题目讲解/翻译等四个功能改"在线优先"出词，去掉主线程 initializeSafe()
+
+用户："让题目讲解翻译也走新判定"。
+
+### 查到的事实（出处）
+
+- 这四个功能真正的入口是 `QuestionGenerateActivity` / `QuestionAnalyzeActivity` /
+  `LearningAssistantActivity` / `TranslateActivity`（`AICenterActivity` 四个按钮
+  `startActivity` 打开的就是它们，见 AICenterActivity:277-297），每个生成方法开头都是
+  `if (!aiService.isInitialized()) { if (!aiService.initializeSafe()) { Toast; return; } }`。
+  我上一轮把 `ai/feature/` 下那四个同名类说成是按钮入口，**是错的**——它们在 main 里
+  没有任何调用方，只有自己 javadoc 里的示例。
+- 白占内存的账就在这：真机 `dumpsys meminfo` 当时
+  `Native Heap Heap Alloc≈984MB`、`SwapPss 492MB`，而用户全程用在线模型
+  （日志 `AgentChatHandler 已初始化，使用模型类型: 在线`）。
+- 更硬的一条是主线程阻塞：`AIService.initializeSafe()` 在主线程走的是
+  `task.get(30, TimeUnit.SECONDS)`（AIService:627-643），而这四处是在按钮点击里直接调的。
+  加载 1GB 权重远超 5 秒 → 点一下小功能就能自己造一次 ANR。
+  对照：`AIServiceStatusActivity:258` 那处 `initializeSafe()` 已经在 `new Thread(...)` 里，不用动。
+- 失败字符串是被依赖的契约：`ToolResultInterpreter:258`、`ImportLlmEngine:709`、
+  `QuestionRepairEngine:541` 以及这四个 Activity 自己，都按 `startsWith("Error:")` 判失败。
+
+### 由此改掉的事
+
+1. 新增 `FeatureTextCompleter` 作为功能级"一段 prompt → 一段文本"的唯一出词口，
+   复用现成的 `OnlineInferenceService.generateAsync(prompt, cfg, null, maxTokens)`
+   （与 `ImportLlmEngine.inferOnline()` 同一套 API，不另造请求层）。
+2. 取向比"主动加载"那条 policy 更精确一层——**点按钮是显式需求**，不能一刀切拒绝：
+   有激活在线模型 → 先走在线，不为跑小功能加载 1GB 权重；在线失败 → 只有
+   `本地权重已在内存`才回落复用，否则直接回 `Error:` 让用户看见（宁可报错也不偷偷吃内存）；
+   没有激活在线模型 → 本地按需加载，离线路线的功能不能被这次改动弄坏。
+   这条判定抽成纯函数 `mayUseLocalWeights(hasActiveOnlineModel, localWeightsInMemory)`。
+3. 提供 `completeAsync` 并把"确保本地就绪"放到 `FeatureLocalModelInit` 专用线程，
+   Activity 只挂回调 → 主线程不再 `task.get(30s)`。四个 Activity 的
+   `aiService.generateAsync(...)` 全部换成 `featureCompleter.completeAsync(...)`，
+   顺带删掉各自开头的 `initializeSafe()` 守卫（原来"AI 未就绪"的 Toast 分支由
+   `AI_UNAVAILABLE` 走 Activity 已有的 `startsWith("Error:")` 处理，行为等价）。
+4. 同步版 `complete()` 直接委托 `completeAsync().get(180s)`，避免同步/异步两套判定各漂一半。
+5. `ai/feature/` 那四个无调用方的工具类也一并改走同一入口，免得以后被接上时又漂回旧写法。
+
+### 验证
+
+- 新增 `FeatureTextCompleterRouteTest` 4 条：在线激活＋本地未加载→不许加载；
+  本地已在内存→允许复用；无在线→允许按需；`AI_UNAVAILABLE` 必须保留 `Error:` 前缀。
+- 全量 `testDebugUnitTest --no-build-cache --rerun-tasks`：**1017 / 0 skipped / 0 failures / 0 errors**。
+- **未做的验证**：真机没跑——在线模式下点"题目生成/翻译/解析/学习助手"应正常出词且
+  日志不再出现本地模型初始化；断网或在线失败时应立刻回 `Error:` 而不是转圈。
+  另有一个已知后果需要留意：在线失败且本地未加载时，这四个功能会直接失败
+  （以前是"卡住加载本地再跑"）。这是刻意的取向，不是疏漏。
 ## [2026-10-25] fix(chat-render)：正文整篇构建移出绑定主线程（修 ANR）+ 崩溃计数按死因归因
 
 用户要求抓启动 logcat 排查，顺藤摸到"连续 2 次崩溃跳过模型自动加载"这条告警，
