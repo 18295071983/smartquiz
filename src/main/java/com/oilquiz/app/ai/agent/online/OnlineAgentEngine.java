@@ -873,7 +873,10 @@ public class OnlineAgentEngine {
                     });
 
                     // 在思考链中记录工具调用（arguments 完整传入，展示层可看参数）
-                    String resultSummary = tr.success ? (tr.result != null ? tr.result.substring(0, Math.min(200, tr.result.length())) : "") : tr.error;
+                    // 失败原因在 error 里、result 恒为 null：取 displayText() 才不会把 null 拼成文案
+                    String resultSummary = tr.success
+                            ? (tr.result != null ? tr.result.substring(0, Math.min(200, tr.result.length())) : "")
+                            : tr.displayText();
                     thinkingChain.appendToolCall(tr.toolName,
                             tc.arguments != null ? tc.arguments : "", tr.success, resultSummary);
 
@@ -882,8 +885,9 @@ public class OnlineAgentEngine {
                     toolMsg.addProperty("role", "tool");
                     toolMsg.addProperty("tool_call_id", tr.toolCallId);
                     toolMsg.addProperty("name", tr.toolName);
-                    String toolContent = tr.success ? tr.result : ("工具执行失败: " + tr.error);
-                    toolMsg.addProperty("content", toolContent != null ? toolContent : "");
+                    // 模型侧口径：失败必须带"工具执行失败"标记且永不出现 "…: null"
+                    String toolContent = tr.modelText();
+                    toolMsg.addProperty("content", toolContent);
                     messageHistory.add(toolMsg);
 
                     // 收集失败工具用于回退建议

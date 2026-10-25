@@ -143,7 +143,7 @@ public class LlmGateway {
                                            com.oilquiz.app.ai.agent.online.OnlineToolResult result) {
                 cb.onToolCallComplete(toolCallId, toolName,
                         result != null && result.success,
-                        result != null ? (result.success ? result.result : result.error) : "");
+                        result != null ? result.displayText() : "");
             }
 
             @Override

@@ -8,8 +8,9 @@ import org.junit.Test;
  * 工具结果取文口径单测（2026-10-25）。
  *
  * <p>钉住一件事：<b>失败原因住在 {@code error} 里，{@code result} 恒为 null</b>，
- * 所以 UI/持久化一律走 {@link OnlineToolResult#displayText()}。真机上失败的 js_execute
- * 卡片与会话组件里完全没有原因，就是因为它取了 {@code result}。</p>
+ * 所以 UI/持久化一律走 {@link OnlineToolResult#displayText()}，回填模型的 tool 消息一律走
+ * {@link OnlineToolResult#modelText()}。真机上失败的 js_execute 卡片与会话组件里完全没有
+ * 原因，就是因为它取了 {@code result}；而模型读到的是 {@code "工具执行失败: null"}。</p>
  */
 public class OnlineToolResultDisplayTextTest {
 
@@ -53,5 +54,31 @@ public class OnlineToolResultDisplayTextTest {
     public void blankErrorAlsoFallsBackToPlaceholder() {
         assertEquals("工具执行失败（引擎未给出原因）",
                 OnlineToolResult.failure("id", "t", "   ", 0).displayText());
+    }
+
+    /**
+     * 模型侧口径（2026-10-25 复核补）：引擎原先拼 {@code "工具执行失败: " + error}，
+     * error 为 null 时模型读到字面量 {@code "工具执行失败: null"}。这条钉住不再出现 null。
+     */
+    @Test
+    public void modelTextNeverContainsNullLiteral() {
+        String s = OnlineToolResult.failure("id", "js_execute", null, 0).modelText();
+        assertEquals("工具执行失败（引擎未给出原因）", s);
+        org.junit.Assert.assertFalse(s.contains("null"));
+    }
+
+    /** 有原因时模型侧要带"工具执行失败"标记——模型靠它判断是失败而不是普通文本结果。 */
+    @Test
+    public void modelTextKeepsFailureMarkerWhenReasonExists() {
+        assertEquals("工具执行失败: Illegal return statement",
+                OnlineToolResult.failure("id", "js_execute", "Illegal return statement", 0).modelText());
+    }
+
+    /** 成功侧两个口径必须一致，避免回填模型的正文被占位文案污染。 */
+    @Test
+    public void modelTextEqualsDisplayTextOnSuccess() {
+        OnlineToolResult ok = OnlineToolResult.success("id", "t", "42", 5);
+        assertEquals(ok.displayText(), ok.modelText());
+        assertEquals("", OnlineToolResult.success("id", "t", null, 0).modelText());
     }
 }

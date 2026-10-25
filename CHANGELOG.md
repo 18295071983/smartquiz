@@ -1,5 +1,54 @@
 # 变更日志
 
+## [2026-10-25] fix(agent-ui)：工具失败原因的取文口径补到"回填模型"那一侧（并更正上一条自述）
+
+用户："还有其他的问题你没修？" → 为回答这句做产出侧复查时，发现我自己前一条口径修复漏了最要紧的一个消费端。
+
+### 查到的事实（出处）
+
+- `OnlineToolResult.failure()`（OnlineToolResult.java:38-41）把原因写进 `error`、
+  `result` 恒为 `null`；`displayText()` 就是为此加的单一口径。已提交的那轮把三处
+  UI/会话消费端切了过去（`AIChatActivity:7639`、`AgentChatHandler:277`、
+  `OnlineAgentEngine:1590`）。
+- **漏点 1（模型侧）**：`OnlineAgentEngine:885` 拼的是 `"工具执行失败: " + tr.error`，
+  而 `displayText()` 的 javadoc 里我写的原话是"模型侧不受影响…所以这个缺陷只在人这一侧"。
+  这句**不成立**：`error` 为 `null` 时（引擎没给原因的那条路径），模型读到的 tool 正文
+  就是字面量 `工具执行失败: null`——和人一样拿不到原因，只是形状不同。
+- **漏点 2（人侧另一条链）**：`OnlineAgentEngine:876` 给思考链摘要传的也是裸 `tr.error`。
+- **漏点 3（适配层）**：`LlmGateway:146`、`OnlineLlmProvider:105`、`AgentSessionView:189`
+  三处 `onToolCallComplete` 适配器都写作 `result.success ? result.result : result.error`，
+  失败无原因时把 `null`/空串往下传。
+- **本地引擎不在这条缺陷里**（查过才敢这么说）：`AgentService.ToolResult` 的构造把失败文本
+  同时写进 `result` 与 `errorMessage`（AgentService.java:228、237），
+  所以 `ModelExecutionBridge:1279`、`:1484` 那种"只取 result.result"在本地路径不为空。
+  这也是它只在在线侧成灾的原因。
+- `AgentToolCall.ToolCallResult`（AgentToolCall.java:46、59）有同形状的 `error` 拼串，
+  但全仓库搜 `ToolCallResult.failure` / `toPromptString` **零调用**——是死类，
+  按"死链默认保留"没动，只在此登记。
+
+### 由此改掉的事
+
+1. 产出侧再加一个口径 `OnlineToolResult.modelText()`：失败带"工具执行失败"标记
+   （模型要靠这个信号决定换工具还是重试），`error` 为空时复用 `displayText()` 的
+   "（引擎未给出原因）"兜底——两个口径共用一处兜底文案，不再各写一份。
+2. `OnlineAgentEngine` 两处按各自的读者分流：思考链摘要走 `displayText()`（人看），
+   回填的 `tool` 消息走 `modelText()`（模型看）。
+3. 三个适配器消费端统一改为 `displayText()`，不再手写 `success ? result : error`。
+4. 更正 `displayText()` 的 javadoc：把"模型侧不受影响"改成公开自述的错判与真实形状
+   （`工具执行失败: null`），并把新口径写进类注释与测试注释。
+
+### 验证
+
+- `OnlineToolResultDisplayTextTest` 从 6 条扩到 9 条：`modelText` 永不含 `null` 字面量、
+  有原因时保留失败标记、成功侧两个口径必须一致。全量
+  `testDebugUnitTest --no-build-cache --rerun-tasks`
+  **1029 / 0 skipped / 0 failures / 0 errors**（135 类，上一条是 1026/133）。
+- **未做的验证**：`工具执行失败: null` 是读代码定位的，**没有**在真机会话里观测到它出现；
+  真机观测到的现象是"卡片没有原因"。设备上一次跑的还是 23:28 的包，不含
+  `db2920b1`（js_execute）与 `7d8759cb`（失败原因落卡片），这两条连同本条都待复测。
+- **未收口的疑问**：`error` 为 `null` 的失败究竟由谁产出（`OnlineToolManager:613` 那条
+  至少有"工具执行失败"兜底），只登记了形状，没继续往上追。
+
 ## [2026-10-25] refactor(chat-ui)：删掉聊天页的模型面板，模型入口直跳「模型选择」页
 
 用户："ai对话界面的模型设计ui，没有与后端接线啊" → 给三个选项后："把这个 ui 删了去，改为模型选择界面"。

@@ -41,13 +41,19 @@ public class OnlineToolResult {
     }
 
     /**
-     * 面向 UI 与会话记录的<b>唯一取文口径</b>：成功取 {@code result}，失败取 {@code error}。
+     * 面向 UI 与会话记录的<b>唯一取文口径</b>：成功取 {@code result}，失败取 {@code error}，
+     * 连 {@code error} 都没给时给一条可辨识的占位——永不返回 {@code null}，也永不把
+     * "空 result"（看着像成功）当失败文案。
      *
      * <p>背景（2026-10-25 真机会话实测）：{@link #failure} 把原因写进 {@code error} 而
      * {@code result} 恒为 {@code null}，但 UI/持久化两处都只取 {@code result.result}，
      * 于是失败的工具卡与会话组件里<b>没有任何失败原因</b>——人只能去翻 ai_logs 按时间戳反查，
-     * 历史恢复后也看不到。模型侧不受影响（引擎另走
-     * {@code "工具执行失败: " + error} 塞进 tool 消息），所以这个缺陷只在人这一侧。</p>
+     * 历史恢复后也看不到。</p>
+     *
+     * <p>更正（同日复核）：这里原先写的是"模型侧不受影响，所以缺陷只在人这一侧"，<b>不成立</b>。
+     * 引擎回填 tool 消息时拼的是 {@code "工具执行失败: " + error}（见
+     * {@code OnlineAgentEngine}），{@code error} 为 {@code null} 时模型读到的是字面量
+     * {@code "工具执行失败: null"}——同样拿不到原因。模型侧走 {@link #modelText()}。</p>
      */
     public String displayText() {
         if (success) {
@@ -59,6 +65,21 @@ public class OnlineToolResult {
         // 失败却连 error 都没给：留一条可辨识的占位，绝不再给出"空 result"这种看着像成功的样子
         return (result != null && !result.trim().isEmpty())
                 ? result : "工具执行失败（引擎未给出原因）";
+    }
+
+    /**
+     * 回填给模型的 {@code tool} 消息正文口径：失败时带明确的"工具执行失败"标记（模型要靠这个
+     * 信号决定换工具还是重试，不能只读到一段像是普通文本的错误串），且<b>永不输出 {@code null}
+     * 字面量</b>。"没给原因"的兜底文案与 {@link #displayText()} 共用一处定义。
+     */
+    public String modelText() {
+        if (success) {
+            return result != null ? result : "";
+        }
+        if (error != null && !error.trim().isEmpty()) {
+            return "工具执行失败: " + error;
+        }
+        return displayText();
     }
 
     @Override

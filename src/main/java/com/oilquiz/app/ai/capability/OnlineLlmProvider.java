@@ -102,7 +102,7 @@ public class OnlineLlmProvider implements LlmProvider {
                                                OnlineToolResult result) {
                     callback.onToolCallComplete(toolCallId, toolName,
                             result != null && result.success,
-                            result != null ? (result.success ? result.result : result.error) : "");
+                            result != null ? result.displayText() : "");
                 }
 
                 @Override
