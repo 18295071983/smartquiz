@@ -20,12 +20,15 @@ Android 对应用执行外部程序有两条硬限制，这个工具箱就是绕
 
 | 入口 | 用法 |
 |---|---|
-| 独立工具（推荐） | `linux_shell(action=exec, command="curl -sI https://example.com")` |
+| 独立工具（推荐） | `linux_shell(action=exec, command="curl -sI https://example.com")`（缺省 `engine=sandbox`，走 App 内置沙箱） |
 | 列出工具与版本 | `linux_shell(action=tools)` |
 | 下载 URL 到文件 | `linux_shell(action=download, url=..., path=...)`（https 走系统证书校验） |
 | 改命令路由 | `linux_shell(action=route, command=jq, order=b)`（`reset` 恢复默认） |
 | 兼容入口 | `system_resource(action=shell_command, command=...)` |
-| Termux（需另装） | `system_resource(action=termux_exec, command=...)` |
+| **Termux 引擎**（真 Linux，需另装 Termux） | `linux_shell(action=exec, engine=termux, command=...)` 或兼容入口 `system_resource(action=termux_exec, command=...)` |
+| 唤醒 / 自检 Termux | `linux_shell(action=termux_wake)`（后台起服务，不抢前台）、`linux_shell(action=termux_status)`（自检通道） |
+
+> **sandbox vs termux 引擎**：缺省 `engine=sandbox` 跑在 App 内置 busybox 沙箱——无需 Termux、无需权限，但 cwd 可能是只读 `/`、没有 apt/pip/git、拿不到 loadavg。需要**可写文件系统 / 完整包管理 / tmux 长跑 / 完整 Python** 时显式传 `engine=termux`，命令改在已安装的 Termux 里执行（20 秒超时）。前置条件（装 Termux + 授 RUN_COMMAND + `allow-external-apps=true`）都在「工具集 → 设置与系统环境 → 完整 Python 环境」调试配置页一键完成；通道没就绪时返回可操作报错，**不会把 Termux 界面抢到前台、也不死循环**。长跑任务在 Termux 里用 `tmux new -d -s job '<命令> > ~/job.log 2>&1'` 托管，命令立即返回，之后分次读 `~/job.log`。
 
 ## 三、内置工具清单
 
@@ -97,6 +100,8 @@ tmux new-session -d -s job 'aria2c -d $HOME -o f.iso URL'
 
 ## 八、在 Python 里用同一套工具
 
+App 沙箱内置命令用 `android_shell`；需要真 Linux（可写 / apt / pip / git / tmux 长跑 / 完整 Python）用 `android_termux` 交给已安装的 Termux：
+
 ```python
 import android_shell
 print(android_shell.available())                      # 列出内置工具与版本
@@ -105,6 +110,22 @@ print(r["stdout"])
 r2 = android_shell.run_argv(["rg", "-n", "TODO", "/sdcard/Download"])   # 不经 shell
 print(android_shell.tool_path("sqlite3"))             # 取绝对路径
 ```
+
+```python
+import android_termux
+print(android_termux.available())        # 通道自检：装没装/授权没/进程活没活/通道通不通
+android_termux.wake()                    # 后台唤醒 Termux 服务（不打开界面），长跑前建议先调
+r = android_termux.run("uname -a; pwd")  # 在 Termux 里执行，返回 dict(exit_code/stdout/stderr/status)
+print(r["exit_code"], r["stdout"])
+# ⚠️ run() 只在 20 秒内等回执；TERMUX RUN_COMMAND 无 cancel，超时那次拿不到结果，但任务仍在 Termux 里跑完。
+# 超过 20 秒的任务用 submit/poll 把结果"捞回来"（detached 到 tmux，秒回命令读日志）：
+h = android_termux.submit("python3 ~/big.py", "job1")   # 立即返回，任务写 ~/jobs/job1.log
+p = android_termux.poll("job1")                          # 秒回：{running/done/output/exit_code}
+if p["done"]: print(p["exit_code"], p["output"])
+# 一步到位（total 必须小于当前 python_execute 预算）：android_termux.wait("job1", total=90)
+```
+
+> `android_termux` 与 `linux_shell(engine=termux)`、`system_resource(action=termux_exec)` 走同一条 Java 实现（`TermuxEnvInstaller.runInTermuxAndWait`），只是入口不同。前置条件与调试配置页见第二节。
 
 ## 九、怎么往里加工具（开发者）
 

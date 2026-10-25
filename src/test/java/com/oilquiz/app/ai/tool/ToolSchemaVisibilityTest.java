@@ -120,6 +120,124 @@ public class ToolSchemaVisibilityTest {
         assertTrue("ui_component 仍在教 update 所有类型通用", !uiTool.contains("所有类型通用"));
     }
 
+    /**
+     * Termux 显式引擎（2026-10-25）：Agent 的 shell/python 此前够不到 Termux（沙箱 cwd 只读、
+     * 无 apt/pip/git、无法 tmux 长跑）。补了 linux_shell(engine=termux / termux_wake / termux_status)
+     * 与 Python 的 android_termux 桥接。功能加了但 schema/指南没教，模型就不会用——四处同源都得断言。
+     */
+    @Test
+    public void termuxEngineIsTaughtToModel() throws Exception {
+        // ① 在线模型真正读的那份硬编码 schema
+        String shell = dump(AIToolManager.getInstance(context).getToolDefinition("linux_shell"));
+        assertTrue("在线 linux_shell schema 没教 engine", shell.contains("engine"));
+        assertTrue("在线 linux_shell schema 没教 engine=termux", shell.contains("termux"));
+        assertTrue("在线 linux_shell schema 没教 termux_wake", shell.contains("termux_wake"));
+        assertTrue("在线 linux_shell schema 没教 termux_status", shell.contains("termux_status"));
+
+        String py = dump(AIToolManager.getInstance(context).getToolDefinition("python_execute"));
+        assertTrue("在线 python_execute schema 没教 android_termux", py.contains("android_termux"));
+
+        // ② 注解 + 构造两份抄本（PythonExecuteTool.java）
+        String pyTool = read("src/main/java/com/oilquiz/app/ai/python/PythonExecuteTool.java");
+        assertTrue("PythonExecuteTool 抄本没教 android_termux", pyTool.contains("android_termux"));
+
+        // ③ 工作区指南生成源（AgentWorkspace.java）+ 独立指南文档
+        String guideSource = read(
+                "src/main/java/com/oilquiz/app/ai/agent/online/AgentWorkspace.java");
+        assertTrue("AgentWorkspace 指南没教 engine=termux", guideSource.contains("engine=termux"));
+        assertTrue("AgentWorkspace 指南没教 android_termux", guideSource.contains("android_termux"));
+
+        String guideMd = read(
+                "src/main/assets/apk_shell/guides/LINUX_TOOLKIT_GUIDE.md");
+        assertTrue("LINUX_TOOLKIT_GUIDE 没教 engine=termux", guideMd.contains("engine=termux"));
+        assertTrue("LINUX_TOOLKIT_GUIDE 没教 android_termux", guideMd.contains("android_termux"));
+
+        // ④ Python 桥接模块本体存在且暴露 run/wake/available + 超时捞结果的 submit/poll/wait
+        String bridge = read("src/main/python/android_termux.py");
+        for (String fn : new String[]{"def run(", "def wake(", "def available(",
+                "def submit(", "def poll(", "def wait("}) {
+            assertTrue("android_termux.py 缺 " + fn, bridge.contains(fn));
+        }
+        // 异步作业必须走 tmux detached（run() 超时那次拿不到结果，这是"捞回结果"的核心口径）
+        assertTrue("android_termux.py 没走 tmux detached", bridge.contains("tmux new-session"));
+        assertTrue("android_termux.py 缺完成标记", bridge.contains("_DONE_MARKER"));
+    }
+
+    /**
+     * run_file 与内联代码同命名空间（2026-10-25）：用文件编辑工具写 .py 再 run_file 执行时，
+     * 目标文件跑在裸 namespace，此前拿不到 WORKSPACE_FILES / 标准库预置 / android_helper 星号，
+     * 表现为"贴进 python_execute 能跑、存成文件就 NameError"。现在 run_python_file 注入同口径 namespace。
+     */
+    @Test
+    public void runPythonFileInjectsInlineNamespace() throws Exception {
+        String helper = read("src/main/python/android_helper.py");
+        assertTrue("缺 WORKSPACE 常量注入", helper.contains("WORKSPACE_FILES")
+                && helper.contains("_workspace_constants"));
+        assertTrue("缺标准库预置注入", helper.contains("_prelude_namespace")
+                && helper.contains("_PRELUDE_NAMESPACE"));
+        // run_python_file 委托引擎 execute_with_auto_fix（顶层 return/自动修复/装包全对齐内联），
+        // 并把 _prelude_namespace() 作为 variables 注入
+        assertTrue("run_python_file 未委托引擎（缺全量对齐）",
+                helper.contains("engine.execute_with_auto_fix"));
+        assertTrue("run_python_file 未注入预置命名空间", helper.contains("variables = _prelude_namespace()"));
+    }
+
+    /**
+     * 文件编辑/diff 与清理口径（2026-10-25）。
+     * python_file_ops 补了业界口径的 edit(精确唯一匹配、返回 unified diff) 与 diff 预览；
+     * 工作区补了 WORKSPACE_TMP(每轮自清) 与 files(持久不清) 的区分；android_termux 补了 purge/list_jobs。
+     * 都得让模型看见，否则等于没加。
+     */
+    @Test
+    public void fileEditDiffAndCleanupAreTaughtToModel() throws Exception {
+        String fops = dump(AIToolManager.getInstance(context).getToolDefinition("python_file_ops"));
+        assertTrue("在线 python_file_ops 没教 edit", fops.contains("edit"));
+        assertTrue("在线 python_file_ops 没教 diff 预览", fops.contains("diff"));
+        assertTrue("在线 python_file_ops 没教唯一匹配/防误改", fops.contains("unified diff"));
+
+        // 在线/注解/工作区指南都提到 WORKSPACE_TMP（临时区自清），别只有一处
+        String pyTool = read("src/main/java/com/oilquiz/app/ai/python/PythonExecuteTool.java");
+        assertTrue("buildSafeCode 没注入 WORKSPACE_TMP", pyTool.contains("WORKSPACE_TMP"));
+        String guide = read("src/main/java/com/oilquiz/app/ai/agent/online/AgentWorkspace.java");
+        assertTrue("工作区指南没提 WORKSPACE_TMP", guide.contains("WORKSPACE_TMP"));
+        assertTrue("工作区指南没讲清 files 不自动清", guide.contains("不自动清"));
+
+        // android_termux 作业清理
+        String bridge = read("src/main/python/android_termux.py");
+        assertTrue("android_termux.py 缺 purge", bridge.contains("def purge("));
+        assertTrue("android_termux.py 缺 list_jobs", bridge.contains("def list_jobs("));
+        // 容器预置：进 Ubuntu 容器一句调用，不必每次手写 ~/ubuntu -- …
+        assertTrue("android_termux.py 缺 container 预置",
+                bridge.contains("def _in_container") && bridge.contains("container=False"));
+
+        // python_file_ops 的 edit 脚本必须做唯一性校验(0/多处报错)
+        String fopsJava = read("src/main/java/com/oilquiz/app/ai/python/PythonFileOpsTool.java");
+        assertTrue("edit 未做未找到精确匹配校验", fopsJava.contains("未找到精确匹配"));
+        assertTrue("edit 未做不唯一校验", fopsJava.contains("不唯一"));
+    }
+
+    /**
+     * Termux 长任务活动卡（2026-10-25）：termux_submit 把长命令 detached 并挂一张自刷新的 job 卡。
+     * 卡型必须在 ComponentTypes 目录里注册，工具在线 schema 必须教 termux_submit/termux_purge，
+     * 否则模型不知道有"跑完自己更新的活动卡"这条路。
+     */
+    @Test
+    public void termuxLiveActivityCardIsTaughtToModel() throws Exception {
+        String shell = dump(AIToolManager.getInstance(context).getToolDefinition("linux_shell"));
+        assertTrue("在线 linux_shell 没教 termux_submit", shell.contains("termux_submit"));
+        assertTrue("在线 linux_shell 没教 termux_purge", shell.contains("termux_purge"));
+        assertTrue("在线 linux_shell 没教 job_id", shell.contains("job_id"));
+        assertTrue("在线 linux_shell 没提活动卡自刷新", shell.contains("活动卡"));
+
+        String types = read("src/main/java/com/oilquiz/app/ai/chat/component/ComponentTypes.java");
+        // job 是工具挂载卡（withComponent），不进"面向模型的目录"（有 29 条上限），只在 ComponentRegistry 渲染
+        assertTrue("ComponentTypes 不该把 job 列为模型可创建类型", !types.contains("SCHEMA.put(\"job\""));
+        assertTrue("ComponentTypes 该注明 job 是工具挂载", types.contains("type=job"));
+
+        String registry = read("src/main/java/com/oilquiz/app/ai/chat/component/ComponentRegistry.java");
+        assertTrue("ComponentRegistry 没注册 JobCardView", registry.contains("new JobCardView()"));
+    }
+
     private static String read(String path) throws Exception {
         java.io.File f = new java.io.File(path);
         assertTrue("找不到文档（测试需从模块根目录跑）: " + path, f.isFile());

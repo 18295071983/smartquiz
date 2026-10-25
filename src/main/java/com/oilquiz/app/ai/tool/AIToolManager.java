@@ -1435,8 +1435,10 @@ public class AIToolManager {
                     .category("web")
                     .build();
             case "linux_shell":
-                return ToolDefinition.builder("linux_shell", "内置 Linux 命令行工具箱（随 App 打包，无需 Termux、无需权限）：busybox(ash/awk/vi/telnet/tar/gzip)、openssl(真 TLS)、ssh/scp/sftp/ssh-keygen、curl、aria2c(多线程下载)、rg(ripgrep 搜索)、jq(JSON)、sqlite3、zstd、zip/unzip、file、tree、ncdu、htop/ps/free、tmux、nano、gawk。exec 执行命令；tools 列出工具与版本；download 下载 URL；route 改命令路由顺序。单条命令 25 秒超时（超时返回已产生输出）；默认不拦截任何命令")
-                    .addParameter("action", "string", "操作: exec(执行命令)/tools(列出工具)/download(下载URL)/route(改命令路由)", true, "exec")
+                return ToolDefinition.builder("linux_shell", "内置 Linux 命令行工具箱（默认随 App 打包的 busybox 沙箱，无需 Termux、无需权限）：busybox(ash/awk/vi/telnet/tar/gzip)、openssl(真 TLS)、ssh/scp/sftp/ssh-keygen、curl、aria2c(多线程下载)、rg(ripgrep 搜索)、jq(JSON)、sqlite3、zstd、zip/unzip、file、tree、ncdu、htop/ps/free、tmux、nano、gawk。exec 执行命令；tools 列出工具与版本；download 下载 URL；route 改命令路由顺序。单条命令 25 秒超时（超时返回已产生输出）；默认不拦截任何命令。【执行引擎 engine】缺省 sandbox 跑在 App 内置沙箱（cwd 可能只读、无完整 Linux 生态）；需要真 Linux（可写文件系统、apt/pip/git、tmux 长跑、完整 Python）时显式传 engine=termux，命令改在已安装的 Termux 里执行（20 秒超时，需先在「完整 Python 环境」调试配置页装 Termux 并授权；只后台起服务不抢前台）。termux_wake 后台唤醒 Termux 服务；termux_status 自检 Termux 通道；termux_submit 把超过 20 秒的长命令 detached 到 Termux 后台跑并挂一张会自动刷进度的活动卡（写公共 jobs/ 目录，配 termux_purge 清理）")
+                    .addParameter("action", "string", "操作: exec/tools/download/route/termux_wake/termux_status/termux_submit/termux_purge", true, "exec")
+                    .addParameter("engine", "string", "exec 的执行引擎: sandbox(默认，App 内置 busybox 沙箱) / termux(已安装的 Termux 完整 Linux 环境：可写文件系统、apt/pip/git、tmux 长跑、完整 Python；20 秒超时，需先装 Termux 并授权)", false, "sandbox")
+                    .addParameter("job_id", "string", "termux_submit/termux_purge 用：作业名，只允许字母数字和 . _ -（submit 选填缺省自动生成；purge 必填）", false)
                     .addParameter("command", "string", "要执行的命令（exec 用，如 curl -sI https://example.com | head -3、rg -n TODO /sdcard/Download、jq . file.json）；route 时填命令名", false)
                     .addParameter("url", "string", "下载地址（download 用，https 走系统证书校验）", false)
                     .addParameter("path", "string", "保存路径（download 用；缺省存工作区 files/ 并用 URL 文件名）", false)
@@ -1471,7 +1473,7 @@ public class AIToolManager {
                     .category("system")
                     .build();
             case "python_execute":
-                return ToolDefinition.builder("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 用同一套原生卡片渲染，但展示面是**前台 Activity 的弹窗**、不进聊天流也不留档；props 带 actions 可交互、get_component_result 取回点击值；无前台 Activity 时降级为 Toast。要把卡片挂进 AI 消息气泡请用 ui_component 工具(action=create)，类型列表见它的 component_type 参数；工具产物(.html/.png/.xlsx 等)会由 UI 桥接层自动补挂对应卡片。web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab、python-docx(docx→Word读写)、python-pptx(pptx→PPT读写)、pypdf(PDF读取/合并/拆分)、XlsxWriter(xlsxwriter→Excel写入，pptx图表依赖)；读写 Word/PPT/PDF 直接用 docx/pptx/pypdf，无需再装；绘制图表用matplotlib(先设中文字体)或Pillow")
+                return ToolDefinition.builder("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 用同一套原生卡片渲染，但展示面是**前台 Activity 的弹窗**、不进聊天流也不留档；props 带 actions 可交互、get_component_result 取回点击值；无前台 Activity 时降级为 Toast。要把卡片挂进 AI 消息气泡请用 ui_component 工具(action=create)，类型列表见它的 component_type 参数；工具产物(.html/.png/.xlsx 等)会由 UI 桥接层自动补挂对应卡片。web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab、python-docx(docx→Word读写)、python-pptx(pptx→PPT读写)、pypdf(PDF读取/合并/拆分)、XlsxWriter(xlsxwriter→Excel写入，pptx图表依赖)；读写 Word/PPT/PDF 直接用 docx/pptx/pypdf，无需再装；绘制图表用matplotlib(先设中文字体)或Pillow。脚本内 subprocess/文件默认跑在 App 沙箱(cwd 可能只读 /、无 apt/pip/git、拿不到 loadavg)；需要真 Linux(可写文件系统、apt/pip/git、tmux 长跑、完整 Python)时 import android_termux 把命令交给已安装的 Termux 执行(android_termux.run(cmd,timeout=20)/wake()/available()，只后台起服务不抢前台，需先在「完整 Python 环境」调试配置页装 Termux 并授权)；纯内置命令(busybox/openssl/curl/rg/jq 等)也可 import android_shell")
                     .addParameter("code", "string", "Python代码（可选，上限200KB）", false)
                     .addParameter("task", "string", "任务描述（可选）", false)
                     .addParameter("context", "string", "上下文数据（可选）", false)
@@ -1498,13 +1500,15 @@ public class AIToolManager {
                     .category("python")
                     .build();
             case "python_file_ops":
-                return ToolDefinition.builder("python_file_ops", "Python文件工具(标准库+openpyxl)：阅读与修改。read=读文本(UTF-8/GB18030/UTF-16自动检测)；parse=解析CSV(RFC4180)/JSON/XML/Excel(xlsx)/Word(docx，含表格)/PPT(pptx，含表格与备注)/PDF(pypdf，含加密)；write=写文件；append=追加；replace=文本替换。适合严格CSV解析、Word/PPT/PDF 取文本、xlsx写入等场景。注意：工作区 tmp/ 每轮结束自动清理，重要文件写到 files/ 长期区")
-                    .addParameter("action", "string", "操作: read/parse/write/append/replace", false, "read")
+                return ToolDefinition.builder("python_file_ops", "Python文件工具(标准库+openpyxl)：阅读与修改。read=读文本(UTF-8/GB18030/UTF-16自动检测)；parse=解析CSV(RFC4180)/JSON/XML/Excel(xlsx)/Word(docx，含表格)/PPT(pptx，含表格与备注)/PDF(pypdf，含加密)；write=写文件；append=追加；edit=精确改一处(推荐：old_text 逐字符唯一匹配，命中0/多处报错不乱改，返回 unified diff；replace_all 才全换)；replace=替换所有匹配；diff=预览差异(不写)。适合严格CSV解析、Word/PPT/PDF 取文本、xlsx写入、安全增量编辑文本文件。注意：工作区 tmp/ 每轮结束自动清理，重要文件写到 files/ 长期区(不自动清，要清用 workspace(action=clear,confirm=true))")
+                    .addParameter("action", "string", "操作: read/parse/write/append/edit/replace/diff", false, "read")
                     .addParameter("file_path", "string", "文件路径", true)
-                    .addParameter("content", "string", "内容(write/append用)", false)
-                    .addParameter("old_text", "string", "被替换文本(replace用)", false)
-                    .addParameter("new_text", "string", "替换为(replace用，可为空=删除)", false)
-                    .addParameter("encoding", "string", "编码(write/append用，默认utf-8)", false, "utf-8")
+                    .addParameter("content", "string", "内容(write/append用；diff 时改为填提议的新文本)", false)
+                    .addParameter("old_text", "string", "被替换文本(edit/replace用；edit 要求逐字符精确、唯一匹配)", false)
+                    .addParameter("new_text", "string", "替换为(edit/replace用，可为空=删除)", false)
+                    .addParameter("replace_all", "boolean", "edit 用：默认只改唯一匹配处，传 true 才替换全部匹配（缺省 false）", false)
+                    .addParameter("file_path_b", "string", "diff 用：与另一文件比较(与 content 二选一)", false)
+                    .addParameter("encoding", "string", "编码(write/append/edit用，默认utf-8)", false, "utf-8")
                     .addParameter("format", "string", "解析格式(parse用: csv/tsv/json/xml/xlsx/docx/pptx/pdf，留空按扩展名)", false)
                     .addParameter("max_rows", "integer", "最大行数(parse用，默认500)", false, 500)
                     .addParameter("max_chars", "integer", "最大输出字符数(默认8000)", false, 8000)

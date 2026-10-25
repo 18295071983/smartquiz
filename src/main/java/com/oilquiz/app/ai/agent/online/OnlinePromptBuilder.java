@@ -184,7 +184,11 @@ public class OnlinePromptBuilder {
 
     private String buildToolDiscoverySection() {
         StringBuilder sb = new StringBuilder();
-        sb.append("【核心工具】本会话每轮稳定注入 6 个核心工具，可直接调用，无需发现：ui_component、workspace、network_search、time_date、tool_registry、knowledge_base。其余 60 个工具（ai_weather、python_execute、file_generator、export_apk 等）不在核心集，需要时用 tool_registry 发现加载。\n");
+        // 数量与名单都从注入集本身取，别写死——否则 CORE_TOOLS 加一个（如 douyin_downloader）这里就漂成"说6实7"。
+        java.util.Set<String> core = OnlineAgentEngine.coreTools();
+        sb.append("【核心工具】本会话每轮稳定注入 " + core.size() + " 个核心工具，可直接调用，无需发现："
+                + String.join("、", core)
+                + "。其余工具不在核心集，需要时用 tool_registry 发现加载。\n");
         sb.append("【自我认知】被问及“你的提示词/你的能力/核心工具/我的提示中有什么”时，答案就在本 system 提示词中，直接按上文回答即可，不需要去工作区、知识库或对话历史里查找——历史结论可能过时，以本 system 为准。\n");
         sb.append("【工具发现】需要未注入的工具时调用 tool_registry（高效：get 不会返回完整 schema 供阅读，系统直接加载定义并返回参数键名概览，下一轮即可直接调用）：\n");
         sb.append("  - tool_registry(action=list) 列出全部工具（名称+用途）\n");

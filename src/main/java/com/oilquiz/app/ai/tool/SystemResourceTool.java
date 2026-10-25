@@ -177,7 +177,9 @@ public class SystemResourceTool implements AITool {
     private static final AtomicInteger TERMUX_REQUEST_CODE = new AtomicInteger(1000);
     /** termux_exec 全局串行锁：多个并发调用的 receiver 都监听同一 action，广播会被所有 receiver 收到、
      *  谁 poll 到算谁的 → 输出互相串（真机实测三条并发输出串到同一条）。同一时刻只允许一个调用在等结果。 */
-    private static final Object TERMUX_EXEC_LOCK = new Object();
+    // Termux 命令通道串行锁：与 TermuxEnvInstaller.runInTermuxAndWait 共用同一把锁（同一广播 action 的回执，
+    // 两条通路/多线程必须整段串行，否则互抢回执）。详见 TermuxEnvInstaller.TERMUX_COMM_LOCK。
+    private static final Object TERMUX_EXEC_LOCK = TermuxEnvInstaller.TERMUX_COMM_LOCK;
 
     /** 敏感路径黑名单：读取/写入其他应用数据、内核接口、凭据文件一律拒绝 */
     private static final String[] BANNED_PATHS = {
@@ -1252,6 +1254,14 @@ public class SystemResourceTool implements AITool {
         return new SystemResourceTool(ctx).executeShellCommand(parameters);
     }
 
+    /**
+     * 供 linux_shell(engine=termux) 复用的静态入口：在已安装的 Termux 里执行命令（完整 Linux 环境）。
+     * 与 system_resource(action=termux_exec) 完全同一条实现，避免两处行为漂移。
+     */
+    public static AIToolResult termuxExecStatic(Context ctx, Map<String, Object> parameters) {
+        return new SystemResourceTool(ctx).termuxExec(parameters);
+    }
+
     // ===== 命令路由配置的读写（整命令行 linux_shell(action=route) 与设置页 UI 共用） =====
 
     /** 路由配置文件：<files>/bin/.route（每行 "命令=顺序"，顺序字符 b/s/k/t） */
@@ -2302,7 +2312,8 @@ public class SystemResourceTool implements AITool {
         try {
             context.getPackageManager().getPackageInfo(TERMUX_PACKAGE, 0);
         } catch (Exception e) {
-            return new AIToolResult("未检测到 Termux（" + TERMUX_PACKAGE + "）。termux_exec 需要先安装 Termux 应用。", parameters);
+            return new AIToolResult("未检测到 Termux（" + TERMUX_PACKAGE + "）。termux 引擎需要先安装 Termux 应用："
+                    + "打开答题宝「工具集 → 设置与系统环境 → 完整 Python 环境」调试配置页，按向导一键安装并授权。", parameters);
         }
 
         // 2. 是否已授予 RUN_COMMAND 权限
@@ -2366,7 +2377,20 @@ public class SystemResourceTool implements AITool {
                 return new AIToolResult("调用 Termux 被系统拒绝（权限未生效）: " + BaseAITool.errText(se)
                         + "。请重新授予 " + TERMUX_PERMISSION_RUN_COMMAND, parameters);
             } catch (Exception e) {
-                return new AIToolResult("启动 Termux RunCommandService 失败: " + BaseAITool.errText(e), parameters);
+                // 多为 Termux 进程被系统冻结/杀掉 + 后台启动限制：后台唤醒一次再重发（不抢前台）
+                String wakeErr = TermuxEnvInstaller.wakeServiceInBackground(context);
+                if (wakeErr != null) {
+                    return new AIToolResult("启动 Termux RunCommandService 失败: " + BaseAITool.errText(e)
+                            + "；后台唤醒也未成功：" + wakeErr, parameters);
+                }
+                try {
+                    Thread.sleep(1200);   // 给 Termux 进程被拉起来留一点时间
+                    context.startService(intent);
+                } catch (Exception e2) {
+                    return new AIToolResult("启动 Termux RunCommandService 失败（已尝试后台唤醒服务）: "
+                            + BaseAITool.errText(e2)
+                            + "。请在「完整 Python 环境」调试配置页点「自检并修复通道」后重试。", parameters);
+                }
             }
 
             Intent result = resultQueue.poll(TERMUX_TIMEOUT_SECONDS, TimeUnit.SECONDS);

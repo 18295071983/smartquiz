@@ -181,6 +181,12 @@ public class OnlineAgentEngine {
             "ui_component", "workspace", "network_search", "time_date", "tool_registry", "knowledge_base",
             "douyin_downloader"
     ));
+
+    /** 常驻核心工具集（LinkedHashSet，顺序稳定）。供提示词「核心工具」段动态取数，
+     *  避免再出现"写死 6 个、实际 7 个"这种与注入集的口径漂移。 */
+    public static java.util.Set<String> coreTools() {
+        return CORE_TOOLS;
+    }
     /** 会话工具集上限（2026-09-23 v2）：核心 6 + 最多 3 个扩展工具——默认少带，模型不知道再发现 */
     private static final int MAX_SESSION_TOOLS = 9;
     /** 活工具集（2026-09-23 v5）：模型 tool_registry(get) 成功后立即更新，

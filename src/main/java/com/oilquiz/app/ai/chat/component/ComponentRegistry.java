@@ -85,6 +85,8 @@ public class ComponentRegistry {
         register(new AgendaCardView());
         register(new LocationCardView());
         register(new DiffCardView());
+        // 长任务活动卡：termux 作业 detached 提交后挂一张，attach 期间自轮询刷新进度（type=job）
+        register(new JobCardView());
         // 应用/页面卡片：app_operation 的导航回执 + 再次进入
         register(new AppCardView());
         // Agent 执行过程（插入式显示在 AI 消息内）

@@ -832,6 +832,153 @@ public final class TermuxEnvInstaller {
         return false;
     }
 
+    /**
+     * 后台唤醒 Termux 服务进程（**绝不把 Termux UI 抢到前台**）。
+     *
+     * <p>为什么需要：Agent 的 shell/python 工具走 RUN_COMMAND 下发命令时，如果 Termux 进程已被系统
+     * 冻结/杀掉，Android 8+ 从后台 startService 可能被拒（IllegalStateException / 后台启动限制），
+     * 表现为"唤不起服务"。这里发一条 no-op（termux-wake-lock，拿不到也无所谓）把 RunCommandService
+     * 拉起来，让后续真正的 exec 命令有进程可落。termux-wake-lock 还能减少长跑任务被系统休眠掐断。
+     *
+     * <p>取向（2026-10-25 与用户确认）：只后台起服务，不调 {@link #openTermux}——那会把 Termux
+     * 弹到前台打断用户，且在"始终允许启动 Termux"时有死循环风险（见 TermuxEnvSetupActivity 的铁律）。
+     *
+     * @return null 表示进程已在跑或已成功下发唤醒；否则返回失败原因（供上层做可操作报错）
+     */
+    public static String wakeServiceInBackground(Context ctx) {
+        if (termuxVersion(ctx) == null) {
+            return "Termux 未安装（先在「完整 Python 环境」调试配置页安装）";
+        }
+        if (!hasRunCommandPermission(ctx)) {
+            return "未授予 RUN_COMMAND 权限（在「完整 Python 环境」调试配置页点一次授权）";
+        }
+        if (termuxProcessAlive(ctx)) {
+            return null;   // 已在跑，无需唤醒
+        }
+        try {
+            Intent i = new Intent();
+            i.setClassName(TERMUX_PACKAGE, SERVICE);
+            i.setAction(ACTION);
+            i.putExtra(E_PATH, "/data/data/com.termux/files/usr/bin/bash");
+            i.putExtra(E_ARGS, new String[]{"-lc", "termux-wake-lock 2>/dev/null; true"});
+            i.putExtra(E_WORKDIR, "/data/data/com.termux/files/home");
+            i.putExtra(E_BACKGROUND, true);   // 后台执行，不新建可见会话、不抢前台
+            ctx.startService(i);
+            return null;
+        } catch (Exception e) {
+            return "后台唤醒 Termux 服务失败: " + e.getClass().getSimpleName() + ": " + e.getMessage()
+                    + "（多为系统后台启动限制；请手动打开一次 Termux，或在「完整 Python 环境」页操作）";
+        }
+    }
+
+    /** 公共作业目录：Termux 写、App 侧 PublicStorageWriter(ctx, "jobs", ...) 读，活动卡据此自刷新。 */
+    public static final String JOBS_SUBDIR = "jobs";
+    public static final String JOBS_DIR = "/sdcard/Download/OilQuiz/jobs";
+
+    /** job_id 只允许 [A-Za-z0-9._-]，长度 1-64；非法返回 null（拼进路径与 tmux 会话名，防注入）。 */
+    public static String safeJobId(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String s = raw.trim();
+        if (s.isEmpty() || s.length() > 64) {
+            return null;
+        }
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            boolean ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                    || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+            if (!ok) {
+                return null;
+            }
+        }
+        return s;
+    }
+
+    /**
+     * 提交一个 detached Termux 作业（日志/退出码/完成标记写公共 jobs/ 目录，App 活动卡可 File 读）。
+     * tmux 优先、没装回退 nohup；两条命令都用 runInTermuxAndWait 同步确认（tmux new-session -d 立即返回，作业在
+     * Termux 里续跑）。与 {@code android_termux.submit} 同一条目录契约、同一组标记，避免漂移。
+     *
+     * @param outLauncher 长度≥1 时回填 "tmux"/"nohup"/null
+     * @return null=已启动；否则错误说明（供上层做可操作报错，不抢屏、不死循环）
+     */
+    public static String submitDetachedJob(Context ctx, String cmd, String rawJobId, String[] outLauncher) {
+        String jid = safeJobId(rawJobId);
+        if (jid == null) {
+            return "job_id 非法（只允许字母数字和 . _ -，长度 1-64）";
+        }
+        if (cmd == null || cmd.trim().isEmpty()) {
+            return "command 不能为空";
+        }
+        if (termuxVersion(ctx) == null) {
+            return "Termux 未安装：去「完整 Python 环境」调试配置页按向导安装";
+        }
+        if (!hasRunCommandPermission(ctx)) {
+            return "未授予 RUN_COMMAND 权限：去「完整 Python 环境」调试配置页授权";
+        }
+        String d = JOBS_DIR;
+        String runner = d + "/" + jid + ".sh";
+        String log = d + "/" + jid + ".log";
+        String rc = d + "/" + jid + ".rc";
+        String done = d + "/" + jid + ".done";
+        String setup = "mkdir -p " + d + " 2>/dev/null; touch " + d + "/.wprobe 2>/dev/null "
+                + "|| { echo __OZ_NOWRITE__; exit 1; }; rm -f " + d + "/.wprobe; "
+                + "rm -f " + done + " " + rc + " " + log + "; "
+                + "cat > " + runner + " <<'OZ_JOB_EOF'\n"
+                + "#!/data/data/com.termux/files/usr/bin/bash\n"
+                + cmd + "\n"
+                + "printf '__OZ_RC__%s\\n' \"$?\" > " + rc + "\n"
+                + "touch " + done + "\n"
+                + "OZ_JOB_EOF\n"
+                + "chmod +x " + runner;
+        ChannelResult s = runInTermuxAndWait(ctx, setup, 20);
+        if (!s.ok || s.stdout.contains("__OZ_NOWRITE__")) {
+            if (s.stdout != null && s.stdout.contains("__OZ_NOWRITE__")) {
+                return "作业目录不可写：" + d + "。先在 Termux 里执行 termux-setup-storage 点「允许」"
+                        + "（或在「完整 Python 环境」调试配置页授存储权限）再重试。";
+            }
+            return "下发作业脚本失败: " + (s.error == null ? s.stderr : s.error);
+        }
+        String start = "if command -v tmux >/dev/null 2>&1; then "
+                + "tmux new-session -d -s oz_" + jid + " 'bash " + runner + " > " + log + " 2>&1'; "
+                + "echo __OZ_LAUNCH__tmux; "
+                + "else nohup bash " + runner + " > " + log + " 2>&1 & echo __OZ_LAUNCH__nohup; fi";
+        ChannelResult l = runInTermuxAndWait(ctx, start, 20);
+        String kind = null;
+        if (l.stdout != null) {
+            if (l.stdout.contains("__OZ_LAUNCH__tmux")) {
+                kind = "tmux";
+            } else if (l.stdout.contains("__OZ_LAUNCH__nohup")) {
+                kind = "nohup";
+            }
+        }
+        if (outLauncher != null && outLauncher.length > 0) {
+            outLauncher[0] = kind;
+        }
+        if (kind == null) {
+            return "启动 detached 作业失败: " + (l.error == null ? l.stderr : l.error);
+        }
+        return null;
+    }
+
+    /** 清理一个作业：删公共 jobs/ 下 <id>.{log,rc,done,sh} + 关 tmux 会话。返回 null=成功，否则错误串。 */
+    public static String purgeDetachedJob(Context ctx, String rawJobId) {
+        String jid = safeJobId(rawJobId);
+        if (jid == null) {
+            return "job_id 非法";
+        }
+        String d = JOBS_DIR;
+        String cmd = "(tmux kill-session -t oz_" + jid + " 2>/dev/null || true); "
+                + "rm -f " + d + "/" + jid + ".log " + d + "/" + jid + ".rc " + d + "/" + jid + ".done "
+                + d + "/" + jid + ".sh; echo __OZ_PURGED__";
+        ChannelResult r = runInTermuxAndWait(ctx, cmd, 20);
+        if (!r.ok || r.stdout == null || !r.stdout.contains("__OZ_PURGED__")) {
+            return "清理作业失败: " + (r.error == null ? r.stderr : r.error);
+        }
+        return null;
+    }
+
     public static String runInTermux(Context ctx, String script, boolean background) {
         if (termuxVersion(ctx) == null) {
             return "Termux 还没安装，请先执行第 1 步";
@@ -888,6 +1035,15 @@ public final class TermuxEnvInstaller {
     private static final java.util.concurrent.atomic.AtomicInteger REQ_CODE =
             new java.util.concurrent.atomic.AtomicInteger(4200);
 
+    /**
+     * 跨 Termux 命令通道的全局串行锁。{@code SystemResourceTool.termuxExec} 与本类的
+     * {@code runInTermuxAndWait} 都监听同一个广播 action（{@code com.oilquiz.app.TERMUX_EXEC_RESULT}）
+     * 并各自注册 receiver；若不串行，两条通路/多线程会互抢回执（一条回复被错误的等待者取走，或都超时）。
+     * 两个实现都 {@code synchronized} 这把锁，把「注册→下发→等回执→注销」整段串行化。
+     * 同线程可重入，故不存在自嵌套死锁。
+     */
+    public static final Object TERMUX_COMM_LOCK = new Object();
+
     /** 一次"真发命令并等 Termux 回执"的结果 */
     public static final class ChannelResult {
         public final boolean ok;
@@ -917,6 +1073,8 @@ public final class TermuxEnvInstaller {
         if (!hasRunCommandPermission(ctx)) {
             return new ChannelResult(false, "", "", "还没授予 RUN_COMMAND 权限（点上面的授权按钮）");
         }
+        // 与 SystemResourceTool.termuxExec 共用同一 action 的广播回执，整段串行，防多线程/两通路互抢回执。
+        synchronized (TERMUX_COMM_LOCK) {
         final java.util.concurrent.ArrayBlockingQueue<Intent> queue =
                 new java.util.concurrent.ArrayBlockingQueue<>(1);
         BroadcastReceiver receiver = new BroadcastReceiver() {
@@ -982,6 +1140,7 @@ public final class TermuxEnvInstaller {
                 }
             }
         }
+        } // synchronized (TERMUX_COMM_LOCK)
     }
 
     /** 一次拿到环境诊断：proot-distro / 容器 / 上次准备结果 / allow-external-apps 是否已写 */

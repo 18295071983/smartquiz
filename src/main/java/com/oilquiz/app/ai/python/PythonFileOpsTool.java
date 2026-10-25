@@ -21,14 +21,16 @@ import java.util.Map;
  *          PPT(.pptx, python-pptx，含表格与备注)/PDF(pypdf，含空密码解密；老格式 .doc/.ppt 提示另存新格式)
  * - write：写文件（UTF-8）
  * - append：追加内容
- * - replace：文本替换（读→改→写）
+ * - edit：精确改一处（old_text 需逐字符唯一匹配，命中 0/多处报错，返回 unified diff；replace_all 才全换）
+ * - replace：文本替换（读→改→写，替换所有匹配）
+ * - diff：预览差异（不写，文件 vs 提议文本 或 两文件，返回 unified diff）
  *
  * 与 Java 版 file_reader/file_generator 互补：Python csv 标准库严格 RFC4180，
  * openpyxl 支持 xlsx 写入（Java 版只读 xls+xlsx）。
  */
 @Tool(
     value = "python_file_ops",
-    description = "Python文件工具(标准库+openpyxl+python-docx+python-pptx+pypdf)：阅读与修改。read=读文本(自动检测编码)；parse=解析CSV(RFC4180)/JSON/XML/Excel(xlsx)/Word(docx，含表格)/PPT(pptx，含表格与备注)/PDF(含加密)；write=写文件；append=追加；replace=文本替换。适合严格CSV解析、Word/PPT/PDF 取文本、xlsx写入等场景。注意：工作区 tmp/ 是临时区，每轮对话结束自动清理，重要文件请写到 files/ 长期区",
+    description = "Python文件工具(标准库+openpyxl+python-docx+python-pptx+pypdf)：阅读与修改。read=读文本(自动检测编码)；parse=解析CSV(RFC4180)/JSON/XML/Excel(xlsx)/Word(docx，含表格)/PPT(pptx，含表格与备注)/PDF(含加密)；write=写文件；append=追加；**edit=精确改一处(推荐)**：old_text 必须逐字符匹配(含缩进/换行)，命中0处或多处会报错而不是乱改，改完返回 unified diff 给你核对；replace=文本替换(把所有匹配都换掉)；diff=预览差异(不写，比较文件与提议内容或两个文件)。适合严格CSV解析、Word/PPT/PDF 取文本、xlsx写入、以及安全地增量编辑文本文件等场景。注意：工作区 tmp/ 是临时区，每轮对话结束自动清理；重要文件写到 files/ 长期区(不自动清，要清用 workspace(action=clear, confirm=true))",
     category = "python",
     aliases = {"python文件", "py_file", "python_file", "文件脚本"},
     actions = {
@@ -36,15 +38,19 @@ import java.util.Map;
         @Action(name = "parse", description = "解析CSV/JSON/XML/Excel文件"),
         @Action(name = "write", description = "写入文件"),
         @Action(name = "append", description = "追加内容到文件"),
-        @Action(name = "replace", description = "替换文件中的文本")
+        @Action(name = "edit", description = "精确替换一处(old_text 需逐字符唯一匹配；命中0或多处报错；返回 unified diff)。传 replace_all=true 才替换全部匹配"),
+        @Action(name = "replace", description = "替换文件中的文本(把所有匹配项都换掉，不保证唯一)"),
+        @Action(name = "diff", description = "预览差异(不修改文件)：file_path 与 content(提议新内容) 或 与 file_path_b(另一文件) 比较，返回 unified diff")
     },
     params = {
-        @Param(name = "action", type = "string", description = "操作: read/parse/write/append/replace", required = true),
+        @Param(name = "action", type = "string", description = "操作: read/parse/write/append/edit/replace/diff", required = true),
         @Param(name = "file_path", type = "string", description = "文件路径", required = true),
-        @Param(name = "content", type = "string", description = "内容(write/append用)", required = false),
-        @Param(name = "old_text", type = "string", description = "被替换文本(replace用)", required = false),
-        @Param(name = "new_text", type = "string", description = "替换为(replace用)", required = false),
-        @Param(name = "encoding", type = "string", description = "编码(write/append用，默认utf-8)", required = false),
+        @Param(name = "content", type = "string", description = "内容(write/append用；diff 时改为填提议的新文本)", required = false),
+        @Param(name = "old_text", type = "string", description = "被替换文本(edit/replace用；edit 要求逐字符精确匹配)", required = false),
+        @Param(name = "new_text", type = "string", description = "替换为(edit/replace用，可为空=删除)", required = false),
+        @Param(name = "replace_all", type = "boolean", description = "edit 用：默认只改唯一匹配处，传 true 才替换全部匹配", required = false),
+        @Param(name = "file_path_b", type = "string", description = "diff 用：与另一文件比较(与 content 二选一)", required = false),
+        @Param(name = "encoding", type = "string", description = "编码(write/append/edit用，默认utf-8)", required = false),
         @Param(name = "format", type = "string", description = "解析格式(parse用: csv/tsv/json/xml/xlsx/docx/pptx/pdf，留空按扩展名)", required = false),
         @Param(name = "max_rows", type = "integer", description = "最大行数(parse用，默认500)", required = false),
         @Param(name = "max_chars", type = "integer", description = "最大输出字符数(默认8000)", required = false),
@@ -84,7 +90,7 @@ public class PythonFileOpsTool extends BaseAITool {
             // 读取类动作不碰文件；新建文件 snapshot 为 null，不会挂"全是新增"的噪音卡。
             String filePath = strParam(parameters, "file_path", "");
             boolean modifiesFile = "write".equals(action) || "append".equals(action)
-                    || "replace".equals(action);
+                    || "replace".equals(action) || "edit".equals(action);
             String diffBefore = modifiesFile
                     ? FileChangeDiff.snapshot(context, filePath) : null;
             String code = buildCode(action, parameters);
@@ -120,8 +126,15 @@ public class PythonFileOpsTool extends BaseAITool {
             case "append":
                 script = buildAppendScript(path, content, encoding);
                 break;
+            case "edit":
+                script = buildEditScript(path, oldText, newText, encoding,
+                        boolParam(parameters, "replace_all", false));
+                break;
             case "replace":
                 script = buildReplaceScript(path, oldText, newText, encoding);
+                break;
+            case "diff":
+                script = buildDiffScript(path, content, strParam(parameters, "file_path_b", null));
                 break;
             case "read":
             default:
@@ -437,6 +450,95 @@ public class PythonFileOpsTool extends BaseAITool {
         );
     }
 
+    /**
+     * 精确编辑（业界口径）：old_text 逐字符唯一匹配才改，命中 0 处或多处都报错不乱改；
+     * 改完把 unified diff 打回给模型核对。传 replace_all=true 才替换全部匹配。
+     * 用字符串拼接而非 String.format，避免脚本里的 % 与格式化占位符冲突。
+     */
+    private String buildEditScript(String path, String oldText, String newText, String encoding, boolean replaceAll) {
+        return "# -*- coding: utf-8 -*-\n"
+            + "import os, difflib\n"
+            + "path = " + quoteString(path) + "\n"
+            + "old_text = " + quoteString(oldText) + "\n"
+            + "new_text = " + quoteString(newText) + "\n"
+            + "enc = " + quoteString(encoding) + "\n"
+            + "replace_all = " + (replaceAll ? "True" : "False") + "\n"
+            + "if not old_text:\n"
+            + "    print('缺少参数: old_text（edit 需要逐字符精确匹配的被替换文本）'); raise SystemExit\n"
+            + "if not os.path.exists(path):\n"
+            + "    print('文件不存在: ' + path); raise SystemExit\n"
+            + "data = None\n"
+            + "for e in (enc, 'utf-8', 'gb18030'):\n"
+            + "    try:\n"
+            + "        with open(path, 'r', encoding=e) as f:\n"
+            + "            data = f.read()\n"
+            + "        enc = e; break\n"
+            + "    except (UnicodeDecodeError, UnicodeError):\n"
+            + "        continue\n"
+            + "if data is None:\n"
+            + "    print('无法解码文件'); raise SystemExit\n"
+            + "count = data.count(old_text)\n"
+            + "if count == 0:\n"
+            + "    print('[edit 失败] 未找到精确匹配。old_text 必须逐字符一致（含缩进/空格/换行）。先用 action=read 核对原文再改。'); raise SystemExit\n"
+            + "if count > 1 and not replace_all:\n"
+            + "    print('[edit 失败] old_text 匹配 ' + str(count) + ' 处、不唯一。请扩大 old_text 上下文到唯一，或传 replace_all=true 替换全部。'); raise SystemExit\n"
+            + "n = count if replace_all else 1\n"
+            + "new_data = data.replace(old_text, new_text or '', n)\n"
+            + "with open(path, 'w', encoding=enc) as f:\n"
+            + "    f.write(new_data)\n"
+            + "diff = ''.join(difflib.unified_diff(data.splitlines(True), new_data.splitlines(True), fromfile='before', tofile='after', n=3))\n"
+            + "print('已编辑: ' + path + ' (替换 ' + str(n) + ' 处，共 ' + str(count) + ' 处匹配)')\n"
+            + "print('==unified diff==')\n"
+            + "if diff:\n"
+            + "    print(diff[:6000] + ('...(diff 过长已截断)' if len(diff) > 6000 else ''))\n"
+            + "else:\n"
+            + "    print('(内容无变化)')\n";
+    }
+
+    /** 预览差异（不写）：file_path 与 content(提议新文本) 或 与 file_path_b(另一文件) 比较，返回 unified diff。 */
+    private String buildDiffScript(String path, String content, String pathB) {
+        return "# -*- coding: utf-8 -*-\n"
+            + "import os, difflib\n"
+            + "path = " + quoteString(path) + "\n"
+            + "content = " + quoteString(content) + "\n"
+            + "path_b = " + quoteString(pathB) + "\n"
+            + "if not os.path.exists(path):\n"
+            + "    print('文件不存在: ' + path); raise SystemExit\n"
+            + "def read_text(p):\n"
+            + "    for e in ('utf-8', 'gb18030', 'utf-16'):\n"
+            + "        try:\n"
+            + "            with open(p, 'r', encoding=e) as f:\n"
+            + "                return f.read()\n"
+            + "        except (UnicodeDecodeError, UnicodeError):\n"
+            + "            continue\n"
+            + "    with open(p, 'rb') as f:\n"
+            + "        return f.read().decode('utf-8', errors='replace')\n"
+            + "a = read_text(path)\n"
+            + "if path_b:\n"
+            + "    if not os.path.exists(path_b):\n"
+            + "        print('对比文件不存在: ' + path_b); raise SystemExit\n"
+            + "    b = read_text(path_b); fb, tb = path, path_b\n"
+            + "elif content is not None:\n"
+            + "    b = content; fb, tb = path, '(提议内容)'\n"
+            + "else:\n"
+            + "    print('diff 需要 content(提议新文本) 或 file_path_b(另一文件)'); raise SystemExit\n"
+            + "diff = ''.join(difflib.unified_diff(a.splitlines(True), b.splitlines(True), fromfile=fb, tofile=tb, n=3))\n"
+            + "if not diff:\n"
+            + "    print('两者无差异'); raise SystemExit\n"
+            + "print('==unified diff==')\n"
+            + "print(diff[:6000] + ('...(diff 过长已截断)' if len(diff) > 6000 else ''))\n";
+    }
+
+    private static boolean boolParam(Map<String, Object> p, String key, boolean def) {
+        Object v = p.get(key);
+        if (v instanceof Boolean) return (Boolean) v;
+        if (v == null) return def;
+        String s = String.valueOf(v).trim().toLowerCase();
+        if (s.equals("true") || s.equals("1") || s.equals("yes")) return true;
+        if (s.equals("false") || s.equals("0") || s.equals("no") || s.isEmpty()) return false;
+        return def;
+    }
+
     private AIToolResult formatResult(PythonToolManager.ExecutionResult result, String action) {
         Map<String, Object> info = new HashMap<>();
         info.put("action", action);
@@ -482,12 +584,14 @@ public class PythonFileOpsTool extends BaseAITool {
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("action", "操作: read(读文本)/parse(解析CSV/JSON/XML/Excel/Word docx/PPT pptx/PDF)/write(写)/append(追加)/replace(替换)");
+        params.put("action", "操作: read(读文本)/parse(解析CSV/JSON/XML/Excel/Word docx/PPT pptx/PDF)/write(写)/append(追加)/edit(精确改一处,推荐)/replace(替换全部匹配)/diff(预览差异不写)");
         params.put("file_path", "文件路径(必填)");
-        params.put("content", "内容(write/append用)");
-        params.put("old_text", "被替换文本(replace用)");
-        params.put("new_text", "替换为(replace用，可为空=删除)");
-        params.put("encoding", "编码(write/append用，默认utf-8)");
+        params.put("content", "内容(write/append用；diff 时改为填提议的新文本)");
+        params.put("old_text", "被替换文本(edit/replace用；edit 要求逐字符精确、唯一匹配)");
+        params.put("new_text", "替换为(edit/replace用，可为空=删除)");
+        params.put("replace_all", "edit 用：默认只改唯一匹配处，传 true 才替换全部匹配（缺省 false）");
+        params.put("file_path_b", "diff 用：与另一文件比较（与 content 二选一）");
+        params.put("encoding", "编码(write/append/edit用，默认utf-8)");
         params.put("format", "解析格式(parse用: csv/tsv/json/xml/xlsx/docx/pptx/pdf，留空按扩展名)");
         params.put("max_rows", "最大行数(parse用，默认500)");
         params.put("max_chars", "最大输出字符数(默认8000)");

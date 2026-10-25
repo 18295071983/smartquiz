@@ -471,54 +471,102 @@ def bulk_import_questions(data, db_name='smartquiz_database'):
 
 # ==================== Python 文件执行 ====================
 
+def _android_helper_public_names():
+    """复刻 `from android_helper import *`：本模块所有非下划线公开名。
+
+    供 run_python_file 注入命名空间用——让"存成 .py 再跑"和"直接贴进 python_execute"（buildSafeCode
+    会 `from android_helper import *`）行为一致，不必在文件里重复 import setup_matplotlib_cjk 等。
+    """
+    return {k: v for k, v in globals().items() if not k.startswith("_")}
+
+
+def _workspace_constants():
+    """经 Chaquopy 拿 AgentWorkspace，算出 WORKSPACE_DIR/WORKSPACE_FILES（与 buildSafeCode 同源 getter）。
+
+    buildSafeCode 在 Java 侧用 AgentWorkspace.getWorkspaceDir()/getFilesDir() 拼绝对路径注入；
+    这里用同一组 getter，两侧值一致。取不到（非 Chaquopy 环境等）返回空 dict，不抛。
+    """
+    try:
+        from java import jclass
+        from com.chaquo.python import Python
+        ctx = Python.getPlatform().getApplication()
+        if ctx is None:
+            return {}
+        ws = jclass("com.oilquiz.app.ai.agent.online.AgentWorkspace").getInstance(ctx)
+        return {"WORKSPACE_DIR": str(ws.getWorkspaceDir().getAbsolutePath()),
+                "WORKSPACE_FILES": str(ws.getFilesDir().getAbsolutePath())}
+    except Exception:
+        return {}
+
+
+def _prelude_namespace():
+    """执行 .py 文件时注入的命名空间：标准库预置 + android_helper 星号 + WORKSPACE 常量。
+
+    与 python_execute 内联代码同口径，消除"贴进去能跑、存成文件就 NameError: name 'os'/'WORKSPACE_FILES'
+    is not defined"。顺序照 buildSafeCode：先标准库预置，再 android_helper 星号（同名以后者为准），最后 WORKSPACE 常量。
+    """
+    ns = {}
+    try:
+        from python_tool_engine import _PRELUDE_NAMESPACE
+        ns.update(_PRELUDE_NAMESPACE)
+    except Exception:
+        pass
+    ns.update(_android_helper_public_names())
+    ns.update(_workspace_constants())
+    return ns
+
+
 def run_python_file(file_path, args=None, timeout=60):
     """执行一个 Python 文件，返回其 stdout 输出。
 
     Chaquopy 环境下无法用 sys.executable 启动子进程（Android 无独立 python 可执行文件），
-    改为在当前解释器内 exec 执行，并捕获 stdout/stderr。
+    改为在当前解释器内执行。本函数**委托引擎 execute_with_auto_fix**，从而与"直接贴进 python_execute"
+    全量同口径：自带顶层 return 包裹、NameError/ModuleNotFound 自动修复、缺失依赖自动安装、标准库预置命名空间。
     timeout: 超时秒数（默认 60），防止死循环脚本永久卡住（偶发故障根因之一）。
     """
-    import io as _io
-    # 与 python_tool_engine 同一套线程绑定捕获；这里以前用进程级 redirect_*，
-    # 超时被弃的脚本线程会把后续调用的 sys.stdout 还原成上一轮已关闭的 buffer。
-    import py_stream_capture
     if not os.path.exists(file_path):
         return f"错误: 文件不存在 {file_path}"
     with open(file_path, 'r', encoding='utf-8') as f:
         code = f.read()
 
-    namespace = {
-        '__name__': '__main__',
-        '__builtins__': __builtins__,
-    }
+    # 注入与内联代码同口径的额外命名空间（android_helper 星号 + WORKSPACE 常量 + 标准库预置），
+    # 作为 variables 传给引擎，让"存成 .py 再 run"和"贴进 python_execute"行为一致。
+    variables = _prelude_namespace()
     if args:
-        namespace['sys_argv'] = args
-        namespace['args'] = args
+        variables['sys_argv'] = args
+        variables['args'] = args
 
-    stdout_buf = _io.StringIO()
-    stderr_buf = _io.StringIO()
-    result_holder = {}
-    import threading as _threading
+    # 引擎需要 context 才能把 work_dir/MPLCONFIGDIR 定到可写目录；尽量拿 Application，拿不到用默认。
+    ctx = None
+    try:
+        from com.chaquo.python import Python
+        ctx = Python.getPlatform().getApplication()
+    except Exception:
+        ctx = None
 
-    def _run():
-        try:
-            with py_stream_capture.capture(stdout_buf, stderr_buf):
-                exec(compile(code, file_path, 'exec'), namespace, namespace)
-            output = stdout_buf.getvalue()
-            err = stderr_buf.getvalue()
-            if err:
-                output += '\n[STDERR] ' + err
-            result_holder['output'] = output if output else '(无输出)'
-        except Exception as e:
-            import traceback as _tb
-            result_holder['output'] = f'错误: {e}\n{_tb.format_exc()}'
+    try:
+        import python_tool_engine as _pte
+        engine = _pte.get_engine(ctx) if ctx is not None else _pte.get_engine()
+        r = engine.execute_with_auto_fix(code, timeout=int(timeout), variables=variables)
+    except Exception as e:
+        import traceback as _tb
+        return f"错误: {e}\n{_tb.format_exc()}"
 
-    thread = _threading.Thread(target=_run, daemon=True)
-    thread.start()
-    thread.join(timeout)
-    if thread.is_alive():
-        return f"错误: 执行超时（{timeout}秒），脚本可能包含死循环"
-    return result_holder.get('output', '(无输出)')
+    out = r.get("stdout") or ""
+    err = r.get("stderr") or ""
+    error = r.get("error")
+    if isinstance(error, dict):
+        msg = "%s: %s" % (error.get("type", ""), error.get("message", ""))
+        tb = error.get("traceback") or ""
+        out += "\n[ERROR] " + msg + ("\n" + tb if tb else "")
+    elif error:
+        out += "\n[ERROR] " + str(error)
+    if err:
+        out += "\n[STDERR] " + err
+    res = r.get("result")
+    if res is not None and not out.strip():
+        out = str(res)
+    return out if out and out.strip() else "(无输出)"
 
 def create_python_file(name, code, directory=None):
     """创建一个 Python 文件并返回路径"""

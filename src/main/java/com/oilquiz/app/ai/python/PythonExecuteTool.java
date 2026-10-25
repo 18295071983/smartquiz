@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
 
 @Tool(
     value = "python_execute",
-    description = "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 用同一套原生卡片渲染，但展示面是**前台 Activity 的弹窗**、不进聊天流也不留档；props 带 actions 可交互、get_component_result 取回点击值；无前台 Activity 时降级为 Toast。要把卡片挂进 AI 消息气泡请用 ui_component 工具(action=create)，类型列表见它的 component_type 参数；工具产物(.html/.png/.xlsx 等)会由 UI 桥接层自动补挂对应卡片。web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab、python-docx(docx→Word读写)、python-pptx(pptx→PPT读写)、pypdf(PDF读取/合并/拆分)、XlsxWriter(xlsxwriter→Excel写入，pptx图表依赖)；读写 Word/PPT/PDF 直接用 docx/pptx/pypdf，无需再装；绘制图表用matplotlib(先设中文字体)或Pillow。运行时已内置pip模块(import pip可用)。安装新Python包：① 优先 action=pip_install(package=包名)（pip.main编程式安装到filesDir/python_user_packages，装后本会话即可import）；② 纯Python包(py3-none-any wheel)最稳用 pip_install 工具(自研下载器，不依赖pip)；③ 编程式: import pip; pip.main(['install','--target','<可写目录>','包名'])。【禁止】用 subprocess 或 python -m pip（Chaquopy无独立python可执行文件，必然失败）",
+    description = "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 用同一套原生卡片渲染，但展示面是**前台 Activity 的弹窗**、不进聊天流也不留档；props 带 actions 可交互、get_component_result 取回点击值；无前台 Activity 时降级为 Toast。要把卡片挂进 AI 消息气泡请用 ui_component 工具(action=create)，类型列表见它的 component_type 参数；工具产物(.html/.png/.xlsx 等)会由 UI 桥接层自动补挂对应卡片。web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab、python-docx(docx→Word读写)、python-pptx(pptx→PPT读写)、pypdf(PDF读取/合并/拆分)、XlsxWriter(xlsxwriter→Excel写入，pptx图表依赖)；读写 Word/PPT/PDF 直接用 docx/pptx/pypdf，无需再装；绘制图表用matplotlib(先设中文字体)或Pillow。脚本内 subprocess/文件默认跑在 App 沙箱(cwd 可能只读 /、无 apt/pip/git)；需要真 Linux(可写文件系统、apt/pip/git、tmux 长跑、完整 Python)时 import android_termux 把命令交给已安装的 Termux 执行(android_termux.run(cmd,timeout=20)/wake()/available()，只后台起服务不抢前台，需先在「完整 Python 环境」调试配置页装 Termux 并授权)；纯内置命令(busybox/openssl/curl/rg/jq 等)也可 import android_shell。运行时已内置pip模块(import pip可用)。安装新Python包：① 优先 action=pip_install(package=包名)（pip.main编程式安装到filesDir/python_user_packages，装后本会话即可import）；② 纯Python包(py3-none-any wheel)最稳用 pip_install 工具(自研下载器，不依赖pip)；③ 编程式: import pip; pip.main(['install','--target','<可写目录>','包名'])。【禁止】用 subprocess 或 python -m pip（Chaquopy无独立python可执行文件，必然失败）",
     category = "python",
     aliases = {"python", "run_python", "python_code"},
     actions = {
@@ -65,7 +65,7 @@ public class PythonExecuteTool extends BaseAITool {
             "[\"']?([/\\\\]?[\\w./\\\\-]+\\.(xlsx|xls|csv|json|xml|tsv))[\"']?");
     
     public PythonExecuteTool(Context context) {
-        super("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 用同一套原生卡片渲染，但展示面是**前台 Activity 的弹窗**、不进聊天流也不留档；props 带 actions 可交互、get_component_result 取回点击值；无前台 Activity 时降级为 Toast。要把卡片挂进 AI 消息气泡请用 ui_component 工具(action=create)，类型列表见它的 component_type 参数；工具产物(.html/.png/.xlsx 等)会由 UI 桥接层自动补挂对应卡片。web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab、python-docx(docx→Word读写)、python-pptx(pptx→PPT读写)、pypdf(PDF读取/合并/拆分)、XlsxWriter(xlsxwriter→Excel写入，pptx图表依赖)；读写 Word/PPT/PDF 直接用 docx/pptx/pypdf，无需再装；绘制图表用matplotlib(先设中文字体)或Pillow。运行时已内置pip模块(import pip可用)。安装新Python包：① 优先 action=pip_install(package=包名)（pip.main编程式安装到filesDir/python_user_packages，装后本会话即可import）；② 纯Python包(py3-none-any wheel)最稳用 pip_install 工具(自研下载器，不依赖pip)；③ 编程式: import pip; pip.main(['install','--target','<可写目录>','包名'])。【禁止】用 subprocess 或 python -m pip（Chaquopy无独立python可执行文件，必然失败）");
+        super("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 用同一套原生卡片渲染，但展示面是**前台 Activity 的弹窗**、不进聊天流也不留档；props 带 actions 可交互、get_component_result 取回点击值；无前台 Activity 时降级为 Toast。要把卡片挂进 AI 消息气泡请用 ui_component 工具(action=create)，类型列表见它的 component_type 参数；工具产物(.html/.png/.xlsx 等)会由 UI 桥接层自动补挂对应卡片。web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab、python-docx(docx→Word读写)、python-pptx(pptx→PPT读写)、pypdf(PDF读取/合并/拆分)、XlsxWriter(xlsxwriter→Excel写入，pptx图表依赖)；读写 Word/PPT/PDF 直接用 docx/pptx/pypdf，无需再装；绘制图表用matplotlib(先设中文字体)或Pillow。脚本内 subprocess/文件默认跑在 App 沙箱(cwd 可能只读 /、无 apt/pip/git)；需要真 Linux(可写文件系统、apt/pip/git、tmux 长跑、完整 Python)时 import android_termux 把命令交给已安装的 Termux 执行(android_termux.run(cmd,timeout=20)/wake()/available()，只后台起服务不抢前台，需先在「完整 Python 环境」调试配置页装 Termux 并授权)；纯内置命令(busybox/openssl/curl/rg/jq 等)也可 import android_shell。运行时已内置pip模块(import pip可用)。安装新Python包：① 优先 action=pip_install(package=包名)（pip.main编程式安装到filesDir/python_user_packages，装后本会话即可import）；② 纯Python包(py3-none-any wheel)最稳用 pip_install 工具(自研下载器，不依赖pip)；③ 编程式: import pip; pip.main(['install','--target','<可写目录>','包名'])。【禁止】用 subprocess 或 python -m pip（Chaquopy无独立python可执行文件，必然失败）");
         this.context = context.getApplicationContext();
         this.toolManager = PythonToolManager.getInstance(context);
         this.fileReaderTool = new FileReaderTool(context);
@@ -617,18 +617,31 @@ public class PythonExecuteTool extends BaseAITool {
         String userPipDir = new java.io.File(context.getFilesDir(), "python_user_packages").getAbsolutePath();
         sb.append("sys.path.insert(0, '").append(userPipDir.replace("\\", "\\\\")).append("')\n\n");
 
-        // ===== 工作区锚点（2026-10-22 写者侧统一）=====
-        // 进程 cwd 是应用数据目录，模型用相对路径产出文件（savefig/open(...,'w')）
-        // 会落进私有侧、脱离当前工作区（公共↔私有随存储授权切换），聊天卡片与文件管理页两头找。
-        // 不能 chdir：Chaquopy 在进程内执行，会连带改了整个 App 进程的 cwd。
-        // 故注入 WORKSPACE_DIR/WORKSPACE_FILES 常量 + 注释，给模型一个正确的产出锚点。
+        // ===== 工作区锚点（2026-10-22 写者侧统一；2026-10-25 纠正 cwd 口径）=====
+        // 进程 cwd 是**只读的 /**（Android 应用进程默认根目录，不是应用数据目录）：Chaquopy 的 CPython
+        // 跑在 App 进程内，直接继承这个 cwd。所以模型用相对路径产出文件（savefig/open(...,'w')/to_csv）
+        // 会解析成 /xxx → OSError: Read-only file system（EROFS），根本写不了（口径与 PythonChartTool 一致）。
+        // 不能 chdir：Chaquopy 在进程内执行，os.chdir 是进程级的，会连带改了整个 App 进程的 cwd。
+        // 故注入 WORKSPACE_DIR/WORKSPACE_FILES 常量 + 注释，给模型一个可写的绝对路径产出锚点。
+        // （需要真 Linux 可写环境/相对路径直接可用时，改用 android_termux 或 linux_shell engine=termux：
+        //   Termux 侧 workdir=其可写 home，cwd 问题不存在。）
         com.oilquiz.app.ai.agent.online.AgentWorkspace ws =
                 com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context);
         String wsDir = ws.getWorkspaceDir().getAbsolutePath().replace("\\", "\\\\");
         String wsFiles = ws.getFilesDir().getAbsolutePath().replace("\\", "\\\\");
-        sb.append("# 产出文件写到工作区：用 WORKSPACE_FILES 拼绝对路径（相对路径会落到应用数据目录，不在工作区）\n");
+        String wsTmp;
+        try {
+            wsTmp = String.valueOf(ws.getTmpPath()).replace("\\", "\\\\");
+        } catch (Exception e) {
+            wsTmp = wsFiles;   // 拿不到临时区就退回长期区，至少不是只读 /
+        }
+        sb.append("# 产出文件写到工作区（进程 cwd 是只读 /，相对路径写入会 EROFS 失败），两个区按需选：\n");
+        sb.append("#   WORKSPACE_FILES=长期区(报告/图片/导出等要留下的；**不自动清理**，要清用 workspace(action=clear, confirm=true))\n");
+        sb.append("#   WORKSPACE_TMP  =临时区(中间文件/缓存/跑一半的草稿；每轮对话结束 clearTmp 自动清理)\n");
         sb.append("WORKSPACE_DIR = '").append(wsDir).append("'\n");
-        sb.append("WORKSPACE_FILES = '").append(wsFiles).append("'\n\n");
+        sb.append("WORKSPACE_FILES = '").append(wsFiles).append("'\n");
+        sb.append("WORKSPACE_TMP = '").append(wsTmp).append("'\n");
+        sb.append("import os as _oz_ws\ntry:\n    _oz_ws.makedirs(WORKSPACE_TMP, exist_ok=True)\nexcept Exception:\n    pass\n\n");
         
         // ===== 标准库：基础与系统（Chaquopy保证可用） =====
         sb.append("import io, re, math, random, time, datetime, json, csv\n");
@@ -698,7 +711,15 @@ public class PythonExecuteTool extends BaseAITool {
         sb.append("    from android_helper import *\n");
         sb.append("except Exception:\n");
         sb.append("    pass\n\n");
-        
+
+        // ===== shell / Termux 桥接（按需 import，不自动加载）=====
+        // 沙箱 subprocess 用内置 busybox 走 android_shell；需要真 Linux（可写/apt/pip/git/tmux 长跑/完整 Python）
+        // 走 android_termux 交给已安装的 Termux（只后台起服务、不抢前台）。两者都不自动 import，避免无谓开销。
+        sb.append("# 需要真 Linux(可写文件系统/apt/pip/git/tmux 长跑/完整 Python)：import android_termux; android_termux.run(cmd)（交给已安装的 Termux；先在「完整 Python 环境」调试配置页装并授权，android_termux.available() 可自检）\n");
+        sb.append("# 需要 Ubuntu 容器里的完整环境(pandas/matplotlib 等)：android_termux.run(cmd, container=True) 或 submit(cmd, job_id, container=True)——一句调用，不必每次手写 ~/ubuntu -- …\n");
+        sb.append("# android_termux.run 只等 20 秒，超时那次拿不到结果；>20 秒的长任务用 android_termux.submit(cmd, job_id) detached 到 tmux + android_termux.poll(job_id) 秒回读结果(或 wait 轮询)\n");
+        sb.append("# 只用内置命令(busybox/openssl/curl/rg/jq/sqlite3 等)：import android_shell; android_shell.run(cmd)（App 沙箱，无需 Termux）\n\n");
+
         sb.append(code);
         return sb.toString();
     }

@@ -301,6 +301,8 @@ public final class ComponentTypes {
                 "标题 title, 路径 path, 旧内容 before, 新内容 after",
                 "hunks 优先；否则用 before/after 本地算行级差异；type=ctx|add|del"});
         SCHEMA.put("todo", new String[]{CATEGORY_SCENE, "待办 items[{text,done}]", "标题 title", ""});
+        // 注意：长任务活动卡 type=job 不在"面向模型的目录"里——它是 linux_shell(termux_submit) 经
+        // withComponent 直接挂载的工具产物卡，不由模型 create_component 生成；渲染只在 ComponentRegistry。
     }
 
     private ComponentTypes() {
