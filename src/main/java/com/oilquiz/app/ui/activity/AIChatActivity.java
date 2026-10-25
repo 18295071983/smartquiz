@@ -12948,6 +12948,9 @@ public class AIChatActivity extends BaseActivity {
         // 另补刷一次，避免后台期间状态条停在离开那一刻的旧值
         if (genStatusBar != null) genStatusBar.refresh();
         if (isGenerating) startGenerationTicker();
+        // 模型入口改跳「模型选择」页后，在那里换的在线/本地模型不会自己回到顶栏
+        // （激活变更没有跨页监听者），回页面时补刷一次副标题
+        com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.refreshSubtitleIfNeeded(this);
 
         // 后台产出回灌：离开页面期间工具写了哪些文件，回来用一条系统消息告知
         // （通知只在离开时发，回到前台即撤销，避免提示滞留）

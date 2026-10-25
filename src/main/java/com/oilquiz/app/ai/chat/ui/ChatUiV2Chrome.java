@@ -60,6 +60,22 @@ public final class ChatUiV2Chrome {
     }
 
     /**
+     * 回聊天页时重算一次顶栏副标题（2026-10-25，模型入口改跳「模型选择」页之后需要它）。
+     *
+     * <p>顶栏副标题是<b>复制</b>自旧状态条的当前值，而 {@code OnlineModelManager} 的
+     * "激活模型变更"没有任何跨页监听者（notifyActiveChanged 只在自己类里被调），
+     * 所以在模型中心切完在线模型返回聊天页时，顶栏会一直停在离开那一刻。
+     * 由 {@code AIChatActivity.onResume} 调这里补刷一次；v2 顶栏没挂上时静默跳过。</p>
+     */
+    public static void refreshSubtitleIfNeeded(Activity activity) {
+        if (!isApplied(activity)) return;
+        try {
+            updateSubtitle(activity, modelSubtitle(activity));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
      * 顶栏状态点颜色（demo 的 .s .dot）：就绪绿、错误红、加载中品牌色、未知灰。
      * 与副标题文案同源，由 {@code ServiceStatusManager} 在写状态时一起调用。
      */
@@ -198,8 +214,13 @@ public final class ChatUiV2Chrome {
         click(header, R.id.chat_v2_btn_history, v -> perform(activity, R.id.btn_history));
         click(header, R.id.chat_v2_btn_new, v -> perform(activity, R.id.btn_new_conversation));
         click(header, R.id.chat_v2_btn_more, v -> openInfoSheet(ctx));
+        // 模型入口直跳「模型选择」页（2026-10-25）：原先这里弹的是聊天页内的 ModelSheet 面板，
+        // 但它本地 tab 的行根本没挂点击、"应用"也只写温度不切模型，却照样弹"已应用"——
+        // 是个会骗人的半成品。切换模型/下载/删除的统一入口本来就在 ModelCenterActivity，
+        // 不再在聊天页复制一份"看着能切、其实不接线"的 UI。
         click(header, R.id.chat_v2_btn_model, v ->
-                ModelSheet.show(activity, () -> updateSubtitle(activity, modelSubtitle(activity))));
+                activity.startActivity(new Intent(activity,
+                        com.oilquiz.app.ui.activity.ModelCenterActivity.class)));
         return header;
     }
 
