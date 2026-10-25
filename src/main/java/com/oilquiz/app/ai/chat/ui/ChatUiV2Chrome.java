@@ -132,7 +132,6 @@ public final class ChatUiV2Chrome {
         }
         hide(activity, R.id.btn_back);
         hide(activity, R.id.remote_dsh_bar);
-        hide(activity, R.id.log_container);
         // demo 没有左下角历史悬浮球：v2 的历史入口就是顶栏汉堡键，悬浮球会盖住正文
         hide(activity, R.id.btn_history_fab);
         // v1 的"思考中"金色渐变细线（3dp）：生成状态已挪到输入区上方那一行，
