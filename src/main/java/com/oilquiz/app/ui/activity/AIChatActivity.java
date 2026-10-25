@@ -5719,6 +5719,14 @@ public class AIChatActivity extends BaseActivity {
 
     /** 本轮本地 Agent 的用户消息（完成回调回写本地推理历史用；本地推理上下文独立化 2026-09-14） */
     private volatile String lastAgentUserMessage = null;
+    /**
+     * 上一条待回写的 Agent 用户消息（2026-10-25 停止/重入修复）。
+     *
+     * <p>发送前把 {@link #lastAgentUserMessage} 暂存到这里。若这次发送被本地层拒绝
+     * （上一条仍在跑，走 {@code onAgentBusy}），就把 {@code lastAgentUserMessage} 回滚回来 ——
+     * 否则上一轮完成时会把这条"被丢弃的消息"当成问题写进本地推理历史。</p>
+     */
+    private volatile String lastAgentUserMessagePrev = null;
 
 
 
@@ -6117,7 +6125,9 @@ public class AIChatActivity extends BaseActivity {
                     agentHistory.add(new AgentLoopEngine.HistoryEntry(e[0], e[1]));
                 }
             }
-            lastAgentUserMessage = message; // 完成回调回写本地推理历史用
+            // 完成回调回写本地推理历史用；先暂存上一条，重入被拒时（onAgentBusy）回滚
+            lastAgentUserMessagePrev = lastAgentUserMessage;
+            lastAgentUserMessage = message;
             agentChatHandler.startAgentLoop(message, maxTokens, enableThinking, agentHistory);
 
         } catch (Exception e) {
@@ -7798,12 +7808,18 @@ public class AIChatActivity extends BaseActivity {
             if (!completed.compareAndSet(false, true)) return;
             // 本地推理上下文独立化（2026-09-14）：Agent 轮次完成后回写该轮对话到本地推理历史，
             // 与普通对话共享同一真相源（普通↔Agent 来回切换不失忆）
-            if (modelBridge != null) {
+            // 2026-10-25：空正文不回写。用户点停止时引擎只回收"已产出的部分正文"，
+            // 停止得早就是空串——写进去等于给本地历史塞一条空 assistant 轮，
+            // 下一轮的上下文里会出现莫名其妙的空回复。
+            if (modelBridge != null && fullText != null && !fullText.trim().isEmpty()) {
                 String userMsg = lastAgentUserMessage;
                 if (userMsg != null) {
                     modelBridge.appendExternalChatTurn(userMsg, fullText);
                     lastAgentUserMessage = null;
                 }
+            } else if (modelBridge != null) {
+                // 被取消的空轮：清掉待回写标记，防止下一轮 onComplete 误用旧问题
+                lastAgentUserMessage = null;
             }
             // AGENT-STATUS-INDEX(2026-10-09)：必须在 completeGeneration 之前捕获消息索引。
             // completeGeneration -> endGeneration 会清空 currentStreamingMessageId，
@@ -7811,13 +7827,19 @@ public class AIChatActivity extends BaseActivity {
             // 气泡内步骤状态永久停在"🔍 思考中...（第N轮）"（用户报的"思考没有完成态"）。
             final int doneIdx = resolveStreamingIndex();
             completeGeneration(fullText);
+            // 停止收尾（2026-10-25）：本地 Agent 被取消时，循环仍会带着"已产出的部分正文"
+            // 走到这里。此时顶部状态栏若照旧写"✅ 执行完成"，就是用户报的"上下对不上"——
+            // 底下已写"已停止"，上面又闪一个完成。completeGeneration 内部已按
+            // userStoppedCurrentGeneration 选择 FINISH_STOPPED，这里的外层文案必须同口径。
+            final boolean stoppedByUser = userStoppedCurrentGeneration;
+            final String finishLabel = stoppedByUser ? "⏹ 已停止" : "✅ 执行完成";
             // 清理组ID（执行完成，不插入系统消息）
             runOnUiThread(() -> {
                 if (uiDetached) return; // UI 已分离：结果已落盘，跳过界面更新
-                // 状态栏恢复（执行完成）
-                updateAgentStatusBar("✅ 执行完成", false);
+                // 状态栏恢复（执行完成 / 用户停止）
+                updateAgentStatusBar(finishLabel, false);
                 // 气泡内步骤状态（汇总文本已在 completeGeneration 中写入 agentSummary）
-                setAgentStepStatus(doneIdx, "✅ 执行完成");
+                setAgentStepStatus(doneIdx, finishLabel);
                 if (currentAgentGroupId != null && chatAdapter != null) {
                     chatAdapter.updateAgentGroupCounts(currentAgentGroupId, agentGroupStepCount, agentGroupToolCount);
                 }
@@ -7840,6 +7862,25 @@ public class AIChatActivity extends BaseActivity {
                 }
                 currentAgentGroupId = null;
                 handleGenerationError("Agent出错: " + error);
+            });
+        }
+
+        @Override
+        public void onAgentBusy(String userMessage) {
+            // 2026-10-25：本地 Agent 串行执行，上一条还在跑时这条被软件层拒绝。
+            // 旧实现是静默 return：没有任何 onComplete/onError 回来，界面既不说"被丢了"，
+            // 也不说"还在跑"，用户只看到永久"⏳ 模型处理中…"。
+            //
+            // 这里**只提示、不动消息列表**：此刻 currentStreamingMessageId 已被这次
+            // 被拒的发送重新赋值，而上一条的回答仍在路上——它会流进这个气泡并落地，
+            // 所以气泡不会空着；若这里反而去 handleGenerationError 收口，就会把上一条
+            // 尚未定稿的气泡一起带掉（本文件有多处 RecyclerView 一致性崩溃的历史，
+            // 见 handleGenerationError 里那段批量通知的注释，不做没必要的列表增删）。
+            // 同时回滚 lastAgentUserMessage，保证上一条完成时回写历史配对的是它自己的问题。
+            lastAgentUserMessage = lastAgentUserMessagePrev;
+            runOnUiThread(() -> {
+                if (uiDetached) return;
+                showToast("上一条本地 Agent 仍在执行中，本次请求未发送（可点「停止」中断它）");
             });
         }
 
