@@ -2,9 +2,7 @@ package com.oilquiz.app.ai.chat.ui;
 
 import android.app.Activity;
 import android.text.TextUtils;
-import android.util.TypedValue;
 import android.view.View;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.oilquiz.app.R;
@@ -17,6 +15,11 @@ import com.oilquiz.app.R;
  * {@code tv_api_balance}、{@code tv_token_stats}、{@code tv_gen_phase}、{@code tv_kv_stats}
  * ——它们一直在被各自的刷新方（{@code ServiceStatusManager}、统计条、生成状态条等）写，
  * v2 把头部收起来之后没地方看，这里只是把同一份数重新露出来，<b>不另算一遍、不新建状态</b>。</p>
+ *
+ * 值控件（当前模型 / 账号余额 / Token 用量 / 生成阶段 / KV 缓存），<b>只有状态五行</b>：
+ * 原面板那条「运行日志」读的是 {@code log_content}，而这个控件没有任何生产者，
+ * 搬过来就等于再造一个空壳，所以没搬——真日志入口是抽屉里既有的「📄 系统日志」→
+ * {@code LogsActivity}（详见 {@link #refresh}）。
  *
  * <p>刷新时机＝抽屉每次打开（与被删掉的面板"打开时取值"行为一致）+ {@link #bind} 时一次。
  * 已知局限：抽屉<b>保持打开</b>期间生成状态变化不会自动跳字（旧面板是模态的，不存在这个状态）。
@@ -40,14 +43,10 @@ public final class ChatDrawerStatusBinder {
     private ChatDrawerStatusBinder() {
     }
 
-    /** 绑定一次：挂「运行日志」入口、先刷一遍值、并在每次抽屉打开时刷新。 */
+    /** 绑定一次：先刷一遍值，并在每次抽屉打开时刷新。 */
     public static void bind(Activity activity) {
         if (activity == null) return;
         try {
-            View logBtn = activity.findViewById(R.id.btn_drawer_log);
-            if (logBtn != null) {
-                logBtn.setOnClickListener(v -> showRunLog(activity));
-            }
             refresh(activity);
             androidx.drawerlayout.widget.DrawerLayout drawer =
                     activity.findViewById(R.id.drawer_layout);
@@ -66,52 +65,35 @@ public final class ChatDrawerStatusBinder {
         }
     }
 
-    /** 把源控件的当前文案抄进抽屉的值控件；源为空时显示「暂无数据」。 */
+    /**
+     * 把源控件的当前文案抄进抽屉的值控件。
+     *
+     * <p>两种情况按「暂无数据」处理，都不抄旧文案：源为空；或源控件<b>被刻意隐藏</b>——
+     * 生成阶段与 KV 缓存在推理中/在线模式下会被 {@code setVisibility(GONE)}
+     * （AIChatActivity:10113-10122 的设计：位置让给思考内容，KV 属本地引擎可选能力），
+     * 此时它们的 text 是离开上一轮时留下的旧值，抄过来会显示一个过期的"阶段"。</p>
+     *
+     * <p>运行日志<b>不在这里</b>：原面板那条读的是 {@code log_content}，而它没有任何生产者
+     * （全仓库除本类外零引用、布局里 {@code android:text=""}），是个空控件；
+     * 真入口是抽屉里既有的「📄 系统日志」({@code btn_log_viewer}) → {@code LogsActivity}，
+     * 它合并 AppLogger / AILogger / 崩溃报告 / 操作记录，还有实时流与过滤。</p>
+     */
     public static void refresh(Activity activity) {
         if (activity == null) return;
         try {
             for (int[] pair : PAIRS) {
-                if (!(activity.findViewById(pair[1]) instanceof TextView)) continue;
-                TextView target = (TextView) activity.findViewById(pair[1]);
-                String value = textOf(activity, pair[0]);
+                View src = activity.findViewById(pair[0]);
+                TextView target = activity.findViewById(pair[1]) instanceof TextView
+                        ? (TextView) activity.findViewById(pair[1]) : null;
+                if (target == null) continue;
+                boolean shown = src != null && src.getVisibility() == View.VISIBLE;
+                String value = shown && src instanceof TextView
+                        ? (((TextView) src).getText() == null ? "" : ((TextView) src).getText().toString())
+                        : "";
                 target.setText(TextUtils.isEmpty(value)
                         ? activity.getString(R.string.chat_v2_no_data) : value);
             }
         } catch (Throwable ignored) {
         }
-    }
-
-    /** 运行日志：内容同样取自现成的 {@code log_content}，只读弹层（原面板那条链接的替代）。 */
-    private static void showRunLog(Activity activity) {
-        try {
-            TextView tv = new TextView(activity);
-            tv.setText(textOf(activity, R.id.log_content));
-            if (TextUtils.isEmpty(tv.getText())) {
-                tv.setText(activity.getString(R.string.chat_v2_no_data));
-            }
-            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
-            tv.setTextIsSelectable(true);
-            int pad = dp(activity, 16);
-            tv.setPadding(pad, pad, pad, pad);
-            ScrollView scroll = new ScrollView(activity);
-            scroll.addView(tv);
-            new androidx.appcompat.app.AlertDialog.Builder(activity)
-                    .setTitle(activity.getString(R.string.chat_v2_log))
-                    .setView(scroll)
-                    .setNegativeButton(R.string.close, null)
-                    .show();
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private static String textOf(Activity activity, int id) {
-        View v = activity.findViewById(id);
-        if (!(v instanceof TextView)) return "";
-        CharSequence t = ((TextView) v).getText();
-        return t == null ? "" : t.toString();
-    }
-
-    private static int dp(Activity activity, float value) {
-        return (int) (value * activity.getResources().getDisplayMetrics().density + 0.5f);
     }
 }

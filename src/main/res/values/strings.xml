@@ -749,7 +749,6 @@
     <string name="chat_v2_phase">生成阶段</string>
     <string name="chat_v2_kv">KV 缓存</string>
     <string name="chat_v2_balance">账户余额</string>
-    <string name="chat_v2_log">运行日志</string>
     <string name="chat_v2_no_data">暂无数据</string>
     <!-- 聊天页 v2 输入胶囊（demo .composer）：旧布局里这些文案是硬编码的，v2 走资源 -->
     <string name="chat_input_hint">输入消息…</string>
