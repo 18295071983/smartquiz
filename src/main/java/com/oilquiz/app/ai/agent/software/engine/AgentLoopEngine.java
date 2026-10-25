@@ -160,6 +160,15 @@ public class AgentLoopEngine {
      * "引擎侧注入"通道（意图匹配或发现工具返回工具名后由 Java 加入 activeTools），
      * 单靠改 prompt 或让模型猜名字都无效。</p>
      *
+     * <p><b>2026-10-25 更新（本地专用薄工具适配层，见 {@link #LOCAL_THIN_TOOLS}）</b>：
+     * 上面说的"引擎侧注入通道"已用**静态**方式落地——核心集从 4 扩到 6，新增的是
+     * {@code read_file}/{@code write_file} 两个**单用途薄工具**（schema 里无 action enum、
+     * 参数只留必要一两个、描述一句话），执行时由 {@code executeToolSafely} 翻译成真实工具
+     * （{@code file_reader(action=read)}/{@code file_generator(action=create)}）。
+     * 之所以"薄"而不是直接注入 file_reader：大 schema 吃前缀、action enum 是 4B 选错的高发点；
+     * 薄工具既省 token 又少可选值。只在**会话开始静态**注入（中途加会破坏 KV 前缀）。
+     * 所以下方"移出 file_reader"的表述指的是**完整多 action 那份**，读文件能力现以薄工具回来了。</p>
+     *
      * <p>本次移出的 5 个（如需恢复，加回下面的数组即可，schema 由 buildToolsJson 自动处理）：
      * {@code tool_registry}（原 list/search/get 发现通道）、
      * {@code smart_research}（搜索→阅读→摘要多步链，现由 network_search 覆盖）、
@@ -174,8 +183,64 @@ public class AgentLoopEngine {
      * 因为核心集里唯一带"实时查询"语义的就是 ai_weather。</p>
      */
     private static final String[] DEFAULT_CORE_TOOLS = {
-            "time_date", "location", "ai_weather", "network_search"
+            "time_date", "location", "ai_weather", "network_search", "read_file", "write_file"
     };
+
+    // ==================== 本地专用「薄工具」适配层（2026-10-25）====================
+    // 动机：在线工具（file_reader/file_generator…）是**多 action + 大 description**的完整 schema，
+    // 对 4B + ~7.7K prompt 预算太贵；且 action enum 是 4B 选错参数的高发点（见 buildToolsJson 注释）。
+    // 薄工具 = 单用途：schema 里**没有 action 参数**（action 在适配层钉死）、参数只留必要的一两个、描述一句话
+    // → 前缀更短、可选值更少（对 4B 反而更稳），底层仍复用 executeTool(真实工具, {action:钉死值,...})。
+    // 关键约束：这些名字必须**会话开始就静态注入**（DEFAULT_CORE_TOOLS 首轮 seed），
+    // 中途加会破坏 Qwen3 tools 前缀的字节稳定 → 全量 re-prefill（~20s 首字）。故只走静态扩集。
+    private static final java.util.Map<String, ThinTool> LOCAL_THIN_TOOLS = new java.util.LinkedHashMap<>();
+    static {
+        LOCAL_THIN_TOOLS.put("read_file", new ThinTool(
+                "读取本地/工作区文本文件的完整内容（编码自动检测 UTF-8/GB18030/UTF-16）。path 支持绝对路径或工作区相对文件名。",
+                new String[][]{{"path", "string", "文件路径（绝对路径或工作区相对名）", "1"}},
+                "file_reader", "read",
+                new String[][]{{"path", "file_path"}}));
+        LOCAL_THIN_TOOLS.put("write_file", new ThinTool(
+                "把文本内容写入工作区文件（默认保存到 files/ 长期区，返回完整绝对路径）。文件名一律用英文/数字/下划线，不要用中文文件名。",
+                new String[][]{
+                        {"file_name", "string", "文件名/路径（英文，勿中文）", "1"},
+                        {"content", "string", "要写入的文本内容", "1"},
+                },
+                "file_generator", "create",
+                new String[][]{}));
+    }
+
+    /** 一个本地薄工具：极简 schema（无 action enum）+ 到真实工具的参数映射。 */
+    private static final class ThinTool {
+        final String desc;
+        final String[][] params;      // {name, type, description, required("1"/"0")}
+        final String realTool;        // 底层真实工具名
+        final String action;          // 钉死的 action（null 表示不注入）
+        final String[][] rename;      // {localParam -> realParam}；未列出的参数原样透传
+
+        ThinTool(String desc, String[][] params, String realTool, String action, String[][] rename) {
+            this.desc = desc;
+            this.params = params;
+            this.realTool = realTool;
+            this.action = action;
+            this.rename = rename;
+        }
+
+        /** 把模型给的薄参数翻译成真实工具的参数（重命名 + 钉死 action）。 */
+        Map<String, Object> translate(Map<String, Object> in) {
+            Map<String, Object> out = new java.util.HashMap<>();
+            java.util.Set<String> renamed = new java.util.HashSet<>();
+            for (String[] m : rename) {
+                renamed.add(m[0]);
+                if (in.containsKey(m[0])) out.put(m[1], in.get(m[0]));
+            }
+            for (Map.Entry<String, Object> e : in.entrySet()) {
+                if (!renamed.contains(e.getKey())) out.put(e.getKey(), e.getValue());
+            }
+            if (action != null) out.put("action", action);
+            return out;
+        }
+    }
 
     private final AIService aiService;
     private final AIToolManager toolManager;
@@ -654,7 +719,11 @@ public class AgentLoopEngine {
             // 不承担任何实际功能。真正的名字归一（别名/模糊匹配）在 resolveToolNameFuzzy。
             for (ToolCall tc : toolCalls) {
                 if (tc.toolName != null && !tc.toolName.isEmpty()) {
-                    String resolved = toolManager.resolveToolNameFuzzy(tc.toolName);
+                    // 薄工具名（read_file/write_file）不能被模糊解析成真实工具名（如 file_reader），
+                    // 否则会把那份大 schema 中途注入 activeTools → 上下文暴涨 + KV 前缀破坏。
+                    // 命中薄工具就原样保留（它已在 activeTools 里，下面 !contains 恒不成立、不注入任何东西）。
+                    String resolved = LOCAL_THIN_TOOLS.containsKey(tc.toolName)
+                            ? null : toolManager.resolveToolNameFuzzy(tc.toolName);
                     String real = resolved != null ? resolved : tc.toolName;
                     if (!activeTools.contains(real)) {
                         activeTools.add(real);
@@ -1998,8 +2067,8 @@ public class AgentLoopEngine {
         // 注：四工具全是只读查询，无外部副作用，故删掉了在线路径照抄来的"删除/覆盖文件先确认"
         // 死话（本地连该能力都没有），换成对四工具真实存在的风险：不许补充工具未返回的数据。
         // 全部为静态文本，同一天内字节不变，不破坏 buildCurrentTimeLine 的 KV 前缀复用设计。
-        sb.append("你的工作：与用户对话答疑；需要实时信息时只能调用下列四个工具，"
-                + "不要调用这四个之外的任何工具。\n");
+        sb.append("你的工作：与用户对话答疑；需要实时信息或读写文件时只能调用下列六个工具，"
+                + "不要调用这六个之外的任何工具。\n");
         sb.append("你的方式：实时/时效性信息必须用工具查证，禁止用训练数据猜测；"
                 + "静态知识直接回答，不必调用工具；结构化信息用清晰的分段与列表展示。\n");
         // ACTION-LOCATION(2026-10-11)：ai_weather 的每个 action 都**必须有位置**
@@ -2020,8 +2089,10 @@ public class AgentLoopEngine {
                 + "不要改用手机定位结果、也不要编造该城市的数据；若城市名换算不出位置，"
                 + "如实告知查不到，不要用别的城市顶上。"
                 + "network_search 查其他实时信息（油价、股价、新闻、赛事等）。"
+                + "read_file 读取本地/工作区文本文件内容（传 path）；write_file 把文本写入工作区文件"
+                + "（file_name 用英文名、勿中文，content 为正文）。"
                 + "禁止用天气工具回答非天气问题；日期与星期直接采用上面给出的【当前真实日期】，不必调工具。\n");
-        sb.append("你的边界：生成文件、读取本地文件、画图、运行代码、操作手机等超出上述四个工具的能力，"
+        sb.append("你的边界：画图、运行代码、操作手机、联网之外的重任务等超出上述六个工具的能力，"
                 + "如实说明做不到，可建议用户换用在线模式，不要硬用不相关的工具凑答案；"
                 + "工具返回什么就说什么，禁止补充工具未返回的数据。\n");
         // RETRY-ON-TOOL-FAILURE(2026-10-11)：真机实测（问"五台县的空气质量"）暴露的行为缺陷 ——
@@ -2189,6 +2260,38 @@ public class AgentLoopEngine {
         java.util.List<String> ordered = new java.util.ArrayList<>(toolNames);
         java.util.Collections.sort(ordered);
         for (String name : ordered) {
+            // 本地薄工具：单用途极简 schema（无 action enum，只留必要参数），
+            // 前缀更短 + 4B 无可选项可选错。底层调用在 executeToolSafely 翻译回真实工具。
+            ThinTool thin = LOCAL_THIN_TOOLS.get(name);
+            if (thin != null) {
+                try {
+                    JSONObject tool = new JSONObject();
+                    tool.put("type", "function");
+                    JSONObject function = new JSONObject();
+                    function.put("name", name);
+                    function.put("description", thin.desc);
+                    JSONObject params = new JSONObject();
+                    params.put("type", "object");
+                    JSONObject props = new JSONObject();
+                    JSONArray required = new JSONArray();
+                    for (String[] p : thin.params) {
+                        JSONObject prop = new JSONObject();
+                        prop.put("type", p[1]);
+                        prop.put("description", p[2]);
+                        props.put(p[0], prop);
+                        if ("1".equals(p[3])) required.put(p[0]);
+                    }
+                    params.put("properties", props);
+                    if (required.length() > 0) params.put("required", required);
+                    function.put("parameters", params);
+                    tool.put("function", function);
+                    schemaTokens += countTokensSafe(tool.toString());
+                    tools.put(tool);
+                } catch (Exception e) {
+                    AILogger.w(TAG, "Build thin tool JSON failed: " + name);
+                }
+                continue;
+            }
             // resolveToolDefinition 支持静态定义 + 动态工具反射生成
             ToolDefinition def = toolManager.resolveToolDefinition(name);
             if (def == null) continue;
@@ -2491,6 +2594,13 @@ public class AgentLoopEngine {
     private AIToolResult executeToolSafely(String toolName, JSONObject args) {
         Map<String, Object> params = jsonToMap(args);
         if (params == null) return AIToolResult.fail("参数解析失败");
+
+        // 本地薄工具：翻译成真实工具 + 钉死 action + 重命名参数，后续按真实工具执行/重试。
+        ThinTool thin = LOCAL_THIN_TOOLS.get(toolName);
+        if (thin != null) {
+            params = thin.translate(params);
+            toolName = thin.realTool;
+        }
 
         // 程序硬编码：天气与位置强关联——ai_weather 缺位置参数时自动补当前位置。
         // 优先填经纬度（绕开和风 geo/city lookup）；坐标无缓存时，优先从用户消息
