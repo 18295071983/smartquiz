@@ -3,15 +3,10 @@ package com.oilquiz.app.ai.feature;
 import android.content.Context;
 import android.util.Log;
 
-import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.model.Question;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 /**
  * 题目生成器 - AI驱动的题目批量生成
@@ -30,22 +25,15 @@ import java.util.concurrent.TimeoutException;
  */
 public class QuestionGenerator {
     private static final String TAG = "QuestionGenerator";
-    private final AIService aiService;
+    /** 统一出词入口（2026-10-25，见 {@link FeatureTextCompleter}）：不再一进来就 initializeSafe()。 */
+    private final FeatureTextCompleter completer;
     
     public QuestionGenerator(Context context) {
-        this.aiService = AIService.getInstance(context);
+        this.completer = new FeatureTextCompleter(context);
     }
     
     public List<Question> generateQuestions(String topic, int count, int difficulty) {
         List<Question> questions = new ArrayList<>();
-        
-        if (!aiService.isInitialized()) {
-            boolean initialized = aiService.initializeSafe();
-            if (!initialized) {
-                Log.e(TAG, "Failed to initialize AI service");
-                return questions;
-            }
-        }
         
         String prompt = String.format(
             "Generate %d %s difficulty questions about %s. Each question should include:\n" +
@@ -61,12 +49,11 @@ public class QuestionGenerator {
             count, getDifficultyString(difficulty), topic
         );
         
-        try {
-            Future<String> future = aiService.generateAsync(prompt, 1000);
-            String response = future.get(30, TimeUnit.SECONDS);
+        String response = completer.complete(prompt, 1000);
+        if (response != null) {
             questions = parseGeneratedQuestions(response);
-        } catch (InterruptedException | ExecutionException | TimeoutException e) {
-            Log.e(TAG, "Error generating questions: " + e.getMessage(), e);
+        } else {
+            Log.e(TAG, "题目生成失败：在线与本地都不可用");
         }
         
         return questions;

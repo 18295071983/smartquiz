@@ -25,7 +25,7 @@ import com.oilquiz.app.R;
 import com.oilquiz.app.ai.model.APIConfig;
 import com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig;
 import com.oilquiz.app.ai.model.OnlineModelManager;
-import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.feature.FeatureTextCompleter;
 import com.oilquiz.app.ai.service.UsageTracker;
 import com.oilquiz.app.ai.util.APIKeyManager;
 import com.oilquiz.app.adapter.QuestionAdapter;
@@ -60,7 +60,8 @@ public class QuestionGenerateActivity extends AppCompatActivity {
     
     private List<Question> generatedQuestions;
     private QuestionAdapter questionAdapter;
-    private AIService aiService;
+    /** 统一出词入口（2026-10-25）：在线优先、本地就绪挪出主线程，见 {@link FeatureTextCompleter}。 */
+    private FeatureTextCompleter featureCompleter;
     private List<List<Question>> historyList;
     private List<String> historyTitles;
     
@@ -118,7 +119,7 @@ public class QuestionGenerateActivity extends AppCompatActivity {
         tvUsageInfo = findViewById(R.id.tv_usage_info);
         
         // 初始化服务类
-        aiService = AIService.getInstance(this);
+        featureCompleter = new FeatureTextCompleter(this);
         onlineModelManager = OnlineModelManager.getInstance(this);
         apiKeyManager = APIKeyManager.getInstance(this);
         usageTracker = UsageTracker.getInstance(this);
@@ -316,21 +317,16 @@ public class QuestionGenerateActivity extends AppCompatActivity {
                 count, difficulty, type, topic
         );
 
-        // 3. 调用AI服务生成题目
-        if (!aiService.isInitialized()) {
-            if (!aiService.initializeSafe()) {
-                Toast.makeText(this, getString(R.string.h_f559a2f7), Toast.LENGTH_SHORT).show();
-                return;
-            }
-        }
-
+        // 3. 出词统一走 FeatureTextCompleter（2026-10-25）：
+        //    有激活在线模型先走在线，不为跑这个小功能把 1GB 本地权重拉进内存；
+        //    且绝不在主线程 initializeSafe()（它在主线程是 task.get(30s)，点一下就能 ANR）。
         // 更新加载消息
         loadingMessage.setText(getString(R.string.h_585b1380));
         loadingSubmessage.setText(getString(R.string.h_89cfc7f1));
         loadingLayout.setVisibility(View.VISIBLE);
 
         // 异步生成题目
-        currentTask = aiService.generateAsync(prompt, 2000).thenAccept(result -> runOnUiThread(() -> {
+        currentTask = featureCompleter.completeAsync(prompt, 2000).thenAccept(result -> runOnUiThread(() -> {
             // 隐藏加载状态
             loadingLayout.setVisibility(View.GONE);
             // 4. 解析并显示结果

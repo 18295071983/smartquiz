@@ -1,15 +1,8 @@
 package com.oilquiz.app.ai.feature;
 
 import android.content.Context;
-import android.util.Log;
 
-import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.model.Question;
-
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 /**
  * 题目分析器 - AI驱动的题目解析和解答
@@ -28,22 +21,17 @@ import java.util.concurrent.TimeoutException;
  * @since 2024
  */
 public class QuestionAnalyzer {
-    private static final String TAG = "QuestionAnalyzer";
-    private final AIService aiService;
+    /** 统一出词入口（2026-10-25，见 {@link FeatureTextCompleter}）：不再一进来就 initializeSafe()。 */
+    private final FeatureTextCompleter completer;
+
+    /** 调用方按 {@code startsWith("Error:")} 判失败（见 ToolResultInterpreter 等），前缀必须保留。 */
+    private static final String AI_UNAVAILABLE = FeatureTextCompleter.AI_UNAVAILABLE;
     
     public QuestionAnalyzer(Context context) {
-        this.aiService = AIService.getInstance(context);
+        this.completer = new FeatureTextCompleter(context);
     }
     
     public String analyzeQuestion(Question question) {
-        if (!aiService.isInitialized()) {
-            boolean initialized = aiService.initializeSafe();
-            if (!initialized) {
-                Log.e(TAG, "Failed to initialize AI service");
-                return "Error: AI service not initialized";
-            }
-        }
-        
         String prompt = String.format(
             "Analyze the following question and provide a detailed solution:\n" +
             "Question: %s\n" +
@@ -64,24 +52,11 @@ public class QuestionAnalyzer {
             question.getOptionD()
         );
         
-        try {
-            Future<String> future = aiService.generateAsync(prompt, 800);
-            return future.get(30, TimeUnit.SECONDS);
-        } catch (InterruptedException | ExecutionException | TimeoutException e) {
-            Log.e(TAG, "Error analyzing question: " + e.getMessage(), e);
-            return "Error: " + e.getMessage();
-        }
+        String out = completer.complete(prompt, 800);
+        return out != null ? out : AI_UNAVAILABLE;
     }
     
     public String getLearningSuggestions(Question question) {
-        if (!aiService.isInitialized()) {
-            boolean initialized = aiService.initializeSafe();
-            if (!initialized) {
-                Log.e(TAG, "Failed to initialize AI service");
-                return "Error: AI service not initialized";
-            }
-        }
-        
         String prompt = String.format(
             "Based on the following question, provide learning suggestions:\n" +
             "Question: %s\n" +
@@ -104,12 +79,7 @@ public class QuestionAnalyzer {
             question.getCorrectAnswer()
         );
         
-        try {
-            Future<String> future = aiService.generateAsync(prompt, 600);
-            return future.get(30, TimeUnit.SECONDS);
-        } catch (InterruptedException | ExecutionException | TimeoutException e) {
-            Log.e(TAG, "Error getting learning suggestions: " + e.getMessage(), e);
-            return "Error: " + e.getMessage();
-        }
+        String out = completer.complete(prompt, 600);
+        return out != null ? out : AI_UNAVAILABLE;
     }
 }

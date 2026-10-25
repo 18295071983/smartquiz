@@ -21,7 +21,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.textfield.TextInputLayout;
 import com.oilquiz.app.R;
-import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.feature.FeatureTextCompleter;
 import java.util.concurrent.CompletableFuture;
 
 public class TranslateActivity extends AppCompatActivity {
@@ -46,7 +46,9 @@ public class TranslateActivity extends AppCompatActivity {
     private Button btnCancel;
     private CompletableFuture<?> currentTask;
     
-    private AIService aiService;
+    /** 统一出词入口（2026-10-25）：在线优先、本地就绪挪出主线程，见 {@link FeatureTextCompleter}。 */
+    private FeatureTextCompleter featureCompleter;
+    
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -76,7 +78,7 @@ public class TranslateActivity extends AppCompatActivity {
         btnShare = findViewById(R.id.btn_share_translate);
         
         // 初始化AIService
-        aiService = AIService.getInstance(this);
+        featureCompleter = new FeatureTextCompleter(this);
         
         // 初始化加载动画
         loadingLayout = getLayoutInflater().inflate(R.layout.layout_loading, null);
@@ -190,13 +192,8 @@ public class TranslateActivity extends AppCompatActivity {
             );
         }
 
-        // 3. 调用AI服务进行翻译
-        if (!aiService.isInitialized()) {
-            if (!aiService.initializeSafe()) {
-                Toast.makeText(this, getString(R.string.h_f559a2f7), Toast.LENGTH_SHORT).show();
-                return;
-            }
-        }
+        // 3. 出词统一走 FeatureTextCompleter（2026-10-25）：在线优先，且绝不在主线程
+        //    initializeSafe()（它在主线程是 task.get(30s)，点一下就能 ANR）。
 
         // 更新加载消息
         if (radioLanguageDetect.isChecked()) {
@@ -212,7 +209,7 @@ public class TranslateActivity extends AppCompatActivity {
         loadingLayout.setVisibility(View.VISIBLE);
 
         // 异步翻译
-        currentTask = aiService.generateAsync(prompt, 1000).thenAccept(result -> runOnUiThread(() -> {
+        currentTask = featureCompleter.completeAsync(prompt, 1000).thenAccept(result -> runOnUiThread(() -> {
             // 隐藏加载状态
             loadingLayout.setVisibility(View.GONE);
             // 4. 显示翻译结果

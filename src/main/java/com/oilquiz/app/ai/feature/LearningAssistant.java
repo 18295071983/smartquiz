@@ -1,14 +1,6 @@
 package com.oilquiz.app.ai.feature;
 
 import android.content.Context;
-import android.util.Log;
-
-import com.oilquiz.app.ai.service.AIService;
-
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 /**
  * 学习助手 - AI驱动的个性化学习规划
@@ -25,22 +17,18 @@ import java.util.concurrent.TimeoutException;
  * @since 2024
  */
 public class LearningAssistant {
-    private static final String TAG = "LearningAssistant";
-    private final AIService aiService;
-    
+    /**
+     * 统一出词入口（2026-10-25）：以前每个方法开头都 {@code initializeSafe()} 直接把本地 GGUF
+     * 拉进内存；现在"有激活在线模型就先走在线，不为跑功能偷偷加载本地权重"。
+     * 见 {@link FeatureTextCompleter} 的口径说明。
+     */
+    private final FeatureTextCompleter completer;
+
     public LearningAssistant(Context context) {
-        this.aiService = AIService.getInstance(context);
+        this.completer = new FeatureTextCompleter(context);
     }
     
     public String getPersonalizedStudyPlan(String subject, int difficulty, int studyHoursPerWeek) {
-        if (!aiService.isInitialized()) {
-            boolean initialized = aiService.initializeSafe();
-            if (!initialized) {
-                Log.e(TAG, "Failed to initialize AI service");
-                return "Error: AI service not initialized";
-            }
-        }
-        
         String prompt = String.format(
             "Create a personalized study plan for learning %s at %s difficulty level.\n" +
             "Study time available: %d hours per week.\n" +
@@ -55,24 +43,11 @@ public class LearningAssistant {
             studyHoursPerWeek
         );
         
-        try {
-            Future<String> future = aiService.generateAsync(prompt, 1000);
-            return future.get(30, TimeUnit.SECONDS);
-        } catch (InterruptedException | ExecutionException | TimeoutException e) {
-            Log.e(TAG, "Error generating study plan: " + e.getMessage(), e);
-            return "Error: " + e.getMessage();
-        }
+        String out = completer.complete(prompt, 1000);
+        return out != null ? out : AI_UNAVAILABLE;
     }
     
     public String explainConcept(String concept, int difficultyLevel) {
-        if (!aiService.isInitialized()) {
-            boolean initialized = aiService.initializeSafe();
-            if (!initialized) {
-                Log.e(TAG, "Failed to initialize AI service");
-                return "Error: AI service not initialized";
-            }
-        }
-        
         String prompt = String.format(
             "Explain the concept of '%s' in a way that is appropriate for a %s level student.\n" +
             "Please include:\n" +
@@ -85,24 +60,11 @@ public class LearningAssistant {
             getDifficultyString(difficultyLevel)
         );
         
-        try {
-            Future<String> future = aiService.generateAsync(prompt, 800);
-            return future.get(30, TimeUnit.SECONDS);
-        } catch (InterruptedException | ExecutionException | TimeoutException e) {
-            Log.e(TAG, "Error explaining concept: " + e.getMessage(), e);
-            return "Error: " + e.getMessage();
-        }
+        String out = completer.complete(prompt, 800);
+        return out != null ? out : AI_UNAVAILABLE;
     }
     
     public String getExamTips(String examType, int daysUntilExam) {
-        if (!aiService.isInitialized()) {
-            boolean initialized = aiService.initializeSafe();
-            if (!initialized) {
-                Log.e(TAG, "Failed to initialize AI service");
-                return "Error: AI service not initialized";
-            }
-        }
-        
         String prompt = String.format(
             "Provide exam preparation tips for a %s exam with %d days remaining.\n" +
             "Please include:\n" +
@@ -116,15 +78,13 @@ public class LearningAssistant {
             daysUntilExam
         );
         
-        try {
-            Future<String> future = aiService.generateAsync(prompt, 800);
-            return future.get(30, TimeUnit.SECONDS);
-        } catch (InterruptedException | ExecutionException | TimeoutException e) {
-            Log.e(TAG, "Error getting exam tips: " + e.getMessage(), e);
-            return "Error: " + e.getMessage();
-        }
+        String out = completer.complete(prompt, 800);
+        return out != null ? out : AI_UNAVAILABLE;
     }
-    
+
+    /** 调用方按 {@code startsWith("Error:")} 判失败（见 ToolResultInterpreter 等），前缀必须保留。 */
+    private static final String AI_UNAVAILABLE = FeatureTextCompleter.AI_UNAVAILABLE;
+
     private String getDifficultyString(int difficulty) {
         switch (difficulty) {
             case 1:
