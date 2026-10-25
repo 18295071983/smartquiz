@@ -103,6 +103,95 @@
   日志不再出现本地模型初始化；断网或在线失败时应立刻回 `Error:` 而不是转圈。
   另有一个已知后果需要留意：在线失败且本地未加载时，这四个功能会直接失败
   （以前是"卡住加载本地再跑"）。这是刻意的取向，不是疏漏。
+## [2026-10-25] fix(model-load)：预加载与回前台热启动共用一份"要不要主动加载本地模型"判定
+
+用户带着假设来问："是不是本地模型文件后台加载了？"——是对的，我上一轮的否定是错的。
+
+### 查到的事实（出处）
+
+- 我先前 grep `Starting model initialization|模型在内存|热启动` 得 0 命中就断言"模型没加载"，
+  **两个错**：真实措辞是"开始热启动恢复"（搜错了词），而且我看的是**上一个进程**的时间窗。
+  按约定公开更正：那次的 0 命中不是证据。
+- 现场时序（`files/ai_logs/ai_log_20261025.txt`，进程 pid 18204，停在首页没进聊天页）：
+  ```
+  21:09:11.448 检测到激活的在线模型或本地 Agent 关闭，跳过本地模型预加载
+  21:09:19.784 [AIService] 检测到模型未在内存中，将自动尝试热启动
+  21:09:19.785 [SmartQuizApplication] 检测到可热启动，尝试恢复AI模型...
+  21:09:19.785 [AIService] 开始热启动恢复，模型: Qwen3.5-2B-Q4_0.gguf
+  21:09:31.257 [UnifiedContextManager] Context state changed: MODEL_READY
+  ```
+- 代价实测：`dumpsys meminfo` 的 `Native Heap Heap Alloc≈984MB`、`SwapPss 492MB`、
+  `EGL mtrack 26MB`＋`Gfx dev 30MB`；`/proc/<pid>/maps` 搜 `gguf` 为 0 命中
+  → 权重是 **malloc 全量进内存**而非 mmap，所以 maps 搜不到并不等于没加载。
+  41 个线程里没有任何 llama/ggml worker，说明抓到的正是加载阶段而非推理中。
+- 根因是同一个判定在两处各写了一半：预加载那道闸（`SmartQuizApplication:614`）看
+  `hasActiveOnlineModel() || !localAgentEnabled`；而回前台热启动的
+  `AIService.canHotStart()`（3569）**只排除 NPU 激活**，既不看在线模式也不看本地 Agent 开关。
+
+### 由此改掉的事
+
+1. 新增 `LocalModelLoadPolicy`：纯函数真值表 `shouldAutoLoadLocalModel(hasActiveOnlineModel,
+   localAgentEnabled) = !hasActiveOnlineModel && localAgentEnabled` ＋ `skipReason(Context)`
+   负责读现场并给出能直接进日志的原因。
+2. `canHotStart()` 在 NPU 排除之后补上该判定（改前先确认它全仓库**只有回前台一个调用方**，
+   没有 UI 消费端会被收紧影响）；预加载那侧改成调同一策略，删掉重复条件——"要不要主动加载
+   本地模型"从此只有一份口径。
+3. 唯一行为差异写明：以前"读在线模型状态抛异常"会落到 catch 里照常预加载，
+   现在保守成不主动加载（宁可让用户显式点一次加载，也不要"不用也占 1GB"）。
+   "已配置但未激活"的在线模型仍**不算数**，否则切回本地模型的人每次都要手动加载。
+4. 顺带记两条审计结果，都还不是 bug、等拍板：`ModelPreloadService` 整条链是死的
+   （manifest 未注册、唯一启动方 `AIService.startModelPreload()` 零调用方），但它内部
+   `onStartCommand` 的闸门同样只查 NPU——和刚修的是同一个"半条件"形状，哪天接回去就会
+   绕开判定；`hotStartEnabled` 默认 true 且 `setHotStartEnabled` 全仓库零调用，
+   是个没人能拨的虚设开关，留着会误导下一个读者。
+
+### 验证
+
+- 新增 `LocalModelLoadPolicyTest` 7 条（真值表 4 ＋ Robolectric 现场 3，含"本地 Agent 默认关
+  → 原因必须点名本地 Agent"这条，就是用户当下的状态）；
+  全量 `testDebugUnitTest --no-build-cache --rerun-tasks`：**1013 / 0 skipped / 0 failures / 0 errors**。
+- **未做的验证**：真机没跑。可证伪的两点是装机后冷启动应打
+  `canHotStart=false：已激活在线模型…` 且不再出现"开始热启动恢复"，`Heap Alloc` 从 ~984MB 掉下来。
+- 与下一笔的关系：这近 1GB 白占也正是 `fix(ai-feature)` 那条里功能页之外的另一条加载来源，
+  两笔合起来才把"在线模式却不该加载本地权重"这条口径铺全。
+## [2026-10-25] fix(agent-infra)：卡死哨兵改按"心跳被应答时刻"判定（沉默 bug 公开更正）
+
+真机自验 ANR 时，我自己写的 `MainThreadWatchdog` 一声不响，而同一进程的证据显示主线程
+确实吊了 6-9 秒。查下来是度量取错了基准。
+
+### 查到的事实（出处）
+
+- 20:51:42 冷重启进入聊天页（恢复 126 条消息），同期 `dumpsys gfxinfo com.oilquiz.app`
+  直方图 `1200ms=6、3150ms=2、3250ms=2、4950ms(顶桶)=8`，日志里
+  `HWUI Davey! duration=9137ms / 8085ms`、`Choreographer: Skipped 741 frames`；
+  而 `MainThreadWatchdog` 只有一行"已启动"，**零次报告**。
+- 原因：第一版判定用的是"`now − 最近一次**投递**`"，而投递每 500ms 就把
+  `pendingAtElapsed` 刷新一次，这个差值天然只有半秒，永远够不到 5000ms 阈值——
+  只有哨兵自己的线程被饿 4.5 秒以上才可能触发。所以"没有卡死记录"**不是证据**。
+- 顺带把 chat-render 那条的因果收窄：9 秒长帧的结束时刻（`Davey duration=9137ms`
+  打在 20:52:00.661）正好压在 `[history] merged loaded=100 localNew=26 total=126`
+  完成那一瞬（20:52:00.862），所以嫌疑主项是**历史合并/绑定整段**；
+  我在 chat-render 条目里写的"根因是 WebView 同步整篇加载"**并未被证实**
+  ——那条只把 markdown→HTML＋文件解析挪走，而修复前的 ANR 栈最内层其实停在
+  chromium 的 `loadDataWithBaseURL` native 帧上。不改写历史，只在此更正。
+
+### 由此改掉的事
+
+- 度量改成"**最近一次心跳被主线程执行掉**的时刻"：主线程吊住时它停住不动，差值才会真长到阈值。
+- 判定抽成纯函数 `isStalled(now, lastAnsweredAt, postedSeq, answeredSeq, threshold)`，
+  含两道守卫：必须有未应答心跳（长时间空闲≠卡死）、计时回拨一律不报。
+- 报告去重按 `outstanding 拍号`记录，同一次卡死只落一次盘，恢复后新的卡死还能再记。
+
+### 验证
+
+- 新增 5 条回归单测（6 秒阻塞必须抓到、健康心跳不误报、空闲不报、阈值边界、时钟回拨）；
+  全量 `--no-build-cache --rerun-tasks`：**1006 / 0 skipped / 0 failures / 0 errors**。
+- **未做的验证，且明确说明为什么没做**：哨兵"会不会真的响"仍未正面验证——正面验证需要
+  一个人为阻塞主线程的入口，那属于"为验证改生产代码"，你此前明确否决过，所以这里留空。
+  间接证据只有一条：它的兄弟打点（`AICrashHandler` 每 10s 的 resident 行）在同一窗口正常输出。
+- **口径教训**（和同日那条包体积更正同一类错误）：自造探针要先证明它"会响"，
+  才能拿它的沉默当结论；grep 计数 0 要先怀疑自己的搜索词与时间窗。
+  另外 ANR 是否消失**至今仍未证实**，装机后带修好的哨兵重跑才算。
 ## [2026-10-25] fix(chat-render)：正文整篇构建移出绑定主线程（修 ANR）+ 崩溃计数按死因归因
 
 用户要求抓启动 logcat 排查，顺藤摸到"连续 2 次崩溃跳过模型自动加载"这条告警，
