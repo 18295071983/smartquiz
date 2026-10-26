@@ -674,6 +674,81 @@ public class ProviderConfigManager {
         return getChatEndpoint(apiUrl);
     }
 
+    // ==================== 模型级端点 / 协议覆盖 ====================
+    // 「能力按模型判、端点按服务商取」是个真实的口径裂缝：同一家里个别模型走不同端点
+    // （聚合网关常见，或某模型尚未放量到 /responses）时，路由会照着服务商级端点发错请求。
+    // 所以 models[] 的对象形态再支持一个可选的 "services"，形状与服务商级 services 相同
+    // （{"agent":{"enabled":true,"endpoint":"/responses","protocol":"responses"}}），
+    // 命中该模型时覆盖服务商级；不声明则完全走老路径 —— 行为零变化，不是新默认值。
+    // 注意与"人工能力值"的区别：端点/协议是稳定配置（本就由这张表管着，services.* 早已如此），
+    // 而思考档位/输出上限那类会直接下发进请求、会随版本漂移，才是不该人工填的。
+
+    /** 该模型对某服务的覆盖声明（{@code models[]} 对象里的 {@code services.<service>}）；无则 null */
+    private JsonObject getModelServiceOverride(String apiUrl, String modelName, String service) {
+        if (modelName == null || modelName.isEmpty() || service == null) return null;
+        Provider p = matchByUrl(apiUrl);
+        if (p == null || p.models == null) return null;
+        for (JsonElement e : p.models) {
+            if (e == null || !e.isJsonObject()) continue;
+            JsonObject o = e.getAsJsonObject();
+            if (!o.has("name") || o.get("name").isJsonNull()) continue;
+            if (!modelName.equals(o.get("name").getAsString())) continue;
+            if (!o.has("services") || !o.get("services").isJsonObject()) return null;
+            JsonObject sv = o.getAsJsonObject("services");
+            if (sv.has(service) && sv.get(service).isJsonObject()) return sv.getAsJsonObject(service);
+            return null;
+        }
+        return null;
+    }
+
+    /** 只读取字符串字段；缺失/非字符串返回 null */
+    private static String strField(JsonObject o, String key) {
+        if (o == null || !o.has(key) || o.get(key).isJsonNull() || !o.get(key).isJsonPrimitive()) {
+            return null;
+        }
+        String v = o.get(key).getAsString();
+        return v != null && !v.trim().isEmpty() ? v.trim() : null;
+    }
+
+    /** 按「服务商 + 模型」解析端点：模型级 endpoint 覆盖优先，缺省回落服务商级原逻辑 */
+    public String getServiceEndpoint(String apiUrl, String service, String modelName) {
+        String ov = strField(getModelServiceOverride(apiUrl, modelName, service), "endpoint");
+        if (ov != null) return ov;
+        return getServiceEndpoint(apiUrl, service);
+    }
+
+    /** 按「服务商 + 模型」判服务是否启用：模型级 enabled 覆盖优先，缺省回落服务商级 */
+    public boolean hasService(String apiUrl, String service, String modelName) {
+        JsonObject ov = getModelServiceOverride(apiUrl, modelName, service);
+        if (ov != null && ov.has("enabled") && ov.get("enabled").isJsonPrimitive()) {
+            return ov.get("enabled").getAsBoolean();
+        }
+        return hasService(apiUrl, service);
+    }
+
+    /**
+     * 该模型是否把 agent 放量到 Responses 协议。
+     *
+     * <p>无模型级覆盖时直接走服务商级 {@link #agentUsesResponses(String)}（行为与今天完全一致）；
+     * 有覆盖时按模型级 {@code protocol} 判，端点仍必须真是 {@code /responses}。</p>
+     */
+    public boolean agentUsesResponses(String apiUrl, String modelName) {
+        Provider p = matchByUrl(apiUrl);
+        ServiceConfig providerAgent = p == null || p.services == null ? null : p.services.agent;
+        JsonObject ov = getModelServiceOverride(apiUrl, modelName, "agent");
+        if (ov == null) return agentUsesResponses(apiUrl);
+        if (ov.has("enabled") && ov.get("enabled").isJsonPrimitive()
+                && !ov.get("enabled").getAsBoolean()) {
+            return false; // 模型级显式关掉这个服务
+        }
+        String ep = strField(ov, "endpoint");
+        if (ep == null) ep = providerAgent == null ? null : providerAgent.endpoint;
+        if (ep == null || !ep.endsWith("/responses")) return false;
+        String proto = strField(ov, "protocol");
+        if (proto == null) proto = providerAgent == null ? null : providerAgent.protocol;
+        return "responses".equalsIgnoreCase(proto);
+    }
+
     /** 未声明端点时的标准 OpenAI 兼容兜底（避免 embedding 等误用 chat 端点） */
     private String defaultServiceEndpoint(String service) {
         if (service == null) return null;

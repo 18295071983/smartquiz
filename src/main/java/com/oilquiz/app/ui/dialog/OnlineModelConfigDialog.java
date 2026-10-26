@@ -646,7 +646,8 @@ public class OnlineModelConfigDialog {
                                      com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig config) {
         if (protocolHint == null) return;
         StringBuilder sb = new StringBuilder();
-        sb.append(com.oilquiz.app.ui.modelcenter.ModelCapabilitySummary.protocolLabel(url));
+        sb.append(com.oilquiz.app.ui.modelcenter.ModelCapabilitySummary.protocolLabel(url,
+                    editingConfig != null ? editingConfig.modelName : selectedModelId));
         if (config != null) {
             sb.append(" · ").append(
                     com.oilquiz.app.ui.modelcenter.ModelCapabilitySummary.contextLabel(config));

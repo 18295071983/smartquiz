@@ -36,7 +36,7 @@ public final class ModelCapabilitySummary {
         String badges = badges(config);
         if (!badges.isEmpty()) parts.add(badges);
         parts.add(contextLabel(config));
-        parts.add(protocolLabel(config.apiUrl));
+        parts.add(protocolLabel(config.apiUrl, config.modelName));
         String cost = costLabel(config);
         if (cost != null) parts.add(cost);
         return join(parts);
@@ -83,6 +83,16 @@ public final class ModelCapabilitySummary {
      * 这里翻成端点形态。</p>
      */
     public static String protocolLabel(String apiUrl) {
+        return protocolLabel(apiUrl, null);
+    }
+
+    /**
+     * 同上，但按「服务商 + 模型」判 Agent 实际打哪条端点。
+     *
+     * <p>徽章必须和引擎同一判据：配置表一旦支持模型级 services 覆盖，只看服务商级就会出现
+     * "界面写着 Agent 走 /responses、实际打 chat"（或反过来）的错误承诺。</p>
+     */
+    public static String protocolLabel(String apiUrl, String modelName) {
         try {
             ProviderConfigManager pcm = ProviderConfigManager.get();
             String protocol = pcm.getChatProtocol(apiUrl);
@@ -104,7 +114,7 @@ public final class ModelCapabilitySummary {
                     break;
             }
             // 声明走 Responses 的服务商：Agent 链路实际打 /responses，展示上要区分开
-            if (pcm.agentUsesResponses(apiUrl)
+            if (pcm.agentUsesResponses(apiUrl, modelName)
                     && !ProviderConfigManager.PROTOCOL_RESPONSES.equals(protocol)) {
                 return "协议 " + label + "，Agent 走 /responses";
             }

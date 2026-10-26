@@ -326,7 +326,7 @@ public class OnlineInferenceService {
         String model = pcm.getServiceModel(apiUrl, "embedding");
         if (model == null || model.isEmpty())
             throw new IllegalArgumentException("配置表未声明该服务商 embedding 模型（embeddingModel）");
-        String fullUrl = buildOpenAIUrl(apiUrl, pcm.getServiceEndpoint(apiUrl, "embedding"));
+        String fullUrl = buildOpenAIUrl(apiUrl, pcm.getServiceEndpoint(apiUrl, "embedding", model));
         fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
         URL url = new URL(fullUrl);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -391,7 +391,7 @@ public class OnlineInferenceService {
         String model = pcm.getServiceModel(apiUrl, "imageGen");
         if (model == null || model.isEmpty())
             throw new IllegalArgumentException("配置表未声明该服务商 imageGen 模型（imageModel）");
-        String fullUrl = buildOpenAIUrl(apiUrl, pcm.getServiceEndpoint(apiUrl, "imageGen"));
+        String fullUrl = buildOpenAIUrl(apiUrl, pcm.getServiceEndpoint(apiUrl, "imageGen", model));
         fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
         URL url = new URL(fullUrl);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -461,7 +461,7 @@ public class OnlineInferenceService {
         String model = pcm.getServiceModel(apiUrl, "rerank");
         if (model == null || model.isEmpty())
             throw new IllegalArgumentException("配置表未声明该服务商 rerank 模型（rerankModel）");
-        String fullUrl = buildOpenAIUrl(apiUrl, pcm.getServiceEndpoint(apiUrl, "rerank"));
+        String fullUrl = buildOpenAIUrl(apiUrl, pcm.getServiceEndpoint(apiUrl, "rerank", model));
         fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
         URL url = new URL(fullUrl);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -969,7 +969,7 @@ public class OnlineInferenceService {
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
         String model = pcm.getServiceModel(config.apiUrl, "embedding");
         if (model == null || model.isEmpty()) return null; // 配置表未声明 embedding 模型 → 不探测
-        String fullUrl = buildOpenAIUrl(config.apiUrl, pcm.getServiceEndpoint(config.apiUrl, "embedding"));
+        String fullUrl = buildOpenAIUrl(config.apiUrl, pcm.getServiceEndpoint(config.apiUrl, "embedding", model));
         fullUrl = pcm.withAuthQuery(fullUrl, config.apiKey);
         HttpURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
         try {
@@ -1112,8 +1112,8 @@ public class OnlineInferenceService {
         if (!isProbeUsable(config)) return null;
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
-        if (!pcm.hasService(config.apiUrl, "agent")) return null;
-        String ep = pcm.getServiceEndpoint(config.apiUrl, "agent");
+        if (!pcm.hasService(config.apiUrl, "agent", config.modelName)) return null;
+        String ep = pcm.getServiceEndpoint(config.apiUrl, "agent", config.modelName);
         if (ep == null || !ep.endsWith("/responses")) return null; // 非 Responses 格式不探测
         String fullUrl = buildOpenAIUrl(config.apiUrl, ep);
         fullUrl = pcm.withAuthQuery(fullUrl, config.apiKey);
@@ -1495,13 +1495,13 @@ public class OnlineInferenceService {
         if (apiUrl == null || isAnthropicAPI(apiUrl)) return false;
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
-        if (!pcm.hasService(apiUrl, "agent")) return false;
-        String ep = pcm.getServiceEndpoint(apiUrl, "agent");
+        if (!pcm.hasService(apiUrl, "agent", config.modelName)) return false;
+        String ep = pcm.getServiceEndpoint(apiUrl, "agent", config.modelName);
         if (ep == null || !ep.endsWith("/responses")) return false;
         // 端点像 /responses 只说明"这家有这个端点"（探测与配置对话框勾选就靠它），
         // 真正放量走哪套协议由 services.agent.protocol 一条总闸决定，与工具流共用同一判据 ——
         // 否则"给某服务商补上端点声明"就会顺手把它的普通对话也搬到尚未在线对拍的端点上。
-        return pcm.agentUsesResponses(apiUrl);
+        return pcm.agentUsesResponses(apiUrl, config.modelName);
     }
 
     /**
@@ -1547,7 +1547,7 @@ public class OnlineInferenceService {
                                             .PreparedVisionImage> images) throws Exception {
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
-        String endpoint = pcm.getServiceEndpoint(apiUrl, "agent");
+        String endpoint = pcm.getServiceEndpoint(apiUrl, "agent", modelName);
         if (endpoint == null || endpoint.isEmpty()) endpoint = "/responses";
         String fullUrl = buildOpenAIUrl(apiUrl, endpoint);
         // query-key 型服务商：密钥走 URL ?key=
@@ -1659,7 +1659,7 @@ public class OnlineInferenceService {
                                       boolean enableThinking, StreamCallback callback) throws Exception {
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
-        String endpoint = pcm.getServiceEndpoint(apiUrl, "chat");
+        String endpoint = pcm.getServiceEndpoint(apiUrl, "chat", modelName);
         if (endpoint == null || endpoint.isEmpty() || !endpoint.contains("/api/")) {
             endpoint = "/api/chat";
         }
@@ -3812,7 +3812,7 @@ public class OnlineInferenceService {
         if (config == null || !config.supportsAgent) return false;
         try {
             return com.oilquiz.app.ai.model.ProviderConfigManager.get()
-                    .agentUsesResponses(apiUrl);
+                    .agentUsesResponses(apiUrl, config.modelName);
         } catch (Exception e) {
             // 读配置失败不冒进：按 chat 走，保证 Agent 可用优先
             AILogger.w(TAG, "Responses 工具流能力位读取失败，按 chat 处理: " + e.getMessage());
@@ -3834,7 +3834,7 @@ public class OnlineInferenceService {
                                               NativeToolStreamCallback callback) throws Exception {
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
-        String endpoint = pcm.getServiceEndpoint(apiUrl, "agent");
+        String endpoint = pcm.getServiceEndpoint(apiUrl, "agent", modelName);
         if (endpoint == null || endpoint.isEmpty()) endpoint = "/responses";
         String fullUrl = buildOpenAIUrl(apiUrl, endpoint);
         fullUrl = pcm.withAuthQuery(fullUrl, apiKey);

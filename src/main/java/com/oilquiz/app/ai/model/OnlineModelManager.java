@@ -386,8 +386,22 @@ public class OnlineModelManager {
      * @return 服务商有声明 → true/false；**未声明 → null**（调用方回落到名字推断）
      */
     private Boolean readVisionFromCachedModalities(OnlineModelConfig config) {
+        return modalityDeclared(config, "image");
+    }
+
+    /**
+     * 从持久化模型缓存读该模型声明的 {@code inputModalities}，判断是否接受某种输入模态。
+     *
+     * <p>模态是服务商<b>按模型</b>声明的事实（文档释为"模型接受的输入类型"），所以能力判定
+     * 应当先问它，而不是先问模型名或端点。同一家里 {@code *-omni} 与纯文本模型共用一个
+     * baseUrl 是常态，只看端点就会一刀切。</p>
+     *
+     * @param modality 关心的模态，如 {@code image} / {@code audio}
+     * @return 服务商有声明 → true/false；<b>未声明 → null</b>（调用方回落到推断兜底）
+     */
+    private static Boolean modalityDeclared(OnlineModelConfig config, String modality) {
         try {
-            if (config == null || config.cachedModelsJson == null) return null;
+            if (config == null || config.cachedModelsJson == null || modality == null) return null;
             String modelName = config.modelName != null && !config.modelName.isEmpty()
                     ? config.modelName : config.selectedModel;
             if (modelName == null || modelName.isEmpty()) return null;
@@ -396,11 +410,11 @@ public class OnlineModelManager {
                 org.json.JSONObject o = arr.optJSONObject(i);
                 if (o == null || !modelName.equals(o.optString("id"))) continue;
                 org.json.JSONArray mods = o.optJSONArray("inputModalities");
-                if (mods == null) return null; // 服务商未声明 → 交由名字推断兜底
+                if (mods == null) return null; // 服务商未声明 → 交由兜底推断
                 for (int j = 0; j < mods.length(); j++) {
-                    if ("image".equalsIgnoreCase(mods.optString(j, ""))) return Boolean.TRUE;
+                    if (modality.equalsIgnoreCase(mods.optString(j, ""))) return Boolean.TRUE;
                 }
-                return Boolean.FALSE; // 明确声明了模态但不含 image
+                return Boolean.FALSE; // 明确声明了模态但不含该种
             }
         } catch (Throwable ignored) {
         }
@@ -526,11 +540,17 @@ public class OnlineModelManager {
     
     /**
      * 刷新所有模型的 supportsAudio 标记
-     * 根据端点 URL 和模型名重新判断是否支持音频
+     *
+     * <p>优先级：服务商<b>按模型</b>声明的 {@code input_modalities} 含 {@code audio}（权威）
+     * &gt; 端点/服务商级推断（DashScope / 讯飞 / 火山 / 百度那四家）。此前只有第二条，
+     * 于是同一家里"能收音频的模型"和"只能收文本的模型"判定完全一样 ——
+     * 例如 qwen-omni 与 qwen-plus 共用一个 baseUrl。与 vision 用同一套读法
+     * （{@link #modalityDeclared}），不再各写一份。</p>
      */
     private void refreshAllSupportsAudio() {
         for (OnlineModelConfig config : modelList) {
-            config.supportsAudio = isAudioModel(config);
+            Boolean fromApi = modalityDeclared(config, "audio");
+            config.supportsAudio = fromApi != null ? fromApi : isAudioModel(config);
         }
     }
     
