@@ -37,8 +37,11 @@ public class ChatModeManager {
      */
     public enum ThinkingEffort {
         NONE("关闭", "none"),
+        MINIMAL("极低", "minimal"),
         LOW("低", "low"),
+        MEDIUM("中", "medium"),
         HIGH("高", "high"),
+        XHIGH("极高", "xhigh"),
         MAX("最高", "max");
 
         /** 中文显示名（UI 用） */
@@ -57,12 +60,41 @@ public class ChatModeManager {
 
         /** 解析持久化值；非法/为空回落到 HIGH（官方默认强度） */
         public static ThinkingEffort fromWire(String wire) {
-            if (wire != null) {
-                for (ThinkingEffort e : values()) {
-                    if (e.wireValue.equalsIgnoreCase(wire.trim())) return e;
-                }
+            ThinkingEffort e = fromWireOrNull(wire);
+            // 兼容旧调用方：认不出来时按官方默认 high，而不是静默当成"关闭"。
+            // 新代码请直接用 wire（见 ChatModeManager#getThinkingEffortWire），
+            // 不要经过这里 —— 枚举永远追不上各家的私有取值。
+            return e != null ? e : HIGH;
+        }
+
+        /**
+         * 严格解析：命中已收录档位才返回枚举，否则返回 <b>null</b>。
+         *
+         * <p>为什么需要它：旧版 {@link #fromWire} 对认不出的取值一律返回 HIGH，于是
+         * 服务商声明的 {@code medium / xhigh / minimal} 之类会被<b>折叠成"高"</b> ——
+         * 选择器里出现重复项、用户点不到中档、请求里也永远发不出这些值，
+         * 表现就是"各家档位被混为一谈"。</p>
+         */
+        public static ThinkingEffort fromWireOrNull(String wire) {
+            if (wire == null) return null;
+            String w = wire.trim();
+            if (w.isEmpty()) return null;
+            for (ThinkingEffort e : values()) {
+                if (e.wireValue.equalsIgnoreCase(w)) return e;
             }
-            return HIGH;
+            return null;
+        }
+
+        /**
+         * 档位显示名：已收录的用中文名，**未收录的原样显示 wire**。
+         * 这样某家私有取值（如 {@code auto}）出现在声明列表里时，界面照样可选、可辨识，
+         * 不会因为枚举没跟上就消失或被改名。
+         */
+        public static String displayNameForWire(String wire) {
+            if (wire == null || wire.trim().isEmpty()) return HIGH.displayName;
+            String w = wire.trim();
+            ThinkingEffort e = fromWireOrNull(w);
+            return e != null ? e.displayName : w;
         }
     }
 
@@ -95,11 +127,19 @@ public class ChatModeManager {
     private static ChatModeManager instance;
     private final Context context;
     /**
-     * 当前思考强度档位 —— **唯一事实源**。
-     * "深度思考是否开启"由它派生（{@code effort.isEnabled()}），不再单独维护布尔字段，
-     * 避免两处状态不一致。
+     * 当前思考强度档位 —— **唯一事实源，存的是下发给 API 的 wire 字符串**。
+     *
+     * <p>"深度思考是否开启"由它派生（非 {@code none} 即开启），不再单独维护布尔字段，
+     * 避免两处状态不一致。</p>
+     *
+     * <p><b>为什么不是枚举</b>：枚举成员会把可选取值锁死。各家声明的档位集合并不一样
+     * （DeepSeek {@code low/high/max}、OpenAI {@code minimal/low/medium/high/xhigh}、
+     * DashScope 另有 {@code xhigh/max}、Kimi {@code low/medium/high/max}），此前字段是
+     * {@code ThinkingEffort}，读回来时认不出的值被 {@code fromWire} 折叠成 HIGH ——
+     * 于是"中/极高/极低"在界面上消失、在请求里也永远发不出去，各家的档位被混为一谈。
+     * 现在可选集合完全跟随该模型声明的档位。</p>
      */
-    private volatile ThinkingEffort thinkingEffort = ThinkingEffort.HIGH;
+    private volatile String thinkingEffortWire = ThinkingEffort.HIGH.wireValue;
 
     private ChatModeManager(Context context) {
         if (context == null) {
@@ -115,19 +155,28 @@ public class ChatModeManager {
         // 强度优先；未写入过强度时按旧布尔偏好回落（关→NONE，开→官方默认 high）
         String storedEffort = prefs.getString(PREF_THINKING_EFFORT, null);
         if (storedEffort == null || storedEffort.isEmpty()) {
-            thinkingEffort = legacyEnabled ? ThinkingEffort.HIGH : ThinkingEffort.NONE;
+            // 只写过旧布尔偏好的历史数据：关→none，开→官方默认 high
+            thinkingEffortWire = legacyEnabled
+                    ? ThinkingEffort.HIGH.wireValue : ThinkingEffort.NONE.wireValue;
         } else {
-            thinkingEffort = ThinkingEffort.fromWire(storedEffort);
-            if (!legacyEnabled) thinkingEffort = ThinkingEffort.NONE;
+            // 原样保留（含枚举没收录的各家私有取值）；旧偏好明确记为"关"时以关为准
+            thinkingEffortWire = storedEffort.trim();
+            if (!legacyEnabled) thinkingEffortWire = ThinkingEffort.NONE.wireValue;
         }
     }
 
-    private void saveThinkingEffort(ThinkingEffort effort) {
+    private void saveThinkingEffortWire(String wire) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         prefs.edit()
-                .putString(PREF_THINKING_EFFORT, effort.wireValue)
-                .putBoolean(PREF_DEEP_THINKING, effort.isEnabled())
+                .putString(PREF_THINKING_EFFORT, wire)
+                .putBoolean(PREF_DEEP_THINKING, isThinkingWire(wire))
                 .apply();
+    }
+
+    /** wire 是否代表"开启思考"（非空且不为 none）—— 开关态的唯一派生口径 */
+    private static boolean isThinkingWire(String wire) {
+        return wire != null && !wire.trim().isEmpty()
+                && !ThinkingEffort.NONE.wireValue.equalsIgnoreCase(wire.trim());
     }
 
     public static ChatModeManager getInstance(Context context) {
@@ -143,59 +192,78 @@ public class ChatModeManager {
 
     // ==================== 思考强度（主 API，取代"只有开关"） ====================
 
-    /** 当前思考强度档位（{@link ThinkingEffort#NONE} 表示关闭；永不为 null） */
+    /**
+     * 当前思考强度的 <b>wire 取值</b>（下发给 API 的原样字符串，永不为 null）。
+     * 新代码请用这个，不要用 {@link #getThinkingEffort()} 枚举 —— 枚举认不出的各家私有取值
+     * 会在转换时被折叠成 HIGH。
+     */
+    public String getThinkingEffortWire() {
+        String w = thinkingEffortWire;
+        return (w == null || w.trim().isEmpty()) ? ThinkingEffort.HIGH.wireValue : w.trim();
+    }
+
+    /**
+     * 按 wire 取值设置思考强度（持久化）。返回与设置前相比是否发生变化。
+     *
+     * <p>取值集合来自"该模型被服务商声明的档位"（{@code effort.supported_levels}，
+     * 或 providers.json 的模型级声明），所以这里<b>不做枚举白名单校验</b> —— 校验在
+     * 选择器（只列声明过的档位）与下发闸门（{@code isEffortLevelSupported}）两处做，
+     * 这里再拦一道只会把新服务商的合法取值挡掉。空白值按 {@code high} 处理。</p>
+     */
+    public boolean setThinkingEffortWire(String wire) {
+        String next = (wire == null || wire.trim().isEmpty())
+                ? ThinkingEffort.HIGH.wireValue : wire.trim();
+        String previous = getThinkingEffortWire();
+        if (previous.equalsIgnoreCase(next)) return false;
+        thinkingEffortWire = next;
+        saveThinkingEffortWire(next);
+        AppLogger.aiD(TAG, "Thinking effort " + previous + " -> " + next);
+        return true;
+    }
+
+    /** 当前思考强度档位（枚举视图，仅供旧调用方；未收录取值会回落 HIGH） */
     public ThinkingEffort getThinkingEffort() {
         return currentEffort();
     }
 
     /**
-     * 设置思考强度档位（持久化）。返回与设置前相比是否发生变化。
+     * 设置思考强度档位（枚举入口，持久化）。返回与设置前相比是否发生变化。
      *
-     * <p>这是"深度思考"的**唯一事实源**：{@code NONE} 即关闭，其余即开启并指定强度。
+     * <p>这是"深度思考"的**唯一事实源**：{@code none} 即关闭，其余即开启并指定强度；
      * 旧的布尔开关 API 由它派生，保证两套调用方看到同一状态。</p>
      */
     public boolean setThinkingEffort(ThinkingEffort effort) {
         if (effort == null) effort = ThinkingEffort.HIGH;
-        if (effort == thinkingEffort) return false;
-        ThinkingEffort previous = thinkingEffort;
-        thinkingEffort = effort;
-        saveThinkingEffort(effort);
-        AppLogger.aiD(TAG, "Thinking effort " + previous.wireValue + " -> " + effort.wireValue);
-        return true;
+        return setThinkingEffortWire(effort.wireValue);
     }
 
     // ==================== 深度思考开关（派生自强度档位） ====================
 
-    /** 档位读取（永不为 null）：异常/未初始化时回落官方默认 HIGH */
+    /** 档位的枚举视图（永不为 null）：未收录的私有取值回落为 HIGH */
     private ThinkingEffort currentEffort() {
-        ThinkingEffort e = thinkingEffort;
-        return e != null ? e : ThinkingEffort.HIGH;
+        return ThinkingEffort.fromWire(getThinkingEffortWire());
     }
 
-    /** 深度思考是否开启（等价于强度档位 != NONE；档位为空按未开启处理，避免 NPE） */
+    /** 深度思考是否开启（等价于强度档位 != none；空白按未开启处理，避免 NPE） */
     public boolean isDeepThinkingEnabled() {
-        ThinkingEffort e = thinkingEffort;
-        return e != null && e.isEnabled();
+        return isThinkingWire(thinkingEffortWire);
     }
 
     /**
      * 开关深度思考（持久化）。返回状态是否发生变化。
      *
-     * <p>关闭 → 档位置为 {@link ThinkingEffort#NONE}；开启 → 恢复到上次的强度档位
-     * （旧偏好只记录布尔时，恢复到官方默认 {@code high}）。</p>
+     * <p>关闭 → 档位置为 {@code none}；开启 → 恢复到上次的强度档位（历史只有布尔偏好、
+     * 或上次就是 none 时，取官方默认 {@code high}）。</p>
      */
     public boolean setDeepThinkingEnabled(boolean enabled) {
         boolean current = isDeepThinkingEnabled();
         if (enabled == current) return false;
         if (!enabled) {
-            setThinkingEffort(ThinkingEffort.NONE);
+            setThinkingEffortWire(ThinkingEffort.NONE.wireValue);
         } else {
-            // 从 NONE 恢复：沿用当前档位（若已是 NONE/未初始化则取 HIGH），
-            // 历史只有布尔偏好时即为 HIGH（官方默认强度）
-            ThinkingEffort cur = thinkingEffort;
-            ThinkingEffort target = (cur == null || cur == ThinkingEffort.NONE)
-                    ? ThinkingEffort.HIGH : cur;
-            setThinkingEffort(target);
+            String cur = thinkingEffortWire;
+            String target = isThinkingWire(cur) ? cur : ThinkingEffort.HIGH.wireValue;
+            setThinkingEffortWire(target);
         }
         AppLogger.aiD(TAG, "Deep thinking " + (enabled ? "ENABLED" : "DISABLED"));
         return true;

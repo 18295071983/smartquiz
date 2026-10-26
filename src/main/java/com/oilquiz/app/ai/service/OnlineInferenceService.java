@@ -2289,8 +2289,11 @@ public class OnlineInferenceService {
 
             int thinkingCeiling = 0; // 0 = 本轮不做思考放大
             if (enableThinking && OnlineModelManager.isThinkingModelName(modelName)) {
-                boolean maxEffort = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(context)
-                        .getThinkingEffort() == com.oilquiz.app.ai.chat.ChatModeManager.ThinkingEffort.MAX;
+                // 按 wire 字符串比较，不要经过 ThinkingEffort 枚举：服务商声明的私有取值
+                // （medium/xhigh/minimal…）在枚举里认不出时会折叠成 HIGH，判定会跟着失真
+                boolean maxEffort = "max".equalsIgnoreCase(
+                        com.oilquiz.app.ai.chat.ChatModeManager.getInstance(context)
+                                .getThinkingEffortWire());
                 // 档位对应上限：官方文档"未设置时思考模式默认 64K，reasoning_effort=max 时 128K"
                 thinkingCeiling = maxEffort ? THINKING_MAX_TOKENS_MAX_EFFORT : THINKING_MAX_TOKENS;
             }
@@ -2343,8 +2346,9 @@ public class OnlineInferenceService {
      */
     private String currentThinkingEffort() {
         try {
+            // 直接取 wire 字符串：枚举视图会把服务商声明的私有取值折叠成 HIGH
             return com.oilquiz.app.ai.chat.ChatModeManager.getInstance(context)
-                    .getThinkingEffort().wireValue;
+                    .getThinkingEffortWire();
         } catch (Throwable t) {
             return "high";
         }

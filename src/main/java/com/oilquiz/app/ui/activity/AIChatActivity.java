@@ -9739,8 +9739,12 @@ public class AIChatActivity extends BaseActivity {
     /**
      * 思考强度选择器（深度思考芯片**长按**触发）。
      *
-     * <p>档位取值与 DeepSeek 官方 {@code reasoning_effort} 一致（关/低/高/最高 →
-     * {@code none/low/high/max}），选择后持久化并即时生效；当前档位被标记。</p>
+     * <p><b>档位集合按服务商、按模型分别取</b>：列表来自该模型声明的
+     * {@code effort.supported_levels}（GET /models 缓存，或 providers.json 的模型级声明），
+     * 顺序沿用服务商给的推荐顺序 —— DeepSeek 是 {@code low/high/max}，OpenAI 系是
+     * {@code minimal/low/medium/high/xhigh}，DashScope/Kimi 又是另一套，所以这里
+     * <b>不能</b>用一张全局枚举去套。未声明档位的模型只显示开/关，不显示强度。
+     * 选择后持久化 wire 取值并即时生效，当前档位被标记。</p>
      */
     private void showThinkingEffortDialog(com.google.android.material.chip.Chip chip) {
         if (isGenerating) {
@@ -9773,47 +9777,59 @@ public class AIChatActivity extends BaseActivity {
                     .isAlwaysThinkingModel(currentModelName());
         } catch (Throwable ignored) {
         }
-        java.util.List<ChatModeManager.ThinkingEffort> options = new java.util.ArrayList<>();
+        // 档位集合完全跟随"该模型声明的 wire 取值"，不再经过 ThinkingEffort 枚举：
+        // 枚举认不出的 medium / xhigh / minimal 或某家私有取值，此前会被 fromWire 折叠成 HIGH，
+        // 于是各家档位被混为一谈 —— 界面上出现重复的"高"、用户既选不到也发不出那些档位。
+        java.util.List<String> wires = new java.util.ArrayList<>();
         if (!alwaysThinking) {
-            options.add(ChatModeManager.ThinkingEffort.NONE);
+            wires.add(ChatModeManager.ThinkingEffort.NONE.wireValue);
         }
         for (String lv : declared) {
-            ChatModeManager.ThinkingEffort e = ChatModeManager.ThinkingEffort.fromWire(lv);
-            if (e != ChatModeManager.ThinkingEffort.NONE && !options.contains(e)) options.add(e);
+            String w = lv == null ? null : lv.trim();
+            if (w == null || w.isEmpty()) continue;
+            // 关闭项只留一个（大小写不敏感去重，各家写法不一）
+            if (ChatModeManager.ThinkingEffort.NONE.wireValue.equalsIgnoreCase(w)) continue;
+            boolean dup = false;
+            for (String exist : wires) {
+                if (exist.equalsIgnoreCase(w)) { dup = true; break; }
+            }
+            if (!dup) wires.add(w);
         }
-        if (options.isEmpty()) {
+        // 除"关闭"外没有任何可选强度 = 该模型没声明档位，保持原来的"仅开/关"行为
+        if (wires.size() <= (alwaysThinking ? 0 : 1)) {
             showToast("该模型未声明思考强度档位");
             return;
         }
-        final ChatModeManager.ThinkingEffort[] values =
-                options.toArray(new ChatModeManager.ThinkingEffort[0]);
+        final String[] values = wires.toArray(new String[0]);
         final String[] labels = new String[values.length];
+        String currentWire = manager.getThinkingEffortWire();
         int checked = 0;
         for (int i = 0; i < values.length; i++) {
-            labels[i] = values[i] == ChatModeManager.ThinkingEffort.NONE
-                    ? values[i].displayName
-                    : values[i].displayName + "（" + values[i].wireValue + "）";
-            if (values[i] == manager.getThinkingEffort()) checked = i;
+            labels[i] = ChatModeManager.ThinkingEffort.NONE.wireValue.equalsIgnoreCase(values[i])
+                    ? ChatModeManager.ThinkingEffort.NONE.displayName
+                    : ChatModeManager.ThinkingEffort.displayNameForWire(values[i])
+                            + "（" + values[i] + "）";
+            if (values[i].equalsIgnoreCase(currentWire)) checked = i;
         }
         new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle("思考强度")
                 .setSingleChoiceItems(labels, checked, (dialog, which) -> {
-                    ChatModeManager.ThinkingEffort target = values[which];
+                    String target = values[which];
                     // 仅在"开/关"边界变化时注入模式切换指令（与单击开关、toggleMode 一致）：
                     // 关→开需告知模型进入思考模式；开→关需取消该指令；
                     // 仅强度档位变化（低→高）不改变提示词，无需注入。
                     ChatModeManager.ChatMode oldMode = manager.getCurrentMode();
-                    if (manager.setThinkingEffort(target)) {
+                    if (manager.setThinkingEffortWire(target)) {
                         ChatModeManager.ChatMode newMode = manager.getCurrentMode();
                         if (oldMode != newMode) {
                             injectModeSwitchInstruction(oldMode, newMode);
                         }
-                        AppLogger.ai(TAG, "Thinking effort -> " + target.wireValue);
+                        AppLogger.ai(TAG, "Thinking effort -> " + target);
                     }
                     updateDeepThinkChip(chip);
                     updateModeButtonText();
                     dialog.dismiss();
-                    showToast("思考强度：" + target.displayName);
+                    showToast("思考强度：" + ChatModeManager.ThinkingEffort.displayNameForWire(target));
                 })
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
