@@ -174,7 +174,18 @@ public class ModelListAdapter extends RecyclerView.Adapter<ModelListAdapter.Mode
 
         public void bind(ApiModel model, boolean isSelected) {
             modelNameText.setText(model.displayName);
-            modelContextText.setText("Context: " + model.getFormattedContextLength());
+            // 副标题两件事：上下文窗口 + 拥有方。后者是给聚合网关准备的 ——
+            // 302.AI / 硅基流动那类端点会返回别人家的模型，id 可能撞名，
+            // owned_by（文档释为"拥有该模型的组织"）才是"这条到底是谁的"的依据。
+            StringBuilder sub = new StringBuilder();
+            if (model.contextLength > 0) {
+                sub.append("Context: ").append(model.getFormattedContextLength());
+            }
+            if (model.ownedBy != null && !model.ownedBy.isEmpty()) {
+                if (sub.length() > 0) sub.append(" · ");
+                sub.append("来源 ").append(model.ownedBy);
+            }
+            modelContextText.setText(sub.toString());
             modelRadio.setChecked(isSelected);
             
             // 根据是否可用设置样式

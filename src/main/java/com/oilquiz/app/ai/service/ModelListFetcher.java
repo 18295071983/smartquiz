@@ -141,6 +141,12 @@ public class ModelListFetcher {
         try {
             obj.put("id", model.id);
             obj.put("name", model.getName());
+            // 拥有方（OpenAI 规范 owned_by，DeepSeek 文档释为"拥有该模型的组织"）。
+            // 必须落缓存：聚合网关（302.AI / 硅基流动那类）会返回别人家的模型，
+            // id 可能撞名，owned_by 才是"这条到底是谁的"的唯一依据；界面用它标来源。
+            if (model.ownedBy != null && !model.ownedBy.isEmpty()) {
+                obj.put("ownedBy", model.ownedBy);
+            }
             if (model.contextLength > 0) {
                 obj.put("contextLength", model.contextLength);
                 obj.put("contextLengthFromApi", model.contextLengthFromApi);
@@ -187,6 +193,7 @@ public class ModelListFetcher {
             model.id = obj.optString("id", null);
             String name = obj.optString("name", null);
             model.displayName = (name != null && !name.isEmpty()) ? name : model.id;
+            model.ownedBy = obj.optString("ownedBy", null);
             model.contextLength = obj.optInt("contextLength", 0);
             model.contextLengthFromApi = obj.optBoolean("contextLengthFromApi", false);
             org.json.JSONArray levels = obj.optJSONArray("thinkingEffortLevels");

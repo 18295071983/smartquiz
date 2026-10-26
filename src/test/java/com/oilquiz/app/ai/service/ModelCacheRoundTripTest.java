@@ -10,6 +10,7 @@ import java.util.Arrays;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -42,11 +43,14 @@ public class ModelCacheRoundTripTest {
     @Test
     public void roundTripKeepsEveryPersistedField() {
         ApiModel src = fullModel();
+        src.ownedBy = "deepseek";
 
         ApiModel back = ModelListFetcher.modelFromCacheJson(ModelListFetcher.modelToCacheJson(src));
 
         assertEquals(src.id, back.id);
         assertEquals(src.displayName, back.displayName);
+        // 拥有方：聚合网关里 id 会撞名，owned_by 是"这条是谁的"的唯一依据，不能丢
+        assertEquals("deepseek", back.ownedBy);
         assertEquals("上下文窗口", src.contextLength, back.contextLength);
         assertEquals("窗口可信度", src.contextLengthFromApi, back.contextLengthFromApi);
         assertEquals("思考档位", src.thinkingEffortLevels, back.thinkingEffortLevels);
@@ -93,6 +97,8 @@ public class ModelCacheRoundTripTest {
         ApiModel back = ModelListFetcher.modelFromCacheJson(onlyId);
 
         assertEquals("glm-4-flash", back.id);
+        // 未声明拥有方时保持 null，不填 "unknown" 之类的假来源（界面会显示"来源 unknown"）
+        assertNull(back.ownedBy);
         assertEquals("展示名回落为 id", "glm-4-flash", back.displayName);
         assertEquals(0, back.contextLength);
         assertFalse(back.contextLengthFromApi);
