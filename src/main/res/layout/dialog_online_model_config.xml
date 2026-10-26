@@ -267,13 +267,17 @@
 
                 <FrameLayout
                     android:layout_width="match_parent"
-                    android:layout_height="@dimen/size_150">
+                    android:layout_height="@dimen/size_200">
+                    <!-- 这里必须保持 RecyclerView 默认的 nestedScrollingEnabled=true（切勿照"ScrollView
+                         里放 RecyclerView 就关掉嵌套滚动"那条惯例加回 false）：本列表是固定视口、
+                         内部自滚，关掉后外层 NestedScrollView 会在拖过 touch slop 时把整个手势抢去滚页面，
+                         列表内部便再也滚不动 —— 30 个模型只露前 2 个半，其余不可达。
+                         开着时语义正确：列表先自己滚，滚到头才把剩余量交给外层页面。 -->
                     <androidx.recyclerview.widget.RecyclerView
                         android:id="@+id/models_recycler"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
                         android:background="?attr/colorCardBackground"
-                        android:nestedScrollingEnabled="false"
                         app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
 
                     <ProgressBar
