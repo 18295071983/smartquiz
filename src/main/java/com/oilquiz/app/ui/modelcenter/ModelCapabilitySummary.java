@@ -36,7 +36,7 @@ public final class ModelCapabilitySummary {
         String badges = badges(config);
         if (!badges.isEmpty()) parts.add(badges);
         parts.add(contextLabel(config));
-        parts.add(protocolLabel(config.apiUrl, config.modelName));
+        parts.add(protocolLabel(config));
         String cost = costLabel(config);
         if (cost != null) parts.add(cost);
         return join(parts);
@@ -92,6 +92,40 @@ public final class ModelCapabilitySummary {
      * <p>徽章必须和引擎同一判据：配置表一旦支持模型级 services 覆盖，只看服务商级就会出现
      * "界面写着 Agent 走 /responses、实际打 chat"（或反过来）的错误承诺。</p>
      */
+    /**
+     * 列表徽章用的协议行 —— 与引擎共用同一个解析出口与同一条判据。
+     *
+     * <p>此前它只查服务商级配置表，于是用户在配置界面改了端点（甚至把 agent 端点填成
+     * /responses 放量）后，徽章仍按表说话，形成"界面一套、请求另一套"。</p>
+     */
+    public static String protocolLabel(OnlineModelManager.OnlineModelConfig config) {
+        if (config == null) return "";
+        try {
+            ProviderConfigManager pcm = ProviderConfigManager.get();
+            ProviderConfigManager.ResolvedEndpoint chat = pcm.resolve(
+                    config.apiUrl, "chat", config.modelName, config.chatEndpoint);
+            String label = labelOf(chat.protocol);
+            boolean onResponses = config.supportsAgent
+                    && pcm.hasService(config.apiUrl, "agent", config.modelName)
+                    && ProviderConfigManager.agentOnResponses(config.agentEndpoint,
+                            pcm.agentUsesResponses(config.apiUrl, config.modelName));
+            if (onResponses && !ProviderConfigManager.PROTOCOL_RESPONSES.equals(chat.protocol)) {
+                return "协议 " + label + "，Agent 走 /responses";
+            }
+            return "协议 " + label;
+        } catch (Exception e) {
+            return "协议 未知";
+        }
+    }
+
+    /** 协议常量 → 人读的端点形态名 */
+    private static String labelOf(String protocol) {
+        if (ProviderConfigManager.PROTOCOL_ANTHROPIC.equals(protocol)) return "Anthropic Messages";
+        if (ProviderConfigManager.PROTOCOL_RESPONSES.equals(protocol)) return "OpenAI Responses";
+        if (ProviderConfigManager.PROTOCOL_OLLAMA.equals(protocol)) return "Ollama 原生";
+        return "OpenAI 兼容";
+    }
+
     public static String protocolLabel(String apiUrl, String modelName) {
         try {
             ProviderConfigManager pcm = ProviderConfigManager.get();

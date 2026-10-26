@@ -1051,7 +1051,11 @@ public class OnlineInferenceService {
         // → 探测请求自动重拼到 /responses 并用最小 Responses 请求体，不被 chat/completions 限定死
         String wse = com.oilquiz.app.ai.model.ProviderConfigManager.get().getWebSearchEndpoint(config.apiUrl);
         boolean responsesProbe = wse != null && !wse.isEmpty() && !config.apiUrl.contains(wse);
-        String fullUrl = buildOpenAIUrl(config.apiUrl, responsesProbe ? "/responses" : "/chat/completions");
+                // 表里 webSearch.endpoint 存的是协议标识 "responses"（不是路径），所以这里必须换成
+        // 具名的 Responses 路径常量；chat 分支则交回唯一出口，不再各写字面量。
+        String fullUrl = responsesProbe
+                ? buildOpenAIUrl(config.apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.RESPONSES_PATH)
+                : chatUrlOf(config.apiUrl, config.modelName);
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get()
                 .withAuthQuery(fullUrl, config.apiKey);
         HttpURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
@@ -1113,9 +1117,9 @@ public class OnlineInferenceService {
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
         if (!pcm.hasService(config.apiUrl, "agent", config.modelName)) return null;
-        String ep = pcm.getServiceEndpoint(config.apiUrl, "agent", config.modelName);
-        if (ep == null || !ep.endsWith("/responses")) return null; // 非 Responses 格式不探测
-        String fullUrl = buildOpenAIUrl(config.apiUrl, ep);
+        com.oilquiz.app.ai.model.ProviderConfigManager.ResolvedEndpoint probeEp = agentEndpointOf(config.apiUrl, config.modelName);
+        if (!probeEp.isResponses()) return null; // 非 Responses 形态不探测（协议由端点推导）
+        String fullUrl = probeEp.url;
         fullUrl = pcm.withAuthQuery(fullUrl, config.apiKey);
         HttpURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
         try {
@@ -1198,7 +1202,7 @@ public class OnlineInferenceService {
         }
         // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
         // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
-        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
+        String fullUrl = chatUrlOf(apiUrl, modelName);
         preResolveHost(fullUrl); // M9：DNS 预解析带超时
         URL url = new URL(fullUrl);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -1297,7 +1301,7 @@ public class OnlineInferenceService {
                                      String prompt, int maxTokens) throws Exception {
         // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
         // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
-        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
+        String fullUrl = chatUrlOf(apiUrl, modelName);
         preResolveHost(fullUrl); // M9：DNS 预解析带超时
         URL url = new URL(fullUrl);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -1489,19 +1493,36 @@ public class OnlineInferenceService {
      * - 且配置表把 services.agent.protocol 显式放量成 responses（缺省 chat）
      * 智谱 /agent/chat、百炼 multimodal-generation 等特殊格式暂不走此路由（保持 chat 兼容可用）。
      */
+    /**
+     * 是否走 OpenAI Responses —— 文本流与工具流**共用这一条**判据（此前两处各写一遍，
+     * 各自用 endsWith("/responses") 推断协议，改一处漏一处）。
+     *
+     * <p>端点来源包含“本条注册配置的覆盖值”，所以在配置界面把协议切到 Responses
+     * （写入 agentEndpoint=/responses）就等于放量；没有覆盖时仍要求配置表
+     * services.agent.protocol 显式声明——保守缺省不变，不会因为某家有 /responses 端点
+     * 就自动把对话搬过去。</p>
+     */
+    private boolean useResponsesFor(OnlineModelManager.OnlineModelConfig config) {
+        try {
+            if (config == null || !config.supportsAgent) return false;
+            String apiUrl = config.apiUrl;
+            if (apiUrl == null || isAnthropicAPI(apiUrl)) return false;
+            com.oilquiz.app.ai.model.ProviderConfigManager pcm = com.oilquiz.app.ai.model.ProviderConfigManager.get();
+            if (!pcm.hasService(apiUrl, "agent", config.modelName)) return false;
+            String override = OnlineModelManager.getInstance(context)
+                    .getEndpointOverride(apiUrl, config.modelName, "agent");
+            // 判据与界面徽章共用 ProviderConfigManager.agentOnResponses
+            return com.oilquiz.app.ai.model.ProviderConfigManager.agentOnResponses(
+                    override, pcm.agentUsesResponses(apiUrl, config.modelName));
+        } catch (Throwable t) {
+            // 判据读不到就不冒进：按 chat 走，保证可用优先
+            AILogger.w(TAG, "Responses 判据读取失败，按 chat 处理: " + t.getMessage());
+            return false;
+        }
+    }
+    /** 兼容旧调用名：文本流是否走 Responses（判据见 useResponsesFor） */
     private boolean shouldUseResponsesAPI(OnlineModelManager.OnlineModelConfig config) {
-        if (config == null || !config.supportsAgent) return false;
-        String apiUrl = config.apiUrl;
-        if (apiUrl == null || isAnthropicAPI(apiUrl)) return false;
-        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
-                com.oilquiz.app.ai.model.ProviderConfigManager.get();
-        if (!pcm.hasService(apiUrl, "agent", config.modelName)) return false;
-        String ep = pcm.getServiceEndpoint(apiUrl, "agent", config.modelName);
-        if (ep == null || !ep.endsWith("/responses")) return false;
-        // 端点像 /responses 只说明"这家有这个端点"（探测与配置对话框勾选就靠它），
-        // 真正放量走哪套协议由 services.agent.protocol 一条总闸决定，与工具流共用同一判据 ——
-        // 否则"给某服务商补上端点声明"就会顺手把它的普通对话也搬到尚未在线对拍的端点上。
-        return pcm.agentUsesResponses(apiUrl, config.modelName);
+        return useResponsesFor(config);
     }
 
     /**
@@ -1547,9 +1568,11 @@ public class OnlineInferenceService {
                                             .PreparedVisionImage> images) throws Exception {
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
-        String endpoint = pcm.getServiceEndpoint(apiUrl, "agent", modelName);
-        if (endpoint == null || endpoint.isEmpty()) endpoint = "/responses";
-        String fullUrl = buildOpenAIUrl(apiUrl, endpoint);
+                // 端点与协议统一由解析出口决出（含本条配置的端点覆盖）：
+        // 界面上把协议切到 Responses 就是切这条路径，不再有“为空时默认 /responses”这种隐式兜底
+        com.oilquiz.app.ai.model.ProviderConfigManager.ResolvedEndpoint agentEp = agentEndpointOf(apiUrl, modelName);
+        String endpoint = agentEp.endpoint;
+        String fullUrl = agentEp.url;
         // query-key 型服务商：密钥走 URL ?key=
         fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
 
@@ -2062,7 +2085,7 @@ public class OnlineInferenceService {
                                            StreamCallback callback) throws Exception {
         // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
         // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
-        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
+        String fullUrl = chatUrlOf(apiUrl, modelName);
         // query-key 型服务商（Gemini 等）：密钥走 URL ?key=，openConnection 前拼好
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
 
@@ -2221,6 +2244,31 @@ public class OnlineInferenceService {
     private String buildOpenAIUrl(String apiUrl, String endpoint) {
         return com.oilquiz.app.ai.model.ProviderConfigManager.get().buildUrl(apiUrl, endpoint);
     }
+    /**
+     * 主对话请求地址的<b>唯一</b>出口：端点按「本条配置覆盖 > 配置表模型级 > 服务商级 >
+     * 标准缺省」决出，协议由端点形态推导（见 ProviderConfigManager#resolve）。
+     *
+     * <p>此前这里散落八处同形表达式，每处各自回落到 getChatEndpoint，想支持端点覆盖就得改八遍；
+     * 另有几处直接写死字面量，会出现"界面上改了、底下照旧打老地址"。</p>
+     */
+    private String chatUrlOf(String apiUrl, String modelName) {
+        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get();
+        String override = OnlineModelManager.getInstance(context)
+                .getEndpointOverride(apiUrl, modelName, "chat");
+        return pcm.resolve(apiUrl, "chat", modelName, override).url;
+    }
+
+    /** agent（工具流 / Responses）地址与协议的唯一出口：endpoint/url/isResponses 一次给全 */
+    private com.oilquiz.app.ai.model.ProviderConfigManager.ResolvedEndpoint agentEndpointOf(
+            String apiUrl, String modelName) {
+        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get();
+        String override = OnlineModelManager.getInstance(context)
+                .getEndpointOverride(apiUrl, modelName, "agent");
+        return pcm.resolve(apiUrl, "agent", modelName, override);
+    }
+
 
     /**
      * 向请求体注入深度思考参数（文本与多模态路径共用）。
@@ -2612,7 +2660,7 @@ public class OnlineInferenceService {
         }
         // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
         // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
-        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
+        String fullUrl = chatUrlOf(apiUrl, modelName);
         // query-key 型服务商（Gemini 等）：密钥走 URL ?key=，openConnection 前拼好
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
         preResolveHost(fullUrl); // M9：DNS 预解析带超时
@@ -2741,7 +2789,7 @@ public class OnlineInferenceService {
                                         int maxTokens, String toolsJson) throws Exception {
         // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
         // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
-        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
+        String fullUrl = chatUrlOf(apiUrl, modelName);
         // query-key 型服务商（Gemini 等）：密钥走 URL ?key=，openConnection 前拼好
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
 
@@ -3545,7 +3593,7 @@ public class OnlineInferenceService {
                                         String prompt, JSONObject schema, int maxTokens) throws Exception {
         // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
         // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
-        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
+        String fullUrl = chatUrlOf(apiUrl, modelName);
         // query-key 型服务商（Gemini 等）：密钥走 URL ?key=，openConnection 前拼好
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
 
@@ -3807,17 +3855,10 @@ public class OnlineInferenceService {
      * Responses 侧的解析与翻译连同离线回归已具备，但各家兼容层的事件顺序和私有字段要逐家
      * 在线对拍之后才值得放开（ROADMAP 7.1）。切换只需改一个 JSON 字段，不动代码。</p>
      */
+    /** 工具流是否走 Responses：与文本流同一条判据（见 useResponsesFor） */
     private boolean shouldRouteToolsViaResponses(
             OnlineModelManager.OnlineModelConfig config, String apiUrl) {
-        if (config == null || !config.supportsAgent) return false;
-        try {
-            return com.oilquiz.app.ai.model.ProviderConfigManager.get()
-                    .agentUsesResponses(apiUrl, config.modelName);
-        } catch (Exception e) {
-            // 读配置失败不冒进：按 chat 走，保证 Agent 可用优先
-            AILogger.w(TAG, "Responses 工具流能力位读取失败，按 chat 处理: " + e.getMessage());
-            return false;
-        }
+        return useResponsesFor(config);
     }
 
     /**
@@ -3834,9 +3875,11 @@ public class OnlineInferenceService {
                                               NativeToolStreamCallback callback) throws Exception {
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
-        String endpoint = pcm.getServiceEndpoint(apiUrl, "agent", modelName);
-        if (endpoint == null || endpoint.isEmpty()) endpoint = "/responses";
-        String fullUrl = buildOpenAIUrl(apiUrl, endpoint);
+                // 端点与协议统一由解析出口决出（含本条配置的端点覆盖）：
+        // 界面上把协议切到 Responses 就是切这条路径，不再有“为空时默认 /responses”这种隐式兜底
+        com.oilquiz.app.ai.model.ProviderConfigManager.ResolvedEndpoint agentEp = agentEndpointOf(apiUrl, modelName);
+        String endpoint = agentEp.endpoint;
+        String fullUrl = agentEp.url;
         fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
 
         // 思考强度只在"用户开了思考 + 服务商为该模型声明了可用档位"时下发，
@@ -4041,7 +4084,7 @@ public class OnlineInferenceService {
                                               NativeToolStreamCallback callback) throws Exception {
         // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
         // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
-        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
+        String fullUrl = chatUrlOf(apiUrl, modelName);
         // query-key 服务商（Gemini 等）密钥走 URL ?key=，须在 openConnection 前补上，与其余
         // 流式/同步路径口径一致；此前这两个带 tools 的流式路径遗漏，导致 Agent 模式下这类服务商 401。
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
@@ -4321,7 +4364,7 @@ public class OnlineInferenceService {
                                             NativeToolStreamCallback callback) throws Exception {
         // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
         // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
-        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
+        String fullUrl = chatUrlOf(apiUrl, modelName);
         // query-key 服务商（Gemini 等）密钥走 URL ?key=，须在 openConnection 前补上，与其余
         // 流式/同步路径口径一致；此前这两个带 tools 的流式路径遗漏，导致 Agent 模式下这类服务商 401。
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);

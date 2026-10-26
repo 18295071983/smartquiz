@@ -93,6 +93,13 @@ public class OnlineModelConfigDialog {
     private TextView dialogTitle;
     /** 能力区标题：agent / 工具调用 改为只读后，在这里说明它们的来源 */
     private TextView servicesTitle;
+    /** 协议快捷选择：只把端点填成该协议的标准值，本身不入库（协议由端点推导） */
+    private AutoCompleteTextView protocolSpinner;
+    /** chat / agent 端点覆盖输入框（留空 = 按服务商配置表） */
+    private EditText chatEndpointInput;
+    private EditText agentEndpointInput;
+    /** 实时解析结果：当前实际会打哪个地址、这个地址是哪一层给的 */
+    private TextView endpointResolveHint;
     private boolean capabilitiesUserTouched; // 用户是否手动调整过能力勾选
     private boolean programmaticCapabilityChange; // true=程序回填/预置勾选期间，屏蔽"用户手动调整"误标记
     /** 用户是否手动改过单价：改过之后，程序回填不再覆盖（此前 URL 每敲一个字符都会把它写回去） */
@@ -187,6 +194,9 @@ public class OnlineModelConfigDialog {
         setupListeners();
         setupServiceTypeSpinner();
 
+        setupProtocolPicker();
+        prefillEndpointOverrides();
+
         if (dialogTitle != null) {
             dialogTitle.setText(existingConfig != null ? "编辑在线模型" : "添加在线模型");
         }
@@ -227,6 +237,8 @@ public class OnlineModelConfigDialog {
             }
             // 标题必须在此之后写：loadCachedModels 只负责灌列表，谁显示"已选哪个模型"由这里统一收口
             refreshModelsTitle();
+            // 端点预览最后刷一次：上面回填了地址/模型名与端点覆盖，早先那次算的是空地址
+            refreshEndpointResolveHint();
             
             // 显示使用量信息
             if (existingConfig.usageInfo != null) {
@@ -235,6 +247,82 @@ public class OnlineModelConfigDialog {
         }
         
         dialog.show();
+    }
+
+    // ==================== 端点 / 协议（唯一事实源＝端点，协议由端点推导） ====================
+
+    /** 协议候选：选它只是把对应端点填成标准值，界面不提供"单独存协议"的入口 */
+    private static final String[][] PROTOCOL_CHOICES = {
+            {"OpenAI chat（/chat/completions）", "/chat/completions", "chat"},
+            {"OpenAI Responses（/responses）", "/responses", "agent"},
+            {"Anthropic Messages（/v1/messages）", "/v1/messages", "chat"},
+            {"Ollama 原生（/api/chat）", "/api/chat", "chat"},
+    };
+
+    private void setupProtocolPicker() {
+        if (protocolSpinner == null) return;
+        String[] labels = new String[PROTOCOL_CHOICES.length];
+        for (int i = 0; i < PROTOCOL_CHOICES.length; i++) labels[i] = PROTOCOL_CHOICES[i][0];
+        protocolSpinner.setAdapter(new ArrayAdapter<>(context,
+                android.R.layout.simple_dropdown_item_1line, labels));
+        protocolSpinner.setOnItemClickListener((parent, view, position, id) -> {
+            String[] choice = PROTOCOL_CHOICES[position];
+            // 选协议＝填那条服务对应的端点标准值；用户仍可手改成别的路径
+            if ("agent".equals(choice[2])) {
+                if (agentEndpointInput != null) agentEndpointInput.setText(choice[1]);
+            } else if (chatEndpointInput != null) {
+                chatEndpointInput.setText(choice[1]);
+            }
+            refreshEndpointResolveHint();
+        });
+        if (chatEndpointInput != null) {
+            chatEndpointInput.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+                @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
+                @Override public void afterTextChanged(android.text.Editable s) { refreshEndpointResolveHint(); }
+            });
+        }
+        if (agentEndpointInput != null) {
+            agentEndpointInput.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+                @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
+                @Override public void afterTextChanged(android.text.Editable s) { refreshEndpointResolveHint(); }
+            });
+        }
+    }
+
+    /** 编辑已有配置时回填端点覆盖（空=未覆盖），并提示各层默认值 */
+    private void prefillEndpointOverrides() {
+        String chatOv = editingConfig != null ? editingConfig.chatEndpoint : null;
+        String agentOv = editingConfig != null ? editingConfig.agentEndpoint : null;
+        if (chatEndpointInput != null && chatOv != null) chatEndpointInput.setText(chatOv);
+        if (agentEndpointInput != null && agentOv != null) agentEndpointInput.setText(agentOv);
+        refreshEndpointResolveHint();
+    }
+
+    /** 把"现在会打哪个地址、来源是哪一层"如实显示出来（与引擎同一解析出口，不会各说各话） */
+    private void refreshEndpointResolveHint() {
+        if (endpointResolveHint == null) return;
+        try {
+            String url = urlInput == null ? "" : urlInput.getText().toString().trim();
+            if (url.isEmpty()) { endpointResolveHint.setText(""); return; }
+            com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                    com.oilquiz.app.ai.model.ProviderConfigManager.get();
+            String model = selectedModelId;
+            com.oilquiz.app.ai.model.ProviderConfigManager.ResolvedEndpoint chat =
+                    pcm.resolve(url, "chat", model, textOf(chatEndpointInput));
+            com.oilquiz.app.ai.model.ProviderConfigManager.ResolvedEndpoint agent =
+                    pcm.resolve(url, "agent", model, textOf(agentEndpointInput));
+            endpointResolveHint.setText("实际解析：chat " + chat.describe()
+                    + "；agent " + agent.describe()
+                    + (agent.isResponses() ? " → Agent/工具流走 Responses" : " → 走 chat 工具流"));
+        } catch (Throwable t) {
+            endpointResolveHint.setText("端点解析预览失败：" + t.getMessage());
+        }
+    }
+
+    private static String textOf(EditText e) {
+        return e == null ? null : OnlineModelManager.blankToNull(e.getText().toString());
     }
 
     /** 按 API 地址反查服务商配置表，把「服务类型」下拉显示成对应的服务名（未识别则留空） */
@@ -290,6 +378,10 @@ public class OnlineModelConfigDialog {
         protocolHint = dialog.findViewById(R.id.text_protocol_hint);
         dialogTitle = dialog.findViewById(R.id.text_dialog_title);
         servicesTitle = dialog.findViewById(R.id.text_services_title);
+        protocolSpinner = dialog.findViewById(R.id.spinner_protocol);
+        chatEndpointInput = dialog.findViewById(R.id.input_chat_endpoint);
+        agentEndpointInput = dialog.findViewById(R.id.input_agent_endpoint);
+        endpointResolveHint = dialog.findViewById(R.id.text_endpoint_resolve_hint);
         // 能力勾选即视为用户手动设置（保存后配置表刷新不再覆盖）
         android.widget.CompoundButton.OnCheckedChangeListener userSet =
                 (b, c) -> { if (!programmaticCapabilityChange) capabilitiesUserTouched = true; };
@@ -533,6 +625,7 @@ public class OnlineModelConfigDialog {
         // 只读的协议与上下文说明随每次地址变化刷新
         applyServiceDefaults(url, editingConfig);
         applyCapabilityMeta(url, editingConfig);
+        refreshEndpointResolveHint();
     }
 
     /**
@@ -918,6 +1011,11 @@ public class OnlineModelConfigDialog {
         // 更新扩展字段
         config.selectedModel = selectedModel;
         config.autoFetchModels = true;
+
+        // 端点覆盖：留空即清除覆盖（回到"按服务商配置表"）。刻意不存协议 ——
+        // 协议由端点推导，存两份就会出现"界面说 A、引擎打 B"。
+        config.chatEndpoint = textOf(chatEndpointInput);
+        config.agentEndpoint = textOf(agentEndpointInput);
         config.apiSecret = apiSecret.isEmpty() ? null : apiSecret;
         config.appId = appId.isEmpty() ? null : appId;
         // 服务能力（差异化服务设置：agent/多模态/网络搜索/embedding/rerank/文生图/工具调用/语音）

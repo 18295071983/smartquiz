@@ -156,6 +156,67 @@
                     android:inputType="text"/>
             </com.google.android.material.textfield.TextInputLayout>
 
+            <!-- 端点覆盖区：留空＝按服务商配置表；协议不单独存，由端点形态推导，
+                 避免出现"存的协议"与"实际打的协议"两套事实 -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="调用端点（留空＝按服务商配置表；协议由端点推导）"
+                android:textSize="@dimen/text_14"
+                android:textStyle="bold"
+                android:textColor="?attr/colorControlText"
+                android:layout_marginBottom="@dimen/space_8"/>
+
+            <!-- 协议快捷选择：只负责把端点填成该协议的标准值，本身不入库 -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="切换协议（选它＝填标准端点，仍可手改）"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                android:layout_marginBottom="@dimen/space_12">
+                <AutoCompleteTextView
+                    android:id="@+id/spinner_protocol"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="none"
+                    android:focusable="false"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="chat 端点（如 /chat/completions）"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_marginBottom="@dimen/space_12">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/input_chat_endpoint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textUri"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="agent 端点（如 /responses；留空＝不按 Responses 放量）"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_marginBottom="@dimen/space_8">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/input_agent_endpoint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textUri"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- 实时解析结果：回答"这个地址是哪来的"（覆盖/模型级/服务商级/标准缺省）-->
+            <TextView
+                android:id="@+id/text_endpoint_resolve_hint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="@dimen/text_11"
+                android:textColor="?attr/colorControlTextHint"
+                android:layout_marginBottom="@dimen/space_12"/>
+
             <!-- 端点类型提示 -->
             <TextView
                 android:id="@+id/endpoint_hint"

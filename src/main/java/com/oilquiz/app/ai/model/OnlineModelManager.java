@@ -66,6 +66,17 @@ public class OnlineModelManager {
         public UsageInfo usageInfo;               // 使用量信息
         public long lastUsageFetchTime;           // 上次获取使用量时间
         public boolean autoFetchModels;           // 是否自动获取模型列表
+        /**
+         * 本条注册配置对 <b>chat 端点</b>的覆盖（null/空 = 按服务商配置表）。
+         *
+         * <p>为什么存在配置里而不是写回 {@code providers.json}：assets 表是随包分发的全局默认，
+         * 而"我这条端点走哪个地址"属于用户配置；且手填地址（表里没这家）时也需要有地方存。
+         * 刻意<b>不存协议</b> —— 协议由端点形态推导（见 ProviderConfigManager#protocolForEndpoint），
+         * 否则会出现"存的协议"与"实际打的协议"两套事实，界面承诺和引擎行为能各说各话。</p>
+         */
+        public String chatEndpoint;
+        /** 本条注册配置对 <b>agent 端点</b>（工具流 / Responses）的覆盖（null/空 = 按配置表） */
+        public String agentEndpoint;
         
         // === 模型能力元数据 ===
         // 能力口径唯一来源：下面这组扁平布尔。曾有 ModelCapabilities 内层对象作为兜底，
@@ -143,6 +154,29 @@ public class OnlineModelManager {
         }
     }
     
+    /** 空/全空白 → null，其余 trim 返回（端点覆盖这类"可缺省"字段统一走它，避免 ""/null 两种空） */
+    public static String blankToNull(String s) {
+        return s == null || s.trim().isEmpty() ? null : s.trim();
+    }
+
+    /**
+     * 取「本条注册配置」对某服务的端点覆盖；无覆盖返回 null，由调用方继续按
+     * 配置表模型级 → 服务商级 → 标准缺省 解析（优先级实现见
+     * {@link ProviderConfigManager#pickEndpoint}）。
+     *
+     * <p>路由侧一律经此取值，不再各自判空拼字面量 —— 这正是此前九处主对话调用
+     * 各写一遍兜底的根源。</p>
+     */
+    public String getEndpointOverride(String apiUrl, String modelName, String service) {
+        try {
+            OnlineModelConfig c = findConfig(apiUrl, modelName);
+            if (c == null) return null;
+            return "agent".equals(service) ? c.agentEndpoint : c.chatEndpoint;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     public interface ModelChangeListener {
         void onModelListChanged();
         void onActiveModelChanged(String activeModelId);
@@ -233,6 +267,9 @@ public class OnlineModelManager {
                     config.appId = com.oilquiz.app.ai.util.ApiKeyCipher.decrypt(obj.optString("appId", null));
                     config.lastFetchTime = obj.optLong("lastFetchTime", 0);
                     config.cachedModelsJson = obj.optString("cachedModelsJson", null);
+                    // 端点覆盖：空串归一为 null（旧数据没这两个键 → 同样得到 null，向后兼容）
+                    config.chatEndpoint = blankToNull(obj.optString("chatEndpoint", ""));
+                    config.agentEndpoint = blankToNull(obj.optString("agentEndpoint", ""));
                     config.autoFetchModels = obj.optBoolean("autoFetchModels", true);
                     config.lastUsageFetchTime = obj.optLong("lastUsageFetchTime", 0);
                     config.supportsVision = obj.optBoolean("supportsVision", false);
@@ -603,6 +640,10 @@ public class OnlineModelManager {
                 // 是唯一真正会丢的能力值（重启后退化成「所有模型都无价」并列，择优失效），现补齐。
                 // 对照：supportsAudio 不需要落盘，它每次启动由 refreshAllSupportsAudio() 按端点重算。
                 obj.put("costPerMillionTokens", config.costPerMillionTokens);
+                // 端点覆盖：空串表示"未覆盖，按配置表"。读回时归一为 null，
+                // 免得下游每个判断都要同时防 "" 和 null 两种空
+                obj.put("chatEndpoint", config.chatEndpoint != null ? config.chatEndpoint : "");
+                obj.put("agentEndpoint", config.agentEndpoint != null ? config.agentEndpoint : "");
                 
                 // 保存使用量信息
                 if (config.usageInfo != null) {

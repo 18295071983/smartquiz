@@ -657,7 +657,7 @@ public class ProviderConfigManager {
         if (cfg.enabled != null && !cfg.enabled) return false;
         String ep = cfg.endpoint == null ? "" : cfg.endpoint;
         // 端点不是 /responses 就谈不上 Responses 协议（智谱 /agent/chat、百炼多模态那类）
-        if (!ep.endsWith("/responses")) return false;
+        if (!ep.endsWith(RESPONSES_PATH)) return false;
         return "responses".equalsIgnoreCase(cfg.protocol);
     }
 
@@ -710,11 +710,121 @@ public class ProviderConfigManager {
         return v != null && !v.trim().isEmpty() ? v.trim() : null;
     }
 
+    // ==================== 端点解析的唯一出口 ====================
+    // 此前"打哪个地址"散落在九处主对话调用 + 两条 Responses 发起 + 探测里，各自还带一条
+    // 兜底字面量（endpoint 为空就写 "/responses"、不含 "/api/" 就写 "/api/chat"、
+    // responsesProbe ? "/responses" : "/chat/completions"），并且用 endsWith("/responses")
+    // 在调用方就地推断协议。结果是"改一处就漏九处"，而且界面说的和引擎打的可能不是同一件事。
+    // 现在统一由 resolve() 决出，来源可追（覆盖/模型级/服务商级/标准缺省），界面与日志共用。
+
+    /** 端点取值来源标识（给界面提示与日志用，便于回答"这个地址是哪来的"） */
+    public static final String SOURCE_CONFIG_OVERRIDE = "本条配置覆盖";
+    public static final String SOURCE_MODEL_TABLE = "配置表·模型级";
+    public static final String SOURCE_PROVIDER_TABLE = "配置表·服务商级";
+    public static final String SOURCE_STANDARD = "标准缺省";
+
+    /** 端点形态 → 协议常量。唯一判据，调用方不要再自己写 endsWith("/responses") */
+    public static String protocolForEndpoint(String endpoint) {
+        String ep = endpoint == null ? "" : endpoint.trim();
+        if (ep.endsWith(RESPONSES_PATH)) return PROTOCOL_RESPONSES;
+        if (ep.endsWith("/messages")) return PROTOCOL_ANTHROPIC;
+        if (ep.endsWith("/api/chat") || ep.endsWith("/api/generate")) return PROTOCOL_OLLAMA;
+        return PROTOCOL_OPENAI;
+    }
+
+    /**
+     * 端点取值优先级：显式覆盖 &gt; 配置表模型级 &gt; 配置表服务商级 &gt; 标准缺省。
+     *
+     * <p>做成纯函数是为了能被单测钉住 —— 这是路由的地基，出错时表现是"API 突然不能用了"，
+     * 而不是一行日志。</p>
+     *
+     * @return 长度为 2 的数组：{选中的端点, 来源标识}
+     */
+    public static String[] pickEndpoint(String override, String modelLevel,
+                                       String providerLevel, String standard) {
+        if (isNonBlank(override)) return new String[]{override.trim(), SOURCE_CONFIG_OVERRIDE};
+        if (isNonBlank(modelLevel)) return new String[]{modelLevel.trim(), SOURCE_MODEL_TABLE};
+        if (isNonBlank(providerLevel)) return new String[]{providerLevel.trim(), SOURCE_PROVIDER_TABLE};
+        return new String[]{standard, SOURCE_STANDARD};
+    }
+
+    /**
+     * Agent 是否走 Responses 的<b>纯判据</b>：本条配置写了端点覆盖时按覆盖值的形态判，
+     * 没写时沿用配置表的显式放量声明。引擎与界面徽章共用这一条，
+     * 否则会出现"徽章说走 /responses、请求其实打 chat"（或反过来）的两套事实。
+     */
+    public static boolean agentOnResponses(String overrideEndpoint, boolean tableSaysResponses) {
+        if (isNonBlank(overrideEndpoint)) {
+            return PROTOCOL_RESPONSES.equals(protocolForEndpoint(overrideEndpoint.trim()));
+        }
+        return tableSaysResponses;
+    }
+
+    private static boolean isNonBlank(String s) {
+        return s != null && !s.trim().isEmpty();
+    }
+
+    /** 一次端点解析的结果：URL 给路由用，协议与来源给界面/日志用 */
+    public static final class ResolvedEndpoint {
+        public final String endpoint;
+        public final String url;
+        public final String protocol;
+        public final String source;
+
+        ResolvedEndpoint(String endpoint, String url, String protocol, String source) {
+            this.endpoint = endpoint;
+            this.url = url;
+            this.protocol = protocol;
+            this.source = source;
+        }
+
+        public boolean isResponses() {
+            return PROTOCOL_RESPONSES.equals(protocol);
+        }
+
+        /** 人读的一行说明（界面徽章、日志都用它，避免两处各写一套措辞） */
+        public String describe() {
+            return endpoint + "（" + protocol + " · " + source + "）";
+        }
+    }
+
+    /**
+     * 唯一的端点解析出口。
+     *
+     * @param service          chat / agent / embedding / rerank / imageGen …
+     * @param modelName        用于取模型级覆盖，可为 null
+     * @param overrideEndpoint 本条注册配置里用户手填的端点，可为 null（空即不覆盖）
+     */
+    public ResolvedEndpoint resolve(String apiUrl, String service, String modelName,
+                                    String overrideEndpoint) {
+        String modelEp = strField(getModelServiceOverride(apiUrl, modelName, service), "endpoint");
+        Provider p = matchByUrl(apiUrl);
+        ServiceConfig sc = p == null || p.services == null ? null : getServiceConfig(p, service);
+        String providerEp = sc == null ? null : sc.endpoint;
+        String standard;
+        if ("chat".equals(service)) {
+            standard = getChatEndpoint(apiUrl);
+        } else {
+            String def = defaultServiceEndpoint(service);
+            standard = def != null ? def : getChatEndpoint(apiUrl);
+        }
+        String[] picked = pickEndpoint(overrideEndpoint, modelEp, providerEp, standard);
+        String endpoint = picked[0];
+        String protocol = protocolForEndpoint(endpoint);
+        // Ollama 原生端点不能按 OpenAI 规则补 /v1（会拼成 /v1/api/chat），只有 buildChatUrl 懂这个
+        String url = PROTOCOL_OLLAMA.equals(protocol)
+                ? buildChatUrl(apiUrl, endpoint) : buildUrl(apiUrl, endpoint);
+        return new ResolvedEndpoint(endpoint, url, protocol, picked[1]);
+    }
+
+    /** 按「服务商 + 模型」解析端点（不含配置级覆盖的兼容入口） */
+    public ResolvedEndpoint resolve(String apiUrl, String service, String modelName) {
+        return resolve(apiUrl, service, modelName, null);
+    }
+
     /** 按「服务商 + 模型」解析端点：模型级 endpoint 覆盖优先，缺省回落服务商级原逻辑 */
     public String getServiceEndpoint(String apiUrl, String service, String modelName) {
-        String ov = strField(getModelServiceOverride(apiUrl, modelName, service), "endpoint");
-        if (ov != null) return ov;
-        return getServiceEndpoint(apiUrl, service);
+        return resolve(apiUrl, service, modelName, null).endpoint;
     }
 
     /** 按「服务商 + 模型」判服务是否启用：模型级 enabled 覆盖优先，缺省回落服务商级 */
@@ -762,6 +872,10 @@ public class ProviderConfigManager {
     }
 
     /** chat 协议族：按 chat 端点形态判定，新增服务商只改配置表，不改调用方 */
+    /** Responses 的请求路径（表里 services.*.endpoint 存的是协议标识 "responses"，
+     *  <b>不是路径</b>，要拼地址必须用这个常量 —— 直接丢给 buildUrl 会得到错误端点）。 */
+    public static final String RESPONSES_PATH = "/responses";
+
     public static final String PROTOCOL_OPENAI = "openai";        // /chat/completions（含各家 OpenAI 兼容层）
     public static final String PROTOCOL_ANTHROPIC = "anthropic";  // /v1/messages
     public static final String PROTOCOL_RESPONSES = "responses";  // /responses
@@ -788,7 +902,7 @@ public class ProviderConfigManager {
         if (ep != null) {
             if (ep.endsWith("/api/chat") || ep.endsWith("/api/generate")) return PROTOCOL_OLLAMA;
             if (ep.endsWith("/messages")) return PROTOCOL_ANTHROPIC;
-            if (ep.endsWith("/responses")) return PROTOCOL_RESPONSES;
+            if (ep.endsWith(RESPONSES_PATH)) return PROTOCOL_RESPONSES;
         }
         // 端点未声明时按地址兜底（Anthropic 的 baseUrl 无 /v1 后缀，靠域名识别）
         if (url.contains("anthropic.com")) return PROTOCOL_ANTHROPIC;
