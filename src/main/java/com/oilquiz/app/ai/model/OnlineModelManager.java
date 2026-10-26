@@ -300,19 +300,28 @@ public class OnlineModelManager {
             for (OnlineModelConfig config : modelList) {
                 String url = config.apiUrl;
                 if (url == null || url.isEmpty()) continue;
-                // 用户手动调整过能力的配置不覆盖（保留用户设置）
-                if (config.capabilitiesUserSet) continue;
                 // 仅当配置表能识别该服务商时才覆盖（自定义地址不覆盖用户手动设置）
                 if (pcm.matchByUrl(url) == null) continue;
+                // agent / functionCalling 属于「端点事实」，不受 capabilitiesUserSet 冻结：
+                // 它们描述的是这家服务商有没有 /responses、有没有工具端点，由 providers.json 决定，
+                // 用户勾与不勾都不该改变事实。此前这两个字段和 7 项"偏好"一起被
+                // capabilitiesUserSet 整条冻结 —— 而对话框保存必然置该标志为 true，
+                // 于是任何保存过的配置都永久屏蔽表刷新：实测 deepseek-flash 存的是
+                // supportsAgent=false，导致 shouldUseResponsesAPI() 第一道门就返回 false，
+                // 表里 protocol=responses 的放量声明根本没生效。
+                // （接管模式不受影响：它由 probeFunctionCalling 真实探测决定，见 OnlineAgentEngine）
+                config.supportsAgent = pcm.supportsModelCapability(url, config.modelName, "agent");
+                config.supportsFunctionCalling =
+                        pcm.supportsModelCapability(url, config.modelName, "functionCalling");
+                // 用户手动调整过其它能力时保留其设置（偏好项仍可覆盖）
+                if (config.capabilitiesUserSet) continue;
                 // 按「服务商 + 模型名」判能力：配置表预置模型带模型级 capabilities 时精确到模型，
                 // 无模型级声明（API 自动获取/纯字符串预置）继承服务商级 services。
-                config.supportsAgent = pcm.supportsModelCapability(url, config.modelName, "agent");
                 config.supportsVision = pcm.supportsModelCapability(url, config.modelName, "vision");
                 config.supportsWebSearch = pcm.supportsModelCapability(url, config.modelName, "webSearch");
                 config.supportsEmbedding = pcm.supportsModelCapability(url, config.modelName, "embedding");
                 config.supportsRerank = pcm.supportsModelCapability(url, config.modelName, "rerank");
                 config.supportsImageGen = pcm.supportsModelCapability(url, config.modelName, "imageGen");
-                config.supportsFunctionCalling = pcm.supportsModelCapability(url, config.modelName, "functionCalling");
                 config.supportsTts = pcm.supportsModelCapability(url, config.modelName, "tts");
                 config.supportsAsr = pcm.supportsModelCapability(url, config.modelName, "asr");
                 config.supportsAudio = config.supportsAsr || config.supportsAudio;

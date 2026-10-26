@@ -312,6 +312,7 @@
                 android:background="?attr/colorCardBackground">
 
                 <TextView
+                    android:id="@+id/text_services_title"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="服务能力（按服务商配置表预置，可手动调整）"

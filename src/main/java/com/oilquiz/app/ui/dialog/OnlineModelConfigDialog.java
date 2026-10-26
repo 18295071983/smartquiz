@@ -91,6 +91,8 @@ public class OnlineModelConfigDialog {
     private TextView protocolHint;
     /** 标题：新建与编辑必须区分，此前恒显示「配置在线模型」，用户不确定自己在改哪一条 */
     private TextView dialogTitle;
+    /** 能力区标题：agent / 工具调用 改为只读后，在这里说明它们的来源 */
+    private TextView servicesTitle;
     private boolean capabilitiesUserTouched; // 用户是否手动调整过能力勾选
     private boolean programmaticCapabilityChange; // true=程序回填/预置勾选期间，屏蔽"用户手动调整"误标记
     /** 用户是否手动改过单价：改过之后，程序回填不再覆盖（此前 URL 每敲一个字符都会把它写回去） */
@@ -287,6 +289,7 @@ public class OnlineModelConfigDialog {
         costInput = dialog.findViewById(R.id.input_cost_per_million);
         protocolHint = dialog.findViewById(R.id.text_protocol_hint);
         dialogTitle = dialog.findViewById(R.id.text_dialog_title);
+        servicesTitle = dialog.findViewById(R.id.text_services_title);
         // 能力勾选即视为用户手动设置（保存后配置表刷新不再覆盖）
         android.widget.CompoundButton.OnCheckedChangeListener userSet =
                 (b, c) -> { if (!programmaticCapabilityChange) capabilitiesUserTouched = true; };
@@ -547,6 +550,10 @@ public class OnlineModelConfigDialog {
     private void applyServiceDefaults(String url, com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig config) {
         if (servicesSection == null || url == null || url.isEmpty()) return;
         servicesSection.setVisibility(View.VISIBLE);
+        // agent / 工具调用 属于端点事实（服务商有没有 /responses、有没有工具端点），
+        // 一旦让用户勾选，保存就会置 capabilitiesUserSet 从此屏蔽配置表刷新 —— 这正是
+        // "表里已放量、存的却还是旧值"的成因，所以这两项锁成只读。
+        lockEndpointCapabilities();
 
         String providerKey = providerKeyOf(url);
         boolean providerChanged = !providerKey.equals(lastPrefillProviderKey);
@@ -561,14 +568,21 @@ public class OnlineModelConfigDialog {
                 com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                         com.oilquiz.app.ai.model.ProviderConfigManager.get();
                 if (config != null) {
-                    // 编辑模式：用已保存的能力值
-                    svcAgent.setChecked(config.supportsAgent);
+                    // 编辑模式：偏好项用已保存值；但 agent / 工具调用 是**端点事实**，
+                    // 由 providers.json 的 services 决定 —— 用存档值回填会把"表已更新"这件事
+                    // 藏起来（实测 deepseek 的 services.agent 早已放量，存的却是旧的 false）
+                    boolean knownProvider = pcm.matchByUrl(url) != null;
+                    svcAgent.setChecked(knownProvider
+                            ? pcm.supportsModelCapability(url, config.modelName, "agent")
+                            : config.supportsAgent);
+                    svcFunctionCalling.setChecked(knownProvider
+                            ? pcm.supportsModelCapability(url, config.modelName, "functionCalling")
+                            : config.supportsFunctionCalling);
                     svcVision.setChecked(config.supportsVision);
                     svcWebSearch.setChecked(config.supportsWebSearch);
                     svcEmbedding.setChecked(config.supportsEmbedding);
                     svcRerank.setChecked(config.supportsRerank);
                     svcImageGen.setChecked(config.supportsImageGen);
-                    svcFunctionCalling.setChecked(config.supportsFunctionCalling);
                     svcTts.setChecked(config.supportsTts);
                     svcAsr.setChecked(config.supportsAsr);
                 } else {
@@ -593,6 +607,23 @@ public class OnlineModelConfigDialog {
         } finally {
             programmaticCapabilityChange = false;
             programmaticCostChange = false;
+        }
+    }
+
+    /**
+     * 把「Agent 接口」「工具调用」锁成只读，并在能力区标题里写明来源。
+     *
+     * <p>这两项描述的是服务商有没有 {@code /responses}、有没有工具端点 —— 是<b>端点事实</b>，
+     * 不是用户偏好。放开了让用户勾，保存就会把 {@code capabilitiesUserSet} 置 true，
+     * 从此整条配置的表刷新被屏蔽；实测正是这个链条让 deepseek 明明在配置表里已放量 responses，
+     * 存的却还是 {@code supportsAgent=false}。只读之后，勾选值始终等于配置表现值，
+     * 界面也不会给出"我能改"的错误暗示。</p>
+     */
+    private void lockEndpointCapabilities() {
+        if (svcAgent != null) svcAgent.setEnabled(false);
+        if (svcFunctionCalling != null) svcFunctionCalling.setEnabled(false);
+        if (servicesTitle != null) {
+            servicesTitle.setText("服务能力（「Agent 接口」「工具调用」由服务商配置表决定，不可手改）");
         }
     }
 
