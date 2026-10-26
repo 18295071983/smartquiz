@@ -65,11 +65,11 @@ public class ApiModel implements Serializable {
      * {@code capabilities.effort.<level>.supported} 逐档布尔，其余各家（DashScope、Kimi、GLM、
      * 千帆、方舟…）的列表接口<b>根本不返回</b>档位；它们的强度是 chat 请求参数：顶层
      * {@code reasoning_effort}、或 {@code enable_thinking} + {@code thinking_budget}、
-     * 或 {@code thinking.type}，取值集合还各家不同。所以"本字段为空"对多数服务商是常态而非异常 ——
-     * 或 {@code enable_thinking} + {@code thinking_budget}、或 {@code thinking.type}，
-     * 取值集合还各家不同。所以"本字段为空"对多数服务商是常态而非异常 —— 真要给不声明的服务商补，
-     * 写 {@code providers.json} 的 {@code models[]} 对象形态（读取侧见 ModelListFetcher#applyPresetMeta），
-     * 不要指望换一套键名就能从 {@code /models} 里挖出来。</p>
+     * 或 {@code thinking.type}，取值集合还各家不同。所以"本字段为空"对多数服务商是
+     * <b>常态而非异常</b> —— 没有档位可选就是该模型的实际情况。
+     * 刻意<b>不</b>在服务商配置表里加人工声明位：这个值会直接下发进请求
+     * （{@code reasoning.effort} / {@code reasoning_effort}），人工填必过期、过期就是 400，
+     * "填补空白"反而比留空更危险。</p>
      *
      * <p>DeepSeek 对该数组的描述（厂商侧口径，非公开文档标准）："模型在思考模式下支持的强度档位，
      * 按推荐显示顺序，即 {@code reasoning_effort} 参数接受的取值"，且**不含** {@code none}

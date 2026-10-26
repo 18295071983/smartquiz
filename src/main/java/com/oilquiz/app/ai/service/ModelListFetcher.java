@@ -266,78 +266,18 @@ public class ModelListFetcher {
                 pm.source = "preset";
                 List<String> caps = pcm.getModelCapabilities(apiUrl, name);
                 if (caps != null && !caps.isEmpty()) pm.capabilities = caps; // 模型级能力
-                // 上下文 / 输出上限 / 思考档位 / 输入模态：接口不声明的那批服务商，
-                // 唯一来源就是配置表的对象形态（各家 /models 实测只回裸 id+展示名）。
-                // 此前这里硬写 pm.contextLength = 0，预置条目在列表里显示 "Context: 0"，
-                // 下游 max_tokens 也无从收敛 —— 等于把"配置表补进来的模型"标成坏数据。
-                applyPresetMeta(pm, pcm.getPredefinedModelJson(apiUrl, name));
+                // 上下文兜底：预置条目此前硬写 contextLength = 0，列表里显示 "Context: 0" 像是坏数据。
+                // 复用既有的窗口表（与 ApiModel.fromOpenAI 同一个口径）。刻意**不**在配置表里加
+                // "档位/输出上限/输入模态"的人工声明位 —— 这些值直接下发进请求，人工填必过期，
+                // 过期就是 400；它们只信服务商 API 的声明（各家 /models 实测只回裸 id+展示名）。
+                pm.contextLength = com.oilquiz.app.ai.model.OnlineModelProfile
+                        .match(null, name).contextWindow;
                 models.add(pm);
                 existing.add(name);
             }
         } catch (Exception e) {
             AILogger.w(TAG, "Merge preset models failed: " + e.getMessage());
         }
-    }
-
-    /**
-     * 把配置表里某个模型的对象声明套到 {@link ApiModel} 上：上下文、输出上限、思考档位、
-     * 默认档、输入模态 —— 与 API 返回时写的缓存字段**同名同形**，所以下游四个读取方
-     * （档位选择器、{@code reasoning_effort} 注入、max_tokens 上限、多模态判定）不用改。
-     *
-     * <p><b>为什么要有这个</b>：除 DeepSeek 外各家 {@code GET /models} 都不返回这些声明
-     * （实测每条目仅 69~77 字节，装不下数组），档位信息只存在于 chat 请求参数文档里。
-     * 于是"接口给不了"的能力必须有一个人工声明位；表侧扩展见
-     * {@link com.oilquiz.app.ai.model.ProviderConfigManager} 的 {@code models[]} 注释。</p>
-     *
-     * <p>{@code meta == null}（纯字符串形态或未声明）时不编造任何能力，只补一个与
-     * {@link ApiModel#fromOpenAI} 同口径的上下文推断值，避免预置条目显示 "Context: 0"。</p>
-     */
-    static void applyPresetMeta(ApiModel model, com.google.gson.JsonObject meta) {
-        if (model == null) return;
-        if (meta != null) {
-            try {
-                if (meta.has("contextLength") && meta.get("contextLength").isJsonPrimitive()) {
-                    int v = meta.get("contextLength").getAsInt();
-                    if (v > 0) {
-                        model.contextLength = v;
-                        model.contextLengthFromApi = false; // 人工声明，不是接口检测值（可信度口径不变）
-                    }
-                }
-                if (meta.has("maxOutputTokens") && meta.get("maxOutputTokens").isJsonPrimitive()) {
-                    int v = meta.get("maxOutputTokens").getAsInt();
-                    if (v > 0) model.maxOutputTokens = v;
-                }
-                java.util.List<String> levels = readStringArray(meta, "thinkingEffortLevels");
-                if (levels != null && !levels.isEmpty()) model.thinkingEffortLevels = levels;
-                if (meta.has("thinkingEffortDefault") && meta.get("thinkingEffortDefault").isJsonPrimitive()) {
-                    String s = meta.get("thinkingEffortDefault").getAsString();
-                    if (s != null && !s.trim().isEmpty()) model.thinkingEffortDefault = s.trim();
-                }
-                java.util.List<String> mods = readStringArray(meta, "inputModalities");
-                if (mods != null && !mods.isEmpty()) model.inputModalities = mods;
-            } catch (Throwable t) {
-                // 声明写坏（类型不对等）不该毁掉这次列表合并：保留已套上的部分，其余按"未声明"
-                AILogger.w(TAG, "applyPresetMeta partial for " + model.id + ": " + t.getMessage());
-            }
-        }
-        if (model.contextLength <= 0) {
-            // 与 fromOpenAI 同一个数据驱动配置表口径（deepseek→64K、qwen3→32K 等），不是关键词猜测
-            model.contextLength = com.oilquiz.app.ai.model.OnlineModelProfile
-                    .match(null, model.id).contextWindow;
-        }
-    }
-
-    /** 读 JSON 对象里的字符串数组（trim + 去空）；键不存在或不是数组时返回 null */
-    private static java.util.List<String> readStringArray(com.google.gson.JsonObject o, String key) {
-        if (o == null || !o.has(key) || !o.get(key).isJsonArray()) return null;
-        com.google.gson.JsonArray arr = o.getAsJsonArray(key);
-        java.util.List<String> out = new java.util.ArrayList<>();
-        for (int i = 0; i < arr.size(); i++) {
-            if (!arr.get(i).isJsonPrimitive()) continue;
-            String s = arr.get(i).getAsString();
-            if (s != null && !s.trim().isEmpty()) out.add(s.trim());
-        }
-        return out;
     }
 
     /**
@@ -553,7 +493,7 @@ public class ModelListFetcher {
                     // （强度只在 chat 请求参数里：顶层 reasoning_effort、enable_thinking +
                     // thinking_budget、thinking.type，取值集合各家还不一样）。
                     // 所以对多数服务商"这里为空"是常态而非异常；要给人工声明位，写 providers.json
-                    // 的 models[] 对象形态（见 applyPresetMeta），别指望换键名就能从 /models 挖出来。
+                    // 未声明时保持为空：UI 不展示档位、请求也不下发强度参数（宁缺毋错）。
                     // 未声明时保持为空：UI 不展示档位、请求也不下发强度参数（宁缺毋错）。
                     parseThinkingEffort(modelObj, model);
                     models.add(model);
