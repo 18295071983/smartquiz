@@ -775,8 +775,15 @@ public class LibreOfficeMainActivity extends AppCompatActivity implements Shared
     }
 
     public void showAlertDialog(String message) {
-        // 页面已结束/销毁时 show() 会抛 BadTokenException（LOKit 线程回调尤其容易踩到）
+        // 生命周期守卫。成因不是线程：唯一调用点 LOKitTileProvider#checkDocument 已经把
+        // showAlertDialog 包在 LOKitShell.getMainHandler().post(...) 里，本来就跑在主线程。
+        // 真正的失效窗口是「post 排到队首之前宿主已被结束」——用户在这期间关掉文档/退页面，
+        // 此时往一个没有有效 window token 的 Activity 加窗口就会抛 BadTokenException。
         if (isFinishing() || isDestroyed()) {
+            // 这条 message 往往就是用户关于"文档为什么打不开"唯一能看到的信息
+            // （LOKit 回来的错误串）。页面已死、无处可弹只能丢弃，但必须留痕，
+            // 否则线上无法区分"根本没报错"与"报错被这里吞了"。
+            Log.w(LOGTAG, "showAlertDialog: 宿主页面已结束，弹窗被丢弃。原提示=" + message);
             return;
         }
 
@@ -794,7 +801,8 @@ public class LibreOfficeMainActivity extends AppCompatActivity implements Shared
         try {
             alertDialog.show();
         } catch (WindowManager.BadTokenException e) {
-            Log.w("LibreOfficeMainActivity", "showAlertDialog: 宿主页面已失效，跳过弹窗", e);
+            // 覆盖 isDestroyed() 还没翻、token 却已失效的那段竞态（pause~destroy 之间）
+            Log.w(LOGTAG, "showAlertDialog: 宿主页面已失效，跳过弹窗", e);
         }
     }
 
