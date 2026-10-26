@@ -89,8 +89,20 @@ public class OnlineModelConfigDialog {
     private EditText costInput;
     /** 协议只读提示：展示推理链实际按 providers.json 反推出的协议 */
     private TextView protocolHint;
+    /** 标题：新建与编辑必须区分，此前恒显示「配置在线模型」，用户不确定自己在改哪一条 */
+    private TextView dialogTitle;
     private boolean capabilitiesUserTouched; // 用户是否手动调整过能力勾选
     private boolean programmaticCapabilityChange; // true=程序回填/预置勾选期间，屏蔽"用户手动调整"误标记
+    /** 用户是否手动改过单价：改过之后，程序回填不再覆盖（此前 URL 每敲一个字符都会把它写回去） */
+    private boolean costUserTouched;
+    /** true=程序正在回填单价期间，屏蔽"用户手动改过"误标记（与能力勾选同一套做法） */
+    private boolean programmaticCostChange;
+    /** 能力由连通性探测确认过（区别于"用户手动设置"，但同样不该被配置表刷新覆盖） */
+    private boolean capabilitiesProbed;
+    /** 上一次做「能力/单价预置」时的服务商标识；同一服务商内不再重置，换服务商才重填 */
+    private String lastPrefillProviderKey;
+    /** 当前「可用模型」列表来自缓存而非本次 API 拉取（标题要标出来） */
+    private boolean modelsFromCache;
 
     private ModelListFetcher modelListFetcher;
     private UsageTracker usageTracker;
@@ -136,7 +148,7 @@ public class OnlineModelConfigDialog {
             }
             // 编辑已有配置时同样标出展示名（取缓存里的 name，无需重新拉取）
             this.cachedDisplaySource = config.cachedModelsJson;
-            updateSelectedModelLabel(selectedModelId);
+            refreshModelsTitle();
         }
         return this;
     }
@@ -156,17 +168,34 @@ public class OnlineModelConfigDialog {
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(R.layout.dialog_online_model_config);
         dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
-        dialog.getWindow().setLayout(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        // 窗口高度取屏高的 86%，而不是 WRAP_CONTENT：本表单编辑态下各区块全展开，内容高度必然
+        // 超过屏幕。给一个**确定**的高度，中间 NestedScrollView(0dp + weight) 才是在 EXACTLY
+        // 规格下测量（wrap_content 根 + 加权子节点的组合在不同版本上表现不一致，最坏情况整块表单
+        // 塌成 0 高），底部「取消/保存」因此永远在可视区内。
+        // 与仓库里 dialog_voice_feature_info.xml 的「固定头 + 可滚中部 + 固定按钮」形状一致。
+        int screenHeight = context.getResources().getDisplayMetrics().heightPixels;
+        dialog.getWindow().setLayout(LinearLayout.LayoutParams.MATCH_PARENT,
+                Math.max(0, (int) (screenHeight * 0.86f)));
+        // 键盘弹出时压缩窗口而非平移：底部是固定的「取消/保存」，
+        // 默认行为会让键盘直接盖住它们
+        dialog.getWindow().setSoftInputMode(
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
 
         initViews();
         setupListeners();
         setupServiceTypeSpinner();
-        
+
+        if (dialogTitle != null) {
+            dialogTitle.setText(existingConfig != null ? "编辑在线模型" : "添加在线模型");
+        }
+
         if (existingConfig != null) {
             nameInput.setText(existingConfig.name);
             urlInput.setText(existingConfig.apiUrl);
             keyInput.setText(existingConfig.apiKey);
             selectedModelId = existingConfig.selectedModel;
+            // 展示名的取数来源：编辑时列表尚未拉取，只能从这条配置自带的缓存里查
+            cachedDisplaySource = existingConfig.cachedModelsJson;
             // 回填实际模型名到手动输入框（编辑时可查看/修改，列表未收录的免费模型也可见可改）
             if (selectedModelInput != null && selectedModelId != null) {
                 selectedModelInput.setText(selectedModelId);
@@ -183,13 +212,19 @@ public class OnlineModelConfigDialog {
                 appIdInput.setText(existingConfig.appId);
             }
 
-            // 触发端点类型检测，显示/隐藏扩展字段
+            // 服务类型下拉回填：它不落盘（只是"自动填充地址"的助手），
+            // 但编辑一条已有配置时留空会让人以为这个字段没存住 —— 按地址反查配置表显示出来
+            backfillServiceType(existingConfig.apiUrl);
+
+            // 触发端点类型检测，显示/隐藏扩展字段 + 首次回填能力/单价
             updateEndpointFields(existingConfig.apiUrl);
 
             // 如果有缓存的模型，尝试加载
             if (existingConfig.cachedModelsJson != null && !existingConfig.cachedModelsJson.isEmpty()) {
                 loadCachedModels(existingConfig.cachedModelsJson);
             }
+            // 标题必须在此之后写：loadCachedModels 只负责灌列表，谁显示"已选哪个模型"由这里统一收口
+            refreshModelsTitle();
             
             // 显示使用量信息
             if (existingConfig.usageInfo != null) {
@@ -198,6 +233,15 @@ public class OnlineModelConfigDialog {
         }
         
         dialog.show();
+    }
+
+    /** 按 API 地址反查服务商配置表，把「服务类型」下拉显示成对应的服务名（未识别则留空） */
+    private void backfillServiceType(String apiUrl) {
+        if (serviceTypeSpinner == null) return;
+        com.oilquiz.app.ai.model.ProviderConfigManager.Provider p =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get().matchByUrl(apiUrl);
+        // 第二个参数 false = 不触发过滤：否则这段文本会被当成用户输入去过滤下拉项
+        serviceTypeSpinner.setText(p != null ? p.name : "", false);
     }
 
     private void initViews() {
@@ -242,6 +286,7 @@ public class OnlineModelConfigDialog {
         svcAsr = dialog.findViewById(R.id.svc_asr);
         costInput = dialog.findViewById(R.id.input_cost_per_million);
         protocolHint = dialog.findViewById(R.id.text_protocol_hint);
+        dialogTitle = dialog.findViewById(R.id.text_dialog_title);
         // 能力勾选即视为用户手动设置（保存后配置表刷新不再覆盖）
         android.widget.CompoundButton.OnCheckedChangeListener userSet =
                 (b, c) -> { if (!programmaticCapabilityChange) capabilitiesUserTouched = true; };
@@ -261,9 +306,25 @@ public class OnlineModelConfigDialog {
                 @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
                 @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
                 @Override public void afterTextChanged(android.text.Editable s) {
-                    if (s != null) {
-                        selectedModelId = s.toString().trim();
+                    if (s == null) return;
+                    selectedModelId = s.toString().trim();
+                    // 手输也要让列表的选中态跟着走：此前只改了内部字段，radio 仍停在上一次点选的行，
+                    // 用户看到的是"我填了 A、列表里亮着 B"
+                    if (modelsAdapter != null) {
+                        modelsAdapter.setSelectedModel(selectedModelId);
                     }
+                    refreshModelsTitle();
+                }
+            });
+        }
+
+        // 单价：一旦被用户手动改过，程序回填（换服务商、URL 逐字变化）就不得再覆盖它
+        if (costInput != null) {
+            costInput.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+                @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+                @Override public void afterTextChanged(android.text.Editable s) {
+                    if (!programmaticCostChange) costUserTouched = true;
                 }
             });
         }
@@ -279,27 +340,40 @@ public class OnlineModelConfigDialog {
                 if (selectedModelInput != null) {
                     selectedModelInput.setText(model.id);
                 }
-                updateSelectedModelLabel(model.id);
+                refreshModelsTitle();
             });
         modelsRecycler.setLayoutManager(new LinearLayoutManager(context));
         modelsRecycler.setAdapter(modelsAdapter);
     }
 
     /**
-     * 在"可用模型"标题处标出**已选模型的展示名与实际 id**，使两者同时可见。
+     * 「可用模型」标题的**唯一写者**：数量、数据来源（本次拉取/缓存）、已选模型的展示名与实际 id 一次成文。
      *
-     * <p>背景：官方 {@code GET /models} 的 {@code name} 是展示名，与 id 不同
-     * （{@code deepseek-flash} ↔ {@code DeepSeek-V4.1-Flash}），而请求必须用 id。
+     * <p>此前这里叠了两个毛病：{@code loadCachedModels} 直接 {@code setText("可用模型 (N) - 缓存")}
+     * 把"已选"覆盖掉，而 {@code fetchModels} 只在**未选中**时才写数量 —— 结果"数量"和"已选"
+     * 永远只显示一个，编辑已有配置时更是整条"已选"都不出现。收成单一写者后，调用方不必再操心顺序。</p>
+     *
+     * <p>展示名与 id 必须同时可见：官方 {@code GET /models} 的 {@code name} 是展示名，
+     * 与 id 不同（{@code deepseek-flash} ↔ {@code DeepSeek-V4.1-Flash}），而请求只认 id。
      * 只显示其一都会让人以为"选错了模型"。</p>
      */
-    private void updateSelectedModelLabel(String modelId) {
-        if (modelsTitle == null || modelId == null) return;
-        String display = findDisplayNameInFetched(modelId);
-        if (display != null && !display.equals(modelId)) {
-            modelsTitle.setText("可用模型 —— 已选：" + display + "（" + modelId + "）");
-        } else {
-            modelsTitle.setText("可用模型 —— 已选：" + modelId);
+    private void refreshModelsTitle() {
+        if (modelsTitle == null) return;
+        int n = fetchedModels != null ? fetchedModels.size() : 0;
+        StringBuilder sb = new StringBuilder("可用模型");
+        if (n > 0) {
+            sb.append(" (").append(n).append(")");
+            if (modelsFromCache) sb.append(" · 缓存");
         }
+        if (selectedModelId != null && !selectedModelId.isEmpty()) {
+            String display = findDisplayNameInFetched(selectedModelId);
+            sb.append(display != null && !display.equals(selectedModelId)
+                    ? " —— 已选：" + display + "（" + selectedModelId + "）"
+                    : " —— 已选：" + selectedModelId);
+        } else {
+            sb.append(" —— 尚未选择");
+        }
+        modelsTitle.setText(sb.toString());
     }
 
     /** 从已获取的模型列表里按 id 取展示名；取不到返回 null */
@@ -452,67 +526,93 @@ public class OnlineModelConfigDialog {
             endpointHint.setVisibility(View.GONE);
         }
 
-        // 服务能力设置区：编辑模式用配置值，新建模式按服务商配置表预置（可手动调整）
+        // 服务能力/单价的**回填**只在服务商变化时做一次（见 applyServiceDefaults）；
+        // 只读的协议与上下文说明随每次地址变化刷新
         applyServiceDefaults(url, editingConfig);
+        applyCapabilityMeta(url, editingConfig);
     }
 
     /**
-     * 服务能力勾选区：编辑已有配置 → 用配置里保存的能力值；
-     * 新建 → 按服务商配置表 providers.json 的 services 声明预置勾选。
-     * 用户勾选后保存即持久化（capabilitiesUserSet=true，配置表刷新不再覆盖）。
+     * 服务能力勾选 + 单价回填。
+     *
+     * <p><b>门控在"服务商是否变化"上，而不是每次地址变化都做</b>：本方法挂在 API 地址输入框的
+     * TextWatcher 链上，此前每敲一个字符都会把 9 个能力勾选重写成**存档值**、把单价重写成
+     * 存档值或空串。于是"勾完复选框又回头给地址补个斜杠"→ 刚才的勾选当场被吃掉；
+     * 新建时填好单价再动一下地址 → 单价被清空。保存的自然是被覆盖前的旧值，
+     * 用户看到的现象就是"改了没生效"。</p>
+     *
+     * <p>规则（新建与编辑一致）：① 同一服务商内不重置任何用户输入；② 换服务商才重新预置；
+     * ③ 用户已手动改过的能力勾选或单价，任何情况下都不再被程序覆盖。</p>
      */
     private void applyServiceDefaults(String url, com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig config) {
         if (servicesSection == null || url == null || url.isEmpty()) return;
-        // 本方法内的勾选均为程序化回填/预置：置标志位，避免触发"用户手动调整"标记
-        programmaticCapabilityChange = true;
-        try {
-        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
-                com.oilquiz.app.ai.model.ProviderConfigManager.get();
-        boolean known = pcm.matchByUrl(url) != null;
-        if (config != null) {
-            // 编辑模式：用已保存的能力值
-            svcAgent.setChecked(config.supportsAgent);
-            svcVision.setChecked(config.supportsVision);
-            svcWebSearch.setChecked(config.supportsWebSearch);
-            svcEmbedding.setChecked(config.supportsEmbedding);
-            svcRerank.setChecked(config.supportsRerank);
-            svcImageGen.setChecked(config.supportsImageGen);
-            svcFunctionCalling.setChecked(config.supportsFunctionCalling);
-            svcTts.setChecked(config.supportsTts);
-            svcAsr.setChecked(config.supportsAsr);
-        } else {
-            // 新建模式：按配置表预置（未知服务商全不勾选，用户可手动开）
-            svcAgent.setChecked(known && pcm.hasService(url, "agent"));
-            svcVision.setChecked(known && pcm.hasService(url, "vision"));
-            svcWebSearch.setChecked(known && pcm.hasService(url, "webSearch"));
-            svcEmbedding.setChecked(known && pcm.hasService(url, "embedding"));
-            svcRerank.setChecked(known && pcm.hasService(url, "rerank"));
-            svcImageGen.setChecked(known && pcm.hasService(url, "imageGen"));
-            svcFunctionCalling.setChecked(known && pcm.hasService(url, "functionCalling"));
-            svcTts.setChecked(known && pcm.hasService(url, "tts"));
-            svcAsr.setChecked(known && pcm.hasService(url, "asr"));
-        }
         servicesSection.setVisibility(View.VISIBLE);
-        applyCapabilityMeta(url, config);
+
+        String providerKey = providerKeyOf(url);
+        boolean providerChanged = !providerKey.equals(lastPrefillProviderKey);
+        lastPrefillProviderKey = providerKey;
+        if (!providerChanged) return;
+
+        // 本方法内的勾选与填值均为程序化回填：置标志位，避免触发"用户手动调整"标记
+        programmaticCapabilityChange = true;
+        programmaticCostChange = true;
+        try {
+            if (!capabilitiesUserTouched) {
+                com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                        com.oilquiz.app.ai.model.ProviderConfigManager.get();
+                if (config != null) {
+                    // 编辑模式：用已保存的能力值
+                    svcAgent.setChecked(config.supportsAgent);
+                    svcVision.setChecked(config.supportsVision);
+                    svcWebSearch.setChecked(config.supportsWebSearch);
+                    svcEmbedding.setChecked(config.supportsEmbedding);
+                    svcRerank.setChecked(config.supportsRerank);
+                    svcImageGen.setChecked(config.supportsImageGen);
+                    svcFunctionCalling.setChecked(config.supportsFunctionCalling);
+                    svcTts.setChecked(config.supportsTts);
+                    svcAsr.setChecked(config.supportsAsr);
+                } else {
+                    // 新建模式：按配置表预置（未知服务商全不勾选，用户可手动开）
+                    boolean known = pcm.matchByUrl(url) != null;
+                    svcAgent.setChecked(known && pcm.hasService(url, "agent"));
+                    svcVision.setChecked(known && pcm.hasService(url, "vision"));
+                    svcWebSearch.setChecked(known && pcm.hasService(url, "webSearch"));
+                    svcEmbedding.setChecked(known && pcm.hasService(url, "embedding"));
+                    svcRerank.setChecked(known && pcm.hasService(url, "rerank"));
+                    svcImageGen.setChecked(known && pcm.hasService(url, "imageGen"));
+                    svcFunctionCalling.setChecked(known && pcm.hasService(url, "functionCalling"));
+                    svcTts.setChecked(known && pcm.hasService(url, "tts"));
+                    svcAsr.setChecked(known && pcm.hasService(url, "asr"));
+                }
+            }
+            if (!costUserTouched && costInput != null) {
+                costInput.setText(config != null && config.costPerMillionTokens > 0
+                        ? String.format(java.util.Locale.US, "%.4f", config.costPerMillionTokens)
+                        : "");
+            }
         } finally {
             programmaticCapabilityChange = false;
+            programmaticCostChange = false;
         }
     }
 
+    /** 服务商身份键：同一个键视为"同一家"，其间的地址变化不重做能力/单价预置 */
+    private String providerKeyOf(String url) {
+        com.oilquiz.app.ai.model.ProviderConfigManager.Provider p =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get().matchByUrl(url);
+        if (p == null) return "unknown";
+        return p.id != null ? p.id : String.valueOf(p.name);
+    }
+
     /**
-     * 单价回填 + 协议/上下文的只读说明。
+     * 协议/上下文的只读说明（随地址变化刷新；纯展示，不写任何用户输入）。
      *
-     * <p>单价此前没有入口，字段恒为 0；协议与上下文窗口则从来没有界面露出过 ——
-     * 用户无法知道自己注册的端点实际走 chat/completions 还是 /responses，
-     * 也看不出上下文数值是 API 检测来的还是按配置表推断的（可信度完全不同）。</p>
+     * <p>协议与上下文窗口此前从来没有界面露出过 —— 用户无法知道自己注册的端点实际走
+     * chat/completions 还是 /responses，也看不出上下文数值是 API 检测来的还是按配置表推断的
+     * （可信度完全不同）。单价的回填不在这里：它是输入框，归 applyServiceDefaults 门控。</p>
      */
     private void applyCapabilityMeta(String url,
                                      com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig config) {
-        if (costInput != null) {
-            costInput.setText(config != null && config.costPerMillionTokens > 0
-                    ? String.format(java.util.Locale.US, "%.4f", config.costPerMillionTokens)
-                    : "");
-        }
         if (protocolHint == null) return;
         StringBuilder sb = new StringBuilder();
         sb.append(com.oilquiz.app.ui.modelcenter.ModelCapabilitySummary.protocolLabel(url));
@@ -583,7 +683,15 @@ public class OnlineModelConfigDialog {
         if (value) {
             sb.append(" ").append(name).append("✓");
             if (!box.isChecked()) {
-                box.setChecked(true);
+                // 程序补勾：必须避开"用户手动调整"标记，否则一次探测就把这条配置标成
+                // capabilitiesUserSet=true，此后服务商配置表刷新永远不再覆盖它（口径见 saveConfig）
+                programmaticCapabilityChange = true;
+                try {
+                    box.setChecked(true);
+                } finally {
+                    programmaticCapabilityChange = false;
+                }
+                capabilitiesProbed = true;
             }
         }
     }
@@ -607,13 +715,10 @@ public class OnlineModelConfigDialog {
                 
                 if (models != null && !models.isEmpty()) {
                     fetchedModels = models;
+                    modelsFromCache = false;
                     modelsAdapter.updateData(models, selectedModelId);
                     modelsSection.setVisibility(View.VISIBLE);
-                    // 标题同时反映"数量 + 已选模型的展示名与 id"，避免只显示 id 让人误判
-                    updateSelectedModelLabel(selectedModelId);
-                    if (selectedModelId == null || selectedModelId.isEmpty()) {
-                        modelsTitle.setText("可用模型 (" + models.size() + ")");
-                    }
+                    refreshModelsTitle();
                     Toast.makeText(context, "获取到 " + models.size() + " 个模型", Toast.LENGTH_SHORT).show();
                     
                     // 同时获取使用量
@@ -690,11 +795,18 @@ public class OnlineModelConfigDialog {
         String name = nameInput.getText().toString().trim();
         String url = urlInput.getText().toString().trim();
         String key = keyInput.getText().toString().trim();
-        String apiSecret = apiSecretInput.getText().toString().trim();
-        String appId = appIdInput.getText().toString().trim();
+        // 扩展凭据只在**它当前可见**时才读取：端点类型决定显隐（讯飞/百度/火山各要其一），
+        // 此前无条件取值意味着"把地址从讯飞改成 OpenAI 再保存"会把旧的 APISecret/AppID
+        // 一起静默留在配置里 —— 界面上看不见，却照样加密落盘并被推理链按存在与否判断。
+        String apiSecret = (apiSecretLayout != null
+                && apiSecretLayout.getVisibility() == View.VISIBLE)
+                ? apiSecretInput.getText().toString().trim() : "";
+        String appId = (appIdLayout != null
+                && appIdLayout.getVisibility() == View.VISIBLE)
+                ? appIdInput.getText().toString().trim() : "";
 
         if (name.isEmpty()) {
-            Toast.makeText(context, "请填写模型名称", Toast.LENGTH_SHORT).show();
+            Toast.makeText(context, "请填写配置名称", Toast.LENGTH_SHORT).show();
             return;
         }
         if (url.isEmpty()) {
@@ -713,15 +825,30 @@ public class OnlineModelConfigDialog {
             return;
         }
 
-        // 设置选择的模型：优先手动输入框（列表未收录的免费模型等可直接填写），
-        // 其次列表点选值，最后默认
+        // 名称必须唯一：列表侧的「编辑/删除/启用/获取模型」全靠按 name 反查配置
+        // （findByName 系列），两条同名时用户点其中一条的编辑，改的却是另一条。
+        String selfId = editingConfig != null ? editingConfig.id : null;
+        for (OnlineModelManager.OnlineModelConfig c : modelManager.getModelList()) {
+            if (c == null) continue;
+            if (selfId != null && selfId.equals(c.id)) continue;
+            if (name.equals(c.name)) {
+                Toast.makeText(context, "已存在同名配置「" + name + "」，请换一个名称", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
+
+        // 设置选择的模型：优先手动输入框（列表未收录的免费模型等可直接填写），其次列表点选值。
+        // 不再兜底成 "gpt-3.5-turbo"：该输入框此前藏在「可用模型」块里、没有列表时整块不可见，
+        // 用户根本没机会填，却被静默存成一个多半不存在于该端点的模型名。
         String selectedModel;
         if (selectedModelInput != null && !selectedModelInput.getText().toString().trim().isEmpty()) {
             selectedModel = selectedModelInput.getText().toString().trim();
         } else if (selectedModelId != null && !selectedModelId.isEmpty()) {
             selectedModel = selectedModelId;
         } else {
-            selectedModel = "gpt-3.5-turbo"; // 默认模型
+            Toast.makeText(context, "请填写实际模型名（发给 API 的 id，或点「获取模型列表」选择）",
+                    Toast.LENGTH_LONG).show();
+            return;
         }
 
         // 保存缓存的模型列表（使用 JSON 数组格式以保持与 OnlineModelAdapter.parseCachedModels 兼容）
@@ -772,8 +899,11 @@ public class OnlineModelConfigDialog {
             config.supportsFunctionCalling = svcFunctionCalling.isChecked();
             config.supportsTts = svcTts.isChecked();
             config.supportsAsr = svcAsr.isChecked();
-            // 保存即视为用户手动设置能力（配置表刷新不再覆盖；新建必置 true）
-            config.capabilitiesUserSet = !isEditing || editingConfig.capabilitiesUserSet || capabilitiesUserTouched;
+            // 保存即视为"这条配置的能力已人为确定"（配置表刷新不再覆盖）。
+            // 探测确认过的能力同等对待 —— 它比配置表的猜测更可信；但二者在代码里仍分开记录，
+            // 不再让一次连通性探测冒充"用户手动设置"。
+            config.capabilitiesUserSet = !isEditing || editingConfig.capabilitiesUserSet
+                    || capabilitiesUserTouched || capabilitiesProbed;
         }
         // 单价：AttachmentProcessor 按它给同能力模型排性价比择优；空/非法按 0（无价）处理
         if (costInput != null) {
@@ -838,18 +968,25 @@ public class OnlineModelConfigDialog {
                     return null;
                 }
             }).thenAccept(window -> {
+                // 回写目标必须取注册表里**当前**那份对象，而不是这里捕获的引用：本回调在对话框
+                // dismiss 之后才到达，期间用户完全可能又编辑了一次同一条配置，写旧引用会把那次编辑整体盖掉。
+                OnlineModelManager.OnlineModelConfig current =
+                        config.id != null ? modelManager.getModel(config.id) : null;
+                if (current == null) {
+                    return; // 期间该配置已被删除：丢弃这次检测结果
+                }
                 if (window != null && window > 0) {
-                    config.contextWindow = window;
-                    config.contextWindowFromApi = true;
+                    current.contextWindow = window;
+                    current.contextWindowFromApi = true;
                 } else {
                     // API 未返回真实值：回退配置表推断，避免残留旧死值（如名称推断的 4096）
-                    int inferred = OnlineModelManager.getContextWindowForModel(config.apiUrl, config.modelName);
-                    if (inferred > 0 && inferred != config.contextWindow) {
-                        config.contextWindow = inferred;
+                    int inferred = OnlineModelManager.getContextWindowForModel(current.apiUrl, current.modelName);
+                    if (inferred > 0 && inferred != current.contextWindow) {
+                        current.contextWindow = inferred;
                     }
-                    config.contextWindowFromApi = false;
+                    current.contextWindowFromApi = false;
                 }
-                modelManager.updateModelConfig(config);
+                modelManager.updateModelConfig(current);
             });
         } catch (Throwable t) {
             // 查询失败静默，保留配置表推断值
@@ -870,19 +1007,14 @@ public class OnlineModelConfigDialog {
             try {
                 org.json.JSONArray arr = new org.json.JSONArray(trimmed);
                 for (int i = 0; i < arr.length(); i++) {
-                    org.json.JSONObject obj = arr.getJSONObject(i);
-                    String id = obj.optString("id", null);
-                    String name = obj.optString("name", null);
-                    if (id != null) {
-                        ApiModel m = new ApiModel(id);
-                        if (name != null) {
-                            m.displayName = name;
-                        }
-                        int ctx = obj.optInt("contextLength", 0); // 还原配置时检测到的真实窗口
-                        if (ctx > 0) {
-                            m.contextLength = ctx;
-                            m.contextLengthFromApi = obj.optBoolean("contextLengthFromApi", false);
-                        }
+                    org.json.JSONObject obj = arr.optJSONObject(i);
+                    if (obj == null) continue;
+                    // 与写侧 ModelListFetcher.modelToCacheJson 互为逆运算：思考档位、默认档位、
+                    // 输出上限、输入模态都必须还原。此前这里只认 id/name/contextLength，而保存时
+                    // 又用这份残缺列表重新序列化覆盖 cachedModelsJson —— 打开编辑点一次保存，
+                    // 档位选择器与 max_tokens 上限就没了，界面上却毫无痕迹。
+                    ApiModel m = ModelListFetcher.modelFromCacheJson(obj);
+                    if (m.id != null) {
                         models.add(m);
                     }
                 }
@@ -905,9 +1037,10 @@ public class OnlineModelConfigDialog {
 
         if (!models.isEmpty()) {
             fetchedModels = models;
+            modelsFromCache = true;
             modelsAdapter.updateData(models, selectedModelId);
             modelsSection.setVisibility(View.VISIBLE);
-            modelsTitle.setText("可用模型 (" + models.size() + ") - 缓存");
+            refreshModelsTitle();
         }
     }
 

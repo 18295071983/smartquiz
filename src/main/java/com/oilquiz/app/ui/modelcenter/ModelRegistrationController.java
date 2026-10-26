@@ -133,7 +133,8 @@ public class ModelRegistrationController implements OnlineModelAdapter.OnOnlineM
                 .setSaveListener(new OnlineModelConfigDialog.OnConfigSaveListener() {
                     @Override
                     public void onConfigSaved(OnlineModelManager.OnlineModelConfig saved) {
-                        com.oilquiz.app.ai.usage.ModelUsageBridge.upsert(context, saved);
+                        // 统一走 afterConfigSaved：改实际模型名等于换主键，只 upsert 会留下旧名那行
+                        com.oilquiz.app.ai.usage.ModelUsageBridge.afterConfigSaved(context, saved);
                         refresh();
                         host.onModelsChanged();
                     }

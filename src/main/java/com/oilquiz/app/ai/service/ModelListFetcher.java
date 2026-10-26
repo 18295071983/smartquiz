@@ -172,6 +172,46 @@ public class ModelListFetcher {
     }
 
     /**
+     * {@link #modelToCacheJson(ApiModel)} 的**逆运算**：从持久化缓存还原一个 {@link ApiModel}。
+     *
+     * <p><b>为什么必须与序列化同处一个文件</b>：缓存是思考强度档位、输出上限、输入模态这些
+     * 能力数据的唯一持久化载体，读取侧（档位选择器、请求注入、max_tokens 上限、多模态判定）
+     * 全部依赖它。配置对话框此前自带一份只认 {@code id/name/contextLength} 的解析，保存时又用
+     * 这份残缺列表重新序列化去覆盖 {@code cachedModelsJson} —— 于是「打开编辑 → 点一次保存」
+     * 就把档位选择器与输出上限抹掉了，而界面上看不出任何异常。字段增删只需改这一对方法。</p>
+     */
+    public static ApiModel modelFromCacheJson(org.json.JSONObject obj) {
+        ApiModel model = new ApiModel();
+        if (obj == null) return model;
+        try {
+            model.id = obj.optString("id", null);
+            String name = obj.optString("name", null);
+            model.displayName = (name != null && !name.isEmpty()) ? name : model.id;
+            model.contextLength = obj.optInt("contextLength", 0);
+            model.contextLengthFromApi = obj.optBoolean("contextLengthFromApi", false);
+            org.json.JSONArray levels = obj.optJSONArray("thinkingEffortLevels");
+            if (levels != null) {
+                for (int i = 0; i < levels.length(); i++) {
+                    String level = levels.optString(i, null);
+                    if (level != null && !level.isEmpty()) model.thinkingEffortLevels.add(level);
+                }
+            }
+            model.thinkingEffortDefault = obj.optString("thinkingEffortDefault", null);
+            model.maxOutputTokens = obj.optInt("maxOutputTokens", 0);
+            org.json.JSONArray mods = obj.optJSONArray("inputModalities");
+            if (mods != null) {
+                for (int i = 0; i < mods.length(); i++) {
+                    String m = mods.optString(i, null);
+                    if (m != null && !m.isEmpty()) model.inputModalities.add(m);
+                }
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "modelFromCacheJson failed: " + t.getMessage());
+        }
+        return model;
+    }
+
+    /**
      * 从持久化的模型缓存（{@code cachedModelsJson}）里按 id 取**展示名**；未命中返回 null。
      *
      * <p>用于界面回显：官方 {@code GET /models} 的 {@code name} 是展示名

@@ -1,13 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  在线模型配置/编辑表单。
+
+  形状说明（此前踩过的两个坑）：
+  1) 根节点原本是一个不带滚动容器的 LinearLayout。编辑态下「使用量 + 可用模型 +
+     服务能力」三块会同时展开，总高度超出屏幕，而 Dialog 的窗口是 WRAP_CONTENT ——
+     结果是底部「取消/保存」被挤出可视区且无法滚动到，用户只能靠返回键丢弃表单。
+     现改为 标题(固定) + NestedScrollView(中部可滚) + 按钮(固定)，与仓库里
+     dialog_voice_feature_info.xml 的对话框形状一致。
+  2) 「实际模型名」输入框原先嵌在 models_section 里，而该块仅在**有缓存模型列表**时才
+     显示 → 新建配置（或服务商不提供 /models）时这个字段整块不可见，用户无从填写，
+     保存则被静默兜底成 "gpt-3.5-turbo"。它是主字段，不是列表附属品，故提到常驻区。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
+    android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@drawable/dialog_background"
     android:padding="@dimen/space_24">
 
     <TextView
+        android:id="@+id/text_dialog_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="配置在线模型"
@@ -16,321 +30,345 @@
         android:textColor="?attr/colorControlText"
         android:layout_marginBottom="@dimen/space_20"/>
 
-    <!-- 模型名称 -->
-    <com.google.android.material.textfield.TextInputLayout
+    <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="模型名称"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-        android:layout_marginBottom="@dimen/space_12">
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/input_model_name"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="text"/>
-    </com.google.android.material.textfield.TextInputLayout>
-
-    <!-- API 地址 -->
-    <com.google.android.material.textfield.TextInputLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="API 地址 (如: https://api.openai.com/v1)"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-        android:layout_marginBottom="@dimen/space_12">
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/input_api_url"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="textUri"/>
-    </com.google.android.material.textfield.TextInputLayout>
-
-    <!-- API 密钥 -->
-    <com.google.android.material.textfield.TextInputLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="API 密钥"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-        app:endIconMode="password_toggle"
-        android:layout_marginBottom="@dimen/space_12">
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/input_api_key"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="textPassword"/>
-    </com.google.android.material.textfield.TextInputLayout>
-
-    <!-- 服务类型选择 -->
-    <com.google.android.material.textfield.TextInputLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="服务类型（可选，用于自动填充）"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
-        android:layout_marginBottom="@dimen/space_12">
-        <AutoCompleteTextView
-            android:id="@+id/spinner_service_type"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="text"
-            android:enabled="true"/>
-    </com.google.android.material.textfield.TextInputLayout>
-
-    <!-- API Secret（讯飞 APISecret / 百度 SecretKey） -->
-    <com.google.android.material.textfield.TextInputLayout
-        android:id="@+id/layout_api_secret"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="API Secret"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-        app:endIconMode="password_toggle"
-        android:visibility="gone"
-        android:layout_marginBottom="@dimen/space_12">
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/input_api_secret"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="textPassword"/>
-    </com.google.android.material.textfield.TextInputLayout>
-
-    <!-- App ID（讯飞 AppID / 火山引擎 AppID） -->
-    <com.google.android.material.textfield.TextInputLayout
-        android:id="@+id/layout_app_id"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="App ID"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-        android:visibility="gone"
-        android:layout_marginBottom="@dimen/space_12">
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/input_app_id"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="text"/>
-    </com.google.android.material.textfield.TextInputLayout>
-
-    <!-- 端点类型提示 -->
-    <TextView
-        android:id="@+id/endpoint_hint"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="@dimen/text_12"
-        android:textColor="?attr/colorControlTextSecondary"
-        android:visibility="gone"
-        android:layout_marginBottom="@dimen/space_12"
-        android:paddingStart="@dimen/space_4"
-        android:paddingEnd="@dimen/space_4"/>
-
-    <!-- 操作按钮行 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="@dimen/space_16">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_test_connection"
-            android:layout_width="@dimen/size_0"
-            android:layout_height="@dimen/size_40"
-            android:layout_weight="1"
-            android:text="测试连通性"
-            android:textSize="@dimen/text_12"
-            app:backgroundTint="?attr/colorSecondary"
-            app:cornerRadius="@dimen/radius_8"
-            android:textAllCaps="false"
-            android:layout_marginEnd="@dimen/space_8"/>
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_fetch_models"
-            android:layout_width="@dimen/size_0"
-            android:layout_height="@dimen/size_40"
-            android:layout_weight="1"
-            android:text="获取模型列表"
-            android:textSize="@dimen/text_12"
-            app:backgroundTint="?attr/colorPrimary"
-            app:cornerRadius="@dimen/radius_8"
-            android:textAllCaps="false"/>
-    </LinearLayout>
-
-    <!-- 使用量显示 -->
-    <LinearLayout
-        android:id="@+id/usage_section"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:visibility="gone"
-        android:layout_marginBottom="@dimen/space_16"
-        android:padding="@dimen/space_12"
-        android:background="?attr/colorCardBackground">
-
-        <TextView
-            android:id="@+id/usage_text"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="使用量: 加载中..."
-            android:textSize="@dimen/text_13"
-            android:textColor="?attr/colorControlText"/>
+        android:layout_height="@dimen/size_0"
+        android:layout_weight="1"
+        android:clipToPadding="false">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="@dimen/space_8">
+            android:orientation="vertical">
 
-            <ProgressBar
-                android:id="@+id/usage_progress"
-                style="@style/Widget.AppCompat.ProgressBar.Horizontal"
-                android:layout_width="@dimen/size_0"
-                android:layout_height="@dimen/size_8"
-                android:layout_weight="1"
-                android:max="100"
-                android:progress="0"
-                android:progressTint="?attr/colorPrimary"/>
-
-            <TextView
-                android:id="@+id/usage_percent_text"
-                android:layout_width="wrap_content"
+            <!-- 配置名称：用户自定义、只用于列表显示，与"实际模型名"是两个不同的东西 -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="0%"
+                android:hint="配置名称（列表里显示，可自定义）"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_marginBottom="@dimen/space_12">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/input_model_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- API 地址 -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="API 地址 (如: https://api.openai.com/v1)"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_marginBottom="@dimen/space_12">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/input_api_url"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textUri"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- API 密钥 -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="API 密钥"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                app:endIconMode="password_toggle"
+                android:layout_marginBottom="@dimen/space_12">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/input_api_key"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textPassword"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- 实际模型名（发给 API 的 id）。常驻显示：不依赖是否拉取过模型列表 -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="实际模型名（发给 API 的 id，如 deepseek-chat）"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_marginBottom="@dimen/space_4">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/input_selected_model"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- 与「可用模型」列表的关系说明：列表只是取值助手，手输完全等价 -->
+            <TextView
+                android:id="@+id/text_selected_model_hint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="下方「可用模型」是服务商已收录的取值，点选即回填；未收录的模型直接手输。"
+                android:textSize="@dimen/text_11"
+                android:textColor="?attr/colorControlTextHint"
+                android:layout_marginBottom="@dimen/space_12"/>
+
+            <!-- 服务类型选择 -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="服务类型（可选，用于自动填充）"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                android:layout_marginBottom="@dimen/space_12">
+                <AutoCompleteTextView
+                    android:id="@+id/spinner_service_type"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text"
+                    android:enabled="true"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- API Secret（讯飞 APISecret / 百度 SecretKey） -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/layout_api_secret"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="API Secret"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                app:endIconMode="password_toggle"
+                android:visibility="gone"
+                android:layout_marginBottom="@dimen/space_12">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/input_api_secret"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textPassword"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- App ID（讯飞 AppID / 火山引擎 AppID） -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/layout_app_id"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="App ID"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:visibility="gone"
+                android:layout_marginBottom="@dimen/space_12">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/input_app_id"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- 端点类型提示 -->
+            <TextView
+                android:id="@+id/endpoint_hint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:textSize="@dimen/text_12"
                 android:textColor="?attr/colorControlTextSecondary"
-                android:layout_marginStart="@dimen/space_8"/>
-        </LinearLayout>
-    </LinearLayout>
+                android:visibility="gone"
+                android:layout_marginBottom="@dimen/space_12"
+                android:paddingStart="@dimen/space_4"
+                android:paddingEnd="@dimen/space_4"/>
 
-    <!-- 模型列表区域 -->
-    <LinearLayout
-        android:id="@+id/models_section"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:visibility="gone"
-        android:layout_marginBottom="@dimen/space_16">
-
-        <TextView
-            android:id="@+id/models_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="可用模型"
-            android:textSize="@dimen/text_14"
-            android:textStyle="bold"
-            android:textColor="?attr/colorControlText"
-            android:layout_marginBottom="@dimen/space_8"/>
-
-        <!-- 实际模型名（可手动输入：免费/未收录模型不在自动获取列表时也能用） -->
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="模型名（列表未找到可手动输入，如 glm-4-flash）"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-            android:layout_marginBottom="@dimen/space_8">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/input_selected_model"
+            <!-- 操作按钮行 -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="text"/>
-        </com.google.android.material.textfield.TextInputLayout>
+                android:orientation="horizontal"
+                android:layout_marginBottom="@dimen/space_16">
 
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="@dimen/size_150">
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/models_recycler"
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_test_connection"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="@dimen/size_40"
+                    android:layout_weight="1"
+                    android:text="测试连通性"
+                    android:textSize="@dimen/text_12"
+                    app:backgroundTint="?attr/colorSecondary"
+                    app:cornerRadius="@dimen/radius_8"
+                    android:textAllCaps="false"
+                    android:layout_marginEnd="@dimen/space_8"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_fetch_models"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="@dimen/size_40"
+                    android:layout_weight="1"
+                    android:text="获取模型列表"
+                    android:textSize="@dimen/text_12"
+                    app:backgroundTint="?attr/colorPrimary"
+                    app:cornerRadius="@dimen/radius_8"
+                    android:textAllCaps="false"/>
+            </LinearLayout>
+
+            <!-- 使用量显示 -->
+            <LinearLayout
+                android:id="@+id/usage_section"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="?attr/colorCardBackground"
-                app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
-
-            <ProgressBar
-                android:id="@+id/loading_progress"
-                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:visibility="gone"/>
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:layout_marginBottom="@dimen/space_16"
+                android:padding="@dimen/space_12"
+                android:background="?attr/colorCardBackground">
 
-            <TextView
-                android:id="@+id/loading_text"
-                android:layout_width="wrap_content"
+                <TextView
+                    android:id="@+id/usage_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="使用量: 加载中..."
+                    android:textSize="@dimen/text_13"
+                    android:textColor="?attr/colorControlText"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="@dimen/space_8">
+
+                    <ProgressBar
+                        android:id="@+id/usage_progress"
+                        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_8"
+                        android:layout_weight="1"
+                        android:max="100"
+                        android:progress="0"
+                        android:progressTint="?attr/colorPrimary"/>
+
+                    <TextView
+                        android:id="@+id/usage_percent_text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0%"
+                        android:textSize="@dimen/text_12"
+                        android:textColor="?attr/colorControlTextSecondary"
+                        android:layout_marginStart="@dimen/space_8"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- 可用模型列表（点选回填上面那个输入框） -->
+            <LinearLayout
+                android:id="@+id/models_section"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:layout_marginTop="@dimen/space_60"
-                android:text="加载中..."
-                android:textSize="@dimen/text_14"
-                android:textColor="?attr/colorControlTextSecondary"
-                android:visibility="gone"/>
-        </FrameLayout>
-    </LinearLayout>
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:layout_marginBottom="@dimen/space_16">
 
-    <!-- 服务能力设置区（agent/多模态/网络搜索等差异化服务，按服务商配置表预置、可手动调整） -->
-    <LinearLayout
-        android:id="@+id/services_section"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:visibility="gone"
-        android:layout_marginBottom="@dimen/space_16"
-        android:padding="@dimen/space_12"
-        android:background="?attr/colorCardBackground">
+                <TextView
+                    android:id="@+id/models_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="可用模型"
+                    android:textSize="@dimen/text_14"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorControlText"
+                    android:layout_marginBottom="@dimen/space_8"/>
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="服务能力（按服务商配置表预置，可手动调整）"
-            android:textSize="@dimen/text_14"
-            android:textStyle="bold"
-            android:textColor="?attr/colorControlText"
-            android:layout_marginBottom="@dimen/space_8"/>
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_150">
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/models_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:background="?attr/colorCardBackground"
+                        android:nestedScrollingEnabled="false"
+                        app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-            <CheckBox android:id="@+id/svc_agent" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="Agent 接口" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
-            <CheckBox android:id="@+id/svc_vision" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="多模态" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
-            <CheckBox android:id="@+id/svc_web_search" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="网络搜索" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+                    <ProgressBar
+                        android:id="@+id/loading_progress"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:visibility="gone"/>
+
+                    <TextView
+                        android:id="@+id/loading_text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:layout_marginTop="@dimen/space_60"
+                        android:text="加载中..."
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"
+                        android:visibility="gone"/>
+                </FrameLayout>
+            </LinearLayout>
+
+            <!-- 服务能力设置区（agent/多模态/网络搜索等差异化服务，按服务商配置表预置、可手动调整） -->
+            <LinearLayout
+                android:id="@+id/services_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:layout_marginBottom="@dimen/space_16"
+                android:padding="@dimen/space_12"
+                android:background="?attr/colorCardBackground">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="服务能力（按服务商配置表预置，可手动调整）"
+                    android:textSize="@dimen/text_14"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorControlText"
+                    android:layout_marginBottom="@dimen/space_8"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <CheckBox android:id="@+id/svc_agent" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="Agent 接口" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+                    <CheckBox android:id="@+id/svc_vision" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="多模态" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+                    <CheckBox android:id="@+id/svc_web_search" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="网络搜索" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <CheckBox android:id="@+id/svc_embedding" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="Embedding" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+                    <CheckBox android:id="@+id/svc_rerank" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="Rerank" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+                    <CheckBox android:id="@+id/svc_image_gen" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="文生图" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <CheckBox android:id="@+id/svc_function_calling" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="工具调用" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+                    <CheckBox android:id="@+id/svc_tts" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="语音合成" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+                    <CheckBox android:id="@+id/svc_asr" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="语音识别" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+                </LinearLayout>
+
+                <!-- 单价：此前整张表单没有任何入口，字段恒为 0，
+                     而 AttachmentProcessor 是按它给视觉模型排性价比的 —— 择优因此形同虚设 -->
+                <EditText
+                    android:id="@+id/input_cost_per_million"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:hint="单价 $/百万 token（选填，用于多图附件时优先选便宜的同能力模型）"
+                    android:inputType="numberDecimal"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlText"/>
+
+                <!-- 协议：只读展示。它由 providers.json 按 URL 反推，推理链只认这一个来源；
+                     放开编辑会造出「存的协议」与「实际走的协议」两套事实 -->
+                <TextView
+                    android:id="@+id/text_protocol_hint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_4"
+                    android:textSize="@dimen/text_11"
+                    android:textColor="?attr/colorControlTextHint"/>
+            </LinearLayout>
         </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-            <CheckBox android:id="@+id/svc_embedding" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="Embedding" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
-            <CheckBox android:id="@+id/svc_rerank" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="Rerank" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
-            <CheckBox android:id="@+id/svc_image_gen" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="文生图" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-            <CheckBox android:id="@+id/svc_function_calling" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="工具调用" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
-            <CheckBox android:id="@+id/svc_tts" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="语音合成" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
-            <CheckBox android:id="@+id/svc_asr" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="语音识别" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
-        </LinearLayout>
-
-        <!-- 单价：此前整张表单没有任何入口，字段恒为 0，
-             而 AttachmentProcessor 是按它给视觉模型排性价比的 —— 择优因此形同虚设 -->
-        <EditText
-            android:id="@+id/input_cost_per_million"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_8"
-            android:hint="单价 $/百万 token（选填，用于多图附件时优先选便宜的同能力模型）"
-            android:inputType="numberDecimal"
-            android:textSize="@dimen/text_12"
-            android:textColor="?attr/colorControlText"/>
-
-        <!-- 协议：只读展示。它由 providers.json 按 URL 反推，推理链只认这一个来源；
-             放开编辑会造出「存的协议」与「实际走的协议」两套事实 -->
-        <TextView
-            android:id="@+id/text_protocol_hint"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_4"
-            android:textSize="@dimen/text_11"
-            android:textColor="?attr/colorControlTextHint"/>
-    </LinearLayout>
-
-    <!-- 底部按钮 -->
+    <!-- 底部按钮：固定在滚动区之外，保证表单再长也永远能点到「保存」 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

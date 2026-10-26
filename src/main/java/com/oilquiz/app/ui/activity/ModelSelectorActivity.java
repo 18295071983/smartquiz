@@ -396,6 +396,10 @@ public class ModelSelectorActivity extends AppCompatActivity
             @Override
             public void onConfigSaved(OnlineModelManager.OnlineModelConfig config) {
                 if (config != null) {
+                    // 新增也要投射进 models 表（与模型中心同一条 afterConfigSaved 口径），
+                    // 否则这条配置在用量侧永远 join 不到名字
+                    com.oilquiz.app.ai.usage.ModelUsageBridge.afterConfigSaved(
+                            ModelSelectorActivity.this, config);
                     // 通过 InferenceRouter 切换，确保路由状态同步
                     inferenceRouter.switchModel(config.id);
                     Toast.makeText(ModelSelectorActivity.this, getString(R.string.h_8a7f6c2f) + config.name, Toast.LENGTH_SHORT).show();
@@ -564,6 +568,13 @@ public class ModelSelectorActivity extends AppCompatActivity
         dialog.setSaveListener(new OnlineModelConfigDialog.OnConfigSaveListener() {
             @Override
             public void onConfigSaved(OnlineModelManager.OnlineModelConfig updatedConfig) {
+                // 注册表 → models 表的投射必须在这里补一次：模型中心那条路径
+                // （ModelRegistrationController）是 upsert + 刷新，此前本页只刷新自己的列表，
+                // 于是「从模型选择页改完名称/地址/密钥」用量侧 join 到的仍是旧投射。
+                // 注册表 → models 表的投射必须在这里补一次：模型中心那条路径是投射+刷新，
+                // 此前本页只刷新自己的列表 → 「从模型选择页改完」用量侧仍是旧投射
+                com.oilquiz.app.ai.usage.ModelUsageBridge.afterConfigSaved(
+                        ModelSelectorActivity.this, updatedConfig);
                 Toast.makeText(ModelSelectorActivity.this, getString(R.string.h_454706a6) + updatedConfig.name, Toast.LENGTH_SHORT).show();
                 refreshModels();
             }

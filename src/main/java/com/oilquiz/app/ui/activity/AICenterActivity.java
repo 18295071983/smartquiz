@@ -618,6 +618,10 @@ public class AICenterActivity extends AppCompatActivity
             @Override
             public void onConfigSaved(OnlineModelManager.OnlineModelConfig config) {
                 if (config != null) {
+                    // 新增也要投射进 models 表（与模型中心同一条 afterConfigSaved 口径），
+                    // 否则这条配置在用量侧 join 不到名字
+                    com.oilquiz.app.ai.usage.ModelUsageBridge.afterConfigSaved(
+                            AICenterActivity.this, config);
                     // 通过 InferenceRouter 切换，确保路由状态同步
                     inferenceRouter.switchModel(config.id);
                     Toast.makeText(AICenterActivity.this,
@@ -638,6 +642,10 @@ public class AICenterActivity extends AppCompatActivity
         dialog.setSaveListener(new OnlineModelConfigDialog.OnConfigSaveListener() {
             @Override
             public void onConfigSaved(OnlineModelManager.OnlineModelConfig updatedConfig) {
+                // 注册表 → models 表的投射：模型中心那条路径（ModelRegistrationController）会做，
+                // 此前本页只刷新自己的列表 → 从 AI 中心改完，用量侧仍是旧投射
+                com.oilquiz.app.ai.usage.ModelUsageBridge.afterConfigSaved(
+                        AICenterActivity.this, updatedConfig);
                 Toast.makeText(AICenterActivity.this,
                     getString(R.string.h_454706a6) + updatedConfig.name, Toast.LENGTH_SHORT).show();
                 refreshOnlineModels();

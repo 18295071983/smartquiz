@@ -49,7 +49,8 @@ public class ModelListAdapter extends RecyclerView.Adapter<ModelListAdapter.Mode
     @Override
     public void onBindViewHolder(@NonNull ModelViewHolder holder, int position) {
         ApiModel model = models.get(position);
-        holder.bind(model, model.id.equals(selectedModelId));
+        // model.id 可能为空（服务商返回缺 id 的行），比较一律以 id 为左值做判空后再 equals
+        holder.bind(model, model.id != null && model.id.equals(selectedModelId));
     }
 
     @Override
@@ -106,7 +107,8 @@ public class ModelListAdapter extends RecyclerView.Adapter<ModelListAdapter.Mode
         this.selectedModelId = modelId;
         // 刷新旧选择项和新选择项
         for (int i = 0; i < models.size(); i++) {
-            if (models.get(i).id.equals(oldSelected) || models.get(i).id.equals(modelId)) {
+            String id = models.get(i).id;
+            if (id != null && (id.equals(oldSelected) || id.equals(modelId))) {
                 notifyItemChanged(i);
             }
         }
@@ -117,7 +119,7 @@ public class ModelListAdapter extends RecyclerView.Adapter<ModelListAdapter.Mode
      */
     public ApiModel getSelectedModel() {
         for (ApiModel model : models) {
-            if (model.id.equals(selectedModelId)) {
+            if (model.id != null && model.id.equals(selectedModelId)) {
                 return model;
             }
         }

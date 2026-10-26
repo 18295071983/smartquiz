@@ -47,6 +47,24 @@ public final class ModelUsageBridge {
     }
 
     /**
+     * 一次「保存/新增配置」之后的统一投射 —— 三个宿主页面（模型中心、模型选择、AI 中心）
+     * 都该调这一个方法，而不是各自决定要不要补 upsert。
+     *
+     * <p><b>为什么不能只 upsert 当前这一条</b>：{@code models.modelId} 取的是**实际模型名**
+     * （{@link ModelUsageRecorder#usageModelId}），编辑时把 {@code deepseek-chat} 改成
+     * {@code deepseek-reasoner} 等于换了主键 —— 只 upsert 会新建一行、把按旧名建的那行留下，
+     * 用量页于是同时显示改前与改后的名字，用户看到的现象就是"改完没生效"。</p>
+     *
+     * <p>因此走一次全量投射：现存配置逐条 upsert，并删掉注册表里已不存在的行。
+     * 历史用量行不受影响（只删名字映射，不删日志）。注册表仍是唯一事实来源。</p>
+     */
+    public static void afterConfigSaved(Context context, OnlineModelManager.OnlineModelConfig config) {
+        if (config == null) return;
+        upsert(context, config);
+        syncFromRegistry(context);
+    }
+
+    /**
      * 全量重建：注册表现存的模型逐个 upsert，并删掉注册表里已不存在的行。
      * 打开用量页时调用一次，使「已删除配置」的历史调用能被正确标注。
      */
