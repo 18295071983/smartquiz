@@ -592,6 +592,8 @@ public class AIChatActivity extends BaseActivity {
                             getResources().getDisplayMetrics().density * 16f);
                 } catch (Throwable ignored) {
                 }
+                // 抽屉里的「本次会话状态」区块（原「⋯」信息面板搬过来的 5 行值 + 运行日志入口）
+                com.oilquiz.app.ai.chat.ui.ChatDrawerStatusBinder.bind(this);
             }
             inputMessage = findViewById(R.id.input_message);
             chatV2CharCount = findViewById(R.id.chat_v2_char_count);
@@ -7632,12 +7634,15 @@ public class AIChatActivity extends BaseActivity {
             // 工具调用完成：更新插入式卡片为成功/失败 + 状态栏恢复
             runOnUiThread(() -> {
                 boolean success = result != null && result.success;
-                String resultStr = result != null ? result.result : "无结果";
+                // 失败原因在 error 里、result 恒为 null：必须走 displayText()，
+                // 否则卡片/会话里只有"失败"两个字，原因彻底丢失（2026-10-25 实测）
+                String resultStr = result != null ? result.displayText() : "无结果";
                 // 聊天记录存完整工具结果（可追溯）；卡片显示时由 ToolCallCardView 自行 summarize 成单行摘要
                 appendAgentToolCall(toolCallId, toolName, success ? "success" : "failed", null,
                         resultStr);
                 setAgentStepStatus(success ? "✅ " + toolName + " 完成" : "⚠️ " + toolName + " 失败");
-                updateAgentStatusBar("✅ " + toolName + " 完成", false);
+                updateAgentStatusBar(success ? "✅ " + toolName + " 完成"
+                        : "⚠️ " + toolName + " 失败", false);
                 // Agent 模式：过程已插入 AI 消息组件，无独立工具卡片消息，跳过消息更新
                 // （否则 findLastSpecialMessage 返回 -1 时回退到最后一条消息，结果会写到错误消息上）
                 if (currentAgentGroupId == null) {
@@ -12948,6 +12953,9 @@ public class AIChatActivity extends BaseActivity {
         // 另补刷一次，避免后台期间状态条停在离开那一刻的旧值
         if (genStatusBar != null) genStatusBar.refresh();
         if (isGenerating) startGenerationTicker();
+        // 模型入口改跳「模型选择」页后，在那里换的在线/本地模型不会自己回到顶栏
+        // （激活变更没有跨页监听者），回页面时补刷一次副标题
+        com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.refreshSubtitleIfNeeded(this);
 
         // 后台产出回灌：离开页面期间工具写了哪些文件，回来用一条系统消息告知
         // （通知只在离开时发，回到前台即撤销，避免提示滞留）

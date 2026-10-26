@@ -17,7 +17,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 import com.oilquiz.app.R;
-import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.feature.FeatureTextCompleter;
 import java.util.concurrent.CompletableFuture;
 
 public class QuestionAnalyzeActivity extends AppCompatActivity {
@@ -43,7 +43,8 @@ public class QuestionAnalyzeActivity extends AppCompatActivity {
     private Button btnCancel;
     private CompletableFuture<?> currentTask;
     
-    private AIService aiService;
+    /** 统一出词入口（2026-10-25）：在线优先、本地就绪挪出主线程，见 {@link FeatureTextCompleter}。 */
+    private FeatureTextCompleter featureCompleter;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -72,7 +73,7 @@ public class QuestionAnalyzeActivity extends AppCompatActivity {
         btnCopy = findViewById(R.id.btn_copy_analysis);
         
         // 初始化AIService
-        aiService = AIService.getInstance(this);
+        featureCompleter = new FeatureTextCompleter(this);
         
         // 初始化加载动画视图
         loadingLayout = findViewById(R.id.loadingLayout);
@@ -146,21 +147,15 @@ public class QuestionAnalyzeActivity extends AppCompatActivity {
         prompt.append("2. Related knowledge points\n");
         prompt.append("3. Learning suggestions");
 
-        // 3. 调用AI服务解析题目
-        if (!aiService.isInitialized()) {
-            if (!aiService.initializeSafe()) {
-                Toast.makeText(this, getString(R.string.h_f559a2f7), Toast.LENGTH_SHORT).show();
-                return;
-            }
-        }
-
+        // 3. 出词统一走 FeatureTextCompleter（2026-10-25）：在线优先，且绝不在主线程
+        //    initializeSafe()（它在主线程是 task.get(30s)，点一下就能 ANR）。
         // 更新加载消息
         loadingMessage.setText(getString(R.string.h_effdb1bf));
         loadingSubmessage.setText(getString(R.string.h_6807dc34));
         loadingLayout.setVisibility(View.VISIBLE);
 
         // 异步解析题目
-        currentTask = aiService.generateAsync(prompt.toString(), 1500).thenAccept(result -> runOnUiThread(() -> {
+        currentTask = featureCompleter.completeAsync(prompt.toString(), 1500).thenAccept(result -> runOnUiThread(() -> {
             // 隐藏加载状态
             loadingLayout.setVisibility(View.GONE);
             // 4. 解析并显示结果

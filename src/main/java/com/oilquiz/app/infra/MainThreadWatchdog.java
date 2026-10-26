@@ -21,9 +21,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * 还有开发期的 force-stop——这些和"模型自动加载把进程搞崩"是两回事，
  * 却会触发"跳过模型自动加载"，把不相干的死因算到模型头上。</p>
  *
- * <p>本类只做一件事：哨兵线程每 500ms 往主线程投递一枚心跳；下一拍检查时若上一拍仍未被
- * 主线程执行、且已超过 {@link #STALL_THRESHOLD_MS}，就认定主线程卡住（与系统判 ANR 的
- * 5s 输入分发超时同量级），把 {@link #KEY_ANR_BOOT} 写进 {@code crash_protection_prefs}。
+ * <p>本类只做一件事：哨兵线程每 500ms 往主线程投递一枚心跳，并记住"最近一次心跳被主线程
+ * 执行掉"的时刻；主线程吊住时这个时刻会停住不动，距今一旦超过 {@link #STALL_THRESHOLD_MS}
+ * 就认定卡死（与系统判 ANR 的 5s 输入分发超时同量级），把 {@link #KEY_ANR_BOOT} 写进
+ * {@code crash_protection_prefs}。度量必须取"被应答"的时刻而不是"被投递"的时刻——
+ * 后者每 500ms 就被刷新一次，差值永远够不到阈值，见 {@link #isStalled} 的说明。
  * 正常路径只是 Handler.post + 原子写，**不碰磁盘**；只有真的卡住才 apply 一次。</p>
  */
 public final class MainThreadWatchdog {
@@ -67,35 +69,39 @@ public final class MainThreadWatchdog {
             final Handler main = new Handler(Looper.getMainLooper());
             final SharedPreferences prefs =
                     appContext.getSharedPreferences(CRASH_PREFS, Context.MODE_PRIVATE);
-            final AtomicLong respondedSeq = new AtomicLong(0);
+            final AtomicLong postedSeq = new AtomicLong(0);
+            final AtomicLong answeredSeq = new AtomicLong(0);
+            /** 最近一次"心跳被主线程执行掉"的时刻；主线程吊住时它就停住不动 —— 唯一可靠的卡死度量 */
+            final AtomicLong answeredAtElapsed = new AtomicLong(SystemClock.elapsedRealtime());
             handler.post(new Runnable() {
-                /** 上一拍心跳的序号与投递时刻；-1 = 还没有过一拍 */
-                private long pendingSeq = -1;
-                private long pendingAtElapsed = 0;
-                /** 已记录过卡死的拍号：一次卡死只写一次，恢复后新卡死还能再记 */
-                private long reportedSeq = -1;
+                /** 上一次报告卡死时的 outstanding 拍号：同一次卡死只写一次，恢复后的新卡死还能再记 */
+                private long reportedPostedSeq = -1;
 
                 @Override
                 public void run() {
                     long now = SystemClock.elapsedRealtime();
-                    if (pendingSeq >= 0 && respondedSeq.get() < pendingSeq
-                            && now - pendingAtElapsed >= STALL_THRESHOLD_MS
-                            && reportedSeq != pendingSeq) {
-                        reportedSeq = pendingSeq;
+                    long outstanding = postedSeq.get();
+                    if (isStalled(now, answeredAtElapsed.get(), outstanding, answeredSeq.get(),
+                            STALL_THRESHOLD_MS) && reportedPostedSeq != outstanding) {
+                        reportedPostedSeq = outstanding;
                         try {
                             prefs.edit()
                                     .putString(KEY_ANR_BOOT, bootId)
                                     .putLong(KEY_ANR_AT, now)
                                     .apply();
-                            AILogger.w(TAG, "主线程卡死 ≥" + STALL_THRESHOLD_MS + "ms（seq="
-                                    + pendingSeq + "，boot=" + bootId + "）→ 记为 ANR 死因");
+                            AILogger.w(TAG, "主线程卡死：已 "
+                                    + (now - answeredAtElapsed.get()) + "ms 没有执行掉任何一拍心跳"
+                                    + "（outstanding=" + outstanding + "，boot=" + bootId
+                                    + "）→ 记为 ANR 死因");
                         } catch (Throwable ignore) {
                         }
                     }
-                    final long tick = pendingSeq + 1;
-                    pendingSeq = tick;
-                    pendingAtElapsed = now;
-                    main.post(() -> respondedSeq.set(tick));
+                    final long tick = postedSeq.incrementAndGet();
+                    main.post(() -> {
+                        // 能在主线程跑起来 = 主线程此刻没被吊住；这一行就是"心跳被应答"的唯一凭据
+                        answeredSeq.set(tick);
+                        answeredAtElapsed.set(SystemClock.elapsedRealtime());
+                    });
                     handler.postDelayed(this, PROBE_INTERVAL_MS);
                 }
             });
@@ -103,6 +109,33 @@ public final class MainThreadWatchdog {
         } catch (Throwable t) {
             AILogger.e(TAG, "主线程卡死哨兵启动失败", t);
         }
+    }
+
+    /**
+     * 卡死判定（纯函数，便于单测）。
+     *
+     * <p>度量必须是<b>"最近一次心跳被主线程执行掉"距今多久</b>，不是"最近一次投递距今多久"：
+     * 投递每 {@code PROBE_INTERVAL_MS} 就发一次，后者的差值天然只有半秒，永远够不到阈值——
+     * 2026-10-25 真机第一版就栽在这里，同一进程 gfxinfo 明明有 8 帧 ≥4.95s
+     * （{@code Davey! duration=9137ms}、{@code Skipped 741 frames}），哨兵却一声不响，
+     * 让"没有卡死记录"变成了无效证据。主线程吊住时 {@code answeredAtElapsed} 会停住不动，
+     * 差值才会真正长到阈值。</p>
+     *
+     * @param nowElapsed           当前 elapsedRealtime
+     * @param lastAnsweredAtElapsed 最近一次心跳被主线程执行掉的时刻
+     * @param postedSeq            已投递的心跳拍号
+     * @param answeredSeq          已被主线程执行掉的心跳拍号
+     * @param thresholdMs          判定阈值
+     */
+    public static boolean isStalled(long nowElapsed, long lastAnsweredAtElapsed,
+                                    long postedSeq, long answeredSeq, long thresholdMs) {
+        if (postedSeq <= answeredSeq) {
+            return false; // 没有待应答的心跳：主线程刚应答过，一定不卡
+        }
+        if (nowElapsed < lastAnsweredAtElapsed) {
+            return false; // 计时源回拨等异常：宁可不报，也别把健康会话判成卡死
+        }
+        return nowElapsed - lastAnsweredAtElapsed >= thresholdMs;
     }
 
     /**

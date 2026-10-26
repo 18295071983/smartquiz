@@ -1,5 +1,246 @@
 # 变更日志
 
+## [2026-10-25] fix(agent-ui)：工具失败原因的取文口径补到"回填模型"那一侧（并更正上一条自述）
+
+用户："还有其他的问题你没修？" → 为回答这句做产出侧复查时，发现我自己前一条口径修复漏了最要紧的一个消费端。
+
+### 查到的事实（出处）
+
+- `OnlineToolResult.failure()`（OnlineToolResult.java:38-41）把原因写进 `error`、
+  `result` 恒为 `null`；`displayText()` 就是为此加的单一口径。已提交的那轮把三处
+  UI/会话消费端切了过去（`AIChatActivity:7639`、`AgentChatHandler:277`、
+  `OnlineAgentEngine:1590`）。
+- **漏点 1（模型侧）**：`OnlineAgentEngine:885` 拼的是 `"工具执行失败: " + tr.error`，
+  而 `displayText()` 的 javadoc 里我写的原话是"模型侧不受影响…所以这个缺陷只在人这一侧"。
+  这句**不成立**：`error` 为 `null` 时（引擎没给原因的那条路径），模型读到的 tool 正文
+  就是字面量 `工具执行失败: null`——和人一样拿不到原因，只是形状不同。
+- **漏点 2（人侧另一条链）**：`OnlineAgentEngine:876` 给思考链摘要传的也是裸 `tr.error`。
+- **漏点 3（适配层）**：`LlmGateway:146`、`OnlineLlmProvider:105`、`AgentSessionView:189`
+  三处 `onToolCallComplete` 适配器都写作 `result.success ? result.result : result.error`，
+  失败无原因时把 `null`/空串往下传。
+- **本地引擎不在这条缺陷里**（查过才敢这么说）：`AgentService.ToolResult` 的构造把失败文本
+  同时写进 `result` 与 `errorMessage`（AgentService.java:228、237），
+  所以 `ModelExecutionBridge:1279`、`:1484` 那种"只取 result.result"在本地路径不为空。
+  这也是它只在在线侧成灾的原因。
+- `AgentToolCall.ToolCallResult`（AgentToolCall.java:46、59）有同形状的 `error` 拼串，
+  但全仓库搜 `ToolCallResult.failure` / `toPromptString` **零调用**——是死类，
+  按"死链默认保留"没动，只在此登记。
+
+### 由此改掉的事
+
+1. 产出侧再加一个口径 `OnlineToolResult.modelText()`：失败带"工具执行失败"标记
+   （模型要靠这个信号决定换工具还是重试），`error` 为空时复用 `displayText()` 的
+   "（引擎未给出原因）"兜底——两个口径共用一处兜底文案，不再各写一份。
+2. `OnlineAgentEngine` 两处按各自的读者分流：思考链摘要走 `displayText()`（人看），
+   回填的 `tool` 消息走 `modelText()`（模型看）。
+3. 三个适配器消费端统一改为 `displayText()`，不再手写 `success ? result : error`。
+4. 更正 `displayText()` 的 javadoc：把"模型侧不受影响"改成公开自述的错判与真实形状
+   （`工具执行失败: null`），并把新口径写进类注释与测试注释。
+
+### 验证
+
+- `OnlineToolResultDisplayTextTest` 从 6 条扩到 9 条：`modelText` 永不含 `null` 字面量、
+  有原因时保留失败标记、成功侧两个口径必须一致。全量
+  `testDebugUnitTest --no-build-cache --rerun-tasks`
+  **1029 / 0 skipped / 0 failures / 0 errors**（135 类，上一条是 1026/133）。
+- **未做的验证**：`工具执行失败: null` 是读代码定位的，**没有**在真机会话里观测到它出现；
+  真机观测到的现象是"卡片没有原因"。设备上一次跑的还是 23:28 的包，不含
+  `db2920b1`（js_execute）与 `7d8759cb`（失败原因落卡片），这两条连同本条都待复测。
+- **未收口的疑问**：`error` 为 `null` 的失败究竟由谁产出（`OnlineToolManager:613` 那条
+  至少有"工具执行失败"兜底），只登记了形状，没继续往上追。
+
+## [2026-10-25] refactor(chat-ui)：删掉聊天页的模型面板，模型入口直跳「模型选择」页
+
+用户："ai对话界面的模型设计ui，没有与后端接线啊" → 给三个选项后："把这个 ui 删了去，改为模型选择界面"。
+
+### 查到的事实（出处）
+
+- `ModelSheet` 本地 tab 每一行是 `modelRow(activity, name, 副标题, picked, null)`
+  （ModelSheet.java:220-221），第 5 参就是 `OnClickListener`——**传了 null**。
+  行本身 `setClickable(true)`，所以点本地模型项毫无反应，`selected[0]` 也不会被写。
+- "应用"按钮里唯一写模型的语句被 tab 条件圈住（136-138）：
+  `if (onlineTab[0] && picked != null && !picked.equals(now)) manager.setActiveModel(picked);`
+  → 本地 tab 下点"应用"只落温度、**不切模型**，却照样 `Toast(chat_v2_model_apply)` 弹"已应用"。
+  这比"点了没反应"更糟：界面在报假成功。
+- 上下文长度只是展示（121-127 读 `params.getContextSize()`），全文件没有给它挂点击，也没有写入路径。
+  温度那条是通的（应用时读 progress → `params.setTemperature`）。
+- 后端原语一直都在、只是没被调：`AIService.switchModelSafe(String)`（665）、
+  `initializeSafe(String)`（648）、`getDownloadedModelList()`（4816）、
+  `OnlineModelManager.stopActiveModel()`（713）。
+- 该面板唯一入口是 `ChatUiV2Chrome:202`，而设备 `chat_ui_v2=false`——所以用户看到的
+  可能不是这个表面，这条已在交付时公开请对方确认（见下面"未收口的疑问"）。
+
+### 由此改掉的事
+
+1. **删复制品，不补接线**：`chat_v2_btn_model` 改为 `startActivity(ModelCenterActivity)`。
+   依据是面板底部那个"打开模型中心"链接本来跳的就是它——切换/下载/删除模型的权威入口
+   一直只有一个，聊天页不该再摆一个"看着能切、其实不接线"的副本（比缺功能更误导人）。
+2. **连带删除**：`ModelSheet.java`、`view_chat_v2_model_sheet.xml`、
+   只被这两者使用的 `chat_v2_segment_bg` / `chat_v2_segment_selected` 两个 drawable、
+   以及 10 条随之变孤儿的字符串；`chat_v2_model`（"当前模型"）另有使用方，**保留**。
+   删前逐个 `grep` 过"删除后仍被引用数"，删后再 grep 一次确认只剩注释里的说明文字。
+3. **补一个真缺口**：`OnlineModelManager` 定义了 `ModelChangeListener` 机制
+   （`addListener`/`removeListener`/`notifyActiveChanged`），但全仓库**没有任何注册方**——
+   搜到的 `addListener` 全是媒体播放在用自己的监听器。于是 `notifyActiveChanged()` 只是
+   遍历一个空列表，在模型中心换完在线模型回聊天页，顶栏副标题会停在离开那一刻。
+   新增 `ChatUiV2Chrome.refreshSubtitleIfNeeded(Activity)`（内部仍复用现成的
+   `modelSubtitle`，不在 Activity 里堆逻辑），由 `AIChatActivity.onResume` 调一行，
+   挨着已有的 `genStatusBar.refresh()`，同一个"回前台补刷"理由。
+
+### 验证
+
+- `compileDebugJavaWithJavac --offline` 通过；全量 `testDebugUnitTest --no-build-cache --rerun-tasks`
+  **1017 / 0 skipped / 0 failures / 0 errors**（133 类）。
+- `assembleDebug` 通过，并核了资源删除没有误伤：APK 未压缩总和 1,398,154,876 对上一次
+  1,398,178,054，差 23,178 字节，正好是删掉的布局＋2 drawable＋10 条字符串的量。
+  （顺带由此推翻了我自己另一条关于包体积的推断，见上一条 chat-render 条目里的
+  "补记（同日，第二次）"。）
+- **未做的验证**：真机没跑——v2 顶栏点模型按钮是否打开模型中心、在模型中心切换在线模型后
+  返回聊天页副标题是否跟着变。且设备 `chat_ui_v2=false`，这条路径当前在真机上到不了。
+- **未收口的疑问**：用户说的"模型设计 ui"我按 `ModelSheet` 定位；但设备 `chat_ui_v2=false`
+  时那个面板根本到不了，所以他当时看到的可能是另一个表面。最可能的候选是
+  「⋯」会话信息面板里的"当前模型"行（ChatUiV2Chrome:326
+  `addRow(ctx, box, R.string.chat_v2_model, textOf(ctx, R.id.service_status_text))`）——
+  它也是**复制**旧状态条文案、只读不可操作。如果用户要的是"在那里也能切模型"，
+  那是另一条链，已请对方指认、尚未核。
+## [2026-10-25] fix(ai-feature)：题目讲解/翻译等四个功能改"在线优先"出词，去掉主线程 initializeSafe()
+
+用户："让题目讲解翻译也走新判定"。
+
+### 查到的事实（出处）
+
+- 这四个功能真正的入口是 `QuestionGenerateActivity` / `QuestionAnalyzeActivity` /
+  `LearningAssistantActivity` / `TranslateActivity`（`AICenterActivity` 四个按钮
+  `startActivity` 打开的就是它们，见 AICenterActivity:277-297），每个生成方法开头都是
+  `if (!aiService.isInitialized()) { if (!aiService.initializeSafe()) { Toast; return; } }`。
+  我上一轮把 `ai/feature/` 下那四个同名类说成是按钮入口，**是错的**——它们在 main 里
+  没有任何调用方，只有自己 javadoc 里的示例。
+- 白占内存的账就在这：真机 `dumpsys meminfo` 当时
+  `Native Heap Heap Alloc≈984MB`、`SwapPss 492MB`，而用户全程用在线模型
+  （日志 `AgentChatHandler 已初始化，使用模型类型: 在线`）。
+- 更硬的一条是主线程阻塞：`AIService.initializeSafe()` 在主线程走的是
+  `task.get(30, TimeUnit.SECONDS)`（AIService:627-643），而这四处是在按钮点击里直接调的。
+  加载 1GB 权重远超 5 秒 → 点一下小功能就能自己造一次 ANR。
+  对照：`AIServiceStatusActivity:258` 那处 `initializeSafe()` 已经在 `new Thread(...)` 里，不用动。
+- 失败字符串是被依赖的契约：`ToolResultInterpreter:258`、`ImportLlmEngine:709`、
+  `QuestionRepairEngine:541` 以及这四个 Activity 自己，都按 `startsWith("Error:")` 判失败。
+
+### 由此改掉的事
+
+1. 新增 `FeatureTextCompleter` 作为功能级"一段 prompt → 一段文本"的唯一出词口，
+   复用现成的 `OnlineInferenceService.generateAsync(prompt, cfg, null, maxTokens)`
+   （与 `ImportLlmEngine.inferOnline()` 同一套 API，不另造请求层）。
+2. 取向比"主动加载"那条 policy 更精确一层——**点按钮是显式需求**，不能一刀切拒绝：
+   有激活在线模型 → 先走在线，不为跑小功能加载 1GB 权重；在线失败 → 只有
+   `本地权重已在内存`才回落复用，否则直接回 `Error:` 让用户看见（宁可报错也不偷偷吃内存）；
+   没有激活在线模型 → 本地按需加载，离线路线的功能不能被这次改动弄坏。
+   这条判定抽成纯函数 `mayUseLocalWeights(hasActiveOnlineModel, localWeightsInMemory)`。
+3. 提供 `completeAsync` 并把"确保本地就绪"放到 `FeatureLocalModelInit` 专用线程，
+   Activity 只挂回调 → 主线程不再 `task.get(30s)`。四个 Activity 的
+   `aiService.generateAsync(...)` 全部换成 `featureCompleter.completeAsync(...)`，
+   顺带删掉各自开头的 `initializeSafe()` 守卫（原来"AI 未就绪"的 Toast 分支由
+   `AI_UNAVAILABLE` 走 Activity 已有的 `startsWith("Error:")` 处理，行为等价）。
+4. 同步版 `complete()` 直接委托 `completeAsync().get(180s)`，避免同步/异步两套判定各漂一半。
+5. `ai/feature/` 那四个无调用方的工具类也一并改走同一入口，免得以后被接上时又漂回旧写法。
+
+### 验证
+
+- 新增 `FeatureTextCompleterRouteTest` 4 条：在线激活＋本地未加载→不许加载；
+  本地已在内存→允许复用；无在线→允许按需；`AI_UNAVAILABLE` 必须保留 `Error:` 前缀。
+- 全量 `testDebugUnitTest --no-build-cache --rerun-tasks`：**1017 / 0 skipped / 0 failures / 0 errors**。
+- **未做的验证**：真机没跑——在线模式下点"题目生成/翻译/解析/学习助手"应正常出词且
+  日志不再出现本地模型初始化；断网或在线失败时应立刻回 `Error:` 而不是转圈。
+  另有一个已知后果需要留意：在线失败且本地未加载时，这四个功能会直接失败
+  （以前是"卡住加载本地再跑"）。这是刻意的取向，不是疏漏。
+## [2026-10-25] fix(model-load)：预加载与回前台热启动共用一份"要不要主动加载本地模型"判定
+
+用户带着假设来问："是不是本地模型文件后台加载了？"——是对的，我上一轮的否定是错的。
+
+### 查到的事实（出处）
+
+- 我先前 grep `Starting model initialization|模型在内存|热启动` 得 0 命中就断言"模型没加载"，
+  **两个错**：真实措辞是"开始热启动恢复"（搜错了词），而且我看的是**上一个进程**的时间窗。
+  按约定公开更正：那次的 0 命中不是证据。
+- 现场时序（`files/ai_logs/ai_log_20261025.txt`，进程 pid 18204，停在首页没进聊天页）：
+  ```
+  21:09:11.448 检测到激活的在线模型或本地 Agent 关闭，跳过本地模型预加载
+  21:09:19.784 [AIService] 检测到模型未在内存中，将自动尝试热启动
+  21:09:19.785 [SmartQuizApplication] 检测到可热启动，尝试恢复AI模型...
+  21:09:19.785 [AIService] 开始热启动恢复，模型: Qwen3.5-2B-Q4_0.gguf
+  21:09:31.257 [UnifiedContextManager] Context state changed: MODEL_READY
+  ```
+- 代价实测：`dumpsys meminfo` 的 `Native Heap Heap Alloc≈984MB`、`SwapPss 492MB`、
+  `EGL mtrack 26MB`＋`Gfx dev 30MB`；`/proc/<pid>/maps` 搜 `gguf` 为 0 命中
+  → 权重是 **malloc 全量进内存**而非 mmap，所以 maps 搜不到并不等于没加载。
+  41 个线程里没有任何 llama/ggml worker，说明抓到的正是加载阶段而非推理中。
+- 根因是同一个判定在两处各写了一半：预加载那道闸（`SmartQuizApplication:614`）看
+  `hasActiveOnlineModel() || !localAgentEnabled`；而回前台热启动的
+  `AIService.canHotStart()`（3569）**只排除 NPU 激活**，既不看在线模式也不看本地 Agent 开关。
+
+### 由此改掉的事
+
+1. 新增 `LocalModelLoadPolicy`：纯函数真值表 `shouldAutoLoadLocalModel(hasActiveOnlineModel,
+   localAgentEnabled) = !hasActiveOnlineModel && localAgentEnabled` ＋ `skipReason(Context)`
+   负责读现场并给出能直接进日志的原因。
+2. `canHotStart()` 在 NPU 排除之后补上该判定（改前先确认它全仓库**只有回前台一个调用方**，
+   没有 UI 消费端会被收紧影响）；预加载那侧改成调同一策略，删掉重复条件——"要不要主动加载
+   本地模型"从此只有一份口径。
+3. 唯一行为差异写明：以前"读在线模型状态抛异常"会落到 catch 里照常预加载，
+   现在保守成不主动加载（宁可让用户显式点一次加载，也不要"不用也占 1GB"）。
+   "已配置但未激活"的在线模型仍**不算数**，否则切回本地模型的人每次都要手动加载。
+4. 顺带记两条审计结果，都还不是 bug、等拍板：`ModelPreloadService` 整条链是死的
+   （manifest 未注册、唯一启动方 `AIService.startModelPreload()` 零调用方），但它内部
+   `onStartCommand` 的闸门同样只查 NPU——和刚修的是同一个"半条件"形状，哪天接回去就会
+   绕开判定；`hotStartEnabled` 默认 true 且 `setHotStartEnabled` 全仓库零调用，
+   是个没人能拨的虚设开关，留着会误导下一个读者。
+
+### 验证
+
+- 新增 `LocalModelLoadPolicyTest` 7 条（真值表 4 ＋ Robolectric 现场 3，含"本地 Agent 默认关
+  → 原因必须点名本地 Agent"这条，就是用户当下的状态）；
+  全量 `testDebugUnitTest --no-build-cache --rerun-tasks`：**1013 / 0 skipped / 0 failures / 0 errors**。
+- **未做的验证**：真机没跑。可证伪的两点是装机后冷启动应打
+  `canHotStart=false：已激活在线模型…` 且不再出现"开始热启动恢复"，`Heap Alloc` 从 ~984MB 掉下来。
+- 与下一笔的关系：这近 1GB 白占也正是 `fix(ai-feature)` 那条里功能页之外的另一条加载来源，
+  两笔合起来才把"在线模式却不该加载本地权重"这条口径铺全。
+## [2026-10-25] fix(agent-infra)：卡死哨兵改按"心跳被应答时刻"判定（沉默 bug 公开更正）
+
+真机自验 ANR 时，我自己写的 `MainThreadWatchdog` 一声不响，而同一进程的证据显示主线程
+确实吊了 6-9 秒。查下来是度量取错了基准。
+
+### 查到的事实（出处）
+
+- 20:51:42 冷重启进入聊天页（恢复 126 条消息），同期 `dumpsys gfxinfo com.oilquiz.app`
+  直方图 `1200ms=6、3150ms=2、3250ms=2、4950ms(顶桶)=8`，日志里
+  `HWUI Davey! duration=9137ms / 8085ms`、`Choreographer: Skipped 741 frames`；
+  而 `MainThreadWatchdog` 只有一行"已启动"，**零次报告**。
+- 原因：第一版判定用的是"`now − 最近一次**投递**`"，而投递每 500ms 就把
+  `pendingAtElapsed` 刷新一次，这个差值天然只有半秒，永远够不到 5000ms 阈值——
+  只有哨兵自己的线程被饿 4.5 秒以上才可能触发。所以"没有卡死记录"**不是证据**。
+- 顺带把 chat-render 那条的因果收窄：9 秒长帧的结束时刻（`Davey duration=9137ms`
+  打在 20:52:00.661）正好压在 `[history] merged loaded=100 localNew=26 total=126`
+  完成那一瞬（20:52:00.862），所以嫌疑主项是**历史合并/绑定整段**；
+  我在 chat-render 条目里写的"根因是 WebView 同步整篇加载"**并未被证实**
+  ——那条只把 markdown→HTML＋文件解析挪走，而修复前的 ANR 栈最内层其实停在
+  chromium 的 `loadDataWithBaseURL` native 帧上。不改写历史，只在此更正。
+
+### 由此改掉的事
+
+- 度量改成"**最近一次心跳被主线程执行掉**的时刻"：主线程吊住时它停住不动，差值才会真长到阈值。
+- 判定抽成纯函数 `isStalled(now, lastAnsweredAt, postedSeq, answeredSeq, threshold)`，
+  含两道守卫：必须有未应答心跳（长时间空闲≠卡死）、计时回拨一律不报。
+- 报告去重按 `outstanding 拍号`记录，同一次卡死只落一次盘，恢复后新的卡死还能再记。
+
+### 验证
+
+- 新增 5 条回归单测（6 秒阻塞必须抓到、健康心跳不误报、空闲不报、阈值边界、时钟回拨）；
+  全量 `--no-build-cache --rerun-tasks`：**1006 / 0 skipped / 0 failures / 0 errors**。
+- **未做的验证，且明确说明为什么没做**：哨兵"会不会真的响"仍未正面验证——正面验证需要
+  一个人为阻塞主线程的入口，那属于"为验证改生产代码"，你此前明确否决过，所以这里留空。
+  间接证据只有一条：它的兄弟打点（`AICrashHandler` 每 10s 的 resident 行）在同一窗口正常输出。
+- **口径教训**（和同日那条包体积更正同一类错误）：自造探针要先证明它"会响"，
+  才能拿它的沉默当结论；grep 计数 0 要先怀疑自己的搜索词与时间窗。
+  另外 ANR 是否消失**至今仍未证实**，装机后带修好的哨兵重跑才算。
 ## [2026-10-25] fix(chat-render)：正文整篇构建移出绑定主线程（修 ANR）+ 崩溃计数按死因归因
 
 用户要求抓启动 logcat 排查，顺藤摸到"连续 2 次崩溃跳过模型自动加载"这条告警，
@@ -75,6 +316,27 @@ Chaquopy 解释器初始化是成功的，但 interpreter 与 pip wheels 是不�
 
 真机自验仍然没做（占位高→后台解析→回主线程的时序、来回快速滚动的抖动、复用串台、
 "改完是否真的不再触发 5s 超时"），只把包装上了。
+
+### 补记（同日，第二次）：上面那条包体积推断被反证，作废
+
+第一次补记里"旧包漏了 `requirements-common.imy` 这整块 blob"的说法**不成立**，
+连带"19:52 那版缺 blob"也一起收回。反证来自 22:00 那次出包：
+
+- 为验证删聊天页模型面板（`0783327a`）重跑 `assembleDebug --no-build-cache --rerun-tasks`，
+  容器变成 **919,773,517**，比 20:43 的 1,016,709,844 **少 97MB**；
+- 但两次 `unzip -l` 的未压缩总和是 **1,398,154,876** 对 **1,398,178,054**，
+  只差 23,178 字节——正好等于删掉的 `view_chat_v2_model_sheet.xml` ＋ 2 个 drawable
+  ＋ 10 条孤儿字符串的量；条目数 9799 对 9802；
+- `assets/chaquopy/requirements-common.imy` **两次都在**（66,969,937 / 66,972,034）。
+
+结论：容器大小的涨跌来自**打包压缩策略**——`--rerun-tasks` 重跑了 `compressDebugAssets`，
+把原先以 store 方式塞进 zip 的条目压上了，内容并没有增减。
+同理，第一次补记里"跑一次 `import numpy` 就能钉死"也不必做了，因为问题从来不是缺内容。
+
+可复用的口径：**APK 容器体积不能当内容证据**。要判"包里到底有没有某样东西"，
+比 `unzip -l` 的未压缩总和与条目数、或直接把条目名解出来查，别比 `.apk` 的文件字节数；
+增量构建与 `--rerun-tasks` 之间容器可以差上百 MB。
+第一次补记把它标成"算术巧合级推断、非验证结论"是对的，但推断本身就是错的。
 ## [2026-10-25] fix(agent-local)：接通本地 Agent 停止链路四处断点
 
 用户："你在检查下本地引擎的基础设施" → "按你的建议，从修好停止逻辑开始"。

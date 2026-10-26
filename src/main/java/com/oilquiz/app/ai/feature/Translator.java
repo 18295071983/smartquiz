@@ -1,14 +1,6 @@
 package com.oilquiz.app.ai.feature;
 
 import android.content.Context;
-import android.util.Log;
-
-import com.oilquiz.app.ai.service.AIService;
-
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 /**
  * 翻译器 - AI驱动的多语言翻译
@@ -33,22 +25,21 @@ import java.util.concurrent.TimeoutException;
  * @since 2024
  */
 public class Translator {
-    private static final String TAG = "Translator";
-    private final AIService aiService;
+    /**
+     * 统一出词入口（2026-10-25）：以前每个方法开头都 {@code initializeSafe()} 直接把本地 GGUF
+     * 拉进内存；现在"有激活在线模型就先走在线，不为跑功能偷偷加载本地权重"。
+     * 见 {@link FeatureTextCompleter} 的口径说明。
+     */
+    private final FeatureTextCompleter completer;
+
+    /** 调用方按 {@code startsWith("Error:")} 判失败（见 ToolResultInterpreter 等），前缀必须保留。 */
+    private static final String AI_UNAVAILABLE = FeatureTextCompleter.AI_UNAVAILABLE;
     
     public Translator(Context context) {
-        this.aiService = AIService.getInstance(context);
+        this.completer = new FeatureTextCompleter(context);
     }
     
     public String translate(String text, String targetLanguage) {
-        if (!aiService.isInitialized()) {
-            boolean initialized = aiService.initializeSafe();
-            if (!initialized) {
-                Log.e(TAG, "Failed to initialize AI service");
-                return "Error: AI service not initialized";
-            }
-        }
-        
         String prompt = String.format(
             "Translate the following text to %s.\n" +
             "Text: %s\n" +
@@ -57,24 +48,11 @@ public class Translator {
             text
         );
         
-        try {
-            Future<String> future = aiService.generateAsync(prompt, 600);
-            return future.get(30, TimeUnit.SECONDS);
-        } catch (InterruptedException | ExecutionException | TimeoutException e) {
-            Log.e(TAG, "Error translating text: " + e.getMessage(), e);
-            return "Error: " + e.getMessage();
-        }
+        String out = completer.complete(prompt, 600);
+        return out != null ? out : AI_UNAVAILABLE;
     }
     
     public String translateQuestion(String questionText, String options, String answer, String explanation, String targetLanguage) {
-        if (!aiService.isInitialized()) {
-            boolean initialized = aiService.initializeSafe();
-            if (!initialized) {
-                Log.e(TAG, "Failed to initialize AI service");
-                return "Error: AI service not initialized";
-            }
-        }
-        
         String prompt = String.format(
             "Translate the following question to %s.\n" +
             "Question: %s\n" +
@@ -90,24 +68,11 @@ public class Translator {
             explanation
         );
         
-        try {
-            Future<String> future = aiService.generateAsync(prompt, 800);
-            return future.get(30, TimeUnit.SECONDS);
-        } catch (InterruptedException | ExecutionException | TimeoutException e) {
-            Log.e(TAG, "Error translating question: " + e.getMessage(), e);
-            return "Error: " + e.getMessage();
-        }
+        String out = completer.complete(prompt, 800);
+        return out != null ? out : AI_UNAVAILABLE;
     }
     
     public String detectLanguage(String text) {
-        if (!aiService.isInitialized()) {
-            boolean initialized = aiService.initializeSafe();
-            if (!initialized) {
-                Log.e(TAG, "Failed to initialize AI service");
-                return "Error: AI service not initialized";
-            }
-        }
-        
         String prompt = String.format(
             "Detect the language of the following text.\n" +
             "Text: %s\n" +
@@ -115,12 +80,7 @@ public class Translator {
             text
         );
         
-        try {
-            Future<String> future = aiService.generateAsync(prompt, 200);
-            return future.get(30, TimeUnit.SECONDS);
-        } catch (InterruptedException | ExecutionException | TimeoutException e) {
-            Log.e(TAG, "Error detecting language: " + e.getMessage(), e);
-            return "Error: " + e.getMessage();
-        }
+        String out = completer.complete(prompt, 200);
+        return out != null ? out : AI_UNAVAILABLE;
     }
 }

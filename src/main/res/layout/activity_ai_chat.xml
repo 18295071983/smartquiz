@@ -394,65 +394,6 @@
 
 
         <LinearLayout
-            android:id="@+id/log_container"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="@android:color/transparent"
-            android:visibility="gone">
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:padding="@dimen/space_12">
-                <TextView
-                    android:layout_width="@dimen/size_0"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="处理日志"
-                    android:textSize="@dimen/text_13"
-                    android:textStyle="bold"
-                    android:textColor="?attr/colorControlText"/>
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_clear_log"
-                    android:layout_width="wrap_content"
-                    android:layout_height="@dimen/size_32"
-                    android:text="清空"
-                    android:textSize="@dimen/text_11"
-                    app:backgroundTint="?attr/colorSurfaceVariant"
-                    android:textColor="?attr/colorControlTextSecondary"
-                    app:cornerRadius="@dimen/radius_16"
-                    android:textAllCaps="false"
-                    android:layout_marginEnd="@dimen/space_8"/>
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_toggle_log"
-                    android:layout_width="wrap_content"
-                    android:layout_height="@dimen/size_32"
-                    android:text="收起"
-                    android:textSize="@dimen/text_11"
-                    app:backgroundTint="?attr/colorSurfaceVariant"
-                    android:textColor="?attr/colorControlTextSecondary"
-                    app:cornerRadius="@dimen/radius_16"
-                    android:textAllCaps="false"/>
-            </LinearLayout>
-            <ScrollView
-                android:id="@+id/log_scroll"
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/size_140">
-                <TextView
-                    android:id="@+id/log_content"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text=""
-                    android:textSize="@dimen/text_12"
-                    android:fontFamily="monospace"
-                    android:textColor="?attr/colorControlTextSecondary"
-                    android:padding="@dimen/space_12"/>
-            </ScrollView>
-        </LinearLayout>
-
-        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"

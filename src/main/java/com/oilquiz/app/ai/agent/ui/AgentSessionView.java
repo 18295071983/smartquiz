@@ -185,9 +185,8 @@ public class AgentSessionView extends LinearLayout {
             @Override public void onToolCallComplete(String toolCallId, String toolName, OnlineToolResult result) {
                 mainHandler.post(() -> {
                     boolean ok = result != null && result.success;
-                    String summary = result != null
-                            ? (result.success ? result.result : result.error)
-                            : null;
+                    // 失败原因在 error 里：统一走 displayText()，卡片才看得到"为什么失败"
+                    String summary = result != null ? result.displayText() : null;
                     agentExecution.updateToolResult(toolName, ok, summary);
                 });
             }

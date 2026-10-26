@@ -3565,12 +3565,24 @@ public class AIService implements ComponentCallbacks2 {
 
     /**
      * 检查是否可以热启动
+     *
+     * <p>2026-10-25：这里原先只排除"NPU 引擎已启用"一种情况，于是出现自相矛盾的现场——
+     * 启动预加载按"已激活在线模型"跳过了本地模型，8 秒后回前台的热启动却照样把
+     * Qwen3.5-2B-Q4 的权重捞进内存（真机实测 native {@code Heap Alloc≈984MB}、swap 492MB，
+     * 而用户全程用的是在线模型）。现在补上与预加载同一份判定
+     * （{@link com.oilquiz.app.ai.model.LocalModelLoadPolicy}），"要不要主动加载本地模型"
+     * 只留一处口径。用户显式加载模型/发起本地对话走 {@code loadModel}，不经过这里，不受影响。</p>
      */
     public boolean canHotStart() {
         // NPU 引擎开启时绝不热启动本地 llama.cpp 模型：否则启动/回前台就抢先把权重加载进来，
         // 既占内存又让"当前引擎"变回 llama.cpp（2026-10-05 实测：Agent 进程日志出现 LlamaJNI sched_reserve）。
         if (isNpuRuntimeActive()) {
             AILogger.i(TAG, "NPU 引擎已启用，canHotStart=false（跳过本地模型热启动）");
+            return false;
+        }
+        String skipReason = com.oilquiz.app.ai.model.LocalModelLoadPolicy.skipReason(context);
+        if (skipReason != null) {
+            AILogger.i(TAG, "canHotStart=false：" + skipReason);
             return false;
         }
         return hotStartEnabled && currentModelName != null && !isInitialized;

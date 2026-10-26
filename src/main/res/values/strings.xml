@@ -745,25 +745,10 @@
     <string name="chat_v2_new_desc">新建对话</string>
     <string name="chat_v2_sheet_title">本次会话</string>
     <string name="chat_v2_model">当前模型</string>
-    <!-- 模型与参数 BottomSheet（demo #sheet-model） -->
-    <string name="chat_v2_model_sheet_title">模型与参数</string>
-    <string name="chat_v2_model_online">在线</string>
-    <string name="chat_v2_model_local">本地</string>
-    <string name="chat_v2_model_temperature">温度</string>
-    <string name="chat_v2_model_apply">应用</string>
-    <string name="chat_v2_model_no_online">还没有在线模型配置，去模型中心添加</string>
-    <string name="chat_v2_model_open_center">打开模型中心</string>
-    <string name="chat_v2_model_context_auto">上下文长度：自动</string>
-    <string name="chat_v2_model_context_manual">上下文长度：%1$d tokens</string>
-    <string name="chat_v2_model_local_hint">本地模型切换会重新加载，请到模型中心操作</string>
     <string name="chat_v2_tokens">Token 用量</string>
     <string name="chat_v2_phase">生成阶段</string>
     <string name="chat_v2_kv">KV 缓存</string>
     <string name="chat_v2_balance">账户余额</string>
-    <string name="chat_v2_log">运行日志</string>
-    <string name="chat_v2_tools">工具中心</string>
-    <string name="chat_v2_clear">清空当前对话</string>
-    <string name="chat_v2_console">智能体控制台</string>
     <string name="chat_v2_no_data">暂无数据</string>
     <!-- 聊天页 v2 输入胶囊（demo .composer）：旧布局里这些文案是硬编码的，v2 走资源 -->
     <string name="chat_input_hint">输入消息…</string>

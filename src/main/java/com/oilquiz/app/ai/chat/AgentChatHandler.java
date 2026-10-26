@@ -272,7 +272,9 @@ public class AgentChatHandler {
                     callback.onToolCallComplete(toolCallId, toolName, result);
                     // 保护：result可能为null
                     boolean success = result != null && result.success;
-                    String resultStr = result != null ? result.result : "工具执行返回null";
+                    // 与 AIChatActivity 同一口径：失败原因在 error 里（result 恒为 null），
+                    // 直接递 result 会让 UI 拿到 null，卡片显示"失败"却没有原因
+                    String resultStr = result != null ? result.displayText() : "工具执行返回null";
                     callback.onToolCallResultUI(-1, success, resultStr);
                 }
             }
