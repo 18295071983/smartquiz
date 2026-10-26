@@ -751,6 +751,19 @@ public class ProviderConfigManager {
     //   "deepseek-chat"                              → 纯字符串，仅声明 chat，能力继承服务商级 services
     //   {"name":"qwen-vl-max","capabilities":[...]}  → 对象，模型级能力覆盖（与服务商级取交集）
     // 用于：模型列表合并预置模型、按模型判能力（不再服务商级一刀切）。
+    //
+    // 对象形态另有四个**可选**能力声明位（2026-10-27 补）：
+    //   "contextLength":128000, "maxOutputTokens":65536,
+    //   "thinkingEffortLevels":["low","high","max"], "thinkingEffortDefault":"high",
+    //   "inputModalities":["text","image"]
+    // 为什么必须由配置表人工声明、而不是从接口读：除 DeepSeek 外，各家
+    // {@code GET /models} 基本只回裸 {id,object,created,owned_by}（实测每条目 69~77 字节），
+    // 思考档位/输出上限/输入模态只存在于**chat 请求参数文档**里（Kimi 与 DashScope 用
+    // 顶层 reasoning_effort、DashScope 另有 enable_thinking + thinking_budget、GLM 用
+    // thinking.type），列表接口根本没有这个字段。而读取侧（档位选择器、reasoning_effort
+    // 注入、max_tokens 上限、多模态判定）一律以 cachedModelsJson 为唯一载体，
+    // 所以承载位加在这里、由预置合并写进缓存，才能覆盖"接口不声明"的那批服务商。
+    // 优先级：API 本次返回 > 配置表声明 > 留空（留空 = UI 不显示档位、请求不下发强度）。
 
     /** 配置表预置模型名列表（兼容字符串/对象形态），未声明返回空列表 */
     public List<String> getPredefinedModels(String apiUrl) {
@@ -811,6 +824,27 @@ public class ProviderConfigManager {
             List<String> caps = new ArrayList<>(arr.size());
             for (int i = 0; i < arr.size(); i++) caps.add(arr.get(i).getAsString());
             return caps;
+        }
+        return null;
+    }
+
+    /**
+     * 取配置表里某个预置模型的**完整对象声明**（{@code models[]} 的对象形态）；
+     * 纯字符串形态或查不到时返回 null。
+     *
+     * <p>之所以返回原始 {@link JsonObject} 而不是一组 getter：调用方（模型列表合并预置项）
+     * 一次要读上下文、输出上限、档位集合、默认档、输入模态五项，拆成五个方法就得扫五遍表；
+     * 且新增声明位时只改读取侧一处，表侧结构不用跟着动。</p>
+     */
+    public JsonObject getPredefinedModelJson(String apiUrl, String modelName) {
+        if (modelName == null) return null;
+        Provider p = matchByUrl(apiUrl);
+        if (p == null || p.models == null) return null;
+        for (JsonElement e : p.models) {
+            if (e == null || !e.isJsonObject()) continue;
+            JsonObject o = e.getAsJsonObject();
+            if (!o.has("name") || o.get("name").isJsonNull()) continue;
+            if (modelName.equals(o.get("name").getAsString())) return o;
         }
         return null;
     }

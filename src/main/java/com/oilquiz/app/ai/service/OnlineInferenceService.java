@@ -677,7 +677,10 @@ public class OnlineInferenceService {
         if (item == null || depth > 3) return null;
         String[] keys = {"context_length", "max_context", "context_window",
                 "max_model_len", "contextLength", "contextWindow", "max_context_length",
-                "max_input_tokens"};
+                "max_input_tokens",
+                // Gemini 系用 camelCase 的 inputTokenLimit（ListModels 资源字段），此前不在表里，
+                // 于是这类网关的上下文恒为"未检出"、只能靠名称推断
+                "inputTokenLimit"};
         for (String k : keys) {
             if (item.has(k) && !item.get(k).isJsonNull()) {
                 try {

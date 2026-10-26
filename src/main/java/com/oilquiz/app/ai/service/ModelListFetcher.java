@@ -264,15 +264,80 @@ public class ModelListFetcher {
                 ApiModel pm = presetDisplay != null
                         ? new ApiModel(name, presetDisplay) : new ApiModel(name);
                 pm.source = "preset";
-                pm.contextLength = 0;
                 List<String> caps = pcm.getModelCapabilities(apiUrl, name);
                 if (caps != null && !caps.isEmpty()) pm.capabilities = caps; // 模型级能力
+                // 上下文 / 输出上限 / 思考档位 / 输入模态：接口不声明的那批服务商，
+                // 唯一来源就是配置表的对象形态（各家 /models 实测只回裸 id+展示名）。
+                // 此前这里硬写 pm.contextLength = 0，预置条目在列表里显示 "Context: 0"，
+                // 下游 max_tokens 也无从收敛 —— 等于把"配置表补进来的模型"标成坏数据。
+                applyPresetMeta(pm, pcm.getPredefinedModelJson(apiUrl, name));
                 models.add(pm);
                 existing.add(name);
             }
         } catch (Exception e) {
             AILogger.w(TAG, "Merge preset models failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * 把配置表里某个模型的对象声明套到 {@link ApiModel} 上：上下文、输出上限、思考档位、
+     * 默认档、输入模态 —— 与 API 返回时写的缓存字段**同名同形**，所以下游四个读取方
+     * （档位选择器、{@code reasoning_effort} 注入、max_tokens 上限、多模态判定）不用改。
+     *
+     * <p><b>为什么要有这个</b>：除 DeepSeek 外各家 {@code GET /models} 都不返回这些声明
+     * （实测每条目仅 69~77 字节，装不下数组），档位信息只存在于 chat 请求参数文档里。
+     * 于是"接口给不了"的能力必须有一个人工声明位；表侧扩展见
+     * {@link com.oilquiz.app.ai.model.ProviderConfigManager} 的 {@code models[]} 注释。</p>
+     *
+     * <p>{@code meta == null}（纯字符串形态或未声明）时不编造任何能力，只补一个与
+     * {@link ApiModel#fromOpenAI} 同口径的上下文推断值，避免预置条目显示 "Context: 0"。</p>
+     */
+    static void applyPresetMeta(ApiModel model, com.google.gson.JsonObject meta) {
+        if (model == null) return;
+        if (meta != null) {
+            try {
+                if (meta.has("contextLength") && meta.get("contextLength").isJsonPrimitive()) {
+                    int v = meta.get("contextLength").getAsInt();
+                    if (v > 0) {
+                        model.contextLength = v;
+                        model.contextLengthFromApi = false; // 人工声明，不是接口检测值（可信度口径不变）
+                    }
+                }
+                if (meta.has("maxOutputTokens") && meta.get("maxOutputTokens").isJsonPrimitive()) {
+                    int v = meta.get("maxOutputTokens").getAsInt();
+                    if (v > 0) model.maxOutputTokens = v;
+                }
+                java.util.List<String> levels = readStringArray(meta, "thinkingEffortLevels");
+                if (levels != null && !levels.isEmpty()) model.thinkingEffortLevels = levels;
+                if (meta.has("thinkingEffortDefault") && meta.get("thinkingEffortDefault").isJsonPrimitive()) {
+                    String s = meta.get("thinkingEffortDefault").getAsString();
+                    if (s != null && !s.trim().isEmpty()) model.thinkingEffortDefault = s.trim();
+                }
+                java.util.List<String> mods = readStringArray(meta, "inputModalities");
+                if (mods != null && !mods.isEmpty()) model.inputModalities = mods;
+            } catch (Throwable t) {
+                // 声明写坏（类型不对等）不该毁掉这次列表合并：保留已套上的部分，其余按"未声明"
+                AILogger.w(TAG, "applyPresetMeta partial for " + model.id + ": " + t.getMessage());
+            }
+        }
+        if (model.contextLength <= 0) {
+            // 与 fromOpenAI 同一个数据驱动配置表口径（deepseek→64K、qwen3→32K 等），不是关键词猜测
+            model.contextLength = com.oilquiz.app.ai.model.OnlineModelProfile
+                    .match(null, model.id).contextWindow;
+        }
+    }
+
+    /** 读 JSON 对象里的字符串数组（trim + 去空）；键不存在或不是数组时返回 null */
+    private static java.util.List<String> readStringArray(com.google.gson.JsonObject o, String key) {
+        if (o == null || !o.has(key) || !o.get(key).isJsonArray()) return null;
+        com.google.gson.JsonArray arr = o.getAsJsonArray(key);
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (int i = 0; i < arr.size(); i++) {
+            if (!arr.get(i).isJsonPrimitive()) continue;
+            String s = arr.get(i).getAsString();
+            if (s != null && !s.trim().isEmpty()) out.add(s.trim());
+        }
+        return out;
     }
 
     /**
@@ -460,12 +525,11 @@ public class ModelListFetcher {
                 // 官方规范的显示名（"for use in model pickers"）：与 id 不同，
                 // 例如 id=deepseek-flash → name=DeepSeek-V4.1-Flash。
                 // 不读它，UI 就只显示 id，用户看不到 v4.1 这类版本信息。
-                String displayName = null;
-                if (modelObj.has("name") && !modelObj.get("name").isJsonNull()
-                        && modelObj.get("name").isJsonPrimitive()) {
-                    String n = modelObj.get("name").getAsString();
-                    if (n != null && !n.trim().isEmpty()) displayName = n.trim();
-                }
+                // 各家键名不同：OpenAI 兼容/DeepSeek 用 name，Anthropic 用 display_name，
+                // Gemini/部分网关用 displayName —— 按此顺序取第一个非空（标准 OpenAI 的
+                // Model 对象压根没有 name 字段，于是这几家过去显示名恒为空）。
+                String displayName = firstNonEmptyPrimitive(modelObj,
+                        "name", "display_name", "displayName");
 
                 // 过滤掉嵌入模型和其他非对话模型
                 if (!id.contains("embedding") && !id.contains("ada") && !id.contains("babbage") &&
@@ -479,10 +543,18 @@ public class ModelListFetcher {
                         model.contextLength = realLen;
                         model.contextLengthFromApi = true;
                     }
-                    // 思考强度档位：官方 schema 的 effort.supported_levels / effort.default_level。
-                    // 这是"每个模型各自不同"的能力声明，必须取 API，不能硬编码全局档位表
-                    // —— 否则会给不支持的模型传入越界取值而报错（详见 ApiModel 字段注释）。
-                    // 服务商未声明时保持为空：UI 不展示档位、请求也不下发强度参数。
+                    // 思考强度档位：读 effort.supported_levels / effort.default_level。
+                    // 口径（2026-10-27 逐家核过 + 本仓实测）：这组键是 **DeepSeek 文档明说的厂商扩展**
+                    // —— api-docs.deepseek.com/zh-cn/api/list-models 逐项列出 context_window /
+                    // max_output_tokens / input_modalities / output_modalities / effort.*；
+                    // 但它**不是业界口径**：OpenAI 标准 Model 对象只有 id/object/created/owned_by，
+                    // Anthropic 用 capabilities.effort.<level>.supported 逐档布尔，
+                    // Gemini/Kimi/DashScope/千帆/方舟的列表接口根本不返回档位
+                    // （强度只在 chat 请求参数里：顶层 reasoning_effort、enable_thinking +
+                    // thinking_budget、thinking.type，取值集合各家还不一样）。
+                    // 所以对多数服务商"这里为空"是常态而非异常；要给人工声明位，写 providers.json
+                    // 的 models[] 对象形态（见 applyPresetMeta），别指望换键名就能从 /models 挖出来。
+                    // 未声明时保持为空：UI 不展示档位、请求也不下发强度参数（宁缺毋错）。
                     parseThinkingEffort(modelObj, model);
                     models.add(model);
                 }
@@ -538,25 +610,108 @@ public class ModelListFetcher {
                     }
                 }
             }
-            if (modelObj.has("max_output_tokens") && modelObj.get("max_output_tokens").isJsonPrimitive()) {
-                model.maxOutputTokens = modelObj.get("max_output_tokens").getAsInt();
+            // 输出上限：各家键名不同，逐个"命中才用"（均有 schema/文档依据，不猜）——
+            // DeepSeek: max_output_tokens；OpenAI 系请求参数名 max_completion_tokens 也常被网关
+            // 当上限返回；Gemini: outputTokenLimit；Together(全量元数据): max_generation_tokens；
+            // Anthropic ModelInfo: max_tokens（其定义即"completion 上界"）。
+            model.maxOutputTokens = firstPositiveInt(modelObj,
+                    "max_output_tokens", "max_completion_tokens", "outputTokenLimit",
+                    "max_generation_tokens", "max_tokens");
+            // 输入模态：判断多模态（图片输入）的权威依据。不解析它就只能靠模型名关键词猜，
+            // 会漏掉像 deepseek-flash 这种"名字里没有 vision/vl 但官方支持图像理解"的模型。
+            // 键名各家不同：DeepSeek 文档用 input_modalities；Gemini 用 architecture.inputModality
+            // （单数、数组值）；阿里云系用 supportedInputModalities。
+            java.util.List<String> inMods = firstStringArray(modelObj,
+                    "input_modalities", "inputModalities", "supportedInputModalities");
+            if (inMods == null && modelObj.has("architecture")
+                    && modelObj.get("architecture").isJsonObject()) {
+                inMods = firstStringArray(modelObj.getAsJsonObject("architecture"),
+                        "inputModalities", "input_modalities", "inputModality", "input_modality");
             }
-            // 输入模态（官方 input_modalities）：判断多模态（图片输入）的权威依据。
-            // 不解析它就只能靠模型名关键词猜，会漏掉像 deepseek-flash 这种
-            // "名字里没有 vision/vl 但官方支持图像理解"的模型。
-            if (modelObj.has("input_modalities") && modelObj.get("input_modalities").isJsonArray()) {
-                com.google.gson.JsonArray mods = modelObj.getAsJsonArray("input_modalities");
-                java.util.List<String> out = new java.util.ArrayList<>();
-                for (int i = 0; i < mods.size(); i++) {
-                    if (!mods.get(i).isJsonPrimitive()) continue;
-                    String s = mods.get(i).getAsString();
-                    if (s != null && !s.isEmpty()) out.add(s);
-                }
-                model.inputModalities = out;
+            if (inMods != null && !inMods.isEmpty()) {
+                model.inputModalities = inMods;
             }
+            // 注：DeepSeek 还文档化了 output_modalities（输出模态），本仓目前没有任何消费方，
+            // 故刻意不存 —— 加一个没有生产者的字段只会让下一个人以为它能用。
         } catch (Exception e) {
             // 能力字段解析失败不影响模型列表本身（保持"未声明"语义）
             AILogger.d(TAG, "parseThinkingEffort skipped for " + model.id + ": " + e.getMessage());
+        }
+    }
+
+    /** 按给定顺序取第一个非空的字符串型字段（键缺失/非 primitive/空白都跳过） */
+    private static String firstNonEmptyPrimitive(JsonObject o, String... keys) {
+        if (o == null || keys == null) return null;
+        for (String k : keys) {
+            if (!o.has(k) || o.get(k).isJsonNull() || !o.get(k).isJsonPrimitive()) continue;
+            String s = o.get(k).getAsString();
+            if (s != null && !s.trim().isEmpty()) return s.trim();
+        }
+        return null;
+    }
+
+    /** 按给定顺序取第一个正整数型字段；全部缺失/非法返回 0（= 未声明，与"0 表示没有"口径一致） */
+    private static int firstPositiveInt(JsonObject o, String... keys) {
+        if (o == null || keys == null) return 0;
+        for (String k : keys) {
+            if (!o.has(k) || o.get(k).isJsonNull() || !o.get(k).isJsonPrimitive()) continue;
+            try {
+                int v = o.get(k).getAsInt();
+                if (v > 0) return v;
+            } catch (Exception ignored) {
+                // 非数值的声明（如写成 "8k"）视为未声明，不做二次猜测
+            }
+        }
+        return 0;
+    }
+
+    /** 按给定顺序取第一个非空的字符串数组字段；键缺失/不是数组/全空返回 null */
+    private static java.util.List<String> firstStringArray(JsonObject o, String... keys) {
+        if (o == null || keys == null) return null;
+        for (String k : keys) {
+            if (!o.has(k) || o.get(k).isJsonNull() || !o.get(k).isJsonArray()) continue;
+            com.google.gson.JsonArray arr = o.getAsJsonArray(k);
+            java.util.List<String> out = new java.util.ArrayList<>();
+            for (int i = 0; i < arr.size(); i++) {
+                if (!arr.get(i).isJsonPrimitive()) continue;
+                String s = arr.get(i).getAsString();
+                if (s != null && !s.trim().isEmpty()) out.add(s.trim());
+            }
+            if (!out.isEmpty()) return out;
+        }
+        return null;
+    }
+
+    /**
+     * 解析 Anthropic 侧的模型数组（{@code data[]} 与 {@code models[]} 两种外壳共用这一个口径）。
+     *
+     * <p>此前两个分支各写一遍，且都是 {@code get("id").getAsString()} /
+     * {@code get("name").getAsString()}：Anthropic 的 ModelInfo 里<b>没有 name 字段</b>
+     * （人可读名是 {@code display_name}），缺键时 Gson 的 {@code get()} 返回 null →
+     * {@code getAsString()} 直接 NPE，整个分支挂掉、上层只报"获取模型列表失败"；
+     * 就算不挂也把 display_name 与 max_tokens 全丢了，列表只显示原始 id。</p>
+     */
+    private void addAnthropicModels(JsonArray data, List<ApiModel> out) {
+        if (data == null || out == null) return;
+        for (int i = 0; i < data.size(); i++) {
+            if (!data.get(i).isJsonObject()) {
+                AILogger.w(TAG, "anthropic models[" + i + "] 不是对象，跳过");
+                continue;
+            }
+            JsonObject modelObj = data.get(i).getAsJsonObject();
+            String id = firstNonEmptyPrimitive(modelObj, "id", "name");
+            if (id == null) {
+                AILogger.w(TAG, "anthropic models[" + i + "] 无 id，跳过; keys=" + modelObj.keySet());
+                continue;
+            }
+            ApiModel model = ApiModel.fromAnthropic(id);
+            String dn = firstNonEmptyPrimitive(modelObj, "display_name", "displayName");
+            if (dn != null) model.displayName = dn;
+            // 上限/模态沿用与 OpenAI 分支同一个解析器（Anthropic 的 max_tokens 就是 completion 上界）。
+            // 刻意不在此处适配 Anthropic 的 capabilities.effort.<level>.supported 逐档布尔 ——
+            // 那是另一种形状，需要单独的映射与用例，别混在这个通用读取里半做。
+            parseThinkingEffort(modelObj, model);
+            out.add(model);
         }
     }
 
@@ -583,20 +738,10 @@ public class ModelListFetcher {
         // Anthropic 可能返回不同的格式
         if (json.has("data")) {
             // OpenAI 兼容格式
-            JsonArray data = json.getAsJsonArray("data");
-            for (int i = 0; i < data.size(); i++) {
-                JsonObject modelObj = data.get(i).getAsJsonObject();
-                String id = modelObj.get("id").getAsString();
-                models.add(ApiModel.fromAnthropic(id));
-            }
+            addAnthropicModels(json.getAsJsonArray("data"), models);
         } else if (json.has("models")) {
             // Anthropic 原始格式
-            JsonArray data = json.getAsJsonArray("models");
-            for (int i = 0; i < data.size(); i++) {
-                JsonObject modelObj = data.get(i).getAsJsonObject();
-                String name = modelObj.get("name").getAsString();
-                models.add(ApiModel.fromAnthropic(name));
-            }
+            addAnthropicModels(json.getAsJsonArray("models"), models);
         } else {
             // 使用已知模型列表作为后备
             addKnownAnthropicModels(models);

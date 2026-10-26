@@ -96,8 +96,10 @@ public class ModelUsageController {
         executor.execute(() -> {
             Snapshot snapshot;
             try {
-                // 打开页面时做一次全量对齐：注册表新增/删除的模型即时反映到用量页的命名上
-                ModelUsageBridge.syncFromRegistry(context);
+                // 打开页面时做一次全量对齐：注册表新增/删除的模型即时反映到用量页的命名上。
+                // 必须用 Blocking 版：本任务下面就要 query()，异步版还没落库，
+                // 首屏会读到对齐前的旧名（"先对齐再查询"的顺序是这段代码的前提）。
+                ModelUsageBridge.syncFromRegistryBlocking(context);
                 snapshot = query();
             } catch (Throwable t) {
                 AILogger.w(TAG, "用量查询失败: " + t.getMessage());

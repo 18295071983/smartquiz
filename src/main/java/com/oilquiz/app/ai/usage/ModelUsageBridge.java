@@ -33,17 +33,74 @@ public final class ModelUsageBridge {
 
     private static final String TAG = "ModelUsageBridge";
 
+    /**
+     * 本桥的所有写库动作都在这一条串行线程上跑。
+     *
+     * <p><b>为什么必须在桥内部解决而不是每个调用方各自套线程</b>：Room 未开
+     * {@code allowMainThreadQueries}（本项目刻意没开），而"保存配置后投射"的调用点
+     * <b>全部</b>在 UI 线程回调里（对话框的 onConfigSaved、删除确认、Tab 刷新）。
+     * 真机 2026-10-27 02:09:57 的 ai_logs 里是这两行：
+     * <pre>
+     *   [DEBUG] ModelUsageBridge 模型行同步失败: Cannot access database on the main thread…
+     *   [DEBUG] ModelUsageBridge 全量模型行同步失败: Cannot access database on the main thread…
+     * </pre>
+     * 即这条投射**从来没成功过**，却被 {@code catch(Throwable) + AILogger.d} 压成一条 DEBUG，
+     * 表现就是"保存明明成功、用量侧却一直是旧值"。改在产出侧投递，调用方不必再关心线程；
+     * 失败级别也从 DEBUG 升到 WARN，别再静默。</p>
+     */
+    private static final java.util.concurrent.ExecutorService IO =
+            java.util.concurrent.Executors.newSingleThreadExecutor(
+                    r -> new Thread(r, "model-usage-bridge"));
+
     private ModelUsageBridge() {
     }
 
-    /** 单行 upsert（用量落库时顺带调用，保证即便用户从不打开页面也能 join 到名字） */
+    /**
+     * 复制 {@link #toEntity} 与各口径函数会读到的字段。
+     *
+     * <p>注册表里那个 {@code OnlineModelConfig} 是<b>共享可变对象</b>，投递到后台线程后再读它，
+     * 可能读到写一半的状态（例如名称已改、cachedModelsJson 还没写）→ 投射出一条撕裂的行。
+     * 所以在调用线程先取一份快照。<b>新增注册字段时，若它参与投射，要同步加进这里。</b></p>
+     */
+    private static OnlineModelManager.OnlineModelConfig snapshot(
+            OnlineModelManager.OnlineModelConfig c) {
+        OnlineModelManager.OnlineModelConfig s = new OnlineModelManager.OnlineModelConfig();
+        s.id = c.id;
+        s.name = c.name;
+        s.apiUrl = c.apiUrl;
+        s.modelName = c.modelName;
+        s.selectedModel = c.selectedModel;
+        s.enabled = c.enabled;
+        s.cachedModelsJson = c.cachedModelsJson;
+        s.contextWindow = c.contextWindow;
+        s.contextWindowFromApi = c.contextWindowFromApi;
+        s.costPerMillionTokens = c.costPerMillionTokens;
+        s.supportsVision = c.supportsVision;
+        s.supportsAudio = c.supportsAudio;
+        s.supportsCode = c.supportsCode;
+        s.supportsFunctionCalling = c.supportsFunctionCalling;
+        s.supportsAgent = c.supportsAgent;
+        s.supportsWebSearch = c.supportsWebSearch;
+        s.supportsEmbedding = c.supportsEmbedding;
+        s.supportsRerank = c.supportsRerank;
+        s.supportsImageGen = c.supportsImageGen;
+        s.supportsTts = c.supportsTts;
+        s.supportsAsr = c.supportsAsr;
+        return s;
+    }
+
+    /** 单行 upsert（用量落库与配置保存后都会调；线程安全，可在主线程直接调） */
     public static void upsert(Context context, OnlineModelManager.OnlineModelConfig config) {
-        try {
-            if (context == null || config == null) return;
-            DatabaseManager.getInstance(context).modelDao().insert(toEntity(context, config));
-        } catch (Throwable t) {
-            AILogger.d(TAG, "模型行同步失败: " + t.getMessage());
-        }
+        if (context == null || config == null) return;
+        final Context app = context.getApplicationContext();
+        final OnlineModelManager.OnlineModelConfig snap = snapshot(config);
+        IO.execute(() -> {
+            try {
+                DatabaseManager.getInstance(app).modelDao().insert(toEntity(app, snap));
+            } catch (Throwable t) {
+                AILogger.w(TAG, "模型行同步失败: " + t.getMessage());
+            }
+        });
     }
 
     /**
@@ -55,20 +112,46 @@ public final class ModelUsageBridge {
      * {@code deepseek-reasoner} 等于换了主键 —— 只 upsert 会新建一行、把按旧名建的那行留下，
      * 用量页于是同时显示改前与改后的名字，用户看到的现象就是"改完没生效"。</p>
      *
-     * <p>因此走一次全量投射：现存配置逐条 upsert，并删掉注册表里已不存在的行。
-     * 历史用量行不受影响（只删名字映射，不删日志）。注册表仍是唯一事实来源。</p>
+     * <p>所以在同一条后台任务里：先投射刚保存的那条，再走一次全量对齐（现存配置逐条 upsert、
+     * 删掉注册表里已不存在的行）。历史用量行不受影响（只删名字映射，不删日志）；
+     * 注册表仍是唯一事实来源。调用方可在 UI 线程直接调。</p>
      */
     public static void afterConfigSaved(Context context, OnlineModelManager.OnlineModelConfig config) {
-        if (config == null) return;
-        upsert(context, config);
-        syncFromRegistry(context);
+        if (context == null || config == null) return;
+        final Context app = context.getApplicationContext();
+        final OnlineModelManager.OnlineModelConfig snap = snapshot(config);
+        IO.execute(() -> {
+            try {
+                DatabaseManager.getInstance(app).modelDao().insert(toEntity(app, snap));
+            } catch (Throwable t) {
+                AILogger.w(TAG, "模型行同步失败: " + t.getMessage());
+            }
+            doSyncFromRegistry(app);
+        });
     }
 
     /**
-     * 全量重建：注册表现存的模型逐个 upsert，并删掉注册表里已不存在的行。
-     * 打开用量页时调用一次，使「已删除配置」的历史调用能被正确标注。
+     * 全量对齐的**异步**入口：注册表现存模型逐条投射，并删掉注册表里已不存在的行。
+     * 供 UI 线程调用（如删除配置后）。
+     *
+     * <p>注意：本方法只是投递，返回时库还没写完。<b>需要"先对齐再查询"的调用方必须改用
+     * {@link #syncFromRegistryBlocking(Context)}</b>，否则查询会读到对齐前的数据。</p>
      */
     public static void syncFromRegistry(Context context) {
+        if (context == null) return;
+        final Context app = context.getApplicationContext();
+        IO.execute(() -> doSyncFromRegistry(app));
+    }
+
+    /**
+     * 全量对齐的**同步**版本：仅限已经在后台线程上的调用方（用量页 {@code load()} 就是
+     * "先对齐、再聚合"，两者必须保持先后顺序）。在 UI 线程调用会撞上 Room 的主线程检查。
+     */
+    public static void syncFromRegistryBlocking(Context context) {
+        doSyncFromRegistry(context);
+    }
+
+    private static void doSyncFromRegistry(Context context) {
         try {
             if (context == null) return;
             OnlineModelManager manager = OnlineModelManager.getInstance(context);
@@ -80,9 +163,10 @@ public final class ModelUsageBridge {
 
             Set<String> alive = new HashSet<>();
             for (OnlineModelManager.OnlineModelConfig config : configs) {
-                String modelId = ModelUsageRecorder.usageModelId(config);
-                alive.add(modelId);
-                dao.insert(toEntity(context, config));
+                if (config == null) continue;
+                OnlineModelManager.OnlineModelConfig snap = snapshot(config);
+                alive.add(ModelUsageRecorder.usageModelId(snap));
+                dao.insert(toEntity(context, snap));
             }
 
             // 清理：注册表里已不存在的模型行。历史用量行不受影响（不删日志，只删名字映射），
@@ -96,11 +180,12 @@ public final class ModelUsageBridge {
                 }
             }
         } catch (Throwable t) {
-            AILogger.d(TAG, "全量模型行同步失败: " + t.getMessage());
+            // WARN 而非 DEBUG：这里失败意味着用量页会继续显示旧名字，是用户能看到的问题
+            AILogger.w(TAG, "全量模型行同步失败: " + t.getMessage());
         }
     }
 
-    /** 按 modelId 索引现有模型行，供用量页把裸 id 换成用户起的配置名 */
+    /** 按 modelId 索引现有模型行，供用量页把裸 id 换成用户起的配置名。**须在后台线程调用** */
     public static Map<String, ModelEntity> indexByModelId(Context context) {
         Map<String, ModelEntity> index = new HashMap<>();
         try {

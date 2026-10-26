@@ -55,15 +55,30 @@ public class ApiModel implements Serializable {
 
     /**
      * 思考模式支持的**强度档位** —— 来自服务商 {@code GET /models} 的
-     * {@code effort.supported_levels}（DeepSeek 官方 schema 字段）。
+     * {@code effort.supported_levels}。
      *
-     * <p>官方说明：该数组是"模型在思考模式下支持的强度档位，按推荐显示顺序，
-     * 即 {@code reasoning_effort} 参数接受的取值"，且**不含** {@code none}
+     * <p><b>口径更正（2026-10-27 逐家文档核查）</b>：这组键是 <b>DeepSeek 文档明说的厂商扩展</b>
+     * （{@code api-docs.deepseek.com/zh-cn/api/list-models} 逐项列出 {@code context_window}、
+     * {@code max_output_tokens}、{@code input_modalities}、{@code output_modalities}、
+     * {@code effort.supported_levels}、{@code effort.default_level}），但它<b>不是业界标准</b> ——
+     * OpenAI 的标准 Model 对象只有 {@code id/object/created/owned_by}，Anthropic 用的是
+     * {@code capabilities.effort.<level>.supported} 逐档布尔，其余各家（DashScope、Kimi、GLM、
+     * 千帆、方舟…）的列表接口<b>根本不返回</b>档位；它们的强度是 chat 请求参数：顶层
+     * {@code reasoning_effort}、或 {@code enable_thinking} + {@code thinking_budget}、
+     * 或 {@code thinking.type}，取值集合还各家不同。所以"本字段为空"对多数服务商是常态而非异常 ——
+     * 或 {@code enable_thinking} + {@code thinking_budget}、或 {@code thinking.type}，
+     * 取值集合还各家不同。所以"本字段为空"对多数服务商是常态而非异常 —— 真要给不声明的服务商补，
+     * 写 {@code providers.json} 的 {@code models[]} 对象形态（读取侧见 ModelListFetcher#applyPresetMeta），
+     * 不要指望换一套键名就能从 {@code /models} 里挖出来。</p>
+     *
+     * <p>DeepSeek 对该数组的描述（厂商侧口径，非公开文档标准）："模型在思考模式下支持的强度档位，
+     * 按推荐显示顺序，即 {@code reasoning_effort} 参数接受的取值"，且**不含** {@code none}
      * （{@code none} 表示关闭思考模式）。</p>
      *
      * <p><b>为什么必须取 API、不能硬编码</b>：档位是"每家甚至每个模型"各不相同的能力声明
-     * —— GLM-5.3 只接受 {@code max/high/low}，GLM-5.2 另有 {@code xhigh/medium/minimal/none}，
-     * 而不少服务商只有开关没有档位。硬编码一张全局档位表，就会出现
+     * —— 例如 GLM 系列被报为 5.3 只接受 {@code max/high/low}、5.2 另有 {@code xhigh/medium/minimal/none}
+     * （<i>该取值集合来自请求参数侧的文档/观察，本仓 {@code /models} 取数路径在智谱上拿不到任何档位声明，
+     * 未经接口证实，勿当成本仓的数据来源</i>），而不少服务商只有开关没有档位。硬编码一张全局档位表，就会出现
      * "用户随便点一个档位 → 给某模型传入它不支持的取值 → 直接报错"。
      * 本字段为空即表示**服务商未声明档位能力**：此时 UI 不展示档位选择、
      * 请求也不下发强度参数（只保留开关）。</p>
