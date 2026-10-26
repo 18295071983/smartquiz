@@ -25,6 +25,7 @@ import android.text.InputType;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.AdapterView;
 import android.widget.EditText;
@@ -774,6 +775,10 @@ public class LibreOfficeMainActivity extends AppCompatActivity implements Shared
     }
 
     public void showAlertDialog(String message) {
+        // 页面已结束/销毁时 show() 会抛 BadTokenException（LOKit 线程回调尤其容易踩到）
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
 
         AlertDialog.Builder alertDialogBuilder = new AlertDialog.Builder(LibreOfficeMainActivity.this);
 
@@ -786,7 +791,11 @@ public class LibreOfficeMainActivity extends AppCompatActivity implements Shared
         });
 
         AlertDialog alertDialog = alertDialogBuilder.create();
-        alertDialog.show();
+        try {
+            alertDialog.show();
+        } catch (WindowManager.BadTokenException e) {
+            Log.w("LibreOfficeMainActivity", "showAlertDialog: 宿主页面已失效，跳过弹窗", e);
+        }
     }
 
     public DocumentOverlay getDocumentOverlay() {
