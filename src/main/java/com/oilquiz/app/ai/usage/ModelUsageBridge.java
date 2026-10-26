@@ -148,6 +148,12 @@ public final class ModelUsageBridge {
      * "先对齐、再聚合"，两者必须保持先后顺序）。在 UI 线程调用会撞上 Room 的主线程检查。
      */
     public static void syncFromRegistryBlocking(Context context) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            // 先把误用说破，而不是等 Room 抛一句通用的 "Cannot access database on the main thread"
+            // —— 那句话不会告诉调用者该换成哪个方法，上一版就是这么静默失败了好几轮
+            AILogger.w(TAG, "syncFromRegistryBlocking 在主线程被调用：本方法保留同步语义是给"
+                    + "『先对齐再查询』的后台任务用的；UI 线程请改调异步的 syncFromRegistry()");
+        }
         doSyncFromRegistry(context);
     }
 

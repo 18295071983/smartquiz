@@ -85,7 +85,9 @@ public final class ModelUsageRecorder {
             // 顺手保证 models 表里有该模型行，使按模型统计能被注册名标注（单行 upsert，代价可忽略）
             ModelUsageBridge.upsert(context, active);
         } catch (Throwable t) {
-            AILogger.d(TAG, "用量落库失败: " + t.getMessage());
+            // WARN 而不是 DEBUG：用量一行没落进去，用量页就少一条统计，而界面上一切正常 ——
+            // 同一条静默口径此前把"投射从未成功过"藏了好几轮（见 ModelUsageBridge#IO 的说明）
+            AILogger.w(TAG, "用量落库失败: " + t.getMessage());
         }
     }
 
