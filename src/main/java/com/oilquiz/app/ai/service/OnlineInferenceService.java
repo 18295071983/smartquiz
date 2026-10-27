@@ -1318,6 +1318,7 @@ public class OnlineInferenceService {
      */
     private String callOpenAIAPIOnce(String apiUrl, String apiKey, String modelName,
                                      String prompt, int maxTokens) throws Exception {
+        markCallStart(); // duration 起点（非流式/普通流式路径的用量计时）
         // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
         // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
         String fullUrl = chatUrlOf(apiUrl, modelName);
@@ -1693,6 +1694,7 @@ public class OnlineInferenceService {
     private void callOllamaChatStream(String apiUrl, String apiKey, String modelName,
                                       String prompt, List<ChatMessage> history, int maxTokens,
                                       boolean enableThinking, StreamCallback callback) throws Exception {
+        markCallStart(); // duration 起点（非流式/普通流式路径的用量计时）
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
         String endpoint = pcm.getServiceEndpoint(apiUrl, "chat", modelName);
@@ -2800,6 +2802,7 @@ public class OnlineInferenceService {
     private String callOpenAIWithTools(String apiUrl, String apiKey, String modelName,
                                         String prompt, List<ChatMessage> history,
                                         int maxTokens, String toolsJson) throws Exception {
+        markCallStart(); // duration 起点（非流式/普通流式路径的用量计时）
         // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
         // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
         String fullUrl = chatUrlOf(apiUrl, modelName);
@@ -3083,6 +3086,7 @@ public class OnlineInferenceService {
      */
     private String readStreamResponse(HttpURLConnection connection, boolean enableThinking,
                                       StreamCallback callback) throws Exception {
+        markCallStart(); // duration 起点（非流式/普通流式路径的用量计时）
         StringBuilder fullText = new StringBuilder();
         StringBuilder reasoningText = new StringBuilder();
         // 思考结束信号：content 首次出现即思考段结束；流结束仍未触发则补发（防 UI 思考行悬挂）
@@ -3282,8 +3286,10 @@ public class OnlineInferenceService {
                 // sessionId=""、startTime=now-5000，于是每行 duration 恒为 5000ms、callTime 早 5 秒，
                 // 且无法与注册模型 join。
                 // 模型/服务商取当前活跃配置（请求均基于活跃模型发起，足够审计口径）。
+                long callDurationMs = elapsedSinceCallStart();
+                CALL_START.remove(); // 已消费，避免线程复用时把旧起点带给下一次
                 ModelUsageRecorder.record(context, getActiveConfig(),
-                        promptTokens, completionTokens, cachedTokens);
+                        promptTokens, completionTokens, cachedTokens, callDurationMs);
                 
                 // 回调通知调用方
                 if (callback != null) {

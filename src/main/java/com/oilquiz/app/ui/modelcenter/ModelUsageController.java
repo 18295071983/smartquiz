@@ -154,7 +154,8 @@ public class ModelUsageController {
         overviewText.setText(buildOverview(snapshot));
         rangeTitleText.setText(rangeTitle() + " · " + snapshot.rows.size() + " 个模型");
         caveatText.setText("说明：仅统计本机记录的调用；失败为服务商返回错误/未完成的调用；"
-                + "耗时仅统计已计时的调用（当前覆盖 Agent 工具流）；金额不在本应用呈现（不加载价格表）。"
+                + "耗时仅统计已计时的调用（文本对话路径：普通/工具流/Responses），"
+                + "embedding/rerank/图片生成未计时；金额不在本应用呈现（不加载价格表）。"
                 + "单次耗时未采集，故不提供平均时延。非会话类调用（知识库/OCR/题目修复等）"
                 + "与被记录的会话共用同一张表，因此此处不按会话拆分。");
         rowsAdapter.submit(snapshot);
@@ -170,21 +171,24 @@ public class ModelUsageController {
 
     private String buildOverview(Snapshot snapshot) {
         StringBuilder sb = new StringBuilder();
-        sb.append(rangeTitle()).append("共 ").append(snapshot.totalCalls)
-                .append(" 次调用，").append(group(snapshot.totalTokens)).append(" tokens");
+        long successCalls = Math.max(0, snapshot.totalCalls - snapshot.totalFailures);
+        sb.append(rangeTitle()).append("共 ").append(snapshot.totalCalls).append(" 次调用");
+        if (snapshot.totalFailures > 0) {
+            // 失败行是零 token 记录：不拆开的话"N 次调用"会把失败的也算成正常调用
+            sb.append("（成功 ").append(successCalls)
+                    .append(" · 失败 ").append(snapshot.totalFailures).append("）");
+        }
+        sb.append("，").append(group(snapshot.totalTokens)).append(" tokens");
         sb.append("\n输入 ").append(group(snapshot.totalInput))
                 .append(" · 输出 ").append(group(snapshot.totalOutput));
         if (snapshot.totalCache > 0) {
             sb.append(" · 缓存命中 ").append(group(snapshot.totalCache));
         }
-        // 失败与耗时：失败率是"突然不能用"的最直接指标；耗时只统计已计时的调用（当前覆盖
-        // Agent 工具流），因此文案写明"已计时"，避免被误读成全部调用
-        if (snapshot.totalFailures > 0) {
-            sb.append((char) 10).append("失败 ").append(snapshot.totalFailures).append(" 次");
-            if (snapshot.totalCalls > 0) {
-                sb.append(String.format(Locale.getDefault(), "（%.1f%%）",
-                        100.0 * snapshot.totalFailures / snapshot.totalCalls));
-            }
+        // 失败率是"突然不能用"的最直接指标；失败数已并入首行，这里只补比例与耗时
+        if (snapshot.totalFailures > 0 && snapshot.totalCalls > 0) {
+            sb.append((char) 10).append("失败率 ")
+                    .append(String.format(Locale.getDefault(), "%.1f%%",
+                            100.0 * snapshot.totalFailures / snapshot.totalCalls));
         }
         if (snapshot.durationCalls > 0) {
             sb.append(" · 平均耗时 ").append(snapshot.durationSum / snapshot.durationCalls)
@@ -273,8 +277,10 @@ public class ModelUsageController {
             holder.model.setTextColor(ThemeColors.attr(context, registeredName != null
                     ? R.attr.colorControlText : R.attr.colorControlTextHint));
 
-            holder.calls.setText(row.getCalls() + " 次"
-                    + (row.getFailures() > 0 ? " · 失败 " + row.getFailures() : ""));
+            int rowSuccess = Math.max(0, row.getCalls() - row.getFailures());
+            holder.calls.setText(row.getFailures() > 0
+                    ? "共 " + row.getCalls() + " 次 · 成功 " + rowSuccess + " · 失败 " + row.getFailures()
+                    : row.getCalls() + " 次");
             holder.tokens.setText("共 " + group(row.getTotalTokens()) + " tokens"
                     + " · 入 " + group(row.getInputTokens())
                     + " · 出 " + group(row.getOutputTokens())
