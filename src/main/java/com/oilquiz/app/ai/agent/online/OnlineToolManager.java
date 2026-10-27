@@ -546,6 +546,26 @@ public class OnlineToolManager {
                 System.currentTimeMillis() - startTime);
         }
 
+        // schema 级轻校验：缺"定义里声明必填"的参数直接拒（回一条精确提示，让模型补齐）；
+        // 未知参数只记日志、不拒绝（模型多带字段是常态）。类型归一仍由 AIToolManager 负责。
+        try {
+            com.oilquiz.app.ai.tool.openai.ToolArgsValidator.Result v =
+                    com.oilquiz.app.ai.tool.openai.ToolArgsValidator.validate(
+                            aiToolManager.getToolDefinition(toolName), params);
+            if (!v.ok()) {
+                String error = v.missingMessage();
+                AILogger.w(TAG, "参数校验拒绝: " + toolName + " - " + error);
+                usageTracker.recordCall(toolName, arguments, false, 0, error);
+                return OnlineToolResult.failure(toolCallId, toolName, error, 0);
+            }
+            if (!v.unknown.isEmpty()) {
+                AILogger.d(TAG, "工具 " + toolName + " 收到未声明参数(已忽略): " + v.unknown);
+            }
+        } catch (Throwable t) {
+            // 校验自身出错不阻断执行（宁可放行，也不要因为校验崩掉一次正常调用）
+            AILogger.w(TAG, "参数校验失败(放行): " + t.getMessage());
+        }
+
         // 需要用户交互的工具使用更长超时：
         // - permission_manager 权限请求（用户授权弹窗）
         // - ui_component 的 get_result（阻塞等待用户点击组件按钮/对话框，交互可能持续较久，
@@ -581,11 +601,14 @@ public class OnlineToolManager {
                 }
 
                 long elapsed = System.currentTimeMillis() - startTime;
-                String resultStr = formatResult(result);
+                String resultStr = formatResult(toolName, result);
                 boolean success = result.isSuccess();
 
-                // 缓存成功结果（权限/ui_component 工具不缓存，状态随时变化；带 TTL 过期）
-                if (success && !noCacheTool) {
+                // 缓存成功结果（权限/ui_component 工具不缓存，状态随时变化；带 TTL 过期）。
+                // 落盘截断的结果也不缓存：它带着一个 tmp 路径，而 tmp 会在回合结束被清理，
+                // 缓存命中只会把一个死路径再交给模型。
+                boolean spilled = resultStr.contains("已保存到");
+                if (success && !noCacheTool && !spilled) {
                     putCached(cacheKey, resultStr);
                 }
 
@@ -983,7 +1006,36 @@ public class OnlineToolManager {
         return null;
     }
 
-    private String formatResult(AIToolResult result) {
+    /**
+     * 超长结果<b>落盘</b>并返回头部 + 续读指引。
+     *
+     * <p>此前是 {@code substring(0, 16K) + "(已截断)"}：模型只看到片段、没有续读线索，
+     * 只能靠猜或重复调用同一个工具。现在把完整内容写进<b>本会话</b>的临时区
+     * （工具作用域内取 {@code AgentWorkspace.getTmpDir()} → 会话私有 tmp，回合结束随 tmp 清理），
+     * 并在返回里给出绝对路径与 {@code file_reader(read_lines)} 的调用形状。</p>
+     *
+     * <p>落盘失败退回原来的盲截断，并明确写"落盘失败"，不假装完整。</p>
+     */
+    private String spillTruncated(String toolName, String full) {
+        String head = full.substring(0, RESULT_MAX_LENGTH);
+        try {
+            java.io.File dir = com.oilquiz.app.ai.agent.online.AgentWorkspace
+                    .getInstance(appContext).getTmpDir();
+            String safeName = (toolName == null ? "tool" : toolName).replaceAll("[^a-zA-Z0-9_-]", "_");
+            java.io.File out = new java.io.File(dir,
+                    "tool_result_" + safeName + "_" + System.currentTimeMillis() + ".txt");
+            if (com.oilquiz.app.ai.util.AtomicFileText.write(out, full)) {
+                return head + "...(已截断，完整内容 " + full.length() + " 字符已保存到 "
+                        + out.getAbsolutePath() + "；用 file_reader(action=read_lines, path="
+                        + out.getAbsolutePath() + ", start_line=1, end_line=200) 分页读取)";
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "落盘超长工具结果失败: " + t.getMessage());
+        }
+        return head + "...(已截断；完整内容落盘失败，请改用分页/精确查询参数)";
+    }
+
+    private String formatResult(String toolName, AIToolResult result) {
         if (!result.isSuccess()) {
             String err = result.getErrorMessage();
             return err != null ? err : "执行失败";
@@ -1004,7 +1056,7 @@ public class OnlineToolManager {
             str = raw.toString();
         }
         if (str.length() > RESULT_MAX_LENGTH) {
-            str = str.substring(0, RESULT_MAX_LENGTH) + "...(已截断)";
+            return spillTruncated(toolName, str);
         }
         return str;
     }
