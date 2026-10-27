@@ -59,6 +59,21 @@ public class HistoryOrphanSweepTest {
     }
 
     @Test
+    public void belongsToSessionMatchesAllHistoryShapes() {
+        assertTrue(ChatHistoryManager.belongsToSession(
+                "online_agent_history_" + LIVE + "_m.json", LIVE));
+        assertTrue(ChatHistoryManager.belongsToSession(
+                "online_agent_history_" + LIVE + "_m.json.bak", LIVE));
+        assertTrue(ChatHistoryManager.belongsToSession(
+                "local_chat_history_" + LIVE + "_default.json.round", LIVE));
+        assertFalse(ChatHistoryManager.belongsToSession(
+                "online_agent_history_" + DEAD + "_m.json", LIVE));
+        assertFalse(ChatHistoryManager.belongsToSession("online_agent_history_m.json", LIVE));
+        assertFalse(ChatHistoryManager.belongsToSession(null, LIVE));
+        assertFalse(ChatHistoryManager.belongsToSession("x.json", null));
+    }
+
+    @Test
     public void emptyIndexNeverClassifiesAnythingAsOrphan() {
         assertFalse(ChatHistoryManager.isOrphanHistoryFile(
                 "local_chat_history_" + DEAD + "_default.json", known()));

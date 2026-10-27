@@ -2642,6 +2642,14 @@ public class OnlineAgentEngine {
      * 用于"清空全部对话"操作（UI 层同时清空所有会话）。
      */
     public void clearAllHistory() {
+        clearAllHistory(true);
+    }
+
+    /**
+     * @param deleteFiles true=同时删除磁盘历史（默认）；false=只清内存——
+     *                    "清空对话"会先把历史文件移入回收站（可随会话恢复），再用 false 清内存。
+     */
+    public void clearAllHistory(boolean deleteFiles) {
         // 生成中禁止清空（并发读写 messageHistory 风险）
         if (isGenerating.get()) {
             AILogger.w(TAG, "clearAllHistory ignored: generating in progress");
@@ -2650,6 +2658,7 @@ public class OnlineAgentEngine {
         messageHistory.clear();
         thinkingChain.clear();
         resetToolsCache();
+        if (!deleteFiles) return;
         try {
             java.io.File dir = context.getFilesDir();
             java.io.File[] files = dir.listFiles();

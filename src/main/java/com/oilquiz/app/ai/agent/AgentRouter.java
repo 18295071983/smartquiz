@@ -157,6 +157,13 @@ public class AgentRouter {
         }
     }
 
+    /** @param deleteFiles false=只清内存（历史文件由调用方移入回收站） */
+    public void clearAllHistory(boolean deleteFiles) {
+        if (onlineEngine != null) {
+            onlineEngine.clearAllHistory(deleteFiles);
+        }
+    }
+
     /** 切换会话 ID（保存当前会话历史 → 恢复目标会话历史） */
     public void setSessionId(String sessionId) {
         ensureOnlineEngineCreated();

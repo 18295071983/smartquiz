@@ -9069,7 +9069,9 @@ public class AIChatActivity extends BaseActivity {
             if (chatHistoryManager != null) {
                 new Thread(() -> {
                     chatHistoryManager.clearAIChatHistory();
+                    // 会话快照与各引擎历史一起进回收站：只移会话的话，恢复出来是"没有 Agent 历史的空壳"
                     chatHistoryManager.clearAllConversationSessions();
+                    chatHistoryManager.moveAllHistoryToTrash();
                     runOnUiThread(this::refreshHistoryDrawer);
                 }).start();
             }
@@ -9077,7 +9079,8 @@ public class AIChatActivity extends BaseActivity {
             // 本地推理上下文独立化：清空本地推理历史（内存 + 当前会话文件）
             if (modelBridge != null) modelBridge.clearLocalHistory();
             // 清空在线 Agent 引擎的全部历史（所有会话，与 UI 全清一致）
-            if (agentChatHandler != null) agentChatHandler.clearAllHistory();
+            // 历史文件已（异步）移入回收站，这里只清内存；不能再走 clearAllHistory() —— 它会把文件真删掉，回收站里那份也就白移了
+            if (agentChatHandler != null) agentChatHandler.clearAllHistoryInMemoryOnly();
             // 会话 ID 重置：下次发送时创建新会话
             currentSessionId = null;
             // 清空全部对话：连同各会话遗留任务一起清空（与 clearAllConversationSessions 对齐），

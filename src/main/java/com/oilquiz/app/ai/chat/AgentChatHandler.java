@@ -508,6 +508,11 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         engine.clearAllHistory();
     }
 
+    /** 只清内存（文件已由调用方移入回收站） */
+    public void clearAllHistoryInMemoryOnly() {
+        engine.clearAllHistory(false);
+    }
+
     /** 切换会话 ID（引擎按会话隔离历史：保存当前 → 恢复目标） */
     public void setSessionId(String sessionId) {
         engine.setSessionId(sessionId);

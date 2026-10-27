@@ -623,6 +623,107 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         return removed;
     }
 
+    // ==================== 历史文件回收站（随会话一起恢复） ====================
+
+    /** 历史文件回收根：conversations_trash/history/<批次>/ */
+    private File historyTrashRoot() {
+        return new File(getTrashDir(), "history");
+    }
+
+    /** 该文件名是否属于指定会话（含 .bak/.tmp/.round 副产物） */
+    static boolean belongsToSession(String fileName, String safeSessionId) {
+        if (fileName == null || safeSessionId == null || safeSessionId.isEmpty()) return false;
+        return fileName.startsWith("online_agent_history_" + safeSessionId)
+                || fileName.startsWith("local_chat_history_" + safeSessionId);
+    }
+
+    /**
+     * 把所有"按会话存的历史"（含副产物）移入回收站，而不是删掉。
+     *
+     * <p>"清空对话"承诺的是"移入回收站可恢复"；但 Agent/本地历史此前是被<b>永久删除</b>的，
+     * 恢复会话只会回来一份空壳。这里把历史按批次搬进 {@code conversations_trash/history/<批次>/}，
+     * 恢复某个会话时再从所有批次里把它的文件搬回来。</p>
+     *
+     * @return 移动的文件数
+     */
+    public int moveAllHistoryToTrash() {
+        int moved = 0;
+        try {
+            File root = historyTrashRoot();
+            String stamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
+                    .format(new java.util.Date());
+            File batch = new File(root, stamp + "_" + (System.nanoTime() % 100000));
+            if (!batch.exists() && !batch.mkdirs()) return 0;
+            File[] files = context.getFilesDir().listFiles();
+            if (files == null) return 0;
+            for (File f : files) {
+                String n = f.getName();
+                if (!n.contains(".json")) continue;
+                if (sessionIdOfHistoryFile(n) == null) continue;  // 只动按会话的历史；默认会话不动
+                if (f.renameTo(new File(batch, n))) moved++;
+            }
+            if (moved > 0) {
+                com.oilquiz.app.util.AILogger.audit(TAG,
+                        "清空对话：历史文件移入回收站 " + moved + " 个（可随会话恢复）");
+            }
+            trimHistoryTrash(5);
+        } catch (Throwable t) {
+            com.oilquiz.app.util.AILogger.audit(TAG, "历史移入回收站失败: " + t.getMessage());
+        }
+        return moved;
+    }
+
+    /** 恢复某会话的历史文件（从所有批次里找），返回恢复个数 */
+    public int restoreHistoryForSession(String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) return 0;
+        String safe = sessionId.replaceAll("[^a-zA-Z0-9_-]", "_");
+        int restored = 0;
+        try {
+            File[] batches = historyTrashRoot().listFiles();
+            if (batches == null) return 0;
+            for (File batch : batches) {
+                if (!batch.isDirectory()) continue;
+                File[] files = batch.listFiles();
+                if (files == null) continue;
+                for (File f : files) {
+                    if (!belongsToSession(f.getName(), safe)) continue;
+                    File target = new File(context.getFilesDir(), f.getName());
+                    if (!target.exists() && f.renameTo(target)) restored++;
+                }
+            }
+            if (restored > 0) {
+                com.oilquiz.app.util.AILogger.audit(TAG,
+                        "恢复会话 " + sessionId + "：历史文件恢复 " + restored + " 个");
+            }
+        } catch (Throwable t) {
+            com.oilquiz.app.util.AILogger.audit(TAG, "恢复会话历史失败: " + t.getMessage());
+        }
+        return restored;
+    }
+
+    /** 历史回收只保留最近 keep 批（旧批次连同文件一起删） */
+    private void trimHistoryTrash(int keep) {
+        try {
+            File[] batches = historyTrashRoot().listFiles();
+            if (batches == null || batches.length <= keep) return;
+            java.util.Arrays.sort(batches, (a, b) -> a.getName().compareTo(b.getName()));
+            for (int i = 0; i < batches.length - keep; i++) {
+                deleteRecursively(batches[i]);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void deleteRecursively(File f) {
+        if (f == null) return;
+        if (f.isDirectory()) {
+            File[] kids = f.listFiles();
+            if (kids != null) for (File k : kids) deleteRecursively(k);
+        }
+        //noinspection ResultOfMethodCallIgnored
+        f.delete();
+    }
+
     /** 删除某会话在 filesDir 下的历史文件及原子写/检查点副产物；返回删除个数 */
     private int deleteSessionHistoryFiles(String sessionId) {
         int removed = 0;
@@ -926,6 +1027,8 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
                 return null;
             }
             String id = entry.sessionId;
+            // 历史文件在"清空对话"时被移入回收站：恢复会话时一并搬回来，否则恢复出来是空壳
+            restoreHistoryForSession(id);
             File target = new File(dir, id + ".json");
             if (!target.exists()) {
                 if (!entry.file.renameTo(target)) {
