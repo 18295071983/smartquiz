@@ -433,6 +433,9 @@ public class OnlineToolRegistry {
         parameters.put("properties", properties);
         if (required.length() > 0) parameters.put("required", required);
         function.put("parameters", parameters);
+        // 与 Responses 侧同口径（ResponsesPayloadBuilder.toFlatTools 也显式写 false）：
+        // 工具 schema 刻意宽松，开严格模式过不了；显式 false 只为不赌网关默认值。
+        function.put("strict", false);
 
         tool.put("function", function);
         return tool;

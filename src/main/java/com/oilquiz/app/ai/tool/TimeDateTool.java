@@ -5,10 +5,14 @@ import android.content.Context;
 import com.oilquiz.app.ai.tool.annotation.Action;
 import com.oilquiz.app.ai.tool.annotation.Param;
 import com.oilquiz.app.ai.tool.annotation.Tool;
+import com.oilquiz.app.ai.tool.openai.ParamDefinition;
+import com.oilquiz.app.ai.tool.openai.StructuredParamTool;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
@@ -52,7 +56,7 @@ import java.util.TimeZone;
             params = {})
     }
 )
-public class TimeDateTool implements AITool {
+public class TimeDateTool implements AITool, StructuredParamTool {
 
     private static final String TAG = "TimeDateTool";
 
@@ -81,6 +85,36 @@ public class TimeDateTool implements AITool {
         params.put("timestamp", "秒级时间戳，timestamp_to_date 时使用（必填）");
         params.put("date", "日期字符串（yyyy-MM-dd HH:mm:ss），date_to_timestamp 时使用（必填）");
         return params;
+    }
+
+    /**
+     * 结构化参数（{@link StructuredParamTool}）：让线上 schema 不再把 timestamp 写成 string。
+     *
+     * <p>本类没有 switch 版 ToolDefinition，只能走 {@code createToolDefinitionFromAITool} 的
+     * Map 兜底；那条兜底把每个参数一律写成 {@code type:"string" / required:false}，
+     * 类上 {@code @Param(type="integer")} 的声明从来没进过模型看到的 schema。补上本方法后
+     * 类型以这里为准（{@code timestamp} 为 integer），与 execute 的取值方式一致
+     * （execute 用 {@code String.valueOf + Long.parseLong}，模型传数字或数字串都收）。</p>
+     *
+     * <p><b>为什么 required 全是 false</b>：三个参数没有一个是"任何调用都必须给"的——
+     * action 缺省 now、timestamp 只在 timestamp_to_date 下必填、date 只在 date_to_timestamp
+     * 下必填。扁平 schema 的 required 是按工具而非按 action 生效，把条件必填硬标成必填等于
+     * 骗模型；条件约束写在 description 里，由 execute 的缺参报错兜底。</p>
+     */
+    @Override
+    public List<ParamDefinition> getParameterDefinitions() {
+        List<ParamDefinition> defs = new ArrayList<>();
+        defs.add(new ParamDefinition("action", "string",
+                "操作：now(完整时间,默认)|date(仅日期)|time(仅时刻)|weekday(星期)|"
+                        + "timestamp_to_date(时间戳转日期)|date_to_timestamp(日期转时间戳)|timezone(时区信息)",
+                false, null,
+                java.util.Arrays.asList("now", "date", "time", "weekday",
+                        "timestamp_to_date", "date_to_timestamp", "timezone")));
+        defs.add(new ParamDefinition("timestamp", "integer",
+                "秒级时间戳（仅 timestamp_to_date 用，该 action 下必填）", false));
+        defs.add(new ParamDefinition("date", "string",
+                "日期字符串 yyyy-MM-dd HH:mm:ss（仅 date_to_timestamp 用，该 action 下必填）", false));
+        return defs;
     }
 
     @Override

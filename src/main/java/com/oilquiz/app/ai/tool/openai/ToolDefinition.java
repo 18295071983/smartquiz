@@ -82,6 +82,10 @@ public class ToolDefinition {
             params.put("required", required);
         }
         function.put("parameters", params);
+        // 与 Responses 侧同口径（ResponsesPayloadBuilder.toFlatTools 也显式写 false）：
+        // 本项目的工具 schema 刻意宽松（可选参数、自由 object、无 items 数组），开严格模式
+        // 一条都过不了；显式 false 是为了不赌各网关对 strict 的默认值，而不是在此处加严。
+        function.put("strict", false);
         
         tool.put("function", function);
         return tool;

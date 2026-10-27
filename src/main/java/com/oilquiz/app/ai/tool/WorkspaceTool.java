@@ -6,6 +6,8 @@ import com.oilquiz.app.ai.agent.online.AgentWorkspace;
 import com.oilquiz.app.ai.tool.annotation.Action;
 import com.oilquiz.app.ai.tool.annotation.Param;
 import com.oilquiz.app.ai.tool.annotation.Tool;
+import com.oilquiz.app.ai.tool.openai.ParamDefinition;
+import com.oilquiz.app.ai.tool.openai.StructuredParamTool;
 import com.oilquiz.app.util.AILogger;
 
 import java.io.File;
@@ -45,7 +47,7 @@ import java.util.Map;
         @Param(name = "confirm", type = "boolean", description = "删除/清空确认（delete/clear 必须传 true）", required = false)
     }
 )
-public class WorkspaceTool implements AITool {
+public class WorkspaceTool implements AITool, StructuredParamTool {
 
     private static final String TAG = "WorkspaceTool";
     private final Context context;
@@ -75,6 +77,32 @@ public class WorkspaceTool implements AITool {
         params.put("fileName", "文件名（工作区内相对名），read/delete 用");
         params.put("confirm", "删除/清空确认（delete/clear 必须传 true，防误删）");
         return params;
+    }
+
+    /**
+     * 结构化参数（{@link StructuredParamTool}）：把线上 schema 从"全 string"改回真实类型。
+     *
+     * <p>此前本类只实现 {@code getParameterDescriptions()}，走 Map 兜底后每个参数都被写成
+     * {@code type:"string" / required:false}——类上 {@code @Param(type="boolean")} 的 confirm
+     * 因此对模型显示成字符串，而 execute 按布尔语义判 {@code confirm=true}（
+     * {@code boolParam} 两样都收，所以行为没错，错的是模型看到的类型）。</p>
+     *
+     * <p><b>为什么 required 全是 false</b>：action 缺省 list；fileName 只在 read/delete 下必要；
+     * confirm 只在 delete/clear 下必要。扁平 schema 的 required 不区分 action，硬标必填会让
+     * 「list 也要带 fileName」这种谎话进 prompt。条件约束写在 description，由 execute 缺参报错兜底。</p>
+     */
+    @Override
+    public List<ParamDefinition> getParameterDefinitions() {
+        List<ParamDefinition> defs = new ArrayList<>();
+        defs.add(new ParamDefinition("action", "string",
+                "操作：list(列出,默认)|path(工作区路径)|read(读文本文件)|delete(删除)|clear(清空)",
+                false, null,
+                java.util.Arrays.asList("list", "path", "read", "delete", "clear")));
+        defs.add(new ParamDefinition("fileName", "string",
+                "文件名（工作区内相对名），read/delete 用", false));
+        defs.add(new ParamDefinition("confirm", "boolean",
+                "删除/清空确认（delete/clear 必须传 true，防误删）", false));
+        return defs;
     }
 
     @Override

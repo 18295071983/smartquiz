@@ -2080,15 +2080,13 @@ public class AIToolManager {
         weather.put("action", Arrays.asList("current", "forecast", "hourly",
                 "air_quality", "alerts", "indices", "all"));
         map.put("ai_weather", weather);
-        // CORE-TOOLS-4(2026-10-11)：time_date / location 是本工程仅有的两个"无 switch 定义、
-        // 走 createToolDefinitionFromAITool 注解路径"的核心工具。该路径下 getParameterDescriptions()
+        // CORE-TOOLS-4(2026-10-11)：location 是本工程"无 switch 定义、走
+        // createToolDefinitionFromAITool 注解路径"的核心工具。该路径下 getParameterDescriptions()
         // 只有参数名与文本描述、没有枚举值，action 会退化成无约束的 string —— 小模型只能从描述文本里
         // 猜（"2B 只敢用第一个值"正是本表要解决的问题）。这里补上 action 枚举。
         // 注意：枚举值必须与 execute() 的 switch 分支**逐字一致**，否则模型会调出 "未知操作"。
-        Map<String, List<String>> timeDate = new HashMap<>();
-        timeDate.put("action", Arrays.asList("now", "date", "time", "weekday",
-                "timestamp_to_date", "date_to_timestamp", "timezone"));
-        map.put("time_date", timeDate);
+        // time_date 已改为实现 StructuredParamTool 自声明枚举（紧挨 TimeDateTool.execute 的 switch），
+        // 不再放本表；表里再留一份就成了两个权威。
         Map<String, List<String>> location = new HashMap<>();
         location.put("action", Arrays.asList("get_current", "get_city", "get_coordinates"));
         map.put("location", location);
