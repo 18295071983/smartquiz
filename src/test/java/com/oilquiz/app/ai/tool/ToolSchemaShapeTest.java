@@ -90,4 +90,59 @@ public class ToolSchemaShapeTest {
         assertFalse(function.getBoolean("strict"));
         assertFalse("strict 不能错放到 tool 顶层", tool.has("strict"));
     }
+
+    /**
+     * 装配器是<b>唯一</b>的，且永不输出 default。
+     *
+     * <p>此前 chat 链路有第二份装配（{@code OnlineToolRegistry}）：两处漂开成
+     * "一边输出 default、一边刻意不输出"。现在 {@code OnlineToolRegistry} 改为复用
+     * {@link ToolDefinition#schemaFor}，这条用例同时钉住三件事：default 不出现、枚举不丢、
+     * 实例方法与静态装配器同结果（前者只是后者的薄壳）。</p>
+     */
+    @Test
+    public void schemaAssemblerIsSharedAndNeverAdvertisesDefaults() throws Exception {
+        List<ParamDefinition> params = Arrays.asList(
+                new ParamDefinition("action", "string", "操作", false, "now", Arrays.asList("now", "date")),
+                new ParamDefinition("q", "string", "查询词", true));
+
+        JSONObject fromStatic = ToolDefinition.schemaFor("demo", "演示工具", params);
+        JSONObject properties = fromStatic.getJSONObject("function")
+                .getJSONObject("parameters").getJSONObject("properties");
+        JSONObject action = properties.getJSONObject("action");
+        assertFalse("default 会诱导模型只传默认值，不该进 schema", action.has("default"));
+        assertTrue("枚举是形状约束，必须保留", action.has("enum"));
+        assertEquals("string", action.getString("type"));
+
+        // 实例方法必须与静态装配器产出同一结构
+        JSONObject fromInstance = ToolDefinition.builder("demo", "演示工具")
+                .addParameter("action", "string", "操作", false, "now", Arrays.asList("now", "date"))
+                .addParameter("q", "string", "查询词", true)
+                .build()
+                .toOpenAIFormat();
+        JSONObject fnStatic = fromStatic.getJSONObject("function");
+        JSONObject fnInstance = fromInstance.getJSONObject("function");
+        assertEquals(fnStatic.getString("name"), fnInstance.getString("name"));
+        assertEquals(fnStatic.getString("description"), fnInstance.getString("description"));
+        assertEquals(fnStatic.getBoolean("strict"), fnInstance.getBoolean("strict"));
+        assertEquals(fnStatic.getJSONObject("parameters").getJSONArray("required").toString(),
+                fnInstance.getJSONObject("parameters").getJSONArray("required").toString());
+        assertEquals(fnStatic.getJSONObject("parameters").getJSONObject("properties")
+                        .getJSONObject("action").getJSONArray("enum").toString(),
+                fnInstance.getJSONObject("parameters").getJSONObject("properties")
+                        .getJSONObject("action").getJSONArray("enum").toString());
+    }
+
+    @Test
+    public void schemaAssemblerKeepsTypeStringWhenTypeIsMissing() throws Exception {
+        // 旧实例方法会把 null 直接 put 进去（键消失），模型看到的参数没有 type；
+        // 唯一装配器统一按 string 补，与旧 Registry 的行为一致
+        JSONObject tool = ToolDefinition.schemaFor("demo", null,
+                Arrays.asList(new ParamDefinition("x", null, null, false)));
+        JSONObject prop = tool.getJSONObject("function").getJSONObject("parameters")
+                .getJSONObject("properties").getJSONObject("x");
+        assertEquals("string", prop.getString("type"));
+        assertEquals("", prop.getString("description"));
+        // description 为 null 时 function 上也要有一个字符串，而不是缺键
+        assertEquals("", tool.getJSONObject("function").getString("description"));
+    }
 }

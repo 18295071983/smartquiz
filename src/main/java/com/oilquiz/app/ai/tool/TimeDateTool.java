@@ -125,7 +125,7 @@ public class TimeDateTool implements AITool, StructuredParamTool {
             switch (action) {
                 case "timestamp_to_date": {
                     if (parameters.get("timestamp") == null) {
-                        return AIToolResult.fail("缺少参数: timestamp（秒级时间戳）");
+                        return AIToolResult.fail("缺少参数: timestamp（秒级时间戳；action=timestamp_to_date 时必填）");
                     }
                     long ts;
                     try {
@@ -146,7 +146,7 @@ public class TimeDateTool implements AITool, StructuredParamTool {
                 }
                 case "date_to_timestamp": {
                     if (parameters.get("date") == null) {
-                        return AIToolResult.fail("缺少参数: date（格式 yyyy-MM-dd HH:mm:ss）");
+                        return AIToolResult.fail("缺少参数: date（格式 yyyy-MM-dd HH:mm:ss；action=date_to_timestamp 时必填）");
                     }
                     String date = String.valueOf(parameters.get("date"));
                     SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());

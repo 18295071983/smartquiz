@@ -125,7 +125,7 @@ public class ToolErrorRecovery {
         }
 
         // 通用：parameter xxx is required / 缺少参数: xxx / xxx cannot be null
-        String genericParam = extractGenericMissingParam(lower);
+        String genericParam = extractGenericMissingParam(errorMsg, lower);
         if (genericParam != null && !hasParam(currentParams, genericParam)) {
             // 避免重复
             boolean exists = false;
@@ -206,35 +206,32 @@ public class ToolErrorRecovery {
         return true;
     }
 
-    /** 从通用错误格式中提取缺失参数名 */
-    private static String extractGenericMissingParam(String lowerError) {
+    /**
+     * 从通用错误格式中提取缺失参数名。
+     *
+     * <p>锚点（{@code parameter } / {@code 缺少参数}）在<b>小写副本</b>里找，但名字要从
+     * <b>原文</b>里切：此前整段都在小写副本上处理，于是 {@code fileName} 出来变成
+     * {@code filename}，拿它去 {@code currentParams} 里找永远找不到（参数名是大小写敏感的）。</p>
+     */
+    private static String extractGenericMissingParam(String original, String lowerError) {
         // "parameter xxx is required"
         int idx = lowerError.indexOf("parameter ");
         if (idx >= 0) {
-            String rest = lowerError.substring(idx + 10);
-            int end = rest.indexOf(' ');
-            if (end > 0) {
-                return rest.substring(0, end).trim();
-            }
-            return rest.trim();
+            return leadingIdentifier(sliceOriginal(original, lowerError, idx + 10));
         }
-        // "缺少参数: xxx" / "缺少参数 xxx"
+        // "缺少参数: xxx" / "缺少参数 xxx"（工具侧统一用它，后面可跟全角括号补条件说明）
         idx = lowerError.indexOf("缺少参数");
         if (idx >= 0) {
-            String rest = lowerError.substring(idx + 4);
-            rest = rest.replace(":", "").replace("：", "").trim();
+            String rest = sliceOriginal(original, lowerError, idx + 4)
+                    .replace(":", "").replace("：", "").trim();
             if (!rest.isEmpty()) {
-                int end = rest.indexOf(' ');
-                if (end > 0) {
-                    return rest.substring(0, end).trim();
-                }
-                return rest;
+                return leadingIdentifier(rest);
             }
         }
         // "xxx cannot be null" / "xxx is null"
         idx = lowerError.indexOf(" cannot be null");
         if (idx > 0) {
-            String before = lowerError.substring(0, idx);
+            String before = sliceOriginal(original, lowerError, 0).substring(0, idx);
             int space = before.lastIndexOf(' ');
             if (space >= 0 && space < before.length() - 1) {
                 return before.substring(space + 1).trim();
@@ -243,12 +240,44 @@ public class ToolErrorRecovery {
         }
         idx = lowerError.indexOf(" is null");
         if (idx > 0) {
-            String before = lowerError.substring(0, idx);
+            String before = sliceOriginal(original, lowerError, 0).substring(0, idx);
             int space = before.lastIndexOf(' ');
             if (space >= 0 && space < before.length() - 1) {
                 return before.substring(space + 1).trim();
             }
         }
         return null;
+    }
+
+    /** 小写副本上的下标对应回原文的同位置片段（原文为空或下标越界时退回小写副本） */
+    private static String sliceOriginal(String original, String lower, int from) {
+        if (original == null) return lower.substring(Math.min(from, lower.length()));
+        int start = Math.min(from, Math.min(original.length(), lower.length()));
+        return original.substring(start);
+    }
+
+    /**
+     * 取开头那个<b>参数名</b>：只收 ASCII 字母/数字/下划线。
+     *
+     * <p>此前按"第一个空格"截断，于是 {@code "缺少参数: timestamp（秒级时间戳）"} 会把
+     * {@code "timestamp（秒级时间戳）"} 当成参数名——全角括号里根本没有空格，整段都进了 key，
+     * 后续按 key 找工具参数自然找不到，这条恢复链路等于静默失效。工具侧现在允许在参数名后
+     * 用全角括号补"哪个 action 需要它"，这个截断规则就是那条约定的另一半。</p>
+     *
+     * <p>开头不是 ASCII 标识符时（如中文参数名）退回"截到第一个空格"，保持旧行为。</p>
+     */
+    private static String leadingIdentifier(String s) {
+        String v = s == null ? "" : s.trim();
+        int end = 0;
+        while (end < v.length()) {
+            char c = v.charAt(end);
+            boolean ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                    || (c >= '0' && c <= '9') || c == '_';
+            if (!ok) break;
+            end++;
+        }
+        if (end > 0) return v.substring(0, end);
+        int space = v.indexOf(' ');
+        return space > 0 ? v.substring(0, space).trim() : v;
     }
 }

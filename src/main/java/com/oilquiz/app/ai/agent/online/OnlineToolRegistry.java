@@ -400,45 +400,19 @@ public class OnlineToolRegistry {
 
     private JSONObject buildToolJsonObject(ToolMeta meta,
                                           com.oilquiz.app.ai.tool.openai.ToolDefinition definition) throws JSONException {
-        JSONObject tool = new JSONObject();
-        tool.put("type", "function");
-        JSONObject function = new JSONObject();
-        function.put("name", meta.name);
-        function.put("description", definition != null ? definition.getDescription() : meta.description);
-
-        JSONObject parameters = new JSONObject();
-        parameters.put("type", "object");
-        JSONObject properties = new JSONObject();
-        JSONArray required = new JSONArray();
-
-        if (definition != null && definition.getParameters() != null) {
-            for (ParamDefinition param : definition.getParameters()) {
-                JSONObject prop = new JSONObject();
-                String pType = param.getType();
-                if (pType == null || pType.isEmpty()) pType = "string";
-                prop.put("type", pType);
-                prop.put("description", param.getDescription() != null ? param.getDescription() : "");
-                if (param.getDefaultValue() != null) {
-                    prop.put("default", param.getDefaultValue());
-                }
-                if (param.getEnumValues() != null && !param.getEnumValues().isEmpty()) {
-                    JSONArray enumArray = new JSONArray();
-                    for (String enumVal : param.getEnumValues()) enumArray.put(enumVal);
-                    prop.put("enum", enumArray);
-                }
-                properties.put(param.getName(), prop);
-                if (param.isRequired()) required.put(param.getName());
-            }
+        // 单一装配出口：工具 schema 的形状由 ToolDefinition.schemaFor 决定，这里不再维护第二份。
+        // 此前两处各写一份，随后漂开——最典型的是 default：那边刻意不输出（避免引导模型只传默认值），
+        // 这边却会输出，于是同一条 chat 链路有两个口径。
+        String name = meta != null && meta.name != null
+                ? meta.name
+                : (definition != null && definition.getName() != null ? definition.getName() : "unknown");
+        if (definition != null) {
+            return com.oilquiz.app.ai.tool.openai.ToolDefinition.schemaFor(
+                    name, definition.getDescription(), definition.getParameters());
         }
-        parameters.put("properties", properties);
-        if (required.length() > 0) parameters.put("required", required);
-        function.put("parameters", parameters);
-        // 与 Responses 侧同口径（ResponsesPayloadBuilder.toFlatTools 也显式写 false）：
-        // 工具 schema 刻意宽松，开严格模式过不了；显式 false 只为不赌网关默认值。
-        function.put("strict", false);
-
-        tool.put("function", function);
-        return tool;
+        // 元数据兜底：没有结构化定义时只能给空参数表（strict 等仍由同一个装配器写）
+        return com.oilquiz.app.ai.tool.openai.ToolDefinition.schemaFor(
+                name, meta != null ? meta.description : "", null);
     }
 
     // ==================== 工具元数据 ====================

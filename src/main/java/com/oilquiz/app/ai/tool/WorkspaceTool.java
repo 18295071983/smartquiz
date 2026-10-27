@@ -125,7 +125,7 @@ public class WorkspaceTool implements AITool, StructuredParamTool {
                 case "read": {
                     String fileName = parameters.get("fileName") != null ? String.valueOf(parameters.get("fileName")) : "";
                     if (fileName.trim().isEmpty()) {
-                        return AIToolResult.fail("read 需要 fileName 参数");
+                        return AIToolResult.fail("缺少参数: fileName（action=read 需要，工作区内相对名）");
                     }
                     File f = ws.resolveFile(fileName.trim());
                     // 兼容：文件名未带路径时按"长期文件区 → 工作区根 → 临时区"顺序查找
@@ -164,7 +164,7 @@ public class WorkspaceTool implements AITool, StructuredParamTool {
                 case "delete": {
                     String fileName = parameters.get("fileName") != null ? String.valueOf(parameters.get("fileName")) : "";
                     if (fileName.trim().isEmpty()) {
-                        return AIToolResult.fail("delete 需要 fileName 参数");
+                        return AIToolResult.fail("缺少参数: fileName（action=delete 需要，工作区内相对名）");
                     }
                     // 删除不可恢复：需 confirm=true（防 prompt 注入误删）
                     boolean confirm = boolParam(parameters, "confirm", false);

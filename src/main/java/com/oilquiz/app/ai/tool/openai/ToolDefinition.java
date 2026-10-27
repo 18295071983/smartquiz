@@ -45,48 +45,65 @@ public class ToolDefinition {
     }
     
     public JSONObject toOpenAIFormat() throws JSONException {
+        return schemaFor(name, description, parameters);
+    }
+
+    /**
+     * 工具 schema 的<b>唯一装配实现</b>。
+     *
+     * <p>为什么收成一个静态方法：{@code OnlineToolRegistry} 曾另写一份同样的装配，两处随后漂开
+     * ——最典型的是 {@code default}：这里刻意不输出（避免引导模型只传默认值），那边却会输出，
+     * 于是同一条 chat 链路有两个口径。定义存在时两处都走这里，"两套口径"在结构上不再可能。</p>
+     *
+     * <p>三条约定：<b>不输出 {@code default}</b>（工具的缺省由 execute 自己兜底，写进 schema 只会
+     * 诱导模型偷懒）；{@code type} 缺省按 string（不能把 null 写进 schema 让它消失）；
+     * {@code required} 只收"任何调用都必须给"的字段——按 action 成立的条件必填写在 description 里，
+     * 扁平 schema 表达不了，硬标等于骗模型。</p>
+     */
+    public static JSONObject schemaFor(String functionName, String description,
+                                       List<ParamDefinition> params) throws JSONException {
         JSONObject tool = new JSONObject();
         tool.put("type", "function");
-        
+
         JSONObject function = new JSONObject();
-        function.put("name", name);
-        function.put("description", description);
-        
-        JSONObject params = new JSONObject();
-        params.put("type", "object");
-        
+        function.put("name", functionName != null ? functionName : "");
+        function.put("description", description != null ? description : "");
+
+        JSONObject parameters = new JSONObject();
+        parameters.put("type", "object");
         JSONObject properties = new JSONObject();
         JSONArray required = new JSONArray();
-        
-        for (ParamDefinition param : parameters) {
-            JSONObject paramSchema = new JSONObject();
-            paramSchema.put("type", param.getType());
-            paramSchema.put("description", param.getDescription());
-            // 不输出 default：避免引导模型只用默认参数（如 action 固定为 current）
-            if (param.getEnumValues() != null && !param.getEnumValues().isEmpty()) {
-                JSONArray enumArray = new JSONArray();
-                for (String enumVal : param.getEnumValues()) {
-                    enumArray.put(enumVal);
+
+        if (params != null) {
+            for (ParamDefinition param : params) {
+                if (param == null || param.getName() == null) continue;
+                JSONObject prop = new JSONObject();
+                String type = param.getType();
+                prop.put("type", type == null || type.isEmpty() ? "string" : type);
+                prop.put("description", param.getDescription() != null ? param.getDescription() : "");
+                if (param.getEnumValues() != null && !param.getEnumValues().isEmpty()) {
+                    JSONArray enumArray = new JSONArray();
+                    for (String enumVal : param.getEnumValues()) {
+                        enumArray.put(enumVal);
+                    }
+                    prop.put("enum", enumArray);
                 }
-                paramSchema.put("enum", enumArray);
-            }
-            properties.put(param.getName(), paramSchema);
-            
-            if (param.isRequired()) {
-                required.put(param.getName());
+                properties.put(param.getName(), prop);
+                if (param.isRequired()) {
+                    required.put(param.getName());
+                }
             }
         }
-        
-        params.put("properties", properties);
+        parameters.put("properties", properties);
         if (required.length() > 0) {
-            params.put("required", required);
+            parameters.put("required", required);
         }
-        function.put("parameters", params);
+        function.put("parameters", parameters);
         // 与 Responses 侧同口径（ResponsesPayloadBuilder.toFlatTools 也显式写 false）：
         // 本项目的工具 schema 刻意宽松（可选参数、自由 object、无 items 数组），开严格模式
         // 一条都过不了；显式 false 是为了不赌各网关对 strict 的默认值，而不是在此处加严。
         function.put("strict", false);
-        
+
         tool.put("function", function);
         return tool;
     }
