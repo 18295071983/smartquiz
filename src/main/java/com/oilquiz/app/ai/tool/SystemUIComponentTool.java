@@ -251,6 +251,17 @@ public class SystemUIComponentTool implements AITool {
                     if (componentId == null || componentId.isEmpty()) {
                         return new AIToolResult("缺少参数: component_id", parameters);
                     }
+            if (isChatStreamCardId(componentId)) {
+                // 不用 Map.of：Android 低版本没有该 API（未开 core library desugaring）
+                java.util.Map<String, Object> notUpdatable = new HashMap<>();
+                notUpdatable.put("success", false);
+                notUpdatable.put("result", "chat_card_not_updatable");
+                notUpdatable.put("component_id", componentId);
+                notUpdatable.put("message", "component_id=" + componentId + " 是聊天流里的只读展示卡片，"
+                        + "不支持原地更新/关闭/取结果（渲染器按消息快照渲染，没有可更新的实体）。"
+                        + "进度类需求请在每个阶段 action=create 新卡；需要等待用户操作请用带 actions 的交互组件。");
+                return new AIToolResult(notUpdatable, parameters);
+            }
                     Map<String, Object> params = new HashMap<>();
                     putIfNotNull(params, "progress", parameters.get("progress"));
                     putIfNotNull(params, "message", parameters.get("message"));
@@ -278,6 +289,17 @@ public class SystemUIComponentTool implements AITool {
                     if (componentId == null || componentId.isEmpty()) {
                         return new AIToolResult("缺少参数: component_id", parameters);
                     }
+            if (isChatStreamCardId(componentId)) {
+                // 不用 Map.of：Android 低版本没有该 API（未开 core library desugaring）
+                java.util.Map<String, Object> notUpdatable = new HashMap<>();
+                notUpdatable.put("success", false);
+                notUpdatable.put("result", "chat_card_not_updatable");
+                notUpdatable.put("component_id", componentId);
+                notUpdatable.put("message", "component_id=" + componentId + " 是聊天流里的只读展示卡片，"
+                        + "不支持原地更新/关闭/取结果（渲染器按消息快照渲染，没有可更新的实体）。"
+                        + "进度类需求请在每个阶段 action=create 新卡；需要等待用户操作请用带 actions 的交互组件。");
+                return new AIToolResult(notUpdatable, parameters);
+            }
                     Map<String, Object> result = pythonToolManager.closeUiComponent(componentId);
                     return new AIToolResult(result, parameters);
                 }
@@ -307,6 +329,17 @@ public class SystemUIComponentTool implements AITool {
                     // 夹取 1~120 秒：防止模型传超大值阻塞 Agent 线程数小时
                     waitSeconds = Math.max(1, Math.min(120, waitSeconds));
                     boolean reactivate = "true".equalsIgnoreCase(str(parameters.get("reactivate")));
+            if (isChatStreamCardId(componentId)) {
+                // 不用 Map.of：Android 低版本没有该 API（未开 core library desugaring）
+                java.util.Map<String, Object> notUpdatable = new HashMap<>();
+                notUpdatable.put("success", false);
+                notUpdatable.put("result", "chat_card_not_updatable");
+                notUpdatable.put("component_id", componentId);
+                notUpdatable.put("message", "component_id=" + componentId + " 是聊天流里的只读展示卡片，"
+                        + "不支持原地更新/关闭/取结果（渲染器按消息快照渲染，没有可更新的实体）。"
+                        + "进度类需求请在每个阶段 action=create 新卡；需要等待用户操作请用带 actions 的交互组件。");
+                return new AIToolResult(notUpdatable, parameters);
+            }
                     Map<String, Object> result = pythonToolManager.getUiComponentResult(componentId, waitSeconds, reactivate);
                     return new AIToolResult(result, parameters);
                 }
@@ -642,7 +675,10 @@ public class SystemUIComponentTool implements AITool {
 
             // 交互支持：props 带 actions 时注册到组件注册表 + 注入 component_id
             boolean interactive = props.has("actions");
-            // 无条件生成 component_id（create 响应始终返回，供后续 update/close/get_result 使用）
+            // component_id 只对**交互组件**有意义：它被注册进待决组件表，update/close/get_result 才能找到。
+            // 非交互的聊天流卡片没有任何可更新的实体（渲染器是按消息快照渲染的），此前却无条件返回
+            // component_id 并声称"供后续 update/close/get_result 使用"——真机上模型拿它 update 进度卡
+            // 只会得到"组件不存在"并白烧一轮。
             String componentId = "chat_" + System.currentTimeMillis() + "_" + (int) (Math.random() * 10000);
             if (interactive) {
                 pythonToolManager.registerChatComponent(componentId);
@@ -681,14 +717,21 @@ public class SystemUIComponentTool implements AITool {
             result.put("status", "success");
             result.put("component_type", componentType);
             result.put("message", "组件已加入聊天流: " + componentType
-                    + (interactive ? "（交互组件，component_id=" + componentId + "）" : ""));
+                    + (interactive
+                        ? "（交互组件，component_id=" + componentId + "，可用 get_result 取结果）"
+                        : "（只读展示卡片：不支持 update/close/get_result；进度类请分阶段 create 新卡）"));
             result.put("props", props.toString());
-            result.put("component_id", componentId);
+            if (interactive) result.put("component_id", componentId);
             return new AIToolResult(result, parameters).withComponent(data);
         } catch (Exception e) {
             Log.e(TAG, "创建聊天流组件失败: " + e.getMessage(), e);
             return new AIToolResult("创建聊天流组件失败: " + e.getMessage(), parameters);
         }
+    }
+
+    /** 聊天流卡片 id 前缀（见 create：只读展示卡片，没有可更新的实体） */
+    private static boolean isChatStreamCardId(String componentId) {
+        return componentId != null && componentId.startsWith("chat_");
     }
 
     /** 提取 create 参数（排除 action/component_type 控制字段） */
