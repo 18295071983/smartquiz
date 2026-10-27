@@ -602,6 +602,9 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             }
             if (removed > 0) {
                 Log.i(TAG, "清扫孤儿历史文件: 删除 " + removed + " 个（所属会话已删除）");
+                // 同时落 ai_logs：这类"静默维护动作"只进 logcat 的话，事后翻日志查不到
+                com.oilquiz.app.util.AILogger.i(TAG,
+                        "清扫孤儿历史文件: 删除 " + removed + " 个（所属会话已删除）");
             }
         } catch (Throwable t) {
             Log.w(TAG, "清扫孤儿历史文件失败: " + t.getMessage());

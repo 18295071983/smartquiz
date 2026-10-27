@@ -9314,7 +9314,11 @@ public class AIChatActivity extends BaseActivity {
                         if (s0 != null && s0.id != null) knownIds.add(s0.id);
                     }
                 }
-                chatHistoryManager.sweepOrphanHistoryFiles(knownIds);
+                final int swept = chatHistoryManager.sweepOrphanHistoryFiles(knownIds);
+                if (swept > 0) {
+                    // 有删除就要让用户看见（静默清理最容易让人误以为"什么都没发生"）
+                    runOnUiThread(() -> showToast("已清理 " + swept + " 个已删除会话的历史文件"));
+                }
             } catch (Throwable ignored) {
             }
             // 各会话待办任务数（活跃：进行中/待办），供条目 "N 待办" 角标；后台线程读快照
