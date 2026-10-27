@@ -1419,6 +1419,16 @@ public class OnlineAgentEngine {
      */
     private IterationResult streamOneIteration(OnlineModelManager.OnlineModelConfig cfg,
                                                 int maxTokens, String toolsJson) {
+        return streamOneIteration(cfg, maxTokens, toolsJson, 0);
+    }
+
+    /**
+     * 单轮推理，带<b>瞬时错误重试</b>（业界口径见 {@link com.oilquiz.app.ai.service.StreamRetryPolicy}）：
+     * 只在"本轮流还没吐出任何内容、也没返回工具调用"时重发——SSE 无法从中间续传，
+     * 吐过字再重发会把开头重复一遍。鉴权/参数类错误原样上抛，不做无意义重试。
+     */
+    private IterationResult streamOneIteration(OnlineModelManager.OnlineModelConfig cfg,
+                                                int maxTokens, String toolsJson, int retryIndex) {
         eventBus.post(AgentEventBus.EventType.PRE_STEP, "iteration");
         final IterationResult result = new IterationResult();
         final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
@@ -1455,6 +1465,9 @@ public class OnlineAgentEngine {
         // idle 超时计时：任何 token（思考/正文）到达都刷新，防止慢模型生成长答案被误判超时
         final java.util.concurrent.atomic.AtomicLong streamLastActivity =
                 new java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis());
+        // 本轮是否已经吐出过东西（思考/正文/工具调用）：决定出错后能否安全重发
+        final java.util.concurrent.atomic.AtomicBoolean anyOutput =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
 
         onlineInferenceService.generateStreamWithToolsV2(messagesArray, cfg, iterMaxTokens, toolsJson,
             enableThinking,
@@ -1469,6 +1482,7 @@ public class OnlineAgentEngine {
                 public void onReasoningToken(String token) {
                     if (isCancelled.get()) return;
                     streamLastActivity.set(System.currentTimeMillis());
+                    anyOutput.set(true);
                     totalTokenCount++;
                     thinkingChain.appendReasoningToken(token);
                     mainHandler.post(() -> {
@@ -1480,6 +1494,7 @@ public class OnlineAgentEngine {
                 public void onContentToken(String token) {
                     if (isCancelled.get()) return;
                     streamLastActivity.set(System.currentTimeMillis());
+                    anyOutput.set(true);
                     totalTokenCount++;
                     mainHandler.post(() -> {
                         if (callback != null) callback.onToken(token);
@@ -1491,6 +1506,7 @@ public class OnlineAgentEngine {
 
                 @Override
                 public void onToolCallsReady(List<OnlineInferenceService.ToolCallInfo> toolCalls) {
+                    if (toolCalls != null && !toolCalls.isEmpty()) anyOutput.set(true);
                     AILogger.i(TAG, "Tool calls ready: " + (toolCalls != null ? toolCalls.size() : 0));
                     // 工具调用通知在 doExecute 中处理（需要 toolCallId）
                 }
@@ -1622,7 +1638,10 @@ public class OnlineAgentEngine {
                 }
             }
             if (!completed) {
-                // 超时：流式推理长时间无响应
+                // 超时：流式推理长时间无响应。未吐过字且还有重试额度 → 先重发（与 SDK 对超时的口径一致）
+                if (canRetryStream(retryIndex, anyOutput, "stream idle timeout")) {
+                    return retryStream(cfg, maxTokens, toolsJson, retryIndex + 1, "stream idle timeout");
+                }
                 finishGeneration();
                 AILogger.w(TAG, "Stream idle timeout (120s no tokens), content_len=" + result.content.length());
                 if (!result.content.isEmpty()) {
@@ -1640,6 +1659,9 @@ public class OnlineAgentEngine {
         }
 
         if (errorHolder[0] != null) {
+            if (canRetryStream(retryIndex, anyOutput, errorHolder[0])) {
+                return retryStream(cfg, maxTokens, toolsJson, retryIndex + 1, errorHolder[0]);
+            }
             finishGeneration();
             
             if (!result.content.isEmpty()) {
@@ -1653,6 +1675,35 @@ public class OnlineAgentEngine {
         }
         
         return result;
+    }
+
+    /** 是否该重发：未取消、未吐字、还有额度、错误属瞬时 */
+    private boolean canRetryStream(int retryIndex,
+                                   java.util.concurrent.atomic.AtomicBoolean anyOutput,
+                                   String error) {
+        if (isCancelled.get()) return false;
+        if (anyOutput != null && anyOutput.get()) return false;   // SSE 不能续传，吐过字重发会重复
+        if (retryIndex >= com.oilquiz.app.ai.service.StreamRetryPolicy.MAX_RETRIES) return false;
+        return com.oilquiz.app.ai.service.StreamRetryPolicy.isTransient(error);
+    }
+
+    /** 等一小段（指数退避）后重发；重试过程对用户可见（否则界面像卡住） */
+    private IterationResult retryStream(OnlineModelManager.OnlineModelConfig cfg, int maxTokens,
+                                        String toolsJson, int nextRetryIndex, String reason) {
+        long delay = com.oilquiz.app.ai.service.StreamRetryPolicy.backoffMs(nextRetryIndex);
+        AILogger.w(TAG, "流式瞬时错误（" + reason + "），未吐字，"
+                + delay + "ms 后重试第 " + nextRetryIndex + "/"
+                + com.oilquiz.app.ai.service.StreamRetryPolicy.MAX_RETRIES + " 次");
+        notifyStep("重试", "网络抖动，正在重试…");
+        try {
+            Thread.sleep(delay);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            finishGeneration();
+            notifyError("推理被中断");
+            return null;
+        }
+        return streamOneIteration(cfg, maxTokens, toolsJson, nextRetryIndex);
     }
 
     /**
