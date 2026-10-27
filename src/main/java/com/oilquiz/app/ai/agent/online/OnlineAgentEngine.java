@@ -2611,9 +2611,12 @@ public class OnlineAgentEngine {
                     arr.add(msg);
                 }
             }
-            java.io.FileWriter writer = new java.io.FileWriter(getHistoryFile());
-            gson.toJson(arr, writer);
-            writer.close();
+            // 原子写 + 备份（AtomicFileText）：写到一半被杀不会留下半截 JSON，
+            // 旧实现 FileWriter 直接覆盖——解析失败时整段对话静默丢失，日志里只有一句告警。
+            boolean written = com.oilquiz.app.ai.util.AtomicFileText.write(getHistoryFile(), gson.toJson(arr));
+            if (!written) {
+                AILogger.w(TAG, "Persist agent history failed (atomic write): " + getHistoryFile());
+            }
             AILogger.i(TAG, "Persisted agent history: " + messageHistory.size()
                 + " messages (session=" + sessionId + ")");
         } catch (Exception e) {
@@ -2668,10 +2671,8 @@ public class OnlineAgentEngine {
     private void restoreHistory() {
         try {
             java.io.File file = getHistoryFile();
-            if (!file.exists()) return;
-            java.io.FileReader reader = new java.io.FileReader(file);
-            JsonArray arr = com.google.gson.JsonParser.parseReader(reader).getAsJsonArray();
-            reader.close();
+            JsonArray arr = parseHistoryFile(file);
+            if (arr == null) return;
 
             // 检测第一个 system 消息的版本标记，决定是否原样保留 system 块
             boolean keepSystem = false;
@@ -2781,8 +2782,40 @@ public class OnlineAgentEngine {
     private void deleteHistoryFile() {
         try {
             java.io.File file = getHistoryFile();
-            if (file.exists()) file.delete();
+            // 备份与临时文件也要删：只删主文件的话，下次 restore 会从 .bak 把"已清空"的历史复活
+            for (java.io.File f : new java.io.File[]{
+                    file,
+                    com.oilquiz.app.ai.util.AtomicFileText.backupOf(file),
+                    new java.io.File(file.getPath() + com.oilquiz.app.ai.util.AtomicFileText.TMP_SUFFIX)}) {
+                if (f != null && f.exists()) f.delete();
+            }
         } catch (Exception ignored) {}
+    }
+
+    /**
+     * 解析历史文件：主文件坏了就回落 {@code .bak}（原子写留下的上一份），两边都解析不了返回 null。
+     * 此前主文件被写坏时只打一行告警就 return，等于整段对话静默丢失。
+     */
+    private JsonArray parseHistoryFile(java.io.File file) {
+        String raw = com.oilquiz.app.ai.util.AtomicFileText.readText(file);
+        if (raw != null && !raw.trim().isEmpty()) {
+            try {
+                return com.google.gson.JsonParser.parseString(raw).getAsJsonArray();
+            } catch (Exception e) {
+                AILogger.w(TAG, "历史主文件解析失败，尝试备份: " + e.getMessage());
+            }
+        }
+        String bak = com.oilquiz.app.ai.util.AtomicFileText.readBackup(file);
+        if (bak != null && !bak.trim().isEmpty()) {
+            try {
+                JsonArray arr = com.google.gson.JsonParser.parseString(bak).getAsJsonArray();
+                AILogger.i(TAG, "已从历史备份恢复（比主文件旧一次保存）");
+                return arr;
+            } catch (Exception e) {
+                AILogger.w(TAG, "历史备份也解析失败: " + e.getMessage());
+            }
+        }
+        return null;
     }
 
     // ========== 内部通知方法 ==========
