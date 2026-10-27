@@ -298,6 +298,18 @@ public class AgentDebugBridge extends BroadcastReceiver {
             Log.w(TAG, "logcat capture start failed: " + e.getMessage());
         }
 
+        // 收尾一次性闸门：完成/失败/超时只允许 finish 一次。
+        // 此前超时回调没有绑定"本次任务是否已收尾"，120s 到点会对已 finish 的 PendingResult
+        // 再 finish 一次 → IllegalStateException: Broadcast already finished（真机 2026-10-27 19:53 崩过）。
+        final AtomicBoolean finished = new AtomicBoolean(false);
+        final Runnable finishOnce = () -> {
+            if (finished.compareAndSet(false, true)) {
+                if (logcatProc[0] != null) logcatProc[0].destroy();
+                running.set(false);
+                pr.finish();
+            }
+        };
+
         try {
             final int[] attempt = {0};
             final boolean[] retrying = {false};
@@ -399,8 +411,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                             writeStatus(status, out, displayPrompt, promptType, resultText);
                         }
                         void release() {
-                            if (logcatProc[0] != null) logcatProc[0].destroy();
-                            running.set(false); pr.finish();
+                            finishOnce.run();
                         }
                     };
 
@@ -421,14 +432,13 @@ public class AgentDebugBridge extends BroadcastReceiver {
 
             executeTask[0].run();
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                if (running.get() && !retrying[0]) {
-                    Log.w(TAG, "timeout " + TASK_TIMEOUT_MS + "ms, 释放并发锁");
-                    emitState("status", "⏱ 超时释放并发锁");
-                    emitRaw("[RESULT] timeout result=" + out.getName() + " " + tsStamp());
-                    writeStatus("timeout", out, displayPrompt, promptType, "任务超时（120s），已释放并发锁，结果不完整");
-                    running.set(false);
-                    pr.finish();
-                }
+                // 本任务已收尾或正在重连：不碰上一轮的 PendingResult（否则会二次 finish 崩溃）
+                if (finished.get() || retrying[0]) return;
+                Log.w(TAG, "timeout " + TASK_TIMEOUT_MS + "ms, 释放并发锁");
+                emitState("status", "⏱ 超时释放并发锁");
+                emitRaw("[RESULT] timeout result=" + out.getName() + " " + tsStamp());
+                writeStatus("timeout", out, displayPrompt, promptType, "任务超时（120s），已释放并发锁，结果不完整");
+                finishOnce.run();
             }, TASK_TIMEOUT_MS);
         } catch (Throwable t) {
             Log.e(TAG, "init fail", t);
@@ -440,8 +450,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                 w.write(sb.toString());
             } catch (Exception ignored) {}
             writeStatus("error", out, displayPrompt, promptType, "初始化失败: " + t);
-            running.set(false);
-            pr.finish();
+            finishOnce.run();
         }
     }
 

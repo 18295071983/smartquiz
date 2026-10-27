@@ -1,5 +1,43 @@
 # 变更日志
 
+## [2026-10-27] fix(agent-ui)：progress 参数按 schema 归一（props/max）+ 修调试通道超时二次 finish 崩溃
+
+用户："试一下看模型是否改用 progress" → 真机测试确认模型已自发改用插槽，同时暴露两处实现与文档不一致/崩溃。
+
+### 查到的事实（出处）
+
+- 模型复述 schema 时按原文理解"参数可放 props""`max_value` 也可传 max""也可放 props 内 props.progress"；
+  但 `ui_component(action=progress)` 分支（SystemUIComponentTool.java:122）只读顶层的
+  `intParam(parameters, "progress"/"max_value")`——props 与 max 别名都被忽略，模型照 schema 传会
+  **静默丢进度**（进度条停在旧值/0）。
+- `AgentDebugBridge` 的 120s 超时（AgentDebugBridge.java:436）只检查全局 `running` 与 `retrying`，
+  没有绑定"本次注入是否已收尾"。一次任务 `release()` 后 `running=false`，下一次任务又把 `running=true`；
+  上一轮的超时到点仍会执行 `pr.finish()`，对已 finish 的 PendingResult 二次 finish →
+  `IllegalStateException: Broadcast already finished`。真机 2026-10-27 19:53 实际崩过（app 重启，
+  logcat 有 AndroidRuntime/CRASH 栈）。
+- 调试通道会在 prompt 前硬编码"不要使用 ui_component 工具"（AgentDebugBridge.java:413-417），
+  所以第一次长任务注入不可能触发插槽——这是通道设计，不是模型行为；后续测试显式覆盖该限制。
+
+### 由此改掉的事
+
+1. progress 分支参数归一：props 内参数合并到顶层（顶层优先），`max_value` 缺失时读 `max` 别名；
+   title/message 同样支持 props；响应中的 progress/max_value 用归一后的值。
+2. AgentDebugBridge 每次注入增加一次性收尾闸门 `finishOnce`（AtomicBoolean）：完成/失败/超时/
+   初始化异常都只 finish 一次；超时回调发现本任务已收尾或正在重连就直接返回，不再碰上一轮的 PendingResult。
+3. 新增 SystemUIComponentProgressTest（Robolectric 2 条）：props + max 别名生效（25/40 → 62%）、
+   顶层覆盖 props。
+
+### 验证
+
+- 真机（25113PN0EC）串行长任务（逐步累加 1²…10²）：模型**每一步自发**调用
+  `ui_component(action=progress, progress=1..10, max_value=10)`（第 1 步带 title，后续省略沿用），
+  末尾用 info_card 汇总，全程没有 progress_card；模型复述工具定义时逐字命中"长任务进度插槽"原文。
+- 强制调用 progress 时 props/max 路径工具返回 ok；装新包后跑完再等过 120s 窗口，app 进程仍在、
+  无 `Broadcast already finished`。
+- 全量单测 **1109 / 0 skipped / 0 failures / 0 errors（153 类）**；assembleDebug 通过，已装机
+  （md5 `8e2272e6…`）。测试后调试通道已复位 `enable=false`。
+- **未验**：聊天页进度条的实际视觉推进（调试控制台不渲染插槽）；本轮验证的是模型调用与工具结果。
+
 ## [2026-10-27] fix(agent-ui)：长任务进度插槽教给模型——在线 schema 此前没有 progress 动作
 
 用户："模型不知道长任务插槽"。

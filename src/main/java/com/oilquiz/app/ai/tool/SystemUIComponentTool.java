@@ -120,11 +120,23 @@ public class SystemUIComponentTool implements AITool {
 
             switch (action) {
                 case "progress": {
-                    // 本轮进度插槽：独立于消息流，工具推一条就画一条（不会被聊天刷新冲掉）
-                    int p = intParam(parameters, "progress");
-                    int mx = intParam(parameters, "max_value");
+                    // 本轮进度插槽：独立于消息流，工具推一条就画一条（不会被聊天刷新冲掉）。
+                    // 参数口径与其他动作一致：可放顶层或 props 内（顶层优先），max_value 接受 max 别名。
+                    // 此前只读顶层 max_value/progress，而 schema 告诉模型 max/props 也能传——会静默丢进度。
+                    Map<String, Object> src = parameters;
+                    Object propsObj = parameters.get("props");
+                    if (propsObj instanceof Map) {
+                        Map<String, Object> merged = new HashMap<>();
+                        //noinspection unchecked
+                        merged.putAll((Map<String, Object>) propsObj);
+                        merged.putAll(parameters);
+                        src = merged;
+                    }
+                    int p = intParam(src, "progress");
+                    int mx = intParam(src, "max_value");
+                    if (mx <= 0) mx = intParam(src, "max");
                     com.oilquiz.app.ai.chat.status.AgentProgressBus.update(
-                            str(parameters.get("title")), str(parameters.get("message")), p, mx);
+                            str(src.get("title")), str(src.get("message")), p, mx);
                     Map<String, Object> pr = new HashMap<>();
                     pr.put("success", true);
                     pr.put("result", "progress_updated");
