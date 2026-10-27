@@ -354,14 +354,40 @@ public class ProviderConfigManager {
     // ==================== 统一地址拼装 ====================
 
     /**
-     * 构建 OpenAI 兼容格式 URL（全项目统一入口）。
-     * 规则：
-     * - endpoint 自带版本前缀（/v1/...、/v4/...）→ 直接 baseUrl + endpoint（Anthropic /v1/messages 等）
-     * - baseUrl 已以版本路径结尾（/v1、/v4 等，如智谱 /api/paas/v4）→ 直接拼 endpoint
-     * - baseUrl 已以 endpoint 结尾 → 原样返回
-     * - 否则默认补 /v1 + endpoint（OpenAI/DeepSeek/Kimi/Qwen 等）
+     * 构建 OpenAI 兼容格式 URL（全项目统一入口）。规则见 {@link #buildUrlFor}。
+     *
+     * <p>实例方法保留是为了不打动既有二十来处调用；拼装本身不读配置表，
+     * 因此实现收在静态纯函数里，能被单测钉住。</p>
      */
     public String buildUrl(String apiUrl, String endpoint) {
+        return buildUrlFor(apiUrl, endpoint);
+    }
+
+    /** endpoint 或 baseUrl 尾部的版本段：{@code /v1/}、{@code /v4/}、{@code /v1beta/}、{@code /v2.1/} */
+    private static final java.util.regex.Pattern VERSION_PREFIX =
+            java.util.regex.Pattern.compile("^/v\\d+([a-zA-Z0-9.]*)?/");
+    private static final java.util.regex.Pattern VERSION_SUFFIX =
+            java.util.regex.Pattern.compile(".*/v\\d+([a-zA-Z0-9.]*)?$");
+
+    /**
+     * 拼装规则的<b>唯一实现</b>（纯函数，便于单测）：
+     * <ul>
+     *   <li>endpoint 是完整 URL（百炼原生/百度/讯飞文生图那类独立服务）→ 原样返回，不拼 baseUrl；</li>
+     *   <li>endpoint 自带版本段 → 直接 {@code baseUrl + endpoint}；</li>
+     *   <li>baseUrl 已经以 endpoint 结尾 → 原样返回（用户把整条路径填进地址框时不重复拼）；</li>
+     *   <li>baseUrl 已以版本段结尾（{@code /v1}、{@code /api/paas/v4}）→ 直接拼 endpoint；</li>
+     *   <li>否则补 {@code /v1} + endpoint（OpenAI/DeepSeek/Kimi/Qwen 这些根地址）。</li>
+     * </ul>
+     *
+     * <p><b>版本段为什么必须认 {@code /v1beta}、{@code /v2.1} 这一类</b>：原先两条判据都只认
+     * 「斜杠-v-数字-斜杠」和「斜杠-v-数字-结尾」这一种形态（{@code \d+} 后面紧跟 {@code /} 或行尾），
+     * "版本号后面还跟字母"的整档都不匹配，于是 Gemini 的
+     * {@code /v1beta/openai/chat/completions} 被拼成
+     * {@code https://generativelanguage.googleapis.com/v1/v1beta/openai/chat/completions}
+     * ——一个必然 404 的地址，而表现只是"这家不能用"。用户从官方文档抄的 base 常以
+     * {@code /v1beta} 结尾，同一条漏洞在 baseUrl 侧也会犯。</p>
+     */
+    public static String buildUrlFor(String apiUrl, String endpoint) {
         // 完整 URL 端点（百炼/百度/讯飞文生图等独立 endpoint）直接使用，不拼 baseUrl
         if (endpoint != null && (endpoint.startsWith("http://") || endpoint.startsWith("https://"))) {
             return endpoint;
@@ -369,13 +395,13 @@ public class ProviderConfigManager {
         String baseUrl = (apiUrl == null || apiUrl.isEmpty()) ? "https://api.openai.com" : apiUrl;
         baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         if (endpoint == null) endpoint = "";
-        if (endpoint.matches("^/v\\d+/.*")) {
+        if (VERSION_PREFIX.matcher(endpoint).find()) {
             return baseUrl + endpoint;
         }
         if (baseUrl.endsWith(endpoint)) {
             return baseUrl;
         }
-        if (baseUrl.matches(".*/v\\d+$")) {
+        if (VERSION_SUFFIX.matcher(baseUrl).find()) {
             return baseUrl + endpoint;
         }
         return baseUrl + "/v1" + endpoint;
@@ -656,7 +682,9 @@ public class ProviderConfigManager {
         if (cfg == null) return false;
         if (cfg.enabled != null && !cfg.enabled) return false;
         String ep = cfg.endpoint == null ? "" : cfg.endpoint;
-        // 端点不是 /responses 就谈不上 Responses 协议（智谱 /agent/chat、百炼多模态那类）
+        // 端点不是 /responses 形态就谈不上 Responses 协议；形态对了但 protocol 没写，也仍按 chat 走。
+        // 总闸只有 protocol 这一条——配置表现在给多家登记了 /responses（智谱/百炼/方舟/阶跃/MiMo），
+        // 登记 ≠ 放量，别在这里把两件事合起来。
         if (!ep.endsWith(RESPONSES_PATH)) return false;
         return "responses".equalsIgnoreCase(cfg.protocol);
     }
@@ -730,6 +758,36 @@ public class ProviderConfigManager {
         if (ep.endsWith("/messages")) return PROTOCOL_ANTHROPIC;
         if (ep.endsWith("/api/chat") || ep.endsWith("/api/generate")) return PROTOCOL_OLLAMA;
         return PROTOCOL_OPENAI;
+    }
+
+    /**
+     * 端点覆盖值的<b>形态判定</b>：空=不覆盖（回落到配置表）；非空必须是「以 / 开头的路径」
+     * 或「完整 http(s):// 地址」。
+     *
+     * <p><b>为什么必须拦在写入之前，而不是解析时兜底</b>：{@link #buildUrl} 对不以 {@code /} 开头的值
+     * 是直接拼接的 —— 少一个斜杠的 {@code responses} 会拼成 {@code https://api.deepseek.com/v1responses}，
+     * 同时 {@link #protocolForEndpoint} 把它判成 openai 协议，于是"走了 Responses 的判断"却"打了一个
+     * 不存在的地址"。用户看到的表现是"这条配置的 API 突然不能用了"，没有任何一行日志指向那个漏掉的斜杠。
+     * 在产出侧（界面保存前）拒绝，比在九处消费端各自猜一个默认值更便宜，也不会造成第二套事实。</p>
+     *
+     * <p>刻意不在 {@code resolve()} 里"顺手纠正"成 {@code "/" + value}：那会让一个写错的人看到界面提示
+     * 里的地址是猜出来的，而错误本身永远得不到改正。判定与纠正分开，判定给界面，纠正要人来。</p>
+     */
+    public static boolean isEndpointOverrideValid(String value) {
+        String v = value == null ? "" : value.trim();
+        if (v.isEmpty()) return true;                     // 空＝清除覆盖，回落到配置表
+        if (v.startsWith("/")) return true;               // 相对路径：按 /v1 规则拼在 baseUrl 后
+        String lower = v.toLowerCase();
+        return lower.startsWith("http://") || lower.startsWith("https://");
+    }
+
+    /** 覆盖值不合法时给人话说明；合法返回 null。界面实时提示与保存拦截共用这一条措辞 */
+    public static String endpointOverrideError(String serviceLabel, String value) {
+        if (isEndpointOverrideValid(value)) return null;
+        String shown = value == null ? "" : value.trim();
+        return serviceLabel + "端点写法不对：要么留空（按配置表），要么以 / 开头（如 /responses），"
+                + "要么填完整地址（https://…）。当前是「" + shown + "」——"
+                + "不以 / 开头会被直接拼在地址后面，变成一个不存在的接口。";
     }
 
     /**

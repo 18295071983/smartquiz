@@ -143,8 +143,8 @@
         },
         "agent": {
           "enabled": true,
-          "endpoint": "/api/v1/services/aigc/multimodal-generation/generation",
-          "note": "百炼原生多模态/Agent 接口"
+          "endpoint": "/responses",
+          "note": "百炼 OpenAI 兼容模式提供 Responses API：https://help.aliyun.com/zh/model-studio/compatibility-with-openai-responses-api（2026-10-27 取，页内 /compatible-mode/v1/responses 出现 36 次）。本家 baseUrl 已含 /compatible-mode/v1，故相对路径 /responses 正好拼成文档那条地址。原先这里写的是原生多模态接口 /api/v1/services/aigc/multimodal-generation/generation——它在域名根下（不在 compatible-mode/v1 之后），拼在兼容模式 base 后是个不存在的地址，而且它不是 OpenAI Responses 形状，本项目的 Agent 工具流用不上。放量与否仍由 services.agent.protocol=responses 这条总闸决定（当前未放量）。"
         },
         "vision": {
           "enabled": true
@@ -230,8 +230,8 @@
         },
         "agent": {
           "enabled": true,
-          "endpoint": "/agent/chat",
-          "note": "智谱 Agent API"
+          "endpoint": "https://open.bigmodel.cn/api/v1/responses",
+          "note": "智谱官方「Response API 兼容」文档（docs.bigmodel.cn/cn/guide/develop/responses/introduction.md，2026-10-27 取）给出的地址是 https://open.bigmodel.cn/api/v1/responses —— 它与本家 chat 用的 api/paas/v4 不同根，因此这里必须写完整 URL 而不是相对路径（相对路径会被拼到 paas/v4 下变成不存在的地址）。另有一套\"智能体对话\"Agent API（POST /api/v1/agents，docs.bigmodel.cn/api-reference/agent-api/），那是智能体编排接口、不是 OpenAI Responses 形状，本项目的 Agent 工具流不能用它。原先此处写的 /agent/chat 在这两份文档里都查不到，已按文档改掉。放量仍需 protocol=responses 这条总闸（见 openai 条说明）。"
         },
         "vision": {
           "enabled": true
@@ -411,9 +411,9 @@
           "note": "待核实"
         },
         "imageGen": {
-          "enabled": true,
-          "endpoint": "https://api.xf-yun.cn/v1/private/...",
-          "note": "图片生成独立服务"
+          "enabled": false,
+          "endpoint": "https://spark-api.cn-huabei-1.xf-yun.com/v2.1/tti",
+          "note": "讯飞官方文生图文档（xfyun.cn/doc/spark/ImageGeneration.html，2026-10-27 取）请求地址为 https://spark-api.cn-huabei-1.xf-yun.com/v2.1/tti：域名与鉴权都与本家 OpenAI 兼容 base （spark-api-open.xf-yun.com/v1，只有 chat/completions）不同，请求体也不是 OpenAI images/generations 形状，而 app 的文生图客户端是按 OpenAI 形状发 Bearer 请求的。原值 https://api.xf-yun.cn/v1/private/... 带字面省略号、域名 .xf-yun.cn 在官方文档里查不到，是个必然失败的占位；因此把 endpoint 换成真实地址的同时把 enabled 关掉，以免对话框勾上\"文生图\"后每次都撞一个不兼容的接口。"
         },
         "functionCalling": {
           "enabled": true
@@ -478,7 +478,8 @@
         },
         "agent": {
           "enabled": false,
-          "note": "待核实"
+          "endpoint": "/responses",
+          "note": "火山方舟官方 Responses API 文档（docs.volcengine.com/docs/ark/create-model-responses-api，2026-10-27 取）：POST https://ark.cn-beijing.volces.com/api/v3/responses；本家 baseUrl 已是 .../api/v3，相对路径 /responses 即拼成该地址。端点已登记，能力仍为 enabled=false——开它等于改 supportsAgent 与接管模式，需要单独拍板。"
         },
         "vision": {
           "enabled": true
@@ -587,8 +588,8 @@
         },
         "imageGen": {
           "enabled": true,
-          "endpoint": "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/text2image/image_synthesis",
-          "note": "文生图走老端点"
+          "endpoint": "/images/generations",
+          "note": "千帆 v2 图像生成：https://qianfan.baidubce.com/v2/images/generations（cloud.baidu.com/doc/qianfan-docs/s/bm8wv3h6f，2026-10-27 取，页内 curl 原样）。原先写的 aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/text2image/… 是 V1 接口，鉴权方式也不同（要 ?access_token=，不是 Bearer）。本家 baseUrl 已含 /v2，相对路径即可拼对。"
         },
         "functionCalling": {
           "enabled": true
@@ -654,9 +655,9 @@
         },
         "webSearch": {
           "enabled": true,
-          "note": "官方服务端工具 web_search 仅 OpenAI Responses API（/responses）与 Anthropic Messages 支持（一次请求内服务端自动执行）；chat/completions 不支持。普通对话已由自有 network_search 工具预搜索接管",
+          "endpoint": "/responses",
           "param": "web_search_tool",
-          "endpoint": "responses"
+          "note": "官方服务端工具 web_search 仅 OpenAI Responses API（/responses）与 Anthropic Messages 支持（一次请求内服务端自动执行）；chat/completions 不支持。普通对话已由自有 network_search 工具预搜索接管"
         },
         "embedding": {
           "enabled": false,
@@ -721,7 +722,8 @@
         },
         "agent": {
           "enabled": false,
-          "note": "待核实"
+          "endpoint": "/responses",
+          "note": "小米 MiMo 官方文档「OpenAI Responses API」页（mimo.mi.com/docs/zh-CN/api/chat/responses，2026-10-27 取）：https://api.xiaomimimo.com/v1/responses。原先进来的\"待核实\"已被这条文档替掉。端点已登记，enabled 仍为 false（开它等于改这条配置的 supportsAgent 与接管模式）。"
         },
         "vision": {
           "enabled": true
@@ -1027,9 +1029,9 @@
         },
         "webSearch": {
           "enabled": true,
-          "note": "官方 Responses API（/responses）支持 web_search/web_search_2025_08_26 工具（服务端执行，自动续推上限10轮）；chat/completions 不支持内置 web_search。普通对话已由自有 network_search 工具预搜索接管；官方注入仅对 /responses 端点生效（腾讯云托管另用 enable_search，阿里百炼托管用 Responses web_search）",
+          "endpoint": "/responses",
           "param": "web_search_tool",
-          "endpoint": "responses"
+          "note": "官方 Responses API（/responses）支持 web_search/web_search_2025_08_26 工具（服务端执行，自动续推上限10轮）；chat/completions 不支持内置 web_search。普通对话已由自有 network_search 工具预搜索接管；官方注入仅对 /responses 端点生效（腾讯云托管另用 enable_search，阿里百炼托管用 Responses web_search）"
         },
         "embedding": {
           "enabled": true,
@@ -1471,7 +1473,8 @@
         },
         "agent": {
           "enabled": false,
-          "note": "待核实"
+          "endpoint": "/responses",
+          "note": "阶跃官方文档（platform.stepfun.com/docs/zh/api-reference/responses/responses-create，2026-10-27 取）：POST https://api.stepfun.com/v1/responses（页内出现 18 次）。端点已登记，enabled 仍为 false，放量另拍。"
         },
         "vision": {
           "enabled": true
@@ -1953,8 +1956,8 @@
         },
         "rerank": {
           "enabled": true,
-          "endpoint": "/app/search/v1/vector/query",
-          "note": "盘古向量&重排大模型"
+          "endpoint": "/app/search/v1/rerank",
+          "note": "华为云「调用向量&重排大模型（盘古）」API 清单：embeddings 后缀 /app/search/v1/vector/query、rerank 后缀 /app/search/v1/rerank（此前两条都写成 vector/query）。注意：这对后缀属于\"部署型服务\"，基址是该服务自己的 URL（*.myhuaweicloud.com…），不是本条 baseUrl 的 api.modelarts-maas.com/openai——用之前要把 baseUrl 换成该部署服务的地址。通用 MaaS embeddings 另有官方地址 https://api.modelarts-maas.com/v1/embeddings（support.huaweicloud.com/model-call-maas/model-call-014.html，Bearer 鉴权），它也不带 /openai 前缀。"
         },
         "imageGen": {
           "enabled": false,
@@ -2015,7 +2018,8 @@
         },
         "agent": {
           "enabled": true,
-          "endpoint": "/api/v1/services/aigc/multimodal-generation/generation"
+          "endpoint": "/responses",
+          "note": "百炼 OpenAI 兼容模式提供 Responses API：https://help.aliyun.com/zh/model-studio/compatibility-with-openai-responses-api（2026-10-27 取，页内 /compatible-mode/v1/responses 出现 36 次）。本家 baseUrl 已含 /compatible-mode/v1，故相对路径 /responses 正好拼成文档那条地址。原先这里写的是原生多模态接口 /api/v1/services/aigc/multimodal-generation/generation——它在域名根下（不在 compatible-mode/v1 之后），拼在兼容模式 base 后是个不存在的地址，而且它不是 OpenAI Responses 形状，本项目的 Agent 工具流用不上。放量与否仍由 services.agent.protocol=responses 这条总闸决定（当前未放量）。"
         },
         "vision": {
           "enabled": true

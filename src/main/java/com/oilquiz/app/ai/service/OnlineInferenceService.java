@@ -1486,14 +1486,6 @@ public class OnlineInferenceService {
     }
 
     /**
-     * 是否启用 Agent/Responses 接口：
-     * - 用户勾选 supportsAgent（配置对话框"Agent 接口"）
-     * - 配置表声明该服务商提供 agent 服务
-     * - agent 端点为 Responses 兼容（/responses 结尾）
-     * - 且配置表把 services.agent.protocol 显式放量成 responses（缺省 chat）
-     * 智谱 /agent/chat、百炼 multimodal-generation 等特殊格式暂不走此路由（保持 chat 兼容可用）。
-     */
-    /**
      * 是否走 OpenAI Responses —— 文本流与工具流**共用这一条**判据（此前两处各写一遍，
      * 各自用 endsWith("/responses") 推断协议，改一处漏一处）。
      *

@@ -302,10 +302,25 @@ public class OnlineModelConfigDialog {
 
     /** 把"现在会打哪个地址、来源是哪一层"如实显示出来（与引擎同一解析出口，不会各说各话） */
     private void refreshEndpointResolveHint() {
+        // 先做形态校验再谈预览：一个少斜杠的值（"responses"）确实能"解析"出一个地址
+        // （https://…/v1responses），但那正是要拦的错误，把它当成正常预览显示出来等于给它背书。
+        String chatError = com.oilquiz.app.ai.model.ProviderConfigManager
+                .endpointOverrideError("chat ", textOf(chatEndpointInput));
+        String agentError = com.oilquiz.app.ai.model.ProviderConfigManager
+                .endpointOverrideError("agent ", textOf(agentEndpointInput));
+        markEndpointError(chatEndpointInput, chatError);
+        markEndpointError(agentEndpointInput, agentError);
+
         if (endpointResolveHint == null) return;
         try {
             String url = urlInput == null ? "" : urlInput.getText().toString().trim();
             if (url.isEmpty()) { endpointResolveHint.setText(""); return; }
+            if (chatError != null || agentError != null) {
+                endpointResolveHint.setText(chatError != null && agentError != null
+                        ? chatError + "\n" + agentError
+                        : (chatError != null ? chatError : agentError));
+                return;
+            }
             com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                     com.oilquiz.app.ai.model.ProviderConfigManager.get();
             String model = selectedModelId;
@@ -315,9 +330,49 @@ public class OnlineModelConfigDialog {
                     pcm.resolve(url, "agent", model, textOf(agentEndpointInput));
             endpointResolveHint.setText("实际解析：chat " + chat.describe()
                     + "；agent " + agent.describe()
-                    + (agent.isResponses() ? " → Agent/工具流走 Responses" : " → 走 chat 工具流"));
+                    + agentFlowSuffix(pcm, url, model, agent));
         } catch (Throwable t) {
             endpointResolveHint.setText("端点解析预览失败：" + t.getMessage());
+        }
+    }
+
+    /**
+     * 预览末尾那句"到底走哪条流"。
+     *
+     * <p>它必须与引擎同一判据，而不是只看端点像不像 {@code /responses}：配置表里
+     * {@code services.agent.endpoint} 现在给多家<b>登记</b>了 /responses（方舟/阶跃/MiMo/百炼…），
+     * 但放量总闸是 {@code services.agent.protocol}，另有 {@code enabled} 与本条勾选三道门。
+     * 只看端点形态就会出现"预览说走 Responses、请求照样打 chat"——正是这次收口要消灭的两套事实。</p>
+     */
+    private String agentFlowSuffix(com.oilquiz.app.ai.model.ProviderConfigManager pcm,
+                                   String url, String model,
+                                   com.oilquiz.app.ai.model.ProviderConfigManager.ResolvedEndpoint agent) {
+        boolean agentChecked = svcAgent == null || svcAgent.isChecked();
+        boolean routed = agentChecked
+                && pcm.hasService(url, "agent", model)
+                && com.oilquiz.app.ai.model.ProviderConfigManager.agentOnResponses(
+                        textOf(agentEndpointInput), pcm.agentUsesResponses(url, model));
+        if (routed) return " → Agent/工具流走 Responses";
+        if (agent.isResponses()) {
+            // 端点确实登记成 /responses，只是还没开闸：把"为什么不走"说清楚，别让人以为填了就用
+            return " → 仍走 chat 工具流（/responses 只是登记，未过 enabled/protocol 总闸）";
+        }
+        return " → 走 chat 工具流";
+    }
+
+    /**
+     * 给端点输入框挂/撤行内错误。与 {@link #refreshEndpointResolveHint()} 和保存拦截
+     * 共用同一条判据（{@code ProviderConfigManager.isEndpointOverrideValid}），
+     * 避免出现"框里红着却照样能保存"或反过来的两套事实。
+     */
+    private void markEndpointError(EditText field, String error) {
+        if (field == null) return;
+        try {
+            field.setError(error);
+        } catch (Throwable t) {
+            // setError 需要窗口已 attach；预览失败不该把整个对话框带崩
+            AILogger.d("OnlineModelConfigDialog",
+                    "端点行内错误提示未显示: " + t.getMessage());
         }
     }
 
@@ -945,6 +1000,26 @@ public class OnlineModelConfigDialog {
             Toast.makeText(context, "API 地址需以 http:// 或 https:// 开头", Toast.LENGTH_SHORT).show();
             return;
         }
+        // 端点覆盖的形态校验：留空是合法状态（＝不覆盖，回落服务商配置表）；一旦写了值，就必须是
+        // 以 / 开头的路径或完整 http(s):// 地址。少一个斜杠的 "responses" 会被 buildUrl 直接拼成
+        // https://…/v1responses，而 protocolForEndpoint 还把它判成 openai —— 表现是"这条配置突然
+        // 不能用了"，没有任何一行日志指向那个漏掉的斜杠。判据与上方实时提示是同一条，
+        // 不会出现"框里红着却照样保存成功"。
+        String chatEndpointOverride = textOf(chatEndpointInput);
+        String agentEndpointOverride = textOf(agentEndpointInput);
+        String chatEndpointError = com.oilquiz.app.ai.model.ProviderConfigManager
+                .endpointOverrideError("chat ", chatEndpointOverride);
+        String agentEndpointError = com.oilquiz.app.ai.model.ProviderConfigManager
+                .endpointOverrideError("agent ", agentEndpointOverride);
+        if (chatEndpointError != null || agentEndpointError != null) {
+            Toast.makeText(context, chatEndpointError != null ? chatEndpointError : agentEndpointError,
+                    Toast.LENGTH_LONG).show();
+            markEndpointError(chatEndpointInput, chatEndpointError);
+            markEndpointError(agentEndpointInput, agentEndpointError);
+            EditText badField = chatEndpointError != null ? chatEndpointInput : agentEndpointInput;
+            if (badField != null) badField.requestFocus();
+            return;
+        }
         if (key.isEmpty()) {
             Toast.makeText(context, "请填写 API 密钥", Toast.LENGTH_SHORT).show();
             return;
@@ -1014,8 +1089,10 @@ public class OnlineModelConfigDialog {
 
         // 端点覆盖：留空即清除覆盖（回到"按服务商配置表"）。刻意不存协议 ——
         // 协议由端点推导，存两份就会出现"界面说 A、引擎打 B"。
-        config.chatEndpoint = textOf(chatEndpointInput);
-        config.agentEndpoint = textOf(agentEndpointInput);
+        // 这里写的是上面已通过形态校验的那两个局部变量，不再回读输入框：
+        // 校验与落盘必须是同一个值，否则中间任何一次重读都可能拿到被改过的文本。
+        config.chatEndpoint = chatEndpointOverride;
+        config.agentEndpoint = agentEndpointOverride;
         config.apiSecret = apiSecret.isEmpty() ? null : apiSecret;
         config.appId = appId.isEmpty() ? null : appId;
         // 服务能力（差异化服务设置：agent/多模态/网络搜索/embedding/rerank/文生图/工具调用/语音）
