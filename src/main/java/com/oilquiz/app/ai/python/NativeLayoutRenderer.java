@@ -2484,7 +2484,7 @@ return attachLabel(context, node, props, row, density);
                         if (radius <= 0) return;
                         float total = 0;
                         for (int i = 0; i < pieData.length(); i++) {
-                            total += (float) pieData.optJSONObject(i).optDouble("value", 0);
+                            total += pieValue(pieData, i);
                         }
                         if (total <= 0) return;
                         float startAngle = -90;
@@ -2492,10 +2492,12 @@ return attachLabel(context, node, props, row, density);
                         paint.setAntiAlias(true);
                         for (int i = 0; i < pieData.length(); i++) {
                             JSONObject seg = pieData.optJSONObject(i);
-                            if (seg == null) continue;
-                            float value = (float) seg.optDouble("value", 0);
+                            float value = pieValue(pieData, i);
+                            if (seg == null && value <= 0) continue;  // 纯数字形态：label 用序号
                             float sweep = 360f * value / total;
-                            int color = seg.has("color") ? parseColor(context, seg.optString("color", ""))
+                            // seg 可能为 null（data 是纯数字数组）：取色也要兜底，否则又是一次 onDraw NPE
+                            int color = (seg != null && seg.has("color"))
+                                    ? parseColor(context, seg.optString("color", ""))
                                     : ComponentColors.chartColor(context, i);
                             paint.setColor(color);
                             canvas.drawArc(cx - radius, cy - radius, cx + radius, cy + radius,
@@ -3901,6 +3903,27 @@ return attachLabel(context, node, props, srWrap, density);
         } catch (Exception ignored) {
         }
         return out;
+    }
+
+    /**
+     * 饼图单值：{@code data:[{value:5,label:"A"}]} 与 {@code data:[5,3,1]} 两种形态都收。
+     *
+     * <p>真机崩溃（2026-10-27 18:16）就出在这里：模型给的 data 里混了非对象元素时
+     * {@code optJSONObject(i)} 返回 null，旧代码直接 {@code .optDouble(...)} → NPE 抛在 onDraw 里，
+     * 整个页面崩溃。绘制层必须对"模型给的形状"做兜底，不能假设它一定合规。</p>
+     */
+    static float pieValue(JSONArray arr, int i) {   // 包内可见：供单测钉住"畸形 data 不崩"
+        if (arr == null) return 0f;
+        JSONObject seg = arr.optJSONObject(i);
+        if (seg != null) {
+            try {
+                return (float) seg.optDouble("value", 0);
+            } catch (Throwable t) {
+                return 0f;
+            }
+        }
+        // 兼容纯数字数组形态
+        return (float) arr.optDouble(i, 0);
     }
 
     private static int dp(int base, int density) {
