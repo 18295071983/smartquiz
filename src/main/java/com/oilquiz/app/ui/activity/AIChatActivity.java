@@ -181,6 +181,12 @@ public class AIChatActivity extends BaseActivity {
      */
     private com.oilquiz.app.ai.chat.ScrollAnchorKeeper scrollAnchorKeeper;
     private android.widget.LinearLayout queueBar;
+    /** 本轮任务进度插槽（独立于消息流；由 AgentProgressBus 驱动） */
+    private android.widget.LinearLayout agentProgressSlot;
+    private android.widget.TextView tvAgentProgressTitle;
+    private android.widget.TextView tvAgentProgressPct;
+    private android.widget.TextView tvAgentProgressMsg;
+    private android.widget.ProgressBar pbAgentProgress;
     private android.widget.TextView tvQueueInfo;
     private android.widget.TextView btnQueueCancel;
     /** 忙时发送模式：block=拒绝（默认）/ queue=排队 / steer=打断重发 */
@@ -711,6 +717,11 @@ public class AIChatActivity extends BaseActivity {
                 btnLoadMoreHistory.setOnClickListener(v -> loadMoreHistory());
             }
             queueBar = findViewById(R.id.queue_bar);
+            agentProgressSlot = findViewById(R.id.agent_progress_slot);
+            tvAgentProgressTitle = findViewById(R.id.tv_agent_progress_title);
+            tvAgentProgressPct = findViewById(R.id.tv_agent_progress_pct);
+            tvAgentProgressMsg = findViewById(R.id.tv_agent_progress_msg);
+            pbAgentProgress = findViewById(R.id.pb_agent_progress);
             tvQueueInfo = findViewById(R.id.tv_queue_info);
             btnQueueCancel = findViewById(R.id.btn_queue_cancel);
             busySendMode = getSharedPreferences("ai_prefs", MODE_PRIVATE).getString(PREFS_BUSY_MODE, "block");
@@ -7973,6 +7984,9 @@ public class AIChatActivity extends BaseActivity {
 
         // 生成状态行随 hideLoadingUI()→toggleStopButton(false) 收起，速度/余额在收起时清空
 
+        // 本轮结束：进度插槽随之收起（进度不属于任何一条已完成的消息）
+        try { com.oilquiz.app.ai.chat.status.AgentProgressBus.clear(); } catch (Throwable ignored) {}
+
         // 排队消息接线（2026-10-27）：此前排空只挂在旧版 ViewModel 的 isGenerating 观察者上
         // （该状态机早已不被驱动、已删除），而在线 Agent 走自己的消息回调，
         // 于是 Agent 回合结束后排队消息永远不会发。endGeneration 是两条路径统一的结束点，
@@ -12565,6 +12579,33 @@ public class AIChatActivity extends BaseActivity {
     /**
      * 发送带附件的消息（无需文字输入）
      */
+    /** 进度插槽监听：工具线程推快照 → 主线程渲染 */
+    private final com.oilquiz.app.ai.chat.status.AgentProgressBus.Listener agentProgressListener =
+            snapshot -> runOnUiThread(() -> renderAgentProgress(snapshot));
+
+    /** 渲染本轮进度插槽；snapshot=null 表示清空隐藏 */
+    private void renderAgentProgress(com.oilquiz.app.ai.chat.status.AgentProgressBus.Snapshot s) {
+        if (agentProgressSlot == null) return;
+        if (s == null) {
+            agentProgressSlot.setVisibility(View.GONE);
+            return;
+        }
+        agentProgressSlot.setVisibility(View.VISIBLE);
+        if (tvAgentProgressTitle != null) {
+            tvAgentProgressTitle.setText(s.title == null || s.title.isEmpty() ? "任务进度" : s.title);
+        }
+        if (tvAgentProgressPct != null) tvAgentProgressPct.setText(s.percent() + "%");
+        if (pbAgentProgress != null) {
+            pbAgentProgress.setMax(100);
+            pbAgentProgress.setProgress(s.percent());
+        }
+        if (tvAgentProgressMsg != null) {
+            boolean has = s.message != null && !s.message.isEmpty();
+            tvAgentProgressMsg.setText(has ? s.message : "");
+            tvAgentProgressMsg.setVisibility(has ? View.VISIBLE : View.GONE);
+        }
+    }
+
     /** 显示/隐藏"继续上次中断的任务"入口：只在引擎报告存在待续跑时显示 */
     private void refreshResumeChip() {
         if (chipResumeInterrupted == null) return;
@@ -12799,6 +12840,8 @@ public class AIChatActivity extends BaseActivity {
         com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.refreshSubtitleIfNeeded(this);
         // "继续上次中断的任务"入口：冷启动/切回前台时按待续跑状态刷新
         refreshResumeChip();
+        // 进度插槽：注册即回放当前值（后台跑着的任务回到前台也能看到进度）
+        com.oilquiz.app.ai.chat.status.AgentProgressBus.addListener(agentProgressListener);
 
         // 后台产出回灌：离开页面期间工具写了哪些文件，回来用一条系统消息告知
         // （通知只在离开时发，回到前台即撤销，避免提示滞留）
@@ -12955,6 +12998,7 @@ public class AIChatActivity extends BaseActivity {
             // 标记 UI 已分离：此后生成回调只落盘、不再更新界面
             uiDetached = true;
             uiHandler.removeCallbacksAndMessages(null);
+            com.oilquiz.app.ai.chat.status.AgentProgressBus.removeListener(agentProgressListener);
             isGenerating = false; isDirectStreaming = false;
         } catch (Exception e) { AppLogger.aiE(TAG, "Error onDestroy: " + e.getMessage()); }
     }

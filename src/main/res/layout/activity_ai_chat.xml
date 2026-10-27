@@ -430,6 +430,63 @@
                 android:padding="@dimen/space_8"
                 android:gravity="center_vertical">
 
+                <!-- 本轮任务进度插槽（2026-10-27）：独立于消息流的一条细进度条，
+                     不参与 RecyclerView 渲染，因此不会被聊天刷新/重建冲掉。
+                     由 AgentProgressBus 驱动（ui_component action=progress），endGeneration 时清空。 -->
+                <LinearLayout
+                    android:id="@+id/agent_progress_slot"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="16dp"
+                    android:layout_marginBottom="4dp"
+                    android:orientation="vertical"
+                    android:background="@drawable/system_message_background"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="6dp"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/tv_agent_progress_title"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:textSize="12sp"
+                            android:maxLines="1"
+                            android:ellipsize="end"
+                            android:textColor="?attr/colorControlText"/>
+
+                        <TextView
+                            android:id="@+id/tv_agent_progress_pct"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textSize="12sp"
+                            android:textColor="?attr/colorPrimary"/>
+                    </LinearLayout>
+
+                    <ProgressBar
+                        android:id="@+id/pb_agent_progress"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="match_parent"
+                        android:layout_height="6dp"
+                        android:max="100"
+                        android:progress="0"/>
+
+                    <TextView
+                        android:id="@+id/tv_agent_progress_msg"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="11sp"
+                        android:maxLines="2"
+                        android:ellipsize="end"
+                        android:textColor="?attr/colorControlTextSecondary"/>
+                </LinearLayout>
+
                 <!-- 发送队列条：忙时排队模式显示待发送消息，可一键清空 -->
                 <LinearLayout
                     android:id="@+id/queue_bar"
