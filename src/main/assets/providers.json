@@ -1,6 +1,6 @@
 {
-  "version": "2026-09-11-v4",
-  "note": "在线模型服务商配置表 v3：在 v2 基础上新增 services 对象声明每家服务能力（chat/agent/vision/webSearch/embedding/rerank/imageGen/functionCalling/tts/asr）。thinking.param 取值：'thinking.type'=嵌套对象{thinking:{type:'enabled'}}，'enable_thinking'=扁平布尔，'reasoning_effort'=扁平字符串。auth 枚举：bearer|x-api-key|query-key|apikey-header|hmac-xfyun|oauth-baidu|none。外部更新：覆盖 filesDir/providers.json 后 reload 即生效。 models[] 支持两种形态：纯字符串（仅声明 chat，能力继承服务商级 services）；对象 {\"name\":\"...\",\"capabilities\":[\"chat\",\"vision\",\"agent\",\"webSearch\",\"embedding\",\"rerank\",\"imageGen\",\"functionCalling\",\"tts\",\"asr\",\"thinking\"]}（模型级能力，与服务商级取交集，API 未返回的预置模型自动并入模型列表）。 reasoning 字段归一化：流式/非流式统一按 reasoning_content || reasoning || thinking 非空即用（覆盖 OpenAI 兼容/Ollama /v1/Ollama 原生）。多轮上下文回传策略：默认按规范不回传思考内容（LM Studio/DeepSeek 规范），DeepSeek 思考模式自动补空串；若某在线模型\"不回传 reasoning 会报 400\"，在服务商对象加 \"requiresReasoningInContext\": true（该服务商所有 assistant 消息始终带 reasoning_content，且去掉 thinking 重试时不剥离）。",
+  "version": "2026-10-27-v1",
+  "note": "2026-10-27-v1：补齐各家端点（智谱/百度/华为/讯飞/方舟/阶跃/MiMo/百炼族/Ollama/DeepSeek·MiniMax webSearch），逐条证据见各条 note；改动内容即版本号，缓存版本闸据此让位给随包表。\n\n在线模型服务商配置表 v3：在 v2 基础上新增 services 对象声明每家服务能力（chat/agent/vision/webSearch/embedding/rerank/imageGen/functionCalling/tts/asr）。thinking.param 取值：'thinking.type'=嵌套对象{thinking:{type:'enabled'}}，'enable_thinking'=扁平布尔，'reasoning_effort'=扁平字符串。auth 枚举：bearer|x-api-key|query-key|apikey-header|hmac-xfyun|oauth-baidu|none。外部更新：覆盖 filesDir/providers.json 后 reload 即生效。 models[] 支持两种形态：纯字符串（仅声明 chat，能力继承服务商级 services）；对象 {\"name\":\"...\",\"capabilities\":[\"chat\",\"vision\",\"agent\",\"webSearch\",\"embedding\",\"rerank\",\"imageGen\",\"functionCalling\",\"tts\",\"asr\",\"thinking\"]}（模型级能力，与服务商级取交集，API 未返回的预置模型自动并入模型列表）。 reasoning 字段归一化：流式/非流式统一按 reasoning_content || reasoning || thinking 非空即用（覆盖 OpenAI 兼容/Ollama /v1/Ollama 原生）。多轮上下文回传策略：默认按规范不回传思考内容（LM Studio/DeepSeek 规范），DeepSeek 思考模式自动补空串；若某在线模型\"不回传 reasoning 会报 400\"，在服务商对象加 \"requiresReasoningInContext\": true（该服务商所有 assistant 消息始终带 reasoning_content，且去掉 thinking 重试时不剥离）。",
   "chatEndpoint": "/chat/completions",
   "modelsEndpoint": "/models",
   "embeddingEndpoint": "/embeddings",
@@ -171,11 +171,13 @@
         },
         "tts": {
           "enabled": true,
-          "endpoint": "/api/v1/services/aigc/multimodal-generation/generation"
+          "endpoint": "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+          "note": "百炼原生多模态接口在域名根下：https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation（Qwen-TTS / Qwen-ASR 走 MultiModalConversation）。它在域名根、不在 /compatible-mode/v1 之后，所以必须写完整地址——相对路径会被拼成 .../compatible-mode/v1/api/v1/... 这种不存在的地址。注：本字段当前没有被 resolve() 消费（语音走 DashScope 专用引擎类），这里只是把形状写对。"
         },
         "asr": {
           "enabled": true,
-          "endpoint": "/api/v1/services/aigc/multimodal-generation/generation"
+          "endpoint": "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+          "note": "百炼原生多模态接口在域名根下：https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation（Qwen-TTS / Qwen-ASR 走 MultiModalConversation）。它在域名根、不在 /compatible-mode/v1 之后，所以必须写完整地址——相对路径会被拼成 .../compatible-mode/v1/api/v1/... 这种不存在的地址。注：本字段当前没有被 resolve() 消费（语音走 DashScope 专用引擎类），这里只是把形状写对。"
         }
       }
     },
@@ -1399,7 +1401,8 @@
         },
         "agent": {
           "enabled": false,
-          "note": "Ollama 无 Agent 端点"
+          "endpoint": "/responses",
+          "note": "Ollama 官方 OpenAI 兼容层文档（docs.ollama.com/api/openai-compatibility，2026-10-27 取）覆盖 /v1/responses（非有状态模式）。原先进来的\"Ollama 无 Agent 端点\"已按文档改掉。登记 ≠ 放量：enabled 仍 false、protocol 不设，本 app 对 Ollama 优先走原生 /api/chat；若将来放量，需先在线对拍（无状态模式不回传 previous_response_id）。"
         },
         "vision": {
           "enabled": true,
@@ -2046,11 +2049,13 @@
         },
         "tts": {
           "enabled": true,
-          "endpoint": "/api/v1/services/aigc/multimodal-generation/generation"
+          "endpoint": "https://{workspace-id}.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+          "note": "百炼专属空间的域名与公共百炼不同（本家 baseUrl 就是 https://{workspace-id}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1），原生多模态接口在同一个空间的域名根下，故用 {workspace-id} 占位的完整地址。相对路径会拼成 .../compatible-mode/v1/api/v1/... 这种不存在的地址。注：本字段当前没有被 resolve() 消费（语音走 DashScope 专用引擎类），这里只是把形状写对。"
         },
         "asr": {
           "enabled": true,
-          "endpoint": "/api/v1/services/aigc/multimodal-generation/generation"
+          "endpoint": "https://{workspace-id}.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+          "note": "百炼专属空间的域名与公共百炼不同（本家 baseUrl 就是 https://{workspace-id}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1），原生多模态接口在同一个空间的域名根下，故用 {workspace-id} 占位的完整地址。相对路径会拼成 .../compatible-mode/v1/api/v1/... 这种不存在的地址。注：本字段当前没有被 resolve() 消费（语音走 DashScope 专用引擎类），这里只是把形状写对。"
         }
       }
     },

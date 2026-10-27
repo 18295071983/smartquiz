@@ -1047,7 +1047,7 @@ public class OnlineInferenceService {
     /** 探测 webSearch：带配置表搜索参数的最小请求（注入失败不探测；端点不匹配时自动重拼） */
     private Boolean doProbeWebSearch(OnlineModelManager.OnlineModelConfig config) throws Exception {
         if (!isProbeUsable(config)) return null;
-        // 端口重拼：配置表 webSearch.endpoint=responses（DeepSeek/MiniMax 官方 web_search 仅 /responses 生效）
+        // 端口重拼：配置表 webSearch.endpoint=/responses（DeepSeek/MiniMax 官方 web_search 仅 /responses 生效）
         // → 探测请求自动重拼到 /responses 并用最小 Responses 请求体，不被 chat/completions 限定死
         String wse = com.oilquiz.app.ai.model.ProviderConfigManager.get().getWebSearchEndpoint(config.apiUrl);
         boolean responsesProbe = wse != null && !wse.isEmpty() && !config.apiUrl.contains(wse);
@@ -2137,7 +2137,7 @@ public class OnlineInferenceService {
             // 联网搜索优先自有工具：预搜索成功则拼入 prompt 且不再注入官方 webSearch
             String searchPrompt = applySearchToPrompt(prompt, webSearch);
             boolean ownSearchUsed = searchPrompt != prompt;
-            // 端口不匹配（配置表 webSearch.endpoint=responses，如图片+DeepSeek 官方 web_search 仅
+            // 端口不匹配（配置表 webSearch.endpoint=/responses，如图片+DeepSeek 官方 web_search 仅
             // /responses 生效）：多模态无法重拼到 Responses（图片输入）→ 预搜索失败时跳过官方注入，
             // 避免 chat/completions 400
             if (!ownSearchUsed) {
@@ -2633,7 +2633,7 @@ public class OnlineInferenceService {
                                   boolean webSearch,
                                   StreamCallback callback) throws Exception {
         // 端口重拼决策（不被端点限定死）：联网搜索需官方注入，但当前 chat/completions 端点不支持
-        // （配置表 webSearch.endpoint=responses，如 DeepSeek/MiniMax 官方 web_search 仅 /responses 生效）→
+        // （配置表 webSearch.endpoint=/responses，如 DeepSeek/MiniMax 官方 web_search 仅 /responses 生效）→
         // 先尝试自有 network_search 预搜索；预搜索成功则留在本路径（结果拼入 prompt）；
         // 预搜索失败则自动重拼 URL 到 /responses 走 Responses API（重建请求体 + 注入官方 web_search 工具）
         String searchPrompt = prompt;

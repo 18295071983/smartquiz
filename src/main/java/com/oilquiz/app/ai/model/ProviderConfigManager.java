@@ -34,8 +34,9 @@ import org.json.JSONObject;
  *
  * <p>加载优先级（与 {@link OnlineModelProfile} 一致的三级机制）：
  * <ol>
- *   <li>filesDir/providers.json（外部可更新覆盖）</li>
- *   <li>SharedPreferences 双保险（上次成功解析的 JSON）</li>
+ *   <li>filesDir/providers.json（外部可更新覆盖；有意优先，不看版本）</li>
+ *   <li>SharedPreferences 双保险（上次成功解析的备份；<b>只有不旧于随包版本才用</b>，
+ *       否则一份旧备份会把之后所有随包更新永久盖住）</li>
  *   <li>assets/providers.json（App 内置默认）</li>
  * </ol>
  *
@@ -118,7 +119,10 @@ public class ProviderConfigManager {
     }
 
     private static ProviderTable loadTable() {
-        // 1) filesDir 外部覆盖
+        // 随包表只读一次：版本闸与最后的兜底共用同一份文本，避免读两遍各读到一个结果
+        String assetJson = readAssetJson();
+        String assetVersion = assetJson == null ? null : versionOf(assetJson);
+        // 1) filesDir 外部覆盖 —— 有意优先，类注释承诺"外部可直接覆盖"，不受版本闸约束
         if (appContext != null) {
             try {
                 File override = new File(appContext.getFilesDir(), OVERRIDE_FILE);
@@ -132,15 +136,23 @@ public class ProviderConfigManager {
             } catch (Exception e) {
                 AILogger.w(TAG, "filesDir override load failed: " + e.getMessage());
             }
-            // 2) SharedPreferences 双保险
+            // 2) SharedPreferences 双保险 —— 只在这份缓存严格新于随包表时才用
+            // （同版本让位给随包，见 isCacheTrusted）。
+            // 此前无条件返回：缓存一旦写下，后续任何一次随包更新都会被它永久盖住
+            // （provider_config 里的 providers_json 没有在装包时被清过），
+            // 表现是"改了 assets 表、装了新包、行为照旧"，而且日志还会说"loaded from SharedPreferences cache"。
             try {
                 String cached = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                         .getString(KEY_JSON, null);
                 if (cached != null && !cached.isEmpty()) {
                     ProviderTable t = parseJson(cached);
                     if (t != null) {
-                        AILogger.i(TAG, "loaded from SharedPreferences cache");
-                        return t;
+                        if (isCacheTrusted(t.version, assetVersion)) {
+                            AILogger.i(TAG, "loaded from SharedPreferences cache（版本 " + t.version + "）");
+                            return t;
+                        }
+                        AILogger.i(TAG, "忽略缓存表：缓存版本 " + t.version
+                                + " 不新于随包 " + assetVersion + "，改用 assets");
                     }
                 }
             } catch (Exception e) {
@@ -148,26 +160,93 @@ public class ProviderConfigManager {
             }
         }
         // 3) assets 内置
-        try {
-            if (appContext != null) {
-                try (InputStream is = appContext.getAssets().open(ASSET_FILE)) {
-                    java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-                    byte[] buf = new byte[8192];
-                    int n;
-                    while ((n = is.read(buf)) > 0) {
-                        bos.write(buf, 0, n);
-                    }
-                    ProviderTable t = parseJson(new String(bos.toByteArray(), StandardCharsets.UTF_8));
-                    if (t != null) {
-                        AILogger.i(TAG, "loaded from assets");
-                        return t;
-                    }
-                }
+        if (assetJson != null) {
+            ProviderTable t = parseJson(assetJson);
+            if (t != null) {
+                AILogger.i(TAG, "loaded from assets");
+                return t;
             }
-        } catch (Exception e) {
-            AILogger.e(TAG, "assets load failed: " + e.getMessage());
         }
         return null;
+    }
+
+    /** 读一次随包表文本；读不到返回 null（由调用方按"没有内置表"处理），不外抛 */
+    private static String readAssetJson() {
+        if (appContext == null) return null;
+        try (InputStream is = appContext.getAssets().open(ASSET_FILE)) {
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) > 0) {
+                bos.write(buf, 0, n);
+            }
+            return new String(bos.toByteArray(), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            AILogger.e(TAG, "assets load failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** 从表文本里取 version（只做一次字符串匹配，不建整棵树）；取不到返回 null */
+    static String versionOf(String json) {
+        if (json == null) return null;
+        java.util.regex.Matcher m = VERSION_IN_JSON.matcher(json);
+        return m.find() ? m.group(1) : null;
+    }
+
+    private static final java.util.regex.Pattern VERSION_IN_JSON =
+            java.util.regex.Pattern.compile("\"version\"\\s*:\\s*\"([^\"]+)\"");
+
+    private static final java.util.regex.Pattern TABLE_VERSION =
+            java.util.regex.Pattern.compile("^(\\d{4}-\\d{2}-\\d{2})(?:-v(\\d+))?$");
+
+    /**
+     * 缓存表是否仍然可信 —— <b>只有缓存版本严格新于随包版本时才用</b>。
+     *
+     * <p>为什么需要这道闸：SharedPreferences 那份是"上次成功解析的备份"，装包不会清它。
+     * 没有版本比较时，它会把之后任何一次随包更新永久盖住，而且日志照样打印
+     * "loaded from SharedPreferences cache"，从现象看就是"表改了等于没改"。</p>
+     *
+     * <p>为什么同版本也让位给随包：同版本本就该同内容；"同版本却不同内容"必然是改了表没改版本号。
+     * 让随包赢，这类旧缓存能自愈，而不是要用户去清数据。代价只是每次启动多解析一次 assets。</p>
+     *
+     * <p>三条保守约定：随包版本读不到（没有 assets / 解析失败）→ 保留缓存，不能因为判不了
+     * 就让用户手上突然没有表；缓存没写版本号 → 当作旧包产物，让位给随包；两边版本号都解析不了
+     * → 保留缓存（今天的行为），宁可不动也不误删一份能用的表。</p>
+     */
+    static boolean isCacheTrusted(String cachedVersion, String assetVersion) {
+        if (!isNonBlank(assetVersion)) return true;
+        if (!isNonBlank(cachedVersion)) return false;
+        int cmp = compareTableVersion(cachedVersion, assetVersion);
+        if (cmp == Integer.MIN_VALUE) return true;
+        return cmp > 0;
+    }
+
+    /**
+     * 表版本比较：形如 {@code 2026-09-11-v4}。日期段是 ISO，字典序即时间序；{@code -vN} 按数值比。
+     * 缺 {@code -vN} 视为 v0。任何一段解析不了就返回 {@link Integer#MIN_VALUE}（"无法比较"）。
+     */
+    static int compareTableVersion(String a, String b) {
+        Long[] pa = parseTableVersion(a);
+        Long[] pb = parseTableVersion(b);
+        if (pa == null || pb == null) return Integer.MIN_VALUE;
+        int byDate = pa[0].compareTo(pb[0]);
+        if (byDate != 0) return byDate;
+        return pa[1].compareTo(pb[1]);
+    }
+
+    /** {日期(YYYYMMDD 数值), vN}；解析不了返回 null */
+    private static Long[] parseTableVersion(String v) {
+        if (v == null) return null;
+        java.util.regex.Matcher m = TABLE_VERSION.matcher(v.trim());
+        if (!m.matches()) return null;
+        try {
+            long date = Long.parseLong(m.group(1).replace("-", ""));
+            long rev = m.group(2) == null ? 0L : Long.parseLong(m.group(2));
+            return new Long[]{date, rev};
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static String readFile(File f) throws Exception {
@@ -1092,7 +1171,15 @@ public class ProviderConfigManager {
         return sc != null ? sc.param : null;
     }
 
-    /** webSearch 声明的端点约束（如 "responses"：仅该端点支持注入），null 表示不限端点 */
+    /**
+     * webSearch 声明的端点约束：值是该能力的<b>生效端点形态</b>（如 {@code "/responses"}，
+     * 表示"这个服务端搜索工具只在 Responses 请求里生效"），null 表示不限端点。
+     *
+     * <p>它必须是真路径而不是协议标识（{@code "responses"}）：三处消费者都拿
+     * {@code !apiUrl.contains(wse)} 先判"当前地址是否已经是它"，再喂给 {@link #buildUrl}
+     * 做重拼；写成裸标识时当前地址永远不含它，守卫恒真、重拼结果也得靠 {@link #RESPONSES_PATH}
+     * 兜回来——两套写法都对，但只有一种是这个字段名副其实的。</p>
+     */
     public String getWebSearchEndpoint(String apiUrl) {
         Provider p = matchByUrl(apiUrl);
         if (p == null || p.services == null || p.services.webSearch == null) return null;
