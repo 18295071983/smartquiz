@@ -1128,6 +1128,32 @@ public class AIChatActivity extends BaseActivity {
     /**
      * 更新发送按钮状态（可点击/文本）
      */
+    /**
+     * Agent 执行失败时的<b>结构化错误卡</b>：复用现有 alert 组件，而不是复活已删除的旧
+     * {@code renderAIError} 弹窗。与工具卡同源——ComponentData + ChatIdDispatcher 发子 id，
+     * ChatAdapter 按 id 定位渲染；失败只降级为原本文案，不影响状态复位。
+     */
+    private void attachAgentErrorCard(ChatMessage msg, String error) {
+        try {
+            if (msg == null) return;
+            org.json.JSONObject props = new org.json.JSONObject();
+            props.put("type", "error");
+            props.put("title", "执行失败");
+            String detail = error == null || error.trim().isEmpty() ? "未知错误" : error.trim();
+            if (detail.length() > 300) detail = detail.substring(0, 300) + "…";
+            props.put("content", detail);
+            com.oilquiz.app.ai.chat.component.ComponentData card =
+                    new com.oilquiz.app.ai.chat.component.ComponentData("alert", props);
+            String id = ChatIdDispatcher.getInstance()
+                    .applySubId(ChatIdDispatcher.IdType.COMPONENT, msg.turnId);
+            if (id != null) card.id = id;
+            if (msg.components == null) msg.components = new java.util.ArrayList<>();
+            msg.components.add(card);
+        } catch (Throwable ignored) {
+            // 卡片只是增强；渲染失败不能把错误文案/状态复位一起带崩
+        }
+    }
+
     /** 刷新会话统计胶囊（dsh StatsPills 风格）：数据直接来自当前消息列表 */
     private void refreshSessionStats() {
         if (sessionStatsBar == null) return;
@@ -1417,6 +1443,7 @@ public class AIChatActivity extends BaseActivity {
                     if (idx >= 0) {
                         ChatMessage msg = chatHistory.get(idx);
                         msg.content = "错误: " + error;
+                        attachAgentErrorCard(msg, error);
                         refreshSessionStats();
                         msg.status = ChatMessage.MessageStatus.FAILED;
                         if (chatAdapter != null) {
