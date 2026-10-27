@@ -2,6 +2,7 @@ package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
 
+import com.oilquiz.app.ai.agent.SessionContext;
 import com.oilquiz.app.util.AILogger;
 
 import org.json.JSONArray;
@@ -88,6 +89,27 @@ public class TaskStateTracker {
         return activeSession;
     }
 
+    /**
+     * 本次读写实际作用于哪个会话：优先用工具执行线程上带下来的会话作用域
+     * （{@link SessionContext}），没有才回落到全局 {@link #activeSession}。
+     *
+     * <p>此前只有全局单值：两个引擎并行时，后启动的 execute 会把 activeSession 顶掉，
+     * 于是 A 会话里 task add 出来的任务记到 B 名下、A 的 list 看不到自己的待办。
+     * UI 侧（任务面板/历史角标）没有作用域，仍走 {@code activeSession}，行为不变。</p>
+     */
+    private String currentSession() {
+        String scoped = SessionContext.current();
+        return scoped != null ? normSession(scoped) : activeSession;
+    }
+
+    /**
+     * 供"归属类"记录使用（用量、审计）的实际会话：有工具作用域用作用域，否则用全局活跃会话。
+     * 与 {@link #getActiveSession()} 分开：后者是 UI 导航用的"当前正在看的会话"，语义不同。
+     */
+    public String getEffectiveSession() {
+        return currentSession();
+    }
+
     private static volatile TaskStateTracker instance;
 
     public static TaskStateTracker getInstance(Context context) {
@@ -135,7 +157,7 @@ public class TaskStateTracker {
             AILogger.i(TAG, "任务已满，淘汰本会话最旧归档任务: " + oldestArchived.id);
         }
         TaskEntry entry = new TaskEntry(desc, normalizeStatus(status));
-        entry.session = this.activeSession;
+        entry.session = currentSession();
         tasks.put(entry.id, entry);
         persist();
         return entry;
@@ -252,7 +274,7 @@ public class TaskStateTracker {
 
     /** 当前会话的全部任务（更新时间降序）；跨会话任务不可见，从根上隔离"别的对话/天的任务" */
     public List<TaskEntry> getAll() {
-        String sid = this.activeSession;
+        String sid = currentSession();
         List<TaskEntry> result = new ArrayList<>();
         for (TaskEntry e : tasks.values()) {
             if (e != null && sid.equals(e.session)) result.add(e);
@@ -263,7 +285,7 @@ public class TaskStateTracker {
 
     /** 当前会话任务数（供上限与 tool "total" 使用） */
     public int size() {
-        String sid = this.activeSession;
+        String sid = currentSession();
         int n = 0;
         for (TaskEntry e : tasks.values()) {
             if (e != null && sid.equals(e.session)) n++;
@@ -353,7 +375,7 @@ public class TaskStateTracker {
 
     /** 找本会话已归档（completed/failed）且 updatedAt 最早的条目（淘汰用） */
     private TaskEntry findOldestArchived() {
-        String sid = this.activeSession;
+        String sid = currentSession();
         TaskEntry oldest = null;
         for (TaskEntry e : tasks.values()) {
             if (e == null || !sid.equals(e.session)) continue;

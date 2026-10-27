@@ -494,6 +494,19 @@ public class OnlineToolManager {
      * @return 工具执行结果
      */
     public OnlineToolResult executeTool(String toolCallId, String toolName, String arguments) {
+        return executeTool(toolCallId, toolName, arguments, null);
+    }
+
+    /**
+     * 带会话归属的工具执行。
+     *
+     * @param sessionId 本次执行所属会话；工具执行期间通过
+     *                  {@link com.oilquiz.app.ai.agent.SessionContext} 传给工具侧
+     *                  （tmp 目录按会话分区、任务清单与用量按会话归属）。
+     *                  传 null 时行为与旧的三参版本完全一致。
+     */
+    public OnlineToolResult executeTool(String toolCallId, String toolName, String arguments,
+                                        String sessionId) {
         AILogger.i(TAG, "Executing tool: " + toolName + " args: " + arguments);
         long startTime = System.currentTimeMillis();
 
@@ -539,11 +552,16 @@ public class OnlineToolManager {
             try {
                 final int currentAttempt = attempt;
                 AIToolResult result = CompletableFuture.supplyAsync(() -> {
+                    // 工具执行期间显式带上会话作用域：线程池线程会被复用，必须在 finally 里清掉，
+                    // 否则下一次（可能是别的会话）执行会继承上一次的归属。
+                    com.oilquiz.app.ai.agent.SessionContext.set(sessionId);
                     try {
                         return aiToolManager.executeTool(toolName, params);
                     } catch (Exception e) {
                         AILogger.e(TAG, "Tool execution error (attempt " + currentAttempt + "): " + e.getMessage(), e);
                         return null;
+                    } finally {
+                        com.oilquiz.app.ai.agent.SessionContext.clear();
                     }
                 }, TOOL_EXECUTOR).get(effectiveTimeout, TimeUnit.MILLISECONDS);
 

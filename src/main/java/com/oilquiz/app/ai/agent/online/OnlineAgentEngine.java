@@ -412,10 +412,11 @@ public class OnlineAgentEngine {
                 notifyError("执行中断: " + (t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName()));
             } finally {
                 // 任务结束清理临时工作区（tmp/ 执行中间文件/缓存/进度）——
-                // 工作区是临时执行空间，长期产物在 files/，临时缓存不跨任务保留
+                // 工作区是临时执行空间，长期产物在 files/，临时缓存不跨任务保留。
+                // 只清本会话的目录：此前清的是整个 tmp，两个会话并行时会把对方正在用的中间文件删掉。
                 try {
                     int removed = com.oilquiz.app.ai.agent.online.AgentWorkspace
-                            .getInstance(context).clearTmp();
+                            .getInstance(context).clearTmp(sessionId);
                     if (removed > 0) {
                         AILogger.i(TAG, "任务结束清理临时工作区: 删除 " + removed + " 个临时文件");
                     }
@@ -1635,7 +1636,9 @@ public class OnlineAgentEngine {
         int tokensBefore = execTotalPromptTokens + execTotalCompletionTokens;
         AILogger.i(TAG, "Executing tool: " + toolName + " args: " + arguments
             + " | 调用前 token 累计: " + tokensBefore);
-        OnlineToolResult result = toolManager.executeTool(toolCallId, toolName, arguments);
+        // 带上本引擎的会话 id：工具侧的 tmp 目录、任务清单、用量归属都据此落到正确会话，
+        // 而不是从全局"当前会话"去猜（并发时会猜错）。
+        OnlineToolResult result = toolManager.executeTool(toolCallId, toolName, arguments, sessionId);
         // ——发现制闭环（2026-09-23 v5）：模型实际调用（含 tool_registry get 的目标工具）成功后，
         // 自动并入会话工具缓存，并立即刷新 liveToolsJson——当前 execute 的下一迭代就能直接调用
         // 该工具（MCP 语义：get 后本轮可调，不等下条用户消息）——

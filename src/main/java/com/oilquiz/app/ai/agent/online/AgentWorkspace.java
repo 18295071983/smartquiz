@@ -34,6 +34,8 @@ public class AgentWorkspace {
     private static final String TAG = "AgentWorkspace";
     private static final String WORKSPACE_DIR = "agent_workspace";
     private static final String TMP_DIR = "tmp";
+    /** 会话私有临时目录前缀：tmp/s_<会话键>/（与共享 tmp 下的普通文件区分开） */
+    private static final String SESSION_TMP_PREFIX = "s_";
     private static final String FILES_DIR = "files";
     /** 公共目录根：Download/OilQuiz（SDK 29+ 用户可见） */
     private static final String PUBLIC_ROOT = "OilQuiz";
@@ -286,10 +288,48 @@ public class AgentWorkspace {
         return getWorkspaceDir().getAbsolutePath();
     }
 
-    /** 临时缓存目录（执行中间文件/进度/长对话摘要，任务结束自动清理） */
+    /**
+     * 临时缓存目录。
+     *
+     * <p>有会话作用域（{@link com.oilquiz.app.ai.agent.SessionContext}）时返回<b>该会话私有</b>的
+     * {@code tmp/s_<会话键>/}；没有作用域时回落到共享 {@code tmp/}（工作区面板、HTML 沙箱这类
+     * 与具体会话无关的调用方走这条）。</p>
+     */
     public File getTmpDir() {
         ensureDirs();
-        return tmpDir;
+        String sid = com.oilquiz.app.ai.agent.SessionContext.current();
+        if (sid == null) return tmpDir;
+        return sessionTmpDir(sid);
+    }
+
+    /** 会话私有临时目录（{@code tmp/s_<key>}），不存在则创建；会话键经统一清洗，空则用 {@code _default} */
+    public File sessionTmpDir(String sessionId) {
+        ensureDirs();
+        String key = com.oilquiz.app.ai.agent.SessionContext.sanitizeOrNull(sessionId);
+        if (key == null) key = "_default";
+        File dir = new File(tmpDir, SESSION_TMP_PREFIX + key);
+        if (!dir.exists()) dir.mkdirs();
+        return dir;
+    }
+
+    /** 所有临时目录：共享 tmp + 各会话子目录（工作区面板统计、HTML 沙箱白名单用） */
+    public java.util.List<File> getAllTmpDirs() {
+        ensureDirs();
+        java.util.List<File> dirs = new java.util.ArrayList<>();
+        dirs.add(tmpDir);
+        dirs.addAll(sessionTmpDirs());
+        return dirs;
+    }
+
+    private java.util.List<File> sessionTmpDirs() {
+        java.util.List<File> dirs = new java.util.ArrayList<>();
+        File[] subs = tmpDir.listFiles();
+        if (subs != null) {
+            for (File f : subs) {
+                if (f.isDirectory() && f.getName().startsWith(SESSION_TMP_PREFIX)) dirs.add(f);
+            }
+        }
+        return dirs;
     }
 
     /** 长期文件目录（用户保留的产物，不自动清理） */
@@ -605,12 +645,43 @@ public class AgentWorkspace {
         }
     }
 
-    /** 清理临时缓存区（任务结束调用：清空 tmp/ 下所有文件） */
+    /**
+     * 清理临时缓存区。
+     *
+     * <p>有会话作用域时只清<b>该会话</b>的目录；没有作用域时清共享 tmp 下的文件（旧行为）。
+     * 这条分流是并行会话隔离的关键：此前任一会话结束都会清空整个 tmp，把另一个会话正在用的
+     * 中间文件一起删掉。</p>
+     */
     public int clearTmp() {
+        String sid = com.oilquiz.app.ai.agent.SessionContext.current();
+        if (sid != null) return clearTmp(sid);
+        return clearDirFiles(tmpDir);
+    }
+
+    /** 清理指定会话的临时目录（引擎在回合结束调用——引擎线程上没有会话作用域，必须显式传） */
+    public int clearTmp(String sessionId) {
+        String key = com.oilquiz.app.ai.agent.SessionContext.sanitizeOrNull(sessionId);
+        // 没有会话 id 的引擎（调试桥/无会话调用）保持旧行为：清共享 tmp，
+        // 否则它们的中间文件永远没人清。
+        if (key == null) return clearDirFiles(tmpDir);
+        return clearDirFiles(new File(tmpDir, SESSION_TMP_PREFIX + key));
+    }
+
+    /** 清理全部临时缓存：共享 tmp + 所有会话子目录（工作区面板"清理缓存"按钮用） */
+    public int clearTmpAll() {
+        int removed = clearDirFiles(tmpDir);
+        for (File d : sessionTmpDirs()) {
+            removed += clearDirFiles(d);
+        }
+        return removed;
+    }
+
+    /** 删除目录下的文件（不递归、不删子目录）；目录不存在返回 0 */
+    private int clearDirFiles(File dir) {
         int removed = 0;
-        File[] tmps = getTmpDir().listFiles();
-        if (tmps != null) {
-            for (File f : tmps) {
+        File[] files = dir == null ? null : dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
                 if (f.isFile() && f.delete()) removed++;
             }
         }

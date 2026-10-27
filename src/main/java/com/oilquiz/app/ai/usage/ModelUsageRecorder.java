@@ -67,7 +67,9 @@ public final class ModelUsageRecorder {
 
             ApiUsageLog log = new ApiUsageLog();
             log.setTraceId(java.util.UUID.randomUUID().toString());
-            log.setSessionId(TaskStateTracker.getInstance(context).getActiveSession());
+            // 归属优先取工具作用域里的会话（并发时全局 activeSession 会被别的引擎顶掉），
+            // 没有作用域时回落全局活跃会话（行为与以前一致）。
+            log.setSessionId(TaskStateTracker.getInstance(context).getEffectiveSession());
             log.setUserId(LOCAL_USER);
             log.setModelId(usageModelId(active));
             log.setProviderId(usageProviderId(active));

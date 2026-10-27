@@ -205,7 +205,7 @@ public class AgentWorkspaceView {
         clearRow.addView(clearTmpBtn, clearTmpLp);
 
         clearTmpBtn.setOnClickListener(v -> {
-            int removed = AgentWorkspace.getInstance(context).clearTmp();
+            int removed = AgentWorkspace.getInstance(context).clearTmpAll();
             Toast.makeText(context, "已清理临时缓存，删除 " + removed + " 个", Toast.LENGTH_SHORT).show();
             refresh();
         });
@@ -236,7 +236,9 @@ public class AgentWorkspaceView {
         // 占用统计（独立于列表签名，每次轮询都刷新）
         if (statsView != null) {
             long wsFiles = dirSize(ws.getFilesDir());
-            long wsTmp = dirSize(ws.getTmpDir());
+            // 临时区已按会话分区（tmp/s_<会话>），统计要把共享 tmp 与各会话目录一起算
+            long wsTmp = 0;
+            for (java.io.File d : ws.getAllTmpDirs()) wsTmp += dirSize(d);
             long privTotal = dirSize(new java.io.File(context.getFilesDir(), ""));
             statsView.setText("💾 工作区占用: files/ " + formatSize(wsFiles)
                     + " · tmp/ " + formatSize(wsTmp)

@@ -305,7 +305,9 @@ public final class HtmlSandbox {
                     com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context);
             if (ws != null) {
                 roots.add(ws.getWorkspaceDir());
-                roots.add(ws.getTmpDir());
+                // 临时区按会话分区：白名单要覆盖共享 tmp 与所有会话子目录，
+                // 否则会话内生成的 tmp 文件在 HTML 里引用会被判为越界
+                roots.addAll(ws.getAllTmpDirs());
                 roots.add(ws.getFilesDir());
             }
         } catch (Throwable ignored) {
