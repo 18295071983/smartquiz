@@ -59,6 +59,14 @@ public class OnlineAgentEngine {
      * 与工具自申报取大），这里只补调度余量——绝不另立一个固定秒数（那正是"外层 60s 掐断 165s 工具"的由来）。
      */
     private static final long TOOL_WAIT_MARGIN_MS = 5_000L;
+
+    /**
+     * 引擎线程池大小（4 → 8）：{@code doExecute} 自己也跑在这个池里、占掉 1 个线程，原来 4 线程意味着
+     * 同一轮最多 3 个工具能同时在等。而这里的线程只是"等结果"——真正的工作在
+     * {@code OnlineToolManager.TOOL_EXECUTOR} 上（IO 等待型），加线程几乎不占额外内存；
+     * 同轮 4~7 个工具不再互相排队。并发上限仍由单轮 tool_calls 数与回合预算约束。
+     */
+    private static final int TOOL_WAIT_THREADS = 8;
     /**
      * 在线 Agent 的输出长度策略（2026-10-18）：**引擎侧不再设上限**。
      *
@@ -250,7 +258,7 @@ public class OnlineAgentEngine {
         this.onlineInferenceService = OnlineInferenceService.getInstance(context);
         this.promptBuilder = new OnlinePromptBuilder(toolManager.getToolGuideInstance());
         this.thinkingChain = new OnlineThinkingChain();
-        this.executor = Executors.newFixedThreadPool(4, r -> {
+        this.executor = Executors.newFixedThreadPool(TOOL_WAIT_THREADS, r -> {
             Thread t = new Thread(r, "OnlineAgent-Worker");
             t.setPriority(Thread.NORM_PRIORITY);
             t.setDaemon(true);

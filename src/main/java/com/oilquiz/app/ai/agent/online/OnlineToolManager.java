@@ -44,6 +44,22 @@ public class OnlineToolManager {
     /** 知识库文件导入（OCR/PDF/Office 解析/AI 语音识别转写）耗时长，超时放宽到 180 秒 */
     private static final int KNOWLEDGE_IMPORT_TIMEOUT_MS = 180_000;
     private static final int MAX_RETRY = 2;
+    /**
+     * 工具实体的执行池（与调用方的"等待"线程分开）。
+     *
+     * <p>此前这里用 {@code CompletableFuture.supplyAsync(...)} 的默认池，也就是
+     * {@code ForkJoinPool.commonPool()}：真正干活的是公共池，超时计时在外层，取消也传不进去；
+     * 而 commonPool 的并行度是"CPU 核数-1"，别处再往里扔阻塞任务，工具就会排队而没人知道
+     * （外层照样在数秒）。本类工具绝大多数是 IO 等待（HTTP/文件/进程），用缓存池按需开线程更合适，
+     * 并发上限由"一轮里模型返回多少个 tool_calls"自然约束。</p>
+     */
+    private static final java.util.concurrent.ExecutorService TOOL_EXECUTOR =
+            java.util.concurrent.Executors.newCachedThreadPool(r -> {
+                Thread t = new Thread(r, "OnlineTool-Worker");
+                t.setDaemon(true);
+                t.setPriority(Thread.NORM_PRIORITY);
+                return t;
+            });
     /** 工具结果截断上限：防止超大结果撑爆上下文/请求体（截断后带标记，提示模型分片读取） */
     private static final int RESULT_MAX_LENGTH = 16 * 1024;
     private static final Gson resultGson = new GsonBuilder().disableHtmlEscaping().create();
@@ -529,7 +545,7 @@ public class OnlineToolManager {
                         AILogger.e(TAG, "Tool execution error (attempt " + currentAttempt + "): " + e.getMessage(), e);
                         return null;
                     }
-                }).get(effectiveTimeout, TimeUnit.MILLISECONDS);
+                }, TOOL_EXECUTOR).get(effectiveTimeout, TimeUnit.MILLISECONDS);
 
                 if (result == null) {
                     throw new RuntimeException("工具执行返回 null");
