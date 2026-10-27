@@ -646,9 +646,18 @@ public class OnlineAgentEngine {
         // 连续暗示"要调用工具"但未输出正确 tool_calls 格式的次数，用于防死循环
         int consecutiveHintForToolCount = 0;
         final int MAX_CONSECUTIVE_TOOL_HINT = 2; // 连续 2 次都暗示要调工具却格式不对，第 3 次强制终止
+        // 一轮工具调用内所有等待的总预算（0=尚未开始计时，本轮首个工具调用时设期限；每轮重置）。
+        // 单工具预算只管"这一个工具该等多久"，管不住"这一轮一共等了多久"：
+        // 工具虽并发提交，但执行池 4 线程里主循环自己占一个，第 4 个起排队，加上共享锁（Python 静态锁）
+        // 会让并发退化成串行——3 个各申报 165~200s 的工具足以把一轮拖过 10 分钟。
+        long turnToolDeadlineMs = 0L;
 
         while (iteration < maxIterations && !isCancelled.get()) {
             iteration++;
+            // 工具等待预算按"轮"计：每轮（模型一次返回的多个 tool_calls）重新获得 TURN_TOOL_BUDGET_MS。
+            // 不做成"整条用户消息一共享"：那样前一组的三个长工具会把预算吃光，后面一轮里的
+            // 快工具（读文件/查时间）也会被瞬时判超时，等于把后续任务废掉。
+            turnToolDeadlineMs = 0L;
             // 暂停门：暂停态下阻塞，直到 resume / 单步放行 / 取消。
             // 单步：stepOnce=true 时放行本轮并清除标志（下一轮重新进入暂停）。
             awaitIfPaused();
@@ -865,10 +874,21 @@ public class OnlineAgentEngine {
                     return;
                 }
                 final OnlineInferenceService.ToolCallInfo tc = result.toolCalls.get(i);
-                // 等待时长与内层同一个来源：工具类型基线 + 工具自申报（remote_dsh 165s、pip 装依赖 ~200s、
-                // 存储授权 65s 各自申报），这里只加调度余量。此前写死 60s，比这些申报值还短——
-                // 内层没到点就被外层掐断，工具在后台继续跑、结果被丢弃，模型只拿到 "工具执行异常: null"。
-                final long waitMs = toolManager.effectiveTimeoutMs(tc.name, tc.arguments) + TOOL_WAIT_MARGIN_MS;
+                // 单工具预算（工具类型基线 + 工具自申报）再受"回合总预算"裁剪：
+                // 前者决定"这个工具值得等多久"，后者决定"这一轮一共还能等多久"。
+                if (turnToolDeadlineMs <= 0) {
+                    turnToolDeadlineMs = System.currentTimeMillis()
+                            + com.oilquiz.app.ai.tool.ToolTimeouts.TURN_TOOL_BUDGET_MS;
+                }
+                final long perToolMs = toolManager.effectiveTimeoutMs(tc.name, tc.arguments)
+                        + TOOL_WAIT_MARGIN_MS;
+                final long waitMs = com.oilquiz.app.ai.tool.ToolTimeouts.clampToTurnBudget(
+                        perToolMs, turnToolDeadlineMs - System.currentTimeMillis());
+                final boolean budgetCut = waitMs < perToolMs;
+                if (budgetCut) {
+                    AILogger.w(TAG, "本轮工具等待预算将尽：" + tc.name + " 只等 " + waitMs
+                            + "ms（该工具自身预算 " + perToolMs + "ms）");
+                }
                 try {
                     OnlineToolResult toolResult = toolFutures.get(i).get(waitMs, TimeUnit.MILLISECONDS);
                     // 通知 UI 工具调用完成
@@ -913,14 +933,23 @@ public class OnlineAgentEngine {
                         toolMsg.addProperty("tool_call_id", tc.id);
                         toolMsg.addProperty("name", tc.name);
                         // 超时文案必须说清三件事：哪个工具、等了多久、任务可能仍在后台。
-                        // 此前 TimeoutException.getMessage() 是 null，模型收到字面量 "工具执行异常: null"，
-                        // 只能盲目重试——对有副作用的工具等于可能执行两遍。
-                        String content = timedOut
-                                ? "工具执行超时：" + tc.name + " 在 " + (waitMs / 1000) + " 秒内没有返回。"
-                                  + "该工具可能仍在后台继续执行，但本次结果不会自动回传。"
-                                  + "不要盲目重复调用有副作用的工具；需要结果时改用可轮询的工具，或向用户说明情况。"
-                                : "工具执行异常：" + (e.getMessage() != null
-                                        ? e.getMessage() : e.getClass().getSimpleName());
+                        // 被"回合总预算"截断时要与"工具自己超时"分开说——前者不是工具坏了，是这一轮不再等了。
+                        String content;
+                        if (timedOut && budgetCut) {
+                            content = "工具执行超时：" + tc.name
+                                    + " 未能在本轮剩余的工具等待预算内返回（每轮工具等待上限 "
+                                    + (com.oilquiz.app.ai.tool.ToolTimeouts.TURN_TOOL_BUDGET_MS / 1000)
+                                    + " 秒）。该调用可能仍在后台执行，但结果不会自动回传。"
+                                    + "不要重复调用有副作用的工具；需要结果请改用可轮询的工具"
+                                    + "（如知识库导入的 import_status），或向用户说明情况。";
+                        } else if (timedOut) {
+                            content = "工具执行超时：" + tc.name + " 在 " + (waitMs / 1000) + " 秒内没有返回。"
+                                    + "该工具可能仍在后台继续执行，但本次结果不会自动回传。"
+                                    + "不要盲目重复调用有副作用的工具；需要结果时改用可轮询的工具，或向用户说明情况。";
+                        } else {
+                            content = "工具执行异常：" + (e.getMessage() != null
+                                    ? e.getMessage() : e.getClass().getSimpleName());
+                        }
                         toolMsg.addProperty("content", content);
                         messageHistory.add(toolMsg);
                         AILogger.i(TAG, "补充失败 tool 响应(配对保障): " + tc.id);

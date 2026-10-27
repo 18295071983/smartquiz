@@ -20,7 +20,32 @@ public final class ToolTimeouts {
     /** 全局硬上限（11 分钟）：防止个别工具把调用方无限拖住 */
     public static final int MAX_TOOL_TIMEOUT_MS = 660_000;
 
+    /**
+     * 一轮工具调用内、<b>所有工具等待之和</b>的上限（5 分钟）；每轮重置。
+     *
+     * <p>为什么单工具预算之上还要有回合预算：同一轮的工具虽然并发提交，但执行池只有 4 个线程
+     * 且主循环自己占一个（{@code OnlineAgentEngine.executor}），第 4 个及以后的任务要排队；
+     * 再加上共享锁（如 Python 的静态执行锁），"并发"会退化成串行。于是 3 个各申报 165~200s 的工具
+     * 就能把一轮拖过 10 分钟，而用户看到的只是"一直在转"。</p>
+     *
+     * <p>取值依据：比最长单工具申报（660s）短，但足以容纳 2 个中长工具跑完；再长的任务应该走
+     * 可轮询的后台通道，而不是让一个回合无限等。调大调小只改这一个常量。</p>
+     */
+    public static final long TURN_TOOL_BUDGET_MS = 300_000L;
+
     private ToolTimeouts() {
+    }
+
+    /**
+     * 用本轮剩余预算裁剪单工具等待：{@code min(该工具应等的, 本轮还能等的)}。
+     *
+     * <p>返回 {@code <=0} 表示本轮的工具体等待预算已经用尽——调用方应当立刻按"预算耗尽"处理
+     * （不再 {@code get} 等待），并把"该工具可能仍在后台执行、结果不会回传"如实告诉模型。</p>
+     */
+    public static long clampToTurnBudget(long perToolMs, long remainingTurnBudgetMs) {
+        if (perToolMs <= 0) return 0;
+        if (remainingTurnBudgetMs <= 0) return 0;
+        return Math.min(perToolMs, remainingTurnBudgetMs);
     }
 
     /**
