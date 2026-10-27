@@ -406,6 +406,12 @@ public class AILogger {
      */
     private static String formatLogMessage(String level, String tag, String message) {
         String timestamp = DATE_FORMAT.format(new Date());
+        // 执行上下文（会话/run 前缀）：有作用域才插入，没有时输出与以前逐字一致。
+        // 两个会话并行跑 Agent 时，靠它把同一次执行的引擎/工具行串起来（见 LogContext）。
+        String ctx = LogContext.current();
+        if (ctx != null && !ctx.isEmpty()) {
+            return "[" + timestamp + "] [" + level + "] [" + tag + "] [" + ctx + "] " + message;
+        }
         return "[" + timestamp + "] [" + level + "] [" + tag + "] " + message;
     }
     

@@ -59,6 +59,23 @@ public final class ModelUsageRecorder {
                               int inputTokens,
                               int outputTokens,
                               int cachedTokens) {
+        record(context, active, inputTokens, outputTokens, cachedTokens, 0L);
+    }
+
+    /**
+     * 带耗时的记录。{@code durationMs <= 0} 与旧行为一致（写 0，表示"这一次没计时"）。
+     *
+     * <p>此前 duration 恒 0 的理由是"要在十几处建连点各插时间戳"。实际只需要在
+     * <b>已经会调用本方法的那些路径</b>上计时：本应用当前只给 Agent 工具流计时
+     * （{@code OnlineInferenceService.CALL_START}），其余路径仍写 0——用量页用
+     * {@code AVG(CASE WHEN duration>0 ...)} 只对已计时的调用求平均，不会把 0 混进去拉低。</p>
+     */
+    public static void record(Context context,
+                              OnlineModelManager.OnlineModelConfig active,
+                              int inputTokens,
+                              int outputTokens,
+                              int cachedTokens,
+                              long durationMs) {
         try {
             if (context == null || active == null) return;
             if (inputTokens <= 0 && outputTokens <= 0) return; // 服务商没回 usage：不记空行
@@ -78,7 +95,7 @@ public final class ModelUsageRecorder {
             log.setTotalTokens(inputTokens + outputTokens);
             log.setCacheHitTokens(Math.max(0, cachedTokens));
             log.setStatus("success");
-            log.setDuration(0); // 未计时，见类注释
+            log.setDuration(Math.max(0L, durationMs)); // 0=未计时（见类注释），不编数
             log.setCallTime(now);
             // 金额列保持默认 0：见类注释「不使用价格表，只统计 token」
 
@@ -90,6 +107,48 @@ public final class ModelUsageRecorder {
             // WARN 而不是 DEBUG：用量一行没落进去，用量页就少一条统计，而界面上一切正常 ——
             // 同一条静默口径此前把"投射从未成功过"藏了好几轮（见 ModelUsageBridge#IO 的说明）
             AILogger.w(TAG, "用量落库失败: " + t.getMessage());
+        }
+    }
+
+    /**
+     * 记一次<b>失败</b>调用（没拿到 usage 也要留一行）。
+     *
+     * <p>此前失败请求直接不落库：用量表里只有成功行，风控/排障时"失败率"这个最该看的指标
+     * 恒等于 0；而模型侧一次 429/5xx 恰恰是用户抱怨"突然不能用"的常见原因。这里写零 token 行，
+     * 用 {@code status}（如 {@code http_429}）与 {@code errorMessage} 留证，金额/耗时仍为 0
+     * （见类注释：不编造数值）。</p>
+     *
+     * <p>已知覆盖范围：只接在 Agent 的两条主路径（对话工具流非 200、Responses 失败）上；
+     * 其余十来个建连点暂未接，属于"覆盖不全"而不是"记错"，后补时照这两个点接即可。</p>
+     */
+    public static void recordFailure(Context context,
+                                     OnlineModelManager.OnlineModelConfig active,
+                                     String status,
+                                     String errorMessage) {
+        try {
+            if (context == null) return;
+            long now = System.currentTimeMillis();
+            ApiUsageLog log = new ApiUsageLog();
+            log.setTraceId(java.util.UUID.randomUUID().toString());
+            log.setSessionId(TaskStateTracker.getInstance(context).getEffectiveSession());
+            log.setUserId(LOCAL_USER);
+            if (active != null) {
+                log.setModelId(usageModelId(active));
+                log.setProviderId(usageProviderId(active));
+            }
+            log.setInputTokens(0);
+            log.setOutputTokens(0);
+            log.setTotalTokens(0);
+            log.setStatus(status != null && !status.isEmpty() ? status : "failed");
+            String err = errorMessage == null ? "" : errorMessage;
+            if (err.length() > 300) err = err.substring(0, 300);
+            log.setErrorMessage(err);
+            log.setDuration(0);
+            log.setCallTime(now);
+
+            DatabaseManager.getInstance(context).usageDao().insertUsageLog(log);
+        } catch (Throwable t) {
+            AILogger.w(TAG, "失败用量落库失败: " + t.getMessage());
         }
     }
 

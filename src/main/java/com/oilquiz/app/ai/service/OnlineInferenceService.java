@@ -48,6 +48,25 @@ import javax.net.ssl.HttpsURLConnection;
 public class OnlineInferenceService {
 
     private static final String TAG = "OnlineInferenceService";
+
+    /** 当前线程这次请求的开始时间：只给用量表的 duration 用，请求结束即清（线程池会复用线程） */
+    private static final ThreadLocal<Long> CALL_START = new ThreadLocal<>();
+
+    private static void markCallStart() {
+        CALL_START.set(System.currentTimeMillis());
+    }
+
+    /** 距本次请求开始过了多久；没有起点返回 0（表示"这一次没计时"） */
+    private static long elapsedSinceCallStart() {
+        Long t0 = CALL_START.get();
+        if (t0 == null) return 0L;
+        long d = System.currentTimeMillis() - t0;
+        return d > 0 ? d : 0L;
+    }
+
+    private static void clearCallStart() {
+        CALL_START.remove();
+    }
     private static final int DEFAULT_TIMEOUT_MS = 30000;
     /**
      * chat/agent 请求的 read 超时（首 token 前思考/长输出可远超 30s）：
@@ -1558,6 +1577,7 @@ public class OnlineInferenceService {
                                     java.util.concurrent.atomic.AtomicBoolean emittedOut,
                                     List<com.oilquiz.app.ai.util.ImagePreprocessUtil
                                             .PreparedVisionImage> images) throws Exception {
+        markCallStart(); // duration 起点
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
                 // 端点与协议统一由解析出口决出（含本条配置的端点覆盖）：
@@ -1652,6 +1672,7 @@ public class OnlineInferenceService {
             }
             return readResponsesFull(connection, callback);
         } finally {
+            clearCallStart();
             connection.disconnect();
         }
     }
@@ -3470,6 +3491,15 @@ public class OnlineInferenceService {
     /**
      * 在主线程回调错误
      */
+    /** 错误体预览：日志要能看出服务商说了什么，又不至于把整段 HTML/堆栈刷进日志 */
+    private static String previewOf(String text, int max) {
+        if (text == null) return "";
+        // 不用字符转义（该文件里被写坏过一次），直接用码点：换行=0x0A，回车=0x0D
+        String oneLine = text.replace(String.valueOf((char) 0x0A), " ")
+                .replace(String.valueOf((char) 0x0D), " ");
+        return oneLine.length() <= max ? oneLine : oneLine.substring(0, max) + "…";
+    }
+
     private void postError(StreamCallback callback, String error) {
         // 统一错误上报出口（全类 10 处调用都经此）。callback 可能为 null
         // （例如只做探测/预取、不关心回调的场景），不判空会在主线程抛 NPE，
@@ -4015,6 +4045,8 @@ public class OnlineInferenceService {
             if (result.isFailed()) {
                 final String message = result.error != null && !result.error.isEmpty()
                         ? result.error : "Responses 工具流失败";
+                // 同 chat 工具流：失败也落一行，供"失败率"统计与排障
+                ModelUsageRecorder.recordFailure(context, getActiveConfig(), "responses_failed", message);
                 mainHandler.post(() -> callback.onError(message));
                 return;
             }
@@ -4083,6 +4115,7 @@ public class OnlineInferenceService {
                                               JsonArray messages, int maxTokens,
                                               String toolsJson, boolean enableThinking,
                                               NativeToolStreamCallback callback) throws Exception {
+        markCallStart(); // duration 起点：建连之前，含首字节等待
         // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
         // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
         String fullUrl = chatUrlOf(apiUrl, modelName);
@@ -4212,6 +4245,13 @@ public class OnlineInferenceService {
                     return;
                 }
                 String errorMsg = buildHttpErrorMessage(responseCode, errorBody);
+                // 这条此前只有 callback.onError（只到界面），ai_logs 里没有任何痕迹：
+                // 失败轮事后无法重建"打了哪个地址、哪个模型、服务商回了什么"。
+                AILogger.e(TAG, "chat-tools HTTP " + responseCode + " @" + apiUrl
+                        + " model=" + modelName + " err=" + previewOf(errorBody, 300));
+                // 失败也留一行：用量表此前只有成功行，"失败率"恒等于 0（见 recordFailure 注释）
+                ModelUsageRecorder.recordFailure(context, getActiveConfig(),
+                        "http_" + responseCode, errorMsg);
                 mainHandler.post(() -> {
                     if (callback != null) callback.onError(errorMsg);
                 });
@@ -4221,6 +4261,7 @@ public class OnlineInferenceService {
             readStreamResponseWithTools(connection, callback);
 
         } finally {
+            clearCallStart();
             connection.disconnect();
         }
     }
@@ -4514,7 +4555,8 @@ public class OnlineInferenceService {
                             // 用量落库：这条 Agent 带工具流式路径此前只把 usage 回调给界面，
                             // 从不写 api_usage_log —— Agent 调用（本应用最重的一类消耗）整类缺席。
                             // 只补日志行，不动 TokenStatsManager（界面统计另有其口径，避免双计）。
-                            ModelUsageRecorder.record(context, getActiveConfig(), pt, ct, cache);
+                            ModelUsageRecorder.record(context, getActiveConfig(), pt, ct, cache,
+                                    elapsedSinceCallStart());
                             mainHandler.post(() -> {
                                 callback.onUsage(pt, ct, tt);
                                 callback.onUsageWithCache(pt, ct, tt, cache);

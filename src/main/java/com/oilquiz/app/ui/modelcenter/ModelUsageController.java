@@ -124,6 +124,9 @@ public class ModelUsageController {
         for (UsageDao.ModelUsageRow row : rows) {
             snapshot.totalTokens += row.getTotalTokens();
             snapshot.totalCalls += row.getCalls();
+            snapshot.totalFailures += row.getFailures();
+            snapshot.durationSum += row.getDurationSum();
+            snapshot.durationCalls += row.getDurationCalls();
             snapshot.totalInput += row.getInputTokens();
             snapshot.totalOutput += row.getOutputTokens();
             snapshot.totalCache += row.getCacheHitTokens();
@@ -150,7 +153,8 @@ public class ModelUsageController {
     private void render(Snapshot snapshot) {
         overviewText.setText(buildOverview(snapshot));
         rangeTitleText.setText(rangeTitle() + " · " + snapshot.rows.size() + " 个模型");
-        caveatText.setText("说明：仅统计本机记录的调用；金额不在本应用呈现（不加载价格表）。"
+        caveatText.setText("说明：仅统计本机记录的调用；失败为服务商返回错误/未完成的调用；"
+                + "耗时仅统计已计时的调用（当前覆盖 Agent 工具流）；金额不在本应用呈现（不加载价格表）。"
                 + "单次耗时未采集，故不提供平均时延。非会话类调用（知识库/OCR/题目修复等）"
                 + "与被记录的会话共用同一张表，因此此处不按会话拆分。");
         rowsAdapter.submit(snapshot);
@@ -172,6 +176,19 @@ public class ModelUsageController {
                 .append(" · 输出 ").append(group(snapshot.totalOutput));
         if (snapshot.totalCache > 0) {
             sb.append(" · 缓存命中 ").append(group(snapshot.totalCache));
+        }
+        // 失败与耗时：失败率是"突然不能用"的最直接指标；耗时只统计已计时的调用（当前覆盖
+        // Agent 工具流），因此文案写明"已计时"，避免被误读成全部调用
+        if (snapshot.totalFailures > 0) {
+            sb.append((char) 10).append("失败 ").append(snapshot.totalFailures).append(" 次");
+            if (snapshot.totalCalls > 0) {
+                sb.append(String.format(Locale.getDefault(), "（%.1f%%）",
+                        100.0 * snapshot.totalFailures / snapshot.totalCalls));
+            }
+        }
+        if (snapshot.durationCalls > 0) {
+            sb.append(" · 平均耗时 ").append(snapshot.durationSum / snapshot.durationCalls)
+                    .append(" ms（").append(snapshot.durationCalls).append(" 次已计时）");
         }
         return sb.toString();
     }
@@ -195,6 +212,9 @@ public class ModelUsageController {
         long totalInput;
         long totalOutput;
         long totalCache;
+        long totalFailures;
+        long durationSum;
+        long durationCalls;
 
         static Snapshot empty() {
             return new Snapshot();
@@ -253,7 +273,8 @@ public class ModelUsageController {
             holder.model.setTextColor(ThemeColors.attr(context, registeredName != null
                     ? R.attr.colorControlText : R.attr.colorControlTextHint));
 
-            holder.calls.setText(row.getCalls() + " 次");
+            holder.calls.setText(row.getCalls() + " 次"
+                    + (row.getFailures() > 0 ? " · 失败 " + row.getFailures() : ""));
             holder.tokens.setText("共 " + group(row.getTotalTokens()) + " tokens"
                     + " · 入 " + group(row.getInputTokens())
                     + " · 出 " + group(row.getOutputTokens())
@@ -268,6 +289,9 @@ public class ModelUsageController {
                     ? "未知" : row.getProviderId());
             if (registeredName == null) {
                 sb.append(" · 已移除的模型（历史调用仍计入）");
+            }
+            if (row.getAvgDurationMs() > 0) {
+                sb.append(" · 平均耗时 ").append(row.getAvgDurationMs()).append(" ms");
             }
             if (row.getLastCallTime() > 0) {
                 sb.append(" · 最近 ").append(DATE_FORMAT.format(new Date(row.getLastCallTime())));

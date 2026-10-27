@@ -23,6 +23,8 @@ public final class SessionContext {
     private static final int MAX_KEY_LEN = 48;
 
     private static final ThreadLocal<String> CURRENT = new ThreadLocal<>();
+    /** 本次执行的 run id（一个用户消息一次），只用于日志串联 */
+    private static final ThreadLocal<String> RUN = new ThreadLocal<>();
 
     private SessionContext() {
     }
@@ -34,17 +36,40 @@ public final class SessionContext {
 
     /** 设置当前线程的会话；传 null/空 = 清除作用域 */
     public static void set(String sessionId) {
+        set(sessionId, null);
+    }
+
+    /**
+     * 设置会话 + 本次执行的 run id，并同步日志前缀（{@link com.oilquiz.app.util.LogContext}）。
+     * run id 只用于把同一次执行的引擎/工具日志串起来，不参与任何业务归属。
+     */
+    public static void set(String sessionId, String runId) {
         String s = sanitizeOrNull(sessionId);
         if (s == null) {
             CURRENT.remove();
         } else {
             CURRENT.set(s);
         }
+        String r = runId == null ? null : runId.trim();
+        if (r == null || r.isEmpty()) {
+            RUN.remove();
+        } else {
+            RUN.set(r);
+        }
+        com.oilquiz.app.util.LogContext.set(
+                com.oilquiz.app.util.LogContext.prefixOf(s, r));
     }
 
-    /** 清除作用域（必须在 finally 里调，线程池线程会被复用） */
+    /** 本次执行的 run id；无返回 null */
+    public static String currentRun() {
+        return RUN.get();
+    }
+
+    /** 清除作用域（必须在 finally 里调，线程池线程会被复用；日志前缀一并清） */
     public static void clear() {
         CURRENT.remove();
+        RUN.remove();
+        com.oilquiz.app.util.LogContext.clear();
     }
 
     /**

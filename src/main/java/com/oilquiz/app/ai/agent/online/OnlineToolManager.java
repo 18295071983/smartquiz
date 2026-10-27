@@ -494,7 +494,7 @@ public class OnlineToolManager {
      * @return 工具执行结果
      */
     public OnlineToolResult executeTool(String toolCallId, String toolName, String arguments) {
-        return executeTool(toolCallId, toolName, arguments, null);
+        return executeTool(toolCallId, toolName, arguments, null, null);
     }
 
     /**
@@ -507,6 +507,17 @@ public class OnlineToolManager {
      */
     public OnlineToolResult executeTool(String toolCallId, String toolName, String arguments,
                                         String sessionId) {
+        return executeTool(toolCallId, toolName, arguments, sessionId, null);
+    }
+
+    /**
+     * 带会话归属与 run id 的工具执行。
+     *
+     * @param sessionId 本次执行所属会话（tmp 目录/任务归属）
+     * @param runId     本次用户消息的 run id，只用于日志串联（{@link com.oilquiz.app.util.LogContext}）
+     */
+    public OnlineToolResult executeTool(String toolCallId, String toolName, String arguments,
+                                        String sessionId, String runId) {
         AILogger.i(TAG, "Executing tool: " + toolName + " args: " + arguments);
         long startTime = System.currentTimeMillis();
 
@@ -554,7 +565,7 @@ public class OnlineToolManager {
                 AIToolResult result = CompletableFuture.supplyAsync(() -> {
                     // 工具执行期间显式带上会话作用域：线程池线程会被复用，必须在 finally 里清掉，
                     // 否则下一次（可能是别的会话）执行会继承上一次的归属。
-                    com.oilquiz.app.ai.agent.SessionContext.set(sessionId);
+                    com.oilquiz.app.ai.agent.SessionContext.set(sessionId, runId);
                     try {
                         return aiToolManager.executeTool(toolName, params);
                     } catch (Exception e) {

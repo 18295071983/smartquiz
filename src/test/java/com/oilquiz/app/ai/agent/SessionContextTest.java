@@ -60,6 +60,23 @@ public class SessionContextTest {
     }
 
     @Test
+    public void runIdFeedsLogContextAndIsClearedWithScope() {
+        SessionContext.set("sess-A", "run-1234");
+        assertEquals("run-1234", SessionContext.currentRun());
+        // 日志前缀由 SessionContext 统一写入，AILogger 只读它
+        assertEquals("s=sess-A r=run-1234", com.oilquiz.app.util.LogContext.current());
+
+        SessionContext.clear();
+        assertNull(SessionContext.currentRun());
+        assertNull(com.oilquiz.app.util.LogContext.current());
+
+        // 只带会话、不带 run：前缀里只有 s=
+        SessionContext.set("sess-B");
+        assertNull(SessionContext.currentRun());
+        assertEquals("s=sess-B", com.oilquiz.app.util.LogContext.current());
+    }
+
+    @Test
     public void sanitizeBlocksPathTraversalAndCapsLength() {
         // 路径分隔符与 .. 全部变成下划线：拼进 tmp/s_<key> 时不可能跳出目录
         // 非 [A-Za-z0-9_-] 一律换成下划线：../.. 与斜杠都不再具备路径语义

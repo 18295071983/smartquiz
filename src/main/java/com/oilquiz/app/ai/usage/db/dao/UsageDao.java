@@ -63,7 +63,14 @@ public interface UsageDao {
            "SUM(outputTokens) as outputTokens, " +
            "SUM(cacheHitTokens) as cacheHitTokens, " +
            "SUM(totalTokens) as totalTokens, " +
-           "MAX(callTime) as lastCallTime " +
+           "MAX(callTime) as lastCallTime, " +
+           // 失败行（recordFailure 写的零 token 行）单独计数：用量页要显示"失败率"，
+           // 而 calls 含失败行，不拆开的话失败会被算成一次"正常调用"
+           "SUM(CASE WHEN status IS NULL OR status = 'success' THEN 0 ELSE 1 END) as failures, " +
+           // 耗时只对"已计时"的调用求平均（duration=0 表示未计时，不能混进平均值把它拉低）
+           "AVG(CASE WHEN duration > 0 THEN duration END) as avgDuration, " +
+           "SUM(CASE WHEN duration > 0 THEN duration END) as durationSum, " +
+           "SUM(CASE WHEN duration > 0 THEN 1 END) as durationCalls " +
            "FROM api_usage_log " +
            "WHERE userId = :userId AND callTime >= :since " +
            "GROUP BY modelId, providerId " +
@@ -96,6 +103,10 @@ public interface UsageDao {
         public Integer cacheHitTokens;
         public Integer totalTokens;
         public Long lastCallTime;
+        public Integer failures;
+        public Double avgDuration;
+        public Long durationSum;
+        public Integer durationCalls;
 
         public String getModelId() { return modelId; }
         public String getProviderId() { return providerId; }
@@ -105,6 +116,13 @@ public interface UsageDao {
         public int getCacheHitTokens() { return cacheHitTokens == null ? 0 : cacheHitTokens; }
         public int getTotalTokens() { return totalTokens == null ? 0 : totalTokens; }
         public long getLastCallTime() { return lastCallTime == null ? 0 : lastCallTime; }
+        /** 失败调用数（status 非 success 的行；成功行 status 恒为 success） */
+        public int getFailures() { return failures == null ? 0 : failures; }
+        /** 已计时调用的平均耗时（毫秒）；没有已计时调用时为 0 */
+        public long getAvgDurationMs() { return avgDuration == null ? 0L : Math.round(avgDuration); }
+        /** 已计时调用的耗时总和/计数：用于跨模型求真实加权平均（不能平均各行的 avg） */
+        public long getDurationSum() { return durationSum == null ? 0L : durationSum; }
+        public int getDurationCalls() { return durationCalls == null ? 0 : durationCalls; }
     }
 
     /**
