@@ -2605,7 +2605,9 @@ public class OnlineAgentEngine {
             if (files != null) {
                 for (java.io.File f : files) {
                     String name = f.getName();
-                    if (name.startsWith("online_agent_history") && name.endsWith(".json")) {
+                    // 用 contains 而不是 endsWith(".json")：原子写会留下 .json.bak/.json.tmp，
+                    // 检查点还有 .json.round；只删 .json 会让备份成为孤儿（实测在设备上看到 3 个 .bak 残留）
+                    if (name.startsWith("online_agent_history") && name.contains(".json")) {
                         f.delete();
                     }
                 }

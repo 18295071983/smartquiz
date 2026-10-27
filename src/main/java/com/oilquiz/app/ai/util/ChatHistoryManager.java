@@ -548,10 +548,32 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
      */
     public boolean deleteConversationSession(String sessionId) {
         File file = new File(getConversationsDir(), sessionId + ".json");
-        if (file.exists()) {
-            return file.delete();
+        boolean ok = file.exists() && file.delete();
+        // 会话的对话历史文件（online_agent_history_<id>_*.json / local_chat_history_<id>_*.json）
+        // 不删就永久留在 filesDir 里；其 .bak/.tmp/.round 副产物也会成为孤儿（实测设备上残留 3 个 .bak）。
+        deleteSessionHistoryFiles(sessionId);
+        return ok;
+    }
+
+    /** 删除某会话在 filesDir 下的历史文件及原子写/检查点副产物 */
+    private void deleteSessionHistoryFiles(String sessionId) {
+        try {
+            if (sessionId == null || sessionId.isEmpty()) return;
+            String safe = sessionId.replaceAll("[^a-zA-Z0-9_-]", "_");
+            File[] files = context.getFilesDir().listFiles();
+            if (files == null) return;
+            for (File f : files) {
+                String n = f.getName();
+                if (!n.contains(".json")) continue;
+                // 前缀匹配会话 id：文件名为 <prefix>_<safeId>_<model>.json 或 <prefix>_<safeId>.json
+                if (n.startsWith("online_agent_history_" + safe)
+                        || n.startsWith("local_chat_history_" + safe)) {
+                    f.delete();
+                }
+            }
+        } catch (Throwable ignored) {
+            // 清理失败不影响会话本身删除
         }
-        return false;
     }
 
     /**

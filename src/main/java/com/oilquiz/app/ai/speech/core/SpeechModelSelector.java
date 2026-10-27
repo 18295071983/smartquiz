@@ -176,10 +176,24 @@ public final class SpeechModelSelector {
             boolean preferNameMatch) {
         for (OnlineModelManager.OnlineModelConfig c : ordered(all, active)) {
             if (!c.enabled || !hasCapability(c, capability)) continue;
+            // 勾选只是"偏好"：服务商在配置表里根本没有这个能力的端点时（例如 DeepSeek 没有
+            // /audio/speech），勾了也不能用——否则 TTS 请求打到不存在的路径，拿到 404、整段语音失效。
+            // 实测踩到：深度求索配置的 tts/asr 都被勾上 → 选中它 → 在线 TTS HTTP 404。
+            if (!providerDeclaresSpeech(c.apiUrl, capability)) continue;
             if (preferNameMatch && !nameMatchesCapability(probedModelName(c), capability)) continue;
             return c;
         }
         return null;
+    }
+
+    /** 配置表（权威层）是否声明该服务商提供 tts/asr；判定失败不拦（保持旧行为） */
+    private static boolean providerDeclaresSpeech(String apiUrl, Capability capability) {
+        try {
+            return com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .hasService(apiUrl, capability == Capability.ASR ? "asr" : "tts");
+        } catch (Throwable t) {
+            return true;
+        }
     }
 
     /** 当前激活模型排在最前：同能力档内优先沿用手上正在用的那个端点 */
