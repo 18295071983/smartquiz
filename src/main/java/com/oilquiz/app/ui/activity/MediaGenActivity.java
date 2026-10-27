@@ -903,8 +903,9 @@ public class MediaGenActivity extends Activity {
                 org.json.JSONObject j = new org.json.JSONObject(resp);
                 String optimized = "";
                 if (j.optJSONArray("choices") != null && j.optJSONArray("choices").length() > 0) {
-                    org.json.JSONObject msg = j.optJSONArray("choices").optJSONObject(0)
-                            .optJSONObject("message");
+                    // choices[0] 可能是 null（服务商返回畸形 JSON）：链式解引用会 NPE 崩在解析线程上
+                    org.json.JSONObject first = j.optJSONArray("choices").optJSONObject(0);
+                    org.json.JSONObject msg = first != null ? first.optJSONObject("message") : null;
                     if (msg != null) optimized = msg.optString("content", "");
                 }
                 if (optimized.isEmpty()) {

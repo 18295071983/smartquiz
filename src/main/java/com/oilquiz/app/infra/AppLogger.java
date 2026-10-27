@@ -252,6 +252,35 @@ public class AppLogger {
         crashInfo.append("SDK级别: ").append(android.os.Build.VERSION.SDK_INT).append("\n");
         crashInfo.append("设备型号: ").append(android.os.Build.MODEL).append("\n");
         crashInfo.append("制造商: ").append(android.os.Build.MANUFACTURER).append("\n\n");
+        // 现场上下文（只有堆栈时排障全靠反推）：前台页面 / 崩溃线程 / Agent 正在做什么
+        try {
+            String screen = "未知";
+            com.oilquiz.app.SmartQuizApplication app = com.oilquiz.app.SmartQuizApplication.getInstance();
+            android.app.Activity cur = app != null ? app.getCurrentActivity() : null;
+            if (cur != null) screen = cur.getClass().getSimpleName();
+            crashInfo.append("前台页面: ").append(screen).append("\n");
+            crashInfo.append("崩溃线程: ").append(Thread.currentThread().getName()).append("\n");
+            com.oilquiz.app.ai.chat.status.AgentActivityBus.Snapshot act =
+                    com.oilquiz.app.ai.chat.status.AgentActivityBus.current();
+            if (act != null) {
+                crashInfo.append("Agent 当前工具: ").append(act.displayName);
+                if (act.target != null && !act.target.isEmpty()) crashInfo.append(" · ").append(act.target);
+                crashInfo.append("\n");
+            }
+            com.oilquiz.app.ai.chat.status.AgentProgressBus.Snapshot prog =
+                    com.oilquiz.app.ai.chat.status.AgentProgressBus.current();
+            if (prog != null) {
+                crashInfo.append("Agent 当前任务: ").append(prog.title)
+                        .append(" ").append(prog.percent()).append("%");
+                if (prog.message != null && !prog.message.isEmpty()) {
+                    crashInfo.append(" · ").append(prog.message);
+                }
+                crashInfo.append("\n");
+            }
+        } catch (Throwable ignored) {
+            // 现场信息只是增强：拿不到不能反过来影响崩溃报告落盘
+        }
+        crashInfo.append("\n");
         crashInfo.append("崩溃信息: ").append(message).append("\n\n");
         crashInfo.append("堆栈跟踪:\n");
         crashInfo.append(getStackTraceString(throwable)).append("\n");
