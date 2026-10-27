@@ -196,7 +196,7 @@
     <string name="h_c8e5b7a6">Attachment parsing failed: </string>
     <string name="h_cbae4f39">✅ AI summary generated</string>
     <string name="h_2e5be76a">Clear All History</string>
-    <string name="h_fadd8853">All conversation records (including every session) will be deleted. This cannot be undone. Continue?</string>
+    <string name="h_fadd8853">All conversation sessions will be moved to Trash (recoverable); agent run history and task lists will be permanently deleted. Continue?</string>
     <string name="h_288f0c40">Clear</string>
     <string name="h_3683077f">Cleared</string>
     <string name="h_15261c3c">AI is generating. Stop generation first to switch mode</string>

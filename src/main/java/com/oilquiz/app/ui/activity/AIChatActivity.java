@@ -1636,7 +1636,9 @@ public class AIChatActivity extends BaseActivity {
             });
         }
         if (btnClearChat != null) {
-            btnClearChat.setOnClickListener(v -> clearChat());
+            // 与工具抽屉里「🗑 清空对话」chip 同一安全级：这是跨全部会话的破坏性动作，必须先确认。
+            // 此前按钮直达 clearChat()，同一动作两个入口两种安全级。
+            btnClearChat.setOnClickListener(v -> confirmClearChat());
             // 长按：压缩对话（模型生成摘要，保留最近 8 条，长对话省 tokens）
             btnClearChat.setOnLongClickListener(v -> {
                 showCompressConversationDialog();
