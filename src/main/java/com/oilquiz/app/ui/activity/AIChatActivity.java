@@ -283,6 +283,7 @@ public class AIChatActivity extends BaseActivity {
     private AIConfig aiConfig;
     /** 输入区上方的本地Agent开关（Chip，即时生效） */
     private com.google.android.material.chip.Chip chipLocalAgent;
+    private com.google.android.material.chip.Chip chipResumeInterrupted;
     /** 输入区上方的联网搜索开关（Chip，切换当前在线模型 supportsWebSearch 即时生效） */
     private com.google.android.material.chip.Chip chipWebSearch;
     private CacheManager cacheManager;
@@ -883,6 +884,19 @@ public class AIChatActivity extends BaseActivity {
             // 本地Agent开关（Chip）：切换即写配置，processChatMessage 按 isLocalAgentEnabled() 路由，
             // 因此下一条消息自动切换本地Agent/普通对话模式，无需重启
             chipLocalAgent = findViewById(R.id.chip_local_agent);
+            chipResumeInterrupted = findViewById(R.id.chip_resume_interrupted);
+            if (chipResumeInterrupted != null) {
+                // 一键续跑：只把"继续"这句话填进输入框走正常发送路径——不自动执行。
+                // 自动执行会不经用户同意就发请求（可能重跑已产生副作用的工具）。
+                chipResumeInterrupted.setOnClickListener(v -> {
+                    String prompt = agentChatHandler != null
+                            ? agentChatHandler.takePendingResumePrompt() : null;
+                    chipResumeInterrupted.setVisibility(View.GONE);
+                    if (prompt == null || prompt.isEmpty()) return;
+                    if (inputMessage != null) inputMessage.setText(prompt);
+                    sendMessage();
+                });
+            }
             if (chipLocalAgent != null && aiConfig != null) {
                 chipLocalAgent.setChecked(aiConfig.isLocalAgentEnabled());
                 updateAgentChip(chipLocalAgent);
@@ -1075,6 +1089,7 @@ public class AIChatActivity extends BaseActivity {
                                         // 同步引擎会话：恢复该会话的 Agent 上下文（如存在）
                                         if (agentChatHandler != null) {
                                             agentChatHandler.setSessionId(sessionId);
+                                            refreshResumeChip();
                                         }
                                         // 本地推理上下文独立化：跟随最新会话恢复推理历史
                                         //（Activity 重建后若不同步，推理历史会错位到 default）
@@ -6035,6 +6050,7 @@ public class AIChatActivity extends BaseActivity {
                     }
                 }
                 agentChatHandler.setSessionId(currentSessionId);
+                refreshResumeChip();
                 // 本地推理上下文独立化：同步锚定会话。
                 // 首次创建会话（default→新会话）时先迁移推理历史，Agent 首轮不失忆
                 if (modelBridge != null) {
@@ -8893,6 +8909,7 @@ public class AIChatActivity extends BaseActivity {
             agentChatHandler.setModelId(activeModelId);
             if (currentSessionId != null) {
                 agentChatHandler.setSessionId(currentSessionId);
+                refreshResumeChip();
             }
         }
         lastUseOnlineModel = useOnlineModel;
@@ -9292,6 +9309,7 @@ public class AIChatActivity extends BaseActivity {
             // 引擎：先保存当前会话历史（切回原会话不失忆），再清空内存与默认文件，保证新对话干净
             if (agentChatHandler != null) {
                 agentChatHandler.setSessionId(null);
+                refreshResumeChip();
                 agentChatHandler.clearHistory();
             }
             // 新对话（默认空会话）：刷新头部任务胶囊，隐藏上一会话遗留的进行中/待办数
@@ -9359,6 +9377,7 @@ public class AIChatActivity extends BaseActivity {
                         // 引擎按会话隔离历史：保存当前 → 恢复目标会话的上下文（不再清空失忆）
                         if (agentChatHandler != null) {
                             agentChatHandler.setSessionId(session.id);
+                            refreshResumeChip();
                         }
                         // 本地推理上下文独立化（2026-09-14）：按会话加载目标历史，不再清空从头开始
                         if (modelBridge != null) {
@@ -12747,6 +12766,13 @@ public class AIChatActivity extends BaseActivity {
     /**
      * 发送带附件的消息（无需文字输入）
      */
+    /** 显示/隐藏"继续上次中断的任务"入口：只在引擎报告存在待续跑时显示 */
+    private void refreshResumeChip() {
+        if (chipResumeInterrupted == null) return;
+        boolean show = agentChatHandler != null && agentChatHandler.hasPendingInterruptedRound();
+        chipResumeInterrupted.setVisibility(show ? View.VISIBLE : View.GONE);
+    }
+
     private void sendMessageWithAttachments() {
         if (inputManager == null || !inputManager.hasAttachments()) return;
 
@@ -12972,6 +12998,8 @@ public class AIChatActivity extends BaseActivity {
         // 模型入口改跳「模型选择」页后，在那里换的在线/本地模型不会自己回到顶栏
         // （激活变更没有跨页监听者），回页面时补刷一次副标题
         com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.refreshSubtitleIfNeeded(this);
+        // "继续上次中断的任务"入口：冷启动/切回前台时按待续跑状态刷新
+        refreshResumeChip();
 
         // 后台产出回灌：离开页面期间工具写了哪些文件，回来用一条系统消息告知
         // （通知只在离开时发，回到前台即撤销，避免提示滞留）

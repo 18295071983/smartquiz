@@ -462,6 +462,22 @@
                         android:textColor="?attr/colorPrimary"/>
                 </LinearLayout>
 
+                <!-- 上次执行被中断时的"继续"入口：默认隐藏，由 Activity 在检测到待续跑时显示。
+                     刻意不做自动续跑：那会不经同意烧 token，也可能重跑已产生副作用的工具。 -->
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_resume_interrupted"
+                    android:layout_width="wrap_content"
+                    android:layout_height="@dimen/size_28"
+                    android:layout_marginHorizontal="4dp"
+                    android:layout_marginBottom="@dimen/space_4"
+                    android:checkable="false"
+                    android:minHeight="@dimen/size_28"
+                    android:text="继续上次中断的任务"
+                    android:textSize="@dimen/text_11"
+                    android:visibility="gone"
+                    app:chipIcon="@drawable/ic_chat_v2_bulb"
+                    app:chipIconSize="14dp"/>
+
                 <com.oilquiz.app.ai.chat.input.ChatInputBar
                     android:id="@+id/chat_input_bar"
                     android:layout_width="match_parent"

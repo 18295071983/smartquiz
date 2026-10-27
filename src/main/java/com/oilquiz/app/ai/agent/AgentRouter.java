@@ -102,6 +102,16 @@ public class AgentRouter {
 
     // ==================== 生命周期方法 ====================
 
+    /** 上次执行是否被中断、可继续（透传给在线引擎；本地引擎暂无此概念） */
+    public boolean hasPendingInterruptedRound() {
+        return onlineEngine != null && onlineEngine.hasPendingInterruptedRound();
+    }
+
+    /** 取走续跑提示（一次性；透传在线引擎） */
+    public String takePendingResumePrompt() {
+        return onlineEngine != null ? onlineEngine.takePendingResumePrompt() : null;
+    }
+
     public void cancel() {
         if (onlineEngine != null) {
             onlineEngine.cancel();

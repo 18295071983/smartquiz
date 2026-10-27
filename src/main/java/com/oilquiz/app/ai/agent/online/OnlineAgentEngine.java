@@ -136,6 +136,9 @@ public class OnlineAgentEngine {
     /** 空转/重复调用检测（一次用户消息 = 一个回合，execute 开头 reset） */
     private final com.oilquiz.app.ai.agent.ToolCallDeduper toolDeduper =
             new com.oilquiz.app.ai.agent.ToolCallDeduper();
+    /** 恢复时发现"上次执行被中断"：UI 据此显示"继续"入口（一次性） */
+    private volatile boolean interruptedRoundPending;
+    private volatile String interruptedRoundResumeText;
 
     /** 当前在线模型配置 ID（null = 未知/本地路径）。
      *  历史文件按「会话 × 模型」双维度隔离，切换模型不共享上下文，
@@ -414,6 +417,8 @@ public class OnlineAgentEngine {
             com.oilquiz.app.ai.agent.SessionContext.set(sessionId, currentRunId);
             currentCheckpointFile = com.oilquiz.app.ai.agent.AgentRoundCheckpoint.fileFor(getHistoryFile());
             toolDeduper.reset();
+            // 本轮一旦开始执行，旧的"中断待续"入口就作废（避免用户已自己发了消息还留着按钮）
+            interruptedRoundPending = false;
             try {
                 doExecute(userMessage, effectiveMaxTokens);
                 // 本轮 Agent 执行完成（含工具多轮），持久化对话历史，供 Activity 重建/重启后恢复
@@ -2345,6 +2350,18 @@ public class OnlineAgentEngine {
 
     // ========== 控制方法 ==========
 
+    /** 是否有"上次执行中断、可继续"的入口（UI 显示"继续"时用） */
+    public boolean hasPendingInterruptedRound() {
+        return interruptedRoundPending;
+    }
+
+    /** 取走续跑提示并清除标记（一次性）；没有则返回 null */
+    public String takePendingResumePrompt() {
+        if (!interruptedRoundPending) return null;
+        interruptedRoundPending = false;
+        return interruptedRoundResumeText;
+    }
+
     public void cancel() {
         isCancelled.set(true);
         // 取消时唤醒可能卡在暂停门里的循环
@@ -2908,6 +2925,13 @@ public class OnlineAgentEngine {
                 int unknown = appendUnknownToolResults();
                 if (unknown > 0) {
                     AILogger.w(TAG, "恢复时标记 " + unknown + " 个工具结果为未知（不重放）");
+                    // 给 UI 一个一次性入口：不自动跑（默认会不经同意烧 token、也可能重跑副作用），
+                    // 由用户点"继续上次任务"再把这条消息发出去。
+                    interruptedRoundPending = true;
+                    interruptedRoundResumeText =
+                            "继续上次被中断的任务。注意：上一次执行在工具调用期间被中断，"
+                                    + "被中断的工具本次结果未知（可能已执行、也可能没执行）。"
+                                    + "请先确认再决定是否重试，尤其是有副作用的操作（删除/写入/发送）。";
                 }
                 // 消费掉：避免每次进入会话都重复提示/重复补消息
                 com.oilquiz.app.ai.agent.AgentRoundCheckpoint.clear(
