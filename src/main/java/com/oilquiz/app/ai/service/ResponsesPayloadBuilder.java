@@ -17,7 +17,9 @@ import com.google.gson.JsonObject;
  *   <li>工具结果是<b>独立的 {@code function_call_output} item</b>，按 {@code call_id} 配对 ——
  *   不是 chat 的 {@code role:"tool"} + {@code tool_call_id}；</li>
  *   <li>{@code tools} 是<b>扁平</b> {@code {type:"function", name, description, parameters}}，
- *   不是 chat 那种把 {@code name/parameters} 再包一层 {@code function} 的嵌套写法。</li>
+ *   不是 chat 那种把 {@code name/parameters} 再包一层 {@code function} 的嵌套写法；</li>
+ *   <li>每条工具<b>显式带</b> {@code strict:false}（见 {@link #toFlatTools}：本项目的工具 schema
+ *   是刻意宽松的，不能开 strict，也不该赌各网关的默认值）。</li>
  * </ul>
  *
  * <p>把这层转换集中在这里，{@code OnlineAgentEngine} 可以继续讲 chat 方言，循环逻辑一行不动；
@@ -219,10 +221,21 @@ public final class ResponsesPayloadBuilder {
     }
 
     /**
-     * chat 方言的 tools JSON → Responses 的扁平 tools 数组。
+     * chat 方言的 tools JSON → Responses 的扁平 tools 数组（每条都带 {@code strict:false}）。
      *
      * <p>同时接受已经是扁平形态的输入（有的服务商/自建端点直接给扁平），这样本方法可以
      * 安全地重复调用而不产生二次嵌套。</p>
+     *
+     * <p><b>为什么把 strict 显式写成 false</b>：本项目的工具 schema 是刻意宽松的——
+     * {@code ui_component} 26 个参数只有 {@code action} 必填、还带 5 个自由 object
+     * （props/layout/render/style/monitor）和 3 个无 items 的数组（options/fields/items）；
+     * 这类形状按 OpenAI 严格模式规则（全字段进 required + 每层 object 显式
+     * {@code additionalProperties:false} + 数组必须有 items）<b>一条都过不了</b>，
+     * 硬凑等于把它拆成二十多个互斥工具、模型选型准确率反受其害。参数合法性由代码层校验
+     * （见 {@code AIToolManager} 各工具 execute 的缺参报错与组件 props schema 校验）。
+     * 缺省值本来就是 false，显式写出来不改变 OpenAI 的行为，但两件事被钉死了：
+     * 一是不同网关对 strict 的默认值不一致（有的透传、有的默认加严），二是不再依赖
+     * "某层 schema 写歪了就静默退回非 strict"这类隐性行为。</p>
      */
     public static JsonArray toFlatTools(String toolsJson) {
         JsonArray flat = new JsonArray();
@@ -256,9 +269,33 @@ public final class ResponsesPayloadBuilder {
                     : tool.get("parameters");
             out.add("parameters", parameters != null && parameters.isJsonObject()
                     ? parameters.getAsJsonObject() : emptySchema());
+            out.addProperty("strict", readStrict(tool, function));
             flat.add(out);
         }
         return flat;
+    }
+
+    /**
+     * 读出工具上的 strict 声明，<b>缺省一律 false</b>。
+     *
+     * <p>位置按来源方言取：chat 侧写在 {@code function.strict} 里，Responses 侧与
+     * {@code name} 同级；两处都查，先把声明方给的意图保住，再兜默认档。声明值坏了
+     * （非布尔）就退回 false，而不是抛——加严从来不是靠猜猜出来的。</p>
+     */
+    private static boolean readStrict(JsonObject tool, JsonObject function) {
+        boolean fromNested = function != null && readBoolean(function.get("strict"));
+        return readBoolean(tool.get("strict")) || fromNested;
+    }
+
+    private static boolean readBoolean(JsonElement element) {
+        if (element == null || !element.isJsonPrimitive()) {
+            return false;
+        }
+        try {
+            return element.getAsBoolean();
+        } catch (RuntimeException notBoolean) {
+            return false;
+        }
     }
 
     /** Responses 侧 function 工具的参数槽：没有 schema 时给一个空 object schema 而不是缺字段 */

@@ -3490,7 +3490,8 @@ public class OnlineInferenceService {
 
     /**
      * 结构化输出异步生成(题库 AI 导入专用)
-     * 优先尝试 response_format json_schema(strict)约束解码;
+     * 优先尝试 response_format json_schema 约束解码（<b>非 strict</b>，原因见
+     * {@link #callOpenAIStructured} 的方法注释）;
      * API 不支持或解析失败时,降级为 prompt+JSON repair+schema 校验+重试(上限2次)。
      *
      * @param prompt    用户提示(已含要求输出 JSON 的指令)
@@ -3587,7 +3588,15 @@ public class OnlineInferenceService {
 
     /**
      * OpenAI 结构化输出调用(独立新方法,不改动 callOpenAIAPI)
-     * 在请求体加 response_format: json_schema(strict),非流式,返回 content 字符串。
+     * 在请求体加 response_format: json_schema(<b>非 strict</b>),非流式,返回 content 字符串。
+     *
+     * <p>schema 在这里是"给模型看的形状说明"，不是解码约束：本方法收到的 schema 由
+     * {@code QuestionSchemaDictionary} 现场拼装，它不满足严格模式的三条硬规则
+     * （每个 object 显式 {@code additionalProperties:false}、全部字段进 required、
+     * 数组必须有 items），此前写死 {@code strict:true} 的后果是这条路径要么被服务商 4xx、
+     * 要么静默退回非 strict —— 两种都等于那个开关从来没生效，还多付一次失败往返。
+     * 真正的格式把关在降级链路之外照旧存在（{@code ImportValidator.repairJson} +
+     * {@code new JSONObject(...)} 解析校验）。</p>
      */
     private String callOpenAIStructured(String apiUrl, String apiKey, String modelName,
                                         String prompt, JSONObject schema, int maxTokens) throws Exception {
@@ -3628,12 +3637,12 @@ public class OnlineInferenceService {
             requestBody.addProperty("max_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
 
-            // 添加 response_format: json_schema(strict) 约束解码
+            // 添加 response_format: json_schema 约束解码（非 strict，见方法注释）
             JsonObject responseFormat = new JsonObject();
             responseFormat.addProperty("type", "json_schema");
             JsonObject jsonSchemaWrapper = new JsonObject();
             jsonSchemaWrapper.addProperty("name", "question_extraction");
-            jsonSchemaWrapper.addProperty("strict", true);
+            jsonSchemaWrapper.addProperty("strict", false);
             // 将 org.json.JSONObject schema 转为 Gson JsonObject
             jsonSchemaWrapper.add("schema", JsonParser.parseString(schema.toString()).getAsJsonObject());
             responseFormat.add("json_schema", jsonSchemaWrapper);

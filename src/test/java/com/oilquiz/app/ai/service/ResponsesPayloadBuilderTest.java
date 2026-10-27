@@ -223,6 +223,50 @@ public class ResponsesPayloadBuilderTest {
     }
 
     @Test
+    public void flattenedTools_carryExplicitStrictFalse() {
+        // 本项目的工具 schema 是刻意宽松的：ui_component 26 个参数只有 action 必填，
+        // 还带 5 个自由 object（props/layout/render/style/monitor）和 3 个无 items 的数组，
+        // 按严格模式硬规则（全字段进 required + 每层 object 显式 additionalProperties:false +
+        // 数组带 items）一条都过不了。缺省值本来就是 false，显式写出来是把
+        // "不赌各网关对 strict 的默认值"钉进实际发出的字节，而不是只存在于验证过的样例里。
+        String chatTools = "[{\"type\":\"function\",\"function\":{\"name\":\"ui_component\","
+                + "\"description\":\"创建UI组件\",\"parameters\":{\"type\":\"object\","
+                + "\"properties\":{\"action\":{\"type\":\"string\"}}}}}]";
+        JsonArray tools = ResponsesPayloadBuilder.toFlatTools(chatTools);
+        assertEquals(1, tools.size());
+        JsonObject t = tools.get(0).getAsJsonObject();
+        assertTrue("每条工具都要带 strict 字段", t.has("strict"));
+        assertFalse(t.get("strict").getAsBoolean());
+
+        // 幂等：把拍平结果再喂一次（自建端点直接给扁平形态时会发生），字段不能丢也不能翻
+        JsonArray again = ResponsesPayloadBuilder.toFlatTools(tools.toString());
+        JsonObject t2 = again.get(0).getAsJsonObject();
+        assertEquals("ui_component", t2.get("name").getAsString());
+        assertTrue(t2.has("strict"));
+        assertFalse(t2.get("strict").getAsBoolean());
+    }
+
+    @Test
+    public void declaredStrictTrue_isPreservedNotSilentlyDowngraded() {
+        // 默认档是 false，但声明方真给了一个合规工具要加严时，拍平层不擅自抹掉意图：
+        // chat 侧写在 function.strict，Responses 侧与 name 同级，两处都认。
+        JsonObject nested = ResponsesPayloadBuilder.toFlatTools(
+                "[{\"type\":\"function\",\"function\":{\"name\":\"a\",\"strict\":true,"
+                        + "\"parameters\":{\"type\":\"object\"}}}]").get(0).getAsJsonObject();
+        assertTrue(nested.get("strict").getAsBoolean());
+
+        JsonObject flat = ResponsesPayloadBuilder.toFlatTools(
+                "[{\"type\":\"function\",\"name\":\"b\",\"strict\":true,"
+                        + "\"parameters\":{\"type\":\"object\"}}]").get(0).getAsJsonObject();
+        assertTrue(flat.get("strict").getAsBoolean());
+
+        // 坏值（非布尔）退回默认档 false，不抛异常也不加严
+        JsonObject junk = ResponsesPayloadBuilder.toFlatTools(
+                "[{\"type\":\"function\",\"name\":\"c\",\"strict\":\"yes\"}]").get(0).getAsJsonObject();
+        assertFalse(junk.get("strict").getAsBoolean());
+    }
+
+    @Test
     public void alreadyFlatTools_passThroughWithoutDoubleNesting() {
         String flat = "[{\"type\":\"function\",\"name\":\"noop\",\"description\":\"\","
                 + "\"parameters\":{\"type\":\"object\"}}]";
