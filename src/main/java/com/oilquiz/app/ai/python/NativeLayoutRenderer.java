@@ -1825,6 +1825,7 @@ return attachLabel(context, node, props, row, density);
                 View ring = new View(context) {
                     @Override
                     protected void onDraw(android.graphics.Canvas canvas) {
+                        try {
                         super.onDraw(canvas);
                         float cx = getWidth() / 2f;
                         float cy = getHeight() / 2f;
@@ -1852,6 +1853,10 @@ return attachLabel(context, node, props, row, density);
                         android.graphics.Paint.FontMetrics fm = textPaint.getFontMetrics();
                         float baseline = cy - (fm.ascent + fm.descent) / 2f;
                         canvas.drawText(ringProgress + "%", cx, baseline, textPaint);
+                    
+                        } catch (Throwable t) {
+                            logDrawFailure("chart#0", t);
+                        }
                     }
                 };
                 ring.setLayoutParams(new android.widget.FrameLayout.LayoutParams(ringSize, ringSize));
@@ -2267,6 +2272,7 @@ return attachLabel(context, node, props, row, density);
                 View lcView = new View(context) {
                     @Override
                     protected void onDraw(android.graphics.Canvas canvas) {
+                        try {
                         super.onDraw(canvas);
                         int w = getWidth() > 0 ? getWidth() : chartW;
                         int h = getHeight() > 0 ? getHeight() : chartH;
@@ -2348,6 +2354,10 @@ return attachLabel(context, node, props, row, density);
                                 canvas.drawText(cat, x - dp(12, density), h - dp(6, density), textPaint);
                             }
                         }
+                    
+                        } catch (Throwable t) {
+                            logDrawFailure("chart#1", t);
+                        }
                     }
                 };
                 lcView.setLayoutParams(new LinearLayout.LayoutParams(
@@ -2389,6 +2399,7 @@ return attachLabel(context, node, props, row, density);
                 View bcView = new View(context) {
                     @Override
                     protected void onDraw(android.graphics.Canvas canvas) {
+                        try {
                         super.onDraw(canvas);
                         int w = getWidth();
                         int h = getHeight();
@@ -2451,6 +2462,10 @@ return attachLabel(context, node, props, row, density);
                                 canvas.drawText(cat, x - dp(10, density), h - dp(6, density), textPaint);
                             }
                         }
+                    
+                        } catch (Throwable t) {
+                            logDrawFailure("chart#2", t);
+                        }
                     }
                 };
                 bcView.setLayoutParams(new LinearLayout.LayoutParams(
@@ -2474,6 +2489,7 @@ return attachLabel(context, node, props, row, density);
                 View pieView = new View(context) {
                     @Override
                     protected void onDraw(android.graphics.Canvas canvas) {
+                        try {
                         super.onDraw(canvas);
                         float cx = getWidth() / 2f;
                         float cy = getHeight() / 2f - dp(10, density); // 上移为底部图例留空间
@@ -2525,6 +2541,10 @@ return attachLabel(context, node, props, row, density);
                             canvas.drawText(label + pct, dp(24, density), ly, textPaint);
                             ly += dp(14, density);
                         }
+                    
+                        } catch (Throwable t) {
+                            logDrawFailure("chart#3", t);
+                        }
                     }
                 };
                 pieView.setLayoutParams(new LinearLayout.LayoutParams(
@@ -2552,6 +2572,7 @@ return attachLabel(context, node, props, row, density);
                 View spView = new View(context) {
                     @Override
                     protected void onDraw(android.graphics.Canvas canvas) {
+                        try {
                         super.onDraw(canvas);
                         int w = getWidth();
                         int h = getHeight();
@@ -2584,6 +2605,10 @@ return attachLabel(context, node, props, row, density);
                         fillPath.lineTo(0, h);
                         fillPath.close();
                         canvas.drawPath(fillPath, fillPaint);
+                    
+                        } catch (Throwable t) {
+                            logDrawFailure("chart#4", t);
+                        }
                     }
                 };
                 spView.setLayoutParams(new LinearLayout.LayoutParams(
@@ -3364,6 +3389,17 @@ return attachLabel(context, node, props, srWrap, density);
      * 节点顶层字段（含 style 展开后）读取：padding=整数 或 "t r b l" 或 4元素数组；
      * radius=圆角dp（整数）；background=颜色(#RRGGBB/#AARRGGBB/颜色名)。
      */
+    /** 绘制期异常兜底：自绘图表在 onDraw 里读模型数据，任何形状问题都不该把整页带崩（视图片只记一次） */
+    private static final java.util.Set<String> DRAW_FAIL_LOGGED =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<String, Boolean>());
+
+    private static void logDrawFailure(String what, Throwable t) {
+        if (DRAW_FAIL_LOGGED.add(what)) {
+            com.oilquiz.app.util.AILogger.w("NativeLayoutRenderer",
+                    what + " onDraw 失败（已兜底，图表留白）：" + t);
+        }
+    }
+
     private static void applyContainerStyle(View v, JSONObject node, int density) {
         try {
             // padding：统一替换容器默认内边距
