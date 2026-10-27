@@ -91,7 +91,12 @@ public class PythonCalculateTool extends BaseAITool {
             "\n" +
             "# ===== AST 白名单安全检查（防沙箱绕过/内存耗尽） =====\n" +
             "ALLOWED_MODULES = {'math', 'statistics'}\n" +
-            "ALLOWED_FUNCS = {'abs', 'pow', 'round', 'int', 'float', 'min', 'max', 'sum', 'len', 'random'}\n" +
+            // 常用数学函数直接以裸名可用（模型很自然写 sqrt(1024) 而不是 math.sqrt(1024)）；
+            // 常量 pi/e 也放进白名单，否则 AST 检查会把 Name 节点判成"不允许的变量名"。
+            "ALLOWED_FUNCS = {'abs', 'pow', 'round', 'int', 'float', 'min', 'max', 'sum', 'len', 'random',\n" +
+            "                 'sqrt', 'cbrt', 'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2',\n" +
+            "                 'log', 'log2', 'log10', 'exp', 'floor', 'ceil', 'fabs', 'factorial',\n" +
+            "                 'degrees', 'radians', 'hypot', 'pi', 'e'}\n" +
             "def check_expression(expr):\n" +
             "    tree = ast.parse(expr, mode='eval')\n" +
             "    for node in ast.walk(tree):\n" +
@@ -106,10 +111,11 @@ public class PythonCalculateTool extends BaseAITool {
             "        elif isinstance(node, ast.Call):\n" +
             "            f = node.func\n" +
             "            if isinstance(f, ast.Name) and f.id not in ALLOWED_FUNCS:\n" +
-            "                raise ValueError('不允许的函数: ' + f.id)\n" +
+            "                raise ValueError('不允许的函数: ' + f.id + '（math 模块函数请写成 math.' + f.id +\n" +
+            "                    '(...)；常用函数已内置：sqrt/sin/cos/tan/log/log10/exp/floor/ceil 与常量 pi/e）')\n" +
             "        elif isinstance(node, ast.Name):\n" +
             "            if node.id not in ALLOWED_MODULES and node.id not in ALLOWED_FUNCS:\n" +
-            "                raise ValueError('不允许的变量/函数名: ' + node.id)\n" +
+            "                raise ValueError('不允许的变量/函数名: ' + node.id + '（常用函数已内置，见工具说明；其他用 math.<fn>）')\n" +
             "    return tree\n" +
             "\n" +
             "print(f'任务: {task}')\n" +
@@ -122,6 +128,13 @@ public class PythonCalculateTool extends BaseAITool {
             "    'random': random,\n" +
             "    'abs': abs, 'pow': pow, 'round': round,\n" +
             "    'int': int, 'float': float, 'min': min, 'max': max, 'sum': sum, 'len': len,\n" +
+            "    'sqrt': math.sqrt, 'cbrt': lambda x: math.copysign(abs(x) ** (1/3), x),\n" +
+            "    'sin': math.sin, 'cos': math.cos, 'tan': math.tan,\n" +
+            "    'asin': math.asin, 'acos': math.acos, 'atan': math.atan, 'atan2': math.atan2,\n" +
+            "    'log': math.log, 'log2': math.log2, 'log10': math.log10, 'exp': math.exp,\n" +
+            "    'floor': math.floor, 'ceil': math.ceil, 'fabs': math.fabs, 'factorial': math.factorial,\n" +
+            "    'degrees': math.degrees, 'radians': math.radians, 'hypot': math.hypot,\n" +
+            "    'pi': math.pi, 'e': math.e,\n" +
             "}\n" +
             "\n" +
             "try:\n" +
