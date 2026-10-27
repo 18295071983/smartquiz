@@ -9305,6 +9305,18 @@ public class AIChatActivity extends BaseActivity {
         updateRecycleBinLabel();
         new Thread(() -> {
             List<ConversationSession> sessions = chatHistoryManager.listConversationSessions();
+            // 打开抽屉顺手清扫孤儿历史（索引里已删除的会话，其历史文件此前只增不减）。
+            // 内部有安全闸：索引为空时不扫，防把磁盘历史误当孤儿全删。
+            try {
+                java.util.Set<String> knownIds = new java.util.HashSet<>();
+                if (sessions != null) {
+                    for (ConversationSession s0 : sessions) {
+                        if (s0 != null && s0.id != null) knownIds.add(s0.id);
+                    }
+                }
+                chatHistoryManager.sweepOrphanHistoryFiles(knownIds);
+            } catch (Throwable ignored) {
+            }
             // 各会话待办任务数（活跃：进行中/待办），供条目 "N 待办" 角标；后台线程读快照
             java.util.Map<String, Integer> taskCounts = null;
             try {

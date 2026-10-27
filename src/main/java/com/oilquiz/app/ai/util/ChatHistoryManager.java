@@ -555,6 +555,60 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         return ok;
     }
 
+    /** 历史文件名里的会话 uuid（`online_agent_history_<uuid>_<model>.json` / `local_chat_history_<uuid>_default.json`） */
+    private static final java.util.regex.Pattern SESSION_UUID = java.util.regex.Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+
+    /** 是否是"按会话存的历史文件"（含 .bak/.tmp/.round 副产物）；默认会话（无 uuid）返回 false */
+    static String sessionIdOfHistoryFile(String fileName) {
+        if (fileName == null) return null;
+        if (!(fileName.startsWith("online_agent_history_") || fileName.startsWith("local_chat_history_"))) {
+            return null;
+        }
+        java.util.regex.Matcher m = SESSION_UUID.matcher(fileName);
+        return m.find() ? m.group() : null;
+    }
+
+    /** 该历史文件是否属于"索引里已不存在的会话"（孤儿）；纯判定，便于单测 */
+    static boolean isOrphanHistoryFile(String fileName, java.util.Set<String> knownSessionIds) {
+        if (knownSessionIds == null || knownSessionIds.isEmpty()) return false; // 索引空/读失败时不判定
+        String sid = sessionIdOfHistoryFile(fileName);
+        return sid != null && !knownSessionIds.contains(sid);
+    }
+
+    /**
+     * 清扫孤儿历史文件：索引里已不存在的会话，其按会话存的历史（含原子写/检查点副产物）一并删除。
+     *
+     * <p><b>为什么需要一次性清扫</b>：删除会话的旧实现只删了 {@code conversations/<id>.json}，
+     * 各引擎按会话存的历史留在 filesDir（真机上实测 28 个孤儿、0.26MB，界面再也打不开）。
+     * 新删除逻辑已补，但存量需要一次清理。</p>
+     *
+     * <p><b>安全闸</b>：只在"已知会话列表非空"时执行——索引读取失败/首次启动列表为空时，
+     * 绝不能把磁盘上的历史当成孤儿全删。</p>
+     *
+     * @return 删除的文件数
+     */
+    public int sweepOrphanHistoryFiles(java.util.Collection<String> knownSessionIds) {
+        if (knownSessionIds == null || knownSessionIds.isEmpty()) return 0;
+        java.util.Set<String> known = new java.util.HashSet<>(knownSessionIds);
+        int removed = 0;
+        try {
+            File[] files = context.getFilesDir().listFiles();
+            if (files == null) return 0;
+            for (File f : files) {
+                String n = f.getName();
+                if (!n.contains(".json")) continue;      // 只碰历史文件及其 .bak/.tmp/.round
+                if (isOrphanHistoryFile(n, known) && f.delete()) removed++;
+            }
+            if (removed > 0) {
+                Log.i(TAG, "清扫孤儿历史文件: 删除 " + removed + " 个（所属会话已删除）");
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "清扫孤儿历史文件失败: " + t.getMessage());
+        }
+        return removed;
+    }
+
     /** 删除某会话在 filesDir 下的历史文件及原子写/检查点副产物 */
     private void deleteSessionHistoryFiles(String sessionId) {
         try {
