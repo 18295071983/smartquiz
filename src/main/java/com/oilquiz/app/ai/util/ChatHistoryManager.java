@@ -630,6 +630,20 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         return new File(getTrashDir(), "history");
     }
 
+    /** 把历史文件名里的会话键从 from 换成 to（保留 model 段与 .bak/.tmp/.round 后缀）；不属于 from 原样返回 */
+    static String renameForSession(String fileName, String fromSafe, String toSafe) {
+        if (fileName == null || fromSafe == null || toSafe == null || fromSafe.equals(toSafe)) return fileName;
+        String online = "online_agent_history_" + fromSafe;
+        if (fileName.startsWith(online)) {
+            return "online_agent_history_" + toSafe + fileName.substring(online.length());
+        }
+        String local = "local_chat_history_" + fromSafe;
+        if (fileName.startsWith(local)) {
+            return "local_chat_history_" + toSafe + fileName.substring(local.length());
+        }
+        return fileName;
+    }
+
     /** 该文件名是否属于指定会话（含 .bak/.tmp/.round 副产物） */
     static boolean belongsToSession(String fileName, String safeSessionId) {
         if (fileName == null || safeSessionId == null || safeSessionId.isEmpty()) return false;
@@ -675,8 +689,18 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
 
     /** 恢复某会话的历史文件（从所有批次里找），返回恢复个数 */
     public int restoreHistoryForSession(String sessionId) {
-        if (sessionId == null || sessionId.isEmpty()) return 0;
-        String safe = sessionId.replaceAll("[^a-zA-Z0-9_-]", "_");
+        return restoreHistoryForSession(sessionId, sessionId);
+    }
+
+    /**
+     * 恢复并改名：同 id 会话已存在时恢复方会分配新 id，历史文件必须跟着改名，
+     * 否则会按旧 id 留在盘上，被孤儿清扫判成孤儿、恢复出来的会话又成了空壳。
+     */
+    public int restoreHistoryForSession(String fromSessionId, String toSessionId) {
+        if (fromSessionId == null || fromSessionId.isEmpty()) return 0;
+        String safe = fromSessionId.replaceAll("[^a-zA-Z0-9_-]", "_");
+        String toSafe = (toSessionId == null || toSessionId.isEmpty())
+                ? safe : toSessionId.replaceAll("[^a-zA-Z0-9_-]", "_");
         int restored = 0;
         try {
             File[] batches = historyTrashRoot().listFiles();
@@ -687,13 +711,15 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
                 if (files == null) continue;
                 for (File f : files) {
                     if (!belongsToSession(f.getName(), safe)) continue;
-                    File target = new File(context.getFilesDir(), f.getName());
+                    String newName = renameForSession(f.getName(), safe, toSafe);
+                    File target = new File(context.getFilesDir(), newName);
                     if (!target.exists() && f.renameTo(target)) restored++;
                 }
             }
             if (restored > 0) {
                 com.oilquiz.app.util.AILogger.audit(TAG,
-                        "恢复会话 " + sessionId + "：历史文件恢复 " + restored + " 个");
+                        "恢复会话 " + fromSessionId + (safe.equals(toSafe) ? "" : " → " + toSafe)
+                                + "：历史文件恢复 " + restored + " 个");
             }
         } catch (Throwable t) {
             com.oilquiz.app.util.AILogger.audit(TAG, "恢复会话历史失败: " + t.getMessage());
@@ -1026,31 +1052,57 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             if (!dir.exists() && !dir.mkdirs()) {
                 return null;
             }
-            String id = entry.sessionId;
-            // 历史文件在"清空对话"时被移入回收站：恢复会话时一并搬回来，否则恢复出来是空壳
-            restoreHistoryForSession(id);
-            File target = new File(dir, id + ".json");
-            if (!target.exists()) {
+            String originalId = entry.sessionId;
+            File target = new File(dir, originalId + ".json");
+            boolean idTaken = target.exists();
+
+            if (!idTaken) {
+                // 历史文件在"清空对话"时被移入回收站：恢复会话时一并搬回来，否则恢复出来是空壳
+                restoreHistoryForSession(originalId);
                 if (!entry.file.renameTo(target)) {
                     copyFile(entry.file, target);
                     entry.file.delete();
                 }
-                return id;
+                return originalId;
             }
+
+            // 同 id 已存在：给恢复的会话分配新 id，历史文件**同步改名**到新 id
+            // （否则历史留在旧名下，会被孤儿清扫判成孤儿、恢复出来又是空壳）
+            String newId = java.util.UUID.randomUUID().toString();
+            restoreHistoryForSession(originalId, newId);
             String text = readText(entry.file);
             org.json.JSONObject o = new org.json.JSONObject(text);
-            id = java.util.UUID.randomUUID().toString();
-            o.put("id", id);
-            File renamed = new File(dir, id + ".json");
+            o.put("id", newId);
+            File renamed = new File(dir, newId + ".json");
             try (java.io.FileWriter w = new java.io.FileWriter(renamed)) {
                 w.write(o.toString());
             }
             entry.file.delete();
-            return id;
+            return newId;
         } catch (Exception e) {
             android.util.Log.w("ChatHistoryManager", "restore trashed session failed: " + e.getMessage());
             return null;
         }
+    }
+
+    /** 彻底丢弃某会话在历史回收站里的文件（不可恢复路径：删回收站条目/清空回收站时） */
+    private int deleteTrashedHistoryForSession(String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) return 0;
+        String safe = sessionId.replaceAll("[^a-zA-Z0-9_-]", "_");
+        int removed = 0;
+        try {
+            File[] batches = historyTrashRoot().listFiles();
+            if (batches == null) return 0;
+            for (File batch : batches) {
+                File[] files = batch.listFiles();
+                if (files == null) continue;
+                for (File f : files) {
+                    if (belongsToSession(f.getName(), safe) && f.delete()) removed++;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return removed;
     }
 
     /** 彻底删除一个回收站会话（连同该会话遗留的本地推理历史文件） */
@@ -1066,6 +1118,7 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         boolean deleted = entry.file.delete();
         if (deleted) {
             deleteLocalHistoryArtifacts(sessionId);
+            deleteTrashedHistoryForSession(sessionId);
         }
         return deleted;
     }
@@ -1077,6 +1130,8 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
      * 本地推理上下文还堆在 files/ 下。
      */
     public int clearTrash() {
+        // 回收站整体清空后，历史文件也失去可恢复对象：连 history 批次一起删，避免占盘
+        deleteRecursively(historyTrashRoot());
         File[] files = getTrashDir().listFiles((d, name) -> name.endsWith(".json"));
         int removed = 0;
         if (files != null) {

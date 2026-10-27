@@ -74,6 +74,24 @@ public class HistoryOrphanSweepTest {
     }
 
     @Test
+    public void renameForSessionKeepsModelAndSidecarSuffix() {
+        assertEquals("online_agent_history_" + DEAD + "_m.json",
+                ChatHistoryManager.renameForSession(
+                        "online_agent_history_" + LIVE + "_m.json", LIVE, DEAD));
+        assertEquals("online_agent_history_" + DEAD + "_m.json.bak",
+                ChatHistoryManager.renameForSession(
+                        "online_agent_history_" + LIVE + "_m.json.bak", LIVE, DEAD));
+        assertEquals("local_chat_history_" + DEAD + "_default.json.round",
+                ChatHistoryManager.renameForSession(
+                        "local_chat_history_" + LIVE + "_default.json.round", LIVE, DEAD));
+        // 不属于来源会话：原样返回（不能误改别人的文件）
+        assertEquals("online_agent_history_x.json",
+                ChatHistoryManager.renameForSession("online_agent_history_x.json", LIVE, DEAD));
+        // 同 id：原样
+        assertEquals("a", ChatHistoryManager.renameForSession("a", LIVE, LIVE));
+    }
+
+    @Test
     public void emptyIndexNeverClassifiesAnythingAsOrphan() {
         assertFalse(ChatHistoryManager.isOrphanHistoryFile(
                 "local_chat_history_" + DEAD + "_default.json", known()));
