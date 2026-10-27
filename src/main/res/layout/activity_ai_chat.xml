@@ -485,6 +485,17 @@
                         android:maxLines="2"
                         android:ellipsize="end"
                         android:textColor="?attr/colorControlTextSecondary"/>
+
+                    <TextView
+                        android:id="@+id/tv_agent_progress_meta"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:textSize="10sp"
+                        android:maxLines="2"
+                        android:ellipsize="end"
+                        android:visibility="gone"
+                        android:textColor="?attr/colorControlTextSecondary"/>
                 </LinearLayout>
 
                 <!-- 发送队列条：忙时排队模式显示待发送消息，可一键清空 -->

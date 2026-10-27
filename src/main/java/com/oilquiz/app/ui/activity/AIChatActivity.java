@@ -187,6 +187,7 @@ public class AIChatActivity extends BaseActivity {
     private android.widget.TextView tvAgentProgressPct;
     private android.widget.TextView tvAgentProgressMsg;
     private android.widget.ProgressBar pbAgentProgress;
+    private android.widget.TextView tvAgentProgressMeta;
     private android.widget.TextView tvQueueInfo;
     private android.widget.TextView btnQueueCancel;
     /** 忙时发送模式：block=拒绝（默认）/ queue=排队 / steer=打断重发 */
@@ -381,6 +382,8 @@ public class AIChatActivity extends BaseActivity {
             if (!isGenerating) return;
             try {
                 updateStatusPhrase();
+                // 进度插槽第二行（工具活动 + 任务计数）随心跳刷新，让"正在跑什么/跑了多久"可读
+                refreshProgressSlotMeta();
             } catch (Throwable ignored) {
             }
             uiHandler.postDelayed(this, 1200);
@@ -722,6 +725,12 @@ public class AIChatActivity extends BaseActivity {
             tvAgentProgressPct = findViewById(R.id.tv_agent_progress_pct);
             tvAgentProgressMsg = findViewById(R.id.tv_agent_progress_msg);
             pbAgentProgress = findViewById(R.id.pb_agent_progress);
+            tvAgentProgressMeta = findViewById(R.id.tv_agent_progress_meta);
+            if (agentProgressSlot != null) {
+                // 点进度条 → 任务监控（当前活动 + 本会话任务清单）
+                agentProgressSlot.setClickable(true);
+                agentProgressSlot.setOnClickListener(v -> showTaskMonitor());
+            }
             tvQueueInfo = findViewById(R.id.tv_queue_info);
             btnQueueCancel = findViewById(R.id.btn_queue_cancel);
             busySendMode = getSharedPreferences("ai_prefs", MODE_PRIVATE).getString(PREFS_BUSY_MODE, "block");
@@ -12603,6 +12612,79 @@ public class AIChatActivity extends BaseActivity {
             boolean has = s.message != null && !s.message.isEmpty();
             tvAgentProgressMsg.setText(has ? s.message : "");
             tvAgentProgressMsg.setVisibility(has ? View.VISIBLE : View.GONE);
+        }
+        refreshProgressSlotMeta();
+    }
+
+    /**
+     * 任务监控（点进度条打开）：当前工具活动 + 本会话任务清单。
+     *
+     * <p>数据源都是现成的：{@code AgentActivityBus}（正在执行哪个工具/目标/已耗时）与
+     * {@code TaskStateTracker}（本会话任务状态）。这里只做一次性展示，不新增状态。</p>
+     */
+    private void showTaskMonitor() {
+        try {
+            // 换行不用字符转义（本文件里被写坏过一次），直接用码点拼
+            final String br = String.valueOf((char) 10);
+            StringBuilder sb = new StringBuilder();
+            com.oilquiz.app.ai.chat.status.AgentActivityBus.Snapshot a =
+                    com.oilquiz.app.ai.chat.status.AgentActivityBus.current();
+            if (a != null) {
+                long sec = Math.max(0, (System.currentTimeMillis() - a.startTime) / 1000);
+                sb.append("正在执行: ").append(a.displayName);
+                if (a.target != null && !a.target.isEmpty()) sb.append(" · ").append(a.target);
+                sb.append("（").append(sec).append("s）").append(br).append(br);
+            }
+            java.util.List<com.oilquiz.app.ai.tool.TaskStateTracker.TaskEntry> tasks =
+                    com.oilquiz.app.ai.tool.TaskStateTracker.getInstance(this).getAll();
+            if (tasks == null || tasks.isEmpty()) {
+                sb.append("当前会话没有任务。").append(br).append(br)
+                        .append("（任务由 Agent 的 task 工具维护；长任务执行时会出现在这里）");
+            } else {
+                sb.append("本会话任务（").append(tasks.size()).append("）:").append(br);
+                for (com.oilquiz.app.ai.tool.TaskStateTracker.TaskEntry t : tasks) {
+                    if (t == null) continue;
+                    sb.append("• [").append(t.status).append("] ").append(t.description);
+                    if (t.progress > 0) sb.append(" · ").append(t.progress).append("%");
+                    sb.append(br);
+                }
+                sb.append(br).append("状态: todo=待办 / in_progress=进行中 / completed=完成 / failed=失败");
+            }
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("任务监控")
+                    .setMessage(sb.toString())
+                    .setPositiveButton("关闭", null)
+                    .show();
+        } catch (Throwable t) {
+            showToast("任务监控打开失败: " + t.getMessage());
+        }
+    }
+
+    /** 刷新进度插槽的第二行：当前工具活动 + 本会话任务计数（生成中由心跳定时刷新） */
+    private void refreshProgressSlotMeta() {
+        if (tvAgentProgressMeta == null) return;
+        try {
+            StringBuilder sb = new StringBuilder();
+            com.oilquiz.app.ai.chat.status.AgentActivityBus.Snapshot a =
+                    com.oilquiz.app.ai.chat.status.AgentActivityBus.current();
+            if (a != null) {
+                long sec = Math.max(0, (System.currentTimeMillis() - a.startTime) / 1000);
+                sb.append("正在：").append(a.displayName);
+                if (a.target != null && !a.target.isEmpty()) {
+                    String tg = a.target.length() > 24 ? a.target.substring(0, 24) + "…" : a.target;
+                    sb.append(" · ").append(tg);
+                }
+                sb.append("（").append(sec).append("s）");
+            }
+            int[] counts = com.oilquiz.app.ai.tool.TaskStateTracker.getInstance(this)
+                    .activeCountsForCurrentSession();
+            if (counts != null && counts[0] + counts[1] > 0) {
+                if (sb.length() > 0) sb.append("    ");
+                sb.append("任务 进行中 ").append(counts[0]).append(" · 待办 ").append(counts[1]);
+            }
+            tvAgentProgressMeta.setText(sb.toString());
+            tvAgentProgressMeta.setVisibility(sb.length() > 0 ? View.VISIBLE : View.GONE);
+        } catch (Throwable ignored) {
         }
     }
 
