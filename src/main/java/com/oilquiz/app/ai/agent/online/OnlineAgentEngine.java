@@ -133,6 +133,9 @@ public class OnlineAgentEngine {
     private volatile String currentRunId;
     /** 本轮执行的检查点文件（会话×模型派生；正常收尾删掉，异常/崩溃时留给下次恢复） */
     private volatile java.io.File currentCheckpointFile;
+    /** 空转/重复调用检测（一次用户消息 = 一个回合，execute 开头 reset） */
+    private final com.oilquiz.app.ai.agent.ToolCallDeduper toolDeduper =
+            new com.oilquiz.app.ai.agent.ToolCallDeduper();
 
     /** 当前在线模型配置 ID（null = 未知/本地路径）。
      *  历史文件按「会话 × 模型」双维度隔离，切换模型不共享上下文，
@@ -410,6 +413,7 @@ public class OnlineAgentEngine {
             currentRunId = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
             com.oilquiz.app.ai.agent.SessionContext.set(sessionId, currentRunId);
             currentCheckpointFile = com.oilquiz.app.ai.agent.AgentRoundCheckpoint.fileFor(getHistoryFile());
+            toolDeduper.reset();
             try {
                 doExecute(userMessage, effectiveMaxTokens);
                 // 本轮 Agent 执行完成（含工具多轮），持久化对话历史，供 Activity 重建/重启后恢复
@@ -441,6 +445,16 @@ public class OnlineAgentEngine {
                 com.oilquiz.app.ai.agent.SessionContext.clear();
             }
         });
+    }
+
+    /**
+     * 是否为"轮询型"调用：同参反复调用属正常用法，不该被重复检测拦。
+     * 目前点名两个：知识库导入状态、UI 组件取结果。
+     */
+    private static boolean isPollingLikeCall(String arguments) {
+        if (arguments == null) return false;
+        String a = arguments.replace(" ", "");
+        return a.contains("\"import_status\"") || a.contains("\"get_result\"");
     }
 
     /**
@@ -948,6 +962,9 @@ public class OnlineAgentEngine {
             saveRoundCheckpoint(iteration);
 
             // 并行执行所有工具调用
+            // 重置本轮的"已见调用"视图：SKIP 只在同一轮内成立；跨轮只看"是否出现过新调用"。
+            // 少了这一行的话，第 2 轮起所有副作用调用都会被当成"本轮重复"而全部跳过。
+            toolDeduper.beginRound();
             notifyExecutionStep(OnlineExecutionStep.TOOL_EXECUTING, "工具执行中");
             List<CompletableFuture<OnlineToolResult>> toolFutures = new ArrayList<>();
             for (OnlineInferenceService.ToolCallInfo tc : result.toolCalls) {
@@ -961,10 +978,27 @@ public class OnlineAgentEngine {
                     if (callback != null) callback.onToolCallStart(callId, tc.name, tc.arguments);
                 });
 
-                // 并行执行（toolCallId 与 assistant.tool_calls 中的 id 一致）
+                // 空转/重复检测：同一轮里同参重复的"有副作用"调用直接不执行（最危险的一种：
+                // 删文件写了两遍）。只读工具照常执行（结果缓存会命中）；轮询型（import_status/
+                // get_result）同参反复是正常用法，不拦。
                 final String toolCallId = tc.id;
-                CompletableFuture<OnlineToolResult> future = CompletableFuture.supplyAsync(
-                    () -> executeToolCall(toolCallId, tc.name, tc.arguments), executor);
+                boolean sideEffect = !com.oilquiz.app.ai.tool.ToolSideEffects
+                        .isReadOnlyIdempotent(tc.name);
+                boolean pollingLike = isPollingLikeCall(tc.arguments);
+                com.oilquiz.app.ai.agent.ToolCallDeduper.Verdict verdict =
+                        toolDeduper.judge(tc.name, tc.arguments, sideEffect, pollingLike);
+                CompletableFuture<OnlineToolResult> future;
+                if (verdict == com.oilquiz.app.ai.agent.ToolCallDeduper.Verdict.SKIP) {
+                    AILogger.w(TAG, "重复调用已跳过: " + tc.name + " args=" + tc.arguments);
+                    future = CompletableFuture.completedFuture(OnlineToolResult.failure(
+                            toolCallId, tc.name,
+                            "已跳过：本轮内已用完全相同的参数调用过该工具（见上一条结果）。"
+                                    + "如需重试请改变参数或说明原因；有副作用的工具不会被重复执行。",
+                            0));
+                } else {
+                    future = CompletableFuture.supplyAsync(
+                        () -> executeToolCall(toolCallId, tc.name, tc.arguments), executor);
+                }
                 toolFutures.add(future);
             }
 
@@ -1091,6 +1125,23 @@ public class OnlineAgentEngine {
                 }
             }
 
+            // 空转检测：连续"HINT 轮全是重复的副作用调用"给一次提示，"STOP 轮"直接收尾。
+            // 只读/轮询调用不计入——否则合法的长任务（反复查导入状态）会被误杀。
+            int dupRounds = toolDeduper.endRound();
+            if (dupRounds == com.oilquiz.app.ai.agent.ToolCallDeduper.HINT_AFTER_ROUNDS) {
+                JsonObject noProgressHint = new JsonObject();
+                noProgressHint.addProperty("role", "system");
+                noProgressHint.addProperty("content",
+                        "【无进展提示】你连续 " + dupRounds + " 轮用相同参数调用同一批工具，结果不会变化。"
+                                + "请改变参数、换一个策略，或直接给出结论；不要继续重复调用。");
+                pendingControlMessages.add(noProgressHint);
+                AILogger.w(TAG, "注入无进展提示（连续 " + dupRounds + " 轮全重复）");
+            } else if (dupRounds >= com.oilquiz.app.ai.agent.ToolCallDeduper.STOP_AFTER_ROUNDS) {
+                if (lastTurnMeta != null) lastTurnMeta.put("reason", "no_progress");
+                AILogger.w(TAG, "连续 " + dupRounds + " 轮无进展，强制收尾");
+                break;
+            }
+
             // 检查点 P2：本轮工具结果已收齐，历史回到一致状态（最坏只丢之后的进展）
             saveRoundCheckpoint(iteration);
 
@@ -1106,12 +1157,15 @@ public class OnlineAgentEngine {
             return;
         }
 
-        // 达到最大迭代次数
-        if (lastTurnMeta != null) {
+        // 达到最大迭代次数（若已因"无进展"收尾，保留 no_progress，别覆盖成 max_iterations）
+        Object reasonObj = lastTurnMeta != null ? lastTurnMeta.get("reason") : null;
+        boolean noProgressExit = "no_progress".equals(reasonObj == null ? null : String.valueOf(reasonObj));
+        if (lastTurnMeta != null && !noProgressExit) {
             lastTurnMeta.put("reason", "max_iterations");
             lastTurnMeta.put("turns", maxIterations);
         }
-        AILogger.w(TAG, "Reached max iterations (" + maxIterations + ", mode=" + agentMode + ")");
+        AILogger.w(TAG, (noProgressExit ? "收尾（连续无进展）" : "Reached max iterations")
+                + " (" + maxIterations + ", mode=" + agentMode + ")");
         notifyStep("总结", "已达到最大推理轮次，生成最终回答...");
         notifyExecutionStep(OnlineExecutionStep.RESPONDING, "生成最终回答");
         debugLlmStart();
