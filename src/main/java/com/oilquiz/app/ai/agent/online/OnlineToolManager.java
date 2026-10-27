@@ -511,37 +511,11 @@ public class OnlineToolManager {
         // - ui_component 的 get_result（阻塞等待用户点击组件按钮/对话框，交互可能持续较久，
         //   30s 默认超时会中断等待导致 Agent"越过交互"直接继续）
         // - dashscope_media 文生视频（费用确认弹窗阻塞 20s + 提交短轮询，总耗时可超 30s）
-        boolean isPermissionTool = "permission_manager".equals(toolName);
-        boolean isPermissionRequest = isPermissionTool && arguments != null
+        int effectiveTimeout = effectiveTimeoutMs(toolName, arguments, params);
+        // 重试闸门用到的判定（与 effectiveTimeoutMs 里的同名判据一致）：权限请求超时说明"用户可能还没点"，
+        // 和副作用工具一样不能重试——否则会二次弹窗/二次执行。
+        boolean isPermissionRequest = "permission_manager".equals(toolName) && arguments != null
                 && (arguments.contains("\"request\"") || arguments.contains("\"request_and_wait\""));
-        boolean isUserInteractionWait = "ui_component".equals(toolName)
-                && arguments != null && arguments.contains("\"get_result\"");
-        boolean isMediaSubmit = "dashscope_media".equals(toolName)
-                && arguments != null
-                && (arguments.contains("\"video\"") || arguments.contains("\"action\":\"video\"")
-                        || arguments.contains("\"action\": \"video\""));
-        // 知识库导入文件：文档解析/OCR/ASR 转写可能远超 30 秒（音频最长 120s），单独放宽
-        boolean isKnowledgeImport = "knowledge_base".equals(toolName) && arguments != null
-                && (arguments.contains("import_document") || arguments.contains("import_file")
-                    || arguments.contains("import_json"));
-        // douyin_downloader：首次执行含 UIFID 自愈抓取（WebView 15-17s）+ 官方解析，默认 30s 会误杀
-        boolean isDouyinDownload = "douyin_downloader".equals(toolName);
-        int baseTimeout = isKnowledgeImport
-                ? KNOWLEDGE_IMPORT_TIMEOUT_MS
-                : ((isPermissionRequest || isUserInteractionWait || isMediaSubmit || isDouyinDownload)
-                        ? PERMISSION_TOOL_TIMEOUT_MS : TOOL_TIMEOUT_MS);
-        // 工具自声明超时（2026-09-27）：耗时不可控的工具（如 remote_dsh 在电脑上真跑任务、
-        // Python 画图/装依赖）自己声明要等多久。实测踩到的坑：手机端 remote_dsh 传 timeout=150，
-        // 仍被这里的 30s 默认值掐断，且超时后模型拿到的是空结果 → 只能盲目重试
-        // （token 从 137 万烧到 196 万，用户看到"有些问题"）。判定公式抽到 ToolTimeouts，
-        // 与 AgentService（对话页另一条执行路径）共用，避免同一个工具两条路径两种死法。
-        int effectiveTimeout;
-        try {
-            effectiveTimeout = ToolTimeouts.effectiveMs(aiToolManager.getTool(toolName), params, baseTimeout);
-        } catch (Exception e) {
-            AILogger.w(TAG, "读取工具自声明超时失败(" + toolName + "): " + e.getMessage());
-            effectiveTimeout = baseTimeout;
-        }
 
         // 带重试的执行
         Exception lastException = null;
@@ -840,6 +814,58 @@ public class OnlineToolManager {
     }
 
     // ========== 内部方法 ==========
+
+    /**
+     * 本次调用实际应当等待的毫秒数：按工具类型取基线，再与工具自声明的
+     * {@link AITool#executionTimeoutMs} 取较大者，受 {@link ToolTimeouts#MAX_TOOL_TIMEOUT_MS} 约束。
+     *
+     * <p><b>为什么必须是公开方法、而且外层也用它</b>：内层执行按这个数等待，引擎外层此前另写死
+     * 60 秒。工具申报 165~200s 也白搭——外层先到点，模型只拿到一句
+     * {@code 工具执行异常: null}，而工具在后台继续跑、结果被丢弃（remote_dsh 跑真任务、
+     * pip 装依赖、存储授权 65s 都是这样死的）。等待时长只能有一个来源。</p>
+     */
+    public int effectiveTimeoutMs(String toolName, String arguments, Map<String, Object> params) {
+        // 需要用户交互的工具使用更长超时：
+        // - permission_manager 权限请求（用户授权弹窗）
+        // - ui_component 的 get_result（阻塞等待用户点击组件按钮/对话框，交互可能持续较久，
+        //   30s 默认超时会中断等待导致 Agent"越过交互"直接继续）
+        // - dashscope_media 文生视频（费用确认弹窗阻塞 20s + 提交短轮询，总耗时可超 30s）
+        boolean isPermissionTool = "permission_manager".equals(toolName);
+        boolean isPermissionRequest = isPermissionTool && arguments != null
+                && (arguments.contains("\"request\"") || arguments.contains("\"request_and_wait\""));
+        boolean isUserInteractionWait = "ui_component".equals(toolName)
+                && arguments != null && arguments.contains("\"get_result\"");
+        boolean isMediaSubmit = "dashscope_media".equals(toolName)
+                && arguments != null
+                && (arguments.contains("\"video\"") || arguments.contains("\"action\":\"video\"")
+                        || arguments.contains("\"action\": \"video\""));
+        // 知识库导入文件：文档解析/OCR/ASR 转写可能远超 30 秒（音频最长 120s），单独放宽
+        boolean isKnowledgeImport = "knowledge_base".equals(toolName) && arguments != null
+                && (arguments.contains("import_document") || arguments.contains("import_file")
+                    || arguments.contains("import_json"));
+        // douyin_downloader：首次执行含 UIFID 自愈抓取（WebView 15-17s）+ 官方解析，默认 30s 会误杀
+        boolean isDouyinDownload = "douyin_downloader".equals(toolName);
+        int baseTimeout = isKnowledgeImport
+                ? KNOWLEDGE_IMPORT_TIMEOUT_MS
+                : ((isPermissionRequest || isUserInteractionWait || isMediaSubmit || isDouyinDownload)
+                        ? PERMISSION_TOOL_TIMEOUT_MS : TOOL_TIMEOUT_MS);
+        // 工具自声明超时（2026-09-27）：耗时不可控的工具（如 remote_dsh 在电脑上真跑任务、
+        // Python 画图/装依赖）自己声明要等多久。实测踩到的坑：手机端 remote_dsh 传 timeout=150，
+        // 仍被这里的 30s 默认值掐断，且超时后模型拿到的是空结果 → 只能盲目重试
+        // （token 从 137 万烧到 196 万，用户看到"有些问题"）。判定公式抽到 ToolTimeouts，
+        // 与 AgentService（对话页另一条执行路径）共用，避免同一个工具两条路径两种死法。
+        try {
+            return ToolTimeouts.effectiveMs(aiToolManager.getTool(toolName), params, baseTimeout);
+        } catch (Exception e) {
+            AILogger.w(TAG, "读取工具自声明超时失败(" + toolName + "): " + e.getMessage());
+            return baseTimeout;
+        }
+    }
+
+    /** 便捷重载：手上只有原始参数串时（引擎外层等待用） */
+    public int effectiveTimeoutMs(String toolName, String argumentsJson) {
+        return effectiveTimeoutMs(toolName, argumentsJson, parseArguments(argumentsJson));
+    }
 
     private Map<String, Object> parseArguments(String arguments) {
         if (arguments == null || arguments.isEmpty() || "null".equals(arguments)) {

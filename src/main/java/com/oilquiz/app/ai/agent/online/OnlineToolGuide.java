@@ -81,8 +81,12 @@ public class OnlineToolGuide {
             }
             sb.append("\n");
         }
-        sb.append("（每个工具的完整参数定义见 API 的 tools 参数，按定义填参即可；"
-                + "不确定时用 tool_registry(action=get, tool=工具名) 查看）\n\n");
+        // 目录是"可发现"的，不等于"已注入"：实际注入只有核心集 + 少量扩展（MAX_SESSION_TOOLS）。
+        // 此前这里写"每个工具的完整参数定义见 API 的 tools 参数"，模型于是直接点名未注入的工具，
+        // 换来一次失败调用 + 自己编一段"工具不可用"。措辞必须与实际注入口径一致。
+        sb.append("（上面目录列的是**可发现**工具，不是全部已注入：本轮已注入的工具，其完整参数定义在 "
+                + "API 的 tools 参数里，按定义填参即可；未注入的要先 tool_registry(action=get, tool=工具名) "
+                + "把定义加载进来再调用——直接点名未注入的工具会失败）\n\n");
 
         // 2. 工具组合示例（静态链 + 学习到的历史模式）
         sb.append("【工具组合示例】\n");
@@ -206,7 +210,7 @@ public class OnlineToolGuide {
             return cachedQuickReference;
         }
         StringBuilder sb = new StringBuilder();
-        sb.append("可用工具: ");
+        sb.append("可用工具名（本行只列名字；未注入本轮的需先 tool_registry get 加载定义）: ");
         boolean first = true;
         for (OnlineToolRegistry.ToolMeta meta : registry.getAllToolMetas()) {
             if (!first) sb.append(", ");

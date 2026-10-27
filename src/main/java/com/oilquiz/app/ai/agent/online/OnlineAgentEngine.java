@@ -54,6 +54,12 @@ public class OnlineAgentEngine {
     /** 接管模式最大迭代轮数（信任模型自主控制，上限仅作安全兜底防死循环） */
     private static final int MAX_ITERATIONS_TAKEOVER = 100;
     /**
+     * 等工具 future 时在"工具实际预算"之外多等的余量：覆盖线程池调度、结果序列化与主线程回调。
+     * 等待主体由 {@link OnlineToolManager#effectiveTimeoutMs(String, String)} 决定（工具类型基线
+     * 与工具自申报取大），这里只补调度余量——绝不另立一个固定秒数（那正是"外层 60s 掐断 165s 工具"的由来）。
+     */
+    private static final long TOOL_WAIT_MARGIN_MS = 5_000L;
+    /**
      * 在线 Agent 的输出长度策略（2026-10-18）：**引擎侧不再设上限**。
      *
      * <p>原先这里有两道 app 自己的闸门：最终答案轮 16384、工具轮再收到 8192。它们与模型真实能力
@@ -88,7 +94,7 @@ public class OnlineAgentEngine {
      * 版本不一致（提示词升级）→ 丢弃重建（缓存 miss 一次属合理）。
      * 【注意】修改 OnlinePromptBuilder 的提示词模板时，必须同步递增此版本号。
      */
-    private static final String PROMPT_VERSION = "20261013-v9";
+    private static final String PROMPT_VERSION = "20261027-v10";
 
     /** Agent 执行模式 */
     public enum AgentMode {
@@ -859,13 +865,12 @@ public class OnlineAgentEngine {
                     return;
                 }
                 final OnlineInferenceService.ToolCallInfo tc = result.toolCalls.get(i);
+                // 等待时长与内层同一个来源：工具类型基线 + 工具自申报（remote_dsh 165s、pip 装依赖 ~200s、
+                // 存储授权 65s 各自申报），这里只加调度余量。此前写死 60s，比这些申报值还短——
+                // 内层没到点就被外层掐断，工具在后台继续跑、结果被丢弃，模型只拿到 "工具执行异常: null"。
+                final long waitMs = toolManager.effectiveTimeoutMs(tc.name, tc.arguments) + TOOL_WAIT_MARGIN_MS;
                 try {
-                    // 工具等待超时：默认 60 秒；ui_component 的 get_result（阻塞等待用户交互）用长超时
-                    // （120 秒），避免用户点组件按钮/对话框期间被引擎超时中断，导致 Agent"越过交互"。
-                    boolean isUserWait = "ui_component".equals(tc.name)
-                            && tc.arguments != null && tc.arguments.contains("\"get_result\"");
-                    long waitTimeoutSec = isUserWait ? 120 : 60;
-                    OnlineToolResult toolResult = toolFutures.get(i).get(waitTimeoutSec, TimeUnit.SECONDS);
+                    OnlineToolResult toolResult = toolFutures.get(i).get(waitMs, TimeUnit.MILLISECONDS);
                     // 通知 UI 工具调用完成
                     final OnlineToolResult tr = toolResult;
                     mainHandler.post(() -> {
@@ -897,7 +902,9 @@ public class OnlineAgentEngine {
 
                     AILogger.i(TAG, "Tool " + tr.toolName + " done, success=" + tr.success);
                 } catch (Exception e) {
-                    AILogger.e(TAG, "Tool future error: " + e.getMessage(), e);
+                    final boolean timedOut = e instanceof java.util.concurrent.TimeoutException;
+                    AILogger.e(TAG, (timedOut ? "Tool future TIMEOUT: " : "Tool future error: ")
+                            + tc.name + " (等待 " + waitMs + "ms)", e);
                     // 配对保障：工具执行异常/超时也必须补充对应的 tool 消息，
                     // 否则 assistant.tool_calls 无响应（孤儿 tool_call）导致 API 拒绝或上下文错乱
                     try {
@@ -905,7 +912,16 @@ public class OnlineAgentEngine {
                         toolMsg.addProperty("role", "tool");
                         toolMsg.addProperty("tool_call_id", tc.id);
                         toolMsg.addProperty("name", tc.name);
-                        toolMsg.addProperty("content", "工具执行异常: " + e.getMessage());
+                        // 超时文案必须说清三件事：哪个工具、等了多久、任务可能仍在后台。
+                        // 此前 TimeoutException.getMessage() 是 null，模型收到字面量 "工具执行异常: null"，
+                        // 只能盲目重试——对有副作用的工具等于可能执行两遍。
+                        String content = timedOut
+                                ? "工具执行超时：" + tc.name + " 在 " + (waitMs / 1000) + " 秒内没有返回。"
+                                  + "该工具可能仍在后台继续执行，但本次结果不会自动回传。"
+                                  + "不要盲目重复调用有副作用的工具；需要结果时改用可轮询的工具，或向用户说明情况。"
+                                : "工具执行异常：" + (e.getMessage() != null
+                                        ? e.getMessage() : e.getClass().getSimpleName());
+                        toolMsg.addProperty("content", content);
                         messageHistory.add(toolMsg);
                         AILogger.i(TAG, "补充失败 tool 响应(配对保障): " + tc.id);
                     } catch (Exception inner) {
@@ -940,6 +956,15 @@ public class OnlineAgentEngine {
             }
 
             // 继续下一轮推理
+        }
+
+        // 循环结束：先分清"用户取消"与"真的到上限"。
+        // 此前无论怎么退出都走进下面那段 —— 一边把 reason 从 user_cancel 覆盖成 max_iterations，
+        // 一边再发一次请求求总结：用户点了停止，却还要等一次网络往返，甚至收到一句新回答。
+        if (isCancelled.get()) {
+            AILogger.i(TAG, "循环因用户取消结束，跳过收尾请求（不覆盖 reason）");
+            finishGeneration();
+            return;
         }
 
         // 达到最大迭代次数
