@@ -8177,6 +8177,13 @@ public class AIChatActivity extends BaseActivity {
         showTokenStats(true);
 
         // 生成状态行随 hideLoadingUI()→toggleStopButton(false) 收起，速度/余额在收起时清空
+
+        // 排队消息接线（2026-10-27）：此前只有 chatViewModel.isGenerating 的观察者会排空队列，
+        // 而在线 Agent 引擎"走自己的消息回调、不经过 chatViewModel"（见 refreshSessionStats 的注释），
+        // 于是 Agent 回合结束后排队消息永远不会发。endGeneration 是两条路径统一的结束点，
+        // 在这里 post 一次（避免在结束回调里重入 sendMessage；drain 自身有 isGenerating 守卫，
+        // 重复触发也只会发一条）。
+        uiHandler.post(this::drainQueueIfAny);
     }
 
     /**
