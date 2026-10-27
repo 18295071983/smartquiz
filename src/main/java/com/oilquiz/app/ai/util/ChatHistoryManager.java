@@ -551,7 +551,10 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         boolean ok = file.exists() && file.delete();
         // 会话的对话历史文件（online_agent_history_<id>_*.json / local_chat_history_<id>_*.json）
         // 不删就永久留在 filesDir 里；其 .bak/.tmp/.round 副产物也会成为孤儿（实测设备上残留 3 个 .bak）。
-        deleteSessionHistoryFiles(sessionId);
+        int cleaned = deleteSessionHistoryFiles(sessionId);
+        // 审计：删会话是用户可感知但不可逆的动作，事后要能回答"删了哪些文件"
+        com.oilquiz.app.util.AILogger.audit(TAG, "删除会话 " + sessionId
+                + "：索引=" + (ok ? "已删" : "不存在") + "，清理历史文件 " + cleaned + " 个");
         return ok;
     }
 
@@ -591,6 +594,14 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
     public int sweepOrphanHistoryFiles(java.util.Collection<String> knownSessionIds) {
         if (knownSessionIds == null || knownSessionIds.isEmpty()) return 0;
         java.util.Set<String> known = new java.util.HashSet<>(knownSessionIds);
+        // 回收站里的会话仍可恢复：它们的历史文件不能当孤儿清掉（否则恢复回来历史就空了）
+        try {
+            File[] trashed = getTrashDir().listFiles((d, name) -> name.endsWith(".json"));
+            if (trashed != null) {
+                for (File f : trashed) known.add(f.getName().replace(".json", ""));
+            }
+        } catch (Throwable ignored) {
+        }
         int removed = 0;
         try {
             File[] files = context.getFilesDir().listFiles();
@@ -602,8 +613,8 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             }
             if (removed > 0) {
                 Log.i(TAG, "清扫孤儿历史文件: 删除 " + removed + " 个（所属会话已删除）");
-                // 同时落 ai_logs：这类"静默维护动作"只进 logcat 的话，事后翻日志查不到
-                com.oilquiz.app.util.AILogger.i(TAG,
+                // 走审计入口统一落 ai_logs（只进 logcat 的维护动作事后查不到）
+                com.oilquiz.app.util.AILogger.audit(TAG,
                         "清扫孤儿历史文件: 删除 " + removed + " 个（所属会话已删除）");
             }
         } catch (Throwable t) {
@@ -612,25 +623,27 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         return removed;
     }
 
-    /** 删除某会话在 filesDir 下的历史文件及原子写/检查点副产物 */
-    private void deleteSessionHistoryFiles(String sessionId) {
+    /** 删除某会话在 filesDir 下的历史文件及原子写/检查点副产物；返回删除个数 */
+    private int deleteSessionHistoryFiles(String sessionId) {
+        int removed = 0;
         try {
-            if (sessionId == null || sessionId.isEmpty()) return;
+            if (sessionId == null || sessionId.isEmpty()) return 0;
             String safe = sessionId.replaceAll("[^a-zA-Z0-9_-]", "_");
             File[] files = context.getFilesDir().listFiles();
-            if (files == null) return;
+            if (files == null) return 0;
             for (File f : files) {
                 String n = f.getName();
                 if (!n.contains(".json")) continue;
                 // 前缀匹配会话 id：文件名为 <prefix>_<safeId>_<model>.json 或 <prefix>_<safeId>.json
                 if (n.startsWith("online_agent_history_" + safe)
                         || n.startsWith("local_chat_history_" + safe)) {
-                    f.delete();
+                    if (f.delete()) removed++;
                 }
             }
         } catch (Throwable ignored) {
             // 清理失败不影响会话本身删除
         }
+        return removed;
     }
 
     /**
@@ -753,10 +766,13 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         if (files == null || files.length == 0) {
             return;
         }
+        int moved = 0;
         for (File file : files) {
-            moveToTrash(file);
+            if (moveToTrash(file)) moved++;
         }
         trimTrash(getTrashDir(), 40);
+        com.oilquiz.app.util.AILogger.audit(TAG, "清空全部会话：" + moved + "/" + files.length
+                + " 个移入回收站（可恢复；历史文件保留）");
     }
 
     /**
@@ -774,6 +790,7 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             return false;
         }
         boolean moved = moveToTrash(file);
+        com.oilquiz.app.util.AILogger.audit(TAG, "会话移入回收站: " + sessionId + " moved=" + moved);
         android.util.Log.i("ChatHistoryManager", "trash " + sessionId + " -> " + moved
                 + " (" + getTrashDir().getAbsolutePath() + ")");
         if (moved) {

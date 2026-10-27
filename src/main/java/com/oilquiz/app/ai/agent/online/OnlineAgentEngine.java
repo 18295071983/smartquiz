@@ -2653,17 +2653,19 @@ public class OnlineAgentEngine {
         try {
             java.io.File dir = context.getFilesDir();
             java.io.File[] files = dir.listFiles();
+            int removed = 0;
             if (files != null) {
                 for (java.io.File f : files) {
                     String name = f.getName();
                     // 用 contains 而不是 endsWith(".json")：原子写会留下 .json.bak/.json.tmp，
                     // 检查点还有 .json.round；只删 .json 会让备份成为孤儿（实测在设备上看到 3 个 .bak 残留）
                     if (name.startsWith("online_agent_history") && name.contains(".json")) {
-                        f.delete();
+                        if (f.delete()) removed++;
                     }
                 }
             }
             AILogger.i(TAG, "Cleared all agent history files");
+            AILogger.audit(TAG, "清空全部 Agent 历史：删除 " + removed + " 个文件（含 .bak/.tmp/.round）");
         } catch (Exception e) {
             AILogger.w(TAG, "clearAllHistory failed: " + e.getMessage());
         }

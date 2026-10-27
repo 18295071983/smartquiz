@@ -373,6 +373,18 @@ public class AILogger {
         
         writeToFile(logMessage);
     }
+
+    /**
+     * 维护动作审计：清理/删除/迁移这类<b>用户可感知但界面只闪一下（或看不见）</b>的操作，
+     * 统一带上 {@code [AUDIT]} 标记落 ai_logs，事后一条 {@code grep AUDIT} 就能复盘。
+     *
+     * <p>为什么不把相关类整类换成 AILogger：它们大量逐文件/逐条的日志会把 ai_logs 刷爆、
+     * 把真正要查的错误挤掉。所以约定是——<b>高频过程日志留在 android.util.Log，
+     * 只有"事后要能回答'谁删了什么'"的动作走这里</b>。</p>
+     */
+    public static void audit(String tag, String message) {
+        i(tag, "[AUDIT] " + message);
+    }
     
     public static void d(String tag, String message) {
         String logMessage = formatLogMessage("DEBUG", tag, message);
