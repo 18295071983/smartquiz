@@ -129,6 +129,10 @@ public class OnlineAgentEngine {
 
     /** 当前会话 ID（null/空 = 默认单文件历史；非空 = 按会话隔离的历史文件） */
     private volatile String sessionId;
+    /** 本次执行的 run id（一个用户消息一次），仅用于把同一次执行的日志串起来（见 LogContext） */
+    private volatile String currentRunId;
+    /** 本轮执行的检查点文件（会话×模型派生；正常收尾删掉，异常/崩溃时留给下次恢复） */
+    private volatile java.io.File currentCheckpointFile;
 
     /** 当前在线模型配置 ID（null = 未知/本地路径）。
      *  历史文件按「会话 × 模型」双维度隔离，切换模型不共享上下文，
@@ -401,10 +405,18 @@ public class OnlineAgentEngine {
         int effectiveMaxTokens = AGENT_OUTPUT_CAP;
 
         executor.submit(() -> {
+            // 执行作用域：本线程 + 它派生出去的工具线程都带上 session/run，日志行据此能串成一条线。
+            // 必须在 finally 里清（线程池线程会被复用）。
+            currentRunId = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+            com.oilquiz.app.ai.agent.SessionContext.set(sessionId, currentRunId);
+            currentCheckpointFile = com.oilquiz.app.ai.agent.AgentRoundCheckpoint.fileFor(getHistoryFile());
             try {
                 doExecute(userMessage, effectiveMaxTokens);
                 // 本轮 Agent 执行完成（含工具多轮），持久化对话历史，供 Activity 重建/重启后恢复
                 persistHistory();
+                // 正常收尾（含用户取消）：检查点不再需要；异常/崩溃路径不会走到这里，
+                // 文件留在盘上，下次 restore 据此知道"上次没正常结束"。
+                com.oilquiz.app.ai.agent.AgentRoundCheckpoint.clear(currentCheckpointFile);
             } catch (Throwable t) {
                 AILogger.e(TAG, "Execute failed: " + t.getMessage(), t);
                 if (lastTurnMeta != null) lastTurnMeta.put("reason", "error");
@@ -425,8 +437,91 @@ public class OnlineAgentEngine {
                 // 目标自动续行（dsh goal-round-driver 对齐）：仍有活跃任务且上轮推进过工具 →
                 // 自动注入【继续任务】再跑一轮（受 MAX_AUTO_CONTINUE / 间隔 / 取消 三重约束）
                 maybeAutoContinue();
+                // 复位会话/日志作用域：线程池线程会被下一次执行复用，漏清会把 run=A 的前缀带到 run=B
+                com.oilquiz.app.ai.agent.SessionContext.clear();
             }
         });
+    }
+
+    /**
+     * 落一次检查点（原子写；失败只告警，绝不阻断推理）。
+     *
+     * <p>只存恢复所需的最小集合：会话/模型/run/轮次/状态 + 消息快照。落点见
+     * {@link com.oilquiz.app.ai.agent.AgentRoundCheckpoint} 的类注释。</p>
+     */
+    private void saveRoundCheckpoint(int iteration) {
+        java.io.File cp = currentCheckpointFile;
+        if (cp == null) return;
+        try {
+            com.oilquiz.app.ai.agent.AgentRoundCheckpoint.Snapshot snap =
+                    new com.oilquiz.app.ai.agent.AgentRoundCheckpoint.Snapshot();
+            snap.sessionId = sessionId;
+            snap.modelId = activeModelId;
+            snap.runId = currentRunId;
+            snap.startedAt = inferenceStartTime > 0 ? inferenceStartTime : System.currentTimeMillis();
+            snap.iteration = iteration;
+            snap.status = com.oilquiz.app.ai.agent.AgentRoundCheckpoint.STATUS_RUNNING;
+            JsonArray arr = new JsonArray();
+            for (JsonObject msg : messageHistory) arr.add(msg);
+            snap.messages = arr;
+            com.oilquiz.app.ai.agent.AgentRoundCheckpoint.save(cp, snap);
+        } catch (Throwable t) {
+            AILogger.w(TAG, "Save round checkpoint failed: " + t.getMessage());
+        }
+    }
+
+    /**
+     * 给"发了但没结果"的 tool_calls 补一条"结果未知"的 tool 消息，并插回对应 assistant 之后。
+     *
+     * <p>必须补两件事：①孤儿 tool_call 会让服务商直接 400；②模型看不到这条会以为工具没被调用过，
+     * 可能立刻重跑删文件/发消息这类有副作用的工具。文案明确写"未知、不要直接重跑"。</p>
+     */
+    private int appendUnknownToolResults() {
+        try {
+            JsonArray arr = new JsonArray();
+            for (JsonObject m : messageHistory) arr.add(m);
+            java.util.List<String[]> unresolved =
+                    com.oilquiz.app.ai.agent.AgentRoundCheckpoint.unresolvedToolCalls(arr);
+            if (unresolved.isEmpty()) return 0;
+            java.util.Map<String, String> nameById = new java.util.HashMap<>();
+            for (String[] u : unresolved) nameById.put(u[0], u[1]);
+
+            java.util.List<JsonObject> rebuilt = new java.util.ArrayList<>();
+            int added = 0;
+            for (JsonObject msg : messageHistory) {
+                rebuilt.add(msg);
+                String role = msg.has("role") && !msg.get("role").isJsonNull()
+                        ? msg.get("role").getAsString() : "";
+                if (!"assistant".equals(role) || !msg.has("tool_calls")
+                        || !msg.get("tool_calls").isJsonArray()) {
+                    continue;
+                }
+                for (com.google.gson.JsonElement el : msg.getAsJsonArray("tool_calls")) {
+                    if (el == null || !el.isJsonObject()) continue;
+                    com.google.gson.JsonObject tc = el.getAsJsonObject();
+                    String id = tc.has("id") && !tc.get("id").isJsonNull()
+                            ? tc.get("id").getAsString() : null;
+                    if (id == null || !nameById.containsKey(id)) continue;
+                    JsonObject toolMsg = new JsonObject();
+                    toolMsg.addProperty("role", "tool");
+                    toolMsg.addProperty("tool_call_id", id);
+                    String name = nameById.get(id);
+                    if (name != null) toolMsg.addProperty("name", name);
+                    toolMsg.addProperty("content",
+                            com.oilquiz.app.ai.agent.AgentRoundCheckpoint.UNKNOWN_RESULT_TEXT);
+                    rebuilt.add(toolMsg);
+                    added++;
+                }
+            }
+            if (added > 0) {
+                messageHistory.clear();
+                messageHistory.addAll(rebuilt);
+            }
+            return added;
+        } catch (Throwable t) {
+            AILogger.w(TAG, "appendUnknownToolResults failed: " + t.getMessage());
+            return 0;
+        }
     }
 
     /**
@@ -848,6 +943,9 @@ public class OnlineAgentEngine {
             }
             assistantMsg.add("tool_calls", toolCallsArray);
             messageHistory.add(assistantMsg);
+            // 检查点 P1：这批工具即将执行。若进程在下面被杀，恢复时它们会被标成"结果未知"、
+            // 绝不重放——删文件/发消息这类副作用可能已经发生。
+            saveRoundCheckpoint(iteration);
 
             // 并行执行所有工具调用
             notifyExecutionStep(OnlineExecutionStep.TOOL_EXECUTING, "工具执行中");
@@ -992,6 +1090,9 @@ public class OnlineAgentEngine {
                     AILogger.i(TAG, "Injected fallback hint for failed tools: " + failedTools);
                 }
             }
+
+            // 检查点 P2：本轮工具结果已收齐，历史回到一致状态（最坏只丢之后的进展）
+            saveRoundCheckpoint(iteration);
 
             // 继续下一轮推理
         }
@@ -1638,7 +1739,8 @@ public class OnlineAgentEngine {
             + " | 调用前 token 累计: " + tokensBefore);
         // 带上本引擎的会话 id：工具侧的 tmp 目录、任务清单、用量归属都据此落到正确会话，
         // 而不是从全局"当前会话"去猜（并发时会猜错）。
-        OnlineToolResult result = toolManager.executeTool(toolCallId, toolName, arguments, sessionId);
+        OnlineToolResult result = toolManager.executeTool(toolCallId, toolName, arguments,
+                sessionId, currentRunId);
         // ——发现制闭环（2026-09-23 v5）：模型实际调用（含 tool_registry get 的目标工具）成功后，
         // 自动并入会话工具缓存，并立即刷新 liveToolsJson——当前 execute 的下一迭代就能直接调用
         // 该工具（MCP 语义：get 后本轮可调，不等下条用户消息）——
@@ -2672,6 +2774,16 @@ public class OnlineAgentEngine {
         try {
             java.io.File file = getHistoryFile();
             JsonArray arr = parseHistoryFile(file);
+            // 检查点优先：它可能比"最后一次成功保存"更新（崩溃发生在轮次中间）
+            com.oilquiz.app.ai.agent.AgentRoundCheckpoint.Snapshot snap =
+                    com.oilquiz.app.ai.agent.AgentRoundCheckpoint.load(
+                            com.oilquiz.app.ai.agent.AgentRoundCheckpoint.fileFor(file));
+            if (snap != null && snap.messages != null
+                    && snap.messages.size() > (arr == null ? 0 : arr.size())) {
+                arr = snap.messages;
+                AILogger.w(TAG, "检测到上次执行未正常结束（run=" + snap.runId
+                        + " iter=" + snap.iteration + "），改用检查点恢复 " + arr.size() + " 条消息");
+            }
             if (arr == null) return;
 
             // 检测第一个 system 消息的版本标记，决定是否原样保留 system 块
@@ -2737,6 +2849,15 @@ public class OnlineAgentEngine {
             }
             if (orphanSkipped > 0) {
                 AILogger.i(TAG, "Restore: skipped " + orphanSkipped + " orphan tool messages");
+            }
+            if (snap != null) {
+                int unknown = appendUnknownToolResults();
+                if (unknown > 0) {
+                    AILogger.w(TAG, "恢复时标记 " + unknown + " 个工具结果为未知（不重放）");
+                }
+                // 消费掉：避免每次进入会话都重复提示/重复补消息
+                com.oilquiz.app.ai.agent.AgentRoundCheckpoint.clear(
+                        com.oilquiz.app.ai.agent.AgentRoundCheckpoint.fileFor(file));
             }
             if (!messageHistory.isEmpty()) {
                 AILogger.i(TAG, "Restored agent history: " + messageHistory.size()
