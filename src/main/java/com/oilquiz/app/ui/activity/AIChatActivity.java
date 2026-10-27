@@ -32,7 +32,6 @@ import androidx.lifecycle.ViewModel;
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.chat.component.QuickToolChipModule;
 import com.oilquiz.app.ai.chat.coordination.AIChatCoordinator;
-import com.oilquiz.app.ai.chat.viewmodel.AIChatViewModel;
 
 import javax.inject.Inject;
 
@@ -251,7 +250,6 @@ public class AIChatActivity extends BaseActivity {
     private ChatInputBar chatInputBar;
 
     private AIChatCoordinator coordinator;
-    private AIChatViewModel chatViewModel;
     private AIService aiService;
     private InferenceRouter inferenceRouter;
     private List<ChatMessage> chatHistory;
@@ -867,13 +865,6 @@ public class AIChatActivity extends BaseActivity {
             coordinator = new AIChatCoordinator(this);
             coordinator.initialize();
 
-            // 0.1 获取 Hilt 注入的 ViewModel
-            chatViewModel = new ViewModelProvider(this).get(AIChatViewModel.class);
-            chatViewModel.initialize();
-
-            // 0.2 观察 ViewModel 的 LiveData
-            observeViewModel();
-
             // 从协调器获取服务引用
             aiService = coordinator.getAIService();
             inferenceRouter = coordinator.getInferenceRouter();
@@ -1135,228 +1126,6 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 观察 ViewModel 的 LiveData
-     */
-    private void observeViewModel() {
-        if (chatViewModel == null) return;
-
-        // 观察聊天消息变化（VM 消息列表与 Activity chatHistory 双轨：仅当 chatHistory 为空且
-        // 文件历史尚未加载完成时从 VM 恢复，避免两列表各自增长导致数据脱节；正常发送走 Activity 的 chatHistory）
-        chatViewModel.getChatMessages().observe(this, messages -> {
-            // fileHistoryLoaded：文件历史加载完成后不再接受 VM 快照（VM 是启动时一次性快照，
-            // 旋转重建后缺本次会话新组件；以文件为准），且文件加载期间不抢位，避免最新组件被旧快照覆盖
-            if (messages != null && !messages.isEmpty() && chatHistory.isEmpty() && !fileHistoryLoaded && chatAdapter != null) {
-                chatHistory.addAll(messages);
-                refreshSessionStats();
-                chatAdapter.notifyDataSetChanged();
-                scrollToBottom();
-            }
-        });
-
-        // 观察生成状态变化（兼容旧版）
-        chatViewModel.isGenerating().observe(this, isGenerating -> {
-            if (isGenerating != null) {
-                this.isGenerating = isGenerating;
-                if (isGenerating) {
-                    showLoading("正在思考...", null);
-                } else {
-                    hideLoading();
-                    // dsh 对齐：生成结束后自动发送排队消息 + 刷新上下文仪表
-                    drainQueueIfAny();
-                    refreshContextMeter();
-                }
-            }
-        });
-
-        // 观察错误信息（兼容旧版 toast）
-        chatViewModel.getError().observe(this, error -> {
-            if (error != null && !error.isEmpty()) {
-                showToast(error);
-            }
-        });
-
-        // 观察初始化状态
-        chatViewModel.isInitialized().observe(this, initialized -> {
-            if (initialized != null && initialized) {
-                updateModeButtonText();
-            }
-        });
-
-        // ========== 状态机观察：UI 渲染的主数据源 ==========
-
-        // AI 状态变化 → 渲染不同 UI 状态
-        chatViewModel.getAIState().observe(this, state -> {
-            if (state == null) return;
-            renderAIState(state);
-        });
-
-        // 结构化错误 → 渲染错误卡片（替代简单 toast）
-        chatViewModel.getAIError().observe(this, error -> {
-            if (error == null) return;
-            renderAIError(error);
-        });
-
-        // 推理进度心跳 → 更新进度条/计时
-        chatViewModel.getInferenceProgress().observe(this, progress -> {
-            if (progress == null) return;
-            updateInferenceProgressUI(progress);
-        });
-
-        // 在线思考实时流 → 顶部单行显示（增量累积 + 段落切换动画；null 表示思考结束隐藏）
-        chatViewModel.getOnlineThinkingStream().observe(this, s -> {
-            try {
-                if (s == null) {
-                    onlineThinkBuffer.setLength(0);
-                    lastThinkShown = null;
-                    if (tvGenPhase != null) tvGenPhase.setVisibility(View.GONE);
-                    return;
-                }
-                onlineThinkBuffer.append(s);
-                String full = onlineThinkBuffer.toString();
-                String disp = "💭 " + buildThinkingSegment(full);
-                // 与本地一路保持一致：动画时机交给 GenerationStatusBar（按是否换段判断），
-                // 不在这里再调一次 startThinkingRollerAnim（旧代码同帧双重启 → 闪烁）
-                if (!disp.equals(lastThinkShown) && tvGenPhase != null) {
-                    if (genStatusBar != null) {
-                        genStatusBar.onThinkingSegment(disp, 1);
-                    } else {
-                        tvGenPhase.setVisibility(View.VISIBLE);
-                        tvGenPhase.setText(disp);
-                    }
-                    lastThinkShown = disp;
-                }
-            } catch (Exception ignored) {}
-        });
-    }
-
-    // ========== 状态机 UI 渲染 ==========
-
-    /**
-     * 根据 AIState 渲染 UI —— 这是 UI 层与状态机的唯一对接点
-     */
-    private void renderAIState(AIChatViewModel.AIState state) {
-        switch (state) {
-            case IDLE:
-                hideLoading();
-                updateSendButtonState(true, getString(R.string.h_1535fcfa));
-                break;
-
-            case LOADING:
-                showLoading("AI模型加载中...", null);
-                updateSendButtonState(false, getString(R.string.h_26b5bd49));
-                break;
-
-            case READY:
-                hideLoading();
-                updateSendButtonState(true, getString(R.string.h_1535fcfa));
-                break;
-
-            case INFERRING:
-                showLoading("AI 正在推理...", null);
-                updateSendButtonState(false, getString(R.string.h_095e938e));
-                break;
-
-            case ERROR:
-                hideLoading();
-                // 错误状态由 aiError LiveData 处理
-                break;
-
-            case UNLOADED:
-                hideLoading();
-                showModelUnloadedCard();
-                break;
-        }
-    }
-
-    /**
-     * 渲染结构化错误卡片 —— 根据错误类型显示不同操作建议
-     */
-    private void renderAIError(AIChatViewModel.AIError error) {
-        String title;
-        String advice;
-        int iconRes;
-
-        switch (error.type) {
-            case "INIT":
-                title = getString(R.string.h_ab94e2c3);
-                advice = error.retryable ? "点击重新初始化" : "请重启应用";
-                break;
-            case "TIMEOUT":
-                title = getString(R.string.h_cd903f81);
-                advice = "模型可能计算较慢，可点击重试或降低上下文长度";
-                break;
-            case "NATIVE_CRASH":
-                title = getString(R.string.h_888bdf08);
-                advice = "本地推理引擎崩溃，建议降低上下文长度或切换在线模型";
-                break;
-            case "MEMORY":
-                title = getString(R.string.h_d8e6a633);
-                advice = "可用内存不足，建议释放后台应用或使用更小的模型";
-                break;
-            case "CANCELLED":
-                title = getString(R.string.h_14b4c1f2);
-                advice = "可重新发送消息";
-                break;
-            default:
-                title = getString(R.string.h_c9887c1b);
-                advice = error.retryable ? "可点击重试" : "请重启应用";
-                break;
-        }
-
-        // 显示带重试按钮的错误 Dialog
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("⚠️ " + title)
-                .setMessage(error.message + "\n\n💡 " + advice)
-                .setPositiveButton(error.retryable ? getString(R.string.h_132c5cdc) : getString(R.string.h_ce26955a), (d, w) -> {
-                    if (error.retryable) {
-                        chatViewModel.initialize();
-                    }
-                })
-                .setNegativeButton(getString(R.string.h_b15d9127), null)
-                .setCancelable(true)
-                .show();
-    }
-
-    /**
-     * 更新推理进度 UI —— 显示 elapsedMs / tokenCount 等
-     */
-    private void updateInferenceProgressUI(AIChatViewModel.InferenceProgress progress) {
-        // 在 loading 指示器中显示推理进度
-        String phaseText;
-        switch (progress.phase) {
-            case "thinking":
-                phaseText = "🤔 正在思考";
-                break;
-            case "generating":
-                phaseText = "✍️ 正在生成";
-                break;
-            case "complete":
-                phaseText = "✅ 完成";
-                break;
-            default:
-                phaseText = "⏳ 正在推理";
-        }
-        String text = String.format("%s · %.1fs · %d tokens",
-                phaseText, progress.elapsedMs / 1000.0, progress.tokenCount);
-        updateLoadingText(text);
-    }
-
-    /**
-     * 显示模型已卸载卡片 —— 提示用户重新加载
-     */
-    private void showModelUnloadedCard() {
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle(getString(R.string.h_b32d465f))
-                .setMessage(getString(R.string.h_7a17bf3a))
-                .setPositiveButton(getString(R.string.h_64ca9bab), (d, w) -> {
-                    chatViewModel.initialize();
-                })
-                .setNegativeButton(getString(R.string.h_87e4d9ef), null)
-                .setCancelable(true)
-                .show();
-    }
-
-    /**
      * 更新发送按钮状态（可点击/文本）
      */
     /** 刷新会话统计胶囊（dsh StatsPills 风格）：数据直接来自当前消息列表 */
@@ -1364,7 +1133,7 @@ public class AIChatActivity extends BaseActivity {
         if (sessionStatsBar == null) return;
         sessionStatsBar.update(chatHistory);
         // 2026-09-23 修复：上下文百分比 pill 与统计条同步刷新——
-        // 在线引擎走自己的消息回调（不走 chatViewModel.isGenerating），
+        // 在线引擎走自己的消息回调（旧版 ViewModel 状态机已删除，见 2026-10-27 清理），
         // 原 refreshContextMeter 只在旧版路径触发 → 在线对话下 pill 一直 0。
         // 并入统计刷新后，任何消息变化（发送/回复/恢复历史）都实时更新。
         refreshContextMeter();
@@ -2075,7 +1844,6 @@ public class AIChatActivity extends BaseActivity {
     private void cancelGeneration() {
         try {
             // 状态机双通道取消
-            if (chatViewModel != null) chatViewModel.stopGeneration();
 
             // 旧版路径兼容
             if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
@@ -8178,8 +7946,8 @@ public class AIChatActivity extends BaseActivity {
 
         // 生成状态行随 hideLoadingUI()→toggleStopButton(false) 收起，速度/余额在收起时清空
 
-        // 排队消息接线（2026-10-27）：此前只有 chatViewModel.isGenerating 的观察者会排空队列，
-        // 而在线 Agent 引擎"走自己的消息回调、不经过 chatViewModel"（见 refreshSessionStats 的注释），
+        // 排队消息接线（2026-10-27）：此前排空只挂在旧版 ViewModel 的 isGenerating 观察者上
+        // （该状态机早已不被驱动、已删除），而在线 Agent 走自己的消息回调，
         // 于是 Agent 回合结束后排队消息永远不会发。endGeneration 是两条路径统一的结束点，
         // 在这里 post 一次（避免在结束回调里重入 sendMessage；drain 自身有 isGenerating 守卫，
         // 重复触发也只会发一条）。
@@ -9245,9 +9013,6 @@ public class AIChatActivity extends BaseActivity {
             fileHistoryLoaded = true;
             chatHistory.clear();
             refreshSessionStats();
-            if (chatViewModel != null) {
-                chatViewModel.clearChatHistory();
-            }
             if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
             if (chatHistoryManager != null) {
                 new Thread(() -> {

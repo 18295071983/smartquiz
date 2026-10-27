@@ -375,7 +375,7 @@ public final class NpuEngineRouter {
      * JSON 聊天入口（与 {@code LlamaHelper.chatJson} 同签名）。
      *
      * <p><b>这是对话页与本地 Agent 的真实入口</b>（`ModelExecutionBridge` 3 处 + `AgentLoopEngine`
-     * + `AIChatViewModel`），之前只路由 chatSend/generate* 全部无效就是因为漏了它。
+     * + 旧版 `AIChatViewModel` 状态机，该状态机已删除），之前只路由 chatSend/generate* 全部无效就是因为漏了它。
      *
      * <p>事件协议与 native 完全一致（`native-lib.cpp` L3569/3581/3720/3929/3449）：
      * <pre>

@@ -17,7 +17,7 @@ import java.util.Set;
  *
  * <p>状态：{@link Phase}（发现→预处理→启动→导入→完成/失败/取消），
  * 全部迁移经 {@link #VALID_TRANSITIONS} 合法转移表校验，非法迁移直接拒绝并告警，
- * 与 AIChatViewModel.AIState 的转移表约束一致。</p>
+ * 与已删除的旧版 AIChatViewModel.AIState 转移表约束一致（仅作历史参考）。</p>
  *
  * <p>扩展方式：{@link Ui} 为全部 UI 输出点（阶段消息 / 步骤状态 / 监控数字 / 完成 / 错误）。
  * 需要换皮肤、换宿主、换呈现载体时，实现或替换 Ui 即可，本状态机零改动；

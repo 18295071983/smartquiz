@@ -569,7 +569,7 @@ public class AssistantTurn {
     /**
      * 思考段是否已经结束（引擎状态机口径）。
      *
-     * <p>阶段由 {@code AIChatViewModel} 按 reasoning / 正文两类 token 的真实先后写入：
+     * <p>阶段由引擎按 reasoning / 正文两类 token 的真实先后写入（旧版 {@code AIChatViewModel} 状态机已删除）：
      * 正文 token 一到就是 {@code GENERATING}。**阶段未知（null）按"还在思考"处理**——
      * 历史消息、旧路径以及没被状态机覆盖的引擎都保持改造前的行为，不会突然把思考当成已完成。</p>
      */
