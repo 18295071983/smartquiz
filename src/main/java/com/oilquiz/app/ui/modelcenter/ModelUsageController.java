@@ -183,6 +183,11 @@ public class ModelUsageController {
                 .append(" · 输出 ").append(group(snapshot.totalOutput));
         if (snapshot.totalCache > 0) {
             sb.append(" · 缓存命中 ").append(group(snapshot.totalCache));
+            // 命中率 = 命中 / 输入（OpenAI/DeepSeek 的 prompt_tokens 已含命中部分）
+            if (snapshot.totalInput > 0) {
+                sb.append(String.format(Locale.getDefault(), "（%.1f%%）",
+                        Math.min(100.0, 100.0 * snapshot.totalCache / snapshot.totalInput)));
+            }
         }
         // 失败率是"突然不能用"的最直接指标；失败数已并入首行，这里只补比例与耗时
         if (snapshot.totalFailures > 0 && snapshot.totalCalls > 0) {
@@ -285,7 +290,12 @@ public class ModelUsageController {
                     + " · 入 " + group(row.getInputTokens())
                     + " · 出 " + group(row.getOutputTokens())
                     + (row.getCacheHitTokens() > 0
-                        ? " · 缓存命中 " + group(row.getCacheHitTokens()) : ""));
+                        ? " · 缓存命中 " + group(row.getCacheHitTokens())
+                          + (row.getInputTokens() > 0
+                                ? String.format(Locale.getDefault(), "（%.1f%%）",
+                                    Math.min(100.0, 100.0 * row.getCacheHitTokens() / row.getInputTokens()))
+                                : "")
+                        : ""));
             holder.meta.setText(buildMeta(row, registeredName));
         }
 
