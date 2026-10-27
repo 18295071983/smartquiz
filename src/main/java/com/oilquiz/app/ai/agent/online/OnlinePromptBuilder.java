@@ -328,6 +328,9 @@ public class OnlinePromptBuilder {
         StringBuilder sb = new StringBuilder();
         sb.append("【任务状态跟踪】task 工具只用于「确实需要跨多步/多轮持续推进」的任务：布置时 task add，"
                 + "有进展 task update（progress 百分比），完成 task complete / 失败 task fail / 取消 task delete，查看 task list。"
+                + "长任务每推进一个阶段，同步用 ui_component(action=progress, title=阶段名, message=当前动作, progress=已完成, max_value=总量) "
+                + "更新输入区上方的进度插槽（标题/百分比/说明；不进聊天流、不随消息刷新重建、本轮结束自动收起）；"
+                + "不要反复 create progress_card 卡片（卡片随消息落定后不能更新，会越叠越多）。"
                 + "严格边界（防过度规划与幻觉）：一次性问答、单步操作、当场就能完成的请求一律不建任务；"
                 + "同一任务的多个步骤合并为一条维护，绝不按步骤逐条拆成很多任务；"
                 + "不要臆造用户没要求的后续计划，尤其禁止把任务排成"

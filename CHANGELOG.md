@@ -1,5 +1,44 @@
 # 变更日志
 
+## [2026-10-27] fix(agent-ui)：长任务进度插槽教给模型——在线 schema 此前没有 progress 动作
+
+用户："模型不知道长任务插槽"。
+
+### 查到的事实（出处）
+
+- 插槽本体在前两笔就齐了：`AgentProgressBus`（AgentProgressBus.java:17）+ `ui_component(action=progress)`
+  分支（SystemUIComponentTool.java:122）+ 聊天页渲染（AIChatActivity.java:12617）。
+- 但模型读不到它：8cf73a3f 只改了注解的 description，而在线 Agent 下发的 schema 来自
+  `AIToolManager.getToolDefinition("ui_component")` 的**另一份硬编码定义**（AIToolManager.java:1560）。
+  那份 action 清单是 `create/update/close/get_result/register_type/...`，**没有 progress**——
+  模型没有任何理由去调它，真机表现就是继续反复 create progress_card（卡片随消息落定不能更新，
+  越叠越多）。
+- 同一份副本还漏了 `list_components` / `close_all_components`：实现（SystemUIComponentTool.java:320/325）
+  与注解 actions 都有，只有模型眼前那份没有。
+- 本地 Agent 不在这条链路里：`DEFAULT_CORE_TOOLS` 是 9 个薄工具，且显式剔除了 ui_component
+  （AgentLoopEngine.java:186、:443-444），本地模型根本调不到插槽。
+
+### 由此改掉的事
+
+1. 在线硬编码 schema（模型真正读到的那份）：description 写明 action=progress 与
+   title/message/progress/max_value、插槽位置与生命周期，并明确"不要用 progress_card 反复建卡"；
+   action 清单补 progress、list_components、close_all_components；title/message/max_value/progress
+   参数说明标注 action=progress 的语义。
+2. 注解副本同步：actions 数组补 `@Action(progress)`，action 参数与 getParameterDescriptions 同源。
+3. 工作区《使用速查表》新增"二·五、长任务进度插槽"（调用示例 + 与 task 的分工：
+   task 管步骤清单，progress 只报整体进度）。
+4. 在线系统提示词【任务状态跟踪】补一句"每推进一个阶段同步 action=progress"。
+5. 守卫：ToolSchemaVisibilityTest 新增 longTaskProgressSlotIsTaughtToModel，直接对在线 schema /
+   注解 / 速查表 / 系统提示词四处断言，避免再漂。
+
+### 验证
+
+- compileDebugJavaWithJavac 通过；全量 testDebugUnitTest --offline --no-build-cache --rerun-tasks
+  **1107 / 0 skipped / 0 failures / 0 errors**（152 类）；assembleDebug 通过。
+- golden（assist.txt）随提示词改动更新，diff 确认只多这一句。
+- **未真机验**：模型是否真的按新指引调用 action=progress（要跑一次长任务观察插槽推进）；
+  本轮改动只到"模型能看到"这一层。
+
 ## [2026-10-25] fix(agent-ui)：工具失败原因的取文口径补到"回填模型"那一侧（并更正上一条自述）
 
 用户："还有其他的问题你没修？" → 为回答这句做产出侧复查时，发现我自己前一条口径修复漏了最要紧的一个消费端。

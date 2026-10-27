@@ -238,6 +238,41 @@ public class ToolSchemaVisibilityTest {
         assertTrue("ComponentRegistry 没注册 JobCardView", registry.contains("new JobCardView()"));
     }
 
+    /**
+     * 长任务进度插槽（2026-10-27）。
+     *
+     * <p>插槽本体在聊天页（{@code AgentProgressBus}），但模型一开始完全不知道：8cf73a3f 只改了
+     * 注解的 description/actions，而在线引擎读的是 {@link AIToolManager#getToolDefinition} 里
+     * <b>另一份硬编码 schema</b>——那份没有 progress 动作，模型于是继续反复 create progress_card，
+     * 真机上表现为卡片越叠越多、进度还停在快照上。四处同源都要断言，避免再漂一次。</p>
+     */
+    @Test
+    public void longTaskProgressSlotIsTaughtToModel() throws Exception {
+        // ① 在线模型真正拿到的硬编码 schema
+        String online = dump(AIToolManager.getInstance(context).getToolDefinition("ui_component"));
+        assertTrue("在线 schema 的 action 清单没有 progress", online.contains("progress("));
+        assertTrue("在线 schema 没教进度插槽", online.contains("进度插槽"));
+        assertTrue("在线 schema 没教 action=progress", online.contains("action=progress"));
+        assertTrue("在线 schema 还在推荐 progress_card（应明确不要反复建卡）",
+                online.contains("不要用 progress_card 反复建卡"));
+        // 顺带把另外两个被硬编码副本漏掉的动作补回（注解/实现都有，模型却看不到）
+        assertTrue("在线 schema 没教 list_components", online.contains("list_components"));
+        assertTrue("在线 schema 没教 close_all_components", online.contains("close_all_components"));
+
+        // ② 注解副本：actions 必须列 progress，action 参数说明也要跟上
+        String tool = read("src/main/java/com/oilquiz/app/ai/tool/SystemUIComponentTool.java");
+        assertTrue("注解 actions 没列 progress", tool.contains("@Action(name = \"progress\""));
+        assertTrue("action 参数说明没列 progress", tool.contains("progress(更新本轮长任务进度插槽"));
+
+        // ③ 工作区速查表 + 在线系统提示词
+        String guide = read("src/main/java/com/oilquiz/app/ai/agent/online/AgentWorkspace.java");
+        assertTrue("工作区速查表没教 action=progress", guide.contains("action=progress"));
+        assertTrue("工作区速查表没教进度插槽", guide.contains("进度插槽"));
+        String prompt = read("src/main/java/com/oilquiz/app/ai/agent/online/OnlinePromptBuilder.java");
+        assertTrue("在线系统提示词没教进度插槽", prompt.contains("进度插槽"));
+        assertTrue("在线系统提示词没教 action=progress", prompt.contains("action=progress"));
+    }
+
     private static String read(String path) throws Exception {
         java.io.File f = new java.io.File(path);
         assertTrue("找不到文档（测试需从模块根目录跑）: " + path, f.isFile());
