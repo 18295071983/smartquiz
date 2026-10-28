@@ -1,5 +1,31 @@
 # 变更日志
 
+## [2026-10-29] feat(tool-registry)：别名可被工具发现检出，get 按命中方式自曝身份
+
+外部评审 REVIEW-2026-1029-01 复核后的结论：`get(python_file_ops)` 走的**不是模糊路由**，而是
+`AIToolManager.resolveToolAlias` 里 2026-10-28 改名留的**硬别名**（`python_file_ops → document_parser`）；
+报告说的"数据丢失链路"也已被 `DocumentParserTool.removedActionMessage` 堵住（write/append/edit/replace/diff
+显式报错并点名 file_generator，有 `DocumentParserReadOnlyTest` 覆盖）。**报告说对的三处，本轮改掉：**
+
+- **措辞分档**：新增 `AIToolManager.resolveTool()` 返回 `NameMatch{EXACT|ALIAS|NORMALIZED|FUZZY|NONE}`
+  （只比较结果字符串，不复制搜索逻辑，两边不会漂移）；`tool_registry(action=get)` 输出 `matched_by`，
+  **只有精确命中**才说"已加载完整定义（下一轮可直接调用）"，别名/回退必须明说是替换的结果。
+- **get 带上工具级 `description` + `aliases`**：拦截乱调靠的是描述里那句"**不写文件**——写/追加/改/看差异
+  请用 `file_generator`"，不是等执行期报错。参数描述 80→160 字并带 `description_truncated`，
+  有枚举值就单列 `enum`（不再把 `file_generator.action` 的枚举切尾）。
+- **别名进发现通道**：`list(keyword=旧名)` 能筛出、`search(旧名)` 命中并回显
+  `matched=alias` + `matched_alias`（排在名字命中之后、描述命中之前），消掉"搜不到却 get 得到"的自相矛盾。
+  别名来源是单一权威：`@Tool(aliases)` 注解 + `LEGACY_NAMES` 改名链反向表（与 `resolveToolAlias` 同步）。
+- `document_parser` 与旧名别名**保留**——read/parse 仍是它独有的能力（Python 侧 RFC4180 + openpyxl/docx/pptx/pypdf）。
+- 测试：新增 `ToolRegistryAliasVisibilityTest` 9 条（EXACT/ALIAS 判定、旧名 get 不含"已加载完整定义"、
+  description 指向 file_generator、search/list 检出别名、措辞四档文案）。
+  全量 **1268 tests / 0 skipped / 0 failures / 0 errors**（+9），`assembleDebug` 通过。
+
+未采纳：报告 P1-③"把别名目标改成 file_generator"（会把旧会话的 read/parse 指错方向）、
+P1-④"阈值提到 0.8"（这条路径是精确别名，没有阈值可言）。
+仍开放（P2）：`searchToolNamesByKeyword` 的候选按注册顺序截断、无打分排序（`ops` 的"相近工具"不相关）；
+`file_write_rules.md` 是设备上工作区自生成的知识文档（仓库里没有），要治得在写入侧加工具名校验。
+
 ## [2026-10-29] refactor(chat)：AI 对话侧清掉 8,873 行死代码（分支 `chore/chat-dead-code-cleanup`，未并 main）
 
 详见 `docs/chat-dead-code-cleanup-2026-10-29.md`。10 个代码提交（本条文档提交另计）、148 文件、−8,873 / +8，
