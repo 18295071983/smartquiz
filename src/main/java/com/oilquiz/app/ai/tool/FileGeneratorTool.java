@@ -21,14 +21,14 @@ import java.util.Map;
 
 @Tool(
     value = "file_generator",
-    description = "文件生成/修改工具：新建、覆盖写入、追加、精确改一处、JSON/配置/Markdown/报告、复制、删除。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）。**写文件和改文件都优先用本工具，不要为这件事去跑 Python**。**文件名规范：一律用英文/数字/下划线（如 daily_report_0911.md），不要用中文文件名**（中文名在跨进程/链接打开环节易被截断丢失）；给用户文件链接时用返回的完整绝对路径或 files/相对路径，不要缩写/丢字（用户实测点开失败多因此）。",
+    description = "文件生成/修改工具：新建、覆盖写入、追加、精确改一处、JSON/配置/Markdown/报告、复制、删除。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）。**写文件和改文件都优先用本工具，不要为这件事去跑 Python**。**只能写文本类文件**：.docx/.pptx 用 python_execute(python-docx/pptx)、.xlsx 用 excel_tool(write_cell/add_row/add_sheet)、PDF 用 python_execute(reportlab/pypdf)——本工具写这些后缀会当场报错，因为按文本写等于把文件写坏。**覆盖写前自动备份历史版本 .ver1..ver5**（保留最近 5 版）：写坏了就 workspace(action=list→read) 取回 xxx.ver1 的内容再用本工具 write 回去。**文件名规范：一律用英文/数字/下划线（如 daily_report_0911.md），不要用中文文件名**（中文名在跨进程/链接打开环节易被截断丢失）；给用户文件链接时用返回的完整绝对路径或 files/相对路径，不要缩写/丢字（用户实测点开失败多因此）。",
     category = "file",
     // 动作名以本表为准（在线 ToolDefinition / 工作区指南 / 本地 PEG 三处同一套短名）。
     // 实现里同时接受旧的长名 write_json/create_config/create_markdown/create_template/
     // generate_report/copy_file/delete_file——那是历史会话还在用的别名，不再对外宣传。
     actions = {
-        @Action(name = "create", description = "创建文件（content 必填）"),
-        @Action(name = "write", description = "覆盖写入整个文件（不存在则新建，存在则整篇替换；覆盖前自动备份 .ver1..ver5）"),
+        @Action(name = "create", description = "创建文本文件（content 必填；.docx/.xlsx/.pdf 等二进制后缀会被拒）"),
+        @Action(name = "write", description = "覆盖写入整个文件（不存在则新建，存在则整篇替换；覆盖前自动备份 .ver1..ver5，写坏了可用 workspace 读回 .verN）"),
         @Action(name = "append", description = "追加内容到文件（content；newLine=true 行首补换行）"),
         @Action(name = "edit", description = "精确改一处：old_text 逐字符唯一匹配，命中 0 或多处报错；replace_all=true 才全换；返回 unified diff"),
         @Action(name = "diff", description = "预览差异（不写盘）：与 content 或 file_path_b 比较，返回 unified diff 并出预览卡"),
@@ -76,7 +76,9 @@ public class FileGeneratorTool implements AITool {
     
     @Override
     public String getDescription() {
-        return "文件生成/修改工具：新建、覆盖写入、追加、精确改一处、JSON/配置/Markdown/报告、复制、删除。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）。**写文件和改文件都优先用本工具，不要为这件事去跑 Python**。**文件名规范：一律用英文/数字/下划线（如 daily_report_0911.md），不要用中文文件名**（中文名在跨进程/链接打开环节易被截断丢失）；给用户文件链接时用返回的完整绝对路径或 files/相对路径，不要缩写/丢字（用户实测点开失败多因此）。";
+        // 描述以 @Tool 注解为单一来源（此前这里抄了一份同样的长文案，改一处漏一处）
+        Tool ann = FileGeneratorTool.class.getAnnotation(Tool.class);
+        return ann != null ? ann.description() : "";
     }
     
     @Override
@@ -220,6 +222,99 @@ public class FileGeneratorTool implements AITool {
     private static final int MAX_FILE_VERSIONS = 5;
 
     /**
+     * 二进制/文档类后缀黑名单（2026-10-29）：用文本写这些后缀会把文件**直接写坏**——
+     * docx/xlsx/pptx 本质是 zip 容器，塞进纯文本后连"打不开"都算轻的；pdf/图片/音视频/
+     * 压缩包同理。这些格式各有专用工具（excel_tool / python_execute+python-docx/pptx /
+     * reportlab / Pillow），所以<b>连 create 也拦</b>：让模型以为"生成了一个 Word 文件"
+     * 比当场报错危险得多。
+     */
+    private static final java.util.Set<String> BINARY_EXT = new java.util.HashSet<>(java.util.Arrays.asList(
+            // Office / PDF
+            "doc", "docx", "xls", "xlsx", "ppt", "pptx", "pdf", "pptm", "xlsm",
+            // 压缩/归档
+            "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "jar",
+            // 图片
+            "png", "jpg", "jpeg", "gif", "bmp", "webp", "heic", "ico", "tiff",
+            // 音频 / 视频
+            "mp3", "wav", "ogg", "m4a", "flac", "aac", "mp4", "avi", "mkv", "mov", "wmv", "webm",
+            // 可执行 / 模型 / 字体
+            "apk", "so", "dll", "exe", "bin", "onnx", "tflite", "pt", "gguf", "ttf", "otf"));
+
+    /**
+     * 写盘前的二进制护栏。
+     *
+     * @param targetPath 将要被创建/覆盖/追加/修改的目标路径
+     * @return null 表示放行；非 null 是给模型的报错文案（点名该用哪个专用工具）
+     */
+    static String binaryGuardMessage(String targetPath) {
+        if (targetPath == null) return null;
+        String path = targetPath.trim();
+        String name = new File(path).getName().toLowerCase();
+        int dot = name.lastIndexOf('.');
+        String ext = dot > 0 && dot < name.length() - 1 ? name.substring(dot + 1) : "";
+        // 版本备份本身是文本/二进制的副本，别在这里二次拦截取回路径
+        if (ext.startsWith("ver") && ext.length() <= 5) return null;
+        if (!ext.isEmpty() && BINARY_EXT.contains(ext)) {
+            return refuseTextFor(ext);
+        }
+        if (ext.isEmpty() && looksBinary(new File(path))) {
+            return "目标看起来是二进制文件（开头出现 NUL 等不可打印字节），不能用 file_generator "
+                    + "按文本写——那会把它写坏。请改用对应格式的专用工具，或写到一个新文件名上";
+        }
+        return null;
+    }
+
+    /** 按后缀指路到真正能写这个格式的工具（不说空话，每条都给可执行动作） */
+    private static String refuseTextFor(String ext) {
+        String head = "不能用 file_generator 写 ." + ext + "：它是二进制/容器格式，"
+                + "按文本写进去就等于把文件写坏（连 create 一个\"新\"的同名文件也算）。";
+        switch (ext) {
+            case "docx":
+                return head + " 要生成 Word：用 python_execute + python-docx（from docx import Document）；"
+                        + "只想交付文档正文，就 action=write 写成 .md/.txt。";
+            case "pptx":
+            case "pptm":
+                return head + " 要生成 PPT：用 python_execute + python-pptx（from pptx import Presentation）。";
+            case "xls":
+            case "xlsx":
+            case "xlsm":
+                return head + " 改单元格/加行/加表用 excel_tool(action=write_cell / add_row / add_sheet，"
+                        + "改完自动保存)；整表解析用 document_parser(action=parse)；导出纯表格请用 .csv。";
+            case "pdf":
+                return head + " 生成 PDF 用 python_execute + reportlab；合并/拆分用 pypdf。";
+            case "zip": case "rar": case "7z": case "tar": case "gz": case "bz2": case "xz": case "jar":
+                return head + " 打包/解包用 python_execute（zipfile/tarfile/shutil）。";
+            case "apk":
+                return head + " 要出安装包请用 export_apk 工具。";
+            default:
+                return head + " 需要处理该格式请走 python_execute（如 Pillow / ffmpeg）或对应专用工具。";
+        }
+    }
+
+    /** 只读开头 8KB 判断是否二进制（含 NUL 即判定；读不动就放行，宁漏不误伤） */
+    private static boolean looksBinary(File file) {
+        if (file == null || !file.exists() || !file.canRead()) return false;
+        try (java.io.InputStream in = new java.io.FileInputStream(file)) {
+            byte[] buf = new byte[8192];
+            int n = in.read(buf);
+            for (int i = 0; i < n; i++) {
+                if (buf[i] == 0) return true;
+            }
+        } catch (Exception e) {
+            return false;
+        }
+        return false;
+    }
+
+    /** 护栏统一出口：命中就返回失败结果，没命中返回 null 继续走主流程 */
+    private AIToolResult guardBinaryTarget(String path, Map<String, Object> parameters) {
+        String msg = binaryGuardMessage(path);
+        if (msg == null) return null;
+        AILogger.w(TAG, "二进制写护栏拦截: " + (path != null ? new File(path).getName() : "?"));
+        return new AIToolResult(msg, parameters);
+    }
+
+    /**
      * 覆盖写前备份历史版本：当前文件 → 同名.ver1，旧版本依次轮转（.ver1→.ver2…），
      * 超出 MAX_FILE_VERSIONS 的最旧版本删除。仅备份非空已存在文件，失败不阻断主流程。
      */
@@ -265,6 +360,8 @@ public class FileGeneratorTool implements AITool {
         if (filePath == null) {
             return new AIToolResult("缺少参数: file_path", parameters);
         }
+        AIToolResult blocked = guardBinaryTarget(filePath, parameters);
+        if (blocked != null) return blocked;
         
         if (content == null) {
             content = "";
@@ -374,6 +471,8 @@ public class FileGeneratorTool implements AITool {
         if (filePath == null) {
             return new AIToolResult("缺少参数: file_path", parameters);
         }
+        AIToolResult blocked = guardBinaryTarget(filePath, parameters);
+        if (blocked != null) return blocked;
         
         if (content == null) {
             content = "";
@@ -442,6 +541,8 @@ public class FileGeneratorTool implements AITool {
         if (filePath == null || filePath.trim().isEmpty()) {
             return new AIToolResult("缺少参数: file_name（要修改哪个文件）", parameters);
         }
+        AIToolResult blocked = guardBinaryTarget(filePath, parameters);
+        if (blocked != null) return blocked;
         if (oldText == null || oldText.isEmpty()) {
             return new AIToolResult("缺少参数: old_text（被替换的原文，必须逐字符一致，含缩进/空格/换行）", parameters);
         }

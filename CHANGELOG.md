@@ -1,5 +1,33 @@
 # 变更日志
 
+## [2026-10-29] fix(file_generator)：二进制写护栏——宁可当场报错，也不把 .docx/.xlsx/.pdf 写坏
+
+用户取向：**"不要为了写二进制文件导致写坏了"**，且"我记得我有专用工具啊"——核对确实在：
+`excel_tool` 有 `write_cell/add_row/add_sheet`（改完自动保存），Word/PPT/PDF 走
+`python_execute`（python-docx / python-pptx / reportlab / pypdf 都在包里）。
+
+- `FileGeneratorTool.binaryGuardMessage()`：按后缀拦 `create/write/append/edit`
+  （office 与 pdf、压缩包、图片音视频、apk/so/onnx/字体等约 45 个后缀），**连新建同名
+  二进制文件也拦**——落一个假 .docx 比报错更坏；报错按家族指路（xlsx→excel_tool 及具体
+  action、docx/pptx→python_execute+对应库、pdf→reportlab/pypdf、压缩包→zipfile/tarfile、
+  apk→export_apk）。黑名单共 49 个后缀。
+- 无扩展名或怪扩展名时嗅目标前 8KB，出现 NUL 判为二进制同样拒绝（读不动就放行，宁漏不误伤）。
+- **不误伤两处**：`copy` 是 `Files.copy` 逐字节复制，复制 .docx 合法；`xxx.md.ver1` 这类
+  版本备份名放行，否则取回路径自己也被堵。
+- 顺带补上模型此前完全不知道的备份能力：描述与 `@Action(write)` 现在写明
+  "覆盖写前自动备份 `.ver1..ver5`（最近 5 版），写坏了用 `workspace(list→read)` 取回再 write 回去"。
+- `getDescription()` 改为读 `@Tool` 注解（此前把注解文案抄了一份成第二处，改一处漏一处）；
+  在线 `ToolDefinition` 描述同步补上二进制与备份两句。
+
+测试：新增 `FileGeneratorBinaryGuardTest` 9 条（后缀黑名单+指路文案、文本类后缀不误伤、
+`.verN` 放行、NUL 嗅探、write/create/append/edit 端到端不落盘、copy .docx 仍可用）。
+全量 `--no-build-cache` 真跑 **173 套件 / 1295 tests / 0 skipped / 0 failures / 0 errors**；
+`assembleDebug` 通过并装机（04:56:12，设备与本地 md5 一致 `1a5875a7…`），
+dex 内确认含 `binaryGuardMessage` 与 `python-docx` 指路文案。
+
+仍未做：`workspace` 没有 `versions/restore` 动作（取回靠 list+read+write 手动三步）；
+`oil_price` 滞后与 `calculator` 有效位仍未做代码级核实。
+
 ## [2026-10-29] fix(tools)：修掉对话历史里坐实的 5 条能力缺陷（file_generator / text_tools / unit_converter）
 
 来源是设备上那一条真机会话（10-28 15:13 → 10-29 04:25，58 条消息，累计 4728 次工具调用 / 277 次失败）：
