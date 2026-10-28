@@ -1,7 +1,8 @@
 答题宝 · 完整 Python 环境内置包（termux_env）
 =================================================
 
-本目录是「完整 Python 环境（Termux + Ubuntu）」一键准备所需的两个官方产物，
+本目录是「完整 Python 环境（Termux + Ubuntu）」一键准备所需的官方产物（三个 APK + 一个根文件系统；
+CLI 离线 deb 在姊妹目录 ../termux_pkgs/），
 随 App 一起分发，用户不需要自己去网上找（网上大量旧包/不可信包）。
 
 1) termux-0.118.3-fdroid.apk            108.6 MB
@@ -10,13 +11,30 @@
    许可：GPLv3（源码 https://github.com/termux/termux-app）
    为什么必须内置而且要独立安装：
      Android 只允许 targetSdk < 29 的应用执行自己私有目录里的二进制；Termux 正是靠这一点
-     才能跑 proot/apt。答题宝 targetSdk 35，无法把该能力合并进自己的进程，因此只能引导安装 Termux。
+     才能跑 proot/apt。答题宝 targetSdk 36，无法把该能力合并进自己的进程，因此只能引导安装 Termux。
 
 2) ubuntu-base-24.04.5-base-arm64.targz.bin  28.5 MB（资产用中性后缀：AGP 会自动解包 .gz 结尾的资产，
    打包后名字会变成 .tar；导出给用户时会还原成 ubuntu-base-24.04.5-base-arm64.tar.gz）
    来源：Ubuntu 官方 ubuntu-base 24.04.5（清华镜像 ubuntu-cdimage）
    用途：proot-distro 从本地文件安装 Ubuntu 容器（省掉一次下载）
    许可：Ubuntu 镜像内各组件的许可见容器内 /usr/share/doc/*/copyright
+
+3) com.termux.api.apk                          3.8 MB   （Termux:API 插件，选装）
+   com.termux.boot.apk                           26 KB   （Termux:Boot 插件，SSH 开机自启要用）
+   来源：F-Droid 官方仓库；安装入口在配置页「更多工具 → 安装 Termux:API / Termux:Boot」（释放内置 APK 唤起系统安装器）。
+   许可：GPLv3（termux-api、termux-boot 各自仓库）。
+
+姊妹目录 assets/termux_pkgs/：35 个 Termux 离线 .deb，由 exportTermuxPkgs() 导出到
+   Download/OilQuiz/termux_env/pkgs/，准备脚本 step2 用 dpkg 零联网安装（proot / proot-distro /
+   python + pip / openssh 全家桶）。
+   2026-10-28 新增 3 个（step2b「补装 CLI 工具」也可单独装，配置页有按钮）：
+     tmux_3.8_aarch64.deb          449268 B  sha256 4f5c1c64fe3d99e0faec9aaa42ea17030509a29467c869032bafb8767c7aa88e
+     libevent_2.1.13_aarch64.deb   202848 B  sha256 cf99e8e6cd1218c0e4956d2ee69efbb26520211b3e03407463eac9016fe55f25
+     utf8proc_2.12.0_aarch64.deb    60756 B  sha256 2b5886b04030e957e1b6522faa10a8170ab203d40b60b06cf8c7f9a1ff2c24d1
+   来源：https://mirrors.tuna.tsinghua.edu.cn/termux/apt/termux-main （下载后与该仓库 stable/main/binary-aarch64/Packages
+   索引里的 SHA256、Size 逐字节校验过）。tmux 的其余依赖 ncurses / libandroid-support / libandroid-glob 已在原 32 包里。
+   为什么要装 tmux：termux_submit 一直是「有 tmux 才用 tmux，否则退回 nohup」，而此前全仓库没有任何地方装 tmux，
+   所以长任务实际全走 nohup —— Termux 进程被系统杀掉时作业会一起没了，tmux 会话才能撑过去。
 
 排障（重要）
 ---------

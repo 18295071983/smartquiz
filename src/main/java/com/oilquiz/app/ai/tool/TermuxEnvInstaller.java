@@ -329,7 +329,7 @@ public final class TermuxEnvInstaller {
         String root = rootfsPath == null || rootfsPath.isEmpty()
                 ? ("/sdcard/Download/" + EXPORT_SUBDIR + "/" + EXPORT_ROOTFS_NAME)
                 : rootfsPath;
-        // 分阶段：setup.sh 现在是 runner，只负责同步 8 个 step 脚本并顺序执行，
+        // 分阶段：setup.sh 现在是 runner，只负责同步各 step 脚本并顺序执行，
         // 上一步失败立即停止（不再一股脑跑完一路报错），已完成的步骤自动跳过（幂等续跑）。
         return buildRunnerScript(root, TUNA_ROOTFS_URL);
     }
@@ -545,6 +545,44 @@ public final class TermuxEnvInstaller {
      *  2026-10-02 改：① openssh 已随离线包内置（step2 ④ 组），脚本优先直接用；没有才联网 pkg install（先切清华源）。
      *  ② 多行脚本不能经 RUN_COMMAND 直接下发（Termux 不执行长文本），本脚本由 App 先落盘为 enable_ssh.sh，
      *  再下发单行 bash 执行（见 TermuxEnvSetupActivity.doEnableSsh）。③ 路径统一用 $HOME（bash -lc 下 Termux 已设）。 */
+    /**
+     * tmux 安装脚本体（幂等）：内置 deb 优先 → {@code --force-depends} 兜底 → 联网 pkg 兜底。
+     * 被一键准备的 step2b 与配置页「补装 CLI 工具」按钮共用同一份，别复制两份。
+     */
+    private static String cliToolsBody() {
+        return "if command -v tmux >/dev/null 2>&1; then\n"
+                + "  ok \"tmux 已安装（$(tmux -V 2>/dev/null)）\"\n"
+                + "else\n"
+                + "  PKGS=\"$HOME/storage/downloads/OilQuiz/termux_env/pkgs\"\n"
+                + "  if [ -d \"$PKGS\" ] && ls \"$PKGS\"/tmux_*.deb >/dev/null 2>&1; then\n"
+                + "    echo \"正在离线安装 CLI 工具（内置 3 包：tmux / libevent / utf8proc，零联网）…\"\n"
+                + "    cd \"$PKGS\"\n"
+                + "    dpkg -i libevent_*.deb utf8proc_*.deb tmux_*.deb 2>&1 || dpkg --force-depends -i libevent_*.deb utf8proc_*.deb tmux_*.deb 2>&1 || true\n"
+                + "    dpkg --configure -a >/dev/null 2>&1 || true\n"
+                + "  else\n"
+                + "    echo \"未找到内置 CLI 离线包（存储权限未授予？），改走联网安装…\"\n"
+                + "  fi\n"
+                + "  if ! command -v tmux >/dev/null 2>&1; then\n"
+                + "    if [ -f \"$PREFIX/etc/apt/sources.list\" ] && ! grep -qE \"tuna\\.tsinghua|ustc\\.edu|aliyun\\.com\" \"$PREFIX/etc/apt/sources.list\" 2>/dev/null; then\n"
+                + "      printf 'deb https://mirrors.tuna.tsinghua.edu.cn/termux/apt/termux-main stable main\\n' > \"$PREFIX/etc/apt/sources.list\"\n"
+                + "    fi\n"
+                + "    pkg update -y 2>&1 || true\n"
+                + "    pkg install -y tmux 2>&1 || true\n"
+                + "  fi\n"
+                + "  command -v tmux >/dev/null 2>&1 || bad \"tmux 安装失败：离线包和联网兜底都没装上，请检查网络后重跑这一步\"\n"
+                + "  ok \"tmux 已就绪（$(tmux -V 2>/dev/null)）\"\n"
+                + "fi\n";
+    }
+
+    /**
+     * 配置页「补装 CLI 工具（tmux）」用的独立脚本，与 {@code step2b} 同一份 shell 体。
+     * 多行脚本不能直接经 RUN_COMMAND 下发（Termux 不执行长文本，真机踩过），所以照 SSH 那组的做法先落盘再单行执行。
+     */
+    public static String buildCliInstallScript() {
+        return stepHeader("cli") + cliToolsBody()
+                + "echo \"cli=ok $(date '+%F %T')\" >> \"$STATUS\"\n";
+    }
+
     public static String buildSshEnableScript() {
         return "INFO=\"$HOME/storage/downloads/OilQuiz/termux_env/ssh_info.txt\"\n"
                 + "rm -f \"$INFO\"\n"
@@ -577,14 +615,16 @@ public final class TermuxEnvInstaller {
     }
 
 
-    /** step 文件名（按依赖顺序）。已按用户要求移除中文化（step3_zh_fix）与容器内 Python（step4_python，App AI 用内置 Termux python）；step5_gui 已随 VNC 功能删除 */
+    /** step 文件名（按依赖顺序）。已按用户要求移除中文化（step3_zh_fix）与容器内 Python（step4_python，App AI 用内置 Termux python）；step5_gui 已随 VNC 功能删除。
+     *  step2b_cli_tools 是 2026-10-28 新增：把 tmux 装成离线包，{@code termux_submit} 才有可持久化的会话（否则永远退回 nohup） */
     private static final String[] STEP_NAMES = {
             "step0_allow_external_apps.sh", "step1_storage.sh", "step2_proot.sh",
+            "step2b_cli_tools.sh",
             "step3_container.sh",
             "step6_finalize.sh"
     };
 
-    /** 分阶段 runner：同步 5 个 step 脚本到 $HOME/.quiz_env_steps，顺序执行，失败即停（可续跑） */
+    /** 分阶段 runner：同步 6 个 step 脚本到 $HOME/.quiz_env_steps，顺序执行，失败即停（可续跑） */
     private static String buildRunnerScript(String root, String tuna) {
         String names = String.join(" ", STEP_NAMES);
         return """
@@ -601,7 +641,7 @@ public final class TermuxEnvInstaller {
                 STEP_DIR="$HOME_DIR/.quiz_env_steps"
                 STEPS="__STEPS__"
                 # 若 Termux 还没建存储桥（~/storage 不存在），先申请（弹窗点允许）再找脚本；
-                # 否则 runner 直读 /sdcard 会被 Android 分区存储拒绝，8 个 step 一个都拷不到（真机踩过 126）
+                # 否则 runner 直读 /sdcard 会被 Android 分区存储拒绝，所有 step 一个都拷不到（真机踩过 126）
                 [ -d "$HOME_DIR/storage" ] || { echo "正在申请存储权限（系统弹窗请点『允许』）…"; termux-setup-storage >/dev/null 2>&1 || true; sleep 3; }
                 # 整段输出同时进日志（进程替换需 bash 4.4+，Termux 自带满足）
                 # 私有 LOG（~/.quiz_env_setup.log）+ 公共 PUBLOG（App 可读，页面实时监控执行过程）
@@ -649,7 +689,7 @@ public final class TermuxEnvInstaller {
                 + "bad(){ echo \"❌ $1\"; echo \"" + tag + "=fail $(date '+%F %T')\" >> \"$STATUS\"; exit 1; }\n";
     }
 
-    /** 8 个独立步骤脚本（顺序 = STEP_NAMES；每步幂等，失败写状态并退出，不往下跑） */
+    /** 6 个独立步骤脚本（顺序 = STEP_NAMES；每步幂等，失败写状态并退出，不往下跑） */
     public static java.util.List<String> buildStepScripts(String root, String tuna) {
         java.util.List<String> l = new java.util.ArrayList<>();
         String safeRoot = (root == null || root.isEmpty())
@@ -701,7 +741,7 @@ public final class TermuxEnvInstaller {
                 + "else\n"
                 + "  PKGS=\"$HOME/storage/downloads/OilQuiz/termux_env/pkgs\"\n"
                 + "  if [ -d \"$PKGS\" ] && ls \"$PKGS\"/*.deb >/dev/null 2>&1; then\n"
-                + "    echo \"正在本地离线安装 Termux 组件（proot / python 全家桶，共 22 包，零联网）…\"\n"
+                + "    echo \"正在本地离线安装 Termux 组件（proot / python / openssh 全家桶，零联网）…\"\n"
                 + "    cd \"$PKGS\"\n"
                 + "    # ① 基础依赖库：bootstrap 已带同/高版本时 dpkg 会提示『已安装/较新版本』，忽略即可（不中断后续）\n"
                 + "    dpkg -i libandroid-posix-semaphore_*.deb libandroid-shmem_*.deb libtalloc_*.deb libandroid-support_*.deb 2>&1 || true\n"
@@ -734,6 +774,13 @@ public final class TermuxEnvInstaller {
                 + "  fi\n"
                 + "fi\n"
                 + "echo \"step2=ok $(date '+%F %T')\" >> \"$STATUS\"\n");
+
+        // step2b：CLI 工具（tmux）——内置 3 个 deb 离线装、零联网，装不上才联网兜底。
+        // 为什么单独一步：termux_submit 一直是"有 tmux 才用 tmux，否则退回 nohup"，
+        // 而全仓库从没装过 tmux（2026-10-28 核）→ 线上实际全走 nohup，Termux 进程被系统杀掉时作业一起没了。
+        // tmux 依赖 libevent + utf8proc（新内置），ncurses / libandroid-support / libandroid-glob 已在 step2 的包里。
+        l.add(stepHeader("step2b") + cliToolsBody()
+                + "echo \"step2b=ok $(date '+%F %T')\" >> \"$STATUS\"\n");
 
         // step3：Ubuntu 容器（本地包优先，联网兜底；容器目录损坏时提示 reset）
         l.add(stepHeader("step3")
@@ -810,7 +857,12 @@ public final class TermuxEnvInstaller {
      *
      * @return null 表示已下发；否则返回失败原因
      */
-    /** Termux 主进程/服务是否在跑（被系统杀了会导致 RUN_COMMAND 发不出去，需先唤起再发） */
+    /** Termux 主进程/服务是否在跑（被系统杀了会导致 RUN_COMMAND 发不出去，需先唤起再发）
+     *
+     * <p><b>判据强度有限</b>：{@code getRunningServices} 与 {@code getRunningAppProcesses} 在高版本
+     * Android 上都可能只返回本应用自己的进程，所以 {@code false} 只能读成"看不到"，不能当"确定没在跑"；
+     * 反过来 {@code true} 是可信的。用它做分流的地方都要给"看不到"留一条不依赖结论的路。
+     */
     public static boolean termuxProcessAlive(Context ctx) {
         try {
             android.app.ActivityManager am = (android.app.ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
@@ -859,9 +911,9 @@ public final class TermuxEnvInstaller {
             Intent i = new Intent();
             i.setClassName(TERMUX_PACKAGE, SERVICE);
             i.setAction(ACTION);
-            i.putExtra(E_PATH, "/data/data/com.termux/files/usr/bin/bash");
+            i.putExtra(E_PATH, BASH_PATH);
             i.putExtra(E_ARGS, new String[]{"-lc", "termux-wake-lock 2>/dev/null; true"});
-            i.putExtra(E_WORKDIR, "/data/data/com.termux/files/home");
+            i.putExtra(E_WORKDIR, HOME_PATH);
             i.putExtra(E_BACKGROUND, true);   // 后台执行，不新建可见会话、不抢前台
             ctx.startService(i);
             return null;
@@ -987,12 +1039,18 @@ public final class TermuxEnvInstaller {
             return "还没有授予 Termux 的 RUN_COMMAND 权限（点上方按钮授予，或按提示手动粘贴命令）";
         }
         try {
+            // 与 runInTermuxAndWait 同口径：进程没起来时 startService 常"不抛异常也不执行"（ROM 拦后台启动），
+            // 而这条是 fire-and-forget、没有回执可等，所以先试着后台唤醒一次。
+            // 注意 termuxProcessAlive 看不见 ≠ 没在跑，唤醒失败也照样把命令发出去，别在这儿提前判死。
+            if (!termuxProcessAlive(ctx)) {
+                wakeServiceInBackground(ctx);
+            }
             Intent i = new Intent();
             i.setClassName(TERMUX_PACKAGE, SERVICE);
             i.setAction(ACTION);
-            i.putExtra(E_PATH, "/data/data/com.termux/files/usr/bin/bash");
+            i.putExtra(E_PATH, BASH_PATH);
             i.putExtra(E_ARGS, new String[]{"-lc", script});
-            i.putExtra(E_WORKDIR, "/data/data/com.termux/files/home");
+            i.putExtra(E_WORKDIR, HOME_PATH);
             i.putExtra(E_BACKGROUND, background);
             ctx.startService(i);
             return null;
@@ -1027,20 +1085,65 @@ public final class TermuxEnvInstaller {
     private static final String EXTRA_RC_WORKDIR = "com.termux.RUN_COMMAND_WORKDIR";
     private static final String EXTRA_RC_BACKGROUND = "com.termux.RUN_COMMAND_BACKGROUND";
     private static final String EXTRA_RC_PENDING_INTENT = "com.termux.RUN_COMMAND_PENDING_INTENT";
+    /**
+     * 结果落盘目录（Termux 0.118.3 起 RUN_COMMAND 支持）。
+     * Termux 侧 {@code RunCommandService} 只有在这个 extra 非空时才会去读下面那组 RESULT_* extra，
+     * 所以两个必须一起传。落盘规则见 Termux 的 {@code ResultSender.sendCommandResultDataToDirectory}。
+     */
+    private static final String EXTRA_RC_RESULT_DIRECTORY = "com.termux.RUN_COMMAND_RESULT_DIRECTORY";
+    /** 结果文件名后缀；我们塞 token，得到 {@code stdout.<token>} / {@code err.<token>} 这种 per-调用的名字 */
+    private static final String EXTRA_RC_RESULT_FILES_SUFFIX = "com.termux.RUN_COMMAND_RESULT_FILES_SUFFIX";
     private static final String EXTRA_RESULT_BUNDLE = "result";
     private static final String RESULT_STDOUT = "stdout";
     private static final String RESULT_STDERR = "stderr";
     private static final String RESULT_ERRMSG = "errmsg";
+    private static final String RESULT_EXIT_CODE = "exitCode";
+    /** Termux 的 errCode 成功值：{@code Errno.ERRNO_SUCCESS} 复用 {@code Activity.RESULT_OK} = -1 */
+    private static final String TERMUX_ERR_SUCCESS = "-1";
+    /** 单个结果文件最多读多少（超了读尾部，与 JobCardView 看日志同口径） */
+    private static final int MAX_RESULT_FILE_BYTES = 512 * 1024;
     private static final String RESULT_ACTION = "com.oilquiz.app.TERMUX_EXEC_RESULT";
+    /**
+     * 我们塞进回执 Intent 自己的 extra：标记"这条回执属于哪一次调用"。
+     * Termux 往同一个 PendingIntent 里只加 {@code "result"} 那个 Bundle，不会覆盖这个键。
+     */
+    private static final String EXTRA_TOKEN = "com.oilquiz.app.TERMUX_EXEC_TOKEN";
+    /** 结果文件名前缀，与 Termux 的 {@code TermuxConstants.TERMUX_APP.RESULT_SENDER} 对齐（勿改） */
+    private static final String RF_ERR = "err";
+    private static final String RF_ERRMSG = "errmsg";
+    private static final String RF_STDOUT = "stdout";
+    private static final String RF_STDERR = "stderr";
+    private static final String RF_EXIT_CODE = "exit_code";
+    /** Termux 侧执行用的固定路径 */
+    private static final String BASH_PATH = "/data/data/com.termux/files/usr/bin/bash";
+    private static final String HOME_PATH = "/data/data/com.termux/files/home";
+    /** 公共结果目录（Termux 写、答题宝读），与 {@code jobs} 同级，走 {@link PublicStorageWriter} 的读删接口 */
+    public static final String RESULTS_SUBDIR = "results";
+    /** 等回执时顺带查一次结果文件的间隔；文件是 per-token 的，不查就不会有第二条通知 */
+    private static final long FILE_POLL_STEP_MS = 400L;
+    /** 超时后留在磁盘上的结果文件最短保留时长，过了才扫掉 */
+    private static final long STALE_RESULT_AGE_MS = 60L * 60L * 1000L;
+    /** 扫陈旧结果文件的最小间隔（每次下发前顺带触发，最多 10 分钟一次） */
+    private static final long STALE_SWEEP_INTERVAL_MS = 10L * 60L * 1000L;
     private static final java.util.concurrent.atomic.AtomicInteger REQ_CODE =
             new java.util.concurrent.atomic.AtomicInteger(4200);
+    private static final java.util.concurrent.atomic.AtomicLong TOKEN_SEQ =
+            new java.util.concurrent.atomic.AtomicLong();
+    private static final java.util.concurrent.atomic.AtomicLong LAST_SWEEP_MS =
+            new java.util.concurrent.atomic.AtomicLong();
 
     /**
-     * 跨 Termux 命令通道的全局串行锁。{@code SystemResourceTool.termuxExec} 与本类的
-     * {@code runInTermuxAndWait} 都监听同一个广播 action（{@code com.oilquiz.app.TERMUX_EXEC_RESULT}）
-     * 并各自注册 receiver；若不串行，两条通路/多线程会互抢回执（一条回复被错误的等待者取走，或都超时）。
-     * 两个实现都 {@code synchronized} 这把锁，把「注册→下发→等回执→注销」整段串行化。
-     * 同线程可重入，故不存在自嵌套死锁。
+     * 跨 Termux 命令通道的串行锁。历史用途是「谁先 poll 到算谁的」：多个 receiver 监听同一个
+     * action {@code com.oilquiz.app.TERMUX_EXEC_RESULT}，不串行就会互抢回执。
+     *
+     * <p>现在抢回执由两件事共同消掉：① 每次调用带唯一 {@code token}，receiver 只认自己那次；
+     * ② 结果同时按 token 落盘，等待方还有"文件出现"这条独立信号。所以本锁**只覆盖
+     * 「注册 receiver → startService 下发」这一小段**（避免两条命令在同一瞬间抢 Termux 的
+     * RunCommandService 冷启动），不再覆盖等结果的全过程——等 20 秒（或 submit 的两段 40 秒）
+     * 期间不挡后续命令。
+     *
+     * <p>同线程可重入：{@code submitDetachedJob}/{@code purgeDetachedJob} 自身不加锁，
+     * 只在 {@code runInTermuxAndWait} 内取，实际嵌套深度为 1。
      */
     public static final Object TERMUX_COMM_LOCK = new Object();
 
@@ -1050,6 +1153,23 @@ public final class TermuxEnvInstaller {
         public final String stdout;
         public final String stderr;
         public final String error;
+        /** Termux 回带来的 errmsg 原文（Bundle 里的或 {@code errmsg.<token>} 文件）；非空 = Termux 层报错 */
+        public String errmsg = "";
+        /** 命令退出码；取不到为 -1（旧实现不带这个字段，python 侧靠尾标记从 stdout 里捞） */
+        public int exitCode = -1;
+        /** true = 超时窗口内既没收到本次 token 的回执、也没等到结果文件（命令在 Termux 侧可能仍在跑） */
+        public boolean timedOut = false;
+        /**
+         * 超时归因码（结构化，供 UI 分流，别去匹配 error 文案）：
+         * {@code "process_invisible"} = 系统里看不到 Termux 进程、且没有任何回执，优先按"没启动/被冻结"处理；
+         * {@code "alive_no_reply"} = 进程看得见但没回执，优先按"命令自己在等输入 / allow-external-apps 没开"处理；
+         * {@code null} = 非超时。
+         */
+        public String timeoutCause = null;
+        /** 结果来源："bundle"=PendingIntent 回执，"files"=RESULT_DIRECTORY 落盘文件，"none"=没拿到 */
+        public String source = "none";
+        /** Bundle 缺失等异常形态的原始 extras，供上层原样报出来（保持旧 termux_exec 的 raw 字段语义） */
+        public String raw = null;
 
         ChannelResult(boolean ok, String stdout, String stderr, String error) {
             this.ok = ok;
@@ -1057,14 +1177,35 @@ public final class TermuxEnvInstaller {
             this.stderr = stderr == null ? "" : stderr;
             this.error = error;
         }
+
+        ChannelResult(boolean ok, String stdout, String stderr, String error,
+                      String errmsg, int exitCode, String source) {
+            this.ok = ok;
+            this.stdout = stdout == null ? "" : stdout;
+            this.stderr = stderr == null ? "" : stderr;
+            this.error = error;
+            this.errmsg = errmsg == null ? "" : errmsg;
+            this.exitCode = exitCode;
+            this.source = source;
+        }
     }
 
     /**
-     * 真发一条命令并等回执（广播）。**这是"通道到底通不通"的唯一可信判据**，
-     * 比"我下发了 intent 没报错"强得多。
+     * 真发一条命令并等结果。**这是"通道到底通不通"的可信判据**，比"我下发了 intent 没报错"强得多。
      *
-     * <p>失败原因会区分：没装 Termux / 没授权 / 系统拒绝 / Termux 没回执
-     * （后者通常是 allow-external-apps 没开，或 Termux 被系统冻结/清过数据）。
+     * <p>取结果有两条独立的路，先到先用：
+     * <ol>
+     *   <li>PendingIntent 回执——按本次 {@code token} 认，不是自己那次的直接丢；</li>
+     *   <li>Termux 按 {@code RUN_COMMAND_RESULT_DIRECTORY} + {@code .<token>} 后缀落盘的结果文件。
+     *       Termux 先写 {@code stdout}/{@code stderr}/{@code exit_code}/{@code errmsg}，
+     *       最后把 {@code err} 从临时名 rename 到位，所以 {@code err.<token>} 一出现就代表其余文件已写完可读。</li>
+     * </ol>
+     *
+     * <p>只有「注册 receiver → startService」这一段占 {@link #TERMUX_COMM_LOCK}，等结果的全过程不占锁，
+     * 所以一次 {@code termux_submit}（两段各 20s）不再把后面的 {@code termux_exec} 挡在门外。
+     *
+     * <p>失败原因会区分：没装 Termux / 没授权 / 系统拒绝 / Termux 没回执（后者通常是
+     * allow-external-apps 没开，或 Termux 被系统冻结/清过数据）。
      */
     public static ChannelResult runInTermuxAndWait(Context ctx, String command, int timeoutSeconds) {
         if (termuxVersion(ctx) == null) {
@@ -1073,65 +1214,99 @@ public final class TermuxEnvInstaller {
         if (!hasRunCommandPermission(ctx)) {
             return new ChannelResult(false, "", "", "还没授予 RUN_COMMAND 权限（点上面的授权按钮）");
         }
-        // 与 SystemResourceTool.termuxExec 共用同一 action 的广播回执，整段串行，防多线程/两通路互抢回执。
-        synchronized (TERMUX_COMM_LOCK) {
+        final String token = nextToken();
+        final String dir = resultsDirPath();
+        ensureResultsDir();
+        sweepStaleResults();
+
+        // 进程没起来时 startService 常常"不抛异常也不真执行"（ROM 拦后台启动），那样只能白等一个超时。
+        // 所以下发前先探一次，不在跑就按既有方式后台唤醒；结果留给超时分支做归因。
+        final boolean aliveBeforeSend = termuxProcessAlive(ctx);
+        String wakeNote = null;
+        if (!aliveBeforeSend) {
+            wakeNote = wakeServiceInBackground(ctx);
+            if (wakeNote == null) {
+                try {
+                    Thread.sleep(800L);   // 给 Termux 进程被拉起来留一点时间
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+
         final java.util.concurrent.ArrayBlockingQueue<Intent> queue =
                 new java.util.concurrent.ArrayBlockingQueue<>(1);
-        BroadcastReceiver receiver = new BroadcastReceiver() {
+        // 相关性过滤：旧实现不判 token，上一条超时命令的迟到回执会被下一条正在等的 receiver 取走
+        // （队列容量 1，还会把这条真正该收的那份挤掉）。
+        final BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context c, Intent intent) {
-                queue.offer(intent);
+                if (intent != null && token.equals(intent.getStringExtra(EXTRA_TOKEN))) {
+                    queue.offer(intent);
+                }
             }
         };
+
         boolean registered = false;
+        String sendError = null;
+        synchronized (TERMUX_COMM_LOCK) {
+            try {
+                IntentFilter filter = new IntentFilter(RESULT_ACTION);
+                if (Build.VERSION.SDK_INT >= 33) {
+                    ctx.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+                } else {
+                    ctx.registerReceiver(receiver, filter);
+                }
+                registered = true;
+
+                Intent replyIntent = new Intent(RESULT_ACTION).setPackage(ctx.getPackageName());
+                replyIntent.putExtra(EXTRA_TOKEN, token);
+                int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                if (Build.VERSION.SDK_INT >= 31) {
+                    flags |= PendingIntent.FLAG_MUTABLE;   // Termux 要往里面塞结果 Bundle
+                }
+                PendingIntent reply = PendingIntent.getBroadcast(
+                        ctx, REQ_CODE.incrementAndGet(), replyIntent, flags);
+
+                try {
+                    ctx.startService(buildRunCommandIntent(command, reply, dir, token, resultDirUsable(ctx)));
+                } catch (SecurityException se) {
+                    sendError = "系统拒绝了 RUN_COMMAND（权限没生效）: " + se.getMessage();
+                } catch (Exception e) {
+                    // 多为 Termux 进程被系统冻结/杀掉 + 后台启动限制：后台唤醒一次再重发（不抢前台）
+                    String wakeErr = wakeServiceInBackground(ctx);
+                    if (wakeErr != null) {
+                        sendError = "启动 Termux RunCommandService 失败: " + e.getClass().getSimpleName()
+                                + ": " + e.getMessage() + "；后台唤醒也未成功：" + wakeErr;
+                    } else {
+                        try {
+                            Thread.sleep(1200L);   // 给 Termux 进程被拉起来留一点时间
+                            ctx.startService(buildRunCommandIntent(command, reply, dir, token, resultDirUsable(ctx)));
+                        } catch (Exception e2) {
+                            sendError = "启动 Termux RunCommandService 失败（已尝试后台唤醒服务）: "
+                                    + e2.getClass().getSimpleName() + ": " + e2.getMessage();
+                        }
+                    }
+                }
+            } catch (SecurityException se) {
+                sendError = "系统拒绝了 RUN_COMMAND（权限没生效）: " + se.getMessage();
+            } catch (Exception e) {
+                sendError = e.getClass().getSimpleName() + ": " + e.getMessage();
+            }
+            if (sendError != null && registered) {
+                try {
+                    ctx.unregisterReceiver(receiver);
+                } catch (Exception ignored) {
+                }
+                registered = false;
+            }
+        }
+        if (sendError != null) {
+            return new ChannelResult(false, "", "", sendError);
+        }
+
         try {
-            IntentFilter filter = new IntentFilter(RESULT_ACTION);
-            if (Build.VERSION.SDK_INT >= 33) {
-                ctx.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
-            } else {
-                ctx.registerReceiver(receiver, filter);
-            }
-            registered = true;
-
-            Intent replyIntent = new Intent(RESULT_ACTION).setPackage(ctx.getPackageName());
-            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-            if (Build.VERSION.SDK_INT >= 31) {
-                flags |= PendingIntent.FLAG_MUTABLE;   // Termux 要往里面塞结果 Bundle
-            }
-            PendingIntent reply = PendingIntent.getBroadcast(ctx, REQ_CODE.incrementAndGet(), replyIntent, flags);
-
-            Intent i = new Intent(ACTION_RUN_COMMAND);
-            i.setClassName(TERMUX_PACKAGE, RUN_COMMAND_SERVICE);
-            i.putExtra(EXTRA_RC_PATH, "/data/data/com.termux/files/usr/bin/bash");
-            i.putExtra(EXTRA_RC_ARGS, new String[]{"-lc", command});
-            i.putExtra(EXTRA_RC_WORKDIR, "/data/data/com.termux/files/home");
-            // 必须 false（与项目里能用的 SystemResourceTool.termuxExec 一致）：
-            // background=true 配 PendingIntent 回执时，实测 bash 起来了但**命令行没被执行**
-            // （回包只有 .bashrc 横幅）—— 这就是"通道自检看着 ok 其实啥也没跑"的原因。
-            i.putExtra(EXTRA_RC_BACKGROUND, false);
-            i.putExtra(EXTRA_RC_PENDING_INTENT, reply);
-            ctx.startService(i);
-
-            Intent result = queue.poll(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS);
-            if (result == null) {
-                return new ChannelResult(false, "", "", "Termux " + timeoutSeconds
-                        + "s 没回执（最常见原因：Termux 侧 allow-external-apps 没开；也可能 Termux 被系统冻结/清除过数据）");
-            }
-            Bundle b = result.getBundleExtra(EXTRA_RESULT_BUNDLE);
-            if (b == null) {
-                return new ChannelResult(false, "", "", "Termux 回执里没有结果 Bundle");
-            }
-            String out = b.getString(RESULT_STDOUT, "");
-            String err = b.getString(RESULT_STDERR, "");
-            String errmsg = b.getString(RESULT_ERRMSG, "");
-            if (errmsg != null && !errmsg.isEmpty()) {
-                return new ChannelResult(false, out, err, "Termux 报错: " + errmsg);
-            }
-            return new ChannelResult(true, out, err, null);
-        } catch (SecurityException se) {
-            return new ChannelResult(false, "", "", "系统拒绝了 RUN_COMMAND（权限没生效）: " + se.getMessage());
-        } catch (Exception e) {
-            return new ChannelResult(false, "", "", e.getClass().getSimpleName() + ": " + e.getMessage());
+            return waitForChannelResult(ctx, queue, token, timeoutSeconds, aliveBeforeSend, wakeNote);
         } finally {
             if (registered) {
                 try {
@@ -1140,7 +1315,250 @@ public final class TermuxEnvInstaller {
                 }
             }
         }
-        } // synchronized (TERMUX_COMM_LOCK)
+    }
+
+    /** 组装 RUN_COMMAND intent：回执必挂，结果落盘按 Termux 侧存储权限决定要不要挂 */
+    private static Intent buildRunCommandIntent(String command, PendingIntent reply, String dir, String token,
+                                                boolean withResultDir) {
+        Intent i = new Intent(ACTION_RUN_COMMAND);
+        i.setClassName(TERMUX_PACKAGE, RUN_COMMAND_SERVICE);
+        i.putExtra(EXTRA_RC_PATH, BASH_PATH);
+        i.putExtra(EXTRA_RC_ARGS, new String[]{"-lc", command});
+        i.putExtra(EXTRA_RC_WORKDIR, HOME_PATH);
+        // 必须 false（真机实测）：background=true 配 PendingIntent 回执时，bash 起来了但**命令行没被执行**
+        // （回包只有 .bashrc 横幅）—— 这就是"通道自检看着 ok 其实啥也没跑"的原因。
+        i.putExtra(EXTRA_RC_BACKGROUND, false);
+        i.putExtra(EXTRA_RC_PENDING_INTENT, reply);
+        // 结果同时落盘：回执丢了或迟到，还能靠 err.<token> 判完成并拿到未截断的全文
+        if (withResultDir) {
+            i.putExtra(EXTRA_RC_RESULT_DIRECTORY, dir);
+            i.putExtra(EXTRA_RC_RESULT_FILES_SUFFIX, "." + token);
+        }
+        return i;
+    }
+
+    /**
+     * Termux 侧是否能把结果写到公共目录。它没有外部存储权限时不挂 {@code RESULT_DIRECTORY}：
+     * 命令照样跑、照样有回执，但 Termux 会在投递结果时报一条"插件执行命令错误"通知，白给用户添噪音。
+     */
+    private static boolean resultDirUsable(Context ctx) {
+        try {
+            return termuxHasStoragePermission(ctx);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 双路等结果：token 匹配的回执 或 {@code err.<token>} 文件出现，先到先用 */
+    private static ChannelResult waitForChannelResult(Context ctx,
+            java.util.concurrent.ArrayBlockingQueue<Intent> queue, String token, int timeoutSeconds,
+            boolean aliveBeforeSend, String wakeNote) {
+        long deadline = System.currentTimeMillis() + Math.max(1, timeoutSeconds) * 1000L;
+        final String errMarker = RF_ERR + "." + token;
+        while (true) {
+            long left = deadline - System.currentTimeMillis();
+            if (left <= 0) {
+                break;
+            }
+            Intent result;
+            try {
+                result = queue.poll(Math.min(left, FILE_POLL_STEP_MS), java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return new ChannelResult(false, "", "", "等待 Termux 回执被中断");
+            }
+            if (result != null) {
+                return readBundleResult(ctx, result, token);
+            }
+            if (resultFileReady(errMarker)) {
+                return readFilesResult(ctx, token);
+            }
+        }
+        // 边界上再查一次文件，避免"文件刚落下、等待窗口先到期"误报超时
+        if (resultFileReady(errMarker)) {
+            return readFilesResult(ctx, token);
+        }
+        // 超时：命令在 Termux 侧仍在跑，结果文件可能稍后才落盘，交给扫陈旧那一步清
+        return timeoutResult(ctx, timeoutSeconds, aliveBeforeSend, wakeNote);
+    }
+
+    /**
+     * 超时归因。**别把"没回执"一律说成 allow-external-apps 没开**：Termux 0.118.3 的
+     * {@code RunCommandService} 在违反该策略时照样会把结果打回来
+     * （{@code PluginUtils.processPluginExecutionCommandError} → {@code ResultSender.sendCommandResultData}），
+     * 那种情况我们收得到带 errmsg 的回执、走的是另一条分支。
+     *
+     * <p>注意判据强度：{@link #termuxProcessAlive} 在高版本 Android 上只能看到本应用的进程，
+     * "看不到 Termux"不等于"Termux 没在跑"。所以这条只作为**优先处理方向**给出，
+     * 话术里如实说明它是推测，别当定论（归因码走 {@link ChannelResult#timeoutCause} 结构化字段，
+     * 不让调用方去匹配文案）。
+     */
+    private static ChannelResult timeoutResult(Context ctx, int timeoutSeconds, boolean aliveBeforeSend, String wakeNote) {
+        boolean aliveNow = termuxProcessAlive(ctx);
+        ChannelResult r;
+        if (!aliveNow) {
+            r = new ChannelResult(false, "", "", "Termux " + timeoutSeconds
+                    + "s 没有任何回执，而且系统进程枚举里看不到 Termux（下发前"
+                    + (aliveBeforeSend ? "还能看到、后来被清了" : "就没看到") + "，"
+                    + (wakeNote == null ? "已尝试后台唤醒、仍然看不到" : "后台唤醒失败：" + wakeNote) + "）。"
+                    + "先按\"Termux 没启动/被冻结\"处理：在手机上打开一次 Termux，等它出 $ 提示符再重试。"
+                    + "（高版本 Android 上这个接口可能看不见别的应用的进程，所以这条是推测不是定论；"
+                    + "但\"没回执\"本身可以排除 allow-external-apps——开关没开时 Termux 会直接回一条写明原因的错误，那条收得到。）");
+            r.timeoutCause = "process_invisible";
+        } else {
+            r = new ChannelResult(false, "", "", "Termux " + timeoutSeconds
+                    + "s 没有任何回执，但 Termux 进程在跑：多半是命令自己在等输入/进了交互，"
+                    + "或是 allow-external-apps 没开（Termux 里执行 mkdir -p ~/.termux && "
+                    + "echo 'allow-external-apps=true' >> ~/.termux/termux.properties，改完要重启 Termux 进程才生效）。"
+                    + "长任务请改用 linux_shell(action=termux_submit) 挂后台。");
+            r.timeoutCause = "alive_no_reply";
+        }
+        r.timedOut = true;
+        return r;
+    }
+
+    /** 解析 PendingIntent 回执；落盘文件已完成时优先用文件全文（Bundle 里的输出可能被 Termux 截断过） */
+    private static ChannelResult readBundleResult(Context ctx, Intent result, String token) {
+        Bundle b = result.getBundleExtra(EXTRA_RESULT_BUNDLE);
+        if (b == null) {
+            ChannelResult r = new ChannelResult(false, "", "", "Termux 回执里没有结果 Bundle");
+            r.raw = String.valueOf(result.getExtras());
+            r.source = "bundle";   // 回执确实到了，只是没带 Bundle：让上层按 raw 报，别当成"下发失败"
+            return r;
+        }
+        String out = b.getString(RESULT_STDOUT, "");
+        String err = b.getString(RESULT_STDERR, "");
+        String errmsg = b.getString(RESULT_ERRMSG, "");
+        boolean hasExitCode = b.containsKey(RESULT_EXIT_CODE);
+        int exitCode = hasExitCode ? b.getInt(RESULT_EXIT_CODE, -1) : -1;
+        // Termux 的实现是「先发 PendingIntent、后写结果文件」，所以只有完成标记出现后文件才算写全
+        if (resultFileReady(RF_ERR + "." + token)) {
+            String fileOut = readResultFile(ctx, RF_STDOUT, token);
+            if (!fileOut.isEmpty()) {
+                out = fileOut;
+            }
+            String fileErr = readResultFile(ctx, RF_STDERR, token);
+            if (!fileErr.isEmpty()) {
+                err = fileErr;
+            }
+            if (!hasExitCode) {
+                exitCode = parseIntOrMinusOne(readResultFile(ctx, RF_EXIT_CODE, token));
+            }
+            deleteResultFiles(ctx, token);
+        }
+        boolean ok = errmsg == null || errmsg.isEmpty();
+        return new ChannelResult(ok, out, err, ok ? null : "Termux 报错: " + errmsg,
+                errmsg, exitCode, "bundle");
+    }
+
+    /** 从 RESULT_DIRECTORY 落盘的结果文件取结果（回执丢失或迟到时的那条腿） */
+    private static ChannelResult readFilesResult(Context ctx, String token) {
+        String out = readResultFile(ctx, RF_STDOUT, token);
+        String err = readResultFile(ctx, RF_STDERR, token);
+        String errmsg = readResultFile(ctx, RF_ERRMSG, token);
+        int exitCode = parseIntOrMinusOne(readResultFile(ctx, RF_EXIT_CODE, token));
+        // err.<token> 存的是 Termux 自己的 errCode：-1=成功（Errno.ERRNO_SUCCESS 复用 Activity.RESULT_OK）、
+        // 0=已取消、其余=Termux 层失败；命令真正的 rc 在 exit_code.<token>，两者别混。
+        String termuxErr = readResultFile(ctx, RF_ERR, token).trim();
+        deleteResultFiles(ctx, token);
+        boolean ok = TERMUX_ERR_SUCCESS.equals(termuxErr) && errmsg.isEmpty();
+        if (!ok && errmsg.isEmpty() && exitCode != -1) {
+            // 命令确实跑出来了（exit_code 文件有值）：别把"err 语义与预期不符"报成通道坏
+            ok = true;
+            termuxErr = TERMUX_ERR_SUCCESS;
+        }
+        String error;
+        if (ok) {
+            error = null;
+        } else if (!errmsg.isEmpty()) {
+            error = "Termux 报错: " + errmsg;
+        } else {
+            error = "Termux 执行未成功（err=" + (termuxErr.isEmpty() ? "文件缺失" : termuxErr) + "）";
+        }
+        return new ChannelResult(ok, out, err, error, errmsg, exitCode, "files");
+    }
+
+    /** 结果目录绝对路径：口径由 {@link PublicStorageWriter} 单一提供，读/删/下发必须同源 */
+    public static String resultsDirPath() {
+        return PublicStorageWriter.dirPath(RESULTS_SUBDIR);
+    }
+
+    private static void ensureResultsDir() {
+        try {
+            File d = PublicStorageWriter.subDir(RESULTS_SUBDIR);
+            if (!d.isDirectory()) {
+                d.mkdirs();
+            }
+        } catch (Exception ignored) {
+            // Termux 侧在 /storage/emulated/0 这类允许父目录下也会自建，这边失败不致命
+        }
+    }
+
+    /** 完成标记判据：存在且非空（Termux 用临时名写完再 rename，所以非空即全文） */
+    private static boolean resultFileReady(String name) {
+        try {
+            File f = PublicStorageWriter.fileOf(RESULTS_SUBDIR, name);
+            return f.isFile() && f.length() > 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static String readResultFile(Context ctx, String prefix, String token) {
+        try {
+            String s = PublicStorageWriter.readTail(ctx, RESULTS_SUBDIR, prefix + "." + token,
+                    MAX_RESULT_FILE_BYTES);
+            return s == null ? "" : s;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static void deleteResultFiles(Context ctx, String token) {
+        String[] prefixes = {RF_STDOUT, RF_STDERR, RF_EXIT_CODE, RF_ERRMSG, RF_ERR};
+        for (String p : prefixes) {
+            try {
+                PublicStorageWriter.delete(ctx, RESULTS_SUBDIR, p + "." + token);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /** 扫掉超时后残留的结果文件（最多 10 分钟一次，只在每次下发前顺带触发） */
+    private static void sweepStaleResults() {
+        long now = System.currentTimeMillis();
+        long last = LAST_SWEEP_MS.get();
+        if (now - last < STALE_SWEEP_INTERVAL_MS || !LAST_SWEEP_MS.compareAndSet(last, now)) {
+            return;
+        }
+        try {
+            File[] files = PublicStorageWriter.subDir(RESULTS_SUBDIR).listFiles();
+            if (files == null) {
+                return;
+            }
+            for (File f : files) {
+                if (f.isFile() && now - f.lastModified() > STALE_RESULT_AGE_MS) {
+                    f.delete();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static int parseIntOrMinusOne(String s) {
+        if (s == null) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(s.trim());
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    /** 本次调用的唯一标记：同时用作结果文件后缀和回执 extra，只用字母数字与 . _ - */
+    private static String nextToken() {
+        return "t" + System.currentTimeMillis() + "-" + TOKEN_SEQ.incrementAndGet();
     }
 
     /** 一次拿到环境诊断：proot-distro / 容器 / 上次准备结果 / allow-external-apps 是否已写 */
@@ -1190,14 +1608,14 @@ public final class TermuxEnvInstaller {
             File r = exportedRootfs(ctx);
             PublicStorageWriter.writeText(ctx, "termux_env", "setup.sh",
                     buildSetupScript(r == null ? null : r.getAbsolutePath()));
-            // 分阶段：setup.sh 是 runner；8 个 step 脚本独立落盘，由 runner 同步到 Termux 顺序执行
+            // 分阶段：setup.sh 是 runner；6 个 step 脚本独立落盘，由 runner 同步到 Termux 顺序执行
             java.util.List<String> steps = buildStepScripts(
                     r == null ? null : r.getAbsolutePath(), TUNA_ROOTFS_URL);
             for (int i = 0; i < STEP_NAMES.length; i++) {
                 writeTextFile(ctx, STEP_NAMES[i], steps.get(i));
             }
             writeTextFile(ctx, "zh_fix.sh", ZH_FIX_SH);
-            // 内置 Termux 离线安装包（22 个 deb：proot / python 全家桶）一并导出，step2 零联网安装
+            // 内置 Termux 离线安装包（35 个 deb：proot / python 全家桶 / openssh / tmux）一并导出，step2、step2b 零联网安装
             exportTermuxPkgs(ctx);
             return new File(publicDir(ctx), "setup.sh");
         } catch (Exception e) {
@@ -1274,9 +1692,9 @@ public final class TermuxEnvInstaller {
             Intent i = new Intent();
             i.setClassName(TERMUX_PACKAGE, SERVICE);
             i.setAction(ACTION);
-            i.putExtra(E_PATH, "/data/data/com.termux/files/usr/bin/bash");
+            i.putExtra(E_PATH, BASH_PATH);
             i.putExtra(E_ARGS, new String[]{"-lc", "~/ubuntu"});
-            i.putExtra(E_WORKDIR, "/data/data/com.termux/files/home");
+            i.putExtra(E_WORKDIR, HOME_PATH);
             i.putExtra(E_BACKGROUND, false);
             i.putExtra(E_SESSION_ACTION, 0);   // 0 = 新建会话（前台显示，有 tty，可交互）
             i.putExtra(E_SESSION_NEW, "ubuntu");

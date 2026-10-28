@@ -38,6 +38,25 @@ public final class PublicStorageWriter {
     /** MediaStore RELATIVE_PATH 前缀（不含 "Download/" 前缀目录段） */
     public static final String ROOT_REL = "Download/OilQuiz";
 
+    /**
+     * 子目录的绝对路径。给 Termux 侧下发路径时必须用它，别让两边各拼各的
+     * （读、删、以及 Termux 落盘的结果文件都靠同一个 File 口径）。
+     */
+    public static String dirPath(String sub) {
+        return subDir(sub).getAbsolutePath();
+    }
+
+    /** 子目录 File（不存在时由调用方决定是否 mkdirs） */
+    public static File subDir(String sub) {
+        return new File(new File(Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_DOWNLOADS), "OilQuiz"), sub);
+    }
+
+    /** 子目录下某个文件的 File：读/删的唯一拼法 */
+    public static File fileOf(String sub, String name) {
+        return new File(subDir(sub), name);
+    }
+
     private PublicStorageWriter() {
     }
 
@@ -110,8 +129,7 @@ public final class PublicStorageWriter {
 
     private static String writeViaFile(Context ctx, String sub, String name, InputStream in) {
         try {
-            File dir = new File(Environment.getExternalStoragePublicDirectory(
-                    Environment.DIRECTORY_DOWNLOADS), "OilQuiz/" + sub);
+            File dir = subDir(sub);
             if (!dir.exists() && !dir.mkdirs()) {
                 Log.w(TAG, "创建目录失败: " + dir.getAbsolutePath());
                 return null;
@@ -140,8 +158,7 @@ public final class PublicStorageWriter {
             return "";
         }
         try {
-            File f = new File(Environment.getExternalStoragePublicDirectory(
-                    Environment.DIRECTORY_DOWNLOADS), "OilQuiz/" + sub + "/" + name);
+            File f = fileOf(sub, name);
             if (f.exists() && f.length() > 0) {
                 int cap = (int) Math.min(f.length(), maxBytes);
                 byte[] all = new byte[cap];
@@ -184,8 +201,7 @@ public final class PublicStorageWriter {
             return 0;
         }
         try {
-            File f = new File(Environment.getExternalStoragePublicDirectory(
-                    Environment.DIRECTORY_DOWNLOADS), "OilQuiz/" + sub + "/" + name);
+            File f = fileOf(sub, name);
             if (f.isFile()) {
                 return f.length();
             }
@@ -217,8 +233,7 @@ public final class PublicStorageWriter {
     public static boolean delete(Context ctx, String sub, String name) {
         boolean any = false;
         try {
-            File f = new File(Environment.getExternalStoragePublicDirectory(
-                    Environment.DIRECTORY_DOWNLOADS), "OilQuiz/" + sub + "/" + name);
+            File f = fileOf(sub, name);
             if (f.exists() && f.delete()) {
                 any = true;
             }

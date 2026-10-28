@@ -2,18 +2,14 @@ package com.oilquiz.app.ai.tool;
 
 import android.app.ActivityManager;
 import android.graphics.Bitmap;
-import android.app.PendingIntent;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Build;
-import android.os.Bundle;
 import android.provider.Settings;
 
 import androidx.core.content.FileProvider;
@@ -36,10 +32,8 @@ import java.util.Map;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Tool(
@@ -57,7 +51,7 @@ import java.util.concurrent.atomic.AtomicReference;
         @Action(name = "app_control", description = "控制应用：强制停止/清除数据/获取详细信息"),
         @Action(name = "shell_command", description = "执行Shell命令（与 linux_shell(action=exec) 同一套环境）。结果含 exit_code/timed_out/truncated；退出码非零时 status=failed（grep 无匹配=1、diff 有差异=1 属正常语义，别当工具坏了）"),
         @Action(name = "ssh_exec", description = "SSH 连接任意远程主机并执行单条命令（JSch 纯 Java 实现，不依赖本地 Termux/内置二进制；可连电脑、云服务器、路由器、NAS 等任何开 sshd 的机器）。支持密钥免密或密码认证（JSch 原生，开箱即用）。注意：① 非交互，单条命令执行完即断开，25 秒超时；② 默认跳过主机指纹校验（StrictHostKeyChecking=no）方便首次连接；③ 参数 host=目标IP/域名、user=用户名、command=远程命令、port=端口(默认22)、password=密码、key_file=私钥路径"),
-        @Action(name = "termux_exec", description = "在 Termux 中执行命令（完整 Linux 环境，可 apt/pip/ssh/git 等；需已装 Termux 并授予 RUN_COMMAND 权限）。注意：① 本工具同一时刻只执行一条命令，多条命令必须串行调用，不要并发（并发会串输出）；② 用 proot-distro login ubuntu 进容器后，容器内裸 git/gcc/make/cmake 等命令可能命中 Termux 的二进制（PATH 被继承），简单容器命令会被自动注入容器优先 PATH，复杂命令请自行用绝对路径 /usr/bin/git）"),
+        @Action(name = "termux_exec", description = "在 Termux 中执行命令（完整 Linux 环境，可 apt/pip/ssh/git 等；需已装 Termux 并授予 RUN_COMMAND 权限，且 Termux 进程在跑——不确定先调 linux_shell(action=termux_wake) 或 termux_status 自检）。注意：① 只等 20 秒，apt/pip/下载这类跑不完的长任务改用 linux_shell(action=termux_submit) 挂后台作业；② 用 proot-distro login ubuntu 进容器后，容器内裸 git/gcc/make/cmake 等命令可能命中 Termux 的二进制（PATH 被继承），简单容器命令会被自动注入容器优先 PATH，复杂命令请自行用绝对路径 /usr/bin/git"),
         @Action(name = "http_download", description = "下载 URL 到本地（App 内 okhttp 实现，https 走系统证书校验，比 shell 里的 wget 更可靠）"),
         @Action(name = "shell_mode", description = "切换 shell 防误操作黑名单：full=不拦(默认，用户自己的设备) / readonly=开启命令与路径黑名单 / query=查询当前。"
             + "注意它不是安全边界：黑名单是对命令文本的匹配，变量替换、别名、改名都能绕过；这个开关本身也由本工具切换，"
@@ -152,34 +146,13 @@ public class SystemResourceTool implements AITool {
     private static final Object BUSYBOX_LOCK = new Object();
     private static volatile String sBusyboxBinDir;
 
-    // ===== Termux 集成（RUN_COMMAND Intent，取值对齐 TermuxConstants）=====
+    // ===== Termux 集成 =====
+    // RUN_COMMAND 的 extra 键、结果 Bundle 键、回执 token 与结果落盘协议全部收在
+    // TermuxEnvInstaller（单一实现），这里只保留检测/授权要用到的包名与权限名。
     private static final String TERMUX_PACKAGE = "com.termux";
-    private static final String TERMUX_RUN_COMMAND_SERVICE = "com.termux.app.RunCommandService";
-    private static final String TERMUX_ACTION_RUN_COMMAND = "com.termux.RUN_COMMAND";
     private static final String TERMUX_PERMISSION_RUN_COMMAND = "com.termux.permission.RUN_COMMAND";
-    private static final String TERMUX_EXTRA_COMMAND_PATH = "com.termux.RUN_COMMAND_PATH";
-    private static final String TERMUX_EXTRA_ARGUMENTS = "com.termux.RUN_COMMAND_ARGUMENTS";
-    private static final String TERMUX_EXTRA_WORKDIR = "com.termux.RUN_COMMAND_WORKDIR";
-    private static final String TERMUX_EXTRA_BACKGROUND = "com.termux.RUN_COMMAND_BACKGROUND";
-    private static final String TERMUX_EXTRA_PENDING_INTENT = "com.termux.RUN_COMMAND_PENDING_INTENT";
-    /** Termux 回传结果的 Bundle 及其键（EXTRA_PLUGIN_RESULT_BUNDLE = "result"） */
-    private static final String TERMUX_RESULT_BUNDLE = "result";
-    private static final String TERMUX_RESULT_STDOUT = "stdout";
-    private static final String TERMUX_RESULT_STDERR = "stderr";
-    private static final String TERMUX_RESULT_EXIT_CODE = "exitCode";
-    private static final String TERMUX_RESULT_ERRMSG = "errmsg";
-    private static final String TERMUX_BASH = "/data/data/com.termux/files/usr/bin/bash";
-    private static final String TERMUX_HOME = "/data/data/com.termux/files/home";
-    /** 我们自己的广播 action：承接 Termux 回传的执行结果 */
-    private static final String TERMUX_RESULT_ACTION = "com.oilquiz.app.TERMUX_EXEC_RESULT";
     /** Termux 命令等待上限（秒）：Termux app-shell 启动 + 执行，留足余量但低于框架 30s */
     private static final long TERMUX_TIMEOUT_SECONDS = 20;
-    private static final AtomicInteger TERMUX_REQUEST_CODE = new AtomicInteger(1000);
-    /** termux_exec 全局串行锁：多个并发调用的 receiver 都监听同一 action，广播会被所有 receiver 收到、
-     *  谁 poll 到算谁的 → 输出互相串（真机实测三条并发输出串到同一条）。同一时刻只允许一个调用在等结果。 */
-    // Termux 命令通道串行锁：与 TermuxEnvInstaller.runInTermuxAndWait 共用同一把锁（同一广播 action 的回执，
-    // 两条通路/多线程必须整段串行，否则互抢回执）。详见 TermuxEnvInstaller.TERMUX_COMM_LOCK。
-    private static final Object TERMUX_EXEC_LOCK = TermuxEnvInstaller.TERMUX_COMM_LOCK;
 
     /** 敏感路径黑名单：读取/写入其他应用数据、内核接口、凭据文件一律拒绝 */
     private static final String[] BANNED_PATHS = {
@@ -2294,7 +2267,8 @@ public class SystemResourceTool implements AITool {
      *   <li>本应用被授予 {@code com.termux.permission.RUN_COMMAND}（dangerous 权限）；</li>
      *   <li>Termux 侧 ~/.termux/termux.properties 里 {@code allow-external-apps=true}。</li>
      * </ol>
-     * 结果通过 PendingIntent 广播回传，Bundle 键：stdout/stderr/exitCode/errmsg。
+     * 结果由 {@link TermuxEnvInstaller#runInTermuxAndWait} 取回：PendingIntent 回执（带 token 相关性）
+     * 与 Termux 按 {@code RUN_COMMAND_RESULT_DIRECTORY} 落盘的结果文件，两条腿先到先用。
      */
 
     private AIToolResult termuxExec(Map<String, Object> parameters) {
@@ -2335,119 +2309,55 @@ public class SystemResourceTool implements AITool {
                     + "；另外 Termux 侧还需要 allow-external-apps=true。", parameters);
         }
 
-        // 全局串行锁：监听同一 action 的多个 receiver 会互相抢广播，
-        // 必须等上一个调用完成、receiver 注销后才能再注册新的。
-        synchronized (TERMUX_EXEC_LOCK) {
-        final ArrayBlockingQueue<Intent> resultQueue = new ArrayBlockingQueue<>(1);
-        final BroadcastReceiver receiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context c, Intent intent) {
-                resultQueue.offer(intent);
-            }
-        };
-        IntentFilter filter = new IntentFilter(TERMUX_RESULT_ACTION);
-        boolean registered = false;
-        try {
-            if (Build.VERSION.SDK_INT >= 33) {
-                context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
-            } else {
-                context.registerReceiver(receiver, filter);
-            }
-            registered = true;
+        // 通道内部按 token 认回执、并用 RUN_COMMAND_RESULT_DIRECTORY 落盘兜底；
+        // 等结果不再占全局锁，所以一次 termux_submit（两段各 20s）不会把这条挡在门外。
+        TermuxEnvInstaller.ChannelResult ch = TermuxEnvInstaller.runInTermuxAndWait(
+                context, command, (int) TERMUX_TIMEOUT_SECONDS);
 
-            Intent replyIntent = new Intent(TERMUX_RESULT_ACTION).setPackage(context.getPackageName());
-            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-            if (Build.VERSION.SDK_INT >= 31) {
-                flags |= PendingIntent.FLAG_MUTABLE;   // Termux 需要往里面塞结果 Bundle
-            }
-            PendingIntent reply = PendingIntent.getBroadcast(
-                    context, TERMUX_REQUEST_CODE.incrementAndGet(), replyIntent, flags);
-
-            Intent intent = new Intent(TERMUX_ACTION_RUN_COMMAND);
-            intent.setClassName(TERMUX_PACKAGE, TERMUX_RUN_COMMAND_SERVICE);
-            intent.putExtra(TERMUX_EXTRA_COMMAND_PATH, TERMUX_BASH);
-            intent.putExtra(TERMUX_EXTRA_ARGUMENTS, new String[]{"-lc", command});
-            intent.putExtra(TERMUX_EXTRA_WORKDIR, TERMUX_HOME);
-            intent.putExtra(TERMUX_EXTRA_BACKGROUND, false);
-            intent.putExtra(TERMUX_EXTRA_PENDING_INTENT, reply);
-
-            try {
-                context.startService(intent);
-            } catch (SecurityException se) {
-                return new AIToolResult("调用 Termux 被系统拒绝（权限未生效）: " + BaseAITool.errText(se)
+        // 下发就没成功（没装/没授权/系统拒绝/起服务失败）：报文案与旧实现保持一致。
+        // 超时不在这里报——它要走下面那段长任务专属提示。
+        if (ch.error != null && !ch.timedOut && ch.errmsg.isEmpty() && "none".equals(ch.source)) {
+            if (ch.error.startsWith("系统拒绝了 RUN_COMMAND")) {
+                return new AIToolResult("调用 Termux 被系统拒绝（权限未生效）: " + ch.error
                         + "。请重新授予 " + TERMUX_PERMISSION_RUN_COMMAND, parameters);
-            } catch (Exception e) {
-                // 多为 Termux 进程被系统冻结/杀掉 + 后台启动限制：后台唤醒一次再重发（不抢前台）
-                String wakeErr = TermuxEnvInstaller.wakeServiceInBackground(context);
-                if (wakeErr != null) {
-                    return new AIToolResult("启动 Termux RunCommandService 失败: " + BaseAITool.errText(e)
-                            + "；后台唤醒也未成功：" + wakeErr, parameters);
-                }
-                try {
-                    Thread.sleep(1200);   // 给 Termux 进程被拉起来留一点时间
-                    context.startService(intent);
-                } catch (Exception e2) {
-                    return new AIToolResult("启动 Termux RunCommandService 失败（已尝试后台唤醒服务）: "
-                            + BaseAITool.errText(e2)
-                            + "。请在「完整 Python 环境」调试配置页点「自检并修复通道」后重试。", parameters);
-                }
             }
-
-            Intent result = resultQueue.poll(TERMUX_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            if (result == null) {
-                // 长任务（装包/下载/容器操作）超时提示更明确：不是通道坏了，是任务本身超过 20s
-                boolean longTask = isLongRunningCommand(command);
-                return new AIToolResult("Termux 命令超时（" + TERMUX_TIMEOUT_SECONDS + "s 未返回结果）。"
-                        + (longTask
-                        ? "这条命令是装包/下载类长任务（apt/pip/proot 等），20 秒内跑不完属正常。"
-                        + "建议：① 在 Termux 里手动执行看完整过程；② 或让 App 用「一键准备」流程（分步骤、可续跑、有日志监控）。"
-                        : "")
-                        + (longTask ? "" : "常见原因：Termux 侧未开启 allow-external-apps，或命令自身长时间不结束（如进入交互、等待输入）。")
-                        + (longTask ? "" : "请在 Termux 里执行：echo 'allow-external-apps=true' >> ~/.termux/termux.properties && termux-reload-settings"), parameters);
-            }
-
-            Bundle bundle = result.getBundleExtra(TERMUX_RESULT_BUNDLE);
-            Map<String, Object> out = new HashMap<>();
-            out.put("command", command);
-            out.put("environment", "termux");
-            if (bundle == null) {
-                out.put("status", "error");
-                out.put("raw", String.valueOf(result.getExtras()));
-                return new AIToolResult(out, parameters);
-            }
-
-            String stdout = bundle.getString(TERMUX_RESULT_STDOUT, "");
-            String stderr = bundle.getString(TERMUX_RESULT_STDERR, "");
-            String errmsg = bundle.getString(TERMUX_RESULT_ERRMSG, "");
-            int exitCode = bundle.getInt(TERMUX_RESULT_EXIT_CODE, -1);
-
-            out.put("exit_code", exitCode);
-            out.put("stdout", truncateOutput(stdout));
-            out.put("stderr", truncateOutput(stderr));
-            if (errmsg != null && !errmsg.isEmpty()) {
-                out.put("status", "error");
-                out.put("error", errmsg);
-                out.put("hint", "若提示 allow-external-apps 相关错误，请在 Termux 里设置："
-                        + "mkdir -p ~/.termux && echo 'allow-external-apps=true' >> ~/.termux/termux.properties && termux-reload-settings");
-            } else {
-                out.put("status", exitCode == 0 ? "success" : "failed");
-            }
-            return new AIToolResult(out, parameters);
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            return new AIToolResult("Termux 命令被中断", parameters);
-        } catch (Exception e) {
-            AILogger.e(TAG, "termux_exec 失败: " + e.getMessage(), e);
-            return new AIToolResult("termux_exec 失败: " + BaseAITool.errText(e), parameters);
-        } finally {
-            if (registered) {
-                try {
-                    context.unregisterReceiver(receiver);
-                } catch (Exception ignored) {
-                }
-            }
+            return new AIToolResult("termux_exec 失败: " + ch.error, parameters);
         }
-        } // synchronized (TERMUX_EXEC_LOCK) 结束
+
+        if (ch.timedOut) {
+            // 归因由通道给（进程没起来 / 命令自己在等输入 / 开关没开三种不一样），
+            // 这里不再重复猜"多半是 allow-external-apps"——那是旧实现把用户带偏的地方。
+            boolean longTask = isLongRunningCommand(command);
+            return new AIToolResult("Termux 命令超时（" + TERMUX_TIMEOUT_SECONDS + "s 未返回结果）。"
+                    + (ch.error == null ? "" : ch.error)
+                    + (longTask ? " 另：这条是装包/下载类长任务（apt/pip/proot 等），20 秒内跑不完属正常，别重复提交。" : ""), parameters);
+        }
+
+        Map<String, Object> out = new HashMap<>();
+        out.put("command", command);
+        out.put("environment", "termux");
+        if (ch.raw != null) {
+            out.put("status", "error");
+            out.put("raw", ch.raw);
+            return new AIToolResult(out, parameters);
+        }
+
+        out.put("exit_code", ch.exitCode);
+        out.put("stdout", truncateOutput(ch.stdout));
+        out.put("stderr", truncateOutput(ch.stderr));
+        if (!ch.errmsg.isEmpty()) {
+            out.put("status", "error");
+            out.put("error", ch.errmsg);
+            out.put("hint", "若提示 allow-external-apps 相关错误，请在 Termux 里设置："
+                    + "mkdir -p ~/.termux && echo 'allow-external-apps=true' >> ~/.termux/termux.properties && termux-reload-settings");
+        } else if (ch.error != null) {
+            // 走的是结果文件那条腿、且失败发生在 Termux 层：把原因带出来，别只留一个 failed
+            out.put("status", "error");
+            out.put("error", ch.error);
+        } else {
+            out.put("status", ch.exitCode == 0 ? "success" : "failed");
+        }
+        return new AIToolResult(out, parameters);
     }
 
     /**

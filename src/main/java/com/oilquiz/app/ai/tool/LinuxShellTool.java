@@ -44,7 +44,7 @@ import java.util.Map;
         + "action=termux_purge 清理某作业的活动文件（job_id 必填）",
     category = "system",
     actions = {
-        @Action(name = "exec", description = "执行 shell 命令（engine=sandbox 用 /system/bin/sh -c 带内置工具环境；engine=termux 交给已安装的 Termux 的 bash -lc）"),
+        @Action(name = "exec", description = "执行 shell 命令（engine=sandbox 用 /system/bin/sh -c 带内置工具环境；engine=termux 交给已安装的 Termux 的 bash -lc，需 Termux 进程在跑——不确定先调 termux_wake 或 termux_status）"),
         @Action(name = "tools", description = "列出内置工具及版本"),
         @Action(name = "download", description = "下载 URL 到本地文件（https 走系统证书校验）"),
         @Action(name = "route", description = "查询/修改某命令的路由顺序（b=内置 s=系统 k=busybox t=toybox，默认 bskt）"),
@@ -177,7 +177,8 @@ public class LinuxShellTool implements AITool {
         out.put("status", ch.ok ? "success" : "failed");
         if (!ch.ok) {
             out.put("error", ch.error);
-            out.put("hint", "通道不通最常见是 Termux 侧 allow-external-apps 没开：去「完整 Python 环境」调试配置页点「自检并修复通道」，按提示粘一行命令即可。");
+            out.put("hint", "按上面 error 的归因处理：说看不到 Termux 进程 → 先在手机上打开一次 Termux，或调 linux_shell(action=termux_wake) 后台起服务（process_alive=false 在高版本 Android 上只表示\"看不见\"，不是定论）；"
+                    + "写明 allow-external-apps → 去「完整 Python 环境」调试配置页点「自检并修复通道」，按提示粘一行命令（改完要重启 Termux 进程才生效）。");
         }
         return new AIToolResult(out, parameters);
     }

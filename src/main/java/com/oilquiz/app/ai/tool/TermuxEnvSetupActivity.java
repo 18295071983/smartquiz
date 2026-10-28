@@ -73,6 +73,13 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
     private volatile boolean busy;
     /** 通道自检结论（展示在状态区） */
     private String channelState = "未检测（点「自检并修复通道」）";
+    /**
+     * 最近一次通道探测的归因原文（由 {@link TermuxEnvInstaller} 的超时分类给出）。
+     * 向导第 6 步靠它分档：进程没在跑 → 唤醒；进程活着但报错 → 才是 allow-external-apps。
+     */
+    private String channelError;
+    /** 超时归因码（{@code process_invisible} / {@code alive_no_reply}），向导按它分流修法，不匹配文案 */
+    private String channelCause;
     /** 是否正处于"等用户去 Termux 粘一行命令"的状态（回到本页自动复检） */
     private volatile boolean pendingFix;
     /** 智能引导进行到的阶段：null=未进行；probe/perm/rootfs/storage/setup=正在引导该项 */
@@ -113,6 +120,7 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         signerWarnView = findViewById(R.id.tv_signer_warn);
         firstInitHintView = findViewById(R.id.tv_first_init_hint);
         findViewById(R.id.btn_enable_ssh).setOnClickListener(v -> doEnableSsh());
+        findViewById(R.id.btn_install_cli).setOnClickListener(v -> doInstallCliTools());
         findViewById(R.id.btn_ssh_autostart).setOnClickListener(v -> {
             if (TermuxEnvInstaller.termuxVersion(this) == null) {
                 log("🔍 还没装 Termux，先点上方「安装 Termux」。");
@@ -198,6 +206,8 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                     TermuxEnvInstaller.runInTermuxAndWait(this, "echo QUIZ_CHANNEL_OK", 8);
             runOnUiThread(() -> {
                 channelState = probe.ok ? "可用 ✓" : "不可用 ✗";
+                channelError = probe.ok ? null : probe.error;
+                channelCause = probe.ok ? null : probe.timeoutCause;
                 refresh();
             });
         }, "quick-channel-probe").start();
@@ -336,9 +346,19 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
             desc = "Termux 后台自动执行必需。点下面按钮跳到设置页，打开「显示在其他应用上层」开关后回来。";
             btnText = "🪟 去开启悬浮窗权限"; action = "overlay";
         } else if ("不可用 ✗".equals(channelState)) {
-            progress = 80; title = "第 6 步 · 修复命令通道";
-            desc = "App 控制 Termux 的通道未通（最常见：allow-external-apps 没生效）。复制一行命令到 Termux 粘贴，会自动重启 Termux 生效。做完切回来，我自动复检并继续。";
-            btnText = "⚡ 复制修复命令并打开 Termux"; action = "allowex";
+            // 按探测归因码分档：看不到进程 ≠ 开关没开（开关没按时 Termux 会直接回一条写明原因的错误）
+            boolean processDown = "process_invisible".equals(channelCause);
+            progress = 80;
+            if (processDown) {
+                title = "第 6 步 · 唤醒 Termux 进程";
+                desc = "命令发出去没有任何回执，而且系统里看不到 Termux 进程——多半是没启动/被冻结（高版本 Android 有时看不见别的应用的进程，所以这条按优先方向处理）。"
+                        + "点下面按钮后台起服务；被系统拦住时手动打开一次 Termux。开关没开不属于这一档：那样 Termux 会回一条写明原因的错误。做完切回来我自动复检。";
+                btnText = "🌙 后台唤醒 Termux 进程"; action = "wake";
+            } else {
+                title = "第 6 步 · 修复命令通道";
+                desc = "App 控制 Termux 的通道未通。复制一行命令到 Termux 粘贴，会自动重启 Termux 生效。做完切回来，我自动复检并继续。";
+                btnText = "⚡ 复制修复命令并打开 Termux"; action = "allowex";
+            }
         } else {
             progress = 100; title = "环境就绪 🎉";
             desc = "Termux 通道、权限、Ubuntu 容器、Python 全部就绪。可在「更多工具」里进 Ubuntu 终端。";
@@ -498,7 +518,7 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         }
     }
 
-    /** 向导主按钮：执行当前步骤动作（install/perm/rootfs/storage/overlay/allowex/done） */
+    /** 向导主按钮：执行当前步骤动作（install/perm/rootfs/storage/overlay/wake/allowex/done） */
     private void onGuideMainClick() {
         String action = auxFixAction;
         if ("install".equals(action)) {
@@ -510,6 +530,8 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
             doExportRootfs();
         } else if ("storage".equals(action)) {
             copyStorageCmdAndOpen();
+        } else if ("wake".equals(action)) {
+            wakeTermuxProcess();
         } else if ("overlay".equals(action)) {
             Intent oi = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                     Uri.parse("package:" + TermuxEnvInstaller.TERMUX_PACKAGE));
@@ -804,7 +826,8 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         pendingFix = true;
         smartStage = "probe";
         log("🔍 第 1 项未就绪：Termux 命令通道不通（" + err + "）\n"
-                + "最常见原因是「首次打开 Termux 还没初始化完」或「allow-external-apps 还没开」。\n\n"
+                + "按上面这条归因处理，别混成一件事：说\"系统里看不到 Termux 进程\"= Termux 没启动/被冻结（先唤醒，或手动打开一次等它初始化完）；"
+                + "写明 allow-external-apps = 开关没开（用下面这行命令打开并重启 Termux）。\n\n"
                 + (shortCmd != null
                 ? (copied ? "✅ 已复制修复命令：\n" + shortCmd + "\n\n" : "修复命令：\n" + shortCmd + "\n\n")
                 : "修复命令（Termux 没存储权限，只能整段粘贴）：点「复制手动命令」\n\n")
@@ -870,6 +893,27 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                 + "系统弹「允许访问文件」→ 点「允许」。\n做完切回答题宝，我会自动复检并继续下一步。");
     }
 
+    /**
+     * 唤醒 Termux 进程：先按"不抢前台"的方式后台起服务，被系统拦住时才打开 Termux 界面。
+     * 之后照旧走 {@code smartStage="probe"} 的复检回路（用户切回来自动复检通道，本方法不自己跳来跳去）。
+     */
+    private void wakeTermuxProcess() {
+        String err = TermuxEnvInstaller.wakeServiceInBackground(this);
+        if (err == null) {
+            pendingFix = true;
+            smartStage = "probe";
+            log("🌙 已后台唤醒 Termux 服务（没抢前台）。切到 Termux 等它出 $ 提示符、再切回答题宝，我自动复检通道。\n"
+                    + "（Termux 首次安装必须自己完成初始化，进程没起来时 App 发的命令不会有回执。）");
+            return;
+        }
+        boolean opened = TermuxEnvInstaller.openTermux(this);
+        pendingFix = true;
+        smartStage = "probe";
+        log("🌙 后台唤醒被系统拒绝：" + err + "\n"
+                + (opened ? "已打开 Termux：" : "请手动打开 Termux：") + "等它出 $ 提示符后切回答题宝，我自动复检通道。\n"
+                + "这一档是「系统里看不到 Termux 进程」，不是 allow-external-apps 的问题，不用粘修复命令。");
+    }
+
     /** 修复 allow-external-apps：复制一行（写入配置 + 自动重启 Termux）+ 打开 Termux；回来复检通道，通了自动续跑 */
     private void fixAllowExternalApps() {
         ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
@@ -906,10 +950,14 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                         busy = false;
                         if (probe.ok) {
                             channelState = "可用 ✓";
+                            channelError = null;
+                            channelCause = null;
                             log("✅ 通道通了（allow-external-apps 已生效），之后 App 就能自动下发命令。自动继续下一步…");
                             continueSmartGuide();
                         } else {
                             channelState = "不可用 ✗";
+                            channelError = probe.error;
+                            channelCause = probe.timeoutCause;
                             smartStage = "probe";
                             pendingFix = true;
                             log("通道还是不通（" + probe.error + "）：确认 Termux 已完成首次初始化（出 $ 提示符）了吗？\n"
@@ -1075,8 +1123,8 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         }
     };
 
-    /** 统一执行：直接发给 Termux（进程死了 Android 会自动拉起它执行服务）；
-     * 只有真下发失败（异常）才唤起 Termux 并在 5 秒后自动重发一次。 */
+    /** 统一执行：fire-and-forget 发给 Termux（进程没在跑时 {@code runInTermux} 会先后台唤醒再下发）；
+     * 只有 startService 真抛异常才算下发失败，才唤起 Termux 并在 5 秒后自动重发一次。 */
     private void execInTermux(String script, boolean bg, Runnable onOk) {
         String err = TermuxEnvInstaller.runInTermux(this, script, bg);
         if (err == null) {
@@ -1121,6 +1169,59 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
             log("🔑 正在 Termux 里启动 sshd（openssh 已随离线包装好则秒起；没装到时联网装约 30 秒）…");
         });
     }
+
+    /**
+     * 补装 CLI 工具（当前就一个 tmux）：导出内置 deb → 落盘脚本 → **走命令通道等回执**（不是 fire-and-forget，
+     * "我下发了"不算，装没装上以回执为准）。一键准备的 step2b 用的是同一份脚本体。
+     */
+    private void doInstallCliTools() {
+        if (TermuxEnvInstaller.termuxVersion(this) == null) {
+            log("🔍 还没装 Termux，先点上方「安装 Termux」，装完再回来补装 CLI 工具。");
+            return;
+        }
+        if (!TermuxEnvInstaller.hasRunCommandPermission(this)) {
+            log("🔍 还没授予 RUN_COMMAND 权限，先点向导主按钮授权。");
+            return;
+        }
+        if (busy) {
+            toast("正在执行中，请稍候");
+            return;
+        }
+        boolean exported = TermuxEnvInstaller.exportTermuxPkgs(this);
+        File f = TermuxEnvInstaller.writeTextFile(this, "install_cli.sh",
+                TermuxEnvInstaller.buildCliInstallScript());
+        if (f == null) {
+            log("❌ 准备脚本落盘失败（公共目录写不进去？）。");
+            return;
+        }
+        busy = true;
+        refresh();
+        log("🧰 正在补装 CLI 工具（内置 3 个 deb：tmux / libevent / utf8proc，正常几秒到十几秒）…"
+                + (exported ? "" : "\n（内置 deb 没导出成功，脚本会自动走联网兜底——通常是 Termux 存储权限还没授予）"));
+        final String oneLine = "bash \"" + f.getAbsolutePath() + "\"";
+        new Thread(() -> {
+            TermuxEnvInstaller.ChannelResult r =
+                    TermuxEnvInstaller.runInTermuxAndWait(this, oneLine, CLI_INSTALL_TIMEOUT_SECONDS);
+            runOnUiThread(() -> {
+                busy = false;
+                if (r.ok) {
+                    log("✅ CLI 工具已就绪。\n" + r.stdout
+                            + "\n之后 termux_submit 的长任务会挂到 tmux 会话，Termux 进程被系统杀掉也能活下来。");
+                } else if (r.timedOut) {
+                    log("⏳ 超过 " + CLI_INSTALL_TIMEOUT_SECONDS + " 秒没回执：" + r.error
+                            + "\n安装可能还在 Termux 里跑，日志见 Download/OilQuiz/termux_env/setup_log.txt；"
+                            + "跑完再点一次这个按钮会显示\"已安装\"。");
+                } else {
+                    log("⚠️ tmux 没装上：" + (r.error == null ? r.stderr : r.error)
+                            + "\n脚本输出可看 Download/OilQuiz/termux_env/setup_log.txt。");
+                }
+                refresh();
+            });
+        }, "cli-install").start();
+    }
+
+    /** CLI 补装的等待上限（秒）：离线 dpkg 只要十几秒，联网兜底（pkg update+install）留足 90 秒 */
+    private static final int CLI_INSTALL_TIMEOUT_SECONDS = 90;
 
     private static String pickLine(String txt, String key) {
         for (String l : txt.split("\n")) {
