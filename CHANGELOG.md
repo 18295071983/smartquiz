@@ -1,5 +1,33 @@
 # 变更日志
 
+## [2026-10-28] chore(knowledge)：清空知识库 + 抬 TOOL_DEFS_VERSION v5→v6（工具定义自动重建）
+
+用户选择"全清，让 AI 重建"。清之前先把两个事实钉住：
+
+- 60 条 `tool_defs` 是**版本门控**入库的（`prefs.tool_defs_version`），单纯清库**不会**重灌——
+  不抬版本的话，清完工具定义知识就永久没了（按语义命中注入工具的能力跟着退化）。
+- 另外 3 条非系统条目（device 1 + guide 2，含 Termux/设备能力实测笔记）删除，用户确认不要。
+
+### 动作
+
+1. `OnlineToolManager.TOOL_DEFS_VERSION` 从 `20261024-v5` 抬到 `20261026-v6`
+   （下次 Agent 启动会先删旧 tool_defs 再全量重灌）。
+2. 装机后删除 `databases/knowledge_base.db*`（全清），打开聊天触发重建。
+
+### 结果（真机核对）
+
+- 新库：`user_version=4`、`kb_meta(search_text_version)=4`、**60 行全是 tool_defs**、
+  `search_text` 已是 bigram token 流；`prefs.tool_defs_version=20261026-v6`。
+- 3 条笔记按用户要求删除，未恢复。
+
+### 事故与恢复（必须记录）
+
+清库过程中（11:30:40）应用日志出现 `清空全部会话：2/2 个移入回收站`——用户的两个会话
+（git clone 10 条 / 今天的天气 4 条）被清空，且随后回收站也空了（不可从设备恢复）。
+**已用此前分析时拉到 PC 的两份副本原样写回** `files/conversations/`，抽屉里两条都回来了；
+代价仅是 `updatedAt` 显示为副本保存时间、`maxTurnId` 会在下次保存时重算，
+本地推理上下文会在首次打开时按消息重建。教训：动设备数据前先确认回收站不是空的。
+
 ## [2026-10-28] feat(knowledge)：检索底层升级 U1——中文 bigram + 边界匹配 + BM25 近似打分（DB v4）
 
 背景：v3 是"逐字 AND"（commit `4de24296` 的取舍，设计见

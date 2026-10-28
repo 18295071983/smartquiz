@@ -726,7 +726,9 @@ public class OnlineToolManager {
     // 2026-10-24 v5：export_apk 描述/参数补直播配置目录与台标（config/channels.m3u、
     // config/logos、tvg-logo、自适应台标）——不升版本，已装机的 KB 里仍是旧描述，
     // 语义检索召不回"改台标/换频道表"这类需求。
-    private static final String TOOL_DEFS_VERSION = "20261024-v5";
+    // 2026-10-28 v6：知识库检索换 bigram（DB v4）；用户要求"全清重来"，清库后必须靠抬版本
+    // 触发工具定义重灌（否则 prefs 里还是 v5，清完就再也不会入库）。
+    private static final String TOOL_DEFS_VERSION = "20261026-v6";
 
     /**
      * 工具定义入库（幂等 + 版本控制）：把全部启用工具的定义（描述/适用场景/参数）写入知识库
