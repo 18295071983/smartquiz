@@ -1,5 +1,16 @@
 # 变更日志
 
+## [2026-10-28] docs(knowledge)：补"何时该换 FTS5"的判据（避免以后凭感觉反复讨论）
+
+`docs/knowledge_base.md` 新增第六节：
+
+- **判据**：知识库 >1 万条 / 开始抱怨排序而不是召回 / 需要短语·列权重·前缀等 FTS 独有能力 /
+  能接受 APK +3MB —— 满足任意两条才值得换；
+- **若换，走 A（开库接缝，单测仍用系统 SQLite）不走 B（测试全迁 androidTest）**；
+- **已实测事实**：自带 SQLite 3.45.2 带 FTS5、bigram MATCH + bm25 可用、trigram 对 2 字中文词无效
+  （所以中文索引继续用 bigram + unicode61）、`System.loadLibrary("sqliteX")` 的坑；
+- 真机探针 `BundledSqliteFts5DeviceTest` 定位为**切换前的 canary**（先跑它确认库与 FTS5 还在）。
+
 ## [2026-10-28] test(knowledge)：真机探针——自带 SQLite（官方 bindings）FTS5/bm25/trigram 实测可用
 
 系统自带 SQLite 在这台设备上缺 FTS5、也没开 `FTS3_PARENTHESIS`（v1/v2 的两次失败）。

@@ -97,7 +97,45 @@ v4 细节：
 需要重建索引时，用 5.1 的"清空 + 抬版本"，或临时改 `ensureSearchTextV4` 的格式版本号触发重算。
 真要长期用，再加 `knowledge_base(action=reindex)`（讨论过，暂缓）。
 
-## 六、文件清单
+## 六、何时该换 FTS5（自带 SQLite）
+
+> 现状：v4 用系统 SQLite + bigram + LIKE，**故意不引入**自带 SQLite。
+> 这不是能力不够，是代价/收益不划算。判据如下，避免以后凭感觉反复讨论。
+
+### 6.1 满足任意两条才值得换
+
+1. 知识库稳定超过 **1 万条**，或单条正文很长，检索开始有可感知延迟；
+2. 抱怨的是**排序**（"最相关的没排前面"）而不是"搜不到/搜错"——精确率已由 bigram 解决；
+3. 需要 FTS 独有能力：短语查询 `"光合作用"`、列权重、前缀查询、`MATCH` 语法；
+4. 能接受 **APK +3 MB**（native 库）与"两套 SQLite 并存"的维护成本。
+
+只满足 1 条、或只是想"用上更正统的组件"，不建议动。
+
+### 6.2 真要换，走 A 不走 B
+
+| 方案 | 做法 | 代价 |
+|---|---|---|
+| **A（推荐）** | `KnowledgeBaseManager` 把"开库"抽一层：生产用 `org.sqlite.database.sqlite.*`，单测用系统 `android.database.*`（走 LIKE 兜底） | ~80 行抽象，单测保持秒级 |
+| B | 知识库单测全迁 `androidTest`（真机跑） | 每次回归连设备、分钟级 |
+
+### 6.3 已实测的事实（2026-10-28，25113PN0EC）
+
+用的是 SQLite 官方 Android Bindings 的 Maven 再发布 `mil.nga:sqlite-android:3450200`：
+
+```
+sqlite_version = 3.45.2
+compile_option: ENABLE_FTS5
+bigram MATCH hits = [光合作用(bm25)]     ← 只命中该命中的
+trigram 3+ chars = 1 / 2 chars = 0      ← trigram 对 2 字中文词无效
+```
+
+- 结论：**中文继续用 bigram 词流 + `unicode61`，不要用 `trigram`**（中文高频查询是 2 字）。
+- 坑：这版 bindings 移除了 `SQLiteDatabase.loadLibs(Context)`，用前必须 `System.loadLibrary("sqliteX")`，
+  否则 `UnsatisfiedLinkError: nativeOpen`。
+- 探针保留在 `src/androidTest/java/com/oilquiz/app/ai/knowledge/BundledSqliteFts5DeviceTest.java`，
+  当"以后要不要上"的 canary：真要切换前先跑它确认库与 FTS5 仍在。
+
+## 七、文件清单
 
 | 文件 | 说明 |
 |---|---|
@@ -107,3 +145,4 @@ v4 细节：
 | `src/main/java/com/oilquiz/app/ai/agent/online/OnlineToolManager.java` | `ensureToolDefsInKnowledgeBase()`（版本门控）与 `TOOL_DEFS_VERSION` |
 | `src/main/java/com/oilquiz/app/ai/agent/online/OnlinePromptBuilder.java` | 【知识库】使用指引（list→get、tag 别名、update 不删重加） |
 | `src/test/java/com/oilquiz/app/ai/knowledge/*` | 单测：更新/索引精确取/tag/v3→v4 迁移 |
+| `src/androidTest/java/com/oilquiz/app/ai/knowledge/BundledSqliteFts5DeviceTest.java` | 真机探针：自带 SQLite 的 FTS5/bm25/trigram 是否可用（切换前的 canary） |
