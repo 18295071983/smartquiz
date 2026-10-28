@@ -1,5 +1,14 @@
 # 变更日志
 
+## [2026-10-28] docs(knowledge)：新增现行知识库文档（v4 口径 + 清库重建/迁移流程）
+
+- 新建 `docs/knowledge_base.md`：现行 v4 口径——动作表（list/get/update/tag/精确取）、
+  检索实现（bigram + 边界 + BM25 近似，附 v1–v4 对照表）、**维护章节**：
+  清库重建的正确流程（`clear` + 抬 `TOOL_DEFS_VERSION`，因为工具定义是版本门控）、
+  检索格式迁移只能放开库后 `ensureSearchTextV4`（不能放 `onUpgrade`，会被升级事务吞掉）、
+  标记存 `kb_meta` 而不是 SharedPreferences、以及"清空知识库 ≠ 清空对话历史"的操作边界。
+- 归档文档顶部加"已归档/已被取代"指引，避免两份口径并存。
+
 ## [2026-10-28] chore(knowledge)：清空知识库 + 抬 TOOL_DEFS_VERSION v5→v6（工具定义自动重建）
 
 用户选择"全清，让 AI 重建"。清之前先把两个事实钉住：
