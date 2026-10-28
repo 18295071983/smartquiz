@@ -1,5 +1,43 @@
 # 变更日志
 
+## [2026-10-29] fix(tools)：修掉对话历史里坐实的 5 条能力缺陷（file_generator / text_tools / unit_converter）
+
+来源是设备上那一条真机会话（10-28 15:13 → 10-29 04:25，58 条消息，累计 4728 次工具调用 / 277 次失败）：
+模型自己把缺陷写在正文里，我逐条回代码核对后动手。
+
+- **参数名收成一套权威**：在线 `ToolDefinition` 以前写 `json_data`/`source_path`，实现读的是
+  `data`/`source`+`destination`——模型照 schema 填就拿到 null（它的原话："又发现两处签名差异"）。
+  现在注解、在线 schema、`getParameterDescriptions()` 三处与实现对齐；顺手删掉从未被读取的 `format`，
+  补 `file_path`/`pretty`/`type`/`destination`，`file_name` 不再必填（与 `file_path` 等价互填）。
+  不变量测试 `FileGeneratorParamContractTest.annotationAndOnlineSchemaDeclareTheSameParams`
+  直接比对注解参数集与在线参数集，漂移一次就红一次。
+- **action 枚举进 schema**：`file_generator.action`（12 值）与 `document_parser.action`（read/parse）
+  补上 `enumValues`。此前枚举只活在描述文案里，而 `OnlineToolGuide`/`AgentLoopEngine`/`ToolGuideFlow`
+  三处都在读 `getEnumValues()`（`ToolGuideFlowValidator` 注释也承认了这个缺口）。
+- **桥把 object/array 序列化成字符串也能用**：`normalizeParameters()` 现在对 `data`/`config`/`sections`
+  做"是 JSON 字符串就还原成 Map/List"，对 `replace_all`/`pretty`/`newLine` 做字符串→boolean。
+  此前 `json`/`config` 必报 `String cannot be cast to Map`、`markdown` 必报 `cannot be cast to List`。
+- **假成功改成显式失败**（最危险的一类：模型看到成功就不会补数据）：`report` 缺 `data`、
+  `markdown` 既无 `content` 又无 `sections`、`config` 缺参数——过去都会落一份只有标题+时间戳的
+  空文件并返回成功；未知 `action` 更被 `default:` 分支静默降级成 `create`。现在全部报错并点名
+  该用哪个参数/哪个 action，且**不写盘**。长动作名（`write_json` 等历史别名）仍可用，旧会话不受影响。
+- **`text_tools(regex_extract)` 不再只回第一个捕获组**：新增 `groups`（每条匹配的全部捕获组，顺序同
+  `matches`）与 `group_count`，`matches` 默认为完整匹配，`group_index` 保留旧用法；越界报错会写清
+  `0..n` 范围。此前 `([A-Z]-\d+[A-Z]?)\s*振动\s*([\d.]+)` 只剩位号、数值整列丢失——
+  对"位号+数值成对提取"（机泵记录、报警归档）是致命的。
+- **`unit_converter` 补压力与质量流量**：pa/kpa/mpa/gpa/bar/mbar/hpa/psi/atm/torr=mmhg，
+  kg/h·t/h·g/s·g/h·lb/h。此前 `mpa → kpa` 直接报"不属于同一量纲"。报错文案也改成说清每个单位
+  各属于哪一族（或"未收录"），调用方能区分拼错单位与整族不支持。
+
+**没做的两条**（要取向，不是 bug）：`file_generator.write` 目前不拦二进制——把 `.docx`/`.pdf`
+整篇覆盖成文本在技术上仍可行（幸有 `.ver1..ver5` 备份可救，但这套备份机制**没告诉模型、也没有
+恢复入口**）；`oil_price` 滞后与 `calculator` 有效位我只复述了会话里的观察，未做代码级核实。
+
+测试：新增 18 条（`FileGeneratorParamContractTest` 9、`TextToolsRegexGroupsTest` 4、
+`UnitConverterPressureTest` 5）。全量 `--no-build-cache` 真跑 **172 套件 / 1286 tests /
+0 skipped / 0 failures / 0 errors**；`assembleDebug` 通过并装机（`lastUpdateTime=2026-10-29 04:44:59`，
+本地与设备 md5 一致 `ac40f111…`）。
+
 ## [2026-10-29] feat(tool-registry)：别名可被工具发现检出，get 按命中方式自曝身份
 
 外部评审 REVIEW-2026-1029-01 复核后的结论：`get(python_file_ops)` 走的**不是模糊路由**，而是

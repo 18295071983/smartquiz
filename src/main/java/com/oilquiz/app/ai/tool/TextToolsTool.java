@@ -40,7 +40,8 @@ public class TextToolsTool implements AITool {
     public String getDescription() {
         return "文本处理工具（纯本地）：JSON 格式化/校验（json_format/json_validate）、"
                 + "大小写转换（upper/lower）、Base64 编解码（base64_encode/base64_decode）、"
-                + "URL 编解码（url_encode/url_decode）、正则提取（regex_extract，需 pattern 参数）、"
+                + "URL 编解码（url_encode/url_decode）、正则提取（regex_extract，需 pattern 参数；"
+                + "返回 matches=完整匹配与 groups=每条匹配的捕获组数组，可用 group_index 只要某一组）、"
                 + "字数统计（count）、去空白（trim）。"
                 + "适合整理/校验/转换文本数据，无需联网。";
     }
@@ -51,6 +52,7 @@ public class TextToolsTool implements AITool {
         params.put("action", "操作名：json_format / json_validate / upper / lower / base64_encode / base64_decode / url_encode / url_decode / regex_extract / count / trim");
         params.put("text", "要处理的文本内容");
         params.put("pattern", "正则表达式（仅 regex_extract 需要）");
+        params.put("group_index", "regex_extract 可选：只要第几个组（0=完整匹配，1..n=捕获组）；不传则同时给 matches 与 groups");
         return params;
     }
 
@@ -119,14 +121,52 @@ public class TextToolsTool implements AITool {
                     }
                     Pattern p = Pattern.compile(patternStr);
                     Matcher m = p.matcher(text);
+                    // group_index（可选）：只取某一个捕获组；不传时返回完整匹配 + groups。
+                    // 此前无条件只返回 group(1)，多组正则（如 (\d{4})-(\d{2})-(\d{2})、
+                    // "([A-Z]-\d+[A-Z]?)\s*振动([\d.]+)"）会把月/日、把数值整列丢掉——
+                    // 位号与数值成对提取时配对关系直接断掉（2026-10-29 真机实测）。
+                    Integer groupIndex = null;
+                    Object gi = parameters.get("group_index");
+                    if (gi != null && !String.valueOf(gi).trim().isEmpty()) {
+                        try {
+                            groupIndex = Integer.parseInt(String.valueOf(gi).trim());
+                        } catch (NumberFormatException e) {
+                            return AIToolResult.fail("group_index 必须是整数（0=完整匹配，1..n=第几个捕获组）");
+                        }
+                    }
                     java.util.List<String> matches = new java.util.ArrayList<>();
+                    java.util.List<java.util.List<String>> groups = new java.util.ArrayList<>();
+                    int maxGroup = p.matcher("").groupCount();
+                    if (groupIndex != null && (groupIndex < 0 || groupIndex > maxGroup)) {
+                        return AIToolResult.fail("group_index 越界: " + groupIndex
+                                + "（该正则的组号范围 0.." + maxGroup + "，0=完整匹配）");
+                    }
                     while (m.find()) {
-                        matches.add(m.groupCount() > 0 ? m.group(1) : m.group());
+                        if (groupIndex != null) {
+                            matches.add(m.group(groupIndex) != null ? m.group(groupIndex) : "");
+                        } else {
+                            matches.add(m.group());
+                        }
+                        if (maxGroup > 0) {
+                            java.util.List<String> per = new java.util.ArrayList<>();
+                            for (int g = 1; g <= maxGroup; g++) {
+                                per.add(m.group(g) != null ? m.group(g) : "");
+                            }
+                            groups.add(per);
+                        }
                     }
                     String summary = matches.isEmpty()
                             ? "无匹配" : "匹配 " + matches.size() + " 处: " + matches.toString();
-                    return AIToolResult.success(summary,
-                            java.util.Collections.singletonMap("matches", matches));
+                    final java.util.List<String> mOut = matches;
+                    final java.util.List<java.util.List<String>> gOut = groups;
+                    Map<String, Object> info = new HashMap<String, Object>() {{
+                        put("matches", mOut);
+                    }};
+                    if (!gOut.isEmpty()) {
+                        info.put("groups", gOut);   // 每个匹配的捕获组数组，顺序同 matches
+                        info.put("group_count", maxGroup);
+                    }
+                    return AIToolResult.success(summary, info);
                 }
                 case "count": {
                     int chars = text.length();

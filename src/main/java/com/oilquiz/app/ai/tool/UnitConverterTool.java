@@ -11,7 +11,7 @@ import java.util.Map;
 
 /**
  * 单位换算工具：纯 Java 本地实现，零依赖。
- * 支持：长度、重量、温度、面积、体积、速度。
+ * 支持：长度、重量、温度、面积、体积、速度、压力、质量流量。
  *
  * 参数：
  * - value: 数值
@@ -40,17 +40,19 @@ public class UnitConverterTool implements AITool {
         return "单位换算工具（纯本地）：支持长度（m/km/cm/mm/mile/yd/ft/inch）、"
                 + "重量（kg/g/mg/t/lb/oz）、温度（celsius/fahrenheit/kelvin）、"
                 + "面积（m2/km2/cm2/hectare/acre）、体积（l/ml/m3/gallon）、"
-                + "速度（mps/kmh/mph）。"
+                + "速度（mps/kmh/mph）、**压力**（pa/kpa/mpa/gpa/bar/mbar/psi/atm/torr=mmhg）、"
+                + "**质量流量**（kg/h/t/h/g/s/lb/h）。"
                 + "参数：value 数值、from 源单位、to 目标单位。"
-                + "适合日常单位换算、食谱/距离/温度等场景。";
+                + "适合日常单位换算、食谱/距离/温度，以及工况里的压力（MPa↔kPa↔bar）、"
+                + "流量（t/h↔kg/h）换算。液位高度属于长度，用 mm/m 那组。";
     }
 
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
         params.put("value", "数值（如 100）");
-        params.put("from", "源单位（如 km）");
-        params.put("to", "目标单位（如 mile）");
+        params.put("from", "源单位（如 km / mpa / t/h）");
+        params.put("to", "目标单位（如 mile / kpa / kg/h）");
         return params;
     }
 
@@ -72,6 +74,19 @@ public class UnitConverterTool implements AITool {
     /** 速度 → 米/秒 */
     private static final Map<String, BigDecimal> SPEED = map(
             "mps", "1", "kmh", "0.2777777777777778", "mph", "0.44704");
+    /**
+     * 压力 → 帕斯卡（2026-10-29 补：化工工况最常问的一组，此前完全没有，
+     * "mpa → kpa"会报"不属于同一量纲"，只能退回 python_calculate 手算）。
+     * 数值取定义值：1 bar=1e5 Pa、1 atm=101325 Pa、1 psi=6894.757293168 Pa、
+     * 1 torr=101325/760 Pa（mmhg 与 torr 同值）。
+     */
+    private static final Map<String, BigDecimal> PRESSURE = map(
+            "pa", "1", "kpa", "1000", "mpa", "1000000", "gpa", "1000000000",
+            "bar", "100000", "mbar", "100", "hpa", "100",
+            "psi", "6894.757293168", "atm", "101325", "torr", "133.322368421", "mmhg", "133.322368421");
+    /** 质量流量 → 千克/小时（t/h=2.777... 无歧义：1 t/h = 1000 kg/h） */
+    private static final Map<String, BigDecimal> MASS_FLOW = map(
+            "kg/h", "1", "t/h", "1000", "g/s", "3.6", "g/h", "0.001", "lb/h", "0.45359237");
 
     private static Map<String, BigDecimal> map(String... kv) {
         Map<String, BigDecimal> m = new HashMap<>();
@@ -123,11 +138,30 @@ public class UnitConverterTool implements AITool {
         if (AREA.containsKey(from) && AREA.containsKey(to)) return AREA;
         if (VOLUME.containsKey(from) && VOLUME.containsKey(to)) return VOLUME;
         if (SPEED.containsKey(from) && SPEED.containsKey(to)) return SPEED;
+        if (PRESSURE.containsKey(from) && PRESSURE.containsKey(to)) return PRESSURE;
+        if (MASS_FLOW.containsKey(from) && MASS_FLOW.containsKey(to)) return MASS_FLOW;
+        // 报错要说清"每个单位各自属于哪一族"——只说"不属于同一量纲"时，
+        // 调用方无从知道是自己拼错了单位还是这一族压根不支持（2026-10-29 实测就撞在这）
         throw new Exception("不支持的换算: " + from + " → " + to
-                + "（或两个单位不属于同一量纲）");
+                + "（" + familyOf(from) + "，" + familyOf(to) + "）。"
+                + "已支持的量纲：长度/重量/温度/面积/体积/速度/压力/质量流量");
     }
 
-    private boolean isTemp(String unit) {
+    /** 单位属于哪一族（unknown 时明确说没收录，别和"跨量纲"混成一句话） */
+    private static String familyOf(String unit) {
+        if (unit == null || unit.isEmpty()) return "空单位";
+        if (isTemp(unit)) return unit + " 属于温度";
+        if (LENGTH.containsKey(unit)) return unit + " 属于长度";
+        if (WEIGHT.containsKey(unit)) return unit + " 属于重量";
+        if (AREA.containsKey(unit)) return unit + " 属于面积";
+        if (VOLUME.containsKey(unit)) return unit + " 属于体积";
+        if (SPEED.containsKey(unit)) return unit + " 属于速度";
+        if (PRESSURE.containsKey(unit)) return unit + " 属于压力";
+        if (MASS_FLOW.containsKey(unit)) return unit + " 属于质量流量";
+        return "单位 " + unit + " 未收录";
+    }
+
+    private static boolean isTemp(String unit) {
         return "celsius".equals(unit) || "fahrenheit".equals(unit) || "kelvin".equals(unit);
     }
 

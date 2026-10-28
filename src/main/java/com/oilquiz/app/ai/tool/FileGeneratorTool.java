@@ -23,27 +23,42 @@ import java.util.Map;
     value = "file_generator",
     description = "文件生成/修改工具：新建、覆盖写入、追加、精确改一处、JSON/配置/Markdown/报告、复制、删除。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）。**写文件和改文件都优先用本工具，不要为这件事去跑 Python**。**文件名规范：一律用英文/数字/下划线（如 daily_report_0911.md），不要用中文文件名**（中文名在跨进程/链接打开环节易被截断丢失）；给用户文件链接时用返回的完整绝对路径或 files/相对路径，不要缩写/丢字（用户实测点开失败多因此）。",
     category = "file",
+    // 动作名以本表为准（在线 ToolDefinition / 工作区指南 / 本地 PEG 三处同一套短名）。
+    // 实现里同时接受旧的长名 write_json/create_config/create_markdown/create_template/
+    // generate_report/copy_file/delete_file——那是历史会话还在用的别名，不再对外宣传。
     actions = {
-        @Action(name = "create", description = "创建文件"),
-        @Action(name = "write", description = "覆盖写入整个文件（文件不存在则新建，存在则整篇替换）"),
-        @Action(name = "append", description = "追加内容到文件"),
+        @Action(name = "create", description = "创建文件（content 必填）"),
+        @Action(name = "write", description = "覆盖写入整个文件（不存在则新建，存在则整篇替换；覆盖前自动备份 .ver1..ver5）"),
+        @Action(name = "append", description = "追加内容到文件（content；newLine=true 行首补换行）"),
         @Action(name = "edit", description = "精确改一处：old_text 逐字符唯一匹配，命中 0 或多处报错；replace_all=true 才全换；返回 unified diff"),
         @Action(name = "diff", description = "预览差异（不写盘）：与 content 或 file_path_b 比较，返回 unified diff 并出预览卡"),
-        @Action(name = "write_json", description = "写入JSON文件"),
-        @Action(name = "create_config", description = "创建配置文件"),
-        @Action(name = "create_markdown", description = "创建Markdown文件"),
-        @Action(name = "create_template", description = "创建模板文件"),
-        @Action(name = "generate_report", description = "生成报告")
+        @Action(name = "json", description = "写 JSON 文件（data 传对象；pretty 可选缩进）"),
+        @Action(name = "config", description = "写配置文件（config 传键值对对象）"),
+        @Action(name = "markdown", description = "写 Markdown（content 正文，或 sections 传章节数组；title 可选）"),
+        @Action(name = "template", description = "写模板文件（type 选模板种类，可选）"),
+        @Action(name = "report", description = "生成报告（data 传结构化内容；只给 title 会得到空报告，故 data 缺失会报错）"),
+        @Action(name = "copy", description = "复制文件（source + destination）"),
+        @Action(name = "delete", description = "删除文件（file_path）")
     },
     params = {
-        @Param(name = "file_name", type = "string", description = "文件名", required = true),
-        @Param(name = "content", type = "string", description = "文件内容", required = false),
-        @Param(name = "format", type = "string", description = "文件格式", required = false),
-        @Param(name = "action", type = "string", description = "操作类型", required = true),
+        @Param(name = "action", type = "string", description = "操作类型: create/write/append/edit/diff/json/config/markdown/template/report/copy/delete", required = true),
+        @Param(name = "file_name", type = "string", description = "文件名/路径（与 file_path 等价，给一个即可；相对名落到工作区 files/）", required = false),
+        @Param(name = "file_path", type = "string", description = "文件完整路径（与 file_name 等价）", required = false),
+        @Param(name = "content", type = "string", description = "文件内容(create/write/append/markdown用；diff 时填提议的新文本)", required = false),
+        @Param(name = "encoding", type = "string", description = "文件编码(默认UTF-8；写 GB 系时显式传，如 GB18030)", required = false),
         @Param(name = "old_text", type = "string", description = "被替换的原文(edit用，必须逐字符一致)", required = false),
         @Param(name = "new_text", type = "string", description = "替换为(edit用，可为空=删除)", required = false),
         @Param(name = "replace_all", type = "boolean", description = "edit 用：默认只改唯一匹配处，true 才替换全部", required = false),
-        @Param(name = "file_path_b", type = "string", description = "diff 用：与另一个文件比较（与 content 二选一）", required = false)
+        @Param(name = "file_path_b", type = "string", description = "diff 用：与另一个文件比较（与 content 二选一）", required = false),
+        @Param(name = "data", type = "object", description = "结构化数据(json/report 用)。传对象即可；被序列化成 JSON 字符串也能用（工具侧会解析）", required = false),
+        @Param(name = "pretty", type = "boolean", description = "json 用：是否缩进美化(默认 true)", required = false),
+        @Param(name = "config", type = "object", description = "配置键值对(config 用)", required = false),
+        @Param(name = "title", type = "string", description = "标题(markdown/report 用)", required = false),
+        @Param(name = "sections", type = "array", description = "章节列表(markdown 用)，字符串数组", required = false),
+        @Param(name = "type", type = "string", description = "template 用：模板种类 java/python/markdown/json/xml/html/csv(可选，默认 default)", required = false),
+        @Param(name = "source", type = "string", description = "copy 用：源文件路径", required = false),
+        @Param(name = "destination", type = "string", description = "copy 用：目标文件路径", required = false),
+        @Param(name = "newLine", type = "boolean", description = "append 用：是否在追加内容前补一个换行", required = false)
     }
 )
 public class FileGeneratorTool implements AITool {
@@ -107,7 +122,12 @@ public class FileGeneratorTool implements AITool {
                 case "copy":
                     return copyFile(parameters);
                 default:
-                    return createFile(parameters);
+                    // 未知 action 不再静默降级成 create：那会让模型以为"report 成功了"，
+                    // 实际落盘的是一份按 create 写的文件（与 DocumentParserTool 对已删 action
+                    // 显式报错同一口径，2026-10-29）
+                    return new AIToolResult("未知的 action: " + action
+                            + "（可用: create/write/append/edit/diff/json/config/markdown/template/report/copy/delete"
+                            + "；写 JSON/Markdown/报告也可以直接用 write + content 自己拼全文）", parameters);
             }
         } catch (Exception e) {
             AILogger.e(TAG, "Error executing file generator: " + e.getMessage(), e);
@@ -154,6 +174,45 @@ public class FileGeneratorTool implements AITool {
                         .getInstance(context).getFilesDir();
                 parameters.put("file_path", new File(wsDir, fileNameOnly).getAbsolutePath());
             }
+        }
+        // 容器/布尔参数容错（2026-10-29 真机实测）：调用桥常把 object/array 序列化成字符串，
+        // 而实现里是 (Map)/(List) 直接强转，于是 json/config/markdown 三个 action 一律报
+        // "java.lang.String cannot be cast to Map"、"... cannot be cast to List"。
+        // 在入口统一还原成原生类型，比让每个 action 各自试解析更可靠，也不会漏。
+        coerceJsonContainer(parameters, "data");
+        coerceJsonContainer(parameters, "config");
+        coerceJsonContainer(parameters, "sections");
+        coerceBoolean(parameters, "replace_all");
+        coerceBoolean(parameters, "pretty");
+        coerceBoolean(parameters, "newLine");
+    }
+
+    /** object/array 参数若是 JSON 字符串形态，解析回 Map/List；不像 JSON 就原样留着，由 action 明确报错。 */
+    private static void coerceJsonContainer(Map<String, Object> parameters, String key) {
+        Object v = parameters.get(key);
+        if (!(v instanceof String)) return;
+        String s = ((String) v).trim();
+        if (s.length() < 2 || !(s.startsWith("{") || s.startsWith("["))) return;
+        try {
+            Object parsed = new com.google.gson.Gson().fromJson(s, Object.class);
+            if (parsed instanceof Map || parsed instanceof java.util.List) {
+                parameters.put(key, parsed);
+                AILogger.i(TAG, "参数 " + key + " 由 JSON 字符串还原为原生容器");
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "参数 " + key + " 是字符串但不是合法 JSON，保持原样: " + t.getMessage());
+        }
+    }
+
+    /** boolean 参数容错：模型经常传 "true"/"false" 字符串，(Boolean) 强转会直接抛。 */
+    private static void coerceBoolean(Map<String, Object> parameters, String key) {
+        Object v = parameters.get(key);
+        if (!(v instanceof String)) return;
+        String s = ((String) v).trim();
+        if ("true".equalsIgnoreCase(s) || "1".equals(s) || "yes".equalsIgnoreCase(s)) {
+            parameters.put(key, Boolean.TRUE);
+        } else if ("false".equalsIgnoreCase(s) || "0".equals(s) || "no".equalsIgnoreCase(s)) {
+            parameters.put(key, Boolean.FALSE);
         }
     }
 
@@ -638,7 +697,12 @@ public class FileGeneratorTool implements AITool {
         }
         
         if (data == null) {
-            return new AIToolResult("缺少参数: data", parameters);
+            return new AIToolResult("缺少参数: data（json 需要对象；把对象当 JSON 字符串传也可以，"
+                    + "例如 data={\"a\":1}）。若只想手写 JSON 文本，请改用 action=write + content", parameters);
+        }
+        if (!(data instanceof Map)) {
+            return new AIToolResult("参数 data 类型不对: 需要 JSON 对象，收到 "
+                    + data.getClass().getSimpleName() + "。数组请先包一层，如 {\"items\": [...]}", parameters);
         }
         
         if (pretty == null) {
@@ -667,7 +731,14 @@ public class FileGeneratorTool implements AITool {
         }
         
         if (config == null) {
-            config = new HashMap<>();
+            // 不再"缺参数也照样落一个只有表头的空配置"——那种假成功让模型以为写完了，
+            // 用户打开看到的是空文件（2026-10-29 真机实测同类问题：report 缺 data 也发空报告）
+            return new AIToolResult("缺少参数: config（需要键值对对象，例如 config={\"timeout\":\"30\"}）。"
+                    + "若要自己写配置正文，请改用 action=write + content", parameters);
+        }
+        if (!(config instanceof Map)) {
+            return new AIToolResult("参数 config 类型不对: 需要键值对对象，收到 "
+                    + config.getClass().getSimpleName(), parameters);
         }
         
         StringBuilder content = new StringBuilder();
@@ -694,9 +765,15 @@ public class FileGeneratorTool implements AITool {
         if (filePath == null) {
             return new AIToolResult("缺少参数: file_path", parameters);
         }
-        
+        boolean hasSections = sections != null && !sections.isEmpty();
+        if (!hasSections && (content == null || content.trim().isEmpty())) {
+            // 只有 title 时过去会落一个"标题 + 时间戳"的空 Markdown 并报成功——假成功
+            return new AIToolResult("缺少参数: markdown 需要 content（正文）或 sections（章节数组）之一；"
+                    + "只给 title 会生成空文件。若要自己拼全文，请用 action=write + content", parameters);
+        }
+
         StringBuilder mdContent = new StringBuilder();
-        
+
         if (title != null) {
             mdContent.append("# ").append(title).append("\n\n");
         }
@@ -747,7 +824,14 @@ public class FileGeneratorTool implements AITool {
         if (filePath == null) {
             return new AIToolResult("缺少参数: file_path", parameters);
         }
-        
+        if (data == null || data.isEmpty()) {
+            // 此前 data 缺失/为空时照样落盘并返回"成功"，产出一份只有标题+时间戳的空报告
+            // （2026-10-29 真机实测：模型看到成功就不再补数据，正文丢失）
+            return new AIToolResult("缺少参数: data（report 需要 键→内容 的结构化数据，"
+                    + "例如 data={\"结论\":[\"…\",\"…\"],\"建议\":\"…\"}）。只给 title 会得到空报告，"
+                    + "所以这里不静默成功；要直接写全文请用 action=write + content", parameters);
+        }
+
         StringBuilder report = new StringBuilder();
         
         report.append("# ").append(title != null ? title : "报告").append("\n\n");
@@ -965,19 +1049,27 @@ public class FileGeneratorTool implements AITool {
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> descriptions = new HashMap<>();
-        descriptions.put("action", "操作类型: create, append, write_json, create_config, create_markdown, create_template, generate_report, delete_file, copy_file");
-        descriptions.put("file_path", "文件路径（必填）");
-        descriptions.put("content", "文件内容");
-        descriptions.put("encoding", "文件编码（默认UTF-8）");
-        descriptions.put("data", "JSON数据（用于write_json和generate_report操作）");
-        descriptions.put("pretty", "是否格式化输出（用于write_json操作，默认true）");
-        descriptions.put("config", "配置键值对（用于create_config操作）");
-        descriptions.put("title", "标题（用于create_markdown和generate_report操作）");
-        descriptions.put("sections", "章节列表（用于create_markdown操作）");
-        descriptions.put("type", "模板类型（用于create_template操作：java, python, markdown, json, xml, html, csv）");
-        descriptions.put("newLine", "追加时是否换行（用于append操作，默认true）");
-        descriptions.put("source", "源文件路径（用于copy_file操作）");
-        descriptions.put("destination", "目标文件路径（用于copy_file操作）");
+        // 参数名/动作名以本表 + @Tool 注解为准（与实现里 parameters.get(...) 完全一致）。
+        // 旧的长动作名（write_json/create_config/create_markdown/create_template/
+        // generate_report/copy_file/delete_file）实现仍接受，但不再对外宣传，避免第二套名字漂移。
+        descriptions.put("action", "操作类型: create/write/append/edit/diff/json/config/markdown/template/report/copy/delete");
+        descriptions.put("file_path", "文件路径（与 file_name 等价，给一个即可；相对名落到工作区 files/）");
+        descriptions.put("file_name", "文件名/路径（与 file_path 等价）");
+        descriptions.put("content", "文件内容（create/write/append/markdown/diff 用）");
+        descriptions.put("encoding", "文件编码（默认UTF-8；写 GB 系显式传 GB18030）");
+        descriptions.put("old_text", "edit 用：被替换的原文，必须逐字符一致且唯一命中");
+        descriptions.put("new_text", "edit 用：替换成什么（留空=删除这段）");
+        descriptions.put("replace_all", "edit 用：默认只改唯一匹配处，true 才替换全部");
+        descriptions.put("file_path_b", "diff 用：与另一个文件比较（与 content 二选一）");
+        descriptions.put("data", "JSON数据（json/report 用；传对象，或被序列化成 JSON 字符串也能用）");
+        descriptions.put("pretty", "是否格式化输出（json 用，默认true）");
+        descriptions.put("config", "配置键值对（config 用）");
+        descriptions.put("title", "标题（markdown/report 用）");
+        descriptions.put("sections", "章节列表（markdown 用）");
+        descriptions.put("type", "模板类型（template 用：java, python, markdown, json, xml, html, csv）");
+        descriptions.put("newLine", "追加时是否换行（append 用，默认true）");
+        descriptions.put("source", "源文件路径（copy 用）");
+        descriptions.put("destination", "目标文件路径（copy 用）");
         return descriptions;
     }
 }
