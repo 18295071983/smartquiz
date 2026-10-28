@@ -2,7 +2,6 @@ package com.oilquiz.app.ai.chat.component;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.graphics.Color;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.TypedValue;

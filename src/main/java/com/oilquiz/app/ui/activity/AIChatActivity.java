@@ -68,7 +68,6 @@ import com.oilquiz.app.ai.refactor.AIInferenceCore;
 import com.oilquiz.app.ai.callback.StreamCallback;
 import com.oilquiz.app.ai.chat.ChatModeManager;
 import com.oilquiz.app.ai.stats.TokenStatsManager;
-import com.oilquiz.app.ai.chat.history.ChatHistoryAdapter;
 import com.oilquiz.app.ui.adapter.AttachmentAdapter;
 import com.oilquiz.app.util.fileparser.FileContentExtractor;
 import com.oilquiz.app.infra.AppLogger;
@@ -99,7 +98,6 @@ import java.util.Map;
 import java.util.HashMap;
 
 import android.media.MediaRecorder;
-import android.os.Build;
 
 import dagger.hilt.android.AndroidEntryPoint;
 
@@ -5033,8 +5031,6 @@ public class AIChatActivity extends BaseActivity {
     }
 
 
-
-
     /**
      * NPU-PRELOAD（方案 B）：进入聊天页时后台预加载 NPU 模型。
      * 设计要点：只在**聊天页**触发，绝不放进启动路径 —— 原生层（QNN/Genie/GenieX）偶发 abort
@@ -5479,7 +5475,6 @@ public class AIChatActivity extends BaseActivity {
      */
 
     /** 历史要点里单条工具结果的最大字符数（要点是压缩态，但优先保留数据而非对话废话） */
-
 
 
     /** 本轮本地 Agent 的用户消息（完成回调回写本地推理历史用；本地推理上下文独立化 2026-09-14） */
@@ -12568,7 +12563,6 @@ public class AIChatActivity extends BaseActivity {
     }
 
 
-
     @Override
     protected void onDestroy() {
         // 贴底控制器 / 滚动锚点都持有 messageList 的 preDraw/scroll 监听器，必须解绑，避免强引用泄漏。
@@ -12697,18 +12691,6 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
-
-    
-
-    
-
-    
-
-
-
-
-
-    
 
     private void showServiceStatusDetails() {
         if (serviceStatusManager != null) {

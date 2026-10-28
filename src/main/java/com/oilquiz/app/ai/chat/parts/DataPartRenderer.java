@@ -4,7 +4,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
-import com.oilquiz.app.ai.chat.component.ComponentData;
 import com.oilquiz.app.ai.chat.component.ComponentRegistry;
 import com.oilquiz.app.ai.chat.turn.AssistantTurn;
 

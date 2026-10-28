@@ -6,12 +6,9 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
-import android.text.TextUtils;
 import android.util.TypedValue;
-import android.view.Gravity;
 import android.view.View;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import com.oilquiz.app.R;
 

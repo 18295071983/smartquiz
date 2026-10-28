@@ -1,7 +1,6 @@
 package com.oilquiz.app.ai.chat.render;
 
 import android.content.Context;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;

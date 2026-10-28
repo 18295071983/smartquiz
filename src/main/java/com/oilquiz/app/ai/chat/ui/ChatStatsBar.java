@@ -3,7 +3,6 @@ package com.oilquiz.app.ai.chat.ui;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.graphics.Typeface;
-import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.Gravity;
 import android.widget.LinearLayout;

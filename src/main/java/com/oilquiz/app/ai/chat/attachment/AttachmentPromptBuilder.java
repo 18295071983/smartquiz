@@ -24,8 +24,6 @@ public class AttachmentPromptBuilder {
     /** 直发附件（无文字输入）时的默认占位文案 */
     public static final String DEFAULT_ATTACHMENT_MESSAGE = "请分析这些附件的内容";
 
-    private static final int MAX_SINGLE_ATTACHMENT_CHARS = 2000;
-    private static final int MAX_TOTAL_ATTACHMENT_CHARS = 6000;
 
     /** 上下文窗口大小提供者（由宿主注入） */
     public interface Config {

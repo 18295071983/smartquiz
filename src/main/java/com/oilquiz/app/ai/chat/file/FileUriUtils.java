@@ -3,8 +3,6 @@ package com.oilquiz.app.ai.chat.file;
 import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
-import android.os.Environment;
-import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 
 import java.io.File;

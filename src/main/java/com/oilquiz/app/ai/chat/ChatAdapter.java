@@ -35,7 +35,6 @@ import android.view.ViewGroup;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
 import android.animation.ValueAnimator;
-import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -200,9 +199,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private final java.util.Set<String> revealedContentMessageIds = new java.util.HashSet<>();
 
     // 选择模式
-    private boolean selectionMode = false;
-    private final java.util.Set<String> selectedMessageIds = new java.util.HashSet<>();
-    private OnSelectionChangeListener selectionChangeListener;
 
     public ChatAdapter(List<ChatMessage> messages, OnActionClickListener actionClickListener) {
         this.messages = messages;
@@ -5152,7 +5148,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
 
-
     static class UserMessageViewHolder extends RecyclerView.ViewHolder {
         TextView blockLabel;
         TextView messageText;
@@ -5572,9 +5567,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
 
-
-
-
     public void updateInferenceProgress(String messageId, ChatMessage.InferencePhase phase, 
                                         int processedTokens, float tokensPerSecond) {
         int position = findMessagePosition(messageId);
@@ -5622,7 +5614,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
 
-
     public void updateAgentExecutionStep(String messageId, int stepNumber, String stepType,
                                          String title, String content) {
         int position = findMessagePosition(messageId);
@@ -5654,25 +5645,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
 
-
-
-
-
-
-
-
     private void scrollToPosition(int position) {
         if (attachedRecyclerView != null && position >= 0) {
             attachedRecyclerView.smoothScrollToPosition(position);
         }
     }
 
-    // ===================== Selection Mode =====================
-
-    public interface OnSelectionChangeListener {
-        void onSelectionModeChanged(boolean inSelectionMode);
-        void onSelectionChanged(int selectedCount);
-    }
 
     // ===================== Animation Control =====================
 
@@ -5759,6 +5737,4 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     // ===================== Search & Filter =====================
 
-    private List<ChatMessage> originalMessages;
-    private String currentQuery = "";
 }

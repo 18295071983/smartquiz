@@ -7,7 +7,6 @@ import android.view.View;
 import android.widget.TextView;
 
 import com.oilquiz.app.R;
-import com.oilquiz.app.ai.chat.util.ChatTextUtils;
 
 
 /**

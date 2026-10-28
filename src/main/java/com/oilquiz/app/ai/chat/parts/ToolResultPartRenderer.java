@@ -1,6 +1,5 @@
 package com.oilquiz.app.ai.chat.parts;
 
-import android.content.Context;
 import android.view.View;
 import android.view.ViewGroup;
 

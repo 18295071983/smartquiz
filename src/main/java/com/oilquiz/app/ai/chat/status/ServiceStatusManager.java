@@ -23,7 +23,6 @@ import com.oilquiz.app.theme.ThemeColors;
  */
 public class ServiceStatusManager {
 
-    private static final String TAG = "ServiceStatusManager";
     private static final long LOADING_TIMER_INTERVAL_MS = 1000;
 
     public interface Callback {

@@ -54,7 +54,6 @@ public class TableCardView implements ChatComponent {
     private static final int MAX_COL_WIDTH_DP = 220;
     /** 估算字宽：13sp 下 ASCII 约 7dp、CJK 约 14dp */
     private static final int ASCII_CHAR_DP = 7;
-    private static final int CJK_CHAR_DP = 14;
     private static final int CELL_PAD_H_DP = 8;
     private static final int CELL_PAD_V_DP = 6;
 

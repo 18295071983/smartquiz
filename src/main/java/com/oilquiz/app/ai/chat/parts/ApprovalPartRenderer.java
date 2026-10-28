@@ -9,7 +9,6 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.oilquiz.app.R;
-import com.oilquiz.app.ai.chat.turn.AssistantTurn;
 import com.oilquiz.app.ai.chat.turn.AssistantTurn.Part;
 import com.oilquiz.app.theme.ThemeColors;
 

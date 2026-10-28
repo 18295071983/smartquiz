@@ -6,9 +6,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 
-import androidx.annotation.Nullable;
 
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 
@@ -68,7 +66,6 @@ public class ChatBottomSheet {
 
         dialog.setContentView(root);
     }
-
 
 
     public void show() {

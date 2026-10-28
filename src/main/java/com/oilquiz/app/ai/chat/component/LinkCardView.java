@@ -1,7 +1,6 @@
 package com.oilquiz.app.ai.chat.component;
 
 import android.content.Context;
-import android.content.Intent;
 import android.net.Uri;
 import android.text.TextUtils;
 import android.util.TypedValue;
@@ -9,7 +8,6 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import org.json.JSONObject;
 
