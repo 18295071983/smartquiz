@@ -104,6 +104,9 @@ public final class ToolResultFields {
     /** fileGeneratorTemplate 的大小（顺序照旧：bytes_written 在 file_size 之前） */
     public static final String[] FILE_GENERATOR_SIZE = {"size", "bytes_written", "file_size"};
 
+    /** fileGeneratorTemplate 的 unified diff（edit/diff 动作用，模型要照着它核对改对没有） */
+    public static final String[] FILE_GENERATOR_DIFF = {"unifiedDiff", "unified_diff", "diff_text"};
+
     // ==================== webpage_reader ====================
 
     /** webpageReaderTemplate 的链接 */

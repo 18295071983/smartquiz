@@ -34,7 +34,7 @@ import com.oilquiz.app.ai.python.PythonExecuteTool;
 import com.oilquiz.app.ai.python.PythonCalculateTool;
 import com.oilquiz.app.ai.python.PythonDataAnalysisTool;
 import com.oilquiz.app.ai.python.PythonWebReaderTool;
-import com.oilquiz.app.ai.python.PythonFileOpsTool;
+import com.oilquiz.app.ai.python.DocumentParserTool;
 import com.oilquiz.app.ai.python.PythonChartTool;
 import com.oilquiz.app.ai.python.AIToolCreatorTool;
 import com.oilquiz.app.ai.knowledge.KnowledgeBaseTool;
@@ -266,7 +266,7 @@ public class AIToolManager {
             registerToolFactory("python_calculate", PythonCalculateTool.class, PythonCalculateTool::new);
             registerToolFactory("python_analyze_data", PythonDataAnalysisTool.class, PythonDataAnalysisTool::new);
             registerToolFactory("python_web_reader", PythonWebReaderTool.class, PythonWebReaderTool::new);
-            registerToolFactory("python_file_ops", PythonFileOpsTool.class, PythonFileOpsTool::new);
+            registerToolFactory("document_parser", DocumentParserTool.class, DocumentParserTool::new);
             registerToolFactory("python_chart", PythonChartTool.class, PythonChartTool::new);
             registerToolFactory("ai_create_tool", AIToolCreatorTool.class, AIToolCreatorTool::new);
             registerToolFactory("time_date", TimeDateTool.class, TimeDateTool::new);
@@ -729,6 +729,12 @@ public class AIToolManager {
         if (name == null) return null;
         if ("system_ui_control".equals(name) || "ui_control".equals(name)) {
             return "ui_component";
+        }
+        // 2026-10-28 改名：document_parser 原名 python_file_ops。
+        // 旧会话缓存里的 tool_calls、旧统计、旧提示词都还按老名字调，这里做一次映射，
+        // 保证"改名"对历史对话完全透明。
+        if ("python_file_ops".equals(name) || "python文件".equals(name) || "py_file".equals(name)) {
+            return "document_parser";
         }
         return name;
     }
@@ -1263,6 +1269,8 @@ public class AIToolManager {
     }
 
     public ToolDefinition getToolDefinition(String toolName) {
+        // 改名兼容：旧会话 tool_registry(get, tool="python_file_ops") 也要能拿到新定义
+        toolName = resolveToolAlias(toolName);
         switch (toolName) {
             case "ai_weather":
                 return ToolDefinition.builder("ai_weather", "天气查询工具：获取城市实时天气/预报/空气质量等。"
@@ -1356,12 +1364,16 @@ public class AIToolManager {
                     .category("file")
                     .build();
             case "file_generator":
-                return ToolDefinition.builder("file_generator", "文件生成工具，生成文本/JSON/配置/Markdown等文件。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）。**文件名规范：一律用英文/数字/下划线（如 daily_report_0911.md），不要用中文文件名**（中文名在跨进程/链接打开环节易被截断丢失）；给用户文件链接时用返回的完整绝对路径或 files/相对路径，不要缩写/丢字（用户实测点开失败多因此）。")
-                    .addParameter("action", "string", "操作类型: create/append/json/config/markdown/template/report/copy/delete", false, "create")
+                return ToolDefinition.builder("file_generator", "文件生成/修改工具：新建(create)、覆盖写入(write)、追加(append)、精确改一处(edit)、预览差异(diff)、JSON/配置/Markdown/报告、复制、删除。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）。**写文件、改文件和看差异都优先用本工具，不要为这件事去跑 Python**。**文件名规范：一律用英文/数字/下划线（如 daily_report_0911.md），不要用中文文件名**（中文名在跨进程/链接打开环节易被截断丢失）；给用户文件链接时用返回的完整绝对路径或 files/相对路径，不要缩写/丢字（用户实测点开失败多因此）。")
+                    .addParameter("action", "string", "操作类型: create/write/append/edit/diff/json/config/markdown/template/report/copy/delete", false, "create")
                     .addParameter("file_name", "string", "文件名/路径（用英文名，勿中文）", true)
-                    .addParameter("content", "string", "文件内容(create/append/markdown用)", false)
+                    .addParameter("content", "string", "文件内容(create/write/append/markdown用；diff 时填提议的新文本)", false)
                     .addParameter("format", "string", "文件格式(可选)", false)
                     .addParameter("encoding", "string", "文件编码(默认UTF-8)", false, "UTF-8")
+                    .addParameter("old_text", "string", "edit 用：被替换的原文，必须逐字符一致（含缩进/空格/换行），命中 0 处或多处会报错", false)
+                    .addParameter("new_text", "string", "edit 用：替换成什么；留空=删除这段", false)
+                    .addParameter("replace_all", "boolean", "edit 用：默认只改唯一匹配处，true 才替换全部匹配", false, false)
+                    .addParameter("file_path_b", "string", "diff 用：与另一个文件比较（与 content 二选一）", false)
                     .addParameter("json_data", "object", "JSON数据(json操作用)", false)
                     .addParameter("config", "object", "配置键值对(config操作用)", false)
                     .addParameter("title", "string", "标题(markdown/report用)", false)
@@ -1473,7 +1485,7 @@ public class AIToolManager {
                     .category("system")
                     .build();
             case "python_execute":
-                return ToolDefinition.builder("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 用同一套原生卡片渲染，但展示面是**前台 Activity 的弹窗**、不进聊天流也不留档；props 带 actions 可交互、get_component_result 取回点击值；无前台 Activity 时降级为 Toast。要把卡片挂进 AI 消息气泡请用 ui_component 工具(action=create)，类型列表见它的 component_type 参数；工具产物(.html/.png/.xlsx 等)会由 UI 桥接层自动补挂对应卡片。web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab、python-docx(docx→Word读写)、python-pptx(pptx→PPT读写)、pypdf(PDF读取/合并/拆分)、XlsxWriter(xlsxwriter→Excel写入，pptx图表依赖)；读写 Word/PPT/PDF 直接用 docx/pptx/pypdf，无需再装；绘制图表用matplotlib(先设中文字体)或Pillow。脚本内 subprocess/文件默认跑在 App 沙箱(cwd 可能只读 /、无 apt/pip/git、拿不到 loadavg)；需要真 Linux(可写文件系统、apt/pip/git、tmux 长跑、完整 Python)时 import android_termux 把命令交给已安装的 Termux 执行(android_termux.run(cmd,timeout=20)/wake()/available()，只后台起服务不抢前台，需先在「完整 Python 环境」调试配置页装 Termux 并授权)；纯内置命令(busybox/openssl/curl/rg/jq 等)也可 import android_shell")
+                return ToolDefinition.builder("python_execute", "执行Python代码。**先想专用工具**：写/改文件用 file_generator(create/write/append/edit)，读/解析文件用 file_reader(parse_*)，改表格用 excel_tool，查库用 database，日期用 time_date；这些能一步做完就别写代码绕路，本工具留给批量循环、xlsx/docx/pptx/pdf 等二进制文档、需要第三方库、子进程或长任务。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 用同一套原生卡片渲染，但展示面是**前台 Activity 的弹窗**、不进聊天流也不留档；props 带 actions 可交互、get_component_result 取回点击值；无前台 Activity 时降级为 Toast。要把卡片挂进 AI 消息气泡请用 ui_component 工具(action=create)，类型列表见它的 component_type 参数；工具产物(.html/.png/.xlsx 等)会由 UI 桥接层自动补挂对应卡片。web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab、python-docx(docx→Word读写)、python-pptx(pptx→PPT读写)、pypdf(PDF读取/合并/拆分)、XlsxWriter(xlsxwriter→Excel写入，pptx图表依赖)；读写 Word/PPT/PDF 直接用 docx/pptx/pypdf，无需再装；绘制图表用matplotlib(先设中文字体)或Pillow。脚本内 subprocess/文件默认跑在 App 沙箱(cwd 可能只读 /、无 apt/pip/git、拿不到 loadavg)；需要真 Linux(可写文件系统、apt/pip/git、tmux 长跑、完整 Python)时 import android_termux 把命令交给已安装的 Termux 执行(android_termux.run(cmd,timeout=20)/wake()/available()，只后台起服务不抢前台，需先在「完整 Python 环境」调试配置页装 Termux 并授权)；纯内置命令(busybox/openssl/curl/rg/jq 等)也可 import android_shell")
                     .addParameter("code", "string", "Python代码（可选，上限200KB）", false)
                     .addParameter("task", "string", "任务描述（可选）", false)
                     .addParameter("context", "string", "上下文数据（可选）", false)
@@ -1499,21 +1511,15 @@ public class AIToolManager {
                     .addParameter("max_chars", "integer", "内容最大输出字符数(默认8000)", false, 8000)
                     .category("python")
                     .build();
-            case "python_file_ops":
-                return ToolDefinition.builder("python_file_ops", "Python文件工具(标准库+openpyxl)：阅读与修改。read=读文本(UTF-8/GB18030/UTF-16自动检测)；parse=解析CSV(RFC4180)/JSON/XML/Excel(xlsx)/Word(docx，含表格)/PPT(pptx，含表格与备注)/PDF(pypdf，含加密)；write=写文件；append=追加；edit=精确改一处(推荐：old_text 逐字符唯一匹配，命中0/多处报错不乱改，返回 unified diff；replace_all 才全换)；replace=替换所有匹配；diff=预览差异(不写)。适合严格CSV解析、Word/PPT/PDF 取文本、xlsx写入、安全增量编辑文本文件。注意：工作区 tmp/ 每轮结束自动清理，重要文件写到 files/ 长期区(不自动清，要清用 workspace(action=clear,confirm=true))")
-                    .addParameter("action", "string", "操作: read/parse/write/append/edit/replace/diff", false, "read")
+            case "document_parser":
+                return ToolDefinition.builder("document_parser", "文档解析（只读）：从 PDF / Word(docx) / PPT(pptx) / Excel(xlsx) / CSV / JSON / XML 里取正文、表格与备注，也能读任意文本。read=读文本(UTF-8/GB18030/UTF-16自动检测)；parse=按格式解析。**不写文件**——写/追加/改文件/看差异请用 file_generator(create/write/append/edit/diff)。底层用内置 docx/pptx/pypdf/openpyxl，调用方不用写代码。注意：工作区 tmp/ 每轮结束自动清理，重要文件写到 files/ 长期区(不自动清，要清用 workspace(action=clear,confirm=true))")
+                    .addParameter("action", "string", "操作: read/parse", false, "read")
                     .addParameter("file_path", "string", "文件路径", true)
-                    .addParameter("content", "string", "内容(write/append用；diff 时改为填提议的新文本)", false)
-                    .addParameter("old_text", "string", "被替换文本(edit/replace用；edit 要求逐字符精确、唯一匹配)", false)
-                    .addParameter("new_text", "string", "替换为(edit/replace用，可为空=删除)", false)
-                    .addParameter("replace_all", "boolean", "edit 用：默认只改唯一匹配处，传 true 才替换全部匹配（缺省 false）", false)
-                    .addParameter("file_path_b", "string", "diff 用：与另一文件比较(与 content 二选一)", false)
-                    .addParameter("encoding", "string", "编码(write/append/edit用，默认utf-8)", false, "utf-8")
                     .addParameter("format", "string", "解析格式(parse用: csv/tsv/json/xml/xlsx/docx/pptx/pdf，留空按扩展名)", false)
                     .addParameter("max_rows", "integer", "最大行数(parse用，默认500)", false, 500)
                     .addParameter("max_chars", "integer", "最大输出字符数(默认8000)", false, 8000)
                     .addParameter("sheet_index", "integer", "工作表索引(parse xlsx用，默认0)", false, 0)
-                    .category("python")
+                    .category("file")
                     .build();
             case "python_chart":
                 return ToolDefinition.builder("python_chart", "数据可视化工具：bar/line/pie/scatter 默认用 matplotlib 生成 PNG；render=card 时不生成图片，直接把数据交给原生图表卡（bar/line/area/stacked_bar/pie/scatter/radar，可交互、可点「查看数据表」核对）。data 传 JSON：bar/line 用{\"labels\":[\"A\",\"B\"],\"values\":[1,2]}或多系列{\"labels\":[...],\"series\":[{\"name\":\"系列1\",\"values\":[...]}]}；pie 用{\"labels\":[...],\"values\":[...]}；scatter 用{\"points\":[[x,y],...]}。图片默认保存到工作区 files/(用 workspace 查看)，可指定 output_path。与 image_gen(AI生图)不同，本工具画数据图表。环境已装 matplotlib/Pillow/numpy/pandas；需要子图/对数轴/热力图等复杂图表时，改用 python_execute 直接编写 matplotlib 代码")

@@ -107,7 +107,7 @@ public final class ToolResultCardBinder {
      * 全局探测会给查询结果挂上无意义的文件卡。
      */
     private static final Set<String> ARTIFACT_SCAN_TOOLS = new HashSet<>(Arrays.asList(
-            "python_execute", "python_file_ops", "python_analyze_data", "python_calculate",
+            "python_execute", "document_parser", "python_analyze_data", "python_calculate",
             "js_execute", "system_resource", "file_generator", "file_analyzer",
             "export_apk", "media_toolkit", "speech_synthesis", "douyin_downloader",
             "screen_capture", "screen_watch", "python_chart"));
@@ -273,8 +273,6 @@ public final class ToolResultCardBinder {
                 return douyinCards(context, result);
             case "file_generator":
                 return fileGeneratorCards(context, result);
-            case "python_file_ops":
-                return pythonFileOpsCards(result);
             case "file_analyzer":
                 return wrap(fileAnalyzerCard(result));
             case "export_apk":
@@ -1342,12 +1340,6 @@ public final class ToolResultCardBinder {
         ComponentData diff = diffCard(result);
         if (diff != null && out.size() < MAX_CARDS_PER_CALL) out.add(diff);
         return out;
-    }
-
-    /** python_file_ops：结果本身是 stdout 文本，这里只补 UI 侧的 diff 卡 */
-    private static List<ComponentData> pythonFileOpsCards(AIToolResult result) throws Exception {
-        ComponentData diff = diffCard(result);
-        return diff == null ? Collections.emptyList() : Collections.singletonList(diff);
     }
 
     /** additionalInfo.diff（FileChangeDiff 写入的 before/after）→ diff 卡 */

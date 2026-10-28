@@ -698,6 +698,9 @@
     <string name="card_location_no_coords">缺少经纬度</string>
     <string name="card_diff_title">变更对比</string>
     <string name="card_diff_empty">没有可显示的差异</string>
+    <string name="diff_view_full">查看完整差异</string>
+    <string name="diff_detail_title">差异详情 · %1$s</string>
+    <string name="diff_detail_truncated">（差异过长，只显示前 %1$d 行）</string>
     <string name="card_diff_stat">+%1$d −%2$d</string>
     <string name="card_row_count">共 %1$d 行</string>
     <string name="card_row_truncated_rows">共 %1$d 行，已显示前 %2$d 行</string>

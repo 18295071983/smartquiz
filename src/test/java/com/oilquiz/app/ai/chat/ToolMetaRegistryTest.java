@@ -22,6 +22,9 @@ public class ToolMetaRegistryTest {
         assertEquals("UI 组件", ToolMetaRegistry.displayName("ui_component"));
         assertEquals("Excel 处理", ToolMetaRegistry.displayName("excel_tool"));
         assertEquals("数据库查询", ToolMetaRegistry.displayName("database"));
+        // 2026-10-28 改名：旧名与新名在界面上是同一个工具
+        assertEquals("文档解析", ToolMetaRegistry.displayName("document_parser"));
+        assertEquals("文档解析", ToolMetaRegistry.displayName("python_file_ops"));
     }
 
     @Test
@@ -46,6 +49,29 @@ public class ToolMetaRegistryTest {
         assertFalse("不能把内部名直接给用户看", fallback.contains("_"));
         assertEquals("Some Brand New", fallback);
         assertFalse(ToolMetaRegistry.isKnown("some_brand_new_tool"));
+    }
+
+    /**
+     * file_generator 的不同 action 在界面上是不同动作（2026-10-28）：
+     * "写文件"和"改文件"不该同名，否则工具卡标题永远是"文件生成"。
+     */
+    @Test
+    public void fileGeneratorActionsGetTheirOwnLabels() {
+        assertEquals("生成文件", ToolMetaRegistry.displayName("file_generator", action("create")));
+        assertEquals("写入文件", ToolMetaRegistry.displayName("file_generator", action("write")));
+        assertEquals("追加内容", ToolMetaRegistry.displayName("file_generator", action("append")));
+        assertEquals("修改文件", ToolMetaRegistry.displayName("file_generator", action("edit")));
+        assertEquals("对比差异", ToolMetaRegistry.displayName("file_generator", action("diff")));
+        // 无参数/未知 action/其它工具 → 退回工具级展示名，不抛异常
+        assertEquals("文件生成", ToolMetaRegistry.displayName("file_generator", null));
+        assertEquals("文件生成", ToolMetaRegistry.displayName("file_generator", action("whatever")));
+        assertEquals("Python 执行", ToolMetaRegistry.displayName("python_execute", action("edit")));
+    }
+
+    private static java.util.Map<String, Object> action(String action) {
+        java.util.Map<String, Object> p = new java.util.HashMap<>();
+        p.put("action", action);
+        return p;
     }
 
     @Test

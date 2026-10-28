@@ -112,6 +112,35 @@ public class OnlinePromptBuilderAssemblyTest {
                 b.buildSystemPromptTakeover().contains(longRules));
     }
 
+    /**
+     * 编造 UI 的防线：2026-10-28 会话 f135ecaa 里模型没调用 ui_component 就说
+     * "选择框已经弹出来了，等你点一下"。提示词必须明确"没拿到工具返回就不要声称界面上有东西"。
+     */
+    @Test
+    public void uiComponentGuidanceForbidsClaimingUncreatedUi() {
+        OnlinePromptBuilder b = new OnlinePromptBuilder(null);
+        assertTrue("assist 提示词缺少『组件只认工具返回』这条约束",
+                b.buildSystemPrompt().contains("组件只认工具返回"));
+        assertTrue("takeover 提示词缺少『组件只认工具返回』这条约束",
+                b.buildSystemPromptTakeover().contains("组件只认工具返回"));
+    }
+
+    /**
+     * 捷径思维的防线：模型默认把 python_execute 当万能锤（2026-10-28 用户反馈"每次写文件都用 python"）。
+     * 选型顺序必须写进两条链路，且要点名"先自问有没有专用工具"。
+     */
+    @Test
+    public void declarativeBeforeCodeRuleIsPresent() {
+        OnlinePromptBuilder b = new OnlinePromptBuilder(null);
+        for (String prompt : new String[]{b.buildSystemPrompt(), b.buildSystemPromptTakeover()}) {
+            assertTrue("提示词缺少『先声明式，后代码』的选型顺序", prompt.contains("先声明式，后代码"));
+            assertTrue("提示词没教调用 python_execute 前先自问专用工具", prompt.contains("有没有专用工具能一次做完"));
+            // 2026-10-28 真机实测：模型会用 ui_component 手写 hunks 画 diff 卡，那张卡是编的
+            assertTrue("提示词没把『文件改动预览用 file_generator(action=diff)』钉住", prompt.contains("file_generator(action=diff)"));
+            assertTrue("提示词没提醒别用手写 hunks 画 diff 卡", prompt.contains("不要用 ui_component 手写 hunks"));
+        }
+    }
+
     @Test
     public void withRuntimeInjectsThinkingThenWorkspace() {
         OnlinePromptBuilder b = new OnlinePromptBuilder(null);

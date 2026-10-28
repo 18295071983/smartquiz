@@ -684,7 +684,7 @@ public class ChatMessage {
 
         public ToolCallInfo(String toolName, String parameters) {
             this.toolName = toolName;
-            this.toolDisplayName = formatToolDisplayName(toolName);
+            this.toolDisplayName = formatToolDisplayName(toolName, parameters);
             this.toolIcon = getToolIcon(toolName);
             this.parameters = parameters;
             this.status = ToolCallStatus.PENDING;
@@ -702,9 +702,13 @@ public class ChatMessage {
             }
         }
 
-        /** 工具中文名统一走 {@link ToolMetaRegistry}（此前这里只有 9 个 case） */
-        private static String formatToolDisplayName(String name) {
-            return ToolMetaRegistry.displayName(name);
+        /**
+         * 工具中文名统一走 {@link ToolMetaRegistry}（此前这里只有 9 个 case）。
+         * 带参数是为了区分同一工具的不同动作：file_generator 的 write/edit/diff
+         * 在卡片上分别是"写入文件/修改文件/对比差异"，而不是一律"文件生成"。
+         */
+        private static String formatToolDisplayName(String name, String parameters) {
+            return ToolMetaRegistry.displayName(name, ToolMetaRegistry.actionOf(parameters));
         }
 
         private static String getToolIcon(String name) {

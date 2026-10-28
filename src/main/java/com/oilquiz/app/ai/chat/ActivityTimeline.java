@@ -195,7 +195,7 @@ public final class ActivityTimeline {
         long duration = p != null ? p.optLong("durationMs", p.optLong("executionTimeMs", 0L)) : 0L;
         String anchor = (callId != null && !callId.isEmpty())
                 ? "tool:" + callId : "tool#idx" + index;
-        String title = ToolMetaRegistry.displayName(name);
+        String title = ToolMetaRegistry.displayName(name, ToolMetaRegistry.actionOf(args));
         String body = result.isEmpty() ? null : formatToolResult(result);
         Item item = new Item(Kind.TOOL, anchor, title, oneLineBrief(args),
                 body, parseStatus(status), duration,

@@ -51,6 +51,38 @@ public class ToolSchemaVisibilityTest {
         assertTrue("在线 schema 还在无档位地售卖图片预览", !schema.contains("图片点击全屏预览"));
     }
 
+    /**
+     * 写文件能力收口（2026-10-28）：{@code file_generator} 补齐 write/edit/diff，
+     * {@code document_parser}（原名 python_file_ops）的写侧与 diff <b>已删除</b>（只剩 read/parse）。
+     * 只改能力不教 schema，模型照样会去 python 里改文件，所以两侧"模型真正读到的那份定义"都要钉住。
+     */
+    @Test
+    public void fileGeneratorOwnsWritesAndDocumentParserIsReadOnly() throws Exception {
+        String fg = dump(AIToolManager.getInstance(context).getToolDefinition("file_generator"));
+        assertTrue("在线 file_generator 没教 action=write", fg.contains("write"));
+        assertTrue("在线 file_generator 没教 action=edit", fg.contains("edit"));
+        assertTrue("在线 file_generator 缺 old_text 参数", fg.contains("old_text"));
+        assertTrue("在线 file_generator 缺 replace_all 参数", fg.contains("replace_all"));
+        assertTrue("在线 file_generator 没教 action=diff（预览）", fg.contains("diff"));
+        assertTrue("在线 file_generator 缺 file_path_b 参数", fg.contains("file_path_b"));
+
+        String annotationCopy = read("src/main/java/com/oilquiz/app/ai/tool/FileGeneratorTool.java");
+        assertTrue("注解那份也没声明 edit", annotationCopy.contains("@Action(name = \"edit\""));
+        assertTrue("注解那份也没声明 write", annotationCopy.contains("@Action(name = \"write\""));
+        assertTrue("注解那份也没声明 diff", annotationCopy.contains("@Action(name = \"diff\""));
+
+        String pfo = dump(AIToolManager.getInstance(context).getToolDefinition("document_parser"));
+        assertTrue("document_parser 没把写侧指向 file_generator", pfo.contains("file_generator"));
+        assertFalse("document_parser 还在兜售 write", pfo.contains("write="));
+        assertFalse("document_parser 还在兜售 edit", pfo.contains("old_text"));
+        assertFalse("document_parser 还在兜售 diff", pfo.contains("diff="));
+        // 注解那份（离线模型读的）同样只剩 read/parse
+        String pfoCopy = read("src/main/java/com/oilquiz/app/ai/python/DocumentParserTool.java");
+        assertFalse("注解里还留着 write 动作", pfoCopy.contains("@Action(name = \"write\""));
+        assertFalse("注解里还留着 edit 动作", pfoCopy.contains("@Action(name = \"edit\""));
+        assertFalse("注解里还留着 diff 动作", pfoCopy.contains("@Action(name = \"diff\""));
+    }
+
     @Test
     public void pythonChartSchemaTeachesCardMode() {
         String schema = dump(AIToolManager.getInstance(context).getToolDefinition("python_chart"));
@@ -58,6 +90,22 @@ public class ToolSchemaVisibilityTest {
         assertTrue("在线 schema 没教 card 形态", schema.contains("card"));
         assertTrue("在线 schema 没教 chartType 覆盖", schema.contains("chartType"));
         assertTrue("在线 schema 没列原生图型", schema.contains("stacked_bar"));
+    }
+
+    /**
+     * 捷径思维的防线（2026-10-28 用户反馈"每次写文件都用 python"）。
+     *
+     * <p>模型是照着工具描述选工具的：python_execute 的描述把能力铺得很全（UI、Termux、一堆预装库），
+     * 却从不说"什么时候不该用它"，于是它成了万能锤。两侧模型读的是两份抄本（在线硬编码定义、
+     * 注解/构造），只改一份等于只修一半。</p>
+     */
+    @Test
+    public void pythonExecuteTeachesDeclarativeFirst() throws Exception {
+        String online = dump(AIToolManager.getInstance(context).getToolDefinition("python_execute"));
+        assertTrue("在线 python_execute 描述没教『先想专用工具』", online.contains("先想专用工具"));
+        assertTrue("在线描述没点名 file_generator 这个替代品", online.contains("file_generator"));
+        String annotationCopy = read("src/main/java/com/oilquiz/app/ai/python/PythonExecuteTool.java");
+        assertTrue("注解/构造那份抄本没教『先想专用工具』", annotationCopy.contains("先想专用工具"));
     }
 
     /**
@@ -183,17 +231,18 @@ public class ToolSchemaVisibilityTest {
     }
 
     /**
-     * 文件编辑/diff 与清理口径（2026-10-25）。
-     * python_file_ops 补了业界口径的 edit(精确唯一匹配、返回 unified diff) 与 diff 预览；
-     * 工作区补了 WORKSPACE_TMP(每轮自清) 与 files(持久不清) 的区分；android_termux 补了 purge/list_jobs。
-     * 都得让模型看见，否则等于没加。
+     * 文件编辑/diff 与清理口径（2026-10-25，2026-10-28 随写侧迁移改判）。
+     *
+     * <p>document_parser（原名 python_file_ops）的 write/edit/replace/diff <b>已经从代码里删掉</b>（整块迁到 file_generator），
+     * 所以这里只钉两件事：它的 schema 仍要把用户指去 file_generator；唯一性校验那两条断言
+     * 跟着实现搬到了 file_generator，改在那边断言。
+     * 工作区 WORKSPACE_TMP/files 与 android_termux 的断言与此无关，保持原样。</p>
      */
     @Test
     public void fileEditDiffAndCleanupAreTaughtToModel() throws Exception {
-        String fops = dump(AIToolManager.getInstance(context).getToolDefinition("python_file_ops"));
-        assertTrue("在线 python_file_ops 没教 edit", fops.contains("edit"));
-        assertTrue("在线 python_file_ops 没教 diff 预览", fops.contains("diff"));
-        assertTrue("在线 python_file_ops 没教唯一匹配/防误改", fops.contains("unified diff"));
+        String fops = dump(AIToolManager.getInstance(context).getToolDefinition("document_parser"));
+        assertTrue("document_parser 没把写动作指向 file_generator", fops.contains("file_generator"));
+        assertTrue("document_parser 的描述没把定位说清（文档解析/只读）: " + fops, fops.contains("文档解析（只读）"));
 
         // 在线/注解/工作区指南都提到 WORKSPACE_TMP（临时区自清），别只有一处
         String pyTool = read("src/main/java/com/oilquiz/app/ai/python/PythonExecuteTool.java");
@@ -210,10 +259,10 @@ public class ToolSchemaVisibilityTest {
         assertTrue("android_termux.py 缺 container 预置",
                 bridge.contains("def _in_container") && bridge.contains("container=False"));
 
-        // python_file_ops 的 edit 脚本必须做唯一性校验(0/多处报错)
-        String fopsJava = read("src/main/java/com/oilquiz/app/ai/python/PythonFileOpsTool.java");
-        assertTrue("edit 未做未找到精确匹配校验", fopsJava.contains("未找到精确匹配"));
-        assertTrue("edit 未做不唯一校验", fopsJava.contains("不唯一"));
+        // edit 的唯一性校验（0 处/多处报错）随实现搬到了 file_generator，口径不能丢
+        String fgJava = read("src/main/java/com/oilquiz/app/ai/tool/FileGeneratorTool.java");
+        assertTrue("file_generator edit 未做未找到精确匹配校验", fgJava.contains("未找到精确匹配"));
+        assertTrue("file_generator edit 未做不唯一校验", fgJava.contains("不唯一"));
     }
 
     /**

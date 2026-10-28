@@ -339,6 +339,7 @@ public class ToolPreChecker {
                 if (action == null) break;
                 switch (action) {
                     case "create":
+                    case "write":
                     case "append":
                     case "json":
                     case "config":
@@ -346,6 +347,13 @@ public class ToolPreChecker {
                     case "report":
                     case "template":
                         required.add("file_name");
+                        break;
+                    case "edit":
+                        required.add("file_name");
+                        required.add("old_text"); // 改哪段必须说清；new_text 可为空（=删除）
+                        break;
+                    case "diff":
+                        required.add("file_name"); // 比什么由 content / file_path_b 二选一，缺了工具自己会报
                         break;
                     case "delete":
                         required.add("file_name");

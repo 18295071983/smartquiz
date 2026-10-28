@@ -115,7 +115,7 @@ public final class ComponentTypes {
     /**
      * playlist / agenda / location / diff 四张卡的 props 形状（三处 props 长说明共用）。
      * playlist 与播放器单例配套（队列 + 上下首）；diff 由写文件工具在
-     * additionalInfo.diff 里产出（file_generator / python_file_ops）。
+     * additionalInfo.diff 里产出（file_generator：写/追加/改/预览差异）。
      */
     public static final String PROPS_DOC_EXTRA_CARDS =
             "playlist:{title,items:[{name,url,artist,size}]}（音频队列：多曲目用一张卡，行点击从该首开始，"
@@ -299,7 +299,9 @@ public final class ComponentTypes {
                 "有经纬度时提供「在地图中打开 / 复制坐标」动作；0,0 视为未定位"});
         SCHEMA.put("diff", new String[]{CATEGORY_CONTENT, "改动 hunks[{type,text}]",
                 "标题 title, 路径 path, 旧内容 before, 新内容 after",
-                "hunks 优先；否则用 before/after 本地算行级差异；type=ctx|add|del"});
+                "hunks 优先；否则用 before/after 本地算行级差异；type=ctx|add|del。"
+                        + "文件真实改动不要手写这张卡：用 file_generator(action=diff) 出预览卡"
+                        + "（按文件实际内容算），手写 hunks 只是示意图、会和真实内容不一致"});
         SCHEMA.put("todo", new String[]{CATEGORY_SCENE, "待办 items[{text,done}]", "标题 title", ""});
         // 注意：长任务活动卡 type=job 不在"面向模型的目录"里——它是 linux_shell(termux_submit) 经
         // withComponent 直接挂载的工具产物卡，不由模型 create_component 生成；渲染只在 ComponentRegistry。

@@ -32,6 +32,40 @@ public class AgentActivityKindTest {
         assertEquals(AgentActivityKind.GENERIC, AgentActivityKind.classify(null));
     }
 
+    /**
+     * 同一个工具的不同 action 在用户眼里是不同的事（2026-10-28）：
+     * file_generator 写文件/改文件/看差异各自该有文案，不能一律"正在调用工具…"。
+     */
+    @Test
+    public void fileGenerator按action细分文案() {
+        assertEquals(AgentActivityKind.GENERATE_FILE, AgentActivityKind.classify("file_generator"));
+        assertEquals(AgentActivityKind.GENERATE_FILE,
+                AgentActivityKind.classify("file_generator", params("create")));
+        assertEquals(AgentActivityKind.WRITE_FILE,
+                AgentActivityKind.classify("file_generator", params("write")));
+        assertEquals(AgentActivityKind.WRITE_FILE,
+                AgentActivityKind.classify("file_generator", params("append")));
+        assertEquals(AgentActivityKind.EDIT_FILE,
+                AgentActivityKind.classify("file_generator", params("edit")));
+        assertEquals(AgentActivityKind.DIFF_PREVIEW,
+                AgentActivityKind.classify("file_generator", params("diff")));
+        // 缺省/脏参数不许炸：退回"生成文件"
+        assertEquals(AgentActivityKind.GENERATE_FILE, AgentActivityKind.classify("file_generator", null));
+        assertEquals("正在修改文件…", AgentActivityKind.EDIT_FILE.statusText(1_000));
+        assertEquals("正在对比差异…", AgentActivityKind.DIFF_PREVIEW.statusText(1_000));
+        assertEquals("正在写入文件…", AgentActivityKind.WRITE_FILE.statusText(1_000));
+        // 文档解析（原名 python_file_ops）：不能落到 GENERIC / RUN_CODE
+        assertEquals(AgentActivityKind.DOC_PARSE, AgentActivityKind.classify("document_parser"));
+        assertEquals(AgentActivityKind.DOC_PARSE, AgentActivityKind.classify("python_file_ops"));
+        assertEquals("正在解析文档…", AgentActivityKind.DOC_PARSE.statusText(1_000));
+    }
+
+    private static java.util.Map<String, Object> params(String action) {
+        java.util.Map<String, Object> p = new java.util.HashMap<>();
+        p.put("action", action);
+        return p;
+    }
+
     @Test
     public void 文案多样化_不同分类不同说法() {
         assertEquals("正在联网搜索…", AgentActivityKind.SEARCH.statusText(1_000));

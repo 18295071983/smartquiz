@@ -988,6 +988,12 @@ public class ToolResultInterpreter {
         if (size != null) sb.append("📦 大小：").append(size).append("\n");
         if (count != null) sb.append("📝 写入：").append(count).append(" 项\n");
         if (rows != null) sb.append("📊 数据：").append(rows).append(" 行\n");
+        // edit / diff 的 unified diff 必须原样给模型：它是"改对没改对"的唯一凭据，
+        // 只回一句"已编辑"而无 diff，模型会以为成功但说不清改了哪几行。
+        String unified = strDeep(obj, ToolResultFields.FILE_GENERATOR_DIFF);
+        if (unified != null) {
+            sb.append("\n🧾 diff：\n```diff\n").append(unified).append("\n```\n");
+        }
         // 包含可点击链接，引导 LLM 在回复中使用 markdown 链接格式
         if (openHint != null) {
             sb.append("\n📎 ").append(openHint).append("\n");

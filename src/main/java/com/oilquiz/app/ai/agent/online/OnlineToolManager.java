@@ -247,7 +247,7 @@ public class OnlineToolManager {
         java.util.Map<String, java.util.List<String>> map = new java.util.LinkedHashMap<>();
         map.put("weather", java.util.Arrays.asList("ai_weather"));
         map.put("search", java.util.Arrays.asList("smart_research", "webpage_reader"));
-        map.put("file_read", java.util.Arrays.asList("file_reader", "file_analyzer"));
+        map.put("file_read", java.util.Arrays.asList("file_reader", "file_analyzer", "document_parser"));
         map.put("file_write", java.util.Arrays.asList("file_generator"));
         map.put("image_gen", java.util.Arrays.asList("image_gen"));
         map.put("image_ocr", java.util.Arrays.asList("file_analyzer"));
@@ -263,7 +263,7 @@ public class OnlineToolManager {
         map.put("history", java.util.Arrays.asList("chat_history")); // 对话历史（跨会话上下文）
         map.put("knowledge", java.util.Arrays.asList("knowledge_base"));
         map.put("import", java.util.Arrays.asList("import_list_files", "import_start", "import_status", "import_cancel",
-                "file_reader", "file_analyzer", "excel_tool", "file_generator", "python_file_ops", "python_execute")); // AI导入（含预处理）
+                "file_reader", "file_analyzer", "excel_tool", "file_generator", "document_parser", "python_execute")); // AI导入（含预处理）
         return map;
     }
 
@@ -303,6 +303,12 @@ public class OnlineToolManager {
                 if (containsAny(msg, "读取文件", "打开文件", "解析文件", "文件内容", "读取", "file_reader", "读文件")) {
                     include.add("file_reader"); include.add("file_analyzer");
                 }
+                // 文档类内容（PDF/Word/PPT/Excel/CSV）：取正文只有 document_parser 做得到。
+                // 不注入的话模型手里只有 file_reader（读不了 docx/pptx/pdf），于是转去手写 python 解析——
+                // 这正是"工具在，但模型看不见"的坑（2026-10-28 收口后补的注入）。
+                if (wantsDocumentParsing(msg)) {
+                    include.add("document_parser");
+                }
                 if (containsAny(msg, "生成文件", "写文件", "创建文件", "保存文件", "生成报告", "生成文档",
                         "导出", "report", "生成markdown", "生成md", "生成表格文件", "生成txt", "写入文件")) {
                     include.add("file_generator");
@@ -333,7 +339,7 @@ public class OnlineToolManager {
                     // 导入预处理工具集：看结构/表头/样例/缺字段 → 定参数；必要时清洗/转换后再导入
                     include.add("file_reader"); include.add("file_analyzer");
                     include.add("excel_tool"); include.add("file_generator");
-                    include.add("python_file_ops"); include.add("python_execute");
+                    include.add("document_parser"); include.add("python_execute");
                 }
                 if (containsAny(msg, "python", "代码", "脚本", "数据分析", "统计数据", "处理数据", "运行程序",
                         "写个程序", "爬虫", "自动化")) {
@@ -482,6 +488,23 @@ public class OnlineToolManager {
             if (msg.contains(k)) return true;
         }
         return false;
+    }
+
+    /**
+     * 用户这句话是不是在要"文档里的内容"（PDF/Word/PPT/Excel/CSV…）。
+     *
+     * <p>决定要不要把 {@code document_parser} 注入本轮：它是唯一能取 docx/pptx/pdf 正文的工具，
+     * 模型看不见它时只能手写 Python 解析——那正是要避免的绕路。纯函数，单测直接打。</p>
+     *
+     * @param lowerMsg 已转小写的用户消息
+     */
+    static boolean wantsDocumentParsing(String lowerMsg) {
+        if (lowerMsg == null || lowerMsg.isEmpty()) return false;
+        return containsAny(lowerMsg,
+                "pdf", ".docx", ".doc文件", "word文档", "word 文档", "word版",
+                ".pptx", ".ppt文件", "ppt", "演示文稿", "幻灯片",
+                ".xlsx", ".xls", "excel", "表格文件", "csv文件", "csv格式",
+                "扫描件", "论文", "简历", "合同", "报告文件", "文档解析", "解析文档");
     }
 
     // ==================== 工具执行（带重试 + 缓存 + 使用链记录） ====================

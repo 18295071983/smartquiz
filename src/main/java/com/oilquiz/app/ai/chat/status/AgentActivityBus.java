@@ -89,17 +89,17 @@ public final class AgentActivityBus {
             final String target = extractTarget(parameters);
             final String displayName;
             try {
-                displayName = com.oilquiz.app.ai.chat.ToolMetaRegistry.displayName(toolName);
+                displayName = com.oilquiz.app.ai.chat.ToolMetaRegistry.displayName(toolName, parameters);
             } catch (Throwable t) {
                 // 展示名兜底失败也不影响记账
                 RUNNING.compute(key, (k, old) -> old != null ? old
-                        : new Snapshot(AgentActivityKind.classify(toolName), toolName,
+                        : new Snapshot(AgentActivityKind.classify(toolName, parameters), toolName,
                         "Tool", target, now, session, SEQ.incrementAndGet()));
                 return session;
             }
             RUNNING.compute(key, (k, old) -> old != null
                     ? old
-                    : new Snapshot(AgentActivityKind.classify(toolName), toolName,
+                    : new Snapshot(AgentActivityKind.classify(toolName, parameters), toolName,
                             displayName, target, now, session, SEQ.incrementAndGet()));
         } catch (Throwable ignored) {
             // 总线只是展示辅助：任何异常都不能冒泡进工具执行链路

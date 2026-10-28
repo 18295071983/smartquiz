@@ -182,7 +182,7 @@ public class OnlinePromptBuilder {
             // 列在目录里等于教模型点名一个不存在的工具（shell/termux 能力由 system_resource 承担）。
             String[][] catalog = {
                     {"ai_weather", "天气"}, {"file_generator", "生成文件/文档/报告"},
-                    {"python_execute", "运行Python"}, {"python_file_ops", "文件读写/精确edit/diff预览"},
+                    {"python_execute", "运行Python"}, {"document_parser", "文档解析(PDF/Word/PPT/Excel，只读)"},
                     {"system_resource", "系统操作/shell_command/termux_exec/ssh"},
                     {"chat_history", "对话历史"}, {"screen_capture", "截屏看屏"},
                     {"task", "任务/待办"}, {"memory", "记忆读写"}, {"excel_tool", "表格处理"},
@@ -298,7 +298,9 @@ public class OnlinePromptBuilder {
         sb.append("  5. 用户要求生成图片时优先调用 image_gen（自动内联显示），避免用 python_execute/open_url 绕路\n");
         sb.append("  6. 执行代码两个工具权重相同，按工作量挑：简单计算/正则/JSON/字符串处理/小脚本用 js_execute"
                 + "（JS 引擎在 WebView 里跑，毫秒级、不用起 Python 运行时）；"
-                + "需要文件读写、第三方库（pandas/openpyxl/docx 等）、子进程或长任务才用 python_execute。"
+                // 原文写的是"需要文件读写…才用 python_execute"，与第 7 条的"写/改文件用声明式工具"直接打架，
+                // 模型会照前一条挑 python。文件读写归第 7 条路由，这一条只管代码引擎的选择。
+                + "需要第三方库（pandas/openpyxl/docx 等）、子进程或长任务才用 python_execute。"
                 + "两者都在本轮工具里时，不要因为习惯只调 python。\n\n");
         return sb.toString();
     }
@@ -362,6 +364,21 @@ public class OnlinePromptBuilder {
         StringBuilder sb = new StringBuilder();
         sb.append("【执行规范】\n");
         sb.append("- 指代消解：用户说“它/那个/这个/刚才的/上面的”时，结合最近对话中提到的对象理解；多个候选先确认再行动。\n");
+        // 捷径思维的防线（2026-10-28）：模型默认把 python_execute 当万能锤，写个文件也要起解释器。
+        // 放在【执行规范】而不是【调用规则】：assist 链路没有【调用规则】段，放那边只有接管模式看得到。
+        sb.append("- 选型顺序（先声明式，后代码）：能被专用工具一步做完的，不要写代码绕路——写文件/追加/改某一段都用 file_generator"
+                + "（create/write/append/edit，edit 靠 old_text 唯一匹配、改完回 unified diff），"
+                + "读或解析 CSV/Excel/JSON/XML 用 file_reader(parse_*) 与 excel_tool，"
+                // PDF/Word/PPT 取正文只有 document_parser 做得到：不点名，模型就会手写解析代码
+                + "读 PDF/Word/PPT 的正文、表格、备注用 document_parser(action=parse)，"
+                // 2026-10-28 真机实测：模型会自己用 ui_component 手写 hunks "画"一张 diff 卡，
+                // 那张卡里的差异是它编的，跟文件真实内容无关。
+                + "文件改动的预览用 file_generator(action=diff)（按文件真实内容算 before/after，带预览卡），"
+                + "不要用 ui_component 手写 hunks 去画 diff 卡——那只是示意图，不是真实差异；"
+                + "查库用 database，日期推算用 time_date，换算用 unit_converter，文本处理用 text_tools，"
+                + "音视频/图片转换用 media_toolkit，图片取字用 ocr_recognize。python_execute 只在它们都不覆盖时才用"
+                + "（批量循环生成、xlsx/docx/pptx/pdf 等二进制文档、需要 pandas/docx 等库、子进程或长任务）；"
+                + "调它之前先自问「有没有专用工具能一次做完」。\n");
         sb.append("- 失败处理：多步任务某步失败不要静默跳过——先 task(fail) 标记原因，再给替代方案重新规划；网络/服务类失败可重试 1 次，参数类不重试直接修正；同一工具连败 2 次换策略或澄清。\n");
         sb.append("- 并发编排：无依赖的工具调用可并行；有依赖必须串行，等前一个返回后再调用，绝不编造中间结果。\n");
         sb.append("- 提醒（PER-02）：用户说“X分钟后/明早/下午3点 提醒我…”用 reminder 工具创建系统通知（到点必达，周期提醒 repeat=daily/weekly）；创建后向用户确认时间。\n\n");
@@ -377,7 +394,7 @@ public class OnlinePromptBuilder {
      */
     private String buildComponentGuideMiniSection() {
         StringBuilder sb = new StringBuilder();
-        sb.append("【UI 组件】有结构的信息（列表/表格/图表/指标/步骤/待办/天气/文件/代码等）优先用 ui_component 工具创建卡片展示；需要用户确认/输入/选择时用交互组件（input/choice/dialog 等）并 get_result 取结果。组件类型、参数、layout 语法详见 ui_component 工具定义与工作区《使用速查表.md》，按需查阅，不要凭空造组件类型。\n\n");
+        sb.append("【UI 组件】有结构的信息（列表/表格/图表/指标/步骤/待办/天气/文件/代码等）优先用 ui_component 工具创建卡片展示；需要用户确认/输入/选择时用交互组件（input/choice/dialog 等）并 get_result 取结果。组件类型、参数、layout 语法详见 ui_component 工具定义与工作区《使用速查表.md》，按需查阅，不要凭空造组件类型。说了要创建就真去调用：没拿到工具返回的 success，就不要说「卡片已生成」「选择框已弹出」「按钮已就绪」——组件只认工具返回，不认你的描述。\n\n");
         return sb.toString();
     }
 
@@ -391,7 +408,7 @@ public class OnlinePromptBuilder {
      *
      * <p>删之前逐条核过内容并没有丢：控件清单/rounds 连续输入/media_task 在常驻的 ui_component 定义里
      * （ui_component 属 {@code OnlineAgentEngine.CORE_TOOLS}，每轮都随 tools 下发）；
-     * 预装 Python 库清单在 python_execute / python_file_ops 定义里；画布硬约束在 layout_editor 定义里
+     * 预装 Python 库清单在 python_execute / document_parser 定义里；画布硬约束在 layout_editor 定义里
      * （与 {@code LayoutCanvasConstraints} 的 MAX_* 常量同口径）；ffmpeg 的边界与
      * "内置 shell 工具箱里没有 ffmpeg（也装不上）" 在 media_toolkit 定义里。
      * 因此这次<b>一行都没往系统提示词里加</b>——那段死文字里还写着"不依赖 ffmpeg"与"回退内置 ffmpeg"

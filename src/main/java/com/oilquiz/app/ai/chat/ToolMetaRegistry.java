@@ -70,6 +70,8 @@ public final class ToolMetaRegistry {
         // 文件与工作区
         m.put("file_reader", "文件读取");
         m.put("file_generator", "文件生成");
+        m.put("document_parser", "文档解析");
+        m.put("python_file_ops", "文档解析"); // 2026-10-28 改名前的名字，旧会话历史还要显示
         m.put("file_analyzer", "文件分析");
         m.put("text_tools", "文本处理");
         m.put("workspace", "工作区文件");
@@ -141,6 +143,58 @@ public final class ToolMetaRegistry {
         } catch (Throwable t) {
             // 展示兜底：润色失败也绝不让 UI 崩，退回一个安全短名
             return safeFallback(toolName);
+        }
+    }
+
+    /**
+     * 带参数的展示名：同一个工具的不同 action 在界面上是不同的事。
+     * 目前只有 {@code file_generator} 拆分（create/write/append/edit/diff 分别叫
+     * 生成/写入/追加/修改/对比差异），其余工具原样走 {@link #displayName(String)}。
+     */
+    public static String displayName(String toolName, java.util.Map<String, Object> parameters) {
+        try {
+            if ("file_generator".equals(toolName) && parameters != null) {
+                Object raw = parameters.get("action");
+                String action = raw == null ? "" : String.valueOf(raw).trim().toLowerCase(java.util.Locale.ROOT);
+                switch (action) {
+                    case "create": return "生成文件";
+                    case "write": return "写入文件";
+                    case "append": return "追加内容";
+                    case "edit": return "修改文件";
+                    case "diff": return "对比差异";
+                    case "copy": return "复制文件";
+                    case "delete": return "删除文件";
+                    case "json": return "写入 JSON";
+                    case "config": return "生成配置";
+                    case "markdown": return "生成 Markdown";
+                    case "report": return "生成报告";
+                    case "template": return "生成模板";
+                    default: break;
+                }
+            }
+        } catch (Throwable ignored) {
+            // 展示兜底：拆不开就退回工具级展示名
+        }
+        return displayName(toolName);
+    }
+
+    /**
+     * 从工具调用参数 JSON 里取 {@code action}，包成 {@link #displayName(String, java.util.Map)} 要的形状。
+     *
+     * <p>聊天流里的工具卡（ToolCallCardView / ActivityTimeline / ChatMessage）手里只有原始参数串，
+     * 让它各自解析一遍不如收口在这里；解析失败返回 null，展示自动退回工具级名称。</p>
+     */
+    public static java.util.Map<String, Object> actionOf(String argsJson) {
+        if (argsJson == null || argsJson.isEmpty()) return null;
+        try {
+            org.json.JSONObject obj = new org.json.JSONObject(argsJson);
+            Object action = obj.opt("action");
+            if (action == null || org.json.JSONObject.NULL.equals(action)) return null;
+            java.util.Map<String, Object> map = new java.util.HashMap<>();
+            map.put("action", String.valueOf(action));
+            return map;
+        } catch (Throwable t) {
+            return null;
         }
     }
 

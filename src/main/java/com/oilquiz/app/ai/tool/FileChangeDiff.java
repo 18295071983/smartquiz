@@ -80,6 +80,20 @@ public final class FileChangeDiff {
      */
     public static void attach(Context context, AIToolResult result,
                               String path, String before) {
+        attach(context, result, path, before, null);
+    }
+
+    /**
+     * 同上，但由调用方给卡标题。
+     *
+     * <p>为什么要能改标题：{@code file_generator} 的 create/write/append/edit 都走这条 diff 卡，
+     * 标题如果一律写"文件变更"，用户在卡上看不出这次到底是"覆盖写入"还是"改了 1 处"——
+     * 而这正是"编辑动作有没有反馈到 UI"的观感来源（2026-10-28 用户提问）。</p>
+     *
+     * @param title 卡标题；null 时用默认「文件变更 · 文件名」
+     */
+    public static void attach(Context context, AIToolResult result,
+                              String path, String before, String title) {
         if (result == null || !result.isSuccess() || before == null) {
             return;
         }
@@ -92,10 +106,35 @@ public final class FileChangeDiff {
             return;
         }
         Map<String, Object> diff = new HashMap<>();
-        diff.put("title", "文件变更 · " + fileName(path));
+        diff.put("title", title == null || title.isEmpty()
+                ? "文件变更 · " + fileName(path) : title);
         diff.put("path", path == null ? "" : path);
         diff.put("before", before);
         diff.put("after", after);
+        info.put(INFO_KEY, diff);
+    }
+
+    /**
+     * 预览用（{@code file_generator(action=diff)}）：内容没落盘，"after" 是模型提议的新文本，
+     * 所以不能像 {@link #attach} 那样回读文件。标题单独给，让卡片区分"已发生的变更"和"待确认的预览"。
+     *
+     * @param title 卡标题，如「变更预览 · report.md」
+     */
+    public static void attachPreview(AIToolResult result, String title,
+                                     String path, String before, String after) {
+        if (result == null || before == null || after == null) {
+            return;
+        }
+        Map<String, Object> info = result.getAdditionalInfo();
+        if (info == null || before.equals(after)) {
+            return;
+        }
+        Map<String, Object> diff = new HashMap<>();
+        diff.put("title", title);
+        diff.put("path", path == null ? "" : path);
+        diff.put("before", before);
+        diff.put("after", after);
+        diff.put("preview", Boolean.TRUE);
         info.put(INFO_KEY, diff);
     }
 

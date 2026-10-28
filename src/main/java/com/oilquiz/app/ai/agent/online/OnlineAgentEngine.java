@@ -769,6 +769,12 @@ public class OnlineAgentEngine {
         // 连续暗示"要调用工具"但未输出正确 tool_calls 格式的次数，用于防死循环
         int consecutiveHintForToolCount = 0;
         final int MAX_CONSECUTIVE_TOOL_HINT = 2; // 连续 2 次都暗示要调工具却格式不对，第 3 次强制终止
+        // 整轮的提示总额：连续计数在"有工具调用"处会被清零，而模型完全可以在每次被提示后随手补一个
+        // 无意义的工具调用把计数刷回去，于是单靠连续计数兜不住（2026-10-28 会话 f135ecaa 转了 18 轮）。
+        int totalToolHintCount = 0;
+        final int MAX_TOTAL_TOOL_HINT = 3;
+        // 上一次触发提示的回答：再给一条几乎一样的话，说明那是"在解释工具"而不是"忘了输出 tool_calls"
+        String lastHintedAnswer = null;
         // 一轮工具调用内所有等待的总预算（0=尚未开始计时，本轮首个工具调用时设期限；每轮重置）。
         // 单工具预算只管"这一个工具该等多久"，管不住"这一轮一共等了多久"：
         // 工具虽并发提交，但执行池 4 线程里主循环自己占一个，第 4 个起排队，加上共享锁（Python 静态锁）
@@ -845,11 +851,19 @@ public class OnlineAgentEngine {
 
                 // 【关键判断】思考链中是否暗示了要调用工具？
                 boolean hintToCallTool = !finalAnswer.isEmpty() && hintForToolCall(finalAnswer);
+                // 重答保护：提示过一次之后又给了一条实质相同的回答，就是"在解释工具"而不是"忘了调"。
+                // 再提示一次只会让同一段结论换个说法重写（真机样本里重写了 8 遍），直接当最终回答收尾。
+                boolean repeatedAnswer = hintToCallTool && lastHintedAnswer != null
+                        && isNearDuplicate(lastHintedAnswer, finalAnswer);
 
                 // 1. 模型暗示要调用工具，但格式输出错误没生成 tool_calls → 不终止，提醒它用正确格式
-                if (hintToCallTool && consecutiveHintForToolCount < MAX_CONSECUTIVE_TOOL_HINT
+                if (hintToCallTool && !repeatedAnswer
+                    && consecutiveHintForToolCount < MAX_CONSECUTIVE_TOOL_HINT
+                    && totalToolHintCount < MAX_TOTAL_TOOL_HINT
                     && iteration < maxIterations) {
                     consecutiveHintForToolCount++;
+                    totalToolHintCount++;
+                    lastHintedAnswer = finalAnswer;
                     AILogger.i(TAG, "Model hints for tool call in content (count="
                         + consecutiveHintForToolCount + "), prompting correct format");
 
@@ -911,6 +925,8 @@ public class OnlineAgentEngine {
             }
 
             // ===== 有工具调用：重置"连续暗示次数"计数 =====
+            // 只清连续计数，totalToolHintCount 故意不清：模型完全可以每被提示一次就补一个无意义的
+            // 工具调用把连续计数刷回去，用它当唯一的刹车会转不出来（真机样本转了 18 轮）。
             consecutiveHintForToolCount = 0;
 
             // 有工具调用但 finish_reason=length：工具参数可能被截断。
@@ -2045,6 +2061,18 @@ public class OnlineAgentEngine {
                         + " → " + cachedToolNames.size() + " tools total");
             }
 
+            // 2b. 这轮明确要"文档里的内容"（PDF/Word/PPT/Excel/CSV）→ 文档解析工具首轮就在场。
+            //     不注入的话模型手里只有 file_reader（读不了 docx/pptx/pdf），要么多花一轮 tool_registry
+            //     去发现，要么干脆手写 python 解析。2026-10-28 真机验证里就多绕了一轮 tool_registry。
+            //     只增不减，符合本方法"会话内工具集只增不改"的缓存约定；顺手打上使用时间，
+            //     免得它因为 lastUsed 为 0 被紧接着的 LRU 淘汰掉。
+            if (userMessage != null
+                    && OnlineToolManager.wantsDocumentParsing(userMessage.toLowerCase(java.util.Locale.ROOT))
+                    && cachedToolNames.add("document_parser")) {
+                toolLastUsed.put("document_parser", System.currentTimeMillis());
+                AILogger.i(TAG, "Document intent preloaded: +document_parser");
+            }
+
             // 3. LRU 上限（兜底）：注入过多时淘汰最旧非核心工具
             trimSessionTools(coreTools);
             cachedToolsJson = toolManager.getToolDefinitionsForNames(cachedToolNames);
@@ -2136,17 +2164,6 @@ public class OnlineAgentEngine {
     }
 
     /**
-     * 检测文本中是否"暗示了要调用工具但未使用标准 tool_calls 格式"。
-     *
-     * 设计原则（避免误伤正常回答）：
-     *   1. 不匹配单独的英文/中文工具名词（如 "weather"、"天气"）—— 这些在解释概念时也会出现
-     *   2. 不匹配常见的过渡语（如 "首先查询"、"接下来获取"）—— 这些是模型正常推理过渡
-     *   3. 只匹配"动作动词 + 紧邻的工具标识符"这种明确意图
-     *   4. 匹配伪代码调用语法（如 "weather(...)"）和 JSON 片段中的工具名
-     *
-     * @return true 表示文本中强烈暗示要调用工具却没有正确输出 tool_calls
-     */
-    /**
      * 动态获取工具标识符：AIToolManager 当前注册工具名 + 常用意图别名，
      * 始终与注册表同步（不再硬编码过时工具表）。
      */
@@ -2167,68 +2184,57 @@ public class OnlineAgentEngine {
         return ids.toArray(new String[0]);
     }
 
+    /**
+     * 检测文本是否"暗示了要调用工具，却没有用标准 tool_calls 格式输出"。
+     *
+     * <p>判定逻辑已抽到 {@link ToolCallHintDetector}（纯函数，可单测）：误判的代价是把一条
+     * 已经说完的回答按回循环里重答一遍，所以"解释工具"和"要调用工具"必须分开——行内代码里
+     * 的 {@code `file_generator(action=create)`} 属于前者。
+     *
+     * @return true 表示文本强烈暗示要调用工具
+     */
     private boolean hintForToolCall(String content) {
-        if (content == null) return false;
-        String text = content.trim();
-        if (text.isEmpty()) return false;
-        // 只取前 800 字做判断，避免长文本拖慢性能
-        if (text.length() > 800) text = text.substring(0, 800);
-        String lower = text.toLowerCase(java.util.Locale.ROOT);
-
-        // 工具标识符列表（动态取注册工具名 + 别名）
-        final String[] toolIds = getToolIds();
-
-        // 1. 伪代码调用语法：工具名 + 紧跟左括号（半角或全角）
-        for (String tid : toolIds) {
-            String tLower = tid.toLowerCase(java.util.Locale.ROOT);
-            if (lower.contains(tLower + "(") || lower.contains(tLower + " (")
-                || lower.contains(tLower + "（") || lower.contains(tLower + " （")) {
-                AILogger.i(TAG, "hintForToolCall matched: pseudo-call '" + tid + "(...)'");
-                return true;
-            }
-        }
-
-        // 2. JSON 片段中的工具名（如 {"name": "weather"} 但未被解析成 tool_calls）
-        if (lower.contains("\"name\"")) {
-            for (String tid : toolIds) {
-                String tLower = tid.toLowerCase(java.util.Locale.ROOT);
-                if (lower.contains("\"" + tLower + "\"")) {
-                    AILogger.i(TAG, "hintForToolCall matched: JSON tool name '" + tid + "'");
-                    return true;
-                }
-            }
-        }
-
-        // 3. 中文明确动作句式：动作动词 + 紧邻（≤15字符）的注册工具名
-        // （不再匹配"工具/函数/接口"宽泛词——"我将使用工具计算"这类正常回复会误触发）
-        final String[] zhVerbs = {"调用", "使用", "执行", "运用", "启用", "需要调用", "我要调用", "我将调用", "准备调用"};
-        for (String verb : zhVerbs) {
-            int idx = text.indexOf(verb);
-            while (idx >= 0) {
-                int end = Math.min(text.length(), idx + verb.length() + 15);
-                String window = text.substring(idx, end).toLowerCase(java.util.Locale.ROOT);
-                for (String tid : toolIds) {
-                    if (window.contains(tid.toLowerCase(java.util.Locale.ROOT))) {
-                        AILogger.i(TAG, "hintForToolCall matched: zh verb '" + verb + "' + tool '" + tid + "'");
-                        return true;
-                    }
-                }
-                idx = text.indexOf(verb, idx + 1);
-            }
-        }
-
-        // 4. 英文明确句式：必须同时含 (call/use/invoke) + (tool/function)
-        // 不匹配 "let me check"、"get the current" 等过宽短语
-        java.util.regex.Pattern pEnExplicit = java.util.regex.Pattern.compile(
-            "(i will|i'll|i am going to|i need to|i want to|let me|please)\\s+"
-          + "(call|use|invoke|execute)\\s+(the\\s+)?(\\w+\\s+)?(tool|function)",
-            java.util.regex.Pattern.CASE_INSENSITIVE);
-        if (pEnExplicit.matcher(lower).find()) {
-            AILogger.i(TAG, "hintForToolCall matched: en explicit tool/function call intent");
+        String reason = ToolCallHintDetector.detectReason(
+                content, java.util.Arrays.asList(getToolIds()));
+        if (reason != null) {
+            AILogger.i(TAG, "hintForToolCall matched: " + reason);
             return true;
         }
-
         return false;
+    }
+
+    /**
+     * 两条回答是否"基本是同一段话"（重答判定）。
+     *
+     * <p>按字符三元组算 Jaccard 相似度：改几个字、换个开头仍然算重复，换了主题就算不同。
+     * 长度差超过 40% 直接判不同——重述通常长度接近，这条能挡掉"上一轮短答、这一轮长答"的误判。
+     */
+    private static boolean isNearDuplicate(String a, String b) {
+        if (a == null || b == null) return false;
+        String na = a.replaceAll("\\s+", "");
+        String nb = b.replaceAll("\\s+", "");
+        if (na.isEmpty() || nb.isEmpty()) return false;
+        if (na.equals(nb)) return true;
+        int min = Math.min(na.length(), nb.length());
+        int max = Math.max(na.length(), nb.length());
+        if ((double) min / max < 0.6D) return false;
+
+        java.util.Set<String> ta = trigrams(na);
+        java.util.Set<String> tb = trigrams(nb);
+        int inter = 0;
+        for (String t : ta) {
+            if (tb.contains(t)) inter++;
+        }
+        int union = ta.size() + tb.size() - inter;
+        return union > 0 && (double) inter / union >= 0.7D;
+    }
+
+    private static java.util.Set<String> trigrams(String s) {
+        java.util.Set<String> set = new java.util.HashSet<>();
+        for (int i = 0; i + 3 <= s.length(); i++) {
+            set.add(s.substring(i, i + 3));
+        }
+        return set;
     }
 
     // ========== Agent 能力检测 ==========

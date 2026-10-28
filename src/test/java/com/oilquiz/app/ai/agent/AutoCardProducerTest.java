@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.agent;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import com.oilquiz.app.ai.chat.component.ComponentData;
 import com.oilquiz.app.ai.tool.AIToolResult;
@@ -95,8 +96,13 @@ public class AutoCardProducerTest {
         assertEquals("/tmp/report.md", cards.get(1).props.optString("path"));
     }
 
+    /**
+     * 2026-10-28 改判：python_file_ops 的写侧与 diff 已删除，它不再产出变更卡。
+     * 这条从"它有 diff 卡"改成"它不再有"——否则哪天有人把写侧接回来，UI 上会多出一张
+     * 没人负责的 diff 卡，而这正是当初两份实现漂移的地方。
+     */
     @Test
-    public void pythonFileOpsProducesDiffCardFromAdditionalInfo() throws Exception {
+    public void documentParserNoLongerProducesDiffCard() throws Exception {
         Map<String, Object> diff = new HashMap<>();
         diff.put("title", "文件变更 · data.csv");
         diff.put("path", "/tmp/data.csv");
@@ -106,11 +112,9 @@ public class AutoCardProducerTest {
         info.put("diff", diff);
 
         List<ComponentData> cards = ToolResultCardBinder.build(
-                null, "python_file_ops", AIToolResult.success("已写入", info), null);
+                null, "document_parser", AIToolResult.success("已写入", info), null);
 
-        assertEquals(1, cards.size());
-        assertEquals("diff", cards.get(0).type);
-        assertEquals("1,3", cards.get(0).props.optString("after").split("\n")[1]);
+        assertTrue("python_file_ops 已只读，不该再出变更卡", cards.isEmpty());
     }
 
     @Test

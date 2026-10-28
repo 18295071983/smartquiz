@@ -110,10 +110,44 @@ public class OnlineToolUsageTracker {
             totalCalls.set(root.optInt("totalCalls", 0));
             totalSuccess.set(root.optInt("totalSuccess", 0));
             totalFailures.set(root.optInt("totalFailures", 0));
+            // 改名迁移（2026-10-28 python_file_ops → document_parser）：
+            // 旧统计的 pair key 里还带着老名字，不迁的话排行里会同时出现两个"同一个工具"，
+            // 而"历史组合经验"也会因为配对键不同而各算各的。迁完立刻回写一次，之后不再重复。
+            java.util.Map<String, Integer> migrated = migrateToolNames(cooccurrenceCount);
+            if (!migrated.equals(cooccurrenceCount)) {
+                cooccurrenceCount.clear();
+                cooccurrenceCount.putAll(migrated);
+                AILogger.i(TAG, "Usage stats migrated to renamed tools: " + migrated.size() + " patterns");
+                persistStats();
+            }
             AILogger.i(TAG, "Usage stats restored: " + cooccurrenceCount.size() + " patterns");
         } catch (Exception e) {
             AILogger.w(TAG, "Load usage stats failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * 工具改名迁移：把共现键里的旧名字换成新名，撞车时计数相加。
+     *
+     * <p>纯函数，单测直接打。键形如 {@code "toolA|toolB"}，改名要保证<b>两侧</b>都换到，
+     * 否则 {@code python_file_ops|ui_component} 会变成半新半旧、与新数据永远配不上对。</p>
+     */
+    static java.util.Map<String, Integer> migrateToolNames(java.util.Map<String, Integer> counts) {
+        java.util.Map<String, Integer> out = new java.util.LinkedHashMap<>();
+        if (counts == null) return out;
+        for (java.util.Map.Entry<String, Integer> e : counts.entrySet()) {
+            String pair = renameInPair(e.getKey());
+            Integer old = out.get(pair);
+            out.put(pair, old == null ? e.getValue() : old + e.getValue());
+        }
+        return out;
+    }
+
+    /** 旧工具名 → 新工具名（只做已知改名，不猜） */
+    private static String renameInPair(String pair) {
+        if (pair == null) return "";
+        String out = pair.replace("python_file_ops", "document_parser");
+        return out;
     }
 
     private static byte[] readAllBytes(java.io.File file) throws java.io.IOException {

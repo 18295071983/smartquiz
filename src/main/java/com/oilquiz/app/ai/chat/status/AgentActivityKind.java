@@ -18,6 +18,14 @@ public enum AgentActivityKind {
     SEARCH("正在联网搜索…", "搜索较久，仍在检索…"),
     READ_FILE("正在读取文件…", "文件读取较久，仍在继续…"),
     GENERATE_FILE("正在生成文件…", "文件较大，仍在生成…"),
+    /** 覆盖写/追加：与"生成"分开，用户在等的是"写进去了没有" */
+    WRITE_FILE("正在写入文件…", "文件较大，仍在写入…"),
+    /** 改文件（file_generator 的 edit）：逐字符定位改动点，慢的时候要说明还在改 */
+    EDIT_FILE("正在修改文件…", "文件较大，仍在修改…"),
+    /** 只预览差异、不落盘 */
+    DIFF_PREVIEW("正在对比差异…", "对比仍在进行…"),
+    /** 解析 PDF/Word/PPT 等文档（document_parser）：用户在等"里面的内容" */
+    DOC_PARSE("正在解析文档…", "文档较大，仍在解析…"),
     GENERATE_IMAGE("正在生成图片…", "图片生成较久，仍在继续…"),
     GENERATE_CHART("正在生成图表…", "图表绘制较久，仍在继续…"),
     RUN_CODE("正在运行代码…", "代码执行较久，仍在运行…"),
@@ -62,13 +70,47 @@ public enum AgentActivityKind {
      * 先判"读文件"再判"生成文件"（{@code pdf_read} 应归读）。</p>
      */
     public static AgentActivityKind classify(String toolName) {
+        return classify(toolName, null);
+    }
+
+    /**
+     * 带参数的活动分类：同一个工具的不同 action 在用户眼里是不同的事——
+     * {@code file_generator} 的 create/write/edit/diff 分别对应"生成/写入/修改/对比"。
+     * 参数缺失或异常一律退回按工具名分类，绝不影响工具执行。
+     */
+    public static AgentActivityKind classify(String toolName, java.util.Map<String, Object> parameters) {
         if (toolName == null || toolName.isEmpty()) return GENERIC;
         try {
-            return classifyInner(toolName);
+            return classifyWithAction(toolName, parameters);
         } catch (Throwable t) {
             // 分类只用于选文案：任何异常都退回通用，绝不影响工具执行
             return GENERIC;
         }
+    }
+
+    private static AgentActivityKind classifyWithAction(String toolName,
+                                                        java.util.Map<String, Object> parameters) {
+        // 文档解析（原名 python_file_ops）：名字里没有 python 之后，
+        // 按工具名分类会落到 GENERIC，这里显式给"正在解析文档…"
+        if ("document_parser".equals(toolName) || "python_file_ops".equals(toolName)) {
+            return DOC_PARSE;
+        }
+        if ("file_generator".equals(toolName)) {
+            Object raw = parameters == null ? null : parameters.get("action");
+            String action = raw == null ? "create" : String.valueOf(raw).trim().toLowerCase(Locale.ROOT);
+            switch (action) {
+                case "write":
+                case "append":
+                    return WRITE_FILE;
+                case "edit":
+                    return EDIT_FILE;
+                case "diff":
+                    return DIFF_PREVIEW;
+                default:
+                    return GENERATE_FILE;
+            }
+        }
+        return classifyInner(toolName);
     }
 
     private static AgentActivityKind classifyInner(String toolName) {

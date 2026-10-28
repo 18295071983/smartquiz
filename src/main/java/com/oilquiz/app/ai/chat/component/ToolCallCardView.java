@@ -59,7 +59,8 @@ public class ToolCallCardView implements ChatComponent {
         TextView nameTv = new TextView(context);
         // 工具名 → 展示别名（ToolMetaRegistry：表内中文名；表外轻度英文润色）。
         // 表外工具照样正常使用，这里只影响显示；万一兜底为空则退回"工具"。
-        String displayLabel = com.oilquiz.app.ai.chat.ToolMetaRegistry.displayName(toolName);
+        String displayLabel = com.oilquiz.app.ai.chat.ToolMetaRegistry.displayName(toolName,
+                com.oilquiz.app.ai.chat.ToolMetaRegistry.actionOf(p.optString("args", "")));
         nameTv.setText(TextUtils.isEmpty(displayLabel) ? "工具" : displayLabel);
         nameTv.setTextSize(12);
         nameTv.setTextColor(ComponentColors.textSecondary(context));
