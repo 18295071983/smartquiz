@@ -31,20 +31,23 @@ import java.util.Map;
  */
 @Tool(
     value = "workspace",
-    description = "Agent 工作区：管理 Agent 产生的文件（图片/导出/临时数据）。生成文件后用 list 查看、read 读取、delete 清理",
+    description = "Agent 工作区：管理 Agent 产生的文件（图片/导出/临时数据）。生成文件后用 list 查看、read 读取、delete 清理；**写坏了可用 versions 看历史版本、restore 回退**（file_generator 覆盖写与 excel_tool 保存前都会自动留 原名.ver1..ver5）",
     category = "file",
     aliases = {"工作区", "agent_workspace", "workspace_files"},
     actions = {
         @Action(name = "list", description = "列出工作区文件"),
         @Action(name = "path", description = "获取工作区根目录路径"),
         @Action(name = "read", description = "读取工作区文本文件内容"),
+        @Action(name = "versions", description = "列出某文件的历史版本（原名.ver1..ver5，1=最近一版）"),
+        @Action(name = "restore", description = "把文件恢复到第 N 版（默认 1=最近）；会覆盖当前内容，必须传 confirm=true；恢复前先把当前内容备份成新的一版，所以恢复本身也可回退"),
         @Action(name = "delete", description = "删除工作区文件"),
         @Action(name = "clear", description = "清空工作区")
     },
     params = {
-        @Param(name = "action", type = "string", description = "操作：list(默认)/path/read/delete/clear", required = false),
-        @Param(name = "fileName", type = "string", description = "文件名（工作区内相对名），read/delete 用", required = false),
-        @Param(name = "confirm", type = "boolean", description = "删除/清空确认（delete/clear 必须传 true）", required = false)
+        @Param(name = "action", type = "string", description = "操作：list(默认)/path/read/versions/restore/delete/clear", required = false),
+        @Param(name = "fileName", type = "string", description = "文件名（工作区内相对名），read/versions/restore/delete 用", required = false),
+        @Param(name = "version", type = "integer", description = "restore 用：恢复到第几版（1..5，默认 1=最近一版）", required = false),
+        @Param(name = "confirm", type = "boolean", description = "破坏性操作确认（delete/clear/restore 必须传 true）", required = false)
     }
 )
 public class WorkspaceTool implements AITool, StructuredParamTool {
@@ -67,15 +70,18 @@ public class WorkspaceTool implements AITool, StructuredParamTool {
 
     @Override
     public String getDescription() {
-        return "Agent 工作区：管理 Agent 产生的文件（图片/导出/临时数据）。生成文件后用 list 查看、read 读取、delete 清理。action: list|path|read|delete|clear";
+        return "Agent 工作区：管理 Agent 产生的文件（图片/导出/临时数据）。生成文件后用 list 查看、read 读取、delete 清理；"
+                + "写坏了用 versions 看历史版本、restore 回退（file_generator 覆盖写与 excel_tool 保存前都会自动留 原名.ver1..ver5）。"
+                + "action: list|path|read|versions|restore|delete|clear";
     }
 
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("action", "操作：list(列出)|path(工作区路径)|read(读文本文件)|delete(删除)|clear(清空)");
-        params.put("fileName", "文件名（工作区内相对名），read/delete 用");
-        params.put("confirm", "删除/清空确认（delete/clear 必须传 true，防误删）");
+        params.put("action", "操作：list(列出)|path(工作区路径)|read(读文本文件)|versions(列历史版本)|restore(回退到第N版)|delete(删除)|clear(清空)");
+        params.put("fileName", "文件名（工作区内相对名），read/versions/restore/delete 用");
+        params.put("version", "restore 用：恢复到第几版（1..5，默认 1=最近一版）");
+        params.put("confirm", "破坏性操作确认（delete/clear/restore 必须传 true，防误删误覆盖）");
         return params;
     }
 
@@ -95,13 +101,15 @@ public class WorkspaceTool implements AITool, StructuredParamTool {
     public List<ParamDefinition> getParameterDefinitions() {
         List<ParamDefinition> defs = new ArrayList<>();
         defs.add(new ParamDefinition("action", "string",
-                "操作：list(列出,默认)|path(工作区路径)|read(读文本文件)|delete(删除)|clear(清空)",
+                "操作：list(列出,默认)|path(工作区路径)|read(读文本文件)|versions(列历史版本)|restore(回退到第N版)|delete(删除)|clear(清空)",
                 false, null,
-                java.util.Arrays.asList("list", "path", "read", "delete", "clear")));
+                java.util.Arrays.asList("list", "path", "read", "versions", "restore", "delete", "clear")));
         defs.add(new ParamDefinition("fileName", "string",
-                "文件名（工作区内相对名），read/delete 用", false));
+                "文件名（工作区内相对名），read/versions/restore/delete 用", false));
+        defs.add(new ParamDefinition("version", "integer",
+                "restore 用：恢复到第几版（1..5，默认 1=最近一版）", false, 1));
         defs.add(new ParamDefinition("confirm", "boolean",
-                "删除/清空确认（delete/clear 必须传 true，防误删）", false));
+                "破坏性操作确认（delete/clear/restore 必须传 true，防误删误覆盖）", false));
         return defs;
     }
 
@@ -127,16 +135,7 @@ public class WorkspaceTool implements AITool, StructuredParamTool {
                     if (fileName.trim().isEmpty()) {
                         return AIToolResult.fail("缺少参数: fileName（action=read 需要，工作区内相对名）");
                     }
-                    File f = ws.resolveFile(fileName.trim());
-                    // 兼容：文件名未带路径时按"长期文件区 → 工作区根 → 临时区"顺序查找
-                    if (!f.exists() && !fileName.contains("/")) {
-                        File inFiles = ws.resolveFileToFiles(fileName.trim());
-                        if (inFiles.exists()) f = inFiles;
-                        else {
-                            File inTmp = ws.resolveFileToTmp(fileName.trim());
-                            if (inTmp.exists()) f = inTmp;
-                        }
-                    }
+                    File f = locateWorkspaceFile(ws, fileName.trim());
                     if (f == null || !f.exists()) {
                         return AIToolResult.fail("文件不存在: " + fileName);
                     }
@@ -159,6 +158,71 @@ public class WorkspaceTool implements AITool, StructuredParamTool {
                     result.put("size", f.length());
                     result.put("content", content.toString());
                     result.put("message", "文件内容:\n" + content.toString());
+                    return AIToolResult.success(result);
+                }
+                case "versions": {
+                    String fileName = strParam(parameters, "fileName");
+                    if (fileName.isEmpty()) {
+                        return AIToolResult.fail("缺少参数: fileName（action=versions 需要，工作区内相对名）");
+                    }
+                    File f = locateVersionedFile(ws, fileName);
+                    if (f == null) {
+                        return AIToolResult.fail("只能查看工作区内的文件版本，拒绝越界路径: " + fileName);
+                    }
+                    List<FileVersionBackup.Version> vs = FileVersionBackup.versions(f);
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("fileName", f.getName());
+                    result.put("path", f.getAbsolutePath());
+                    result.put("count", vs.size());
+                    List<Map<String, Object>> items = new ArrayList<>();
+                    StringBuilder summary = new StringBuilder();
+                    for (FileVersionBackup.Version v : vs) {
+                        Map<String, Object> item = new HashMap<>();
+                        item.put("version", v.index);
+                        item.put("name", v.file.getName());
+                        item.put("size", v.size);
+                        item.put("lastModified", v.lastModified);
+                        items.add(item);
+                        if (summary.length() > 0) summary.append("；");
+                        summary.append("第").append(v.index).append("版 ")
+                                .append(new java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.US)
+                                        .format(new java.util.Date(v.lastModified)))
+                                .append(" ").append(formatSize(v.size));
+                    }
+                    result.put("versions", items);
+                    result.put("message", vs.isEmpty()
+                            ? "没有 " + f.getName() + " 的历史备份（只有被覆盖写之前才会留底；file_generator 覆盖写与 excel_tool 保存都会自动留 .ver1..ver5）"
+                            : f.getName() + " 有 " + vs.size() + " 版备份（1=最近）: " + summary
+                                    + "。回退用 workspace(action=restore, fileName=" + f.getName() + ", version=N, confirm=true)");
+                    return AIToolResult.success(result);
+                }
+                case "restore": {
+                    String fileName = strParam(parameters, "fileName");
+                    if (fileName.isEmpty()) {
+                        return AIToolResult.fail("缺少参数: fileName（action=restore 需要，工作区内相对名）");
+                    }
+                    // restore 会覆盖当前内容，和 delete 一样要求显式确认（防 prompt 注入把用户文件回退掉）
+                    if (!boolParam(parameters, "confirm", false)) {
+                        Map<String, Object> info = new HashMap<>();
+                        info.put("requiresConfirm", true);
+                        return AIToolResult.fail("恢复会覆盖当前内容，如需恢复请传 confirm=true 再次调用"
+                                + "（放心：覆盖前会先把当前内容备份成新的一版，回退错了还能再退回来）", info);
+                    }
+                    File f = locateVersionedFile(ws, fileName.trim());
+                    if (f == null) {
+                        return AIToolResult.fail("只能恢复工作区内的文件，拒绝越界路径: " + fileName);
+                    }
+                    int n = intParam(parameters, "version", 1);
+                    String err = FileVersionBackup.restore(f, n);
+                    if (err != null) {
+                        return AIToolResult.fail(err);
+                    }
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("status", "restored");
+                    result.put("fileName", f.getName());
+                    result.put("path", f.getAbsolutePath());
+                    result.put("restoredVersion", n);
+                    result.put("message", "已把 " + f.getName() + " 恢复到第 " + n + " 版（恢复前的内容也已备份）");
                     return AIToolResult.success(result);
                 }
                 case "delete": {
@@ -233,6 +297,116 @@ public class WorkspaceTool implements AITool, StructuredParamTool {
         if (size < 1024) return size + "B";
         if (size < 1024 * 1024) return String.format(java.util.Locale.US, "%.1fKB", size / 1024.0);
         return String.format(java.util.Locale.US, "%.1fMB", size / 1024.0 / 1024.0);
+    }
+
+    private static String strParam(Map<String, Object> parameters, String key) {
+        Object value = parameters.get(key);
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private static int intParam(Map<String, Object> parameters, String key, int defaultValue) {
+        Object value = parameters.get(key);
+        if (value instanceof Number) return ((Number) value).intValue();
+        if (value != null) {
+            String s = String.valueOf(value).trim();
+            if (!s.isEmpty()) {
+                // 模型常把整数写成 "2" 之外还可能带小数尾巴（"2.0"），宽松收下；
+                // 真收不下的再回落默认值，让 execute 用默认版本恢复而不是报错
+                try {
+                    return Integer.parseInt(s);
+                } catch (NumberFormatException ignored) {
+                    try {
+                        return (int) Math.round(Double.parseDouble(s));
+                    } catch (NumberFormatException stillIgnored) {
+                        return defaultValue;
+                    }
+                }
+            }
+        }
+        return defaultValue;
+    }
+
+    /**
+     * 按名字找工作区里的文件：先按给定路径解析，命不中且不是带目录的路径时，
+     * 再依次找 长期文件区 files/ → 临时区 tmp/。（原 read 的查找顺序，抽出来复用）
+     */
+    private static File locateWorkspaceFile(AgentWorkspace ws, String name) {
+        File f = ws.resolveFile(name);
+        if (!f.exists() && !name.contains("/")) {
+            File inFiles = ws.resolveFileToFiles(name);
+            if (inFiles.exists()) {
+                f = inFiles;
+            } else {
+                File inTmp = ws.resolveFileToTmp(name);
+                if (inTmp.exists()) f = inTmp;
+            }
+        }
+        return f;
+    }
+
+    /**
+     * versions/restore 用：定位"备份挂在哪个路径上"。
+     *
+     * <p>备份与主文件同目录（{@code 原名.ext.verN}），所以必须先确定主文件在哪一侧
+     * （files/ 长期区还是 tmp/ 临时区），否则列出来的版本永远是空。主文件已经被删掉
+     * 但备份还在时也要能找到——"写坏了又手删主文件"恰恰是最想回退的时候。</p>
+     *
+     * <p>restore 是<b>写</b>操作，所以多一道边界检查：模型传的绝对路径/越界名字一律拒绝，
+     * 只能在 workspace 的三个目录内回退（read 只读，保持原有宽松查找）。</p>
+     */
+    private static File locateVersionedFile(AgentWorkspace ws, String name) {
+        return locateVersionedFile(locateWorkspaceFile(ws, name), name, workspaceDirs(ws));
+    }
+
+    private static File[] workspaceDirs(AgentWorkspace ws) {
+        return new File[] {ws.getFilesDir(), ws.getTmpDir(), ws.getWorkspaceDir()};
+    }
+
+    /**
+     * {@link #locateVersionedFile(AgentWorkspace, String)} 的纯函数内核。
+     *
+     * <p>单独拆出来是因为 {@code AgentWorkspace} 的构造在 Robolectric 下会抛
+     * {@code ArrayIndexOutOfBoundsException}（它读 {@code Environment.isExternalStorageManager()}，
+     * 真机不会）——版本定位这套规则是"备份能不能被找到"的唯一入口，不能因为拿不到工作区就不测。</p>
+     *
+     * @param located 按名字宽松定位到的文件（可能不存在，但父目录有参考价值）
+     * @param name    模型传来的原始名
+     * @param dirs    工作区的三个目录：files/ 长期区、tmp/ 临时区、工作区根
+     * @return 主文件路径（可能不存在，但父目录正确）；越界时为 null，调用方给出拒绝文案
+     */
+    static File locateVersionedFile(File located, String name, File[] dirs) {
+        if (!isWithin(located, dirs)) {
+            for (File dir : dirs) {
+                if (dir == null) continue;
+                File inside = new File(dir, new File(name).getName());
+                if (isWithin(inside, dirs)) return inside;
+            }
+            return null;
+        }
+        if (located.exists()) return located;
+        String base = new File(name).getName();
+        for (File dir : dirs) {
+            if (dir == null) continue;
+            File candidate = new File(dir, base);
+            if (!FileVersionBackup.versions(candidate).isEmpty()) return candidate;
+        }
+        return located;
+    }
+
+    /** 文件是否落在给定目录之内（用 canonicalPath 比，防 {@code ../} 穿越） */
+    static boolean isWithin(File f, File[] dirs) {
+        try {
+            String target = f.getCanonicalPath();
+            for (File dir : dirs) {
+                if (dir == null) continue;
+                String prefix = dir.getCanonicalPath();
+                if (!prefix.endsWith(File.separator)) prefix = prefix + File.separator;
+                if (target.startsWith(prefix) || target.equals(dir.getCanonicalPath())) return true;
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "工作区边界检查失败: " + e.getMessage());
+        }
+        return false;
     }
 
     private static boolean boolParam(Map<String, Object> parameters, String key, boolean defaultValue) {
