@@ -69,7 +69,9 @@ public class ToolSchemaShapeTest {
         // 核心：confirm 是 boolean（execute 的 boolParam 按布尔语义判），不能显示成 string
         assertEquals("boolean", byName.get("confirm").getType());
         assertEquals("string", byName.get("fileName").getType());
-        assertEquals(Arrays.asList("list", "path", "read", "delete", "clear"),
+        // version 是 integer（execute 用 intParam 取版本号），不能塌成 string
+        assertEquals("integer", byName.get("version").getType());
+        assertEquals(Arrays.asList("list", "path", "read", "versions", "restore", "delete", "clear"),
                 byName.get("action").getEnumValues());
 
         for (ParamDefinition def : defs) {

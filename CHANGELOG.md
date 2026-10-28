@@ -1,11 +1,44 @@
 # 变更日志
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
-=======
+## [2026-10-29] feat(workspace)：备份有单一取回入口 `versions`/`restore`，`excel_tool` 原地保存也纳入备份
+
+上一轮补二进制护栏时留下的尾巴："那套 `.ver1..ver5` 备份模型完全不知道、也没有 versions/restore 入口"。
+用户拍板两条一起做（先给 `excel_tool` 补同款备份，再加 `workspace` 的两个动作）。
+
+- **真正的洞在 `excel_tool`**：它不传 `output_path` 就**写回原文件**，而 xlsx 恰恰是 `file_generator`
+  现在拒绝写的那类后缀——留底机制原本只覆盖"文本写者"，改台账的那次覆盖反而一步都没有。
+  `saveWorkbook()` 现在在 `workbook.write(fos)` 前调 `FileVersionBackup.backup(target)`，
+  另存为时备份的是**被覆盖的那个目标**（源文件不动、也不留底）。
+- **备份逻辑抽成 `FileVersionBackup`**（`原名.verN`、1=最近、保留 5 版、备份失败不阻断写入）。
+  `file_generator.backupVersion()` 退化成一行委托——两个写者各写一遍轮转，迟早漂成两套命名，
+  那时候 `workspace` 就找不到版本了。
+- **`workspace` 加 `versions` / `restore`**：`versions(fileName)` 列有哪几版（时间+大小，并指路 restore）；
+  `restore(fileName, version=N, confirm=true)` 回退。三处细节：
+  ① `restore` 与 `delete`/`clear` 同级要求 `confirm=true`（防 prompt 注入把用户文件回退掉）；
+  ② 恢复**先把当前内容备份成新的一版**再覆盖，所以退错了还能再退回来，不是单向操作；
+  ③ 定位版本按"备份与主文件同目录"找 `files/`→`tmp/`→工作区根，主文件已被手删而备份还在时仍能找到。
+- `restore` 是写操作，所以多一道 canonicalPath 边界检查：越界名（含 `../`）一律按 basename 收回工作区，
+  收回不了就拒绝，绝不写到区外（`read` 只读，保持原有宽松查找）。
+- 措辞收口：`file_generator` / `excel_tool` / `workspace` 的 `@Tool`、`getDescription()`、
+  `getParameterDescriptions()`、在线 `ToolDefinition` 四条通道都改成指 `workspace(action=versions→restore)`，
+  不再教模型"读回 `.verN` 再 write 回去"这种手动三步。
+
+测试：新增 `FileVersionBackupTest` 9 条（轮转方向、只留 5 版、空文件不留底、恢复可撤销、
+缺版本/越界不改动内容、命名与同目录约定）、`ExcelToolSaveBackupTest` 6 条（反射打私有
+`saveWorkbook`，读回 xlsx 单元格验证 `.ver1` 里确实是上一版）、`WorkspaceVersionsRestoreTest` 8 条
+（版本定位内核、越界收回、`version` 参数容错、**execute 的 case 与四处参数表不许漂**）；
+`ToolSchemaShapeTest` 的 workspace 枚举断言随之更新。
+全量 `testDebugUnitTest` 真跑 **176 套件 / 1318 tests / 0 skipped / 0 failures / 0 errors**；
+`assembleDebug` 通过并装机（base.apk md5 与本地一致 `2ca0f1fe…`），dex 内确认
+`FileVersionBackup` 与 3 处 `原名.ver1..ver5` 文案都在。
+
+**未真机验**：`versions`/`restore` 的端到端只在 JVM 测了纯内核——`AgentWorkspace` 构造读
+`Environment.isExternalStorageManager()`，Robolectric 4.10.3 下抛 `ArrayIndexOutOfBoundsException`，
+所以写了 `WorkspaceVersionsRestoreDeviceTest`（androidTest），但 MIUI 拦掉了测试包安装
+（`INSTALL_FAILED_USER_RESTRICTED`，需要机主在弹窗里放行）。
+
+仍未做：`oil_price` 滞后与 `calculator` 有效位仍未做代码级核实。
+
 ## [2026-10-29] fix(file_generator)：二进制写护栏——宁可当场报错，也不把 .docx/.xlsx/.pdf 写坏
 
 用户取向：**"不要为了写二进制文件导致写坏了"**，且"我记得我有专用工具啊"——核对确实在：
@@ -34,7 +67,6 @@ dex 内确认含 `binaryGuardMessage` 与 `python-docx` 指路文案。
 仍未做：`workspace` 没有 `versions/restore` 动作（取回靠 list+read+write 手动三步）；
 `oil_price` 滞后与 `calculator` 有效位仍未做代码级核实。
 
->>>>>>> 00053616 (fix(file_generator)：二进制写护栏——不把 .docx/.xlsx/.pdf 写坏，并把备份能力告诉模型)
 ## [2026-10-29] fix(tools)：修掉对话历史里坐实的 5 条能力缺陷（file_generator / text_tools / unit_converter）
 
 来源是设备上那一条真机会话（10-28 15:13 → 10-29 04:25，58 条消息，累计 4728 次工具调用 / 277 次失败）：
@@ -73,7 +105,6 @@ dex 内确认含 `binaryGuardMessage` 与 `python-docx` 指路文案。
 0 skipped / 0 failures / 0 errors**；`assembleDebug` 通过并装机（`lastUpdateTime=2026-10-29 04:44:59`，
 本地与设备 md5 一致 `ac40f111…`）。
 
->>>>>>> 12168dcb (fix(tools)：修掉真机对话历史坐实的 5 条能力缺陷)
 ## [2026-10-29] feat(tool-registry)：别名可被工具发现检出，get 按命中方式自曝身份
 
 外部评审 REVIEW-2026-1029-01 复核后的结论：`get(python_file_ops)` 走的**不是模糊路由**，而是
@@ -127,7 +158,6 @@ P1-④"阈值提到 0.8"（这条路径是精确别名，没有阈值可言）�
   不可达类（`ai/tool`、`ai/python`、`ai/importing`，非对话范围）；WebView 壳里
   `assets/pages/ai-chat.html` 那套并行 UI；5 个可回退 `*Flag`。
 
->>>>>>> 6eb09036 (feat(tool-registry)：别名可被检出、get 自曝命中方式（评审 REVIEW-2026-1029-01）)
 ## [2026-10-28] docs(knowledge)：补"何时该换 FTS5"的判据（避免以后凭感觉反复讨论）
 
 `docs/knowledge_base.md` 新增第六节：

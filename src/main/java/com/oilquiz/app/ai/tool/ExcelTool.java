@@ -30,11 +30,12 @@ import java.util.Map;
  * - row/column：1-based 行号 / 列名(表头)或1-based列号
  *
  * 输入支持绝对路径 / 应用目录相对路径 / content:// URI（file_uri）。
- * 修改默认保存回原文件，可指定 output_path 另存为新文件。
+ * 修改默认保存回原文件，可指定 output_path 另存为新文件；覆盖前自动留 .ver1..ver5 历史版本
+ * （与 file_generator 共用 FileVersionBackup，可用 workspace(action=versions/restore) 回退）。
  */
 @Tool(
     value = "excel_tool",
-    description = "Excel表格工具：查询与修改xls/xlsx。查询=sheets(工作表列表)/query(条件过滤行)/cell(读单元格)；修改=write_cell(改单元格)/add_row(追加行)/add_sheet(新建工作表)，修改后自动保存",
+    description = "Excel表格工具：查询与修改xls/xlsx。查询=sheets(工作表列表)/query(条件过滤行)/cell(读单元格)；修改=write_cell(改单元格)/add_row(追加行)/add_sheet(新建工作表)，修改后自动保存；**覆盖前自动备份历史版本 .ver1..ver5**（改坏了用 workspace(action=versions→restore) 回退）",
     category = "data",
     aliases = {"excel", "表格", "xlsx", "xls", "电子表格", "spreadsheet"},
     actions = {
@@ -49,7 +50,7 @@ import java.util.Map;
         @Param(name = "action", type = "string", description = "操作类型", required = true),
         @Param(name = "file_path", type = "string", description = "文件路径(支持content://开头URI)", required = false),
         @Param(name = "file_uri", type = "string", description = "content:// URI(与file_path二选一)", required = false),
-        @Param(name = "output_path", type = "string", description = "另存路径(不传默认保存回原文件)", required = false),
+        @Param(name = "output_path", type = "string", description = "另存路径(不传默认保存回原文件；被覆盖的文件会先备份成 原名.ver1)", required = false),
         @Param(name = "sheet", type = "string", description = "工作表名称或索引(默认0)", required = false),
         @Param(name = "cell_ref", type = "string", description = "单元格A1引用如B3(write_cell/cell用)", required = false),
         @Param(name = "row", type = "integer", description = "1-based行号(与column配合)", required = false),
@@ -85,7 +86,8 @@ public class ExcelTool implements AITool {
     @Override
     public String getDescription() {
         return "Excel表格工具：查询与修改xls/xlsx。查询=sheets(工作表列表)/query(条件过滤行)/cell(读单元格)；"
-                + "修改=write_cell(改单元格)/add_row(追加行)/add_sheet(新建工作表)，修改后自动保存到原文件或output_path。"
+                + "修改=write_cell(改单元格)/add_row(追加行)/add_sheet(新建工作表)，修改后自动保存到原文件或output_path；"
+                + "**覆盖前自动备份 .ver1..ver5**，改坏了用 workspace(action=versions→restore) 回退。"
                 + "坐标：sheet(名称或索引)、cell_ref(A1如B3)、row(1-based)+column(列名或列号)。支持content:// URI(file_uri)。";
     }
 
@@ -95,7 +97,7 @@ public class ExcelTool implements AITool {
         params.put("action", "操作: sheets(列工作表)/query(条件查行)/cell(读单元格)/write_cell(改单元格)/add_row(追加行)/add_sheet(新建工作表)");
         params.put("file_path", "文件路径(支持content://开头URI，与file_uri二选一)");
         params.put("file_uri", "content:// URI(与file_path二选一)");
-        params.put("output_path", "另存路径(修改类操作，不传默认保存回原文件)");
+        params.put("output_path", "另存路径(修改类操作，不传默认保存回原文件；被覆盖的那个文件会先备份成 原名.ver1)");
         params.put("sheet", "工作表名称或索引(默认0)");
         params.put("cell_ref", "单元格A1引用如B3(write_cell/cell用)");
         params.put("row", "1-based行号(与column配合定位单元格)");
@@ -199,6 +201,10 @@ public class ExcelTool implements AITool {
         } else {
             target = source;
         }
+        // 覆盖前留一份历史版本（2026-10-29）：原先"不传 output_path 就写回原文件"是一次性覆盖，
+        // 台账类 xlsx 改错一格就退不回去。与 file_generator 共用 FileVersionBackup，
+        // 命名同为 原名.verN，所以 workspace(action=versions/restore) 也认这些备份。
+        FileVersionBackup.backup(target);
         try (FileOutputStream fos = new FileOutputStream(target)) {
             workbook.write(fos);
         }
