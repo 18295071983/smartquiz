@@ -1447,20 +1447,26 @@ public class AIToolManager {
                     .build();
             case "file_generator":
                 return ToolDefinition.builder("file_generator", "文件生成/修改工具：新建(create)、覆盖写入(write)、追加(append)、精确改一处(edit)、预览差异(diff)、JSON/配置/Markdown/报告、复制、删除。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）。**写文件、改文件和看差异都优先用本工具，不要为这件事去跑 Python**。**文件名规范：一律用英文/数字/下划线（如 daily_report_0911.md），不要用中文文件名**（中文名在跨进程/链接打开环节易被截断丢失）；给用户文件链接时用返回的完整绝对路径或 files/相对路径，不要缩写/丢字（用户实测点开失败多因此）。")
-                    .addParameter("action", "string", "操作类型: create/write/append/edit/diff/json/config/markdown/template/report/copy/delete", false, "create")
-                    .addParameter("file_name", "string", "文件名/路径（用英文名，勿中文）", true)
+                    .addParameter("action", "string", "操作类型: create/write/append/edit/diff/json/config/markdown/template/report/copy/delete", false, "create",
+                            java.util.Arrays.asList("create", "write", "append", "edit", "diff", "json",
+                                    "config", "markdown", "template", "report", "copy", "delete"))
+                    .addParameter("file_name", "string", "文件名/路径（与 file_path 等价，给一个即可；用英文名，勿中文）", false)
+                    .addParameter("file_path", "string", "文件完整路径（与 file_name 等价）", false)
                     .addParameter("content", "string", "文件内容(create/write/append/markdown用；diff 时填提议的新文本)", false)
-                    .addParameter("format", "string", "文件格式(可选)", false)
-                    .addParameter("encoding", "string", "文件编码(默认UTF-8)", false, "UTF-8")
+                    .addParameter("encoding", "string", "文件编码(默认UTF-8；写 GB 系显式传 GB18030)", false, "UTF-8")
                     .addParameter("old_text", "string", "edit 用：被替换的原文，必须逐字符一致（含缩进/空格/换行），命中 0 处或多处会报错", false)
                     .addParameter("new_text", "string", "edit 用：替换成什么；留空=删除这段", false)
                     .addParameter("replace_all", "boolean", "edit 用：默认只改唯一匹配处，true 才替换全部匹配", false, false)
                     .addParameter("file_path_b", "string", "diff 用：与另一个文件比较（与 content 二选一）", false)
-                    .addParameter("json_data", "object", "JSON数据(json操作用)", false)
+                    .addParameter("data", "object", "结构化数据(json/report 用；传对象，被序列化成 JSON 字符串也能用)", false)
+                    .addParameter("pretty", "boolean", "json 用：是否缩进美化(默认 true)", false, true)
                     .addParameter("config", "object", "配置键值对(config操作用)", false)
                     .addParameter("title", "string", "标题(markdown/report用)", false)
                     .addParameter("sections", "array", "章节列表(markdown用)", false)
-                    .addParameter("source_path", "string", "源文件路径(copy用)", false)
+                    .addParameter("type", "string", "template 用：模板种类 java/python/markdown/json/xml/html/csv", false)
+                    .addParameter("source", "string", "copy 用：源文件路径", false)
+                    .addParameter("destination", "string", "copy 用：目标文件路径", false)
+                    .addParameter("newLine", "boolean", "append 用：追加前是否补换行(默认 true)", false, true)
                     .category("file")
                     .build();
             case "database":
@@ -1595,7 +1601,8 @@ public class AIToolManager {
                     .build();
             case "document_parser":
                 return ToolDefinition.builder("document_parser", "文档解析（只读）：从 PDF / Word(docx) / PPT(pptx) / Excel(xlsx) / CSV / JSON / XML 里取正文、表格与备注，也能读任意文本。read=读文本(UTF-8/GB18030/UTF-16自动检测)；parse=按格式解析。**不写文件**——写/追加/改文件/看差异请用 file_generator(create/write/append/edit/diff)。底层用内置 docx/pptx/pypdf/openpyxl，调用方不用写代码。注意：工作区 tmp/ 每轮结束自动清理，重要文件写到 files/ 长期区(不自动清，要清用 workspace(action=clear,confirm=true))")
-                    .addParameter("action", "string", "操作: read/parse", false, "read")
+                    .addParameter("action", "string", "操作: read/parse", false, "read",
+                            java.util.Arrays.asList("read", "parse"))
                     .addParameter("file_path", "string", "文件路径", true)
                     .addParameter("format", "string", "解析格式(parse用: csv/tsv/json/xml/xlsx/docx/pptx/pdf，留空按扩展名)", false)
                     .addParameter("max_rows", "integer", "最大行数(parse用，默认500)", false, 500)
