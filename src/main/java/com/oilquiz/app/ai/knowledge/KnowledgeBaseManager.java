@@ -199,6 +199,22 @@ public class KnowledgeBaseManager {
         return instance;
     }
 
+    /**
+     * 仅测试用：关闭当前连接并丢弃单例，让下一次 {@link #getInstance} 重新开库。
+     *
+     * <p>Robolectric 每个测试方法都会重置 SQLite 环境，而单例里缓存的连接会变成
+     * "Illegal connection pointer"——不重建的话，同一测试类的第 2 个用例起就全部失败。</p>
+     */
+    static synchronized void resetForTesting() {
+        if (instance != null) {
+            try {
+                if (instance.dbHelper != null) instance.dbHelper.close();
+            } catch (Throwable ignored) {
+            }
+            instance = null;
+        }
+    }
+
     private SQLiteDatabase getReadableDb() {
         KnowledgeDbHelper helper = dbHelper;
         if (helper == null) {
@@ -1068,6 +1084,144 @@ public class KnowledgeBaseManager {
             words.add(m2.group().toLowerCase(Locale.ROOT));
         }
         return String.join(",", words);
+    }
+
+    /**
+     * 按 id 更新一条知识（局部更新：传 null 或空串的字段保持原值）。
+     *
+     * <p>为什么需要：从前只有 add/delete，用户想改一条已入库的知识（错别字、过期结论、
+     * 分类放错）只能先删再重加——id 会变、created_at 丢失，文档导入的多块知识还会被拆散。
+     * 这里保持 id 不变，只刷新给定字段 + {@code search_text} + {@code updated_at}。</p>
+     *
+     * <p>合并后标题与内容不能同时为空（与 {@link #addChunk} 同一口径），否则拒绝并给出原因。</p>
+     *
+     * @return true=更新成功；false=未找到/校验失败/数据库错误（原因见 {@link #getLastError()}）
+     */
+    public synchronized boolean updateChunk(long id, String title, String category, String keywords,
+                                            String content, String source) {
+        lastError = null;
+        if (id <= 0) {
+            lastError = "id 无效: " + id;
+            return false;
+        }
+        SQLiteDatabase db;
+        try {
+            db = getWritableDb();
+        } catch (Exception e) {
+            lastError = "知识库数据库不可用: " + e.getMessage();
+            Log.e(TAG, "updateChunk 打开数据库失败: " + e.getMessage(), e);
+            return false;
+        }
+        String oldTitle;
+        String oldCategory;
+        String oldKeywords;
+        String oldContent;
+        String oldSource;
+        Cursor cursor = null;
+        try {
+            cursor = db.rawQuery("SELECT title, category, keywords, content, source FROM kb_chunks WHERE id = ?",
+                    new String[]{String.valueOf(id)});
+            if (!cursor.moveToFirst()) {
+                lastError = "未找到 id=" + id + " 的知识";
+                return false;
+            }
+            oldTitle = cursor.getString(0);
+            oldCategory = cursor.getString(1);
+            oldKeywords = cursor.getString(2);
+            oldContent = cursor.getString(3);
+            oldSource = cursor.getString(4);
+        } catch (Exception e) {
+            lastError = "读取原记录失败: " + e.getMessage();
+            Log.e(TAG, "updateChunk 读取原记录失败: " + e.getMessage(), e);
+            return false;
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+
+        // 局部更新：null/空白一律视为"不改这一项"（模型经常把不动的字段填成 ""）
+        KnowledgeChunk merged = new KnowledgeChunk(
+                keepIfBlank(title, oldTitle),
+                keepIfBlank(category, oldCategory),
+                keepIfBlank(keywords, oldKeywords),
+                keepIfBlank(content, oldContent),
+                keepIfBlank(source, oldSource));
+        if (merged.title.isEmpty() && merged.content.isEmpty()) {
+            lastError = "标题与内容不能同时为空";
+            return false;
+        }
+        if (merged.content.isEmpty()) {
+            merged.content = merged.title;
+        }
+        long now = System.currentTimeMillis();
+        ContentValues values = new ContentValues();
+        values.put("title", merged.title);
+        values.put("category", merged.category);
+        values.put("keywords", merged.keywords);
+        values.put("content", merged.content);
+        values.put("source", merged.source);
+        values.put("search_text", buildSearchText(merged));
+        values.put("updated_at", now);
+        db.beginTransaction();
+        try {
+            int rows = db.update("kb_chunks", values, "id = ?", new String[]{String.valueOf(id)});
+            db.setTransactionSuccessful();
+            if (rows <= 0) {
+                lastError = "未找到 id=" + id + " 的知识";
+                return false;
+            }
+            return true;
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            Log.e(TAG, "updateChunk 失败: " + e.getMessage(), e);
+            return false;
+        } finally {
+            db.endTransaction();
+        }
+    }
+
+    /** 空白保留原值（局部更新语义）；非空则用新值 */
+    private static String keepIfBlank(String incoming, String old) {
+        if (incoming == null || incoming.trim().isEmpty()) {
+            return old == null ? "" : old;
+        }
+        return incoming.trim();
+    }
+
+    /**
+     * 按标题精确定位唯一一条知识的 id（给"按标题更新"用）。
+     *
+     * @return 命中唯一一条时返回其 id；没有命中返回 -1；命中多条返回 -2（有歧义，必须改用 id）
+     */
+    public synchronized long findUniqueIdByTitle(String title) {
+        lastError = null;
+        if (title == null || title.trim().isEmpty()) {
+            lastError = "标题为空";
+            return -1L;
+        }
+        Cursor cursor = null;
+        try {
+            SQLiteDatabase db = getWritableDb();
+            cursor = db.rawQuery("SELECT id FROM kb_chunks WHERE title = ? LIMIT 3",
+                    new String[]{title.trim()});
+            int n = cursor.getCount();
+            if (n <= 0) {
+                lastError = "未找到标题为「" + title.trim() + "」的知识";
+                return -1L;
+            }
+            if (n > 1) {
+                lastError = "标题「" + title.trim() + "」命中多条（文档导入的知识会按标题切块），"
+                        + "请先 search 取得具体 id 再更新";
+                return -2L;
+            }
+            cursor.moveToFirst();
+            return cursor.getLong(0);
+        } catch (Exception e) {
+            lastError = "按标题查询失败: " + e.getMessage();
+            Log.e(TAG, "findUniqueIdByTitle 失败: " + e.getMessage(), e);
+            return -1L;
+        } finally {
+            if (cursor != null) cursor.close();
+        }
     }
 
     /**

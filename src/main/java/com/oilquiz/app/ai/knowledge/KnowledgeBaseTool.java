@@ -23,6 +23,7 @@ import java.util.Map;
  *   <li>search —— 全文检索（query 关键词 + category 过滤 + top_k 条数）</li>
  *   <li>add —— 添加单条知识（title/content/category/keywords/source）</li>
  *   <li>add_batch —— 批量添加（items 为对象数组）</li>
+ *   <li>update —— 修改已入库知识（id 或唯一标题定位；只改传入的字段，id 不变）</li>
  *   <li>import_json —— 导入知识 JSON（兼容 Python 预处理脚本输出的 {"chunks":[...]} 结构）</li>
  *   <li>delete —— 按 id 或 title 删除</li>
  *   <li>clear —— 清空全部</li>
@@ -34,7 +35,7 @@ import java.util.Map;
  */
 @Tool(
         value = "knowledge_base",
-        description = "知识库：全文检索知识(search)、添加知识(add/add_batch)、导入JSON(import_json/import_file)、直接导入文件(import_document，支持Word/Excel/TXT/MD/CSV/PDF/HTML/图片OCR/音频ASR转写自动切块)、删除(delete)、清空(clear)、统计(stats)。知识库内容由用户维护，用于回答应用专属问题",
+        description = "知识库：全文检索知识(search)、添加知识(add/add_batch)、修改已入库知识(update，按id或唯一标题，只改传入字段)、导入JSON(import_json/import_file)、直接导入文件(import_document，支持Word/Excel/TXT/MD/CSV/PDF/HTML/图片OCR/音频ASR转写自动切块)、删除(delete)、清空(clear)、统计(stats)。知识库内容由用户维护，用于回答应用专属问题",
         category = "knowledge",
         aliases = {"kb", "knowledge", "wiki_search"},
         actions = {
@@ -49,6 +50,15 @@ import java.util.Map;
                         @Param(name = "category", type = "string", description = "分类，默认 general", required = false),
                         @Param(name = "keywords", type = "string", description = "关键词（逗号分隔），增强检索命中", required = false),
                         @Param(name = "source", type = "string", description = "来源标识，如文件名/链接", required = false)
+                }),
+                @Action(name = "update", description = "修改已入库的一条知识：按 id（search 结果里带 id）或标题唯一命中定位，只改传入的字段，条目 id 不变", params = {
+                        @Param(name = "id", type = "int", description = "知识ID（与 find_title 二选一，优先用 id）", required = false),
+                        @Param(name = "find_title", type = "string", description = "按标题精确定位（仅标题唯一时可用；命中多条会报错，请改用 id）", required = false),
+                        @Param(name = "title", type = "string", description = "新标题（可选）", required = false),
+                        @Param(name = "content", type = "string", description = "新正文（可选）", required = false),
+                        @Param(name = "category", type = "string", description = "新分类（可选）", required = false),
+                        @Param(name = "keywords", type = "string", description = "新关键词，逗号分隔（可选）", required = false),
+                        @Param(name = "source", type = "string", description = "新来源（可选）", required = false)
                 }),
                 @Action(name = "add_batch", description = "批量添加知识，items 为对象数组（每项含 title/content/category/keywords/source）", params = {
                         @Param(name = "items", type = "array", description = "知识对象数组", required = true)
@@ -81,6 +91,7 @@ import java.util.Map;
                 @Param(name = "keywords", type = "string", description = "关键词", required = false),
                 @Param(name = "source", type = "string", description = "来源", required = false),
                 @Param(name = "id", type = "int", description = "知识ID", required = false),
+                @Param(name = "find_title", type = "string", description = "按标题精确定位（update 用，仅唯一命中时可用）", required = false),
                 @Param(name = "items", type = "array", description = "批量知识数组", required = false),
                 @Param(name = "json", type = "string", description = "知识JSON字符串", required = false),
                 @Param(name = "file_path", type = "string", description = "知识JSON文件路径（import_file使用）", required = false)
@@ -104,7 +115,8 @@ public class KnowledgeBaseTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "知识库：全文检索知识(search)、添加知识(add/add_batch)、导入JSON(import_json/import_file)、"
+        return "知识库：全文检索知识(search)、添加知识(add/add_batch)、修改已入库知识(update，按id或唯一标题，只改传入字段)、"
+                + "导入JSON(import_json/import_file)、"
                 + "直接导入文件(import_document，支持Word/Excel/TXT/MD/CSV/PDF/HTML/图片OCR/音频ASR转写自动切块)、"
                 + "删除(delete)、清空(clear)、统计(stats)。知识库内容由用户维护，用于回答应用专属问题";
     }
@@ -112,20 +124,20 @@ public class KnowledgeBaseTool implements AITool {
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("action", "操作类型：search(检索)/add(加一条)/add_batch(批量加)/import_json(导入JSON字符串)/import_file(导入JSON文件)/import_document(直接导入文档·图片·音频)/delete(删)/clear(清空)/stats(统计)");
+        params.put("action", "操作类型：search(检索)/add(加一条)/add_batch(批量加)/update(改一条)/import_json(导入JSON字符串)/import_file(导入JSON文件)/import_document(直接导入文档·图片·音频)/delete(删)/clear(清空)/stats(统计)");
         params.put("query", "检索关键词（search 必填）");
-        params.put("category", "分类过滤（search/add 可选）");
+        params.put("category", "分类（search 过滤 / add 写入 / update 修改，可选）");
         params.put("top_k", "返回条数上限（search 可选，默认5）");
         params.put("semantic", "语义重排开关（search 可选，默认false；true=启用在线embedding重排+rerank精排，会消费在线API；未配置embedding专用能力时自动回退关键词检索）");
-        params.put("title", "标题（add 必填 / import_document 可选）");
-        params.put("content", "内容（add 必填）");
-        params.put("keywords", "关键词（add 可选）");
-        params.put("source", "来源（add 可选）");
-        params.put("id", "知识ID（delete 使用）");
+        params.put("title", "标题（add 必填；update 时为新标题 / import_document 可选）");
+        params.put("content", "内容（add 必填；update 时为新正文）");
+        params.put("keywords", "关键词（add/update 可选）");
+        params.put("source", "来源（add/update 可选）");
+        params.put("id", "知识ID（delete/update 使用）");
+        params.put("find_title", "按标题精确定位（update 用；仅当标题唯一时可用，命中多条会报错要求改用 id）");
         params.put("items", "批量知识数组（add_batch 必填）");
         params.put("json", "知识JSON字符串（import_json 必填）");
         params.put("file_path", "文件绝对路径（import_file 为JSON文件 / import_document 为文档、图片、音频）");
-        params.put("category", "导入分类（import_document 可选）");
         return params;
     }
 
@@ -134,7 +146,7 @@ public class KnowledgeBaseTool implements AITool {
         try {
             Object actionObj = parameters.get("action");
             if (actionObj == null) {
-                return new AIToolResult("缺少参数: action（search/add/add_batch/import_json/import_file/import_document/delete/clear/stats）",
+                return new AIToolResult("缺少参数: action（search/add/add_batch/update/import_json/import_file/import_document/delete/clear/stats）",
                         parameters);
             }
             String action = actionObj.toString();
@@ -145,6 +157,8 @@ public class KnowledgeBaseTool implements AITool {
                     return doAdd(parameters);
                 case "add_batch":
                     return doAddBatch(parameters);
+                case "update":
+                    return doUpdate(parameters);
                 case "import_json":
                     return doImportJson(parameters);
                 case "import_file":
@@ -159,7 +173,7 @@ public class KnowledgeBaseTool implements AITool {
                     return doStats(parameters);
                 default:
                     return new AIToolResult("未知操作: " + action
-                            + "（支持 search/add/add_batch/import_json/import_file/import_document/delete/clear/stats）", parameters);
+                            + "（支持 search/add/add_batch/update/import_json/import_file/import_document/delete/clear/stats）", parameters);
             }
         } catch (Exception e) {
             Log.e(TAG, "execute 异常: " + e.getMessage(), e);
@@ -273,6 +287,72 @@ public class KnowledgeBaseTool implements AITool {
                     + ",\"error\":\"" + escape(lastError) + "\"}", info);
         }
         return new AIToolResult("{\"success\":true,\"added\":" + added + "}", info, true);
+    }
+
+    /**
+     * 修改一条已入库知识：id 优先；没给 id 时按 {@code find_title} 精确匹配，
+     * 必须唯一命中（文档导入会按标题切块，同名多条时要模型改用 id）。
+     * 只改传入的非空字段，条目 id / created_at 不变。
+     */
+    private AIToolResult doUpdate(Map<String, Object> parameters) {
+        Map<String, Object> info = new HashMap<>();
+        info.put("action", "update");
+
+        long id = toLong(parameters.get("id"), -1);
+        String findTitle = stringParam(parameters, "find_title");
+        if (id <= 0) {
+            if (isBlank(findTitle)) {
+                return new AIToolResult("缺少参数: id（search 结果里带 id）或 find_title（标题唯一时）", parameters);
+            }
+            long resolved = manager.findUniqueIdByTitle(findTitle.trim());
+            if (resolved <= 0) {
+                String err = manager.getLastError();
+                return new AIToolResult(err != null && !err.isEmpty() ? err
+                        : "未找到标题为「" + findTitle.trim() + "」的知识", parameters);
+            }
+            id = resolved;
+        }
+
+        String title = stringParam(parameters, "title");
+        String content = stringParam(parameters, "content");
+        String category = stringParam(parameters, "category");
+        String keywords = stringParam(parameters, "keywords");
+        String source = stringParam(parameters, "source");
+        if (isBlank(title) && isBlank(content) && isBlank(category)
+                && isBlank(keywords) && isBlank(source)) {
+            return new AIToolResult("没有要修改的字段：title/content/category/keywords/source 至少传一个", parameters);
+        }
+
+        boolean ok = manager.updateChunk(id, title, category, keywords, content, source);
+        info.put("id", id);
+        if (!ok) {
+            String err = manager.getLastError();
+            info.put("error", err == null ? "" : err);
+            return new AIToolResult("更新失败" + (err != null && !err.isEmpty() ? "：" + err : ""), info);
+        }
+
+        // 回给模型"改了哪几项"，便于它向用户复述；字段值本身不回声（可能很长）
+        JSONObject payload = new JSONObject();
+        int changed = 0;
+        try {
+            payload.put("success", true);
+            payload.put("id", id);
+            JSONArray fields = new JSONArray();
+            if (!isBlank(title)) { fields.put("title"); changed++; }
+            if (!isBlank(content)) { fields.put("content"); changed++; }
+            if (!isBlank(category)) { fields.put("category"); changed++; }
+            if (!isBlank(keywords)) { fields.put("keywords"); changed++; }
+            if (!isBlank(source)) { fields.put("source"); changed++; }
+            payload.put("updated", fields);
+            payload.put("updated_count", changed);
+        } catch (Exception ignored) {
+        }
+        info.put("updated", changed);
+        return new AIToolResult(payload.toString(), info, true);
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
     }
 
     private AIToolResult doImportJson(Map<String, Object> parameters) {

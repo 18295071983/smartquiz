@@ -1,5 +1,40 @@
 # 变更日志
 
+## [2026-10-28] feat(knowledge)：知识库工具支持 update——按 id 或唯一标题改一条，不用再"删了重加"
+
+用户："知识库工具没有 update 功能，用着不顺手"。
+
+### 查到的事实
+
+- 工具动作只有 search/add/add_batch/import_json/import_file/import_document/delete/clear/stats，
+  改一条知识只能 delete + add：**id 变了**（历史引用/卡片跳转全失效）、created_at 丢失，
+  文档导入按标题切出来的多块知识还会被重新拆一遍。
+- `search` 的返回里本来就带 `id`，模型完全有能力"先搜到 id 再改"，缺的只是 update 这个动作。
+
+### 由此改掉的事
+
+1. `KnowledgeBaseManager#updateChunk(id, title, category, keywords, content, source)`：
+   局部更新（**null/空串 = 不改这一项**），id 与 created_at 不动，同步刷新
+   `search_text`（保证检索跟着变）和 `updated_at`；合并后标题与正文不能同时为空。
+2. `KnowledgeBaseManager#findUniqueIdByTitle(title)`：唯一命中返回 id，没有返回 -1，
+   **同名多条返回 -2**（文档切块常见），提示改用 id，避免模型"一改改一片"。
+3. 工具层新增 `action=update`：`id` 或 `find_title` 二选一（优先 id），只传要改的字段；
+   回包给 `{success,id,updated:[字段名],updated_count}`，便于模型向用户复述改了哪几项。
+4. 同步四处"模型看得见"的说明：`@Tool` 注解与 `getDescription/getParameterDescriptions`、
+   在线 function calling 的硬编码 schema（`AIToolManager`，action 枚举 + `find_title` 参数）、
+   `OnlinePromptBuilder` 的知识库使用指引（明确"改错了先 search 拿 id 再 update，不要删了重加"）、
+   `AgentWorkspace` 的工具清单文案。
+
+### 验证
+
+- 单测 **8 条全绿**（`KnowledgeBaseManagerTest` 4 + `KnowledgeBaseToolUpdateTest` 4）：
+  id/created_at 不变、`search_text` 跟着更新（旧正文的唯一串不再命中）、空串保留原值、
+  未知 id 报"未找到"、唯一标题可定位、同名多条拒绝并提示用 id、工具层回包字段清单。
+  Robolectric 的 SQLite 每条用例都会重置环境，新增 `resetForTesting()` 丢弃单例重开库，
+  否则第 2 个用例起报 "Illegal connection pointer"。
+- `assembleDebug` 通过并装机；真机日志确认新描述已生效：
+  `knowledge_base -> 知识库：全文检索知识(search)、添加知识(add/add_batch)、修改已入库知识(update…)`。
+
 ## [2026-10-28] feat(chat-id)：会话元数据记 maxTurnId，启动把 ID 派发器抬到"全库最高"
 
 接上一笔（清空后子 id 重发）。剩下的边界是 `next_master` 本身丢了——重装、清除应用数据、

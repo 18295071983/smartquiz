@@ -423,6 +423,7 @@ public class OnlinePromptBuilder {
         sb.append("你有 knowledge_base 工具，可检索与维护用户的知识库（用户自己导入的资料/笔记/讲义/FAQ，内容为空表示用户还没导入）。\n");
         sb.append("- 检索：用户问的内容可能来自其个人资料或应用专属说明时，先 knowledge_base(action=search, query=关键词) 再回答；命中内容要作为依据，不要凭空作答。\n");
         sb.append("- 入库：用户要求把文件/资料/笔记/录音/截图加入知识库时，用 knowledge_base(action=import_document, file_path=文件绝对路径[, title][, category])；纯文本内容用 action=add。\n");
+        sb.append("- 修改：用户说某条知识记错了/过期了/分类放错时，先 search 拿到 id，再 knowledge_base(action=update, id=该id, 需要改的字段)；只传要改的字段，id 不变，不要用「删除再重加」代替。\n");
         sb.append("- 空结果：检索返回 hits=0 时如实告知用户「知识库里没有相关内容」并提示可以先导入资料，不要假装找到。\n");
         sb.append("- 报错区分：返回里带 error 字段说明是检索失败（不是没找到），要如实转告用户原因。\n\n");
         return sb.toString();
