@@ -1,5 +1,43 @@
 # 变更日志
 
+## [2026-10-28] fix(history)：工具组卡按模型轮次断开 + 回写模型的上下文用整条回复
+
+接上一笔（视觉追问闸门）继续查"消息内容或顺序不对"。两处都是"历史被拍平"的同一类病。
+
+### 查到的事实（真机会话 e6637915 取证）
+
+- **组卡跨轮次合并**：`AssistantTurn.groupTools` 只按"连续 tool_call"折叠、不看轮次。
+  T534 的 28 轮里第 3~7 轮模型只发工具（无思考、无正文），于是折出一张
+  **「已运行 5 个工具」横跨第 3~7 轮**，第 8~11 轮又成一张「已运行 4 个工具」；
+  而同一段里只有"有思考的轮"才出一行「已深度思考」，两者完全对不上，
+  滚动时看到的是 1、2、5、4 这种跳变计数，轮次边界整段消失。
+  按 `roundSnapshots` 复算的组大小：`2, 5, 4, 2, 2, 2, 2, 2, 1, 2, 3`。
+- **回写本地上下文的正文被截断**：同一会话 T534 落盘 `content` 是 1189 字
+  （第 25 轮导语 86 字 + 第 28 轮结论 1101 字），而 `local_chat_history_e6637915…json`
+  里只有 1101 字——`AIChatActivity.onComplete` 回写用的是流式回调的 `fullText`（最后一轮），
+  不是整条回复。模型回头看自己上一条回复时，开头整段不在上下文里。
+
+### 由此改掉的事
+
+1. `groupTools` 增加轮次键（`roundKeyOf`：part id 形如 `T534-R3:tool:call_xx`，取第一段）：
+   **同一轮的并行工具仍折一张卡，跨轮次一律断开**。旧数据/孤儿工具 part 取不到轮次键时
+   各自成组，不会被并进别人的组。
+2. 新增 `AssistantTurn.assembleContextText(msg, lastRoundText)`：按 parts 正序拼接各轮正文，
+   末轮还没进 `roundSnapshots` 时补在尾部、已包含则不重复；`onComplete` 回写本地推理上下文
+   改用它，不再用 `fullText`。
+
+### 验证
+
+- 单测：`AssistantTurnTest` **32 条全绿**，新增
+  `toolGroupsDoNotMergeAcrossModelRounds`（3 轮各 1 工具 + 第 3 轮并行 2 个 → 3 张组卡，
+  最后一张 2 成员）、`contextTextKeepsEarlierRoundPreface`、
+  `contextTextAppendsLastRoundWhenSnapshotIsMissing`。
+- `assembleDebug` 通过并装机；滚动 T533→T535 实测组卡标签只剩
+  `已运行 1 个工具` / `已运行 2 个工具`（同轮并行），不再出现 4、5 的跨轮合并；
+  每个「已深度思考」行后面跟着它自己那一轮的组卡。
+- **未验**：本地模型端到端（设备当前在线 deepseek-flash，本地上下文回写要切回本地模型
+  发一轮多轮工具任务才能看到 `local_chat_history_*.json` 里是整段）；函数本身有单测覆盖。
+
 ## [2026-10-28] fix(vision)：视觉追问改成"有界复用"——旧图不再跟着每一轮发给模型
 
 用户："看看我当前手机上的当前激活的对话的历史，有点问题" → 确认"都有，先解决发给模型的上下文不对"。

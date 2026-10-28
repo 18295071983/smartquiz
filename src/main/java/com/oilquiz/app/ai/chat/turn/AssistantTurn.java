@@ -623,17 +623,19 @@ public class AssistantTurn {
                 merged.add(p);
             }
         }
-        // ② 连续 ≥2 tool_call 折叠成组卡
+        // ② 连续 ≥2 tool_call 折叠成组卡；同一轮次内才合并（跨轮次见 roundKeyOf 的说明）
         java.util.List<Part> out = new java.util.ArrayList<>();
         int i = 0;
         while (i < merged.size()) {
             Part p = merged.get(i);
             if (p != null && Part.TYPE_TOOL_CALL.equals(p.type)) {
+                String roundKey = roundKeyOf(p);
                 java.util.List<Part> run = new java.util.ArrayList<>();
                 run.add(p);
                 int j = i + 1;
                 while (j < merged.size() && merged.get(j) != null
-                        && Part.TYPE_TOOL_CALL.equals(merged.get(j).type)) {
+                        && Part.TYPE_TOOL_CALL.equals(merged.get(j).type)
+                        && roundKey.equals(roundKeyOf(merged.get(j)))) {
                     run.add(merged.get(j));
                     j++;
                 }
@@ -651,6 +653,26 @@ public class AssistantTurn {
             }
         }
         base.parts = out;
+    }
+
+    /**
+     * 工具 part 所属<b>模型轮次</b>的键（tool part 的 id 形如 {@code T534-R3:tool:call_xx}，
+     * 取第一个冒号前的段）。
+     *
+     * <p>为什么组卡必须按轮次断开：一次模型调用可以并行发多个 tool_call（同一轮、同一轮次键），
+     * 折成一张「已运行 N 个工具」是对的；但<b>不同轮次</b>即使中间没有思考/正文（模型连续几轮
+     * 只发工具），也各自是一次独立的 model call——合并后「已运行 5 个工具」实际横跨第 3~7 轮，
+     * 与逐轮的「已深度思考」行完全对不上，真机上就是 1、2、5、4 这种跳变计数，轮次边界被抹掉。
+     * 宁可每个工具轮各出一张 1 行的小卡，也不要把不同轮的轨迹揉成一张。</p>
+     *
+     * <p>取不到轮次键（旧数据/孤儿工具 part）时用整条 id 兜底：等价于"各自成组"，
+     * 不会把来源不明的工具并进别人的组。</p>
+     */
+    private static String roundKeyOf(Part p) {
+        String id = p != null ? p.id : null;
+        if (id == null || id.isEmpty()) return "";
+        int cut = id.indexOf(':');
+        return cut > 0 ? id.substring(0, cut) : id;
     }
 
     /**
@@ -1102,6 +1124,33 @@ public class AssistantTurn {
             sb.append(p.text);
         }
         return sb.toString();
+    }
+
+    /**
+     * 整条回复的正文（各轮正文按序拼接），供"回写给模型的上下文"使用。
+     *
+     * <p>为什么不能直接用流式回调的 {@code fullText}：那是<b>最后一轮</b>的正文。
+     * 真机会话 T534 里，助手先在第 25 轮说了导语（86 字："我把仓库里…先给你一张主链路图和阈值表。"），
+     * 到第 28 轮才说结论（1101 字）。本地推理上下文文件 {@code local_chat_history_*.json}
+     * 里只存了后一段——模型再回头看自己的上一条回复时，开头整段是缺的（落盘的
+     * {@code conversations/*.json} 反而是 1189 字全量），同一轮回复在"界面/落库"和
+     * "模型上下文"两个口径下字数不一致。</p>
+     *
+     * @param lastRoundText 最后一轮正文（可能还没进 roundSnapshots）；已包含时不重复拼接
+     */
+    public static String assembleContextText(ChatMessage msg, String lastRoundText) {
+        String base = "";
+        try {
+            AssistantTurn turn = fromMessage(msg);
+            if (turn != null) base = turn.deriveText();
+        } catch (Throwable ignored) {
+        }
+        if (base == null) base = "";
+        String tail = lastRoundText != null ? lastRoundText.trim() : "";
+        if (tail.isEmpty()) return base;
+        if (base.isEmpty()) return tail;
+        if (base.contains(tail)) return base;
+        return (base + "\n\n" + tail).trim();
     }
 
     /** 供落库/并发安全使用的深拷贝。 */

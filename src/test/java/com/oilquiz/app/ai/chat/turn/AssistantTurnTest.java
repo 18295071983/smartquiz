@@ -614,4 +614,82 @@ public class AssistantTurnTest {
         // 但返回的是展开后的新 turn（>1 part，且不含标记）
         assertTrue(split.parts.size() > livePartsBefore);
     }
+
+    /**
+     * 跨模型轮次的工具不能并成一张组卡（2026-10-28）。
+     *
+     * <p>真机会话里连续几轮"只发工具、没有思考"时，旧实现把第 3~7 轮的工具并成一张
+     * {@code 已运行 5 个工具}，同一段里又只给有思考的轮出「已深度思考」行，于是历史看起来
+     * 是 1、2、5、4 这种跳变计数，轮次边界整段消失。轮次键取自 part id 的 {@code T533-R3} 段。</p>
+     */
+    @Test
+    public void toolGroupsDoNotMergeAcrossModelRounds() {
+        AssistantTurn turn = new AssistantTurn();
+        turn.turnId = "T9";
+        AssistantTurn.Part r1c1 = AssistantTurn.Part.toolCall(
+                "T9-R1:tool:c1", "c1", "python_execute", "{}", "done", 1L);
+        AssistantTurn.Part r2c1 = AssistantTurn.Part.toolCall(
+                "T9-R2:tool:c2", "c2", "python_execute", "{}", "done", 2L);
+        AssistantTurn.Part r3c1 = AssistantTurn.Part.toolCall(
+                "T9-R3:tool:c3", "c3", "python_execute", "{}", "done", 3L);
+        // 第 3 轮并行发两个工具：这两个才是同一张组卡
+        AssistantTurn.Part r3c2 = AssistantTurn.Part.toolCall(
+                "T9-R3:tool:c4", "c4", "python_execute", "{}", "done", 4L);
+        turn.parts.add(r1c1);
+        turn.parts.add(AssistantTurn.Part.toolResult(r1c1, "a", 1L));
+        turn.parts.add(r2c1);
+        turn.parts.add(AssistantTurn.Part.toolResult(r2c1, "b", 2L));
+        turn.parts.add(r3c1);
+        turn.parts.add(AssistantTurn.Part.toolResult(r3c1, "c", 3L));
+        turn.parts.add(r3c2);
+        turn.parts.add(AssistantTurn.Part.toolResult(r3c2, "d", 4L));
+
+        AssistantTurn.groupTools(turn);
+
+        java.util.List<AssistantTurn.Part> groups = new ArrayList<>();
+        for (AssistantTurn.Part p : turn.parts) {
+            if (AssistantTurn.Part.TYPE_TOOL_GROUP.equals(p.type)) groups.add(p);
+        }
+        assertEquals("轮 1 / 轮 2 / 轮 3 各一张组卡", 3, groups.size());
+        assertEquals(1, groups.get(0).group.size());
+        assertEquals(1, groups.get(1).group.size());
+        assertEquals("同一轮的并行工具仍折进同一张", 2, groups.get(2).group.size());
+        assertEquals("c3", groups.get(2).group.get(0).toolCallId);
+        assertEquals("c4", groups.get(2).group.get(1).toolCallId);
+    }
+
+    /**
+     * 回写进模型上下文的必须是整条回复（2026-10-28）。
+     *
+     * <p>真机 T534：第 25 轮导语 86 字 + 第 28 轮结论 1101 字，落盘 1189 字；
+     * 但本地上下文只写了流式回调的 fullText（最后一段），开头整段缺失。</p>
+     */
+    @Test
+    public void contextTextKeepsEarlierRoundPreface() {
+        ChatMessage msg = ChatMessage.createAIMessage("a", "旧投影", 1L);
+        msg.turnId = "T9";
+        msg.roundSnapshots = new ArrayList<>();
+        ChatMessage.RoundSnapshot r1 = new ChatMessage.RoundSnapshot(1, "导语：先给你一张主链路图", "", 1L);
+        r1.toolCallIds = new ArrayList<>(Arrays.asList("call_1"));
+        msg.roundSnapshots.add(r1);
+        msg.roundSnapshots.add(new ChatMessage.RoundSnapshot(2, "结论：整体设计清晰", "", 2L));
+
+        // 最后一轮已在快照里：直接取全部正文，不重复拼接
+        assertEquals("导语：先给你一张主链路图\n\n结论：整体设计清晰",
+                AssistantTurn.assembleContextText(msg, "结论：整体设计清晰"));
+    }
+
+    @Test
+    public void contextTextAppendsLastRoundWhenSnapshotIsMissing() {
+        ChatMessage msg = ChatMessage.createAIMessage("a", "旧投影", 1L);
+        msg.turnId = "T9";
+        msg.roundSnapshots = new ArrayList<>();
+        msg.roundSnapshots.add(new ChatMessage.RoundSnapshot(1, "导语", "", 1L));
+
+        // 最后一轮还没进快照：base=导语，tail=结论 → 两段都要
+        assertEquals("导语\n\n结论", AssistantTurn.assembleContextText(msg, "结论"));
+        // 无 tail 时就是全部已落库正文
+        assertEquals("导语", AssistantTurn.assembleContextText(msg, ""));
+        assertEquals("导语", AssistantTurn.assembleContextText(msg, null));
+    }
 }

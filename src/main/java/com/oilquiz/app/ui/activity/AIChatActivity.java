@@ -7672,7 +7672,19 @@ public class AIChatActivity extends BaseActivity {
             if (modelBridge != null && fullText != null && !fullText.trim().isEmpty()) {
                 String userMsg = lastAgentUserMessage;
                 if (userMsg != null) {
-                    modelBridge.appendExternalChatTurn(userMsg, fullText);
+                    // 回写给本地推理上下文的必须是<b>整条回复</b>，不是最后一轮正文：
+                    // fullText 只是最后一段（多轮工具任务里前面几轮的导语会整段丢），
+                    // 真机会话 T534 的本地上下文因此比落盘内容少 88 字（2026-10-28 取证）。
+                    String contextText = fullText;
+                    try {
+                        int aiIdx = resolveStreamingIndex();
+                        if (aiIdx >= 0 && aiIdx < chatHistory.size()) {
+                            contextText = com.oilquiz.app.ai.chat.turn.AssistantTurn
+                                    .assembleContextText(chatHistory.get(aiIdx), fullText);
+                        }
+                    } catch (Throwable ignore) {
+                    }
+                    modelBridge.appendExternalChatTurn(userMsg, contextText);
                     lastAgentUserMessage = null;
                 }
             } else if (modelBridge != null) {
