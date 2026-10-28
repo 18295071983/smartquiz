@@ -1,5 +1,61 @@
 # 变更日志
 
+<<<<<<< HEAD
+=======
+## [2026-10-29] feat(tool-registry)：别名可被工具发现检出，get 按命中方式自曝身份
+
+外部评审 REVIEW-2026-1029-01 复核后的结论：`get(python_file_ops)` 走的**不是模糊路由**，而是
+`AIToolManager.resolveToolAlias` 里 2026-10-28 改名留的**硬别名**（`python_file_ops → document_parser`）；
+报告说的"数据丢失链路"也已被 `DocumentParserTool.removedActionMessage` 堵住（write/append/edit/replace/diff
+显式报错并点名 file_generator，有 `DocumentParserReadOnlyTest` 覆盖）。**报告说对的三处，本轮改掉：**
+
+- **措辞分档**：新增 `AIToolManager.resolveTool()` 返回 `NameMatch{EXACT|ALIAS|NORMALIZED|FUZZY|NONE}`
+  （只比较结果字符串，不复制搜索逻辑，两边不会漂移）；`tool_registry(action=get)` 输出 `matched_by`，
+  **只有精确命中**才说"已加载完整定义（下一轮可直接调用）"，别名/回退必须明说是替换的结果。
+- **get 带上工具级 `description` + `aliases`**：拦截乱调靠的是描述里那句"**不写文件**——写/追加/改/看差异
+  请用 `file_generator`"，不是等执行期报错。参数描述 80→160 字并带 `description_truncated`，
+  有枚举值就单列 `enum`（不再把 `file_generator.action` 的枚举切尾）。
+- **别名进发现通道**：`list(keyword=旧名)` 能筛出、`search(旧名)` 命中并回显
+  `matched=alias` + `matched_alias`（排在名字命中之后、描述命中之前），消掉"搜不到却 get 得到"的自相矛盾。
+  别名来源是单一权威：`@Tool(aliases)` 注解 + `LEGACY_NAMES` 改名链反向表（与 `resolveToolAlias` 同步）。
+- `document_parser` 与旧名别名**保留**——read/parse 仍是它独有的能力（Python 侧 RFC4180 + openpyxl/docx/pptx/pypdf）。
+- 测试：新增 `ToolRegistryAliasVisibilityTest` 9 条（EXACT/ALIAS 判定、旧名 get 不含"已加载完整定义"、
+  description 指向 file_generator、search/list 检出别名、措辞四档文案）。
+  全量 **1268 tests / 0 skipped / 0 failures / 0 errors**（+9），`assembleDebug` 通过。
+
+未采纳：报告 P1-③"把别名目标改成 file_generator"（会把旧会话的 read/parse 指错方向）、
+P1-④"阈值提到 0.8"（这条路径是精确别名，没有阈值可言）。
+仍开放（P2）：`searchToolNamesByKeyword` 的候选按注册顺序截断、无打分排序（`ops` 的"相近工具"不相关）；
+`file_write_rules.md` 是设备上工作区自生成的知识文档（仓库里没有），要治得在写入侧加工具名校验。
+
+## [2026-10-29] refactor(chat)：AI 对话侧清掉 8,873 行死代码（分支 `chore/chat-dead-code-cleanup`，未并 main）
+
+详见 `docs/chat-dead-code-cleanup-2026-10-29.md`。10 个代码提交（本条文档提交另计）、148 文件、−8,873 / +8，
+不改推理链路、不改现役数据模型、不改 UI 视觉。
+
+- **删的类别**：16 个零引用死类（`WeatherBannerController` 594、`GenerationStreamController` 405、
+  `AgentSessionView` 328…）；`StreamingEvent`+`NativeEvent` 两条**全仓无一处 new** 的事件通道；
+  242 段零调用方法（先"名字全局"138 段，再"按接收者类型"104 段）；`DemoChatShellActivity`；
+  `ChatShellView` 整页壳及其独占的 `ChatMessagesView`/`ChatStateOverlay`；四个无生产者的
+  MessageType（TASK_BREAKDOWN/TASK_PROGRESS/SUMMARY/AGENT_REFLECTION）+ 后来发现同样断供的
+  **AGENT_STEP 整条链**（回调接口→发射→ViewHolder→布局）；50 个未引用布局/drawable；
+  以及每轮删除自身留下的级联残骸（`ChatMessageDiffCallback`、多选/筛选字段、6 个 drawable）。
+- **判定口径与四个坑写进文档了**，下次别重新讨论：点号后视 `(?<![\w$.])` 会把 `obj.foo()` /
+  `R.layout.x` 全排除（制造大面积假死）；漏算 `::` 方法引用（7 个活方法差点被删）；
+  变量类型表必须按文件作用域（全局表被 `it`/`views` 这类短名污染）；`BUILD SUCCESSFUL in 2s`
+  可能是 `FROM-CACHE` 不是重跑。
+- **最终靠编译器当裁判**：候选全删 → `compileDebugJavaWithJavac`（设 `-Duser.language=en`
+  避开 GBK 吞错）→ 从 `cannot find symbol` 提取方法名按名恢复 → 重复到干净，6 轮收敛，
+  216 段候选净删 104 段，102 个方法名被保住。
+- **验证**：`--no-build-cache --rerun-tasks` 真跑 168 套件 / 1259 tests / 0 skipped / 0 failures；
+  `main` 基线同数（`git diff main..HEAD` 不含任何测试文件，故可对比）；`assembleDebug` 通过；
+  已装机 25113PN0EC，本地与设备 `base.apk` md5 一致 `874ccc48…`；包体内 25 个已删类
+  dex 描述符归 0、现役类正向命中 >0。
+- **刻意没动**：11 段（12 个名字）"仅单测在用"的方法（删它要连测试一起删，待拍板）；全仓其余 163 个
+  不可达类（`ai/tool`、`ai/python`、`ai/importing`，非对话范围）；WebView 壳里
+  `assets/pages/ai-chat.html` 那套并行 UI；5 个可回退 `*Flag`。
+
+>>>>>>> 6eb09036 (feat(tool-registry)：别名可被检出、get 自曝命中方式（评审 REVIEW-2026-1029-01）)
 ## [2026-10-28] docs(knowledge)：补"何时该换 FTS5"的判据（避免以后凭感觉反复讨论）
 
 `docs/knowledge_base.md` 新增第六节：

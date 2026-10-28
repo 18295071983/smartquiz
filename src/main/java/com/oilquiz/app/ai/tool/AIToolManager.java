@@ -739,6 +739,88 @@ public class AIToolManager {
         return name;
     }
 
+    /** 改名链的反向表：现名 → 硬编码历史名（{@link #resolveToolAlias} 的镜像，两处必须同步）。 */
+    private static final java.util.Map<String, java.util.List<String>> LEGACY_NAMES;
+    static {
+        java.util.Map<String, java.util.List<String>> m = new java.util.LinkedHashMap<>();
+        m.put("document_parser", java.util.Arrays.asList("python_file_ops", "python文件", "py_file"));
+        m.put("ui_component", java.util.Arrays.asList("system_ui_control", "ui_control"));
+        LEGACY_NAMES = java.util.Collections.unmodifiableMap(m);
+    }
+
+    /** 别名/历史名 → 现名；就是 {@link #resolveToolAlias} 的公开只读面（单一权威，别再抄一份）。 */
+    public static String canonicalForAlias(String name) {
+        return resolveToolAlias(name);
+    }
+
+    /**
+     * 某工具的别名：{@code @Tool(aliases)} 注解 + {@link #LEGACY_NAMES} 改名链反向表。
+     * 用途是<b>让别名可被工具发现（list/search）检出</b>——否则模型 {@code search(旧名)} 得 0 条，
+     * {@code get(旧名)} 却"成功"，两边自相矛盾，它就没机会怀疑自己猜错了名字（2026-10-29 评审）。
+     */
+    public java.util.List<String> aliasesOf(String toolName) {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        try {
+            Class<? extends AITool> cls = getToolClass(toolName);
+            if (cls != null) {
+                com.oilquiz.app.ai.tool.annotation.Tool ann =
+                        cls.getAnnotation(com.oilquiz.app.ai.tool.annotation.Tool.class);
+                if (ann != null) {
+                    for (String s : ann.aliases()) {
+                        if (s != null && !s.isEmpty() && !s.equals(toolName)) out.add(s);
+                    }
+                }
+            }
+        } catch (Throwable ignore) {
+            // 注解读不到只剩改名链别名，不能因此抛错
+        }
+        java.util.List<String> legacy = LEGACY_NAMES.get(toolName);
+        if (legacy != null) out.addAll(legacy);
+        return new java.util.ArrayList<>(out);
+    }
+
+    /** 名字解析的命中方式（2026-10-29 评审：路由可以猜，但输出必须自曝身份）。 */
+    public enum NameMatch { EXACT, ALIAS, NORMALIZED, FUZZY, NONE }
+
+    /** 解析结果：真实注册名 + 命中方式。 */
+    public static final class NameResolution {
+        public final String tool;
+        public final NameMatch match;
+        NameResolution(String tool, NameMatch match) {
+            this.tool = tool;
+            this.match = match;
+        }
+        public boolean found() { return tool != null; }
+    }
+
+    /**
+     * 解析工具名并<b>标注命中方式</b>——{@link #resolveToolNameFuzzy} 的升级版：
+     * 调用方（{@code tool_registry(action=get)}、引擎名字归一）必须能区分
+     * "这就是注册名" / "旧名别名" / "规范化写法不同" / "我猜的最相近"，
+     * 否则会把我猜的结果用"已加载完整定义"的措辞交付给模型。
+     *
+     * <p>分类只比较结果字符串，不复制 {@code resolveToolNameFuzzy} 的搜索逻辑，
+     * 所以两边不会漂移。</p>
+     */
+    public NameResolution resolveTool(String input) {
+        String resolved = resolveToolNameFuzzy(input);
+        if (resolved == null) return new NameResolution(null, NameMatch.NONE);
+        String trimmed = input == null ? "" : input.trim();
+        if (trimmed.equals(resolved)) {
+            if (toolFactories.containsKey(trimmed) || dynamicTools.containsKey(trimmed)) {
+                return new NameResolution(resolved, NameMatch.EXACT);
+            }
+            if (normalizeToolName(trimmed).equals(normalizeToolName(resolved))) {
+                return new NameResolution(resolved, NameMatch.NORMALIZED);
+            }
+            return new NameResolution(resolved, NameMatch.FUZZY);
+        }
+        if (resolveToolAlias(trimmed).equals(resolved)) {
+            return new NameResolution(resolved, NameMatch.ALIAS);
+        }
+        return new NameResolution(resolved, NameMatch.FUZZY);
+    }
+
     /**
      * 模糊工具名解析：本地 4B 模型经常把工具名猜错（缩写/中文/漏前缀/大小写/连字符），
      * 例如 "weather"→ai_weather、"text-tools"→text_tools、"画图"→image_gen、"python 画图"→python_chart。
