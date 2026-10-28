@@ -16,12 +16,9 @@ import java.util.UUID;
  * - AI: AI回复消息
  * - SYSTEM: 系统消息
  * - THINKING: 思考过程消息
- * - TASK_BREAKDOWN: 任务分解消息
- * - TASK_PROGRESS: 任务执行进度消息
  *
  * 特点：
  * - 支持思考过程可视化
- * - 支持任务分解步骤显示
  * - 支持附件
  * - 支持消息状态跟踪
  */
@@ -33,14 +30,10 @@ public class ChatMessage {
         AI,
         SYSTEM,
         THINKING,
-        TASK_BREAKDOWN,
-        TASK_PROGRESS,
         TOOL_CALL,
         TOOL_RESULT,
         AGENT_STEP,
         AGENT_SUMMARY,
-        AGENT_REFLECTION,
-        SUMMARY,
         ERROR
     }
 
@@ -530,14 +523,6 @@ public class ChatMessage {
     /** 引用回复的目标消息摘要（UI 展示用；运行时字段） */
     public transient String quotePreview;
 
-    /** Agent反思信息 */
-    public AgentReflectionInfo agentReflectionInfo;
-
-    /** 总结信息 */
-    public SummaryInfo summaryInfo;
-
-    /** 任务进度（0-100） */
-    public Integer taskProgress;
 
     /** 推理进度信息 */
     public InferenceProgress inferenceProgress;
@@ -863,42 +848,6 @@ public class ChatMessage {
             } else {
                 return String.format("%dm %ds", totalTimeMs / 60000, (totalTimeMs % 60000) / 1000);
             }
-        }
-    }
-
-    public static class AgentReflectionInfo {
-        public String analysis;
-        public String improvements;
-        public boolean retrySuggested;
-        public int score;
-        public String suggestions;
-
-        public AgentReflectionInfo(String analysis) {
-            this.analysis = analysis;
-            this.improvements = "";
-            this.retrySuggested = false;
-            this.score = 0;
-        }
-    }
-
-    public static class SummaryInfo {
-        public int stepsCount;
-        public long totalTimeMs;
-        public String keyPoints;
-        public String nextSteps;
-
-        public SummaryInfo() {
-            this.stepsCount = 0;
-            this.totalTimeMs = 0;
-            this.keyPoints = "";
-            this.nextSteps = "";
-        }
-
-        public SummaryInfo(int stepsCount, long totalTimeMs) {
-            this.stepsCount = stepsCount;
-            this.totalTimeMs = totalTimeMs;
-            this.keyPoints = "";
-            this.nextSteps = "";
         }
     }
 
@@ -1628,8 +1577,6 @@ public class ChatMessage {
                 return "user";
             case AI:
             case THINKING:
-            case TASK_BREAKDOWN:
-            case TASK_PROGRESS:
             case TOOL_CALL:
             case AGENT_STEP:
                 return "assistant";
@@ -1700,9 +1647,6 @@ public class ChatMessage {
             .agentStepInfo(this.agentStepInfo)
             .agentSummaryInfo(this.agentSummaryInfo)
             .agentProgressInfo(this.agentProgressInfo)
-            .agentReflectionInfo(this.agentReflectionInfo)
-            .summaryInfo(this.summaryInfo)
-            .taskProgress(this.taskProgress)
             .expanded(this.isExpanded)
             .errorDetail(this.errorDetail)
             .retryable(this.retryable)
@@ -1734,14 +1678,11 @@ public class ChatMessage {
         private AgentStepInfo agentStepInfo;
         private AgentSummaryInfo agentSummaryInfo;
         private AgentProgressInfo agentProgressInfo;
-        private AgentReflectionInfo agentReflectionInfo;
         private boolean agentMode;
         private AgentExecutionState agentExecutionState;
-        private SummaryInfo summaryInfo;
         private String errorDetail;
         private boolean retryable = false;
         private boolean voiceInput;
-        private Integer taskProgress;
         private boolean isExpanded = false;
         private String agentGroupId;
         private InferenceProgress inferenceProgress;
@@ -1851,21 +1792,6 @@ public class ChatMessage {
             return this;
         }
 
-
-        public Builder agentReflectionInfo(AgentReflectionInfo agentReflectionInfo) {
-            this.agentReflectionInfo = agentReflectionInfo;
-            return this;
-        }
-
-        public Builder summaryInfo(SummaryInfo summaryInfo) {
-            this.summaryInfo = summaryInfo;
-            return this;
-        }
-
-        public Builder taskProgress(Integer taskProgress) {
-            this.taskProgress = taskProgress;
-            return this;
-        }
 
         public Builder expanded(boolean expanded) {
             this.isExpanded = expanded;

@@ -170,17 +170,6 @@ public class ChatDialogHelper {
         exportContent.append("# AI 对话总结\n\n");
         exportContent.append("生成时间: ").append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date())).append("\n");
 
-        if (summaryMessage.summaryInfo != null) {
-            ChatMessage.SummaryInfo summaryInfo = summaryMessage.summaryInfo;
-            exportContent.append("步骤数量: ").append(summaryInfo.stepsCount).append("\n");
-            exportContent.append("总耗时: ").append(summaryInfo.totalTimeMs).append("ms\n");
-            if (summaryInfo.keyPoints != null && !summaryInfo.keyPoints.isEmpty()) {
-                exportContent.append("\n## 关键要点\n").append(summaryInfo.keyPoints).append("\n");
-            }
-            if (summaryInfo.nextSteps != null && !summaryInfo.nextSteps.isEmpty()) {
-                exportContent.append("\n## 后续建议\n").append(summaryInfo.nextSteps).append("\n");
-            }
-        }
         exportContent.append("\n## 总结内容\n\n").append(summaryMessage.content != null ? summaryMessage.content : "");
 
         final String finalContent = exportContent.toString();

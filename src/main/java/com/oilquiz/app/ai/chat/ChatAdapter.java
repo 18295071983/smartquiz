@@ -72,7 +72,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private static final int VIEW_TYPE_AGENT_STEP = 6;
     private static final int VIEW_TYPE_AGENT_SUMMARY = 7;
     private static final int VIEW_TYPE_ERROR = 8;
-    private static final int VIEW_TYPE_AGENT_REFLECTION = 10;
     /** 上下文注入行（记忆/任务/工具目录等系统注入内容的展示条，点击看全文） */
     private static final int VIEW_TYPE_CONTEXT_INJECTION = 13;
     /** 系统提示词行（system prompt 变更记录/全文展示，点击看全文） */
@@ -323,17 +322,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return VIEW_TYPE_SYSTEM;
             case THINKING:
                 return VIEW_TYPE_THINKING;
-            case TASK_BREAKDOWN:
-            case TASK_PROGRESS:
-            case SUMMARY:
-                // 合并显示：这些类型无消息产生（遗留），统一用系统消息样式展示
-                return VIEW_TYPE_SYSTEM;
             case AGENT_SUMMARY:
                 // Agent 执行汇总：独立卡片（耗时/步骤/工具/Token）
                 return VIEW_TYPE_AGENT_SUMMARY;
-            case AGENT_REFLECTION:
-                // Agent 反思：独立卡片（反思总结/改进方向）
-                return VIEW_TYPE_AGENT_REFLECTION;
             case TOOL_CALL:
             case TOOL_RESULT:
                 // 合并显示：工具调用与结果统一用工具卡片渲染
@@ -374,8 +365,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return new AgentSummaryViewHolder(inflater.inflate(R.layout.item_agent_summary_message, parent, false));
             case VIEW_TYPE_ERROR:
                 return new ErrorMessageViewHolder(inflater.inflate(R.layout.item_error_message, parent, false));
-            case VIEW_TYPE_AGENT_REFLECTION:
-                return new AgentReflectionViewHolder(inflater.inflate(R.layout.item_agent_reflection_message, parent, false));
             default:
                 return new SystemMessageViewHolder(inflater.inflate(R.layout.item_system_message, parent, false));
         }
@@ -821,9 +810,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 break;
             case VIEW_TYPE_ERROR:
                 bindErrorMessage((ErrorMessageViewHolder) holder, message);
-                break;
-            case VIEW_TYPE_AGENT_REFLECTION:
-                bindAgentReflectionMessage((AgentReflectionViewHolder) holder, message);
                 break;
         }
         if (holder instanceof AIMessageViewHolder) {
@@ -4748,100 +4734,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
-    private void bindAgentReflectionMessage(AgentReflectionViewHolder holder, ChatMessage message) {
-        ChatMessage.AgentReflectionInfo reflection = message.agentReflectionInfo;
-        if (reflection == null) return;
-
-        holder.reflectionIcon.setText("🔍");
-        holder.reflectionLabel.setText(SmartQuizApplication.getAppContext().getString(R.string.h_c086bda6));
-
-        if (reflection.analysis != null && !reflection.analysis.isEmpty()) {
-            holder.reflectionAnalysis.setText(reflection.analysis);
-        }
-
-        if (reflection.improvements != null && !reflection.improvements.isEmpty()) {
-            holder.reflectionImprovements.setVisibility(View.VISIBLE);
-            holder.reflectionImprovements.setText(SmartQuizApplication.getAppContext().getString(R.string.h_ecbc64cc) + reflection.improvements);
-        } else {
-            holder.reflectionImprovements.setVisibility(View.GONE);
-        }
-
-        if (reflection.retrySuggested) {
-            holder.btnRetrySuggestion.setVisibility(View.VISIBLE);
-            holder.btnRetrySuggestion.setOnClickListener(v -> {
-                if (retryClickListener != null) {
-                    retryClickListener.onRetry(message.id);
-                }
-                // 同步通知 Agent 端：用户点击了"按建议重试"
-                ComponentActions.dispatchChatAction(v.getContext(), "retry_suggested:" + message.id);
-            });
-        } else {
-            holder.btnRetrySuggestion.setVisibility(View.GONE);
-        }
-
-        // 评分 progress_ring + suggestions 表格挂在 reflectionImprovements 之后
-        attachReflectionExtras(holder, message, reflection);
-    }
-
-    /**
-     * 反思附加视图：
-     *  - score (0-100) 用 progress_ring 可视化
-     *  - suggestions 用 list_card 组件展示（若为分点文本）
-     * 挂载在 reflectionImprovements 之后（tag=reflection_extras_slot），复用时清理。
-     */
-    private void attachReflectionExtras(AgentReflectionViewHolder holder, ChatMessage message,
-                                         ChatMessage.AgentReflectionInfo reflection) {
-        android.view.View anchor = holder.reflectionImprovements != null
-                ? holder.reflectionImprovements : holder.reflectionAnalysis;
-        if (anchor == null || !(anchor.getParent() instanceof android.view.ViewGroup)) return;
-        android.view.ViewGroup parent = (android.view.ViewGroup) anchor.getParent();
-        View old = parent.findViewWithTag("reflection_extras_slot");
-        if (old != null) parent.removeView(old);
-        if (reflection.score <= 0 && (reflection.suggestions == null || reflection.suggestions.isEmpty())) {
-            return;
-        }
-        try {
-            android.widget.LinearLayout slot = new android.widget.LinearLayout(parent.getContext());
-            slot.setOrientation(android.widget.LinearLayout.VERTICAL);
-            slot.setTag("reflection_extras_slot");
-            if (reflection.score > 0) {
-                org.json.JSONObject ringProps = new org.json.JSONObject()
-                        .put("value", reflection.score)
-                        .put("max", 100)
-                        .put("label", "评分 " + reflection.score + "/100");
-                View ring = ComponentRegistry.getInstance().render(parent.getContext(),
-                        new ComponentData("progress_ring", ringProps));
-                if (ring != null) {
-                    slot.addView(ring, new android.widget.LinearLayout.LayoutParams(
-                            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
-                }
-            }
-            if (reflection.suggestions != null && !reflection.suggestions.isEmpty()) {
-                org.json.JSONArray items = new org.json.JSONArray();
-                for (String line : reflection.suggestions.split("\\n+")) {
-                    String t = line.trim();
-                    if (!t.isEmpty()) items.put(t);
-                }
-                if (items.length() > 0) {
-                    org.json.JSONObject listProps = new org.json.JSONObject()
-                            .put("title", "改进建议")
-                            .put("items", items);
-                    View list = ComponentRegistry.getInstance().render(parent.getContext(),
-                            new ComponentData("list_card", listProps));
-                    if (list != null) {
-                        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
-                                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
-                        lp.topMargin = dpToPx(6, parent.getContext());
-                        slot.addView(list, lp);
-                    }
-                }
-            }
-            int idx = parent.indexOfChild(anchor);
-            parent.addView(slot, idx + 1);
-        } catch (Throwable ignored) {}
-    }
 
     private void bindAgentSummaryMessage(AgentSummaryViewHolder holder, ChatMessage message) {
         ChatMessage.AgentSummaryInfo summary = message.agentSummaryInfo;
@@ -5481,14 +5373,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
 
         void bind(ChatMessage message) {
-            // 构建标签文字：与 AI 消息内嵌思考区一致的"💭 思考过程"；Agent 多轮思考附加轮次
-            String label;
-            boolean isAgentRound = message.agentMode && message.taskProgress != null && message.taskProgress > 0;
-            if (isAgentRound) {
-                label = SmartQuizApplication.getAppContext().getString(R.string.h_8aaa43c5) + message.taskProgress + SmartQuizApplication.getAppContext().getString(R.string.h_ad32c319);
-            } else {
-                label = "💭 思考过程";
-            }
+            // 标签文字：与 AI 消息内嵌思考区一致
+            String label = "💭 思考过程";
 
             // 处理思考内容（displayContent/processing 提升到方法级，供折叠点击监听器复用）
             String displayContent = "";
@@ -5646,22 +5532,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
-    static class AgentReflectionViewHolder extends RecyclerView.ViewHolder {
-        TextView reflectionIcon;
-        TextView reflectionLabel;
-        TextView reflectionAnalysis;
-        TextView reflectionImprovements;
-        Button btnRetrySuggestion;
-
-        AgentReflectionViewHolder(View itemView) {
-            super(itemView);
-            reflectionIcon = itemView.findViewById(R.id.reflection_icon);
-            reflectionLabel = itemView.findViewById(R.id.reflection_label);
-            reflectionAnalysis = itemView.findViewById(R.id.reflection_analysis);
-            reflectionImprovements = itemView.findViewById(R.id.reflection_improvements);
-            btnRetrySuggestion = itemView.findViewById(R.id.btn_retry_suggestion);
-        }
-    }
 
     static class AgentSummaryViewHolder extends RecyclerView.ViewHolder {
         TextView summaryTitle;
