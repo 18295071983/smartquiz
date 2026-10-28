@@ -9125,7 +9125,9 @@ public class AIChatActivity extends BaseActivity {
             // 组件暂存缓存同步清除（2026-09-14）：防止上一轮/上一会话残留组件
             // 在下一轮 drain 时混入，导致组件 id 冲突/旧组件串新回合
             com.oilquiz.app.ai.chat.component.ComponentCollector.clear();
-            // ID 派发器重置：对话历史清空，主/子 id 从 T1 重新发放
+            // ID 派发器只丢"当前回合"锚点：主/子 id 都<b>不</b>回收，也不清子桶——
+            // 清掉的会话进了回收站、随时会被恢复（消息上还带着 T533-C1…），
+            // 回收号码会让恢复后的旧回合补发/迟到回调与磁盘上的 id 重号（2026-10-28）
             ChatIdDispatcher.getInstance().reset();
             // 后台产出留痕一并清空（旧会话的产出不该在回前台时冒出来）
             com.oilquiz.app.ai.agent.WorkspaceActivityLog.getInstance().clear();

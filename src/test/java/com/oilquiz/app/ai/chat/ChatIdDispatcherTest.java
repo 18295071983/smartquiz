@@ -96,7 +96,7 @@ public class ChatIdDispatcherTest {
         org.junit.Assert.assertEquals(turn + "-C1", c1);
         org.junit.Assert.assertEquals(turn + "-C3", c3);
 
-        d.reset();   // 模拟重启/清空：子计数桶被清掉（主 id 不回收）
+        d.reset();   // 模拟重启/清空：主 id 不回收（2026-10-28 起子桶也不再清）
 
         int adopted = d.adoptIds(Arrays.asList(c1, c2, c3, turn + "-A1", turn + "-K2", null, "脏数据"));
         org.junit.Assert.assertEquals("三个组件 id 加消息/思考轮 id 都应认领成功", 5, adopted);
@@ -133,5 +133,62 @@ public class ChatIdDispatcherTest {
         org.junit.Assert.assertFalse(d.adoptId("T7-XYZ"));
         org.junit.Assert.assertFalse(d.adoptId("abc"));
         org.junit.Assert.assertFalse("主 id 自己没有类型码，不算子 id", d.adoptId(turn));
+    }
+
+    // ---- 2026-10-28：清空 → 新建 → 从回收站恢复，不能重发子 id ------------------
+
+    /**
+     * 清空全部历史（会话进回收站）之后，旧回合并没有消失——恢复回来时消息上还带着
+     * {@code Tn-C1…}。旧实现 {@code reset()} 会清空子桶，于是清空之后任何针对旧回合的要号
+     * （迟到的异步回调、恢复后的补发）都从 {@code C1} 重来，与磁盘上的 {@code Tn-C1} 撞车。
+     */
+    @Test
+    public void resetKeepsSubBucketsSoRestoredTurnsAreNotReissued() {
+        ChatIdDispatcher d = ChatIdDispatcher.getInstance();
+        String turn = d.applyMasterId();
+        String c1 = d.applySubId(ChatIdDispatcher.IdType.COMPONENT, turn);
+        String c2 = d.applySubId(ChatIdDispatcher.IdType.COMPONENT, turn);
+        org.junit.Assert.assertEquals(turn + "-C1", c1);
+        org.junit.Assert.assertEquals(turn + "-C2", c2);
+
+        d.reset();   // 清空全部历史：主 id 与子桶都不能回收
+
+        // 恢复回来的旧回合再要号（补发/迟到回调），必须接着 C3 走，不能重发 C1/C2
+        String afterRestore = d.applySubId(ChatIdDispatcher.IdType.COMPONENT, turn);
+        org.junit.Assert.assertEquals(turn + "-C3", afterRestore);
+        org.junit.Assert.assertNotEquals(c1, afterRestore);
+        org.junit.Assert.assertNotEquals(c2, afterRestore);
+    }
+
+    /**
+     * 用户给的完整序列：清空 → 新建一条对话 → 再从回收站恢复。
+     * 新对话拿新主 id，恢复的旧回合沿用原 id，两边都不许重号。
+     */
+    @Test
+    public void clearThenNewConversationThenRestoreNeverRepeatsIds() {
+        ChatIdDispatcher d = ChatIdDispatcher.getInstance();
+
+        // 旧会话：T(n)、一个组件
+        String oldTurn = d.applyMasterId();
+        String oldComponent = d.applySubId(ChatIdDispatcher.IdType.COMPONENT, oldTurn);
+
+        d.reset();                                    // 清空所有历史（旧会话进回收站）
+
+        String newTurn = d.applyMasterId();           // 新建对话并发言
+        String newComponent = d.applySubId(ChatIdDispatcher.IdType.COMPONENT, newTurn);
+        org.junit.Assert.assertNotEquals("新会话不能拿到旧会话的 turnId", oldTurn, newTurn);
+        org.junit.Assert.assertNotEquals(oldComponent, newComponent);
+
+        // 从回收站恢复旧会话：恢复出口会把旧 message/sub id 认领回来
+        d.seedFromTurnIds(Arrays.asList(oldTurn, newTurn));
+        d.adoptIds(Arrays.asList(oldComponent));
+
+        String reissuedOld = d.applySubId(ChatIdDispatcher.IdType.COMPONENT, oldTurn);
+        org.junit.Assert.assertNotEquals("恢复后旧回合不能重发已有组件 id", oldComponent, reissuedOld);
+        org.junit.Assert.assertEquals(oldTurn + "-C2", reissuedOld);
+
+        String nextTurn = d.applyMasterId();
+        org.junit.Assert.assertNotEquals(oldTurn, nextTurn);
+        org.junit.Assert.assertNotEquals(newTurn, nextTurn);
     }
 }
