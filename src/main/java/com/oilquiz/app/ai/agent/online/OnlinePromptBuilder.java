@@ -171,7 +171,7 @@ public class OnlinePromptBuilder {
             sb.append("【工具使用规范】\n");
             sb.append("1. 通过原生 function calling 调用工具，系统会自动执行并将结果返回。\n");
             sb.append("2. 只调用【本提示词注入的工具】；若需要的工具未注入（如 ai_weather、file_generator、python_execute、export_apk 等），先调用 tool_registry 发现（见下），系统会自动加载该工具定义，之后即可直接调用。\n");
-            sb.append("3. 工具可组合使用：无依赖的可并行；有依赖、或同一执行引擎（如 Termux 命令，并发会串输出）必须串行，等前一个返回再调。\n");
+            sb.append("3. 工具可组合使用：无依赖的可并行；有依赖的必须串行，等前一个返回再调。\n");
             sb.append("4. 工具失败时分析原因：参数错误则修正重试，工具不适用则更换工具。\n");
             sb.append("5. 同一工具连续失败2次应更换策略或向用户澄清。\n\n");
             // 【工具目录】候选清单按 CORE_TOOLS 过滤，核心工具绝不再被列成"未注入"——
