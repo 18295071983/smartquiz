@@ -35,9 +35,6 @@ public class HtmlWebView extends WebView implements ComponentLifecycle.Releasabl
         setHorizontalScrollBarEnabled(true);
     }
 
-    public HtmlSandbox.Trust getTrust() {
-        return trust;
-    }
 
     /** 记录桥对象，release 时移除（只有 LOCAL_FILE 档会挂桥） */
     public void setBridge(Object bridge, String name) {

@@ -113,15 +113,6 @@ public class ChatModeManager {
             this.icon = icon;
         }
 
-        public static ChatMode fromModeId(String modeId) {
-            if (modeId == null) return NORMAL;
-            for (ChatMode mode : values()) {
-                if (mode.modeId.equals(modeId)) {
-                    return mode;
-                }
-            }
-            return NORMAL;
-        }
     }
 
     private static ChatModeManager instance;
@@ -226,17 +217,6 @@ public class ChatModeManager {
         return currentEffort();
     }
 
-    /**
-     * 设置思考强度档位（枚举入口，持久化）。返回与设置前相比是否发生变化。
-     *
-     * <p>这是"深度思考"的**唯一事实源**：{@code none} 即关闭，其余即开启并指定强度；
-     * 旧的布尔开关 API 由它派生，保证两套调用方看到同一状态。</p>
-     */
-    public boolean setThinkingEffort(ThinkingEffort effort) {
-        if (effort == null) effort = ThinkingEffort.HIGH;
-        return setThinkingEffortWire(effort.wireValue);
-    }
-
     // ==================== 深度思考开关（派生自强度档位） ====================
 
     /** 档位的枚举视图（永不为 null）：未收录的私有取值回落为 HIGH */
@@ -274,11 +254,6 @@ public class ChatModeManager {
     /** 兼容：当前模式（NORMAL=关，DEEP_THINKING=开） */
     public ChatMode getCurrentMode() {
         return isDeepThinkingEnabled() ? ChatMode.DEEP_THINKING : ChatMode.NORMAL;
-    }
-
-    /** 兼容：手动切换模式（映射到开关状态） */
-    public void setManualMode(ChatMode mode) {
-        setDeepThinkingEnabled(mode == ChatMode.DEEP_THINKING);
     }
 
     /**

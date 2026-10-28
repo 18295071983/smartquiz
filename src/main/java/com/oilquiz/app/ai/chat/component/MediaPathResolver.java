@@ -116,13 +116,6 @@ public final class MediaPathResolver {
         return candidate.isFile() ? candidate : null;
     }
 
-    /** 是否远程/媒体库地址（调用方据此决定走 Glide/系统还是本地解码） */
-    public static boolean isRemoteOrContent(String url) {
-        if (url == null) return false;
-        String u = url.trim();
-        return u.startsWith("http://") || u.startsWith("https://") || u.startsWith("content://");
-    }
-
     // ==================== 条目定位（name + path 一条记录） ====================
 
     /**

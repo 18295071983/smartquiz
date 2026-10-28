@@ -39,15 +39,4 @@ public final class ChatNavigation {
                 | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         ctx.startActivity(intent);
     }
-
-    /**
-     * 通知的 PendingIntent 用的 Intent（调用方自己再 {@code addFlags(NEW_TASK)} 或按需组合）。
-     * 集中放这里，避免通知入口漏掉去重标志——那两个入口此前只有 SINGLE_TOP，
-     * 而 SINGLE_TOP 只在"已在栈顶"时才生效，从通知进同样会叠实例。
-     */
-    public static Intent chatIntent(Context ctx) {
-        Intent intent = new Intent(ctx, AIChatActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        return intent;
-    }
 }

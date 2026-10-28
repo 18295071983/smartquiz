@@ -365,11 +365,6 @@ public final class ComponentTypes {
         return ALIAS.get(type);
     }
 
-    /** 注册表实际存放该组件用的 key（canonical → 原生实现的类型名） */
-    public static String targetKey(String canonical) {
-        return CANONICAL_TARGET.getOrDefault(canonical, canonical);
-    }
-
     /** 是否面向模型的 canonical 类型 */
     public static boolean isCanonical(String type) {
         return CANONICAL_TARGET.containsKey(type);
@@ -400,16 +395,5 @@ public final class ComponentTypes {
             }
         }
         return out;
-    }
-
-    /** 目录的一行式文本（提示词/工作区速查表用） */
-    public static String catalogLine() {
-        StringBuilder sb = new StringBuilder();
-        for (Map.Entry<String, String[]> e : SCHEMA.entrySet()) {
-            sb.append(e.getKey()).append('(').append(e.getValue()[1]);
-            if (!e.getValue()[2].isEmpty()) sb.append(" / ").append(e.getValue()[2]);
-            sb.append(") ");
-        }
-        return sb.toString().trim();
     }
 }

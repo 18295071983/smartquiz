@@ -105,17 +105,11 @@ public class ChatMessage {
             this.emoji = emoji;
         }
 
-        public String getDisplayText() {
-            return displayText;
-        }
 
         public String getEmoji() {
             return emoji;
         }
 
-        public String getFullDisplay() {
-            return emoji + " " + displayText;
-        }
 
         public boolean isProcessing() {
             return this != IDLE && this != COMPLETED && this != FAILED;
@@ -158,17 +152,7 @@ public class ChatMessage {
             this.additionalInfo = "";
         }
 
-        public String getEstimatedTimeFormatted() {
-            if (estimatedRemainingMs <= 0) return "";
-            long seconds = (estimatedRemainingMs + 500) / 1000;
-            if (seconds < 60) return seconds + "秒";
-            return (seconds / 60) + "分" + (seconds % 60) + "秒";
-        }
 
-        public int getPercentage() {
-            if (totalTokens <= 0) return 0;
-            return Math.min(100, (processedTokens * 100) / totalTokens);
-        }
     }
 
     /** 消息唯一ID */
@@ -885,12 +869,6 @@ public class ChatMessage {
             this.currentPhase = "思考";
         }
 
-        public String getProgressText() {
-            if (totalSteps > 0) {
-                return "步骤 " + currentStep + "/" + totalSteps + " - " + currentPhase;
-            }
-            return currentPhase;
-        }
 
         public String getFormattedTime() {
             if (totalTimeMs < 1000) {
@@ -1046,25 +1024,9 @@ public class ChatMessage {
             }
         }
 
-        public ThinkingStep withStatus(ThinkingStepStatus status) {
-            this.status = status;
-            return this;
-        }
 
-        public ThinkingStep withStartTime(long time) {
-            this.startTime = time;
-            return this;
-        }
 
-        public ThinkingStep withEndTime(long time) {
-            this.endTime = time;
-            return this;
-        }
 
-        public ThinkingStep withResult(String result) {
-            this.result = result;
-            return this;
-        }
 
         public long getDuration() {
             if (endTime > 0 && startTime > 0) {
@@ -1182,30 +1144,10 @@ public class ChatMessage {
             this.durationMs = 0;
         }
 
-        public Attachment withThumbnail(String thumbnailPath) {
-            this.thumbnailPath = thumbnailPath;
-            return this;
-        }
 
-        public Attachment withDuration(long durationMs) {
-            this.durationMs = durationMs;
-            return this;
-        }
 
-        public Attachment withStatus(AttachmentStatus status) {
-            this.status = status;
-            return this;
-        }
 
-        public Attachment withUploadProgress(int progress) {
-            this.uploadProgress = progress;
-            return this;
-        }
 
-        public Attachment withLocalFilePath(String localFilePath) {
-            this.localFilePath = localFilePath;
-            return this;
-        }
 
         public Attachment withError(String errorMessage) {
             this.errorMessage = errorMessage;
@@ -1231,17 +1173,6 @@ public class ChatMessage {
             return String.format("%.1f GB", size / (1024.0 * 1024.0 * 1024.0));
         }
 
-        public String getFormattedDuration() {
-            if (durationMs <= 0) return "";
-            long seconds = durationMs / 1000;
-            long minutes = seconds / 60;
-            long hours = minutes / 60;
-            if (hours > 0) {
-                return String.format("%d:%02d:%02d", hours, minutes % 60, seconds % 60);
-            } else {
-                return String.format("%d:%02d", minutes, seconds % 60);
-            }
-        }
 
         public String getEmoji() {
             if (type == null) return "📎";
@@ -1269,9 +1200,6 @@ public class ChatMessage {
             return type != null && type.toLowerCase().contains("audio");
         }
 
-        public boolean isDocument() {
-            return !isImage() && !isVideo() && !isAudio();
-        }
 
         public boolean isUploading() {
             return status == AttachmentStatus.UPLOADING || status == AttachmentStatus.PENDING;
@@ -1385,9 +1313,6 @@ public class ChatMessage {
             return new Action(ActionType.SHOW_GUIDE, null, null);
         }
 
-        public static Action viewToolDetails(String messageId) {
-            return new Action(ActionType.VIEW_TOOL_DETAILS, messageId, null);
-        }
 
         public static Action exportSummary(String messageId) {
             return new Action(ActionType.EXPORT_SUMMARY, messageId, null);
@@ -1440,11 +1365,6 @@ public class ChatMessage {
             return new Action(ActionType.SHOW_DETAIL, messageId, null);
         }
 
-        /** 复制代码块 */
-        public static Action copyCodeBlock(String code) {
-            return new Action(ActionType.COPY_CODE_BLOCK, null, code);
-        }
-
         /** 重试失败的工具调用（messageId 定位消息，content 存 toolCallId） */
         public static Action retryToolCall(String messageId, String toolCallId) {
             return new Action(ActionType.RETRY_TOOL_CALL, messageId, toolCallId);
@@ -1458,11 +1378,6 @@ public class ChatMessage {
         /** Agent 执行控制：暂停 */
         public static Action pauseAgent(String messageId) {
             return new Action(ActionType.PAUSE_AGENT, messageId, null);
-        }
-
-        /** Agent 执行控制：继续 */
-        public static Action resumeAgent(String messageId) {
-            return new Action(ActionType.RESUME_AGENT, messageId, null);
         }
 
         /** Agent 执行控制：单步执行 */
@@ -1678,27 +1593,6 @@ public class ChatMessage {
                 .build();
     }
 
-    /**
-     * 创建任务分解消息
-     */
-    public static ChatMessage createTaskBreakdownMessage(String content, List<ThinkingStep> steps) {
-        return new Builder(MessageType.TASK_BREAKDOWN)
-                .content(content)
-                .thinkingSteps(steps)
-                .status(MessageStatus.COMPLETED)
-                .build();
-    }
-
-    /**
-     * 创建任务进度消息
-     */
-    public static ChatMessage createTaskProgressMessage(String content, int current, int total) {
-        return new Builder(MessageType.TASK_PROGRESS)
-                .content(content + " (" + current + "/" + total + ")")
-                .status(MessageStatus.IN_PROGRESS)
-                .build();
-    }
-
     public static ChatMessage createToolCallMessage(String toolCallId, String toolName, String parameters) {
         ToolCallInfo info = new ToolCallInfo(toolName, parameters);
         info.toolCallId = toolCallId;
@@ -1752,21 +1646,7 @@ public class ChatMessage {
                 .build();
     }
 
-    public static ChatMessage createAgentReflectionMessage(AgentReflectionInfo reflection) {
-        return new Builder(MessageType.AGENT_REFLECTION)
-                .content(reflection.analysis)
-                .agentReflectionInfo(reflection)
-                .status(MessageStatus.COMPLETED)
-                .build();
-    }
 
-    public static ChatMessage createSummaryMessage(String content, SummaryInfo summaryInfo) {
-        return new Builder(MessageType.SUMMARY)
-                .content(content)
-                .summaryInfo(summaryInfo)
-                .status(MessageStatus.COMPLETED)
-                .build();
-    }
 
     // ==================== 类型判断方法 ====================
 
@@ -1782,17 +1662,8 @@ public class ChatMessage {
         return type == MessageType.SYSTEM;
     }
 
-    public boolean isThinkingMessage() {
-        return type == MessageType.THINKING;
-    }
 
-    public boolean isTaskBreakdownMessage() {
-        return type == MessageType.TASK_BREAKDOWN;
-    }
 
-    public boolean isTaskProgressMessage() {
-        return type == MessageType.TASK_PROGRESS;
-    }
 
     public boolean isToolCallMessage() {
         return type == MessageType.TOOL_CALL;
@@ -1802,21 +1673,9 @@ public class ChatMessage {
         return type == MessageType.AGENT_STEP;
     }
 
-    public boolean isErrorMessage() {
-        return type == MessageType.ERROR;
-    }
 
-    public boolean isToolResultMessage() {
-        return type == MessageType.TOOL_RESULT;
-    }
 
-    public boolean isAgentReflectionMessage() {
-        return type == MessageType.AGENT_REFLECTION;
-    }
 
-    public boolean isSummaryMessage() {
-        return type == MessageType.SUMMARY;
-    }
 
     public boolean hasError() {
         return status == MessageStatus.ERROR || status == MessageStatus.FAILED;
@@ -1890,84 +1749,6 @@ public class ChatMessage {
     }
 
     // ==================== 格式化方法 ====================
-
-    /**
-     * 获取格式化的思考过程文本
-     */
-    public String getFormattedThinkingProcess() {
-        if (!hasThinkingSteps()) {
-            return "";
-        }
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("思考过程：\n");
-
-        for (int i = 0; i < thinkingSteps.size(); i++) {
-            ThinkingStep step = thinkingSteps.get(i);
-            sb.append(step.getEmoji())
-              .append(" ")
-              .append(step.name)
-              .append(" ")
-              .append(step.getStatusEmoji())
-              .append("\n");
-
-            if (step.description != null && !step.description.isEmpty()) {
-                sb.append("   └ ")
-                  .append(step.description)
-                  .append("\n");
-            }
-
-            if (step.result != null && !step.result.isEmpty()) {
-                sb.append("   └ 结果: ")
-                  .append(step.result)
-                  .append("\n");
-            }
-
-            if (step.getDuration() > 0) {
-                sb.append("   └ 耗时: ")
-                  .append(step.getDuration())
-                  .append("ms\n");
-            }
-        }
-
-        return sb.toString();
-    }
-
-    /**
-     * 获取思考进度百分比
-     */
-    public int getThinkingProgress() {
-        if (!hasThinkingSteps()) {
-            return 0;
-        }
-
-        int completed = 0;
-        for (ThinkingStep step : thinkingSteps) {
-            if (step.status == ThinkingStepStatus.COMPLETED ||
-                step.status == ThinkingStepStatus.SKIPPED) {
-                completed++;
-            }
-        }
-
-        return (completed * 100) / thinkingSteps.size();
-    }
-
-    /**
-     * 获取下一个待执行的思考步骤
-     */
-    public ThinkingStep getNextPendingStep() {
-        if (!hasThinkingSteps()) {
-            return null;
-        }
-
-        for (ThinkingStep step : thinkingSteps) {
-            if (step.status == ThinkingStepStatus.PENDING ||
-                step.status == ThinkingStepStatus.IN_PROGRESS) {
-                return step;
-            }
-        }
-        return null;
-    }
 
     /**
      * 克隆方法 - 创建当前消息的浅拷贝
@@ -2081,28 +1862,12 @@ public class ChatMessage {
             return this;
         }
 
-        public Builder addThinkingStep(ThinkingStep step) {
-            this.thinkingSteps.add(step);
-            return this;
-        }
 
         public Builder thinkingContent(String thinkingContent) {
             this.thinkingContent = thinkingContent != null ? thinkingContent : "";
             return this;
         }
 
-        public Builder appendThinkingContent(String text) {
-            if (this.thinkingContent == null) {
-                this.thinkingContent = "";
-            }
-            if (text != null && !text.isEmpty()) {
-                if (this.thinkingContent.length() > 0) {
-                    this.thinkingContent += "\n\n";
-                }
-                this.thinkingContent += text;
-            }
-            return this;
-        }
 
         public Builder attachments(List<Attachment> attachments) {
             this.attachments = attachments != null ? attachments : new ArrayList<>();
@@ -2154,15 +1919,7 @@ public class ChatMessage {
             return this;
         }
 
-        public Builder agentMode(boolean agentMode) {
-            this.agentMode = agentMode;
-            return this;
-        }
 
-        public Builder agentExecutionState(AgentExecutionState state) {
-            this.agentExecutionState = state;
-            return this;
-        }
 
         public Builder errorDetail(String errorDetail) {
             this.errorDetail = errorDetail;
@@ -2174,10 +1931,6 @@ public class ChatMessage {
             return this;
         }
 
-        public Builder voiceInput(boolean voiceInput) {
-            this.voiceInput = voiceInput;
-            return this;
-        }
 
         public Builder agentReflectionInfo(AgentReflectionInfo agentReflectionInfo) {
             this.agentReflectionInfo = agentReflectionInfo;
@@ -2199,10 +1952,6 @@ public class ChatMessage {
             return this;
         }
 
-        public Builder agentGroupId(String groupId) {
-            this.agentGroupId = groupId;
-            return this;
-        }
 
         public ChatMessage build() {
             return new ChatMessage(this);

@@ -9,7 +9,6 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.oilquiz.app.R;
-import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.util.ConversationSession;
 
 import java.util.List;
@@ -116,13 +115,6 @@ public class ChatHistoryController {
         }
         if (historyList != null) {
             historyList.setVisibility(empty ? View.GONE : View.VISIBLE);
-        }
-    }
-
-    /** 通知列表刷新（删除/新增后调用） */
-    public void notifyChanged() {
-        if (chatHistoryAdapter != null) {
-            chatHistoryAdapter.notifyDataSetChanged();
         }
     }
 

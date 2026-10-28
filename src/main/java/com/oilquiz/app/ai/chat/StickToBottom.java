@@ -172,9 +172,6 @@ public final class StickToBottom {
         return state.isPinned();
     }
 
-    public int distanceToBottom() {
-        return gapToBottom();
-    }
 
     /**
      * 内容增长后请求跟随。pinned 时在下一帧滚到新底部；unpinned/拖拽中直接丢弃。

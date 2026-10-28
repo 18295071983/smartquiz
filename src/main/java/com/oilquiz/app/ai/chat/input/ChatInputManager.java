@@ -8,10 +8,7 @@ import android.text.TextWatcher;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
-import android.widget.TextView;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.RecyclerView;
@@ -79,11 +76,6 @@ public class ChatInputManager {
         return text != null ? text.toString().trim() : "";
     }
 
-    public void clearInput() {
-        if (inputMessage != null) {
-            inputMessage.setText("");
-        }
-    }
 
     public void appendText(String text) {
         if (inputMessage != null) {
@@ -122,11 +114,6 @@ public class ChatInputManager {
         return !currentAttachments.isEmpty();
     }
 
-    public void focusInput() {
-        if (inputMessage != null) {
-            inputMessage.requestFocus();
-        }
-    }
 
     private void setupInputWatcher() {
         if (inputMessage == null) return;
@@ -281,61 +268,11 @@ public class ChatInputManager {
         callback.onSendMessage(text);
     }
 
-    /** 切换编辑模式 */
-    public void toggleEditMode() {
-        if (attachmentAdapter == null) return;
-        
-        if (attachmentAdapter.isEditMode()) {
-            // 退出编辑模式
-            attachmentAdapter.disableEditMode();
-            callback.onShowToast("✅ 已退出编辑模式");
-        } else {
-            // 进入编辑模式
-            attachmentAdapter.enableEditMode();
-            callback.onShowToast("✏️ 点击附件可选中，长按可拖拽排序");
-        }
-    }
-
-    /** 全选附件 */
-    public void selectAllAttachments() {
-        if (attachmentAdapter != null && attachmentAdapter.isEditMode()) {
-            attachmentAdapter.selectAll();
-            callback.onShowToast("已全选 " + attachmentAdapter.getSelectedCount() + " 个附件");
-        }
-    }
-
     /** 取消选择 */
     public void clearSelection() {
         if (attachmentAdapter != null) {
             attachmentAdapter.clearSelection();
         }
-    }
-
-    /** 批量删除选中的附件 */
-    public void deleteSelectedAttachments() {
-        if (attachmentAdapter == null || !attachmentAdapter.isEditMode()) {
-            callback.onShowToast("请先开启编辑模式");
-            return;
-        }
-        
-        int count = attachmentAdapter.getSelectedCount();
-        if (count == 0) {
-            callback.onShowToast("请先选择要删除的附件");
-            return;
-        }
-        
-        // 显示确认对话框（这里简化为直接删除）
-        attachmentAdapter.deleteSelected();
-        
-        if (attachmentAdapter.isEmpty()) {
-            if (attachmentList != null) {
-                attachmentList.setVisibility(View.GONE);
-            }
-            // 退出编辑模式
-            attachmentAdapter.disableEditMode();
-        }
-        
-        callback.onShowToast("🗑️ 已删除 " + count + " 个附件");
     }
 
     private void openUri(String url) {

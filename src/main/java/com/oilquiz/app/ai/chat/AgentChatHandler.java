@@ -11,7 +11,6 @@ import com.oilquiz.app.ai.agent.online.OnlineToolResult;
 import com.oilquiz.app.ai.agent.software.AgentSoftwareLayer;
 import com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine;
 import com.oilquiz.app.ai.agent.software.model.AgentResponse;
-import com.oilquiz.app.ai.agent.software.model.AgentStats;
 import com.oilquiz.app.util.AILogger;
 
 import java.util.List;
@@ -365,14 +364,7 @@ public class AgentChatHandler {
         });
     }
 
-    public void setInferenceMode(InferenceMode mode) {
-        this.currentInferenceMode = mode;
-        // 推理模式（REACT/CoT/Plan）为旧本地 Agent 概念，在线引擎忽略
-    }
 
-    public InferenceMode getInferenceMode() {
-        return currentInferenceMode;
-    }
 
     public boolean shouldUseAgent(String message) {
         return intentRecognizer.shouldUseAgent(message);
@@ -384,22 +376,6 @@ public class AgentChatHandler {
      */
     public boolean isValid() {
         return !isShutdown && callback != null && activity != null && !activity.isFinishing();
-    }
-
-    /**
-     * 安全执行回调操作
-     * 在执行前检查 callback 是否有效
-     */
-    private void safeCallback(java.util.function.Consumer<AgentChatCallback> action) {
-        if (isValid()) {
-            try {
-                action.accept(callback);
-            } catch (Exception e) {
-                AILogger.e(TAG, "Callback error: " + e.getMessage());
-            }
-        } else {
-            AILogger.w(TAG, "Callback invalid, skipping action");
-        }
     }
 
     public String getIntentType(String message) {

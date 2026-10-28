@@ -128,11 +128,6 @@ public final class ScrollAnchorKeeper {
         rv.getViewTreeObserver().addOnPreDrawListener(preDrawListener);
     }
 
-    /** 立即重捕锚点（例如宿主刚做完一次整表绑定后想让当前位置成为新基准）。 */
-    public void resetAnchor() {
-        captureQuietly();
-    }
-
     private void captureQuietly() {
         if (released) {
             return;

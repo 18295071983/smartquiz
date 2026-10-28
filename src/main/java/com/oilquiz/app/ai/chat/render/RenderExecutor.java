@@ -3,11 +3,9 @@ package com.oilquiz.app.ai.chat.render;
 import android.content.Context;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
-import android.text.style.RelativeSizeSpan;
 import android.util.LruCache;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -191,21 +189,5 @@ public class RenderExecutor {
     /** 清空渲染缓存（在消息被删除或会话切换时调用） */
     public void clearCache() {
         renderCache.evictAll();
-    }
-
-    /**
-     * 获取已注册的所有渲染器信息（用于调试和文档）。
-     */
-    public String getRendererInfo() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("=== RenderExecutor 注册的渲染器 ===\n");
-        for (Map.Entry<ContentType, List<ContentRenderer>> entry : rendererMap.entrySet()) {
-            sb.append(entry.getKey()).append(":\n");
-            for (ContentRenderer r : entry.getValue()) {
-                sb.append("  - ").append(r.getName())
-                  .append(" (priority=").append(r.getPriority()).append(")\n");
-            }
-        }
-        return sb.toString();
     }
 }

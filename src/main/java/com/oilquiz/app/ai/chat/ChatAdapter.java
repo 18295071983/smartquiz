@@ -2,7 +2,6 @@ package com.oilquiz.app.ai.chat;
 
 import com.oilquiz.app.SmartQuizApplication;
 import com.oilquiz.app.R;
-import com.oilquiz.app.ai.agent.ToolResultInterpreter;
 import com.oilquiz.app.ai.chat.component.ComponentActions;
 import com.oilquiz.app.ai.chat.component.ComponentContentSplitter;
 import com.oilquiz.app.ai.chat.component.ComponentData;
@@ -61,7 +60,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.oilquiz.app.ai.jni.LlamaHelper;
-import com.oilquiz.app.ai.chat.parser.ThinkingTagConfig;
 
 import com.oilquiz.app.theme.ThemeColors;
 public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
@@ -119,7 +117,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault());
-    private final SimpleDateFormat groupDateFormat = new SimpleDateFormat("yyyy年MM月dd日", Locale.getDefault());
 
     // 时间分组间隔（30分钟，超过则显示完整日期）
     private static final long TIME_GROUP_INTERVAL_MS = 30 * 60 * 1000;
@@ -2819,68 +2816,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return row;
     }
 
-
-    /**
-     * 按思考轮 id 定位并更新单个思考轮内容（不重建整条消息）。
-     *
-     * <p>NO-HOT-UPDATE-OK(2026-10-09)：本方法目前**没有调用者**，这是**正确的**，不是遗漏。
-     * 原因：轮次文本在被 {@code ChatMessage.addThinkingRound} 追加进 {@code thinkingRounds}
-     * 时即已定稿（该方法只 append，且全仓库没有"按索引替换轮次文本"的 API），此后不再变化；
-     * 正在流式的当前轮走 {@code message.thinkingContent} + {@link #updateThinkingContent}，
-     * 与这里渲染的已定稿轮次不重叠。因此 {@code renderRoundAssembled} 的增量路径跳过思考块、
-     * 不更新其文本是安全的。</p>
-     *
-     * <p>保留本方法作为备用通路：若将来需要"进行中的轮次也就地热更新"（而不是等轮次终结
-     * 再落库），可直接接线到 {@code PAYLOAD_THINKING_UPDATE} 分支。</p>
-     *
-     * @param roundId 该轮 THINKING 子 id（thinkingRoundIds 元素）
-     * @param newContent 该轮新内容
-     * @return 是否找到并更新成功
-     */
-    public boolean updateThinkingRound(String roundId, String newContent) {
-        if (roundId == null) return false;
-        boolean updated = false;
-        for (int i = 0; i < getItemCount(); i++) {
-            AIMessageViewHolder holder = null;
-            RecyclerView.ViewHolder vh = attachedRecyclerView != null
-                    ? attachedRecyclerView.findViewHolderForAdapterPosition(i) : null;
-            if (vh instanceof AIMessageViewHolder) {
-                holder = (AIMessageViewHolder) vh;
-            }
-            if (holder == null || holder.contentHost == null) continue;
-            for (int c = 0; c < holder.contentHost.getChildCount(); c++) {
-                View child = holder.contentHost.getChildAt(c);
-                if (child != null && roundId.equals(child.getTag())) {
-                    // 找到轮次容器：更新内容体（2026-09-14：走 setRenderedText 全量 Markdown 渲染，
-                    // 直接 setText 会把 **加粗**/代码块/列表显示成原文）
-                    for (int b = 0; b < ((LinearLayout) child).getChildCount(); b++) {
-                        View sub = ((LinearLayout) child).getChildAt(b);
-                        if (sub != null && ("round_body_" + roundId).equals(sub.getTag())) {
-                            int w = holder.itemView.getWidth()
-                                    - holder.itemView.getPaddingLeft()
-                                    - holder.itemView.getPaddingRight();
-                            if (w <= 0) w = getScreenWidth(holder.itemView.getContext());
-                            String nc = newContent != null ? newContent : "";
-                            boolean roundExpanded = holder.holderMessage != null
-                                    && holder.holderMessage.isThinkingRoundExpanded(roundId);
-                            if (!roundExpanded) {
-                                // 折叠轮：仅刷新摘要预览（不打断折叠态）
-                                String preview = thinkingPreview(nc, true);
-                                ((TextView) sub).setText(preview.isEmpty() ? "…" : preview + "…");
-                            } else {
-                                setRenderedText((TextView) sub, nc, w);
-                            }
-                            updated = true;
-                            break;
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-        return updated;
-    }
-
     private void updateThinkingContent(AIMessageViewHolder holder, ChatMessage message) {
         boolean isStreaming = message.status == ChatMessage.MessageStatus.GENERATING
                 || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
@@ -3551,20 +3486,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         if (rendered == 0) {
             holder.componentContainer.setVisibility(View.GONE);
-        }
-    }
-
-    /**
-     * 切换工具过程卡片的展开/折叠：翻转状态后使指纹失效触发重建，
-     * 不替换 List 引用避免与外部生产者的 addAll 断链（Fix D）。
-     */
-    private void toggleAgentToolsExpanded(AIMessageViewHolder holder, ChatMessage message) {
-        message.agentToolsExpanded = !message.agentToolsExpanded;
-        // 使组件指纹失效（-1 不可能被正常计算命中）
-        holder.boundComponentsFingerprint = -1;
-        int pos = holder.getBindingAdapterPosition();
-        if (pos != RecyclerView.NO_POSITION) {
-            notifyItemChanged(pos);
         }
     }
 
@@ -5257,12 +5178,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         notifyItemChanged(position, PAYLOAD_CONTENT_UPDATE);
     }
 
-    public void updateAIMessageContentWithPayload(int position, String content) {
-        if (position < 0 || position >= messages.size()) return;
-        ChatMessage message = messages.get(position);
-        message.content = content;
-        notifyItemChanged(position, PAYLOAD_CONTENT_UPDATE);
-    }
 
     public void updateMessageStatus(int position, ChatMessage.MessageStatus status) {
         if (position < 0 || position >= messages.size()) return;
@@ -5337,15 +5252,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
-    public void updateAIMessageFull(int position, String content, String thinkingContent, ChatMessage.MessageStatus status) {
-        if (position < 0 || position >= messages.size()) return;
-        ChatMessage message = messages.get(position);
-        if (content != null) message.content = content;
-        if (thinkingContent != null) message.thinkingContent = thinkingContent;
-        if (status != null) message.status = status;
-        // 三个字段同时更新，使用全量rebind避免遗漏status刷新
-        notifyItemChanged(position);
-    }
 
     public void updateMessageGenerationStats(int position, int tokensGenerated, long generationTimeMs) {
         if (position < 0 || position >= messages.size()) return;
@@ -5362,15 +5268,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
         }
         return -1;
-    }
-
-    /** 按消息 ID 实时查找消息（索引漂移免疫；未找到返回 null） */
-    public ChatMessage getMessageById(String messageId) {
-        if (messageId == null) return null;
-        for (ChatMessage m : messages) {
-            if (m != null && messageId.equals(m.id)) return m;
-        }
-        return null;
     }
 
     /**
@@ -5392,45 +5289,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (m != null && turnId.equals(m.turnId)) last = m;
         }
         return last;
-    }
-
-    /** 按回合 ID 返回该回合（单轮内）全部消息，保持顺序；未找到返回空列表 */
-    public List<ChatMessage> getMessagesByTurnId(String turnId) {
-        List<ChatMessage> result = new java.util.ArrayList<>();
-        if (turnId == null) return result;
-        for (ChatMessage m : messages) {
-            if (m != null && turnId.equals(m.turnId)) result.add(m);
-        }
-        return result;
-    }
-
-    /** 按消息类型返回全部消息（分类管理：user/AI/工具/系统…）；未找到返回空列表 */
-    public List<ChatMessage> getMessagesByType(ChatMessage.MessageType type) {
-        List<ChatMessage> result = new java.util.ArrayList<>();
-        if (type == null) return result;
-        for (ChatMessage m : messages) {
-            if (m != null && m.type == type) result.add(m);
-        }
-        return result;
-    }
-
-    /** 按「回合 × 类型」返回消息（单轮内分类定位）；未找到返回空列表 */
-    public List<ChatMessage> getMessagesByTurnAndType(String turnId, ChatMessage.MessageType type) {
-        List<ChatMessage> result = new java.util.ArrayList<>();
-        if (turnId == null || type == null) return result;
-        for (ChatMessage m : messages) {
-            if (m != null && turnId.equals(m.turnId) && m.type == type) result.add(m);
-        }
-        return result;
-    }
-
-    /** 按子 id（subId，如 T1-F2）精确查找消息；未找到返回 null */
-    public ChatMessage getBySubId(String subId) {
-        if (subId == null) return null;
-        for (ChatMessage m : messages) {
-            if (m != null && subId.equals(m.subId)) return m;
-        }
-        return null;
     }
 
     public ChatMessage getMessage(int position) {
@@ -5882,19 +5740,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
-    public void updateMessages(List<ChatMessage> newMessages) {
-        if (newMessages == null) return;
-        // 全量替换时重置过滤状态（外部调用表明数据源已完全更新）
-        if (originalMessages != null) {
-            originalMessages = null;
-            currentQuery = "";
-        }
-        ChatMessageDiffCallback diffCallback = new ChatMessageDiffCallback(messages, newMessages);
-        androidx.recyclerview.widget.DiffUtil.DiffResult diffResult = androidx.recyclerview.widget.DiffUtil.calculateDiff(diffCallback);
-        messages.clear();
-        messages.addAll(newMessages);
-        diffResult.dispatchUpdatesTo(this);
-    }
 
     public void addMessage(ChatMessage message) {
         if (message == null) return;
@@ -5907,29 +5752,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         scrollToPosition(messages.size() - 1);
     }
 
-    public void removeMessage(String messageId) {
-        int position = findMessagePosition(messageId);
-        if (position >= 0) {
-            ChatMessage removed = messages.remove(position);
-            notifyItemRemoved(position);
-            animatedMessageIds.remove(messageId);
-            if (originalMessages != null && removed != null) {
-                originalMessages.remove(removed);
-            }
-        }
-    }
 
-    public void appendToken(String messageId, String token) {
-        int position = findMessagePosition(messageId);
-        if (position < 0 || position >= messages.size()) return;
-        ChatMessage message = messages.get(position);
-        if (message.content == null) {
-            message.content = token;
-        } else {
-            message.content = message.content + token;
-        }
-        notifyItemChanged(position, PAYLOAD_CONTENT_UPDATE);
-    }
 
     public void updateInferenceProgress(String messageId, ChatMessage.InferencePhase phase, 
                                         int processedTokens, float tokensPerSecond) {
@@ -5977,38 +5800,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         notifyItemChanged(position, PAYLOAD_THINKING_UPDATE);
     }
 
-    public void completeMessage(String messageId, String finalContent, int tokensGenerated, long generationTimeMs) {
-        int position = findMessagePosition(messageId);
-        if (position < 0 || position >= messages.size()) return;
-        ChatMessage message = messages.get(position);
-        if (finalContent != null) {
-            message.content = finalContent;
-        }
-        message.status = ChatMessage.MessageStatus.COMPLETED;
-        message.tokensGenerated = tokensGenerated;
-        message.generationTimeMs = generationTimeMs;
-        if (message.inferenceProgress != null) {
-            message.inferenceProgress.phase = ChatMessage.InferencePhase.COMPLETED;
-        }
-        notifyItemChanged(position);
-    }
 
-    public void startAgentExecution(String messageId) {
-        int position = findMessagePosition(messageId);
-        if (position < 0 || position >= messages.size()) return;
-        ChatMessage message = messages.get(position);
-
-        // 创建或重置执行状态
-        if (message.agentExecutionState == null) {
-            message.agentExecutionState = new com.oilquiz.app.ai.agent.AgentExecutionState(messageId);
-        } else {
-            message.agentExecutionState.reset();
-        }
-        message.agentExecutionState.start();
-
-        // 只通过payload通知UI，不直接操作ViewHolder
-        notifyItemChanged(position, PAYLOAD_AGENT_UPDATE);
-    }
 
     public void updateAgentExecutionStep(String messageId, int stepNumber, String stepType,
                                          String title, String content) {
@@ -6040,128 +5832,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
-    public void updateAgentToolCall(String messageId, String toolName, String args) {
-        int position = findMessagePosition(messageId);
-        if (position < 0 || position >= messages.size()) return;
-        ChatMessage message = messages.get(position);
 
-        if (message.agentExecutionState != null) {
-            int idx = message.agentExecutionState.getCurrentBlockIndex();
-            if (idx >= 0) {
-                com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock block =
-                    message.agentExecutionState.getBlocks().get(idx);
-                if (block.getType() == com.oilquiz.app.ai.agent.AgentExecutionState.BlockType.TOOL_CALL) {
-                    block.setToolName(toolName);
-                    block.setToolArgs(args);
-                }
-            }
-        }
 
-        notifyItemChanged(position, PAYLOAD_AGENT_UPDATE);
-    }
 
-    public void updateAgentToolResult(String messageId, String toolName, boolean success, String result) {
-        int position = findMessagePosition(messageId);
-        if (position < 0 || position >= messages.size()) return;
-        ChatMessage message = messages.get(position);
 
-        if (message.agentExecutionState != null) {
-            int idx = message.agentExecutionState.getCurrentBlockIndex();
-            if (idx >= 0) {
-                com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock block =
-                    message.agentExecutionState.getBlocks().get(idx);
-                if (block.getType() == com.oilquiz.app.ai.agent.AgentExecutionState.BlockType.TOOL_RESULT) {
-                    block.setToolSuccess(success);
-                    block.setToolResult(result);
-                    block.setStatus(com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock.BlockStatus.COMPLETED);
-                }
-            }
-        }
 
-        notifyItemChanged(position, PAYLOAD_AGENT_UPDATE);
-    }
 
-    public void updateAgentInferenceProgress(String messageId, int tokenCount, float tokensPerSecond) {
-        int position = findMessagePosition(messageId);
-        if (position < 0 || position >= messages.size()) return;
-        ChatMessage message = messages.get(position);
 
-        if (message.agentExecutionState != null) {
-            message.agentExecutionState.updateTokenStats(tokenCount, tokensPerSecond);
-        }
-
-        notifyItemChanged(position, PAYLOAD_AGENT_UPDATE);
-    }
-
-    public void appendAgentToken(String messageId, String token) {
-        int position = findMessagePosition(messageId);
-        if (position < 0 || position >= messages.size()) return;
-        ChatMessage message = messages.get(position);
-
-        if (message.agentExecutionState != null) {
-            int idx = message.agentExecutionState.getCurrentBlockIndex();
-            if (idx >= 0) {
-                message.agentExecutionState.appendBlockContent(idx, token);
-            }
-        }
-
-        notifyItemChanged(position, PAYLOAD_AGENT_UPDATE);
-    }
-
-    public void completeAgentExecution(String messageId, String finalContent) {
-        int position = findMessagePosition(messageId);
-        if (position < 0 || position >= messages.size()) return;
-        ChatMessage message = messages.get(position);
-
-        if (message.agentExecutionState != null) {
-            message.agentExecutionState.complete(finalContent);
-            message.agentExecutionState.addLog("COMPLETE", SmartQuizApplication.getAppContext().getString(R.string.h_c044a14e));
-        }
-
-        notifyItemChanged(position, PAYLOAD_AGENT_UPDATE);
-    }
-
-    public void failAgentExecution(String messageId, String error) {
-        int position = findMessagePosition(messageId);
-        if (position < 0 || position >= messages.size()) return;
-        ChatMessage message = messages.get(position);
-
-        if (message.agentExecutionState != null) {
-            message.agentExecutionState.fail(error);
-            message.agentExecutionState.addBlock(
-                com.oilquiz.app.ai.agent.AgentExecutionState.BlockType.ERROR,
-                "执行错误", error);
-            message.agentExecutionState.addLog("ERROR", SmartQuizApplication.getAppContext().getString(R.string.h_23cc6892) + error);
-        }
-
-        notifyItemChanged(position, PAYLOAD_AGENT_UPDATE);
-    }
-
-    public void failMessage(String messageId, String errorMessage) {
-        int position = findMessagePosition(messageId);
-        if (position < 0 || position >= messages.size()) return;
-        ChatMessage message = messages.get(position);
-        message.status = ChatMessage.MessageStatus.FAILED;
-        message.errorDetail = errorMessage;
-        if (message.inferenceProgress != null) {
-            message.inferenceProgress.phase = ChatMessage.InferencePhase.FAILED;
-        }
-        notifyItemChanged(position);
-    }
-
-    public void cancelMessage(String messageId) {
-        int position = findMessagePosition(messageId);
-        if (position < 0 || position >= messages.size()) return;
-        ChatMessage message = messages.get(position);
-        // CANCEL-NOT-SUCCESS(2026-10-09)：取消此前被标成 COMPLETED，于是被取消的生成
-        // 显示"✅ 已完成"和 token 统计 —— 把用户主动中止说成了成功完成。
-        // MessageStatus 里没有 CANCELLED，且该枚举被 SessionLogPlugin 以 name() 持久化、
-        // 全仓库引用 130+ 处，新增取值的风险不划算；改标 FAILED 并通过 errorDetail 说明
-        // 真实原因（FAILED 在 updateMessageStatus 里有专门的失败展示，不会再显示成空消息）。
-        message.status = ChatMessage.MessageStatus.FAILED;
-        message.errorDetail = SmartQuizApplication.getAppContext().getString(R.string.h_2111ccbb);
-        notifyItemChanged(position);
-    }
 
     private void scrollToPosition(int position) {
         if (attachedRecyclerView != null && position >= 0) {
@@ -6170,18 +5847,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     // ===================== Selection Mode =====================
-
-    /**
-     * 进入选择模式
-     */
-    public void enterSelectionMode() {
-        selectionMode = true;
-        selectedMessageIds.clear();
-        notifyDataSetChanged();
-        if (selectionChangeListener != null) {
-            selectionChangeListener.onSelectionModeChanged(true);
-        }
-    }
 
     /**
      * 退出选择模式
@@ -6193,13 +5858,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (selectionChangeListener != null) {
             selectionChangeListener.onSelectionModeChanged(false);
         }
-    }
-
-    /**
-     * 是否在选择模式
-     */
-    public boolean isInSelectionMode() {
-        return selectionMode;
     }
 
     /**
@@ -6241,50 +5899,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
-    /**
-     * 获取选中的消息ID
-     */
-    public java.util.Set<String> getSelectedMessageIds() {
-        return new java.util.HashSet<>(selectedMessageIds);
-    }
-
-    /**
-     * 删除选中的消息
-     */
-    public void deleteSelectedMessages() {
-        java.util.Iterator<ChatMessage> iterator = messages.iterator();
-        while (iterator.hasNext()) {
-            ChatMessage msg = iterator.next();
-            if (msg.id != null && selectedMessageIds.contains(msg.id)) {
-                animatedMessageIds.remove(msg.id);
-                iterator.remove();
-            }
-        }
-        selectedMessageIds.clear();
-        exitSelectionMode();
-        notifyDataSetChanged();
-    }
-
-    /**
-     * 设置选择变化监听器
-     */
-    public void setOnSelectionChangeListener(OnSelectionChangeListener listener) {
-        this.selectionChangeListener = listener;
-    }
-
     public interface OnSelectionChangeListener {
         void onSelectionModeChanged(boolean inSelectionMode);
         void onSelectionChanged(int selectedCount);
     }
 
     // ===================== Animation Control =====================
-
-    /**
-     * 设置是否启用动画
-     */
-    public void setAnimationsEnabled(boolean enabled) {
-        this.animationsEnabled = enabled;
-    }
 
     /**
      * 完成态内容编排动画：正文、思考行、工具卡按从上到下的顺序错峰淡入 + 轻微上移。
@@ -6392,40 +6012,5 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
         }
         notifyDataSetChanged();
-    }
-
-    /**
-     * 清除过滤
-     */
-    public void clearFilter() {
-        if (originalMessages != null) {
-            messages.clear();
-            messages.addAll(originalMessages);
-            originalMessages = null;
-            currentQuery = "";
-            notifyDataSetChanged();
-        }
-    }
-
-    /**
-     * 高亮搜索文本
-     */
-    public static SpannableStringBuilder highlightText(String text, String query, int highlightColor) {
-        SpannableStringBuilder spannable = new SpannableStringBuilder(text);
-        if (query == null || query.isEmpty()) {
-            return spannable;
-        }
-        String lowerText = text.toLowerCase();
-        String lowerQuery = query.toLowerCase();
-        int start = 0;
-        while ((start = lowerText.indexOf(lowerQuery, start)) != -1) {
-            int end = start + query.length();
-            spannable.setSpan(
-                new android.text.style.BackgroundColorSpan(highlightColor),
-                start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            );
-            start = end;
-        }
-        return spannable;
     }
 }

@@ -2,7 +2,6 @@ package com.oilquiz.app.ai.chat.input;
 
 import android.content.Context;
 import android.util.AttributeSet;
-import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
@@ -86,11 +85,6 @@ public class ChatMessagesView extends FrameLayout {
     public void showEmpty(String text) {
         emptyView.setText(text != null ? text : "");
         emptyView.setVisibility(VISIBLE);
-    }
-
-    /** 隐藏空态（有消息时） */
-    public void hideEmpty() {
-        emptyView.setVisibility(GONE);
     }
 
     /** 数据变化后刷新空态与列表 */

@@ -239,11 +239,6 @@ public final class AudioPlaybackManager {
 
     // ==================== 视频卡用：拿真实播放器实例渲染 Surface ====================
 
-    /** 确保播放服务已连接（视频卡绑 Surface 前调用；重复调用无副作用） */
-    public void ensureService() {
-        ensureController();
-    }
-
     /** 服务持有的真实播放器；未连接时为 null */
     public androidx.media3.exoplayer.ExoPlayer playerOrNull() {
         return AudioPlaybackService.sharedPlayer();

@@ -5,7 +5,6 @@ import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
-import android.util.Log;
 import android.widget.EditText;
 
 import com.oilquiz.app.ai.chat.ChatMessage;
@@ -13,7 +12,6 @@ import com.oilquiz.app.ai.chat.ChatMessage;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * 管理 AI 聊天页面的所有对话框和导出逻辑。
@@ -21,7 +19,6 @@ import java.util.Locale;
  */
 public class ChatDialogHelper {
 
-    private static final String TAG = "ChatDialogHelper";
 
     public interface Callback {
         void onShowToast(String message);
@@ -260,31 +257,6 @@ public class ChatDialogHelper {
             })
             .setNegativeButton("关闭", null)
             .show();
-    }
-
-    /**
-     * 导出完整对话
-     */
-    public void exportChat(List<ChatMessage> chatHistory) {
-        if (chatHistory == null || chatHistory.isEmpty()) {
-            callback.onShowToast("没有可导出的对话内容");
-            return;
-        }
-        StringBuilder sb = new StringBuilder();
-        sb.append("AI对话导出\n");
-        sb.append("时间: ").append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date())).append("\n");
-        sb.append("===================\n\n");
-        for (ChatMessage msg : chatHistory) {
-            String role = "未知";
-            if (msg.type == ChatMessage.MessageType.USER) role = "用户";
-            else if (msg.type == ChatMessage.MessageType.AI) role = "AI";
-            else if (msg.type == ChatMessage.MessageType.SYSTEM) role = "系统";
-            String time = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date(msg.timestamp));
-            sb.append("[").append(time).append("] ").append(role).append(":\n");
-            sb.append(msg.content != null ? msg.content : "").append("\n\n");
-        }
-        copyToClipboard("AI对话", sb.toString());
-        callback.onShowToast("对话已复制到剪贴板");
     }
 
     /**

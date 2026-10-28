@@ -1,7 +1,6 @@
 package com.oilquiz.app.ai.chat.vision;
 
 import android.content.Context;
-import android.net.Uri;
 
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.attachment.AttachmentPromptBuilder;
@@ -84,15 +83,6 @@ public class AttachmentVisionPipeline {
         return new FilterResult(filtered, skipped);
     }
 
-    /** 是否全部为图片附件 */
-    public static boolean allImages(List<ChatMessage.Attachment> attachments) {
-        if (attachments == null || attachments.isEmpty()) return false;
-        for (ChatMessage.Attachment att : attachments) {
-            if (att == null || !"image".equals(att.type)) return false;
-        }
-        return true;
-    }
-
     // ==================== 视觉追问定位 ====================
 
     /** 找最近一条带图片的用户消息（不包含末尾当前消息）；返回索引或 -1 */
@@ -107,11 +97,6 @@ public class AttachmentVisionPipeline {
             }
         }
         return -1;
-    }
-
-    /** 该消息是否本身是"末尾带图消息"（不应走追问） */
-    public boolean isCurrentImageMessage(int lastImageIndex, List<ChatMessage> history) {
-        return lastImageIndex >= 0 && lastImageIndex == history.size() - 1;
     }
 
     // ==================== 视觉追问频次闸门（2026-10-28） ====================
@@ -223,22 +208,6 @@ public class AttachmentVisionPipeline {
         return images;
     }
 
-    /** 构建图片消息之前的视觉历史（USER/AI 文本，最多 max 条） */
-    public List<ChatMessage> buildVisionHistoryBefore(List<ChatMessage> history, int lastImageIndex, int max) {
-        List<ChatMessage> hist = new ArrayList<>();
-        for (int i = 0; i < lastImageIndex; i++) {
-            ChatMessage m = history.get(i);
-            if ((m.type == ChatMessage.MessageType.USER || m.type == ChatMessage.MessageType.AI)
-                    && m.content != null && !m.content.isEmpty()) {
-                hist.add(m);
-            }
-        }
-        if (hist.size() > max) {
-            return new ArrayList<>(hist.subList(hist.size() - max, hist.size()));
-        }
-        return hist;
-    }
-
     // ==================== 可用性决策 ====================
 
     /** 本地视觉追问可用 */
@@ -254,13 +223,6 @@ public class AttachmentVisionPipeline {
     public int localVisionImageLimit() {
         if (!env.isLocalVisionLoaded()) return 0;
         return env.supportsLocalMultiImage() ? MAX_VISION_IMAGES : 1;
-    }
-
-    /** 在线视觉可用（模型支持 vision + 失败冷却未触发） */
-    public boolean canFollowUpOnlineVision(long lastOnlineVisionFailAt) {
-        if (!env.isOnlineModel()) return false;
-        if (System.currentTimeMillis() - lastOnlineVisionFailAt < VISION_FAIL_COOLDOWN_MS) return false;
-        return isOnlineVisionModel();
     }
 
     /** 在线模型是否支持视觉（配置能力字段优先，模型名关键词兜底） */

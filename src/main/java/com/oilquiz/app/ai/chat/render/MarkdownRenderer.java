@@ -3,9 +3,7 @@ package com.oilquiz.app.ai.chat.render;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.text.Spannable;
-import android.text.SpannableString;
 import android.text.Spanned;
-import android.text.style.ScaleXSpan;
 import android.text.style.URLSpan;
 import android.util.DisplayMetrics;
 import android.view.View;
@@ -239,27 +237,5 @@ public class MarkdownRenderer {
         public void onClick(View widget) {
             MarkdownLinkRouter.open(widget.getContext(), getURL());
         }
-    }
-
-    /**
-     * 获取纯文本（用于复制到剪贴板）
-     */
-    public static String toPlainText(String markdown) {
-        if (markdown == null) return "";
-        String text = markdown;
-        text = text.replaceAll("```[\\s\\S]*?```", "");
-        text = text.replaceAll("`([^`]+)`", "$1");
-        // (?m) 多行模式：清理每行开头的标题标记（旧实现缺 MULTILINE，只处理第一行）
-        text = text.replaceAll("(?m)^#{1,6}\\s+", "");
-        text = text.replaceAll("\\*\\*\\*(.+?)\\*\\*\\*", "$1");
-        text = text.replaceAll("\\*\\*(.+?)\\*\\*", "$1");
-        text = text.replaceAll("\\*(.+?)\\*", "$1");
-        text = text.replaceAll("~~(.+?)~~", "$1");
-        text = text.replaceAll("\\[([^\\]]+)\\]\\(([^)]+)\\)", "$1");
-        text = text.replaceAll("(?m)^>\\s+", "  ");
-        // 任务列表/列表标记清理
-        text = text.replaceAll("(?m)^\\s*[-*+]\\s+", "");
-        text = text.replaceAll("(?m)^\\s*\\d+\\.\\s+", "");
-        return text.trim();
     }
 }

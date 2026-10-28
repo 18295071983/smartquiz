@@ -52,9 +52,6 @@ public class ComponentData {
         return type;
     }
 
-    public JSONObject getProps() {
-        return props;
-    }
 
     /** 便捷工厂：创建组件数据 */
     public static ComponentData of(String type, JSONObject props) {

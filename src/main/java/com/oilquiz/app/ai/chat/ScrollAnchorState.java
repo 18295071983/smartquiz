@@ -63,9 +63,6 @@ public final class ScrollAnchorState {
         return stableKey;
     }
 
-    public int anchorTop() {
-        return top;
-    }
 
     /**
      * 计算本次布局后需要的补偿位移。

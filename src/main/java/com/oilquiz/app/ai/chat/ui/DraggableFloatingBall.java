@@ -85,11 +85,6 @@ public class DraggableFloatingBall {
         });
     }
 
-    /** 解除触摸监听（页面销毁时可选调用，避免持有回调）。 */
-    public void detach() {
-        if (ball != null) ball.setOnTouchListener(null);
-    }
-
     /** 把 translation 夹取在父容器可视范围内（getLeft/getTop 为不含 translation 的布局位）。 */
     private void clamp(float tx, float ty) {
         if (!(ball.getParent() instanceof View)) return;

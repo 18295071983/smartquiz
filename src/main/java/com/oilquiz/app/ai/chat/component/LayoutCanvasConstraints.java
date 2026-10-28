@@ -564,14 +564,4 @@ public final class LayoutCanvasConstraints {
         Log.w(TAG, "rejected " + action + " on canvas " + componentId
                 + " errors=" + rep.errors);
     }
-
-    /** 供结果文案引用：把 Map 里的键排序后拼接（模型侧稳定输出） */
-    public static List<String> sortedKeys(Map<String, Object> map) {
-        List<String> out = new ArrayList<>();
-        if (map != null) {
-            out.addAll(map.keySet());
-            java.util.Collections.sort(out);
-        }
-        return out;
-    }
 }

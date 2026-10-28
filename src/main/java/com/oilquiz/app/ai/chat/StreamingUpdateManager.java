@@ -4,7 +4,6 @@ import android.os.Handler;
 import android.os.Looper;
 
 public class StreamingUpdateManager {
-    private static final String TAG = "StreamingUpdateManager";
     
     private static final long DEFAULT_MIN_UPDATE_INTERVAL_MS = 50;
     private static final long DEFAULT_FORCE_UPDATE_INTERVAL_MS = 200;
@@ -168,11 +167,6 @@ public class StreamingUpdateManager {
         }
     }
     
-    public long getTimeSinceLastUpdateMs() {
-        synchronized (lock) {
-            return lastUpdateTimeMs > 0 ? System.currentTimeMillis() - lastUpdateTimeMs : -1;
-        }
-    }
     
     public long getElapsedTimeMs() {
         return System.currentTimeMillis() - startTimeMs;

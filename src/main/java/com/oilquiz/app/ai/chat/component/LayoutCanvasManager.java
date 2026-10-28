@@ -94,11 +94,6 @@ public final class LayoutCanvasManager {
         }
     }
 
-    /** 是否有活跃画布（调试用） */
-    public boolean hasSession(String componentId) {
-        return componentId != null && sessions.containsKey(componentId);
-    }
-
     /** 活跃画布数（调试/管理用） */
     public int size() {
         return sessions.size();

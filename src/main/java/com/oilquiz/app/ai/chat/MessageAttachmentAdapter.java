@@ -25,7 +25,6 @@ import com.oilquiz.app.theme.ThemeColors;
 public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private static final int VIEW_TYPE_IMAGE = 0;
-    private static final int VIEW_TYPE_FILE = 1;
     private static final int VIEW_TYPE_MODEL_LINK = 2; // 在线模型链接类型
 
     // AttachmentItem 类型常量
@@ -496,13 +495,6 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
     }
 
     /**
-     * 获取附件列表
-     */
-    public List<AttachmentItem> getAttachments() {
-        return new ArrayList<>(attachments);
-    }
-
-    /**
      * 查找附件
      */
     public int findAttachmentById(String attachmentId) {
@@ -531,20 +523,6 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
     }
 
     /**
-     * 更新附件上传进度
-     */
-    public void updateAttachmentProgress(String attachmentId, int progress) {
-        int position = findAttachmentById(attachmentId);
-        if (position >= 0) {
-            AttachmentItem item = attachments.get(position);
-            if (item.attachment != null) {
-                item.attachment.uploadProgress = progress;
-                notifyItemChanged(position);
-            }
-        }
-    }
-
-    /**
      * 清空所有附件
      */
     public void clear() {
@@ -553,13 +531,6 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
         if (size > 0) {
             notifyItemRangeRemoved(0, size);
         }
-    }
-
-    /**
-     * 获取附件数量
-     */
-    public int getAttachmentCount() {
-        return attachments.size();
     }
 
     /**

@@ -81,25 +81,10 @@ public class ChatInputBar extends LinearLayout {
 
     // ==================== 控件 getter ====================
 
-    public EditText getInputMessage() {
-        return inputMessage;
-    }
 
-    public MaterialButton getBtnAttach() {
-        return btnAttach;
-    }
 
-    public MaterialButton getBtnVoice() {
-        return btnVoice;
-    }
 
-    public MaterialButton getBtnSend() {
-        return btnSend;
-    }
 
-    public MaterialButton getBtnStopGeneration() {
-        return btnStopGeneration;
-    }
 
     // ==================== 便捷接线 ====================
 

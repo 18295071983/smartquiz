@@ -93,9 +93,6 @@ public class NativeRecoveryHandler {
         this.pendingMessageForRecovery = message;
     }
 
-    public String getPendingMessage() {
-        return pendingMessageForRecovery;
-    }
 
     public void clearPendingMessage() {
         this.pendingMessageForRecovery = null;

@@ -116,21 +116,6 @@ public class SummaryCacheManager {
     }
     
     /**
-     * 清除过期缓存
-     */
-    public void clearExpiredCache() {
-        int cleared = 0;
-        for (Map.Entry<String, CachedSummary> entry : memoryCache.entrySet()) {
-            if (entry.getValue().isExpired()) {
-                memoryCache.remove(entry.getKey());
-                removeFromDisk(entry.getKey());
-                cleared++;
-            }
-        }
-        Log.i(TAG, "Cleared " + cleared + " expired cache entries");
-    }
-    
-    /**
      * 清空所有缓存
      */
     public void clearAllCache() {

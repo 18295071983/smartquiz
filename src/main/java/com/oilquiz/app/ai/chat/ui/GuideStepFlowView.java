@@ -93,10 +93,6 @@ public class GuideStepFlowView extends ScrollView {
         }
     }
 
-    public StepState getStepState(int index) {
-        if (index < 0 || index >= steps.size()) return StepState.PENDING;
-        return steps.get(index).state;
-    }
 
     public int getStepCount() { return steps.size(); }
 

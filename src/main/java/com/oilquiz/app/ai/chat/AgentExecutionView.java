@@ -153,22 +153,7 @@ public class AgentExecutionView extends LinearLayout {
         }
     }
 
-    public void updateToolCall(String toolName, String args) {
-        toolParamsContainer.setVisibility(View.VISIBLE);
-        tvToolParams.setText(args != null ? args : "{}");
-        updateCurrentStep(0, "工具调用", "调用工具: " + toolName, "正在执行 " + toolName + "...");
-    }
 
-    public void updateToolResult(String toolName, boolean success, String result) {
-        toolResultContainer.setVisibility(View.VISIBLE);
-        tvToolResultStatus.setText(success ? "✓ 成功" : "✗ 失败");
-        tvToolResultStatus.setTextColor(getContext().getResources().getColor(
-            success ? R.color.success : R.color.error));
-        tvToolResultName.setText(toolName);
-        tvToolResultContent.setText(result != null ? result : "");
-
-        updateCurrentStep(0, "工具结果", "执行完成: " + toolName, success ? "工具执行成功" : "工具执行失败");
-    }
 
     public void updateInferenceProgress(int tokenCount, float tokensPerSecond) {
         this.totalTokens = tokenCount;
@@ -181,10 +166,6 @@ public class AgentExecutionView extends LinearLayout {
         updateElapsedTime();
     }
 
-    public void appendToken(String token) {
-        String currentContent = tvStepContent.getText().toString();
-        tvStepContent.setText(currentContent + token);
-    }
 
     public void updateElapsedTime() {
         long elapsed = System.currentTimeMillis() - startTime;

@@ -116,33 +116,11 @@ public class InferenceStateManager {
             return System.currentTimeMillis() - totalStartTime;
         }
         
-        public long getCurrentStateDuration() {
-            return System.currentTimeMillis() - stateStartTime;
-        }
         
         public long getTimeSinceLastHeartbeat() {
             return System.currentTimeMillis() - lastHeartbeat.get();
         }
         
-        public void updateHeartbeat() {
-            lastHeartbeat.set(System.currentTimeMillis());
-        }
-    }
-    
-    /**
-     * 开始新的推理会话
-     */
-    public void startInference(String messageId) {
-        Log.i(TAG, "Starting inference for message: " + messageId);
-        
-        StateDetails details = new StateDetails(messageId);
-        stateMap.put(messageId, details);
-        
-        // 进入初始化状态
-        transitionToState(messageId, InferenceState.INITIALIZING);
-        
-        // 启动超时检测
-        startTimeoutMonitor(messageId);
     }
     
     /**
@@ -398,23 +376,6 @@ public class InferenceStateManager {
     }
     
     /**
-     * 检查是否正在推理中
-     */
-    public boolean isInferenceActive(String messageId) {
-        StateDetails details = stateMap.get(messageId);
-        return details != null && details.isActive.get();
-    }
-    
-    /**
-     * 取消推理
-     */
-    public void cancelInference(String messageId) {
-        Log.i(TAG, "Cancelling inference for message: " + messageId);
-        transitionToState(messageId, InferenceState.CANCELLED);
-        cleanup(messageId);
-    }
-    
-    /**
      * 清理资源
      */
     private void cleanup(String messageId) {
@@ -435,13 +396,6 @@ public class InferenceStateManager {
      */
     public void setStateChangeListener(StateChangeListener listener) {
         this.stateChangeListener = listener;
-    }
-    
-    /**
-     * 设置超时监听器
-     */
-    public void setTimeoutListener(TimeoutListener listener) {
-        this.timeoutListener = listener;
     }
     
     /**

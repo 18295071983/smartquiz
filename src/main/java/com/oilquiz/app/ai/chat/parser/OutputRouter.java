@@ -159,11 +159,6 @@ public class OutputRouter {
         }
     }
 
-    /** 本轮是否由模板解析器接管（供配置侧打印/断言） */
-    public boolean isParserAuthority() {
-        return parserAuthority;
-    }
-
     /**
      * 设置**解析器路径**下本轮是否启用思考。
      *
@@ -179,11 +174,6 @@ public class OutputRouter {
         if (!active) {
             this.thinkingStarted = false;
         }
-    }
-
-    /** 解析器生效时的思考分段是否已启用（供配置侧打印/断言） */
-    public boolean isParserThinkingActive() {
-        return parserThinkingActive;
     }
 
     /**
@@ -539,24 +529,10 @@ public class OutputRouter {
     }
 
     /**
-     * 获取完整内容
-     */
-    public String getFullContent() {
-        return fullContentBuffer.toString();
-    }
-
-    /**
      * 获取文本内容
      */
     public String getTextContent() {
         return textBuffer.toString();
-    }
-
-    /**
-     * 获取思考内容
-     */
-    public String getThinkingContent() {
-        return thinkingBuffer.toString();
     }
 
     // ========== 辅助方法 ==========

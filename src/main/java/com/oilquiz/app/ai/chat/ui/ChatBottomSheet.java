@@ -12,8 +12,6 @@ import androidx.annotation.Nullable;
 
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * 通用底部弹窗壳（全局可复用 View 组件，新建通用设计）。
@@ -125,36 +123,11 @@ public class ChatBottomSheet {
         return this;
     }
 
-    /** 次要（灰色）按钮 */
-    public ChatBottomSheet secondaryAction(String label, @Nullable Action action) {
-        TextView btn = new TextView(context);
-        btn.setText(label);
-        btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        btn.setTextColor(0xFF6B7280);
-        btn.setGravity(Gravity.CENTER);
-        btn.setBackground(rounded(0xFFF3F4F6, dp(12)));
-        btn.setPadding(dp(18), dp(10), dp(18), dp(10));
-        int idx = actionsWrap.getChildCount();
-        actionsWrap.addView(btn, 0, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) btn.getLayoutParams();
-        lp.setMarginStart(idx == 0 ? 0 : dp(10));
-        btn.setOnClickListener(v -> {
-            if (action != null) action.onClick(v);
-            else dialog.dismiss();
-        });
-        return this;
-    }
-
     public ChatBottomSheet cancelable(boolean cancelable) {
         dialog.setCancelable(cancelable);
         return this;
     }
 
-    public ChatBottomSheet onDismiss(@Nullable Runnable r) {
-        dialog.setOnDismissListener(d -> { if (r != null) r.run(); });
-        return this;
-    }
 
     public void show() {
         if (shown) return;

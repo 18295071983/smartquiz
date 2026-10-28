@@ -2,7 +2,6 @@ package com.oilquiz.app.ui.activity;
 
 import android.app.AlertDialog;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Looper;
@@ -11,12 +10,10 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.chip.Chip;
@@ -25,7 +22,6 @@ import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.button.MaterialButton;
 
 import com.oilquiz.app.util.AILogger;
-import com.oilquiz.app.util.QWeatherIconMapper;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.ViewModel;
 
@@ -36,19 +32,15 @@ import com.oilquiz.app.ai.chat.coordination.AIChatCoordinator;
 import javax.inject.Inject;
 
 import dagger.hilt.android.AndroidEntryPoint;
-import com.oilquiz.app.ui.activity.QuestionGenerateActivity;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.service.AIServiceInitializer;
-import com.oilquiz.app.ai.service.AIServiceState;
 import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.chat.AgentChatHandler;
 import com.oilquiz.app.ai.chat.ChatIdDispatcher;
 import com.oilquiz.app.ai.chat.StreamingUpdateManager;
-import com.oilquiz.app.ai.tool.AITool;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.AIWeatherManager;
-import com.oilquiz.app.ai.tool.LocationTool;
 import com.oilquiz.app.ai.util.ChatHistoryManager;
 import com.oilquiz.app.ai.util.AttachmentManager;
 import com.oilquiz.app.ai.bridge.ChatCommand;
@@ -240,7 +232,6 @@ public class AIChatActivity extends BaseActivity {
     private Chip chipClear;
     /** 快捷工具栏：键盘弹出时自动折叠 */
     private ChipGroup quickActionsChipGroup;
-    private ImageView ivQuickExpand;
     /** 快捷工具 chip 模块：统一管理快捷区工具入口 chip（静态绑定 + 动态构建） */
     private QuickToolChipModule quickToolModule;
     private boolean quickBarExpanded = true;
@@ -274,7 +265,6 @@ public class AIChatActivity extends BaseActivity {
     /** 当前会话的持久化 ID（用于更新而非重复创建；跨线程读写，需 volatile 保证可见性） */
     private volatile String currentSessionId;
     private AttachmentManager attachmentManager;
-    private ChatHistoryAdapter chatHistoryAdapter;
     private AttachmentAdapter attachmentAdapter;
     private FileContentExtractor fileContentExtractor;
     private AIToolManager aiToolManager;
@@ -304,12 +294,10 @@ public class AIChatActivity extends BaseActivity {
     private final Runnable historyPollRunnable = () -> pollHistoryForHotReload();
     private int historyPollUnchangedCount = 0;
     /** 强制本地Agent执行标志：用户点击"🚀 强行使用本地Agent"后置位，processChatMessage 消费一次后清除 */
-    private volatile boolean forceLocalAgentOnce = false;
     // 在线模型 API 返回的 Token 统计（由 onTokenStats 回调写入）
     // 当大于 0 时，UI 优先使用 API 数据，实现数据源自动切换
     private volatile int onlinePromptTokens = 0;
     private volatile int onlineCompletionTokens = 0;
-    private volatile long onlineStatsReceiveTime = 0L;
     private volatile StringBuilder currentStreamingContent = null;
     private volatile StringBuilder currentThinkingContent = null;
     /** 当前回合 ID（消息对绑定，2026-09-14）：一次发送 = 一回合，user 消息与
@@ -422,8 +410,6 @@ public class AIChatActivity extends BaseActivity {
     private static final Object HISTORY_IO_LOCK = new Object();
     
     // isRecovering 和 pendingMessageForRecovery 已移至 NativeRecoveryHandler
-    private volatile int recoveryProgressUpdateCount = 0;
-    private static final int MAX_RECOVERY_FAILURES_NOTIFY = 3;
 
     private int tokenCountSinceLastUpdate = 0;
     private long lastUpdateTime = 0;
@@ -513,14 +499,12 @@ public class AIChatActivity extends BaseActivity {
     private long generationStartTime = 0;
     // isLoadingModel 和 loadingProgressMessageIndex 已移至 ServiceStatusManager
     // aiStatusObserver, loadingTimerRunnable 已移至 ServiceStatusManager
-    private static final long LOADING_TIMER_INTERVAL_MS = 500;
     private ActivityResultLauncher<String[]> attachFileLauncher;
     private ActivityResultLauncher<Uri> cameraCaptureLauncher; // 相机拍照
     private android.net.Uri currentPhotoUri; // 当前拍照的临时URI
     private MediaRecorder mediaRecorder; // 音频录制器
     private String recordingFilePath; // 录音文件路径
     private boolean isRecording = false; // 是否正在录音
-    private List<Uri> attachedFiles = new ArrayList<>();
     private List<ChatMessage.Attachment> currentAttachments = new ArrayList<>();
 
     // 工具引导用的文件/图片/目录选择器 launcher
@@ -1212,14 +1196,6 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
-    private void updateSendButtonState(boolean enabled, String text) {
-        try {
-            if (btnSend != null) {
-                btnSend.setEnabled(enabled);
-                btnSend.setText(text);
-            }
-        } catch (Exception ignored) {}
-    }
 
     /**
      * 停止/发送按钮切换：生成中显示停止、隐藏发送；空闲反之（同位置切换）。
@@ -1244,15 +1220,6 @@ public class AIChatActivity extends BaseActivity {
                 updateModelStateFromStatusText();
             }
         }
-    }
-
-    /**
-     * 更新 loading 文本（通过 thinkingIndicator 或 loading view）
-     */
-    private void updateLoadingText(String text) {
-        try {
-            showLoading(text, null);
-        } catch (Exception ignored) {}
     }
 
     /**
@@ -5083,38 +5050,6 @@ public class AIChatActivity extends BaseActivity {
         return getAttachmentPromptBuilder().isExtractFailed(content);
     }
 
-    private java.util.concurrent.CompletableFuture<java.util.Map<Uri, String>> extractAllAttachmentContents(List<Uri> uris) {
-        java.util.concurrent.CompletableFuture<java.util.Map<Uri, String>> allFutures =
-                new java.util.concurrent.CompletableFuture<>();
-        java.util.Map<Uri, String> results = new java.util.concurrent.ConcurrentHashMap<>();
-
-        if (uris.isEmpty()) {
-            allFutures.complete(results);
-            return allFutures;
-        }
-
-        int total = uris.size();
-        int[] completed = {0};
-
-        for (Uri uri : uris) {
-            fileContentExtractor.extractContent(uri).whenComplete((content, throwable) -> {
-                if (throwable != null) {
-                    AppLogger.aiE(TAG, "Extract content fail: " + throwable.getMessage());
-                    results.put(uri, "解析失败: " + throwable.getMessage());
-                } else {
-                    results.put(uri, content);
-                }
-                synchronized (completed) {
-                    completed[0]++;
-                    if (completed[0] == total) {
-                        allFutures.complete(results);
-                    }
-                }
-            });
-        }
-
-        return allFutures;
-    }
 
     /**
      * 本地解析结果 → 增强消息（阈值与在线 Agent 路径同源，统一在 AttachmentPromptBuilder）
@@ -5559,19 +5494,14 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /** 防御性硬上限：即使上下文预算很大，也最多携带这么多条历史（防极端场景拼装过慢） */
-    private static final int HISTORY_MAX_ENTRIES_HARD_CAP = 60;
 
     /**
      * 工具结果保留策略（数据优先，不做粗暴一刀切）：
      * 工具结果是模型回答的事实依据——最近的结果保留完整（对齐引擎 MAX_TOOL_RESULT_LENGTH=6000），
      * 更早的结果才按新旧渐进收缩（2500→1200），避免"结果被截断→追问时模型答不上来"。
      */
-    private static final int TOOL_RESULT_KEEP_MAX = 6000;
-    private static final int TOOL_RESULT_MID_MAX = 2500;
-    private static final int TOOL_RESULT_OLD_MAX = 1200;
 
     /** 历史要点里单条工具结果的最大字符数（要点是压缩态，但优先保留数据而非对话废话） */
-    private static final int KEY_POINT_RESULT_MAX = 300;
 
 
 
@@ -9485,32 +9415,6 @@ public class AIChatActivity extends BaseActivity {
             showToast(getString(R.string.h_0b7ce83c));
         }
     }
-    
-    /**
-     * 模式切换动画
-     * 淡出当前内容 -> 执行切换 -> 淡入新内容
-     */
-    private void animateModeSwitch(Runnable switchAction) {
-        if (messageList == null) {
-            switchAction.run();
-            return;
-        }
-        
-        // 淡出当前内容
-        messageList.animate()
-            .alpha(0.3f)
-            .setDuration(150)
-            .withEndAction(() -> {
-                // 执行模式切换
-                switchAction.run();
-                // 淡入新内容
-                messageList.animate()
-                    .alpha(1f)
-                    .setDuration(200)
-                    .start();
-            })
-            .start();
-    }
 
     /**
      * 点击切换深度思考开关：开 ↔ 关
@@ -10550,76 +10454,11 @@ public class AIChatActivity extends BaseActivity {
         return pos;
     }
 
-    private int addAgentStepMessage(ChatMessage.AgentStepInfo stepInfo) {
-        if (chatHistory == null) return -1;
-
-        ChatMessage msg = ChatMessage.createAgentStepMessage(stepInfo);
-        // 消息对绑定：与本回合 user/AI 消息共享 turnId + 子 id（工具执行步骤类）
-        msg.turnId = currentTurnId;
-        msg.subId = ChatIdDispatcher.getInstance()
-                .applySubId(ChatIdDispatcher.IdType.TOOL, currentTurnId);
-        // 标记所属agent组
-        if (currentAgentGroupId != null) {
-            msg.agentGroupId = currentAgentGroupId;
-            agentGroupStepCount++;
-            chatAdapter.updateAgentGroupCounts(currentAgentGroupId, agentGroupStepCount, agentGroupToolCount);
-        }
-        // 按 messageId 实时定位插入点（2026-09-14）：不依赖缓存索引
-        int aiPos = resolveStreamingIndex();
-        int insertPos = (aiPos >= 0) ? aiPos : chatHistory.size();
-        chatHistory.add(insertPos, msg);
-        int pos = insertPos;
-        if (chatAdapter != null) {
-            chatAdapter.notifyItemInserted(pos);
-        }
-        scrollToBottom();
-        return pos;
-    }
 
     private void updateToolCallResult(int position, boolean success, String result) {
         if (chatAdapter != null && position >= 0 && position < chatHistory.size()) {
             chatAdapter.updateToolCallStatus(position, success ? ChatMessage.ToolCallInfo.ToolCallStatus.COMPLETED : ChatMessage.ToolCallInfo.ToolCallStatus.FAILED, result);
         }
-    }
-
-    /**
-     * 将解读摘要写入对应 TOOL_CALL 消息的 toolCallInfo.interpretedMessage 字段（工具卡内展示），
-     * 不新增独立 AI 主气泡；通过 notifyItemChanged 触发局部刷新。
-     *
-     * <p>C0-T1 之后自动解读已关掉，这里暂时没有调用点：字段与工具卡渲染仍保留，
-     * 手动"AI 深度解读"要落到卡内、以及 C1 的 ToolResultCard 都走这条路，故不删。
-     */
-    private void writeInterpretedToMessage(final int position, final String content) {
-        if (position < 0 || chatHistory == null || position >= chatHistory.size()) return;
-        ChatMessage msg = chatHistory.get(position);
-        if (msg == null || msg.toolCallInfo == null) return;
-        msg.toolCallInfo.interpretedMessage = (content != null) ? content : "";
-        msg.toolCallInfo.interpretationDone = true;
-        if (chatAdapter != null) {
-            // 使用 RecyclerView 三层保护：主线程检查 + 布局动画检查 + post 延迟
-            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
-                if (messageList != null && messageList.isComputingLayout()) {
-                    messageList.post(() -> {
-                        if (chatAdapter != null && position < chatAdapter.getItemCount()) {
-                            chatAdapter.notifyItemChanged(position);
-                        }
-                    });
-                } else {
-                    chatAdapter.notifyItemChanged(position);
-                }
-            } else {
-                runOnUiThread(() -> {
-                    if (chatAdapter != null && position < chatAdapter.getItemCount()) {
-                        if (messageList != null && messageList.isComputingLayout()) {
-                            messageList.post(() -> chatAdapter.notifyItemChanged(position));
-                        } else {
-                            chatAdapter.notifyItemChanged(position);
-                        }
-                    }
-                });
-            }
-        }
-        saveHistoryAsync();
     }
 
     private void updateAgentStepResult(int position, String thought, String action, String observation, boolean isCompleted) {
@@ -12138,28 +11977,6 @@ public class AIChatActivity extends BaseActivity {
         });
     }
 
-    /** 语音模型设置：配置语音识别/语音合成专用模型 */
-    private void handleSpeechModelConfig() {
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle(getString(R.string.h_eddfcc8d))
-            .setItems(new String[]{"🎙️ 语音识别模型（语音转文字）", "🔊 语音合成模型（文字转语音）"},
-                (dialog, which) -> {
-                    if (which == 0) {
-                        new com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog(
-                                AIChatActivity.this,
-                                com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog.Mode.ASR)
-                            .show();
-                    } else {
-                        new com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog(
-                                AIChatActivity.this,
-                                com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog.Mode.TTS)
-                            .show();
-                    }
-                })
-            .setNegativeButton(getString(R.string.h_625fb26b), null)
-            .show();
-    }
-
     /** 处理相机拍摄的照片 */
     private void handleCameraPhoto(Uri photoUri) {
         try {
@@ -12200,31 +12017,6 @@ public class AIChatActivity extends BaseActivity {
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error handling camera photo: " + e.getMessage());
             showToast(getString(R.string.h_76cf127f) + e.getMessage());
-        }
-    }
-
-    /** 处理录音功能 */
-    private void handleRecordAudio() {
-        if (isRecording) {
-            stopRecording();
-        } else {
-            // ✅ 使用统一的权限管理工具
-            com.oilquiz.app.resource.PermissionResourceProvider provider = 
-                com.oilquiz.app.resource.PermissionResourceProvider.getInstance(this);
-            
-            provider.requestMicrophonePermission(this, new com.oilquiz.app.resource.PermissionResourceProvider.PermissionCallback() {
-                @Override
-                public void onGranted() {
-                    // 权限已授予，开始录音
-                    startRecording();
-                }
-                
-                @Override
-                public void onDenied(java.util.List<String> deniedPermissions) {
-                    showToast(getString(R.string.h_997a1a2c));
-                    setVoiceButtonEnabled(false);
-                }
-            });
         }
     }
 
@@ -12778,41 +12570,6 @@ public class AIChatActivity extends BaseActivity {
         chipResumeInterrupted.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
-    private void sendMessageWithAttachments() {
-        if (inputManager == null || !inputManager.hasAttachments()) return;
-
-        List<ChatMessage.Attachment> savedAttachments = inputManager.getCurrentAttachments();
-
-        // 图片附件走 OCR 工具 + 在线模型分析，不依赖本地模型加载状态
-        boolean hasImageAttachment = false;
-        for (ChatMessage.Attachment att : savedAttachments) {
-            if ("image".equals(att.type)) { hasImageAttachment = true; break; }
-        }
-        if (!hasImageAttachment && !isAIReady()) { showToast(getString(R.string.h_efd0d08e)); return; }
-
-        inputManager.clearAttachments();
-
-        String defaultMessage = DEFAULT_ATTACHMENT_MESSAGE;
-        ChatMessage userMessage = newUserMessageForTurn(defaultMessage, savedAttachments,
-                pendingVoiceInputSource);
-        pendingVoiceInputSource = false;
-        chatHistory.add(userMessage);
-        if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
-        // 新一轮开始：旧统计隐藏，完成后挂到新回复上
-        clearAgentSummaryExcept(-1);
-        // 用户主动发消息：强制重新 pin 并贴底（与文本发送同一口径）。
-        scrollToBottom(true);
-        saveHistoryAsync();
-
-        // 图片附件统一走 OCR + Agent 路径（在线模型优先）
-        if (hasImageAttachment || shouldUseOnlineModel()) {
-            processMessageWithAttachmentsViaAgent(defaultMessage, savedAttachments);
-        } else if (fileContentExtractor != null) {
-            processMessageWithAttachments(defaultMessage, savedAttachments);
-        } else {
-            processChatMessage(defaultMessage);
-        }
-    }
 
     /**
      * 检查AI服务是否就绪
@@ -12822,37 +12579,6 @@ public class AIChatActivity extends BaseActivity {
             return inferenceRouter != null && inferenceRouter.isCurrentModelAvailable();
         }
         return modelBridge != null && modelBridge.isModelInitialized();
-    }
-
-    /**
-     * 更新附件提取状态并触发AI摘要生成
-     */
-    private void updateAttachmentExtractionStatus(Uri uri, String extractedContent) {
-        if (inputManager == null || attachmentProcessor == null) return;
-        
-        List<ChatMessage.Attachment> attachments = inputManager.getCurrentAttachments();
-        String uriString = uri.toString();
-        
-        for (ChatMessage.Attachment attachment : attachments) {
-            if (uriString.equals(attachment.url)) {
-                // 更新附件的提取内容和状态
-                attachment.extractedContent = extractedContent;
-                attachment.isExtracted = true;
-                attachment.isExtracting = false;
-                
-                // 通知适配器刷新UI（显示解析完成图标）
-                runOnUiThread(() -> {
-                    if (chatAdapter != null) {
-                        chatAdapter.notifyDataSetChanged();
-                    }
-                });
-                
-                // 异步生成AI摘要
-                Log.i(TAG, "Starting AI summary generation for: " + attachment.name);
-                attachmentProcessor.generateAISummary(attachment);
-                break;
-            }
-        }
     }
 
 /**
@@ -13209,11 +12935,6 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
-    private void registerAIStatusObserver() {
-        if (serviceStatusManager != null) {
-            serviceStatusManager.registerObserver();
-        }
-    }
 
     private void unregisterAIStatusObserver() {
         if (serviceStatusManager != null) {
@@ -13233,11 +12954,6 @@ public class AIChatActivity extends BaseActivity {
 
 
     
-    private void updateInitialServiceStatus() {
-        if (serviceStatusManager != null) {
-            serviceStatusManager.updateInitialStatus();
-        }
-    }
 
     private void showServiceStatusDetails() {
         if (serviceStatusManager != null) {

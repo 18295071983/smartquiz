@@ -92,11 +92,6 @@ public final class ComponentTheme {
         return ContextCompat.getColor(context, R.color.component_error);
     }
 
-    /** 中性/未激活态（footer 次按钮、未选中徽章） */
-    public static int neutral(Context context) {
-        return textSecondary(context);
-    }
-
     /** 品牌色低透明度底（选中态背景）；只做透明度，不另起色系 */
     public static int brandOverlay(Context context) {
         return withAlpha(brand(context), 0x1F);

@@ -11,7 +11,6 @@ import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.service.AIServiceState;
 import com.oilquiz.app.ai.util.ChatHistoryManager;
-import com.oilquiz.app.ai.stats.TokenStatsManager;
 import com.oilquiz.app.util.AILogger;
 
 import java.util.ArrayList;
@@ -147,20 +146,6 @@ public class AIChatCoordinator {
     // ========== 聊天历史管理 ==========
 
     /**
-     * 获取聊天历史（只读副本）
-     */
-    public List<ChatMessage> getChatHistory() {
-        return new ArrayList<>(chatHistory);
-    }
-
-    /**
-     * 获取聊天历史（原始引用，用于UI绑定）
-     */
-    public List<ChatMessage> getChatHistoryRef() {
-        return chatHistory;
-    }
-
-    /**
      * 添加用户消息
      */
     public void addUserMessage(String content) {
@@ -213,27 +198,6 @@ public class AIChatCoordinator {
     }
 
     /**
-     * 更新消息内容
-     */
-    public void updateMessageContent(int index, String content) {
-        if (index >= 0 && index < chatHistory.size()) {
-            chatHistory.get(index).content = content;
-            notifyChatHistoryChanged();
-        }
-    }
-
-    /**
-     * 删除消息
-     */
-    public void removeMessage(int index) {
-        if (index >= 0 && index < chatHistory.size()) {
-            chatHistory.remove(index);
-            notifyChatHistoryChanged();
-            saveHistoryAsync();
-        }
-    }
-
-    /**
      * 清空聊天历史
      */
     public void clearChatHistory() {
@@ -245,20 +209,6 @@ public class AIChatCoordinator {
         if (aiService != null) {
             aiService.chatClear();
         }
-    }
-
-    /**
-     * 加载聊天历史
-     */
-    public void loadChatHistory() {
-        if (chatHistoryManager == null) return;
-        new Thread(() -> {
-            List<ChatMessage> loaded = chatHistoryManager.loadAIChatHistory();
-            if (loaded != null && !loaded.isEmpty()) {
-                chatHistory.addAll(loaded);
-                mainHandler.post(this::notifyChatHistoryChanged);
-            }
-        }).start();
     }
 
     /**
@@ -288,13 +238,6 @@ public class AIChatCoordinator {
     public boolean isUsingOnlineModel() {
         updateModelState();
         return isUsingOnlineModel;
-    }
-
-    /**
-     * AI服务是否已初始化
-     */
-    public boolean isAIServiceInitialized() {
-        return aiService != null && aiService.isInitialized();
     }
 
     /**
@@ -365,13 +308,6 @@ public class AIChatCoordinator {
         });
     }
 
-    private void notifyModelChanged() {
-        mainHandler.post(() -> {
-            for (CoordinatorListener listener : listeners) {
-                listener.onModelChanged(currentModelName, isUsingOnlineModel);
-            }
-        });
-    }
 
     // ========== 清理 ==========
 

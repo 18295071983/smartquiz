@@ -6,7 +6,6 @@ import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -414,11 +413,6 @@ public class CardShell extends LinearLayout {
                     : label, i == 0, run);
         }
         return this;
-    }
-
-    /** footer 是否为空（调用方据此决定是否还需要外壳之外的动作行） */
-    public boolean hasFooter() {
-        return footerInline.getChildCount() > 0 || moreButton.getVisibility() == VISIBLE;
     }
 
     /**
