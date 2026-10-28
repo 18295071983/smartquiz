@@ -191,4 +191,30 @@ public class ChatIdDispatcherTest {
         org.junit.Assert.assertNotEquals(oldTurn, nextTurn);
         org.junit.Assert.assertNotEquals(newTurn, nextTurn);
     }
+
+    // ---- 2026-10-28：按"全库会话元数据"补高水位（prefs 丢失场景） ------------------
+
+    /**
+     * {@code raiseMasterFloor} 只抬下界、不动当前回合锚点：启动时后台读全库 maxTurnId 用它，
+     * 不能像 {@code seedFromTurnIds} 那样把正在进行的回合锚点清掉。
+     */
+    @Test
+    public void raiseMasterFloorOnlyMovesForwardAndKeepsCurrentTurn() {
+        ChatIdDispatcher d = ChatIdDispatcher.getInstance();
+        String liveTurn = d.applyMasterId();
+
+        d.raiseMasterFloor(900000L);
+        org.junit.Assert.assertEquals("补高水位不能清当前回合锚点", liveTurn, d.peekMasterId());
+        String next = d.applyMasterId();
+        long n = Long.parseLong(next.substring(1));
+        org.junit.Assert.assertTrue("下一个主 id 必须越过补进来的下界: " + next, n > 900000L);
+
+        // 更小的下界不能把计数器压回去
+        String after = d.applyMasterId();
+        d.raiseMasterFloor(10L);
+        String afterSmall = d.applyMasterId();
+        long small = Long.parseLong(afterSmall.substring(1));
+        long prev = Long.parseLong(after.substring(1));
+        org.junit.Assert.assertTrue("下界只增不退", small > prev);
+    }
 }

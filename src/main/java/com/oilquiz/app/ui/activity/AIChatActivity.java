@@ -890,6 +890,10 @@ public class AIChatActivity extends BaseActivity {
             inferenceRouter = coordinator.getInferenceRouter();
             onlineModelManager = coordinator.getOnlineModelManager();
             chatHistoryManager = coordinator.getChatHistoryManager();
+            // ID 派发器高水位：后台只读会话元数据（不解析 messages），把主计数器抬到全库最高。
+            // 防的是 next_master 丢失（重装/清数据/只恢复 appdata 里的会话文件）后，
+            // 先打开一个老会话把计数器压回它的 T 段，新回合与其它会话里已有的 T 重号（2026-10-28）。
+            seedIdDispatcherFromSessionMetadata();
             aiConfig = coordinator.getAIConfig();
 
             // 本地Agent开关（Chip）：切换即写配置，processChatMessage 按 isLocalAgentEnabled() 路由，
@@ -8453,6 +8457,32 @@ public class AIChatActivity extends BaseActivity {
     /** 历史恢复后补齐 id 体系：旧数据组件的 COMPONENT id / 思考轮的 THINKING id 可能缺失，
      *  按消息自身 turnId 为前缀补发（组件/思考轮 id 与消息对的主 id 保持一致，适配器按前缀聚合不脱节）；
      *  已存在 id 的组件/轮次不动（幂等）。 */
+    /**
+     * 后台读一遍全部会话的元数据（{@code maxTurnId}），把 ID 派发器主计数器抬到"全库最高"。
+     *
+     * <p>与 {@link #ensureRecoveredIds} 里的播种互补：那里只按"当前打开的这个会话"播种，
+     * 一旦 prefs 里的 {@code next_master} 丢了（重装、清数据、只恢复 appdata 里的会话文件），
+     * 先打开老会话就会把计数器压回它的 T 段，新回合便可能与另一个会话已存在的 T 重号。
+     * 这里只读元数据（{@code maxTurnId} 在保存时写进会话文件头），不解析 messages，
+     * 成本与"打开一次历史抽屉"同级；读不到（旧文件没有该字段）就跳过，等下次保存补齐。</p>
+     */
+    private void seedIdDispatcherFromSessionMetadata() {
+        if (chatHistoryManager == null) return;
+        Thread t = new Thread(() -> {
+            try {
+                long max = chatHistoryManager.getMaxTurnNumberAcrossSessions();
+                if (max > 0) {
+                    ChatIdDispatcher.getInstance().raiseMasterFloor(max);
+                    AppLogger.i(TAG, "ChatIdDispatcher floor raised from session metadata: max turn = T" + max);
+                }
+            } catch (Throwable e) {
+                AppLogger.aiW(TAG, "seed dispatcher from metadata failed: " + e.getMessage());
+            }
+        }, "id-dispatcher-seed");
+        t.setDaemon(true);
+        t.start();
+    }
+
     private void ensureRecoveredIds(java.util.List<ChatMessage> messages) {
         if (messages == null) return;
         // 先播种主 id：恢复出 T1..Tn 后，派发器必须从 n+1 继续发号，

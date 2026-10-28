@@ -487,6 +487,8 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             session.updatedAt = System.currentTimeMillis();
             // 持久化消息数：列表加载时为省内存会置空 messages，靠此字段展示条数
             session.messageCount = session.messages != null ? session.messages.size() : session.messageCount;
+            // 元数据里带上本会话最大回合序号：启动时只读元数据就能把 ID 派发器抬到全库最高
+            session.maxTurnId = ConversationSession.maxTurnNumber(session.messages);
 
             File dir = getConversationsDir();
             File file = new File(dir, session.id + ".json");
@@ -827,6 +829,26 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
     }
 
     /**
+     * 全库最高的回合序号（只读会话元数据里的 {@code maxTurnId}，不解析 messages）。
+     *
+     * <p>启动时用它把 {@code ChatIdDispatcher} 的主计数器抬到全库最高，避免 prefs 里的
+     * {@code next_master} 丢失后，只按"当前打开的会话"播种 → 与该会话之外的历史 T 段重叠。</p>
+     *
+     * <p>旧会话文件没有该字段（反序列化为 0）时不计入，等它下次被保存时补齐。</p>
+     */
+    public long getMaxTurnNumberAcrossSessions() {
+        long max = 0L;
+        try {
+            for (ConversationSession s : listConversationSessions()) {
+                if (s != null && s.maxTurnId > max) max = s.maxTurnId;
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "read max turn across sessions failed: " + t.getMessage());
+        }
+        return max;
+    }
+
+    /**
      * 流式读取会话文件元数据（id/title/createdAt/updatedAt/消息条数）。
      * 不解析 messages 数组内容，仅数顶层数组元素个数，内存占用与文件大小无关。
      */
@@ -853,6 +875,13 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
                     case "messageCount":
                         try {
                             session.messageCount = reader.nextInt();
+                        } catch (Exception ex) {
+                            reader.skipValue();
+                        }
+                        break;
+                    case "maxTurnId":
+                        try {
+                            session.maxTurnId = reader.nextLong();
                         } catch (Exception ex) {
                             reader.skipValue();
                         }
@@ -1447,13 +1476,16 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             writer.write(",\"title\":");
             writer.write(gson.toJson(session.title != null ? session.title : ""));
             writer.write(",\"messages\":[");
-            writeMessagesPreservingHead(writer, headSource, headSessionObject, headCount, tail);
+            long headMaxTurn = writeMessagesPreservingHead(writer, headSource, headSessionObject, headCount, tail);
             writer.write("],\"createdAt\":");
             writer.write(Long.toString(session.createdAt > 0 ? session.createdAt : System.currentTimeMillis()));
             writer.write(",\"updatedAt\":");
             writer.write(Long.toString(System.currentTimeMillis()));
             writer.write(",\"messageCount\":");
             writer.write(Integer.toString(headCount + tail.size()));
+            // 最大回合序号（含未加载头部的旧消息）：启动播种用，见 ConversationSession#maxTurnId
+            writer.write(",\"maxTurnId\":");
+            writer.write(Long.toString(Math.max(headMaxTurn, ConversationSession.maxTurnNumber(tail))));
             writer.write("}");
         }
         if (file.exists()) file.delete();
@@ -1463,10 +1495,13 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
     /**
      * 流式写消息数组内容：先复制 sourceFile 头部 headCount 条（逐条解析再序列化，内存有界），
      * 再写 tail（当前内存窗口）。调用方负责写方括号。
+     *
+     * @return 头部消息里出现过的最大回合序号（给 {@code maxTurnId} 用；没有则为 0）
      */
-    private void writeMessagesPreservingHead(FileWriter writer, File sourceFile, boolean sourceSessionObject,
+    private long writeMessagesPreservingHead(FileWriter writer, File sourceFile, boolean sourceSessionObject,
                                              int headCount, List<ChatMessage> tail) throws IOException {
         boolean first = true;
+        long headMaxTurn = 0L;
         if (headCount > 0 && sourceFile != null && sourceFile.exists()) {
             try (com.google.gson.stream.JsonReader reader = new com.google.gson.stream.JsonReader(
                     new java.io.InputStreamReader(new java.io.FileInputStream(sourceFile), java.nio.charset.StandardCharsets.UTF_8))) {
@@ -1489,6 +1524,8 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
                             if (!first) writer.write(",");
                             writer.write(gson.toJson(m));
                             first = false;
+                            long n = ConversationSession.turnNumber(m.turnId);
+                            if (n > headMaxTurn) headMaxTurn = n;
                         }
                         idx++;
                     }
@@ -1503,6 +1540,7 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             writer.write(gson.toJson(m));
             first = false;
         }
+        return headMaxTurn;
     }
 
     /**

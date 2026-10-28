@@ -238,6 +238,23 @@ public class ChatIdDispatcher {
     }
 
     /**
+     * 只把主计数器抬到 {@code maxTurnNumber + 1}，<b>不动</b>"当前回合"锚点。
+     *
+     * <p>给"启动时按全库会话元数据补高水位"用：{@link #seedFromTurnIds} 是切会话/恢复入口，
+     * 必须无条件清 {@code currentMasterId}；这里只是补一个下界，不能把正在进行的回合锚点清掉。</p>
+     *
+     * @param maxTurnNumber 已知的最大回合序号（&le;0 视为无信息，忽略）
+     */
+    public synchronized void raiseMasterFloor(long maxTurnNumber) {
+        if (maxTurnNumber <= 0) return;
+        ensureLoadedLocked();
+        if (maxTurnNumber >= masterCounter.get()) {
+            masterCounter.set(maxTurnNumber + 1);
+            persistLocked();
+        }
+    }
+
+    /**
      * 历史恢复后<b>播种</b>主 id 计数器：把 {@code masterCounter} 抬到已恢复的最大
      * {@code T<n>} 序号 + 1。
      *

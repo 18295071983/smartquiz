@@ -1,5 +1,43 @@
 # 变更日志
 
+## [2026-10-28] feat(chat-id)：会话元数据记 maxTurnId，启动把 ID 派发器抬到"全库最高"
+
+接上一笔（清空后子 id 重发）。剩下的边界是 `next_master` 本身丢了——重装、清除应用数据、
+只从备份里捞回 `conversations/` 而没带 prefs。那时启动只按"当前打开的会话"播种，
+先打开一个老会话就会把计数器压回它的 T 段，之后新建的回合可能与另一个会话里已有的 T 重号。
+
+### 做法（比"启动全量扫所有会话的 messages"便宜一个量级）
+
+1. `ConversationSession` 增加 `maxTurnId`：保存会话时顺手算一次。
+   `writeSessionWithHead` 这条保留未加载头部的路径也顺带取头部消息的最大 T
+   （头部本来就要逐条反序列化再写，不额外读文件）。
+2. 元数据流式读取（`readSessionMetadataOnly`，既有的"不解析 messages"那条）增加
+   `maxTurnId` 分支；`ChatHistoryManager#getMaxTurnNumberAcrossSessions()` 取全库最大。
+3. `ChatIdDispatcher#raiseMasterFloor(maxTurn)`：**只抬下界、不动当前回合锚点**
+   （`seedFromTurnIds` 是切会话/恢复入口，必须清锚点；这里不能）。
+4. `AIChatActivity.onCreate` 起一个后台线程读一遍会话元数据 → `raiseMasterFloor`。
+
+兼容：旧会话文件没有该字段 → 读作 0、跳过，等它下次保存补齐；不会因此算小全库最高值。
+
+### 验证
+
+- 单测 **26 条全绿**（`ChatHistoryManagerSessionTest` 17 + `ChatIdDispatcherTest` 9），
+  新增：回合号解析严格性、保存后元数据带 `maxTurnId`、旧文件缺字段读作 0、
+  `raiseMasterFloor` 只增不退且不清当前回合。
+- `assembleDebug` 通过并装机。真机日志：
+  `ChatIdDispatcher floor raised from session metadata: max turn = T539`；
+  会话文件已带 `maxTurnId`（`e6637915…`=537、`d7e8a1e6…`=539）。
+
+### 业界对照（为什么用"元数据高水位"而不是别的）
+
+- 云端产品（ChatGPT/Claude 等）用的是**服务端 id**（UUID/ULID/内部序列），客户端从不发号，
+  所以没有"播种"这件事。
+- 本地优先/离线应用常见两条路：① id 本身用 ULID/CUID（客户端可生成、全局唯一、无需计数器）；
+  ② 序号取自数据本身（`max+1`）或数据库序列，作为**恢复兜底**——这正是本笔做的事。
+- 本项目 `T<n>` 是"人类可读 + UI 按前缀聚合"的产物，且要全局单调，不适合直接换 ULID；
+  把 `maxTurnId` 写进会话元数据、启动取全库最大，是这条约束下最小代价的兜底。
+  真要重构，更好的形态是"按会话分域序号"（如 `c123:5`，每个会话自带计数器，恢复天然一致）。
+
 ## [2026-10-28] fix(chat-id)：清空历史不再清子 id 桶——"清空→新建→回收站恢复"不会重发 Tn-Ck
 
 用户："id 分发器是不是也有问题，没检查回收站的 id 占用，清空后恢复会重复发 id"。

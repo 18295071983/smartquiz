@@ -495,6 +495,69 @@ public class ChatHistoryManagerSessionTest {
                 ChatHistoryManager.RESTORED_COPY_MARK + title, afterSave.title);
     }
 
+    // ==================== 会话元数据里的 maxTurnId（2026-10-28） ====================
+
+    @Test
+    public void turnNumberParsingIsStrict() {
+        assertEquals(533L, ConversationSession.turnNumber("T533"));
+        assertEquals(-1L, ConversationSession.turnNumber(null));
+        assertEquals(-1L, ConversationSession.turnNumber(""));
+        assertEquals(-1L, ConversationSession.turnNumber("533"));
+        assertEquals(-1L, ConversationSession.turnNumber("T53a"));
+        assertEquals(-1L, ConversationSession.turnNumber("T1-C1"));   // 子 id 不是回合 id
+        assertEquals(0L, ConversationSession.maxTurnNumber(null));
+    }
+
+    /**
+     * 保存会话时顺手记最大回合序号；列表/启动只读元数据就能拿到它（不解析 messages）。
+     * 这是"启动把 ID 派发器抬到全库最高"的依据。
+     */
+    @Test
+    public void savedSessionCarriesMaxTurnIdInMetadata() {
+        List<ChatMessage> older = new ArrayList<>(Arrays.asList(
+                withTurn(user("u-m1", "早期问题"), "T17"),
+                withTurn(ai("a-m1", "早期回答"), "T17")));
+        List<ChatMessage> newer = new ArrayList<>(Arrays.asList(
+                withTurn(user("u-m2", "后续问题"), "T42"),
+                withTurn(ai("a-m2", "后续回答"), "T42")));
+
+        ConversationSession first = manager.saveCurrentChatAsSession(older, null);
+        ConversationSession second = manager.saveCurrentChatAsSession(newer, null);
+        assertNotNull(first);
+        assertNotNull(second);
+
+        long maxAcross = manager.getMaxTurnNumberAcrossSessions();
+        assertEquals("全库最高回合序号应取两个会话的最大值", 42L, maxAcross);
+
+        // 列表侧（只读元数据）也能拿到单条会话的值
+        long firstMeta = -1L;
+        for (ConversationSession s : manager.listConversationSessions()) {
+            if (first.id.equals(s.id)) firstMeta = s.maxTurnId;
+        }
+        assertEquals(17L, firstMeta);
+    }
+
+    /** 旧会话文件没有 maxTurnId 字段：读取时按 0 处理，不能崩、也不能把全库最高算错。 */
+    @Test
+    public void legacySessionWithoutMaxTurnIdReadsAsZero() throws Exception {
+        String id = "legacy-no-maxturn";
+        File f = new File(conversationsDir, id + ".json");
+        try (java.io.FileWriter w = new java.io.FileWriter(f)) {
+            w.write("{\"id\":\"" + id + "\",\"title\":\"老会话\",\"messages\":[],"
+                    + "\"createdAt\":1,\"updatedAt\":2,\"messageCount\":0}");
+        }
+        long meta = -1L;
+        for (ConversationSession s : manager.listConversationSessions()) {
+            if (id.equals(s.id)) meta = s.maxTurnId;
+        }
+        assertEquals("旧文件缺字段按 0 处理", 0L, meta);
+    }
+
+    private static ChatMessage withTurn(ChatMessage m, String turnId) {
+        m.turnId = turnId;
+        return m;
+    }
+
     private int conversationFileCount() {
         File[] files = conversationsDir.listFiles((d, name) -> name.endsWith(".json"));
         return files == null ? 0 : files.length;
