@@ -701,6 +701,7 @@
     <string name="card_diff_stat">+%1$d −%2$d</string>
     <string name="card_row_count">共 %1$d 行</string>
     <string name="card_row_truncated_rows">共 %1$d 行，已显示前 %2$d 行</string>
+    <string name="card_table_scroll_hint">左右滑动看全部列</string>
     <string name="card_shell_step_count">共 %1$d 步</string>
     <string name="card_shell_step_default_title">步骤 %1$d</string>
     <string name="card_shell_step_done">已完成</string>
