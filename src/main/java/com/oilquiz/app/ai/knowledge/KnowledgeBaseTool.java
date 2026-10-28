@@ -35,12 +35,21 @@ import java.util.Map;
  */
 @Tool(
         value = "knowledge_base",
-        description = "知识库：全文检索知识(search)、添加知识(add/add_batch)、修改已入库知识(update，按id或唯一标题，只改传入字段)、导入JSON(import_json/import_file)、直接导入文件(import_document，支持Word/Excel/TXT/MD/CSV/PDF/HTML/图片OCR/音频ASR转写自动切块)、删除(delete)、清空(clear)、统计(stats)。知识库内容由用户维护，用于回答应用专属问题",
+        description = "知识库：先索引后精确——list 看轻量索引(id/标题/分类/关键词，不含正文)、get 按id取单条全文、search 模糊检索、search+id/exact_title 精确取；添加(add/add_batch)、修改(update，按id或唯一标题，只改传入字段)、导入(import_json/import_file/import_document 支持Word/Excel/TXT/MD/CSV/PDF/HTML/图片OCR/音频ASR)、删除(delete)、清空(clear)、统计(stats)",
         category = "knowledge",
         aliases = {"kb", "knowledge", "wiki_search"},
         actions = {
-                @Action(name = "search", description = "全文检索知识库，返回匹配的知识片段列表", params = {
-                        @Param(name = "query", type = "string", description = "检索关键词，中文/英文/数字均可", required = true),
+                @Action(name = "list", description = "列出知识库轻量索引（id/标题/分类/关键词/来源/更新时间，不含正文）；回答“知识库里有什么”或先定位再取详情时用", params = {
+                        @Param(name = "category", type = "string", description = "分类过滤（可选）", required = false),
+                        @Param(name = "limit", type = "int", description = "条数上限，默认20，最大100", required = false)
+                }),
+                @Action(name = "get", description = "按 id 取单条知识的完整正文（先 list/search 拿 id）；不会一次返回多条", params = {
+                        @Param(name = "id", type = "int", description = "知识ID", required = true)
+                }),
+                @Action(name = "search", description = "检索知识库：默认模糊匹配（query 分词+打分，返回命中片段）；传 id 或 exact_title 时改为精确取，不做模糊召回", params = {
+                        @Param(name = "query", type = "string", description = "检索关键词（模糊检索用；精确取时可省略）", required = false),
+                        @Param(name = "id", type = "int", description = "精确取：按知识ID（与 exact_title 二选一）", required = false),
+                        @Param(name = "exact_title", type = "string", description = "精确取：标题全等（与 id 二选一）", required = false),
                         @Param(name = "category", type = "string", description = "分类过滤，如 general/guide/faq；tool_defs=系统工具定义库（查工具用法/参数用）；不传则检索全部", required = false),
                         @Param(name = "top_k", type = "int", description = "返回条数上限，默认5，最大20", required = false)
                 }),
@@ -92,6 +101,8 @@ import java.util.Map;
                 @Param(name = "source", type = "string", description = "来源", required = false),
                 @Param(name = "id", type = "int", description = "知识ID", required = false),
                 @Param(name = "find_title", type = "string", description = "按标题精确定位（update 用，仅唯一命中时可用）", required = false),
+                @Param(name = "exact_title", type = "string", description = "精确取：标题全等（search 用，与 id 二选一）", required = false),
+                @Param(name = "limit", type = "int", description = "条数上限（list 用，默认20，最大100）", required = false),
                 @Param(name = "items", type = "array", description = "批量知识数组", required = false),
                 @Param(name = "json", type = "string", description = "知识JSON字符串", required = false),
                 @Param(name = "file_path", type = "string", description = "知识JSON文件路径（import_file使用）", required = false)
@@ -115,26 +126,29 @@ public class KnowledgeBaseTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "知识库：全文检索知识(search)、添加知识(add/add_batch)、修改已入库知识(update，按id或唯一标题，只改传入字段)、"
-                + "导入JSON(import_json/import_file)、"
-                + "直接导入文件(import_document，支持Word/Excel/TXT/MD/CSV/PDF/HTML/图片OCR/音频ASR转写自动切块)、"
-                + "删除(delete)、清空(clear)、统计(stats)。知识库内容由用户维护，用于回答应用专属问题";
+        return "知识库：list 轻量索引(id/标题/分类/关键词，不含正文)、get 按id取单条全文、search 模糊检索或(id/exact_title)精确取、"
+                + "add/add_batch 添加、update 修改(按id或唯一标题，只改传入字段)、"
+                + "import_json/import_file 导入JSON、"
+                + "import_document 直接导入文件(Word/Excel/TXT/MD/CSV/PDF/HTML/图片OCR/音频ASR转写自动切块)、"
+                + "delete 删除、clear 清空、stats 统计。知识库内容由用户维护，用于回答应用专属问题";
     }
 
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
         params.put("action", "操作类型：search(检索)/add(加一条)/add_batch(批量加)/update(改一条)/import_json(导入JSON字符串)/import_file(导入JSON文件)/import_document(直接导入文档·图片·音频)/delete(删)/clear(清空)/stats(统计)");
-        params.put("query", "检索关键词（search 必填）");
-        params.put("category", "分类（search 过滤 / add 写入 / update 修改，可选）");
+        params.put("query", "检索关键词（search 模糊检索用；精确取可省略）");
+        params.put("category", "分类（search/list 过滤 / add 写入 / update 修改，可选）");
         params.put("top_k", "返回条数上限（search 可选，默认5）");
+        params.put("limit", "条数上限（list 可选，默认20，最大100）");
         params.put("semantic", "语义重排开关（search 可选，默认false；true=启用在线embedding重排+rerank精排，会消费在线API；未配置embedding专用能力时自动回退关键词检索）");
         params.put("title", "标题（add 必填；update 时为新标题 / import_document 可选）");
         params.put("content", "内容（add 必填；update 时为新正文）");
         params.put("keywords", "关键词（add/update 可选）");
         params.put("source", "来源（add/update 可选）");
-        params.put("id", "知识ID（delete/update 使用）");
+        params.put("id", "知识ID（get/delete/update 使用；search 传 id 表示精确取）");
         params.put("find_title", "按标题精确定位（update 用；仅当标题唯一时可用，命中多条会报错要求改用 id）");
+        params.put("exact_title", "精确取：标题全等（search 用，与 id 二选一，不做模糊召回）");
         params.put("items", "批量知识数组（add_batch 必填）");
         params.put("json", "知识JSON字符串（import_json 必填）");
         params.put("file_path", "文件绝对路径（import_file 为JSON文件 / import_document 为文档、图片、音频）");
@@ -146,11 +160,15 @@ public class KnowledgeBaseTool implements AITool {
         try {
             Object actionObj = parameters.get("action");
             if (actionObj == null) {
-                return new AIToolResult("缺少参数: action（search/add/add_batch/update/import_json/import_file/import_document/delete/clear/stats）",
+                return new AIToolResult("缺少参数: action（list/get/search/add/add_batch/update/import_json/import_file/import_document/delete/clear/stats）",
                         parameters);
             }
             String action = actionObj.toString();
             switch (action) {
+                case "list":
+                    return doList(parameters);
+                case "get":
+                    return doGet(parameters);
                 case "search":
                     return doSearch(parameters);
                 case "add":
@@ -173,7 +191,7 @@ public class KnowledgeBaseTool implements AITool {
                     return doStats(parameters);
                 default:
                     return new AIToolResult("未知操作: " + action
-                            + "（支持 search/add/add_batch/update/import_json/import_file/import_document/delete/clear/stats）", parameters);
+                            + "（支持 list/get/search/add/add_batch/update/import_json/import_file/import_document/delete/clear/stats）", parameters);
             }
         } catch (Exception e) {
             Log.e(TAG, "execute 异常: " + e.getMessage(), e);
@@ -183,10 +201,70 @@ public class KnowledgeBaseTool implements AITool {
 
     // ==================== 各动作实现 ====================
 
+    /** 轻量索引：只回 id/标题/分类/关键词等，不含正文（先看有什么，再 get 详情） */
+    private AIToolResult doList(Map<String, Object> parameters) {
+        String category = stringParam(parameters, "category");
+        int limit = intParam(parameters, "limit", 20);
+        JSONArray rows = manager.listMeta(category, limit);
+        String lastError = manager.getLastError();
+        Map<String, Object> info = new HashMap<>();
+        info.put("action", "list");
+        info.put("count", rows.length());
+        info.put("category", category == null ? "" : category);
+        if (lastError != null && !lastError.isEmpty()) {
+            info.put("error", lastError);
+            return new AIToolResult("列出知识索引失败: " + lastError, info);
+        }
+        JSONObject payload = new JSONObject();
+        try {
+            payload.put("count", rows.length());
+            payload.put("note", "这是索引（不含正文）；要正文用 action=get(id=…)，模糊检索用 action=search(query=…)");
+            payload.put("items", rows);
+        } catch (Exception ignored) {
+        }
+        return new AIToolResult(payload.toString(), info, true);
+    }
+
+    /** 按 id 取单条全文：精确、只回一条，不会把整库倒进上下文 */
+    private AIToolResult doGet(Map<String, Object> parameters) {
+        Map<String, Object> info = new HashMap<>();
+        info.put("action", "get");
+        long id = toLong(parameters.get("id"), -1);
+        if (id <= 0) {
+            return new AIToolResult("缺少参数: id（先用 list 或 search 拿到 id）", parameters);
+        }
+        JSONObject row = manager.getById(id);
+        if (row == null) {
+            String err = manager.getLastError();
+            info.put("id", id);
+            info.put("error", err == null ? "" : err);
+            return new AIToolResult(err != null && !err.isEmpty() ? err : ("未找到 id=" + id), info);
+        }
+        info.put("id", id);
+        return new AIToolResult(row.toString(), info, true);
+    }
+
     private AIToolResult doSearch(Map<String, Object> parameters) {
+        // 精确取（2026-10-28）：给了 id / exact_title 就不做模糊召回，命中即命中
+        long exactId = toLong(parameters.get("id"), -1);
+        String exactTitle = stringParam(parameters, "exact_title");
+        if (exactId > 0 || (exactTitle != null && !exactTitle.trim().isEmpty())) {
+            int topK = intParam(parameters, "top_k", 5);
+            JSONArray rows = manager.searchExact(exactId > 0 ? exactId : null, exactTitle, topK);
+            String err = manager.getLastError();
+            Map<String, Object> info = new HashMap<>();
+            info.put("action", "search");
+            info.put("mode", "exact");
+            info.put("hits", rows.length());
+            if (err != null && !err.isEmpty()) {
+                info.put("error", err);
+                return new AIToolResult(err, info);
+            }
+            return new AIToolResult(rows.toString(), info, true);
+        }
         String query = stringParam(parameters, "query");
         if (query == null || query.trim().isEmpty()) {
-            return new AIToolResult("缺少参数: query（检索关键词）", parameters);
+            return new AIToolResult("缺少参数: query（模糊检索）或 id / exact_title（精确取）", parameters);
         }
         String category = stringParam(parameters, "category");
         int topK = intParam(parameters, "top_k", 5);

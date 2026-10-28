@@ -1,5 +1,50 @@
 # 变更日志
 
+## [2026-10-28] feat(knowledge)：先索引后精确——知识库 list/get/精确检索；工具目录只回名字；js 与 python 同权
+
+用户三点反馈：① get 一调就把全部知识/全部工具 schema 倒出来，浪费 token、不能精确查找；
+② 知识库关键词不明确、字段不够、没法精确命中；③ js_execute 不在核心工具集、
+与 python_execute 不同权，简单问题模型只会用 python。
+
+### 查到的事实
+
+- 知识库只有 `search`：一次返回 top5 的**完整正文**，"知识库里有什么"这种问题既贵又不准；
+  没有按 id 取单条、也没有"标题全等"这种精确路径（现有 search 是"按字切 token + LIKE + 打分"，
+  查"光合作用"会把"光合作用的发现史"一起召回）。
+- `tool_registry(action=list)` 一次返回全部工具 + 40 字描述（≈ 60 个工具、几千 token），
+  而 `get` 只取单个 schema —— 浪费在 list 上。
+- 工具注入：`python_execute` 的触发词是"python/代码/脚本/数据分析/运行程序/自动化"，
+  而 `js_execute` 只在消息里出现"js/javascript"时才注入；两者都不在 `CORE_TOOLS`。
+  于是"写个脚本算一下"这类请求，模型眼前只有 python。
+
+### 由此改掉的事
+
+1. 知识库新增两条**渐进披露**动作：
+   - `list`：轻量索引（id/标题/分类/关键词/来源/更新时间，**不含正文**），默认 20 条、上限 100；
+   - `get(id=…)`：按 id 取单条全文，**缺 id 直接报错**，不会退化成"返回全部"。
+2. 知识库 `search` 支持精确取：传 `id` 或 `exact_title`（标题全等）时走 SQL 等值查询，
+   不做分词模糊召回；不传才走原来的模糊检索。命不中就是 0 条，不再给一堆近似片段。
+3. `tool_registry(list)` 默认**只回工具名**（`detail=true` 才带 40 字描述），分页参数保留；
+   `get` 仍是"一次一个工具 schema"，缺 `tool` 报错并给相近工具名。
+4. js/python 同权：`代码/脚本/运行程序/自动化` 这类宽泛意图**同时注入** `js_execute`；
+   提示词新增第 6 条——"两者权重相同：简单计算/正则/JSON/字符串用 js_execute（毫秒级），
+   文件读写/第三方库/子进程才用 python_execute，不要因为习惯只调 python"。
+
+### 验证
+
+- 单测 **13 条全绿**（`KnowledgeBaseManagerTest` 6 + `KnowledgeBaseToolUpdateTest` 7），新增：
+  索引不带正文、get 回单条、分类过滤、exact_title/id 精确取只命中一条且模糊检索确实会多命中、
+  `get` 缺 id 被拒绝、`search(exact_title=…)` 绕过模糊召回。
+- `assembleDebug` 通过并装机；真机日志确认新工具描述已生效：
+  `knowledge_base -> 知识库：先索引后精确——list 看轻量索引(id/标题/分类/关键词，不含正文)…`。
+- `tool_registry` 的 list 压缩与提示词第 6 条属纯文本/分支改动，编译通过、未单测
+  （需要 AIToolManager 上下文，留给真机回归）。
+
+### 没做（明确记下）
+
+知识字段仍是 title/category/keywords/content/source。要加 `tags`/别名/同义词这类精确检索字段，
+得走 DB v4 迁移（加列 + 回填 + 旧库升级），不是这一笔的范围；先看现在的 list/get/精确取够不够用。
+
 ## [2026-10-28] feat(knowledge)：知识库工具支持 update——按 id 或唯一标题改一条，不用再"删了重加"
 
 用户："知识库工具没有 update 功能，用着不顺手"。

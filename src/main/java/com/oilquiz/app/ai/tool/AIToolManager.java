@@ -1960,7 +1960,7 @@ public class AIToolManager {
                 // 否则工具参数全被当成 string，模型容易漏填/填错导致调用失败。
                 return ToolDefinition.builder("knowledge_base",
                         "知识库（用户维护的应用专属知识/笔记/资料 + 系统工具定义库 tool_defs 分类）："
-                                + "search 全文检索知识库、add/add_batch 添加知识、update 修改已有知识（按 id 或唯一标题，只改传入字段、id 不变）、"
+                                + "list 轻量索引(id/标题/分类/关键词，不含正文)、get 按 id 取单条全文、search 模糊检索（也可传 id/exact_title 精确取）、" + "add/add_batch 添加知识、update 修改已有知识（按 id 或唯一标题，只改传入字段、id 不变）、"
                                 + "import_json/import_file 导入知识 JSON、"
                                 + "import_document 直接导入文件（Word/Excel/TXT/MD/CSV/PDF/HTML/图片OCR/音频ASR转写，自动切块）、"
                                 + "delete 删除、clear 清空、stats 统计。"
@@ -1968,7 +1968,7 @@ public class AIToolManager {
                                 + "分类说明：category=tool_defs 是系统工具定义库（查询工具用法/参数/适用场景用）；"
                                 + "不传 category 检索全部（用户知识各分类都会命中）；查用户资料时如需精准可传具体分类如 guide/faq。")
                     .addParameter("action", "string", "操作类型", true, null, Arrays.asList(
-                            "search", "add", "add_batch", "update", "import_json", "import_file",
+                            "list", "get", "search", "add", "add_batch", "update", "import_json", "import_file",
                             "import_document", "delete", "clear", "stats"))
                     .addParameter("query", "string", "检索关键词（search 必填）：中文/英文/数字均可", false)
                     .addParameter("category", "string", "分类（search 过滤 / add 写入 / update 修改，可选，默认 general；tool_defs=系统工具定义库，查工具用法/参数时用）", false)
@@ -1978,15 +1978,17 @@ public class AIToolManager {
                     .addParameter("content", "string", "知识正文（add 必填；update 时为新正文）", false)
                     .addParameter("keywords", "string", "关键词，逗号分隔（add/update 可选，增强检索命中）", false)
                     .addParameter("source", "string", "来源标识，如文件名/链接（add/update 可选）", false)
-                    .addParameter("id", "integer", "知识 ID（search 结果里带 id；delete/update 使用）", false)
+                    .addParameter("id", "integer", "知识 ID（list/search 结果里带 id；get/delete/update 使用；search 传 id 表示精确取）", false)
                     .addParameter("find_title", "string", "按标题精确定位（update 用，与 id 二选一）：仅当标题唯一时可用，命中多条会报错要求改用 id", false)
+                    .addParameter("exact_title", "string", "精确取：标题全等（search 用，与 id 二选一，不做模糊召回）", false)
+                    .addParameter("limit", "integer", "条数上限（list 可选，默认 20，最大 100）", false)
                     .addParameter("items", "array", "知识对象数组（add_batch 必填），每项 {title, content, category?, keywords?, source?}", false)
                     .addParameter("json", "string", "知识 JSON 字符串（import_json 必填）：{\"chunks\":[{...}]} 或裸数组", false)
                     .addParameter("file_path", "string", "文件绝对路径（import_file=知识 JSON 文件；import_document=Word/Excel/TXT/MD/CSV/PDF/HTML/图片/音频）", false)
                     .category("knowledge")
                     .whenToUse("用户问应用专属/个人笔记/课程资料类内容时先 knowledge_base(action=search, query=关键词)；"
                             + "用户要把文件、资料、笔记、录音、截图加入知识库时用 knowledge_base(action=import_document, file_path=绝对路径)；"
-                            + "用户要改已入库的某条知识（改了错别字/结论过期/分类放错）时用 knowledge_base(action=update, id=search 结果里的 id, 需要改的字段)")
+                            + "用户要改已入库的某条知识（改了错别字/结论过期/分类放错）时用 knowledge_base(action=update, id=search 结果里的 id, 需要改的字段)；" + "想知道知识库里有什么先 knowledge_base(action=list) 看索引，再 action=get(id=…) 取全文，不要用 search 把整页正文拉回来")
                     .build();
             default:
                 // 已注册工厂但未在 switch 中显式定义的工具（memory/workspace/image_gen/

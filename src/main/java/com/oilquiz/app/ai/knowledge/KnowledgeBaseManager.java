@@ -312,9 +312,141 @@ public class KnowledgeBaseManager {
         return results;
     }
 
-    /** 关键词检索主体（同步、持锁）：LIKE 召回 → Java 侧打分为相关度排序 → 取前 limit 条 */
-    private synchronized JSONArray searchInternal(String query, String category, int limit) {
+    /**
+     * 轻量索引（2026-10-28）：只回 id/title/category/keywords/source/updated_at，**不带正文**。
+     *
+     * <p>给"先看有哪些、再精确取某条"用：从前只有 search，一次就把 top5 的正文全吐出来，
+     * 模型想确认"知识库里都有什么"时既贵又不准（正文长、token 高、还容易被截断）。
+     * 索引条目约 30~60 字，50 条也就 2~3k 字，模型看清标题后再 {@link #getById}。</p>
+     *
+     * @param category 分类过滤，空/null 表示全部
+     * @param limit    条数上限（<=0 用 20，最大 100）
+     */
+    public synchronized JSONArray listMeta(String category, int limit) {
         lastError = null;
+        int cap = limit <= 0 ? 20 : Math.min(limit, 100);
+        JSONArray out = new JSONArray();
+        Cursor cursor = null;
+        try {
+            SQLiteDatabase db = getReadableDb();
+            boolean hasCategory = category != null && !category.trim().isEmpty();
+            String sql = "SELECT id, title, category, keywords, source, updated_at FROM kb_chunks"
+                    + (hasCategory ? " WHERE category = ?" : "")
+                    + " ORDER BY updated_at DESC LIMIT ?";
+            String[] args = hasCategory
+                    ? new String[]{category.trim(), String.valueOf(cap)}
+                    : new String[]{String.valueOf(cap)};
+            cursor = db.rawQuery(sql, args);
+            while (cursor.moveToNext()) {
+                JSONObject item = new JSONObject();
+                item.put("id", cursor.getLong(0));
+                item.put("title", safe(cursor.getString(1)));
+                item.put("category", safe(cursor.getString(2)));
+                item.put("keywords", safe(cursor.getString(3)));
+                item.put("source", safe(cursor.getString(4)));
+                item.put("updated_at", cursor.getLong(5));
+                out.put(item);
+            }
+        } catch (Exception e) {
+            lastError = "列出知识索引失败: " + e.getMessage();
+            Log.e(TAG, "listMeta 失败: " + e.getMessage(), e);
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return out;
+    }
+
+    /**
+     * 按 id 取单条完整知识（含正文）。找不到返回 null（原因见 {@link #getLastError()}）。
+     *
+     * <p>与 {@link #search} 的区别：这是**精确取**，不靠分词/打分，一次一条，
+     * 不会因为模糊匹配把一堆无关片段塞进上下文。</p>
+     */
+    public synchronized JSONObject getById(long id) {
+        lastError = null;
+        if (id <= 0) {
+            lastError = "id 无效: " + id;
+            return null;
+        }
+        Cursor cursor = null;
+        try {
+            SQLiteDatabase db = getReadableDb();
+            cursor = db.rawQuery("SELECT id, title, category, keywords, source, updated_at, content "
+                    + "FROM kb_chunks WHERE id = ?", new String[]{String.valueOf(id)});
+            if (!cursor.moveToFirst()) {
+                lastError = "未找到 id=" + id + " 的知识";
+                return null;
+            }
+            JSONObject item = new JSONObject();
+            item.put("id", cursor.getLong(0));
+            item.put("title", safe(cursor.getString(1)));
+            item.put("category", safe(cursor.getString(2)));
+            item.put("keywords", safe(cursor.getString(3)));
+            item.put("source", safe(cursor.getString(4)));
+            item.put("updated_at", cursor.getLong(5));
+            item.put("content", safe(cursor.getString(6)));
+            return item;
+        } catch (Exception e) {
+            lastError = "读取知识失败: " + e.getMessage();
+            Log.e(TAG, "getById 失败: " + e.getMessage(), e);
+            return null;
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+    }
+
+    /**
+     * 精确检索（2026-10-28）：按 {@code id} 或 {@code 标题全等} 取，不做分词/模糊匹配。
+     *
+     * <p>为什么需要：现有 search 是"按字切 token + LIKE + 打分"，查"光合作用"会把
+     * 含"光/合/作/用"任意组合的条目全召回，模型拿到的是一堆近似片段，没法精确命中。
+     * 知道确切标题或 id 时走这里，命中就是命中、不命中就明确说没有。</p>
+     */
+    public synchronized JSONArray searchExact(Long id, String exactTitle, int limit) {
+        lastError = null;
+        int cap = limit <= 0 ? DEFAULT_TOP_K : Math.min(limit, MAX_TOP_K);
+        JSONArray out = new JSONArray();
+        Cursor cursor = null;
+        try {
+            SQLiteDatabase db = getReadableDb();
+            if (id != null && id > 0) {
+                JSONObject one = getById(id);
+                if (one != null) out.put(one);
+                return out;
+            }
+            if (exactTitle == null || exactTitle.trim().isEmpty()) {
+                lastError = "精确检索需要 id 或 exact_title";
+                return out;
+            }
+            cursor = db.rawQuery("SELECT id, title, category, keywords, source, updated_at, content "
+                            + "FROM kb_chunks WHERE title = ? ORDER BY updated_at DESC LIMIT ?",
+                    new String[]{exactTitle.trim(), String.valueOf(cap)});
+            while (cursor.moveToNext()) {
+                JSONObject item = new JSONObject();
+                item.put("id", cursor.getLong(0));
+                item.put("title", safe(cursor.getString(1)));
+                item.put("category", safe(cursor.getString(2)));
+                item.put("keywords", safe(cursor.getString(3)));
+                item.put("source", safe(cursor.getString(4)));
+                item.put("updated_at", cursor.getLong(5));
+                item.put("content", safe(cursor.getString(6)));
+                out.put(item);
+            }
+        } catch (Exception e) {
+            lastError = "精确检索失败: " + e.getMessage();
+            Log.e(TAG, "searchExact 失败: " + e.getMessage(), e);
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return out;
+    }
+
+    private static String safe(String s) {
+        return s == null ? "" : s;
+    }
+
+    /** 关键词检索主体（同步、持锁）：LIKE 召回 → Java 侧打分为相关度排序 → 取前 limit 条 */
+    private synchronized JSONArray searchInternal(String query, String category, int limit) {        lastError = null;
         JSONArray results = new JSONArray();
         Cursor cursor = null;
         boolean hasQuery = query != null && !query.trim().isEmpty();

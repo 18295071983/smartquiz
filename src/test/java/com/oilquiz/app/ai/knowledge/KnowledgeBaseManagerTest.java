@@ -118,4 +118,52 @@ public class KnowledgeBaseManagerTest {
         assertNotNull(err);
         assertTrue("歧义提示应引导改用 id: " + err, err.contains("id"));
     }
+
+    // ==================== 先索引后精确（2026-10-28） ====================
+
+    /** 索引不带正文（省 token），按 id 取单条才回全文。 */
+    @Test
+    public void listMetaOmitsContentAndGetByIdReturnsFullRow() {
+        long id = add("标题A", "guide", "kwA", "正文A", "srcA");
+        add("标题B", "general", "", "正文B", "");
+
+        JSONArray list = manager.listMeta(null, 10);
+        assertEquals(2, list.length());
+        JSONObject first = list.optJSONObject(0);
+        assertNotNull(first);
+        assertFalse("索引里不能带正文（那正是浪费 token 的根源）", first.has("content"));
+        assertEquals("", first.optString("content"));
+        assertTrue("索引要带 id/标题/分类", first.optLong("id") > 0 && !first.optString("title").isEmpty());
+
+        JSONObject row = manager.getById(id);
+        assertNotNull(row);
+        assertEquals("正文A", row.optString("content"));
+        assertEquals("标题A", row.optString("title"));
+        assertEquals("kwA", row.optString("keywords"));
+
+        // 分类过滤
+        JSONArray guideOnly = manager.listMeta("guide", 10);
+        assertEquals(1, guideOnly.length());
+        assertEquals(id, guideOnly.optJSONObject(0).optLong("id"));
+    }
+
+    /** 精确取：标题全等 / id，不做"按字拆 token"的模糊召回。 */
+    @Test
+    public void exactSearchByTitleAndIdDoesNotFuzz() {
+        long id = add("光合作用", "guide", "", "植物把光能转成化学能", "");
+        add("光合作用的发现史", "guide", "", "历史资料", "");
+
+        JSONArray exact = manager.searchExact(null, "光合作用", 5);
+        assertEquals("标题全等只应命中一条", 1, exact.length());
+        assertEquals(id, exact.optJSONObject(0).optLong("id"));
+
+        JSONArray byId = manager.searchExact(id, null, 5);
+        assertEquals(1, byId.length());
+        assertEquals("光合作用", byId.optJSONObject(0).optString("title"));
+
+        // 模糊检索会把"发现史"也召回——这正是需要精确取的原因
+        assertTrue("模糊检索会多命中", manager.search("光合作用", "guide", 5, false).length() >= 2);
+        assertEquals("标题不存在时精确取返回 0", 0,
+                manager.searchExact(null, "不存在的标题", 5).length());
+    }
 }

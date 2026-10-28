@@ -31,14 +31,15 @@ import java.util.Map;
     description = "工具注册表(MCP式工具发现)：列出可用工具(list)、按关键词搜索工具(search)、获取单个工具完整参数schema(get)。模型不确定有哪些工具或需要某工具详细参数时调用，避免猜测工具名/参数。",
     category = "meta",
     actions = {
-        @Action(name = "list", description = "列出全部可用工具（名称+简短描述）"),
+        @Action(name = "list", description = "列出全部可用工具名（默认只回名字，detail=true 才带简短描述；按关键词找工具请用 search）"),
         @Action(name = "search", description = "按关键词搜索工具"),
         @Action(name = "get", description = "获取单个工具的完整参数schema")
     },
     params = {
         @Param(name = "action", type = "string", description = "list/search/get", required = true),
         @Param(name = "keyword", type = "string", description = "关键词：search 搜索；list 按名/描述过滤（可选）", required = false),
-        @Param(name = "tool", type = "string", description = "工具名(仅get用)", required = false)
+        @Param(name = "tool", type = "string", description = "工具名(仅get用)", required = false),
+        @Param(name = "detail", type = "boolean", description = "list 是否带描述（默认 false，只回工具名）", required = false)
     }
 )
 public class ToolRegistryTool implements AITool {
@@ -112,6 +113,14 @@ public class ToolRegistryTool implements AITool {
             }
             List<Map<String, Object>> tools = new ArrayList<>();
             int total = descriptions.size();
+            // 只回工具名（2026-10-28）：list 的用途是"知道有哪些"，描述会让一页目录膨胀到几千 token。
+            // 需要描述用 search(按关键词) 或 detail=true；需要参数 schema 用 get。
+            boolean detail = false;
+            Object detailObj = parameters.get("detail");
+            if (detailObj != null) {
+                String v = detailObj.toString().trim();
+                detail = "true".equalsIgnoreCase(v) || "1".equals(v);
+            }
             for (int i = 0; i < total; i++) {
                 Map<String, Object> d = descriptions.get(i);
                 if (filter != null) {
@@ -124,11 +133,13 @@ public class ToolRegistryTool implements AITool {
                 if (limit >= 0 && tools.size() >= limit) break;
                 Map<String, Object> t = new HashMap<>();
                 t.put("name", d.get("name"));
-                Object desc = d.get("description");
-                // 目录用途：描述截断到 40 字，防工具结果 16KB 截断变非法 JSON
-                String s = desc != null ? String.valueOf(desc) : "";
-                if (s.length() > 40) s = s.substring(0, 40) + "…";
-                t.put("description", s);
+                if (detail) {
+                    Object desc = d.get("description");
+                    // 目录用途：描述截断到 40 字，防工具结果 16KB 截断变非法 JSON
+                    String s = desc != null ? String.valueOf(desc) : "";
+                    if (s.length() > 40) s = s.substring(0, 40) + "…";
+                    t.put("description", s);
+                }
                 tools.add(t);
             }
             Map<String, Object> result = new HashMap<>();
@@ -236,6 +247,7 @@ public class ToolRegistryTool implements AITool {
         desc.put("action", "list(列出)/search(搜索)/get(取schema)");
         desc.put("keyword", "搜索关键词(search用)");
         desc.put("tool", "工具名(get用)");
+        desc.put("detail", "list 是否带描述（默认 false）");
         return desc;
     }
 }

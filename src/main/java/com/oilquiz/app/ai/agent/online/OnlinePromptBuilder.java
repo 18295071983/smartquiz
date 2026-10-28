@@ -295,7 +295,11 @@ public class OnlinePromptBuilder {
                 + "（例：\"阳白乡\"属于\"五台县\"，就传 city=五台县）；"
                 + "拿不准就先用 network_search 搜\"<地名>属于哪个县市\"再查。"
                 + "绝不为了凑出结果而随便挑一个城市、也不要编造该地天气\n");
-        sb.append("  5. 用户要求生成图片时优先调用 image_gen（自动内联显示），避免用 python_execute/open_url 绕路\n\n");
+        sb.append("  5. 用户要求生成图片时优先调用 image_gen（自动内联显示），避免用 python_execute/open_url 绕路\n");
+        sb.append("  6. 执行代码两个工具权重相同，按工作量挑：简单计算/正则/JSON/字符串处理/小脚本用 js_execute"
+                + "（JS 引擎在 WebView 里跑，毫秒级、不用起 Python 运行时）；"
+                + "需要文件读写、第三方库（pandas/openpyxl/docx 等）、子进程或长任务才用 python_execute。"
+                + "两者都在本轮工具里时，不要因为习惯只调 python。\n\n");
         return sb.toString();
     }
 

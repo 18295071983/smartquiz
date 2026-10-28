@@ -338,6 +338,9 @@ public class OnlineToolManager {
                 if (containsAny(msg, "python", "代码", "脚本", "数据分析", "统计数据", "处理数据", "运行程序",
                         "写个程序", "爬虫", "自动化")) {
                     include.add("python_execute"); include.add("python_analyze_data");
+                    // 简单计算/正则/JSON/字符串处理用 js_execute 更轻（毫秒级、不用起 Python 运行时）；
+                    // "代码/脚本"这类宽泛意图必须两个都给，否则模型只看得见 python（2026-10-28 用户反馈）
+                    include.add("js_execute");
                 }
                 if (containsAny(msg, "javascript", "js代码", "运行js", "执行js", "js脚本", "调试js",
                         "写个js", "js函数", "js执行")) {
