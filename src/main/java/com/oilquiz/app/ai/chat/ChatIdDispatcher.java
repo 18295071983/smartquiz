@@ -80,16 +80,6 @@ public class ChatIdDispatcher {
     private ChatIdDispatcher() {
     }
 
-    /** 可选初始化：传入 Context 可提前绑定 SharedPreferences；不调用也会在首次发号时
-     *  通过 {@link SmartQuizApplication#getAppContext()} 懒加载。 */
-    public synchronized void init(Context context) {
-        if (context == null) return;
-        prefs = context.getApplicationContext()
-                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        loaded = false;
-        ensureLoadedLocked();
-    }
-
     private void ensureLoadedLocked() {
         if (loaded) return;
         loaded = true;

@@ -115,15 +115,6 @@ public class SummaryCacheManager {
         return null;
     }
     
-    /**
-     * 清空所有缓存
-     */
-    public void clearAllCache() {
-        memoryCache.clear();
-        prefs.edit().clear().apply();
-        Log.i(TAG, "All cache cleared");
-    }
-    
     // ========== 私有方法 ==========
     
     private void saveToDiskAsync(String key, CachedSummary summary) {

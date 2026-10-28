@@ -366,9 +366,6 @@ public class AgentChatHandler {
 
 
 
-    public boolean shouldUseAgent(String message) {
-        return intentRecognizer.shouldUseAgent(message);
-    }
 
     /**
      * 检查 AgentChatHandler 是否有效
@@ -378,9 +375,6 @@ public class AgentChatHandler {
         return !isShutdown && callback != null && activity != null && !activity.isFinishing();
     }
 
-    public String getIntentType(String message) {
-        return intentRecognizer.getIntentType(message);
-    }
 
 public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         return intentRecognizer.recognize(message);
@@ -479,11 +473,6 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         engine.compressHistory(keepRecent, callback);
     }
 
-    /** 清空所有会话的历史（内存 + 全部历史文件） */
-    public void clearAllHistory() {
-        engine.clearAllHistory();
-    }
-
     /** 只清内存（文件已由调用方移入回收站） */
     public void clearAllHistoryInMemoryOnly() {
         engine.clearAllHistory(false);
@@ -526,9 +515,6 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
                 || (softwareLayer != null && softwareLayer.isProcessing());
     }
 
-    public int getToolLoopCount() {
-        return engine.getToolLoopCount();
-    }
 
     public int getLastCacheHitTokens() {
         return engine.getLastCacheHitTokens();
@@ -542,9 +528,6 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         return engine.getLastPromptTokens();
     }
 
-    public int getLastCompletionTokens() {
-        return engine.getLastCompletionTokens();
-    }
 
     public int getLastReasoningTokens() {
         return engine.getLastReasoningTokens();

@@ -71,11 +71,6 @@ public class ChatHistoryController {
         this.currentSessionId = sessionId;
     }
 
-    public void openDrawer() {
-        if (drawerLayout != null) {
-            drawerLayout.openDrawer(findViewById(R.id.history_drawer));
-        }
-    }
 
     public void closeDrawer() {
         if (drawerLayout != null) {
@@ -83,9 +78,6 @@ public class ChatHistoryController {
         }
     }
 
-    public boolean isDrawerOpen() {
-        return drawerLayout != null && drawerLayout.isDrawerOpen(findViewById(R.id.history_drawer));
-    }
 
     /**
      * 刷新历史列表：从会话列表加载。

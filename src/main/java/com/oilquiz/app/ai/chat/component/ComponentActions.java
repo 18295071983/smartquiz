@@ -138,14 +138,6 @@ public final class ComponentActions {
         }
     }
 
-    /**
-     * 注册组件结果回调（由系统 UI 组件工具设置）。
-     * 兼容旧用法：全局兜底回调，按 component_id 转发。
-     */
-    public static void setResultCallback(java.util.function.BiConsumer<String, String> callback) {
-        resultCallback = callback;
-    }
-
     /** 确保回调已注册：app 重启/历史会话恢复后静态回调丢失，点击时自动补注册兜底。 */
     private static java.util.function.BiConsumer<String, String> ensureResultCallback(android.content.Context context) {
         java.util.function.BiConsumer<String, String> cb = resultCallback;

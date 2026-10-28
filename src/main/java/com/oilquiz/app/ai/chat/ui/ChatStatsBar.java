@@ -48,9 +48,6 @@ public class ChatStatsBar extends LinearLayout {
         setVisibility(suppressed ? GONE : VISIBLE);
     }
 
-    public boolean isSuppressed() {
-        return suppressed;
-    }
 
     public ChatStatsBar(Context context) {
         this(context, null);

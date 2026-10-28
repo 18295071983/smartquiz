@@ -78,12 +78,6 @@ public class NativeRecoveryHandler {
         aiService.setNativeStateRecoveryListener(recoveryListener);
     }
 
-    public void removeListener() {
-        if (aiService != null && recoveryListener != null) {
-            aiService.setNativeStateRecoveryListener(null);
-            recoveryListener = null;
-        }
-    }
 
     public boolean isRecovering() {
         return isRecovering;

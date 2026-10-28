@@ -268,13 +268,6 @@ public class ChatInputManager {
         callback.onSendMessage(text);
     }
 
-    /** 取消选择 */
-    public void clearSelection() {
-        if (attachmentAdapter != null) {
-            attachmentAdapter.clearSelection();
-        }
-    }
-
     private void openUri(String url) {
         if (url != null) {
             try {

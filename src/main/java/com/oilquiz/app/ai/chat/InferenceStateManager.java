@@ -215,32 +215,6 @@ public class InferenceStateManager {
     }
     
     /**
-     * 更新进度
-     */
-    private void updateProgress(String messageId) {
-        StateDetails details = stateMap.get(messageId);
-        if (details == null) return;
-        
-        // 计算进度百分比
-        if (details.totalTokens > 0) {
-            details.progressPercent = Math.min(100, 
-                (details.processedTokens * 100) / details.totalTokens);
-        } else {
-            // 基于状态的默认进度
-            details.progressPercent = calculateDefaultProgress(details.currentState);
-        }
-        
-        // 通知进度更新
-        if (stateChangeListener != null) {
-            mainHandler.post(() -> {
-                if (stateChangeListener != null) {
-                    stateChangeListener.onProgressUpdated(messageId, details);
-                }
-            });
-        }
-    }
-    
-    /**
      * 计算默认进度（当总token数未知时）
      */
     private int calculateDefaultProgress(InferenceState state) {
@@ -255,15 +229,6 @@ public class InferenceStateManager {
             case COMPLETED: return 100;
             default: return 0;
         }
-    }
-    
-    /**
-     * 启动超时监控
-     */
-    private void startTimeoutMonitor(String messageId) {
-        TimeoutHandler handler = new TimeoutHandler(messageId);
-        timeoutHandlers.put(messageId, handler);
-        handler.start();
     }
     
     /**

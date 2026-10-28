@@ -238,10 +238,6 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             .show();
     }
 
-    public void clearAll() {
-        items.clear();
-        notifyDataSetChanged();
-    }
 
     @Override
     public int getItemCount() {

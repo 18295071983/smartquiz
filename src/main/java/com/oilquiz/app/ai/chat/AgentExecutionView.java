@@ -155,16 +155,6 @@ public class AgentExecutionView extends LinearLayout {
 
 
 
-    public void updateInferenceProgress(int tokenCount, float tokensPerSecond) {
-        this.totalTokens = tokenCount;
-        this.currentSpeed = tokensPerSecond;
-
-        tvTokenCount.setText(tokenCount + " token");
-        tvInferenceSpeed.setText(String.format("%.1f t/s", tokensPerSecond));
-        tvTotalTokens.setText("总计: " + tokenCount + " token");
-
-        updateElapsedTime();
-    }
 
 
     public void updateElapsedTime() {

@@ -77,9 +77,6 @@ public class AttachmentProcessor {
         this.summaryCacheManager = SummaryCacheManager.getInstance(activity); // 初始化持久化缓存管理器
     }
 
-    public void shutdown() {
-        executorService.shutdownNow();
-    }
 
     /**
      * 为附件生成AI智能摘要（使用真实AI服务）

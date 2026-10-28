@@ -485,16 +485,6 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
     }
 
     /**
-     * 获取附件
-     */
-    public AttachmentItem getItem(int position) {
-        if (position >= 0 && position < attachments.size()) {
-            return attachments.get(position);
-        }
-        return null;
-    }
-
-    /**
      * 查找附件
      */
     public int findAttachmentById(String attachmentId) {
@@ -506,38 +496,6 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
             }
         }
         return -1;
-    }
-
-    /**
-     * 更新附件状态
-     */
-    public void updateAttachmentStatus(String attachmentId, ChatMessage.AttachmentStatus status) {
-        int position = findAttachmentById(attachmentId);
-        if (position >= 0) {
-            AttachmentItem item = attachments.get(position);
-            if (item.attachment != null) {
-                item.attachment.status = status;
-                notifyItemChanged(position);
-            }
-        }
-    }
-
-    /**
-     * 清空所有附件
-     */
-    public void clear() {
-        int size = attachments.size();
-        attachments.clear();
-        if (size > 0) {
-            notifyItemRangeRemoved(0, size);
-        }
-    }
-
-    /**
-     * 检查是否有附件
-     */
-    public boolean hasAttachments() {
-        return !attachments.isEmpty();
     }
 
     static class ImageAttachmentViewHolder extends RecyclerView.ViewHolder {

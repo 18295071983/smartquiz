@@ -140,20 +140,6 @@ public class InferenceProgressView extends FrameLayout {
     }
     
     /**
-     * 更新进度
-     */
-    public void updateProgress(InferenceStateManager.StateDetails details) {
-        if (currentState == InferenceStateManager.InferenceState.IDLE) return;
-        
-        updateStats(details);
-        
-        // 更新确定性进度条
-        if (details.totalTokens > 0) {
-            progressBar.setProgress(details.progressPercent);
-        }
-    }
-    
-    /**
      * 更新进度条显示
      */
     private void updateProgressBar(InferenceStateManager.InferenceState state,

@@ -26,46 +26,6 @@ public class FileUriUtils {
         this.context = context.getApplicationContext();
     }
 
-    /** file:// 直接返回路径；content:// 尝试 _data 列真实路径，失败则复制到缓存 */
-    public String resolveOrCopyToCacheFile(Uri uri) {
-        if (uri == null) return null;
-        String scheme = uri.getScheme();
-        if ("file".equalsIgnoreCase(scheme)) {
-            return uri.getPath();
-        }
-        if ("content".equalsIgnoreCase(scheme)) {
-            String direct = queryDataColumnForPath(uri);
-            if (direct != null && new File(direct).exists()) {
-                return direct;
-            }
-        }
-        return copyUriToCacheFile(uri);
-    }
-
-    /** 目录 URI 解析为尽可能真实的路径 */
-    public String resolveDirectoryPath(Uri treeUri) {
-        if (treeUri == null) return null;
-        try {
-            String docId = DocumentsContract.getTreeDocumentId(treeUri);
-            if (docId != null) {
-                if (docId.startsWith("primary:")) {
-                    String rel = docId.substring("primary:".length());
-                    String ext = Environment.getExternalStorageDirectory().getAbsolutePath();
-                    File f = new File(ext, rel);
-                    if (f.exists() && f.isDirectory()) return f.getAbsolutePath();
-                }
-                int colon = docId.indexOf(':');
-                if (colon > 0) {
-                    String rel = docId.substring(colon + 1);
-                    String ext = Environment.getExternalStorageDirectory().getAbsolutePath();
-                    File f = new File(ext, rel);
-                    if (f.exists() && f.isDirectory()) return f.getAbsolutePath();
-                }
-            }
-        } catch (Exception ignored) {}
-        return null;
-    }
-
     /** 尝试通过 MediaStore _data 列拿真实文件路径（不保证所有 ROM 都可用） */
     public String queryDataColumnForPath(Uri uri) {
         try {

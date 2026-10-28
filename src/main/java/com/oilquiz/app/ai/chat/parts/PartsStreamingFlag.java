@@ -43,16 +43,4 @@ public final class PartsStreamingFlag {
             return DEFAULT_ENABLED;
         }
     }
-
-    /** 写入开关，供调试入口/测试显式切换（固化落盘需显式选择）。 */
-    public static void setEnabled(Context context, boolean value) {
-        if (context == null) {
-            return;
-        }
-        try {
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                    .edit().putBoolean(PREF_KEY, value).apply();
-        } catch (Throwable ignored) {
-        }
-    }
 }

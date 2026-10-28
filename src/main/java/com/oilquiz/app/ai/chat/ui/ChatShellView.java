@@ -142,11 +142,6 @@ public class ChatShellView extends LinearLayout {
         if (tokenBar != null) tokenBar.updateFromStreaming(totalTokens, tokensPerSecond);
     }
 
-    /** 完成态统计（TokenStatsManager 汇总） */
-    public void onTokenStats(TokenStatsManager.TokenStats stats) {
-        if (tokenBar != null) tokenBar.updateFromStats(stats);
-    }
-
     /** 切换思考指示器（推理中/完成） */
     public void setInferring(boolean inferring) {
         if (overlay == null) {

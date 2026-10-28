@@ -51,17 +51,11 @@ public final class ScrollAnchorState {
         return valid;
     }
 
-    public int position() {
-        return position;
-    }
 
     public int count() {
         return itemCount;
     }
 
-    public String stableKey() {
-        return stableKey;
-    }
 
 
     /**

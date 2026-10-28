@@ -87,15 +87,6 @@ public class ChatMessagesView extends FrameLayout {
         emptyView.setVisibility(VISIBLE);
     }
 
-    /** 数据变化后刷新空态与列表 */
-    public void notifyDataSetChanged() {
-        if (adapter != null) {
-            adapter.notifyDataSetChanged();
-        }
-        emptyView.setVisibility(
-                (adapter == null || adapter.getItemCount() == 0) ? VISIBLE : GONE);
-    }
-
     /** 滚动到底部（消息流式更新时） */
     public void scrollToBottom() {
         if (adapter != null && adapter.getItemCount() > 0) {

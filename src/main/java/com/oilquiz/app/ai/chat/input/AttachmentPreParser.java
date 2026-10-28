@@ -474,7 +474,4 @@ public class AttachmentPreParser {
         return r;
     }
 
-    public void shutdown() {
-        executor.shutdownNow();
-    }
 }

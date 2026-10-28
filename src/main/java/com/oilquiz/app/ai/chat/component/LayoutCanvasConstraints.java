@@ -93,16 +93,6 @@ public final class LayoutCanvasConstraints {
         }
     }
 
-    public static void setEnabled(Context context, boolean value) {
-        if (context == null) {
-            return;
-        }
-        try {
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                    .edit().putBoolean(PREF_KEY_ENABLED, value).apply();
-        } catch (Throwable ignored) {
-        }
-    }
 
     // ==================== 检查结果 ====================
 

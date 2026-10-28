@@ -745,21 +745,6 @@ public class ChatMessage {
             this.isCompleted = false;
         }
 
-        public String getStepTypeLabel() {
-            switch (stepType) {
-                case THINKING: return "💭 思考";
-                case PLANNING: return "📋 规划";
-                case ACTING: return "⚙️ 执行";
-                case OBSERVING: return "👁️ 观察";
-                case REFLECTING: return "🔄 反思";
-                case TOOL_CALLING: return "🔧 工具调用";
-                case REASONING: return "🧠 推理";
-                case LOOPING: return "🔁 循环";
-                case PAUSED: return "⏸️ 已暂停";
-                case COMPLETED: return "✅ 完成";
-                default: return "📌 步骤";
-            }
-        }
 
         public String getStepIcon() {
             switch (stepType) {
@@ -1028,12 +1013,6 @@ public class ChatMessage {
 
 
 
-        public long getDuration() {
-            if (endTime > 0 && startTime > 0) {
-                return endTime - startTime;
-            }
-            return 0;
-        }
 
         public String getEmoji() {
             switch (stepType) {
@@ -1062,22 +1041,6 @@ public class ChatMessage {
             }
         }
 
-        public String getStatusEmoji() {
-            switch (status) {
-                case PENDING:
-                    return "⏳";
-                case IN_PROGRESS:
-                    return "🔄";
-                case COMPLETED:
-                    return "✅";
-                case SKIPPED:
-                    return "⏭️";
-                case FAILED:
-                    return "❌";
-                default:
-                    return "❓";
-            }
-        }
     }
 
     /**
@@ -1149,11 +1112,6 @@ public class ChatMessage {
 
 
 
-        public Attachment withError(String errorMessage) {
-            this.errorMessage = errorMessage;
-            this.status = AttachmentStatus.FAILED;
-            return this;
-        }
 
         private String getMimeFromType(String type) {
             if (type == null) return "application/octet-stream";
@@ -1192,13 +1150,7 @@ public class ChatMessage {
             return type != null && type.toLowerCase().contains("image");
         }
 
-        public boolean isVideo() {
-            return type != null && type.toLowerCase().contains("video");
-        }
 
-        public boolean isAudio() {
-            return type != null && type.toLowerCase().contains("audio");
-        }
 
 
         public boolean isUploading() {
@@ -1314,9 +1266,6 @@ public class ChatMessage {
         }
 
 
-        public static Action exportSummary(String messageId) {
-            return new Action(ActionType.EXPORT_SUMMARY, messageId, null);
-        }
 
         public static Action reportError(String messageId, String content) {
             return new Action(ActionType.REPORT_ERROR, messageId, content);
@@ -1338,11 +1287,6 @@ public class ChatMessage {
         /** 强行使用本地Agent执行（content 为需要重发的原始问题） */
         public static Action forceLocalAgent(String content) {
             return new Action(ActionType.FORCE_LOCAL_AGENT, null, content);
-        }
-
-        /** 停止生成 */
-        public static Action stopGeneration(String messageId) {
-            return new Action(ActionType.STOP_GENERATION, messageId, null);
         }
 
         /** 编辑消息（content 为原始内容供输入框预填） */
@@ -1607,13 +1551,6 @@ public class ChatMessage {
         return createToolCallMessage(null, toolName, parameters);
     }
 
-    public static ChatMessage createAgentStepMessage(AgentStepInfo stepInfo) {
-        return new Builder(MessageType.AGENT_STEP)
-                .content(stepInfo.getStepTypeLabel())
-                .agentStepInfo(stepInfo)
-                .status(stepInfo.isCompleted ? MessageStatus.COMPLETED : MessageStatus.IN_PROGRESS)
-                .build();
-    }
 
     /**
      * 创建 Agent 汇总消息
@@ -1712,13 +1649,7 @@ public class ChatMessage {
         return content;
     }
 
-    public boolean hasThinkingSteps() {
-        return thinkingSteps != null && !thinkingSteps.isEmpty();
-    }
 
-    public boolean hasAttachments() {
-        return attachments != null && !attachments.isEmpty();
-    }
 
     public boolean attachmentsEquals(ChatMessage other) {
         if (attachments == null && other.attachments == null) {
@@ -1740,9 +1671,6 @@ public class ChatMessage {
         return true;
     }
 
-    public boolean isGenerating() {
-        return status == MessageStatus.GENERATING;
-    }
 
     public boolean isCompleted() {
         return status == MessageStatus.COMPLETED;
@@ -1837,10 +1765,6 @@ public class ChatMessage {
             return this;
         }
 
-        public Builder type(MessageType type) {
-            this.type = type;
-            return this;
-        }
 
         public Builder status(MessageStatus status) {
             this.status = status;
@@ -1874,10 +1798,6 @@ public class ChatMessage {
             return this;
         }
 
-        public Builder addAttachment(Attachment attachment) {
-            this.attachments.add(attachment);
-            return this;
-        }
 
         public Builder taskId(String taskId) {
             this.taskId = taskId;

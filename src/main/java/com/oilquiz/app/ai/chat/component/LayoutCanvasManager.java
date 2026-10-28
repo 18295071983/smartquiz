@@ -68,9 +68,6 @@ public final class LayoutCanvasManager {
         /** 应用窗口尺寸（主线程调用）：由画布宿主注册，改 size 后调它即时生效 */
         public volatile java.util.function.Consumer<LayoutCanvasSession> applySize;
 
-        public JSONObject getLayout() {
-            return layout;
-        }
     }
 
     /** 注册画布会话并返回是否成功（component_id 已存在则覆盖）。 */

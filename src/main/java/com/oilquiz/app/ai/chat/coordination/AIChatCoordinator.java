@@ -146,72 +146,6 @@ public class AIChatCoordinator {
     // ========== 聊天历史管理 ==========
 
     /**
-     * 添加用户消息
-     */
-    public void addUserMessage(String content) {
-        ChatMessage msg = ChatMessage.createUserMessage(
-            java.util.UUID.randomUUID().toString(),
-            content,
-            System.currentTimeMillis()
-        );
-        chatHistory.add(msg);
-        notifyChatHistoryChanged();
-        saveHistoryAsync();
-    }
-
-    /**
-     * 添加AI消息
-     */
-    public void addAIMessage(String content) {
-        ChatMessage msg = ChatMessage.createAIMessage(
-            java.util.UUID.randomUUID().toString(),
-            content,
-            System.currentTimeMillis(),
-            null, 0, 0
-        );
-        chatHistory.add(msg);
-        notifyChatHistoryChanged();
-        saveHistoryAsync();
-    }
-
-    /**
-     * 添加系统消息
-     */
-    public void addSystemMessage(String content) {
-        ChatMessage msg = ChatMessage.createSystemMessage(
-            java.util.UUID.randomUUID().toString(),
-            content,
-            ChatMessage.SystemMessageType.INFO,
-            System.currentTimeMillis()
-        );
-        chatHistory.add(msg);
-        notifyChatHistoryChanged();
-    }
-
-    /**
-     * 添加错误消息
-     */
-    public void addErrorMessage(String title, String detail, boolean retryable) {
-        ChatMessage msg = ChatMessage.createErrorMessage(title, detail, retryable);
-        chatHistory.add(msg);
-        notifyChatHistoryChanged();
-    }
-
-    /**
-     * 清空聊天历史
-     */
-    public void clearChatHistory() {
-        chatHistory.clear();
-        notifyChatHistoryChanged();
-        if (chatHistoryManager != null) {
-            new Thread(() -> chatHistoryManager.clearAIChatHistory()).start();
-        }
-        if (aiService != null) {
-            aiService.chatClear();
-        }
-    }
-
-    /**
      * 异步保存聊天历史
      */
     public void saveHistoryAsync() {
@@ -225,44 +159,13 @@ public class AIChatCoordinator {
     // ========== 模型状态 ==========
 
     /**
-     * 获取当前模型名称
-     */
-    public String getCurrentModelName() {
-        updateModelState();
-        return currentModelName;
-    }
-
-    /**
-     * 是否使用在线模型
-     */
-    public boolean isUsingOnlineModel() {
-        updateModelState();
-        return isUsingOnlineModel;
-    }
-
-    /**
      * 获取AI服务状态
      */
     public AIServiceState getAIServiceState() {
         return aiService != null ? aiService.getServiceState() : null;
     }
 
-    /**
-     * 获取当前服务阶段
-     */
-    public AIServiceState.ServiceStage getCurrentStage() {
-        AIServiceState state = getAIServiceState();
-        return state != null ? state.getCurrentStage() : AIServiceState.ServiceStage.UNINITIALIZED;
-    }
-
     // ========== 生成控制 ==========
-
-    /**
-     * 是否正在生成
-     */
-    public boolean isGenerating() {
-        return isGenerating;
-    }
 
     /**
      * 设置生成状态
@@ -278,27 +181,9 @@ public class AIChatCoordinator {
         }
     }
 
-    /**
-     * 停止生成
-     */
-    public void stopGeneration() {
-        if (aiService != null) {
-            aiService.chatStop();
-        }
-        setGenerating(false);
-    }
-
     // ========== 监听器管理 ==========
 
-    public void addListener(CoordinatorListener listener) {
-        if (listener != null && !listeners.contains(listener)) {
-            listeners.add(listener);
-        }
-    }
 
-    public void removeListener(CoordinatorListener listener) {
-        listeners.remove(listener);
-    }
 
     private void notifyChatHistoryChanged() {
         mainHandler.post(() -> {

@@ -5032,31 +5032,8 @@ public class AIChatActivity extends BaseActivity {
                 originalMessage, attachmentContent, fileCount);
     }
 
-    /** 构建附件分析提示词 */
-    private String buildAttachmentAnalysisPrompt(String originalMessage, String attachmentContent, int fileCount) {
-        return getAttachmentPromptBuilder().buildAttachmentAnalysisPrompt(
-                originalMessage, attachmentContent, fileCount);
-    }
-
-    private boolean canSummarize(String content) {
-        return getAttachmentPromptBuilder().canSummarize(content);
-    }
-
-    private String buildSummaryPrompt(String userMessage, String parsedContent) {
-        return getAttachmentPromptBuilder().buildSummaryPrompt(userMessage, parsedContent);
-    }
-
-    private boolean isExtractFailed(String content) {
-        return getAttachmentPromptBuilder().isExtractFailed(content);
-    }
 
 
-    /**
-     * 本地解析结果 → 增强消息（阈值与在线 Agent 路径同源，统一在 AttachmentPromptBuilder）
-     */
-    private String buildAugmentedMessage(String originalMessage, java.util.Map<Uri, String> extractedMap) {
-        return getAttachmentPromptBuilder().buildAugmentedMessage(originalMessage, extractedMap);
-    }
 
     /**
      * NPU-PRELOAD（方案 B）：进入聊天页时后台预加载 NPU 模型。
@@ -5579,38 +5556,6 @@ public class AIChatActivity extends BaseActivity {
         return chatContextBuilder;
     }
 
-    /**
-     * 可给历史上下文使用的 token 预算：
-     *
-     * 在线模型：上下文由在线引擎自己的机制管理（会话历史 + 引擎内部按模型真实窗口
-     * 动态预算 + 服务端 KV 前缀缓存），本组装层不设 token 限制、不设条数上限——
-     * 完全放开，连续对话不截断。且在线路径本身忽略此处组装的历史，此值只是
-     * "不干预"的语义。
-     *
-     * 本地模型：与 native chatJson 守卫对齐——守卫只校验 prompt 本体不超过
-     * safeRef-512（生成余量固定 512，max_tokens 不算入 context 预算），
-     * 这里再预留当前待发送消息与标记的余量（-1024），让窗口尽量大且稳定，
-     * 跨轮保持前缀不变 → KV 缓存可命中。
-     */
-    private int getContextBudgetTokens() {
-        return getChatContextBuilder().getContextBudgetTokens();
-    }
-
-    /** 历史条数硬上限：本地 60（token 预算已优先约束，此值仅作防御护栏）；在线不设上限 */
-    private int getHistoryMaxEntries() {
-        return getChatContextBuilder().getHistoryMaxEntries();
-    }
-
-    /** 当前提示词签名：思考开关 / 本地Agent开关 / 系统提示词 / 日期（这些变化都会改变生成行为） */
-    private String currentPromptSignature() {
-        return getChatContextBuilder().currentPromptSignature();
-    }
-
-    /** 与上次相比，提示词设置是否有变化（返回变化说明；无变化返回 null） */
-    private String describePromptChange(String prev, String cur) {
-        return getChatContextBuilder().describePromptChange(prev, cur);
-    }
-
     /** 若提示词设置相对上次发送有变化，生成系统标记消息（普通对话路径注入；Agent 引擎每轮重建 system 无需） */
     private String getPromptChangeMarkerIfAny() {
         return getChatContextBuilder().getPromptChangeMarkerIfAny();
@@ -5623,40 +5568,6 @@ public class AIChatActivity extends BaseActivity {
      */
     private String buildToolTrace(ChatMessage m, int maxResultChars) {
         return getChatContextBuilder().buildToolTrace(m, maxResultChars);
-    }
-
-    /** 消息是否携带工具调用组件（用于决定工具结果保留档位） */
-    private boolean hasToolComponents(ChatMessage m) {
-        if (m == null || m.components == null || m.components.isEmpty()) return false;
-        for (com.oilquiz.app.ai.chat.component.ComponentData c : m.components) {
-            if (c != null && "tool_call".equals(c.type)) return true;
-        }
-        return false;
-    }
-
-    /**
-     * 组装消息进入上下文的文本：AI 消息附工具调用痕迹（思考内容可选，截断防膨胀）。
-     * toolResultCap：本条消息工具结果的保留上限（见 TOOL_RESULT_* 档位）。
-     * 只用于上下文构建，不修改原消息。返回 null 表示该消息不应进上下文。
-     */
-    private String buildContextContent(ChatMessage m, boolean includeThinking, int toolResultCap) {
-        if (m == null) return null;
-        String base = m.getContent();
-        if (base == null) base = "";
-        StringBuilder sb = new StringBuilder(base);
-        if (m.type == ChatMessage.MessageType.AI) {
-            String trace = buildToolTrace(m, toolResultCap);
-            if (trace != null) {
-                sb.append("\n\n[工具调用]\n").append(trace);
-            }
-            if (includeThinking && m.thinkingContent != null && !m.thinkingContent.trim().isEmpty()) {
-                String th = m.thinkingContent.trim();
-                if (th.length() > 512) th = th.substring(0, 512) + "…";
-                sb.append("\n\n[思考过程]\n").append(th);
-            }
-        }
-        String s = sb.toString().trim();
-        return s.isEmpty() ? null : s;
     }
 
     /** 在 token 预算内倒序收集历史条目（返回 {role, content} 倒序列表）。
@@ -8583,18 +8494,6 @@ public class AIChatActivity extends BaseActivity {
 
     // ===================== Mode / Tool Execution =====================
 
-    private void executeTool(String toolName, String parameters) {
-        Map<String, Object> params = parseParameters(parameters);
-        new Thread(() -> {
-            try {
-                AIToolResult result = aiToolManager.executeTool(toolName, params);
-                String resultStr = result.isSuccess() ? String.valueOf(result.getResult()) : result.getErrorMessage();
-                runOnUiThread(() -> addAIMessage(resultStr));
-            } catch (Exception e) {
-                runOnUiThread(() -> addSystemMessage("工具执行出错: " + e.getMessage()));
-            }
-        }).start();
-    }
 
     private Map<String, Object> parseParameters(String parameters) {
         Map<String, Object> params = new HashMap<>();
@@ -9826,17 +9725,6 @@ public class AIChatActivity extends BaseActivity {
     // 现在动画时机与播放统一由 GenerationStatusBar 负责（按思考文本换行数判断换段），
     // 这两个方法已无调用方，故删除，避免以后再有人误用。
 
-    /** 状态机阶段英文 → 中文显示 */
-    private String phaseToCn(String phase) {
-        if ("PREPROCESS".equals(phase)) return "预处理";
-        if ("THINKING".equals(phase)) return "思考中";
-        if ("GENERATING".equals(phase)) return "生成中";
-        if ("COMPLETE".equals(phase)) return "完成";
-        if ("ERROR".equals(phase)) return "出错";
-        if ("IDLE".equals(phase)) return "空闲";
-        return phase;
-    }
-
     /**
      * 状态条心跳：只在**正在生成**期间跑。
      *
@@ -10845,24 +10733,6 @@ public class AIChatActivity extends BaseActivity {
         return stickToBottom != null && stickToBottom.isPinned();
     }
 
-    /**
-     * 滚动到指定位置并确保该项完全可见
-     */
-    private void scrollToPositionWithOffset(int position) {
-        if (messageList != null && chatAdapter != null && position >= 0 && position < chatAdapter.getItemCount()) {
-            messageList.post(() -> {
-                androidx.recyclerview.widget.LinearLayoutManager layoutManager =
-                    (androidx.recyclerview.widget.LinearLayoutManager) messageList.getLayoutManager();
-                if (layoutManager != null) {
-                    // 使用 scrollToPositionWithOffset 将指定项滚动到顶部
-                    layoutManager.scrollToPositionWithOffset(position, 0);
-                } else {
-                    messageList.scrollToPosition(position);
-                }
-            });
-        }
-    }
-
     // 旧的 setupKeyboardListener（getWindowVisibleDisplayFrame 15% 阈值 + 100ms 延迟补滚）已删除：
     // 2026-10-25 起键盘/insets 变化由 main_content 的 OnApplyWindowInsetsListener 直接驱动
     // StickToBottom.onViewportChanged()，不再有"最后一拍才跟"的延迟；焦点抢占问题随整段删除一并消失
@@ -11146,9 +11016,6 @@ public class AIChatActivity extends BaseActivity {
 
     // ===================== UI Init =====================
 
-    private void openUri(String url) {
-        if (url != null) { try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)); } catch (Exception e) { showToast(getString(R.string.h_4b33aa1b)); } }
-    }
 
     /** 应用内图片预览（PhotoView 双指缩放，点击关闭）——避免依赖系统图片查看器 */
     private void showImagePreview(String url) {
@@ -12020,95 +11887,6 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
-    /** 开始录音 */
-    private void startRecording() {
-        try {
-            // 创建临时音频文件
-            File audioFile = createAudioFile();
-            if (audioFile == null) {
-                showToast(getString(R.string.h_24f55c59));
-                return;
-            }
-            recordingFilePath = audioFile.getAbsolutePath();
-            
-            // 初始化 MediaRecorder
-            mediaRecorder = new MediaRecorder();
-            
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // Android 12+ 使用新的 API
-                mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
-                mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-                mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-                mediaRecorder.setAudioSamplingRate(44100);
-                mediaRecorder.setAudioEncodingBitRate(128000);
-            } else {
-                // 旧版本兼容
-                mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
-                mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.DEFAULT);
-                mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.DEFAULT);
-            }
-            
-            mediaRecorder.setOutputFile(recordingFilePath);
-            mediaRecorder.prepare();
-            mediaRecorder.start();
-            
-            isRecording = true;
-            showToast(getString(R.string.h_c3f0e02f));
-            
-            // 更新按钮状态（可选：显示录音中提示）
-            updateRecordingUI(true);
-            
-        } catch (Exception e) {
-            e.printStackTrace();
-            showToast(getString(R.string.h_8339b334) + e.getMessage());
-            releaseMediaRecorder();
-        }
-    }
-
-    /** 停止录音并添加到附件 */
-    private void stopRecording() {
-        if (!isRecording || mediaRecorder == null) {
-            return;
-        }
-        
-        try {
-            mediaRecorder.stop();
-            isRecording = false;
-            
-            // 创建音频附件
-            File audioFile = new File(recordingFilePath);
-            if (audioFile.exists() && audioFile.length() > 0) {
-                Uri audioUri = Uri.fromFile(audioFile);
-                ChatMessage.Attachment attachment = new ChatMessage.Attachment(
-                    "audio",
-                    audioUri.toString(),
-                    "语音消息"
-                );
-                // 统一走 inputManager 添加
-                if (inputManager != null) {
-                    inputManager.addAttachment(attachment);
-                updateComposerActions();
-                } else {
-                    currentAttachments.add(attachment);
-                }
-                
-                // 刷新附件列表显示
-                refreshAttachmentsUI();
-                
-                showToast(getString(R.string.h_e2a65c56));
-            } else {
-                showToast(getString(R.string.h_ba8cd317));
-            }
-            
-        } catch (Exception e) {
-            e.printStackTrace();
-            showToast(getString(R.string.h_61a16521) + e.getMessage());
-        } finally {
-            releaseMediaRecorder();
-            updateRecordingUI(false);
-        }
-    }
-
     /** 释放 MediaRecorder 资源 */
     private void releaseMediaRecorder() {
         if (mediaRecorder != null) {
@@ -12570,17 +12348,6 @@ public class AIChatActivity extends BaseActivity {
         chipResumeInterrupted.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
-
-    /**
-     * 检查AI服务是否就绪
-     */
-    private boolean isAIReady() {
-        if (shouldUseOnlineModel()) {
-            return inferenceRouter != null && inferenceRouter.isCurrentModelAvailable();
-        }
-        return modelBridge != null && modelBridge.isModelInitialized();
-    }
-
 /**
      * 刷新聊天页顶部的「电脑连接」状态条。
      *
@@ -12800,18 +12567,6 @@ public class AIChatActivity extends BaseActivity {
         return result != null ? result : "未知文件";
     }
 
-    private long getFileSizeFromUri(Uri uri) {
-        try {
-            android.database.Cursor cursor = getContentResolver().query(uri, null, null, null, null);
-            if (cursor != null && cursor.moveToFirst()) {
-                int idx = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE);
-                long size = idx >= 0 ? cursor.getLong(idx) : 0;
-                cursor.close();
-                return size;
-            }
-        } catch (Exception e) { /* ignore */ }
-        return 0;
-    }
 
 
     @Override

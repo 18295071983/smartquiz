@@ -69,64 +69,6 @@ public class ChatBottomSheet {
         dialog.setContentView(root);
     }
 
-    /** 标题（可多次调用：后续调用为追加的说明行） */
-    public ChatBottomSheet title(String title) {
-        TextView tv = new TextView(context);
-        tv.setText(title);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
-        tv.setTextColor(0xFF111827);
-        tv.setTypeface(tv.getTypeface(), android.graphics.Typeface.BOLD);
-        tv.setPadding(0, 0, 0, dp(6));
-        contentWrap.addView(tv, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        return this;
-    }
-
-    /** 说明文字（次标题/正文） */
-    public ChatBottomSheet message(String msg) {
-        TextView tv = new TextView(context);
-        tv.setText(msg);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        tv.setTextColor(0xFF4B5563);
-        tv.setLineSpacing(dp(2), 1.0f);
-        tv.setPadding(0, 0, 0, dp(4));
-        contentWrap.addView(tv, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        return this;
-    }
-
-    /** 自定义内容区（追加到底部） */
-    public ChatBottomSheet content(View view) {
-        contentWrap.addView(view, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        return this;
-    }
-
-    /** 追加操作按钮（自右向左排列；首个追加在最右） */
-    public ChatBottomSheet action(String label, @Nullable Action action) {
-        TextView btn = new TextView(context);
-        btn.setText(label);
-        btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        btn.setTextColor(0xFF2563EB);
-        btn.setGravity(Gravity.CENTER);
-        btn.setBackground(rounded(0xFFEEF2FF, dp(12)));
-        btn.setPadding(dp(18), dp(10), dp(18), dp(10));
-        int idx = actionsWrap.getChildCount();
-        actionsWrap.addView(btn, 0, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) btn.getLayoutParams();
-        lp.setMarginStart(idx == 0 ? 0 : dp(10));
-        btn.setOnClickListener(v -> {
-            if (action != null) action.onClick(v);
-            else dialog.dismiss();
-        });
-        return this;
-    }
-
-    public ChatBottomSheet cancelable(boolean cancelable) {
-        dialog.setCancelable(cancelable);
-        return this;
-    }
 
 
     public void show() {

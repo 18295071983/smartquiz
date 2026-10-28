@@ -286,13 +286,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     /**
-     * 设置推理进度更新监听器
-     */
-    public void setInferenceProgressListener(InferenceProgressUpdateListener listener) {
-        this.inferenceProgressListener = listener;
-    }
-
-    /**
      * 推理进度更新监听器接口
      */
     public interface InferenceProgressUpdateListener {
@@ -2832,14 +2825,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return ThinkingPreview.preview(content, streaming, ThinkingPreview.MAX_CHARS);
     }
 
-    /**
-     * 检查字符串是否以"段落分隔符"结尾。实现已抽到
-     * {@link ThinkingPreview#endsWithParagraphBreak}。
-     */
-    private static boolean endsWithParagraphBreak(String s) {
-        return ThinkingPreview.endsWithParagraphBreak(s);
-    }
-
 
     /**
      * 判断 position 是否为列表中最后一条可交互 AI 消息（操作栏/统计/时间只显示在此）。
@@ -4917,23 +4902,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         });
     }
 
-    private int getStepTypeColor(Context context, ChatMessage.AgentStepInfo.AgentStepType type) {
-        if (type == null) return context.getColor(R.color.agent_step_background);
-        switch (type) {
-            case THINKING:
-                return context.getColor(R.color.agent_thinking_background);
-            case PLANNING:
-                return context.getColor(R.color.agent_thinking_background);
-            case ACTING:
-                return context.getColor(R.color.agent_action_background);
-            case OBSERVING:
-                return context.getColor(R.color.agent_observation_background);
-            case REFLECTING:
-                return context.getColor(R.color.agent_reflection_background);
-            default:
-                return context.getColor(R.color.agent_step_background);
-        }
-    }
 
     private void copyToClipboard(Context context, String text) {
         ClipboardManager clipboard = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
@@ -5291,14 +5259,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return last;
     }
 
-    public ChatMessage getMessage(int position) {
-        if (position < 0 || position >= messages.size()) return null;
-        return messages.get(position);
-    }
 
-    public List<ChatMessage> getMessages() {
-        return messages;
-    }
 
     static class UserMessageViewHolder extends RecyclerView.ViewHolder {
         TextView blockLabel;
@@ -5741,16 +5702,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
 
-    public void addMessage(ChatMessage message) {
-        if (message == null) return;
-        messages.add(message);
-        // 过滤态下同步维护完整列表，clearFilter 后新消息不丢失
-        if (originalMessages != null) {
-            originalMessages.add(message);
-        }
-        notifyItemInserted(messages.size() - 1);
-        scrollToPosition(messages.size() - 1);
-    }
 
 
 
@@ -5848,57 +5799,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     // ===================== Selection Mode =====================
 
-    /**
-     * 退出选择模式
-     */
-    public void exitSelectionMode() {
-        selectionMode = false;
-        selectedMessageIds.clear();
-        notifyDataSetChanged();
-        if (selectionChangeListener != null) {
-            selectionChangeListener.onSelectionModeChanged(false);
-        }
-    }
-
-    /**
-     * 切换消息选择状态
-     *
-     * <p>SELECT-NO-RENDER(2026-10-09)：选中态目前**没有任何 binder 渲染**（没有选中背景/
-     * 勾选框），而且本方法在项目内尚无调用方 —— 这是一条已实现但未接线的通路。
-     * 因此这里不再发 notifyItemChanged：
-     * ① 选中态目前无 binder 渲染，通知不产生视觉变化；
-     * 仍需保证：将来接上选中态渲染时，必须在这里重新触发 item 刷新。</p>
-     */
-    public void toggleSelection(String messageId) {
-        if (selectedMessageIds.contains(messageId)) {
-            selectedMessageIds.remove(messageId);
-        } else {
-            selectedMessageIds.add(messageId);
-        }
-        if (selectionChangeListener != null) {
-            selectionChangeListener.onSelectionChanged(selectedMessageIds.size());
-        }
-    }
-
-    /**
-     * 全选/取消全选
-     */
-    public void selectAll(boolean select) {
-        if (select) {
-            for (ChatMessage msg : messages) {
-                if (msg.id != null) {
-                    selectedMessageIds.add(msg.id);
-                }
-            }
-        } else {
-            selectedMessageIds.clear();
-        }
-        notifyDataSetChanged();
-        if (selectionChangeListener != null) {
-            selectionChangeListener.onSelectionChanged(selectedMessageIds.size());
-        }
-    }
-
     public interface OnSelectionChangeListener {
         void onSelectionModeChanged(boolean inSelectionMode);
         void onSelectionChanged(int selectedCount);
@@ -5991,26 +5891,4 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private List<ChatMessage> originalMessages;
     private String currentQuery = "";
-
-    /**
-     * 搜索过滤消息
-     */
-    public void filter(String query) {
-        if (query == null) query = "";
-        this.currentQuery = query.toLowerCase();
-        if (originalMessages == null) {
-            originalMessages = new java.util.ArrayList<>(messages);
-        }
-        messages.clear();
-        if (query.isEmpty()) {
-            messages.addAll(originalMessages);
-        } else {
-            for (ChatMessage msg : originalMessages) {
-                if (msg.content != null && msg.content.toLowerCase().contains(currentQuery)) {
-                    messages.add(msg);
-                }
-            }
-        }
-        notifyDataSetChanged();
-    }
 }

@@ -82,52 +82,6 @@ public class AttachmentPromptBuilder {
         }
     }
 
-    /** 构建附件分析提示词（安全版别名） */
-    public String buildAttachmentAnalysisPrompt(String originalMessage, String attachmentContent, int fileCount) {
-        return buildSafeAttachmentAnalysisPrompt(originalMessage, attachmentContent, fileCount);
-    }
-
-    /** 是否值得生成摘要（内容达到一定规模） */
-    public boolean canSummarize(String content) {
-        if (content == null || content.trim().isEmpty()) {
-            return false;
-        }
-        int minCharsForSummary = 100;
-        int wordCount = content.trim().split("\\s+").length;
-        int charCount = content.length();
-        return charCount >= minCharsForSummary || wordCount >= 30;
-    }
-
-    /** 构建摘要提示词 */
-    public String buildSummaryPrompt(String userMessage, String parsedContent) {
-        int contextSize = config.getContextSize();
-        int safeLimit = (int) (contextSize * 0.35);
-        int contentLimit = Math.min(safeLimit, 5000);
-
-        if (parsedContent.length() > contentLimit) {
-            parsedContent = parsedContent.substring(0, contentLimit) + "\n...[内容已截断]";
-        }
-
-        StringBuilder prompt = new StringBuilder();
-
-        if (userMessage != null && !userMessage.trim().isEmpty()) {
-            prompt.append(AppServices.strings().get(R.string.h_36623a6c)).append(userMessage).append("\n\n");
-        } else {
-            prompt.append(AppServices.strings().get(R.string.h_a485628e));
-        }
-
-        prompt.append(AppServices.strings().get(R.string.h_a4368a9d));
-        prompt.append(parsedContent).append("\n\n");
-        prompt.append(AppServices.strings().get(R.string.h_b575ddeb));
-        prompt.append(AppServices.strings().get(R.string.h_bd78f6c8));
-        prompt.append(AppServices.strings().get(R.string.h_5529af52));
-        prompt.append(AppServices.strings().get(R.string.h_d6c806dd));
-        prompt.append(AppServices.strings().get(R.string.h_29d6d222));
-        prompt.append(AppServices.strings().get(R.string.h_dc9307dd));
-
-        return prompt.toString();
-    }
-
     /** 解析内容是否为失败态（失败文本前缀匹配） */
     public boolean isExtractFailed(String content) {
         if (content == null) return true;
@@ -140,56 +94,6 @@ public class AttachmentPromptBuilder {
                 || content.startsWith("Word文件需要")
                 || content.startsWith("Excel文件需要")
                 || content.startsWith("无法确定文件类型");
-    }
-
-    /** 构建增强消息（本地解析结果 → 上下文） */
-    public String buildAugmentedMessage(String originalMessage, Map<Uri, String> extractedMap) {
-        if (extractedMap.isEmpty()) return originalMessage;
-
-        int contextSize = config.getContextSize();
-        int safeLimit = (int) (contextSize * 0.4);
-        int totalCharLimit = Math.min(safeLimit, MAX_TOTAL_ATTACHMENT_CHARS);
-        int singleCharLimit = Math.min(totalCharLimit / Math.max(1, extractedMap.size()), MAX_SINGLE_ATTACHMENT_CHARS);
-
-        StringBuilder sb = new StringBuilder();
-        sb.append(AppServices.strings().get(R.string.h_793176ee)).append(originalMessage).append("\n\n");
-        sb.append(AppServices.strings().get(R.string.h_4fe2794a));
-
-        int totalUsed = 0;
-        int idx = 1;
-        for (Map.Entry<Uri, String> entry : extractedMap.entrySet()) {
-            String fileName = fileUriUtils.getFileNameFromUri(entry.getKey());
-            String content = entry.getValue();
-
-            if (content == null || isExtractFailed(content)) {
-                sb.append(AppServices.strings().get(R.string.h_94e069c2)).append(idx++).append("】");
-                if (fileName != null) sb.append(" ").append(fileName);
-                sb.append(AppServices.strings().get(R.string.h_68e672a0));
-                continue;
-            }
-
-            int remaining = totalCharLimit - totalUsed;
-            if (remaining <= 0) {
-                sb.append(AppServices.strings().get(R.string.h_86b05ff3));
-                break;
-            }
-
-            int thisLimit = Math.min(singleCharLimit, remaining);
-            if (content.length() > thisLimit) {
-                content = content.substring(0, thisLimit) + "\n...[内容已截断]";
-            }
-
-            sb.append(AppServices.strings().get(R.string.h_94e069c2)).append(idx++).append("】");
-            if (fileName != null) sb.append(" ").append(fileName);
-            sb.append("\n");
-            sb.append(content).append("\n\n");
-            totalUsed += content.length();
-        }
-
-        sb.append(AppServices.strings().get(R.string.h_c65217ea));
-        sb.append(AppServices.strings().get(R.string.h_1575bdd9));
-
-        return sb.toString();
     }
 
     /**

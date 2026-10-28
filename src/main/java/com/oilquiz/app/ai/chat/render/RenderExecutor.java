@@ -185,9 +185,4 @@ public class RenderExecutor {
             return new SpannableStringBuilder(segment.text);
         }
     }
-
-    /** 清空渲染缓存（在消息被删除或会话切换时调用） */
-    public void clearCache() {
-        renderCache.evictAll();
-    }
 }

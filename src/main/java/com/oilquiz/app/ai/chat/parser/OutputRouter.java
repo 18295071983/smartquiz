@@ -528,13 +528,6 @@ public class OutputRouter {
         tagLookahead.setLength(0);
     }
 
-    /**
-     * 获取文本内容
-     */
-    public String getTextContent() {
-        return textBuffer.toString();
-    }
-
     // ========== 辅助方法 ==========
 
     /** 返回 text 中最早出现的思考结束标签，无则返回 null（多个结束标签取最早） */

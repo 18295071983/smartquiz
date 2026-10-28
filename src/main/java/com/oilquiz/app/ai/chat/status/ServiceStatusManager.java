@@ -471,10 +471,6 @@ public class ServiceStatusManager {
         if (thinkingIndicator != null) thinkingIndicator.setVisibility(View.GONE);
     }
 
-    public void cleanup() {
-        stopLoadingTimer();
-        unregisterObserver();
-    }
 
     // --- Private methods ---
 

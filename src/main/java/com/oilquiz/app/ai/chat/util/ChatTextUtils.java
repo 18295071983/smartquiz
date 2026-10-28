@@ -29,25 +29,4 @@ public final class ChatTextUtils {
         }
         return String.valueOf(window);
     }
-
-    /** 文本是否命中任一关键词（大小写不敏感） */
-    public static boolean containsKeyword(String text, String... keywords) {
-        if (text == null) return false;
-        for (String kw : keywords) {
-            if (kw != null && text.contains(kw.toLowerCase())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** 思考文本按 \n 计行数（用于判断是否出现新段） */
-    public static int countThinkingLines(String content) {
-        if (content == null) return 0;
-        int n = 1;
-        for (int i = 0; i < content.length(); i++) {
-            if (content.charAt(i) == '\n') n++;
-        }
-        return n;
-    }
 }
