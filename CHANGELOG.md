@@ -1,5 +1,37 @@
 # 变更日志
 
+## [2026-10-28] test(knowledge)：真机探针——自带 SQLite（官方 bindings）FTS5/bm25/trigram 实测可用
+
+系统自带 SQLite 在这台设备上缺 FTS5、也没开 `FTS3_PARENTHESIS`（v1/v2 的两次失败）。
+要换真正的倒排索引，先证明"自带的那份"能用：加 `androidTestImplementation
+"mil.nga:sqlite-android:3450200"`（SQLite 官方 Android Bindings 的 Maven 再发布），
+写 instrumented test 在真机跑。
+
+### 实测结果（25113PN0EC）
+
+```
+sqlite_version = 3.45.2
+compile_option: ENABLE_FTS5          ← 系统那份没有
+bigram MATCH hits=[光合作用(-2.5675E-6)]   ← 只命中该命中的，bm25 有值
+trigram 3+ chars hits = 1            ← 中文子串直接可查
+trigram 2 chars hits = 0             ← trigram 的已知边界（2 字词查不到）
+```
+
+两条结论：
+
+1. **FTS5 + bm25 可用**：可以把知识库从"全表 LIKE + 自算打分"换成真正的倒排索引；
+2. **中文索引仍要用 bigram token 流 + `unicode61`**，不要用 `trigram`——后者对 2 字词
+   （中文高频）直接 0 命中，正好是知识库最常见的查询长度。
+
+### 落地时要注意
+
+- native 库不会自动加载：用之前必须 `System.loadLibrary("sqliteX")`（这版 bindings 已移除
+  `SQLiteDatabase.loadLibs(Context)`，踩过一次 `UnsatisfiedLinkError: nativeOpen`）。
+- 该依赖目前只挂 `androidTestImplementation`，**生产代码未改动**；切换知识点时改成
+  `implementation` 并替换 `android.database.sqlite.*` → `org.sqlite.database.sqlite.*`。
+- Robolectric 装不了这个 native 库：18 条本地单测届时需要"测试用系统 SQLite / 生产用自带
+  SQLite"的接缝（或改用 `androidTest`），这是切换时的主要设计点。
+
 ## [2026-10-28] docs(knowledge)：新增现行知识库文档（v4 口径 + 清库重建/迁移流程）
 
 - 新建 `docs/knowledge_base.md`：现行 v4 口径——动作表（list/get/update/tag/精确取）、

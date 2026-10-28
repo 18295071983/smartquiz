@@ -599,6 +599,10 @@ dependencies {
     // 真机上会报 ClassNotFoundException: androidx.test.runner.AndroidJUnitRunner（已实测）
     androidTestImplementation "androidx.test:runner:1.5.2"
     androidTestImplementation "org.mockito:mockito-android:4.8.1"
+    // SQLite 官方 Android Bindings 的 Maven 再发布（SQLite 3.45.2，默认编 FTS5/FTS4/JSON1）。
+    // 先只挂在 androidTest，用来在真机上验证 FTS5 + bm25 + trigram 是否可用；
+    // 验证通过后再决定是否把知识库切到 org.sqlite.database.*（见 docs/knowledge_base.md）。
+    androidTestImplementation "mil.nga:sqlite-android:3450200"
     implementation project(':viewer')
 }
 
