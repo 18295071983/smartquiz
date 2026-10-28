@@ -16,8 +16,7 @@ import com.oilquiz.app.ai.engine.contract.GenSignalSource;
  *       于是静默降级、长期显示 llama.cpp 术语「⏳ 预处理」。</li>
  * </ul>
  *
- * <p>现在引擎分派集中在 {@link GenSignalSource}，本类退化为纯转发，不再认识任何引擎。
- * 与 demo 的 {@code ChatShellView.bindSources(nativeSource, statsSource)} 架构保持一致。</p>
+ * <p>现在引擎分派集中在 {@link GenSignalSource}，本类退化为纯转发，不再认识任何引擎。</p>
  */
 public class AppNativeSource implements GenerationStatusBar.NativeSource {
 
