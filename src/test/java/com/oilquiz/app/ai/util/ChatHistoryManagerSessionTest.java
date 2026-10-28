@@ -430,6 +430,71 @@ public class ChatHistoryManagerSessionTest {
         return ComponentData.of("tool_call", props);
     }
 
+    // ==================== 重复恢复：新 id + "（恢复副本）"标题（2026-10-28） ====================
+
+    @Test
+    public void restoredCopyTitlePrefixesMarkExactlyOnce() {
+        assertEquals(ChatHistoryManager.RESTORED_COPY_MARK + "git clone …",
+                ChatHistoryManager.restoredCopyTitle("git clone …"));
+        // 副本再被删、再恢复：不叠第二个标记
+        assertEquals(ChatHistoryManager.RESTORED_COPY_MARK + "X",
+                ChatHistoryManager.restoredCopyTitle(ChatHistoryManager.RESTORED_COPY_MARK + "X"));
+        // 原标题缺失时给个能看的兜底
+        assertEquals(ChatHistoryManager.RESTORED_COPY_MARK + "未命名会话",
+                ChatHistoryManager.restoredCopyTitle(null));
+        assertEquals(ChatHistoryManager.RESTORED_COPY_MARK + "未命名会话",
+                ChatHistoryManager.restoredCopyTitle("   "));
+    }
+
+    /**
+     * 同 id 撞车的恢复：旧会话原地不动，恢复出来的副本拿新 id，标题带"（恢复副本）"。
+     * 从前两条同名同内容，历史抽屉里根本分不出哪条是恢复出来的那份。
+     */
+    @Test
+    public void restoreIntoOccupiedIdMintsCopyWithSuffixTitle() throws Exception {
+        List<ChatMessage> window = new ArrayList<>(Arrays.asList(
+                user("u-r1", "被删掉的会话"),
+                ai("a-r1", "回复")));
+        ConversationSession original = manager.saveCurrentChatAsSession(window, null);
+        assertNotNull(original);
+        String id = original.id;
+        String title = original.title;
+
+        assertTrue(manager.trashConversationSession(id));
+        assertFalse("回收站操作后原文件应已移走", new File(conversationsDir, id + ".json").exists());
+
+        // 同 id 又存在了（例如删之前那份已被恢复过一轮）
+        try (java.io.FileWriter w = new java.io.FileWriter(new File(conversationsDir, id + ".json"))) {
+            w.write("{\"id\":\"" + id + "\",\"title\":\"占用中的会话\",\"messages\":[]}");
+        }
+
+        ChatHistoryManager.TrashEntry target = null;
+        for (ChatHistoryManager.TrashEntry e : manager.listTrashedSessions()) {
+            if (id.equals(e.sessionId)) target = e;
+        }
+        assertNotNull("回收站里应能找到刚删的那条", target);
+
+        String copyId = manager.restoreTrashedSession(target);
+        assertNotNull(copyId);
+        assertFalse("撞车时必须换新 id，不能覆盖在用的那条", id.equals(copyId));
+        assertTrue("旧会话文件不能被覆盖", new File(conversationsDir, id + ".json").exists());
+        assertTrue("副本应以新 id 落盘", new File(conversationsDir, copyId + ".json").exists());
+
+        ConversationSession copy = manager.loadConversationSession(copyId);
+        assertNotNull(copy);
+        assertEquals("副本标题要能一眼认出来（标记在前，长标题被截断也看得见）",
+                ChatHistoryManager.RESTORED_COPY_MARK + title, copy.title);
+        assertEquals("副本内容仍是删除时的快照", 2, copy.messages.size());
+
+        // 切会话/退出都会再保存一次：标题不能被"按首条用户消息重算"覆盖回原标题
+        // （真机 2026-10-28：恢复副本被点开一次，标记就没了）
+        manager.saveCurrentChatAsSession(copy.messages, copyId, 0, false);
+        ConversationSession afterSave = manager.loadConversationSession(copyId);
+        assertNotNull(afterSave);
+        assertEquals("恢复副本标记必须在后续保存后仍然保留",
+                ChatHistoryManager.RESTORED_COPY_MARK + title, afterSave.title);
+    }
+
     private int conversationFileCount() {
         File[] files = conversationsDir.listFiles((d, name) -> name.endsWith(".json"));
         return files == null ? 0 : files.length;

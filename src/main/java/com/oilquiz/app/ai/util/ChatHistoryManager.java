@@ -651,6 +651,30 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
                 || fileName.startsWith("local_chat_history_" + safeSessionId);
     }
 
+    /** 同 id 撞车时恢复副本的标题标记（见 {@link #restoredCopyTitle}） */
+    static final String RESTORED_COPY_MARK = "（恢复副本）";
+
+    /**
+     * 恢复副本的标题：{@link #RESTORED_COPY_MARK} + 原标题。
+     *
+     * <p>为什么需要：同 id 撞车（同一条会话被删两次、或删了又恢复过一轮）时，盘上会有两条
+     * 内容高度重合的会话——旧的那条还在用，恢复出来的那条如果标题一字不差，历史抽屉里
+     * 两个条目长得完全一样，用户只会觉得"历史重复了/串了"。</p>
+     *
+     * <p><b>为什么标记放前面而不是后缀</b>：真机验证过后缀版——抽屉标题单行 + 末尾省略号，
+     * {@code git clone https://github.com/1...（恢复副本）} 这类长标题被截成
+     * {@code git clone https://github.com/1......}，后缀根本看不见，两条还是分不出。
+     * 放最前面才保证在任何截断下都可见。</p>
+     *
+     * <p>已经带标记的不再重复加（副本再被删、再恢复也不会出现两个标记）；
+     * 原标题为空时用"未命名会话"兜底，避免抽屉里出现无标题条目。</p>
+     */
+    static String restoredCopyTitle(String title) {
+        String base = title != null ? title.trim() : "";
+        if (base.isEmpty()) base = "未命名会话";
+        return base.startsWith(RESTORED_COPY_MARK) ? base : RESTORED_COPY_MARK + base;
+    }
+
     /**
      * 把所有"按会话存的历史"（含副产物）移入回收站，而不是删掉。
      *
@@ -1073,6 +1097,9 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             String text = readText(entry.file);
             org.json.JSONObject o = new org.json.JSONObject(text);
             o.put("id", newId);
+            // 标题加"（恢复副本）"标记：同 id 撞车时盘上会有两条内容高度重合的会话
+            // （旧的那条还在用），标题一模一样的话在历史抽屉里根本分不出哪条是副本。
+            o.put("title", restoredCopyTitle(o.optString("title", "")));
             File renamed = new File(dir, newId + ".json");
             try (java.io.FileWriter w = new java.io.FileWriter(renamed)) {
                 w.write(o.toString());
@@ -1257,6 +1284,12 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
                 if (sessionFile.exists()) {
                     ConversationSession meta = readSessionMetadataOnly(sessionFile);
                     if (meta != null && meta.createdAt > 0) createdAt = meta.createdAt;
+                    // 已有会话沿用磁盘上的标题：标题只在首次落盘时按首条用户消息生成，
+                    // 之后每次保存都重算会把"（恢复副本）…"这类人工标记、以及用户后来
+                    // 看到的标题覆盖掉（真机 2026-10-28：恢复副本切一次会话就丢了标记）。
+                    if (meta != null && meta.title != null && !meta.title.trim().isEmpty()) {
+                        title = meta.title;
+                    }
                     headCount = Math.max(0, Math.min(unloadedFrontCount, countMessagesInFile(sessionFile)));
                     headSource = sessionFile;
                 }

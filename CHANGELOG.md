@@ -1,5 +1,41 @@
 # 变更日志
 
+## [2026-10-28] fix(history)：重复恢复的会话副本带"（恢复副本）"标记，且标题不再被保存覆盖
+
+用户："是不是我之前会话恢复时，多弄了一步，如果发现会话 id 相同时，重新赋予新 id 造成的"
+→ 查证：那条分支不会串消息，但会产生两条同名同内容的会话 → "可以加后缀恢复副本"。
+
+### 查到的事实
+
+- 同 id 撞车时（[ChatHistoryManager.java:1071](src/main/java/com/oilquiz/app/ai/util/ChatHistoryManager.java#L1071)）
+  只换 id、不动标题，恢复出来的副本与原会话标题一字不差；历史文件改名有
+  `!target.exists()` 保护，不会抢正在用的那条的推理历史。
+- 真机验证第一版（后缀）：抽屉标题单行 + 末尾省略号，
+  `git clone https://github.com/1...（恢复副本）` 被截成 `git clone https://github.com/1......`，
+  **后缀根本看不见**，两条照样分不出。
+- 改成前缀后再验：恢复出来的文件标题对，但点开一次（切会话 → `saveCurrentHistory`）
+  标记就没了——`saveCurrentChatAsSession` 每次都 `ConversationSession.generateTitle(filtered)`
+  重算标题，把磁盘上的标题覆盖回首条用户消息。
+
+### 由此改掉的事
+
+1. 新增 `restoredCopyTitle()`：`（恢复副本）` 放**最前**（任何截断下都可见），
+   空标题兜底"未命名会话"，已带标记的不重复加。
+2. `saveCurrentChatAsSession`：已有会话（`<id>.json` 存在）沿用磁盘上的 `title`，
+   不再每次保存按首条用户消息重算——标题只在首次落盘时生成。
+   顺带效果：以后人工改过的标题（含本标记）不会在切会话/退出时被抹掉。
+
+### 验证
+
+- `ChatHistoryManagerSessionTest` **14 条全绿**，新增 2 条：
+  `restoredCopyTitlePrefixesMarkExactlyOnce`（前缀/不重复/空标题兜底）、
+  `restoreIntoOccupiedIdMintsCopyWithSuffixTitle`（撞车恢复 e2e：新 id、旧文件不动、
+  副本 title 带标记，且**再保存一次标记仍在**）。
+- `assembleDebug` 通过并装机。真机实测：把 `e6637915…json` 复制进回收站（同 id）再点恢复，
+  生成 `b2b2bf7d…json`，`title = "（恢复副本）git clone https://github.com/1..."`，
+  原文件 `e6637915…` 未被覆盖；测试副本与还原用的回收站条目已清理，
+  设备恢复为 2 个会话 + 1 条回收站。
+
 ## [2026-10-28] fix(cards)：表格卡按内容分列宽（可横向滑动），信息卡长值不再右对齐
 
 第三笔（"卡片排版散架"）。两处都是"把内容硬塞进固定格子"造成的。
