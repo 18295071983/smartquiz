@@ -21,7 +21,6 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Color;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
@@ -68,7 +67,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private static final int VIEW_TYPE_SYSTEM = 2;
     private static final int VIEW_TYPE_THINKING = 3;
     private static final int VIEW_TYPE_TOOL_CALL = 5;
-    private static final int VIEW_TYPE_AGENT_STEP = 6;
     private static final int VIEW_TYPE_AGENT_SUMMARY = 7;
     private static final int VIEW_TYPE_ERROR = 8;
     /** 上下文注入行（记忆/任务/工具目录等系统注入内容的展示条，点击看全文） */
@@ -325,8 +323,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             case TOOL_RESULT:
                 // 合并显示：工具调用与结果统一用工具卡片渲染
                 return VIEW_TYPE_TOOL_CALL;
-            case AGENT_STEP:
-                return VIEW_TYPE_AGENT_STEP;
             case ERROR:
                 return VIEW_TYPE_ERROR;
             default:
@@ -354,9 +350,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                         R.layout.item_thinking_message_v2, parent, false));
             case VIEW_TYPE_TOOL_CALL:
                 return new ToolCallViewHolder(inflater.inflate(R.layout.item_tool_call_message, parent, false));
-            case VIEW_TYPE_AGENT_STEP:
-                return new AgentStepViewHolder(inflater.inflate(
-                        R.layout.item_agent_step_message_v2, parent, false));
             case VIEW_TYPE_AGENT_SUMMARY:
                 return new AgentSummaryViewHolder(inflater.inflate(R.layout.item_agent_summary_message, parent, false));
             case VIEW_TYPE_ERROR:
@@ -798,9 +791,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             case VIEW_TYPE_TOOL_CALL:
                 bindToolCallMessage((ToolCallViewHolder) holder, message);
                 break;
-            case VIEW_TYPE_AGENT_STEP:
-                bindAgentStepMessage((AgentStepViewHolder) holder, message);
-                break;
             case VIEW_TYPE_AGENT_SUMMARY:
                 bindAgentSummaryMessage((AgentSummaryViewHolder) holder, message);
                 break;
@@ -949,7 +939,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private static boolean shouldHideLegacyRow(ChatMessage m) {
         if (m == null) return false;
         if (m.type == ChatMessage.MessageType.AGENT_SUMMARY
-                || m.type == ChatMessage.MessageType.AGENT_STEP) {
+                ) {
             return true;
         }
         if (m.type != ChatMessage.MessageType.SYSTEM) return false;
@@ -4540,196 +4530,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
-    /**
-     * 把 hex 色（如 "#8B5CF6"）应用到 TextView 的圆角胶囊背景 + 内边距。
-     * 用于 AgentStepInfo.getStepColor() 视觉化：10 种步骤类型各有专属色。
-     */
-    private void applyStepColor(TextView tv, String hexColor) {
-        if (tv == null || hexColor == null || hexColor.isEmpty()) return;
-        int color;
-        try {
-            color = android.graphics.Color.parseColor(hexColor);
-        } catch (IllegalArgumentException e) {
-            return;
-        }
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        // 半透明底 + 主色描边，避免图标看不清
-        bg.setColor((color & 0x00FFFFFF) | 0x33000000);
-        bg.setStroke(dpToPx(1, tv.getContext()), color);
-        tv.setBackground(bg);
-        int pad = dpToPx(4, tv.getContext());
-        tv.setPadding(pad, pad, pad, pad);
-        tv.setGravity(android.view.Gravity.CENTER);
-    }
-
-    private void bindAgentStepMessage(AgentStepViewHolder holder, ChatMessage message) {
-        ChatMessage.AgentStepInfo stepInfo = message.agentStepInfo;
-        if (stepInfo == null) return;
-
-        // 设置步骤图标
-        holder.stepIcon.setText(stepInfo.getStepIcon());
-        // 步骤类型颜色应用：图标背景色 + 圆角胶囊
-        applyStepColor(holder.stepIcon, stepInfo.getStepColor());
-
-        // 构建自然语言描述
-        StringBuilder description = new StringBuilder();
-        
-        // 根据步骤类型和内容构建详细描述
-        switch (stepInfo.stepType) {
-            case THINKING:
-                if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
-                    description.append("💭 ").append(stepInfo.thought);
-                } else {
-                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_eed93c0c));
-                }
-                break;
-            case PLANNING:
-                if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
-                    // 显示具体的意图分析结果
-                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_e1510213)).append(stepInfo.thought);
-                    if (stepInfo.action != null && !stepInfo.action.isEmpty()) {
-                        description.append(SmartQuizApplication.getAppContext().getString(R.string.h_b01a18bd)).append(stepInfo.action);
-                    }
-                } else {
-                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_b5c7f7a2));
-                }
-                break;
-            case ACTING:
-                if (stepInfo.action != null && !stepInfo.action.isEmpty()) {
-                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_04c76d51)).append(stepInfo.action);
-                    if (stepInfo.observation != null && !stepInfo.observation.isEmpty()) {
-                        description.append(SmartQuizApplication.getAppContext().getString(R.string.h_acac05fd)).append(stepInfo.observation);
-                    }
-                } else {
-                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_0aad2da9));
-                }
-                break;
-            case OBSERVING:
-                if (stepInfo.observation != null && !stepInfo.observation.isEmpty()) {
-                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_2a8126f5)).append(stepInfo.observation);
-                    if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
-                        description.append(SmartQuizApplication.getAppContext().getString(R.string.h_2ed56b05)).append(stepInfo.thought);
-                    }
-                } else {
-                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_ee1be032));
-                }
-                break;
-            case REFLECTING:
-                if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
-                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_821a7c42)).append(stepInfo.thought);
-                    if (stepInfo.action != null && !stepInfo.action.isEmpty()) {
-                        description.append(SmartQuizApplication.getAppContext().getString(R.string.h_967876bc)).append(stepInfo.action);
-                    }
-                } else {
-                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_e2f0f38e));
-                }
-                break;
-            case TOOL_CALLING:
-                if (stepInfo.action != null && !stepInfo.action.isEmpty()) {
-                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_74b3bd13)).append(stepInfo.action);
-                    if (stepInfo.observation != null && !stepInfo.observation.isEmpty()) {
-                        description.append(SmartQuizApplication.getAppContext().getString(R.string.h_5ae08a6b)).append(stepInfo.observation);
-                    }
-                } else {
-                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_181e086c));
-                }
-                break;
-            case REASONING:
-                if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
-                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_f27b7129)).append(stepInfo.thought);
-                    if (stepInfo.detail != null && !stepInfo.detail.isEmpty()) {
-                        description.append(SmartQuizApplication.getAppContext().getString(R.string.h_e05c2bda)).append(stepInfo.detail);
-                    }
-                } else {
-                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_24030883));
-                }
-                break;
-            case LOOPING:
-                description.append(SmartQuizApplication.getAppContext().getString(R.string.h_62402e9c));
-                if (stepInfo.detail != null && !stepInfo.detail.isEmpty()) {
-                    description.append("\n").append(stepInfo.detail);
-                }
-                if (stepInfo.iteration > 0 && stepInfo.totalIterations > 0) {
-                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_499acacb)).append(stepInfo.iteration).append("/").append(stepInfo.totalIterations);
-                }
-                break;
-            case PAUSED:
-                description.append(SmartQuizApplication.getAppContext().getString(R.string.h_a2466280));
-                if (stepInfo.detail != null && !stepInfo.detail.isEmpty()) {
-                    description.append("\n").append(stepInfo.detail);
-                }
-                break;
-            case COMPLETED:
-                description.append(SmartQuizApplication.getAppContext().getString(R.string.h_f8c4c633));
-                if (stepInfo.detail != null && !stepInfo.detail.isEmpty()) {
-                    description.append("\n").append(stepInfo.detail);
-                }
-                break;
-            default:
-                description.append(SmartQuizApplication.getAppContext().getString(R.string.h_1d956dde));
-                if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
-                    description.append("\n").append(stepInfo.thought);
-                }
-        }
-
-        holder.stepDescription.setText(description.toString());
-
-        // 长描述默认折叠（maxLines=3），点击展开
-        final String descText = description.toString();
-        boolean isLongDesc = descText.length() > 100;
-        if (isLongDesc) {
-            applyStepExpansion(holder, stepInfo);
-            holder.stepDescription.setOnClickListener(v -> {
-                stepInfo.stepExpanded = !stepInfo.stepExpanded;
-                applyStepExpansion(holder, stepInfo);
-            });
-        } else {
-            holder.stepDescription.setMaxLines(Integer.MAX_VALUE);
-            holder.stepDescription.setEllipsize(null);
-            holder.stepDescription.setOnClickListener(null);
-        }
-
-        // 显示推理模式（小标签）
-        if (stepInfo.reasoningMode != null && !stepInfo.reasoningMode.isEmpty()) {
-            holder.stepReasoningMode.setText(stepInfo.reasoningMode);
-            holder.stepReasoningMode.setVisibility(View.VISIBLE);
-        } else {
-            holder.stepReasoningMode.setVisibility(View.GONE);
-        }
-
-        // 显示详细信息（如果有额外的detail且不在主要描述中）
-        if (stepInfo.detail != null && !stepInfo.detail.isEmpty() && 
-            description.toString().contains(stepInfo.detail)) {
-            // detail已经在描述中显示了，不再重复
-            holder.stepDetail.setVisibility(View.GONE);
-        } else if (stepInfo.detail != null && !stepInfo.detail.isEmpty()) {
-            holder.stepDetail.setVisibility(View.VISIBLE);
-            holder.stepDetail.setText(stepInfo.detail);
-        } else {
-            holder.stepDetail.setVisibility(View.GONE);
-        }
-
-        // 显示进度条
-        if (!stepInfo.isCompleted) {
-            holder.stepProgress.setVisibility(View.VISIBLE);
-            holder.stepProgress.setIndeterminate(true);
-        } else {
-            holder.stepProgress.setVisibility(View.GONE);
-        }
-    }
-
-    /** 应用 Agent 步骤描述的折叠/展开状态 */
-    private void applyStepExpansion(AgentStepViewHolder holder, ChatMessage.AgentStepInfo stepInfo) {
-        if (stepInfo.stepExpanded) {
-            holder.stepDescription.setMaxLines(Integer.MAX_VALUE);
-            holder.stepDescription.setEllipsize(null);
-        } else {
-            holder.stepDescription.setMaxLines(3);
-            holder.stepDescription.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        }
-    }
-
 
     private void bindAgentSummaryMessage(AgentSummaryViewHolder holder, ChatMessage message) {
         ChatMessage.AgentSummaryInfo summary = message.agentSummaryInfo;
@@ -5073,17 +4873,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
-    public void updateAgentStep(int position, String thought, String action, String observation, boolean isCompleted) {
-        if (position < 0 || position >= messages.size()) return;
-        ChatMessage message = messages.get(position);
-        if (message.agentStepInfo != null) {
-            if (thought != null) message.agentStepInfo.thought = thought;
-            if (action != null) message.agentStepInfo.action = action;
-            if (observation != null) message.agentStepInfo.observation = observation;
-            message.agentStepInfo.isCompleted = isCompleted;
-            notifyItemChanged(position);
-        }
-    }
 
     /** 查找指定agentGroupId的header消息 */
     public ChatMessage findAgentGroupHeader(String groupId) {
@@ -5510,22 +5299,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
-    static class AgentStepViewHolder extends RecyclerView.ViewHolder {
-        TextView stepIcon;
-        TextView stepDescription;
-        TextView stepReasoningMode;
-        TextView stepDetail;
-        ProgressBar stepProgress;
-
-        AgentStepViewHolder(View itemView) {
-            super(itemView);
-            stepIcon = itemView.findViewById(R.id.step_icon);
-            stepDescription = itemView.findViewById(R.id.step_description);
-            stepReasoningMode = itemView.findViewById(R.id.step_reasoning_mode);
-            stepDetail = itemView.findViewById(R.id.step_detail);
-            stepProgress = itemView.findViewById(R.id.step_progress_bar);
-        }
-    }
 
 
     static class AgentSummaryViewHolder extends RecyclerView.ViewHolder {

@@ -7599,11 +7599,6 @@ public class AIChatActivity extends BaseActivity {
         }
 
         @Override
-        public void onAgentStep(ChatMessage.AgentStepInfo stepInfo) {
-            // Agent 步骤：执行过程已由独立 Agent 面板展示，消息流不再插入步骤消息（精简视觉）
-        }
-
-        @Override
         public void onToolCallUI(String toolName, String args, int position) {
             // 工具调用 UI：添加工具调用消息（Agent 模式下过程已由独立面板展示，跳过）
             runOnUiThread(() -> {
@@ -7619,18 +7614,6 @@ public class AIChatActivity extends BaseActivity {
                 if (currentAgentGroupId != null) return;
                 int pos = findLastSpecialMessage(ChatMessage.MessageType.TOOL_CALL);
                 updateToolCallResult(pos >= 0 ? pos : chatHistory.size() - 1, success, result);
-                scrollToBottom();
-            });
-        }
-
-        @Override
-        public void onAgentStepUpdateUI(int position, String thought, String action,
-                                        String observation, boolean isCompleted) {
-            // Agent 步骤更新 UI：更新步骤结果
-            runOnUiThread(() -> {
-                int pos = findLastSpecialMessage(ChatMessage.MessageType.AGENT_STEP);
-                updateAgentStepResult(pos >= 0 ? pos : chatHistory.size() - 1,
-                    thought, action, observation, isCompleted);
                 scrollToBottom();
             });
         }
@@ -7686,7 +7669,6 @@ public class AIChatActivity extends BaseActivity {
         for (int i = chatHistory.size() - 1; i >= 0; i--) {
             ChatMessage msg = chatHistory.get(i);
             if (type == ChatMessage.MessageType.TOOL_CALL && msg.isToolCallMessage()) return i;
-            if (type == ChatMessage.MessageType.AGENT_STEP && msg.isAgentStepMessage()) return i;
         }
         return -1;
     }
@@ -10344,11 +10326,6 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
-    private void updateAgentStepResult(int position, String thought, String action, String observation, boolean isCompleted) {
-        if (chatAdapter != null && position >= 0 && position < chatHistory.size()) {
-            chatAdapter.updateAgentStep(position, thought, action, observation, isCompleted);
-        }
-    }
 
     // ==================== dsh 对齐：上下文仪表 / 队列 / 回底 / 展示行（2026-09-23） ====================
 

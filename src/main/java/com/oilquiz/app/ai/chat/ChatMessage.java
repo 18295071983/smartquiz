@@ -32,7 +32,6 @@ public class ChatMessage {
         THINKING,
         TOOL_CALL,
         TOOL_RESULT,
-        AGENT_STEP,
         AGENT_SUMMARY,
         ERROR
     }
@@ -466,9 +465,6 @@ public class ChatMessage {
     /** 工具调用信息 */
     public ToolCallInfo toolCallInfo;
 
-    /** Agent步骤信息 */
-    public AgentStepInfo agentStepInfo;
-
     /** Agent汇总信息 */
     public AgentSummaryInfo agentSummaryInfo;
 
@@ -695,74 +691,6 @@ public class ChatMessage {
         }
     }
 
-    public static class AgentStepInfo {
-        public AgentStepType stepType;
-        public String thought;
-        public String action;
-        public String observation;
-        public int iteration;
-        public int totalIterations;
-        public boolean isCompleted;
-        public String reasoningMode;
-        public String detail;
-        public long executionTimeMs;
-        public int tokenCount;
-        /** 步骤描述是否展开（默认折叠） */
-        public boolean stepExpanded = false;
-
-        public enum AgentStepType {
-            THINKING,
-            PLANNING,
-            ACTING,
-            OBSERVING,
-            REFLECTING,
-            TOOL_CALLING,
-            REASONING,
-            LOOPING,
-            PAUSED,
-            COMPLETED
-        }
-
-        public AgentStepInfo(AgentStepType stepType, int iteration, int totalIterations) {
-            this.stepType = stepType;
-            this.iteration = iteration;
-            this.totalIterations = totalIterations;
-            this.isCompleted = false;
-        }
-
-
-        public String getStepIcon() {
-            switch (stepType) {
-                case THINKING: return "💭";
-                case PLANNING: return "📋";
-                case ACTING: return "⚙️";
-                case OBSERVING: return "👁️";
-                case REFLECTING: return "🔄";
-                case TOOL_CALLING: return "🔧";
-                case REASONING: return "🧠";
-                case LOOPING: return "🔁";
-                case PAUSED: return "⏸️";
-                case COMPLETED: return "✅";
-                default: return "📌";
-            }
-        }
-
-        public String getStepColor() {
-            switch (stepType) {
-                case THINKING: return "#8B5CF6";
-                case PLANNING: return "#3B82F6";
-                case ACTING: return "#10B981";
-                case OBSERVING: return "#F59E0B";
-                case REFLECTING: return "#EC4899";
-                case TOOL_CALLING: return "#6366F1";
-                case REASONING: return "#8B5CF6";
-                case LOOPING: return "#14B8A6";
-                case PAUSED: return "#6B7280";
-                case COMPLETED: return "#10B981";
-                default: return "#6B7280";
-            }
-        }
-    }
 
     /**
      * Agent 执行汇总信息
@@ -1334,7 +1262,6 @@ public class ChatMessage {
         this.generationTimeMs = builder.generationTimeMs;
         this.systemType = builder.systemType;
         this.toolCallInfo = builder.toolCallInfo;
-        this.agentStepInfo = builder.agentStepInfo;
         this.agentSummaryInfo = builder.agentSummaryInfo;
         this.agentProgressInfo = builder.agentProgressInfo;
         this.agentMode = builder.agentMode;
@@ -1555,9 +1482,6 @@ public class ChatMessage {
         return type == MessageType.TOOL_CALL;
     }
 
-    public boolean isAgentStepMessage() {
-        return type == MessageType.AGENT_STEP;
-    }
 
 
 
@@ -1578,7 +1502,6 @@ public class ChatMessage {
             case AI:
             case THINKING:
             case TOOL_CALL:
-            case AGENT_STEP:
                 return "assistant";
             case SYSTEM:
             case ERROR:
@@ -1644,7 +1567,6 @@ public class ChatMessage {
             .status(this.status)
             .systemType(this.systemType)
             .toolCallInfo(this.toolCallInfo)
-            .agentStepInfo(this.agentStepInfo)
             .agentSummaryInfo(this.agentSummaryInfo)
             .agentProgressInfo(this.agentProgressInfo)
             .expanded(this.isExpanded)
@@ -1675,7 +1597,6 @@ public class ChatMessage {
         private long generationTimeMs;
         private SystemMessageType systemType = SystemMessageType.INFO;
         private ToolCallInfo toolCallInfo;
-        private AgentStepInfo agentStepInfo;
         private AgentSummaryInfo agentSummaryInfo;
         private AgentProgressInfo agentProgressInfo;
         private boolean agentMode;
@@ -1765,10 +1686,6 @@ public class ChatMessage {
             return this;
         }
 
-        public Builder agentStepInfo(AgentStepInfo agentStepInfo) {
-            this.agentStepInfo = agentStepInfo;
-            return this;
-        }
 
         public Builder agentSummaryInfo(AgentSummaryInfo agentSummaryInfo) {
             this.agentSummaryInfo = agentSummaryInfo;

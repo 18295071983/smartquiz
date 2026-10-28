@@ -54,10 +54,8 @@ public class AgentChatHandler {
          */
         default void onAgentBusy(String userMessage) {}
         void onModeSwitched(String mode);
-        void onAgentStep(ChatMessage.AgentStepInfo stepInfo);
         void onToolCallUI(String toolName, String args, int position);
         void onToolCallResultUI(int position, boolean success, String result);
-        void onAgentStepUpdateUI(int position, String thought, String action, String observation, boolean isCompleted);
         void onInferenceProgress(int tokenCount, float tokensPerSecond);
         /** 工具声明化卡片意图（dsh presentCall/presentResult 对齐，2026-09-23）。card 为 null 表示无声明。 */
         default void onToolPresent(String toolName, Map<String, Object> card) {}
@@ -123,13 +121,6 @@ public class AgentChatHandler {
             @Override
             public void onStepUpdate(String step, String detail) {
                 AILogger.i(TAG, "Agent step: " + step + " - " + detail);
-                if (isValid()) {
-                    ChatMessage.AgentStepInfo stepInfo = new ChatMessage.AgentStepInfo(
-                        ChatMessage.AgentStepInfo.AgentStepType.THINKING, 0, 0);
-                    stepInfo.thought = step + ": " + detail;
-                    stepInfo.isCompleted = true;
-                    callback.onAgentStep(stepInfo);
-                }
             }
 
             @Override
@@ -280,35 +271,6 @@ public class AgentChatHandler {
 
             @Override
             public void onStepUpdate(String step, String detail) {
-                if (isValid()) {
-                    // 根据步骤内容判断步骤类型
-                    ChatMessage.AgentStepInfo.AgentStepType stepType = ChatMessage.AgentStepInfo.AgentStepType.THINKING;
-
-                    if (step.contains("意图") || step.contains("intent") || step.contains("分析")) {
-                        stepType = ChatMessage.AgentStepInfo.AgentStepType.PLANNING;
-                    } else if (step.contains("执行") || step.contains("action") || step.contains("工具")) {
-                        stepType = ChatMessage.AgentStepInfo.AgentStepType.ACTING;
-                    } else if (step.contains("结果") || step.contains("观察") || step.contains("observe")) {
-                        stepType = ChatMessage.AgentStepInfo.AgentStepType.OBSERVING;
-                    } else if (step.contains("反思") || step.contains("reflect")) {
-                        stepType = ChatMessage.AgentStepInfo.AgentStepType.REFLECTING;
-                    } else if (step.contains("推理") || step.contains("reason")) {
-                        stepType = ChatMessage.AgentStepInfo.AgentStepType.REASONING;
-                    } else if (step.contains("循环") || step.contains("loop")) {
-                        stepType = ChatMessage.AgentStepInfo.AgentStepType.LOOPING;
-                    }
-
-                    ChatMessage.AgentStepInfo stepInfo = new ChatMessage.AgentStepInfo(
-                        stepType,
-                        engine.getToolLoopCount() + 1,
-                        5
-                    );
-                    stepInfo.thought = step;
-                    stepInfo.detail = detail;
-                    stepInfo.reasoningMode = "在线";
-                    stepInfo.isCompleted = true;
-                    callback.onAgentStep(stepInfo);
-                }
             }
 
             @Override
@@ -326,31 +288,11 @@ public class AgentChatHandler {
             @Override
             public void onThinking(String thought) {
                 AILogger.i(TAG, "onThinking: " + thought);
-                if (isValid()) {
-                    // 显示思考内容
-                    ChatMessage.AgentStepInfo stepInfo = new ChatMessage.AgentStepInfo(
-                        ChatMessage.AgentStepInfo.AgentStepType.THINKING,
-                        0,
-                        0
-                    );
-                    stepInfo.thought = thought;
-                    stepInfo.reasoningMode = "在线";
-                    stepInfo.isCompleted = false;
-                    callback.onAgentStep(stepInfo);
-                }
             }
 
             @Override
             public void onThinkingStage(String stage) {
                 AILogger.i(TAG, "onThinkingStage: " + stage);
-                if (isValid()) {
-                    // 可以在UI上显示阶段变化
-                    callback.onAgentStep(new ChatMessage.AgentStepInfo(
-                        ChatMessage.AgentStepInfo.AgentStepType.THINKING,
-                        0,
-                        0
-                    ));
-                }
             }
 
             // ==========================================
