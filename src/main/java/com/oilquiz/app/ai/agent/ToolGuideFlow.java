@@ -18,6 +18,9 @@ import java.util.Map;
  * - {@link #getActiveSteps(Map)} 根据已选参数过滤出当前应当展示的步骤
  * - {@link #getFlow(String)} 工厂方法返回指定工具的完整引导流程
  * - {@link #contextDependencies} 声明工具执行前依赖的环境上下文（如 "location"）
+ * - 未写精细引导的工具走 {@link #buildDynamicFlow(String)}：从模型可见 schema 自动生成，
+ *   其中选项 label 默认等于枚举原文，由 {@code tool_guide_flow.json} 的 terms 段经
+ *   {@link ToolGuideLabels#applyTo(ToolGuideFlow, ToolGuideTerms)} 换成中文（只改 label，不改 value）
  */
 public class ToolGuideFlow {
 
@@ -93,6 +96,12 @@ public class ToolGuideFlow {
         if (toolName == null) {
             return null;
         }
+        // PoC 档（默认关）：开关打开且配置里列了这个工具时用配置，其余一律维持下面的 builder。
+        // 配置本身逐字段等价于 builder 产物，等价性由 ToolGuideFlowConverterTest 钉住。
+        ToolGuideFlow fromConfig = tryFlowFromConfig(toolName);
+        if (fromConfig != null) {
+            return fromConfig;
+        }
         switch (toolName) {
             case "ai_weather":
                 return buildAiWeather();
@@ -125,6 +134,28 @@ public class ToolGuideFlow {
                 // （枚举参数→选项步骤、必填参数→输入步骤、其余→可选输入步骤、最后确认步骤）。
                 // 保证工具描述/参数始终与模型 tools 参数同一真相源，新增工具无需手写引导。
                 return buildDynamicFlow(toolName);
+        }
+    }
+
+    /**
+     * 尝试从 {@code tool_guide_flow.json} 取该工具的引导流程（PoC 档）。
+     *
+     * <p>三层都不会抛到调用方：拿不到 Context、开关是关的、配置缺失或含 ERROR 被装载器整份拒绝、
+     * 配置里没列这个工具——任何一种都返回 null，让 {@link #getFlow(String)} 继续走硬编码 builder。
+     * 所以这个开关的失败模式是"维持现状"，不是"引导打不开"。</p>
+     */
+    private static ToolGuideFlow tryFlowFromConfig(String toolName) {
+        try {
+            android.content.Context context = com.oilquiz.app.SmartQuizApplication.getAppContext();
+            if (!ToolGuideFlowFlag.enabled(context)) {
+                return null;
+            }
+            return ToolGuideFlowConverter.findToolFlow(
+                    ToolGuideConfigLoader.config(context), toolName);
+        } catch (Throwable t) {
+            android.util.Log.w("ToolGuideFlow",
+                    "配置化引导取用失败，回退硬编码 builder: " + t.getMessage());
+            return null;
         }
     }
 
@@ -176,7 +207,18 @@ public class ToolGuideFlow {
             steps.add(GuideStep.confirmStep("确认执行", "参数填写完成，点击执行"));
             String displayName = toolName;
             String desc = def.getDescription() != null ? def.getDescription() : "";
-            return new ToolGuideFlow(toolName, displayName, desc, steps);
+            ToolGuideFlow flow = new ToolGuideFlow(toolName, displayName, desc, steps);
+            // 显示名翻译：上面那句 new GuideStep.Option(enumVal, enumVal) 让选项卡直接露出
+            // schema 里的枚举原文（list/get/air_quality…），这里按 tool_guide_flow.json 的
+            // terms 段换成中文。只改 label，下发给工具的 value 一律不动；词典没覆盖的值保持原文。
+            ToolGuideLabels.Result labeled = ToolGuideLabels.applyTo(flow,
+                    ToolGuideConfigLoader.terms(
+                            com.oilquiz.app.SmartQuizApplication.getAppContext()));
+            if (labeled.untranslatedOptions > 0) {
+                android.util.Log.i("ToolGuideFlow", toolName + " 引导有 "
+                        + labeled.untranslatedOptions + " 个选项值还没有中文词条，维持原文: " + labeled);
+            }
+            return flow;
         } catch (Throwable t) {
             android.util.Log.w("ToolGuideFlow", "动态生成引导失败: " + t.getMessage());
             return null;

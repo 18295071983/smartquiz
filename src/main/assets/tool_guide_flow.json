@@ -1,0 +1,357 @@
+{
+  "version": "2026-10-28-v2",
+  "terms": {
+    "params": {
+      "action": "操作类型",
+      "category": "分类",
+      "city": "城市",
+      "file_path": "文件路径",
+      "id": "编号",
+      "keyword": "关键词",
+      "limit": "返回数量",
+      "query": "关键词",
+      "table_name": "表名",
+      "url": "网页地址"
+    },
+    "values": {
+      "search": "搜索",
+      "ask": "问答",
+      "read_url": "读网页"
+    },
+    "byTool": {
+      "knowledge_base": {
+        "action": {
+          "list": "列索引",
+          "get": "取单条",
+          "search": "检索",
+          "add": "添加",
+          "add_batch": "批量添加",
+          "update": "修改",
+          "import_json": "导入JSON",
+          "import_file": "导入JSON文件",
+          "import_document": "导入文档",
+          "delete": "删除",
+          "clear": "清空",
+          "stats": "统计"
+        }
+      },
+      "memory": {
+        "action": {
+          "save": "保存",
+          "recall": "回忆",
+          "delete": "删除",
+          "list": "列出",
+          "clear": "清空"
+        }
+      }
+    }
+  },
+  "tools": [
+    {
+      "toolName": "ai_weather",
+      "toolDisplayName": "天气查询",
+      "toolDescription": "查询天气、预报、空气质量、预警等信息",
+      "contextDependencies": ["location"],
+      "steps": [
+        {
+          "type": "OPTION",
+          "title": "想查点什么?",
+          "description": "选要查的天气信息",
+          "paramKey": "action",
+          "options": [
+            { "label": "现在天气", "value": "current" },
+            { "label": "未来天气", "value": "forecast" },
+            { "label": "24小时", "value": "hourly" },
+            { "label": "空气", "value": "air_quality" },
+            { "label": "预警", "value": "alerts" },
+            { "label": "生活指数", "value": "indices" },
+            { "label": "全部", "value": "all" }
+          ]
+        },
+        {
+          "type": "OPTION",
+          "title": "哪个城市?",
+          "description": "选择城市（自动定位使用当前位置）",
+          "paramKey": "city",
+          "options": [
+            { "label": "📍 自动定位", "value": "" },
+            { "label": "银川", "value": "银川" },
+            { "label": "北京", "value": "北京" },
+            { "label": "上海", "value": "上海" },
+            { "label": "广州", "value": "广州" },
+            { "label": "深圳", "value": "深圳" },
+            { "label": "西安", "value": "西安" },
+            { "label": "成都", "value": "成都" }
+          ]
+        },
+        {
+          "type": "CONFIRM",
+          "title": "确认执行",
+          "description": "信息无误就点执行"
+        }
+      ]
+    },
+    {
+      "toolName": "network_search",
+      "toolDisplayName": "联网搜索",
+      "toolDescription": "网络搜索、智能问答、网页读取",
+      "steps": [
+        {
+          "type": "OPTION",
+          "title": "想搜什么?",
+          "description": "选要做的网络操作",
+          "paramKey": "action",
+          "options": [
+            { "label": "搜一下", "value": "search" },
+            { "label": "问一问", "value": "ask" },
+            { "label": "读网页", "value": "read_url" }
+          ]
+        },
+        {
+          "type": "INPUT",
+          "title": "搜什么关键词?",
+          "description": "输入搜索词",
+          "paramKey": "query",
+          "hint": "输入搜索关键词",
+          "required": true,
+          "multiline": false,
+          "condition": { "key": "action", "values": ["search"] }
+        },
+        {
+          "type": "OPTION",
+          "title": "选择结果数量",
+          "description": "选返回几条结果，默认5条",
+          "paramKey": "limit",
+          "options": [
+            { "label": "3条", "value": "3" },
+            { "label": "5条", "value": "5" },
+            { "label": "10条", "value": "10" }
+          ],
+          "condition": { "key": "action", "values": ["search"] }
+        },
+        {
+          "type": "INPUT",
+          "title": "想问什么?",
+          "description": "输入要问的问题",
+          "paramKey": "question",
+          "hint": "输入问题",
+          "required": true,
+          "multiline": true,
+          "condition": { "key": "action", "values": ["ask"] }
+        },
+        {
+          "type": "OPTION",
+          "title": "要多详细?",
+          "description": "选问答的深度",
+          "paramKey": "model",
+          "options": [
+            { "label": "简洁", "value": "concise" },
+            { "label": "深入", "value": "detail" },
+            { "label": "研究", "value": "research" }
+          ],
+          "condition": { "key": "action", "values": ["ask"] }
+        },
+        {
+          "type": "INPUT",
+          "title": "网页地址是?",
+          "description": "输入要读的网页地址",
+          "paramKey": "url",
+          "hint": "输入网页URL",
+          "required": true,
+          "multiline": false,
+          "condition": { "key": "action", "values": ["read_url"] }
+        },
+        {
+          "type": "CONFIRM",
+          "title": "确认执行",
+          "description": "信息无误就点执行"
+        }
+      ]
+    },
+    {
+      "toolName": "database",
+      "toolDisplayName": "题库数据库",
+      "toolDescription": "题目浏览与搜索、表结构查看、分类统计、数据库信息等",
+      "steps": [
+        {
+          "type": "OPTION",
+          "title": "想做什么?",
+          "description": "选要做的数据库操作",
+          "paramKey": "action",
+          "options": [
+            { "label": "浏览题目列表", "value": "get_questions" },
+            { "label": "按关键词搜索", "value": "search_questions" },
+            { "label": "按ID查题目", "value": "get_question_by_id" },
+            { "label": "列出所有表", "value": "list_tables" },
+            { "label": "查看表结构", "value": "get_table_schema" },
+            { "label": "获取所有分类", "value": "get_all_categories" },
+            { "label": "获取所有类型", "value": "get_all_question_types" },
+            { "label": "获取题目数量", "value": "get_question_count" },
+            { "label": "获取统计信息", "value": "get_question_statistics" },
+            { "label": "获取数据库版本", "value": "get_database_version" }
+          ]
+        },
+        {
+          "type": "INPUT",
+          "title": "按什么分类浏览?",
+          "description": "从列表选择分类，或手动输入；留空查看全部",
+          "paramKey": "category",
+          "hint": "如：安全、消防（可留空）",
+          "required": false,
+          "multiline": false,
+          "condition": { "key": "action", "values": ["get_questions"] },
+          "dynamicOptions": {
+            "toolName": "database",
+            "action": "get_all_categories",
+            "listKey": "categories",
+            "itemField": null,
+            "allOptionLabel": "📖 全部分类（不限）"
+          }
+        },
+        {
+          "type": "INPUT",
+          "title": "搜什么关键词?",
+          "description": "输入要搜的题目关键词",
+          "paramKey": "keyword",
+          "hint": "输入搜索关键词",
+          "required": true,
+          "multiline": false,
+          "condition": { "key": "action", "values": ["search_questions"] }
+        },
+        {
+          "type": "INPUT",
+          "title": "题目ID是多少?",
+          "description": "输入要查的题目ID",
+          "paramKey": "id",
+          "hint": "输入题目ID",
+          "required": true,
+          "multiline": false,
+          "condition": { "key": "action", "values": ["get_question_by_id"] }
+        },
+        {
+          "type": "INPUT",
+          "title": "查哪张表?",
+          "description": "从列表选择表，或手动输入表名",
+          "paramKey": "table_name",
+          "hint": "如：questions",
+          "required": true,
+          "multiline": false,
+          "condition": { "key": "action", "values": ["get_table_schema"] },
+          "dynamicOptions": {
+            "toolName": "database",
+            "action": "list_tables",
+            "listKey": "tables",
+            "itemField": "name",
+            "allOptionLabel": null
+          }
+        },
+        {
+          "type": "CONFIRM",
+          "title": "确认执行",
+          "description": "信息无误就点执行"
+        }
+      ]
+    }
+  ],
+  "composites": [
+    {
+      "flowId": "go_out",
+      "displayName": "出行准备",
+      "description": "依次:定位→天气→空气→预警",
+      "icon": "🚗",
+      "steps": [
+        {
+          "toolName": "location",
+          "actionDescription": "获取当前位置",
+          "icon": "📍",
+          "autoExecute": true,
+          "fixedParams": { "action": "get_current" }
+        },
+        {
+          "toolName": "ai_weather",
+          "actionDescription": "查当前天气",
+          "icon": "🌤️",
+          "autoExecute": true,
+          "fixedParams": { "action": "current" },
+          "paramRefs": { "lat": "$prev.lat", "lon": "$prev.lon" }
+        },
+        {
+          "toolName": "ai_weather",
+          "actionDescription": "查空气质量",
+          "icon": "💨",
+          "autoExecute": true,
+          "fixedParams": { "action": "air_quality" },
+          "paramRefs": { "lat": "$prev.lat", "lon": "$prev.lon" }
+        },
+        {
+          "toolName": "ai_weather",
+          "actionDescription": "查天气预警",
+          "icon": "⚠️",
+          "autoExecute": true,
+          "fixedParams": { "action": "alerts" },
+          "paramRefs": { "lat": "$prev.lat", "lon": "$prev.lon" }
+        }
+      ]
+    },
+    {
+      "flowId": "study",
+      "displayName": "学习查询",
+      "description": "搜索题目",
+      "icon": "📚",
+      "steps": [
+        {
+          "toolName": "database",
+          "actionDescription": "搜索题目",
+          "icon": "🔍",
+          "autoExecute": false,
+          "fixedParams": { "action": "search_questions" },
+          "guideSteps": [
+            {
+              "type": "INPUT",
+              "title": "搜什么关键词?",
+              "description": "输入关键词",
+              "paramKey": "keyword",
+              "hint": "搜关键词",
+              "required": true,
+              "multiline": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "flowId": "research",
+      "displayName": "网页研究",
+      "description": "依次:搜索→读网页",
+      "icon": "🔍",
+      "steps": [
+        {
+          "toolName": "network_search",
+          "actionDescription": "搜索",
+          "icon": "🔎",
+          "autoExecute": false,
+          "fixedParams": { "action": "search", "limit": "5" },
+          "guideSteps": [
+            {
+              "type": "INPUT",
+              "title": "搜什么?",
+              "description": "输入关键词",
+              "paramKey": "query",
+              "hint": "搜关键词",
+              "required": true,
+              "multiline": false
+            }
+          ]
+        },
+        {
+          "toolName": "network_search",
+          "actionDescription": "读网页",
+          "icon": "📄",
+          "autoExecute": false,
+          "fixedParams": { "action": "read_url" },
+          "paramRefs": { "url": "$prev.firstUrl" }
+        }
+      ]
+    }
+  ]
+}
