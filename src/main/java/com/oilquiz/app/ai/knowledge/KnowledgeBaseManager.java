@@ -64,8 +64,10 @@ public class KnowledgeBaseManager {
      * v2：FTS5 在部分设备未编译，改用 FTS4 并重建索引。
      * v3：彻底移除 FTS 虚拟表依赖（FTS4 的中文 token 方案与布尔查询语法在真机上仍不可靠），
      *     改普通表 + 归一化 search_text 列做包含式检索；升级时补列并回填。
+     * v4（2026-10-28）：search_text 从"原文小写"改为"空格分隔的 token 流"（中文 bigram、英文按词），
+     *     查询同口径 + 空格边界整 token 匹配；升级时按新口径重建全表 search_text（数据迁移，不加列）。
      */
-    private static final int DB_VERSION = 3;
+    private static final int DB_VERSION = 4;
 
     /** 查询时返回的默认结果条数上限 */
     private static final int DEFAULT_TOP_K = 5;
@@ -151,6 +153,42 @@ public class KnowledgeBaseManager {
                 }
                 backfillSearchText(db);
             }
+            // v3→v4 的数据重建**不放在 onUpgrade 里**：它跑在 SQLiteOpenHelper 的升级事务中，
+            // 逐行 UPDATE 在单测实测会被外层事务吞掉（版本抬到 4、search_text 却没变）。
+            // 改为开库后由 ensureSearchTextV4() 在独立事务里重建，见 getReadableDb()/getWritableDb()。
+        }
+
+        /**
+         * 按 v4 口径重建全表 search_text（bigram）。
+         *
+         * <p>为什么必须走 Java 逐行：SQL 里没法切 bigram。个人库量级（几千行）一次性事务内完成，
+         * 失败只记日志——旧格式数据仍能按单字查询命中，不会因为迁移失败把知识库弄丢。</p>
+         */
+        private void rebuildSearchTextV4(SQLiteDatabase db) {
+            Cursor cursor = null;
+            try {
+                List<Object[]> rows = new ArrayList<>();
+                cursor = db.rawQuery("SELECT id, title, category, keywords, content FROM kb_chunks", null);
+                while (cursor.moveToNext()) {
+                    KnowledgeChunk chunk = new KnowledgeChunk(
+                            safe(cursor.getString(1)), safe(cursor.getString(2)),
+                            safe(cursor.getString(3)), safe(cursor.getString(4)), "");
+                    // 绑定顺序必须与 SQL 一致：SET search_text = ? WHERE id = ?
+                    rows.add(new Object[]{buildSearchText(chunk), cursor.getLong(0)});
+                }
+                cursor.close();
+                cursor = null;
+                // 不再自己开事务：onUpgrade 本身跑在 SQLiteOpenHelper 的升级事务里，
+                // 嵌套 begin/endTransaction 在部分实现下会静默丢更新（真机/单测都踩过）
+                for (Object[] row : rows) {
+                    db.execSQL("UPDATE kb_chunks SET search_text = ? WHERE id = ?", row);
+                }
+                Log.i(TAG, "search_text v4 重建完成: " + rows.size() + " 行");
+            } catch (Exception e) {
+                Log.w(TAG, "search_text v4 重建失败: " + e.getMessage());
+            } finally {
+                if (cursor != null) cursor.close();
+            }
         }
 
         private void createTables(SQLiteDatabase db) {
@@ -165,6 +203,7 @@ public class KnowledgeBaseManager {
                     + "created_at INTEGER NOT NULL,"
                     + "updated_at INTEGER NOT NULL"
                     + ")");
+            db.execSQL("CREATE TABLE IF NOT EXISTS kb_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL DEFAULT '')");
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_kb_chunks_category ON kb_chunks(category)");
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_kb_chunks_title ON kb_chunks(title)");
         }
@@ -227,6 +266,7 @@ public class KnowledgeBaseManager {
         }
         SQLiteDatabase db = helper.getReadableDatabase();
         dropLegacyFtsIfPresent(db);
+        ensureSearchTextV4(db);
         return db;
     }
 
@@ -242,8 +282,52 @@ public class KnowledgeBaseManager {
         }
         SQLiteDatabase db = helper.getWritableDatabase();
         dropLegacyFtsIfPresent(db);
+        ensureSearchTextV4(db);
         return db;
     }
+
+    /**
+     * v4 数据迁移（2026-10-28）：把 v3 的"原文 search_text"重建成 bigram token 流。
+     *
+     * <p>为什么不放在 {@code onUpgrade}：那条路跑在 SQLiteOpenHelper 的升级事务里，
+     * 逐行 UPDATE 会被外层事务吞掉（单测实测：版本抬到 4、search_text 没变）。这里在开库后
+     * 用独立事务重算一次，并用 prefs 标记保证只跑一次；失败只记日志——旧数据仍可按单字命中，
+     * 不会把知识库弄坏。</p>
+     */
+    private void ensureSearchTextV4(SQLiteDatabase db) {
+        if (searchTextV4Checked || db == null) return;
+        synchronized (this) {
+            if (searchTextV4Checked) return;
+            searchTextV4Checked = true;
+            try {
+                // 迁移标记存在库里（kb_meta），不用 SharedPreferences：
+                // 两者生命周期不同，prefs 被清/换机恢复数据时会出现"版本抬了、数据没重建"
+                if (searchTextVersion(db) >= 4) return;
+                dbHelper.rebuildSearchTextV4(db);
+                db.execSQL("INSERT OR REPLACE INTO kb_meta(k, v) VALUES('search_text_version', '4')");
+            } catch (Throwable t) {
+                Log.w(TAG, "ensureSearchTextV4 failed: " + t.getMessage());
+            }
+        }
+    }
+
+    /** 读取库内的 search_text 格式版本（读不到按 0/旧版处理） */
+    private static int searchTextVersion(SQLiteDatabase db) {
+        Cursor cursor = null;
+        try {
+            cursor = db.rawQuery("SELECT v FROM kb_meta WHERE k = 'search_text_version'", null);
+            if (cursor.moveToFirst()) {
+                return (int) Long.parseLong(cursor.getString(0));
+            }
+        } catch (Throwable ignored) {
+            // 老库没有 kb_meta 表：当作旧版，触发重建
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return 0;
+    }
+
+    private volatile boolean searchTextV4Checked = false;
 
     /**
      * 清理历史版本的 FTS 虚拟表（v1=FTS5 / v2=FTS4）。v3 起检索不再依赖 FTS。
@@ -518,8 +602,15 @@ public class KnowledgeBaseManager {
                 if (where.length() > 0) {
                     where.append(" AND ");
                 }
-                where.append("search_text LIKE ?");
-                args.add("%" + token + "%");
+                // bigram 用"空格边界"整 token 匹配：不然 "光合" 会匹配到 "光合作" 里的子串；
+                // 单字查询没有边界可言，退回包含匹配（否则单字永远查不到）
+                if (token.length() >= 2) {
+                    where.append("(' ' || search_text || ' ') LIKE ?");
+                    args.add("% " + token + " %");
+                } else {
+                    where.append("search_text LIKE ?");
+                    args.add("%" + token + "%");
+                }
             }
             if (hasCategory) {
                 if (where.length() > 0) {
@@ -605,6 +696,13 @@ public class KnowledgeBaseManager {
      * 相关度打分：标题/分类/关键词命中权重 3，正文命中权重 1。
      * 每个 token 只计一次（SQL 已保证每个 token 至少在某处命中，因此得分恒 > 0）。
      */
+    /**
+     * 相关度打分（v4，BM25 近似）：词频取对数 + 字段权重 + 正文长度归一。
+     *
+     * <p>v3 是"命中即 3 分 / 1 分"的粗打分，长文档里出现一次也算命中，排不出相关度。
+     * 这里对每个 token 统计在标题/分类/关键词（权重 3）与正文（权重 1）里的出现次数，
+     * 用 {@code 1 + log(1+tf)} 压长尾，再按正文长度做轻度归一（短文档同分更靠前）。</p>
+     */
     private static int scoreOf(List<String> tokens, String title, String category,
                                String keywords, String content) {
         if (tokens == null || tokens.isEmpty()) {
@@ -613,18 +711,40 @@ public class KnowledgeBaseManager {
         String head = ((title == null ? "" : title) + " " + (category == null ? "" : category)
                 + " " + (keywords == null ? "" : keywords)).toLowerCase(Locale.ROOT);
         String body = content == null ? "" : content.toLowerCase(Locale.ROOT);
-        int score = 0;
+        double raw = 0;
         for (String token : tokens) {
-            if (head.contains(token)) {
-                score += 3;
-            } else if (body.contains(token)) {
-                score += 1;
+            int tfHead = countOccurrences(head, token);
+            int tfBody = countOccurrences(body, token);
+            if (tfHead > 0) {
+                raw += 3.0 * (1.0 + Math.log(1.0 + tfHead));
+            }
+            if (tfBody > 0) {
+                raw += 1.0 * (1.0 + Math.log(1.0 + tfBody));
             }
         }
-        return score;
+        if (raw <= 0) {
+            return 0;
+        }
+        // 长度归一：1200 字以内的文档基本不惩罚，长文档轻微降权（BM25 的 b 项近似）
+        double norm = 1.0 / (1.0 + body.length() / 1200.0);
+        return (int) Math.round(raw * norm * 10);
     }
 
-    /** 查询分词：短横线/标点剥离，英文数字按词、中文按字，去重并限制数量 */
+    /** 子串出现次数（token 已小写；用于词频，不区分大小写） */
+    private static int countOccurrences(String text, String token) {
+        if (text == null || text.isEmpty() || token == null || token.isEmpty()) return 0;
+        int count = 0;
+        int from = 0;
+        while (true) {
+            int idx = text.indexOf(token, from);
+            if (idx < 0) break;
+            count++;
+            from = idx + Math.max(1, token.length());
+        }
+        return count;
+    }
+
+    /** 查询分词：短横线/标点剥离，英文数字按词、中文按相邻两字（bigram），去重并限制数量 */
     private static final Pattern TOKEN_PATTERN = Pattern.compile("[a-z0-9]+|[\\u4e00-\\u9fff]+");
 
     static List<String> tokenizeQuery(String raw) {
@@ -638,18 +758,18 @@ public class KnowledgeBaseManager {
         }
         Set<String> unique = new LinkedHashSet<>();
         Matcher m = TOKEN_PATTERN.matcher(s);
-        while (m.find()) {
+        while (m.find() && unique.size() < MAX_QUERY_TOKENS) {
             String t = m.group();
-            if (t.matches("[a-z0-9]+")) {
+            if (isAsciiRun(t)) {
+                unique.add(t);
+            } else if (t.length() == 1) {
                 unique.add(t);
             } else {
-                // 中文连续段逐字切分：与"包含全部关键字"语义一致，且不依赖分词器
-                for (int i = 0; i < t.length(); i++) {
-                    unique.add(String.valueOf(t.charAt(i)));
+                // 中文连续段切相邻两字：与入库侧 buildSearchText 同口径，
+                // 顺序敏感（"光合作用"→光合/合作/作用），比逐字 AND 精确得多
+                for (int i = 0; i + 1 < t.length() && unique.size() < MAX_QUERY_TOKENS; i++) {
+                    unique.add(t.substring(i, i + 2));
                 }
-            }
-            if (unique.size() >= MAX_QUERY_TOKENS) {
-                break;
             }
         }
         tokens.addAll(unique);
@@ -1596,15 +1716,58 @@ public class KnowledgeBaseManager {
         return values;
     }
 
-    /** 归一化检索文本：标题 + 分类 + 关键词 + 正文，统一小写（中文不受影响） */
+    /**
+     * 归一化检索文本（v4，2026-10-28）：把四段文本切成**空格分隔的 token 流**。
+     *
+     * <p>v3 存的是原文小写，查询按单字 LIKE，导致"光合作用"被拆成
+     * 光/合/作/用 四个字 AND——任何同时含这四个字的文档都命中，顺序完全不管。
+     * v4 改成 bigram：中文连续段切"相邻两字"（光合/合作/作用），英文/数字按词；
+     * 查询侧同样切，SQL 用带空格边界的整 token 匹配，顺序敏感、假阳性大幅下降。</p>
+     *
+     * <p>为什么用 bigram 而不是真分词器：不引入依赖、对未登录词（专业术语、人名）也能命中，
+     * 且这是 CJK 无词典检索的常用折中（Lucene 的 CJKAnalyzer 也是二元切分）。</p>
+     */
     static String buildSearchText(KnowledgeChunk chunk) {
         if (chunk == null) {
             return "";
         }
-        return ((chunk.title == null ? "" : chunk.title) + " "
-                + (chunk.category == null ? "" : chunk.category) + " "
-                + (chunk.keywords == null ? "" : chunk.keywords) + " "
-                + (chunk.content == null ? "" : chunk.content)).toLowerCase(Locale.ROOT);
+        StringBuilder sb = new StringBuilder();
+        appendTokens(sb, chunk.title);
+        appendTokens(sb, chunk.category);
+        appendTokens(sb, chunk.keywords);
+        appendTokens(sb, chunk.content);
+        return sb.toString().trim();
+    }
+
+    /** 追加一段文本的 token（空格分隔）：英文/数字按词，中文按相邻两字 */
+    private static void appendTokens(StringBuilder out, String text) {
+        if (text == null || text.isEmpty()) return;
+        Matcher m = TOKEN_PATTERN.matcher(text.toLowerCase(Locale.ROOT));
+        while (m.find()) {
+            String run = m.group();
+            if (isAsciiRun(run)) {
+                out.append(run).append(' ');
+            } else {
+                appendCjkBigrams(out, run);
+            }
+        }
+    }
+
+    /** 中文段切 bigram；单字段落保留单字（否则"光"这种查询永远命中不了） */
+    private static void appendCjkBigrams(StringBuilder out, String run) {
+        if (run.length() == 1) {
+            out.append(run).append(' ');
+            return;
+        }
+        for (int i = 0; i + 1 < run.length(); i++) {
+            out.append(run, i, i + 2).append(' ');
+        }
+    }
+
+    private static boolean isAsciiRun(String s) {
+        if (s.isEmpty()) return false;
+        char c = s.charAt(0);
+        return c < 0x80;
     }
 
     private static KnowledgeChunk fromJson(JSONObject obj) {

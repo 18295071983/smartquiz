@@ -16,6 +16,9 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 
+import java.util.Arrays;
+import java.util.Collections;
+
 /**
  * 知识库"修改已有条目"（2026-10-28）。
  *
@@ -186,5 +189,36 @@ public class KnowledgeBaseManagerTest {
         JSONArray list = manager.listMeta(null, "光合", 10);
         assertEquals("list 也支持 tag 过滤", 1, list.length());
         assertEquals(id, list.optJSONObject(0).optLong("id"));
+    }
+    // ==================== U1：中文 bigram 分词（2026-10-28） ====================
+
+    @Test
+    public void queryTokensAreCjkBigrams() {
+        assertEquals(Arrays.asList("光合", "合作", "作用"),
+                KnowledgeBaseManager.tokenizeQuery("光合作用"));
+        // 中英混排：英文按词、中文按 bigram
+        assertEquals(Arrays.asList("abc", "光合"),
+                KnowledgeBaseManager.tokenizeQuery("ABC 光合"));
+        // 单字保留单字（否则单字查询永远命中不了）
+        assertEquals(Collections.singletonList("光"), KnowledgeBaseManager.tokenizeQuery("光"));
+    }
+
+    /** v3（逐字 AND）的反例：四个字分散在无关条目里也会命中；v4 bigram 必须只命中真正连写的。 */
+    @Test
+    public void bigramSearchRejectsScatteredCharacters() {
+        long id = add("光合作用", "guide", "", "植物把光能转成化学能", "");
+        add("无关条目", "general", "", "阳光、合并、作业、用途各不相同", "");
+
+        JSONArray hits = manager.search("光合作用", null, 5, false);
+        assertEquals("只有真正含「光合作用」的才命中", 1, hits.length());
+        assertEquals(id, hits.optJSONObject(0).optLong("id"));
+    }
+
+    /** 顺序敏感：反序的四个字不应命中。 */
+    @Test
+    public void bigramSearchIsOrderSensitive() {
+        add("光合作用", "guide", "", "植物把光能转成化学能", "");
+        JSONArray reversed = manager.search("用作文合", null, 5, false);
+        assertEquals("反序 query 不应命中" + reversed, 0, reversed.length());
     }
 }

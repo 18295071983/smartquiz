@@ -1,5 +1,48 @@
 # 变更日志
 
+## [2026-10-28] feat(knowledge)：检索底层升级 U1——中文 bigram + 边界匹配 + BM25 近似打分（DB v4）
+
+背景：v3 是"逐字 AND"（commit `4de24296` 的取舍，设计见
+[`_archive/projects/docs/knowledge_base.md`](_archive/projects/docs/knowledge_base.md) §5）。
+它召回率高、精确率低——`光合作用` 被拆成 光/合/作/用 四个字相与，任何同时含这四个字的
+文档都命中，顺序完全不管。U1 不动依赖、不碰 FTS，只换检索口径。
+
+### 改了什么
+
+1. **入库侧** `buildSearchText`：从"原文小写"改成**空格分隔的 token 流**——
+   中文连续段切相邻两字（`光合作用`→`光合 合作 作用`），英文/数字按词；标题/分类/关键词/正文四段都切。
+2. **查询侧** `tokenizeQuery` 同口径切 bigram；SQL 用 `(' ' || search_text || ' ') LIKE '% token %'`
+   做**整 token 边界匹配**；单字查询没边界可言，退回包含匹配（否则单字永远查不到）。
+3. **打分** `scoreOf` 升级为 BM25 近似：`1+log(tf)` 压长尾 + 标题/分类/关键词权重 3、正文 1
+   + 正文长度归一（1200 字内几乎不惩罚）。
+4. **DB v4 数据迁移**：不加列，只按新口径**重算全表 `search_text`**。
+   迁移标记写在库内 `kb_meta(k='search_text_version', v='4')`，不用 SharedPreferences
+   （两者生命周期不同，换机/清数据会出现"版本抬了、数据没重建"）。
+
+### 踩到的两个坑（都记在代码注释里）
+
+- **迁移不能放 `onUpgrade`**：逐行 UPDATE 在 SQLiteOpenHelper 的升级事务里会被吞掉——
+  实测版本抬到 4、`search_text` 一字未变。改成开库后 `ensureSearchTextV4()` 独立执行。
+- **`execSQL` 绑定顺序**：`SET search_text=? WHERE id=?` 的参数数组一开始写成 `{id, text}`，
+  UPDATE 匹配 0 行、不报错、静默无效——靠迁移测试才抓出来（现在有断言兜着）。
+
+### 验证
+
+- 单测 **18 条全绿**（`KnowledgeBaseManagerTest` 10 + `KnowledgeBaseToolUpdateTest` 7 +
+  `KnowledgeBaseMigrationTest` 1），新增：
+  中文 bigram 切分、散字不命中（`阳光、合并、作业、用途` 不再被 `光合作用` 召回）、
+  顺序敏感（反序 query 0 命中）、v3 库开库即重建成 bigram 且 `user_version=4`。
+- `assembleDebug` 通过并装机。**真机迁移实测**：设备上 v3 库（63 行 / 294 KB）在首次知识库调用后
+  `user_version=4`、`kb_meta(search_text_version)=4`、`search_text` 变成
+  `工具 具名 创建 建工 …` 的 token 流，文件 356 KB。
+- 用调试通道驱动一次 `knowledge_base(search)` 完成真机验证，没污染用户会话。
+
+### 代价（说清楚）
+
+- `search_text` 体积约 ×1.5–2（CJK bigram 每个字出现两次），换来顺序敏感；
+- 仍是全表 LIKE + 候选 300 条上限——个人库（几千条）没问题，但不是真正的倒排/IDF。
+  要"业界标准"得上 U2（FTS4+matchinfo）或 U3（自带 FTS5+trigram+bm25）。
+
 ## [2026-10-28] feat(knowledge)：keywords 当别名/标签，检索加 tag 整词精确过滤（零迁移）
 
 用户："先做 A"——不新增列、不动 DB 版本，先把"按别名/同义词精确找到"补上。
