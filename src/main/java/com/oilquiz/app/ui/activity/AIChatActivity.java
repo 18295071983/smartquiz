@@ -4607,6 +4607,15 @@ public class AIChatActivity extends BaseActivity {
             int lastImageIndex = getVisionPipeline().findLastImageAttachment(chatHistory);
             if (lastImageIndex < 0) return false;
             if (lastImageIndex == chatHistory.size() - 1) return false; // 当前消息本身就是带图消息，不应走到这
+            // 追问闸门（2026-10-28）：与在线侧同一口径，别让"上一次发过的图"无限期跟着每一轮
+            int localTurnsSinceImage = com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline
+                    .userTurnsSinceImage(chatHistory, lastImageIndex);
+            String localFollowUpBlocked = com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline
+                    .explainFollowUpReuse(localTurnsSinceImage, message);
+            if (localFollowUpBlocked != null) {
+                AppLogger.ai(TAG, "Follow-up vision skipped: " + localFollowUpBlocked);
+                return false;
+            }
             // 复用该轮图片：llama.cpp mtmd 是单图硬限（bitmaps[1]），NPU VLM 可以整批复用
             int localLimit = getVisionPipeline().localVisionImageLimit();
             if (localLimit <= 0) return false;
@@ -4680,6 +4689,17 @@ public class AIChatActivity extends BaseActivity {
             int lastImageIndex = getVisionPipeline().findLastImageAttachment(chatHistory);
             if (lastImageIndex < 0) return false;
             if (lastImageIndex == chatHistory.size() - 1) return false; // 当前消息本身就是带图消息，不应走到这
+            // 追问闸门（2026-10-28）：旧行为是"历史里有图 → 之后每轮纯文字都重新上传那张图"，
+            // 与图无关的消息也会被视觉通道接管（日志实测："你有什么功能""继续""git clone …"），
+            // 模型因此拿到无关旧图、Agent 工具链被提前 return 短路。
+            int turnsSinceImage = com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline
+                    .userTurnsSinceImage(chatHistory, lastImageIndex);
+            String followUpBlockedReason = com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline
+                    .explainFollowUpReuse(turnsSinceImage, message);
+            if (followUpBlockedReason != null) {
+                AppLogger.ai(TAG, "Follow-up online vision skipped: " + followUpBlockedReason);
+                return false;
+            }
             // 复用该轮的整批图片（旧实现只取"最近一张"，多图那轮的上下文会丢）
             List<ChatMessage.Attachment> followUpImages =
                     com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline.collectImages(

@@ -1,5 +1,61 @@
 # 变更日志
 
+## [2026-10-28] fix(vision)：视觉追问改成"有界复用"——旧图不再跟着每一轮发给模型
+
+用户："看看我当前手机上的当前激活的对话的历史，有点问题" → 确认"都有，先解决发给模型的上下文不对"。
+
+### 查到的事实（真机取证）
+
+- 拉设备会话文件 `files/conversations/e6637915…json`：10 条消息、T533–T537，`tryFollowUpOnlineVision`
+  的触发条件是"历史里出现过图片"，**没有 TTL、没有轮次窗口**。
+- `files/ai_logs/ai_log_20261027.txt` 里是连续命中的现场：23:37 发图后，
+  "你预填上""不用你生成…""你下载啊""你有什么功能""继续""git clone https://…"
+  每一条都打了 `Follow-up online vision: reuse 1 image(s)`——模型每轮都被塞回同一张图；
+  同时 `AIChatActivity.processChatMessageWithAgent` 在该分支提前 `return`，Agent 工具链整轮不跑。
+- 23:54 用户已经直接问过"为什么你每次都要分析图片？"，同一根因。
+- 本地侧 `tryFollowUpVision` 是同一套逻辑的复制粘贴，同样无界（当前设备跑本地 Qwen3.5-2B，
+  `isMultimodalLoaded=false`，暂时走不到，但换 NPU/视觉模型就会复现）。
+
+### 由此改掉的事
+
+1. 新增闸门 `AttachmentVisionPipeline.shouldReuseImageForFollowUp(turnsSinceImage, message)`：
+   - 距离口径是**用户回合数**（`userTurnsSinceImage`），中间夹多少条 AI/工具消息都不影响；
+   - 图片后紧邻 2 个用户回合内免线索复用（正常"看完图再追问"）；
+   - 再往后必须命中图片指代线索词（这张图/图中/截图/照片/画面…）；
+   - 硬上限 `VISION_FOLLOW_UP_MAX_TURNS = 4`，更早的图不再自动重传；
+   - 线索词刻意不收单字"图"和"这张/那张"——"地图/图表/这张表"会误命中，闸门等于没装。
+2. `tryFollowUpOnlineVision` / `tryFollowUpVision` 取到 `lastImageIndex` 后先过闸门；不放行就
+   `return false` 落回 Agent / 普通对话（图不再进上下文，工具链也不再被短路）。拒绝原因写进
+   ai_logs：`Follow-up [online] vision skipped: …`，下次真机可直接核对。
+3. 新增 `VisionFollowUpPolicyTest` 9 条：回合计数口径、紧邻轮次放行、无关远距消息拒绝、
+   线索词放行、硬上限、误命中（地图/图表/这张表/空串/null）。
+
+### 验证
+
+- `testDebugUnitTest --tests …VisionFollowUpPolicyTest`：**9 / 9 通过**（`build/test-results` 里的 XML 为证）。
+- `assembleDebug` 通过，已装机（25113PN0EC，覆盖安装同签名，数据未动）：升级后
+  `files/conversations/` 仍是那 2 个会话、e6637915 的 10 条消息完好，对话页正常打开。
+- **真机端到端（2026-10-28 10:28–10:33，在线 deepseek-flash，视觉可用）**：新建会话 →
+  发一张自造测试图（红/蓝方块 + "VISION TEST 42"）→ 连发 5 轮纯文字，ai_logs 逐条对得上：
+
+  | 图片后第几个用户回合 | 消息 | 结果 |
+  |---|---|---|
+  | 1 | `thanks` | `Follow-up online vision: reuse 1 image(s)` |
+  | 2 | `ok` | `reuse`（紧邻轮次） |
+  | 3 | `anythingelre` | `skipped: 图片已在 3 个用户回合之前，且本轮没有图片指代线索` |
+  | 4 | `image` | `reuse`（有指代线索，未超上限） |
+  | 5 | `image` | `skipped: 图片已在 5 个用户回合之前（上限 4）` |
+
+  第 3、5 轮都落回正常 Agent 路径（模型正常回话、没有再把旧图塞进上下文），首发图那一轮
+  模型也真看到了图（准确说出左右红/蓝方块与 "VISION TEST 42"）。测试会话连图片一起已清掉，
+  设备上只剩原有 2 个会话。
+
+### 顺带发现（未在本笔处理）
+
+- 切换会话时曾出现"上一段会话的回复残留在列表里、与新会话消息拼在一起"的显示状态。
+  当时我正 `run-as rm` 删掉那个会话文件（等于在 app 背后抽走它正在编辑的会话），
+  怀疑是这条异常路径的连带反应，正常点历史抽屉切换未复现——留给"消息顺序/内容"那笔一起查。
+
 ## [2026-10-27] fix(agent-ui)：progress 参数按 schema 归一（props/max）+ 修调试通道超时二次 finish 崩溃
 
 用户："试一下看模型是否改用 progress" → 真机测试确认模型已自发改用插槽，同时暴露两处实现与文档不一致/崩溃。

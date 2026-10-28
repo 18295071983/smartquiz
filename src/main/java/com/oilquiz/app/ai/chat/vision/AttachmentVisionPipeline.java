@@ -114,6 +114,99 @@ public class AttachmentVisionPipeline {
         return lastImageIndex >= 0 && lastImageIndex == history.size() - 1;
     }
 
+    // ==================== 视觉追问频次闸门（2026-10-28） ====================
+
+    /**
+     * 追问自动复用图的轮次上限：图片消息之后最多再走这么多个用户回合，更早的图一律不再
+     * 自动重新编码上传。超过这个距离还说"看这张图"，请用户重新发图（或等 {@code view_image}
+     * 工具落地后由模型显式取图）。
+     */
+    public static final int VISION_FOLLOW_UP_MAX_TURNS = 4;
+
+    /**
+     * 免线索自动复用的轮次数：图片消息之后的第 1~2 个用户回合视为"还在聊这张图"，
+     * 不需要用户再说"图"，直接复用。再往后就必须有明确指代（见 {@link #refersToImage}）。
+     */
+    public static final int VISION_FOLLOW_UP_AUTO_TURNS = 2;
+
+    /**
+     * 图片指代线索词（大小写不敏感）。刻意不收单字"图"：地图/图表/图书馆都会误命中。
+     * 也不收"这张/那张"：日常里"这张表""那种方式"太常见。
+     */
+    private static final String[] IMAGE_REFERENCE_CUES = {
+            "这张图", "那张图", "这幅图", "那幅图", "这图", "那图", "该图", "此图",
+            "上图", "下图", "原图", "大图", "全图", "图中", "图里", "图上", "看图",
+            "图片", "图像", "截图", "截屏", "照片", "相片", "画面", "拍照", "拍的照",
+            "image", "picture", "photo", "screenshot"
+    };
+
+    /**
+     * 统计图片消息之后（含当前这轮）的用户消息数。
+     *
+     * <p>追问闸门的距离口径是"用户回合数"而不是"消息条数"：中间夹多少条 AI 回复/工具消息
+     * 都不影响，用户每追问一次才计入一次。</p>
+     *
+     * @return 图片消息之后的用户消息数；索引无效时返回 0
+     */
+    public static int userTurnsSinceImage(List<ChatMessage> history, int imageIndex) {
+        if (history == null || imageIndex < 0 || imageIndex >= history.size()) return 0;
+        int turns = 0;
+        for (int i = imageIndex + 1; i < history.size(); i++) {
+            ChatMessage m = history.get(i);
+            if (m != null && m.type == ChatMessage.MessageType.USER) turns++;
+        }
+        return turns;
+    }
+
+    /** 当前消息是否在指代某张图（线索词匹配） */
+    public static boolean refersToImage(String message) {
+        if (message == null || message.trim().isEmpty()) return false;
+        String text = message.toLowerCase(java.util.Locale.ROOT);
+        for (String cue : IMAGE_REFERENCE_CUES) {
+            if (text.contains(cue.toLowerCase(java.util.Locale.ROOT))) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 本轮是否允许"自动复用历史图片"（视觉追问闸门）。
+     *
+     * <p>旧行为（直到 2026-10-27）：只要历史里出现过图片，之后<b>每一轮</b>纯文字消息都会把
+     * 那张图重新编码上传——没有 TTL、没有轮次窗口。真机日志里"你有什么功能""继续"
+     * "git clone …"这类与图毫无关系的消息全都被视觉通道接管，模型拿到一张无关的旧图，
+     * Agent 工具链同时被提前 return 短路。这既是"发给模型的上下文不对"，也是"图片在
+     * 对话流里阴魂不散"的根因。</p>
+     *
+     * <p>现在的口径（满足其一，且都受 {@link #VISION_FOLLOW_UP_MAX_TURNS} 硬上限约束）：</p>
+     * <ul>
+     *   <li><b>紧邻轮次</b>：图片消息之后的第 1~{@link #VISION_FOLLOW_UP_AUTO_TURNS} 个用户回合；</li>
+     *   <li><b>明确指代</b>：当前消息里有"这张图 / 图中 / 截图 / 照片…"这类线索词。</li>
+     * </ul>
+     *
+     * @param turnsSinceImage {@link #userTurnsSinceImage} 的结果
+     * @param currentMessage  当前待发送的纯文字消息
+     */
+    public static boolean shouldReuseImageForFollowUp(int turnsSinceImage, String currentMessage) {
+        if (turnsSinceImage <= 0) return false; // 当前消息自己带图，本轮应走首发图链路，不是追问
+        if (turnsSinceImage > VISION_FOLLOW_UP_MAX_TURNS) return false;
+        if (turnsSinceImage <= VISION_FOLLOW_UP_AUTO_TURNS) return true;
+        return refersToImage(currentMessage);
+    }
+
+    /**
+     * 给日志用的可读判定：返回 null 表示"允许复用"，否则返回拒绝原因。
+     * 判定与 {@link #shouldReuseImageForFollowUp} 完全同源，避免日志和实际行为对不上。
+     */
+    public static String explainFollowUpReuse(int turnsSinceImage, String currentMessage) {
+        if (shouldReuseImageForFollowUp(turnsSinceImage, currentMessage)) return null;
+        if (turnsSinceImage <= 0) return "当前消息本身带图，走首发图链路";
+        if (turnsSinceImage > VISION_FOLLOW_UP_MAX_TURNS) {
+            return "图片已在 " + turnsSinceImage + " 个用户回合之前（上限 "
+                    + VISION_FOLLOW_UP_MAX_TURNS + "），不再自动复用";
+        }
+        return "图片已在 " + turnsSinceImage + " 个用户回合之前，且本轮没有图片指代线索";
+    }
+
     /**
      * 收集一条消息里的全部图片附件（保持用户发送顺序），最多 max 张。
      * 追问场景旧实现只取"最近一张"，多图那轮的上下文会丢；这里按整条消息取图。
