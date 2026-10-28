@@ -41,6 +41,7 @@ import java.util.Map;
         actions = {
                 @Action(name = "list", description = "列出知识库轻量索引（id/标题/分类/关键词/来源/更新时间，不含正文）；回答“知识库里有什么”或先定位再取详情时用", params = {
                         @Param(name = "category", type = "string", description = "分类过滤（可选）", required = false),
+                        @Param(name = "tag", type = "string", description = "按标签/别名精确过滤（匹配 keywords 里的整词，可选）", required = false),
                         @Param(name = "limit", type = "int", description = "条数上限，默认20，最大100", required = false)
                 }),
                 @Action(name = "get", description = "按 id 取单条知识的完整正文（先 list/search 拿 id）；不会一次返回多条", params = {
@@ -51,6 +52,7 @@ import java.util.Map;
                         @Param(name = "id", type = "int", description = "精确取：按知识ID（与 exact_title 二选一）", required = false),
                         @Param(name = "exact_title", type = "string", description = "精确取：标题全等（与 id 二选一）", required = false),
                         @Param(name = "category", type = "string", description = "分类过滤，如 general/guide/faq；tool_defs=系统工具定义库（查工具用法/参数用）；不传则检索全部", required = false),
+                        @Param(name = "tag", type = "string", description = "按标签/别名精确过滤（匹配 keywords 整词；别名/同义词建议存 keywords）", required = false),
                         @Param(name = "top_k", type = "int", description = "返回条数上限，默认5，最大20", required = false)
                 }),
                 @Action(name = "add", description = "添加单条知识", params = {
@@ -94,6 +96,7 @@ import java.util.Map;
                 @Param(name = "action", type = "string", description = "操作类型", required = true),
                 @Param(name = "query", type = "string", description = "检索关键词", required = false),
                 @Param(name = "category", type = "string", description = "分类过滤", required = false),
+                @Param(name = "tag", type = "string", description = "标签/别名（list/search 精确过滤用）", required = false),
                 @Param(name = "top_k", type = "int", description = "返回条数上限", required = false),
                 @Param(name = "title", type = "string", description = "标题（add 必填 / import_document 可选）", required = false),
                 @Param(name = "content", type = "string", description = "内容", required = false),
@@ -139,6 +142,7 @@ public class KnowledgeBaseTool implements AITool {
         params.put("action", "操作类型：search(检索)/add(加一条)/add_batch(批量加)/update(改一条)/import_json(导入JSON字符串)/import_file(导入JSON文件)/import_document(直接导入文档·图片·音频)/delete(删)/clear(清空)/stats(统计)");
         params.put("query", "检索关键词（search 模糊检索用；精确取可省略）");
         params.put("category", "分类（search/list 过滤 / add 写入 / update 修改，可选）");
+        params.put("tag", "标签/别名精确过滤（list/search 用）：对 keywords 做整词匹配，不做分词；别名/同义词/标签建议直接写进 keywords，逗号分隔");
         params.put("top_k", "返回条数上限（search 可选，默认5）");
         params.put("limit", "条数上限（list 可选，默认20，最大100）");
         params.put("semantic", "语义重排开关（search 可选，默认false；true=启用在线embedding重排+rerank精排，会消费在线API；未配置embedding专用能力时自动回退关键词检索）");
@@ -204,12 +208,14 @@ public class KnowledgeBaseTool implements AITool {
     /** 轻量索引：只回 id/标题/分类/关键词等，不含正文（先看有什么，再 get 详情） */
     private AIToolResult doList(Map<String, Object> parameters) {
         String category = stringParam(parameters, "category");
+        String tag = stringParam(parameters, "tag");
         int limit = intParam(parameters, "limit", 20);
-        JSONArray rows = manager.listMeta(category, limit);
+        JSONArray rows = manager.listMeta(category, tag, limit);
         String lastError = manager.getLastError();
         Map<String, Object> info = new HashMap<>();
         info.put("action", "list");
         info.put("count", rows.length());
+        info.put("tag", tag == null ? "" : tag);
         info.put("category", category == null ? "" : category);
         if (lastError != null && !lastError.isEmpty()) {
             info.put("error", lastError);
@@ -273,7 +279,8 @@ public class KnowledgeBaseTool implements AITool {
         boolean semantic = semanticObj != null
                 && (Boolean.TRUE.equals(semanticObj)
                     || "true".equalsIgnoreCase(String.valueOf(semanticObj).trim()));
-        JSONArray results = manager.search(query, category, topK, semantic);
+        String tag = stringParam(parameters, "tag");
+        JSONArray results = manager.search(query, category, tag, topK, semantic);
         String lastError = manager.getLastError();
 
         // 分类隔离（2026-09-23）：不传 category 的"用户知识检索"默认排除系统工具定义库 tool_defs，

@@ -1972,6 +1972,7 @@ public class AIToolManager {
                             "import_document", "delete", "clear", "stats"))
                     .addParameter("query", "string", "检索关键词（search 必填）：中文/英文/数字均可", false)
                     .addParameter("category", "string", "分类（search 过滤 / add 写入 / update 修改，可选，默认 general；tool_defs=系统工具定义库，查工具用法/参数时用）", false)
+                    .addParameter("tag", "string", "标签/别名精确过滤（list/search 用）：对 keywords 做整词匹配、不分词；别名/同义词/标签建议写进 keywords（逗号分隔）", false)
                     .addParameter("top_k", "integer", "返回条数上限（search 可选，默认 5，最大 20）", false)
                     .addParameter("semantic", "boolean", "语义重排（search 可选，默认 false）：true=在线 embedding 重排+rerank 精排（消费在线 API），未配置时自动回退关键词检索", false)
                     .addParameter("title", "string", "标题（add 必填；update 时为新标题；import_document 可选，图片/音频建议传语义化标题；delete 可按标题删）", false)

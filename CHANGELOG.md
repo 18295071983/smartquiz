@@ -1,5 +1,34 @@
 # 变更日志
 
+## [2026-10-28] feat(knowledge)：keywords 当别名/标签，检索加 tag 整词精确过滤（零迁移）
+
+用户："先做 A"——不新增列、不动 DB 版本，先把"按别名/同义词精确找到"补上。
+
+### 事实依据
+
+`keywords` 本来就已经：① 进 `search_text`（参与检索）；② list/get/search/update 全部回显；
+③ add/import 都能写。缺的只有一个**精确入口**——现有检索是"按字切 token + LIKE + 打分"，
+用户拿别名查时标签会被分词稀释在正文里（查"光合"会召回"光合作用的发现史"）。
+
+### 由此改掉的事
+
+1. `list` / `search` 新增 `tag` 参数：SQL 侧把 `keywords` 归一成 `,别名1,别名2,`，再匹配 `,tag,`——
+   - 小写 + 去半角/全角空格 + 中文逗号转英文逗号（`别名，同义词` 与 `别名,同义词` 等价）；
+   - **整词边界**：查 `光` 不会命中 `光合`；
+   - 不进分词、不打分，命中就是命中。
+2. 工具说明与提示词明确："别名、俗称、英文名写进 keywords（逗号分隔）；按别名查用
+   `search(tag=别名)` 或 `list(tag=别名)`"，并补了一句"先 list 看索引 → 再 get 取全文"的查找顺序。
+3. **零 schema 变更**：不升 DB 版本、不加列、不回填，旧库直接可用（这是选 A 而不是 B/C 的原因）。
+
+### 验证
+
+- 单测 **14 条全绿**（`KnowledgeBaseManagerTest` 7 + `KnowledgeBaseToolUpdateTest` 7），
+  新增 `tagFilterMatchesWholeKeywordOnly`：整词命中只回一条、前缀 `光` 不命中 `光合`、
+  大小写归一（`PHOTOSYNTHESIS` 命中）、`list(tag=…)` 同样生效。
+- `assembleDebug` 通过并装机；真机日志确认工具重新注册成功。
+- 未做（记下）：标签的**统计/多标签筛选 UI**需要在独立 `kb_tags` 表上做（方案 B），
+  等真要用标签管理时再动。
+
 ## [2026-10-28] feat(knowledge)：先索引后精确——知识库 list/get/精确检索；工具目录只回名字；js 与 python 同权
 
 用户三点反馈：① get 一调就把全部知识/全部工具 schema 倒出来，浪费 token、不能精确查找；

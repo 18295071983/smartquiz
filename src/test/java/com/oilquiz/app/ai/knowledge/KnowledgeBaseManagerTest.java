@@ -149,8 +149,7 @@ public class KnowledgeBaseManagerTest {
 
     /** 精确取：标题全等 / id，不做"按字拆 token"的模糊召回。 */
     @Test
-    public void exactSearchByTitleAndIdDoesNotFuzz() {
-        long id = add("光合作用", "guide", "", "植物把光能转成化学能", "");
+    public void exactSearchByTitleAndIdDoesNotFuzz() {        long id = add("光合作用", "guide", "", "植物把光能转成化学能", "");
         add("光合作用的发现史", "guide", "", "历史资料", "");
 
         JSONArray exact = manager.searchExact(null, "光合作用", 5);
@@ -165,5 +164,27 @@ public class KnowledgeBaseManagerTest {
         assertTrue("模糊检索会多命中", manager.search("光合作用", "guide", 5, false).length() >= 2);
         assertEquals("标题不存在时精确取返回 0", 0,
                 manager.searchExact(null, "不存在的标题", 5).length());
+    }
+    /** 标签/别名精确过滤（2026-10-28）：keywords 存别名，tag 走整词匹配，不参与分词。 */
+    @Test
+    public void tagFilterMatchesWholeKeywordOnly() {
+        long id = add("植物光合作用", "guide", "光合,photosynthesis", "正文一", "");
+        add("光合作用的发现史", "guide", "发现史", "正文二", "");
+
+        JSONArray byTag = manager.search("", null, "光合", 10, false);
+        assertEquals("tag 整词命中只应第一条", 1, byTag.length());
+        assertEquals(id, byTag.optJSONObject(0).optLong("id"));
+
+        // 整词边界：查"光"不能命中"光合"
+        assertEquals("tag 是整词匹配，不能前缀命中", 0,
+                manager.search("", null, "光", 10, false).length());
+
+        // 大小写/空格/中文逗号归一
+        assertEquals("大小写应归一", 1,
+                manager.search("", null, "PHOTOSYNTHESIS", 10, false).length());
+
+        JSONArray list = manager.listMeta(null, "光合", 10);
+        assertEquals("list 也支持 tag 过滤", 1, list.length());
+        assertEquals(id, list.optJSONObject(0).optLong("id"));
     }
 }

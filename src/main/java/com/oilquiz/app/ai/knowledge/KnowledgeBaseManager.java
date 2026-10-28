@@ -302,8 +302,21 @@ public class KnowledgeBaseManager {
      *                       默认 false=仅本地关键词检索，不消费任何在线 API。
      */
     public JSONArray search(String query, String category, int topK, boolean semanticRerank) {
+        return search(query, category, null, topK, semanticRerank);
+    }
+
+    /**
+     * 全文检索 + 标签精确过滤（2026-10-28）。
+     *
+     * <p>{@code tag} 走的是**关键词字段的精确匹配**，不参与分词：一条知识可以用
+     * {@code keywords} 存别名/同义词/标签（逗号分隔），模型拿"别名"检索时命中率会掉
+     * （按字分词会把标签稀释在正文里），用 {@code tag} 就是等值命中。</p>
+     *
+     * @param tag 标签/别名（对 keywords 做整词匹配，大小写与中英文逗号都归一）；空=不过滤
+     */
+    public JSONArray search(String query, String category, String tag, int topK, boolean semanticRerank) {
         int limit = (topK <= 0) ? DEFAULT_TOP_K : Math.min(topK, MAX_TOP_K);
-        JSONArray results = searchInternal(query, category, limit);
+        JSONArray results = searchInternal(query, category, tag, limit);
         boolean hasQuery = query != null && !query.trim().isEmpty();
         // 语义重排含网络调用（最长 20s+10s），放在锁外执行，避免长时间阻塞其他知识库操作
         if (hasQuery && semanticRerank) {
@@ -323,6 +336,16 @@ public class KnowledgeBaseManager {
      * @param limit    条数上限（<=0 用 20，最大 100）
      */
     public synchronized JSONArray listMeta(String category, int limit) {
+        return listMeta(category, null, limit);
+    }
+
+    /**
+     * 轻量索引 + 标签精确过滤（2026-10-28）：按 keywords 里的别名/标签筛一批，
+     * 再决定取哪条详情——不需要先模糊检索。
+     *
+     * @param tag 标签/别名（对 keywords 整词匹配）；空=不过滤
+     */
+    public synchronized JSONArray listMeta(String category, String tag, int limit) {
         lastError = null;
         int cap = limit <= 0 ? 20 : Math.min(limit, 100);
         JSONArray out = new JSONArray();
@@ -330,13 +353,23 @@ public class KnowledgeBaseManager {
         try {
             SQLiteDatabase db = getReadableDb();
             boolean hasCategory = category != null && !category.trim().isEmpty();
+            boolean hasTag = tag != null && !tag.trim().isEmpty();
+            java.util.List<String> args = new ArrayList<>();
+            StringBuilder where = new StringBuilder();
+            if (hasCategory) {
+                where.append("category = ?");
+                args.add(category.trim());
+            }
+            if (hasTag) {
+                if (where.length() > 0) where.append(" AND ");
+                where.append(tagClause());
+                args.add("%," + normalizeTag(tag) + ",%");
+            }
             String sql = "SELECT id, title, category, keywords, source, updated_at FROM kb_chunks"
-                    + (hasCategory ? " WHERE category = ?" : "")
+                    + (where.length() > 0 ? " WHERE " + where : "")
                     + " ORDER BY updated_at DESC LIMIT ?";
-            String[] args = hasCategory
-                    ? new String[]{category.trim(), String.valueOf(cap)}
-                    : new String[]{String.valueOf(cap)};
-            cursor = db.rawQuery(sql, args);
+            args.add(String.valueOf(cap));
+            cursor = db.rawQuery(sql, args.toArray(new String[0]));
             while (cursor.moveToNext()) {
                 JSONObject item = new JSONObject();
                 item.put("id", cursor.getLong(0));
@@ -445,12 +478,32 @@ public class KnowledgeBaseManager {
         return s == null ? "" : s;
     }
 
+    /**
+     * 标签精确匹配的 SQL 片段：把 {@code keywords} 归一成 {@code ,a,b,c,} 再看是否包含 {@code ,tag,}。
+     *
+     * <p>归一 = 小写 + 去掉半角/全角空格 + 中文逗号转英文逗号，于是
+     * "别名，同义词" 与 "别名,同义词" 等价；用逗号包边保证是**整词**命中——
+     * 查 "光合" 不会命中 "光合作用"。</p>
+     */
+    private static String tagClause() {
+        return "(',' || replace(replace(replace(lower(keywords), ' ', ''), '　', ''), '，', ',') || ',') LIKE ?";
+    }
+
+    /** 标签归一（与 {@link #tagClause()} 的 SQL 侧同口径） */
+    private static String normalizeTag(String tag) {
+        if (tag == null) return "";
+        return tag.trim().toLowerCase(Locale.ROOT)
+                .replace(" ", "").replace("　", "").replace("，", ",");
+    }
+
     /** 关键词检索主体（同步、持锁）：LIKE 召回 → Java 侧打分为相关度排序 → 取前 limit 条 */
-    private synchronized JSONArray searchInternal(String query, String category, int limit) {        lastError = null;
+    private synchronized JSONArray searchInternal(String query, String category, String tag, int limit) {
+        lastError = null;
         JSONArray results = new JSONArray();
         Cursor cursor = null;
         boolean hasQuery = query != null && !query.trim().isEmpty();
         boolean hasCategory = category != null && !category.trim().isEmpty();
+        boolean hasTag = tag != null && !tag.trim().isEmpty();
         List<String> tokens = hasQuery ? tokenizeQuery(query) : new ArrayList<String>();
         if (hasQuery && tokens.isEmpty()) {
             // 查询里没有任何可检索字符（纯标点/空白）：退化为按分类/时间列出
@@ -474,6 +527,13 @@ public class KnowledgeBaseManager {
                 }
                 where.append("category = ?");
                 args.add(category.trim());
+            }
+            if (hasTag) {
+                if (where.length() > 0) {
+                    where.append(" AND ");
+                }
+                where.append(tagClause());
+                args.add("%," + normalizeTag(tag) + ",%");
             }
             // 有查询时多取候选用于打分排序；无查询时直接取 limit 条
             int fetchLimit = hasQuery
