@@ -460,7 +460,7 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 智能体会话区：AgentSessionView 内嵌容器，初始隐藏 -->
+            <!-- 智能体会话区：内嵌容器，初始隐藏（AIImportActivity 不再渲染智能体专用视图） -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/agentSessionCard"
                 android:layout_width="match_parent"

@@ -11657,8 +11657,6 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
-    // ===================== Weather Banner =====================
-
     // ===================== Attachments =====================
 
     private void handleAttachFile() {

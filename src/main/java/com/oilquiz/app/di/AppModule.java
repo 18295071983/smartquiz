@@ -3,7 +3,6 @@ package com.oilquiz.app.di;
 import android.content.Context;
 
 import com.oilquiz.app.ai.chat.ChatMessage;
-import com.oilquiz.app.ai.chat.live.MutableChatList;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.refactor.AIConfig;
@@ -88,12 +87,6 @@ public class AppModule {
     @Singleton
     public ExecutorService provideExecutorService() {
         return Executors.newFixedThreadPool(4);
-    }
-
-    @Provides
-    @Singleton
-    public MutableChatList provideMutableChatList() {
-        return new MutableChatList();
     }
 
     @Provides

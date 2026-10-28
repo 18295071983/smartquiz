@@ -226,7 +226,7 @@ public class ChatMessage {
      * 各思考轮的耗时（毫秒），与 {@link #thinkingRounds} 一一对应（2026-10-20）。
      *
      * <p>加这个字段是因为"每轮单独成行"之后，行尾要跟这一轮的耗时（"第 2 轮思考 · 1.8s"）；
-     * 耗时只在流式过程中由 {@code GenerationStreamController} 知道（轮开始/定稿两个时刻），
+     * 耗时由 {@code AIChatActivity} 在轮定稿时用 {@code elapsedThinkingRound()} 算出（轮开始/定稿两个时刻），
      * 定稿后不记就永久丢了，所以必须落到消息模型上、跟着会话一起持久化。</p>
      *
      * <p>兼容：旧会话文件里没有这个字段 → 反序列化后为 null，UI 退回只显示"第 N 轮思考"；

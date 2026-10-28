@@ -17,8 +17,8 @@ import java.util.Locale;
 /**
  * 聊天附件的缩略图加载器（2026-10-25）。
  *
- * <p>统一入口，给三处复用同一套口径与线程模型：输入区附件 chip（{@code AttachmentChipsView}）、
- * 已发送消息的附件行（{@code MessageAttachmentAdapter}）、聊天文件卡（{@code FileCardView}）。</p>
+ * <p>统一入口，给三处复用同一套口径与线程模型：已发送消息的附件行（{@code MessageAttachmentAdapter}）、
+ * 输入区待发附件（{@code ui.adapter.AttachmentAdapter}）、聊天文件卡（{@code FileCardView}）。</p>
  *
  * <p>只接"有专用 PreviewEngine"的类型：md 家族、txt/log/json/xml/csv、pdf、常见图片。
  * Office（doc/docx/xls/ppt…）会落到 X5/TBS，依赖主线程与 TBS 内核，不在这里接。</p>
