@@ -2291,6 +2291,45 @@ public class LlamaHelper {
         return chatContextHandle != 0;
     }
     
+    /**
+     * 本地聊天（NativeChatContext）最近一次请求的 KV 缓存命中率（0-100）。
+     * 口径：复用已有 KV 的 token / (复用 + 新编码 token)，与"上下文占用"是两回事。
+     * 未初始化或 JNI 不可用返回 -1。
+     */
+    public static int getChatKvReusePercent() {
+        if (!libraryLoaded || chatContextHandle == 0) return -1;
+        try {
+            return nativeChatGetKvReusePct(chatContextHandle);
+        } catch (UnsatisfiedLinkError e) {
+            return -1;
+        }
+    }
+
+    /** 本地聊天最近一次请求新编码的 prompt token 数（输入侧）；未知返回 -1。 */
+    public static int getChatKvNewTokens() {
+        if (!libraryLoaded || chatContextHandle == 0) return -1;
+        try {
+            return nativeChatGetKvNewTokens(chatContextHandle);
+        } catch (UnsatisfiedLinkError e) {
+            return -1;
+        }
+    }
+
+    /**
+     * 取走推理引擎日志环里的消息（drain 即清空）。
+     * native 的 LOGx / AgentKvCache 日志除写 logcat 外也进这个环形缓冲，
+     * 日志中心按周期调用即可看到引擎消息，无需 READ_LOGS 权限。
+     */
+    public static String drainEngineLogs() {
+        if (!libraryLoaded) return "";
+        try {
+            String s = nativeDrainEngineLogs();
+            return s != null ? s : "";
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
     public static int getContextSize() {
         if (!libraryLoaded || chatContextHandle == 0) return 0;
         try { 
@@ -2373,6 +2412,10 @@ public class LlamaHelper {
     private static native long nativeChatCreate(String modelPath, int ctxSize, int nThreads, String globalPrompt, String systemPrompt, String normalPrompt);
     private static native void nativeChatSend(long handle, String message, int maxTokens, float temperature, float topP, int topK, boolean enableThinking, TokenCallback callback);
     private static native void nativeChatStop(long handle);
+    private static native int nativeChatGetKvReusePct(long handle);
+    private static native int nativeChatGetKvNewTokens(long handle);
+    /** 取走引擎日志环里的消息（drain 即清空），供「日志中心」展示 */
+    private static native String nativeDrainEngineLogs();
     private static native void nativeChatClear(long handle);
     private static native void nativeChatDestroy(long handle);
     private static native String nativeChatGetInfo(long handle);

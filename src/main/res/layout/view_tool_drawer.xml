@@ -129,11 +129,11 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="0.35"
-                    android:text="@string/chat_v2_phase"
+                    android:text="@string/chat_v2_kv"
                     android:textSize="@dimen/text_12"
                     android:textColor="?attr/colorControlTextSecondary"/>
                 <TextView
-                    android:id="@+id/tv_drawer_phase"
+                    android:id="@+id/tv_drawer_kv"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="0.65"
@@ -153,11 +153,11 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="0.35"
-                    android:text="@string/chat_v2_kv"
+                    android:text="@string/chat_v2_context"
                     android:textSize="@dimen/text_12"
                     android:textColor="?attr/colorControlTextSecondary"/>
                 <TextView
-                    android:id="@+id/tv_drawer_kv"
+                    android:id="@+id/tv_drawer_context"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="0.65"

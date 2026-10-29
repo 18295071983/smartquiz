@@ -170,16 +170,33 @@ public final class GenSignal {
         public final double ctxUsagePercent;
         /** 缓存计划条目数 */
         public final int plans;
+        /** 最近一次请求里被复用的前缀 token 数（-1=不可用） */
+        public final int matchedLen;
+        /** 最近一次请求的 prompt token 数（-1=不可用） */
+        public final int promptTokens;
+        /** 最近一次请求的生成 token 数（-1=不可用） */
+        public final int generatedTokens;
+        /** KV 中已 eval 的 token 数（-1=不可用） */
+        public final int cachedNPast;
 
         public KvStats(double hitRatePercent, double ctxUsagePercent, int plans) {
+            this(hitRatePercent, ctxUsagePercent, plans, -1, -1, -1, -1);
+        }
+
+        public KvStats(double hitRatePercent, double ctxUsagePercent, int plans,
+                       int matchedLen, int promptTokens, int generatedTokens, int cachedNPast) {
             this.hitRatePercent = hitRatePercent;
             this.ctxUsagePercent = ctxUsagePercent;
             this.plans = plans;
+            this.matchedLen = matchedLen;
+            this.promptTokens = promptTokens;
+            this.generatedTokens = generatedTokens;
+            this.cachedNPast = cachedNPast;
         }
 
-        /** 是否足够构成一行可显示的统计 */
+        /** 是否足够构成一行可显示的统计（有计划分布，或有请求侧 token 数据） */
         public boolean isDisplayable() {
-            return hitRatePercent >= 0 && plans > 0;
+            return (hitRatePercent >= 0 && plans > 0) || promptTokens > 0;
         }
     }
 }

@@ -4095,6 +4095,7 @@ public class OnlineInferenceService {
             if (!toolCalls.isEmpty()) {
                 mainHandler.post(() -> callback.onToolCallsReady(toolCalls));
             }
+            com.oilquiz.app.ai.online.OnlineFinishReason.last = finishReason;   // 供 UI 结束原因读取
             mainHandler.post(() -> callback.onComplete(fc, rc,
                     toolCalls.isEmpty() ? null : toolCalls, finishReason));
         }
@@ -4698,6 +4699,7 @@ public class OnlineInferenceService {
             mainHandler.post(() -> callback.onToolCallsReady(finalToolCalls));
         }
         final String fr = finishReasonHolder[0];
+        com.oilquiz.app.ai.online.OnlineFinishReason.last = fr;   // 供 UI 结束原因读取
         mainHandler.post(() -> {
             if (callback != null) callback.onComplete(fc, rc, finalToolCalls, fr);
         });

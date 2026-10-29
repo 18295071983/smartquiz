@@ -90,6 +90,8 @@ void AgentKvCache::record(const std::vector<llama_token>& promptTokens,
     cachedTokens_ = promptTokens;
     cachedTokens_.insert(cachedTokens_.end(), generatedTokens.begin(), generatedTokens.end());
     cachedNPast_ = (int)cachedTokens_.size();
+    lastPromptTokens_ = (int)promptTokens.size();
+    lastGeneratedTokens_ = (int)generatedTokens.size();
     kvCacheValid_ = true;
     AGENT_KV_LOGI("bookkeeping updated: cachedNPast=%d (prompt=%zu + generated=%zu), ctx_usage=%.1f%%",
                   cachedNPast_, promptTokens.size(), generatedTokens.size(), ctxUsage() * 100.0);

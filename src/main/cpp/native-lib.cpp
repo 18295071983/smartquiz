@@ -132,10 +132,53 @@ typedef int cl_bool;
 #define CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT (1 << 4)
 
 #define LOG_TAG "LlamaJNI"
-#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+// 推理引擎日志环：除了 logcat，同时留一份给 Java 侧「日志中心」（见 engine_log.h）
+#include "engine_log.h"
+#include <deque>
+#include <cstdarg>
+#include <cstdio>
+
+static std::mutex& engineLogMutex() {
+    static std::mutex m;
+    return m;
+}
+
+static std::deque<std::string>& engineLogRing() {
+    static std::deque<std::string> q;
+    return q;
+}
+
+void engineLogAppend(int prio, const char* tag, const char* fmt, ...) {
+    char msg[2048];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
+    char level = 'I';
+    switch (prio) {
+        case ANDROID_LOG_DEBUG: level = 'D'; break;
+        case ANDROID_LOG_INFO:  level = 'I'; break;
+        case ANDROID_LOG_WARN:  level = 'W'; break;
+        case ANDROID_LOG_ERROR: level = 'E'; break;
+        default: break;
+    }
+    std::lock_guard<std::mutex> lock(engineLogMutex());
+    std::deque<std::string>& q = engineLogRing();
+    if (q.size() >= 800) q.pop_front();
+    char line[2200];
+    snprintf(line, sizeof(line), "[%c][%s] %s", level, tag ? tag : "engine", msg);
+    q.emplace_back(line);
+}
+
+#define LOGD(...) do { __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__); \
+    engineLogAppend(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__); } while (0)
+#define LOGI(...) do { __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__); \
+    engineLogAppend(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__); } while (0)
+#define LOGW(...) do { __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__); \
+    engineLogAppend(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__); } while (0)
+#define LOGE(...) do { __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__); \
+    engineLogAppend(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__); } while (0)
 
 // ========== llama.cpp 日志回调 ==========
 // 将 llama.cpp 内部日志转发到 Android logcat，便于诊断模型加载失败原因
@@ -1517,6 +1560,8 @@ private:
     };
     GenPhase phase = GenPhase::IDLE;
     StopCause stopCause = StopCause::NONE;
+    // 停止发生的位置（如 incr:decode_fail / incr:exception），随 stop_cause 一起暴露给 UI
+    const char* stopWhere = "unknown";
 
     static const char* phaseName(GenPhase p) {
         switch (p) {
@@ -1551,7 +1596,8 @@ private:
     }
     void setStop(StopCause c, const char* where) {
         stopCause = c;
-        LOGI("[GenSM] stop cause: %s (%s)", stopName(c), where);
+        stopWhere = where != nullptr ? where : "unknown";
+        LOGI("[GenSM] stop cause: %s (%s)", stopName(c), stopWhere);
     }
 
 public:
@@ -1561,6 +1607,7 @@ public:
     // 状态机阶段/停止原因（供 JNI 查询；phase/phaseName 为 private 成员，须经此访问）
     const char* genPhaseName() const { return phaseName(phase); }
     const char* genStopName() const { return stopName(stopCause); }
+    const char* genStopWhere() const { return stopWhere; }
     bool genRunning() const {
         return phase == GenPhase::THINKING || phase == GenPhase::GENERATING || phase == GenPhase::PREPROCESS;
     }
@@ -5399,6 +5446,10 @@ private:
     std::vector<Turn> turns;
     llama_pos current_pos;
     int total_tokens_in_kv;
+    // 最近一次请求的 KV 缓存命中（增量复用）：reused / (reused + 新编码)
+    int lastKvReusePct = 0;
+    int lastKvReusedTokens = 0;
+    int lastKvNewTokens = 0;
 
     // ===== KV 记忆引擎（独立 seq 1，长文档 KV 持久化，living-kv 方案）=====
     static const llama_seq_id KV_SEQ = 1;
@@ -6079,6 +6130,20 @@ public:
         userTurn.tokens = user_tokens;
         userTurn.start_pos = current_pos;
 
+        // KV 缓存命中：本轮请求中有多少 token 直接复用已有 KV（增量），多少需要重新编码。
+        // 这是"本地推理的缓存命中率"的真实口径（不是上下文占用，也不是 Agent 计划分布）。
+        {
+            int reused = total_tokens_in_kv;
+            int added = (int) user_tokens.size();
+            int totalReq = reused + added;
+            lastKvReusedTokens = reused;
+            lastKvNewTokens = added;
+            lastKvReusePct = totalReq > 0
+                    ? (int) (reused * 100.0 / totalReq + 0.5) : 0;
+            LOGI("KV cache reuse: %d%% (reused=%d, new=%d)",
+                 lastKvReusePct, reused, added);
+        }
+
         stepStartTime = std::chrono::steady_clock::now();
         LOGI("[PERF] Starting encode user tokens: %zu tokens, kv_before=%d", user_tokens.size(), total_tokens_in_kv);
         if (!encodeTokens(user_tokens)) {
@@ -6413,9 +6478,16 @@ public:
         LOGI("Chat cleared, system messages re-encoded, kv_tokens=%d", total_tokens_in_kv);
     }
 
+    int kvReusePct() const { return lastKvReusePct; }
+    int kvReusedTokens() const { return lastKvReusedTokens; }
+    int kvNewTokens() const { return lastKvNewTokens; }
+
     std::string getInfo() {
         std::string info = "n_ctx: " + std::to_string(n_ctx) + "\n";
         info += "KV tokens: " + std::to_string(total_tokens_in_kv) + "/" + std::to_string(n_ctx) + "\n";
+        info += "KV reuse: " + std::to_string(lastKvReusePct) + "% (reused="
+                + std::to_string(lastKvReusedTokens) + ", new="
+                + std::to_string(lastKvNewTokens) + ")\n";
         info += "Turns: " + std::to_string(turns.size()) + "\n";
         info += "Global prompt: " + (global_prompt.empty() ? "(none)" : utf8SafeTruncate(global_prompt, 50) + (global_prompt.size() > 50 ? "..." : "")) + "\n";
         info += "Global tokens: " + std::to_string(global_tokens.size()) + "\n";
@@ -7036,6 +7108,22 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatGetInfo(
     return env->NewStringUTF("No chat context");
 }
 
+JNIEXPORT jint JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatGetKvReusePct(
+    JNIEnv* /* env */, jclass, jlong handle) {
+    if (!isValidChatHandle(handle)) return -1;
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    return (chatCtx && chatCtx->isValid()) ? chatCtx->kvReusePct() : -1;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatGetKvNewTokens(
+    JNIEnv* /* env */, jclass, jlong handle) {
+    if (!isValidChatHandle(handle)) return -1;
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    return (chatCtx && chatCtx->isValid()) ? chatCtx->kvNewTokens() : -1;
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeKvMemPreload(
     JNIEnv* env, jclass, jlong handle, jstring text) {
@@ -7464,6 +7552,8 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetKvCacheStats(JNIEnv* env, jclas
         j["strategy"] = strat;
         j["matched_len"] = kc.matchedLen();
         j["cached_npast"] = kc.cachedNPast();
+        j["prompt_tokens"] = kc.lastPromptTokens();
+        j["generated_tokens"] = kc.lastGeneratedTokens();
         j["ctx_size"] = kc.contextSize();
         j["ctx_usage_pct"] = kc.ctxUsage() * 100.0;
         j["plans"] = kc.planCount();
@@ -7478,6 +7568,22 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetKvCacheStats(JNIEnv* env, jclas
         j["error"] = "not_initialized";
     }
     return utf8StringToJstring(env, j.dump());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeDrainEngineLogs(JNIEnv* env, jclass) {
+    std::string out;
+    {
+        std::lock_guard<std::mutex> lock(engineLogMutex());
+        std::deque<std::string>& q = engineLogRing();
+        out.reserve(q.size() * 96);
+        for (const std::string& line : q) {
+            out += line;
+            out += '\n';
+        }
+        q.clear();
+    }
+    return utf8StringToJstring(env, out);
 }
 
 JNIEXPORT jstring JNICALL
@@ -7498,6 +7604,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetGenPhase(JNIEnv* env, jclass /*
     if (s_helperContext != nullptr) {
         j["phase"] = s_helperContext->genPhaseName();
         j["stop_cause"] = s_helperContext->genStopName();
+        j["stop_where"] = s_helperContext->genStopWhere();
         j["running"] = s_helperContext->genRunning();
     } else {
         j["phase"] = "IDLE";

@@ -516,10 +516,10 @@ public class ServiceStatusManager {
         loadingProgressMessageIndex = -1;
         lastLoadingProgressShown = -1;
         hideThinkingIndicator();
-        String successMsg = String.format("\u2713 模型加载完成\n模型: %s\n耗时: %.1f秒",
-            modelName != null ? modelName : "未知", loadTimeMs / 1000.0);
-        callback.onAddSystemMessage(successMsg, ChatMessage.SystemMessageType.SUCCESS);
-        callback.onShowToast("模型加载成功");
+        // 模型服务信息改走 toast（2026-10-30）：消息流只承载对话与引擎过程，不承载服务播报
+        callback.onShowToast(String.format(java.util.Locale.ROOT,
+            "模型加载成功: %s (%.1f秒)",
+            modelName != null ? modelName : "未知", loadTimeMs / 1000.0));
         updateStatusDisplay(AIServiceState.ServiceStage.INITIALIZED, "AI服务已就绪", 100, 0);
     }
 

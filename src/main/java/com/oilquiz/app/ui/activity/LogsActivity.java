@@ -54,6 +54,8 @@ public class LogsActivity extends BaseActivity {
     private static final String SOURCE_AI = "AI服务";
     private static final String SOURCE_CRASH = "崩溃";
     private static final String SOURCE_OP = "操作";
+    /** 推理引擎（native）日志：单独一个 Tab，不混进「全部/AI服务」 */
+    private static final String SOURCE_ENGINE = "引擎";
 
     // Tab 类型
     private static final int TAB_ALL = 0;
@@ -61,6 +63,7 @@ public class LogsActivity extends BaseActivity {
     private static final int TAB_AI = 2;
     private static final int TAB_CRASH = 3;
     private static final int TAB_OP = 4;
+    private static final int TAB_ENGINE = 5;
 
     private static final int MAX_ITEMS = 3000;      // 列表最大条目数（防内存膨胀）
     private static final int INITIAL_VISIBLE = 200; // 初始显示条数
@@ -81,6 +84,29 @@ public class LogsActivity extends BaseActivity {
     private TabLayout tabLayout;
 
     // 数据
+    /** 引擎日志轮询（native 环 drain 即清空，1.2s 一次） */
+    private final android.os.Handler engineLogHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable engineLogPoller = new Runnable() {
+        @Override
+        public void run() {
+            if (destroyed) return;
+            // drain + 解析放到后台，批量插回 UI（一次 notify，避免列表错位/抖动）
+            new Thread(() -> {
+                try {
+                    List<LogItem> items = drainEngineItems();
+                    if (!items.isEmpty() && !destroyed) {
+                        runOnUiThread(() -> {
+                            if (!destroyed) addLiveItems(items, SOURCE_ENGINE);
+                        });
+                    }
+                } catch (Throwable ignored) {
+                }
+            }, "engine-log-drain").start();
+            engineLogHandler.postDelayed(this, 1200);
+        }
+    };
+
     private final List<LogItem> allItems = new ArrayList<>();      // 当前Tab全部数据（含实时追加）
     private final List<LogItem> filteredItems = new ArrayList<>(); // 过滤后数据
     private final LogAdapter logAdapter = new LogAdapter();
@@ -137,6 +163,8 @@ public class LogsActivity extends BaseActivity {
         rvLogs.setAdapter(logAdapter);
 
         initTabs();
+        engineLogHandler.removeCallbacks(engineLogPoller);
+        engineLogHandler.postDelayed(engineLogPoller, 1200);
     }
 
     private void initTabs() {
@@ -147,6 +175,7 @@ public class LogsActivity extends BaseActivity {
         tabLayout.addTab(tabLayout.newTab().setText(getString(R.string.h_b1821dcb)).setTag(TAB_AI));
         tabLayout.addTab(tabLayout.newTab().setText(getString(R.string.h_9bf26c4f)).setTag(TAB_CRASH));
         tabLayout.addTab(tabLayout.newTab().setText(getString(R.string.h_cf8e1f09)).setTag(TAB_OP));
+        tabLayout.addTab(tabLayout.newTab().setText("引擎").setTag(TAB_ENGINE));
 
         tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override
@@ -277,6 +306,9 @@ public class LogsActivity extends BaseActivity {
                     case TAB_OP:
                         newItems.addAll(loadOpItems());
                         break;
+                    case TAB_ENGINE:
+                        newItems.addAll(drainEngineItems());
+                        break;
                 }
 
                 Collections.sort(newItems, (a, b) -> Long.compare(b.timestamp, a.timestamp));
@@ -323,6 +355,38 @@ public class LogsActivity extends BaseActivity {
         return items;
     }
 
+    /**
+     * 推理引擎消息：native 日志环 drain 出来的行（"[I][LlamaJNI] ..."），
+     * 归到「AI服务」来源，便于和 AILogger 一起搜索/过滤。
+     */
+    private List<LogItem> drainEngineItems() {
+        List<LogItem> items = new ArrayList<>();
+        try {
+            String raw = com.oilquiz.app.ai.jni.LlamaHelper.drainEngineLogs();
+            if (raw == null || raw.isEmpty()) return items;
+            long now = System.currentTimeMillis();
+            for (String line : raw.split("\\n")) {
+                if (line == null || line.isEmpty()) continue;
+                String level = "I";
+                String tag = "引擎";
+                String msg = line;
+                int levelEnd = line.startsWith("[") ? line.indexOf(']') : -1;
+                if (levelEnd == 2) {
+                    level = String.valueOf(line.charAt(1));
+                    int tagStart = line.indexOf('[', levelEnd + 1);
+                    int tagEnd = tagStart >= 0 ? line.indexOf(']', tagStart) : -1;
+                    if (tagEnd > tagStart) {
+                        tag = line.substring(tagStart + 1, tagEnd);
+                        msg = line.substring(tagEnd + 1).trim();
+                    }
+                }
+                items.add(new LogItem(now, normalizeLevel(level), tag, msg, line, SOURCE_AI));
+            }
+        } catch (Throwable ignored) {
+        }
+        return items;
+    }
+
     private List<LogItem> loadCrashItems() {
         List<LogItem> items = new ArrayList<>();
         for (AppLogger.LogRecord report : AppLogger.getCrashReports()) {
@@ -354,7 +418,7 @@ public class LogsActivity extends BaseActivity {
      * 恢复实时后统一重建过滤列表。
      */
     private void addLiveItem(LogItem item, String source) {
-        boolean tabAccepts = currentTab == TAB_ALL || tabSourceMatches(currentTab, source);
+        boolean tabAccepts = tabSourceMatches(currentTab, source);
         synchronized (listLock) {
             allItems.add(0, item);
             if (allItems.size() > MAX_ITEMS) {
@@ -376,15 +440,53 @@ public class LogsActivity extends BaseActivity {
                 synchronized (listLock) {
                     filteredItems.add(0, item);
                 }
-                logAdapter.notifyItemInserted(0);
+                // 适配器持有的是 filteredItems 的拷贝：只 notifyItemInserted 会让
+                // itemCount 与位置错位（RecyclerView 报 Invalid view holder adapter position）。
+                // 统一走 updateList() 重建 + notifyDataSetChanged。
+                updateList();
                 // 用户位于顶部附近时自动滚动到最新
                 LinearLayoutManager lm = (LinearLayoutManager) rvLogs.getLayoutManager();
                 if (lm != null && lm.findFirstVisibleItemPosition() <= 1) {
                     rvLogs.scrollToPosition(0);
                 }
-                updateCountText();
             });
         }
+    }
+
+    /**
+     * 批量追加（引擎日志一次 drain 可能几十行）：一次性写列表、一次 updateList，
+     * 避免每行都 notifyDataSetChanged 引起布局抖动/错位。
+     */
+    private void addLiveItems(List<LogItem> items, String source) {
+        if (items == null || items.isEmpty()) return;
+        synchronized (listLock) {
+            for (LogItem item : items) {
+                allItems.add(0, item);
+            }
+            if (allItems.size() > MAX_ITEMS) {
+                allItems.subList(MAX_ITEMS, allItems.size()).clear();
+            }
+        }
+        boolean tabAccepts = tabSourceMatches(currentTab, source);
+        if (destroyed || !tabAccepts) return;
+        if (livePaused) {
+            pendingLiveCount += items.size();
+            runOnUiThread(this::updateLiveChip);
+            return;
+        }
+        runOnUiThread(() -> {
+            if (destroyed) return;
+            synchronized (listLock) {
+                for (LogItem item : items) {
+                    if (matchesFilter(item)) filteredItems.add(0, item);
+                }
+            }
+            updateList();
+            LinearLayoutManager lm = (LinearLayoutManager) rvLogs.getLayoutManager();
+            if (lm != null && lm.findFirstVisibleItemPosition() <= 1) {
+                rvLogs.scrollToPosition(0);
+            }
+        });
     }
 
     private boolean tabSourceMatches(int tab, String source) {
@@ -393,7 +495,11 @@ public class LogsActivity extends BaseActivity {
             case TAB_AI: return SOURCE_AI.equals(source);
             case TAB_CRASH: return SOURCE_CRASH.equals(source);
             case TAB_OP: return SOURCE_OP.equals(source);
-            default: return false;
+            case TAB_ENGINE: return SOURCE_ENGINE.equals(source);
+            case TAB_ALL:
+            default:
+                // 「全部」只放应用/AI/崩溃/操作；引擎日志单独 Tab，避免刷屏
+                return !SOURCE_ENGINE.equals(source);
         }
     }
 
@@ -419,7 +525,7 @@ public class LogsActivity extends BaseActivity {
         synchronized (listLock) {
             filteredItems.clear();
             for (LogItem item : allItems) {
-                if (matchesFilter(item)) {
+                if (tabSourceMatches(currentTab, item.source) && matchesFilter(item)) {
                     filteredItems.add(item);
                 }
             }
@@ -467,6 +573,7 @@ public class LogsActivity extends BaseActivity {
             case TAB_AI: return "AI服务日志";
             case TAB_CRASH: return "崩溃日志";
             case TAB_OP: return "操作记录";
+            case TAB_ENGINE: return "引擎日志";
             default: return "全部日志";
         }
     }
@@ -495,6 +602,10 @@ public class LogsActivity extends BaseActivity {
                         break;
                     case TAB_OP:
                         AppDatabase.getDatabase(this).logEntryDao().deleteAll();
+                        ok = true;
+                        break;
+                    case TAB_ENGINE:
+                        // 引擎日志只在进程内存环里，drain 即清空；这里标记成功即可
                         ok = true;
                         break;
                 }
@@ -668,6 +779,7 @@ public class LogsActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
+        engineLogHandler.removeCallbacks(engineLogPoller);
         destroyed = true;
         AppLogger.removeLogListener(appLogListener);
         AILogger.removeLogListener(aiLogListener);

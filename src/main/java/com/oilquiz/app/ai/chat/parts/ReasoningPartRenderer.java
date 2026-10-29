@@ -228,6 +228,10 @@ public final class ReasoningPartRenderer implements PartRenderer {
     private static String stateLabel(Row row) {
         ChatMessage msg = row.host != null ? row.host.message() : null;
         if (msg != null && msg.inferenceProgress != null) {
+            if (msg.inferenceProgress.phaseText != null
+                    && !msg.inferenceProgress.phaseText.isEmpty()) {
+                return msg.inferenceProgress.phaseText;
+            }
             ChatMessage.InferencePhase phase = msg.inferenceProgress.phase;
             long start = msg.inferenceProgress.phaseStartTime;
             if (start <= 0 && msg.timestamp > 0) start = msg.timestamp;
@@ -245,13 +249,16 @@ public final class ReasoningPartRenderer implements PartRenderer {
     }
 
     private static String doneLabel(Row row, AssistantTurn.Part part) {
+        String stopReason = row.host != null && row.host.message() != null
+                ? row.host.message().stopReasonText : null;
+        String suffix = (stopReason == null || stopReason.isEmpty()) ? "" : " · " + stopReason;
         if (part.durationMs > 0L) {
-            return "已深度思考 " + Math.round(part.durationMs / 1000.0) + " 秒";
+            return "已深度思考 " + Math.round(part.durationMs / 1000.0) + " 秒" + suffix;
         }
         Context ctx = row.header.getContext();
         if (ctx != null) {
             try {
-                return ctx.getString(R.string.chat_v2_thought_done);   // "已深度思考"
+                return ctx.getString(R.string.chat_v2_thought_done) + suffix;   // "已深度思考"
             } catch (Throwable ignored) {
             }
         }

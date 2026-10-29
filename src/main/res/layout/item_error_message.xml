@@ -82,6 +82,18 @@
                 android:background="?attr/selectableItemBackground"
                 android:layout_marginStart="@dimen/space_8" />
 
+            <TextView
+                android:id="@+id/btn_recover"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🛟 回退默认配置"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/error_message_text"
+                android:padding="@dimen/space_4"
+                android:background="?attr/selectableItemBackground"
+                android:layout_marginStart="@dimen/space_8"
+                android:visibility="gone" />
+
         </LinearLayout>
 
     </LinearLayout>

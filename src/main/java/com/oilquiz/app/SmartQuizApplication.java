@@ -171,6 +171,19 @@ public class SmartQuizApplication extends Application {
         } catch (Throwable ignored) {
         }
 
+        // 一次性清理旧会话里的伪过程行（"收到你的消息…/Agent模式已激活/正在思考中…"）：
+        // 只重写历史 JSON，后台线程做；失败不影响启动（显示层另有兜底隐藏）
+        try {
+            new Thread(() -> {
+                try {
+                    new com.oilquiz.app.ai.util.ChatHistoryManager(SmartQuizApplication.this)
+                            .cleanLegacyProcessRowsOnce();
+                } catch (Throwable ignored) {
+                }
+            }, "legacy-process-row-cleanup").start();
+        } catch (Throwable ignored) {
+        }
+
         // 预热 Agent 工作区（构造单例即刷新内置文档，两类都无条件重写、不是只在缺失时拷）：
         // ① 代码生成的三份 —— 工具创建指南.md / 使用速查表.md / 核心工具速查.md；
         // ② assets/apk_shell/guides/ 下自动发现的全部文件（LINUX_TOOLKIT_GUIDE.md、

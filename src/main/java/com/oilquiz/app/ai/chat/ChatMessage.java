@@ -123,6 +123,11 @@ public class ChatMessage {
          * 运行时字段，不落盘。
          */
         public transient long phaseStartTime;
+        /**
+         * 当前阶段对外文案（由 Activity 按"本地 native 状态机 / 在线推进句"两套口径算好后写入）。
+         * 消息流的思考头与底部状态行共用这一份，运行时字段，不落盘。
+         */
+        public transient String phaseText;
 
         public InferenceProgress() {
             this.phase = InferencePhase.IDLE;
@@ -468,6 +473,13 @@ public class ChatMessage {
     /** Agent汇总信息 */
     public AgentSummaryInfo agentSummaryInfo;
 
+    /** 本轮结束原因文案（"达到输出上限/上下文已满/已手动停止/超时结束"；自然结束为空）。
+     *  运行时字段，不落盘；用于思考头的完成态后缀。 */
+    public transient String stopReasonText;
+
+    /** 该错误卡是否由本地 native ERROR 生成（决定按钮是"清缓存重试/回退默认"而不是普通重试） */
+    public transient boolean localNativeError;
+
     /** 是否为Agent模式消息 */
     public boolean agentMode;
 
@@ -484,7 +496,6 @@ public class ChatMessage {
      * 本轮 token 统计文本（输入/输出/缓存/上下文，完成后只显示 2 秒）。
      * 运行时字段：transient 不落盘，避免历史恢复后旧统计又常驻最新一条回复上。
      */
-    public transient String agentSummary;
 
     /**
      * 本轮第一个工具开始执行的时刻（毫秒）；0=当前没有工具在跑。
@@ -1086,6 +1097,10 @@ public class ChatMessage {
         COPY_CODE_BLOCK,
         /** 重试失败的工具调用 */
         RETRY_TOOL_CALL,
+        /** 本地推理失败卡：清除模型缓存后重试 */
+        CLEAR_CACHE_RETRY,
+        /** 本地推理失败卡：回退默认配置 */
+        RESTORE_DEFAULT_CONFIG,
         /** 编辑工具参数并重跑 */
         EDIT_TOOL_ARGS,
         /** Agent 执行控制：暂停 */
@@ -1143,6 +1158,14 @@ public class ChatMessage {
         }
 
 
+
+        public static Action clearCacheRetry(String messageId) {
+            return new Action(ActionType.CLEAR_CACHE_RETRY, messageId, null);
+        }
+
+        public static Action restoreDefaultConfig() {
+            return new Action(ActionType.RESTORE_DEFAULT_CONFIG, null, null);
+        }
 
         public static Action reportError(String messageId, String content) {
             return new Action(ActionType.REPORT_ERROR, messageId, content);
@@ -1428,17 +1451,6 @@ public class ChatMessage {
     }
 
 
-    /**
-     * 创建 Agent 汇总消息
-     */
-    public static ChatMessage createAgentSummaryMessage(AgentSummaryInfo summaryInfo) {
-        return new Builder(MessageType.AGENT_SUMMARY)
-                .content("Agent 执行汇总")
-                .agentSummaryInfo(summaryInfo)
-                .status(MessageStatus.COMPLETED)
-                .build();
-    }
-
     public static ChatMessage createErrorMessage(String error, String detail, boolean retryable) {
         return new Builder(MessageType.ERROR)
                 .content(error)
@@ -1473,6 +1485,20 @@ public class ChatMessage {
 
     public boolean isSystemMessage() {
         return type == MessageType.SYSTEM;
+    }
+
+    /**
+     * 旧版本产出的伪过程行（生产者已删除，2026-10-30）：
+     * 「收到你的消息，我正在处理」「Agent模式已激活」「正在思考中，请稍候」三类旧指引文案。
+     * 显示层用它兜底隐藏；
+     * {@code ChatHistoryManager#stripLegacyProcessRows} 用它清理历史存档。
+     */
+    public static boolean isLegacyProcessRow(ChatMessage m) {
+        if (m == null || m.type != MessageType.SYSTEM || m.content == null) return false;
+        String c = m.content;
+        return c.contains("收到你的消息，我正在处理")
+                || c.contains("Agent模式已激活")
+                || c.contains("正在思考中，请稍候");
     }
 
 

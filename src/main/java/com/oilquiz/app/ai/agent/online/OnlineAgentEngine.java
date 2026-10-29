@@ -1566,6 +1566,7 @@ public class OnlineAgentEngine {
                     }
                     result.toolCalls = toolCalls;
                     result.finishReason = finishReason;
+                    com.oilquiz.app.ai.online.OnlineFinishReason.last = finishReason;
 
                     notifyProgress();
                     mainHandler.post(() -> {

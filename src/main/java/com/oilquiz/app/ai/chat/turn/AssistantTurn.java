@@ -397,14 +397,20 @@ public class AssistantTurn {
             ChatMessage.InferenceProgress prog = msg != null ? msg.inferenceProgress : null;
             String phrase = null;
             if (prog != null) {
-                long start = prog.phaseStartTime;
-                if (start <= 0 && msg.timestamp > 0) start = msg.timestamp;
-                if (start > 0) {
-                    phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
-                            .phrase(prog.phase, System.currentTimeMillis() - start);
-                }
-                if (phrase == null) {
-                    phrase = com.oilquiz.app.ai.chat.InferenceStatusLabel.shortLabel(prog.phase);
+                // 优先用 Activity 算好的阶段文案：本地走 native 状态机、在线走推进句，
+                // 消息流不再自己按在线口径猜词
+                if (prog.phaseText != null && !prog.phaseText.isEmpty()) {
+                    phrase = prog.phaseText;
+                } else {
+                    long start = prog.phaseStartTime;
+                    if (start <= 0 && msg.timestamp > 0) start = msg.timestamp;
+                    if (start > 0) {
+                        phrase = com.oilquiz.app.ai.chat.InferenceStatusPhrases
+                                .phrase(prog.phase, System.currentTimeMillis() - start);
+                    }
+                    if (phrase == null) {
+                        phrase = com.oilquiz.app.ai.chat.InferenceStatusLabel.shortLabel(prog.phase);
+                    }
                 }
             }
             for (Part p : turn.parts) {

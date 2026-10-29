@@ -26,10 +26,11 @@
 
 #include "llama.h"
 
+#include "engine_log.h"
 #define AGENT_KV_LOG_TAG "AgentKvCache"
-#define AGENT_KV_LOGI(...) __android_log_print(ANDROID_LOG_INFO, AGENT_KV_LOG_TAG, __VA_ARGS__)
-#define AGENT_KV_LOGW(...) __android_log_print(ANDROID_LOG_WARN, AGENT_KV_LOG_TAG, __VA_ARGS__)
-#define AGENT_KV_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, AGENT_KV_LOG_TAG, __VA_ARGS__)
+#define AGENT_KV_LOGI(...) do { __android_log_print(ANDROID_LOG_INFO, AGENT_KV_LOG_TAG, __VA_ARGS__);     engineLogAppend(ANDROID_LOG_INFO, AGENT_KV_LOG_TAG, __VA_ARGS__); } while (0)
+#define AGENT_KV_LOGW(...) do { __android_log_print(ANDROID_LOG_WARN, AGENT_KV_LOG_TAG, __VA_ARGS__);     engineLogAppend(ANDROID_LOG_WARN, AGENT_KV_LOG_TAG, __VA_ARGS__); } while (0)
+#define AGENT_KV_LOGE(...) do { __android_log_print(ANDROID_LOG_ERROR, AGENT_KV_LOG_TAG, __VA_ARGS__);     engineLogAppend(ANDROID_LOG_ERROR, AGENT_KV_LOG_TAG, __VA_ARGS__); } while (0)
 
 /**
  * Agent 专用 KV 增量缓存。
@@ -94,6 +95,9 @@ public:
     bool isFull() const { return strategy_ == Strategy::FULL; }
     int matchedLen() const { return matchedLen_; }
     int cachedNPast() const { return cachedNPast_; }
+    /** 最近一次 record 的请求侧 token 数（prompt）与生成侧 token 数 */
+    int lastPromptTokens() const { return lastPromptTokens_; }
+    int lastGeneratedTokens() const { return lastGeneratedTokens_; }
     size_t cachedSize() const { return cachedTokens_.size(); }
     bool valid() const { return kvCacheValid_; }
 
@@ -123,6 +127,8 @@ private:
     // KV 中实际已 eval 的完整 token 序列（prompt + 生成输出）
     std::vector<llama_token> cachedTokens_;
     int cachedNPast_ = 0;         // 已 eval 位置（== cachedTokens_.size()）
+    int lastPromptTokens_ = 0;    // 最近一次请求的 prompt token 数
+    int lastGeneratedTokens_ = 0; // 最近一次请求的生成 token 数
     bool kvCacheValid_ = false;   // 记账是否有效（未被外部清除）
 
     Strategy strategy_ = Strategy::FULL;

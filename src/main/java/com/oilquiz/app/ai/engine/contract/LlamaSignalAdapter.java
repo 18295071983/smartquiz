@@ -86,7 +86,17 @@ public final class LlamaSignalAdapter {
             double hit = o.optDouble("hit_rate_pct", -1);
             double usage = o.optDouble("ctx_usage_pct", -1);
             int plans = o.optInt("plans", 0);
-            GenSignal.KvStats s = new GenSignal.KvStats(hit, usage, plans);
+            int matched = o.optInt("matched_len", -1);
+            int prompt = o.optInt("prompt_tokens", -1);
+            int generated = o.optInt("generated_tokens", -1);
+            int cached = o.optInt("cached_npast", -1);
+            // 命中率优先用"复用 token / 本轮 prompt token"的真实比例；
+            // 计划分布命中率只作为没有 token 数据时的兜底
+            if (prompt > 0 && matched >= 0) {
+                hit = matched * 100.0 / prompt;
+            }
+            GenSignal.KvStats s = new GenSignal.KvStats(hit, usage, plans,
+                    matched, prompt, generated, cached);
             return s.isDisplayable() ? s : null;
         } catch (Throwable t) {
             return null;

@@ -64,6 +64,9 @@ public class ChatHistoryManager {
     private static final String AGENT_CHAT_HISTORY_FILE = "agent_chat_history.json";
     private static final String AGENT_TASK_LIST_FILE = "agent_task_list.json";
     private static final String CONVERSATIONS_DIR = "conversations";
+    /** 维护性清理的 prefs（一次性标记，避免每次启动重扫所有会话） */
+    private static final String MAINTENANCE_PREFS = "chat_maintenance";
+    private static final String KEY_LEGACY_ROWS_CLEANED = "legacy_process_rows_cleaned_v1";
     // 大历史防护（2026-09-25）：分段加载 + 保存保留未加载头部，历史完整保留；
     // 字节上限仅作极端超大文件兜底（正常不触发）
     private static final int MIN_SESSION_MESSAGES = 30;       // 裁剪时至少保留的消息数
@@ -266,7 +269,6 @@ public class ChatHistoryManager {
             m.agentGroupToolCount = msg.agentGroupToolCount;
             m.turnMode = msg.turnMode;   // 轮次模式标记（clone() 的 Builder 未覆盖，会话保存后隔离不失效）
             m.agentStepStatus = msg.agentStepStatus;
-            m.agentSummary = msg.agentSummary;
             m.hasUserToggledExpand = msg.hasUserToggledExpand;
             m.agentExecutionState = msg.agentExecutionState;
             copy.add(m);
@@ -306,6 +308,87 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         }
     }
 
+    /** 去掉旧版本伪过程行（"收到你的消息…"等）；返回删除条数。 */
+    public static int stripLegacyProcessRows(List<ChatMessage> messages) {
+        if (messages == null || messages.isEmpty()) return 0;
+        int before = messages.size();
+        messages.removeIf(ChatMessage::isLegacyProcessRow);
+        return before - messages.size();
+    }
+
+    /**
+     * 一次性清理（2026-10-30）：把旧版本产出的伪过程行从主历史、Agent 历史、全部会话文件里真正删除。
+     * 幂等（prefs 标记），供应用启动的后台线程调用；最近 60 秒内写过的会话跳过（交给加载时过滤）。
+     */
+    public void cleanLegacyProcessRowsOnce() {
+        try {
+            android.content.SharedPreferences sp =
+                    context.getSharedPreferences(MAINTENANCE_PREFS, Context.MODE_PRIVATE);
+            if (sp.getBoolean(KEY_LEGACY_ROWS_CLEANED, false)) return;
+            int total = 0;
+            int changedFiles = 0;
+            total += cleanMessageListFile(new File(context.getFilesDir(), AI_CHAT_HISTORY_FILE));
+            total += cleanMessageListFile(new File(context.getFilesDir(), AGENT_CHAT_HISTORY_FILE));
+            File[] sessionFiles = getConversationsDir().listFiles((d, n) -> n.endsWith(".json"));
+            if (sessionFiles != null) {
+                for (File f : sessionFiles) {
+                    try {
+                        ConversationSession session = gson.fromJson(
+                                new java.io.InputStreamReader(new java.io.FileInputStream(f),
+                                        java.nio.charset.StandardCharsets.UTF_8),
+                                ConversationSession.class);
+                        if (session == null) continue;
+                        int removed = stripLegacyProcessRows(session.messages);
+                        if (removed <= 0) continue;
+                        session.messageCount = session.messages != null ? session.messages.size() : 0;
+                        writeFileAtomic(f, gson.toJson(session));
+                        total += removed;
+                        changedFiles++;
+                    } catch (Throwable t) {
+                        Log.w(TAG, "清理会话伪过程行失败: " + f.getName(), t);
+                    }
+                }
+            }
+            sp.edit().putBoolean(KEY_LEGACY_ROWS_CLEANED, true).apply();
+            if (total > 0) {
+                com.oilquiz.app.util.AILogger.audit(TAG,
+                        "清理旧伪过程行: " + total + " 条（会话文件 " + changedFiles + " 个）");
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "cleanLegacyProcessRowsOnce failed", t);
+        }
+    }
+
+    private int cleanMessageListFile(File file) {
+        if (file == null || !file.exists()) return 0;
+        try {
+            Type type = new TypeToken<List<ChatMessage>>() {}.getType();
+            List<ChatMessage> list = gson.fromJson(
+                    new java.io.InputStreamReader(new java.io.FileInputStream(file),
+                            java.nio.charset.StandardCharsets.UTF_8), type);
+            int removed = stripLegacyProcessRows(list);
+            if (removed > 0) writeFileAtomic(file, gson.toJson(list));
+            return removed;
+        } catch (Throwable t) {
+            Log.w(TAG, "清理历史文件伪过程行失败: " + file.getName(), t);
+            return 0;
+        }
+    }
+
+    private static void writeFileAtomic(File file, String json) throws java.io.IOException {
+        File tmp = new File(file.getParentFile(), file.getName() + ".clean.tmp");
+        java.io.OutputStreamWriter w = new java.io.OutputStreamWriter(
+                new java.io.FileOutputStream(tmp), java.nio.charset.StandardCharsets.UTF_8);
+        w.write(json);
+        w.close();
+        if (file.exists() && !file.delete()) {
+            Log.w(TAG, "clean: 删除旧文件失败 " + file.getName());
+        }
+        if (!tmp.renameTo(file)) {
+            Log.w(TAG, "clean: rename 失败 " + file.getName());
+        }
+    }
+
     public List<ChatMessage> loadAIChatHistory() {
         try {
             File file = new File(context.getFilesDir(), AI_CHAT_HISTORY_FILE);
@@ -319,6 +402,8 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             List<ChatMessage> chatHistory = gson.fromJson(reader, type);
             reader.close();
             if (chatHistory == null) chatHistory = new ArrayList<>();
+            // 旧版本伪过程行不再显示也不再回写
+            stripLegacyProcessRows(chatHistory);
             RoundBounds.normalizeAll(chatHistory);
             // 恢复期把 canonical turn 归一到与实时同一个生产者：旧数据补 assistantTurn，
             // 新数据用同一份重建覆盖落盘值，避免"落盘顺序"和"渲染顺序"两套真值漂移。
@@ -378,6 +463,8 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             List<ChatMessage> chatHistory = gson.fromJson(reader, type);
             reader.close();
             if (chatHistory == null) chatHistory = new ArrayList<>();
+            // 旧版本伪过程行不再显示也不再回写
+            stripLegacyProcessRows(chatHistory);
             RoundBounds.normalizeAll(chatHistory);
             // 恢复期把 canonical turn 归一到与实时同一个生产者：旧数据补 assistantTurn，
             // 新数据用同一份重建覆盖落盘值，避免"落盘顺序"和"渲染顺序"两套真值漂移。
@@ -531,6 +618,9 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             ConversationSession session = gson.fromJson(reader, ConversationSession.class);
             reader.close();
             if (session != null) {
+                if (stripLegacyProcessRows(session.messages) > 0 && session.messages != null) {
+                    session.messageCount = session.messages.size();
+                }
                 RoundBounds.normalizeAll(session.messages);
                 com.oilquiz.app.ai.chat.turn.AssistantTurnRestore.restoreAll(session.messages);
             }

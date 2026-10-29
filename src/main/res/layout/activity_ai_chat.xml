@@ -154,7 +154,18 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginStart="@dimen/space_8"
-                            android:text="KV: --"
+                            android:text=""
+                            android:textSize="@dimen/text_11"
+                            android:textColor="?attr/colorControlTextSecondary"
+                            android:visibility="gone"/>
+
+                        <!-- 上下文占用来源控件（v2 头部收起后不在界面上显示，只供抽屉读取） -->
+                        <TextView
+                            android:id="@+id/tv_context_stats"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="@dimen/space_8"
+                            android:text=""
                             android:textSize="@dimen/text_11"
                             android:textColor="?attr/colorControlTextSecondary"
                             android:visibility="gone"/>
