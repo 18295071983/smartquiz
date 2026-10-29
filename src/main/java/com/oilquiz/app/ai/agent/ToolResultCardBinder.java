@@ -7,7 +7,6 @@ import com.oilquiz.app.ai.agent.online.AgentWorkspace;
 import com.oilquiz.app.ai.chat.component.ComponentData;
 import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.FileChangeDiff;
-import com.oilquiz.app.util.QWeatherIconMapper;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -323,7 +322,9 @@ public final class ToolResultCardBinder {
             p.put("city", city);
             p.put("temp", temp);
             p.put("text", text);
-            p.put("icon", QWeatherIconMapper.getEmojiIcon(str(m.get("icon"))));
+            // 图标码原样透传：卡片渲染端用本地和风图标包（qweather-icons.ttf）翻译，
+            // 这里缩成 emoji 会让同一张卡混用两套图标
+            p.put("icon", str(m.get("icon")));
             p.put("humidity", str(m.get("humidity")));
             String windDir = str(m.get("wind_direction"));
             String windSpeed = str(m.get("wind_speed"));
@@ -414,7 +415,7 @@ public final class ToolResultCardBinder {
             JSONObject day = new JSONObject();
             day.put("date", shortenDate(date));
             day.put("text", text);
-            day.put("icon", emojiByText(text));
+            // forecast 行工具侧没给图标码；卡片渲染端按 text 选图标，这里不再存展示用 emoji
             day.put("tempMin", tempMin);
             day.put("tempMax", tempMax);
             out.put(day);
@@ -427,23 +428,6 @@ public final class ToolResultCardBinder {
         if (d == null) return "";
         // 2026-10-13 → 10-13
         return d.length() == 10 && d.charAt(4) == '-' ? d.substring(5) : d;
-    }
-
-    /**
-     * 现象文本 → emoji。工具只给了文字（forecast 里没有 icon 码），
-     * 实时图标继续复用 {@link QWeatherIconMapper#getEmojiIcon(String)}。
-     */
-    private static String emojiByText(String text) {
-        if (text == null || text.isEmpty()) return "☁️";
-        if (text.contains("雷")) return "⛈️";
-        if (text.contains("雪") || text.contains("冰雹")) return "🌨️";
-        if (text.contains("雨")) return "🌧️";
-        if (text.contains("雾") || text.contains("霾") || text.contains("沙尘")) return "😷";
-        if (text.contains("晴")) return "☀️";
-        if (text.contains("阴")) return "☁️";
-        if (text.contains("云")) return "⛅";
-        if (text.contains("风")) return "🍃";
-        return "☁️";
     }
 
     // ==================== 定位 ====================

@@ -266,7 +266,7 @@ def create_component(component_type, title="", message="", component_id=None,
         #   #   被应用侧 html_component_submit 关掉时 submit 静默无效(等到 pending 就退回 actions 按钮，别当成链路坏了反复重试)
         #   create_component("todo_card", props={"title":"待办","items":[{"text":"完成报告","done":true},{"text":"回复邮件","done":false}]})
         #   create_component("quiz_card", props={"type":"single","question":"1+1=?","options":["A. 1","B. 2"],"answer":"B","analysis":"2"})
-        #   create_component("weather_card", props={"city":"北京","temp":"26℃","text":"多云","icon":"⛅"})
+        #   create_component("weather_card", props={"city":"北京","temp":"26℃","text":"多云","icon":"⛅"})  # icon 也可直接传和风图标代码(如 "104")，卡片会翻成图标
         #   create_component("json_viewer", props={"title":"数据","data":{...}})
         #   create_component("quote", props={"text":"要点摘录","author":"来源"})
         #   create_component("playlist", props={"title":"播放列表","items":[{"name":"歌名","url":"/sdcard/a.mp3"}]})

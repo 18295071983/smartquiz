@@ -78,7 +78,7 @@ import java.util.Map;
             + "quote:{text 或 content,author}(引用块/笔记); contact_card:{type:'phone|sms|email',title,value,description}; "
             + "todo_card:{title,items:[{done:bool,text}]}; "
             + com.oilquiz.app.ai.chat.component.ComponentTypes.PROPS_DOC_QUIZ_CARD + "; "
-            + "weather_card:{city,temp,text,icon,humidity,windDir,windScale,forecast:[{date,text,tempMin,tempMax}]}; "
+            + "weather_card:{city,temp,text,icon(可直接传和风图标代码如104，卡片会翻成图标),humidity,windDir,windScale,forecast:[{date,text,tempMin,tempMax}]}; "
             + "code_card:{language,code,title}; progress_card:{title,progress,description}; "
             + com.oilquiz.app.ai.chat.component.ComponentTypes.PROPS_DOC_HTML + "; "
             + com.oilquiz.app.ai.chat.component.ComponentTypes.PROPS_DOC_MARKDOWN + "; "

@@ -871,7 +871,7 @@ public class AgentWorkspace {
                 + "----------------------------------------------------------------\n"
                 + "   chart(bar/line/area/stacked_bar/pie/scatter/radar) / table_card / list_card / metric_card / info_card /\n"
                 + "   alert_card / steps_card / todo_card / quote(引用块,text或content+author) / json_viewer / code_card / link_card /\n"
-                + "   image_grid / file_card / file_list / contact_card / weather_card /\n"
+                + "   image_grid / file_card / file_list / contact_card / weather_card(icon 可直接传和风图标代码如 104) /\n"
                 + "   playlist(音频队列 items[{name,url}]) / agenda(按天日程 items[{date,time,title,status}]) /\n"
                 + "   location(地址+经纬度，带在地图中打开/复制坐标) / diff(before/after 或 hunks 变更对比) /\n"
                 + "   quiz_card(single/multiple/judge/fill/short；fill 的 answer 可用 | 分隔多个可接受答案) /\n"

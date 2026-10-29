@@ -198,6 +198,118 @@ public class QWeatherIconMapper {
         }
     }
 
+    /**
+     * 天气卡片图标解析（2026-10-29）：把 {@code props.icon} 归一成和风图标代码。
+     *
+     * <p>卡片此前把 icon 直接 {@code setText}，而模型从 {@code ai_weather} 结果里
+     * 看到的是图标代码（{@code 图标: 104}），照抄进卡片就成了"104"数字；自动桥接
+     * 一侧则存的是 emoji。两种形态都要落到本地图标包（{@code assets/fonts/qweather-icons.ttf}，
+     * 与天气详情页同一套），不联网。</p>
+     *
+     * @param rawIcon      props.icon 原值（代码 "104"/"104-fill"、emoji、中文或空）
+     * @param fallbackText 没有 icon 时的天气文案（"小雨"），用来兜底选图标
+     * @return 图标代码；返回 null 表示这不是可翻译的图标（调用端按原文展示或留空）
+     */
+    public static String resolveCardIconCode(String rawIcon, String fallbackText) {
+        String code = normalizeIconCode(rawIcon);
+        if (code != null) return code;
+        code = codeByEmoji(rawIcon);
+        if (code != null) return code;
+        // 是代码形态但长度不对（如 1001+ 生活指数）、或压根没给 icon：都不该把数字画在卡上，
+        // 有天气文案就按文案选图标；没有就留空
+        if (!isCodeLike(rawIcon) && rawIcon != null && !rawIcon.trim().isEmpty()) {
+            // 认不出的 emoji/文案：原样展示，不硬塞一个天气图标
+            return null;
+        }
+        if (fallbackText == null || fallbackText.trim().isEmpty()) return null;
+        return codeByText(fallbackText);
+    }
+
+    /** 纯数字（允许 "-fill" 后缀）的图标代码形态，长度不合法也算 */
+    private static boolean isCodeLike(String raw) {
+        if (raw == null) return false;
+        String v = raw.trim();
+        if (v.endsWith("-fill")) v = v.substring(0, v.length() - "-fill".length()).trim();
+        if (v.isEmpty()) return false;
+        for (int i = 0; i < v.length(); i++) {
+            char c = v.charAt(i);
+            if (c < '0' || c > '9') return false;
+        }
+        return true;
+    }
+
+    /** "104" / " 104 " / "104-fill" → "104"；不是纯图标代码返回 null（1001+ 生活指数不在此列） */
+    public static String normalizeIconCode(String raw) {
+        if (raw == null) return null;
+        String v = raw.trim();
+        if (v.endsWith("-fill")) {
+            v = v.substring(0, v.length() - "-fill".length()).trim();
+        }
+        if (v.length() != 3) return null;
+        for (int i = 0; i < v.length(); i++) {
+            char c = v.charAt(i);
+            if (c < '0' || c > '9') return null;
+        }
+        return v;
+    }
+
+    /**
+     * 已存的 emoji 图标 → 图标代码（兼容自动桥接落盘的旧数据，以及模型直接给 emoji）。
+     * 认不出返回 null。忽略 emoji 的变体选择符（U+FE0F/U+FE0E），"☀" 与 "☀️" 等价。
+     */
+    public static String codeByEmoji(String raw) {
+        if (raw == null) return null;
+        String v = raw.replace("\uFE0F", "").replace("\uFE0E", "").trim();
+        switch (v) {
+            case "☀": return "100";
+            case "🌙": return "150";
+            case "⛅": return "101";
+            case "🌤": return "101";
+            case "☁": return "104";
+            case "🌧": return "305";
+            case "⛈": return "302";
+            case "🌩": return "303";
+            case "🌨": return "400";
+            case "❄": return "400";
+            case "🌫": return "501";
+            case "😷": return "502";
+            case "🔥": return "900";
+            case "🥶": return "901";
+            case "❓": return "999";
+            default: return null;
+        }
+    }
+
+    /**
+     * 天气现象文案 → 图标代码（工具侧 forecast 只给文字，没有图标码）。
+     * 只挑图标包里真实存在的代码；认不出返回 "999"（未知图标）。
+     */
+    public static String codeByText(String text) {
+        if (text == null || text.isEmpty()) return "999";
+        if (text.contains("雷")) return "302";
+        if (text.contains("冰雹")) return "304";
+        if (text.contains("雨夹雪")) return "404";
+        if (text.contains("阵雪")) return "407";
+        if (text.contains("暴雪")) return "403";
+        if (text.contains("大雪")) return "402";
+        if (text.contains("中雪")) return "401";
+        if (text.contains("雪")) return "400";
+        if (text.contains("暴雨")) return "310";
+        if (text.contains("大雨")) return "307";
+        if (text.contains("中雨")) return "306";
+        if (text.contains("小雨") || text.contains("细雨")) return "305";
+        if (text.contains("阵雨")) return "300";
+        if (text.contains("雨")) return "305";
+        if (text.contains("雾")) return "501";
+        if (text.contains("霾")) return "502";
+        if (text.contains("沙尘") || text.contains("扬沙") || text.contains("浮尘")) return "503";
+        if (text.contains("晴")) return "100";
+        if (text.contains("多云")) return "101";
+        if (text.contains("阴")) return "104";
+        if (text.contains("云")) return "101";
+        return "999";
+    }
+
     public static String getWeatherType(String weatherCode) {
         if (weatherCode == null || weatherCode.isEmpty()) return "unknown";
         try {

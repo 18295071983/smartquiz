@@ -279,8 +279,10 @@ public final class ComponentTypes {
                 "类型 type=phone|sms|email", "标题 title, 描述 description, actions[]"});
         // weather 必填必须是 temp：WeatherCardView.canRender 读 optString("temp") 非空；
         // 目录此前写必填 city + 可选 data，而 data 没有任何一处被读取。
+        // icon 可直接抄 ai_weather 文本里的图标代码（如 "104"），渲染端会翻成图标（2026-10-29）
         SCHEMA.put("weather", new String[]{CATEGORY_SCENE, "温度 temp", "城市 city",
-                "天气 text, 图标 icon, 湿度 humidity, 风向 windDir, 风级 windScale, 预报 forecast[{date,text,tempMin,tempMax}]"});
+                "天气 text, 图标 icon(可直接传和风图标代码如 104，卡片会翻成图标), 湿度 humidity, "
+                        + "风向 windDir, 风级 windScale, 预报 forecast[{date,text,tempMin,tempMax}]"});
         // file_list 是场景卡但以前不进目录 → 模型只能从工具那行长名单里猜字段
         // 2026-10-23：目录里只列字段名不列形态，模型就把 path 写成目录、文件名留在 name，
         // 卡片每条链接都打不开（真机实测）；note 位补上路径口径，与 PROPS_DOC_FILE_CARDS 同说

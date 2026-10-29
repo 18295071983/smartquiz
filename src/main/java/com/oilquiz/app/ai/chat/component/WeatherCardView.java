@@ -8,6 +8,9 @@ import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.oilquiz.app.util.QWeatherIconFont;
+import com.oilquiz.app.util.QWeatherIconMapper;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -20,7 +23,7 @@ import org.json.JSONObject;
  *   "city": "北京",
  *   "temp": "26℃",
  *   "text": "多云",
- *   "icon": "⛅",
+ *   "icon": "104",               // 和风图标代码或 emoji 均可，卡片统一用本地图标包渲染
  *   "humidity": "60%",
  *   "windDir": "东南风",
  *   "windScale": "3级",
@@ -48,7 +51,11 @@ public class WeatherCardView implements ChatComponent {
         String city = p.optString("city", "");
         String temp = p.optString("temp", "");
         String text = p.optString("text", "");
-        String icon = p.optString("icon", "");
+        // 图标字体/映射表（幂等）；模型常把 ai_weather 输出里的图标代码（"104"）直接抄进 icon，
+        // 卡片统一用本地和风图标包渲染，缺图标时按天气文案兜底
+        QWeatherIconFont.init(context);
+        String rawIcon = p.optString("icon", "");
+        String iconCode = QWeatherIconMapper.resolveCardIconCode(rawIcon, text);
         String humidity = p.optString("humidity", "");
         String windDir = p.optString("windDir", "");
         String windScale = p.optString("windScale", "");
@@ -74,10 +81,9 @@ public class WeatherCardView implements ChatComponent {
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         }
 
-        if (!TextUtils.isEmpty(icon)) {
+        if (iconCode != null || !TextUtils.isEmpty(rawIcon)) {
             TextView iconTv = new TextView(context);
-            iconTv.setText(icon);
-            iconTv.setTextSize(30);
+            applyIcon(iconTv, iconCode, rawIcon, 30);
             iconTv.setPadding(dp(context, 10), 0, 0, 0);
             topRow.addView(iconTv);
         }
@@ -139,14 +145,16 @@ public class WeatherCardView implements ChatComponent {
                 dateTv.setTextColor(ComponentColors.textTertiary(context));
                 dayCol.addView(dateTv);
 
+                String dayText = day.optString("text", "");
+                String dayRawIcon = day.optString("icon", "");
                 TextView dayIconTv = new TextView(context);
-                dayIconTv.setText(day.optString("icon", "☁"));
-                dayIconTv.setTextSize(18);
+                applyIcon(dayIconTv, QWeatherIconMapper.resolveCardIconCode(dayRawIcon, dayText),
+                        dayRawIcon, 18);
                 dayIconTv.setPadding(0, dp(context, 2), 0, dp(context, 2));
                 dayCol.addView(dayIconTv);
 
                 TextView textTv = new TextView(context);
-                textTv.setText(day.optString("text", ""));
+                textTv.setText(dayText);
                 textTv.setTextSize(10);
                 textTv.setTextColor(ComponentColors.textSecondary(context));
                 textTv.setSingleLine(true);
@@ -168,6 +176,23 @@ public class WeatherCardView implements ChatComponent {
         }
 
         return card;
+    }
+
+    /**
+     * 画一个天气图标格：能解析出图标代码就用本地和风图标字体（与详情页同一套图标包），
+     * 解析不出但原值是 emoji/文字时原样展示，两者都没有就留空。
+     */
+    private static void applyIcon(TextView tv, String iconCode, String rawIcon, int sizeSp) {
+        Context ctx = tv.getContext();
+        if (iconCode != null) {
+            tv.setText(QWeatherIconFont.getIcon(iconCode));
+            tv.setTypeface(QWeatherIconFont.getTypeface(ctx));
+            tv.setTextColor(ComponentColors.textPrimary(ctx));
+            tv.setTextSize(sizeSp);
+        } else if (!TextUtils.isEmpty(rawIcon)) {
+            tv.setText(rawIcon);
+            tv.setTextSize(sizeSp);
+        }
     }
 
     private static android.graphics.drawable.Drawable cardBackground(Context context) {
