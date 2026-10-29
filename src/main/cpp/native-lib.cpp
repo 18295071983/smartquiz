@@ -138,6 +138,7 @@ typedef int cl_bool;
 #include <deque>
 #include <cstdarg>
 #include <cstdio>
+#include <ctime>
 
 static std::mutex& engineLogMutex() {
     static std::mutex m;
@@ -149,7 +150,67 @@ static std::deque<std::string>& engineLogRing() {
     return q;
 }
 
+static std::mutex g_engineLogFileMutex;
+static std::string g_engineLogFilePath;
+static FILE* g_engineLogFileFp = nullptr;
+static long g_engineLogFileBytes = 0;
+
+void engineLogSetFile(const char* path) {
+    std::lock_guard<std::mutex> lock(g_engineLogFileMutex);
+    if (g_engineLogFileFp != nullptr) {
+        fclose(g_engineLogFileFp);
+        g_engineLogFileFp = nullptr;
+    }
+    g_engineLogFilePath = (path != nullptr) ? path : "";
+    g_engineLogFileBytes = 0;
+    if (!g_engineLogFilePath.empty()) {
+        g_engineLogFileFp = fopen(g_engineLogFilePath.c_str(), "ab");
+        if (g_engineLogFileFp != nullptr) {
+            fseek(g_engineLogFileFp, 0, SEEK_END);
+            g_engineLogFileBytes = ftell(g_engineLogFileFp);
+        }
+    }
+}
+
+/** 引擎日志落盘（带时间戳）；超过 2MB 截断重开，避免无限增长 */
+static void engineLogWriteFile(const char* line) {
+    std::lock_guard<std::mutex> lock(g_engineLogFileMutex);
+    if (g_engineLogFilePath.empty()) return;
+    if (g_engineLogFileFp == nullptr) {
+        g_engineLogFileFp = fopen(g_engineLogFilePath.c_str(), "ab");
+        if (g_engineLogFileFp == nullptr) return;
+    }
+    if (g_engineLogFileBytes > 2L * 1024L * 1024L) {
+        fclose(g_engineLogFileFp);
+        g_engineLogFileFp = fopen(g_engineLogFilePath.c_str(), "wb");
+        g_engineLogFileBytes = 0;
+        if (g_engineLogFileFp == nullptr) return;
+    }
+    char stamp[32];
+    time_t now = time(nullptr);
+    struct tm tmv;
+    localtime_r(&now, &tmv);
+    strftime(stamp, sizeof(stamp), "%m-%d %H:%M:%S", &tmv);
+    char out[2400];
+    int n = snprintf(out, sizeof(out), "%s %s\n", stamp, line);
+    if (n > 0) {
+        size_t written = fwrite(out, 1, (size_t) n, g_engineLogFileFp);
+        g_engineLogFileBytes += (long) written;
+        fflush(g_engineLogFileFp);
+    }
+}
+
 void engineLogAppend(int prio, const char* tag, const char* fmt, ...) {
+    // 重入保护：日志实现内部任何环节若再触发 LOGx（或未来加了带日志的 IO 失败分支），
+    // 直接丢弃，避免自我递归/死循环写入。
+    static thread_local bool inEngineLog = false;
+    if (inEngineLog) return;
+    struct ReentryGuard {
+        bool& flag;
+        explicit ReentryGuard(bool& f) : flag(f) { flag = true; }
+        ~ReentryGuard() { flag = false; }
+    } guard(inEngineLog);
+
     char msg[2048];
     va_list ap;
     va_start(ap, fmt);
@@ -163,12 +224,16 @@ void engineLogAppend(int prio, const char* tag, const char* fmt, ...) {
         case ANDROID_LOG_ERROR: level = 'E'; break;
         default: break;
     }
-    std::lock_guard<std::mutex> lock(engineLogMutex());
-    std::deque<std::string>& q = engineLogRing();
-    if (q.size() >= 800) q.pop_front();
     char line[2200];
     snprintf(line, sizeof(line), "[%c][%s] %s", level, tag ? tag : "engine", msg);
-    q.emplace_back(line);
+    {
+        // 只在写环时持锁；落盘在锁外做，避免磁盘 IO 阻塞其它线程的日志
+        std::lock_guard<std::mutex> lock(engineLogMutex());
+        std::deque<std::string>& q = engineLogRing();
+        if (q.size() >= 800) q.pop_front();
+        q.emplace_back(line);
+    }
+    engineLogWriteFile(line);
 }
 
 #define LOGD(...) do { __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__); \
@@ -7568,6 +7633,13 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetKvCacheStats(JNIEnv* env, jclas
         j["error"] = "not_initialized";
     }
     return utf8StringToJstring(env, j.dump());
+}
+
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetEngineLogFile(JNIEnv* env, jclass, jstring path) {
+    const char* p = path != nullptr ? env->GetStringUTFChars(path, nullptr) : nullptr;
+    engineLogSetFile(p);
+    if (p != nullptr) env->ReleaseStringUTFChars(path, p);
 }
 
 JNIEXPORT jstring JNICALL

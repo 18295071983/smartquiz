@@ -307,7 +307,7 @@ public class LogsActivity extends BaseActivity {
                         newItems.addAll(loadOpItems());
                         break;
                     case TAB_ENGINE:
-                        newItems.addAll(drainEngineItems());
+                        newItems.addAll(loadEngineItemsFromFile());
                         break;
                 }
 
@@ -353,6 +353,69 @@ public class LogsActivity extends BaseActivity {
                     entry.fullText != null ? entry.fullText : entry.message, SOURCE_AI));
         }
         return items;
+    }
+
+    /**
+     * 引擎日志历史：native 落盘文件（oilquiz/logs/engine_logs.txt）尾部。
+     * 引擎 Tab 打开/切回时用文件，避免"环被实时 drain 清空后切 Tab 变空"。
+     */
+    private List<LogItem> loadEngineItemsFromFile() {
+        List<LogItem> items = new ArrayList<>();
+        try {
+            File f = new File(getFilesDir(), "oilquiz/logs/engine_logs.txt");
+            if (!f.exists()) return items;
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(new java.io.FileInputStream(f),
+                            java.nio.charset.StandardCharsets.UTF_8));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.isEmpty()) continue;
+                items.add(parseEngineLine(line));
+            }
+            reader.close();
+            if (items.size() > 2000) {
+                items = new ArrayList<>(items.subList(items.size() - 2000, items.size()));
+            }
+        } catch (Throwable ignored) {
+        }
+        return items;
+    }
+
+    /** 解析 "MM-dd HH:mm:ss [I][tag] msg"（native 落盘格式） */
+    private LogItem parseEngineLine(String line) {
+        long ts = System.currentTimeMillis();
+        String level = "I";
+        String tag = "引擎";
+        String msg = line;
+        try {
+            if (line.length() > 15 && line.charAt(2) == '-' && line.charAt(5) == ' ') {
+                String time = line.substring(0, 14);
+                String rest = line.substring(15).trim();
+                try {
+                    SimpleDateFormat fmt = new SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault());
+                    Date d = fmt.parse(time);
+                    if (d != null) {
+                        java.util.Calendar c = java.util.Calendar.getInstance();
+                        c.setTime(d);
+                        c.set(java.util.Calendar.YEAR, java.util.Calendar.getInstance().get(java.util.Calendar.YEAR));
+                        ts = c.getTimeInMillis();
+                    }
+                } catch (Throwable ignored) {
+                }
+                int levelEnd = rest.startsWith("[") ? rest.indexOf(']') : -1;
+                if (levelEnd == 2) {
+                    level = String.valueOf(rest.charAt(1));
+                    int tagStart = rest.indexOf('[', levelEnd + 1);
+                    int tagEnd = tagStart >= 0 ? rest.indexOf(']', tagStart) : -1;
+                    if (tagEnd > tagStart) {
+                        tag = rest.substring(tagStart + 1, tagEnd);
+                        msg = rest.substring(tagEnd + 1).trim();
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return new LogItem(ts, normalizeLevel(level), tag, msg, line, SOURCE_ENGINE);
     }
 
     /**

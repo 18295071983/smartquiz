@@ -2320,6 +2320,15 @@ public class LlamaHelper {
      * native 的 LOGx / AgentKvCache 日志除写 logcat 外也进这个环形缓冲，
      * 日志中心按周期调用即可看到引擎消息，无需 READ_LOGS 权限。
      */
+    /** 指定引擎日志落盘文件（启动时调用一次）；native 追加写，超过 2MB 自动截断。 */
+    public static void setEngineLogFile(String path) {
+        if (!libraryLoaded) return;
+        try {
+            nativeSetEngineLogFile(path);
+        } catch (Throwable ignored) {
+        }
+    }
+
     public static String drainEngineLogs() {
         if (!libraryLoaded) return "";
         try {
@@ -2416,6 +2425,7 @@ public class LlamaHelper {
     private static native int nativeChatGetKvNewTokens(long handle);
     /** 取走引擎日志环里的消息（drain 即清空），供「日志中心」展示 */
     private static native String nativeDrainEngineLogs();
+    private static native void nativeSetEngineLogFile(String path);
     private static native void nativeChatClear(long handle);
     private static native void nativeChatDestroy(long handle);
     private static native String nativeChatGetInfo(long handle);

@@ -171,6 +171,15 @@ public class SmartQuizApplication extends Application {
         } catch (Throwable ignored) {
         }
 
+        // 推理引擎日志落盘（日志中心「引擎」Tab 的历史来源）：native 追加写，超过 2MB 自动截断
+        try {
+            java.io.File engineLogDir = new java.io.File(getFilesDir(), "oilquiz/logs");
+            if (!engineLogDir.exists()) engineLogDir.mkdirs();
+            com.oilquiz.app.ai.jni.LlamaHelper.setEngineLogFile(
+                    new java.io.File(engineLogDir, "engine_logs.txt").getAbsolutePath());
+        } catch (Throwable ignored) {
+        }
+
         // 一次性清理旧会话里的伪过程行（"收到你的消息…/Agent模式已激活/正在思考中…"）：
         // 只重写历史 JSON，后台线程做；失败不影响启动（显示层另有兜底隐藏）
         try {

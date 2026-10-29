@@ -11,4 +11,7 @@
  */
 void engineLogAppend(int prio, const char* tag, const char* fmt, ...);
 
+/** 指定引擎日志落盘文件（空串关闭）。由 Java 在启动时设置，追加写入、超过上限自动截断。 */
+void engineLogSetFile(const char* path);
+
 #endif // ENGINE_LOG_H
