@@ -216,6 +216,11 @@ void engineLogAppend(int prio, const char* tag, const char* fmt, ...) {
     va_start(ap, fmt);
     vsnprintf(msg, sizeof(msg), fmt, ap);
     va_end(ap);
+    // 多行日志（例如把整段 chat template 打出来）会把落盘文件切成没有时间戳的碎片：
+    // 统一压成单行，保证「一条日志一行」
+    for (char* c = msg; *c != 0; ++c) {
+        if (*c == 10 || *c == 13) *c = ' ';
+    }
     char level = 'I';
     switch (prio) {
         case ANDROID_LOG_DEBUG: level = 'D'; break;
@@ -226,6 +231,22 @@ void engineLogAppend(int prio, const char* tag, const char* fmt, ...) {
     }
     char line[2200];
     snprintf(line, sizeof(line), "[%c][%s] %s", level, tag ? tag : "engine", msg);
+    // 只把"有用"的引擎日志送进内存环/落盘：DEBUG、llama.cpp 库 INFO、PERF/MEM、逐 token 明细一律不进
+    if (level == 'D') return;
+    if (strstr(line, "[llama]") != nullptr && level != 'W' && level != 'E') return;
+    if (strstr(line, "[PERF]") != nullptr || strstr(line, "[MEM]") != nullptr) return;
+    if (strstr(line, "Prompt token ") != nullptr
+            || strstr(line, "Generated token ") != nullptr
+            || strstr(line, "Token count estimate") != nullptr
+            || strstr(line, "Tokenized prompt") != nullptr
+            || strstr(line, "Starting tokenization") != nullptr
+            || strstr(line, "Processing prompt as batches") != nullptr
+            || strstr(line, "=== ") != nullptr
+            || strstr(line, "Model pointer") != nullptr
+            || strstr(line, "Context pointer") != nullptr
+            || strstr(line, "Vocab pointer") != nullptr) {
+        return;
+    }
     {
         // 只在写环时持锁；落盘在锁外做，避免磁盘 IO 阻塞其它线程的日志
         std::lock_guard<std::mutex> lock(engineLogMutex());
@@ -549,7 +570,7 @@ static std::string detectVulkanVersionViaAPI() {
     for (const char* path : vulkanPaths) {
         vulkanLib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
         if (vulkanLib) {
-            LOGI("Loaded Vulkan library from: %s", path);
+            LOGD("Loaded Vulkan library from: %s", path);
             break;
         }
     }
@@ -582,7 +603,7 @@ static std::string detectVulkanVersionViaAPI() {
             uint32_t minor = VK_VERSION_MINOR(instanceVersion);
             uint32_t patch = VK_VERSION_PATCH(instanceVersion);
             versionStr = std::to_string(major) + "." + std::to_string(minor);
-            LOGI("Vulkan instance version via vkEnumerateInstanceVersion: %d.%d.%d", major, minor, patch);
+            LOGD("Vulkan instance version via vkEnumerateInstanceVersion: %d.%d.%d", major, minor, patch);
         }
     }
     
@@ -621,7 +642,7 @@ static std::string detectVulkanVersionViaAPI() {
                         uint32_t minor = VK_VERSION_MINOR(props.apiVersion);
                         uint32_t patch = VK_VERSION_PATCH(props.apiVersion);
                         
-                        LOGI("Vulkan physical device: %s, API version: %d.%d.%d", 
+                        LOGD("Vulkan physical device: %s, API version: %d.%d.%d", 
                              props.deviceName, major, minor, patch);
                         
                         versionStr = std::to_string(major) + "." + std::to_string(minor);
@@ -638,7 +659,7 @@ static std::string detectVulkanVersionViaAPI() {
     
     s_vulkanVersionDetected = true;
     s_detectedVulkanVersion = versionStr;
-    LOGI("Detected Vulkan version: %s", versionStr.c_str());
+    LOGD("Detected Vulkan version: %s", versionStr.c_str());
     
     return versionStr;
 }
@@ -661,7 +682,7 @@ static std::atomic<bool> s_llamaBackendInitialized(false);
 
 static void setupGGMLBackendPath() {
     if (s_backendInitialized.exchange(true)) {
-        LOGI("GGML backend already initialized, skipping");
+        LOGD("GGML backend already initialized, skipping");
         return;
     }
     
@@ -683,7 +704,7 @@ static void setupGGMLBackendPath() {
         // GPU 初始化耗时。
         const char* kOpenclCacheDir = "/data/user/0/com.oilquiz.app/cache/llama-cl";
         setenv("GGML_OPENCL_KERNEL_CACHE_DIR", kOpenclCacheDir, 1);
-        LOGI("OpenCL kernel cache dir set to: %s", kOpenclCacheDir);
+        LOGD("OpenCL kernel cache dir set to: %s", kOpenclCacheDir);
 
         // ===== OpenCL flash attention 运行时开关 =====
         // 背景：llama.cpp OpenCL FA 的 cluster-parallel (c8) kernel 默认仅对 Adreno
@@ -699,9 +720,9 @@ static void setupGGMLBackendPath() {
         bool faC8On = true;
         if (faC8On) {
             setenv("GGML_OPENCL_FA_C8", "1", 0);
-            LOGI("OpenCL: GGML_OPENCL_FA_C8=1 -> flash attention cluster-parallel (NSG2) ENABLED");
+            LOGD("OpenCL: GGML_OPENCL_FA_C8=1 -> flash attention cluster-parallel (NSG2) ENABLED");
         } else {
-            LOGI("OpenCL: flash attention cluster-parallel disabled");
+            LOGD("OpenCL: flash attention cluster-parallel disabled");
         }
 
         // ===== Vulkan 加速变体的逐项开关 =====
@@ -718,7 +739,7 @@ static void setupGGMLBackendPath() {
         setenv("GGML_VK_DISABLE_BFLOAT16", "1", 0);
         setenv("GGML_VK_DISABLE_INTEGER_DOT_PRODUCT", "1", 0);
         setenv("GGML_VK_DISABLE_DOT2", "1", 0);
-        LOGI("Vulkan: coopmat 保留；已禁用 bfloat16 / integer_dot / dot2 变体（Adreno 实测乱码）");
+        LOGD("Vulkan: coopmat 保留；已禁用 bfloat16 / integer_dot / dot2 变体（Adreno 实测乱码）");
         
         const char* openclBackends[] = {
             "libggml-opencl.so",
@@ -733,18 +754,18 @@ static void setupGGMLBackendPath() {
         for (const char* path : openclBackends) {
             void* handle = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
             if (handle) {
-                LOGI("Successfully loaded ggml-opencl backend from: %s", path);
+                LOGD("Successfully loaded ggml-opencl backend from: %s", path);
                 s_ggmlOpenclHandle = handle;
                 
                 typedef void (*ggml_backend_init_fn)();
                 ggml_backend_init_fn init_fn = (ggml_backend_init_fn)dlsym(handle, "ggml_backend_init");
                 if (init_fn) {
-                    LOGI("Calling ggml_backend_init...");
+                    LOGD("Calling ggml_backend_init...");
                     auto startTime = std::chrono::steady_clock::now();
                     init_fn();
                     auto endTime = std::chrono::steady_clock::now();
                     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
-                    LOGI("ggml-backend_init completed in %lldms", elapsed);
+                    LOGD("ggml-backend_init completed in %lldms", elapsed);
                 } else {
                     LOGW("Could not find ggml_backend_init in ggml-opencl");
                 }
@@ -795,7 +816,7 @@ static bool detectAdrenoGPU() {
         char platformName[256] = {0};
         clGetPlatformInfo_ptr(platform, CL_PLATFORM_VENDOR, sizeof(platformVendor), platformVendor, nullptr);
         clGetPlatformInfo_ptr(platform, CL_PLATFORM_NAME, sizeof(platformName), platformName, nullptr);
-        LOGI("OpenCL Platform: %s (%s)", platformName, platformVendor);
+        LOGD("OpenCL Platform: %s (%s)", platformName, platformVendor);
         
         cl_uint numDevices = 0;
         if (clGetDeviceIDs_ptr(platform, CL_DEVICE_TYPE_GPU, 0, nullptr, &numDevices) != CL_SUCCESS || numDevices == 0) {
@@ -815,7 +836,7 @@ static bool detectAdrenoGPU() {
             clGetDeviceInfo_ptr(device, CL_DEVICE_VENDOR, sizeof(deviceVendor), deviceVendor, nullptr);
             clGetDeviceInfo_ptr(device, CL_DEVICE_VERSION, sizeof(deviceVersion), deviceVersion, nullptr);
             
-            LOGI("GPU Device: %s (%s) - %s", deviceName, deviceVendor, deviceVersion);
+            LOGD("GPU Device: %s (%s) - %s", deviceName, deviceVendor, deviceVersion);
             
             std::string nameStr(deviceName);
             std::string vendorStr(deviceVendor);
@@ -826,14 +847,14 @@ static bool detectAdrenoGPU() {
                            vendorStr.find("qualcomm") != std::string::npos;
             
             if (isAdreno) {
-                LOGI("Detected Qualcomm Adreno GPU!");
+                LOGD("Detected Qualcomm Adreno GPU!");
                 
                 if (nameStr.find("750") != std::string::npos) {
-                    LOGI("Detected Adreno 750 (Xiaomi 14 / Snapdragon 8 Gen 3)");
+                    LOGD("Detected Adreno 750 (Xiaomi 14 / Snapdragon 8 Gen 3)");
                 } else if (nameStr.find("730") != std::string::npos) {
-                    LOGI("Detected Adreno 730 (Snapdragon 8 Gen 2)");
+                    LOGD("Detected Adreno 730 (Snapdragon 8 Gen 2)");
                 } else if (nameStr.find("740") != std::string::npos) {
-                    LOGI("Detected Adreno 740");
+                    LOGD("Detected Adreno 740");
                 }
                 
                 return true;
@@ -1321,7 +1342,7 @@ static void addControlTokenSuppression(llama_sampler * smpl, const llama_vocab *
             if (!dup) biases.push_back({ t, -INFINITY });
         }
     }
-    LOGI("Control suppression: %d tokens banned (suppress_table=%d, vocab=%d)",
+    LOGD("Control suppression: %d tokens banned (suppress_table=%d, vocab=%d)",
          (int)biases.size(), suppress != nullptr ? n_suppress : -1, n_vocab);
     if (!biases.empty()) {
         llama_sampler_chain_add(smpl, llama_sampler_init_logit_bias(
@@ -1393,7 +1414,7 @@ static std::string s_defaultChatTemplate = "";
                 "            {{- '<|im_start|>' + message.role + '\\n<think>\\n\\n</think>\\n\\n' + content }}\n"
                 "        ";
         tpl.insert(elseAt, inserted);
-        LOGI("chatTemplate: patched Qwen history branch for KV reuse (enable_thinking=false)");
+        LOGD("chatTemplate: patched Qwen history branch for KV reuse (enable_thinking=false)");
         return tpl;
     }
 
@@ -1436,7 +1457,7 @@ private:
 
     void refreshSamplingParams() {
         sampling_ = samplingForModelType(modelType);
-        LOGI("sampling: model='%s' -> temp=%s topP=%s minP=%.2f repPen=%.2f repLastN=%d",
+        LOGD("sampling: model='%s' -> temp=%s topP=%s minP=%.2f repPen=%.2f repLastN=%d",
              modelType.c_str(),
              sampling_.temp > 0 ? std::to_string(sampling_.temp).c_str() : "caller",
              sampling_.topP > 0 ? std::to_string(sampling_.topP).c_str() : "caller",
@@ -1508,7 +1529,7 @@ private:
             sp.grammar_lazy = chatParams->grammar_lazy;
             sp.grammar_triggers = chatParams->grammar_triggers;
             sp.generation_prompt = chatParams->generation_prompt;
-            LOGI("grammar(via common_sampler): type=TOOL_CALLS, lazy=%d, triggers=%zu, %zu bytes, genPrompt=%zu bytes",
+            LOGD("grammar(via common_sampler): type=TOOL_CALLS, lazy=%d, triggers=%zu, %zu bytes, genPrompt=%zu bytes",
                  (int)sp.grammar_lazy, sp.grammar_triggers.size(),
                  chatParams->grammar.size(), sp.generation_prompt.size());
         }
@@ -1540,7 +1561,7 @@ private:
                 sp.reasoning_budget_tokens = -1;      // 不限预算，只为抑制 grammar
                 sp.reasoning_budget_start  = std::move(startIds);
                 sp.reasoning_budget_end    = std::move(endSeqs);
-                LOGI("reasoning-budget(via common_sampler): start=%zu ids, %zu end seq(s), budget=unlimited (grammar inhibition only)",
+                LOGD("reasoning-budget(via common_sampler): start=%zu ids, %zu end seq(s), budget=unlimited (grammar inhibition only)",
                      sp.reasoning_budget_start.size(), sp.reasoning_budget_end.size());
             } else {
                 LOGW("reasoning-budget: thinking_end_tags produced no tokens, grammar inhibition unavailable");
@@ -1720,7 +1741,7 @@ public:
             mThinkEndTags = params.thinking_end_tags;
             classifyToolCallTags(params.preserved_tokens, mThinkStartTag, mThinkEndTags,
                                  mToolCallOpenTags, mToolCallCloseTags);
-            LOGI("refreshThinkingTags: start='%s', %zu end tag(s); tool-call tags %zu open/%zu close",
+            LOGD("refreshThinkingTags: start='%s', %zu end tag(s); tool-call tags %zu open/%zu close",
                  mThinkStartTag.c_str(), mThinkEndTags.size(),
                  mToolCallOpenTags.size(), mToolCallCloseTags.size());
             return true;
@@ -1748,7 +1769,7 @@ public:
                          decodeTokenCount(0), thinkingTokenCount(0),
                          prefillDoneTokens(0), prefillTotalTokens(0), promptTotalTokens(0),
                          modelType("unknown"), chatTemplate(""), mThinkStartTag("") {
-        LOGI("InferenceContext created");
+        LOGD("InferenceContext created");
         
         setupGGMLBackendPath();
         
@@ -1758,23 +1779,23 @@ public:
             llama_log_set(llama_log_callback_impl, nullptr);
             auto endTime = std::chrono::steady_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
-            LOGI("Llama backend initialized in %lldms", elapsed);
+            LOGD("Llama backend initialized in %lldms", elapsed);
             
             startTime = std::chrono::steady_clock::now();
             ggml_backend_load_all();
             endTime = std::chrono::steady_clock::now();
             elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
-            LOGI("Loaded all available backends in %lldms", elapsed);
+            LOGD("Loaded all available backends in %lldms", elapsed);
             
             size_t devCount = ggml_backend_dev_count();
-            LOGI("ggml backend detected %zu devices after load_all", devCount);
+            LOGD("ggml backend detected %zu devices after load_all", devCount);
             for (size_t i = 0; i < devCount; i++) {
                 ggml_backend_dev_t dev = ggml_backend_dev_get(i);
                 if (dev) {
                     const char* devName = ggml_backend_dev_name(dev);
                     enum ggml_backend_dev_type devType = ggml_backend_dev_type(dev);
                     const char* devDesc = ggml_backend_dev_description(dev);
-                    LOGI("ggml Device %zu: name=%s, type=%d, desc=%s", i, 
+                    LOGD("ggml Device %zu: name=%s, type=%d, desc=%s", i, 
                          devName ? devName : "null", (int)devType, devDesc ? devDesc : "null");
                 }
             }
@@ -1859,9 +1880,9 @@ public:
             this->batchSize = MIN_BATCH_SIZE;
         }
         
-        LOGI("=== LOAD MODEL START ===");
+        LOGD("=== LOAD MODEL START ===");
         LOG_MEM("loadModel_start");
-        LOGI("Loading model: %s", modelPath.c_str());
+        LOGD("Loading model: %s", modelPath.c_str());
         LOGI("Context size: %d, Threads: %d, GPU layers: %d, Batch size: %d", 
              contextSize, this->threadCount, this->gpuLayers, this->batchSize);
         
@@ -1877,9 +1898,9 @@ public:
         unsigned char header[16] = {0};
         size_t bytesRead = fread(header, 1, sizeof(header), fileCheck);
         fclose(fileCheck);
-        LOGI("Model file exists, size=%ld bytes (%.1fMB), header read=%zu bytes",
+        LOGD("Model file exists, size=%ld bytes (%.1fMB), header read=%zu bytes",
              fileSize, fileSize / 1024.0 / 1024.0, bytesRead);
-        LOGI("Model file header (hex): %02x %02x %02x %02x | %02x %02x %02x %02x | %02x %02x %02x %02x | %02x %02x %02x %02x",
+        LOGD("Model file header (hex): %02x %02x %02x %02x | %02x %02x %02x %02x | %02x %02x %02x %02x | %02x %02x %02x %02x",
              header[0], header[1], header[2], header[3],
              header[4], header[5], header[6], header[7],
              header[8], header[9], header[10], header[11],
@@ -1887,7 +1908,7 @@ public:
         // GGUF magic: "GGUF" = 0x47 0x47 0x55 0x46
         if (bytesRead >= 4 && header[0] == 0x47 && header[1] == 0x47 && header[2] == 0x55 && header[3] == 0x46) {
             uint32_t version = *(uint32_t*)&header[4];
-            LOGI("Valid GGUF format detected, version=%u", version);
+            LOGD("Valid GGUF format detected, version=%u", version);
         } else {
             LOGE("WARNING: File does NOT start with GGUF magic! Expected 47 47 55 46, got %02x %02x %02x %02x",
                  header[0], header[1], header[2], header[3]);
@@ -1916,7 +1937,7 @@ public:
         }
         
         size_t devCount = ggml_backend_dev_count();
-        LOGI("ggml backend detected %zu devices after ggml_backend_load_all()", devCount);
+        LOGD("ggml backend detected %zu devices after ggml_backend_load_all()", devCount);
         
         for (size_t i = 0; i < devCount; i++) {
             ggml_backend_dev_t dev = ggml_backend_dev_get(i);
@@ -1934,14 +1955,14 @@ public:
                     default: typeStr = "Other"; break;
                 }
                 
-                LOGI("ggml Device %zu: name=%s, type=%s, desc=%s", i, 
+                LOGD("ggml Device %zu: name=%s, type=%s, desc=%s", i, 
                      devName ? devName : "null", typeStr, devDesc ? devDesc : "null");
                 
                 if (devType == GGML_BACKEND_DEVICE_TYPE_GPU || devType == GGML_BACKEND_DEVICE_TYPE_IGPU) {
                     hasGPU = true;
                     size_t freeMem = 0, totalMem = 0;
                     ggml_backend_dev_memory(dev, &freeMem, &totalMem);
-                    LOGI("ggml GPU detected: free=%zuMB, total=%zuMB",
+                    LOGD("ggml GPU detected: free=%zuMB, total=%zuMB",
                          freeMem/1024/1024, totalMem/1024/1024);
                     if (totalMem > 0) {
                         gpuTotalMemory = std::max(gpuTotalMemory, totalMem);
@@ -1953,14 +1974,14 @@ public:
         }
         
         if (!hasGPU) {
-            LOGI("No GPU devices found by ggml backend, checking native OpenCL...");
+            LOGD("No GPU devices found by ggml backend, checking native OpenCL...");
         }
 
         int initialGpuLayers = this->gpuLayers;
         bool gpuModeRequested = true;
         
-        LOGI("GPU layers from Java/Default: %d", this->gpuLayers);
-        LOGI("OpenCL loaded: %s, ggml GPU detected: %s", 
+        LOGD("GPU layers from Java/Default: %d", this->gpuLayers);
+        LOGD("OpenCL loaded: %s, ggml GPU detected: %s", 
              s_openclLoaded ? "true" : "false", hasGPU ? "true" : "false");
         
         // ========== GPU 加速 ==========
@@ -1976,7 +1997,7 @@ public:
             // 强改成 GPU，在 Vulkan shader 与驱动不兼容的设备（如 Adreno 750）
             // 上直接崩溃（createComputePipeline: ErrorUnknown）。
             this->gpuLayers = MAX_GPU_LAYERS;
-            LOGI("Vulkan GPU detected, auto-setting GPU layers to %d (mixed GPU+CPU inference)", this->gpuLayers);
+            LOGD("Vulkan GPU detected, auto-setting GPU layers to %d (mixed GPU+CPU inference)", this->gpuLayers);
         }
         // 最终安全限幅：确保 GPU 层数不超过 MAX_GPU_LAYERS
         if (this->gpuLayers > MAX_GPU_LAYERS) {
@@ -1984,7 +2005,7 @@ public:
                  this->gpuLayers, MAX_GPU_LAYERS, MAX_GPU_LAYERS);
             this->gpuLayers = MAX_GPU_LAYERS;
         }
-        LOGI("GPU available: %s, Vulkan GPU detected: %s, GPU layers: %d (mixed inference: remaining layers on CPU)",
+        LOGD("GPU available: %s, Vulkan GPU detected: %s, GPU layers: %d (mixed inference: remaining layers on CPU)",
              gpuAvailable ? "true" : "false", hasGPU ? "true" : "false", this->gpuLayers);
         
         // 配置多 GPU 分片参数（手机通常只有 1 个 GPU，但保留扩展性）
@@ -2023,7 +2044,7 @@ public:
                         : (strstr(regName, "OpenCL") != nullptr));
                 if (isTarget) {
                     selectedDevices.push_back(dev);
-                    LOGI("Backend switch: selected device %zu (backend=%s, name=%s)",
+                    LOGD("Backend switch: selected device %zu (backend=%s, name=%s)",
                          i, regName, ggml_backend_dev_name(dev) ? ggml_backend_dev_name(dev) : "null");
                 }
             }
@@ -2036,7 +2057,7 @@ public:
                 }
                 // 说明：无需额外开关 —— llama_model_params 只有 devices + n_gpu_layers
                 // 控制卸载（llama.h:319-327）。把 ACCEL 设备放进 devices 且 n_gpu_layers>0 即可。
-                LOGI("Backend switch: offload restricted to %s (%zu device(s))", backendChoice.c_str(), selectedDevices.size() - 1);
+                LOGD("Backend switch: offload restricted to %s (%zu device(s))", backendChoice.c_str(), selectedDevices.size() - 1);
             } else {
                 // FALLBACK-SINGLE-DEVICE(2026-10-09)：请求的后端不存在时，不要留空
                 // devices —— 留空等于让 llama.cpp 自行枚举全部设备，而多设备会把
@@ -2129,7 +2150,7 @@ public:
                     g_resolvedBackend = (picked == pickedNpu) ? "hexagon"
                                       : (picked == pickedOpenCL ? "opencl" : "vulkan");
                 }
-                LOGI("Backend switch: auto mode picked single device (backend=%s, name=%s)",
+                LOGD("Backend switch: auto mode picked single device (backend=%s, name=%s)",
                      pickedRegName,
                      ggml_backend_dev_name(picked) ? ggml_backend_dev_name(picked) : "null");
             } else {
@@ -2139,10 +2160,10 @@ public:
         
         if (this->gpuLayers > 0) {
             model_params.n_gpu_layers = this->gpuLayers;
-            LOGI("Loading model with %d GPU layers (mixed GPU+CPU inference)", this->gpuLayers);
+            LOGD("Loading model with %d GPU layers (mixed GPU+CPU inference)", this->gpuLayers);
         } else {
             model_params.n_gpu_layers = 0;
-            LOGI("Loading model with CPU only");
+            LOGD("Loading model with CPU only");
         }
         LOG_MEM("before_llama_model_load");
         
@@ -2185,13 +2206,13 @@ public:
                     return false;
                 }
                 s_gpuWorking = false;
-                LOGI("Model loaded successfully with CPU fallback in %llds", elapsed);
+                LOGD("Model loaded successfully with CPU fallback in %llds", elapsed);
             } else {
                 LOGE("Failed to load model");
                 return false;
             }
         } else {
-            LOGI("Model loaded successfully in %llds", elapsed);
+            LOGD("Model loaded successfully in %llds", elapsed);
             if (this->gpuLayers > 0) {
                 s_gpuTested = true;
                 s_gpuWorking = true;
@@ -2217,7 +2238,7 @@ public:
             std::string pathStr(modelPath);
             size_t lastSlash = pathStr.find_last_of('/');
             meta.modelName = (lastSlash != std::string::npos) ? pathStr.substr(lastSlash + 1) : pathStr;
-            LOGI("ModelMeta: nCtxTrain=%d, nEmbd=%d, nLayer=%d, nHead=%d, nParams=%lld, name=%s",
+            LOGD("ModelMeta: nCtxTrain=%d, nEmbd=%d, nLayer=%d, nHead=%d, nParams=%lld, name=%s",
                  meta.nCtxTrain, meta.nEmbd, meta.nLayer, meta.nHead,
                  meta.nParams, meta.modelName.c_str());
         }
@@ -2274,7 +2295,7 @@ public:
         // 设备上性能差（推理 0.4 t/s 异常慢），改为 AUTO（llama.cpp 自行判断是否启用，
         // 不支持的 GPU 自动回退标准 attention——成熟 Vulkan kernel 更快）
         ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
-        LOGI("Flash Attention set to AUTO (fallback-safe)");
+        LOGD("Flash Attention set to AUTO (fallback-safe)");
 
         // kv_unified：统一 seq 管理（living-kv 前提：多 seq 时 seq_cp 需要 kv_unified，否则 abort）。
         // 同时为 KV 记忆引擎（独立 seq 1，长文档 KV 持久化）提供多 seq 能力。
@@ -2297,11 +2318,11 @@ public:
         if (this->kvCacheType == 0) {
             ctx_params.type_k = GGML_TYPE_Q8_0;
             ctx_params.type_v = GGML_TYPE_Q8_0;
-            LOGI("KV cache quantized to Q8_0 (memory ~50%% saved)");
+            LOGD("KV cache quantized to Q8_0 (memory ~50%% saved)");
         } else if (this->kvCacheType == 2) {
             ctx_params.type_k = GGML_TYPE_Q4_0;
             ctx_params.type_v = GGML_TYPE_Q4_0;
-            LOGI("KV cache quantized to Q4_0 (memory ~75%% saved, hybrid model near-lossless)");
+            LOGD("KV cache quantized to Q4_0 (memory ~75%% saved, hybrid model near-lossless)");
         } else {
             ctx_params.type_k = GGML_TYPE_F16;
             ctx_params.type_v = GGML_TYPE_F16;
@@ -2332,23 +2353,23 @@ public:
             if (kvPerTokenBytes > 0 && kvBudgetBytes > 0) {
                 int maxCtxByBudget = (int) (kvBudgetBytes / kvPerTokenBytes);
                 if (contextSize > maxCtxByBudget) {
-                    LOGI("Memory pool budget (%dMB) limits n_ctx: %d -> %d (KV=%lld B/token, %d/%d layers have KV)",
+                    LOGD("Memory pool budget (%dMB) limits n_ctx: %d -> %d (KV=%lld B/token, %d/%d layers have KV)",
                          this->memoryPoolSize, contextSize, maxCtxByBudget,
                          (long long) kvPerTokenBytes, kvLayers, nLayer);
                     contextSize = maxCtxByBudget;
                     ctx_params.n_ctx = contextSize;
                 } else {
-                    LOGI("Memory pool budget (%dMB) OK for n_ctx=%d (KV=%lld B/token, %d/%d layers have KV, peak=%lldMB)",
+                    LOGD("Memory pool budget (%dMB) OK for n_ctx=%d (KV=%lld B/token, %d/%d layers have KV, peak=%lldMB)",
                          this->memoryPoolSize, contextSize, (long long) kvPerTokenBytes, kvLayers, nLayer,
                          (long long) ((kvPerTokenBytes * contextSize) / (1024 * 1024)));
                 }
             }
         }
 
-        LOGI("Creating context with n_ctx=%d, n_threads=%d, n_threads_batch=%d, n_batch=%d, n_ubatch=%d, n_gpu_layers=%d",
+        LOGD("Creating context with n_ctx=%d, n_threads=%d, n_threads_batch=%d, n_batch=%d, n_ubatch=%d, n_gpu_layers=%d",
              contextSize, threadCount, batchThreadCount, n_batch_actual, n_batch_actual, this->gpuLayers);
         
-        LOGI("Creating context with n_ctx=%d, n_threads=%d, n_batch=%d, n_ubatch=%d, n_gpu_layers=%d",
+        LOGD("Creating context with n_ctx=%d, n_threads=%d, n_batch=%d, n_ubatch=%d, n_gpu_layers=%d",
              contextSize, threadCount, n_batch_actual, n_batch_actual, this->gpuLayers);
         LOG_MEM("before_llama_init_from_model");
         
@@ -2363,7 +2384,7 @@ public:
             ctx = nullptr;
             // Q8_0/Q4_0 KV 在部分 GPU（Adreno Vulkan）shader 不兼容：按 "Q4_0→Q8_0→F16" 逐级回退
             if (this->kvCacheType == 2) {
-                LOGI("KV Q4_0 shader failed, retrying with Q8_0 KV cache...");
+                LOGD("KV Q4_0 shader failed, retrying with Q8_0 KV cache...");
                 this->kvCacheType = 0;
                 ctx_params.type_k = GGML_TYPE_Q8_0;
                 ctx_params.type_v = GGML_TYPE_Q8_0;
@@ -2392,7 +2413,7 @@ public:
                     }
                 }
             } else if (this->kvCacheType == 0) {
-                LOGI("KV Q8_0 shader failed, retrying with F16 KV cache...");
+                LOGD("KV Q8_0 shader failed, retrying with F16 KV cache...");
                 this->kvCacheType = 1;
                 ctx_params.type_k = GGML_TYPE_F16;
                 ctx_params.type_v = GGML_TYPE_F16;
@@ -2445,7 +2466,7 @@ public:
                             llama_free(ctx);
                             ctx = nullptr;
                         } else {
-                            LOGI("GPU warmup decode OK (shader pipelines compiled)");
+                            LOGD("GPU warmup decode OK (shader pipelines compiled)");
                             // 追加 batch-shape 预热：256 tokens 与真实 prefill 同 shape，
                             // 预编译 batch kernel，消除首轮全量 eval 的现场编译延迟
                             if (ctx != nullptr) {
@@ -2469,7 +2490,7 @@ public:
                                 if (drc2 != 0) {
                                     LOGW("GPU warmup batch decode failed (rc=%d), batch kernels may compile lazily", drc2);
                                 } else {
-                                    LOGI("GPU warmup batch decode OK: %d tokens in %.2fs (batch kernels precompiled)", warmupBatch, ws);
+                                    LOGD("GPU warmup batch decode OK: %d tokens in %.2fs (batch kernels precompiled)", warmupBatch, ws);
                                 }
                             }
                         }
@@ -2497,7 +2518,7 @@ public:
                 model = nullptr;
                 vocab = nullptr;
                 
-                LOGI("Releasing GPU resources and reloading with CPU only...");
+                LOGD("Releasing GPU resources and reloading with CPU only...");
                 this->gpuLayers = 0;
                 model_params.n_gpu_layers = 0;
                 
@@ -2518,7 +2539,7 @@ public:
                     return false;
                 }
                 
-                LOGI("Model reloaded with CPU mode in %llds", elapsed);
+                LOGD("Model reloaded with CPU mode in %llds", elapsed);
                 
                 vocab = llama_model_get_vocab(model);
                 if (vocab == nullptr) {
@@ -2528,7 +2549,7 @@ public:
                     return false;
                 }
                 
-                LOGI("Creating context with CPU mode...");
+                LOGD("Creating context with CPU mode...");
                 startTime = std::chrono::steady_clock::now();
                 try {
                     ctx = llama_init_from_model(model, ctx_params);
@@ -2550,7 +2571,7 @@ public:
                     return false;
                 }
                 
-                LOGI("Context created with CPU fallback in %llds", elapsed);
+                LOGD("Context created with CPU fallback in %llds", elapsed);
             } else {
                 LOGE("Failed to create context");
                 llama_model_free(model);
@@ -2566,14 +2587,14 @@ public:
         refreshSamplingParams();
         getChatTemplate();
         
-        LOGI("Context created successfully in %llds", elapsed);
+        LOGD("Context created successfully in %llds", elapsed);
         LOG_MEM("loadModel_complete");
-        LOGI("=== LOAD MODEL COMPLETE ===");
+        LOGD("=== LOAD MODEL COMPLETE ===");
         return true;
     }
     
     bool reinitializeContext() {
-        LOGI("Reinitializing context...");
+        LOGD("Reinitializing context...");
         
         // 保存当前参数
         std::string savedModelPath = modelPath;
@@ -2600,7 +2621,7 @@ public:
         }
         ctx_params.n_batch = n_batch_actual;
         
-        LOGI("Re-creating context with n_ctx=%d, n_threads=%d, n_batch=%d", 
+        LOGD("Re-creating context with n_ctx=%d, n_threads=%d, n_batch=%d", 
              savedContextSize, savedThreadCount, n_batch_actual);
         
         auto startTime = std::chrono::steady_clock::now();
@@ -2613,7 +2634,7 @@ public:
             return false;
         }
         
-        LOGI("Context reinitialized successfully in %llds", elapsed);
+        LOGD("Context reinitialized successfully in %llds", elapsed);
         return true;
     }
     
@@ -2632,7 +2653,7 @@ public:
         inferenceStartTime = std::chrono::steady_clock::now();
         currentTokenCount = 0;
         
-        LOGI("=== GENERATE START ===");
+        LOGD("=== GENERATE START ===");
         LOGI("Prompt length: %zu, maxTokens: %d, temp=%f, topP=%f, topK=%d", prompt.size(), maxTokens, temperature, topP, topK);
         LOG_MEM("generate_start");
         
@@ -2649,10 +2670,10 @@ public:
         
         // 直接使用原始prompt（Java层已经格式化了）
         const std::string& promptToUse = prompt;
-        LOGI("Using prompt directly (Java layer already formatted)");
+        LOGD("Using prompt directly (Java layer already formatted)");
         
         // Tokenize input - 和 simple.cpp 一样！
-        LOGI("Starting tokenization...");
+        LOGD("Starting tokenization...");
         int n_prompt = -llama_tokenize(vocab, promptToUse.c_str(), promptToUse.size(), NULL, 0, true, true);
         
         if (n_prompt < 0) {
@@ -2666,7 +2687,7 @@ public:
             return false;
         }
         
-        LOGI("Tokenization complete, %zu tokens", prompt_tokens.size());
+        LOGD("Tokenization complete, %zu tokens", prompt_tokens.size());
         
         // 只打印前20个token，避免大量日志导致内存问题
         size_t max_log_tokens = std::min(prompt_tokens.size(), (size_t)20);
@@ -2676,7 +2697,7 @@ public:
             int n = llama_token_to_piece(vocab, id, buf, sizeof(buf), 0, true);
             if (n >= 0) {
                 std::string s(buf, n);
-                LOGI("Prompt token %zu: %s", i, s.c_str());
+                LOGD("Prompt token %zu: %s", i, s.c_str());
             }
         }
         if (prompt_tokens.size() > 20) {
@@ -2686,13 +2707,13 @@ public:
         llama_memory_t mem = llama_get_memory(ctx);
         if (mem != nullptr) {
             llama_memory_clear(mem, true);
-            LOGI("KV cache cleared before new generation");
+            LOGD("KV cache cleared before new generation");
         } else {
             LOGE("llama_get_memory returned null in generate");
         }
         
         int n_ctx = llama_n_ctx(ctx);
-        LOGI("Context size: n_ctx=%d, prompt_tokens=%zu, maxTokens=%d", n_ctx, prompt_tokens.size(), maxTokens);
+        LOGD("Context size: n_ctx=%d, prompt_tokens=%zu, maxTokens=%d", n_ctx, prompt_tokens.size(), maxTokens);
         // 修复：maxTokens 是生成停止上限，不计入 context 预算（生成循环有 n_ctx-4 guard 优雅停止）。
         // 只校验 prompt 本体是否放得下，预留固定生成余量。
         const int GENERATION_RESERVE = 512;
@@ -2705,7 +2726,7 @@ public:
         // 分块解码 prompt（batch ≤ n_batch，防 llama_decode assert 崩溃）
         const int nBatch = llama_n_batch(ctx);
         const int bSize = nBatch > 0 ? nBatch : 256;
-        LOGI("Processing prompt as batches, size=%zu, n_batch=%d", prompt_tokens.size(), bSize);
+        LOGD("Processing prompt as batches, size=%zu, n_batch=%d", prompt_tokens.size(), bSize);
 
         int ret = 0;
         for (size_t offset = 0; offset < prompt_tokens.size(); offset += bSize) {
@@ -2717,9 +2738,9 @@ public:
                 break;
             }
         }
-        LOGI("llama_decode for prompt completed successfully");
+        LOGD("llama_decode for prompt completed successfully");
         
-        LOGI("Prompt evaluated successfully");
+        LOGD("Prompt evaluated successfully");
         
         int n_decode = 0;
         output = "";
@@ -2732,7 +2753,7 @@ public:
         
         while (n_remain > 0 && !shouldStop) {
             if (shouldStop) {
-                LOGI("Stop requested");
+                LOGD("Stop requested");
                 break;
             }
             // KV cache 满则停止，防止 llama_decode 位置越界触发 ggml_abort 崩溃
@@ -2745,13 +2766,13 @@ public:
             llama_sampler_accept(smpl, new_token_id);
             
             if (llama_vocab_is_eog(vocab, new_token_id)) {
-                LOGI("EOS token encountered");
+                LOGD("EOS token encountered");
                 break;
             }
             
             if (new_token_id == 151643 || new_token_id == 151644 || new_token_id == 151645 ||
                 new_token_id == 128000 || new_token_id == 128001 || new_token_id == 128008 || new_token_id == 128009) {
-                LOGI("Common EOS token ID detected: %d, stopping generation", new_token_id);
+                LOGD("Common EOS token ID detected: %d, stopping generation", new_token_id);
                 break;
             }
             
@@ -2769,13 +2790,13 @@ public:
                     // 那会**截断任何正文里出现 "assistant:" 的正常回答**（例如在讲提示词、
                     // 讲对话格式、或输出含该词的示例代码时）。已移除。
                     // 其余项是各模型真实的会话特殊 token，保留。
-                    LOGI("Stop word detected in token: '%s', stopping generation", s.c_str());
+                    LOGD("Stop word detected in token: '%s', stopping generation", s.c_str());
                     break;
                 }
                 
                 output += s;
                 if (n_decode % 10 == 0) {
-                    LOGI("Generated token %d: %s", n_decode, s.c_str());
+                    LOGD("Generated token %d: %s", n_decode, s.c_str());
                 }
             }
             
@@ -2800,7 +2821,7 @@ public:
     
     void releaseContext() {
         if (ctx) {
-            LOGI("Releasing context only (keeping model)");
+            LOGD("Releasing context only (keeping model)");
             llama_free(ctx);
             ctx = nullptr;
         }
@@ -2821,7 +2842,7 @@ public:
         int requiredTokens = promptTokens + maxOutputTokens;
         int availableTokens = contextSize - currentTokenCount;
 
-        LOGI("Context check: used=%d, required=%d, available=%d, contextSize=%d",
+        LOGD("Context check: used=%d, required=%d, available=%d, contextSize=%d",
              currentTokenCount, requiredTokens, availableTokens, contextSize);
 
         if (requiredTokens > availableTokens) {
@@ -2842,7 +2863,7 @@ public:
             return;
         }
 
-        LOGI("Clearing context, used tokens before: %d", currentTokenCount);
+        LOGD("Clearing context, used tokens before: %d", currentTokenCount);
 
         // 清理 KV cache
         // 必须使用软清理(false)：硬清理(true)会释放 Vulkan/OpenCL 后端的 KV GPU 缓冲区，
@@ -2859,7 +2880,7 @@ public:
         // 重置 token 计数
         currentTokenCount = 0;
 
-        LOGI("Context cleared (soft), freed tokens");
+        LOGD("Context cleared (soft), freed tokens");
     }
 
     void release() {
@@ -2868,7 +2889,7 @@ public:
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         
-        LOGI("Releasing resources");
+        LOGD("Releasing resources");
         
         // R3-4：释放前失效增量缓存记账
         kvCache.invalidate();
@@ -2887,7 +2908,7 @@ public:
         memoryPoolSize = 0;
         batchSize = 32;
         
-        LOGI("Model resources released (llama backend kept alive for next load)");
+        LOGD("Model resources released (llama backend kept alive for next load)");
     }
     
     bool isValid() const {
@@ -2898,7 +2919,7 @@ public:
         if (ctx != nullptr) return true;
         if (model == nullptr) return false;
 
-        LOGI("Creating context on demand: n_ctx=%d, n_threads=%d, n_batch=%d, gpu_layers=%d",
+        LOGD("Creating context on demand: n_ctx=%d, n_threads=%d, n_batch=%d, gpu_layers=%d",
              contextSize, threadCount, batchSize, gpuLayers);
         llama_context_params ctx_params = llama_context_default_params();
         ctx_params.n_ctx = contextSize;
@@ -2914,13 +2935,13 @@ public:
             LOGE("Failed to create context on demand");
             return false;
         }
-        LOGI("Context created on demand successfully with n_batch=%d", n_batch_actual);
+        LOGD("Context created on demand successfully with n_batch=%d", n_batch_actual);
         return true;
     }
     
     void stopGeneration() {
         shouldStop = true;
-        LOGI("Stop generation requested");
+        LOGD("Stop generation requested");
     }
     
     void clearHistory() {
@@ -2928,7 +2949,7 @@ public:
             llama_memory_t mem = llama_get_memory(ctx);
             if (mem != nullptr) {
                 llama_memory_clear(mem, true);
-                LOGI("History cleared (KV cache reset)");
+                LOGD("History cleared (KV cache reset)");
             }
         }
         // R3-4：清 KV 后失效增量缓存记账（seq_pos_max 校验为兜底，此处显式失效）
@@ -3042,7 +3063,7 @@ public:
     }
     
     void optimizeForPerformance() {
-        LOGI("Optimizing for performance");
+        LOGD("Optimizing for performance");
         if (threadCount < 4) {
             threadCount = 4;
         }
@@ -3241,7 +3262,7 @@ public:
         inferenceStartTime = std::chrono::steady_clock::now();
         currentTokenCount = 0;
         
-        LOGI("=== STREAM GENERATE START ===");
+        LOGD("=== STREAM GENERATE START ===");
         LOGI("Prompt length: %zu, maxTokens: %d, temp=%f, topP=%f, topK=%d, thinking=%d", prompt.size(), maxTokens, temperature, topP, topK, enableThinking);
         LOG_MEM("generateStream_start");
         
@@ -3265,13 +3286,13 @@ public:
             promptToUse += "<think>\n";
             LOGI("generateStream: enableThinking=true, appended <think>\\n");
         }
-        LOGI("Using prompt directly (Java layer already formatted)");
+        LOGD("Using prompt directly (Java layer already formatted)");
         
         // Tokenize the prompt
-        LOGI("Starting tokenization...");
+        LOGD("Starting tokenization...");
         std::vector<llama_token> tokens_list;
         int n_tokens = -llama_tokenize(vocab, promptToUse.c_str(), promptToUse.size(), NULL, 0, true, true);
-        LOGI("Token count estimate: %d", n_tokens);
+        LOGD("Token count estimate: %d", n_tokens);
         if (n_tokens < 0) {
             std::string error = "Failed to tokenize prompt";
             setLastError(error);
@@ -3293,20 +3314,20 @@ public:
             return false;
         }
         
-        LOGI("Tokenized prompt to %zu tokens", tokens_list.size());
+        LOGD("Tokenized prompt to %zu tokens", tokens_list.size());
         
         llama_memory_t mem = llama_get_memory(ctx);
         if (mem != nullptr) {
             // 使用软清除（false）：重置 KV 使用量但保留已分配的 GPU 缓冲区。
             // 硬清除（true）在 OpenCL 后端会释放缓冲，后续 llama_decode 触发 signal 6 崩溃
             llama_memory_clear(mem, false);
-            LOGI("KV cache soft-cleared before new generation");
+            LOGD("KV cache soft-cleared before new generation");
         } else {
             LOGE("llama_get_memory returned null, attempting seq_rm reset");
         }
         
         int n_ctx = llama_n_ctx(ctx);
-        LOGI("Context size: n_ctx=%d, prompt_tokens=%zu, maxTokens=%d", n_ctx, tokens_list.size(), maxTokens);
+        LOGD("Context size: n_ctx=%d, prompt_tokens=%zu, maxTokens=%d", n_ctx, tokens_list.size(), maxTokens);
         // 修复：maxTokens 是生成停止上限，不计入 context 预算（生成循环有 n_ctx-4 guard 优雅停止）。
         // 只校验 prompt 本体是否放得下，预留固定生成余量。
         const int GENERATION_RESERVE = 512;
@@ -3320,10 +3341,10 @@ public:
         }
         
         // 检查模型状态
-        LOGI("=== 检查模型状态 ===");
-        LOGI("Model pointer: %p", (void*)model);
-        LOGI("Context pointer: %p", (void*)ctx);
-        LOGI("Vocab pointer: %p", (void*)vocab);
+        LOGD("=== 检查模型状态 ===");
+        LOGD("Model pointer: %p", (void*)model);
+        LOGD("Context pointer: %p", (void*)ctx);
+        LOGD("Vocab pointer: %p", (void*)vocab);
         if (!isValid()) {
             std::string error = "Model, context, or vocab is null after tokenization";
             setLastError(error);
@@ -3337,7 +3358,7 @@ public:
             LOGI("llama_n_batch unavailable, using 256");
         }
         const int batchSize = n_batch > 0 ? n_batch : 256;
-        LOGI("Processing prompt as batches, size=%zu, n_batch=%d", tokens_list.size(), batchSize);
+        LOGD("Processing prompt as batches, size=%zu, n_batch=%d", tokens_list.size(), batchSize);
         LOG_MEM("before_prompt_decode");
 
         int ret = 0;
@@ -3361,7 +3382,7 @@ public:
             return false;
         }
         
-        LOGI("Prompt evaluated successfully");
+        LOGD("Prompt evaluated successfully");
         
         int n_remain = maxTokens;
         int n_decode = 0;
@@ -3404,14 +3425,14 @@ public:
             
             // Check for EOS (end of sequence) token
             if (llama_vocab_is_eog(vocab, new_token_id)) {
-                LOGI("EOS token detected, stopping generation");
+                LOGD("EOS token detected, stopping generation");
                 stopReason = "eos";
                 break;
             }
             
             if (new_token_id == 151643 || new_token_id == 151644 || new_token_id == 151645 ||
                 new_token_id == 128000 || new_token_id == 128001 || new_token_id == 128008 || new_token_id == 128009) {
-                LOGI("Common EOS token ID detected: %d, stopping generation", new_token_id);
+                LOGD("Common EOS token ID detected: %d, stopping generation", new_token_id);
                 stopReason = "eos";
                 break;
             }
@@ -3426,7 +3447,7 @@ public:
             if (token.find("<|im_end|>") != std::string::npos ||
                 token.find("</s>") != std::string::npos ||
                 token.find("<|im_sep|>") != std::string::npos) {
-                LOGI("Stop word detected in token, stopping generation");
+                LOGD("Stop word detected in token, stopping generation");
                 stopReason = "stop_word";
                 break;
             }
@@ -3514,7 +3535,7 @@ public:
         
         auto end = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
-        LOGI("=== STREAM GENERATE END ===");
+        LOGD("=== STREAM GENERATE END ===");
         LOGI("Generated %d tokens in %lld s", n_decode, elapsed);
         lastStopReason_ = stopReason;   // 供 chatJson fallback complete 事件回传（P0：截断可观测）
         
@@ -3567,7 +3588,7 @@ public:
         inferenceStartTime = std::chrono::steady_clock::now();
         currentTokenCount = 0;
 
-        LOGI("=== STREAM GENERATE INCREMENTAL START ===");
+        LOGD("=== STREAM GENERATE INCREMENTAL START ===");
         LOGI("Prompt length: %zu, maxTokens: %d, temp=%f, topP=%f, topK=%d, thinking=%d", prompt.size(), maxTokens, temperature, topP, topK, enableThinking);
         LOG_MEM("generateStreamIncremental_start");
 
@@ -3696,7 +3717,7 @@ public:
         int n_ctx = llama_n_ctx(ctx);
         kvCache.setContextSize(n_ctx);   // KV 监控：记录 n_ctx 供上下文占用率计算
         promptTotalTokens = (int)tokens_list.size();   // 完整 prompt 大小（含历史），供状态条统计显示
-        LOGI("Context size: n_ctx=%d, prompt_tokens=%zu, maxTokens=%d", n_ctx, tokens_list.size(), maxTokens);
+        LOGD("Context size: n_ctx=%d, prompt_tokens=%zu, maxTokens=%d", n_ctx, tokens_list.size(), maxTokens);
         // 修复：maxTokens 是生成停止上限，不计入 context 预算（生成循环有 n_ctx-4 guard 优雅停止）。
         // 只校验 prompt 本体是否放得下，预留固定生成余量。
         const int GENERATION_RESERVE = 512;
@@ -3743,7 +3764,7 @@ public:
             double ps = std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - prefillStart).count();
             double tps = ps > 0 ? (double) prefillTotalTokens / ps : 0.0;
-            LOGI("[PERF] Prefill: %d tokens in %.3fs (%.1f tok/s, n_batch=%d)",
+            LOGD("[PERF] Prefill: %d tokens in %.3fs (%.1f tok/s, n_batch=%d)",
                  prefillTotalTokens, ps, tps, batchSize);
         }
 
@@ -3809,7 +3830,7 @@ public:
             }
 
             if (llama_vocab_is_eog(vocab, new_token_id)) {
-                LOGI("EOS token detected, stopping generation");
+                LOGD("EOS token detected, stopping generation");
                 setStop(StopCause::EOS, "incr:eog");
                 setPhase(GenPhase::COMPLETE, "incr:eog");
                 stopReason = "eos";
@@ -3817,7 +3838,7 @@ public:
             }
             if (new_token_id == 151643 || new_token_id == 151644 || new_token_id == 151645 ||
                 new_token_id == 128000 || new_token_id == 128001 || new_token_id == 128008 || new_token_id == 128009) {
-                LOGI("Common EOS token ID detected: %d, stopping generation", new_token_id);
+                LOGD("Common EOS token ID detected: %d, stopping generation", new_token_id);
                 setStop(StopCause::EOS, "incr:eos_id");
                 setPhase(GenPhase::COMPLETE, "incr:eos_id");
                 stopReason = "eos";
@@ -3832,7 +3853,7 @@ public:
             if (token.find("<|im_end|>") != std::string::npos ||
                 token.find("</s>") != std::string::npos ||
                 token.find("<|im_sep|>") != std::string::npos) {
-                LOGI("Stop word detected in token, stopping generation");
+                LOGD("Stop word detected in token, stopping generation");
                 setStop(StopCause::STOP_WORD, "incr:stop_word");
                 setPhase(GenPhase::COMPLETE, "incr:stop_word");
                 stopReason = "stop_word";
@@ -3921,7 +3942,7 @@ public:
                     }
                     if (swMatchLen > 0) {
                         const std::string swText = stopBuf.substr(stopBuf.size() - swMatchLen);
-                        LOGI("Stop word matched (cross-token): '%s' len=%zu, stopping generation (text kept)",
+                        LOGD("Stop word matched (cross-token): '%s' len=%zu, stopping generation (text kept)",
                              swText.c_str(), swMatchLen);
                         setStop(StopCause::STOP_WORD, "incr:add_stop");
                         setPhase(GenPhase::COMPLETE, "incr:add_stop");
@@ -3954,10 +3975,10 @@ public:
         if (firstTokenLogged) {
             auto ftElapsed = std::chrono::duration<double>(firstTokenTime - start).count();
             auto totalElapsed = std::chrono::duration<double>(firstTokenTime - entryTime).count();
-            LOGI("[PERF] First token in %.3fs (from gen loop start; thinking=%d); total entry->first=%.3fs",
+            LOGD("[PERF] First token in %.3fs (from gen loop start; thinking=%d); total entry->first=%.3fs",
                  ftElapsed, (int)firstTokenWasThinking, totalElapsed);
         } else {
-            LOGI("[PERF] No token produced (stop=%s)", stopReason.c_str());
+            LOGD("[PERF] No token produced (stop=%s)", stopReason.c_str());
         }
 
         if (!thinkingEnded) {
@@ -3985,7 +4006,7 @@ public:
 
         auto end = std::chrono::steady_clock::now();
         auto elapsedTotal = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
-        LOGI("=== STREAM GENERATE INCREMENTAL END ===");
+        LOGD("=== STREAM GENERATE INCREMENTAL END ===");
         LOGI("Generated %d tokens in %lld s (stop=%s, incremental=%d, phase=%s)", n_decode, elapsedTotal, stopReason.c_str(), (int)kvCache.isIncremental(), phaseName(phase));
         setPhase(GenPhase::COMPLETE, "incr:end");
         lastStopReason_ = stopReason;   // 供 chatJson complete 事件回传（P0：截断可观测）
@@ -4015,7 +4036,7 @@ public:
     bool generateStreamFromMessages(const std::vector<std::pair<std::string, std::string>>& messages,
                                      int maxTokens, float temperature, float topP, int topK,
                                      bool enableThinking, TokenCallback callback) {
-        LOGI("=== STREAM GENERATE FROM MESSAGES START ===");
+        LOGD("=== STREAM GENERATE FROM MESSAGES START ===");
         LOGI("Messages count: %zu, maxTokens: %d, thinking=%d", messages.size(), maxTokens, (int)enableThinking);
 
         // 用 chat template 格式化消息（addAssistantStart=true，末尾加 assistant 开始标记）
@@ -4063,7 +4084,7 @@ public:
                            int maxTokens, float temperature, float topP, int topK,
                            bool enableThinking, TokenCallback callback,
                            ChatParseResult* outParseResult = nullptr) {
-        LOGI("=== GENERATE WITH TOOLS START ===");
+        LOGD("=== GENERATE WITH TOOLS START ===");
         LOGI("Messages: %zu, toolsJson len: %zu, maxTokens: %d, thinking=%d",
              messages.size(), toolsJson.size(), maxTokens, (int)enableThinking);
 
@@ -4130,7 +4151,7 @@ public:
         common_chat_params chat_params;
         try {
             chat_params = common_chat_templates_apply(chat_templates.get(), inputs);
-            LOGI("Chat template applied, prompt length: %zu, format: %s",
+            LOGD("Chat template applied, prompt length: %zu, format: %s",
                  chat_params.prompt.size(), common_chat_format_name(chat_params.format));
             // 提取模板思考标签（统一标签源），供流式思考段剥离
             mThinkStartTag = chat_params.thinking_start_tag;
@@ -4798,7 +4819,7 @@ public:
         std::vector<std::string> results(prompts.size());
         std::vector<std::thread> threads;
         
-        LOGI("=== BATCH GENERATE START ===");
+        LOGD("=== BATCH GENERATE START ===");
         LOGI("Processing %zu prompts in parallel", prompts.size());
         
         auto startTime = std::chrono::steady_clock::now();
@@ -4830,7 +4851,7 @@ public:
         auto endTime = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime).count();
         
-        LOGI("=== BATCH GENERATE END ===");
+        LOGD("=== BATCH GENERATE END ===");
         LOGI("Processed %zu prompts in %lld s", prompts.size(), elapsed);
         
         return results;
@@ -5021,7 +5042,7 @@ public:
         const char* chat_template = llama_model_chat_template(model, nullptr);
         if (chat_template != nullptr) {
             chatTemplate = chat_template;
-            LOGI("Got chat template from model: %s", chatTemplate.substr(0, 100).c_str());
+            LOGD("Got chat template from model: %s", chatTemplate.substr(0, 100).c_str());
         } else {
             chatTemplate = "(none, using ChatML fallback)";
             LOGI("No built-in chat template for %s, will use ChatML format", modelType.c_str());
@@ -5211,7 +5232,7 @@ public:
             return false;
         }
 
-        LOGI("=== STREAM GENERATE WITH IMAGE START ===");
+        LOGD("=== STREAM GENERATE WITH IMAGE START ===");
         LOGI("History count: %zu, Text length: %zu, Image: %s, maxTokens: %d",
              history.size(), userText.size(), imagePath.c_str(), maxTokens);
 
@@ -5326,7 +5347,7 @@ public:
             llama_sampler_accept(smpl, new_token_id);
 
             if (llama_vocab_is_eog(vocab, new_token_id)) {
-                LOGI("EOS token detected");
+                LOGD("EOS token detected");
                 break;
             }
 
@@ -5350,7 +5371,7 @@ public:
 
         llama_sampler_free(smpl);
         callback(fullText, true, "");
-        LOGI("=== STREAM GENERATE WITH IMAGE END ===");
+        LOGD("=== STREAM GENERATE WITH IMAGE END ===");
         return true;
     }
 
@@ -5700,7 +5721,7 @@ private:
         }
         total_tokens_in_kv += tokens.size();
         current_pos += tokens.size();
-        LOGI("Encoded batch: %zu tokens, total kv_tokens=%d", tokens.size(), total_tokens_in_kv);
+        LOGD("Encoded batch: %zu tokens, total kv_tokens=%d", tokens.size(), total_tokens_in_kv);
         return true;
     }
 
@@ -5861,9 +5882,9 @@ public:
                                  int ctxSize, int nThreads,
                                  const std::string& globalPrompt, const std::string& systemPrompt, const std::string& normalPrompt) {
         auto totalStartTime = std::chrono::steady_clock::now();
-        LOGI("=== NativeChatContext INIT (reusing existing context) ===");
-        LOGI("  ctxSize=%d, nThreads=%d", ctxSize, nThreads);
-        LOGI("  globalPromptLen=%zu, systemPromptLen=%zu, normalPromptLen=%zu",
+        LOGD("=== NativeChatContext INIT (reusing existing context) ===");
+        LOGD("  ctxSize=%d, nThreads=%d", ctxSize, nThreads);
+        LOGD("  globalPromptLen=%zu, systemPromptLen=%zu, normalPromptLen=%zu",
              globalPrompt.length(), systemPrompt.length(), normalPrompt.length());
 
         this->model = existingModel;
@@ -5882,20 +5903,20 @@ public:
             return false;
         }
 
-        LOGI("Using existing context: n_ctx=%d", llama_n_ctx(ctx));
+        LOGD("Using existing context: n_ctx=%d", llama_n_ctx(ctx));
         LOG_MEM("chat_ctx_reusing");
 
         auto stepStartTime = std::chrono::steady_clock::now();
         llama_memory_t mem = llama_get_memory(ctx);
         if (mem != nullptr) {
             llama_memory_clear(mem, true);
-            LOGI("KV cache cleared before chat context init");
+            LOGD("KV cache cleared before chat context init");
         } else {
             LOGE("llama_get_memory returned null");
         }
         auto stepEndTime = std::chrono::steady_clock::now();
         auto stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
-        LOGI("[PERF] Clear KV cache: %lldms", stepElapsed);
+        LOGD("[PERF] Clear KV cache: %lldms", stepElapsed);
 
         current_pos = 0;
         total_tokens_in_kv = 0;
@@ -5913,13 +5934,13 @@ public:
                 LOGE("Failed to apply chat template for system prompt");
                 return false;
             }
-            LOGI("Chat template applied: %zu chars (systemContent len=%zu)", formatted.length(), systemContent.length());
+            LOGD("Chat template applied: %zu chars (systemContent len=%zu)", formatted.length(), systemContent.length());
 
             stepStartTime = std::chrono::steady_clock::now();
             global_tokens = tokenize(formatted, true);
             stepEndTime = std::chrono::steady_clock::now();
             stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
-            LOGI("[PERF] Tokenize system prompt: %zu tokens in %lldms", global_tokens.size(), stepElapsed);
+            LOGD("[PERF] Tokenize system prompt: %zu tokens in %lldms", global_tokens.size(), stepElapsed);
             if (global_tokens.empty()) {
                 LOGE("Failed to tokenize system prompt - tokenize returned empty");
                 return false;
@@ -5935,12 +5956,12 @@ public:
             }
             stepEndTime = std::chrono::steady_clock::now();
             stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
-            LOGI("[PERF] Encode system prompt: %lldms", stepElapsed);
+            LOGD("[PERF] Encode system prompt: %lldms", stepElapsed);
             sysTurn.end_pos = current_pos;
             system_end_pos = current_pos;
             turns.push_back(sysTurn);
             prev_formatted_len = (int)formatted.size();
-            LOGI("System prompt encoded, kv_tokens=%d", total_tokens_in_kv);
+            LOGD("System prompt encoded, kv_tokens=%d", total_tokens_in_kv);
         } else {
             LOGI("All system prompts are empty, skipping");
             prev_formatted_len = 0;
@@ -5948,7 +5969,7 @@ public:
 
         auto totalEndTime = std::chrono::steady_clock::now();
         auto totalElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(totalEndTime - totalStartTime).count();
-        LOGI("NativeChatContext initialized (reusing context): n_ctx=%d, global_tokens=%zu, system_tokens=%zu, normal_tokens=%zu, kv_tokens=%d, total=%lldms",
+        LOGD("NativeChatContext initialized (reusing context): n_ctx=%d, global_tokens=%zu, system_tokens=%zu, normal_tokens=%zu, kv_tokens=%d, total=%lldms",
              n_ctx, global_tokens.size(), system_tokens.size(), normal_tokens.size(), total_tokens_in_kv, totalElapsed);
         LOG_MEM("chat_init_complete_reuse");
         return true;
@@ -5979,9 +6000,9 @@ public:
     }
 
     bool initFromExisting(llama_model* existingModel, const llama_vocab* existingVocab, int ctxSize, int nThreads, const std::string& globalPrompt, const std::string& systemPrompt, const std::string& normalPrompt) {
-        LOGI("=== NativeChatContext INIT (from existing model) ===");
-        LOGI("  ctxSize=%d, nThreads=%d", ctxSize, nThreads);
-        LOGI("  globalPromptLen=%zu, systemPromptLen=%zu, normalPromptLen=%zu",
+        LOGD("=== NativeChatContext INIT (from existing model) ===");
+        LOGD("  ctxSize=%d, nThreads=%d", ctxSize, nThreads);
+        LOGD("  globalPromptLen=%zu, systemPromptLen=%zu, normalPromptLen=%zu",
              globalPrompt.length(), systemPrompt.length(), normalPrompt.length());
 
         this->model = existingModel;
@@ -6032,7 +6053,7 @@ public:
                 LOGE("Failed to apply chat template for system prompt");
                 return false;
             }
-            LOGI("Chat template applied: %zu chars", formatted.length());
+            LOGD("Chat template applied: %zu chars", formatted.length());
             global_tokens = tokenize(formatted, true);
             if (global_tokens.empty()) {
                 LOGE("Failed to tokenize system prompt - tokenize returned empty");
@@ -6052,13 +6073,13 @@ public:
             system_end_pos = current_pos;
             turns.push_back(sysTurn);
             prev_formatted_len = (int)formatted.size();
-            LOGI("System prompt encoded, kv_tokens=%d", total_tokens_in_kv);
+            LOGD("System prompt encoded, kv_tokens=%d", total_tokens_in_kv);
         } else {
             LOGI("All system prompts are empty, skipping");
             prev_formatted_len = 0;
         }
 
-        LOGI("NativeChatContext initialized: n_ctx=%d, global_tokens=%zu, system_tokens=%zu, normal_tokens=%zu, kv_tokens=%d",
+        LOGD("NativeChatContext initialized: n_ctx=%d, global_tokens=%zu, system_tokens=%zu, normal_tokens=%zu, kv_tokens=%d",
              n_ctx, global_tokens.size(), system_tokens.size(), normal_tokens.size(), total_tokens_in_kv);
         LOG_MEM("chat_init_complete");
         return true;
@@ -6094,7 +6115,7 @@ public:
         }
         
         auto totalStartTime = std::chrono::steady_clock::now();
-        LOGI("=== CHAT SEND START === user_msg_len=%zu, maxTokens=%d, thinking=%d", userMessage.size(), maxTokens, enableThinking);
+        LOGD("=== CHAT SEND START === user_msg_len=%zu, maxTokens=%d, thinking=%d", userMessage.size(), maxTokens, enableThinking);
 
         // 记录思考模式：模板格式化统一用它（enable_thinking=false 可关闭 thinking 模型默认思考）
         thinkingEnabled = enableThinking;
@@ -6138,7 +6159,7 @@ public:
         std::vector<llama_token> user_tokens = tokenize(prompt, false);
         auto stepEndTime = std::chrono::steady_clock::now();
         auto stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
-        LOGI("[PERF] Tokenize user message: %zu tokens in %lldms (promptLen=%zu, prevLen=%d, formattedLen=%zu)",
+        LOGD("[PERF] Tokenize user message: %zu tokens in %lldms (promptLen=%zu, prevLen=%d, formattedLen=%zu)",
              user_tokens.size(), stepElapsed, prompt.size(), prev_formatted_len, formatted.size());
 
         if (user_tokens.empty()) {
@@ -6180,7 +6201,7 @@ public:
         }
         stepEndTime = std::chrono::steady_clock::now();
         stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
-        LOGI("[PERF] Context shift check: %lldms", stepElapsed);
+        LOGD("[PERF] Context shift check: %lldms", stepElapsed);
 
         if (total_tokens_in_kv + (int)user_tokens.size() >= n_ctx - 4) {
             chatMessages.pop_back();
@@ -6210,11 +6231,11 @@ public:
         }
 
         stepStartTime = std::chrono::steady_clock::now();
-        LOGI("[PERF] Starting encode user tokens: %zu tokens, kv_before=%d", user_tokens.size(), total_tokens_in_kv);
+        LOGD("[PERF] Starting encode user tokens: %zu tokens, kv_before=%d", user_tokens.size(), total_tokens_in_kv);
         if (!encodeTokens(user_tokens)) {
             stepEndTime = std::chrono::steady_clock::now();
             stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
-            LOGI("[PERF] Encode user tokens FAILED in %lldms", stepElapsed);
+            LOGD("[PERF] Encode user tokens FAILED in %lldms", stepElapsed);
             isGenerating.store(false);
             lock.unlock();
             if (shouldStop) {
@@ -6226,7 +6247,7 @@ public:
         }
         stepEndTime = std::chrono::steady_clock::now();
         stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
-        LOGI("[PERF] Encode user tokens: %lldms, kv_after=%d", stepElapsed, total_tokens_in_kv);
+        LOGD("[PERF] Encode user tokens: %lldms, kv_after=%d", stepElapsed, total_tokens_in_kv);
 
         userTurn.end_pos = current_pos;
         turns.push_back(userTurn);
@@ -6246,7 +6267,7 @@ public:
         }
         stepEndTime = std::chrono::steady_clock::now();
         stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
-        LOGI("[PERF] Sampler init: %lldms", stepElapsed);
+        LOGD("[PERF] Sampler init: %lldms", stepElapsed);
 
         std::string fullResponse;
         fullResponse.reserve(maxTokens * 4);
@@ -6285,7 +6306,7 @@ public:
         const std::string qwenToolBegin = std::string("\xe2\x96\x85") + "tool" + std::string("\xe2\x96\x81") + "call" + std::string("\xe2\x96\x81") + "begin" + std::string("\xe2\x96\x85");
 
         stepStartTime = std::chrono::steady_clock::now();
-        LOGI("[PERF] Starting generation loop...");
+        LOGD("[PERF] Starting generation loop...");
 
         auto genStartTime = std::chrono::steady_clock::now();
         const long long TIMEOUT_MS = 600000;
@@ -6449,7 +6470,7 @@ public:
 
         stepEndTime = std::chrono::steady_clock::now();
         stepElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stepEndTime - stepStartTime).count();
-        LOGI("[PERF] Generation loop: %d tokens in %lldms (%.2f t/s)", n_decode, stepElapsed, n_decode > 0 ? (n_decode * 1000.0f / stepElapsed) : 0);
+        LOGD("[PERF] Generation loop: %d tokens in %lldms (%.2f t/s)", n_decode, stepElapsed, n_decode > 0 ? (n_decode * 1000.0f / stepElapsed) : 0);
 
         llama_sampler_free(smpl);
 
@@ -6488,7 +6509,7 @@ public:
 
         auto totalEndTime = std::chrono::steady_clock::now();
         auto totalElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(totalEndTime - totalStartTime).count();
-        LOGI("=== CHAT SEND COMPLETE === total=%lldms, tokens=%d, kv_total=%d, turns=%zu, tool_call=%d",
+        LOGD("=== CHAT SEND COMPLETE === total=%lldms, tokens=%d, kv_total=%d, turns=%zu, tool_call=%d",
              totalElapsed, n_decode, total_tokens_in_kv, turns.size(), isToolCallResponse ? 1 : 0);
 
         // 解锁后再调用回调，防止死锁
@@ -6621,7 +6642,7 @@ public:
         int requiredTokens = promptTokens + maxOutputTokens;
         int availableTokens = n_ctx - total_tokens_in_kv;
 
-        LOGI("Context check: used=%d, required=%d, available=%d, n_ctx=%d",
+        LOGD("Context check: used=%d, required=%d, available=%d, n_ctx=%d",
              total_tokens_in_kv, requiredTokens, availableTokens, n_ctx);
 
         if (requiredTokens > availableTokens) {
@@ -6641,7 +6662,7 @@ public:
             return;
         }
 
-        LOGI("Clearing context, used tokens before: %d", total_tokens_in_kv);
+        LOGD("Clearing context, used tokens before: %d", total_tokens_in_kv);
 
         // 清理 KV cache
         // 必须使用软清理(false)：硬清理(true)会释放 Vulkan/OpenCL 后端的 KV GPU 缓冲区，
@@ -6658,7 +6679,7 @@ public:
         chatMessages.clear();
         prev_formatted_len = 0;
 
-        LOGI("Context cleared (soft), freed all tokens");
+        LOGD("Context cleared (soft), freed all tokens");
     }
 
     bool updatePrompts(const std::string& globalPrompt, const std::string& systemPrompt, const std::string& normalPrompt) {
@@ -6802,7 +6823,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetResolvedBackend(
 JNIEXPORT jlong JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatCreate(
     JNIEnv* env, jclass, jstring modelPath, jint ctxSize, jint nThreads, jstring globalPrompt, jstring systemPrompt, jstring normalPrompt) {
-    LOGI("nativeChatCreate called");
+    LOGD("nativeChatCreate called");
 
     if (s_helperContext == nullptr || !s_helperContext->isValid()) {
         LOGE("nativeChatCreate: s_helperContext not initialized, model must be loaded first");
@@ -6832,7 +6853,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatCreate(
     }
 
     g_chatContext = new NativeChatContext();
-    LOGI("nativeChatCreate: reusing existing InferenceContext for chat");
+    LOGD("nativeChatCreate: reusing existing InferenceContext for chat");
     bool ok = g_chatContext->initFromExistingContext(
         s_helperContext->getModel(),
         s_helperContext->getLlamaContext(),
@@ -7695,7 +7716,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerate(
     jfloat temperature,
     jfloat topP,
     jint topK) {
-    LOGI("=== LlamaHelper_nativeGenerate START ===");
+    LOGD("=== LlamaHelper_nativeGenerate START ===");
     LOGI("LlamaHelper: maxTokens=%d, temperature=%f, topP=%f, topK=%d", maxTokens, temperature, topP, topK);
     
     if (s_helperContext == nullptr) {
@@ -8183,7 +8204,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetModelArchitecture(
         int nameLen = llama_model_meta_val_str(model, "general.name", buf, sizeof(buf));
         if (nameLen < 0) return env->NewStringUTF("");
     }
-    LOGI("Model architecture: %s", buf);
+    LOGD("Model architecture: %s", buf);
     return env->NewStringUTF(buf);
 }
 

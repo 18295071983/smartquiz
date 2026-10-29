@@ -668,7 +668,12 @@ public class LogsActivity extends BaseActivity {
                         ok = true;
                         break;
                     case TAB_ENGINE:
-                        // 引擎日志只在进程内存环里，drain 即清空；这里标记成功即可
+                        // 引擎日志已落盘：清空文件（native 用 append 打开，截断后继续从末尾写）
+                        File engineLog = new File(getFilesDir(), "oilquiz/logs/engine_logs.txt");
+                        if (engineLog.exists()) {
+                            java.io.FileWriter fw = new java.io.FileWriter(engineLog, false);
+                            fw.close();
+                        }
                         ok = true;
                         break;
                 }

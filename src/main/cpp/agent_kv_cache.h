@@ -28,6 +28,8 @@
 
 #include "engine_log.h"
 #define AGENT_KV_LOG_TAG "AgentKvCache"
+// 诊断细节：只进 logcat（DEBUG），不进引擎日志环/落盘
+#define AGENT_KV_LOGD_KV(...) do { __android_log_print(ANDROID_LOG_DEBUG, AGENT_KV_LOG_TAG, __VA_ARGS__); } while (0)
 #define AGENT_KV_LOGI(...) do { __android_log_print(ANDROID_LOG_INFO, AGENT_KV_LOG_TAG, __VA_ARGS__);     engineLogAppend(ANDROID_LOG_INFO, AGENT_KV_LOG_TAG, __VA_ARGS__); } while (0)
 #define AGENT_KV_LOGW(...) do { __android_log_print(ANDROID_LOG_WARN, AGENT_KV_LOG_TAG, __VA_ARGS__);     engineLogAppend(ANDROID_LOG_WARN, AGENT_KV_LOG_TAG, __VA_ARGS__); } while (0)
 #define AGENT_KV_LOGE(...) do { __android_log_print(ANDROID_LOG_ERROR, AGENT_KV_LOG_TAG, __VA_ARGS__);     engineLogAppend(ANDROID_LOG_ERROR, AGENT_KV_LOG_TAG, __VA_ARGS__); } while (0)

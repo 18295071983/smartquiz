@@ -47,7 +47,7 @@ void AgentKvCache::plan(const std::vector<llama_token>& tokensList, llama_memory
         else if (matchedLen_ == 0) fullEvalReason_ = "no_prefix_match";
         else if (mem == nullptr) fullEvalReason_ = "memory_null";
         else fullEvalReason_ = "seq_pos_mismatch";
-        AGENT_KV_LOGI("FULL EVAL reason: %s (valid=%d, cached=%zu, matched=%d, new=%zu, cachedNPast=%d)",
+        AGENT_KV_LOGD_KV("FULL EVAL reason: %s (valid=%d, cached=%zu, matched=%d, new=%zu, cachedNPast=%d)",
                       fullEvalReason_, (int)kvCacheValid_, cachedTokens_.size(),
                       matchedLen_, tokensList.size(), cachedNPast_);
     }
@@ -63,7 +63,7 @@ void AgentKvCache::dumpStats() {
     long total = planCount_;
     double hit = hitRate();
     double usage = ctxUsage();
-    AGENT_KV_LOGI("KV-STATS: plans=%ld inc=%d part=%d full=%d hit=%.1f%% "
+    AGENT_KV_LOGD_KV("KV-STATS: plans=%ld inc=%d part=%d full=%d hit=%.1f%% "
                   "ctx_usage=%.1f%% (cachedNPast=%d/%d)",
                   total, incCount_, partCount_, fullCount_, hit * 100.0,
                   usage * 100.0, cachedNPast_, ctxSize_);
