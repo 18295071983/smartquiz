@@ -79,7 +79,7 @@ static void install_fatal_signal_handlers() {
                isGenerating 会永久卡在 true，必须在此强制复位，否则后续所有推理都被拒绝 */ \
             if (s_helperContext != nullptr && s_helperContext->isCurrentlyGenerating()) { \
                 s_helperContext->forceResetGeneration(); \
-                LOGI("isGenerating flag reset after crash signal %d", _sig); \
+                LOGV("isGenerating flag reset after crash signal %d", _sig); \
             } \
             if ((onErrorMethod) != nullptr && (callback) != nullptr) { \
                 std::string _errMsg = "Native inference crashed (signal " + std::to_string(_sig) + ")"; \
@@ -164,6 +164,23 @@ void engineLogSetFile(const char* path) {
     g_engineLogFilePath = (path != nullptr) ? path : "";
     g_engineLogFileBytes = 0;
     if (!g_engineLogFilePath.empty()) {
+        // 旧版本日志格式没有头标记：首次升级时整份丢弃，避免历史调试流水继续占满列表
+        bool hasHeader = false;
+        FILE* rf = fopen(g_engineLogFilePath.c_str(), "rb");
+        if (rf != nullptr) {
+            char hdr[32] = {0};
+            size_t r = fread(hdr, 1, sizeof(hdr) - 1, rf);
+            (void) r;
+            hasHeader = strncmp(hdr, "#ENGINE_LOG_V2", 14) == 0;
+            fclose(rf);
+        }
+        if (!hasHeader) {
+            FILE* wf = fopen(g_engineLogFilePath.c_str(), "wb");
+            if (wf != nullptr) {
+                fputs("#ENGINE_LOG_V2\n", wf);
+                fclose(wf);
+            }
+        }
         g_engineLogFileFp = fopen(g_engineLogFilePath.c_str(), "ab");
         if (g_engineLogFileFp != nullptr) {
             fseek(g_engineLogFileFp, 0, SEEK_END);
@@ -266,6 +283,9 @@ void engineLogAppend(int prio, const char* tag, const char* fmt, ...) {
 #define LOGE(...) do { __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__); \
     engineLogAppend(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__); } while (0)
 
+// 已判定"不需要产出"的调试日志：保留调用点语法，编译期丢弃
+#define LOGV(...) ((void)0)
+
 // ========== llama.cpp 日志回调 ==========
 // 将 llama.cpp 内部日志转发到 Android logcat，便于诊断模型加载失败原因
 static void llama_log_callback_impl(enum ggml_log_level level, const char * text, void * user_data) {
@@ -276,9 +296,8 @@ static void llama_log_callback_impl(enum ggml_log_level level, const char * text
     switch (level) {
         case GGML_LOG_LEVEL_ERROR:  LOGE("[llama] %s", text); break;
         case GGML_LOG_LEVEL_WARN:   LOGW("[llama] %s", text); break;
-        case GGML_LOG_LEVEL_INFO:   LOGI("[llama] %s", text); break;
-        case GGML_LOG_LEVEL_DEBUG:  LOGD("[llama] %s", text); break;
-        default: LOGI("[llama] %s", text); break;
+        // INFO/DEBUG：llama.cpp 的建图/张量/耗时细节，用户视图不需要，直接丢弃
+        default: break;
     }
 }
 
@@ -896,7 +915,7 @@ static size_t getProcessVM() {
     return vm;
 }
 
-#define LOG_MEM(step) LOGI("[MEM] %s: RSS=%.1fMB, VM=%.1fMB", step, getProcessRSS()/1048576.0, getProcessVM()/1048576.0)
+#define LOG_MEM(step) ((void)0)
 
 // 定义Android日志常量
 #define ANDROID_LOG_DEBUG 3
@@ -1800,7 +1819,7 @@ public:
                 }
             }
         } else {
-            LOGI("Llama backend already initialized, skipping");
+            LOGV("Llama backend already initialized, skipping");
         }
     }
     
@@ -1883,7 +1902,7 @@ public:
         LOGD("=== LOAD MODEL START ===");
         LOG_MEM("loadModel_start");
         LOGD("Loading model: %s", modelPath.c_str());
-        LOGI("Context size: %d, Threads: %d, GPU layers: %d, Batch size: %d", 
+        LOGV("Context size: %d, Threads: %d, GPU layers: %d, Batch size: %d", 
              contextSize, this->threadCount, this->gpuLayers, this->batchSize);
         
         FILE* fileCheck = fopen(modelPath.c_str(), "rb");
@@ -1929,10 +1948,10 @@ public:
         bool hasGPU = false;
         size_t gpuTotalMemory = 0;
 
-        LOGI("Checking available devices for GPU acceleration...");
+        LOGV("Checking available devices for GPU acceleration...");
         
         if (s_detectedGpuMemory > 0) {
-            LOGI("Using previously detected GPU memory from OpenCL: %zu MB", s_detectedGpuMemory / 1024 / 1024);
+            LOGV("Using previously detected GPU memory from OpenCL: %zu MB", s_detectedGpuMemory / 1024 / 1024);
             gpuTotalMemory = s_detectedGpuMemory;
         }
         
@@ -1967,7 +1986,7 @@ public:
                     if (totalMem > 0) {
                         gpuTotalMemory = std::max(gpuTotalMemory, totalMem);
                     } else if (s_detectedGpuMemory > 0) {
-                        LOGI("ggml returned 0 memory, using OpenCL detected memory: %zu MB", s_detectedGpuMemory / 1024 / 1024);
+                        LOGV("ggml returned 0 memory, using OpenCL detected memory: %zu MB", s_detectedGpuMemory / 1024 / 1024);
                     }
                 }
             }
@@ -2187,7 +2206,7 @@ public:
                 s_gpuTested = true;
                 this->gpuLayers = 0;
                 model_params.n_gpu_layers = 0;
-                LOGI("Retrying with CPU only...");
+                LOGV("Retrying with CPU only...");
                 
                 startTime = std::chrono::steady_clock::now();
                 try {
@@ -2216,10 +2235,10 @@ public:
             if (this->gpuLayers > 0) {
                 s_gpuTested = true;
                 s_gpuWorking = true;
-                LOGI("GPU mode working correctly with %d layers", this->gpuLayers);
+                LOGV("GPU mode working correctly with %d layers", this->gpuLayers);
             } else {
                 s_gpuWorking = false;
-                LOGI("CPU mode working");
+                LOGV("CPU mode working");
             }
         }
         
@@ -2252,7 +2271,7 @@ public:
         }
         
         int vocabSize = llama_vocab_n_tokens(vocab);
-        LOGI("Vocabulary loaded with %d tokens", vocabSize);
+        LOGV("Vocabulary loaded with %d tokens", vocabSize);
 
         llama_context_params ctx_params = llama_context_default_params();
         ctx_params.n_ctx = contextSize;
@@ -2280,7 +2299,7 @@ public:
         int n_batch_actual = batchSize;
         if (this->gpuLayers > 0 && n_batch_actual < 512) {
             n_batch_actual = 512;
-            LOGI("GPU mode: increasing batch size to %d for prefill throughput (capped 512 to limit peak memory)", n_batch_actual);
+            LOGV("GPU mode: increasing batch size to %d for prefill throughput (capped 512 to limit peak memory)", n_batch_actual);
         }
         if (n_batch_actual > MAX_BATCH_SIZE) {
             n_batch_actual = MAX_BATCH_SIZE;
@@ -2300,7 +2319,7 @@ public:
         // kv_unified：统一 seq 管理（living-kv 前提：多 seq 时 seq_cp 需要 kv_unified，否则 abort）。
         // 同时为 KV 记忆引擎（独立 seq 1，长文档 KV 持久化）提供多 seq 能力。
         ctx_params.kv_unified = true;
-        LOGI("KV cache unified seq management enabled (kv_unified=true)");
+        LOGV("KV cache unified seq management enabled (kv_unified=true)");
 
         // n_rs_seq 保持默认 0（不预留 recurrent-state 回滚快照）。
         //
@@ -2398,7 +2417,7 @@ public:
                     ctx = nullptr;
                 }
                 if (ctx == nullptr) {
-                    LOGI("KV Q8_0 retry failed, falling back to F16 KV cache...");
+                    LOGV("KV Q8_0 retry failed, falling back to F16 KV cache...");
                     this->kvCacheType = 1;
                     ctx_params.type_k = GGML_TYPE_F16;
                     ctx_params.type_v = GGML_TYPE_F16;
@@ -2654,7 +2673,7 @@ public:
         currentTokenCount = 0;
         
         LOGD("=== GENERATE START ===");
-        LOGI("Prompt length: %zu, maxTokens: %d, temp=%f, topP=%f, topK=%d", prompt.size(), maxTokens, temperature, topP, topK);
+        LOGV("Prompt length: %zu, maxTokens: %d, temp=%f, topP=%f, topK=%d", prompt.size(), maxTokens, temperature, topP, topK);
         LOG_MEM("generate_start");
         
         if (!isValid()) {
@@ -2666,7 +2685,7 @@ public:
         // 创建 sampler chain（统一走 buildSampler，参数按模型档位）
         struct llama_sampler * smpl = buildSampler(temperature, topP, topK, {});
         
-        LOGI("Context is valid, starting generation");
+        LOGV("Context is valid, starting generation");
         
         // 直接使用原始prompt（Java层已经格式化了）
         const std::string& promptToUse = prompt;
@@ -2701,7 +2720,7 @@ public:
             }
         }
         if (prompt_tokens.size() > 20) {
-            LOGI("... (%zu more tokens not logged)", prompt_tokens.size() - 20);
+            LOGV("... (%zu more tokens not logged)", prompt_tokens.size() - 20);
         }
         
         llama_memory_t mem = llama_get_memory(ctx);
@@ -2745,7 +2764,7 @@ public:
         int n_decode = 0;
         output = "";
         
-        LOGI("Starting generation loop, maxTokens=%d", maxTokens);
+        LOGV("Starting generation loop, maxTokens=%d", maxTokens);
         
         int n_remain = maxTokens;
         // 当前 KV cache 位置：prompt 已全部写入，后续每生成一个 token 位置 +1
@@ -2758,7 +2777,7 @@ public:
             }
             // KV cache 满则停止，防止 llama_decode 位置越界触发 ggml_abort 崩溃
             if (n_past >= n_ctx - 4) {
-                LOGI("Context full, stopping generation (n_past=%d, n_ctx=%d)", n_past, n_ctx);
+                LOGV("Context full, stopping generation (n_past=%d, n_ctx=%d)", n_past, n_ctx);
                 break;
             }
             
@@ -2815,7 +2834,7 @@ public:
         
         llama_sampler_free(smpl);
         
-        LOGI("Generation completed, output length: %zu, decoded %d tokens", output.length(), n_decode);
+        LOGV("Generation completed, output length: %zu, decoded %d tokens", output.length(), n_decode);
         return !output.empty();
     }
     
@@ -3263,7 +3282,7 @@ public:
         currentTokenCount = 0;
         
         LOGD("=== STREAM GENERATE START ===");
-        LOGI("Prompt length: %zu, maxTokens: %d, temp=%f, topP=%f, topK=%d, thinking=%d", prompt.size(), maxTokens, temperature, topP, topK, enableThinking);
+        LOGV("Prompt length: %zu, maxTokens: %d, temp=%f, topP=%f, topK=%d, thinking=%d", prompt.size(), maxTokens, temperature, topP, topK, enableThinking);
         LOG_MEM("generateStream_start");
         
         if (!isValid()) {
@@ -3284,7 +3303,7 @@ public:
         std::string promptToUse = prompt;
         if (enableThinking) {
             promptToUse += "<think>\n";
-            LOGI("generateStream: enableThinking=true, appended <think>\\n");
+            LOGV("generateStream: enableThinking=true, appended <think>\\n");
         }
         LOGD("Using prompt directly (Java layer already formatted)");
         
@@ -3355,7 +3374,7 @@ public:
         // 分块解码 prompt（batch ≤ n_batch，否则 llama_decode 对单 batch 超 n_batch 会 assert 崩溃）
         const int n_batch = llama_n_batch(ctx);
         if (n_batch <= 0) {
-            LOGI("llama_n_batch unavailable, using 256");
+            LOGV("llama_n_batch unavailable, using 256");
         }
         const int batchSize = n_batch > 0 ? n_batch : 256;
         LOGD("Processing prompt as batches, size=%zu, n_batch=%d", tokens_list.size(), batchSize);
@@ -3406,7 +3425,7 @@ public:
         while (n_remain > 0 && !shouldStop) {
             // KV cache 满则停止，防止 llama_decode 位置越界触发 ggml_abort 崩溃
             if (n_past >= n_ctx - 4) {
-                LOGI("Context full, stopping generation (n_past=%d, n_ctx=%d)", n_past, n_ctx);
+                LOGV("Context full, stopping generation (n_past=%d, n_ctx=%d)", n_past, n_ctx);
                 stopReason = "ctx_full";
                 break;
             }
@@ -3414,7 +3433,7 @@ public:
             auto currentTime = std::chrono::steady_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(currentTime - start).count();
             if (elapsed > TIMEOUT_SECONDS) {
-                LOGI("TIMEOUT: Generation exceeded %d seconds", TIMEOUT_SECONDS);
+                LOGV("TIMEOUT: Generation exceeded %d seconds", TIMEOUT_SECONDS);
                 stopReason = "timeout";
                 break;
             }
@@ -3480,7 +3499,7 @@ public:
                         thinkingPending.clear();
                     }
                     thinkingEnded = true;
-                    LOGI("Thinking token limit reached (%d), forcing THINK_END", thinkingTokens);
+                    LOGV("Thinking token limit reached (%d), forcing THINK_END", thinkingTokens);
                     callback("[THINK_END]", false, "");
                 } else {
                     // 冲刷安全前缀：暂扣末尾可能是标记前缀的字节，等待后续 token 拼接
@@ -3536,7 +3555,7 @@ public:
         auto end = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
         LOGD("=== STREAM GENERATE END ===");
-        LOGI("Generated %d tokens in %lld s", n_decode, elapsed);
+        LOGV("Generated %d tokens in %lld s", n_decode, elapsed);
         lastStopReason_ = stopReason;   // 供 chatJson fallback complete 事件回传（P0：截断可观测）
         
         return true;
@@ -3589,7 +3608,7 @@ public:
         currentTokenCount = 0;
 
         LOGD("=== STREAM GENERATE INCREMENTAL START ===");
-        LOGI("Prompt length: %zu, maxTokens: %d, temp=%f, topP=%f, topK=%d, thinking=%d", prompt.size(), maxTokens, temperature, topP, topK, enableThinking);
+        LOGV("Prompt length: %zu, maxTokens: %d, temp=%f, topP=%f, topK=%d, thinking=%d", prompt.size(), maxTokens, temperature, topP, topK, enableThinking);
         LOG_MEM("generateStreamIncremental_start");
 
         if (!isValid()) {
@@ -3622,7 +3641,7 @@ public:
                     }
                 }
             }
-            LOGI("grammar: preserved tokens -> %zu ids", preservedIds.size());
+            LOGV("grammar: preserved tokens -> %zu ids", preservedIds.size());
         }
         // COMMON-SAMPLER(2026-10-08)：改用上游 common_sampler 构造采样器。
         //
@@ -3648,14 +3667,14 @@ public:
         }
         if (gsmpl == nullptr) {
             smpl = buildSampler(temperature, topP, topK, preservedIds);
-            LOGI("sampler: using plain llama_sampler chain (no chat params)");
+            LOGV("sampler: using plain llama_sampler chain (no chat params)");
         }
 
         try {
         std::string promptToUse = prompt;
         if (enableThinking) {
             promptToUse += "<think>\n";
-            LOGI("generateStreamIncremental: enableThinking=true, appended <think>\\n");
+            LOGV("generateStreamIncremental: enableThinking=true, appended <think>\\n");
         }
 
         // Tokenize
@@ -3733,7 +3752,7 @@ public:
         // 分块解码 evalTokens（batch ≤ n_batch，pos 自动续接）
         const int n_batch = llama_n_batch(ctx);
         const int batchSize = n_batch > 0 ? n_batch : 256;
-        LOGI("Processing eval batch, size=%zu, n_batch=%d", evalTokens.size(), batchSize);
+        LOGV("Processing eval batch, size=%zu, n_batch=%d", evalTokens.size(), batchSize);
         LOG_MEM("before_prompt_decode");
 
         int ret = 0;
@@ -3803,7 +3822,7 @@ public:
 
         while (n_remain > 0 && !shouldStop) {
             if (n_past >= n_ctx - 4) {
-                LOGI("Context full, stopping generation (n_past=%d, n_ctx=%d)", n_past, n_ctx);
+                LOGV("Context full, stopping generation (n_past=%d, n_ctx=%d)", n_past, n_ctx);
                 setStop(StopCause::CTX_FULL, "incr:ctx_full");
                 setPhase(GenPhase::COMPLETE, "incr:ctx_full");
                 stopReason = "ctx_full";
@@ -3812,7 +3831,7 @@ public:
             auto currentTime = std::chrono::steady_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(currentTime - start).count();
             if (elapsed > TIMEOUT_SECONDS) {
-                LOGI("TIMEOUT: Generation exceeded %d seconds", TIMEOUT_SECONDS);
+                LOGV("TIMEOUT: Generation exceeded %d seconds", TIMEOUT_SECONDS);
                 setStop(StopCause::TIMEOUT, "incr:timeout");
                 setPhase(GenPhase::COMPLETE, "incr:timeout");
                 stopReason = "timeout";
@@ -3897,7 +3916,7 @@ public:
                     decodeStartTime = std::chrono::steady_clock::now();
                     decodeTokenCount = 0;
                     setStop(StopCause::TOKEN_LIMIT, "incr:think_limit");
-                    LOGI("Thinking token limit reached (%d), forcing THINK_END", thinkingTokens);
+                    LOGV("Thinking token limit reached (%d), forcing THINK_END", thinkingTokens);
                     callback("[THINK_END]", false, "");
                 } else {
                     size_t hold = partialMarkerTailLen(thinkingPending);
@@ -4007,7 +4026,7 @@ public:
         auto end = std::chrono::steady_clock::now();
         auto elapsedTotal = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
         LOGD("=== STREAM GENERATE INCREMENTAL END ===");
-        LOGI("Generated %d tokens in %lld s (stop=%s, incremental=%d, phase=%s)", n_decode, elapsedTotal, stopReason.c_str(), (int)kvCache.isIncremental(), phaseName(phase));
+        LOGV("Generated %d tokens in %lld s (stop=%s, incremental=%d, phase=%s)", n_decode, elapsedTotal, stopReason.c_str(), (int)kvCache.isIncremental(), phaseName(phase));
         setPhase(GenPhase::COMPLETE, "incr:end");
         lastStopReason_ = stopReason;   // 供 chatJson complete 事件回传（P0：截断可观测）
 
@@ -4037,7 +4056,7 @@ public:
                                      int maxTokens, float temperature, float topP, int topK,
                                      bool enableThinking, TokenCallback callback) {
         LOGD("=== STREAM GENERATE FROM MESSAGES START ===");
-        LOGI("Messages count: %zu, maxTokens: %d, thinking=%d", messages.size(), maxTokens, (int)enableThinking);
+        LOGV("Messages count: %zu, maxTokens: %d, thinking=%d", messages.size(), maxTokens, (int)enableThinking);
 
         // 用 chat template 格式化消息（addAssistantStart=true，末尾加 assistant 开始标记）
         // TEMPLATE-THINKING：把 enableThinking 交给模板，由模板自己写 think 标签
@@ -4049,7 +4068,7 @@ public:
             callback("", true, error);
             return false;
         }
-        LOGI("Formatted prompt length: %zu, enableThinking=%d (think tag from template)",
+        LOGV("Formatted prompt length: %zu, enableThinking=%d (think tag from template)",
              prompt.size(), (int)enableThinking);
 
         // 复用 generateStream 的核心生成逻辑
@@ -4085,7 +4104,7 @@ public:
                            bool enableThinking, TokenCallback callback,
                            ChatParseResult* outParseResult = nullptr) {
         LOGD("=== GENERATE WITH TOOLS START ===");
-        LOGI("Messages: %zu, toolsJson len: %zu, maxTokens: %d, thinking=%d",
+        LOGV("Messages: %zu, toolsJson len: %zu, maxTokens: %d, thinking=%d",
              messages.size(), toolsJson.size(), maxTokens, (int)enableThinking);
 
         if (!model) {
@@ -4117,7 +4136,7 @@ public:
             try {
                 auto tools_json = common_json::parse(toolsJson);
                 tools = common_chat_tools_parse_oaicompat(tools_json);
-                LOGI("Parsed %zu tools from JSON", tools.size());
+                LOGV("Parsed %zu tools from JSON", tools.size());
             } catch (const std::exception& e) {
                 LOGW("Failed to parse tools JSON: %s, continuing without tools", e.what());
             }
@@ -4144,7 +4163,7 @@ public:
         // 仅当模板支持时才启用 thinking，否则模板引擎内部会 abort（signal 6）
         bool supports_thinking = common_chat_templates_support_enable_thinking(chat_templates.get());
         inputs.enable_thinking = enableThinking && supports_thinking;
-        LOGI("enable_thinking=%d, template supports=%d, final=%d",
+        LOGV("enable_thinking=%d, template supports=%d, final=%d",
              (int)enableThinking, (int)supports_thinking, (int)inputs.enable_thinking);
 
         // 应用模板
@@ -4158,7 +4177,7 @@ public:
             mThinkEndTags = chat_params.thinking_end_tags;
             classifyToolCallTags(chat_params.preserved_tokens, mThinkStartTag, mThinkEndTags,
                                  mToolCallOpenTags, mToolCallCloseTags);
-            LOGI("Thinking tags from template: start='%s', %zu end tag(s)",
+            LOGV("Thinking tags from template: start='%s', %zu end tag(s)",
                  mThinkStartTag.c_str(), mThinkEndTags.size());
         } catch (const std::exception& e) {
             LOGW("Failed to apply chat template with tools: %s, falling back", e.what());
@@ -4228,10 +4247,10 @@ public:
                     outParseResult->tool_calls = std::move(parsed.tool_calls);
                     outParseResult->reasoning_content = std::move(parsed.reasoning_content);
                     if (!outParseResult->tool_calls.empty()) {
-                        LOGI("Parsed %zu tool calls via common_chat_parse", outParseResult->tool_calls.size());
+                        LOGV("Parsed %zu tool calls via common_chat_parse", outParseResult->tool_calls.size());
                     }
                     if (!outParseResult->reasoning_content.empty()) {
-                        LOGI("Parsed reasoning content (%zu chars) via common_chat_parse", outParseResult->reasoning_content.size());
+                        LOGV("Parsed reasoning content (%zu chars) via common_chat_parse", outParseResult->reasoning_content.size());
                     }
                 }
             } catch (const std::exception& e) {
@@ -4296,14 +4315,14 @@ public:
             sendError(std::string("messages parse failed: ") + e.what());
             return false;
         }
-        LOGI("chatJson: parsed %zu messages", messages.size());
+        LOGV("chatJson: parsed %zu messages", messages.size());
 
         // step 3：tools（可选）
         std::vector<common_chat_tool> tools;
         if (req.contains("tools") && req["tools"].is_array()) {
             try {
                 tools = common_chat_tools_parse_oaicompat(req["tools"]);
-                LOGI("chatJson: parsed %zu tools", tools.size());
+                LOGV("chatJson: parsed %zu tools", tools.size());
             } catch (const std::exception& e) {
                 LOGW("chatJson: tools parse failed: %s, continuing without tools", e.what());
             }
@@ -4323,7 +4342,7 @@ public:
         float temperature = req.value("temperature", 0.6f);
         float topP = req.value("top_p", 0.9f);
         int topK = req.value("top_k", 40);
-        LOGI("chatJson: tool_choice=%s, enable_thinking=%d, max_tokens=%d, temp=%f, topP=%f, topK=%d",
+        LOGV("chatJson: tool_choice=%s, enable_thinking=%d, max_tokens=%d, temp=%f, topP=%f, topK=%d",
              toolChoiceStr.c_str(), (int)enableThinking, maxTokens, temperature, topP, topK);
 
         // step 5：构建模板输入
@@ -4342,14 +4361,14 @@ public:
         inputs.use_jinja = true;
         bool supports_thinking = common_chat_templates_support_enable_thinking(chat_templates.get());
         inputs.enable_thinking = enableThinking && supports_thinking;
-        LOGI("chatJson: enable_thinking=%d, template supports=%d, final=%d",
+        LOGV("chatJson: enable_thinking=%d, template supports=%d, final=%d",
              (int)enableThinking, (int)supports_thinking, (int)inputs.enable_thinking);
 
         // step 6：应用模板
         common_chat_params chat_params;
         try {
             chat_params = common_chat_templates_apply(chat_templates.get(), inputs);
-            LOGI("chatJson: template applied, prompt length: %zu, format: %s",
+            LOGV("chatJson: template applied, prompt length: %zu, format: %s",
                  chat_params.prompt.size(), common_chat_format_name(chat_params.format));
 
             // 提取模板思考标签（统一标签源），供流式思考段剥离
@@ -4357,14 +4376,14 @@ public:
             mThinkEndTags = chat_params.thinking_end_tags;
             classifyToolCallTags(chat_params.preserved_tokens, mThinkStartTag, mThinkEndTags,
                                  mToolCallOpenTags, mToolCallCloseTags);
-            LOGI("chatJson: thinking tags from template: start='%s', %zu end tag(s)",
+            LOGV("chatJson: thinking tags from template: start='%s', %zu end tag(s)",
                  mThinkStartTag.c_str(), mThinkEndTags.size());
             // 调试：打印模板 prompt 开头与末尾，排查"模型输出模板前缀/双前缀"问题
             std::string p0 = chat_params.prompt.substr(0, 250);
             std::string p1 = chat_params.prompt.size() > 250
                     ? chat_params.prompt.substr(chat_params.prompt.size() - 300) : "";
-            LOGI("chatJson: PROMPT_HEAD>>%s<<", p0.c_str());
-            if (!p1.empty()) LOGI("chatJson: PROMPT_TAIL>>%s<<", p1.c_str());
+            LOGV("chatJson: PROMPT_HEAD>>%s<<", p0.c_str());
+            if (!p1.empty()) LOGV("chatJson: PROMPT_TAIL>>%s<<", p1.c_str());
         } catch (const std::exception& e) {
             // R3-5：fallback 后失效 KV 增量缓存（generateStreamFromMessages 内部会清 KV）
             LOGW("chatJson: template apply failed (%s), falling back to flat messages", e.what());
@@ -4453,7 +4472,7 @@ public:
         bool isInThinking = promptTailInThinking;
         if (isInThinking) {
             setPhase(GenPhase::THINKING, "chatJson:init_think");
-            LOGI("chatJson: initial thinking state (prompt tail ends with start tag)");
+            LOGV("chatJson: initial thinking state (prompt tail ends with start tag)");
         }
         std::string thinkingAccum;   // 用于检测标签边界（跨 token 的标签片段）
         // §5.2 第二阶段（阶段 4 优化）：auto/none 模式用 is_partial 增量解析检测 tool_call 起始，
@@ -4491,7 +4510,7 @@ public:
                 nlohmann::ordered_json j = {{"type", "tool_call"}, {"id", tc.id},
                                             {"name", tc.name}, {"arguments", tc.arguments}};
                 jsonCallback(j.dump());
-                LOGI("chatJson: stream tool_call id=%s name=%s args=%zu chars",
+                LOGV("chatJson: stream tool_call id=%s name=%s args=%zu chars",
                      tc.id.c_str(), tc.name.c_str(), tc.arguments.size());
             }
         };
@@ -4521,7 +4540,7 @@ public:
                         filtered.append(completePart, pos, open - pos);
                         isInThinking = true;
                         setPhase(GenPhase::THINKING, "chatJson:think_start");
-                        LOGI("chatJson: thinking START detected");
+                        LOGV("chatJson: thinking START detected");
                         pos = open + thinkOpen.size();
                     }
                 } else {
@@ -4559,7 +4578,7 @@ public:
                         }
                         isInThinking = false;
                         setPhase(GenPhase::GENERATING, "chatJson:think_end");
-                        LOGI("chatJson: thinking END detected");
+                        LOGV("chatJson: thinking END detected");
                         pos = close + closeLen;
                     }
                 }
@@ -4588,7 +4607,7 @@ public:
                 }
                 if (fastPathHit) {
                     isInToolCall = true;
-                    LOGI("chatJson: fast-path detected tool-call output (template tags, %zu open)",
+                    LOGV("chatJson: fast-path detected tool-call output (template tags, %zu open)",
                          mToolCallOpenTags.size());
                 } else if (++partialParseCounter >= PARTIAL_PARSE_INTERVAL) {
                     partialParseCounter = 0;
@@ -4598,7 +4617,7 @@ public:
                         common_chat_msg partial = common_chat_parse(collectedText, true, pp);
                         if (!partial.tool_calls.empty()) {
                             isInToolCall = true;   // 检测到 tool_call 输出，锁定后续标记
-                            LOGI("chatJson: is_partial detected tool_call output");
+                            LOGV("chatJson: is_partial detected tool_call output");
                             publishToolCalls(partial.tool_calls);   // §5.3 流式增量发布（diff + 闭合判断）
                         }
                     } catch (const std::exception& e) {
@@ -4660,7 +4679,7 @@ public:
             meta["tool_call_open_tags"] = openTags;
             meta["tool_call_close_tags"] = closeTags;
             jsonCallback(meta.dump());
-            LOGI("chatJson: meta event sent, thinking_start_tag='%s', %zu end tag(s), "
+            LOGV("chatJson: meta event sent, thinking_start_tag='%s', %zu end tag(s), "
                  "tool_call tags: %zu open / %zu close",
                  mThinkStartTag.c_str(), mThinkEndTags.size(), openTags.size(), closeTags.size());
         }
@@ -4668,7 +4687,7 @@ public:
         bool genOk = false;
         try {
             // §6 官方 chat_params 全量接入：grammar(lazy)/preserved_tokens/additional_stops
-            LOGI("chatJson: params util -> grammar=%s(%zuB) lazy=%d triggers=%zu preserved=%zu stops=%zu",
+            LOGV("chatJson: params util -> grammar=%s(%zuB) lazy=%d triggers=%zu preserved=%zu stops=%zu",
                  chat_params.grammar.empty() ? "none" : "set", chat_params.grammar.size(),
                  (int)chat_params.grammar_lazy, chat_params.grammar_triggers.size(),
                  chat_params.preserved_tokens.size(), chat_params.additional_stops.size());
@@ -4686,7 +4705,7 @@ public:
 
         // step 9（R3-2）：取消——shouldStop 置位时发 cancelled，不再 parse
         if (shouldStop) {
-            LOGI("chatJson: generation cancelled by stop request");
+            LOGV("chatJson: generation cancelled by stop request");
             nlohmann::ordered_json j = {{"type", "error"}, {"message", "cancelled"}};
             jsonCallback(j.dump());
             return false;
@@ -4757,7 +4776,7 @@ public:
                     {"arguments", tc.arguments}
                 };
                 jsonCallback(j.dump());
-                LOGI("chatJson: tool_call (final) id=%s name=%s", tc.id.c_str(), tc.name.c_str());
+                LOGV("chatJson: tool_call (final) id=%s name=%s", tc.id.c_str(), tc.name.c_str());
             }
             // 思考内容：common_chat_parse 解析出 reasoning_content 则用之，否则用模板标签
             // 手动提取的思考段（Qwen3 空格分隔 thinking 标签 parse 常解析不出）
@@ -4779,7 +4798,7 @@ public:
                 if (hasThinkEnd) {
                     nlohmann::ordered_json j = {{"type", "reasoning"}, {"content", reasoningText}};
                     jsonCallback(j.dump());
-                    LOGI("chatJson: reasoning (%zu chars)", reasoningText.size());
+                    LOGV("chatJson: reasoning (%zu chars)", reasoningText.size());
                 } else {
                     LOGW("chatJson: reasoning suppressed (no think end marker), content merged to body");
                 }
@@ -4820,22 +4839,22 @@ public:
         std::vector<std::thread> threads;
         
         LOGD("=== BATCH GENERATE START ===");
-        LOGI("Processing %zu prompts in parallel", prompts.size());
+        LOGV("Processing %zu prompts in parallel", prompts.size());
         
         auto startTime = std::chrono::steady_clock::now();
         
         // 为每个prompt创建一个线程
         for (size_t i = 0; i < prompts.size(); i++) {
             threads.emplace_back([this, &prompts, i, maxTokens, temperature, topP, topK, &results]() {
-                LOGI("Thread %zu processing prompt: %s", i, prompts[i].substr(0, 50).c_str());
+                LOGV("Thread %zu processing prompt: %s", i, prompts[i].substr(0, 50).c_str());
                 
                 std::string output;
                 if (generate(prompts[i], maxTokens, temperature, topP, topK, output)) {
                     results[i] = output;
-                    LOGI("Thread %zu completed successfully", i);
+                    LOGV("Thread %zu completed successfully", i);
                 } else {
                     results[i] = "Error: Generation failed";
-                    LOGI("Thread %zu failed", i);
+                    LOGV("Thread %zu failed", i);
                 }
             });
         }
@@ -4844,7 +4863,7 @@ public:
         for (size_t i = 0; i < threads.size(); i++) {
             if (threads[i].joinable()) {
                 threads[i].join();
-                LOGI("Thread %zu joined", i);
+                LOGV("Thread %zu joined", i);
             }
         }
         
@@ -4852,7 +4871,7 @@ public:
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime).count();
         
         LOGD("=== BATCH GENERATE END ===");
-        LOGI("Processed %zu prompts in %lld s", prompts.size(), elapsed);
+        LOGV("Processed %zu prompts in %lld s", prompts.size(), elapsed);
         
         return results;
     }
@@ -4951,7 +4970,7 @@ public:
         int kvLayers = nLayer;
         if (recrLayers >= 0) {
             kvLayers = nLayer - recrLayers;
-            LOGI("KV-REAL-LAYERS: 显式循环层数组 -> 循环 %d 层, 存 KV %d/%d 层",
+            LOGV("KV-REAL-LAYERS: 显式循环层数组 -> 循环 %d 层, 存 KV %d/%d 层",
                  recrLayers, kvLayers, nLayer);
         } else if (interval > 0) {
             int recr = 0;
@@ -4959,10 +4978,10 @@ public:
                 if ((i + 1) % interval != 0) recr++;
             }
             kvLayers = nLayer - recr;
-            LOGI("KV-REAL-LAYERS: full_attention_interval=%d -> 循环 %d 层, 存 KV %d/%d 层",
+            LOGV("KV-REAL-LAYERS: full_attention_interval=%d -> 循环 %d 层, 存 KV %d/%d 层",
                  interval, recr, kvLayers, nLayer);
         } else {
-            LOGI("KV-REAL-LAYERS: 无混合注意力键, 全部 %d 层都存 KV", nLayer);
+            LOGV("KV-REAL-LAYERS: 无混合注意力键, 全部 %d 层都存 KV", nLayer);
         }
         if (kvLayers < 1) kvLayers = nLayer;
         kvRealLayers_ = kvLayers;
@@ -4982,7 +5001,7 @@ public:
         // 故设备过滤处单独处理（见 loadModel 内的 backendChoice 分支）。
         if (choice == "opencl" || choice == "vulkan" || choice == "auto" || choice == "hexagon") {
             backendChoice = choice;
-            LOGI("Backend choice set to: %s", choice.c_str());
+            LOGV("Backend choice set to: %s", choice.c_str());
         } else {
             LOGW("Invalid backend choice '%s', keeping '%s'", choice.c_str(), backendChoice.c_str());
         }
@@ -5005,7 +5024,7 @@ public:
         int len = llama_model_meta_val_str(model, "general.name", buf, sizeof(buf));
         if (len > 0) {
             modelType = buf;
-            LOGI("Detected model type from metadata: %s", modelType.c_str());
+            LOGV("Detected model type from metadata: %s", modelType.c_str());
             return;
         }
         
@@ -5029,7 +5048,7 @@ public:
             modelType = "unknown";
         }
         
-        LOGI("Detected model type from path: %s", modelType.c_str());
+        LOGV("Detected model type from path: %s", modelType.c_str());
     }
     
     // 获取聊天模板
@@ -5045,7 +5064,7 @@ public:
             LOGD("Got chat template from model: %s", chatTemplate.substr(0, 100).c_str());
         } else {
             chatTemplate = "(none, using ChatML fallback)";
-            LOGI("No built-in chat template for %s, will use ChatML format", modelType.c_str());
+            LOGV("No built-in chat template for %s, will use ChatML format", modelType.c_str());
         }
     }
     
@@ -5073,7 +5092,7 @@ public:
             llama_memory_t mem = llama_get_memory(ctx);
             if (mem != nullptr) {
                 llama_memory_clear(mem, true);
-                LOGI("resetRuntimeState: KV cache cleared");
+                LOGV("resetRuntimeState: KV cache cleared");
             }
         }
         // 清计数器
@@ -5159,7 +5178,7 @@ public:
             return false;
         }
 
-        LOGI("Loading multimodal projection: %s", mmprojPath.c_str());
+        LOGV("Loading multimodal projection: %s", mmprojPath.c_str());
 
         // 检查文件是否存在
         FILE* f = fopen(mmprojPath.c_str(), "rb");
@@ -5186,7 +5205,7 @@ public:
             return false;
         }
 
-        LOGI("Multimodal projection loaded successfully");
+        LOGV("Multimodal projection loaded successfully");
         return true;
     }
 
@@ -5197,7 +5216,7 @@ public:
         if (s_mtmdCtx != nullptr) {
             mtmd_free(s_mtmdCtx);
             s_mtmdCtx = nullptr;
-            LOGI("Multimodal context released");
+            LOGV("Multimodal context released");
         }
     }
 
@@ -5233,7 +5252,7 @@ public:
         }
 
         LOGD("=== STREAM GENERATE WITH IMAGE START ===");
-        LOGI("History count: %zu, Text length: %zu, Image: %s, maxTokens: %d",
+        LOGV("History count: %zu, Text length: %zu, Image: %s, maxTokens: %d",
              history.size(), userText.size(), imagePath.c_str(), maxTokens);
 
         // 1. 构建当前用户消息（带图像标记）
@@ -5251,7 +5270,7 @@ public:
             callback("", true, "Failed to format prompt");
             return false;
         }
-        LOGI("Full prompt (history + image) length: %zu", fullPrompt.size());
+        LOGV("Full prompt (history + image) length: %zu", fullPrompt.size());
 
         // 4. 多轮历史不再单独预评估：fullPrompt 已包含历史 + 当前图像消息，
         //    统一由 mtmd_tokenize 一次分词、mtmd_helper_eval_chunks 从 0 位置单趟评估，
@@ -5292,7 +5311,7 @@ public:
         
         // 检查上下文容量
         size_t totalTokens = mtmd_helper_get_n_tokens(chunks);
-        LOGI("Image+prompt tokens: %zu, n_past: %d, total: %zu", totalTokens, (int)n_past, totalTokens + n_past);
+        LOGV("Image+prompt tokens: %zu, n_past: %d, total: %zu", totalTokens, (int)n_past, totalTokens + n_past);
         
         int n_ctx = llama_n_ctx(ctx);
         if ((int)(totalTokens + n_past) > n_ctx - maxTokens) {
@@ -5312,7 +5331,7 @@ public:
             return false;
         }
 
-        LOGI("Image and prompt evaluated, starting generation from pos %d", (int)new_n_past);
+        LOGV("Image and prompt evaluated, starting generation from pos %d", (int)new_n_past);
 
         // 采样和生成循环（复用现有逻辑）
         // 这里需要实现采样循环，类似 generateStream 的后半部分
@@ -5339,7 +5358,7 @@ public:
             auto currentTime = std::chrono::steady_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(currentTime - start).count();
             if (elapsed > TIMEOUT_SECONDS) {
-                LOGI("TIMEOUT: Generation exceeded %d seconds", TIMEOUT_SECONDS);
+                LOGV("TIMEOUT: Generation exceeded %d seconds", TIMEOUT_SECONDS);
                 break;
             }
 
@@ -5418,7 +5437,7 @@ std::string InferenceContext::applyChatTemplateForMessages(const std::vector<std
                         mThinkStartTag = params.thinking_start_tag;
                         mThinkEndTags = params.thinking_end_tags;
                     }
-                    LOGI("applyChatTemplateForMessages: template=%zu bytes, thinking=%d (requested=%d, supports=%d), startTag='%s'",
+                    LOGV("applyChatTemplateForMessages: template=%zu bytes, thinking=%d (requested=%d, supports=%d), startTag='%s'",
                          params.prompt.size(), (int)inputs.enable_thinking, (int)enableThinking,
                          (int)supports_thinking, mThinkStartTag.c_str());
                     return params.prompt;
@@ -5761,7 +5780,7 @@ public:
         }
         kvMemNextPos = pos;
         kvMemReady = true;
-        LOGI("KV mem preloaded: %zu tokens -> seq1, nextPos=%d", tokens.size(), (int)kvMemNextPos);
+        LOGV("KV mem preloaded: %zu tokens -> seq1, nextPos=%d", tokens.size(), (int)kvMemNextPos);
         return true;
     }
 
@@ -5773,7 +5792,7 @@ public:
         if (size == 0) { LOGW("kvMemGetState: empty seq state"); return false; }
         out.resize(size);
         size_t n = llama_state_seq_get_data(ctx, out.data(), size, KV_SEQ);
-        LOGI("KV mem save: %zu bytes (seq1)", n);
+        LOGV("KV mem save: %zu bytes (seq1)", n);
         return n == size && n > 0;
     }
 
@@ -5800,7 +5819,7 @@ public:
         llama_pos pmax = mem ? llama_memory_seq_pos_max(mem, KV_SEQ) : 0;
         kvMemNextPos = pmax + 1;
         kvMemReady = true;
-        LOGI("KV mem restored: %zu bytes, posMax=%d, nextPos=%d", n, (int)pmax, (int)kvMemNextPos);
+        LOGV("KV mem restored: %zu bytes, posMax=%d, nextPos=%d", n, (int)pmax, (int)kvMemNextPos);
         return true;
     }
 
@@ -5867,7 +5886,7 @@ public:
             n_decode++;
         }
         llama_sampler_free(smpl);
-        LOGI("KV mem ask done: %d tokens, outLen=%zu", n_decode, out.size());
+        LOGV("KV mem ask done: %d tokens, outLen=%zu", n_decode, out.size());
         return !out.empty();
     }
 
@@ -5963,7 +5982,7 @@ public:
             prev_formatted_len = (int)formatted.size();
             LOGD("System prompt encoded, kv_tokens=%d", total_tokens_in_kv);
         } else {
-            LOGI("All system prompts are empty, skipping");
+            LOGV("All system prompts are empty, skipping");
             prev_formatted_len = 0;
         }
 
@@ -5995,7 +6014,7 @@ public:
             return;
         }
 
-        LOGI("Context shifted: removed oldest message (role=%s), re-encoded, kv_tokens=%d",
+        LOGV("Context shifted: removed oldest message (role=%s), re-encoded, kv_tokens=%d",
              removedRole.c_str(), total_tokens_in_kv);
     }
 
@@ -6027,7 +6046,7 @@ public:
         ctx_params.n_batch = n_batch_actual;
         ctx_params.n_ubatch = n_batch_actual;
 
-        LOGI("Calling llama_init_from_model with n_ctx=%d, n_batch=%d, n_ubatch=%d",
+        LOGV("Calling llama_init_from_model with n_ctx=%d, n_batch=%d, n_ubatch=%d",
              ctx_params.n_ctx, ctx_params.n_batch, ctx_params.n_ubatch);
         ctx = llama_init_from_model(model, ctx_params);
         if (!ctx) {
@@ -6037,7 +6056,7 @@ public:
         }
         ownsContext = true;
 
-        LOGI("Context created from existing model: n_ctx=%d", ctxSize);
+        LOGV("Context created from existing model: n_ctx=%d", ctxSize);
         LOG_MEM("chat_ctx_created");
 
         // 用 llama_chat_apply_template 格式化 system prompt，自动适配模型
@@ -6059,12 +6078,12 @@ public:
                 LOGE("Failed to tokenize system prompt - tokenize returned empty");
                 return false;
             }
-            LOGI("System prompt tokenized: %zu tokens", global_tokens.size());
+            LOGV("System prompt tokenized: %zu tokens", global_tokens.size());
             Turn sysTurn;
             sysTurn.role = "system";
             sysTurn.tokens = global_tokens;
             sysTurn.start_pos = current_pos;
-            LOGI("Encoding system prompt tokens...");
+            LOGV("Encoding system prompt tokens...");
             if (!encodeTokens(global_tokens)) {
                 LOGE("Failed to encode system prompt");
                 return false;
@@ -6075,7 +6094,7 @@ public:
             prev_formatted_len = (int)formatted.size();
             LOGD("System prompt encoded, kv_tokens=%d", total_tokens_in_kv);
         } else {
-            LOGI("All system prompts are empty, skipping");
+            LOGV("All system prompts are empty, skipping");
             prev_formatted_len = 0;
         }
 
@@ -6297,7 +6316,7 @@ public:
             chatParserParams = llama_jni::makeChatParserParams(g_lastChatParams);
             chatParserParams.parse_tool_calls = true;
             useParser = true;
-            LOGI("chatSend: PEG parser enabled for tool-call detection");
+            LOGV("chatSend: PEG parser enabled for tool-call detection");
         } else {
             LOGW("chatSend: no PEG parser available, tool-call detection falls back to markers");
         }
@@ -6321,7 +6340,7 @@ public:
             }
 
             if (total_tokens_in_kv >= n_ctx - 4) {
-                LOGI("Context full, stopping generation");
+                LOGV("Context full, stopping generation");
                 stopReason = "ctx_full";
                 break;
             }
@@ -6367,7 +6386,7 @@ public:
                             thinkingPending.clear();
                         }
                         thinkingEnded = true;
-                        LOGI("chatSend: thinking token limit reached (%d), forcing THINK_END", thinkingTokens);
+                        LOGV("chatSend: thinking token limit reached (%d), forcing THINK_END", thinkingTokens);
                         callback("[THINK_END]", false, "");
                     } else {
                         // 冲刷安全前缀：暂扣末尾可能是标记前缀的字节，等待后续 token 拼接
@@ -6523,14 +6542,14 @@ public:
     void addAssistantToolCall(const std::string& toolCallContent) {
         std::lock_guard<std::mutex> lock(mtx);
         if (destroyed) return;
-        LOGI("addAssistantToolCall: len=%zu", toolCallContent.size());
+        LOGV("addAssistantToolCall: len=%zu", toolCallContent.size());
         chatMessages.push_back({"assistant_tool_call", toolCallContent});
     }
 
     void addToolResult(const std::string& toolResultContent) {
         std::lock_guard<std::mutex> lock(mtx);
         if (destroyed) return;
-        LOGI("addToolResult: len=%zu", toolResultContent.size());
+        LOGV("addToolResult: len=%zu", toolResultContent.size());
         chatMessages.push_back({"tool", toolResultContent});
     }
 
@@ -6540,7 +6559,7 @@ public:
     void addAssistantMessage(const std::string& content) {
         std::lock_guard<std::mutex> lock(mtx);
         if (destroyed) return;
-        LOGI("addAssistantMessage: len=%zu", content.size());
+        LOGV("addAssistantMessage: len=%zu", content.size());
         chatMessages.push_back({"assistant", content});
     }
 
@@ -6561,7 +6580,7 @@ public:
             LOGE("clearChat: reencodeFromMessages failed");
         }
 
-        LOGI("Chat cleared, system messages re-encoded, kv_tokens=%d", total_tokens_in_kv);
+        LOGV("Chat cleared, system messages re-encoded, kv_tokens=%d", total_tokens_in_kv);
     }
 
     int kvReusePct() const { return lastKvReusePct; }
@@ -6586,11 +6605,11 @@ public:
 
     void destroy() {
         if (destroyed.exchange(true)) {
-            LOGI("NativeChatContext already destroyed");
+            LOGV("NativeChatContext already destroyed");
             return;
         }
         
-        LOGI("NativeChatContext destroy (ownsContext=%d)", ownsContext ? 1 : 0);
+        LOGV("NativeChatContext destroy (ownsContext=%d)", ownsContext ? 1 : 0);
         
         std::lock_guard<std::mutex> lock(mtx);
         
@@ -6683,7 +6702,7 @@ public:
     }
 
     bool updatePrompts(const std::string& globalPrompt, const std::string& systemPrompt, const std::string& normalPrompt) {
-        LOGI("updatePrompts called");
+        LOGV("updatePrompts called");
 
         global_prompt = globalPrompt;
         normal_prompt = normalPrompt;
@@ -6712,7 +6731,7 @@ public:
             return false;
         }
 
-        LOGI("Prompts updated and re-encoded, kv_tokens=%d", total_tokens_in_kv);
+        LOGV("Prompts updated and re-encoded, kv_tokens=%d", total_tokens_in_kv);
         return true;
     }
 };
@@ -6773,7 +6792,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetBackend(
     env->ReleaseStringUTFChars(backend, cstr);
     std::lock_guard<std::mutex> lock(s_globalMutex);
     s_backendChoiceOverride = choice;
-    LOGI("setBackend: preference -> %s", choice.c_str());
+    LOGV("setBackend: preference -> %s", choice.c_str());
     if (s_helperContext != nullptr) {
         s_helperContext->setBackendChoice(choice);
     }
@@ -6803,7 +6822,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetDspLibDir(
     s_dspLibDir = value;
     // ggml-hexagon reads this via getenv() when it builds the FastRPC module URI.
     setenv("GGML_HEXAGON_LIB_DIR", s_dspLibDir.c_str(), 1);
-    LOGI("nativeSetDspLibDir: %s", s_dspLibDir.c_str());
+    LOGV("nativeSetDspLibDir: %s", s_dspLibDir.c_str());
 }
 
 // RESOLVED-BACKEND(2026-10-09)：返回模型加载时实际选中的加速后端。
@@ -6878,7 +6897,7 @@ JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
     JNIEnv* env, jclass, jlong handle, jstring message, jint maxTokens,
     jfloat temperature, jfloat topP, jint topK, jboolean enableThinking, jobject callback) {
-    LOGI("nativeChatSend called, handle=%lld", (long long)handle);
+    LOGV("nativeChatSend called, handle=%lld", (long long)handle);
 
     if (callback == nullptr) {
         LOGE("nativeChatSend: callback is null");
@@ -7163,7 +7182,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatClear(
 JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatDestroy(
     JNIEnv* env, jclass, jlong handle) {
-    LOGI("nativeChatDestroy called, handle=%lld", (long long)handle);
+    LOGV("nativeChatDestroy called, handle=%lld", (long long)handle);
     
     if (!isValidChatHandle(handle)) {
         LOGE("nativeChatDestroy: invalid handle=%lld", (long long)handle);
@@ -7177,7 +7196,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatDestroy(
             g_chatContext = nullptr;
         }
         delete chatCtx;
-        LOGI("nativeChatDestroy: context deleted");
+        LOGV("nativeChatDestroy: context deleted");
     }
 }
 
@@ -7298,7 +7317,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeKvMemAsk(
 JNIEXPORT jboolean JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatUpdatePrompts(
     JNIEnv* env, jclass, jlong handle, jstring globalPrompt, jstring systemPrompt, jstring normalPrompt) {
-    LOGI("nativeChatUpdatePrompts called");
+    LOGV("nativeChatUpdatePrompts called");
 
     if (!isValidChatHandle(handle)) {
         LOGE("nativeChatUpdatePrompts: invalid handle");
@@ -7330,7 +7349,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatUpdatePrompts(
 JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatAddAssistantToolCall(
     JNIEnv* env, jclass, jlong handle, jstring toolCallContent) {
-    LOGI("nativeChatAddAssistantToolCall called");
+    LOGV("nativeChatAddAssistantToolCall called");
 
     if (!isValidChatHandle(handle)) {
         LOGE("nativeChatAddAssistantToolCall: invalid handle");
@@ -7353,7 +7372,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatAddAssistantToolCall(
 JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatAddToolResult(
     JNIEnv* env, jclass, jlong handle, jstring toolResultContent) {
-    LOGI("nativeChatAddToolResult called");
+    LOGV("nativeChatAddToolResult called");
 
     if (!isValidChatHandle(handle)) {
         LOGE("nativeChatAddToolResult: invalid handle");
@@ -7376,7 +7395,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatAddToolResult(
 JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatAddAssistant(
     JNIEnv* env, jclass, jlong handle, jstring content) {
-    LOGI("nativeChatAddAssistant called");
+    LOGV("nativeChatAddAssistant called");
 
     if (!isValidChatHandle(handle)) {
         LOGE("nativeChatAddAssistant: invalid handle");
@@ -7399,7 +7418,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatAddAssistant(
 JNIEXPORT jint JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeHandleMemoryPressure(
     JNIEnv* env, jclass, jint level) {
-    LOGI("nativeHandleMemoryPressure called, level=%d", level);
+    LOGV("nativeHandleMemoryPressure called, level=%d", level);
 
     int freedTokens = 0;
 
@@ -7420,12 +7439,12 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeHandleMemoryPressure(
                 }
                 if (level < 40) break;
             }
-            LOGI("Memory pressure handled: pruned %d turns, level=%d", freedTokens, level);
+            LOGV("Memory pressure handled: pruned %d turns, level=%d", freedTokens, level);
         }
     }
 
     if (level >= 80 && s_helperContext != nullptr) {
-        LOGI("Critical memory pressure detected, but preserving model to avoid reinitialization");
+        LOGV("Critical memory pressure detected, but preserving model to avoid reinitialization");
         // 不删除 helper context，只清理 chat context 中的历史轮次
         // 这样模型可以快速恢复而不是需要重新加载
     }
@@ -7506,7 +7525,7 @@ Java_com_oilquiz_app_ai_jni_LlamaBridge_nativeRelease(
     auto* context = reinterpret_cast<llama_jni::InferenceContext*>(contextHandle);
     if (context != nullptr) {
         delete context;
-        LOGI("Context released");
+        LOGV("Context released");
     }
 }
 
@@ -7526,7 +7545,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeInitModel(
     jstring modelPath,
     jint nCtx,
     jint nThreads) {
-    LOGI("LlamaHelper: Initializing model");
+    LOGV("LlamaHelper: Initializing model");
     
     const char* path = env->GetStringUTFChars(modelPath, nullptr);
     if (path == nullptr) {
@@ -7541,14 +7560,14 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeInitModel(
     if (g_chatContext != nullptr) {
         delete g_chatContext;
         g_chatContext = nullptr;
-        LOGI("Chat context released before loading new model");
+        LOGV("Chat context released before loading new model");
     }
     
     // Release existing model context
     if (s_helperContext != nullptr) {
         delete s_helperContext;
         s_helperContext = nullptr;
-        LOGI("Model context released before loading new model");
+        LOGV("Model context released before loading new model");
     }
     
     s_helperContext = new llama_jni::InferenceContext();
@@ -7565,7 +7584,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeInitModel(
     // 对它们同样有效（否则 Java 侧只能硬编码 <think>）。
     s_helperContext->refreshThinkingTags();
 
-    LOGI("LlamaHelper: Model initialized successfully");
+    LOGV("LlamaHelper: Model initialized successfully");
     return 0;
 }
 
@@ -7717,7 +7736,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerate(
     jfloat topP,
     jint topK) {
     LOGD("=== LlamaHelper_nativeGenerate START ===");
-    LOGI("LlamaHelper: maxTokens=%d, temperature=%f, topP=%f, topK=%d", maxTokens, temperature, topP, topK);
+    LOGV("LlamaHelper: maxTokens=%d, temperature=%f, topP=%f, topK=%d", maxTokens, temperature, topP, topK);
     
     if (s_helperContext == nullptr) {
         LOGE("LlamaHelper: s_helperContext is nullptr");
@@ -7734,7 +7753,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerate(
         return env->NewStringUTF("Error: Failed to create inference context");
     }
     
-    LOGI("LlamaHelper: Context is valid");
+    LOGV("LlamaHelper: Context is valid");
     
     const char* promptStr = env->GetStringUTFChars(prompt, nullptr);
     if (promptStr == nullptr) {
@@ -7742,12 +7761,12 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerate(
         return env->NewStringUTF("Error: Failed to get prompt");
     }
     
-    LOGI("LlamaHelper: Prompt length: %zu", strlen(promptStr));
+    LOGV("LlamaHelper: Prompt length: %zu", strlen(promptStr));
     
     std::string promptContent(promptStr);
     env->ReleaseStringUTFChars(prompt, promptStr);
     
-    LOGI("LlamaHelper: Calling generate method...");
+    LOGV("LlamaHelper: Calling generate method...");
     
     std::string output;
     if (!s_helperContext->generate(promptContent, maxTokens, temperature, topP, topK, output)) {
@@ -7755,7 +7774,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerate(
         return env->NewStringUTF("Error: Generation failed");
     }
     
-    LOGI("LlamaHelper: Generation succeeded, output length: %zu", output.length());
+    LOGV("LlamaHelper: Generation succeeded, output length: %zu", output.length());
     return env->NewStringUTF(output.c_str());
 }
 
@@ -7763,7 +7782,7 @@ JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeStopGeneration(
     JNIEnv* env,
     jclass /* clazz */) {
-    LOGI("LlamaHelper: Stopping generation");
+    LOGV("LlamaHelper: Stopping generation");
     if (s_helperContext != nullptr && s_helperContext->isValid()) {
         s_helperContext->stopGeneration();
     }
@@ -7773,17 +7792,17 @@ JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeRelease(
     JNIEnv* env,
     jclass /* clazz */) {
-    LOGI("LlamaHelper: Releasing resources");
+    LOGV("LlamaHelper: Releasing resources");
     // 先释放多模态上下文
     if (s_mtmdCtx != nullptr) {
         mtmd_free(s_mtmdCtx);
         s_mtmdCtx = nullptr;
-        LOGI("Multimodal context released");
+        LOGV("Multimodal context released");
     }
     if (s_helperContext != nullptr) {
         delete s_helperContext;
         s_helperContext = nullptr;
-        LOGI("LlamaHelper: Resources released successfully");
+        LOGV("LlamaHelper: Resources released successfully");
     }
 }
 
@@ -7823,7 +7842,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeReleaseMultimodal(
     if (s_mtmdCtx != nullptr) {
         mtmd_free(s_mtmdCtx);
         s_mtmdCtx = nullptr;
-        LOGI("Multimodal context released via JNI");
+        LOGV("Multimodal context released via JNI");
     }
 }
 
@@ -7915,7 +7934,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithImage(
         env->DeleteLocalRef(msgClass);
     }
     
-    LOGI("Received %zu history messages for multimodal generation", history.size());
+    LOGV("Received %zu history messages for multimodal generation", history.size());
 
     const char* promptStr = env->GetStringUTFChars(prompt, nullptr);
     const char* imagePathStr = env->GetStringUTFChars(imagePath, nullptr);
@@ -8068,7 +8087,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetGPULayers(
     JNIEnv* env,
     jclass /* clazz */,
     jint gpuLayers) {
-    LOGI("LlamaHelper: Setting GPU layers to %d", gpuLayers);
+    LOGV("LlamaHelper: Setting GPU layers to %d", gpuLayers);
     // 保存到全局变量
     llama_jni::s_defaultGpuLayers = gpuLayers;
     // 如果s_helperContext存在，也更新它
@@ -8178,7 +8197,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeAppendMessagesAndGenerate(
             [&out](const std::string& text, bool complete, const std::string& err) {
                 if (!complete && err.empty()) out += text;
             });
-        LOGI("Incremental generate: %zu chars, ok=%d", out.size(), (int)ok);
+        LOGV("Incremental generate: %zu chars, ok=%d", out.size(), (int)ok);
         return env->NewStringUTF(out.c_str());
     } catch (const std::exception& e) {
         LOGE("nativeAppendMessagesAndGenerate error: %s", e.what());
@@ -8213,7 +8232,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetThreadCount(
     JNIEnv* env,
     jclass /* clazz */,
     jint threadCount) {
-    LOGI("LlamaHelper: Setting thread count to %d", threadCount);
+    LOGV("LlamaHelper: Setting thread count to %d", threadCount);
     llama_jni::s_defaultThreadCount = threadCount;
     if (s_helperContext != nullptr) {
         s_helperContext->setThreadCount(threadCount);
@@ -8225,7 +8244,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetKvCacheType(
     JNIEnv* env,
     jclass /* clazz */,
     jint kvCacheType) {
-    LOGI("LlamaHelper: Setting KV cache type to %d (0=Q8_0, 1=F16, 2=Q4_0)", kvCacheType);
+    LOGV("LlamaHelper: Setting KV cache type to %d (0=Q8_0, 1=F16, 2=Q4_0)", kvCacheType);
     if (s_helperContext != nullptr) {
         s_helperContext->setKvCacheType(kvCacheType);
     }
@@ -8236,7 +8255,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetMemoryPoolSize(
     JNIEnv* env,
     jclass /* clazz */,
     jint memoryPoolSize) {
-    LOGI("LlamaHelper: Setting memory pool size to %d", memoryPoolSize);
+    LOGV("LlamaHelper: Setting memory pool size to %d", memoryPoolSize);
     llama_jni::s_defaultMemoryPoolSize = memoryPoolSize;
     if (s_helperContext != nullptr) {
         s_helperContext->setMemoryPoolSize(memoryPoolSize);
@@ -8248,7 +8267,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetBatchSize(
     JNIEnv* env,
     jclass /* clazz */,
     jint batchSize) {
-    LOGI("LlamaHelper: Setting batch size to %d", batchSize);
+    LOGV("LlamaHelper: Setting batch size to %d", batchSize);
     llama_jni::s_defaultBatchSize = batchSize;
     if (s_helperContext != nullptr) {
         s_helperContext->setBatchSize(batchSize);
@@ -8259,7 +8278,7 @@ JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeClearHistory(
     JNIEnv* env,
     jclass /* clazz */) {
-    LOGI("LlamaHelper: Clearing history");
+    LOGV("LlamaHelper: Clearing history");
     if (s_helperContext != nullptr) {
         s_helperContext->clearHistory();
     }
@@ -8269,7 +8288,7 @@ JNIEXPORT jstring JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetModelInfo(
     JNIEnv* env,
     jclass /* clazz */) {
-    LOGI("LlamaHelper: Getting model info");
+    LOGV("LlamaHelper: Getting model info");
     if (s_helperContext != nullptr) {
         std::string info = s_helperContext->getModelInfo();
         return env->NewStringUTF(info.c_str());
@@ -8332,7 +8351,7 @@ JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeOptimizeForPerformance(
     JNIEnv* env,
     jclass /* clazz */) {
-    LOGI("LlamaHelper: Optimizing for performance");
+    LOGV("LlamaHelper: Optimizing for performance");
     if (s_helperContext != nullptr && s_helperContext->isValid()) {
         s_helperContext->optimizeForPerformance();
     }
@@ -8343,11 +8362,11 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeIsModelInitialized(
     JNIEnv* env,
     jclass /* clazz */) {
     if (s_helperContext == nullptr) {
-        LOGI("nativeIsModelInitialized: s_helperContext is nullptr, returning false");
+        LOGV("nativeIsModelInitialized: s_helperContext is nullptr, returning false");
         return JNI_FALSE;
     }
     bool isValid = s_helperContext->isValid();
-    LOGI("nativeIsModelInitialized: isValid=%d", isValid);
+    LOGV("nativeIsModelInitialized: isValid=%d", isValid);
     return isValid ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -8373,8 +8392,8 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStream(
     jint topK,
     jboolean enableThinking,
     jobject callback) {
-    LOGI("LlamaHelper: Stream generation called");
-    LOGI("LlamaHelper: prompt=%s, maxTokens=%d, temp=%f, topP=%f, topK=%d, thinking=%d", 
+    LOGV("LlamaHelper: Stream generation called");
+    LOGV("LlamaHelper: prompt=%s, maxTokens=%d, temp=%f, topP=%f, topK=%d, thinking=%d", 
          (prompt ? "valid" : "null"), maxTokens, temperature, topP, topK, (int)enableThinking);
     
     if (s_helperContext == nullptr || !s_helperContext->isValid()) {
@@ -8609,8 +8628,8 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStreamBytes(
     jint topK,
     jboolean enableThinking,
     jobject callback) {
-    LOGI("LlamaHelper: Stream generation with bytes called");
-    LOGI("LlamaHelper: promptBytes=%p, maxTokens=%d, temp=%f, topP=%f, topK=%d",
+    LOGV("LlamaHelper: Stream generation with bytes called");
+    LOGV("LlamaHelper: promptBytes=%p, maxTokens=%d, temp=%f, topP=%f, topK=%d",
          promptUtf8, maxTokens, temperature, topP, topK);
 
     if (s_helperContext == nullptr || !s_helperContext->isValid()) {
@@ -8651,7 +8670,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStreamBytes(
         return;
     }
 
-    LOGI("LlamaHelper: Decoded prompt length=%zu", promptContent.length());
+    LOGV("LlamaHelper: Decoded prompt length=%zu", promptContent.length());
 
     // 创建全局引用，防止回调时对象被回收
     jobject globalCallback = env->NewGlobalRef(callback);
@@ -8768,8 +8787,8 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStreamFromMessages(
     jint topK,
     jboolean enableThinking,
     jobject callback) {
-    LOGI("LlamaHelper: Stream generation from messages called");
-    LOGI("LlamaHelper: maxTokens=%d, temp=%f, topP=%f, topK=%d, thinking=%d",
+    LOGV("LlamaHelper: Stream generation from messages called");
+    LOGV("LlamaHelper: maxTokens=%d, temp=%f, topP=%f, topK=%d, thinking=%d",
          maxTokens, temperature, topP, topK, (int)enableThinking);
 
     if (s_helperContext == nullptr || !s_helperContext->isValid()) {
@@ -8837,7 +8856,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStreamFromMessages(
             messages.push_back({role, content});
         }
     }
-    LOGI("LlamaHelper: Parsed %zu messages", messages.size());
+    LOGV("LlamaHelper: Parsed %zu messages", messages.size());
 
     if (messages.empty()) {
         jclass callbackClass = env->GetObjectClass(callback);
@@ -8962,7 +8981,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithTools(
     jint topK,
     jboolean enableThinking,
     jobject callback) {
-    LOGI("LlamaHelper: Generate with tools called");
+    LOGV("LlamaHelper: Generate with tools called");
 
     if (s_helperContext == nullptr || !s_helperContext->isValid()) {
         LOGE("LlamaHelper: s_helperContext is null or invalid");
@@ -9015,14 +9034,14 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithTools(
             messages.push_back({role, content});
         }
     }
-    LOGI("LlamaHelper: Parsed %zu messages", messages.size());
+    LOGV("LlamaHelper: Parsed %zu messages", messages.size());
 
     // 解析 tools JSON
     std::string toolsJson;
     if (toolsJsonBytes != nullptr) {
         toolsJson = bytesToUtf8String(env, toolsJsonBytes);
     }
-    LOGI("LlamaHelper: toolsJson length: %zu", toolsJson.size());
+    LOGV("LlamaHelper: toolsJson length: %zu", toolsJson.size());
 
     // 创建全局引用
     jobject globalCallback = env->NewGlobalRef(callback);
@@ -9178,7 +9197,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithTools(
                     jmethodID onToolCallsMethod = env->GetMethodID(tokenCallbackClass, "onToolCalls", "(Ljava/util/List;)V");
                     if (onToolCallsMethod != nullptr) {
                         env->CallVoidMethod(globalCallback, onToolCallsMethod, listObj);
-                        LOGI("Called Java onToolCalls with %zu tool calls", parseResult.tool_calls.size());
+                        LOGV("Called Java onToolCalls with %zu tool calls", parseResult.tool_calls.size());
                     }
                     env->DeleteLocalRef(tokenCallbackClass);
                 }
@@ -9196,7 +9215,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithTools(
                     jstring reasoningStr = utf8StringToJstring(env, parseResult.reasoning_content);
                     env->CallVoidMethod(globalCallback, onReasoningMethod, reasoningStr);
                     env->DeleteLocalRef(reasoningStr);
-                    LOGI("Called Java onReasoning with %zu chars", parseResult.reasoning_content.size());
+                    LOGV("Called Java onReasoning with %zu chars", parseResult.reasoning_content.size());
                 }
                 env->DeleteLocalRef(tokenCallbackClass);
             }
@@ -9217,7 +9236,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatJson(
     jclass /* clazz */,
     jbyteArray requestJsonBytes,
     jobject callback) {
-    LOGI("LlamaHelper: nativeChatJson called");
+    LOGV("LlamaHelper: nativeChatJson called");
 
     if (s_helperContext == nullptr || !s_helperContext->isValid()) {
         LOGE("LlamaHelper: s_helperContext is null or invalid");
@@ -9244,7 +9263,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatJson(
     }
 
     std::string requestJson = bytesToUtf8String(env, requestJsonBytes);
-    LOGI("LlamaHelper: nativeChatJson request len: %zu", requestJson.size());
+    LOGV("LlamaHelper: nativeChatJson request len: %zu", requestJson.size());
 
     // 全局引用
     jobject globalCallback = env->NewGlobalRef(callback);
@@ -9294,7 +9313,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateBatch(
     jfloat temperature,
     jfloat topP,
     jint topK) {
-    LOGI("LlamaHelper: Batch generation called");
+    LOGV("LlamaHelper: Batch generation called");
     
     if (s_helperContext == nullptr || !s_helperContext->isValid()) {
         return env->NewObjectArray(0, env->FindClass("java/lang/String"), env->NewStringUTF(""));
@@ -9339,16 +9358,16 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeCountTokens(
     JNIEnv* env,
     jclass /* clazz */,
     jstring text) {
-    LOGI("LlamaHelper: Counting tokens");
+    LOGV("LlamaHelper: Counting tokens");
     
     if (s_helperContext == nullptr || !s_helperContext->isValid()) {
-        LOGI("LlamaHelper: s_helperContext is null or invalid, returning 0");
+        LOGV("LlamaHelper: s_helperContext is null or invalid, returning 0");
         return 0;
     }
     
     const char* textStr = env->GetStringUTFChars(text, nullptr);
     if (textStr == nullptr) {
-        LOGI("LlamaHelper: Failed to get text string, returning 0");
+        LOGV("LlamaHelper: Failed to get text string, returning 0");
         return 0;
     }
     
@@ -9358,12 +9377,12 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeCountTokens(
     // 使用 llama_tokenize 计算 token 数量
     const llama_vocab* vocab = s_helperContext->getVocab();
     if (vocab == nullptr) {
-        LOGI("LlamaHelper: Failed to get vocab, returning 0");
+        LOGV("LlamaHelper: Failed to get vocab, returning 0");
         return 0;
     }
     
     int tokenCount = -llama_tokenize(vocab, textContent.c_str(), textContent.size(), NULL, 0, true, true);
-    LOGI("LlamaHelper: Token count for text '%s' is %d", textContent.substr(0, 50).c_str(), tokenCount);
+    LOGV("LlamaHelper: Token count for text '%s' is %d", textContent.substr(0, 50).c_str(), tokenCount);
     
     return tokenCount > 0 ? tokenCount : 0;
 }
@@ -9393,7 +9412,7 @@ JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeOptimizeForMemory(
     JNIEnv* env,
     jclass /* clazz */) {
-    LOGI("LlamaHelper: Optimizing for memory");
+    LOGV("LlamaHelper: Optimizing for memory");
     llama_jni::s_defaultThreadCount = 2;
     llama_jni::s_defaultBatchSize = 128;
     llama_jni::s_defaultMemoryPoolSize = 512;
@@ -9943,12 +9962,12 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeDetectGPUInfo(
                                     
                                     if (globalMemSize > 0) {
                                         s_detectedGpuMemory = std::max(s_detectedGpuMemory, globalMemSize);
-                                        LOGI("Stored detected GPU memory: %zu bytes (%zu MB)", s_detectedGpuMemory, s_detectedGpuMemory / 1024 / 1024);
+                                        LOGV("Stored detected GPU memory: %zu bytes (%zu MB)", s_detectedGpuMemory, s_detectedGpuMemory / 1024 / 1024);
                                     }
 
                                     if (maxMemAllocSize > 0) {
                                         s_detectedMaxMemAllocSize = std::max(s_detectedMaxMemAllocSize, (size_t)maxMemAllocSize);
-                                        LOGI("Stored detected max mem alloc size: %zu bytes (%zu MB)", s_detectedMaxMemAllocSize, s_detectedMaxMemAllocSize / 1024 / 1024);
+                                        LOGV("Stored detected max mem alloc size: %zu bytes (%zu MB)", s_detectedMaxMemAllocSize, s_detectedMaxMemAllocSize / 1024 / 1024);
                                     }
                                     
                                     std::ostringstream oss;
@@ -9990,7 +10009,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeCleanupCallback(
     if (g_activeCallback != nullptr) {
         env->DeleteGlobalRef(g_activeCallback);
         g_activeCallback = nullptr;
-        LOGI("nativeCleanupCallback: cleaned up global callback ref");
+        LOGV("nativeCleanupCallback: cleaned up global callback ref");
     }
 }
 
@@ -10043,7 +10062,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetMetaValid(JNIEnv* /*env*/, jcla
 extern "C" JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeInstallSignalHandlers(JNIEnv* /*env*/, jclass) {
     install_fatal_signal_handlers();
-    LOGI("Fatal signal handlers installed (SIGABRT/SIGSEGV/SIGBUS/SIGILL)");
+    LOGV("Fatal signal handlers installed (SIGABRT/SIGSEGV/SIGBUS/SIGILL)");
 }
 
 extern "C" JNIEXPORT jint JNICALL
@@ -10264,7 +10283,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeReadGgufMeta(
     env->SetLongArrayRegion(arr, 0, totalLen, buf);
     delete[] buf;
 
-    LOGI("nativeReadGgufMeta: %s -> block=%lld head=%lld headKv=%lld emb=%lld ctx=%lld keyLen=%lld fai=%lld linear=%lld params=%lld tensors=%lld types=%d",
+    LOGV("nativeReadGgufMeta: %s -> block=%lld head=%lld headKv=%lld emb=%lld ctx=%lld keyLen=%lld fai=%lld linear=%lld params=%lld tensors=%lld types=%d",
          filePath.c_str(),
          (long long) out[1], (long long) out[2], (long long) out[3], (long long) out[4],
          (long long) out[5], (long long) out[6], (long long) out[7], (long long) out[8],

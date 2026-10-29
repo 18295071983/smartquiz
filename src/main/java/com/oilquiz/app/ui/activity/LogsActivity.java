@@ -369,7 +369,7 @@ public class LogsActivity extends BaseActivity {
                             java.nio.charset.StandardCharsets.UTF_8));
             String line;
             while ((line = reader.readLine()) != null) {
-                if (line.isEmpty()) continue;
+                if (line.isEmpty() || line.startsWith("#")) continue;
                 items.add(parseEngineLine(line));
             }
             reader.close();
