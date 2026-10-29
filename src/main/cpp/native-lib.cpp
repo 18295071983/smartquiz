@@ -661,7 +661,7 @@ static std::string detectVulkanVersionViaAPI() {
                         uint32_t minor = VK_VERSION_MINOR(props.apiVersion);
                         uint32_t patch = VK_VERSION_PATCH(props.apiVersion);
                         
-                        LOGD("Vulkan physical device: %s, API version: %d.%d.%d", 
+                        LOGI("Vulkan physical device: %s, API version: %d.%d.%d", 
                              props.deviceName, major, minor, patch);
                         
                         versionStr = std::to_string(major) + "." + std::to_string(minor);
@@ -678,7 +678,7 @@ static std::string detectVulkanVersionViaAPI() {
     
     s_vulkanVersionDetected = true;
     s_detectedVulkanVersion = versionStr;
-    LOGD("Detected Vulkan version: %s", versionStr.c_str());
+    LOGI("Detected Vulkan version: %s", versionStr.c_str());
     
     return versionStr;
 }
@@ -786,7 +786,9 @@ static void setupGGMLBackendPath() {
                     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
                     LOGD("ggml-backend_init completed in %lldms", elapsed);
                 } else {
-                    LOGW("Could not find ggml_backend_init in ggml-opencl");
+                    // 该构建的 ggml-opencl 不导出 ggml_backend_init，属可选项缺失；
+                    // 有其它初始化路径兜底，不是故障，降为 debug 免刷引擎日志
+                    LOGD("Could not find ggml_backend_init in ggml-opencl");
                 }
                 break;
             } else {
@@ -835,7 +837,7 @@ static bool detectAdrenoGPU() {
         char platformName[256] = {0};
         clGetPlatformInfo_ptr(platform, CL_PLATFORM_VENDOR, sizeof(platformVendor), platformVendor, nullptr);
         clGetPlatformInfo_ptr(platform, CL_PLATFORM_NAME, sizeof(platformName), platformName, nullptr);
-        LOGD("OpenCL Platform: %s (%s)", platformName, platformVendor);
+        LOGI("OpenCL Platform: %s (%s)", platformName, platformVendor);
         
         cl_uint numDevices = 0;
         if (clGetDeviceIDs_ptr(platform, CL_DEVICE_TYPE_GPU, 0, nullptr, &numDevices) != CL_SUCCESS || numDevices == 0) {
@@ -855,7 +857,7 @@ static bool detectAdrenoGPU() {
             clGetDeviceInfo_ptr(device, CL_DEVICE_VENDOR, sizeof(deviceVendor), deviceVendor, nullptr);
             clGetDeviceInfo_ptr(device, CL_DEVICE_VERSION, sizeof(deviceVersion), deviceVersion, nullptr);
             
-            LOGD("GPU Device: %s (%s) - %s", deviceName, deviceVendor, deviceVersion);
+            LOGI("GPU Device: %s (%s) - %s", deviceName, deviceVendor, deviceVersion);
             
             std::string nameStr(deviceName);
             std::string vendorStr(deviceVendor);
@@ -866,14 +868,14 @@ static bool detectAdrenoGPU() {
                            vendorStr.find("qualcomm") != std::string::npos;
             
             if (isAdreno) {
-                LOGD("Detected Qualcomm Adreno GPU!");
+                LOGI("Detected Qualcomm Adreno GPU!");
                 
                 if (nameStr.find("750") != std::string::npos) {
-                    LOGD("Detected Adreno 750 (Xiaomi 14 / Snapdragon 8 Gen 3)");
+                    LOGI("Detected Adreno 750 (Xiaomi 14 / Snapdragon 8 Gen 3)");
                 } else if (nameStr.find("730") != std::string::npos) {
-                    LOGD("Detected Adreno 730 (Snapdragon 8 Gen 2)");
+                    LOGI("Detected Adreno 730 (Snapdragon 8 Gen 2)");
                 } else if (nameStr.find("740") != std::string::npos) {
-                    LOGD("Detected Adreno 740");
+                    LOGI("Detected Adreno 740");
                 }
                 
                 return true;
@@ -1760,7 +1762,7 @@ public:
             mThinkEndTags = params.thinking_end_tags;
             classifyToolCallTags(params.preserved_tokens, mThinkStartTag, mThinkEndTags,
                                  mToolCallOpenTags, mToolCallCloseTags);
-            LOGD("refreshThinkingTags: start='%s', %zu end tag(s); tool-call tags %zu open/%zu close",
+            LOGI("refreshThinkingTags: start='%s', %zu end tag(s); tool-call tags %zu open/%zu close",
                  mThinkStartTag.c_str(), mThinkEndTags.size(),
                  mToolCallOpenTags.size(), mToolCallCloseTags.size());
             return true;
@@ -1951,7 +1953,7 @@ public:
         LOGV("Checking available devices for GPU acceleration...");
         
         if (s_detectedGpuMemory > 0) {
-            LOGV("Using previously detected GPU memory from OpenCL: %zu MB", s_detectedGpuMemory / 1024 / 1024);
+            LOGI("Using previously detected GPU memory from OpenCL: %zu MB", s_detectedGpuMemory / 1024 / 1024);
             gpuTotalMemory = s_detectedGpuMemory;
         }
         
@@ -1981,7 +1983,7 @@ public:
                     hasGPU = true;
                     size_t freeMem = 0, totalMem = 0;
                     ggml_backend_dev_memory(dev, &freeMem, &totalMem);
-                    LOGD("ggml GPU detected: free=%zuMB, total=%zuMB",
+                    LOGI("ggml GPU detected: free=%zuMB, total=%zuMB",
                          freeMem/1024/1024, totalMem/1024/1024);
                     if (totalMem > 0) {
                         gpuTotalMemory = std::max(gpuTotalMemory, totalMem);
@@ -1999,7 +2001,7 @@ public:
         int initialGpuLayers = this->gpuLayers;
         bool gpuModeRequested = true;
         
-        LOGD("GPU layers from Java/Default: %d", this->gpuLayers);
+        LOGI("GPU layers from Java/Default: %d", this->gpuLayers);
         LOGD("OpenCL loaded: %s, ggml GPU detected: %s", 
              s_openclLoaded ? "true" : "false", hasGPU ? "true" : "false");
         
@@ -2016,7 +2018,7 @@ public:
             // 强改成 GPU，在 Vulkan shader 与驱动不兼容的设备（如 Adreno 750）
             // 上直接崩溃（createComputePipeline: ErrorUnknown）。
             this->gpuLayers = MAX_GPU_LAYERS;
-            LOGD("Vulkan GPU detected, auto-setting GPU layers to %d (mixed GPU+CPU inference)", this->gpuLayers);
+            LOGI("Vulkan GPU detected, auto-setting GPU layers to %d (mixed GPU+CPU inference)", this->gpuLayers);
         }
         // 最终安全限幅：确保 GPU 层数不超过 MAX_GPU_LAYERS
         if (this->gpuLayers > MAX_GPU_LAYERS) {
@@ -2024,7 +2026,7 @@ public:
                  this->gpuLayers, MAX_GPU_LAYERS, MAX_GPU_LAYERS);
             this->gpuLayers = MAX_GPU_LAYERS;
         }
-        LOGD("GPU available: %s, Vulkan GPU detected: %s, GPU layers: %d (mixed inference: remaining layers on CPU)",
+        LOGI("GPU available: %s, Vulkan GPU detected: %s, GPU layers: %d (mixed inference: remaining layers on CPU)",
              gpuAvailable ? "true" : "false", hasGPU ? "true" : "false", this->gpuLayers);
         
         // 配置多 GPU 分片参数（手机通常只有 1 个 GPU，但保留扩展性）
@@ -2063,7 +2065,7 @@ public:
                         : (strstr(regName, "OpenCL") != nullptr));
                 if (isTarget) {
                     selectedDevices.push_back(dev);
-                    LOGD("Backend switch: selected device %zu (backend=%s, name=%s)",
+                    LOGI("Backend switch: selected device %zu (backend=%s, name=%s)",
                          i, regName, ggml_backend_dev_name(dev) ? ggml_backend_dev_name(dev) : "null");
                 }
             }
@@ -2235,7 +2237,7 @@ public:
             if (this->gpuLayers > 0) {
                 s_gpuTested = true;
                 s_gpuWorking = true;
-                LOGV("GPU mode working correctly with %d layers", this->gpuLayers);
+                LOGI("GPU mode working correctly with %d layers", this->gpuLayers);
             } else {
                 s_gpuWorking = false;
                 LOGV("CPU mode working");
@@ -2257,7 +2259,7 @@ public:
             std::string pathStr(modelPath);
             size_t lastSlash = pathStr.find_last_of('/');
             meta.modelName = (lastSlash != std::string::npos) ? pathStr.substr(lastSlash + 1) : pathStr;
-            LOGD("ModelMeta: nCtxTrain=%d, nEmbd=%d, nLayer=%d, nHead=%d, nParams=%lld, name=%s",
+            LOGI("ModelMeta: nCtxTrain=%d, nEmbd=%d, nLayer=%d, nHead=%d, nParams=%lld, name=%s",
                  meta.nCtxTrain, meta.nEmbd, meta.nLayer, meta.nHead,
                  meta.nParams, meta.modelName.c_str());
         }
@@ -2337,11 +2339,11 @@ public:
         if (this->kvCacheType == 0) {
             ctx_params.type_k = GGML_TYPE_Q8_0;
             ctx_params.type_v = GGML_TYPE_Q8_0;
-            LOGD("KV cache quantized to Q8_0 (memory ~50%% saved)");
+            LOGI("KV cache quantized to Q8_0 (memory ~50%% saved)");
         } else if (this->kvCacheType == 2) {
             ctx_params.type_k = GGML_TYPE_Q4_0;
             ctx_params.type_v = GGML_TYPE_Q4_0;
-            LOGD("KV cache quantized to Q4_0 (memory ~75%% saved, hybrid model near-lossless)");
+            LOGI("KV cache quantized to Q4_0 (memory ~75%% saved, hybrid model near-lossless)");
         } else {
             ctx_params.type_k = GGML_TYPE_F16;
             ctx_params.type_v = GGML_TYPE_F16;
@@ -2372,13 +2374,13 @@ public:
             if (kvPerTokenBytes > 0 && kvBudgetBytes > 0) {
                 int maxCtxByBudget = (int) (kvBudgetBytes / kvPerTokenBytes);
                 if (contextSize > maxCtxByBudget) {
-                    LOGD("Memory pool budget (%dMB) limits n_ctx: %d -> %d (KV=%lld B/token, %d/%d layers have KV)",
+                    LOGI("Memory pool budget (%dMB) limits n_ctx: %d -> %d (KV=%lld B/token, %d/%d layers have KV)",
                          this->memoryPoolSize, contextSize, maxCtxByBudget,
                          (long long) kvPerTokenBytes, kvLayers, nLayer);
                     contextSize = maxCtxByBudget;
                     ctx_params.n_ctx = contextSize;
                 } else {
-                    LOGD("Memory pool budget (%dMB) OK for n_ctx=%d (KV=%lld B/token, %d/%d layers have KV, peak=%lldMB)",
+                    LOGI("Memory pool budget (%dMB) OK for n_ctx=%d (KV=%lld B/token, %d/%d layers have KV, peak=%lldMB)",
                          this->memoryPoolSize, contextSize, (long long) kvPerTokenBytes, kvLayers, nLayer,
                          (long long) ((kvPerTokenBytes * contextSize) / (1024 * 1024)));
                 }
@@ -4322,7 +4324,7 @@ public:
         if (req.contains("tools") && req["tools"].is_array()) {
             try {
                 tools = common_chat_tools_parse_oaicompat(req["tools"]);
-                LOGV("chatJson: parsed %zu tools", tools.size());
+                LOGI("chatJson: parsed %zu tools", tools.size());
             } catch (const std::exception& e) {
                 LOGW("chatJson: tools parse failed: %s, continuing without tools", e.what());
             }
@@ -4342,7 +4344,7 @@ public:
         float temperature = req.value("temperature", 0.6f);
         float topP = req.value("top_p", 0.9f);
         int topK = req.value("top_k", 40);
-        LOGV("chatJson: tool_choice=%s, enable_thinking=%d, max_tokens=%d, temp=%f, topP=%f, topK=%d",
+        LOGI("chatJson: tool_choice=%s, enable_thinking=%d, max_tokens=%d, temp=%f, topP=%f, topK=%d",
              toolChoiceStr.c_str(), (int)enableThinking, maxTokens, temperature, topP, topK);
 
         // step 5：构建模板输入
@@ -4361,14 +4363,14 @@ public:
         inputs.use_jinja = true;
         bool supports_thinking = common_chat_templates_support_enable_thinking(chat_templates.get());
         inputs.enable_thinking = enableThinking && supports_thinking;
-        LOGV("chatJson: enable_thinking=%d, template supports=%d, final=%d",
+        LOGI("chatJson: enable_thinking=%d, template supports=%d, final=%d",
              (int)enableThinking, (int)supports_thinking, (int)inputs.enable_thinking);
 
         // step 6：应用模板
         common_chat_params chat_params;
         try {
             chat_params = common_chat_templates_apply(chat_templates.get(), inputs);
-            LOGV("chatJson: template applied, prompt length: %zu, format: %s",
+            LOGI("chatJson: template applied, prompt length: %zu, format: %s",
                  chat_params.prompt.size(), common_chat_format_name(chat_params.format));
 
             // 提取模板思考标签（统一标签源），供流式思考段剥离
@@ -5001,7 +5003,7 @@ public:
         // 故设备过滤处单独处理（见 loadModel 内的 backendChoice 分支）。
         if (choice == "opencl" || choice == "vulkan" || choice == "auto" || choice == "hexagon") {
             backendChoice = choice;
-            LOGV("Backend choice set to: %s", choice.c_str());
+            LOGI("Backend choice set to: %s", choice.c_str());
         } else {
             LOGW("Invalid backend choice '%s', keeping '%s'", choice.c_str(), backendChoice.c_str());
         }
@@ -5061,7 +5063,7 @@ public:
         const char* chat_template = llama_model_chat_template(model, nullptr);
         if (chat_template != nullptr) {
             chatTemplate = chat_template;
-            LOGD("Got chat template from model: %s", chatTemplate.substr(0, 100).c_str());
+            LOGI("Chat template loaded: %zu chars, preview=%.60s", chatTemplate.size(), chatTemplate.c_str());
         } else {
             chatTemplate = "(none, using ChatML fallback)";
             LOGV("No built-in chat template for %s, will use ChatML format", modelType.c_str());
@@ -5437,7 +5439,7 @@ std::string InferenceContext::applyChatTemplateForMessages(const std::vector<std
                         mThinkStartTag = params.thinking_start_tag;
                         mThinkEndTags = params.thinking_end_tags;
                     }
-                    LOGV("applyChatTemplateForMessages: template=%zu bytes, thinking=%d (requested=%d, supports=%d), startTag='%s'",
+                    LOGI("applyChatTemplateForMessages: template=%zu bytes, thinking=%d (requested=%d, supports=%d), startTag='%s'",
                          params.prompt.size(), (int)inputs.enable_thinking, (int)enableThinking,
                          (int)supports_thinking, mThinkStartTag.c_str());
                     return params.prompt;
