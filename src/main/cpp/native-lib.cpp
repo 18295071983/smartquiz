@@ -606,6 +606,11 @@ static std::atomic<uint64_t> g_cbDropped{0};
 static std::atomic<bool> g_cbDropReported{false};
 
 static std::string s_detectedVulkanVersion = "Unknown";
+// 工具结果包裹串：与 Qwen 模板判据保持一致（user 消息整体被这对标记包住时不算"真查询"）。
+// 模板源码里 endswith 的字面量带一个前导竖线，这里逐字节照抄，不做"顺手修正"。
+static const std::string TR_OPEN("<|tool_response|");
+static const std::string TR_CLOSE("|<tool_response|");
+
 static bool s_vulkanVersionDetected = false;
 
 typedef VkResult (*PFN_vkEnumerateInstanceVersion)(uint32_t*);
@@ -6973,17 +6978,11 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatCreate(
         g_chatContext = nullptr;
     }
 
-    const char* globalStr = globalPrompt ? env->GetStringUTFChars(globalPrompt, nullptr) : nullptr;
-    const char* sysStr = systemPrompt ? env->GetStringUTFChars(systemPrompt, nullptr) : nullptr;
-    const char* normalStr = normalPrompt ? env->GetStringUTFChars(normalPrompt, nullptr) : nullptr;
-
-    std::string globalContent(globalStr ? globalStr : "");
-    std::string sysContent(sysStr ? sysStr : "");
-    std::string normalContent(normalStr ? normalStr : "");
-
-    if (globalStr) env->ReleaseStringUTFChars(globalPrompt, globalStr);
-    if (sysStr) env->ReleaseStringUTFChars(systemPrompt, sysStr);
-    if (normalStr) env->ReleaseStringUTFChars(normalPrompt, normalStr);
+    // 标准 UTF-8 入站（见 jstringToUtf8）：提示词里常有 emoji / 全角符号，
+    // modified UTF-8 会把它们编成 CESU-8，喂进 chat template 与 tokenize 都会错。
+    std::string globalContent = jstringToUtf8(env, globalPrompt);
+    std::string sysContent = jstringToUtf8(env, systemPrompt);
+    std::string normalContent = jstringToUtf8(env, normalPrompt);
 
     int actualCtxSize = s_helperContext->getContextSize();
     if (ctxSize > 0 && ctxSize < actualCtxSize) {
@@ -7375,10 +7374,8 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeKvMemPreload(
         LOGE("nativeKvMemPreload: invalid chat context");
         return JNI_FALSE;
     }
-    const char* str = text ? env->GetStringUTFChars(text, nullptr) : nullptr;
-    if (!str) { LOGE("nativeKvMemPreload: text null"); return JNI_FALSE; }
-    std::string content(str);
-    env->ReleaseStringUTFChars(text, str);
+    std::string content = jstringToUtf8(env, text);
+    if (content.empty()) { LOGE("nativeKvMemPreload: text 为空或解码失败"); return JNI_FALSE; }
     bool ok = chatCtx->kvMemPreload(content);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
@@ -7437,10 +7434,8 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeKvMemAsk(
     if (!chatCtx || !chatCtx->isValid()) {
         return env->NewStringUTF("No chat context");
     }
-    const char* qstr = question ? env->GetStringUTFChars(question, nullptr) : nullptr;
-    if (!qstr) return env->NewStringUTF("Empty question");
-    std::string q(qstr);
-    env->ReleaseStringUTFChars(question, qstr);
+    std::string q = jstringToUtf8(env, question);
+    if (q.empty()) return env->NewStringUTF("Empty question");
     std::string out;
     if (!chatCtx->kvMemAsk(q, maxTokens > 0 ? maxTokens : 128, temperature, out)) {
         return env->NewStringUTF("");
@@ -7464,17 +7459,11 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatUpdatePrompts(
         return JNI_FALSE;
     }
 
-    const char* globalStr = globalPrompt ? env->GetStringUTFChars(globalPrompt, nullptr) : nullptr;
-    const char* sysStr = systemPrompt ? env->GetStringUTFChars(systemPrompt, nullptr) : nullptr;
-    const char* normalStr = normalPrompt ? env->GetStringUTFChars(normalPrompt, nullptr) : nullptr;
-
-    std::string globalContent(globalStr ? globalStr : "");
-    std::string sysContent(sysStr ? sysStr : "");
-    std::string normalContent(normalStr ? normalStr : "");
-
-    if (globalStr) env->ReleaseStringUTFChars(globalPrompt, globalStr);
-    if (sysStr) env->ReleaseStringUTFChars(systemPrompt, sysStr);
-    if (normalStr) env->ReleaseStringUTFChars(normalPrompt, normalStr);
+    // 标准 UTF-8 入站（见 jstringToUtf8）：提示词里常有 emoji / 全角符号，
+    // modified UTF-8 会把它们编成 CESU-8，喂进 chat template 与 tokenize 都会错。
+    std::string globalContent = jstringToUtf8(env, globalPrompt);
+    std::string sysContent = jstringToUtf8(env, systemPrompt);
+    std::string normalContent = jstringToUtf8(env, normalPrompt);
 
     bool ok = chatCtx->updatePrompts(globalContent, sysContent, normalContent);
     return ok ? JNI_TRUE : JNI_FALSE;
@@ -7496,9 +7485,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatAddAssistantToolCall(
         return;
     }
 
-    const char* content = toolCallContent ? env->GetStringUTFChars(toolCallContent, nullptr) : nullptr;
-    std::string toolCallStr(content ? content : "");
-    if (content) env->ReleaseStringUTFChars(toolCallContent, content);
+    std::string toolCallStr = jstringToUtf8(env, toolCallContent);
 
     chatCtx->addAssistantToolCall(toolCallStr);
 }
@@ -7632,14 +7619,13 @@ Java_com_oilquiz_app_ai_jni_LlamaBridge_nativeGenerate(
         return env->NewStringUTF("Error: Invalid context");
     }
 
-    const char* promptStr = env->GetStringUTFChars(prompt, nullptr);
-    if (promptStr == nullptr) {
+    std::string promptContent = jstringToUtf8(env, prompt);   // 标准 UTF-8 入站
+    if (promptContent.empty()) {
         LOGE("Failed to get prompt string");
         return env->NewStringUTF("Error: Failed to read prompt");
     }
 
-    std::string promptContent(promptStr);
-    env->ReleaseStringUTFChars(prompt, promptStr);
+    // （取值已在上方完成，无需再拷贝/释放 jstring）
 
     std::string output;
     if (!context->generate(promptContent, maxTokens, temperature, topP, topK, output)) {
@@ -7888,16 +7874,15 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerate(
     
     LOGV("LlamaHelper: Context is valid");
     
-    const char* promptStr = env->GetStringUTFChars(prompt, nullptr);
-    if (promptStr == nullptr) {
+    std::string promptContent = jstringToUtf8(env, prompt);   // 标准 UTF-8 入站
+    if (promptContent.empty()) {
         LOGE("LlamaHelper: Failed to get prompt");
         return env->NewStringUTF("Error: Failed to get prompt");
     }
     
-    LOGV("LlamaHelper: Prompt length: %zu", strlen(promptStr));
+    LOGV("LlamaHelper: Prompt length: %zu", promptContent.size());
     
-    std::string promptContent(promptStr);
-    env->ReleaseStringUTFChars(prompt, promptStr);
+    // （取值已在上方完成，无需再拷贝/释放 jstring）
     
     LOGV("LlamaHelper: Calling generate method...");
     
@@ -8045,18 +8030,16 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithImage(
             if (typeObj && contentStr) {
                 jstring typeStr = (jstring)env->CallObjectMethod(typeObj, nameMethod);
                 if (typeStr) {
-                    const char* type = env->GetStringUTFChars(typeStr, nullptr);
-                    const char* content = env->GetStringUTFChars(contentStr, nullptr);
-                    if (type && content) {
+                    std::string roleRaw = jstringToUtf8(env, typeStr);
+                    std::string content = jstringToUtf8(env, contentStr);
+                    if (!roleRaw.empty() && !content.empty()) {
                         // 转换为小写 role 字符串
-                        std::string roleLower = std::string(type);
+                        std::string roleLower = roleRaw;
                         for (auto& c : roleLower) c = std::tolower(c);
                         // MessageType.AI 枚举名为 "ai"，chat template 需要标准角色名 "assistant"
                         if (roleLower == "ai") roleLower = "assistant";
-                        history.push_back({roleLower, std::string(content)});
+                        history.push_back({roleLower, content});
                     }
-                    if (type) env->ReleaseStringUTFChars(typeStr, type);
-                    if (content) env->ReleaseStringUTFChars(contentStr, content);
                 }
             }
             env->DeleteLocalRef(typeObj);
@@ -8069,18 +8052,14 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithImage(
     
     LOGV("Received %zu history messages for multimodal generation", history.size());
 
-    const char* promptStr = env->GetStringUTFChars(prompt, nullptr);
-    const char* imagePathStr = env->GetStringUTFChars(imagePath, nullptr);
-    if (promptStr == nullptr || imagePathStr == nullptr) {
-        if (promptStr) env->ReleaseStringUTFChars(prompt, promptStr);
-        if (imagePathStr) env->ReleaseStringUTFChars(imagePath, imagePathStr);
+    std::string promptContent = jstringToUtf8(env, prompt);
+    std::string imagePathContent = jstringToUtf8(env, imagePath);
+    if (promptContent.empty() || imagePathContent.empty()) {
+        LOGE("nativeGenerateWithImage: prompt 或 imagePath 为空/解码失败");
         return;
     }
 
-    std::string promptContent(promptStr);
-    std::string imagePathContent(imagePathStr);
-    env->ReleaseStringUTFChars(prompt, promptStr);
-    env->ReleaseStringUTFChars(imagePath, imagePathStr);
+    // 取值与空值守卫已在上方完成（标准 UTF-8 入站见 jstringToUtf8）
 
     // 创建全局引用，防止回调时对象被回收
     jobject globalCallback = env->NewGlobalRef(callback);
@@ -8275,16 +8254,14 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeAppendMessagesAndGenerate(
             jstring roleJ = (jstring)env->GetObjectArrayElement(roles, i);
             jstring contentJ = (jstring)env->GetObjectArrayElement(contents, i);
             if (roleJ == nullptr || contentJ == nullptr) continue;
-            const char* role = env->GetStringUTFChars(roleJ, nullptr);
-            const char* content = env->GetStringUTFChars(contentJ, nullptr);
+            std::string role = jstringToUtf8(env, roleJ);
+            std::string content = jstringToUtf8(env, contentJ);
             std::string msg;
-            if (role != nullptr && strcmp(role, "tool") == 0) {
-                msg = "<|im_start|>user\n<tool_response>\n" + std::string(content ? content : "") + "\n</tool_response>\n<|im_end|>\n";
+            if (role == "tool") {
+                msg = "<|im_start|>user\n" + TR_OPEN + "\n" + content + "\n" + TR_CLOSE + "\n<|im_end|>\n";
             } else {
-                msg = std::string("<|im_start|>") + (role ? role : "user") + "\n" + (content ? content : "") + "<|im_end|>\n";
+                msg = "<|im_start|>" + (role.empty() ? std::string("user") : role) + "\n" + content + "<|im_end|>\n";
             }
-            env->ReleaseStringUTFChars(roleJ, role);
-            env->ReleaseStringUTFChars(contentJ, content);
             env->DeleteLocalRef(roleJ);
             env->DeleteLocalRef(contentJ);
 
@@ -8553,8 +8530,8 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStream(
         return;
     }
     
-    const char* promptStr = env->GetStringUTFChars(prompt, nullptr);
-    if (promptStr == nullptr) {
+    std::string promptContent = jstringToUtf8(env, prompt);   // 标准 UTF-8 入站
+    if (promptContent.empty()) {
         jclass callbackClass = env->GetObjectClass(callback);
         jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
         if (onErrorMethod != nullptr) {
@@ -8565,8 +8542,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStream(
         return;
     }
     
-    std::string promptContent(promptStr);
-    env->ReleaseStringUTFChars(prompt, promptStr);
+    // （取值已在上方完成，无需再拷贝/释放 jstring）
     
     // 创建全局引用，防止回调时对象被回收
     jobject globalCallback = env->NewGlobalRef(callback);
@@ -8975,11 +8951,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateStreamFromMessages(
 
         std::string role;
         if (roleStr != nullptr) {
-            const char* roleChars = env->GetStringUTFChars(roleStr, nullptr);
-            if (roleChars != nullptr) {
-                role = roleChars;
-                env->ReleaseStringUTFChars(roleStr, roleChars);
-            }
+            role = jstringToUtf8(env, roleStr);
             env->DeleteLocalRef(roleStr);
         }
 
@@ -9153,11 +9125,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithTools(
 
         std::string role;
         if (roleStr != nullptr) {
-            const char* roleChars = env->GetStringUTFChars(roleStr, nullptr);
-            if (roleChars != nullptr) {
-                role = roleChars;
-                env->ReleaseStringUTFChars(roleStr, roleChars);
-            }
+            role = jstringToUtf8(env, roleStr);
             env->DeleteLocalRef(roleStr);
         }
 
@@ -9468,11 +9436,10 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateBatch(
     std::vector<std::string> promptList;
     for (jsize i = 0; i < promptCount; i++) {
         jstring prompt = (jstring)env->GetObjectArrayElement(prompts, i);
-        const char* promptStr = env->GetStringUTFChars(prompt, nullptr);
+        std::string one = jstringToUtf8(env, prompt);
         
-        if (promptStr != nullptr) {
-            promptList.push_back(std::string(promptStr));
-            env->ReleaseStringUTFChars(prompt, promptStr);
+        if (!one.empty()) {
+            promptList.push_back(one);
         }
         env->DeleteLocalRef(prompt);
     }
@@ -9502,14 +9469,13 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeCountTokens(
         return 0;
     }
     
-    const char* textStr = env->GetStringUTFChars(text, nullptr);
-    if (textStr == nullptr) {
+    std::string textContent = jstringToUtf8(env, text);
+    if (textContent.empty()) {
         LOGV("LlamaHelper: Failed to get text string, returning 0");
         return 0;
     }
     
-    std::string textContent(textStr);
-    env->ReleaseStringUTFChars(text, textStr);
+    // （取值已在上方完成，无需再拷贝/释放 jstring）
     
     // 使用 llama_tokenize 计算 token 数量
     const llama_vocab* vocab = s_helperContext->getVocab();
@@ -10210,13 +10176,11 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeRunInferenceOnce(
         LOGE("nativeRunInferenceOnce: s_helperContext not initialized");
         return -1;
     }
-    const char* promptStr = env->GetStringUTFChars(prompt, nullptr);
-    if (promptStr == nullptr) {
+    std::string promptContent = jstringToUtf8(env, prompt);
+    if (promptContent.empty()) {
         LOGE("nativeRunInferenceOnce: failed to get prompt");
         return -1;
     }
-    std::string promptContent(promptStr);
-    env->ReleaseStringUTFChars(prompt, promptStr);
 
     int result = s_helperContext->runPureInference(
         promptContent, (int)contextSize, (int)maxTokens, callback, env);
