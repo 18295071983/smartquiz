@@ -514,21 +514,78 @@ static std::string splitUtf8Complete(const std::string& input, std::string& comp
 
 /**
  * 安全的 NewStringUTF 包装器
- * 不再强制清洗 UTF-8：模型输出的 token 按顺序拼接本身就是有效 UTF-8
- * 不完整字节已在回调层通过 splitUtf8Complete 缓冲，到达这里时已是完整字符
+ *
+ * <p>2026-10-31 改：不再直接调 NewStringUTF。JNI 的 NewStringUTF 约定输入是
+ * **modified UTF-8**，而 native 侧持有的是标准 UTF-8 —— BMP 外字符（emoji、
+ * CJK 扩展 B）在标准 UTF-8 里是 4 字节序列，交给 NewStringUTF 属于未定义行为，
+ * 现场表现就是出站 emoji 变乱码/丢字符（入站方向见 {@link jstringToUtf8}）。
+ * 这里改走 UTF-8 → UTF-16 → NewString，代理对由我们自己合成，NUL 也不再截断。</p>
  */
+static jstring utf8StringToJstring(JNIEnv* env, const std::string& utf8Str);
+
 static jstring safeNewStringUTF(JNIEnv* env, const char* str) {
     if (str == nullptr) {
         return env->NewStringUTF("");
     }
-    return env->NewStringUTF(str);
+    return utf8StringToJstring(env, std::string(str));
 }
 
 /**
  * 安全的 NewStringUTF 包装器（std::string 版本）
  */
 static jstring safeNewStringUTF(JNIEnv* env, const std::string& str) {
-    return env->NewStringUTF(str.c_str());
+    return utf8StringToJstring(env, str);
+}
+
+/**
+ * 入站文本的标准 UTF-8 解码器（2026-10-31，通道健壮性）。
+ *
+ * <p>WHY：JNI 的 GetStringUTFChars 返回 **modified UTF-8** —— BMP 外字符（emoji、
+ * CJK 扩展 B 等）被编成两个 3 字节的"代理对"（CESU-8，共 6 字节）。它既不是合法 UTF-8，
+ * 也不等于 Java 内部的 UTF-16。两个实测后果：喂给 nlohmann::json 会按"无效 UTF-8"
+ * 抛 type_error（整条请求失败），喂给 llama_tokenize 会把一个字符切成两个非法序列
+ * （模型看到的就是乱码前缀）。另外 `std::string(ptr)` 走 strlen，内容里的 NUL 会截断。</p>
+ *
+ * <p>HOW：绕开 modified UTF-8 —— 直接取 UTF-16（GetStringChars + GetStringLength，
+ * 长度显式给出，不依赖 NUL），自己编码成标准 UTF-8；落单代理一律替换成 U+FFFD，
+ * 绝不产出 CESU-8。出站方向已有 {@link utf8StringToJstring} 做 UTF-8→UTF-16，
+ * 两者合起来才是对称通道。</p>
+ */
+static std::string jstringToUtf8(JNIEnv* env, jstring s) {
+    std::string out;
+    if (env == nullptr || s == nullptr) return out;
+    const jchar* u = env->GetStringChars(s, nullptr);
+    if (u == nullptr) return out;
+    const jsize n = env->GetStringLength(s);
+    out.reserve((size_t) n + (size_t) n / 2);
+    for (jsize i = 0; i < n; ) {
+        uint32_t cp = u[i++];
+        if (cp >= 0xD800u && cp <= 0xDBFFu && i < n) {
+            const uint32_t lo = u[i];
+            if (lo >= 0xDC00u && lo <= 0xDFFFu) {         // 正常代理对 → 合并成码点
+                cp = 0x10000u + ((cp - 0xD800u) << 10) + (lo - 0xDC00u);
+                ++i;
+            }
+        }
+        if (cp >= 0xD800u && cp <= 0xDFFFu) cp = 0xFFFDu; // 落单代理 → 替换符
+        if (cp < 0x80u) {
+            out += (char) cp;
+        } else if (cp < 0x800u) {
+            out += (char) (0xC0u | (cp >> 6));
+            out += (char) (0x80u | (cp & 0x3Fu));
+        } else if (cp < 0x10000u) {
+            out += (char) (0xE0u | (cp >> 12));
+            out += (char) (0x80u | ((cp >> 6) & 0x3Fu));
+            out += (char) (0x80u | (cp & 0x3Fu));
+        } else {
+            out += (char) (0xF0u | (cp >> 18));
+            out += (char) (0x80u | ((cp >> 12) & 0x3Fu));
+            out += (char) (0x80u | ((cp >> 6) & 0x3Fu));
+            out += (char) (0x80u | (cp & 0x3Fu));
+        }
+    }
+    env->ReleaseStringChars(s, u);
+    return out;
 }
 
 static volatile bool s_openclLoaded = false;
@@ -541,6 +598,12 @@ static size_t s_detectedMaxMemAllocSize = 0; // GPU 单次最大分配大小
 // Native层回调引用追踪
 static jobject g_activeCallback = nullptr;
 static std::mutex g_activeCallbackMutex;
+// 回调槽是**单槽**：新任务绑定时会 DeleteGlobalRef 掉上一个回调（见 nativeChatSend），
+// 上一路生成还在跑，它的每个 token 都会被世代比对判为过期并丢弃。
+// 以前每丢一个就打一条 LOGW（一次并发 = 成千上万行刷屏），且没有任何总量，
+// 现场看不出"这轮的输出其实被丢了"。改成：丢弃计数 + 只报首条 + 下次绑定时汇总。
+static std::atomic<uint64_t> g_cbDropped{0};
+static std::atomic<bool> g_cbDropReported{false};
 
 static std::string s_detectedVulkanVersion = "Unknown";
 static bool s_vulkanVersionDetected = false;
@@ -5674,8 +5737,71 @@ private:
         return merged;
     }
 
+    /**
+     * 模板要求"真 user 轮次"：复刻 Qwen 系 GGUF chat template 里
+     * raise_exception('No user query found in messages.') 的判据 —— 模板倒序扫描消息，
+     * 只有存在一条 role=="user" 且 trim 后内容不是以 tool_response 包裹串首尾的那条，
+     * 才会把 multi_step_tool 置 false；否则整段渲染直接抛异常。
+     * 调用方据此决定要不要走模板（见 reencodeFromMessages）。
+     */
+    bool hasRealUserTurn() const {
+        static const std::string OPEN = "<|tool_response|";   // 工具结果包裹串，勿改名
+        static const std::string CLOSE = "|<tool_response|";  // 同上
+        for (const auto& m : chatMessages) {
+            if (m.first != "user") continue;
+            size_t b = m.second.find_first_not_of(" \t\n\r");
+            if (b == std::string::npos) continue;          // 空白 user 消息不算查询
+            size_t e = m.second.find_last_not_of(" \t\n\r");
+            std::string c = m.second.substr(b, e - b + 1);
+            if (c.size() >= OPEN.size() + CLOSE.size()
+                && c.compare(0, OPEN.size(), OPEN) == 0
+                && c.compare(c.size() - CLOSE.size(), CLOSE.size(), CLOSE) == 0) {
+                continue;                                   // 纯工具结果回填，模板也不认
+            }
+            return true;
+        }
+        return false;
+    }
+
     // 用模板格式化并编码所有消息（用于初始化/清空/裁剪后重建）
     bool reencodeFromMessages() {
+        // 不变式：KV 空 ⇒ 下一轮必须全量编码，所以任何失败出口都要把 prev_formatted_len 归零。
+        // 旧实现在这里先清 KV 再套模板；模板抛异常（或 tokenize/decode 失败）时就留下
+        // "KV 已空 + prev_formatted_len 仍是旧值"，下一轮 chatSend 的 substr(prev_formatted_len)
+        // 会把提示词前缀切掉只喂尾巴，模型看到半截提示词 → token 沙拉 / 重复失控。
+        // 真机实测触发点：切换后端或改 gpu_layers 引发重载 →
+        // applyChatTemplateWithThinking failed: Jinja Exception: No user query found in messages
+        auto leaveEmpty = [&](const char* why) {
+            prev_formatted_len = 0;
+            current_pos = 0;
+            total_tokens_in_kv = 0;
+            LOGE("reencodeFromMessages: %s (KV 归零，下一轮走全量编码)", why);
+            return false;
+        };
+
+        // 1. 先算文本 —— 这一步不碰 KV，失败时状态还是自洽的
+        std::string formatted;
+        if (chatMessages.empty()) {
+            formatted.clear();
+        } else if (!hasRealUserTurn()) {
+            // 重载后只有 system（或只剩工具结果）：模板会抛异常，而兜底路径用的还是同一份
+            // GGUF 模板 → 同样失败，等于白清一次 KV。这里按同一判据走手工 ChatML，不调模板。
+            for (auto& m : chatMessages) {
+                formatted += "<|im_start|>" + m.first + "\n" + m.second + "<|im_end|>\n";
+            }
+            // 用 LOGI 而不是 LOGV：LOGV 在本文件里是 ((void)0)，写进去等于什么都没记，
+            // 而这条分支正是"重载后为什么没再抛 Jinja 异常"的唯一可见证据。
+            // 只在重载/清空时打一次，不构成噪声。
+            LOGI("reencodeFromMessages: 无真 user 轮次，跳过模板走手工 ChatML (msg=%zu)",
+                 chatMessages.size());
+        } else {
+            formatted = applyChatTemplateWithThinking(false);
+        }
+        if (formatted.empty() && !chatMessages.empty()) {
+            return leaveEmpty("格式化结果为空");
+        }
+
+        // 2. 文本就绪后再清 KV：清完必然重建，不留中间态
         if (ctx) {
             llama_memory_t mem = llama_get_memory(ctx);
             if (mem) llama_memory_clear(mem, true);
@@ -5683,22 +5809,14 @@ private:
         current_pos = 0;
         total_tokens_in_kv = 0;
         turns.clear();
-
-        if (chatMessages.empty()) {
-            prev_formatted_len = 0;
-            return true;
-        }
-
-        std::string formatted = applyChatTemplateWithThinking(false);
         if (formatted.empty()) {
-            LOGE("reencodeFromMessages: applyChatTemplate returned empty");
-            return false;
+            prev_formatted_len = 0;
+            return true;                        // 本来就没有消息：空 KV 空记账，自洽
         }
 
         std::vector<llama_token> tokens = tokenize(formatted, true);
         if (tokens.empty()) {
-            LOGE("reencodeFromMessages: tokenize returned empty");
-            return false;
+            return leaveEmpty("tokenize returned empty");
         }
 
         Turn t;
@@ -5706,8 +5824,7 @@ private:
         t.tokens = tokens;
         t.start_pos = current_pos;
         if (!encodeTokens(tokens)) {
-            LOGE("reencodeFromMessages: encodeTokens failed");
-            return false;
+            return leaveEmpty("encodeTokens failed");
         }
         t.end_pos = current_pos;
         turns.push_back(t);
@@ -6970,9 +7087,11 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
     JavaVM* javaVM = nullptr;
     env->GetJavaVM(&javaVM);
 
-    const char* msgStr = env->GetStringUTFChars(message, nullptr);
-    if (msgStr == nullptr) {
-        LOGE("nativeChatSend: GetStringUTFChars failed");
+    // 入站走标准 UTF-8 解码（见 jstringToUtf8）：JNI 的 GetStringUTFChars 给的是
+    // modified UTF-8，emoji / 生僻字会变成 CESU-8，tokenize 与 json 解析都会踩。
+    std::string msgContent = jstringToUtf8(env, message);
+    if (msgContent.empty()) {
+        LOGE("nativeChatSend: 入站消息解码失败或为空");
         jclass cbClass = env->GetObjectClass(callback);
         if (cbClass != nullptr) {
             jmethodID onError = env->GetMethodID(cbClass, "onError", "(Ljava/lang/String;)V");
@@ -6983,9 +7102,6 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
         }
         return;
     }
-    std::string msgContent(msgStr);
-    env->ReleaseStringUTFChars(message, msgStr);
-    msgStr = nullptr;
 
     // 清理消息内容
     msgContent = sanitizeNativeMessage(msgContent);
@@ -7020,9 +7136,19 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
     {
         std::lock_guard<std::mutex> lock(g_activeCallbackMutex);
         if (g_activeCallback != nullptr) {
+            LOGW("回调槽被新任务接管：上一个任务的回调将被判过期丢弃（若它还在生成）");
             env->DeleteGlobalRef(g_activeCallback);
         }
         g_activeCallback = globalCallback;
+    }
+    // 新一轮开始：重置丢弃计数与"首条已报"标志，并把上一轮的累计丢弃数报出来
+    {
+        uint64_t prevDropped = g_cbDropped.exchange(0);
+        g_cbDropReported.store(false);
+        if (prevDropped > 0) {
+            LOGW("上一段任务的回调通道丢弃 %llu 次（单槽接管导致，说明有两路生成重叠）",
+                 (unsigned long long) prevDropped);
+        }
     }
     
     jclass cbClass = env->GetObjectClass(globalCallback);
@@ -7064,7 +7190,13 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
         {
             std::lock_guard<std::mutex> lock(g_activeCallbackMutex);
             if (globalCallback == nullptr || g_activeCallback != globalCallback) {
-                LOGW("streamCallback: callback is invalid or outdated");
+                // 不再逐 token 刷 LOGW：只记数 + 首条报一次，
+                // 总数在下一轮绑定时汇总（见 nativeChatSend 的接管处）
+                uint64_t n = g_cbDropped.fetch_add(1) + 1;
+                if (!g_cbDropReported.exchange(true)) {
+                    LOGW("streamCallback: 回调已过期，本次生成的输出将被丢弃（首条，累计=%llu）",
+                         (unsigned long long) n);
+                }
                 if (didAttach) javaVM->DetachCurrentThread();
                 return;
             }
@@ -7387,9 +7519,9 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatAddToolResult(
         return;
     }
 
-    const char* content = toolResultContent ? env->GetStringUTFChars(toolResultContent, nullptr) : nullptr;
-    std::string toolResultStr(content ? content : "");
-    if (content) env->ReleaseStringUTFChars(toolResultContent, content);
+    // 标准 UTF-8 入站（见 jstringToUtf8）：工具结果里最常出现 emoji/生僻字，
+    // modified UTF-8 会把它们编成 CESU-8，进 KV 后模型侧与 tokenize 都会错。
+    std::string toolResultStr = jstringToUtf8(env, toolResultContent);
 
     chatCtx->addToolResult(toolResultStr);
 }
@@ -7410,9 +7542,8 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatAddAssistant(
         return;
     }
 
-    const char* contentChars = content ? env->GetStringUTFChars(content, nullptr) : nullptr;
-    std::string contentStr(contentChars ? contentChars : "");
-    if (contentChars) env->ReleaseStringUTFChars(content, contentChars);
+    // 标准 UTF-8 入站（见 jstringToUtf8）
+    std::string contentStr = jstringToUtf8(env, content);
 
     chatCtx->addAssistantMessage(contentStr);
 }
@@ -8575,6 +8706,7 @@ static jstring utf8StringToJstring(JNIEnv* env, const std::string& utf8Str) {
     while (i < utf8Str.length()) {
         unsigned char c = utf8Str[i];
         unsigned int codePoint = 0;
+        bool bad = false;   // 截断/非法：出 U+FFFD，不再产出 NUL、也不再静默丢字节
 
         if ((c & 0x80) == 0) {
             // 1-byte ASCII
@@ -8584,26 +8716,29 @@ static jstring utf8StringToJstring(JNIEnv* env, const std::string& utf8Str) {
             // 2-byte sequence
             if (i + 1 < utf8Str.length()) {
                 codePoint = ((c & 0x1F) << 6) | (utf8Str[i + 1] & 0x3F);
-            }
+            } else bad = true;
             i += 2;
         } else if ((c & 0xF0) == 0xE0) {
             // 3-byte sequence (中文常用)
             if (i + 2 < utf8Str.length()) {
                 codePoint = ((c & 0x0F) << 12) | ((utf8Str[i + 1] & 0x3F) << 6) | (utf8Str[i + 2] & 0x3F);
-            }
+            } else bad = true;
             i += 3;
         } else if ((c & 0xF8) == 0xF0) {
             // 4-byte sequence
             if (i + 3 < utf8Str.length()) {
                 codePoint = ((c & 0x07) << 18) | ((utf8Str[i + 1] & 0x3F) << 12) |
                            ((utf8Str[i + 2] & 0x3F) << 6) | (utf8Str[i + 3] & 0x3F);
-            }
+            } else bad = true;
             i += 4;
         } else {
-            // Invalid byte, skip
+            // 非法首字节（含 modified UTF-8 的 ED xx 代理编码混进来）
+            bad = true;
             i += 1;
-            continue;
         }
+        // 码点落在代理区（CESU-8 残留）也视为非法：直接塞进 UTF-16 会造出孤立代理
+        if (!bad && codePoint >= 0xD800 && codePoint <= 0xDFFF) bad = true;
+        if (bad) codePoint = 0xFFFD;
 
         // 将code point转为UTF-16
         if (codePoint <= 0xFFFF) {

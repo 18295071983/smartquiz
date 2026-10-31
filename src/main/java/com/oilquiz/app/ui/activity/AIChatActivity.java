@@ -958,7 +958,7 @@ public class AIChatActivity extends BaseActivity {
                 initAgentChatHandler();
             }
 
-            cacheManager = new CacheManager(this);
+            cacheManager = CacheManager.getInstance(this);
             weatherManager = new AIWeatherManager(this, AIWeatherManager.WeatherProvider.HEFENG);
 
             // 初始化 Token 统计管理器

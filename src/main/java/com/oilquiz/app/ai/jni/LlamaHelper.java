@@ -348,20 +348,84 @@ public class LlamaHelper {
     private static native String nativeGetResolvedBackend();
 
     // ========== 推理锁方法 ==========
-    
+
+    /**
+     * 锁持有者归因。以前"等锁超时"只留一句 `获取推理锁超时(...)`，
+     * 排查时无法回答"到底是谁占着引擎"——真机 2026-10-31 的广播 ANR 就是这么卡在
+     * {@code chatJson} 的写锁上却查不到持有方。
+     */
+    private static volatile String sWriteHolder = null;
+    private static volatile long sWriteHeldSinceMs = 0L;
+
+    /** 无调用方标签的旧入口（保留兼容），归因记为 unknown */
+    public static boolean acquireInferenceWriteLock() {
+        return acquireInferenceWriteLock("unknown");
+    }
+
     /**
      * 获取推理写锁（用于 generate/chatSend 等独占操作）
+     *
+     * @param caller 调用方标签，仅用于日志归因；超时/长等待会把它和当前持有者一起打出来
      * @return true 如果成功获取锁，false 如果超时
      */
-    public static boolean acquireInferenceWriteLock() {
+    public static boolean acquireInferenceWriteLock(String caller) {
+        final long begin = System.currentTimeMillis();
+        boolean got;
         try {
-            return inferenceLock.writeLock().tryLock(INFERENCE_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            got = inferenceLock.writeLock().tryLock(INFERENCE_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;
         }
+        final long waited = System.currentTimeMillis() - begin;
+        if (got) {
+            // 可重入：只有最外层那一次才登记持有者
+            if (inferenceLock.getWriteHoldCount() == 1) {
+                sWriteHolder = caller;
+                sWriteHeldSinceMs = System.currentTimeMillis();
+            }
+            if (waited > 200) {
+                AILogger.i(TAG, "推理写锁就绪 caller=" + caller + " 等待=" + waited
+                        + "ms（>200ms 说明有别的操作压着引擎）");
+            }
+        } else {
+            AILogger.w(TAG, "推理写锁超时 caller=" + caller + " 等待=" + waited + "ms"
+                    + "；当前持有者=" + describeWriteHolder()
+                    + "；读锁数=" + inferenceLock.getReadLockCount()
+                    + "；等待队列=" + inferenceLock.getQueueLength());
+        }
+        return got;
     }
-    
+
+    /** 持有者描述：谁 + 已经占了多久（秒），没有持有者就说"无" */
+    private static String describeWriteHolder() {
+        String h = sWriteHolder;
+        long since = sWriteHeldSinceMs;
+        if (h == null || since <= 0) return "无";
+        return h + "(" + String.format(java.util.Locale.US, "%.1fs",
+                (System.currentTimeMillis() - since) / 1000.0) + ")";
+    }
+
+    /**
+     * 引擎忙态快照（供状态面板/调试通道读，字段缺失一律不显示 0）：
+     * {@code {"writing":bool,"holder":"...","held_ms":n,"read_locks":n,"waiting":n}}
+     */
+    public static String getEngineBusyInfo() {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            boolean writing = inferenceLock.getWriteHoldCount() > 0;
+            o.put("writing", writing);
+            o.put("holder", writing ? String.valueOf(sWriteHolder) : org.json.JSONObject.NULL);
+            o.put("held_ms", writing && sWriteHeldSinceMs > 0
+                    ? System.currentTimeMillis() - sWriteHeldSinceMs : -1);
+            o.put("read_locks", inferenceLock.getReadLockCount());
+            o.put("waiting", inferenceLock.getQueueLength());
+            return o.toString();
+        } catch (Throwable t) {
+            return "{}";
+        }
+    }
+
     /**
      * 释放推理写锁
      */
@@ -369,6 +433,10 @@ public class LlamaHelper {
         try {
             if (inferenceLock.getWriteHoldCount() > 0) {
                 inferenceLock.writeLock().unlock();
+                if (inferenceLock.getWriteHoldCount() == 0) {
+                    sWriteHolder = null;
+                    sWriteHeldSinceMs = 0L;
+                }
             }
         } catch (Exception e) {
             AILogger.w(TAG, "Error releasing write lock: " + e.getMessage());
@@ -431,7 +499,7 @@ public class LlamaHelper {
             + ", 当前锁持有数=" + inferenceLock.getWriteHoldCount()
             + ", 等待队列长度=" + inferenceLock.getQueueLength());
         long lockStart = System.currentTimeMillis();
-        if (!acquireInferenceWriteLock()) {
+        if (!acquireInferenceWriteLock("generate")) {
             long lockWaitTime = System.currentTimeMillis() - lockStart;
             AILogger.w(TAG, "[generate-String] ❌ 获取推理锁超时(" + lockWaitTime + "ms), thread=" + threadName);
             return "Error: Inference lock timeout";
@@ -495,7 +563,7 @@ public class LlamaHelper {
             + ", 当前锁持有数=" + inferenceLock.getWriteHoldCount()
             + ", 等待队列长度=" + inferenceLock.getQueueLength());
         long lockStart = System.currentTimeMillis();
-        if (!acquireInferenceWriteLock()) {
+        if (!acquireInferenceWriteLock("generate")) {
             long lockWaitTime = System.currentTimeMillis() - lockStart;
             AILogger.w(TAG, "[generate-Messages] ❌ 获取推理锁超时(" + lockWaitTime + "ms), thread=" + threadName);
             return "Error: Inference lock timeout";
@@ -601,7 +669,7 @@ public class LlamaHelper {
             + ", 当前锁持有数=" + inferenceLock.getWriteHoldCount()
             + ", 等待队列长度=" + inferenceLock.getQueueLength());
         long lockStart = System.currentTimeMillis();
-        if (!acquireInferenceWriteLock()) {
+        if (!acquireInferenceWriteLock("generateStream")) {
             long lockWaitTime = System.currentTimeMillis() - lockStart;
             AILogger.w(TAG, "[generateStream-String] ❌ 获取推理锁超时(" + lockWaitTime + "ms), thread=" + threadName
                 + ", 可能存在并发推理");
@@ -706,7 +774,7 @@ public class LlamaHelper {
             + ", 当前锁持有数=" + inferenceLock.getWriteHoldCount()
             + ", 等待队列长度=" + inferenceLock.getQueueLength());
         long lockStart = System.currentTimeMillis();
-        if (!acquireInferenceWriteLock()) {
+        if (!acquireInferenceWriteLock("generateStream")) {
             long lockWaitTime = System.currentTimeMillis() - lockStart;
             AILogger.w(TAG, "[generateStream-Messages] ❌ 获取推理锁超时(" + lockWaitTime + "ms), thread=" + threadName
                 + ", 可能存在并发推理");
@@ -958,7 +1026,7 @@ public class LlamaHelper {
             + ", 当前锁持有数=" + inferenceLock.getWriteHoldCount()
             + ", 等待队列长度=" + inferenceLock.getQueueLength());
         long lockStart = System.currentTimeMillis();
-        if (!acquireInferenceWriteLock()) {
+        if (!acquireInferenceWriteLock("generateStream")) {
             long lockWaitTime = System.currentTimeMillis() - lockStart;
             AILogger.w(TAG, "[generateStream-ChatRequest] ❌ 获取推理锁超时(" + lockWaitTime + "ms), thread=" + threadName
                 + ", 可能存在并发推理");
@@ -1050,7 +1118,7 @@ public class LlamaHelper {
             return;
         }
         long lockStart = System.currentTimeMillis();
-        if (!acquireInferenceWriteLock()) {
+        if (!acquireInferenceWriteLock("release")) {
             AILogger.w(TAG, "release 获取推理锁超时("
                     + (System.currentTimeMillis() - lockStart) + "ms)，放弃释放");
             return;
@@ -1136,7 +1204,7 @@ public class LlamaHelper {
         }
         // 与文本推理共用同一把写锁，防止多模态推理与普通推理并发导致 native 崩溃
         long lockStart = System.currentTimeMillis();
-        if (!acquireInferenceWriteLock()) {
+        if (!acquireInferenceWriteLock("generateWithImage")) {
             AILogger.e(TAG, "generateWithImage: 获取推理锁超时(" + (System.currentTimeMillis() - lockStart) + "ms)");
             if (callback != null) {
                 callback.onError("Generation already in progress");
@@ -2402,7 +2470,7 @@ public class LlamaHelper {
     public static void clearContextForInference() {
         if (!libraryLoaded) return;
         long lockStart = System.currentTimeMillis();
-        if (!acquireInferenceWriteLock()) {
+        if (!acquireInferenceWriteLock("clearContextForInference")) {
             AILogger.w(TAG, "clearContextForInference 获取推理锁超时("
                     + (System.currentTimeMillis() - lockStart) + "ms)，放弃本次清理");
             return;

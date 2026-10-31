@@ -299,7 +299,11 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 android.preference.PreferenceManager.getDefaultSharedPreferences(this)
                         .edit().putString("gpu_backend", choice).apply();
                 LlamaHelper.setBackend(choice);
-                android.widget.Toast.makeText(this, "GPU backend switched to " + choice + ", reload model to take effect", android.widget.Toast.LENGTH_SHORT).show();
+                // 换引擎 ⇒ 作废 prompt→response 缓存：缓存 key 不带引擎身份，
+                // 否则 12h 内同一句会命中上一个引擎（甚至坏着时）写入的答案。
+                com.oilquiz.app.ai.refactor.CacheManager.invalidateEngineCache(
+                        this, "GPU 后端切换为 " + choice);
+                android.widget.Toast.makeText(this, "GPU backend switched to " + choice + ", reload model to take effect", Toast.LENGTH_SHORT).show();
             });
         }
 

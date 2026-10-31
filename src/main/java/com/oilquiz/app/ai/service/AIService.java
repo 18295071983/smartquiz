@@ -4352,7 +4352,7 @@ public class AIService implements ComponentCallbacks2 {
                 }, timeoutMs, TimeUnit.MILLISECONDS);
 
                 // 获取推理锁，确保不与 generate 并发执行
-                if (!LlamaHelper.acquireInferenceWriteLock()) {
+                if (!LlamaHelper.acquireInferenceWriteLock("AIService.chatSend")) {
                     AILogger.w(TAG, "chatSend: Failed to acquire inference lock");
                     if (callback != null) {
                         mainHandler.post(() -> callback.onError("推理锁获取超时"));

@@ -470,8 +470,13 @@ public class ChatMessage {
     /** 工具调用信息 */
     public ToolCallInfo toolCallInfo;
 
-    /** Agent汇总信息 */
-    public AgentSummaryInfo agentSummaryInfo;
+    /** Agent 执行汇总（完成后显示 2 秒即隐藏的瞬时 UI，与 {@link #stopReasonText} 同类）。
+     *  transient：会话历史整棵 ChatMessage 树是 Gson 落盘的
+     *  （ChatHistoryManager 用 gson.toJson(chatHistory, writer)），一旦固化，历史恢复后
+     *  旧统计会常驻在最新一条 AI 回复上 —— 正是"统计停在旧回复/位置不稳定"的成因。
+     *  2026-10-31 补：2ac71ebc 把 agentSummary(String) 换成 agentSummaryInfo 时漏掉了
+     *  transient，契约由 ChatMessageStatsTransientTest 守着，测试因此编不过。 */
+    public transient AgentSummaryInfo agentSummaryInfo;
 
     /** 本轮结束原因文案（"达到输出上限/上下文已满/已手动停止/超时结束"；自然结束为空）。
      *  运行时字段，不落盘；用于思考头的完成态后缀。 */

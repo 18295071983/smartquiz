@@ -117,6 +117,13 @@ public class InferenceRouter {
             AILogger.w(TAG, "持久化 NPU 开关失败: " + t.getMessage());
         }
         AILogger.i(TAG, "NPU 引擎" + (enabled ? "已启用" : "已关闭"));
+        // 引擎换了（NPU ↔ llama.cpp）⇒ 作废 prompt→response 缓存：
+        // 该缓存 key 只有 prompt，不带引擎身份，否则 12h 内会命中另一个引擎写下的答案。
+        try {
+            com.oilquiz.app.ai.refactor.CacheManager.invalidateEngineCache(
+                    context, enabled ? "切换到 NPU（GenieX）引擎" : "切回本地 llama.cpp 引擎");
+        } catch (Throwable ignored) {
+        }
     }
 
     public static InferenceRouter getInstance(Context context) {
@@ -153,6 +160,30 @@ public class InferenceRouter {
         }
         
         return InferenceType.LOCAL; // 默认本地
+    }
+
+    /**
+     * 本轮**实际执行**的引擎类型：在 {@link #getCurrentInferenceType()} 的配置口径上，叠加
+     * {@code NpuEngineRouter} 记录的真实决策 —— 开着 NPU 开关也可能实际跑在 llama.cpp 上
+     * （多模态请求不路由 NPU；NPU 加载失败/异常无条件回退 llama.cpp）。
+     *
+     * <p>显示层请用这个方法，而不是 {@link #getCurrentInferenceType()}：顶部横幅与工具抽屉
+     * 必须报同一个引擎，否则会出现"横幅写本地模型、抽屉按 NPU 把本地指标挡掉"的分叉。
+     * 尚无推理记录（getActualEngine 为空）时退回配置口径。</p>
+     */
+    public InferenceType getEffectiveInferenceType() {
+        InferenceType configured = getCurrentInferenceType();
+        try {
+            String actual = com.oilquiz.app.ai.engine.NpuEngineRouter.getActualEngine();
+            if (com.oilquiz.app.ai.engine.NpuEngineRouter.ENGINE_LLAMA.equals(actual)) {
+                return InferenceType.LOCAL;
+            }
+            if (com.oilquiz.app.ai.engine.NpuEngineRouter.ENGINE_NPU.equals(actual)) {
+                return InferenceType.NPU;
+            }
+        } catch (Throwable ignored) {
+        }
+        return configured;
     }
 
     /**

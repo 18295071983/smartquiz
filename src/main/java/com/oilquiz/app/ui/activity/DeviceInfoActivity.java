@@ -443,8 +443,13 @@ public class DeviceInfoActivity extends AppCompatActivity {
                     sb.append("  状态: ").append(j.optString("error")).append("\n");
                 } else {
                     int plans = j.optInt("plans", 0);
+                    // 「取不到」不能显示成 0.0%：新加载的上下文 plans=0，
+                    // 显示 0.0% 会被读成"缓存全不命中"，而事实是"还没有计划"。
+                    String hitText = plans > 0 && j.has("hit_rate_pct")
+                            ? String.format("%.1f%%", j.getDouble("hit_rate_pct"))
+                            : "—（尚无缓存计划）";
                     sb.append("  策略: ").append(j.optString("strategy", "?"))
-                      .append("   命中率: ").append(String.format("%.1f%%", j.optDouble("hit_rate_pct", 0.0)))
+                      .append("   命中率: ").append(hitText)
                       .append("\n");
                     sb.append("  已缓存: ").append(j.optInt("cached_npast", 0)).append(" tokens")
                       .append("   匹配: ").append(j.optInt("matched_len", 0)).append("\n");
@@ -473,6 +478,9 @@ public class DeviceInfoActivity extends AppCompatActivity {
         sb.append("  内存池预算: ").append(LlamaHelper.getMemoryPoolSize()).append(" MB\n");
         sb.append("  模型架构: ").append(LlamaHelper.getModelArchitecture())
           .append("   n_ctx_train: ").append(LlamaHelper.getModelNctx()).append("\n");
+        // 引擎忙态（推理锁归因）：谁占着引擎、占了多久、几个在等。
+        // 等锁超时的现场故障以前只有一句"获取推理锁超时"，看不出占用方。
+        sb.append("  引擎忙态: ").append(LlamaHelper.getEngineBusyInfo()).append("\n");
         return sb.toString();
     }
     

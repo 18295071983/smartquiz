@@ -236,6 +236,10 @@ public class UserModelParamsManager {
                 e.remove("gpu_layers_manual");
             }
             e.apply();
+            // 层数变了 = 推理引擎形状变了（全 GPU / 混合 / 纯 CPU 的产出并不等价）
+            // ⇒ 作废 prompt→response 缓存，避免命中上一次不同卸载配置写下的答案。
+            com.oilquiz.app.ai.refactor.CacheManager.invalidateEngineCache(
+                    context, "GPU 卸载层数变更为 " + value);
         } catch (Exception ignored) {
         }
     }
