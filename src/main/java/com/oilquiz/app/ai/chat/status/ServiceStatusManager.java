@@ -117,21 +117,30 @@ public class ServiceStatusManager {
     /**
      * NPU 状态一行摘要（顶部状态栏显示用）。
      *
-     * <p>结构：{@code AI · <中间随状态变化的词> [· 补充]}，例如：</p>
+     * <p>结构：{@code NPU（GenieX） · <中间随状态变化的词> [· 补充]}，例如：</p>
      * <pre>
-     *   AI · 模型加载中 6s              加载期（秒数每秒递增）
-     *   AI · 空闲 · Qwen3.5-2B-Q4_0     已就绪且无任务 → 顺便把模型名放这儿，不占额外一行
-     *   AI · 处理提示                   正在 prefill
-     *   AI · 思考中                     思考链
-     *   AI · 生成中 · 12.3 t/s          出正文，带速度
-     *   AI · 不可用                     出错
+     *   NPU（GenieX） · 模型加载中 6s     加载期（秒数每秒递增）
+     *   NPU（GenieX） · Qwen3.5-2B-Q4_0 · 就绪
+     *                              已就绪且无任务：这行走 engineStatusLine，模型名在中间
+     *   NPU（GenieX） · 处理提示          正在 prefill
+     *   NPU（GenieX） · 思考中            思考链
+     *   NPU（GenieX） · 生成中 · 12.3 t/s 出正文，带速度
+     *   NPU（GenieX） · 不可用            出错
      * </pre>
+     *
+     * <p>2026-10-31：原先这些行写泛称「AI ·」，与本地/在线两路的「本地模型 ·」「在线模型 ·」
+     * 不对称，用户在加载期与生成期看不出当前是 NPU 还是 llama.cpp；改成取
+     * {@code InferenceType.NPU} 的显示名，三态都点名。</p>
      *
      * <p>WHY（2026-10-07）：原先中间是固定的"已就绪"，只有加载完成那一刻才动一下；
      * 而 NpuEngineState 本就维护着与加载正交的**推理阶段**（IDLE/PREPROCESS/THINKING/GENERATING），
      * 状态栏却没消费它。改成让中间段随真实状态变化，一行就能表达"AI 现在在干什么"。</p>
      */
     private String npuStatusLine() {
+        // 引擎名一律取 InferenceType.NPU 的显示名，不再写泛称「AI」——
+        // 三态（本地模型 / 在线模型 / NPU（GenieX））里任何一行横幅都必须能点名当前引擎，
+        // 否则加载期与生成期用户看不出这是 NPU 还是 llama.cpp（空闲期走 engineStatusLine 本来就带名）。
+        final String engineTag = com.oilquiz.app.ai.model.InferenceType.NPU.getDisplayName();
         // 加载/出错：阶段标签本身就是"现在在做什么"（如"模型加载中 6s"、"AI 不可用"）
         String stageLabel = npuSvc().getNpuStageLabel();
         boolean ready = false;
@@ -140,7 +149,8 @@ public class ServiceStatusManager {
         } catch (Throwable ignored) {
         }
         if (!ready) {
-            return (stageLabel == null || stageLabel.isEmpty()) ? "AI · 待加载" : ("AI · " + stageLabel);
+            return (stageLabel == null || stageLabel.isEmpty())
+                    ? engineTag + " · 待加载" : (engineTag + " · " + stageLabel);
         }
 
         // 已就绪：用推理阶段作为中间段
@@ -155,7 +165,7 @@ public class ServiceStatusManager {
             return engineStatusLine("就绪");
         }
 
-        StringBuilder sb = new StringBuilder("AI · ").append(phase);
+        StringBuilder sb = new StringBuilder(engineTag).append(" · ").append(phase);
         float tps = npuSvc().getNpuLastTps();
         if (tps > 0) {
             sb.append(" · ").append(String.format(java.util.Locale.US, "%.1f t/s", tps));
@@ -586,7 +596,7 @@ public class ServiceStatusManager {
         }
 
         serviceStatusIcon.setText(stageIcon);
-        publishStatusText(displayMessage);
+        publishStatusText(withEngine(displayMessage));
         int dotColor = stage == AIServiceState.ServiceStage.INITIALIZED
                 ? R.color.chat_v2_success
                 : stage == AIServiceState.ServiceStage.ERROR
@@ -631,33 +641,47 @@ public class ServiceStatusManager {
      * @return 如 {@code "本地模型 · MiniCPM5-2B-Q4_K_M.gguf · 就绪"}；
      *         引擎信息不可用时退回 {@code state}
      */
+    /**
+     * 横幅用的引擎名（三态：本地模型 / 在线模型 / NPU（GenieX））。
+     *
+     * <p>口径 = {@link InferenceRouter#getEffectiveInferenceType()}：优先本轮**实际执行**的引擎，
+     * 而不是"用户选了哪个"（ACTUAL-ENGINE 2026-10-08；开了 NPU 开关也可能实际跑在 llama.cpp 上：
+     * 多模态请求直接不路由 NPU、NPU 加载失败无条件回退，决策记录点在 NpuEngineRouter）。</p>
+     *
+     * <p>2026-10-31：这段判定从 engineStatusLine 里抽出来给 {@link #withEngine} 共用，
+     * 并把"实际引擎"的换算下沉到路由层，让顶部横幅与工具抽屉用同一个判据 —— 两处各写一份必然漂开。</p>
+     */
+    private String currentEngineName() {
+        try {
+            if (inferenceRouter == null) return null;
+            com.oilquiz.app.ai.model.InferenceType type = inferenceRouter.getEffectiveInferenceType();
+            return type != null ? type.getDisplayName() : null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /**
+     * 三态一致：任何时刻横幅都要能点名当前引擎。
+     * 加载期/生成期的文案来自 {@code AIServiceState.getStageLabel()}，那是引擎无关短句
+     * （如"模型加载中 6s"），过去直接上屏 → 用户看不出这次加载的是哪一侧。
+     * 已经点名的（engineStatusLine / npuStatusLine 的产物）不重复拼。
+     */
+    private String withEngine(String label) {
+        if (label == null || label.isEmpty()) return label;
+        String engine = currentEngineName();
+        if (engine == null || engine.isEmpty()) return label;
+        if (label.startsWith(engine) || label.contains("本地模型")
+                || label.contains("在线模型") || label.contains("NPU")) {
+            return label;
+        }
+        return engine + " · " + label;
+    }
+
     public String engineStatusLine(String state) {
         try {
             if (inferenceRouter != null) {
-                com.oilquiz.app.ai.model.InferenceType type = inferenceRouter.getCurrentInferenceType();
-                String engine = type != null ? type.getDisplayName() : null;
-
-                // ACTUAL-ENGINE(2026-10-08)：优先显示**本轮实际执行**的引擎，
-                // 而不是"用户选了哪个"。因为开了 NPU 开关也可能实际跑在 llama.cpp 上：
-                //   - 多模态请求（needsVision=true 时 shouldRouteToNpu 直接返回 false）
-                //   - NPU 加载失败/异常 → 无条件回退 llama.cpp
-                // 记录点在 NpuEngineRouter 的每个真实决策分支。
-                String actual = null;
-                try {
-                    actual = com.oilquiz.app.ai.engine.NpuEngineRouter.getActualEngine();
-                } catch (Throwable ignored) {
-                }
-                boolean actualNpu = com.oilquiz.app.ai.engine.NpuEngineRouter.ENGINE_NPU.equals(actual);
-                boolean actualLlama = com.oilquiz.app.ai.engine.NpuEngineRouter.ENGINE_LLAMA.equals(actual);
-
-                if (actualLlama) {
-                    engine = "本地模型";
-                } else if (actualNpu) {
-                    engine = "NPU（GenieX）";
-                } else if (type == com.oilquiz.app.ai.model.InferenceType.NPU) {
-                    // 尚无推理记录：只能按配置显示
-                    engine = "NPU（GenieX）";
-                }
+                String engine = currentEngineName();
 
                 if (engine != null && !engine.isEmpty()) {
                     String model = inferenceRouter.getCurrentModelName();
@@ -723,7 +747,7 @@ public class ServiceStatusManager {
                 }
 
                 if (serviceStatusIcon != null) serviceStatusIcon.setText(stageIcon);
-                publishStatusText(displayMessage);
+                publishStatusText(withEngine(displayMessage));
 
                 if (aiService.getServiceState().isLoading()) {
                     uiHandler.postDelayed(this, LOADING_TIMER_INTERVAL_MS);

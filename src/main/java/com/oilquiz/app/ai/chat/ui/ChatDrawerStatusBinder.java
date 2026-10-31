@@ -11,6 +11,8 @@ import com.oilquiz.app.R;
 import com.oilquiz.app.ai.engine.contract.ContextUsage;
 import com.oilquiz.app.ai.engine.contract.GenSignal;
 import com.oilquiz.app.ai.engine.contract.GenSignalSource;
+import com.oilquiz.app.ai.inference.InferenceRouter;
+import com.oilquiz.app.ai.model.InferenceType;
 
 import java.lang.ref.WeakReference;
 
@@ -30,6 +32,12 @@ import java.lang.ref.WeakReference;
  * <p>2026-10-30：<b>不再按源控件可见性过滤</b>。v2 头部整块收起后源控件虽被"收起来"，
  * 但仍在被真实数据写入；按可见性过滤会让抽屉永远显示「暂无数据」，这正是
  * "抽屉里 token/KV/上下文没接线"的实际原因。空串仍按「暂无数据」展示。</p>
+ *
+ * <p>2026-10-31：<b>三态分支取代文案嗅探</b>。引擎按
+ * {@link InferenceRouter#getEffectiveInferenceType()} 判定本地 / 在线 / NPU：本地直读引擎契约，
+ * 在线照抄 API 侧源控件，NPU 的 KV/上下文/本地 token 三行显式写「NPU 不上报」——
+ * 这三行在 NPU 侧没有生产者（{@code NpuSignalAdapter} 恒返回 null），照抄源控件只会把
+ * 上一次 llama.cpp 会话的残留数字当成本轮值。</p>
  */
 public final class ChatDrawerStatusBinder {
 
@@ -122,12 +130,13 @@ public final class ChatDrawerStatusBinder {
     public static void refresh(Activity activity) {
         if (activity == null) return;
         try {
-            TextView statusSrc = activity.findViewById(R.id.service_status_text) instanceof TextView
-                    ? (TextView) activity.findViewById(R.id.service_status_text) : null;
-            CharSequence status = statusSrc != null ? statusSrc.getText() : null;
-            boolean online = status != null && status.toString().contains("在线");
+            final InferenceType engine = currentEngine(activity);
+            boolean online = engine == InferenceType.ONLINE;
+            // NPU：KV / 上下文 / 本地 token 这三行**没有生产者** —— NpuSignalAdapter 侧恒为 null，
+            // 而源控件里残留的是上一次 llama.cpp 会话的数字，抄过来就是拿别处的账冒充当前引擎。
+            boolean npu = engine == InferenceType.NPU;
             // 一次刷新只取一次 KV 统计（JNI + JSON 解析），供 KV/Token 两行共用
-            GenSignal.KvStats kv = online ? null : GenSignalSource.kvStats();
+            GenSignal.KvStats kv = (online || npu) ? null : GenSignalSource.kvStats();
 
             for (int[] pair : PAIRS) {
                 View src = activity.findViewById(pair[0]);
@@ -136,13 +145,15 @@ public final class ChatDrawerStatusBinder {
                 if (target == null) continue;
 
                 String value = null;
-                if (!online) {
+                if (npu && isEngineMetricRow(pair[1])) {
+                    value = NPU_NO_METRIC;
+                } else if (!online && !npu) {
                     if (pair[1] == R.id.tv_drawer_kv) {
-                        value = liveKvText(activity, kv);
+                        value = liveKvText(kv);
                     } else if (pair[1] == R.id.tv_drawer_context) {
                         value = liveContextText();
                     } else if (pair[1] == R.id.tv_drawer_tokens) {
-                        value = liveLocalTokensText(activity, kv);
+                        value = liveLocalTokensText(kv);
                     }
                 }
                 if (value == null) {
@@ -164,16 +175,11 @@ public final class ChatDrawerStatusBinder {
 
     /**
      * 本地 Token 用量：入 = 本轮请求真实 prompt token，出 = 本轮生成 token。
-     * 数据来自 KV 记账（Agent 模式）或 native 聊天上下文（普通对话）；在线返回 null 走源控件。
+     * 数据来自 KV 记账（Agent 模式）或 native 聊天上下文（普通对话）。
+     * 只在本地引擎下调用（在线/NPU 由 {@link #refresh} 的三态分支挡掉），故此处不再自行判引擎。
      */
-    private static String liveLocalTokensText(Activity activity, GenSignal.KvStats kv) {
+    private static String liveLocalTokensText(GenSignal.KvStats kv) {
         try {
-            TextView statusSrc = activity.findViewById(R.id.service_status_text) instanceof TextView
-                    ? (TextView) activity.findViewById(R.id.service_status_text) : null;
-            if (statusSrc != null && statusSrc.getText() != null
-                    && statusSrc.getText().toString().contains("在线")) {
-                return null;
-            }
             if (kv != null && kv.promptTokens >= 0 && kv.generatedTokens >= 0) {
                 return "入 " + kv.promptTokens + " · 出 " + kv.generatedTokens;
             }
@@ -187,20 +193,41 @@ public final class ChatDrawerStatusBinder {
         return null;
     }
 
+    /** NPU 下三行引擎指标的统一占位：不出数字，也不抄 native 的旧账。 */
+    private static final String NPU_NO_METRIC = "NPU 不上报";
+
+    /** 只有这三行是"引擎级指标"；余额/模型名两行照常抄源控件。 */
+    private static boolean isEngineMetricRow(int targetId) {
+        return targetId == R.id.tv_drawer_kv
+                || targetId == R.id.tv_drawer_context
+                || targetId == R.id.tv_drawer_tokens;
+    }
+
+    /**
+     * 引擎三态的权威判据：本地 / 在线 / NPU，与顶部横幅同源 —— 都走
+     * {@link InferenceRouter#getEffectiveInferenceType()}（本轮**实际执行**的引擎，
+     * 不是配置选了哪个；开着 NPU 开关实际回退跑 llama.cpp 时，两处不能各说一套）。
+     *
+     * <p>2026-10-31 改：此前这里靠"横幅文案里有没有『在线』两个字"反推引擎，于是
+     * NPU 被归成本地，去读 native 的 KV/上下文账（NPU 侧没有生产者）。
+     * 判据取不到时按本地处理：最坏只是少读一次契约，不会把别的引擎的数当成本轮的。</p>
+     */
+    private static InferenceType currentEngine(Activity activity) {
+        try {
+            InferenceType t = InferenceRouter.getInstance(activity).getEffectiveInferenceType();
+            if (t != null) return t;
+        } catch (Throwable ignored) {
+        }
+        return InferenceType.LOCAL;
+    }
+
     /**
      * KV 缓存命中率（只管命中，不混入上下文占用）：
      * 优先 Agent 增量缓存的计划命中率；普通本地聊天用 native 的"复用 token / 总请求 token"。
-     * 在线模式或拿不到数据返回 null。
+     * 只在本地引擎下调用（在线/NPU 由 {@link #refresh} 的三态分支挡掉），返回 null 交给源控件兜底。
      */
-    private static String liveKvText(Activity activity, GenSignal.KvStats kv) {
+    private static String liveKvText(GenSignal.KvStats kv) {
         try {
-            CharSequence status = null;
-            TextView src = activity.findViewById(R.id.service_status_text) instanceof TextView
-                    ? (TextView) activity.findViewById(R.id.service_status_text) : null;
-            if (src != null) status = src.getText();
-            if (status != null && status.toString().contains("在线")) {
-                return null;
-            }
             if (kv != null && kv.isDisplayable()) {
                 return String.format(java.util.Locale.ROOT, "命中 %.0f%%", kv.hitRatePercent);
             }
