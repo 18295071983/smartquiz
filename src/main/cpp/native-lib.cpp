@@ -1236,6 +1236,70 @@ static bool               g_lastChatParamsValid = false;
 static std::string g_resolvedBackend;
 static std::mutex  g_resolvedBackendMutex;
 
+// HTP-BUILD-CAPABILITY(2026-10-31)：Hexagon/HTP 后端有没有被编进这个包。
+// 光看"枚举不到 HTP 设备"分不出两种性质完全不同的原因：
+//   · 构建时 GGML_HEXAGON=OFF（本机即如此：HEXAGON_SDK_ROOT 指向的目录不存在）——
+//     后端连注册都不存在，任何重试/清缓存/DSP 排障都无从谈起；
+//   · 编进来了但 FastRPC 起不来（CDSP 核被占用、skel 文件缺失、签名门禁）——
+//     这才轮得到"重试/冷却"那一类解释，且失败原因由 ggml-hexagon 自己打 ERROR。
+// 值来自 CMake（target_compile_definitions llama-jni NATIVE_HAS_HTP_BACKEND=0/1）。
+#ifndef NATIVE_HAS_HTP_BACKEND
+#define NATIVE_HAS_HTP_BACKEND 0
+#endif
+static const bool g_htpBackendCompiledIn = (NATIVE_HAS_HTP_BACKEND != 0);
+
+// DSP-LIB-DIR(2026-10-09): the Hexagon backend builds the FastRPC module URI as
+//     file:///libggml-htp-vNN.so
+// FastRPC treats that as a path relative to the DSP loader search list, which does
+// not contain the app native library dir. cdsprpcd then fails with
+//     apps_std_fopen_with_env failed ... (No such file or directory)
+// and the context fails to init. Passing the absolute native library dir lets the
+// backend build an absolute URI instead.
+// 声明位置上移(2026-10-31)：设备表快照也要报这个目录，而快照在文件前半段就被调用。
+static std::string s_dspLibDir;
+static std::mutex  s_dspLibDirMutex;
+
+/**
+ * BACKEND-PROBE(2026-10-31)：把 ggml 后端注册表压成一行，用于引擎日志与界面归因。
+ *
+ * <p>存在理由：设备表原本只有 LOGD，而 engineLogAppend 对 'D' 直接 return（见该函数），
+ * 落盘文件里永远看不到"到底注册了哪些设备"。于是"HTP 用不上"这件事无法归因——
+ * 是没编进来、编进来但没枚举到、还是枚举到了但选设备时没匹配上，三种情况在用户视图里
+ * 长得一模一样。这一行把三者一次性分开。</p>
+ */
+static std::string describeBackendRegistry() {
+    std::string s = "htp_build=";
+    s += g_htpBackendCompiledIn ? "in" : "absent";
+    const size_t n = ggml_backend_dev_count();
+    s += ", devices=";
+    s += std::to_string(n);
+    s += " [";
+    for (size_t i = 0; i < n; i++) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        if (dev == nullptr) continue;
+        ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
+        const char* regName = reg ? ggml_backend_reg_name(reg) : nullptr;
+        const char* devName = ggml_backend_dev_name(dev);
+        if (i != 0) s += "; ";
+        s += std::to_string(i) + ":";
+        s += (regName && *regName) ? regName : "?";
+        s += "/";
+        s += (devName && *devName) ? devName : "?";
+    }
+    s += "]";
+    if (g_htpBackendCompiledIn) {
+        // 只有真编进来了才值得报 skel 目录：否则这行是纯噪声。
+        std::string dirCopy;
+        {
+            std::lock_guard<std::mutex> lock(s_dspLibDirMutex);
+            dirCopy = s_dspLibDir;
+        }
+        s += ", htp_lib_dir=";
+        s += dirCopy.empty() ? std::string("(unset)") : dirCopy;
+    }
+    return s;
+}
+
 // 采样默认参数：按模型覆盖。官方对 MiniCPM5 有明确建议，见 OpenBMB llama_cpp 部署文档：
 //   "In llama.cpp, the default min_p=0.05 can lead to repetitive output: it filters out
 //    tokens whose probability is below 5% of the highest-probability token, potentially
@@ -1864,8 +1928,17 @@ public:
         
         if (!s_llamaBackendInitialized.exchange(true)) {
             auto startTime = std::chrono::steady_clock::now();
-            llama_backend_init();
+            // LOG-CALLBACK-FIRST(2026-10-31)：先装日志回调，再初始化后端。
+            // 顺序很关键：llama_backend_init() 内部就会触碰注册表
+            // （llama.cpp:122 `if (!ggml_backend_reg_count()) ggml_backend_load_all();`），
+            // 而 ggml_backend_registry 的构造函数是那一刻才跑的——Hexagon 后端正是在
+            // 这里枚举 CDSP 设备，失败时打的是它自己的 GGML_LOG_ERROR
+            // （"failed to query HTP version"/"physical CDSP core N not found …"）。
+            // 原来 llama_log_set 排在 llama_backend_init 之后，这批 ERROR 全落在进程 stderr
+            // 上（Android 应用没有 stderr 视图），引擎日志一个字都收不到——这就是
+            // "设备句柄可能被占用却查不出来"的直接原因。
             llama_log_set(llama_log_callback_impl, nullptr);
+            llama_backend_init();
             auto endTime = std::chrono::steady_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
             LOGD("Llama backend initialized in %lldms", elapsed);
@@ -1876,18 +1949,9 @@ public:
             elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
             LOGD("Loaded all available backends in %lldms", elapsed);
             
-            size_t devCount = ggml_backend_dev_count();
-            LOGD("ggml backend detected %zu devices after load_all", devCount);
-            for (size_t i = 0; i < devCount; i++) {
-                ggml_backend_dev_t dev = ggml_backend_dev_get(i);
-                if (dev) {
-                    const char* devName = ggml_backend_dev_name(dev);
-                    enum ggml_backend_dev_type devType = ggml_backend_dev_type(dev);
-                    const char* devDesc = ggml_backend_dev_description(dev);
-                    LOGD("ggml Device %zu: name=%s, type=%d, desc=%s", i, 
-                         devName ? devName : "null", (int)devType, devDesc ? devDesc : "null");
-                }
-            }
+            // 每个进程只跑一次，且只有一行：把"注册了哪些后端/设备"从 LOGD 提到 LOGI，
+            // 这样它进内存环、也进引擎日志落盘文件（engineLogAppend 会丢掉所有 'D'）。
+            LOGI("Backend registry: %s", describeBackendRegistry().c_str());
         } else {
             LOGV("Llama backend already initialized, skipping");
         }
@@ -2180,12 +2244,13 @@ public:
                         g_resolvedBackend = (fb == fbNpu) ? "hexagon"
                                           : (strstr(fbName, "OpenCL") ? "opencl" : "vulkan");
                     }
-                    LOGW("Backend switch: no %s device found, falling back to single device (backend=%s, name=%s)",
+                    LOGW("Backend switch: no %s device found, falling back to single device (backend=%s, name=%s) | %s",
                          backendChoice.c_str(), fbName,
-                         ggml_backend_dev_name(fb) ? ggml_backend_dev_name(fb) : "null");
+                         ggml_backend_dev_name(fb) ? ggml_backend_dev_name(fb) : "null",
+                         describeBackendRegistry().c_str());
                 } else {
-                    LOGW("Backend switch: no %s device found and no fallback device, using all available devices",
-                         backendChoice.c_str());
+                    LOGW("Backend switch: no %s device found and no fallback device, using all available devices | %s",
+                         backendChoice.c_str(), describeBackendRegistry().c_str());
                 }
             }
         } else {
@@ -2202,6 +2267,11 @@ public:
             // GPUOpenCL 一起放进 model_params.devices，模型加载时 segfault
             // （signal 11 -> ggml_backend_dev_get_props -> llama_model_load_from_file）。
             // 传多个异构设备会让权重分片落到未预期的后端上。
+            //
+            // 注(2026-10-31)：上面"NPU 约 1500 tok/s"是 2026-10-09 那版构建的实测值，当时
+            // GGML_HEXAGON=ON。现在这台机器的构建里 HTP 后端没有编进来（HEXAGON_SDK_ROOT
+            // 指向的目录已不存在），auto 只会解析到 OpenCL——那个数字在当前包里复现不了。
+            // 引擎日志新增的 "Backend registry:" 行会把这件事写在明面上。
             ggml_backend_dev_t pickedNpu = nullptr;
             ggml_backend_dev_t pickedOpenCL = nullptr;
             ggml_backend_dev_t pickedVulkan = nullptr;
@@ -2239,9 +2309,24 @@ public:
                     g_resolvedBackend = (picked == pickedNpu) ? "hexagon"
                                       : (picked == pickedOpenCL ? "opencl" : "vulkan");
                 }
-                LOGD("Backend switch: auto mode picked single device (backend=%s, name=%s)",
-                     pickedRegName,
-                     ggml_backend_dev_name(picked) ? ggml_backend_dev_name(picked) : "null");
+                // 每次模型加载一行：auto 的落点原本只在 LOGD 里（引擎日志不收 'D'），
+                // 于是"默认想跑 NPU、实际跑在 OpenCL"这件事在用户视图里完全无痕。
+                // 落到 Vulkan 时升级为 WARN：本包的 Vulkan 走的是 NDK glslc 基础路径
+                // （没有 cooperativeMatrix/bfloat16），Adreno 840 实测会出乱码/复读，
+                // 所以它是自动择优的**最后手段**，只在 HTP 与 OpenCL 都没有设备时才用。
+                // 不干脆改走纯 CPU：那会让只有 Vulkan 的机型慢到不可用，而单设备选择本身
+                // 是安全的（多设备才是历史 segfault 的来源）。
+                if (picked == pickedVulkan) {
+                    LOGW("Backend switch: auto mode fell back to Vulkan (name=%s) - no HTP/OpenCL device available; "
+                         "this path is known to garble output on some Adreno drivers, htp_build=%s",
+                         ggml_backend_dev_name(picked) ? ggml_backend_dev_name(picked) : "null",
+                         g_htpBackendCompiledIn ? "in" : "absent");
+                } else {
+                    LOGI("Backend switch: auto mode picked single device (backend=%s, name=%s, htp_build=%s)",
+                         pickedRegName,
+                         ggml_backend_dev_name(picked) ? ggml_backend_dev_name(picked) : "null",
+                         g_htpBackendCompiledIn ? "in" : "absent");
+                }
             } else {
                 LOGW("Backend switch: auto mode found no usable device, using all available devices");
             }
@@ -6922,14 +7007,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetBackend(
     }
 }
 
-// DSP-LIB-DIR(2026-10-09): the Hexagon backend builds the FastRPC module URI as
-//     file:///libggml-htp-vNN.so
-// FastRPC treats that as a path relative to the DSP loader search list, which does
-// not contain the app native library dir. cdsprpcd then fails with
-//     apps_std_fopen_with_env failed ... (No such file or directory)
-// and the context fails to init. Passing the absolute native library dir lets the
-// backend build an absolute URI instead.
-static std::string s_dspLibDir;
+// DSP-LIB-DIR 的说明与 s_dspLibDir 声明在文件前部（describeBackendRegistry 也要用它）。
 
 JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetDspLibDir(
@@ -6942,11 +7020,15 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetDspLibDir(
     if (cstr == nullptr) return;
     std::string value(cstr);
     env->ReleaseStringUTFChars(dir, cstr);
-    std::lock_guard<std::mutex> lock(s_globalMutex);
-    s_dspLibDir = value;
+    // 用目录自己的小锁，不借用 s_globalMutex：describeBackendRegistry() 会在持推理相关锁的
+    // 路径上读它，两边共用一把大锁等于给日志加了一条死锁可能。
+    {
+        std::lock_guard<std::mutex> lock(s_dspLibDirMutex);
+        s_dspLibDir = value;
+    }
     // ggml-hexagon reads this via getenv() when it builds the FastRPC module URI.
-    setenv("GGML_HEXAGON_LIB_DIR", s_dspLibDir.c_str(), 1);
-    LOGV("nativeSetDspLibDir: %s", s_dspLibDir.c_str());
+    setenv("GGML_HEXAGON_LIB_DIR", value.c_str(), 1);
+    LOGV("nativeSetDspLibDir: %s", value.c_str());
 }
 
 // RESOLVED-BACKEND(2026-10-09)：返回模型加载时实际选中的加速后端。
@@ -6961,6 +7043,15 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetResolvedBackend(
         snapshot = g_resolvedBackend;
     }
     return env->NewStringUTF(snapshot.c_str());
+}
+
+// HTP-BUILD-CAPABILITY(2026-10-31)：本包的 llama-jni 里有没有编入 Hexagon/HTP 后端。
+// 界面用它把"未检测到 NPU"拆成两种说法：没编进来（要找构建）vs 编进来但没枚举到设备
+// （要找 DSP/驱动）。这两件事的处理方式完全不同，合成一句"未检测到"就会把人引向重试。
+JNIEXPORT jboolean JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeIsHtpBackendBuilt(
+    JNIEnv* /* env */, jclass /* clazz */) {
+    return g_htpBackendCompiledIn ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jlong JNICALL
@@ -9437,10 +9528,9 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateBatch(
     for (jsize i = 0; i < promptCount; i++) {
         jstring prompt = (jstring)env->GetObjectArrayElement(prompts, i);
         std::string one = jstringToUtf8(env, prompt);
-        
-        if (!one.empty()) {
-            promptList.push_back(one);
-        }
+        // 无条件占位：results 数组按 promptCount 分配，跳过空串会让后面每条结果整体左移一位，
+        // 表面上"跑通了"其实答案对不上题。空 prompt 交给下游按空输入处理。
+        promptList.push_back(one);
         env->DeleteLocalRef(prompt);
     }
     

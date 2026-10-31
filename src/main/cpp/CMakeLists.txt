@@ -239,6 +239,16 @@ target_link_libraries(
     dl
 )
 
+# HTP-BUILD-CAPABILITY(2026-10-31)：把"这个包里到底有没有编入 Hexagon/HTP 后端"烧进
+# native 代码（native-lib.cpp 里 #if NATIVE_HAS_HTP_BACKEND 判读，0/1 总有定义）。
+# 动机：GGML_HEXAGON 只有在 HEXAGON_SDK_ROOT 指到**存在**的目录时才为 ON，本机现在为 OFF，
+# 于是运行时枚举不到 HTP 设备是必然结果；但界面只会说"未检测到 NPU"，把人往
+# "DSP 被占用 / 要不要重试"上带。有了这一位就能分成"没编进来（找构建）"和
+# "编进来但枚举不到（找 FastRPC/CDSP）"两种说法。
+target_compile_definitions(llama-jni PRIVATE
+    NATIVE_HAS_HTP_BACKEND=$<BOOL:${GGML_HEXAGON}>
+)
+
 if(GGML_OPENCL)
     target_link_libraries(llama-jni ggml-opencl)
 endif()

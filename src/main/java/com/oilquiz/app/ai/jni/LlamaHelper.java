@@ -282,7 +282,9 @@ public class LlamaHelper {
      * <p>现在两边都走 {@link #DEFAULT_BACKEND} 与 {@link #sBackendPreference}
      * （native 真正下发的那个值）：先确保偏好已从设置读出并应用到 native，再返回它。</p>
      *
-     * @return 实际生效的后端："hexagon" / "opencl" / "vulkan" / "auto"
+     * @return 实际生效的后端偏好："hexagon" / "opencl" / "vulkan" / "auto"。
+     *         注意这是**下发给 native 的请求值**，不等于模型实际跑在哪个设备上——
+     *         native 找不到该后端的设备时会回退，真实落点见 {@link #getResolvedBackend()}。
      */
     public static String getEffectiveBackend() {
         applyBackendPreference();
@@ -420,6 +422,13 @@ public class LlamaHelper {
                     ? System.currentTimeMillis() - sWriteHeldSinceMs : -1);
             o.put("read_locks", inferenceLock.getReadLockCount());
             o.put("waiting", inferenceLock.getQueueLength());
+            // 后端一并在场：现场报"引擎在跑但答不对"时，第一件事就是确认它跑在哪个设备上。
+            // 这两个值以前只在设备信息页的另一行里，看不出"请求"与"实际"的差；backend_actual
+            // 缺失（模型没加载 / 纯 CPU）时给 NULL 而不是空串，避免下游把"未知"当"没用加速"。
+            o.put("backend_req", sBackendPreference == null ? "" : sBackendPreference);
+            String resolved = getResolvedBackend();
+            o.put("backend_actual", resolved.isEmpty()
+                    ? org.json.JSONObject.NULL : resolved);
             return o.toString();
         } catch (Throwable t) {
             return "{}";
@@ -1862,20 +1871,79 @@ public class LlamaHelper {
      * 设备信息页据此显示 NPU 行；判断依据是后端注册名而非 type（见 getDeviceCaps）。
      */
     public static boolean hasNpuDevice() {
+        return backendHasDevice("hexagon");
+    }
+
+    /**
+     * BACKEND-AVAILABLE(2026-10-31)：某个后端偏好在本机 ggml 注册表里是否真有设备。
+     *
+     * <p>存在理由：界面此前把"偏好 != 实际选中"一律解释成"需重载模型生效"，但还有一种
+     * 完全不同的情况——那个后端在本机根本没有设备（HTP 没编进本包即是），重载多少次都不会
+     * 变。两种原因要指向不同的排查动作，不能共用一句话。</p>
+     *
+     * <p>判据用后端注册名（与 {@link #hasNpuDevice()} 同源），不用 device type：
+     * 实测 HTP 报的是 type=GPU 而非 ACCEL。</p>
+     *
+     * @param backend "opencl" / "vulkan" / "hexagon"；"auto" 恒为 true（它不指名设备）
+     */
+    public static boolean backendHasDevice(String backend) {
+        if (backend == null) return false;
+        String b = backend.trim().toLowerCase();
+        if ("auto".equals(b)) return true;
         try {
             org.json.JSONArray arr = new org.json.JSONArray(getDeviceCaps());
             for (int i = 0; i < arr.length(); i++) {
                 org.json.JSONObject d = arr.optJSONObject(i);
                 if (d == null) continue;
-                String backend = d.optString("backend", "");
-                if (backend.contains("HTP") || backend.contains("Hexagon")) return true;
+                String reg = d.optString("backend", "");
+                if ("opencl".equals(b) && reg.contains("OpenCL")) return true;
+                if ("vulkan".equals(b) && reg.contains("Vulkan")) return true;
+                if ("hexagon".equals(b) && (reg.contains("HTP") || reg.contains("Hexagon"))) return true;
             }
         } catch (Throwable t) {
-            AILogger.w(TAG, "hasNpuDevice failed: " + t.getMessage());
+            AILogger.w(TAG, "backendHasDevice(" + backend + ") failed: " + t.getMessage());
         }
         return false;
     }
-    
+
+    /**
+     * HTP-BUILD-CAPABILITY(2026-10-31)：本包的 libllama-jni 里有没有编入 Hexagon/HTP 后端。
+     *
+     * <p>与 {@link #hasNpuDevice()} 是两件事：后者问"运行时枚举到了 HTP 设备吗"，
+     * 而这个问"这个包有没有那个后端"。GGML_HEXAGON 只有在构建时 HEXAGON_SDK_ROOT
+     * 指向存在的目录才为 ON；没编进来的包里永远枚举不到 HTP 设备，这跟 DSP 有没有被占用
+     * 无关。分开报才不会把"没编译"误读成"硬件/驱动问题"。</p>
+     *
+     * @return TRUE=已编入；FALSE=未编入；null=问不到（库未加载或旧 so），调用方须显示"未知"
+     */
+    public static Boolean isHtpBackendBuilt() {
+        if (!libraryLoaded) return null;
+        try {
+            return nativeIsHtpBackendBuilt() ? Boolean.TRUE : Boolean.FALSE;
+        } catch (Throwable t) {
+            AILogger.w(TAG, "isHtpBackendBuilt unavailable: " + t.getMessage());
+            return null;
+        }
+    }
+
+    private static native boolean nativeIsHtpBackendBuilt();
+
+    /**
+     * HTP 后端状态一句话（设备信息页用，避免各页自己拼三元链）。
+     * 三档分明：没编进来 / 编进来但没设备 / 有设备，各自指向不同的排查方向。
+     *
+     * <p>命名注意：这与 chat 状态栏里 {@code ServiceStatusManager.npuStatusLine()}
+     * 不是一回事——后者报的是 GenieX NPU 引擎的推理阶段，这里报的是 ggml 的 HTP 后端
+     * 在**本包**里存不存在。两者同名的话，看代码的人会以为抽屉里那行在说同一件事。</p>
+     */
+    public static String htpBackendStatusLine() {
+        Boolean built = isHtpBackendBuilt();
+        if (built == null) return "未知（native 未提供该查询）";
+        if (!built) return "未编入本包（构建时 GGML_HEXAGON=OFF，缺可用的 HEXAGON_SDK_ROOT；与 DSP 占用无关）";
+        if (hasNpuDevice()) return "已枚举到 HTP 设备";
+        return "已编入但未枚举到设备（查引擎日志 ggml-hex 的 ERROR：CDSP 核不可用 / skel 缺失 / 会话申请失败）";
+    }
+
     // 获取空闲设备内存
     public static long getFreeDeviceMemory() {
         if (!libraryLoaded) {

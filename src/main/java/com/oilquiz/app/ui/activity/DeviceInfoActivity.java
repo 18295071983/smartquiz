@@ -157,18 +157,24 @@ public class DeviceInfoActivity extends AppCompatActivity {
                     // 说明：isOpenCLLoaded() 只表示 /vendor/lib64/libOpenCL.so 能被 dlopen
                     // （AIService 预加载时置位），与"OpenCL 后端在用"无关，故这里明确措辞为
                     // "OpenCL 库"，并把加速后端与 NPU 可用性分开报。
-                    boolean hasNpu = LlamaHelper.hasNpuDevice();
                     String resolved = LlamaHelper.getResolvedBackend();      // 实际选中（auto 也会解析出具体设备）
                     String pref = LlamaHelper.getEffectiveBackend();         // 偏好（下次加载将用）
                     String shown = (resolved != null && !resolved.isEmpty()) ? resolved : pref;
                     openclSummary.append("加速后端: ").append(backendLabelOf(shown));
-                    if (resolved != null && !resolved.isEmpty() && pref != null && !pref.equals(resolved)) {
-                        openclSummary.append("（偏好 ").append(backendLabelOf(pref)).append("，需重载生效）");
+                    if (resolved != null && !resolved.isEmpty() && pref != null
+                            && !pref.equals(resolved) && !"auto".equals(pref)) {
+                        // 偏好与实际不一致有两种原因，措辞必须分开：
+                        //   · 该后端在本机根本没有设备（例如 HTP 没编进本包）→ 重载一万次也不会变，
+                        //     提示"需重载生效"是把人往错的方向引；
+                        //   · 有设备，只是这次加载用的是改之前的偏好 → 才真的需要重载。
+                        openclSummary.append(LlamaHelper.backendHasDevice(pref)
+                                ? "（偏好 " + backendLabelOf(pref) + "，需重载模型生效）"
+                                : "（偏好 " + backendLabelOf(pref) + " 在本机无对应设备，已回退）");
                     }
                     openclSummary.append("\n");
                     openclSummary.append("OpenCL 库: ").append(openclLoaded ? "已加载" : "未加载")
                             .append("（仅表示可 dlopen，不等于在用 OpenCL 加速）").append("\n");
-                    openclSummary.append("Hexagon NPU (HTP): ").append(hasNpu ? "可用" : "未检测到").append("\n");
+                    openclSummary.append("Hexagon NPU (HTP): ").append(LlamaHelper.htpBackendStatusLine()).append("\n");
                     
                     int gpuLayers = 0;
                     int threadCount = 0;
