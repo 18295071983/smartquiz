@@ -2,11 +2,13 @@ package com.oilquiz.app.infra;
 
 /*
  * ============================================================================
- * AgentDebugBridge —— 应用内在线 Agent 的正式外部注入通道（长期保留的 debug 能力）
+ * AgentDebugBridge —— 应用内 Agent 的正式外部注入通道（长期保留的 debug 能力）
  * ============================================================================
- * 用途：允许外部（adb shell）通过显式广播，注入 prompt 驱动应用内在线 Agent
- *       （OnlineAgentEngine，完整工具链）执行一次任务，结果落盘供拉取。
- *       用于自动化联动测试、外部编排、诊断。
+ * 用途：允许外部（adb shell）通过显式广播，注入 prompt 驱动应用内 Agent 执行一次
+ *       任务，结果落盘供拉取。引擎**按当前使用的模型自动路由**（判据与聊天页同源：
+ *       {@code InferenceRouter.isUsingOnlineModel()}）——在线模型走 OnlineAgentEngine
+ *       （完整工具链），本地模型走 AgentSoftwareLayer（llama.cpp / NPU 由该层内部分档）。
+ *       需要强制某一侧时显式传 --es engine online|local。用于自动化联动测试、外部编排、诊断。
  *
  * 安全设计（四层防护）：
  *   1. 授权码（token）：首次触发时随机生成 16 位 hex，存入 SharedPreferences，
@@ -16,10 +18,13 @@ package com.oilquiz.app.infra;
  *      关闭状态下拒绝一切注入。开关状态持久化（install -r 保留）。
  *   3. 显式广播：Android 8+ 隐式广播无法触达静态 receiver，必须用 -n 指定组件；
  *      同时避免误伤系统广播分发。
- *   4. 执行隔离：每次独立引擎实例 + 随机会话 ID（历史独立文件），不污染主对话；
+ *   4. 执行隔离：在线分支每次独立引擎实例 + 随机会话 ID（历史独立文件），不污染主对话；
  *      并发互斥（同时仅一个任务）；120s 超时自动释放锁；只写结果文件，不碰业务数据。
+ *      ⚠ 本地分支例外：AgentSoftwareLayer 进程内常驻（避免每次注入都重加载模型），
+ *      多条注入**共享同一本地会话序列**（该层会 persist 自己的 session 计数），
+ *      要彻底复位需重启应用。两条分支都不写用户主对话。
  *
- * 用法（见 DEBUG_AGENT_BRIDGE.md）：
+ * 用法（本注释自包含；旧文档 DEBUG_AGENT_BRIDGE.md 只存于 _archive/，不在仓库根）：
  *   1) 拿 token（任意触发一次即可在 logcat 看到）：
  *        adb shell am broadcast -a com.oilquiz.app.DEBUG.AGENT_ENABLE \
  *            -n com.oilquiz.app/.infra.AgentDebugBridge --ez enable true
@@ -32,7 +37,8 @@ package com.oilquiz.app.infra;
  *        adb shell am broadcast -a com.oilquiz.app.DEBUG.AGENT_EXEC \
  *            -n com.oilquiz.app/.infra.AgentDebugBridge \
  *            --es token <token> --es prompt "指令" [--es session 会话id] \
- *            [--ei max_tokens 16384] [--ez thinking true]
+ *            [--ei max_tokens 16384] [--ez thinking true] \
+ *            [--es engine auto|local|online]   # 缺省 auto=按当前模型路由，后两者强制
  *   4) 结果：/sdcard/Android/data/com.oilquiz.app/files/agent_bridge/result_<ts>.txt
  *      关闭通道：--ez enable false
  * ============================================================================
@@ -46,9 +52,13 @@ import android.os.Looper;
 import android.util.Log;
 
 import com.oilquiz.app.ai.agent.AgentCallback;
+import com.oilquiz.app.ai.agent.software.AgentSoftwareLayer;
+import com.oilquiz.app.ai.agent.software.model.AgentResponse;
 import com.oilquiz.app.ai.agent.online.OnlineAgentEngine;
 import com.oilquiz.app.ai.agent.online.OnlineToolManager;
 import com.oilquiz.app.ai.agent.online.OnlineToolResult;
+import com.oilquiz.app.ai.inference.InferenceRouter;
+import com.oilquiz.app.ai.service.AIService;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -77,6 +87,15 @@ public class AgentDebugBridge extends BroadcastReceiver {
     private static final long TASK_TIMEOUT_MS = 120_000L;
 
     private static final AtomicBoolean running = new AtomicBoolean(false);
+
+    /**
+     * 本地引擎实例（auto 路由到本地、或显式 engine=local 时复用）：本机实测模型
+     * 冷加载 7.4s、native 状态恢复重载 13.3s，故进程内常驻避免反复加载。
+     * 走 AgentSoftwareLayer（聊天页 "Local model → AgentSoftwareLayer" 同源，
+     * NPU/llama.cpp 由该层内部分档）—— 不是 AgentSession：AgentSession 内部其实是
+     * OnlineAgentEngine，调试台把它标成"本地智能体"是措辞误导。
+     */
+    private static volatile AgentSoftwareLayer sLocalLayer;
 
     // ---------------- 状态管理（SharedPreferences 持久化） ----------------
 
@@ -236,6 +255,22 @@ public class AgentDebugBridge extends BroadcastReceiver {
         final String session = intent.getStringExtra("session");
         final int maxTokens = intent.getIntExtra("max_tokens", DEFAULT_MAX_TOKENS);
         final boolean thinking = intent.getBooleanExtra("thinking", false);
+        // 引擎路由：缺省/auto = 按当前使用的模型自动选（判据与聊天页 shouldUseOnlineModel 同源）；
+        // 显式 engine=online / engine=local 可强制某一侧。
+        final String engineArg = intent.getStringExtra("engine");
+        final boolean forceOnline = "online".equalsIgnoreCase(engineArg);
+        final boolean forceLocal = "local".equalsIgnoreCase(engineArg);
+        boolean autoLocal = false;
+        if (!forceOnline && !forceLocal) {
+            try {
+                autoLocal = !InferenceRouter.getInstance(app).isUsingOnlineModel();
+            } catch (Throwable t) {
+                Log.w(TAG, "自动路由判据不可用，回落在线: " + t);
+            }
+        }
+        final boolean useLocalEngine = forceLocal || autoLocal;
+        Log.i(TAG, "引擎路由: engine=" + (engineArg == null || engineArg.isEmpty() ? "auto" : engineArg)
+                + " → " + (useLocalEngine ? "本地(AgentSoftwareLayer)" : "在线(OnlineAgentEngine)"));
         // 防蒸馏：本通道定位为【正式文本通道】——prompt 为任务正式文本，**默认完整可见**。
         // 外部若注入提示词性质内容，可传 prompt_summary 声明敏感 → 我方只显示摘要（防蒸馏模式）。
         // expose_prompt=true 强制完整回显（即使传了 summary）。
@@ -281,6 +316,10 @@ public class AgentDebugBridge extends BroadcastReceiver {
                     "OnlineAgentEngine:V", "OnlinePromptBuilder:V",
                     "OnlineToolManager:V", "AIService:V",
                     "OnlineInferenceService:V",
+                    // auto 路由到本地时，结果文件此前只能看到在线那半边的轨迹：
+                    // 本地引擎/原生层的标签根本不在过滤器里
+                    "AgentSoftwareLayer:V", "AgentLoopEngine:V",
+                    "LlamaHelper:V", "LlamaJNI:V", "AgentKvCache:V",
                     "AgentDebugBridge:V"});
             final java.io.BufferedReader logReader = new java.io.BufferedReader(
                 new java.io.InputStreamReader(logcatProc[0].getInputStream(), StandardCharsets.UTF_8));
@@ -298,6 +337,17 @@ public class AgentDebugBridge extends BroadcastReceiver {
             Log.w(TAG, "logcat capture start failed: " + e.getMessage());
         }
 
+        // 广播令牌只覆盖"接收 + 启动"这段：一条生成本身远超广播的 60s 上限
+        // （真机实测 ANR Timeout=60216ms，生成线程停在 LlamaHelper.chatJson 等 native 读写锁；
+        // 本地档还多加一次模型冷加载 7~14s）。攥着 PendingResult 到生成结束必然报广播超时 ANR，
+        // 所以 kickoff 完成即交还；进程由自动打开的调试控制台保持前台，后续写文件不受影响。
+        final AtomicBoolean tokenReleased = new AtomicBoolean(false);
+        final Runnable releaseToken = () -> {
+            if (tokenReleased.compareAndSet(false, true)) {
+                try { pr.finish(); } catch (Throwable ignored) { }
+            }
+        };
+
         // 收尾一次性闸门：完成/失败/超时只允许 finish 一次。
         // 此前超时回调没有绑定"本次任务是否已收尾"，120s 到点会对已 finish 的 PendingResult
         // 再 finish 一次 → IllegalStateException: Broadcast already finished（真机 2026-10-27 19:53 崩过）。
@@ -306,7 +356,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
             if (finished.compareAndSet(false, true)) {
                 if (logcatProc[0] != null) logcatProc[0].destroy();
                 running.set(false);
-                pr.finish();
+                releaseToken.run();
             }
         };
 
@@ -318,19 +368,33 @@ public class AgentDebugBridge extends BroadcastReceiver {
             // 复用同一引擎实例重试：保留 messageHistory/thinkingChain，断点续传（近似）
             final OnlineToolManager[] tmHolder = {null};
             final OnlineAgentEngine[] engineHolder = {null};
+            final AgentSoftwareLayer[] localHolder = {null};
 
             final Runnable[] executeTask = new Runnable[1];
             executeTask[0] = new Runnable() {
                 @Override public void run() {
                     attempt[0]++;
                     outTokens[0] = 0;   // 每轮重新计数（部分输出按轮判定）
-                    if (engineHolder[0] == null) {
+                    if (useLocalEngine) {
+                        // 本地引擎常驻复用：模型冷加载数秒~十余秒，且同实例保留 KV/历史
+                        if (localHolder[0] == null) {
+                            AgentSoftwareLayer layer = sLocalLayer;
+                            if (layer == null) {
+                                layer = new AgentSoftwareLayer(app, AIService.getInstance(app));
+                                sLocalLayer = layer;
+                            }
+                            localHolder[0] = layer;
+                        }
+                    } else if (engineHolder[0] == null) {
                         tmHolder[0] = new OnlineToolManager(app);
                         OnlineToolManager.setInstance(tmHolder[0]);
                         engineHolder[0] = new OnlineAgentEngine(app, tmHolder[0]);
                         engineHolder[0].setSessionId(sid);
                     }
-                    emitState("connection", "引擎就绪，会话隔离=" + sid
+                    emitState("connection", (useLocalEngine
+                            ? "本地引擎就绪(AgentSession → llama.cpp)"
+                            : "在线引擎就绪(OnlineAgentEngine)")
+                            + "，会话隔离=" + (useLocalEngine ? "进程内常驻(不适用)" : sid)
                             + (attempt[0] > 1 ? "（第 " + attempt[0] + " 次尝试，断点续传）" : ""));
 
                     AgentCallback cb = new AgentCallback() {
@@ -415,8 +479,74 @@ public class AgentDebugBridge extends BroadcastReceiver {
                         }
                     };
 
-                    engineHolder[0].setCallback(cb);
-                    Log.i(TAG, "execute#" + attempt[0] + ": " + prompt + " (session=" + sid + ", maxTokens=" + maxTokens + ", thinking=" + thinking + ")");
+                    // 本地引擎回调适配：与在线通道共用同一套落盘/状态约定
+                    final AgentSoftwareLayer.AgentCallback localCb = new AgentSoftwareLayer.AgentCallback() {
+                        @Override public void onToken(String token) {
+                            outTokens[0]++;
+                            sb.append("TOKEN: ").append(token).append('\n');
+                            emit("TOKEN: " + token);
+                        }
+                        @Override public void onThinkingUpdate(String thought) {
+                            sb.append("THINK: ").append(thought).append('\n');
+                            emit("THINK: " + thought);
+                        }
+                        @Override public void onStepUpdate(String step, String detail) {
+                            sb.append("[STEP] ").append(step).append(' ').append(detail).append('\n');
+                            emit("[STEP] " + step + " " + detail);
+                        }
+                        @Override public void onToolCallStart(String name, String args) {
+                            sb.append("[TOOL] ").append(name).append(' ').append(args).append('\n');
+                            emit("▶ 工具调用: " + name + " " + args);
+                        }
+                        @Override public void onToolCallComplete(String name, boolean ok, String result) {
+                            sb.append(ok ? "[TOOL-OK] " : "[TOOL-FAIL] ").append(name)
+                              .append(" -> ").append(result).append('\n');
+                            emit((ok ? "✔ 工具完成: " : "✖ 工具失败: ") + name + " -> " + oneLine(result, 200));
+                        }
+                        @Override public void onInferenceProgress(int tokenCount, float tps) {
+                            // coopmat A/B 的主测点：解码速率随生成过程持续记录，供两组直接对照
+                            sb.append("[SPEED] tokens=").append(tokenCount).append(" tps=")
+                              .append(String.format(java.util.Locale.US, "%.2f", tps)).append('\n');
+                        }
+                        @Override public void onComplete(AgentResponse response) {
+                            String fullText = (response != null && response.finalAnswer != null)
+                                    ? response.finalAnswer : "";
+                            sb.append("=== COMPLETE ===\n").append(fullText).append('\n');
+                            emitState("status", "✅ 完成(本地)");
+                            emit("── 执行完成 ──");
+                            emitRaw("[RESULT] done result=" + out.getName() + " " + tsStamp());
+                            emitRaw("[ANSWER] " + oneLine(fullText, 300));
+                            saveLocal("done", fullText);
+                            finishOnce.run();
+                        }
+                        @Override public void onError(String error) {
+                            sb.append("=== ERROR ===\n").append(error).append('\n');
+                            emitState("status", "❌ 错误(本地): " + error);
+                            emit("── 本地执行出错: " + error + " ──");
+                            emitRaw("[RESULT] error result=" + out.getName() + " " + tsStamp());
+                            saveLocal("error", "本地推理失败: " + error);
+                            finishOnce.run();
+                        }
+                        @Override public void onBusy(String msg) {
+                            emit("── 本地引擎忙，本次注入未执行 ──");
+                            saveLocal("busy", "本地引擎忙，未执行");
+                            finishOnce.run();
+                        }
+                        void saveLocal(String status, String text) {
+                            try (OutputStreamWriter w = new OutputStreamWriter(
+                                    new FileOutputStream(out, true), StandardCharsets.UTF_8)) {
+                                w.write(sb.toString());
+                            } catch (Exception e) { Log.e(TAG, "save fail", e); }
+                            writeStatus(status, out, displayPrompt, promptType, text);
+                        }
+                    };
+
+                    if (localHolder[0] != null) {
+                        localHolder[0].setCallback(localCb);
+                    } else {
+                        engineHolder[0].setCallback(cb);
+                    }
+                    Log.i(TAG, "execute#" + attempt[0] + ": " + prompt + " (engine=" + (useLocalEngine ? "local" : "online") + ", session=" + sid + ", maxTokens=" + maxTokens + ", thinking=" + thinking + ")");
                     sb.append(fullVisible ? "PROMPT: " : "PROMPT_SUMMARY: ")
                             .append(displayPrompt).append('\n');
                     writeStatus("running", out, displayPrompt, promptType, "");
@@ -426,7 +556,38 @@ public class AgentDebugBridge extends BroadcastReceiver {
                     + "2. 不要使用 ui_component 工具，直接输出文本答案\n"
                     + "3. 减少不必要的工具调用，简单问题直接回答\n\n"
                     + "用户指令：" + prompt;
-            engineHolder[0].execute(effectivePrompt, maxTokens, thinking);
+            if (localHolder[0] != null) {
+                // 本地层入口是 processMessage(...)（自带 Agent 循环，maxTokens 由服务层/模型档决定）。
+                // 注入通道没有聊天页那套 ensureModelLoaded，所以未就绪时先异步加载；
+                // 直接在 onReceive(主线程) 调 initialize() 会 ANR（本机实测原生加载约 7–14s）。
+                // 判据必须是 **native chat context 是否有效**（与聊天页 5169 同一判据），
+                // 不是 AIService.isInitialized()：实测它已经 true 时 chatJson 仍报
+                // "Helper context not initialized"、10ms 返回兜底句 —— 那是假成功，
+                // 会把"引擎根本没跑"读成"模型答不出来"。
+                final AIService aiService = AIService.getInstance(app);
+                if (!com.oilquiz.app.ai.jni.LlamaHelper.isNativeStateValid()) {
+                    emitState("connection", "本地引擎未就绪（native chat context 缺失），异步加载中…");
+                    emit("── 本地引擎加载中，就绪后自动开始推理 ──");
+                    aiService.initializeAsync(ok -> {
+                        boolean ready = ok && com.oilquiz.app.ai.jni.LlamaHelper.isNativeStateValid();
+                        if (!ready) {
+                            localCb.onError("本地引擎未就绪: initializeAsync=" + ok + ", nativeStateValid="
+                                    + com.oilquiz.app.ai.jni.LlamaHelper.isNativeStateValid()
+                                    + "（请在应用内选一个本地模型后重试）");
+                            return;
+                        }
+                        emitState("connection", "本地引擎就绪，开始推理");
+                        localHolder[0].processMessage(effectivePrompt, thinking);
+                    });
+                } else {
+                    localHolder[0].processMessage(effectivePrompt, thinking);
+                }
+            } else {
+                engineHolder[0].execute(effectivePrompt, maxTokens, thinking);
+            }
+            // 已提交给引擎（或已提交异步加载），广播使命结束 → 立刻交还令牌，
+            // 避免生成跑过 60s 被判广播超时 ANR。
+            releaseToken.run();
                 }
             };
 
