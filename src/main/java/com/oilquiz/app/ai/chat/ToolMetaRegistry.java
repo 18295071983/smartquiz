@@ -70,6 +70,12 @@ public final class ToolMetaRegistry {
         // 文件与工作区
         m.put("file_reader", "文件读取");
         m.put("file_generator", "文件生成");
+        // 本地薄工具（AgentLoopEngine.LOCAL_THIN_TOOLS）：只有本地核心集会出现的别名，
+        // 此前不在表里 → 消息卡与「使用说明」弹框落到兜底润色，给用户显示 "Read File"。
+        // 名字以薄工具自己的 schema 描述为准（读取/写入），别自造；calculate 见下面"计算器"一行。
+        m.put("read_file", "读取文件");
+        m.put("write_file", "写入文件");
+
         m.put("document_parser", "文档解析");
         m.put("python_file_ops", "文档解析"); // 2026-10-28 改名前的名字，旧会话历史还要显示
         m.put("file_analyzer", "文件分析");
@@ -103,6 +109,7 @@ public final class ToolMetaRegistry {
         m.put("system_connect", "系统连接");
         m.put("storage", "存储管理");
         m.put("calculator", "计算器");
+        m.put("calculate", "计算器"); // 本地薄工具别名，执行时翻译成 calculator（见 LOCAL_THIN_TOOLS）
         m.put("unit_converter", "单位换算");
         // UI 与工具自身
         m.put("ui_component", "UI 组件");

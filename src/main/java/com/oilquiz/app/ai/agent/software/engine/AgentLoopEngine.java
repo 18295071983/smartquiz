@@ -207,6 +207,20 @@ public class AgentLoopEngine {
             "workspace"
     };
 
+    /**
+     * 本地常驻核心工具名（只读副本，顺序与注入顺序一致）。
+     *
+     * <p><b>WHY（2026-11-02，GUIDE-DYNAMIC-TOOLS）</b>：聊天页的「使用说明」弹框此前把本地
+     * 能力写死成"5 个核心工具（天气/时间/定位/搜索/记忆）"，而本数组早已是 11 个且<b>没有
+     * location</b> —— 用户在弹框里读到"定位"，实际模型永远点不到它。这与"提示词核心清单
+     * 硬编码≠CORE_TOOLS"是同一个坑，只是残留在 UI 侧。UI 要报数量/名单一律从这里取，
+     * 不要再抄一份字面量。</p>
+     */
+    public static java.util.List<String> localCoreToolNames() {
+        return java.util.Collections.unmodifiableList(
+                java.util.Arrays.asList(DEFAULT_CORE_TOOLS));
+    }
+
     // ==================== 本地专用「薄工具」适配层（2026-10-25）====================
     // 动机：在线工具（file_reader/file_generator…）是**多 action + 大 description**的完整 schema，
     // 对 4B + ~7.7K prompt 预算太贵；且 action enum 是 4B 选错参数的高发点（见 buildToolsJson 注释）。

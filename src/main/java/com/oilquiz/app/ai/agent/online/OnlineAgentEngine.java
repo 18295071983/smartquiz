@@ -211,8 +211,21 @@ public class OnlineAgentEngine {
     public static java.util.Set<String> coreTools() {
         return CORE_TOOLS;
     }
-    /** 会话工具集上限（2026-09-23 v2）：核心 6 + 最多 3 个扩展工具——默认少带，模型不知道再发现 */
+    /** 会话工具集上限（2026-09-23 v2）：常驻核心 + 最多 3 个扩展工具——默认少带，模型不知道再发现。
+     *  注：核心集现为 {@link #CORE_TOOLS} 的 7 个，旧注释里的"核心 6"已过期（2026-11-02 更正）。 */
     private static final int MAX_SESSION_TOOLS = 9;
+
+    /**
+     * 会话工具集上限（UI 只读口径，2026-11-02 GUIDE-DYNAMIC-TOOLS）。
+     *
+     * <p>聊天页「使用说明」要告诉用户"单轮最多同时带几个工具"，此前把"共 40+ 工具"写死在
+     * Java 字面量里。注册表实际由 {@code OnlineToolRegistry#syncFromAIToolManager()} 动态同步，
+     * 数量会漂；上限这种会变的口径同样必须从这里取。</p>
+     */
+    public static int maxSessionToolCount() {
+        return MAX_SESSION_TOOLS;
+    }
+
     /** 活工具集（2026-09-23 v5）：模型 tool_registry(get) 成功后立即更新，
      *  当前 execute 的下一迭代就用新工具（MCP 语义：get 后本轮可调，不等下条用户消息）。
      *  每 execute 开头重置为 null；registerToolIntoSession 时刷新为最新 cachedToolsJson。 */
