@@ -152,6 +152,9 @@ public class ModelExecutionBridge {
         currentMessageId = command.messageId;
         currentCallback = callback;
         agentToolLoopCount = 0;
+        // NPU-FAULT-GUARD(2026-11-01)：记"本轮在飞"（跨进程归因）+ 快照致命信号计数（轮末判降级）
+        com.oilquiz.app.ai.jni.NpuFaultGuard.onRoundStart(
+                appContext, com.oilquiz.app.ai.jni.LlamaHelper.getBackend());
 
         notifyStarted(callback, command.messageId);
 
@@ -455,6 +458,33 @@ public class ModelExecutionBridge {
         }
     }
 
+    /**
+     * SAMPLING-PREFS(2026-11-01)：本地请求的采样参数统一取
+     * {@link com.oilquiz.app.ai.config.UserModelParamsManager}。
+     *
+     * <p>自动档保持各路径原有默认（温度 0.6、top_p 0.9、top_k 40），保证"没设置=行为不变"；
+     * 用户在参数面板设置过（isAuto=false）才按用户值下发。取参异常时退回默认档，
+     * 不让一次读配置失败把整条请求打空。</p>
+     */
+    private void putLocalSampling(org.json.JSONObject req) {
+        try {
+            com.oilquiz.app.ai.config.UserModelParamsManager u =
+                    com.oilquiz.app.ai.config.UserModelParamsManager.getInstance(appContext);
+            req.put("temperature", u.isAuto() ? 0.6f : u.getAnswerTemperature());
+            req.put("top_p", u.getTopP());
+            req.put("top_k", u.getTopK());
+            return;
+        } catch (Throwable t) {
+            AILogger.w(TAG, "putLocalSampling failed, fallback 0.6/0.9/40: " + t.getMessage());
+        }
+        try {
+            req.put("temperature", 0.6f);
+            req.put("top_p", com.oilquiz.app.ai.config.UserModelParamsManager.DEFAULT_TOP_P);
+            req.put("top_k", com.oilquiz.app.ai.config.UserModelParamsManager.DEFAULT_TOP_K);
+        } catch (Throwable ignored) {
+        }
+    }
+
     private String buildChatJsonRequest(String message, int maxTokens, boolean enableThinking) {
         try {
             org.json.JSONObject req = new org.json.JSONObject();
@@ -499,9 +529,7 @@ public class ModelExecutionBridge {
             req.put("messages", msgs);
             req.put("enable_thinking", enableThinking);
             req.put("max_tokens", maxTokens);
-            req.put("temperature", 0.6f);
-            req.put("top_p", 0.9f);
-            req.put("top_k", 40);
+            putLocalSampling(req);
             req.put("tool_choice", "none");
             return req.toString();
         } catch (Exception e) {
@@ -541,9 +569,7 @@ public class ModelExecutionBridge {
             req.put("messages", msgs);
             req.put("enable_thinking", false);
             req.put("max_tokens", maxTokens);
-            req.put("temperature", 0.6f);
-            req.put("top_p", 0.9f);
-            req.put("top_k", 40);
+            putLocalSampling(req);
             req.put("tool_choice", "auto");
             if (agentService != null) {
                 String toolsJson = agentService.getAgentOpenAIToolDefinitions();
@@ -698,13 +724,19 @@ public class ModelExecutionBridge {
                                 callback.onGenerationComplete(messageId, finalContent, finalCount, finalElapsed, finalTps);
                             }
                         });
+                        com.oilquiz.app.ai.jni.NpuFaultGuard.markDelivered();
                         resetGeneration();
                         break;
                     }
                     case "error": {
                         String err = event.optString("message", "未知错误");
+                        // NPU-FAULT-GUARD(2026-11-01)：本轮以错误收尾——先结掉这一轮，拿到
+                        // "是否已触发降级"的下一步提示；错误卡要能说清接下来会发生什么，
+                        // 而不是只报失败（普通错误不会产生提示，原样透传）。
+                        String guardHint = com.oilquiz.app.ai.jni.NpuFaultGuard.onRoundEnd(appContext);
+                        final String errFinal = guardHint != null ? err + "\n" + guardHint : err;
                         mainHandler.post(() -> {
-                            if (callback != null) callback.onGenerationError(messageId, err);
+                            if (callback != null) callback.onGenerationError(messageId, errFinal);
                         });
                         resetGeneration();
                         break;
@@ -730,6 +762,9 @@ public class ModelExecutionBridge {
         currentMessageId = command.messageId;
         currentCallback = callback;
         agentToolLoopCount = 0;
+        // NPU-FAULT-GUARD(2026-11-01)：记"本轮在飞"（跨进程归因）+ 快照致命信号计数（轮末判降级）
+        com.oilquiz.app.ai.jni.NpuFaultGuard.onRoundStart(
+                appContext, com.oilquiz.app.ai.jni.LlamaHelper.getBackend());
 
         notifyStarted(callback, command.messageId);
 
@@ -1019,6 +1054,9 @@ public class ModelExecutionBridge {
     }
 
     private void resetGeneration() {
+        // NPU-FAULT-GUARD(2026-11-01)：兜底收尾，幂等。取消/异常/早退这些没走 complete 的路径
+        // 也必须结掉这一轮，否则"在飞"标记留在盘上，下次启动会被误判成"死在推理轮内"。
+        com.oilquiz.app.ai.jni.NpuFaultGuard.onRoundEnd(appContext);
         isGenerating.set(false);
         currentMessageId = null;
         currentCallback = null;
@@ -1438,13 +1476,19 @@ public class ModelExecutionBridge {
                                 callback.onGenerationComplete(messageId, finalAnswer, finalCount, finalElapsed, finalTps);
                             }
                         });
+                        com.oilquiz.app.ai.jni.NpuFaultGuard.markDelivered();
                         resetGeneration();
                         break;
                     }
                     case "error": {
                         String err = event.optString("message", "未知错误");
+                        // NPU-FAULT-GUARD(2026-11-01)：本轮以错误收尾——先结掉这一轮，拿到
+                        // "是否已触发降级"的下一步提示；错误卡要能说清接下来会发生什么，
+                        // 而不是只报失败（普通错误不会产生提示，原样透传）。
+                        String guardHint = com.oilquiz.app.ai.jni.NpuFaultGuard.onRoundEnd(appContext);
+                        final String errFinal = guardHint != null ? err + "\n" + guardHint : err;
                         mainHandler.post(() -> {
-                            if (callback != null) callback.onGenerationError(messageId, err);
+                            if (callback != null) callback.onGenerationError(messageId, errFinal);
                         });
                         resetGeneration();
                         break;

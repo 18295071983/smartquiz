@@ -378,7 +378,46 @@ public class MarkdownWebView extends FrameLayout {
      * <p>只有 {@link #buildSeq} 仍是本次发出号时才应用；{@link #resetForReuse} 与新内容都会
      * 推进代号，使晚到的旧结果被丢弃，绝不把上一条消息的文档盖到复用后的视图上。</p>
      */
+    /**
+     * STREAM-BUILD-COALESCE(2026-11-01)：流式但**不可走块级尾巴**时（表格/代码块/公式跨块、
+     * 首帧未就绪等），整篇 markdown→HTML + 整页重载是重活。原先每个 tick 都提交一次，
+     * 正文越长单次越贵，刷新永远追不上生成速率——观感就是"思考很快、正文越写字越慢"。
+     * 这里改成本内容单槽 + 最小间隔：同一时刻最多一份在途，两次之间至少隔
+     * {@link #STREAM_FULL_BUILD_MIN_INTERVAL_MS}；被合并掉的中间帧本来也会被 buildSeq 丢弃，
+     * 所以只减少计算，不改变最终上屏内容。定稿（streaming=false）永远立即构建、不作合并。
+     */
+    private static final long STREAM_FULL_BUILD_MIN_INTERVAL_MS = 350L;
+    private String pendingBuildMd;
+    private boolean pendingBuildWasStreaming;
+    private boolean pendingBuildScheduled;
+    private long lastFullBuildMs;
+    private final Runnable pendingBuildRunnable = () -> {
+        pendingBuildScheduled = false;
+        String md = pendingBuildMd;
+        pendingBuildMd = null;
+        if (md == null) return;
+        doScheduleFullBuild(md, pendingBuildWasStreaming, true);
+    };
+
     private void scheduleFullBuild(final String md, final boolean wasStreaming, final boolean streaming) {
+        if (streaming) {
+            pendingBuildMd = md;
+            pendingBuildWasStreaming = wasStreaming;
+            if (pendingBuildScheduled) return;   // 已有在排的：只更新内容，等它到点统一构建
+            long wait = lastFullBuildMs + STREAM_FULL_BUILD_MIN_INTERVAL_MS - System.currentTimeMillis();
+            pendingBuildScheduled = true;
+            main.postDelayed(pendingBuildRunnable, Math.max(0, wait));
+            return;
+        }
+        // 定稿：立即构建，并作废排队中的流式重建（终态必须逐字节正确）
+        main.removeCallbacks(pendingBuildRunnable);
+        pendingBuildScheduled = false;
+        pendingBuildMd = null;
+        doScheduleFullBuild(md, wasStreaming, false);
+    }
+
+    private void doScheduleFullBuild(final String md, final boolean wasStreaming, final boolean streaming) {
+        lastFullBuildMs = System.currentTimeMillis();
         final int seq = ++buildSeq;
         final boolean nightSnap = night;
         final String themeSnap = themeVars;
@@ -677,6 +716,10 @@ public class MarkdownWebView extends FrameLayout {
     /** 复用/回收时重置：清占位高，允许下次测量。 */
     public void resetForReuse() {
         cancelPendingCacheWrite();
+        // 排队中的流式整篇重建一并作废：holder 复用后它构建的是上一条消息的内容
+        main.removeCallbacks(pendingBuildRunnable);
+        pendingBuildScheduled = false;
+        pendingBuildMd = null;
         lastAppliedPx = -1;
         pageReady = false;
         currentContentHash = null;

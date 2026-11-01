@@ -185,6 +185,16 @@ public class AIChatActivity extends BaseActivity {
     private String busySendMode = "block";
     /** 排队中的待发送消息（忙时 queue 模式入队，生成结束后自动发送） */
     private final java.util.List<String> pendingQueue = new java.util.ArrayList<>();
+    /**
+     * READY-GATE(2026-11-01)：模型初始化单飞标记。多个发送并发时只发起一次装载，
+     * 其余消息进 pendingQueue——否则会并发下发多条 initModel，且失败时各回各的错误。
+     */
+    private boolean modelInitInFlight;
+    /**
+     * READY-GATE：本次 ensureModelLoaded 是否已自行消费消息（排队/提示）。
+     * 调用方据此决定要不要再往历史里插用户消息，避免"排队 + 立即落库"重复两条。
+     */
+    private boolean ensureConsumedMessage;
     /** 展示行用的上一 prompt 签名（SystemPromptRow 变更检测） */
     private String lastPromptSigForRow = null;
     private androidx.recyclerview.widget.RecyclerView messageList;
@@ -3828,10 +3838,21 @@ public class AIChatActivity extends BaseActivity {
         // 允许"无文字直接发送图片"（拍照后直接点发送）
         if (message.isEmpty() && savedAttachments.isEmpty()) { showToast(getString(R.string.h_b922f77a)); return; }
 
+        // READY-GATE(2026-11-01)：在线模型先确认"已启用 + 端点/密钥齐"。配置缺失排队也救不了，
+        // 直接给可操作提示，不把消息发出去再收一条引擎错误。
+        if (shouldUseOnlineModel() && !isOnlineReady()) {
+            showToast("在线模型未就绪：请在「模型设置」里启用该服务并填写 API Key / 端点后再发送");
+            return;
+        }
+        ensureConsumedMessage = false;
         if (!hasImageAttachment && !ensureModelLoaded(message)) {
-            AppLogger.aiW(TAG, "[sendMessage] ensureModelLoaded 返回 false，仅加入历史不推理，msg=" + message);
-            addUserMessage(message);
-            inputMessage.setText("");
+            AppLogger.aiW(TAG, "[sendMessage] ensureModelLoaded 返回 false, consumed="
+                    + ensureConsumedMessage + ", msg=" + message);
+            if (!ensureConsumedMessage) {
+                // 旧口径：未就绪时消息先落库，装载成功后由回调补发（不改历史观感）
+                addUserMessage(message);
+                inputMessage.setText("");
+            }
             scheduleOrphanRepair();
             return;
         }
@@ -5784,6 +5805,12 @@ public class AIChatActivity extends BaseActivity {
         }
         // 阶段切换也算一次流式活动：卡顿判定不应把"刚进入思考阶段"算成卡住
         noteStreamActivity();
+        // PERF-STREAM-PHASE(2026-11-01)：正文路径每个 token 都会调进来，但阶段只会切一次。
+        // 原先这里每 token 都重算文案 + setInferencePhase（含耗时秒数，字符串每次不同）
+        // → 每秒 30 次状态行 relayout；文案推进本来就由 1.2s 心跳负责，按"阶段未变"直接返回。
+        if (phase == statusPhrasePhase && statusPhraseStartTime > 0) {
+            return;
+        }
         // 阶段切换（或首帧）才重置"本阶段开始时刻"，否则同一阶段重复回调会把文案一直拉回第一句
         if (phase != statusPhrasePhase) {
             statusPhrasePhase = phase;
@@ -6478,7 +6505,12 @@ public class AIChatActivity extends BaseActivity {
             public void onModelInitialized(boolean success, String modelName) {
                 if (uiDetached) return;
                 if (success) {
-                    runOnUiThread(() -> addSystemMessage("模型已加载: " + modelName));
+                    runOnUiThread(() -> {
+                        addSystemMessage("模型已加载: " + modelName);
+                        // READY-GATE(2026-11-01)：其它入口（设置页切模型/自动装载）完成后，
+                        // 也要推进因"未就绪"而排队的消息，而不是只等下一轮生成结束。
+                        if (isLocalEngineReady()) drainQueueIfAny();
+                    });
                 }
             }
 
@@ -10061,6 +10093,78 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
+    /**
+     * READY-GATE(2026-11-01)：本地推理是否就绪。
+     * 判据 = 引擎在内存 + 模型已初始化 + native 状态有效。第三个是这次补的关键：
+     * 只看前两个时，上下文已失效的引擎也会被放行，随后才回"未初始化"——
+     * 用户看到的就是"发出去才说不就位"。
+     */
+    private boolean isLocalEngineReady() {
+        try {
+            return modelBridge != null
+                    && modelBridge.isModelInMemory()
+                    && modelBridge.isModelInitialized()
+                    && com.oilquiz.app.ai.jni.LlamaHelper.isNativeStateValid();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * READY-GATE：在线服务能不能发（静态判据，不探测网络）。
+     * 已启用 + 有端点 + 需要时带密钥；本地/内网自建端点允许无密钥。
+     */
+    private boolean isOnlineReady() {
+        try {
+            com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig c =
+                    com.oilquiz.app.ai.model.OnlineModelManager.getInstance(this).getActiveModel();
+            if (c == null || !c.enabled) return false;
+            String url = c.apiUrl == null ? "" : c.apiUrl.toLowerCase(java.util.Locale.ROOT);
+            boolean localEndpoint = url.contains("127.0.0.1") || url.contains("localhost")
+                    || url.contains("10.") || url.contains("192.168.") || url.contains("172.16.");
+            boolean hasKey = c.apiKey != null && !c.apiKey.trim().isEmpty();
+            return localEndpoint || hasKey;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * READY-GATE：装载完成后的短轮询（6 × 500ms，最多 3s）。
+     * 消息此时已经在历史里，只等引擎状态刷新；就绪即发送，超时才报错——
+     * 不再出现"模型刚加载完就报不就位"。
+     */
+    private void retrySendWhenReady(String msg, int attempt) {
+        if (isLocalEngineReady()) {
+            if (serviceStatusManager != null) serviceStatusManager.setLoadingModel(false);
+            hideLoading();
+            if (msg != null && !msg.isEmpty()) {
+                processChatMessage(msg);
+            } else {
+                // 本轮没有待补发的消息：装载期间排队的消息在这里推进
+                drainQueueIfAny();
+            }
+            return;
+        }
+        if (attempt >= 6) {
+            hideLoading();
+            addErrorMessage("模型未就绪", "模型已加载但引擎状态未恢复，请重新选择模型或重启应用后重试", true);
+            return;
+        }
+        uiHandler.postDelayed(() -> retrySendWhenReady(msg, attempt + 1), 500);
+    }
+
+    /** READY-GATE：把消息放进发送队列（复用忙时队列的展示条与持久化，不另造一套）。 */
+    private void enqueuePending(String msg, String toastText) {
+        if (msg != null && !msg.trim().isEmpty()) {
+            pendingQueue.add(msg.trim());
+        }
+        if (inputMessage != null) inputMessage.setText("");
+        updateQueueBar();
+        persistPendingQueue();
+        if (toastText != null && !toastText.isEmpty()) showToast(toastText);
+    }
+
     private boolean ensureModelLoaded(String pendingMessage) {
         if (shouldUseOnlineModel()) {
             return true;
@@ -10079,13 +10183,28 @@ public class AIChatActivity extends BaseActivity {
                     ChatMessage.SystemMessageType.WARNING);
             return false;
         }
-        boolean modelInMemory = modelBridge != null && modelBridge.isModelInMemory();
-        if (!modelInMemory || !modelBridge.isModelInitialized()) {
+        // READY-GATE(2026-11-01)：就绪判据不再只看"模型在内存"——模型在内存、native 上下文
+        // 却失效时，旧判据放行、引擎随后回"未初始化"，用户看到的就是"发出去才说不就位"。
+        // 判据只认 isNativeStateValid（不嗅探错误文案）。
+        if (!isLocalEngineReady()) {
+            final String msg = pendingMessage;
+            // 单飞：已经有一轮装载在跑就不再下发 initModel，后来的消息一律排队等就绪
+            if (modelInitInFlight) {
+                enqueuePending(msg, "模型正在初始化，已加入队列，就绪后自动发送");
+                ensureConsumedMessage = true;
+                return false;
+            }
+            modelInitInFlight = true;
             if (serviceStatusManager != null) serviceStatusManager.setLoadingModel(true);
             showLoading("初始化AI服务...", "正在准备模型，这可能需要几秒钟...");
             showToast("⏳ 开始加载AI模型...");
-
-            final String msg = pendingMessage;
+            if (modelBridge == null) {
+                // 桥接层还没建好（极早期）：别抛 NPE，让它在下一次发送时再试
+                modelInitInFlight = false;
+                hideLoading();
+                showToast("AI服务尚未就绪，请稍后重试");
+                return false;
+            }
             modelBridge.execute(ChatCommand.initModel(), new BridgeCallback() {
                 @Override public void onGenerationStarted(String messageId) {}
                 @Override public void onToken(String messageId, String token) {}
@@ -10107,12 +10226,14 @@ public class AIChatActivity extends BaseActivity {
                 @Override
                 public void onModelInitialized(boolean success, String modelName) {
                     runOnUiThread(() -> {
+                        modelInitInFlight = false;
                         if (success) {
-                            if (msg != null && !msg.isEmpty()) {
-                                processChatMessage(msg);
-                            }
+                            // READY-GATE：装载完成 ≠ 引擎就绪（上下文可能还没建好）。
+                            // 短轮询等待，避免"刚加载完就报不就位"；消息已在历史里，不重复插入。
+                            retrySendWhenReady(msg, 0);
                         } else {
                             if (serviceStatusManager != null) serviceStatusManager.setLoadingModel(false);
+                            hideLoading();
                             addErrorMessage("模型加载失败", "无法初始化AI模型，请检查模型文件是否正确导入", true);
                             showToast(getString(R.string.h_5eb96784));
                         }
