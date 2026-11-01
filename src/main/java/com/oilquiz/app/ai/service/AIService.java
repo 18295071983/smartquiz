@@ -2849,11 +2849,14 @@ public class AIService implements ComponentCallbacks2 {
             AILogger.i(TAG, "Mid-large model (" + modelSizeMB + "MB): context capped to " + contextSize);
         } else if (modelSizeMB >= 1800) {
             // 4B 级（Qwen3-VL-4B Q4≈2381MB）也降档：KV 是 2B 的 ~1.6 倍（nLayer 28→36、nEmbd 2048→2560），
-            // 同 context 下内存压力显著更高，且 Agent 场景 6K 足够（历史有压缩）。
-            // 保持 8192（Agent 兼容底线）：Agent 第 1 轮 prompt 实测 ~6974 tokens（2B），
-            // 6144 减生成预留后仅 5632 可用会 Prompt too long。Q4_0 KV @8192 ≈ 288MB
-            // 可控；若 Q4_0 shader 回退 F16（≈768MB）再单独降档/换 Q8_0，不以牺牲 Agent 为代价。
-            contextSize = Math.min(contextSize, 8192);
+            // 同 context 下内存压力显著更高。
+            // CONTEXT-16K(2026-11-01)：默认档位从 8192 提到 16384。依据本机实测的 KV 代价：
+            // Qwen3.5-4B 只有 8/32 层存 KV（其余是线性注意力层）→ 20KB/token，
+            // 8K=160MB、16K=320MB、32K=655MB；引擎侧 KV 预算 1200MB 折合约 61K，不是瓶颈，
+            // 真瓶颈是可用内存。8192 在 Agent 多工具轮里会早早触发压缩/裁剪，
+            // 16K 只多 160MB，换来的是多轮工具不掉历史。更激进由用户在参数面板手动覆盖。
+            // 动态档（CONTEXT-DYNAMIC）仍会在可用内存不足时往下夹，floor 4096 不变。
+            contextSize = Math.min(contextSize, 16384);
             AILogger.i(TAG, "4B-level model (" + modelSizeMB + "MB): context capped to " + contextSize);
         }
 

@@ -288,6 +288,10 @@ public class AICenterActivity extends AppCompatActivity
                 "top_p（0.05–1.0）", String.valueOf(u.getTopP()));
         final android.widget.EditText etTopK = addNumberField(box,
                 "top_k（0–100，0 = 关闭）", String.valueOf(u.getTopK()));
+        // CONTEXT-SIZE(2026-11-01)：上下文长度（AIService 的手动覆盖，512–32768；留空=自动）
+        final android.widget.EditText etCtx = addNumberField(box,
+                "上下文长度（512–32768，留空 = 自动）",
+                u.getContextSize() > 0 ? String.valueOf(u.getContextSize()) : "");
 
         // PERSONA(2026-11-01)：人设（AIConfig.system_prompt）。本地 Agent 与普通对话现在都会注入；
         // 默认档"请用中文回答。"视为未设置（跟内置角色行的"用中文"重复，注入只白吃前缀）。
@@ -317,7 +321,8 @@ public class AICenterActivity extends AppCompatActivity
                 .setTitle("本地引擎参数")
                 .setView(scroll)
                 .setMessage("默认：温度 0.7 / top_p 0.9 / top_k 40。温度越低越稳（工具调用更可靠），"
-                        + "越高越发散；人设留空则用内置身份。改动从下一轮生效。")
+                        + "越高越发散；人设留空则用内置身份。采样与人设下一轮生效；"
+                        + "**上下文长度要重新装载模型才生效**（512–32768，留空=自动）。")
                 .setPositiveButton("保存", (d, w) -> {
                     try {
                         u.setTemperature(Float.parseFloat(etTemp.getText().toString().trim()));
@@ -332,6 +337,18 @@ public class AICenterActivity extends AppCompatActivity
                     } catch (NumberFormatException ignored) {
                     }
                     try {
+                        String ctxStr = etCtx.getText().toString().trim();
+                        if (ctxStr.isEmpty() || Integer.parseInt(ctxStr) <= 0) {
+                            u.clearContextOverride();
+                        } else {
+                            int v = Integer.parseInt(ctxStr);
+                            if (v < 512) v = 512;
+                            if (v > 32768) v = 32768;
+                            u.setContextSize(v);
+                        }
+                    } catch (NumberFormatException ignored) {
+                    }
+                    try {
                         String persona = etPersona.getText().toString().trim();
                         aiCfg.setSystemPrompt(persona.isEmpty() ? "请用中文回答。" : persona);
                     } catch (Throwable ignored) {
@@ -341,6 +358,7 @@ public class AICenterActivity extends AppCompatActivity
                 })
                 .setNeutralButton("恢复默认", (d, w) -> {
                     u.resetSamplingToDefault();
+                    u.clearContextOverride();
                     Toast.makeText(this, "已恢复默认（" + u.describeEffectiveSampling() + "）",
                             Toast.LENGTH_LONG).show();
                 })
