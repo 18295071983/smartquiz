@@ -305,6 +305,33 @@ public class ModelExecutionBridge {
         AILogger.i(TAG, "Local context history cleared");
     }
 
+    /**
+     * RETRY-TURN-DROP(2026-11-01)：重试/重生成前，把"最后一轮"（最后一条 user 及其后的
+     * assistant / tool 消息）从本地推理历史里删掉。
+     *
+     * <p>为什么需要：重试会先删掉 UI 里的旧回答、再把同一个问题重发一遍，但本地推理历史
+     * 是另一套存储（chatJsonHistory）。不清的话，重试的 prompt 会变成
+     * "system + 旧问题 + 旧回答 + 同一个问题"——模型对着自己的旧答案续写，
+     * 真机表现就是"点重试后答非所问"（曾出现只回一句错误的当前日期）。</p>
+     *
+     * <p>只删最后一轮，保留更早的对话；没有 user 消息时不动。</p>
+     */
+    public synchronized void dropLastLocalTurn() {
+        int cut = -1;
+        for (int i = chatJsonHistory.size() - 1; i >= 0; i--) {
+            if ("user".equals(chatJsonHistory.get(i).optString("role", ""))) {
+                cut = i;
+                break;
+            }
+        }
+        if (cut < 0) return;
+        while (chatJsonHistory.size() > cut) {
+            chatJsonHistory.remove(chatJsonHistory.size() - 1);
+        }
+        persistLocalHistory();
+        AILogger.i(TAG, "dropLastLocalTurn -> history=" + chatJsonHistory.size() + " msgs");
+    }
+
     /** 删除指定会话的全部本地推理上下文文件（删除会话时联动） */
     public void deleteLocalHistory(String sessionId) {
         try {

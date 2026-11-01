@@ -29,13 +29,16 @@ import org.json.JSONObject;
 
 @Tool(
     value = "network_search",
-    description = "网络搜索工具（秘塔搜索引擎驱动），支持搜索、智能问答、网页读取",
+    description = "网络搜索工具（秘塔搜索引擎驱动），支持搜索、智能问答、网页读取。"
+            + "默认用 ask 拿结论（一般提问它就够）；只有要一批来源/链接/原文时才用 search 等其它 action。"
+            + "秘塔按次计费（一次调用扣一次额度，与返回条数无关），所以一次问清楚，别反复调。"
+            + "ask 出答案要几十秒是正常的，慢不等于失败。",
     category = "search",
     aliases = {"search", "web_search", "bing_search"},
     actions = {
-        @Action(name = "search", description = "执行网络搜索"),
-        @Action(name = "ask", description = "秘塔智能问答（搜索增强生成，返回答案+引用来源）"),
-        @Action(name = "read_url", description = "秘塔网页读取（服务端抓取，返回结构化markdown，能处理JS渲染页）"),
+        @Action(name = "search", description = "关键词搜索：返回标题/链接/摘要列表（只在要一批来源/链接/原文时用；要结论默认用 ask。一次把 limit 给够，按次计费，别为多看几条反复搜）"),
+        @Action(name = "ask", description = "秘塔智能问答：直接返回结论+引用来源。默认用 ask 就够（一般提问都走它）；出答案要几十秒是正常的，慢不等于失败，别重试（重试=再扣一次额度）"),
+        @Action(name = "read_url", description = "秘塔网页读取（服务端抓取，返回 markdown 正文，能处理 JS 渲染页；服务端读不了的页会回服务错误码，这时换来源或改用本工具的 get_webpage）"),
         @Action(name = "get_webpage", description = "获取网页内容（本地Jsoup抓取）"),
         @Action(name = "extract_info", description = "提取网页关键信息"),
         @Action(name = "summarize", description = "生成搜索结果摘要"),
@@ -50,10 +53,23 @@ import org.json.JSONObject;
         @Param(name = "keyword", type = "string", description = "搜索关键词（query的别名）", required = false),
         @Param(name = "question", type = "string", description = "问题（用于ask操作，秘塔智能问答）", required = false),
         @Param(name = "model", type = "string", description = "问答模型: concise(简洁)/detail(深入)/research(研究)，默认concise（用于ask操作）", required = false),
-        @Param(name = "limit", type = "int", description = "结果数量限制(默认5)", required = false),
+        @Param(name = "limit", type = "int", description = "返回条数（1..50，默认 5）。接口不支持翻页，要更多结果就调大这个值", required = false),
         @Param(name = "num_results", type = "int", description = "返回结果数量（limit的别名）", required = false),
         @Param(name = "url", type = "string", description = "网页URL（用于read_url、get_webpage、extract_info和get_dynamic_content操作）", required = false),
         @Param(name = "maxResults", type = "int", description = "最大结果数(默认5)", required = false),
+        // SEARCH-PAGE(2026-11-02)：page 已从 schema 摘掉。真机实测带 page（连 page=0 也一样）
+        // 会被服务端判为参数错误（errCode 1000），官方示例与社区实现的 body 里都没有 page，
+        // 也就是说"翻页"这条路根本不存在，只能调大 size（上限 50）。
+        // 留一个必被服务端拒的参数，等于给模型埋雷。
+        // API-AUDIT(2026-11-02)：scope 是六选一（webpage/document/scholar/image/video/podcast），
+        // 原实现写死 webpage，等于把"找论文/文库/图片/播客"这些能力锁死了。
+        @Param(name = "scope", type = "string", description = "搜索范围：webpage(默认)/document(文库)/scholar(学术文献)/image/video/podcast；写 paper 会按 scholar 处理", required = false),
+        // API-AUDIT：includeSummary=false 时结果常常没有 snippet，只剩标题+链接，模型只能编。
+        @Param(name = "include_summary", type = "boolean", description = "是否返回内容摘要（默认 true；关掉只省流量但更容易答错）", required = false),
+        // API-AUDIT(2026-11-02)：reader 的返回体实测是 JSON（title/author/date/markdown），
+        // 长正文分页同样按字符偏移做，避免一次灌爆上下文。
+        @Param(name = "start_char", type = "int", description = "read_url 正文起始字符偏移（默认 0）", required = false),
+        @Param(name = "max_chars", type = "int", description = "read_url 本次最大字符数（默认 0=整篇；建议 4000）", required = false),
         @Param(name = "autoRead", type = "boolean", description = "是否自动读取详情(默认true)", required = false),
         @Param(name = "results", type = "array", description = "搜索结果数组（用于smart_read，传上一步search返回的results）", required = false)
     }
@@ -95,7 +111,7 @@ public class NetworkSearchTool implements AITool {
         try {
             APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
             String apiKey = resolveApiKey(apiKeyManager);
-            List<Map<String, String>> results = metasoSearch(query, limit, apiKey);
+            List<Map<String, String>> results = metasoSearch(query, limit, "webpage", true, apiKey);
             if (results == null || results.isEmpty()) return null;
             StringBuilder sb = new StringBuilder();
             int i = 1;
@@ -146,8 +162,54 @@ public class NetworkSearchTool implements AITool {
     
     @Override
     public String getDescription() {
-        return "网络搜索工具（秘塔搜索引擎驱动），支持搜索、智能问答、网页读取";
+        // 与 @Tool 注解保持一致：注册表 list/search 与 tool_registry 都读这里，
+        // 两处口径不同模型就会拿到两个版本的说法。
+        return "网络搜索工具（秘塔搜索引擎驱动），支持搜索、智能问答、网页读取。"
+                + "默认用 ask 拿结论（一般提问它就够）；要一批来源/链接/原文才用 search 等其它 action。"
+                + "秘塔按次计费（一次调用扣一次额度，与返回条数无关），一次问清楚，别反复调。"
+                + "ask 出答案要几十秒是正常的，慢不等于失败。";
     }
+
+    /**
+     * ASK-SLOW(2026-11-02)：本工具自己申报等待时长。
+     *
+     * <p>用户口径：秘塔按**次**计费（每次 3 积分，与返回条数无关），而 ask 出答案普遍要几十秒。
+     * 以前本地引擎对所有工具套 15 秒、OkHttp 读超时 30 秒，ask 一定会被判"工具超时"——
+     * 慢被当成失败，模型接着重试，**每一轮重试都是真金白银**。所以这里把 ask 放宽到 180 秒，
+     * search/read_url 60 秒；HTTP 层用同样口径的读超时，别让底层先掐断。</p>
+     *
+     * <p>调用方（在线 OnlineToolManager、对话页 AgentService、本地 AgentLoopEngine）
+     * 都走 {@code ToolTimeouts.effectiveMs}，申报值取"基线与申报的较大者"，一处声明三处生效。</p>
+     */
+    @Override
+    public long executionTimeoutMs(Map<String, Object> args) {
+        String action = args == null ? null : String.valueOf(args.get("action"));
+        return "ask".equals(action) ? ASK_TIMEOUT_MS : NET_TIMEOUT_MS;
+    }
+
+    /** ask：服务端要边搜边生成，实测数十秒；给到 180 秒避免"慢=失败"的误判。 */
+    private static final long ASK_TIMEOUT_MS = 180_000L;
+    /** search / reader：一次请求一次答案，60 秒足够（含 50 条的大 size）。 */
+    private static final long NET_TIMEOUT_MS = 60_000L;
+
+    /**
+     * 按申报值取 HTTP 客户端：共享客户端的 readTimeout 是 30 秒，
+     * 不在这里放宽的话，工具层的 180 秒永远等不到——底层先抛 SocketTimeout。
+     * 用 newBuilder 派生（连接池/线程池仍共享），两个档位各缓存一份，别每次调用都新建。
+     */
+    private okhttp3.OkHttpClient clientFor(long timeoutMs) {
+        okhttp3.OkHttpClient cached = timeoutMs >= ASK_TIMEOUT_MS ? askClient : netClient;
+        if (cached != null) return cached;
+        okhttp3.OkHttpClient derived = NetworkUtil.getClient().newBuilder()
+                .readTimeout(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .callTimeout(timeoutMs + 5_000L, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .build();
+        if (timeoutMs >= ASK_TIMEOUT_MS) askClient = derived; else netClient = derived;
+        return derived;
+    }
+
+    private static volatile okhttp3.OkHttpClient askClient;
+    private static volatile okhttp3.OkHttpClient netClient;
     
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
@@ -231,7 +293,7 @@ public class NetworkSearchTool implements AITool {
         try {
             String flat = mgr.getAPIKey(APIKeyManager.Service.METASO_SEARCH);
             if (flat != null && !flat.trim().isEmpty()) {
-                AILogger.i(TAG, "Metaso API key 来源: 扁平键(Service.METASO_SEARCH)");
+                AILogger.i(TAG, "Metaso API key 来源: 扁平键(Service.METASO_SEARCH), key=" + maskKey(flat));
                 return flat.trim();
             }
         } catch (Throwable ignored) {
@@ -241,12 +303,14 @@ public class NetworkSearchTool implements AITool {
             com.oilquiz.app.ai.model.APIConfig c =
                     mgr.getAPIConfigByServiceType(com.oilquiz.app.ai.model.APIConfig.ServiceType.METASO_SEARCH);
             if (c != null && c.getApiKey() != null && !c.getApiKey().trim().isEmpty()) {
-                AILogger.i(TAG, "Metaso API key 来源: API配置[秘塔搜索] name=" + c.getName());
+                AILogger.i(TAG, "Metaso API key 来源: API配置[秘塔搜索] name=" + c.getName()
+                        + ", key=" + maskKey(c.getApiKey()));
                 return c.getApiKey().trim();
             }
             c = mgr.getAPIConfigByServiceType(com.oilquiz.app.ai.model.APIConfig.ServiceType.BING_SEARCH);
             if (c != null && c.getApiKey() != null && !c.getApiKey().trim().isEmpty()) {
-                AILogger.i(TAG, "Metaso API key 来源: API配置[Bing Search] name=" + c.getName());
+                AILogger.i(TAG, "Metaso API key 来源: API配置[Bing Search] name=" + c.getName()
+                        + ", key=" + maskKey(c.getApiKey()));
                 return c.getApiKey().trim();
             }
         } catch (Throwable ignored) {
@@ -260,7 +324,8 @@ public class NetworkSearchTool implements AITool {
                     String host = c.getApiHost();
                     if (host != null && host.toLowerCase().contains("metaso")
                             && c.getApiKey() != null && !c.getApiKey().trim().isEmpty()) {
-                        AILogger.i(TAG, "Metaso API key 来源: 搜索类配置 apiHost 含 metaso, name=" + c.getName());
+                        AILogger.i(TAG, "Metaso API key 来源: 搜索类配置 apiHost 含 metaso, name=" + c.getName()
+                                + ", key=" + maskKey(c.getApiKey()));
                         return c.getApiKey().trim();
                     }
                 }
@@ -271,9 +336,15 @@ public class NetworkSearchTool implements AITool {
         // 排障时先看这行：若一直落在"内置共享 key"，说明用户配置没被读到 ——
         // 常见原因是配置被 OnlineModelManager 当在线模型停用过（isActive=false），见
         // ApiConfigActivity 的 CATEGORY-AUTOSET 注释。
-        AILogger.i(TAG, "Metaso API key 来源: 内置共享 key（未找到用户配置；"
-                + "该 key 可能过期/受限，建议在「API配置管理」添加【秘塔搜索】并填写 Key）");
+        AILogger.i(TAG, "Metaso API key 来源: 内置共享 key" + maskKey(DEFAULT_METASO_API_KEY)
+                + "（未找到用户配置；该 key 可能过期/受限，建议在「API配置管理」添加【秘塔搜索】并填写 Key）");
         return DEFAULT_METASO_API_KEY;
+    }
+
+    /** KEY-LOG(2026-11-02)：只记前后几位与长度，够判断"用的是哪把 Key"，又不把凭据写进日志。 */
+    private static String maskKey(String k) {
+        if (k == null || k.length() < 10) return "***";
+        return k.substring(0, 6) + "…" + k.substring(k.length() - 4) + "(" + k.length() + ")";
     }
 
     /** 类型安全的字符串参数提取（LLM可能传String/Number/Boolean） */
@@ -282,6 +353,37 @@ public class NetworkSearchTool implements AITool {
         Object v = params.get(key);
         if (v == null) return def;
         return String.valueOf(v);
+    }
+
+    /** API-AUDIT(2026-11-02)：scope 白名单（官方支持六种），非法值退回 webpage。 */
+    private static String normalizeScope(String scope) {
+        if (scope == null) return "webpage";
+        String v = scope.trim().toLowerCase();
+        // COMMUNITY-REF(2026-11-02)：参考实现（HundunOnline/mcp-metaso）的 scope 键是
+        // webpage/document/**scholar**/image/video/podcast；"paper" 不是合法值，映射过去。
+        if ("paper".equals(v)) return "scholar";
+        switch (v) {
+            case "webpage":
+            case "document":
+            case "scholar":
+            case "image":
+            case "video":
+            case "podcast":
+                return v;
+            default:
+                return "webpage";
+        }
+    }
+
+    /**
+     * SCOPE-THRU(2026-11-02)：组合动作（search_and_read / smart_search）内部会重新构造一次
+     * search 的参数表。旧实现只搬 query+limit，把用户显式传的 scope/include_summary 丢了，
+     * 于是"搜论文"这类要求在组合路径上被悄悄降级成普通网页搜索。这里按需拷贝，缺就不写。
+     */
+    private static void copyIfPresent(Map<String, Object> from, Map<String, Object> to, String key) {
+        if (from == null || to == null || key == null) return;
+        Object v = from.get(key);
+        if (v != null) to.put(key, v);
     }
 
     /** 类型安全的整数参数提取（LLM可能传"5"字符串或5.0浮点） */
@@ -306,12 +408,35 @@ public class NetworkSearchTool implements AITool {
         return def;
     }
     
+    /**
+     * PARAM-CLARITY(2026-11-02)：缺参数必须说清"这个 action 要填什么、别填成什么"。
+     *
+     * <p>真机 2B 会把网页地址塞进 query 再调 read_url，拿到一句 "Missing required parameter: url" 就转去
+     * search 那条链接 — 一次完全没必要的联网调用（秘塔按次扣额度）。
+     * 失败文案是给模型看的下一步指令，不是日志。</p>
+     */
+    private static AIToolResult missingParam(String action, Map<String, Object> parameters) {
+        String a = action == null ? "" : action;
+        if ("read_url".equals(a) || "get_webpage".equals(a)
+                || "get_dynamic_content".equals(a) || "extract_info".equals(a)) {
+            return AIToolResult.fail(a + " 需要 url：填完整网页地址，例如 https://example.com/a；"
+                    + "别把地址写进 query（query 只给 search 用）", parameters);
+        }
+        if ("ask".equals(a)) {
+            return AIToolResult.fail("ask 需要 question：填要回答的完整问题（不是关键词，也不是网址）", parameters);
+        }
+        if ("smart_read".equals(a)) {
+            return AIToolResult.fail("smart_read 需要 results：把上一步 search 返回的 results 原样传进来", parameters);
+        }
+        return AIToolResult.fail(a + " 需要 query：填搜索关键词；要读某个网页请改用 action=read_url 并填 url", parameters);
+    }
+
     private AIToolResult search(Map<String, Object> parameters) {
         String query = getStringParam(parameters, "query", null);
         int limit = getIntParam(parameters, "limit", 5);
 
         if (query == null || query.trim().isEmpty()) {
-            return new AIToolResult("Missing required parameter: query", parameters);
+            return missingParam("search", parameters);
         }
 
         if (limit <= 0) {
@@ -323,7 +448,20 @@ public class NetworkSearchTool implements AITool {
             APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
             String apiKey = resolveApiKey(apiKeyManager);
 
-            List<Map<String, String>> searchResults = metasoSearch(query, limit, apiKey);
+            int searchPage = getIntParam(parameters, "page", 0);
+            if (searchPage > 0) {
+                // PAGE-IGNORED(2026-11-02)：接口不支持翻页，模型（或旧会话残留参数）传了
+                // page 也只能忽略——服务端会判参数错误。留日志是为了"为什么第 2 页还是第一批"
+                // 这种问题有据可查，而不是靠猜。
+                AILogger.w(TAG, "Metaso search 不支持 page，已忽略 page=" + searchPage
+                        + "（要更多结果请调大 limit，上限 50）");
+            }
+            String searchScope = getStringParam(parameters, "scope", "webpage");
+            // 未显式关闭时默认带摘要（摘要就是回答依据；关掉只剩标题+链接，模型容易编）。
+            boolean includeSummary = !parameters.containsKey("include_summary")
+                    || getBoolParam(parameters, "include_summary", true);
+            List<Map<String, String>> searchResults =
+                    metasoSearch(query, limit, searchScope, includeSummary, apiKey);
 
             if (searchResults == null || searchResults.isEmpty()) {
                 // FAIL-SEMANTICS(2026-10-11)：必须走 fail()，不能用成功构造器。
@@ -334,13 +472,19 @@ public class NetworkSearchTool implements AITool {
                 // 模型还会据此告诉用户"没有找到相关信息"。本工具是本地 4 工具里唯一的信息入口，
                 // 静默失败等于实时信息能力整体失效且无信号。
                 return AIToolResult.fail(
-                    "搜索无结果（未返回任何条目，可能是关键词过窄、配额用尽或网络异常）: " + query,
+                    "搜索无结果（服务端返回成功但没有条目，通常是关键词过窄或该 scope 下确无内容）: " + query
+                            // COST(2026-11-02)：秘塔按次计费（一次调用一次额度，与条数无关）。
+                            // 说清"这次已经扣了"，模型才不会把它当成"没发出去"而连续换词重搜。
+                            + "。这次调用已按次扣额度：换词最多再试一次，不要连续重搜",
                     parameters);
             }
 
             Map<String, Object> result = new HashMap<>();
             result.put("query", query);
             result.put("count", searchResults.size());
+            // SCOPE-ECHO(2026-11-02)：把**实际生效**的 scope 回给模型。normalizeScope 会把
+            // 非法值悄悄退回 webpage，不回显的话模型会以为"搜过论文库"并据此编结论。
+            result.put("scope", normalizeScope(searchScope));
             result.put("status", "success");
             result.put("results", searchResults);
             result.put("engine", "Metaso");
@@ -411,7 +555,7 @@ public class NetworkSearchTool implements AITool {
                     .post(body)
                     .build();
 
-            try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
+            try (Response response = clientFor(NET_TIMEOUT_MS).newCall(request).execute()) {
                 long latency = System.currentTimeMillis() - start;
                 int code = response.code();
                 String responseBody = response.body() != null ? response.body().string() : "";
@@ -443,17 +587,25 @@ public class NetworkSearchTool implements AITool {
         }
     }
 
-    private List<Map<String, String>> metasoSearch(String query, int count, String apiKey) throws Exception {
+    private List<Map<String, String>> metasoSearch(String query, int count,
+                                                   String scope, boolean includeSummary,
+                                                   String apiKey) throws Exception {
         List<Map<String, String>> results = new ArrayList<>();
 
         try {
             // 构造秘塔搜索请求体（参数严格对照秘塔API文档）
             JSONObject bodyJson = new JSONObject();
             bodyJson.put("q", query);
-            bodyJson.put("scope", "webpage");
-            bodyJson.put("includeSummary", false);
+            // API-AUDIT(2026-11-02)：scope 取白名单，默认 webpage；includeSummary 默认 true——
+            // 摘要就是模型回答的依据，关掉它省的是流量、丢的是事实。
+            bodyJson.put("scope", normalizeScope(scope));
+            bodyJson.put("includeSummary", includeSummary);
             bodyJson.put("includeRawContent", false);
-            bodyJson.put("size", count); // 文档规定为 integer
+            // SEARCH-PAGE(2026-11-02)：size 上限 50；**不传 page**——实测带 page（含 page=0）
+            // 服务端直接判 errCode 1000"请求参数错误"，官方示例与社区实现的 body 也没有 page。
+            int size = Math.max(1, Math.min(50, count));
+            // COMMUNITY-REF：官方示例与社区 MCP 实现都传字符串（"10"），照做减少格式分歧。
+            bodyJson.put("size", String.valueOf(size));
 
             RequestBody body = RequestBody.create(bodyJson.toString(),
                     okhttp3.MediaType.parse("application/json; charset=utf-8"));
@@ -466,7 +618,7 @@ public class NetworkSearchTool implements AITool {
 
             AILogger.i(TAG, "Metaso Search: " + query);
 
-            try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
+            try (Response response = clientFor(NET_TIMEOUT_MS).newCall(request).execute()) {
                 int responseCode = response.code();
                 AILogger.i(TAG, "Metaso Search Response Code: " + responseCode);
 
@@ -475,6 +627,12 @@ public class NetworkSearchTool implements AITool {
                 if (response.isSuccessful()) {
                     results = parseMetasoSearchResponse(responseBody);
                     AILogger.i(TAG, "Parsed " + results.size() + " search results");
+                    if (results.isEmpty()) {
+                        // PARSE-DIAG(2026-11-02)：200 但解析不到条目时必须看到真实结构，
+                        // 否则只能靠猜（本轮就是 includeSummary 打开后 0 条）。
+                        AILogger.w(TAG, "Metaso empty-results body(" + responseBody.length() + "): "
+                                + responseBody.substring(0, Math.min(800, responseBody.length())));
+                    }
                 } else if (responseCode == 401) {
                     throw new Exception("秘塔搜索API认证失败，请检查API密钥是否正确");
                 } else if (responseCode == 429) {
@@ -494,18 +652,90 @@ public class NetworkSearchTool implements AITool {
         return results;
     }
 
+    /**
+     * ERR-CODE(2026-11-02)：秘塔的成败**只看业务码，不看耗时**。
+     *
+     * <p>三个端点（search / reader / open search v2）都可能在 <b>HTTP 200</b> 的 body 里返回业务错误，
+     * 键族有两种：{@code {errCode,errMsg}} 与 {@code {code,message}}。旧实现只认其中一种，
+     * 于是 {@code errCode:1000} 被当成"0 条结果"、问答的错误被吞成 null——真正的原因（参数错误、
+     * 额度用尽、该页解析不了）对模型完全不可见，模型只能瞎猜并重复请求（秘塔按次计费）。</p>
+     *
+     * <p>这里只做一件事：把码翻成**带下一步动作**的说法。已知码只写实测见过的（1000/4000/5000），
+     * 未知码原样带上编号与消息，**不编造含义**。</p>
+     */
+    private static String metasoErrorText(int code, String msg) {
+        String m = (msg == null || msg.trim().isEmpty()) ? "服务端未给出说明" : msg.trim();
+        switch (code) {
+            case 1000:
+                return "秘塔请求参数错误(1000)：" + m
+                        + "。常见原因是传了接口不支持的翻页参数；scope 只能是 webpage/document/scholar/image/video/podcast，size 取 1..50。改正参数再发一次，不要原样重试";
+            case 4000:
+                return "秘塔未找到相关数据(4000)：" + m
+                        + "。这个目标服务端解析不了，换一个来源或换关键词；对同一目标重复请求没有意义";
+            case 5000:
+                return "秘塔服务端错误(5000)：" + m
+                        + "。内置共享 Key 可能已失效或额度用尽——可在「设置 → API 配置 → 秘塔搜索」填自己的 Key。先别重试";
+            default:
+                return "秘塔服务错误(" + code + ")：" + m
+                        + "。重试会再发一次请求，而秘塔按次扣额度，所以先按上面说明判断是否值得重试";
+        }
+    }
+
+    /** 从响应 body 取业务码；成功/无码返回 null。两种键族都读，缺省按 0 处理。 */
+    private static int extractMetasoErrorCode(JSONObject json) {
+        if (json == null) return 0;
+        if (json.has("errCode")) return json.optInt("errCode", 0);
+        if (json.has("code")) return json.optInt("code", 0);
+        return 0;
+    }
+
+    private static String extractMetasoErrorMsg(JSONObject json) {
+        if (json == null) return null;
+        String m = json.optString("errMsg", "");
+        if (m.isEmpty()) m = json.optString("message", "");
+        return m;
+    }
+
+    /** 从**原始 body 文本**取业务码；不是 JSON / 没有码字段返回 null（"没有码"≠"码是 0"）。 */
+    private static Integer peekMetasoErrorCode(String body) {
+        try {
+            JSONObject j = new JSONObject(body);
+            if (j.has("errCode")) return j.optInt("errCode", 0);
+            if (j.has("code")) return j.optInt("code", 0);
+        } catch (Throwable notJson) {
+            // 网关/HTML 错误页：没有业务码，交给 HTTP 状态码那条路
+        }
+        return null;
+    }
+
+    /** 从原始 body 文本取错误消息（两种键族）。 */
+    private static String peekMetasoErrorMsg(String body) {
+        try {
+            return extractMetasoErrorMsg(new JSONObject(body));
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /** 日志/回传给模型的响应片段：只截够诊断的长度，不把整篇塞进去。 */
+    private static String clipForLog(String s) {
+        if (s == null || s.isEmpty()) return "(空响应体)";
+        return s.length() <= 200 ? s : s.substring(0, 200) + "…";
+    }
+
     private List<Map<String, String>> parseMetasoSearchResponse(String jsonResponse) {
         List<Map<String, String>> results = new ArrayList<>();
 
         try {
             JSONObject responseJson = new JSONObject(jsonResponse);
 
-            // 秘塔可能返回业务错误码 {code:5000,message:...}，code非0表示失败
-            // 必须抛异常让上层感知真实错误（余额/限流），而不是吞掉当"未找到结果"
-            if (responseJson.has("code") && responseJson.optInt("code", 0) != 0) {
-                String msg = responseJson.optString("message", "未知错误");
-                AILogger.w(TAG, "秘塔搜索返回业务错误: " + msg);
-                throw new IllegalStateException("搜索服务错误(" + responseJson.optInt("code") + "): " + msg);
+            // ERRCODE(2026-11-02)：业务码一律走 metasoErrorText —— HTTP 200 + errCode 非 0
+            // 是真实故障（参数被拒/额度用尽），绝不能当成"搜到 0 条"交给模型。
+            int bizCode = extractMetasoErrorCode(responseJson);
+            if (bizCode != 0) {
+                String emsg = extractMetasoErrorMsg(responseJson);
+                AILogger.w(TAG, "Metaso search 业务错误 code=" + bizCode + " msg=" + emsg);
+                throw new IllegalStateException(metasoErrorText(bizCode, emsg));
             }
 
             // 秘塔搜索结果在 "webpages" 数组中（实测响应结构）
@@ -526,7 +756,9 @@ public class NetworkSearchTool implements AITool {
                 Map<String, String> resultItem = new HashMap<>();
                 // 字段名对齐秘塔实测响应：title/link/snippet/date
                 resultItem.put("title", firstNonEmpty(item, "title", "name", "subject"));
-                resultItem.put("url", firstNonEmpty(item, "link", "url", "linkUrl", "href"));
+                // scope=image/video/podcast 时链接字段不同（image_url 等），一并兼容
+                resultItem.put("url", firstNonEmpty(item, "link", "url", "linkUrl", "href",
+                        "imageUrl", "image_url", "videoUrl", "video_url"));
                 resultItem.put("snippet", firstNonEmpty(item, "snippet", "summary", "description", "content", "abstract"));
                 resultItem.put("source", firstNonEmpty(item, "source", "siteName", "domain"));
                 resultItem.put("date", firstNonEmpty(item, "date", "publishTime", "publishDate", "time"));
@@ -536,6 +768,11 @@ public class NetworkSearchTool implements AITool {
                 }
             }
 
+        } catch (IllegalStateException biz) {
+            // ERR-CODE(2026-11-02)：业务码结论必须**穿过去**，不能被"解析失败"兜住变成空列表。
+            // 兜住的后果就是这次事故的形状：服务端明明说了"参数错误/额度问题"，
+            // 模型只看到"搜索无结果"，于是换个词再搜（又扣一次额度）。
+            throw biz;
         } catch (Exception e) {
             AILogger.e(TAG, "解析秘塔搜索响应失败: " + e.getMessage(), e);
         }
@@ -545,7 +782,10 @@ public class NetworkSearchTool implements AITool {
 
     /** 在JSON对象中查找搜索结果数组，兼容多种嵌套结构 */
     private JSONArray findResultsArray(JSONObject json) {
-        String[] directKeys = {"webpages", "results", "data", "searchResults", "items", "list", "value"};
+        // COMMUNITY-REF(2026-11-02)：不同 scope 的结果数组键不同，只认 webpages 会让
+        // scholar/document/image/video/podcast 全部解析成 0 条。
+        String[] directKeys = {"webpages", "documents", "scholars", "images", "videos", "podcasts",
+                "results", "data", "searchResults", "items", "list", "value"};
         for (String key : directKeys) {
             JSONArray arr = json.optJSONArray(key);
             if (arr != null && arr.length() > 0) return arr;
@@ -572,22 +812,18 @@ public class NetworkSearchTool implements AITool {
 
     /** 解析秘塔业务错误消息（HTTP 200但body含错误码的情况） */
     private String parseMetasoError(String responseBody) {
-        try {
-            JSONObject json = new JSONObject(responseBody);
-            int code = json.optInt("code", -1);
-            String message = json.optString("message", "");
-            if (code != -1) {
-                return "秘塔搜索失败[" + code + "]: " + message;
-            }
-        } catch (Exception ignored) {}
-        return null;
+        // ERR-CODE(2026-11-02)：与 search/reader/ask 共用同一套取码与翻码逻辑
+        // （{errCode,errMsg} 与 {code,message} 两种键族都可能出现，metasoErrorText 按码给下一步动作）。
+        Integer code = peekMetasoErrorCode(responseBody);
+        if (code == null || code == 0) return null;
+        return metasoErrorText(code, peekMetasoErrorMsg(responseBody));
     }
 
     /** 秘塔智能问答：基于搜索增强生成（RAG）回答问题，返回答案+引用来源 */
     private AIToolResult askMetaso(Map<String, Object> parameters) {
         String question = getStringParam(parameters, "question", null);
         if (question == null || question.trim().isEmpty()) {
-            return new AIToolResult("Missing required parameter: question", parameters);
+            return missingParam("ask", parameters);
         }
 
         String model = getStringParam(parameters, "model", "concise");
@@ -614,29 +850,147 @@ public class NetworkSearchTool implements AITool {
 
             AILogger.i(TAG, "Metaso Chat: " + question);
 
-            try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
+            try (Response response = clientFor(ASK_TIMEOUT_MS).newCall(request).execute()) {
                 String responseBody = response.body() != null ? response.body().string() : "";
-                AILogger.i(TAG, "Metaso Chat Response Code: " + response.code());
+                int http = response.code();
+                AILogger.i(TAG, "Metaso Chat Response Code: " + http);
 
-                if (response.isSuccessful()) {
+                // ERR-CODE(2026-11-02)：判定只看**码**（业务码优先，其次 HTTP 状态码），不看耗时。
+                // 秘塔按次计费，所以每一次"要不要再发一次"都必须由码来决定，而不是"等久了就当失败"。
+                Integer biz = peekMetasoErrorCode(responseBody);
+                if (biz != null && biz != 0) {
+                    String meaning = metasoErrorText(biz, peekMetasoErrorMsg(responseBody));
+                    AILogger.w(TAG, "Metaso Chat 业务错误 code=" + biz + " http=" + http);
+                    return AIToolResult.fail(meaning, parameters);
+                }
+                if (http == 401 || http == 403) {
+                    return AIToolResult.fail("秘塔问答鉴权失败(HTTP " + http
+                            + ")：API Key 无效或无该接口权限，重试没有意义，请检查「设置 → API 配置 → 秘塔搜索」", parameters);
+                }
+                if (http == 429) {
+                    return AIToolResult.fail("秘塔问答被限流(HTTP 429)：请等一会儿再问，连续重发只会继续被限并扣额度", parameters);
+                }
+                if (http >= 200 && http < 300) {
                     Map<String, Object> result = parseMetasoChatResponse(responseBody);
                     if (result != null) {
                         result.put("question", question);
                         result.put("model", model);
                         result.put("engine", "Metaso");
                         return new AIToolResult(result, parameters);
-                    } else {
-                        return new AIToolResult("秘塔问答失败: " + responseBody, parameters);
                     }
-                } else if (response.code() == 401) {
-                    return new AIToolResult("秘塔API认证失败，请检查API密钥", parameters);
-                } else {
-                    return new AIToolResult("秘塔问答请求失败，HTTP码: " + response.code(), parameters);
+                    // 2xx、码为 0、却没有 data：这是响应形态问题，不是"答案失败"。
+                    // 不再自动补打一次搜索（那会多扣一次额度），把 body 前缀带回去让判断有依据。
+                    return AIToolResult.fail("秘塔问答响应缺少 data 字段（HTTP " + http + "，业务码 0），"
+                            + "响应前 200 字: " + clipForLog(responseBody)
+                            + "。别原样重试；需要来源可改用 action=search（另一次调用、另扣一次额度）", parameters);
                 }
+                // 到这里只剩"HTTP 非 2xx 且 body 没有业务码"。历史上 400 是这个端点换了请求形态，
+                // 所以只多试**一次**标准 chat_completions。
+                AIToolResult cc = (http == 400 || http == 404 || http == 405)
+                        ? metasoChatCompletions(question, model, apiKey) : null;
+                if (cc != null) return cc;
+                // 404/405 = 这个问答端点根本不存在/不允许，属于**能力缺失**而不是本次失败：
+                // 这时降级到普通搜索是有意义的（仍是一次独立调用、独立扣额度，note 里写明白）。
+                // 其它状态码（5xx/限流/形态问题）不自动补打，避免"一次提问扣两次钱"。
+                if (http == 404 || http == 405) {
+                    AIToolResult fb = askFallbackToSearch(question, parameters);
+                    if (fb != null) return fb;
+                }
+                AILogger.w(TAG, "Metaso Chat HTTP " + http + " body=" + clipForLog(responseBody));
+                return AIToolResult.fail("秘塔问答请求失败（HTTP " + http
+                        + "，body 无业务码）。这不代表问法错了，先按状态码判断：4xx=请求形态/权限，5xx=服务端；"
+                        + "重试会再扣一次额度，必要时就改用 action=search 自己汇总", parameters);
             }
+        } catch (IllegalStateException biz) {
+            // 解析层抛出的业务码结论（metasoErrorText），原样交给模型，不再包一层"失败"。
+            AILogger.w(TAG, "Metaso Chat 业务错误: " + biz.getMessage());
+            return AIToolResult.fail(biz.getMessage(), parameters);
         } catch (Exception e) {
             AILogger.e(TAG, "Metaso Chat failed: " + e.getMessage(), e);
-            return new AIToolResult("秘塔问答失败: " + e.getMessage(), parameters);
+            // ASK-SLOW(2026-11-02)：传输层异常（含连接被掐/读超时）**不自动降级去 search**。
+            // 秘塔按次计费，一次问题烧两次额度是最糟的结果；这里把码/异常如实报出来，
+            // 是否再试由模型（和用户）决定。
+            return AIToolResult.fail("秘塔问答请求未完成（传输层异常，不是服务返回的业务码）: " + e.getMessage()
+                    + "。ask 出答案本来就要几十秒，别把慢当失败反复重试——每次请求都按次扣额度", parameters);
+        }
+    }
+
+    /**
+     * API-AUDIT(2026-11-02)：问答接口不可用时的降级路径——用同一个问题走普通搜索，
+     * 返回结果并标注 mode=search_fallback，模型据此知道"没拿到智能问答，但有网页结果"。
+     * 失败返回 null（调用方走原错误）。
+     */
+    private AIToolResult askFallbackToSearch(String question, Map<String, Object> parameters) {
+        try {
+            String apiKey = resolveApiKey(APIKeyManager.getInstance(context));
+            int limit = getIntParam(parameters, "limit", 5);
+            // SCOPE-THRU(2026-11-02)：降级路径也要尊重 scope —— 用户要"论文"而问答接口挂了时，
+            // 写死 webpage 会把 scholar 悄悄换成普通网页结果，模型据此作答却毫不知情。
+            String scope = getStringParam(parameters, "scope", "webpage");
+            List<Map<String, String>> results =
+                    metasoSearch(question, limit, scope, true, apiKey);
+            if (results == null || results.isEmpty()) return null;
+            Map<String, Object> out = new HashMap<>();
+            out.put("question", question);
+            out.put("scope", normalizeScope(scope));
+            out.put("engine", "Metaso");
+            out.put("mode", "search_fallback");
+            out.put("note", "智能问答接口当前不可用，已回退为普通搜索结果（回退同样算一次调用、扣一次额度），请基于结果自行汇总");
+            out.put("results", results);
+            AILogger.i(TAG, "Metaso ask fallback to search: " + results.size() + " results");
+            return new AIToolResult(out, parameters);
+        } catch (Throwable t) {
+            AILogger.w(TAG, "askFallbackToSearch failed: " + t.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * API-AUDIT(2026-11-02)：秘塔问答的 OpenAI 兼容形态（/api/v1/chat/completions）。
+     * 官方介绍"问答 API 支持 chat_completions 格式接入"，而旧的 /api/open/search/v2 实测 400。
+     * 成功返回 {answer, mode:"chat_completions", engine:"Metaso"}；失败返回 null（调用方继续降级）。
+     */
+    private AIToolResult metasoChatCompletions(String question, String model, String apiKey) {
+        try {
+            JSONObject body = new JSONObject();
+            body.put("model", model);
+            JSONArray msgs = new JSONArray();
+            JSONObject m = new JSONObject();
+            m.put("role", "user");
+            m.put("content", question);
+            msgs.put(m);
+            body.put("messages", msgs);
+            body.put("stream", false);
+
+            Request req = NetworkUtil.createApiRequestBuilder("https://metaso.cn/api/v1/chat/completions")
+                    .addHeader("Authorization", "Bearer " + apiKey)
+                    .addHeader("Accept", "application/json")
+                    .post(RequestBody.create(body.toString(),
+                            okhttp3.MediaType.parse("application/json; charset=utf-8")))
+                    .build();
+            try (Response resp = clientFor(ASK_TIMEOUT_MS).newCall(req).execute()) {
+                String rb = resp.body() != null ? resp.body().string() : "";
+                AILogger.i(TAG, "Metaso chat/completions code=" + resp.code());
+                if (!resp.isSuccessful()) return null;
+                JSONObject j = new JSONObject(rb);
+                String answer = null;
+                JSONArray choices = j.optJSONArray("choices");
+                if (choices != null && choices.length() > 0) {
+                    JSONObject c0 = choices.optJSONObject(0);
+                    JSONObject msg = c0 != null ? c0.optJSONObject("message") : null;
+                    if (msg != null) answer = msg.optString("content", null);
+                }
+                if (answer == null || answer.trim().isEmpty()) return null;
+                Map<String, Object> out = new HashMap<>();
+                out.put("answer", answer);
+                out.put("question", question);
+                out.put("mode", "chat_completions");
+                out.put("engine", "Metaso");
+                return new AIToolResult(out, null);
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "metasoChatCompletions failed: " + t.getMessage());
+            return null;
         }
     }
 
@@ -645,10 +999,13 @@ public class NetworkSearchTool implements AITool {
         Map<String, Object> result = new HashMap<>();
         try {
             JSONObject json = new JSONObject(jsonResponse);
-            int errCode = json.optInt("errCode", -1);
-            if (errCode != 0) {
-                AILogger.w(TAG, "秘塔问答返回错误: " + json.optString("errMsg", "未知错误"));
-                return null;
+            // ERR-CODE(2026-11-02)：问答端点同样"HTTP 200 + body 业务码"。
+            // 旧实现把非 0 码判成 null，调用方只能回一句"秘塔问答失败: <整段 body>"，
+            // 模型看不到真实原因（额度用尽？参数被拒？），于是重试——而每次重试都按次扣额度。
+            // 现在直接把码翻成结论并抛出，由 askMetaso 原样交给模型。
+            int code = extractMetasoErrorCode(json);
+            if (code != 0) {
+                throw new IllegalStateException(metasoErrorText(code, extractMetasoErrorMsg(json)));
             }
 
             JSONObject data = json.optJSONObject("data");
@@ -678,6 +1035,9 @@ public class NetworkSearchTool implements AITool {
             }
 
             return result;
+        } catch (IllegalStateException biz) {
+            // 业务码结论不能被"解析失败"吞掉（那会退化成一句看不出原因的 null）
+            throw biz;
         } catch (Exception e) {
             AILogger.e(TAG, "解析秘塔问答响应失败: " + e.getMessage(), e);
             return null;
@@ -688,7 +1048,7 @@ public class NetworkSearchTool implements AITool {
     private AIToolResult readUrlMetaso(Map<String, Object> parameters) {
         String url = getStringParam(parameters, "url", null);
         if (url == null || url.trim().isEmpty()) {
-            return new AIToolResult("Missing required parameter: url", parameters);
+            return missingParam("read_url", parameters);
         }
 
         try {
@@ -697,6 +1057,9 @@ public class NetworkSearchTool implements AITool {
 
             JSONObject bodyJson = new JSONObject();
             bodyJson.put("url", url);
+            // COMMUNITY-REF(2026-11-02)：参考实现只传 {url} + Accept: text/plain，
+            // 不传 format（该字段在本版本上并非必填，带上反而多一个未知参数）。
+            // 返回体既可能是 JSON（{title,markdown,...}）也可能是纯文本，解析侧两种都处理。
 
             RequestBody body = RequestBody.create(bodyJson.toString(),
                     okhttp3.MediaType.parse("application/json; charset=utf-8"));
@@ -709,15 +1072,60 @@ public class NetworkSearchTool implements AITool {
 
             AILogger.i(TAG, "Metaso Reader: " + url);
 
-            try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
+            try (Response response = clientFor(NET_TIMEOUT_MS).newCall(request).execute()) {
                 String responseBody = response.body() != null ? response.body().string() : "";
                 AILogger.i(TAG, "Metaso Reader Response Code: " + response.code());
 
                 if (response.isSuccessful()) {
+                    // API-AUDIT(2026-11-02)：实测 /api/v1/reader 无论 format=json|markdown
+                    // 都返回同一份 JSON：{title,url,author,date,markdown,credits}。
+                    // 旧实现把整段 JSON 当 content 塞给模型 → "JSON 套 JSON"，正文还得模型自己解。
+                    // 这里解析出结构化字段，正文给 markdown 字段；解析失败才退回原文。
                     Map<String, Object> result = new HashMap<>();
                     result.put("url", url);
-                    result.put("content", responseBody);
                     result.put("engine", "Metaso");
+                    String contentText = responseBody;
+                    try {
+                        JSONObject j = new JSONObject(responseBody);
+                        // API-AUDIT(2026-11-02)：读取接口出错时同样是 HTTP 200 + JSON
+                        // {"errCode":4000,"errMsg":"未找到相关数据"}（例如 SPA 首页抓不到正文）。
+                        // 不拦就会把错误 JSON 当正文交给模型（假成功）→ 模型基于错误内容编答案。
+                        // 判定用与 search/ask 同一套 metasoErrorText（按码，不按耗时）。
+                        int readerErr = extractMetasoErrorCode(j);
+                        String mdPreview = j.optString("markdown", "");
+                        if (readerErr != 0 && mdPreview.isEmpty()) {
+                            String errMsg = extractMetasoErrorMsg(j);
+                            AILogger.w(TAG, "Metaso Reader errCode=" + readerErr
+                                    + " msg=" + errMsg + " url=" + url);
+                            return new AIToolResult(metasoErrorText(readerErr, errMsg)
+                                    + "；本工具读的是秘塔服务端解析结果，也可用工具注册表调用 webpage_reader 直抓", parameters);
+                        }
+                        if (j.has("title")) result.put("title", j.optString("title", ""));
+                        if (j.has("author")) result.put("author", j.optString("author", ""));
+                        if (j.has("date")) result.put("date", j.optString("date", ""));
+                        String md = j.optString("markdown", "");
+                        contentText = md != null && !md.isEmpty() ? md : j.optString("content", responseBody);
+                    } catch (Throwable notJson) {
+                        // 非 JSON（个别站点/网关）→ 保留原文
+                    }
+                    // 长正文按字符分页（与 webpage_reader 同口径）
+                    int startChar = Math.max(0, getIntParam(parameters, "start_char", 0));
+                    int maxChars = getIntParam(parameters, "max_chars", 0);
+                    if (startChar > 0 || maxChars > 0) {
+                        int total = contentText.length();
+                        if (startChar > total) startChar = total;
+                        int end = maxChars > 0 ? Math.min(total, startChar + maxChars) : total;
+                        result.put("text", contentText.substring(startChar, end));
+                        Map<String, Object> page = new HashMap<>();
+                        page.put("total_chars", total);
+                        page.put("start_char", startChar);
+                        page.put("end_char", end);
+                        page.put("truncated", end < total);
+                        page.put("next_start", end);
+                        result.put("page", page);
+                    } else {
+                        result.put("text", contentText);
+                    }
                     return new AIToolResult(result, parameters);
                 } else if (response.code() == 401) {
                     return new AIToolResult("秘塔API认证失败，请检查API密钥", parameters);
@@ -735,7 +1143,7 @@ public class NetworkSearchTool implements AITool {
         String url = getStringParam(parameters, "url", null);
 
         if (url == null) {
-            return new AIToolResult("Missing required parameter: url", parameters);
+            return missingParam("get_webpage", parameters);
         }
 
         try {
@@ -772,7 +1180,7 @@ public class NetworkSearchTool implements AITool {
         int detailIndex = getIntParam(parameters, "detailIndex", -1);
 
         if (query == null || query.trim().isEmpty()) {
-            return new AIToolResult("Missing required parameter: query", parameters);
+            return missingParam("search_and_read", parameters);
         }
 
         if (limit <= 0) {
@@ -783,7 +1191,11 @@ public class NetworkSearchTool implements AITool {
             Map<String, Object> searchParams = new HashMap<>();
             searchParams.put("query", query);
             searchParams.put("limit", limit);
-            
+            // SCOPE-THRU(2026-11-02)：组合路径要透传 scope/include_summary。
+            // 旧实现只搬 query+limit，用户要"论文"时 search_and_read 会悄悄搜成普通网页。
+            copyIfPresent(parameters, searchParams, "scope");
+            copyIfPresent(parameters, searchParams, "include_summary");
+
             AIToolResult searchResult = search(searchParams);
             if (!searchResult.isSuccess()) {
                 return searchResult;
@@ -836,7 +1248,7 @@ public class NetworkSearchTool implements AITool {
         String content = getStringParam(parameters, "content", null);
 
         if (url == null && content == null) {
-            return new AIToolResult("Missing required parameter: url or content", parameters);
+            return missingParam("get_dynamic_content", parameters);
         }
 
         try {
@@ -868,7 +1280,7 @@ public class NetworkSearchTool implements AITool {
         boolean autoRead = getBoolParam(parameters, "autoRead", true);
 
         if (query == null || query.trim().isEmpty()) {
-            return new AIToolResult("Missing required parameter: query", parameters);
+            return missingParam("smart_search", parameters);
         }
 
         if (maxResults <= 0) {
@@ -881,6 +1293,9 @@ public class NetworkSearchTool implements AITool {
             Map<String, Object> searchParams = new HashMap<>();
             searchParams.put("query", query);
             searchParams.put("limit", maxResults);
+            // SCOPE-THRU(2026-11-02)：同 search_and_read，别把 scope 丢成默认 webpage。
+            copyIfPresent(parameters, searchParams, "scope");
+            copyIfPresent(parameters, searchParams, "include_summary");
             
             AIToolResult searchResult = search(searchParams);
             if (!searchResult.isSuccess()) {
@@ -894,7 +1309,10 @@ public class NetworkSearchTool implements AITool {
                 // FAIL-SEMANTICS(2026-10-11)：同 search()，见该处说明。此处 searchResult 是成功但
                 // 无条目，同样必须按失败上报，否则上层判成功、用户被告知"没有找到"。
                 return AIToolResult.fail(
-                    "搜索无结果（未返回任何条目，可能是关键词过窄、配额用尽或网络异常）: " + query,
+                    "搜索无结果（服务端返回成功但没有条目，通常是关键词过窄或该 scope 下确无内容）: " + query
+                            // COST(2026-11-02)：秘塔按次计费（一次调用一次额度，与条数无关）。
+                            // 说清"这次已经扣了"，模型才不会把它当成"没发出去"而连续换词重搜。
+                            + "。这次调用已按次扣额度：换词最多再试一次，不要连续重搜",
                     parameters);
             }
 
@@ -967,7 +1385,7 @@ public class NetworkSearchTool implements AITool {
         }
 
         if (results == null || results.isEmpty()) {
-            return new AIToolResult("Missing required parameter: results", parameters);
+            return missingParam("smart_read", parameters);
         }
 
         try {
@@ -1353,7 +1771,7 @@ public class NetworkSearchTool implements AITool {
         String content = getStringParam(parameters, "content", null);
 
         if (url == null && content == null) {
-            return new AIToolResult("Missing required parameter: url or content", parameters);
+            return missingParam("extract_info", parameters);
         }
 
         try {
@@ -1392,7 +1810,7 @@ public class NetworkSearchTool implements AITool {
         String query = getStringParam(parameters, "query", null);
 
         if (results == null || results.isEmpty()) {
-            return new AIToolResult("Missing required parameter: results", parameters);
+            return missingParam("summarize", parameters);
         }
 
         try {
@@ -1651,17 +2069,32 @@ public class NetworkSearchTool implements AITool {
     
     @Override
     public Map<String, String> getParameterDescriptions() {
+        // PARAM-CLARITY(2026-11-02)：这张表以前还是旧契约（列着早已移除的 get_weather/location，
+        // 没有 ask/read_url/scope/include_summary/分段参数），而它会被 AgentToolView 与
+        // AIToolCreatorTool 当"工具说明"读出来 —— 与真正下发的 schema 两套说法就是误导。
+        // 口径与 @Tool 注解、AIToolManager 的 ToolDefinition 保持一致。
         Map<String, String> descriptions = new HashMap<>();
-        descriptions.put("action", "操作类型: search, get_webpage, extract_info, summarize, search_and_read, get_dynamic_content, smart_search, smart_read, get_weather");
-        descriptions.put("query", "搜索查询（用于search、search_and_read、smart_search和smart_read操作）");
-        descriptions.put("limit", "搜索结果数量限制（用于search和search_and_read操作，默认5）");
-        descriptions.put("maxResults", "最大结果数（用于smart_search操作，默认5）");
-        descriptions.put("autoRead", "是否自动读取详情（用于smart_search操作，默认true）");
-        descriptions.put("url", "网页URL（用于get_webpage、extract_info和get_dynamic_content操作）");
-        descriptions.put("content", "网页内容（用于extract_info和get_dynamic_content操作，与url二选一）");
-        descriptions.put("results", "搜索结果列表（用于summarize和smart_read操作）");
-        descriptions.put("location", "位置（用于get_weather操作）");
-        descriptions.put("detailIndex", "搜索结果索引（用于search_and_read操作，从0开始，指定要阅读的详情）");
+        descriptions.put("action", "操作类型: ask(默认，直接给结论+来源)/search(要一批来源/链接)/"
+                + "read_url(服务端读网页正文)/get_webpage(本地Jsoup抓网页)/extract_info/summarize/"
+                + "search_and_read/get_dynamic_content/smart_search/smart_read");
+        descriptions.put("question", "要回答的完整问题（ask 用；不是关键词，也不是网址）");
+        descriptions.put("query", "搜索关键词（search/search_and_read/smart_search 用；"
+                + "网页地址请填 url，别塞进这里）");
+        descriptions.put("keyword", "搜索关键词（query 的别名）");
+        descriptions.put("model", "问答深度: concise(简洁)/detail(深入)/research(研究)，默认 concise（ask 用）");
+        descriptions.put("limit", "返回条数 1..50，默认 5（按次计费，一次给够，别为多看几条反复搜；没有翻页）");
+        descriptions.put("num_results", "返回结果数量（limit 的别名）");
+        descriptions.put("scope", "搜索范围: webpage(默认)/document(文库)/scholar(学术文献)/image/video/podcast；"
+                + "写 paper 按 scholar 处理");
+        descriptions.put("include_summary", "是否返回内容摘要，默认 true（关掉只剩标题+链接，更容易编造）");
+        descriptions.put("url", "完整网页地址（read_url/get_webpage/extract_info/get_dynamic_content 用）");
+        descriptions.put("content", "网页正文（extract_info/get_dynamic_content 用，与 url 二选一）");
+        descriptions.put("start_char", "read_url 正文起始字符偏移，默认 0（长文续读用）");
+        descriptions.put("max_chars", "read_url 本次最大字符数，默认 0=整篇，长文建议 4000");
+        descriptions.put("maxResults", "最大结果数（smart_search 用，默认 5）");
+        descriptions.put("autoRead", "是否自动读取详情（smart_search 用，默认 true）");
+        descriptions.put("results", "搜索结果列表（summarize/smart_read 用，传上一步 search 返回的 results）");
+        descriptions.put("detailIndex", "搜索结果索引（search_and_read 用，从 0 开始，指定要读的那条）");
         return descriptions;
     }
 }

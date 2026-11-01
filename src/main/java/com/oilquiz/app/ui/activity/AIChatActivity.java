@@ -9998,6 +9998,12 @@ public class AIChatActivity extends BaseActivity {
         if (chatAdapter != null && actualRemoved > 0) chatAdapter.notifyItemRangeRemoved(removeStart, actualRemoved);
         saveHistoryAsync();
         if (aiService != null) aiService.chatClear();
+        // RETRY-SESSION-RESET(2026-11-01)：重试必须把两套"本地上下文"一起清掉。
+        // aiService.chatClear() 只清 native 聊天上下文；本地推理历史（chatJsonHistory）与
+        // 引擎会话序列若还在，重试的 prompt 会变成"system + 旧问题 + 旧回答 + 同一个问题"，
+        // 模型对着自己的旧答案续写——真机表现就是"点重试后答非所问"（曾只回一句错误的当前日期）。
+        if (modelBridge != null) modelBridge.dropLastLocalTurn();
+        if (agentChatHandler != null) agentChatHandler.resetLocalSessionSequence();
         // 重新生成时失效缓存，确保重新推理
         if (cacheManager != null) cacheManager.invalidateCache(lastUserMsg);
         processChatMessage(lastUserMsg);

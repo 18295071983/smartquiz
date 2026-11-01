@@ -124,6 +124,9 @@ public class AIToolUsageGuide {
         sb.append("     需要回忆用户历史信息时用 memory recall；不确定时先 list。记忆会跨对话保留。\n");
         sb.append("  9.5 用户提到\"之前/上次/历史里\"（之前创建的组件/工具/文件、说过的话）时，用 chat_history 工具读对话历史找回上下文（source=ai 默认，可 search 关键词）；历史只读。\n");
         sb.append("  10. 现有信息不足以回答时（实时数据/最新事件/超出已知范围的事实），主动用 network_search 或 smart_research 搜索补全再答，不硬答不编造。\n");
+        sb.append("  10.1 network_search 口径：默认用 ask 拿结论（一般提问它就够），要一批来源/链接/原文才用 search；找论文/文库/图片/播客带 scope=scholar|document|image|video|podcast（默认只搜网页）；\n");
+        sb.append("       接口没有翻页，条数上限 50 —— 一次就把 limit 给够；秘塔按次计费（一次调用一次额度，与条数无关），别连续换词重搜；\n");
+        sb.append("       ask 出答案要几十秒是正常的，慢不是失败；失败按服务端错误码处置（1000 参数错、4000 无数据、5000 服务端/额度问题），不要凭耗时猜原因或反复重试；\n");
         sb.append("  11. 工具可配合/串联使用（如 location 定位→ai_weather 经纬度查天气；network_search 搜索→webpage_reader 读详情；file_reader 读文件→python_analyze_data 分析），按需组合。\n");
         sb.append("  12. 用户已给出的参数（城市/编码/时间/位置等）直接照用先调用，工具会解析并返回结果，以工具返回为准；参数有误时工具返回错误，再按工具结果调整。\n");
         sb.append("  13. 实时信息（时间/位置/天气/新闻/行情/开奖/政策等）一律用工具获取，训练数据不采纳；缺失或不确定时同样直接调对应工具拿真实结果，工具返回的数据是准确实时的，直接采纳。\n\n");
@@ -172,9 +175,9 @@ public class AIToolUsageGuide {
         guide.append("│ 工具名            │ 用途                                 │\n");
         guide.append("├──────────────────┼──────────────────────────────────────┤\n");
         guide.append("│ ai_weather       │ 查询当前/预报/逐小时/空气质量/预警/生活指数 │\n");
-        guide.append("│ network_search   │ 网络搜索、获取网页、提取信息、智能摘要     │\n");
+        guide.append("│ network_search   │ 网络搜索(search列表/ask结论/scope论文文库) │\n");
         guide.append("│ smart_research   │ 智能研究：搜索→阅读→摘要全自动流程        │\n");
-        guide.append("│ webpage_reader   │ 网页阅读、信息提取、摘要、多页抓取         │\n");
+        guide.append("│ webpage_reader   │ 网页阅读、提取、摘要、多页抓取、字符分段   │\n");
         guide.append("│ python_calculate │ 数学表达式计算                        │\n");
         guide.append("│ python_execute   │ 执行Python代码                        │\n");
         guide.append("│ python_analyze_data│ 使用Python分析数据                    │\n");

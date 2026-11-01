@@ -216,6 +216,15 @@ public class AgentSoftwareLayer {
     }
 
     /**
+     * RETRY-RESET(2026-11-01)：重试/重生成前清空引擎的会话序列与工具集缓存。
+     * 见 {@link AgentLoopEngine#resetSessionSequence()}：不清的话重试 prompt 会带上旧轮，
+     * 模型对着自己的旧答案续写（真机表现：答非所问 / 只回一句错误的当前日期）。
+     */
+    public void resetSessionSequence() {
+        loopEngine.resetSessionSequence();
+    }
+
+    /**
      * 处理用户消息 - 主入口（带多轮上下文）
      * @param history 最近几轮对话历史（user/assistant），可为 null
      */

@@ -661,8 +661,10 @@ public class OnlineToolManager {
                 lastException = e;
                 // 超时不代表未执行：非只读（有副作用）工具超时后不重试，
                 // 避免数据库写入/文件生成/应用操作等被重复执行（只读工具超时重试是安全的）
-                if (isPermissionRequest || noCacheTool) {
-                    AILogger.w(TAG, "Non-idempotent tool timeout, skip retry: " + toolName);
+                // BILLED(2026-11-02)：按次付费工具同样不重试 —— 超时多半是服务端已受理并在计费，
+                // 自动重试（MAX_RETRY=2 最多三次）等于同一件事扣三遍积分。
+                if (isPermissionRequest || noCacheTool || com.oilquiz.app.ai.tool.ToolSideEffects.isBilledPerCall(toolName)) {
+                    AILogger.w(TAG, "Non-idempotent or billed-per-call tool timeout, skip retry: " + toolName);
                     break;
                 }
             } catch (Exception e) {

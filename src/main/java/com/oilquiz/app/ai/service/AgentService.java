@@ -291,13 +291,13 @@ public class AgentService {
         registerToolSchema("weather", "查询天气", "action(操作类型: current/forecast/hourly/air_quality/alerts/indices/all), city(城市名称,可选), lat(纬度,可选), lon(经度,可选)");
         registerToolSchema("location", "位置查询工具：获取当前位置（经纬度/城市/地址）。get_current返回经纬度+城市+地址；get_city返回城市名；get_coordinates返回经纬度。位置服务未开启自动引导开启", "action(操作类型: get_current默认/get_city/get_coordinates)");
         registerToolSchema("get_location", "获取位置信息", "action(操作类型: get_current/get_city/get_coordinates)");
-        registerToolSchema("network_search", "网络搜索工具（秘塔搜索引擎）：联网搜索+智能问答+网页读取。search返回标题/链接/摘要；ask返回答案+引用来源；read_url读取网页正文。实时/最新信息必须联网搜索，禁止凭训练知识编造", "action(操作类型: search/ask/read_url/get_webpage/extract_info/summarize/search_and_read/smart_search,默认search), query(搜索关键词,search用), question(问答问题,ask用), url(网页URL,read_url/get_webpage用), model(问答模式:concise/detail/research,ask用,默认concise), limit(结果数量,默认5), num_results(结果数量别名,默认5)");
-        registerToolSchema("search", "搜索网络信息", "query(搜索关键词,必填), limit(结果数量限制,默认5)");
+        registerToolSchema("network_search", "网络搜索工具（秘塔搜索引擎）：联网搜索+智能问答+网页读取。search返回标题/链接/摘要；ask返回答案+引用来源；read_url读取网页正文。实时/最新信息必须联网搜索，禁止凭训练知识编造。默认用 ask 拿结论（一般提问它就够），要一批来源/链接才用 search。接口不支持翻页：一次把 limit 给够（上限50），没有 page 参数。秘塔按次计费（一次调用一次额度，与条数无关），别连续重搜；ask 出答案要几十秒是正常的，慢不是失败，失败按服务端错误码处置", "action(操作类型: search/ask/read_url/get_webpage/extract_info/summarize/search_and_read/smart_search,默认search), query(搜索关键词,search用), question(问答问题,ask用), url(网页URL,read_url/get_webpage用), model(问答模式:concise/detail/research,ask用,默认concise), limit(返回条数1..50,默认5,不支持翻页就调大它), num_results(结果数量别名,默认5), scope(搜索范围:webpage默认/document文库/scholar学术/image/video/podcast,找论文用scholar), include_summary(是否返回摘要,默认true), start_char(read_url正文起始字符,默认0), max_chars(read_url本次字符上限,默认整篇,长文建议4000)");
+        registerToolSchema("search", "搜索网络信息", "query(搜索关键词,必填), limit(返回条数1..50,默认5;不支持翻页,要更多就调大它), scope(范围:webpage默认/document/scholar学术/image/video/podcast)");
         registerToolSchema("python_calculate", "使用Python进行数学计算", "expression(数学表达式,必填), task(任务描述,可选)");
         registerToolSchema("calculate", "执行数学计算", "expression(数学表达式,必填)");
         registerToolSchema("calculator", "数学计算器：计算算术表达式(支持+ - * / % ^ 括号、小数)。除零/非法表达式返回明确错误。简单计算用本工具，复杂数据分析用python_calculate", "expression(算术表达式,必填,如 3.5*(2+4)/7 或 2^10)");
         registerToolSchema("database", "数据库操作工具，支持任意SQL、表结构查看、题目查询与管理、用户管理、分数记录等", "action(操作类型: execute_sql/list_tables/get_table_schema/execute_query/get_questions/search_questions/get_question_count/get_question_statistics/get_question_by_id/add_questions/update_question/delete_question/get_user/add_user/get_score_history/add_score/get_average_score,必填), sql(SQL语句,execute_sql用), table_name(表名,get_table_schema用), query(SQL查询语句,可选), keyword(搜索关键词,可选), id(题目/用户ID,可选), category(题目分类,可选), type(题目类型,可选), difficulty(难度:1-简单,2-中等,3-困难,可选), page(页码,可选), page_size(每页数量,可选)");
-        registerToolSchema("webpage_reader", "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要", "action(操作类型: read/extract/summarize/read_multiple/follow_links,默认read), url(网页URL,必填), content(网页内容,可选), query(搜索查询词,可选), maxDepth(最大链接深度,默认2), maxLinks(最大链接数量,默认10)");
+        registerToolSchema("webpage_reader", "网页阅读工具，用于获取网页内容、提取关键信息、生成智能摘要；长正文用 start_char/max_chars 分段续读", "action(操作类型: read/extract/summarize/read_multiple/follow_links,默认read), url(网页URL,必填), content(网页内容,可选), query(搜索查询词,可选), maxDepth(最大链接深度,默认2), maxLinks(最大链接数量,默认10), start_char(正文起始字符偏移,默认0), max_chars(本次最大字符数,默认整篇,长文建议4000)");
         registerToolSchema("read_webpage", "读取网页内容", "url(网页URL,必填)");
         registerToolSchema("smart_research", "智能研究工具，整合搜索和阅读功能", "action(操作类型: research/quick_search/deep_read/summarize_topic,默认research), topic(研究主题,research用), query(搜索关键词,quick_search用), url(网页URL,deep_read用), depth(研究深度,默认1), maxResults(最大结果数,默认5), includeDetails(是否包含详情,默认false)");
         registerToolSchema("linux_shell", "内置 Linux 命令行工具箱（无需 Termux/权限）：busybox、openssl(真TLS)、ssh/scp/sftp/ssh-keygen、curl、aria2c、rg、jq、sqlite3、zstd、zip/unzip、file、tree、ncdu、htop/ps/free、tmux、nano、gawk", "action(exec执行命令/tools列出工具/download下载URL/route改命令路由,默认exec), command(命令,exec用;route时是命令名), url(下载地址,download用), path(保存路径,download用), order(route用:b/s/k/t顺序,如bskt;reset恢复)。单条命令25秒超时，默认不拦截");
@@ -970,6 +970,14 @@ public class AgentService {
                             "工具 " + realToolName + " 执行超时，已停止等待。该工具有副作用，超时不代表未执行，"
                                     + "因此不自动重试：请先确认前一次是否已经生效（列目录/查数据库/看文件是否已生成），"
                                     + "再决定要不要缩小范围重跑。",
+                            false, 0, attempt);
+                }
+                if (ToolSideEffects.isBilledPerCall(realToolName)) {
+                    // BILLED(2026-11-02)：秘塔按次扣积分，超时很可能已经扣过一次，
+                    // 自动重试（这条路径原来最多 3 次）就是三倍扣费；把决定权交回模型/用户。
+                    return new ToolResult(displayName,
+                            "工具 " + realToolName + " 等待超时（该服务按次计费，这一次很可能已经扣过额度），"
+                                    + "因此不自动重试。要再问一次请明确决定：可换更具体的问题、或改用别的 action。",
                             false, 0, attempt);
                 }
                 if (attempt < maxRetries) {

@@ -61,7 +61,11 @@ import com.oilquiz.app.ai.util.NetworkUtil;
         @Param(name = "query", type = "string", description = "搜索查询词", required = false),
         @Param(name = "urls", type = "array", description = "URL列表(用于read_multiple)", required = false),
         @Param(name = "maxDepth", type = "int", description = "最大链接深度(默认2)", required = false),
-        @Param(name = "maxLinks", type = "int", description = "最大链接数量(默认10)", required = false)
+        @Param(name = "maxLinks", type = "int", description = "最大链接数量(默认10)", required = false),
+        // WEB-PAGE(2026-11-02)：长正文分页——一次拿不完就带 start_char/max_chars 续读，
+        // 返回里带 total_chars/next_start，模型据此决定是否继续，不再靠猜。
+        @Param(name = "start_char", type = "int", description = "read 正文起始字符偏移（默认 0；分页续读用）", required = false),
+        @Param(name = "max_chars", type = "int", description = "read 本次返回的最大字符数（默认 0=整篇；分页建议 4000）", required = false)
     }
 )
 public class WebPageReaderTool implements AITool {
@@ -108,6 +112,19 @@ public class WebPageReaderTool implements AITool {
     }
 
     // ===== 类型安全的参数提取 =====
+
+    /** 数值参数解析（字符串/数字都收；解析失败用默认值）。 */
+    private int parseIntParam(Map<String, Object> parameters, String key, int defaultValue) {
+        try {
+            Object v = parameters.get(key);
+            if (v == null) return defaultValue;
+            if (v instanceof Number) return ((Number) v).intValue();
+            String s = String.valueOf(v).trim();
+            return s.isEmpty() ? defaultValue : Integer.parseInt(s);
+        } catch (Throwable t) {
+            return defaultValue;
+        }
+    }
 
     private String getStringParam(Map<String, Object> params, String key, String def) {
         if (params == null) return def;
@@ -650,6 +667,24 @@ public class WebPageReaderTool implements AITool {
         try {
             String content = fetchWebpage(url);
             Map<String, Object> result = parseWebpage(content, url);
+            // WEB-PAGE(2026-11-02)：显式给 start_char/max_chars 时才切片；不带参数保持整篇老行为。
+            int startChar = parseIntParam(parameters, "start_char", 0);
+            int maxChars = parseIntParam(parameters, "max_chars", 0);
+            if ((startChar > 0 || maxChars > 0) && result.get("text") instanceof String) {
+                String full = (String) result.get("text");
+                int total = full.length();
+                if (startChar < 0) startChar = 0;
+                if (startChar > total) startChar = total;
+                int end = maxChars > 0 ? Math.min(total, startChar + maxChars) : total;
+                result.put("text", full.substring(startChar, end));
+                Map<String, Object> page = new HashMap<>();
+                page.put("total_chars", total);
+                page.put("start_char", startChar);
+                page.put("end_char", end);
+                page.put("truncated", end < total);
+                page.put("next_start", end);
+                result.put("page", page);
+            }
             Map<String, Object> finalResult = new HashMap<>();
             finalResult.put("url", url);
             finalResult.put("status", "success");

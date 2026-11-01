@@ -68,6 +68,12 @@ public class AgentLoopEngine {
     /** 循环保护：实际工具调用轮次上限（两跳检索+多工具链≈6轮够用，
      *  提到 8 给"搜索→读→分析→生成"类多步任务余量；去重/重复检测/时间预算仍兜底） */
     private static final int MAX_TOOL_ROUNDS = 8;
+    /**
+     * REPEAT-WHITELIST(2026-11-02)：异步轮询类调用同一个 key 的单轮次数上限。
+     * 这类调用的"同参重复"是正常语义（导入进度/文生图 task_id/盯梢状态/Termux 自检），
+     * 不能参与去重；但仍要有上限，防止模型原地刷进度把轮次和时间预算耗光。
+     */
+    private static final int MAX_REPEATABLE_CALLS = 30;
     /** 循环保护：整个 Agent 执行的总时长上限（含工具执行与推理）。
      *  180s→300s：Qwen3VL-4B-Thinking 思考链 + 工具调用 + 最终整合在内存紧张
      *  的真机上实测需 4-6 分钟，180s 会在思考中途被强制结束（虽走 unified exit
@@ -83,6 +89,11 @@ public class AgentLoopEngine {
      *  结果不再因 1200 截断丢失关键数值——上一轮天气问题的根因。trim 阶段会把
      *  更早的工具结果压缩到 2500，最近的保持完整，平衡信息完整性与上下文占用） */
     private static final int MAX_TOOL_RESULT_LENGTH = 6000;
+    /**
+     * TOOL-RESULT-SHAPE(2026-11-02)：工具结果的**结构化**裁剪上限。
+     * 旧实现只按总字符数截，搜索/天气这类多字段结果会被拦腰砍断（关键字段只剩半截），
+     * 模型只能猜。现在：数组保留前 K 条并标注 omitted，单字段限长，最后才按总长兜底。
+     */
     /** 给输出预留的空间（不是上限！）。NO_OUTPUT_CAP(2026-11-01) 之后，这个数只剩两个用途：
      *  ① 算 prompt 预算时从 n_ctx 里扣掉的那份"留给回答的位置"（computePromptBudget /
      *     trimHistoryToFit），防止 prompt 把窗口占满、模型没地方答；
@@ -206,10 +217,23 @@ public class AgentLoopEngine {
     private static final java.util.Map<String, ThinTool> LOCAL_THIN_TOOLS = new java.util.LinkedHashMap<>();
     static {
         LOCAL_THIN_TOOLS.put("read_file", new ThinTool(
-                "读取本地/工作区文本文件的完整内容（编码自动检测 UTF-8/GB18030/UTF-16）。path 支持绝对路径或工作区相对文件名。",
-                new String[][]{{"path", "string", "文件路径（绝对路径或工作区相对名）", "1"}},
+                // READ-PAGE(2026-11-02)：文件一次读不完就分页续读——真实工具本来就有
+                // read_lines(startLine,endLine)，但薄工具把 action 钉死成 read，模型永远读不到后半段。
+                // 这里加 start_line/end_line：一旦给出就改走 read_lines（建议每段 ≤200 行）。
+                "读取本地/工作区文本文件（编码自动检测 UTF-8/GB18030/UTF-16）。path 支持绝对路径或工作区相对文件名；"
+                        + "内容长时用 start_line/end_line 分页读（从 1 开始，建议每段≤200 行），读完一段再续读下一段，不要凭猜测补全。",
+                new String[][]{
+                        {"path", "string", "文件路径（绝对路径或工作区相对名）", "1"},
+                        {"start_line", "string", "可选：起始行号（从 1 开始；给了就走按行分页读）", "0"},
+                        {"end_line", "string", "可选：结束行号（配合 start_line；不给则读到末尾）", "0"},
+                },
                 "file_reader", "read",
-                new String[][]{{"path", "file_path"}}));
+                new String[][]{
+                        {"path", "file_path"},
+                        {"start_line", "startLine"},
+                        {"end_line", "endLine"},
+                },
+                "read_lines", "start_line"));
         LOCAL_THIN_TOOLS.put("write_file", new ThinTool(
                 "把文本内容写入工作区文件（默认保存到 files/ 长期区，返回完整绝对路径）。文件名一律用英文/数字/下划线，不要用中文文件名。",
                 new String[][]{
@@ -229,9 +253,13 @@ public class AgentLoopEngine {
                 "database", "search_questions",
                 new String[][]{}));
         LOCAL_THIN_TOOLS.put("tool_registry", new ThinTool(
-                "工具发现与代执行：list 列出可用工具，search 按关键词找，get 取某工具参数说明，call 直接执行某工具（args 传 JSON 对象）。本次没注入的能力都先走它。",
+                // TOOL-CHOICE(2026-11-02)：真机出现过 action=read_url（编的）——把它能接受的动作
+                // 写死在这句里，并明说"只能是这四个"，减少模型自创参数值。
+                "工具发现与代执行（工具清单只在这里）：action 只能是 list/search/get/call 四个之一。"
+                        + "list 列出全部工具，search 按关键词找，get 取某工具参数说明，call 执行某工具（args 传 JSON 对象）。"
+                        + "想知道有哪些工具或怎么填参数就用 get，不要去联网搜。",
                 new String[][]{
-                        {"action", "string", "list/search/get/call", "1"},
+                        {"action", "string", "只能是 list / search / get / call（其他值无效）", "1"},
                         {"tool", "string", "get/call 的工具名", "0"},
                         {"keyword", "string", "list/search 的关键词", "0"},
                         {"args", "string", "call 的参数 JSON，如 {\"path\":\"/sdcard/a.txt\"}", "0"},
@@ -279,13 +307,23 @@ public class AgentLoopEngine {
         final String realTool;        // 底层真实工具名
         final String action;          // 钉死的 action（null 表示不注入）
         final String[][] rename;      // {localParam -> realParam}；未列出的参数原样透传
+        /** READ-PAGE(2026-11-02)：出现 pageTriggerParam 时改用的 action（如 read_file+start_line→read_lines）。 */
+        final String pageAction;
+        final String pageTriggerParam;
 
         ThinTool(String desc, String[][] params, String realTool, String action, String[][] rename) {
+            this(desc, params, realTool, action, rename, null, null);
+        }
+
+        ThinTool(String desc, String[][] params, String realTool, String action, String[][] rename,
+                 String pageAction, String pageTriggerParam) {
             this.desc = desc;
             this.params = params;
             this.realTool = realTool;
             this.action = action;
             this.rename = rename;
+            this.pageAction = pageAction;
+            this.pageTriggerParam = pageTriggerParam;
         }
 
         /** 把模型给的薄参数翻译成真实工具的参数（重命名 + 钉死 action）。 */
@@ -300,6 +338,10 @@ public class AgentLoopEngine {
                 if (!renamed.contains(e.getKey())) out.put(e.getKey(), e.getValue());
             }
             if (action != null) out.put("action", action);
+            // 分页参数出现 → 改走按行读，让"一次看不完"能续读（read_file → read_lines）
+            if (pageAction != null && pageTriggerParam != null && in.containsKey(pageTriggerParam)) {
+                out.put("action", pageAction);
+            }
             return out;
         }
     }
@@ -369,6 +411,16 @@ public class AgentLoopEngine {
 
     /** 最近一次用户消息原文：供 ai_weather 缺城市参数时提取城市名兜底（如"五台县的天气"→city=五台县） */
     private volatile String lastUserMessage = "";
+
+    /**
+     * 本轮最近一次生成失败的**原始**原因（chatJson error / 超时 / 异常）。
+     *
+     * <p>GEN-ERROR(2026-11-02)：generateWithChatJsonSync 失败时只返回 null，统一退出路径
+     * 于是把任何失败都说成"模型没有输出"——真机实例："Helper context not initialized"
+     * （模型被并发切换卸载）被报成"回答为空或被过滤"，用户据此无法判断该重试还是该换模型。
+     * 这里保留原始错误，退出时翻成人话。</p>
+     */
+    private volatile String lastGenerationError = null;
 
     /**
      * 用户取消标志（2026-10-25 停止链路修复）。
@@ -510,6 +562,8 @@ public class AgentLoopEngine {
         // 新一轮开始：清除上一轮的取消标志。引擎实例是常驻的（AgentChatHandler 只 new 一次），
         // 不复位就会出现"上一轮被用户停止 → 这一轮刚进循环就被判为取消"。
         cancelRequested.set(false);
+        // 同理清掉上一轮的生成错误，避免把旧原因带进本轮兜底描述
+        lastGenerationError = null;
 
         // 超长问题先截断，避免单条消息撞穿预算
         if (userMessage != null && userMessage.length() > MAX_USER_MESSAGE_CHARS) {
@@ -717,8 +771,19 @@ public class AgentLoopEngine {
                 return cancelledResponse;
             }
             if (!handled) {
-                // 普通生成失败 → 简单兜底
-                finalAnswer = buildSimpleFallback(userMessage);
+                // ENGINE-ASK(2026-11-02)：普通对话失败同样先问用户（用已有结果/补充/停止），
+                // 拿不到答复时用**单次推理**解释原因，固定话术只当最后一道保险。
+                int ask = askUserOnEngineTrouble("这次回答没有成功生成。");
+                if (ask == 1) {
+                    finalAnswer = "好的，你补充后我继续。";
+                } else if (ask == 2) {
+                    finalAnswer = "已停止本次任务。";
+                } else {
+                    String plainReason = describeGenerationError(lastGenerationError,
+                            "这次普通对话没有成功生成（推理调用失败或输出为空）");
+                    String explained = explainFailureOnce(history, plainReason);
+                    finalAnswer = explained != null ? explained : buildSimpleFallback(plainReason);
+                }
                 handled = true;
             }
         }
@@ -740,10 +805,19 @@ public class AgentLoopEngine {
 
         // 循环保护状态：已执行调用去重、工具轮次计数、最近一次有效回复
         java.util.Set<String> executedCallKeys = new java.util.HashSet<>();
+        // REPEAT-WHITELIST：轮询类调用的按 key 计数（单轮超过 MAX_REPEATABLE_CALLS 即拒绝）
+        java.util.Map<String, Integer> repeatableCallCounts = new java.util.HashMap<>();
         int toolRounds = 0;
         int consecutiveDuplicates = 0;
         String lastMeaningfulResponse = null;
         boolean forcedByLoopGuard = false;
+        // EXIT-REASON(2026-11-02)：统一退出的**具体**原因。兜底/弹框/单次解释都用它，
+        // 不再用"可能被截断、或工具太多"这种含糊说法——每一类退出都在源头赋准确文案。
+        String lastExitReason = null;
+        // OVERSIZE-SAY(2026-11-02)：本轮最大一条工具结果的字符数与工具名。
+        // 数据不裁，但**装不下时必须说清是谁撑爆的**，否则会退化成含糊的"上下文已满"。
+        int biggestToolResultChars = 0;
+        String biggestToolResultName = null;
 
         // 最近一次 chatJson 生成是否已有正文 token 流式输出到 UI：
         // - 迭代内直接回答路径：token 已流式 → 迭代结束不重复 streamDirectAnswer
@@ -761,6 +835,7 @@ public class AgentLoopEngine {
             if (System.currentTimeMillis() - startTime > TOTAL_TIME_BUDGET_MS) {
                 AILogger.w(TAG, "Total time budget exceeded, forcing final response");
                 forcedByLoopGuard = true;
+                lastExitReason = "总时长达到上限（" + (TOTAL_TIME_BUDGET_MS / 1000) + " 秒），已强制收尾";
                 break;
             }
 
@@ -824,9 +899,12 @@ public class AgentLoopEngine {
                     genResult = generateWithToolsSync(history, toolsJsonBytes, OUTPUT_RESERVE_TOKENS, iterTemperature, enableThinking);
                 } catch (UnsatisfiedLinkError e2) {
                     AILogger.w(TAG, "nativeGenerateWithTools unavailable, generation failed");
+                    lastGenerationError = "native 生成接口不可用: " + e2.getMessage();
                 }
             } catch (Exception e) {
                 AILogger.e(TAG, "Generate failed at iter " + iteration + ": " + e.getMessage());
+                // GEN-ERROR(2026-11-02)：留下真实原因，兜底描述不再一律说成"模型没输出"
+                lastGenerationError = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             }
 
             // genResult 为 null（chatJson error/cancelled/timeout，或生成失败）：
@@ -854,6 +932,7 @@ public class AgentLoopEngine {
             // P0：native 上下文满截断信号（stop_reason=ctx_full）→ 记录日志并通知 UI。
             // 截断回复不再被当作完整回答静默交付（原实现仅 native 日志可见）。
             if (genResult.stopReason != null && "ctx_full".equals(genResult.stopReason)) {
+                lastExitReason = "上下文已满，回答被截断";
                 AILogger.w(TAG, "iter " + iteration + " generation truncated by context full, "
                         + "response=" + (response != null ? response.length() : 0) + " chars");
                 if (callback != null) callback.onTruncated("第 " + iteration + " 轮回答因上下文已满被截断");
@@ -963,14 +1042,32 @@ public class AgentLoopEngine {
             assistantTurnMsg.reasoningContent = reasoning;
             history.add(assistantTurnMsg);
 
-            // 循环保护①：去重。同一 tool+args 已执行过则不再执行；连续两轮全是重复调用 → 强制收尾
+            // 循环保护①：去重。同一 tool+args 已执行过则不再执行；连续两轮全是重复调用 → 强制收尾。
+            // REPEAT-WHITELIST(2026-11-02)：异步任务轮询类调用除外——它们的**同参重复本来就是语义**
+            // （导入进度、文生图 task_id、盯梢状态、Termux 就绪自检）。旧实现在这里会把这些调用
+            // 当成"重复"跳过并回一句"已执行过"，等于把轮询打死（真机：导入卡住不再查进度）。
             List<ToolCall> freshCalls = new ArrayList<>();
             for (ToolCall tc : toolCalls) {
                 String key = tc.toolName + "|" + tc.args.toString();
-                if (executedCallKeys.contains(key)) {
+                boolean repeatable = isRepeatablePollingCall(tc.toolName, tc.args);
+                if (!repeatable && executedCallKeys.contains(key)) {
                     AILogger.w(TAG, "Duplicate tool call skipped: " + key);
                 } else {
-                    executedCallKeys.add(key);
+                    if (!repeatable) {
+                        executedCallKeys.add(key);   // 轮询类不入表：每次都要真执行
+                    } else {
+                        // 轮询也要有上限：同一 key 单轮超过 MAX_REPEATABLE_CALLS 次视为卡死，
+                        // 由循环保护②的轮次上限兜底之前先给模型一句提示，避免白烧 token。
+                        int n = repeatableCallCounts.merge(key, 1, Integer::sum);
+                        if (n > MAX_REPEATABLE_CALLS) {
+                            AILogger.w(TAG, "Repeatable call exceeded " + MAX_REPEATABLE_CALLS
+                                    + " times, skipping: " + key);
+                            history.add(new ChatMessage("tool",
+                                    "[系统提示] 该轮询调用已重复 " + n + " 次，请基于已有结果作答或换用其他方式。",
+                                    "call_hint_" + System.nanoTime(), true));
+                            continue;
+                        }
+                    }
                     freshCalls.add(tc);
                 }
             }
@@ -983,6 +1080,7 @@ public class AgentLoopEngine {
                 if (consecutiveDuplicates >= 2) {
                     AILogger.w(TAG, "Repeated duplicate tool calls, forcing final answer");
                     forcedByLoopGuard = true;
+                    lastExitReason = "连续两轮都是重复的工具调用，已停止重复执行";
                     break;
                 }
                 continue;
@@ -994,6 +1092,7 @@ public class AgentLoopEngine {
             if (toolRounds > MAX_TOOL_ROUNDS) {
                 AILogger.w(TAG, "Tool rounds exceeded " + MAX_TOOL_ROUNDS + ", forcing final answer");
                 forcedByLoopGuard = true;
+                lastExitReason = "工具调用轮次达到上限（" + MAX_TOOL_ROUNDS + " 轮）";
                 break;
             }
 
@@ -1026,8 +1125,16 @@ public class AgentLoopEngine {
                 parWorkers[idx] = t;
                 t.start();
             }
-            // 等待全部完成（总超时 = TOOL_TIMEOUT_MS，单个工具卡死不拖住整轮）
-            long parDeadline = System.currentTimeMillis() + TOOL_TIMEOUT_MS;
+            // 等待全部完成。ASK-SLOW(2026-11-02)：这一批的等待上限取"各调用应等时长"的最大值
+            // （基线 15s 与各工具自声明的较大者，见 toolWaitMs），秘塔 ask 申报 180s，
+            // 不再被 15 秒一刀切判成"工具失败"进而反复重试白烧按次额度。
+            long parBudget = TOOL_TIMEOUT_MS;
+            for (ToolCall tc0 : freshCalls) {
+                if (tc0 == null) continue;
+                long w = toolWaitMs(tc0.toolName, tc0.args != null ? jsonToMap(tc0.args) : null);
+                if (w > parBudget) parBudget = w;
+            }
+            long parDeadline = System.currentTimeMillis() + parBudget;
             synchronized (parDone) {
                 // 取消（2026-10-25）：用户点停止后不白等一个 TOOL_TIMEOUT_MS。worker 是 daemon
                 // 线程，这里只结束等待，让它们自己跑完；未回填的调用在下面按"已取消"标注。
@@ -1072,7 +1179,11 @@ public class AgentLoopEngine {
                     // 取消时结束等待、该调用没跑完：不能说"超时"（用户会以为工具坏了）
                     result = AIToolResult.fail("已取消，该工具未执行完成");
                 } else {
-                    result = AIToolResult.fail("工具超时(" + (TOOL_TIMEOUT_MS / 1000) + "秒)");
+                    // 说清楚"这次等了多久"：秘塔 ask 的 180 秒与别的工具的 15 秒含义完全不同，
+                    // 只写"工具超时"会让模型以为工具坏了于是重试（按次计费，重试就是再扣一次）。
+                    result = AIToolResult.fail("工具超时("
+                            + (toolWaitMs(tc.toolName, tc.args != null ? jsonToMap(tc.args) : null) / 1000)
+                            + "秒)");
                 }
                 // 成功判定统一走 isToolSuccess：AIWeatherManager 等工具会把
                 // "查询失败: 无法定位城市"包装成 success 结果，须识别失败语义并降级为失败，
@@ -1083,9 +1194,15 @@ public class AgentLoopEngine {
                     resultStr = extractResultText(result);
                 }
                 // 工具失败时附加替代工具提示：引导模型换工具而非放弃（4B 模型需要明确指引）
+                String altHint = null;
                 if (!success) {
-                    String alt = getAlternativeTool(tc.toolName);
+                    // ALT-ACTION(2026-11-02)：同一工具不同 action 的补救不同——read_url 失败该换
+                    // webpage_reader，search 失败该换关键词/调大 limit。以前只按工具名给建议，
+                    // 读网页失败却提示"用 ai_weather 查天气"，把模型带偏。
+                    String action = tc.args != null ? tc.args.optString("action", null) : null;
+                    String alt = getAlternativeTool(tc.toolName, action);
                     if (alt != null) {
+                        altHint = alt;
                         resultStr = resultStr + "\n[替代方案] 可尝试工具: " + alt;
                         AILogger.i(TAG, "Tool " + tc.toolName + " failed, suggesting alternative: " + alt);
                     }
@@ -1098,14 +1215,33 @@ public class AgentLoopEngine {
                 }
                 if (callback != null) callback.onToolResult(tc.id, tc.toolName, success, resultStr);
                 if (callback != null) callback.onToolPresent(tc.toolName, resultCard);
-                history.add(new ChatMessage("tool", truncate(resultStr, MAX_TOOL_RESULT_LENGTH), tc.id, true));
+                // TOOL-RESULT-JSON(2026-11-02)：回给模型的工具结果一律**格式化成 JSON**。
+                // 旧实现是 String.valueOf(Map) → `{code=200, data=[{title=...}]}`：既不是 JSON、
+                // 键值又用 '='，2B 只能靠猜——这是搜索类回答幻觉的主要来源之一。
+                // AUTO-CONTINUE(2026-11-02)：read_file 一次读不完时，引擎自动分页续读并合并
+                //（只影响回给模型的文本；UI 卡片仍用原始结果）。
+                AIToolResult modelResult = success ? autoContinueReadIfLarge(tc, result) : result;
+                String modelJson = formatToolResultForModel(success, modelResult, altHint);
+                // OVERSIZE-SAY(2026-11-02)：数据照原样塞（不裁），但**记下是谁把预算撑爆的**，
+                // 供下面安全网如实报给模型/用户 —— "超了就说"，不是"超了就连数据一起裁"。
+                if (modelJson != null && modelJson.length() > biggestToolResultChars) {
+                    biggestToolResultChars = modelJson.length();
+                    biggestToolResultName = tc.toolName;
+                }
+                history.add(new ChatMessage("tool", modelJson, tc.id, true));
                 AILogger.i(TAG, "Tool " + tc.toolName + (success ? " OK" : " FAIL")
                         + ": " + truncate(resultStr, 800));
             }
 
             // 上下文长度兜底校验（trim 后理论上不会触发，作为安全网）
             if (countTokensSafe(serializeHistory(history)) + countTokensSafe(toolsJson) > promptBudget) {
-                AILogger.w(TAG, "Context still too large after trim, ending loop");
+                // 挤掉更早的历史之后仍然超预算：说明**本轮这条工具结果本身就装不下**。
+                // 数据不做静默裁剪，改成把数字说出来，让模型/用户决定下一步（缩小 limit、分段读、或换问题）。
+                String who = biggestToolResultName != null ? biggestToolResultName : "工具";
+                lastExitReason = who + " 返回了 " + biggestToolResultChars
+                        + " 字符（未截断），已超出本轮上下文预算，装不下更早的历史";
+                AILogger.w(TAG, "Context still too large after trim, ending loop. 最大一条工具结果: "
+                        + who + " " + biggestToolResultChars + " 字符，promptBudget=" + promptBudget + " tokens");
                 break;
             }
         }
@@ -1177,8 +1313,34 @@ public class AgentLoopEngine {
             persistSessionMessages(finalGenRaw != null ? finalGenRaw : clean, activeTools);
             return buildResponse(clean, totalTokens, System.currentTimeMillis() - startTime, toolCallCount, getAgentMaxIterations());
         }
-        // 完全没有有效回答，用简单兜底
-        String fb = buildSimpleFallback(userMessage);
+        // ENGINE-ASK(2026-11-02)：完全没有有效回答时，**先弹选择框问用户**，不要默认回一句"抱歉"。
+        // 用仓库现成的 ui_component(choice) + get_result（阻塞 60s）收集选择；只有拿不到答复
+        // （无界面/超时/工具失败）才退回文字兜底——引擎不替用户做决定。
+        // 泄漏优先于"空输出"：两者都走到这里，但原因不同，得分开说。
+        if (lastExitReason == null && clean != null && !clean.isEmpty() && isPromptLeakage(clean)) {
+            lastExitReason = "模型输出与系统提示词高度重合，被判为提示词泄漏";
+        }
+        // EXIT-REASON(2026-11-02)：用循环里记下的**具体**原因；没记（例如模型直接空输出
+        // 或被泄漏过滤）时补一条准确说法。弹框、解释、静态兜底三处共用同一句。
+        String exitReason = lastExitReason != null ? lastExitReason
+                : describeGenerationError(lastGenerationError,
+                        "模型这一轮没有输出任何可用内容（回答为空或被过滤）");
+        int askChoice = askUserOnEngineTrouble("本轮没有产出可用回答：" + exitReason + "。");
+        String fb = null;
+        if (askChoice == 0) {
+            String partial = lastMeaningfulResponse != null ? cleanResponse(lastMeaningfulResponse) : "";
+            fb = !partial.isEmpty() ? partial : null;   // 没有部分结果 → 交给单次推理解释
+        } else if (askChoice == 1) {
+            fb = "好的，你补充后我继续。";
+        } else if (askChoice == 2) {
+            fb = "已停止本次任务。";
+        }
+        if (fb == null) {
+            // FALLBACK-EXPLAIN(2026-11-02)：固定话术只当最后一道保险；正常情况下用单次推理
+            // 结合已有工具结果说明原因与下一步。
+            String explained = explainFailureOnce(history, exitReason);
+            fb = explained != null ? explained : buildSimpleFallback(exitReason);
+        }
         streamDirectAnswer(fb);
         if (callback != null) callback.onComplete(fb);
         persistSessionMessages(null, activeTools);
@@ -1224,6 +1386,63 @@ public class AgentLoopEngine {
             AILogger.i(TAG, "Session changed (first history message differs), resetting KV-stable sequence");
             sessionMessages.clear();
             sessionTools.clear();
+        }
+    }
+
+    /**
+     * RETRY-RESET(2026-11-01)：重试/重生成前清空会话序列与工具集缓存。
+     *
+     * <p>重试在 UI 上删掉旧回答、把同一个问题重发一次；若引擎还留着"旧问题 + 旧回答"的
+     * 逐字节序列，重试的 prompt 就会变成 system + 旧轮 + 同一个问题，模型对着自己的旧答案
+     * 续写——真机表现是"点重试后答非所问"（曾只回一句错误的当前日期）。</p>
+     *
+     * <p>只清序列/工具集缓存，不动模型与 native 上下文：下一次请求会按新序列自然重建前缀。</p>
+     */
+    public void resetSessionSequence() {
+        synchronized (sessionMessages) {
+            sessionMessages.clear();
+        }
+        synchronized (sessionTools) {
+            sessionTools.clear();
+        }
+        AILogger.i(TAG, "Session sequence reset (retry)");
+    }
+
+    /**
+     * REPEAT-WHITELIST(2026-11-02)：异步任务轮询类调用——同参重复是正常语义，不参与去重。
+     *
+     * <p>按 (工具名, action) 判定，**不能按工具名一刀切**：`linux_shell(exec)`、
+     * `screen_watch` 的其他动作、`dashscope_media(image/video)` 重复仍然要拦（那是死循环）。
+     * 白名单依据是"返回异步句柄、结果随时间变化"：</p>
+     * <ul>
+     *   <li>{@code import_status}：题库导入按 taskId 轮询（没有 action 参数，整个工具豁免）</li>
+     *   <li>{@code dashscope_media(action=query)}：文生图/视频未完成时按 task_id 再查</li>
+     *   <li>{@code screen_watch(action=status)}：盯梢状态查询</li>
+     *   <li>{@code linux_shell(action=termux_wake|termux_status)}：等 Termux 服务起来</li>
+     *   <li>{@code remote_dsh(action=get_status)}：桥接/dsh 在线自检</li>
+     * </ul>
+     */
+    static boolean isRepeatablePollingCall(String toolName, JSONObject args) {
+        return isRepeatablePollingCall(toolName, args != null ? args.optString("action", "") : "");
+    }
+
+    /** 同上，纯字符串重载（便于 JVM 单测，不依赖 org.json 运行时）。 */
+    static boolean isRepeatablePollingCall(String toolName, String action) {
+        if (toolName == null) return false;
+        String a = action != null ? action : "";
+        switch (toolName) {
+            case "import_status":
+                return true;
+            case "dashscope_media":
+                return "query".equals(a);
+            case "screen_watch":
+                return "status".equals(a);
+            case "linux_shell":
+                return "termux_wake".equals(a) || "termux_status".equals(a);
+            case "remote_dsh":
+                return "get_status".equals(a);
+            default:
+                return false;
         }
     }
 
@@ -1337,6 +1556,7 @@ public class AgentLoopEngine {
                     OUTPUT_RESERVE_TOKENS, resolveAnswerTemperature(), enableThinking);
         } catch (Exception e) {
             AILogger.e(TAG, "Plain chat generation failed: " + e.getMessage());
+            lastGenerationError = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             return null;
         }
     }
@@ -1616,16 +1836,19 @@ public class AgentLoopEngine {
             boolean completed = latch.await(SYNC_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             if (!completed) {
                 AILogger.e(TAG, "chatJson timeout after " + SYNC_TIMEOUT_MS + "ms");
+                lastGenerationError = "chatJson timeout after " + SYNC_TIMEOUT_MS + "ms";
                 return null;
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            lastGenerationError = "interrupted";
             return null;
         }
 
         if (errorHolder[0] != null) {
             // cancelled（R3-2）与真实错误统一视为本轮失败，走 run() 统一退出路径
             AILogger.e(TAG, "chatJson error: " + errorHolder[0]);
+            lastGenerationError = errorHolder[0];
             return null;
         }
 
@@ -2398,9 +2621,32 @@ public class AgentLoopEngine {
                 + "写入或覆盖文件前先征得用户确认；工具没返回的数据不要编。用中文，先结论后细节。\n");
         sb.append("【工具】直接调用的是本次注入的这些工具；需要本次没注入的能力时，先用 tool_registry"
                 + "（get 看参数、call 代执行，call 的参数里写工具名是允许的）。"
+                // TOOL-CHOICE(2026-11-02)：真机思考日志实锤——2B 把"探索工具"理解成"上网搜工具"，
+                // 连续 7 次 network_search(action=search, keyword="tool registry …")，把搜到的
+                // 无关网页（Fusion 360 MCP）当成工具清单，还编出 tool_registry(action=read_url)。
+                // 原因：原文只写"缺能力时用 discovery"，没禁止用搜索找工具，也没给"了解工具"的出口。
+                // 补一句否定 + 给出正确出口，别让模型去猜参数名。
+                + "想了解有哪些工具、或某个工具怎么填参数，直接用 tool_registry(list/get)，"
+                + "不要用 network_search 搜工具名或工具文档——工具只来自本次注入的清单。"
                 // WORKSPACE/MEMORY(2026-11-01)：这两个工具此前只在 schema 里，模型不会主动想到用。
                 // 一句规则各给一次触发场景，避免它绕道 read_file 猜工作区路径、或把偏好当闲聊丢掉。
                 + "生成或改过的文件都在工作区：列文件/读内容/看历史版本并回退用 workspace（工作区相对路径别拿别的读取工具瞎猜）。"
+                // READ-PAGE(2026-11-02)：给"一次看不完"的续读出口——模型以前只会拿到被截断的结果，
+                // 然后用训练知识补全（幻觉）。现在明确告诉它分页参数。
+                + "内容一次看不完就分页续读：read_file（带 start_line/end_line，从 1 开始、每段≤200 行），"
+                + "读完一段再读下一段，不要凭猜测补齐。"
+                + "搜索：默认用 ask 拿结论（一般提问它就够），只有要一批来源/链接/原文时才用 search 等其它 action；"
+                + "找论文/文库/图片/播客要带 scope（scholar/document/image/video/podcast，默认只搜网页）。"
+                + "秘塔按次计费（一次调用一次额度，与返回条数无关）：一次就把 limit 给够、把问题问清，"
+                + "不要连续换词重搜。ask 出答案要几十秒是正常的，慢不是失败，别因为等得久就重试。"
+                // SEARCH-PAGE-HOLD(2026-11-02)：真机实测 search 接口对 page 参数
+                // 返回 {"errCode":1000,"errMsg":"请求参数错误"}（连 page=0 也被拒），不带才 200，
+                // 所以**没有翻页能力**，schema 里的 page 参数已摘掉；这里不再教模型翻页，
+                // 只给它唯一的出口：一次多要几条（上限 50）。
+                + "结果不够就调大 limit（最多 50）再搜一次，这个接口没有翻页，别找第 2 页。"
+                // READ-PAGE：网页正文同理按字符续读（read_url 与 webpage_reader 都支持），
+                // 服务端读不了的页面（返回服务错误码）就换一个来源或改用 webpage_reader。
+                + "网页正文太长就用 start_char/max_chars 分段续读，读完一段再读下一段。"
                 + "用户说\u201c记住\u201d或告知姓名、住址、偏好等稳定信息时用 memory 保存，需要回忆时用 memory 读。"
                 + "问天气用 ai_weather：用户说了城市就传 city，没说就不传（系统自动用手机定位）。"
                 + "地名换算不出位置时先换成它所属的县市重查，不知道上级是什么就用 network_search"
@@ -2408,8 +2654,6 @@ public class AgentLoopEngine {
                 + "不要拿别的城市的数据顶上，也不要改用自己的记忆编一个结果。\n\n");
         return sb.toString();
     }
-
-
 
     // ==================== 位置缓存（供 ai_weather 缺位置时兜底） ====================
 
@@ -2900,7 +3144,6 @@ public class AgentLoopEngine {
     // 在线模型不经过本类（走 OpenAI 原生 tool_calls → OnlineInferenceService.ToolCallInfo），
     // 故本段删除不影响在线路径。
 
-
     /** 工具调用 id（可能缺失，缺失时上层执行前补齐 R4-1） */
     private String resolveCallId(JSONObject json) {
         String id = json.isNull("id") ? null : json.optString("id", null);
@@ -2964,6 +3207,18 @@ public class AgentLoopEngine {
      *  建议一个调不动的工具，结果是模型把工具调用写成正文、整轮退化 —— 比不给建议更糟。
      *  因此 file_reader / python_* / excel_tool / image_gen / smart_research 等原备选已删除。</p> */
     private static String getAlternativeTool(String toolName) {
+        return getAlternativeTool(toolName, null);
+    }
+
+    /**
+     * ALT-ACTION(2026-11-02)：按 action 细化的失败建议。
+     *
+     * <p>同一个工具的失败模式不同，补救也不同：{@code network_search} 的 search 失败
+     * 应换关键词/调大 limit，而 read_url 失败是"这一页秘塔读不了"，应改用
+     * {@code webpage_reader}（Jsoup 直抓）或换来源。只按工具名给建议会给出无关指引
+     * （真机：读网页失败 → 提示"用 ai_weather 查天气"）。</p>
+     */
+    private static String getAlternativeTool(String toolName, String action) {
         if (toolName == null) return null;
         switch (toolName) {
             // 措辞与 system prompt / ai_weather.whenToUse 的"位置参数"规则保持一致：
@@ -2973,7 +3228,21 @@ public class AgentLoopEngine {
             // 这是**回给模型的观察文本**，提一个模型看不见的参数等于让它去改一个不存在的字段。
             case "ai_weather": return "去掉 city 重新调用（改用手机定位城市）、或 network_search 搜天气";
             // 不给"再试一次 network_search"这类建议：它刚失败，重试同一工具只会白烧一轮。
-            case "network_search": return "换更具体的关键词重搜、或用 ai_weather 查天气";
+            case "network_search": {
+                String a = action == null ? "" : action;
+                if ("read_url".equals(a) || "get_webpage".equals(a) || "get_dynamic_content".equals(a)) {
+                    // 不要直接点名 webpage_reader：它可能不在本轮注入的 tools 里
+                    //（native PEG 按 tools 数组逐字枚举工具名），模型会写不出来。
+                    // tool_registry 始终在核心集里，用它代执行才一定可达。
+                    return "换一个来源重试；或 tool_registry 的 call 调用 webpage_reader 直接抓取";
+                }
+                if ("ask".equals(a)) {
+                    // COST(2026-11-02)：秘塔按次计费（每次 3 积分，与条数无关），而 ask 出答案本来就要几十秒——
+                    // 把"慢"当"失败"再重试一次就是双倍扣费。
+                    return "别急着重试（每次调用都按次扣额度）：可改用 action=search 拿一批来源自行汇总，或把问题拆得更具体";
+                }
+                return "换更具体的关键词再搜一次（按次扣额度，一次就把 limit 给够，最多 50）；仍为空就如实说没查到，不要连续重跑同一条查询";
+            }
             case "location": return "网络搜索该城市的信息；用户问本地天气时不必先定位，直接调 ai_weather";
             case "time_date": return "network_search（联网查日期时间）";
             default: return null;
@@ -3055,7 +3324,10 @@ public class AgentLoopEngine {
         // 服务端限流）；而真正的瞬时故障由模型换关键词重搜比引擎原样重跑更有效。
         // 该工具的失败已改成 fail() 上报（见 NetworkSearchTool 的 FAIL-SEMANTICS 注释），
         // 上层据此给模型"换更具体的关键词重搜"的替代提示。
-        if (!"network_search".equals(toolName)) {
+        // BILLED(2026-11-02)：判据从"写死 network_search 一个名字"改成 ToolSideEffects 的口径 ——
+        // smart_research 内部也是按次计费的秘塔调用，以前它照样会被原样重跑一次（多扣一次积分）。
+        // 现在凡是"按次付费"或"有副作用"的工具都不自动重跑，只有只读且免费的才重试。
+        if (com.oilquiz.app.ai.tool.ToolSideEffects.mayRetryOnTimeout(toolName)) {
             for (int r = 0; r < MAX_RETRIES; r++) {
                 AILogger.w(TAG, "Retrying " + toolName);
                 result = executeWithTimeout(toolName, params);
@@ -3137,6 +3409,11 @@ public class AgentLoopEngine {
     }
 
     private AIToolResult executeWithTimeout(String toolName, Map<String, Object> params) {
+        // ASK-SLOW(2026-11-02)：等待时长不再一刀切 15 秒——按"基线与工具自声明取较大者"算，
+        // 与在线 OnlineToolManager / 对话页 AgentService 同一口径（ToolTimeouts 是单一写者）。
+        // 秘塔 ask 出答案要几十秒且**按次计费**：15 秒就判超时 = 把"慢"当"失败"，
+        // 模型接着重试，每重试一次都是真扣积分。
+        final int waitMs = toolWaitMs(toolName, params);
         final AtomicReference<AIToolResult> holder = new AtomicReference<>(null);
         final boolean[] done = {false};
 
@@ -3157,7 +3434,7 @@ public class AgentLoopEngine {
                 long start = System.currentTimeMillis();
                 // 取消（2026-10-25）：与并行等待同一口径，点停止不白等满工具超时
                 while (!done[0] && !cancelRequested.get()) {
-                    long rem = TOOL_TIMEOUT_MS - (System.currentTimeMillis() - start);
+                    long rem = waitMs - (System.currentTimeMillis() - start);
                     if (rem <= 0) break;
                     done.wait(Math.min(rem, 500));
                 }
@@ -3169,7 +3446,21 @@ public class AgentLoopEngine {
         if (cancelRequested.get()) {
             return AIToolResult.fail("已取消，该工具未执行完成");
         }
-        return AIToolResult.fail("工具超时(" + (TOOL_TIMEOUT_MS / 1000) + "秒)");
+        return AIToolResult.fail("工具超时(" + (waitMs / 1000) + "秒)");
+    }
+
+    /**
+     * 本工具这次调用该等多久：基线 {@code TOOL_TIMEOUT_MS} 与工具自声明取较大者
+     * （{@link com.oilquiz.app.ai.agent.ToolTimeouts}，在线/对话页/本地三条路径共用同一判据）。
+     * 读不到工具或申报异常时退回基线，**绝不**因为申报本身把一次正常调用判成失败。
+     */
+    private int toolWaitMs(String toolName, Map<String, Object> args) {
+        try {
+            return com.oilquiz.app.ai.tool.ToolTimeouts.effectiveMs(
+                    toolManager.getTool(toolName), args, (int) TOOL_TIMEOUT_MS);
+        } catch (Throwable t) {
+            return (int) TOOL_TIMEOUT_MS;
+        }
     }
 
     /**
@@ -3277,8 +3568,297 @@ public class AgentLoopEngine {
 
     // ==================== 兜底回答 ====================
 
-    private String buildSimpleFallback(String userMessage) {
-        return "抱歉，我暂时无法完整回答这个问题，请换一种方式描述。";
+    /**
+     * TOOL-RESULT-JSON(2026-11-02)：把工具结果规范化成 JSON 再交给模型。
+     *
+     * <p>问题：工具结果多数是 Map/List，旧实现是 {@code String.valueOf(...)}，得到的是
+     * Java 的 {@code {code=200, data=[{title=…}]}}——不是合法 JSON、键值用 '='、字符串无引号，
+     * 2B 只能靠猜结构去对字段与数值，搜索/天气这类多字段结果尤其容易读错（幻觉来源之一）。</p>
+     *
+     * <p>统一信封 {@code {"ok":true,"data":…}}；失败带 {@code "error"}，有替代方案带 {@code "hint"}。
+     * 已经是 JSON 的字符串会解析后嵌入（而不是转义成一个大字符串）。</p>
+     *
+     * <p>NO-CUT(2026-11-02，用户口径)：**API 返回的数据一律原样给模型，不做任何裁剪**。
+     * 之前这里按"数组前 8 条 / 单字段 400 字 / 总长 6000 字"三档裁过，看着像省 token，
+     * 实际是把秘塔已经花钱买回来的条目和摘要丢掉：条数本该由模型的 {@code limit} 决定（1..50），
+     * 不是由引擎替它决定；丢掉的那几条模型看不见，只会用自己的知识补（幻觉）。
+     * 现在只在超预算时**如实标注** {@code size_chars} 与 {@code note}，让它知道这条结果很大；
+     * 真装不下由 {@link #trimHistoryToFit} 挤掉更早的历史（丢的是旧对话，不是本次数据），
+     * 并在退出归因里说清楚是谁撑爆的，不做静默截断。</p>
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static String formatToolResultForModel(boolean success, AIToolResult result, String hint) {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("ok", success);
+            Object data = result != null ? result.getResult() : null;
+            if (data instanceof Map) {
+                o.put("data", new JSONObject((Map) data));
+            } else if (data instanceof List) {
+                o.put("data", new JSONArray((List) data));
+            } else if (data instanceof String) {
+                String s = ((String) data).trim();
+                if (s.startsWith("{") || s.startsWith("[")) {
+                    try {
+                        o.put("data", new JSONTokener(s).nextValue());
+                    } catch (Throwable notJson) {
+                        o.put("data", data);
+                    }
+                } else {
+                    o.put("data", data);
+                }
+            } else if (data != null) {
+                o.put("data", String.valueOf(data));
+            }
+            if (!success && result != null && result.getErrorMessage() != null) {
+                o.put("error", result.getErrorMessage());
+            }
+            if (hint != null && !hint.isEmpty()) {
+                o.put("hint", "可能需要改用其他工具: " + hint);
+            }
+            String out = o.toString();
+            if (out.length() > MAX_TOOL_RESULT_LENGTH) {
+                // 只标注、不裁：让模型知道这条很大（它自己决定要不要换更小的 limit/分段读）
+                try {
+                    o.put("size_chars", out.length());
+                    o.put("note", "本结果完整给出，未截断（" + out.length() + " 字符）。"
+                            + "条数由你自己在参数里决定；若这轮上下文装不下，被挤掉的是更早的历史，不是本条数据。");
+                    AILogger.w(TAG, "工具结果未截断但偏大: " + out.length() + " 字符（阈值提示线 "
+                            + MAX_TOOL_RESULT_LENGTH + "）");
+                } catch (Throwable ignored) {
+                    // 加标注失败就退回原样，绝不因此改成裁剪
+                }
+                return o.toString();
+            }
+            return out;
+        } catch (Throwable t) {
+            try {
+                JSONObject f = new JSONObject();
+                f.put("ok", success);
+                f.put("data", String.valueOf(result != null ? result.getResult() : ""));
+                return f.toString();
+            } catch (Throwable ignored) {
+                return "{\"ok\":" + success + "}";
+            }
+        }
+    }
+
+    private static String clipString(String s, int max) {
+        if (s == null) return null;
+        return s.length() <= max ? s : s.substring(0, max) + "…(截断)";
+    }
+
+    /**
+     * FALLBACK-TEXT(2026-11-02)：最后一道静态兜底——只在"单次解释推理也失败"时使用。
+     * 不再说"抱歉，我暂时无法完整回答这个问题，请换一种方式描述"（既不含原因、也不是
+     * 用户能执行的建议），而是带上**具体退出原因** + 两句可执行的下一步。
+     */
+    private String buildSimpleFallback(String reason) {
+        String r = (reason != null && !reason.trim().isEmpty()) ? "（" + reason.trim() + "）" : "";
+        return "这轮没能给出回答" + r + "。可以换个说法、缩小范围，或者让我分两步做。";
+    }
+
+    /**
+     * GEN-ERROR(2026-11-02)：把 native/Java 侧的原始错误翻成用户能判断下一步的说法。
+     *
+     * <p>之前所有"生成失败"都落到同一句"回答为空或被过滤"：真机上模型被并发切换卸载时
+     * native 明确报 "Helper context not initialized"，用户看到的却是"模型没输出"，
+     * 于是会去改提示词而不是重试或等加载。这里按已知错误分类，未知错误保留原文（截断）。</p>
+     */
+    private static String describeGenerationError(String raw, String defaultText) {
+        if (raw == null || raw.trim().isEmpty()) return defaultText;
+        String e = raw.trim();
+        String lower = e.toLowerCase();
+        if (lower.contains("helper context not initialized")
+                || lower.contains("context not initialized")) {
+            return "本地推理上下文未就绪（模型正在加载或被切换释放），这次推理没有真正开始";
+        }
+        if (lower.contains("cancelled") || lower.contains("canceled")) {
+            return "推理被取消，没有产出完整回答";
+        }
+        if (lower.contains("timeout") || lower.contains("timed out")) {
+            return "推理超时，没有在限定时间内产出回答";
+        }
+        if (lower.contains("out of memory") || lower.contains("memory allocation")
+                || lower.contains("failed to allocate")) {
+            return "内存不足，推理被中断";
+        }
+        return "推理引擎报错：" + clipString(e, 120);
+    }
+
+    /**
+     * FALLBACK-EXPLAIN(2026-11-02)：兜底不再回一句固定话术，而是**单次推理**说明这轮为什么没成。
+     *
+     * <p>与 {@link #buildSimpleFallback} 的区别：那句对任何失败都一样、也不解释原因；
+     * 这里把真实原因（上下文截断 / 工具轮超限 / 模型没吐内容）作为约束喂给模型，
+     * 让它结合已经拿到的工具结果说明"发生了什么 + 下一步怎么走"。约束：
+     * 单次调用、tool_choice=none（不会引发新工具轮）、限长 512、按回答轮温度、
+     * 明确禁止编造没拿到的数据；失败才落回最短静态文案。</p>
+     *
+     * @return 解释文本；推理失败或为空时返回 null（调用方走静态兜底）
+     */
+    private String explainFailureOnce(List<ChatMessage> history, String reason) {
+        try {
+            int budget = computePromptBudget();
+            List<ChatMessage> trimmed = trimHistoryToFit(history, "",
+                    Math.max(1000, budget - OUTPUT_RESERVE_TOKENS));
+            List<ChatMessage> h = new ArrayList<>(trimmed);
+            h.add(new ChatMessage("user",
+                    "【系统】本轮没有成功产出回答。原因：" + reason + "\n"
+                    + "请用两三句中文向用户说明发生了什么（结合上面的工具结果与对话，"
+                    + "不要编造没有拿到的数据），并给出一个具体的下一步建议"
+                    + "（例如换个说法、缩小范围、分步执行）。"));
+            lastRequestHistory = new ArrayList<>(h);
+            String requestJson = buildRequestJson(h, null, "none",
+                    Math.min(OUTPUT_RESERVE_TOKENS, 512), false, resolveAnswerTemperature());
+            if (requestJson == null) return null;
+            GenerateResult r = generateWithChatJsonSync(requestJson, null);
+            if (r != null && r.content != null) {
+                String c = cleanResponse(r.content);
+                if (!c.isEmpty() && !isPromptLeakage(c)) {
+                    AILogger.i(TAG, "Failure explanation generated: " + truncate(c, 80));
+                    return c;
+                }
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "explainFailureOnce failed: " + t.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * ENGINE-ASK(2026-11-02)：引擎自己出问题时，先弹选择框问用户，而不是默认回兜底话术
+     * 或者静默结束。
+     *
+     * <p>用仓库现成的 {@code ui_component(action=create, component_type=choice)} +
+     * {@code get_result}（阻塞 60s）收集选择——这套交互本来就是给模型用的，引擎也可以用。
+     * 任何一步失败（无前台界面、组件工具不可用、超时、返回格式不符）都返回 -1，
+     * 由调用方退回文字兜底；**绝不**因为"没拿到答复"就替用户选一个。</p>
+     *
+     * @return 0=用已有结果回答 / 1=用户补充说明 / 2=停止本次任务 / -1=没拿到答复
+     */
+    private int askUserOnEngineTrouble(String reason) {
+        try {
+            if (appContext == null) return -1;
+            com.oilquiz.app.ai.tool.AIToolManager mgr =
+                    com.oilquiz.app.ai.tool.AIToolManager.getInstance(appContext);
+            if (mgr == null) return -1;
+
+            java.util.Map<String, Object> create = new java.util.LinkedHashMap<>();
+            create.put("action", "create");
+            create.put("component_type", "choice");
+            create.put("title", "本地引擎需要你决定");
+            create.put("message", reason + "\n\n你想怎么继续？");
+            create.put("options", java.util.Arrays.asList("用已有结果回答", "我再补充说明", "停止本次任务"));
+            com.oilquiz.app.ai.tool.AIToolResult cr = mgr.executeTool("ui_component", create);
+            if (cr == null || !cr.isSuccess()) {
+                AILogger.w(TAG, "ENGINE-ASK: create component failed, fallback to text");
+                return -1;
+            }
+            String cid = mapField(cr.getResult(), "component_id");
+            if (cid == null || cid.isEmpty()) {
+                AILogger.w(TAG, "ENGINE-ASK: no component_id in result, fallback to text");
+                return -1;
+            }
+
+            java.util.Map<String, Object> get = new java.util.LinkedHashMap<>();
+            get.put("action", "get_result");
+            get.put("component_id", cid);
+            get.put("wait_seconds", 60);
+            com.oilquiz.app.ai.tool.AIToolResult gr = mgr.executeTool("ui_component", get);
+            if (gr == null) return -1;
+            String chosen = mapField(gr.getResult(), "result");
+            if (chosen == null) {
+                AILogger.w(TAG, "ENGINE-ASK: no user choice (timeout?), fallback to text");
+                return -1;
+            }
+            AILogger.i(TAG, "ENGINE-ASK: user chose " + chosen);
+            if (chosen.contains("补充")) return 1;
+            if (chosen.contains("停止")) return 2;
+            if (chosen.contains("已有结果")) return 0;
+            return -1;
+        } catch (Throwable t) {
+            AILogger.w(TAG, "ENGINE-ASK failed: " + t.getMessage());
+            return -1;
+        }
+    }
+
+    /**
+     * AUTO-CONTINUE(2026-11-02)：read_file 一次读不完时，引擎自动按行分页续读并合并。
+     *
+     * <p>触发：read_file 且未带 start_line、结果文本超过单条上限。分页从第 1 行按
+     * 120 行/页重新取（不拼接截断产生的半行），最多 3 页、合并总长 ≤ 2×MAX_TOOL_RESULT_LENGTH；
+     * 到上限时在结果里注明"可用 start_line=N 继续"——是否继续由模型决定，引擎不无限翻页。</p>
+     */
+    private AIToolResult autoContinueReadIfLarge(ToolCall tc, AIToolResult first) {
+        try {
+            if (tc == null || !"read_file".equals(tc.toolName)) return first;
+            Object d = first != null ? first.getResult() : null;
+            if (!(d instanceof String)) return first;
+            if (((String) d).length() <= MAX_TOOL_RESULT_LENGTH) return first;
+            String path = tc.args != null ? tc.args.optString("path", "") : "";
+            if (path.isEmpty()) return first;
+            com.oilquiz.app.ai.tool.AIToolManager mgr = appContext != null
+                    ? com.oilquiz.app.ai.tool.AIToolManager.getInstance(appContext) : null;
+            if (mgr == null) return first;
+            final int pageLines = 120;
+            StringBuilder sb = new StringBuilder();
+            int line = 1;
+            int pages = 0;
+            while (pages < 3 && sb.length() < MAX_TOOL_RESULT_LENGTH * 2) {
+                java.util.Map<String, Object> p = new java.util.HashMap<>();
+                p.put("action", "read_lines");
+                p.put("file_path", path);
+                p.put("startLine", line);
+                p.put("endLine", line + pageLines - 1);
+                AIToolResult r = mgr.executeTool("file_reader", p);
+                if (r == null || !r.isSuccess()) break;
+                String chunk = extractResultText(r);
+                if (chunk == null || chunk.trim().isEmpty()) break;
+                if (sb.length() > 0) sb.append("\n");
+                sb.append(chunk);
+                line += pageLines;
+                pages++;
+                if (chunk.length() < 100) break;   // 已到文件末尾
+            }
+            if (sb.length() == 0) return first;
+            JSONObject env = new JSONObject();
+            env.put("ok", true);
+            env.put("auto_paged", true);
+            env.put("file", path);
+            env.put("pages", pages);
+            env.put("lines_read", line - 1);
+            if (sb.length() >= MAX_TOOL_RESULT_LENGTH * 2) {
+                env.put("truncated", true);
+                env.put("note", "已达自动续读上限，可用同一工具带 start_line=" + line + " 继续");
+            }
+            env.put("text", sb.toString());
+            AILogger.i(TAG, "AUTO-CONTINUE: read_file auto-paged " + pages
+                    + " pages, lines=" + (line - 1));
+            return new AIToolResult(env.toString(), jsonToMap(tc.args));
+        } catch (Throwable t) {
+            AILogger.w(TAG, "autoContinueReadIfLarge failed: " + t.getMessage());
+            return first;
+        }
+    }
+
+    /** 从工具结果（Map 或 JSON 字符串）里取一个字符串字段；取不到返回 null。 */
+    private static String mapField(Object obj, String key) {
+        try {
+            if (obj instanceof java.util.Map) {
+                Object v = ((java.util.Map<?, ?>) obj).get(key);
+                return v != null ? String.valueOf(v) : null;
+            }
+            if (obj != null) {
+                String s = String.valueOf(obj);
+                java.util.regex.Matcher m = java.util.regex.Pattern
+                        .compile("\"" + java.util.regex.Pattern.quote(key) + "\"\\s*:\\s*\"([^\"]*)\"")
+                        .matcher(s);
+                if (m.find()) return m.group(1);
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     // ==================== 工具方法 ====================
@@ -3289,7 +3869,6 @@ public class AgentLoopEngine {
         // Agent 的单轮 prompt 预算与历史裁剪会全部失真。按引擎选数据源。
         return com.oilquiz.app.ai.engine.NpuAwareText.countTokens(text);
     }
-
 
     private String truncate(String s, int maxLen) {
         if (s == null) return "";

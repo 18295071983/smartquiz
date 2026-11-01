@@ -427,6 +427,16 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         engine.setSessionId(sessionId);
     }
 
+    /**
+     * RETRY-RESET(2026-11-01)：重试/重生成前清空本地引擎的会话序列与工具集缓存。
+     * 只影响本地软件层（AgentSoftwareLayer）；在线引擎有自己的历史，不在此处理。
+     */
+    public void resetLocalSessionSequence() {
+        if (softwareLayer != null) {
+            softwareLayer.resetSessionSequence();
+        }
+    }
+
     /** 上次执行是否被中断、可以"继续"（UI 据此显示入口） */
     public boolean hasPendingInterruptedRound() {
         return engine.hasPendingInterruptedRound();

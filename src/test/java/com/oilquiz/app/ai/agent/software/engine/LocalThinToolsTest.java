@@ -376,6 +376,126 @@ public class LocalThinToolsTest {
         assertFalse("JSON 被截断时不能残留半截", truncated.contains("\"name\""));
     }
 
+    /**
+     * REPEAT-WHITELIST(2026-11-02)：异步轮询类调用不参与"同参去重"，其余照旧。
+     * 判据必须按 (工具, action) 精确匹配——按工具名一刀切会把 exec/写操作一起放过。
+     */
+    @Test
+    public void repeatablePollingWhitelistMatchesToolAndAction() throws Exception {
+        java.lang.reflect.Method m = AgentLoopEngine.class.getDeclaredMethod(
+                "isRepeatablePollingCall", String.class, String.class);
+        m.setAccessible(true);
+        java.util.function.BiFunction<String, String, Boolean> allow = (tool, action) -> {
+            try {
+                return (Boolean) m.invoke(null, tool, action);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        };
+
+        assertTrue("import_status 按 taskId 轮询，整个工具豁免", allow.apply("import_status", ""));
+        assertTrue(allow.apply("dashscope_media", "query"));
+        assertFalse("提交动作不能豁免（重复提交=重复计费）", allow.apply("dashscope_media", "video"));
+        assertTrue(allow.apply("screen_watch", "status"));
+        assertFalse(allow.apply("screen_watch", "start"));
+        assertTrue(allow.apply("linux_shell", "termux_status"));
+        assertTrue(allow.apply("linux_shell", "termux_wake"));
+        assertFalse("同一命令反复执行要拦", allow.apply("linux_shell", "exec"));
+        assertTrue(allow.apply("remote_dsh", "get_status"));
+        assertFalse(allow.apply("remote_dsh", "run"));
+        assertFalse("普通搜索不受影响", allow.apply("network_search", "search"));
+        assertFalse(allow.apply(null, "query"));
+    }
+
+    /**
+     * READ-PAGE(2026-11-02)：大文件必须能续读。真实工具 file_reader 有 read_lines(startLine,endLine)，
+     * 但薄工具曾把 action 钉死成 read —— 模型一次看不完就再也读不到后半段（只能猜）。
+     * 本测试锁三件事：① 薄 schema 暴露 start_line/end_line；② 带 start_line 时 translate 改走
+     * read_lines；③ 不带时仍是 read（普通读取行为不变）。
+     */
+    @Test
+    public void readFileThinToolPagesViaReadLines() throws Exception {
+        @SuppressWarnings("unchecked")
+        Map<String, ?> thin = (Map<String, ?>) readStatic("LOCAL_THIN_TOOLS");
+        Object rf = thin.get("read_file");
+        assertTrue("read_file 薄工具必须存在", rf != null);
+
+        java.lang.reflect.Field paramsF = rf.getClass().getDeclaredField("params");
+        paramsF.setAccessible(true);
+        String[][] params = (String[][]) paramsF.get(rf);
+        Set<String> names = new HashSet<>();
+        for (String[] p : params) names.add(p[0]);
+        assertTrue("必须暴露 start_line（分页续读入口）", names.contains("start_line"));
+        assertTrue("必须暴露 end_line", names.contains("end_line"));
+
+        java.lang.reflect.Method tr = rf.getClass().getDeclaredMethod("translate", Map.class);
+        tr.setAccessible(true);
+
+        java.util.Map<String, Object> pageIn = new java.util.HashMap<>();
+        pageIn.put("path", "/sdcard/a.txt");
+        pageIn.put("start_line", "201");
+        pageIn.put("end_line", "400");
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> pageOut = (java.util.Map<String, Object>) tr.invoke(rf, pageIn);
+        assertEquals("带 start_line 必须改走 read_lines", "read_lines", pageOut.get("action"));
+        assertEquals("参数名要映射成真实工具的 camelCase", "201", pageOut.get("startLine"));
+        assertEquals("路径要映射成 file_path", "/sdcard/a.txt", pageOut.get("file_path"));
+
+        java.util.Map<String, Object> plainIn = new java.util.HashMap<>();
+        plainIn.put("path", "/sdcard/a.txt");
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> plainOut = (java.util.Map<String, Object>) tr.invoke(rf, plainIn);
+        assertEquals("不带分页参数时仍是普通 read", "read", plainOut.get("action"));
+    }
+
+    /**
+     * ALT-ACTION(2026-11-02)：失败建议必须按 (工具, action) 给。
+     * 真机反例：读网页失败却提示"用 ai_weather 查天气"——建议本身把模型带偏，
+     * 而且不能点名可能没注入的工具（PEG 逐字枚举，模型写不出来）。
+     */
+    @Test
+    public void alternativeHintIsActionAwareForNetworkSearch() throws Exception {
+        java.lang.reflect.Method m = AgentLoopEngine.class.getDeclaredMethod(
+                "getAlternativeTool", String.class, String.class);
+        m.setAccessible(true);
+
+        String read = (String) m.invoke(null, "network_search", "read_url");
+        assertTrue("读网页失败应指向网页抓取通道", read.contains("webpage_reader"));
+        assertTrue("webpage_reader 可能未注入，必须经 tool_registry 代执行", read.contains("tool_registry"));
+        assertFalse("读网页失败不该提天气", read.contains("天气"));
+
+        String search = (String) m.invoke(null, "network_search", "search");
+        assertTrue("搜索失败应指向关键词/limit", search.contains("limit"));
+        assertFalse("搜索失败不该提天气", search.contains("天气"));
+
+        assertNull("未知工具不给建议", m.invoke(null, "no_such_tool", "x"));
+    }
+
+    /**
+     * GEN-ERROR(2026-11-02)：生成失败的兜底描述必须用**真实原因**，
+     * 不能把所有失败都说成"模型没有输出"（真机：上下文被并发卸载 → 报"回答为空"）。
+     */
+    @Test
+    public void generationErrorTranslatedToAccurateReason() throws Exception {
+        java.lang.reflect.Method m = AgentLoopEngine.class.getDeclaredMethod(
+                "describeGenerationError", String.class, String.class);
+        m.setAccessible(true);
+
+        assertEquals("没有原始错误时用调用方给的默认说法",
+                "fallback", m.invoke(null, null, "fallback"));
+        assertEquals("空白错误同样回落默认说法",
+                "fallback", m.invoke(null, "  ", "fallback"));
+
+        String ctx = (String) m.invoke(null, "Helper context not initialized", "fallback");
+        assertTrue("应指出上下文未就绪", ctx.contains("未就绪"));
+
+        String timeout = (String) m.invoke(null, "chatJson timeout after 120000ms", "fallback");
+        assertTrue("应指出超时", timeout.contains("超时"));
+
+        String unknown = (String) m.invoke(null, "boom-xyz", "fallback");
+        assertTrue("未知错误保留原文供排查", unknown.contains("boom-xyz"));
+    }
+
     private static Object readInstance(Object target, String field) throws Exception {
         java.lang.reflect.Field f = target.getClass().getDeclaredField(field);
         f.setAccessible(true);

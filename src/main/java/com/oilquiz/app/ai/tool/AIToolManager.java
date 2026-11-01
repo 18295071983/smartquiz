@@ -1386,21 +1386,31 @@ public class AIToolManager {
                             + "city 与 lat/lon 不要同时传（会报参数冲突）。")
                     .build();
             case "network_search":
+                // API-CONTRACT(2026-11-02)：参数表按秘塔实测契约对齐（与本地 @Tool 注解同口径）：
+                // ①没有 page —— 带 page（连 page=0）服务端判 errCode 1000，只能调大 size；
+                // ②scope 六类（webpage/document/scholar/image/video/podcast），学术用 scholar；
+                // ③read_url 是服务端抓取，读不了的页会回服务错误码（不是 HTTP 错），要能换来源。
                 return ToolDefinition.builder("network_search", "网络搜索工具（秘塔搜索引擎驱动）：联网搜索+智能问答+网页读取。"
                         + "action: search(关键词搜索,返回标题/链接/摘要)/ask(智能问答,返回答案+引用来源)/"
                         + "read_url(读取网页正文)/get_webpage(网页原始内容)/extract_info(提取信息)/"
                         + "summarize(网页摘要)/search_and_read(搜索并读正文)/get_dynamic_content(获取JS渲染动态网页内容)/"
                         + "smart_search(智能搜索,自动读详情)/smart_read(对已有搜索结果逐条读正文生成摘要,需传results)。"
                         + "涉及实时/最新/动态信息（新闻、价格、天气、汇率、政策、热点）用联网搜索获取，训练数据不采纳。"
-                        + "别名: search。")
+                        + "问一般问题默认用 ask（要结论）；只有要一批来源/链接/原文时才用 search 等其它 action。"
+                        + "秘塔按次计费（一次调用扣一次额度，与返回条数无关），一次问清楚、一次把 limit 给够，别反复调；"
+                        + "ask 出答案要几十秒是正常的，慢不等于失败，不要因此重试。别名: search。")
                     .addParameter("action", "string", "操作类型: search(搜索)/ask(智能问答)/read_url(网页读取)/get_webpage/extract_info/summarize/search_and_read/get_dynamic_content/smart_search/smart_read", false, "search")
                     .addParameter("query", "string", "搜索关键词（用于search/search_and_read/smart_search等操作）", false)
                     .addParameter("question", "string", "问题（用于ask操作，秘塔智能问答，返回答案+引用来源）", false)
                     .addParameter("model", "string", "问答模型: concise(简洁)/detail(深入)/research(研究)（用于ask操作）", false, "concise")
                     .addParameter("keyword", "string", "搜索关键词（query的别名）", false)
-                    .addParameter("limit", "integer", "结果数量限制，默认5", false, 5)
+                    .addParameter("limit", "integer", "返回条数（1..50，默认5）。接口不支持翻页，要更多结果就调大它，别找下一页", false, 5)
                     .addParameter("num_results", "integer", "返回结果数量（limit的别名）", false, 5)
+                    .addParameter("scope", "string", "搜索范围: webpage(默认)/document(文库)/scholar(学术文献)/image/video/podcast；找论文用 scholar", false, "webpage")
+                    .addParameter("include_summary", "boolean", "是否返回内容摘要（默认true；关掉只剩标题+链接，更容易编造）", false, true)
                     .addParameter("url", "string", "网页URL（用于read_url/get_webpage/get_dynamic_content操作）", false)
+                    .addParameter("start_char", "integer", "read_url 正文起始字符偏移（默认0，续读用）", false)
+                    .addParameter("max_chars", "integer", "read_url 本次最大字符数（默认0=整篇；长文建议4000分批读）", false)
                     .addParameter("maxResults", "integer", "最大结果数（smart_search用）", false, 5)
                     .addParameter("autoRead", "boolean", "是否自动读取详情（smart_search用）", false, true)
                     .addParameter("results", "array", "搜索结果数组（smart_read用，传上一步search返回的results）", false)
@@ -1532,6 +1542,10 @@ public class AIToolManager {
                     .addParameter("query", "string", "搜索查询词(相关性计算用)", false)
                     .addParameter("maxDepth", "integer", "最大链接深度(follow_links用，默认2)", false, 2)
                     .addParameter("maxLinks", "integer", "最大链接数量(follow_links用，默认10)", false, 10)
+                    // WEB-PAGE(2026-11-02)：与本地 @Tool 注解同口径 —— 长正文按字符续读，
+                    // 不声明就等于让模型一次吞整篇然后被截断。
+                    .addParameter("start_char", "integer", "read 正文起始字符偏移（默认0，续读用）", false)
+                    .addParameter("max_chars", "integer", "read 本次返回最大字符数（默认0=整篇；长文建议4000，读完一段再取下一段）", false)
                     .category("web")
                     .build();
             case "linux_shell":

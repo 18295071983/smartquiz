@@ -2253,6 +2253,18 @@ public class AIService implements ComponentCallbacks2 {
      */
     public boolean switchModel(String modelName) {
         synchronized (modelInitLock) {
+            // SWITCH-NOOP(2026-11-02)：目标正是"当前已完全就绪"的模型时不卸载重载。
+            // 真机复现：应用启动预加载(switchModel)与调试通道/发送侧 initializeAsync 并发，
+            // 后者刚把模型+chat context 建好并开始推理，前者又把同名模型 chatDestroy+release，
+            // 本轮回立刻报 "Helper context not initialized"（整轮空转）。
+            // 需要强制重载同一模型请走 reloadModelAsync()，它才是显式"释放再加载"的入口。
+            if (modelName != null && !modelName.isEmpty()
+                    && modelName.equals(currentModelName)
+                    && LlamaHelper.isModelInitialized()
+                    && LlamaHelper.isNativeStateValid()) {
+                AILogger.i(TAG, "switchModel: " + modelName + " 已就绪，跳过卸载重载");
+                return true;
+            }
             AILogger.i(TAG, "Switching to model: " + modelName);
 
             // 使用内存管理器检查内存

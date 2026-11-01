@@ -42,6 +42,30 @@ public final class ToolSideEffects {
         return toolName != null && READONLY_IDEMPOTENT_TOOLS.contains(toolName);
     }
 
+    /**
+     * 按次付费工具（2026-11-02）：只读，但**每次调用都扣额度**（秘塔一次调用 3 积分）。
+     *
+     * <p>"只读所以超时可以重试"这条推论在这里不成立：超时不代表没执行，服务端多半已经受理并计费了，
+     * 自动重试等于**同一件事扣两三次钱**（{@code MAX_RETRY=2} 就是三次）。所以这类工具
+     * 允许缓存（缓存恰恰是在省钱），但**超时/异常都不自动重试**，把"要不要再来一次"交给模型和用户。</p>
+     */
+    private static final Set<String> BILLED_PER_CALL_TOOLS = new HashSet<>(Arrays.asList(
+            "network_search", "smart_research"
+    ));
+
+    /** 该工具是否按次计费：可缓存，但绝不自动重试 */
+    public static boolean isBilledPerCall(String toolName) {
+        return toolName != null && BILLED_PER_CALL_TOOLS.contains(toolName);
+    }
+
+    /**
+     * 超时后是否允许自动重试。
+     * 有副作用（可能已执行一半）或按次付费（已经扣过一次）都不允许。
+     */
+    public static boolean mayRetryOnTimeout(String toolName) {
+        return isReadOnlyIdempotent(toolName) && !isBilledPerCall(toolName);
+    }
+
     /** 该工具是否有副作用：不缓存结果，超时不重试 */
     public static boolean hasSideEffects(String toolName) {
         return !isReadOnlyIdempotent(toolName);

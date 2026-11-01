@@ -62,6 +62,55 @@ public class ToolRegistryTool implements AITool {
         return "工具注册表(MCP式工具发现)：列出可用工具(list)、按关键词搜索工具(search)、获取单个工具完整参数schema(get)。模型不确定有哪些工具或需要某工具详细参数时调用，避免猜测工具名/参数。";
     }
 
+    /**
+     * CALL-TIMEOUT(2026-11-02)：{@code call} 是**代执行别的工具**，等待时长必须跟着被代执行的那个工具走。
+     *
+     * <p>否则发现通道会把慢工具判成失败：{@code network_search(action=ask)} 自己申报 180 秒，
+     * 但经 {@code tool_registry(call)} 执行时只享受调用方基线（本地 15 秒），
+     * 结果就是"秘塔明明答得上来，却因等 15 秒被判失败"，而它按次计费、这一次已经扣掉了。</p>
+     */
+    @Override
+    public long executionTimeoutMs(java.util.Map<String, Object> args) {
+        try {
+            if (args == null || !"call".equals(String.valueOf(args.get("action")))) return 0L;
+            Object t = args.get("tool");
+            if (t == null) return 0L;
+            String target = String.valueOf(t).trim();
+            if (target.isEmpty() || "tool_registry".equals(target) || context == null) return 0L;
+            com.oilquiz.app.ai.tool.AITool inner =
+                    com.oilquiz.app.ai.tool.AIToolManager.getInstance(context).getTool(target);
+            if (inner == null) return 0L;
+            java.util.Map<String, Object> innerArgs = parseCallArgs(args.get("args"));
+            return inner.executionTimeoutMs(innerArgs);
+        } catch (Throwable ignored) {
+            // 申报只是"允许多等一会儿"，读不到就退回调用方基线，绝不能把一次正常调用判成失败
+            return 0L;
+        }
+    }
+
+    /** call 的 args 可能是 Map 也可能是 JSON 字符串（模型两种都会写），两种都要能读出来算超时。 */
+    private static java.util.Map<String, Object> parseCallArgs(Object rawArgs) {
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        if (rawArgs == null) return out;
+        if (rawArgs instanceof java.util.Map) {
+            for (java.util.Map.Entry<?, ?> e : ((java.util.Map<?, ?>) rawArgs).entrySet()) {
+                out.put(String.valueOf(e.getKey()), e.getValue());
+            }
+            return out;
+        }
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(String.valueOf(rawArgs).trim());
+            java.util.Iterator<String> it = o.keys();
+            while (it.hasNext()) {
+                String k = it.next();
+                out.put(k, o.get(k));
+            }
+        } catch (Exception ignored) {
+            // 解析不出就按基线等，callTool 自己会给出"args 不是合法 JSON 对象"的错误
+        }
+        return out;
+    }
+
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
         try {
@@ -144,7 +193,7 @@ public class ToolRegistryTool implements AITool {
         return r != null ? r : new AIToolResult("工具执行无返回: " + target, parameters);
     }
 
-    private AIToolResult listTools(Map<String, Object> parameters) {
+     private AIToolResult listTools(Map<String, Object> parameters) {
         try {
             com.oilquiz.app.ai.tool.AIToolManager mgr =
                     com.oilquiz.app.ai.tool.AIToolManager.getInstance(context);
@@ -198,9 +247,10 @@ public class ToolRegistryTool implements AITool {
                 t.put("name", toolName);
                 if (detail) {
                     Object desc = d.get("description");
-                    // 目录用途：描述截断到 40 字，防工具结果 16KB 截断变非法 JSON
+                    // NO-CLIP(2026-11-02，用户口径"api 返回的数据不要截断")：目录描述**全文返回**。
+                    // 以前切 40/120 字，正好把"默认用 ask""按次计费"这类关键口径切成半句，
+                    // 模型在发现通道里读到残句只能靠猜；描述是给它看的，给全才起作用。
                     String s = desc != null ? String.valueOf(desc) : "";
-                    if (s.length() > 40) s = s.substring(0, 40) + "…";
                     t.put("description", s);
                     if (!aliasList.isEmpty()) t.put("aliases", aliasList);
                 }
@@ -246,7 +296,7 @@ public class ToolRegistryTool implements AITool {
                 if (hitName || hitAlias != null || hitDesc) {
                     Map<String, Object> t = new HashMap<>();
                     t.put("name", name);
-                    if (desc.length() > 60) desc = desc.substring(0, 60) + "…";
+                    // NO-CLIP(2026-11-02)：搜索结果同样给全文描述，不裁字数。
                     t.put("description", desc);
                     if (!kw.isEmpty()) {
                         t.put("matched", hitName ? "name" : (hitAlias != null ? "alias" : "description"));
@@ -292,7 +342,7 @@ public class ToolRegistryTool implements AITool {
             }
             // 2026-09-23 v2（模型自测反馈修复）：get 返回完整参数说明（name/type/required/description），
             // 模型当轮即可看到类型/枚举/约束（如互斥、字节限制），不再"只能靠猜"；
-            // description 截断 80 字防超长。同时引擎层仍会把该工具定义注入会话工具缓存
+            // description 全文返回（2026-11-02 起不再截断）。同时引擎层仍会把该工具定义注入会话工具缓存
             // （发现制闭环），下一轮 tools 数组即携带完整 schema 可直接调用。
             // v3：全部用原生集合（Gson 输出干净 JSON），不再 org.json + toString 转义
             // 2026-10-29（评审 REVIEW-2026-1029-01）：
@@ -300,8 +350,8 @@ public class ToolRegistryTool implements AITool {
             //     别名/回退必须明说"这是替换的结果"，否则模型把猜的当事实；
             //  ② 带上工具级 description：旧名（python_file_ops）被别名带到只读的 document_parser 时，
             //     正是这句"不写文件——写/改/差异请用 file_generator"能拦住乱调；
-            //  ③ 参数描述 80→160 字并带 description_truncated 标记，有枚举就单列 enum，
-            //     不再把 file_generator.action 的枚举切尾。
+            //  ③ 参数描述有枚举就单列 enum；2026-11-02 起描述一律给全文，
+            //     不再切 file_generator.action 的枚举尾巴，也不再标 description_truncated。
             List<Map<String, Object>> keys = new ArrayList<>();
             if (def.getParameters() != null) {
                 for (com.oilquiz.app.ai.tool.openai.ParamDefinition p : def.getParameters()) {
@@ -310,12 +360,8 @@ public class ToolRegistryTool implements AITool {
                     k.put("type", p.getType() != null ? p.getType() : "");
                     k.put("required", p.isRequired());
                     String d = p.getDescription() != null ? p.getDescription() : "";
-                    if (d.length() > 160) {
-                        k.put("description", d.substring(0, 160) + "…");
-                        k.put("description_truncated", true);
-                    } else {
-                        k.put("description", d);
-                    }
+                    // NO-CLIP(2026-11-02)：参数说明给全文（原来 160 字 + truncated 标记）。
+                    k.put("description", d);
                     java.util.List<String> enums = p.getEnumValues();
                     if (enums != null && !enums.isEmpty()) {
                         k.put("enum", new ArrayList<>(enums));
@@ -329,12 +375,8 @@ public class ToolRegistryTool implements AITool {
             result.put("matched_by", matchedByLabel(res.match));
             result.put("hint", hintFor(res.match, toolName, def.getName()));
             String tdesc = def.getDescription() != null ? def.getDescription() : "";
-            if (tdesc.length() > 400) {
-                result.put("description", tdesc.substring(0, 400) + "…");
-                result.put("description_truncated", true);
-            } else {
-                result.put("description", tdesc);
-            }
+            // NO-CLIP(2026-11-02)：工具级描述同样给全文（原来 400 字 + truncated 标记）。
+            result.put("description", tdesc);
             java.util.List<String> aliases = mgr.aliasesOf(def.getName());
             if (!aliases.isEmpty()) result.put("aliases", aliases);
             result.put("param_keys", keys);

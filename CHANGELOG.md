@@ -1,5 +1,122 @@
 # 变更日志
 
+## [2026-11-02] fix(engine+registry)：API 返回的数据不再截断；按次付费的工具不自动重试；发现通道继承申报超时
+
+用户三条口径，都是行为层的，不是文案层的：
+**"api 返回的数据不要截断"**、**"返回的数据条数模型可以自己设置"**、**"每次调用都是 3 积分，与条数无关"**。
+
+- **本地引擎以前替模型砍数据**：`formatToolResultForModel` 三档裁剪（数组只留前 8 条并标 `omitted`、
+  单字段 400 字、正文/总长 6000 字），超了改写成 `{"truncated":true,"data":"<前缀>"}`。
+  条数的决定权本该在模型的 `limit`（1..50）里 —— 引擎砍掉的每一条都是**已经花 3 积分买回来的条目和摘要**，
+  模型看不见就用自己的知识补，既白花钱又造幻觉。现在一律原样给：`shrinkForModel` / `isBodyField` /
+  `MAX_RESULT_ARRAY_ITEMS` / `MAX_RESULT_STRING_CHARS` 全部删除，只在结果超提示线时补
+  `size_chars` + `note`（"本结果完整给出，未截断…"）并打 W 日志。
+- **"超了就说"而不是"超了就裁"**：`trimHistoryToFit` 挤的只是**更早的整条历史**（丢旧对话，不丢本次数据；
+  要点仍一次性缓存，前缀字节稳定不受影响）；若挤完仍超预算，安全网把**是谁撑爆的**写进退出归因
+  （`<工具名> 返回了 N 字符（未截断），已超出本轮上下文预算`），不再是一句含糊的"上下文已满"。
+  在线 `OnlineToolManager` 的超长结果是"落盘 + 指针"（全文在文件里），那是它的不裁形式，保持不动。
+  留一处**显式可续读**的分页并说明理由：`read_file` 自动合并仍限 3 页 / ≤2×6000 字符，超限写"可用
+  `start_line=N` 继续"——它切的是工作区文件不是 API 数据，且明确给了拿回剩下的路。要一并放开请说一声。
+- **发现通道 `tool_registry` 的描述以前被按字数切**（list 40 / search 60 / 参数 160 / 工具级 400，
+  还带 `description_truncated`）。切 40/60 字正好把"默认用 ask""按次计费"切成半句，模型在发现通道里
+  读到残句只能靠猜。现在四处都不切，`clipAtSentence` 与 `description_truncated` 一起下线。
+- **按次付费 ⇒ 三条执行路径都不自动重试**：判据集中在 `ToolSideEffects`
+  （新增 `BILLED_PER_CALL_TOOLS={network_search, smart_research}`、`isBilledPerCall`、`mayRetryOnTimeout`
+  = 只读幂等 && !按次付费）。"只读所以超时可以放心重试"这条推论在这里不成立：超时不代表没受理，
+  而受理就计费，在线 `MAX_RETRY=2` 等于最多扣三次。三处消费者：`OnlineToolManager` 超时分支、
+  `AgentService.executeWithRetry`（新增一档）、`AgentLoopEngine` 同参重跑 ——
+  本地那条以前写死 `!"network_search".equals(toolName)`，`smart_research`（内部也是秘塔调用）照样被重跑。
+  失败文案也不再写"再试一次就好"。
+- **发现通道继承被代执行工具的申报超时**：`ToolRegistryTool.executionTimeoutMs` 在 `action=call` 时
+  解析 `tool`+`args`（Map 与 JSON 字符串两种写法都认）返回内层工具的申报值。否则
+  `tool_registry(call, network_search ask)` 只享受基线 15 秒 —— 秘塔明明答得上来，却因等 15 秒被判失败，
+  而这一次已经扣掉了。
+- **第三处独立文案修脏**：`NetworkSearchTool.getParameterDescriptions()`（`AgentToolView` 与
+  `AIToolCreatorTool` 会读出来当"工具说明"）还留着早已删除的 `get_weather`/`location`，
+  且没有 ask/scope/include_summary/分段参数 —— 与真正下发的 schema 两套说法，已按同口径重写。
+- 文档：`docs/metaso-network-search-contract-2026-11-02.md` 新增 **4.5 API 返回的数据不截断**，
+  第五节可见面清单补到九处并加第 9 行（参数说明表）。
+- 验证（用户随后自测通过，我不再跑真机）：全量单测 **1361 绿**（0 failures / 0 errors / 0 skipped，
+  跑前清 `test-results`），`MetasoBillingAndDiscoveryTest` 新增 2 条不裁不变量
+  （引擎不许再出现 `shrinkForModel(`/`out.substring(0, MAX_TOOL_RESULT_LENGTH)`，
+  注册表不许再出现 `clipAtSentence(`/`put("description_truncated"`）。**未提交**，等授权。
+
+## [2026-11-02] fix(search)：按次计费与 ask 的真实语义收口——判定只看错误码，不再按耗时定性
+
+用户口径两条，之前我都没按它做：**秘塔一次调用扣 3 积分，与返回条数无关**；**一般回答用 ask 就够，
+ask 只是慢（边搜边生成），不要把慢当工具失败**。这两条推翻了上一轮"结果不够就再搜一次"的建议口径
+（多问一次才花钱，多看几条不花钱），也暴露出一个真 bug。
+
+- **本地执行路径把 ask 判成失败**：`AgentLoopEngine` 对所有工具套 `TOOL_TIMEOUT_MS=15s`，
+  而 ask 普遍要几十秒 → 每次都是"工具超时(15秒)"，模型接着重试，**每次重试都是真扣 3 积分**。
+  现在按仓库既有的单一写者口径走 `ToolTimeouts.effectiveMs(基线, 工具自声明)`
+  （在线 `OnlineToolManager`、对话页 `AgentService` 早就接了，本地这条是唯一没接的），
+  并行批次取各调用的最大值；工具侧 `NetworkSearchTool.executionTimeoutMs` 申报 ask 180s / 其它 60s。
+- **HTTP 层也得放宽**：共享 OkHttp 客户端 `readTimeout=30s` 会先掐断，工具层申报多少都没用；
+  改为 `clientFor(...)` 按申报值派生（连接池仍共享，两档各缓存一份）。
+- **定性只看码，不看耗时**：三端（search/reader/open search v2）统一走
+  `peekMetasoErrorCode`/`extractMetasoErrorCode`（认 `errCode`+`code` 两种键族）→ `metasoErrorText(code,msg)`。
+  已知码只写实测过的 1000/4000/5000，各自带"下一步动作"（1000 改参数、4000 换来源、5000 查 Key/额度），
+  未知码原样带编号与消息不编造含义；401/403/429 按鉴权与限流分别说。
+  搜索与问答的解析器以前会把业务码**吞成"0 条结果"/null**——现在解析层显式 `catch (IllegalStateException) { throw }`
+  让码穿到模型面前，否则表现就是"搜不到→换个词再搜→还搜不到"，一路烧额度。
+- **降级不再二次扣费**：ask 失败时只有 404/405（端点不存在=能力缺失）才自动补打一次 search
+  （`mode=search_fallback` 里写明"回退同样算一次调用"）；业务码错误、5xx、限流、传输异常都不自动补打。
+  超时分支以前靠"消息里含 timeout"判断，已删除——那是用时间代替错误码。
+- **六处可见面同步两句新口径**（`默认用 ask` / `按次…与条数无关` / `慢不是失败`）：注解与 `getDescription()`、
+  `AIToolManager` 的 ToolDefinition（本地注入与 `tool_registry(get)` 的共同权威）、`AgentService.registerToolSchema`、
+  本地 FC 提示词、在线提示词 2.5 条、`AIToolUsageGuide` 10.1 与工作区速查表两份拷贝。
+  失败建议也改了：`ask` 失败不再说"稍后重试"，而是"别急着重试（按次扣额度），可改用 search 或把问题拆具体"。
+- **缺参数提示改成"下一步指令"**（`missingParam`）：真机 2B 把网址塞进 `query` 去调 `read_url`，
+  拿到一句 `Missing required parameter: url` 就转去 `search` 那条链接 —— 一次完全没必要的联网调用
+  （按次扣额度）。10 处缺参分支现在都说明"这个 action 要填什么、别填成什么"
+  （read_url→url 并给出示例、ask→question 不是关键词、search→query 而不是网址）。
+- 契约文档补了 4.1（只看码定性）与 4.2（超时由工具申报、三条路径共用）两节：
+  `docs/metaso-network-search-contract-2026-11-02.md`。在线 golden 随 2.5 条重生成（两文件各 +1 行，逐字看过）。
+- 验证：全量单测 1353 绿（0 failures/0 errors/0 skipped，跑前清了 test-results 避免旧 XML）；
+  `MetasoSearchContractTest` 新增 4 条不变量（计费与 ask 默认口径出现在每一处可见面；
+  只看码不看耗时 + 本地引擎走 ToolTimeouts + 自动降级只剩 1 处；ask 申报 180s 且真能压过 15s 基线）。
+  真机复跑：ask 走通（HTTP 200 + answer + balance，不再被 15 秒判死）；
+  `read_url` 对 `metaso.cn` 首页回 HTTP 200 + `errCode 4000` → 现在报成
+  "秘塔未找到相关数据(4000)…换一个来源"并附 action 级替代方案；模型这次直接填对了 `url`，没再绕去 `search`。
+  **未提交**，等授权。
+
+## [2026-11-02] fix(search+engine)：按实测契约收口秘塔联网搜索，并把三处"假成功/假归因"改掉
+
+对齐依据不是文档二手转述，而是两份能跑的参考实现 + 真机响应复核：`meta-sota/metaso-sdk`
+（`ask` 那条：`/api/open/search/v2`）与 `HundunOnline/mcp-metaso`（`search`/`reader` 那条：`/api/v1`，
+scope→结果键名映射表、`size` 传字符串、reader 只传 `{url}`）。完整口径与验证姿势见
+`docs/metaso-network-search-contract-2026-11-02.md`。
+
+- **`page` 是这次所有"搜索没结果"的根源，已从可见面彻底摘掉**：真机实测带 `page`（连 `page=0`）
+  服务端返回 HTTP 200 + `{"errCode":1000,"errMsg":"请求参数错误"}`，而旧解析器**不看 errCode**，
+  于是"参数错误"被读成"搜到 0 条"，模型据此反复重搜（日志里见过连续 5 次同参搜索）。
+  现在：body 不再带 `page`；模型/旧会话残留传了就只记 WARN 并忽略；`limit` 写明 1..50 且"没有翻页"。
+  曾按 SEO 文章写过"支持真分页（page×size≤1000）"，那条结论已作废——那类文章是 AI 生成的。
+- **reader 的"假成功"**：读不了的页面（例：`https://metaso.cn/` 这类 SPA）返回 200 +
+  `{"errCode":4000,"errMsg":"未找到相关数据"}`，旧实现把这段错误 JSON 当正文交给模型。
+  现在识别 errCode 判成工具失败，且文案写成"服务错误码 4000（…）"——只写 `失败(4000)` 时
+  2B 会读成"HTTP 400"并编出一段解释。同时 reader 返回体是 JSON（`markdown` 字段才是正文），
+  不再"JSON 套 JSON"。
+- **`scope` 从写死放开**：六类 `webpage/document/scholar/image/video/podcast`（学术是 **`scholar` 不是 `paper`**，
+  `paper` 归一过去），解析按参考实现的"scope→结果键名"表逐一试。`scholar` 已真机验证（200/3 条 arxiv 源）；
+  `image/video/podcast` 未单独验证，文档里标了 `✗`。非法值会静默退回 `webpage`，所以结果里**回显实际生效 scope**，
+  组合动作 `search_and_read`/`smart_search` 也显式透传 `scope`/`include_summary`，不再悄悄降级成普通网页。
+- **模型可见面六处一起改**（改一处必对账六处，见文档第五节）：`AIToolManager.getToolDefinition`
+  （本地注入与 `tool_registry(get)` 的共同权威）、`@Tool/@Action/@Param` 注解、
+  `AgentService.registerToolSchema`（native FC 路径）、本地 FC 提示词、在线提示词 2.5 条、
+  `AIToolUsageGuide` 10.1 条与工具一览表。另把第七个可见面——失败观察文本
+  `getAlternativeTool(tool, action)`——按 action 分开：`read_url` 失败指向"换来源 / `tool_registry` call `webpage_reader`"，
+  不再对读网页失败说"用 ai_weather 查天气"；且不直接点名可能没注入的工具（native PEG 按本轮 tools 数组逐字枚举工具名）。
+- **顺带修掉两处引擎侧问题**：① `AIService.switchModel` 对"同名且已就绪"的模型原本无条件
+  `chatDestroy+release` 再重载，与启动预加载/调试通道的 `initializeAsync` 并发时会把刚建好的
+  chat context 拆掉，整轮空转报 `Helper context not initialized`（现在 no-op，需强制重载走 `reloadModelAsync`）；
+  ② 生成失败的兜底描述以前一律说成"模型没有输出"，现在保留并翻译真实原因
+  （上下文未就绪/超时/内存不足/取消/原文），弹框、单次解释、静态兜底共用同一句。
+- 验证：全量单测 1344 绿（0 failures/0 errors/0 skipped），新增 2 条不变量测试锁住
+  "失败建议按 action"与"错误原因翻译"；`assembleDebug` + 真机装包后逐条复跑（冷启动竞态、
+  scholar 搜索、arxiv 阅读、metaso.cn 读取失败）。**未提交**，等授权。
+
 ## [2026-11-01] docs(agent)：补说明——本地提示词重写、取消输出硬帽与模型可见面裁剪（代码已在 `0eec1e4d`/`bbfa0934` 内）
 
 这一轮的**代码不在本条提交里**：它被同分支的并行会话连着自己的改动一起提交了，
