@@ -903,13 +903,17 @@ public class AIChatActivity extends BaseActivity {
                 chipLocalAgent.setChecked(aiConfig.isLocalAgentEnabled());
                 updateAgentChip(chipLocalAgent);
                 chipLocalAgent.setOnClickListener(v -> {
+                    // ROUTE-UNIFIED(2026-11-01)：这个开关现在只决定"本轮注不注入工具"，
+                    // 不再决定走不走 Agent 引擎（本地/在线统一进引擎，见 processChatMessage 注释）。
+                    // 关掉 = 引擎的普通对话分支：同一套 system/日期/人设/会话与 KV，只是不带工具，
+                    // 首轮少注入约 2k tokens 的工具 schema，所以文案仍叫"更快"。
                     boolean next = !aiConfig.isLocalAgentEnabled();
                     aiConfig.setLocalAgentEnabled(next);
                     chipLocalAgent.setChecked(next);
                     updateAgentChip(chipLocalAgent);
                     showToast(next
-                            ? "智能助手已为您服务"
-                            : "智能助手已关闭：已进入快速模式");
+                            ? "智能助手已开启：可调用天气/搜索/文件/记忆等工具"
+                            : "智能助手已关闭：不调用工具（更快）");
                 });
             }
 
@@ -5119,23 +5123,15 @@ public class AIChatActivity extends BaseActivity {
                 }
             } catch (Throwable ignored) {
             }
-            boolean npuFastChat = isNpuEngineOn() && !(aiConfig != null && aiConfig.isLocalAgentEnabled());
-            if (npuFastChat) {
-                AppLogger.ai(TAG, "NPU 普通对话模式（智能助手关；不注入工具，prompt 更小）");
-                processChatMessageNormal(message);
-                return;
-            }
-
-            if (shouldUseOnlineModel()
-                    || (aiConfig != null && aiConfig.isLocalAgentEnabled())) {
-                // 不再发"收到你的消息/正在思考中"这类伪过程消息：
-                // 引擎过程由执行组 + 思考行承担，避免消息流里出现重复的状态卡
-                processChatMessageWithAgent(message);
-                return;
-            }
-
-            // 其他：本地模型普通对话（深度思考模式在其中处理）
-            processChatMessageNormal(message);
+            // ROUTE-UNIFIED(2026-11-01)：在线与本地统一走 Agent 引擎。
+            // 在线本来就不看"智能助手"开关（shouldUseOnlineModel() 直接进 processChatMessageWithAgent）；
+            // 本地此前按开关分叉出"普通对话"（不注入工具、也没有工具发现入口），两套 prompt/KV 语义并存。
+            // 现在收成一条路：「智能助手」只决定本轮注不注入工具（引擎内 isFcEnabled 分流），
+            // 不再决定走不走引擎。
+            AppLogger.ai(TAG, "统一路由：本地/在线都进 Agent 引擎（工具开关="
+                    + (aiConfig != null && aiConfig.isLocalAgentEnabled()) + "）");
+            processChatMessageWithAgent(message);
+            return;
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error in processChatMessage: " + e.getMessage());
             endGeneration();
@@ -5634,14 +5630,9 @@ public class AIChatActivity extends BaseActivity {
             // 检测是否使用在线模型
             boolean useOnlineModel = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
 
-            // 本地模型：默认降级普通对话；仅当显式开启"本地 Agent"实验开关时放行，
-            // 由 AgentChatHandler.startAgentLoop 内部再分流到 AgentSoftwareLayer（本地可调用工具）
-            boolean localAgentEnabled = aiConfig != null && aiConfig.isLocalAgentEnabled();
-            if (!useOnlineModel && !localAgentEnabled) {
-                addSystemMessage("🤖 本地 Agent 未开启，已使用普通对话；开启“本地 Agent”开关后，本地模型可调用天气/时间/位置/搜索/记忆等工具。");
-                processChatMessageNormal(message);
-                return;
-            }
+            // ROUTE-UNIFIED(2026-11-01)：不再因"本地 Agent 开关关闭"降级到普通对话。
+            // 开关现在只决定引擎内是否注入工具（isFcEnabled）；关着时引擎走普通对话分支，
+            // 仍然走同一套会话/KV/prompt 语义。原来的降级提示也就不再需要。
 
             // 在线视觉追问：上一轮发过图、当前纯文字且在线模型支持视觉 → 自动复用该图做视觉理解
             // （置于 Agent 引擎就绪检查前，看图问答不必走完整 Agent 工具循环）

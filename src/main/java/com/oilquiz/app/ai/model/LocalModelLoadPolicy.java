@@ -21,6 +21,12 @@ import com.oilquiz.app.ai.refactor.AIConfig;
  * <p>口径：<b>主动</b>加载（启动预加载、回前台热启动）只在"没有激活的在线模型
  * <b>且</b> 本地 Agent 开着"时允许。用户显式点"加载模型/开始本地对话"不受这里限制——
  * 那条路走 {@code loadModel}，不经过本类。</p>
+ *
+ * <p><b>ROUTE-UNIFIED(2026-11-01) 之后这个开关的语义变了</b>：路由已统一进 Agent 引擎
+ * （本地/在线一致，见 {@code AIChatActivity.processChatMessage}），{@code localAgentEnabled}
+ * 现在只表示"本轮注不注入工具"。本类仍沿用它作为"用户想要本地能力"的代理信号——
+ * 理由：关掉开关既不需要工具、也不该在后台替用户常驻 2.6GB 权重；真正的本地对话请求
+ * 会在发送时按需装载（不走本类）。若以后把"工具开关"与"本地模式开关"拆开，这里要跟着改。</p>
  */
 public final class LocalModelLoadPolicy {
 

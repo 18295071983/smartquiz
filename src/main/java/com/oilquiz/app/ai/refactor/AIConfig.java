@@ -60,7 +60,8 @@ public class AIConfig {
     private boolean intentRecognitionEnabled = true;
     private boolean agentEnabled = true; // 启用 Agent 模式
     private boolean useJsonProtocol = true;      // 本地推理 JSON 协议开关（spec §10.2 回退用）
-    private boolean localAgentEnabled = false;   // 本地 Agent 开关（开启后自动启用 FC 工具调用循环）
+    /** 本地 Agent 开关（同时就是 FC 工具调用开关；路由已统一进 Agent 引擎，本开关只决定是否注入工具） */
+    private boolean localAgentEnabled = false;
     private OptimizationMode optimizationMode = OptimizationMode.BALANCED;
 
     public AIConfig(Context context) {
