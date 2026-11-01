@@ -33,12 +33,14 @@ import java.util.Map;
     actions = {
         @Action(name = "list", description = "列出全部可用工具名（默认只回名字，detail=true 才带简短描述；按关键词找工具请用 search）"),
         @Action(name = "search", description = "按关键词搜索工具"),
-        @Action(name = "get", description = "获取单个工具的完整参数schema")
+        @Action(name = "get", description = "获取单个工具的完整参数schema"),
+        @Action(name = "call", description = "代执行一个已注册工具：tool=工具名，args=参数JSON对象字符串。用于当前工具集里没有该工具、但又必须调用的场景")
     },
     params = {
-        @Param(name = "action", type = "string", description = "list/search/get", required = true),
+        @Param(name = "action", type = "string", description = "list/search/get/call", required = true),
         @Param(name = "keyword", type = "string", description = "关键词：search 搜索；list 按名/描述过滤（可选）", required = false),
-        @Param(name = "tool", type = "string", description = "工具名(仅get用)", required = false),
+        @Param(name = "tool", type = "string", description = "工具名（get/call 用）", required = false),
+        @Param(name = "args", type = "string", description = "call 的参数 JSON 对象字符串，如 {\"path\":\"/sdcard/a.txt\"}", required = false),
         @Param(name = "detail", type = "boolean", description = "list 是否带描述（默认 false，只回工具名）", required = false)
     }
 )
@@ -81,13 +83,65 @@ public class ToolRegistryTool implements AITool {
                     }
                     return getToolSchema(toolObj.toString());
                 }
+                case "call":
+                    return callTool(parameters);
                 default:
-                    return new AIToolResult("未知操作: " + action + "（支持 list/search/get）", parameters);
+                    return new AIToolResult("未知操作: " + action + "（支持 list/search/get/call）", parameters);
             }
         } catch (Exception e) {
             Log.e(TAG, "工具注册表执行失败: " + e.getMessage(), e);
             return new AIToolResult("工具注册表执行失败: " + e.getMessage(), parameters);
         }
+    }
+
+    /**
+     * CALL(2026-11-01)：代执行一个「发现到的」工具。
+     *
+     * <p>为什么必须有这一档：本地 Agent 的工具名由 native PEG <b>逐字枚举</b>注入的 schema，
+     * 会话中途把新工具塞进工具集会毁掉 tools 前缀 → 全量 re-prefill（实测 ~20s 首字）。
+     * 所以发现必须能直接落地为执行，否则 list/get 只是给模型看一眼它根本调不到的东西。</p>
+     *
+     * <p>约束：args 接受 JSON 对象字符串或对象本身；只允许一层，禁止调用自身——
+     * 否则 create_dynamic_tool / 自调用可以无限套娃。</p>
+     */
+    private AIToolResult callTool(Map<String, Object> parameters) {
+        Object toolObj = parameters.get("tool");
+        if (toolObj == null || String.valueOf(toolObj).trim().isEmpty()) {
+            return new AIToolResult("缺少参数: tool（要调用的工具名）", parameters);
+        }
+        String target = String.valueOf(toolObj).trim();
+        if ("tool_registry".equals(target)) {
+            return new AIToolResult("不能通过 call 调用 tool_registry 自身；list/search/get 直接指定 action 即可", parameters);
+        }
+        java.util.Map<String, Object> args = new java.util.LinkedHashMap<>();
+        Object rawArgs = parameters.get("args");
+        if (rawArgs != null) {
+            if (rawArgs instanceof java.util.Map) {
+                for (java.util.Map.Entry<?, ?> e : ((java.util.Map<?, ?>) rawArgs).entrySet()) {
+                    args.put(String.valueOf(e.getKey()), e.getValue());
+                }
+            } else {
+                String s = String.valueOf(rawArgs).trim();
+                if (!s.isEmpty()) {
+                    try {
+                        org.json.JSONObject o = new org.json.JSONObject(s);
+                        java.util.Iterator<String> it = o.keys();
+                        while (it.hasNext()) {
+                            String k = it.next();
+                            args.put(k, o.get(k));
+                        }
+                    } catch (Exception ex) {
+                        return new AIToolResult("args 不是合法 JSON 对象: " + ex.getMessage(), parameters);
+                    }
+                }
+            }
+        }
+        if (context == null) {
+            return new AIToolResult("缺少上下文，无法代执行工具: " + target, parameters);
+        }
+        AIToolResult r = com.oilquiz.app.ai.tool.AIToolManager
+                .getInstance(context).executeTool(target, args);
+        return r != null ? r : new AIToolResult("工具执行无返回: " + target, parameters);
     }
 
     private AIToolResult listTools(Map<String, Object> parameters) {

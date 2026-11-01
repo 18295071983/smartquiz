@@ -77,23 +77,24 @@ public class AgentLoopEngine {
     /** 单次推理的 prompt token 预算系数（占上下文容量的比例，下限 0.15）
      *  ⚠ 2026-10-07 已废弃：固定比例只约束 prompt，把生成空间压到 < maxTokens，
      *  长回答必然触发 native ctx_full 硬截断。预算改由 computePromptBudget 的
-     *  「n_ctx − FINAL_RESPONSE_MAX_TOKENS − NATIVE_GENERATION_RESERVE」公式计算 */
+     *  「n_ctx − OUTPUT_RESERVE_TOKENS − NATIVE_GENERATION_RESERVE」公式计算 */
     private static final double PROMPT_BUDGET_RATIO = 0.8; // 保留引用说明，勿再使用
     /** 工具结果最大字符数（超长时截断，节省上下文；放宽到 6000：天气/搜索等
      *  结果不再因 1200 截断丢失关键数值——上一轮天气问题的根因。trim 阶段会把
      *  更早的工具结果压缩到 2500，最近的保持完整，平衡信息完整性与上下文占用） */
     private static final int MAX_TOOL_RESULT_LENGTH = 6000;
-    /** 最终回复最大生成 token：放宽到 4000，长回答/长篇输出不被截断。
-     *  注意：生成空间 = n_ctx − prompt 预算，必须由 computePromptBudget / buildRequestJson
-     *  联动保证（P1/P0，2026-10-07），否则 4000 会超出实际空间触发 native ctx_full 硬截断 */
-    private static final int FINAL_RESPONSE_MAX_TOKENS = 4000;
+    /** 给输出预留的空间（不是上限！）。NO_OUTPUT_CAP(2026-11-01) 之后，这个数只剩两个用途：
+     *  ① 算 prompt 预算时从 n_ctx 里扣掉的那份"留给回答的位置"（computePromptBudget /
+     *     trimHistoryToFit），防止 prompt 把窗口占满、模型没地方答；
+     *  ② n_ctx 取不到时（老 so / 模型未加载）的回落上限。
+     *  实际生成上限现在是"剩余上下文"本身，见 buildRequestJson 与 resolveGenerationCap。
+     *  原名 FINAL_RESPONSE_MAX_TOKENS，改名是为了不把"预留"和"上限"两个语义混在一起 */
+    private static final int OUTPUT_RESERVE_TOKENS = 4000;
     /** native 生成预留（native-lib.cpp GENERATION_RESERVE=512）：prompt 上限 n_ctx−512 的最后防线 */
     private static final int NATIVE_GENERATION_RESERVE = 512;
     /** 模板渲染 overhead 预留：Java token 计数基于简化文本（serializeHistory），
      *  实际模板含 <|im_start|> 等特殊 token 与工具格式包装，需预留余量防低估 */
     private static final int TEMPLATE_OVERHEAD_RESERVE = 512;
-    /** 普通对话（意图未命中）最大生成 token：放宽到 2000 */
-    private static final int PLAIN_CHAT_MAX_TOKENS = 2000;
     /** 工具执行超时（毫秒） */
     private static final long TOOL_TIMEOUT_MS = 15000;
     /** 工具失败重试次数 */
@@ -184,8 +185,12 @@ public class AgentLoopEngine {
      * 因为核心集里唯一带"实时查询"语义的就是 ai_weather。</p>
      */
     private static final String[] DEFAULT_CORE_TOOLS = {
-            "time_date", "location", "ai_weather", "network_search",
-            "read_file", "write_file", "calculate", "search_questions", "recall_history"
+            "time_date", "ai_weather", "network_search",
+            "read_file", "write_file", "calculate", "search_questions",
+            // TOOL-DISCOVERY(2026-11-01)：本地工具名由 native PEG 逐字枚举，会话中途改集会毁
+            // tools 前缀（全量 re-prefill ~20s）。所以"能力广度"不能靠堆工具，而是：
+            // 核心集只留高频，其余一律经 tool_registry 发现，并由它的 call 动作代执行。
+            "tool_registry", "memory", "task"
     };
 
     // ==================== 本地专用「薄工具」适配层（2026-10-25）====================
@@ -220,10 +225,35 @@ public class AgentLoopEngine {
                 new String[][]{{"keyword", "string", "搜索关键词/知识点", "1"}},
                 "database", "search_questions",
                 new String[][]{}));
-        LOCAL_THIN_TOOLS.put("recall_history", new ThinTool(
-                "搜索跨会话保存的聊天历史，回忆之前聊过或创建过的内容。keyword 为搜索关键词。",
-                new String[][]{{"keyword", "string", "搜索关键词", "1"}},
-                "chat_history", "search",
+        LOCAL_THIN_TOOLS.put("tool_registry", new ThinTool(
+                "工具发现与代执行：list 列出可用工具，search 按关键词找，get 取某工具参数说明，call 直接执行某工具（args 传 JSON 对象）。本次没注入的能力都先走它。",
+                new String[][]{
+                        {"action", "string", "list/search/get/call", "1"},
+                        {"tool", "string", "get/call 的工具名", "0"},
+                        {"keyword", "string", "list/search 的关键词", "0"},
+                        {"args", "string", "call 的参数 JSON，如 {\"path\":\"/sdcard/a.txt\"}", "0"},
+                },
+                "tool_registry", null,
+                new String[][]{}));
+        LOCAL_THIN_TOOLS.put("memory", new ThinTool(
+                "长期记忆（跨会话）：save 保存用户的稳定信息（key/value/category=fact|preference|context），recall 读取，list 列出，delete 删除。用户说\u201c记住…\u201d或告知姓名/住址/偏好时 save。",
+                new String[][]{
+                        {"action", "string", "save/recall/list/delete", "1"},
+                        {"key", "string", "记忆键，如 user_name", "0"},
+                        {"value", "string", "记忆值（save 用）", "0"},
+                        {"category", "string", "fact/preference/context，默认 fact", "0"},
+                },
+                "memory", null,
+                new String[][]{}));
+        LOCAL_THIN_TOOLS.put("task", new ThinTool(
+                "多步任务清单：add 新建（description），update 更新状态/进度（id/progress），complete 完成，fail 失败，list 查看。只用于需要多轮完成的任务，一次性问答不要建。",
+                new String[][]{
+                        {"action", "string", "add/update/complete/fail/list", "1"},
+                        {"id", "string", "任务ID（update/complete/fail 用）", "0"},
+                        {"description", "string", "任务描述（add 用）", "0"},
+                        {"progress", "string", "进度 0-100（update 用）", "0"},
+                },
+                "task", null,
                 new String[][]{}));
     }
 
@@ -256,6 +286,48 @@ public class AgentLoopEngine {
             }
             if (action != null) out.put("action", action);
             return out;
+        }
+    }
+
+    // ==================== 本地 FC 路径「模型可见面」裁剪（2026-11-01 SCHEMA-SLIM）====================
+    // 动机：AIToolManager 的 ToolDefinition 是**三条路径共用**的完整定义（在线 OpenAI tools、
+    // 本地 FC、工具中心展示），里面写了只有引擎层才需要的东西——lat/lon 及其别名 latitude/longitude、
+    // "city 与 lat/lon 二选一，同传报冲突"、各 action 返回哪些字段。本地路径的 native PEG 语法
+    // 按注入的 schema **逐字枚举**参数名（见上方 PEG 注释），模型只能生成这里出现过的名字，
+    // 所以"反正由引擎自己填"的参数留在可见面上只有两个效果：吃前缀 token、给 2B 多一个选错的入口。
+    // 本表把这类参数从**本地 schema** 里摘掉，位置参数执行前由 fillWeatherLocation 补齐（那里本来就补）。
+    //
+    // 只裁模型可见面，不动 AIToolManager 的定义：在线路径与工具中心仍看完整 schema，
+    // 真实工具照常接受被摘掉的参数（fillWeatherLocation 填的就是 lat/lon）。
+    //
+    // 为什么 **city 留在可见面上**（与"把 city/lat/lon 一起摘掉"的直觉相反）：
+    // 引擎侧唯一能认出城市的是 extractCityFromMessage，而它只做 QWeather CSV 的 nameZh 子串匹配
+    // （QWeatherCityManager.findCityNamesInMessage），CSV 是**县市级**表；用户说"花山镇天气"这类
+    // 小于县市的地名，引擎认不出来 → 按现有兜底顺序会填**手机定位的经纬度** → 返回的是用户所在城市的
+    // 天气，且**不报错**。模型传 city="花山镇" 时走的是 AIWeatherManager.resolveCityEntry 的后缀剥离
+    // + 上级地名打分 + 系统 Geocoder 三层，比引擎的精确子串匹配强。摘掉 city 换来的那点 token，
+    // 代价是一类静默错答，不划算。
+    private static final java.util.Map<String, LocalSchemaSlim> LOCAL_SCHEMA_SLIM =
+            new java.util.LinkedHashMap<>();
+    static {
+        LOCAL_SCHEMA_SLIM.put("ai_weather", new LocalSchemaSlim(
+                "查询某地的天气。",
+                new String[][]{
+                        {"action", "查什么：current 实时天气（默认）/forecast 未来几天预报/"
+                                + "hourly 逐小时/air_quality 空气质量/alerts 预警/indices 生活指数/all 全部"},
+                        {"city", "城市名或和风城市编码，如\u201c北京\u201d或 101010100。"
+                                + "用户没说城市时不要传，系统会自动用手机定位"},
+                }));
+    }
+
+    /** 一个工具的本地模型可见面：顶层描述 + 保留哪些参数（数组顺序即注入顺序，保证前缀字节稳定）。 */
+    private static final class LocalSchemaSlim {
+        final String desc;
+        final String[][] keepParams;   // {paramName, 覆盖后的描述；空串表示沿用原定义里的描述}
+
+        LocalSchemaSlim(String desc, String[][] keepParams) {
+            this.desc = desc;
+            this.keepParams = keepParams;
         }
     }
 
@@ -490,7 +562,13 @@ public class AgentLoopEngine {
         boolean modelFcMode = aiConfig != null && aiConfig.isFcEnabled();
 
         List<ChatMessage> history = new ArrayList<>();
-        String sysPrompt = modelFcMode ? buildFcSystemPrompt() : buildSystemPrompt();
+        // PERSONA(2026-11-01)：用户设置的人设（AIConfig.system_prompt）。在线路径一直用它，
+        // 本地两条路径此前都没读——设了人设一开"智能助手"就被静默丢弃。
+        String persona = resolvePersona();
+        if (persona != null) {
+            AILogger.i(TAG, "persona injected into system prompt: " + persona.length() + " chars");
+        }
+        String sysPrompt = modelFcMode ? buildFcSystemPrompt(persona) : buildSystemPrompt(persona);
         history.add(new ChatMessage("system", sysPrompt));
         // SCHEMA-DUMP(2026-10-11)：把**实际下发**的 system prompt 打出来（tools schema 在循环内
         // 每轮重建，另有 "Round tools schema" 日志给长度/hash，下面那行给首轮内容）。
@@ -520,11 +598,16 @@ public class AgentLoopEngine {
             history.add(m);
         }
         // 本轮动态任务指令（缓存命中优化）：天气直给指令从 system 移到本轮 user 消息末尾。
-        // system 前缀保持静态（同一天内字节不变，见 buildCurrentTimeLine 注释），
-        // 本地推理引擎的 KV 缓存才能命中 system+历史前缀；否则每条带"天气"的消息都改写
-        // system → 前缀抖动 → 每轮全量重算前缀。动态指令放 prompt 末尾（D 块），
-        // 模型仍能读到并执行，行为不变。
+        // system 前缀保持静态（DATE-TAIL 后连日期都不在头部，跨天也不变，见
+        // buildCurrentTimeLine 注释），本地推理引擎的 KV 缓存才能命中 system+历史前缀；
+        // 否则每条带"天气"的消息都改写 system → 前缀抖动 → 每轮全量重算前缀。
+        // 动态指令放 prompt 末尾（D 块），模型仍能读到并执行，行为不变。
         String effectiveUserMessage = userMessage;
+        // 日期块（DATE-TAIL 2026-11-01）：本轮 user 末尾的第一段。放这里而不是 system 头部，
+        // 是为了让 system 与会话序列的字节都不随跨天变化 → KV 前缀跨天继续命中。
+        // 它必须是第一个追加项：appendTailBlock 的返回值一定非 null，后面的【已存记忆】/
+        // 【当前任务】因此不会在 userMessage==null 时把字面量 "null" 拼进 prompt。
+        effectiveUserMessage = appendTailBlock(effectiveUserMessage, buildCurrentTimeLine(modelFcMode));
         if (modelFcMode && selectedTools.contains("ai_weather") && userMessage != null
                 && (userMessage.contains("天气") || userMessage.contains("气温") || userMessage.contains("温度")
                     || userMessage.contains("下雨") || userMessage.contains("预报") || userMessage.contains("湿度"))) {
@@ -547,7 +630,9 @@ public class AgentLoopEngine {
                 // 手机定位的经纬度（优先经纬度缓存、其次用户消息城市、最后当前位置），
                 // 比让模型先跑一轮 location 再自己把经纬度填回去少一轮推理。
                 // 该文案必须与 system prompt"工具选择"行的位置参数规则保持一致，否则两句互相打架。
-                effectiveUserMessage = userMessage + "\n\n【本次任务】用户要查当前位置/附近的天气，直接调用 ai_weather 工具、不要带 city/lat/lon 参数（系统会自动使用手机定位的城市）；action 按问法选 current(实时)/forecast(预报)/air_quality(空气质量) 等。";
+                // SCHEMA-SLIM(2026-11-01)：lat/lon 已不在本地 schema 的模型可见面上，
+                // 模型无从传它们，文案再提"不要带 lat/lon"就是在教模型回避一个不存在的参数。
+                effectiveUserMessage = userMessage + "\n\n【本次任务】用户要查当前位置/附近的天气，直接调用 ai_weather 工具、不要带 city 参数（系统会自动使用手机定位的城市）；action 按问法选 current(实时)/forecast(预报)/air_quality(空气质量) 等。";
             }
         }
         // 动态状态（长期记忆摘要 + 活跃任务清单）从 system 移出，改为本轮 user 消息末尾 D 块注入：
@@ -691,9 +776,9 @@ public class AgentLoopEngine {
             // （输出模板标签/重复文本而非 tool_call，FcTest 实证 tool_calls=0 + 乱码），
             // auto 让模型按提示词与工具定义自行判断，需要时自然输出原生 tool_call
             String toolChoice = "auto";
-            // 不限制思考量：统一用 FINAL_RESPONSE_MAX_TOKENS（原第一轮 800 会让 enableThinking
+            // 不限制思考量：统一用 OUTPUT_RESERVE_TOKENS（原第一轮 800 会让 enableThinking
             // 模型思考就被截断，触发"使用更强大的模型"兜底；具体安全值由 buildRequestJson 按上下文钳制）
-            int iterMaxTokens = FINAL_RESPONSE_MAX_TOKENS;
+            int iterMaxTokens = OUTPUT_RESERVE_TOKENS;
 
             long genStart = System.currentTimeMillis();
             GenerateResult genResult = null;
@@ -714,13 +799,13 @@ public class AgentLoopEngine {
                     genResult = generateWithChatJsonSync(requestJson, streamedThisIteration);
                 } else {
                     // 回退开关：旧 generateWithTools 路径（不限制思考量）
-                    genResult = generateWithToolsSync(history, toolsJsonBytes, FINAL_RESPONSE_MAX_TOKENS, iterTemperature, enableThinking);
+                    genResult = generateWithToolsSync(history, toolsJsonBytes, OUTPUT_RESERVE_TOKENS, iterTemperature, enableThinking);
                 }
             } catch (UnsatisfiedLinkError e) {
                 // §10.2：chatJson 不可用 → 自动切回旧路径；仍失败则本轮失败（模型原生 FC，无标签兜底）
                 AILogger.w(TAG, "chatJson unavailable (" + e.getMessage() + "), fallback to generateWithToolsSync");
                 try {
-                    genResult = generateWithToolsSync(history, toolsJsonBytes, FINAL_RESPONSE_MAX_TOKENS, iterTemperature, enableThinking);
+                    genResult = generateWithToolsSync(history, toolsJsonBytes, OUTPUT_RESERVE_TOKENS, iterTemperature, enableThinking);
                 } catch (UnsatisfiedLinkError e2) {
                     AILogger.w(TAG, "nativeGenerateWithTools unavailable, generation failed");
                 }
@@ -1174,7 +1259,7 @@ public class AgentLoopEngine {
             // 留出输出空间：把历史裁剪到 budget - 1000，避免总结输出时上下文溢出
             int budget = computePromptBudget();
             List<ChatMessage> trimmed = trimHistoryToFit(history, "",
-                    Math.max(1000, budget - FINAL_RESPONSE_MAX_TOKENS));
+                    Math.max(1000, budget - OUTPUT_RESERVE_TOKENS));
 
             // 追加总结指令（作为最后一轮 user 消息，引导模型整合结果给结论）
             List<ChatMessage> summaryHistory = new ArrayList<>(trimmed);
@@ -1188,7 +1273,7 @@ public class AgentLoopEngine {
             lastRequestHistory = new ArrayList<>(summaryHistory); // 记录实际发送的请求（轮末持久化会话序列）
             // 回答轮温度：tool_choice=none，纯自然语言总结，用回答轮温度
             String requestJson = buildRequestJson(summaryHistory, toolsJson, "none",
-                    FINAL_RESPONSE_MAX_TOKENS, enableThinking, resolveAnswerTemperature());
+                    OUTPUT_RESERVE_TOKENS, enableThinking, resolveAnswerTemperature());
             if (requestJson == null) return null;
 
             if (aiConfig != null && aiConfig.isUseJsonProtocol()) {
@@ -1200,7 +1285,7 @@ public class AgentLoopEngine {
             byte[] fbTools = toolsJson != null && !toolsJson.isEmpty()
                     ? toolsJson.getBytes(StandardCharsets.UTF_8) : new byte[0];
             return generateWithToolsSync(summaryHistory, fbTools,
-                    FINAL_RESPONSE_MAX_TOKENS, resolveAnswerTemperature(), enableThinking);
+                    OUTPUT_RESERVE_TOKENS, resolveAnswerTemperature(), enableThinking);
         } catch (UnsatisfiedLinkError e) {
             AILogger.w(TAG, "Final answer generation: native unavailable: " + e.getMessage());
             return null;
@@ -1218,16 +1303,16 @@ public class AgentLoopEngine {
         try {
             int budget = computePromptBudget();
             List<ChatMessage> trimmed = trimHistoryToFit(history, "",
-                    Math.max(1000, budget - FINAL_RESPONSE_MAX_TOKENS));
+                    Math.max(1000, budget - OUTPUT_RESERVE_TOKENS));
             lastRequestHistory = new ArrayList<>(trimmed); // 记录实际发送的请求（轮末持久化会话序列）
             String requestJson = buildRequestJson(trimmed, "", "none",
-                    PLAIN_CHAT_MAX_TOKENS, enableThinking, resolveAnswerTemperature());
+                    OUTPUT_RESERVE_TOKENS, enableThinking, resolveAnswerTemperature());
             if (requestJson == null) return null;
             if (aiConfig != null && aiConfig.isUseJsonProtocol()) {
                 return generateWithChatJsonSync(requestJson, null);
             }
             return generateWithToolsSync(trimmed, new byte[0],
-                    PLAIN_CHAT_MAX_TOKENS, resolveAnswerTemperature(), enableThinking);
+                    OUTPUT_RESERVE_TOKENS, resolveAnswerTemperature(), enableThinking);
         } catch (Exception e) {
             AILogger.e(TAG, "Plain chat generation failed: " + e.getMessage());
             return null;
@@ -1240,6 +1325,26 @@ public class AgentLoopEngine {
     }
 
     // ==================== 原生 FC 同步调用 ====================
+
+    /**
+     * NO_OUTPUT_CAP(2026-11-01)：本地路径这一轮能生成多少 = 剩余上下文，而不是固定数字。
+     *
+     * <p>与 {@code buildRequestJson} 里同一口径（那里已有注释说明为什么不能再钉死）。
+     * 走原生 FC 的调用链以前直接把调用方传来的 2000/4000 交给 native，等于绕开了
+     * JSON 那条的钳制，两条路的实际上限一直不一致；现在统一到"剩余窗口"。
+     * ctx 取不到时退回请求值，避免算出 0/负数把回答掐死。</p>
+     *
+     * @param requested 调用方原本想给的上限（仅在 n_ctx 未知时作为回落值）
+     */
+    private int resolveGenerationCap(List<ChatMessage> history, byte[] toolsJson, int requested) {
+        final int ctx = getEffectiveContextSize();
+        if (ctx <= 0) return Math.max(256, requested);
+        String tools = (toolsJson == null || toolsJson.length == 0)
+                ? "" : new String(toolsJson, StandardCharsets.UTF_8);
+        int promptTokens = countTokensSafe(serializeHistory(history))
+                + countTokensSafe(tools) + TEMPLATE_OVERHEAD_RESERVE;
+        return Math.max(256, ctx - promptTokens - NATIVE_GENERATION_RESERVE);
+    }
 
     /**
      * 同步调用 llama.cpp 原生 function calling。
@@ -1264,7 +1369,8 @@ public class AgentLoopEngine {
             contents[i] = history.get(i).content.getBytes(StandardCharsets.UTF_8);
         }
 
-        NpuEngineRouter.generateWithTools(roles, contents, toolsJson, maxTokens, temperature,
+        NpuEngineRouter.generateWithTools(roles, contents, toolsJson,
+                resolveGenerationCap(history, toolsJson, maxTokens), temperature,
                 0.9f, 40, thinking, new LlamaHelper.TokenCallback() {
                     @Override
                     public void onToken(String token) {
@@ -1773,8 +1879,8 @@ public class AgentLoopEngine {
     private void logEffectiveTemperature() {
         try {
             if (appContext == null) return;
-            AILogger.i(TAG, "effective temperature: "
-                    + UserModelParamsManager.getInstance(appContext).describeEffectiveTemperature());
+            AILogger.i(TAG, "effective sampling: "
+                    + UserModelParamsManager.getInstance(appContext).describeEffectiveSampling());
         } catch (Throwable ignored) {
         }
     }
@@ -1829,19 +1935,31 @@ public class AgentLoopEngine {
             req.put("tool_choice", toolChoice);
             req.put("enable_thinking", enableThinking);   // R8-1：调用方传入（Agent 模式默认 false）
             // P0(2026-10-07)：max_tokens 按上下文钳制——生成空间 = n_ctx − prompt实际token − native guard − 模板overhead。
-            // 原实现恒发 FINAL_RESPONSE_MAX_TOKENS=4000，而旧 80% 预算下生成空间仅 2454，
+            // 原实现恒发 OUTPUT_RESERVE_TOKENS=4000，而旧 80% 预算下生成空间仅 2454，
             // 长回答必然触发 native "Context full, stopping generation"（native-lib.cpp:3115）
             // 且上层无感知（截断回复被当完整回答交付）。钳制后生成在 max_tokens 处自然停止，
             // 永不撞 ctx_full；即使 Java token 计数低估模板开销，256 下限也能给出短回答而非硬截断。
             int promptTokens = countTokensSafe(serializeHistory(history))
                     + countTokensSafe(toolsJson != null ? toolsJson : "")
                     + TEMPLATE_OVERHEAD_RESERVE;
-            int safeMax = getEffectiveContextSize() - promptTokens - NATIVE_GENERATION_RESERVE;
-            int clamped = Math.max(256, Math.min(maxTokens, safeMax));
+            // NO_OUTPUT_CAP(2026-11-01)：不再设固定输出上限。原来这里是
+            // min(maxTokens, safeMax)，把回答+思考钉死在 2000/4000——思考一写长正文就是空的，
+            // 上层看到的是"抱歉，我暂时无法完整回答这个问题"，而不是"答到一半断了"。
+            // 现在能给的生成空间就是本次剩余的整个上下文窗口，什么时候收口由模型自己的 EOS
+            // 或 native 的 ctx_full/max_tokens 兜底决定（stop cause 会进引擎日志）。
+            // ctx 取不到（老 so / 模型未加载）时退回调用方给的数，别算出 0 把回答掐死。
+            final int ctx = getEffectiveContextSize();
+            int clamped = (ctx > 0)
+                    ? Math.max(256, ctx - promptTokens - NATIVE_GENERATION_RESERVE)
+                    : Math.max(256, maxTokens);
             req.put("max_tokens", clamped);
             req.put("temperature", temperature);   // R8-2 / USER-PARAMS：由调用方按"决策轮 vs 回答轮"传入（默认均 0.7）。过低(0.6)会让 2B 在工具调用时过度保守，只敢用默认 action/参数；过高则破坏 chatJson 结构化输出稳定性
-            req.put("top_p", 0.9f);
-            req.put("top_k", 40);
+            // SAMPLING-PREFS(2026-11-01)：top_p/top_k 原先写死 0.9/40，改成走用户参数层
+            // （默认值与硬编码逐值相同，未设置时行为不变）。这两个值真正进请求，属于偏好。
+            UserModelParamsManager sampling = appContext != null
+                    ? UserModelParamsManager.getInstance(appContext) : null;
+            req.put("top_p", sampling != null ? sampling.getTopP() : UserModelParamsManager.DEFAULT_TOP_P);
+            req.put("top_k", sampling != null ? sampling.getTopK() : UserModelParamsManager.DEFAULT_TOP_K);
 
             return req.toString();
         } catch (org.json.JSONException e) {
@@ -1932,10 +2050,10 @@ public class AgentLoopEngine {
             if (ctxSize > 0) {
                 // P1(2026-10-07)：预算 = n_ctx − 输出预留 − native guard。
                 // 原固定 80% 比例只约束 prompt，把生成空间压到 2454（n_ctx=12288 时）
-                // < FINAL_RESPONSE_MAX_TOKENS=4000 → 长回答必然触发 native
+                // < OUTPUT_RESERVE_TOKENS=4000 → 长回答必然触发 native
                 // "Context full, stopping generation"（native-lib.cpp:3115）且无上层信号。
                 // 输出预留按真实最大生成上限计：n_ctx=12288 → 预算 7776，生成空间 4512 ≥ 4000。
-                int budget = ctxSize - FINAL_RESPONSE_MAX_TOKENS - NATIVE_GENERATION_RESERVE;
+                int budget = ctxSize - OUTPUT_RESERVE_TOKENS - NATIVE_GENERATION_RESERVE;
                 if (budget > 0) return budget;
             }
         } catch (Throwable t) {
@@ -1955,7 +2073,7 @@ public class AgentLoopEngine {
     private int toolResultInjectionLimitChars() {
         try {
             int budget = computePromptBudget();
-            int availableTokens = budget - FINAL_RESPONSE_MAX_TOKENS - 512;
+            int availableTokens = budget - OUTPUT_RESERVE_TOKENS - 512;
             if (availableTokens < 128) availableTokens = 128;
             return availableTokens;
         } catch (Throwable t) {
@@ -2092,27 +2210,88 @@ public class AgentLoopEngine {
     // ==================== Prompt 构建 ====================
 
     /**
-     * 注入当前真实日期（只到天，不带时分）：保证同一天内 prompt 内容不变，
-     * KV 缓存可命中；具体时刻由 time_date 工具提供（fcMode）或如实说明（普通对话）。
+     * 安全拼接本轮 user 末尾的 D 块（日期块、天气直给块、记忆块、任务块）。
+     *
+     * <p>base 为 null/空时返回去掉前导空行的块本身，而不是 {@code "null\n\n..."}——
+     * 字符串相加会把 null 变成字面量 "null" 发给模型，2B 会照抄。</p>
+     */
+    private static String appendTailBlock(String base, String block) {
+        if (block == null || block.isEmpty()) return base;
+        if (base == null || base.trim().isEmpty()) {
+            return block.startsWith("\n\n") ? block.substring(2) : block;
+        }
+        return base + block;
+    }
+
+    /**
+     * PERSONA(2026-11-01)：读取用户人设（{@code AIConfig.system_prompt}）。
+     *
+     * <p>返回 null 表示"不注入"：未设置、空白，或仍是默认档 {@code 请用中文回答。}——
+     * 默认档与角色行里的"用中文"重复，注入只会白吃前缀 token。</p>
+     *
+     * <p>为什么要有这一层：在线路径（桥接的 buildNativeSystemPrompt）一直用这份设置，
+     * 本地 Agent/普通路径此前没读，表现为"设置里写了人设、一开智能助手就失效"。
+     * 人设属于稳定段，同一会话内不变，跨轮仍能命中 KV；改了人设才会全量重建前缀。</p>
+     */
+    private String resolvePersona() {
+        try {
+            if (appContext == null) return null;
+            String p = new com.oilquiz.app.ai.refactor.AIConfig(appContext).getSystemPrompt();
+            if (p == null) return null;
+            p = p.trim();
+            if (p.isEmpty() || "请用中文回答。".equals(p)) return null;
+            return p;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * 本轮的日期提醒块（注入在<b>本轮 user 消息末尾</b>，不放 system 头部）。
+     *
+     * <p>DATE-TAIL(2026-11-01)：这里原来只保证"同一天内 system 字节不变"，跨零点时第一行就变
+     * → system 前缀整个失效 → 会话序列虽然逐字节可回放，回放到的也是变了头的 prompt，
+     * 真机口径下是一次 ~20s 的全量 re-prefill。挪到本轮末尾后，system 与更早轮次的字节
+     * 都跟日期无关，跨天只改最新那条消息的尾巴，前缀继续命中。</p>
+     *
+     * <p>代价（必须写进模型可见文本里解决）：会话序列会原样回放上一轮的尾巴，于是跨天的
+     * prompt 里同时存在两个"【当前真实日期】"，历史里那条是旧快照。所以本块显式声明
+     * "以本块为准、历史日期行不作数"，否则 2B 会把上一轮的旧日期当成今天。</p>
+     *
+     * <p>只到天、不带时分：带分钟就每轮都变，等于把这个块又变成纯动态内容；具体时刻由
+     * time_date 工具提供（fcMode）或如实说明（普通对话）。</p>
+     *
+     * @return 以 "\\n\\n" 开头的块，可直接拼在已有尾巴之前
      */
     private static String buildCurrentTimeLine(boolean fcMode) {
         String today = new SimpleDateFormat("yyyy年M月d日 EEEE", Locale.CHINA).format(new Date());
         String timeHint = fcMode
                 ? "问具体时刻时调用 time_date(action=now) 工具获取"
                 : "问具体时刻时如实说明只能提供日期，无法给出准确时刻";
-        return "【当前真实日期】" + today + "\n"
-                + "用户问日期/星期时直接采用以上日期；" + timeHint + "。不要使用训练数据中的日期。\n\n";
+        return "\n\n【当前真实日期】" + today + "\n"
+                + "用户问日期/星期时直接采用以上日期；" + timeHint + "。不要使用训练数据中的日期。\n"
+                + "本块是本轮实时提供的，对话历史里出现过的【当前真实日期】都是更早轮次的快照，一律不采用。";
     }
 
-    private String buildSystemPrompt() {
+    /**
+     * 普通对话模式的 system 提示词。
+     *
+     * <p>DATE-TAIL(2026-11-01)：日期行原在本方法的第一段，现已从此移到本轮 user 末尾，
+     * 本方法不再含任何随时间变化的文本。声明 static 是因为两个 prompt 构建方法本来就是
+     * 纯函数（只拼字面量），同包单测因此能在不构造引擎实例、不放宽可见性的前提下
+     * 断言"system 里逐字节静态"。</p>
+     */
+    private static String buildSystemPrompt(String persona) {
         // 极简提示词：意图命中走程序化输出（不经模型），意图未命中走普通对话
         // （模型直接回答、不注入工具），因此提示词只保留身份，
         // 工具调用规则/回答格式等指令段全部移除（模型已不再调用工具）。
         StringBuilder sb = new StringBuilder();
         // ---- 本地普通对话模式：纯聊天答疑角色 ----
-        sb.append(buildCurrentTimeLine(false));
         sb.append("【角色】\n");
-        sb.append("你是答题宝App中的AI聊天助手，是App内\"AI对话\"功能模块的助手。\n");
+        // PERSONA(2026-11-01)：有用户人设就用它替换内置身份句；工作/方式/风格三条行为规则保留，
+        // 避免"只改身份"把不编造、口语化、先结论这些约束一起丢掉。
+        sb.append(persona != null ? persona + "\n"
+                : "你是答题宝App中的AI聊天助手，是App内\"AI对话\"功能模块的助手。\n");
         sb.append("你的工作：与正在使用答题宝的用户进行自然对话，解答学习、生活、技术等各类问题，给出清晰有用的回答。\n");
         sb.append("你的方式：不调用任何工具，完全依靠自身知识回答；不确定时如实说明，不编造。\n");
         sb.append("你的风格：用中文，简洁自然、口语化，像熟悉的朋友聊天，先给结论再补细节。\n\n");
@@ -2133,95 +2312,41 @@ public class AgentLoopEngine {
      * "只准用这四个"、"能力边界外的请求怎么办"。因此当前版本有 4 行规则，
      * <b>不再是"无规则段的最小版"</b>。</p>
      */
-    private String buildFcSystemPrompt() {
+    private static String buildFcSystemPrompt(String persona) {
         StringBuilder sb = new StringBuilder();
-        sb.append(buildCurrentTimeLine(true));
+        // DATE-TAIL(2026-11-01)：日期行原在此处第一段，已移到本轮 user 末尾（见
+        // buildCurrentTimeLine 注释）——留在头部时跨零点会让整个 system 前缀失效。
+        // PROMPT-ALIGN(2026-11-01)：段落骨架与在线提示词（golden/assist.txt 前 6 行）逐段对齐，
+        // 但只写本地真有的能力；正文从 1012 字符压到 ~460 字符。原稿三处互斥一并修掉：
+        //  ① "实时信息必须用工具"与"日期不必调工具"与 time_date 仍列在工具清单里 —— 同一件事
+        //     三句相邻指令，2B 在思考阶段来回解释；现在收成一句确定句（日期永远用上面那行）。
+        //  ② "你的边界"写着"这些工具都是只读查询、无副作用"，可清单里明明有 write_file ——
+        //     在线那句"覆盖/删除先征得确认"对本地是适用的（早先按 4 工具时代删掉了）。
+        //  ③ "可建议用户换用在线模式"：本地模型没有切模式的手，只会产出推诿，删掉。
+        // 另外原来"工具选择"整段（~320 字）在复述 9 个工具的 schema description，而 schema
+        // 本来就在同一请求里，删掉；只保留 schema 表达不了的跨工具规则（天气给法、上级地名、
+        // 失败重调）。至此方法内全部是静态字面量：不随天、不随会话、不随工具集变化，
+        // system 前缀因此跨天也逐字节不变（日期行改由本轮末尾注入，见 buildCurrentTimeLine）。
         sb.append("【角色】\n");
-        // PERSONA-ALIGN(2026-10-07)：角色段与在线 Agent（OnlinePromptBuilder.buildPersonaSection）
-        // 逐字对齐——同一产品身份（答题宝App的AI聊天助手/AI对话功能模块）。
-        // 两处按本地能力适配：①"（在线Agent模式）"→"（Agent模式）"（本地不能自称在线）；
-        // ②"结构化信息用UI组件展示"→"清晰的分段与列表"（本地 ui_component 大 schema 不注入，
-        // 照搬会诱导模型调用不存在的工具）。
-        sb.append("你是答题宝App中的AI聊天助手，是App内\"AI对话\"功能模块的助手（Agent模式）。\n");
-        // CAPABILITY-HONEST(2026-10-11)：本地 Agent 只有 4 个工具（时间/定位/天气/联网搜索），
-        // 原文案"调用多种工具完成查询、搜索、生成、处理等任务"会让模型承诺做不到的事
-        // （生成文件/读本地文件/画图/跑代码），用户要了却办不到 —— 属于 persona 与能力不符。
-        // TOOL-SELECTION-EXACT(2026-10-11)：工具集从 9 个收到 4 个后，选用规则可以钉死到
-        // 每一步，因此把工具清单与选用规则合并为一节（原"你的工作"与"工具选择"两处重复列举
-        // 工具名，属冗余）。全部用**确定句**（必须/一律/直接），不用"可以/建议"这类可选项语气 ——
-        // 4B 模型对可选语气倾向于忽略。五条硬约束按实测痛点排序：
-        // ① 只准这四个 —— 未注入 schema 的工具名 native 根本生成不出来（PEG 逐字枚举），
-        //    模型凭训练记忆乱点名会让整轮 tool_call 退化成正文；
-        // ② 天气位置参数的精确写法（按 action 语义核对，不是"天气整体"一句话）——
-        //    见下方 ACTION-LOCATION 注释：七个 action 都必须有位置，两种给法（不带参数走自动定位 /
-        //    传 city 走内部换算）在实现上有实质差别。必须与 executeToolSafely、fillWeatherLocation、
-        //    AIWeatherManager 的七个 action 分支保持一致，否则模型会选错给法；
-        // ③ 静态知识别调工具 —— 原"实时/动态信息必须用工具获取"边界太粗，把可直答的
-        //    静态知识也推去调工具（浪费轮次）；
-        // ④ 办不到要如实说 + 不许拿别的工具凑 —— 4 个工具覆盖不了生成文件/读文件/画图/
-        //    跑代码，不写这条模型会硬用 network_search / ai_weather 去凑无关的答案。
-        // ⑤ 工具失败必须改参重调 —— 真机实测的行为缺陷，见下方 RETRY-ON-TOOL-FAILURE 注释。
-        // 注：四工具全是只读查询，无外部副作用，故删掉了在线路径照抄来的"删除/覆盖文件先确认"
-        // 死话（本地连该能力都没有），换成对四工具真实存在的风险：不许补充工具未返回的数据。
-        // 全部为静态文本，同一天内字节不变，不破坏 buildCurrentTimeLine 的 KV 前缀复用设计。
-        sb.append("你的工作：与用户对话答疑；需要实时信息或读写文件时只能调用下列九个工具，"
-                + "不要调用这九个之外的任何工具。\n");
-        sb.append("你的方式：实时/时效性信息必须用工具查证，禁止用训练数据猜测；"
-                + "静态知识直接回答，不必调用工具；结构化信息用清晰的分段与列表展示。\n");
-        // ACTION-LOCATION(2026-10-11)：ai_weather 的每个 action 都**必须有位置**
-        // （current/forecast/hourly/air_quality/alerts/indices/all 七个分支在缺位置时统一
-        // 返回"请提供城市名称或经纬度"，且已确认**不再静默回退"北京"**，见 AIWeatherManager:2820）。
-        // 两种给法在实现上有实质差别，必须写明，否则模型会选错：
-        //   ① 不带任何位置参数 → executeToolSafely 的 fillWeatherLocation 自动补手机定位的**精确经纬度**
-        //      （走坐标分支，最准、且零解析开销）；
-        //   ② 传 city → air_quality/alerts 这类 URL 把经纬度拼进**路径**，内部必须先经
-        //      getHefengLatLon(city) 把城市名转坐标，多一步解析且受解析范围限制
-        //      （本地 CSV + Android Geocoder，非中文地名可能解析不出 → 返回"无法获取城市位置信息"）。
-        // 所以"查用户所在城市"用 ①，"查指定城市"必须用 ②；两者都不要额外调 location 工具。
-        sb.append("工具选择：time_date 查具体时刻；location 只用于用户明确要求定位、导航、"
-                + "\"我在哪\"这类问题时；ai_weather 查天气——它每个 action 都必须有位置，二选一："
-                + "（1）用户没指定城市（问\"今天天气\"\"这边天气\"）时，调用 ai_weather 不要带 city/lat/lon 参数，"
-                + "系统会自动使用手机 GPS 定位的经纬度，最准；"
-                + "（2）用户已指定城市（问\"北京天气\"）时传 city 参数，工具内部会自行换算坐标，"
-                + "不要改用手机定位结果、也不要编造该城市的数据；若城市名换算不出位置，"
-                + "如实告知查不到，不要用别的城市顶上。"
-                + "network_search 查其他实时信息（油价、股价、新闻、赛事等）。"
-                + "read_file 读取本地/工作区文本文件内容（传 path）；write_file 把文本写入工作区文件"
-                + "（file_name 用英文名、勿中文，content 为正文）；calculate 做算术求值（凡计算用它，别心算）；"
-                + "search_questions 按关键词查本地题库题目；recall_history 搜索跨会话聊天历史。"
-                + "禁止用天气工具回答非天气问题；日期与星期直接采用上面给出的【当前真实日期】，不必调工具。\n");
-        sb.append("你的边界：画图、运行代码、操作手机、联网之外的重任务等超出上述九个工具的能力，"
-                + "如实说明做不到，可建议用户换用在线模式，不要硬用不相关的工具凑答案；"
-                + "工具返回什么就说什么，禁止补充工具未返回的数据。\n");
-        // RETRY-ON-TOOL-FAILURE(2026-10-11)：真机实测（问"五台县的空气质量"）暴露的行为缺陷 ——
-        // 上一轮工具失败后，模型把失败**写进回答交付给用户**并顺带念了一遍"应该改传经纬度"，
-        // 整轮 toolCalls=0，没有重试。日志证据：
-        //   [15:11:53] generateWithChatJsonSync result: ... toolCalls=0 stopReason=eos
-        //   [15:11:53] No tool call at iteration 1, using model answer directly
-        // 而引擎循环本身是支持重调的（失败结果回填后 continue，见 executeToolSafely 与循环骨架）。
-        // 故用确定句要求"改参数重调"，并补第二句堵住"转而用训练数据回答"这条更糟的退路
-        // （本工具的天气类数据只能来自和风接口，编造风险最高）。
-        sb.append("你的做法：工具返回失败时，用修正后的参数重新调用该工具，不要把\"建议怎么改\""
-                + "当作回答交付给用户，也不要在工具失败后改用训练数据给出结果。\n");
-        // PARENT-REGION-RETRY(2026-10-11)：城市表只到市/县级，用户可能说乡镇/街道等更小单位
-        // （如"阳白乡"）。工具查不到时会返回带提示的失败信息，明确要求模型先用地理知识判断
-        // 其上级县市、再用上级地名重查；不确定时用 network_search 查归属。这条必须写进 prompt，
-        // 因为**工具是代码、无法自己推理**，模型才是能做"阳白乡属于五台县"这一步的主体。
-        // 同时用最后半句堵住"随便挑个城市顶上"这条歧路（那正是 NO-CITY-SUBSTITUTE 要防的）。
-        sb.append("遇到乡镇、街道等小于城市的地名（城市表只到市/县级）：先用你的地理知识判断"
-                + "它属于哪个县或市，然后用那个上级地名重新调用 ai_weather"
-                + "（例：\"阳白乡\"属于\"五台县\"，就传 city=五台县）；"
-                + "拿不准就先用 network_search 搜\"<地名>属于哪个县市\"再查。"
-                + "绝不为了凑出结果而随便挑一个城市、也不要编造该地天气。\n");
-        sb.append("你的风格：用中文，口语化、简洁有条理，先结论后细节。\n\n");
-        // RULES-REMOVED(2026-10-07) 已被 CORE-TOOLS-4(2026-10-11) 部分回退：
-        // 当时的理由是"与在线 Agent 的最小提示词一致、靠原生 FC + tools schema 引导"，前提是
-        // 工具集 9 个且靠模型自主发现。现在工具集固定 4 个、且 schema 无法表达跨工具选用规则，
-        // 故上面恢复了 4 行规则（工作/方式/工具选择/边界）。若将来再删规则段，需先确认
-        // "只准这四个"与"能力边界外怎么说"这两条约束能从别处得到保证，否则模型会：
-        // ① 点名未注入的工具导致整轮退化；② 承诺生成文件/读文件等做不到的事。
+        // PERSONA(2026-11-01)：用户人设替换内置身份句，行为要求（实时信息必须用工具、写前确认、
+        // 不编造、先结论）保留——这些是工具协议的一部分，不能因为换了人设就丢。
+        if (persona != null) {
+            sb.append(persona).append('\n');
+        } else {
+            sb.append("你是手机App里帮用户解决问题的助手：");
+        }
+        sb.append("能直接答就直接答，天气/新闻/时刻这类实时信息必须用工具查，不要凭记忆答；"
+                + "写入或覆盖文件前先征得用户确认；工具没返回的数据不要编。用中文，先结论后细节。\n");
+        sb.append("【工具】直接调用的是本次注入的这些工具；需要本次没注入的能力时，先用 tool_registry"
+                + "（get 看参数、call 代执行，call 的参数里写工具名是允许的）。"
+                + "问天气用 ai_weather：用户说了城市就传 city，没说就不传（系统自动用手机定位）。"
+                + "地名换算不出位置时先换成它所属的县市重查，不知道上级是什么就用 network_search"
+                + "搜\u201c<地名>属于哪个县市\u201d；还不行就如实说查不到，"
+                + "不要拿别的城市的数据顶上，也不要改用自己的记忆编一个结果。\n\n");
         return sb.toString();
     }
+
+
 
     // ==================== 位置缓存（供 ai_weather 缺位置时兜底） ====================
 
@@ -2393,29 +2518,50 @@ public class AgentLoopEngine {
             // resolveToolDefinition 支持静态定义 + 动态工具反射生成
             ToolDefinition def = toolManager.resolveToolDefinition(name);
             if (def == null) continue;
+            LocalSchemaSlim slim = LOCAL_SCHEMA_SLIM.get(name);
             try {
                 JSONObject tool = new JSONObject();
                 tool.put("type", "function");
                 JSONObject function = new JSONObject();
                 function.put("name", def.getName());
                 // 完整描述注入：不截断，让本地模型完整理解每个工具的能力边界。
-                function.put("description", def.getDescription());
+                // SCHEMA-SLIM：命中裁剪表的工具用本地专用短描述，去掉只有引擎层需要的内容
+                // （lat/lon 别名、二选一冲突、逐 action 的返回字段清单）。
+                function.put("description", slim != null ? slim.desc : def.getDescription());
                 JSONObject params = new JSONObject();
                 params.put("type", "object");
                 JSONObject props = new JSONObject();
                 JSONArray required = new JSONArray();
-                for (ParamDefinition p : def.getParameters()) {
-                    JSONObject prop = new JSONObject();
-                    prop.put("type", p.getType());
-                    prop.put("description", p.getDescription());
-                    // 不输出 default：避免引导模型只用默认参数（如 action 固定为 current）
-                    // 枚举值必须写入 schema：否则模型只能猜 action/type 等枚举参数，
-                    // 2B 模型容易只用第一个值（如 ai_weather 只用 current）
-                    if (p.getEnumValues() != null && !p.getEnumValues().isEmpty()) {
-                        prop.put("enum", new JSONArray(p.getEnumValues()));
+                if (slim != null) {
+                    // 按裁剪表声明的顺序注入（不是定义的顺序）：前缀字节稳定依赖这里确定性。
+                    java.util.Map<String, ParamDefinition> byName = new java.util.LinkedHashMap<>();
+                    for (ParamDefinition p : def.getParameters()) byName.put(p.getName(), p);
+                    for (String[] keep : slim.keepParams) {
+                        ParamDefinition p = byName.get(keep[0]);
+                        if (p == null) continue; // 定义里已不存在：跳过，不报错（裁剪表不是权威清单）
+                        JSONObject prop = new JSONObject();
+                        prop.put("type", p.getType());
+                        prop.put("description", keep[1].isEmpty() ? p.getDescription() : keep[1]);
+                        if (p.getEnumValues() != null && !p.getEnumValues().isEmpty()) {
+                            prop.put("enum", new JSONArray(p.getEnumValues()));
+                        }
+                        props.put(p.getName(), prop);
+                        if (p.isRequired()) required.put(p.getName());
                     }
-                    props.put(p.getName(), prop);
-                    if (p.isRequired()) required.put(p.getName());
+                } else {
+                    for (ParamDefinition p : def.getParameters()) {
+                        JSONObject prop = new JSONObject();
+                        prop.put("type", p.getType());
+                        prop.put("description", p.getDescription());
+                        // 不输出 default：避免引导模型只用默认参数（如 action 固定为 current）
+                        // 枚举值必须写入 schema：否则模型只能猜 action/type 等枚举参数，
+                        // 2B 模型容易只用第一个值（如 ai_weather 只用 current）
+                        if (p.getEnumValues() != null && !p.getEnumValues().isEmpty()) {
+                            prop.put("enum", new JSONArray(p.getEnumValues()));
+                        }
+                        props.put(p.getName(), prop);
+                        if (p.isRequired()) required.put(p.getName());
+                    }
                 }
                 params.put("properties", props);
                 if (required.length() > 0) params.put("required", required);
@@ -2442,22 +2588,52 @@ public class AgentLoopEngine {
 
     // ==================== 提示词泄漏防护 ====================
 
-    /** 系统提示词的特征片段：命中即判定为泄漏 */
+    /**
+     * 系统提示词的特征片段。LEAK-FILTER(2026-11-01)：这里**只保留确实会被注入模型的片段**——
+     * `【回答】`、"系统会自动执行你发起的工具调用"、"严禁自问自答、重复已说过的内容" 三条全仓库
+     * 只存在于本数组里（没有任何 prompt 注入它们），已删；留着等于放三条永不生效的判据，
+     * 还会让下一个读代码的人以为提示词里有这些话。
+     */
     private static final String[] PROMPT_LEAK_MARKERS = {
-            "【规则】", "【回答】", "【环境上下文】",
+            "【规则】", "【环境上下文】",
             "你是答题宝AI助手", "你是一个智能AI助手，可以使用工具", "你是一个智能AI助手，拥有多种工具",
-            "系统会自动执行你发起的工具调用", "严禁自问自答、重复已说过的内容"
     };
 
+    /** 判定为"正文基本就是提示词本身"的命中占比阈值 */
+    private static final int PROMPT_LEAK_RATIO_PCT = 30;
+
     /**
-     * 检测模型回复是否为提示词规则泄漏（把 system prompt 原文当回答输出）。
+     * 检测模型是否把 system prompt 当回答吐出来（泄漏）。
+     *
+     * <p>旧实现是"正文任意位置含一个标题就算泄漏"，代价很严重：{@code 【环境上下文】} 这类标题
+     * 是**我们自己注入**的（{@code ModelExecutionBridge}/{@code AIService}/{@code AIChatActivity}），
+     * 小模型在思考或收尾时复述一次标题、或回答开头带上这行，整条回答就被丢掉，用户看到的是
+     * "抱歉，我暂时无法完整回答这个问题"。现在只在两种情况下判泄漏：①正文**以**标记开头；
+     * ②命中标记的字符总量占正文 ≥{@link #PROMPT_LEAK_RATIO_PCT}%。两种情况都打 WARN，
+     * 带命中的标记、占比与正文前 40 字——不记原因的话，线上就只能看到那句兜底话。</p>
      */
     private boolean isPromptLeakage(String text) {
         if (text == null || text.isEmpty()) return false;
+        final String head = text.trim();
+        int hitChars = 0;
+        String worst = null;
         for (String marker : PROMPT_LEAK_MARKERS) {
-            if (text.contains(marker)) return true;
+            if (head.startsWith(marker)) {
+                AILogger.w(TAG, "PROMPT-LEAK：正文以提示词片段开头 marker=" + marker
+                        + " 正文前40字=" + truncate(text, 40));
+                return true;
+            }
+            int idx = 0, n = 0;
+            while ((idx = text.indexOf(marker, idx)) >= 0) { n++; idx += marker.length(); }
+            hitChars += n * marker.length();
+            if (n > 0 && (worst == null || n * marker.length() > worst.length())) worst = marker;
         }
-        return false;
+        int pct = text.length() == 0 ? 0 : hitChars * 100 / text.length();
+        if (hitChars == 0 || pct < PROMPT_LEAK_RATIO_PCT) return false;
+        AILogger.w(TAG, "PROMPT-LEAK：提示词片段占正文 " + pct + "%（阈值 "
+                + PROMPT_LEAK_RATIO_PCT + "%）marker=" + worst
+                + " 正文前40字=" + truncate(text, 40));
+        return true;
     }
 
     // ==================== 响应清理 ====================
@@ -2650,9 +2826,11 @@ public class AgentLoopEngine {
         if (toolName == null) return null;
         switch (toolName) {
             // 措辞与 system prompt / ai_weather.whenToUse 的"位置参数"规则保持一致：
-            // 用户所在城市 = 不带任何位置参数（由 fillWeatherLocation 自动补手机定位经纬度）；
+            // 用户所在城市 = 不带 city（由 fillWeatherLocation 自动补手机定位经纬度）；
             // 外地城市 = 必须显式传 city。不要在这里出现"先调 location"这类多烧一轮的说法。
-            case "ai_weather": return "去掉 city/lat/lon 重新调用（改用手机定位城市）、或 network_search 搜天气";
+            // SCHEMA-SLIM(2026-11-01)：lat/lon 已从本地 schema 摘掉，这里不能再提——
+            // 这是**回给模型的观察文本**，提一个模型看不见的参数等于让它去改一个不存在的字段。
+            case "ai_weather": return "去掉 city 重新调用（改用手机定位城市）、或 network_search 搜天气";
             // 不给"再试一次 network_search"这类建议：它刚失败，重试同一工具只会白烧一轮。
             case "network_search": return "换更具体的关键词重搜、或用 ai_weather 查天气";
             case "location": return "网络搜索该城市的信息；用户问本地天气时不必先定位，直接调 ai_weather";
