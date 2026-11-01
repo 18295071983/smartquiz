@@ -41,8 +41,9 @@ native LOGx(...) ──► engineLogAppend
 | `Detected Vulkan version: %s` | Vulkan API 版本 |
 | `Vulkan physical device: %s, API version: …` | Vulkan 物理设备 |
 | `Vulkan GPU detected, auto-setting GPU layers to %d` | Vulkan 自动分层 |
-| `ggml GPU detected: free=%zuMB, total=%zuMB` | 显存容量 |
-| `Using previously detected GPU memory from OpenCL: %zu MB` | 复用显存探测结果 |
+| `ggml dev[%s] memory: free=%zuMB, total=%zuMB` | 该后端的显存查询结果（仅 total>0 时出现） |
+| `ggml dev[%s] memory: backend does not implement this query (reports 0), NOT an empty pool …` | 后端没实现内存查询——HTP 走这句，0 不代表池子为空 |
+| `Using previously detected GPU memory from OpenCL: %zu MB` | OpenCL 探测到的显存（只属 OpenCL 设备，HTP 下与本行无关） |
 | `GPU layers from Java/Default: %d` | 配置的 GPU 层数 |
 | `GPU available: %s, Vulkan GPU detected: %s, GPU layers: %d` | 最终 GPU/CPU 分工 |
 | `Backend choice set to: %s` | auto/opencl/vulkan 选择结果 |
@@ -74,6 +75,18 @@ native LOGx(...) ──► engineLogAppend
 | `PARTIAL truncate failed, full eval %zu tokens` | 部分回滚失败退回全量（性能事件） |
 | `chatJson: complete, content=%zu chars, tool_calls=%zu` | 每轮完成摘要 |
 | `chatJson: complete (degraded), content=%zu chars` | 降级完成摘要 |
+
+### 3.4 致命信号与 NPU 降级（2026-11-01）
+
+| 消息模板 | 用途 |
+|---|---|
+| `Fatal signal %d during inference` | 有 sigsetjmp 兜底的那 6 个入口接住了致命信号，进程存活，该轮以错误返回 |
+| `nativeChatSend: fatal signal %d caught during chatSend, process survives (fatalSignalsCaught=%d)` | 同上，走的是 chatSend 那条流式路径 |
+| 无日志但 `<filesDir>/oilquiz/logs/npu_fatal.last` 有内容 | 信号抛在**没有跳转点的线程**上（QNN/HTP worker），进程必死；该文件是唯一证据，其内容形如 `sig=6` + `thread=guarded|unguarded` |
+
+- 上面的文件由 `fatal_signal_handler` 用 open/write/close 写（信号上下文只允许这类调用），Java 侧读到即删。
+- 连续 2 次硬件层中断 → 下一次**模型装载**临时改用 opencl（`gpu_backend` 偏好不动），任意一轮正常收尾即自动交还 hexagon。状态迁移记在 `ai_logs` 的 `[AUDIT] NpuFaultGuard` 行，不在本文件。
+- HTP 自身诊断（arch/skel 选择、HMX 命中、op fusion、权重 tile 化 repack）默认**不输出**；把 `ai_chat_prefs.htp_verbose` 置 true 后重启，`ggml-hex:` 开头的 INFO 行会进本文件——排查"NPU 有没有走快路径"时用，正常使用请关掉（每 op 一条，会冲掉 2MB 环形缓冲）。
 
 ## 4. 不产出（LOGV 空宏 / 宏内丢弃，共 173 个调用点）
 

@@ -159,6 +159,19 @@ public class SmartQuizApplication extends Application {
         // 放在这里而不是各调用点：AdvancedFileParserUtil 的解析方法没有 Context 参数。
         try { com.oilquiz.app.util.PdfBoxInitializer.ensure(this); } catch (Throwable ignored) { }
 
+        // NPU-FAULT-GUARD(2026-11-01)：必须排在 initBackendPreference 之前——
+        // ① 先下发致命信号记录的落盘路径（信号处理器在进程被 SIGABRT 打死前写它）；
+        // ② 再消费上一次留下的记录：上一次死在硬件层的话，这次装载就临时降级到 opencl，
+        //    否则 hexagon 会在同一台机器上反复死。降级不写 gpu_backend 偏好。
+        try {
+            java.io.File npuLogDir = new java.io.File(getFilesDir(), "oilquiz/logs");
+            if (!npuLogDir.exists()) npuLogDir.mkdirs();
+            com.oilquiz.app.ai.jni.LlamaHelper.setFatalRecordFile(
+                    new java.io.File(npuLogDir, "npu_fatal.last").getAbsolutePath());
+            com.oilquiz.app.ai.jni.NpuFaultGuard.consumeBootFatalRecord(this);
+        } catch (Throwable ignored) {
+        }
+
         // BACKEND-INIT-EARLY(2026-10-09)：GPU 后端偏好必须在这里读，不能等到 Activity。
         // 模型加载由后台线程在启动时就发起（比 Activity.onCreate 早数秒），若等到那时才读
         // SharedPreferences，读到的仍是 LlamaHelper 的静态默认值 "opencl"，会出现
@@ -177,6 +190,12 @@ public class SmartQuizApplication extends Application {
             if (!engineLogDir.exists()) engineLogDir.mkdirs();
             com.oilquiz.app.ai.jni.LlamaHelper.setEngineLogFile(
                     new java.io.File(engineLogDir, "engine_logs.txt").getAbsolutePath());
+            // HTP-DIAG(2026-11-01)：ggml-hexagon 的详细日志（arch/skel、HMX、fusion、repack）。
+            // 显式开关、默认关：开着会把引擎日志冲掉。要排查"NPU 到底走没走快路径"时
+            // 把 ai_chat_prefs.htp_verbose 置 true，重启后看「引擎」Tab。
+            boolean htpVerbose = getSharedPreferences("ai_chat_prefs", MODE_PRIVATE)
+                    .getBoolean("htp_verbose", false);
+            com.oilquiz.app.ai.jni.LlamaHelper.setHtpVerbose(htpVerbose);
         } catch (Throwable ignored) {
         }
 
@@ -585,7 +604,11 @@ public class SmartQuizApplication extends Application {
             reason = "上次健康运行后被停止(划掉/force-stop)，清零";
         } else {
             next = base + 1;
-            reason = "上次未活满30秒且无崩溃/ANR标记(native崩溃或早杀，无法区分)";
+            // NPU-FAULT-GUARD(2026-11-01)：把"早杀"里能分辨的那类分出来——若上一进程倒在
+            // 一轮推理中间，原因就不是泛泛的 native 崩溃/早杀，而是具体后端上的硬件层问题。
+            String unfinished = com.oilquiz.app.ai.jni.NpuFaultGuard.describeUnfinishedRound(this);
+            reason = "上次未活满30秒且无崩溃/ANR标记(native崩溃或早杀，无法区分)"
+                    + (unfinished != null ? "；" + unfinished : "");
         }
         prefs.edit().putInt(CRASH_COUNT_KEY, next)
                 .putLong(CRASH_TIMESTAMP_KEY, System.currentTimeMillis()).apply();

@@ -36,12 +36,59 @@
 // 组3.15：致命信号兜底——接住 llama 内部 abort 不自杀，返回错误码
 #include <signal.h>
 #include <setjmp.h>
+#include <fcntl.h>   // FATAL-RECORD：open()/O_WRONLY 在信号处理器里落致命信号记录用
 
 static thread_local sigjmp_buf fatal_jmp_buf;
 static thread_local bool has_jmp_set = false;
 
+// FATAL-COUNTER(2026-11-01)：被 sigsetjmp 兜底接住的致命信号次数（单调递增，进程内）。
+// Java 侧靠"一轮前后的差值"判定这轮是否发生过硬件层致命中断——不用嗅探 onError 的文案，
+// 也不用新增一套崩溃计数；见 com.oilquiz.app.ai.jni.NpuFaultGuard。
+static std::atomic<int> s_fatalSignalsCaught{0};
+
+// FATAL-RECORD(2026-11-01)：致命信号落盘路径（由 Java 在启动时下发，见
+// nativeSetFatalRecordFile）。处理器在信号上下文里只允许 open/write/close 这类
+// async-signal-safe 调用，所以路径用定长数组预置、不加锁、不用 std::string。
+static char s_fatalRecordPath[512] = {0};
+
+static void write_fatal_signal_record(int sig, bool caught) {
+    if (s_fatalRecordPath[0] == '\0') return;
+    // 手工拼字节，不用 sprintf/snprintf（不在 POSIX 的异步信号安全清单里）：
+    //   sig=<n>\nthread=<j|n>\n        j=抛信号的线程正是armed了sigsetjmp的那个线程
+    char buf[64];
+    int n = 0;
+    const char* prefix = "sig=";
+    while (prefix[n] != '\0') { buf[n] = prefix[n]; n++; }
+    int digits = sig < 0 ? 0 : sig;   // 信号号都是小整数，够用
+    if (digits == 0) { buf[n++] = '0'; }
+    else {
+        char tmp[8]; int t = 0;
+        while (digits > 0) { tmp[t++] = char('0' + digits % 10); digits /= 10; }
+        while (t > 0) { buf[n++] = tmp[--t]; }
+    }
+    buf[n++] = '\n';
+    const char* th = caught ? "thread=guarded\n" : "thread=unguarded\n";
+    for (int i = 0; th[i] != '\0'; i++) buf[n++] = th[i];
+    buf[n] = '\0';
+
+    // O_TRUNC：一条记录只代表最近一次致命信号，不追加——降级判定用的是"这次是不是
+    // 在同一个后端上又挂了一次"，历史由引擎日志承担，不留在这儿。
+    int fd = open(s_fatalRecordPath, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd >= 0) {
+        ssize_t w = write(fd, buf, (size_t) n);
+        (void) w;
+        close(fd);
+    }
+}
+
 static void fatal_signal_handler(int sig) {
-    if (has_jmp_set) {
+    // 计数与落盘都放在分支之前：接得住（本线程有跳转点）和接不住（别的线程，
+    // 例如 QNN/HTP 自己的 worker）两种情况都必须留下同一条证据，否则"接住的那次"
+    // 在 Java 侧永远看不见，而降级判定要的正是这个差值。
+    s_fatalSignalsCaught.fetch_add(1);
+    const bool caught = has_jmp_set;
+    write_fatal_signal_record(sig, caught);
+    if (caught) {
         siglongjmp(fatal_jmp_buf, sig);
     }
     // 如果没有设置 jmp，恢复默认处理
@@ -2115,12 +2162,22 @@ public:
                     hasGPU = true;
                     size_t freeMem = 0, totalMem = 0;
                     ggml_backend_dev_memory(dev, &freeMem, &totalMem);
-                    LOGI("ggml GPU detected: free=%zuMB, total=%zuMB",
-                         freeMem/1024/1024, totalMem/1024/1024);
+                    // MEMQUERY-ATTRIB(2026-11-01)：原先这行是固定文案 "ggml GPU detected:
+                    // free=%zuMB, total=%zuMB"，不带设备名，HTP 也被打成同一句，读引擎日志的人
+                    // 会把 0/0 当成"显存是 0"。实际 hexagon 后端的内存查询是写死的桩
+                    // （ggml-hexagon.cpp 的 ggml_backend_hexagon_device_get_memory：
+                    // *free = 0; *total = *free;），0 的含义是"这个后端没实现内存查询"，
+                    // 不是"池子为空"。两种情况必须分开写，否则 HTP 跑通后这条日志一直在
+                    // 指向一个不存在的问题。（下面 gpuTotalMemory/s_detectedGpuMemory 的
+                    // 赋值关系没动：这两个值在本函数里只写不读，改动它们属于另一件事。）
                     if (totalMem > 0) {
                         gpuTotalMemory = std::max(gpuTotalMemory, totalMem);
-                    } else if (s_detectedGpuMemory > 0) {
-                        LOGV("ggml returned 0 memory, using OpenCL detected memory: %zu MB", s_detectedGpuMemory / 1024 / 1024);
+                        LOGI("ggml dev[%s] memory: free=%zuMB, total=%zuMB",
+                             devName ? devName : "null", freeMem/1024/1024, totalMem/1024/1024);
+                    } else {
+                        LOGI("ggml dev[%s] memory: backend does not implement this query (reports 0), "
+                             "NOT an empty pool (OpenCL-detected pool=%zuMB belongs to the OpenCL device)",
+                             devName ? devName : "null", s_detectedGpuMemory / 1024 / 1024);
                     }
                 }
             }
@@ -4633,6 +4690,15 @@ public:
         // §5.2 第二阶段（阶段 4 优化）：auto/none 模式用 is_partial 增量解析检测 tool_call 起始，
         // 检测到后锁定 is_tool_call=true，减少 UI 短暂闪烁（已发出的前几个 token 无法撤回）
         const int PARTIAL_PARSE_INTERVAL = 4;   // 每收 N 个 token 检测一次（16→4：缩短泄漏窗口）
+        // PERF-PARTIAL-PARSE(2026-11-01)：工具调用只可能出现在回答**开头**（思考结束后那一小段），
+        // 而 common_chat_parse 是 O(全文) 的 PEG 解析、跑在生成线程上。正文越长每次越贵，
+        // 整轮累计 O(n²/4)——这正是"思考快、吐字慢，且越到后面越慢"的来源（思考段不跑它）。
+        // 所以按已收集长度退避：前 1200 字符保持 4（泄漏窗口不变），之后 16、再之后 32。
+        auto partialParseInterval = [=](size_t collectedLen) -> int {
+            if (collectedLen > 4000) return PARTIAL_PARSE_INTERVAL * 8;
+            if (collectedLen > 1200) return PARTIAL_PARSE_INTERVAL * 4;
+            return PARTIAL_PARSE_INTERVAL;
+        };
         int partialParseCounter = 0;
 
         // §5.3 官方流式 tool_call 增量发布：复用 common_chat_parse（PEG + pending_tool_call）
@@ -4764,7 +4830,11 @@ public:
                     isInToolCall = true;
                     LOGV("chatJson: fast-path detected tool-call output (template tags, %zu open)",
                          mToolCallOpenTags.size());
-                } else if (++partialParseCounter >= PARTIAL_PARSE_INTERVAL) {
+                } else if (tools.empty()) {
+                    // 没注入工具就不可能产出 tool_call，这一轮不做全量解析。
+                    // 以前纯对话每 4 个 token 也对全文解析一次，纯属自残（见上方 PERF 注释）。
+                    partialParseCounter = 0;
+                } else if (++partialParseCounter >= partialParseInterval(collectedText.size())) {
                     partialParseCounter = 0;
                     try {
                         common_chat_parser_params pp = makeChatParserParams(chat_params);
@@ -6851,6 +6921,14 @@ public:
 
     bool isCurrentlyGenerating() const { return isGenerating.load(); }
 
+    /**
+     * 与 NativeHelper 的同名方法同因（见 NativeHelper::forceResetGeneration 处注释）：
+     * siglongjmp 会跳过 chatSend 内的 RAII 复位，isGenerating 卡在 true 后
+     * nativeChatSend 的"already generating"检查会永久拒绝后续所有推理。
+     * 只在"被拦截的致命信号"这条恢复路径上调用，正常路径仍由 RAII 复位。
+     */
+    void forceResetGeneration() { isGenerating.store(false); }
+
     std::vector<Turn>& getTurns() { return turns; }
 
     int getContextSize() const { return n_ctx; }
@@ -7359,6 +7437,45 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
         if (didAttach) javaVM->DetachCurrentThread();
     };
 
+    // CHATSEND-SIGNAL-GUARD(2026-11-01)：本函数是本地推理唯一在跑的入口
+    // （ModelExecutionBridge → NpuEngineRouter.chatJson → LlamaHelper.chatJson → 这里），
+    // 但致命信号兜底原先只包了 nativeGenerateStream*/runPureInference 那 5 个站点。
+    // 后果：hexagon 后端在 DSP 故障时走 GGML_ABORT → abort() → SIGABRT，没人接就等于整个
+    // 进程没了——这就是"NPU 抖一下就是闪退"的根因。这里补上仓库里已有的同一套机制：
+    // 信号被接住后回到本帧，复位 generating 标志（否则本函数开头的 isCurrentlyGenerating
+    // 检查会永久拒绝后续所有推理）、回一个 onError 让 Java 走既有错误卡，并给
+    // s_fatalSignalsCaught 计数供 NpuFaultGuard 判定是否临时降级后端。
+    //
+    // 故意不在这里 DeleteGlobalRef：成功路径的 streamCallback 在 onComplete 分支里已经删过
+    // 同一对全局引用，从信号路径再删就是 double-free。回调槽是单槽，下一次绑定时会接管上一个
+    // 回调（见本文件顶部 :601 附近注释），最多滞留一轮，不会累积。
+    has_jmp_set = true;
+    int caughtSignal = sigsetjmp(fatal_jmp_buf, 1);
+    if (caughtSignal != 0) {
+        has_jmp_set = false;
+        // 计数与落盘已由 fatal_signal_handler 做过（它才知道是不是在别的线程上抛的），
+        // 这里只负责把这一轮收干净并回错误，不再重复累加。
+        LOGE("nativeChatSend: fatal signal %d caught during chatSend, process survives "
+             "(fatalSignalsCaught=%d)", caughtSignal, s_fatalSignalsCaught.load());
+        if (chatCtx != nullptr) {
+            chatCtx->stopGeneration();
+            chatCtx->forceResetGeneration();
+        }
+        jclass cbClassFatal = env->GetObjectClass(callback);
+        if (cbClassFatal != nullptr) {
+            jmethodID onErrorFatal = env->GetMethodID(cbClassFatal, "onError", "(Ljava/lang/String;)V");
+            if (onErrorFatal != nullptr) {
+                jstring jErrFatal = safeNewStringUTF(env, "本地推理被硬件层中断（已拦截，应用未崩溃）");
+                if (jErrFatal != nullptr) {
+                    env->CallVoidMethod(callback, onErrorFatal, jErrFatal);
+                    env->DeleteLocalRef(jErrFatal);
+                }
+            }
+            env->DeleteLocalRef(cbClassFatal);
+        }
+        return;
+    }
+
     try {
         chatCtx->chatSend(msgContent, maxTokens, temperature, topP, topK, enableThinking, streamCallback);
     } catch (const std::exception& e) {
@@ -7385,6 +7502,9 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
             env->DeleteLocalRef(cbClassErr);
         }
     }
+    // 正常返回/C++ 异常两条路都要摘掉跳转点：留着的话，本线程后续任意致命信号
+    // 都会 siglongjmp 回到这个已经返回的栈帧（未定义行为）。
+    has_jmp_set = false;
 }
 
 JNIEXPORT void JNICALL
@@ -7889,6 +8009,35 @@ JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetEngineLogFile(JNIEnv* env, jclass, jstring path) {
     const char* p = path != nullptr ? env->GetStringUTFChars(path, nullptr) : nullptr;
     engineLogSetFile(p);
+    if (p != nullptr) env->ReleaseStringUTFChars(path, p);
+}
+
+// HTP-DIAG(2026-11-01)：打开 ggml-hexagon 自带的详细日志——它会打印实际走的
+// arch/skel、HMX 是否命中、哪几个 op fusion 生效、哪些权重进了 tile 化 repack。
+// 这是判断"HTP 这套 SDK 的潜力到底用上没有"的唯一直接证据（默认关：这些是 INFO 级、
+// 每 op 一条，开着会把引擎日志的 2MB 环形缓冲冲掉）。
+// 必须在下发模型装载**之前**调用：backend 只在初始化时读一次 env。
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetHtpVerbose(JNIEnv* /*env*/, jclass, jboolean on) {
+    setenv("GGML_HEXAGON_VERBOSE", on ? "1" : "0", 1);
+    LOGI("HTP diagnostics: GGML_HEXAGON_VERBOSE=%d", on ? 1 : 0);
+}
+
+// FATAL-RECORD-FILE(2026-11-01)：Java 在 Application.onCreate 里下发致命信号记录的落盘路径
+// （与 nativeSetEngineLogFile 同一时机、同一个目录）。之后 fatal_signal_handler 在信号上下文
+// 里用 open/write/close 写它——进程被 SIGABRT 打死时（抛信号的线程没有跳转点，例如 QNN/HTP
+// 自己的 worker 线程），这条文件是唯一活下来的证据。
+extern "C" JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetFatalRecordFile(JNIEnv* env, jclass, jstring path) {
+    const char* p = path != nullptr ? env->GetStringUTFChars(path, nullptr) : nullptr;
+    if (p != nullptr) {
+        size_t i = 0;
+        for (; i < sizeof(s_fatalRecordPath) - 1 && p[i] != '\0'; i++) s_fatalRecordPath[i] = p[i];
+        s_fatalRecordPath[i] = '\0';
+        LOGV("Fatal signal record file set: %s", s_fatalRecordPath);
+    } else {
+        s_fatalRecordPath[0] = '\0';
+    }
     if (p != nullptr) env->ReleaseStringUTFChars(path, p);
 }
 
@@ -10256,6 +10405,13 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeInstallSignalHandlers(JNIEnv* /*env*/, jclass) {
     install_fatal_signal_handlers();
     LOGV("Fatal signal handlers installed (SIGABRT/SIGSEGV/SIGBUS/SIGILL)");
+}
+
+// FATAL-COUNTER(2026-11-01)：被兜底接住的致命信号总次数（进程内单调递增）。
+// Java 侧取"一轮前后的差值"判断这一轮是否发生过硬件层致命中断，见 NpuFaultGuard。
+extern "C" JNIEXPORT jint JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetFatalSignalsCaught(JNIEnv* /*env*/, jclass) {
+    return (jint) s_fatalSignalsCaught.load();
 }
 
 extern "C" JNIEXPORT jint JNICALL

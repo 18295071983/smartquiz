@@ -79,7 +79,11 @@ bool AgentKvCache::truncate(llama_memory_t mem) {
     // 混合记忆（attention+recurrent hybrid）的 seq_rm 只支持尾部 n_rs_seq 窗口内回滚：
     // 深截断（截断距离 = cachedNPast - matchedLen）超出回滚窗口必然失败 → 回退全量 prefill。
     // 保留失败详情便于诊断（2026-09-23 真机实测：每次工具轮后 PARTIAL 均在此失败，20s/轮）。
-    AGENT_KV_LOGE("PARTIAL seq_rm failed (rollback=%d from cachedNPast=%d); falling back to full eval",
+    //
+    // LOG-LEVEL-FIX(2026-11-01)：这行原先用 LOGE，引擎日志里每轮一条红字，读日志的人会当成
+    // 引擎故障——实际是**设计内的性能回退**（下一行 I 级 "full eval %zu tokens" 已记录结果）。
+    // 降到 KV 调试级，与 KV-STATS 同类：诊断时开 debug 才看，用户视图不再出现假报错。
+    AGENT_KV_LOGD_KV("PARTIAL seq_rm unsupported in hybrid memory (rollback=%d from cachedNPast=%d); full eval fallback",
                   cachedNPast_ - matchedLen_, cachedNPast_);
     return false;
 }

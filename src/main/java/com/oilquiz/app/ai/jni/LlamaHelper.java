@@ -189,6 +189,25 @@ public class LlamaHelper {
     public static String getBackend() { return sBackendPreference; }
 
     /**
+     * NPU-FAULT-GUARD(2026-11-01)：把用户偏好经守卫折算成本次装载真正下发的中断后端。
+     *
+     * <p>若守卫处于降级态且偏好是 hexagon，这里返回 opencl；否则原样返回。
+     * 发生替换时按设置页切换后端那条既有不变量作废 prompt→response 缓存
+     * （缓存 key 不带引擎身份，不清会命中另一个引擎写的答案）。</p>
+     */
+    private static String applyNpuGuardOverride(android.content.Context ctx, String requested) {
+        String chosen = NpuFaultGuard.effectiveBackend(ctx, requested);
+        if (chosen != null && !chosen.equals(requested)) {
+            try {
+                com.oilquiz.app.ai.refactor.CacheManager.invalidateEngineCache(ctx, "npu-fault-demote");
+            } catch (Throwable t) {
+                AILogger.w(TAG, "invalidateEngineCache after backend demote failed: " + t.getMessage());
+            }
+        }
+        return chosen;
+    }
+
+    /**
      * BACKEND-INIT-EARLY(2026-10-09)：在**进程启动时**读取并下发 GPU 后端偏好。
      *
      * <p>为什么必须在 Application.onCreate 调：模型加载由后台线程在 App 启动时就发起，
@@ -224,7 +243,9 @@ public class LlamaHelper {
                 String saved = PreferenceManager.getDefaultSharedPreferences(context)
                         .getString("gpu_backend", DEFAULT_BACKEND);
                 if (saved != null && !saved.isEmpty()) {
-                    sBackendPreference = saved.trim().toLowerCase();
+                    // NPU-FAULT-GUARD(2026-11-01)：装载期覆盖点。降级只做运行时替换，
+                    // 不写回 gpu_backend（那是用户显式选择），见 NpuFaultGuard。
+                    sBackendPreference = applyNpuGuardOverride(context, saved.trim().toLowerCase());
                 }
             }
         } catch (Throwable t) {
@@ -298,7 +319,9 @@ public class LlamaHelper {
                 String saved = PreferenceManager.getDefaultSharedPreferences(ctx)
                     .getString("gpu_backend", DEFAULT_BACKEND);   // 与 DEFAULT_BACKEND 保持同源
                 if (saved != null && !saved.isEmpty()) {
-                    sBackendPreference = saved.trim().toLowerCase();
+                    // NPU-FAULT-GUARD(2026-11-01)：同上，装载前最后一道覆盖点
+                    // （initBackendPreference 之后用户可能又在设置页改过偏好）。
+                    sBackendPreference = applyNpuGuardOverride(ctx, saved.trim().toLowerCase());
                 }
             }
         } catch (Throwable t) {
@@ -2465,6 +2488,47 @@ public class LlamaHelper {
         }
     }
 
+    /**
+     * NPU-FAULT-GUARD(2026-11-01)：下发致命信号记录的落盘路径。native 的信号处理器在
+     * 信号上下文里只做 open/write/close，把 sig 与"抛信号的线程有没有跳转点"写进这个文件——
+     * 进程被 SIGABRT 打死时，它是唯一活下来的证据（见 NpuFaultGuard）。
+     */
+    public static boolean setFatalRecordFile(String path) {
+        if (!libraryLoaded) return false;
+        try {
+            nativeSetFatalRecordFile(path);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /**
+     * HTP-DIAG(2026-11-01)：打开 ggml-hexagon 的详细日志（arch/skel 选择、HMX 是否命中、
+     * op fusion、权重 tile 化 repack）。必须在模型装载之前调用；默认关——这些是 INFO 级、
+     * 每 op 一条，开着会把引擎日志 2MB 环形缓冲冲掉。
+     */
+    public static void setHtpVerbose(boolean on) {
+        if (!libraryLoaded) return;
+        try {
+            nativeSetHtpVerbose(on);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 被兜底接住的致命信号总次数（进程内单调递增）。一轮前后取差值即可判断这一轮是否发生过
+     * 硬件层致命中断；库未载入时返回 -1（调用方按"未知"处理）。
+     */
+    public static int getFatalSignalsCaught() {
+        if (!libraryLoaded) return -1;
+        try {
+            return nativeGetFatalSignalsCaught();
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
     public static String drainEngineLogs() {
         if (!libraryLoaded) return "";
         try {
@@ -2562,6 +2626,11 @@ public class LlamaHelper {
     /** 取走引擎日志环里的消息（drain 即清空），供「日志中心」展示 */
     private static native String nativeDrainEngineLogs();
     private static native void nativeSetEngineLogFile(String path);
+    // NPU-FAULT-GUARD(2026-11-01)：致命信号记录的落盘路径与进程内累计次数
+    private static native void nativeSetFatalRecordFile(String path);
+    private static native int nativeGetFatalSignalsCaught();
+    // HTP-DIAG(2026-11-01)：ggml-hexagon 自带的详细日志开关（arch/skel/HMX/融合/repack）
+    private static native void nativeSetHtpVerbose(boolean on);
     private static native void nativeChatClear(long handle);
     private static native void nativeChatDestroy(long handle);
     private static native String nativeChatGetInfo(long handle);
