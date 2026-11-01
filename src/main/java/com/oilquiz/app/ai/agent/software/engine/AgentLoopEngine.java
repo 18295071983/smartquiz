@@ -190,7 +190,10 @@ public class AgentLoopEngine {
             // TOOL-DISCOVERY(2026-11-01)：本地工具名由 native PEG 逐字枚举，会话中途改集会毁
             // tools 前缀（全量 re-prefill ~20s）。所以"能力广度"不能靠堆工具，而是：
             // 核心集只留高频，其余一律经 tool_registry 发现，并由它的 call 动作代执行。
-            "tool_registry", "memory", "task"
+            "tool_registry", "memory", "task",
+            // WORKSPACE-TOOL(2026-11-01)：工作区是一等公民——生成/改过的文件都在这儿，
+            // 列目录、看历史版本、回退都只能靠它（read_file 猜不到工作区相对路径）。
+            "workspace"
     };
 
     // ==================== 本地专用「薄工具」适配层（2026-10-25）====================
@@ -254,6 +257,18 @@ public class AgentLoopEngine {
                         {"progress", "string", "进度 0-100（update 用）", "0"},
                 },
                 "task", null,
+                new String[][]{}));
+        LOCAL_THIN_TOOLS.put("workspace", new ThinTool(
+                "工作区：生成或改过的文件都在这里。list/path/read/versions 只读；restore 与 delete 会改/删文件，"
+                        + "必须同时传 confirm=\"true\"（字符串 true 或 1 均可识别），否则工具拒绝执行并提示；"
+                        + "restore 前先 versions 拿到版本号。",
+                new String[][]{
+                        {"action", "string", "list/path/read/versions 只读；restore（需 confirm=true）、delete（需 confirm=true）", "1"},
+                        {"fileName", "string", "工作区内相对文件名（read/versions/restore/delete 用）", "0"},
+                        {"version", "string", "restore 用：版本号（1=最近一版，默认 1），从 versions 结果取", "0"},
+                        {"confirm", "string", "restore/delete 必填 \"true\"；不传或非真值 = 拒绝执行", "0"},
+                },
+                "workspace", null,
                 new String[][]{}));
     }
 
@@ -2339,6 +2354,10 @@ public class AgentLoopEngine {
                 + "写入或覆盖文件前先征得用户确认；工具没返回的数据不要编。用中文，先结论后细节。\n");
         sb.append("【工具】直接调用的是本次注入的这些工具；需要本次没注入的能力时，先用 tool_registry"
                 + "（get 看参数、call 代执行，call 的参数里写工具名是允许的）。"
+                // WORKSPACE/MEMORY(2026-11-01)：这两个工具此前只在 schema 里，模型不会主动想到用。
+                // 一句规则各给一次触发场景，避免它绕道 read_file 猜工作区路径、或把偏好当闲聊丢掉。
+                + "生成或改过的文件都在工作区：列文件/读内容/看历史版本并回退用 workspace（工作区相对路径别拿别的读取工具瞎猜）。"
+                + "用户说\u201c记住\u201d或告知姓名、住址、偏好等稳定信息时用 memory 保存，需要回忆时用 memory 读。"
                 + "问天气用 ai_weather：用户说了城市就传 city，没说就不传（系统自动用手机定位）。"
                 + "地名换算不出位置时先换成它所属的县市重查，不知道上级是什么就用 network_search"
                 + "搜\u201c<地名>属于哪个县市\u201d；还不行就如实说查不到，"

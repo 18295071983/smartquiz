@@ -83,13 +83,61 @@ public class LocalThinToolsTest {
 
         // 反向不变量：工具用途只写在 schema description 里，提示词不复述。
         // （复述是本地这份的主要体积开销，2B 还要在两段重复文本之间自行对齐。）
-        // TOOL-DISCOVERY(2026-11-01)：tool_registry 不在此列——它必须被提示词点名一句，
-        // 否则模型不知道该走"发现"这条路；其余薄工具仍不得复述用法。
+        // TOOL-DISCOVERY(2026-11-01)：tool_registry / memory / workspace 不在此列——它们必须被
+        // 提示词各点名一句（发现入口、记忆触发、工作区归属），否则模型不会主动想到用；
+        // 其余薄工具仍不得复述用法。
         for (String thin : new String[]{"read_file", "write_file", "calculate",
-                "search_questions", "memory", "task"}) {
+                "search_questions", "task"}) {
             assertFalse("薄工具 " + thin + " 的用法应由 schema 承担，不该再抄进 FC 提示词",
                     fc.contains(thin + " "));
         }
+    }
+
+    /**
+     * WORKSPACE/MEMORY(2026-11-01)：这两个工具必须在核心集里可调，并且在提示词里有触发场景——
+     * 只写 schema 的话模型不会主动想到（工作区会被绕过成 read_file 猜路径，偏好当闲聊丢掉）。
+     */
+    @Test
+    public void workspaceAndMemoryAreCallableAndMentionedInPrompt() throws Exception {
+        String[] core = (String[]) readStatic("DEFAULT_CORE_TOOLS");
+        Set<String> coreSet = new HashSet<>(Arrays.asList(core));
+        assertTrue("workspace 必须在本地核心集里（提示词点名了它，PEG 只能调用注入过的工具）",
+                coreSet.contains("workspace"));
+        assertTrue("memory 必须在本地核心集里", coreSet.contains("memory"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, ?> thin = (Map<String, ?>) readStatic("LOCAL_THIN_TOOLS");
+        Object ws = thin.get("workspace");
+        assertTrue("workspace 必须有薄 schema（否则退化为完整定义，吃前缀 token）", ws != null);
+        java.lang.reflect.Field paramsF = ws.getClass().getDeclaredField("params");
+        paramsF.setAccessible(true);
+        String[][] params = (String[][]) paramsF.get(ws);
+        Set<String> names = new HashSet<>();
+        for (String[] p : params) names.add(p[0]);
+        assertTrue("workspace 需要 fileName（read/versions/restore/delete 的定位键）",
+                names.contains("fileName"));
+        assertTrue("workspace 需要 action", names.contains("action"));
+
+        // CONFIRM-PROTOCOL(2026-11-01)：restore/delete 会被工具以 confirm 拦住，协议必须写在
+        // 模型可见的描述里——真实执行侧 boolParam 只认 true/1，漏传就是"操作被拒绝"。
+        java.lang.reflect.Field descF = ws.getClass().getDeclaredField("desc");
+        descF.setAccessible(true);
+        String wsDesc = String.valueOf(descF.get(ws));
+        assertTrue("workspace 描述必须写明 restore/delete 需要 confirm",
+                wsDesc.contains("confirm"));
+        String confirmDesc = null;
+        String actionDesc = null;
+        for (String[] p : params) {
+            if ("confirm".equals(p[0])) confirmDesc = p[2];
+            if ("action".equals(p[0])) actionDesc = p[2];
+        }
+        assertTrue("confirm 参数描述必须说明必填 true", confirmDesc != null && confirmDesc.contains("true"));
+        assertTrue("action 描述必须标出 restore/delete 需 confirm",
+                actionDesc != null && actionDesc.contains("restore") && actionDesc.contains("confirm"));
+
+        String fc = invokePrompt("buildFcSystemPrompt");
+        assertTrue("提示词应给出工作区的使用场景", fc.contains("workspace"));
+        assertTrue("提示词应给出记忆的触发场景", fc.contains("memory"));
     }
 
     /**
