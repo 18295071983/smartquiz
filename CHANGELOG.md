@@ -1,5 +1,49 @@
 # 变更日志
 
+## [2026-11-01] docs(agent)：补说明——本地提示词重写、取消输出硬帽与模型可见面裁剪（代码已在 `0eec1e4d`/`bbfa0934` 内）
+
+这一轮的**代码不在本条提交里**：它被同分支的并行会话连着自己的改动一起提交了，
+`AgentLoopEngine.java` + `LocalThinToolsTest.java` 落在 `0eec1e4d`（"接工具发现与采样/人设偏好，日期块移到轮末"），
+`OnlinePromptBuilder.java` + 两份 golden 落在 `bbfa0934`（"在线角色段精简"）。
+两条 message 都没提这三件事，而它们恰好是会改变模型行为的那种，故单独留一条说明。用户口径：
+"他提交的你就不用提交了，补说明就行"。
+
+- **"暂时无法回答这个问题"的真凶有两条，都修了**：① 思考与答案**共用** 2000 token 帽——
+  `PLAIN_CHAT_MAX_TOKENS` 删除，`FINAL_RESPONSE_MAX_TOKENS` 改名 `OUTPUT_RESERVE_TOKENS`（14 处），
+  语义从"上限"换成"预留"：`buildRequestJson` 按 `ctx - promptTokens - reserve` 下发，不再对答案本身设死额度；
+  ② 泄漏过滤误杀——旧判据是"含任一特征片段即整条丢弃"，改为**开头命中**或**命中占比 ≥30%** 才判泄漏，
+  并打 WARN（marker/占比/前 40 字）；`PROMPT_LEAK_MARKERS` 同时删掉三条全仓库无生产者的片段。
+- **模型看到的东西不止 schema，至少四处，裁一处要四处对账**：① `buildFcSystemPrompt` 静态正文；
+  ② `buildToolsJson` 注入的 tools schema；③ 失败时**回给模型的观察文本** `getAlternativeTool`；
+  ④ 本轮 user 末尾的【本次任务】直给指令。本轮实测到 ③④ 还写着"去掉 city/**lat/lon** 重新调用"，
+  而 lat/lon 已从 ② 摘掉——等于叫模型去改一个它生成不出来的字段。
+- **可见面裁剪只动引擎自己填得出的参数**：新增 `LOCAL_SCHEMA_SLIM` 表（工具 → 本地专用短描述 +
+  保留参数白名单，数组顺序即注入顺序以保前缀字节稳定），目前只有 `ai_weather`：摘 `lat`/`lon`
+  （`fillWeatherLocation` 本来就在填它们，真实工具照旧接受），**`city` 留着**。摘 `city` 的代价已核清：
+  引擎侧认城市只有 `extractCityFromMessage` → `QWeatherCityManager.findCityNamesInMessage`，那是和风 CSV
+  `nameZh` 的精确子串匹配（CSV 是县市级表），而兜底顺序先取 `cachedLat/cachedLon`——
+  摘掉后"花山镇天气"会**静默查成用户所在城市且不报错**；模型传 `city` 走的是 `resolveCityEntry`
+  后缀剥离 + 上级地名打分 + 系统 Geocoder 这条更强的链。另注意 `ai_weather` 的 action 用的是 4 参
+  `addParameter`、**没有 enumValues**，七个 action 的取值只能靠描述文本给，瘦描述时不能删。
+- **角色段收成一句话**（本地与在线同款）：原来"工作/方式/边界/风格"四条与后面的【执行规范】【输出要求】
+  逐字重复，模型要在两段同义指令间自行对齐；"你是答题宝App中的AI聊天助手…（在线Agent模式）"是给人看的品牌话术。
+  在线侧随之重生成 golden（`assist.txt` 12266→11866、`takeover.txt` 10397→10113 字节）。
+- **口径边界（用户明令）**：`network_search` 不许裁，也不许删与它有关的指路句——
+  参数与 action 对应后端 API 的真实能力，不是冗余。裁提示词时我顺手删过"拿不准就用 network_search
+  搜<地名>属于哪个县市"，工具仍在注入面但模型不再知道该用它，已按此口径写回。
+- 数字：`ai_weather` 可见文本 701→151 字符（另省两个参数壳约 82），FC 提示词【工具】段 236→175，
+  合计约 715 字符掉出 system 前缀。**代价**：tools JSON 渲染在前缀里，改它=装新包后每会话首轮全量
+  re-prefill（此前实测 ~20s 首字），次轮起才恢复增量。token 数未用模型分词器实测，引擎日志每轮打
+  `schema tokens`，真机可读回。
+- 测试：新增 2 条不变量（① 裁剪表保留的参数必须在 `AIToolManager` 的真实定义里存在——否则
+  `buildToolsJson` 的 `byName.get()` 拿不到就**静默跳过**，必填参数能悄悄消失；② 提示词与失败建议
+  不得再提已摘的 lat/lon）。改动当时 `testDebugUnitTest` 1346/0/0/0，`assembleDebug` 通过；
+  HEAD 现为 **1357 tests / 0 failures / 0 errors / 0 skipped**（含并行会话新增的 11 条）。
+- **未真机验**：HTP 下的答案质量、KV 是否真走增量、`HTP free=0MB/total=0MB` 的池数值是否仍在抄 OpenCL
+  旧账、以及从 logcat dump 出模型真正收到的 prompt 全文。另注意装机包与 HEAD 已非同一物：
+  14:40 装的 `base.apk` md5 `c0c383f5…`（940,140,164 字节）不含并行会话 19:43 那批引擎改动，
+  磁盘上的包是 19:45 重打的 940,140,830 字节。
+
 ## [2026-10-29] feat(workspace)：备份有单一取回入口 `versions`/`restore`，`excel_tool` 原地保存也纳入备份
 
 上一轮补二进制护栏时留下的尾巴："那套 `.ver1..ver5` 备份模型完全不知道、也没有 versions/restore 入口"。
