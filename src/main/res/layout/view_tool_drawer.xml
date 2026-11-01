@@ -317,6 +317,22 @@
             android:textSize="@dimen/text_12"
             android:textColor="?attr/colorControlTextSecondary"
             android:paddingBottom="@dimen/space_4"/>
+        <!-- 使用说明重入口（2026-11-02 GUIDE-DYNAMIC-TOOLS）：空对话引导弹框改为"每引擎只自动弹一次"，
+             关掉就不再自动出现，所以这里必须给一个能随时打开的地方；文案走 @string 供三语覆盖。 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_chat_guide"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_40"
+            android:text="@string/chat_guide_drawer_entry"
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorOnSecondaryContainer"
+            app:backgroundTint="?attr/colorSecondaryContainer"
+            app:cornerRadius="@dimen/radius_12"
+            android:textAllCaps="false"
+            android:gravity="start|center_vertical"
+            android:paddingHorizontal="12dp"
+            android:minWidth="@dimen/min_0"
+            android:layout_marginBottom="@dimen/space_8"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_agent_manager"
             android:layout_width="match_parent"

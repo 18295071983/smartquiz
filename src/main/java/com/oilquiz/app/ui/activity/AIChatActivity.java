@@ -235,6 +235,8 @@ public class AIChatActivity extends BaseActivity {
     private android.widget.ImageButton remoteDshHide;
     private MaterialButton btnModelDownload;
     private MaterialButton btnAiInit;
+    /** 工具抽屉里的「使用说明」重入口（引导弹框改为每引擎只自动弹一次后的补充入口） */
+    private MaterialButton btnChatGuide;
     private View thinkingIndicator;
     private Chip chipWeather;
     private Chip chipClear;
@@ -628,6 +630,7 @@ public class AIChatActivity extends BaseActivity {
         refreshRemoteDshBar();
             btnModelDownload = findViewById(R.id.btn_model_download);
             btnAiInit = findViewById(R.id.btn_ai_init);
+            btnChatGuide = findViewById(R.id.btn_chat_guide);
             thinkingIndicator = findViewById(R.id.thinking_indicator);
             chipWeather = findViewById(R.id.chip_weather);
             chipClear = findViewById(R.id.chip_clear_chat2);
@@ -1708,6 +1711,15 @@ public class AIChatActivity extends BaseActivity {
         if (btnModelDownload != null) {
             btnModelDownload.setOnClickListener(v ->
                     startActivity(new Intent(AIChatActivity.this, ModelDownloadActivity.class)));
+        }
+        // 使用说明重入口：force=true 绕过"每引擎只弹一次"的已读闸门（用户主动点，必须每次都开）
+        if (btnChatGuide != null) {
+            btnChatGuide.setOnClickListener(v -> {
+                if (drawerLayout != null) {
+                    drawerLayout.closeDrawer(findViewById(R.id.tool_drawer));
+                }
+                showWelcomeGuide(true);
+            });
         }
         // AI 服务一键初始化：本地与在线均未配置时提供，点击进入精美引导界面
         if (btnAiInit != null) {
@@ -5144,26 +5156,10 @@ public class AIChatActivity extends BaseActivity {
         // NPU（GenieX）引擎不依赖 aiService：跳过下面的"请选择模型"弹窗，直接进 NPU 推理路由
         boolean npuOnForNormal = isNpuEngineOn();
         if (aiService == null && !npuOnForNormal) {
-            runOnUiThread(() -> {
-                new androidx.appcompat.app.AlertDialog.Builder(this)
-                        .setTitle(getString(R.string.h_c1d12ffc))
-                        .setMessage(getString(R.string.h_f81e293e) +
-                                "📥 本地Agent模型（推荐）\n" +
-                                "• 支持工具调用（天气/搜索/记忆等）、思考链\n" +
-                                "• 推荐 Qwen3.5-4B（Q4_0，约2.6GB，NPU 与 llama.cpp 通用）\n\n" +
-                                "💬 本地普通对话模型\n" +
-                                "• 轻量快速，仅普通对话\n" +
-                                "• 推荐 Qwen3.5-0.8B，约0.5GB\n\n" +
-                                "🌐 在线模型\n" +
-                                "• 功能更强，完整Agent 40+工具\n" +
-                                "• 支持豆包、DeepSeek、通义千问等")
-                        .setPositiveButton(getString(R.string.h_f0597ad8), (d, w) -> {
-                            startActivity(new Intent(AIChatActivity.this, ModelDownloadActivity.class));
-                        })
-                        .setNegativeButton(getString(R.string.h_87e4d9ef), null)
-                        .setCancelable(true)
-                        .show();
-            });
+            // 2026-11-02（GUIDE-DYNAMIC-TOOLS）：这里原本抄了第二套"还没有配置模型"文案
+            // （体积、工具总数都是抄来的猜测值，且和空对话引导那套各改各的）。
+            // 现在与进页面那份共用同一个弹框：一份文案、一套出口（一键初始化 + 模型下载）。
+            showNoModelGuideForSend();
             return;
         }
         
@@ -5314,94 +5310,287 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 显示新手引导信息（聊天历史为空时显示）。
-     * 按当前实际架构精简：本地/在线都走 Agent 引擎；「智能助手」只决定注不注入工具，深度思考=模式。
+     * 引导弹框的文案指纹（GUIDE-DYNAMIC-TOOLS，2026-11-02）。
+     *
+     * <p>正文改了 bump 这里，看过旧版的用户会重新看一次新版；没改就别动——动一次等于
+     * 把所有用户的"不再弹"状态清空，又弹一遍。</p>
+     */
+    private static final String CHAT_GUIDE_FINGERPRINT = "2026-11-02-v1";
+    /** 已读标记（ai_chat_prefs）：值 = 指纹|引擎（none/ONLINE/NPU/LOCAL）。换引擎才重弹 */
+    private static final String PREF_CHAT_GUIDE_SEEN = "chat_guide_seen";
+    /** 「三态都没模型」这一档的引擎标记（与真实引擎名共用同一个已读键） */
+    private static final String CHAT_GUIDE_TAG_NONE = "none";
+
+    /**
+     * 显示新手引导（聊天历史为空时自动调用；工具抽屉「使用说明」随时强制调用）。
+     *
+     * <p><b>2026-11-02 重写（GUIDE-DYNAMIC-TOOLS）</b>，原实现三条口径都是错的：</p>
+     * <ol>
+     *   <li><b>三态被塌成两态</b>：引擎只看 {@code getActiveModel()!=null}。开着 NPU 又配置过在线模型时
+     *       它写"在线模型"，而 {@code InferenceRouter} 里 NPU 优先，实际跑的是 NPU；反过来纯 NPU 用户
+     *       {@code aiService.getCurrentModelName()} 恒空（GenieX 不经 llama.cpp 服务），两个判据都 false
+     *       → 被弹"还没有配置模型"。现在引擎名取 {@code getEffectiveInferenceType()}（与顶部横幅同源的
+     *       显示层口径），"有没有模型可跑"按 在线 / NPU / llama.cpp 三态各自判。</li>
+     *   <li><b>工具数量与名单写死在 Java</b>："本地常驻 5 个（天气/时间/定位/搜索/记忆）"实际早已是
+     *       11 个且<b>不含定位</b>；"共 40+ 工具"是与注册表漂移的猜测值；"调用到其他工具时自动动态加入"
+     *       对本地根本不成立（native PEG 按本次 tools 数组逐字枚举，未注入 schema 的名字模型生成不出来，
+     *       见 {@code AgentLoopEngine#DEFAULT_CORE_TOOLS} 注释；本地是 tool_registry 的 call 代执行）。
+     *       现在数量/名单动态取：{@code AgentLoopEngine.localCoreToolNames()}、
+     *       {@code OnlineAgentEngine.coreTools()/maxSessionToolCount()}、注册表实际启用数；
+     *       展示名统一走 {@code ToolMetaRegistry.displayName}，不把 read_file 这类内部名甩给用户。</li>
+     *   <li><b>每次进空对话页都弹，且正文同时列两套引擎说明</b>：现在按"指纹|引擎"记一次已读，
+     *       换引擎才重弹；正文只讲当前引擎。关掉不等于永久失去——工具抽屉有「使用说明」重入口，
+     *       「一键初始化」「模型下载」两个出口本来就一直在抽屉里。</li>
+     * </ol>
+     *
+     * <p>另外两处顺带修正：本地那档此前完全没提「智能助手」开关（关着时模型一个工具都拿不到，
+     * 弹框却承诺"可调用天气/搜索/记忆"）；"未配置"分支的正向按钮从"去模型下载"改成
+     * "⚡ 一键初始化"（与抽屉里那颗按钮同一目标、对未配置用户更省事），模型下载仍在同一弹框里。</p>
+     *
+     * <p>探测会读盘（NPU 模型库、预设清单、本地模型目录），因此判定整段在后台线程跑，
+     * 只有弹框回主线程——与本页历史加载同一口径，绝不在主线程做 I/O。</p>
      */
     private void showWelcomeGuide() {
-        // 检查是否已配置模型（本地或在线）
-        boolean hasLocalModel = false;
-        boolean hasOnlineModel = false;
-        try {
-            if (aiService != null && aiService.getCurrentModelName() != null) {
-                hasLocalModel = true;
-            }
-            if (onlineModelManager != null && onlineModelManager.getActiveModel() != null) {
-                hasOnlineModel = true;
-            }
-        } catch (Exception ignored) {}
+        showWelcomeGuide(false);
+    }
 
-        if (!hasLocalModel && !hasOnlineModel) {
-            // 没有配置任何模型：用原生对话框引导
+    /** @param force 工具抽屉入口用：true = 无视已读标记强制弹一次 */
+    private void showWelcomeGuide(final boolean force) {
+        new Thread(() -> {
+            final boolean anyModelUsable;
+            final com.oilquiz.app.ai.model.InferenceType engine;
+            final String defaultModelLabel;
+            try {
+                anyModelUsable = isAnyEngineModelUsable();
+                engine = guideEngineType();
+                defaultModelLabel = anyModelUsable ? null : defaultPresetModelLabel();
+            } catch (Throwable t) {
+                AppLogger.aiW(TAG, "引导判定失败，跳过弹框: " + t.getMessage());
+                return;
+            }
             runOnUiThread(() -> {
-                new androidx.appcompat.app.AlertDialog.Builder(this)
-                        .setTitle(getString(R.string.h_c1d12ffc))
-                        .setMessage(getString(R.string.h_f81e293e) +
-                                "📥 本地模型（推荐）\n" +
-                                "• 离线可用，无需网络，支持工具调用（天气/搜索/记忆等）\n" +
-                                "• 推荐 Qwen3.5-4B（Q4_0，约2.6GB，NPU 与 llama.cpp 通用）\n\n" +
-                                "🌐 在线模型\n" +
-                                "• 功能更强，支持 Agent 工具调用\n" +
-                                "• 支持豆包、DeepSeek、通义千问等")
-                        .setPositiveButton(getString(R.string.h_f0597ad8), (d, w) -> {
-                            startActivity(new Intent(AIChatActivity.this, ModelDownloadActivity.class));
-                        })
-                        .setNegativeButton(getString(R.string.h_87e4d9ef), null)
-                        .setCancelable(true)
-                        .show();
+                if (isFinishing() || isDestroyed()) return;
+                if (!anyModelUsable) {
+                    showGuideSetupDialog(defaultModelLabel, force);
+                    return;
+                }
+                String tag = engine.name();
+                if (!force && isChatGuideSeen(tag)) return;
+                // 沿用旧口径：延后 500ms 再弹，等 Activity 完全初始化（首屏不抢布局）
+                new android.os.Handler(getMainLooper()).postDelayed(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    // 已读标记在真的要弹之前才写：中间页面被关掉时不能"把引导吃掉"
+                    markChatGuideSeen(tag);
+                    showGuideUsageDialog(engine);
+                }, 500);
             });
-            return;
+        }, "chat-welcome-guide").start();
+    }
+
+    /**
+     * 引导用引擎口径：取"本轮实际执行"的类型，与顶部横幅同源。
+     *
+     * <p>不自己拼"有激活在线模型就算在线"——那样会和 {@code InferenceRouter} 的优先级
+     * （NPU 优先、NPU 失败回退 llama.cpp）分叉，出现"横幅写本地模型、弹框写在线模型"。</p>
+     */
+    private com.oilquiz.app.ai.model.InferenceType guideEngineType() {
+        try {
+            if (inferenceRouter != null) {
+                return inferenceRouter.getEffectiveInferenceType();
+            }
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "引擎口径取失败，退回在线/本地直觉: " + t.getMessage());
+        }
+        return isOnlineReady()
+                ? com.oilquiz.app.ai.model.InferenceType.ONLINE
+                : com.oilquiz.app.ai.model.InferenceType.LOCAL;
+    }
+
+    /** 三态任一"有模型可跑"：在线看就绪门，NPU 看引擎开+模型库，llama.cpp 看当前/已下载模型 */
+    private boolean isAnyEngineModelUsable() {
+        return isOnlineReady() || npuModelUsable() || localLlamaModelUsable();
+    }
+
+    /** NPU（GenieX）侧是否有可用模型：已加载 / 已指定 / 模型库里挑得到（读盘，后台线程调用） */
+    private boolean npuModelUsable() {
+        if (!isNpuEngineOn()) return false;
+        try {
+            if (com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded()) return true;
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.currentOrPreferredModelName().isEmpty()) return true;
+            return !com.oilquiz.app.ai.engine.NpuLlmChat.listAvailableModels(this).isEmpty();
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "NPU 模型探测失败: " + t.getMessage());
+            return false;
+        }
+    }
+
+    /** llama.cpp 本地侧是否有可用模型：当前模型名，或模型目录里真的有文件（读盘，后台线程调用） */
+    private boolean localLlamaModelUsable() {
+        try {
+            if (aiService == null) return false;
+            String name = aiService.getCurrentModelName();
+            if (name != null && !name.isEmpty()) return true;
+            String[] models = aiService.getAvailableModels();
+            return models != null && models.length > 0;
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "本地模型探测失败: " + t.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 「未配置」分支里推荐的默认模型名：{@code models_presets.json} 是唯一权威，按
+     * {@code AIServiceInitializer.DEFAULT_MODEL_ID} 查；查不到才用写死的兜底文案。
+     * 体积口径与「模型下载」页 {@code formatSize} 一致（1024^3），免得同一个数字两种写法。
+     */
+    private String defaultPresetModelLabel() {
+        try {
+            java.util.List<com.oilquiz.app.ai.model.ModelPresetConfig.ModelPreset> presets =
+                    com.oilquiz.app.ai.model.ModelPresetConfig.loadPresets(this);
+            com.oilquiz.app.ai.model.ModelPresetConfig.ModelPreset p =
+                    com.oilquiz.app.ai.model.ModelPresetConfig.findPreset(
+                            presets, AIServiceInitializer.DEFAULT_MODEL_ID);
+            if (p != null && p.name != null && !p.name.isEmpty()) {
+                // 预设名自带括注（"Qwen3.5-4B（支持思考，推荐）"），只取主干再拼量化与体积，
+                // 免得弹框里出现"…（支持思考，推荐）（Q4_0，约 2.4 GB）"这种双重括号
+                String base = p.name.split("[（(]")[0].trim();
+                String quant = (p.quantization == null || p.quantization.isEmpty())
+                        ? "" : "（" + p.quantization;
+                String size = p.sizeBytes > 0
+                        ? String.format(java.util.Locale.ROOT, "，约 %.1f GB",
+                                p.sizeBytes / (1024.0 * 1024.0 * 1024.0))
+                        : "";
+                return base + quant + size + (quant.isEmpty() ? "" : "）");
+            }
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "默认模型预设读取失败，用兜底文案: " + t.getMessage());
+        }
+        return getString(R.string.chat_guide_model_fallback);
+    }
+
+    /** 已读闸门：值 = 文案指纹|引擎，所以"改了文案"和"换了引擎"都会重新弹一次 */
+    private boolean isChatGuideSeen(String engineTag) {
+        try {
+            String seen = getSharedPreferences("ai_chat_prefs", MODE_PRIVATE)
+                    .getString(PREF_CHAT_GUIDE_SEEN, "");
+            return (CHAT_GUIDE_FINGERPRINT + "|" + engineTag).equals(seen);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private void markChatGuideSeen(String engineTag) {
+        try {
+            getSharedPreferences("ai_chat_prefs", MODE_PRIVATE).edit()
+                    .putString(PREF_CHAT_GUIDE_SEEN, CHAT_GUIDE_FINGERPRINT + "|" + engineTag)
+                    .apply();
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "记录引导已读失败: " + t.getMessage());
+        }
+    }
+
+    /**
+     * 「三态都没模型」的配置引导：⚡ 一键初始化（主）/ 模型下载（中性）/ 稍后再说（负）。
+     * 主按钮与工具抽屉那颗「一键初始化」同一目标（自动下载并配置默认模型），
+     * 模型下载仍在同一弹框里，原有路径一条都没缩。
+     */
+    private void showGuideSetupDialog(String defaultModelLabel, boolean force) {
+        if (!force && isChatGuideSeen(CHAT_GUIDE_TAG_NONE)) return;
+        markChatGuideSeen(CHAT_GUIDE_TAG_NONE);
+        String message = getString(R.string.h_f81e293e)
+                + getString(R.string.chat_guide_none_local, defaultModelLabel)
+                + getString(R.string.chat_guide_none_online)
+                + getString(R.string.chat_guide_none_hint);
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(getString(R.string.h_c1d12ffc))
+                .setMessage(message)
+                .setPositiveButton(getString(R.string.chat_guide_btn_init), (d, w) ->
+                        startActivity(new Intent(AIChatActivity.this, AIServiceInitActivity.class)))
+                .setNeutralButton(getString(R.string.chat_guide_btn_download_neutral), (d, w) ->
+                        startActivity(new Intent(AIChatActivity.this, ModelDownloadActivity.class)))
+                .setNegativeButton(getString(R.string.h_87e4d9ef), null)
+                .setCancelable(true)
+                .show();
+    }
+
+    /**
+     * 发送时才暴露"没有模型可用"：复用同一份未配置引导，不再抄第二套字面量。
+     *
+     * <p>这条路径是<b>用户刚点了发送</b>，所以 force=true 绕过已读闸门——静默吞掉一次点击
+     * 比弹一个重复的框更糟。默认模型名要读预设清单，故仍走后台线程。</p>
+     */
+    private void showNoModelGuideForSend() {
+        new Thread(() -> {
+            final String label = defaultPresetModelLabel();
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                showGuideSetupDialog(label, true);
+            });
+        }, "chat-no-model-guide").start();
+    }
+
+    /** 「有模型」的使用说明：只讲当前引擎，数量与名单全部动态取（见 {@link #showWelcomeGuide()}） */
+    private void showGuideUsageDialog(com.oilquiz.app.ai.model.InferenceType engine) {
+        boolean online = engine == com.oilquiz.app.ai.model.InferenceType.ONLINE;
+        StringBuilder msg = new StringBuilder();
+        msg.append(getString(R.string.h_557e17b6));
+        msg.append(getString(R.string.chat_guide_engine_line, engine.getDisplayName()));
+        msg.append(getString(R.string.chat_guide_route_line));
+        if (online) {
+            msg.append(getString(R.string.chat_guide_online_always_tools));
+        } else {
+            // 「智能助手」关着时本地一条工具都不会注入，这时候承诺工具清单就是骗人（旧版一直这么写）
+            boolean assistantOn = aiConfig != null && aiConfig.isLocalAgentEnabled();
+            msg.append(getString(assistantOn
+                    ? R.string.chat_guide_assistant_on : R.string.chat_guide_assistant_off));
+        }
+        msg.append(getString(R.string.chat_guide_thinking_line));
+        if (online) {
+            java.util.Set<String> core = com.oilquiz.app.ai.agent.online.OnlineAgentEngine.coreTools();
+            int total = onlineEnabledToolCount();
+            int cap = com.oilquiz.app.ai.agent.online.OnlineAgentEngine.maxSessionToolCount();
+            String labels = joinToolLabels(core);
+            msg.append(total > core.size()
+                    ? getString(R.string.chat_guide_online_tools, total, core.size(), labels, cap)
+                    : getString(R.string.chat_guide_online_tools_no_total, core.size(), labels, cap));
+            msg.append(getString(R.string.chat_guide_examples_online));
+        } else {
+            java.util.List<String> core =
+                    com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine.localCoreToolNames();
+            msg.append(getString(R.string.chat_guide_local_tools, core.size(), joinToolLabels(core)));
+            msg.append(getString(R.string.chat_guide_examples_local));
         }
 
-        // 已有模型：弹窗显示使用说明，不发送到对话流
-        // 根据当前模型类型（在线/本地）动态显示不同的工具说明
-        boolean isOnlineModel = false;
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(getString(R.string.h_9e1bb02b))
+                .setMessage(msg.toString())
+                .setPositiveButton(getString(R.string.h_ce26955a), null)
+                .setCancelable(true)
+                .show();
+    }
+
+    /** 注册表里实际启用的在线工具数；未同步（0）时由调用方改用"只报常驻"的文案 */
+    private int onlineEnabledToolCount() {
         try {
-            if (onlineModelManager != null && onlineModelManager.getActiveModel() != null) {
-                isOnlineModel = true;
-            }
-        } catch (Exception ignored) {}
+            return com.oilquiz.app.ai.agent.online.OnlineToolManager.getInstance(this)
+                    .getRegistry().getEnabledToolCount();
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
 
-        final boolean online = isOnlineModel;
-        // 延迟500ms显示，确保Activity完全初始化
-        new android.os.Handler(getMainLooper()).postDelayed(() -> {
-            if (isFinishing() || isDestroyed()) return;
-            String toolsInfo;
-            String examples;
-            if (online) {
-                toolsInfo = "🛠 完整工具集（在线Agent）\n" +
-                        "• 天气 ☁️ 搜索 🔍 计算 🔢 时间 🕐 定位 📍\n" +
-                        "• 文件 📄 图片生成 🎨 UI组件 🖼️ 数据库 🗄️\n" +
-                        "• 长期记忆 🧠 权限管理 🔐 工作区管理 📁\n" +
-                        "• 工具发现 🔧 共40+工具按需调用";
-                examples = "💡 试试对我说：\n" +
-                        "「今天天气怎么样？」\n" +
-                        "「帮我写一份周报」\n" +
-                        "「画一只橘猫」\n" +
-                        "「搜索一下最新油价」";
-            } else {
-                toolsInfo = "🛠 核心工具（本地Agent）\n" +
-                        "• 天气 ☁️ 时间 🕐 定位 📍 搜索 🔍 记忆 🧠\n" +
-                        "（常驻5个核心工具，模型调用到其他工具时自动动态加入）";
-                examples = "💡 试试对我说：\n" +
-                        "「今天天气怎么样？」\n" +
-                        "「现在几点了？」\n" +
-                        "「搜索一下最新油价」\n" +
-                        "「记住我叫小明」";
+    /** 工具名按注册顺序拼展示名（分隔符走资源，英文档用逗号）；表外名字由 ToolMetaRegistry 兜底润色 */
+    private String joinToolLabels(java.util.Collection<String> names) {
+        String sep = getString(R.string.chat_guide_label_sep);
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        if (names != null) {
+            for (String name : names) {
+                if (i++ > 0) sb.append(sep);
+                sb.append(com.oilquiz.app.ai.chat.ToolMetaRegistry.displayName(name));
             }
-
-            new androidx.appcompat.app.AlertDialog.Builder(AIChatActivity.this)
-                    .setTitle(getString(R.string.h_9e1bb02b))
-                    .setMessage(getString(R.string.h_557e17b6) +
-                            "🚀 当前模式：" + (online ? "在线模型（完整Agent）" : "本地模型（Agent）") + "\n" +
-                            "• 在线模型 — 完整 Agent：自动调用40+工具、多轮推理\n" +
-                            "• 本地模型 — Agent：5个核心工具（天气/时间/定位/搜索/记忆），无需网络\n" +
-                            "• 深度思考 — 切换模式后，回答前会先展示思考过程\n\n" +
-                            toolsInfo + "\n\n" +
-                            examples)
-                    .setPositiveButton(getString(R.string.h_ce26955a), null)
-                    .setCancelable(true)
-                    .show();
-        }, 500);
+        }
+        return sb.toString();
     }
 
     /** 防御性硬上限：即使上下文预算很大，也最多携带这么多条历史（防极端场景拼装过慢） */
