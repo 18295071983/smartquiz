@@ -349,6 +349,33 @@ public class LocalThinToolsTest {
         assertTrue("普通对话仍要保留不编造约束", plainWith.contains("不确定时如实说明，不编造"));
     }
 
+    /**
+     * CLEAN-UNCLOSED-TOOLCALL(2026-11-01)：收尾清理不得把"标签之后的正文"一起吃掉。
+     * 旧实现是正则删到文本结尾（真机实测某轮 1508 字只剩 577），现在只吞标签+紧随的 JSON。
+     */
+    @Test
+    public void unclosedToolCallStripsOnlyTagAndJson() throws Exception {
+        java.lang.reflect.Method m = AgentLoopEngine.class.getDeclaredMethod(
+                "stripUnclosedToolCalls", String.class);
+        m.setAccessible(true);
+
+        String in = "前文\n<tool_call>{\"name\":\"workspace\",\"arguments\":{\"action\":\"list\"}}\n后文正文";
+        String out = (String) m.invoke(null, in);
+        assertFalse("标签应被剥掉", out.contains("<tool_call"));
+        assertFalse("紧随的 JSON 应被吞掉", out.contains("\"name\""));
+        assertTrue("标签之后的正文必须保留", out.contains("后文正文"));
+        assertTrue("标签之前的正文必须保留", out.contains("前文"));
+
+        String noJson = (String) m.invoke(null, "A<tool_call>B");
+        assertTrue("没有 JSON 时只删标签，前后正文都在",
+                noJson.contains("A") && noJson.contains("B"));
+        assertFalse(noJson.contains("<tool_call"));
+
+        String truncated = (String) m.invoke(null, "A<tool_call>{\"name\":\"x");
+        assertTrue("前半段正文保留", truncated.contains("A"));
+        assertFalse("JSON 被截断时不能残留半截", truncated.contains("\"name\""));
+    }
+
     private static Object readInstance(Object target, String field) throws Exception {
         java.lang.reflect.Field f = target.getClass().getDeclaredField(field);
         f.setAccessible(true);

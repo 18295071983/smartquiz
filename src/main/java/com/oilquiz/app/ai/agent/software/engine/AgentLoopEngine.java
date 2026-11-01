@@ -696,6 +696,7 @@ public class AgentLoopEngine {
             GenerateResult plain = generatePlainChat(history, enableThinking);
             if (plain != null && plain.content != null && !plain.content.trim().isEmpty()) {
                 String clean = cleanResponse(plain.content);
+                logAnswerReconcile("plain", plain.content, clean);
                 totalTokens += plain.content.length();
                 if (!clean.isEmpty() && !isPromptLeakage(clean)) {
                     AILogger.i(TAG, "Plain chat answer: " + truncate(clean, 80));
@@ -955,7 +956,12 @@ public class AgentLoopEngine {
             }
 
             // 将模型回复追加到历史（content 用纯净正文 + 结构化 tool_calls，A2/R4-1）
-            history.add(new ChatMessage("assistant", cleanResponse(response), toolCalls));
+            ChatMessage assistantTurnMsg = new ChatMessage("assistant", cleanResponse(response), toolCalls);
+            // REASONING-REPLAY(2026-11-01)：本轮思考随历史一起回放。模板对"最后一条 user 之后的
+            // assistant 轮"会渲染 <think>{reasoning_content}</think>；不传就只能渲染空块，
+            // 多轮工具调用后模型看不到自己上一轮的推理。
+            assistantTurnMsg.reasoningContent = reasoning;
+            history.add(assistantTurnMsg);
 
             // 循环保护①：去重。同一 tool+args 已执行过则不再执行；连续两轮全是重复调用 → 强制收尾
             List<ToolCall> freshCalls = new ArrayList<>();
@@ -1133,6 +1139,7 @@ public class AgentLoopEngine {
             GenerateResult finalGen = generateFinalAnswer(history, enableThinking, toolsJson);
             if (finalGen != null && finalGen.content != null && !finalGen.content.trim().isEmpty()) {
                 clean = cleanResponse(finalGen.content);
+                logAnswerReconcile("final", finalGen.content, clean);
                 finalGenRaw = finalGen.content;
                 totalTokens += finalGen.content.length();
                 AILogger.i(TAG, "Final summary generated: " + truncate(clean, 120));
@@ -1940,6 +1947,11 @@ public class AgentLoopEngine {
                 if (m.toolCallId != null) {
                     msg.put("tool_call_id", m.toolCallId);
                 }
+                // REASONING-REPLAY(2026-11-01)：历史 assistant 轮带上原始思考，
+                // 模板据此渲染 <think>…</think>（否则只有空块）。
+                if (m.reasoningContent != null && !m.reasoningContent.isEmpty()) {
+                    msg.put("reasoning_content", m.reasoningContent);
+                }
                 msgs.put(msg);
             }
             req.put("messages", msgs);
@@ -2249,9 +2261,17 @@ public class AgentLoopEngine {
      * 人设属于稳定段，同一会话内不变，跨轮仍能命中 KV；改了人设才会全量重建前缀。</p>
      */
     private String resolvePersona() {
+        return resolvePersonaFor(appContext);
+    }
+
+    /**
+     * PERSONA(2026-11-01)：静态版本，供桥接的本地普通对话复用同一口径。
+     * 返回 null = 不注入（未设置 / 空白 / 默认档"请用中文回答。"）。
+     */
+    public static String resolvePersonaFor(android.content.Context ctx) {
         try {
-            if (appContext == null) return null;
-            String p = new com.oilquiz.app.ai.refactor.AIConfig(appContext).getSystemPrompt();
+            if (ctx == null) return null;
+            String p = new com.oilquiz.app.ai.refactor.AIConfig(ctx).getSystemPrompt();
             if (p == null) return null;
             p = p.trim();
             if (p.isEmpty() || "请用中文回答。".equals(p)) return null;
@@ -2259,6 +2279,30 @@ public class AgentLoopEngine {
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    /**
+     * TEMPLATE-COMPAT(2026-11-01)：本地普通对话的 system 正文（身份 + 行为规则）。
+     * 与本地 Agent 路径同一份文案；桥接路径此前根本没发 system，导致角色/规则/人设全缺。
+     */
+    public static String buildPlainSystemPrompt(String persona) {
+        return buildSystemPrompt(persona);
+    }
+
+    /**
+     * TEMPLATE-COMPAT：带工具的本地请求要用的 system 正文（与本地 Agent 路径同一份：【角色】+【工具】规则）。
+     * 不能拿 {@link #buildPlainSystemPrompt} 顶替——那份明确写"不调用任何工具"。
+     */
+    public static String buildAgentSystemPrompt(String persona) {
+        return buildFcSystemPrompt(persona);
+    }
+
+    /**
+     * TEMPLATE-COMPAT：本轮末尾的日期块（与引擎路径同一份文案）。
+     * 桥接路径此前完全没有日期注入，模型只能靠训练数据猜"今天"。
+     */
+    public static String buildDateTailBlock(boolean fcMode) {
+        return buildCurrentTimeLine(fcMode);
     }
 
     /**
@@ -2662,13 +2706,14 @@ public class AgentLoopEngine {
         // 思考段已由 stripThinkingSections 按模板标签剥离，此处不再按
         // <think>/<thought> 字面量二次清理（标签一律取自模板）。
         String cleaned = stripThinkingSections(response);
+        // ② 未闭合的 tool_call：只吞"开标签 + 紧随的 JSON"，标签之后的正文保留。
+        //    旧实现是正则删到文本结尾——模型把工具调用写法写进正文（示例/文档）或漏闭标签时，
+        //    后面的整段回答会被一起吃掉（真机实测某轮 native 产出 1508 字，落屏只剩 577）。
+        cleaned = stripUnclosedToolCalls(cleaned);
         cleaned = cleaned
                 .replaceAll("(?s)<tool_response>.*?</tool_response>", "")
                 // ① 剥闭合的 tool_call / tool_calls 标签（含内容）
                 .replaceAll("(?s)<tool_calls?>.*?</tool_calls?[^>]*>", "")
-                // ② 剥未闭合的 tool_call 开始标签及后续残留：模型常见漏输出 </tool_call>，
-                //    开始标签之后的 JSON 会被一并吞掉，避免 {"name":..} 残留进最终消息
-                .replaceAll("(?s)<tool_calls?>[^>]*>(?:(?!</?tool_calls?[^>]*>).)*$", "")
                 // ③ 兜底：只删标签壳（历史/嵌套场景残留）
                 .replaceAll("(?s)<tool_calls?[^>]*>", "")
                 .replaceAll("(?s)</tool_calls?[^>]*>", "")
@@ -2682,6 +2727,83 @@ public class AgentLoopEngine {
         // 去掉模型可能重复输出的"用户:"/"assistant:"等对话角色前缀，防止自问自答式续写
         cleaned = cleaned.replaceAll("(?i)^(user|assistant|system|用户|助手)\\s*[:：]\\s*", "");
         return cleaned.trim();
+    }
+
+    /**
+     * 正文对账：native 原文 vs 清理后落屏文本。只在**掉字**时打一条 W，
+     * 用来定位"吃正文"发生在哪一步（清理规则吞掉多少、是不是 tool_call/tool_response 段）。
+     */
+    private void logAnswerReconcile(String stage, String raw, String clean) {
+        if (raw == null) return;
+        int c = clean == null ? 0 : clean.length();
+        if (raw.length() <= c) return;
+        AILogger.w(TAG, "answer reconcile[" + stage + "]: raw=" + raw.length()
+                + ", clean=" + c + ", dropped=" + (raw.length() - c)
+                + (raw.contains("<tool_call") ? " (含 <tool_call>)" : "")
+                + (raw.contains("<tool_response>") ? " (含 <tool_response>)" : ""));
+    }
+
+    /**
+     * 剥掉**未闭合**的 tool_call 段：只吞"开标签 + 紧随的 JSON 对象"，标签之后的正文保留。
+     *
+     * <p>旧实现用正则把开标签之后删到文本结束：模型在正文里写工具调用示例（说明文档里写出
+     * 调用格式）或漏了闭标签时，标签后面的整段回答会被一起吃掉——真机实测某轮 native 产出
+     * 1508 字，最终消息只剩 577 字。</p>
+     *
+     * <p>闭合段仍交给后续正则；这里只处理找不到闭标签的开标签。JSON 用花括号配平消费：
+     * 配平成功就只删"标签 + JSON"；JSON 被截断（配不平）才删到结尾，避免留半截 JSON；
+     * 标签后面根本没有 JSON 时只删标签，正文一字不动。</p>
+     */
+    private static String stripUnclosedToolCalls(String text) {
+        if (text == null || text.indexOf("<tool_call") < 0) return text;
+        StringBuilder out = new StringBuilder(text.length());
+        int i = 0;
+        while (i < text.length()) {
+            int open = text.indexOf("<tool_call", i);
+            if (open < 0) {
+                out.append(text, i, text.length());
+                break;
+            }
+            out.append(text, i, open);
+            int tagEnd = text.indexOf('>', open);
+            if (tagEnd < 0) {
+                out.append(text, open, text.length());
+                break;
+            }
+            // 有闭合标签的段交给闭合规则处理，原样保留
+            if (text.indexOf("</tool_call", tagEnd) >= 0) {
+                out.append(text, open, tagEnd + 1);
+                i = tagEnd + 1;
+                continue;
+            }
+            int j = tagEnd + 1;
+            while (j < text.length() && Character.isWhitespace(text.charAt(j))) j++;
+            if (j < text.length() && text.charAt(j) == '{') {
+                int depth = 0, end = -1;
+                boolean inStr = false, esc = false;
+                for (int k = j; k < text.length(); k++) {
+                    char c = text.charAt(k);
+                    if (inStr) {
+                        if (esc) esc = false;
+                        else if (c == '\\') esc = true;
+                        else if (c == '"') inStr = false;
+                        continue;
+                    }
+                    if (c == '"') { inStr = true; continue; }
+                    if (c == '{') depth++;
+                    else if (c == '}') {
+                        depth--;
+                        if (depth == 0) { end = k + 1; break; }
+                    }
+                }
+                // 配平成功：只吞标签+JSON；配平失败（JSON 被截断）：删到结尾
+                i = end > 0 ? end : text.length();
+            } else {
+                // 标签后没有 JSON：只删标签本身，正文保留
+                i = tagEnd + 1;
+            }
+        }
+        return out.toString();
     }
 
     /**
@@ -3186,6 +3308,12 @@ public class AgentLoopEngine {
         final String content;
         final List<ToolCall> toolCalls;
         final String toolCallId;
+        /**
+         * REASONING-REPLAY(2026-11-01)：该轮 assistant 的原始思考，随请求回放给模板。
+         * Qwen3.5 模板对"最后一条 user 之后的 assistant 轮"渲染 {@code <think>…</think>}，
+         * 取自 {@code message.reasoning_content}；不传就只剩空思考块。非 final：构造后补充。
+         */
+        String reasoningContent;
         ChatMessage(String role, String content) { this(role, content, null, null); }
         ChatMessage(String role, String content, List<ToolCall> toolCalls) { this(role, content, toolCalls, null); }
         ChatMessage(String role, String content, String toolCallId, boolean isToolResult) { this(role, content, null, toolCallId); }

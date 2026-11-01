@@ -494,32 +494,46 @@ public class ModelExecutionBridge {
             // 仅本轮请求有效，不入持久化历史（避免跨轮残留语义冗余）
             java.util.List<String[]> extraSystem = pendingExtraSystemSections;
             pendingExtraSystemSections = null;
+
+            // TEMPLATE-COMPAT(2026-11-01)：Qwen3.5 的 GGUF 模板只渲染 messages[0] 的 system
+            // （循环里对后续 system 直接 raise_exception('System message must be at the beginning.')），
+            // 一旦抛异常 native 会回退 flat 消息 → 丢 tools 与 PEG 解析。
+            // 旧实现三个毛病：① 每段 extras 各发一条 system（两段就炸）；② "被挤出的历史要点"
+            // 以 system 身份插在**中间**（必炸）；③ 普通对话**根本没有主提示词**（角色/规则/人设/日期全缺）。
+            // 现在收编为唯一一条首部 system：主提示词 + extras + 历史要点 + 日期。
+            StringBuilder sysContent = new StringBuilder(
+                    com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine.buildPlainSystemPrompt(
+                            com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine.resolvePersonaFor(appContext)));
             if (extraSystem != null) {
                 for (String[] sec : extraSystem) {
-                    if (sec == null || sec.length < 2 || sec[0] == null || sec[1] == null) continue;
-                    org.json.JSONObject sm = new org.json.JSONObject();
-                    sm.put("role", sec[0]);
-                    sm.put("content", sec[1]);
-                    msgs.put(sm);
+                    if (sec == null || sec.length < 2 || sec[1] == null || sec[1].trim().isEmpty()) continue;
+                    sysContent.append("\n\n").append(sec[1].trim());
                 }
             }
+            // 被挤出的历史要点（预算裁剪产物）：本轮临时注入、不入持久化
+            if (pendingEvictedPoints != null) {
+                StringBuilder pts = new StringBuilder("【历史对话要点】(较早对话已压缩，上下文有限)");
+                for (String p : pendingEvictedPoints) {
+                    pts.append("\n• ").append(p);
+                }
+                sysContent.append("\n\n").append(pts);
+                pendingEvictedPoints = null;
+            }
+            // 被挤出的历史要点（预算裁剪产物）：本轮临时注入，不入持久化
+            // TEMPLATE-COMPAT：已合并进上面的唯一 system 段，这里不再单独插 system 消息。
+            // 日期放 system（每次重建、不写历史）：避免污染本地推理历史与 Agent priorHistory；
+            // 跨零点会重建一次前缀，属预期（一天一次）。
+            sysContent.append("\n\n").append(
+                    com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine.buildDateTailBlock(false).trim());
+            org.json.JSONObject sysMsg = new org.json.JSONObject();
+            sysMsg.put("role", "system");
+            sysMsg.put("content", sysContent.toString());
+            msgs.put(sysMsg);
             // 独立真相源：本地推理历史按会话×模型持久化，不再从 UI chatHistory 重建；
             // 按 token 预算倒序收集（跳过 tool 轮，普通对话保持干净 user/assistant）
             org.json.JSONArray hist = buildBudgetedHistoryMessages();
             for (int i = 0; i < hist.length(); i++) {
                 msgs.put(hist.get(i));
-            }
-            // 被挤出的历史要点（预算裁剪产物）：本轮临时注入，不入持久化
-            if (pendingEvictedPoints != null) {
-                StringBuilder pts = new StringBuilder("【历史对话要点】(较早对话已压缩，上下文有限)\n");
-                for (String p : pendingEvictedPoints) {
-                    pts.append("• ").append(p).append('\n');
-                }
-                org.json.JSONObject sm = new org.json.JSONObject();
-                sm.put("role", "system");
-                sm.put("content", pts.toString().trim());
-                msgs.put(sm);
-                pendingEvictedPoints = null;
             }
             org.json.JSONObject cur = new org.json.JSONObject();
             cur.put("role", "user");
@@ -550,8 +564,22 @@ public class ModelExecutionBridge {
             org.json.JSONObject req = new org.json.JSONObject();
             req.put("action", "chat");
             org.json.JSONArray msgs = new org.json.JSONArray();
+            // TEMPLATE-COMPAT(2026-11-01)：模板只渲染 messages[0] 的 system，且后续任何 system
+            // 都会 raise → native 回退 flat（丢 tools/PEG）。本构建器此前完全不发 system，
+            // 角色/规则/人设/日期全缺；这里补唯一一条首部 system（历史里只有 user/assistant/tool）。
+            StringBuilder sysContent = new StringBuilder(
+                    com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine.buildAgentSystemPrompt(
+                            com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine.resolvePersonaFor(appContext)));
+            sysContent.append("\n\n").append(
+                    com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine.buildDateTailBlock(true).trim());
+            org.json.JSONObject sysMsg = new org.json.JSONObject();
+            sysMsg.put("role", "system");
+            sysMsg.put("content", sysContent.toString());
+            msgs.put(sysMsg);
             synchronized (this) {
                 for (org.json.JSONObject m : chatJsonHistory) {
+                    String r = m.optString("role", "");
+                    if ("system".equals(r)) continue;   // 防御：历史里不掺 system
                     msgs.put(m);
                 }
             }
