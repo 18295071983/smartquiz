@@ -363,6 +363,18 @@
                         android:text="⬇️ 下载"
                         android:textSize="@dimen/text_12"
                         app:cornerRadius="@dimen/radius_8"/>
+
+                    <!-- SAMPLING-PREFS(2026-11-01)：本地引擎采样参数入口（温度/top_p/top_k） -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_local_params"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="@dimen/space_4"
+                        android:text="🎛️ 参数"
+                        android:textSize="@dimen/text_12"
+                        app:cornerRadius="@dimen/radius_8"/>
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

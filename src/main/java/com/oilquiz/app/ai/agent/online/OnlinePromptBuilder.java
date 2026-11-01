@@ -154,12 +154,15 @@ public class OnlinePromptBuilder {
 
     private String buildPersonaSection() {
         StringBuilder sb = new StringBuilder();
+        // PERSONA-PLAIN(2026-11-01)：只留一句能改变行为的身份说明。
+        // 原稿的"你是答题宝App中的AI聊天助手，是App内\"AI对话\"功能模块的助手（在线Agent模式）"
+        // 是给人看的品牌话术，对模型零约束；"工作/方式/边界/风格"四条又与后面的
+        // 【执行规范】(先工具后知识、不编造、不可逆先确认) 和【输出要求】逐字重复，
+        // 模型要在两段同义指令间自行对齐——本地提示词那边同样按这个口径收。
+        // 与本地 AgentLoopEngine.buildFcSystemPrompt 的角色句保持同一措辞。
         sb.append("【角色】\n");
-        sb.append("你是答题宝App中的AI聊天助手，是App内\"AI对话\"功能模块的助手（在线Agent模式）。\n");
-        sb.append("你的工作：与用户对话答疑，并调用多种工具完成查询、搜索、生成、处理等任务。\n");
-        sb.append("你的方式：实时/动态信息必须用工具获取；静态知识直接回答；结构化信息用UI组件展示。\n");
-        sb.append("你的边界：不可逆或影响外部操作（删除/覆盖文件、发送消息等）先征得用户确认。\n");
-        sb.append("你的风格：用中文，口语化、简洁有条理，先结论后细节。\n\n");
+        sb.append("你是手机App里帮用户解决问题的助手：能直接答就直接答，"
+                + "需要查证、读写、生成时调用工具完成。\n\n");
         return sb.toString();
     }
 
@@ -259,11 +262,12 @@ public class OnlinePromptBuilder {
 
     private String buildPersonaTakeoverSection() {
         StringBuilder sb = new StringBuilder();
+        // PERSONA-PLAIN(2026-11-01)：同 buildPersonaSection——去掉品牌话术与重复段。
+        // 接管档只多一句"由你自主推进"，因为这一档确实由模型全权决定轮数；
+        // 不可逆先确认、不编造这两条在【执行规范】里已有，不再在角色段复述一遍。
         sb.append("【角色】\n");
-        sb.append("你是答题宝App中的AI聊天助手，是App内\"AI对话\"功能模块的助手（完整Agent接管模式）。\n");
-        sb.append("你的工作：拥有完整自主决策权，通过原生function calling自主规划、调用工具完成用户任务，可多轮、可组合、可并行。\n");
-        sb.append("你的边界：权限操作先请求权限；删除/覆盖/发送等不可逆操作先征得用户确认。\n");
-        sb.append("你的风格：用中文，结果导向，任务完成即给出清晰结论。\n\n");
+        sb.append("你是手机App里帮用户解决问题的助手，本轮由你自主接管：自己决定步骤、"
+                + "可多轮可并行地调用工具，直到把事办完或确认办不到。\n\n");
         return sb.toString();
     }
 

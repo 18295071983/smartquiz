@@ -28,6 +28,9 @@ public class UserModelParamsManager {
     private static final String KEY_TEMP_ANSWER = "temperature_answer";
     private static final String KEY_GPU = "gpu_layers_manual";
     private static final String KEY_AUTO = "use_auto";
+    /** 采样参数（2026-11-01）：真正下发进本地请求的 top_p/top_k */
+    private static final String KEY_TOPP = "top_p";
+    private static final String KEY_TOPK = "top_k";
 
     /** 未配置（自动模式）时的决策轮温度：与拆分前一致（原 AgentLoopEngine 硬编码 0.7），保证行为不回归 */
     public static final float DEFAULT_DECISION_TEMPERATURE = 0.7f;
@@ -212,6 +215,68 @@ public class UserModelParamsManager {
     /** GPU 卸载层数；-1 或 <0 表示自动 */
     public int getGpuLayers() {
         return prefs.getInt(KEY_GPU, -1);
+    }
+
+    // ==================== 采样参数：top_p / top_k（SAMPLING-PREFS 2026-11-01）====================
+    // 动机：本地两条链路的 top_p/top_k 一直是硬编码（桥接与 AgentLoopEngine 都写 0.9/40），
+    // 而在线模型侧至少能按供应商/模型调温度与输出；本地引擎没有对应入口。
+    // 这两个值真正下发进请求，属于"用户偏好"而不是引擎能力，所以放进本管理器（不新建一套配置）。
+    // 默认值与硬编码时代逐值相同 → 未设置时行为完全不变。
+
+    /** 默认 top_p：与硬编码时代一致（两条链路都是 0.9） */
+    public static final float DEFAULT_TOP_P = 0.9f;
+    /** 默认 top_k：与硬编码时代一致（40）；0 = 关闭 top-k 截断 */
+    public static final int DEFAULT_TOP_K = 40;
+    public static final float MIN_TOP_P = 0.05f;
+    public static final float MAX_TOP_P = 1.0f;
+    public static final int MAX_TOP_K = 100;
+
+    public float getTopP() {
+        float v = prefs.getFloat(KEY_TOPP, DEFAULT_TOP_P);
+        return Math.max(MIN_TOP_P, Math.min(MAX_TOP_P, v));
+    }
+
+    /** 设置 top_p（钳制 0.05–1.0；传 0 或负数 = 清除覆盖、回到默认） */
+    public void setTopP(float value) {
+        prefs.edit().putBoolean(KEY_AUTO, false).apply();
+        if (value > 0f) {
+            prefs.edit().putFloat(KEY_TOPP, Math.max(MIN_TOP_P, Math.min(MAX_TOP_P, value))).apply();
+        } else {
+            prefs.edit().remove(KEY_TOPP).apply();
+        }
+    }
+
+    public int getTopK() {
+        int v = prefs.getInt(KEY_TOPK, DEFAULT_TOP_K);
+        return Math.max(0, Math.min(MAX_TOP_K, v));
+    }
+
+    /** 设置 top_k（钳制 0–100，0=关闭；传负数 = 清除覆盖、回到默认） */
+    public void setTopK(int value) {
+        prefs.edit().putBoolean(KEY_AUTO, false).apply();
+        if (value >= 0) {
+            prefs.edit().putInt(KEY_TOPK, Math.max(0, Math.min(MAX_TOP_K, value))).apply();
+        } else {
+            prefs.edit().remove(KEY_TOPK).apply();
+        }
+    }
+
+    /** 清空采样类覆盖（top_p / top_k / 两段温度），回到默认档 */
+    public void resetSamplingToDefault() {
+        prefs.edit()
+                .remove(KEY_TOPP)
+                .remove(KEY_TOPK)
+                .remove(KEY_TEMP)
+                .remove(KEY_TEMP_DECISION)
+                .remove(KEY_TEMP_ANSWER)
+                .apply();
+    }
+
+    /** 当前生效采样参数（供日志/设置页展示） */
+    public String describeEffectiveSampling() {
+        return "temperature[" + describeEffectiveTemperature() + "], top_p=" + getTopP()
+                + ", top_k=" + getTopK()
+                + " (defaults " + DEFAULT_TOP_P + "/" + DEFAULT_TOP_K + ")";
     }
 
     public void setGpuLayers(int value) {

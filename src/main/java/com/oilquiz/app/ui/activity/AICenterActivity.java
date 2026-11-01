@@ -66,6 +66,8 @@ public class AICenterActivity extends AppCompatActivity
     private TextView tvLocalModelInfo;
     private MaterialButton btnManageLocalModels;
     private MaterialButton btnDownloadLocalModels;
+    /** SAMPLING-PREFS(2026-11-01)：本地引擎采样参数入口（温度/top_p/top_k） */
+    private MaterialButton btnLocalParams;
     private MaterialButton btnRefreshLocalModels;
     private RecyclerView modelsRecycler;
     private View localModelsEmptyView;
@@ -235,6 +237,7 @@ public class AICenterActivity extends AppCompatActivity
         tvLocalModelInfo = findViewById(R.id.tv_local_model_info);
         btnManageLocalModels = findViewById(R.id.btn_manage_local_models);
         btnDownloadLocalModels = findViewById(R.id.btn_download_local_models);
+        btnLocalParams = findViewById(R.id.btn_local_params);
         btnRefreshLocalModels = findViewById(R.id.btn_refresh_local_models);
         modelsRecycler = findViewById(R.id.models_recycler);
         localModelsEmptyView = findViewById(R.id.local_models_empty);
@@ -260,6 +263,103 @@ public class AICenterActivity extends AppCompatActivity
         }
 
         updateServiceStatus();
+    }
+
+    /**
+     * SAMPLING-PREFS(2026-11-01)：本地引擎采样参数编辑入口。
+     *
+     * <p>值的权威存储是 {@link com.oilquiz.app.ai.config.UserModelParamsManager}
+     * （与既有温度/上下文/层数同一处，不新建配置）；这里只提供编辑面。默认档
+     * 温度 0.7 / top_p 0.9 / top_k 40 与硬编码时代逐值相同，所以"没动过=行为不变"。
+     * 保存后从**下一轮请求**生效（本轮的 tools 前缀与采样在生成中不会改）。</p>
+     */
+    private void showSamplingDialog() {
+        final com.oilquiz.app.ai.config.UserModelParamsManager u =
+                com.oilquiz.app.ai.config.UserModelParamsManager.getInstance(this);
+        final int pad = (int) (16 * getResources().getDisplayMetrics().density);
+
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        box.setPadding(pad, pad, pad, 0);
+
+        final android.widget.EditText etTemp = addNumberField(box,
+                "温度 temperature（0.1–1.5）", String.valueOf(u.getAnswerTemperature()));
+        final android.widget.EditText etTopP = addNumberField(box,
+                "top_p（0.05–1.0）", String.valueOf(u.getTopP()));
+        final android.widget.EditText etTopK = addNumberField(box,
+                "top_k（0–100，0 = 关闭）", String.valueOf(u.getTopK()));
+
+        // PERSONA(2026-11-01)：人设（AIConfig.system_prompt）。本地 Agent 与普通对话现在都会注入；
+        // 默认档"请用中文回答。"视为未设置（跟内置角色行的"用中文"重复，注入只白吃前缀）。
+        final com.oilquiz.app.ai.refactor.AIConfig aiCfg =
+                new com.oilquiz.app.ai.refactor.AIConfig(this);
+        String personaNow = aiCfg.getSystemPrompt();
+        if (personaNow == null || personaNow.trim().isEmpty()
+                || "请用中文回答。".equals(personaNow.trim())) {
+            personaNow = "";
+        }
+        android.widget.TextView tvPersona = new android.widget.TextView(this);
+        tvPersona.setText("人设 / 系统提示词（留空 = 用内置身份）");
+        box.addView(tvPersona);
+        final android.widget.EditText etPersona = new android.widget.EditText(this);
+        etPersona.setText(personaNow);
+        etPersona.setHint("例：你是一位化工厂工艺工程师助手，回答要带单位与量程。");
+        etPersona.setMinLines(3);
+        etPersona.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
+        etPersona.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        box.addView(etPersona);
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(box);
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("本地引擎参数")
+                .setView(scroll)
+                .setMessage("默认：温度 0.7 / top_p 0.9 / top_k 40。温度越低越稳（工具调用更可靠），"
+                        + "越高越发散；人设留空则用内置身份。改动从下一轮生效。")
+                .setPositiveButton("保存", (d, w) -> {
+                    try {
+                        u.setTemperature(Float.parseFloat(etTemp.getText().toString().trim()));
+                    } catch (NumberFormatException ignored) {
+                    }
+                    try {
+                        u.setTopP(Float.parseFloat(etTopP.getText().toString().trim()));
+                    } catch (NumberFormatException ignored) {
+                    }
+                    try {
+                        u.setTopK(Integer.parseInt(etTopK.getText().toString().trim()));
+                    } catch (NumberFormatException ignored) {
+                    }
+                    try {
+                        String persona = etPersona.getText().toString().trim();
+                        aiCfg.setSystemPrompt(persona.isEmpty() ? "请用中文回答。" : persona);
+                    } catch (Throwable ignored) {
+                    }
+                    Toast.makeText(this, "已保存：" + u.describeEffectiveSampling(),
+                            Toast.LENGTH_LONG).show();
+                })
+                .setNeutralButton("恢复默认", (d, w) -> {
+                    u.resetSamplingToDefault();
+                    Toast.makeText(this, "已恢复默认（" + u.describeEffectiveSampling() + "）",
+                            Toast.LENGTH_LONG).show();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 一行「标签 + 数字输入」，返回 EditText 供保存时读取。 */
+    private android.widget.EditText addNumberField(android.widget.LinearLayout parent,
+                                                   String label, String value) {
+        android.widget.TextView tv = new android.widget.TextView(this);
+        tv.setText(label);
+        parent.addView(tv);
+        android.widget.EditText et = new android.widget.EditText(this);
+        et.setText(value);
+        et.setInputType(android.text.InputType.TYPE_CLASS_NUMBER
+                | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        parent.addView(et);
+        return et;
     }
 
     private void openMediaGen(String mode) {
@@ -341,6 +441,9 @@ public class AICenterActivity extends AppCompatActivity
             btnDownloadLocalModels.setOnClickListener(v -> {
                 startActivity(new Intent(AICenterActivity.this, ModelDownloadActivity.class));
             });
+        }
+        if (btnLocalParams != null) {
+            btnLocalParams.setOnClickListener(v -> showSamplingDialog());
         }
         if (btnRefreshLocalModels != null) {
             btnRefreshLocalModels.setOnClickListener(v -> {
