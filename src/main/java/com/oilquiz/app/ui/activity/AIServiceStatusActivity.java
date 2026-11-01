@@ -61,9 +61,6 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     private TextView gpuStatus;
     private TextView engineInfo;
     
-    // GenieX NPU 推理入口
-    private TextView npuGeniexStatus;
-    
     // 功能状态指示灯
     private View chatLight;
     private View qaLight;
@@ -188,7 +185,6 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         gpuLight = findViewById(R.id.gpu_light);
         gpuStatus = findViewById(R.id.gpu_status);
         engineInfo = findViewById(R.id.engine_info);
-        npuGeniexStatus = findViewById(R.id.npu_geniex_status);
 
         // 功能状态指示灯
         chatLight = findViewById(R.id.chat_light);
@@ -470,21 +466,11 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                     startActivity(new Intent(this, PerformanceActivity.class)));
         }
 
-        // GenieX NPU 推理入口
-        MaterialButton btnOpenNpuInfer = findViewById(R.id.btn_open_npu_infer);
-        if (btnOpenNpuInfer != null) {
-            btnOpenNpuInfer.setOnClickListener(v ->
-                    startActivity(new Intent(this, com.oilquiz.app.ui.activity.ModelSelectorActivity.class)));
-        }
-        if (npuGeniexStatus != null) {
-            try {
-                npuGeniexStatus.setText("GenieX SDK 已接入 · 状态 "
-                        + npuSvc().getNpuStageLabel()
-                        + " · Hexagon NPU（SM8850）");
-            } catch (Throwable t) {
-                npuGeniexStatus.setText("GenieX SDK 已接入 · Hexagon NPU（SM8850）");
-            }
-        }
+        // GenieX NPU 推理入口已删(2026-11-01)：GenieX 与本包的 HTP 后端共用同名
+        // libggml-htp-vNN.so，FastRPC 按名字加载、同进程只有一个搜索路径 ⇒ 一个 APK 只能留一份，
+        // 真机一开 GenieX 就在 ggml-hexagon 里 dspqueue_read 失败后 ggml_abort 闪退。
+        // 判据已在 InferenceRouter 里钉成 false，这里不再摆一个"点进去也用不了"的入口。
+        // NPU 加速现在由上面那组后端单选（opencl/vulkan/hexagon/auto）走我们自己的引擎。
     }
 
     /**

@@ -249,36 +249,9 @@
                     android:textSize="@dimen/text_11"
                     android:textColor="?attr/colorControlTextHint"/>
 
-                <!-- NPU（Qualcomm GenieX）推理引擎开关：本地 GGUF 直接跑在 Hexagon NPU -->
-                <LinearLayout
-                    android:id="@+id/row_npu_engine"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginTop="@dimen/space_10"
-                    android:padding="@dimen/space_14"
-                    android:background="?attr/selectableItemBackground">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="🧠 NPU 引擎（GenieX）"
-                        android:textSize="@dimen/text_14"
-                        android:textColor="?attr/colorControlText"/>
-                    <TextView
-                        android:id="@+id/tv_npu_engine_value"
-                        android:layout_width="@dimen/size_0"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="@dimen/space_8"
-                        android:gravity="end"
-                        android:text="未启用"
-                        android:textSize="@dimen/text_13"
-                        android:textColor="?attr/colorPrimary"
-                        android:maxLines="1"
-                        android:ellipsize="end"/>
-                </LinearLayout>
-
+                <!-- NPU（Qualcomm GenieX）引擎行已删除(2026-11-01)：它与本包 HTP 后端共用同名
+                     libggml-htp-vNN.so，FastRPC 按文件名加载，一个 APK 只能留一份；实测一开
+                     GenieX 就 ggml_abort 闪退。开关判据已在 InferenceRouter 钉成 false。 -->
                 <!-- 语音识别模型 -->
                 <LinearLayout
                     android:id="@+id/row_asr_model"

@@ -79,9 +79,17 @@ public final class NpuEngineRouter {
         }
         try {
             appContext = context.getApplicationContext();
-            boolean enabled = appContext
-                    .getSharedPreferences("npu_engine_prefs", Context.MODE_PRIVATE)
-                    .getBoolean("npu_enabled", false);
+            // NPU-GENIEX-DISABLED(2026-11-01)：判据只能来自 InferenceRouter（它已钉成 false）。
+            // 原来这里绕过它直接读 npu_engine_prefs/npu_enabled——用户设备上还留着上次选出来的
+            // true，会把 NpuLlmChat 的静态镜像重新点亮，shouldRouteToNpu() 就又走 GenieX，
+            // 然后在 ggml-hex 里 dspqueue_read 失败 → ggml_abort 闪退。开关只留一个权威源。
+            boolean enabled = false;
+            try {
+                enabled = com.oilquiz.app.ai.inference.InferenceRouter
+                        .getInstance(appContext).isNpuEngineEnabled();
+            } catch (Throwable t) {
+                Log.w(TAG, "init: 读 InferenceRouter 失败，按停用处理: " + t);
+            }
             NpuLlmChat.setEngineEnabled(enabled);
             NpuLlmChat.loadPreferredModelName(appContext);   // 恢复用户指定的 NPU 模型
         } catch (Throwable t) {

@@ -39,6 +39,26 @@ public class InferenceRouter {
     private static final String PREFS_NPU = "npu_engine_prefs";
     private static final String KEY_NPU_ENABLED = "npu_enabled";
 
+    /**
+     * NPU-GENIEX-DISABLED(2026-11-01)：GenieX 引擎整条路一律停用，**连 prefs 都不再读**。
+     *
+     * <p>依据是实测而非推断：GenieX AAR 自带一整份 llama.cpp + ggml-hexagon，它与我们
+     * libllama-jni 里的 HTP 后端用的是**同一个 skel 文件名** {@code libggml-htp-vNN.so}，
+     * 而 FastRPC 按名字加载、同一进程只有一个搜索路径 ⇒ 一个 APK 里只能存一份。打包留下的是
+     * 我们那份（sha256 6ea40162…，GenieX 那份 4185640a…，大小 885,512 vs 758,436）；两边
+     * htp_iface 的十个 RPC 方法名相同，但 DSP 侧 op 表不同（我们多 op_argmax/op_sum，它多
+     * argosrt_ramp_lut；导出符号 75 vs 74）。真机上一选 GenieX 就在 ggml-hexagon.cpp:3395
+     * 报 {@code dspqueue_read failed: 0x0000002e} 后 {@code ggml_abort()} 终结进程——
+     * 2026-11-01 11:59:08 抓到完整栈（flush_pending → llama_decode → geniex_llm_generate →
+     * Java_com_geniex_sdk_jni_Llm_generate），它自带 Crashpad，所以 Android 侧 dropbox 一条都没有。
+     * 另外它的模型登记本身也是坏的：{@code model 'applib/Qwen3.5-2B-Q4_0' not found in local
+     * cache}、{@code getPaths(...) failed rc=-100004}。</p>
+     *
+     * <p>这里保留字段与方法形状（NpuEngineRouter/AIService 等 40 多处调用点不动），只把判据钉死；
+     * UI 入口同批删除。要恢复必须先把两套 skel 分开——同名做不到——或摘掉 AAR。</p>
+     */
+    private static final boolean NPU_ENGINE_AVAILABLE = false;
+
     private static volatile InferenceRouter INSTANCE;
     private final Context context;
     private final ExecutorService executor;
@@ -61,12 +81,10 @@ public class InferenceRouter {
             return t;
         });
         this.mainHandler = new Handler(Looper.getMainLooper());
-        try {
-            this.npuEnabled = this.context.getSharedPreferences(PREFS_NPU, Context.MODE_PRIVATE)
-                    .getBoolean(KEY_NPU_ENABLED, false);
-        } catch (Throwable ignored) {
-            this.npuEnabled = false;
-        }
+        // NPU-GENIEX-DISABLED(2026-11-01)：不读 prefs，判据恒为 NPU_ENGINE_AVAILABLE。
+        // 用户设备上可能还留着上次选出来的 npu_enabled=true，这里不理会它——真机实测一开
+        // GenieX 就 abort 闪退（原因见上面的常量注释），残留的 true 只会让人以为还能开。
+        this.npuEnabled = NPU_ENGINE_AVAILABLE;
     }
 
     // ==================== NPU（Qualcomm GenieX）引擎 ====================
@@ -82,6 +100,17 @@ public class InferenceRouter {
      * @param listener 加载结果回调（可为 null：那就在首次生成时按需加载）
      */
     public void enableNpuEngine(NpuLlmChat.LoadListener listener) {
+        // NPU-GENIEX-DISABLED(2026-11-01)：这条路已整条停用，任何调用方（旧 UI、调试桥、
+        // 以后新加的入口）都只会拿到下面这句理由，不会再把 GenieX 拉起来去撞 skel。
+        if (!NPU_ENGINE_AVAILABLE) {
+            AILogger.w(TAG, "拒绝开启 NPU（GenieX）引擎：与本包的 HTP 后端共用同名 libggml-htp-vNN.so，"
+                    + "真机实测 dspqueue_read 失败后 ggml_abort 直接闪退（见 NPU_ENGINE_AVAILABLE 注释）");
+            setNpuEnabled(false);
+            if (listener != null) {
+                listener.onError("NPU（GenieX）引擎已停用：与本包的 HTP 后端互斥，请直接用本地模型");
+            }
+            return;
+        }
         setNpuEnabled(true);
         // 互斥：先释放本地 llama.cpp 的权重再加载 NPU，避免"两份模型同时常驻"
         // （0.6B 0.4GB / 4B 2.4GB，两份就是双倍内存 + 双份 KV cache）
