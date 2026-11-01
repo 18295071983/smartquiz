@@ -598,4 +598,24 @@
     <string name="task_pill_inprogress">📋 進行%1$d</string>
     <string name="task_pill_todo">📋 待辦%1$d</string>
     <string name="task_pill_both">📋 進行%1$d·待辦%2$d</string>
+    <!-- 聊天頁「使用說明」引導彈框（正文佔位符由程式動態取數，見 GUIDE-DYNAMIC-TOOLS） -->
+    <string name="chat_guide_none_local">📥 本機模型（推薦）\n• 離線可用，無需網路，支援工具呼叫（天氣/搜尋/記憶等）\n• 預設內建：%1$s\n\n</string>
+    <string name="chat_guide_none_online">🌐 線上模型\n• 能力更強，可自動呼叫完整工具集\n• 支援豆包、DeepSeek、通義千問等\n\n</string>
+    <string name="chat_guide_none_hint">「⚡ 一鍵初始化」會自動下載並設定預設模型；也可以進「模型下載」自己挑。</string>
+    <string name="chat_guide_btn_init">⚡ 一鍵初始化</string>
+    <string name="chat_guide_btn_download_neutral">📥 模型下載</string>
+    <string name="chat_guide_engine_line">🚀 目前引擎：%1$s\n</string>
+    <string name="chat_guide_route_line">• 本機與線上走同一個 Agent 引擎，差別只在下面這份工具清單\n</string>
+    <string name="chat_guide_assistant_on">• 「智慧助手」已開啟：模型可依需要呼叫下面的工具\n</string>
+    <string name="chat_guide_assistant_off">⚠️ 「智慧助手」目前是關閉的：本機模型這輪不掛工具，只有純對話。開啟後才能使用下面的工具\n</string>
+    <string name="chat_guide_online_always_tools">• 線上模型一律帶工具，不受「智慧助手」開關影響\n</string>
+    <string name="chat_guide_thinking_line">• 切到「深度思考」模式，回答前會先展示思考過程\n\n</string>
+    <string name="chat_guide_local_tools">🛠 常駐工具（%1$d 個）：%2$s\n• 其餘工具不在本輪工具集裡：需要時模型經「工具發現」查參數，並由它代為執行\n\n</string>
+    <string name="chat_guide_online_tools">🛠 工具清單：目前註冊表共 %1$d 個\n• 常駐 %2$d 個：%3$s\n• 其餘依需要發現後加入工作階段，單輪最多同時攜帶 %4$d 個\n\n</string>
+    <string name="chat_guide_online_tools_no_total">🛠 工具清單：常駐 %1$d 個：%2$s\n• 其餘依需要發現後加入工作階段，單輪最多同時攜帶 %3$d 個\n\n</string>
+    <string name="chat_guide_label_sep">、</string>
+    <string name="chat_guide_examples_local">💡 試試對我說：\n「北京今天天氣怎么样？」\n「現在幾點了？」\n「搜尋一下最新油價」\n「2^10 等於多少」\n「記住我叫小明」</string>
+    <string name="chat_guide_examples_online">💡 試試對我說：\n「今天天氣怎么样？」\n「幫我寫一份週報」\n「畫一隻橘貓」\n「搜尋一下最新油價」</string>
+    <string name="chat_guide_model_fallback">Qwen3.5-4B（Q4_0）</string>
+    <string name="chat_guide_drawer_entry">❓ 使用說明（目前引擎與工具能力）</string>
 </resources>

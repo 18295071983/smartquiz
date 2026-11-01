@@ -627,4 +627,24 @@ Enter \'Help\' to see more functions.</string>
     <string name="task_pill_inprogress">📋 %1$d in progress</string>
     <string name="task_pill_todo">📋 %1$d to-do</string>
     <string name="task_pill_both">📋 %1$d doing · %2$d to-do</string>
+    <!-- 聊天页「使用说明」引导弹框（正文占位符由代码动态取数，见 GUIDE-DYNAMIC-TOOLS） -->
+    <string name="chat_guide_none_local">📥 On-device model (recommended)\n• Works offline, no network needed, supports tool calls (weather / search / memory…)\n• Preset by default: %1$s\n\n</string>
+    <string name="chat_guide_none_online">🌐 Online model\n• More capable, calls the full tool set automatically\n• Doubao, DeepSeek, Qwen and others supported\n\n</string>
+    <string name="chat_guide_none_hint">“⚡ One-tap setup” downloads and configures the default model for you; or pick one yourself under “Download model”.</string>
+    <string name="chat_guide_btn_init">⚡ One-tap setup</string>
+    <string name="chat_guide_btn_download_neutral">📥 Download model</string>
+    <string name="chat_guide_engine_line">🚀 Current engine: %1$s\n</string>
+    <string name="chat_guide_route_line">• Local and online share one Agent engine; only the tool list below differs\n</string>
+    <string name="chat_guide_assistant_on">• “Assistant” is on: the model may call the tools below\n</string>
+    <string name="chat_guide_assistant_off">⚠️ “Assistant” is off: the local model runs without tools this round (plain chat). Turn it on to use the tools below\n</string>
+    <string name="chat_guide_online_always_tools">• Online models always carry tools, regardless of the “Assistant” switch\n</string>
+    <string name="chat_guide_thinking_line">• Switch to “Deep thinking” to see the reasoning before the answer\n\n</string>
+    <string name="chat_guide_local_tools">🛠 Resident tools (%1$d): %2$s\n• Other tools are not in this round’s tool set: when needed the model looks them up through “Tool discovery”, which runs them on its behalf\n\n</string>
+    <string name="chat_guide_online_tools">🛠 Tool list: %1$d tools registered\n• Resident %2$d: %3$s\n• The rest are discovered and added as needed, at most %4$d carried in one round\n\n</string>
+    <string name="chat_guide_online_tools_no_total">🛠 Tool list: %1$d resident tools: %2$s\n• The rest are discovered and added as needed, at most %3$d carried in one round\n\n</string>
+    <string name="chat_guide_label_sep">, </string>
+    <string name="chat_guide_examples_local">💡 Try asking:\n“What is the weather in Beijing today?”\n“What time is it now?”\n“Search the latest fuel prices”\n“What is 2^10?”\n“Remember my name is Alex”</string>
+    <string name="chat_guide_examples_online">💡 Try asking:\n“What is the weather today?”\n“Write me a weekly report”\n“Draw an orange cat”\n“Search the latest fuel prices”</string>
+    <string name="chat_guide_model_fallback">Qwen3.5-4B (Q4_0)</string>
+    <string name="chat_guide_drawer_entry">❓ How to use (current engine and tools)</string>
 </resources>
