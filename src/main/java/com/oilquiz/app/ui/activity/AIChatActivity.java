@@ -883,8 +883,8 @@ public class AIChatActivity extends BaseActivity {
             seedIdDispatcherFromSessionMetadata();
             aiConfig = coordinator.getAIConfig();
 
-            // 本地Agent开关（Chip）：切换即写配置，processChatMessage 按 isLocalAgentEnabled() 路由，
-            // 因此下一条消息自动切换本地Agent/普通对话模式，无需重启
+            // 本地Agent开关（Chip）：切换即写配置。ROUTE-UNIFIED 之后它只控制"本轮注不注入工具"
+            // （引擎内 isFcEnabled 分流），不再改变路由——本地/在线都已统一进 Agent 引擎。
             chipLocalAgent = findViewById(R.id.chip_local_agent);
             chipResumeInterrupted = findViewById(R.id.chip_resume_interrupted);
             if (chipResumeInterrupted != null) {
@@ -5106,16 +5106,11 @@ public class AIChatActivity extends BaseActivity {
             // 2026-10-05：NPU（GenieX）引擎下**同样**走 Agent —— 原先这里用 !npuEngineOn 直接
             // 落到普通对话（当时以为 NPU 没有工具能力），导致 NPU 模式永远 tools=0、Agent 永不启动。
             // 现在 NPU 已能驱动 Agent 循环（NpuEngineRouter.chatJson + 事件协议对齐）→ 放行。
-            // NPU-FAST-CHAT: NPU 模式下**默认走普通对话（不注入工具 schema）**。
-            // 依据实测：Agent 路径 prompt=2789 token，其中工具定义 2021 token（72%），
-            // 而 SDK 的 KV 前缀复用不命中（prefix match size=0）→ 每轮都重复 prefill 这 2k token，
-            // 20 token 输出要 5.4 秒。普通对话 prompt 仅 ~240 token，首字延迟大幅下降。
-            // 需要工具调用时把偏好 npu_agent_enabled 设为 true 即可恢复 Agent 路径。
-            // NPU 下由聊天页「智能助手」开关（aiConfig.isLocalAgentEnabled）决定路径：
-            //   关 → 普通对话（prompt ~240 token，快；实测工具定义占 prompt 72%）
-            //   开 → Agent（注入工具，可调天气/时间/位置等，但 prompt 变大、每轮需重新 prefill）
-            // 这样 Agent 模式始终可用且由 UI 控制，无需改偏好文件。
-            // 把「智能助手」开关同步给引擎（Agent 模式 = 需要工具、需要更大上下文与更长输出）
+            // NPU-FAST-CHAT（历史背景，已被 ROUTE-UNIFIED 取代）：曾因"Agent 路径每轮重复 prefill
+            // 2k 工具 schema（前缀不命中，20 token 输出要 5.4s）"而让 NPU 默认走普通对话。
+            // 现在会话级 KV 回放 + 16K 上下文已落地，路由统一进 Agent 引擎；
+            // 这个开关只决定注不注入工具（见下方 ROUTE-UNIFIED 注释），不再决定走哪条路。
+            // 仍把它同步给引擎：工具开关 = 需要工具/更大上下文与更长输出。
             try {
                 boolean agentOn = aiConfig != null && aiConfig.isLocalAgentEnabled();
                 if (isNpuEngineOn()) {
@@ -5312,17 +5307,15 @@ public class AIChatActivity extends BaseActivity {
      * 可重复调用：每次点击都会把原始问题重新发送到本地 Agent 引擎执行。
      */
     private void forceRunLocalAgent(String message) {
-        // R8-2：复活分支——localAgentEnabled 时真正路由到本地 Agent（startAgentLoop 内分流）
-        if (aiConfig != null && aiConfig.isLocalAgentEnabled()) {
-            processChatMessageWithAgent(message);
-            return;
-        }
-        addSystemMessage("🚫 本地 Agent 已禁用\n\n请使用在线模型体验完整的 Agent 功能。\n\n切换方式：菜单 → 模型设置 → 选择在线模型", ChatMessage.SystemMessageType.WARNING);
+        // ROUTE-UNIFIED(2026-11-01)：路由已统一，这个入口就是字面意义的"强行走 Agent 引擎"，
+        // 不再受"智能助手"开关限制（开关只决定注不注入工具）。旧实现在开关关闭时回一句
+        // "本地 Agent 已禁用"，与"强行使用"的语义自相矛盾。
+        processChatMessageWithAgent(message);
     }
 
     /**
      * 显示新手引导信息（聊天历史为空时显示）。
-     * 按当前实际架构精简：在线模型=完整 Agent，本地模型=普通对话，深度思考=模式。
+     * 按当前实际架构精简：本地/在线都走 Agent 引擎；「智能助手」只决定注不注入工具，深度思考=模式。
      */
     private void showWelcomeGuide() {
         // 检查是否已配置模型（本地或在线）

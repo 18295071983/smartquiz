@@ -358,11 +358,13 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         //   · 否则若在线模型不可用 → 仍走本地软件层（有本地模型时这是唯一能跑的路径）；
         //   · 其余情况才交给在线引擎。
         boolean localModelActive = engine != null && !engine.isOnlineModelActive();
-        boolean onlineAvailable = engine != null && engine.isOnlineModelAvailable();
-        boolean localAgentEnabledNow = aiConfig != null && aiConfig.isLocalAgentEnabled();
-        boolean useLocalAgent = localModelActive && (localAgentEnabledNow || !onlineAvailable);
-        if (localModelActive && !localAgentEnabledNow && !onlineAvailable) {
-            AILogger.w(TAG, "本地模型 + 在线模型不可用 → 回落本地 Agent（避免路由到死路卡住界面）");
+        // ROUTE-UNIFIED(2026-11-01)：路由只看"哪个模型是激活的"，不再看「智能助手」开关。
+        // 旧实现是 localModelActive && (localAgentEnabledNow || !onlineAvailable)：开关关着、
+        // 但配置过在线模型时会把本地请求派给 OnlineAgentEngine——与"本地/在线统一进引擎"矛盾。
+        // 现在开关只决定注不注入工具（引擎内 isFcEnabled 分流），本地激活就永远走本地软件层。
+        boolean useLocalAgent = localModelActive;
+        if (localModelActive && (aiConfig == null || !aiConfig.isLocalAgentEnabled())) {
+            AILogger.i(TAG, "本地模型 + 智能助手关 → 仍走本地软件层（引擎内普通对话分支，不注入工具）");
         }
         if (useLocalAgent) {
             AILogger.i(TAG, "Local model → AgentSoftwareLayer (JSON 协议)"
