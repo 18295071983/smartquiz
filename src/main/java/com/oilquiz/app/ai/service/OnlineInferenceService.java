@@ -1652,8 +1652,9 @@ public class OnlineInferenceService {
             body.addProperty("temperature", DEFAULT_TEMPERATURE);
             // 网络搜索：Responses API 也支持 web_search 工具（OpenAI 托管工具 web_search_preview）；
             // 自有工具已接管时跳过官方注入
+            boolean officialSearchInjected = false;
             if (!ownSearchUsed) {
-                applyWebSearch(body, apiUrl, webSearch);
+                officialSearchInjected = applyWebSearch(body, apiUrl, webSearch);
             }
             if (stream) body.addProperty("stream", true);
 
@@ -1664,6 +1665,10 @@ public class OnlineInferenceService {
 
             int responseCode = connection.getResponseCode();
             if (responseCode != 200) {
+                if (responseCode == 400 && officialSearchInjected) {
+                    com.oilquiz.app.ai.model.ProviderConfigManager.markWebSearchCoexistDenied(apiUrl);
+                    AILogger.w(TAG, "官方 web_search 与 function 工具混装被拒(400)，本进程内退回保守注入: " + apiUrl);
+                }
                 String errorBody = readErrorStream(connection);
                 throw new Exception("API 请求失败: HTTP " + responseCode + " - " + errorBody);
             }
@@ -2182,8 +2187,9 @@ public class OnlineInferenceService {
             // 深度思考：与文本路径共用注入逻辑（多模态思考模型如 Qwen3-VL 生效）
             applyThinkingParams(requestBody, modelName, enableThinking, apiUrl);
             // 网络搜索：自有工具已接管时跳过官方注入
+            boolean officialSearchInjected = false;
             if (!ownSearchUsed) {
-                applyWebSearch(requestBody, apiUrl, webSearch);
+                officialSearchInjected = applyWebSearch(requestBody, apiUrl, webSearch);
             }
             if (stream) {
                 requestBody.addProperty("stream", true);
@@ -2213,6 +2219,10 @@ public class OnlineInferenceService {
 
             int responseCode = connection.getResponseCode();
             if (responseCode != 200) {
+                if (responseCode == 400 && officialSearchInjected) {
+                    com.oilquiz.app.ai.model.ProviderConfigManager.markWebSearchCoexistDenied(apiUrl);
+                    AILogger.w(TAG, "官方 web_search 与 function 工具混装被拒(400)，本进程内退回保守注入: " + apiUrl);
+                }
                 String errorBody = readErrorStream(connection);
                 throw new Exception("API 请求失败: HTTP " + responseCode + " - " + errorBody);
             }
@@ -2643,20 +2653,23 @@ public class OnlineInferenceService {
      * 默认由本地工具（network_search 等）承担联网，避免讯飞等平台"web_search 与 function 不可同时传"返回 400
      * 以及官方工具与本地工具捆绑。
      */
-    private void applyWebSearch(JsonObject requestBody, String apiUrl, boolean webSearch) {
-        if (!webSearch) return;
-        if (requestBody == null || apiUrl == null) return;
+    private boolean applyWebSearch(JsonObject requestBody, String apiUrl, boolean webSearch) {
+        if (!webSearch) return false;
+        if (requestBody == null || apiUrl == null) return false;
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
         String param = pcm.getServiceParam(apiUrl, "webSearch");
-        if (param == null || param.isEmpty()) return; // 配置表未声明 → 不注入
-        // 统一守卫：已有 function 类型工具（agent 模式）→ 不注入官方 webSearch，避免捆绑/400
+        if (param == null || param.isEmpty()) return false; // 配置表未声明 → 不注入
+        // 统一守卫：请求里已有 function 工具（agent 模式）时，默认不注入官方 webSearch（避免捆绑/400）。
+        // COEXIST(2026-11-02)：服务商若在 providers.json 里声明 coexistWithTools=true（如 DeepSeek Responses），
+        // 则允许混装，继续注入；运行期吃到 400 会 markWebSearchCoexistDenied，之后自动退回保守行为。
         if (requestBody.has("tools") && requestBody.get("tools").isJsonArray()) {
             for (com.google.gson.JsonElement el : requestBody.getAsJsonArray("tools")) {
                 if (el.isJsonObject() && "function".equals(
                         el.getAsJsonObject().get("type") != null
                                 ? el.getAsJsonObject().get("type").getAsString() : null)) {
-                    return;
+                    if (!pcm.webSearchCoexistsWithTools(apiUrl)) return false;
+                    break;
                 }
             }
         }
@@ -2698,6 +2711,7 @@ public class OnlineInferenceService {
             // 扁平布尔形态（enable_search 等）
             requestBody.addProperty(param, true);
         }
+        return true;
     }
 
     /** 获取或创建请求体的 tools 数组 */
@@ -2836,8 +2850,9 @@ public class OnlineInferenceService {
             // 深度思考：模型支持时按参数名规范传 thinking 开关（与多模态路径共用同一注入逻辑）
             applyThinkingParams(requestBody, modelName, enableThinking, apiUrl);
             // 网络搜索：自有工具已接管时跳过官方注入，否则按服务商配置表注入 web_search/google_search
+            boolean officialSearchInjected = false;
             if (!ownSearchUsed) {
-                applyWebSearch(requestBody, apiUrl, webSearch);
+                officialSearchInjected = applyWebSearch(requestBody, apiUrl, webSearch);
             }
             
             if (stream) {
@@ -2857,6 +2872,10 @@ public class OnlineInferenceService {
 
             int responseCode = connection.getResponseCode();
             if (responseCode != 200) {
+                if (responseCode == 400 && officialSearchInjected) {
+                    com.oilquiz.app.ai.model.ProviderConfigManager.markWebSearchCoexistDenied(apiUrl);
+                    AILogger.w(TAG, "官方 web_search 与 function 工具混装被拒(400)，本进程内退回保守注入: " + apiUrl);
+                }
                 String errorBody = readErrorStream(connection);
                 throw new Exception("API 请求失败: HTTP " + responseCode + " - " + errorBody);
             }

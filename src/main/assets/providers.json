@@ -1033,7 +1033,8 @@
           "enabled": true,
           "endpoint": "/responses",
           "param": "web_search_tool",
-          "note": "官方 Responses API（/responses）支持 web_search/web_search_2025_08_26 工具（服务端执行，自动续推上限10轮）；chat/completions 不支持内置 web_search。普通对话已由自有 network_search 工具预搜索接管；官方注入仅对 /responses 端点生效（腾讯云托管另用 enable_search，阿里百炼托管用 Responses web_search）"
+          "coexistWithTools": true,
+          "note": "官方 Responses API（/responses）支持 web_search/web_search_2025_08_26 工具（服务端执行，自动续推上限10轮）；chat/completions 不支持内置 web_search。普通对话已由自有 network_search 工具预搜索接管；官方注入仅对 /responses 端点生效（腾讯云托管另用 enable_search，阿里百炼托管用 Responses web_search）。coexistWithTools=true 允许官方 web_search 与自定义 function 工具同请求注入，运行期若吃 400 会自动退回保守行为"
         },
         "embedding": {
           "enabled": true,

@@ -1186,6 +1186,36 @@ public class ProviderConfigManager {
         return p.services.webSearch.endpoint;
     }
 
+    /** 运行期被服务端 400 打过脸的 (apiUrl)，避免每次都用官方工具混装去撞一次墙。 */
+    private static final java.util.Set<String> WEB_SEARCH_COEXIST_DENIED =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
+     * 该服务商是否允许「内置 web_search 工具」与「自定义 function 工具」出现在同一个请求里。
+     *
+     * <p>COEXIST(2026-11-02)：不同服务商对混装的态度不同（OpenAI/Anthropic 支持，Gemini 明确不支持）。
+     * 以前是一刀切"只要请求里有 function 工具就不注入官方 web_search"，代价是 DeepSeek Responses
+     * 这种能混的也用不上官方搜索、只能烧秘塔额度。现在按 {@code services.webSearch.coexistWithTools}
+     * 声明来判；运行期若同组合吃到 400，会被 {@link #markWebSearchCoexistDenied} 记下来，下次自动退回。</p>
+     */
+    public boolean webSearchCoexistsWithTools(String apiUrl) {
+        if (apiUrl == null) return false;
+        if (WEB_SEARCH_COEXIST_DENIED.contains(apiUrl)) return false;
+        Provider p = matchByUrl(apiUrl);
+        if (p == null || p.services == null || p.services.webSearch == null) return false;
+        return Boolean.TRUE.equals(p.services.webSearch.coexistWithTools);
+    }
+
+    /** 记录"这个 apiUrl 混装会被拒"，本进程内不再尝试。 */
+    public static void markWebSearchCoexistDenied(String apiUrl) {
+        if (apiUrl != null) WEB_SEARCH_COEXIST_DENIED.add(apiUrl);
+    }
+
+    /** 测试/重置用：清掉混装拒绝记录。 */
+    public static void clearWebSearchCoexistDenied() {
+        WEB_SEARCH_COEXIST_DENIED.clear();
+    }
+
     /** 服务商声明的全部可用服务名列表（UI 展示/设置用） */
     public List<String> getServiceNames(String apiUrl) {
         Provider p = matchByUrl(apiUrl);
@@ -1316,6 +1346,11 @@ public class ProviderConfigManager {
         public Boolean enabled;
         public String endpoint;
         public String param;
+        /**
+         * webSearch 专用：内置搜索工具能否与自定义 function 工具出现在同一个请求里。
+         * 缺省 null/false = 不能（保守，沿用旧行为）；true = 能混装，注入官方搜索时不再看有没有 function 工具。
+         */
+        public Boolean coexistWithTools;
         /**
          * agent 服务用哪套协议，<b>一条开关同时管住普通流式与 Agent 工具流</b>：
          * {@code "chat"}（缺省）＝ /chat/completions + tool_calls；
