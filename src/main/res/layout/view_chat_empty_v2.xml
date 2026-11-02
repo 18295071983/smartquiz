@@ -1,9 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 聊天页 v2 空状态（demo/ai-chat-redesign.html 的 section.empty）：
-     问候语 + 四个场景卡（2×2）+ 最近会话。左对齐、可滚动，替代旧版居中的 🤖 大图标 + 三个示例 chip。
-     开关 chat_ui_v2 打开时由 AIChatActivity 把 emptyStateView 指向本布局，
-     旧 empty_state_view 整块隐藏，关开关即回退。
-     场景卡点击 = 填入示例问题并发送，复用 chip_empty_exampleN 的既有行为口径。 -->
+<!-- 聊天页空状态（v2 首屏）：问候语 + 三个模型/帮助入口 + 最近会话。左对齐、可滚动。
+     旧版那块居中的 🤖 大图标 + 三个示例 chip + 清空 chip 已于 2026-11-02 连布局带 Java 接线删除，
+     本块是空状态唯一视图。
+
+     显隐：本布局在 onCreate 里无条件 findViewById 后交给 ChatAdapter#setEmptyView，
+     消息列表为空时由 adapter 的数据观察者切可见性——唯一写入者，
+     AIChatActivity#updateEmptyState 不再插手。（原注释说"开关 chat_ui_v2 打开时才生效"，
+     那个开关 2026-10-20 S5 起就没了，ChatUiV2Chrome#apply 进页面即生效，文案一起改掉。）
+
+     2026-11-02（EMPTY-STATE-REAL-ENTRY）：原先这里是 2×2 四张场景卡，点了只把示例问题
+     "填进输入框"让用户自己再按发送——多此一举，且四句示例写死在 strings 里、与真实能力漂移。
+     现在换成三个点了真的跳转、且去处各不相同的入口：
+       · 去选择模型     → ModelSelectorActivity（本地模型列表 + 在线模型列表都能点一下切换，
+         页内还带导入本地模型、添加在线模型、API 配置、一键初始化，以及语音 ASR/TTS 的专用模型行。
+         2026-11-02 纠正：这里原先指向 ModelCenterActivity，但模型中心只有「在线注册 + 用量」两个 Tab、
+         选不了本地模型，且它的「专用模型」按钮其实就是跳回本页——聊天页的模型入口必须能用）
+       · 去下载模型     → ModelDownloadActivity（本地 GGUF 预设清单，label 复用 h_f0597ad8）
+       · 看使用说明     → AIChatActivity#showWelcomeGuide(force=true)，绕过"每引擎只弹一次"闸门
+     图标/底色/圆角/内边距全部沿用 v2 那套资产，不新造样式。能力介绍写在 greet_sub 那句里。 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/empty_state_v2_view"
@@ -53,43 +67,42 @@
             android:textColor="@color/chat_v2_text_2"
             android:textSize="@dimen/chat_v2_greet_sub_text"/>
 
-        <!-- 场景卡：demo 的 .sugg 是 2 列网格，这里用两行 LinearLayout 等价实现，
-             避免为四个静态卡片引入 GridLayout 依赖 -->
+        <!-- 三个入口：点了都真的跳到不同的页面/动作，不替用户打字。
+             第一行去「模型选择」页——那是本地与在线唯一能点一下切换的页面；
+             不去「模型中心」，因为它只有在线注册+用量，选不了本地模型。 -->
         <LinearLayout
-            android:id="@+id/chat_v2_scene_row_1"
+            android:id="@+id/chat_v2_entry_select_model"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:background="@drawable/chat_v2_scene_card_bg"
+            android:foreground="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="@dimen/chat_v2_scene_padding">
+
+            <ImageView
+                android:layout_width="@dimen/chat_v2_scene_icon"
+                android:layout_height="@dimen/chat_v2_scene_icon"
+                android:layout_marginEnd="@dimen/space_10"
+                android:background="@drawable/chat_v2_scene_icon_bg"
+                android:contentDescription="@string/chat_v2_entry_select_model"
+                android:padding="@dimen/chat_v2_scene_icon_pad"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_ai_model"
+                app:tint="@color/chat_v2_brand_ink"/>
 
             <LinearLayout
-                android:id="@+id/chat_v2_scene_quiz"
-                android:layout_width="@dimen/size_0"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginEnd="@dimen/space_5"
-                android:background="@drawable/chat_v2_scene_card_bg"
-                android:foreground="?attr/selectableItemBackground"
-                android:clickable="true"
-                android:focusable="true"
-                android:orientation="vertical"
-                android:padding="@dimen/chat_v2_scene_padding">
-
-                <ImageView
-                    android:layout_width="@dimen/chat_v2_scene_icon"
-                    android:layout_height="@dimen/chat_v2_scene_icon"
-                    android:layout_marginBottom="@dimen/space_10"
-                    android:background="@drawable/chat_v2_scene_icon_bg"
-                    android:contentDescription="@string/chat_v2_scene_quiz"
-                    android:padding="@dimen/chat_v2_scene_icon_pad"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_quiz"
-                    app:tint="@color/chat_v2_brand_ink"/>
+                android:orientation="vertical">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="@dimen/space_3"
-                    android:text="@string/chat_v2_scene_quiz"
+                    android:text="@string/chat_v2_entry_select_model"
                     android:textColor="@color/chat_v2_text"
                     android:textSize="@dimen/chat_v2_scene_text"
                     android:textStyle="bold"/>
@@ -97,89 +110,46 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/chat_v2_scene_quiz_sub"
-                    android:textColor="@color/chat_v2_text_3"
-                    android:textSize="@dimen/chat_v2_scene_sub_text"/>
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/chat_v2_scene_explain"
-                android:layout_width="@dimen/size_0"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="@dimen/space_5"
-                android:background="@drawable/chat_v2_scene_card_bg"
-                android:foreground="?attr/selectableItemBackground"
-                android:clickable="true"
-                android:focusable="true"
-                android:orientation="vertical"
-                android:padding="@dimen/chat_v2_scene_padding">
-
-                <ImageView
-                    android:layout_width="@dimen/chat_v2_scene_icon"
-                    android:layout_height="@dimen/chat_v2_scene_icon"
-                    android:layout_marginBottom="@dimen/space_10"
-                    android:background="@drawable/chat_v2_scene_icon_bg"
-                    android:contentDescription="@string/chat_v2_scene_explain"
-                    android:padding="@dimen/chat_v2_scene_icon_pad"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_chat_v2_bulb"
-                    app:tint="@color/chat_v2_brand_ink"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="@dimen/space_3"
-                    android:text="@string/chat_v2_scene_explain"
-                    android:textColor="@color/chat_v2_text"
-                    android:textSize="@dimen/chat_v2_scene_text"
-                    android:textStyle="bold"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/chat_v2_scene_explain_sub"
+                    android:text="@string/chat_v2_entry_select_model_sub"
                     android:textColor="@color/chat_v2_text_3"
                     android:textSize="@dimen/chat_v2_scene_sub_text"/>
             </LinearLayout>
         </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/chat_v2_scene_row_2"
+            android:id="@+id/chat_v2_download_row"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_10"
-            android:orientation="horizontal">
+            android:layout_marginTop="@dimen/space_5"
+            android:background="@drawable/chat_v2_scene_card_bg"
+            android:foreground="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="@dimen/chat_v2_scene_padding">
+
+            <ImageView
+                android:layout_width="@dimen/chat_v2_scene_icon"
+                android:layout_height="@dimen/chat_v2_scene_icon"
+                android:layout_marginEnd="@dimen/space_10"
+                android:background="@drawable/chat_v2_scene_icon_bg"
+                android:contentDescription="@string/h_f0597ad8"
+                android:padding="@dimen/chat_v2_scene_icon_pad"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_cloud_download"
+                app:tint="@color/chat_v2_brand_ink"/>
 
             <LinearLayout
-                android:id="@+id/chat_v2_scene_summary"
-                android:layout_width="@dimen/size_0"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginEnd="@dimen/space_5"
-                android:background="@drawable/chat_v2_scene_card_bg"
-                android:foreground="?attr/selectableItemBackground"
-                android:clickable="true"
-                android:focusable="true"
-                android:orientation="vertical"
-                android:padding="@dimen/chat_v2_scene_padding">
-
-                <ImageView
-                    android:layout_width="@dimen/chat_v2_scene_icon"
-                    android:layout_height="@dimen/chat_v2_scene_icon"
-                    android:layout_marginBottom="@dimen/space_10"
-                    android:background="@drawable/chat_v2_scene_icon_bg"
-                    android:contentDescription="@string/chat_v2_scene_summary"
-                    android:padding="@dimen/chat_v2_scene_icon_pad"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_file"
-                    app:tint="@color/chat_v2_brand_ink"/>
+                android:orientation="vertical">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="@dimen/space_3"
-                    android:text="@string/chat_v2_scene_summary"
+                    android:text="@string/h_f0597ad8"
                     android:textColor="@color/chat_v2_text"
                     android:textSize="@dimen/chat_v2_scene_text"
                     android:textStyle="bold"/>
@@ -187,40 +157,46 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/chat_v2_scene_summary_sub"
+                    android:text="@string/chat_v2_download_sub"
                     android:textColor="@color/chat_v2_text_3"
                     android:textSize="@dimen/chat_v2_scene_sub_text"/>
             </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/chat_v2_entry_guide"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_5"
+            android:background="@drawable/chat_v2_scene_card_bg"
+            android:foreground="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="@dimen/chat_v2_scene_padding">
+
+            <ImageView
+                android:layout_width="@dimen/chat_v2_scene_icon"
+                android:layout_height="@dimen/chat_v2_scene_icon"
+                android:layout_marginEnd="@dimen/space_10"
+                android:background="@drawable/chat_v2_scene_icon_bg"
+                android:contentDescription="@string/chat_v2_entry_guide"
+                android:padding="@dimen/chat_v2_scene_icon_pad"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_chat_v2_bulb"
+                app:tint="@color/chat_v2_brand_ink"/>
 
             <LinearLayout
-                android:id="@+id/chat_v2_scene_plan"
-                android:layout_width="@dimen/size_0"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="@dimen/space_5"
-                android:background="@drawable/chat_v2_scene_card_bg"
-                android:foreground="?attr/selectableItemBackground"
-                android:clickable="true"
-                android:focusable="true"
-                android:orientation="vertical"
-                android:padding="@dimen/chat_v2_scene_padding">
-
-                <ImageView
-                    android:layout_width="@dimen/chat_v2_scene_icon"
-                    android:layout_height="@dimen/chat_v2_scene_icon"
-                    android:layout_marginBottom="@dimen/space_10"
-                    android:background="@drawable/chat_v2_scene_icon_bg"
-                    android:contentDescription="@string/chat_v2_scene_plan"
-                    android:padding="@dimen/chat_v2_scene_icon_pad"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_chat_v2_plan"
-                    app:tint="@color/chat_v2_brand_ink"/>
+                android:orientation="vertical">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="@dimen/space_3"
-                    android:text="@string/chat_v2_scene_plan"
+                    android:text="@string/chat_v2_entry_guide"
                     android:textColor="@color/chat_v2_text"
                     android:textSize="@dimen/chat_v2_scene_text"
                     android:textStyle="bold"/>
@@ -228,7 +204,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/chat_v2_scene_plan_sub"
+                    android:text="@string/chat_v2_entry_guide_sub"
                     android:textColor="@color/chat_v2_text_3"
                     android:textSize="@dimen/chat_v2_scene_sub_text"/>
             </LinearLayout>

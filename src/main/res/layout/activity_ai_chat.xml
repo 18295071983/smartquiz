@@ -311,87 +311,13 @@
                     android:textSize="20sp"
                     android:contentDescription="对话历史"/>
 
-                <!-- 空状态视图 -->
-                <LinearLayout
-                    android:id="@+id/empty_state_view"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="@dimen/space_32"
-                    android:visibility="gone">
+                <!-- 空状态视图已删（2026-11-02，EMPTY-STATE-REAL-ENTRY）：这块居中的 🤖 + 三个
+                     示例 chip + 「清空」chip 早在 v2 首屏接管后就被永久隐藏，里面「填一句再发送」
+                     的口径也与空首屏新决定相反；连带 Java 接线与三条示例字符串一起摘掉。
+                     现在的空状态只有下面这块。 -->
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="🤖"
-                    android:textSize="@dimen/text_64"
-                    android:layout_marginBottom="@dimen/space_16"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="开始你的AI对话"
-                    android:textSize="@dimen/text_20"
-                    android:textStyle="bold"
-                    android:textColor="#E8FFFFFF"
-                    android:layout_marginBottom="@dimen/space_8"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="输入消息开始对话，或尝试以下快捷命令："
-                    android:textSize="@dimen/text_14"
-                    android:textColor="#B3FFFFFF"
-                    android:gravity="center"
-                    android:layout_marginBottom="@dimen/space_24"/>
-
-                <com.google.android.material.chip.ChipGroup
-                    android:id="@+id/empty_state_chips"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal">
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/chip_empty_example1"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="帮我总结这段文字"
-                        app:chipBackgroundColor="?attr/colorSurfaceVariant"
-                        android:textColor="?attr/colorControlText"/>
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/chip_empty_example2"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="解释这段代码"
-                        app:chipBackgroundColor="?attr/colorSurfaceVariant"
-                        android:textColor="?attr/colorControlText"/>
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/chip_empty_example3"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="今天天气如何"
-                        app:chipBackgroundColor="?attr/colorSurfaceVariant"
-                        android:textColor="?attr/colorControlText"/>
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_clear_chat"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="清空"
-                app:chipIcon="@drawable/ic_clear"
-                app:chipIconTint="@color/error"
-                app:chipBackgroundColor="@color/error_container"
-                android:textColor="@color/on_error_container"
-                app:chipStrokeWidth="0dp"/>
-
-        </com.google.android.material.chip.ChipGroup>
-            </LinearLayout>
-
-            <!-- 聊天页 v2 空状态（demo .empty：问候语 + 场景卡 + 最近）。
-                 开关 chat_ui_v2 打开时由 AIChatActivity 把 emptyStateView 指向它，
-                 上面那块旧空状态整块保持隐藏，关开关即回退。 -->
+            <!-- 聊天页空状态（v2 首屏）：问候语 + 一行「去下载模型」入口 + 最近会话。
+                 根视图交给 ChatAdapter#setEmptyView，按"消息条数是否为 0"切可见性。 -->
             <include layout="@layout/view_chat_empty_v2"/>
         </FrameLayout>
         </LinearLayout>

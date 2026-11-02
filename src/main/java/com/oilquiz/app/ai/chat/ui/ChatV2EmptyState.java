@@ -15,14 +15,22 @@ import java.util.Calendar;
 import java.util.List;
 
 /**
- * 聊天页 v2 空状态（demo {@code section.empty}）：问候语 + 四个场景卡 + 最近会话。
+ * 聊天页空状态（v2 首屏）：问候语 + 三个真入口 + 最近会话。
  *
- * <p>和 {@link ChatUiV2Chrome} 一样只在开关 {@code chat_ui_v2} 打开时生效；
- * 开关关着时 {@link #bind} 直接返回 null，调用方保留旧的空状态视图。</p>
+ * <p>显隐不在本类：根视图交给 {@code ChatAdapter#setEmptyView}，由 adapter 的数据观察者按
+ * "消息条数是否为 0" 切换，本类只负责把视图和回调接起来，不碰会话存储。</p>
  *
- * <p>本类只负责把视图和回调接起来，不碰会话存储：场景卡的填充、会话切换都由
- * {@link Listener} 交回宿主（{@code AIChatActivity} 里各自只有一行委托），
- * 时间口径与历史抽屉的 {@code ChatHistoryAdapter} 保持一致（今天 HH:mm / 昨天 HH:mm / M月d日）。</p>
+ * <p>2026-11-02（EMPTY-STATE-REAL-ENTRY）：原来这里是 2×2 四张场景卡，点了只把示例问题
+ * 填进输入框（demo 的 data-fill 口径）。那不是入口，是替用户打了一遍字——用户自己按发送
+ * 谁不会；四句示例还写死在 strings 里，与真实能力各漂各的。现在换成三个点了真的跳转、
+ * 去处各不相同的入口：选择模型（本地+在线都能切换的那页）、下载本地模型、看使用说明。
+ * 跳转动作全部交回宿主，本类不碰 Intent。
+ * 第一行刻意指「模型选择」页而不是「模型中心」：模型中心只有在线注册+用量两个 Tab，
+ * <b>选不了本地模型</b>，它原先那个「专用模型」按钮（现改名「语音模型」）反而是跳回模型页——聊天页要的是能直接换引擎模型的地方。
+ * 能力介绍写在 greet_sub 那句里，只讲工具类别；某台引擎实际能挂哪些工具由「使用说明」弹框
+ * 按注入集动态报（那侧有不变量钉着，见 {@code ChatGuideToolFactsTest}）。
+ * 时间口径与历史抽屉的 {@code ChatHistoryAdapter} 保持一致（今天 HH:mm / 昨天 HH:mm / M月d日），
+ * 见 {@link ChatDayLabel}。</p>
  */
 public final class ChatV2EmptyState {
 
@@ -33,8 +41,14 @@ public final class ChatV2EmptyState {
 
     /** 空状态交互出口 */
     public interface Listener {
-        /** 点场景卡：把示例问题填进输入框（demo 的 data-fill 只填充不发送） */
-        void onScenePrompt(String prompt);
+        /** 点「去选择模型」：宿主打开模型选择页（本地与在线都在那一页点选切换） */
+        void onSelectModel();
+
+        /** 点「去下载模型」：宿主打开本地模型预设清单 */
+        void onDownloadModels();
+
+        /** 点「看使用说明」：宿主强制打开引导弹框（绕过"每引擎只弹一次"闸门） */
+        void onShowGuide();
 
         /** 点「最近」条目：切到该会话 */
         void onOpenSession(ConversationSession session);
@@ -52,7 +66,7 @@ public final class ChatV2EmptyState {
         this.greeting = root.findViewById(R.id.chat_v2_greet_hello);
         this.recentGroup = root.findViewById(R.id.chat_v2_recent_group);
         this.recentContainer = root.findViewById(R.id.chat_v2_recent_container);
-        bindScenes();
+        bindEntries();
     }
 
     /**
@@ -75,19 +89,21 @@ public final class ChatV2EmptyState {
         return root;
     }
 
-    private void bindScenes() {
-        // demo 的四张场景卡 = 四个提示词模板；文案走 strings，方便后续按学段替换
-        setScene(R.id.chat_v2_scene_quiz, R.string.chat_v2_prompt_quiz);
-        setScene(R.id.chat_v2_scene_explain, R.string.chat_v2_prompt_explain);
-        setScene(R.id.chat_v2_scene_summary, R.string.chat_v2_prompt_summary);
-        setScene(R.id.chat_v2_scene_plan, R.string.chat_v2_prompt_plan);
+    /**
+     * 绑三个入口。每条都必须在布局里有对应 id，且回调交回宿主——
+     * 本类不认识 Activity，只认识"该跳哪儿"这件事由外面决定。
+     */
+    private void bindEntries() {
+        bindEntry(R.id.chat_v2_entry_select_model, () -> listener.onSelectModel());
+        bindEntry(R.id.chat_v2_download_row, () -> listener.onDownloadModels());
+        bindEntry(R.id.chat_v2_entry_guide, () -> listener.onShowGuide());
     }
 
-    private void setScene(int viewId, int promptRes) {
-        View card = root.findViewById(viewId);
-        if (card == null) return;
-        card.setOnClickListener(v -> {
-            if (listener != null) listener.onScenePrompt(root.getContext().getString(promptRes));
+    private void bindEntry(int viewId, Runnable action) {
+        View row = root.findViewById(viewId);
+        if (row == null) return;
+        row.setOnClickListener(v -> {
+            if (listener != null) action.run();
         });
     }
 

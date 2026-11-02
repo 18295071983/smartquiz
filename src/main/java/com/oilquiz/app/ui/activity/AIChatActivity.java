@@ -250,9 +250,7 @@ public class AIChatActivity extends BaseActivity {
     /** 自动获取的环境上下文（如定位得到的city/lat/lon），供引导流程注入 */
     private Map<String, String> autoContext = new HashMap<>();
 
-    private View emptyStateView;
-    private com.google.android.material.chip.ChipGroup emptyStateChips;
-    /** v2 空状态（开关 chat_ui_v2 打开时非 null）；null 表示仍用旧的居中空状态 */
+    /** 空状态首屏（问候 + 去下载模型入口 + 最近）；null = 页面没这块视图，只显示消息列表 */
     private com.oilquiz.app.ai.chat.ui.ChatV2EmptyState chatV2EmptyState;
     /** 输入栏组件；v2 用它驱动胶囊上方那行"正在生成"提示 */
     private ChatInputBar chatInputBar;
@@ -643,20 +641,29 @@ public class AIChatActivity extends BaseActivity {
             quickBarExpanded = true;
             keyboardAutoCollapsed = false;
 
-            emptyStateView = findViewById(R.id.empty_state_view);
-            emptyStateChips = findViewById(R.id.empty_state_chips);
-            // v2 空状态（demo .empty：问候 + 场景卡 + 最近）：开关打开时把 emptyStateView
-            // 改指 v2 视图，旧的居中空状态整块保持隐藏；关开关即回原样。
+            // 空状态首屏（问候 + 三个真入口 + 最近）：根视图交给 ChatAdapter#setEmptyView，
+            // 按"消息条数是否为 0"切可见性。旧的那块居中空状态（🤖 + 三个示例 chip + 清空 chip）
+            // 已被本首屏取代且永久隐藏，2026-11-02 连布局带 Java 接线一起删除。
             chatV2EmptyState = com.oilquiz.app.ai.chat.ui.ChatV2EmptyState.bind(
                     this, new com.oilquiz.app.ai.chat.ui.ChatV2EmptyState.Listener() {
-                @Override public void onScenePrompt(String prompt) { fillQuickInput(prompt); }
+                // EMPTY-STATE-REAL-ENTRY：四张"填字卡"删了，换成三个真跳转，去处各不相同。
+                // 第一行走「模型选择」页：本地与在线都在那一页点一下就能切换，页内还有
+                // 导入本地模型/添加在线模型/一键初始化。不走「模型中心」——它只有在线注册+用量，
+                // 选不了本地模型（它的「专用模型」按钮反而是跳回模型选择页）。
+                @Override public void onSelectModel() {
+                    startActivity(new Intent(AIChatActivity.this, ModelSelectorActivity.class));
+                }
+                @Override public void onDownloadModels() {
+                    startActivity(new Intent(AIChatActivity.this, ModelDownloadActivity.class));
+                }
+                @Override public void onShowGuide() {
+                    // 强制打开：自动弹框有"每引擎只弹一次"闸门，这里绕过去
+                    showWelcomeGuide(true);
+                }
                 @Override public void onOpenSession(
                         com.oilquiz.app.ai.util.ConversationSession session) { switchToSession(session); }
             });
             if (chatV2EmptyState != null) {
-                View legacyEmpty = emptyStateView;
-                emptyStateView = chatV2EmptyState.getRoot();
-                if (legacyEmpty != null) legacyEmpty.setVisibility(View.GONE);
                 chatV2EmptyState.refreshGreeting();
             }
 
@@ -1806,28 +1813,8 @@ public class AIChatActivity extends BaseActivity {
             });
         }
 
-        // 空状态快捷操作
-        if (emptyStateChips != null) {
-            com.google.android.material.chip.Chip chipExample1 = emptyStateChips.findViewById(R.id.chip_empty_example1);
-            com.google.android.material.chip.Chip chipExample2 = emptyStateChips.findViewById(R.id.chip_empty_example2);
-            com.google.android.material.chip.Chip chipExample3 = emptyStateChips.findViewById(R.id.chip_empty_example3);
-            com.google.android.material.chip.Chip chipClearEmpty = emptyStateChips.findViewById(R.id.chip_clear_chat);
-            if (chipExample1 != null) chipExample1.setOnClickListener(v -> {
-                inputMessage.setText(getString(R.string.h_0d5a55ab));
-                sendMessage();
-            });
-            if (chipExample2 != null) chipExample2.setOnClickListener(v -> {
-                inputMessage.setText(getString(R.string.h_3985673f));
-                sendMessage();
-            });
-            if (chipExample3 != null) chipExample3.setOnClickListener(v -> {
-                inputMessage.setText(getString(R.string.h_b1d10199));
-                sendMessage();
-            });
-            if (chipClearEmpty != null) chipClearEmpty.setOnClickListener(v -> {
-                clearChat();
-            });
-        }
+        // 旧空状态那三颗"填一句并直接发送"的 chip 与「清空」chip 已随布局一起删除（2026-11-02）：
+        // 那块视图被 v2 首屏永久遮挡，"替用户打字再自动发送"也不是入口；清空对话仍走工具抽屉那颗。
 
         inputMessage.setOnEditorActionListener((v, actionId, event) -> { sendMessage(); return true; });
 
@@ -1897,22 +1884,6 @@ public class AIChatActivity extends BaseActivity {
             addSystemMessage("生成已取消");
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error cancelling: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 快捷输入引导：填充模板到输入框并聚焦，光标置于末尾
-     */
-    private void fillQuickInput(String template) {
-        if (inputMessage == null) return;
-        inputMessage.setText(template);
-        inputMessage.requestFocus();
-        inputMessage.setSelection(template.length());
-        // 弹出软键盘
-        android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
-            getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
-        if (imm != null) {
-            imm.showSoftInput(inputMessage, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
         }
     }
 
@@ -5506,7 +5477,7 @@ public class AIChatActivity extends BaseActivity {
                 .setMessage(message)
                 .setPositiveButton(getString(R.string.chat_guide_btn_init), (d, w) ->
                         startActivity(new Intent(AIChatActivity.this, AIServiceInitActivity.class)))
-                .setNeutralButton(getString(R.string.chat_guide_btn_download_neutral), (d, w) ->
+                .setNeutralButton(getString(R.string.h_f0597ad8), (d, w) ->
                         startActivity(new Intent(AIChatActivity.this, ModelDownloadActivity.class)))
                 .setNegativeButton(getString(R.string.h_87e4d9ef), null)
                 .setCancelable(true)
@@ -13126,16 +13097,14 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 更新空状态显示（已移除欢迎界面，始终显示消息列表）
+     * 保证消息列表可见；空状态首屏的显隐不在这里。
      *
-     * <p>例外：开关 {@code chat_ui_v2} 打开时，demo 的空状态（问候 + 场景卡 + 最近）就是首屏，
-     * 它的可见性交给 {@code ChatAdapter#setEmptyView} 那套数据观察者统一切换，
-     * 这里不再插手，避免两个写入者；关开关回到"永远只显示列表"的旧行为。
+     * <p>空状态（问候 + 去下载模型入口 + 最近）的可见性唯一由
+     * {@code ChatAdapter#setEmptyView} 那套数据观察者按"消息条数是否为 0"切换，
+     * 这里再写一次就是两个写入者。旧的居中空状态视图与"永远只显示列表"的兜底
+     * 已随该布局一起删除（2026-11-02）。</p>
      */
     private void updateEmptyState() {
-        if (emptyStateView != null && chatV2EmptyState == null) {
-            emptyStateView.setVisibility(View.GONE);
-        }
         if (messageList != null) {
             messageList.setVisibility(View.VISIBLE);
         }

@@ -777,26 +777,24 @@
     <string name="chat_v2_history_desc">对话历史</string>
     <string name="chat_v2_switch_model">切换模型</string>
     <string name="chat_v2_online">在线</string>
-    <!-- 聊天页 v2 空状态（demo .empty）：问候语 + 四个场景卡 + 最近 -->
+    <!-- 聊天页空状态（v2 首屏）：问候语 + 四个真入口 + 最近会话。
+         2026-11-02：问候语改成讲 AI 本身的能力，不再写"出题/讲题/总结资料/排复习计划"这种
+         替用户设想学习场景的话术；能力清单只说工具类别，具体某台引擎能调用哪些由「使用说明」
+         弹框按注入集动态报（那里已有不变量防漂移）。 -->
     <string name="chat_v2_greet_am">早上好，</string>
     <string name="chat_v2_greet_pm">下午好，</string>
     <string name="chat_v2_greet_eve">晚上好，</string>
-    <string name="chat_v2_greet_title">今天想学点什么？</string>
-    <string name="chat_v2_greet_sub">我可以出题、讲题、总结资料，也能帮你排复习计划。选一个场景，或者直接说。</string>
-    <string name="chat_v2_scene_quiz">出题练习</string>
-    <string name="chat_v2_scene_quiz_sub">按错题生成相似题</string>
-    <string name="chat_v2_scene_explain">错题讲解</string>
-    <string name="chat_v2_scene_explain_sub">一步步讲清思路</string>
-    <string name="chat_v2_scene_summary">资料总结</string>
-    <string name="chat_v2_scene_summary_sub">长文档变提纲</string>
-    <string name="chat_v2_scene_plan">复习计划</string>
-    <string name="chat_v2_scene_plan_sub">按考试日期安排</string>
+    <string name="chat_v2_greet_title">我能帮你做什么？</string>
+    <string name="chat_v2_greet_sub">我是答题宝 AI 助手，可以对话、联网搜索、查天气和时间、读写本地文件、做计算、查题库、记住你说过的事，也能生成图片、图表和界面组件。直接用一句话说要什么就行。不同引擎能挂上的工具不一样，点「看使用说明」看当前这套。</string>
+    <!-- 模型选择页是本地与在线唯一能"点一下就切换"的页面；模型中心只有在线注册+用量，
+         选不了本地模型，所以聊天页入口指前者（2026-11-02 纠正）。 -->
+    <string name="chat_v2_entry_select_model">🔄 去选择模型</string>
+    <string name="chat_v2_entry_select_model_sub">本地与在线模型都在这页点选切换，也能在这里加在线模型</string>
+    <!-- 本地模型行的标题复用 h_f0597ad8「去下载模型」，只留副标题 -->
+    <string name="chat_v2_download_sub">本地模型预设清单，下载回来直接聊</string>
+    <string name="chat_v2_entry_guide">❓ 看使用说明</string>
+    <string name="chat_v2_entry_guide_sub">当前引擎是什么、能调用哪些工具、可以怎么问</string>
     <string name="chat_v2_recent">最近</string>
-    <!-- 场景卡填进输入框的示例提示词（demo data-fill） -->
-    <string name="chat_v2_prompt_quiz">根据我的错题生成 5 道相似题</string>
-    <string name="chat_v2_prompt_explain">把这道错题一步步讲清楚</string>
-    <string name="chat_v2_prompt_summary">总结这份资料的核心考点</string>
-    <string name="chat_v2_prompt_plan">按考试日期帮我排一个复习计划</string>
     <string name="chat_v2_untitled">新对话</string>
     <!-- ===== 聊天页「使用说明」引导弹框（2026-11-02 GUIDE-DYNAMIC-TOOLS）=====
          正文一律带占位符：数量与工具名单由代码从 DEFAULT_CORE_TOOLS / coreTools() / 在线注册表
@@ -804,9 +802,8 @@
          标题与「知道了/稍后再说」复用已迁移的 h_9e1bb02b / h_ce26955a / h_87e4d9ef。 -->
     <string name="chat_guide_none_local">📥 本地模型（推荐）\n• 离线可用，无需网络，支持工具调用（天气/搜索/记忆等）\n• 默认预置：%1$s\n\n</string>
     <string name="chat_guide_none_online">🌐 在线模型\n• 能力更强，可自动调用完整工具集\n• 支持豆包、DeepSeek、通义千问等\n\n</string>
-    <string name="chat_guide_none_hint">「⚡ 一键初始化」会自动下载并配置默认模型；也可以进「模型下载」自己挑。</string>
+    <string name="chat_guide_none_hint">「⚡ 一键初始化」会自动下载并配置默认模型；也可以点「去下载模型」自己挑。</string>
     <string name="chat_guide_btn_init">⚡ 一键初始化</string>
-    <string name="chat_guide_btn_download_neutral">📥 模型下载</string>
     <string name="chat_guide_engine_line">🚀 当前引擎：%1$s\n</string>
     <string name="chat_guide_route_line">• 本地与在线走同一个 Agent 引擎，差别只在下面这份工具清单\n</string>
     <string name="chat_guide_assistant_on">• 「智能助手」已开启：模型可按需调用下面的工具\n</string>

@@ -202,9 +202,6 @@
     <string name="h_15261c3c">AI is generating. Stop generation first to switch mode</string>
     <string name="h_72bc1b1d">Deep thinking enabled</string>
     <string name="h_814eed44">Deep thinking disabled</string>
-    <string name="h_0d5a55ab">Summarize this text for me</string>
-    <string name="h_3985673f">Explain this code</string>
-    <string name="h_b1d10199">How is the weather today?</string>
     <string name="h_a45bac47">Action canceled</string>
     <string name="h_7c0a7cec">No guide flow available for this tool yet</string>
     <string name="h_1d081944"> Step </string>

@@ -601,9 +601,8 @@
     <!-- 聊天頁「使用說明」引導彈框（正文佔位符由程式動態取數，見 GUIDE-DYNAMIC-TOOLS） -->
     <string name="chat_guide_none_local">📥 本機模型（推薦）\n• 離線可用，無需網路，支援工具呼叫（天氣/搜尋/記憶等）\n• 預設內建：%1$s\n\n</string>
     <string name="chat_guide_none_online">🌐 線上模型\n• 能力更強，可自動呼叫完整工具集\n• 支援豆包、DeepSeek、通義千問等\n\n</string>
-    <string name="chat_guide_none_hint">「⚡ 一鍵初始化」會自動下載並設定預設模型；也可以進「模型下載」自己挑。</string>
+    <string name="chat_guide_none_hint">「⚡ 一鍵初始化」會自動下載並設定預設模型；也可以點「去下載模型」自己挑。</string>
     <string name="chat_guide_btn_init">⚡ 一鍵初始化</string>
-    <string name="chat_guide_btn_download_neutral">📥 模型下載</string>
     <string name="chat_guide_engine_line">🚀 目前引擎：%1$s\n</string>
     <string name="chat_guide_route_line">• 本機與線上走同一個 Agent 引擎，差別只在下面這份工具清單\n</string>
     <string name="chat_guide_assistant_on">• 「智慧助手」已開啟：模型可依需要呼叫下面的工具\n</string>
@@ -614,8 +613,22 @@
     <string name="chat_guide_online_tools">🛠 工具清單：目前註冊表共 %1$d 個\n• 常駐 %2$d 個：%3$s\n• 其餘依需要發現後加入工作階段，單輪最多同時攜帶 %4$d 個\n\n</string>
     <string name="chat_guide_online_tools_no_total">🛠 工具清單：常駐 %1$d 個：%2$s\n• 其餘依需要發現後加入工作階段，單輪最多同時攜帶 %3$d 個\n\n</string>
     <string name="chat_guide_label_sep">、</string>
-    <string name="chat_guide_examples_local">💡 試試對我說：\n「北京今天天氣怎么样？」\n「現在幾點了？」\n「搜尋一下最新油價」\n「2^10 等於多少」\n「記住我叫小明」</string>
-    <string name="chat_guide_examples_online">💡 試試對我說：\n「今天天氣怎么样？」\n「幫我寫一份週報」\n「畫一隻橘貓」\n「搜尋一下最新油價」</string>
+    <string name="chat_guide_examples_local">💡 試試對我說：\n「北京今天天氣怎樣？」\n「現在幾點了？」\n「搜尋一下最新油價」\n「2^10 等於多少」\n「記住我叫小明」</string>
+    <string name="chat_guide_examples_online">💡 試試對我說：\n「今天天氣怎樣？」\n「幫我寫一份週報」\n「畫一隻橘貓」\n「搜尋一下最新油價」</string>
     <string name="chat_guide_model_fallback">Qwen3.5-4B（Q4_0）</string>
     <string name="chat_guide_drawer_entry">❓ 使用說明（目前引擎與工具能力）</string>
+    <!-- 聊天頁空狀態首屏（2026-11-02 EMPTY-STATE-REAL-ENTRY）：問候語講 AI 本身的能力，
+         四個入口各跳一個真實頁面。下載入口的標題復用 h_f0597ad8，所以這裡不重複定義。 -->
+    <string name="chat_v2_greet_am">早上好，</string>
+    <string name="chat_v2_greet_pm">下午好，</string>
+    <string name="chat_v2_greet_eve">晚上好，</string>
+    <string name="chat_v2_greet_title">我能幫你做什麼？</string>
+    <string name="chat_v2_greet_sub">我是答題寶 AI 助手，可以對話、聯網搜尋、查天氣和時間、讀寫本機檔案、做運算、查題庫、記住你說過的事，也能產生圖片、圖表和介面元件。直接用一句話說要什麼就行。不同引擎能掛上的工具不一樣，點「看使用說明」看目前這套。</string>
+    <string name="chat_v2_entry_select_model">🔄 去選擇模型</string>
+    <string name="chat_v2_entry_select_model_sub">本機與線上模型都在這頁點選切換，也能在這裡新增線上模型</string>
+    <string name="chat_v2_download_sub">本機模型預設清單，下載回來直接聊</string>
+    <string name="chat_v2_entry_guide">❓ 看使用說明</string>
+    <string name="chat_v2_entry_guide_sub">目前引擎是什麼、能呼叫哪些工具、可以怎麼問</string>
+    <string name="chat_v2_recent">最近</string>
+    <string name="chat_v2_untitled">新對話</string>
 </resources>
