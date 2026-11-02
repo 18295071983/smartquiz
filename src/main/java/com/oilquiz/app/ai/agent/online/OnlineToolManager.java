@@ -125,6 +125,12 @@ public class OnlineToolManager {
                 AILogger.e(TAG, "dynamic tool change sync failed: " + e.getMessage(), e);
             }
         });
+        // MCP 基础设施：加载配置并在后台同步远端工具（异步，不阻塞构造）
+        try {
+            com.oilquiz.app.ai.agent.online.mcp.McpManager.getInstance(context).init();
+        } catch (Throwable t) {
+            AILogger.w(TAG, "McpManager init failed: " + t.getMessage());
+        }
     }
 
     // ==================== 工具结果缓存（TTL + 持久化） ====================
@@ -574,10 +580,18 @@ public class OnlineToolManager {
 
         // schema 级轻校验：缺"定义里声明必填"的参数直接拒（回一条精确提示，让模型补齐）；
         // 未知参数只记日志、不拒绝（模型多带字段是常态）。类型归一仍由 AIToolManager 负责。
+        // MCP 工具的定义注册在 OnlineToolRegistry（在线专用工具），AIToolManager 查不到，
+        // 这里优先用 registry 的定义做校验，查不到再回退 AIToolManager。
+        com.oilquiz.app.ai.tool.openai.ToolDefinition validateDef = null;
+        try {
+            OnlineToolRegistry.ToolMeta mcpMeta = registry.getToolMeta(toolName);
+            if (mcpMeta != null && mcpMeta.definition != null) validateDef = mcpMeta.definition;
+        } catch (Exception ignored) {
+        }
+        if (validateDef == null) validateDef = aiToolManager.getToolDefinition(toolName);
         try {
             com.oilquiz.app.ai.tool.openai.ToolArgsValidator.Result v =
-                    com.oilquiz.app.ai.tool.openai.ToolArgsValidator.validate(
-                            aiToolManager.getToolDefinition(toolName), params);
+                    com.oilquiz.app.ai.tool.openai.ToolArgsValidator.validate(validateDef, params);
             if (!v.ok()) {
                 String error = v.missingMessage();
                 AILogger.w(TAG, "参数校验拒绝: " + toolName + " - " + error);
@@ -613,6 +627,12 @@ public class OnlineToolManager {
                     // 否则下一次（可能是别的会话）执行会继承上一次的归属。
                     com.oilquiz.app.ai.agent.SessionContext.set(sessionId, runId);
                     try {
+                        // MCP 远端工具：转发给 McpManager（tools/call），不进 AIToolManager
+                        if (com.oilquiz.app.ai.agent.online.mcp.McpManager.isMcpTool(toolName)) {
+                            return com.oilquiz.app.ai.agent.online.mcp.McpManager
+                                    .getInstance(appContext)
+                                    .execute(toolName, params);
+                        }
                         return aiToolManager.executeTool(toolName, params);
                     } catch (Exception e) {
                         AILogger.e(TAG, "Tool execution error (attempt " + currentAttempt + "): " + e.getMessage(), e);

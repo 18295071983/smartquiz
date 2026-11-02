@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.agent.ui;
 import com.oilquiz.app.theme.ThemeColors;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
@@ -69,6 +70,27 @@ public class AgentToolView {
         desc.setTextColor(color(R.color.text_secondary));
         desc.setPadding(0, dp(4), 0, dp(8));
         page.addView(desc);
+
+        // MCP 服务管理入口：连接 Model Context Protocol 标准服务（外部工具扩展）
+        TextView mcpEntry = new TextView(context);
+        mcpEntry.setText("🛰 MCP 服务管理（标准协议外部工具）");
+        mcpEntry.setTextSize(12);
+        mcpEntry.setGravity(Gravity.CENTER);
+        mcpEntry.setTextColor(color(R.color.text_primary));
+        mcpEntry.setBackground(buttonBackground(R.color.primary_container));
+        LinearLayout.LayoutParams mcpLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
+        mcpLp.setMargins(0, 0, 0, dp(8));
+        page.addView(mcpEntry, mcpLp);
+        mcpEntry.setOnClickListener(v -> {
+            try {
+                Intent intent = new Intent(context, com.oilquiz.app.ui.activity.McpManagerActivity.class);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+            } catch (Exception e) {
+                Toast.makeText(context, "打开 MCP 管理页失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
 
         // 清空临时按钮：一键清除所有临时注册（任务残留），长久注册不受影响
         TextView clearTmpBtn = new TextView(context);

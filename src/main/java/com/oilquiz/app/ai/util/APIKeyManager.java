@@ -287,6 +287,34 @@ public class APIKeyManager {
         preferences.edit().remove(service).apply();
     }
 
+    /**
+     * 列出密钥库中所有已存密钥的 service 名（动态枚举，兼容任意自定义键名）。
+     *
+     * <p>排除内部保留键（加密主密钥、IV、配置列表、活动 ID、存档路径、QWeather JWT 四项、
+     * 迁移标志）以及 {@code _host} 结尾的 API 地址条目；只返回 {@code enc:} 密文格式的密钥键。</p>
+     */
+    public List<String> getAllServiceKeys() {
+        List<String> result = new ArrayList<>();
+        try {
+            Set<String> reserved = new HashSet<>(Arrays.asList(
+                    KEY_ENCRYPTION_KEY, IV_KEY, KEY_API_LIST, KEY_ACTIVE_API_ID, KEY_ARCHIVE_PATH,
+                    KEY_QWEATHER_PRIVATE_KEY, KEY_QWEATHER_PROJECT_ID, KEY_QWEATHER_KID,
+                    KEY_QWEATHER_API_HOST, SecretMigrator.DEFAULT_FLAG_KEY));
+            for (Map.Entry<String, ?> entry : preferences.getAll().entrySet()) {
+                String key = entry.getKey();
+                if (key == null || reserved.contains(key) || key.endsWith(HOST_SUFFIX)) continue;
+                Object value = entry.getValue();
+                if (value instanceof String && SecretCodec.isTargetFormat((String) value)) {
+                    result.add(key);
+                }
+            }
+            Collections.sort(result);
+        } catch (Exception e) {
+            Log.e(TAG, "Error listing service keys", e);
+        }
+        return result;
+    }
+
     public void saveAPIHost(String service, String apiHost) {
         try {
             if (apiHost == null || apiHost.isEmpty()) {

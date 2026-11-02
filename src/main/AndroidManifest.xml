@@ -431,6 +431,16 @@
             android:exported="false" />
 
         <activity
+            android:name=".ui.activity.McpManagerActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.activity.AgentManagerActivity" />
+
+        <activity
+            android:name=".ui.activity.McpMarketActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.activity.McpManagerActivity" />
+
+        <activity
             android:name=".ui.activity.AIIconDemoActivity"
             android:exported="true"
             android:theme="@style/Theme.OilQuizApp" />

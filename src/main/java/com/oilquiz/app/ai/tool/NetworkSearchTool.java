@@ -209,6 +209,27 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
             }
         } catch (java.lang.Throwable th3) {
         }
+        // 宽匹配兜底(2026-11-02)：serviceType/分类选错但 key 明显是秘塔的，也直接用上——
+        // 兼容 API 配置页保存时服务下拉停在"OpenAI"等默认项的存量数据，避免退回内置共享 key。
+        try {
+            java.util.List<com.oilquiz.app.ai.model.APIConfig> all = mgr.getAllAPIConfigs();
+            if (all != null) {
+                for (com.oilquiz.app.ai.model.APIConfig c4 : all) {
+                    java.lang.String key4 = c4.getApiKey();
+                    if (key4 == null || key4.trim().isEmpty() || !c4.isActive()) {
+                        continue;
+                    }
+                    java.lang.String sig = ((c4.getName() == null ? "" : c4.getName()) + " "
+                            + (c4.getApiHost() == null ? "" : c4.getApiHost())).toLowerCase();
+                    if (sig.contains("metaso") || sig.contains("秘塔") || key4.trim().startsWith("mk-")) {
+                        com.oilquiz.app.util.AILogger.i(TAG, "Metaso API key 来源: 宽匹配(名称/地址含秘塔或mk-前缀), name="
+                                + c4.getName() + ", key=" + maskKey(key4));
+                        return key4.trim();
+                    }
+                }
+            }
+        } catch (java.lang.Throwable th4) {
+        }
         com.oilquiz.app.util.AILogger.i(TAG, "Metaso API key 来源: 内置共享 key" + maskKey(DEFAULT_METASO_API_KEY) + "（未找到用户配置；该 key 可能过期/受限，建议在「API配置管理」添加【秘塔搜索】并填写 Key）");
         return DEFAULT_METASO_API_KEY;
     }

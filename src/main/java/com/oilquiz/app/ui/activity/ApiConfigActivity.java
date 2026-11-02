@@ -15,6 +15,9 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.Gravity;
+import android.graphics.drawable.GradientDrawable;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -35,11 +38,15 @@ import com.google.android.material.button.MaterialButton;
 import com.oilquiz.app.ai.model.APIConfig;
 import com.oilquiz.app.ai.model.ApiModel;
 import com.oilquiz.app.ai.model.OnlineModelManager;
+import com.oilquiz.app.ai.agent.online.mcp.McpChinaCatalog;
+import com.oilquiz.app.ai.agent.online.mcp.McpManager;
+import com.oilquiz.app.ai.agent.online.mcp.McpServerConfig;
 import com.oilquiz.app.ai.model.UsageInfo;
 import com.oilquiz.app.ai.service.ModelListFetcher;
 import com.oilquiz.app.ai.service.UsageTracker;
 import com.oilquiz.app.ai.util.APIConfigParser;
 import com.oilquiz.app.ai.util.APIKeyManager;
+import com.oilquiz.app.ai.util.ApiKeyCipher;
 import com.oilquiz.app.ui.base.BaseActivity;
 import com.oilquiz.app.R;
 
@@ -68,12 +75,11 @@ public class ApiConfigActivity extends BaseActivity {
     private MaterialButton btnAdd;
     private LinearLayout llApiList;
     private LinearLayout llEmpty;
-    private MaterialButton btnImportJson;
-    private MaterialButton btnExportJson;
-    private MaterialButton btnImportConfigFile;
-    private MaterialButton btnScanArchive;
-    private MaterialButton btnSetArchivePath;
+    private LinearLayout llHefengSection;
+    private LinearLayout llMcpSection;
     private MaterialButton btnTestAll;
+    private android.view.View btnMore;
+    private com.google.android.material.tabs.TabLayout tabLayout;
 
     private EditText pendingPathEditText;
 
@@ -140,17 +146,19 @@ public class ApiConfigActivity extends BaseActivity {
         btnAdd = findViewById(R.id.btn_add);
         llApiList = findViewById(R.id.ll_api_list);
         llEmpty = findViewById(R.id.ll_empty);
-        btnImportJson = findViewById(R.id.btn_import_json);
-        btnExportJson = findViewById(R.id.btn_export_json);
-        btnImportConfigFile = findViewById(R.id.btn_import_config_file);
-        btnScanArchive = findViewById(R.id.btn_scan_archive);
-        btnSetArchivePath = findViewById(R.id.btn_set_archive_path);
+        llHefengSection = findViewById(R.id.ll_hefeng_section);
+        llMcpSection = findViewById(R.id.ll_mcp_section);
         btnTestAll = findViewById(R.id.btn_test_all);
+        btnMore = findViewById(R.id.btn_more);
+        tabLayout = findViewById(R.id.tab_layout);
     }
 
     @Override
     protected void initData() {
         loadApiConfigs();
+        renderHefengSection();
+        renderKeystoreSection();
+        renderMcpSection();
     }
 
     @Override
@@ -170,12 +178,64 @@ public class ApiConfigActivity extends BaseActivity {
             public void afterTextChanged(Editable s) {}
         });
 
-        btnImportJson.setOnClickListener(v -> importFromJson());
-        btnExportJson.setOnClickListener(v -> exportToJson());
-        btnImportConfigFile.setOnClickListener(v -> importFromConfigFile());
-        btnScanArchive.setOnClickListener(v -> scanArchiveDirectory());
-        btnSetArchivePath.setOnClickListener(v -> showArchivePathDialog());
         btnTestAll.setOnClickListener(v -> testAllConfigs());
+        btnMore.setOnClickListener(v -> showPopupMenu());
+        tabLayout.addOnTabSelectedListener(new com.google.android.material.tabs.TabLayout.OnTabSelectedListener() {
+            @Override
+            public void onTabSelected(com.google.android.material.tabs.TabLayout.Tab tab) {
+                switchTab(tab.getPosition());
+            }
+
+            @Override
+            public void onTabUnselected(com.google.android.material.tabs.TabLayout.Tab tab) {}
+
+            @Override
+            public void onTabReselected(com.google.android.material.tabs.TabLayout.Tab tab) {}
+        });
+    }
+
+    /** 三段控制器：0=API配置列表, 1=特殊凭证(和风JWT+Keystore), 2=MCP服务 */
+    private void switchTab(int position) {
+        boolean isApi = position == 0;
+        // 搜索行(搜索框所在容器)只在 API 配置页签显示
+        android.view.View searchRow = etSearch.getParent() instanceof android.view.View
+                ? (android.view.View) etSearch.getParent() : null;
+        if (searchRow != null) {
+            searchRow.setVisibility(isApi ? View.VISIBLE : View.GONE);
+        }
+        if (llApiList != null) llApiList.setVisibility(isApi ? View.VISIBLE : View.GONE);
+        if (llHefengSection != null) {
+            llHefengSection.setVisibility(position == 1 ? View.VISIBLE : View.GONE);
+        }
+        if (llMcpSection != null) {
+            llMcpSection.setVisibility(position == 2 ? View.VISIBLE : View.GONE);
+        }
+        if (llEmpty != null) {
+            // 空态只在 API 页签且无配置时显示
+            llEmpty.setVisibility(isApi && (filteredConfigs == null || filteredConfigs.isEmpty())
+                    ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    /** 右上角溢出菜单：低频操作(导入/导出/存档)收进这里，底部只留批量测试 */
+    private void showPopupMenu() {
+        android.widget.PopupMenu pm = new android.widget.PopupMenu(this, btnMore);
+        pm.getMenu().add(0, 1, 0, "导入 JSON");
+        pm.getMenu().add(0, 2, 0, "导出 JSON");
+        pm.getMenu().add(0, 3, 0, "导入配置(存档)");
+        pm.getMenu().add(0, 4, 0, "扫描存档目录");
+        pm.getMenu().add(0, 5, 0, "设置存档路径");
+        pm.setOnMenuItemClickListener(item -> {
+            switch (item.getItemId()) {
+                case 1: importFromJson(); return true;
+                case 2: exportToJson(); return true;
+                case 3: importFromConfigFile(); return true;
+                case 4: scanArchiveDirectory(); return true;
+                case 5: showArchivePathDialog(); return true;
+                default: return false;
+            }
+        });
+        pm.show();
     }
 
     private void loadApiConfigs() {
@@ -242,6 +302,346 @@ public class ApiConfigActivity extends BaseActivity {
         }
     }
 
+    // ==================== MCP 服务分组（端点内置，按服务商） ====================
+
+    /** 渲染 MCP 服务区块：端点内置、按服务商分组、可一键添加/看开通指引。 */
+    private void renderMcpSection() {
+        if (llMcpSection == null) return;
+        llMcpSection.removeAllViews();
+
+        // 标题行 + 管理入口
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = new TextView(this);
+        title.setText("MCP 服务 · 端点内置");
+        title.setTextSize(16);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+        head.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView goBtn = new TextView(this);
+        goBtn.setText("🛰 管理 ›");
+        goBtn.setTextSize(12);
+        goBtn.setGravity(Gravity.CENTER_VERTICAL);
+        goBtn.setTextColor(ContextCompat.getColor(this, R.color.text_secondary));
+        goBtn.setOnClickListener(v -> startActivity(new Intent(this, McpManagerActivity.class)));
+        head.addView(goBtn);
+        llMcpSection.addView(head);
+
+        TextView sub = new TextView(this);
+        sub.setText("点「＋ 添加」内置端点（需开通的看💡指引拿专属端点）；密钥在「🔑 密钥」按服务商匹配引用，不混用。");
+        sub.setTextSize(12);
+        sub.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary));
+        sub.setPadding(0, dp4(4), 0, dp4(8));
+        llMcpSection.addView(sub);
+
+        List<McpChinaCatalog.ChinaEntry> entries = McpChinaCatalog.entries();
+        renderMcpGroup("阿里云系", entries, "aliyun");
+        renderMcpGroup("腾讯系", entries, "tencent");
+        renderMcpGroup("魔搭（ModelScope）", entries, "modelscope");
+    }
+
+    private void renderMcpGroup(String groupTitle, List<McpChinaCatalog.ChinaEntry> entries, String idPrefix) {
+        boolean any = false;
+        for (McpChinaCatalog.ChinaEntry e : entries) {
+            if (e.id.startsWith(idPrefix)) { any = true; break; }
+        }
+        if (!any) return;
+        TextView gt = new TextView(this);
+        gt.setText(groupTitle);
+        gt.setTextSize(13);
+        gt.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        gt.setTextColor(ContextCompat.getColor(this, R.color.text_secondary));
+        gt.setPadding(0, dp4(6), 0, dp4(4));
+        llMcpSection.addView(gt);
+        for (McpChinaCatalog.ChinaEntry e : entries) {
+            if (e.id.startsWith(idPrefix)) {
+                llMcpSection.addView(buildMcpEntryCard(e));
+            }
+        }
+    }
+
+    /** 单条 MCP 服务卡片：名称 + 状态 + 端点 + 动作（添加/已添加/开通指引）。 */
+    private View buildMcpEntryCard(final McpChinaCatalog.ChinaEntry e) {
+        McpManager mcp = McpManager.getInstance(this);
+        boolean added = false;
+        for (McpServerConfig s : mcp.getServers()) {
+            if (s.id != null && s.id.equals(e.id)) { added = true; break; }
+        }
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp4(12), dp4(10), dp4(12), dp4(10));
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardLp.setMargins(0, 0, 0, dp4(6));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(ContextCompat.getColor(this, R.color.surface_variant));
+        bg.setCornerRadius(dp4(10));
+        card.setBackground(bg);
+        card.setLayoutParams(cardLp);
+
+        // 行1：名称 + 状态
+        LinearLayout row1 = new LinearLayout(this);
+        row1.setOrientation(LinearLayout.HORIZONTAL);
+        row1.setGravity(Gravity.CENTER_VERTICAL);
+        TextView nameTv = new TextView(this);
+        nameTv.setText(e.title);
+        nameTv.setTextSize(14);
+        nameTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        nameTv.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+        row1.addView(nameTv, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView kindTv = new TextView(this);
+        kindTv.setText(e.kind == McpChinaCatalog.Kind.URL_READY
+                ? (added ? "✅ 已添加" : "🟢 可直连") : "📖 需开通");
+        kindTv.setTextSize(11);
+        kindTv.setTextColor(ContextCompat.getColor(this, R.color.text_secondary));
+        row1.addView(kindTv);
+        card.addView(row1);
+
+        // 行2：端点
+        TextView urlTv = new TextView(this);
+        urlTv.setText(e.endpointText);
+        urlTv.setTextSize(11);
+        urlTv.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary));
+        urlTv.setPadding(0, dp4(4), 0, dp4(8));
+        card.addView(urlTv);
+
+        // 行3：动作
+        LinearLayout row3 = new LinearLayout(this);
+        row3.setOrientation(LinearLayout.HORIZONTAL);
+        row3.setGravity(Gravity.CENTER_VERTICAL);
+        if (e.kind == McpChinaCatalog.Kind.URL_READY) {
+            if (added) {
+                row3.addView(mcpPillBtn("🔗 密钥 / 管理", v ->
+                        startActivity(new Intent(this, McpManagerActivity.class))));
+                row3.addView(mcpPillBtn("🗑 删除", v -> {
+                    new AlertDialog.Builder(this)
+                            .setTitle("删除 MCP 服务")
+                            .setMessage("确定删除「" + e.title + "」？将同时注销它注册的全部工具。")
+                            .setPositiveButton("删除", (d, w) -> {
+                                McpManager.getInstance(this).removeServer(e.id);
+                                Toast.makeText(this, "已删除 " + e.title, Toast.LENGTH_SHORT).show();
+                                renderMcpSection();
+                            })
+                            .setNegativeButton("取消", null)
+                            .show();
+                }));
+            } else {
+                row3.addView(mcpPillBtn("＋ 添加", v -> {
+                    McpServerConfig cfg = new McpServerConfig(e.id, e.title, e.endpointText,
+                            e.transport, "", true, false);
+                    McpManager.getInstance(this).upsertServer(cfg);
+                    Toast.makeText(this, "已添加「" + e.title + "」，同步后到「🔑 密钥」引用对应服务商密钥",
+                            Toast.LENGTH_LONG).show();
+                    renderMcpSection();
+                }));
+            }
+        } else {
+            row3.addView(mcpPillBtn("💡 开通指引", v ->
+                    new AlertDialog.Builder(this)
+                            .setTitle(e.title)
+                            .setMessage(e.guide + "\n\n鉴权：" + e.authNote
+                                    + "\n\n端点模板：\n" + e.endpointText)
+                            .setPositiveButton("复制端点模板", (d, w) -> {
+                                android.content.ClipboardManager cm =
+                                        (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                                cm.setPrimaryClip(android.content.ClipData.newPlainText("mcp-endpoint",
+                                        e.endpointText));
+                                Toast.makeText(this, "端点模板已复制", Toast.LENGTH_SHORT).show();
+                            })
+                            .setNegativeButton("关闭", null)
+                            .show()));
+        }
+        card.addView(row3);
+        return card;
+    }
+
+    private TextView mcpPillBtn(String text, View.OnClickListener listener) {
+        TextView btn = new TextView(this);
+        btn.setText(text);
+        btn.setTextSize(12);
+        btn.setGravity(Gravity.CENTER);
+        btn.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(ContextCompat.getColor(this, R.color.primary_container));
+        bg.setCornerRadius(dp4(16));
+        btn.setBackground(bg);
+        btn.setPadding(dp4(14), dp4(6), dp4(14), dp4(6));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 0, dp4(8), 0);
+        btn.setLayoutParams(lp);
+        btn.setOnClickListener(listener);
+        return btn;
+    }
+
+    // ==================== 系统 Keystore 自检 ====================
+
+    /** Keystore 自检卡片：证明密钥真在系统 AndroidKeyStore，且系统"密钥与凭据"不显示属正常。 */
+    private void renderKeystoreSection() {
+        if (llHefengSection == null) return;
+        // 插到和风卡片之前：首次渲染时移除旧的 keystore 卡片（只动第一个子项）
+        boolean hasOld = llHefengSection.getChildCount() > 0
+                && llHefengSection.getChildAt(0).getTag() != null
+                && "keystore_card".equals(llHefengSection.getChildAt(0).getTag());
+        if (hasOld) {
+            llHefengSection.removeViewAt(0);
+        }
+
+        APIKeyManager mgr = APIKeyManager.getInstance(this);
+        boolean ksOk = ApiKeyCipher.keystoreAvailable();
+        int entryCount = 0;
+        try {
+            List<String> keys = mgr.getAllServiceKeys();
+            entryCount = keys == null ? 0 : keys.size();
+        } catch (Throwable th) {
+        }
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp4(12), dp4(10), dp4(12), dp4(10));
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardLp.setMargins(0, dp4(4), 0, dp4(6));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(ContextCompat.getColor(this, R.color.surface_variant));
+        bg.setCornerRadius(dp4(10));
+        card.setBackground(bg);
+        card.setLayoutParams(cardLp);
+        card.setTag("keystore_card");
+
+        TextView t1 = new TextView(this);
+        t1.setText("🔒 系统 Keystore 自检"
+                + (ksOk ? " · ✅ AES-256-GCM 可用（主密钥不出芯片）" : " · ⚠️ 不可用（查日志）"));
+        t1.setTextSize(13);
+        t1.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        t1.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+        card.addView(t1);
+
+        TextView t2 = new TextView(this);
+        t2.setText("受保护密钥条目：" + entryCount + " 条（enc: 加密落盘）");
+        t2.setTextSize(12);
+        t2.setTextColor(ContextCompat.getColor(this, R.color.text_secondary));
+        t2.setPadding(0, dp4(4), 0, dp4(4));
+        card.addView(t2);
+
+        TextView t3 = new TextView(this);
+        t3.setText("说明：手机系统的「密钥与凭据」只展示证书/VPN 凭据，"
+                + "不显示 App 级 Keystore 密钥——看不到属正常，并非没接入。");
+        t3.setTextSize(11);
+        t3.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary));
+        card.addView(t3);
+
+        llHefengSection.addView(card, 0);
+    }
+
+    // ==================== 和风天气 JWT 高级凭证（免内置共享） ====================
+
+    /** 和风天气 JWT 凭证入口：配置自己的 Ed25519 私钥 / projectId / kid / host，工具即不再走内置共享凭证。 */
+    private void renderHefengSection() {
+        if (llHefengSection == null) return;
+        llHefengSection.removeAllViews();
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp4(12), dp4(10), dp4(12), dp4(10));
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardLp.setMargins(0, dp4(4), 0, dp4(6));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(ContextCompat.getColor(this, R.color.surface_variant));
+        bg.setCornerRadius(dp4(10));
+        card.setBackground(bg);
+        card.setLayoutParams(cardLp);
+
+        TextView info = new TextView(this);
+        info.setText("🌤 和风天气 JWT 凭证\n配置你自己的 Ed25519 私钥 / projectId / kid，天气工具即用你的凭证，不再走内置共享");
+        info.setTextSize(12);
+        info.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+        card.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView setBtn = new TextView(this);
+        setBtn.setText(APIKeyManager.getInstance(this).isQWeatherJwtConfigured() ? "已配置 ✓" : "配置");
+        setBtn.setTextSize(12);
+        setBtn.setGravity(Gravity.CENTER);
+        setBtn.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+        GradientDrawable bg2 = new GradientDrawable();
+        bg2.setColor(ContextCompat.getColor(this, R.color.primary_container));
+        bg2.setCornerRadius(dp4(16));
+        setBtn.setBackground(bg2);
+        setBtn.setPadding(dp4(14), dp4(6), dp4(14), dp4(6));
+        setBtn.setOnClickListener(v -> showHefengJwtDialog(setBtn));
+        card.addView(setBtn);
+        llHefengSection.addView(card);
+    }
+
+    private void showHefengJwtDialog(final TextView refreshBtn) {
+        APIKeyManager mgr = APIKeyManager.getInstance(this);
+
+        EditText keyInput = new EditText(this);
+        keyInput.setSingleLine(false);
+        keyInput.setMinLines(3);
+        keyInput.setText(mgr.getQWeatherPrivateKey() == null ? "" : mgr.getQWeatherPrivateKey());
+        keyInput.setHint("Ed25519 私钥（PEM，含 BEGIN/END 行）");
+        keyInput.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+
+        EditText pidInput = new EditText(this);
+        pidInput.setSingleLine(true);
+        pidInput.setText(mgr.getQWeatherProjectId() == null ? "" : mgr.getQWeatherProjectId());
+        pidInput.setHint("Project ID");
+        pidInput.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+
+        EditText kidInput = new EditText(this);
+        kidInput.setSingleLine(true);
+        kidInput.setText(mgr.getQWeatherKid() == null ? "" : mgr.getQWeatherKid());
+        kidInput.setHint("Key ID（kid）");
+        kidInput.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+
+        EditText hostInput = new EditText(this);
+        hostInput.setSingleLine(true);
+        hostInput.setText(mgr.getQWeatherApiHost() == null ? "" : mgr.getQWeatherApiHost());
+        hostInput.setHint("API Host（留空用默认）");
+        hostInput.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.addView(keyInput);
+        LinearLayout.LayoutParams pad = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pad.setMargins(0, dp4(8), 0, 0);
+        content.addView(pidInput, pad);
+        content.addView(kidInput, pad);
+        content.addView(hostInput, pad);
+
+        new AlertDialog.Builder(this)
+                .setTitle("和风天气 JWT 凭证")
+                .setMessage("填自己的凭证后天气工具不再用内置共享 key（未填才兜底）。"
+                        + "获取：和风天气控制台 → 项目凭证（Ed25519）。")
+                .setView(content)
+                .setPositiveButton("保存", (d, w) -> {
+                    String pem = keyInput.getText().toString().trim();
+                    String pid = pidInput.getText().toString().trim();
+                    String kid = kidInput.getText().toString().trim();
+                    if (pem.isEmpty() || pid.isEmpty() || kid.isEmpty()) {
+                        Toast.makeText(this, "私钥 / Project ID / kid 不能为空", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    APIKeyManager.getInstance(this)
+                            .saveQWeatherJwtCredentials(pem, pid, kid,
+                                    hostInput.getText().toString().trim());
+                    Toast.makeText(this, "和风 JWT 凭证已保存（天气工具将优先使用）", Toast.LENGTH_SHORT).show();
+                    refreshBtn.setText("已配置 ✓");
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private int dp4(int v) {
+        return Math.round(getResources().getDisplayMetrics().density * v);
+    }
+
     private void bindApiConfigItem(View itemView, APIConfig config) {
         TextView tvName = itemView.findViewById(R.id.tv_api_name);
         TextView tvServiceType = itemView.findViewById(R.id.tv_service_type);
@@ -259,7 +659,10 @@ public class ApiConfigActivity extends BaseActivity {
 
         MaterialButton btnTest = itemView.findViewById(R.id.btn_test);
         MaterialButton btnEdit = itemView.findViewById(R.id.btn_edit);
+        MaterialButton btnCopy = itemView.findViewById(R.id.btn_copy);
         MaterialButton btnDelete = itemView.findViewById(R.id.btn_delete);
+        android.widget.Switch switchEnable =
+                itemView.findViewById(R.id.switch_enable);
 
         // 标题优先用用户起的配置名 —— 它与模型中心列表是同一个字段，两页才会显示同一个名字；
         // 没有配置名时才退回「服务类型 · 模型名」。
@@ -319,6 +722,29 @@ public class ApiConfigActivity extends BaseActivity {
             }
         });
         btnDelete.setOnClickListener(v -> confirmDelete(config));
+
+        // 启用/停用开关：先置空监听再 setChecked，避免绑定回放触发监听递归
+        switchEnable.setOnCheckedChangeListener(null);
+        switchEnable.setChecked(config.isActive());
+        switchEnable.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (apiKeyManager != null && config.getId() != null) {
+                apiKeyManager.toggleAPIConfigActive(config.getId());
+                Log.d(TAG, "toggle active: " + config.getName() + " -> " + config.isActive());
+            }
+        });
+
+        // 复制明文密钥到剪贴板
+        btnCopy.setOnClickListener(v -> {
+            String raw = config.getApiKey();
+            if (raw == null || raw.isEmpty()) {
+                Toast.makeText(this, "该配置没有密钥", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("api_key", raw));
+            Toast.makeText(this, "密钥已复制到剪贴板", Toast.LENGTH_SHORT).show();
+        });
     }
 
     private void updateStatusIndicator(View indicator, String status) {
@@ -692,7 +1118,17 @@ public class ApiConfigActivity extends BaseActivity {
 
             APIConfig config = existingConfig != null ? existingConfig : new APIConfig();
             config.setName(name);
-            config.setServiceType(serviceTypeValues[spinnerService.getSelectedItemPosition()]);
+            // METASO 防呆(2026-11-02)：用户填了秘塔 key 但服务下拉不是"秘塔搜索"时自动纠正。
+            // 否则 NetworkSearchTool.resolveApiKey 按 serviceType 匹配会落空、退回内置共享 key，
+            // 表现就是"apimanager 的 apikey 应用不上"。
+            String selectedServiceType = serviceTypeValues[spinnerService.getSelectedItemPosition()];
+            String nameHostKey = (name + " " + apiKey + " " + etApiHost.getText()).toLowerCase();
+            if (!APIConfig.ServiceType.METASO_SEARCH.equals(selectedServiceType)
+                    && (nameHostKey.contains("metaso") || nameHostKey.contains("秘塔"))) {
+                selectedServiceType = APIConfig.ServiceType.METASO_SEARCH;
+                Toast.makeText(this, "已识别为秘塔搜索，服务类型已自动纠正", Toast.LENGTH_SHORT).show();
+            }
+            config.setServiceType(selectedServiceType);
             config.setApiKey(apiKey);
             config.setApiHost(etApiHost.getText().toString().trim());
             config.setModelName(etModelName.getText().toString().trim());

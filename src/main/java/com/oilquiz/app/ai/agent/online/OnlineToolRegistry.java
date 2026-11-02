@@ -339,6 +339,7 @@ public class OnlineToolRegistry {
             include.add("system");
             include.add("app");
             include.add("tool");
+            include.add("mcp");
 
             // 类别细分映射：搜索意图包含 search/research/web；python 归 code 类
             if (include.contains("search")) {

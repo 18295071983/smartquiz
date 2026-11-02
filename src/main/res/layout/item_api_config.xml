@@ -215,8 +215,16 @@
                 android:textSize="@dimen/text_12"
                 android:textColor="?attr/colorControlTextSecondary"/>
 
-            <!-- 原此处的「延迟」占位、「使用次数 N」「最后使用时间」三块已移除：
-                 useCount / lastUsedAt 全项目无写入方，恒为 0 / 恒空，是看着像数据的空壳 -->
+            <View
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_0"
+                android:layout_weight="1"/>
+
+            <Switch
+                android:id="@+id/switch_enable"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:contentDescription="启用此配置"/>
         </LinearLayout>
 
         <!-- 操作按钮行 -->
@@ -251,6 +259,21 @@
                 android:textSize="@dimen/text_12"
                 android:textAllCaps="false"
                 app:backgroundTint="?attr/colorPrimary"
+                android:textColor="@android:color/white"
+                app:cornerRadius="@dimen/radius_10"
+                android:layout_marginHorizontal="@dimen/space_6"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_copy"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_40"
+                android:layout_weight="1"
+                android:text="复制"
+                android:textSize="@dimen/text_12"
+                android:textAllCaps="false"
+                app:backgroundTint="?attr/colorSecondary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_10"
                 android:layout_marginHorizontal="@dimen/space_6"
