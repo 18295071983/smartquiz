@@ -1018,6 +1018,23 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
                     result.put("text", contentText);
                     result.put("markdown", contentText);
                 }
+                // LOCAL-SUPPLEMENT(2026-11-02)：真机实测秘塔转 markdown 时会丢行内内容
+                // （光明网那篇带 <a> 的"11月2日15:00…CCTV2 直播"整句被吃了），而本地 Jsoup
+                // 抓同一页是完整的。这里**顺带**再抓一次本地正文，作为对照/兜底一起返回：
+                //   - 免费（本地抓取，不扣额度），失败就静默跳过，不影响 read_url 本身
+                //   - 每页最多带 8000 字，避免把上下文撑爆
+                try {
+                    java.lang.String localHtml = fetchWebpage(url);
+                    java.lang.String localText = HtmlContentExtractor.mainText(localHtml);
+                    if (localText != null && !localText.trim().isEmpty()) {
+                        java.lang.String trimmed = localText.trim();
+                        result.put("local_chars", java.lang.Integer.valueOf(trimmed.length()));
+                        result.put("local_text", trimmed.length() > 8000 ? trimmed.substring(0, 8000) : trimmed);
+                        result.put("local_truncated", java.lang.Boolean.valueOf(trimmed.length() > 8000));
+                    }
+                } catch (java.lang.Throwable ignored) {
+                    // 本地抓不到就算了：read_url 的成功与否只看秘塔那一路
+                }
                 com.oilquiz.app.ai.tool.AIToolResult aIToolResult4 = new com.oilquiz.app.ai.tool.AIToolResult(result, parameters);
                 if (response != null) {
                     response.close();
