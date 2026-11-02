@@ -1394,12 +1394,14 @@ public class AIToolManager {
                         + "action: search(关键词搜索,返回标题/链接/摘要)/ask(智能问答,返回答案+引用来源)/"
                         + "read_url(读取网页正文)/get_webpage(网页原始内容)/extract_info(提取信息)/"
                         + "summarize(网页摘要)/search_and_read(搜索并读正文)/get_dynamic_content(获取JS渲染动态网页内容)/"
-                        + "smart_search(智能搜索,自动读详情)/smart_read(对已有搜索结果逐条读正文生成摘要,需传results)。"
+                        + "smart_search(智能搜索,自动读详情)/smart_read(对已有搜索结果逐条读正文生成摘要,必须传results)。"
                         + "涉及实时/最新/动态信息（新闻、价格、天气、汇率、政策、热点）用联网搜索获取，训练数据不采纳。"
                         + "问一般问题默认用 ask（要结论）；只有要一批来源/链接/原文时才用 search 等其它 action。"
                         + "秘塔按次计费（一次调用扣一次额度，与返回条数无关），一次问清楚、一次把 limit 给够，别反复调；"
+                        + "只有 ask/search/read_url（含 search_and_read、smart_search 的搜索那一步）扣额度，"
+                        + "get_webpage/extract_info/summarize/get_dynamic_content/smart_read 是本地解析、不花钱；"
                         + "ask 出答案要几十秒是正常的，慢不等于失败，不要因此重试。别名: search。")
-                    .addParameter("action", "string", "操作类型: search(搜索)/ask(智能问答)/read_url(网页读取)/get_webpage/extract_info/summarize/search_and_read/get_dynamic_content/smart_search/smart_read", false, "search")
+                    .addParameter("action", "string", "操作类型: ask(默认,扣额度)/search(扣额度)/read_url(扣额度)｜get_webpage/extract_info/summarize/get_dynamic_content/smart_read(本地,不扣额度)｜search_and_read/smart_search(只搜索那一步扣)", false, "search")
                     .addParameter("query", "string", "搜索关键词（用于search/search_and_read/smart_search等操作）", false)
                     .addParameter("question", "string", "问题（用于ask操作，秘塔智能问答，返回答案+引用来源）", false)
                     .addParameter("model", "string", "问答模型: concise(简洁)/detail(深入)/research(研究)（用于ask操作）", false, "concise")
@@ -1408,12 +1410,12 @@ public class AIToolManager {
                     .addParameter("num_results", "integer", "返回结果数量（limit的别名）", false, 5)
                     .addParameter("scope", "string", "搜索范围: webpage(默认)/document(文库)/scholar(学术文献)/image/video/podcast；找论文用 scholar", false, "webpage")
                     .addParameter("include_summary", "boolean", "是否返回内容摘要（默认true；关掉只剩标题+链接，更容易编造）", false, true)
-                    .addParameter("url", "string", "网页URL（用于read_url/get_webpage/get_dynamic_content操作）", false)
+                    .addParameter("url", "string", "网页URL（read_url/get_webpage/get_dynamic_content 用；summarize 也可只给 url 走单页摘要）", false)
                     .addParameter("start_char", "integer", "read_url 正文起始字符偏移（默认0，续读用）", false)
                     .addParameter("max_chars", "integer", "read_url 本次最大字符数（默认0=整篇；长文建议4000分批读）", false)
                     .addParameter("maxResults", "integer", "最大结果数（smart_search用）", false, 5)
                     .addParameter("autoRead", "boolean", "是否自动读取详情（smart_search用）", false, true)
-                    .addParameter("results", "array", "搜索结果数组（smart_read用，传上一步search返回的results）", false)
+                    .addParameter("results", "array", "搜索结果数组（summarize/smart_read 必填）：上一步 search 的 results 数组、它的 JSON 字符串、或整段搜索返回都收", false)
                     .category("search")
                     .whenToUse("需要实时/最新/外部信息（新闻、价格、政策、热点、网页内容、链接正文）时使用；常识与知识类问题直接用自身知识回答，不要搜索")
                     .build();

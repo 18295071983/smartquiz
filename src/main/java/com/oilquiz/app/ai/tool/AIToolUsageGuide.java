@@ -127,6 +127,8 @@ public class AIToolUsageGuide {
         sb.append("  10.1 network_search 口径：默认用 ask 拿结论（一般提问它就够），要一批来源/链接/原文才用 search；找论文/文库/图片/播客带 scope=scholar|document|image|video|podcast（默认只搜网页）；\n");
         sb.append("       接口没有翻页，条数上限 50 —— 一次就把 limit 给够；秘塔按次计费（一次调用一次额度，与条数无关），别连续换词重搜；\n");
         sb.append("       ask 出答案要几十秒是正常的，慢不是失败；失败按服务端错误码处置（1000 参数错、4000 无数据、5000 服务端/额度问题），不要凭耗时猜原因或反复重试；\n");
+        sb.append("       计费边界：只有 ask/search/read_url（含 search_and_read、smart_search 的搜索那一步）扣额度；get_webpage/extract_info/summarize/get_dynamic_content/smart_read 是本地解析、不花钱；\n");
+        sb.append("       summarize 与 smart_read 必须带 results（上一步 search 返回的数组、它的 JSON 字符串、或整段搜索返回都收），summarize 也可以直接给 url；只填 query 会被判缺参数；\n");
         sb.append("  11. 工具可配合/串联使用（如 location 定位→ai_weather 经纬度查天气；network_search 搜索→webpage_reader 读详情；file_reader 读文件→python_analyze_data 分析），按需组合。\n");
         sb.append("  12. 用户已给出的参数（城市/编码/时间/位置等）直接照用先调用，工具会解析并返回结果，以工具返回为准；参数有误时工具返回错误，再按工具结果调整。\n");
         sb.append("  13. 实时信息（时间/位置/天气/新闻/行情/开奖/政策等）一律用工具获取，训练数据不采纳；缺失或不确定时同样直接调对应工具拿真实结果，工具返回的数据是准确实时的，直接采纳。\n\n");

@@ -432,6 +432,7 @@ public class OnlinePromptBuilder {
         sb.append("2.5 联网搜索口径：默认用 ask 拿结论（一般提问它就够），只有要一批来源/链接/原文时才用 search 等其它 action；找论文/文库/图片/播客带 scope=scholar|document|image|video|podcast（默认只搜网页）；"
                 + "接口没有翻页，单次上限 50 条，一次就把 limit 给够，不要找\"第 2 页\"；"
                 + "秘塔按次计费（一次调用一次额度，与条数无关），一次问清楚，别连续换词重搜；ask 出答案要几十秒是正常的，慢不是失败，不要因等待久而重试；"
+                + "只有 ask/search/read_url（含 search_and_read、smart_search 的搜索那一步）扣额度，get_webpage/extract_info/summarize/get_dynamic_content/smart_read 是本地解析、不花钱；summarize/smart_read 必须带 results（数组或它的 JSON 字符串都行），光填 query 没用；"
                 + "失败一律按服务端错误码判断并照它的说明处置（参数错/无数据/额度问题出路不同），不要凭耗时猜原因；"
                 + "read_url 读不了某页时会返回服务错误码（不是网络故障），这时换来源，或用 tool_registry 发现并调用 webpage_reader 直抓（它默认不注入，别直接点名），长正文用 start_char/max_chars 分段续读。\n");
         sb.append("3. 数据源：优先权威来源（官方文档/政府网站/主流新闻），实时数据用 network_search 定位 + webpage_reader 提取。\n");

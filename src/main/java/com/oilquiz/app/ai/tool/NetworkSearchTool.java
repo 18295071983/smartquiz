@@ -32,30 +32,32 @@ import org.json.JSONObject;
     description = "网络搜索工具（秘塔搜索引擎驱动），支持搜索、智能问答、网页读取。"
             + "默认用 ask 拿结论（一般提问它就够）；只有要一批来源/链接/原文时才用 search 等其它 action。"
             + "秘塔按次计费（一次调用扣一次额度，与返回条数无关），所以一次问清楚，别反复调。"
-            + "ask 出答案要几十秒是正常的，慢不等于失败。",
+            + "ask 出答案要几十秒是正常的，慢不等于失败。"
+            + "只有 ask/search/read_url（以及 search_and_read、smart_search 的搜索那一步）扣额度，"
+            + "其余抓网页类 action 是本地解析、不花钱。",
     category = "search",
     aliases = {"search", "web_search", "bing_search"},
     actions = {
-        @Action(name = "search", description = "关键词搜索：返回标题/链接/摘要列表（只在要一批来源/链接/原文时用；要结论默认用 ask。一次把 limit 给够，按次计费，别为多看几条反复搜）"),
-        @Action(name = "ask", description = "秘塔智能问答：直接返回结论+引用来源。默认用 ask 就够（一般提问都走它）；出答案要几十秒是正常的，慢不等于失败，别重试（重试=再扣一次额度）"),
-        @Action(name = "read_url", description = "秘塔网页读取（服务端抓取，返回 markdown 正文，能处理 JS 渲染页；服务端读不了的页会回服务错误码，这时换来源或改用本工具的 get_webpage）"),
-        @Action(name = "get_webpage", description = "获取网页内容（本地Jsoup抓取）"),
-        @Action(name = "extract_info", description = "提取网页关键信息"),
-        @Action(name = "summarize", description = "生成搜索结果摘要"),
-        @Action(name = "search_and_read", description = "搜索并阅读详情"),
-        @Action(name = "get_dynamic_content", description = "获取动态网页内容"),
-        @Action(name = "smart_search", description = "智能搜索"),
-        @Action(name = "smart_read", description = "智能阅读")
+        @Action(name = "search", description = "【扣额度】关键词搜索：返回标题/链接/摘要列表（只在要一批来源/链接时用；要结论默认用 ask。一次把 limit 给够，别为多看几条反复搜）"),
+        @Action(name = "ask", description = "【扣额度】秘塔智能问答：直接返回结论+引用来源。默认用 ask 就够（一般提问都走它）；出答案要几十秒是正常的，慢不等于失败，别重试（重试=再扣一次额度）"),
+        @Action(name = "read_url", description = "【扣额度】秘塔服务端读网页：返回 markdown 正文，能处理 JS 渲染页；读不了的页会回服务错误码，这时换来源或改用 get_webpage（本地、免费）"),
+        @Action(name = "get_webpage", description = "【本地，不扣额度】用 Jsoup 直接抓网页原始内容"),
+        @Action(name = "extract_info", description = "【本地，不扣额度】抽取网页的结构化元数据：标题/meta描述/meta关键词/各级标题/正文切片/内链/分类/关键词。注意：这不是语义问答，想从页面得到某个具体答案请用 read_url 拿正文或 ask 提问"),
+        @Action(name = "summarize", description = "【本地，不扣额度】把上一步 search 返回的 results 汇成要点+来源；也可以只给 url，我抓该页再摘要。只填 query 不够"),
+        @Action(name = "search_and_read", description = "【search 那一步扣额度】搜索并默认读前 3 条正文（正文抓取是本地 Jsoup，不再额外扣）；要指定某一条就带 detailIndex=N"),
+        @Action(name = "get_dynamic_content", description = "【本地，不扣额度】抓 JS 渲染页并挖出内嵌数据（window.DATA 之类）"),
+        @Action(name = "smart_search", description = "【search 那一步扣额度】智能搜索：搜完自动按相关度读若干条正文并汇总"),
+        @Action(name = "smart_read", description = "【本地，不扣额度】对已有搜索结果逐条读正文并生成摘要：必须传 results（上一步 search 返回的数组，或它的 JSON 字符串）")
     },
     params = {
-        @Param(name = "action", type = "string", description = "操作类型: search/ask/read_url/get_webpage/extract_info/summarize/search_and_read/get_dynamic_content/smart_search/smart_read", required = false),
+        @Param(name = "action", type = "string", description = "操作类型: ask(默认,扣额度)/search(扣额度)/read_url(扣额度)｜get_webpage·extract_info·summarize·get_dynamic_content·smart_read(本地抓取,不扣额度)｜search_and_read·smart_search(只搜索那一步扣)", required = false),
         @Param(name = "query", type = "string", description = "搜索查询（用于search、search_and_read、smart_search操作）", required = false),
         @Param(name = "keyword", type = "string", description = "搜索关键词（query的别名）", required = false),
         @Param(name = "question", type = "string", description = "问题（用于ask操作，秘塔智能问答）", required = false),
         @Param(name = "model", type = "string", description = "问答模型: concise(简洁)/detail(深入)/research(研究)，默认concise（用于ask操作）", required = false),
         @Param(name = "limit", type = "int", description = "返回条数（1..50，默认 5）。接口不支持翻页，要更多结果就调大这个值", required = false),
         @Param(name = "num_results", type = "int", description = "返回结果数量（limit的别名）", required = false),
-        @Param(name = "url", type = "string", description = "网页URL（用于read_url、get_webpage、extract_info和get_dynamic_content操作）", required = false),
+        @Param(name = "url", type = "string", description = "网页URL（read_url/get_webpage/extract_info/get_dynamic_content 用；summarize 也可以只给 url 走单页摘要）", required = false),
         @Param(name = "maxResults", type = "int", description = "最大结果数(默认5)", required = false),
         // SEARCH-PAGE(2026-11-02)：page 已从 schema 摘掉。真机实测带 page（连 page=0 也一样）
         // 会被服务端判为参数错误（errCode 1000），官方示例与社区实现的 body 里都没有 page，
@@ -71,7 +73,7 @@ import org.json.JSONObject;
         @Param(name = "start_char", type = "int", description = "read_url 正文起始字符偏移（默认 0）", required = false),
         @Param(name = "max_chars", type = "int", description = "read_url 本次最大字符数（默认 0=整篇；建议 4000）", required = false),
         @Param(name = "autoRead", type = "boolean", description = "是否自动读取详情(默认true)", required = false),
-        @Param(name = "results", type = "array", description = "搜索结果数组（用于smart_read，传上一步search返回的results）", required = false)
+        @Param(name = "results", type = "array", description = "搜索结果数组（summarize/smart_read 用）：把上一步 search 返回的 results 原样传进来；数组、它的 JSON 字符串、或整段搜索返回都收", required = false)
     }
 )
 public class NetworkSearchTool implements AITool {
@@ -167,7 +169,9 @@ public class NetworkSearchTool implements AITool {
         return "网络搜索工具（秘塔搜索引擎驱动），支持搜索、智能问答、网页读取。"
                 + "默认用 ask 拿结论（一般提问它就够）；要一批来源/链接/原文才用 search 等其它 action。"
                 + "秘塔按次计费（一次调用扣一次额度，与返回条数无关），一次问清楚，别反复调。"
-                + "ask 出答案要几十秒是正常的，慢不等于失败。";
+                + "ask 出答案要几十秒是正常的，慢不等于失败。"
+                + "只有 ask/search/read_url（含 search_and_read、smart_search 的搜索那一步）扣额度，"
+                + "抓网页类的 action 是本地解析、不花钱。";
     }
 
     /**
@@ -414,21 +418,90 @@ public class NetworkSearchTool implements AITool {
      * <p>真机 2B 会把网页地址塞进 query 再调 read_url，拿到一句 "Missing required parameter: url" 就转去
      * search 那条链接 — 一次完全没必要的联网调用（秘塔按次扣额度）。
      * 失败文案是给模型看的下一步指令，不是日志。</p>
+     *
+     * <p>PHONE-AUDIT(2026-11-02)：用户在手机上把 11 个 action 逐个试了一遍，抓到两处**指错路**：
+     * {@code summarize} 真正要的是 {@code results}（或直接给 {@code url}），而默认分支让它补 {@code query}
+     * —— 它照做就永远失败（实测四连败）；而 {@code results} 只认 Java List，模型把上一步的数组
+     * 原样（JSON 字符串）贴进来也被判"缺 results"。现在按真实必填项说，并且每句都标
+     * "这次没发请求、不扣额度" —— 不然模型按"按次计费"的说法会以为改正参数重试还要再扣一次而不敢试。</p>
      */
     private static AIToolResult missingParam(String action, Map<String, Object> parameters) {
         String a = action == null ? "" : action;
+        final String free = "（这次没有发出请求，不扣额度）";
         if ("read_url".equals(a) || "get_webpage".equals(a)
                 || "get_dynamic_content".equals(a) || "extract_info".equals(a)) {
             return AIToolResult.fail(a + " 需要 url：填完整网页地址，例如 https://example.com/a；"
-                    + "别把地址写进 query（query 只给 search 用）", parameters);
+                    + "别把地址写进 query（query 只给 search 用）" + free, parameters);
         }
         if ("ask".equals(a)) {
-            return AIToolResult.fail("ask 需要 question：填要回答的完整问题（不是关键词，也不是网址）", parameters);
+            return AIToolResult.fail("ask 需要 question：填要回答的完整问题（不是关键词，也不是网址）" + free, parameters);
         }
         if ("smart_read".equals(a)) {
-            return AIToolResult.fail("smart_read 需要 results：把上一步 search 返回的 results 原样传进来", parameters);
+            return AIToolResult.fail("smart_read 需要 results：把上一步 search 返回的 results 数组原样传进来"
+                    + "（数组，每项含 title/url/snippet；整段 JSON 字符串也可以）" + free, parameters);
         }
-        return AIToolResult.fail(a + " 需要 query：填搜索关键词；要读某个网页请改用 action=read_url 并填 url", parameters);
+        if ("summarize".equals(a)) {
+            return AIToolResult.fail("summarize 需要 results（上一步 search 返回的 results 数组）或直接给 url"
+                    + "（我抓网页再摘要）；query 只是主题标签，光填 query 不够" + free, parameters);
+        }
+        return AIToolResult.fail(a + " 需要 query：填搜索关键词；要读某个网页请改用 action=read_url 并填 url" + free, parameters);
+    }
+
+    /**
+     * RESULTS-INPUT(2026-11-02)：{@code results} 容忍三种写法（List / JSON 字符串 / 整段搜索返回）。
+     *
+     * <p>模型传法不稳定：有时传真数组，有时把上一步的 results 整段当 JSON 字符串贴进来，
+     * 有时连外层 {@code {query,count,results:[…]}} 一起传。旧实现只认 {@code instanceof List}，
+     * 另两种都判"缺 results"（手机实测）。三种都收，收不下才报缺参。</p>
+     */
+    @SuppressWarnings("unchecked")
+    static List<Map<String, Object>> parseResultsArg(Object raw) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (raw == null) return out;
+        Object source = raw;
+        if (raw instanceof String) {
+            String s = ((String) raw).trim();
+            if (s.isEmpty()) return out;
+            try {
+                source = new org.json.JSONTokener(s).nextValue();
+            } catch (Throwable t) {
+                return out;
+            }
+        }
+        if (source instanceof JSONArray) {
+            JSONArray a = (JSONArray) source;
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject item = a.optJSONObject(i);
+                if (item != null) out.add(jsonToFlatMap(item));
+            }
+            return out;
+        }
+        if (source instanceof JSONObject) {
+            JSONObject o = (JSONObject) source;
+            JSONArray inner = o.optJSONArray("results");
+            if (inner == null) inner = o.optJSONArray("data");
+            if (inner != null) return parseResultsArg(inner);
+            out.add(jsonToFlatMap(o));   // 单条对象也算一条结果
+            return out;
+        }
+        if (source instanceof List) {
+            for (Object e : (List<Object>) source) {
+                if (e instanceof Map) out.add(new java.util.LinkedHashMap<>((Map<String, Object>) e));
+                else if (e instanceof JSONObject) out.add(jsonToFlatMap((JSONObject) e));
+            }
+        }
+        return out;
+    }
+
+    /** org.json 对象 → 普通 Map（模型传进来的就是这种标量形状）。 */
+    private static Map<String, Object> jsonToFlatMap(JSONObject o) {
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        java.util.Iterator<String> it = o.keys();
+        while (it.hasNext()) {
+            String k = it.next();
+            m.put(k, o.opt(k));
+        }
+        return m;
     }
 
     private AIToolResult search(Map<String, Object> parameters) {
@@ -1228,12 +1301,39 @@ public class NetworkSearchTool implements AITool {
                 return new AIToolResult(detailResult, parameters);
             }
 
+            // ACTION-NAME(2026-11-02)：不传 detailIndex 时**默认就读**，不再只回一句"请带 detailIndex"。
+            // 用户在手机实测：这个 action 名字叫 search_and_read 却只给清单，要模型再来一轮逐条指定，
+            // 白搭一轮推理。正文抓取走本地 Jsoup（fetchWebpage），**不调秘塔、不扣额度**，
+            // 所以默认读前几条没有花钱代价；上限 3 条只是控上下文。
+            int autoReadCount = Math.min(3, results.size());
+            List<Map<String, Object>> detailed = new ArrayList<>();
+            for (int i = 0; i < autoReadCount; i++) {
+                Map<String, String> r = results.get(i);
+                String u = r.get("url");
+                Map<String, Object> one = new HashMap<>();
+                one.put("index", i);
+                one.put("title", r.get("title"));
+                one.put("url", u);
+                try {
+                    String html = fetchWebpage(u);
+                    one.put("content", extractWebpageContent(html, u));
+                    one.put("read_ok", true);
+                } catch (Exception e) {
+                    AILogger.w(TAG, "search_and_read 默认读第 " + i + " 条失败: " + e.getMessage());
+                    one.put("error", "这一页抓不下来: " + e.getMessage());
+                    one.put("read_ok", false);
+                }
+                detailed.add(one);
+            }
+
             Map<String, Object> result = new HashMap<>();
             result.put("query", query);
             result.put("count", results.size());
-            result.put("status", "success");
+            result.put("status", "success_with_details");
             result.put("results", results);
-            result.put("note", "请使用 detailIndex 参数指定要查看的搜索结果索引（从0开始）");
+            result.put("detailedContents", detailed);
+            result.put("note", "已默认读取前 " + autoReadCount + " 条正文（本地抓取，不额外扣额度）；"
+                    + "要读指定那一条就带 detailIndex=N（从 0 开始）");
 
             return new AIToolResult(result, parameters);
 
@@ -1374,17 +1474,10 @@ public class NetworkSearchTool implements AITool {
     
     private AIToolResult smartRead(Map<String, Object> parameters) {
         String query = getStringParam(parameters, "query", null);
-        List<Map<String, Object>> results = null;
-        try {
-            Object raw = parameters.get("results");
-            if (raw instanceof List) {
-                results = (List<Map<String, Object>>) raw;
-            }
-        } catch (ClassCastException e) {
-            AILogger.w(TAG, "results参数类型不匹配: " + e.getMessage());
-        }
+        // RESULTS-INPUT(2026-11-02)：List / JSON 字符串 / 整段搜索返回都收（手机实测原样传被拒）。
+        List<Map<String, Object>> results = parseResultsArg(parameters.get("results"));
 
-        if (results == null || results.isEmpty()) {
+        if (results.isEmpty()) {
             return missingParam("smart_read", parameters);
         }
 
@@ -1806,10 +1899,17 @@ public class NetworkSearchTool implements AITool {
     }
     
     private AIToolResult summarizeResults(Map<String, Object> parameters) {
-        List<Map<String, Object>> results = (List<Map<String, Object>>) parameters.get("results");
+        // RESULTS-INPUT(2026-11-02)：这里原来是 `(List) parameters.get("results")` 裸强转 ——
+        // 模型把数组当 JSON 字符串贴进来时直接 ClassCastException，整条摘要报"生成摘要失败"。
+        List<Map<String, Object>> results = parseResultsArg(parameters.get("results"));
         String query = getStringParam(parameters, "query", null);
 
         if (results == null || results.isEmpty()) {
+            // PHONE-AUDIT(2026-11-02)：模型按描述里"网页摘要"的字面理解传了 url，却被要求补 results，
+            // 于是"四连失败"。摘要本来就该能吃 url —— 现在先试单页路径（本地抓取，不发秘塔请求、不扣额度），
+            // 两个都没有才报缺参，且文案按真实必填项说。
+            AIToolResult single = summarizeSingleUrl(parameters);
+            if (single != null) return single;
             return missingParam("summarize", parameters);
         }
 
@@ -1824,9 +1924,11 @@ public class NetworkSearchTool implements AITool {
 
             for (int i = 0; i < results.size(); i++) {
                 Map<String, Object> item = results.get(i);
-                String title = (String) item.get("title");
-                String snippet = (String) item.get("snippet");
-                String url = (String) item.get("url");
+                // 值可能是 Number/布尔（JSON 原样传进来），不能按 String 强转（ClassCastException
+                // 会把整条摘要打成"生成摘要失败"，用户看到的又是一次无谓重试）
+                String title = strOf(item.get("title"));
+                String snippet = strOf(item.get("snippet"));
+                String url = strOf(item.get("url"));
 
                 if (title != null && !title.isEmpty()) {
                     keyPoints.add((i + 1) + ". " + title);
@@ -1846,12 +1948,55 @@ public class NetworkSearchTool implements AITool {
             Map<String, Object> result = new HashMap<>();
             result.put("status", "success");
             result.put("summary", summary);
+            result.put("source_note", "本摘要由你传入的 results 合成，未再调用秘塔，不扣额度");
 
             return new AIToolResult(result, parameters);
         } catch (Exception e) {
             AILogger.e(TAG, "Summarize failed: " + e.getMessage(), e);
             return new AIToolResult("生成摘要失败: " + e.getMessage(), parameters);
         }
+    }
+
+    /**
+     * summarize 的单页形态：给 url（或已有 content）就抓来抓去摘要，本地 Jsoup，不发秘塔请求。
+     * 拿不到 url 时返回 null，由调用方报缺参。
+     */
+    private AIToolResult summarizeSingleUrl(Map<String, Object> parameters) {
+        String url = getStringParam(parameters, "url", null);
+        try {
+            String html = getStringParam(parameters, "content", null);
+            if ((html == null || html.trim().isEmpty()) && url != null && !url.trim().isEmpty()) {
+                html = fetchWebpage(url);
+            }
+            if (html == null || html.trim().isEmpty()) return null;
+
+            Map<String, Object> page = extractWebpageContent(html, url);
+            // extractWebpageContent 没有 "text" 键（它给的是 headings/contentSlices/summary），
+            // 正文自己从 HTML 取，省得依赖一个不存在的字段拿到空摘要。
+            String body = removeHtmlTags(html);
+            if (body == null) body = "";
+            Map<String, Object> summary = new HashMap<>();
+            summary.put("url", url);
+            summary.put("title", page.get("title"));
+            summary.put("summary", generateSmartSummary(body, getStringParam(parameters, "query", null)));
+            summary.put("detailedSummary", body.trim());
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("status", "success");
+            result.put("summary", summary);
+            result.put("source_note", "单页摘要：本地抓取解析，未调用秘塔，不扣额度");
+            AILogger.i(TAG, "summarize 走单页形态 url=" + url);
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            AILogger.w(TAG, "summarize 单页形态失败: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** 安全取字符串：非字符串值（数字/布尔）也转成文本，不抛 ClassCastException。 */
+    private static String strOf(Object v) {
+        if (v == null || v == JSONObject.NULL) return null;
+        return v instanceof String ? (String) v : String.valueOf(v);
     }
     
     private String extractTitle(String html) {
@@ -2074,9 +2219,10 @@ public class NetworkSearchTool implements AITool {
         // AIToolCreatorTool 当"工具说明"读出来 —— 与真正下发的 schema 两套说法就是误导。
         // 口径与 @Tool 注解、AIToolManager 的 ToolDefinition 保持一致。
         Map<String, String> descriptions = new HashMap<>();
-        descriptions.put("action", "操作类型: ask(默认，直接给结论+来源)/search(要一批来源/链接)/"
-                + "read_url(服务端读网页正文)/get_webpage(本地Jsoup抓网页)/extract_info/summarize/"
-                + "search_and_read/get_dynamic_content/smart_search/smart_read");
+        descriptions.put("action", "操作类型: ask(默认，直接给结论+来源，扣额度)/search(要一批来源/链接，扣额度)/"
+                + "read_url(服务端读网页正文，扣额度)｜get_webpage(本地Jsoup抓网页)/extract_info(页面元数据)/"
+                + "summarize(需 results 或 url)/get_dynamic_content/smart_read(需 results) 都是本地解析、不扣额度｜"
+                + "search_and_read/smart_search 只在搜索那一步扣额度");
         descriptions.put("question", "要回答的完整问题（ask 用；不是关键词，也不是网址）");
         descriptions.put("query", "搜索关键词（search/search_and_read/smart_search 用；"
                 + "网页地址请填 url，别塞进这里）");
@@ -2093,7 +2239,7 @@ public class NetworkSearchTool implements AITool {
         descriptions.put("max_chars", "read_url 本次最大字符数，默认 0=整篇，长文建议 4000");
         descriptions.put("maxResults", "最大结果数（smart_search 用，默认 5）");
         descriptions.put("autoRead", "是否自动读取详情（smart_search 用，默认 true）");
-        descriptions.put("results", "搜索结果列表（summarize/smart_read 用，传上一步 search 返回的 results）");
+        descriptions.put("results", "搜索结果列表（summarize/smart_read 必填）：上一步 search 返回的 results 数组、它的 JSON 字符串、或整段搜索返回都收");
         descriptions.put("detailIndex", "搜索结果索引（search_and_read 用，从 0 开始，指定要读的那条）");
         return descriptions;
     }
