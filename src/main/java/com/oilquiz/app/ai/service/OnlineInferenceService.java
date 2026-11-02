@@ -2581,12 +2581,17 @@ public class OnlineInferenceService {
                     return "【联网搜索结果】\n" + searchCtx
                             + "\n\n请结合以上联网搜索结果回答用户的问题（重要信息请附来源链接）：" + prompt;
                 }
-                AILogger.w(TAG, "own network_search returned empty, fallback to official webSearch");
+                AILogger.w(TAG, "own network_search returned empty, ask the model to call the tool itself");
             }
         } catch (Exception e) {
-            AILogger.w(TAG, "own network_search failed, fallback to official webSearch: " + e.getMessage());
+            AILogger.w(TAG, "own network_search failed, ask the model to call the tool itself: " + e.getMessage());
         }
-        return prompt;
+        // SEARCH-HOLE(2026-11-02)：这里原来直接 return prompt，指望"调用方回退官方 webSearch"。
+        // 但 agent 模式下 applyWebSearch 的守卫（请求里带 function 工具就不注入官方）会把它拦掉，
+        // 于是这一轮既不预搜索、也没有官方工具，联网需求静默落空。
+        // 现在改成显式要求模型自己调一次工具：不赌服务商允不允许混装（400 会把整轮打挂），也不留空窗。
+        return prompt + "\n\n【本轮联网】上面的预搜索没有拿到结果，请先用 network_search 查一次最新信息，"
+                + "再结合结果回答（重要信息附来源链接）。";
     }
 
     /**
