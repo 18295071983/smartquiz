@@ -61,10 +61,10 @@ public class BaiduAsrEngine implements AsrEngine {
         String secretKey = config.apiSecret;
 
         if (apiKey == null || apiKey.isEmpty()) {
-            throw new Exception("百度ASR缺少 API Key，请在模型管理页设置");
+            throw new Exception("百度ASR缺少 API Key，请在「服务商密钥」页设置");
         }
         if (secretKey == null || secretKey.isEmpty()) {
-            throw new Exception("百度ASR缺少 Secret Key，请在模型管理页设置");
+            throw new Exception("百度ASR缺少 Secret Key，请在「服务商密钥」页设置");
         }
 
         long size = audioFile.length();

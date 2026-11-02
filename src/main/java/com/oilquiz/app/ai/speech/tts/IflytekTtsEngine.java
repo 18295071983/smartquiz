@@ -94,13 +94,13 @@ public class IflytekTtsEngine implements TtsEngine {
         String apiSecret = config.apiSecret;
 
         if (appId == null || appId.isEmpty()) {
-            throw new Exception("讯飞TTS缺少 appId，请在模型管理页设置");
+            throw new Exception("讯飞TTS缺少 appId，请在「服务商密钥」页设置");
         }
         if (apiKey == null || apiKey.isEmpty()) {
-            throw new Exception("讯飞TTS缺少 apiKey，请在模型管理页设置");
+            throw new Exception("讯飞TTS缺少 apiKey，请在「服务商密钥」页设置");
         }
         if (apiSecret == null || apiSecret.isEmpty()) {
-            throw new Exception("讯飞TTS缺少 apiSecret，请在模型管理页设置");
+            throw new Exception("讯飞TTS缺少 apiSecret，请在「服务商密钥」页设置");
         }
 
         String actualVoice = (voice != null && !voice.isEmpty()) ? voice : DEFAULT_VOICE;

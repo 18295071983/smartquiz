@@ -63,6 +63,10 @@ public class ModelCenterActivity extends BaseActivity
 
         // 相邻职责入口：专用模型（ASR/TTS/NPU）与密钥/服务状态不是「注册在线模型」，
         // 但从这页应一步可达，不必退回旧页面去找
+        // MODEL-HUB-ONE-PLACE(2026-11-02)：本页只管在线注册与用量；"换当前用哪个模型"
+        // （本地热切换 + 在线点选）在「模型」页，那里才是唯一的切换入口，所以这里补一跳。
+        findViewById(R.id.btn_goto_model_page).setOnClickListener(v ->
+                startActivity(new Intent(this, ModelSelectorActivity.class)));
         findViewById(R.id.btn_goto_speech_models).setOnClickListener(v ->
                 startActivity(new Intent(this, ModelSelectorActivity.class)));
         findViewById(R.id.btn_goto_api_config).setOnClickListener(v ->

@@ -63,10 +63,10 @@ public class VolcanoTtsEngine implements TtsEngine {
         String accessToken = config.apiKey;
 
         if (appId == null || appId.isEmpty()) {
-            throw new Exception("火山引擎TTS缺少 appId，请在模型管理页设置");
+            throw new Exception("火山引擎TTS缺少 appId，请在「服务商密钥」页设置");
         }
         if (accessToken == null || accessToken.isEmpty()) {
-            throw new Exception("火山引擎TTS缺少 Access Token，请在模型管理页设置");
+            throw new Exception("火山引擎TTS缺少 Access Token，请在「服务商密钥」页设置");
         }
 
         String actualVoice = (voice != null && !voice.isEmpty()) ? voice : DEFAULT_VOICE;

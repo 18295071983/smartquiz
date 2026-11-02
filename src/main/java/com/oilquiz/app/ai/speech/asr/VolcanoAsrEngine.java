@@ -55,10 +55,10 @@ public class VolcanoAsrEngine implements AsrEngine {
         String accessToken = config.apiKey;
 
         if (appId == null || appId.isEmpty()) {
-            throw new Exception("火山引擎ASR缺少 appId，请在模型管理页设置");
+            throw new Exception("火山引擎ASR缺少 appId，请在「服务商密钥」页设置");
         }
         if (accessToken == null || accessToken.isEmpty()) {
-            throw new Exception("火山引擎ASR缺少 Access Token，请在模型管理页设置");
+            throw new Exception("火山引擎ASR缺少 Access Token，请在「服务商密钥」页设置");
         }
 
         long size = audioFile.length();

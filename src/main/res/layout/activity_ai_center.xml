@@ -69,9 +69,16 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 在线模型卡片 -->
+        <!-- 当前模型卡片（MODEL-HUB-ONE-PLACE 2026-11-02）
+             原先这里是两张卡（在线模型 / 导入模型），各挂一份模型列表
+             （online_models_recycler、models_recycler），与「模型」页、模型中心凑成三份同源列表；
+             两张卡头部还各带一个开关 switch_online_mode / switch_local_mode，而它们的监听只做
+             "互相取消勾选"——既不写偏好也不调路由（路由只看哪个模型激活，见 ROUTE-UNIFIED），
+             属于"看着能换引擎、其实什么都换不了"的假开关。
+             现在这张卡只回答"我现在用的是什么"，切换一律跳「模型」页：那一页本地与在线都能点选，
+             也带添加在线模型 / 导入 / 下载 / 一键初始化 / 语音模型。 -->
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/card_online_models"
+            android:id="@+id/card_current_model"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/space_12"
@@ -84,7 +91,6 @@
                 android:orientation="vertical"
                 android:padding="@dimen/space_16">
 
-                <!-- 头部：图标+标题+开关 -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -93,7 +99,7 @@
                     <TextView
                         android:layout_width="@dimen/size_32"
                         android:layout_height="@dimen/size_32"
-                        android:text="🌐"
+                        android:text="🧠"
                         android:textSize="@dimen/text_24"
                         android:gravity="center"/>
                     <TextView
@@ -101,241 +107,67 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:layout_marginStart="@dimen/space_12"
-                        android:text="在线模型"
+                        android:text="当前模型"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="?attr/colorControlText"/>
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/switch_online_mode"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:checked="true"/>
                 </LinearLayout>
 
-                <!-- 当前模型详情块 -->
-                <com.google.android.material.card.MaterialCardView
+                <TextView
+                    android:id="@+id/tv_current_model_engine"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_12"
-                    app:cardBackgroundColor="?attr/colorSurfaceVariant"
-                    app:cardCornerRadius="12dp"
-                    app:cardElevation="0dp">
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:padding="@dimen/space_12">
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="当前模型"
-                            android:textSize="@dimen/text_12"
-                            android:textColor="?attr/colorControlTextSecondary"/>
-                        <TextView
-                            android:id="@+id/tv_current_online_model"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="GPT-4o"
-                            android:textSize="@dimen/text_16"
-                            android:textStyle="bold"
-                            android:textColor="?attr/colorPrimary"
-                            android:layout_marginTop="@dimen/space_2"/>
-                        <TextView
-                            android:id="@+id/tv_current_online_provider"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="OpenAI"
-                            android:textSize="@dimen/text_12"
-                            android:textColor="?attr/colorControlTextHint"
-                            android:layout_marginTop="@dimen/space_2"/>
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text="引擎"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextSecondary"/>
 
-                <!-- 配置列表 -->
+                <TextView
+                    android:id="@+id/tv_current_model_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_2"
+                    android:text="未选择模型"
+                    android:textSize="@dimen/text_16"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorPrimary"/>
+
+                <TextView
+                    android:id="@+id/tv_current_model_detail"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_2"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextHint"/>
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:gravity="center_vertical"
                     android:layout_marginTop="@dimen/space_12">
-                    <TextView
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_go_model_page"
                         android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="API配置列表"
+                        android:layout_marginEnd="@dimen/space_4"
+                        android:text="🔀 切换模型"
                         android:textSize="@dimen/text_12"
-                        android:textColor="?attr/colorControlTextSecondary"/>
+                        app:cornerRadius="@dimen/radius_8"/>
+
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_refresh_models"
+                        android:id="@+id/btn_download_local_models"
                         style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="@dimen/size_32"
-                        android:text="🔄 刷新模型"
-                        android:textSize="@dimen/text_11"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="@dimen/space_4"
+                        android:text="⬇️ 下载"
+                        android:textSize="@dimen/text_12"
                         app:cornerRadius="@dimen/radius_8"/>
                 </LinearLayout>
 
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/online_models_recycler"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_8"
-                    android:nestedScrollingEnabled="false"
-                    app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
-
-                <TextView
-                    android:id="@+id/online_models_empty"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_8"
-                    android:padding="@dimen/space_16"
-                    android:gravity="center"
-                    android:text="暂无在线模型，点击下方按钮添加配置"
-                    android:textSize="@dimen/text_12"
-                    android:textColor="?attr/colorControlTextHint"
-                    android:background="@drawable/empty_bg_dashed"
-                    android:visibility="gone"/>
-
-                <!-- 添加配置按钮 -->
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_add_api_config"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_8"
-                    android:text="➕ 添加新配置"
-                    android:textSize="@dimen/text_13"
-                    app:cornerRadius="@dimen/radius_8"/>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- 本地模型卡片 -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/card_local_models"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="@dimen/space_12"
-            app:cardBackgroundColor="?attr/colorCardBackground"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="2dp">
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="@dimen/space_16">
-
-                <!-- 头部：图标+标题+开关 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-                    <TextView
-                        android:layout_width="@dimen/size_32"
-                        android:layout_height="@dimen/size_32"
-                        android:text="💾"
-                        android:textSize="@dimen/text_24"
-                        android:gravity="center"/>
-                    <TextView
-                        android:layout_width="@dimen/size_0"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="@dimen/space_12"
-                        android:text="导入模型"
-                        android:textSize="@dimen/text_16"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorControlText"/>
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/switch_local_mode"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-                </LinearLayout>
-
-                <!-- 当前模型详情块 -->
-                <com.google.android.material.card.MaterialCardView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_12"
-                    app:cardBackgroundColor="?attr/colorSurfaceVariant"
-                    app:cardCornerRadius="12dp"
-                    app:cardElevation="0dp">
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:padding="@dimen/space_12">
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="当前模型"
-                            android:textSize="@dimen/text_12"
-                            android:textColor="?attr/colorControlTextSecondary"/>
-                        <TextView
-                            android:id="@+id/tv_current_local_model"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="未加载模型"
-                            android:textSize="@dimen/text_16"
-                            android:textStyle="bold"
-                            android:textColor="?attr/colorPrimary"
-                            android:layout_marginTop="@dimen/space_2"/>
-                        <TextView
-                            android:id="@+id/tv_local_model_info"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="点击加载模型"
-                            android:textSize="@dimen/text_12"
-                            android:textColor="?attr/colorControlTextHint"
-                            android:layout_marginTop="@dimen/space_2"/>
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-
-                <!-- 模型选择列表 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginTop="@dimen/space_12">
-                    <TextView
-                        android:layout_width="@dimen/size_0"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="本地模型列表"
-                        android:textSize="@dimen/text_12"
-                        android:textColor="?attr/colorControlTextSecondary"/>
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_refresh_local_models"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="@dimen/size_32"
-                        android:text="🔄 刷新"
-                        android:textSize="@dimen/text_11"
-                        app:cornerRadius="@dimen/radius_8"/>
-                </LinearLayout>
-
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/models_recycler"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_8"
-                    android:nestedScrollingEnabled="false"
-                    app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
-
-                <TextView
-                    android:id="@+id/local_models_empty"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_8"
-                    android:padding="@dimen/space_16"
-                    android:gravity="center"
-                    android:text="暂无本地模型，请先导入或下载模型"
-                    android:textSize="@dimen/text_12"
-                    android:textColor="?attr/colorControlTextHint"
-                    android:background="@drawable/empty_bg_dashed"
-                    android:visibility="gone"/>
-
-                <!-- 操作按钮 -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -349,18 +181,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:layout_marginEnd="@dimen/space_4"
-                        android:text="📁 管理"
-                        android:textSize="@dimen/text_12"
-                        app:cornerRadius="@dimen/radius_8"/>
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_download_local_models"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="@dimen/size_0"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="@dimen/space_4"
-                        android:text="⬇️ 下载"
+                        android:text="📁 管理本地文件"
                         android:textSize="@dimen/text_12"
                         app:cornerRadius="@dimen/radius_8"/>
 

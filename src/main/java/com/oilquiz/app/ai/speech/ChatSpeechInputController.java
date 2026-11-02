@@ -106,7 +106,7 @@ public class ChatSpeechInputController {
         }).start();
     }
 
-    /** 用户是否在"功能专用模型"中显式选择了本地 SenseVoice（→ 识别本地优先） */
+    /** 用户是否在「语音模型（识别 / 合成）」里显式选择了本地 SenseVoice（→ 识别本地优先） */
     public boolean isLocalAsrSelected() {
         try {
             String id = AppServices.models().getFeatureModelId(FEATURE_ASR);

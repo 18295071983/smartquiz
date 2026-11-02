@@ -1174,7 +1174,7 @@ public class KnowledgeBaseManager {
             SpeechManager speech = SpeechManager.getInstance(context);
             if (!speech.isAnyAsrAvailable()) {
                 return errorResult("语音识别服务不可用：未配置在线语音识别模型，且本地语音识别不可用。"
-                        + "请先在模型设置中为'语音识别'选择模型（如 qwen3-asr-flash / whisper-1），"
+                        + "请先在「模型」页的「语音模型」里为语音识别选择模型（如 qwen3-asr-flash / whisper-1），"
                         + "或确认本地语音模型已加载");
             }
             // 与 VoiceInputTool 一致：用户显式选择本地 SenseVoice 作为语音识别专用模型 → 本地优先
@@ -1205,7 +1205,7 @@ public class KnowledgeBaseManager {
         }
     }
 
-    /** 用户是否在"功能专用模型"中显式选择了本地 SenseVoice（→ 识别本地优先），与 VoiceInputTool.isLocalAsrSelected 一致 */
+    /** 用户是否在「语音模型（识别 / 合成）」里显式选择了本地 SenseVoice（→ 识别本地优先），与 VoiceInputTool.isLocalAsrSelected 一致 */
     private boolean isLocalAsrSelected() {
         try {
             return SpeechManager.LOCAL_ASR_ID.equals(

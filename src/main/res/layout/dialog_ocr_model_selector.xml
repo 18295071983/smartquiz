@@ -89,7 +89,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_4"
-            android:text="请先在模型管理中添加在线模型"
+            android:text="请先在「模型」页添加在线模型"
             android:textSize="@dimen/text_12"
             android:textColor="?attr/colorOnSurfaceVariant" />
 

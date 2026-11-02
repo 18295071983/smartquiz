@@ -246,7 +246,7 @@ public class TTSService {
                 }
             } else if (forceOnline && config == null) {
                 throw new java.util.concurrent.CompletionException(
-                        "未配置可用的在线语音合成模型，请在模型管理页设置语音合成模型", null);
+                        "未配置可用的在线语音合成模型，请在「服务商密钥」页设置语音合成模型", null);
             }
 
             // 回退系统 TTS

@@ -127,7 +127,7 @@ public final class SpeechModelRegistry {
         }
     }
 
-    /** 常用在线端点模板（模型管理页快速添加） */
+    /** 常用在线端点模板（在「服务商密钥」页快速添加） */
     public static class EndpointTemplate {
         public final String name;
         public final String apiUrl;

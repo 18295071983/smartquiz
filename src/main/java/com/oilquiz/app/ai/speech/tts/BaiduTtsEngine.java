@@ -66,10 +66,10 @@ public class BaiduTtsEngine implements TtsEngine {
         String secretKey = config.apiSecret;
 
         if (apiKey == null || apiKey.isEmpty()) {
-            throw new Exception("百度TTS缺少 API Key，请在模型管理页设置");
+            throw new Exception("百度TTS缺少 API Key，请在「服务商密钥」页设置");
         }
         if (secretKey == null || secretKey.isEmpty()) {
-            throw new Exception("百度TTS缺少 Secret Key，请在模型管理页设置");
+            throw new Exception("百度TTS缺少 Secret Key，请在「服务商密钥」页设置");
         }
 
         String actualVoice = (voice != null && !voice.isEmpty()) ? voice : DEFAULT_VOICE;

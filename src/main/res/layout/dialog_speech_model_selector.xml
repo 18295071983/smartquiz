@@ -49,7 +49,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="@dimen/space_8"
-        android:text="为语音功能选择专用模型，不选择则自动使用支持音频的模型"
+        android:text="为语音功能选择模型（识别 / 合成），不选则自动使用支持音频的模型"
         android:textSize="@dimen/text_12"
         android:textColor="?attr/colorOnSurfaceVariant" />
 
@@ -91,7 +91,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_4"
-            android:text="请先在模型管理中添加在线模型"
+            android:text="请先在「模型」页添加在线模型"
             android:textSize="@dimen/text_12"
             android:textColor="?attr/colorOnSurfaceVariant" />
 

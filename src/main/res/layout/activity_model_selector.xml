@@ -18,7 +18,7 @@
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             android:background="?attr/colorSurface"
-            app:title="模型选择"
+            app:title="模型"
             app:titleTextColor="?attr/colorControlText"/>
     </com.google.android.material.appbar.AppBarLayout>
 
@@ -186,7 +186,21 @@
                         android:layout_width="wrap_content"
                         android:layout_height="@dimen/size_36"
                         android:layout_marginStart="@dimen/space_8"
-                        android:text="API配置"
+                        android:text="🔑 服务商密钥"
+                        app:backgroundTint="?attr/colorSurfaceVariant"
+                        android:textColor="?attr/colorPrimary"
+                        app:cornerRadius="@dimen/radius_8"
+                        android:textAllCaps="false"
+                        android:textSize="@dimen/text_12"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+                    <!-- MODEL-HUB-ONE-PLACE(2026-11-02)：补上反向一跳。原先只有
+                         模型中心 → 本页，本页却没有任何地方能去看用量，用户只能退回抽屉。 -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_goto_model_center"
+                        android:layout_width="wrap_content"
+                        android:layout_height="@dimen/size_36"
+                        android:layout_marginStart="@dimen/space_8"
+                        android:text="📊 用量与注册"
                         app:backgroundTint="?attr/colorSurfaceVariant"
                         android:textColor="?attr/colorPrimary"
                         app:cornerRadius="@dimen/radius_8"
@@ -215,7 +229,7 @@
                     android:visibility="gone"/>
             </LinearLayout>
 
-            <!-- 功能专用模型区域（语音识别/语音合成） -->
+            <!-- 语音模型区域（识别 / 合成；2026-11-02 从旧名改过来，见下方注释） -->
             <LinearLayout
                 android:id="@+id/feature_models_section"
                 android:layout_width="match_parent"
@@ -233,10 +247,13 @@
                     android:paddingStart="@dimen/space_4"
                     android:paddingEnd="@dimen/space_4"
                     android:background="?attr/selectableItemBackground">
+                    <!-- 2026-11-02：旧名带「专用」两字时容易被读成"第三种聊天模型模式"；
+                         这里选的是语音识别/语音合成用的模型，与聊天用哪个引擎无关。
+                         区域名与标题行一起改成「语音模型（识别 / 合成）」。 -->
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="功能专用模型"
+                        android:text="语音模型（识别 / 合成）"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="?attr/colorControlText"/>

@@ -132,6 +132,14 @@ public class ModelSelectorActivity extends AppCompatActivity
                 });
             }
 
+            // MODEL-HUB-ONE-PLACE(2026-11-02)：反向一跳去模型中心（用量 + 注册表视图）。
+            // 原先只有模型中心→本页，本页没有任何入口看用量，切完模型想知道花了多少还得退回抽屉。
+            View modelCenter = findViewById(R.id.btn_goto_model_center);
+            if (modelCenter != null) {
+                modelCenter.setOnClickListener(v ->
+                        startActivity(ModelCenterActivity.intent(ModelSelectorActivity.this)));
+            }
+
             // AI 服务一键初始化入口：仅当本地与在线模型均未配置时显示
             if (aiInitCard != null && btnAiInit != null) {
                 updateAiInitCardVisibility();

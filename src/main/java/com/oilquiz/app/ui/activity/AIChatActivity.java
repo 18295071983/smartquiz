@@ -1618,9 +1618,14 @@ public class AIChatActivity extends BaseActivity {
         if (btnModeSelect != null) btnModeSelect.setOnClickListener(v -> toggleMode());
         if (btnModelSelect != null) {
             btnModelSelect.setOnClickListener(v -> {
-                // 打开模型中心（注册 + 用量统一入口；此前指向 ModelSelectorActivity，
-                // 与 AI 中心各挂一份重复的在线模型列表）
-                startActivity(ModelCenterActivity.intent(AIChatActivity.this));
+                // MODEL-ENTRY-SELECTOR(2026-11-02)：改回「模型选择」页。
+                // 上一版指向模型中心的理由是"与 AI 中心各挂一份重复的在线模型列表"，
+                // 但代价更致命：模型中心只有「在线注册 + 用量」两个 Tab，**在这页换不了本地模型**，
+                // 而聊天页这颗按钮的本职就是"换我现在用的模型"（本地/在线都算）。
+                // 在线列表重复这件事仍然真实存在，但要靠把两页合并解决，不是靠把入口指到一个
+                // 功能不全的页面来掩盖。回本页切换后顶栏由 onResume 的 refreshSubtitleIfNeeded 补刷
+                // （在线模型激活变更没有跨页监听者，这是已知缺口，不是这次的回归）。
+                startActivity(new Intent(AIChatActivity.this, ModelSelectorActivity.class));
             });
         }
         if (btnClearChat != null) {
@@ -3828,7 +3833,7 @@ public class AIChatActivity extends BaseActivity {
         // READY-GATE(2026-11-01)：在线模型先确认"已启用 + 端点/密钥齐"。配置缺失排队也救不了，
         // 直接给可操作提示，不把消息发出去再收一条引擎错误。
         if (shouldUseOnlineModel() && !isOnlineReady()) {
-            showToast("在线模型未就绪：请在「模型设置」里启用该服务并填写 API Key / 端点后再发送");
+            showToast("在线模型未就绪：请在「模型」页启用该模型；缺密钥/端点就去「服务商密钥」页补，补完再发送");
             return;
         }
         ensureConsumedMessage = false;

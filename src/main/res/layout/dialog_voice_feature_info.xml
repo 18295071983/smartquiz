@@ -133,7 +133,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="1. 在「模型管理」页面，点击「功能专用模型」标题行，查看本指南"
+                    android:text="1. 在「模型」页，点击「语音模型（识别 / 合成）」标题行，查看本指南"
                     android:textSize="@dimen/text_12"
                     android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
@@ -157,7 +157,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="4. 如果未选择专用模型，系统会自动使用可用的语音服务商端点"
+                    android:text="4. 如果没有为语音识别/合成单独选模型，系统会自动使用可用的语音服务商端点"
                     android:textSize="@dimen/text_12"
                     android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>

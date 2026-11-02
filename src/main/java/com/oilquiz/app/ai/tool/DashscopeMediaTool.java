@@ -135,7 +135,7 @@ public class DashscopeMediaTool implements AITool {
                 apiKey = resolveDefaultApiKey();
             }
             if (apiKey == null || apiKey.isEmpty()) {
-                return AIToolResult.fail("未配置 API Key：请在模型管理页配置在线模型，或传入 api_key 参数");
+                return AIToolResult.fail("未配置 API Key：请在「服务商密钥」页配置在线模型，或传入 api_key 参数");
             }
             // 端点：api_url 参数 > 配置端点 > 默认公共；据此判断协议（百炼原生 / OpenAI 兼容）
             String compatBase = resolveCompatBase(parameters);

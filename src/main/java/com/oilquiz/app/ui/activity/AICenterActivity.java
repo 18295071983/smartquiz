@@ -1,42 +1,26 @@
 package com.oilquiz.app.ui.activity;
 
-import android.app.AlertDialog;
 import android.content.Intent;
 import android.os.Bundle;
-import android.view.View;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
-import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.model.APIConfig;
-import com.oilquiz.app.ai.model.ApiModel;
-import com.oilquiz.app.ai.model.InferenceType;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.stats.TokenStatsManager;
 import com.oilquiz.app.ai.util.APIKeyManager;
 import com.oilquiz.app.ai.service.AIService;
-import com.oilquiz.app.ai.service.ModelListFetcher;
 import com.oilquiz.app.ai.inference.InferenceRouter;
-import com.oilquiz.app.ui.adapter.ModelAdapter;
-import com.oilquiz.app.ui.adapter.OnlineModelAdapter;
-import com.oilquiz.app.ui.dialog.OnlineModelConfigDialog;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
 
-import java.util.ArrayList;
 import java.util.List;
 
-public class AICenterActivity extends AppCompatActivity
-        implements ModelAdapter.OnModelClickListener, OnlineModelAdapter.OnOnlineModelClickListener {
+public class AICenterActivity extends AppCompatActivity {
 
     private MaterialCardView cardServiceStatus;
     private TextView tvServiceStatus;
@@ -50,28 +34,19 @@ public class AICenterActivity extends AppCompatActivity
     private MaterialButton btnAIImage;
     private MaterialButton btnAIVideo;
 
-    // 在线模型组件
-    private SwitchMaterial switchOnlineMode;
-    private TextView tvCurrentOnlineModel;
-    private TextView tvCurrentOnlineProvider;
-    private MaterialButton btnAddApiConfig;
-    private MaterialButton btnRefreshModels;
-    private RecyclerView onlineModelsRecycler;
-    private View onlineModelsEmptyView;
-    private OnlineModelAdapter onlineModelAdapter;
-
-    // 本地模型组件
-    private SwitchMaterial switchLocalMode;
-    private TextView tvCurrentLocalModel;
-    private TextView tvLocalModelInfo;
+    // 当前模型卡（MODEL-HUB-ONE-PLACE 2026-11-02）：只显示 + 一跳，不再挂模型列表。
+    // 删掉的成员：switchOnlineMode / switchLocalMode（两个只互相取消勾选的假开关）、
+    // onlineModelsRecycler + onlineModelAdapter + onlineModelsEmptyView、
+    // modelsRecycler + modelAdapter + localModelsEmptyView、两个刷新按钮、
+    // 以及"添加在线模型"按钮（添加对话框在「模型」页，那里才是唯一点选与添加的地方）。
+    private TextView tvCurrentModelEngine;
+    private TextView tvCurrentModelName;
+    private TextView tvCurrentModelDetail;
+    private MaterialButton btnGoModelPage;
     private MaterialButton btnManageLocalModels;
     private MaterialButton btnDownloadLocalModels;
     /** SAMPLING-PREFS(2026-11-01)：本地引擎采样参数入口（温度/top_p/top_k） */
     private MaterialButton btnLocalParams;
-    private MaterialButton btnRefreshLocalModels;
-    private RecyclerView modelsRecycler;
-    private View localModelsEmptyView;
-    private ModelAdapter modelAdapter;
 
     // Token统计组件
     private TextView tvInputTokens;
@@ -83,7 +58,6 @@ public class AICenterActivity extends AppCompatActivity
     private AIService aiService;
     private OnlineModelManager onlineModelManager;
     private InferenceRouter inferenceRouter;
-    private ModelListFetcher modelListFetcher;
 
     private TokenStatsManager.TokenStatsCallback tokenStatsCallback;
 
@@ -107,20 +81,19 @@ public class AICenterActivity extends AppCompatActivity
             android.util.Log.w("AICenterActivity", "启动同步在线模型配置失败: " + e.getMessage());
         }
 
-        refreshOnlineModels();
-        refreshLocalModels();
+        updateCurrentModelDisplay();
 
-        // 注册监听器（保存引用以便 onDestroy 中注销）
+        // 注册监听器（保存引用以便 onDestroy 中注销）：本页只显示当前模型，
+        // 所以两个回调都只重画这一张卡
         modelChangeListener = new OnlineModelManager.ModelChangeListener() {
             @Override
             public void onModelListChanged() {
-                refreshOnlineModels();
+                updateCurrentModelDisplay();
             }
 
             @Override
             public void onActiveModelChanged(String activeModelId) {
-                refreshOnlineModels();
-                refreshLocalModels();
+                updateCurrentModelDisplay();
             }
         };
         onlineModelManager.addListener(modelChangeListener);
@@ -130,15 +103,13 @@ public class AICenterActivity extends AppCompatActivity
         aiService = AIService.getInstance(this);
         onlineModelManager = OnlineModelManager.getInstance(this);
         inferenceRouter = InferenceRouter.getInstance(this);
-        modelListFetcher = ModelListFetcher.getInstance(this);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         updateServiceStatus();
-        refreshOnlineModels();
-        refreshLocalModels();
+        updateCurrentModelDisplay();
         updateTokenStatsUI();
         // 进入页面自动检测各 API 配置连通性：不依赖用户手动"测试"，
         // 检测结果写回 APIConfig 状态并刷新状态栏（解决"实际与显示不同步"）
@@ -222,45 +193,20 @@ public class AICenterActivity extends AppCompatActivity
         btnAIImage = findViewById(R.id.btn_ai_image);
         btnAIVideo = findViewById(R.id.btn_ai_video);
 
-        // 在线模型组件初始化
-        switchOnlineMode = findViewById(R.id.switch_online_mode);
-        tvCurrentOnlineModel = findViewById(R.id.tv_current_online_model);
-        tvCurrentOnlineProvider = findViewById(R.id.tv_current_online_provider);
-        btnAddApiConfig = findViewById(R.id.btn_add_api_config);
-        btnRefreshModels = findViewById(R.id.btn_refresh_models);
-        onlineModelsRecycler = findViewById(R.id.online_models_recycler);
-        onlineModelsEmptyView = findViewById(R.id.online_models_empty);
-
-        // 本地模型组件初始化
-        switchLocalMode = findViewById(R.id.switch_local_mode);
-        tvCurrentLocalModel = findViewById(R.id.tv_current_local_model);
-        tvLocalModelInfo = findViewById(R.id.tv_local_model_info);
+        // 当前模型卡：三个显示位 + 四个动作按钮（切换/下载/管理/参数）
+        tvCurrentModelEngine = findViewById(R.id.tv_current_model_engine);
+        tvCurrentModelName = findViewById(R.id.tv_current_model_name);
+        tvCurrentModelDetail = findViewById(R.id.tv_current_model_detail);
+        btnGoModelPage = findViewById(R.id.btn_go_model_page);
         btnManageLocalModels = findViewById(R.id.btn_manage_local_models);
         btnDownloadLocalModels = findViewById(R.id.btn_download_local_models);
         btnLocalParams = findViewById(R.id.btn_local_params);
-        btnRefreshLocalModels = findViewById(R.id.btn_refresh_local_models);
-        modelsRecycler = findViewById(R.id.models_recycler);
-        localModelsEmptyView = findViewById(R.id.local_models_empty);
 
         // Token统计组件初始化
         tvInputTokens = findViewById(R.id.tv_input_tokens);
         tvOutputTokens = findViewById(R.id.tv_output_tokens);
         tvTotalTokens = findViewById(R.id.tv_total_tokens);
         tvTokenCost = findViewById(R.id.tv_token_cost);
-
-        // 在线模型列表（复用模型管理页的 OnlineModelAdapter，UI 与操作一致）
-        if (onlineModelsRecycler != null) {
-            onlineModelAdapter = new OnlineModelAdapter(this, this);
-            onlineModelsRecycler.setLayoutManager(new LinearLayoutManager(this));
-            onlineModelsRecycler.setAdapter(onlineModelAdapter);
-        }
-
-        // 本地模型列表（复用模型管理页的 ModelAdapter，UI 与操作一致）
-        if (modelsRecycler != null) {
-            modelAdapter = new ModelAdapter(this, new ArrayList<>(), null, this);
-            modelsRecycler.setLayoutManager(new LinearLayoutManager(this));
-            modelsRecycler.setAdapter(modelAdapter);
-        }
 
         updateServiceStatus();
     }
@@ -436,19 +382,14 @@ public class AICenterActivity extends AppCompatActivity
             btnAIVideo.setOnClickListener(v -> openMediaGen("video"));
         }
 
-        // 在线模型按钮点击事件
-        if (btnAddApiConfig != null) {
-            btnAddApiConfig.setOnClickListener(v -> showAddOnlineModelDialog());
-        }
-        if (btnRefreshModels != null) {
-            btnRefreshModels.setOnClickListener(v -> {
-                // 刷新当前在线模型列表（各配置的模型下拉框数据来自缓存）
-                refreshOnlineModels();
-                Toast.makeText(this, getString(R.string.h_fd08d15f), Toast.LENGTH_SHORT).show();
+        // 当前模型卡：切换一律跳「模型」页（本地与在线都在那页点选，也在那里加在线模型）
+        if (btnGoModelPage != null) {
+            btnGoModelPage.setOnClickListener(v -> {
+                startActivity(new Intent(AICenterActivity.this, ModelSelectorActivity.class));
             });
         }
 
-        // 本地模型按钮点击事件
+        // 本地文件管理 / 下载 / 采样参数：这三个动作不是"选模型"，留在原目的地
         if (btnManageLocalModels != null) {
             btnManageLocalModels.setOnClickListener(v -> {
                 startActivity(new Intent(AICenterActivity.this, ModelImportActivity.class));
@@ -463,399 +404,57 @@ public class AICenterActivity extends AppCompatActivity
         if (btnLocalParams != null) {
             btnLocalParams.setOnClickListener(v -> showSamplingDialog());
         }
-        if (btnRefreshLocalModels != null) {
-            btnRefreshLocalModels.setOnClickListener(v -> {
-                refreshLocalModels();
-                Toast.makeText(this, getString(R.string.h_676572ba), Toast.LENGTH_SHORT).show();
-            });
-        }
 
-        // 模式切换开关
-        if (switchOnlineMode != null) {
-            switchOnlineMode.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                if (isChecked && switchLocalMode != null) {
-                    switchLocalMode.setChecked(false);
-                }
-            });
-        }
-
-        if (switchLocalMode != null) {
-            switchLocalMode.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                if (isChecked && switchOnlineMode != null) {
-                    switchOnlineMode.setChecked(false);
-                }
-            });
-        }
+        // 原来这里还有两个开关 switch_online_mode / switch_local_mode，监听只做"互相取消勾选"：
+        // 既不写偏好、也不调路由（路由只看哪个模型激活，见 ROUTE-UNIFIED）。
+        // 用户拨了它却什么都没发生，比没有这个开关更糟，所以随两份模型列表一起删掉。
     }
 
-    // ==================== 在线模型 ====================
+    // ==================== 当前模型显示 ====================
 
-    private void refreshOnlineModels() {
-        if (onlineModelsRecycler == null || onlineModelAdapter == null) {
+    /**
+     * 只显示"现在用的是什么"，不做切换。
+     *
+     * <p>2026-11-02（MODEL-HUB-ONE-PLACE）：这一页原本还挂着在线模型列表与本地模型列表
+     * （两份 adapter、两个只互相取消勾选的假开关、两个刷新按钮、以及切换/删除/启用/添加/
+     * 拉取模型/选模型六个回调），与「模型」页、模型中心各挂一份同源数据。列表点选的唯一去处
+     * 应是「模型」页——那里本地与在线都能点选切换，也带添加/导入/下载/一键初始化/语音模型。
+     * 所以本卡的按钮只负责"显示 + 一跳"。</p>
+     *
+     * <p>引擎口径取 {@code getEffectiveInferenceType()}：与聊天页顶部横幅、工具抽屉同一判据，
+     * 避免出现"横幅写本地模型、这页写在线模型"的分叉。</p>
+     */
+    private void updateCurrentModelDisplay() {
+        if (tvCurrentModelEngine == null || tvCurrentModelName == null) {
             return;
         }
-
-        List<OnlineModelManager.OnlineModelConfig> onlineModels = onlineModelManager.getModelList();
-        final String activeId = onlineModelManager.getActiveModel() != null
-                ? onlineModelManager.getActiveModel().id : null;
-        final List<OnlineModelManager.OnlineModelConfig> finalOnlineModels = new ArrayList<>(onlineModels);
-
-        // 安全更新：确保在 UI 线程执行，并避开 RecyclerView 布局冲突
-        Runnable updateRunnable = () -> {
-            if (onlineModelAdapter == null) return;
-            onlineModelAdapter.updateData(finalOnlineModels, activeId);
-            // DiffUtil 可能因引用相同而跳过更新，强制刷新确保 UI 同步
-            onlineModelAdapter.notifyDataSetChanged();
-        };
-
-        if (onlineModelsRecycler.isComputingLayout() || onlineModelsRecycler.isAnimating()) {
-            onlineModelsRecycler.post(updateRunnable);
-        } else {
-            updateRunnable.run();
-        }
-
-        if (onlineModelsEmptyView != null) {
-            onlineModelsEmptyView.setVisibility(onlineModels.isEmpty() ? View.VISIBLE : View.GONE);
-        }
-        if (onlineModelsRecycler != null) {
-            onlineModelsRecycler.setVisibility(onlineModels.isEmpty() ? View.GONE : View.VISIBLE);
-        }
-
-        // 顶部"当前模型"卡片：显示真实当前使用的在线模型
-        if (tvCurrentOnlineModel != null) {
-            if (inferenceRouter.isUsingOnlineModel()) {
-                String modelName = inferenceRouter.getCurrentModelName();
-                tvCurrentOnlineModel.setText(modelName != null ? modelName : getString(R.string.h_be4bb9e0));
-                tvCurrentOnlineProvider.setText(getString(R.string.h_7fc75577));
-            } else {
-                // 不在用在线模型（本地或 NPU 接管）时，不能把注册表里的在线配置当成"当前使用"显示，
-                // 否则本页与聊天页会同时报出两个不同的生效模型。这里改读路由的真实口径。
-                String routed = inferenceRouter.getCurrentModelName();
-                if (routed != null && !routed.isEmpty()) {
-                    tvCurrentOnlineModel.setText(routed);
-                    tvCurrentOnlineProvider.setText(
-                            inferenceRouter.getCurrentInferenceType().getDisplayName());
-                } else {
-                    OnlineModelManager.OnlineModelConfig active = onlineModelManager.getActiveModel();
-                    if (active != null) {
-                        tvCurrentOnlineModel.setText(active.selectedModel != null ? active.selectedModel : active.modelName);
-                        tvCurrentOnlineProvider.setText(active.name);
-                    } else {
-                        tvCurrentOnlineModel.setText(getString(R.string.h_be4bb9e0));
-                        tvCurrentOnlineProvider.setText(getString(R.string.h_fdb64631));
-                    }
-                }
-            }
-        }
-    }
-
-    // ==================== 本地模型 ====================
-
-    private void refreshLocalModels() {
-        String currentModel = aiService.getCurrentModelName();
-
-        if (tvCurrentLocalModel != null) {
-            if (currentModel != null && !currentModel.isEmpty()) {
-                tvCurrentLocalModel.setText(currentModel);
-                tvLocalModelInfo.setText(getString(R.string.h_dd7aa8f7));
-            } else {
-                tvCurrentLocalModel.setText(getString(R.string.h_7bb4fd0e));
-                tvLocalModelInfo.setText(getString(R.string.h_2ef7cb00));
-            }
-        }
-
-        if (modelsRecycler == null || modelAdapter == null) {
-            return;
-        }
-
-        String[] availableModels = aiService.getAvailableModels();
-        final List<String> modelList = new ArrayList<>();
-        if (availableModels != null) {
-            for (String model : availableModels) {
-                modelList.add(model);
-            }
-        }
-
-        // 本地模型列表的"当前使用"高亮：仅当实际使用本地模型时才标记，
-        // 避免在线模型激活时本地列表也显示"当前使用"（两个都高亮的歧义）。
-        String localCurrentModel = null;
-        if (inferenceRouter != null && !inferenceRouter.isUsingOnlineModel()) {
-            localCurrentModel = currentModel;
-        }
-        final String finalLocalCurrentModel = localCurrentModel;
-
-        Runnable updateRunnable = () -> {
-            if (modelAdapter == null) return;
-            modelAdapter.updateData(modelList, finalLocalCurrentModel);
-            modelAdapter.notifyDataSetChanged();
-        };
-        if (modelsRecycler.isComputingLayout() || modelsRecycler.isAnimating()) {
-            modelsRecycler.post(updateRunnable);
-        } else {
-            updateRunnable.run();
-        }
-
-        if (localModelsEmptyView != null) {
-            localModelsEmptyView.setVisibility(modelList.isEmpty() ? View.VISIBLE : View.GONE);
-        }
-        if (modelsRecycler != null) {
-            modelsRecycler.setVisibility(modelList.isEmpty() ? View.GONE : View.VISIBLE);
-        }
-    }
-
-    // ==================== 在线模型回调（与模型管理页一致） ====================
-
-    private OnlineModelManager.OnlineModelConfig findOnlineModelByName(String modelName) {
-        for (OnlineModelManager.OnlineModelConfig config : onlineModelManager.getModelList()) {
-            if (config.name.equals(modelName)) {
-                return config;
-            }
-        }
-        return null;
-    }
-
-    @Override
-    public void onModelClick(String modelName) {
-        OnlineModelManager.OnlineModelConfig onlineConfig = findOnlineModelByName(modelName);
-        if (onlineConfig != null) {
-            // 在线模型：直接切换并即时刷新 UI
-            inferenceRouter.switchModel(onlineConfig.id);
-            Toast.makeText(this, getString(R.string.h_9569dd13) + modelName, Toast.LENGTH_SHORT).show();
-            refreshOnlineModels();
-        } else {
-            Toast.makeText(this, getString(R.string.h_154f0dc4) + modelName, Toast.LENGTH_SHORT).show();
-            onlineModelManager.stopActiveModel();
-            aiService.hotSwitchModel(modelName, new AIService.HotSwitchCallback() {
-                @Override
-                public void onSwitchStarted(String fromModel, String toModel) {
-                    runOnUiThread(() -> {
-                        Toast.makeText(AICenterActivity.this,
-                            "开始切换: " + (fromModel != null ? fromModel : "无") + " → " + toModel,
-                            Toast.LENGTH_SHORT).show();
-                    });
-                }
-
-                @Override
-                public void onSwitchProgress(int progress, String message) {
-                }
-
-                @Override
-                public void onSwitchCompleted(boolean success, String model) {
-                    runOnUiThread(() -> {
-                        if (success) {
-                            Toast.makeText(AICenterActivity.this,
-                                getString(R.string.h_24d9c18f) + model, Toast.LENGTH_SHORT).show();
-                            refreshLocalModels();
-                        } else {
-                            Toast.makeText(AICenterActivity.this,
-                                getString(R.string.h_b9c8e7b7), Toast.LENGTH_SHORT).show();
-                        }
-                    });
-                }
-
-                @Override
-                public void onSwitchFailed(String reason) {
-                    runOnUiThread(() -> {
-                        Toast.makeText(AICenterActivity.this,
-                            getString(R.string.h_70a7d4d9) + reason, Toast.LENGTH_SHORT).show();
-                    });
-                }
-            });
-        }
-    }
-
-    @Override
-    public void onDeleteClick(String modelName) {
-        OnlineModelManager.OnlineModelConfig config = findOnlineModelByName(modelName);
-        if (config == null) return;
-
-        final String configId = config.id;
-        new AlertDialog.Builder(this)
-            .setTitle(getString(R.string.h_50eaf94d))
-            .setMessage(getString(R.string.h_bf14db74) + config.name + getString(R.string.h_2957e496))
-            .setPositiveButton(getString(R.string.h_2f4aaddd), (dialog, which) -> {
-                try {
-                    APIKeyManager manager = APIKeyManager.getInstance(this);
-                    if (manager.getAPIConfigById(configId) != null) {
-                        manager.deleteAPIConfig(configId);
-                    }
-                } catch (Exception ignored) {
-                }
-                onlineModelManager.removeModel(configId);
-                Toast.makeText(this, getString(R.string.h_6c0d7a63), Toast.LENGTH_SHORT).show();
-                refreshOnlineModels();
-            })
-            .setNegativeButton(getString(R.string.h_625fb26b), null)
-            .show();
-    }
-
-    @Override
-    public void onEnableToggle(String modelName, boolean enabled) {
-        for (OnlineModelManager.OnlineModelConfig config : onlineModelManager.getModelList()) {
-            if (config.name.equals(modelName)) {
-                config.enabled = enabled;
-                onlineModelManager.save();
-                try {
-                    APIKeyManager manager = APIKeyManager.getInstance(this);
-                    APIConfig apiConfig = manager.getAPIConfigById(config.id);
-                    if (apiConfig != null && apiConfig.isActive() != enabled) {
-                        apiConfig.setActive(enabled);
-                        manager.saveAPIConfig(apiConfig);
-                    }
-                } catch (Exception ignored) {
-                }
-                // 如果禁用了当前活跃的在线模型，停止使用它
-                if (!enabled) {
-                    OnlineModelManager.OnlineModelConfig active = onlineModelManager.getActiveModel();
-                    if (active != null && active.id.equals(config.id)) {
-                        onlineModelManager.stopActiveModel();
-                    }
-                }
-                refreshOnlineModels();
-                Toast.makeText(this, enabled ? getString(R.string.h_53ace430) : getString(R.string.h_1c1ed981), Toast.LENGTH_SHORT).show();
-                break;
-            }
-        }
-    }
-
-    @Override
-    public void onAddClick() {
-        showAddOnlineModelDialog();
-    }
-
-    @Override
-    public void onEditClick(String modelName) {
-        OnlineModelManager.OnlineModelConfig config = findOnlineModelByName(modelName);
-        if (config == null) {
-            Toast.makeText(this, getString(R.string.h_aed6aa70), Toast.LENGTH_SHORT).show();
-            return;
-        }
-        showEditOnlineModelDialog(config);
-    }
-
-    private void showAddOnlineModelDialog() {
-        OnlineModelConfigDialog dialog = new OnlineModelConfigDialog(this);
-        dialog.setSaveListener(new OnlineModelConfigDialog.OnConfigSaveListener() {
-            @Override
-            public void onConfigSaved(OnlineModelManager.OnlineModelConfig config) {
-                if (config != null) {
-                    // 新增也要投射进 models 表（与模型中心同一条 afterConfigSaved 口径），
-                    // 否则这条配置在用量侧 join 不到名字
-                    com.oilquiz.app.ai.usage.ModelUsageBridge.afterConfigSaved(
-                            AICenterActivity.this, config);
-                    // 通过 InferenceRouter 切换，确保路由状态同步
-                    inferenceRouter.switchModel(config.id);
-                    Toast.makeText(AICenterActivity.this,
-                        getString(R.string.h_8a7f6c2f) + config.name, Toast.LENGTH_SHORT).show();
-                    refreshOnlineModels();
-                }
-            }
-
-            @Override
-            public void onConfigCancelled() {
-            }
-        });
-        dialog.show();
-    }
-
-    private void showEditOnlineModelDialog(OnlineModelManager.OnlineModelConfig config) {
-        OnlineModelConfigDialog dialog = new OnlineModelConfigDialog(this);
-        dialog.setSaveListener(new OnlineModelConfigDialog.OnConfigSaveListener() {
-            @Override
-            public void onConfigSaved(OnlineModelManager.OnlineModelConfig updatedConfig) {
-                // 注册表 → models 表的投射：模型中心那条路径（ModelRegistrationController）会做，
-                // 此前本页只刷新自己的列表 → 从 AI 中心改完，用量侧仍是旧投射
-                com.oilquiz.app.ai.usage.ModelUsageBridge.afterConfigSaved(
-                        AICenterActivity.this, updatedConfig);
-                Toast.makeText(AICenterActivity.this,
-                    getString(R.string.h_454706a6) + updatedConfig.name, Toast.LENGTH_SHORT).show();
-                refreshOnlineModels();
-            }
-
-            @Override
-            public void onConfigCancelled() {
-            }
-        });
-        dialog.show(config);
-    }
-
-    @Override
-    public void onFetchModelsClick(String modelName) {
-        OnlineModelManager.OnlineModelConfig config = findOnlineModelByName(modelName);
-        if (config == null) {
-            Toast.makeText(this, getString(R.string.h_aed6aa70), Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        if (config.apiKey == null || config.apiKey.isEmpty()) {
-            Toast.makeText(this, getString(R.string.h_1571dfd4), Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        Toast.makeText(this, getString(R.string.h_916702da), Toast.LENGTH_SHORT).show();
-
-        final String targetConfigId = config.id;
-        modelListFetcher.fetchModels(config.apiUrl, config.apiKey)
-            .thenAccept(models -> runOnUiThread(() -> {
-                if (models != null && !models.isEmpty()) {
-                    try {
-                        JSONArray modelsJson = new JSONArray();
-                        for (ApiModel model : models) {
-                            modelsJson.put(
-                                com.oilquiz.app.ai.service.ModelListFetcher.modelToCacheJson(model));
-                        }
-                        onlineModelManager.saveCachedModels(targetConfigId, modelsJson.toString());
-                        Toast.makeText(this, getString(R.string.h_96daed33) + models.size() + getString(R.string.h_44850b04), Toast.LENGTH_SHORT).show();
-                        refreshOnlineModels();
-                    } catch (Exception e) {
-                        Toast.makeText(this, getString(R.string.h_157fa13a) + e.getMessage(), Toast.LENGTH_SHORT).show();
-                    }
-                } else {
-                    Toast.makeText(this, getString(R.string.h_d1ef35f7), Toast.LENGTH_SHORT).show();
-                }
-            }))
-            .exceptionally(e -> {
-                runOnUiThread(() -> {
-                    Toast.makeText(this, getString(R.string.h_bdf02ef7) + e.getMessage(), Toast.LENGTH_SHORT).show();
-                });
-                return null;
-            });
-    }
-
-    @Override
-    public void onModelSelected(String modelName, String selectedModel) {
-        OnlineModelManager.OnlineModelConfig config = findOnlineModelByName(modelName);
-        if (config == null) {
-            Toast.makeText(this, getString(R.string.h_aed6aa70), Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        onlineModelManager.saveSelectedModel(config.id, selectedModel);
-        // 切换模型后异步补查一次该模型的真实上下文窗口（带持久化缓存，命中则零请求），
-        // 回写配置供 Agent 压缩阈值与 UI 展示使用
-        final OnlineModelManager.OnlineModelConfig cfg = config;
         try {
-            java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-                try {
-                    return com.oilquiz.app.ai.service.OnlineInferenceService
-                            .getInstance(this).queryContextWindowFromAPI(cfg);
-                } catch (Throwable t) {
-                    return null;
+            com.oilquiz.app.ai.model.InferenceType type =
+                    inferenceRouter != null ? inferenceRouter.getEffectiveInferenceType()
+                            : com.oilquiz.app.ai.model.InferenceType.LOCAL;
+            tvCurrentModelEngine.setText("引擎：" + type.getDisplayName());
+
+            String name = inferenceRouter != null ? inferenceRouter.getCurrentModelName() : null;
+            tvCurrentModelName.setText(name == null || name.isEmpty() ? "未选择模型" : name);
+
+            if (tvCurrentModelDetail != null) {
+                String detail;
+                if (type == com.oilquiz.app.ai.model.InferenceType.ONLINE) {
+                    OnlineModelManager.OnlineModelConfig active =
+                            onlineModelManager != null ? onlineModelManager.getActiveModel() : null;
+                    detail = active == null ? "未选择在线模型"
+                            : (active.name + (active.apiUrl == null ? "" : " · " + active.apiUrl));
+                } else {
+                    String model = aiService != null ? aiService.getCurrentModelName() : null;
+                    detail = model == null || model.isEmpty()
+                            ? "本地模型未加载，点「🔀 切换模型」去选"
+                            : "已加载：" + model;
                 }
-            }).thenAccept(window -> {
-                if (window != null && window > 0) {
-                    cfg.contextWindow = window;
-                    cfg.contextWindowFromApi = true;
-                    onlineModelManager.updateModelConfig(cfg);
-                }
-            });
-        } catch (Throwable ignored) {
-            // 查询失败静默，保留配置表推断值
+                tvCurrentModelDetail.setText(detail);
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("AICenterActivity", "当前模型显示刷新失败: " + t.getMessage());
         }
-        // 自动切换到该在线模型
-        inferenceRouter.switchModel(config.id);
-        Toast.makeText(this, getString(R.string.h_f70a7dc7) + selectedModel, Toast.LENGTH_SHORT).show();
-        refreshOnlineModels();
     }
 
     // ==================== 服务状态 ====================
