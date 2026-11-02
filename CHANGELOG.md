@@ -24,6 +24,36 @@
 `AIConfig.fast_chat_enabled`、`chip_fast_mode`、`processChatMessageOnlineFast` 全部移除，
 在线对话恢复为"统一走 Agent 工具流"。
 
+### 真机证据（2026-11-02 16:16–16:24，日志 + 会话记录）
+
+写清楚，免得下次重复推理：
+
+1. **16:16:22**（快速模式，修端点判断之前）：
+   ```
+   AIChatActivity: 快速模式路由：在线普通请求（不注入工具）
+   OnlineInferenceService: 该服务商官方联网只支持端点 /responses，当前 https://api.deepseek.com 用不上 → 走自有搜索判定
+   NetworkSearchTool: Metaso Search: 今天有什么新闻
+   NetworkSearchTool: Metaso Search Response Code: 200
+   ```
+   会话侧同一条提问 **16:16:22 → 16:22:23 才出答案（约 6 分钟）**，答案有内容（A 股、五中全会、霍尔木兹），
+   但没有引用来源。→ 结论：这条路走的是"秘塔预搜索 + 普通对话"，不是官方联网。
+
+2. **16:23:18**（装上端点判断修复之后）：用户点了**重新生成**（`Regenerating from user message at index 4`），
+   这次日志显示改道成功：
+   ```
+   AIChatActivity: 快速模式路由：在线普通请求（不注入工具）
+   OnlineInferenceService: 官方联网只在 /responses 生效，本次文本流改走 Responses（不扣秘塔）
+   OnlineInferenceService: 联网搜索交给官方服务端执行（param=web_search_tool），跳过自有预搜索，不消耗秘塔额度
+   ```
+   **但这之后没有任何 `Responses API usage` / `API 请求失败` 日志** —— 因为约 16:26 我在装新 APK，
+   进程被杀（新 pid 1913），这次请求**没跑完就被打断**。
+
+3. 所以这次回退的依据是"**没有拿到可用证据 + 多了一层偷偷换协议的复杂度**"，不是"官方联网被证明不可用"。
+   会话里"搜索下雷泽"那条（16:23:18 出稿、16 秒）通篇没有联网痕迹，也只是**未完成的重新生成前**的旧回答。
+
+**如果以后还想做**：先只跑一次干净的验证（不要同时装包），把 `Responses API usage` 与回答里的引用抓下来；
+再决定要不要把"官方联网"作为能力位接进工具流，而不是靠快速模式换协议。
+
 
 ## [2026-11-02] chore(recovery)：NetworkSearchTool 写坏后由反编译恢复；trafilatura 试验结论：不引入
 
