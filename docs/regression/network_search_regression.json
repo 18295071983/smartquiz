@@ -1,0 +1,282 @@
+{
+  "tool": "network_search",
+  "generated_at": "2026-11-02",
+  "cases": [
+    {
+      "id": "R-01",
+      "action": "summarize",
+      "priority": "P0",
+      "params": {
+        "url": "https://www.iana.org/help/example-domains",
+        "query": "EXAMPLE 保留域名的用途"
+      },
+      "expect": "summary 不含 function( / var / .article-toc / CSS 规则；长度100~800字；内容为保留域名用途概括",
+      "observed": "正文准确但结尾截断在 for (var i",
+      "status": "FAIL",
+      "rootcause": "D-1"
+    },
+    {
+      "id": "R-02",
+      "action": "summarize",
+      "priority": "P0",
+      "params": {
+        "url": "https://guangxi.chinatax.gov.cn/nsfw/nszx/rdwd/202608/t20260827_439156.html",
+        "query": "2026年新能源汽车购置税减免政策要点"
+      },
+      "expect": "summary 不含站点模板导航串；须含 减半征收、1.5万元",
+      "observed": "开头为 简体/繁体/无障碍/长者专区/抖音/微信 导航串",
+      "status": "FAIL",
+      "rootcause": "D-1"
+    },
+    {
+      "id": "R-03",
+      "action": "summarize",
+      "priority": "P0",
+      "params": {
+        "query": "2026年新能源汽车购置税减半政策要点"
+      },
+      "expect": "明确报错且不扣额度",
+      "observed": "报错：需要 results 或直接给 url；query 只是主题标签；本次未发出请求",
+      "status": "PASS",
+      "rootcause": ""
+    },
+    {
+      "id": "R-04",
+      "action": "summarize",
+      "priority": "P1",
+      "params": {
+        "results": "search 返回的3条数组"
+      },
+      "expect": "逐条生成摘要",
+      "observed": "未验证",
+      "status": "N/A",
+      "rootcause": ""
+    },
+    {
+      "id": "R-05",
+      "action": "smart_read",
+      "priority": "P1",
+      "params": {
+        "results": "税务局/汽车之家/新浪 3条"
+      },
+      "expect": "conciseSummary 概括内容；keyPoints 为实质要点；detailedSummary 无 Sentry SDK 代码",
+      "observed": "conciseSummary 仅罗列标题；detailedSummary 含整段 Sentry SDK，全文21万字符",
+      "status": "FAIL",
+      "rootcause": "D-1"
+    },
+    {
+      "id": "R-06",
+      "action": "smart_read",
+      "priority": "P2",
+      "params": {
+        "results": "同上"
+      },
+      "expect": "sources 条数与输入一致、URL 可回溯",
+      "observed": "返回2条，URL 对应",
+      "status": "PASS",
+      "rootcause": ""
+    },
+    {
+      "id": "R-07",
+      "action": "search_and_read",
+      "priority": "P1",
+      "params": {
+        "query": "2026年新能源汽车车辆购置税减免政策公告 全文",
+        "detailIndex": 0
+      },
+      "expect": "选中政策正式文本；content 无脚本",
+      "observed": "选中 kepu.gov.cn 2023年旧文，与2026时效不符",
+      "status": "HALF",
+      "rootcause": "排序策略"
+    },
+    {
+      "id": "R-08",
+      "action": "search_and_read",
+      "priority": "P0",
+      "params": {
+        "query": "2026年新能源汽车车辆购置税减免政策公告 全文",
+        "detailIndex": 1
+      },
+      "expect": "content.summary 开头为正文自然语言",
+      "observed": "开头为 (function (ua, doc) {if (/iPhone|iPod|iPad|... 接 webCustomSDKConfig",
+      "status": "FAIL",
+      "rootcause": "D-1"
+    },
+    {
+      "id": "R-09",
+      "action": "search_and_read",
+      "priority": "P2",
+      "params": {
+        "query": "同上",
+        "limit": 5
+      },
+      "expect": "返回多条正文",
+      "observed": "只返回1条，limit 未生效",
+      "status": "HALF",
+      "rootcause": "语义待明确"
+    },
+    {
+      "id": "R-10",
+      "action": "extract_info",
+      "priority": "P2",
+      "params": {
+        "url": "https://guangxi.chinatax.gov.cn/nsfw/nszx/rdwd/202608/t20260827_439156.html",
+        "query": "减免幅度、适用期限、减税上限、适用车型"
+      },
+      "expect": "返回字段随 query 变化",
+      "observed": "query 被忽略，返回固定元数据字段",
+      "status": "FAIL",
+      "rootcause": "D-4"
+    },
+    {
+      "id": "R-11",
+      "action": "extract_info",
+      "priority": "P2",
+      "params": {
+        "url": "https://news.sciencenet.cn/htmlnews/2026/10/572524.shtm",
+        "query": "获奖者姓名、机构、获奖理由、奖金"
+      },
+      "expect": "同上",
+      "observed": "同上",
+      "status": "FAIL",
+      "rootcause": "D-4"
+    },
+    {
+      "id": "R-12",
+      "action": "extract_info",
+      "priority": "P2",
+      "params": {
+        "url": "https://www.iana.org/help/example-domains",
+        "query": "EXAMPLE域名的用途和保留范围"
+      },
+      "expect": "同上",
+      "observed": "同上",
+      "status": "FAIL",
+      "rootcause": "D-4"
+    },
+    {
+      "id": "R-13",
+      "action": "extract_info",
+      "priority": "P0",
+      "params": {
+        "url": "三个页面各一次"
+      },
+      "expect": "keywords 不含 var/function/if/==/nbsp/trim/return/toc",
+      "observed": "三页全部命中 JS 语法词",
+      "status": "FAIL",
+      "rootcause": "D-1"
+    },
+    {
+      "id": "R-14",
+      "action": "extract_info",
+      "priority": "P1",
+      "params": {
+        "url": "税务局页"
+      },
+      "expect": "headings 不含空标题",
+      "observed": "1个真H1 + 14个空H2",
+      "status": "FAIL",
+      "rootcause": "D-1"
+    },
+    {
+      "id": "R-15",
+      "action": "extract_info",
+      "priority": "P1",
+      "params": {
+        "url": "税务局页 / 科学网页"
+      },
+      "expect": "phones 无虚构号码",
+      "observed": "15222862899×2；科学网曾返回 14154999015",
+      "status": "FAIL",
+      "rootcause": "D-1"
+    },
+    {
+      "id": "R-16",
+      "action": "extract_info",
+      "priority": "P1",
+      "params": {
+        "url": "科学网页"
+      },
+      "expect": "dates 均为真实日期",
+      "observed": "曾返回 2026/10/57（10月57日）",
+      "status": "FAIL",
+      "rootcause": "D-1"
+    },
+    {
+      "id": "R-17",
+      "action": "extract_info",
+      "priority": "P1",
+      "params": {
+        "url": "税务局页"
+      },
+      "expect": "同一段文本只出现一次",
+      "observed": "index60 与 index122 完全一致；PC/移动版 DOM 成对重复",
+      "status": "FAIL",
+      "rootcause": "D-2"
+    },
+    {
+      "id": "R-18",
+      "action": "extract_info",
+      "priority": "P1",
+      "params": {
+        "url": "IANA 页"
+      },
+      "expect": "日期不重复",
+      "observed": "2026-09-27 出现两次",
+      "status": "FAIL",
+      "rootcause": "D-2"
+    },
+    {
+      "id": "R-19",
+      "action": "read_url",
+      "priority": "P0",
+      "params": {
+        "url": "任一测试页"
+      },
+      "expect": "返回干净纯文本，无 CSS/JS",
+      "observed": "一直干净",
+      "status": "PASS",
+      "rootcause": ""
+    },
+    {
+      "id": "R-20",
+      "action": "ask",
+      "priority": "P0",
+      "params": {
+        "question": "任意事实问题"
+      },
+      "expect": "结论 + 引用来源",
+      "observed": "正常，附引用",
+      "status": "PASS",
+      "rootcause": ""
+    },
+    {
+      "id": "R-21",
+      "action": "search",
+      "priority": "P0",
+      "params": {
+        "query": "任意关键词"
+      },
+      "expect": "title/url/snippet/date",
+      "observed": "正常，含发布日期",
+      "status": "PASS",
+      "rootcause": ""
+    },
+    {
+      "id": "R-22",
+      "action": "summarize",
+      "priority": "P2",
+      "params": {},
+      "expect": "source_note 标注本地解析、不扣额度",
+      "observed": "已带 source_note",
+      "status": "PASS",
+      "rootcause": ""
+    }
+  ],
+  "rootcause_legend": {
+    "D-1": "HTML 转文本未剔除 script/style/noscript/svg/iframe（P0）",
+    "D-2": "PC 版与移动版 DOM 未去重（P1）",
+    "D-3": "summary 实为前 N 字符切片（P1）",
+    "D-4": "extract_info 的 query 未被使用（P1，或改名收口）"
+  }
+}

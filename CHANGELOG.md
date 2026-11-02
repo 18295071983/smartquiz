@@ -1,5 +1,235 @@
 # 变更日志
 
+## [2026-11-02] chore(recovery)：NetworkSearchTool 写坏后由反编译恢复；trafilatura 试验结论：不引入
+
+**事故**：为撤掉 trafilatura 分支，我用 PowerShell 的 `Get-Content -Raw` + `Set-Content` 往返改写了
+`NetworkSearchTool.java`，被当成 GBK 读出再按 UTF-8 写回，中文与行结构全坏（编译报"未结束的字符串"）。
+
+**恢复**：用 jadx 从最后一次成功编译的 class 反编译回来，再逐处修正反编译失真——
+注解短名、`Document`/`Element` 类型、`try/catch` 结构、常量字面量（`180_000L`）、
+`metasoSearch` 签名、`fb` 变量声明位置。**逻辑与损坏前一致，原中文注释丢失**（文件头已注明，并写了
+"不要再用 PowerShell 往返改写"的教训）。全量单测 1362 条全绿。
+
+**trafilatura 结论：不引入**。证据：
+- 2.0.0 声明 `lxml>=5.3.0`，但它的依赖 `htmldate 1.11` 要 `lxml>=6.1.3`、`justext` 还要 `lxml.html.clean`；
+- chaquopy 的 lxml 最高只有 **5.3.0**（查过 chaquo.com/pypi-13.1 索引），升不上去；
+- 退回 1.8 虽能跑（本地实测 IANA 745 字、chinanews 296 字，抽取干净），但要多带
+  babel（30MB）+ dateparser + tld + lxml_html_clean 等约 40MB，收益不抵成本。
+
+维持现状：端侧 JVM（Jsoup + Readability）抽取 + 质量评分，硬页面（JS 渲染）交给 `read_url`。
+
+## [2026-11-02] fix(search)：栏目索引页降权（稳定重排）+ isDynamic 口径修正
+
+真机留了两条"存疑/未修"，都是判定问题，能用固定输入钉住：
+
+- **栏目索引页降权**：`search` 以前原样返回秘塔顺序。栏目页（`/col/col1234/`、`index.html`、`/channel/`、
+  纯列表页）关键词密度天然高，容易压过具体内容页。现在做**稳定重排**：把明确像栏目页的挪到后面，
+  其余顺序不动；每条补 `original_index` 可回查接口原序，返回里加 `ranking_note` 说明动过。
+  判定保守——带长数字 ID、`/content/`、`/article/`、`/detail` 的一律当内容页不动。
+- **`isDynamic` 口径**：以前 `get_dynamic_content` 只要页面里有 `window.x = ...;` 就判动态，
+  静态页也 true 而 `dynamicData` 是 `{}`。现在只有**真挖到内嵌状态**（`windowVariables`）才算动态；
+  `webpage_reader` 同理，`application/ld+json`（SEO 元数据）不再算动态，单独给 `hasStructuredData`。
+- PII 脱敏按用户口径**本期不做**，合规文档里已从"待办"改成"本期不做"并写清前提。
+
+验证：新增 `SearchRankingTest` 6 条（栏目页判定正反例、降权后顺序与 `original_index`、
+无栏目页时不动、ld+json 不算动态、hydration state 算动态）；全量单测 190 个类 / 1362 条，
+0 failures / 0 errors；`assembleDebug` 通过，APK 已装回设备。
+
+## [2026-11-02] feat(compliance)：抓取入口接上 robots.txt 检查与按域名限速
+
+上一轮把合规规则写成了文档，但「robots / 频率」两条还只是纸面文字。这一轮做成所有抓取入口共用的闸门，
+规则本身可离线单测。
+
+- 新增 [`WebFetchPolicy`](src/main/java/com/oilquiz/app/ai/tool/WebFetchPolicy.java)：
+  - **robots**：按主机缓存 1 小时，只认 `User-agent: *` 组；「最长匹配优先、等长时 Allow 胜」；
+    取不到 robots.txt 按放行处理；显式 `Disallow` 命中时抛
+    「该站点 robots.txt 禁止抓取该路径（合规检查，不是网络错误）」——让模型知道该换来源而不是重试。
+  - **限速**：同域名并发 ≤ 2、两次请求间隔 ≥ 1s；排队超过 8s 直接报错，不静默挂起。
+  - `network_search.fetchWebpage` 与 `webpage_reader.fetch` 都接进 `try/finally`（保证名额释放）。
+- 文档同步：`LICENSING_AND_COMPLIANCE.md` 第四节里这两条从「待办」改成已落地，并写明实现位置。
+
+验证：新增 `WebFetchPolicyTest` 6 条（最长匹配、只认 `*` 组、空规则放行、注释容错、间隔生效、主机解析）；
+全量单测 189 个类 / 1356 条，0 failures / 0 errors。
+
+## [2026-11-02] docs(compliance)：依赖许可准入 + 抓取合规规则落成文档，并加"不许漂移"测试
+
+用户问"这个有法律风险吗"。结论是：**MIT/Apache 这类组件本身风险很低，真正要管的是两件事**——
+别把 GPL/AGPL 链进进程、以及抓来的内容怎么存怎么展示。
+
+- 新增 [`docs/LICENSING_AND_COMPLIANCE.md`](docs/LICENSING_AND_COMPLIANCE.md)：五档准入
+  （A 宽松可进进程 / B LGPL 有条件 / C GPL 仅独立程序 / D AGPL 连服务端也不行 / E 厂商条款逐条审）、
+  新增依赖的五步登记流程、抓取侧七条硬规则（robots、频率、著作权、PII、存储、上游 API、出境）、
+  发布前 gate、以及已评估候选的结论表（trafilatura ✅、GNE ❌、Firecrawl/SearXNG ❌、
+  MarkItDown ✅、Docling ⚠️ 模型权重另算）。
+- `THIRD_PARTY_NOTICES.md` 两份（`docs/` 与随包 `assets/apk_shell/guides/`）加了指路链接，
+  并新增 `LicensingDocsTest`：**两份必须逐字节一致**、准入文档必须存在且被引用 —— 以前靠人工同步，
+  漏一次就是"包里的声明和实际依赖不符"。
+
+验证：全量单测 188 个类 / 1350 条，0 failures / 0 errors。
+
+## [2026-11-02] feat(reader)：page_type / quality / verdict 质量结论 + extract 的 query 真正筛正文
+
+上一轮只剩两条 P1：`extract` 的 query 名义生效、页面质量没有评分。两条都用同一套"可解释的硬指标"收口。
+
+- **质量结论 `quality` / `verdict`**（`HtmlContentExtractor.assess`）：只看客观量——
+  正文长度、标点密度、链接占比、重复段落占比、是否被重定向、HTTP 状态。输出
+  `quality{score, page_type, flags}` 与 `verdict`：
+  `fail`（4xx/5xx）/ `not_article`（empty 或 list）/ `rejected`（分 < 0.35）/
+  `degraded`（被重定向或分 < 0.5）/ `pass`。软 404 回首页那种 3705 字导航会落到
+  `not_article` 或 `rejected`，不再是 `status=success` 就完事。
+- **`extract` 的 query 真的筛正文**：按段落做命中检索（中文两字片段 + 英文整词，与
+  network_search 同一套打分），回 `matches[{index, score, content}]` 与 `matchCount`；
+  没有命中就回空数组，不硬凑。`mainContent` 仍给全文（可回溯），但"筛没筛"在字段上说清楚了。
+- 两处共用同一实现：`network_search.extract_info` 也带上 `quality` / `verdict`；
+  `webpage_reader` 的 `read`/`extract` 都带。
+
+验证：新增 `PageQualityTest` 7 条（文章 pass、链接农场 not_article、空页 not_article、
+重定向 degraded、query 命中排序、无命中回空、extract 真的筛）；全量单测 187 个类 / 1348 条，
+0 failures / 0 errors。真页复核（`LIVE_NET=true`）：IANA `pass/article`、RFC `pass/article`、
+chinanews 正文页 `pass/article`，people/sina 首页 `rejected`（不再被当成可引用正文）。
+
+## [2026-11-02] fix(reader)：暴露 final_url/状态/降级标记，修相对链接基准、读取超时、follow_links 上限与深度语义
+
+真机那轮把 `webpage_reader` 跑了个遍，结论是"单页 read 可用，但作为结果来源不安全"。
+最关键的一条是：税局文章页 `301 → 站点首页`，工具跟着跳到首页，把 3705 字导航当正文返回，
+`status` 还是 success、`category` 还是"新闻资讯"——**调用方完全看不出这不是那篇文章**。
+同一条根因还导致相对链接按请求 URL 解析，拼出 `…/tpxw/202610/xwdt/tpxw/202610/…` 的重复前缀。
+
+- **final_url / http_status / degraded / warnings**：抓取结果带上 OkHttp 的最终地址与状态码；
+  `final_url != requested_url` 时标记「疑似软 404 / 跳首页」，正文 <100 字也标降级。
+  相对链接改为按**最终 URL** 解析（`Jsoup.parse(html, finalUrl)`），重复前缀一次解决。
+- **`timeout` 参数（默认 12s）**：真机实测政府站会挂 35s 再失败，以前没有读超时，
+  一次调用能把整条链路拖住；现在 `callTimeout` 到点如实报错。
+- **`follow_links` 每页封顶 4000 字**：曾把一份 303,838 字符的注册表整页原样返回（还写临时文件）。
+- **`follow_links` 深度语义**：以前 `maxDepth=1` 一个子页都不跟、`maxDepth=2` 跟 4 页；
+  现在是"往下跟几层"（`maxDepth=1` = 根页 + 一层子页）。
+- **`get_dynamic_content` 也封顶**：B 站 `window.__INITIAL_STATE__` 有 95,493 字符，
+  现在裁到 20k 并回 `dynamicDataTruncated` / `dynamicDataChars`。
+- **keywords 清洗**：英文停用词（are/the/as/not/we…）与纯数字（`2026/10/09/30`）不再进关键词。
+
+验证：全量单测 186 个类 / 1341 条，0 failures / 0 errors；`assembleDebug` 通过，APK 已装回设备。
+
+未做（下一轮）：`extract` 的 `query` 仍只是"多回一个字段"，没有真正筛 `mainContent`；
+`page_type` / `quality` 评分没上（现用 final_url + 正文长度做降级判断，够用但不细）。
+
+## [2026-11-02] refactor(search)：正文抽取改用 Jsoup DOM + Readability（单一实现），并用真页联网验证
+
+用户口径："你刚刚改的都是固定的网页，不正规啊，你看看业界是怎么做的"。这话是对的：
+前四轮我一直在给 `network_search` 的正则抽取打补丁（剥标签、折换行、去重…），
+而项目里**本来就有一套正规实现**（`WebPageReaderTool`：Jsoup DOM + 语义标签 + 文本密度 + 链接密度），
+只是 `network_search` 走了自己的旁路。这一轮把旁路拆掉。
+
+- **新增 `HtmlContentExtractor`（单一实现）**：Jsoup 解析 → 去噪（script/style/nav/footer/表单等）→
+  语义标签优先（article/main，但要过"像不像正文"校验）→ 文本密度评分 → 父容器提升 →
+  空容器兜底 → 按块级元素输出段落。`network_search` 与 `webpage_reader` 现在都走它。
+- **删掉 `NetworkSearchTool` 里的正则抽取器**：`extractTitle`/`extractMetaDescription`/`extractMetaKeywords`/
+  `extractHeadings`/`extractInternalLinks`/`sliceContent(String)`/`stripNoiseNodes`/
+  `TITLE_PATTERN` 等一批方法常量全删，元数据改从 DOM 取（`doc.title()` / `meta[name=…]` / `h1,h2` / `a[href]`）。
+- **修了一个真站才暴露的 bug：GBK 解码**。OkHttp 的 `body().string()` 只看 `Content-Type` 的 charset，
+  缺省按 UTF-8 —— people.com.cn 这类 GBK 且头里不带 charset 的站整页乱码，正文长度、关键词全失真。
+  新增 `HtmlContentExtractor.decodeHtml`：响应头 charset → `<meta charset>` → 严格 UTF-8 试解 → GB18030 兜底；
+  `webpage_reader` 原来的解码也并入这一处。
+- **正文切片门槛 50 → 20 字**：新闻正文单段常 30~40 字，50 字的门槛把整篇切空（chinanews 实测 0 条切片）。
+- **新增 `LiveExtractionProbeTest`（默认跳过，`LIVE_NET=true` 才跑）**：直接联网抓公开页面，
+  走与线上相同的 `extract_info` 管线，断言"正文无 JS/CSS 痕迹、无 HTML 标签、日期是 ISO、文章页正文够长"。
+  这是对"拿硬编码片段自证"的修正——真页才会暴露编码、JS 渲染、侧栏污染这些事。
+
+真页验证（2026-11-02 当天）：
+
+| 页面 | 正文 | 切片 | 备注 |
+|---|---|---|---|
+| iana.org/help/example-domains | 781 | 7 | 英文静态页，无 JS 词 |
+| rfc-editor.org/rfc/rfc2606.txt | 7000 | 1 | 纯文本文档 |
+| people.com.cn（首页） | 6839 | 78 | 门户页，GBK 解码正常 |
+| news.sina.com.cn（首页） | 12706 | 244 | 门户页 |
+| chinanews.com.cn 正文页（列表页动态发现） | 4273 | 58 | 首段即标题正文 |
+
+同时确认了一条边界：**people/sina 的正文页是 JS 渲染的**，本地 Jsoup 只能拿到 200~600 字的壳，
+这类页面本来就该走 `read_url`（秘塔服务端渲染）——不是抽取器能修的，也不该再往正则上堆补丁。
+
+验证：全量单测 186 个类 / 1341 条，0 failures / 0 errors；`assembleDebug` 通过，APK 已装回设备。
+
+## [2026-11-02] fix(search)：折叠行内硬换行（英文摘要/句边界/queryMatches 三处同源）；英文 query 改整词匹配；日期统一 ISO
+
+真机第三轮：22 条用例 **17 通过 / 4 待修 / 1 存疑**，4 条里 3 条同一个根因。
+
+- **根因：行内硬换行没折叠（P0）**：英文站源码每 ~70 字符一个 `\n`，`removeHtmlTags` 只删标签、
+  把行尾换行留着，后面按 `\n` 切句就把一句英文劈成三段 —— 于是"摘要首句丢失""句子被截断在 production"
+  "queryMatches 只给半句"三个症状同时出现；中文站段落是连续长行，所以完全看不出来。
+  修法：块级标签**连闭合标签一起**换行（`</p><p>` 才凑得出段落边界），然后
+  **连续换行 = 段落、单个换行 = 空格**。一行改动，三处输出同时正确。
+- **英文 query 改成整词匹配**：以前中英文都用"两字片段"加分，而 `Ex`/`xa`/`am` 在任何英文句子里都有，
+  侧边栏栏目名 "Instructions and Guides" 能刷到 10 分。现在英文只认整词（两侧非字母数字），
+  中文保留"整词 2 分 + 片段最多 2 分"，命中结果再按文本指纹去重（PC/移动两套 DOM 会来两次）。
+- **日期统一 ISO**：同一页混着 `2026年1月1日` 与 `2026-05-27`；而税务局页那种
+  `2026 年 1 月 1 日`（字间带空格）以前根本抓不到。现在允许字间空格、全部归一成 `yyyy-MM-dd`、去重。
+- **关键词的虚词残渣**：数字剥掉后 `1日至2027年12月31日期间` 会留下 "日至"/"日期间"。
+  现在先按日期/序数虚词字符修剪词头词尾，再按黑名单丢弃纯连接词（期间/以上/以下/或者…）。
+
+验证：`NetworkSearchCleanupTest` 扩到 14 条（新增：行内换行折叠、日期 ISO 归一与去重、
+英文 query 整词匹配、关键词虚词残渣）；全量单测 185 个类 / **1340 条，0 failures / 0 errors**；
+`assembleDebug` 通过，APK 已装回设备。
+
+未处理（真机判为"存疑"，非退化）：栏目索引页（`col/col`、列表页）在 `search` 排序里天然靠前，
+建议按 URL 特征降权 —— 需要单独一轮口径确认。
+
+## [2026-11-02] fix(search)：真机复测收尾——query 命中、实体解码、关键词分词、摘要句边界；`search_and_read` 的 limit 口径定死
+
+真机复测（用户："修好了你看看"）把失败项从 13 条压到 3 条，剩下的 3 条都是 `query`，
+外加三个"大问题修完才露出来"的细节。这一轮全收掉。
+
+- **`query` 仍然不生效（P0 遗留）**：`queryMatches` 已经接上了，但永远 `[]` —— 命中判定只认
+  "整词包含"，问"减免幅度、适用期限"，正文写的是"减半征收""减税额"，一个字都不差才算命中。
+  改成**整词 2 分、两字片段 1 分，累计 ≥2 分才收**（单个片段容易是巧合），摘要选句也用同一套打分。
+- **关键词被数字切断**：分词器把 `.` `%` 当分隔符，"1.5万元" 变成 "5万元"、"70%或75%" 切出 "或"。
+  现在只有"非中文、非字母"才算分隔符，数字直接丢弃；顺带补了英文停用词
+  （IANA 那类英文页以前 keywords 全是 the/of/and）。
+- **HTML 实体没解码**：以前只处理四个实体，`&emsp;` 原样留成 "emsp" 被当关键词、`&copy;`/`&times;`
+  留在正文里。现在命名实体查表 + 十进制/十六进制数字实体按码点还原。
+- **摘要句边界**：按单句打分再拼会拼出 "…are maintained。applications." 这种残句。
+  改成**挑一段连续的最多 3 句**（窗口打分），英文句子之间用 ". " 连接、截断时退到最近的空格。
+- **R-09 `limit` 口径（这条是设计决定，不是 bug 修复）**：以前不管 `limit` 给多少都固定读 3 条 ——
+  `limit=1` 也读 3 条、`limit=5` 也只读 3 条，模型要求的条数和拿到的对不上。
+  现在口径写死并写进 schema：**`limit` = 搜索条数，同时是默认读取条数的上限（最多 3 条，控上下文）**；
+  要精确只读某一条仍用 `detailIndex`。`@Action`/`@Param`/参数说明表/`AIToolManager`/`AgentService` 五处同步。
+- **`extract_info` 改名问题**：按用户口径**保持现名**，用"让 query 真正生效"代替改名；
+  `@Action` 描述里补一句"带 query 时回 queryMatches（按问题命中的正文段落）"。
+
+验证：`NetworkSearchCleanupTest` 扩到 10 条（新增：小数不切词、实体解码、英文句边界、
+换说法也能命中 query）；全量单测 185 个类 / 1336 条，0 failures / 0 errors；
+`assembleDebug` 通过，APK 已装回设备。
+
+## [2026-11-02] fix(search)：正文清洗补上"剥脚本"这一步；extract_info 的 query 不再被忽略
+
+用户口径："我那边停了，你直接修好"。接手手机实测产出的那份 22 条回归清单
+（`docs/regression/网络搜索工具回归测试清单.md`），把 D-1~D-4 落到代码。
+
+- **D-1（P0，覆盖 8 条失败）根因**：`extractWebpageContent` 是拿**原始 HTML** 抽
+  headings / keywords / phones / dates / contentSlices 的，`removeHtmlTags` 只用在了 summary 一处。
+  于是 `<script>` 里的 JS 语法词进了 keywords（`if/var/function/return`）、脚本里的数字进了 phones、
+  整段 JS 源码进了 contentSlices。新增 `stripNoiseNodes`（整块剥掉
+  script/style/noscript/svg/iframe/template + 注释，只删这些块、保留其余标签结构），
+  在 `extractWebpageContent` 与 `extractInfo` 的入口统一执行一次。
+- **D-2（P1）**：`contentSlices` 按正文指纹去重（去空白 + 小写取前 120 字）。
+  门户页同时输出 PC 版与移动版两套 DOM（`article_appendix` / `marticle_appendix`）时，
+  同一段答复不会再被计两遍、占双份上下文。
+- **R-14/R-15/R-16**：空标题直接跳过（税务局页那 14 个空 H2）；日期做真实日历校验
+  （`2026/10/57` 这类会被拒，含闰年）；手机号要求两侧都不是数字，脚本里的长数字串不再被误判。
+- **D-3/R-02（摘要质量）**：`generateSmartSummary` 以前只按句号切句取前 3 句，常拿到站点模板导航串
+  （"简体/繁体/无障碍/长者专区…"）。现在切句后先去重、过滤模板句，再按"query 命中优先、
+  其次句子长度"挑句，最后还原原文顺序；整页都是模板句时退回不过滤的一轮，不交空摘要。
+  `generateConciseSummary` 也不再只是罗列标题——先给实质摘要，标题降级成"来源"。
+- **D-4（R-10~R-12）**：`extract_info` 的 `query` 以前完全被忽略（三轮实测换任何问法结果都一样）。
+  现在 query 非空时额外回 `queryMatches`（按顿号/逗号/空格切词，挑命中句并按命中数排序），
+  元数据套件保持原样，不破坏老调用方的返回结构。
+
+验证：新增 `NetworkSearchCleanupTest` 6 条（剥脚本、元数据无 JS 词、去重、日期/号码校验、
+query 命中、模板句过滤）；全量单测通过（185 个测试类、0 failures / 0 errors）；
+`assembleDebug` 通过，APK 已 `adb install -r` 装回设备（真机复跑清单的 P0 三条由用户在手机上确认）。
+
+未做（需要口径决定，不是 bug）：R-09 `limit` 对 `search_and_read` 的语义、
+`extract_info` 是否改名 `extract_meta`——现做法是保留名字但让 query 生效。
+
 ## [2026-11-02] feat(chat)：把「🔍 搜索」chip 接成"一键联网发问"
 
 用户口径："我记得 ai 对话界面中的网络搜索 chip，你利用起来啊"，选定**一键发问**。

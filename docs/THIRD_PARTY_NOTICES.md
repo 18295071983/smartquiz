@@ -5,6 +5,8 @@
 
 本项目随 APK 分发以下第三方二进制/库，按各自许可要求在此声明来源与许可。
 
+> 依赖准入规则（哪类许可能进进程）与抓取内容合规见 [`LICENSING_AND_COMPLIANCE.md`](LICENSING_AND_COMPLIANCE.md)。
+
 ## 1. FFmpeg / FFmpegKit（LGPL v3）
 
 - 组件：ffmpeg-kit（min 变体，Android 库形式）
@@ -186,5 +188,3 @@ APK 还链接了下列开源库，按各自许可保留版权与许可声明（�
 - Markdown 文档渲染（2026-10-25，`assets/js/markdown-it*.js`）：markdown-it 14.1（MIT）、
   markdown-it-footnote 4.0（MIT）、markdown-it-deflist 3.0（MIT）、
   markdown-it-task-lists 2.1（MIT）
-
-
