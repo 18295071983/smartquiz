@@ -995,13 +995,18 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
                         : md;
                 int startChar = java.lang.Math.max(0, getIntParam(parameters, "start_char", 0));
                 int maxChars = getIntParam(parameters, "max_chars", 0);
+                // MARKDOWN-PASSTHRU(2026-11-02)：用户要求"不要清洗，把实际 markdown 原样给我看"。
+                // 这里同时给 text 和 markdown 两个键（同值），markdown 就是秘塔返回的 markdown 原文，
+                // 不做去导航/去推荐位之类的加工。
                 if (startChar > 0 || maxChars > 0) {
                     int total = contentText.length();
                     if (startChar > total) {
                         startChar = total;
                     }
                     int end = maxChars > 0 ? java.lang.Math.min(total, startChar + maxChars) : total;
-                    result.put("text", contentText.substring(startChar, end));
+                    java.lang.String slice = contentText.substring(startChar, end);
+                    result.put("text", slice);
+                    result.put("markdown", slice);
                     java.util.Map<java.lang.String, java.lang.Object> page = new java.util.HashMap<>();
                     page.put("total_chars", java.lang.Integer.valueOf(total));
                     page.put("start_char", java.lang.Integer.valueOf(startChar));
@@ -1011,6 +1016,7 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
                     result.put("page", page);
                 } else {
                     result.put("text", contentText);
+                    result.put("markdown", contentText);
                 }
                 com.oilquiz.app.ai.tool.AIToolResult aIToolResult4 = new com.oilquiz.app.ai.tool.AIToolResult(result, parameters);
                 if (response != null) {
