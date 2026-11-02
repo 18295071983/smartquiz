@@ -286,8 +286,6 @@ public class AIChatActivity extends BaseActivity {
     private AIConfig aiConfig;
     /** 输入区上方的本地Agent开关（Chip，即时生效） */
     private com.google.android.material.chip.Chip chipLocalAgent;
-    /** 在线快速模式 chip（FAST-CHAT 2026-11-02）：开=普通请求/官方联网，关=Agent 工具流 */
-    private com.google.android.material.chip.Chip chipFastMode;
     private com.google.android.material.chip.Chip chipResumeInterrupted;
     /** 输入区上方的联网搜索开关（Chip，切换当前在线模型 supportsWebSearch 即时生效） */
     private com.google.android.material.chip.Chip chipWebSearch;
@@ -926,24 +924,6 @@ public class AIChatActivity extends BaseActivity {
                     showToast(next
                             ? "智能助手已开启：可调用天气/搜索/文件/记忆等工具"
                             : "智能助手已关闭：不调用工具（更快）");
-                });
-            }
-
-            // 在线「快速模式」开关（FAST-CHAT 2026-11-02）：
-            // 开 → 在线对话走普通请求（无 tools），联网交给服务商官方 web_search / 我们的预搜索（不扣秘塔）；
-            // 关 → 走 Agent 工具流，模型可调 network_search 等工具（会扣秘塔额度）。
-            chipFastMode = findViewById(R.id.chip_fast_mode);
-            if (chipFastMode != null && aiConfig != null) {
-                chipFastMode.setChecked(aiConfig.isFastChatEnabled());
-                updateFastModeChip(chipFastMode);
-                chipFastMode.setOnClickListener(v -> {
-                    boolean next = !aiConfig.isFastChatEnabled();
-                    aiConfig.setFastChatEnabled(next);
-                    chipFastMode.setChecked(next);
-                    updateFastModeChip(chipFastMode);
-                    showToast(next
-                            ? "在线快速模式：不调工具，联网走服务商官方搜索（不扣秘塔）"
-                            : "在线快速模式已关：走 Agent 工具流（可调工具，联网走秘塔）");
                 });
             }
 
@@ -5140,14 +5120,6 @@ public class AIChatActivity extends BaseActivity {
                 }
             } catch (Throwable ignored) {
             }
-            // FAST-CHAT(2026-11-02)：在线快速模式走普通请求（不带 tools）。
-            // 联网由服务商官方 web_search（DeepSeek Responses 等）或我们的预搜索承担，不扣秘塔；
-            // 代价是没有工具能力（读网页/天气/文件/题库都不可用），要工具就关掉这个开关。
-            if (shouldUseOnlineModel() && aiConfig != null && aiConfig.isFastChatEnabled()) {
-                AppLogger.ai(TAG, "快速模式路由：在线普通请求（不注入工具）");
-                processChatMessageOnlineFast(message);
-                return;
-            }
             // ROUTE-UNIFIED(2026-11-01)：在线与本地统一走 Agent 引擎。
             // 在线本来就不看"智能助手"开关（shouldUseOnlineModel() 直接进 processChatMessageWithAgent）；
             // 本地此前按开关分叉出"普通对话"（不注入工具、也没有工具发现入口），两套 prompt/KV 语义并存。
@@ -5168,109 +5140,6 @@ public class AIChatActivity extends BaseActivity {
      * 处理普通对话（本地模型，无 Agent 工具调用）
      * 被 processChatMessage 和 processChatMessageWithAgent（降级时）调用
      */
-    /**
-     * 在线「快速模式」：走普通请求（不带 tools）。
-     *
-     * <p>FAST-CHAT(2026-11-02)。与 Agent 工具流的唯一区别是请求里没有 function 工具：
-     * 走 {@code OnlineInferenceService#generateStream} → {@code callOpenAIAPI / callResponsesAPI}，
-     * 于是 {@code applySearchToPrompt} + {@code applyWebSearch} 那条"官方 web_search / 预搜索"链
-     * 才会真正生效（Agent 工具流那两条 builder 不注入官方搜索）。</p>
-     *
-     * <p>代价：没有工具能力 —— 读网页、天气、文件、题库都不可用。要工具就关掉快速模式。</p>
-     */
-    private void processChatMessageOnlineFast(String message) {
-        synchronized (streamingLock) {
-            if (isGenerating) {
-                AppLogger.aiW(TAG, "processChatMessageOnlineFast skipped, already generating");
-                showToast(getString(R.string.h_05582e8e));
-                return;
-            }
-        }
-        markLastUserMessageMode(ChatMessage.TURN_MODE_NORMAL);
-
-        OnlineModelManager.OnlineModelConfig active = onlineModelManager != null
-                ? onlineModelManager.getActiveModel() : null;
-        if (active == null) {
-            showToast("在线模型未配置");
-            return;
-        }
-        com.oilquiz.app.ai.service.OnlineInferenceService ois =
-                com.oilquiz.app.ai.service.OnlineInferenceService.getInstance(this);
-        if (ois == null) {
-            showToast("在线推理服务未就绪");
-            return;
-        }
-
-        // 历史只带本轮之前的内容：本轮 user 由 message 参数单独传，重复带会变成两条提问
-        List<ChatMessage> history = new ArrayList<>(chatHistory);
-        if (!history.isEmpty()
-                && history.get(history.size() - 1).type == ChatMessage.MessageType.USER) {
-            history.remove(history.size() - 1);
-        }
-
-        ChatMessage aiMsg = ChatMessage.createAIMessage(java.util.UUID.randomUUID().toString(),
-                "", System.currentTimeMillis(), null, 0, 0);
-        aiMsg.turnId = currentTurnId;
-        aiMsg.status = ChatMessage.MessageStatus.GENERATING;
-        chatHistory.add(aiMsg);
-        final int aiIndex = chatHistory.size() - 1;
-        if (chatAdapter != null) chatAdapter.notifyItemInserted(aiIndex);
-        scrollToBottom();
-        beginGeneration();
-
-        final int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
-        boolean thinking = false;
-        try {
-            thinking = ChatModeManager.getInstance(this).isDeepThinkingEnabled();
-        } catch (Throwable ignored) {
-        }
-
-        ois.generateStream(message, active, history, maxTokens, thinking,
-                new com.oilquiz.app.ai.callback.StreamCallback() {
-                    @Override public void onToken(String token) {
-                        if (token == null) return;
-                        runOnUiThread(() -> {
-                            aiMsg.content = (aiMsg.content == null ? "" : aiMsg.content) + token;
-                            if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
-                        });
-                    }
-
-                    @Override public void onThinkingToken(String token) {
-                        if (token == null || token.isEmpty()) return;
-                        runOnUiThread(() -> {
-                            aiMsg.thinkingContent = (aiMsg.thinkingContent == null
-                                    ? "" : aiMsg.thinkingContent) + token;
-                            if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
-                        });
-                    }
-
-                    @Override public void onComplete(String fullText) {
-                        runOnUiThread(() -> {
-                            if (fullText != null && !fullText.isEmpty()) {
-                                aiMsg.content = fullText;
-                            }
-                            aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
-                            if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
-                            endGeneration();
-                            scrollToBottom();
-                            saveHistoryAsync();
-                        });
-                    }
-
-                    @Override public void onError(String error) {
-                        runOnUiThread(() -> {
-                            aiMsg.content = "请求失败：" + error;
-                            aiMsg.status = ChatMessage.MessageStatus.ERROR;
-                            if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
-                            endGeneration();
-                            scrollToBottom();
-                            saveHistoryAsync();
-                        });
-                    }
-                });
-    }
-
-
     private void processChatMessageNormal(String message) {
         // 轮次模式标记（历史/会话记录用；上下文构建共享完整历史，不再隔离）
         markLastUserMessageMode(ChatMessage.TURN_MODE_NORMAL);
@@ -9681,16 +9550,6 @@ public class AIChatActivity extends BaseActivity {
         // 只写状态与文案；配色/图标 tint 由 ChatUiV2Chrome#styleModeChip 统一负责
         chip.setChecked(on);
         chip.setText(R.string.chat_mode_agent);
-        chip.setEnabled(true);
-        chip.setAlpha(1f);
-    }
-
-    /** 在线快速模式 chip：开=不注入工具（走普通请求/官方联网），关=Agent 工具流 */
-    private void updateFastModeChip(com.google.android.material.chip.Chip chip) {
-        if (chip == null) return;
-        boolean on = aiConfig != null && aiConfig.isFastChatEnabled();
-        chip.setChecked(on);
-        chip.setText(R.string.chat_mode_fast);
         chip.setEnabled(true);
         chip.setAlpha(1f);
     }

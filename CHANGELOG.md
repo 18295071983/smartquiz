@@ -19,6 +19,11 @@
 保留的部分：`快速模式` chip（`fb6b366f`）仍在——它只是"不发工具、走普通请求"，联网由预搜索承担。
 全量单测 1362 条全绿。
 
+**后续**：用户决定整体去掉快速模式（同一天、紧随其后），理由同上——它没能带来"官方联网省额度"
+这个唯一目标，却多了一个和「智能助手」语义容易混淆的开关。`fb6b366f` 已整笔回退：
+`AIConfig.fast_chat_enabled`、`chip_fast_mode`、`processChatMessageOnlineFast` 全部移除，
+在线对话恢复为"统一走 Agent 工具流"。
+
 
 ## [2026-11-02] chore(recovery)：NetworkSearchTool 写坏后由反编译恢复；trafilatura 试验结论：不引入
 

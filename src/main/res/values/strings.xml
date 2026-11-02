@@ -772,8 +772,6 @@
     <string name="chat_mode_think">深度思考</string>
     <string name="chat_mode_web">联网</string>
     <string name="chat_mode_agent">智能助手</string>
-    <!-- FAST-CHAT：在线快速模式（不带工具，走官方联网/预搜索） -->
-    <string name="chat_mode_fast">快速</string>
     <string name="chat_v2_char_count">%1$d / %2$d</string>
     <!-- 聊天页 v2 顶栏（demo .appbar） -->
     <string name="chat_v2_history_desc">对话历史</string>
