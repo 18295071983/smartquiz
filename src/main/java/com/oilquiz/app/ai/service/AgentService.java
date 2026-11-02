@@ -291,7 +291,7 @@ public class AgentService {
         registerToolSchema("weather", "查询天气", "action(操作类型: current/forecast/hourly/air_quality/alerts/indices/all), city(城市名称,可选), lat(纬度,可选), lon(经度,可选)");
         registerToolSchema("location", "位置查询工具：获取当前位置（经纬度/城市/地址）。get_current返回经纬度+城市+地址；get_city返回城市名；get_coordinates返回经纬度。位置服务未开启自动引导开启", "action(操作类型: get_current默认/get_city/get_coordinates)");
         registerToolSchema("get_location", "获取位置信息", "action(操作类型: get_current/get_city/get_coordinates)");
-        registerToolSchema("network_search", "网络搜索工具（秘塔搜索引擎）：联网搜索+智能问答+网页读取。search返回标题/链接/摘要；ask返回答案+引用来源；read_url读取网页正文。实时/最新信息必须联网搜索，禁止凭训练知识编造。默认用 ask 拿结论（一般提问它就够），要一批来源/链接才用 search。接口不支持翻页：一次把 limit 给够（上限50），没有 page 参数。秘塔按次计费（一次调用一次额度，与条数无关），别连续重搜；ask 出答案要几十秒是正常的，慢不是失败，失败按服务端错误码处置", "action(操作类型: search/ask/read_url/get_webpage/extract_info/summarize/search_and_read/smart_search,默认search), query(搜索关键词,search用), question(问答问题,ask用), url(网页URL,read_url/get_webpage用), model(问答模式:concise/detail/research,ask用,默认concise), limit(返回条数1..50,默认5,不支持翻页就调大它), num_results(结果数量别名,默认5), scope(搜索范围:webpage默认/document文库/scholar学术/image/video/podcast,找论文用scholar), include_summary(是否返回摘要,默认true), start_char(read_url正文起始字符,默认0), max_chars(read_url本次字符上限,默认整篇,长文建议4000)");
+        registerToolSchema("network_search", "网络搜索工具（秘塔搜索引擎）：联网搜索+智能问答+网页读取。search返回标题/链接/摘要；ask返回答案+引用来源；read_url读取网页正文。实时/最新信息必须联网搜索，禁止凭训练知识编造。默认用 ask 拿结论（一般提问它就够），要一批来源/链接才用 search。接口不支持翻页：一次把 limit 给够（上限50），没有 page 参数。秘塔按次计费（一次调用一次额度，与条数无关），别连续重搜；ask 出答案要几十秒是正常的，慢不是失败，失败按服务端错误码处置。只有 ask/search/read_url（含 search_and_read、smart_search 的搜索那一步）扣额度，get_webpage/extract_info/summarize/get_dynamic_content/smart_read 是本地解析、不花钱；summarize/smart_read 必须带 results（或 summarize 直接给 url）", "action(操作类型: search/ask/read_url/get_webpage/extract_info/summarize/search_and_read/smart_search,默认search), query(搜索关键词,search用), question(问答问题,ask用), url(网页URL,read_url/get_webpage用), model(问答模式:concise/detail/research,ask用,默认concise), limit(返回条数1..50,默认5,不支持翻页就调大它), num_results(结果数量别名,默认5), scope(搜索范围:webpage默认/document文库/scholar学术/image/video/podcast,找论文用scholar), include_summary(是否返回摘要,默认true), start_char(read_url正文起始字符,默认0), max_chars(read_url本次字符上限,默认整篇,长文建议4000)");
         registerToolSchema("search", "搜索网络信息", "query(搜索关键词,必填), limit(返回条数1..50,默认5;不支持翻页,要更多就调大它), scope(范围:webpage默认/document/scholar学术/image/video/podcast)");
         registerToolSchema("python_calculate", "使用Python进行数学计算", "expression(数学表达式,必填), task(任务描述,可选)");
         registerToolSchema("calculate", "执行数学计算", "expression(数学表达式,必填)");
@@ -1007,120 +1007,8 @@ public class AgentService {
         return new ToolResult(displayName, "工具执行出错(重试" + maxRetries + "次后): " + errorMsg, false, 0, maxRetries);
     }
 
-    // ========== 工具结果智能摘要 ==========
-
-    private static final int TOOL_RESULT_SUMMARY_THRESHOLD = 1500; // 超过此长度触发摘要
-
-    /**
-     * 对长工具结果进行智能摘要
-     * 当结果超过阈值时，提取关键信息进行压缩
-     */
-    public String summarizeToolResult(String toolName, String result) {
-        if (result == null || result.length() <= TOOL_RESULT_SUMMARY_THRESHOLD) {
-            return result; // 短结果直接返回
-        }
-
-        // 天气等结构化结果特殊处理
-        if (toolName != null && toolName.contains("weather")) {
-            return formatWeatherResult(result);
-        }
-
-        // 搜索结果特殊处理 - 提取标题和摘要
-        if (toolName != null && (toolName.contains("search") || toolName.contains("web"))) {
-            return formatSearchResult(result);
-        }
-
-        // 数据库结果特殊处理 - 保留表头和前几行
-        if (toolName != null && toolName.contains("database")) {
-            return formatDatabaseResult(result);
-        }
-
-        // 默认：智能截断 - 保留开头和结尾
-        return smartTruncate(result, TOOL_RESULT_MAX_LENGTH);
-    }
-
-    /**
-     * 搜索结果格式化 - 提取标题和摘要
-     */
-    private String formatSearchResult(String result) {
-        StringBuilder sb = new StringBuilder();
-        String[] lines = result.split("\n");
-        int totalLen = 0;
-        int lineCount = 0;
-
-        for (String line : lines) {
-            String trimmed = line.trim();
-            if (trimmed.isEmpty()) continue;
-
-            // 保留标题行（通常以数字、#、**开头）
-            if (trimmed.startsWith("#") || trimmed.startsWith("**") || trimmed.matches("^\\d+\\..*")
-                || trimmed.startsWith("标题") || trimmed.startsWith("Title")) {
-                if (sb.length() > 0) sb.append("\n");
-                sb.append(trimmed);
-                totalLen += trimmed.length();
-                lineCount++;
-            }
-            // 保留内容摘要（非空行）
-            else if (!trimmed.startsWith("http") && !trimmed.startsWith("[") && trimmed.length() > 20) {
-                if (sb.length() > 0) sb.append("\n");
-                String truncated = trimmed.length() > 200 ? trimmed.substring(0, 200) + "..." : trimmed;
-                sb.append(truncated);
-                totalLen += truncated.length();
-                lineCount++;
-            }
-
-            if (totalLen > 1000 || lineCount > 10) break;
-        }
-
-        if (sb.length() == 0) {
-            return smartTruncate(result, TOOL_RESULT_MAX_LENGTH);
-        }
-        return sb.toString();
-    }
-
-    /**
-     * 数据库结果格式化 - 保留表头和前几行
-     */
-    private String formatDatabaseResult(String result) {
-        // 不再截断数据库结果，全量返回
-        return result;
-    }
-
-    /**
-     * 天气结果特殊处理 - 直接提取关键信息而非摘要
-     */
-    public String formatWeatherResult(String result) {
-        try {
-            // 尝试解析JSON格式的天气结果
-            if (result.contains("{") && result.contains("}")) {
-                org.json.JSONObject json = new org.json.JSONObject(result);
-                String city = json.optString("city", json.optString("location", "未知"));
-                int temp = json.optInt("temp", json.optInt("temperature", 0));
-                String desc = json.optString("description", json.optString("text", ""));
-                int humidity = json.optInt("humidity", 0);
-                if (!desc.isEmpty() || temp != 0) {
-                    return String.format("%s天气: %s, 温度%d°C, 湿度%d%%", city, desc, temp, humidity);
-                }
-            }
-        } catch (Exception e) {
-            // JSON解析失败
-        }
-
-        // 非JSON格式，全量返回
-        return result;
-    }
-
-    /**
-     * 智能截断 - 不再截断，全量返回
-     */
-    private String smartTruncate(String result, int maxLength) {
-        return result;
-    }
-    
-    // 不再截断工具返回结果，保证数据完整性
-    private static final int TOOL_RESULT_MAX_LENGTH = Integer.MAX_VALUE;
-    private static final int TOOL_CONTENT_PREVIEW_LENGTH = 400;
-    private static final int WEATHER_CONTENT_PREVIEW_LENGTH = 1500;
+    /** 只做观测用：超过这个长度打一条 W 日志（不裁数据，见 formatToolOutput）。 */
+    private static final int TOOL_RESULT_KEEP_WARN = 6000;
 
     /**
      * 决定工具结果 map 里各键发给模型的先后：错误与原始输出排前面，其余按原顺序跟在后面。
@@ -1154,13 +1042,16 @@ public class AgentService {
         
         if (result instanceof String) {
             String strResult = (String) result;
-            int previewLength = TOOL_CONTENT_PREVIEW_LENGTH;
-            if (strResult.contains("weather") || strResult.contains("forecast") || strResult.contains("air_quality") || 
-                strResult.contains("alerts") || strResult.contains("indices") || strResult.contains("hourly")) {
-                previewLength = WEATHER_CONTENT_PREVIEW_LENGTH;
-            }
-            if (strResult.length() > previewLength) {
-                return strResult.substring(0, previewLength) + "\n[内容过长，已截断，共 " + strResult.length() + " 字符]";
+            // NO-CUT(2026-11-02)：这里以前按 400 字（内容像天气就 1500 字）拦腰切一刀，
+            // 而这条路径是**本地模型**的 native FC：查台账、读文件、跑数据库、
+            // 以及秘塔花 3 积分买回来的摘要，全都被砍成"表头 + 两三行"。
+            // 模型没见过后面的行就只能用自己的知识补——这正是"答不全/瞎编"的来源，
+            // 也让按次付费的数据被丢掉一半。
+            // 预算仍有人管：ChatContextBuilder.collectHistoryByBudget 按档位收
+            // （最近工具结果 6000 完整、旧的 2500/1200，挤掉的做成"历史要点"回注），
+            // 所以超预算的表现是"更早的历史被挤"，不是"本次数据被裁"。
+            if (strResult.length() > TOOL_RESULT_KEEP_WARN) {
+                AILogger.w(TAG, "工具结果偏大（未截断）: " + strResult.length() + " 字符");
             }
             return strResult;
         }
@@ -1191,13 +1082,8 @@ public class AgentService {
                 if (value == null) {
                     sb.append("null\n");
                 } else if (value instanceof String) {
-                    String strValue = (String) value;
-                    if (strValue.length() > TOOL_CONTENT_PREVIEW_LENGTH) {
-                        sb.append(strValue.substring(0, TOOL_CONTENT_PREVIEW_LENGTH));
-                        sb.append("\n[内容过长，已截断，共 ").append(strValue.length()).append(" 字符]\n");
-                    } else {
-                        sb.append(strValue).append("\n");
-                    }
+                    // NO-CUT(2026-11-02)：字段级 400 字裁剪同样去掉（见 formatToolOutput 的说明）。
+                    sb.append(value).append("\n");
                 } else if (value instanceof List || value instanceof Map) {
                     sb.append("\n").append(formatNestedData(value, "  ")).append("\n");
                 } else {
@@ -1212,7 +1098,9 @@ public class AgentService {
             List<?> list = (List<?>) result;
             StringBuilder sb = new StringBuilder();
             sb.append("[工具执行成功]\n\n");
-            for (int i = 0; i < Math.min(list.size(), 10); i++) {
+            // NO-CUT(2026-11-02)：条数由模型的 limit 决定，引擎不再只给前 10 条
+            // （以前超 10 条只留一句"还有 N 条"，秘塔按次买回来的第 11 条之后就永远进不了模型眼里）。
+            for (int i = 0; i < list.size(); i++) {
                 sb.append(i + 1).append(". ");
                 Object item = list.get(i);
                 if (item instanceof Map || item instanceof List) {
@@ -1221,9 +1109,6 @@ public class AgentService {
                     sb.append(item.toString());
                 }
                 sb.append("\n");
-            }
-            if (list.size() > 10) {
-                sb.append("... 还有 ").append(list.size() - 10).append(" 条结果\n");
             }
             return sb.toString();
         }
@@ -1249,7 +1134,8 @@ public class AgentService {
             }
         } else if (data instanceof List) {
             List<?> list = (List<?>) data;
-            for (int i = 0; i < Math.min(list.size(), 10); i++) {
+            // NO-CUT(2026-11-02)：嵌套层同样不再限 10 项
+            for (int i = 0; i < list.size(); i++) {
                 Object item = list.get(i);
                 sb.append(indent).append("[").append(i).append("]: ");
                 if (item instanceof Map || item instanceof List) {
@@ -1257,9 +1143,6 @@ public class AgentService {
                 } else {
                     sb.append(item).append("\n");
                 }
-            }
-            if (list.size() > 10) {
-                sb.append(indent).append("... 还有 ").append(list.size() - 10).append(" 项\n");
             }
         } else {
             sb.append(data.toString());
