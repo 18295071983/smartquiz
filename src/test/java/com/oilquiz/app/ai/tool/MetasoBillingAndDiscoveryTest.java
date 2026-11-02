@@ -268,6 +268,33 @@ public class MetasoBillingAndDiscoveryTest {
         }
     }
 
+    /**
+     * 手机实测的历史里，`smart_search` / `get_dynamic_content` 的"摘要"整段是
+     * `document.write('')`、`#SOHUCS .module-cmt-list{...}`、`window.IntersectionObserver` 这类噪声——
+     * 旧实现只删标签、不删 script/style 的**文本内容**。这条把"摘要里不许出现脚本/样式"钉住。
+     */
+    @Test
+    public void htmlPreprocessingDropsScriptStyleAndDecodesEntities() throws Exception {
+        NetworkSearchTool tool = new NetworkSearchTool(null);
+        java.lang.reflect.Method m = NetworkSearchTool.class.getDeclaredMethod(
+                "removeHtmlTags", String.class);
+        m.setAccessible(true);
+
+        String html = "<html><head><style>#SOHUCS .module-cmt-list{display:none}</style>"
+                + "<script>try{if(!window.IntersectionObserver){document.write('');}}catch(e){}</script></head>"
+                + "<body><p>第一段&nbsp;正文</p><div>第二段 &#39;引号&#39; &amp; 符号</div>"
+                + "<noscript>请开启 JS</noscript><!-- 注释 --></body></html>";
+        String text = (String) m.invoke(tool, html);
+
+        assertFalse("脚本内容不许进摘要", text.contains("IntersectionObserver"));
+        assertFalse("样式内容不许进摘要", text.contains("module-cmt-list"));
+        assertFalse("noscript 提示不许进摘要", text.contains("请开启 JS"));
+        assertFalse("注释不许进摘要", text.contains("注释"));
+        assertTrue("正文要保留", text.contains("第一段") && text.contains("第二段"));
+        assertTrue("实体要还原", text.contains("'引号'") && text.contains("& 符号"));
+        assertFalse("nbsp 不许以字面量出现", text.contains("&nbsp;"));
+    }
+
     /** 申报值本身（回归锁：ask 一定要比 search 长得多）。 */
     @Test
     public void askDeclaresMuchLongerTimeoutThanSearch() {

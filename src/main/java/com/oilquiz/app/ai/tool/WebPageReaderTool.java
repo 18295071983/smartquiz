@@ -15,6 +15,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -65,7 +66,9 @@ import com.oilquiz.app.ai.util.NetworkUtil;
         // WEB-PAGE(2026-11-02)：长正文分页——一次拿不完就带 start_char/max_chars 续读，
         // 返回里带 total_chars/next_start，模型据此决定是否继续，不再靠猜。
         @Param(name = "start_char", type = "int", description = "read 正文起始字符偏移（默认 0；分页续读用）", required = false),
-        @Param(name = "max_chars", type = "int", description = "read 本次返回的最大字符数（默认 0=整篇；分页建议 4000）", required = false)
+        @Param(name = "max_chars", type = "int", description = "read 本次返回的最大字符数（默认 0=整篇；分页建议 4000）", required = false),
+        // TIMEOUT(2026-11-02)：真机实测政府站会挂 35s；默认 12s，超时如实报错而不是一直等
+        @Param(name = "timeout", type = "int", description = "读取超时秒数（默认 12，最小 3；站点慢就调大）", required = false)
     }
 )
 public class WebPageReaderTool implements AITool {
@@ -76,6 +79,14 @@ public class WebPageReaderTool implements AITool {
 
     private static final Pattern DATE_PATTERN = Pattern.compile(
             "(\\d{4}[-/]\\d{1,2}[-/]\\d{1,2})|(\\d{1,2}[-/]\\d{1,2}[-/]\\d{4})|(\\d{4}年\\d{1,2}月\\d{1,2}日)");
+
+    /** 英文停用词：英文页的关键词以前全是 are/the/as/not/we 这种，没有检索价值。 */
+    private static final Set<String> EN_STOP_WORDS = new HashSet<>(Arrays.asList(
+            "the", "of", "and", "to", "in", "is", "are", "for", "with", "that", "this",
+            "as", "on", "by", "an", "be", "it", "or", "from", "at", "you", "your", "we",
+            "not", "but", "they", "their", "has", "have", "was", "were", "will", "can",
+            "if", "then", "than", "so", "such", "these", "those", "may", "use", "used"
+    ));
 
     private static final Set<String> STOP_WORDS = new HashSet<>();
     static {
@@ -92,20 +103,6 @@ public class WebPageReaderTool implements AITool {
         STOP_WORDS.add("就"); STOP_WORDS.add("要"); STOP_WORDS.add("去"); STOP_WORDS.add("来"); STOP_WORDS.add("上");
         STOP_WORDS.add("下"); STOP_WORDS.add("出"); STOP_WORDS.add("进"); STOP_WORDS.add("过"); STOP_WORDS.add("到");
     }
-
-    /** Readability 负向特征：类名/ID 命中即视为噪声容器（评论/导航/广告/推荐等） */
-    private static final String[] NEGATIVE_HINTS = {
-            "comment", "comments", "footer", "sidebar", "related", "breadcrumb",
-            "menu", "nav", "share", "social", "advert", "ad-", "ads", "banner",
-            "popup", "modal", "newsletter", "subscribe", "login", "signup",
-            "recommend", "topbar", "toolbar", "sponsor", "promo", "hidden",
-            "tags", "meta", "author", "date", "copyright"
-    };
-
-    /** Readability 正向特征：类名/ID 命中即加权（正文容器常见命名） */
-    private static final String[] POSITIVE_HINTS = {
-            "article", "content", "main", "post", "entry", "story", "body", "text"
-    };
 
     public WebPageReaderTool(Context context) {
         this.context = context;
@@ -179,19 +176,62 @@ public class WebPageReaderTool implements AITool {
     // ==================== 抓取 ====================
 
     /**
-     * 抓取网页：OkHttp + 编码检测（header charset → meta charset → UTF-8）。
-     * 流式读取，超 5MB 拒绝（防 OOM）。
+     * 抓取结果：正文 HTML + 重定向后的最终 URL + HTTP 状态。
+     *
+     * <p>FINALURL(2026-11-02, 真机)：以前只返回 html，相对链接是按**请求 URL** 解析的，
+     * 站点一旦重定向（`/tpxw/202610/` → 首页）就会拼出 `…/tpxw/202610/xwdt/tpxw/202610/…`
+     * 这种重复前缀；软 404 也完全看不出来（站点 302 到首页仍是 200 + success）。
+     * 现在拿到 OkHttp 的最终地址，链接按它解析、重定向单独标记。</p>
      */
-    private String fetchWebpage(String urlString) throws Exception {
+    private static final class FetchResult {
+        final String html;
+        final String finalUrl;
+        final int status;
+
+        FetchResult(String html, String finalUrl, int status) {
+            this.html = html;
+            this.finalUrl = finalUrl;
+            this.status = status;
+        }
+    }
+
+    /** 默认读取超时：政府站偶发 30s+ 挂起，超时要如实报错而不是拖垮整条链路。 */
+    private static final int DEFAULT_TIMEOUT_MS = 12_000;
+
+    /**
+     * 抓取网页：OkHttp + 编码检测（header charset → meta charset → UTF-8 → GB18030）。
+     * 流式读取，超 5MB 拒绝（防 OOM）；callTimeout 防止站点挂起。
+     * 抓取前过 {@link WebFetchPolicy}：robots.txt 检查 + 按域名限速（合规规则见 docs/LICENSING_AND_COMPLIANCE.md）。
+     */
+    private FetchResult fetch(String urlString, int timeoutMs) throws Exception {
+        WebFetchPolicy.beforeFetch(urlString);
+        try {
+            return fetchUnchecked(urlString, timeoutMs);
+        } finally {
+            WebFetchPolicy.afterFetch(urlString);
+        }
+    }
+
+    private FetchResult fetchUnchecked(String urlString, int timeoutMs) throws Exception {
         Request request = NetworkUtil.createRequestBuilder(urlString)
                 .get()
                 .build();
 
-        try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
+        okhttp3.OkHttpClient client = NetworkUtil.getClient();
+        if (timeoutMs > 0) {
+            client = client.newBuilder()
+                    .callTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                    .build();
+        }
+
+        try (Response response = client.newCall(request).execute()) {
+            int code = response.code();
+            String finalUrl = response.request().url().toString();
             if (!response.isSuccessful()) {
-                throw new Exception("HTTP Error: " + response.code());
+                throw new Exception("HTTP " + code
+                        + (finalUrl.equals(urlString) ? "" : "（重定向到 " + finalUrl + "）"));
             }
-            if (response.body() == null) return "";
+            if (response.body() == null) return new FetchResult("", finalUrl, code);
 
             String contentType = response.header("Content-Type", "");
             byte[] bytes;
@@ -209,46 +249,18 @@ public class WebPageReaderTool implements AITool {
                 }
                 bytes = out.toByteArray();
             }
-            return decodeHtmlBytes(bytes, contentType);
+            return new FetchResult(decodeHtmlBytes(bytes, contentType), finalUrl, code);
         }
     }
 
-    /** 根据Content-Type和HTML meta标签检测编码并解码 */
+    /** 只要正文 HTML 的调用方用这个（沿用默认超时）。 */
+    private String fetchWebpage(String url) throws Exception {
+        return fetch(url, DEFAULT_TIMEOUT_MS).html;
+    }
+
+    /** 根据 Content-Type / meta / 内容探测编码 —— 统一走 {@link HtmlContentExtractor#decodeHtml}。 */
     private String decodeHtmlBytes(byte[] bytes, String contentType) {
-        String charset = null;
-
-        // 1. 优先从Content-Type header提取charset
-        if (contentType != null) {
-            for (String part : contentType.split(";")) {
-                part = part.trim().toLowerCase();
-                if (part.startsWith("charset=")) {
-                    charset = part.substring("charset=".length()).replace("\"", "").trim();
-                    break;
-                }
-            }
-        }
-
-        // 2. header 无 charset：以 ISO-8859-1 预览 HTML 前 2KB，从 <meta charset> 提取
-        if (charset == null || charset.isEmpty()) {
-            String head = new String(bytes, 0, Math.min(bytes.length, 2048), java.nio.charset.StandardCharsets.ISO_8859_1);
-            Matcher m1 = Pattern.compile(
-                    "<meta[^>]+charset=[\"']?([a-zA-Z0-9_-]+)", Pattern.CASE_INSENSITIVE).matcher(head);
-            if (m1.find()) {
-                charset = m1.group(1);
-            }
-        }
-
-        // 3. 默认 UTF-8
-        if (charset == null || charset.isEmpty()) {
-            charset = "UTF-8";
-        }
-
-        try {
-            return new String(bytes, charset);
-        } catch (Exception e) {
-            AILogger.w(TAG, "Unsupported charset: " + charset + ", falling back to UTF-8");
-            return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
-        }
+        return HtmlContentExtractor.decodeHtml(bytes, contentType);
     }
 
     // ==================== Jsoup 解析 ====================
@@ -339,136 +351,20 @@ public class WebPageReaderTool implements AITool {
     }
 
     /**
-     * Readability 风格正文定位：
-     * 1. 语义标签优先：article / main / [role=main]
-     * 2. 否则文本密度评分：块级元素按"正文长度 × 标点密度 ÷ 链接密度"打分，取最高
-     * 3. 小元素自动向上提升父容器（合并多段落）
-     * 4. 得分过低回退 body
+     * 正文容器定位 —— 统一走 {@link HtmlContentExtractor#mainContent}。
+     *
+     * <p>REFACTOR(2026-11-02)：这一套 Readability 逻辑（语义标签 → 密度打分 → 父容器提升）
+     * 原来在本类里，network_search 又各写了一份正则版；两边行为不一致，真机问题就出在走错分支。
+     * 现在抽到 {@code HtmlContentExtractor} 单一实现，两个工具共用。</p>
      */
     private Element findMainContentElement(Document doc) {
-        Document clone = doc.clone();
-        clone.select("script,style,noscript,iframe,svg,form,button,select,input,nav,header,footer,aside").remove();
-        Element body = clone.body();
-        if (body == null) return clone;
-
-        // 语义标签优先（最可靠）
-        Element semantic = clone.selectFirst("article, [role=main], main");
-        if (semantic != null) return semantic;
-
-        Element best = body;
-        double bestScore = 0;
-        for (Element el : body.select("div, section, td, blockquote, article")) {
-            double score = scoreContentElement(el) * hintFactor(el);
-            if (score > bestScore) {
-                bestScore = score;
-                best = el;
-            }
-        }
-        // 全页无正文特征：回退 body
-        if (bestScore < 50) return body;
-
-        // 向上提升：父节点文本显著更长且密度相近时，合并为正文容器
-        Element parent = best.parent();
-        while (parent != null && parent != body) {
-            String pt = parent.text();
-            if (pt == null || pt.trim().length() < best.text().trim().length() * 1.5) break;
-            double parentScore = scoreContentElement(parent) * hintFactor(parent);
-            if (parentScore < bestScore * 0.8) break;
-            best = parent;
-            bestScore = parentScore;
-            parent = parent.parent();
-        }
-        return best;
+        Element main = HtmlContentExtractor.mainContent(doc);
+        return main == null ? doc : main;
     }
 
-    /**
-     * 类名/ID 特征加权（Readability）：
-     * - 命中负向词（comment/footer/sidebar/ad 等）→ 0.05 强降权（基本淘汰）
-     * - 命中正向词（article/content/post 等）→ 1.5 加权
-     * 用词边界匹配（类名精确相等 / 连字符-下划线分段），避免 "ad" 误伤 "adventure"。
-     */
-    private double hintFactor(Element el) {
-        String id = el.id() == null ? "" : el.id().toLowerCase();
-        String[] classes = el.className().toLowerCase().split("\\s+");
-
-        for (String neg : NEGATIVE_HINTS) {
-            if (idMatches(id, neg)) return 0.05;
-        }
-        for (String cls : classes) {
-            if (cls.isEmpty()) continue;
-            for (String neg : NEGATIVE_HINTS) {
-                if (wordMatches(cls, neg)) return 0.05;
-            }
-        }
-        for (String pos : POSITIVE_HINTS) {
-            if (idMatches(id, pos) || id.contains(pos)) return 1.5;
-            for (String cls : classes) {
-                if (wordMatches(cls, pos) || cls.contains(pos)) return 1.5;
-            }
-        }
-        return 1.0;
-    }
-
-    private boolean idMatches(String id, String hint) {
-        return id.equals(hint) || id.contains(hint + "-") || id.contains("-" + hint) || id.contains("_" + hint);
-    }
-
-    private boolean wordMatches(String word, String hint) {
-        return word.equals(hint) || word.contains(hint + "-") || word.contains("-" + hint) || word.contains("_" + hint);
-    }
-
-    /**
-     * Readability 密度评分：
-     * - 文本过短(<80字)或链接占比>50%（导航/列表）直接淘汰
-     * - 得分 = (正文文本长度) × (0.3 + 标点密度×0.8) × (1 - 链接密度)
-     *   正文通常长文本、标点密集、链接稀疏；导航反之。
-     */
-    private double scoreContentElement(Element el) {
-        String text = el.text();
-        if (text == null) return 0;
-        int textLen = text.trim().length();
-        if (textLen < 80) return 0;
-
-        int linkLen = 0;
-        for (Element a : el.select("a")) {
-            String at = a.text();
-            linkLen += at == null ? 0 : at.length();
-        }
-        double linkDensity = (double) linkLen / textLen;
-        if (linkDensity > 0.5) return 0;
-
-        int punct = 0;
-        for (int i = 0; i < textLen; i++) {
-            char c = text.charAt(i);
-            if (c == '，' || c == '。' || c == ',' || c == '.' || c == '；' || c == ';'
-                    || c == '：' || c == ':' || c == '!' || c == '！' || c == '?' || c == '？') {
-                punct++;
-            }
-        }
-        double punctDensity = (double) punct / Math.max(1, textLen) * 100; // 每百字符标点数
-        return (textLen - linkLen) * (0.3 + punctDensity * 0.8) * (1 - linkDensity);
-    }
-
-    /**
-     * 提取正文文本：从定位到的正文容器按段落输出。
-     * p/h/li/blockquote 齐全时逐段输出；纯 div 布局时退化为整块文本。
-     */
+    /** 提取正文文本（段落间空行）—— 与 network_search 同一条输出路径。 */
     private String extractMainContent(Document doc) {
-        Element main = findMainContentElement(doc);
-        StringBuilder sb = new StringBuilder();
-        for (Element el : main.select("p, h1, h2, h3, h4, li, blockquote, pre")) {
-            String t = el.text().trim();
-            if (!t.isEmpty()) {
-                sb.append(t).append("\n\n");
-            }
-        }
-        if (sb.length() == 0) {
-            String t = main.text().trim();
-            if (!t.isEmpty()) {
-                sb.append(t);
-            }
-        }
-        return sb.toString().trim();
+        return HtmlContentExtractor.toText(findMainContentElement(doc));
     }
 
     /** 正文分片（段落 → slice，含摘要判定） */
@@ -521,13 +417,16 @@ public class WebPageReaderTool implements AITool {
         List<String> keywords = new ArrayList<>();
         if (text == null) return keywords;
         String clean = text.toLowerCase();
-        String[] words = clean.split("[\\s\\p{Punct}]+");
+        // KEYWORD(2026-11-02, 真机)：IANA 页曾经输出 are/the/as/not/we，税局页输出 2026/10/09/30。
+        // 两件事：① 英文停用词同样要滤；② 纯数字不是关键词（日期、条款号交给 dates 字段）。
+        String[] words = clean.split("[^\\u4e00-\\u9fa5a-zA-Z]+");
 
         Map<String, Integer> wordCount = new HashMap<>();
         for (String word : words) {
-            if (word.length() >= 2 && !STOP_WORDS.contains(word)) {
-                wordCount.put(word, wordCount.getOrDefault(word, 0) + 1);
-            }
+            if (word.length() < 2) continue;
+            if (STOP_WORDS.contains(word) || EN_STOP_WORDS.contains(word)) continue;
+            if (word.matches("\\d+")) continue;
+            wordCount.put(word, wordCount.getOrDefault(word, 0) + 1);
         }
 
         List<Map.Entry<String, Integer>> sortedEntries = new ArrayList<>(wordCount.entrySet());
@@ -604,12 +503,18 @@ public class WebPageReaderTool implements AITool {
         return summary;
     }
 
+    /**
+     * 是否真的是"靠 JS 状态渲染"的页面。
+     *
+     * <p>DYNAMIC-FLAG(2026-11-02, 真机)：以前把 `application/ld+json` 也算动态——那只是 SEO 元数据，
+     * 静态文章页几乎都有，于是静态页也报 isDynamic=true。现在只认 hydration / state 容器标记。</p>
+     */
     private boolean isDynamicPage(Document doc) {
         String html = doc.html().toLowerCase();
-        return html.contains("application/ld+json") ||
-               html.contains("window.__initial_state__") ||
-               html.contains("reactdom.hydrate") ||
-               html.contains("window.datalayer");
+        return html.contains("window.__initial_state__")
+                || html.contains("window.__next_data__")
+                || html.contains("reactdom.hydrate")
+                || html.contains("window.datalayer");
     }
 
     private Map<String, Object> extractDynamicData(Document doc) {
@@ -632,10 +537,16 @@ public class WebPageReaderTool implements AITool {
         return dynamicData;
     }
 
-    /** 完整解析网页 */
+    /** 完整解析网页（含质量结论：page_type / quality / verdict） */
     private Map<String, Object> parseWebpage(String content, String url) {
+        return parseWebpage(content, url, false, 200);
+    }
+
+    private Map<String, Object> parseWebpage(String content, String url, boolean redirected, int httpStatus) {
         Document doc = parseDoc(content, url);
-        String mainText = extractMainContent(doc);
+        Element main = findMainContentElement(doc);
+        String mainText = HtmlContentExtractor.toText(main);
+
 
         Map<String, Object> result = new HashMap<>();
         result.put("title", extractTitle(doc));
@@ -651,8 +562,21 @@ public class WebPageReaderTool implements AITool {
         result.put("summary", generateSummary(content, null));
         result.put("isDynamic", isDynamicPage(doc));
 
-        if (isDynamicPage(doc)) {
-            result.put("dynamicData", extractDynamicData(doc));
+        // QUALITY(2026-11-02)：让"读到的其实不是这篇文章"在字段层面露馅
+        HtmlContentExtractor.Quality quality =
+                HtmlContentExtractor.assess(doc, main, mainText, redirected, httpStatus);
+        Map<String, Object> q = new HashMap<>();
+        q.put("score", quality.score);
+        q.put("page_type", quality.pageType);
+        q.put("flags", quality.flags);
+        result.put("quality", q);
+        result.put("verdict", quality.verdict);
+
+        // 结构化数据（ld+json）是元数据，不等于"动态页"，单独给字段；真挖到状态才放进 dynamicData
+        Map<String, Object> dynamic = extractDynamicData(doc);
+        result.put("hasStructuredData", dynamic.containsKey("jsonLd"));
+        if (!dynamic.isEmpty()) {
+            result.put("dynamicData", dynamic);
         }
         return result;
     }
@@ -665,8 +589,13 @@ public class WebPageReaderTool implements AITool {
             return new AIToolResult("缺少参数: url", parameters);
         }
         try {
-            String content = fetchWebpage(url);
-            Map<String, Object> result = parseWebpage(content, url);
+            int timeoutSec = getIntParam(parameters, "timeout", 12);
+            if (timeoutSec <= 0) timeoutSec = 12;
+            FetchResult fetched = fetch(url, timeoutSec * 1000);
+            boolean redirected = fetched.finalUrl != null && !fetched.finalUrl.equals(url);
+            // 相对链接按**最终 URL** 解析（重定向后站点目录变了，按请求 URL 会拼出重复前缀）
+            Map<String, Object> result = parseWebpage(fetched.html, fetched.finalUrl, redirected, fetched.status);
+
             // WEB-PAGE(2026-11-02)：显式给 start_char/max_chars 时才切片；不带参数保持整篇老行为。
             int startChar = parseIntParam(parameters, "start_char", 0);
             int maxChars = parseIntParam(parameters, "max_chars", 0);
@@ -685,15 +614,51 @@ public class WebPageReaderTool implements AITool {
                 page.put("next_start", end);
                 result.put("page", page);
             }
+
             Map<String, Object> finalResult = new HashMap<>();
             finalResult.put("url", url);
+            finalResult.put("requested_url", url);
+            finalResult.put("final_url", fetched.finalUrl);
+            finalResult.put("http_status", fetched.status);
             finalResult.put("status", "success");
             finalResult.put("content", result);
+            addTrustFields(finalResult, url, fetched, result);
             return new AIToolResult(finalResult, parameters);
         } catch (Exception e) {
             AILogger.e(TAG, "Failed to read webpage: " + e.getMessage(), e);
             return new AIToolResult("读取网页失败: " + e.getMessage(), parameters);
         }
+    }
+
+    /**
+     * 可信度字段：让"读到的其实不是这篇文章"这件事对上层可见，而不是伪装成 success。
+     * 判定看四件客观事实：有没有被重定向、HTTP 状态、正文有多长、正文里链接占比多高。
+     */
+    private void addTrustFields(Map<String, Object> out, String requestedUrl, FetchResult fetched,
+                                Map<String, Object> content) {
+        List<String> warnings = new ArrayList<>();
+        boolean redirected = fetched.finalUrl != null && !fetched.finalUrl.equals(requestedUrl);
+        if (redirected) {
+            warnings.add("请求地址被重定向到 " + fetched.finalUrl + "（常见于软 404 / 跳首页）");
+        }
+
+        String text = content.get("text") instanceof String ? (String) content.get("text") : "";
+        if (text.trim().length() < 100) {
+            warnings.add("正文只有 " + text.trim().length() + " 字，可能是反爬、跳转页或非文章页");
+        }
+        Object cat = content.get("category");
+        if ("其他".equals(cat) && text.trim().length() < 400) {
+            warnings.add("正文很短且无法归类，建议换来源");
+        }
+
+        Object verdict = content.get("verdict");
+        if ("not_article".equals(verdict) || "rejected".equals(verdict)) {
+            warnings.add("质量判定为 " + verdict + "（page_type="
+                    + ((Map<?, ?>) content.get("quality")).get("page_type") + "），不建议当正文使用");
+        }
+
+        out.put("degraded", !warnings.isEmpty());
+        out.put("warnings", warnings);
     }
 
     private AIToolResult extractInfo(Map<String, Object> parameters) {
@@ -704,11 +669,17 @@ public class WebPageReaderTool implements AITool {
             return new AIToolResult("缺少参数: url 或 content", parameters);
         }
         try {
+            FetchResult fetched = null;
             if (content == null) {
-                content = fetchWebpage(url);
+                int timeoutSec = getIntParam(parameters, "timeout", 12);
+                if (timeoutSec <= 0) timeoutSec = 12;
+                fetched = fetch(url, timeoutSec * 1000);
+                content = fetched.html;
             }
-            Document doc = parseDoc(content, url);
-            String mainText = extractMainContent(doc);
+            String baseUrl = fetched != null ? fetched.finalUrl : url;
+            Document doc = parseDoc(content, baseUrl);
+            Element main = findMainContentElement(doc);
+            String mainText = HtmlContentExtractor.toText(main);
 
             Map<String, Object> extracted = new HashMap<>();
             extracted.put("url", url);
@@ -717,12 +688,38 @@ public class WebPageReaderTool implements AITool {
             extracted.put("keywords", extractMetaKeywords(doc));
             extracted.put("headings", extractHeadings(doc));
             extracted.put("dates", extractDates(mainText));
-            extracted.put("links", extractLinks(doc, url));
+            extracted.put("links", extractLinks(doc, baseUrl));
             extracted.put("mainContent", mainText);
             extracted.put("summary", generateSummary(content, null));
 
+            // QUERY-FILTER(2026-11-02, 真机)：以前 query 只多回一个 keywords 字段，正文一点没筛，
+            // 调用方还以为结果已经被筛过。现在按 query 在正文段落里检索，回命中段落 + 命中数。
+            String query = getStringParam(parameters, "query", null);
+            if (query != null && !query.trim().isEmpty()) {
+                List<Map<String, Object>> matches = HtmlContentExtractor.passages(mainText, query, 5);
+                extracted.put("query", query.trim());
+                extracted.put("matches", matches);
+                extracted.put("matchCount", matches.size());
+            }
+
+            boolean redirected = fetched != null && fetched.finalUrl != null && !fetched.finalUrl.equals(url);
+            HtmlContentExtractor.Quality quality = HtmlContentExtractor.assess(
+                    doc, main, mainText, redirected, fetched == null ? 200 : fetched.status);
+            Map<String, Object> q = new HashMap<>();
+            q.put("score", quality.score);
+            q.put("page_type", quality.pageType);
+            q.put("flags", quality.flags);
+            extracted.put("quality", q);
+            extracted.put("verdict", quality.verdict);
+
             Map<String, Object> result = new HashMap<>();
             result.put("status", "success");
+            if (fetched != null) {
+                result.put("requested_url", url);
+                result.put("final_url", fetched.finalUrl);
+                result.put("http_status", fetched.status);
+                addTrustFields(result, url, fetched, extracted);
+            }
             result.put("extracted", extracted);
             return new AIToolResult(result, parameters);
         } catch (Exception e) {
@@ -865,7 +862,9 @@ public class WebPageReaderTool implements AITool {
 
     private void followLinksRecursive(String url, int depth, int maxDepth, int maxLinks,
                                       Set<String> visitedUrls, List<Map<String, Object>> results, String query) {
-        if (depth >= maxDepth || visitedUrls.size() >= maxLinks) return;
+        // DEPTH(2026-11-02, 真机)：以前 maxDepth=1 时一个子页都不跟（0 页），maxDepth=2 却跟 4 页。
+        // 语义定为"maxDepth = 往下跟几层"：depth 0 是根页，maxDepth=1 就跟一层子页。
+        if (depth > maxDepth || visitedUrls.size() >= maxLinks) return;
         if (visitedUrls.contains(url)) return;
         visitedUrls.add(url);
 
@@ -880,6 +879,14 @@ public class WebPageReaderTool implements AITool {
             result.put("url", url);
             result.put("depth", depth);
             result.put("title", parsed.get("title"));
+
+            // FOLLOW-CAP(2026-11-02, 真机)：单个子页曾原样返回 303,838 字符（协议注册表整页），
+            // 靠写临时文件兜底。批量跟随里每页只留摘要段，超了就截断并标出来。
+            String subText = parsed.get("text") instanceof String ? (String) parsed.get("text") : "";
+            int followCap = 4000;
+            result.put("text", subText.length() > followCap ? subText.substring(0, followCap) : subText);
+            result.put("total_chars", subText.length());
+            result.put("truncated", subText.length() > followCap);
             result.put("summary", parsed.get("summary"));
 
             if (query != null) {
@@ -890,7 +897,7 @@ public class WebPageReaderTool implements AITool {
 
             results.add(result);
 
-            if (links != null && depth + 1 < maxDepth) {
+            if (links != null && depth < maxDepth) {
                 for (Map<String, Object> link : links) {
                     String linkUrl = (String) link.get("url");
                     if (!visitedUrls.contains(linkUrl) && visitedUrls.size() < maxLinks) {
@@ -931,6 +938,9 @@ public class WebPageReaderTool implements AITool {
         descriptions.put("urls", "URL列表（用于read_multiple操作，并行抓取）");
         descriptions.put("maxDepth", "最大链接深度（follow_links用，默认2）");
         descriptions.put("maxLinks", "最大链接数量（follow_links用，默认10）");
+        descriptions.put("timeout", "读取超时秒数（默认12；站点慢就调大）");
+        descriptions.put("start_char", "正文起始字符偏移（read 分页续读用，默认0）");
+        descriptions.put("max_chars", "本次返回的最大字符数（read 分页用，默认0=整篇）");
         return descriptions;
     }
 }

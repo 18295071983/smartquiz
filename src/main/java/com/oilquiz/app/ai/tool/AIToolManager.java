@@ -1406,7 +1406,7 @@ public class AIToolManager {
                     .addParameter("question", "string", "问题（用于ask操作，秘塔智能问答，返回答案+引用来源）", false)
                     .addParameter("model", "string", "问答模型: concise(简洁)/detail(深入)/research(研究)（用于ask操作）", false, "concise")
                     .addParameter("keyword", "string", "搜索关键词（query的别名）", false)
-                    .addParameter("limit", "integer", "返回条数（1..50，默认5）。接口不支持翻页，要更多结果就调大它，别找下一页", false, 5)
+                    .addParameter("limit", "integer", "返回条数（1..50，默认5）。接口不支持翻页，要更多结果就调大它，别找下一页；search_and_read 的正文读取条数也取它（上限3）", false, 5)
                     .addParameter("num_results", "integer", "返回结果数量（limit的别名）", false, 5)
                     .addParameter("scope", "string", "搜索范围: webpage(默认)/document(文库)/scholar(学术文献)/image/video/podcast；找论文用 scholar", false, "webpage")
                     .addParameter("include_summary", "boolean", "是否返回内容摘要（默认true；关掉只剩标题+链接，更容易编造）", false, true)
