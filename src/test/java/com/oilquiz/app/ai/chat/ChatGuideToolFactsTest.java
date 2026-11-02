@@ -182,9 +182,126 @@ public class ChatGuideToolFactsTest {
         return sb.toString();
     }
 
+    /**
+     * 「去下载模型」这条 label 必须有真消费者。
+     *
+     * <p>2026-11-02 它一度降到零 Java 引用（弹框改用了我新加的同义 key），属于"留着没人用的
+     * 字符串 + 同一件事两种叫法"。现在空状态首屏与未配置弹框都复用它，所以按引用计数钉住。</p>
+     */
+    @Test
+    public void downloadModelLabelHasAConsumer() throws Exception {
+        String src = activitySource();
+        String empty = read("src/main/res/layout/view_chat_empty_v2.xml");
+        boolean wired = src.contains("R.string.h_f0597ad8") || empty.contains("@string/h_f0597ad8");
+        assertTrue("h_f0597ad8（去下载模型）又变成零引用字符串了——要么接上入口，要么删干净", wired);
+    }
+
+    /** 空状态首屏不得再留四张"填字卡"：点了只把示例问题填进输入框 = 多此一举（2026-11-02 删） */
+    @Test
+    public void emptyStateHasNoPrefillSceneCards() throws Exception {
+        String empty = read("src/main/res/layout/view_chat_empty_v2.xml");
+        for (String id : new String[]{"chat_v2_scene_quiz", "chat_v2_scene_explain",
+                "chat_v2_scene_summary", "chat_v2_scene_plan"}) {
+            assertFalse("空状态又出现了填字卡 " + id, empty.contains("@+id/" + id));
+        }
+        assertTrue("空状态应有一个点了真的做事的入口 chat_v2_download_row",
+                empty.contains("@+id/chat_v2_download_row"));
+    }
+
+    /**
+     * 被删的旧居中空状态不得复活成"第二块空状态视图"。
+     *
+     * <p>它被 v2 首屏永久遮挡却还在布局里、三颗 chip 还在 setText+直接发送（2026-11-02 连布局、
+     * Java 接线、三条示例字符串、孤儿图标一起摘掉）。空状态有且只有一块：{@code empty_state_v2_view}。
+     * 这里同时钉住"填字用的 fillQuickInput 不该被重新发明"。</p>
+     */
+    @Test
+    public void onlyOneEmptyStateViewExists() throws Exception {
+        String chat = read("src/main/res/layout/activity_ai_chat.xml");
+        assertFalse("旧居中空状态 empty_state_view 又回来了（它已被 v2 首屏永久遮挡并删除）",
+                chat.contains("@+id/empty_state_view"));
+        assertFalse("旧空状态的 chip 组又回来了", chat.contains("@+id/empty_state_chips"));
+        assertTrue("聊天页布局应仍 include 唯一那块空状态",
+                chat.contains("@layout/view_chat_empty_v2"));
+        assertFalse("又发明了「填一句到输入框」的辅助方法？首屏入口要么真做事、要么别做",
+                activitySource().contains("fillQuickInput"));
+    }
+
+    /** 空状态每个入口都必须真的接线：布局里有 id，绑定类里有回调，宿主里有跳转 */
+    @Test
+    public void everyEmptyStateEntryIsWired() throws Exception {
+        String empty = read("src/main/res/layout/view_chat_empty_v2.xml");
+        String binder = read("src/main/java/com/oilquiz/app/ai/chat/ui/ChatV2EmptyState.java");
+        String host = activitySource();
+        String[][] rows = {
+                {"chat_v2_entry_select_model", "onSelectModel", "ModelSelectorActivity"},
+                {"chat_v2_download_row", "onDownloadModels", "ModelDownloadActivity"},
+                {"chat_v2_entry_guide", "onShowGuide", "showWelcomeGuide(true)"},
+        };
+        java.util.Set<String> destinations = new HashSet<>();
+        for (String[] row : rows) {
+            assertTrue("空状态布局缺入口 " + row[0], empty.contains("@+id/" + row[0]));
+            assertTrue("ChatV2EmptyState 没绑 " + row[0] + "（没接线的 UI 比没反应更糟）",
+                    binder.contains("R.id." + row[0]));
+            assertTrue("宿主没实现 " + row[1], binder.contains("void " + row[1] + "()"));
+            assertTrue("宿主里找不到 " + row[0] + " 的去处 " + row[2], host.contains(row[2]));
+            assertTrue("两个入口跳同一个地方 = 假区分：" + row[2], destinations.add(row[2]));
+        }
+        // 聊天页的模型入口必须是"能换本地模型"的那页：模型中心只有在线注册+用量
+        assertFalse("首屏不该再单独开一行跳 API 配置当「添加在线模型」（那个表面只写密钥表，要再同步一层）",
+                empty.contains("chat_v2_entry_add_online"));
+        assertFalse("首屏不该再单独开一行「切换模型」（与添加同在模型中心同一页）",
+                empty.contains("chat_v2_entry_switch_model"));
+        assertFalse("首屏模型入口不得再指模型中心：它选不了本地模型（2026-11-02 纠正）",
+                binder.contains("ModelCenterActivity"));
+    }
+
+    /** 首屏问候语只讲 AI 本身的能力，不许替用户设想学习场景（2026-11-02 明确拍板） */
+    @Test
+    public void welcomeCopyDescribesCapabilitiesNotStudyTasks() throws Exception {
+        String zh = new String(Files.readAllBytes(
+                Paths.get("src/main/res/values/strings.xml")), StandardCharsets.UTF_8);
+        String copy = stringBody(zh, "chat_v2_greet_title") + stringBody(zh, "chat_v2_greet_sub");
+        for (String banned : new String[]{"出题", "讲题", "总结资料", "复习计划", "错题"}) {
+            assertFalse("问候语又回到替用户设想学习任务的话术：" + banned
+                    + "（首屏只讲能力，具体能调什么由「使用说明」按注入集动态报）",
+                    copy.contains(banned));
+        }
+        assertTrue("问候语应说明这是一台能做事的 AI，而不是空壳欢迎词",
+                copy.contains("搜索") && copy.contains("文件"));
+    }
+
+    /** 取某个 string 的值文本（找不到直接失败，避免"资源改名后测试静默空转"） */
+    private static String stringBody(String xml, String name) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("<string name=\"" + name + "\">(.*?)</string>", java.util.regex.Pattern.DOTALL)
+                .matcher(xml);
+        assertTrue("资源里找不到 " + name, m.find());
+        return m.group(1);
+    }
+
+    /** 空状态文案在 en / zh-rTW 也要有（这块以前整段只有简中，切语言就是半英半中） */
+    @Test
+    public void emptyStateStringsExistInAllLocales() throws Exception {
+        String[] keys = {"chat_v2_greet_am", "chat_v2_greet_pm", "chat_v2_greet_eve",
+                "chat_v2_greet_title", "chat_v2_greet_sub", "chat_v2_entry_select_model",
+                "chat_v2_entry_select_model_sub", "chat_v2_download_sub",
+                "chat_v2_entry_guide", "chat_v2_entry_guide_sub",
+                "chat_v2_recent", "chat_v2_untitled"};
+        for (String locale : new String[]{"values", "values-en", "values-zh-rTW"}) {
+            String text = read("src/main/res/" + locale + "/strings.xml");
+            for (String key : keys) {
+                assertTrue(locale + " 缺 " + key + "（首屏文案必须三语齐，别半中半英）",
+                        text.contains("name=\"" + key + "\""));
+            }
+        }
+    }
+
+    private static String read(String relPath) throws Exception {
+        return new String(Files.readAllBytes(Paths.get(relPath)), StandardCharsets.UTF_8);
+    }
+
     private static String activitySource() throws Exception {
-        return new String(Files.readAllBytes(Paths.get(
-                "src/main/java/com/oilquiz/app/ui/activity/AIChatActivity.java")),
-                StandardCharsets.UTF_8);
+        return read("src/main/java/com/oilquiz/app/ui/activity/AIChatActivity.java");
     }
 }
