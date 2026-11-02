@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project(llama-jni)
 
+# 16KB-PAGE(2026-11-02)：Android 15+ 要求 native 库的 ELF LOAD 段按 16 KB 对齐
+# （否则系统提示"未适配 16KB 页面"，16K 内核设备上直接加载失败）。
+# NDK r26 默认仍是 4 KB；这里显式指定，覆盖本工程编出的所有 .so（llama-jni / ggml-probe）。
+# 注意：这只解决"我们自己编的库"，预编译 AAR（onnxruntime/opencv/mlkit）和 LibreOffice 引擎
+# 需要各自重编或升级版本，见 docs/LICENSING_AND_COMPLIANCE.md 与 CHANGELOG。
+add_link_options(-Wl,-z,max-page-size=16384)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
