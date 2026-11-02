@@ -351,3 +351,9 @@ _archive/**/*.bak*
 # 文档里引用它的地方（AgentLoop 编排能力差异清单、CHANGELOG/ROADMAP 中
 # ref/…/OpenAIProvider.kt 之类）指的是本机路径，仓库里不会有这些文件。
 ref/
+
+# 临时构建日志（本机排查用，不入库）
+b*.log
+c*.log
+t*.log
+j*.log
