@@ -2541,6 +2541,9 @@ public class OnlineInferenceService {
      */
     private String applySearchToPrompt(String prompt, boolean webSearch, String apiUrl) {
         if (!webSearch || prompt == null || prompt.isEmpty()) return prompt;
+        // CHIP-ASK(2026-11-02)：用户点了「🔍 搜索」= 本轮显式要联网，直接越过下面的实时词意图闸；
+        // 一次性消费，不会让后续普通提问也白烧额度。官方能搜时仍走官方（GATE-1 不动）。
+        boolean userForcedSearch = com.oilquiz.app.ai.chat.LiveSearchHint.consume();
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
 
@@ -2566,7 +2569,7 @@ public class OnlineInferenceService {
         // GATE-2 意图闸：只有问题本身要"实时/最新"信息才值得先烧一次额度。
         // 没命中也不等于放弃联网 —— 提示词里已经写明"实时信息必须用工具查"，
         // 模型仍可在这一轮自己调 network_search（问结论用 ask），只是不再无脑先替它花一次。
-        if (!needsLiveInfo(prompt)) {
+        if (!userForcedSearch && !needsLiveInfo(prompt)) {
             AILogger.i(TAG, "未命中实时信息特征，跳过预搜索（需要时由模型自己调 network_search）");
             return prompt;
         }

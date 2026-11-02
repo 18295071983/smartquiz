@@ -691,6 +691,14 @@ public class AgentLoopEngine {
         // 它必须是第一个追加项：appendTailBlock 的返回值一定非 null，后面的【已存记忆】/
         // 【当前任务】因此不会在 userMessage==null 时把字面量 "null" 拼进 prompt。
         effectiveUserMessage = appendTailBlock(effectiveUserMessage, buildCurrentTimeLine(modelFcMode));
+        // CHIP-ASK(2026-11-02)：用户点了工具抽屉里的「🔍 搜索」（一键发问）→ 本轮强制先联网。
+        // 与在线侧共用同一个一次性信号（LiveSearchHint）：谁先跑谁消费，不会两边都生效。
+        if (com.oilquiz.app.ai.chat.LiveSearchHint.consume()) {
+            effectiveUserMessage = appendTailBlock(effectiveUserMessage,
+                    "【本轮联网】用户点了「搜索」快捷入口：请先用 network_search 查一次再回答"
+                    + "（默认 action=ask；需要一批来源/链接才用 search，别为多看几条反复搜）。"
+                    + "不要把训练记忆里的旧信息当成本次结果；查不到就如实说。");
+        }
         if (modelFcMode && selectedTools.contains("ai_weather") && userMessage != null
                 && (userMessage.contains("天气") || userMessage.contains("气温") || userMessage.contains("温度")
                     || userMessage.contains("下雨") || userMessage.contains("预报") || userMessage.contains("湿度"))) {

@@ -1774,6 +1774,20 @@ public class AIChatActivity extends BaseActivity {
             public void onClearChat() {
                 confirmClearChat();
             }
+
+            @Override
+            public void onSearchAsk() {
+                // CHIP-ASK(2026-11-02)：点「🔍 搜索」= 把输入框里的问题直接交给模型并"本轮联网"。
+                // 空输入时退化成参数表单，不让这一下点击变成死路（长按也随时能开表单）。
+                String q = inputMessage != null ? inputMessage.getText().toString().trim() : "";
+                if (q.isEmpty()) {
+                    showToast("先写下要查的问题；想看参数表单就长按「搜索」");
+                    showToolGuideDialog("network_search");
+                    return;
+                }
+                com.oilquiz.app.ai.chat.LiveSearchHint.request();
+                sendMessage();
+            }
         });
         quickToolModule.bindStaticToolChips(
                 findViewById(R.id.chip_weather),

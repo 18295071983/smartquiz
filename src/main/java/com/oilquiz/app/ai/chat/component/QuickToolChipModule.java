@@ -12,6 +12,7 @@ import com.oilquiz.app.R;
  *
  * 职责：
  * 1. 绑定 XML 静态工具 chip 的点击事件（查天气/搜索/数据库/文件/定位/应用/聚合工具包/清空对话）；
+ *    其中「搜索」短按=一键联网发问、长按=参数表单（2026-11-02）；
  * 2. 动态构建快捷 chip（聚合方案：出行准备 / 学习查询 / 网页研究）；
  * 3. 集中维护"快捷工具 → 工具引导"的映射，新增加入口只需在此登记，宿主界面代码不被污染。
  *
@@ -33,6 +34,15 @@ public class QuickToolChipModule {
 
         /** 清空当前对话 */
         void onClearChat();
+
+        /**
+         * 联网一键发问（2026-11-02）：点「搜索」把输入框里的问题直接交给模型，
+         * 并置位 {@link com.oilquiz.app.ai.chat.LiveSearchHint}（本轮强制联网）。
+         * 默认实现为空，宿主不实现时退化为原来的"弹参数表单"。
+         */
+        default void onSearchAsk() {
+            onToolGuide("network_search");
+        }
     }
 
     private final Context context;
@@ -59,7 +69,7 @@ public class QuickToolChipModule {
                                     Chip chipFile, Chip chipLocation, Chip chipApp,
                                     Chip chipComposite, Chip chipClear) {
         bindToolChip(chipWeather, "ai_weather");
-        bindToolChip(chipSearch, "network_search");
+        bindSearchChip(chipSearch);
         bindToolChip(chipDatabase, "database");
         bindToolChip(chipFile, "file_reader");
         bindToolChip(chipLocation, "location");
@@ -71,6 +81,22 @@ public class QuickToolChipModule {
         if (chipClear != null) {
             chipClear.setOnClickListener(v -> callback.onClearChat());
         }
+    }
+
+    /**
+     * 搜索 chip 两条路（2026-11-02）：
+     * <li>短按 = 一键发问：把输入框里已有的问题直接交给模型回答，并置位本轮"要联网"信号
+     *     （在线走官方搜索或预搜索、本地在 user 尾部提示先用 network_search 查）；</li>
+     * <li>长按 = 原来的参数表单（选 search/ask/read_url、填关键词/条数/网址、直接执行）。</li>
+     * 输入框为空时由宿主退化成表单，避免点了没反应。
+     */
+    private void bindSearchChip(Chip chip) {
+        if (chip == null) return;
+        chip.setOnClickListener(v -> callback.onSearchAsk());
+        chip.setOnLongClickListener(v -> {
+            callback.onToolGuide("network_search");
+            return true;
+        });
     }
 
     /** 为单个工具 chip 绑定点击 → 工具引导 */
