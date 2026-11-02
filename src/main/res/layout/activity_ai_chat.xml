@@ -538,6 +538,20 @@
                         app:chipIcon="@drawable/ic_chat_v2_bulb"
                         app:chipIconSize="14dp"/>
 
+                    <!-- FAST-CHAT(2026-11-02)：在线快速模式。开=不注入工具、走普通请求
+                         （联网交给服务商官方 web_search 或预搜索，不扣秘塔）；关=Agent 工具流。 -->
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chip_fast_mode"
+                        android:layout_width="wrap_content"
+                        android:layout_height="@dimen/size_28"
+                        android:checkable="true"
+                        android:minHeight="@dimen/size_28"
+                        android:text="@string/chat_mode_fast"
+                        android:textSize="@dimen/text_11"
+                        app:checkedIconVisible="false"
+                        app:chipIcon="@drawable/ic_chat_v2_globe"
+                        app:chipIconSize="14dp"/>
+
                     <View
                         android:layout_width="@dimen/size_0"
                         android:layout_height="@dimen/size_1"

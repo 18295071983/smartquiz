@@ -59,6 +59,12 @@ public class AIConfig {
     private boolean autoModeEnabled = false; // 禁用自动模式切换，所有模式由用户手动选择
     private boolean intentRecognitionEnabled = true;
     private boolean agentEnabled = true; // 启用 Agent 模式
+    /**
+     * 在线「快速模式」（FAST-CHAT 2026-11-02）：开=在线对话走普通请求（不带 tools），
+     * 联网交给服务商官方 web_search 或我们的预搜索；关=走 Agent 工具流（模型可调 network_search 等工具）。
+     * 两者互斥：快速模式没有工具能力，Agent 模式才扣秘塔额度。
+     */
+    private boolean fastChatEnabled = false;
     private boolean useJsonProtocol = true;      // 本地推理 JSON 协议开关（spec §10.2 回退用）
     /** 本地 Agent 开关（同时就是 FC 工具调用开关；路由已统一进 Agent 引擎，本开关只决定是否注入工具） */
     private boolean localAgentEnabled = false;
@@ -143,6 +149,13 @@ public class AIConfig {
         }
 
         try {
+            fastChatEnabled = prefs.getBoolean("fast_chat_enabled", false);
+        } catch (ClassCastException e) {
+            prefs.edit().remove("fast_chat_enabled").putBoolean("fast_chat_enabled", false).apply();
+            fastChatEnabled = false;
+        }
+
+        try {
             optimizationMode = OptimizationMode.fromId(prefs.getInt("optimization_mode", OptimizationMode.BALANCED.id));
         } catch (ClassCastException e) {
             prefs.edit().remove("optimization_mode").putInt("optimization_mode", OptimizationMode.BALANCED.id).apply();
@@ -163,6 +176,7 @@ public class AIConfig {
             .putBoolean("agent_enabled", agentEnabled)
             .putBoolean("use_json_protocol", useJsonProtocol)
             .putBoolean("local_agent_enabled", localAgentEnabled)
+            .putBoolean("fast_chat_enabled", fastChatEnabled)
             .putInt("optimization_mode", optimizationMode.id)
             .apply();
     }
@@ -193,6 +207,9 @@ public class AIConfig {
 
     public boolean isAgentEnabled() { return agentEnabled; }
     public void setAgentEnabled(boolean agentEnabled) { this.agentEnabled = agentEnabled; saveToPreferences(); }
+
+    public boolean isFastChatEnabled() { return fastChatEnabled; }
+    public void setFastChatEnabled(boolean fastChatEnabled) { this.fastChatEnabled = fastChatEnabled; saveToPreferences(); }
 
     public boolean isUseJsonProtocol() { return useJsonProtocol; }
     public void setUseJsonProtocol(boolean useJsonProtocol) { this.useJsonProtocol = useJsonProtocol; saveToPreferences(); }
