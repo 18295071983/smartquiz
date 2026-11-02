@@ -3922,6 +3922,42 @@ public class OnlineInferenceService {
      * @param toolsJson OpenAI 格式的工具定义 JSON 字符串（null 时不发送 tools）
      * @param callback  回调
      */
+    /**
+     * CHIP-ASK(2026-11-02)：把「🔍 搜索」的一次性信号落到 Agent 工具流的最后一条 user 消息上。
+     *
+     * <p>在线侧之前只有普通对话路径（callResponsesAPI / callOpenAIAPI）消费这个信号，
+     * Agent 工具流完全没有调用点，导致"点了 chip 却什么都没发生"。这里补上，并且只动
+     * 最后一条 user 消息的文本（Responses 的 content 可能是字符串，也可能是 input_text 数组）。</p>
+     */
+    private static void applyLiveSearchHintToMessages(JsonArray messages) {
+        if (messages == null || messages.size() == 0) return;
+        if (!com.oilquiz.app.ai.chat.LiveSearchHint.consume()) return;
+        String hint = "\n\n【本轮联网】用户点了「搜索」快捷入口：请先调用 network_search 查一次最新信息再回答"
+                + "（默认 action=ask；需要一批来源/链接才用 search）。不要把训练记忆里的旧信息当成本次结果。";
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            com.google.gson.JsonElement el = messages.get(i);
+            if (el == null || !el.isJsonObject()) continue;
+            com.google.gson.JsonObject msg = el.getAsJsonObject();
+            com.google.gson.JsonElement role = msg.get("role");
+            if (role == null || !"user".equals(role.getAsString())) continue;
+            com.google.gson.JsonElement content = msg.get("content");
+            if (content == null) {
+                msg.addProperty("content", hint.trim());
+            } else if (content.isJsonPrimitive()) {
+                msg.addProperty("content", content.getAsString() + hint);
+            } else if (content.isJsonArray()) {
+                JsonArray arr = content.getAsJsonArray();
+                if (arr.size() > 0 && arr.get(arr.size() - 1).isJsonObject()) {
+                    com.google.gson.JsonObject last = arr.get(arr.size() - 1).getAsJsonObject();
+                    com.google.gson.JsonElement t = last.get("text");
+                    if (t != null && t.isJsonPrimitive()) {
+                        last.addProperty("text", t.getAsString() + hint);
+                    }
+                }
+            }
+            return;
+        }
+    }
     public void generateStreamWithToolsV2(JsonArray messages,
                                             OnlineModelManager.OnlineModelConfig config,
                                             int maxTokens, String toolsJson,
@@ -3951,6 +3987,11 @@ public class OnlineInferenceService {
                     if (callback != null) callback.onError("API Key 不能为空");
                     return;
                 }
+
+                // CHIP-ASK(2026-11-02)：Agent 工具流此前完全不消费「🔍 搜索」的一次性信号，
+                // 用户点了 chip 也只是把消息发出去，联网标记 20 秒后自己过期。
+                // 这里与本地 AgentLoopEngine 对齐：消费到就在最后一条 user 消息尾部追加"本轮先联网"。
+                applyLiveSearchHintToMessages(messages);
 
                 mainHandler.post(callback::onStart);
 

@@ -693,7 +693,10 @@ public class AgentLoopEngine {
         effectiveUserMessage = appendTailBlock(effectiveUserMessage, buildCurrentTimeLine(modelFcMode));
         // CHIP-ASK(2026-11-02)：用户点了工具抽屉里的「🔍 搜索」（一键发问）→ 本轮强制先联网。
         // 与在线侧共用同一个一次性信号（LiveSearchHint）：谁先跑谁消费，不会两边都生效。
-        if (com.oilquiz.app.ai.chat.LiveSearchHint.consume()) {
+        // MODE-GATE(2026-11-02)：d730ca1b 之后本地「普通模式」和「agent 模式」共用本引擎，差别只在
+        // 是否注入工具（modelFcMode）。普通模式没有 network_search，却照样追加"请先用它查"，
+        // 等于让模型去调一个不存在的工具 —— 所以必须绑在 modelFcMode 上；不消费时信号会自己过期。
+        if (modelFcMode && com.oilquiz.app.ai.chat.LiveSearchHint.consume()) {
             effectiveUserMessage = appendTailBlock(effectiveUserMessage,
                     "【本轮联网】用户点了「搜索」快捷入口：请先用 network_search 查一次再回答"
                     + "（默认 action=ask；需要一批来源/链接才用 search，别为多看几条反复搜）。"
