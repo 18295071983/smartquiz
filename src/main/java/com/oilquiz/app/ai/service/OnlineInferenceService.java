@@ -1484,8 +1484,17 @@ public class OnlineInferenceService {
                         break;
                     case OPENAI_COMPAT:
                     default:
-                        callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true,
-                                enableThinking, config.supportsWebSearch, callback);
+                        // RESPONSES-WSEARCH(2026-11-02)：服务商的官方 web_search 只在 /responses 生效
+                        // （DeepSeek 就是这种；chat/completions 没有内置搜索）。快速模式要的是"官方联网、
+                        // 不扣秘塔"，所以遇到这种声明就改走 Responses，而不是闷头打 chat。
+                        if (shouldUseResponsesForWebSearch(config)) {
+                            AILogger.i(TAG, "官方联网只在 /responses 生效，本次文本流改走 Responses（不扣秘塔）");
+                            callResponsesAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens,
+                                    true, config.supportsWebSearch, callback, null);
+                        } else {
+                            callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true,
+                                    enableThinking, config.supportsWebSearch, callback);
+                        }
                         break;
                 }
             } catch (Exception e) {
@@ -1535,6 +1544,28 @@ public class OnlineInferenceService {
     /** 兼容旧调用名：文本流是否走 Responses（判据见 useResponsesFor） */
     private boolean shouldUseResponsesAPI(OnlineModelManager.OnlineModelConfig config) {
         return useResponsesFor(config);
+    }
+
+    /**
+     * 官方联网是否只在 /responses 生效（当前这次请求该不该改走 Responses）。
+     *
+     * <p>判据：服务商声明了 webSearch 且其 endpoint 含 "responses"、agent 服务确实走 Responses、
+     * 并且用户开了这个模型的联网。三者都成立才改道 —— 否则保持 chat，不拿可用性冒险。</p>
+     */
+    private boolean shouldUseResponsesForWebSearch(OnlineModelManager.OnlineModelConfig config) {
+        try {
+            if (config == null || !config.supportsWebSearch) return false;
+            String apiUrl = config.apiUrl;
+            if (apiUrl == null || apiUrl.isEmpty() || isAnthropicAPI(apiUrl)) return false;
+            com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                    com.oilquiz.app.ai.model.ProviderConfigManager.get();
+            String wse = pcm.getWebSearchEndpoint(apiUrl);
+            if (wse == null || !wse.contains("responses")) return false;
+            if (!pcm.hasService(apiUrl, "agent", config.modelName)) return false;
+            return pcm.agentUsesResponses(apiUrl, config.modelName);
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     /**
@@ -1628,7 +1659,7 @@ public class OnlineInferenceService {
                 }
             }
             // 联网搜索优先自有工具：预搜索成功则拼入 prompt 且不再注入官方 webSearch
-            String searchPrompt = applySearchToPrompt(prompt, webSearch, apiUrl);
+        String searchPrompt = applySearchToPrompt(prompt, webSearch, apiUrl, true);
             boolean ownSearchUsed = searchPrompt != prompt;
             JsonObject user;
             List<String> imageDataUrls = images == null ? new ArrayList<>() : dataUrlsOf(images);
@@ -2163,7 +2194,7 @@ public class OnlineInferenceService {
             JsonObject textPart = new JsonObject();
             textPart.addProperty("type", "text");
             // 联网搜索优先自有工具：预搜索成功则拼入 prompt 且不再注入官方 webSearch
-            String searchPrompt = applySearchToPrompt(prompt, webSearch, apiUrl);
+        String searchPrompt = applySearchToPrompt(prompt, webSearch, apiUrl, false);
             boolean ownSearchUsed = searchPrompt != prompt;
             // 端口不匹配（配置表 webSearch.endpoint=/responses，如图片+DeepSeek 官方 web_search 仅
             // /responses 生效）：多模态无法重拼到 Responses（图片输入）→ 预搜索失败时跳过官方注入，
@@ -2549,7 +2580,8 @@ public class OnlineInferenceService {
      *   调用方应跳过官方 webSearch 注入（防止与官方 API 工具捆绑/冲突）。
      * - 预搜索失败/无结果 → 返回原 prompt（引用不变），调用方回退官方 webSearch 注入。
      */
-    private String applySearchToPrompt(String prompt, boolean webSearch, String apiUrl) {
+    private String applySearchToPrompt(String prompt, boolean webSearch, String apiUrl,
+                                          boolean onResponsesEndpoint) {
         if (!webSearch || prompt == null || prompt.isEmpty()) return prompt;
         // CHIP-ASK(2026-11-02)：用户点了「🔍 搜索」= 本轮显式要联网，直接越过下面的实时词意图闸；
         // 一次性消费，不会让后续普通提问也白烧额度。官方能搜时仍走官方（GATE-1 不动）。
@@ -2566,7 +2598,11 @@ public class OnlineInferenceService {
         String officialParam = pcm.getServiceParam(apiUrl, "webSearch");
         if (officialParam != null && !officialParam.isEmpty()) {
             String wse = pcm.getWebSearchEndpoint(apiUrl);
-            boolean endpointOk = wse == null || wse.isEmpty() || (apiUrl != null && apiUrl.contains(wse));
+            // RESPONSES-WSEARCH(2026-11-02)：配置里的 apiUrl 常常只是 baseUrl（https://api.deepseek.com），
+            // contains("/responses") 永远不成立，于是哪怕这次请求真的打在 /responses 上也会被判"用不上"
+            // 而退回秘塔预搜索。调用方知道自己打的是哪个端点，用 onResponsesEndpoint 把这个事实传进来。
+            boolean endpointOk = onResponsesEndpoint
+                    || wse == null || wse.isEmpty() || (apiUrl != null && apiUrl.contains(wse));
             if (endpointOk) {
                 AILogger.i(TAG, "联网搜索交给官方服务端执行（param=" + officialParam
                         + "），跳过自有预搜索，不消耗秘塔额度");
@@ -2752,7 +2788,7 @@ public class OnlineInferenceService {
         String searchPrompt = prompt;
         boolean ownSearchUsed = false;
         if (webSearch) {
-            searchPrompt = applySearchToPrompt(prompt, webSearch, apiUrl);
+        searchPrompt = applySearchToPrompt(prompt, webSearch, apiUrl, false);
             ownSearchUsed = searchPrompt != prompt;
             if (!ownSearchUsed) {
                 String wse = com.oilquiz.app.ai.model.ProviderConfigManager.get().getWebSearchEndpoint(apiUrl);
