@@ -165,6 +165,53 @@ Key 取值顺序（`resolveApiKey`）：扁平键 `Service.METASO_SEARCH` → `A
 `out.substring(0, MAX_TOOL_RESULT_LENGTH)`、`clipAtSentence(`、`put("description_truncated"` 都已不存在，
 且 `size_chars` 与 `OVERSIZE-SAY` 归因在位）。
 
+### 4.6 哪些 action 真的扣额度（手机实测补的口径，2026-11-02）
+
+用户在自己手机上让模型"把每个 action 都试一遍"，一轮跑下来暴露三件事，都在这侧：
+
+| action | 实际走哪条路 | 扣额度 | 备注 |
+|---|---|---|---|
+| `ask` | open search v2（服务端） | ✓ 1 次 | 默认答案通道 |
+| `search` | `/api/v1/search` | ✓ 1 次 | 要一批来源时才用 |
+| `read_url` | `/api/v1/reader` | ✓ 1 次 | 服务端解析，可能回 4000 |
+| `search_and_read` / `smart_search` | 内部各调一次 `search` + 本地抓正文 | ✓ **只算搜索那一步** | 抓正文是 Jsoup，不另计 |
+| `get_webpage` / `extract_info` / `summarize` / `get_dynamic_content` / `smart_read` | 本地 Jsoup + 正则/统计 | ✗ 不扣 | 重试这些不花钱 |
+
+这条边界现在写在六处可见面里（工具顶层描述、`@Action`、ToolDefinition、`AgentService` 清单、两份提示词、使用指南），
+理由很直接：模型不知道哪些是免费的，就会**因为怕扣额度而不敢改正参数重试**，
+也会在本地就能做的动作上绕去 `read_url` 白花钱。缺参文案也统一补了"（这次没有发出请求，不扣额度）"。
+
+三个实测抓到的缺陷（都已修）：
+
+1. `summarize` 四连失败：它要的是 `results`（或 `url`），而缺参文案让它补 `query` —— 模型照做永远不对。
+   现在按真实必填项说，并**新增单页形态**：只给 `url` 就本地抓该页再摘要（以前根本不支持）。
+2. `smart_read` 报"需要 results"：解析只认 Java `List`，模型把上一步的数组按 JSON 字符串贴进来就被拒。
+   现在 `parseResultsArg` 收三种形态：真数组、JSON 字符串、以及连外层 `{query,count,results:[…]}` 一起传进来的整段返回；
+   `summarize` 同用一个解析器（原来是裸强转，字符串直接 `ClassCastException` → "生成摘要失败"）。
+3. `search_and_read` 名不副实：不传 `detailIndex` 时只回清单 + "请带 detailIndex"，等于白搭一轮推理。
+   现在默认读前 3 条正文（本地抓取，不额外扣费），要指定某一条才用 `detailIndex=N`。
+   `extract_info` 的描述也改成实话：它返回页面元数据（标题/meta/各级标题/切片/内链/分类/关键词），
+   **不是语义抽取** —— 要从页面拿某个具体答案应该 `read_url` 拿正文或 `ask` 提问。
+
+### 4.7 在线"联网搜索"的预搜索闸门（2026-11-02）
+
+勾选联网后，`OnlineInferenceService.applySearchToPrompt` 以前对**每一条**消息先打一次
+`preSearch(..., limit=5)`（固定扣 3 积分），成功还顺手抑制官方联网注入。等于**每家服务商都先烧一次我们的额度**，
+哪怕它自己就能在服务端搜。现在两道闸，顺序不能换：
+
+1. **官方优先（按端点判断）**：配置表声明了 `services.webSearch` 且当前端点就是它支持的那个
+   （`getWebSearchEndpoint(apiUrl)` 匹配）→ 不预搜索，交给服务端执行。
+   参考 DeepSeek 的做法校准过这条判据：它 **Chat Completions 没有内置联网参数**
+   （`web_search_options`/`enable_search` 实测都不生效），只有 Responses 端的 `web_search` 工具
+   （且目前仅部分模型），所以"有 param 就跳过"是错的，必须**按端点**判断；不合端点才回落到自有搜索。
+2. **意图闸**：官方用不上时，只有问题本身要实时信息才预搜索；否则交给模型自己调
+   `network_search`（默认 ask）。词表按用户业务挑（时间词、行情/价格、天气、新闻赛事、政策与"最新/最近/现在"），
+   并先排掉"处理已有文本"的任务（翻译/润色/解释/写代码——里面出现"今天""天气"是在引用原文）。
+   判漏的代价只是模型自己再搜一次（多一轮推理），判宽的代价是每条普通提问都白烧一次额度，
+   所以**宁可窄**。
+
+复现与验证：`OnlineSearchGateTest` 锁住两组正反例与"三条调用点都带 `apiUrl`"。
+
 ## 五、模型可见面清单（改参数必须逐条对账）
 | # | 通道 | 位置 | 本次状态 |
 |---|---|---|---|

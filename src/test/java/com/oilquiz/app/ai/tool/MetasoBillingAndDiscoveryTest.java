@@ -1,5 +1,6 @@
 package com.oilquiz.app.ai.tool;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -22,6 +23,26 @@ import java.util.Map;
  */
 public class MetasoBillingAndDiscoveryTest {
 
+    /** 取源码里从 marker 起、到 terminator 为止的一段（按工具切块，避免全局 grep 误判）。 */
+    private static String slice(String src, String marker, String terminator, String label) {
+        int at = src.indexOf(marker);
+        assertTrue(label + "：找不到锚点 " + marker, at >= 0);
+        int end = src.indexOf(terminator, at);
+        return end < 0 ? src.substring(at) : src.substring(at, end);
+    }
+
+    /** 反射调本地 FC 提示词构造器：判"模型实际收到什么"，不靠扫源码文本。 */
+    private static String invokeFcPrompt() throws Exception {
+        java.lang.reflect.Method m = com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine.class
+                .getDeclaredMethod("buildFcSystemPrompt", String.class);
+        m.setAccessible(true);
+        return (String) m.invoke(null, (String) null);
+    }
+
+    /** 失败结果可能带 Throwable 前缀，取纯文本再判。 */
+    private static String text(Object o) {
+        return o == null ? "" : String.valueOf(o);
+    }
     private static String read(String path) throws Exception {
         return new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8);
     }
@@ -134,6 +155,117 @@ public class MetasoBillingAndDiscoveryTest {
         assertTrue("limit 说明要带按次计费口径", d.get("limit").contains("按次"));
         assertTrue("scope 要写学术键 scholar", d.get("scope").contains("scholar"));
         assertFalse("limit 不能教模型翻页", d.get("limit").contains("page"));
+    }
+
+    /**
+     * 手机实测（用户让模型"把每个 action 都试一遍"）抓到：{@code smart_read}/{@code summarize}
+     * 把上一步 search 的 {@code results} 原样贴回来却被判"缺 results"。
+     * 根因是解析只认 Java List。{@link NetworkSearchTool#parseResultsArg} 现在三种写法都收。
+     */
+    @Test
+    public void resultsParameterAcceptsAllThreeShapesTheModelActuallySends() throws Exception {
+        java.util.List<java.util.Map<String, Object>> asList = new java.util.ArrayList<>();
+        java.util.Map<String, Object> one = new java.util.HashMap<>();
+        one.put("title", "A");
+        one.put("url", "https://a");
+        one.put("snippet", "s");
+        one.put("date", 2026);          // 非字符串值也不能把整条摘要打爆（旧裸强转 + (String) 取值会 CCE）
+        asList.add(one);
+
+        assertEquals("真数组", 1, NetworkSearchTool.parseResultsArg(asList).size());
+        assertEquals("数组的 JSON 字符串", 1,
+                NetworkSearchTool.parseResultsArg("[{\"title\":\"A\",\"url\":\"https://a\"}]").size());
+        assertEquals("整段搜索返回（外层带 results）", 1,
+                NetworkSearchTool.parseResultsArg("{\"query\":\"q\",\"count\":1,\"results\":[{\"title\":\"A\"}]}").size());
+        assertEquals("org.json 数组", 2,
+                NetworkSearchTool.parseResultsArg(
+                        new org.json.JSONArray("[{\"title\":\"A\"},{\"title\":\"B\"}]")).size());
+        assertTrue("垃圾输入不抛异常，按空处理（由调用方报缺参）",
+                NetworkSearchTool.parseResultsArg("not json at all").isEmpty());
+        assertTrue("null 按空处理", NetworkSearchTool.parseResultsArg(null).isEmpty());
+        // 数字值要能转成文本，不能因为 (String) 强转失败而让整条结果报错
+        assertEquals("2026", String.valueOf(NetworkSearchTool.parseResultsArg(asList).get(0).get("date")));
+    }
+
+    /**
+     * 缺参文案不许再指错路：实测 {@code summarize} 被要求补 query，而它真正要的是 results/url
+     * —— 模型照做就永远失败（用户那轮"四连失败"）。
+     */
+    @Test
+    public void missingParameterHintsNameTheRealRequiredKey() throws Exception {
+        java.lang.reflect.Method m = NetworkSearchTool.class.getDeclaredMethod(
+                "missingParam", String.class, Map.class);
+        m.setAccessible(true);
+
+        String sum = text(((AIToolResult) m.invoke(null, "summarize", new java.util.HashMap<String, Object>())).getErrorMessage());
+        assertTrue("summarize 要说真实必填项 results（并允许 url），不能再让它补 query",
+                sum.contains("results") && sum.contains("url"));
+        assertFalse("不能再把 summarize 指向 query 作为必填", sum.contains("summarize 需要 query"));
+
+        String sr = text(((AIToolResult) m.invoke(null, "smart_read", new java.util.HashMap<String, Object>())).getErrorMessage());
+        assertTrue("smart_read 要说明 results 也可以是 JSON 字符串", sr.contains("results") && sr.contains("JSON"));
+
+        String ask = text(((AIToolResult) m.invoke(null, "ask", new java.util.HashMap<String, Object>())).getErrorMessage());
+        assertTrue("ask 要 question", ask.contains("question"));
+
+        String ru = text(((AIToolResult) m.invoke(null, "read_url", new java.util.HashMap<String, Object>())).getErrorMessage());
+        assertTrue("read_url 要 url 且提醒别写进 query", ru.contains("url") && ru.contains("query"));
+
+        // 本地拦下的缺参一次请求都没发出去 → 必须说明不扣额度，否则模型不敢改正重试
+        for (String a : new String[]{"summarize", "smart_read", "ask", "read_url", "search"}) {
+            String t = text(((AIToolResult) m.invoke(null, a, new java.util.HashMap<String, Object>())).getErrorMessage());
+            assertTrue(a + " 的缺参文案要写明没发请求、不扣额度", t.contains("不扣额度"));
+        }
+    }
+
+    /** 扣额度边界要写在模型看得见的每一处（否则它会怕花钱而不敢用本地免费动作，或白烧 read_url）。 */
+    @Test
+    public void billingBoundaryIsStatedOnEveryModelFacingSurface() throws Exception {
+        String tool = read("src/main/java/com/oilquiz/app/ai/tool/NetworkSearchTool.java");
+        String mgr = slice(read("src/main/java/com/oilquiz/app/ai/tool/AIToolManager.java"),
+                "ToolDefinition.builder(\"network_search\"", ".build();", "AIToolManager.network_search");
+        String svc = slice(read("src/main/java/com/oilquiz/app/ai/service/AgentService.java"),
+                "registerToolSchema(\"network_search\"", "\");", "AgentService.network_search");
+        String guide = read("src/main/java/com/oilquiz/app/ai/tool/AIToolUsageGuide.java");
+        String online = read("src/main/java/com/oilquiz/app/ai/agent/online/OnlinePromptBuilder.java");
+        String fc = invokeFcPrompt();
+
+        for (java.util.Map.Entry<String, String> e : java.util.Map.of(
+                "注解+参数表", tool, "ToolDefinition", mgr, "AgentService 清单", svc,
+                "使用指南", guide, "在线提示词", online, "本地FC提示词", fc).entrySet()) {
+            assertTrue(e.getKey() + "：要区分哪些 action 扣额度",
+                    e.getValue().contains("不扣额度") || e.getValue().contains("不花钱"));
+            assertTrue(e.getKey() + "：要列出本地免费的抓网页类 action",
+                    e.getValue().contains("get_webpage") || e.getValue().contains("抓网页"));
+        }
+        assertTrue("search_and_read 要说清只搜索那一步扣费",
+                tool.contains("只搜索那一步扣") || tool.contains("不再额外扣"));
+        assertTrue("extract_info 不能再冒充语义抽取",
+                tool.contains("不是语义问答") || tool.contains("元数据"));
+    }
+
+    /**
+     * 对话页 native FC 这条路径（本地模型走它）以前把工具结果裁成 400 字符（天气类 1500），
+     * 列表还只给前 10 条 —— 台账/表格类数据进去 400 字就只剩表头，模型没见过后面的行只能编；
+     * 秘塔按次买回来的第 11 条也永远进不了它眼里。现在与本地 Agent 引擎同口径：不裁，
+     * 超预算由 ChatContextBuilder 挤更早的历史兜底。
+     */
+    @Test
+    public void nativeFcPathNoLongerTruncatesToolResults() throws Exception {
+        String svc = read("src/main/java/com/oilquiz/app/ai/service/AgentService.java");
+        assertFalse("不许再按 400/1500 截字符串", svc.contains("TOOL_CONTENT_PREVIEW_LENGTH")
+                || svc.contains("WEATHER_CONTENT_PREVIEW_LENGTH"));
+        assertFalse("不许再出现'内容过长，已截断'", svc.contains("内容过长，已截断"));
+        assertFalse("列表不许只给前 10 条", svc.contains("Math.min(list.size(), 10)"));
+        assertFalse("不许再写'... 还有 N'这种丢条目的尾巴", svc.contains("... 还有 "));
+        assertTrue("要留下不裁的口径说明", svc.contains("NO-CUT(2026-11-02)"));
+        // 同一文件里那族"工具结果智能摘要"是死代码（summarizeToolResult 全仓零调用），
+        // 行为比活的 400 截断更狠（按行过滤 + 超 1000 字 break），已整族删除。
+        for (String dead : new String[]{"summarizeToolResult", "formatSearchResult",
+                "formatWeatherResult", "formatDatabaseResult", "smartTruncate",
+                "TOOL_RESULT_MAX_LENGTH", "TOOL_RESULT_SUMMARY_THRESHOLD"}) {
+            assertFalse("死代码族应已整体删除: " + dead, svc.contains(dead));
+        }
     }
 
     /** 申报值本身（回归锁：ask 一定要比 search 长得多）。 */

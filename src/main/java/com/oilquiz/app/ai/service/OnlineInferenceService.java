@@ -1628,7 +1628,7 @@ public class OnlineInferenceService {
                 }
             }
             // 联网搜索优先自有工具：预搜索成功则拼入 prompt 且不再注入官方 webSearch
-            String searchPrompt = applySearchToPrompt(prompt, webSearch);
+            String searchPrompt = applySearchToPrompt(prompt, webSearch, apiUrl);
             boolean ownSearchUsed = searchPrompt != prompt;
             JsonObject user;
             List<String> imageDataUrls = images == null ? new ArrayList<>() : dataUrlsOf(images);
@@ -2158,7 +2158,7 @@ public class OnlineInferenceService {
             JsonObject textPart = new JsonObject();
             textPart.addProperty("type", "text");
             // 联网搜索优先自有工具：预搜索成功则拼入 prompt 且不再注入官方 webSearch
-            String searchPrompt = applySearchToPrompt(prompt, webSearch);
+            String searchPrompt = applySearchToPrompt(prompt, webSearch, apiUrl);
             boolean ownSearchUsed = searchPrompt != prompt;
             // 端口不匹配（配置表 webSearch.endpoint=/responses，如图片+DeepSeek 官方 web_search 仅
             // /responses 生效）：多模态无法重拼到 Responses（图片输入）→ 预搜索失败时跳过官方注入，
@@ -2539,8 +2539,38 @@ public class OnlineInferenceService {
      *   调用方应跳过官方 webSearch 注入（防止与官方 API 工具捆绑/冲突）。
      * - 预搜索失败/无结果 → 返回原 prompt（引用不变），调用方回退官方 webSearch 注入。
      */
-    private String applySearchToPrompt(String prompt, boolean webSearch) {
+    private String applySearchToPrompt(String prompt, boolean webSearch, String apiUrl) {
         if (!webSearch || prompt == null || prompt.isEmpty()) return prompt;
+        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get();
+
+        // GATE-1 官方优先（2026-11-02，参考 DeepSeek 的做法）：
+        // 配置表声明了官方联网（param 非空）且**当前端点就是它支持的那个端点**时，
+        // 搜索由服务商在服务端执行，绝不再自己打一次秘塔 —— 秘塔是按次扣积分的，
+        // 而这条老逻辑是"自有工具优先"，等于每家都先烧我们 3 积分，成功后还顺手抑制官方注入。
+        // 注意 DeepSeek 是个反例校准：它 Chat Completions 根本没有内置联网参数，
+        // 只有 Responses 端的 web_search 工具（且仅 v4-flash），所以必须按端点判断而不是"有 param 就跳过"。
+        String officialParam = pcm.getServiceParam(apiUrl, "webSearch");
+        if (officialParam != null && !officialParam.isEmpty()) {
+            String wse = pcm.getWebSearchEndpoint(apiUrl);
+            boolean endpointOk = wse == null || wse.isEmpty() || (apiUrl != null && apiUrl.contains(wse));
+            if (endpointOk) {
+                AILogger.i(TAG, "联网搜索交给官方服务端执行（param=" + officialParam
+                        + "），跳过自有预搜索，不消耗秘塔额度");
+                return prompt;
+            }
+            AILogger.i(TAG, "该服务商官方联网只支持端点 " + wse + "，当前 " + apiUrl
+                    + " 用不上 → 走自有搜索判定");
+        }
+
+        // GATE-2 意图闸：只有问题本身要"实时/最新"信息才值得先烧一次额度。
+        // 没命中也不等于放弃联网 —— 提示词里已经写明"实时信息必须用工具查"，
+        // 模型仍可在这一轮自己调 network_search（问结论用 ask），只是不再无脑先替它花一次。
+        if (!needsLiveInfo(prompt)) {
+            AILogger.i(TAG, "未命中实时信息特征，跳过预搜索（需要时由模型自己调 network_search）");
+            return prompt;
+        }
+
         try {
             if (com.oilquiz.app.ai.tool.NetworkSearchTool.isAvailable()) {
                 String searchCtx = com.oilquiz.app.ai.tool.NetworkSearchTool.preSearch(context, prompt, 5);
@@ -2555,6 +2585,44 @@ public class OnlineInferenceService {
         }
         return prompt;
     }
+
+    /**
+     * 是否明显需要实时/外部信息（预搜索的意图闸）。
+     *
+     * <p>词表按用户实际业务挑的：时间词、行情/价格类、天气、新闻赛事、政策与"最新/最近/现在"。
+     * 命中就预搜索；**判漏的代价只是模型自己再调一次工具**（多一轮推理），不会答错；
+     * 判宽的代价是每条普通提问都白烧一次额度，所以这里宁可窄一点。</p>
+     */
+    static boolean needsLiveInfo(String prompt) {
+        if (prompt == null) return false;
+        String s = prompt.toLowerCase();
+        // 先排除"处理已有文本"的任务：翻译/润色/解释/写代码里出现"今天""天气"是引用原文，
+        // 不该因此烧一次额度（实测用户会拿一段带日期的文字让我翻译）。
+        for (String k : NOT_LIVE_INFO_MARKERS) {
+            if (s.contains(k)) return false;
+        }
+        for (String k : LIVE_INFO_MARKERS) {
+            if (s.contains(k)) return true;
+        }
+        return false;
+    }
+
+    /** 处理已有文本的任务（翻译/润色/解释/写代码）：出现实时词也是在引用原文，不触发预搜索。 */
+    private static final String[] NOT_LIVE_INFO_MARKERS = {
+            "翻译", "润色", "改写", "校对", "解释一下", "解释下", "写一段", "写一个", "写个",
+            "生成代码", "代码", "总结一下", "总结下", "概括一下", "什么是", "怎么读", "发音",
+    };
+
+    private static final String[] LIVE_INFO_MARKERS = {
+            "今天", "今日", "现在", "此刻", "目前", "当前", "今年", "本月", "本周", "最近", "最新", "近期",
+            "实时", "即时", "如今", "这两天", "这几天", "昨天", "明天", "后天", "这周", "上周", "下周",
+            "价格", "价钱", "多少钱", "报价", "行情", "股价", "股票", "汇率", "油价", "金价", "银价", "铜价",
+            "运费", "房价", "利息", "利率", "存款", "基金", "期货", "煤炭", "天然气",
+            "天气", "气温", "下雨", "下雪", "台风", "雾霾", "空气质量",
+            "新闻", "快讯", "消息", "公告", "发布", "上线", "公布", "揭晓", "获奖", "比赛", "赛果", "比分", "榜单", "排名",
+            "政策", "新规", "条例", "标准", "规范", "通知", "招标", "中标", "停产", "检修", "开工",
+            "最新一代", "版本号", "更新日志", "changelog", "today", "latest", "current", "now", "price",
+    };
 
     /**
      * 向请求体注入网络搜索能力（配置表 services.webSearch 驱动，UI 勾选 supportsWebSearch 生效）：
@@ -2662,7 +2730,7 @@ public class OnlineInferenceService {
         String searchPrompt = prompt;
         boolean ownSearchUsed = false;
         if (webSearch) {
-            searchPrompt = applySearchToPrompt(prompt, webSearch);
+            searchPrompt = applySearchToPrompt(prompt, webSearch, apiUrl);
             ownSearchUsed = searchPrompt != prompt;
             if (!ownSearchUsed) {
                 String wse = com.oilquiz.app.ai.model.ProviderConfigManager.get().getWebSearchEndpoint(apiUrl);

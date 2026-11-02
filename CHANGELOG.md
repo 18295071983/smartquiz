@@ -1,5 +1,61 @@
 # 变更日志
 
+## [2026-11-02] fix(engine)：B 路径不再截断工具结果、预搜索加两道闸、删掉那族死代码
+
+用户三选一的拍板结果：**1 改（B 不裁）、3 加意图闸（参考 DeepSeek 的做法）、4 删死代码、2 保持不动**。
+
+- **B 对话页 native FC 不再截断**：`AgentService.formatToolOutput` 以前把纯字符串裁到 400 字
+  （含 weather 等关键词放宽到 1500），Map 里每个字符串字段各裁 400，列表只给前 10 条。
+  这条路径是**本地模型**的 native FC：查台账/读文件/跑数据库/秘塔按次买回来的摘要，进去就只剩表头。
+  现在全部原样给（三处裁剪 + "还有 N 条"尾巴一起删），只在超过 6000 字时打一条 W 日志；
+  预算由既有 `ChatContextBuilder.collectHistoryByBudget` 档位兜底（最近 6000 完整、旧的 2500/1200、
+  挤掉的做成"历史要点"回注）—— 超预算的表现是更早的历史被挤，不是本次数据被裁。
+- **预搜索两道闸（顺序不能换）**：①**官方优先**——配置表声明了 `services.webSearch` 且当前端点正是它支持的那个
+  （`getWebSearchEndpoint(apiUrl)`）就交给服务端执行，不再自烧秘塔额度；
+  判据按 DeepSeek 校准过：它 Chat Completions 没有内置联网参数（`web_search_options`/`enable_search` 实测不生效），
+  只有 Responses 端的 `web_search` 工具（且仅部分模型）——所以"有 param 就跳过"是错的，必须**按端点**判断。
+  ②**意图闸**——官方用不上时，只有问题本身要实时信息才预搜索（时间词/行情价格/天气/新闻赛事/政策/最新最近现在），
+  并先排掉"处理已有文本"的任务（翻译/润色/解释/写代码，里面出现"今天""天气"是引用原文）。
+  判漏的代价只是模型自己再调一次工具，判宽的代价是每条普通提问白烧一次额度，所以**宁可窄**。
+- **删除死代码族（112 行）**：`summarizeToolResult`（公开但全仓零调用）→ `formatSearchResult` /
+  `formatWeatherResult` / `formatDatabaseResult` / `smartTruncate` + `TOOL_RESULT_MAX_LENGTH` /
+  `TOOL_RESULT_SUMMARY_THRESHOLD`。行为比活的 400 截断更狠（按行过滤、`totalLen>1000 || lineCount>10` 就 break），
+  留着迟早被人接线；删掉后编译器与 grep 都证实零消费者。
+
+验证：全量单测 1390 绿（0 failures/0 errors/0 skipped）；新增 `OnlineSearchGateTest`（正反例 + 三条调用点都带 apiUrl）
+与 `MetasoBillingAndDiscoveryTest.nativeFcPathNoLongerTruncatesToolResults`（400/1500/前10条/死代码族都不许回来）。
+文档：契约文档新增 4.7（预搜索闸门），执行路径清单的 B 行与"截断预算"一节改为三路径对齐。
+本轮按"1/3/4 各一个提交"落地，均未 push。
+
+## [2026-11-02] fix(search)：手机实测 11 个 action 暴露的三处缺陷 + 扣额度边界
+
+用户在真机上让模型"把每个 action 都试一遍"，那轮对话（会话标题"看看网络搜索工具的功能"）直接抓到三件事。
+都不是秘塔的问题，是我这侧的文案/解析问题：
+
+- **`summarize` 四连失败**：它真正要的是 `results`（或 `url`），但缺参文案按默认分支说"需要 query"——
+  模型照做就永远不对（`query`/`keyword` 都试过）。现在文案按真实必填项写，并**补上单页形态**：
+  只给 `url` 就本地抓该页再摘要（`summarizeSingleUrl`），名字里那句"网页摘要"终于名副其实。
+- **`smart_read` 传不进 results**：解析只认 Java `List`，模型把上一步的数组按 JSON 字符串贴回来、
+  或连外层 `{query,count,results:[…]}` 一起传，都被判"缺 results"（`summarize` 原来是裸强转，
+  字符串还会 `ClassCastException` 打成"生成摘要失败"）。新增 `parseResultsArg` 三种形态都收，
+  两处共用；条目字段也不再 `(String)` 强转（`date` 是数字就会炸），改 `strOf` 安全取值。
+- **`search_and_read` 名不副实**：不传 `detailIndex` 时它只回清单 + 一句"请带 detailIndex"，
+  等于白烧一轮推理。现在默认读前 3 条正文（本地 Jsoup 抓取，**不额外扣额度**），
+  `detailIndex=N` 仍支持指定单条；`extract_info` 的描述也改成实话（返回页面元数据，不是语义抽取）。
+- **扣额度边界**：模型之前不知道哪些动作要钱，实测表现为怕花钱而不敢改正参数重试、
+  也可能在本地就能做的动作上绕远路白烧 `read_url`。现在六处可见面（工具顶层描述/`@Action`/
+  `@Param action`/参数说明表、`AIToolManager` ToolDefinition、`AgentService` 清单、本地 FC 提示词、
+  在线 2.5 条、使用指南、工作区速查两份拷贝）统一写清：
+  **只有 `ask`/`search`/`read_url`（含 `search_and_read`、`smart_search` 的搜索那一步）扣额度**，
+  `get_webpage`/`extract_info`/`summarize`/`get_dynamic_content`/`smart_read` 是本地解析、不花钱。
+  缺参文案也一律补"（这次没有发出请求，不扣额度）"。
+
+验证：全量单测 1386 绿（0 failures/0 errors/0 skipped）；新增 3 条行为测试
+（`parseResultsArg` 三种写法、缺参文案点名真实必填项且不扣额度、扣额度边界出现在每一处可见面）；
+在线 golden 随 2.5 条重生成（两文件各改 1 行，逐字看过）；`assembleDebug` 通过。
+文档：`docs/metaso-network-search-contract-2026-11-02.md` 新增 4.6 节（含 action×是否扣额度对照表）。
+本轮**未提交、未真机复跑**（真机由用户自测）。
+
 ## [2026-11-02] fix(engine+registry)：API 返回的数据不再截断；按次付费的工具不自动重试；发现通道继承申报超时
 
 用户三条口径，都是行为层的，不是文案层的：

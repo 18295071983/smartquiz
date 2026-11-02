@@ -2651,8 +2651,11 @@ public class AgentLoopEngine {
                 + "读完一段再读下一段，不要凭猜测补齐。"
                 + "搜索：默认用 ask 拿结论（一般提问它就够），只有要一批来源/链接/原文时才用 search 等其它 action；"
                 + "找论文/文库/图片/播客要带 scope（scholar/document/image/video/podcast，默认只搜网页）。"
-                + "秘塔按次计费（一次调用一次额度，与返回条数无关）：一次就把 limit 给够、把问题问清，"
-                + "不要连续换词重搜。ask 出答案要几十秒是正常的，慢不是失败，别因为等得久就重试。"
+                + "秘塔按次计费（一次调用一次额度，与返回条数无关）：一次就把 limit 给够、把问题问清，不要连续换词重搜。"
+                + "只有 ask/search/read_url（含 search_and_read、smart_search 的搜索那一步）扣额度，"
+                + "其余抓网页类的 action 是本地解析、不花钱；"
+                + "summarize/smart_read 要带 results（上一步 search 的数组或它的 JSON 字符串都行），光填 query 没用。"
+                + "ask 出答案要几十秒是正常的，慢不是失败，别因为等得久就重试。"
                 // SEARCH-PAGE-HOLD(2026-11-02)：真机实测 search 接口对 page 参数
                 // 返回 {"errCode":1000,"errMsg":"请求参数错误"}（连 page=0 也被拒），不带才 200，
                 // 所以**没有翻页能力**，schema 里的 page 参数已摘掉；这里不再教模型翻页，

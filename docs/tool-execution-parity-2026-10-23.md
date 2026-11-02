@@ -9,7 +9,7 @@
 | 入口 | 位置 | 超时 | 重试 | 缓存 | 结果截断 | 校验/别名/依赖 |
 |---|---|---|---|---|---|---|
 | A 在线 Agent | `ai/agent/online/OnlineToolManager.java` | 基线 30s、交互 120s、知识库导入 180s，读工具自声明 ✓ | `MAX_RETRY=2` ✓；非只读超时**不重试** ✓；**按次付费工具超时也不重试**（`ToolSideEffects.isBilledPerCall`，2026-11-02）✓ | 只读幂等才缓存 ✓；键 `toolName+arguments` ✓；TTL 5min ✓（按次付费**允许缓存**——缓存正是在省钱）✓ | **16K** + 落盘指针（全文进文件，续读路径写在文案里）✓ | 仅 parseArguments；别名靠底座 |
-| B 对话页 native FC | `ai/service/AgentService.java`（由 `ai/bridge/ModelExecutionBridge.java:1277,1482` 驱动 C++ 解析出的 tool_calls） | 基线 30s、`get_result` 120s，读工具自声明 ✓ | 2 次 ✓；有副作用超时**不重试** ✓（本轮改）；按次付费超时同样不重试（2026-11-02，与 A 同判据）✓ | 副作用判据同 A ✓（本轮改）；键 `call.name+arguments`；TTL 300s（与 A 数值相同） | **400 字符**（天气 1500）✓ | `resolveToolName` + `validateParams` + 依赖预调用 ✓ |
+| B 对话页 native FC | `ai/service/AgentService.java`（由 `ai/bridge/ModelExecutionBridge.java:1277,1482` 驱动 C++ 解析出的 tool_calls） | 基线 30s、`get_result` 120s，读工具自声明 ✓ | 2 次 ✓；有副作用超时**不重试** ✓；按次付费超时同样不重试（2026-11-02，与 A 同判据）✓ | 副作用判据同 A ✓；键 `call.name+arguments`；TTL 300s（与 A 数值相同） | ~~**400 字符**（天气 1500）~~ → **2026-11-02 起不裁**（字符串/字段/列表前 10 条三处裁剪全删；预算交给 `ChatContextBuilder` 档位：最近 6000 完整、旧的 2500/1200、挤掉的做历史要点）✓ | `resolveToolName` + `validateParams` + 依赖预调用 ✓ |
 | C 本地软件 Agent | `ai/agent/software/engine/AgentLoopEngine.java` | ~~**15s**，**不读** `executionTimeoutMs`~~ → **2026-11-02 已收口**：基线 15s 与工具自声明取较大者（`toolWaitMs`→`ToolTimeouts.effectiveMs`，与 A/B 同一判据；并行批次取各调用的最大值）✓ | `MAX_RETRIES=1`，同参重跑；判据从写死 `network_search` 换成 `ToolSideEffects.mayRetryOnTimeout`（只读**且非按次付费**才重跑）✓ | 无 ✓ | ~~**6000**~~ → **2026-11-02 起不裁**：工具结果原样进历史（数组/字段/总长三档裁剪与 `shrinkForModel` 已删）；只在超提示线时补 `size_chars`+note，装不下只挤更早的整条历史并把"是谁撑爆的"写进退出归因 ✓ | 只解析参数 JSON；别名走自己的 fuzzy ✓ |
 | D 导入用 v2 小路径 | `ai/importing/v2/ImportToolManager.java` | 无 ✓ | 熔断：单会话最多 2 次调用 ✓ | 无 | 无 | 3 个工具自有实现，不经 `AIToolManager` ✓ |
 
@@ -82,15 +82,18 @@
 
 ## 三、未收口的差异（按建议顺序）
 
-1. **截断预算：C 已归零，A/B 仍是两个数（2026-11-02 更新）**
+1. **截断预算：三条路径已对齐"不裁"（2026-11-02 更新）**
    · **C 本地不再裁**：用户口径"api 返回的数据不要截断、条数模型自己设置"，
    `AgentLoopEngine` 的三档裁剪（数组前 8 条 / 单字段 400 字 / 总长 6000）连同 `shrinkForModel` 已删；
    装不下时只挤更早的整条历史，并把"是哪个工具、多少字符撑爆的"写进退出归因（超了就说，不静默裁）。
+   · **B 对话页 native FC 同步改**（2026-11-02）：`formatToolOutput` 的 400 字（天气 1500）、
+   Map 字段 400 字、列表前 10 条三处裁剪全删；预算交给 `ChatContextBuilder.collectHistoryByBudget`
+   的档位（最近工具结果 6000 完整、旧的 2500/1200、挤掉的做成"历史要点"回注）——
+   超预算的表现是**更早的历史被挤**，不是本次数据被裁。
    · A=16K 仍是"前缀 + 落盘指针"（全文进文件，模型拿到续读路径），这算它的不裁形式 ✓。
-   · B=400（天气 1500）**没动**，与 A/C 不同口径 ✓ —— 这条是剩下的真差异：
-   同一个 `file_reader` 结果，A 给 16K、C 给全文、B 只给 400 字符。要不要一起放开需要拍板
-   （B 是对话页 native FC 那条路径，历史上是刻意压小以保首字延迟），不是我能自行统一的。
-   · `TOOL_RESULT_MAX_LENGTH=Integer.MAX_VALUE` + 空壳 `smartTruncate()` 仍是死代码 ✓（未删，等拍板）。
+   · 同一文件里那族"工具结果智能摘要"（`summarizeToolResult` → `formatSearchResult` /
+   `formatWeatherResult` / `formatDatabaseResult` / `smartTruncate` + 两个常量）全仓零调用，
+   且行为比 400 截断更狠（按行过滤、超 1000 字 break），已于 2026-11-02 整族删除（约 112 行）。
 2. **工具卡状态：等 parts 落地后一起改（已拍定，勿重复盘）**。我原样写"UI 侧三份词表"是错的，
    核完生产侧后是**两个概念共用一个字段名**：
    · `tool_call` 状态只有三个词，唯一写入方是 `AIChatActivity:7114`（`running`）与
