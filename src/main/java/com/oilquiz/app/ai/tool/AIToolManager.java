@@ -1414,6 +1414,7 @@ public class AIToolManager {
                     .addParameter("start_char", "integer", "read_url 正文起始字符偏移（默认0，续读用）", false)
                     .addParameter("max_chars", "integer", "read_url 本次最大字符数（默认0=整篇；长文建议4000分批读）", false)
                     .addParameter("with_local", "boolean", "read_url 是否附带本地抓取的正文做对照（默认false；开了多一次网络往返，回 local_text/local_chars，用于核对秘塔是否漏句）", false)
+                    .addParameter("format", "string", "read_url 返回格式：markdown(默认，原文)/text(转纯文本，省token丢结构)/both(都给)", false, "markdown")
                     .addParameter("maxResults", "integer", "最大结果数（smart_search用）", false, 5)
                     .addParameter("autoRead", "boolean", "是否自动读取详情（smart_search用）", false, true)
                     .addParameter("results", "array", "搜索结果数组（summarize/smart_read 必填）：上一步 search 的 results 数组、它的 JSON 字符串、或整段搜索返回都收", false)

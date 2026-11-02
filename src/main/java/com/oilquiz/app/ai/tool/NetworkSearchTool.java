@@ -14,7 +14,7 @@ import okhttp3.Request;
 
 import com.oilquiz.app.ai.util.NetworkUtil;
 
-@Tool(value = "network_search", description = "网络搜索工具（秘塔搜索引擎驱动），支持搜索、智能问答、网页读取。默认用 ask 拿结论（一般提问它就够）；只有要一批来源/链接/原文时才用 search 等其它 action。秘塔按次计费（一次调用扣一次额度，与返回条数无关），所以一次问清楚，别反复调。ask 出答案要几十秒是正常的，慢不等于失败。只有 ask/search/read_url（以及 search_and_read、smart_search 的搜索那一步）扣额度，其余抓网页类 action 是本地解析、不花钱。", category = "search", aliases = {"search", "web_search", "bing_search"}, actions = {@Action(name = "search", description = "【扣额度】关键词搜索：返回标题/链接/摘要列表（只在要一批来源/链接时用；要结论默认用 ask。一次把 limit 给够，别为多看几条反复搜）"), @Action(name = "ask", description = "【扣额度】秘塔智能问答：直接返回结论+引用来源。默认用 ask 就够（一般提问都走它）；出答案要几十秒是正常的，慢不等于失败，别重试（重试=再扣一次额度）"), @Action(name = "read_url", description = "【扣额度】秘塔服务端读网页：返回 markdown 正文（字段名 markdown，原样不清洗），能处理 JS 渲染页；读不了的页会回服务错误码，这时换来源或改用 get_webpage（本地、免费）"), @Action(name = "get_webpage", description = "【本地，不扣额度】用 Jsoup 直接抓网页原始内容"), @Action(name = "extract_info", description = "【本地，不扣额度】抽取网页的结构化元数据：标题/meta描述/meta关键词/各级标题/正文切片/内链/分类/关键词；带 query 时额外回 queryMatches（按问题命中的正文段落）。注意：这不是语义问答，想从页面得到某个具体答案请用 read_url 拿正文或 ask 提问"), @Action(name = "summarize", description = "【本地，不扣额度】把上一步 search 返回的 results 汇成要点+来源；也可以只给 url，我抓该页再摘要。只填 query 不够"), @Action(name = "search_and_read", description = "【search 那一步扣额度】搜索并默认读前 min(limit,3) 条正文（limit 也决定读几条，最多 3 条；正文抓取是本地 Jsoup，不再额外扣）；要只读某一条就带 detailIndex=N"), @Action(name = "get_dynamic_content", description = "【本地，不扣额度】抓 JS 渲染页并挖出内嵌数据（window.DATA 之类）"), @Action(name = "smart_search", description = "【search 那一步扣额度】智能搜索：搜完自动按相关度读若干条正文并汇总"), @Action(name = "smart_read", description = "【本地，不扣额度】对已有搜索结果逐条读正文并生成摘要：必须传 results（上一步 search 返回的数组，或它的 JSON 字符串）")}, params = {@Param(name = "action", type = "string", description = "操作类型: ask(默认,扣额度)/search(扣额度)/read_url(扣额度)｜get_webpage·extract_info·summarize·get_dynamic_content·smart_read(本地抓取,不扣额度)｜search_and_read·smart_search(只搜索那一步扣)", required = false), @Param(name = "query", type = "string", description = "搜索查询（用于search、search_and_read、smart_search、extract_info操作；extract_info 用它挑命中段落）", required = false), @Param(name = "keyword", type = "string", description = "搜索关键词（query的别名）", required = false), @Param(name = "question", type = "string", description = "问题（用于ask操作，秘塔智能问答）", required = false), @Param(name = "model", type = "string", description = "问答模型: concise(简洁)/detail(深入)/research(研究)，默认concise（用于ask操作）", required = false), @Param(name = "limit", type = "int", description = "返回条数（1..50，默认 5）。接口不支持翻页，要更多结果就调大这个值；search_and_read 也用它决定读几条正文（最多 3 条）", required = false), @Param(name = "num_results", type = "int", description = "返回结果数量（limit的别名）", required = false), @Param(name = "url", type = "string", description = "网页URL（read_url/get_webpage/extract_info/get_dynamic_content 用；summarize 也可以只给 url 走单页摘要）", required = false), @Param(name = "maxResults", type = "int", description = "最大结果数(默认5)", required = false), @Param(name = "scope", type = "string", description = "搜索范围：webpage(默认)/document(文库)/scholar(学术文献)/image/video/podcast；写 paper 会按 scholar 处理", required = false), @Param(name = "include_summary", type = "boolean", description = "是否返回内容摘要（默认 true；关掉只省流量但更容易答错）", required = false), @Param(name = "start_char", type = "int", description = "read_url 正文起始字符偏移（默认 0）", required = false), @Param(name = "max_chars", type = "int", description = "read_url 本次最大字符数（默认 0=整篇；建议 4000）", required = false), @Param(name = "with_local", type = "boolean", description = "read_url 是否附带本地抓取的正文做对照（默认 false；开了会多一次网络往返，回 local_text/local_chars，用于核对秘塔是否漏句）", required = false), @Param(name = "autoRead", type = "boolean", description = "是否自动读取详情(默认true)", required = false), @Param(name = "results", type = "array", description = "搜索结果数组（summarize/smart_read 用）：把上一步 search 返回的 results 原样传进来；数组、它的 JSON 字符串、或整段搜索返回都收", required = false)})
+@Tool(value = "network_search", description = "网络搜索工具（秘塔搜索引擎驱动），支持搜索、智能问答、网页读取。默认用 ask 拿结论（一般提问它就够）；只有要一批来源/链接/原文时才用 search 等其它 action。秘塔按次计费（一次调用扣一次额度，与返回条数无关），所以一次问清楚，别反复调。ask 出答案要几十秒是正常的，慢不等于失败。只有 ask/search/read_url（以及 search_and_read、smart_search 的搜索那一步）扣额度，其余抓网页类 action 是本地解析、不花钱。", category = "search", aliases = {"search", "web_search", "bing_search"}, actions = {@Action(name = "search", description = "【扣额度】关键词搜索：返回标题/链接/摘要列表（只在要一批来源/链接时用；要结论默认用 ask。一次把 limit 给够，别为多看几条反复搜）"), @Action(name = "ask", description = "【扣额度】秘塔智能问答：直接返回结论+引用来源。默认用 ask 就够（一般提问都走它）；出答案要几十秒是正常的，慢不等于失败，别重试（重试=再扣一次额度）"), @Action(name = "read_url", description = "【扣额度】秘塔服务端读网页：返回 markdown 正文（字段名 markdown，原样不清洗），能处理 JS 渲染页；读不了的页会回服务错误码，这时换来源或改用 get_webpage（本地、免费）"), @Action(name = "get_webpage", description = "【本地，不扣额度】用 Jsoup 直接抓网页原始内容"), @Action(name = "extract_info", description = "【本地，不扣额度】抽取网页的结构化元数据：标题/meta描述/meta关键词/各级标题/正文切片/内链/分类/关键词；带 query 时额外回 queryMatches（按问题命中的正文段落）。注意：这不是语义问答，想从页面得到某个具体答案请用 read_url 拿正文或 ask 提问"), @Action(name = "summarize", description = "【本地，不扣额度】把上一步 search 返回的 results 汇成要点+来源；也可以只给 url，我抓该页再摘要。只填 query 不够"), @Action(name = "search_and_read", description = "【search 那一步扣额度】搜索并默认读前 min(limit,3) 条正文（limit 也决定读几条，最多 3 条；正文抓取是本地 Jsoup，不再额外扣）；要只读某一条就带 detailIndex=N"), @Action(name = "get_dynamic_content", description = "【本地，不扣额度】抓 JS 渲染页并挖出内嵌数据（window.DATA 之类）"), @Action(name = "smart_search", description = "【search 那一步扣额度】智能搜索：搜完自动按相关度读若干条正文并汇总"), @Action(name = "smart_read", description = "【本地，不扣额度】对已有搜索结果逐条读正文并生成摘要：必须传 results（上一步 search 返回的数组，或它的 JSON 字符串）")}, params = {@Param(name = "action", type = "string", description = "操作类型: ask(默认,扣额度)/search(扣额度)/read_url(扣额度)｜get_webpage·extract_info·summarize·get_dynamic_content·smart_read(本地抓取,不扣额度)｜search_and_read·smart_search(只搜索那一步扣)", required = false), @Param(name = "query", type = "string", description = "搜索查询（用于search、search_and_read、smart_search、extract_info操作；extract_info 用它挑命中段落）", required = false), @Param(name = "keyword", type = "string", description = "搜索关键词（query的别名）", required = false), @Param(name = "question", type = "string", description = "问题（用于ask操作，秘塔智能问答）", required = false), @Param(name = "model", type = "string", description = "问答模型: concise(简洁)/detail(深入)/research(研究)，默认concise（用于ask操作）", required = false), @Param(name = "limit", type = "int", description = "返回条数（1..50，默认 5）。接口不支持翻页，要更多结果就调大这个值；search_and_read 也用它决定读几条正文（最多 3 条）", required = false), @Param(name = "num_results", type = "int", description = "返回结果数量（limit的别名）", required = false), @Param(name = "url", type = "string", description = "网页URL（read_url/get_webpage/extract_info/get_dynamic_content 用；summarize 也可以只给 url 走单页摘要）", required = false), @Param(name = "maxResults", type = "int", description = "最大结果数(默认5)", required = false), @Param(name = "scope", type = "string", description = "搜索范围：webpage(默认)/document(文库)/scholar(学术文献)/image/video/podcast；写 paper 会按 scholar 处理", required = false), @Param(name = "include_summary", type = "boolean", description = "是否返回内容摘要（默认 true；关掉只省流量但更容易答错）", required = false), @Param(name = "start_char", type = "int", description = "read_url 正文起始字符偏移（默认 0）", required = false), @Param(name = "max_chars", type = "int", description = "read_url 本次最大字符数（默认 0=整篇；建议 4000）", required = false), @Param(name = "with_local", type = "boolean", description = "read_url 是否附带本地抓取的正文做对照（默认 false；开了会多一次网络往返，回 local_text/local_chars，用于核对秘塔是否漏句）", required = false), @Param(name = "format", type = "string", description = "read_url 返回格式：markdown(默认，秘塔原文)/text(转成纯文本，省 token 丢结构)/both(两个都给)", required = false), @Param(name = "autoRead", type = "boolean", description = "是否自动读取详情(默认true)", required = false), @Param(name = "results", type = "array", description = "搜索结果数组（summarize/smart_read 用）：把上一步 search 返回的 results 原样传进来；数组、它的 JSON 字符串、或整段搜索返回都收", required = false)})
 /* loaded from: NetworkSearchTool.class */
 public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
     private static final java.lang.String TAG = "NetworkSearchTool";
@@ -995,17 +995,27 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
                         : md;
                 int startChar = java.lang.Math.max(0, getIntParam(parameters, "start_char", 0));
                 int maxChars = getIntParam(parameters, "max_chars", 0);
-                // MARKDOWN-PASSTHRU(2026-11-02)：用户要求"不要清洗，把实际 markdown 原样给我看"。
-                // 这里同时给 text 和 markdown 两个键（同值），markdown 就是秘塔返回的 markdown 原文，
-                // 不做去导航/去推荐位之类的加工。
+                // FORMAT-SELECT(2026-11-02)：返回格式由调用方选。
+                //   markdown（默认）= 秘塔原文，保留标题/表格/链接/图片语法
+                //   text          = 由 markdown 转出的纯文本（去语法，省 token，但丢结构）
+                //   both          = 两个都给（同一篇会占两倍，慎用）
+                // 分页与 with_local 与格式无关，各自独立生效。
+                java.lang.String format = getStringParam(parameters, "format", "markdown");
+                if (format == null || format.trim().isEmpty()) {
+                    format = "markdown";
+                }
+                format = format.trim().toLowerCase();
+                if (!format.equals("text") && !format.equals("both")) {
+                    format = "markdown";
+                }
+                java.lang.String contentOut;
                 if (startChar > 0 || maxChars > 0) {
                     int total = contentText.length();
                     if (startChar > total) {
                         startChar = total;
                     }
                     int end = maxChars > 0 ? java.lang.Math.min(total, startChar + maxChars) : total;
-                    java.lang.String slice = contentText.substring(startChar, end);
-                    result.put("markdown", slice);
+                    contentOut = contentText.substring(startChar, end);
                     java.util.Map<java.lang.String, java.lang.Object> page = new java.util.HashMap<>();
                     page.put("total_chars", java.lang.Integer.valueOf(total));
                     page.put("start_char", java.lang.Integer.valueOf(startChar));
@@ -1014,7 +1024,13 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
                     page.put("next_start", java.lang.Integer.valueOf(end));
                     result.put("page", page);
                 } else {
-                    result.put("markdown", contentText);
+                    contentOut = contentText;
+                }
+                if (!format.equals("text")) {
+                    result.put("markdown", contentOut);
+                }
+                if (!format.equals("markdown")) {
+                    result.put("text", markdownToPlain(contentOut));
                 }
                 // LOCAL-SUPPLEMENT(2026-11-02)：秘塔转 markdown 时会丢行内内容（真机：光明网那句
                 // 带 <a> 的"11月2日15:00…CCTV2 直播"整句消失），而本地 Jsoup 抓同一页是完整的。
@@ -2048,6 +2064,23 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
         }
     }
 
+    /** markdown → 纯文本：去标题符号、图片、链接地址、强调符号，保留文字与段落。 */
+    private static String markdownToPlain(String md) {
+        if (md == null || md.isEmpty()) return "";
+        String t = md;
+        t = t.replaceAll("(?m)^\\s{0,3}#{1,6}\\s*", "");
+        t = t.replaceAll("!\\[[^\\]]*\\]\\([^)]*\\)", "");
+        t = t.replaceAll("\\[([^\\]]*)\\]\\([^)]*\\)", "$1");
+        t = t.replaceAll("(?m)^\\s{0,3}[-*+]\\s+", "");
+        t = t.replaceAll("(?m)^\\s{0,3}>\\s?", "");
+        t = t.replaceAll("\\*\\*([^*]+)\\*\\*", "$1");
+        t = t.replaceAll("(?<!\\*)\\*([^*\\n]+)\\*(?!\\*)", "$1");
+        t = t.replaceAll("`([^`]*)`", "$1");
+        t = t.replaceAll("(?m)^\\s*[-*_]{3,}\\s*$", "");
+        t = t.replaceAll("\\n{3,}", "\n\n");
+        return t.trim();
+    }
+
     private java.lang.String removeHtmlTags(java.lang.String html) {
         if (html == null) {
             return "";
@@ -2258,6 +2291,7 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
         descriptions.put("start_char", "read_url 正文起始字符偏移，默认 0（长文续读用）");
         descriptions.put("max_chars", "read_url 本次最大字符数，默认 0=整篇，长文建议 4000");
         descriptions.put("with_local", "read_url 是否附带本地抓取的正文做对照（默认 false；开了多一次网络往返，回 local_text/local_chars）");
+        descriptions.put("format", "read_url 返回格式：markdown(默认，秘塔原文)/text(转纯文本)/both(都给)");
         descriptions.put("maxResults", "最大结果数（smart_search 用，默认 5）");
         descriptions.put("autoRead", "是否自动读取详情（smart_search 用，默认 true）");
         descriptions.put("results", "搜索结果列表（summarize/smart_read 必填）：上一步 search 返回的 results 数组、它的 JSON 字符串、或整段搜索返回都收");
