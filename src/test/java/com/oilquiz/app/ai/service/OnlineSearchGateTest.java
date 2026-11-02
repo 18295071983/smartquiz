@@ -61,11 +61,7 @@ public class OnlineSearchGateTest {
                 StandardCharsets.UTF_8);
 
         assertTrue("方法签名要带 apiUrl（官方联网按端点判断）",
-                src.contains("applySearchToPrompt(String prompt, boolean webSearch, String apiUrl,"));
-        // RESPONSES-WSEARCH(2026-11-02)：配置里的 apiUrl 常常只是 baseUrl，contains("/responses") 永远不成立，
-        // 所以调用方要把"这次确实打在 /responses 上"这个事实传进来，否则官方联网会被误判成用不上。
-        assertTrue("还要带 onResponsesEndpoint（调用方知道真实端点）",
-                src.contains("boolean onResponsesEndpoint"));
+                src.contains("applySearchToPrompt(String prompt, boolean webSearch, String apiUrl)"));
         assertTrue("要先判官方能力", src.contains("GATE-1"));
         assertTrue("要按端点判断是否真能用官方联网", src.contains("getWebSearchEndpoint(apiUrl)"));
         assertTrue("要有意图闸", src.contains("GATE-2") && src.contains("needsLiveInfo(prompt)"));

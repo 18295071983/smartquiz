@@ -1,5 +1,25 @@
 # 变更日志
 
+## [2026-11-02] revert(search)：撤掉"快速模式改走 Responses 用官方 web_search"，并记下原因
+
+**为什么撤**：真机验证时，快速模式的路由本身是通的（日志有 `快速模式路由：在线普通请求（不注入工具）`），
+但官方搜索始终没被用上，反而多了一层不必要的协议改道。撤掉的具体改动：
+
+- `applySearchToPrompt` 增加 `onResponsesEndpoint` 入参（调用方告诉它"这次真打在 /responses 上"），
+  由调用方按方法硬编码 true/false —— 这种"事实靠调用点传"的写法脆弱，新增调用点漏传就会退回错误判断；
+- `generateStream` 的 `OPENAI_COMPAT` 分支在"服务商声明官方联网只在 /responses 生效"时改走 Responses
+  （`shouldUseResponsesForWebSearch`）—— 这等于**为了联网偷偷换协议**，与"普通对话就走它声明的端点"
+  的预期相反，出问题时会表现成"问一句话，请求打去了另一个端点"。
+
+**结论（写在这里，避免下次再走一遍）**：在线普通对话这条路上，官方 web_search 能不能用，
+取决于**当前配置解析出来的端点**是不是服务商声明的那个；`apiUrl` 常常只是 baseUrl，
+用 `contains("/responses")` 判断必然落空。真要支持，应该统一在端点解析处（`ProviderConfigManager#resolve`）
+给出"本次请求的目标端点"，而不是在调用点各自传布尔值。这轮没做，先保持 chat 端点 + 自有预搜索。
+
+保留的部分：`快速模式` chip（`fb6b366f`）仍在——它只是"不发工具、走普通请求"，联网由预搜索承担。
+全量单测 1362 条全绿。
+
+
 ## [2026-11-02] chore(recovery)：NetworkSearchTool 写坏后由反编译恢复；trafilatura 试验结论：不引入
 
 **事故**：为撤掉 trafilatura 分支，我用 PowerShell 的 `Get-Content -Raw` + `Set-Content` 往返改写了
