@@ -977,17 +977,22 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
                     }
                     return aIToolResult3;
                 }
-                if (j.has("title")) {
+                // READ-URL-GUARD(2026-11-02)：恢复时把 j 初始化成 null，但下面的 has()/optString()
+                // 没有判空 —— 响应不是 JSON（纯文本/markdown）时直接 NPE，真机上表现为
+                // "read_url 失败: JSONObject.has 空对象"。这里整块判空，拿不到 JSON 就用原文。
+                if (j != null && j.has("title")) {
                     result.put("title", j.optString("title", ""));
                 }
-                if (j.has("author")) {
+                if (j != null && j.has("author")) {
                     result.put("author", j.optString("author", ""));
                 }
-                if (j.has("date")) {
+                if (j != null && j.has("date")) {
                     result.put("date", j.optString("date", ""));
                 }
-                java.lang.String md = j.optString("markdown", "");
-                contentText = (md == null || md.isEmpty()) ? j.optString("content", responseBody) : md;
+                java.lang.String md = j == null ? "" : j.optString("markdown", "");
+                contentText = (md == null || md.isEmpty())
+                        ? (j == null ? responseBody : j.optString("content", responseBody))
+                        : md;
                 int startChar = java.lang.Math.max(0, getIntParam(parameters, "start_char", 0));
                 int maxChars = getIntParam(parameters, "max_chars", 0);
                 if (startChar > 0 || maxChars > 0) {
