@@ -1,5 +1,71 @@
 # 变更日志
 
+## [2026-11-04] feat(mcp): 外部工具目录、按需注册、管理页收口、逐工具审批与 GET SSE（`74f3b3f5`）
+
+承接 `7c16c7f9` 的 MCP 端点/传输基础。那笔代码虽然能把 `tools/list` 同步回来的工具注册进
+`OnlineToolRegistry`，但“注册成功”与“模型能不能看到并调用”还不是一回事：在线核心工具集不会带它们，
+`tool_registry` 也只查 `AIToolManager`，所以管理页显示“已同步 N 个工具”时，对话里仍可能完全没有入口。
+这一轮把发现、管理、执行、安全和动态刷新一次收口。
+
+### 1. 外部工具先留目录，命中才注册
+
+- 新增常驻在线核心工具 `mcp_toolbox`，提供 `search/get/call` 三段；模型不需要先把远端工具全部装进
+  tools 数组，发现入口的 token 成本固定，不随 server 工具数增长。
+- `McpManager` 改为“目录 + 按需注册”：`tools/list` 结果保存远端名、描述、原始 `inputSchema`
+  和 annotations；`mcp_toolbox.get` 命中某个工具后才把这一个注册进 `OnlineToolRegistry`。
+  在线路径下 `get` 成功后会把该工具并入下一轮工具集，本地路径继续用 `call` 代执行，避免修改
+  native PEG 的静态工具前缀。
+- 远端工具名按 OpenAI function 名约束规范化，保留 `本地名 → 真实远端名 + serverId` 双向映射，
+  不再依赖“按 `__` 字符串截取”猜 server。
+- 补 `tools/list` 的 `nextCursor` 分页、`structuredContent` 回退、会话 404 后清 session 重试一次，
+  并把 `tools/call` 超时提高到 60s。
+
+### 2. 管理/注册页的真问题
+
+- **中文名 id 撞车**：旧 `normalizeId("阿里云")`/`normalizeId("腾讯云")` 都归一成 `___`，
+  后添加的服务会覆盖前者。现在中文名回退 `server`，添加时按现有配置自动追加 `-2` 等唯一后缀。
+- 管理页补齐“✏ 编辑”：可改名称/端点/传输；id 保持稳定，令牌与密钥引用原样保留。
+- 状态 badge 可点击查看同步详情，错误不再只剩“异常”；同步期间显示“同步中”。
+- 市场/API 配置页的 `你的Key`、`{mcpCode}` 等占位符端点不再直接保存：市场添加弹框允许先替换，
+  API 配置页会转到市场页处理；手工端点必须是合法 http(s) URI。
+- URL query 里的 `key/token/access_token` 在管理页与 SSE 日志中统一脱敏。
+- 配置保存从 `apply()` 改为 `commit()`：真机 E2E 实测测试服务删除后进程退出，
+  `apply` 尚未落盘会造成“内存已删、磁盘仍残留”；逐工具审批策略也依赖这里可靠持久化。
+- 修复 `withEnabled()` 构造副本时丢掉 `tokenRef`：用户只是停用再启用，密钥引用也会消失。
+
+### 3. 逐工具审批
+
+`McpServerConfig` 新增 `toolApproval`（`auto/ask/deny`），管理页“工具 → 审批策略”可按工具设置。
+推断规则：
+
+- `readOnlyHint=true` → 自动；
+- `destructiveHint=true`、`readOnlyHint=false` 或没有注解 → 询问；
+- 未知策略值退回“询问”，不能因为配置被改坏而自动放行；
+- 显式 `deny` 优先于目录，目录尚未同步时也必须阻断。
+
+执行时在当前 Activity 弹“允许一次 / 始终允许 / 拒绝”，确认超时或没有前台 Activity 一律拒绝并记 AUDIT；
+“始终允许”回写该工具 `auto`。为覆盖“45s 确认 + 60s 远端调用”，`mcp_toolbox.call` 的外层等待调到 150s，
+直调 `mcp__*` 工具调到 180s。
+
+### 4. Streamable HTTP GET SSE
+
+`initialize` 后另起 GET SSE 长连接，携带 session、协商协议版本、Bearer 和 `Last-Event-ID`；
+收到 `notifications/tools/list_changed` 后 3s 防抖重拉目录。服务端不支持 GET 时 405/404 静默停止，
+断流按 1s→30s 退避重连，close 时关响应并中断线程。
+
+### 验证
+
+- 2026-11-04 本提交前全量 JVM 单测：**1447 个用例，1 skipped，0 failures/errors**。
+- 新增 `McpClientStreamableIntegrationTest`：JVM 起真实 HTTP 测试 server，覆盖 POST 调用与 GET SSE 通知。
+- 真机 E2E（Android 17，`McpEndToEndDeviceTest` + `tools/mcp_e2e_server.py`）：
+  `OK (1 test)`，日志确认 initialize → GET SSE notify → 分页 tools/list → 三次 tools/call；
+  `deny` 用例在调用前被阻断，测试配置在进程结束后仍已从磁盘清理。
+- `assembleDebug`/`assembleDebugAndroidTest` 构建通过，最终 APK 已安装回归。
+
+**仍未做**：OAuth（只支持 Bearer/密钥引用）、Streamable 通知流 session 过期后的自动重挂、
+按服务/工具的 token 估算与逐工具自动预载统计。这次没有为了“以后可能要”先造通用 OAuth 框架。
+
+
 ## [2026-11-02] revert(search)：撤掉"快速模式改走 Responses 用官方 web_search"，并记下原因
 
 **为什么撤**：真机验证时，快速模式的路由本身是通的（日志有 `快速模式路由：在线普通请求（不注入工具）`），
