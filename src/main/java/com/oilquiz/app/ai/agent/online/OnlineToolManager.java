@@ -125,9 +125,12 @@ public class OnlineToolManager {
                 AILogger.e(TAG, "dynamic tool change sync failed: " + e.getMessage(), e);
             }
         });
-        // MCP 基础设施：加载配置并在后台同步远端工具（异步，不阻塞构造）
+        // MCP 基础设施：先注入 registry，再异步同步远端工具（避免同步线程反查单例导致递归构造）
         try {
-            com.oilquiz.app.ai.agent.online.mcp.McpManager.getInstance(context).init();
+            com.oilquiz.app.ai.agent.online.mcp.McpManager mcp =
+                    com.oilquiz.app.ai.agent.online.mcp.McpManager.getInstance(context);
+            mcp.attachRegistry(registry);
+            mcp.init();
         } catch (Throwable t) {
             AILogger.w(TAG, "McpManager init failed: " + t.getMessage());
         }
@@ -943,6 +946,10 @@ public class OnlineToolManager {
      * pip 装依赖、存储授权 65s 都是这样死的）。等待时长只能有一个来源。</p>
      */
     public int effectiveTimeoutMs(String toolName, String arguments, Map<String, Object> params) {
+        // MCP 远端工具：可能先弹 45s 审批框，再等 60s tools/call；别用普通 30s 基线误杀
+        if (com.oilquiz.app.ai.agent.online.mcp.McpManager.isMcpTool(toolName)) {
+            return 180_000;
+        }
         // 需要用户交互的工具使用更长超时：
         // - permission_manager 权限请求（用户授权弹窗）
         // - ui_component 的 get_result（阻塞等待用户点击组件按钮/对话框，交互可能持续较久，

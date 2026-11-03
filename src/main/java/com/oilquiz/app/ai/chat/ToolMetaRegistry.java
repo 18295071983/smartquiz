@@ -116,6 +116,7 @@ public final class ToolMetaRegistry {
         m.put("ui_component_plugin", "UI 组件插件");
         m.put("layout_editor", "布局编辑器");
         m.put("tool_registry", "工具列表");
+        m.put("mcp_toolbox", "MCP 外部工具");
         m.put("get_models_profile", "模型配置");
         m.put("update_models_profile", "更新模型配置");
         // 导入流程

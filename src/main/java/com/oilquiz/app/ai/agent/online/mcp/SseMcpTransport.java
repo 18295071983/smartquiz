@@ -48,6 +48,8 @@ public class SseMcpTransport implements McpTransport {
     private volatile Thread readerThread;
     private volatile String messageEndpoint;
     private volatile boolean closed;
+    /** 工具列表变更通知（服务端主动推） */
+    private volatile Runnable notificationListener;
 
     public SseMcpTransport(String sseUrl, String token) {
         this.sseUrl = sseUrl;
@@ -85,7 +87,7 @@ public class SseMcpTransport implements McpTransport {
         t.setDaemon(true);
         this.readerThread = t;
         t.start();
-        AILogger.i(TAG, "SSE connected: " + sseUrl);
+        AILogger.i(TAG, "SSE connected: " + McpServerConfig.maskUrl(sseUrl));
     }
 
     /** 默认消息端点：{base}/message */
@@ -143,6 +145,15 @@ public class SseMcpTransport implements McpTransport {
                 if (msg.has("id")) {
                     CompletableFuture<JSONObject> f = pending.remove(msg.optLong("id", -1));
                     if (f != null) f.complete(msg);
+                } else if (McpConstants.NOTIFICATION_TOOLS_CHANGED.equals(msg.optString("method"))) {
+                    Runnable r = notificationListener;
+                    if (r != null) {
+                        try {
+                            r.run();
+                        } catch (Exception e) {
+                            AILogger.w(TAG, "notification listener failed: " + e.getMessage());
+                        }
+                    }
                 }
             }
             // 其他事件（ping/keep-alive 等）忽略
@@ -224,6 +235,11 @@ public class SseMcpTransport implements McpTransport {
             f.completeExceptionally(error);
         }
         pending.clear();
+    }
+
+    @Override
+    public void setNotificationListener(Runnable listener) {
+        this.notificationListener = listener;
     }
 
     @Override

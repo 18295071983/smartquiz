@@ -60,6 +60,7 @@ public class McpConfigStore {
             String raw = prefs.getString(KEY_SERVERS, null);
             if (raw == null || raw.isEmpty()) return result;
             JSONArray arr = new JSONArray(raw);
+            java.util.Set<String> seen = new java.util.HashSet<>();
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.optJSONObject(i);
                 if (o == null) continue;
@@ -69,7 +70,13 @@ public class McpConfigStore {
                     o.put("token", ApiKeyCipher.decrypt(t));
                 }
                 McpServerConfig cfg = McpServerConfig.fromJson(o);
-                if (cfg != null) result.add(cfg);
+                if (cfg == null) continue;
+                // 防御：历史/手工编辑可能留下重复 id，后面的会被 UI 当成两条同一服务
+                if (!seen.add(cfg.id)) {
+                    AILogger.w(TAG, "忽略重复的 MCP id: " + cfg.id);
+                    continue;
+                }
+                result.add(cfg);
             }
         } catch (Exception e) {
             AILogger.e(TAG, "load failed: " + e.getMessage(), e);
@@ -92,7 +99,12 @@ public class McpConfigStore {
                     arr.put(o);
                 }
             }
-            prefs.edit().putString(KEY_SERVERS, arr.toString()).apply();
+            // 配置变更必须落盘后再返回：apply() 是异步的，进程刚被测试/系统杀掉时
+            // 会出现“内存里已删、磁盘上还在”（真机 E2E 已复现测试配置残留）。
+            boolean ok = prefs.edit().putString(KEY_SERVERS, arr.toString()).commit();
+            if (!ok) {
+                AILogger.e(TAG, "save failed: SharedPreferences.commit returned false");
+            }
         } catch (Exception e) {
             AILogger.e(TAG, "save failed: " + e.getMessage(), e);
         }

@@ -38,4 +38,25 @@ public interface McpTransport {
 
     /** 连接是否处于可用状态。 */
     boolean isConnected();
+
+    /**
+     * 服务端通知回调（目前只用于 {@code notifications/tools/list_changed}）。
+     * 默认忽略；实现必须快速返回，不要在读取线程里做网络/重同步。
+     */
+    default void setNotificationListener(Runnable listener) {
+    }
+
+    /**
+     * 协商出的协议版本：streamable HTTP 的后续请求需带 {@code MCP-Protocol-Version}。
+     * 默认忽略（SSE 不需要该 header）。
+     */
+    default void setProtocolVersion(String version) {
+    }
+
+    /**
+     * 启动服务端主动通知流（目前是 streamable HTTP 的 GET SSE）。
+     * SSE 传输本身已有长连事件流，默认空实现。
+     */
+    default void startNotifications() {
+    }
 }

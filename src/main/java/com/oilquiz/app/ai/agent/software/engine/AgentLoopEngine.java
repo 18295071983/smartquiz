@@ -2653,6 +2653,9 @@ public class AgentLoopEngine {
                 // 补一句否定 + 给出正确出口，别让模型去猜参数名。
                 + "想了解有哪些工具、或某个工具怎么填参数，直接用 tool_registry(list/get)，"
                 + "不要用 network_search 搜工具名或工具文档——工具只来自本次注入的清单。"
+                // MCP(2026-11-04)：本地不改静态工具集，统一经 tool_registry 发现 mcp_toolbox；
+                // 工具箱内部再 search/get/call 外部 MCP 服务，避免中途改 tools 前缀触发 re-prefill。
+                + "需要外部服务（MCP）能力时，用 tool_registry 找 mcp_toolbox（search/get/call），不要联网搜 MCP。"
                 // WORKSPACE/MEMORY(2026-11-01)：这两个工具此前只在 schema 里，模型不会主动想到用。
                 // 一句规则各给一次触发场景，避免它绕道 read_file 猜工作区路径、或把偏好当闲聊丢掉。
                 + "生成或改过的文件都在工作区：列文件/读内容/看历史版本并回退用 workspace（工作区相对路径别拿别的读取工具瞎猜）。"

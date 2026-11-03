@@ -429,8 +429,17 @@ public class ApiConfigActivity extends BaseActivity {
                 }));
             } else {
                 row3.addView(mcpPillBtn("＋ 添加", v -> {
+                    if (!McpServerConfig.isUsableEndpoint(e.endpointText)) {
+                        // 含 {mcpCode}/你的Key 的模板不能直接添加；到市场页可先改端点再添加
+                        Toast.makeText(this, "该端点含占位符，请在 MCP 市场页替换后再添加",
+                                Toast.LENGTH_LONG).show();
+                        startActivity(new Intent(this, McpMarketActivity.class));
+                        return;
+                    }
                     McpServerConfig cfg = new McpServerConfig(e.id, e.title, e.endpointText,
-                            e.transport, "", true, false);
+                            e.transport != null ? e.transport
+                                    : McpServerConfig.Transport.STREAMABLE_HTTP,
+                            "", true, false);
                     McpManager.getInstance(this).upsertServer(cfg);
                     Toast.makeText(this, "已添加「" + e.title + "」，同步后到「🔑 密钥」引用对应服务商密钥",
                             Toast.LENGTH_LONG).show();

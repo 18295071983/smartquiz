@@ -203,7 +203,7 @@ public class OnlineAgentEngine {
      *  time_date 加入核心（今天几号/现在几点/日期推算，问答与提醒场景高实用）。 */
     private static final java.util.Set<String> CORE_TOOLS = new java.util.LinkedHashSet<>(java.util.Arrays.asList(
             "ui_component", "workspace", "network_search", "time_date", "tool_registry", "knowledge_base",
-            "douyin_downloader"
+            "douyin_downloader", "mcp_toolbox"
     ));
 
     /** 常驻核心工具集（LinkedHashSet，顺序稳定）。供提示词「核心工具」段动态取数，
@@ -212,7 +212,7 @@ public class OnlineAgentEngine {
         return CORE_TOOLS;
     }
     /** 会话工具集上限（2026-09-23 v2）：常驻核心 + 最多 3 个扩展工具——默认少带，模型不知道再发现。
-     *  注：核心集现为 {@link #CORE_TOOLS} 的 7 个，旧注释里的"核心 6"已过期（2026-11-02 更正）。 */
+     *  注：核心集现为 {@link #CORE_TOOLS} 的 8 个（2026-11-04 加入 mcp_toolbox），旧注释里的"核心 6/7"已过期。 */
     private static final int MAX_SESSION_TOOLS = 9;
 
     /**
@@ -1889,6 +1889,12 @@ public class OnlineAgentEngine {
                 String target = extractToolRegistryTarget(arguments);
                 if (target != null && !target.isEmpty()) registerToolIntoSession(target);
             }
+            // MCP 延迟加载闭环：mcp_toolbox(get) 成功 = 模型已拿到该工具定义，
+            // 立刻并入本轮工具集，下一迭代即可直接调用 mcp__server__tool（不用再走一次 call）。
+            if ("mcp_toolbox".equals(toolName) && arguments != null) {
+                String target = extractMcpToolboxTarget(arguments);
+                if (target != null && !target.isEmpty()) registerToolIntoSession(target);
+            }
             registerToolIntoSession(toolName);
             if (cachedToolsJson != null) {
                 liveToolsJson = cachedToolsJson;
@@ -1943,6 +1949,26 @@ public class OnlineAgentEngine {
             }
         } catch (Exception ignored) { }
         return null;
+    }
+
+    /**
+     * 从 {@code mcp_toolbox(action=get, server=..., tool=...)} 的参数里解析出
+     * 对应的本地注册名（{@code mcp__server__tool}），用于下一轮直接调用。
+     * 只在 get 时解析；call 已经在工具箱内部执行完，不需要再注入。
+     */
+    private String extractMcpToolboxTarget(String arguments) {
+        try {
+            if (arguments == null) return null;
+            com.google.gson.JsonObject obj = com.google.gson.JsonParser.parseString(arguments).getAsJsonObject();
+            String action = obj.has("action") ? obj.get("action").getAsString() : "";
+            if (!"get".equalsIgnoreCase(action) || !obj.has("tool")) return null;
+            String tool = obj.get("tool").getAsString();
+            String server = obj.has("server") ? obj.get("server").getAsString() : "";
+            return com.oilquiz.app.ai.agent.online.mcp.McpManager
+                    .getInstance(context).localNameFor(server, tool);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     /**

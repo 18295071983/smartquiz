@@ -298,17 +298,48 @@ public class McpMarketActivity extends AppCompatActivity {
     }
 
     private void confirmAddChina(final McpChinaCatalog.ChinaEntry e) {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(8), dp(4), dp(8), 0);
+
+        EditText endpointInput = new EditText(this);
+        endpointInput.setSingleLine(true);
+        endpointInput.setHint("端点 URL");
+        endpointInput.setText(e.endpointText);
+        form.addView(endpointInput);
+
+        TextView note = new TextView(this);
+        note.setText("端点里的 {mcpCode} / 你的Key 等占位符必须替换成真实值；"
+                + "也可先添加，之后到管理页「✏ 编辑」修改。");
+        note.setTextSize(12);
+        note.setTextColor(color(R.color.text_tertiary));
+        note.setPadding(0, dp(6), 0, 0);
+        form.addView(note);
+
         new AlertDialog.Builder(this)
                 .setTitle("添加并启用 " + e.title + "？")
-                .setMessage("端点: " + e.endpointText
-                        + "\n传输: " + (e.transport == McpServerConfig.Transport.SSE ? "SSE" : "Streamable HTTP")
-                        + "\n鉴权: " + e.authNote
-                        + "\n\n若端点含 {…} 占位或 key=…，请先替换为实际值再添加。")
+                .setMessage("传输: " + (e.transport == McpServerConfig.Transport.SSE
+                                ? "SSE" : "Streamable HTTP")
+                        + "\n鉴权: " + e.authNote)
+                .setView(form)
                 .setPositiveButton("添加", (d, w) -> {
-                    McpServerConfig cfg = new McpServerConfig(e.id, e.title, e.endpointText,
-                            e.transport, "", true, false);
+                    String url = endpointInput.getText().toString().trim();
+                    if (!McpServerConfig.isUsableEndpoint(url)) {
+                        Toast.makeText(this, "端点需为 http(s) 且不能保留 {…}/你的Key 等占位符",
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    boolean builtin = false;
+                    for (McpServerConfig c : McpManager.getInstance(this).getServers()) {
+                        if (c.id.equals(e.id)) builtin = c.builtin;
+                    }
+                    McpServerConfig cfg = new McpServerConfig(e.id, e.title, url,
+                            e.transport != null ? e.transport
+                                    : McpServerConfig.Transport.STREAMABLE_HTTP,
+                            "", true, builtin);
                     McpManager.getInstance(this).upsertServer(cfg);
-                    Toast.makeText(this, "已添加并启用，密钥到管理页「🔗 密钥」引用后再同步", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "已添加并启用，密钥到管理页「🔗 密钥」引用后再同步",
+                            Toast.LENGTH_LONG).show();
                     renderList();
                 })
                 .setNegativeButton("取消", null)

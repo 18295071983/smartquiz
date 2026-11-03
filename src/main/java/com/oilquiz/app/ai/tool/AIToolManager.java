@@ -245,6 +245,9 @@ public class AIToolManager {
         registerToolFactory("control_lookup", ControlLookupTool.class, ControlLookupTool::new);
         registerToolFactory("layout_editor", LayoutEditorTool.class, LayoutEditorTool::new);
         registerToolFactory("tool_registry", ToolRegistryTool.class, ToolRegistryTool::new);
+        // MCP 外部工具的统一入口（客户端侧 tool search）：常驻在线核心集，
+        // 本地经 tool_registry 发现后 call 进来，避免改 native PEG 的静态工具前缀。
+        registerToolFactory("mcp_toolbox", McpToolboxTool.class, McpToolboxTool::new);
         registerToolFactory("update_models_profile", UpdateModelsProfileTool.class, UpdateModelsProfileTool::new);
         registerToolFactory("get_models_profile", GetModelsProfileTool.class, GetModelsProfileTool::new);
         registerToolFactory("voice_input", VoiceInputTool.class, VoiceInputTool::new);
@@ -2228,6 +2231,10 @@ public class AIToolManager {
         Map<String, List<String>> memory = new HashMap<>();
         memory.put("action", Arrays.asList("save", "recall", "delete", "list", "clear"));
         map.put("memory", memory);
+        // MCP 外部工具入口：模型要看到三个动作，否则 4B 容易只敢用第一个/自创动作
+        Map<String, List<String>> mcpToolbox = new HashMap<>();
+        mcpToolbox.put("action", Arrays.asList("search", "get", "call"));
+        map.put("mcp_toolbox", mcpToolbox);
         return map;
     }
 

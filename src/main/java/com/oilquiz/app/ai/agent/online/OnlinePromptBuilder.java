@@ -216,6 +216,8 @@ public class OnlinePromptBuilder {
         sb.append("  - tool_registry(action=list) 列出全部工具（名称+用途）\n");
         sb.append("  - tool_registry(action=search, keyword=关键词) 按需找工具\n");
         sb.append("  - tool_registry(action=get, tool=工具名) 加载该工具并返回参数键名概览，下一轮直接调用\n");
+        sb.append("  - mcp_toolbox 是已连接的 MCP 外部服务目录（内置工具做不了时用）："
+                + "action=search 按关键词找，get 看完整参数（在线 get 后下一轮可直接调用），call 可立即代执行\n");
         sb.append("  工具名拿不准时先 search 或 list，不要凭空猜测工具名。\n");
         sb.append("  （另：工具定义库已入知识库 category=tool_defs，可用 knowledge_base(action=search, query=工具用途, category=tool_defs) 查工具用法/参数，不会命中用户资料分类）\n\n");
         return sb.toString();
