@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  音色选择底部弹窗（2026-11-04 重做）：
+  原来的 AlertDialog 单选列表和全局的底部弹窗风格不搭（圆角/间距/标题栏/搜索全都不一样），
+  这里按 dialog_speech_model_selector 的同一套骨架重画：标题栏 + 副标题 + 搜索 + 列表 + 底部按钮。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/bg_dialog_mode_selector"
+    android:padding="@dimen/space_20">
+
+    <!-- 标题栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:layout_width="@dimen/size_24"
+            android:layout_height="@dimen/size_24"
+            android:src="@drawable/ic_speaker"
+            app:tint="?attr/colorPrimary" />
+
+        <TextView
+            android:id="@+id/tv_voice_title"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="@dimen/space_10"
+            android:text="选择音色"
+            android:textSize="@dimen/text_18"
+            android:textStyle="bold"
+            android:textColor="?attr/colorControlText" />
+
+        <ImageView
+            android:id="@+id/btn_voice_close"
+            android:layout_width="@dimen/size_28"
+            android:layout_height="@dimen/size_28"
+            android:src="@drawable/ic_close"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="@dimen/space_4"
+            app:tint="?attr/colorOnSurfaceVariant" />
+
+    </LinearLayout>
+
+    <!-- 副标题：当前模型 + 音色来源 -->
+    <TextView
+        android:id="@+id/tv_voice_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_8"
+        android:text="当前模型：—"
+        android:textSize="@dimen/text_12"
+        android:textColor="?attr/colorOnSurfaceVariant" />
+
+    <!-- 搜索：48 个音色时靠它，不用一个个翻 -->
+    <EditText
+        android:id="@+id/et_voice_search"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_44"
+        android:layout_marginTop="@dimen/space_12"
+        android:background="@drawable/bg_search_input"
+        android:hint="搜索音色名称或 ID"
+        android:imeOptions="actionSearch"
+        android:inputType="text"
+        android:maxLines="1"
+        android:paddingStart="@dimen/space_14"
+        android:paddingEnd="@dimen/space_14"
+        android:textSize="@dimen/text_14"
+        android:textColor="?attr/colorControlText"
+        android:textColorHint="?attr/colorOnSurfaceVariant" />
+
+    <!-- 音色列表 -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/voice_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_0"
+        android:layout_weight="1"
+        android:layout_marginTop="@dimen/space_12"
+        android:clipToPadding="false" />
+
+    <!-- 空状态 -->
+    <TextView
+        android:id="@+id/tv_voice_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_32"
+        android:gravity="center"
+        android:text="没有匹配的音色"
+        android:textSize="@dimen/text_14"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:visibility="gone" />
+
+    <!-- 底部操作 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_12"
+        android:orientation="horizontal"
+        android:gravity="end|center_vertical">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_voice_cancel"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="取消"
+            android:textColor="?attr/colorOnSurfaceVariant" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_voice_confirm"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_8"
+            android:text="确定" />
+
+    </LinearLayout>
+
+</LinearLayout>
