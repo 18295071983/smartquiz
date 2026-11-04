@@ -480,6 +480,16 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         Spinner modelSpinner;
         ArrayAdapter<String> spinnerAdapter;
         boolean isBinding = false;
+        /**
+         * 绑定时由代码设置的选中项（2026-11-04）。
+         *
+         * <p>Spinner 在 {@link #bind} 返回**之后**才异步回调一次 {@code onItemSelected}（初始选中），
+         * 那时 {@link #isBinding} 已经是 false，于是被当成用户切换 → 每次刷新列表都会把激活模型
+         * 踢到该卡片的端点。真机日志里表现为 55ms 内 A→B→A，聊天页因此把上下文切走又切回
+         * （用户：「切个语音模型，AI 大模型的上下文自己换了」）。这里记住绑定时选中的值，
+         * 回调值与它相同就视为绑定回声、不上报。</p>
+         */
+        String lastBoundSelection;
 
         public OnlineModelViewHolder(View itemView) {
             super(itemView);
@@ -583,6 +593,11 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                             if (item.type == VIEW_TYPE_MODEL && item.modelName != null) {
                                 Object selectedItem = modelSpinner.getSelectedItem();
                                 if (selectedItem != null && !selectedItem.toString().equals("请先获取模型列表")) {
+                                    // 绑定回声：与 bind 时设置的选中值相同 → 不是用户操作，不上报
+                                    if (selectedItem.toString().equals(lastBoundSelection)) {
+                                        return;
+                                    }
+                                    lastBoundSelection = selectedItem.toString();
                                     listener.onModelSelected(item.modelName, selectedItem.toString());
                                 }
                             }
@@ -653,14 +668,18 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                 // Model spinner
                 if (modelSpinner != null && spinnerAdapter != null) {
                     spinnerAdapter.clear();
+                    lastBoundSelection = null;
                     if (item.modelList != null && !item.modelList.isEmpty()) {
                         spinnerAdapter.addAll(item.modelList);
-                        if (item.selectedModel != null) {
-                            int selectedIndex = item.modelList.indexOf(item.selectedModel);
-                            if (selectedIndex >= 0) {
-                                modelSpinner.setSelection(selectedIndex);
-                            }
+                        int selectedIndex = item.selectedModel != null
+                                ? item.modelList.indexOf(item.selectedModel) : -1;
+                        if (selectedIndex >= 0) {
+                            modelSpinner.setSelection(selectedIndex);
                         }
+                        // 记下"绑定后 Spinner 会显示的选中值"：正常情况是 selectedModel，
+                        // 找不到时 Spinner 会落到第 0 项，也按第 0 项记 —— 否则那次回声仍会被误报成切换
+                        lastBoundSelection = selectedIndex >= 0
+                                ? item.selectedModel : item.modelList.get(0);
                     } else {
                         spinnerAdapter.add(context.getString(R.string.h_a6da27c5));
                     }

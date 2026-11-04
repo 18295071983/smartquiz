@@ -1,5 +1,29 @@
 # 变更日志
 
+## [2026-11-04] fix(model)：Spinner 绑定回声被当成「换模型」——上下文抖动真正的根因
+
+埋点抓到的调用链（16:57:17.937 / 18.002，65ms 内两次）：
+
+```
+setActiveModel(102c4441) caller=InferenceRouter.switchModel:442
+  ModelSelectorActivity.onModelSelected:691  OnlineModelAdapter...
+setActiveModel(24a33790) caller=... 同一条链
+```
+
+即：**在线模型卡片里的模型下拉（Spinner）在 bind 之后异步回调了一次 onItemSelected**（初始选中），
+那时 `isBinding` 已经复位，于是被当成「用户换了模型」→ `onModelSelected` → `switchModel`。
+列表里有两张卡（深度求索 / 阿里云），各回调一次 → 先切到深度求索、再切回阿里云，
+聊天页的模型变更监听因此把引擎历史切走又切回（用户看到的「切个语音模型，上下文自己换了」）。
+
+改法：
+- `OnlineModelAdapter`：bind 时记住「Spinner 会显示的选中值」（`lastBoundSelection`），
+  回调值与它相同即视为绑定回声、不上报；只有真正换了选项才上报。
+- 聊天页保留上一次加的 500ms 防抖（兜底：任何来源的瞬时抖动都不再切上下文）。
+
+验证：编译 + 全量单测通过；APK 已装（17:01）。真机复验点：再切一次语音模型，
+不应再出现「已切换模型，对话上下文已按模型切换」，`ai_logs` 里也不应再有
+`onModelSelected` 触发的 `setActiveModel`；而在卡片里主动换下拉，仍应正常切换。
+
 ## [2026-11-04] fix(chat)：模型切换加防抖 + 调用方埋点——语音设置引起的 A→B→A 抖动不再切走上下文
 
 用户：「为何我切换个语音模型，ai 大模型的上下文会自动切换了？」
