@@ -34,17 +34,23 @@ public final class AppWallpaperManager {
     private static final String KEY_PATH = "path";
     /** 黑色遮罩透明度（0-255）：0x59 ≈ 35%，兼顾壁纸观感与前景可读性 */
     private static final int SCRIM_ALPHA = 0x59;
-    /** 兜底壁纸：跟随系统壁纸读取失败时的默认壁纸（内置「猫和老鼠」） */
-    private static final String FALLBACK_BUILTIN = "builtin_10.jpg";
-    private static final String FALLBACK_ASSET = "wallpapers/tomcat.jpg";
+    /** 兜底壁纸：没有任何可用壁纸时的默认图（2026-11-04 换成自绘的深蓝青渐变，原「猫和老鼠」太花） */
+    private static final String FALLBACK_BUILTIN = "builtin_default.jpg";
+    private static final String FALLBACK_ASSET = "wallpapers/aurora_default.jpg";
 
     private AppWallpaperManager() {
     }
 
-    /** 当前应用壁纸模式（默认跟随系统壁纸） */
+    /**
+     * 当前应用壁纸模式。
+     *
+     * <p>2026-11-04：默认值从「跟随系统」改成「使用内置壁纸」。原来默认跟随系统，用户手机壁纸
+     * 一花，应用每页都跟着花（实测那套猫和老鼠压在文字下面，标题几乎看不清）。跟随系统仍可在
+     * 壁纸设置里手动选。</p>
+     */
     public static int getMode(Context context) {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-                .getInt(KEY_MODE, MODE_FOLLOW_SYSTEM);
+                .getInt(KEY_MODE, MODE_LIBRARY);
     }
 
     public static void setMode(Context context, int mode) {
@@ -419,7 +425,7 @@ public final class AppWallpaperManager {
                     bmp = ((BitmapDrawable) d).getBitmap();
                 }
                 if (bmp != null) {
-                    android.util.Log.w("WallpaperDebug", "系统壁纸读取失败，已回退内置默认壁纸（猫和老鼠）");
+                    android.util.Log.w("WallpaperDebug", "系统壁纸读取失败，已回退内置默认壁纸");
                 }
             }
         } else {
@@ -428,6 +434,13 @@ public final class AppWallpaperManager {
                 File f = new File(path);
                 if (f.exists()) {
                     bmp = BitmapFactory.decodeFile(path);
+                }
+            }
+            // 库模式但没选过图（默认模式就是它）→ 用内置默认壁纸，别让页面裸奔
+            if (bmp == null) {
+                Drawable d = getFallbackDrawable(context);
+                if (d instanceof BitmapDrawable) {
+                    bmp = ((BitmapDrawable) d).getBitmap();
                 }
             }
         }

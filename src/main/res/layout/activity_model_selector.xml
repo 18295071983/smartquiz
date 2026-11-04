@@ -164,8 +164,11 @@
                      标题被压到只剩几十像素 → 「在线模型」被逐字换行竖着排（真机截图可见），
                      整行还被撑高。现在标题独占一行，按钮另起一行。 -->
                 <TextView
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:background="@drawable/bg_section_header"
+                    android:paddingHorizontal="@dimen/space_10"
+                    android:paddingVertical="@dimen/space_4"
                     android:text="在线模型"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
@@ -261,6 +264,9 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:background="@drawable/bg_section_header"
+                        android:paddingHorizontal="@dimen/space_10"
+                        android:paddingVertical="@dimen/space_4"
                         android:text="语音模型（识别 / 合成）"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
@@ -473,13 +479,19 @@
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
                     <TextView
-                        android:layout_width="@dimen/size_0"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
+                        android:background="@drawable/bg_section_header"
+                        android:paddingHorizontal="@dimen/space_10"
+                        android:paddingVertical="@dimen/space_4"
                         android:text="本地模型"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="?attr/colorControlText"/>
+                    <Space
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/import_local_model_button"
                         android:layout_width="wrap_content"
