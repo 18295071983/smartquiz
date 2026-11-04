@@ -5,6 +5,7 @@ import android.util.Log;
 
 import com.oilquiz.app.ai.tool.openai.ToolDefinition;
 import com.oilquiz.app.ai.tool.openai.ParamDefinition;
+import com.oilquiz.app.util.AILogger;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -711,10 +712,92 @@ public class AIToolManager {
     }
     
     /**
-     * 检查工具是否存在
-     * @param toolName 工具名称
-     * @return 是否存在
+     * 按<b>调用方给定的顺序</b>产出 OpenAI 工具定义（注入集由 {@link ToolInjectionPlan} 决定）。
+     *
+     * <p>与 {@link #getOpenAIToolDefinitions()} 的区别：那个方法自己决定"带谁"＝内置全量+动态全量，
+     * 正是用户明确不要的形状（135 个内置每轮摊在模型面前）；这里只按名单装配。
+     *
+     * <p>装配不出来的名字<b>必须出声</b>：旧写法直接 {@code continue}，于是"名单 20 个、
+     * 实际发出去 17 个"，模型按 20 个的认知去调用就报"工具不存在"，而排查时看不出缺口在哪。
      */
+    public String getOpenAIToolDefinitionsForNames(java.util.Collection<String> orderedNames) {
+        JSONArray tools = new JSONArray();
+        java.util.Set<String> emitted = new java.util.HashSet<>();
+        List<String> missing = new ArrayList<>();
+        if (orderedNames != null) {
+            for (String raw : orderedNames) {
+                String toolName = raw == null ? "" : raw.trim();
+                if (toolName.isEmpty() || emitted.contains(toolName)) continue;
+                ToolDefinition def = getToolDefinition(toolName);
+                if (def == null) {
+                    AITool dyn = dynamicTools.get(toolName);
+                    if (dyn != null) def = createToolDefinitionFromAITool(dyn);
+                }
+                if (def == null) {
+                    missing.add(toolName);
+                    continue;
+                }
+                try {
+                    tools.put(def.toOpenAIFormat());
+                    emitted.add(toolName);
+                } catch (JSONException e) {
+                    missing.add(toolName);
+                    Log.w(TAG, "Failed to build OpenAI definition for " + toolName + ": " + e.getMessage());
+                }
+            }
+        }
+        if (!missing.isEmpty()) {
+            Log.w(TAG, "注入名单有 " + missing.size() + " 个名字装配不出定义: " + missing);
+        }
+        String json = tools.toString();
+        Log.i(TAG, "Named tool definitions: " + tools.length() + "/"
+                + (orderedNames == null ? 0 : orderedNames.size()) + ", len=" + json.length()
+                + ", hash=" + Integer.toHexString(json.hashCode()));
+        return json;
+    }
+
+    /** 内置工具名（工厂表）。注入集不在这里决定，只供 {@link ToolInjectionPlan} 取数。 */
+    public List<String> getBuiltInToolNames() {
+        return new ArrayList<>(toolFactories.keySet());
+    }
+
+    /**
+     * 动态工具命名校验（<b>唯一权威</b>）：两个创建入口（{@code create_dynamic_tool}
+     * 与 {@code ai_create_tool}）、以及重启后从 {@code dynamic_tools.json} 恢复时，都必须过这一关。
+     *
+     * <p>为什么必须统一：以前只有 {@code create_dynamic_tool} 校验字符集，{@code ai_create_tool}
+     * 不校验——于是一个带点号/空格/中文的名字能被创建出来，而它会被<b>持久化</b>并每轮进 tools 数组。
+     * 服务商对 function 名有硬限制（{@code [a-zA-Z0-9_-]{1,64}}），一条非法名字可能让整个 tools
+     * 参数被拒，表现是"这轮开始所有工具都不能用了"，而且重启后还在。一个入口能过、一个入口不能过，
+     * 比两边都严更危险。</p>
+     *
+     * @return 合法返回 {@code null}；否则返回给模型/用户看的错误说明（含改法）
+     */
+    public static String toolNameError(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            return "必须提供工具名称(tool_name)";
+        }
+        String n = name.trim();
+        if (n.length() > 64) {
+            return "工具名最长 64 字符（服务商对 function 名的硬限制），当前 " + n.length() + " 字符";
+        }
+        if (n.startsWith(com.oilquiz.app.ai.agent.online.mcp.McpConstants.TOOL_PREFIX)) {
+            // 先判前缀再判字符集：否则 "mcp__amap-maps__maps_geo" 会被报成"字符不合法"，
+            // 模型照提示改也改不对——真实原因是这个名字被保留了
+            return "mcp__ 前缀保留给 MCP 外部工具，动态工具不能占用这个名字";
+        }
+        if (!n.matches("^[a-zA-Z][a-zA-Z0-9_]*$")) {
+            return "工具名只能由英文字母、数字、下划线组成且以字母开头："
+                    + "不能有点号、空格、中划线、中文（例如用 my_query 这种名字）";
+        }
+        return null;
+    }
+
+    /** 只判合法与否（给恢复/内部检查用）。 */
+    public static boolean isValidToolName(String name) {
+        return toolNameError(name) == null;
+    }
+
     public boolean hasTool(String toolName) {
         // 用户动态工具优先（别名不劫持同名动态工具）
         if (dynamicTools.containsKey(toolName)) return true;
@@ -954,15 +1037,28 @@ public class AIToolManager {
 
     /**
      * 注册动态工具
+     *
      * @param tool 动态工具
+     * @return 是否真的登记进注册表（命名非法时为 {@code false}）
+     *
+     * <p>为什么要把结果返回：调用方（{@code create_dynamic_tool}／{@code ai_create_tool}／
+     * 插件注册）以前无条件相信"注册成功"，于是被拒绝的工具照样被报成"已注册并可以使用"，
+     * 模型下一轮去找这个工具——找不到，只能盲目重试。名字只是第一道；返回布尔值是让
+     * 后面任何拒绝理由都不会再变成假成功。
      */
-    public void registerDynamicTool(AITool tool) {
-        if (tool != null && tool.getName() != null) {
-            dynamicTools.put(tool.getName(), tool);
-            persistDynamicTools();
-            Log.i(TAG, "Dynamic tool registered: " + tool.getName());
-            notifyDynamicToolChange();
+    public boolean registerDynamicTool(AITool tool) {
+        if (tool == null || tool.getName() == null) return false;
+        String bad = toolNameError(tool.getName());
+        if (bad != null) {
+            // 这里以前是静默 put：一个非法名字会进 tools 数组并拖累整轮请求
+            AILogger.e(TAG, "拒绝注册非法命名的动态工具 (" + tool.getName() + "): " + bad);
+            return false;
         }
+        dynamicTools.put(tool.getName(), tool);
+        persistDynamicTools();
+        AILogger.audit(TAG, "动态工具已注册: " + tool.getName());
+        notifyDynamicToolChange();
+        return true;
     }
     
     /**
@@ -971,13 +1067,13 @@ public class AIToolManager {
      * @param description 工具描述
      * @param parameters 参数描述
      * @param executionLogic 执行逻辑
+     * @return 注册成功时返回工具实例；<b>被拒时返回 null</b>（调用方据此报失败）
      */
     public DynamicAITool createAndRegisterDynamicTool(String name, String description,
                                                   Map<String, String> parameters,
                                                   String executionLogic) {
         DynamicAITool tool = new DynamicAITool(context, name, description, parameters, executionLogic);
-        registerDynamicTool(tool);
-        return tool;
+        return registerDynamicTool(tool) ? tool : null;
     }
 
     /**
@@ -986,26 +1082,33 @@ public class AIToolManager {
      * @param description 工具描述
      * @param parameters 结构化参数定义（标准 function schema），可为空
      * @param executionLogic 执行逻辑
+     * @return 注册成功时返回工具实例；<b>被拒时返回 null</b>（调用方据此报失败）
      */
     public DynamicAITool createAndRegisterDynamicTool(String name, String description,
                                                   DynamicToolParams parameters,
                                                   String executionLogic) {
         DynamicAITool tool = new DynamicAITool(context, name, description, parameters, executionLogic);
-        registerDynamicTool(tool);
-        return tool;
+        return registerDynamicTool(tool) ? tool : null;
     }
     
     /**
      * 卸载动态工具
      * @param name 工具名称
+     * @return 注册表里是否真有这个工具（{@code false}＝什么都没删掉，调用方别报"已删除"）
      */
-    public void unregisterDynamicTool(String name) {
-        Runnable r = dynamicToolChangeListener;
-        if (r != null) { try { r.run(); } catch (Exception ignored) {} }
-        if (dynamicTools.remove(name) != null) {
+    public boolean unregisterDynamicTool(String name) {
+        // 顺序很重要：必须先删、再通知。反过来（旧实现）会让注册表在通知里
+        // 看到一个"还在"的工具并把它重新写回索引，于是删掉的工具仍能被 tool_registry
+        // 搜到并调用，直到下一次变更或重启才消失——那是个删不掉的幽灵工具。
+        boolean removed = dynamicTools.remove(name) != null;
+        if (removed) {
             persistDynamicTools();
-            Log.i(TAG, "Dynamic tool unregistered: " + name);
+            AILogger.audit(TAG, "动态工具已卸载: " + name + "（注册表索引随后同步）");
+        } else {
+            AILogger.i(TAG, "unregisterDynamicTool: 没有这个动态工具 " + name);
         }
+        notifyDynamicToolChange();
+        return removed;
     }
 
     // ==================== 动态工具持久化（跨重启保留模型创建的工具） ====================
@@ -1061,12 +1164,30 @@ public class AIToolManager {
                 }
                 arr.put(obj);
             }
-            java.io.FileWriter writer = new java.io.FileWriter(getDynamicToolsFile());
-            writer.write(arr.toString(2));
-            writer.close();
-            Log.i(TAG, "Dynamic tools persisted: " + dynamicTools.size());
+            // 原子写：先写 .tmp 再 rename 覆盖。旧实现直接 FileWriter 覆盖正式文件，
+            // 进程在 write 中途被杀（低内存/安装/用户划掉）就留下半截 JSON——下次启动
+            // loadDynamicTools 解析失败，模型这几轮攒下的工具会整体静默消失。
+            java.io.File target = getDynamicToolsFile();
+            java.io.File tmp = new java.io.File(target.getPath() + ".tmp");
+            java.io.FileWriter writer = new java.io.FileWriter(tmp);
+            try {
+                writer.write(arr.toString(2));
+                writer.flush();
+            } finally {
+                writer.close();
+            }
+            if (target.exists() && !target.delete()) {
+                AILogger.w(TAG, "dynamic_tools.json 旧文件删除失败（rename 可能被拒），"
+                        + "本次改动只落在 .tmp，注册表本身仍是内存态正确的");
+            }
+            if (!tmp.renameTo(target)) {
+                AILogger.audit(TAG, "动态工具落盘失败：rename " + tmp.getName() + " → "
+                        + target.getName() + " 被拒，磁盘上还是上一版（内存里的工具仍可用）");
+                return;
+            }
+            AILogger.i(TAG, "Dynamic tools persisted: " + dynamicTools.size());
         } catch (Exception e) {
-            Log.e(TAG, "Persist dynamic tools failed: " + e.getMessage(), e);
+            AILogger.e(TAG, "Persist dynamic tools failed: " + e.getMessage(), e);
         }
     }
 
@@ -1083,15 +1204,30 @@ public class AIToolManager {
                 sb.append(buf, 0, read);
             }
             reader.close();
+            // 上一次写到一半被杀留下的 .tmp（正式文件已经安全，所以才读得到）：清掉，
+            // 免得调试时误以为它才是最新的工具清单
+            java.io.File leftoverTmp = new java.io.File(file.getPath() + ".tmp");
+            if (leftoverTmp.exists() && !leftoverTmp.delete()) {
+                AILogger.w(TAG, "残留的 " + leftoverTmp.getName() + " 删不掉（不影响本轮恢复）");
+            }
             if (sb.length() == 0) return;
 
             org.json.JSONArray arr = new org.json.JSONArray(sb.toString());
             int restored = 0;
+            int skipped = 0;
             for (int i = 0; i < arr.length(); i++) {
                 try {
                     org.json.JSONObject obj = arr.getJSONObject(i);
                     String name = obj.optString("name", "");
                     if (name.isEmpty() || dynamicTools.containsKey(name)) continue;
+                    // 存量自愈：命名非法（点号/空格/中文/超长/mcp__ 前缀）的旧条目不再恢复——
+                    // 它会每轮进 tools 数组，服务商按 function 名规则可能直接拒掉整个 tools 参数，
+                    // 表现成"这轮所有工具都不能用了"。留一行日志说明为什么少了这个工具。
+                    String badName = toolNameError(name);
+                    if (badName != null) {
+                        AILogger.audit(TAG, "跳过非法命名的存量动态工具 \"" + name + "\": " + badName);
+                        continue;
+                    }
                     // 2026-09-25：同名内置工具优先——工具固化为内置后，跳过存量同名动态条目，
                     // 避免旧动态版与新内置版同名共存造成行为分叉（如 douyin_downloader）
                     if (toolFactories.containsKey(name)) continue;
@@ -1142,11 +1278,21 @@ public class AIToolManager {
                         dynamicTools.put(name, tool);
                         restored++;
                     }
-                } catch (Exception ignored) {
+                } catch (Exception e) {
+                    // 单条坏数据不能连累整份清单：计数并说明，否则表现为"我昨天建的工具今天没了"
+                    // 却没有任何地方能查到是第几条、为什么没恢复。
+                    skipped++;
+                    AILogger.w(TAG, "跳过一条无法恢复的动态工具定义（第 " + (i + 1) + " 条）: "
+                            + e.getMessage());
                 }
             }
-            if (restored > 0) {
-                Log.i(TAG, "Dynamic tools restored: " + restored);
+            if (restored > 0 || skipped > 0) {
+                AILogger.i(TAG, "Dynamic tools restored: " + restored
+                        + (skipped > 0 ? "，跳过 " + skipped + " 条" : ""));
+                if (skipped > 0) {
+                    AILogger.audit(TAG, "动态工具清单有 " + skipped
+                            + " 条没能恢复（格式损坏）；它们仍在磁盘文件里，需要的话重新创建");
+                }
                 // 2026-09-23：恢复即重持久化——把自愈后的干净参数（无类型噪音/无假 definitions）
                 // 写回磁盘，存量 dynamic_tools.json 一次性完成"重新修改后再注册"的落盘闭环
                 try {
@@ -1155,7 +1301,9 @@ public class AIToolManager {
                 }
             }
         } catch (Exception e) {
-            Log.w(TAG, "Load dynamic tools failed: " + e.getMessage());
+            // 整份读不进来＝本轮一个动态工具都没有，必须能在 ai_logs 里查到
+            AILogger.audit(TAG, "动态工具清单读取失败（本轮没有动态工具可用）: " + e.getMessage()
+                    + "；文件仍在 " + getDynamicToolsFile().getPath() + "，未被覆盖");
         }
     }
     
@@ -1655,10 +1803,13 @@ public class AIToolManager {
             case "create_dynamic_tool":
                 return ToolDefinition.builder("create_dynamic_tool", "动态创建和管理AI工具：把重复性任务封装成可复用工具。action=create时填tool_name+description+parameters+logic(Python脚本/JavaScript脚本或DSL)，创建后可被后续对话直接调用；update/delete修改或移除已有工具；list列出全部动态工具；show查看单个工具完整定义(参数schema+执行逻辑全文)；test用test_params试运行不落库")
                     .addParameter("action", "string", "操作类型: create/update/delete/list/show/test", false, "list")
-                    .addParameter("tool_name", "string", "工具名称", false)
+                    // 命名规则写进参数描述：这条以前只写"工具名称"，模型按中文起名→被拒→
+                    // 再猜一次，白花一轮。规则的唯一权威是 AIToolManager.toolNameError，
+                    // 文案与它保持一致（改了校验要同步这里和 ai_create_tool 的报错话术）
+                    .addParameter("tool_name", "string", "工具名称：字母开头，只含字母/数字/下划线，最长64，不能用 mcp__ 前缀（例：my_weather）", false)
                     .addParameter("description", "string", "工具描述", false)
                     .addParameter("parameters", "string", "参数定义，支持三种格式：1.简单{\"参数名\":\"参数描述\"}；2.属性级{\"参数名\":{\"type\":\"string\",\"description\":\"...\",\"required\":true,\"default\":...,\"enum\":[...]}}；3.完整JSON Schema{\"type\":\"object\",\"properties\":{...},\"required\":[...]}。类型支持string/number/integer/boolean/array/object", false)
-                    .addParameter("logic", "string", "执行逻辑脚本：支持Python脚本(自动识别，脚本内用script_args['参数名']读取工具参数，支持顶层return，print输出/返回值作为结果)或DSL命令(echo/set/if/call_tool等)", false)
+                    .addParameter("logic", "string", "执行逻辑脚本：支持Python脚本(自动识别，脚本内用script_args['参数名']读取工具参数，支持顶层return，print输出/返回值作为结果)、JavaScript脚本(自动识别，用 script_args.参数名 读取，console.log 或返回值作为结果)或DSL命令(echo/set/if/call_tool等)。一次调用最多跑60秒，超时按失败返回", false)
                     .addParameter("test_params", "string", "试运行参数JSON(action=test时使用，格式{\"参数名\":值}，也可直接传参)", false)
                     .category("tool")
                     .build();
@@ -2233,7 +2384,8 @@ public class AIToolManager {
         map.put("memory", memory);
         // MCP 外部工具入口：模型要看到三个动作，否则 4B 容易只敢用第一个/自创动作
         Map<String, List<String>> mcpToolbox = new HashMap<>();
-        mcpToolbox.put("action", Arrays.asList("search", "get", "call"));
+        mcpToolbox.put("action", Arrays.asList("search", "get", "call",
+                "resources", "read", "prompts", "use_prompt", "stats"));
         map.put("mcp_toolbox", mcpToolbox);
         return map;
     }

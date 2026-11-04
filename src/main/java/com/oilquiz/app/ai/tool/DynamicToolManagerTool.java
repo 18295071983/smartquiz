@@ -130,8 +130,10 @@ public class DynamicToolManagerTool implements AITool {
             return createErrorResult("必须提供工具名称(tool_name)");
         }
         
-        if (!isValidToolName(toolName)) {
-            return createErrorResult("工具名称只能包含英文、数字和下划线");
+        String nameProblem = AIToolManager.toolNameError(toolName);
+        if (nameProblem != null) {
+            // 把"为什么不行 + 该写成什么样"给回去：只回"名称非法"时模型会再猜一次，多烧一轮
+            return createErrorResult(nameProblem);
         }
         
         if (toolManager.hasTool(toolName)) {
@@ -185,11 +187,16 @@ public class DynamicToolManagerTool implements AITool {
                 result.append(CodeSnippet.preview(logic, 10));
                 result.append("看完整逻辑: create_dynamic_tool(action=show, tool_name=")
                         .append(toolName).append(")\n");
+                result.append("\n现在可以使用 ").append(toolName).append(" 工具了！");
             } else {
-                result.append("执行逻辑: 未定义(将使用默认逻辑)\n");
+                // 不写"现在可以使用"：没有逻辑的工具被调用时按失败返回（旧版会回显参数并报成功，
+                // 模型据此以为工具是好的）。这里直接把下一步告诉它，省一轮试错。
+                result.append("执行逻辑: 未定义\n");
+                result.append("⚠ 这个工具还不能调用——调用会直接失败。")
+                        .append("请用 create_dynamic_tool(action=update, tool_name=").append(toolName)
+                        .append(", logic=<Python/JS/DSL>) 补齐逻辑，")
+                        .append("或用 action=delete 把它删掉以免占用工具位。\n");
             }
-            
-            result.append("\n现在可以使用 ").append(toolName).append(" 工具了！");
             
             Map<String, Object> additionalInfo = new HashMap<>();
             additionalInfo.put("tool_name", toolName);
@@ -272,7 +279,15 @@ public class DynamicToolManagerTool implements AITool {
             additionalInfo.put("action", "update");
             additionalInfo.put("success", true);
 
-            return AIToolResult.success("✅ 动态工具更新成功: " + toolName, additionalInfo);
+            String updatedLogic = tool.getExecutionLogic();
+            String message = "✅ 动态工具更新成功: " + toolName;
+            if (updatedLogic == null || updatedLogic.trim().isEmpty()) {
+                // 与 create 同口径：没有逻辑的工具调用即失败，别让它停在"看起来能用"的状态
+                message += "\n⚠ 它仍然没有执行逻辑，调用会失败。"
+                        + "请用 action=update 带 logic=… 补齐，或 action=delete 删掉。";
+                additionalInfo.put("logic_missing", true);
+            }
+            return AIToolResult.success(message, additionalInfo);
         } else {
             return createErrorResult("工具更新失败（原工具已保留）");
         }
@@ -292,13 +307,19 @@ public class DynamicToolManagerTool implements AITool {
             return createErrorResult("工具 " + toolName + " 不是动态工具，无法删除");
         }
         
-        toolManager.unregisterDynamicTool(toolName);
+        boolean removed = toolManager.unregisterDynamicTool(toolName);
         
         Map<String, Object> additionalInfo = new HashMap<>();
         additionalInfo.put("tool_name", toolName);
         additionalInfo.put("action", "delete");
-        additionalInfo.put("success", true);
+        additionalInfo.put("success", removed);
         
+        if (!removed) {
+            // 走到这里说明注册表里其实没有它（同名内置工具？并发删过？）——
+            // 不能回一句"已删除"让模型以为清理干净了
+            return AIToolResult.fail("❌ 动态工具未删除: " + toolName
+                    + "（注册表里没有这个动态工具；用 action=list 看现存工具）", additionalInfo);
+        }
         return AIToolResult.success("✅ 动态工具已删除: " + toolName, additionalInfo);
     }
     
@@ -455,7 +476,9 @@ public class DynamicToolManagerTool implements AITool {
             }
         }
         
-        Log.i(TAG, "Testing dynamic tool: " + toolName + " params=" + testParams);
+        // 参数只记键名与个数：试运行参数常带用户内容/路径，整包进 ai_logs 不合适
+        com.oilquiz.app.util.AILogger.i(TAG, "试运行动态工具 " + toolName
+                + " 参数=" + com.oilquiz.app.ai.tool.ScriptArgs.keyNames(testParams));
         AIToolResult r;
         if (tool instanceof DynamicAITool) {
             r = ((DynamicAITool) tool).executeTest(testParams);
@@ -470,10 +493,18 @@ public class DynamicToolManagerTool implements AITool {
         additionalInfo.put("action", "test");
         additionalInfo.put("tool_name", toolName);
         additionalInfo.put("success", r.isSuccess());
-        additionalInfo.put("test_params", testParams);
-        Object output = r.getResult() != null ? r.getResult() : "(无输出)";
-        return AIToolResult.success(
-                (r.isSuccess() ? "🧪 试运行成功:\n\n" : "🧪 试运行失败:\n\n") + output, additionalInfo);
+        Object output = r.isSuccess()
+                ? (r.getResult() != null ? r.getResult() : "(无输出)")
+                : (r.getErrorMessage() != null ? r.getErrorMessage() : "(无错误详情)");
+        if (!r.isSuccess()) {
+            additionalInfo.put("error", r.getErrorMessage());
+        }
+        // 试运行的成败必须透传给上层：以前这里无论成败都返回 success，
+        // 于是"脚本跑挂了"在工具调用卡片上是一条绿色成功，模型也照着"试运行成功"往下走
+        if (r.isSuccess()) {
+            return AIToolResult.success("🧪 试运行成功:\n\n" + output, additionalInfo);
+        }
+        return AIToolResult.fail("🧪 试运行失败:\n\n" + output, additionalInfo);
     }
     
     private String getStringParam(Map<String, Object> parameters, String key, String defaultValue) {
@@ -492,11 +523,6 @@ public class DynamicToolManagerTool implements AITool {
             return new DynamicToolParams(null);
         }
         return DynamicToolParams.parse(parameters.get("parameters"));
-    }
-    
-    private boolean isValidToolName(String name) {
-        if (name == null || name.isEmpty()) return false;
-        return name.matches("^[a-zA-Z0-9_]+$");
     }
     
     private AIToolResult createErrorResult(String message) {

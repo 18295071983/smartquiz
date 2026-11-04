@@ -1,7 +1,6 @@
 package com.oilquiz.app.ai.python;
 
 import android.content.Context;
-import android.util.Log;
 
 import com.oilquiz.app.ai.tool.AITool;
 import com.oilquiz.app.ai.tool.AIToolResult;
@@ -85,17 +84,30 @@ public class PythonDynamicTool implements AITool, com.oilquiz.app.ai.tool.openai
     public String getCode() {
         return code;
     }
-    
+
+    /**
+     * 与执行侧同一个预算（{@link com.oilquiz.app.ai.tool.DynamicToolBudget}）：
+     * 脚本时限 + 收尾余量。不申报的话调用方按自己的默认档（在线主路径 30s）等，
+     * 而 Python 引擎那边是另一个数——到点外层放弃、脚本还在跑。
+     */
+    @Override
+    public long executionTimeoutMs(Map<String, Object> args) {
+        return com.oilquiz.app.ai.tool.DynamicToolBudget.callerWaitMs();
+    }
+
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
         try {
-            Log.i(TAG, "Executing Python dynamic tool: " + name);
-            Log.d(TAG, "Parameters: " + parameters);
-            
-            String fullCode = buildFullCode(code, parameters);
-            Log.d(TAG, "Code: " + fullCode.substring(0, Math.min(200, fullCode.length())));
-            
-            PythonToolManager.ExecutionResult result = toolManager.executeCode(fullCode, null);
+            // ai_logs 可追溯 + 不整包打参数值（值里常带用户内容/路径）
+            com.oilquiz.app.util.AILogger.i(TAG, "执行 Python 动态工具 " + name
+                    + " 参数=" + com.oilquiz.app.ai.tool.ScriptArgs.keyNames(parameters));
+
+            String fullCode = com.oilquiz.app.ai.tool.ScriptArgs.fullPythonScript(code, parameters);
+            int timeoutSeconds = com.oilquiz.app.ai.tool.DynamicToolBudget.engineTimeoutSeconds(
+                    com.oilquiz.app.ai.tool.DynamicToolBudget.SCRIPT_BUDGET_MS,
+                    com.oilquiz.app.ai.tool.DynamicToolBudget.PYTHON_ENGINE_MAX_SECONDS);
+
+            PythonToolManager.ExecutionResult result = toolManager.executeCode(fullCode, null, timeoutSeconds);
             
             Map<String, Object> additionalInfo = new HashMap<>();
             additionalInfo.put("toolName", name);
@@ -124,110 +136,18 @@ public class PythonDynamicTool implements AITool, com.oilquiz.app.ai.tool.openai
                     additionalInfo, false);
             
         } catch (Exception e) {
-            Log.e(TAG, "Error executing Python dynamic tool " + name + ": " + e.getMessage(), e);
+            com.oilquiz.app.util.AILogger.e(TAG, "Python 动态工具 " + name + " 执行失败: "
+                    + e.getMessage(), e);
             
             Map<String, Object> additionalInfo = new HashMap<>();
             additionalInfo.put("toolName", name);
             additionalInfo.put("error", e.getMessage());
             additionalInfo.put("isDynamic", true);
             
-            return new AIToolResult("动态工具执行失败: " + e.getMessage(), additionalInfo);
+            // 异常分支同样必须是失败——这条链上"成功/失败"只由构造函数选中的重载决定，
+            // 上面 result 失败那处刚补过一次，这里漏了就会以"工具正常返回了一段报错文本"的面目出现。
+            return new AIToolResult("动态工具执行失败: " + e.getMessage(), additionalInfo, false);
         }
-    }
-    
-    private String buildFullCode(String originalCode, Map<String, Object> parameters) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("# -*- coding: utf-8 -*-\n");
-        sb.append("import sys\n");
-        sb.append("sys.path.insert(0, '.')\n\n");
-        sb.append("# 脚本参数\n");
-        sb.append("script_args = ").append(mapToPythonDict(parameters)).append("\n\n");
-        sb.append(originalCode);
-        return sb.toString();
-    }
-    
-    private String mapToPythonDict(Map<String, Object> map) {
-        if (map == null || map.isEmpty()) {
-            return "{}";
-        }
-        
-        StringBuilder sb = new StringBuilder();
-        sb.append("{");
-        
-        boolean first = true;
-        for (Map.Entry<String, Object> entry : map.entrySet()) {
-            if (!first) {
-                sb.append(", ");
-            }
-            first = false;
-            
-            String key = entry.getKey();
-            Object value = entry.getValue();
-            
-            sb.append("'").append(key.replace("'", "\\'")).append("': ");
-            sb.append(pythonValue(value));
-        }
-        
-        sb.append("}");
-        return sb.toString();
-    }
-    
-    private String pythonValue(Object value) {
-        if (value == null) {
-            return "None";
-        }
-        if (value instanceof String) {
-            return "'" + ((String) value).replace("'", "\\'") + "'";
-        }
-        if (value instanceof Number) {
-            return value.toString();
-        }
-        if (value instanceof Boolean) {
-            return (Boolean) value ? "True" : "False";
-        }
-        if (value instanceof java.util.List) {
-            return pythonList((java.util.List<?>) value);
-        }
-        if (value instanceof java.util.Map) {
-            return mapToPythonDict((java.util.Map<String, Object>) value);
-        }
-        // org.json 类型（AgentService 解析的嵌套参数）：先转标准容器再序列化，
-        // 避免把 JSONObject.toString() 当字符串拼进 script_args 导致参数注入损坏
-        if (value instanceof org.json.JSONObject) {
-            org.json.JSONObject jo = (org.json.JSONObject) value;
-            Map<String, Object> m = new HashMap<>();
-            java.util.Iterator<String> keys = jo.keys();
-            while (keys.hasNext()) {
-                String k = keys.next();
-                m.put(k, jo.opt(k));
-            }
-            return mapToPythonDict(m);
-        }
-        if (value instanceof org.json.JSONArray) {
-            org.json.JSONArray ja = (org.json.JSONArray) value;
-            java.util.List<Object> list = new java.util.ArrayList<>();
-            for (int i = 0; i < ja.length(); i++) {
-                list.add(ja.opt(i));
-            }
-            return pythonList(list);
-        }
-        return "'" + value.toString().replace("'", "\\'") + "'";
-    }
-    
-    private String pythonList(java.util.List<?> list) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("[");
-        
-        boolean first = true;
-        for (Object item : list) {
-            if (!first) {
-                sb.append(", ");
-            }
-            first = false;
-            sb.append(pythonValue(item));
-        }
-        
-        sb.append("]");
-        return sb.toString();
     }
 }
+

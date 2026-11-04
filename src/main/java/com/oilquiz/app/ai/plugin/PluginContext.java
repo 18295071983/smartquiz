@@ -69,8 +69,15 @@ public class PluginContext {
             throw new IllegalArgumentException("Tool name must be non-empty");
         }
         AITool adapter = tool.asAitool();
-        if (toolManager != null) {
-            toolManager.registerDynamicTool(adapter);
+        // 注册被拒（命名不合规）时必须当场抛错，不能只注册到"模型可见"那一半：
+        // 否则工具出现在工具表里、模型每轮都能看见，一调就"工具不存在"——看得见却不能用
+        String nameProblem = com.oilquiz.app.ai.tool.AIToolManager.toolNameError(tool.name());
+        if (nameProblem != null) {
+            throw new IllegalArgumentException("插件工具名不合规 (" + tool.name() + "): " + nameProblem);
+        }
+        boolean registered = toolManager == null || toolManager.registerDynamicTool(adapter);
+        if (!registered) {
+            throw new IllegalStateException("插件工具未能进入注册表: " + tool.name());
         }
         if (onlineToolRegistry != null) {
             ToolDefinition def = buildToolDefinition(tool);

@@ -35,7 +35,9 @@ import java.util.Map;
     params = {
         @Param(name = "action", type = "string", description = "操作类型", required = true),
         @Param(name = "task", type = "string", description = "任务描述", required = false),
-        @Param(name = "tool_name", type = "string", description = "工具名称", required = false),
+        // 命名规则与 create_dynamic_tool 同口径写进参数描述（权威是 AIToolManager.toolNameError）：
+        // 这条路径以前不校验也不告知，模型按中文起名就会被拒一轮
+        @Param(name = "tool_name", type = "string", description = "工具名称：字母开头，只含字母/数字/下划线，最长64，不能用 mcp__ 前缀（例：my_weather）", required = false),
         @Param(name = "description", type = "string", description = "工具描述", required = false),
         @Param(name = "parameters", type = "string", description = "工具参数定义(JSON格式)", required = false),
         @Param(name = "code", type = "string", description = "Python或JavaScript代码(create时使用，可选，不提供则自动生成Python代码)", required = false),
@@ -71,7 +73,7 @@ public class AIToolCreatorTool implements AITool {
         Map<String, String> params = new HashMap<>();
         params.put("action", "操作类型：analyze(分析需求)、create(创建工具)、execute(执行工具)、list(列出工具)、delete(删除工具)");
         params.put("task", "任务描述，用于分析是否需要新工具（analyze 或 create 时使用）");
-        params.put("tool_name", "工具名称（create、execute、delete 时使用）");
+        params.put("tool_name", "工具名称（create、execute、delete 时使用；必须字母开头，只含字母/数字/下划线，最长64，不能用 mcp__ 前缀）");
         params.put("description", "工具描述（create 时使用，可选）");
         params.put("parameters", "工具参数定义，JSON格式：{\"参数名\":\"参数描述\",...}（create 时使用，可选）");
         params.put("code", "Python/JavaScript 代码（create 时使用，可选，不提供则自动生成 Python 代码）");
@@ -218,6 +220,14 @@ public class AIToolCreatorTool implements AITool {
             }
         }
         
+        // 2026-11-04：命名校验补上——这条路径以前不校验，而 create_dynamic_tool 校验，
+        // 于是同一个 App 里两个创建入口一个能过、一个不能过。带点号/空格/中文的名字被创建后
+        // 会持久化并每轮进 tools 数组，服务商按 function 名规则可能直接拒掉整个 tools 参数。
+        String nameProblem = com.oilquiz.app.ai.tool.AIToolManager.toolNameError(toolName);
+        if (nameProblem != null) {
+            return createErrorResult(nameProblem);
+        }
+
         if (toolManager.hasTool(toolName)) {
             return createErrorResult("工具 " + toolName + " 已存在");
         }
@@ -239,7 +249,15 @@ public class AIToolCreatorTool implements AITool {
             creatorManager.createTool(toolName, description, toolParams, examples, code);
         
         if (creationResult.success) {
-            registerDynamicTool(creationResult, structuredParams);
+            // 注册被拒就不能报"创建成功"：模型会照着这句话在下一轮调用一个并不存在的工具
+            boolean registered = registerDynamicTool(creationResult, structuredParams);
+            if (!registered) {
+                String orphanFile = creationResult.spec != null ? creationResult.spec.filePath : null;
+                return createErrorResult("工具 " + toolName
+                        + " 的脚本已生成但没能进注册表（注册被拒，原因见 ai_logs）"
+                        + (orphanFile != null ? "；脚本留在 " + orphanFile : "")
+                        + "；请换一个合规的工具名（字母开头，只含字母/数字/下划线）重新创建");
+            }
             
             StringBuilder result = new StringBuilder();
             result.append("✅ 工具创建成功！\n\n");
@@ -302,10 +320,10 @@ public class AIToolCreatorTool implements AITool {
         }
     }
     
-    private void registerDynamicTool(AIToolCreatorManager.ToolCreationResult result,
+    private boolean registerDynamicTool(AIToolCreatorManager.ToolCreationResult result,
                                      com.oilquiz.app.ai.tool.DynamicToolParams dynamicParams) {
         if (result.spec == null) {
-            return;
+            return false;
         }
         
         // 2026-09-23：创建路径保留结构化参数（属性级/完整 JSON Schema 格式）——
@@ -316,9 +334,16 @@ public class AIToolCreatorTool implements AITool {
             : new PythonDynamicTool(context, result.toolName, result.spec.description,
                     result.spec.parameters, result.spec.code);
         
-        toolManager.registerDynamicTool(dynamicTool);
-        Log.i(TAG, "Dynamic tool registered: " + result.toolName
-                + (dynamicParams != null && !dynamicParams.isEmpty() ? " (structured)" : ""));
+        // 注册结果必须接住：注册被拒（命名非法）时 toolManager 里根本没有这个工具，
+        // 而这条路径以前照样回一句"已注册并可以使用"
+        boolean registered = toolManager.registerDynamicTool(dynamicTool);
+        if (registered) {
+            com.oilquiz.app.util.AILogger.i(TAG, "Dynamic tool registered: " + result.toolName
+                    + (dynamicParams != null && !dynamicParams.isEmpty() ? " (structured)" : ""));
+        } else {
+            com.oilquiz.app.util.AILogger.e(TAG, "动态工具未进入注册表: " + result.toolName);
+        }
+        return registered;
     }
     
     private AIToolResult handleExecute(Map<String, Object> parameters) {
