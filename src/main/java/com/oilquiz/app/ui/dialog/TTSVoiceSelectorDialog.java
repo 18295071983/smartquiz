@@ -81,8 +81,14 @@ public class TTSVoiceSelectorDialog {
                 }
             }
 
-            // 最终兜底：全量预设
+            // 最终兜底：全量预设。
+            // 2026-11-04：本地/系统 TTS 下**不能**兜到在线预设——用户选的是系统合成，
+            // 列表里却全是 qwen3 的 Cherry/Moon，选了也不生效（真机反馈："选了本地还弹预设音色"）。
             if (voiceList == null || voiceList.isEmpty()) {
+                if (speechManager.isLocalTtsConfigured()) {
+                    Toast.makeText(context, "当前为系统合成，系统未提供可选音色", Toast.LENGTH_SHORT).show();
+                    return;
+                }
                 voiceList = TTSService.getPresetVoices();
                 Toast.makeText(context, "使用内置音色列表", Toast.LENGTH_SHORT).show();
             }

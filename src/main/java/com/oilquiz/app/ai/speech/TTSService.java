@@ -448,6 +448,7 @@ public class TTSService {
             }
             // 注册表聚合：内置 + 自定义音色
             List<Voice> registryVoices = SpeechModelRegistry.getVoicesForModel(modelName);
+            boolean localTts = isLocalTtsConfigured();
             if (!registryVoices.isEmpty()) {
                 SpeechModelRegistry.ModelEntry entry = SpeechModelRegistry.matchTtsModel(modelName);
                 AILogger.i(TAG, "音色列表: model=" + modelName
@@ -466,7 +467,10 @@ public class TTSService {
                     AILogger.w(TAG, "拉取音色列表失败，使用预设: " + e.getMessage());
                 }
             }
-            if (voices.isEmpty()) {
+            if (voices.isEmpty() && !localTts) {
+                // 2026-11-04：本地/系统 TTS 下不要再拿在线预设充数。用户选的是「系统合成」，
+                // 列表里却全是 qwen3 的 Cherry/Moon/Serena，选了也不生效——真机反馈正是
+                //「选了本地模型还是弹出预设的音色」。此时音色只应来自系统 TTS 引擎（下面追加）。
                 voices.addAll(getPresetVoices());
             }
             // 系统音色始终追加（sys: 前缀区分）
@@ -485,7 +489,7 @@ public class TTSService {
      * 用户是否配置为本地/系统 TTS（feature_models.tts=local_tts/local 或功能模型名含"系统/本地"）。
      * 本地配置下不应发起任何在线语音端点请求（音色列表/合成），避免"绕到在线接口"的假故障。
      */
-    private boolean isLocalTtsConfigured() {
+    public boolean isLocalTtsConfigured() {
         try {
             OnlineModelManager mgr = OnlineModelManager.getInstance(context);
             String fid = mgr.getFeatureModelId(OnlineModelManager.FEATURE_TTS);

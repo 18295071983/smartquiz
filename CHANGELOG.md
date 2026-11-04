@@ -1,5 +1,23 @@
 # 变更日志
 
+## [2026-11-04] fix(speech)：音色列表跟着「当前选的 TTS 模型」走，系统合成不再弹在线预设音色
+
+用户反馈：「我选择本地模型还是弹出了预设的音色」。
+
+链路：`TTSService.fetchVoicesAsync()` 里，本地/系统 TTS 下 `resolveModelName` 返回的是
+「SystemTTS(内置)」，注册表按模型名匹配不到音色 → `voices` 为空 → 走到「兜底全量预设」
+（`SpeechModelRegistry.getAllPresetVoices()`，即所有在线模型的音色并集）。于是在系统合成下，
+音色选择框里是 qwen3 的 Cherry/Moon/Serena，而系统 TTS 一个都不认——选了也不生效。
+`TTSVoiceSelectorDialog` 还有第二道同样的兜底，把空列表又填回预设。
+
+改法：
+- `fetchVoicesAsync`：只有 `voices.isEmpty() && !localTts` 才兜底预设；
+- 对话框：本地 TTS 下不再兜底预设，改提示「当前为系统合成，系统未提供可选音色」；
+- `isLocalTtsConfigured()` 从 private 提为 public，由 `SpeechManager` 转发，UI 与引擎同一判据。
+
+验证：新增 `VoiceListScopingTest` 2 条（引擎兜底门禁 + 对话框在兜底前必须判断本地），
+`speech` 包全绿。真机验证点：选「系统合成」→ 列表只剩系统音色；切回 `qwen3-tts-flash` 才是 48 个在线音色。
+
 ## [2026-11-04] fix(speech)：自定义音色永远失败、OpenAI 兼容 ASR 不带 Content-Type、带空格音色静默换 Cherry
 
 用户说"语音模型功能还是有问题，这是短板"。翻 `ai_logs` + 真机自检，把这条链路从头走了一遍：

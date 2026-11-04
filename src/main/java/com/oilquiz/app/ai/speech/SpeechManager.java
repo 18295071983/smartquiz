@@ -503,6 +503,16 @@ public class SpeechManager {
     }
 
     /**
+     * 当前是否配置为「系统合成/本地」TTS。
+     *
+     * <p>音色选择框据此决定要不要展示在线预设音色：用户选的是系统合成时，只该给系统音色，
+     * 拿 qwen3 的 Cherry/Moon 充数等于"选了也不生效"。</p>
+     */
+    public boolean isLocalTtsConfigured() {
+        return ttsService.isLocalTtsConfigured();
+    }
+
+    /**
      * 使用指定音色试听一段文本（不改变默认音色配置）
      * 强制仅在线合成：系统TTS不支持音色切换，回退会导致试听听不出音色差异
      */
