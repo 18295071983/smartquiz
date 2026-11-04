@@ -96,6 +96,26 @@ public class ChatGuideToolFactsTest {
                 OnlineAgentEngine.coreTools().size() <= OnlineAgentEngine.maxSessionToolCount());
     }
 
+    /**
+     * 上限口径要说清是护栏不是配额（2026-11-04 注入集改取向时一起改的文案）。
+     *
+     * <p>只报"最多同时携带 N 个"会被读成"能带 N 个"，而真正先到的是体积；
+     * 另外用户明确要的取向是"已经给模型用过的工具不会中途被收回"，
+     * 这句必须出现在弹框里，否则旧 LRU 淘汰那种"用着用着没了"的行为没人能解释。
+     */
+    @Test
+    public void onlineCapIsDescribedAsGuardrailNotQuota() throws Exception {
+        String xml = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(
+                "src/main/res/values/strings.xml")), java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue("两条在线工具清单文案都得写清是护栏",
+                xml.contains("上限是护栏不是配额"));
+        assertTrue("要写明已给过的工具不收回",
+                xml.contains("不会中途被收回"));
+        String src = activitySource();
+        assertTrue("KB 上限必须从引擎取，不能在文案里写死数字",
+                src.contains("maxToolsetBytes()"));
+    }
+
     /** 弹框代码不得再把数量/名单抄回字面量（历史写法逐条点名，防止"顺手补上"） */
     @Test
     public void chatActivityDoesNotHardcodeToolFacts() throws Exception {

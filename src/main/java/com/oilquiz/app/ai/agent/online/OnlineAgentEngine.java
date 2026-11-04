@@ -211,27 +211,32 @@ public class OnlineAgentEngine {
     public static java.util.Set<String> coreTools() {
         return CORE_TOOLS;
     }
-    /** 会话工具集上限（2026-09-23 v2）：常驻核心 + 最多 3 个扩展工具——默认少带，模型不知道再发现。
-     *  注：核心集现为 {@link #CORE_TOOLS} 的 8 个（2026-11-04 加入 mcp_toolbox），旧注释里的"核心 6/7"已过期。 */
-    private static final int MAX_SESSION_TOOLS = 9;
-
     /**
-     * 会话工具集上限（UI 只读口径，2026-11-02 GUIDE-DYNAMIC-TOOLS）。
+     * 会话工具集上限（UI 只读口径，2026-11-04 改为体积口径）。
      *
-     * <p>聊天页「使用说明」要告诉用户"单轮最多同时带几个工具"，此前把"共 40+ 工具"写死在
-     * Java 字面量里。注册表实际由 {@code OnlineToolRegistry#syncFromAIToolManager()} 动态同步，
-     * 数量会漂；上限这种会变的口径同样必须从这里取。</p>
+     * <p>聊天页「使用说明」要告诉用户"单轮最多同时带几个工具"。旧实现是
+     * {@code MAX_SESSION_TOOLS=9} 加 LRU 淘汰；现在体积说了算（见
+     * {@link SessionToolBudget}），数量只是防某个超大 schema 把请求撑爆的硬顶。
+     * 这里返回硬顶，KB 数由 {@link #maxToolsetBytes()} 提供，两条都要在文案里出现，
+     * 否则"最多 32 个"会被读成"能带 32 个"，而实际先撞的是体积。
      */
     public static int maxSessionToolCount() {
-        return MAX_SESSION_TOOLS;
+        return SessionToolBudget.MAX_TOOLSET_TOOLS;
+    }
+
+    /** 会话工具集的体积上限（字节），UI 取数用。 */
+    public static int maxToolsetBytes() {
+        return SessionToolBudget.MAX_TOOLSET_BYTES;
     }
 
     /** 活工具集（2026-09-23 v5）：模型 tool_registry(get) 成功后立即更新，
      *  当前 execute 的下一迭代就用新工具（MCP 语义：get 后本轮可调，不等下条用户消息）。
      *  每 execute 开头重置为 null；registerToolIntoSession 时刷新为最新 cachedToolsJson。 */
     private volatile String liveToolsJson = null;
-    /** 工具最后使用时间（LRU 淘汰依据，调用/注册时刷新） */
+    /** 工具最后使用时间（记录用途；不再作为淘汰依据——淘汰会把模型已经看见的定义收回） */
     private final java.util.Map<String, Long> toolLastUsed = new java.util.concurrent.ConcurrentHashMap<>();
+    /** 每个工具自己那份定义的字节数（体积预算的输入，装配时测一次就缓存） */
+    private final java.util.Map<String, Integer> toolDefBytes = new java.util.concurrent.ConcurrentHashMap<>();
 
     // 推理进度统计
     private long inferenceStartTime;
@@ -239,6 +244,16 @@ public class OnlineAgentEngine {
     /** 最近一次推理的缓存命中 token 数（DeepSeek prompt_cache_hit_tokens / OpenAI cached_tokens） */
     private volatile int lastCacheHitTokens = 0;
     private volatile int lastCacheMissTokens = 0;   // 2026-09-23：API 直读 prompt_cache_miss_tokens
+    /**
+     * 本轮实际发出去的 tools 段指纹（2026-11-04 记账用）。
+     *
+     * <p>命中率本身在界面上看得到，但"这一轮到底发了什么"哪儿都没记——于是每次讨论
+     * "为什么没命中"都只能靠推断。数量、字节、顺序哈希记成一轮一行，
+     * 和 hit/miss 同条日志出现，谁变了当场就能对出来。
+     */
+    private volatile int lastToolsCount = 0;
+    private volatile int lastToolsBytes = 0;
+    private volatile String lastToolsHash = "";
     /** 最近一次推理的输入/输出 token（API usage，用于统计展示） */
     private volatile int lastPromptTokens = 0;
     private volatile int lastCompletionTokens = 0;
@@ -1482,9 +1497,18 @@ public class OnlineAgentEngine {
         // 配合工具名缓存日志（cachedToolNames 大小不变即 tools 前缀稳定）可直接定位。
         try {
             String probeJson = messagesArray.toString();
+            // 工具集一同行：数量/字节/顺序哈希。光看命中率没用——得能回答"这一轮到底发了什么、
+            // 和上一轮比哪一段变了"，否则每次讨论都是猜。
+            String toolsProbe = toolsJson != null ? toolsJson : "";
+            lastToolsCount = countToolsInJson(toolsProbe);
+            lastToolsBytes = toolsProbe.length();
+            lastToolsHash = toolsProbe.isEmpty() ? "" : sha256Hex(toolsProbe).substring(0, 12);
             AILogger.i(TAG, "CACHE-PROBE sha256=" + sha256Hex(probeJson)
                     + " msg_len=" + probeJson.length()
                     + " tools_len=" + (toolsJson != null ? toolsJson.length() : 0)
+                    + " tools_count=" + lastToolsCount
+                    + " tools_sha=" + lastToolsHash
+                    + " " + SessionToolBudget.describe(cachedToolNames, toolDefBytes)
                     + " thinking=" + enableThinking);
         } catch (Exception ignored) {}
 
@@ -1641,11 +1665,13 @@ public class OnlineAgentEngine {
                     AILogger.i(TAG, String.format(
                         "Token usage: prompt=%d completion=%d total=%d cache_hit=%d (%d%%)" +
                         " | 第%d轮 | exec累计: in=%d out=%d" +
-                        " | 本轮增量: in+%d out+%d",
+                        " | 本轮增量: in+%d out+%d"
+                        + " | tools=%d个/%d字节 sha=%s",
                         promptTokens, completionTokens, totalTokens, cachedTokens, cachePct,
                         roundNum,
                         execTotalPromptTokens, execTotalCompletionTokens,
-                        promptTokens, completionTokens
+                        promptTokens, completionTokens,
+                        lastToolsCount, lastToolsBytes, lastToolsHash
                     ));
 
                     notifyProgress();
@@ -1885,17 +1911,32 @@ public class OnlineAgentEngine {
         // 自动并入会话工具缓存，并立即刷新 liveToolsJson——当前 execute 的下一迭代就能直接调用
         // 该工具（MCP 语义：get 后本轮可调，不等下条用户消息）——
         if (result != null && result.success) {
+            String refusalHint = null;
             if ("tool_registry".equals(toolName) && arguments != null) {
                 String target = extractToolRegistryTarget(arguments);
-                if (target != null && !target.isEmpty()) registerToolIntoSession(target);
+                if (target != null && !target.isEmpty()) {
+                    SessionToolBudget.Verdict v = registerToolIntoSession(target);
+                    if (!v.admitted) refusalHint = v.modelHint;
+                }
             }
             // MCP 延迟加载闭环：mcp_toolbox(get) 成功 = 模型已拿到该工具定义，
             // 立刻并入本轮工具集，下一迭代即可直接调用 mcp__server__tool（不用再走一次 call）。
             if ("mcp_toolbox".equals(toolName) && arguments != null) {
                 String target = extractMcpToolboxTarget(arguments);
-                if (target != null && !target.isEmpty()) registerToolIntoSession(target);
+                if (target != null && !target.isEmpty()) {
+                    SessionToolBudget.Verdict v = registerToolIntoSession(target);
+                    if (!v.admitted) refusalHint = v.modelHint;
+                }
             }
-            registerToolIntoSession(toolName);
+            SessionToolBudget.Verdict self = registerToolIntoSession(toolName);
+            if (refusalHint == null && !self.admitted) refusalHint = self.modelHint;
+            if (refusalHint != null) {
+                // 拒绝必须进模型看到的文本：只在日志里写"没并进"，模型下一句照样直接调那个工具名，
+                // 拿到的是"工具不存在"——它会以为自己写错了名字，而不是工具集满了。
+                result = OnlineToolResult.success(result.toolCallId, result.toolName,
+                        (result.result != null ? result.result : "") + "\n\n[工具集上限] " + refusalHint,
+                        result.executionTimeMs);
+            }
             if (cachedToolsJson != null) {
                 liveToolsJson = cachedToolsJson;
                 AILogger.i(TAG, "Live tools refreshed: next iteration carries updated toolset ("
@@ -1913,25 +1954,66 @@ public class OnlineAgentEngine {
     }
 
     /**
-     * 发现制闭环：工具调用成功后并入会话级工具缓存（只增不改，下一轮请求直接带上 schema）。
+     * 发现制闭环：工具调用成功后并入会话级工具缓存（<b>按体积准入，准入过就不再收回</b>）。
+     *
+     * <p>返回 {@link SessionToolBudget.Verdict} 而不是 void：拒绝必须让模型看见。
+     * 旧实现是"数量到 9 就 LRU 淘汰最旧的非核心工具"，于是模型上一轮看过定义的工具
+     * 这一轮从 tools 里消失，它照样调用 → 报"工具不存在"，用户看到的是 AI 突然不会用了。
+     * 那是把体积问题换成正确性问题。现在队头（核心+先发现的）永不退场，装不下就明说装不下，
+     * 并给出还能走的两条路（MCP 代执行 / 删掉不用的动态工具）。
      */
-    private void registerToolIntoSession(String toolName) {
+    private SessionToolBudget.Verdict registerToolIntoSession(String toolName) {
         try {
-            if (toolName == null || toolName.isEmpty()) return;
+            if (toolName == null || toolName.isEmpty()) {
+                return SessionToolBudget.Verdict.ok(0, 0);
+            }
             if (cachedToolNames != null) {
+                int bytes = measureToolBytes(toolName);
+                boolean already = cachedToolNames.contains(toolName);
+                if (!already) {
+                    SessionToolBudget.Verdict v = SessionToolBudget.admit(
+                            cachedToolNames, CORE_TOOLS, toolDefBytes, toolName, bytes);
+                    if (!v.admitted) {
+                        AILogger.w(TAG, "工具集已满，未并入 " + toolName + "（" + v.reason + "）|"
+                                + SessionToolBudget.describe(cachedToolNames, toolDefBytes));
+                        return v;
+                    }
+                }
                 toolLastUsed.put(toolName, System.currentTimeMillis());
-                // 用完即走策略下，调用即注册仅作用于「当前 execute 内」多轮迭代；
-                // 跨 execute 由 getStableToolsJson 重建（核心+本轮命中），不再累积
-                boolean added = cachedToolNames.add(toolName);
+                toolDefBytes.put(toolName, bytes);
                 // 2026-09-23 v9：定义总是刷新——即使工具名已在缓存（只增不改的旧逻辑下，
                 // 动态工具 update/重新注册后 schema 变化，缓存仍是旧快照 → 误导模型）。
-                // 调用成功即重拉缓存集最新定义：新增=注册，已存在=刷新。
+                cachedToolNames.add(toolName);
                 cachedToolsJson = toolManager.getToolDefinitionsForNames(cachedToolNames);
-                AILogger.i(TAG, (added ? "Tool auto-registered after call: " : "Tool definition refreshed after call: ")
-                        + toolName + ", total=" + cachedToolNames.size());
+                AILogger.i(TAG, (already ? "Tool definition refreshed after call: "
+                        : "Tool auto-registered after call: ") + toolName
+                        + ", " + SessionToolBudget.describe(cachedToolNames, toolDefBytes));
+                return SessionToolBudget.Verdict.ok(0, cachedToolNames.size());
             }
         } catch (Exception e) {
             AILogger.e(TAG, "registerToolIntoSession failed: " + e.getMessage(), e);
+        }
+        return SessionToolBudget.Verdict.ok(0, 0);
+    }
+
+    /**
+     * 量一个工具自己那份定义的字节数（体积预算的输入）。
+     *
+     * <p>单独装配一份而不是从整表里切：整表长度会把分隔符和其他工具算进来，
+     * 那等于预算里每个工具都虚胖一点，越到后面越不准。
+     */
+    private int measureToolBytes(String toolName) {
+        Integer cached = toolDefBytes.get(toolName);
+        if (cached != null && cached > 0) return cached;
+        try {
+            String json = toolManager.getToolDefinitionsForNames(
+                    java.util.Collections.singletonList(toolName));
+            int n = json != null ? json.length() : 0;
+            if (n > 0) toolDefBytes.put(toolName, n);
+            return n;
+        } catch (Exception e) {
+            AILogger.w(TAG, "量工具定义体积失败 " + toolName + ": " + e.getMessage());
+            return 0;
         }
     }
 
@@ -2090,6 +2172,24 @@ public class OnlineAgentEngine {
             cachedToolNames.clear();
             cachedToolNames.addAll(coreTools);
 
+            // 1b. 能力优先注入（2026-11-04 用户指令）：**动态工具全量 + MCP 全量**每轮就在场。
+            //     内置那 135 个仍然按需发现、不进本轮 tools——用户要的从来不是"全都塞进去"，
+            //     而是"我自己造的工具和接进来的外部工具，模型每轮都应该直接看见、直接调"，
+            //     不必每轮绕 tool_registry 发现一遍。
+            //     顺序由 ToolInjectionPlan 定（核心→动态→MCP，段内按名排序）：名单怎么变都确定；
+            //     代价是只有核心段前缀稳定（新增动态工具会推后 MCP 段），
+            //     取向是能力优先，不为字节好看少给能力（2026-11-04 用户明确"不要考虑成本"）。
+            java.util.List<String> dynamicNames = com.oilquiz.app.ai.tool.AIToolManager
+                    .getInstance(context).getDynamicTools();
+            java.util.List<String> mcpNames = injectAllMcpTools();
+            java.util.List<String> planned = com.oilquiz.app.ai.tool.ToolInjectionPlan.select(
+                    coreTools, dynamicNames, mcpNames, null, false);
+            cachedToolNames.clear();
+            cachedToolNames.addAll(planned);
+            AILogger.i(TAG, "能力注入: " + com.oilquiz.app.ai.tool.ToolInjectionPlan.describe(
+                    coreTools, dynamicNames, mcpNames, null, false)
+                    + " → 本轮工具集 " + cachedToolNames.size() + " 个");
+
             // 2. 高频工具预载（自进化，非预判）：历史共现统计里的常客工具首轮就在场，
             //    省发现轮；上限 2 个防膨胀。这是观察模型历史行为的自适应，dsh 无此机制但无害。
             java.util.Set<String> frequent = toolManager.getFrequentToolsFromPatterns(coreTools, 3, 2);
@@ -2127,31 +2227,75 @@ public class OnlineAgentEngine {
     }
 
     /**
-     * 会话工具集 LRU 上限（2026-09-23）：超过 MAX_SESSION_TOOLS 时，
-     * 按最后使用时间淘汰最旧的非核心工具（核心工具永不淘汰）。
-     * 兼顾前缀缓存稳定（核心段不变）与长会话体积控制（扩展工具最多 6 个）。
+     * MCP 全量注入：把已同步目录里所有"给了定义、能执行"的工具都并进本轮工具集。
+     *
+     * <p>每条先 {@code ensureRegistered} 再取本地名：注册表里没有的名字装配定义时会被
+     * 静默跳过（"说要注入、其实没注入"是最难查的一种缺法）。审批=禁止 的工具<b>不注入</b>
+     * 并计数——把一个调了必失败的工具摆给模型看，比少给它一个能力更糟。
+     */
+    private java.util.List<String> injectAllMcpTools() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        try {
+            com.oilquiz.app.ai.agent.online.mcp.McpManager mgr =
+                    com.oilquiz.app.ai.agent.online.mcp.McpManager.getInstance(context);
+            int denied = 0;
+            int unresolvable = 0;
+            for (com.oilquiz.app.ai.agent.online.mcp.McpManager.McpToolEntry e : mgr.catalogSnapshot()) {
+                if (com.oilquiz.app.ai.agent.online.mcp.McpConstants.APPROVAL_DENY.equals(
+                        mgr.effectiveApproval(e.serverId, e.remoteName))) {
+                    denied++;
+                    continue;
+                }
+                String local = mgr.ensureRegistered(e);
+                if (local == null || local.isEmpty()) {
+                    unresolvable++;
+                    continue;
+                }
+                out.add(local);
+            }
+            if (denied + unresolvable > 0) {
+                AILogger.i(TAG, "MCP 注入跳过 " + (denied + unresolvable) + " 个："
+                        + "审批禁止=" + denied + "，注册不成功/服务不可用=" + unresolvable);
+            }
+        } catch (Exception ex) {
+            AILogger.w(TAG, "MCP 全量注入失败（本轮不带 MCP 工具）: " + ex.getMessage());
+        }
+        return out;
+    }
+
+    /**
+     * 会话工具集体积收口（2026-11-04 改）：超预算时<b>只从队尾丢</b>，核心工具永不退场。
+     *
+     * <p>以前这里是 LRU 淘汰"最久没用的非核心工具"，看上去兼顾了缓存与体积，实际会把
+     * 模型上一轮刚看过定义的工具从 tools 里撤掉——它下一句照样调用，得到"工具不存在"，
+     * 用户看到的是 AI 突然不会用。队列顺序就是发现顺序，队尾是最近才并入、模型还没用过的，
+     * 丢它只少一份"还没用上的能力"，不撤销已给出的能力。
+     *
+     * <p>丢完仍然超（核心集自己就超预算）时不再丢，只记一行日志：核心是入口
+     * （{@code tool_registry}/{@code mcp_toolbox} 都在里面），把它们挤掉等于关掉发现能力。
      */
     private void trimSessionTools(java.util.Set<String> coreTools) {
         try {
-            if (cachedToolNames.size() <= MAX_SESSION_TOOLS) return;
-            java.util.List<String> removable = new java.util.ArrayList<>();
-            for (String n : cachedToolNames) {
-                if (coreTools.contains(n)) continue;
-                removable.add(n);
+            if (cachedToolNames.isEmpty()) return;
+            java.util.List<String> ordered = new java.util.ArrayList<>(cachedToolNames);
+            java.util.Map<String, Integer> bytes = new java.util.HashMap<>();
+            for (String n : ordered) {
+                bytes.put(n, measureToolBytes(n));
             }
-            removable.sort((a, b) -> Long.compare(
-                    toolLastUsed.getOrDefault(a, 0L), toolLastUsed.getOrDefault(b, 0L)));
-            int evicted = 0;
-            for (String n : removable) {
-                if (cachedToolNames.size() <= MAX_SESSION_TOOLS) break;
-                if (cachedToolNames.remove(n)) {
-                    toolLastUsed.remove(n);
-                    evicted++;
+            java.util.List<String> kept =
+                    SessionToolBudget.trimToFit(ordered, coreTools, bytes);
+            int dropped = ordered.size() - kept.size();
+            if (dropped > 0) {
+                cachedToolNames.clear();
+                cachedToolNames.addAll(kept);
+                for (String gone : ordered) {
+                    if (!kept.contains(gone)) {
+                        toolDefBytes.remove(gone);
+                        toolLastUsed.remove(gone);
+                    }
                 }
-            }
-            if (evicted > 0) {
-                AILogger.i(TAG, "Session tool LRU trim: evicted " + evicted
-                        + ", total=" + cachedToolNames.size() + " (cap=" + MAX_SESSION_TOOLS + ")");
+                AILogger.w(TAG, "工具集超预算，丢弃队尾 " + dropped + " 个（尚未被模型调用过）| "
+                        + SessionToolBudget.describe(cachedToolNames, bytes));
             }
         } catch (Exception e) {
             AILogger.w(TAG, "trimSessionTools failed: " + e.getMessage());

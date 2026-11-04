@@ -381,15 +381,24 @@ public class OnlineToolRegistry {
         if (names == null || names.isEmpty()) return "[]";
         try {
             JSONArray tools = new JSONArray();
+            List<String> skipped = new ArrayList<>();
             for (String name : names) {
                 ToolMeta meta = toolMetaIndex.get(name);
-                if (meta == null || !isToolEnabled(name)) continue;
+                if (meta == null || !isToolEnabled(name)) {
+                    // 跳过必须出声：调用方以为注入了 20 个、实际发出去 17 个，
+                    // 模型按 20 个的认知去调就得到"工具不存在"，而日志看不出少了谁。
+                    skipped.add(name + (meta == null ? "(未注册)" : "(已停用)"));
+                    continue;
+                }
                 // 2026-09-23 v9：定义实时拉取——meta.definition 是 sync 时快照，
                 // 动态工具 update/重新注册后必须取 AIToolManager 最新定义（get 的按名缓存不再陈旧）
                 com.oilquiz.app.ai.tool.openai.ToolDefinition latest =
                         aiToolManager.getToolDefinition(name);
                 JSONObject tool = buildToolJsonObject(meta, latest != null ? latest : meta.definition);
                 if (tool != null) tools.put(tool);
+            }
+            if (!skipped.isEmpty()) {
+                AILogger.w(TAG, "名单里有 " + skipped.size() + " 个工具装配不出定义: " + skipped);
             }
             AILogger.i(TAG, "Built tool definitions for names: " + tools.length() + "/" + names.size());
             return tools.toString();

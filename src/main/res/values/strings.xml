@@ -811,9 +811,9 @@
     <string name="chat_guide_online_always_tools">• 在线模型始终带工具，不受「智能助手」开关影响\n</string>
     <string name="chat_guide_thinking_line">• 切到「深度思考」模式，回答前会先展示思考过程\n\n</string>
     <string name="chat_guide_local_tools">🛠 常驻工具（%1$d 个）：%2$s\n• 其余工具不在本轮工具集里：需要时模型经「工具发现」查参数，并由它代为执行\n\n</string>
-    <string name="chat_guide_online_tools">🛠 工具清单：当前注册表共 %1$d 个\n• 常驻 %2$d 个：%3$s\n• 其余按需发现后加入会话，单轮最多同时携带 %4$d 个\n\n</string>
+    <string name="chat_guide_online_tools">🛠 工具清单：当前注册表共 %1$d 个\n• 常驻 %2$d 个：%3$s\n• 你创建的动态工具与已接入的 MCP 工具每轮都直接可用；其余内置工具按需发现后加入\n• 单轮规模上限是护栏不是配额（约 %5$d KB / %4$d 个），已经给模型用过的工具不会中途被收回\n\n</string>
     <!-- 注册表还没同步出数量时不报"共 0 个"，只报能确证的常驻集 -->
-    <string name="chat_guide_online_tools_no_total">🛠 工具清单：常驻 %1$d 个：%2$s\n• 其余按需发现后加入会话，单轮最多同时携带 %3$d 个\n\n</string>
+    <string name="chat_guide_online_tools_no_total">🛠 工具清单：常驻 %1$d 个：%2$s\n• 你创建的动态工具与已接入的 MCP 工具每轮都直接可用；其余内置工具按需发现后加入\n• 单轮规模上限是护栏不是配额（约 %4$d KB / %3$d 个），已经给模型用过的工具不会中途被收回\n\n</string>
     <string name="chat_guide_label_sep">、</string>
     <string name="chat_guide_examples_local">💡 试试对我说：\n「北京今天天气怎么样？」\n「现在几点了？」\n「搜索一下最新油价」\n「2^10 等于多少」\n「记住我叫小明」</string>
     <string name="chat_guide_examples_online">💡 试试对我说：\n「今天天气怎么样？」\n「帮我写一份周报」\n「画一只橘猫」\n「搜索一下最新油价」</string>

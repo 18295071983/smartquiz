@@ -222,6 +222,13 @@ public class OnlineInferenceService {
                         String toolsJson = null;
                         try {
                             toolsJson = AIToolManager.getInstance().getOpenAIToolDefinitions();
+                            // 这条路径的注入集由 AIToolManager 自己定（内置全量+动态全量）。
+                            // 记账到与在线引擎同一套字段名，排查"这轮到底发了多少工具"时
+                            // 两条路径能直接对比，不用猜是哪条路走的。
+                            AILogger.i(TAG, "TOOLS-PROBE(legacy-online) tools_count="
+                                    + (toolsJson == null ? 0
+                                        : new org.json.JSONArray(toolsJson).length())
+                                    + " tools_bytes=" + (toolsJson == null ? 0 : toolsJson.length()));
                         } catch (Exception e) {
                             AILogger.w(TAG, "Failed to get tool definitions, falling back to no-tools mode: " + e.getMessage());
                         }

@@ -5539,10 +5539,15 @@ public class AIChatActivity extends BaseActivity {
             java.util.Set<String> core = com.oilquiz.app.ai.agent.online.OnlineAgentEngine.coreTools();
             int total = onlineEnabledToolCount();
             int cap = com.oilquiz.app.ai.agent.online.OnlineAgentEngine.maxSessionToolCount();
+            // 体积才是真正的天花板（数量只是护栏），所以两条都报出来；
+            // 只报"最多 600 个"会让用户读成"能带 600 个"
+            int capKb = Math.round(com.oilquiz.app.ai.agent.online.OnlineAgentEngine
+                    .maxToolsetBytes() / 1024f);
             String labels = joinToolLabels(core);
             msg.append(total > core.size()
-                    ? getString(R.string.chat_guide_online_tools, total, core.size(), labels, cap)
-                    : getString(R.string.chat_guide_online_tools_no_total, core.size(), labels, cap));
+                    ? getString(R.string.chat_guide_online_tools, total, core.size(), labels, cap, capKb)
+                    : getString(R.string.chat_guide_online_tools_no_total,
+                            core.size(), labels, cap, capKb));
             msg.append(getString(R.string.chat_guide_examples_online));
         } else {
             java.util.List<String> core =

@@ -629,7 +629,14 @@ public class ModelExecutionBridge {
             if (agentService != null) {
                 String toolsJson = agentService.getAgentOpenAIToolDefinitions();
                 if (toolsJson != null && !toolsJson.isEmpty() && !"[]".equals(toolsJson)) {
-                    req.put("tools", new org.json.JSONArray(toolsJson));
+                    org.json.JSONArray arr = new org.json.JSONArray(toolsJson);
+                    req.put("tools", arr);
+                    // 原生 Agent 这条路的注入集是"内置全量 + 动态全量"（AIToolManager 自己定）。
+                    // 计数记下来才能和在线侧对账：同一次对话两条路带的工具集本来就不该一样，
+                    // 但差多少必须看得见。注意这条路不能注 MCP——mcp__ 名字的执行路由
+                    // 只在 OnlineToolManager 里有，原生侧没有。
+                    AILogger.i(TAG, "TOOLS-PROBE(native-agent) tools_count=" + arr.length()
+                            + " tools_bytes=" + toolsJson.length());
                 }
             }
             return req.toString();
