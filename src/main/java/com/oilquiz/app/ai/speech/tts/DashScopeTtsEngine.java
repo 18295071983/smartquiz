@@ -158,15 +158,21 @@ public class DashScopeTtsEngine implements TtsEngine {
     private com.alibaba.dashscope.aigc.multimodalconversation.AudioParameters.Voice resolveVoiceParam(String voice) {
         if (voice == null) return com.alibaba.dashscope.aigc.multimodalconversation.AudioParameters.Voice.CHERRY;
         String normalized = voice.trim();
-        
-        try {
-            // 使用 valueOf 将字符串转为枚举（区分大小写）
-            return com.alibaba.dashscope.aigc.multimodalconversation.AudioParameters.Voice.valueOf(normalized.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            // SDK 中不存在该枚举值，回退到默认
-            AILogger.w(TAG, "未知音色 '" + voice + "'，使用默认 Cherry");
-            return com.alibaba.dashscope.aigc.multimodalconversation.AudioParameters.Voice.CHERRY;
+
+        // 2026-11-04：音色列表里有「Ono Anna」这种带空格的官方名字，直接 valueOf 会失败并被
+        // 静默换成 Cherry（真机日志：未知音色 'Ono Anna'，但同批的 Moon/Sohee/Momo 都正常）。
+        // 先按原样匹配枚举，再按空格/连字符转下划线的写法重试，最后才兜底。
+        String[] candidates = {normalized, normalized.replace(' ', '_').replace('-', '_')};
+        for (String candidate : candidates) {
+            try {
+                return com.alibaba.dashscope.aigc.multimodalconversation.AudioParameters.Voice
+                        .valueOf(candidate.toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException ignored) {
+                // 换下一种写法再试
+            }
         }
+        AILogger.w(TAG, "音色 '" + voice + "' 不在 SDK 音色枚举里，使用默认 Cherry");
+        return com.alibaba.dashscope.aigc.multimodalconversation.AudioParameters.Voice.CHERRY;
     }
 
     /**

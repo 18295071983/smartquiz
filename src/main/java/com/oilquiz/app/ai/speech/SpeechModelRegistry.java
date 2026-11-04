@@ -643,10 +643,9 @@ public final class SpeechModelRegistry {
         requestBody.add("input", input);
         String bodyStr = requestBody.toString();
 
-        HttpURLConnection conn = SpeechHttpClient.openPost(endpoint, config.apiKey);
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setConnectTimeout(TIMEOUT_MS);
-        conn.setReadTimeout(TIMEOUT_MS);
+        // Content-Type 必须在 connect 前设置：openPost 会立即建连，之后再 set 会抛
+        // "Cannot set request property after connection is made"（真机：自定义音色永远拿不到）
+        HttpURLConnection conn = SpeechHttpClient.openPost(endpoint, config.apiKey, "application/json");
         try (OutputStream os = conn.getOutputStream()) {
             os.write(bodyStr.getBytes(StandardCharsets.UTF_8));
         }

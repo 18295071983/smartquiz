@@ -47,10 +47,12 @@ public class OpenAiAsrEngine implements AsrEngine {
         String fullUrl = SpeechHttpClient.buildUrl(config.apiUrl, ENDPOINT);
         AILogger.i(TAG, "OpenAI兼容ASR: model=" + modelName + " url=" + fullUrl);
 
-        HttpURLConnection connection = SpeechHttpClient.openPost(fullUrl, config.apiKey);
-        // Content-Type 必须在 connect() 之前设置，但 openPost 已连接
         String boundary = "----SpeechASRBoundary" + UUID.randomUUID().toString().replace("-", "");
         String lineEnd = "\r\n";
+        // multipart 的 Content-Type（含 boundary）必须在建连前设置：openPost 会立即 connect，
+        // 之前这里压根没设 Content-Type，服务端只能把请求体当未知格式（whisper 走这条路径）
+        HttpURLConnection connection = SpeechHttpClient.openPost(fullUrl, config.apiKey,
+                "multipart/form-data; boundary=" + boundary);
 
         try {
             try (DataOutputStream out = new DataOutputStream(connection.getOutputStream())) {

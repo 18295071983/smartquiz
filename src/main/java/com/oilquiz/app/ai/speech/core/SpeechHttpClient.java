@@ -111,6 +111,20 @@ public final class SpeechHttpClient {
     }
 
     /**
+     * 打开 POST 连接并**在 connect 之前**设置 Content-Type。
+     *
+     * <p>2026-11-04：{@link #openConnection} 会立即 {@code connect()}（为了尽早暴露 TLS 握手错误），
+     * 所以调用方拿到连接后再 {@code setRequestProperty} 会抛
+     * {@code Cannot set request property after connection is made}——真机上表现为
+     * 「获取 Qwen-TTS/CosyVoice 自定义音色失败」，以及 OpenAI 兼容 ASR 的 multipart
+     * 压根没带 Content-Type。需要自定义 Content-Type 的调用方一律走这个重载。</p>
+     */
+    public static HttpURLConnection openPost(String urlStr, String apiKey, String contentType)
+            throws IOException {
+        return openConnection(urlStr, apiKey, "POST", true, false, contentType);
+    }
+
+    /**
      * 打开一个已设置鉴权头与超时的 GET 连接（同 POST 的 SSL 回退策略）。
      */
     public static HttpURLConnection openGet(String urlStr, String apiKey) throws IOException {

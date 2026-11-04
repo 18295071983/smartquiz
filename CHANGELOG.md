@@ -1,5 +1,53 @@
 # 变更日志
 
+## [2026-11-04] fix(speech)：自定义音色永远失败、OpenAI 兼容 ASR 不带 Content-Type、带空格音色静默换 Cherry
+
+用户说"语音模型功能还是有问题，这是短板"。翻 `ai_logs` + 真机自检，把这条链路从头走了一遍：
+修掉三个具体故障，也摸清了"为什么一直感觉不对"。
+
+### 1. 自定义音色永远拿不到：Content-Type 改在 connect 之后
+
+日志 15:13:52 / 15:17:33 / 15:22:47 各一次：
+`获取Qwen-TTS自定义音色失败: Cannot set request property after connection is made`。
+
+`SpeechHttpClient.openPost()` 为了尽早暴露 TLS 握手错误，返回前已经 `connect()`；而
+`SpeechModelRegistry` 拿到连接后才 `setRequestProperty("Content-Type", ...)` → 必抛。自定义音色
+（声音复刻）列表因此永远是空的，内置音色照常显示，看起来像"音色少"而不是"请求失败"。
+
+改法：新增 `openPost(url, key, contentType)` 重载，Content-Type 在建连前设置；调用方改用它。
+
+### 2. OpenAI 兼容 ASR 的 multipart 一直没带 Content-Type
+
+`OpenAiAsrEngine` 里就写着注释「Content-Type 必须在 connect() 之前设置，但 openPost 已连接」——
+然后就**没有设**。whisper / 自建 OpenAI 兼容 ASR 收到的是一段没有 content-type 的 multipart，
+只能拒收。
+
+改法：先算 boundary，再用 `openPost(url, key, "multipart/form-data; boundary=…")`。
+
+### 3. 带空格的官方音色被静默换成 Cherry
+
+15:14:10：`未知音色 'Ono Anna'，使用默认 Cherry`。同批 Moon/Sohee/Momo 都正常——差别只是
+`valueOf(name.toUpperCase())` 对带空格的名字必然失败。
+
+改法：先按原名匹配枚举，再按空格/连字符转下划线重试，仍未命中才兜底 Cherry（并明确日志）。
+
+### 真机现状（这次顺手摸清的，比代码更值得记）
+
+- ASR 走的是**本地 SenseVoice**（`feature_models.asr=local`）：识别结果正确
+  （"我要去银川市民大厅怎么去"），但 228MB 模型加载 + 推理共 6.7s；
+- TTS 走的是**系统合成**（`feature_models.tts=local_tts`）：在线 `qwen3-tts-flash` 只在
+  15:13–15:17 试听时用过一次。
+
+也就是说：现在"语音不对"的直接原因不是模型错配，而是**选的是本地/系统**，在线语音模型根本没参与。
+这两项是用户在 15:13 试听后自己选的，不是默认值——要不要切回在线由用户决定，不替他改配置。
+
+### 验证
+
+新增 `SpeechHttpContractTest` 4 条：三类源码契约（Content-Type 重载、建连前设置、multipart 带
+boundary）+ 音色名二次匹配。真机 bridge 注入实测：`voice_input` 识别成功
+（`success=true, 6697ms`，结果"我要去银川市民大厅怎么去"）；`speech_synthesis action=save` 走系统
+合成（因为选的正是系统合成），返回 `from_system_tts=true` 属预期。
+
 ## [2026-11-04] fix：真机日志查出的四处——模型自述时间、MCP 注入丢工具、语音模型错配、在线 KV 空转
 
 用户让我看手机日志、对话记录和最近提交。三份材料指向四个问题：两个是"静默降级"（不报错，
