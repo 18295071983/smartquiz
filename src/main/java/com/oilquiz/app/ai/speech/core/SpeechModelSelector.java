@@ -249,6 +249,17 @@ public final class SpeechModelSelector {
             AILogger.w(TAG, "ASR selectedModel '" + m + "' 疑似 TTS 模型，回落端点默认 ASR 模型");
             m = null;
         }
+        // 2026-11-04：语音能力不再拿「端点的聊天模型」当语音模型。
+        // 真机：阿里云端点 modelName=qwen3.8-flash（聊天模型），TTS 每轮都拿它去合成，
+        // 百炼回 ModelNotFound（statusCode 44，一天 25 次），每轮先白等一次失败再回退系统 TTS。
+        // 只在已知语音端点上收紧——这类端点有确定的默认语音模型（见本方法末尾的兜底表）；
+        // 自建/未知端点仍按用户填的名字走，避免把某个我们没见过的合法模型名改掉。
+        if (m != null && !m.isEmpty() && isSpeechProviderEndpoint(config.apiUrl)
+                && !inSpeechFamily(m, capability)) {
+            AILogger.w(TAG, "模型 '" + m + "' 不属于 " + capability + " 模型族（端点 "
+                    + config.name + "），改用端点默认语音模型");
+            m = null;
+        }
         if (m != null && !m.isEmpty()) {
             return m;
         }
@@ -300,6 +311,22 @@ public final class SpeechModelSelector {
         }
         return n.contains("tts") || n.contains("cosyvoice") || n.contains("sambert")
                 || n.contains("speech") || n.contains("qwen3-tts") || n.contains("qwen-tts");
+    }
+
+    /**
+     * 端点已选/默认模型的名字是否属于该语音能力族（用于拒绝"拿聊天模型当语音模型"）。
+     *
+     * <p>为什么不直接用 {@link #isTtsModelName}：讯飞这类端点的正确模型名不带 tts/asr 字样
+     * （ASR 是 {@code 16k_zh}、TTS 是 {@code x4_xiaoyan}），只用关键字会把它们误判成
+     * "聊天模型"再被兜底覆盖。这里补上这两族前缀，语义仍是"名字像语音模型"。
+     */
+    static boolean inSpeechFamily(String name, Capability capability) {
+        if (name == null || name.isEmpty()) return false;
+        String n = name.toLowerCase(java.util.Locale.ROOT);
+        if (capability == Capability.TTS) {
+            return isTtsModelName(name) || n.startsWith("x4_") || n.startsWith("x5_");
+        }
+        return isAsrModelName(name) || n.startsWith("16k_");
     }
 
     /**

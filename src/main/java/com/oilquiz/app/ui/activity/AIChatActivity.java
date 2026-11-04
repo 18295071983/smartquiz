@@ -5093,7 +5093,7 @@ public class AIChatActivity extends BaseActivity {
     /** 顶部状态条数据源（按引擎分派；与 demo 的 NativeSource 注入一致） */
     private com.oilquiz.app.ai.chat.ui.AppNativeSource appNativeSource() {
         if (nativeSourceRef == null) {
-            nativeSourceRef = new com.oilquiz.app.ai.chat.ui.AppNativeSource(this);
+            nativeSourceRef = new com.oilquiz.app.ai.chat.ui.AppNativeSource(this, this::shouldUseOnlineModel);
         }
         return nativeSourceRef;
     }

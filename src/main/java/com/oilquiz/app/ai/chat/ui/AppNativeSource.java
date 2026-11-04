@@ -20,8 +20,23 @@ import com.oilquiz.app.ai.engine.contract.GenSignalSource;
  */
 public class AppNativeSource implements GenerationStatusBar.NativeSource {
 
+    /**
+     * 在线模型判定：由页面注入。
+     *
+     * <p>2026-11-04 修：这里原先 {@code return false}（注释写"由页面按路由决定"，但页面没接线）。
+     * 后果是在线对话时状态条仍按"本地引擎"取数：每个 token + 每 800ms 各打一次
+     * {@code nativeGetKvCacheStats}，而在线模式下 llama 上下文根本没建，
+     * 于是真机日志每秒刷 ~10 条 {@code helper context not initialized}。
+     */
+    private final java.util.function.BooleanSupplier onlineModel;
+
     public AppNativeSource(Context context) {
-        // context 目前无需持有（数据源已完全走契约层）；保留构造签名以兼容既有调用点
+        this(context, null);
+    }
+
+    public AppNativeSource(Context context, java.util.function.BooleanSupplier onlineModel) {
+        // context 目前无需持有（数据源已完全走契约层）；保留参数以兼容既有调用点
+        this.onlineModel = onlineModel;
     }
 
     /** 生成状态：引擎分派交给契约层 */
@@ -36,9 +51,15 @@ public class AppNativeSource implements GenerationStatusBar.NativeSource {
         return GenSignalSource.kvStats();
     }
 
-    /** 是否在线模型：由页面按路由决定；此处默认本地（本数据源只服务本地引擎状态条） */
+    /** 是否在线模型：页面注入的路由判定；未注入时按本地处理 */
     @Override
     public boolean isUsingOnlineModel() {
-        return false;
+        if (onlineModel == null) return false;
+        try {
+            return onlineModel.getAsBoolean();
+        } catch (Throwable t) {
+            // 路由查询失败按本地处理：宁可多刷新一次状态条，也不要因为异常把状态条钉死
+            return false;
+        }
     }
 }

@@ -163,6 +163,12 @@ public class McpManager {
      */
     public void attachRegistry(OnlineToolRegistry registry) {
         this.registryRef = registry;
+        // 换 registry = 旧注册全部作废。在线引擎每次新建 OnlineToolManager 都会换一个
+        // OnlineToolRegistry，而 registeredTools 是进程级记账：不清账的话 ensureRegistered
+        // 会凭旧账提前返回，新 registry 里却根本没有这些工具（见 ensureRegistered 的注释）。
+        synchronized (this) {
+            registeredTools.clear();
+        }
     }
 
     private OnlineToolRegistry registry() {
@@ -1328,7 +1334,11 @@ public class McpManager {
             if (currentLocal == null || !currentLocal.equals(e.localName)) return null;
             Set<String> set = registeredTools.computeIfAbsent(
                     e.serverId, k -> java.util.Collections.synchronizedSet(new HashSet<>()));
-            if (set.contains(e.localName)) return e.localName;
+            // 2026-11-04：登记表说「注册过」不等于当前 registry 里还在。真机证据：15:03 起
+            // 每次发送都新建 OnlineToolManager/OnlineToolRegistry（日志 "Synced 63 tools"），
+            // 这里凭旧账提前返回 → 15 个 mcp__amap-maps__* 装配定义时全被判「未注册」
+            // （当天 48 次告警），模型只好退回 mcp_toolbox 的 get+call 绕路。
+            if (stillRegistered(registry, set, e.localName)) return e.localName;
             try {
                 McpClient.McpToolInfo info = new McpClient.McpToolInfo(
                         e.remoteName, e.description, e.inputSchema, e.annotations);
@@ -1349,6 +1359,23 @@ public class McpManager {
                 return null;
             }
         }
+    }
+
+    /**
+     * 「这个名字还真的在当前 registry 里」——而不是只在记账 set 里。
+     *
+     * <p>拆成包级静态方法是为了能单测：这个判断错了不会抛异常，只会让工具静默少给；而少给
+     * 工具的代价是模型改用 {@code mcp_toolbox} 的 get+call 绕路（多一轮、多一份 schema token）。
+     * 判定不成立时顺手把陈旧名字从 {@code bookkeeping} 里清掉，避免下一轮再走同一条错路。
+     */
+    static boolean stillRegistered(OnlineToolRegistry registry,
+                                   Set<String> bookkeeping, String localName) {
+        if (bookkeeping == null || localName == null || !bookkeeping.contains(localName)) {
+            return false;
+        }
+        if (registry != null && registry.hasTool(localName)) return true;
+        bookkeeping.remove(localName);
+        return false;
     }
 
     private boolean matchesServer(String hint) {

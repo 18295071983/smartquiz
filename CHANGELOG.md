@@ -1,5 +1,75 @@
 # 变更日志
 
+## [2026-11-04] fix：真机日志查出的四处——模型自述时间、MCP 注入丢工具、语音模型错配、在线 KV 空转
+
+用户让我看手机日志、对话记录和最近提交。三份材料指向四个问题：两个是"静默降级"（不报错，
+只是能力少给、答案靠编），两个是"每轮都在白花钱"（一次编时间、一天 25 次语音失败）。
+
+### 1. 模型编了「现在 17:49」，因为上下文只给它日期却写着「现在以此为准」
+
+对话记录（会话 a239474b）：用户问「我附近有什么好吃的」，模型调 location 拿到 15:06:17 的定位，
+却写「现在 17:49，正是晚饭点」，还推出「距天黑不足一小时」。用户直接质疑「我现在才三点多」。
+
+根因在 `buildEnvironmentContext()`：它只注入 `当前日期：2026年11月4日 星期三`（为前缀缓存刻意
+只到"日"级别），但同一句里写着「回答今天/**现在**/最新/几号等问题以此为准」——模型读到"现在"
+也在权威范围里，手里却没有时钟，就把上一轮天气里的日落 17:52 当锚点编了一个。
+
+改法：
+- 上下文里删掉"现在"，显式声明「本上下文只有日期、没有时刻」，把"现在几点/还有多久/是否打烊"
+  指到 `time_date(action=now)`；
+- 请求尾部新增【当前时刻】块（`buildCurrentClockText`），带时区与 UTC 偏移，每轮请求重新生成。
+  放尾部是刻意的：分钟变化只让尾部 miss，system+历史的前缀缓存照旧命中——不为时钟牺牲缓存。
+
+### 2. MCP「全量注入」在真机上等于没生效：15 个工具一个都没进 tools
+
+日志（15:09）：`能力注入: 常驻=8 动态=3 MCP=15 … 本轮工具集 26 个`，紧接着
+`Built tool definitions for names: 13/28` 与 `名单里有 15 个工具装配不出定义:
+[mcp__amap-maps__maps_around_search(未注册), …]`。当天 48 次。
+
+链路：`AgentRouter.ensureOnlineEngineCreated()` 每新建一次引擎都 `new OnlineToolManager` → 新
+`OnlineToolRegistry`（日志 `Synced 63 tools`，正好 63 个内置、不含 15 个 MCP）；而
+`McpManager.registeredTools` 是进程级记账，名字还在，`ensureRegistered` 见名在册就提前返回，
+不再往新 registry 注册 → 装配定义时全判"未注册"。模型只能退回 `mcp_toolbox` 的 get+call 绕路
+（那一问跑了 10 轮、累计输入 16.5 万 token）。
+
+改法：`ensureRegistered` 改成 `stillRegistered(registry, set, name)`——除记账外还要求
+`registry.hasTool(name)`，不成立就清掉陈旧名字重新注册；`attachRegistry` 换 registry 时清账。
+"注入跳过"的日志从只报数改成点名（`高德地图/maps_around_search`），下次少注入能一眼看出少的是谁。
+
+### 3. 语音合成/识别拿聊天模型当语音模型：一天 25 次 ModelNotFound
+
+`ai_logs`：10:21 的 ASR 用的是 `qwen3.8-max-0902`，百炼回
+`InvalidParameter: An incorrect modal 'audio' was entered`；14:51–15:09 每轮回答两条
+`ModelNotFound (qwen3.8-flash)`。
+
+`resolveModelName` 只拦「名字像 ASR 的」，不拦「既不是 TTS 也不是 ASR 的聊天模型」，于是端点的
+聊天模型一路被当成语音模型。改法：语音能力不再用聊天模型兜底——已选模型不属于该能力语音族时，
+回落端点默认语音模型（百炼 `qwen3-tts-flash` / `qwen3-asr-flash`）。只在已知语音端点上收紧，
+自建端点没有默认值可回落，仍按用户填的走；讯飞 `16k_zh` / `x4_xiaoyan` 这类不带 tts/asr 字样的
+正确名字用 `inSpeechFamily` 单独兜住。
+
+### 4. 在线对话每秒刷 ~10 条 `helper context not initialized`
+
+`AppNativeSource.isUsingOnlineModel()` 写死 `return false`（注释写"由页面按路由决定"，页面没接线），
+状态条便按本地引擎取数：每个 token + 每 800ms 各打一次 `nativeGetKvCacheStats`；在线模式 llama
+上下文根本没建，原生层于是每秒刷 ~10 条警告。
+
+改法：构造时注入路由判定（`this::shouldUseOnlineModel`），在线时 `refresh()` 第一行就返回，
+一次 JNI 都不发。
+
+### 验证
+
+新增 16 条回归测试（`CurrentClockBlockTest` 3、`McpRegistryRebindTest` 3、
+`SpeechModelSelectorSpeechFamilyTest` 6、`AppNativeSourceOnlineTest` 4）；全量 **1642 条，0 失败
+0 错误，1 跳过**（联网门控的 `LiveExtractionProbeTest`）。APK 已重打包安装（15:31），会话数据未动。
+
+真机待确认（一轮对话可同时验四项）：时刻块是否被服务商接受、MCP 是否装配到 26/26、
+TTS 是否还报 ModelNotFound、在线时告警是否消失。
+
+**已知短板**：语音只修了"模型选不对"。同一批日志里还有两处没动——① TTS 默认音色仍是 OpenAI
+命名（`alloy`），百炼 Qwen-TTS 不认，只能静默回落 Cherry；② ASR 的请求形态（audio content part）
+只在模型正确时才成立，尚未在真机上跑通一次完整的"说一句 → 出文字"。
+
 ## [2026-11-04] feat(agent)：注入集取向改成"常驻 + 动态全量 + MCP 全量"，并补上护栏与逐轮记账
 
 用户对着请求体数出来的：**tools 数组 143 个**。这不是"MCP 服务多"，我一开始就是这么猜的，

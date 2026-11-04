@@ -1875,6 +1875,14 @@ public class OnlineAgentEngine {
             kbMsg.addProperty("content", latestKnowledgeContext);
             out.add(kbMsg);
         }
+        // 当前时刻（D3 块，2026-11-04）：环境上下文只到「日」级别（换来 system+历史前缀稳定），
+        // 代价是模型手里没有时钟——真机上它因此编了个「现在 17:49」（实际 15:09）。
+        // 时刻放请求末尾：分钟变化只让尾部 miss，前缀照旧命中；每轮请求重新生成，
+        // 长任务跑到跨小时也不会过期。
+        JsonObject clockMsg = new JsonObject();
+        clockMsg.addProperty("role", "system");
+        clockMsg.addProperty("content", buildCurrentClockText());
+        out.add(clockMsg);
         // 引擎引导消息（格式提示/截断修正/回退建议）→ 仅本轮请求末尾生效（dsh 对齐：
         // 控制信号与语义消息分离，不入历史不落盘）。发送后由 streamOneIteration 轮末清空。
         for (JsonObject ctl : pendingControlMessages) {
@@ -2135,11 +2143,41 @@ public class OnlineAgentEngine {
         String dateTime = sdf.format(new Date());
         sb.append("当前日期：").append(dateTime).append("\n");
 
-        sb.append("（以上为系统实时获取的当前日期，是当前权威事实；回答今天/现在/最新/几号等问题以此为准，");
-        sb.append("不以训练数据中的旧时间推断。工具与搜索返回的实时数据（新闻、开奖、行情、政策、天气）直接采用其内容，");
+        // 2026-11-04：不再把「现在」列进这段的权威范围。真机事故：这里只有日期、没有时刻，
+        // 模型读到「现在也以此为准」就自己编了个 17:49（实际 15:09），还由此推出「距天黑不足一小时」。
+        // 现在的口径：日期归这里，时刻归请求尾部的【当前时刻】块（buildCurrentClockText）；
+        // 本段显式声明「没有时刻」，并给出唯一出路 time_date。
+        sb.append("（以上为系统实时获取的当前日期，是当前权威事实；回答今天/最新/几号等问题以此为准，");
+        sb.append("不以训练数据中的旧时间推断。注意：本上下文只有日期、没有时刻——凡涉及「现在几点/现在/还有多久/");
+        sb.append("是否打烊/来不来得及」这类问题，必须先调 time_date（action=now）拿真实时间，");
+        sb.append("不要用日落时间、定位时间戳或对话里出现过的数字去推算「现在」。");
+        sb.append("工具与搜索返回的实时数据（新闻、开奖、行情、政策、天气）直接采用其内容，");
         sb.append("不要用训练知识改写或否定。系统未注入你的位置：需要位置时按工具定义处理，");
         sb.append("例如 ai_weather 不传位置参数即自动用设备定位。）");
         return sb.toString();
+    }
+
+    /** 请求尾部【当前时刻】块的格式；DateTimeFormatter 线程安全，可作静态常量。 */
+    private static final java.time.format.DateTimeFormatter CLOCK_FORMAT =
+            java.time.format.DateTimeFormatter.ofPattern("yyyy年M月d日 HH:mm:ss EEEE", Locale.CHINA);
+
+    /**
+     * 请求尾部的【当前时刻】块（调用点见 {@link #buildOutgoingMessagesArray}）。
+     *
+     * <p>为什么单独一块：环境上下文只到「日」级别，为的是前缀缓存稳定
+     * （见 {@link #buildEnvironmentContext}）；但模型手里没有时钟就会自己编
+     * （真机：说「现在 17:49」，实际 15:09）。把它放请求末尾，分钟级变化只影响尾部 token，
+     * system + 历史的前缀缓存不受影响。
+     *
+     * <p>时区与偏移一并写出：让模型自己换算时区是另一类编造来源。
+     */
+    static String buildCurrentClockText() {
+        java.time.ZonedDateTime now = java.time.ZonedDateTime.now();
+        java.time.ZoneOffset offset = now.getOffset();
+        String offsetText = offset.getTotalSeconds() == 0 ? "+00:00" : offset.getId();
+        return "【当前时刻】" + now.format(CLOCK_FORMAT) + "（" + now.getZone().getId() + "，UTC"
+                + offsetText + "）。这是权威的「现在」：用户问现在几点/还有多久/是否打烊/来不来得及，"
+                + "直接采用本条；它与对话历史里出现过的任何时间不一致时，以本条为准。";
     }
 
     /**
@@ -2240,6 +2278,7 @@ public class OnlineAgentEngine {
                     com.oilquiz.app.ai.agent.online.mcp.McpManager.getInstance(context);
             int denied = 0;
             int unresolvable = 0;
+            java.util.List<String> unresolved = new java.util.ArrayList<>();
             for (com.oilquiz.app.ai.agent.online.mcp.McpManager.McpToolEntry e : mgr.catalogSnapshot()) {
                 if (com.oilquiz.app.ai.agent.online.mcp.McpConstants.APPROVAL_DENY.equals(
                         mgr.effectiveApproval(e.serverId, e.remoteName))) {
@@ -2249,13 +2288,16 @@ public class OnlineAgentEngine {
                 String local = mgr.ensureRegistered(e);
                 if (local == null || local.isEmpty()) {
                     unresolvable++;
+                    // 点名而不是只报数：上次"静默少注入"就栽在只有总数、看不出少的是谁
+                    unresolved.add(e.serverName + "/" + e.remoteName);
                     continue;
                 }
                 out.add(local);
             }
             if (denied + unresolvable > 0) {
                 AILogger.i(TAG, "MCP 注入跳过 " + (denied + unresolvable) + " 个："
-                        + "审批禁止=" + denied + "，注册不成功/服务不可用=" + unresolvable);
+                        + "审批禁止=" + denied + "，注册不成功/服务不可用=" + unresolvable
+                        + (unresolved.isEmpty() ? "" : " " + unresolved));
             }
         } catch (Exception ex) {
             AILogger.w(TAG, "MCP 全量注入失败（本轮不带 MCP 工具）: " + ex.getMessage());
