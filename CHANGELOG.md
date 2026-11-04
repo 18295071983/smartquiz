@@ -1,5 +1,25 @@
 # 变更日志
 
+## [2026-11-04] feat(speech)：补 MiniMax TTS 专用引擎（/v1/t2a_v2）
+
+枚举语音链路时发现：`providers.json` 里 MiniMax 配了 `speech-02-hd`，但代码里没有它的引擎，
+请求被当成 OpenAI 兼容打到 `/audio/speech` ——MiniMax 并不提供这个路径，**选了必失败**。
+
+新增 `MinimaxTtsEngine`（[文档](https://platform.minimax.io/docs/api-reference/speech-t2a-http)）：
+
+- `POST {base}/v1/t2a_v2`，Bearer 鉴权；`apiUrl` 会收敛到根再拼路径（`/v1`、`/v1/t2a_v2` 都写不错）；
+  国内站老版本要 `?GroupId=`，只有配置了 appId 才带；
+- 请求体按文档：`model` / `text` / `stream=false` / `output_format=hex` /
+  `voice_setting{voice_id,speed,vol,pitch}` / `audio_setting{sample_rate,bitrate,format,channel}`；
+- 响应 `data.audio` 是**十六进制**音频 → 严格解码（奇数长度/非十六进制直接报错，不写半截文件），
+  落到 `tts_minimax_*.mp3`；`base_resp.status_code != 0` 时把 status_msg 原样抛出；
+- 路由：`TTSService.pickEngine` 增加 MiniMax 分支（在 OpenAI 兜底之前）；
+  模型名缺失时兜底 `speech-02-hd`（与 providers.json 一致），音色缺失时用注册表推荐色 `female-shaonv`。
+
+验证：新增 `MinimaxTtsEngineTest` 3 条（请求体字段、URL 收敛 + GroupId、十六进制严格解码）；
+全量单测通过；APK 已装（17:09）。真机复验：把 MiniMax 配成 TTS 专用模型 → `speech_synthesis
+action=selftest`，应返回 `MiniMax TTS 合成完成: N bytes` 而不是 404/鉴权错。
+
 ## [2026-11-04] fix(model)：Spinner 绑定回声被当成「换模型」——上下文抖动真正的根因
 
 埋点抓到的调用链（16:57:17.937 / 18.002，65ms 内两次）：

@@ -17,6 +17,7 @@ import com.oilquiz.app.ai.speech.tts.BaiduTtsEngine;
 import com.oilquiz.app.ai.speech.tts.DashScopeTtsEngine;
 import com.oilquiz.app.ai.speech.tts.IflytekTtsEngine;
 import com.oilquiz.app.ai.speech.tts.MimoTtsEngine;
+import com.oilquiz.app.ai.speech.tts.MinimaxTtsEngine;
 import com.oilquiz.app.ai.speech.tts.OpenAiTtsEngine;
 import com.oilquiz.app.ai.speech.tts.SystemTtsEngine;
 import com.oilquiz.app.ai.speech.tts.TtsEngine;
@@ -129,6 +130,7 @@ public class TTSService {
     private final VolcanoTtsEngine volcanoEngine;
     private final BaiduTtsEngine baiduEngine;
     private final MimoTtsEngine mimoEngine;
+    private final MinimaxTtsEngine minimaxEngine;
     private final SystemTtsEngine systemEngine;
 
     private MediaPlayer mediaPlayer;
@@ -150,6 +152,7 @@ public class TTSService {
         this.volcanoEngine = new VolcanoTtsEngine(this.context);
         this.baiduEngine = new BaiduTtsEngine(this.context);
         this.mimoEngine = new MimoTtsEngine(this.context);
+        this.minimaxEngine = new MinimaxTtsEngine(this.context);
         this.systemEngine = new SystemTtsEngine(this.context);
     }
 
@@ -275,6 +278,8 @@ public class TTSService {
         if (SpeechModelSelector.isVolcanoEndpoint(apiUrl)) return volcanoEngine;
         if (SpeechModelSelector.isBaiduEndpoint(apiUrl)) return baiduEngine;
         if (SpeechModelSelector.isMimoEndpoint(apiUrl)) return mimoEngine;
+        // MiniMax 不是 OpenAI 兼容的 /audio/speech，必须走它自己的 /v1/t2a_v2
+        if (SpeechModelSelector.isMinimaxEndpoint(apiUrl)) return minimaxEngine;
         // 其他 OpenAI 兼容端点也走 openAiEngine
         return openAiEngine;
     }

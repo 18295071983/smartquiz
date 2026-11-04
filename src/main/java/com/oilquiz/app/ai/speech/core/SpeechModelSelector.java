@@ -71,6 +71,8 @@ public final class SpeechModelSelector {
     /** 小米 MiMo 端点的兜底模型 */
     private static final String DEFAULT_MIMO_ASR_MODEL = "mimo-v2.5-asr";
     private static final String DEFAULT_MIMO_TTS_MODEL = "mimo-v2.5-tts";
+    /** MiniMax 端点的兜底 TTS 模型（与其 /v1/t2a_v2 文档的型号一致） */
+    private static final String DEFAULT_MINIMAX_TTS_MODEL = "speech-02-hd";
 
     private SpeechModelSelector() {
     }
@@ -287,6 +289,11 @@ public final class SpeechModelSelector {
         }
         if (isMimoEndpoint(config.apiUrl)) {
             return capability == Capability.ASR ? DEFAULT_MIMO_ASR_MODEL : DEFAULT_MIMO_TTS_MODEL;
+        }
+        // MiniMax：TTS 有专用引擎（/v1/t2a_v2），默认模型取 providers.json 里配的 speech-02-hd；
+        // ASR 暂无引擎，保持通用兜底（会以明确错误暴露，而不是悄悄用错端点）
+        if (isMinimaxEndpoint(config.apiUrl) && capability == Capability.TTS) {
+            return DEFAULT_MINIMAX_TTS_MODEL;
         }
         return capability == Capability.ASR ? DEFAULT_ASR_MODEL : DEFAULT_TTS_MODEL;
     }
