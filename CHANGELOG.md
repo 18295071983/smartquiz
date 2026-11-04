@@ -1,5 +1,25 @@
 # 变更日志
 
+## [2026-11-04] fix(speech)：音色表按「端点厂商」兜底匹配——讯飞/火山/百度不再显示百炼的预设音色
+
+用户：「其他厂商的语音模型也有 sdk 或者专用端口，你都给搞好」。
+
+现状先记清楚：六家的引擎其实都在，各走各的协议——百炼走官方 SDK（MultiModalConversation /
+SpeechSynthesizer），讯飞走 wss 签名（iat/tts-api.xfyun.cn），火山走 openspeech HTTP，
+百度走 OAuth token + REST，MiMo / OpenAI 兼容走 /audio/speech；凭据字段（apiKey/apiSecret/appId）
+在「服务商密钥」页按端点类型显示。
+
+真正缺的是**音色列表的归属**：这些厂商的「模型名」其实是音色 id 或厂商默认值
+（`x4_xiaoyan` / `zh_female_qingxin` / `4`），`matchTtsModel` 只按模型名匹配，永远匹配不到
+它们自己的音色表 → 掉进「全量预设」，把百炼的 Cherry/Moon 摆给讯飞用户。
+
+改法：`getVoicesForModel(modelName, apiUrl)` / `matchTtsModel(modelName, apiUrl)` 增加一路
+「按端点厂商兜底」；百炼仍按模型名区分族（一个端点下多族模型，按厂商一刀切会串族）。
+端点解析复用 `SpeechModelSelector.identifyEndpoint`，不再维护第二份域名表。
+
+验证：`VendorVoiceResolutionTest` 2 条（讯飞/百度/火山按音色 id 仍能命中自己的表；百炼仍按模型名；
+不认识的模型不硬塞族）。
+
 ## [2026-11-04] fix(speech)：音色列表跟着「当前选的 TTS 模型」走，系统合成不再弹在线预设音色
 
 用户反馈：「我选择本地模型还是弹出了预设的音色」。

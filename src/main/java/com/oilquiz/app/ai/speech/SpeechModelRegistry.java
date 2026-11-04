@@ -854,10 +854,22 @@ public final class SpeechModelRegistry {
      * </ol>
      */
     public static List<TTSService.Voice> getVoicesForModel(String modelName) {
+        return getVoicesForModel(modelName, null);
+    }
+
+    /**
+     * 端点感知的音色列表（2026-11-04）。
+     *
+     * <p>讯飞/火山/百度这类厂商的「模型名」其实就是音色 id 或厂商默认值
+     * （{@code x4_xiaoyan} / {@code zh_female_qingxin} / {@code 4}），按模型名永远匹配不到
+     * 它们自己的音色表，于是音色列表掉进「全量预设」——把别家的音色摆出来（用户反馈：
+     * 选了本地/别家还是弹百炼的预设音色）。这里补一路「按端点厂商匹配」。</p>
+     */
+    public static List<TTSService.Voice> getVoicesForModel(String modelName, String apiUrl) {
         List<TTSService.Voice> result = new ArrayList<>();
 
-        // 1. 内置音色（最可靠）
-        ModelEntry builtin = matchTtsModel(modelName);
+        // 1. 内置音色（最可靠）：先按模型名，再按端点厂商
+        ModelEntry builtin = matchTtsModel(modelName, apiUrl);
         if (builtin != null) {
             for (TTSService.Voice v : builtin.voices) {
                 result.add(v);
@@ -913,6 +925,31 @@ public final class SpeechModelRegistry {
             }
         }
         return null;
+    }
+
+    /**
+     * 模型名优先、端点厂商兜底的匹配（2026-11-04）。
+     *
+     * <p>为什么需要：讯飞/火山/百度的「模型名」是音色 id 或厂商默认值，按名匹配不到自己的表；
+     * 不兜底就会落到「全量预设」，把别家音色摆出来。百炼/OpenAI 仍靠模型名区分（它们一个端点
+     * 下有多族模型，按厂商一刀切反而会串族）。</p>
+     */
+    public static ModelEntry matchTtsModel(String modelName, String apiUrl) {
+        ModelEntry byName = matchTtsModel(modelName);
+        if (byName != null) return byName;
+        String vendorKey = vendorVoiceKey(apiUrl);
+        return vendorKey == null ? null : matchTtsModel(vendorKey);
+    }
+
+    /** 端点厂商 → 内置音色表的匹配关键字；未知厂商/百炼返回 null（百炼按模型名区分族） */
+    private static String vendorVoiceKey(String apiUrl) {
+        switch (SpeechModelSelector.identifyEndpoint(apiUrl)) {
+            case "xfyun":   return "xfyun-tts";
+            case "volcano": return "volcano-tts";
+            case "baidu":   return "baidu-tts";
+            case "mimo":    return "mimo";
+            default:        return null;
+        }
     }
 
     /** 判断模型是否应走百炼接口 */

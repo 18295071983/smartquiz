@@ -71,7 +71,8 @@ public class TTSVoiceSelectorDialog {
                                         OnlineModelManager.FEATURE_TTS),
                                 SpeechModelSelector.Capability.TTS);
                     }
-                    List<TTSService.Voice> scopedVoices = SpeechModelRegistry.getVoicesForModel(modelName);
+                    List<TTSService.Voice> scopedVoices = SpeechModelRegistry.getVoicesForModel(
+                            modelName, config != null ? config.apiUrl : null);
                     if (!scopedVoices.isEmpty()) {
                         voiceList = scopedVoices;
                         Toast.makeText(context, "已切换为当前模型音色（" + voiceList.size() + " 个）",

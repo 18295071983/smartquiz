@@ -343,10 +343,12 @@ public class TTSService {
         try {
             OnlineModelManager manager = OnlineModelManager.getInstance(context);
             String featureModelName = manager.getFeatureModelName(OnlineModelManager.FEATURE_TTS);
+            // 端点始终取出来：音色表要按「模型名 + 端点厂商」两路匹配（讯飞/火山/百度的模型名
+            // 是音色 id，只按名匹配不到自己的表）
+            OnlineModelManager.OnlineModelConfig ttsConfig =
+                    manager.getFeatureModel(OnlineModelManager.FEATURE_TTS);
             if (featureModelName == null || featureModelName.isEmpty()) {
                 // 未显式指定具体模型名：从 TTS 专用端点解析实际使用的模型名
-                OnlineModelManager.OnlineModelConfig ttsConfig =
-                        manager.getFeatureModel(OnlineModelManager.FEATURE_TTS);
                 if (ttsConfig != null) {
                     featureModelName = SpeechModelSelector.resolveModelName(
                             ttsConfig, null, SpeechModelSelector.Capability.TTS);
@@ -355,7 +357,8 @@ public class TTSService {
             if (featureModelName == null || featureModelName.isEmpty()) {
                 return null;
             }
-            List<Voice> matchedVoices = SpeechModelRegistry.getVoicesForModel(featureModelName);
+            List<Voice> matchedVoices = SpeechModelRegistry.getVoicesForModel(
+                    featureModelName, ttsConfig != null ? ttsConfig.apiUrl : null);
             if (matchedVoices != null && !matchedVoices.isEmpty()) {
                 return matchedVoices.get(0).id;
             }
@@ -447,10 +450,12 @@ public class TTSService {
                 }
             }
             // 注册表聚合：内置 + 自定义音色
-            List<Voice> registryVoices = SpeechModelRegistry.getVoicesForModel(modelName);
+            List<Voice> registryVoices = SpeechModelRegistry.getVoicesForModel(
+                    modelName, config != null ? config.apiUrl : null);
             boolean localTts = isLocalTtsConfigured();
             if (!registryVoices.isEmpty()) {
-                SpeechModelRegistry.ModelEntry entry = SpeechModelRegistry.matchTtsModel(modelName);
+                SpeechModelRegistry.ModelEntry entry = SpeechModelRegistry.matchTtsModel(
+                        modelName, config != null ? config.apiUrl : null);
                 AILogger.i(TAG, "音色列表: model=" + modelName
                         + " (" + (entry != null ? entry.displayName : "在线") + ") 共 " + registryVoices.size() + " 个");
                 voices.addAll(registryVoices);
