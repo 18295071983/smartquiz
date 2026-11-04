@@ -1,5 +1,29 @@
 # 变更日志
 
+## [2026-11-04] feat(speech)：音色列表「能自动就自动，不能自动用预置表」——接入 MiniMax 列表接口
+
+用户定的口径：能自动获取的就自动获取，没有列表端口的就使用预置音色表。按这条落地。
+
+### 1. 自动来源提到列表最前
+
+`getVoicesForModel(modelName, apiUrl)` 现在先放自动来源（百炼复刻/设计、MiniMax get_voice），
+再补预置表，同 id 去重。以前是「预置在前、复刻在后」——用户看到的第一屏永远是硬编码表，
+自动拉到的音色埋在最后。
+
+### 2. MiniMax：唯一还有「列内置音色」接口的厂商，接上
+
+`POST {base}/v1/get_voice {"voice_type":"all"}` 返回 `system_voice` / `voice_cloning` /
+`voice_generation` 三组，统一解析成音色（系统音色 = 内置，其余等于「我的音色」）。
+端点识别补了 `minimax.io` / `minimax.chat` / `minimaxi.com` 三个域名——之前 MiniMax 端点会被
+当成「未知厂商」，既进不了语音端点兜底，也永远拉不到音色。
+
+### 3. 其余厂商维持预置表
+
+讯飞/火山/百度的发音人、百炼的内置音色都没有列表接口（官方只给文档表），继续用预置表；
+但归属已按端点厂商匹配（`matchTtsModel(modelName, apiUrl)`），不会再串家。
+
+验证：`VendorVoiceResolutionTest` 增 1 条（MiniMax 端点识别 + 无缓存时预置表兜底）。
+
 ## [2026-11-04] fix(speech)：音色表按「端点厂商」兜底匹配——讯飞/火山/百度不再显示百炼的预设音色
 
 用户：「其他厂商的语音模型也有 sdk 或者专用端口，你都给搞好」。

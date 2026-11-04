@@ -33,7 +33,7 @@ public final class SpeechModelSelector {
     private static final String TAG = "SpeechModelSelector";
 
     public enum Capability { ASR, TTS }
-    public enum EndpointType { DASHSCOPE, XFYUN, VOLCANO, BAIDU, MIMO, OPENAI }
+    public enum EndpointType { DASHSCOPE, XFYUN, VOLCANO, BAIDU, MIMO, MINIMAX, OPENAI }
 
     /** 端点域名 -> 端点类型映射（集中配置，非硬编码判断） */
     private static final Map<String, EndpointType> DOMAIN_TYPE_MAP = new HashMap<>();
@@ -48,6 +48,10 @@ public final class SpeechModelSelector {
         DOMAIN_TYPE_MAP.put("bytedance", EndpointType.VOLCANO);
         DOMAIN_TYPE_MAP.put("baidubce.com", EndpointType.BAIDU);
         DOMAIN_TYPE_MAP.put("xiaomimimo.com", EndpointType.MIMO);
+        // MiniMax：音色列表有官方接口（POST /v1/get_voice），是少数能自动列音的厂商之一
+        DOMAIN_TYPE_MAP.put("minimax.io", EndpointType.MINIMAX);
+        DOMAIN_TYPE_MAP.put("minimax.chat", EndpointType.MINIMAX);
+        DOMAIN_TYPE_MAP.put("minimaxi.com", EndpointType.MINIMAX);
     }
 
     private static final String DEFAULT_ASR_MODEL = "whisper-1";
@@ -211,11 +215,16 @@ public final class SpeechModelSelector {
         return out;
     }
 
-    /** 是否为已知语音服务商端点（百炼/讯飞/火山/百度/MiMo） */
+    /** 是否为已知语音服务商端点（百炼/讯飞/火山/百度/MiMo/MiniMax） */
     public static boolean isSpeechProviderEndpoint(String apiUrl) {
         return isDashScopeEndpoint(apiUrl) || isXfyunEndpoint(apiUrl)
                 || isVolcanoEndpoint(apiUrl) || isBaiduEndpoint(apiUrl)
-                || isMimoEndpoint(apiUrl);
+                || isMimoEndpoint(apiUrl) || isMinimaxEndpoint(apiUrl);
+    }
+
+    /** 是否为 MiniMax 端点 */
+    public static boolean isMinimaxEndpoint(String apiUrl) {
+        return getEndpointType(apiUrl) == EndpointType.MINIMAX;
     }
 
     /**

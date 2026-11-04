@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.oilquiz.app.ai.speech.core.SpeechModelSelector;
+
 import org.junit.Test;
 
 import java.util.List;
@@ -51,5 +53,18 @@ public class VendorVoiceResolutionTest {
         assertTrue("模型名不认识时不该硬塞一个族",
                 SpeechModelRegistry.getVoicesForModel("qwen3.8-flash",
                         "https://dashscope.aliyuncs.com/compatible-mode/v1").isEmpty());
+    }
+
+    @Test
+    public void minimaxIsRecognisedSoItsListApiCanRun() {
+        assertTrue("MiniMax 端点必须被识别，否则 /v1/get_voice 永远不会被调用",
+                SpeechModelSelector.isMinimaxEndpoint("https://api.minimax.chat/v1"));
+        assertTrue(SpeechModelSelector.isSpeechProviderEndpoint("https://api.minimaxi.com/v1/t2a_v2"));
+        assertEquals("minimax", SpeechModelSelector.identifyEndpoint("https://api.minimax.io/v1"));
+
+        // 没有缓存（未联网）时仍能拿到预置表，作为"列表接口不可用"的兜底
+        List<TTSService.Voice> voices =
+                SpeechModelRegistry.getVoicesForModel("speech-02", "https://api.minimax.chat/v1");
+        assertTrue("MiniMax 预置音色表不该为空", voices.size() >= 6);
     }
 }

@@ -583,9 +583,6 @@ public final class SpeechModelRegistry {
      * - Qwen-TTS：model=qwen-voice-enrollment, action=list
      */
     private static void refreshCustomVoices(Context context) {
-        OnlineModelManager.OnlineModelConfig config = getDashScopeConfig(context);
-        if (config == null) return;
-
         if (System.currentTimeMillis() - voicesCacheTime < CACHE_TTL_MS && !cachedCustomVoices.isEmpty()) {
             return;
         }
@@ -598,29 +595,47 @@ public final class SpeechModelRegistry {
         }
 
         Map<String, List<TTSService.Voice>> allVoices = new HashMap<>();
-        String baseUrl = resolveDashScopeBase(config.apiUrl);
-        String endpoint = baseUrl + "/services/audio/tts/customization";
 
-        // CosyVoice/Qwen-Audio-TTS 自定义音色
-        try {
-            List<TTSService.Voice> cosyVoices = fetchCustomVoicesFromApi(
-                    config, endpoint, "voice-enrollment", "list_voice", "voice_id");
-            if (!cosyVoices.isEmpty()) {
-                allVoices.put("cosyvoice", cosyVoices);
+        // 百炼：复刻/设计音色（有列表接口）
+        OnlineModelManager.OnlineModelConfig config = getDashScopeConfig(context);
+        if (config != null) {
+            String baseUrl = resolveDashScopeBase(config.apiUrl);
+            String endpoint = baseUrl + "/services/audio/tts/customization";
+
+            // CosyVoice/Qwen-Audio-TTS 自定义音色
+            try {
+                List<TTSService.Voice> cosyVoices = fetchCustomVoicesFromApi(
+                        config, endpoint, "voice-enrollment", "list_voice", "voice_id");
+                if (!cosyVoices.isEmpty()) {
+                    allVoices.put("cosyvoice", cosyVoices);
+                }
+            } catch (Exception e) {
+                AILogger.w(TAG, "获取CosyVoice自定义音色失败: " + e.getMessage());
             }
-        } catch (Exception e) {
-            AILogger.w(TAG, "获取CosyVoice自定义音色失败: " + e.getMessage());
+
+            // Qwen-TTS 自定义音色
+            try {
+                List<TTSService.Voice> qwenVoices = fetchCustomVoicesFromApi(
+                        config, endpoint, "qwen-voice-enrollment", "list", "voice");
+                if (!qwenVoices.isEmpty()) {
+                    allVoices.put("qwen-tts", qwenVoices);
+                }
+            } catch (Exception e) {
+                AILogger.w(TAG, "获取Qwen-TTS自定义音色失败: " + e.getMessage());
+            }
         }
 
-        // Qwen-TTS 自定义音色
-        try {
-            List<TTSService.Voice> qwenVoices = fetchCustomVoicesFromApi(
-                    config, endpoint, "qwen-voice-enrollment", "list", "voice");
-            if (!qwenVoices.isEmpty()) {
-                allVoices.put("qwen-tts", qwenVoices);
+        // MiniMax：官方有列表接口（POST /v1/get_voice），系统音色 + 复刻 + 生成音色一次拿全
+        OnlineModelManager.OnlineModelConfig mini = findMinimaxConfig(context);
+        if (mini != null) {
+            try {
+                List<TTSService.Voice> minimaxVoices = fetchMinimaxVoices(mini);
+                if (!minimaxVoices.isEmpty()) {
+                    allVoices.put("minimax", minimaxVoices);
+                }
+            } catch (Exception e) {
+                AILogger.w(TAG, "获取MiniMax音色失败: " + e.getMessage());
             }
-        } catch (Exception e) {
-            AILogger.w(TAG, "获取Qwen-TTS自定义音色失败: " + e.getMessage());
         }
 
         if (!allVoices.isEmpty()) {
@@ -868,28 +883,44 @@ public final class SpeechModelRegistry {
     public static List<TTSService.Voice> getVoicesForModel(String modelName, String apiUrl) {
         List<TTSService.Voice> result = new ArrayList<>();
 
-        // 1. 内置音色（最可靠）：先按模型名，再按端点厂商
+        // 1. 自动获取优先（2026-11-04 用户口径：能自动获取的就自动获取）
+        //    - MiniMax：POST /v1/get_voice 列系统音色 + 复刻 + 生成音色
+        //    - 百炼：customization 列复刻/设计音色
+        addUnique(result, autoVoicesForEndpoint(modelName, apiUrl));
+
+        // 2. 没有列表接口的厂商用预置音色表（讯飞/火山/百度/百炼内置…）
         ModelEntry builtin = matchTtsModel(modelName, apiUrl);
         if (builtin != null) {
-            for (TTSService.Voice v : builtin.voices) {
-                result.add(v);
-            }
-        }
-
-        // 2. 自定义音色（追加到内置后面）
-        List<TTSService.Voice> customVoices = getCustomVoicesForModel(modelName);
-        if (customVoices != null) {
-            for (TTSService.Voice v : customVoices) {
-                // 去重
-                boolean exists = false;
-                for (TTSService.Voice existing : result) {
-                    if (existing.id.equals(v.id)) { exists = true; break; }
-                }
-                if (!exists) result.add(v);
-            }
+            addUnique(result, java.util.Arrays.asList(builtin.voices));
         }
 
         return result;
+    }
+
+    /** 该端点可自动获取的音色（厂商提供列表接口时）；没有就返回 null，由预置表兜底 */
+    private static List<TTSService.Voice> autoVoicesForEndpoint(String modelName, String apiUrl) {
+        try {
+            if (SpeechModelSelector.isMinimaxEndpoint(apiUrl)) {
+                return cachedCustomVoices.get("minimax");
+            }
+            // 百炼：按模型族取复刻/设计音色
+            return getCustomVoicesForModel(modelName);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 追加并去重（自动来源与预置表可能有同 id） */
+    private static void addUnique(List<TTSService.Voice> target, List<TTSService.Voice> extra) {
+        if (extra == null || extra.isEmpty()) return;
+        for (TTSService.Voice v : extra) {
+            if (v == null || v.id == null) continue;
+            boolean exists = false;
+            for (TTSService.Voice existing : target) {
+                if (existing.id != null && existing.id.equals(v.id)) { exists = true; break; }
+            }
+            if (!exists) target.add(v);
+        }
     }
 
     /** 获取指定模型的自定义音色 */
@@ -904,6 +935,83 @@ public final class SpeechModelRegistry {
             return cachedCustomVoices.get("cosyvoice");
         }
         return null;
+    }
+
+    /** 找一条启用的 MiniMax 端点（只有这个厂商有「列音色」接口） */
+    private static OnlineModelManager.OnlineModelConfig findMinimaxConfig(Context context) {
+        try {
+            List<OnlineModelManager.OnlineModelConfig> all =
+                    OnlineModelManager.getInstance(context).getModelList();
+            if (all == null) return null;
+            for (OnlineModelManager.OnlineModelConfig c : all) {
+                if (c != null && c.enabled && SpeechModelSelector.isMinimaxEndpoint(c.apiUrl)
+                        && c.apiKey != null && !c.apiKey.isEmpty()) {
+                    return c;
+                }
+            }
+        } catch (Throwable ignored) {
+            // 取不到就按"没有列表接口"处理，回落到预置表
+        }
+        return null;
+    }
+
+    /**
+     * MiniMax 音色列表：{@code POST {base}/v1/get_voice  {"voice_type":"all"}}。
+     *
+     * <p>返回 system_voice / voice_cloning / voice_generation 三组，统一成 {@link TTSService.Voice}。
+     * 这是少数能真正「自动获取」内置音色的厂商（其余厂商的内置音色只有文档表）。</p>
+     */
+    private static List<TTSService.Voice> fetchMinimaxVoices(OnlineModelManager.OnlineModelConfig config)
+            throws Exception {
+        String base = config.apiUrl == null ? "" : config.apiUrl.trim();
+        while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+        // 配置里可能写成 .../v1 或 .../v1/t2a_v2，统一收敛到根再拼 /v1/get_voice
+        int v1 = base.indexOf("/v1");
+        if (v1 > 0) base = base.substring(0, v1);
+        String url = base + "/v1/get_voice";
+
+        JsonObject body = new JsonObject();
+        body.addProperty("voice_type", "all");
+
+        HttpURLConnection conn = SpeechHttpClient.openPost(url, config.apiKey, "application/json");
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+        }
+        try {
+            SpeechHttpClient.assertOk(conn, "获取MiniMax音色");
+            return parseMinimaxVoices(SpeechHttpClient.readBody(conn));
+        } finally {
+            conn.disconnect();
+        }
+    }
+
+    private static List<TTSService.Voice> parseMinimaxVoices(String body) {
+        List<TTSService.Voice> result = new ArrayList<>();
+        try {
+            JsonObject root = com.google.gson.JsonParser.parseString(body).getAsJsonObject();
+            for (String key : new String[]{"system_voice", "voice_cloning", "voice_generation"}) {
+                JsonElement el = root.get(key);
+                if (el == null || !el.isJsonArray()) continue;
+                for (JsonElement item : el.getAsJsonArray()) {
+                    if (!item.isJsonObject()) continue;
+                    JsonObject o = item.getAsJsonObject();
+                    String id = o.has("voice_id") && !o.get("voice_id").isJsonNull()
+                            ? o.get("voice_id").getAsString() : null;
+                    if (id == null || id.isEmpty()) continue;
+                    String name = null;
+                    if (o.has("voice_name") && !o.get("voice_name").isJsonNull()) {
+                        name = o.get("voice_name").getAsString();
+                    } else if (o.has("description") && o.get("description").isJsonArray()
+                            && o.getAsJsonArray("description").size() > 0) {
+                        name = o.getAsJsonArray("description").get(0).getAsString();
+                    }
+                    result.add(new TTSService.Voice(id, name != null && !name.isEmpty() ? name : id));
+                }
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "解析MiniMax音色失败: " + e.getMessage());
+        }
+        return result;
     }
 
     // ==================== 匹配查询（保留原有逻辑） ====================
@@ -948,6 +1056,7 @@ public final class SpeechModelRegistry {
             case "volcano": return "volcano-tts";
             case "baidu":   return "baidu-tts";
             case "mimo":    return "mimo";
+            case "minimax": return "minimax";
             default:        return null;
         }
     }
