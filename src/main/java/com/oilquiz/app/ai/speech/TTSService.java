@@ -308,10 +308,21 @@ public class TTSService {
         }
         try {
             // 必须与保存时同作用域（按实际用于合成的 TTS 配置），否则用户存的音色读不回来、静默回落默认音色
-            String saved = OnlineModelManager.getInstance(context)
-                    .getTtsVoice(com.oilquiz.app.ai.speech.core.SpeechModelSelector.voiceScopeId(context));
+            String scopeId = com.oilquiz.app.ai.speech.core.SpeechModelSelector.voiceScopeId(context);
+            String saved = OnlineModelManager.getInstance(context).getTtsVoice(scopeId);
             if (saved != null && !saved.isEmpty()) {
-                return saved;
+                if (isVoiceUsableForCurrentModel(saved)) {
+                    return saved;
+                }
+                // 2026-11-04：音色作用域是「端点」，换模型后旧音色还挂在同一个端点下——拿 qwen3-tts
+                // 的 Cherry 去合成 CosyVoice，只会得到"音色不存在"。这里校验后忽略本次；
+                // 只有在它明确是「别家的内置音色」时才清掉记录——复刻音色不在任何内置表里，保留不动，
+                // 因为自动列表可能还没刷新，删了会误伤用户自己的音色。
+                AILogger.w(TAG, "保存的音色 '" + saved + "' 不属于当前 TTS 模型，本次忽略");
+                if (isBuiltinVoiceOfOtherFamily(saved)) {
+                    OnlineModelManager.getInstance(context).setTtsVoice(null, scopeId);
+                    AILogger.i(TAG, "已清除跨模型的陈旧音色记录: " + saved);
+                }
             }
         } catch (Exception ignored) {
         }
@@ -324,6 +335,40 @@ public class TTSService {
         } catch (Exception ignored) {
         }
         return voice != null && !voice.isEmpty() ? voice : DEFAULT_VOICE;
+    }
+
+    /**
+     * 保存的音色是否仍适用于「当前端点 + 当前模型」。
+     *
+     * <p>列表拿不到（厂商没有清单、自动缓存还没刷新）时**不拦**——宁可保留，也不误杀合法配置；
+     * 只有拿到非空音色表且确实不在里面，才判为不适用。</p>
+     */
+    private boolean isVoiceUsableForCurrentModel(String savedVoice) {
+        if (savedVoice.startsWith(SYS_VOICE_PREFIX)) return true;   // 系统音色永远可用
+        try {
+            OnlineModelManager.OnlineModelConfig config =
+                    com.oilquiz.app.ai.speech.core.SpeechModelSelector.select(
+                            context, com.oilquiz.app.ai.speech.core.SpeechModelSelector.Capability.TTS);
+            if (config == null) return true;
+            String modelName = com.oilquiz.app.ai.speech.core.SpeechModelSelector.resolveModelName(
+                    config,
+                    OnlineModelManager.getInstance(context)
+                            .getFeatureModelName(OnlineModelManager.FEATURE_TTS),
+                    com.oilquiz.app.ai.speech.core.SpeechModelSelector.Capability.TTS);
+            List<Voice> voices = SpeechModelRegistry.getVoicesForModel(modelName, config.apiUrl);
+            if (voices == null || voices.isEmpty()) return true;
+            for (Voice v : voices) {
+                if (savedVoice.equals(v.id)) return true;
+            }
+            return false;
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    /** 该音色是否属于「别的模型的内置音色表」——只有这种残留可以安全清除 */
+    private boolean isBuiltinVoiceOfOtherFamily(String voiceId) {
+        return SpeechModelRegistry.isBuiltinVoice(voiceId);
     }
 
     /**

@@ -56,6 +56,22 @@ public class VendorVoiceResolutionTest {
     }
 
     @Test
+    public void crossModelStaleVoiceIsDetectable() {
+        // 场景：同一端点下把模型从 qwen3-tts 换成 cosyvoice-v2，保存的 Cherry 还挂在端点作用域里。
+        // 「当前模型的音色表里没有它」+「它确实是某张内置表里的音色」= 可以安全清除的跨模型残留。
+        List<TTSService.Voice> cosyVoices = SpeechModelRegistry.getVoicesForModel(
+                "cosyvoice-v2", "https://dashscope.aliyuncs.com/compatible-mode/v1");
+        boolean containsCherry = false;
+        for (TTSService.Voice v : cosyVoices) {
+            if ("Cherry".equals(v.id)) containsCherry = true;
+        }
+        assertTrue("CosyVoice 的音色表不该包含 qwen-tts 的 Cherry", !containsCherry);
+        assertTrue("Cherry 是内置音色，可判定为跨模型残留", SpeechModelRegistry.isBuiltinVoice("Cherry"));
+        assertTrue("复刻音色不在任何内置表里，不能误删",
+                !SpeechModelRegistry.isBuiltinVoice("my-cloned-voice-001"));
+    }
+
+    @Test
     public void minimaxIsRecognisedSoItsListApiCanRun() {
         assertTrue("MiniMax 端点必须被识别，否则 /v1/get_voice 永远不会被调用",
                 SpeechModelSelector.isMinimaxEndpoint("https://api.minimax.chat/v1"));

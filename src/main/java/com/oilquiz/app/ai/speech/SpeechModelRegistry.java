@@ -1014,6 +1014,17 @@ public final class SpeechModelRegistry {
         return result;
     }
 
+    /** 该音色 id 是否出现在任一条内置音色表里（用于识别「跨模型残留」） */
+    public static boolean isBuiltinVoice(String voiceId) {
+        if (voiceId == null || voiceId.isEmpty()) return false;
+        for (ModelEntry entry : BUILTIN_TTS_MODELS) {
+            for (TTSService.Voice v : entry.voices) {
+                if (voiceId.equals(v.id)) return true;
+            }
+        }
+        return false;
+    }
+
     // ==================== 匹配查询（保留原有逻辑） ====================
 
     /**
