@@ -57,13 +57,15 @@
     </LinearLayout>
 
     <!-- 当前模型信息卡片 -->
-    <androidx.cardview.widget.CardView
+    <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_margin="@dimen/space_16"
-        app:cardCornerRadius="12dp"
-        app:cardElevation="2dp"
-        app:cardBackgroundColor="?attr/colorSurface">
+        app:cardCornerRadius="@dimen/radius_16"
+        app:cardElevation="0dp"
+        app:cardBackgroundColor="?attr/colorSurface"
+        app:strokeWidth="1dp"
+        app:strokeColor="?attr/colorDivider">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -93,10 +95,10 @@
                 android:textSize="@dimen/text_12"
                 android:textColor="?attr/colorControlTextHint"/>
         </LinearLayout>
-    </androidx.cardview.widget.CardView>
+    </com.google.android.material.card.MaterialCardView>
 
     <!-- AI 服务一键初始化：本地与在线模型均未配置时显示 -->
-    <androidx.cardview.widget.CardView
+    <com.google.android.material.card.MaterialCardView
         android:id="@+id/ai_init_card"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -104,7 +106,7 @@
         android:layout_marginEnd="@dimen/space_16"
         android:layout_marginBottom="@dimen/space_4"
         android:visibility="gone"
-        app:cardCornerRadius="12dp"
+        app:cardCornerRadius="@dimen/radius_16"
         app:cardElevation="0dp"
         app:cardBackgroundColor="?attr/colorPrimaryContainer">
         <LinearLayout
@@ -139,7 +141,7 @@
                 android:textSize="@dimen/text_14"
                 style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
         </LinearLayout>
-    </androidx.cardview.widget.CardView>
+    </com.google.android.material.card.MaterialCardView>
 
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
@@ -235,7 +237,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:paddingHorizontal="16dp"
+                android:paddingHorizontal="@dimen/space_16"
                 android:paddingBottom="@dimen/space_16">
                 <LinearLayout
                     android:id="@+id/row_feature_models_header"
@@ -243,7 +245,7 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:paddingVertical="12dp"
+                    android:paddingVertical="@dimen/space_12"
                     android:paddingStart="@dimen/space_4"
                     android:paddingEnd="@dimen/space_4"
                     android:background="?attr/selectableItemBackground">
@@ -269,95 +271,188 @@
                 <!-- NPU（Qualcomm GenieX）引擎行已删除(2026-11-01)：它与本包 HTP 后端共用同名
                      libggml-htp-vNN.so，FastRPC 按文件名加载，一个 APK 只能留一份；实测一开
                      GenieX 就 ggml_abort 闪退。开关判据已在 InferenceRouter 钉成 false。 -->
-                <!-- 语音识别模型 -->
-                <LinearLayout
-                    android:id="@+id/row_asr_model"
+                <!-- 三行收进一张设置卡（2026-11-04）：原来是无卡片的纯文字行 + emoji，
+                     与重做后的音色弹窗、应用里其余设置卡不是一套视觉。这里统一成
+                     「图标 + 标题 + 当前值 + chevron」的设置行，行间 1dp 分隔线。 -->
+                <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
                     android:layout_marginTop="@dimen/space_10"
-                    android:padding="@dimen/space_14"
-                    android:background="?attr/selectableItemBackground">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="🎙️ 语音识别模型"
-                        android:textSize="@dimen/text_14"
-                        android:textColor="?attr/colorControlText"/>
-                    <TextView
-                        android:id="@+id/tv_asr_model_value"
-                        android:layout_width="@dimen/size_0"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="@dimen/space_8"
-                        android:gravity="end"
-                        android:text="自动选择"
-                        android:textSize="@dimen/text_13"
-                        android:textColor="?attr/colorPrimary"
-                        android:maxLines="1"
-                        android:ellipsize="end"/>
-                </LinearLayout>
+                    app:cardCornerRadius="@dimen/radius_16"
+                    app:cardElevation="0dp"
+                    app:cardBackgroundColor="?attr/colorSurface"
+                    app:strokeWidth="1dp"
+                    app:strokeColor="?attr/colorDivider">
 
-                <!-- 语音合成模型 -->
-                <LinearLayout
-                    android:id="@+id/row_tts_model"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginTop="@dimen/space_4"
-                    android:padding="@dimen/space_14"
-                    android:background="?attr/selectableItemBackground">
-                    <TextView
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="🔊 语音合成模型"
-                        android:textSize="@dimen/text_14"
-                        android:textColor="?attr/colorControlText"/>
-                    <TextView
-                        android:id="@+id/tv_tts_model_value"
-                        android:layout_width="@dimen/size_0"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="@dimen/space_8"
-                        android:gravity="end"
-                        android:text="自动选择"
-                        android:textSize="@dimen/text_13"
-                        android:textColor="?attr/colorPrimary"
-                        android:maxLines="1"
-                        android:ellipsize="end"/>
-                </LinearLayout>
+                        android:orientation="vertical">
 
-                <!-- TTS 音色 -->
-                <LinearLayout
-                    android:id="@+id/row_tts_voice"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginTop="@dimen/space_4"
-                    android:padding="@dimen/space_14"
-                    android:background="?attr/selectableItemBackground">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="🎵 语音合成音色"
-                        android:textSize="@dimen/text_14"
-                        android:textColor="?attr/colorControlText"/>
-                    <TextView
-                        android:id="@+id/tv_tts_voice_value"
-                        android:layout_width="@dimen/size_0"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="@dimen/space_8"
-                        android:gravity="end"
-                        android:text="alloy（默认）"
-                        android:textSize="@dimen/text_13"
-                        android:textColor="?attr/colorPrimary"
-                        android:maxLines="1"
-                        android:ellipsize="end"/>
-                </LinearLayout>
+                        <!-- 语音识别模型 -->
+                        <LinearLayout
+                            android:id="@+id/row_asr_model"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:minHeight="@dimen/size_48"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:paddingStart="@dimen/space_14"
+                            android:paddingEnd="@dimen/space_10"
+                            android:paddingVertical="@dimen/space_10"
+                            android:background="?attr/selectableItemBackground">
+
+                            <ImageView
+                                android:layout_width="@dimen/size_24"
+                                android:layout_height="@dimen/size_24"
+                                android:src="@drawable/ic_mic"
+                                android:contentDescription="@null"
+                                app:tint="?attr/colorPrimary" />
+
+                            <TextView
+                                android:layout_width="@dimen/size_0"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginStart="@dimen/space_12"
+                                android:text="语音识别"
+                                android:textSize="@dimen/text_14"
+                                android:textColor="?attr/colorControlText" />
+
+                            <TextView
+                                android:id="@+id/tv_asr_model_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="@dimen/space_8"
+                                android:maxWidth="180dp"
+                                android:maxLines="1"
+                                android:ellipsize="end"
+                                android:text="自动选择"
+                                android:textSize="@dimen/text_13"
+                                android:textColor="?attr/colorControlTextSecondary" />
+
+                            <ImageView
+                                android:layout_width="@dimen/size_16"
+                                android:layout_height="@dimen/size_16"
+                                android:layout_marginStart="@dimen/space_6"
+                                android:src="@drawable/ic_chevron_right"
+                                android:contentDescription="@null"
+                                app:tint="?attr/colorControlTextHint" />
+                        </LinearLayout>
+
+                        <View
+                            android:layout_width="match_parent"
+                            android:layout_height="1dp"
+                            android:layout_marginStart="52dp"
+                            android:background="?attr/colorDivider" />
+
+                        <!-- 语音合成模型 -->
+                        <LinearLayout
+                            android:id="@+id/row_tts_model"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:minHeight="@dimen/size_48"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:paddingStart="@dimen/space_14"
+                            android:paddingEnd="@dimen/space_10"
+                            android:paddingVertical="@dimen/space_10"
+                            android:background="?attr/selectableItemBackground">
+
+                            <ImageView
+                                android:layout_width="@dimen/size_24"
+                                android:layout_height="@dimen/size_24"
+                                android:src="@drawable/ic_speaker"
+                                android:contentDescription="@null"
+                                app:tint="?attr/colorPrimary" />
+
+                            <TextView
+                                android:layout_width="@dimen/size_0"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginStart="@dimen/space_12"
+                                android:text="语音合成"
+                                android:textSize="@dimen/text_14"
+                                android:textColor="?attr/colorControlText" />
+
+                            <TextView
+                                android:id="@+id/tv_tts_model_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="@dimen/space_8"
+                                android:maxWidth="180dp"
+                                android:maxLines="1"
+                                android:ellipsize="end"
+                                android:text="自动选择"
+                                android:textSize="@dimen/text_13"
+                                android:textColor="?attr/colorControlTextSecondary" />
+
+                            <ImageView
+                                android:layout_width="@dimen/size_16"
+                                android:layout_height="@dimen/size_16"
+                                android:layout_marginStart="@dimen/space_6"
+                                android:src="@drawable/ic_chevron_right"
+                                android:contentDescription="@null"
+                                app:tint="?attr/colorControlTextHint" />
+                        </LinearLayout>
+
+                        <View
+                            android:layout_width="match_parent"
+                            android:layout_height="1dp"
+                            android:layout_marginStart="52dp"
+                            android:background="?attr/colorDivider" />
+
+                        <!-- TTS 音色 -->
+                        <LinearLayout
+                            android:id="@+id/row_tts_voice"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:minHeight="@dimen/size_48"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:paddingStart="@dimen/space_14"
+                            android:paddingEnd="@dimen/space_10"
+                            android:paddingVertical="@dimen/space_10"
+                            android:background="?attr/selectableItemBackground">
+
+                            <ImageView
+                                android:layout_width="@dimen/size_24"
+                                android:layout_height="@dimen/size_24"
+                                android:src="@drawable/ic_speaker"
+                                android:contentDescription="@null"
+                                app:tint="?attr/colorPrimary" />
+
+                            <TextView
+                                android:layout_width="@dimen/size_0"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginStart="@dimen/space_12"
+                                android:text="合成音色"
+                                android:textSize="@dimen/text_14"
+                                android:textColor="?attr/colorControlText" />
+
+                            <TextView
+                                android:id="@+id/tv_tts_voice_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="@dimen/space_8"
+                                android:maxWidth="180dp"
+                                android:maxLines="1"
+                                android:ellipsize="end"
+                                android:text="自动（模型默认）"
+                                android:textSize="@dimen/text_13"
+                                android:textColor="?attr/colorControlTextSecondary" />
+
+                            <ImageView
+                                android:layout_width="@dimen/size_16"
+                                android:layout_height="@dimen/size_16"
+                                android:layout_marginStart="@dimen/space_6"
+                                android:src="@drawable/ic_chevron_right"
+                                android:contentDescription="@null"
+                                app:tint="?attr/colorControlTextHint" />
+                        </LinearLayout>
+
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
 
             <!-- 本地模型区域 -->
