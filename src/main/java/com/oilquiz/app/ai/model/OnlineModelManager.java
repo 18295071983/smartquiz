@@ -775,9 +775,28 @@ public class OnlineModelManager {
     public void setActiveModel(String modelId) {
         OnlineModelConfig config = getModel(modelId);
         if (config == null || !config.enabled) return;
+        // 2026-11-04：真机上出现过"只切了个语音模型，聊天模型却连着切两次"（A→B→A，55ms 内）。
+        // 激活变更会触发聊天页把引擎历史切到新模型的文件，用户看到的就是"上下文自己换了"。
+        // 这里把调用方打出来（DEBUG 级，落 ai_logs），下一次复现能直接定位是谁动的。
+        AILogger.d(TAG, "setActiveModel(" + modelId + ") caller=" + callerTrace());
         activeModelId = modelId;
         saveToPrefs();
         notifyActiveChanged();
+    }
+
+    /** 取调用栈里前几层「非 OnlineModelManager 自己」的帧，用于定位"谁切了模型" */
+    private static String callerTrace() {
+        StackTraceElement[] st = Thread.currentThread().getStackTrace();
+        StringBuilder sb = new StringBuilder();
+        int shown = 0;
+        for (StackTraceElement e : st) {
+            String cn = e.getClassName();
+            if (cn.contains("OnlineModelManager") || cn.startsWith("java.lang.Thread")) continue;
+            sb.append(cn, cn.lastIndexOf('.') + 1, cn.length()).append('.').append(e.getMethodName())
+                    .append(':').append(e.getLineNumber()).append("  ");
+            if (++shown >= 5) break;
+        }
+        return sb.toString();
     }
 
     public void stopActiveModel() {

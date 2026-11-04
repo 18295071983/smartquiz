@@ -392,6 +392,14 @@ public class AIChatActivity extends BaseActivity {
     private volatile String currentAgentGroupId = null;
     /** 上次使用的在线模型 ID（检测模型切换，切换后清引擎历史避免上下文污染） */
     private volatile String lastOnlineModelId = null;
+    /**
+     * 模型切换防抖（2026-11-04）：真机上出现过 55ms 内 A→B→A 的抖动（当时动的是语音模型），
+     * 中间那次被当成"换模型"，把引擎历史切走又切回，用户看到的就是"上下文自己换了"。
+     * 现在先记下目标，安静 MODEL_SWITCH_DEBOUNCE_MS 后才真正切历史。
+     */
+    private static final long MODEL_SWITCH_DEBOUNCE_MS = 500L;
+    private String pendingActiveModelId;
+    private Runnable pendingModelSwitchRunnable;
     private volatile int agentGroupStepCount = 0;
     private volatile int agentGroupToolCount = 0;
     /** 本轮 Agent 用到的工具名集合（去重，用于汇总展示） */
@@ -8715,17 +8723,28 @@ public class AIChatActivity extends BaseActivity {
             public void onActiveModelChanged(String activeModelId) {
                 // 激活模型变化时立即刷新模式按钮
                 runOnUiThread(() -> {
-                    // 检测在线模型切换（如 deepseek → qwen）：把引擎历史切换到新模型的专属文件，
-                    // 旧模型的 system 提示词/工具调用记录不再污染新模型（UI 会话消息保留，用户可见历史不动）
-                    if (lastOnlineModelId != null && !lastOnlineModelId.equals(activeModelId)) {
-                        AppLogger.ai(TAG, "Online model switched: " + lastOnlineModelId + " -> " + activeModelId
-                                + ", switching agent engine history by model");
-                        if (agentChatHandler != null) {
-                            agentChatHandler.setModelId(activeModelId);
-                        }
-                        addSystemMessage("已切换模型，对话上下文已按模型切换");
+                    // 引擎历史切换走防抖：抖动（A→B→A）期间不切，只有稳定下来的目标才切。
+                    // 旧实现对每次回调都切，真机上切一下语音模型就白切两次上下文（日志有 55ms 的 A→B→A）。
+                    pendingActiveModelId = activeModelId;
+                    if (pendingModelSwitchRunnable != null) {
+                        uiHandler.removeCallbacks(pendingModelSwitchRunnable);
                     }
-                    lastOnlineModelId = activeModelId;
+                    pendingModelSwitchRunnable = () -> {
+                        // 检测在线模型切换（如 deepseek → qwen）：把引擎历史切换到新模型的专属文件，
+                        // 旧模型的 system 提示词/工具调用记录不再污染新模型（UI 会话消息保留，用户可见历史不动）
+                        String target = pendingActiveModelId;
+                        if (lastOnlineModelId != null && !lastOnlineModelId.equals(target)) {
+                            AppLogger.ai(TAG, "Online model switched: " + lastOnlineModelId + " -> " + target
+                                    + ", switching agent engine history by model");
+                            if (agentChatHandler != null) {
+                                agentChatHandler.setModelId(target);
+                            }
+                            addSystemMessage("已切换模型，对话上下文已按模型切换");
+                        }
+                        lastOnlineModelId = target;
+                    };
+                    uiHandler.postDelayed(pendingModelSwitchRunnable, MODEL_SWITCH_DEBOUNCE_MS);
+
                     updateModeButtonText();
                     updateApiBalanceDisplay();
                     updateWebSearchChip();
@@ -8756,6 +8775,11 @@ public class AIChatActivity extends BaseActivity {
         if (onlineModelManager != null && modelChangeListener != null) {
             onlineModelManager.removeListener(modelChangeListener);
             modelChangeListener = null;
+        }
+        // 取消还没落地的模型切换（防抖窗口内退出页面时不能把回调留到已销毁的 Activity 上）
+        if (pendingModelSwitchRunnable != null && uiHandler != null) {
+            uiHandler.removeCallbacks(pendingModelSwitchRunnable);
+            pendingModelSwitchRunnable = null;
         }
     }
 
