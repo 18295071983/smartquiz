@@ -1,9 +1,14 @@
 package com.oilquiz.app.ui.activity;
 
+import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Gravity;
@@ -19,34 +24,59 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.oilquiz.app.R;
-import com.oilquiz.app.ai.agent.online.mcp.McpChinaCatalog;
 import com.oilquiz.app.ai.agent.online.mcp.McpManager;
+import com.oilquiz.app.ai.agent.online.mcp.McpMarketCatalog;
+import com.oilquiz.app.ai.agent.online.mcp.McpMarketEntry;
+import com.oilquiz.app.ai.agent.online.mcp.McpMarketInstaller;
 import com.oilquiz.app.ai.agent.online.mcp.McpServerConfig;
 import com.oilquiz.app.theme.ThemeColors;
+import com.oilquiz.app.util.AILogger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
- * MCP 市场页（国内精选）。
+ * MCP 市场页：发现外部 MCP 服务，并把「能在这台手机上用的」装进 {@link McpManager}。
  *
- * <p>数据源为内置国内精选清单（{@link McpChinaCatalog}，阿里云 / 腾讯官方 MCP，2026-11 快照）。
- * 每个条目：可直连（URL_READY）一键添加，需开通（GUIDE_ONLY）提供开通指引与端点复制。
- * 添加走 {@link McpManager#upsertServer}，与管理页共用配置。</p>
+ * <p>这一页只承担两件事——说清某个服务当前的接入能力，以及把可安装的那批装好。
+ * 配置的唯一权威仍是 {@link McpManagerActivity}（改端点、引密钥、启停、删除），
+ * 所以这里的"安装"是一次<b>带探测的写入</b>：先跑 initialize + tools/list，
+ * 通了才默认启用；不通时保存为停用必须由用户再点一次，不给"看起来装好了其实连不上"的状态。</p>
+ *
+ * <p>列表按能力位分节（可直连 / 需开通 / 仅网页取端点 / 需浏览器授权 / 本地包），
+ * 只有前两节给安装入口；后三节给开通路径、官方文档与"为什么现在加不了"。
+ * 数据源是 {@code assets/mcp_market_catalog.json}，条目自带文档核对日期与一次真实协议自检的证据。</p>
  */
 public class McpMarketActivity extends AppCompatActivity {
 
     private LinearLayout listContainer;
     private String query = "";
-    private Set<String> addedIds = new HashSet<>();
+    private Set<String> installedIds = new HashSet<>();
+
+    /** 探测走真实网络，单独一条后台线程；页面销毁即关。 */
+    private ExecutorService probeExecutor;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        probeExecutor = Executors.newSingleThreadExecutor();
         setContentView(wrapInScrollView(buildPage()));
         renderList();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (probeExecutor != null) {
+            probeExecutor.shutdownNow();
+            probeExecutor = null;
+        }
+        super.onDestroy();
     }
 
     /** 把页面包进可滚动容器（列表超出屏幕时可上下滚动）。 */
@@ -66,7 +96,9 @@ public class McpMarketActivity extends AppCompatActivity {
         page.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // 顶部：返回 + 标题
+        McpMarketCatalog.Snapshot snap = McpMarketCatalog.load(this);
+
+        // 顶部：返回 + 标题 + 管理页入口
         LinearLayout topRow = new LinearLayout(this);
         topRow.setOrientation(LinearLayout.HORIZONTAL);
         topRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -77,23 +109,33 @@ public class McpMarketActivity extends AppCompatActivity {
         backBtn.setGravity(Gravity.CENTER);
         backBtn.setTextColor(color(R.color.text_primary));
         backBtn.setBackground(buttonBackground(R.color.secondary_container));
-        LinearLayout.LayoutParams backLp = new LinearLayout.LayoutParams(dp(40), dp(36));
-        topRow.addView(backBtn, backLp);
+        topRow.addView(backBtn, new LinearLayout.LayoutParams(dp(40), dp(36)));
         backBtn.setOnClickListener(v -> finish());
 
         TextView title = new TextView(this);
-        title.setText("MCP 市场 · 国内精选");
+        title.setText("MCP 市场");
         title.setTextSize(18);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setTextColor(color(R.color.text_primary));
         title.setPadding(dp(10), 0, 0, 0);
-        topRow.addView(title);
+        topRow.addView(title, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         page.addView(topRow);
 
+        TextView managerBtn = makeOpButton("⚙ 已配置服务 · 管理", R.color.secondary_container);
+        LinearLayout.LayoutParams mgrLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        mgrLp.setMargins(0, dp(6), 0, 0);
+        page.addView(managerBtn, mgrLp);
+        managerBtn.setOnClickListener(v ->
+                startActivity(new Intent(this, McpManagerActivity.class)));
+
         TextView desc = new TextView(this);
-        desc.setText("来源：阿里云 / 腾讯 / 魔搭（ModelScope）官方 MCP 文档与广场（2026-11）。\n"
-                + "· 「可直连」→ 直接「＋ 添加」，再到管理页「🔗 密钥」引用对应服务商密钥\n"
-                + "· 「需开通」→ 看「💡 开通指引」拿专属端点/密钥后添加");
+        desc.setText("内置清单 " + (snap.version.isEmpty() ? "（读取失败）" : snap.version)
+                + " · " + snap.entries.size() + " 条\n"
+                + "· 「可直连」「需开通」→ 装之前先跑一次 initialize + tools/list，通了才启用\n"
+                + "· 其余分节不能在这里安装，只给开通路径与官方文档\n"
+                + (snap.disclaimer.isEmpty() ? "" : "\n" + snap.disclaimer));
         desc.setTextSize(12);
         desc.setTextColor(color(R.color.text_secondary));
         desc.setPadding(0, dp(6), 0, dp(8));
@@ -102,7 +144,7 @@ public class McpMarketActivity extends AppCompatActivity {
         // 搜索框
         EditText searchInput = new EditText(this);
         searchInput.setSingleLine(true);
-        searchInput.setHint("🔍 搜索国内服务（名称 / 描述）");
+        searchInput.setHint("🔍 搜索服务（名称 / 描述 / 服务商 / 标签）");
         searchInput.setTextSize(13);
         searchInput.setPadding(dp(10), dp(4), dp(10), dp(4));
         searchInput.setBackground(buttonBackground(R.color.surface_variant));
@@ -115,7 +157,7 @@ public class McpMarketActivity extends AppCompatActivity {
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
             }
             @Override public void afterTextChanged(Editable s) {
-                query = s.toString().trim().toLowerCase();
+                query = s.toString().trim();
                 renderList();
             }
         });
@@ -132,45 +174,70 @@ public class McpMarketActivity extends AppCompatActivity {
 
     // ==================== 列表渲染 ====================
 
-    private void refreshAddedIds() {
-        addedIds = new HashSet<>();
+    private void refreshInstalledIds() {
+        installedIds = new HashSet<>();
         for (McpServerConfig cfg : McpManager.getInstance(this).getServers()) {
-            addedIds.add(cfg.id);
+            installedIds.add(cfg.id);
         }
     }
 
     private void renderList() {
-        refreshAddedIds();
+        refreshInstalledIds();
         listContainer.removeAllViews();
 
-        List<McpChinaCatalog.ChinaEntry> shown = new ArrayList<>();
-        for (McpChinaCatalog.ChinaEntry e : McpChinaCatalog.entries()) {
-            if (matches(e)) shown.add(e);
-        }
-        if (shown.isEmpty()) {
-            TextView tv = new TextView(this);
-            tv.setText("没有匹配「" + query + "」的国内服务");
-            tv.setTextSize(13);
-            tv.setTextColor(color(R.color.text_tertiary));
-            tv.setGravity(Gravity.CENTER);
-            tv.setPadding(0, dp(24), 0, 0);
-            listContainer.addView(tv);
+        List<McpMarketEntry> hits = McpMarketCatalog.search(this, query);
+        if (hits.isEmpty()) {
+            listContainer.addView(emptyView("没有匹配「" + query + "」的服务"));
             return;
         }
-        for (McpChinaCatalog.ChinaEntry e : shown) {
-            listContainer.addView(buildCard(e));
+        boolean anySection = false;
+        for (Map.Entry<McpMarketEntry.Capability, List<McpMarketEntry>> g
+                : McpMarketCatalog.groupByCapability(hits).entrySet()) {
+            if (g.getValue().isEmpty()) continue;
+            anySection = true;
+            listContainer.addView(sectionHeader(g.getKey(), g.getValue().size()));
+            for (McpMarketEntry e : g.getValue()) {
+                listContainer.addView(buildCard(e));
+            }
+        }
+        if (!anySection) {
+            listContainer.addView(emptyView("匹配到的条目缺能力位，清单数据有问题"));
         }
     }
 
-    private boolean matches(McpChinaCatalog.ChinaEntry e) {
-        if (query.isEmpty()) return true;
-        return e.title.toLowerCase().contains(query)
-                || (e.description != null && e.description.toLowerCase().contains(query))
-                || e.id.contains(query);
+    private TextView emptyView(String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextSize(13);
+        tv.setTextColor(color(R.color.text_tertiary));
+        tv.setGravity(Gravity.CENTER);
+        tv.setPadding(0, dp(24), 0, 0);
+        return tv;
     }
 
-    private View buildCard(final McpChinaCatalog.ChinaEntry e) {
-        final boolean alreadyAdded = addedIds.contains(e.id);
+    private View sectionHeader(McpMarketEntry.Capability capability, int count) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(0, dp(10), 0, dp(6));
+
+        TextView head = new TextView(this);
+        head.setText(McpMarketInstaller.capabilityLabel(capability) + " · " + count + " 条");
+        head.setTextSize(13);
+        head.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        head.setTextColor(color(R.color.text_primary));
+        box.addView(head);
+
+        TextView hint = new TextView(this);
+        hint.setText(McpMarketInstaller.capabilityHint(capability));
+        hint.setTextSize(11);
+        hint.setTextColor(color(R.color.text_tertiary));
+        hint.setPadding(0, dp(2), 0, 0);
+        box.addView(hint);
+        return box;
+    }
+
+    private View buildCard(final McpMarketEntry e) {
+        final boolean installed = installedIds.contains(e.id);
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -181,92 +248,442 @@ public class McpMarketActivity extends AppCompatActivity {
         card.setBackground(cardBackground());
         card.setLayoutParams(cardLp);
 
-        // 行1：标题 + 类型徽标
-        LinearLayout titleRow = new LinearLayout(this);
-        titleRow.setOrientation(LinearLayout.HORIZONTAL);
-        titleRow.setGravity(Gravity.CENTER_VERTICAL);
-
+        // 行1：标题
         TextView titleTv = new TextView(this);
         titleTv.setText(e.title);
         titleTv.setTextSize(14);
         titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         titleTv.setTextColor(color(R.color.text_primary));
-        titleTv.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        titleRow.addView(titleTv);
+        card.addView(titleTv);
 
-        TextView kindBadge = new TextView(this);
-        kindBadge.setText(e.kind == McpChinaCatalog.Kind.URL_READY ? "可直连" : "需开通");
-        kindBadge.setTextSize(10);
-        kindBadge.setPadding(dp(6), dp(2), dp(6), dp(2));
-        kindBadge.setTextColor(e.kind == McpChinaCatalog.Kind.URL_READY
-                ? color(R.color.primary) : color(R.color.error));
-        kindBadge.setBackground(pillBackground(e.kind == McpChinaCatalog.Kind.URL_READY
-                ? R.color.primary_container : R.color.error_container));
-        titleRow.addView(kindBadge);
-        card.addView(titleRow);
+        // 行2：徽标组（能力位 + 鉴权 + 已安装）
+        LinearLayout badgeRow = new LinearLayout(this);
+        badgeRow.setOrientation(LinearLayout.HORIZONTAL);
+        badgeRow.setGravity(Gravity.CENTER_VERTICAL);
+        badgeRow.setPadding(0, dp(4), 0, 0);
+        badgeRow.addView(badge(McpMarketInstaller.capabilityLabel(e.capability),
+                e.capability.isConnectable() ? R.color.primary_container : R.color.surface_variant,
+                e.capability.isConnectable() ? R.color.primary : R.color.text_secondary));
+        badgeRow.addView(badge(McpMarketInstaller.authLabel(e.auth),
+                R.color.surface_variant, R.color.text_secondary), badgeMargins());
+        if (installed) {
+            badgeRow.addView(badge("已安装", R.color.secondary_container, R.color.text_primary),
+                    badgeMargins());
+        }
+        card.addView(badgeRow);
 
-        // 行2：端点格式
-        TextView endpointTv = new TextView(this);
-        endpointTv.setText(e.endpointText);
-        endpointTv.setTextSize(11);
-        endpointTv.setTextColor(color(R.color.text_tertiary));
-        endpointTv.setSingleLine(true);
-        endpointTv.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
-        endpointTv.setPadding(0, dp(2), 0, 0);
-        card.addView(endpointTv);
+        // 行3：端点（脱敏）
+        McpMarketEntry.Endpoint ep = e.defaultEndpoint();
+        if (ep != null) {
+            TextView endpointTv = new TextView(this);
+            endpointTv.setText(McpServerConfig.maskUrl(ep.url));
+            endpointTv.setTextSize(11);
+            endpointTv.setTextColor(color(R.color.text_tertiary));
+            endpointTv.setSingleLine(true);
+            endpointTv.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+            endpointTv.setPadding(0, dp(4), 0, 0);
+            card.addView(endpointTv);
+            if (!ep.note.isEmpty()) {
+                TextView noteTv = new TextView(this);
+                noteTv.setText(ep.note);
+                noteTv.setTextSize(11);
+                noteTv.setTextColor(color(R.color.text_tertiary));
+                noteTv.setPadding(0, dp(2), 0, 0);
+                card.addView(noteTv);
+            }
+        }
 
-        // 行3：描述
-        TextView descTv = new TextView(this);
-        descTv.setText(e.description);
-        descTv.setTextSize(12);
-        descTv.setTextColor(color(R.color.text_secondary));
-        descTv.setMaxLines(2);
-        descTv.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        descTv.setPadding(0, dp(4), 0, 0);
-        card.addView(descTv);
+        // 行4：描述
+        if (!e.description.isEmpty()) {
+            TextView descTv = new TextView(this);
+            descTv.setText(e.description);
+            descTv.setTextSize(12);
+            descTv.setTextColor(color(R.color.text_secondary));
+            descTv.setPadding(0, dp(4), 0, 0);
+            card.addView(descTv);
+        }
 
-        // 行4：鉴权说明
-        TextView authTv = new TextView(this);
-        authTv.setText("鉴权: " + e.authNote);
-        authTv.setTextSize(11);
-        authTv.setTextColor(color(R.color.text_secondary));
-        authTv.setSingleLine(true);
-        authTv.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        authTv.setPadding(0, dp(3), 0, 0);
-        card.addView(authTv);
+        // 行5：为什么现在加不了
+        if (!e.capability.isConnectable() && !e.blockedReason.isEmpty()) {
+            TextView blockedTv = new TextView(this);
+            blockedTv.setText("⛔ " + e.blockedReason);
+            blockedTv.setTextSize(11);
+            blockedTv.setTextColor(color(R.color.error));
+            blockedTv.setPadding(0, dp(4), 0, 0);
+            card.addView(blockedTv);
+        }
 
-        // 行5：操作按钮
+        // 行6：来源与自检
+        TextView sourceTv = new TextView(this);
+        sourceTv.setText(McpMarketInstaller.sourceLine(e));
+        sourceTv.setTextSize(11);
+        sourceTv.setTextColor(color(R.color.text_tertiary));
+        sourceTv.setPadding(0, dp(4), 0, 0);
+        card.addView(sourceTv);
+
+        // 行7：操作
         LinearLayout opsRow = new LinearLayout(this);
         opsRow.setOrientation(LinearLayout.HORIZONTAL);
         opsRow.setGravity(Gravity.CENTER_VERTICAL);
         opsRow.setPadding(0, dp(8), 0, 0);
 
-        TextView copyBtn = makeOpButton("📋 复制端点", R.color.secondary_container);
-        copyBtn.setOnClickListener(v -> copyText(e.title, e.endpointText));
-        opsRow.addView(copyBtn);
-
-        TextView guideBtn = makeOpButton("💡 开通指引", R.color.secondary_container);
-        LinearLayout.LayoutParams guideLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        guideLp.setMargins(dp(6), 0, 0, 0);
-        opsRow.addView(guideBtn, guideLp);
-        guideBtn.setOnClickListener(v -> showGuide(e));
-
-        if (e.kind == McpChinaCatalog.Kind.URL_READY) {
-            TextView addBtn = makeOpButton(alreadyAdded ? "✓ 已添加" : "＋ 添加",
-                    alreadyAdded ? R.color.surface_variant : R.color.primary_container);
-            LinearLayout.LayoutParams addLp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            addLp.setMargins(dp(6), 0, 0, 0);
-            addBtn.setEnabled(!alreadyAdded);
-            opsRow.addView(addBtn, addLp);
-            addBtn.setOnClickListener(v -> confirmAddChina(e));
+        if (e.capability.isConnectable()) {
+            TextView installBtn = makeOpButton(installed ? "已在管理页" : "＋ 安装",
+                    installed ? R.color.surface_variant : R.color.primary_container);
+            installBtn.setOnClickListener(v -> {
+                if (installed) {
+                    startActivity(new Intent(this, McpManagerActivity.class));
+                } else {
+                    startInstall(e);
+                }
+            });
+            opsRow.addView(installBtn);
         }
 
-        LinearLayout.LayoutParams opsLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        card.addView(opsRow, opsLp);
+        TextView guideBtn = makeOpButton("💡 指引", R.color.secondary_container);
+        guideBtn.setOnClickListener(v -> showGuide(e));
+        opsRow.addView(guideBtn, badgeMargins());
+
+        if (ep != null) {
+            TextView copyBtn = makeOpButton("📋 复制端点", R.color.secondary_container);
+            copyBtn.setOnClickListener(v -> copyText(e.title, ep.url));
+            opsRow.addView(copyBtn, badgeMargins());
+        }
+
+        if (!e.docsUrl.isEmpty()) {
+            TextView docBtn = makeOpButton("🌐 文档", R.color.secondary_container);
+            docBtn.setOnClickListener(v -> openUrl(e.docsUrl));
+            opsRow.addView(docBtn, badgeMargins());
+        }
+
+        card.addView(opsRow, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return card;
+    }
+
+    private LinearLayout.LayoutParams badgeMargins() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(dp(6), 0, 0, 0);
+        return lp;
+    }
+
+    private TextView badge(String text, int bgResId, int fgResId) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextSize(10);
+        tv.setPadding(dp(6), dp(2), dp(6), dp(2));
+        tv.setTextColor(color(fgResId));
+        tv.setBackground(pillBackground(bgResId));
+        return tv;
+    }
+
+    // ==================== 安装向导 ====================
+
+    /** 一次安装过程中的可编辑草稿（表单弹框与探测结果弹框之间传递）。 */
+    private static final class InstallDraft {
+        String name = "";
+        String endpoint = "";
+        String tokenRef = "";
+        String tokenRefLabel = "";
+        McpServerConfig.Transport transport = McpServerConfig.Transport.STREAMABLE_HTTP;
+    }
+
+    private void startInstall(McpMarketEntry e) {
+        InstallDraft draft = new InstallDraft();
+        draft.name = e.title;
+        McpMarketEntry.Endpoint ep = e.defaultEndpoint();
+        if (ep != null) {
+            draft.endpoint = ep.url;
+            draft.transport = ep.transport;
+        }
+        showInstallForm(e, draft);
+    }
+
+    private void showInstallForm(final McpMarketEntry e, final InstallDraft draft) {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(8), dp(4), dp(8), 0);
+
+        form.addView(labeledField("显示名称"));
+        final EditText nameInput = new EditText(this);
+        nameInput.setSingleLine(true);
+        nameInput.setText(draft.name);
+        nameInput.setTextSize(13);
+        form.addView(nameInput);
+
+        form.addView(labeledField("端点 URL"));
+        final EditText endpointInput = new EditText(this);
+        endpointInput.setHint("https://…");
+        endpointInput.setText(draft.endpoint);
+        endpointInput.setTextSize(12);
+        form.addView(endpointInput);
+
+        String placeholder = McpMarketEntry.placeholderName(draft.endpoint);
+        if (!placeholder.isEmpty()) {
+            TextView ph = new TextView(this);
+            ph.setText("要把 {" + placeholder + "} 换成你自己的值：" + e.authHint);
+            ph.setTextSize(11);
+            ph.setTextColor(color(R.color.error));
+            ph.setPadding(0, dp(4), 0, 0);
+            form.addView(ph);
+        }
+
+        form.addView(labeledField("🔗 密钥引用"));
+        final TextView keyRow = new TextView(this);
+        keyRow.setTextSize(12);
+        keyRow.setTextColor(color(R.color.text_primary));
+        keyRow.setBackground(buttonBackground(R.color.surface_variant));
+        keyRow.setPadding(dp(10), dp(8), dp(10), dp(8));
+        keyRow.setSingleLine(true);
+        keyRow.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        keyRow.setClickable(true);
+        LinearLayout.LayoutParams keyLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        keyLp.setMargins(0, dp(2), 0, 0);
+        form.addView(keyRow, keyLp);
+        final Runnable refreshKeyRow = () -> keyRow.setText(draft.tokenRefLabel.isEmpty()
+                ? "未引用（装好后可在管理页设置）" : draft.tokenRefLabel);
+        refreshKeyRow.run();
+        keyRow.setOnClickListener(v -> pickKeyRef(e, endpointInput.getText().toString().trim(),
+                draft, refreshKeyRow));
+
+        final TextView status = new TextView(this);
+        status.setTextSize(11);
+        status.setTextColor(color(R.color.text_tertiary));
+        status.setPadding(0, dp(8), 0, 0);
+        List<String> tips = McpMarketInstaller.advisories(e, draft.endpoint);
+        status.setText(String.join("\n", tips));
+        form.addView(status);
+
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("安装 " + e.title)
+                .setView(form)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("测试连接", null)
+                .show();
+        // 正按钮自己接管：校验不过就原地报错，不能让弹框"点了没反应还顺手关掉"
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String endpoint = endpointInput.getText().toString().trim();
+            String error = McpMarketInstaller.validateInstall(e, endpoint);
+            if (error != null) {
+                status.setText(error);
+                status.setTextColor(color(R.color.error));
+                return;
+            }
+            draft.name = McpMarketInstaller.displayName(nameInput.getText().toString(), e);
+            draft.endpoint = endpoint;
+            draft.transport = McpMarketInstaller.transportFor(endpoint,
+                    e.defaultEndpoint() != null ? e.defaultEndpoint().transport
+                            : McpServerConfig.Transport.STREAMABLE_HTTP);
+            dialog.dismiss();
+            runProbe(e, draft);
+        });
+    }
+
+    private TextView labeledField(String label) {
+        TextView tv = new TextView(this);
+        tv.setText(label);
+        tv.setTextSize(11);
+        tv.setTextColor(color(R.color.text_tertiary));
+        tv.setPadding(0, dp(8), 0, 0);
+        return tv;
+    }
+
+    /** 密钥候选：先给与该服务商匹配的，再列其余全部（与管理页同一套匹配机制）。 */
+    private void pickKeyRef(final McpMarketEntry e, final String endpoint,
+                            final InstallDraft draft, final Runnable refresh) {
+        McpServerConfig probe = McpMarketInstaller.buildConfig(e, endpoint, draft.name,
+                draft.transport, draft.tokenRef, false);
+        McpManager mgr = McpManager.getInstance(this);
+        final List<String[]> items = new ArrayList<>();
+        List<String> labels = new ArrayList<>();
+        labels.add("（不引用密钥）");
+        items.add(new String[]{"", ""});
+        List<String[]> matches = mgr.findMatchingKeyRefs(probe);
+        for (String[] m : matches) {
+            labels.add(m[0]);
+            items.add(m);
+        }
+        for (String[] a : mgr.findAllKeyRefs()) {
+            boolean dup = false;
+            for (String[] m : matches) {
+                if (m[1].equals(a[1])) {
+                    dup = true;
+                    break;
+                }
+            }
+            if (!dup) {
+                labels.add(a[0]);
+                items.add(a);
+            }
+        }
+        if (matches.isEmpty()) {
+            labels.set(0, "（不引用密钥）· 没识别出该服务商的已有密钥，下面是全部");
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("选择要引用的密钥")
+                .setItems(labels.toArray(new String[0]), (d, which) -> {
+                    String[] picked = items.get(which);
+                    draft.tokenRef = picked[1];
+                    draft.tokenRefLabel = picked[1].isEmpty() ? "" : picked[0];
+                    refresh.run();
+                })
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    /** 先探测再落盘：网络在后台跑，回到主线程只改弹框。 */
+    private void runProbe(final McpMarketEntry e, final InstallDraft draft) {
+        final TextView loading = new TextView(this);
+        loading.setText("正在连接并枚举工具…\n\n端点：" + McpServerConfig.maskUrl(draft.endpoint));
+        loading.setTextSize(13);
+        loading.setPadding(dp(16), dp(16), dp(16), dp(16));
+        final AlertDialog waiting = new AlertDialog.Builder(this)
+                .setTitle("测试连接")
+                .setView(loading)
+                .setCancelable(false)
+                .setNegativeButton("中止", null)
+                .show();
+        // 中止/销毁只丢掉这一次结果，不能关掉整条执行器——否则第二次安装会静默无响应
+        final boolean[] cancelled = {false};
+        waiting.setOnDismissListener(d -> cancelled[0] = true);
+
+        final McpServerConfig cfg = McpMarketInstaller.buildConfig(e, draft.endpoint, draft.name,
+                draft.transport, draft.tokenRef, false);
+        final McpManager mgr = McpManager.getInstance(this);
+        final ExecutorService exec = probeExecutor;
+        if (exec == null || exec.isShutdown()) {
+            waiting.dismiss();
+            Toast.makeText(this, "页面正在关闭，没发起测试", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        exec.execute(() -> {
+            final McpManager.ProbeResult result = mgr.probe(cfg);
+            mainHandler.post(() -> {
+                if (isFinishing() || isDestroyed() || cancelled[0]) return;
+                try {
+                    waiting.dismiss();
+                } catch (Exception ignored) {
+                }
+                showProbeResult(e, draft, cfg, result);
+            });
+        });
+    }
+
+    private void showProbeResult(final McpMarketEntry e, final InstallDraft draft,
+                                 final McpServerConfig probed,
+                                 final McpManager.ProbeResult result) {
+        StringBuilder msg = new StringBuilder();
+        msg.append(McpMarketInstaller.describeProbe(result));
+        if (!result.ok) {
+            String hints = McpMarketInstaller.failureHintsText(e, result);
+            if (!hints.isEmpty()) msg.append("\n\n").append(hints);
+        } else if (draft.tokenRef.isEmpty()
+                && e.auth != McpMarketEntry.Auth.NONE
+                && e.auth != McpMarketEntry.Auth.QUERY_KEY) {
+            msg.append("\n\n没引用密钥就连通了，说明这个端点当前免凭证；"
+                    + "调用工具时若报鉴权错误，到管理页补引用。");
+        }
+        msg.append("\n\n传输：").append(probed.transport == McpServerConfig.Transport.SSE
+                ? "SSE" : "Streamable HTTP");
+        msg.append("\n名称：").append(probed.name);
+
+        if (result.ok) {
+            new AlertDialog.Builder(this)
+                    .setTitle("可以启用")
+                    .setMessage(msg)
+                    .setPositiveButton("启用并保存", (d, w) ->
+                            finishInstall(e, probed.withEnabled(true), true))
+                    .setNegativeButton("返回修改", (d, w) -> showInstallForm(e, draft))
+                    .show();
+            return;
+        }
+        // 失败时的三档都是显式动作：默认不写"启用"，停用保存与强行启用各点一次
+        new AlertDialog.Builder(this)
+                .setTitle("没连上")
+                .setMessage(msg.toString() + "\n\n默认不启用。可以先存成停用项，改好再到管理页开。")
+                .setPositiveButton("存为停用", (d, w) ->
+                        finishInstall(e, probed.withEnabled(false), false))
+                .setNeutralButton("仍要启用", (d, w) ->
+                        finishInstall(e, probed.withEnabled(true), false))
+                .setNegativeButton("返回修改", (d, w) -> showInstallForm(e, draft))
+                .show();
+    }
+
+    private void finishInstall(McpMarketEntry e, McpServerConfig cfg, boolean probeOk) {
+        McpManager.getInstance(this).upsertServer(cfg);
+        AILogger.audit("McpMarket", "安装 " + e.title + "（" + cfg.id + "）端点 "
+                + McpServerConfig.maskUrl(cfg.url) + " 传输=" + cfg.transport
+                + " 启用=" + cfg.enabled + " 探测=" + (probeOk ? "通过" : "未通过"));
+        Toast.makeText(this, cfg.enabled
+                        ? "已启用：" + cfg.name + "，工具进目录后由模型按需取用"
+                        : "已保存为停用：修好端点/密钥后到管理页启用",
+                Toast.LENGTH_LONG).show();
+        renderList();
+    }
+
+    // ==================== 指引 / 复制 / 文档 ====================
+
+    private void showGuide(McpMarketEntry e) {
+        StringBuilder sb = new StringBuilder();
+        if (!e.guide.isEmpty()) {
+            sb.append(e.guideText());
+        } else {
+            sb.append("清单里这条没写开通步骤。");
+        }
+        McpMarketEntry.Endpoint ep = e.defaultEndpoint();
+        if (ep != null) {
+            sb.append("\n\n端点：").append(ep.url);
+            if (!ep.note.isEmpty()) sb.append("\n说明：").append(ep.note);
+        }
+        sb.append("\n鉴权：").append(e.authHint.isEmpty() ? "未标注" : e.authHint);
+        if (!e.capability.isConnectable()) {
+            sb.append("\n\n为什么不能在这里安装：")
+              .append(e.blockedReason.isEmpty()
+                      ? McpMarketInstaller.capabilityHint(e.capability) : e.blockedReason);
+        }
+        if (e.probe != null && !e.probe.evidence.isEmpty()) {
+            sb.append("\n\n自检（").append(e.probe.checkedAt).append("）：").append(e.probe.evidence);
+        }
+        if (!e.consoleUrl.isEmpty()) {
+            sb.append("\n控制台：").append(e.consoleUrl);
+        }
+        if (!e.tags.isEmpty()) {
+            sb.append("\n标签：").append(String.join(" / ", e.tags));
+        }
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
+                .setTitle(e.title + " · 接入指引")
+                .setMessage(sb.toString());
+        if (ep != null) {
+            builder.setNeutralButton("复制端点", (d, w) -> copyText(e.title, ep.url));
+        }
+        if (!e.docsUrl.isEmpty()) {
+            builder.setPositiveButton("打开文档", (d, w) -> openUrl(e.docsUrl));
+        }
+        if (!e.consoleUrl.isEmpty()) {
+            builder.setNegativeButton("打开控制台", (d, w) -> openUrl(e.consoleUrl));
+        } else {
+            builder.setNegativeButton("关闭", null);
+        }
+        builder.show();
+    }
+
+    private void copyText(String label, String text) {
+        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (cm != null) {
+            cm.setPrimaryClip(ClipData.newPlainText(label, text));
+            Toast.makeText(this, "端点已复制到剪贴板", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void openUrl(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (Exception ex) {
+            Toast.makeText(this, "打不开该链接：" + ex.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
 
     private TextView makeOpButton(String text, int colorResId) {
@@ -278,72 +695,6 @@ public class McpMarketActivity extends AppCompatActivity {
         btn.setBackground(buttonBackground(colorResId));
         btn.setPadding(dp(8), dp(6), dp(8), dp(6));
         return btn;
-    }
-
-    private void copyText(String label, String text) {
-        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        if (cm != null) {
-            cm.setPrimaryClip(android.content.ClipData.newPlainText(label, text));
-            Toast.makeText(this, "端点已复制到剪贴板", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private void showGuide(McpChinaCatalog.ChinaEntry e) {
-        new AlertDialog.Builder(this)
-                .setTitle(e.title + " · 开通指引")
-                .setMessage(e.guide + "\n\n端点: " + e.endpointText + "\n鉴权: " + e.authNote)
-                .setPositiveButton("复制端点", (d, w) -> copyText(e.title, e.endpointText))
-                .setNegativeButton("关闭", null)
-                .show();
-    }
-
-    private void confirmAddChina(final McpChinaCatalog.ChinaEntry e) {
-        LinearLayout form = new LinearLayout(this);
-        form.setOrientation(LinearLayout.VERTICAL);
-        form.setPadding(dp(8), dp(4), dp(8), 0);
-
-        EditText endpointInput = new EditText(this);
-        endpointInput.setSingleLine(true);
-        endpointInput.setHint("端点 URL");
-        endpointInput.setText(e.endpointText);
-        form.addView(endpointInput);
-
-        TextView note = new TextView(this);
-        note.setText("端点里的 {mcpCode} / 你的Key 等占位符必须替换成真实值；"
-                + "也可先添加，之后到管理页「✏ 编辑」修改。");
-        note.setTextSize(12);
-        note.setTextColor(color(R.color.text_tertiary));
-        note.setPadding(0, dp(6), 0, 0);
-        form.addView(note);
-
-        new AlertDialog.Builder(this)
-                .setTitle("添加并启用 " + e.title + "？")
-                .setMessage("传输: " + (e.transport == McpServerConfig.Transport.SSE
-                                ? "SSE" : "Streamable HTTP")
-                        + "\n鉴权: " + e.authNote)
-                .setView(form)
-                .setPositiveButton("添加", (d, w) -> {
-                    String url = endpointInput.getText().toString().trim();
-                    if (!McpServerConfig.isUsableEndpoint(url)) {
-                        Toast.makeText(this, "端点需为 http(s) 且不能保留 {…}/你的Key 等占位符",
-                                Toast.LENGTH_LONG).show();
-                        return;
-                    }
-                    boolean builtin = false;
-                    for (McpServerConfig c : McpManager.getInstance(this).getServers()) {
-                        if (c.id.equals(e.id)) builtin = c.builtin;
-                    }
-                    McpServerConfig cfg = new McpServerConfig(e.id, e.title, url,
-                            e.transport != null ? e.transport
-                                    : McpServerConfig.Transport.STREAMABLE_HTTP,
-                            "", true, builtin);
-                    McpManager.getInstance(this).upsertServer(cfg);
-                    Toast.makeText(this, "已添加并启用，密钥到管理页「🔗 密钥」引用后再同步",
-                            Toast.LENGTH_LONG).show();
-                    renderList();
-                })
-                .setNegativeButton("取消", null)
-                .show();
     }
 
     // ==================== 样式辅助 ====================

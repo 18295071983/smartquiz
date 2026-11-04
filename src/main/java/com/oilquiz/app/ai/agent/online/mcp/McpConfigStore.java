@@ -39,13 +39,18 @@ public class McpConfigStore {
         ensureFirstRun();
     }
 
-    /** 首次启动补齐内置模板（不覆盖已有配置）。 */
+    /**
+     * 首次启动不再预置任何服务，只落"已首启"标记。
+     *
+     * <p><b>为什么撤掉内置模板</b>：原来两条模板都连不上——
+     * {@code aliyun-maxcompute} 的 Remote MCP 要浏览器 OAuth（App 没实现），
+     * {@code aliyun-cms} 的端点是控制台为某个账号下发的分享路径，不是公共入口。
+     * 开机就在管理页躺两条"启用即报错"的服务，比空列表更误导人；
+     * 服务由用户从市场清单（{@link McpMarketCatalog}）按需安装，装的时候先探测再启用。</p>
+     */
     private void ensureFirstRun() {
         try {
             if (prefs.getBoolean(KEY_FIRST_RUN, false)) return;
-            if (!prefs.contains(KEY_SERVERS) || load().isEmpty()) {
-                save(builtinTemplates());
-            }
             prefs.edit().putBoolean(KEY_FIRST_RUN, true).apply();
         } catch (Exception e) {
             AILogger.e(TAG, "ensureFirstRun failed: " + e.getMessage(), e);
@@ -144,25 +149,5 @@ public class McpConfigStore {
         }
         if (removed) save(next);
         return removed;
-    }
-
-    // ==================== 内置模板 ====================
-
-    /**
-     * 内置模板（国内官方 MCP 端点，2026-11 快照）。
-     * 全部默认禁用、令牌留空；启用时需在管理页「🔑 令牌」填入对应密钥
-     * （阿里云 AccessKey / DASHSCOPE_API_KEY 等）。
-     */
-    private List<McpServerConfig> builtinTemplates() {
-        List<McpServerConfig> list = new ArrayList<>();
-        list.add(new McpServerConfig("aliyun-maxcompute", "阿里云 MaxCompute",
-                "https://mcp.cn-hangzhou.maxcompute.aliyun.com/mcp",
-                McpServerConfig.Transport.STREAMABLE_HTTP,
-                "", false, true));
-        list.add(new McpServerConfig("aliyun-cms", "阿里云云监控",
-                "https://openapi-mcp.cn-hangzhou.aliyuncs.com/s/Cms/cms/9fe79ff0bf5748e6923530c5097ec359/mcp",
-                McpServerConfig.Transport.STREAMABLE_HTTP,
-                "", false, true));
-        return list;
     }
 }

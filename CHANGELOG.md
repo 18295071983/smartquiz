@@ -1,5 +1,86 @@
 # 变更日志
 
+## [2026-11-04] feat(mcp)：市场清单 JSON 化 + 先探测再启用 + 配置写入口收口
+
+**为什么重做市场**：`7c16c7f9` 那版市场是「Java 常量里的 7 张卡片 + 可直连/需开通二分」，
+真机之外没人校过这些端点到底能不能连。按官方文档和本机协议探测重看一遍，标成「可直连」的 4 条里有 3 条装上必然失败：
+
+- `aliyun-maxcompute`：官方《MaxCompute MCP 服务使用文档》写明 **Remote MCP 用阿里云浏览器 OAuth**，
+  AK/STS 只用于 Local MCP。实测 POST `/mcp` → `401` + `WWW-Authenticate: Bearer scope="maxcompute:read maxcompute:sql"`。
+  本 App 没实现授权流程，所以它不是「可直连」，是「当前不兼容」。
+- `aliyun-cms`：内置的 `.../s/Cms/cms/9fe79ff0bf5748e6923530c5097ec359/mcp` 是 OpenAPI MCP 控制台
+  **为某个账号下发的服务端点**（文档：Core 版登录后自动分配、自定义版要自己创建），不是公共入口；实测 `401`。
+  借用别人账号下的服务实例来当内置模板是错的，这条已改成 `{占位符}` 模板 + 控制台下发的指引。
+- `tencent-map` 标了「可直连」却把端点写成 `.../sse?key=你的Key`——带中文占位符的模板按旧校验根本加不进去；
+  官方文档实际给的是 `/mcp?key=<Key>&format=0` 和 `/sse?key=<Key>&format=0` 两条。
+- 旧清单里还漏了高德 MCP（国内最常用的一条），并保留了 `tencent-cloudbase` 这种官方只有 npx/stdio 本地包的条目。
+
+### 1. 数据源：常量 → `assets/mcp_market_catalog.json`
+
+`McpChinaCatalog`（118 行 Java 常量）删除，换成 [mcp_market_catalog.json](src/main/assets/mcp_market_catalog.json)
++ `McpMarketEntry`/`McpMarketCatalog`/`McpMarketInstaller`。搬出代码的理由：条目要随厂商文档变（端点、鉴权、开通路径），
+放资源文件里改数据不动代码，字段还能被单测当契约校核。
+
+能力位从二分改成五档，判据只有一个——**这台手机现在能不能连上**：
+`DIRECT_REMOTE`（端点固定，填密钥就连）、`PROVISIONED_REMOTE`（要先开通/替换占位符）、
+`PORTAL_ONLY`（端点只在网页详情页现场生成，没法预置）、`NEEDS_OAUTH`（要浏览器授权，App 未实现）、
+`LOCAL_ONLY`（官方只有 stdio/npx 分发）。只有前两档给安装入口，其余三档写明「为什么现在加不了」。
+
+每条必带 `docsUrl` + `verifiedAt` + 一次真实 `probe` 证据。本轮取证（2026-11-04，本机出口）：
+
+| 服务 | 探测结果 |
+| --- | --- |
+| 腾讯位置服务 `/mcp?key=test&format=0` | `200` + `Mcp-Session-Id`，`serverInfo=TencentMapMCPWebService 1.2.0`；`/sse` 也下发 `endpoint` 事件——握手不校验 Key，调工具时才校验 |
+| 高德 `/mcp`、`/mcp?key=test` | `200` 但 body 是 `{"info":"INVALID_USER_KEY","infocode":"10001"}`，不是 MCP 报文 → 端点存活、只认真实 Web 服务 Key |
+| 百炼 `/api/v1/mcps/mcp-weather/mcp` | `401 InvalidApiKey「No API-key provided」` → 路径格式可达，缺的是 API Key |
+| MaxCompute `/mcp` | `401` + `WWW-Authenticate: Bearer scope="maxcompute:read maxcompute:sql"` |
+| OpenAPI MCP 示例端点 | `401`（且该 hash 属他人服务实例，已从内置里删除） |
+| 10 个 docsUrl/consoleUrl | 全部带浏览器 UA `curl -L` 回 `200` 且标题对得上条目主题 |
+
+高德官方《快速接入》只给 Streamable HTTP 一条，所以没有替它编 SSE 端点；SSE 那条只在腾讯文档明确列了的情况下保留两条变体。
+
+### 2. 安装流：先探测，通了才启用
+
+`McpManager.probe(cfg)` 是纯读探针：临时 `McpClient` 跑 `initialize` + `tools/list`，报工具数/名字/协商版本/`serverInfo`，
+然后 `close()`。**不复用 `syncServer`** 的理由：同步会装目录、改状态、留连接，拿它当校验等于「还没确认能用就先污染运行态」。
+`McpClient` 因此新增 `getNegotiatedProtocolVersion()`/`getServerInfoText()`，把真实协商结果交出去。
+
+市场页三步：表单（端点可编辑、`{占位符}` 点名、密钥引用候选复用管理页那套 `findMatchingKeyRefs`）
+→ 后台探测 → **通过才默认启用**；失败时「存为停用」和「仍要启用」是两个分开点的显式动作，不做「其实没连上却显示已添加」。
+落盘统一走 `McpMarketInstaller.buildConfig`，Activity 里不再 `new McpServerConfig(...)`（源码测试 `McpSingleWriteEntryTest` 就是钉这条）。
+
+### 3. 写入口收成一个
+
+- `ApiConfigActivity` 的 MCP 页签删掉逐条卡片与 `upsertServer`/`removeServer`（-147 行），只报「已配置 N / 启用 N / 正常 N / 失败 N」
+  加两个跳转。它原来那套卡片不做占位符校验、不引密钥就直接 `enabled=true`，同一屏能造出「显示已添加、其实必然连不上」的条目，
+  而错误只在管理页暴露。
+- `McpConfigStore.ensureFirstRun()` 不再预置模板——预置的两条正是上面那两条连不上的，开机就躺两条红项比空列表更误导。
+  已装过这两个 id 的设备不会自动清理，到管理页删即可。
+- `McpServerConfig.builtin` 语义从「开机自动补齐的模板」改成「清单装入 vs 手动添加」（管理页标签随之改成「(手动添加)」）。
+  留着字段而不是删掉，是因为市场装入项确实需要标出来源；彻底删字段要动 10 处构造点，这轮没顺手做。
+- 管理页状态弹框现在会带出清单登记的鉴权要求（`McpMarketCatalog.byId`），报错时用户最缺的就是「这条到底要什么凭证」。
+
+### 4. 顺手修掉自己引入的一个 bug
+
+第一版 `McpMarketEntry.fromJson` 把条目显式声明的 `auth: "UNKNOWN"`（广场类服务本来就说不清鉴权）当成数据错误报了出来，
+真实清单一下多出 3 条问题。改成严格枚举校核 `Auth.parseExact()`：`UNKNOWN` 合法，`MAGIC` 这种错值才报「无法识别」，
+漏字段另报「没写 auth」。回归测试 `explicitUnknownAuthIsLegalButGarbageIsReported` 三种都钉住。
+
+### 验证与未验
+
+- 全量 `testDebugUnitTest` **1494 条，0 failures / 0 errors / 1 skipped**（本轮新增 47 条：真清单数据契约 7、
+  解析容错 15、向导逻辑 15、资源通道与缓存 5、写入口唯一性 5）。
+- 新增测试读的是 `src/main/assets/mcp_market_catalog.json` 真文件本身，不是一份副本；
+  `McpMarketCatalogAssetReadTest` 再走一遍 `AssetManager`，保证资源名写错/没打包也会红。
+- **没做真机验证**：三步弹框的实际手感、以及「中止探测后再装第二条」是否仍能响应，都要装包点一次。
+  向导对外的真实连通只有腾讯位置服务那条在本机验过（且要真 Key 才调得动工具）。
+- 已知没动：`NEEDS_OAUTH` 档要在接 OAuth 后才可能变成可安装；国际目录（官方 Registry `/v0/servers`）是下一阶段，
+  本轮只把条目模型留成能承接 `source`/多端点的形状；`aliyun-cms`、`aliyun-maxcompute` 两条旧配置在设备上要用户自己删。
+
+**回滚**：整笔 revert 即可——清单退回 `McpChinaCatalog` 常量、API 配置页退回逐条卡片、首启退回预置两条模板。
+`McpManager.probe` 与 `McpClient` 的两个新 getter 是纯新增，不会挡住别的回滚。
+
+
 ## [2026-11-04] feat(mcp): 外部工具目录、按需注册、管理页收口、逐工具审批与 GET SSE（`74f3b3f5`）
 
 承接 `7c16c7f9` 的 MCP 端点/传输基础。那笔代码虽然能把 `tools/list` 同步回来的工具注册进

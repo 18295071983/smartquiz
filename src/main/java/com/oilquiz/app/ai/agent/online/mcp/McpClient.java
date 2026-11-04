@@ -29,6 +29,10 @@ public class McpClient {
     private final AtomicLong nextId = new AtomicLong(1);
 
     private volatile boolean initialized;
+    /** initialize 响应里的协议版本（市场页"测一下"要展示真实协商结果，而不是我们发出去的那版） */
+    private volatile String negotiatedProtocolVersion = "";
+    /** initialize 响应里的 serverInfo 摘要（name/version） */
+    private volatile String serverInfoText = "";
 
     public McpClient(McpServerConfig config) {
         this.config = config;
@@ -67,6 +71,10 @@ public class McpClient {
                 }
             }
             JSONObject result = McpJsonRpc.result(resp);
+            negotiatedProtocolVersion = result.optString("protocolVersion", "");
+            JSONObject si = result.optJSONObject("serverInfo");
+            serverInfoText = si == null ? ""
+                    : si.optString("name", "") + " " + si.optString("version", "");
             AILogger.i(TAG, "MCP initialized: " + config.name
                     + " protocol=" + result.optString("protocolVersion", "?")
                     + " server=" + result.optJSONObject("serverInfo"));
@@ -274,6 +282,16 @@ public class McpClient {
 
     public String getServerName() {
         return config.name;
+    }
+
+    /** initialize 协商到的协议版本；未初始化返回空串。 */
+    public String getNegotiatedProtocolVersion() {
+        return negotiatedProtocolVersion;
+    }
+
+    /** 服务端自报名称/版本摘要；未初始化返回空串。 */
+    public String getServerInfoText() {
+        return serverInfoText;
     }
 
     // ==================== 数据类 ====================

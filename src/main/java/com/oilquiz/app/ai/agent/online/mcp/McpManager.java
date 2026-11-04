@@ -1165,6 +1165,78 @@ public class McpManager {
         });
     }
 
+    /**
+     * 市场安装向导用的"测一下"：用一份临时配置跑 initialize + tools/list，
+     * 只报告结果，<b>不建长连接、不写目录、不注册工具、不落盘</b>。
+     *
+     * <p>为什么单独做而不复用 {@link #syncServer}：同步会装目录、改状态、留连接，
+     * 拿它当校验就意味着"还没确认能用就先污染运行态"。安装向导要的是
+     * 一个纯读探针——通过了才由调用方显式启用（与"持久化要显式选择"一致）。</p>
+     *
+     * <p>会发起真实网络请求，必须在后台线程调用。</p>
+     */
+    public ProbeResult probe(McpServerConfig cfg) {
+        if (cfg == null) return ProbeResult.fail("配置为空");
+        if (!McpServerConfig.isUsableEndpoint(cfg.url)) {
+            return ProbeResult.fail("端点不可用（需 http(s) 且不含 {占位符}）："
+                    + McpServerConfig.maskUrl(cfg.url));
+        }
+        McpClient client = null;
+        try {
+            client = new McpClient(resolvedCfg(cfg));
+            client.initialize();
+            List<McpClient.McpToolInfo> tools = client.listTools();
+            List<String> names = new ArrayList<>();
+            for (McpClient.McpToolInfo t : tools) {
+                names.add(t.name);
+            }
+            AILogger.i(TAG, "MCP 探测通过: " + cfg.id + " tools=" + tools.size());
+            return ProbeResult.ok(tools.size(), names, client.getServerInfoText(),
+                    client.getNegotiatedProtocolVersion());
+        } catch (Exception e) {
+            AILogger.w(TAG, "MCP 探测失败 (" + cfg.id + "): " + e.getMessage());
+            return ProbeResult.fail(abbreviate(e.getMessage()));
+        } finally {
+            if (client != null) {
+                try {
+                    client.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
+    /** {@link #probe} 的结果。 */
+    public static final class ProbeResult {
+        public final boolean ok;
+        public final int toolCount;
+        public final List<String> toolNames;
+        /** 服务端自报 serverInfo（name + version） */
+        public final String serverInfo;
+        public final String protocolVersion;
+        public final String error;
+
+        private ProbeResult(boolean ok, int toolCount, List<String> toolNames,
+                            String serverInfo, String protocolVersion, String error) {
+            this.ok = ok;
+            this.toolCount = toolCount;
+            this.toolNames = toolNames == null
+                    ? Collections.<String>emptyList() : Collections.unmodifiableList(toolNames);
+            this.serverInfo = serverInfo == null ? "" : serverInfo;
+            this.protocolVersion = protocolVersion == null ? "" : protocolVersion;
+            this.error = error == null ? "" : error;
+        }
+
+        static ProbeResult ok(int toolCount, List<String> toolNames,
+                              String serverInfo, String protocolVersion) {
+            return new ProbeResult(true, toolCount, toolNames, serverInfo, protocolVersion, "");
+        }
+
+        static ProbeResult fail(String error) {
+            return new ProbeResult(false, 0, new ArrayList<String>(), "", "", error);
+        }
+    }
+
     private void removeRegisteredTools(String serverId) {
         Set<String> old = registeredTools.remove(serverId);
         // 不在这里构造 OnlineToolManager：本方法可能被持有 McpManager 锁的配置路径调用

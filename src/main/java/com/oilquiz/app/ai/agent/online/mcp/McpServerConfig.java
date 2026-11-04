@@ -42,7 +42,11 @@ public class McpServerConfig {
     public final String tokenRef;
     /** 是否启用（启用后才初始化并注册工具） */
     public final boolean enabled;
-    /** 是否为内置模板（内置项可被删除/编辑，但首次启动会自动补齐） */
+    /**
+     * 来源标记：{@code true} = 由内置市场清单（{@code mcp_market_catalog.json}）装入，
+     * {@code false} = 用户在管理页手填。只影响列表上的这一行标注，
+     * <b>不限制编辑或删除</b>（早期版本用它表示"开机自动补齐的模板"，那套预置已撤掉）。
+     */
     public final boolean builtin;
     /**
      * 逐工具审批策略：远端工具名 → {@code auto/ask/deny}。

@@ -25,6 +25,9 @@ import com.oilquiz.app.R;
 import com.oilquiz.app.ai.agent.online.mcp.McpClient;
 import com.oilquiz.app.ai.agent.online.mcp.McpConstants;
 import com.oilquiz.app.ai.agent.online.mcp.McpManager;
+import com.oilquiz.app.ai.agent.online.mcp.McpMarketCatalog;
+import com.oilquiz.app.ai.agent.online.mcp.McpMarketEntry;
+import com.oilquiz.app.ai.agent.online.mcp.McpMarketInstaller;
 import com.oilquiz.app.ai.agent.online.mcp.McpServerConfig;
 import com.oilquiz.app.ai.model.APIConfig;
 import com.oilquiz.app.ai.util.APIKeyManager;
@@ -464,7 +467,7 @@ public class McpManagerActivity extends AppCompatActivity {
         nameRow.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView nameTv = new TextView(this);
-        nameTv.setText(cfg.name + (cfg.builtin ? "" : "  (自定义)"));
+        nameTv.setText(cfg.name + (cfg.builtin ? "" : "  (手动添加)"));
         nameTv.setTextSize(15);
         nameTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         nameTv.setTextColor(color(R.color.text_primary));
@@ -614,6 +617,22 @@ public class McpManagerActivity extends AppCompatActivity {
             }
         } else {
             sb.append(status);
+        }
+
+        // 清单里认识这条服务时，把它登记的鉴权要求一起给出：
+        // 管理页只有端点字符串，报错后用户最缺的是"这条服务到底要什么凭证"
+        McpMarketEntry catalog = McpMarketCatalog.byId(this, cfg.id);
+        if (catalog != null) {
+            sb.append("\n\n市场清单（文档核对 ").append(catalog.verifiedAt.isEmpty()
+                    ? "未标日期" : catalog.verifiedAt).append("）：")
+              .append(McpMarketInstaller.capabilityLabel(catalog.capability))
+              .append(" · ").append(McpMarketInstaller.authLabel(catalog.auth));
+            if (!catalog.authHint.isEmpty()) {
+                sb.append("\n").append(catalog.authHint);
+            }
+            if (!catalog.blockedReason.isEmpty()) {
+                sb.append("\n清单判定：").append(catalog.blockedReason);
+            }
         }
 
         AlertDialog.Builder b = new AlertDialog.Builder(this)

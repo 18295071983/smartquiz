@@ -1,0 +1,253 @@
+{
+  "schema": 1,
+  "version": "2026-11-04-cn-2",
+  "disclaimer": "端点与鉴权方式取自各厂商公开文档；「自检」是 2026-11-04 从本机发起的协议级探测结果，只证明材料当时可达，服务商策略随时可能变化。装完请在管理页复测。",
+  "entries": [
+    {
+      "id": "tencent-map",
+      "title": "腾讯位置服务 MCP",
+      "provider": "腾讯",
+      "providerKey": "tencent",
+      "description": "地理编码、逆地理编码、路线规划、地点检索等位置能力，官方托管、端点固定。",
+      "capability": "DIRECT_REMOTE",
+      "auth": "QUERY_KEY",
+      "authHint": "腾讯位置服务 WebServiceAPI Key（须先开启 WebServiceAPI 功能并有调用配额），以 URL query 的 key 参数携带",
+      "endpoints": [
+        {
+          "transport": "streamable_http",
+          "url": "https://mcp.map.qq.com/mcp?key={key}&format=0",
+          "note": "format=0 返回语义化文本（利于模型理解），format=1 返回接口原始 JSON"
+        },
+        {
+          "transport": "sse",
+          "url": "https://mcp.map.qq.com/sse?key={key}&format=0",
+          "note": "官方同时给出的 SSE 入口"
+        }
+      ],
+      "guide": [
+        "1. 打开腾讯位置服务控制台，注册并实名认证",
+        "2. 创建应用 → 添加 Key，服务平台选「WebService」，勾选需要的接口配额",
+        "3. 把 Key 填进下方端点的 {key} 位置（Key 在 URL 里，无需再引用密钥）",
+        "4. 点「测试连接」确认能列出工具，再启用"
+      ],
+      "docsUrl": "https://lbs.qq.com/service/MCPServer/MCPServerGuide/userGuide",
+      "consoleUrl": "https://lbs.qq.com/dev/console/key/manage",
+      "tags": ["地图", "位置", "地理编码", "路线", "出行"],
+      "verifiedAt": "2026-11-04",
+      "probe": {
+        "checkedAt": "2026-11-04",
+        "result": "ok",
+        "evidence": "POST /mcp?key=test 的 initialize 返回 200 + Mcp-Session-Id，serverInfo=TencentMapMCPWebService 1.2.0；GET /sse 也能下发 endpoint 事件。握手不校验 Key，调用工具时才校验 → 必须换成真实 Key"
+      }
+    },
+    {
+      "id": "amap-maps",
+      "title": "高德地图 MCP",
+      "provider": "高德",
+      "providerKey": "amap",
+      "description": "地理编码、POI 搜索、骑行/驾车/公交路径规划、天气查询，官方 Streamable HTTP 托管。",
+      "capability": "DIRECT_REMOTE",
+      "auth": "QUERY_KEY",
+      "authHint": "高德开放平台 Web 服务类型 Key（控制台创建应用后添加 Key），以 URL query 的 key 参数携带",
+      "endpoints": [
+        {
+          "transport": "streamable_http",
+          "url": "https://mcp.amap.com/mcp?key={key}",
+          "note": "官方《快速接入》只给出这一个远程端点；本地 npx 包不算远程服务"
+        }
+      ],
+      "guide": [
+        "1. 打开高德控制台，注册并建议认证为个人开发者（配额更高）",
+        "2. 创建应用 → 添加 Key，服务平台必须选「Web 服务」",
+        "3. 把 Key 填进下方端点的 {key} 位置",
+        "4. 高德按调用次数计费，Key 泄露会被盗刷，建议同时配置 IP 白名单"
+      ],
+      "docsUrl": "https://lbs.amap.com/api/mcp-server/gettingstarted",
+      "consoleUrl": "https://console.amap.com/",
+      "tags": ["地图", "POI", "路径规划", "天气", "出行"],
+      "verifiedAt": "2026-11-04",
+      "probe": {
+        "checkedAt": "2026-11-04",
+        "result": "auth_required",
+        "evidence": "POST /mcp 与 /mcp?key=test 都返回 HTTP 200 + {\"info\":\"INVALID_USER_KEY\",\"infocode\":\"10001\"}：不是 MCP 报文，说明端点存活但只认真实高德 Key"
+      }
+    },
+    {
+      "id": "aliyun-bailian",
+      "title": "阿里云百炼 MCP 广场",
+      "provider": "阿里云",
+      "providerKey": "aliyun",
+      "description": "百炼平台开通的 MCP 服务（网页解析、地图、检索等），按 mcpCode 拼出统一端点，用 DASHSCOPE_API_KEY 鉴权。",
+      "capability": "PROVISIONED_REMOTE",
+      "auth": "BEARER_TOKEN",
+      "authHint": "百炼 API Key（DASHSCOPE_API_KEY），Bearer 方式；先在管理页「🔗 密钥」把 Key 存进密钥库再引用",
+      "endpoints": [
+        {
+          "transport": "streamable_http",
+          "url": "https://dashscope.aliyuncs.com/api/v1/mcps/{mcpCode}/mcp",
+          "note": "{mcpCode} 换成百炼 MCP 广场里该服务的编码"
+        }
+      ],
+      "guide": [
+        "1. 进百炼控制台 → MCP 广场，开通需要的服务（多数要先同意服务协议）",
+        "2. 在服务详情页复制 mcpCode，替换下方端点里的 {mcpCode}",
+        "3. 到 API 配置页把 DashScope API Key 存进密钥库",
+        "4. 回到本页选择该密钥引用，点「测试连接」通过后再启用"
+      ],
+      "docsUrl": "https://help.aliyun.com/zh/model-studio/mcp",
+      "consoleUrl": "https://bailian.console.aliyun.com/",
+      "tags": ["阿里云", "网页解析", "检索", "多服务"],
+      "verifiedAt": "2026-11-04",
+      "probe": {
+        "checkedAt": "2026-11-04",
+        "result": "auth_required",
+        "evidence": "用任意 mcpCode  POST 都返回 401 InvalidApiKey「No API-key provided」→ 路径格式当时可达，缺的是 API Key（不是端点）"
+      }
+    },
+    {
+      "id": "aliyun-openapi-mcp",
+      "title": "阿里云 OpenAPI MCP（API MCP Server）",
+      "provider": "阿里云",
+      "providerKey": "aliyun",
+      "description": "用自然语言调用阿里云 OpenAPI（ECS/云监控/OSS 等），可查询监控指标、资源状态与告警。",
+      "capability": "PROVISIONED_REMOTE",
+      "auth": "MIXED",
+      "authHint": "两种认证：静态凭证（AccessKey，Bearer）或阿里云官方 OAuth。本 App 只能用静态凭证；OAuth 授权流程尚未实现",
+      "endpoints": [
+        {
+          "transport": "streamable_http",
+          "url": "https://openapi-mcp.cn-hangzhou.aliyuncs.com/s/{你控制台下发的服务路径}/mcp",
+          "note": "端点由控制台为你的账号下发，整条复制过来；不要沿用本页示例路径"
+        }
+      ],
+      "guide": [
+        "1. 先用 RAM 控制台 → OAuth 应用 → 第三方应用，安装 OpenAPI MCP Server 官方应用并分配（否则无法授权）",
+        "2. 登录「阿里云 OpenAPI MCP 服务」控制台：Core 页签直接看 Streamable HTTP Endpoint；自定义版需先创建服务并挑选 API",
+        "3. 把控制台下发的完整 Endpoint 粘贴到下方端点框",
+        "4. AccessKey 存入密钥库并在管理页引用，测试连接通过后启用",
+        "提醒：写操作网关不做二次确认，靠本 App 的逐工具审批兜住——首次调用会弹框"
+      ],
+      "docsUrl": "https://help.aliyun.com/zh/openapi/user-guide/openapi-mcp-server-guide",
+      "consoleUrl": "https://help.aliyun.com/zh/openapi/user-guide/",
+      "tags": ["阿里云", "OpenAPI", "云监控", "ECS", "运维"],
+      "verifiedAt": "2026-11-04",
+      "probe": {
+        "checkedAt": "2026-11-04",
+        "result": "auth_required",
+        "evidence": "旧版内置示例端点 .../s/Cms/cms/9fe7.../mcp POST 返回 401。该 hash 属他人服务实例，即便补上 Bearer 也不该借用 → 已改为占位模板，只走你自己下发的端点"
+      }
+    },
+    {
+      "id": "aliyun-maxcompute",
+      "title": "阿里云 MaxCompute MCP",
+      "provider": "阿里云",
+      "providerKey": "aliyun",
+      "description": "自然语言查询/分析 MaxCompute 数仓（元数据、SQL、表管理）。官方托管端点固定。",
+      "capability": "NEEDS_OAUTH",
+      "auth": "OAUTH",
+      "authHint": "官方文档：Remote MCP 用阿里云浏览器 OAuth 授权；AccessKey/STS 等静态凭证只用于 Local MCP（Python 本地进程）",
+      "endpoints": [
+        {
+          "transport": "streamable_http",
+          "url": "https://mcp.cn-hangzhou.maxcompute.aliyun.com/mcp",
+          "note": "固定公网端点（cn-hangzhou）；不固定地域时官方还给了 https://mcp.maxcompute.aliyun.com/mcp"
+        }
+      ],
+      "guide": [
+        "端点可以直接填，但每次连接都要浏览器完成阿里云 OAuth 授权。",
+        "本 App 未实现 OAuth 回调，所以现在加了也连不上；等接入 OAuth 后这条会自动变成「可直连」。",
+        "替代路径：在自己电脑/服务器上跑 Local MCP Server（AK/STS 鉴权），再用云开发之类把它托管成远程端点，然后把那个端点当「需开通」条目添加。"
+      ],
+      "blockedReason": "需浏览器 OAuth 授权，App 尚未实现 MCP 授权流程",
+      "docsUrl": "https://help.aliyun.com/zh/maxcompute/getting-started/mcp-overview-and-access",
+      "consoleUrl": "https://maxcompute.console.aliyun.com/",
+      "tags": ["阿里云", "数仓", "SQL", "MaxCompute"],
+      "verifiedAt": "2026-11-04",
+      "probe": {
+        "checkedAt": "2026-11-04",
+        "result": "auth_required",
+        "evidence": "POST /mcp 返回 401 + WWW-Authenticate: Bearer scope=\"maxcompute:read maxcompute:sql\"，body=no bearer token → 端点存活，但要的是 OAuth 令牌而非普通 AccessKey"
+      }
+    },
+    {
+      "id": "modelscope-mcp",
+      "title": "魔搭 MCP 广场（ModelScope）",
+      "provider": "魔搭",
+      "providerKey": "modelscope",
+      "description": "阿里旗下开源社区的 MCP 广场，上万个服务，分 Hosted（云端托管）与 Local（本地 stdio）两类。",
+      "capability": "PORTAL_ONLY",
+      "auth": "UNKNOWN",
+      "authHint": "随服务而定：部分 Hosted 服务免 Key 直连，部分要先在服务商处申请 Key",
+      "endpoints": [],
+      "guide": [
+        "1. 打开魔搭 MCP 广场，按需要筛选服务（优先看 Hosted 类型）",
+        "2. 进服务详情页点「连接」，页面会生成一条 SSE / HTTP URL",
+        "3. 复制该 URL，回到 App 的 MCP 管理页「＋ 添加」，按 URL 尾缀选传输",
+        "4. 只有 Local（stdio/npx）类型的服务在手机上跑不了，别按那条路径找"
+      ],
+      "docsUrl": "https://modelscope.cn/mcp",
+      "consoleUrl": "https://modelscope.cn/my/myaccesstoken",
+      "blockedReason": "端点由服务详情页现场生成，清单里无法预置统一入口",
+      "tags": ["广场", "托管", "多服务", "导流"],
+      "verifiedAt": "2026-11-04",
+      "probe": {
+        "checkedAt": "2026-11-04",
+        "result": "unverified",
+        "evidence": "广场本身是网页（200，标题「MCP 广场 - ModelScope 魔搭社区」）；每个服务的端点由详情页下发，无法在内置清单里预先验证"
+      }
+    },
+    {
+      "id": "tencent-cloud-mcp",
+      "title": "腾讯云 MCP 广场",
+      "provider": "腾讯",
+      "providerKey": "tencent",
+      "description": "腾讯云开发者社区的 MCP 服务目录（CLS、COS、OpenAPI 等）。",
+      "capability": "PORTAL_ONLY",
+      "auth": "UNKNOWN",
+      "authHint": "以具体服务页给出的方式为准",
+      "endpoints": [],
+      "guide": [
+        "1. 打开腾讯云 MCP 广场，进具体服务页",
+        "2. 注意看它的安装方式：标 command/npx/stdio 的是本地包，手机跑不了（CLS、COS 都属这一类）",
+        "3. 只有页面明确给出远程 URL（http/SSE）的服务，才能复制进 MCP 管理页「＋ 添加」",
+        "4. 需要密钥的按服务页说明先存进密钥库再引用"
+      ],
+      "docsUrl": "https://cloud.tencent.com/developer/mcp",
+      "consoleUrl": "https://console.cloud.tencent.com/cam/capi",
+      "blockedReason": "广场条目多数按 npx/stdio 本地分发，没有可内置的统一远程端点",
+      "tags": ["广场", "腾讯云", "CLS", "COS", "导流"],
+      "verifiedAt": "2026-11-04",
+      "probe": {
+        "checkedAt": "2026-11-04",
+        "result": "unverified",
+        "evidence": "广场页 200；抽查 CLS/COS 两个条目，官方配置均为 npx/stdio 本地启动 → 该目录里多数条目与本 App 不兼容，只能导流"
+      }
+    },
+    {
+      "id": "tencent-cloudbase",
+      "title": "腾讯云开发 CloudBase MCP",
+      "provider": "腾讯",
+      "providerKey": "tencent",
+      "description": "AI 原生后端（数据库、认证、云函数、托管）。官方形态是本地 npx/stdio，远程要靠你自己托管转换。",
+      "capability": "LOCAL_ONLY",
+      "auth": "UNKNOWN",
+      "authHint": "本地进程用环境变量传 SecretId/SecretKey；无固定公共端点",
+      "endpoints": [],
+      "blockedReason": "官方以本地 npx/stdio 分发，Android 端无法启动该进程",
+      "guide": [
+        "想用 CloudBase 能力有两条路：",
+        "1. 在电脑上跑 CloudBase MCP（stdio），再用云开发的「MCP 托管」把 Stdio 转成远程 SSE/HTTP 服务，把下发的远程端点当「需开通」条目加进来；",
+        "2. 直接用云开发 HTTP API/SDK，不走 MCP。"
+      ],
+      "docsUrl": "https://docs.cloudbase.net/ai/mcp/develop/host-mcp",
+      "consoleUrl": "https://console.cloud.tencent.com/tcb",
+      "tags": ["后端", "云开发", "本地包", "不兼容"],
+      "verifiedAt": "2026-11-04",
+      "probe": {
+        "checkedAt": "2026-11-04",
+        "result": "unverified",
+        "evidence": "官方文档《通用 MCP Server》描述的是「把本地 Stdio MCP Server 托管成远程服务」的路径，说明默认交付形态是本地进程"
+      }
+    }
+  ]
+}

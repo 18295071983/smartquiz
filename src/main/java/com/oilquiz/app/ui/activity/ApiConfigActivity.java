@@ -38,7 +38,6 @@ import com.google.android.material.button.MaterialButton;
 import com.oilquiz.app.ai.model.APIConfig;
 import com.oilquiz.app.ai.model.ApiModel;
 import com.oilquiz.app.ai.model.OnlineModelManager;
-import com.oilquiz.app.ai.agent.online.mcp.McpChinaCatalog;
 import com.oilquiz.app.ai.agent.online.mcp.McpManager;
 import com.oilquiz.app.ai.agent.online.mcp.McpServerConfig;
 import com.oilquiz.app.ai.model.UsageInfo;
@@ -59,6 +58,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import com.oilquiz.app.theme.ThemeColors;
@@ -302,168 +302,79 @@ public class ApiConfigActivity extends BaseActivity {
         }
     }
 
-    // ==================== MCP 服务分组（端点内置，按服务商） ====================
+    // ==================== MCP 服务（只做状态与跳转，不做第二套配置编辑） ====================
 
-    /** 渲染 MCP 服务区块：端点内置、按服务商分组、可一键添加/看开通指引。 */
+    /**
+     * 渲染 MCP 区块：只报"当前装了几个、状态如何"，两个动作分别跳市场页与管理页。
+     *
+     * <p><b>为什么把这里的添加/删除删掉</b>：同一个服务曾经有两处写入
+     * （本区块的「＋ 添加/🗑 删除」与管理页的完整编辑），两处规则不同——这里不做占位符校验、
+     * 不引密钥就直接 enabled=true，于是用户可以在 API 配置页一屏之内造出"看着已添加、
+     * 其实必然连不上"的条目，而管理页显示的错误又被认为是管理页的问题。
+     * 配置的权威只保留 {@link McpManagerActivity} 一处；发现与安装走
+     * {@link McpMarketActivity}（装之前会真跑一次 initialize + tools/list）。</p>
+     */
     private void renderMcpSection() {
         if (llMcpSection == null) return;
         llMcpSection.removeAllViews();
 
-        // 标题行 + 管理入口
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(Gravity.CENTER_VERTICAL);
+        McpManager mcp = McpManager.getInstance(this);
+        List<McpServerConfig> servers = mcp.getServers();
+        Map<String, String> statuses = mcp.getStatus();
+        int enabled = 0;
+        int ok = 0;
+        int failed = 0;
+        int syncing = 0;
+        for (McpServerConfig s : servers) {
+            if (s.enabled) enabled++;
+            String st = statuses.get(s.id);
+            if (st == null) continue;
+            if (st.startsWith("ok:")) ok++;
+            else if (st.startsWith("error:")) failed++;
+            else if ("syncing".equals(st)) syncing++;
+        }
+
         TextView title = new TextView(this);
-        title.setText("MCP 服务 · 端点内置");
+        title.setText("MCP 服务");
         title.setTextSize(16);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
-        head.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView goBtn = new TextView(this);
-        goBtn.setText("🛰 管理 ›");
-        goBtn.setTextSize(12);
-        goBtn.setGravity(Gravity.CENTER_VERTICAL);
-        goBtn.setTextColor(ContextCompat.getColor(this, R.color.text_secondary));
-        goBtn.setOnClickListener(v -> startActivity(new Intent(this, McpManagerActivity.class)));
-        head.addView(goBtn);
-        llMcpSection.addView(head);
+        llMcpSection.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("点「＋ 添加」内置端点（需开通的看💡指引拿专属端点）；密钥在「🔑 密钥」按服务商匹配引用，不混用。");
+        sub.setText("已配置 " + servers.size() + " 个，启用 " + enabled
+                + " 个 · 连接正常 " + ok + " · 失败 " + failed
+                + (syncing > 0 ? " · 同步中 " + syncing : "")
+                + "\n端点、密钥引用、启停、删除都在管理页改；新服务从市场装，装之前会先测一次连接。");
         sub.setTextSize(12);
         sub.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary));
         sub.setPadding(0, dp4(4), 0, dp4(8));
         llMcpSection.addView(sub);
 
-        List<McpChinaCatalog.ChinaEntry> entries = McpChinaCatalog.entries();
-        renderMcpGroup("阿里云系", entries, "aliyun");
-        renderMcpGroup("腾讯系", entries, "tencent");
-        renderMcpGroup("魔搭（ModelScope）", entries, "modelscope");
-    }
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(mcpPillBtn("🛒 市场 · 发现并安装", v ->
+                startActivity(new Intent(this, McpMarketActivity.class))));
+        row.addView(mcpPillBtn("⚙ 管理 · 端点/密钥/启停", v ->
+                startActivity(new Intent(this, McpManagerActivity.class))));
+        llMcpSection.addView(row);
 
-    private void renderMcpGroup(String groupTitle, List<McpChinaCatalog.ChinaEntry> entries, String idPrefix) {
-        boolean any = false;
-        for (McpChinaCatalog.ChinaEntry e : entries) {
-            if (e.id.startsWith(idPrefix)) { any = true; break; }
-        }
-        if (!any) return;
-        TextView gt = new TextView(this);
-        gt.setText(groupTitle);
-        gt.setTextSize(13);
-        gt.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        gt.setTextColor(ContextCompat.getColor(this, R.color.text_secondary));
-        gt.setPadding(0, dp4(6), 0, dp4(4));
-        llMcpSection.addView(gt);
-        for (McpChinaCatalog.ChinaEntry e : entries) {
-            if (e.id.startsWith(idPrefix)) {
-                llMcpSection.addView(buildMcpEntryCard(e));
+        if (!servers.isEmpty()) {
+            StringBuilder detail = new StringBuilder();
+            for (McpServerConfig s : servers) {
+                String st = statuses.get(s.id);
+                detail.append(s.enabled ? "●" : "○").append(" ")
+                      .append(s.name).append("  ")
+                      .append(st == null || st.isEmpty() ? "未同步" : st).append("\n");
             }
+            TextView list = new TextView(this);
+            list.setText(detail.toString().trim());
+            list.setTextSize(11);
+            list.setTextColor(ContextCompat.getColor(this, R.color.text_secondary));
+            list.setPadding(0, dp4(8), 0, 0);
+            llMcpSection.addView(list);
         }
-    }
-
-    /** 单条 MCP 服务卡片：名称 + 状态 + 端点 + 动作（添加/已添加/开通指引）。 */
-    private View buildMcpEntryCard(final McpChinaCatalog.ChinaEntry e) {
-        McpManager mcp = McpManager.getInstance(this);
-        boolean added = false;
-        for (McpServerConfig s : mcp.getServers()) {
-            if (s.id != null && s.id.equals(e.id)) { added = true; break; }
-        }
-
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp4(12), dp4(10), dp4(12), dp4(10));
-        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        cardLp.setMargins(0, 0, 0, dp4(6));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(ContextCompat.getColor(this, R.color.surface_variant));
-        bg.setCornerRadius(dp4(10));
-        card.setBackground(bg);
-        card.setLayoutParams(cardLp);
-
-        // 行1：名称 + 状态
-        LinearLayout row1 = new LinearLayout(this);
-        row1.setOrientation(LinearLayout.HORIZONTAL);
-        row1.setGravity(Gravity.CENTER_VERTICAL);
-        TextView nameTv = new TextView(this);
-        nameTv.setText(e.title);
-        nameTv.setTextSize(14);
-        nameTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        nameTv.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
-        row1.addView(nameTv, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView kindTv = new TextView(this);
-        kindTv.setText(e.kind == McpChinaCatalog.Kind.URL_READY
-                ? (added ? "✅ 已添加" : "🟢 可直连") : "📖 需开通");
-        kindTv.setTextSize(11);
-        kindTv.setTextColor(ContextCompat.getColor(this, R.color.text_secondary));
-        row1.addView(kindTv);
-        card.addView(row1);
-
-        // 行2：端点
-        TextView urlTv = new TextView(this);
-        urlTv.setText(e.endpointText);
-        urlTv.setTextSize(11);
-        urlTv.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary));
-        urlTv.setPadding(0, dp4(4), 0, dp4(8));
-        card.addView(urlTv);
-
-        // 行3：动作
-        LinearLayout row3 = new LinearLayout(this);
-        row3.setOrientation(LinearLayout.HORIZONTAL);
-        row3.setGravity(Gravity.CENTER_VERTICAL);
-        if (e.kind == McpChinaCatalog.Kind.URL_READY) {
-            if (added) {
-                row3.addView(mcpPillBtn("🔗 密钥 / 管理", v ->
-                        startActivity(new Intent(this, McpManagerActivity.class))));
-                row3.addView(mcpPillBtn("🗑 删除", v -> {
-                    new AlertDialog.Builder(this)
-                            .setTitle("删除 MCP 服务")
-                            .setMessage("确定删除「" + e.title + "」？将同时注销它注册的全部工具。")
-                            .setPositiveButton("删除", (d, w) -> {
-                                McpManager.getInstance(this).removeServer(e.id);
-                                Toast.makeText(this, "已删除 " + e.title, Toast.LENGTH_SHORT).show();
-                                renderMcpSection();
-                            })
-                            .setNegativeButton("取消", null)
-                            .show();
-                }));
-            } else {
-                row3.addView(mcpPillBtn("＋ 添加", v -> {
-                    if (!McpServerConfig.isUsableEndpoint(e.endpointText)) {
-                        // 含 {mcpCode}/你的Key 的模板不能直接添加；到市场页可先改端点再添加
-                        Toast.makeText(this, "该端点含占位符，请在 MCP 市场页替换后再添加",
-                                Toast.LENGTH_LONG).show();
-                        startActivity(new Intent(this, McpMarketActivity.class));
-                        return;
-                    }
-                    McpServerConfig cfg = new McpServerConfig(e.id, e.title, e.endpointText,
-                            e.transport != null ? e.transport
-                                    : McpServerConfig.Transport.STREAMABLE_HTTP,
-                            "", true, false);
-                    McpManager.getInstance(this).upsertServer(cfg);
-                    Toast.makeText(this, "已添加「" + e.title + "」，同步后到「🔑 密钥」引用对应服务商密钥",
-                            Toast.LENGTH_LONG).show();
-                    renderMcpSection();
-                }));
-            }
-        } else {
-            row3.addView(mcpPillBtn("💡 开通指引", v ->
-                    new AlertDialog.Builder(this)
-                            .setTitle(e.title)
-                            .setMessage(e.guide + "\n\n鉴权：" + e.authNote
-                                    + "\n\n端点模板：\n" + e.endpointText)
-                            .setPositiveButton("复制端点模板", (d, w) -> {
-                                android.content.ClipboardManager cm =
-                                        (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                                cm.setPrimaryClip(android.content.ClipData.newPlainText("mcp-endpoint",
-                                        e.endpointText));
-                                Toast.makeText(this, "端点模板已复制", Toast.LENGTH_SHORT).show();
-                            })
-                            .setNegativeButton("关闭", null)
-                            .show()));
-        }
-        card.addView(row3);
-        return card;
     }
 
     private TextView mcpPillBtn(String text, View.OnClickListener listener) {
