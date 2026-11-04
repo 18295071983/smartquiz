@@ -160,19 +160,23 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:padding="@dimen/space_16">
+                <!-- 2026-11-04：标题和三个按钮原本挤在同一行。按钮宽度加起来吃掉大半个屏，
+                     标题被压到只剩几十像素 → 「在线模型」被逐字换行竖着排（真机截图可见），
+                     整行还被撑高。现在标题独占一行，按钮另起一行。 -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="在线模型"
+                    android:textSize="@dimen/text_16"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorControlText"/>
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
-                    <TextView
-                        android:layout_width="@dimen/size_0"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="在线模型"
-                        android:textSize="@dimen/text_16"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorControlText"/>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/add_online_model_button"
                         android:layout_width="wrap_content"
@@ -185,8 +189,9 @@
                         style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_api_config"
-                        android:layout_width="wrap_content"
+                        android:layout_width="0dp"
                         android:layout_height="@dimen/size_36"
+                        android:layout_weight="1"
                         android:layout_marginStart="@dimen/space_8"
                         android:text="🔑 服务商密钥"
                         app:backgroundTint="?attr/colorSurfaceVariant"
@@ -199,8 +204,9 @@
                          模型中心 → 本页，本页却没有任何地方能去看用量，用户只能退回抽屉。 -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_goto_model_center"
-                        android:layout_width="wrap_content"
+                        android:layout_width="0dp"
                         android:layout_height="@dimen/size_36"
+                        android:layout_weight="1"
                         android:layout_marginStart="@dimen/space_8"
                         android:text="📊 用量与注册"
                         app:backgroundTint="?attr/colorSurfaceVariant"
