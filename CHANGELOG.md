@@ -1,5 +1,327 @@
 # 变更日志
 
+## [2026-11-04] feat(agent)：注入集取向改成"常驻 + 动态全量 + MCP 全量"，并补上护栏与逐轮记账
+
+用户对着请求体数出来的：**tools 数组 143 个**。这不是"MCP 服务多"，我一开始就是这么猜的，
+错的——他只有高德一个服务、15 个工具。真正的来源在代码里能钉死：
+
+- `AIToolManager.getOpenAIToolDefinitions()` 自己决定"带谁"＝**内置工厂全量 + 动态工具全量**，
+  而它有两个在线/原生调用方（`OnlineInferenceService:224`、`AgentService.getAgentOpenAIToolDefinitions`
+  →`ModelExecutionBridge:630`）。135 个内置就是这么进数组的。
+- 在线主路径 `OnlineAgentEngine` 却是另一套：核心 8 + 高频预载 ≤2 + 本轮调用即注册，
+  开头还按 `MAX_SESSION_TOOLS=9` 做 LRU 淘汰。
+- 于是同一次对话在两条路径上能力不同，而"淘汰"这一条最坏：模型上一轮看过定义的工具
+  下一轮从 tools 里消失，它照样调用 → "工具不存在"，用户看到的是 AI 突然不会用。
+
+取向由用户明确两次下达："把工具数量放大，不要怕花钱"、"我有百万上下文模型，不要考虑成本"，
+以及"我也不要内置工具全量注入，mcp 和动态工具注入即可"。
+
+### 1. 注入集只有一个口径：`ToolInjectionPlan`
+
+`常驻核心 → 动态工具（按名排序）→ MCP 工具（按名排序）`，内置默认**不注入**（要用走
+`tool_registry` 发现/代执行）。分段排序换来"名单怎么变都确定"；代价写进注释而不是掩盖：
+**只有核心段的前缀稳定**，新增一个动态工具会把 MCP 段下标往后推——能力优先就不为字节好看少给能力。
+
+在线引擎每轮开始时调 `injectAllMcpTools()`：拿 `McpManager.catalogSnapshot()`（`applyCatalog`
+已经给目录内每个工具分配好稳定本地名，不需要先注册才有名字），逐条 `ensureRegistered` 取可执行名；
+**审批=禁止 的工具不给模型看**（调了必失败，比少给一个更糟），注册不出来的**计数出声**。
+以前最难查的缺法是"说要注入、其实静默少注入"，所以 `AIToolManager` 新增的
+按名单装配入口（`getOpenAIToolDefinitionsForNames`）把装配失败的名字连同名单一起记日志。
+
+### 2. 上限只当护栏，不再当节流阀，而且不再收回已给的能力
+
+`SessionToolBudget`：**400KB（≈10 万 tokens，百万上下文里约 10% 窗口）/ 600 个**。
+LRU 淘汰整条删掉，改成 `trimToFit` 只从**队尾**丢（队尾＝最近发现、模型还没调用过的），
+核心段（含 `tool_registry`/`mcp_toolbox` 这两个发现入口）永不退场。
+`registerToolIntoSession` 改为返回结论：已经在集内的工具重取定义**不会因为变胖而被逐出**。
+撞到护栏时拒绝必须进**模型看到的文本**（`[工具集上限] …`）并给出两条出路：
+`mcp_toolbox(action=call)` 代执行（不需要并定义）、`create_dynamic_tool(action=delete)` 腾位置。
+
+### 3. 逐轮记账：让"发了什么"变成数据而不是争论
+
+`CACHE-PROBE` 行加上 `tools_count` / `tools_sha`（顺序哈希）/ 分组摘要，
+`Token usage` 行同条带 `tools=N个/字节 sha=`。之前只有 messages 哈希，
+于是"命中率低是不是工具集抖动"永远只能靠推断。
+
+### 4. 管理页批量收紧（#14 欠的那半）
+
+`审批策略` 列表新增「批量设置」三步：选目标档 → 选范围（多选框，按目标档**预选**：
+收紧就默认勾中"像写操作的"，放开就勾中"判定为只读的"）→ 看改动清单再应用。
+预选判据复用 `McpManager.approvalBasis` 的文案，不在页面里再抄一份关键词表。
+落盘走 `McpManager.applyApprovalBatch`：**内存里串完派生链、只 `upsert` 一次、只记一条 AUDIT**——
+逐条 `setToolApproval` 会触发 N 轮整表重写，而保存配置会把所有服务的令牌重新加密一遍。
+0 改动不报"成功"；改完刷新列表并把数量 toast 出来。
+
+验证：`ToolInjectionPlanTest` 8 条、`SessionToolBudgetTest` 13 条、`McpApprovalBatchTest` 9 条，
+全量 **1626 条，1 跳过（联网门控的 `LiveExtractionProbeTest`），0 失败 0 错误**。
+**未真机验**：注入 143→（8+动态15+MCP15）之后模型选工具的准确率、请求体实际字节、
+`tools_sha` 连续轮次的变化点，都要在设备上跑一轮对话读 `ai_logs` 才能定案；
+批量弹框的三步交互也只能在真机上点一遍。
+
+## [2026-11-04] fix(tool)：动态工具的失败不再报成功，执行时限有单一权威
+
+做"发现 MCP 后注册动态工具"之前先审动态工具本身，结论是它把**几乎所有失败都伪装成成功**，
+而且一次调用的耗时没人管。这一批只动动态工具子系统（`create_dynamic_tool` / `ai_create_tool`
+两条创建入口 + 执行器 + 落盘），不动 MCP。
+
+### 1. 假成功有四层，逐层收
+
+- 引擎层：`DynamicToolExecutor` 只回 `String`，于是 JS 超时、`Python 执行失败: …`、
+  DSL 的 `语法错误: …` / `工具不存在: …` / `嵌套工具 X 失败` 全都被拼成"输出"。
+- 上层：`DynamicAITool` 无条件 `AIToolResult.success(result, …)`，把上面的文本当成功交出去。
+- 半成品：没有 `logic` 的工具回显自己的参数并报成功，模型据此认为"工具是好的"继续用。
+- 元工具：`action=test` 无论成败都返回 success，试运行挂了在卡片上是一条绿的；
+  `PythonDynamicTool` 的 `result` 失败分支此前已改对，但**异常分支**仍走两参构造（那构造 `success=true`）。
+
+现在执行器返回 `Outcome{success, output, error, engine}`，失败一路带到 `AIToolResult.fail`；
+**已跑出的部分结果仍然带**（只丢一句 error，模型无从判断错在哪一步）。
+DSL 改成"某行出错就停下并报第几行"，不再继续跑出一份混着错误文本的成功输出——
+后面各行通常还要用这一行的结果，继续跑出来的东西比报错更误导。
+
+### 2. 时限以前是三处各说各话
+
+JS 在执行器里硬编码 `timeout=10`（引擎上限 30）；Python 吃引擎默认 30s；DSL 每行 `call_tool`
+各自能等 30~60s 且行数无上限，一段十行脚本可以合法跑几分钟。而两个动态工具类都**不申报**
+`executionTimeoutMs`，于是调用方按 `OnlineToolManager.TOOL_TIMEOUT_MS=30s` 等——到点外层放弃、
+脚本还在跑，副作用已经发生、结果永远不会有人读。这正是 `ToolTimeouts` 注释里记录过的同一个病，
+只是动态工具这一支一直没接上。
+
+新增 `DynamicToolBudget` 作为唯一权威：单次调用脚本上限 60s，对外申报 60+5s。
+DSL **逐行自检剩余时间**（真能停），JS/Python 把剩余时间下发成引擎超时。
+刻意不在外面再套一层 `Future`：Python 的超时只是 join 不到 daemon 线程、WebView 的 JS 杀不掉，
+套一层只会多造一个"我放弃了但线程还在跑"的孤儿——那等于把问题从调用方挪进本类。
+
+### 3. 参数注入有两份已经漂了的实现 → `ScriptArgs`
+
+两份 `script_args` 拼装（`DynamicToolExecutor` 与 `PythonDynamicTool`）看着一样其实已经分叉：
+前者把 `Boolean` 直接 `toString()` 注进 Python，得到 `true`/`false`——Python 里是未定义名，
+脚本第一行就 `NameError`，而模型只看到一句"Python 执行失败"；后者给的是 `True`/`False`。
+同一个"给工具传个布尔参数"的动作，`create_dynamic_tool` 必崩、`ai_create_tool` 能跑。
+另外两份都只做 `replace("'", "\\'")`：值里的反斜杠和换行会把字面量搞坏（以 `\` 结尾能造出
+不闭合字符串，报错点还在几百行之后）。现在按字符转义、Python 用双引号字面量，DSL 的
+`${}` 替换补 `Matcher.quoteReplacement`（值里含 `$` 以前会抛 Illegal group reference）。
+
+### 4. 注册结果以前被忽略
+
+`registerDynamicTool` 返回 `boolean`、`createAndRegisterDynamicTool` 被拒时返回 `null`、
+`unregisterDynamicTool` 返回是否真删。三个调用方都接住：`create_dynamic_tool`、
+`ai_create_tool`、`PluginContext.registerJavaTool`。以前它们在被命名校验拒绝之后照样回一句
+"已注册并可以使用"，插件那条还会继续把工具注册进"模型可见"那一半——**看得见、一调就不存在**。
+
+### 5. 落盘与观测
+
+`dynamic_tools.json` 改 `.tmp` + rename：旧实现直接覆盖正式文件，进程在 write 中途被杀
+（低内存/安装/用户划掉）就留下半截 JSON，下次启动整体静默丢工具。恢复时整份读不进、
+单条坏数据、命名非法被跳过都写 AUDIT 行并计数，不再 `catch (Exception ignored) {}`。
+`DynamicAITool` 的日志改走 `AILogger`（进 `ai_logs`）且只记参数键名不记值；试运行同样不再把参数值打进日志。
+
+模型可见面同步补了两处（否则等于教模型走一条会失败的通路）：两个创建入口的 `tool_name`
+参数描述写进命名规则（权威仍是 `AIToolManager.toolNameError`），`logic` 描述补上 JavaScript
+与"一次调用最多 60 秒"。**代价**：这两条字符串在 tools 数组里，改一次＝前缀缓存整体失效一轮。
+
+验证：`DynamicToolExecutionTest` 21 条（DSL 成败与停行位置、变量不跨调用残留、`$`/反斜杠转义、
+布尔与 org.json 注入、预算夹取、六个接线断言）+ `DynamicToolNamingTest` 8 条；
+全量 1594 条，1 跳过（`LiveExtractionProbeTest` 需要 `LIVE_NET=true`，本就没有联网），0 失败 0 错误。
+**未真机验**：Python / JS 两条引擎支路（要装包和 WebView）、失败结果在对话流里的卡片降级、
+`ai_logs` 里新增的 AUDIT 行实际落盘。
+
+## [2026-11-04] feat(mcp)：目录之外的 MCP 能力（resources/prompts/统计/冷启动）+ 审批作用域分档
+
+用户提的原话是"我感觉 mcp 工具还是能力弱了点"，并逐条点名：只做 `tools`、没有
+resources/prompts；目录不持久化，重启到首次同步前搜出来是空的；没有按服务的成本/配额提示；
+审批缺"这一轮别再用弹框打断我"的正确作用域。这一批就是把这些补上。
+
+### 1. 客户端补 `tools` 之外的三种面
+
+`McpClient` 增加 `listResources()` / `listResourceTemplates()` / `readResource(uri)` /
+`listPrompts()` / `getPrompt(name, arguments)`，全部走同一个 `pagedItems(...)` 分页器：
+页数上限 20、条目上限 `MAX_CATALOG_ITEMS=500`、**游标重复即停**——异常服务端回同一个
+`nextCursor` 时不能把同步线程挂死。是否调用先问 capabilities（`supportsResources()`/
+`supportsPrompts()`），服务商没声明支持时返回空表而不是抛错。
+新增结构体 `McpResourceInfo`（uri/name/description/mimeType/isTemplate）与 `McpPromptInfo`。
+
+### 2. 目录持久化与冷启动
+
+`McpCatalogStore`：每个服务一份 `files/mcp_catalog/<id>.json`，**`.tmp` + rename** 原子写，
+存 `syncedAtMs / tools / resources / templates / prompts / capabilities`。
+`McpManager.init` 里 `loadColdCatalogs()` 先读磁盘，于是重启后第一次同步之前
+`mcp_toolbox(action=search)` 就有结果，不再"搜出来是空的"；同步成功后
+`refreshExtraCapabilities` 再补 resources/prompts。`removeServer` 会删掉这份缓存文件并撤销 OAuth 授权。
+`serverSummaries` 带 `catalog_freshness`，管理页能看出目录是几分钟前的。
+
+### 3. 调用统计与计费提示（只到数据层）
+
+进程内计数：`recordCall` / `recordServerRead` + `callsForServer` / `failuresForServer` /
+`readsForServer` / `toolStatsSnapshot(limit)`，`serverSummaries` 一并给出。
+市场条目带 `costNote`。**这一半只做到"数据与工具层能读到"，管理页还没有展示位**（见末尾欠账）。
+
+### 4. `mcp_toolbox` 从 4 个动作扩到 8 个
+
+`search / get / call / resources / read / prompts / use_prompt / stats`，
+`get` 的结果里同时返回 `approval` 与 `approval_basis`：模型看到"会弹确认"却不知道为什么会弹，
+就会把危险的说成安全或反过来——依据必须和结论一起给它。在线提示词那一行同步改写，golden 已重生成。
+
+### 5. 审批作用域改成六档
+
+`McpApprovalManager.Decision`＝`DENY / ALLOW_ONCE / ALLOW_RUN / ALLOW_SESSION /
+ALLOW_SESSION_ALL / ALLOW_ALWAYS`。放行登记按作用域分键：run 级键是
+`"run:" + sessionId + ":" + runId + "::" + serverId`（**必须带 sessionId**，否则两个会话的
+runId 撞了就互相放行），会话级按 `session + serverId`，都是进程内 LRU（上限 128）；
+弹框逐项写清作用域，60 秒超时按拒绝处理。`ALLOW_ALWAYS` 只在拿不到会话号的路径上当兜底出现——
+用户在读回答读到一半时不该有"一键永久闭嘴"的机会，永久档要回管理页明确设。
+
+验证：`McpApprovalScopeTest` 9 条、`McpToolboxToolContractTest` 5 条、
+`McpManagerInternalsTest`/`McpServerConfigTest` 相应补断言，全量单测绿。
+**这批的诚实欠账**：resources/prompts 调用面、`McpCatalogStore` 持久化与冷启动、统计三块
+**都没有单测**（`grep resources/list|prompts/list|McpCatalogStore|toolStatsSnapshot` 在 `src/test` 下零命中），
+只有编译与真机读日志能证；全量绿只证明没改坏老东西，不证明新动作对。
+另外管理页缺统计/`costNote` 展示位，"这一轮 N 个工具合并成一个预览再决定"也没做——
+现在仍然是一个一个弹，只是可以用批量档预先放开。
+
+## [2026-11-04] fix(mcp)：审批默认档按服务商现实重定 + URL 里的 Key 不再明文落盘
+
+**触发点是真机日志，不是我觉得哪里丑**。设备上 `ai_log_20261104.txt` 的 AUDIT 行还原出这一段：
+
+```
+10:20:51 [McpMarket] 安装 高德地图 MCP（amap-maps）端点 https://mcp.amap.com/mcp?key=**** 启用=true 探测=通过
+10:21:51 ALLOW 高德地图 MCP/maps_text_search  reason=允许一次
+10:21:56 ALLOW 高德地图 MCP/maps_weather      reason=允许一次
+10:27:27 ALLOW 高德地图 MCP/maps_text_search  reason=允许一次
+10:27:45 ALLOW 高德地图 MCP/maps_geo          reason=允许一次
+10:27:59 ALLOW 高德地图 MCP/maps_direction_driving reason=允许一次
+10:28:10 ALLOW …/maps_direction_transit_integrated reason=始终允许此工具 → approval set → auto
+10:28:30 ALLOW …/maps_schema_navi reason=始终允许此工具 → approval set → auto
+```
+
+一次查地图的对话里弹了 **6 次**，最后用户为了把答案看完，连续点了两次"始终允许"。
+这就是"基础设施没做好、体验也不好"的具体形状：审批把所有外部工具当写操作，
+而用户在这种时刻给不出知情同意——他只是在止损。
+
+### 1. 默认档：注解优先，缺注解按名称/描述判断
+
+我拿同一个 Key 跑了一次高德 `tools/list`：15 个工具，**0 个带 `annotations`**（`readOnlyHint`/`destructiveHint` 全缺）。
+所以"没有注解就询问"这条规则的落点不是"危险工具"，而是**全部工具**。现在：
+
+- 服务商自报注解仍然最优先（`readOnlyHint=true` → 自动；`destructiveHint=true` 或 `readOnlyHint=false` → 询问）。
+- 缺注解时按高精度词表判断：名字按 `_-.` 切 token 命中 delete/drop/send/pay/exec/write/update/create… 或描述命中
+  删除/发送/支付/写入/执行/授权… 才询问；其余（`maps_geo`、`maps_weather`、`maps_direction_*`）自动。
+- 误判方向刻意是"多问一次"：词表只做高置信匹配，宁可漏放一个查询词，不错过一个写词。
+- 显式策略永远盖过推断（`getToolApproval` 先查）。
+
+判定依据同时可见：管理页策略列表每一项后面写清"服务商声明只读 / 无注解·未命中写操作关键词 /
+无注解·名称/描述像写操作（delete）/ 你在管理页设定过"。不可解释的策略表只会让人一路点最宽那档。
+
+### 2. 一次性确认里加"本次对话都允许"，永久档退回管理页
+
+`McpApprovalManager` 加 `ALLOW_SESSION`：按 **会话 + serverId** 在内存里放行，不落配置、进程内有效、
+LRU 上限 64。弹框三档变成 `允许一次 / 本次对话都允许 / 拒绝`，并在正文里写明
+"要永久放开：MCP 管理 → 工具 → 审批策略 → 自动允许"。拿不到会话号时（非 Agent 路径）才退回"始终允许"。
+
+分层的理由：用户点"始终允许"的时机，恰恰是他不想被打断的时候，不是他评估过风险的时候。
+把永久决定留在管理页，把"这轮别问了"留在弹框。
+
+### 3. Key 不再明文躺在配置里
+
+同一条日志还暴露了另一半问题：`token` 字段走 Keystore 加密，而 `mcp.amap.com/mcp?key=<32位明文>`
+整个 URL 是明文写进 `smartquiz_mcp_config.xml` 的——同一个文件里两类凭证两种保密程度，
+我之前只做了显示层脱敏（`maskUrl`），没做存储层。现在：
+
+- `McpServerConfig` 增加 `{key}` 占位符一套口径（`urlNeedsSecret` / `injectSecret` /
+  `splitQuerySecret` / `isUsableEndpointWithKeyPlaceholder`），`maskUrl` 与 `splitQuerySecret`
+  共用同一份参数名名单（key/token/api_key/apikey/access_token/secret），两处不一致就一定会漏一处。
+- `resolvedCfg` 在**发请求前**把密钥拼回端点，并且拼过之后清空 Bearer——同一条密钥不重复发两遍。
+- 市场条目新增 `secretPlaceholder` 字段：`QUERY_KEY` 类服务（高德、腾讯位置服务）在向导里有
+  独立的"🔑 密钥"输入框，端点里只留 `https://mcp.amap.com/mcp?key={key}`；
+  把真实 Key 直接粘进端点会被拒并指到密钥框。清单里没给占位符的 `QUERY_KEY` 条目算数据问题（解析时报错）。
+- 管理页对历史明文配置给一行可点提示 →「把 Key 收进密钥库」，一次确认后
+  端点变模板、值进加密 token，并提醒"这个 Key 曾以明文存在过，怀疑泄露就去服务商换新"。
+- `{mcpCode}` 那类**编号**占位符没跟着改：它不是秘密，本来就该用户手抄进端点。
+
+### 4. 顺手两处
+
+- 市场安装去掉多余的"正在连接…"模态框：进度写在表单自己的状态行，按钮禁用、关框即中止
+  （原来一次安装要点三下并盯一个只有"中止"的空框）。
+- `mcp_toolbox.get` 的返回加 `approval` 与 `approval_basis`，并把提示文案改成新口径。
+  不给模型看这些，它会以为所有外部工具都要用户点头，或反过来把写操作说成查询。
+
+### 验证与未验
+
+- 全量 `testDebugUnitTest` **1561 条，0 失败 0 错误 1 skipped**（本轮 +19）。
+  新增/改写的测试：`McpApprovalSessionTest`（会话放行粒度与上限）、
+  `McpApprovalAndSecretWiringTest`（默认档、依据、密钥口径的源码契约 + 清单不许出现真实 Key）、
+  `McpManagerInternalsTest` 里审批那两条改成"注解→启发式"的新口径、
+  `McpServerConfigTest` 加占位符注入/迁移/转义，`McpMarketInstallerTest` 加密钥路径。
+- 词表判定是**纯静态**的，它一定会漏掉某个没见过的动词（例如 `commit`、`provision`）；
+  漏掉的会走"自动"，靠管理页手工收紧，不假装能穷举。
+- 没做：按服务商整体设默认档（"这家全免确认"）、工具级配额/花费上限、审批弹框的"这次会话允许这 N 个工具"合并预览。
+- 高德那次连通是真的（`探测=通过`，工具目录已同步）；本轮改动**需要重新在手机上跑一遍同一段对话**
+  才能确认真的少弹了——这是唯一能证伪"我还是在猜"的检查。
+
+**回滚**：默认档与密钥存储是两套独立改动，可分别 revert。
+只回滚密钥那半会让 `{key}` 模板配置的请求带着占位符出去（必然失败）；
+若设备上已有用新向导装的条目，回滚前先把它改成明文端点。
+
+
+## [2026-11-04] feat(mcp)：接进标准 OAuth（元数据发现 + 动态注册 + PKCE + 双回调）
+
+**为什么现在做**：上一轮把三条"其实装不上"的服务标出来后，留了个尾巴——MaxCompute 与 OpenAPI MCP
+卡在授权上，我当时写的是"App 未实现 OAuth，装了也没用"。用户点完市场只得到一句"要浏览器授权"却无处可点，
+这种提示比不提示更烦人。查下来两家服务商都把授权链按 MCP Authorization 规范公布好了，
+而且都开了动态注册，**不需要用户去申请 client_id**，所以这条路能真跑通，就补上。
+
+### 取证（2026-11-04，本机协议级探测，非文档转述）
+
+- 阿里云 OpenAPI MCP：401 头给 `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource/s/Cms/cms/<服务ID>/mcp"`；
+  该文档再指向授权服务，元数据为 `authorize=signin.aliyun.com/oauth2/v1/auth`、`token=oauth.aliyun.com/v1/token`、
+  `register=<该服务>/register`、`revoke=oauth.aliyun.com/v1/revoke`、`PKCE=S256`、`token_endpoint_auth_method=["none"]`。
+  用 `redirect_uris=["smartquiz-mcp-oauth://callback"]` POST `/register` 实测 **201 Created**，
+  回 `client_id=4071151845732613353`、`expires_at` 约一年后。
+- MaxCompute：401 只给 `Bearer scope="maxcompute:read maxcompute:sql"`（**没有 resource_metadata**），
+  但同源 `/.well-known/oauth-authorization-server` 存在并给出全套端点；
+  `/oauth/register` 对自定义 scheme 回 **400 invalid_redirect_uri:
+  redirect_uri must be RFC 8252 loopback or match the trusted HTTPS callback policy**。
+  两家的差别是真实存在的，所以回调地址必须两条都备。
+
+### 做了什么
+
+- `McpOAuthEndpoints`：三段发现链（401 头 → protected-resource → authorization-server）。
+  没给 `resource_metadata` 时按同源规范路径兜底，`authorization_servers`（站点根）与
+  `authorization_server_url`（完整文档地址）两种写法都吃，`openid-configuration` 作二次兜底。
+- `McpPkce`：S256；`McpOAuthClient`：动态注册、authorize URL（带 RFC 8707 的 `resource` 参数，
+  值只取受保护资源文档里的 `resource`，不猜）、code→token、refresh、revoke。公开客户端不申请也不保存 client_secret。
+- 双回调：`McpOAuthFlowActivity`（manifest 注册 `smartquiz-mcp-oauth` scheme，exported + BROWSABLE，
+  只认 state）与 `McpLoopbackReceiver`（绑 127.0.0.1 随机端口并保持占用直到授权结束，
+  因为注册申报的端口和收码的端口必须是同一个）。注册时先用自定义 scheme，
+  被 `redirect uri` 类错误拒掉才换环回重登记一次，第二支也不行就报失败——不死缠服务商注册接口。
+- `McpOAuthPending`：state → 等待中的一次授权；state 对不上当场丢弃，同一时刻只允许一条在等
+  （并发起两条必然有一条白等 5 分钟）。
+- `McpTokenStore` + `McpOAuthRecord`：按 serverId 存 client_id / 端点快照 / access / refresh，
+  令牌字段走 `ApiKeyCipher`（Keystore AES-GCM）；写入用 `commit()`——上一轮真机 E2E 已经证明
+  `apply()` 会在进程被杀时丢数据。`McpOAuthRecord` 的 JSON 序列化不碰 Android 类，所以能在 JVM 里测。
+- 连接与执行链路：两条传输把 401/403 转成 `McpAuthRequiredException`（404/500 不当授权问题）；
+  `McpManager` 状态新增 `auth_required`；`resolveToken` 在无静态凭证时用 OAuth 令牌，
+  临期自动续期；工具执行被 401 挡下先试静续、成功就重建连接重试，失败才把"去点授权"告诉模型。
+- 独立授权线程 `authExecutor`：一次授权最长阻塞 5 分钟，占住同步线程会让其它服务的 `tools/list` 排队。
+- 市场档位语义变了：`NEEDS_OAUTH` 从"不兼容"改成"可安装，装时多点一次授权"，
+  于是 `isConnectable()` 含它、分组顺序里排第三；清单里 MaxCompute 移出 blocked 档并补上新的自检证据。
+- 管理页：状态徽标"需授权"用错误色；点进去首位按钮就是「🔐 去授权」，"立即刷新"退为次要按钮
+  （刷一百次也不会变成已授权）；「🔗 密钥」里显示授权状态并可「🔓 撤销授权」。
+- 市场向导：被 401 挡下时给「🔐 去授权」，会先把这条落盘成**停用**项（令牌要按 serverId 存），
+  授权回来自动复测，通过才启用——不改变"通了才启用"的口径。
+
+### 没做与没验
+
+- **端到端登录没跑过**：注册与元数据这三段是本机实测的，"浏览器里登录→回传→换令牌"必须在手机上点，
+  装完包第一次授权就是它的验证；环回那一支还要留意系统浏览器的拦截提示。
+- 没做 client_id 手工填写入口：两家都开了动态注册。真遇到不开注册端点的服务商，
+  现在只会报"没开动态注册"，届时再决定要不要加手填框，而不是先造一个没人用的输入项。
+- 没实现"同时多条授权"（受 `McpOAuthPending` 单条等待限制）；没做 token_endpoint 的 private_key_jwt 之类高级认证。
+- 令牌到期后若 refresh 被拒，只把状态落回 `auth_required`，不静默重跑浏览器流程——那需要用户在场。
+
+**回滚**：整笔 revert。市场/管理页的文案与 `NEEDS_OAUTH` 档位语义要一起回退，
+否则会出现"能点安装但永远连不上"的第三条。
+
+
 ## [2026-11-04] feat(mcp)：市场清单 JSON 化 + 先探测再启用 + 配置写入口收口
 
 **为什么重做市场**：`7c16c7f9` 那版市场是「Java 常量里的 7 张卡片 + 可直连/需开通二分」，
