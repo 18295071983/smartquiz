@@ -97,14 +97,30 @@ public class McpMarketCatalogTest {
     }
 
     @Test
-    public void maxComputeIsNoLongerOfferedAsInstallable() throws Exception {
-        // 旧版把这条标成「可直连」，但官方 Remote MCP 只走浏览器 OAuth，装了必然连不上
+    public void maxComputeIsItsOwnTierAndNotAFakeDirectHit() throws Exception {
+        // 旧版把这条标成「可直连」，但它既不要 AccessKey 也不能凭 URL 连上——
+        // 现在单独一档"需授权"：可以装，向导里会打开浏览器，且不能谎报成填密钥就行
         McpMarketEntry mc = byId(snapshot().entries, "aliyun-maxcompute");
-        assertNotNull("MaxCompute 条目应保留在清单里作为说明", mc);
+        assertNotNull(mc);
         assertEquals(McpMarketEntry.Capability.NEEDS_OAUTH, mc.capability);
         assertEquals(McpMarketEntry.Auth.OAUTH, mc.auth);
-        assertFalse(mc.capability.isConnectable());
-        assertFalse("必须写明被挡的原因", mc.blockedReason.isEmpty());
+        assertTrue("授权链已接通，这条必须给安装入口", mc.capability.isConnectable());
+        assertTrue("可安装档不该留 blockedReason：" + mc.blockedReason, mc.blockedReason.isEmpty());
+        assertNotNull(mc.defaultEndpoint());
+        assertTrue("指引要写清点哪里授权：" + mc.guideText(), mc.guideText().contains("授权"));
+        assertTrue("自检要写下注册被拒的真相（环回回调）：" + mc.probe.evidence,
+                mc.probe.evidence.contains("loopback"));
+    }
+
+    @Test
+    public void authorizationCapableEntriesSaySoWithoutAskingForKeys() throws Exception {
+        for (McpMarketEntry e : snapshot().entries) {
+            if (e.auth != McpMarketEntry.Auth.OAUTH) continue;
+            assertTrue("声明要授权的服务必须可安装（否则该删掉这条）：" + e.id,
+                    e.capability.isConnectable());
+            assertFalse("authHint 要写清授权而不是让人找密钥：" + e.id,
+                    e.authHint.contains("尚未实现"));
+        }
     }
 
     @Test

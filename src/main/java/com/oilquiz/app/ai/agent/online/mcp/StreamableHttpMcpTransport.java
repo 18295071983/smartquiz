@@ -116,6 +116,9 @@ public class StreamableHttpMcpTransport implements McpTransport {
         }
         try (Response r = resp) {
             if (!r.isSuccessful()) {
+                McpAuthRequiredException auth = McpAuthRequiredException.fromFailure(
+                        endpoint, r.code(), r.header("WWW-Authenticate"));
+                if (auth != null) throw auth;
                 throw new java.io.IOException("MCP 请求失败: HTTP " + r.code());
             }
             // 会话 id 可能在本轮下发，也可能不带（无状态服务）

@@ -34,7 +34,7 @@ public final class McpMarketInstaller {
             case PORTAL_ONLY:
                 return "仅网页取端点";
             case NEEDS_OAUTH:
-                return "需浏览器授权";
+                return "需授权";
             case LOCAL_ONLY:
             default:
                 return "本地包·不兼容";
@@ -49,10 +49,10 @@ public final class McpMarketInstaller {
                 return "端点固定，填好密钥就能在这台手机上连";
             case PROVISIONED_REMOTE:
                 return "先去厂商控制台开通，把端点里的占位符换成你自己的";
+            case NEEDS_OAUTH:
+                return "端点固定，但要先在浏览器里授权一次；App 会自己完成登记与续期";
             case PORTAL_ONLY:
                 return "只有网页广场：端点要在服务详情页现取，取到后到管理页手动添加";
-            case NEEDS_OAUTH:
-                return "端点可达，但每次都要浏览器完成厂商 OAuth，App 还没实现授权流程";
             case LOCAL_ONLY:
             default:
                 return "官方只有本地 stdio/npx 分发，Android 端起不来这个进程";
@@ -69,9 +69,9 @@ public final class McpMarketInstaller {
             case BEARER_TOKEN:
                 return "Bearer 令牌";
             case OAUTH:
-                return "浏览器 OAuth";
+                return "浏览器授权";
             case MIXED:
-                return "Bearer 或 OAuth";
+                return "Bearer 或浏览器授权";
             case UNKNOWN:
             default:
                 return "鉴权随服务而定";
@@ -103,11 +103,22 @@ public final class McpMarketInstaller {
     // ==================== 校验 ====================
 
     /**
+     * 安装请求校验（不带密钥的旧口径，等价于 secret=""）。
+     */
+    public static String validateInstall(McpMarketEntry entry, String endpoint) {
+        return validateInstall(entry, endpoint, "");
+    }
+
+    /**
      * 安装请求校验。
+     *
+     * <p>密钥类条目走单独一条规则：端点里必须<b>保留 {@code {key}} 占位符</b>，Key 从
+     * {@code secret} 参数进来。把真实 Key 直接写进端点会被拒——那样它就是明文落盘，
+     * 和"Bearer 类密钥加密存"是两套口径，用户在管理页看到同一类字段却得到不同保证。</p>
      *
      * @return 通过返回 {@code null}；否则返回给用户看的错误文案
      */
-    public static String validateInstall(McpMarketEntry entry, String endpoint) {
+    public static String validateInstall(McpMarketEntry entry, String endpoint, String secret) {
         if (entry == null) return "清单里没有这条服务";
         if (!entry.capability.isConnectable()) {
             String reason = entry.blockedReason.isEmpty()
@@ -116,6 +127,26 @@ public final class McpMarketInstaller {
         }
         String url = endpoint == null ? "" : endpoint.trim();
         if (url.isEmpty()) return "端点不能为空";
+
+        boolean needsSecret = !entry.secretPlaceholder.isEmpty();
+        if (needsSecret) {
+            String placeholder = "{" + entry.secretPlaceholder + "}";
+            if (secret == null || secret.trim().isEmpty()) {
+                return "请在「密钥」里填上 Key（端点里保留 " + placeholder + " 就行）";
+            }
+            if (!url.contains(placeholder)) {
+                if (McpServerConfig.splitQuerySecret(url)[1].length() > 0) {
+                    return "把 Key 从端点里删掉、只留 " + placeholder
+                            + "，真实值填在「密钥」框里——这样它才会被加密保存";
+                }
+                return "端点里要保留 " + placeholder + "，安装时由 App 把密钥拼进去";
+            }
+            if (!McpServerConfig.isUsableEndpointWithKeyPlaceholder(url)) {
+                return "端点不是合法的 http(s) 地址，请整条保留清单给的模板";
+            }
+            return null;
+        }
+
         if (McpMarketEntry.hasPlaceholder(url)) {
             return "端点里还有占位符 {"
                     + McpMarketEntry.placeholderName(url) + "}，先换成真实值";
@@ -127,6 +158,12 @@ public final class McpMarketInstaller {
             return "端点不是合法的 http(s) 地址，请整条粘贴控制台下发的 URL";
         }
         return null;
+    }
+
+    /** 密钥输入框的标签；不需要密钥时返回空串。 */
+    public static String secretFieldLabel(McpMarketEntry entry) {
+        if (entry == null || entry.secretPlaceholder.isEmpty()) return "";
+        return "🔑 密钥（" + entry.secretPlaceholder + "）";
     }
 
     /**
@@ -141,8 +178,11 @@ public final class McpMarketInstaller {
         if (entry.auth == McpMarketEntry.Auth.QUERY_KEY && !url.contains("key=")) {
             tips.add("该服务把密钥写在 URL 里（" + entry.authHint + "），当前端点没看到 key= 参数");
         }
-        if ((entry.auth == McpMarketEntry.Auth.OAUTH) && entry.capability.isConnectable()) {
-            tips.add("该服务声明需要浏览器 OAuth，App 暂未实现授权流程");
+        if ((entry.auth == McpMarketEntry.Auth.OAUTH
+                || entry.auth == McpMarketEntry.Auth.MIXED)
+                && entry.capability.isConnectable()) {
+            tips.add("这条服务走浏览器授权：测试连接被 401 挡下后点「🔐 去授权」，"
+                    + "在浏览器里登录同意即可，之后令牌自动续期");
         }
         if (url.startsWith("http://")) {
             tips.add("明文 HTTP 端点：密钥会随请求裸传，除非在可信内网，否则别用");
@@ -174,13 +214,26 @@ public final class McpMarketInstaller {
     }
 
     /**
-     * 组装配置。
-     *
-     * @param enabled 只有探测通过后、由用户显式确认才传 true（失败时另存为停用）
+     * 组装配置（不带密钥的旧口径）。
      */
     public static McpServerConfig buildConfig(McpMarketEntry entry, String endpoint,
                                               String displayName, McpServerConfig.Transport transport,
                                               String tokenRef, boolean enabled) {
+        return buildConfig(entry, endpoint, displayName, transport, tokenRef, "", enabled);
+    }
+
+    /**
+     * 组装配置。
+     *
+     * @param tokenRef 引用密钥库里的哪个键名（Bearer 类服务用）
+     * @param secret   端点 {@code {key}} 占位符要的密钥值（URL 带 key 类服务用）。
+     *                 配置里存的是带占位符的端点，这个值由 {@code McpConfigStore}
+     *                 用 Keystore 加密后放在 token 字段，发请求前才拼回 URL
+     * @param enabled  只有探测通过后、由用户显式确认才传 true（失败时另存为停用）
+     */
+    public static McpServerConfig buildConfig(McpMarketEntry entry, String endpoint,
+                                              String displayName, McpServerConfig.Transport transport,
+                                              String tokenRef, String secret, boolean enabled) {
         String url = endpoint == null ? "" : endpoint.trim();
         McpServerConfig.Transport t = transport != null ? transport : transportFor(url,
                 McpServerConfig.Transport.STREAMABLE_HTTP);
@@ -189,7 +242,7 @@ public final class McpMarketInstaller {
                 displayName(displayName, entry),
                 url,
                 t,
-                "",
+                secret == null ? "" : secret.trim(),
                 tokenRef == null ? "" : tokenRef.trim(),
                 enabled,
                 // 来源标"清单装入"：管理页据此在手填项后标"(手动添加)"
@@ -238,7 +291,7 @@ public final class McpMarketInstaller {
             hints.add("鉴权没过：确认密钥已存进密钥库并在管理页引用，或把 URL 里的 key= 换成真实 Key");
             if (entry.auth == McpMarketEntry.Auth.OAUTH
                     || entry.auth == McpMarketEntry.Auth.MIXED) {
-                hints.add("该服务也支持浏览器 OAuth，但 App 目前只走 Bearer/URL Key 这一支");
+                hints.add("这条服务还能走浏览器授权：点「🔐 去授权」登录同意即可，不用手填密钥");
             }
         }
         if (err.contains("404") || err.contains("not found")) {
@@ -262,5 +315,19 @@ public final class McpMarketInstaller {
         List<String> hints = failureHints(entry, r);
         if (hints.isEmpty()) return "";
         return String.join("\n", hints);
+    }
+
+    /**
+     * 探测被"要授权"挡下时的说明（向导弹框用）。
+     *
+     * <p>刻意写清"不用你填 client_id"：一提到 OAuth，用户的普遍预期是要去服务商控制台建应用、
+     * 复制一串标识回来。这两家都开了动态注册，登记由 App 自己做，讲清楚才不会出现
+     * "我去哪找 client_id"这种回头问。</p>
+     */
+    public static String authorizationHint(McpMarketEntry entry) {
+        if (entry == null) return "这条服务要求先完成浏览器授权。";
+        return "这条服务要先在浏览器里授权一次（" + authLabel(entry.auth) + "）。"
+                + "登记本机、PKCE、换令牌、到期续期都由 App 自动完成，"
+                + "不需要你填 client_id，也不需要申请密钥。";
     }
 }

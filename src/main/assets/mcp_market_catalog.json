@@ -12,6 +12,8 @@
       "capability": "DIRECT_REMOTE",
       "auth": "QUERY_KEY",
       "authHint": "腾讯位置服务 WebServiceAPI Key（须先开启 WebServiceAPI 功能并有调用配额），以 URL query 的 key 参数携带",
+      "secretPlaceholder": "key",
+      "costNote": "按调用次数计入配额，超出后按量计费；Key 泄露会被别人刷你的额度（官方文档建议配 IP 白名单）",
       "endpoints": [
         {
           "transport": "streamable_http",
@@ -27,7 +29,7 @@
       "guide": [
         "1. 打开腾讯位置服务控制台，注册并实名认证",
         "2. 创建应用 → 添加 Key，服务平台选「WebService」，勾选需要的接口配额",
-        "3. 把 Key 填进下方端点的 {key} 位置（Key 在 URL 里，无需再引用密钥）",
+        "3. 在向导的「密钥」框里填 Key（端点里只留 {key} 占位符，Key 加密后单独存）",
         "4. 点「测试连接」确认能列出工具，再启用"
       ],
       "docsUrl": "https://lbs.qq.com/service/MCPServer/MCPServerGuide/userGuide",
@@ -49,6 +51,8 @@
       "capability": "DIRECT_REMOTE",
       "auth": "QUERY_KEY",
       "authHint": "高德开放平台 Web 服务类型 Key（控制台创建应用后添加 Key），以 URL query 的 key 参数携带",
+      "secretPlaceholder": "key",
+      "costNote": "搜索/路径规划等接口按调用次数计额度，个人开发者认证后额度更高；超出部分按量收费，Key 泄露会被盗刷",
       "endpoints": [
         {
           "transport": "streamable_http",
@@ -59,7 +63,7 @@
       "guide": [
         "1. 打开高德控制台，注册并建议认证为个人开发者（配额更高）",
         "2. 创建应用 → 添加 Key，服务平台必须选「Web 服务」",
-        "3. 把 Key 填进下方端点的 {key} 位置",
+        "3. 在向导的「密钥」框里填 Key——端点里只留 {key}，Key 单独加密保存，不再明文写进配置文件",
         "4. 高德按调用次数计费，Key 泄露会被盗刷，建议同时配置 IP 白名单"
       ],
       "docsUrl": "https://lbs.amap.com/api/mcp-server/gettingstarted",
@@ -81,6 +85,7 @@
       "capability": "PROVISIONED_REMOTE",
       "auth": "BEARER_TOKEN",
       "authHint": "百炼 API Key（DASHSCOPE_API_KEY），Bearer 方式；先在管理页「🔗 密钥」把 Key 存进密钥库再引用",
+      "costNote": "百炼广场里多数服务按调用计量计费，具体以该服务详情页的计费说明为准",
       "endpoints": [
         {
           "transport": "streamable_http",
@@ -112,7 +117,8 @@
       "description": "用自然语言调用阿里云 OpenAPI（ECS/云监控/OSS 等），可查询监控指标、资源状态与告警。",
       "capability": "PROVISIONED_REMOTE",
       "auth": "MIXED",
-      "authHint": "两种认证：静态凭证（AccessKey，Bearer）或阿里云官方 OAuth。本 App 只能用静态凭证；OAuth 授权流程尚未实现",
+      "authHint": "两种都可以：AccessKey 静态凭证（Bearer 引用），或浏览器授权（阿里云 OAuth，App 自动登记本机 + PKCE）",
+      "costNote": "调用的是真实云 API，费用按对应云产品计费规则走你的账号账单——选 API 时先看它是否会创建/变更资源",
       "endpoints": [
         {
           "transport": "streamable_http",
@@ -134,7 +140,7 @@
       "probe": {
         "checkedAt": "2026-11-04",
         "result": "auth_required",
-        "evidence": "旧版内置示例端点 .../s/Cms/cms/9fe7.../mcp POST 返回 401。该 hash 属他人服务实例，即便补上 Bearer 也不该借用 → 已改为占位模板，只走你自己下发的端点"
+        "evidence": "POST 示例端点 → 401 + WWW-Authenticate: Bearer resource_metadata=\".../.well-known/oauth-protected-resource/s/Cms/cms/<服务ID>/mcp\"；该文档给出授权服务，授权服务元数据给出 authorize=signin.aliyun.com/oauth2/v1/auth、token=oauth.aliyun.com/v1/token、register=本服务 /register、PKCE=S256、token_endpoint_auth_method=none。/register 用自定义回调 smartquiz-mcp-oauth://callback 实测 201 回 client_id（有效期约 1 年）。旧版内置的那条 hash 端点属他人服务实例，已换成占位模板"
       }
     },
     {
@@ -145,7 +151,7 @@
       "description": "自然语言查询/分析 MaxCompute 数仓（元数据、SQL、表管理）。官方托管端点固定。",
       "capability": "NEEDS_OAUTH",
       "auth": "OAUTH",
-      "authHint": "官方文档：Remote MCP 用阿里云浏览器 OAuth 授权；AccessKey/STS 等静态凭证只用于 Local MCP（Python 本地进程）",
+      "authHint": "浏览器授权一次（阿里云 OAuth，PKCE 公开客户端）；scope: maxcompute:read maxcompute:sql",
       "endpoints": [
         {
           "transport": "streamable_http",
@@ -154,19 +160,20 @@
         }
       ],
       "guide": [
-        "端点可以直接填，但每次连接都要浏览器完成阿里云 OAuth 授权。",
-        "本 App 未实现 OAuth 回调，所以现在加了也连不上；等接入 OAuth 后这条会自动变成「可直连」。",
-        "替代路径：在自己电脑/服务器上跑 Local MCP Server（AK/STS 鉴权），再用云开发之类把它托管成远程端点，然后把那个端点当「需开通」条目添加。"
+        "1. 点「＋ 安装」→「测试连接」，会被 401 挡下并提示需要授权",
+        "2. 点「🔐 去授权」：App 自己向服务商登记本机（动态注册）、生成 PKCE、打开浏览器",
+        "3. 在浏览器里登录阿里云账号并同意，回到 App 会自动复测并启用",
+        "4. 令牌临期自动续期；要收回就在管理页「🔗 密钥」里撤销授权",
+        "注意：这家只接受本机环回回调（127.0.0.1），授权期间别让别的 App 占同一端口"
       ],
-      "blockedReason": "需浏览器 OAuth 授权，App 尚未实现 MCP 授权流程",
       "docsUrl": "https://help.aliyun.com/zh/maxcompute/getting-started/mcp-overview-and-access",
       "consoleUrl": "https://maxcompute.console.aliyun.com/",
-      "tags": ["阿里云", "数仓", "SQL", "MaxCompute"],
+      "tags": ["阿里云", "数仓", "SQL", "MaxCompute", "OAuth"],
       "verifiedAt": "2026-11-04",
       "probe": {
         "checkedAt": "2026-11-04",
         "result": "auth_required",
-        "evidence": "POST /mcp 返回 401 + WWW-Authenticate: Bearer scope=\"maxcompute:read maxcompute:sql\"，body=no bearer token → 端点存活，但要的是 OAuth 令牌而非普通 AccessKey"
+        "evidence": "POST /mcp → 401 + WWW-Authenticate: Bearer scope=\"maxcompute:read maxcompute:sql\"（没给 resource_metadata）；同源 /.well-known/oauth-authorization-server 存在，给出 authorize/token/register/revoke、PKCE=S256、token_endpoint_auth_method=none。/oauth/register 实测拒绝自定义 scheme（invalid_redirect_uri: must be RFC 8252 loopback），所以本机改走 127.0.0.1 环回接收。授权链按协议核验过，端到端登录尚未跑过"
       }
     },
     {

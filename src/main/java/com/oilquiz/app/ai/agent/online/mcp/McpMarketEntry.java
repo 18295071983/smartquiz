@@ -32,7 +32,7 @@ public final class McpMarketEntry {
         PORTAL_ONLY,
         /** 官方只有本地 stdio/npx 分发，Android 端起不来 */
         LOCAL_ONLY,
-        /** 端点可达但需浏览器 OAuth 授权，本 App 尚未实现授权流程 */
+        /** 端点固定，但要先在浏览器里授权一次（App 已支持这条链路） */
         NEEDS_OAUTH;
 
         public static Capability fromWire(String raw) {
@@ -44,9 +44,15 @@ public final class McpMarketEntry {
             }
         }
 
-        /** 只有这两档允许走安装向导。 */
+        /**
+         * 是否允许走安装向导。
+         *
+         * <p>{@link #NEEDS_OAUTH} 也算可安装：它不是"装不了"，而是"装的过程中要多点一次浏览器授权"，
+         * 授权链（元数据发现 + 动态注册 + PKCE）已经接通。只有真正拿不到端点或跑不起进程的
+         * 那三档才不给入口。</p>
+         */
         public boolean isConnectable() {
-            return this == DIRECT_REMOTE || this == PROVISIONED_REMOTE;
+            return this == DIRECT_REMOTE || this == PROVISIONED_REMOTE || this == NEEDS_OAUTH;
         }
     }
 
@@ -126,6 +132,21 @@ public final class McpMarketEntry {
     public final Capability capability;
     public final Auth auth;
     public final String authHint;
+    /**
+     * 端点里代表<b>密钥</b>的占位符名（如 {@code key}）。
+     *
+     * <p>与 {@code {mcpCode}} 那类"资源编号"占位符区分开：编号要用户从控制台抄、不是秘密，
+     * 直接写在端点里没问题；密钥则必须单独填一次并加密落盘，端点里只留 {@code {key}}。
+     * 空串表示这条服务没有"密钥在 URL 里"的形态。</p>
+     */
+    public final String secretPlaceholder;
+    /**
+     * 计费/配额提示（如"按调用次数计费"）。
+     *
+     * <p>外部服务是按次花钱的，而模型一次自主调用用户是看不见的——不写清这一点，
+     * "Key 被盗刷/配额被吃光"只能事后发现。空串表示厂商文档没写明或免费。</p>
+     */
+    public final String costNote;
     public final List<Endpoint> endpoints;
     public final List<String> guide;
     /** 非可连接档说明"为什么现在加不了"；可连接档为空 */
@@ -139,7 +160,8 @@ public final class McpMarketEntry {
 
     private McpMarketEntry(String id, String title, String provider, String providerKey,
                            String description, Capability capability, Auth auth,
-                           String authHint, List<Endpoint> endpoints, List<String> guide,
+                           String authHint, String secretPlaceholder, String costNote,
+                           List<Endpoint> endpoints, List<String> guide,
                            String blockedReason, String docsUrl, String consoleUrl,
                            List<String> tags, String verifiedAt, Probe probe) {
         this.id = id;
@@ -150,6 +172,8 @@ public final class McpMarketEntry {
         this.capability = capability;
         this.auth = auth;
         this.authHint = authHint;
+        this.secretPlaceholder = secretPlaceholder;
+        this.costNote = costNote;
         this.endpoints = Collections.unmodifiableList(endpoints);
         this.guide = Collections.unmodifiableList(guide);
         this.blockedReason = blockedReason;
@@ -310,11 +334,18 @@ public final class McpMarketEntry {
             problems.add("条目 " + id + "：缺 verifiedAt，卡片只能显示「未标核对日期」");
         }
 
+        String secretPlaceholder = o.optString("secretPlaceholder").trim();
+        if (auth == Auth.QUERY_KEY && secretPlaceholder.isEmpty()) {
+            problems.add("条目 " + id + "：声明密钥写在 URL 里却没标 secretPlaceholder，"
+                    + "这样装进去只能是明文落盘");
+        }
+
         return new McpMarketEntry(id, title,
                 o.optString("provider").trim(),
                 o.optString("providerKey").trim(),
                 o.optString("description").trim(),
-                capability, auth, o.optString("authHint").trim(),
+                capability, auth, o.optString("authHint").trim(), secretPlaceholder,
+                o.optString("costNote").trim(),
                 endpoints, guide, o.optString("blockedReason").trim(),
                 docsUrl, consoleUrl, tags, verifiedAt, probe);
     }

@@ -27,6 +27,13 @@ public final class McpConstants {
     /** 服务端工具列表变更通知（无 id，客户端收到后重新 tools/list） */
     public static final String NOTIFICATION_TOOLS_CHANGED = "notifications/tools/list_changed";
 
+    // 资源与方法（MCP 的另一半能力：只读上下文源 + 服务端提供的提示模板）
+    public static final String METHOD_RESOURCES_LIST = "resources/list";
+    public static final String METHOD_RESOURCES_TEMPLATES_LIST = "resources/templates/list";
+    public static final String METHOD_RESOURCES_READ = "resources/read";
+    public static final String METHOD_PROMPTS_LIST = "prompts/list";
+    public static final String METHOD_PROMPTS_GET = "prompts/get";
+
     // SSE 事件名
     public static final String SSE_EVENT_ENDPOINT = "endpoint";
     public static final String SSE_EVENT_MESSAGE = "message";
@@ -42,6 +49,8 @@ public final class McpConstants {
     public static final String TOOL_PREFIX = "mcp__";
     /** OpenAI function 名上限 64；远端名字必须规范化后才能注册 */
     public static final int MAX_TOOL_NAME_LENGTH = 64;
+    /** 资源/模板/提示目录每类最多拉多少条（外部 server 可以有成千上万个资源） */
+    public static final int MAX_CATALOG_ITEMS = 500;
     /** MCP 工具在 OnlineToolRegistry 中的类别 */
     public static final String TOOL_CATEGORY = "mcp";
 
@@ -56,4 +65,12 @@ public final class McpConstants {
     public static final String APPROVAL_AUTO = "auto";
     public static final String APPROVAL_ASK = "ask";
     public static final String APPROVAL_DENY = "deny";
+
+    // OAuth 回调
+    /**
+     * 授权码回传的自定义 scheme。必须与 AndroidManifest 里 McpOAuthFlowActivity 的
+     * intent-filter 完全一致——注册给服务商的回调地址来自这里，改一处不改另一处，
+     * 表现就是浏览器点完"同意"后回不到 App，授权白等 5 分钟。
+     */
+    public static final String OAUTH_CALLBACK_SCHEME = "smartquiz-mcp-oauth";
 }

@@ -148,6 +148,75 @@ public class McpServerConfig {
                 enabled, builtin, toolApproval);
     }
 
+    /** 派生副本：改端点 */
+    public McpServerConfig withUrl(String newUrl) {
+        return new McpServerConfig(id, name, newUrl, transport, token, tokenRef,
+                enabled, builtin, toolApproval);
+    }
+
+    /** 派生副本：同时改端点与令牌（把 URL 里的明文密钥收进加密字段时用）。 */
+    public McpServerConfig withUrlAndToken(String newUrl, String newToken) {
+        return new McpServerConfig(id, name, newUrl, transport, newToken, tokenRef,
+                enabled, builtin, toolApproval);
+    }
+
+    // ==================== 密钥在 URL 里的服务 ====================
+
+    /**
+     * 密钥占位符：{@code https://mcp.amap.com/mcp?key={key}}。
+     *
+     * <p>存在的理由是一致性而不是美观——同一个配置文件里，Bearer 类密钥已经走 Keystore 加密落盘，
+     * 而 query 里的密钥原先是明文写死的（高德、腾讯位置服务）。占位符让两类服务用同一套存储：
+     * 值放在加密的 {@link #token} 里，端点里只留 {@code {key}}，请求发出前才拼回去
+     * （见 {@code McpManager#resolvedCfg}）。</p>
+     */
+    public static final String SECRET_PLACEHOLDER = "{key}";
+
+    /** URL 是否含密钥占位符。 */
+    public static boolean urlNeedsSecret(String url) {
+        return url != null && url.contains(SECRET_PLACEHOLDER);
+    }
+
+    /** 把密钥填进占位符；没有占位符或没密钥就原样返回。密钥按 URL 查询串规则转义。 */
+    public static String injectSecret(String url, String secret) {
+        if (!urlNeedsSecret(url) || secret == null || secret.isEmpty()) return url;
+        try {
+            String encoded = java.net.URLEncoder.encode(secret, "UTF-8").replace("+", "%20");
+            return url.replace(SECRET_PLACEHOLDER, encoded);
+        } catch (java.io.UnsupportedEncodingException e) {
+            return url.replace(SECRET_PLACEHOLDER, secret);   // UTF-8 必然存在，真出错也不该丢端点
+        }
+    }
+
+    /**
+     * 从明文 URL 里拆出查询串密钥：返回 {@code {带占位符的模板, 密钥值}}。
+     *
+     * <p>用于历史配置的一键收口：老条目把真实 Key 直接写在 URL 上落盘，这里把它挪进
+     * 加密的 {@link #token} 字段，端点里只留占位符。识别不到就返回原串 + 空密钥。</p>
+     */
+    public static String[] splitQuerySecret(String url) {
+        if (url == null || url.isEmpty()) return new String[]{url == null ? "" : url, ""};
+        java.util.regex.Matcher m = QUERY_SECRET_PATTERN.matcher(url);
+        if (!m.find()) return new String[]{url, ""};
+        String value = m.group(2);
+        if (value.isEmpty() || SECRET_PLACEHOLDER.equals(value)) {
+            return new String[]{url, ""};   // 已经是占位符，不该再"迁移"一次
+        }
+        String template = url.substring(0, m.start(2)) + SECRET_PLACEHOLDER + url.substring(m.end(2));
+        return new String[]{template, value};
+    }
+
+    /** query 里的密钥参数名（与 {@link #maskUrl} 同一份名单，两处口径必须一致）。 */
+    private static final java.util.regex.Pattern QUERY_SECRET_PATTERN =
+            java.util.regex.Pattern.compile(
+                    "(?i)([?&](?:key|token|api_key|apikey|access_token|secret)=)([^&#]*)");
+
+    /** 端点是否"除密钥占位符外"合法（市场里 QUERY_KEY 条目允许带着 {key} 保存）。 */
+    public static boolean isUsableEndpointWithKeyPlaceholder(String url) {
+        if (url == null) return false;
+        return isUsableEndpoint(url.replace(SECRET_PLACEHOLDER, "placeholder"));
+    }
+
     /** 派生副本：改启用状态 */
     public McpServerConfig withEnabled(boolean newEnabled) {
         return new McpServerConfig(id, name, url, transport, token, tokenRef,

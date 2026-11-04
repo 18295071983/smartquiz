@@ -79,7 +79,10 @@ public class SseMcpTransport implements McpTransport {
 
         Response resp = client.newCall(rb.build()).execute();
         if (!resp.isSuccessful()) {
+            String www = resp.header("WWW-Authenticate");
             resp.close();
+            McpAuthRequiredException auth = McpAuthRequiredException.fromFailure(sseUrl, resp.code(), www);
+            if (auth != null) throw auth;
             throw new java.io.IOException("SSE 连接失败: HTTP " + resp.code());
         }
         this.sseResponse = resp;
@@ -212,6 +215,9 @@ public class SseMcpTransport implements McpTransport {
         }
         try (Response resp = client.newCall(rb.build()).execute()) {
             if (!resp.isSuccessful()) {
+                McpAuthRequiredException auth = McpAuthRequiredException.fromFailure(
+                        messageEndpoint, resp.code(), resp.header("WWW-Authenticate"));
+                if (auth != null) throw auth;
                 throw new java.io.IOException("POST 失败: HTTP " + resp.code());
             }
             // 部分实现会直接回 JSON 而不是走 SSE：读一遍响应体碰运气

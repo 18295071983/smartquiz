@@ -7,7 +7,9 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -33,6 +35,12 @@ public class McpClient {
     private volatile String negotiatedProtocolVersion = "";
     /** initialize 响应里的 serverInfo 摘要（name/version） */
     private volatile String serverInfoText = "";
+    /**
+     * initialize 响应里的 capabilities。服务端只声明自己支持什么，客户端才该去要——
+     * 对没实现 resources 的 server 发 {@code resources/list} 得到的是方法不存在错误，
+     * 目录里就会多出一段"永远失败的刷新"。
+     */
+    private volatile JSONObject capabilities = new JSONObject();
 
     public McpClient(McpServerConfig config) {
         this.config = config;
@@ -72,6 +80,8 @@ public class McpClient {
             }
             JSONObject result = McpJsonRpc.result(resp);
             negotiatedProtocolVersion = result.optString("protocolVersion", "");
+            JSONObject caps = result.optJSONObject("capabilities");
+            capabilities = caps != null ? caps : new JSONObject();
             JSONObject si = result.optJSONObject("serverInfo");
             serverInfoText = si == null ? ""
                     : si.optString("name", "") + " " + si.optString("version", "");
@@ -218,6 +228,192 @@ public class McpClient {
         }
     }
 
+    // ==================== 资源与方法（resources / prompts） ====================
+
+    /** 服务端 initialize 时是否声明支持某个能力。 */
+    public boolean supports(String capability) {
+        return capabilities != null && capabilities.has(capability);
+    }
+
+    public boolean supportsResources() {
+        return supports("resources");
+    }
+
+    public boolean supportsPrompts() {
+        return supports("prompts");
+    }
+
+    /** 服务端自报的能力表（管理页与 mcp_toolbox 展示"这家到底给什么"用）。 */
+    public JSONObject getCapabilities() {
+        return capabilities != null ? capabilities : new JSONObject();
+    }
+
+    /**
+     * 按游标翻完一个列表方法，返回原始条目数组。
+     *
+     * <p>与 {@link #listTools()} 同一套保护：页数上限、条目上限、重复游标即停——
+     * 异常服务端回同一个 {@code nextCursor} 时不能把同步线程挂死。</p>
+     */
+    private List<JSONObject> pagedItems(String method, String field, int maxItems, String label)
+            throws Exception {
+        ensureInitialized();
+        List<JSONObject> out = new ArrayList<>();
+        Set<String> seenCursors = new HashSet<>();
+        String cursor = null;
+        int pages = 0;
+        final int maxPages = 20;
+        do {
+            JSONObject params = new JSONObject();
+            if (cursor != null && !cursor.isEmpty()) params.put("cursor", cursor);
+            JSONObject resp = send(method, params);
+            if (McpJsonRpc.isError(resp)) {
+                throw new java.io.IOException(McpJsonRpc.errorMessage(resp));
+            }
+            JSONObject result = McpJsonRpc.result(resp);
+            JSONArray items = result.optJSONArray(field);
+            if (items != null) {
+                for (int i = 0; i < items.length(); i++) {
+                    JSONObject o = items.optJSONObject(i);
+                    if (o != null) out.add(o);
+                    if (out.size() >= maxItems) break;
+                }
+            }
+            pages++;
+            Object next = result.opt("nextCursor");
+            cursor = (next == null || next == JSONObject.NULL) ? "" : String.valueOf(next);
+            if (cursor != null && !cursor.isEmpty() && !seenCursors.add(cursor)) {
+                AILogger.w(TAG, "MCP " + method + " 游标重复，停止翻页: " + config.name);
+                break;
+            }
+            if (out.size() >= maxItems) {
+                AILogger.w(TAG, "MCP " + label + " 达到上限 " + maxItems + "，忽略剩余页: " + config.name);
+                break;
+            }
+        } while (cursor != null && !cursor.isEmpty() && pages < maxPages);
+        return out;
+    }
+
+    /** 枚举资源（resources/list）。未声明支持时返回空表而不是报错。 */
+    public List<McpResourceInfo> listResources() throws Exception {
+        if (!supportsResources()) return new ArrayList<>();
+        List<McpResourceInfo> out = new ArrayList<>();
+        for (JSONObject o : pagedItems(McpConstants.METHOD_RESOURCES_LIST, "resources",
+                McpConstants.MAX_CATALOG_ITEMS, "resources")) {
+            String uri = o.optString("uri");
+            if (uri.isEmpty()) continue;
+            out.add(new McpResourceInfo(uri, o.optString("name", uri),
+                    o.optString("description", ""), o.optString("mimeType", "")));
+        }
+        return out;
+    }
+
+    /** 枚举资源模板（{@code resources/templates/list}，URI 模式而非具体条目）。 */
+    public List<McpResourceInfo> listResourceTemplates() throws Exception {
+        if (!supportsResources()) return new ArrayList<>();
+        List<McpResourceInfo> out = new ArrayList<>();
+        for (JSONObject o : pagedItems(McpConstants.METHOD_RESOURCES_TEMPLATES_LIST,
+                "resourceTemplates", McpConstants.MAX_CATALOG_ITEMS, "resource templates")) {
+            String uriTemplate = o.optString("uriTemplate", o.optString("uri", ""));
+            if (uriTemplate.isEmpty()) continue;
+            out.add(new McpResourceInfo(uriTemplate, o.optString("name", uriTemplate),
+                    o.optString("description", ""), o.optString("mimeType", "")));
+        }
+        return out;
+    }
+
+    /** 读一个资源（resources/read）。返回渲染后的文本，错误走 {@link McpCallResult#isError}。 */
+    public McpCallResult readResource(String uri) throws Exception {
+        ensureInitialized();
+        JSONObject params = new JSONObject();
+        params.put("uri", uri);
+        JSONObject resp = send(McpConstants.METHOD_RESOURCES_READ, params,
+                McpConstants.CALL_TIMEOUT_MS);
+        if (McpJsonRpc.isError(resp)) {
+            return McpCallResult.fail(McpJsonRpc.errorMessage(resp));
+        }
+        JSONObject result = McpJsonRpc.result(resp);
+        return new McpCallResult(false, renderContents(result.optJSONArray("contents")));
+    }
+
+    /** 枚举提示模板（prompts/list）。arguments 原样保留，模型要照它填。 */
+    public List<McpPromptInfo> listPrompts() throws Exception {
+        if (!supportsPrompts()) return new ArrayList<>();
+        List<McpPromptInfo> out = new ArrayList<>();
+        for (JSONObject o : pagedItems(McpConstants.METHOD_PROMPTS_LIST, "prompts",
+                McpConstants.MAX_CATALOG_ITEMS, "prompts")) {
+            String name = o.optString("name");
+            if (name.isEmpty()) continue;
+            out.add(new McpPromptInfo(name, o.optString("description", ""),
+                    o.optJSONArray("arguments")));
+        }
+        return out;
+    }
+
+    /** 取一个提示模板的具体消息（prompts/get）。 */
+    public McpCallResult getPrompt(String name, JSONObject arguments) throws Exception {
+        ensureInitialized();
+        JSONObject params = new JSONObject();
+        params.put("name", name);
+        if (arguments != null) params.put("arguments", arguments);
+        JSONObject resp = send(McpConstants.METHOD_PROMPTS_GET, params,
+                McpConstants.CALL_TIMEOUT_MS);
+        if (McpJsonRpc.isError(resp)) {
+            return McpCallResult.fail(McpJsonRpc.errorMessage(resp));
+        }
+        JSONObject result = McpJsonRpc.result(resp);
+        JSONArray messages = result.optJSONArray("messages");
+        if (messages == null || messages.length() == 0) {
+            return new McpCallResult(false, "(该提示没有返回消息)");
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < messages.length(); i++) {
+            JSONObject msg = messages.optJSONObject(i);
+            if (msg == null) continue;
+            sb.append("[").append(msg.optString("role", "?")).append("] ");
+            JSONObject content = msg.optJSONObject("content");
+            if (content != null && "text".equals(content.optString("type", "text"))) {
+                sb.append(content.optString("text", ""));
+            } else {
+                sb.append(renderContents(new JSONArray().put(msg.opt("content"))));
+            }
+            sb.append("\n");
+        }
+        String text = sb.toString();
+        if (text.length() > McpConstants.RESULT_MAX_LENGTH) {
+            text = text.substring(0, McpConstants.RESULT_MAX_LENGTH) + "\n...(结果过长已截断)";
+        }
+        return new McpCallResult(false, text);
+    }
+
+    /**
+     * 渲染 {@code contents[]}（resources/read 的形状）与 {@code content[]} 略有差别：
+     * 前者每项自带 uri/mimeType，text 或 blob 二选一。blob 不当文本用，只报大小。
+     */
+    private String renderContents(JSONArray contents) {
+        if (contents == null || contents.length() == 0) return "(无内容返回)";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < contents.length(); i++) {
+            JSONObject item = contents.optJSONObject(i);
+            if (item == null) continue;
+            String uri = item.optString("uri", "");
+            String text = item.optString("text", null);
+            if (text != null && !text.isEmpty()) {
+                if (!uri.isEmpty()) sb.append("[").append(uri).append("]\n");
+                sb.append(text);
+            } else {
+                String blob = item.optString("blob", "");
+                sb.append("[").append(uri.isEmpty() ? "资源" : uri).append(" 二进制 ")
+                  .append(byteLength(blob)).append(" 字节，未内联文本]");
+            }
+            if (i < contents.length() - 1) sb.append("\n");
+        }
+        String out = sb.toString();
+        if (out.length() > McpConstants.RESULT_MAX_LENGTH) {
+            out = out.substring(0, McpConstants.RESULT_MAX_LENGTH) + "\n...(结果过长已截断)";
+        }
+        return out;
+    }
+
     /** 连通性检查。 */
     public void ping() throws Exception {
         ensureInitialized();
@@ -314,6 +510,57 @@ public class McpClient {
             this.description = description;
             this.inputSchema = inputSchema;
             this.annotations = annotations;
+        }
+    }
+
+    /** 资源条目：{@code resources/list} 里的一条，或 {@code resources/templates/list} 的一个 URI 模式。 */
+    public static class McpResourceInfo {
+        public final String uri;
+        public final String name;
+        public final String description;
+        public final String mimeType;
+
+        public McpResourceInfo(String uri, String name, String description, String mimeType) {
+            this.uri = uri == null ? "" : uri;
+            this.name = name == null ? this.uri : name;
+            this.description = description == null ? "" : description;
+            this.mimeType = mimeType == null ? "" : mimeType;
+        }
+
+        /** 模板条目的 uri 里带 {@code {…}}，UI 与模型提示要按"需要填参数"来说。 */
+        public boolean isTemplate() {
+            return uri.contains("{") && uri.contains("}");
+        }
+
+        public Map<String, Object> toMap() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("uri", uri);
+            m.put("name", name);
+            if (!description.isEmpty()) m.put("description", description);
+            if (!mimeType.isEmpty()) m.put("mime_type", mimeType);
+            if (isTemplate()) m.put("needs_argument", true);
+            return m;
+        }
+    }
+
+    /** 提示模板条目：{@code prompts/list} 里的一条，arguments 是给模型看的填法说明。 */
+    public static class McpPromptInfo {
+        public final String name;
+        public final String description;
+        public final JSONArray arguments;
+
+        public McpPromptInfo(String name, String description, JSONArray arguments) {
+            this.name = name == null ? "" : name;
+            this.description = description == null ? "" : description;
+            this.arguments = arguments != null ? arguments : new JSONArray();
+        }
+
+        public Map<String, Object> toMap() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("name", name);
+            if (!description.isEmpty()) m.put("description", description);
+            m.put("arguments", arguments.length());
+            return m;
         }
     }
 

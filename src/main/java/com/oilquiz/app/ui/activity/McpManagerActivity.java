@@ -3,6 +3,7 @@ package com.oilquiz.app.ui.activity;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -22,12 +23,14 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.ai.agent.online.mcp.McpApprovalBatch;
 import com.oilquiz.app.ai.agent.online.mcp.McpClient;
 import com.oilquiz.app.ai.agent.online.mcp.McpConstants;
 import com.oilquiz.app.ai.agent.online.mcp.McpManager;
 import com.oilquiz.app.ai.agent.online.mcp.McpMarketCatalog;
 import com.oilquiz.app.ai.agent.online.mcp.McpMarketEntry;
 import com.oilquiz.app.ai.agent.online.mcp.McpMarketInstaller;
+import com.oilquiz.app.ai.agent.online.mcp.McpOAuthFlow;
 import com.oilquiz.app.ai.agent.online.mcp.McpServerConfig;
 import com.oilquiz.app.ai.model.APIConfig;
 import com.oilquiz.app.ai.util.APIKeyManager;
@@ -523,6 +526,19 @@ public class McpManagerActivity extends AppCompatActivity {
         tokenStateTv.setPadding(0, dp(2), 0, 0);
         card.addView(tokenStateTv);
 
+        // 端点里带明文 Key 的历史配置：给一行可点提示，把值收进加密的令牌字段
+        final String[] secretParts = McpServerConfig.splitQuerySecret(cfg.url);
+        if (!secretParts[1].isEmpty()) {
+            TextView warn = new TextView(this);
+            warn.setText("⚠ 端点里带着明文 Key（配置文件不加密，备份/取证就能看到它）。点这里收进密钥库。");
+            warn.setTextSize(11);
+            warn.setTextColor(color(R.color.error));
+            warn.setPadding(0, dp(3), 0, 0);
+            warn.setClickable(true);
+            card.addView(warn);
+            warn.setOnClickListener(v -> confirmSecretMigration(cfg, secretParts));
+        }
+
         // 行4：启用开关 + 操作按钮
         LinearLayout opsRow = new LinearLayout(this);
         opsRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -544,6 +560,11 @@ public class McpManagerActivity extends AppCompatActivity {
 
         boolean hasToken = cfg.token != null && !cfg.token.isEmpty();
         boolean hasTokenRef = cfg.tokenRef != null && !cfg.tokenRef.isEmpty();
+        // 只在"卡住了、需要用户动手"时多挤一个按钮出来；平时不占位
+        if (McpManager.getInstance(this).needsAuthorization(cfg.id)) {
+            opsRow.addView(createOpButton("🔐 授权", R.color.primary_container,
+                    v -> startAuthorization(cfg)));
+        }
         opsRow.addView(createOpButton("🔗 密钥",
                 R.color.secondary_container, v -> showTokenDialog(cfg)));
         opsRow.addView(createOpButton("🔧 工具", R.color.primary_container,
@@ -555,6 +576,34 @@ public class McpManagerActivity extends AppCompatActivity {
         card.addView(opsRow);
 
         return card;
+    }
+
+    /**
+     * 把端点里的明文 Key 收进加密的令牌字段。
+     *
+     * <p>拆成两步是刻意的：先让用户看清"端点会变成什么样"，再落盘。
+     * 迁移后 {@code McpManager#resolvedCfg} 会在发请求前把 Key 拼回占位符，
+     * 行为与迁移前完全一致——只有存储形态变了。</p>
+     */
+    private void confirmSecretMigration(final McpServerConfig cfg, final String[] secretParts) {
+        new AlertDialog.Builder(this)
+                .setTitle("把 Key 收进密钥库")
+                .setMessage("端点将改成：" + secretParts[0]
+                        + "\n\nKey 会从 URL 里挪到令牌字段，落盘时经 Keystore 加密；"
+                        + "发请求前自动拼回去，功能不变。\n\n"
+                        + "注意：这个 Key 之前是明文存在配置文件里的，"
+                        + "如果你怀疑它已经泄露（备份外流、别人看过手机），请到服务商控制台换一个新的。")
+                .setPositiveButton("收进去", (d, w) -> {
+                    McpManager.getInstance(this).upsertServer(
+                            cfg.withUrlAndToken(secretParts[0], secretParts[1]));
+                    com.oilquiz.app.util.AILogger.audit("McpManager",
+                            "端点密钥收进加密字段: " + cfg.id + " → "
+                                    + McpServerConfig.maskUrl(secretParts[0]));
+                    Toast.makeText(this, "已改为加密存储", Toast.LENGTH_SHORT).show();
+                    refreshList();
+                })
+                .setNegativeButton("保持原样", null)
+                .show();
     }
 
     private TextView createOpButton(String text, int bgColor, View.OnClickListener listener) {
@@ -576,6 +625,7 @@ public class McpManagerActivity extends AppCompatActivity {
     // ==================== 状态文案/颜色 ====================
 
     private String statusText(String status, boolean enabled) {
+        if ("auth_required".equals(status)) return enabled ? "需授权" : "停用";
         if (!enabled) return "停用";
         if (status == null) return "未同步";
         if ("syncing".equals(status)) return "同步中";
@@ -596,6 +646,11 @@ public class McpManagerActivity extends AppCompatActivity {
             sb.append("尚未同步。点「立即刷新」或等待后台同步。");
         } else if ("syncing".equals(status)) {
             sb.append("正在连接服务并拉取 tools/list…");
+        } else if ("auth_required".equals(status)) {
+            sb.append("服务商要求先完成一次浏览器授权（401 里给了授权文档地址）。\n\n下一步：\n")
+                    .append("• 点「🔐 去授权」，在浏览器里登录并同意，回到本页会自动同步工具\n")
+                    .append("• 最多等 5 分钟；中途关掉浏览器这次就不算完成，可以重来\n")
+                    .append("• 令牌快到期时会自动续期，不用反复登录\n");
         } else if (status.startsWith("ok:")) {
             sb.append("已同步 ").append(status.substring(3))
                     .append(" 个工具（按需注册：模型 get 命中后才注入工具集）。");
@@ -635,26 +690,79 @@ public class McpManagerActivity extends AppCompatActivity {
             }
         }
 
+        String oauthState = McpManager.getInstance(this).authorizationState(cfg.id);
+        if (!oauthState.isEmpty()) {
+            sb.append("\n\n浏览器授权：").append(oauthState);
+        }
+
         AlertDialog.Builder b = new AlertDialog.Builder(this)
                 .setTitle("同步状态 · " + cfg.name)
                 .setMessage(sb.toString())
                 .setNegativeButton("关闭", null);
-        if (cfg.enabled) {
-            b.setPositiveButton("立即刷新", (d, w) -> {
-                McpManager.getInstance(this).refreshServer(cfg.id);
-                refreshList();
-            });
-        }
-        if (status != null && status.startsWith("ok:")) {
-            b.setNeutralButton("查看工具", (d, w) -> showToolsDialog(cfg));
+        boolean authNeeded = "auth_required".equals(status);
+        if (authNeeded) {
+            // 需要授权时首位按钮就给授权；"立即刷新"退到次要位——刷一百次也不会变成已授权
+            b.setPositiveButton("🔐 去授权", (d, w) -> startAuthorization(cfg));
+            if (cfg.enabled) {
+                b.setNeutralButton("立即刷新", (d, w) -> {
+                    McpManager.getInstance(this).refreshServer(cfg.id);
+                    refreshList();
+                });
+            }
+        } else {
+            if (cfg.enabled) {
+                b.setPositiveButton("立即刷新", (d, w) -> {
+                    McpManager.getInstance(this).refreshServer(cfg.id);
+                    refreshList();
+                });
+            }
+            if (status != null && status.startsWith("ok:")) {
+                b.setNeutralButton("查看工具", (d, w) -> showToolsDialog(cfg));
+            }
         }
         b.show();
+    }
+
+    /**
+     * 发起一次浏览器授权（OAuth）。真正的工作在 McpManager 的授权线程上跑，
+     * 这里只负责"打开浏览器"和"回到主线程报结果"。
+     */
+    private void startAuthorization(final McpServerConfig cfg) {
+        Toast.makeText(this, "将打开系统浏览器完成服务商登录，授权后自动回到本页",
+                Toast.LENGTH_LONG).show();
+        McpManager.getInstance(this).authorizeServer(cfg.id, new McpOAuthFlow.Ui() {
+            @Override
+            public void openBrowser(String authorizeUrl) {
+                autoRefreshHandler.post(() -> {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(authorizeUrl)));
+                    } catch (Exception e) {
+                        Toast.makeText(McpManagerActivity.this,
+                                "打不开授权页：" + e.getMessage(), Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
+
+            @Override
+            public void stage(String text) {
+                autoRefreshHandler.post(() ->
+                        Toast.makeText(McpManagerActivity.this, text, Toast.LENGTH_SHORT).show());
+            }
+        }, outcome -> autoRefreshHandler.post(() -> {
+            Toast.makeText(this, outcome.ok
+                            ? "授权成功，正在同步工具"
+                            : "授权没完成：" + outcome.message,
+                    Toast.LENGTH_LONG).show();
+            refreshList();
+        }));
     }
 
     private int badgeTextColor(String status, boolean enabled) {
         if (!enabled) return color(R.color.text_secondary);
         if (status == null) return color(R.color.text_secondary);
         if ("syncing".equals(status)) return color(R.color.primary);
+        // 需授权 = 现在什么都干不了，按错误色给，别让它在绿/灰之间看着像"快好了"
+        if ("auth_required".equals(status)) return color(R.color.error);
         if (status.startsWith("ok:")) return color(R.color.success);
         if (status.startsWith("error:")) return color(R.color.error);
         return color(R.color.text_secondary);
@@ -664,6 +772,7 @@ public class McpManagerActivity extends AppCompatActivity {
         if (!enabled) return R.color.surface_variant;
         if (status == null) return R.color.surface_variant;
         if ("syncing".equals(status)) return R.color.primary_container;
+        if ("auth_required".equals(status)) return R.color.error_container;
         if (status.startsWith("ok:")) return R.color.success_container;
         if (status.startsWith("error:")) return R.color.error_container;
         return R.color.surface_variant;
@@ -697,7 +806,24 @@ public class McpManagerActivity extends AppCompatActivity {
         }
         boolean hasDirect = cfg.token != null && !cfg.token.isEmpty();
         boolean hasRef = ref != null && !ref.isEmpty();
-        String negativeLabel = hasRef ? "清除引用" : (hasDirect ? "清除直接令牌" : "取消");
+        McpManager mgr = McpManager.getInstance(this);
+        String oauthState = mgr.authorizationState(cfg.id);
+        if (!oauthState.isEmpty()) {
+            stateMsg = stateMsg + "\n\n浏览器授权：" + oauthState
+                    + "\n（没配静态密钥时，连接就用这个令牌；快到期会自动续期）";
+        }
+        String negativeLabel;
+        if (hasRef) {
+            negativeLabel = "清除引用";
+        } else if (hasDirect) {
+            negativeLabel = "清除直接令牌";
+        } else if (!oauthState.isEmpty()) {
+            // 这个服务当前就靠 OAuth 令牌，"清除凭证"的正确动作是撤销授权而不是取消
+            negativeLabel = "🔓 撤销授权";
+        } else {
+            negativeLabel = "取消";
+        }
+        final boolean revokeOAuth = hasRef || hasDirect ? false : !oauthState.isEmpty();
         new AlertDialog.Builder(this)
                 .setTitle("密钥 · " + cfg.name)
                 .setMessage(stateMsg)
@@ -712,6 +838,18 @@ public class McpManagerActivity extends AppCompatActivity {
                         McpManager.getInstance(this).updateToken(cfg.id, "");
                         Toast.makeText(this, "已清除直接令牌", Toast.LENGTH_SHORT).show();
                         refreshList();
+                    } else if (revokeOAuth) {
+                        new AlertDialog.Builder(this)
+                                .setTitle("撤销浏览器授权")
+                                .setMessage("撤销后这个服务会回到「需授权」，模型拿不到它的工具。\n"
+                                        + "能撤销的会通知服务商吊销令牌，本地记录同时清掉。")
+                                .setPositiveButton("撤销", (sd, sw) -> {
+                                    McpManager.getInstance(this).revokeAuthorization(cfg.id);
+                                    Toast.makeText(this, "已撤销授权", Toast.LENGTH_SHORT).show();
+                                    refreshList();
+                                })
+                                .setNegativeButton("返回", null)
+                                .show();
                     }
                 })
                 .show();
@@ -850,19 +988,134 @@ public class McpManagerActivity extends AppCompatActivity {
         String[] labels = new String[n];
         for (int i = 0; i < n; i++) {
             McpClient.McpToolInfo t = catalog.get(i);
-            String policy = McpManager.getInstance(this).effectiveApproval(cfg.id, t);
-            labels[i] = t.name + " · " + policyLabel(policy);
+            McpManager mgr = McpManager.getInstance(this);
+            String policy = mgr.effectiveApproval(cfg.id, t);
+            // 判定依据一并给出：服务商多数不发 annotations，不写清"为什么自动/为什么要问"，
+            // 这份策略列表就只是个不可解释的开关表
+            labels[i] = t.name + " · " + policyLabel(policy) + "（" + mgr.approvalBasis(cfg.id, t) + "）";
+        }
+        if (catalog.size() > n) {
+            labels[n - 1] = labels[n - 1] + " …共 " + catalog.size() + " 个工具";
         }
         new AlertDialog.Builder(this)
                 .setTitle("审批策略 · " + cfg.name)
                 .setItems(labels, (d, which) ->
                         showPolicyDialog(cfg, catalog.get(which).name))
                 .setNegativeButton("关闭", null)
+                // 批量：服务商整批不发 annotations，判定全靠名称/描述启发式；
+                // 一次装完一个大服务想"把像写操作的钉成询问"得点十几下——点得越快越会改成最宽档止损
+                .setPositiveButton("批量设置", (d, w) -> showBatchPolicyStep(cfg, catalog))
                 .show();
     }
 
+    /** 批量第 1 步：选目标策略。范围与预览在后面两步，避免一次弹一屏勾选却看不出会改什么。 */
+    private void showBatchPolicyStep(final McpServerConfig cfg,
+                                     final List<McpClient.McpToolInfo> catalog) {
+        final String[] targets = {"每次询问", "自动允许", "禁止", "恢复跟随默认"};
+        new AlertDialog.Builder(this)
+                .setTitle("批量设置审批 · " + cfg.name)
+                .setItems(targets, (d, which) -> {
+                    String policy;
+                    if (which == 0) policy = McpConstants.APPROVAL_ASK;
+                    else if (which == 1) policy = McpConstants.APPROVAL_AUTO;
+                    else if (which == 2) policy = McpConstants.APPROVAL_DENY;
+                    else policy = "";   // 空＝清掉显式设定
+                    showBatchScopeStep(cfg, catalog, policy, which);
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 批量第 2 步：选范围（多选框，默认按目标策略预选：收紧勾"像写操作的"，放开勾"判定为只读的"）。 */
+    private void showBatchScopeStep(final McpServerConfig cfg,
+                                    final List<McpClient.McpToolInfo> catalog,
+                                    final String policy, final int targetIndex) {
+        final McpManager mgr = McpManager.getInstance(this);
+        final List<McpApprovalBatch.Item> items = new ArrayList<>();
+        int limit = Math.min(catalog.size(), 100);
+        for (int i = 0; i < limit; i++) {
+            McpClient.McpToolInfo t = catalog.get(i);
+            items.add(new McpApprovalBatch.Item(t.name,
+                    mgr.effectiveApproval(cfg.id, t),
+                    mgr.getToolApproval(cfg.id, t.name),
+                    mgr.approvalBasis(cfg.id, t)));
+        }
+        // 预选档由目标策略推出来：设"询问/禁止"就是收紧，默认帮你选中该收紧的那批
+        McpApprovalBatch.Preset preset;
+        if (targetIndex == 0 || targetIndex == 2) preset = McpApprovalBatch.Preset.WRITE_LIKE;
+        else if (targetIndex == 1) preset = McpApprovalBatch.Preset.READ_ONLY;
+        else preset = McpApprovalBatch.Preset.ALL;
+
+        String[] labels = new String[items.size()];
+        boolean[] checked = new boolean[items.size()];
+        int pre = 0;
+        for (int i = 0; i < items.size(); i++) {
+            McpApprovalBatch.Item it = items.get(i);
+            labels[i] = it.name + " · " + policyLabel(it.effectivePolicy) + "（" + it.basis + "）";
+            checked[i] = McpApprovalBatch.matches(it, preset);
+            if (checked[i]) pre++;
+        }
+        final boolean[] selection = checked;
+        new AlertDialog.Builder(this)
+                .setTitle("选范围 · 已预选 " + pre + "/" + items.size() + "（" + preset.label + "）")
+                .setMultiChoiceItems(labels, checked, (d, which, isChecked) -> selection[which] = isChecked)
+                .setNegativeButton("返回", null)
+                .setPositiveButton("看改动清单", (d, w) ->
+                        showBatchPreview(cfg, items, selection, policy, targetIndex))
+                .show();
+    }
+
+    /** 批量第 3 步：先给计划再落盘（改动数量与头几条明细），确认后才写配置。 */
+    private void showBatchPreview(final McpServerConfig cfg,
+                                  List<McpApprovalBatch.Item> items,
+                                  boolean[] selection, String policy, int targetIndex) {
+        List<McpApprovalBatch.Item> picked = new ArrayList<>();
+        for (int i = 0; i < items.size(); i++) {
+            if (selection[i]) picked.add(items.get(i));
+        }
+        final List<McpApprovalBatch.Change> plan =
+                McpApprovalBatch.plan(picked, McpApprovalBatch.Preset.ALL, policy);
+        if (plan.isEmpty()) {
+            // 0 不弹"成功"：要么没勾、要么勾的工具已经是这一档，说"没改动"才是真话
+            Toast.makeText(this, "没有要改的（" + targetLabel(targetIndex) + "已经是这些工具的设定）",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        int shown = Math.min(plan.size(), 12);
+        for (int i = 0; i < shown; i++) {
+            McpApprovalBatch.Change c = plan.get(i);
+            sb.append("• ").append(c.toolName).append("：")
+              .append(c.from.isEmpty() ? "跟随推断" : policyLabel(c.from))
+              .append(" → ").append(c.to.isEmpty() ? "跟随推断" : policyLabel(c.to)).append("\n");
+        }
+        if (plan.size() > shown) sb.append("… 其余 ").append(plan.size() - shown).append(" 个\n");
+        sb.append("\n只改显式设定，不改服务商注解也不重建连接；会写进配置并记一条审计。");
+        new AlertDialog.Builder(this)
+                .setTitle("将修改 " + plan.size() + " 个工具")
+                .setMessage(sb.toString())
+                .setNegativeButton("返回", null)
+                .setPositiveButton("应用", (d, w) -> {
+                    int applied = McpManager.getInstance(this).applyApprovalBatch(cfg.id, plan);
+                    Toast.makeText(this, applied > 0
+                                    ? "已批量设置 " + applied + " 个工具的审批策略"
+                                    : "未改动任何策略（服务不存在或计划为空）",
+                            Toast.LENGTH_LONG).show();
+                    if (applied > 0) refreshList();
+                })
+                .show();
+    }
+
+    private static String targetLabel(int targetIndex) {
+        if (targetIndex == 0) return "每次询问";
+        if (targetIndex == 1) return "自动允许";
+        if (targetIndex == 2) return "禁止";
+        return "跟随默认";
+    }
+
     private void showPolicyDialog(final McpServerConfig cfg, final String toolName) {
-        final String[] labels = {"跟随注解（默认）", "自动允许", "每次询问", "禁止"};
+        final String[] labels = {"跟随默认（服务商注解，缺注解按名称判断）",
+                "自动允许", "每次询问", "禁止"};
         String explicit = McpManager.getInstance(this).getToolApproval(cfg.id, toolName);
         int checked;
         if (McpConstants.APPROVAL_AUTO.equals(explicit)) checked = 1;

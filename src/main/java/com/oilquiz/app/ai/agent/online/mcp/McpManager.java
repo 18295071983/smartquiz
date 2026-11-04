@@ -79,17 +79,68 @@ public class McpManager {
     private final Map<String, Long> syncTokens = new ConcurrentHashMap<>();
     /** 正在同步的 server 数（搜索结果为空时用于区分“真没有”与“还在拉”） */
     private final AtomicInteger activeSyncs = new AtomicInteger();
+    /** 同步线程：串行为每个 server 拉目录（外部服务商不宜并发轰炸） */
     private final ExecutorService syncExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "Mcp-Sync");
         t.setDaemon(true);
         return t;
     });
+    /**
+     * 授权线程：一次浏览器授权要阻塞到用户在浏览器里点完（最多 5 分钟），
+     * 绝不能占住同步线程，否则这期间所有 server 的 tools/list 都排不上。
+     */
+    private final ExecutorService authExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "Mcp-OAuth");
+        t.setDaemon(true);
+        return t;
+    });
+    /** 每个 server 最近一次 401 挑战（授权发现链的入口，没有它就只能按同源猜） */
+    private final Map<String, McpOAuthEndpoints.Challenge> authChallenges = new ConcurrentHashMap<>();
+    private final McpTokenStore tokenStore;
+    /** 上次同步到的目录落盘处（冷启动时先顶上，别让第一句话搜到空表） */
+    private final McpCatalogStore catalogStore;
+    /** serverId → 资源目录（resources/list） */
+    private final Map<String, List<McpClient.McpResourceInfo>> resourceCatalogs = new ConcurrentHashMap<>();
+    /** serverId → 资源模板目录（resources/templates/list） */
+    private final Map<String, List<McpClient.McpResourceInfo>> templateCatalogs = new ConcurrentHashMap<>();
+    /** serverId → 提示模板目录（prompts/list） */
+    private final Map<String, List<McpClient.McpPromptInfo>> promptCatalogs = new ConcurrentHashMap<>();
+    /** serverId → 服务端自报 capabilities（决定要不要去拉 resources/prompts） */
+    private final Map<String, JSONObject> capabilitiesByServer = new ConcurrentHashMap<>();
+    /** serverId → 当前目录对应的同步时刻（缓存文件里带的那个时间，不是"本次进程读到的时间"） */
+    private final Map<String, Long> catalogSyncedAt = new ConcurrentHashMap<>();
+    /** 哪些 server 的目录还来自磁盘缓存（本次同步尚未覆盖），用于标注"可能已过期" */
+    private final Set<String> coldCatalogServers = ConcurrentHashMap.newKeySet();
+    /** 本进程内的调用统计（serverId + 远端工具名 → 计数）。只内存：不假装是历史账本 */
+    private final Map<String, ToolStat> toolStats = new ConcurrentHashMap<>();
 
     private volatile boolean initialized;
 
     private McpManager(Context context) {
         this.appContext = context.getApplicationContext();
         this.store = new McpConfigStore(appContext);
+        this.tokenStore = new McpTokenStore(appContext);
+        this.catalogStore = new McpCatalogStore(appContext);
+    }
+
+    /** 一个远端工具在本进程里的调用统计。 */
+    public static final class ToolStat {
+        public final String serverId;
+        public final String remoteName;
+        public final int calls;
+        public final int failures;
+        public final long totalMs;
+        public final long lastAtMs;
+
+        ToolStat(String serverId, String remoteName, int calls, int failures,
+                 long totalMs, long lastAtMs) {
+            this.serverId = serverId;
+            this.remoteName = remoteName;
+            this.calls = calls;
+            this.failures = failures;
+            this.totalMs = totalMs;
+            this.lastAtMs = lastAtMs;
+        }
     }
 
     public static synchronized McpManager getInstance(Context context) {
@@ -126,11 +177,39 @@ public class McpManager {
     /**
      * 加载配置并异步同步工具。幂等；网络操作走后台执行器，不阻塞调用线程。
      * 由 {@link OnlineToolManager} 构造时触发一次。
+     *
+     * <p>先用上次同步的目录顶上（{@link McpCatalogStore}），再后台刷新。不这么做的话，
+     * 冷启动到首次 {@code tools/list} 返回之间 {@code mcp_toolbox} 搜出来是空的，
+     * 而那段窗口正好是用户开口第一句话的时候。</p>
      */
     public synchronized void init() {
         if (initialized) return;
         initialized = true;
+        loadColdCatalogs();
         syncExecutor.execute(this::syncAll);
+    }
+
+    /** 从磁盘缓存恢复各服务的目录；没有任何缓存时什么都不做（行为等同于旧版）。 */
+    private void loadColdCatalogs() {
+        int restored = 0;
+        for (McpServerConfig cfg : store.load()) {
+            if (!cfg.enabled) continue;
+            McpCatalogStore.Loaded cached = catalogStore.load(cfg.id);
+            if (cached == null) continue;
+            if (!cached.tools.isEmpty()) {
+                applyCatalog(cfg, cached.tools);
+                coldCatalogServers.add(cfg.id);
+                restored++;
+            }
+            resourceCatalogs.put(cfg.id, cached.resources);
+            templateCatalogs.put(cfg.id, cached.templates);
+            promptCatalogs.put(cfg.id, cached.prompts);
+            capabilitiesByServer.put(cfg.id, cached.capabilities);
+            catalogSyncedAt.put(cfg.id, cached.syncedAtMs);
+        }
+        if (restored > 0) {
+            AILogger.i(TAG, "冷启动先用缓存目录顶上: " + restored + " 个服务（后台同步后覆盖）");
+        }
     }
 
     // ==================== 工具同步 ====================
@@ -149,7 +228,7 @@ public class McpManager {
                         syncTokens.remove(cfg.id);
                         lastAutoRefresh.remove(cfg.id);
                         removeRegisteredTools(cfg.id);
-                        catalogs.remove(cfg.id);
+                        clearCatalogCaches(cfg.id);
                     }
                     continue;
                 }
@@ -173,20 +252,26 @@ public class McpManager {
         syncTokens.put(cfg.id, token);
         try {
             status.put(cfg.id, "syncing");
-            McpClient client = clients.computeIfAbsent(cfg.id,
-                    id -> {
-                        McpClient c = new McpClient(resolvedCfg(cfg));
-                        // 服务端声明 tools.listChanged 时会推通知；这里做 3s 防抖后后台重拉
-                        c.setToolsChangedListener(() -> scheduleToolsRefresh(id));
-                        return c;
-                    });
-            client.initialize();
-            List<McpClient.McpToolInfo> tools = client.listTools();
+            McpClient client = obtainClient(cfg);
+            List<McpClient.McpToolInfo> tools;
+            try {
+                client.initialize();
+                tools = client.listTools();
+            } catch (McpAuthRequiredException auth) {
+                // 401 分两种：令牌只是过期（能静续就静续），和从没授权过（要用户去点「🔐 授权」）
+                if (!recoverFromAuthRequired(cfg.id, cfg, auth)) return;
+                client = obtainClient(cfg);   // 令牌已更新，重建连接再试一次
+                client.initialize();
+                tools = client.listTools();
+            }
             if (!installCatalog(cfg, tools, token)) {
                 AILogger.i(TAG, "丢弃过期同步结果: " + cfg.id);
                 return;
             }
             status.put(cfg.id, "ok:" + tools.size());
+            authChallenges.remove(cfg.id);
+            // 资源与提示是另一半能力：只在服务端自己声明了才去拉，拉失败也不影响工具目录
+            refreshExtraCapabilities(cfg, client);
             AILogger.i(TAG, "MCP server synced: " + cfg.id + " (" + tools.size() + " tools, lazy registration)");
         } catch (Exception e) {
             if (isCurrentSync(cfg.id, token)) {
@@ -199,6 +284,309 @@ public class McpManager {
                 syncLock.notifyAll();
             }
         }
+    }
+
+    /** 建（或复用）一个 client。抽出来是因为授权成功后要能强制重建一条带新令牌的连接。 */
+    private McpClient obtainClient(McpServerConfig cfg) {
+        return clients.computeIfAbsent(cfg.id, id -> {
+            McpClient c = new McpClient(resolvedCfg(cfg));
+            // 服务端声明 tools.listChanged 时会推通知；这里做 3s 防抖后后台重拉
+            c.setToolsChangedListener(() -> scheduleToolsRefresh(id));
+            return c;
+        });
+    }
+
+    /** 丢掉旧连接（令牌/端点变了以后必须重建，不能继续复用已 401 的那条）。 */
+    private void dropClient(String serverId) {
+        McpClient old = clients.remove(serverId);
+        if (old != null) {
+            try {
+                old.close();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /**
+     * 同步 tools 之后，再按服务端<b>自己声明</b>的能力拉资源与提示，并把整份目录落盘。
+     *
+     * <p>没声明就不发请求：对没实现 resources 的 server 发 {@code resources/list} 只会得到
+     * "方法不存在"，那种失败每次同步都刷一遍，日志里的错误就成了噪声。</p>
+     *
+     * <p>拉失败也不影响工具目录——这一段的定位是"多给一半能力"，不是"多一个致命依赖"。</p>
+     */
+    private void refreshExtraCapabilities(McpServerConfig cfg, McpClient client) {
+        JSONObject caps;
+        try {
+            caps = client.getCapabilities();
+        } catch (Exception e) {
+            caps = new JSONObject();
+        }
+        capabilitiesByServer.put(cfg.id, caps);
+
+        List<McpClient.McpResourceInfo> resources = new ArrayList<>();
+        List<McpClient.McpResourceInfo> templates = new ArrayList<>();
+        List<McpClient.McpPromptInfo> prompts = new ArrayList<>();
+        try {
+            if (client.supportsResources()) {
+                resources = client.listResources();
+                templates = client.listResourceTemplates();
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "resources 拉取失败 (" + cfg.id + "): " + e.getMessage());
+        }
+        try {
+            if (client.supportsPrompts()) {
+                prompts = client.listPrompts();
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "prompts 拉取失败 (" + cfg.id + "): " + e.getMessage());
+        }
+        resourceCatalogs.put(cfg.id, resources);
+        templateCatalogs.put(cfg.id, templates);
+        promptCatalogs.put(cfg.id, prompts);
+        long now = System.currentTimeMillis();
+        catalogSyncedAt.put(cfg.id, now);
+        catalogStore.save(cfg.id, now, catalogs.get(cfg.id), resources, templates, prompts, caps);
+        if (!resources.isEmpty() || !templates.isEmpty() || !prompts.isEmpty()) {
+            AILogger.i(TAG, "MCP 附加能力: " + cfg.id + " resources=" + resources.size()
+                    + " templates=" + templates.size() + " prompts=" + prompts.size());
+        }
+    }
+
+    // ==================== 资源与提示（对外） ====================
+
+    public List<McpClient.McpResourceInfo> resourcesFor(String serverId) {
+        List<McpClient.McpResourceInfo> v = resourceCatalogs.get(serverId);
+        return v != null ? v : new ArrayList<McpClient.McpResourceInfo>();
+    }
+
+    public List<McpClient.McpResourceInfo> resourceTemplatesFor(String serverId) {
+        List<McpClient.McpResourceInfo> v = templateCatalogs.get(serverId);
+        return v != null ? v : new ArrayList<McpClient.McpResourceInfo>();
+    }
+
+    public List<McpClient.McpPromptInfo> promptsFor(String serverId) {
+        List<McpClient.McpPromptInfo> v = promptCatalogs.get(serverId);
+        return v != null ? v : new ArrayList<McpClient.McpPromptInfo>();
+    }
+
+    /** 服务端自报的能力表（没有则空对象）。 */
+    public JSONObject capabilitiesFor(String serverId) {
+        JSONObject caps = capabilitiesByServer.get(serverId);
+        return caps != null ? caps : new JSONObject();
+    }
+
+    /** 该服务当前目录是否还来自磁盘缓存（本次同步尚未覆盖）。 */
+    public boolean isCatalogCold(String serverId) {
+        return coldCatalogServers.contains(serverId);
+    }
+
+    /** 目录对应的同步时刻；0 = 未知。 */
+    public long catalogSyncedAt(String serverId) {
+        Long v = catalogSyncedAt.get(serverId);
+        return v != null ? v : 0L;
+    }
+
+    /** 目录新鲜度文案（管理页/工具箱共用一份，别两处各写一套）。 */
+    public String catalogFreshness(String serverId, long nowMs) {
+        long at = catalogSyncedAt(serverId);
+        if (at <= 0) return "目录未知";
+        long mins = Math.max(0, (nowMs - at) / 60_000L);
+        String age = mins < 60 ? mins + " 分钟前" : (mins / 60) + " 小时前";
+        return isCatalogCold(serverId) ? "上次同步于 " + age + "（本次启动还没刷新）" : "本次已同步（" + age + "）";
+    }
+
+    /**
+     * 读一个资源（{@code resources/read}）。只读，不进逐工具审批——
+     * 审批的对象是"会改动外部世界的调用"，读回一段文本不是。
+     */
+    public AIToolResult readResource(String serverId, String uri) {
+        Map<String, Object> info = new HashMap<>();
+        info.put("serverId", serverId);
+        info.put("uri", uri);
+        if (uri == null || uri.trim().isEmpty()) {
+            return AIToolResult.fail("缺少参数: uri（资源 URI；先 resources 列出可选项）", info);
+        }
+        try {
+            McpClient client = clientForCall(serverId, info);
+            if (client == null) return AIToolResult.fail((String) info.remove("__fail"), info);
+            if (!client.supportsResources()) {
+                return AIToolResult.fail("该服务没声明支持 resources，读不了：" + serverId, info);
+            }
+            long start = System.currentTimeMillis();
+            McpClient.McpCallResult result = client.readResource(uri.trim());
+            recordServerRead(serverId, System.currentTimeMillis() - start);
+            if (result.isError) return AIToolResult.fail("读取资源失败: " + result.text, info);
+            return AIToolResult.success(result.text, info);
+        } catch (McpAuthRequiredException auth) {
+            return AIToolResult.fail(authToolMessage(serverId, auth), info);
+        } catch (Exception e) {
+            return AIToolResult.fail("读取资源异常: " + e.getMessage(), info);
+        }
+    }
+
+    /** 取一个提示模板的具体消息（{@code prompts/get}）。 */
+    public AIToolResult usePrompt(String serverId, String name, Map<String, Object> arguments) {
+        Map<String, Object> info = new HashMap<>();
+        info.put("serverId", serverId);
+        info.put("prompt", name);
+        if (name == null || name.trim().isEmpty()) {
+            return AIToolResult.fail("缺少参数: prompt（提示模板名；先 prompts 列出可选项）", info);
+        }
+        try {
+            McpClient client = clientForCall(serverId, info);
+            if (client == null) return AIToolResult.fail((String) info.remove("__fail"), info);
+            if (!client.supportsPrompts()) {
+                return AIToolResult.fail("该服务没声明支持 prompts：" + serverId, info);
+            }
+            JSONObject args = new JSONObject();
+            if (arguments != null) {
+                for (Map.Entry<String, Object> e : arguments.entrySet()) {
+                    if (e.getValue() == null) continue;
+                    args.put(e.getKey(), toJsonValue(e.getValue()));
+                }
+            }
+            long start = System.currentTimeMillis();
+            McpClient.McpCallResult result = client.getPrompt(name.trim(), args);
+            recordServerRead(serverId, System.currentTimeMillis() - start);
+            if (result.isError) return AIToolResult.fail("取提示失败: " + result.text, info);
+            return AIToolResult.success(result.text, info);
+        } catch (McpAuthRequiredException auth) {
+            return AIToolResult.fail(authToolMessage(serverId, auth), info);
+        } catch (Exception e) {
+            return AIToolResult.fail("取提示异常: " + e.getMessage(), info);
+        }
+    }
+
+    /** 拿到一个可调用的 client（未连接时按配置现建并初始化）；失败时把原因写进 info 的 __fail 键。 */
+    private McpClient clientForCall(String serverId, Map<String, Object> info) throws Exception {
+        McpClient client = clients.get(serverId);
+        if (client == null) {
+            McpServerConfig cfg = findConfig(serverId);
+            if (cfg == null) {
+                info.put("__fail", "MCP server 不存在: " + serverId);
+                return null;
+            }
+            if (!cfg.enabled) {
+                info.put("__fail", "MCP server 已停用: " + serverId + "（管理页启用后再试）");
+                return null;
+            }
+            client = obtainClient(cfg);
+        }
+        client.initialize();
+        return client;
+    }
+
+    // ==================== 调用统计（本进程） ====================
+
+    private void recordCall(String serverId, String remoteName, boolean failed, long ms) {
+        if (serverId == null || remoteName == null) return;
+        String key = remoteKey(serverId, remoteName);
+        ToolStat prev = toolStats.get(key);
+        toolStats.put(key, new ToolStat(serverId, remoteName,
+                (prev != null ? prev.calls : 0) + 1,
+                (prev != null ? prev.failures : 0) + (failed ? 1 : 0),
+                (prev != null ? prev.totalMs : 0L) + Math.max(0, ms),
+                System.currentTimeMillis()));
+    }
+
+    /**
+     * 资源与提示的读取计数：与工具调用分开记。
+     * 两者的成本和风险根本不同——读一段上下文和发一次付费查询不该混在一个数字里。
+     */
+    private final Map<String, int[]> serverReads = new ConcurrentHashMap<>();
+
+    private void recordServerRead(String serverId, long ms) {
+        if (serverId == null) return;
+        synchronized (serverReads) {
+            int[] v = serverReads.get(serverId);
+            if (v == null) v = new int[]{0, 0};
+            v[0] = v[0] + 1;
+            v[1] = v[1] + (int) Math.min(ms, Integer.MAX_VALUE);
+            serverReads.put(serverId, v);
+        }
+    }
+
+    /** 本进程内该服务被读过多少次资源/提示。 */
+    public int readsForServer(String serverId) {
+        synchronized (serverReads) {
+            int[] v = serverReads.get(serverId);
+            return v == null ? 0 : v[0];
+        }
+    }
+
+    /** 一次同步里这个服务被调用过没有（管理页显示"本进程 N 次"）。 */
+    public int callsForServer(String serverId) {
+        int n = 0;
+        for (ToolStat s : toolStats.values()) {
+            if (serverId != null && serverId.equals(s.serverId)) n += s.calls;
+        }
+        return n;
+    }
+
+    public int failuresForServer(String serverId) {
+        int n = 0;
+        for (ToolStat s : toolStats.values()) {
+            if (serverId != null && serverId.equals(s.serverId)) n += s.failures;
+        }
+        return n;
+    }
+
+    /** 本进程统计快照（按调用次数排序）。只内存：不是历史账本，UI 要照实说。 */
+    public List<Map<String, Object>> toolStatsSnapshot(int limit) {
+        List<ToolStat> all = new ArrayList<>(toolStats.values());
+        java.util.Collections.sort(all, (a, b) -> Integer.compare(b.calls, a.calls));
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (int i = 0; i < all.size() && out.size() < limit; i++) {
+            ToolStat s = all.get(i);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("server", s.serverId);
+            m.put("tool", s.remoteName);
+            m.put("calls", s.calls);
+            m.put("failures", s.failures);
+            m.put("avg_ms", s.calls > 0 ? s.totalMs / s.calls : 0);
+            m.put("last_at_ms", s.lastAtMs);
+            out.add(m);
+        }
+        return out;
+    }
+
+    /** 是否在这个进程里真调用过任何 MCP 工具（管理页"本进程还没调用过"的判据）。 */
+    public boolean hasAnyCallInProcess() {
+        return !toolStats.isEmpty();
+    }
+
+    /** 目录是否落过盘（排障用：缓存没写上时这里能看出来）。 */
+    public int cachedCatalogCount() {
+        return catalogStore.cachedServerCount();
+    }
+
+    /**
+     * 处理一次"要授权"。
+     *
+     * @return true = 已经换到新令牌，调用方可以重试；false = 需要用户走浏览器授权，本次到此为止
+     */
+    private boolean recoverFromAuthRequired(String serverId, McpServerConfig cfg,
+                                            McpAuthRequiredException auth) {
+        if (auth.getChallenge() != null) {
+            authChallenges.put(serverId, auth.getChallenge());
+        }
+        if (cfg != null) {
+            McpOAuthRecord record = tokenStore.get(serverId);
+            if (record != null && !record.refreshToken.isEmpty()) {
+                AILogger.i(TAG, "MCP 令牌已过期，尝试静默续期: " + serverId);
+                McpOAuthFlow.Outcome refreshed = McpOAuthFlow.refresh(appContext, cfg, record);
+                if (refreshed.ok) {
+                    dropClient(serverId);
+                    return true;
+                }
+                AILogger.w(TAG, "静默续期没成功（" + serverId + "）: " + refreshed.message);
+            }
+        }
+        status.put(serverId, "auth_required");
+        AILogger.w(TAG, "MCP 需要授权: " + serverId + " - " + abbreviate(auth.getMessage()));
+        return false;
     }
 
     private boolean isCurrentSync(String serverId, long token) {
@@ -219,6 +607,12 @@ public class McpManager {
                                                 long token) {
         // 进入锁后再校验一次：防止“网络返回 → 配置被改删 → 这里回填旧目录”的竞态
         if (!isCurrentSync(cfg.id, token)) return false;
+        applyCatalog(cfg, tools);
+        return true;
+    }
+
+    /** 只重建目录与名字映射；调用方负责并发/时序校验（同步线程或冷启动加载）。 */
+    private void applyCatalog(McpServerConfig cfg, List<McpClient.McpToolInfo> tools) {
         // 1) 注销上一轮已按需注册的工具，并清掉该 server 的名字映射
         Set<String> old = registeredTools.remove(cfg.id);
         if (old != null && !old.isEmpty()) {
@@ -263,7 +657,8 @@ public class McpManager {
             remoteToLocal.put(remoteKey(cfg.id, t.name), localName);
         }
         catalogs.put(cfg.id, new ArrayList<>(tools));
-        return true;
+        coldCatalogServers.remove(cfg.id);
+        catalogSyncedAt.put(cfg.id, System.currentTimeMillis());
     }
 
     private static String remoteKey(String serverId, String remoteName) {
@@ -450,6 +845,7 @@ public class McpManager {
         info.put("toolName", displayName);
         info.put("serverId", serverId);
         info.put("remoteTool", remoteName);
+        boolean callAttempted = false;
         try {
             McpClient client = clients.get(serverId);
             if (client == null) {
@@ -458,27 +854,48 @@ public class McpManager {
             }
             try {
                 client.initialize(); // 幂等
+            } catch (McpAuthRequiredException auth) {
+                // 令牌只是过期 → 静续后重建连接重试；真没授权 → 给一个能点的动作，而不是"鉴权失败"
+                if (recoverFromAuthRequired(serverId, findConfig(serverId), auth)) {
+                    client = obtainClient(findConfig(serverId));
+                    client.initialize();
+                } else {
+                    return AIToolResult.fail(authToolMessage(serverId, auth), info);
+                }
             } catch (Exception e) {
                 return AIToolResult.fail("MCP server 初始化失败: " + e.getMessage(), info);
             }
 
-            // 逐工具审批：只读工具自动；destructive/无注解默认首次询问；
-            // 用户可选“始终允许”写入配置（auto），或设为 deny 直接阻断。
+            // 逐工具审批：服务商注解优先，缺注解按名称/描述启发式（只读→自动，像写操作→问）。
+            // 显式策略始终盖过推断。
             McpToolEntry entry = findTool(serverId, remoteName);
             String approval = effectiveApproval(serverId, remoteName);
             if (McpConstants.APPROVAL_DENY.equals(approval)) {
                 return AIToolResult.fail("MCP 工具已被禁止执行: " + serverId + "/" + remoteName
                         + "（可在 MCP 管理页「工具 → 审批策略」改为询问/自动）", info);
             }
-            if (McpConstants.APPROVAL_ASK.equals(approval)) {
+            String session = com.oilquiz.app.ai.agent.SessionContext.current();
+            String run = com.oilquiz.app.ai.agent.SessionContext.currentRun();
+            String serverName = entry != null ? entry.serverName : serverId;
+            if (McpConstants.APPROVAL_ASK.equals(approval)
+                    && !McpApprovalManager.isAllowed(session, run, serverId)) {
+                String basis;
+                if (!getToolApproval(serverId, remoteName).isEmpty()) {
+                    basis = "你在管理页把该工具设成了「每次询问」";
+                } else if (entry != null) {
+                    basis = approvalBasis(entry.annotations, entry.remoteName, entry.description);
+                } else {
+                    basis = approvalBasis(null, remoteName, "");
+                }
                 McpApprovalManager.Result ar = McpApprovalManager.request(
-                        entry != null ? entry.serverName : serverId,
-                        remoteName,
+                        session, run, serverName, serverId, remoteName,
                         entry != null ? entry.description : "",
-                        argsPreview(arguments));
+                        argsPreview(arguments), basis);
                 if (ar.decision == McpApprovalManager.Decision.DENY) {
                     return AIToolResult.fail("MCP 工具未执行：" + ar.reason, info);
                 }
+                // 允许一次之外的三档都按作用域登记；ALLOW_ALWAYS 落进配置（无会话路径的兜底）
+                McpApprovalManager.record(ar.decision, session, run, serverId);
                 if (ar.decision == McpApprovalManager.Decision.ALLOW_ALWAYS) {
                     setToolApproval(serverId, remoteName, McpConstants.APPROVAL_AUTO);
                 }
@@ -492,21 +909,51 @@ public class McpManager {
                     argsJson.put(e.getKey(), toJsonValue(v));
                 }
             }
+            long callStart = System.currentTimeMillis();
+            callAttempted = true;
             McpClient.McpCallResult result = client.callTool(remoteName, argsJson);
+            recordCall(serverId, remoteName, result.isError,
+                    System.currentTimeMillis() - callStart);
             if (result.isError) {
                 return AIToolResult.fail("MCP 工具执行失败: " + result.text, info);
             }
             return AIToolResult.success(result.text, info);
         } catch (Exception e) {
+            if (callAttempted) {
+                // 没打到远端的失败（未连接/被拒绝/参数拼装炸）不算进工具的失败率，
+                // 否则统计会把"我这边没配好"记成"这家服务不稳"
+                recordCall(serverId, remoteName, true, 0);
+            }
             AILogger.e(TAG, "executeRemote failed: " + serverId + "/" + remoteName, e);
             String message = e.getMessage() != null ? e.getMessage() : e.toString();
             if (message.contains("HTTP 401") || message.contains("HTTP 403")) {
-                message += "（鉴权失败：到 MCP 管理页检查该服务的 🔑 令牌引用）";
+                message += "（鉴权失败：到 MCP 管理页检查该服务的 🔑 令牌引用，"
+                        + "或点「🔐 授权」完成浏览器登录）";
             } else if (message.contains("HTTP 404")) {
                 message += "（端点不存在：检查 URL 与传输类型是否匹配）";
             }
             return AIToolResult.fail("MCP 工具执行异常: " + message, info);
         }
+    }
+
+    /**
+     * 工具执行被"要授权"挡下的说法。
+     *
+     * <p>这条文案是给模型看的，也是它转述给用户的，所以必须落到一个能点的动作上：
+     * 只说"鉴权失败"会让模型回头又叫一次工具、或让用户去翻密钥框，而真正该做的是点授权。</p>
+     */
+    private String authToolMessage(String serverId, McpAuthRequiredException auth) {
+        return "该 MCP 服务需要先在「MCP 管理」页点「🔐 授权」完成浏览器授权，才能调用它的工具。"
+                + "原始信息：" + (auth.getMessage() == null ? "HTTP 401" : auth.getMessage());
+    }
+
+    /** 按 id 找配置（续期与令牌解析都要用完整配置，而不只是 id）。 */
+    private McpServerConfig findConfig(String serverId) {
+        if (serverId == null) return null;
+        for (McpServerConfig c : store.load()) {
+            if (c.id.equals(serverId)) return c;
+        }
+        return null;
     }
 
     // ==================== 工具目录（mcp_toolbox 的搜索源） ====================
@@ -701,12 +1148,71 @@ public class McpManager {
         }
     }
 
+    /**
+     * 批量写入审批策略（管理页"批量设置"用），返回真正落盘的条数。
+     *
+     * <p>为什么不能循环调 {@link #setToolApproval}：那条是"读整表 → 派生 → {@code store.upsert}
+     * → AUDIT 一行"，N 个工具就是 N 次整表重写。而保存配置时 {@code ApiKeyCipher} 会把
+     * <b>所有</b>服务的令牌重新加密一遍（随机 IV，每次保存密文都变，这台机器上验过），
+     * 于是"勾 15 个工具改成询问"会触发 15 轮全表令牌重加密 + 15 条几乎一样的 AUDIT。
+     * 这里把派生链在内存里串完，只落一次盘、只记一条 AUDIT。
+     */
+    public synchronized int applyApprovalBatch(String serverId,
+                                               List<McpApprovalBatch.Change> changes) {
+        if (serverId == null || changes == null || changes.isEmpty()) return 0;
+        for (McpServerConfig cfg : store.load()) {
+            if (!cfg.id.equals(serverId)) continue;
+            McpServerConfig next = cfg;
+            int applied = 0;
+            StringBuilder names = new StringBuilder();
+            for (McpApprovalBatch.Change c : changes) {
+                if (c == null || c.toolName == null || c.toolName.isEmpty()) continue;
+                next = next.withToolApproval(c.toolName, c.to);
+                applied++;
+                if (names.length() < 160) {
+                    if (names.length() > 0) names.append(", ");
+                    names.append(c.toolName).append("→")
+                          .append(c.to.isEmpty() ? "跟随默认" : c.to);
+                }
+            }
+            if (applied == 0) return 0;
+            store.upsert(next);
+            AILogger.audit(TAG, "MCP 批量审批 " + serverId + " 共 " + applied + " 个工具："
+                    + names + (names.length() >= 160 ? " …" : ""));
+            return applied;
+        }
+        AILogger.i(TAG, "applyApprovalBatch: 找不到服务 " + serverId + "，未改动任何策略");
+        return 0;
+    }
+
     /** UI 列表用：直接按目录里的 McpToolInfo 推断，避免每个工具都重建整张目录。 */
     public String effectiveApproval(String serverId, McpClient.McpToolInfo info) {
         if (info == null) return McpConstants.APPROVAL_ASK;
         String explicit = getToolApproval(serverId, info.name);
         if (!explicit.isEmpty()) return normalizeApproval(explicit);
-        return inferApproval(info.annotations);
+        return inferApproval(info.annotations, info.name, info.description);
+    }
+
+    /** UI 用：这条策略是怎么定下来的（显式设定 / 服务商注解 / 名称启发式）。 */
+    public String approvalBasis(String serverId, McpClient.McpToolInfo info) {
+        if (info == null) return "未知工具";
+        String explicit = getToolApproval(serverId, info.name);
+        if (!explicit.isEmpty()) return "你在管理页设定过";
+        return approvalBasis(info.annotations, info.name, info.description);
+    }
+
+    /**
+     * 按 serverId + 远端名给判定依据（mcp_toolbox 的 get 用）。
+     *
+     * <p>模型看到的 {@code approval} 必须同时看到"为什么"，否则它只会把
+     * "会弹确认"当成"这个工具危险"，或反过来把危险的说成安全——两边都在猜。</p>
+     */
+    public String approvalBasis(String serverId, String remoteName) {
+        String explicit = getToolApproval(serverId, remoteName);
+        if (!explicit.isEmpty()) return "你在管理页设定过";
+        McpToolEntry e = findTool(serverId, remoteName);
+        return e != null ? approvalBasis(e.annotations, e.remoteName, e.description)
+                : approvalBasis(null, remoteName, "");
     }
 
     private static String normalizeApproval(String policy) {
@@ -719,7 +1225,19 @@ public class McpManager {
         return McpConstants.APPROVAL_ASK;
     }
 
-    static String inferApproval(JSONObject annotations) {
+    /**
+     * 推断默认审批策略。
+     *
+     * <p><b>判定顺序：注解 &gt; 名称/描述启发式。</b>注解是服务商自报的，有就用；
+     * 没有时不能一律当危险处理——实测主流国内服务商（高德 15 个工具）<b>一个 annotations 都不发</b>
+     * （2026-11-04 tools/list 复核），一律询问等于把纯查询也当成写操作，
+     * 用户在一次对话里要连点六次"允许一次"，最后只能逐个永久放开——那比默认放行更不安全，也更难用。</p>
+     *
+     * <p>启发式只做<b>高精度</b>匹配：名字里出现 delete/drop/send/pay/exec… 或描述里有
+     * 删除/发送/支付/执行… 这类词才要确认；其余（get/list/search/geo/direction/weather）自动。
+     * 误判方向是"多问一次"，不会放行真写操作。</p>
+     */
+    static String inferApproval(JSONObject annotations, String remoteName, String description) {
         if (annotations != null) {
             if (annotations.has("readOnlyHint") && annotations.optBoolean("readOnlyHint")) {
                 return McpConstants.APPROVAL_AUTO;
@@ -731,8 +1249,58 @@ public class McpManager {
                 return McpConstants.APPROVAL_ASK;
             }
         }
-        // 没有注解时不能假设只读：首次调用确认一次，用户可选“始终允许”
-        return McpConstants.APPROVAL_ASK;
+        return looksLikeWrite(remoteName, description)
+                ? McpConstants.APPROVAL_ASK : McpConstants.APPROVAL_AUTO;
+    }
+
+    /** 给用户解释"这条为什么是自动/要问"——判定依据必须可见，否则策略像黑盒。 */
+    static String approvalBasis(JSONObject annotations, String remoteName, String description) {
+        if (annotations != null) {
+            if (annotations.has("readOnlyHint") && annotations.optBoolean("readOnlyHint")) {
+                return "服务商声明只读";
+            }
+            if (annotations.has("destructiveHint") && annotations.optBoolean("destructiveHint")) {
+                return "服务商声明可破坏";
+            }
+            if (annotations.has("readOnlyHint")) {
+                return "服务商声明非只读";
+            }
+        }
+        String hit = writeKeywordHit(remoteName, description);
+        if (!hit.isEmpty()) return "无注解·名称/描述像写操作（" + hit + "）";
+        return "无注解·未命中写操作关键词";
+    }
+
+    /** 写操作词表：按 token 精确匹配名字，描述按子串匹配中文词。 */
+    private static final java.util.Set<String> WRITE_TOKENS = new java.util.HashSet<>(
+            java.util.Arrays.asList("delete", "del", "remove", "drop", "destroy", "erase",
+                    "purge", "truncate", "revoke", "cancel", "unsubscribe", "kill", "shutdown",
+                    "transfer", "refund", "pay", "charge", "send", "publish", "deploy",
+                    "exec", "execute", "eval", "shell", "spawn", "write", "update", "upsert",
+                    "insert", "modify", "edit", "patch", "set", "create", "add", "append",
+                    "move", "rename", "unlink", "grant", "install", "uninstall", "submit",
+                    "upload", "apply", "refund", "order"));
+
+    private static final String[] WRITE_WORDS_CN = {
+            "删除", "移除", "修改", "更新", "新增", "创建", "写入", "发送", "发布", "撤销",
+            "取消", "转账", "支付", "执行", "安装", "卸载", "授权", "提交", "上传", "移动", "重命名"};
+
+    private static boolean looksLikeWrite(String name, String description) {
+        return !writeKeywordHit(name, description).isEmpty();
+    }
+
+    private static String writeKeywordHit(String name, String description) {
+        if (name != null) {
+            for (String token : name.toLowerCase(java.util.Locale.ROOT).split("[^a-z0-9]+")) {
+                if (!token.isEmpty() && WRITE_TOKENS.contains(token)) return token;
+            }
+        }
+        if (description != null) {
+            for (String w : WRITE_WORDS_CN) {
+                if (description.contains(w)) return w;
+            }
+        }
+        return "";
     }
 
     /** 按 serverId + 远端名查审批策略（UI/测试/执行用）。 */
@@ -741,7 +1309,8 @@ public class McpManager {
         String explicit = getToolApproval(serverId, remoteName);
         if (!explicit.isEmpty()) return normalizeApproval(explicit);
         McpToolEntry e = findTool(serverId, remoteName);
-        return e != null ? inferApproval(e.annotations) : McpConstants.APPROVAL_ASK;
+        return e != null ? inferApproval(e.annotations, e.remoteName, e.description)
+                : inferApproval(null, remoteName, "");
     }
 
     /**
@@ -807,6 +1376,7 @@ public class McpManager {
     /** 所有 server 的状态摘要（toolbox 空状态/模型判断下一步用）。 */
     public List<Map<String, Object>> serverSummaries() {
         List<Map<String, Object>> out = new ArrayList<>();
+        long now = System.currentTimeMillis();
         for (McpServerConfig cfg : store.load()) {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("server_id", cfg.id);
@@ -817,9 +1387,35 @@ public class McpManager {
             m.put("status", st);
             List<McpClient.McpToolInfo> list = catalogs.get(cfg.id);
             m.put("tool_count", list != null ? list.size() : 0);
+            // 附加能力与目录新鲜度：模型只有看见"这家还支持 resources/提示模板"，
+            // 才可能在工具不够用的时候去走那两条路
+            int resources = resourcesFor(cfg.id).size();
+            int templates = resourceTemplatesFor(cfg.id).size();
+            int prompts = promptsFor(cfg.id).size();
+            if (resources > 0) m.put("resource_count", resources);
+            if (templates > 0) m.put("resource_template_count", templates);
+            if (prompts > 0) m.put("prompt_count", prompts);
+            m.put("catalog_freshness", catalogFreshness(cfg.id, now));
+            int calls = callsForServer(cfg.id);
+            if (calls > 0) {
+                m.put("calls_in_process", calls);
+                m.put("failures_in_process", failuresForServer(cfg.id));
+            }
+            int reads = readsForServer(cfg.id);
+            if (reads > 0) m.put("reads_in_process", reads);
             out.add(m);
         }
         return out;
+    }
+
+    /** 某个服务的能力表键名（tools/resources/prompts），给 UI 一行说清"这家给什么"。 */
+    public List<String> capabilityNames(String serverId) {
+        List<String> names = new ArrayList<>();
+        JSONObject caps = capabilitiesFor(serverId);
+        for (String key : new String[]{"tools", "resources", "prompts", "logging"}) {
+            if (caps.has(key)) names.add(key);
+        }
+        return names;
     }
 
     /**
@@ -888,7 +1484,7 @@ public class McpManager {
         // 先让在跑的旧同步失效，再清目录；顺序反了会被旧结果回填
         syncTokens.remove(cfg.id);
         removeRegisteredTools(cfg.id);
-        catalogs.remove(cfg.id);
+        clearCatalogCaches(cfg.id);
         lastAutoRefresh.remove(cfg.id);
         if (cfg.enabled) {
             status.put(cfg.id, "syncing");
@@ -903,14 +1499,33 @@ public class McpManager {
     /** 删除 server（同时注销其工具）。 */
     public synchronized boolean removeServer(String id) {
         boolean removed = store.remove(id);
+        // 删配置就要连带删凭证：留着 access/refresh token 是唯一"服务没了但钥匙还在"的状态
+        if (removed) revokeAuthorization(id);
         McpClient client = clients.remove(id);
         if (client != null) client.close();
         status.remove(id);
-        catalogs.remove(id);
+        clearCatalogCaches(id);
+        catalogStore.delete(id);
         lastAutoRefresh.remove(id);
         syncTokens.remove(id); // 旧同步结果不得回填已删除的 server
         removeRegisteredTools(id);
         return removed;
+    }
+
+    /**
+     * 清掉某服务的全部内存目录（工具/资源/模板/提示/能力表）。
+     *
+     * <p>磁盘缓存<b>保留</b>：停用是为了临时关掉，不是要丢掉它上次同步到的东西——
+     * 重新启用时还能靠冷启动目录立刻可用。真正删服务的路径才连带删文件。</p>
+     */
+    private void clearCatalogCaches(String serverId) {
+        catalogs.remove(serverId);
+        resourceCatalogs.remove(serverId);
+        templateCatalogs.remove(serverId);
+        promptCatalogs.remove(serverId);
+        capabilitiesByServer.remove(serverId);
+        coldCatalogServers.remove(serverId);
+        catalogSyncedAt.remove(serverId);
     }
 
     /** 启停 server。 */
@@ -983,17 +1598,40 @@ public class McpManager {
             String k = keys.getAPIKey(refNorm);
             if (k != null && !k.isEmpty()) return k;
         }
+        // 3) 没有静态凭证时，用浏览器授权拿到的 access_token（临期由 accessTokenFor 顺手续期）。
+        //    顺序刻意是"用户显式配置的凭证优先"：同一服务既能填 AK 又能 OAuth 时，
+        //    以用户在管理页里选的那条为准，不能被后台令牌悄悄顶掉。
+        try {
+            String oauth = McpOAuthFlow.accessTokenFor(appContext, cfg);
+            if (!oauth.isEmpty()) return oauth;
+        } catch (Exception e) {
+            AILogger.w(TAG, "OAuth 令牌解析失败 (" + cfg.id + "): " + e.getMessage());
+        }
         return "";
     }
 
-    /** 派生一个 client 可直接使用的配置（tokenRef → 解析出明文 token）。 */
+    /**
+     * 派生一个 client 可直接使用的配置：tokenRef/加密令牌解析成明文，
+     * 并且把 {@code {key}} 占位符填回端点。
+     *
+     * <p>占位符这条路径是"密钥写在 URL 里"的服务（高德、腾讯位置服务）唯一的加密落盘方式：
+     * 配置里存 {@code .../mcp?key={key}}，值放在加密的 token 字段，出去前在这里拼回。
+     * 拼进 URL 后就不再重复发 {@code Authorization: Bearer}——同一条密钥发两遍，
+     * 既可能被供应商侧日志记成两个来源，也会让"我到底配了哪种鉴权"变成猜。</p>
+     */
     private McpServerConfig resolvedCfg(McpServerConfig cfg) {
-        if (cfg.token != null && !cfg.token.isEmpty() && !cfg.token.startsWith("enc:")) return cfg;
-        // 解密失败的 enc: 串不能当 Bearer 发出去，按空令牌处理并尝试 tokenRef
-        McpServerConfig base = (cfg.token != null && cfg.token.startsWith("enc:"))
-                ? cfg.withToken("") : cfg;
+        boolean brokenCipher = cfg.token != null && cfg.token.startsWith("enc:");
+        McpServerConfig base = brokenCipher ? cfg.withToken("") : cfg;
         String resolved = resolveToken(base);
-        return (resolved.isEmpty() || resolved.startsWith("enc:")) ? base : base.withToken(resolved);
+        if (resolved == null || resolved.isEmpty() || resolved.startsWith("enc:")) {
+            resolved = "";
+        }
+        if (resolved.isEmpty()) return base;
+        if (McpServerConfig.urlNeedsSecret(base.url)) {
+            // 端点占位符已经吃掉这条密钥：令牌位清空，不再重复发 Authorization
+            return base.withUrl(McpServerConfig.injectSecret(base.url, resolved)).withToken("");
+        }
+        return base.withToken(resolved);
     }
 
     // ==================== 密钥与服务的匹配 ====================
@@ -1108,6 +1746,85 @@ public class McpManager {
         }
     }
 
+    // ==================== 浏览器授权（OAuth） ====================
+
+    /** 授权结果回调（在授权线程上调用，UI 自己切回主线程）。 */
+    public interface AuthListener {
+        void onAuthResult(McpOAuthFlow.Outcome outcome);
+    }
+
+    /** 该服务现在是不是卡在"要授权"（401 挑战已拿到，等用户点授权）。 */
+    public boolean needsAuthorization(String serverId) {
+        if (serverId == null) return false;
+        return "auth_required".equals(status.get(serverId)) || authChallenges.containsKey(serverId);
+    }
+
+    /** 授权状态一句话（未授权返回空串）：管理页与向导共用这一份文案，不各写一套。 */
+    public String authorizationState(String serverId) {
+        McpOAuthRecord record = tokenStore.get(serverId);
+        if (record == null) return "";
+        return record.describe(System.currentTimeMillis());
+    }
+
+    /** 是否已有 access_token（决定按钮写「🔐 授权」还是「🔁 重新授权」）。 */
+    public boolean hasAuthorization(String serverId) {
+        McpOAuthRecord record = tokenStore.get(serverId);
+        return record != null && record.hasAccessToken();
+    }
+
+    /**
+     * 发起一次浏览器授权（丢到授权线程，阻塞到用户在浏览器里完成或超时）。
+     *
+     * <p>{@code ui.openBrowser} 在授权线程上被调用，实现方必须自己切回主线程再
+     * {@code startActivity}。成功后立刻同步一次目录，用户不用再去点刷新。</p>
+     */
+    public void authorizeServer(String serverId, McpOAuthFlow.Ui ui, AuthListener listener) {
+        McpServerConfig cfg = null;
+        for (McpServerConfig c : store.load()) {
+            if (c.id.equals(serverId)) {
+                cfg = c;
+                break;
+            }
+        }
+        if (cfg == null) {
+            if (listener != null) {
+                listener.onAuthResult(McpOAuthFlow.authorizeFailure("管理页里已经没有这个服务了"));
+            }
+            return;
+        }
+        final McpServerConfig target = cfg;
+        final McpOAuthEndpoints.Challenge challenge = authChallenges.get(serverId);
+        authExecutor.execute(() -> {
+            McpOAuthFlow.Outcome outcome;
+            try {
+                outcome = McpOAuthFlow.authorize(appContext, target, challenge, ui);
+            } catch (Exception e) {
+                outcome = McpOAuthFlow.authorizeFailure(e.getMessage() == null
+                        ? e.getClass().getSimpleName() : e.getMessage());
+            }
+            if (outcome.ok) {
+                authChallenges.remove(serverId);
+                status.put(serverId, "syncing");
+                syncServer(target);
+            } else {
+                status.put(serverId, "auth_required");
+            }
+            if (listener != null) listener.onAuthResult(outcome);
+        });
+    }
+
+    /** 撤销授权：先清本地记录（一定成功），能撤销的再异步通知服务商。 */
+    public void revokeAuthorization(final String serverId) {
+        final McpOAuthRecord record = tokenStore.get(serverId);
+        tokenStore.remove(serverId);
+        authChallenges.remove(serverId);
+        if (record != null && !record.revocationEndpoint.isEmpty()) {
+            authExecutor.execute(() -> McpOAuthClient.revoke(record.asAuthorizationServer(),
+                    record.clientId, record.accessToken));
+        }
+        AILogger.audit(TAG, "已清除 MCP 授权记录: " + serverId);
+    }
+
     /** 强制重新同步单个 server（同时重建连接，确保 tokenRef 指向的新密钥生效）。 */
     public synchronized void refreshServer(String id) {
         for (McpServerConfig cfg : store.load()) {
@@ -1193,6 +1910,12 @@ public class McpManager {
             AILogger.i(TAG, "MCP 探测通过: " + cfg.id + " tools=" + tools.size());
             return ProbeResult.ok(tools.size(), names, client.getServerInfoText(),
                     client.getNegotiatedProtocolVersion());
+        } catch (McpAuthRequiredException auth) {
+            if (auth.getChallenge() != null) {
+                authChallenges.put(cfg.id, auth.getChallenge());
+            }
+            AILogger.i(TAG, "MCP 探测被要求授权: " + cfg.id);
+            return ProbeResult.authRequired(auth.getMessage());
         } catch (Exception e) {
             AILogger.w(TAG, "MCP 探测失败 (" + cfg.id + "): " + e.getMessage());
             return ProbeResult.fail(abbreviate(e.getMessage()));
@@ -1209,6 +1932,8 @@ public class McpManager {
     /** {@link #probe} 的结果。 */
     public static final class ProbeResult {
         public final boolean ok;
+        /** 服务商明确要授权（401 + WWW-Authenticate）：UI 该给「🔐 授权」而不是让用户找密钥 */
+        public final boolean authRequired;
         public final int toolCount;
         public final List<String> toolNames;
         /** 服务端自报 serverInfo（name + version） */
@@ -1216,9 +1941,10 @@ public class McpManager {
         public final String protocolVersion;
         public final String error;
 
-        private ProbeResult(boolean ok, int toolCount, List<String> toolNames,
+        private ProbeResult(boolean ok, boolean authRequired, int toolCount, List<String> toolNames,
                             String serverInfo, String protocolVersion, String error) {
             this.ok = ok;
+            this.authRequired = authRequired;
             this.toolCount = toolCount;
             this.toolNames = toolNames == null
                     ? Collections.<String>emptyList() : Collections.unmodifiableList(toolNames);
@@ -1229,11 +1955,16 @@ public class McpManager {
 
         static ProbeResult ok(int toolCount, List<String> toolNames,
                               String serverInfo, String protocolVersion) {
-            return new ProbeResult(true, toolCount, toolNames, serverInfo, protocolVersion, "");
+            return new ProbeResult(true, false, toolCount, toolNames, serverInfo, protocolVersion, "");
+        }
+
+        static ProbeResult authRequired(String message) {
+            return new ProbeResult(false, true, 0, new ArrayList<String>(), "", "",
+                    message == null ? "需要授权" : message);
         }
 
         static ProbeResult fail(String error) {
-            return new ProbeResult(false, 0, new ArrayList<String>(), "", "", error);
+            return new ProbeResult(false, false, 0, new ArrayList<String>(), "", "", error);
         }
     }
 

@@ -158,6 +158,22 @@ public class McpMarketParseContractTest {
     }
 
     @Test
+    public void urlKeyServiceWithoutSecretPlaceholderIsReported() throws Exception {
+        // 声明"密钥写在 URL 里"却没给占位符名，装进去就只能明文落盘——这条必须报数据问题
+        McpMarketCatalog.Snapshot snap = parse(oneEntry(GOOD.replace(
+                "\"auth\":\"BEARER_TOKEN\"", "\"auth\":\"QUERY_KEY\"")));
+        assertEquals(1, snap.entries.size());
+        assertEquals("", snap.entries.get(0).secretPlaceholder);
+        assertTrue("要点名 secretPlaceholder：" + snap.problems,
+                snap.problems.get(0).contains("secretPlaceholder"));
+
+        McpMarketCatalog.Snapshot fixed = parse(oneEntry(GOOD.replace(
+                "\"auth\":\"BEARER_TOKEN\"", "\"auth\":\"QUERY_KEY\",\"secretPlaceholder\":\"key\"")));
+        assertEquals("补了占位符就该干净：" + fixed.problems, 0, fixed.problems.size());
+        assertEquals("key", fixed.entries.get(0).secretPlaceholder);
+    }
+
+    @Test
     public void unknownSchemaIsWarnedNotFatal() throws Exception {
         McpMarketCatalog.Snapshot snap = parse(
                 "{\"schema\":7,\"version\":\"t\",\"entries\":[" + GOOD + "]}");
@@ -190,6 +206,7 @@ public class McpMarketParseContractTest {
         for (McpMarketEntry.Capability c : McpMarketEntry.Capability.values()) {
             if (c.isConnectable()) installable.add(c);
         }
-        assertEquals(2, installable.size());
+        // 可安装档 = 直连 + 需开通 + 需授权（授权链已接通，"要登录"不等于"装不了"）
+        assertEquals(3, installable.size());
     }
 }

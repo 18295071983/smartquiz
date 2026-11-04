@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
+import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
@@ -28,6 +29,7 @@ import com.oilquiz.app.ai.agent.online.mcp.McpManager;
 import com.oilquiz.app.ai.agent.online.mcp.McpMarketCatalog;
 import com.oilquiz.app.ai.agent.online.mcp.McpMarketEntry;
 import com.oilquiz.app.ai.agent.online.mcp.McpMarketInstaller;
+import com.oilquiz.app.ai.agent.online.mcp.McpOAuthFlow;
 import com.oilquiz.app.ai.agent.online.mcp.McpServerConfig;
 import com.oilquiz.app.theme.ThemeColors;
 import com.oilquiz.app.util.AILogger;
@@ -133,8 +135,9 @@ public class McpMarketActivity extends AppCompatActivity {
         TextView desc = new TextView(this);
         desc.setText("内置清单 " + (snap.version.isEmpty() ? "（读取失败）" : snap.version)
                 + " · " + snap.entries.size() + " 条\n"
-                + "· 「可直连」「需开通」→ 装之前先跑一次 initialize + tools/list，通了才启用\n"
-                + "· 其余分节不能在这里安装，只给开通路径与官方文档\n"
+                + "· 前三节可安装：装之前先跑一次 initialize + tools/list，通了才启用\n"
+                + "· 「需授权」这条会再打开一次浏览器登录，登记与续期都由 App 完成\n"
+                + "· 后两节只给开通路径与官方文档（端点现取 / 本地包跑不起来）\n"
                 + (snap.disclaimer.isEmpty() ? "" : "\n" + snap.disclaimer));
         desc.setTextSize(12);
         desc.setTextColor(color(R.color.text_secondary));
@@ -384,6 +387,7 @@ public class McpMarketActivity extends AppCompatActivity {
     private static final class InstallDraft {
         String name = "";
         String endpoint = "";
+        String secret = "";
         String tokenRef = "";
         String tokenRefLabel = "";
         McpServerConfig.Transport transport = McpServerConfig.Transport.STREAMABLE_HTTP;
@@ -420,13 +424,28 @@ public class McpMarketActivity extends AppCompatActivity {
         form.addView(endpointInput);
 
         String placeholder = McpMarketEntry.placeholderName(draft.endpoint);
+        boolean needsSecret = !e.secretPlaceholder.isEmpty();
         if (!placeholder.isEmpty()) {
             TextView ph = new TextView(this);
-            ph.setText("要把 {" + placeholder + "} 换成你自己的值：" + e.authHint);
+            ph.setText(needsSecret
+                    ? "端点里的 {" + e.secretPlaceholder + "} 保留不动，Key 填在下面单独的框里（加密保存）"
+                    : "要把 {" + placeholder + "} 换成你自己的值：" + e.authHint);
             ph.setTextSize(11);
-            ph.setTextColor(color(R.color.error));
+            ph.setTextColor(needsSecret ? color(R.color.text_tertiary) : color(R.color.error));
             ph.setPadding(0, dp(4), 0, 0);
             form.addView(ph);
+        }
+
+        final EditText secretInput = new EditText(this);
+        if (needsSecret) {
+            secretInput.setSingleLine(true);
+            secretInput.setHint("粘贴 Key，不要带空格");
+            secretInput.setTextSize(13);
+            secretInput.setInputType(InputType.TYPE_CLASS_TEXT
+                    | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+            secretInput.setText(draft.secret);
+            form.addView(labeledField(McpMarketInstaller.secretFieldLabel(e)));
+            form.addView(secretInput);
         }
 
         form.addView(labeledField("🔗 密钥引用"));
@@ -465,7 +484,8 @@ public class McpMarketActivity extends AppCompatActivity {
         // 正按钮自己接管：校验不过就原地报错，不能让弹框"点了没反应还顺手关掉"
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String endpoint = endpointInput.getText().toString().trim();
-            String error = McpMarketInstaller.validateInstall(e, endpoint);
+            String secret = needsSecret ? secretInput.getText().toString().trim() : "";
+            String error = McpMarketInstaller.validateInstall(e, endpoint, secret);
             if (error != null) {
                 status.setText(error);
                 status.setTextColor(color(R.color.error));
@@ -473,11 +493,11 @@ public class McpMarketActivity extends AppCompatActivity {
             }
             draft.name = McpMarketInstaller.displayName(nameInput.getText().toString(), e);
             draft.endpoint = endpoint;
+            draft.secret = secret;
             draft.transport = McpMarketInstaller.transportFor(endpoint,
                     e.defaultEndpoint() != null ? e.defaultEndpoint().transport
                             : McpServerConfig.Transport.STREAMABLE_HTTP);
-            dialog.dismiss();
-            runProbe(e, draft);
+            runProbe(e, draft, dialog, status);
         });
     }
 
@@ -494,7 +514,7 @@ public class McpMarketActivity extends AppCompatActivity {
     private void pickKeyRef(final McpMarketEntry e, final String endpoint,
                             final InstallDraft draft, final Runnable refresh) {
         McpServerConfig probe = McpMarketInstaller.buildConfig(e, endpoint, draft.name,
-                draft.transport, draft.tokenRef, false);
+                draft.transport, draft.tokenRef, draft.secret, false);
         McpManager mgr = McpManager.getInstance(this);
         final List<String[]> items = new ArrayList<>();
         List<String> labels = new ArrayList<>();
@@ -533,28 +553,39 @@ public class McpMarketActivity extends AppCompatActivity {
                 .show();
     }
 
-    /** 先探测再落盘：网络在后台跑，回到主线程只改弹框。 */
+    /** 授权成功后的复测：没有表单可挂进度，用 toast 起、结果弹框收。 */
     private void runProbe(final McpMarketEntry e, final InstallDraft draft) {
-        final TextView loading = new TextView(this);
-        loading.setText("正在连接并枚举工具…\n\n端点：" + McpServerConfig.maskUrl(draft.endpoint));
-        loading.setTextSize(13);
-        loading.setPadding(dp(16), dp(16), dp(16), dp(16));
-        final AlertDialog waiting = new AlertDialog.Builder(this)
-                .setTitle("测试连接")
-                .setView(loading)
-                .setCancelable(false)
-                .setNegativeButton("中止", null)
-                .show();
+        runProbe(e, draft, null, null);
+    }
+
+    /**
+     * 先探测再落盘：网络在后台跑，回到主线程只改界面。
+     *
+     * <p>进度就写在表单自己的状态行里，不再额外弹一个"正在连接…"的模态框——
+     * 那等于让用户在一次安装里连点三下、还盯着一个只有"中止"的空框。
+     * 传进来的表单在探测期间禁用按钮，关掉表单即视为放弃这次结果。</p>
+     */
+    private void runProbe(final McpMarketEntry e, final InstallDraft draft,
+                          final AlertDialog form, final TextView status) {
+        if (form != null) {
+            status.setText("正在连接并枚举工具…（关掉本框即中止）\n"
+                    + McpServerConfig.maskUrl(draft.endpoint));
+            status.setTextColor(color(R.color.text_tertiary));
+            form.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+            form.getButton(AlertDialog.BUTTON_NEGATIVE).setText("中止");
+        } else {
+            Toast.makeText(this, "正在复测连接…", Toast.LENGTH_SHORT).show();
+        }
         // 中止/销毁只丢掉这一次结果，不能关掉整条执行器——否则第二次安装会静默无响应
         final boolean[] cancelled = {false};
-        waiting.setOnDismissListener(d -> cancelled[0] = true);
+        if (form != null) form.setOnDismissListener(d -> cancelled[0] = true);
 
         final McpServerConfig cfg = McpMarketInstaller.buildConfig(e, draft.endpoint, draft.name,
-                draft.transport, draft.tokenRef, false);
+                draft.transport, draft.tokenRef, draft.secret, false);
         final McpManager mgr = McpManager.getInstance(this);
         final ExecutorService exec = probeExecutor;
         if (exec == null || exec.isShutdown()) {
-            waiting.dismiss();
+            if (form != null) form.dismiss();
             Toast.makeText(this, "页面正在关闭，没发起测试", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -562,9 +593,11 @@ public class McpMarketActivity extends AppCompatActivity {
             final McpManager.ProbeResult result = mgr.probe(cfg);
             mainHandler.post(() -> {
                 if (isFinishing() || isDestroyed() || cancelled[0]) return;
-                try {
-                    waiting.dismiss();
-                } catch (Exception ignored) {
+                if (form != null) {
+                    try {
+                        form.dismiss();
+                    } catch (Exception ignored) {
+                    }
                 }
                 showProbeResult(e, draft, cfg, result);
             });
@@ -576,7 +609,9 @@ public class McpMarketActivity extends AppCompatActivity {
                                  final McpManager.ProbeResult result) {
         StringBuilder msg = new StringBuilder();
         msg.append(McpMarketInstaller.describeProbe(result));
-        if (!result.ok) {
+        if (result.authRequired) {
+            msg.append("\n\n").append(McpMarketInstaller.authorizationHint(e));
+        } else if (!result.ok) {
             String hints = McpMarketInstaller.failureHintsText(e, result);
             if (!hints.isEmpty()) msg.append("\n\n").append(hints);
         } else if (draft.tokenRef.isEmpty()
@@ -589,6 +624,24 @@ public class McpMarketActivity extends AppCompatActivity {
                 ? "SSE" : "Streamable HTTP");
         msg.append("\n名称：").append(probed.name);
 
+        if (result.authRequired) {
+            // 授权必须先有 serverId 才能存令牌，所以这一步会把这条落盘成停用项——
+            // 说清楚，否则用户会以为"还没点启用怎么就多了条配置"
+            new AlertDialog.Builder(this)
+                    .setTitle("要走一次浏览器授权")
+                    .setMessage(msg + "\n\n点「去授权」会先把这条存成停用项，再打开浏览器；"
+                            + "你在浏览器里同意后会回到这里自动复测并启用。")
+                    .setPositiveButton("🔐 去授权", (d, w) -> {
+                        McpManager.getInstance(this).upsertServer(probed.withEnabled(false));
+                        renderList();
+                        startAuthorization(e, draft, probed);
+                    })
+                    .setNeutralButton("存为停用", (d, w) ->
+                            finishInstall(e, probed.withEnabled(false), false))
+                    .setNegativeButton("返回修改", (d, w) -> showInstallForm(e, draft))
+                    .show();
+            return;
+        }
         if (result.ok) {
             new AlertDialog.Builder(this)
                     .setTitle("可以启用")
@@ -609,6 +662,50 @@ public class McpMarketActivity extends AppCompatActivity {
                         finishInstall(e, probed.withEnabled(true), false))
                 .setNegativeButton("返回修改", (d, w) -> showInstallForm(e, draft))
                 .show();
+    }
+
+    /**
+     * 从市场直接发起一次浏览器授权，成功后自动复测。
+     *
+     * <p>"打开浏览器"必须回主线程做（Activity 启动不是线程安全的入口），授权本身在
+     * {@link McpManager} 的授权线程上跑——它最长阻塞 5 分钟，不能占用同步线程。</p>
+     */
+    private void startAuthorization(final McpMarketEntry e, final InstallDraft draft,
+                                    final McpServerConfig probed) {
+        Toast.makeText(this, "正在准备授权：会先向服务商登记本机，再打开浏览器",
+                Toast.LENGTH_LONG).show();
+        McpManager.getInstance(this).authorizeServer(probed.id, new McpOAuthFlow.Ui() {
+            @Override
+            public void openBrowser(String authorizeUrl) {
+                mainHandler.post(() -> {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(authorizeUrl)));
+                    } catch (Exception ex) {
+                        Toast.makeText(McpMarketActivity.this,
+                                "打不开授权页：" + ex.getMessage(), Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
+
+            @Override
+            public void stage(String text) {
+                mainHandler.post(() -> Toast.makeText(McpMarketActivity.this,
+                        text, Toast.LENGTH_SHORT).show());
+            }
+        }, outcome -> mainHandler.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            if (outcome.ok) {
+                Toast.makeText(this, "授权成功，正在复测连接", Toast.LENGTH_LONG).show();
+                runProbe(e, draft);
+                return;
+            }
+            new AlertDialog.Builder(this)
+                    .setTitle("授权没完成")
+                    .setMessage(outcome.message
+                            + "\n\n这条已存成停用项，可以到管理页再点「🔐 授权」重试。")
+                    .setPositiveButton("知道了", (d, w) -> renderList())
+                    .show();
+        }));
     }
 
     private void finishInstall(McpMarketEntry e, McpServerConfig cfg, boolean probeOk) {

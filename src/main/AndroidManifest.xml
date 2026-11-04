@@ -440,6 +440,23 @@
             android:exported="false"
             android:parentActivityName=".ui.activity.McpManagerActivity" />
 
+        <!-- MCP 的 OAuth 回调接收页：服务商把授权码重定向到 smartquiz-mcp-oauth://callback，
+             必须由系统拉起，所以 exported=true；它自己不画界面，也不接受除该 scheme 外的任何入口 -->
+        <activity
+            android:name=".ui.activity.McpOAuthFlowActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="smartquiz-mcp-oauth" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".ui.activity.AIIconDemoActivity"
             android:exported="true"

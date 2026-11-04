@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.agent.online.mcp;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -234,5 +235,87 @@ public class McpMarketInstallerTest {
         assertNotNull(McpMarketInstaller.validateInstall(null, "https://x.test/mcp"));
         assertEquals("没跑探测", McpMarketInstaller.describeProbe(null));
         assertEquals("未知", McpMarketInstaller.capabilityLabel(null));
+    }
+
+    // ==================== 密钥单独填（不再明文写进端点） ====================
+
+    private static McpMarketEntry queryKeyEntry() {
+        try {
+            JSONObject o = new JSONObject();
+            o.put("id", "amap-maps");
+            o.put("title", "高德地图 MCP");
+            o.put("capability", "DIRECT_REMOTE");
+            o.put("auth", "QUERY_KEY");
+            o.put("authHint", "Web 服务 Key");
+            o.put("secretPlaceholder", "key");
+            o.put("endpoints", new JSONArray().put(new JSONObject()
+                    .put("transport", "streamable_http")
+                    .put("url", "https://mcp.amap.com/mcp?key={key}")));
+            o.put("guide", new JSONArray().put("step"));
+            o.put("docsUrl", "https://lbs.amap.com/api/mcp-server/gettingstarted");
+            o.put("verifiedAt", "2026-11-04");
+            o.put("probe", new JSONObject().put("checkedAt", "2026-11-04")
+                    .put("result", "auth_required").put("evidence", "e"));
+            McpMarketEntry e = McpMarketEntry.fromJson(o, NO_PROBLEMS);
+            assertNotNull(e);
+            assertEquals("声明了 QUERY_KEY 就必须有 secretPlaceholder", "key", e.secretPlaceholder);
+            return e;
+        } catch (Exception ex) {
+            throw new AssertionError(ex);
+        }
+    }
+
+    @Test
+    public void secretEntryIsRejectedWithoutAKeyAndTellsYouWhereToPutIt() {
+        McpMarketEntry e = queryKeyEntry();
+        String err = McpMarketInstaller.validateInstall(e,
+                "https://mcp.amap.com/mcp?key={key}", "");
+        assertNotNull("没填 Key 不能装", err);
+        assertTrue(err + " 要指到密钥框", err.contains("密钥"));
+
+        String wrong = McpMarketInstaller.validateInstall(e,
+                "https://mcp.amap.com/mcp?key=0123456789abcdef0123456789abcdef", "0123456789abcdef0123456789abcdef");
+        assertNotNull("把 Key 直接写进端点必须被拒：" + wrong);
+        assertTrue(wrong.contains("加密"));
+
+        String missingTemplate = McpMarketInstaller.validateInstall(e,
+                "https://mcp.amap.com/mcp", "abc");
+        assertNotNull("端点里丢了占位符也要被拒：" + missingTemplate);
+    }
+
+    @Test
+    public void secretEntryBuildsTemplateUrlAndKeepsTheKeyInTokenField() {
+        McpMarketEntry e = queryKeyEntry();
+        String template = "https://mcp.amap.com/mcp?key={key}";
+        assertNull(McpMarketInstaller.validateInstall(e, template, "abc123"));
+
+        McpServerConfig cfg = McpMarketInstaller.buildConfig(e, template, "",
+                McpServerConfig.Transport.STREAMABLE_HTTP, "", "abc123", false);
+        assertEquals("端点里只该留占位符", template, cfg.url);
+        assertEquals("密钥进 token 字段（落盘时由 McpConfigStore 加密）", "abc123", cfg.token);
+        assertEquals("", cfg.tokenRef);
+        assertFalse(cfg.enabled);
+
+        // 拼回真实请求地址是 McpManager#resolvedCfg 的事，这里只保证存储形态
+        assertEquals("https://mcp.amap.com/mcp?key=abc123",
+                McpServerConfig.injectSecret(cfg.url, cfg.token));
+        // 存储形态本身就不含真实 Key：显示层再遮一次也遮不出别的
+        assertEquals("https://mcp.amap.com/mcp?key=****", McpServerConfig.maskUrl(cfg.url));
+        assertEquals(template, cfg.url);
+    }
+
+    @Test
+    public void secretFieldLabelOnlyAppearsForUrlKeyServices() {
+        assertEquals("🔑 密钥（key）", McpMarketInstaller.secretFieldLabel(queryKeyEntry()));
+        assertEquals("Bearer 类服务不该出现这个框", "",
+                McpMarketInstaller.secretFieldLabel(direct()));
+        assertEquals("", McpMarketInstaller.secretFieldLabel(null));
+    }
+
+    @Test
+    public void oldTwoArgCallersStillWorkWithoutASecret() {
+        // 市场页对非密钥条目仍走两参口径；别为了加密钥把已有校验路径改断
+        assertNull(McpMarketInstaller.validateInstall(direct(), "https://mcp.test/mcp?key=abc"));
+        assertNotNull(McpMarketInstaller.validateInstall(direct(), "https://mcp.test/mcp?key={key}"));
     }
 }

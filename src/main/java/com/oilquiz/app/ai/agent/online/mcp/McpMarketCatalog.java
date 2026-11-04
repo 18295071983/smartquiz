@@ -132,13 +132,13 @@ public final class McpMarketCatalog {
         return grouped;
     }
 
-    /** 分组的展示顺序（也是"这台手机现在能干什么"的阅读顺序）。 */
+    /** 分组的展示顺序（也是"这台手机现在能干什么"的阅读顺序：能装的三档在前，装不了的垫底）。 */
     public static final List<McpMarketEntry.Capability> CAPABILITY_ORDER =
             Collections.unmodifiableList(Arrays.asList(
                     McpMarketEntry.Capability.DIRECT_REMOTE,
                     McpMarketEntry.Capability.PROVISIONED_REMOTE,
-                    McpMarketEntry.Capability.PORTAL_ONLY,
                     McpMarketEntry.Capability.NEEDS_OAUTH,
+                    McpMarketEntry.Capability.PORTAL_ONLY,
                     McpMarketEntry.Capability.LOCAL_ONLY));
 
     // ==================== 解析（与 Android 无关，单测可直接喂字符串） ====================
