@@ -49,11 +49,12 @@ import java.util.concurrent.atomic.AtomicReference;
         @Action(name = "play", description = "播放指定音频文件"),
         @Action(name = "stop", description = "停止当前语音播放"),
         @Action(name = "check", description = "检查TTS可用性/当前模型/音色"),
+        @Action(name = "selftest", description = "真连一次：合成一小段，返回引擎/耗时/错误（逐厂商自检）"),
         @Action(name = "voices", description = "获取可用音色列表"),
         @Action(name = "set_voice", description = "设置音色")
     },
     params = {
-        @Param(name = "action", type = "string", description = "操作类型: synthesize(默认)/speak/save/play/stop/check/voices/set_voice", required = false),
+        @Param(name = "action", type = "string", description = "操作类型: synthesize(默认)/speak/save/play/stop/check/selftest/voices/set_voice", required = false),
         @Param(name = "text", type = "string", description = "要合成/朗读的文字", required = false),
         @Param(name = "voice", type = "string", description = "音色ID(alloy/echo/nova/shimmer等，或sys:系统音色)", required = false),
         @Param(name = "title", type = "string", description = "播放组件标题(speak用，默认🔊正在朗读)", required = false),
@@ -118,6 +119,8 @@ public class SpeechSynthesisTool implements AITool {
                     return stop();
                 case "check":
                     return check();
+                case "selftest":
+                    return selfTest();
                 case "voices":
                     return voices();
                 case "set_voice":
@@ -364,6 +367,45 @@ public class SpeechSynthesisTool implements AITool {
                 + "，当前模型: " + model
                 + "，当前音色: " + currentVoice
                 + (systemVoice ? "（系统音色）" : ""), info);
+    }
+
+    /**
+     * 真连一次（2026-11-04）：合成一小段，报告 模型/音色/耗时/错误。
+     *
+     * <p>{@code check} 只读配置，读不出「这家到底通不通」；换厂商（讯飞/火山/百度/MiMo）时
+     * 最需要的是真实请求的结果——协议不对、密钥缺一项、音色不存在，都会在这里变成一条明确的
+     * 错误，而不是等用户朗读时才发现。</p>
+     */
+    private AIToolResult selfTest() {
+        SpeechManager speech = SpeechManager.getInstance(context);
+        String model = speech.getCurrentTtsModelDisplay();
+        String voice = speech.getCurrentTtsVoice();
+        long started = System.currentTimeMillis();
+        try {
+            TTSService.SynthesisResult r = speech.synthesizeSpeech("语音自检")
+                    .get(25, TimeUnit.SECONDS);
+            long ms = System.currentTimeMillis() - started;
+            Map<String, Object> info = new HashMap<>();
+            info.put("ok", true);
+            info.put("model", r.modelName);
+            info.put("voice", voice);
+            info.put("from_system_tts", r.fromSystemTts);
+            info.put("ms", ms);
+            if (r.audioFile != null) info.put("file", r.audioFile.getAbsolutePath());
+            return AIToolResult.success("语音自检通过（" + r.modelName + "，" + ms + "ms"
+                    + (r.fromSystemTts ? "，系统合成" : "") + "）", info);
+        } catch (Exception e) {
+            long ms = System.currentTimeMillis() - started;
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            String msg = cause.getMessage() != null ? cause.getMessage() : cause.toString();
+            Map<String, Object> info = new HashMap<>();
+            info.put("ok", false);
+            info.put("model", model);
+            info.put("voice", voice);
+            info.put("ms", ms);
+            info.put("error", msg);
+            return AIToolResult.fail("语音自检失败（" + ms + "ms）: " + msg);
+        }
     }
 
     /** 获取可用音色列表 */

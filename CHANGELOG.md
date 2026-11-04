@@ -20,6 +20,19 @@ SpeechSynthesizer），讯飞走 wss 签名（iat/tts-api.xfyun.cn），火山�
 验证：`VendorVoiceResolutionTest` 2 条（讯飞/百度/火山按音色 id 仍能命中自己的表；百炼仍按模型名；
 不认识的模型不硬塞族）。
 
+### 顺手加的自检
+
+换厂商时最怕「配置看着对、请求就是不通」。`speech_synthesis` 新增 `action=selftest`：真发一次合成
+（文本「语音自检」），返回 模型/音色/耗时/错误——协议不对、密钥缺一项、音色不存在都会当场暴露；
+`check` 仍只读配置（不花钱）。这样六家里的任何一家都能用一句话自检：`speech_synthesis action=selftest`。
+
+### 还没做的
+
+- **没在真机上验过讯飞/火山/百度/MiMo**——需要各自的 appId/apiSecret/token，仓库里没有；
+  引擎代码是按各家官方协议写的（讯飞 wss 签名、火山 openspeech HTTP、百度 OAuth+REST），
+  但"没验过"就是没验过，等自检结果再定。
+- 音色列表仍是「官方文档表」——内置音色各家都没有列表接口（复刻/设计的有，已在拉）。
+
 ## [2026-11-04] fix(speech)：音色列表跟着「当前选的 TTS 模型」走，系统合成不再弹在线预设音色
 
 用户反馈：「我选择本地模型还是弹出了预设的音色」。
