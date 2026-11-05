@@ -202,7 +202,7 @@ public class OCRActivity extends AppCompatActivity {
             if (engine != null && !engine.isEmpty() && !"未知引擎".equals(engine)) {
                 tvOcrModelName.setText(getString(R.string.h_c69d4624) + engine);
             }
-        } catch (Exception e) {
+        } catch (Exception labelUnavailable) {
             // 展示失败不影响识别结果
         }
     }

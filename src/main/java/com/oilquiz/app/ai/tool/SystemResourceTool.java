@@ -952,7 +952,7 @@ public class SystemResourceTool implements AITool {
                 result.put("app", appName);
                 result.put("package", packageName);
                 return new AIToolResult(result, parameters);
-            } catch (PackageManager.NameNotFoundException e) {
+            } catch (PackageManager.NameNotFoundException notInstalled) {
                 // 包名存在但没安装
             }
         }

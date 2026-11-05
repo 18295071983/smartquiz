@@ -99,7 +99,7 @@ public class WebViewLifecycleManager {
             // 1. 停止加载
             try {
                 webView.stopLoading();
-            } catch (Exception e) {
+            } catch (Exception alreadyGone) {
                 // 忽略异常
             }
             

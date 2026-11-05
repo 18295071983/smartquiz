@@ -180,7 +180,7 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
                 com.oilquiz.app.util.AILogger.i(TAG, "Metaso API key 来源: 扁平键(Service.METASO_SEARCH), key=" + maskKey(flat));
                 return flat.trim();
             }
-        } catch (java.lang.Throwable th) {
+        } catch (java.lang.Throwable keyUnreadable) {
         }
         try {
             c = mgr.getAPIConfigByServiceType("metaso_search");
@@ -435,7 +435,7 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
                 props.put("title", "搜索结果 · " + searchResults.size() + " 条");
                 props.put("items", items);
                 toolResult.withComponent(com.oilquiz.app.ai.chat.component.ComponentData.of("list_card", props));
-            } catch (java.lang.Exception e) {
+            } catch (java.lang.Exception cardSkipped) {
             }
             return toolResult;
         } catch (java.lang.Exception e2) {
@@ -986,7 +986,7 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
                     j = new org.json.JSONObject(responseBody);
                     readerErr = extractMetasoErrorCode(j);
                     mdPreview = j.optString("markdown", "");
-                } catch (java.lang.Throwable th) {
+                } catch (java.lang.Throwable notJson) {
                 }
                 if (readerErr != 0 && mdPreview.isEmpty()) {
                     java.lang.String errMsg = extractMetasoErrorMsg(j);

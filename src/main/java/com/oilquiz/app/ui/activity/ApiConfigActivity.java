@@ -414,7 +414,9 @@ public class ApiConfigActivity extends BaseActivity {
         try {
             List<String> keys = mgr.getAllServiceKeys();
             entryCount = keys == null ? 0 : keys.size();
-        } catch (Throwable th) {
+        } catch (Throwable countFailed) {
+            android.util.Log.w("ApiConfig", "数不出已存条目，界面显示 0 条（是读不出，不是真没有）: "
+                    + countFailed.getMessage());
         }
 
         LinearLayout card = new LinearLayout(this);
@@ -1456,7 +1458,7 @@ public class ApiConfigActivity extends BaseActivity {
                             }
                         }
                     }
-                } catch (Exception e) {
+                } catch (Exception pathUnknown) {
                 }
             }
         }

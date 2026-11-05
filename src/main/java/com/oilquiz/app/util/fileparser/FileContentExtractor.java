@@ -453,7 +453,7 @@ public class FileContentExtractor {
             } else if (uri.getScheme().equals("file")) {
                 fileName = new File(uri.getPath()).getName();
             }
-        } catch (Exception e) {
+        } catch (Exception nameUnavailable) {
             // 忽略异常
         }
         return fileName;

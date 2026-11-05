@@ -348,7 +348,7 @@ public class AICrashHandler {
                     }
                 }
             }
-        } catch (IOException | NumberFormatException e) {
+        } catch (IOException | NumberFormatException procUnreadable) {
             // 忽略读取错误
         } finally {
             if (reader != null) {

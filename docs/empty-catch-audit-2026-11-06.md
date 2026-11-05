@@ -206,3 +206,28 @@ ai/bridge/ModelExecutionBridge.java:511  putLocalSampling()  catch Throwable
 | **过期缓存清扫无声** | `BlobDownloadManager` 构造里的 `.part` 清扫 | 顺手改成统计"删掉几个/删不掉几个"，删不掉才报；`dir.mkdirs()` 失败也从无声变成一句（否则要等到建临时文件失败才发现） |
 
 未验：这批同样**没加新测试**；`DatabaseTool` 的两个新结果键（`row_count_error`、`coerced_fields`）只由全量单测保证不破坏既有断言。真机上值得点一次的是"用字符串型 difficulty 调 add_questions"——看模型是不是真能收到那句"没按提交值入库"。
+
+## 11. 批 3 改动记录（"拿着 e/th 却什么都没做"这一族清零）
+
+这批的对象不是"空体"本身，而是**变量名自称要用异常、体里却一行没做**那种形态：它比 `ignored` 更可疑，因为 `ignored` 至少承认"我要吞"。扫描开始时 src/main 有 **65 处**，现在 **10 处，且全在 `AILogger2`**（`@Deprecated`，全仓只有它自己和 `AILogger` 提到过它）。
+
+| 指标 | 批 3 前 | 批 3 后 |
+| --- | --- | --- |
+| catch 总数（src/main） | 4392 | 4392（这批**没删任何 try**，只改名/补日志/补注释） |
+| 高危 / 中危 / 低危 | 145 / 557 / 127 | 141 / 553 / 127 |
+| 变量名分布里 `e`/`th`/`t` 命名的空体 | 65 | **10**（全在废弃类 AILogger2） |
+| 基线 | 1746 tests / 0 failures / 0 errors / 1 skipped | 同 |
+
+处置分三种，逐处判：
+
+| 处置 | 数量 | 位置与理由 |
+| --- | --- | --- |
+| **改名 + 补日志**（吞掉的是一件有后果的事） | 15 | `AILogger` 两个视觉日志回调（监听者炸了会把整条日志一起吞掉）；`LlamaHelper.isEngineReady`（探测抛异常＝报"未就绪"，可能把已就绪报成没就绪）、`chatStop`/`chatClear`（没调到 native＝这一轮停不下来、KV 没清）；`GpuAdaptiveTuner`（拿不到 profile 就按 5f 猜值调速）；`MessageAttachmentAdapter`（缩略图解不出只剩空白）；`ToolGuideFlowFlag`（开关没写进 prefs，下次启动回默认档）；`AgentDebugActivity.saveTrace`（trace 没落盘＝这轮调试信息丢了）；`ApiConfigActivity`（数不出条目却显示 0 条）；`OnlineInferenceService.preResolveHost`；`NetworkSearchTool` 两处（key 读不到按没配处理、结果卡片没搭起来只回文字）；`OnlineModelConfigDialog`（查不到上下文上限却沿用猜测值） |
+| **改名 + 注释/类文档**（读不到就是这一族的答案，不该报） | 40 | `GpuCapabilityDetector` 15 处（sysfs/属性/反射/外部命令四种探测，读不到＝不支持或未知；真机每次启动都会命中若干回，逐条报 W 会把日志中心变成探测清单）；`AILogger` 5 处 org.json `put`（checked 异常去不掉，只少显示几个字段）；`AppLogger` 3 处（"这行不是时间戳格式"是常态）；`McpLoopbackReceiver`（accept 超时是等待窗口的常态）；`PerformanceMonitor` 温度、`AICrashHandler` 的 /proc、`SessionEventPayload.safePut`、`NetworkSearchTool` 响应体不是 JSON、`SystemResourceTool` 包名对上但没装、`AccessibilityHelper` 两处反射、`GarbledTextFixer` 字段可能不存在、`WebViewLifecycleManager` 对已死 WebView 操作、`OCRActivity`/`WeatherDetailActivity`/`WebViewFilePreviewActivity`/`ApiConfigActivity`/`ModelFileSelector` 各一 |
+| **顺手修真问题**（与上面两类重叠，不另计数） | 2 处行为 + 1 处命名 | `PerformanceMonitor:121` 采样间隙 `Thread.sleep` 的空 catch 吃掉了 interrupt → 交还标记；`AIServiceStatusActivity` 读 `gpuLayers` 失败仍走 else 分支，界面写死"(CPU模式)"——把"没读到"说成"确定没用 GPU 加速"，改成三态（未知/加速 N 层/CPU 模式）；`McpLoopbackReceiver` 的超时分支明确成 `timeoutTryAgain` 以免下次被当成漏处理 |
+
+命名约定写进了 `GpuCapabilityDetector`/`AppLogger` 的类注释：**变量叫 `probeMissed`/`notThisFormat` 这类名字＝刻意吞掉的探测失败，从"待查信号"里出去；还叫 `e`/`th` 的＝没人看过。** 于是这个扫描口径以后可以继续用（第 8 节那条"定案用编译器当裁判"之外的第二个抓手）。
+
+### 剩下的 10 处怎么处置，等一句话
+
+`AILogger2`（`util/AILogger2.java`，10 处空体）的类注释自己写着 `@deprecated Use AILogger`，而全仓引用只剩两处：它自己和 `AILogger`。也就是说这 10 处的正解不是逐条修，而是**决定这个废弃类切没切干净**：没有活调用方就整包删（连带 10 处），有就把调用点迁到 `AILogger`。按第 4 节的口径（死链默认保留、报账等拍板），我没自己删。

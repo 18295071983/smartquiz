@@ -1195,8 +1195,9 @@ public class OnlineModelConfigDialog {
                 }
                 modelManager.updateModelConfig(current);
             });
-        } catch (Throwable t) {
+        } catch (Throwable queryFailed) {
             // 查询失败静默，保留配置表推断值
+            android.util.Log.w("OnlineModelConfigDialog", "查上下文上限失败，沿用本地猜测值: " + queryFailed.getMessage());
         }
     }
 

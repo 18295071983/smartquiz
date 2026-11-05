@@ -1439,7 +1439,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
                 gaugeUvArc.setText(String.valueOf(uvVal));
                 gaugeUvArc.setLabel(uvLevelText(uvVal));
                 gaugeUvArc.setArcColor(uvColor(uvVal));
-            } catch (NumberFormatException e) {
+            } catch (NumberFormatException notNumeric) {
                 // ignore
             }
         }

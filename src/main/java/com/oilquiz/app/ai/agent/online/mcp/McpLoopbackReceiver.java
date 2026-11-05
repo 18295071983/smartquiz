@@ -75,7 +75,7 @@ public final class McpLoopbackReceiver implements AutoCloseable {
         while (!stop && System.currentTimeMillis() < deadline && !delivered) {
             try (Socket client = socket.accept()) {
                 handle(client, expectedState);
-            } catch (java.net.SocketTimeoutException e) {
+            } catch (java.net.SocketTimeoutException timeoutTryAgain) {
                 // soTimeout 到点：还没等到回调，继续循环（总超时到了会自己退出）
             } catch (Exception e) {
                 if (!stop) {

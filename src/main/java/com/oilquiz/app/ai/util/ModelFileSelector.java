@@ -85,7 +85,7 @@ public class ModelFileSelector {
                         if (sizeInputStream != null) {
                             fileSize = sizeInputStream.available();
                         }
-                    } catch (Exception e) {
+                    } catch (Exception sizeUnknown) {
                         // 忽略错误，继续尝试其他方法
                     }
                 }

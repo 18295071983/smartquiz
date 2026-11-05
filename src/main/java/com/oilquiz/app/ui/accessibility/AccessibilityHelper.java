@@ -355,7 +355,7 @@ public class AccessibilityHelper {
                         try {
                             java.lang.reflect.Method method = info.getClass().getMethod("setRoleDescription", String.class);
                             method.invoke(info, "列表");
-                        } catch (Exception e) {
+                        } catch (Exception apiMissing) {
                             // 忽略异常
                         }
                     }
@@ -389,7 +389,7 @@ public class AccessibilityHelper {
                     try {
                         java.lang.reflect.Method method = info.getClass().getMethod("setRoleDescription", String.class);
                         method.invoke(info, "列表项");
-                    } catch (Exception e) {
+                    } catch (Exception apiMissing) {
                         // 忽略异常
                     }
                 }

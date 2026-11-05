@@ -845,8 +845,9 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
             try (FileWriter w = new FileWriter(f)) {
                 w.write(root.toString(2));
             }
-        } catch (Throwable th) {
+        } catch (Throwable traceNotSaved) {
             // 落盘失败不影响调试
+            android.util.Log.w("AgentDebug", "trace 没写盘，这轮调试信息丢了: " + traceNotSaved.getMessage());
         }
     }
 

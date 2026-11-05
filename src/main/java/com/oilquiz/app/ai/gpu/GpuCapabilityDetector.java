@@ -13,6 +13,17 @@ import java.util.HashMap;
 import org.json.JSONObject;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 
+/**
+ * GPU/Vulkan 能力探测：sysfs、系统属性、反射、外部命令四种途径依次试。
+ *
+ * <p><b>为什么这里有一批 {@code catch (Exception probeMissed) {}} 空体</b>：每条探测问的是
+ * "这台机器有没有 X"，读不到（没权限、路径不存在、命令缺失）本身就是答案，按
+ * "不支持/未知"继续是设计而不是漏处理。真机上这几条每次启动都会命中若干回，逐条报 W
+ * 只会把日志中心变成探测清单——后端选择的结论看 Backend switch 那一行，不靠这里。</p>
+ *
+ * <p>变量刻意叫 {@code probeMissed}（而不是 {@code e}）：静默扫描把"拿着异常名字却
+ * 什么都没做"当作待查信号，这里不属于那一类，就该从信号里出去。</p>
+ */
 public class GpuCapabilityDetector {
     private static final String TAG = "GpuCapabilityDetector";
 
@@ -477,7 +488,7 @@ public class GpuCapabilityDetector {
                 reader.close();
                 if (renderer != null) return renderer.trim();
             }
-        } catch (Exception e) {
+        } catch (Exception probeMissed) {
         }
 
         try {
@@ -496,7 +507,7 @@ public class GpuCapabilityDetector {
                 }
                 reader.close();
             }
-        } catch (Exception e) {
+        } catch (Exception probeMissed) {
         }
 
         return Build.HARDWARE;
@@ -522,7 +533,7 @@ public class GpuCapabilityDetector {
                 reader.close();
                 if (version != null) return version.trim();
             }
-        } catch (Exception e) {
+        } catch (Exception probeMissed) {
         }
         return "Unknown";
     }
@@ -559,7 +570,7 @@ public class GpuCapabilityDetector {
             if (vulkanDir.exists() && vulkanDir.listFiles() != null && vulkanDir.listFiles().length > 0) {
                 return true;
             }
-        } catch (Exception e) {
+        } catch (Exception probeMissed) {
         }
 
         try {
@@ -569,7 +580,7 @@ public class GpuCapabilityDetector {
                 Log.i(TAG, "Vulkan support detected via system library");
                 return true;
             }
-        } catch (Exception e) {
+        } catch (Exception probeMissed) {
         }
 
         try {
@@ -579,7 +590,7 @@ public class GpuCapabilityDetector {
                 Log.i(TAG, "Vulkan support detected via vendor library");
                 return true;
             }
-        } catch (Exception e) {
+        } catch (Exception probeMissed) {
         }
 
         try {
@@ -591,7 +602,7 @@ public class GpuCapabilityDetector {
                 Log.i(TAG, "Vulkan support detected via system property: " + line);
                 return true;
             }
-        } catch (Exception e) {
+        } catch (Exception probeMissed) {
         }
 
         try {
@@ -601,7 +612,7 @@ public class GpuCapabilityDetector {
                 Log.i(TAG, "Vulkan support detected via GPU profile for: " + renderer);
                 return true;
             }
-        } catch (Exception e) {
+        } catch (Exception probeMissed) {
         }
 
         return false;
@@ -629,7 +640,7 @@ public class GpuCapabilityDetector {
                                 return version;
                             }
                         }
-                    } catch (Exception e) {
+                    } catch (Exception probeMissed) {
                         // continue
                     }
                 }
@@ -644,7 +655,7 @@ public class GpuCapabilityDetector {
                     String version = parseVulkanVersionString(line.trim());
                     if (version != null) return version;
                 }
-            } catch (Exception e) {
+            } catch (Exception probeMissed) {
                 // continue
             }
 
@@ -657,7 +668,7 @@ public class GpuCapabilityDetector {
                     String version = parseVulkanVersionString(line.trim());
                     if (version != null) return version;
                 }
-            } catch (Exception e) {
+            } catch (Exception probeMissed) {
                 // continue
             }
 
@@ -667,7 +678,7 @@ public class GpuCapabilityDetector {
                 if (gpuProfile != null) {
                     return gpuProfile.vulkanVersion;
                 }
-            } catch (Exception e) {
+            } catch (Exception probeMissed) {
                 // fallback
             }
         } catch (Exception e) {
@@ -691,7 +702,7 @@ public class GpuCapabilityDetector {
                 int minor = (versionInt >> 12) & 0x3FF;
                 return major + "." + minor;
             }
-        } catch (Exception e) {
+        } catch (Exception probeMissed) {
             // ignore
         }
         return null;
@@ -742,7 +753,7 @@ public class GpuCapabilityDetector {
                     return value / 1024;
                 }
             }
-        } catch (Exception e) {
+        } catch (Exception probeMissed) {
         }
         return 0;
     }
@@ -759,7 +770,7 @@ public class GpuCapabilityDetector {
                     return value / 100f;
                 }
             }
-        } catch (Exception e) {
+        } catch (Exception probeMissed) {
         }
         return 0f;
     }

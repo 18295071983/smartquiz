@@ -1698,7 +1698,7 @@ public class LlamaHelper {
                 // NPU 路径：模型已加载（READY/GENERATING）即视为就绪
                 return com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
             }
-        } catch (Throwable t) {
+        } catch (Throwable probeFailed) {
             // NpuLlmChat 不可用时退回 llama 判定，保持行为不变
         }
         return isModelInitialized();
@@ -2379,13 +2379,17 @@ public class LlamaHelper {
     public static void chatStop() {
         long handle = chatContextHandle;
         if (!libraryLoaded || handle == 0) return;
-        try { nativeChatStop(handle); } catch (UnsatisfiedLinkError e) {}
+        try { nativeChatStop(handle); } catch (UnsatisfiedLinkError notLinked) {
+            AILogger.w(TAG, "nativeChatStop 没调到：正在生成的这一轮不会被真正停下");
+        }
     }
 
     public static void chatClear() {
         long handle = chatContextHandle;
         if (!libraryLoaded || handle == 0) return;
-        try { nativeChatClear(handle); } catch (UnsatisfiedLinkError e) {}
+        try { nativeChatClear(handle); } catch (UnsatisfiedLinkError notLinked) {
+            AILogger.w(TAG, "nativeChatClear 没调到：KV/序列可能还留在引擎里");
+        }
     }
 
     // 活跃生成标志管理

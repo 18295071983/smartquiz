@@ -1208,7 +1208,7 @@ public class OnlineInferenceService {
         } catch (java.lang.InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new java.io.IOException("DNS 解析被中断: " + fullUrl);
-        } catch (java.lang.IllegalArgumentException e) {
+        } catch (java.lang.IllegalArgumentException badHost) {
             // 非法 URL：交由后续 new URL 抛标准异常
         }
     }

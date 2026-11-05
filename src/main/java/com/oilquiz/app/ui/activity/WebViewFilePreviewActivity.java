@@ -676,7 +676,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
                 if (val != null && val.matches("(?s).*[A-D][.、．].*[A-D][.、．].*")) letterMatch++;
             }
             if (letterMatch >= Math.max(2, checkRows / 2)) return "LETTER_PATTERN";
-        } catch (Exception e) {
+        } catch (Exception probeFailed) {
             // 忽略解析错误
         }
         return null;

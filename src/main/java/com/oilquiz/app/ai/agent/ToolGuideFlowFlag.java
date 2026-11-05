@@ -54,7 +54,7 @@ public final class ToolGuideFlowFlag {
                     .edit()
                     .putBoolean(PREF_KEY, value)
                     .apply();
-        } catch (Throwable t) {
+        } catch (Throwable notStored) {
             // 写不进去就维持现状，不抛
         }
     }

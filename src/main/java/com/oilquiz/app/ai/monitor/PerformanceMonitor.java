@@ -118,7 +118,10 @@ public class PerformanceMonitor {
             
             try {
                 Thread.sleep(100);
-            } catch (Exception e) {}
+            } catch (Exception interrupted) {
+                // 采样间隙的 sleep 被打断＝这一轮别再睡了；交还 interrupt 标记。
+                Thread.currentThread().interrupt();
+            }
             
             reader.seek(0);
             load = reader.readLine();
@@ -163,7 +166,7 @@ public class PerformanceMonitor {
                     return temp > 75;
                 }
             }
-        } catch (Exception e) {
+        } catch (Exception tempUnreadable) {
         }
         
         return false;

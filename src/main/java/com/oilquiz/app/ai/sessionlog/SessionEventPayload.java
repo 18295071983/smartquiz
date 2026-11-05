@@ -17,7 +17,7 @@ public final class SessionEventPayload {
     private static void safePut(JSONObject o, String key, Object value) {
         try {
             o.put(key, value);
-        } catch (JSONException e) {
+        } catch (JSONException keyDropped) {
             // key/value 均为合法 JSON 类型，理论上不触发；忽略
         }
     }

@@ -143,7 +143,7 @@ public class GpuAdaptiveTuner {
             if (gpuProfile != null) {
                 return gpuProfile.peakPerformanceTFLOPS / 10;
             }
-        } catch (Exception e) {
+        } catch (Exception noProfile) {
         }
         return 5f;
     }

@@ -29,6 +29,13 @@ import java.util.regex.Pattern;
  * 实现应用级记录与崩溃日志记录方法类似
  * 支持日志级别、自动清理、日志拦截等功能
  */
+/**
+ * 应用日志文件的读取与解析。
+ *
+ * <p>解析处的 {@code catch (ParseException notThisFormat)} 是<b>正常分支</b>：日志里混着
+ * 多行堆栈、崩溃报告和其它格式的整行，"这行不是时间戳开头"是常态，跳过即可；
+ * 变量名不叫 {@code e} 同样是为了把它从"忘了处理"的信号里排除掉。</p>
+ */
 public class AppLogger {
 
     private static final String TAG = "AppLogger";
@@ -930,7 +937,7 @@ public class AppLogger {
                             logs.append(line).append("\n");
                         }
                     }
-                } catch (Exception e) {
+                } catch (Exception notThisFormat) {
                     // 解析失败，跳过该行
                 }
             }
@@ -973,7 +980,7 @@ public class AppLogger {
                                 logs.append(crashReport.toString());
                             }
                         }
-                    } catch (Exception e) {
+                    } catch (Exception notThisFormat) {
                         // 解析失败，跳过
                     }
                 }
@@ -1064,7 +1071,7 @@ public class AppLogger {
                         continue;
                     }
                 }
-            } catch (ParseException e) {
+            } catch (ParseException notThisFormat) {
                 // 非标准日志行，走续行处理
             }
             if (last != null) {

@@ -285,7 +285,7 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
                                 }
                             }
                         }
-                    } catch (Exception e) {
+                    } catch (Exception thumbnailFailed) {
                         // 采样失败回退 setImageURI（小图无碍）
                     }
                     if (!loaded) {

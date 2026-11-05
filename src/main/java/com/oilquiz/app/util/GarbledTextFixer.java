@@ -253,7 +253,7 @@ public class GarbledTextFixer {
             Field f = obj.getClass().getDeclaredField(fieldName);
             f.setAccessible(true);
             f.set(obj, value);
-        } catch (Exception e) {
+        } catch (Exception fieldAbsent) {
             // 字段可能不存在，忽略
         }
     }

@@ -900,11 +900,19 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             String engineDetail = "Llama CPP";
             if (LlamaHelper.isLibraryLoaded()) {
                 int gpuLayers = 0;
+                boolean gpuLayersKnown = true;
                 try {
                     gpuLayers = LlamaHelper.getGPULayers();
-                } catch (Exception e) {
+                } catch (Exception gpuLayersUnknown) {
+                    gpuLayersKnown = false;
+                    android.util.Log.w("AIServiceStatus", "读 gpuLayers 失败，状态页改标\"未知\": "
+                            + gpuLayersUnknown.getMessage());
                 }
-                if (gpuLayers > 0) {
+                if (!gpuLayersKnown) {
+                    // 原来读失败也走 else 分支，界面就写死"(CPU模式)"——那是把"没读到"
+                    // 说成"确定没用 GPU 加速"。三态要按判据给，不许嗅探。
+                    engineDetail += " (GPU层数未知)";
+                } else if (gpuLayers > 0) {
                     engineDetail += " (GPU加速, " + gpuLayers + "层)";
                 } else {
                     engineDetail += " (CPU模式)";

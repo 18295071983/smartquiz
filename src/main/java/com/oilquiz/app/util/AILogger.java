@@ -853,7 +853,12 @@ public class AILogger {
                     String key = it.next();
                     step.metadata.put(key, additionalData.get(key));
                 }
-            } catch (Exception e) {}
+            } catch (Exception metadataNotRecorded) {
+                // 这一族（含 completeStep / logThinking / logToolCall / logAgentStep
+                // 那四处同样形状）去不掉这层 try：org.json 的 put 声明 checked JSONException。
+                // 真抛了只影响日志中心里这一步少显示几个字段，不影响被记录的业务，
+                // 所以不报——日志器自己刷警告会把真故障挤掉。
+            }
         }
         
         notifyVisualListenersUpdate(step);
@@ -881,7 +886,7 @@ public class AILogger {
                     String key = it.next();
                     step.metadata.put("result_" + key, resultData.get(key));
                 }
-            } catch (Exception e) {}
+            } catch (Exception metadataNotRecorded) {}
         }
         
         activeSteps.remove(step.id + "");
@@ -896,7 +901,7 @@ public class AILogger {
         try {
             meta.put("type", "thinking");
             meta.put("content_length", thoughtContent.length());
-        } catch (Exception e) {}
+        } catch (Exception metadataNotRecorded) {}
         return logVisual(LogLevel.THINKING, LogCategory.DEEP_THINKING, tag, thoughtContent, meta);
     }
     
@@ -913,7 +918,7 @@ public class AILogger {
                     meta.put("param_" + param.getKey(), param.getValue().toString());
                 }
             }
-        } catch (Exception e) {}
+        } catch (Exception metadataNotRecorded) {}
         
         String message = "调用工具: " + toolName + "." + action;
         return logVisual(LogLevel.TOOL_CALL, LogCategory.TOOL_EXECUTION, "Tool:" + toolName, message, meta);
@@ -931,7 +936,7 @@ public class AILogger {
             meta.put("step_type", stepType);
             meta.put("progress", (int)((double)stepNum / totalSteps * 100));
             if (data != null) meta.put("data", data.toString());
-        } catch (Exception e) {}
+        } catch (Exception metadataNotRecorded) {}
         
         String message = String.format(Locale.getDefault(), 
             "步骤 %d/%d [%s]: %s", stepNum, totalSteps, stepType, description);
@@ -958,7 +963,12 @@ public class AILogger {
             for (OnVisualLogListener listener : visualListeners) {
                 try {
                     listener.onNewLog(entry);
-                } catch (Exception e) {}
+                } catch (Exception listenerCrashed) {
+                    // 界面回调自己炸了不能反过来吃掉这条日志：日志器被监听方拖死，
+                    // 别的监听者就一条都收不到（原来两处空 catch 正是这个效果）。
+                    Log.w(TAG, "视觉日志回调 onNewLog 抛异常（该监听者没收到这条）: "
+                            + listenerCrashed.getMessage());
+                }
             }
         });
     }
@@ -968,7 +978,12 @@ public class AILogger {
             for (OnVisualLogListener listener : visualListeners) {
                 try {
                     listener.onLogUpdated(entry);
-                } catch (Exception e) {}
+                } catch (Exception listenerCrashed) {
+                    // 界面回调自己炸了不能反过来吃掉这条日志：日志器被监听方拖死，
+                    // 别的监听者就一条都收不到（原来两处空 catch 正是这个效果）。
+                    Log.w(TAG, "视觉日志回调 onLogUpdated 抛异常（该监听者没收到这条）: "
+                            + listenerCrashed.getMessage());
+                }
             }
         });
     }
