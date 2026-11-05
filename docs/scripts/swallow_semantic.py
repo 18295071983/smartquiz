@@ -24,14 +24,21 @@ import re
 import subprocess
 import sys
 
+# 只认"会改东西"的动词。之前把 load*/start*/bind* 也算副作用，于是
+# WeatherBannerView:439 那种"读 prefs 后备一个默认值"被误投进 S2——分档要当队列用，
+# 但队列里混进读操作就没人愿意再看了，所以判据收紧：动词必须落在写/删/改名/发送上。
 SIDE = re.compile(
-    r'\.(delete|deleteRecursively|renameTo|mkdirs?|commit|apply|flush|close)\s*\('
-    r'|\b(save|insert|update|delete|remove|write|append|copy|move|extract|restore|import|export|'
-    r'create|rename|upload|clear|purge|exec|execute|send|post|enqueue|register|install|download|'
-    r'persist|load|init|start|stop|bind|attach)\w*\s*\(', re.I)
+    r'\.(delete|deleteRecursively|renameTo|mkdirs?|commit|apply|flush)\s*\('
+    r'|(save|insert|update|delete|remove|write|append|copy|move|restore|import|export|'
+    r'create|rename|upload|clear|purge|exec|execute|send|post|enqueue|register|install|'
+    r'download|persist)\w*\s*\(', re.I)
+
+# 真正的"落盘出口"，而不是"沾了 SharedPreferences 这个词"
 PERSIST = re.compile(
-    r'SharedPreferences|\.insert\(|\.update\(|Dao\.|execSQL|FileWriter|FileOutputStream|'
-    r'printWriter|openOutputStream|getWritableDatabase', re.I)
+    r'\.edit\(\)|\.(putBoolean|putString|putInt|putLong|putFloat)\(|\.commit\(\)|'
+    r'execSQL|\.insert\(|\.update\(|Dao\.(insert|update|delete|add)|'
+    r'FileWriter|FileOutputStream|printWriter|openOutputStream|BufferedOutputStream|'
+    r'getWritableDatabase', re.I)
 # 已经有可见反馈（打了日志/审计）的站点不重复报
 REPORTED = re.compile(r'AILogger\.|AppLogger|Log\.[wdie]\(|System\.(out|err)')
 

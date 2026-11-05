@@ -225,20 +225,103 @@
 
 这条的教训：**看到"零引用的恢复/回滚路径"先查是不是刻意停用**，别顺手把它接上——那正好会把崩溃循环接回来。
 
-## 7. 下一轮候选：整类零引用（75 个类，约 1.74 万行）——**未删，需逐个确认入口**
+## 7. 整类零引用候选：2026-11-06 晚用 `dead_class_verify.py` 重跑并剔掉误匹配
 
-跨 `src/main/java`、`src/main/res`、`AndroidManifest.xml`、`src/main/python` 全量按整词检索后仍无外部引用的 `public` 类（原清单 76 个，`LinuxShellTool` 已按第 6b 节接回，故移出）。注意这一节是**候选**，已知的假阳性类型必须逐个排掉：
+> 这一节原来是一行手抄名单（76→75 条），已经过期：`AILogger2`、`ToolExecutionOrchestrator` 后来被删了；
+> `AppModule`/`BaseFragment` 是注解驱动入口，按名字检索永远不会命中调用方，属假阳性；`Translator` 的命中
+> 来自打包进来的 SPIRV 头文件里的同名字串。名单不该靠记忆维护，所以判据写成了脚本：
+> `python docs/scripts/dead_class_verify.py`（读第 7 节名单→定位声明文件→查入口注解→整词检索引用，
+> 检索范围含 `src/main/**` 的 java/kt/xml/gradle/pro/py/json **和 c/cpp/h/cmake**、再加测试侧单独一档）。
+> 新增的第五类盲区就在这里被堵上：JNI 桥那批类只在 native 侧被调用，只搜 Java 会误判成零引用。
 
-- **注解/DI 驱动**：`AppModule`（`src/main/java/com/oilquiz/app/di/AppModule.java:34` 带 `@Module`，由 Hilt 注解处理装配）——按名检索永远不会命中调用方，这条已实测确认属假阳性；
-- **手动跑的测试类**：`ALChatTest`、`EngineTest`；
-- 可能由反射/按类名装配的：`TypeConverter`、`ParserRouter`、`SessionManager`、`UsageRepository`（Room/Dagger 风格）；
-- 自定义 View 若被 XML 布局按名引用会命中 `src/main/res`，本表已把 res 纳入检索，所以这几条是真没引用。
+**重跑结论**（名单 75 条 → 已不在仓库 2 ｜ 误匹配剔除 3 ｜ 生产死·测试活 1 ｜ 真候选 69（约 15996 行））
 
-规模按行数降序：`WeatherTrendChartView` 1055、`AILogger2` 670、`GpuAdaptiveTuner` 586、`TFLiteObjectDetector` 571、`ModelCacheManager` 566、`CallbackHandler` 564、`QuizSessionManager` 544、`AccessibilityHelper` 464、`FileUploader` 437、`TombstoneAnalyzer` 428、`AgentExecutionEngine` 387、`RecyclerViewAnimations` 383、`TypeConverter` 377、`TFLiteImageClassifier` 368、`MinutelyPrecipChartView` 352、`X5FilePreviewManager` 348、`DataValidator` 347、`OfficeGeneratorUtil` 347、`QWeatherJsonParser` 340、`ToolParameterValidator` 331、`AIFileParser` 314、`WeatherChartView` 302、`OfficePreviewEngine` 287、`FileDownloader` 271、`AIEntertainmentManager` 259、`SessionManager` 251、`WeatherDataParser` 248、`ThinkingAssistantEngine` 246、`ExcelFileAnalyzer` 245、`ToolExecutionOrchestrator` 243、`WebGeneratorUtil` 239、`AIFileExporter` 234、`ObbHelper` 234、`PerformanceMonitor` 231、`QuizViewModel` 228、`AgentToolCall` 186、`WindUtils` 182、`FilePickerHelper` 174、`WeatherResourceManager` 164、`ModelHotSwitcher` 159、`PreviewViewModel` 157、`ChatVoiceRecorder` 156、`ChatSpeechController` 153、`ExcelTemplateExporter` 151、`WebSearchHelper` 130、`PreviewDataManager` 129、`AiPathB` 127、`ChatSpeechInputController` 126、`WordTemplateExporter` 126、`ResponseCacheManager` 123、`QuestionAdapterEnhance` 109、`CostCalculator` 109、`AppModule` 109、`ALChatTest` 103、`UsageRepository` 101、`FileRenderManager` 101、`CSVTemplateExporter` 97、`ContextStubManager` 96、`BaseFragment` 88、`TemplateHTMLExporter` 86、`Translator` 85、`QuestionAnalyzer` 84、`TraceManager` 75、`GgmlProbe` 70、`AIModelInfo` 70、`QuestionRenderUtil` 66、`ParserRouter` 65、`ScoreAdapter` 65、`StatisticsViewModel` 60、`ScoreViewModel` 50、`FavoriteQuestionViewModel` 41、`WeatherIconInitializer` 34、`JsonUtil` 33、`PropertySchema` 29、`EngineTest` 29。
+已不在仓库（从名单删掉）：`AILogger2, ToolExecutionOrchestrator`
 
-值得单独提的四条：`AILogger2`（670 行，与活的 `AILogger` 并存的第二套日志器，正是"近似名死残留"）；`GpuAdaptiveTuner`（586 行，整套自适应调优没接，与第 6 节那条同源）；`ResponseCacheManager`（123 行，推理缓存三层审计里已点名的死类）；`QuizViewModel`（228 行，**生产侧零引用，但 `src/test/.../QuizViewModelTest.java` 在测它**——测一个没人用的类，删类要连测试一起处置，别只删一半留下红测试）。
+误匹配剔除：
+- `AppModule` — 带入口注解（按名检索永远命中不了调用方）
+- `BaseFragment` — 带入口注解（按名检索永远命中不了调用方）
+- `Translator` — 有源码引用：src/main/cpp/spirv-headers/include/spirv/spir-v.xml
 
-`Translator`（85 行）复核过：Java/Kotlin/res/manifest 里零引用，只在打包进来的 LibreOffice 资产（`program/services.rdb` 等）与 gguf 词表里出现同名字串，属误命中不是引用。另外用两种独立实现（全文件正则 vs 全仓整词 grep）交叉核对时差出 3 个名字，其中 2 个是**扫描范围是否包含 `src/test`** 造成的（`QuizViewModel`、`LinuxShellTool` 只在测试里被引用）——这正说明"死代码"要先讲清相对谁而死：生产侧死、测试侧活，是一类需要单独决策的情况。
+生产死·测试活（要删就得连测试一起处置，不能只删一半留红测试）：
+- `QuizViewModel`（228 行）— 测试：QuizViewModelTest.java
+
+真候选 %d 个、约 %d 行（按行数降序；每条都要先确认入口再动，第 1 节的四类盲区同样适用）：
+
+| 行数 | 类 | 文件 |
+| --- | --- | --- |
+| 1056 | `WeatherTrendChartView` | ui/widget/WeatherTrendChartView.java |
+| 588 | `GpuAdaptiveTuner` | ai/gpu/GpuAdaptiveTuner.java |
+| 571 | `TFLiteObjectDetector` | manager/TFLiteObjectDetector.java |
+| 566 | `ModelCacheManager` | ai/model/ModelCacheManager.java |
+| 565 | `CallbackHandler` | ai/callback/CallbackHandler.java |
+| 545 | `QuizSessionManager` | util/quiz/QuizSessionManager.java |
+| 464 | `AccessibilityHelper` | ui/accessibility/AccessibilityHelper.java |
+| 437 | `FileUploader` | util/FileUploader.java |
+| 428 | `TombstoneAnalyzer` | ai/service/TombstoneAnalyzer.java |
+| 388 | `AgentExecutionEngine` | ai/agent/AgentExecutionEngine.java |
+| 383 | `RecyclerViewAnimations` | ui/animation/RecyclerViewAnimations.java |
+| 378 | `TypeConverter` | ai/jni/TypeConverter.java |
+| 368 | `TFLiteImageClassifier` | manager/TFLiteImageClassifier.java |
+| 352 | `MinutelyPrecipChartView` | ui/widget/MinutelyPrecipChartView.java |
+| 348 | `X5FilePreviewManager` | util/preview/X5FilePreviewManager.java |
+| 347 | `DataValidator` | ai/config/DataValidator.java |
+| 347 | `OfficeGeneratorUtil` | util/OfficeGeneratorUtil.java |
+| 340 | `QWeatherJsonParser` | weather/QWeatherJsonParser.java |
+| 332 | `ToolParameterValidator` | ai/agent/ToolParameterValidator.java |
+| 314 | `AIFileParser` | ai/tool/AIFileParser.java |
+| 303 | `WeatherChartView` | ui/widget/WeatherChartView.java |
+| 287 | `OfficePreviewEngine` | util/preview/OfficePreviewEngine.java |
+| 271 | `FileDownloader` | util/FileDownloader.java |
+| 259 | `AIEntertainmentManager` | ai/tool/AIEntertainmentManager.java |
+| 252 | `SessionManager` | ai/refactor/SessionManager.java |
+| 249 | `WeatherDataParser` | weather/WeatherDataParser.java |
+| 246 | `ThinkingAssistantEngine` | ai/agent/software/thinking/ThinkingAssistantEngine.java |
+| 245 | `ExcelFileAnalyzer` | util/render/ExcelFileAnalyzer.java |
+| 239 | `WebGeneratorUtil` | util/WebGeneratorUtil.java |
+| 234 | `AIFileExporter` | ai/tool/AIFileExporter.java |
+| 234 | `ObbHelper` | util/ObbHelper.java |
+| 234 | `PerformanceMonitor` | ai/monitor/PerformanceMonitor.java |
+| 186 | `AgentToolCall` | ai/agent/AgentToolCall.java |
+| 182 | `WindUtils` | weather/util/WindUtils.java |
+| 174 | `FilePickerHelper` | util/fileparser/FilePickerHelper.java |
+| 165 | `WeatherResourceManager` | util/WeatherResourceManager.java |
+| 159 | `ModelHotSwitcher` | ai/model/ModelHotSwitcher.java |
+| 158 | `PreviewViewModel` | viewmodel/PreviewViewModel.java |
+| 156 | `ChatVoiceRecorder` | ai/speech/ChatVoiceRecorder.java |
+| 153 | `ChatSpeechController` | ai/speech/ChatSpeechController.java |
+| 151 | `ExcelTemplateExporter` | util/export/template/ExcelTemplateExporter.java |
+| 130 | `WebSearchHelper` | util/WebSearchHelper.java |
+| 130 | `PreviewDataManager` | util/preview/PreviewDataManager.java |
+| 127 | `AiPathB` | ai/plugin/AiPathB.java |
+| 126 | `ChatSpeechInputController` | ai/speech/ChatSpeechInputController.java |
+| 126 | `WordTemplateExporter` | util/export/template/WordTemplateExporter.java |
+| 123 | `ResponseCacheManager` | ai/agent/ResponseCacheManager.java |
+| 110 | `QuestionAdapterEnhance` | adapter/QuestionAdapterEnhance.java |
+| 109 | `CostCalculator` | ai/usage/calculator/CostCalculator.java |
+| 103 | `ALChatTest` | ai/engine/ALChatTest.java |
+| 101 | `UsageRepository` | ai/usage/db/repository/UsageRepository.java |
+| 101 | `FileRenderManager` | util/preview/FileRenderManager.java |
+| 97 | `CSVTemplateExporter` | util/export/template/CSVTemplateExporter.java |
+| 96 | `ContextStubManager` | ai/util/ContextStubManager.java |
+| 86 | `TemplateHTMLExporter` | util/export/TemplateHTMLExporter.java |
+| 85 | `QuestionAnalyzer` | ai/feature/QuestionAnalyzer.java |
+| 75 | `TraceManager` | ai/usage/tracker/TraceManager.java |
+| 70 | `GgmlProbe` | ai/jni/GgmlProbe.java |
+| 70 | `AIModelInfo` | model/AIModelInfo.java |
+| 67 | `QuestionRenderUtil` | util/QuestionRenderUtil.java |
+| 65 | `ParserRouter` | ai/usage/parser/ParserRouter.java |
+| 65 | `ScoreAdapter` | ui/adapter/ScoreAdapter.java |
+| 60 | `StatisticsViewModel` | viewmodel/StatisticsViewModel.java |
+| 50 | `ScoreViewModel` | viewmodel/ScoreViewModel.java |
+| 42 | `FavoriteQuestionViewModel` | viewmodel/FavoriteQuestionViewModel.java |
+| 35 | `WeatherIconInitializer` | util/WeatherIconInitializer.java |
+| 33 | `JsonUtil` | util/JsonUtil.java |
+| 30 | `PropertySchema` | ai/agent/function/PropertySchema.java |
+| 30 | `EngineTest` | util/render/EngineTest.java |
+
+第 6 节同源的两条仍值得单独提：`GpuAdaptiveTuner`（588 行，整套自适应调优没接）、
+`ResponseCacheManager`（123 行，推理缓存三层审计里点名的死类）。
 
 ## 8. 怎么复现这套扫描
 

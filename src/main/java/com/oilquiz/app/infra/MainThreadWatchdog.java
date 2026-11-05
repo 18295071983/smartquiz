@@ -93,7 +93,13 @@ public final class MainThreadWatchdog {
                                     + (now - answeredAtElapsed.get()) + "ms 没有执行掉任何一拍心跳"
                                     + "（outstanding=" + outstanding + "，boot=" + bootId
                                     + "）→ 记为 ANR 死因");
-                        } catch (Throwable ignore) {
+                        } catch (Throwable recordFailed) {
+                            // 这里写的是"这次进程死于 ANR"的凭据：下次启动全靠它把死因归到 ANR，
+                            // 记不上就会被归成别的死因（崩溃计数与后端降级判断都跟着走偏）。
+                            // 不能再用 AILogger 报——本 try 兜的嫌疑对象就是它自己会抛，
+                            // 走 logcat 是唯一不会递归失败的一条路。
+                            android.util.Log.e(TAG, "ANR 死因没记进 prefs（下次启动会把这次归成别的死因）: "
+                                    + recordFailed.getMessage());
                         }
                     }
                     final long tick = postedSeq.incrementAndGet();
