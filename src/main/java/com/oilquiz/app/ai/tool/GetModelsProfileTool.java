@@ -17,8 +17,6 @@ import java.util.Map;
 @Tool(value = "get_models_profile", category = "meta")
 public class GetModelsProfileTool implements AITool {
 
-    private static final String TAG = "GetModelsProfileTool";
-
     public GetModelsProfileTool() {
     }
 

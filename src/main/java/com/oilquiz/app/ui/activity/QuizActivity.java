@@ -1791,20 +1791,6 @@ public class QuizActivity extends BaseActivity {
     }
     
     // 获取所有有效的选项（按字母排序，支持A-L）
-    private List<String> getValidOptions(Question question) {
-        List<String> options = new ArrayList<>();
-        java.util.Map<String, String> optionMap = question.getOptions();
-        if (optionMap != null && !optionMap.isEmpty()) {
-            java.util.TreeMap<String, String> sorted = new java.util.TreeMap<>(optionMap);
-            for (java.util.Map.Entry<String, String> entry : sorted.entrySet()) {
-                if (entry.getValue() != null && !entry.getValue().isEmpty()) {
-                    options.add(entry.getValue());
-                }
-            }
-        }
-        return options;
-    }
-    
     // 获取所有有效选项的Entry列表（保留字母Key，按字母排序）
     private List<java.util.Map.Entry<String, String>> getValidOptionEntries(Question question) {
         List<java.util.Map.Entry<String, String>> entries = new ArrayList<>();

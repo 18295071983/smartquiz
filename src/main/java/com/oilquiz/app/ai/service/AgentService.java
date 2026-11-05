@@ -360,10 +360,6 @@ public class AgentService {
             new ToolParamSchema("permissions", "array", "权限列表（用于check_all操作）", false, null));
     }
 
-    private void buildDynamicToolSchemas() {
-        autoDiscoverToolSchemas();
-    }
-    
     /**
      * P0: 自动从 AIToolManager 发现所有已注册工具的 schema
      * 优先使用注解信息，没有注解时使用工具接口提供的信息
@@ -494,13 +490,6 @@ public class AgentService {
         for (ToolParamSchema schema : schemas) {
             paramSchemas.put(toolName + "." + schema.paramName, schema);
         }
-    }
-
-    private boolean hasToolSchema(String name) {
-        for (ToolSchema schema : toolSchemas) {
-            if (schema.name.equals(name)) return true;
-        }
-        return false;
     }
 
     public String buildToolSystemPrompt() {

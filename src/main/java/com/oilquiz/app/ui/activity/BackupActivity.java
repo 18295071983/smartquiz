@@ -32,8 +32,6 @@ import java.io.OutputStream;
 public class BackupActivity extends BaseActivity {
 
     private static final int REQUEST_CODE_PICK_BACKUP = 1001;
-    private static final int REQUEST_CODE_STORAGE_PERMISSION = 1002;
-
     private BackupViewModel backupViewModel;
     private TextView tvBackupStatus;
     private AutoBackupManager autoBackupManager;

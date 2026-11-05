@@ -24,7 +24,6 @@ import java.util.Map;
 @Tool(value = "update_models_profile", category = "meta")
 public class UpdateModelsProfileTool implements AITool {
 
-    private static final String TAG = "UpdateModelsProfileTool";
     private final Context context;
 
     public UpdateModelsProfileTool() {

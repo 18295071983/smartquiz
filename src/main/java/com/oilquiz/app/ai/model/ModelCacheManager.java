@@ -38,8 +38,6 @@ public class ModelCacheManager {
     private static final String SWAP_DIR = "model_swap";
     private static final long DEFAULT_MAX_MEMORY_CACHE = 512 * 1024 * 1024; // 512MB
     private static final long DEFAULT_MAX_DISK_CACHE = 2 * 1024 * 1024 * 1024; // 2GB
-    private static final int BUFFER_SIZE = 4 * 1024 * 1024; // 4MB buffer
-
     // 单例
     private static volatile ModelCacheManager INSTANCE;
     private final Context context;
@@ -301,14 +299,6 @@ public class ModelCacheManager {
             }
             return ByteBuffer.allocateDirect((int) alignedSize);
         }
-    }
-
-    /**
-     * 验证缓冲区完整性
-     */
-    private boolean validateBuffer(ByteBuffer buffer, long expectedSize) {
-        if (buffer == null) return false;
-        return buffer.capacity() >= expectedSize;
     }
 
     // ========== 缓存预热 ==========

@@ -45,7 +45,6 @@ import java.util.Map;
  * 导出文件保存到公共「下载/OilQuiz」目录（文件管理器可见可编辑）。
  */
 public class ExportActivity extends AppCompatActivity {
-    private static final String TAG = "ExportActivity";
     private static final String LOG_PREFIX = "ExportActivity";
 
     private QuestionViewModel questionViewModel;
@@ -857,24 +856,6 @@ public class ExportActivity extends AppCompatActivity {
                 builder.show();
             }
         });
-    }
-
-    /**
-     * 预览 WebView 文件
-     */
-    private void previewWebViewFile(File file) {
-        Log.i(LOG_PREFIX, "Previewing WebView file: " + file.getAbsolutePath());
-        
-        try {
-            // 启动 SimpleWebViewActivity 打开 HTML 文件（类似背题应用）
-            Intent intent = new Intent(ExportActivity.this, com.oilquiz.app.SimpleWebViewActivity.class);
-            intent.putExtra("html_path", file.getAbsolutePath());
-            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(intent);
-        } catch (Exception e) {
-            Log.e(LOG_PREFIX, "Failed to preview WebView file", e);
-            Toast.makeText(ExportActivity.this, getString(R.string.h_943ad7a2) + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
     }
 
     /**

@@ -28,7 +28,6 @@ import java.util.List;
 import com.oilquiz.app.theme.ThemeColors;
 public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
-    private static final String TAG = "AttachmentAdapter";
     private static final int VIEW_TYPE_IMAGE = 0;
     private static final int VIEW_TYPE_FILE = 1;
     private static final int VIEW_TYPE_AUDIO = 2; // 音频类型

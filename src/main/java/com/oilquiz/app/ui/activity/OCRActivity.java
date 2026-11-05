@@ -48,8 +48,6 @@ public class OCRActivity extends AppCompatActivity {
     private static final int PICK_IMAGE_REQUEST = 1;
     private static final int CAMERA_REQUEST = 2;
     private static final int PICK_PDF_REQUEST = 3;
-    private static final int CAMERA_PERMISSION_REQUEST = 4;
-
     private static final int MAX_OCR_IMAGE_DIMENSION = 4096;
 
     private ImageView imageView;

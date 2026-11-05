@@ -29,8 +29,6 @@ public class ModelImportActivity extends AppCompatActivity {
     
     private static final String TAG = "ModelImportActivity";
     private static final int FILE_PICKER_REQUEST = 1001;
-    private static final int PERMISSION_REQUEST_CODE = 1002;
-    
     private ModelManager modelManager;
     private TextView modelPathTextView;
     private MaterialButton selectModelButton;

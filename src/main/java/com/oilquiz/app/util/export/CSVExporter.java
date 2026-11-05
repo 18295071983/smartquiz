@@ -16,8 +16,6 @@ import java.util.List;
  * 导出问题为CSV格式
  */
 public class CSVExporter implements Exporter {
-    private static final String TAG = "CSVExporter";
-
     @Override
     public File export(ExportManager.ExportTask task) throws Exception {
         validateParameters(task);

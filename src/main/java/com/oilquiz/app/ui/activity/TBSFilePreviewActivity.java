@@ -152,22 +152,6 @@ public class TBSFilePreviewActivity extends Activity {
     }
     
     /**
-     * 检查网络是否可用
-     */
-    private boolean isNetworkAvailable() {
-        try {
-            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (cm != null) {
-                android.net.NetworkInfo info = cm.getActiveNetworkInfo();
-                return info != null && info.isConnected();
-            }
-        } catch (Exception e) {
-            AppLogger.e(TAG, "检查网络失败: " + e.getMessage());
-        }
-        return true; // 默认返回 true，让 TBS 自己处理
-    }
-    
-    /**
      * 获取 TBS 初始化错误信息
      */
     private String getTBSInitErrorMessage(int errorCode) {

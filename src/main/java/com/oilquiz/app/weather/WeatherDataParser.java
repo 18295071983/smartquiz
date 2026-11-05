@@ -12,8 +12,6 @@ import java.util.List;
 
 public class WeatherDataParser {
 
-    private static final String TAG = "WeatherDataParser";
-
     public static WeatherNowData getEmptyData() {
         WeatherNowData data = new WeatherNowData();
         data.temp = "";

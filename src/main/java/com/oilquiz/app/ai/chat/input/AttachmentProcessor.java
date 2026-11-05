@@ -28,7 +28,6 @@ import java.util.concurrent.Executors;
 public class AttachmentProcessor {
 
     private static final String TAG = "AttachmentProcessor";
-    private static final long SUMMARY_CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000; // 摘要缓存过期时间（24小时）
     private static final int MAX_RETRY_ATTEMPTS = 2; // 最大重试次数
     /** 摘要提示词里最多带入的原文字符数 */
     private static final int SUMMARY_INPUT_CHARS = 3000;

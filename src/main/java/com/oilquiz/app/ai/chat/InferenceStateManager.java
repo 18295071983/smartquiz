@@ -215,23 +215,6 @@ public class InferenceStateManager {
     }
     
     /**
-     * 计算默认进度（当总token数未知时）
-     */
-    private int calculateDefaultProgress(InferenceState state) {
-        switch (state) {
-            case INITIALIZING: return 5;
-            case MODEL_LOADING: return 15;
-            case PROMPT_ENCODING: return 25;
-            case PREFILL: return 35;
-            case THINKING: return 50;
-            case GENERATING: return 70;
-            case DECODING: return 90;
-            case COMPLETED: return 100;
-            default: return 0;
-        }
-    }
-    
-    /**
      * 超时处理器
      */
     private class TimeoutHandler {

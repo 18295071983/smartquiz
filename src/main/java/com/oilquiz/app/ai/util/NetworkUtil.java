@@ -124,10 +124,6 @@ public class NetworkUtil {
         return ACCEPT_LANGUAGE_VALUES[random.nextInt(ACCEPT_LANGUAGE_VALUES.length)];
     }
 
-    private static String getRandomAcceptEncoding() {
-        return ACCEPT_ENCODING_VALUES[random.nextInt(ACCEPT_ENCODING_VALUES.length)];
-    }
-
     private static String getRandomSecChUa() {
         return SEC_CH_UA_VALUES[random.nextInt(SEC_CH_UA_VALUES.length)];
     }

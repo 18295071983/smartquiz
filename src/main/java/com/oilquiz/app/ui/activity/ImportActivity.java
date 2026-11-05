@@ -452,10 +452,6 @@ public class ImportActivity extends BaseActivity {
         }
     }
     
-    private void showProgressCard(String status) {
-        statusText.setText(status);
-    }
-    
 
 
 
@@ -903,38 +899,6 @@ public class ImportActivity extends BaseActivity {
         intent.putExtra(MappingEditorActivity.EXTRA_QUESTION_TYPE_MAPPING, (java.io.Serializable) questionTypeMapping);
         intent.putExtra(MappingEditorActivity.EXTRA_COLUMN_HEADERS, new ArrayList<>(columnHeaders));
         startActivityForResult(intent, REQUEST_CODE_EDIT_MAPPING);
-    }
-
-    private void detectDataIssuesAndProceed(File file, int sheetIndex, ExcelUtil.ImportConfirmation confirmation) {
-        // 更新UI显示
-        updateProgressDisplay("正在检测数据问题...", 0, 0);
-        
-        // 在后台线程中检测数据问题
-        ExcelUtil.executorService.execute(() -> {
-            try {
-                ExcelUtil.ImportSettings settings = new ExcelUtil.ImportSettings();
-                ExcelUtil.DataIssueReport issueReport = ExcelUtil.detectDataIssues(file, sheetIndex, confirmation.fieldMapping, settings, questionTypeMapping);
-                
-                runOnUiThread(() -> {
-                    if (issueReport != null && issueReport.totalIssues > 0) {
-                        // 发现数据问题，启动数据修复界面
-                        Intent intent = new Intent(this, DataIssueFixActivity.class);
-                        intent.putExtra(DataIssueFixActivity.EXTRA_DATA_ISSUE_REPORT, issueReport);
-                        startActivityForResult(intent, REQUEST_CODE_DATA_ISSUE_FIX);
-                    } else {
-                        // 没有数据问题，直接进行题型映射
-                        editQuestionTypeMapping(file, sheetIndex, confirmation);
-                    }
-                });
-                
-            } catch (Exception e) {
-                Log.e(TAG, "Error detecting data issues: " + e.getMessage(), e);
-                runOnUiThread(() -> {
-                    // 检测出错，直接进行题型映射
-                    editQuestionTypeMapping(file, sheetIndex, confirmation);
-                });
-            }
-        });
     }
 
     private void editQuestionTypeMapping(File file, int sheetIndex, ExcelUtil.ImportConfirmation confirmation) {

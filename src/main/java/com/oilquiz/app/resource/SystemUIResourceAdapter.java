@@ -26,7 +26,6 @@ import com.oilquiz.app.theme.ThemeColors;
  */
 public class SystemUIResourceAdapter {
 
-    private static final String TAG = "SystemUIResourceAdapter";
     private static SystemUIResourceAdapter instance;
     private Context context;
     private Resources resources;

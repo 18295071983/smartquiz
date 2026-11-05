@@ -25,7 +25,6 @@ public class DataValidator {
     private static final String TAG = "DataValidator";
 
     // 正则表达式
-    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[A-Za-z0-9+_.-]+@(.+)$");
     private static final Pattern URL_PATTERN = Pattern.compile("^https?://.*");
     private static final Pattern MODEL_NAME_PATTERN = Pattern.compile("^[a-zA-Z0-9._-]+$");
 

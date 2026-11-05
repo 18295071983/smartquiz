@@ -25,8 +25,6 @@ import java.util.Map;
  */
 public class AgentEventBridge implements AgentCallback {
 
-    private static final String TAG = "AgentEventBridge";
-
     private final AgentCallback delegate;
     private final String sessionId;
     private final SessionEventLog log;

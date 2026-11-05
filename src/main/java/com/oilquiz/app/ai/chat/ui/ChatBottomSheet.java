@@ -78,12 +78,5 @@ public class ChatBottomSheet {
 
     public boolean isShowing() { return dialog.isShowing(); }
 
-    private android.graphics.drawable.GradientDrawable rounded(int color, float radius) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(color);
-        g.setCornerRadius(radius);
-        return g;
-    }
-
     private int dp(float v) { return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, context.getResources().getDisplayMetrics()); }
 }

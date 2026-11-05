@@ -37,9 +37,7 @@ public class AppLogger {
     private static final String CRASH_LOG_FILE = "crash_logs.txt";
     private static final String AI_LOG_FILE = "ai_logs.txt";
     private static final int MAX_LOG_SIZE = 1024 * 1024; // 1MB
-    private static final int MAX_LOG_LINES = 5000; // 最大保留日志行数
     private static final int MAX_CRASH_LOG_SIZE = 5 * 1024 * 1024; // 5MB
-    private static final int MAX_CRASH_LOG_LINES = 10000; // 最大保留崩溃日志行数
     private static final int MAX_AI_LOG_SIZE = 5 * 1024 * 1024; // 5MB
     private static final int MAX_AI_LOG_LINES = 10000; // 最大保留AI日志行数
 
@@ -540,15 +538,6 @@ public class AppLogger {
         }
     }
     
-    /**
-     * 清理日志文件，保留最新的日志（公共方法）
-     */
-    private static void trimLogFile(File logFile, int maxLines) {
-        synchronized (fileLock) {
-            trimLogFileInternal(logFile, maxLines);
-        }
-    }
-
     /**
      * 获取日志文件
      */

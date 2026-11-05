@@ -689,34 +689,6 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             }
         }
 
-        private String formatLatency(long latencyMs) {
-            if (latencyMs < 1000) {
-                return latencyMs + "ms";
-            } else {
-                return String.format(Locale.getDefault(), "%.1fs", latencyMs / 1000.0);
-            }
-        }
-
-        private String formatLastUsed(long timestamp) {
-            if (timestamp <= 0) return "";
-
-            long diff = System.currentTimeMillis() - timestamp;
-            long seconds = diff / 1000;
-            long minutes = seconds / 60;
-            long hours = minutes / 60;
-            long days = hours / 24;
-
-            if (days > 0) {
-                return context.getString(R.string.last_used_days, (int) days);
-            } else if (hours > 0) {
-                return context.getString(R.string.last_used_hours, (int) hours);
-            } else if (minutes > 0) {
-                return context.getString(R.string.last_used_minutes, (int) minutes);
-            } else {
-                return context.getString(R.string.last_used_just_now);
-            }
-        }
-
         private void showModelOptions(DisplayItem item) {
             if (context == null) return;
 

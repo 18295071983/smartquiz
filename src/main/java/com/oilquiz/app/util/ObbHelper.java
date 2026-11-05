@@ -24,7 +24,6 @@ import java.util.Set;
 public class ObbHelper {
     private static final String TAG = "ObbHelper";
     
-    private static final int MAIN_EXPANSION_VERSION = 2;
     private static final String OBB_MAIN_FILENAME = "main.2.com.oilquiz.app.obb";
     
     private final Context context;

@@ -1777,20 +1777,6 @@ public class ExcelUtil {
     }
 
     /** 从JSONObject中按候选key数组取值（第一个非空即返回） */
-    private static String optStringMulti(org.json.JSONObject jo, String[] keys) {
-        // 已由 FieldMappingRegistry.extractFromJson 替代，保留以防外部调用
-        if (jo == null || keys == null) return "";
-        for (String k : keys) {
-            if (jo.has(k)) {
-                try {
-                    Object v = jo.get(k);
-                    if (v != null && !String.valueOf(v).trim().isEmpty()) return String.valueOf(v).trim();
-                } catch (Exception ignore) {}
-            }
-        }
-        return "";
-    }
-
     /**
      * 通过 FieldMappingRegistry 从 fieldMapping 中查找标准字段对应的列索引。
      * 兼容用户手动映射（中文 key）和自动映射（canonical key）。

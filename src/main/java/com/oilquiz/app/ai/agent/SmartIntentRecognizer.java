@@ -20,7 +20,6 @@ import java.util.regex.Pattern;
 public class SmartIntentRecognizer {
 
     private static final String TAG = "SmartIntentRecognizer";
-    private static final double CONFIDENCE_HIGH = 0.70;
     private static final double CONFIDENCE_MEDIUM = 0.50;
     private static final double CONFIDENCE_LOW = 0.30;
     private static final int LLM_MAX_TOKENS = 80;

@@ -2345,27 +2345,6 @@ public class OnlineAgentEngine {
     }
 
     /**
-     * 从工具定义 JSON 中按出现顺序提取工具名（仅 function 类型）。
-     */
-    private static List<String> extractToolNames(String toolsJson) {
-        List<String> names = new ArrayList<>();
-        if (toolsJson == null || toolsJson.isEmpty() || toolsJson.equals("[]")) return names;
-        try {
-            JsonArray arr = JsonParser.parseString(toolsJson).getAsJsonArray();
-            for (int i = 0; i < arr.size(); i++) {
-                JsonObject tool = arr.get(i).getAsJsonObject();
-                if (tool.has("function") && tool.get("function").isJsonObject()) {
-                    JsonObject fn = tool.get("function").getAsJsonObject();
-                    if (fn.has("name") && !fn.get("name").isJsonNull()) {
-                        names.add(fn.get("name").getAsString());
-                    }
-                }
-            }
-        } catch (Exception ignored) {}
-        return names;
-    }
-
-    /**
      * SHA-256 十六进制摘要（缓存诊断探针用）。
      */
     private static String sha256Hex(String s) {
@@ -2567,14 +2546,6 @@ public class OnlineAgentEngine {
      * 但缓存命中后实际增量很小。恒返回 false = 永远非闲聊。
      */
     private boolean isCasualChat(String message) {
-        return false;
-    }
-
-    private static boolean containsAnyCasual(String msg, String... keywords) {
-        String m = msg.toLowerCase();
-        for (String k : keywords) {
-            if (m.contains(k)) return true;
-        }
         return false;
     }
 

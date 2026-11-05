@@ -35,7 +35,6 @@ public class ModelPreloadService extends Service {
     // 预加载配置
     private static final long PRELOAD_DELAY_MS = 3000; // 启动后3秒开始预加载
     private static final long PRELOAD_TIMEOUT_MS = 60000; // 预加载超时60秒
-    private static final int MAX_PRELOAD_MODELS = 2; // 最多预加载2个模型
     private static final long MIN_MEMORY_FOR_PRELOAD_MB = 512; // 预加载需要的最小可用内存
     
     private final IBinder binder = new LocalBinder();

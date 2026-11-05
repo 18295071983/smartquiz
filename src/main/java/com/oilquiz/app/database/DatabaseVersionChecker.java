@@ -12,8 +12,6 @@ import java.util.Map;
  * 提供版本兼容性检查、升级路径规划、版本历史记录
  */
 public class DatabaseVersionChecker {
-    private static final String TAG = "DatabaseVersionChecker";
-
     // ==================== 版本常量 ====================
     
     /** 初始版本 */

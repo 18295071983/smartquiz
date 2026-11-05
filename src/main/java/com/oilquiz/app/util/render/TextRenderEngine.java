@@ -19,7 +19,6 @@ public class TextRenderEngine implements FileRenderEngine {
         "rs", "swift", "m", "jsx", "ts",
         "tsx", "md"
     };
-    private static final int MAX_LINES = 1000;
     private static final int MAX_CONTENT_LENGTH = 10000;
     
     @Override

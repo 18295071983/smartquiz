@@ -17,8 +17,6 @@ import java.util.Map;
 @Tool(value = "calculator", category = "utility")
 public class CalculatorTool implements AITool {
 
-    private static final String TAG = "CalculatorTool";
-
     public CalculatorTool() {
     }
 

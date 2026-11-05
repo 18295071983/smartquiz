@@ -5234,12 +5234,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
 
-    private void scrollToPosition(int position) {
-        if (attachedRecyclerView != null && position >= 0) {
-            attachedRecyclerView.smoothScrollToPosition(position);
-        }
-    }
-
 
     // ===================== Animation Control =====================
 

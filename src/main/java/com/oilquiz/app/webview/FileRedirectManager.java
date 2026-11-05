@@ -15,8 +15,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public class FileRedirectManager {
 
-    private static final String TAG = "FileRedirectManager";
-
     // 单例实例
     private static volatile FileRedirectManager instance;
 

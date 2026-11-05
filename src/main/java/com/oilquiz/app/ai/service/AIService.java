@@ -57,8 +57,6 @@ import java.util.regex.Pattern;
 public class AIService implements ComponentCallbacks2 {
     private static final String TAG = "AIService";
     private static final int N_CTX_DEFAULT = 8192;
-    private static final int N_CTX_LOW_MEMORY = 4096;
-    private static final int N_CTX_HIGH_END = 12288;
     public static final int INFERENCE_N_CTX = N_CTX_DEFAULT;
     public static final int CHAT_N_CTX = N_CTX_DEFAULT;
     private static final String MODEL_DIR_NAME = "ai_models";
@@ -323,28 +321,6 @@ public class AIService implements ComponentCallbacks2 {
         }
         
         return LlamaHelper.countTokens(historyText.toString());
-    }
-    
-    /**
-     * 压缩历史：通过裁剪消息条数控制 token，避免嵌套再跑一轮推理导致延迟与死锁风险。
-     */
-    private List<PromptBuilder.Message> compressHistory(List<PromptBuilder.Message> history, int maxTokens) {
-        if (history == null || history.isEmpty()) {
-            return history != null ? history : new ArrayList<>();
-        }
-        if (calculateHistoryTokenCount(history) <= maxTokens) {
-            return history;
-        }
-        for (int pairs = 8; pairs >= 1; pairs--) {
-            List<PromptBuilder.Message> truncated = PromptBuilder.truncateHistory(history, pairs);
-            if (calculateHistoryTokenCount(truncated) <= maxTokens) {
-                AILogger.i(TAG, "History compressed by truncation: pairs=" + pairs);
-                return truncated;
-            }
-        }
-        List<PromptBuilder.Message> one = PromptBuilder.truncateHistory(history, 1);
-        AILogger.w(TAG, "History still over budget after truncation, keeping last pair only");
-        return one;
     }
     
     // 保存聊天消息
@@ -2118,31 +2094,6 @@ public class AIService implements ComponentCallbacks2 {
     }
     
     /**
-     * 获取当前模型名称（用于prompt格式化）
-     */
-    private String getModelNameForPrompt() {
-        if (currentModelName != null) {
-            return currentModelName.toLowerCase();
-        }
-        
-        // 如果currentModelName为null，尝试获取可用模型列表并返回第一个
-        String[] availableModels = getAvailableModels();
-        if (availableModels != null && availableModels.length > 0) {
-            return availableModels[0].toLowerCase();
-        }
-        
-        return null;
-    }
-    
-    /**
-     * 获取当前日期，格式为 "dd MMM yyyy"
-     */
-    private String getCurrentDate() {
-        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("dd MMM yyyy");
-        return sdf.format(new java.util.Date());
-    }
-
-    /**
      * 获取当前模型名称
      */
     public String getCurrentModelName() {
@@ -2907,180 +2858,6 @@ public class AIService implements ComponentCallbacks2 {
     }
     
     /**
-     * 检查设备是否有 GPU 加速支持
-     * OpenCL 优先（Adreno GPU 对 OpenCL 支持更好），Vulkan 作为后备
-     */
-    private boolean checkGpuSupport(GpuInfo gpuInfo, GpuCapabilityDetector gpuDetector) {
-        GpuCapabilityDetector.OpenCLInfo openclInfo = gpuDetector.detectOpenCLInfo();
-        if (openclInfo != null) {
-            AILogger.i(TAG, "GPU support detected via OpenCL (prioritized): " + openclInfo.deviceName + 
-                    ", version: " + openclInfo.openclVersion);
-            return true;
-        }
-        
-        if (gpuDetector.isOpenCLAvailable()) {
-            AILogger.i(TAG, "GPU support detected via OpenCL library loaded");
-            return true;
-        }
-        
-        long availableGpuMem = gpuDetector.getAvailableGpuMemoryMB();
-        if (availableGpuMem > 0) {
-            AILogger.i(TAG, "GPU support detected via available GPU memory: " + availableGpuMem + "MB");
-            return true;
-        }
-        
-        if (gpuInfo != null && gpuInfo.supportsVulkan) {
-            AILogger.i(TAG, "GPU support detected via Vulkan (fallback)");
-            return true;
-        }
-        
-        AILogger.w(TAG, "No GPU support detected");
-        return false;
-    }
-    
-    /**
-     * 安全地设置内存池大小，确保不超过设备内存的安全阈值
-     */
-    private int safeMemoryPoolSize(long totalDeviceMem, int requestedSize) {
-        // 强制内存池大小上限，防止虚拟内存过度膨胀
-        final int MAX_MEMORY_POOL_SIZE = 4096; // 4GB上限
-        final int MIN_MEMORY_POOL_SIZE = 512;  // 512MB下限
-        
-        // 如果无法获取设备内存，使用保守值
-        if (totalDeviceMem <= 0) {
-            AILogger.w(TAG, "Cannot get device memory, using conservative memory pool size: " + MIN_MEMORY_POOL_SIZE + " MB");
-            return MIN_MEMORY_POOL_SIZE;
-        }
-        
-        long totalMemMB = totalDeviceMem / (1024 * 1024);
-        
-        // 安全阈值：不超过总内存的30%
-        long maxSafePoolSize = (long) (totalMemMB * 0.3);
-        
-        // 确保不超过强制上限
-        maxSafePoolSize = Math.min(maxSafePoolSize, MAX_MEMORY_POOL_SIZE);
-        
-        int safeSize = (int) Math.min(requestedSize, maxSafePoolSize);
-        safeSize = Math.max(safeSize, MIN_MEMORY_POOL_SIZE);
-        
-        if (safeSize < requestedSize) {
-            AILogger.w(TAG, "Memory pool size adjusted from " + requestedSize + " MB to " + safeSize + " MB for safety");
-        }
-        
-        AILogger.i(TAG, "Memory pool size set to " + safeSize + " MB (max allowed: " + MAX_MEMORY_POOL_SIZE + " MB)");
-        return safeSize;
-    }
-    
-    /**
-     * 小米14专用优化
-     */
-    private void applyXiaomi14Optimizations(long totalDeviceMem) {
-        AILogger.i(TAG, "Applying Xiaomi 14 specific optimizations");
-        
-        // 使用 ResourceConfig 计算安全参数
-        ResourceConfig resourceConfig = new ResourceConfig(context);
-        int threadCount = resourceConfig.getOptimalThreadCount();
-        int memoryPoolSize = resourceConfig.getOptimalMemoryPoolSize(2048);
-        int batchSize = resourceConfig.getOptimalBatchSize(256);
-        int gpuLayers = resourceConfig.getOptimalGpuLayers(true, 0);
-        
-        LlamaHelper.setMemoryPoolSize(memoryPoolSize);
-        LlamaHelper.setThreadCount(threadCount);
-        LlamaHelper.setBatchSize(batchSize);
-        LlamaHelper.setGPULayers(gpuLayers);
-        
-        AILogger.i(TAG, "Xiaomi 14 optimizations applied: GPU layers=" + gpuLayers + 
-                ", MemPool=" + memoryPoolSize + "MB, Batch=" + batchSize + ", Threads=" + threadCount);
-    }
-    
-    /**
-     * Adreno GPU优化
-     * 使用 ResourceConfig 确保参数在安全范围内
-     */
-    private void applyAdrenoOptimizations(String series, long totalDeviceMem) {
-        AILogger.i(TAG, "Applying Adreno optimizations for series: " + series);
-        
-        ResourceConfig resourceConfig = new ResourceConfig(context);
-        int threadCount = resourceConfig.getOptimalThreadCount();
-        int gpuLayers = resourceConfig.getOptimalGpuLayers(true, 0);
-        
-        switch (series) {
-            case "A7XX":
-                // Adreno 740/750 - 高端GPU
-                LlamaHelper.setMemoryPoolSize(resourceConfig.getOptimalMemoryPoolSize(2048));
-                LlamaHelper.setThreadCount(threadCount);
-                LlamaHelper.setBatchSize(resourceConfig.getOptimalBatchSize(256));
-                LlamaHelper.setGPULayers(gpuLayers);
-                AILogger.i(TAG, "A7XX optimizations applied: GPU layers=" + gpuLayers + 
-                        ", MemPool=" + LlamaHelper.getMemoryPoolSize() + "MB, Batch=256, Threads=" + threadCount);
-                break;
-                
-            case "A6XX":
-                // Adreno 650 - 中端GPU
-                LlamaHelper.setMemoryPoolSize(resourceConfig.getOptimalMemoryPoolSize(1024));
-                LlamaHelper.setThreadCount(threadCount);
-                LlamaHelper.setBatchSize(resourceConfig.getOptimalBatchSize(128));
-                LlamaHelper.setGPULayers(gpuLayers);
-                AILogger.i(TAG, "A6XX optimizations applied: GPU layers=" + gpuLayers + 
-                        ", MemPool=" + LlamaHelper.getMemoryPoolSize() + "MB, Batch=128, Threads=" + threadCount);
-                break;
-                
-            case "A5XX":
-                // Adreno 5xx - 低端GPU
-                LlamaHelper.setMemoryPoolSize(resourceConfig.getOptimalMemoryPoolSize(512));
-                LlamaHelper.setThreadCount(resourceConfig.getOptimalThreadCount());
-                LlamaHelper.setBatchSize(resourceConfig.getOptimalBatchSize(64));
-                LlamaHelper.setGPULayers(resourceConfig.getOptimalGpuLayers(true, 0));
-                AILogger.i(TAG, "A5XX optimizations applied: GPU layers=" + LlamaHelper.getGPULayers() + 
-                        ", MemPool=" + LlamaHelper.getMemoryPoolSize() + "MB, Batch=64, Threads=" + LlamaHelper.getThreadCount());
-                break;
-                
-            default:
-                // 通用优化
-                LlamaHelper.setMemoryPoolSize(resourceConfig.getOptimalMemoryPoolSize(256));
-                LlamaHelper.setThreadCount(threadCount);
-                LlamaHelper.setBatchSize(resourceConfig.getOptimalBatchSize(64));
-                LlamaHelper.setGPULayers(gpuLayers);
-                AILogger.i(TAG, "Generic Adreno optimizations applied: GPU layers=" + gpuLayers + 
-                        ", MemPool=" + LlamaHelper.getMemoryPoolSize() + "MB, Batch=64, Threads=" + threadCount);
-                break;
-        }
-    }
-    
-    /**
-     * 基于设备能力的自动调优
-     * 使用 ResourceConfig 确保参数在安全范围内
-     */
-    private void autoTuneBasedOnCapabilities() {
-        AILogger.i(TAG, "Auto-tuning based on device capabilities");
-        
-        try {
-            ResourceConfig resourceConfig = new ResourceConfig(context);
-            ResourceConfig.OptimalConfig optimalConfig = resourceConfig.calculateOptimalConfig(false, 0, 0, 4096);
-            
-            LlamaHelper.setMemoryPoolSize(optimalConfig.memoryPoolMB);
-            LlamaHelper.setThreadCount(optimalConfig.threadCount);
-            LlamaHelper.setBatchSize(optimalConfig.batchSize);
-            LlamaHelper.setGPULayers(0); // CPU 模式
-            
-            AILogger.i(TAG, "Auto-tuned parameters - Threads: " + optimalConfig.threadCount + 
-                    ", Batch: " + optimalConfig.batchSize + 
-                    ", MemPool: " + optimalConfig.memoryPoolMB + "MB");
-            
-        } catch (Exception e) {
-            AILogger.w(TAG, "Failed to auto-tune, using safe defaults: " + e.getMessage());
-            // 使用安全的默认值
-            ResourceConfig resourceConfig = new ResourceConfig(context);
-            int threadCount = resourceConfig.getOptimalThreadCount();
-            
-            LlamaHelper.setMemoryPoolSize(256);
-            LlamaHelper.setThreadCount(threadCount);
-            LlamaHelper.setBatchSize(64);
-            LlamaHelper.setGPULayers(0);
-        }
-    }
-
-    /**
      * 获取性能指标
      */
     public PerformanceMetrics getPerformanceMetrics() {
@@ -3349,14 +3126,6 @@ public class AIService implements ComponentCallbacks2 {
         notifyDetailedStatusChange();
     }
 
-    /**
-     * 更新进度
-     */
-    private void updateProgress(int progress) {
-        serviceState.setProgressPercent(progress);
-        notifyDetailedStatusChange();
-    }
-
     // ==================== 性能统计和动态优化 ====================
 
     /**
@@ -3424,25 +3193,6 @@ public class AIService implements ComponentCallbacks2 {
                 lastInferenceSpeed,
                 lastPerformanceLevel
             );
-        }
-    }
-
-    /**
-     * 开始推理计时
-     */
-    private void startInferenceTiming() {
-        lastInferenceStartTime = System.currentTimeMillis();
-    }
-
-    /**
-     * 结束推理计时并更新统计
-     */
-    private void endInferenceTiming(int tokenCount) {
-        if (lastInferenceStartTime > 0) {
-            long elapsed = System.currentTimeMillis() - lastInferenceStartTime;
-            float speed = elapsed > 0 ? (tokenCount * 1000.0f) / elapsed : 0;
-            updateInferenceStats(elapsed, tokenCount, speed);
-            lastInferenceStartTime = 0;
         }
     }
 
@@ -3912,31 +3662,6 @@ public class AIService implements ComponentCallbacks2 {
 
     // ========== Native Chat Context API ==========
     private String chatSystemPrompt = null;
-
-    private void initDefaultChatContext() {
-        try {
-            String globalPrompt = "你是一个智能AI助手，精通多种领域知识。请使用中文与用户交流。";
-            String systemPrompt = "你是一个乐于助人的AI助手。请用中文回答用户的问题。";
-            String normalPrompt = "";
-
-            if (!LlamaHelper.isModelInitialized()) {
-                AILogger.e(TAG, "Cannot create chat context: model not initialized");
-                return;
-            }
-
-            int nThreads = LlamaHelper.getThreadCount();
-            if (nThreads <= 0) nThreads = 4;
-
-            long handle = tryCreateChatContextWithFallback(globalPrompt, systemPrompt, normalPrompt, nThreads);
-            if (handle != 0) {
-                AILogger.i(TAG, "Default chat context created successfully: " + LlamaHelper.chatGetInfo());
-            } else {
-                AILogger.w(TAG, "Failed to create default chat context after all fallbacks");
-            }
-        } catch (Exception e) {
-            AILogger.e(TAG, "Error creating default chat context: " + e.getMessage(), e);
-        }
-    }
 
     private long tryCreateChatContextWithFallback(String globalPrompt, String systemPrompt, String normalPrompt, int nThreads) {
         // 首值 0 = 使用模型加载时的完整上下文（native chatCreate 对 ctxSize<=0 取模型 n_ctx，

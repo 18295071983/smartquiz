@@ -313,16 +313,6 @@ public class AgentSoftwareLayer {
     }
 
     /**
-     * 安全地统计文本 token 数
-     */
-    private int countTokensSafe(String text) {
-        if (text == null || text.isEmpty()) return 0;
-        // NPU-AWARE：NPU 模式下 llama.cpp tokenizer 未加载，countTokens 恒 0 → 预算估算全废。
-        // NpuAwareText.countTokens 会按当前引擎选数据源（NPU 用字符估算）。
-        return com.oilquiz.app.ai.engine.NpuAwareText.countTokens(text);
-    }
-
-    /**
      * 截断字符串到指定长度
      */
     private String truncate(String s, int maxLen) {
@@ -391,16 +381,6 @@ public class AgentSoftwareLayer {
                 AILogger.i(TAG, "Step callback triggered successfully");
             } catch (Exception e) {
                 AILogger.e(TAG, "Error in step callback: " + e.getMessage());
-            }
-        }
-    }
-    
-    private void notifyInferenceProgress(int tokenCount, float tokensPerSecond) {
-        if (callback != null) {
-            try {
-                callback.onInferenceProgress(tokenCount, tokensPerSecond);
-            } catch (Exception e) {
-                AILogger.e(TAG, "Error in inference progress callback: " + e.getMessage());
             }
         }
     }

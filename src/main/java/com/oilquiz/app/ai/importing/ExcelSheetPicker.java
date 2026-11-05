@@ -470,10 +470,6 @@ public class ExcelSheetPicker {
     }
 
     /** 中文数字字符 → 对应阿拉伯数字（0~9 对十以内有效） */
-    private static int chineseDigitToIndex(char c) {
-        return "一二三四五六七八九十".indexOf(c);
-    }
-
     /**
      * 从 Sheet 名 / 章节名 推断题型（统一返回标准中文题型名，见 QuestionSchemaDictionary）
      * 支持：

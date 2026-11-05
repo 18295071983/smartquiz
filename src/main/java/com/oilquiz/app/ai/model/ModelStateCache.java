@@ -41,7 +41,6 @@ public class ModelStateCache {
 
     // 缓存键
     private static final String KEY_LAST_MODEL = "last_model";
-    private static final String KEY_MODEL_PATH = "model_path";
     private static final String KEY_CONTEXT_SIZE = "context_size";
     private static final String KEY_GPU_LAYERS = "gpu_layers";
     private static final String KEY_THREAD_COUNT = "thread_count";
@@ -51,8 +50,6 @@ public class ModelStateCache {
     private static final String KEY_CACHE_VERSION = "cache_version";
     private static final String KEY_LAST_SAVE_TIME = "last_save_time";
     private static final String KEY_IS_MODEL_LOADED = "is_model_loaded";
-    private static final String KEY_CHAT_HISTORY_SIZE = "chat_history_size";
-
     // 当前缓存版本
     private static final int CURRENT_CACHE_VERSION = 1;
 
@@ -335,37 +332,6 @@ public class ModelStateCache {
                 ", threads=" + threadCount + ", batch=" + batchSize + ", memPool=" + memoryPoolSize);
         } catch (Exception e) {
             AILogger.w(TAG, "Failed to restore model config: " + e.getMessage());
-        }
-    }
-
-    private void restoreChatContext() {
-        try {
-            String metaPath = new File(cacheDir, "context_meta.json").getAbsolutePath();
-            File metaFile = new File(metaPath);
-            if (!metaFile.exists()) return;
-
-            FileInputStream fis = new FileInputStream(metaPath);
-            byte[] data = new byte[(int) metaFile.length()];
-            fis.read(data);
-            fis.close();
-
-            JSONObject meta = new JSONObject(new String(data));
-            String savedSessionId = meta.optString("sessionId");
-            long savedTime = meta.optLong("timestamp");
-            int savedTokenCount = meta.optInt("tokenCount", 0);
-
-            // 检查是否是同一个会话（24小时内）
-            if (savedSessionId != null && savedSessionId.equals(currentSessionId)) {
-                long elapsed = System.currentTimeMillis() - savedTime;
-                if (elapsed < 24 * 60 * 60 * 1000) {
-                    AILogger.i(TAG, "Same session detected, chat context available, tokens=" + savedTokenCount);
-                }
-            }
-
-            // 尝试恢复 KV Cache
-            restoreKVCache();
-        } catch (Exception e) {
-            AILogger.w(TAG, "Failed to restore chat context: " + e.getMessage());
         }
     }
 

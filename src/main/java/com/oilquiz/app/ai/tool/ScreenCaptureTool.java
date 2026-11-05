@@ -55,8 +55,6 @@ public class ScreenCaptureTool implements AITool {
 
     private static final String TAG = "ScreenCaptureTool";
     private static final int AUTH_TIMEOUT_SECONDS = 90;
-    private static final Handler MAIN = new Handler(Looper.getMainLooper());
-
     /** 截屏专用后台线程：VirtualDisplay 创建/抓帧不依赖主线程，避免主线程繁忙导致截屏超时误判投影失效 */
     private static final android.os.HandlerThread CAPTURE_THREAD = new android.os.HandlerThread("screen_capture_thread");
     private static final Handler CAPTURE_HANDLER;

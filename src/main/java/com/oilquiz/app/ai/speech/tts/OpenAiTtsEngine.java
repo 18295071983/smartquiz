@@ -25,7 +25,6 @@ import java.nio.charset.StandardCharsets;
  */
 public class OpenAiTtsEngine implements TtsEngine {
 
-    private static final String TAG = "OpenAiTtsEngine";
     private static final String ENDPOINT = "/audio/speech";
     private static final String DEFAULT_VOICE = "alloy";
 

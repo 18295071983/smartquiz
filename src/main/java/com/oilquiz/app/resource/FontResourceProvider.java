@@ -114,23 +114,6 @@ public class FontResourceProvider {
     }
     
     /**
-     * 从资源加载字体
-     * @param fontResId 字体资源ID
-     * @return Typeface对象
-     */
-    private Typeface loadFontFromResource(@FontRes int fontResId) {
-        try {
-            if (fontResId == 0) {
-                return Typeface.DEFAULT;
-            }
-            return ResourcesCompat.getFont(context, fontResId);
-        } catch (Exception e) {
-            Log.e(TAG, "Error loading font resource: " + fontResId, e);
-            return Typeface.DEFAULT;
-        }
-    }
-    
-    /**
      * 注册自定义字体资源
      * @param fontName 字体名称
      * @param fontResId 字体资源ID

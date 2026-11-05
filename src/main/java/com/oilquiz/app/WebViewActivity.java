@@ -1615,30 +1615,6 @@ public class WebViewActivity extends BaseActivity {
     }
     
     /**
-     * 从URI获取文件名
-     * @param uri 文件URI
-     * @return 文件名
-     */
-    private String getFileNameFromUri(android.net.Uri uri) {
-        String fileName = null;
-        if ("content".equals(uri.getScheme())) {
-            try (android.database.Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
-                if (cursor != null && cursor.moveToFirst()) {
-                    int displayNameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
-                    if (displayNameIndex >= 0) {
-                        fileName = cursor.getString(displayNameIndex);
-                    }
-                }
-            } catch (Exception e) {
-                AppLogger.w(TAG, "获取文件名失败: " + e.getMessage());
-            }
-        } else if ("file".equals(uri.getScheme())) {
-            fileName = new java.io.File(uri.getPath()).getName();
-        }
-        return fileName;
-    }
-    
-    /**
      * 加载URL
      * @param url URL地址
      */
@@ -1668,23 +1644,6 @@ public class WebViewActivity extends BaseActivity {
             return url.replaceFirst("http://", "https://");
         }
         return url;
-    }
-    
-    /**
-     * 延迟加载URL
-     * @param url URL地址
-     * @param delayMillis 延迟毫秒数
-     */
-    private void loadUrlDelayed(String url, long delayMillis) {
-        try {
-            if (webViewLoadManager != null && x5WebView != null) {
-                webViewLoadManager.loadUrlDelayed(x5WebView, url, delayMillis);
-            } else {
-                new android.os.Handler().postDelayed(() -> loadUrl(url), delayMillis);
-            }
-        } catch (Exception e) {
-            AppLogger.e(TAG, "延迟加载URL失败: " + e.getMessage(), e);
-        }
     }
     
     /**

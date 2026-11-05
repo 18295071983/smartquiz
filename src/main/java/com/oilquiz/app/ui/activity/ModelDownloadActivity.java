@@ -40,9 +40,6 @@ import java.util.regex.Pattern;
 import com.oilquiz.app.theme.ThemeColors;
 public class ModelDownloadActivity extends BaseActivity {
 
-    private static final String TAG = "ModelDownloadActivity";
-    
-    private static final String HUGGINGFACE_API = "https://huggingface.co/api/models";
     private static final Pattern URL_PATTERN = Pattern.compile("https?://.*\\.(gguf|bin|pt|onnx|tflite)(\\?.*)?", Pattern.CASE_INSENSITIVE);
 
     private SearchView searchView;
@@ -394,14 +391,6 @@ public class ModelDownloadActivity extends BaseActivity {
         loadLLMModels();
         
         filterModels();
-    }
-
-    private void loadOnlineModels() {
-        tvSearchHint.setVisibility(View.VISIBLE);
-        tvSearchHint.setText(getString(R.string.h_b1683ed4));
-
-        List<OnlineModelInfo> onlineModels = getPopularOnlineModels();
-        allModelList.addAll(onlineModels);
     }
 
     /**
@@ -1004,13 +993,6 @@ public class ModelDownloadActivity extends BaseActivity {
             if (bytesPerSecond < 1024) return bytesPerSecond + " B/s";
             if (bytesPerSecond < 1024 * 1024) return String.format("%.1f KB/s", bytesPerSecond / 1024.0);
             return String.format("%.2f MB/s", bytesPerSecond / (1024.0 * 1024));
-        }
-
-        private String formatEta(long seconds) {
-            if (seconds < 0 || seconds > 86400) return "";
-            if (seconds < 60) return "剩余 " + seconds + "秒";
-            if (seconds < 3600) return "剩余 " + (seconds / 60) + "分" + (seconds % 60) + "秒";
-            return "剩余 " + (seconds / 3600) + "时" + ((seconds % 3600) / 60) + "分";
         }
 
         void updateComplete(String modelId, String filePath) {

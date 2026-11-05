@@ -253,16 +253,6 @@ public class QuestionGenerateActivity extends AppCompatActivity {
         }
     }
 
-    private String getServiceTypeDisplay(String type) {
-        if (type == null) return "未知";
-        switch (type) {
-            case APIConfig.ServiceType.OPENAI: return "OpenAI";
-            case APIConfig.ServiceType.ANTHROPIC: return "Claude";
-            case APIConfig.ServiceType.GOOGLE: return "Gemini";
-            default: return "自定义";
-        }
-    }
-
     private void setupClickListeners() {
         btnGenerate.setOnClickListener(new View.OnClickListener() {
             @Override

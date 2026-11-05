@@ -43,8 +43,6 @@ public class ModelChunkLoader {
     
     // 加载配置
     private static final int BUFFER_SIZE = 8 * 1024 * 1024; // 8MB缓冲区
-    private static final long LOAD_TIMEOUT_MS = 120000; // 2分钟超时
-    
     private final ExecutorService loadExecutor;
     private final Handler mainHandler;
     private final AtomicBoolean isLoading = new AtomicBoolean(false);

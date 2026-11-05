@@ -469,22 +469,6 @@ public class AppToolkit {
     // ==================== 辅助方法 ====================
     
     /**
-     * 将ToolImageFormat转换为ImageFormat
-     */
-    private ImageFormat toImageFormat(ToolImageFormat format) {
-        switch (format) {
-            case JPEG:
-                return ImageFormat.JPEG;
-            case PNG:
-                return ImageFormat.PNG;
-            case WEBP:
-                return ImageFormat.WEBP;
-            default:
-                return ImageFormat.PNG;
-        }
-    }
-    
-    /**
      * 检查文件是否存在
      */
     public boolean fileExists(File file) {

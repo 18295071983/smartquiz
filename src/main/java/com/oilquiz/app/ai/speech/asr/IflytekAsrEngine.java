@@ -53,9 +53,6 @@ public class IflytekAsrEngine implements AsrEngine {
     private static final int TIMEOUT_SECONDS = 60;
     private static final int CHUNK_SIZE = 8000;  // 音频分片大小（字节）
 
-    private static final String DEFAULT_ENGINE_TYPE = "16k_zh";
-    private static final String DEFAULT_AUE = "raw";
-
     private final Gson gson = new Gson();
     private final OkHttpClient wsClient;
 

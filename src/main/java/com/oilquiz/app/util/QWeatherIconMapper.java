@@ -384,20 +384,4 @@ public class QWeatherIconMapper {
         return new BitmapDrawable(context.getResources(), bitmap);
     }
 
-    private static Drawable createEmojiDrawable(Context context, String emoji, int sizeDp) {
-        int sizePx = (int) (sizeDp * context.getResources().getDisplayMetrics().density);
-        Bitmap bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-        Paint paint = new Paint();
-        paint.setColor(Color.WHITE);
-        paint.setTextSize(sizePx * 0.75f);
-        paint.setAntiAlias(true);
-        paint.setTextAlign(Paint.Align.CENTER);
-        float textWidth = paint.measureText(emoji);
-        float textHeight = paint.getTextSize();
-        float x = (sizePx - textWidth) / 2;
-        float y = (sizePx + textHeight) / 2 - paint.descent();
-        canvas.drawText(emoji, x, y, paint);
-        return new BitmapDrawable(context.getResources(), bitmap);
-    }
 }

@@ -66,7 +66,6 @@ public class ApiConfigActivity extends BaseActivity {
 
     private static final String TAG = "ApiConfigActivity";
     private static final int REQUEST_CODE_IMPORT_FILE = 1001;
-    private static final int REQUEST_CODE_EXPORT_FILE = 1002;
     private static final int REQUEST_CODE_PERMISSION = 1003;
     private static final int REQUEST_CODE_SELECT_FOLDER = 1004;
     private static final int REQUEST_CODE_IMPORT_CONFIG_FILE = 1005;

@@ -1056,10 +1056,6 @@ public class DashscopeMediaTool implements AITool {
     }
 
     /** 百炼系端点根（models 列表查询用）：用户配置的专属空间(MaaS)/公共端点，未配置则默认公共 */
-    private String resolveBailianBaseUrl() {
-        return resolveCompatBase(null);
-    }
-
     /** compatible-mode 基址：api_url 参数 > 配置端点（专属空间/公共）> 默认公共 */
     private String resolveCompatBase(Map<String, Object> parameters) {
         String explicit = parameters != null && parameters.get("api_url") != null
@@ -1124,12 +1120,4 @@ public class DashscopeMediaTool implements AITool {
         return def;
     }
 
-    private String formatSize(long bytes) {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024 * 1024) return String.format(java.util.Locale.US, "%.1f KB", bytes / 1024.0);
-        if (bytes < 1024 * 1024 * 1024) {
-            return String.format(java.util.Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0);
-        }
-        return String.format(java.util.Locale.US, "%.1f GB", bytes / 1024.0 / 1024.0 / 1024.0);
-    }
 }

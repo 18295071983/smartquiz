@@ -16,7 +16,6 @@ import com.oilquiz.app.R;
 
 public class WeatherWebViewActivity extends AppCompatActivity {
 
-    private static final String TAG = "WeatherWebView";
     private WebView webView;
     private ProgressBar progressBar;
     private ImageView backBtn;

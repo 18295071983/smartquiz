@@ -109,13 +109,7 @@ public class SystemResourceTool implements AITool {
     };
 
     /** 匹配 "> /dev/xxx" / ">> /dev/xxx"（含 2> 这类 fd 前缀） */
-    private static final java.util.regex.Pattern DEVICE_WRITE =
-            java.util.regex.Pattern.compile(">{1,2}\\s*(/dev/[^\\s;|&)]+)");
-
     /** 允许重定向的设备节点：丢弃输出/标准流，无害且是最常用写法（曾把 find ... 2>/dev/null 误杀） */
-    private static final java.util.Set<String> SAFE_DEV_TARGETS = new java.util.HashSet<>(java.util.Arrays.asList(
-            "/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"));
-
     // ===== 内置 Linux 命令工具链（Alpine busybox-static，随 APK 解压到 nativeLibraryDir）=====
     // 内置 busybox 取自 Termux 官方包（bionic 编译，天然不撞 seccomp），拆成三件随 jniLibs 分发：
     /** 启动器（有 PT_INTERP，可 exec；argv[0]=applet 名） */
@@ -129,7 +123,6 @@ public class SystemResourceTool implements AITool {
 
     // ===== 额外内置的 Termux 工具（bionic 构建，随 jniLibs 解压到 nativeLibraryDir，可执行）=====
     /** openssl CLI：真正带 TLS（busybox 的 wget 没有 TLS） */
-    private static final String OPENSSL_BIN_LIB = "libopenssl_bin.so";
     /** openssl 的运行时库（libcrypto/libssl/libz） */
     private static final String[] EXTRA_LIB_NAMES = {"libcrypto.so", "libssl.so", "libz.so"};
     /** CA 包：内容是 PEM，命名成 lib*.so 只是为了能随 jniLibs 打包 */

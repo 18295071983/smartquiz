@@ -185,14 +185,6 @@ public class AIChatCoordinator {
 
 
 
-    private void notifyChatHistoryChanged() {
-        mainHandler.post(() -> {
-            for (CoordinatorListener listener : listeners) {
-                listener.onChatHistoryChanged();
-            }
-        });
-    }
-
 
     // ========== 清理 ==========
 

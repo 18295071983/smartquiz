@@ -9,7 +9,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ALChat {
-    private static final String TAG = "ALChat";
     private boolean isStreamingEnabled = false;
     
     public static final int GPU_BACKEND_CPU = 0;

@@ -28,7 +28,6 @@ import java.util.Map;
 @Tool(value = "control_lookup", category = "ui")
 public class ControlLookupTool implements AITool {
 
-    private static final String TAG = "ControlLookupTool";
     private final Context context;
 
     public ControlLookupTool() {

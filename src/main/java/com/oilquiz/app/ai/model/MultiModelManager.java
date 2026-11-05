@@ -22,8 +22,6 @@ import java.util.concurrent.locks.ReentrantLock;
 public class MultiModelManager {
     private static final String TAG = "MultiModelManager";
     private static final int MAX_LOADED_MODELS = 2;
-    private static final long DEFAULT_TIMEOUT = 30000L;
-
     @SuppressWarnings("VolatileArrayField")
     private static volatile MultiModelManager instance;
 

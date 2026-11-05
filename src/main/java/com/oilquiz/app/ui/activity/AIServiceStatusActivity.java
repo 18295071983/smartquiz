@@ -1609,33 +1609,6 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     }
 
     /** 扫 App 模型库里的 gguf（Q4_0 优先，其次体积最大），返回展示名；没有返回 null */
-    private String scanNpuModelFile() {
-        try {
-            java.io.File dir = new java.io.File(getFilesDir(), "ai_models");
-            java.io.File[] files = dir.listFiles((d, n) -> n.toLowerCase().endsWith(".gguf"));
-            if (files == null || files.length == 0) {
-                return null;
-            }
-            java.io.File best = null;
-            for (java.io.File f : files) {
-                if (best == null) {
-                    best = f;
-                    continue;
-                }
-                boolean fq4 = f.getName().toLowerCase().contains("q4_0");
-                boolean bq4 = best.getName().toLowerCase().contains("q4_0");
-                if (fq4 != bq4) {
-                    if (fq4) best = f;
-                } else if (f.length() > best.length()) {
-                    best = f;
-                }
-            }
-            return best.getName() + "（App 模型库）";
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
     /** NPU 将使用的模型文件大小（字节）；找不到返回 0 */
     private long npuModelSizeBytes() {
         try {
@@ -1741,16 +1714,6 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     }
 
     /** 安全设置某个字段文案（view 不存在时静默，避免空指针） */
-    private void setRowText(int viewId, String value) {
-        try {
-            android.widget.TextView tv = findViewById(viewId);
-            if (tv != null) {
-                tv.setText(value);
-            }
-        } catch (Throwable ignored) {
-        }
-    }
-
     /** UI 单一状态源：NPU 相关只读值统一走 AIService（不再直连 NpuLlmChat） */
     private com.oilquiz.app.ai.service.AIService npuSvc() {
         return com.oilquiz.app.ai.service.AIService.getInstance(this);

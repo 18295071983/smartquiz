@@ -17,8 +17,6 @@ public class ResponseCacheManager {
     private static final String TAG = "ResponseCacheManager";
     private static final String PREFS_NAME = "agent_response_cache";
     private static final int MAX_CACHED_SESSIONS = 10;
-    private static final long CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000L;
-
     private static volatile ResponseCacheManager instance;
     private final Context context;
     private final SharedPreferences prefs;

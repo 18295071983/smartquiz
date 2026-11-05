@@ -11,8 +11,6 @@ import java.util.Map;
  * 用于生成HTML网页文件
  */
 public class WebGeneratorUtil {
-    private static final String TAG = "WebGeneratorUtil";
-
     /**
      * 生成简单HTML页面
      * @param file 目标文件

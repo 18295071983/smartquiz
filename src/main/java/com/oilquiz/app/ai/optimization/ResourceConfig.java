@@ -50,7 +50,6 @@ public class ResourceConfig {
      *  叠加权重后 6~8GB 设备加载即被杀进程；16K KV≈1.4GB 才是设备可承受的量级） */
     private static final int MAX_CONTEXT_SIZE = 16384;
     /** 默认上下文大小 */
-    private static final int DEFAULT_CONTEXT_SIZE = 4096;
     /** 推理预留 token 数（输入 + 输出） */
     private static final int INFERENCE_RESERVE_TOKENS = 512;
 

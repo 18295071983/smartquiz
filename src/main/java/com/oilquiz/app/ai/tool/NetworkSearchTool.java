@@ -1554,16 +1554,6 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
         return summary.toString();
     }
 
-    private boolean isDynamicPage(java.lang.String content) {
-        for (java.lang.String keyword : DYNAMIC_CONTENT_KEYWORDS) {
-            if (content.contains(keyword)) {
-                com.oilquiz.app.util.AILogger.i(TAG, "Detected dynamic page with keyword: " + keyword);
-                return true;
-            }
-        }
-        return content.contains("application/ld+json") || (content.contains("window.") && content.contains("=") && content.contains(";"));
-    }
-
     private java.util.Map<java.lang.String, java.lang.Object> extractDynamicData(java.lang.String content) {
         java.util.Map<java.lang.String, java.lang.Object> dynamicData = new java.util.HashMap<>();
         java.lang.String jsonLdData = extractJsonLd(content);
@@ -1705,15 +1695,6 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
             } catch (java.lang.Exception e) {
                 return null;
             }
-        }
-    }
-
-    private java.lang.String getDomain(java.lang.String url) {
-        try {
-            java.net.URL uri = new java.net.URL(url);
-            return uri.getHost();
-        } catch (java.lang.Exception e) {
-            return null;
         }
     }
 
@@ -1958,15 +1939,6 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
             emails.add(matcher.group(1));
         }
         return emails;
-    }
-
-    private java.util.List<java.lang.String> extractUrls(java.lang.String html) {
-        java.util.List<java.lang.String> urls = new java.util.ArrayList<>();
-        java.util.regex.Matcher matcher = URL_PATTERN.matcher(html);
-        while (matcher.find()) {
-            urls.add(matcher.group(1));
-        }
-        return urls;
     }
 
     private java.util.List<java.util.Map<java.lang.String, java.lang.Object>> sliceText(java.lang.String text) {

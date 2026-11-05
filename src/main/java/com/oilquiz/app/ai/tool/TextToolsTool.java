@@ -23,8 +23,6 @@ import java.util.regex.Pattern;
 @Tool(value = "text_tools", category = "utility")
 public class TextToolsTool implements AITool {
 
-    private static final String TAG = "TextToolsTool";
-
     public TextToolsTool() {
     }
 

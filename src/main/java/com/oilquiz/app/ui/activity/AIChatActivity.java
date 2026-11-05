@@ -8686,23 +8686,6 @@ public class AIChatActivity extends BaseActivity {
     // ===================== Mode / Tool Execution =====================
 
 
-    private Map<String, Object> parseParameters(String parameters) {
-        Map<String, Object> params = new HashMap<>();
-        if (parameters == null || parameters.isEmpty()) {
-            return params;
-        }
-        String[] pairs = parameters.split(",");
-        for (String pair : pairs) {
-            String[] keyValue = pair.split(":", 2);
-            if (keyValue.length == 2) {
-                String key = keyValue[0].trim();
-                String value = keyValue[1].trim();
-                params.put(key, value);
-            }
-        }
-        return params;
-    }
-
     /**
      * 注册在线模型变更监听，模型切换时自动刷新模式按钮
      */
@@ -12262,17 +12245,6 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /** 释放 MediaRecorder 资源 */
-    private void releaseMediaRecorder() {
-        if (mediaRecorder != null) {
-            try {
-                mediaRecorder.release();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-            mediaRecorder = null;
-        }
-    }
-
     /** 显示权限设置对话框，引导用户去系统设置页面 */
     private void showPermissionSettingsDialog() {
         new androidx.appcompat.app.AlertDialog.Builder(this)
@@ -12301,23 +12273,7 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /** 更新录音 UI 状态 */
-    private void updateRecordingUI(boolean recording) {
-        runOnUiThread(() -> {
-            if (recording) {
-                showToast(getString(R.string.h_b1c1d48c));
-            } else {
-                showToast(getString(R.string.h_f4854afd));
-            }
-        });
-    }
-
     /** 刷新附件列表 UI */
-    private void refreshAttachmentsUI() {
-        // 如果有附件 RecyclerView，刷新它
-        // 这里假设有一个 attachmentRecyclerView
-        // attachmentRecyclerView.getAdapter().notifyDataSetChanged();
-    }
-
     /** 创建临时图片文件 */
     private File createImageFile() throws IOException {
         String timeStamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())

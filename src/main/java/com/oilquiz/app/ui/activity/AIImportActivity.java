@@ -321,24 +321,6 @@ public class AIImportActivity extends BaseActivity {
     }
 
     /** 未授权时引导授权：Android 11+ 弹说明框跳"所有文件访问"设置页；Android 6~10 走运行时权限弹窗 */
-    private void requestPublicStoragePermission() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            new AlertDialog.Builder(this)
-                    .setTitle(getString(R.string.h_a902a02e))
-                    .setMessage(getString(R.string.h_a65def34)
-                            + "未授予时 Python 无法读写该目录。\n"
-                            + "请点击\"去授权\"开启\"所有文件访问\"权限，然后重新开始导入。")
-                    .setPositiveButton(getString(R.string.h_4a1c90d8), (d, w) -> openAllFilesAccessSetting())
-                    .setNegativeButton(getString(R.string.h_625fb26b), null)
-                    .show();
-        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-            requestPermissions(new String[]{
-                    android.Manifest.permission.READ_EXTERNAL_STORAGE,
-                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-            }, REQUEST_CODE_STORAGE_PERMISSION);
-        }
-    }
-
     /** 跳转系统"所有文件访问"授权页（优先直达本应用，异常时 fallback 通用入口） */
     private void openAllFilesAccessSetting() {
         try {

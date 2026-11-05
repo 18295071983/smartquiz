@@ -511,19 +511,6 @@ public final class TermuxEnvInstaller {
             """;
 
 
-    /**
-     * 把若干条 shell 语句拼成一行：普通语句之间用 "; "，而以 {@code &} 结尾的后台语句后面不能再加分号
-     * （{@code &; i=0} 是语法错误，真机上被 ash -n 门禁抓到过）。
-     */
-    private static String joinShell(String... parts) {
-        StringBuilder sb = new StringBuilder();
-        for (String p : parts) {
-            sb.append(p);
-            sb.append(p.trim().endsWith("&") ? ' ' : "; ");
-        }
-        return sb.toString();
-    }
-
     /** 把一段文本写到公共下载目录（调试/给用户检查用）；MediaStore 优先，无需"所有文件访问" */
     public static File writeTextFile(Context ctx, String name, String content) {
         PublicStorageWriter.writeText(ctx, "termux_env", name, content);

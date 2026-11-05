@@ -552,15 +552,6 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
 
 
     /** 完成态按钮视觉：未完成=主色+下载图标；已完成=次色+勾图标 */
-    private void styleStepBtn(MaterialButton b, boolean done) {
-        b.setIconResource(done ? R.drawable.ic_check : R.drawable.ic_ai_download);
-        int bg = ThemeColors.attr(this, done ? R.attr.colorSecondaryContainer : R.attr.colorPrimary);
-        int fg = ThemeColors.attr(this, done ? R.attr.colorOnSecondaryContainer : R.attr.colorOnPrimary);
-        b.setBackgroundTintList(ColorStateList.valueOf(bg));
-        b.setTextColor(fg);
-        b.setIconTint(ColorStateList.valueOf(fg));
-    }
-
     /** 进 Ubuntu 终端：在 Termux 可见会话里 exec ~/ubuntu */
     private void doOpenUbuntuShell() {
         if (busy) { toast("正在执行中，请稍候"); return; }

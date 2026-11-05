@@ -16,8 +16,6 @@ import java.util.Map;
  */
 public class PythonExporter implements Exporter {
     private static final String TAG = "PythonExporter";
-    private static final int PROGRESS_UPDATE_INTERVAL = 10;
-    
     private final PythonExportBridge pythonBridge;
     private final String format;
     

@@ -1262,18 +1262,6 @@ public class WeatherDetailActivity extends AppCompatActivity {
         return "999";
     }
 
-    private static String tempLevelText(int temp) {
-        if (temp <= 0) return "严寒";
-        if (temp <= 5) return "寒冷";
-        if (temp <= 10) return "冷";
-        if (temp <= 15) return "凉";
-        if (temp <= 20) return "舒适";
-        if (temp <= 25) return "宜人";
-        if (temp <= 28) return "温暖";
-        if (temp <= 32) return "热";
-        return "酷热";
-    }
-
     private static String cleanAirValue(String line) {
         int idx = line.indexOf(":");
         if (idx < 0) return "--";
@@ -2053,24 +2041,6 @@ public class WeatherDetailActivity extends AppCompatActivity {
     }
 
     /** 提取第一句话，最大 maxLen 字符 */
-    private static String firstSentence(String text, int maxLen) {
-        if (text == null || text.isEmpty()) return "";
-        // 按句号/分号/换行分割，取第一段
-        String[] delimiters = {"。", "；", "\n", "，"};
-        String first = text;
-        for (String d : delimiters) {
-            int idx = first.indexOf(d);
-            if (idx > 0 && idx < first.length()) {
-                first = first.substring(0, idx);
-            }
-        }
-        first = first.trim();
-        if (first.length() > maxLen) {
-            first = first.substring(0, maxLen) + "...";
-        }
-        return first;
-    }
-
     /** 检查 StringBuilder 是否以句号结尾 */
     private static boolean keyContent_endsWithPeriod(StringBuilder sb) {
         if (sb.length() == 0) return true;
@@ -2854,10 +2824,6 @@ public class WeatherDetailActivity extends AppCompatActivity {
         if (mm < 25) return "大雨倾盆，注意防范";
         if (mm < 50) return "暴雨天气，减少外出";
         return "极端降水，避免外出";
-    }
-
-    private void openFxLink() {
-        openLink(fxLinkCurrent);
     }
 
     private void openLink(String url) {

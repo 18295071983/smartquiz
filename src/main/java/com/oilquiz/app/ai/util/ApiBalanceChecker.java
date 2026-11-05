@@ -18,7 +18,6 @@ import okhttp3.Response;
  */
 public class ApiBalanceChecker {
 
-    private static final String TAG = "ApiBalanceChecker";
     private static final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "api-balance-check");
         t.setDaemon(true);

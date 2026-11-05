@@ -29,8 +29,6 @@ import java.util.regex.Pattern;
 public class AILogger2 {
     private static final String TAG = "AILogger2";
     private static final SimpleDateFormat TIMESTAMP_FORMAT = new SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault());
-    private static final SimpleDateFormat FULL_DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
-    
     // 日志级别
     public enum LogLevel {
         VERBOSE("🔍", "#9E9E9E", "VERBOSE"),

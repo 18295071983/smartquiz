@@ -12,7 +12,6 @@ import java.util.Map;
 public class MarkdownRenderEngine implements FileRenderEngine {
     private static final String TAG = "MarkdownRenderEngine";
     private static final String[] SUPPORTED_EXTENSIONS = {"md", "markdown", "mdown", "mkd", "mkdn"};
-    private static final int MAX_LINES = 1000;
     private static final int MAX_CONTENT_LENGTH = 10000;
     
     @Override

@@ -269,25 +269,6 @@ public class TemplateSelectionActivity extends AppCompatActivity {
         return filtered;
     }
     
-    /**
-     * 当切换模板类型时，更新UI显示
-     */
-    private void updateUIForTemplateType() {
-        if (isContentTemplateMode) {
-            // 内容模板模式下，更新UI提示
-            templateName.setText(getString(R.string.h_395c7442));
-            templateFormat.setText(getString(R.string.h_c3f9cc1b));
-            templateDescription.setText(getString(R.string.h_dc5c8ec2));
-            templateFields.setText("无");
-        } else {
-            // 导出模板模式下，更新UI提示
-            templateName.setText(getString(R.string.h_50e5250f));
-            templateFormat.setText(getString(R.string.h_b4ad854c) + selectedFormat.name());
-            templateDescription.setText(getString(R.string.h_294b3945));
-            templateFields.setText("无");
-        }
-    }
-
     private void updateTemplateDescription() {
         if (selectedTemplate != null) {
             // 显示导出模板信息

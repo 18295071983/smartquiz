@@ -25,7 +25,6 @@ import java.util.List;
  */
 public class AgentMemoryView {
 
-    private static final String TAG = "AgentMemoryView";
     private final Context context;
     private LinearLayout listContainer;
 

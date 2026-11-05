@@ -11,8 +11,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class GpuAdaptiveTuner {
     private static final String TAG = "GpuAdaptiveTuner";
     private static final long TUNING_INTERVAL_MS = 60000L;
-    private static final float MIN_TPS_IMPROVEMENT = 0.05f;
-
     private final Context context;
     private final GpuCapabilityDetector gpuDetector;
     private final MemoryMonitor memoryMonitor;

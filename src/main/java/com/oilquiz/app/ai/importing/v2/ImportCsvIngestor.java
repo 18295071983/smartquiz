@@ -41,8 +41,6 @@ public class ImportCsvIngestor {
     /** 默认批量大小 */
     private static final int BATCH_SIZE = 60;
     /** 失败降级批量大小 */
-    private static final int SMALL_BATCH_SIZE = 30;
-
     /** 入库统计 */
     public static class IngestStats {
         public int imported;

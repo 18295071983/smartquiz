@@ -26,7 +26,6 @@ import java.util.Set;
  * 提供 TalkBack 兼容、内容描述自动生成等功能
  */
 public class AccessibilityHelper {
-    private static final String TAG = "AccessibilityHelper";
     private static volatile AccessibilityHelper instance;
     
     private final Context context;

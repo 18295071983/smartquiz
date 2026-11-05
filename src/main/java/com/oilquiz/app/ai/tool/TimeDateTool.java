@@ -58,8 +58,6 @@ import java.util.TimeZone;
 )
 public class TimeDateTool implements AITool, StructuredParamTool {
 
-    private static final String TAG = "TimeDateTool";
-
     public TimeDateTool() {
     }
 

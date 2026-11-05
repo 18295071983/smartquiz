@@ -12,8 +12,6 @@ import java.util.List;
  * 使用纯 Java 处理导出，不依赖 Python
  */
 public class JavaExporter implements Exporter {
-    private static final String TAG = "JavaExporter";
-
     @Override
     public File export(ExportManager.ExportTask task) throws Exception {
         validateParameters(task);

@@ -220,19 +220,6 @@ public class SimpleWebViewActivity extends BaseActivity {
             }
 
             /** 回退：通用文件预览（图片等引擎不返回 HTML 的类型） */
-            private void openGenericPreview(String path) {
-                try {
-                    android.content.Intent intent = new android.content.Intent(
-                            SimpleWebViewActivity.this,
-                            com.oilquiz.app.ui.activity.FileRenderActivity.class);
-                    intent.putExtra(
-                            com.oilquiz.app.ui.activity.FileRenderActivity.EXTRA_FILE_PATH, path);
-                    startActivity(intent);
-                } catch (Exception e) {
-                    Log.w(TAG, "通用预览打开失败: " + e.getMessage());
-                }
-            }
-
             /** 系统 Intent 打开文件（FileProvider + ACTION_VIEW），由系统/已装应用处理 */
             private void openWithSystem(String path) {
                 try {

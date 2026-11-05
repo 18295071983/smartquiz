@@ -307,13 +307,6 @@ public class QuizSessionManager {
         return questions;
     }
 
-    private boolean containsQuestion(List<Question> list, long id) {
-        for (Question q : list) {
-            if (q.getId() == id) return true;
-        }
-        return false;
-    }
-
     // ==================== 答题操作 ====================
     
     /**

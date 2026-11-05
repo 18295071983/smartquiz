@@ -22,8 +22,6 @@ import java.util.Map;
  */
 public class AIToolUsageGuide {
 
-    private static final String TAG = "AIToolUsageGuide";
-
     // ========== 静态缓存 ==========
     /** 缓存的 Agent 工具使用方法文本 */
     private static String cachedAgentToolUsageMethod;

@@ -16,8 +16,6 @@ import java.util.List;
  */
 public class UsageRepository {
     
-    private static final String TAG = "UsageRepository";
-    
     private final UsageDatabase usageDatabase;
     
     public UsageRepository(Context context) {

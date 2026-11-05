@@ -25,7 +25,6 @@ public class TemplateManager {
     private static final String TEMPLATES_DIR = "templates";
     private static final String TEMPLATES_FILE = "templates.json";
     /** 模板结构版本：v2 起为场景化模板（scene_*），旧版按格式区分的默认模板不再创建 */
-    private static final int SCHEMA_VERSION = 2;
     /** 场景化默认模板的 ID 前缀 */
     private static final String SCENE_PREFIX = "scene_";
     private static TemplateManager instance;

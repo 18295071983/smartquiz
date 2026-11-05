@@ -167,11 +167,6 @@ public class StartQuizActivity extends AppCompatActivity {
         }
     }
     
-    private int dpToPx(int dp) {
-        float density = getResources().getDisplayMetrics().density;
-        return (int) (dp * density);
-    }
-
     private void initUI() {
         radioGroupMode = findViewById(R.id.radioGroupMode);
         spinnerQuestionType = findViewById(R.id.spinnerQuestionType);

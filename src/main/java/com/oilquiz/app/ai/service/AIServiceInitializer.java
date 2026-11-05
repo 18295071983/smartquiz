@@ -657,15 +657,6 @@ public final class AIServiceInitializer {
     }
 
     /** 文件大小是否达到完整性阈值（expectedBytes<=0 时仅需存在） */
-    private static boolean isComplete(File f, long expectedBytes) {
-        if (expectedBytes <= 0) return true;
-        try {
-            return f.length() >= (long) (expectedBytes * INTEGRITY_THRESHOLD);
-        } catch (Exception e) {
-            return true;
-        }
-    }
-
     /** 删除损坏 / 不完整的模型文件（避免下次再次误判为已存在） */
     private static void deleteCorruptedFile(Context app, String fileName) {
         try {

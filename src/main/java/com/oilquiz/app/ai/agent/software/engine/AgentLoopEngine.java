@@ -84,7 +84,6 @@ public class AgentLoopEngine {
      *  ⚠ 2026-10-07 已废弃：固定比例只约束 prompt，把生成空间压到 < maxTokens，
      *  长回答必然触发 native ctx_full 硬截断。预算改由 computePromptBudget 的
      *  「n_ctx − OUTPUT_RESERVE_TOKENS − NATIVE_GENERATION_RESERVE」公式计算 */
-    private static final double PROMPT_BUDGET_RATIO = 0.8; // 保留引用说明，勿再使用
     /** 工具结果最大字符数（超长时截断，节省上下文；放宽到 6000：天气/搜索等
      *  结果不再因 1200 截断丢失关键数值——上一轮天气问题的根因。trim 阶段会把
      *  更早的工具结果压缩到 2500，最近的保持完整，平衡信息完整性与上下文占用） */
@@ -115,7 +114,6 @@ public class AgentLoopEngine {
     /** 用户问题长度上限（字符） */
     private static final int MAX_USER_MESSAGE_CHARS = 2000;
     /** UI 交互等待时长（毫秒）：弹窗问用户，超时未操作则回退文本追问 */
-    private static final long UI_WAIT_MS = 30000;
     /**
      * 决策轮温度（模型产出 tool_call 的迭代轮）：结构化输出比"敢不敢试"更重要，
      * 保持 Qwen3 官方默认 0.7。默认值只是**兜底**——实际取值走 resolveDecisionTemperature()，
@@ -2338,25 +2336,6 @@ public class AgentLoopEngine {
     }
 
     /**
-     * 工具结果注入总结请求的最大字符数（token 感知，防超 n_ctx）。
-     * 预算 = prompt 预算 - 输出预留(1000) - 固定预留(512：system+用户问题+总结指令)；
-     * 中文≈1 token/字符，故字符数直接取可用 token 数（保守上限）；
-     * 至少保留 128 token 给工具结果，失败回退 MAX_TOOL_RESULT_LENGTH。
-     * 注：注入的是 user 消息（绕过 trim 对 tool 消息的 2500 字符压缩），
-     * 因此必须在注入时就按预算截断，否则 4K/8K 上下文下会撞预算。
-     */
-    private int toolResultInjectionLimitChars() {
-        try {
-            int budget = computePromptBudget();
-            int availableTokens = budget - OUTPUT_RESERVE_TOKENS - 512;
-            if (availableTokens < 128) availableTokens = 128;
-            return availableTokens;
-        } catch (Throwable t) {
-            return MAX_TOOL_RESULT_LENGTH;
-        }
-    }
-
-    /**
      * 实际生效的上下文窗口：以"实际加载的 native 上下文"为准（它就是真实 KV 缓存容量，
      * chatCreate 优先取模型 n_ctx，如 Qwen3-4B=32768），预算按它 ×80% 已留足输出余量。
      * 优化模式预设（4096~16384）只是资源旋钮，可能小于真实窗口（预设 8k vs 实际 32k），
@@ -3144,23 +3123,6 @@ public class AgentLoopEngine {
         return thought.isEmpty() ? null : thought;
     }
 
-    /**
-     * 判断当前加载的模型是否支持思考链（thinking / chain-of-thought）。
-     * 规则：模型名包含 qwen3、qwq、deepseek-r1、thinking 等关键词即视为思考模型。
-     */
-    private boolean isThinkingModel() {
-        try {
-            String name = aiService.getCurrentModelName();
-            if (name == null) return false;
-            String lower = name.toLowerCase();
-            return lower.contains("qwen3") || lower.contains("qwq")
-                    || lower.contains("deepseek-r1") || lower.contains("thinking")
-                    || lower.contains("deepthink");
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
     // ==================== 工具调用解析（已移交 native） ====================
     //
     // LOCAL-REGEX-REMOVED(2026-10-09)：本段原先是一整套「从模型文本里用正则猜工具调用」的
@@ -3176,30 +3138,7 @@ public class AgentLoopEngine {
     // 故本段删除不影响在线路径。
 
     /** 工具调用 id（可能缺失，缺失时上层执行前补齐 R4-1） */
-    private String resolveCallId(JSONObject json) {
-        String id = json.isNull("id") ? null : json.optString("id", null);
-        return (id == null || id.isEmpty()) ? null : id;
-    }
-
     /** 兼容 arguments(JSON 对象/JSON 字符串) / parameters / args 三种取值 */
-    private JSONObject resolveArgsObject(JSONObject json) {
-        Object args = json.opt("arguments");
-        if (args == null) args = json.opt("parameters");
-        if (args == null) args = json.opt("args");
-        if (args instanceof JSONObject) return (JSONObject) args;
-        if (args instanceof String) {
-            String s = ((String) args).trim();
-            if (!s.isEmpty()) {
-                try {
-                    return new JSONObject(s);
-                } catch (Exception ignored) {
-                    AILogger.w(TAG, "Tool call arguments string not JSON: " + truncate(s, 80));
-                }
-            }
-        }
-        return new JSONObject();
-    }
-
     /** strftime 格式（%Y/%m/%d/%A 等）→ Java SimpleDateFormat 格式 */
     private static String convertStrftime(String fmt) {
         if (fmt == null || fmt.isEmpty()) return null;
@@ -3210,25 +3149,6 @@ public class AgentLoopEngine {
     }
 
     /** 程序拼当前时间文本（format 支持 strftime 或 Java 格式，null 用默认） */
-    private String formatCurrentTime(String format) {
-        try {
-            String javaFmt = convertStrftime(format);
-            if (javaFmt == null || javaFmt.isEmpty()) {
-                javaFmt = "yyyy年M月d日 EEEE HH:mm";
-            }
-            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(javaFmt, java.util.Locale.CHINA);
-            return sdf.format(new java.util.Date());
-        } catch (Throwable t) {
-            AILogger.w(TAG, "Format time failed: " + t.getMessage());
-            try {
-                return new java.text.SimpleDateFormat("yyyy年M月d日 EEEE HH:mm", java.util.Locale.CHINA)
-                        .format(new java.util.Date());
-            } catch (Throwable ignored) {
-                return String.valueOf(System.currentTimeMillis());
-            }
-        }
-    }
-
     /** 工具失败时的替代工具映射：引导模型换工具而非放弃（4B 模型需要明确指引）
      *
      *  <p>CORE-TOOLS-4(2026-10-11)：备选**只能给核心 4 个之内**的工具

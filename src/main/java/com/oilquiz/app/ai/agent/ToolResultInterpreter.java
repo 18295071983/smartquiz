@@ -262,7 +262,6 @@ public class ToolResultInterpreter {
     }
 
     /** 在线模型输出最大 token 数（实际使用 ONLINE_INTERPRET_MAX_TOKENS=2048，此常量保留作兼容） */
-    private static final int INTERPRET_OUTPUT_MAX = 2048;
     /** 在线模型：硬截断上限（20万字符，仅防超大输入导致接口自身报错；正常 Excel/搜索结果几 MB 内不会到） */
     private static final int ONLINE_RAW_MAX_LEN = 200_000;
 
@@ -1357,39 +1356,6 @@ public class ToolResultInterpreter {
     }
 
     /** 统计结果数量：优先数组字段，其次整体数组 */
-    private static Integer countResults(Object result) {
-        JsonObject obj = toJsonObject(result);
-        if (obj != null) {
-            for (String key : new String[]{"results", "data", "items", "list", "questions"}) {
-                if (obj.has(key) && obj.get(key).isJsonArray()) {
-                    return obj.getAsJsonArray(key).size();
-                }
-            }
-            // total/count 数值字段
-            String c = firstStr(obj, "count", "total");
-            if (c != null) {
-                try {
-                    return Integer.parseInt(c);
-                } catch (NumberFormatException ignored) {}
-            }
-        }
-        // 整体为数组
-        try {
-            JsonElement root;
-            if (result instanceof String) {
-                root = JsonParser.parseString(((String) result).trim());
-            } else if (result != null) {
-                root = JsonParser.parseString(GSON.toJson(result));
-            } else {
-                return null;
-            }
-            if (root.isJsonArray()) {
-                return root.getAsJsonArray().size();
-            }
-        } catch (Exception ignored) {}
-        return null;
-    }
-
     /** 从 JsonObject 中按多个候选 key 取首个非空字符串值 */
     private static String firstStr(JsonObject obj, String... keys) {
         if (obj == null) {
@@ -1441,20 +1407,6 @@ public class ToolResultInterpreter {
     }
 
     /** 截断字符串到最大长度 */
-    private static String truncate(String s) {
-        if (s == null) {
-            return "执行完成";
-        }
-        s = s.trim();
-        if (s.isEmpty()) {
-            return "执行完成";
-        }
-        if (s.length() <= MAX_SUMMARY_LEN) {
-            return s;
-        }
-        return safeTruncate(s, MAX_SUMMARY_LEN) + "...";
-    }
-
     /**
      * 安全截断：避免在代理对（surrogate pair）中间截断。
      * Java 字符串以 UTF-16 存储，emoji 等增补平面字符（如 🌡💧🚨⚠️ 等）由高/低代理项两个 char 组成。

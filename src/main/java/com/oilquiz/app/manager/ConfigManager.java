@@ -22,8 +22,6 @@ public class ConfigManager {
     private static final String KEY_QUESTION_TYPES = "question_types";
     private static final String KEY_QUESTION_ORDERS = "question_orders";
     private static final String KEY_EXPORT_FORMATS = "export_formats";
-    private static final String KEY_APP_SETTINGS = "app_settings";
-
     private static ConfigManager instance;
     private SharedPreferences preferences;
     private Gson gson;

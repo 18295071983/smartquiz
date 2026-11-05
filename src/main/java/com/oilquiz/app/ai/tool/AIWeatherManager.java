@@ -253,28 +253,7 @@ public class AIWeatherManager implements AITool {
         APIKeyManager.getInstance(context).saveAPIHost(APIKeyManager.Service.HEFENG_WEATHER, newHost);
     }
 
-    private String getApiHost() {
-        return apiHost;
-    }
-
     /** 获取和风天气 API Key（从 APIKeyManager 或 APIConfig 中获取） */
-    private String getQWeatherApiKey() {
-        try {
-            APIKeyManager mgr = APIKeyManager.getInstance(context);
-            // 1. 尝试从旧式存储获取
-            String key = mgr.getAPIKey(APIKeyManager.Service.HEFENG_WEATHER);
-            if (key != null && !key.isEmpty()) return key;
-            // 2. 尝试从 APIConfig 获取
-            APIConfig config = mgr.getAPIConfigByServiceType(APIConfig.ServiceType.HEFENG_WEATHER);
-            if (config != null && config.getApiKey() != null && !config.getApiKey().isEmpty()) {
-                return config.getApiKey();
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error getting QWeather API Key", e);
-        }
-        return null;
-    }
-
     /** 使用 API Key 认证 (X-QW-Api-Key) 发送 GET 请求 */
     private String httpGetWithApiKey(String urlString, String apiKey) throws Exception {
         Request.Builder requestBuilder = new Request.Builder()
@@ -1651,38 +1630,6 @@ public class AIWeatherManager implements AITool {
         }
     }
 
-    private double[] getCoordinatesFromLocationId(String locationId) {
-        // 本地 CSV 优先（与 resolveHefengLocationParam 一致，离线可用）
-        try {
-            com.oilquiz.app.weather.QWeatherCityManager cityMgr =
-                    com.oilquiz.app.weather.QWeatherCityManager.getInstance(context);
-            com.oilquiz.app.weather.QWeatherCityManager.CityEntry entry =
-                    cityMgr.getCityById(locationId);
-            if (entry != null) {
-                return new double[]{entry.latitude, entry.longitude};
-            }
-        } catch (Throwable t) {
-            Log.w(TAG, "Local city lookup failed for id " + locationId + ": " + t.getMessage());
-        }
-        try {
-            String urlString = getGeocodeUrl() + "?location=" + locationId;
-                String response = httpGet(urlString);
-                JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
-            if ("200".equals(jsonObject.get("code").getAsString())) {
-                JsonArray locationArray = jsonObject.getAsJsonArray("location");
-                if (locationArray != null && locationArray.size() > 0) {
-                    JsonObject location = locationArray.get(0).getAsJsonObject();
-                    double lat = Double.parseDouble(location.get("lat").getAsString());
-                    double lon = Double.parseDouble(location.get("lon").getAsString());
-                    return new double[]{lat, lon};
-                }
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to get coordinates from location ID", e);
-        }
-        return null;
-    }
-
     // 解析和风天气预警响应 (v7 API: /v7/warning/now，兼容v1旧格式)
     private String parseHefengAlertsResponse(String response) {
         if (response == null || response.isEmpty()) {
@@ -2093,27 +2040,6 @@ public class AIWeatherManager implements AITool {
             Log.e(TAG, "Error parsing Hefeng indices response", e);
             return "生活指数:\n查询失败";
         }
-    }
-
-    private String fetchAllIndices(String location) {
-        try {
-            // 解析 location 字符串为经纬度
-            String[] parts = location.split(",");
-            if (parts.length >= 2) {
-                double lon = Double.parseDouble(parts[0].trim());
-                double lat = Double.parseDouble(parts[1].trim());
-                String urlString = getIndicesUrl(lat, lon);
-                Log.d(TAG, "Indices URL: " + urlString);
-                String response = httpGet(urlString);
-                String parsed = parseHefengIndicesResponse(response);
-                if (parsed != null && !parsed.isEmpty()) {
-                    return parsed;
-                }
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Error fetching indices", e);
-        }
-        return "生活指数:\n暂无数据";
     }
 
     public CompletableFuture<String> getHefengForecastByLocation(double lat, double lon) {
@@ -2908,48 +2834,6 @@ public class AIWeatherManager implements AITool {
         } catch (Exception e) {
             Log.e(TAG, "Error getting indices: " + e.getMessage(), e);
             return new AIToolResult("获取生活指数失败: " + e.getMessage(), new HashMap<>());
-        }
-    }
-    
-    private AIToolResult getMinutelyAITool(String city, Double lat, Double lon, boolean useLocation) {
-        try {
-            String result = null;
-
-            if (sdkManager != null && sdkManager.isInitialized()) {
-                try {
-                    // COORD-ONLY(2026-10-11)：SDK 的 getMinutely 用 split(",") 解析 location，
-                    // 拿不到坐标时**静默回退北京 (116.41,39.92)** —— 与"错误数据冒充正确数据"同源，
-                    // 故必须先解析出坐标串。注：minutely 当前未暴露为 ai_weather 的 action（不可达），
-                    // 此处修正为将来暴露时不再踩坑。
-                    String location = resolveLatLonString(lat, lon, city);
-                    if (location != null) {
-                        result = sdkManager.getMinutelyByLocation(location).get(15, TimeUnit.SECONDS);
-                        if (!isSdkResultValid(result)) {
-                            Log.w(TAG, "SDK minutely failed, falling back to HTTP: " + result);
-                            result = null;
-                        }
-                    }
-                } catch (Exception sdkEx) {
-                    Log.w(TAG, "SDK minutely exception, falling back to HTTP: " + sdkEx.getMessage());
-                    result = null;
-                }
-            }
-
-            if (result == null) {
-                if (useLocation) {
-                    result = getHefengMinutelyByLocation(lat, lon).get();
-                } else if (city != null && !city.isEmpty()) {
-                    result = getHefengMinutely(city).get();
-                } else {
-                    return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
-                }
-            }
-
-            Map<String, Object> resultMap = parseWeatherResultToMap(result);
-            return new AIToolResult(resultMap, new HashMap<>());
-        } catch (Exception e) {
-            Log.e(TAG, "Error getting minutely: " + e.getMessage(), e);
-            return new AIToolResult("获取分钟级降水失败: " + e.getMessage(), new HashMap<>());
         }
     }
     

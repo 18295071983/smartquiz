@@ -24,8 +24,6 @@ import java.util.List;
  */
 public final class AudioPcmDecoder {
 
-    private static final String TAG = "AudioPcmDecoder";
-
     /** 本地 SenseVoice 输入要求：16kHz 单声道 */
     public static final int TARGET_SAMPLE_RATE = 16000;
 

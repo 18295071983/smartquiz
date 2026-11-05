@@ -22,8 +22,6 @@ import java.util.Map;
 @Tool(value = "unit_converter", category = "utility")
 public class UnitConverterTool implements AITool {
 
-    private static final String TAG = "UnitConverterTool";
-
     public UnitConverterTool() {
     }
 

@@ -529,18 +529,6 @@ public class SmartQuizApplication extends Application {
         });
     }
     
-    private int getCrashCount() {
-        SharedPreferences prefs = getSharedPreferences(CRASH_PREFS, MODE_PRIVATE);
-        return prefs.getInt(CRASH_COUNT_KEY, 0);
-    }
-
-    private void incrementCrashCount() {
-        SharedPreferences prefs = getSharedPreferences(CRASH_PREFS, MODE_PRIVATE);
-        int count = prefs.getInt(CRASH_COUNT_KEY, 0) + 1;
-        prefs.edit().putInt(CRASH_COUNT_KEY, count).putLong(CRASH_TIMESTAMP_KEY, System.currentTimeMillis()).apply();
-        com.oilquiz.app.util.AILogger.i(TAG, "崩溃计数递增: " + count);
-    }
-
     private void resetCrashCount() {
         SharedPreferences prefs = getSharedPreferences(CRASH_PREFS, MODE_PRIVATE);
         prefs.edit().putInt(CRASH_COUNT_KEY, 0).apply();

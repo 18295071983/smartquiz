@@ -527,18 +527,6 @@ public class GpuCapabilityDetector {
         return "Unknown";
     }
 
-    private String detectApiVersion() {
-        try {
-            String renderer = detectRenderer();
-            GpuProfile gpuProfile = gpuDatabase.getProfile(renderer);
-            if (gpuProfile != null) {
-                return gpuProfile.vulkanVersion;
-            }
-        } catch (Exception e) {
-        }
-        return "1.1";
-    }
-
     public MemoryUsageInfo getMemoryUsageInfo() {
         ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
         activityManager.getMemoryInfo(memoryInfo);
@@ -707,36 +695,6 @@ public class GpuCapabilityDetector {
             // ignore
         }
         return null;
-    }
-
-    private boolean checkVulkanSupport() {
-        try {
-            File vulkanDir = new File("/sys/class/vulkan");
-            boolean hasVulkanDir = vulkanDir.exists() && vulkanDir.listFiles() != null && vulkanDir.listFiles().length > 0;
-            if (hasVulkanDir) {
-                return true;
-            }
-            // 如果没有目录，才检查profile
-            try {
-                GpuInfo gpuInfo = new GpuInfo(detectRenderer(), detectVendor(), detectGpuVersion(), "1.1", 0, 0, 0, 0, "1.0", false, false);
-                GpuProfile gpuProfile = gpuDatabase.getProfile(gpuInfo.renderer);
-                return gpuProfile != null && !gpuProfile.vulkanVersion.isEmpty();
-            } catch (Exception e2) {
-                return false;
-            }
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private boolean checkFP16Support() {
-        try {
-            String renderer = detectRenderer();
-            GpuProfile gpuProfile = gpuDatabase.getProfile(renderer);
-            return gpuProfile != null && gpuProfile.supportsFP16;
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     public Map<String, String> getVulkanDeviceProperties() {

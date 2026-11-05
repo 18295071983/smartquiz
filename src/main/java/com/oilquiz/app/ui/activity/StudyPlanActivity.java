@@ -234,28 +234,6 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
                 .show();
     }
 
-    private void showPlanOptions(StudyPlan plan) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(getString(R.string.h_0344f7e8))
-                .setItems(new String[]{getString(R.string.h_5b48dbb8), getString(R.string.h_55ce1d90), getString(R.string.h_013139dd), getString(R.string.h_4fcf9f22)}, (dialog, which) -> {
-                    switch (which) {
-                        case 0:
-                            showPlanDetails(plan);
-                            break;
-                        case 1:
-                            editStudyPlan(plan);
-                            break;
-                        case 2:
-                            deleteStudyPlan(plan);
-                            break;
-                        case 3:
-                            resetPlanProgress(plan);
-                            break;
-                    }
-                })
-                .show();
-    }
-
     private void editStudyPlan(StudyPlan plan) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle(getString(R.string.h_1b0b4a97));

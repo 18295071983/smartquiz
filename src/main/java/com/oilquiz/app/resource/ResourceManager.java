@@ -98,15 +98,6 @@ public class ResourceManager {
         this.resourceChangeListener = listener;
     }
     
-    /**
-     * 通知资源变更
-     */
-    private void notifyResourceChanged(ResourceType type, int resourceId) {
-        if (resourceChangeListener != null) {
-            resourceChangeListener.onResourceChanged(type, resourceId);
-        }
-    }
-    
     // ==================== 字体资源管理 ====================
     
     /**
