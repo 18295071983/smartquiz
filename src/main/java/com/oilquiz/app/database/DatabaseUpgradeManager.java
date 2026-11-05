@@ -140,20 +140,17 @@ public class DatabaseUpgradeManager {
                 }
                 Log.i(TAG, "数据库已备份到: " + backupPath);
                 
-                // 5. 执行迁移
-                for (int step = 1; step <= info.migrationPath.size(); step++) {
-                    int version = info.migrationPath.get(step - 1);
-                    
-                    currentProgress.setStep(step, "迁移到 v" + version + "...");
-                    notifyProgress();
-                    
-                    boolean migrated = migrateToVersion(version);
-                    if (!migrated) {
-                        throw new Exception("迁移到 v" + version + " 失败");
-                    }
-                    
-                    // 每步之间稍微延迟，确保进度更新
-                    Thread.sleep(100);
+                // 5. 迁移只有一个权威：Room 的 AppDatabase.MIGRATIONS。
+                //    本类原来自带一套 migrateToVersion/migrateToV19/V20（只覆盖到 20，
+                //    21 以上"跳过"却照样 return true 并把 user_version 抬上去）——那既与
+                //    Room 重复，又是假成功的土壤，已整段删除。真正的迁移在第 1 步
+                //    getWritableDatabase() 里就跑完了，这里只验证结果，不再自己动 schema。
+                currentProgress.setStep(1, "由 Room 执行迁移…");
+                notifyProgress();
+                int migratedTo = db.getOpenHelper().getWritableDatabase().getVersion();
+                if (migratedTo != targetVersion) {
+                    throw new Exception("Room 迁移后实际版本为 v" + migratedTo
+                            + "，与期望 v" + targetVersion + " 不一致");
                 }
                 
                 // 6. 验证升级结果
@@ -192,116 +189,6 @@ public class DatabaseUpgradeManager {
         });
     }
     
-    /**
-     * 执行迁移到指定版本
-     */
-    private boolean migrateToVersion(int targetVersion) {
-        AppDatabase db = AppDatabase.getDatabase(context);
-        SupportSQLiteDatabase sqlite = db.getOpenHelper().getWritableDatabase();
-        
-        try {
-            sqlite.beginTransaction();
-            
-            switch (targetVersion) {
-                case 19:
-                    // v18 → v19: 添加多模态支持
-                    migrateToV19(sqlite);
-                    break;
-                case 20:
-                    // v19 → v20: 添加更多功能
-                    migrateToV20(sqlite);
-                    break;
-                default:
-                    // 这里原来是 Log.w + break，方法照样 return true，于是"未知版本"被报成
-                    // "成功迁移到 v21"：既没跑 DDL 又把 user_version 抬了上去。Room 侧的
-                    // MIGRATIONS 才是 21+ 的权威（本类只覆盖到 20），所以没实现就是失败，
-                    // 让调用方走 notifyFailed + 回滚，而不是让界面显示升级成功。
-                    Log.e(TAG, "本类没有 v" + targetVersion + " 的迁移实现（21 以上由 AppDatabase.MIGRATIONS 负责）");
-                    return false;
-            }
-            
-            sqlite.setVersion(targetVersion);
-            sqlite.setTransactionSuccessful();
-            sqlite.endTransaction();
-            
-            Log.i(TAG, "成功迁移到 v" + targetVersion);
-            return true;
-            
-        } catch (Exception e) {
-            Log.e(TAG, "迁移到 v" + targetVersion + " 失败", e);
-            if (sqlite.inTransaction()) {
-                sqlite.endTransaction();
-            }
-            return false;
-        }
-    }
-    
-    /**
-     * 迁移到 v19
-     */
-    private void migrateToV19(SupportSQLiteDatabase db) {
-        Log.i(TAG, "执行 v18 → v19 迁移...");
-        
-        // 1. 添加 OCR 历史表
-        db.execSQL("CREATE TABLE IF NOT EXISTS ocr_history (" +
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-            "image_path TEXT, " +
-            "recognized_text TEXT, " +
-            "confidence REAL, " +
-            "language TEXT DEFAULT 'zh', " +
-            "created_at INTEGER DEFAULT (strftime('%s', 'now')), " +
-            "question_count INTEGER DEFAULT 0" +
-        ")");
-        
-        // 2. 添加题目图片关联表
-        //    外键指向的表名原来写的是 questions（复数），实体表名是 question；Room 开着
-        //    foreign_keys，写错的 FK 会让这张表一旦真的插入就报 "no such table: main.questions"。
-        db.execSQL("CREATE TABLE IF NOT EXISTS question_images (" +
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-            "question_id INTEGER, " +
-            "image_path TEXT, " +
-            "image_type TEXT, " +
-            "created_at INTEGER DEFAULT (strftime('%s', 'now')), " +
-            "FOREIGN KEY (question_id) REFERENCES question(id) ON DELETE CASCADE" +
-        ")");
-        
-        // 3. 添加 AI 模型使用记录表
-        db.execSQL("CREATE TABLE IF NOT EXISTS ai_usage_log (" +
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-            "model_name TEXT, " +
-            "model_type TEXT, " +
-            "operation_type TEXT, " +
-            "prompt_length INTEGER, " +
-            "response_length INTEGER, " +
-            "tokens_used INTEGER, " +
-            "duration_ms INTEGER, " +
-            "success INTEGER DEFAULT 1, " +
-            "error_message TEXT, " +
-            "created_at INTEGER DEFAULT (strftime('%s', 'now'))" +
-        ")");
-        
-        // 4. 索引：这里原来有两条 CREATE INDEX ... ON questions(...)，已删。
-        //    表名 questions 不存在（实体表是 question），ai_enhanced / created_at 两列也不在
-        //    question 表上（实体里是 createdAt）。它们没包 catch，所以走这条旧升级路的 v18 库
-        //    每次都在这里抛 SQLException、整段 v18→v19 失败并触发回滚。删掉不补：
-        //    等价索引由 AppDatabase 的 v19→v20 迁移在正确的表列上创建。
-        
-        Log.i(TAG, "v18 → v19 迁移完成");
-    }
-    
-    /**
-     * 迁移到 v20
-     */
-    private void migrateToV20(SupportSQLiteDatabase db) {
-        Log.i(TAG, "执行 v19 → v20 迁移...");
-        
-        // 预留：可根据需要添加更多表结构
-        // 示例：
-        // db.execSQL("ALTER TABLE questions ADD COLUMN embedding BLOB");
-        
-        Log.i(TAG, "v19 → v20 迁移完成");
-    }
-
     // ==================== 备份与回滚 ====================
     
     /**

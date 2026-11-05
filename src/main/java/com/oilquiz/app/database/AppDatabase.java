@@ -94,6 +94,10 @@ public abstract class AppDatabase extends RoomDatabase {
                     INSTANCE = null;
                 }
                 
+                // Room 一旦打开就会按 MIGRATIONS 迁移；够不到链的旧库会走
+                // fallbackToDestructiveMigration 整库重建。先给它一次备份+告知的机会。
+                LegacyDatabaseGuard.protectBeforeOpen(context.getApplicationContext());
+
                 INSTANCE = Room.databaseBuilder(
                     context.getApplicationContext(),
                     AppDatabase.class,
@@ -180,50 +184,11 @@ public abstract class AppDatabase extends RoomDatabase {
         new Migration(18, 19) {
             @Override
             public void migrate(SupportSQLiteDatabase database) {
-                // 1. 添加 OCR 历史表
-                database.execSQL("CREATE TABLE IF NOT EXISTS ocr_history (" +
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                    "image_path TEXT, " +
-                    "recognized_text TEXT, " +
-                    "confidence REAL, " +
-                    "language TEXT DEFAULT 'zh', " +
-                    "created_at INTEGER DEFAULT (strftime('%s', 'now')), " +
-                    "question_count INTEGER DEFAULT 0" +
-                ")");
-                
-                // 2. 添加题目图片关联表
-                //    FK 原来指向 questions（复数）——实体表名是 question，Room 开着 foreign_keys，
-                //    写错的 FK 让这张表一插入就报 "no such table: main.questions"。
-                database.execSQL("CREATE TABLE IF NOT EXISTS question_images (" +
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                    "question_id INTEGER, " +
-                    "image_path TEXT, " +
-                    "image_type TEXT, " +
-                    "created_at INTEGER DEFAULT (strftime('%s', 'now')), " +
-                    "FOREIGN KEY (question_id) REFERENCES question(id) ON DELETE CASCADE" +
-                ")");
-                
-                // 3. 添加 AI 模型使用记录表
-                database.execSQL("CREATE TABLE IF NOT EXISTS ai_usage_log (" +
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                    "model_name TEXT, " +
-                    "model_type TEXT, " +
-                    "operation_type TEXT, " +
-                    "prompt_length INTEGER, " +
-                    "response_length INTEGER, " +
-                    "tokens_used INTEGER, " +
-                    "duration_ms INTEGER, " +
-                    "success INTEGER DEFAULT 1, " +
-                    "error_message TEXT, " +
-                    "created_at INTEGER DEFAULT (strftime('%s', 'now'))" +
-                ")");
-                
-                // 4. 索引：这里原来还有两条 CREATE INDEX ... ON questions(...)，已删。
-                //    表名 questions 不存在（见上一条迁移的说明），ai_enhanced / created_at 两列
-                //    也都不在 question 表上（实体里是 createdAt），而这两条<b>没包 catch</b>——
-                //    所以从 v18 升上来的人是在这里直接抛 SQLException、整条 18->19 失败的。
-                //    等价索引由下一条迁移在正确的表列上创建（idx_questions_created ON question(createdAt)），
-                //    ai_enhanced 那条没有可指的对象，删掉不补。
+                // 这三张表不再建：ocr_history / question_images / ai_usage_log 只有 DDL，
+                // 全仓没有任何 Entity 字段或读写方（连外键都是空的——库里连表都不存在），
+                // Room 的校验也看不见它们。于是整条 18->19 从此是一个<b>有意的空迁移</b>：
+                // 它唯一的作用是推进版本号，schema 的实质变化由后面几条负责。
+                // 已经建过这三张表的旧库保持原样——为空表再引入一次版本迁移不值得。
             }
         },
         

@@ -260,3 +260,29 @@ ai/bridge/ModelExecutionBridge.java:511  putLocalSampling()  catch Throwable
 基线 1746/0/0/1 skipped 不变；装机件 md5 `69bc0bc0772d9dfae9e267cf7bffabdc`（与设备 `base.apk` 回读一致）。
 
 **高危还剩 128 处**，按文件集中度排：`AIChatActivity` 14、`SystemUIComponentTool` 9、`ServiceStatusManager` 7、`HtmlCardView` 6、`TermuxEnvInstaller` 6、`SystemResourceTool` 5，其余零散。下一批建议就按这个顺序继续（同样是"用户/模型据此做决定"的字段与动作），而不是去扫中危那 553 处——中危绝大多数是 `ignored` 自称的刻意吞掉，先把高危清零收益更大。
+
+## 14. 三件待拍板项已定并落地（本轮）
+
+1. **v≤16 的旧库整库重建不再无声**：新增 `LegacyDatabaseGuard`，在 Room 打开前用只读方式读
+   `PRAGMA user_version`；低于 `LOWEST_MIGRATABLE_VERSION=17` 就先把 `.db` 连 `-wal`/`-shm`
+   一起复制到 `filesDir/db_rebuild_backup/<时间>/`（WAL 模式下只拷主文件等于拷一份旧的），
+   顺手 `SELECT COUNT(*) FROM question` 报"里面有 N 道题"，然后 AUDIT 一条 + 一次性 toast 说清
+   备份在哪、旧数据不会自动回来。`fallbackToDestructiveMigration()` **保留**——改成报错等于让
+   这批设备起不来；现在的口径是"重建照做，但先留一份可恢复的原件并告诉用户"。
+   `DatabaseVersionChecker.MIN_SUPPORTED_VERSION` 从写死的 1 改为引用同一个常量：
+   原来它宣称"v5 也能强制升到 25"，而那条路其实是重建，两处口径以后只能一起改。
+2. **三张零消费者的表不再建**：`AppDatabase` 的 v18→v19 与 `DatabaseUpgradeManager.migrateToV19`
+   里的 `ocr_history`/`question_images`/`ai_usage_log` DDL 全删（第 2 处随第 3 条整段删除），
+   18→v19 从此是一条**有意的空迁移**，只剩版本号。**存量库里的表保持原样**：为空表引入一次
+   版本迁移不值得，且 Room 的校验看不见这些非实体表。
+3. **旧的那套迁移引擎摘掉，只留 Room 一个权威**：`DatabaseUpgradeManager` 的
+   `migrateToVersion`/`migrateToV19`/`migrateToV20` 整段删除（3971 字符），`upgrade()` 的第 5 步
+   改为"由 Room 执行迁移 + 验证实际版本"，版本对不上就抛异常走它已有的 `notifyFailed` + 回滚。
+   备份/回滚/列备份/清理这些真有用的能力全部保留，`数据库管理 → 升级数据库` 按钮的去处不变——
+   它现在是"备份好再让 Room 升，并核对结果"，不再自己写 `user_version`。上一轮那条
+   `default:` 假成功的土壤（两套引擎并存）就是这么消掉的。
+
+未验：`LegacyDatabaseGuard` 这条保护路径**没跑过**——手上没有 v<17 的库，本机设备已是 v25，
+所以"备份+提示"只有代码与日志形状，实际效果要等一个真旧库（或造一个 v16 的库 dump）才算数。
+`upgrade()` 改造后同样只在"Room 没升到位"时才会走异常分支，正常态是 needUpgrade=false 直接报
+"已是最新版本"，与原行为一致。基线 1746/0/0/1 skipped；装机件 md5 `9a5e6f18a3ce03c08be79e828aa03944`。

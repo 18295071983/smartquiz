@@ -18,7 +18,13 @@ public class DatabaseVersionChecker {
     public static final int VERSION_INITIAL = 1;
     
     /** 最低支持版本 */
-    public static final int MIN_SUPPORTED_VERSION = 1;
+    /**
+     * 无损升级的最低版本——取 Room 迁移链的第一条（{@link LegacyDatabaseGuard#LOWEST_MIGRATABLE_VERSION}）。
+     *
+     * <p>原来是写死的 1，于是"v5 的库也能强制升到 25"看起来成立；其实 Room 没有 17 之前的
+     * 迁移路径，那种"升级"是整库重建。口径统一到同一个常量，别再各说各话。</p>
+     */
+    public static final int MIN_SUPPORTED_VERSION = LegacyDatabaseGuard.LOWEST_MIGRATABLE_VERSION;
     
     /** 当前数据库版本（需与 AppDatabase.version 保持一致） */
     public static final int CURRENT_VERSION = AppDatabase.DATABASE_VERSION;
