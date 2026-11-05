@@ -231,6 +231,11 @@ public class AIToolManager {
         registerToolFactory("webpage_reader", WebPageReaderTool.class, WebPageReaderTool::new);
         registerToolFactory("smart_research", SmartResearchTool.class, SmartResearchTool::new);
         registerToolFactory("system_resource", SystemResourceTool.class, SystemResourceTool::new);
+        // linux_shell 的实现在 248 行里全齐（exec/tools/download/route/termux_wake/termux_status/termux_submit），
+        // 注入层（OnlineToolManager 的 system 意图映射与 include）与工作区指南、system_resource 的
+        // 动作描述都在指它，唯独少了这行注册 —— 结果是一整节已实现的能力对外不可达，
+        // 而模型按文案调用会得到"工具不存在"。修产出侧：注册回来，而不是把文案藏掉。
+        registerToolFactory("linux_shell", LinuxShellTool.class, LinuxShellTool::new);
         registerToolFactory("file_reader", FileReaderTool.class, FileReaderTool::new);
         registerToolFactory("file_analyzer", FileAnalyzerTool.class, FileAnalyzerTool::new);
         registerToolFactory("file_generator", FileGeneratorTool.class, FileGeneratorTool::new);

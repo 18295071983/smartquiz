@@ -181,12 +181,14 @@ public class OnlinePromptBuilder {
             // 否则会出现"knowledge_base/time_date 已是每轮注入的核心、却还写着要发现"的自相矛盾（历史上真漂过）。
             sb.append("【工具目录】以下工具未注入本提示词，需要时按「工具发现」加载即可（系统自动注入定义，无需阅读完整schema）：\n");
             java.util.Set<String> coreSet = OnlineAgentEngine.coreTools();
-            // linux_shell 已删：全仓没有 registerToolFactory("linux_shell")，它只有定义分支，
-            // 列在目录里等于教模型点名一个不存在的工具（shell/termux 能力由 system_resource 承担）。
+            // linux_shell 曾在目录里被摘掉，理由是"全仓没有 registerToolFactory"（当时确实缺那一行，
+            // 摘文案只是把症状藏起来）。现在 AIToolManager 已补注册，目录重新列它——
+            // 它不在 coreTools 里，属于"按需发现"档，列出来才是真能走通的通路。
             String[][] catalog = {
                     {"ai_weather", "天气"}, {"file_generator", "生成文件/文档/报告"},
                     {"python_execute", "运行Python"}, {"document_parser", "文档解析(PDF/Word/PPT/Excel，只读)"},
                     {"system_resource", "系统操作/shell_command/termux_exec/ssh"},
+                    {"linux_shell", "内置Linux工具箱 exec/tools/download/route + termux_wake/status/submit"},
                     {"system_connect", "通知/剪贴板/音量亮度/WiFi蓝牙/USB"},
                     {"chat_history", "对话历史"}, {"screen_capture", "截屏看屏"},
                     {"task", "任务/待办"}, {"memory", "记忆读写"}, {"excel_tool", "表格处理"},
