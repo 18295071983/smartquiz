@@ -2663,7 +2663,7 @@ public class AIChatActivity extends BaseActivity {
                     // 保存到ToolResultStore
                     try {
                         ToolResultStore.save(toolName, params, rawResult, 0);
-                    } catch (Exception ignore) { }
+                    } catch (Exception stepFailed) { }
                     // C0-T1：不再自动调 LLM 解读、不再补一条 AI 主气泡。
                     // 同一段摘要此前会被画两遍（工具卡 + 主气泡），且每次成功都要多等一次
                     // 解读（在线 60s 超时）。工具卡内"AI 深度解读"按钮保留，用户按需触发
@@ -3447,7 +3447,7 @@ public class AIChatActivity extends BaseActivity {
                     scrollToBottom();
                     try {
                         ToolResultStore.save(step.toolName, params, rawResult, stepIndex);
-                    } catch (Exception ignore) { }
+                    } catch (Exception stepFailed) { }
                     // C0-T1：重试成功分支同样去掉自动解读与重复 AI 气泡，只推进下一步。
                     injectInterpretToLocalContext(resultStr);
                     scrollToBottom();
@@ -6031,7 +6031,8 @@ public class AIChatActivity extends BaseActivity {
         publishPhaseText(text);
         try {
             chatInputBar.setInferencePhase(text);
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("AIChatActivity", "这一步失败，结果可能被当成正常 · updateInferenceStatusRow: " + stepFailed);
         }
     }
 
@@ -6182,13 +6183,15 @@ public class AIChatActivity extends BaseActivity {
                 lastStatusPhrase = phrase;
                 try {
                     chatInputBar.setInferencePhase(phrase);
-                } catch (Throwable ignored) {
+                } catch (Throwable stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("AIChatActivity", "这一步失败，结果可能被当成正常 · updateToolRunningStatusRowInner: " + stepFailed);
                 }
             }
             // 工具执行期间没有推理速度可言；回到模型流式后由统计重新点亮
             try {
                 chatInputBar.setInferenceSpeed(0f);
-            } catch (Throwable ignored) {
+            } catch (Throwable stepFailed) {
+                com.oilquiz.app.util.AILogger.w("AIChatActivity", "这一步失败，结果可能被当成正常 · updateToolRunningStatusRowInner: " + stepFailed);
             }
             if (phraseChanged || !lastToolRunning) {
                 lastToolRunning = true;
@@ -6361,7 +6364,8 @@ public class AIChatActivity extends BaseActivity {
             if (statusPhrasePhase == ChatMessage.InferencePhase.THINKING) {
                 notifyStreamingStatusRebind();
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("AIChatActivity", "这一步失败，结果可能被当成正常 · updateStatusPhrase: " + stepFailed);
         }
     }
 
@@ -9168,7 +9172,7 @@ public class AIChatActivity extends BaseActivity {
             // 并把活跃会话归位默认桶，防幽灵任务残留
             try {
                 com.oilquiz.app.ai.tool.TaskStateTracker.getInstance(this).clearAll();
-            } catch (Throwable ignore) { }
+            } catch (Throwable stepFailed) { }
             clearStreamingState();
             endGeneration();
             // 组件暂存缓存同步清除（2026-09-14）：防止上一轮/上一会话残留组件
@@ -9333,7 +9337,7 @@ public class AIChatActivity extends BaseActivity {
             // 若删的是当前活跃会话，clearSession 内部把 activeSession 归位默认桶
             try {
                 com.oilquiz.app.ai.tool.TaskStateTracker.getInstance(this).clearSession(session.id);
-            } catch (Throwable ignore) { }
+            } catch (Throwable stepFailed) { }
             runOnUiThread(() -> {
                 if (isCurrent) {
                     // 当前会话被删除：清空页面 + 引擎历史（含其历史文件）
@@ -9620,7 +9624,8 @@ public class AIChatActivity extends BaseActivity {
                                 .supportsModelCapability(cfg.apiUrl, cfg.modelName, "webSearch");
                 on = available && cfg.supportsWebSearch;
             }
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("AIChatActivity", "这一步失败，结果可能被当成正常 · updateWebSearchChip: " + stepFailed);
         }
         chipWebSearch.setEnabled(true); // 保持可点击：不可用时点击给原因提示（不切换状态）
         chipWebSearch.setChecked(on);
@@ -9638,7 +9643,8 @@ public class AIChatActivity extends BaseActivity {
         try {
             alwaysThinking = com.oilquiz.app.ai.model.OnlineModelManager
                     .isAlwaysThinkingModel(currentModelName());
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("AIChatActivity", "这一步失败，结果可能被当成正常 · updateDeepThinkChip: " + stepFailed);
         }
         if (alwaysThinking) {
             chip.setEnabled(false);
@@ -10119,7 +10125,7 @@ public class AIChatActivity extends BaseActivity {
                         if ("THINKING".equals(ph)) sourceTag = "🧠";
                         else if ("GENERATING".equals(ph)) sourceTag = "⚡";
                     }
-                } catch (Throwable ignored) {}
+                } catch (Throwable stepFailed) {}
             }
 
             // 生成状态行（输入胶囊上方）：刷新推理速度（阶段由 markStreamingPhase 驱动）
@@ -11649,7 +11655,8 @@ public class AIChatActivity extends BaseActivity {
                     return;
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("AIChatActivity", "这一步失败，结果可能被当成正常 · updateModelStateFromStatusText: " + stepFailed);
         }
         CharSequence cur = serviceStatusText.getText();
         if (cur == null || cur.length() == 0) return;
@@ -12541,8 +12548,8 @@ public class AIChatActivity extends BaseActivity {
                 int n;
                 while ((n = is.read(buf)) > 0) os.write(buf, 0, n);
             } finally {
-                try { if (is != null) is.close(); } catch (Exception ignored) {}
-                try { if (os != null) os.close(); } catch (Exception ignored) {}
+                try { if (is != null) is.close(); } catch (Exception stepFailed) {}
+                try { if (os != null) os.close(); } catch (Exception stepFailed) {}
             }
             return out.getAbsolutePath();
         } catch (Exception e) {

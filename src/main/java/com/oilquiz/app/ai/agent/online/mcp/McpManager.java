@@ -2003,7 +2003,8 @@ public class McpManager {
             for (String name : old) {
                 try {
                     registry.unregisterTool(name);
-                } catch (Exception ignored) {
+                } catch (Exception stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("McpManager", "这一步失败，结果可能被当成正常 · removeRegisteredTools: " + stepFailed);
                 }
             }
         }

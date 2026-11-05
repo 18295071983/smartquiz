@@ -101,7 +101,8 @@ public class ScreenCaptureTool implements AITool {
                             if (old != null) {
                                 try {
                                     old.recycle();
-                                } catch (Throwable ignored) {
+                                } catch (Throwable stepFailed) {
+                                    com.oilquiz.app.util.AILogger.w("ScreenCaptureTool", "这一步失败，结果可能被当成正常 · ensurePersistentCapture: " + stepFailed);
                                 }
                             }
                         }

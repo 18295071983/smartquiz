@@ -859,7 +859,7 @@ public class APIKeyManager {
                 if (data.containsKey("timeout")) {
                     try {
                         config.setTimeout(Integer.parseInt(String.valueOf(data.get("timeout"))));
-                    } catch (Exception ignored) {}
+                    } catch (Exception stepFailed) {}
                 }
 
                 String key = config.getName() + "_" + config.getServiceType();

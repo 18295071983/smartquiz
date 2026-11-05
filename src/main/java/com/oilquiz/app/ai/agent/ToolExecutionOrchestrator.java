@@ -111,7 +111,7 @@ public class ToolExecutionOrchestrator {
                     host.onScrollToBottom();
                     try {
                         ToolResultStore.save(toolName, params, rawResult, 0);
-                    } catch (Exception ignore) { }
+                    } catch (Exception stepFailed) { }
                     host.onAddSystemMessage("💡 正在AI解读结果...");
                     host.onScrollToBottom();
                     final int progressMsgPos = -1; // 宿主可在 onAddSystemMessage 回调里记录

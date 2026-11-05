@@ -134,7 +134,8 @@ public class QuestionImportTaskManager {
                         + "options=options) 与用户交互并 get_result 取值，"
                         + "再 import_decide(taskId, decisionId, selected=用户选择文本) 回传"
                         + "（也可传 choice=选项下标，0 起；取消=最后一项）。");
-            } catch (Exception ignored) {
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w("QuestionImportTaskManager", "这一步失败，结果可能被当成正常 · toJson: " + stepFailed);
             }
             return o;
         }

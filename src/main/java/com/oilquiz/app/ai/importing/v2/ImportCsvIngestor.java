@@ -509,7 +509,8 @@ public class ImportCsvIngestor {
         if (c != null) {
             try {
                 c.close();
-            } catch (Exception ignored) {
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w("ImportCsvIngestor", "这一步失败，结果可能被当成正常 · closeQuiet: " + stepFailed);
             }
         }
     }

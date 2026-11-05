@@ -233,7 +233,8 @@ public class ServiceStatusManager {
                     com.oilquiz.app.ai.engine.NpuEngineState.get();
             ready = st.isReady();
             busy = st.isStageBusy();
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("ServiceStatusManager", "这一步失败，结果可能被当成正常 · updateNpuStatusBar: " + stepFailed);
         }
         // 只在**确实处于加载阶段**时开心跳：让"（已 X 秒）"真的在走。
         // 不能用 !ready 作条件 —— 那样"尚未加载"的常态也会每秒跑一个无意义的定时器。
@@ -271,10 +272,12 @@ public class ServiceStatusManager {
                                 try {
                                     // 阶段变化即刷新（原来硬写 INITIALIZED/100，导致加载中也显示"就绪满格"）
                                     activity.runOnUiThread(this::updateNpuStatusBar);
-                                } catch (Throwable ignored) {
+                                } catch (Throwable stepFailed) {
+                                    com.oilquiz.app.util.AILogger.w("ServiceStatusManager", "这一步失败，结果可能被当成正常 · updateInitialStatus: " + stepFailed);
                                 }
                             });
-                } catch (Throwable ignored) {
+                } catch (Throwable stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("ServiceStatusManager", "这一步失败，结果可能被当成正常 · updateInitialStatus: " + stepFailed);
                 }
             }
             return;
@@ -304,7 +307,8 @@ public class ServiceStatusManager {
             boolean hasModel = false;
             try {
                 hasModel = aiService.isCurrentModelFileExists();
-            } catch (Throwable ignored) {
+            } catch (Throwable stepFailed) {
+                com.oilquiz.app.util.AILogger.w("ServiceStatusManager", "这一步失败，结果可能被当成正常 · updateInitialStatus: " + stepFailed);
             }
             updateStatusDisplay(AIServiceState.ServiceStage.UNINITIALIZED,
                     hasModel ? "本地模型 · 待加载" : "未导入本地模型", 0, 0);
@@ -554,7 +558,8 @@ public class ServiceStatusManager {
                 if (aiService != null && aiService.getServiceState() != null) {
                     humanLabel = aiService.getServiceState().getStageLabel();
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable stepFailed) {
+                com.oilquiz.app.util.AILogger.w("ServiceStatusManager", "这一步失败，结果可能被当成正常 · updateStatusDisplay: " + stepFailed);
             }
         }
         String displayMessage = (humanLabel != null && !humanLabel.isEmpty())
@@ -606,7 +611,8 @@ public class ServiceStatusManager {
                 : R.color.chat_v2_brand;
         try {
             com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateStatusDot(activity, dotColor);
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("ServiceStatusManager", "这一步失败，结果可能被当成正常 · updateStatusDisplay: " + stepFailed);
         }
     }
 
@@ -719,7 +725,8 @@ public class ServiceStatusManager {
         try {
             com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateStatusDot(
                     activity, R.color.chat_v2_success);
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("ServiceStatusManager", "这一步失败，结果可能被当成正常 · updateOnlineModelStatus: " + stepFailed);
         }
     }
 

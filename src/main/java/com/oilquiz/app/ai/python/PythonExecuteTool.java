@@ -398,7 +398,8 @@ public class PythonExecuteTool extends BaseAITool {
         } else if (v != null) {
             try {
                 timeout = Integer.parseInt(String.valueOf(v).trim());
-            } catch (Exception ignored) {
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w("PythonExecuteTool", "这一步失败，结果可能被当成正常 · parseTimeout: " + stepFailed);
             }
         }
         return Math.max(5, Math.min(MAX_TIMEOUT_SECONDS, timeout));
@@ -469,7 +470,8 @@ public class PythonExecuteTool extends BaseAITool {
         while (m.find()) {
             try {
                 max = Math.max(max, Integer.parseInt(m.group(1)));
-            } catch (Exception ignored) {
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w("PythonExecuteTool", "这一步失败，结果可能被当成正常 · detectUiWaitSeconds: " + stepFailed);
             }
         }
         // 便捷函数不写 wait_seconds 时走 Python 侧默认值（ask_input/ask_choice=60）

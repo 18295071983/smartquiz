@@ -430,7 +430,8 @@ public class KnowledgeBaseTool implements AITool {
             if (!isBlank(source)) { fields.put("source"); changed++; }
             payload.put("updated", fields);
             payload.put("updated_count", changed);
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("KnowledgeBaseTool", "这一步失败，结果可能被当成正常 · doUpdate: " + stepFailed);
         }
         info.put("updated", changed);
         return new AIToolResult(payload.toString(), info, true);

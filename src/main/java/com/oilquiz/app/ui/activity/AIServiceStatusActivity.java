@@ -1370,7 +1370,8 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                         if (_gm != null) {
                             htpNote = _gm.htpCompatNote();
                         }
-                    } catch (Throwable ignored) {
+                    } catch (Throwable stepFailed) {
+                        com.oilquiz.app.util.AILogger.w("AIServiceStatusActivity", "这一步失败，结果可能被当成正常 · updateModelArchitectureInfo: " + stepFailed);
                     }
                     modelParamsInfo.setText(paramsStr + " / " + meta.nLayer + getString(R.string.h_13933709) + meta.nCtxTrain
                             + (htpNote.isEmpty() ? "" : "\n" + htpNote));

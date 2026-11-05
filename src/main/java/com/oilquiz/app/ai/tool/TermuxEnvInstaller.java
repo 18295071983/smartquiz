@@ -135,7 +135,8 @@ public final class TermuxEnvInstaller {
                 if (maj > 0 || (maj == 0 && min >= 118)) {
                     return true;
                 }
-            } catch (NumberFormatException ignored) {
+            } catch (NumberFormatException stepFailed) {
+                com.oilquiz.app.util.AILogger.w("TermuxEnvInstaller", "这一步失败，结果可能被当成正常 · termuxHasStoragePermission: " + stepFailed);
             }
         }
         return false;
@@ -866,7 +867,8 @@ public final class TermuxEnvInstaller {
                     return true;
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("TermuxEnvInstaller", "这一步失败，结果可能被当成正常 · termuxProcessAlive: " + stepFailed);
         }
         return false;
     }
@@ -1283,7 +1285,8 @@ public final class TermuxEnvInstaller {
             if (sendError != null && registered) {
                 try {
                     ctx.unregisterReceiver(receiver);
-                } catch (Exception ignored) {
+                } catch (Exception stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("TermuxEnvInstaller", "这一步失败，结果可能被当成正常 · onReceive: " + stepFailed);
                 }
                 registered = false;
             }
@@ -1298,7 +1301,8 @@ public final class TermuxEnvInstaller {
             if (registered) {
                 try {
                     ctx.unregisterReceiver(receiver);
-                } catch (Exception ignored) {
+                } catch (Exception stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("TermuxEnvInstaller", "这一步失败，结果可能被当成正常 · onReceive: " + stepFailed);
                 }
             }
         }
@@ -1506,7 +1510,8 @@ public final class TermuxEnvInstaller {
         for (String p : prefixes) {
             try {
                 PublicStorageWriter.delete(ctx, RESULTS_SUBDIR, p + "." + token);
-            } catch (Exception ignored) {
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w("TermuxEnvInstaller", "这一步失败，结果可能被当成正常 · deleteResultFiles: " + stepFailed);
             }
         }
     }
@@ -1528,7 +1533,8 @@ public final class TermuxEnvInstaller {
                     f.delete();
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("TermuxEnvInstaller", "这一步失败，结果可能被当成正常 · sweepStaleResults: " + stepFailed);
         }
     }
 

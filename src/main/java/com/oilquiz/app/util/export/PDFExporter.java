@@ -211,7 +211,8 @@ public class PDFExporter implements Exporter {
         } finally {
             try {
                 document.close();
-            } catch (Exception ignored) {
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w("PDFExporter", "这一步失败，结果可能被当成正常 · export: " + stepFailed);
             }
         }
 

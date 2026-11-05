@@ -1051,7 +1051,8 @@ public class AIImportActivity extends BaseActivity {
                     if (tvMonitorTokens != null) {
                         tvMonitorTokens.setText(String.valueOf(tokens));
                     }
-                } catch (Throwable ignored) {
+                } catch (Throwable stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("AIImportActivity", "这一步失败，结果可能被当成正常 · run: " + stepFailed);
                 }
                 // 每秒刷新
                 if (monitorHandler != null) {

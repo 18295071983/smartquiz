@@ -191,7 +191,8 @@ public class ModelRegistrationController implements OnlineModelAdapter.OnOnlineM
                         if (manager.getAPIConfigById(config.id) != null) {
                             manager.deleteAPIConfig(config.id);
                         }
-                    } catch (Exception ignored) {
+                    } catch (Exception stepFailed) {
+                        com.oilquiz.app.util.AILogger.w("ModelRegistrationController", "这一步失败，结果可能被当成正常 · onDeleteClick: " + stepFailed);
                     }
                     modelManager.removeModel(config.id);
                     // 注册表删了，models 表里的名字映射也要跟着收，否则用量页挂着僵尸名

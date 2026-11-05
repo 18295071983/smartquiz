@@ -73,7 +73,8 @@ public final class AgentProgressBus {
         for (Listener l : LISTENERS) {
             try {
                 l.onProgress(null);
-            } catch (Throwable ignored) {
+            } catch (Throwable stepFailed) {
+                com.oilquiz.app.util.AILogger.w("AgentProgressBus", "这一步失败，结果可能被当成正常 · clear: " + stepFailed);
             }
         }
     }

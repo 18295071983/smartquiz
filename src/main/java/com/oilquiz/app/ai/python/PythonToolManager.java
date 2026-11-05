@@ -719,7 +719,8 @@ public class PythonToolManager {
             if (envErrObj != null) {
                 try {
                     result.environmentError = envErrObj.toBoolean();
-                } catch (Exception ignored) {
+                } catch (Exception stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("PythonToolManager", "这一步失败，结果可能被当成正常 · parseExecutionResult: " + stepFailed);
                 }
             }
             
@@ -4459,7 +4460,8 @@ public class PythonToolManager {
                     if ((message == null || message.isEmpty()) && pj.has("message")) {
                         message = pj.optString("message", "");
                     }
-                } catch (Exception ignored) {
+                } catch (Exception stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("PythonToolManager", "这一步失败，结果可能被当成正常 · updateComponent: " + stepFailed);
                 }
             }
             // final 副本：下方 lambda（主线程更新）引用
@@ -4735,7 +4737,8 @@ public class PythonToolManager {
                         rt.restored = true;
                         dynamicComponents.put(id, rt);
                         restored++;
-                    } catch (Throwable ignored) {
+                    } catch (Throwable stepFailed) {
+                        com.oilquiz.app.util.AILogger.w("PythonToolManager", "这一步失败，结果可能被当成正常 · restorePersistedComponents: " + stepFailed);
                     }
                 }
                 if (restored > 0) {

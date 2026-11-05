@@ -78,7 +78,8 @@ public class MainActivity extends BaseActivity {
                     != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{android.Manifest.permission.READ_MEDIA_IMAGES}, 1001);
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("MainActivity", "这一步失败，结果可能被当成正常 · onCreate: " + stepFailed);
         }
     }
 

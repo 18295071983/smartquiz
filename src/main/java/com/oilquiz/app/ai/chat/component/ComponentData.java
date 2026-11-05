@@ -98,7 +98,8 @@ public class ComponentData {
                 org.json.JSONObject props = gsonObjToOrgJson(obj.get("props"));
                 return new ComponentData(type, props != null ? props : new JSONObject());
             }
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("ComponentData", "这一步失败，结果可能被当成正常 · fromPersistableJson: " + stepFailed);
         }
         return fromJson(json);
     }

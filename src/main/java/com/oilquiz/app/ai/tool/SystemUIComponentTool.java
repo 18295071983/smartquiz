@@ -213,7 +213,8 @@ public class SystemUIComponentTool implements AITool {
                                 pj.put("__type_monitor", typeDef.optJSONObject("monitor").toString());
                             }
                             params.put("props", pj.toString());
-                        } catch (Exception ignored) {
+                        } catch (Exception stepFailed) {
+                            com.oilquiz.app.util.AILogger.w("SystemUIComponentTool", "这一步失败，结果可能被当成正常 · execute: " + stepFailed);
                         }
                     }
                     // 路线1：未注册类型 + props 内直接带 layout 或 render 参数 → 现场自定义渲染
@@ -250,7 +251,8 @@ public class SystemUIComponentTool implements AITool {
                                 pj.remove("layout");
                                 params.put("props", pj.toString());
                             }
-                        } catch (Exception ignored) {
+                        } catch (Exception stepFailed) {
+                            com.oilquiz.app.util.AILogger.w("SystemUIComponentTool", "这一步失败，结果可能被当成正常 · execute: " + stepFailed);
                         }
                     }
                     // custom 动态表单：顶层 fields 参数并入 props.fields（原生 handler 从 props 读字段定义）
@@ -263,7 +265,8 @@ public class SystemUIComponentTool implements AITool {
                                 pj.put("fields", new org.json.JSONArray((String) fields));
                             }
                             params.put("props", pj.toString());
-                        } catch (Exception ignored) {
+                        } catch (Exception stepFailed) {
+                            com.oilquiz.app.util.AILogger.w("SystemUIComponentTool", "这一步失败，结果可能被当成正常 · execute: " + stepFailed);
                         }
                     }
                     params.remove("fields");
@@ -351,7 +354,7 @@ public class SystemUIComponentTool implements AITool {
                     if (parameters.get("wait_seconds") instanceof Number) {
                         waitSeconds = ((Number) parameters.get("wait_seconds")).intValue();
                     } else if (parameters.get("wait_seconds") != null) {
-                        try { waitSeconds = Integer.parseInt(parameters.get("wait_seconds").toString()); } catch (Exception ignored) {}
+                        try { waitSeconds = Integer.parseInt(parameters.get("wait_seconds").toString()); } catch (Exception stepFailed) {}
                     }
                     // 夹取 1~120 秒：防止模型传超大值阻塞 Agent 线程数小时
                     waitSeconds = Math.max(1, Math.min(120, waitSeconds));
@@ -603,7 +606,8 @@ public class SystemUIComponentTool implements AITool {
                         org.json.JSONArray images = new org.json.JSONArray();
                         images.put(dv.toString());
                         props.put("images", images);
-                    } catch (Exception ignored) {
+                    } catch (Exception stepFailed) {
+                        com.oilquiz.app.util.AILogger.w("SystemUIComponentTool", "这一步失败，结果可能被当成正常 · createBuiltinChatComponent: " + stepFailed);
                     }
                 }
             }
@@ -654,7 +658,8 @@ public class SystemUIComponentTool implements AITool {
                             props.put("actions", new org.json.JSONArray(
                                     new com.google.gson.Gson().toJson(topActions)));
                         }
-                    } catch (Exception ignored) {
+                    } catch (Exception stepFailed) {
+                        com.oilquiz.app.util.AILogger.w("SystemUIComponentTool", "这一步失败，结果可能被当成正常 · createBuiltinChatComponent: " + stepFailed);
                     }
                 }
             }
@@ -697,7 +702,8 @@ public class SystemUIComponentTool implements AITool {
                         }
                     }
                 }
-            } catch (Exception ignored) {
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w("SystemUIComponentTool", "这一步失败，结果可能被当成正常 · createBuiltinChatComponent: " + stepFailed);
             }
 
             // 交互支持：props 带 actions 时注册到组件注册表 + 注入 component_id
@@ -906,7 +912,8 @@ public class SystemUIComponentTool implements AITool {
                     pj.put("layout", new org.json.JSONObject(layoutStr));
                     params.put("props", pj.toString());
                 }
-            } catch (Exception ignored) {
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w("SystemUIComponentTool", "这一步失败，结果可能被当成正常 · extractCreateParams: " + stepFailed);
             }
         }
         // items 可能是 List 或 JSON 字符串：统一转成 JSON 字符串
@@ -944,7 +951,8 @@ public class SystemUIComponentTool implements AITool {
                 pj.put(k, e.getValue());
             }
             params.put("props", pj.toString());
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("SystemUIComponentTool", "这一步失败，结果可能被当成正常 · extractCreateParams: " + stepFailed);
         }
         return params;
     }

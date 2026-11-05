@@ -177,7 +177,8 @@ public class ImportMappingConfirmDialog extends Dialog {
                 lp.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;
                 window.setAttributes(lp);
             }
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("ImportMappingConfirmDialog", "这一步失败，结果可能被当成正常 · setup: " + stepFailed);
         }
     }
 

@@ -152,7 +152,8 @@ public class WeatherService {
             for (WeatherUpdateListener l : weatherUpdateListeners) {
                 try {
                     l.onWeatherUpdated(c, la, lo, w);
-                } catch (Exception ignored) {
+                } catch (Exception stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("WeatherService", "这一步失败，结果可能被当成正常 · notifyWeatherUpdate: " + stepFailed);
                 }
             }
         });

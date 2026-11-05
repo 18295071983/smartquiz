@@ -236,7 +236,8 @@ public class ImportPythonBridge {
         try {
             o.put("success", false);
             o.put("error", message == null || message.isEmpty() ? "未知错误" : message);
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("ImportPythonBridge", "这一步失败，结果可能被当成正常 · errorJson: " + stepFailed);
         }
         return o;
     }

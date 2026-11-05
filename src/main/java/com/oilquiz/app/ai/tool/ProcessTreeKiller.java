@@ -231,7 +231,8 @@ public final class ProcessTreeKiller {
             p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
             try {
                 p.getOutputStream().close();
-            } catch (Exception ignored) {
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w("ProcessTreeKiller", "这一步失败，结果可能被当成正常 · execKill: " + stepFailed);
             }
             return p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS);
         } catch (Exception e) {

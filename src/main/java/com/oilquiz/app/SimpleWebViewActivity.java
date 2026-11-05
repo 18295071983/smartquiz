@@ -214,7 +214,8 @@ public class SimpleWebViewActivity extends BaseActivity {
                         Object hc = ((java.util.Map<?, ?>) renderedContent).get("htmlContent");
                         if (hc instanceof String) return (String) hc;
                     }
-                } catch (Exception ignored) {
+                } catch (Exception stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("SimpleWebViewActivity", "这一步失败，结果可能被当成正常 · extractHtml: " + stepFailed);
                 }
                 return null;
             }

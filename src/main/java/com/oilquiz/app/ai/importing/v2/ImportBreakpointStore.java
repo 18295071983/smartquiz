@@ -175,7 +175,8 @@ public final class ImportBreakpointStore {
         if (c != null) {
             try {
                 c.close();
-            } catch (Exception ignored) {
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w("ImportBreakpointStore", "这一步失败，结果可能被当成正常 · closeQuiet: " + stepFailed);
             }
         }
     }

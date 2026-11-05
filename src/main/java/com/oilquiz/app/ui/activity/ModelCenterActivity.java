@@ -182,7 +182,8 @@ public class ModelCenterActivity extends BaseActivity
         com.oilquiz.app.ai.model.InferenceType type = null;
         try {
             type = inferenceRouter.getCurrentInferenceType();
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("ModelCenterActivity", "这一步失败，结果可能被当成正常 · updateActiveModelDisplay: " + stepFailed);
         }
         String modelName;
         try {

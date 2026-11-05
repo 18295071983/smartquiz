@@ -91,7 +91,8 @@ public class VideoToPlayerTool implements AITool {
                 if (parameters.get("timeout") != null) {
                     timeoutSec = Math.max(10, Integer.parseInt(String.valueOf(parameters.get("timeout"))));
                 }
-            } catch (NumberFormatException ignored) {
+            } catch (NumberFormatException stepFailed) {
+                com.oilquiz.app.util.AILogger.w("VideoToPlayerTool", "这一步失败，结果可能被当成正常 · execute: " + stepFailed);
             }
 
             // 1. 若为网页链接（非媒体直链），抓取页面提取视频直链
@@ -251,8 +252,8 @@ public class VideoToPlayerTool implements AITool {
             if (target.exists()) target.delete();
             return -1;
         } finally {
-            try { if (in != null) in.close(); } catch (Exception ignored) { }
-            try { if (out != null) out.close(); } catch (Exception ignored) { }
+            try { if (in != null) in.close(); } catch (Exception stepFailed) { }
+            try { if (out != null) out.close(); } catch (Exception stepFailed) { }
         }
     }
 

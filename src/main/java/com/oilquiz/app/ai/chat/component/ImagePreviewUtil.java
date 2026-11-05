@@ -213,7 +213,8 @@ public final class ImagePreviewUtil {
                         } else {
                             fail(dialog, context, "图片解码失败（格式不支持或数据损坏）");
                         }
-                    } catch (Throwable ignored) {
+                    } catch (Throwable stepFailed) {
+                        com.oilquiz.app.util.AILogger.w("ImagePreviewUtil", "这一步失败，结果可能被当成正常 · downloadInThread: " + stepFailed);
                     }
                 });
             } catch (Throwable t) {

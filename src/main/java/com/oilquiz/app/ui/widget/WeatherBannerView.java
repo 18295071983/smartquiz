@@ -148,12 +148,12 @@ public class WeatherBannerView extends LinearLayout {
             intent.putExtra(EXTRA_LON, lon);
             // 全局广播（给 Context.registerReceiver 动态注册的接收器）
             try { context.sendBroadcast(intent); }
-            catch (Exception ignored) {}
+            catch (Exception stepFailed) {}
             // 本地广播（给 LocalBroadcastManager 注册的接收器）
             try {
                 androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(context)
                         .sendBroadcast(intent);
-            } catch (Exception ignored) {}
+            } catch (Exception stepFailed) {}
         } catch (Exception e) {
             android.util.Log.w(TAG, "Failed to broadcast location: " + e.getMessage());
         }

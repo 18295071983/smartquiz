@@ -392,7 +392,7 @@ public class AgentImportStateMachine implements AgentCallback {
                 else break;
             }
             if (sb.length() > 0) {
-                try { return Integer.parseInt(sb.toString()); } catch (Exception ignored) {}
+                try { return Integer.parseInt(sb.toString()); } catch (Exception stepFailed) {}
             }
         }
         return -1;

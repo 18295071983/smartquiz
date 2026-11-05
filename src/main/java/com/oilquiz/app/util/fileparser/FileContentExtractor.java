@@ -394,7 +394,7 @@ public class FileContentExtractor {
             if (inputStream != null) {
                 try {
                     inputStream.close();
-                } catch (IOException ignored) {}
+                } catch (IOException stepFailed) {}
             }
         }
     }

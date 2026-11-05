@@ -64,7 +64,8 @@ public final class RemoteDshPairBridge {
         if (port <= 0 && portParam != null && !portParam.trim().isEmpty()) {
             try {
                 port = Integer.parseInt(portParam.trim());
-            } catch (NumberFormatException ignored) {
+            } catch (NumberFormatException stepFailed) {
+                com.oilquiz.app.util.AILogger.w("RemoteDshPairBridge", "这一步失败，结果可能被当成正常 · parseAndSave: " + stepFailed);
             }
         }
         if (scheme == null || scheme.trim().isEmpty()) {

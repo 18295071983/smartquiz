@@ -569,7 +569,8 @@ public class SystemResourceTool implements AITool {
                     images.put(contentUri.toString());
                     props.put("images", images);
                     toolResult.withComponent(com.oilquiz.app.ai.chat.component.ComponentData.of("image_grid", props));
-                } catch (Exception ignored) {
+                } catch (Exception stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("SystemResourceTool", "这一步失败，结果可能被当成正常 · downloadAndShowImage: " + stepFailed);
                 }
                 return toolResult;
             }
@@ -1177,7 +1178,8 @@ public class SystemResourceTool implements AITool {
                         return new AIToolResult("[readonly] sleep 超过 " + SHELL_TIMEOUT_SECONDS
                                 + " 秒必然超时，已拒绝" + READONLY_NOTE, parameters);
                     }
-                } catch (NumberFormatException ignored) {
+                } catch (NumberFormatException stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("SystemResourceTool", "这一步失败，结果可能被当成正常 · executeShellCommand: " + stepFailed);
                 }
             }
         }
@@ -2408,7 +2410,8 @@ public class SystemResourceTool implements AITool {
         if (portStr != null && !portStr.trim().isEmpty()) {
             try {
                 port = Integer.parseInt(portStr.trim());
-            } catch (NumberFormatException ignored) {
+            } catch (NumberFormatException stepFailed) {
+                com.oilquiz.app.util.AILogger.w("SystemResourceTool", "这一步失败，结果可能被当成正常 · sshExec: " + stepFailed);
             }
         }
         String password = (String) parameters.get("password");
@@ -2539,7 +2542,8 @@ public class SystemResourceTool implements AITool {
             while ((n = in.read(buf)) >= 0) {
                 out.write(buf, 0, n);
             }
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("SystemResourceTool", "这一步失败，结果可能被当成正常 · copyStream: " + stepFailed);
         }
     }
     
@@ -2645,7 +2649,8 @@ public class SystemResourceTool implements AITool {
                     Uri.parse("package:" + context.getPackageName()));
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(intent);
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("SystemResourceTool", "这一步失败，结果可能被当成正常 · openWriteSettingsPage: " + stepFailed);
         }
     }
 

@@ -507,7 +507,8 @@ public class ModelSelectorActivity extends AppCompatActivity
                     if (manager.getAPIConfigById(configId) != null) {
                         manager.deleteAPIConfig(configId);
                     }
-                } catch (Exception ignored) {
+                } catch (Exception stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("ModelSelectorActivity", "这一步失败，结果可能被当成正常 · onDeleteClick: " + stepFailed);
                 }
                 onlineModelManager.removeModel(configId);
                 Toast.makeText(this, getString(R.string.h_6c0d7a63), Toast.LENGTH_SHORT).show();

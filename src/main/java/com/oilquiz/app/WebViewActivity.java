@@ -821,7 +821,8 @@ public class WebViewActivity extends BaseActivity {
             if (clipboard != null) {
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("url", text));
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("WebViewActivity", "这一步失败，结果可能被当成正常 · copyText: " + stepFailed);
         }
     }
 

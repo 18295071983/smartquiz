@@ -460,7 +460,8 @@ public final class AIServiceInitializer {
             // native 模型加载是 CPU/内存密集操作：降低线程优先级，避免挤占 UI 渲染/主线程导致"卡顿"
             try {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
-            } catch (Exception ignored) {
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w("AIServiceInitializer", "这一步失败，结果可能被当成正常 · loadDownloadedModel: " + stepFailed);
             }
             boolean ok = configureAndLoad(app, fModel, fMmproj);
             if (ok) {

@@ -121,7 +121,8 @@ public class WebRenderTool implements AITool {
                 double secs = Double.parseDouble(String.valueOf(t));
                 timeout = (int) Math.min(MAX_TIMEOUT_SECONDS, Math.max(3, secs));
             }
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("WebRenderTool", "这一步失败，结果可能被当成正常 · execute: " + stepFailed);
         }
 
         String js = null;

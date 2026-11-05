@@ -66,7 +66,8 @@ public class LayoutPrimitiveCardView implements ChatComponent {
                 String k = keys.next();
                 node.put(k, p.get(k));
             }
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("LayoutPrimitiveCardView", "这一步失败，结果可能被当成正常 · createView: " + stepFailed);
         }
         try {
             View v = com.oilquiz.app.ai.python.NativeLayoutRenderer.render(

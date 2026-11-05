@@ -105,7 +105,7 @@ public class TokenStatsBar {
                     if ("THINKING".equals(ph)) sourceTag = "🧠";
                     else if ("GENERATING".equals(ph)) sourceTag = "⚡";
                 }
-            } catch (Throwable ignored) {}
+            } catch (Throwable stepFailed) {}
         }
 
         if (source.isGenerating() && displayTps > 0) {
@@ -150,7 +150,7 @@ public class TokenStatsBar {
                             ChatTextUtils.formatCtxWindow(ctx[0]),
                             Math.min(100.0, ctx[1] * 100.0 / ctx[0]));
                 }
-            } catch (Throwable ignored) {}
+            } catch (Throwable stepFailed) {}
             if (stats.sessionTotalTokens > 0) {
                 text += String.format(context.getString(R.string.h_b557980d), stats.sessionTotalTokens);
             }

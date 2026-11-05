@@ -119,7 +119,8 @@ public class ChatHistoryTool implements AITool {
                         if (l != null) {
                             limit = Math.min(MAX_LIMIT, Math.max(1, Integer.parseInt(String.valueOf(l))));
                         }
-                    } catch (Exception ignored) {
+                    } catch (Exception stepFailed) {
+                        com.oilquiz.app.util.AILogger.w("ChatHistoryTool", "这一步失败，结果可能被当成正常 · execute: " + stepFailed);
                     }
                     return agent ? recentAgentHistory(limit) : recentAIHistory(limit);
                 }

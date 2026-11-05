@@ -45,7 +45,8 @@ public class LayoutCardView implements ChatComponent {
                     wrapped.put("root", lo);
                     layoutObj = wrapped;
                 }
-            } catch (Exception ignored) {
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w("LayoutCardView", "这一步失败，结果可能被当成正常 · createView: " + stepFailed);
             }
         }
         try {
@@ -65,7 +66,8 @@ public class LayoutCardView implements ChatComponent {
                                 () -> com.oilquiz.app.ai.python.NativeLayoutRenderer
                                         .collectValues(refs));
                     }
-                } catch (Throwable ignored) {
+                } catch (Throwable stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("LayoutCardView", "这一步失败，结果可能被当成正常 · createView: " + stepFailed);
                 }
                 return v;
             }

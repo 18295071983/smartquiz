@@ -1268,7 +1268,7 @@ public class OnlineModelManager {
         // 同步到 APIKeyManager
         try {
             syncSingleAPIConfigFromOnlineModel(config);
-        } catch (Exception ignored) {}
+        } catch (Exception stepFailed) {}
     }
 
     /**

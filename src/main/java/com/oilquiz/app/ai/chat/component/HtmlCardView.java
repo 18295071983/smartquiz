@@ -174,7 +174,8 @@ public class HtmlCardView implements ChatComponent {
         backBtn.setOnClickListener(v -> {
             try {
                 if (webView.canGoBack()) webView.goBack();
-            } catch (Throwable ignored) {
+            } catch (Throwable stepFailed) {
+                com.oilquiz.app.util.AILogger.w("HtmlCardView", "这一步失败，结果可能被当成正常 · createView: " + stepFailed);
             }
         });
         final android.widget.FrameLayout.LayoutParams backLp =
@@ -584,7 +585,8 @@ public class HtmlCardView implements ChatComponent {
                 if (styleObj.has(s)) {
                     try {
                         contentStyle.put(s, styleObj.get(s));
-                    } catch (Exception ignored) {
+                    } catch (Exception stepFailed) {
+                        com.oilquiz.app.util.AILogger.w("HtmlCardView", "这一步失败，结果可能被当成正常 · extractContentStyle: " + stepFailed);
                     }
                 }
             }
@@ -594,7 +596,8 @@ public class HtmlCardView implements ChatComponent {
             if (!contentStyle.has(tk) && p.has(tk)) {
                 try {
                     contentStyle.put(tk, p.get(tk));
-                } catch (Exception ignored) {
+                } catch (Exception stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("HtmlCardView", "这一步失败，结果可能被当成正常 · extractContentStyle: " + stepFailed);
                 }
             }
         }
@@ -825,7 +828,8 @@ public class HtmlCardView implements ChatComponent {
                     cm.setPrimaryClip(android.content.ClipData.newPlainText("组件内容", text));
                     showToast("已复制");
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable stepFailed) {
+                com.oilquiz.app.util.AILogger.w("HtmlCardView", "这一步失败，结果可能被当成正常 · copy: " + stepFailed);
             }
         }
 
@@ -884,7 +888,8 @@ public class HtmlCardView implements ChatComponent {
                                 android.widget.Toast.makeText(context, "图片解码失败（格式不支持或数据损坏）",
                                         android.widget.Toast.LENGTH_LONG).show();
                             }
-                        } catch (Throwable ignored) {
+                        } catch (Throwable stepFailed) {
+                            com.oilquiz.app.util.AILogger.w("HtmlCardView", "这一步失败，结果可能被当成正常 · downloadAndShow: " + stepFailed);
                         }
                     });
                 } catch (Throwable t) {
@@ -893,7 +898,8 @@ public class HtmlCardView implements ChatComponent {
                             if (dialog.isShowing()) dialog.dismiss();
                             android.widget.Toast.makeText(context, "图片加载失败: " + t.getMessage(),
                                     android.widget.Toast.LENGTH_LONG).show();
-                        } catch (Throwable ignored) {
+                        } catch (Throwable stepFailed) {
+                            com.oilquiz.app.util.AILogger.w("HtmlCardView", "这一步失败，结果可能被当成正常 · downloadAndShow: " + stepFailed);
                         }
                     });
                 }

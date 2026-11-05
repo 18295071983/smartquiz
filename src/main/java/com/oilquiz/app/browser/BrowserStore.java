@@ -205,7 +205,8 @@ public final class BrowserStore {
                 o.put("t", e.title);
                 o.put("ts", e.time);
                 array.put(o);
-            } catch (Throwable ignored) {
+            } catch (Throwable stepFailed) {
+                com.oilquiz.app.util.AILogger.w("BrowserStore", "这一步失败，结果可能被当成正常 · write: " + stepFailed);
             }
         }
         prefs.edit().putString(key, array.toString()).apply();

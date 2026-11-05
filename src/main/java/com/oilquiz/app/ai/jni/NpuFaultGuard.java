@@ -273,7 +273,8 @@ public final class NpuFaultGuard {
         if (ctx == null) return;
         try {
             prefs(ctx).edit().remove(K_INFLIGHT_SINCE).remove(K_INFLIGHT_BACKEND).apply();
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("NpuFaultGuard", "这一步失败，结果可能被当成正常 · clearInflight: " + stepFailed);
         }
     }
 

@@ -417,7 +417,8 @@ public final class BrowserSchemeHandler {
                 toast(context, R.string.browser_link_copied, "");
                 return;
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("BrowserSchemeHandler", "这一步失败，结果可能被当成正常 · copy: " + stepFailed);
         }
         toast(context, R.string.browser_scheme_copy_failed, "");
     }

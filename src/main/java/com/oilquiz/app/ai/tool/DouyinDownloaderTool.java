@@ -459,7 +459,8 @@ public class DouyinDownloaderTool implements AITool, StructuredParamTool {
                     holder[0].stopLoading();
                     holder[0].loadUrl("about:blank");
                     holder[0].destroy();
-                } catch (Throwable ignored) {
+                } catch (Throwable stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("DouyinDownloaderTool", "这一步失败，结果可能被当成正常 · onPageFinished: " + stepFailed);
                 }
             });
         }
@@ -488,7 +489,8 @@ public class DouyinDownloaderTool implements AITool, StructuredParamTool {
                 if (isFormalUifid(uifid)) {
                     try {
                         CookieManager.getInstance().flush();
-                    } catch (Throwable ignored) {
+                    } catch (Throwable stepFailed) {
+                        com.oilquiz.app.util.AILogger.w("DouyinDownloaderTool", "这一步失败，结果可能被当成正常 · pollForUifid: " + stepFailed);
                     }
                     persistCapturedCookie(raw);
                     done = true;

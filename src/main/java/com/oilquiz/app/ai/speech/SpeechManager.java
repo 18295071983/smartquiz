@@ -465,7 +465,8 @@ public class SpeechManager {
     public void saveTtsVoice(String voiceId) {
         try {
             OnlineModelManager.getInstance(context).setTtsVoice(voiceId, ttsVoiceScopeId());
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("SpeechManager", "这一步失败，结果可能被当成正常 · saveTtsVoice: " + stepFailed);
         }
     }
 

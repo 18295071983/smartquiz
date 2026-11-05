@@ -1004,7 +1004,8 @@ public final class AudioPlaybackManager {
             }
             e.apply();
             lastPositionSaveElapsed = SystemClock.elapsedRealtime();
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("AudioPlaybackManager", "这一步失败，结果可能被当成正常 · savePositionNow: " + stepFailed);
         }
     }
 

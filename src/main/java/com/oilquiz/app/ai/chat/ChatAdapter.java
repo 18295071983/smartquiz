@@ -2887,7 +2887,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (vto.isAlive()) {
                 vto.removeOnGlobalLayoutListener(old);
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("ChatAdapter", "这一步失败，结果可能被当成正常 · removePendingLayoutListener: " + stepFailed);
         }
     }
 

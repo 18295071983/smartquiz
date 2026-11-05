@@ -135,7 +135,8 @@ public class ExcelSheetPicker {
             try {
                 if (workbook != null) workbook.close();
                 if (fis != null) fis.close();
-            } catch (IOException ignored) {
+            } catch (IOException stepFailed) {
+                com.oilquiz.app.util.AILogger.w("ExcelSheetPicker", "这一步失败，结果可能被当成正常 · analyzeSheets: " + stepFailed);
             }
         }
         return result;
@@ -427,7 +428,7 @@ public class ExcelSheetPicker {
             try {
                 int n = Integer.parseInt(stripped);
                 if (n >= 1 && n <= 20) return true;
-            } catch (Exception ignore) {}
+            } catch (Exception stepFailed) {}
         }
         // 6. 罗马数字（Unicode）
         if (s.length() <= 3 && "ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ".contains(s)) return true;
@@ -458,7 +459,7 @@ public class ExcelSheetPicker {
             try {
                 int n = Integer.parseInt(stripped);
                 if (n >= 1 && n <= 12) return String.valueOf((char) ('A' + n - 1));
-            } catch (Exception ignore) {}
+            } catch (Exception stepFailed) {}
         }
         // 罗马数字 Ⅰ~Ⅹ → A~J（简单映射）
         String roman = "ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ";

@@ -87,7 +87,8 @@ public class MemoryTool implements AITool {
                         try {
                             ttlSeconds = Long.parseLong(String.valueOf(parameters.get("ttl")));
                             if (ttlSeconds < 0) ttlSeconds = 0L;
-                        } catch (NumberFormatException ignored) {
+                        } catch (NumberFormatException stepFailed) {
+                            com.oilquiz.app.util.AILogger.w("MemoryTool", "这一步失败，结果可能被当成正常 · execute: " + stepFailed);
                         }
                     }
                     boolean replaced = store.get(key.trim()) != null;

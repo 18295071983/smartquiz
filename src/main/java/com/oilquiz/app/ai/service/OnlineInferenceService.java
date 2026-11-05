@@ -712,7 +712,8 @@ public class OnlineInferenceService {
                 try {
                     int v = item.get(k).getAsInt();
                     if (v > 0) return v;
-                } catch (Exception ignored) {
+                } catch (Exception stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("OnlineInferenceService", "这一步失败，结果可能被当成正常 · extractContextWindow: " + stepFailed);
                 }
             }
         }

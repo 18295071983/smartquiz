@@ -80,7 +80,8 @@ public final class ChatUiV2Chrome {
         try {
             dot.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     ContextCompat.getColor(activity, colorRes)));
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("ChatUiV2Chrome", "这一步失败，结果可能被当成正常 · updateStatusDot: " + stepFailed);
         }
     }
 

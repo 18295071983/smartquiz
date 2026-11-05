@@ -317,7 +317,8 @@ public class JsExecuteTool implements AITool {
                         wv.stopLoading();
                         wv.loadUrl("about:blank");
                         wv.destroy();
-                    } catch (Throwable alreadyGone) {
+                    } catch (Throwable stepFailed) {
+                        com.oilquiz.app.util.AILogger.w("JsExecuteTool", "这一步失败，结果可能被当成正常 · onPageFinished: " + stepFailed);
                     }
                 });
             }

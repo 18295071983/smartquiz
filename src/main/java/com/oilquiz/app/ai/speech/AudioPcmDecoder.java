@@ -209,7 +209,8 @@ public final class AudioPcmDecoder {
     private static void safeReleaseExtractor(MediaExtractor extractor) {
         try {
             extractor.release();
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("AudioPcmDecoder", "这一步失败，结果可能被当成正常 · safeReleaseExtractor: " + stepFailed);
         }
     }
 }

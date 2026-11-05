@@ -205,7 +205,8 @@ public class StreamingTtsSpeaker {
                 //noinspection ResultOfMethodCallIgnored
                 f.delete();
             }
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("StreamingTtsSpeaker", "这一步失败，结果可能被当成正常 · deleteQuietly: " + stepFailed);
         }
     }
 

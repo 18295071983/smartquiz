@@ -377,7 +377,8 @@ public final class EdgeToEdgeHelper {
             if (cs != null) {
                 return cs.newDrawable(res).mutate();
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("EdgeToEdgeHelper", "这一步失败，结果可能被当成正常 · independentCopy: " + stepFailed);
         }
         if (src instanceof android.graphics.drawable.LayerDrawable) {
             try {
@@ -402,7 +403,8 @@ public final class EdgeToEdgeHelper {
                     }
                     return out;
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable stepFailed) {
+                com.oilquiz.app.util.AILogger.w("EdgeToEdgeHelper", "这一步失败，结果可能被当成正常 · independentCopy: " + stepFailed);
             }
         }
         if (src instanceof android.graphics.drawable.ColorDrawable) {

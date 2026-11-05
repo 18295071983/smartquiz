@@ -155,7 +155,8 @@ public final class ImportOutputSanitizer {
             Log.w(TAG, "difficulty 强修正异常: " + e.getMessage());
             try {
                 json.put("difficulty", 1);
-            } catch (Exception ignored) {
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w("ImportOutputSanitizer", "这一步失败，结果可能被当成正常 · sanitizeFillOutput: " + stepFailed);
             }
         }
         return out;
@@ -232,7 +233,8 @@ public final class ImportOutputSanitizer {
         try {
             int v = Integer.parseInt(t);
             return (v >= 1 && v <= 3) ? v : 1;
-        } catch (NumberFormatException ignored) {
+        } catch (NumberFormatException stepFailed) {
+            com.oilquiz.app.util.AILogger.w("ImportOutputSanitizer", "这一步失败，结果可能被当成正常 · parseTextDifficulty: " + stepFailed);
         }
         if (t.contains("易") || t.contains("简单") || t.toLowerCase().contains("easy")) return 1;
         if (t.contains("中") || t.toLowerCase().contains("medium")) return 2;

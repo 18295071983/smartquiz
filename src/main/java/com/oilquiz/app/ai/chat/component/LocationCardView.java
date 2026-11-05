@@ -127,7 +127,8 @@ public class LocationCardView implements ChatComponent {
                 cm.setPrimaryClip(ClipData.newPlainText("坐标", text));
                 Toast.makeText(context, R.string.card_location_copied, Toast.LENGTH_SHORT).show();
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("LocationCardView", "这一步失败，结果可能被当成正常 · copy: " + stepFailed);
         }
     }
 

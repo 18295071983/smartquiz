@@ -211,7 +211,8 @@ public class PipInstallTool implements AITool {
                 double secs = Double.parseDouble(String.valueOf(t));
                 timeout = (int) Math.min(MAX_TIMEOUT_SECONDS, Math.max(5, secs));
             }
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("PipInstallTool", "这一步失败，结果可能被当成正常 · execute: " + stepFailed);
         }
 
         try {
@@ -619,7 +620,8 @@ public class PipInstallTool implements AITool {
                     if (dep.isEmpty()) continue;
                     deps.add(dep);
                 }
-            } catch (Exception ignored) {
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w("PipInstallTool", "这一步失败，结果可能被当成正常 · readDependencies: " + stepFailed);
             }
         }
         return deps;

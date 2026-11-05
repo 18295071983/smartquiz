@@ -102,7 +102,8 @@ public class MarkdownDocCardView implements ChatComponent {
             // 文档卡是正文型产物：默认摊开，不跟随 html 卡的"可收起"默认档
             props.put("display", "inline");
             if (!night) props.put("light", true);
-        } catch (Throwable ignored) {
+        } catch (Throwable stepFailed) {
+            com.oilquiz.app.util.AILogger.w("MarkdownDocCardView", "这一步失败，结果可能被当成正常 · createView: " + stepFailed);
         }
         // 交给 html 卡：LOCAL_FILE 档（JS + 桥 + 量高 + 放大浮标全部复用）
         return new HtmlCardView().createView(context, ComponentData.of("html", props));

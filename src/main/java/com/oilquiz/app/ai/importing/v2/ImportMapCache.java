@@ -135,7 +135,8 @@ public final class ImportMapCache {
             if (fis != null) {
                 try {
                     fis.close();
-                } catch (Exception ignored) {
+                } catch (Exception stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("ImportMapCache", "这一步失败，结果可能被当成正常 · readAll: " + stepFailed);
                 }
             }
         }
@@ -152,7 +153,8 @@ public final class ImportMapCache {
             if (fos != null) {
                 try {
                     fos.close();
-                } catch (Exception ignored) {
+                } catch (Exception stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("ImportMapCache", "这一步失败，结果可能被当成正常 · writeAll: " + stepFailed);
                 }
             }
         }

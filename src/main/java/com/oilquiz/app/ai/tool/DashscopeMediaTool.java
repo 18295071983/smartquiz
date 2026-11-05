@@ -991,7 +991,8 @@ public class DashscopeMediaTool implements AITool {
                         props.put("title", target.getName());
                         toolResult.withComponent(ComponentData.of("video", props));
                     }
-                } catch (Exception ignored) {
+                } catch (Exception stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("DashscopeMediaTool", "这一步失败，结果可能被当成正常 · downloadResult: " + stepFailed);
                 }
                 return toolResult;
             }

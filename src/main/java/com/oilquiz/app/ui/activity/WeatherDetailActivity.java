@@ -1870,7 +1870,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
                     if (name.contains("紫外线") && uvFromIndices < 0) {
                         java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\((\\d+)级\\)").matcher(value);
                         if (m.find()) {
-                            try { uvFromIndices = Integer.parseInt(m.group(1)); } catch (NumberFormatException ignored) {}
+                            try { uvFromIndices = Integer.parseInt(m.group(1)); } catch (NumberFormatException stepFailed) {}
                         }
                     }
                 }
@@ -2701,7 +2701,8 @@ public class WeatherDetailActivity extends AppCompatActivity {
                         timeLabels.add(timeStr);
                         if (precip > 0) totalPrecip += precip;
                     }
-                } catch (NumberFormatException ignored) {
+                } catch (NumberFormatException stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("WeatherDetailActivity", "这一步失败，结果可能被当成正常 · parseAndUpdateMinutely: " + stepFailed);
                 }
             }
         }

@@ -398,7 +398,7 @@ public final class ApkPacker {
                 iconEntry = m.optString("icon_entry", null);
                 labelPlaceholder = m.optString("label_placeholder", null);
                 packagePlaceholder = m.optString("package_placeholder", null);
-            } catch (Exception ignored) { }
+            } catch (Exception stepFailed) { }
         }
         if (meta != null && meta.label != null && !meta.label.trim().isEmpty()) {
             String label = meta.label.trim();

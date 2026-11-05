@@ -268,7 +268,8 @@ public class SystemSpeechRecognizer {
             if (matches != null && !matches.isEmpty()) {
                 return matches.get(0);
             }
-        } catch (Exception ignored) {
+        } catch (Exception stepFailed) {
+            com.oilquiz.app.util.AILogger.w("SystemSpeechRecognizer", "这一步失败，结果可能被当成正常 · extractTopResult: " + stepFailed);
         }
         return null;
     }
