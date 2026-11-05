@@ -16,7 +16,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -24,7 +23,6 @@ public class AILogger {
     private static final String TAG = "AILogger";
     private static final String LOG_DIR = "ai_logs";
     private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
-    private static final SimpleDateFormat TIMESTAMP_FORMAT = new SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault());
     private static final long MAX_LOG_FILE_SIZE = 5 * 1024 * 1024; // 5MB（超过即轮转，避免日志无限膨胀）
     /** 保留的轮转日志文件数（含当天主文件），超出清理最旧的 */
     private static final int MAX_ROTATED_KEEP = 5;
