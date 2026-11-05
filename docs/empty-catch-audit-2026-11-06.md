@@ -100,3 +100,43 @@ ai/bridge/ModelExecutionBridge.java:511  putLocalSampling()  catch Throwable
 | **没动** | `ToolExecutionOrchestrator`（该类全仓零引用，是抽取一半的死副本） | 我先在里面加了日志，随即回滚：改一份没人跑的拷贝正是我这轮在消灭的东西。它归入第 7 节整类候选，跟着那批一起处置 |
 
 未验：`boot()` 的清单只在"真有子系统失败"时才会输出，本轮没有构造失败；`SmartQuizApplication` 的改动需要真机开机一次确认没有把启动顺序改坏（尤其 NPU 致命信号消费必须仍排在后端偏好之前——这条顺序在原注释里写明，改写时保留了原语句顺序）。
+
+## 8. 批 2a 改动记录（database 包：迁移不再静默）
+
+改的是 `AppDatabase` 的 32 处（全仓最多空 catch 的文件之一）+ 顺手核了同包的 `DatabaseUpgradeManager`。改后重跑扫描器，四个数都对得上（用 HEAD 的 worktree 跑同一个脚本比对，不是拿上一轮的记录减）：
+
+| 指标 | 批 2a 前 | 批 2a 后 | 差 |
+| --- | --- | --- | --- |
+| catch 总数（src/main） | 4446 | 4418 | -28（删 32 / 新加 1 / 另 3 处保留但改成有日志） |
+| 真·空体 | 920 | 893 | -27 |
+| 只写注释的空体 | 146 | 141 | -5 |
+| 只写日志 | 962 | 965 | +3 |
+| 高危 / 中危 / 低危 | 191 / 602 / 127 | 191 / **575** / 127 | 中危 -27 |
+
+`grep -c "catch ("` 逐文件复核：`AppDatabase.java` 34 → 6（剩下的是 InterruptedException、建库失败、三处 close、一处 JSON 解析失败，全部带日志）；`DatabaseUpgradeManager.java` 7 → 7（它那 7 处本来就在 Log.e，问题不在吞异常，见下）。
+
+**分档在这批上失效，值得记一笔**：32 处没有一处被算进高危，因为方法名都叫 `migrate()`，`WRITE_HINT` 关键词回扫认不出"这是改全库表结构"。实际后果是整库升级失败或表少一列，比名单里多数高危条目严重得多。第 6 节那句"分档是候选队列不是结论"在这里被证实了一次——**下一轮挑文件别只按高危名单挑，`database/`、`*Migrat*`、`*Dao`、`*Repository` 这类名字要单独捞一遍**。
+
+改法与理由（`MigrationSchema` 是新增的公共探针，`addColumn` 先 `PRAGMA table_info` 判存在再 ALTER，异常一律不接）：
+
+| 改法 | 位置 | 为什么 |
+| --- | --- | --- |
+| **异常当控制流 → 先查后改** | v19→v20 的 19 条、v20→v21 的 5 条、v21→v22 的 8 条 ALTER，共 32 层 try 里的一大部分 | 旧注释理由是"字段可能已存在"，但这层 catch 同时吞掉真故障。列没加上照样往下走，最后由 Room 迁移后的 schema 校验报 "Migration didn't work out"——结局同为失败，现场却全丢了。SQL 文案逐字未动 |
+| **删掉永不成立的 DDL** | v17→v18 整条（2 处）；v18→v19 末尾 2 条 `CREATE INDEX ... ON questions(...)` | 实体表名是 `question`（单数，`Question.java:13`），`questions` 这个表从来没有过。v17→v18 那两条被 catch 吞着，所以它 8 个版本一直是静默 no-op；v18→v19 这两条**没包 catch**，任何低于 v19 的库升上来都在这里抛 SQLException、整条迁移失败。等价索引本就由 v19→v20 在正确的表列上建 |
+| **刻意不"顺手修对"** | v17→v18 的 `ai_enhanced` / `ai_tags` | 全仓没有任何 Entity 字段或读写方引用它们（只有这两句 DDL 和 DatabaseUpgradeManager 的同款 DDL 提到）。真把列补上，Room 按实体算出的 schema 就和库里对不上，反而把本来能升级的旧库顶成"数据库不可用"。已改成显式空迁移 + 注释，要做 AI 字段得先加实体再走新版本 |
+| **外键指向不存在的表** | `question_images` 的 `REFERENCES questions(id)`（两处：AppDatabase v18→v19、DatabaseUpgradeManager `migrateToV19`） | SQLite 建表时不校验 FK 目标，所以这两张表建出来了；Room 开着 foreign_keys，一旦真往里插就报 "no such table: main.questions"。改成 `question(id)`。**已经建过库的设备不会被改写**（`CREATE TABLE IF NOT EXISTS`），只是新库从此正确 |
+| **数据拼接进 SQL** | v21→v22 摊平 extraOptions：`"UPDATE question SET " + key + " = ?"` | `key` 直接来自存量 JSON 的键名，拼进去什么就执行什么。改成先取 `PRAGMA table_info` 的列名当白名单，对不上的 key 记 W 跳过 |
+| **Cursor 泄漏** | 同上：`cursor.close()` 原来写在 try 的最后一行 | 循环里抛异常就关不掉。改 try/finally |
+| **空 catch 包住整段 → 显式判存在 + 计数上报** | 同上：外层 `catch (Exception ignore) {}`、内层 `catch (Exception ignore) {}` | 外层把"这库没有 extraOptions 列"（走过 DatabaseUpgradeManager 那条旧升级路）和"读着读着出错"当同一件事。现在缺列就明确跳过并留一条 W；JSON 解析失败与脏 key 各自计数、带样例 id 报，最后一句汇总——**有损失就让人看得见损失**，别把"迁移成功"报成数据全的 |
+| **失败没被吞，但报成成功** | `DatabaseUpgradeManager.migrateToVersion` 的 `default:` | 原来是 `Log.w("未知目标版本，跳过") + break`，方法照样 `return true`，于是 `upgrade()` 把 `user_version` 抬到 21..25 却在屏幕上报"升级成功"——Room 那边 21+ 的迁移一条没跑，下次打开就是 schema 不符。改成 `return false`，走它本来就有的 `notifyFailed` + 回滚路径 |
+| **close 失败静默** | `getDatabase` 两处、`destroyInstance` 一处 | 这三处**必须**留 catch（关不上也不能挡住丢弃旧实例，否则下次调用还在 `isOpen()` 上误判）。改成 W，并写清"这条连接可能还占着文件"——真出现 "database is locked" 时能对回这次失败 |
+| **`System.out.println` 当日志用** | `getDatabase` 的成功/失败两行 | Android 里 System.out 不进 logcat 也不落 ai_logs；初始化失败改成 `AILogger.e`（这条一旦丢，调用方只是各自拿到 null，现场只剩"某些功能没数据"） |
+| **新增测试** | `MigrationSchemaTest`（10 条，Robolectric + 真 SQLite） | 这个类的风险全在 SQL 文案上：`PRAGMA table_info(表名)` 写错不会编译报错，只会在用户升级那一刻炸。用例里既有"补完真能 INSERT 读回"，也有"已存在时必须什么都没执行"（再发一条冲突定义的 ALTER 就是 duplicate column），还有"表不存在必须抛"。10 条 0 skipped，其中一条先失败过一次：Robolectric 的异常消息是 "Cannot prepare statement, base error code: 1"，不含表名，所以断言只钉"抛了"不钉文案 |
+
+### 这批查到但**没动**的三件事，等你拍板
+
+1. **`fallbackToDestructiveMigration()` + 迁移表只从 v17 起**（`AppDatabase.java:99`，MIGRATIONS 数组首元素是 17→18）。任何 v≤16 的库走到 Room 这里没有迁移路径，会被**整库 drop 重建**：题目、成绩、错题、对话历史全没，且没有任何提示。要改就得先备份再告知，属于产品决定，我没自作主张动——把它改成"报错不重建"等于让这批设备直接起不来。
+2. **`ocr_history` / `question_images` / `ai_usage_log` 三张表零消费者**：只有 DDL，全仓没有任何读写。它们不是死代码那种"没人调用"，是"建了张空表"。删的话要连 DatabaseUpgradeManager 里那份一起，并且存量库里表还在。归入 `docs/dead-code-triage-2026-11-06.md` 第 7 节那批整类候选一起处置。
+3. **两套迁移引擎并存**：Room 的 `MIGRATIONS`（权威，17→25）和 `DatabaseUpgradeManager` + `DatabaseVersionChecker`（只覆盖到 20，且 `migrateToV20` 是"预留"空方法）。入口是 数据库管理 → 升级数据库（`DatabaseManagementActivity.java:368`）。实际上大概率碰不到坏路径：`upgrade()` 第一步就 `AppDatabase.getDatabase()` + `getWritableDatabase()`，Room 已经先把库升到 25 了，于是 `needUpgrade=false` 直接报"已是最新版本"。但这两套并存本身就是刚才那条 `default:` 假成功的土壤，要不要把旧的那套摘掉（保留备份/回滚）由你定。
+
+未验：**v17→v25 这条升级链本身没跑过**。手上没有低于 25 的库，`exportSchema = false` 也让 Room 的 `MigrationTestHelper` 用不了（它要 schema JSON）。本轮能保证的是：ALTER 的 SQL 文案逐字未动、新增的 `MigrationSchema` 有真 SQLite 的 10 条用例、以及那条一定会抛异常的旧 DDL 已被删掉。真要把升级链钉死，得造一个 v20 的库 dump 放进 androidTest——那是另一件事，需要设备。

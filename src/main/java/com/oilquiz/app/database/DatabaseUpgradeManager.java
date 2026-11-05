@@ -212,8 +212,12 @@ public class DatabaseUpgradeManager {
                     migrateToV20(sqlite);
                     break;
                 default:
-                    Log.w(TAG, "未知目标版本: " + targetVersion + "，跳过");
-                    break;
+                    // 这里原来是 Log.w + break，方法照样 return true，于是"未知版本"被报成
+                    // "成功迁移到 v21"：既没跑 DDL 又把 user_version 抬了上去。Room 侧的
+                    // MIGRATIONS 才是 21+ 的权威（本类只覆盖到 20），所以没实现就是失败，
+                    // 让调用方走 notifyFailed + 回滚，而不是让界面显示升级成功。
+                    Log.e(TAG, "本类没有 v" + targetVersion + " 的迁移实现（21 以上由 AppDatabase.MIGRATIONS 负责）");
+                    return false;
             }
             
             sqlite.setVersion(targetVersion);
@@ -250,13 +254,15 @@ public class DatabaseUpgradeManager {
         ")");
         
         // 2. 添加题目图片关联表
+        //    外键指向的表名原来写的是 questions（复数），实体表名是 question；Room 开着
+        //    foreign_keys，写错的 FK 会让这张表一旦真的插入就报 "no such table: main.questions"。
         db.execSQL("CREATE TABLE IF NOT EXISTS question_images (" +
             "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
             "question_id INTEGER, " +
             "image_path TEXT, " +
             "image_type TEXT, " +
             "created_at INTEGER DEFAULT (strftime('%s', 'now')), " +
-            "FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE" +
+            "FOREIGN KEY (question_id) REFERENCES question(id) ON DELETE CASCADE" +
         ")");
         
         // 3. 添加 AI 模型使用记录表
@@ -274,11 +280,11 @@ public class DatabaseUpgradeManager {
             "created_at INTEGER DEFAULT (strftime('%s', 'now'))" +
         ")");
         
-        // 4. 为现有表添加新索引
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_questions_ai_enhanced " +
-            "ON questions(ai_enhanced)");
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_questions_created " +
-            "ON questions(created_at)");
+        // 4. 索引：这里原来有两条 CREATE INDEX ... ON questions(...)，已删。
+        //    表名 questions 不存在（实体表是 question），ai_enhanced / created_at 两列也不在
+        //    question 表上（实体里是 createdAt）。它们没包 catch，所以走这条旧升级路的 v18 库
+        //    每次都在这里抛 SQLException、整段 v18→v19 失败并触发回滚。删掉不补：
+        //    等价索引由 AppDatabase 的 v19→v20 迁移在正确的表列上创建。
         
         Log.i(TAG, "v18 → v19 迁移完成");
     }
