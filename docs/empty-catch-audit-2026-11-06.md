@@ -347,3 +347,18 @@ src/androidTest 里除本类自身**零引用、零生产者**，且文本线（
 根因不是编译——脚本里多形态分支有一支把插入位置算错后静默什么也没做，**编译器只证明语法，不证明内容**。
 现在这 7 处已重做并逐条 grep 复核（每处 1 次命中），真·空体 670→667、只写日志 1128→1135，
 基线 1746/0/0/1 skipped。往后这批的验收口径加一条：**补完日志要按文本 grep 回来，不能只看 BUILD SUCCESSFUL**。
+
+## 18. 批 5：偏好/开关落盘这一族，两处改成"失败就不报成功"
+
+分析中危池时按语义动词捞出 14 处"写偏好被吞"，这批全处理完了：11 处补 `AILogger` 警告，2 处**改返回契约**，1 处（`ToolGuideFlowFlag`）在 §17 里已补。现在 `swallow_semantic.py` 的 S1 队列是 **0**，真·空体 667→654、只写日志 1135→1145，基线 1746/0/0/1 skipped。
+
+**改了契约的两处**（光补日志不够——那两处失败后仍有人被当成"办成了"）：
+
+- `PrivacyConsent.accept/revoke` 改成返回 `boolean`。`isAccepted()` 每次读 prefs（不是内存标记），所以写失败时它仍是 false、下次会重弹，**方向是安全的**，但同意凭证没留下来——事后答不出"这个人什么时候同意的哪一版"。三个调用点都接住了：`MainActivity` 与 `PrivacyConsentActivity` 在 false 时提示"同意状态没能保存，下次启动会再问一次"；`AboutLicensesActivity` 的撤回更危险（用户以为撤回了，记录仍是已同意），false 时**直接 return 不跳转**，明说"撤回没生效，当前仍记录为已同意"。
+- `SystemResourceTool.shellMode`：`setGuardEnabled` 改成返回 boolean 并读回校验，写不进或读回不一致就用 `AIToolResult.fail` 回给模型——"当前仍是 readonly/full，别按已切换去规划后续命令"。原来这段是无条件 `"status": "success"` + 读回值，写失败时模型会拿着假档位继续推理。注释里写清了读回的边界：`apply()` 内存视图立刻更新，所以读回抓得住"抛异常/被拒"，抓不住"进程当场被杀导致磁盘没落"；要防那层得换 `commit()`，但 commit 返回 true 也不等于磁盘已 sync。
+
+**只补日志的 11 处**：五个渲染 flag 的 `setEnabled`（`ToolGuideFlowFlag`/`ToolResultCardBinder`/`HtmlSubmitFlag`/`PartsRendererFlag`/`ReasoningWebRenderFlag`/`MarkdownStreamTailFlag`——都是"翻了开关，下次启动回默认档"）、`ComponentDisplay.setDefaultTier`（设置页显示已切换）、`UserModelParamsManager.syncGpuToModelStateCache`、`WallpaperStore.ensureBuiltin`（内置壁纸生成失败会从选择列表里静默消失）、`WeatherBannerView` 城市/坐标缓存写、`SmartQuizApplication.recordJavaCrashForAttribution`（崩溃归因没落盘＝下次启动无法把崩溃归到那次模型上）。这些站点原来的变量名是 `ignored`，现在都叫 `notStored`——**名字仍是档位标签**：带日志的站点用说实话的名字。
+
+**常驻判据落到工具里**：新增 `docs/scripts/swallow_semantic.py`，复用关键词扫描器的解析结果（不留两套解析器），按"吞掉的语句有没有副作用/落盘出口"分 S1~S4，并**自动排除已有反馈的站点**——所以它的输出就是"还没人看过的队列"，而不是重复报已处理项。当前队列：S1 0、S2 3（其中 `WeatherBannerView:439` 实际是 prefs *读*，被 `load*` 动词误命中——这就是"分档是队列不是结论"的活样本）、S3 195、S4 564。以后每轮先看 S1/S2，S3 抽查，S4 默认保留。
+
+**这轮又验证了一次自己的验收口径**：前一次批量写入因为 `io.open(...).write()` 没有 close，脚本中途异常退出时**缓冲区里的内容直接丢了**——脚本报"落盘了"而文件其实没变。现在一律 `with io.open(...)` 写、写完**再读回来断言文本存在**。这条也是 §17 那条教训的第二半：不只是"grep 回来"，写文件本身也要保证刷得下去。

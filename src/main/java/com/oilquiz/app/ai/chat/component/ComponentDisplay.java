@@ -189,7 +189,8 @@ public final class ComponentDisplay {
         try {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                     .putString(PREF_KEY_DEFAULT_MODE, name(m)).apply();
-        } catch (Throwable ignored) {
+        } catch (Throwable notStored) {
+            com.oilquiz.app.util.AILogger.w("ComponentDisplay", "卡片默认档没落盘（设置页显示已切换，下次启动回原档）: " + notStored);
         }
     }
 

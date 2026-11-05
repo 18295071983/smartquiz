@@ -88,7 +88,8 @@ public final class WallpaperStore {
                         fos.close();
                         bmp.recycle();
                     }
-                } catch (Throwable ignored) {
+                } catch (Throwable notStored) {
+                    com.oilquiz.app.util.AILogger.w("WallpaperStore", "内置壁纸生成失败，这张会从选择列表里静默消失: " + notStored);
                 }
             }
         }

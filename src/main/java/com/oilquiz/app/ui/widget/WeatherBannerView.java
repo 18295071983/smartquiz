@@ -1,5 +1,6 @@
 package com.oilquiz.app.ui.widget;
 
+import com.oilquiz.app.util.AILogger;
 import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -151,14 +152,14 @@ public class WeatherBannerView extends LinearLayout {
             // 全局广播（给 Context.registerReceiver 动态注册的接收器）
             try { context.sendBroadcast(intent); }
             catch (Exception stepFailed) {
-                if (!cityBroadcastWarned) { cityBroadcastWarned = true; com.oilquiz.app.util.AILogger.w(TAG, "城市变更广播没发出去（别的页会停在旧城市）: " + stepFailed); }
+                if (!cityBroadcastWarned) { cityBroadcastWarned = true; AILogger.w(TAG, "城市变更广播没发出去（别的页会停在旧城市）: " + stepFailed); }
             }
             // 本地广播（给 LocalBroadcastManager 注册的接收器）
             try {
                 androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(context)
                         .sendBroadcast(intent);
             } catch (Exception stepFailed) {
-                if (!cityBroadcastWarned) { cityBroadcastWarned = true; com.oilquiz.app.util.AILogger.w(TAG, "城市变更广播没发出去（别的页会停在旧城市）: " + stepFailed); }
+                if (!cityBroadcastWarned) { cityBroadcastWarned = true; AILogger.w(TAG, "城市变更广播没发出去（别的页会停在旧城市）: " + stepFailed); }
             }
         } catch (Exception e) {
             android.util.Log.w(TAG, "Failed to broadcast location: " + e.getMessage());
@@ -273,7 +274,9 @@ public class WeatherBannerView extends LinearLayout {
                                 .putString(KEY_CITY, city)
                                 .putLong(KEY_TIMESTAMP, System.currentTimeMillis())
                                 .apply();
-                    } catch (Exception ignored) {}
+                    } catch (Exception notStored) {
+                        AILogger.w("WeatherBannerView", "城市/坐标缓存没写进去（下次启动还是旧城市）: " + notStored);
+                    }
                     lastRefreshTime = System.currentTimeMillis();
                     // 立即显示新地址，并用新坐标请求天气（如坐标=0则用城市名兜底）
                     post(() -> {

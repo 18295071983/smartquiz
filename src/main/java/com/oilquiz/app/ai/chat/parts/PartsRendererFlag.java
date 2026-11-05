@@ -47,7 +47,8 @@ public final class PartsRendererFlag {
         try {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                     .edit().putBoolean(PREF_KEY, value).apply();
-        } catch (Throwable ignored) {
+        } catch (Throwable notStored) {
+            com.oilquiz.app.util.AILogger.w("PartsRendererFlag", "parts 渲染 flag 没落盘（下次启动回默认档）: " + notStored);
         }
     }
 }

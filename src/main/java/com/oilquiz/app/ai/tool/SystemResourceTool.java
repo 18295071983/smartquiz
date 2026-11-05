@@ -1699,10 +1699,27 @@ public class SystemResourceTool implements AITool {
         }
     }
 
-    private void setGuardEnabled(boolean on) {
+    /**
+     * 写 shell 防护档并读回校验。
+     *
+     * @return 是否落到位。<b>注意这只到"内存视图已更新"这一层</b>：{@code apply()} 是异步落盘，
+     *         同一个 SharedPreferences 实例立刻能读到新值，所以读回抓得住"写抛异常/写被拒"，
+     *         抓不住"进程当场被杀导致磁盘没落"。真要防后者得用 {@code commit()} 并判返回值——
+     *         那会阻塞调用线程（这里是工具线程，可接受），但读回的 true 仍不等于磁盘已 sync。
+     */
+    private boolean setGuardEnabled(boolean on) {
         try {
             context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit().putBoolean(PREF_GUARD, on).apply();
-        } catch (Exception ignored) {
+            boolean readBack = isGuardEnabled();
+            if (readBack != on) {
+                AILogger.w(TAG, "shell 防护档写入后读回不一致：请求 " + (on ? "readonly" : "full")
+                        + "，读回 " + (readBack ? "readonly" : "full"));
+                return false;
+            }
+            return true;
+        } catch (Exception notStored) {
+            AILogger.w(TAG, "shell 防护档没落盘: " + notStored.getMessage());
+            return false;
         }
     }
 
@@ -1713,10 +1730,18 @@ public class SystemResourceTool implements AITool {
         if (mode != null) {
             String m = mode.trim().toLowerCase();
             if ("readonly".equals(m) || "guard".equals(m) || "on".equals(m)) {
-                setGuardEnabled(true);
+                if (!setGuardEnabled(true)) {
+                    return AIToolResult.fail("shell_mode 没生效（防护档写入失败或读回不符），当前仍是 "
+                            + (isGuardEnabled() ? "readonly（拦截）" : "full（不拦）")
+                            + "。别按已切换去规划后续命令。", parameters);
+                }
                 changed = true;
             } else if ("full".equals(m) || "off".equals(m) || "open".equals(m)) {
-                setGuardEnabled(false);
+                if (!setGuardEnabled(false)) {
+                    return AIToolResult.fail("shell_mode 没生效（防护档写入失败或读回不符），当前仍是 "
+                            + (isGuardEnabled() ? "readonly（拦截）" : "full（不拦）")
+                            + "。别按已切换去规划后续命令。", parameters);
+                }
                 changed = true;
             }
         }

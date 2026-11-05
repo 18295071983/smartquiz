@@ -1,5 +1,6 @@
 package com.oilquiz.app;
 
+import com.oilquiz.app.util.AILogger;
 import android.app.Activity;
 import android.app.Application;
 import android.content.Intent;
@@ -325,7 +326,7 @@ public class SmartQuizApplication extends Application {
                     int crashCount = classifyPreviousExitAndCount();
                     com.oilquiz.app.util.AILogger.i(TAG, "连续崩溃计数(按死因归因后): " + crashCount);
                     if (crashCount >= MAX_CRASH_BEFORE_SKIP) {
-                        com.oilquiz.app.util.AILogger.w(TAG,
+                        AILogger.w(TAG,
                             "检测到连续 " + crashCount + " 次崩溃，跳过模型自动加载，防止崩溃循环");
                         // 重置计数，下次启动允许重试
                         resetCrashCount();
@@ -394,7 +395,7 @@ public class SmartQuizApplication extends Application {
             String line = what + "：" + t.getClass().getSimpleName()
                     + (t.getMessage() == null || t.getMessage().isEmpty() ? "" : " " + t.getMessage());
             if (bootReported) {
-                com.oilquiz.app.util.AILogger.w(TAG, "启动后异步引导失败: " + line);
+                AILogger.w(TAG, "启动后异步引导失败: " + line);
             } else {
                 bootFailures.add(line);
             }
@@ -409,7 +410,7 @@ public class SmartQuizApplication extends Application {
             if (sb.length() > 0) sb.append(" | ");
             sb.append(item);
         }
-        com.oilquiz.app.util.AILogger.w(TAG, "启动期 " + bootFailures.size()
+        AILogger.w(TAG, "启动期 " + bootFailures.size()
                 + " 个子系统引导失败（对应功能会降级，排查从这里起）: " + sb);
     }
     
@@ -574,7 +575,8 @@ public class SmartQuizApplication extends Application {
             instance.getSharedPreferences(CRASH_PREFS, MODE_PRIVATE).edit()
                     .putString(KEY_JAVA_CRASH_BOOT, BOOT_ID)
                     .commit();
-        } catch (Throwable ignored) {
+        } catch (Throwable notStored) {
+            AILogger.w("SmartQuizApplication", "崩溃归因没落盘（下次启动无法把崩溃归到那次模型上）: " + notStored);
         }
     }
 
@@ -714,7 +716,7 @@ public class SmartQuizApplication extends Application {
                 }
             }
         } catch (Exception e) {
-            com.oilquiz.app.util.AILogger.w(TAG, "选择预加载主模型失败: " + e.getMessage());
+            AILogger.w(TAG, "选择预加载主模型失败: " + e.getMessage());
         }
         return null;
     }

@@ -37,29 +37,49 @@ public final class PrivacyConsent {
         }
     }
 
-    /** 用户点了"同意并继续" */
-    public static void accept(Context context) {
-        if (context == null) return;
+    /**
+     * 用户点了"同意并继续"。
+     *
+     * @return 是否真的落盘。{@code isAccepted()} 每次读 prefs（不是内存标记），所以写失败时
+     *         它仍是 false——下次启动会重弹，方向是安全的；但<b>同意凭证没留下来</b>。
+     *         调用方拿到 false 必须说出来，不能当成就功：用户以为自己同意过了，
+     *         而合规记录是空的，事后无法回答"这个人什么时候同意的哪一版"。
+     */
+    public static boolean accept(Context context) {
+        if (context == null) return false;
         try {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .edit()
                     .putBoolean(KEY_ACCEPTED, true)
                     .putString(KEY_VERSION, CURRENT_VERSION)
                     .apply();
-        } catch (Throwable ignored) {
+            return true;
+        } catch (Throwable notStored) {
+            com.oilquiz.app.util.AILogger.w("PrivacyConsent",
+                    "同意状态没落盘（下次启动会重新弹，且这次同意没有凭证）: " + notStored.getMessage());
+            return false;
         }
     }
 
-    /** 撤回同意（例如设置页提供"撤回隐私授权"入口时调用），下次启动会重新弹窗 */
-    public static void revoke(Context context) {
-        if (context == null) return;
+    /**
+     * 撤回同意（设置页的"撤回隐私授权"入口调用），下次启动会重新弹窗。
+     *
+     * @return 是否真的落盘。<b>这里 false 是危险方向</b>：用户按了撤回、以为已经撤回，
+     *         而记录仍是"已同意"。调用方不能照常跳转到"已撤回"的界面。
+     */
+    public static boolean revoke(Context context) {
+        if (context == null) return false;
         try {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .edit()
                     .putBoolean(KEY_ACCEPTED, false)
                     .remove(KEY_VERSION)
                     .apply();
-        } catch (Throwable ignored) {
+            return true;
+        } catch (Throwable notStored) {
+            com.oilquiz.app.util.AILogger.w("PrivacyConsent",
+                    "撤回没落盘：本机记录仍是已同意，必须告诉用户重试: " + notStored.getMessage());
+            return false;
         }
     }
 }

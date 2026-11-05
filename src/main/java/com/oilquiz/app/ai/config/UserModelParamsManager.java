@@ -305,7 +305,8 @@ public class UserModelParamsManager {
             // ⇒ 作废 prompt→response 缓存，避免命中上一次不同卸载配置写下的答案。
             com.oilquiz.app.ai.refactor.CacheManager.invalidateEngineCache(
                     context, "GPU 卸载层数变更为 " + value);
-        } catch (Exception ignored) {
+        } catch (Exception notStored) {
+            com.oilquiz.app.util.AILogger.w("UserModelParamsManager", "GPU 卸载层数没写进 model_state_cache: " + notStored);
         }
     }
 

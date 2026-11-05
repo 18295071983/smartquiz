@@ -74,7 +74,14 @@ public class AboutLicensesActivity extends AppCompatActivity {
                 .setTitle("撤回隐私授权")
                 .setMessage("撤回后，需要联网/权限的功能将停止使用；下次启动会重新要求你阅读并同意《隐私政策》。\n\n确定撤回吗？")
                 .setPositiveButton("撤回", (d, w) -> {
-                    com.oilquiz.app.util.PrivacyConsent.revoke(this);
+                    if (!com.oilquiz.app.util.PrivacyConsent.revoke(this)) {
+                        // 撤回没落盘＝记录仍是"已同意"。这种时候不能跳转到"已撤回"的界面：
+                        // 用户会以为授权已经收回，而联网功能下次照样照同意状态跑。
+                        android.widget.Toast.makeText(this,
+                                "撤回没生效（本机写入失败），当前仍记录为已同意，请稍后重试",
+                                android.widget.Toast.LENGTH_LONG).show();
+                        return;
+                    }
                     android.content.Intent intent = new android.content.Intent(this,
                             com.oilquiz.app.MainActivity.class);
                     intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK

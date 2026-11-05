@@ -191,7 +191,8 @@ public final class ToolResultCardBinder {
         try {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                     .edit().putBoolean(PREF_KEY_ENABLED, enabled).apply();
-        } catch (Throwable ignored) {
+        } catch (Throwable notStored) {
+            com.oilquiz.app.util.AILogger.w("ToolResultCardBinder", "工具结果卡片的开关没落盘（下次启动回默认档）: " + notStored);
         }
     }
 

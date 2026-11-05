@@ -59,7 +59,8 @@ public final class HtmlSubmitFlag {
         try {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                     .edit().putBoolean(PREF_KEY, value).apply();
-        } catch (Throwable ignored) {
+        } catch (Throwable notStored) {
+            com.oilquiz.app.util.AILogger.w("HtmlSubmitFlag", "html 卡片 submit 桥的开关没落盘（下次启动回默认档）: " + notStored);
         }
     }
 }

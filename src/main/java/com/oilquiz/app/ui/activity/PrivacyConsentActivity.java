@@ -34,7 +34,11 @@ public class PrivacyConsentActivity extends AppCompatActivity {
         setContentView(R.layout.activity_privacy_consent);
 
         findViewById(R.id.btn_agree).setOnClickListener(v -> {
-            PrivacyConsent.accept(this);
+            if (!PrivacyConsent.accept(this)) {
+                android.widget.Toast.makeText(this,
+                        "同意状态没能保存（本机写入失败），下次启动会再问一次",
+                        android.widget.Toast.LENGTH_LONG).show();
+            }
             goMain();
         });
         findViewById(R.id.btn_view).setOnClickListener(v ->

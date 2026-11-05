@@ -163,7 +163,13 @@ public class MainActivity extends BaseActivity {
                         + "只有你主动使用联网功能时，内容才会发送到你自行配置的第三方服务。")
                 .setPositiveButton("同意并继续", (d, w) -> {
                     privacyConsentDialog = null;
-                    com.oilquiz.app.util.PrivacyConsent.accept(this);
+                    // 写不进去≠成功：用户已经点了同意，界面却当没事发生，
+                    // 结果是他以为自己同意过而本机没有凭证（下次还会重弹）。要说出来。
+                    if (!com.oilquiz.app.util.PrivacyConsent.accept(this)) {
+                        android.widget.Toast.makeText(this,
+                                "同意状态没能保存（本机写入失败），下次启动会再问一次",
+                                android.widget.Toast.LENGTH_LONG).show();
+                    }
                     recreate();
                 })
                 .setNeutralButton("查看全文", (d, w) -> {
