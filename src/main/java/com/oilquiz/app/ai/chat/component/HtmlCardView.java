@@ -316,6 +316,33 @@ public class HtmlCardView implements ChatComponent {
             return handleNavigation(view, url);
         }
 
+        /**
+         * 网页浏览档（{@code REMOTE_PAGE}）可能遇到要 401 认证或证书有问题的站点。
+         *
+         * <p>不覆盖时内核默认"没人接就取消"，卡片表现成一片空白，用户分不清是页面没内容还是
+         * 卡渲染坏了。与内置浏览器共用 {@code BrowserAuthController}，别在卡片里另起一套弹框。</p>
+         */
+        @Override
+        public void onReceivedHttpAuthRequest(WebView view,
+                                              android.webkit.HttpAuthHandler handler,
+                                              String host, String realm) {
+            if (trust == HtmlSandbox.Trust.REMOTE_PAGE) {
+                com.oilquiz.app.browser.BrowserAuthController.handleHttpAuth(view, handler, host, realm);
+                return;
+            }
+            handler.cancel(); // 内联/本地档没有认证这回事，明确取消而不是静默
+        }
+
+        @Override
+        public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler,
+                                       android.net.http.SslError error) {
+            if (trust == HtmlSandbox.Trust.REMOTE_PAGE) {
+                com.oilquiz.app.browser.BrowserAuthController.handleSslError(view, handler, error);
+                return;
+            }
+            handler.cancel();
+        }
+
         /** @return true 表示卡片内不加载（已交回应用或被拦下） */
         private boolean handleNavigation(WebView view, String url) {
             if (url == null) return true;

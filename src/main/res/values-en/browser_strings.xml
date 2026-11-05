@@ -58,7 +58,7 @@
     <string name="browser_desktop_enabled">Desktop site on, reloading</string>
     <string name="browser_desktop_disabled">Mobile site on, reloading</string>
     <string name="browser_clear_data">Clear browsing data</string>
-    <string name="browser_clear_data_message">Cache, cookies, history and local storage will be cleared. Bookmarks are kept.</string>
+    <string name="browser_clear_data_message">Cache, cookies, history, local storage and saved site passwords will be cleared. Bookmarks are kept.</string>
     <string name="browser_clear">Clear</string>
     <string name="browser_clear_done">Browsing data cleared</string>
     <string name="browser_cancel">Cancel</string>
@@ -99,4 +99,25 @@
     <string name="browser_scheme_policy_system">Open in the app directly</string>
     <string name="browser_scheme_policy_browser">Hand to the system browser</string>
     <string name="browser_scheme_policy_saved">Unknown scheme handling is now: %1$s</string>
+
+    <!-- Browser authentication: HTTP challenges, HTTPS certificate errors, saved site credentials -->
+    <string name="browser_auth_title">Site requires sign-in</string>
+    <string name="browser_auth_message">%1$s demands authentication.\n\nProtected area: %2$s</string>
+    <string name="browser_auth_host_unknown">this site</string>
+    <string name="browser_auth_user">Username</string>
+    <string name="browser_auth_password">Password</string>
+    <string name="browser_auth_remember">Remember this site\'s credentials (encrypted)</string>
+    <string name="browser_auth_login">Sign in</string>
+    <string name="browser_auth_need_user">Username cannot be empty</string>
+    <string name="browser_auth_saved">Site credentials saved encrypted</string>
+    <string name="browser_auth_no_keystore">Secure storage unavailable, password not saved</string>
+    <string name="browser_auth_entry">Site passwords (%1$d)</string>
+    <string name="browser_auth_none">No saved site passwords</string>
+    <string name="browser_auth_manage_title">Saved site passwords (%1$d)</string>
+    <string name="browser_auth_forgotten">Forgotten that site\'s password</string>
+    <string name="browser_auth_clear_all">Clear all</string>
+    <string name="browser_auth_all_cleared">All site passwords cleared</string>
+    <string name="browser_ssl_title">Certificate check failed</string>
+    <string name="browser_ssl_message">Certificate check failed for %1$s (engine error code %2$d).\n%3$s\n\nContinuing applies to this visit only; while the certificate is bad someone could be impersonating the site.</string>
+    <string name="browser_ssl_continue_once">Continue just this once</string>
 </resources>

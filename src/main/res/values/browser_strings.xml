@@ -58,7 +58,7 @@
     <string name="browser_desktop_enabled">已切换桌面版，正在重新加载</string>
     <string name="browser_desktop_disabled">已切换手机版，正在重新加载</string>
     <string name="browser_clear_data">清除浏览数据</string>
-    <string name="browser_clear_data_message">将清除缓存、Cookie、历史记录与本地存储。书签会保留。</string>
+    <string name="browser_clear_data_message">将清除缓存、Cookie、历史记录与本地存储，并抹掉记住的站点账号密码。书签会保留。</string>
     <string name="browser_clear">清除</string>
     <string name="browser_clear_done">已清除浏览数据</string>
     <string name="browser_cancel">取消</string>
@@ -99,4 +99,25 @@
     <string name="browser_scheme_policy_system">直接交给应用</string>
     <string name="browser_scheme_policy_browser">交给系统浏览器</string>
     <string name="browser_scheme_policy_saved">未知协议处理方式已改为：%1$s</string>
+
+    <!-- 浏览器鉴权：HTTP 认证挑战、HTTPS 证书错误、站点账号密码 -->
+    <string name="browser_auth_title">站点要求登录</string>
+    <string name="browser_auth_message">%1$s 要求身份验证。\n\n受保护区域：%2$s</string>
+    <string name="browser_auth_host_unknown">该站点</string>
+    <string name="browser_auth_user">用户名</string>
+    <string name="browser_auth_password">密码</string>
+    <string name="browser_auth_remember">记住这个站点的账号密码（加密保存）</string>
+    <string name="browser_auth_login">登录</string>
+    <string name="browser_auth_need_user">用户名不能为空</string>
+    <string name="browser_auth_saved">已加密保存该站点凭据</string>
+    <string name="browser_auth_no_keystore">本机安全存储不可用，密码不会被保存</string>
+    <string name="browser_auth_entry">站点密码（%1$d）</string>
+    <string name="browser_auth_none">没有记住的站点密码</string>
+    <string name="browser_auth_manage_title">记住的站点密码（%1$d）</string>
+    <string name="browser_auth_forgotten">已忘记该站点密码</string>
+    <string name="browser_auth_clear_all">全部清除</string>
+    <string name="browser_auth_all_cleared">已清除全部站点密码</string>
+    <string name="browser_ssl_title">证书校验失败</string>
+    <string name="browser_ssl_message">%1$s 的证书校验没通过（内核错误码 %2$d）。\n%3$s\n\n继续访问只对这一次有效；证书有问题时别人可能正在冒充该站点。</string>
+    <string name="browser_ssl_continue_once">仅本次继续</string>
 </resources>

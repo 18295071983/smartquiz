@@ -152,6 +152,9 @@ public class WebRenderTool implements AITool {
             try {
                 WebView webView = new WebView(appContext);
                 holder[0] = webView;
+                // 抓真实站点时第三方 Cookie 必须开（同 DouyinDownloaderTool 的口径）：
+                // 扫码登录/跨域 OAuth 回调写的是第一方之外的 Cookie，不开就"登录了，抓回来又掉线"
+                com.oilquiz.app.webview.WebViewDefaults.enableCookiePersistence(webView);
                 WebSettings s = webView.getSettings();
                 s.setJavaScriptEnabled(true);
                 s.setDomStorageEnabled(true);

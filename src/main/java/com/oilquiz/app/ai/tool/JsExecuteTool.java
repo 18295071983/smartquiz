@@ -174,6 +174,8 @@ public class JsExecuteTool implements AITool {
             try {
                 WebView webView = new WebView(appContext);
                 holder[0] = webView;
+                // 真实页面模式要带跨域 Cookie（口径同 WebRenderTool/DouyinDownloaderTool）
+                com.oilquiz.app.webview.WebViewDefaults.enableCookiePersistence(webView);
                 WebSettings s = webView.getSettings();
                 s.setJavaScriptEnabled(true);
                 // 无 url 时：null origin 内存引导页的 localStorage 在不同 WebView 实例间可能共享，

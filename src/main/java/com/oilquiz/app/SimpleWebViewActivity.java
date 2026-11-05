@@ -92,6 +92,25 @@ public class SimpleWebViewActivity extends BaseActivity {
 
         // WebViewClient：链接处理 + 页面进度 + JS 交互诊断
         webView.setWebViewClient(new WebViewClient() {
+            /**
+             * 站点要 HTTP 认证（401/407）。
+             *
+             * <p>本壳走的是 {@code loadDataWithBaseURL} 渲染本地内容，远程子资源（图片/接口）
+             * 也可能要认证；不覆盖时内核默认"没人接就取消"，表现为资源凭空缺失。</p>
+             */
+            @Override
+            public void onReceivedHttpAuthRequest(WebView view,
+                                                  android.webkit.HttpAuthHandler handler,
+                                                  String host, String realm) {
+                com.oilquiz.app.browser.BrowserAuthController.handleHttpAuth(view, handler, host, realm);
+            }
+
+            @Override
+            public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler,
+                                           android.net.http.SslError error) {
+                com.oilquiz.app.browser.BrowserAuthController.handleSslError(view, handler, error);
+            }
+
             // 链接点击：http/https 用系统浏览器打开（页内相对链接由 WebView 内部导航）
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {

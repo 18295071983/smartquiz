@@ -65,8 +65,25 @@ public class WeatherWebViewActivity extends AppCompatActivity {
         settings.setAllowContentAccess(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        // 和风网页要登录/跨域资源：第三方 Cookie 不开会表现为"登录了，跳回来又掉线"
+        com.oilquiz.app.webview.WebViewDefaults.enableCookiePersistence(webView);
 
         webView.setWebViewClient(new WebViewClient() {
+            /** 站点要 401 认证：内核默认"没人接就取消"，这里交给浏览器同一套鉴权处置弹输入框 */
+            @Override
+            public void onReceivedHttpAuthRequest(WebView view,
+                                                  android.webkit.HttpAuthHandler handler,
+                                                  String host, String realm) {
+                com.oilquiz.app.browser.BrowserAuthController.handleHttpAuth(view, handler, host, realm);
+            }
+
+            /** 证书校验失败：列事实并让用户显式选"仅本次继续"，不静默拒绝 */
+            @Override
+            public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler,
+                                           android.net.http.SslError error) {
+                com.oilquiz.app.browser.BrowserAuthController.handleSslError(view, handler, error);
+            }
+
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 progressBar.setVisibility(View.VISIBLE);

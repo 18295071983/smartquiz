@@ -414,6 +414,11 @@ public final class HtmlSandbox {
         s.setMixedContentMode(trust == Trust.REMOTE_PAGE
                 ? WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                 : WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        // 远程网页档才开第三方 Cookie：卡片里嵌扫码登录/跨域 OAuth 回调时，不开就是
+        // "登录了，跳回来又掉线"。内联与本地档不加载跨源登录流，能力只给到该档必需的最小集。
+        if (trust == Trust.REMOTE_PAGE) {
+            com.oilquiz.app.webview.WebViewDefaults.enableCookiePersistence(webView);
+        }
         if (android.os.Build.VERSION.SDK_INT >= 26) {
             try {
                 s.setSafeBrowsingEnabled(true);

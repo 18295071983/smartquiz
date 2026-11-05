@@ -666,6 +666,8 @@ public class WebViewActivity extends BaseActivity {
                 getString(R.string.browser_background_push),
                 getString(desktop ? R.string.browser_desktop_off : R.string.browser_desktop_on),
                 getString(R.string.browser_scheme_policy_entry, schemePolicyLabel()),
+                getString(R.string.browser_auth_entry,
+                        com.oilquiz.app.browser.BrowserAuthController.listSavedSites(this).size()),
                 getString(R.string.browser_clear_data)
         };
         new android.app.AlertDialog.Builder(this)
@@ -685,12 +687,22 @@ public class WebViewActivity extends BaseActivity {
                         case 10: showPushSubscriptions(); break;
                         case 11: toggleDesktopMode(); break;
                         case 12: showSchemePolicyDialog(); break;
-                        case 13: clearBrowsingData(); break;
+                        case 13: showSavedCredentialsDialog(); break;
+                        case 14: clearBrowsingData(); break;
                         default: break;
                     }
                 })
                 .setNegativeButton(R.string.browser_cancel, null)
                 .show();
+    }
+
+    /** 查看/忘记浏览器记住的站点账号密码（只有用户在登录框勾过"记住"才会有条目） */
+    private void showSavedCredentialsDialog() {
+        com.oilquiz.app.browser.BrowserAuthController.showSavedSitesDialog(this, () -> {
+            // 改完让用户立刻看到新条数，不用重开菜单再数一遍
+            showToast(getString(R.string.browser_auth_entry,
+                    com.oilquiz.app.browser.BrowserAuthController.listSavedSites(this).size()));
+        });
     }
 
     /** 当前「未知协议」档位的中文名（菜单里不能露 ask/system/browser 这种原始值） */
@@ -881,6 +893,8 @@ public class WebViewActivity extends BaseActivity {
                         android.webkit.WebStorage.getInstance().deleteAllData();
                         browserStore.clearHistory();
                         com.oilquiz.app.webview.AppCookieStore.getInstance().clear();
+                        // 记住的站点账号密码属于同一批"我在这台设备上登录过"的痕迹，一起抹掉
+                        com.oilquiz.app.browser.BrowserAuthController.clearAll(this);
                         showToast(getString(R.string.browser_clear_done));
                     } catch (Throwable t) {
                         AppLogger.e(TAG, "清除浏览数据失败: " + t.getMessage(), t);
@@ -2769,217 +2783,6 @@ public class WebViewActivity extends BaseActivity {
                 }
             }
         }
-    }
-    
-    /**
-     * 传统的WebView初始化方法（保留用于兼容）
-     */
-    private WebView initSystemWebViewForTab() {
-        AppLogger.d(TAG, "使用系统WebView（传统模式）");
-        // 创建WebView，直接使用系统WebView
-        WebView webView = new WebView(this);
-        
-        // 启用硬件加速
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
-            webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null);
-        }
-        
-        WebSettings webSettings = webView.getSettings();
-        AppResourceManager.getInstance(this).webView().configureWebSettings(webSettings);
-
-        // 伪装为正常 Chrome UA（默认 UA 带 wv 标记，站点会拒绝 document.cookie/登录 Cookie）
-        webSettings.setUserAgentString(com.oilquiz.app.webview.WebViewDefaults.CHROME_USER_AGENT);
-        
-        webSettings.setGeolocationEnabled(true);
-        webSettings.setGeolocationDatabasePath(getFilesDir().getPath());
-        
-        WebViewSecurityConfig.configure(webSettings);
-        
-        // 壳能力：JS 弹窗路由（配合 onCreateWindow）、媒体自动播放、混合内容兼容
-        // （覆盖安全配置中的严格项：弹窗由 onCreateWindow 统一路由回主 WebView，不真正开新窗口）
-        webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
-        webSettings.setMediaPlaybackRequiresUserGesture(false);
-        webSettings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW); // 安全：混合内容一律禁止（防降级窃取登录态）
-
-        // 身份认证支持：开启 Cookie（含第三方——SSO 联合登录必需），登录态应用内持久化
-        android.webkit.CookieManager cookieMgr = android.webkit.CookieManager.getInstance();
-        cookieMgr.setAcceptCookie(true);
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-            cookieMgr.setAcceptThirdPartyCookies(webView, true);
-        }
-        
-        // 实现自适应显示功能
-        webSettings.setDefaultFontSize(16);
-        webSettings.setMinimumFontSize(12);
-        webSettings.setDefaultFixedFontSize(16);
-        webSettings.setTextZoom(100);
-        
-        // 优化硬件加速
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-            webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null);
-        }
-        
-        // 优化资源加载
-        webSettings.setLoadsImagesAutomatically(true);
-        webSettings.setBlockNetworkImage(false);
-        
-        // 设置WebView客户端 - 使用支持文件重定向的客户端
-        RedirectWebViewClient redirectWebViewClient = new RedirectWebViewClient();
-        redirectWebViewClient.setFileRedirectEnabled(true);
-        redirectWebViewClient.setPageLoadCallback(new RedirectWebViewClient.PageLoadCallback() {
-            @Override
-            public void onPageStarted(String url) {
-                AppLogger.d(TAG, "页面开始加载 " + url);
-            }
-
-            @Override
-            public void onPageFinished(String url) {
-                AppLogger.d(TAG, "页面加载完成: " + url);
-                // 捕获登录态 Cookie 到应用级仓库（供 web_render/python_web_reader/OkHttp 复用）
-                captureCookiesForUrl(url);
-                // 注入JavaScript来优化页面显示
-                injectOptimizationScript(webView);
-            }
-
-            @Override
-            public void onError(int errorCode, String description, String failingUrl) {
-                // 错误页已由 RedirectWebViewClient.showErrorPage 统一显示（友好重试页），此处仅记录日志
-                AppLogger.e(TAG, "页面加载错误 [" + errorCode + "]: " + description);
-            }
-        });
-        webView.setWebViewClient(redirectWebViewClient);
-        
-        // 设置WebChromeClient来处理进度和标题
-        webView.setWebChromeClient(new android.webkit.WebChromeClient() {
-            @Override
-            public boolean onShowFileChooser(WebView view, android.webkit.ValueCallback<android.net.Uri[]> callback, android.webkit.WebChromeClient.FileChooserParams params) {
-                // 壳能力：网页 <input type=file> 文件选择
-                if (filePathCallback != null) filePathCallback.onReceiveValue(null);
-                filePathCallback = callback;
-                try {
-                    startActivityForResult(android.content.Intent.createChooser(params.createIntent(), "选择文件"), REQ_FILE_CHOOSER);
-                    return true;
-                } catch (Exception e) {
-                    filePathCallback = null;
-                    return false;
-                }
-            }
-
-            @Override
-            public void onShowCustomView(View view, android.webkit.WebChromeClient.CustomViewCallback callback) {
-                if (fullscreenController == null) {
-                    fullscreenController =
-                            new com.oilquiz.app.browser.BrowserFullscreenController(WebViewActivity.this);
-                }
-                fullscreenController.show(view, callback);
-            }
-
-            @Override
-            public void onHideCustomView() {
-                if (fullscreenController != null) fullscreenController.hide(false);
-            }
-
-            @Override
-            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
-                // 只响应用户点击触发的 window.open；广告/脚本自动弹窗直接丢弃
-                if (!isUserGesture) return false;
-                // window.open / target=_blank：在新标签页承载，子 WebView 只做 URL 中转
-                WebView child = new WebView(getApplicationContext());
-                child.setWebViewClient(new WebViewClient() {
-                    @Override
-                    public boolean shouldOverrideUrlLoading(WebView v, String url) {
-                        if (url != null && !url.isEmpty()) {
-                            createNewTab(url);
-                        }
-                        v.post(() -> {
-                            try {
-                                v.destroy();
-                            } catch (Throwable ignored) {
-                            }
-                        });
-                        return true;
-                    }
-                });
-                WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
-                transport.setWebView(child);
-                resultMsg.sendToTarget();
-                return true;
-            }
-
-            @Override
-            public void onGeolocationPermissionsShowPrompt(String origin, android.webkit.GeolocationPermissions.Callback callback) {
-                if (permissionProvider != null && permissionProvider.hasLocationPermission()) {
-                    callback.invoke(origin, true, false);
-                } else {
-                    permissionProvider.requestLocationPermission(WebViewActivity.this, new com.oilquiz.app.resource.PermissionResourceProvider.PermissionCallback() {
-                        @Override
-                        public void onGranted() {
-                            callback.invoke(origin, true, false);
-                        }
-
-                        @Override
-                        public void onDenied(java.util.List<String> deniedPermissions) {
-                            callback.invoke(origin, false, false);
-                        }
-                    });
-                }
-            }
-
-            @Override
-            public void onPermissionRequest(android.webkit.PermissionRequest request) {
-                handleWebViewPermissionRequest(request);
-            }
-
-            @Override
-            public void onProgressChanged(WebView view, int newProgress) {
-                super.onProgressChanged(view, newProgress);
-                AppLogger.d(TAG, "加载进度: " + newProgress + "%");
-            }
-            
-            @Override
-            public void onReceivedTitle(WebView view, String title) {
-                super.onReceivedTitle(view, title);
-                // 可以在这里更新标签页标题
-                if (currentTabIndex >= 0 && currentTabIndex < tabList.size()) {
-                    tabList.get(currentTabIndex).setText(title);
-                    // 确保选中标签页的文字颜色保持为primary色
-                    tabList.get(currentTabIndex).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorPrimary));
-                    // 确保关闭按钮的文字颜色也保持为primary色
-                    android.view.ViewParent tabParent = tabList.get(currentTabIndex).getParent();
-                    if (tabParent instanceof LinearLayout) {
-                        LinearLayout tabLayout = (LinearLayout) tabParent;
-                        for (int j = 0; j < tabLayout.getChildCount(); j++) {
-                            View child = tabLayout.getChildAt(j);
-                            if (child instanceof Button) {
-                                ((Button) child).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorPrimary));
-                                ((Button) child).setBackgroundResource(android.R.color.transparent);
-                            }
-                        }
-                    }
-                }
-            }
-        });
-        
-        // JS 桥按页面来源动态挂载（见 setJsBridgeEnabled），默认不给
-        prepareJsBridge(webView);
-
-        // blob 下载专用桥：对所有页面开放，但只接受本进程生成的随机 requestId
-        try {
-            webView.removeJavascriptInterface("SmartQuizBlob");
-            webView.addJavascriptInterface(new BlobBridge(), "SmartQuizBlob");
-            // 后台提醒桥对所有页面开放；每次注册都要用户弹窗授权，且按页面来源隔离
-            webView.removeJavascriptInterface("SmartQuizPush");
-            webView.addJavascriptInterface(new WebPushBridge(webView), "SmartQuizPush");
-        } catch (Throwable ignored) {
-        }
-        
-        x5WebView = webView;
-        
-        // 获取WebView版本信息
-        String webViewVersion = getWebViewVersionInfo();
-        AppLogger.d(TAG, "系统WebView初始化成功，版本: " + webViewVersion);
-        
-        return webView;
     }
     
     /**

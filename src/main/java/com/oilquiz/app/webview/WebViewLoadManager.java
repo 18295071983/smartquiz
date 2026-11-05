@@ -105,6 +105,7 @@ public class WebViewLoadManager {
 
         // 配置WebSettings
         configureWebSettings(webView.getSettings());
+        enableCookiePersistence(webView);
 
         // 默认客户端只在这里装一次；调用方（如内置浏览器）随后会替换成自己的客户端。
         // 旧实现每次 loadUrl 都重装默认客户端，会把安全/重定向/错误页客户端静默覆盖掉。
@@ -156,6 +157,16 @@ public class WebViewLoadManager {
     }
     
     /**
+     * 打开 Cookie 持久化与第三方 Cookie。
+     *
+     * <p>口径已抽到 {@link WebViewDefaults#enableCookiePersistence}——那是所有会加载远程内容的
+     * 宿主共用的单一出处，这里只是转发，避免长出第二套 Cookie 判定。</p>
+     */
+    private void enableCookiePersistence(WebView webView) {
+        WebViewDefaults.enableCookiePersistence(webView);
+    }
+
+    /**
      * 准备WebView（从池中取出后的初始化）
      */
     private void prepareWebView(WebView webView) {
@@ -163,6 +174,7 @@ public class WebViewLoadManager {
         webView.stopLoading();
         webView.clearHistory();
         webView.setVisibility(View.VISIBLE);
+        enableCookiePersistence(webView);
 
         // 池中取出的 WebView 在回收时被清掉了客户端，这里恢复默认；
         // 调用方若需要安全客户端，会在 acquire 之后自己 setWebViewClient 覆盖。

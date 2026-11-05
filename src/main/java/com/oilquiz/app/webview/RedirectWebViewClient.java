@@ -2,8 +2,11 @@ package com.oilquiz.app.webview;
 
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.net.http.SslError;
 import android.util.Log;
+import android.webkit.HttpAuthHandler;
 import android.webkit.RenderProcessGoneDetail;
+import android.webkit.SslErrorHandler;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -350,6 +353,24 @@ public class RedirectWebViewClient extends WebViewClient {
     }
 
     // ==================== 错误处理（壳源码：友好错误重试页，不显示系统/Chrome 错误页） ====================
+
+    /**
+     * 站点要 HTTP Basic/Digest 认证（401/407）。
+     *
+     * <p>不覆盖这个回调时内核的默认行为是<b>取消</b>：路由器后台、NAS、内网系统这类站点
+     * 在内置浏览器里就是一片空白，而系统浏览器会给输入框。这里交给鉴权控制器弹框/复用已存凭据。</p>
+     */
+    @Override
+    public void onReceivedHttpAuthRequest(WebView view, HttpAuthHandler handler,
+                                         String host, String realm) {
+        com.oilquiz.app.browser.BrowserAuthController.handleHttpAuth(view, handler, host, realm);
+    }
+
+    /** 证书校验失败：列原因并让用户显式选"仅本次继续"，不静默拒绝也不永久放行 */
+    @Override
+    public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+        com.oilquiz.app.browser.BrowserAuthController.handleSslError(view, handler, error);
+    }
 
     @Override
     public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
