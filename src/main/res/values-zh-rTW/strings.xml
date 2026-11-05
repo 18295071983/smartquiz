@@ -561,10 +561,6 @@
     <string name="chat_status_sent">已傳送</string>
 
     <!-- Last used -->
-    <string name="last_used_just_now">剛剛使用</string>
-    <string name="last_used_minutes">%d 分鐘前使用</string>
-    <string name="last_used_hours">%d 小時前使用</string>
-    <string name="last_used_days">%d 天前使用</string>
 
     <!-- Service types -->
     <string name="service_type_baichuan">百川智能</string>

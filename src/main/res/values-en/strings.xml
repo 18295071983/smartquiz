@@ -582,10 +582,6 @@ Enter \'Help\' to see more functions.</string>
     <string name="chat_status_sent">Sent</string>
 
     <!-- Last used -->
-    <string name="last_used_just_now">Used just now</string>
-    <string name="last_used_minutes">Used %d minutes ago</string>
-    <string name="last_used_hours">Used %d hours ago</string>
-    <string name="last_used_days">Used %d days ago</string>
 
     <!-- Permissions -->
     <string name="permission_denied">Permission Denied</string>

@@ -721,11 +721,16 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         private void showModelDetails(DisplayItem item) {
             if (context == null) return;
 
+            // 延迟只有探测过才有值：实时路径进来的一律是 0（updateData 里写死"latency unknown initially"，
+            // 而 updateModelStatus(name,status,latency) 至今没人调用）。0ms 看着像"快得可以忽略"，
+            // 实际是"没测"，所以未探测时明确写未探测，别拿 0 冒充实测。
+            String latencyText = item.latencyMs > 0 ? formatLatency(item.latencyMs) : "未探测";
+
             String details = "模型名称: " + item.modelName + "\n" +
                            "模型类型: " + (item.modelType != null ? item.modelType : "未知") + "\n" +
                            "API地址: " + (item.apiUrl != null ? item.apiUrl : "未知") + "\n" +
                            "状态: " + getStatusText(item.status) + "\n" +
-                           "延迟: " + item.latencyMs + "ms\n" +
+                           "延迟: " + latencyText + "\n" +
                            "是否启用: " + (item.isEnabled ? "是" : "否");
 
             new android.app.AlertDialog.Builder(context)
@@ -733,6 +738,14 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                 .setMessage(details)
                 .setPositiveButton(context.getString(R.string.h_38cf16f2), null)
                 .show();
+        }
+
+        /** 毫秒按量级换算（与全局"展示换算只放渲染端"的口径一致） */
+        private String formatLatency(long latencyMs) {
+            if (latencyMs < 1000) {
+                return latencyMs + "ms";
+            }
+            return String.format(java.util.Locale.getDefault(), "%.1fs", latencyMs / 1000.0);
         }
 
         private String getStatusText(int status) {

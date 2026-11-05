@@ -564,10 +564,6 @@
     <string name="empty_models">暂无模型</string>
     <string name="no_models_available">暂无可用模型</string>
     <string name="add_model">添加模型</string>
-    <string name="last_used_days">%d 天前使用</string>
-    <string name="last_used_hours">%d 小时前使用</string>
-    <string name="last_used_minutes">%d 分钟前使用</string>
-    <string name="last_used_just_now">刚刚使用</string>
     <string name="enable">启用</string>
     <string name="disable">禁用</string>
 
