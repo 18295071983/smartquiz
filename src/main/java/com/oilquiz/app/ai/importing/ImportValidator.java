@@ -32,6 +32,10 @@ public class ImportValidator {
     /** markdown 代码块包裹正则(```json ... ``` 或 ``` ... ```) */
     private static final Pattern CODE_FENCE = Pattern.compile("(?s)```(?:json|JSON)?\\s*(.*?)```");
 
+    /** 尾逗号修复：`,}` → `}`、`,]` → `]`（} 与 ] 在 ICU 正则里必须转义，故预编译成常量） */
+    private static final Pattern TRAILING_COMMA_BEFORE_BRACE = Pattern.compile(",\\s*\\}");
+    private static final Pattern TRAILING_COMMA_BEFORE_BRACKET = Pattern.compile(",\\s*\\]");
+
     /** 单个字母答案正则(A/B/C/D/E...) */
     private static final Pattern LETTER_ANSWER = Pattern.compile("^[A-Za-z]$");
 
@@ -100,13 +104,12 @@ public class ImportValidator {
         s = singleToDoubleQuotes(s);
 
         // 4. 移除尾逗号(,} -> }, ,] -> ])
-        //    ⚠ Android ICU 正则引擎要求 } 和 ] 必须转义，否则抛 PatternSyntaxException
-        try {
-            s = s.replaceAll(",\\s*\\}", "}");
-            s = s.replaceAll(",\\s*\\]", "]");
-        } catch (java.util.regex.PatternSyntaxException ignored) {
-            // 防御：正则异常不影响主流程，跳过尾逗号修复
-        }
+        //    ⚠ Android ICU 正则引擎要求 } 和 ] 必须转义，否则抛 PatternSyntaxException。
+        //    转义写死在预编译常量里：这样"模式本身写错"在类加载时就炸出来（可发现），
+        //    而运行期不可能再抛 PatternSyntaxException——原来那层 catch 兜的正是它自己
+        //    （注释还写着"防御"），既不会命中，又把每次调用重新编译 Pattern 的开销留着。
+        s = TRAILING_COMMA_BEFORE_BRACE.matcher(s).replaceAll("}");
+        s = TRAILING_COMMA_BEFORE_BRACKET.matcher(s).replaceAll("]");
 
         // 5. 修复未闭合的 } 和 ] (统计括号配对补齐)
         s = closeUnclosedBrackets(s);
@@ -260,12 +263,25 @@ public class ImportValidator {
         if (!repaired.isEmpty()) {
             try {
                 return new JSONObject(repaired);
-            } catch (JSONException ignored) {
-                // 全部失败
+            } catch (JSONException stillBad) {
+                // 三道防线全走完还是不是 JSON：这是"模型输出了非结构化文本"的唯一现场，
+                // 返回 null 之外必须把原文头一段留下来，否则事后只能看到"导入没结果"。
+                android.util.Log.w("ImportValidator", "结构化输出三道解析全失败，前 200 字: "
+                        + preview(raw) + " —— " + stillBad.getMessage());
             }
+        } else {
+            android.util.Log.w("ImportValidator", "结构化输出提取不到 JSON 片段，前 200 字: "
+                    + preview(raw));
         }
 
         return null;
+    }
+
+    /** 日志用的原文预览：掐到 200 字并压掉换行，免得一条坏输出把日志刷成一屏 */
+    private static String preview(String raw) {
+        if (raw == null) return "null";
+        String oneLine = raw.replace('\n', ' ').replace('\r', ' ');
+        return oneLine.length() > 200 ? oneLine.substring(0, 200) + "…" : oneLine;
     }
 
     // ======================== 题目校验 ========================

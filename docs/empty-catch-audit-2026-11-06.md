@@ -177,3 +177,32 @@ ai/bridge/ModelExecutionBridge.java:511  putLocalSampling()  catch Throwable
 - **`resumeParse` 为真但 `bp.mappingJson` 本身为空**：走 else 分支（缓存/推断）却仍从断点行号续导。本轮只处理"有 JSON 但读不出"，因为"空 mappingJson 但缓存命中"是正常组合，要不要一并放弃续导属于导入策略，等你说。
 - **`ChatHistoryManager` 与 `AtomicFileText` 各有一套 `readText`**，`deleteRecursively` 在 `DouyinDownloaderTool`、`PipInstallTool`、`SystemResourceTool`、`ChatHistoryManager` 里各有一份私有实现。收敛成一个工具类是重构，不混进"消静默"这批。
 - **本轮没加测试**。要钉的三条新行为（回收站读不出→不扫、备份拿不到→仍写但有 W、断点映射读不出→重新导入）都需要构造故障；前两条可用一个假的 listFiles/只读目录做，第三条要喂坏 JSON——按批 2c 之后统一安排，还是现在就补，你说一句就行。
+
+## 10. 批 2c 改动记录（Agent 工具/校验/下载侧）
+
+八个文件：`DatabaseTool`、`ExcelTool`、`BlobDownloadManager`、`BrowserDownloader`、`ImportValidator`、`SqlFileImporter`、`FileUriUtils`、`ModelDownloadActivity`。这批的特点是**结果给模型看**，所以"静默"直接等于"模型以为自己成功了"。
+
+| 指标 | 批 2c 前 | 批 2c 后 | 差 |
+| --- | --- | --- | --- |
+| catch 总数（src/main） | 4410 | 4392 | -18 |
+| 真·空体 | 863 | 829 | -34 |
+| 只写注释的空体 | 140 | 138 | -2 |
+| 只写日志 | 971 | 979 | +8 |
+| 有恢复动作 | 2365 | 2375 | +10 |
+| 高危 / 中危 / 低危 | 165 / 571 / 127 | **145** / 557 / 127 | 高危 -20 |
+
+三批累计（基线取批 1 之后那次）：**真·空体 920 → 829，catch 4446 → 4392，高危 191 → 145**。八个文件里现在只剩 3 处注释型空体，都是刻意保留的兜底（`BrowserDownloader.extensionForMime` 的 MimeTypeMap 缺项、`ImportValidator` 防线 1/2 的"这层就是要往下走"）。
+
+| 改法 | 位置 | 为什么 |
+| --- | --- | --- |
+| **对模型的假成功** | `DatabaseTool.getTableSchema` 的 `COUNT(*)` | 空 catch 让"这条 COUNT 没跑成"和"这张表一行都没有"在结果里长成同一个 `row_count: 0` + `status: success`，模型据此判断"题库是空的"。现在结果里带 `row_count_unknown`/`row_count_error`，并把 Cursor 的 close 挪进 finally |
+| **parseInt 异常当分支 → 显式判形 + 回给模型** | `DatabaseTool.addQuestions`(5 处) 与 `bulkImport`(3 处) | `difficulty`/`points`/`timeLimit`/`sortOrder`/`parentId` 各配一份 `try { parseInt } catch (Exception ignored) {}`：模型交 `"difficulty": "中等"` 时字段带默认值入库、工具回"成功添加 N 道"，它下一批还这么写。现在统一走 `setIntField/setLongField`（正则先判形、限位数顺手挡溢出），没生效的字段进 `coerced_fields` 并拼进 message，同时一条 W。两套重复的 setter 块也收敛成同一处 |
+| **Workbook/Cursor/Reader 关不上无声** | `ExcelTool` 6 处 `workbook.close()`、`SqlFileImporter` 3 处、`BlobDownloadManager.closeQuietly`、`FileUriUtils` 2 处 | 抽成各自的 `closeWorkbook/closeQuietly` 并在关不上时报出。`BlobDownloadManager` 那条最实在：flush/close 失败＝`.part` 尾部没落盘，之后它会被当完整文件搬进下载目录 |
+| **半截缓存文件当成功返回** | `FileUriUtils.copyUriToCacheFile` | `os.close()` 失败还返回路径，下游 OCR/解析拿着截断内容报一个看不出根因的错。现在 close 失败就返回 null（这次选择直接失败），并把原因写进日志——按"假成功比没反应更糟"的口径改 |
+| **interrupt 被吃掉** | `ModelDownloadActivity` 两处重试里的 `Thread.sleep` | 空 catch 让"页面已经不要这份结果了"继续睡完再发一次请求，回调落回已销毁的视图。现在交还 interrupt 并停止重试 |
+| **异常当防御** | `ImportValidator.repairJson` 尾逗号修复 | `String.replaceAll` 每次调用重新编译模式，而模式是写死的字面量——运行期唯一可能的 `PatternSyntaxException` 就是"模式本身写错"，那种情况该在类加载时就炸。改成两个预编译 `Pattern` 常量，那层 try 自然就没东西可接了 |
+| **三道防线全失败无现场** | `ImportValidator.parseStructuredOutput` | 防线 1/2 的 catch 是"往下走"，留着并写明；但三道全走完只 `return null`，事后只能看到"导入没结果"。现在报一条带原文前 200 字（压掉换行）的 W——"模型输出了非结构化文本"这类问题只有这一处能留下证据 |
+| **下载文件名与落点无声降级** | `BrowserDownloader` 5 处、`ModelDownloadActivity.getFileNameFromDownloadUrl` | 公共 Downloads 放不下就改存 App 专属目录、Content-Disposition 解不出就按 URL 猜、同名避让没跑成就按原名、URL 解码失败就用未解码尾段——每一条都会变成用户看不见的差异（"下载里找不到文件""乱码文件名""下载失败"）。都补了带输入值的原因 |
+| **过期缓存清扫无声** | `BlobDownloadManager` 构造里的 `.part` 清扫 | 顺手改成统计"删掉几个/删不掉几个"，删不掉才报；`dir.mkdirs()` 失败也从无声变成一句（否则要等到建临时文件失败才发现） |
+
+未验：这批同样**没加新测试**；`DatabaseTool` 的两个新结果键（`row_count_error`、`coerced_fields`）只由全量单测保证不破坏既有断言。真机上值得点一次的是"用字符串型 difficulty 调 add_questions"——看模型是不是真能收到那句"没按提交值入库"。

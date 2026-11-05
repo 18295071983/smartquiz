@@ -109,14 +109,24 @@ public final class BlobDownloadManager {
                 long cutoff = System.currentTimeMillis() - 24L * 60 * 60 * 1000;
                 File[] stale = dir.listFiles();
                 if (stale != null) {
+                    int swept = 0;
+                    int left = 0;
                     for (File f : stale) {
-                        if (f.lastModified() < cutoff) f.delete();
+                        if (f.lastModified() >= cutoff) continue;
+                        if (f.delete()) swept++;
+                        else if (f.exists()) left++;
+                    }
+                    if (left > 0) {
+                        // 清不掉就是缓存一直在长：下次用户查"为什么占空间"时得有这条对得上
+                        Log.w(TAG, "过期 .part 有 " + left + " 个没删掉（清掉 " + swept + " 个）: "
+                                + dir.getPath());
                     }
                 }
-            } else {
-                dir.mkdirs();
+            } else if (!dir.mkdirs()) {
+                Log.w(TAG, "blob 缓存目录建不出来: " + dir.getPath() + "，下载会在建临时文件时失败");
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable sweepFailed) {
+            Log.w(TAG, "blob 缓存清扫没跑成: " + sweepFailed.getMessage());
         }
     }
 
@@ -324,19 +334,27 @@ public final class BlobDownloadManager {
                 try {
                     p.out.flush();
                     p.out.close();
-                } catch (Throwable ignored) {
+                } catch (Throwable notClosed) {
+                    // flush/close 失败 = 尾部数据可能还在缓冲里没到磁盘，而 .part 之后会被
+                    // 当成完整文件搬进下载目录。这不是"收尾而已"，要留痕。
+                    Log.w(TAG, "blob 输出流没关好（.part 尾部可能没落盘）: " + notClosed.getMessage());
                 }
                 p.out = null;
             }
         }
     }
 
+    /**
+     * 回调投递。listener 是界面侧代码，它抛异常不能把"下载好了"这件事一起吞掉——
+     * 原来两处 {@code catch (Throwable ignored)} 正是这个效果：文件已经落盘，界面一声不吭。
+     */
     private void postSaved(final Listener listener, final String fileName) {
         if (listener == null) return;
         main.post(() -> {
             try {
                 listener.onSaved(fileName);
-            } catch (Throwable ignored) {
+            } catch (Throwable listenerCrashed) {
+                Log.w(TAG, "下载完成回调抛异常（文件已存: " + fileName + "）: " + listenerCrashed);
             }
         });
     }
@@ -346,7 +364,8 @@ public final class BlobDownloadManager {
         main.post(() -> {
             try {
                 listener.onError(reason);
-            } catch (Throwable ignored) {
+            } catch (Throwable listenerCrashed) {
+                Log.w(TAG, "下载失败回调又抛异常（原始原因: " + reason + "）: " + listenerCrashed);
             }
         });
     }
@@ -421,7 +440,11 @@ public final class BlobDownloadManager {
             if (uri != null) {
                 try {
                     resolver.delete(uri, null, null);
-                } catch (Throwable ignored) {
+                } catch (Throwable orphanLeft) {
+                    // 这行 IS_PENDING=1 的记录会一直挂在系统"下载"里当半个文件，
+                    // 用户删不掉也打不开——必须留下这条对得上的日志。
+                    Log.w(TAG, "失败下载留下的 MediaStore 记录没删掉: " + uri + " —— "
+                            + orphanLeft.getMessage());
                 }
             }
         }

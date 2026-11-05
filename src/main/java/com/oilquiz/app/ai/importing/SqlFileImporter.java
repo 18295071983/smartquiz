@@ -152,12 +152,20 @@ public final class SqlFileImporter {
             }
             extractFromTables(tables, result);
         } finally {
-            if (db != null) {
-                try {
-                    db.close();
-                } catch (Exception ignored) {
-                }
-            }
+            closeQuietly(db, "导入用的 SQLite 库（只读打开的那份）");
+        }
+    }
+
+    /**
+     * finally 收尾用：关不上不改变导入结果，但要留下关的是什么。
+     * 原来三处 {@code catch (Exception ignored)} 把"读了一半的 SQL 文件句柄还挂着"压成无声。
+     */
+    private static void closeQuietly(java.io.Closeable closeable, String what) {
+        if (closeable == null) return;
+        try {
+            closeable.close();
+        } catch (Exception closeFailed) {
+            Log.w(TAG, "没关掉" + what + ": " + closeFailed.getMessage());
         }
     }
 
@@ -222,10 +230,7 @@ public final class SqlFileImporter {
                 }
             }
         } finally {
-            try {
-                reader.close();
-            } catch (Exception ignored) {
-            }
+            closeQuietly(reader, "SQL 脚本 reader（截断处之后的语句没读进来）");
         }
 
         Map<String, TableData> tableMap = parseInsertStatements(sb.toString(), result);
@@ -592,15 +597,13 @@ public final class SqlFileImporter {
             if (read < 16) return false;
             String magic = new String(head, 0, 15, java.nio.charset.StandardCharsets.US_ASCII);
             return magic.equals("SQLite format 3");
-        } catch (Exception e) {
+        } catch (Exception readFailed) {
+            // 返回 false 会让调用方把一个真 .db 当成"不是 SQLite 文件"，转去按文本脚本解析
+            // ——那是另一条完全不同的路径，报错会指向文件内容。所以要说出来是读不动，不是格式不对。
+            Log.w(TAG, "读 SQLite 文件头失败，按\"不是 SQLite\"处理: " + readFailed.getMessage());
             return false;
         } finally {
-            if (fis != null) {
-                try {
-                    fis.close();
-                } catch (Exception ignored) {
-                }
-            }
+            closeQuietly(fis, "SQLite 文件头探测的输入流");
         }
     }
 }

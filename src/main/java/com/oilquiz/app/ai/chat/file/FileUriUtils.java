@@ -40,7 +40,11 @@ public class FileUriUtils {
                     }
                 } finally { c.close(); }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception queryFailed) {
+            // 分区存储（Android 10+）里 _data 经常直接查不到，返回 null 走后续兜底是对的；
+            // 但"查询抛异常"和"没有这一列"不是一回事，留下原因才知道附件打不开卡在哪一步。
+            android.util.Log.w("FileUriUtils", "查 _data 列失败: " + queryFailed.getMessage());
+        }
         return null;
     }
 
@@ -64,7 +68,8 @@ public class FileUriUtils {
                 }
             }
             InputStream is = null;
-            OutputStream os = null;
+            FileOutputStream os = null;
+            boolean outClosed = true;
             try {
                 is = context.getContentResolver().openInputStream(uri);
                 if (is == null) return null;
@@ -73,10 +78,23 @@ public class FileUriUtils {
                 int n;
                 while ((n = is.read(buf)) > 0) os.write(buf, 0, n);
             } finally {
-                try { if (is != null) is.close(); } catch (Exception ignored) {}
-                try { if (os != null) os.close(); } catch (Exception ignored) {}
+                try { if (is != null) is.close(); } catch (Exception inCloseFailed) {
+                    android.util.Log.w("FileUriUtils", "源输入流没关掉: " + inCloseFailed.getMessage());
+                }
+                if (os != null) {
+                    try {
+                        os.close();
+                    } catch (Exception outCloseFailed) {
+                        // 这一条不能只记日志：FileOutputStream 的 close 负责把缓冲写下去，
+                        // 关不上＝缓存文件是半截的。把它当成功返回，下游 OCR/解析会拿着
+                        // 截断内容报一个看不出根因的错——宁可这次选择直接失败。
+                        outClosed = false;
+                        android.util.Log.w("FileUriUtils", "缓存文件没关好，内容可能不完整: "
+                                + out.getPath() + " —— " + outCloseFailed.getMessage());
+                    }
+                }
             }
-            return out.getAbsolutePath();
+            return outClosed ? out.getAbsolutePath() : null;
         } catch (Exception e) {
             android.util.Log.w("FileUriUtils", "复制缓存文件失败: " + e.getMessage());
             return null;

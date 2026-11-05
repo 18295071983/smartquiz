@@ -21,6 +21,8 @@ import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.IntConsumer;
+import java.util.function.LongConsumer;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -334,18 +336,32 @@ public class DatabaseTool implements AITool {
             
             // 获取行数
             long rowCount = 0;
+            String rowCountError = null;
             try {
                 Cursor countCursor = sqlite.query("SELECT COUNT(*) FROM " + tableName);
-                if (countCursor.moveToNext()) {
-                    rowCount = countCursor.getLong(0);
+                try {
+                    if (countCursor.moveToNext()) {
+                        rowCount = countCursor.getLong(0);
+                    }
+                } finally {
+                    countCursor.close();
                 }
-                countCursor.close();
-            } catch (Exception ignored) {}
-            
+            } catch (Exception countFailed) {
+                // 原来空 catch：行数拿不到就报 row_count=0 + status=success，
+                // 模型据此以为这张表是空的（"表存在但一行都没有"和"这条 COUNT 没跑成"
+                // 在结果里长得一模一样）。表名是拼进 SQL 的，非表名的输入也在这里现形。
+                rowCountError = countFailed.getMessage();
+                AILogger.w(TAG, "统计 " + tableName + " 行数失败: " + rowCountError);
+            }
+
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("status", "success");
             result.put("table_name", tableName);
             result.put("row_count", rowCount);
+            if (rowCountError != null) {
+                result.put("row_count_unknown", true);
+                result.put("row_count_error", rowCountError);
+            }
             result.put("columns", columns);
             result.put("column_count", columns.size());
             
@@ -612,6 +628,7 @@ public class DatabaseTool implements AITool {
             }
             
             List<Question> questions = new ArrayList<>();
+            List<String> coercionNotes = new ArrayList<>();
             
             for (Map<String, Object> qm : questionMaps) {
                 Question q = new Question();
@@ -647,40 +664,12 @@ public class DatabaseTool implements AITool {
                 q.setAuthor(getStr(qm, "author", "作者"));
                 q.setComment(getStr(qm, "comment", "备注"));
                 
-                Object diff = qm.get("difficulty");
-                if (diff instanceof Number) {
-                    q.setDifficulty(((Number) diff).intValue());
-                } else if (diff instanceof String) {
-                    try { q.setDifficulty(Integer.parseInt((String) diff)); } catch (Exception ignored) {}
-                }
-                
-                Object pts = qm.get("points");
-                if (pts instanceof Number) {
-                    q.setPoints(((Number) pts).intValue());
-                } else if (pts instanceof String) {
-                    try { q.setPoints(Integer.parseInt((String) pts)); } catch (Exception ignored) {}
-                }
-                
-                Object tl = qm.get("timeLimit");
-                if (tl instanceof Number) {
-                    q.setTimeLimit(((Number) tl).intValue());
-                } else if (tl instanceof String) {
-                    try { q.setTimeLimit(Integer.parseInt((String) tl)); } catch (Exception ignored) {}
-                }
-                
-                Object so = qm.get("sortOrder");
-                if (so instanceof Number) {
-                    q.setSortOrder(((Number) so).intValue());
-                } else if (so instanceof String) {
-                    try { q.setSortOrder(Integer.parseInt((String) so)); } catch (Exception ignored) {}
-                }
-                
-                Object pid = qm.get("parentId");
-                if (pid instanceof Number) {
-                    q.setParentId(((Number) pid).longValue());
-                } else if (pid instanceof String) {
-                    try { q.setParentId(Long.parseLong((String) pid)); } catch (Exception ignored) {}
-                }
+                String label = briefLabel(q.getQuestionText());
+                setIntField(qm, "difficulty", label, coercionNotes, q::setDifficulty);
+                setIntField(qm, "points", label, coercionNotes, q::setPoints);
+                setIntField(qm, "timeLimit", label, coercionNotes, q::setTimeLimit);
+                setIntField(qm, "sortOrder", label, coercionNotes, q::setSortOrder);
+                setLongField(qm, "parentId", label, coercionNotes, q::setParentId);
                 
                 if (q.getQuestionText() == null || q.getQuestionText().trim().isEmpty()) {
                     continue;
@@ -700,10 +689,17 @@ public class DatabaseTool implements AITool {
             Future<Boolean> future = databaseManager.addQuestions(questions);
             boolean success = future.get(10, TimeUnit.SECONDS);
             
+            String coercions = summarizeCoercions(coercionNotes);
             Map<String, Object> result = new HashMap<>();
             result.put("status", success ? "success" : "failed");
             result.put("count", questions.size());
-            result.put("message", success ? "成功添加 " + questions.size() + " 道题目" : "添加题目失败");
+            result.put("message", (success ? "成功添加 " + questions.size() + " 道题目" : "添加题目失败")
+                    + (coercions.isEmpty() ? "" : "；有字段没按提交值入库：" + coercions));
+            if (!coercions.isEmpty()) {
+                // 让模型看到"你写的 difficulty 没生效"，否则它下一批还这么写
+                result.put("coerced_fields", coercionNotes);
+                AILogger.w(TAG, "add_questions 有 " + coercionNotes.size() + " 个数值字段没生效: " + coercions);
+            }
             
             return new AIToolResult(result, parameters);
         } catch (Exception e) {
@@ -772,6 +768,7 @@ public class DatabaseTool implements AITool {
             List<Question> questions = new ArrayList<>();
             int skippedEmpty = 0;
             int skippedBadChoice = 0;
+            List<String> coercionNotes = new ArrayList<>();
             for (Map<String, Object> qm : questionMaps) {
                 Question q = new Question();
                 q.setQuestionText(getStr(qm, "questionText", "question_text", "question"));
@@ -803,24 +800,10 @@ public class DatabaseTool implements AITool {
                 q.setAuthor(getStr(qm, "author", "作者"));
                 q.setComment(getStr(qm, "comment", "备注"));
 
-                Object diff = qm.get("difficulty");
-                if (diff instanceof Number) {
-                    q.setDifficulty(((Number) diff).intValue());
-                } else if (diff instanceof String) {
-                    try { q.setDifficulty(Integer.parseInt((String) diff)); } catch (Exception ignored) {}
-                }
-                Object pts = qm.get("points");
-                if (pts instanceof Number) {
-                    q.setPoints(((Number) pts).intValue());
-                } else if (pts instanceof String) {
-                    try { q.setPoints(Integer.parseInt((String) pts)); } catch (Exception ignored) {}
-                }
-                Object tl = qm.get("timeLimit");
-                if (tl instanceof Number) {
-                    q.setTimeLimit(((Number) tl).intValue());
-                } else if (tl instanceof String) {
-                    try { q.setTimeLimit(Integer.parseInt((String) tl)); } catch (Exception ignored) {}
-                }
+                String label = briefLabel(q.getQuestionText());
+                setIntField(qm, "difficulty", label, coercionNotes, q::setDifficulty);
+                setIntField(qm, "points", label, coercionNotes, q::setPoints);
+                setIntField(qm, "timeLimit", label, coercionNotes, q::setTimeLimit);
 
                 if (q.getQuestionText() == null || q.getQuestionText().trim().isEmpty()) {
                     skippedEmpty++;
@@ -871,14 +854,85 @@ public class DatabaseTool implements AITool {
             result.put("failed", failed);
             result.put("skipped_empty", skippedEmpty);
             result.put("skipped_bad_choice", skippedBadChoice);
+            String bulkCoercions = summarizeCoercions(coercionNotes);
             result.put("message", "导入完成：成功 " + imported + " 道，失败 " + failed + " 道"
                     + (skippedEmpty > 0 ? "，空题干跳过 " + skippedEmpty + " 道" : "")
-                    + (skippedBadChoice > 0 ? "，缺选项选择题跳过 " + skippedBadChoice + " 道" : ""));
+                    + (skippedBadChoice > 0 ? "，缺选项选择题跳过 " + skippedBadChoice + " 道" : "")
+                    + (bulkCoercions.isEmpty() ? "" : "；有字段没按提交值入库：" + bulkCoercions));
+            if (!bulkCoercions.isEmpty()) {
+                result.put("coerced_fields", coercionNotes);
+                AILogger.w(TAG, "bulk_import 有 " + coercionNotes.size()
+                        + " 个数值字段没生效: " + bulkCoercions);
+            }
             return new AIToolResult(result, parameters);
         } catch (Exception e) {
             AILogger.e(TAG, "批量导入失败: " + e.getMessage(), e);
             return new AIToolResult("批量导入失败: " + e.getMessage(), parameters);
         }
+    }
+
+    /**
+     * 数值字段落进题目：Number 直接取整，字符串必须是纯整数，否则保持默认值并记一条 note。
+     *
+     * <p>原来 difficulty / points / timeLimit / sortOrder / parentId 每个都配一份
+     * {@code try { parseInt } catch (Exception ignored) {}}：模型提交 "difficulty": "中等"
+     * 时异常被吞、题目带默认值入库，工具回一句"成功添加 N 道"——模型以为自己写对了，
+     * 下一批还这么写。"这字段不是数字"是正常输入的形状，不该拿异常当控制流，更不该没回声。</p>
+     */
+    private static void setIntField(Map<String, Object> qm, String key, String label,
+                                    List<String> notes, IntConsumer setter) {
+        Object v = qm.get(key);
+        if (v instanceof Number) {
+            setter.accept(((Number) v).intValue());
+            return;
+        }
+        if (!(v instanceof String)) return; // 没给这个字段：保持默认值，不算问题
+        String s = ((String) v).trim();
+        if (s.isEmpty()) return;
+        // 判过形再 parse，parseInt 就抛不出来（限 9 位也顺手挡掉溢出）
+        if (s.matches("[-+]?\\d{1,9}")) {
+            setter.accept(Integer.parseInt(s));
+            return;
+        }
+        notes.add(label + "的 " + key + "=\"" + s + "\" 不是整数，已按默认值入库");
+    }
+
+    /** parentId 是 long：同上，数字上限换成 18 位 */
+    private static void setLongField(Map<String, Object> qm, String key, String label,
+                                     List<String> notes, LongConsumer setter) {
+        Object v = qm.get(key);
+        if (v instanceof Number) {
+            setter.accept(((Number) v).longValue());
+            return;
+        }
+        if (!(v instanceof String)) return;
+        String s = ((String) v).trim();
+        if (s.isEmpty()) return;
+        if (s.matches("[-+]?\\d{1,18}")) {
+            setter.accept(Long.parseLong(s));
+            return;
+        }
+        notes.add(label + "的 " + key + "=\"" + s + "\" 不是整数，已按默认值入库");
+    }
+
+    /** 给 note 用的题目标识：拿题干前 12 字，比"第 N 题"更容易让模型定位到是哪条 */
+    private static String briefLabel(String questionText) {
+        if (questionText == null || questionText.trim().isEmpty()) return "一道没有题干的题";
+        String t = questionText.trim();
+        return "题干「" + (t.length() > 12 ? t.substring(0, 12) + "…" : t) + "」";
+    }
+
+    /** notes 进返回值：全列会挤爆结果，最多 5 条 + 总数 */
+    private static String summarizeCoercions(List<String> notes) {
+        if (notes == null || notes.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        int show = Math.min(notes.size(), 5);
+        for (int i = 0; i < show; i++) {
+            if (i > 0) sb.append("；");
+            sb.append(notes.get(i));
+        }
+        if (notes.size() > show) sb.append("；另有 ").append(notes.size() - show).append(" 条同类问题");
+        return sb.toString();
     }
 
     /** 从 Map 中按多个可能的键名获取字符串值 */

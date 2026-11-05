@@ -511,7 +511,15 @@ public class ModelDownloadActivity extends BaseActivity {
                     lastErr = e;
                     android.util.Log.w("ModelDownload", "search attempt " + (attempt+1) + " failed: " + e.getMessage());
                     if (attempt < 2) {
-                        try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
+                        // 被中断＝这个 Activity 已经不要这份结果了（切页/退出）。原来空 catch
+                        // 把 interrupt 吃掉，线程继续睡完再发一次请求，回来的回调落到已经不
+                        // 存在的视图上。标记必须交还，并停止重试。
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
                     }
                 } catch (Exception e) {
                     lastErr = e;
@@ -660,7 +668,15 @@ public class ModelDownloadActivity extends BaseActivity {
                 } catch (java.io.IOException e) {
                     lastErr = e;
                     android.util.Log.w("ModelDownload", "tree API attempt " + (attempt+1) + " failed: " + e.getMessage());
-                    if (attempt < 2) { try { Thread.sleep(1000); } catch (InterruptedException ignored) {} }
+                    if (attempt < 2) {
+                        // 同上：交还 interrupt 并停止重试，别让已废弃的页面再发一次 tree 请求
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    }
                 } catch (Exception e) {
                     lastErr = e;
                     break;
@@ -1488,7 +1504,12 @@ public class ModelDownloadActivity extends BaseActivity {
                         if (queryIdx > 0) fileName = fileName.substring(0, queryIdx);
                         return fileName;
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception undecodable) {
+                    // 退成"URL 最后一段（没解码）"：带 %E4%B8%AD… 的文件名会直接显示成乱码，
+                    // 用户会以为下载坏了。留原因，别让它对着一个怪名字猜。
+                    android.util.Log.w("ModelDownload", "URL 解码失败，按未解码的尾段当文件名: "
+                            + url + " —— " + undecodable.getMessage());
+                }
                 return url.substring(url.lastIndexOf('/') + 1);
             }
         }

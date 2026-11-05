@@ -4,6 +4,7 @@ import android.app.DownloadManager;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Environment;
+import android.util.Log;
 import android.webkit.CookieManager;
 import android.webkit.MimeTypeMap;
 import android.webkit.URLUtil;
@@ -23,6 +24,8 @@ import java.util.regex.Pattern;
 public final class BrowserDownloader {
 
     public static final long INVALID_ID = -1L;
+
+    private static final String TAG = "BrowserDownloader";
 
     private static final Pattern CD_EXT =
             Pattern.compile("filename\\*\\s*=\\s*([^;]+)", Pattern.CASE_INSENSITIVE);
@@ -82,8 +85,12 @@ public final class BrowserDownloader {
             try {
                 request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
                 placed = true;
-            } catch (Throwable ignored) {
-                // 部分 ROM/权限状态下公共目录不可写，退回应用专属下载目录
+            } catch (Throwable publicDirUnusable) {
+                // 部分 ROM/权限状态下公共目录不可写，退回应用专属下载目录——
+                // 这是"用户去系统下载里找不到文件"的直接原因，得留下是在哪一步退的。
+                Log.w(TAG, "公共 Downloads 放不下 " + fileName + "，改存 App 专属目录: "
+                        + publicDirUnusable.getMessage());
+                placed = false;
             }
             if (!placed) {
                 request.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName);
@@ -134,7 +141,11 @@ public final class BrowserDownloader {
                 String candidate = base + " (" + i + ")" + ext;
                 if (!new java.io.File(dir, candidate).exists()) return candidate;
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable dirUnreadable) {
+            // 保持原名交给系统处理（同名就下载失败）是有意的退路，但"避让没做成"要说出来，
+            // 否则用户只会看到"下载失败"，而真因是公共目录读不了。
+            Log.w(TAG, "同名避让检查没跑成，按原名下载: " + fileName + " —— "
+                    + dirUnreadable.getMessage());
         }
         return fileName;
     }
@@ -187,7 +198,11 @@ public final class BrowserDownloader {
                     if (decoded != null && !decoded.isEmpty()) return decoded;
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable badHeader) {
+            // 解不出 Content-Disposition 就退回 URL 猜名——文件名从此跟站点给的不一样。
+            // 站点写坏头是常见事，报出来才知道是站点的问题而不是我们存错目录。
+            Log.w(TAG, "Content-Disposition 解析失败，改用 URL 猜文件名: " + cd
+                    + " —— " + badHeader.getMessage());
         }
         return null;
     }
@@ -200,7 +215,9 @@ public final class BrowserDownloader {
                 if (decoded != null && !decoded.isEmpty()) return decoded;
             }
             return URLUtil.guessFileName(url, null, null);
-        } catch (Throwable ignored) {
+        } catch (Throwable urlUnreadable) {
+            Log.w(TAG, "从 URL 取文件名失败，下载将叫 download: " + url
+                    + " —— " + urlUnreadable.getMessage());
             return null;
         }
     }
@@ -213,7 +230,9 @@ public final class BrowserDownloader {
         try {
             String ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime);
             if (ext != null && !ext.isEmpty()) return ext;
-        } catch (Throwable ignored) {
+        } catch (Throwable mapUnavailable) {
+            // 不报：下面是刻意兜底。部分 ROM 的 MimeTypeMap 缺项甚至在测试环境里整个拿不到，
+            // "查不到扩展名"在这里是正常输入，不是被藏的故障。
         }
         // 部分 ROM 的 MimeTypeMap 缺项（自动化测试环境也可能为空），常见类型兜底
         switch (mime) {

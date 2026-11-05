@@ -189,6 +189,30 @@ public class ExcelTool implements AITool {
     }
 
     /** 保存工作簿：优先 output_path，否则写回原文件 */
+    /**
+     * finally 里收工：关掉 POI Workbook，关不上要说出来。
+     *
+     * <p>六个动作各自写着 {@code try { workbook.close(); } catch (Exception ignored) {}}——
+     * 吞掉的是一条没关上的 OPC 包（内存 + 文件句柄都还挂着），批量跑几十次就是句柄耗尽，
+     * 而现场只会看到"Excel 打不开了"。抽成一处，至少留得下原因。</p>
+     */
+    private void closeWorkbook(org.apache.poi.ss.usermodel.Workbook workbook) {
+        if (workbook == null) return;
+        try {
+            workbook.close();
+        } catch (Exception closeFailed) {
+            AILogger.w(TAG, "Workbook 没关掉（包体与文件句柄可能仍占着）: " + closeFailed.getMessage());
+        }
+    }
+
+    /**
+     * 是不是整数字面量。用来替掉"parseInt 抛 NumberFormatException 就当不是数字"那一套
+     * ——列名/sheet 名里出现 "123" 这种正常输入是常态，拿异常当分支既贵又把真故障混在里面。
+     */
+    private static boolean isIntegerLiteral(String s) {
+        return s != null && s.matches("[-+]?\\d{1,9}");
+    }
+
     private File saveWorkbook(org.apache.poi.ss.usermodel.Workbook workbook,
                               Map<String, Object> parameters, File source) throws Exception {
         String output = parameters.get("output_path") != null
@@ -221,13 +245,12 @@ public class ExcelTool implements AITool {
         }
         String s = String.valueOf(sheetParam).trim();
         // 数字索引
-        try {
+        if (isIntegerLiteral(s)) {
             int idx = Integer.parseInt(s);
             if (idx >= 0 && idx < workbook.getNumberOfSheets()) {
                 return workbook.getSheetAt(idx);
             }
             throw new Exception("sheet 索引越界（共 " + workbook.getNumberOfSheets() + " 个）");
-        } catch (NumberFormatException ignored) {
         }
         org.apache.poi.ss.usermodel.Sheet byName = workbook.getSheet(s);
         if (byName == null) {
@@ -241,11 +264,10 @@ public class ExcelTool implements AITool {
         String c = column == null ? "" : column.trim();
         if (c.isEmpty()) throw new Exception("缺少 column（列名或列号）");
         // 纯数字：1-based 列号
-        try {
+        if (isIntegerLiteral(c)) {
             int idx = Integer.parseInt(c);
             if (idx < 1) throw new Exception("列号必须 ≥1");
             return idx - 1;
-        } catch (NumberFormatException ignored) {
         }
         // 列字母：A→0, B→1, AA→26
         if (c.matches("[a-zA-Z]+")) {
@@ -447,7 +469,7 @@ public class ExcelTool implements AITool {
             return AIToolResult.fail("读取工作表列表失败: " + e.getMessage());
         } finally {
             if (workbook != null) {
-                try { workbook.close(); } catch (Exception ignored) { }
+                closeWorkbook(workbook);
             }
         }
     }
@@ -506,7 +528,7 @@ public class ExcelTool implements AITool {
             return AIToolResult.fail("查询失败: " + e.getMessage());
         } finally {
             if (workbook != null) {
-                try { workbook.close(); } catch (Exception ignored) { }
+                closeWorkbook(workbook);
             }
         }
     }
@@ -571,7 +593,7 @@ public class ExcelTool implements AITool {
             return AIToolResult.fail("读取单元格失败: " + e.getMessage());
         } finally {
             if (workbook != null) {
-                try { workbook.close(); } catch (Exception ignored) { }
+                closeWorkbook(workbook);
             }
         }
     }
@@ -614,7 +636,7 @@ public class ExcelTool implements AITool {
             return AIToolResult.fail("写入单元格失败: " + e.getMessage());
         } finally {
             if (workbook != null) {
-                try { workbook.close(); } catch (Exception ignored) { }
+                closeWorkbook(workbook);
             }
         }
     }
@@ -680,7 +702,7 @@ public class ExcelTool implements AITool {
             return AIToolResult.fail("追加行失败: " + e.getMessage());
         } finally {
             if (workbook != null) {
-                try { workbook.close(); } catch (Exception ignored) { }
+                closeWorkbook(workbook);
             }
         }
     }
@@ -715,7 +737,7 @@ public class ExcelTool implements AITool {
             return AIToolResult.fail("新建工作表失败: " + e.getMessage());
         } finally {
             if (workbook != null) {
-                try { workbook.close(); } catch (Exception ignored) { }
+                closeWorkbook(workbook);
             }
         }
     }
