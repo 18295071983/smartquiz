@@ -392,7 +392,9 @@ public class AgentImportStateMachine implements AgentCallback {
                 else break;
             }
             if (sb.length() > 0) {
-                try { return Integer.parseInt(sb.toString()); } catch (Exception stepFailed) {}
+                try { return Integer.parseInt(sb.toString()); } catch (Exception stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("AgentImportStateMachine", "攒出来的数字串解析失败（超长/非法），这一处编号按缺省处理: " + stepFailed);
+                }
             }
         }
         return -1;

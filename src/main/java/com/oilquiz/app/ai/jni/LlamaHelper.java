@@ -2200,7 +2200,9 @@ public class LlamaHelper {
             if (chatContextHandle != 0) {
                 // 记账用 native 实际值（ctxSize=0 时实际为模型 n_ctx，含 memoryPool 钳制）
                 int actual = 0;
-                try { actual = nativeGetContextSize(chatContextHandle); } catch (Throwable stepFailed) {}
+                try { actual = nativeGetContextSize(chatContextHandle); } catch (Throwable stepFailed) {
+                    AILogger.w(TAG, "读不到 native 实际上下文大小，记账退回请求值（KV/余量算的是它）: " + stepFailed);
+                }
                 contextTotalSize = actual > 0 ? actual : ctxSize;
                 contextUsedTokens = 0;
                 AILogger.i(TAG, "chatCreate: success, handle=" + chatContextHandle

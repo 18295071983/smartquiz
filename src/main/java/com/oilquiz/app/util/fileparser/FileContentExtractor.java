@@ -394,7 +394,9 @@ public class FileContentExtractor {
             if (inputStream != null) {
                 try {
                     inputStream.close();
-                } catch (IOException stepFailed) {}
+                } catch (IOException stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("FileContentExtractor", "原图输入流没关掉（内容已读到，只是句柄晚一步释放）: " + stepFailed);
+                }
             }
         }
     }

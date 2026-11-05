@@ -33,6 +33,8 @@ import java.util.Locale;
 import java.util.Map;
 
 public class WeatherBannerView extends LinearLayout {
+    // 这条在高频路径上：只报第一次，免得一条长流程刷爆日志
+    private static boolean cityBroadcastWarned = false;
 
     private static final String TAG = "WeatherBannerView";
     private static final long MIN_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
@@ -148,12 +150,16 @@ public class WeatherBannerView extends LinearLayout {
             intent.putExtra(EXTRA_LON, lon);
             // 全局广播（给 Context.registerReceiver 动态注册的接收器）
             try { context.sendBroadcast(intent); }
-            catch (Exception stepFailed) {}
+            catch (Exception stepFailed) {
+                if (!cityBroadcastWarned) { cityBroadcastWarned = true; com.oilquiz.app.util.AILogger.w(TAG, "城市变更广播没发出去（别的页会停在旧城市）: " + stepFailed); }
+            }
             // 本地广播（给 LocalBroadcastManager 注册的接收器）
             try {
                 androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(context)
                         .sendBroadcast(intent);
-            } catch (Exception stepFailed) {}
+            } catch (Exception stepFailed) {
+                if (!cityBroadcastWarned) { cityBroadcastWarned = true; com.oilquiz.app.util.AILogger.w(TAG, "城市变更广播没发出去（别的页会停在旧城市）: " + stepFailed); }
+            }
         } catch (Exception e) {
             android.util.Log.w(TAG, "Failed to broadcast location: " + e.getMessage());
         }

@@ -296,3 +296,11 @@ git show 8e2ce6b1^:src/main/java/com/oilquiz/app/ai/service/AIService.java > /tm
 已验：`compileDebugJavaWithJavac` 与全量 **1736 tests / 1 skipped / 0 failures / 0 errors**（每轮删除后都重跑，1 skipped 是存量）；两轮 diff 均为纯删除形状（`--numstat` insertions=0，第二轮的 +14 是注释改写）；扫描判据跑到不动点；装机包 md5 与设备侧一致；第 4 节每条都给了活的权威位置与行号；第 7 节候选跨 `src/main/java`、`res`、`AndroidManifest.xml`、`src/main/python` 检索，并用两种独立实现（全文件正则 vs 全仓整词 grep）互相印证（结果一致，76 个类 / 约 17.6k 行）。
 
 未验：本轮**没有做真机行为验证**。删除本身是纯可达性操作，但三件事需要在机器上点一次才算闭环——① 模型选择页 → 某模型 → "查看详情"，看延迟那行现在显示"未探测"；② `linux_shell` 接回注册后，让模型跑一次 `linux_shell(action=tools)` 确认能返回内置工具清单（`route`/`termux_wake`/`termux_status`/`termux_submit` 也顺带可达）；③ 崩溃恢复链路（`GlobalExceptionHandler` 自管日志被整删，实际落盘走 `AppLogger.logCrash`）在真机制造一次崩溃后确认日志仍在。第 7 节的 75 个整类候选**一个都没删**，其中 DI/反射/手动跑测试/仅测试引用四类假阳性尚未逐个确认。
+
+### 追加处置（2026-11-06 晚，空 catch 批 4c 同轮）
+
+- `ai/agent/ToolExecutionOrchestrator`（243 行）**已删**。类注释自证"没有任何调用点"，且 `Host`
+  无人实现；真实链路是 `AIChatActivity` 里的同名两份实现（`executeToolWithRecovery` 2633 起、
+  `retryCompositeStepExecution` 3421 起）。判据：全仓 grep 只剩它自己 + 历史文档；编译器为准。
+- `util/AILogger2`（670 行）已整类删除（见空 catch 台账第 15 节）；`AILogger` 的可视化那半
+  （1033→657 行）同轮删除（第 16 节）——两处都是"零调用 + 零生产者 + 有在跑的替代品"。

@@ -1,4 +1,5 @@
 package com.oilquiz.app.ai.tool;
+import com.oilquiz.app.util.AILogger;
 
 import android.content.Context;
 import android.util.Log;
@@ -354,7 +355,9 @@ public class SystemUIComponentTool implements AITool {
                     if (parameters.get("wait_seconds") instanceof Number) {
                         waitSeconds = ((Number) parameters.get("wait_seconds")).intValue();
                     } else if (parameters.get("wait_seconds") != null) {
-                        try { waitSeconds = Integer.parseInt(parameters.get("wait_seconds").toString()); } catch (Exception stepFailed) {}
+                        try { waitSeconds = Integer.parseInt(parameters.get("wait_seconds").toString()); } catch (Exception stepFailed) {
+                            AILogger.w(TAG, "wait_seconds 不是整数，本轮按默认等待执行（模型给的值没生效）: " + stepFailed);
+                        }
                     }
                     // 夹取 1~120 秒：防止模型传超大值阻塞 Agent 线程数小时
                     waitSeconds = Math.max(1, Math.min(120, waitSeconds));

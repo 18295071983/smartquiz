@@ -298,3 +298,41 @@ ai/bridge/ModelExecutionBridge.java:511  putLocalSampling()  catch Throwable
 ### 顺带查出来的：可视化日志这一套也没有调用方
 
 删 AILogger2 时按同一判据查了 AILogger 侧的引用面：**除两个日志类自身之外，`VisualLogEntry` / `getVisualInstance` / `logThinking` / `logToolCall` / `logAgentStep` 在 src/main 里一个调用都没有**。也就是说日志中心现在走的是 `getAllLogs`/`getLogsByLevel` 那条文本路线，可视化那半（含 `VisualLogEntry.toMarkdown`、`generateTimelineMarkdown`、`generateStatsMarkdown`、监听器表）是留着但没人驱动的。这一条我**没顺手删**：它要连着核对测试引用面与 `LogsActivity` 的实际取数路径，属于第 7 节那批"整类候选"的处置，不该在批量改日志的同一轮里做。要做的话判据照旧——先报"零调用 + 无写方"，再决定是接上还是删。
+
+## 16. 批 4c + 可视化日志处置：高危清零，AILogger 瘦掉 376 行
+
+**高危 26 → 0。** 上一批"只改名 stepFailed"的 26 处全部补上可见反馈：19 处直接 `AILogger.w`，
+2 处高频流式路径（`TokenStatsBar` 的两条 + `AIChatActivity.updateStreamingTokenStats`）加了一次性
+闩锁字段（`phaseReadWarned`/`streamTagWarned`/`cityBroadcastWarned`）——每 tick 都跑的路径不能一次
+答案刷几百行。现在全仓状态：**catch 4377｜真·空体 670｜只写注释 133｜只写日志 1128｜有恢复 2375；
+高危 0｜中危 543｜低危 127**。
+
+补日志时点到几处后果，不是随手加噪：`ToolResultStore.save` 失败＝后续轮次回读不到这次工具结果；
+`TaskStateTracker.clearAll/clearSession` 失败＝新对话/删会话后任务清单跨会话续行（正是"多日任务幻觉"
+那条根因）；`nativeGetContextSize` 读不到＝上下文记账退回请求值，KV/余量算的是它；附件缓存与视频
+下载的输出流没关好＝落盘可能是半截的，下游只会报一个看不出根因的错；城市变更广播没发出＝别的页
+停在旧城市。
+
+**可视化日志那半整块删除（AILogger 1033 → 657 行）**：查尽引用面后确认 src/main、src/test、
+src/androidTest 里除本类自身**零引用、零生产者**，且文本线（`writeToFile` + `LogEntry` +
+`getAllLogs/getLogsByLevel` + `OnLogListener`）与 Room 的 `log_entry` 表才是日志中心真正在走的路
+（`LogsActivity` 实测取数：`getAllLogs()` + `logEntryDao().getRecentLogEntries(1000)`）。删掉的是
+`VisualLogEntry`/`LogLevel`/`LogCategory`/`OnVisualLogListener`/`startStep`·`updateStepProgress`·
+`completeStep`·`logThinking`·`logToolCall`·`logAgentStep`·`logVisual`·`getVisualInstance`·
+`generateTimelineMarkdown`·`generateStatsMarkdown` 等 40 多个成员及其字段与构造函数；顺手清了因此
+变成未用的 7 个 import。原位置留了注释写明"要上步骤可视化请接 `AgentProgressBus`，别在本类里复活
+第二套"——同一句话对它自己说第二次：更早的 `util/AILogger2` 是第二套，昨天删的，今天是第三套。
+
+**同批删除 `ai/agent/ToolExecutionOrchestrator`（243 行）**：它自己的类注释就写着"没有任何调用点"，
+`AIChatActivity` 里 `executeToolWithRecovery`/`retryCompositeStepExecution` 两份**活的同名实现**才是
+真实链路；接线还要先把"自动解读 + 逐工具成功消息"再删一遍（注释里已经警告过），留着就是一份会
+走歪的第二副本。已并入 `docs/dead-code-triage-2026-11-06.md` 第 7 节处置记录。
+
+**这轮自己的坑（第三次踩同一类）**：批量插语句两次把代码改坏——一次是截尾用 `rfind('{')`
+（一行里同时有 `try {` 和 `catch {` 时切错括号，5 处编译报"找不到符号"），一次是按旧行号定位
+（前面的插入把行号推走了）。两次都 `git checkout --` 回退，改成**用正则锚定 catch 子句本身**
++ **按内容而不是行号定位** + **每文件花括号差与改前必须一致**的断言重做。还漏了两个文件因为
+`'AILogger' in src` 这种字符串判断误判成"已导入"——判据要问编译器：编译过了才算。
+
+未验：这些新日志都要对应异常真发生才出现，本轮没构造故障；三条闩锁路径（流式 token 条、城市广播）
+真机各点一次能看到"只报一次"的效果。基线 1746/0/0/1 skipped。

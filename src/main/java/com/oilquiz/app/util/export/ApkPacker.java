@@ -398,7 +398,9 @@ public final class ApkPacker {
                 iconEntry = m.optString("icon_entry", null);
                 labelPlaceholder = m.optString("label_placeholder", null);
                 packagePlaceholder = m.optString("package_placeholder", null);
-            } catch (Exception stepFailed) { }
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w(TAG, "卡片映射里取 label/package 占位失败，导出的界面文案可能缺项: " + stepFailed);
+            }
         }
         if (meta != null && meta.label != null && !meta.label.trim().isEmpty()) {
             String label = meta.label.trim();

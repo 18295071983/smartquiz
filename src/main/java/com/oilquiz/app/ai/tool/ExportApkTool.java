@@ -430,7 +430,9 @@ public class ExportApkTool implements AITool {
             if (hex != null && hex.startsWith("#") && hex.length() == 7) {
                 return android.graphics.Color.parseColor(hex);
             }
-        } catch (Exception stepFailed) { }
+        } catch (Exception stepFailed) {
+            AILogger.w(TAG, "颜色值解析失败，用回默认色: " + stepFailed);
+        }
         return def;
     }
 

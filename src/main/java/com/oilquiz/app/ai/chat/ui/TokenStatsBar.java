@@ -27,6 +27,8 @@ import com.oilquiz.app.ai.stats.TokenStatsManager;
  * </pre>
  */
 public class TokenStatsBar {
+    // 这几条在流式每 tick 都跑：只报第一次，免得一条长答案刷出几百行
+    private static boolean phaseReadWarned = false;
 
     /** 统计/模型状态读取（页面注入适配器） */
     public interface StatsSource {
@@ -105,7 +107,9 @@ public class TokenStatsBar {
                     if ("THINKING".equals(ph)) sourceTag = "🧠";
                     else if ("GENERATING".equals(ph)) sourceTag = "⚡";
                 }
-            } catch (Throwable stepFailed) {}
+            } catch (Throwable stepFailed) {
+                if (!phaseReadWarned) { phaseReadWarned = true; com.oilquiz.app.util.AILogger.w("TokenStatsBar", "流式阶段标签读不出，token 条按上一档显示（只报一次）: " + stepFailed); }
+            }
         }
 
         if (source.isGenerating() && displayTps > 0) {
@@ -150,7 +154,9 @@ public class TokenStatsBar {
                             ChatTextUtils.formatCtxWindow(ctx[0]),
                             Math.min(100.0, ctx[1] * 100.0 / ctx[0]));
                 }
-            } catch (Throwable stepFailed) {}
+            } catch (Throwable stepFailed) {
+                if (!phaseReadWarned) { phaseReadWarned = true; com.oilquiz.app.util.AILogger.w("TokenStatsBar", "统计值读不出，token 条这一格没更新（只报一次）: " + stepFailed); }
+            }
             if (stats.sessionTotalTokens > 0) {
                 text += String.format(context.getString(R.string.h_b557980d), stats.sessionTotalTokens);
             }

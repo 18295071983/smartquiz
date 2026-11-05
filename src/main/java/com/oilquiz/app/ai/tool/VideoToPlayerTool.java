@@ -1,4 +1,5 @@
 package com.oilquiz.app.ai.tool;
+import com.oilquiz.app.util.AILogger;
 
 import android.content.Context;
 
@@ -252,8 +253,12 @@ public class VideoToPlayerTool implements AITool {
             if (target.exists()) target.delete();
             return -1;
         } finally {
-            try { if (in != null) in.close(); } catch (Exception stepFailed) { }
-            try { if (out != null) out.close(); } catch (Exception stepFailed) { }
+            try { if (in != null) in.close(); } catch (Exception stepFailed) {
+                AILogger.w(TAG, "视频下载的源流没关掉: " + stepFailed);
+            }
+            try { if (out != null) out.close(); } catch (Exception stepFailed) {
+                AILogger.w(TAG, "视频文件没关好，落盘内容可能不完整: " + stepFailed);
+            }
         }
     }
 

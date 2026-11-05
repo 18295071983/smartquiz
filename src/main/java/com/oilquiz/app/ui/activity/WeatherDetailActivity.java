@@ -1,5 +1,6 @@
 package com.oilquiz.app.ui.activity;
 
+import com.oilquiz.app.util.AILogger;
 import com.oilquiz.app.SmartQuizApplication;
 import android.Manifest;
 import android.content.Intent;
@@ -1870,7 +1871,9 @@ public class WeatherDetailActivity extends AppCompatActivity {
                     if (name.contains("紫外线") && uvFromIndices < 0) {
                         java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\((\\d+)级\\)").matcher(value);
                         if (m.find()) {
-                            try { uvFromIndices = Integer.parseInt(m.group(1)); } catch (NumberFormatException stepFailed) {}
+                            try { uvFromIndices = Integer.parseInt(m.group(1)); } catch (NumberFormatException stepFailed) {
+                                AILogger.w(TAG, "紫外线等级那格解析失败，指数卡这一项没填: " + stepFailed);
+                            }
                         }
                     }
                 }

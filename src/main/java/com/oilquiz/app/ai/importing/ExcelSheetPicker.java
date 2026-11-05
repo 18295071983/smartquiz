@@ -1,4 +1,5 @@
 package com.oilquiz.app.ai.importing;
+import com.oilquiz.app.util.AILogger;
 
 import android.util.Log;
 
@@ -428,7 +429,9 @@ public class ExcelSheetPicker {
             try {
                 int n = Integer.parseInt(stripped);
                 if (n >= 1 && n <= 20) return true;
-            } catch (Exception stepFailed) {}
+            } catch (Exception stepFailed) {
+                AILogger.w(TAG, "子表头判定里的序号解析失败，这一格没当子表头: " + stepFailed);
+            }
         }
         // 6. 罗马数字（Unicode）
         if (s.length() <= 3 && "ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ".contains(s)) return true;
@@ -459,7 +462,9 @@ public class ExcelSheetPicker {
             try {
                 int n = Integer.parseInt(stripped);
                 if (n >= 1 && n <= 12) return String.valueOf((char) ('A' + n - 1));
-            } catch (Exception stepFailed) {}
+            } catch (Exception stepFailed) {
+                AILogger.w(TAG, "子表头记号归一失败，保持原样: " + stepFailed);
+            }
         }
         // 罗马数字 Ⅰ~Ⅹ → A~J（简单映射）
         String roman = "ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ";

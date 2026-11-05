@@ -675,7 +675,9 @@ public class MarkdownWebView extends FrameLayout {
                             getContext().getSystemService(Context.CLIPBOARD_SERVICE);
                     if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("code", text));
                     android.widget.Toast.makeText(getContext(), "已复制", android.widget.Toast.LENGTH_SHORT).show();
-                } catch (Throwable stepFailed) { }
+                } catch (Throwable stepFailed) {
+                    com.oilquiz.app.util.AILogger.w("MarkdownWebView", "代码块复制没成（剪贴板/权限）: " + stepFailed);
+                }
             });
         }
 

@@ -104,6 +104,8 @@ import dagger.hilt.android.AndroidEntryPoint;
 import com.oilquiz.app.theme.ThemeColors;
 @AndroidEntryPoint
 public class AIChatActivity extends BaseActivity {
+    // 这条在高频路径上：只报第一次，免得一条长流程刷爆日志
+    private static boolean streamTagWarned = false;
 
     /**
      * 隐私政策同意门禁（2026-10-24）：通知栏/深链直接拉起聊天页时同样要拦——
@@ -2663,7 +2665,9 @@ public class AIChatActivity extends BaseActivity {
                     // 保存到ToolResultStore
                     try {
                         ToolResultStore.save(toolName, params, rawResult, 0);
-                    } catch (Exception stepFailed) { }
+                    } catch (Exception stepFailed) {
+                        AILogger.w(TAG, "工具结果没进 ToolResultStore：后续轮次回读不到这次结果（答案本身已返回）: " + stepFailed);
+                    }
                     // C0-T1：不再自动调 LLM 解读、不再补一条 AI 主气泡。
                     // 同一段摘要此前会被画两遍（工具卡 + 主气泡），且每次成功都要多等一次
                     // 解读（在线 60s 超时）。工具卡内"AI 深度解读"按钮保留，用户按需触发
@@ -3447,7 +3451,9 @@ public class AIChatActivity extends BaseActivity {
                     scrollToBottom();
                     try {
                         ToolResultStore.save(step.toolName, params, rawResult, stepIndex);
-                    } catch (Exception stepFailed) { }
+                    } catch (Exception stepFailed) {
+                        AILogger.w(TAG, "重试步骤的工具结果没进 ToolResultStore：组合流程后续回读不到: " + stepFailed);
+                    }
                     // C0-T1：重试成功分支同样去掉自动解读与重复 AI 气泡，只推进下一步。
                     injectInterpretToLocalContext(resultStr);
                     scrollToBottom();
@@ -9172,7 +9178,9 @@ public class AIChatActivity extends BaseActivity {
             // 并把活跃会话归位默认桶，防幽灵任务残留
             try {
                 com.oilquiz.app.ai.tool.TaskStateTracker.getInstance(this).clearAll();
-            } catch (Throwable stepFailed) { }
+            } catch (Throwable stepFailed) {
+                AILogger.w(TAG, "清空任务状态没成功：新对话可能接着上一会话的任务清单往下走: " + stepFailed);
+            }
             clearStreamingState();
             endGeneration();
             // 组件暂存缓存同步清除（2026-09-14）：防止上一轮/上一会话残留组件
@@ -9337,7 +9345,9 @@ public class AIChatActivity extends BaseActivity {
             // 若删的是当前活跃会话，clearSession 内部把 activeSession 归位默认桶
             try {
                 com.oilquiz.app.ai.tool.TaskStateTracker.getInstance(this).clearSession(session.id);
-            } catch (Throwable stepFailed) { }
+            } catch (Throwable stepFailed) {
+                AILogger.w(TAG, "删会话时清它的作用域任务状态没成功，残留会跨会话续行: " + stepFailed);
+            }
             runOnUiThread(() -> {
                 if (isCurrent) {
                     // 当前会话被删除：清空页面 + 引擎历史（含其历史文件）
@@ -10125,7 +10135,9 @@ public class AIChatActivity extends BaseActivity {
                         if ("THINKING".equals(ph)) sourceTag = "🧠";
                         else if ("GENERATING".equals(ph)) sourceTag = "⚡";
                     }
-                } catch (Throwable stepFailed) {}
+                } catch (Throwable stepFailed) {
+                    if (!streamTagWarned) { streamTagWarned = true; AILogger.w(TAG, "流式阶段标签读不出，token 统计条按上一档显示（只报一次）: " + stepFailed); }
+                }
             }
 
             // 生成状态行（输入胶囊上方）：刷新推理速度（阶段由 markStreamingPhase 驱动）
@@ -12548,8 +12560,12 @@ public class AIChatActivity extends BaseActivity {
                 int n;
                 while ((n = is.read(buf)) > 0) os.write(buf, 0, n);
             } finally {
-                try { if (is != null) is.close(); } catch (Exception stepFailed) {}
-                try { if (os != null) os.close(); } catch (Exception stepFailed) {}
+                try { if (is != null) is.close(); } catch (Exception stepFailed) {
+                    AILogger.w(TAG, "附件缓存的源流没关掉: " + stepFailed);
+                }
+                try { if (os != null) os.close(); } catch (Exception stepFailed) {
+                    AILogger.w(TAG, "附件缓存文件没关好，内容可能不完整（下游解析会报看不出根因的错）: " + stepFailed);
+                }
             }
             return out.getAbsolutePath();
         } catch (Exception e) {

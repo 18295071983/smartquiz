@@ -859,7 +859,9 @@ public class APIKeyManager {
                 if (data.containsKey("timeout")) {
                     try {
                         config.setTimeout(Integer.parseInt(String.valueOf(data.get("timeout"))));
-                    } catch (Exception stepFailed) {}
+                    } catch (Exception stepFailed) {
+                        com.oilquiz.app.util.AILogger.w(TAG, "导入的 timeout 不是数字，这条配置没应用（沿用现有值）: " + stepFailed);
+                    }
                 }
 
                 String key = config.getName() + "_" + config.getServiceType();

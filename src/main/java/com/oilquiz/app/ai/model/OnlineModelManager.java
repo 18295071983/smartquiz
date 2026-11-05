@@ -1268,7 +1268,9 @@ public class OnlineModelManager {
         // 同步到 APIKeyManager
         try {
             syncSingleAPIConfigFromOnlineModel(config);
-        } catch (Exception stepFailed) {}
+        } catch (Exception stepFailed) {
+            AILogger.w(TAG, "模型保存后没同步到 API 配置，两处会不一致（下次改配置才对上）: " + stepFailed);
+        }
     }
 
     /**
