@@ -120,6 +120,9 @@ public class WebViewLifecycleManager {
                 webView.removeJavascriptInterface("AndroidFile");
                 webView.removeJavascriptInterface("AndroidDatabase");
                 webView.removeJavascriptInterface("AndroidAI");
+                webView.removeJavascriptInterface("AndroidAdvanced");
+                webView.removeJavascriptInterface("SmartQuizBlob");
+                webView.removeJavascriptInterface("SmartQuizPush");
             } catch (Exception e) {
                 Log.w(TAG, "移除 JavaScript 接口时出错", e);
             }

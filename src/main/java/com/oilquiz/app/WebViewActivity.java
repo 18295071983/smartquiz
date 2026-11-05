@@ -36,6 +36,12 @@ import com.oilquiz.app.webview.js.JSDatabaseInterface;
 import com.oilquiz.app.model.Question;
 import com.oilquiz.app.repository.QuestionRepository;
 import com.oilquiz.app.viewmodel.QuestionViewModel;
+import com.oilquiz.app.browser.BrowserDownloader;
+import com.oilquiz.app.browser.BrowserSettings;
+import com.oilquiz.app.browser.BrowserStore;
+import com.oilquiz.app.browser.BrowserUrlNormalizer;
+import com.oilquiz.app.browser.push.WebPushManager;
+import com.oilquiz.app.browser.push.WebPushSubscription;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -51,15 +57,41 @@ public class WebViewActivity extends BaseActivity {
     private WebView x5WebView;
     private Button btnRefresh;
     private Button btnReset;
+    private Button btnBack;
+    private Button btnForward;
     private FrameLayout webViewContainer;
     private SystemUIResourceAdapter uiAdapter;
-    
+
+    // 浏览器外壳：地址栏 / 安全标识 / 进度
+    private android.widget.EditText browserAddress;
+    private TextView browserSecurity;
+    private LinearLayout browserChrome;
+    private android.widget.HorizontalScrollView tabScroll;
+
+    // 浏览器内核：历史书签 / 偏好
+    private BrowserStore browserStore;
+    private BrowserSettings browserSettings;
+    private String currentPageTitle = "";
+
+    // 页内查找
+    private android.os.Handler findHandler;
+    private Runnable findRunnable;
+    private android.app.AlertDialog findDialog;
+
+    // HTML5 视频全屏 / blob 下载 / 通知权限
+    private com.oilquiz.app.browser.BrowserFullscreenController fullscreenController;
+    private com.oilquiz.app.browser.BlobDownloadManager blobDownloadManager;
+    private Runnable pendingNotificationGranted;
+    private Runnable pendingNotificationDenied;
+    private static final int REQ_NOTIFICATION_PERMISSION = 0x5E13;
+
     // 标签页相关
     private LinearLayout tabContainer;
     private java.util.ArrayList<WebView> webViewList;
     private java.util.ArrayList<TextView> tabList;
     private int currentTabIndex = 0;
     private Button newTabButton;
+    private static final int MAX_TABS = 8;
 
     // 壳能力移植：Web 侧权限请求桥接状态（requestPermission 回调）
     private String pendingBridgePermission = null;
@@ -88,7 +120,10 @@ public class WebViewActivity extends BaseActivity {
 
     private String customUrl;
     private String customTitle;
-    private com.oilquiz.app.webview.js.JSAdvancedInterface advancedBridge;
+    private java.util.Set<WebView> bridgeEnabledViews =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+    private final java.util.Map<WebView, com.oilquiz.app.webview.js.JSAdvancedInterface> advancedBridges =
+            new java.util.WeakHashMap<>();
     private QuestionRepository questionRepository;
     private PermissionResourceProvider permissionProvider;
     private String cachedQuestionsJson = "[]";
@@ -104,6 +139,11 @@ public class WebViewActivity extends BaseActivity {
         
         // 初始化WebView加载管理器
         webViewLoadManager = WebViewLoadManager.getInstance(this);
+
+        // 浏览器基础设施：历史/书签、桌面版与缩放偏好
+        browserStore = BrowserStore.get(this);
+        browserSettings = BrowserSettings.get(this);
+        findHandler = new android.os.Handler(android.os.Looper.getMainLooper());
         
         // 初始化QuestionRepository
         questionRepository = new QuestionRepository(getApplication());
@@ -218,23 +258,30 @@ public class WebViewActivity extends BaseActivity {
         setContentView(rootLayout);
         
         // 设置标题和Toolbar
-        String title = customTitle != null ? customTitle : getString(R.string.h_d6603825);
+        String title = customTitle != null ? customTitle : getString(R.string.browser_title);
         setupToolbar(title);
 
-        // 创建标签容器 - 类似底部导航栏样式
+        // 标签栏：横向滚动承载，标签多时不挤成一团
+        tabScroll = new android.widget.HorizontalScrollView(this);
+        tabScroll.setHorizontalScrollBarEnabled(false);
+        tabScroll.setFillViewport(false);
+        tabScroll.setBackgroundColor(uiAdapter.getSurfaceColor());
         tabContainer = new LinearLayout(this);
         tabContainer.setOrientation(LinearLayout.HORIZONTAL);
-        tabContainer.setLayoutParams(new LinearLayout.LayoutParams(
+        tabContainer.setLayoutParams(new android.widget.HorizontalScrollView.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        tabContainer.setId(View.generateViewId());
+        tabContainer.setPadding(dp(12), dp(8), dp(12), dp(8));
+        tabScroll.addView(tabContainer);
+        rootLayout.addView(tabScroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
-        tabContainer.setBackgroundColor(uiAdapter.getSurfaceColor());
-        tabContainer.setId(View.generateViewId());
-        tabContainer.setPadding(16, 12, 16, 12);
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-            tabContainer.setElevation(3);
-        }
-        rootLayout.addView(tabContainer);
+
+        // 地址栏（输入/搜索/安全标识/加载进度）
+        buildBrowserChrome(rootLayout);
         buildFileInfoBar(rootLayout);
 
         // 创建WebView容器
@@ -247,32 +294,6 @@ public class WebViewActivity extends BaseActivity {
         );
         rootLayout.addView(webViewContainer, webViewParams);
         
-        // 创建加载进度条
-        pageProgressBar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        pageProgressBar.setId(View.generateViewId());
-        pageProgressBar.setMax(100);
-        pageProgressBar.setProgress(0);
-        pageProgressBar.setVisibility(View.GONE);
-        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                4
-        );
-        rootLayout.addView(pageProgressBar, 1, progressParams); // 插入到标签页和WebView之间
-        
-        // 创建加载状态文本
-        loadingStatusText = new TextView(this);
-        loadingStatusText.setId(View.generateViewId());
-        loadingStatusText.setText(getString(R.string.h_215e98b8));
-        loadingStatusText.setTextSize(12);
-        loadingStatusText.setTextColor(uiAdapter.getTextSecondaryColor());
-        loadingStatusText.setPadding(16, 4, 16, 4);
-        loadingStatusText.setVisibility(View.GONE);
-        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        rootLayout.addView(loadingStatusText, 2, statusParams);
-
         // 创建底部按钮容器
         LinearLayout buttonContainer = new LinearLayout(this);
         buttonContainer.setOrientation(LinearLayout.VERTICAL);
@@ -299,7 +320,7 @@ public class WebViewActivity extends BaseActivity {
         buttonContainer.addView(navRow, navRowParams);
 
         // 添加返回按钮
-        Button btnBack = createNavButton("◀", getString(R.string.h_5094c1a3));
+        btnBack = createNavButton("◀", getString(R.string.h_5094c1a3));
         btnBack.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -317,7 +338,7 @@ public class WebViewActivity extends BaseActivity {
         navRow.addView(btnBack);
 
         // 添加前进按钮
-        Button btnForward = createNavButton("▶", getString(R.string.h_5811e283));
+        btnForward = createNavButton("▶", getString(R.string.h_5811e283));
         btnForward.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -335,7 +356,7 @@ public class WebViewActivity extends BaseActivity {
         navRow.addView(btnForward);
 
         // 添加刷新按钮
-        btnRefresh = createNavButton("🔄", getString(R.string.h_694fc5ef));
+        btnRefresh = createNavButton("↻", getString(R.string.h_694fc5ef));
         btnRefresh.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -352,7 +373,7 @@ public class WebViewActivity extends BaseActivity {
         navRow.addView(btnRefresh);
 
         // 添加主页按钮
-        btnReset = createNavButton("🏠", getString(R.string.h_b04ec75c));
+        btnReset = createNavButton("⌂", getString(R.string.h_b04ec75c));
         btnReset.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -384,14 +405,11 @@ public class WebViewActivity extends BaseActivity {
         // 初始化标签页相关
         webViewList = new java.util.ArrayList<>();
         tabList = new java.util.ArrayList<>();
-        
-        // 配置WebView加载管理器
-        setupWebViewLoadManager();
-        
-        // 创建第一个标签页（延迟加载，优化启动性能）
+
+        // 创建第一个标签页（延迟加载，优化启动性能）；起始页由 createNewTab 负责
         createNewTabDelayed(100);
 
-        // 检查是否首次启动（延迟执行，确保WebView初始化完成）
+        // 启动参数优先于起始页（延迟执行，确保 WebView 初始化完成）
         new android.os.Handler().postDelayed(() -> {
             // 优先 file_path（本地文件完整预览链路：智能编码检测防 GBK 乱码）
             String localPath = getIntent() != null ? getIntent().getStringExtra("file_path") : null;
@@ -404,83 +422,12 @@ public class WebViewActivity extends BaseActivity {
                 }
             }
             if (customUrl != null) {
-                // 加载自定义URL
                 loadUrl(customUrl);
-            } else {
-                checkFirstLaunch();
             }
         }, 200);
         
         // 初始化文件监控，监控导出目录变化
         initExportDirObserver();
-    }
-    
-    /**
-     * 配置WebView加载管理器
-     */
-    private void setupWebViewLoadManager() {
-        // 设置页面加载回调
-        webViewLoadManager.setPageLoadCallback(new WebViewLoadManager.PageLoadCallback() {
-            @Override
-            public void onPageStarted(String url) {
-                runOnUiThread(() -> {
-                    // 显示加载进度条
-                    pageProgressBar.setVisibility(View.VISIBLE);
-                    pageProgressBar.setProgress(0);
-                    loadingStatusText.setVisibility(View.VISIBLE);
-                    loadingStatusText.setText(getString(R.string.h_bd0271ed));
-                });
-            }
-            
-            @Override
-            public void onPageFinished(String url) {
-                runOnUiThread(() -> {
-                    // 隐藏加载进度条
-                    pageProgressBar.setVisibility(View.GONE);
-                    loadingStatusText.setVisibility(View.GONE);
-                    
-                    // 更新标签页标题
-                    if (currentTabIndex >= 0 && currentTabIndex < tabList.size()) {
-                        updateTabTitleFromWebView(currentTabIndex);
-                    }
-                });
-            }
-            
-            @Override
-            public void onProgressChanged(int progress) {
-                runOnUiThread(() -> {
-                    // 更新进度条
-                    pageProgressBar.setProgress(progress);
-                    loadingStatusText.setText(getString(R.string.h_c96070db) + progress + "%");
-                });
-            }
-            
-            @Override
-            public void onReceivedTitle(String title) {
-                runOnUiThread(() -> {
-                    // 更新标签页标题
-                    if (currentTabIndex >= 0 && currentTabIndex < tabList.size()) {
-                        tabList.get(currentTabIndex).setText(title);
-                    }
-                });
-            }
-            
-            @Override
-            public void onError(int errorCode, String description, String failingUrl) {
-                runOnUiThread(() -> {
-                    // 显示错误状态
-                    pageProgressBar.setVisibility(View.GONE);
-                    loadingStatusText.setText(getString(R.string.h_866b795e));
-                    loadingStatusText.setTextColor(getResources().getColor(R.color.error_color));
-                    
-                    // 3秒后隐藏错误提示
-                    new android.os.Handler().postDelayed(() -> {
-                        loadingStatusText.setVisibility(View.GONE);
-                        loadingStatusText.setTextColor(uiAdapter.getTextSecondaryColor());
-                    }, 3000);
-                });
-            }
-        });
     }
     
     /**
@@ -496,23 +443,824 @@ public class WebViewActivity extends BaseActivity {
     protected void initListener() {
         // 监听器已在initView中设置
     }
-    
+
+    // ==================== 浏览器外壳：地址栏 / 菜单 ====================
+
+    /** 地址栏 + 安全标识 + 加载进度 + 状态文本 */
+    private void buildBrowserChrome(LinearLayout root) {
+        browserChrome = new LinearLayout(this);
+        browserChrome.setOrientation(LinearLayout.VERTICAL);
+        browserChrome.setBackgroundColor(uiAdapter.getSurfaceColor());
+        browserChrome.setPadding(dp(10), dp(2), dp(10), 0);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        browserSecurity = new TextView(this);
+        browserSecurity.setTextSize(9);
+        browserSecurity.setTypeface(null, android.graphics.Typeface.BOLD);
+        browserSecurity.setGravity(android.view.Gravity.CENTER);
+        browserSecurity.setPadding(dp(6), dp(3), dp(6), dp(3));
+        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        badgeParams.rightMargin = dp(6);
+        row.addView(browserSecurity, badgeParams);
+
+        browserAddress = new android.widget.EditText(this);
+        browserAddress.setSingleLine(true);
+        browserAddress.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        browserAddress.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_GO);
+        browserAddress.setTextSize(14);
+        browserAddress.setHint(R.string.browser_address_hint);
+        browserAddress.setTextColor(uiAdapter.getTextPrimaryColor());
+        browserAddress.setHintTextColor(uiAdapter.getTextSecondaryColor());
+        browserAddress.setPadding(dp(12), dp(7), dp(12), dp(7));
+        browserAddress.setBackground(createRoundedBackground(uiAdapter.getBackgroundColor(), dp(18)));
+        browserAddress.setSelectAllOnFocus(true);
+        LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        addressParams.leftMargin = dp(2);
+        addressParams.rightMargin = dp(4);
+        row.addView(browserAddress, addressParams);
+
+        Button go = createChromeButton(getString(R.string.browser_go), null);
+        go.setTextColor(ThemeColors.attr(this, R.attr.colorPrimary));
+        go.setOnClickListener(v -> submitAddressInput());
+        row.addView(go);
+
+        Button menu = createChromeButton("⋮", getString(R.string.browser_menu));
+        menu.setTextSize(20);
+        menu.setTextColor(uiAdapter.getTextPrimaryColor());
+        menu.setOnClickListener(v -> showBrowserMenu());
+        row.addView(menu);
+
+        browserChrome.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        browserAddress.setOnEditorActionListener((v, actionId, event) -> {
+            boolean enter = actionId == android.view.inputmethod.EditorInfo.IME_ACTION_GO
+                    || actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+                    || (event != null
+                        && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER
+                        && event.getAction() == android.view.KeyEvent.ACTION_DOWN);
+            if (enter) {
+                submitAddressInput();
+                return true;
+            }
+            return false;
+        });
+        browserAddress.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) updateAddressBar(currentBrowseUrl());
+        });
+
+        pageProgressBar = new android.widget.ProgressBar(this, null,
+                android.R.attr.progressBarStyleHorizontal);
+        pageProgressBar.setMax(100);
+        pageProgressBar.setProgress(0);
+        pageProgressBar.setVisibility(View.GONE);
+        browserChrome.addView(pageProgressBar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(2)));
+
+        loadingStatusText = new TextView(this);
+        loadingStatusText.setTextSize(11);
+        loadingStatusText.setTextColor(uiAdapter.getTextSecondaryColor());
+        loadingStatusText.setPadding(dp(4), dp(2), dp(4), dp(2));
+        loadingStatusText.setVisibility(View.GONE);
+        browserChrome.addView(loadingStatusText, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        root.addView(browserChrome, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        updateSecurityBadge(null);
+    }
+
+    private Button createChromeButton(String text, String tooltip) {
+        Button button = new Button(this);
+        button.setText(text);
+        button.setTextSize(13);
+        button.setAllCaps(false);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setMinHeight(0);
+        button.setMinimumHeight(0);
+        button.setPadding(dp(8), dp(4), dp(8), dp(4));
+        button.setBackgroundResource(android.R.color.transparent);
+        button.setTextColor(uiAdapter.getTextPrimaryColor());
+        if (tooltip != null) button.setTooltipText(tooltip);
+        return button;
+    }
+
+    private void submitAddressInput() {
+        if (browserAddress == null) return;
+        String typed = browserAddress.getText().toString().trim();
+        // 地址栏里直接敲协议（weixin://、intent://、magnet:、tel:…）：这类地址 WebView 加载必失败，
+        // 旧口径把它当"不像网址"退回百度搜索，用户看到的是被搜索框吞掉。这里显式转交处置。
+        if (com.oilquiz.app.browser.BrowserSchemeHandler.isSchemeNavigation(typed)) {
+            browserAddress.clearFocus();
+            hideKeyboard();
+            com.oilquiz.app.browser.BrowserSchemeHandler.handoff(this, typed, false);
+            return;
+        }
+        String url = BrowserUrlNormalizer.toLoadableUrl(typed);
+        if (url == null) {
+            showToast(getString(R.string.browser_invalid_address));
+            return;
+        }
+        browserAddress.clearFocus();
+        hideKeyboard();
+        loadUrl(url);
+    }
+
+    private void hideKeyboard() {
+        try {
+            android.view.inputmethod.InputMethodManager imm =
+                    (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null && browserAddress != null) {
+                imm.hideSoftInputFromWindow(browserAddress.getWindowToken(), 0);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 当前标签页地址；尚未加载时回退到启动参数 */
+    private String currentBrowseUrl() {
+        try {
+            if (x5WebView != null && x5WebView.getUrl() != null) return x5WebView.getUrl();
+            if (x5WebView != null && x5WebView.getOriginalUrl() != null) return x5WebView.getOriginalUrl();
+        } catch (Throwable ignored) {
+            // WebView 已销毁/渲染进程已结束时 getUrl 会抛异常
+        }
+        return customUrl;
+    }
+
+    private String currentBrowseTitle() {
+        if (currentPageTitle != null && !currentPageTitle.isEmpty()) return currentPageTitle;
+        try {
+            if (x5WebView != null && x5WebView.getTitle() != null && !x5WebView.getTitle().isEmpty()) {
+                return x5WebView.getTitle();
+            }
+        } catch (Throwable ignored) {
+        }
+        String host = BrowserUrlNormalizer.hostOf(currentBrowseUrl());
+        return host.isEmpty() ? getString(R.string.browser_untitled) : host;
+    }
+
+    private void updateAddressBar(String url) {
+        if (browserAddress == null) return;
+        if (!browserAddress.hasFocus()) {
+            String display = BrowserUrlNormalizer.displayUrl(url);
+            CharSequence current = browserAddress.getText();
+            if (current == null || !display.contentEquals(current)) {
+                browserAddress.setText(display);
+                browserAddress.setSelection(display.length());
+            }
+        }
+        updateSecurityBadge(url);
+    }
+
+    private void updateSecurityBadge(String url) {
+        if (browserSecurity == null) return;
+        String label;
+        int color;
+        if (url == null || url.isEmpty() || BrowserUrlNormalizer.isHome(url)) {
+            label = getString(R.string.browser_secure_home);
+            color = 0xFF5C6B7A;
+        } else if (BrowserUrlNormalizer.isHttps(url)) {
+            label = getString(R.string.browser_secure_https);
+            color = 0xFF2E7D32;
+        } else if (url.startsWith("http://")) {
+            label = getString(R.string.browser_secure_http);
+            color = 0xFFB26A00;
+        } else {
+            label = getString(R.string.browser_secure_local);
+            color = 0xFF5C6B7A;
+        }
+        browserSecurity.setText(label);
+        browserSecurity.setTextColor(0xFFFFFFFF);
+        browserSecurity.setBackground(createRoundedBackground(color, dp(9)));
+    }
+
+    private void showBrowserMenu() {
+        hideKeyboard();
+        final String url = currentBrowseUrl();
+        boolean bookmarked = browserStore.isBookmarked(url);
+        boolean desktop = browserSettings.isDesktopMode();
+        String[] items = new String[]{
+                getString(R.string.browser_new_tab),
+                getString(R.string.browser_close_tab),
+                getString(R.string.browser_share_page),
+                getString(R.string.browser_copy_link),
+                getString(R.string.browser_open_external),
+                getString(R.string.browser_find_in_page),
+                getString(bookmarked ? R.string.browser_bookmark_remove : R.string.browser_bookmark_add),
+                getString(R.string.browser_bookmarks),
+                getString(R.string.browser_history),
+                getString(R.string.browser_downloads),
+                getString(R.string.browser_background_push),
+                getString(desktop ? R.string.browser_desktop_off : R.string.browser_desktop_on),
+                getString(R.string.browser_scheme_policy_entry, schemePolicyLabel()),
+                getString(R.string.browser_clear_data)
+        };
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(R.string.browser_menu)
+                .setItems(items, (dialog, which) -> {
+                    switch (which) {
+                        case 0: createNewTab(); break;
+                        case 1: closeTab(currentTabIndex); break;
+                        case 2: shareCurrentPage(); break;
+                        case 3: copyCurrentUrl(); break;
+                        case 4: openCurrentInSystemBrowser(); break;
+                        case 5: showFindDialog(); break;
+                        case 6: toggleCurrentBookmark(); break;
+                        case 7: showBookmarksDialog(); break;
+                        case 8: showHistoryDialog(); break;
+                        case 9: openDownloads(); break;
+                        case 10: showPushSubscriptions(); break;
+                        case 11: toggleDesktopMode(); break;
+                        case 12: showSchemePolicyDialog(); break;
+                        case 13: clearBrowsingData(); break;
+                        default: break;
+                    }
+                })
+                .setNegativeButton(R.string.browser_cancel, null)
+                .show();
+    }
+
+    /** 当前「未知协议」档位的中文名（菜单里不能露 ask/system/browser 这种原始值） */
+    private String schemePolicyLabel() {
+        return schemePolicyLabel(browserSettings.getUnknownSchemePolicy());
+    }
+
+    private String schemePolicyLabel(String policy) {
+        switch (policy) {
+            case com.oilquiz.app.browser.BrowserScheme.POLICY_SYSTEM_APP:
+                return getString(R.string.browser_scheme_policy_system);
+            case com.oilquiz.app.browser.BrowserScheme.POLICY_SYSTEM_BROWSER:
+                return getString(R.string.browser_scheme_policy_browser);
+            default:
+                return getString(R.string.browser_scheme_policy_ask);
+        }
+    }
+
+    /**
+     * 未知协议处理方式：默认「每次询问」。
+     *
+     * <p>自动跳转是有代价的——网页可以凭空把用户送出浏览器，所以省事模式必须用户自己选；
+     * 选了之后卡片按钮、地址栏、页面内点击都走同一档（策略存在 {@link BrowserSettings} 一处）。</p>
+     */
+    private void showSchemePolicyDialog() {
+        final String[] policies = new String[]{
+                com.oilquiz.app.browser.BrowserScheme.POLICY_ASK,
+                com.oilquiz.app.browser.BrowserScheme.POLICY_SYSTEM_APP,
+                com.oilquiz.app.browser.BrowserScheme.POLICY_SYSTEM_BROWSER
+        };
+        String[] labels = new String[]{
+                getString(R.string.browser_scheme_policy_ask),
+                getString(R.string.browser_scheme_policy_system),
+                getString(R.string.browser_scheme_policy_browser)
+        };
+        int checked = 0;
+        String current = browserSettings.getUnknownSchemePolicy();
+        for (int i = 0; i < policies.length; i++) {
+            if (policies[i].equals(current)) checked = i;
+        }
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(R.string.browser_scheme_policy_title)
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    browserSettings.setUnknownSchemePolicy(policies[which]);
+                    showToast(getString(R.string.browser_scheme_policy_saved, labels[which]));
+                    dialog.dismiss();
+                })
+                .setNegativeButton(R.string.browser_cancel, null)
+                .show();
+    }
+
+    /** 原生入口：查看/删除网站注册的后台提醒（网页侧也能用 SmartQuizPush.list/unsubscribe） */
+    private void showPushSubscriptions() {
+        final java.util.List<WebPushSubscription> subscriptions = WebPushManager.get(this).list();
+        if (subscriptions.isEmpty()) {
+            showToast(getString(R.string.webpush_none));
+            return;
+        }
+        String[] labels = new String[subscriptions.size()];
+        for (int i = 0; i < subscriptions.size(); i++) {
+            WebPushSubscription subscription = subscriptions.get(i);
+            String host = BrowserUrlNormalizer.hostOf(subscription.endpoint);
+            if (host.isEmpty()) host = subscription.endpoint;
+            labels[i] = getString(R.string.webpush_manage_entry, host, subscription.intervalMinutes);
+        }
+        final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+                .setTitle(R.string.browser_background_push)
+                .setMessage(R.string.webpush_manage_hint)
+                .setItems(labels, (d, which) -> { })
+                .setNegativeButton(R.string.browser_close, null)
+                .create();
+        dialog.show();
+        dialog.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
+            WebPushSubscription subscription = subscriptions.get(position);
+            new android.app.AlertDialog.Builder(this)
+                    .setMessage(R.string.webpush_manage_remove)
+                    .setPositiveButton(R.string.browser_delete, (d, which) -> {
+                        WebPushManager.get(this).unregister(subscription.id);
+                        dialog.dismiss();
+                        showToast(getString(R.string.webpush_disabled));
+                    })
+                    .setNegativeButton(R.string.browser_cancel, null)
+                    .show();
+            return true;
+        });
+    }
+
+    private void shareCurrentPage() {
+        String url = currentBrowseUrl();
+        if (!BrowserUrlNormalizer.isWebUrl(url)) {
+            showToast(getString(R.string.browser_no_link));
+            return;
+        }
+        String title = currentBrowseTitle();
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_SUBJECT, title);
+        send.putExtra(Intent.EXTRA_TEXT, title + "\n" + url);
+        startActivity(Intent.createChooser(send, getString(R.string.browser_share_via)));
+    }
+
+    private void copyCurrentUrl() {
+        String url = currentBrowseUrl();
+        if (url == null || url.isEmpty()) {
+            showToast(getString(R.string.browser_no_link));
+            return;
+        }
+        copyText(url);
+        showToast(getString(R.string.browser_link_copied));
+    }
+
+    private void copyText(String text) {
+        try {
+            android.content.ClipboardManager clipboard = (android.content.ClipboardManager)
+                    getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("url", text));
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void openCurrentInSystemBrowser() {
+        String url = currentBrowseUrl();
+        if (!BrowserUrlNormalizer.isWebUrl(url)) {
+            showToast(getString(R.string.browser_no_link));
+            return;
+        }
+        openExternal(url);
+    }
+
+    private void openExternal(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)));
+        } catch (Exception e) {
+            showToast(getString(R.string.browser_external_failed));
+        }
+    }
+
+    private void shareLink(String link) {
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_TEXT, link);
+        startActivity(Intent.createChooser(send, getString(R.string.browser_share_via)));
+    }
+
+    private void toggleCurrentBookmark() {
+        String url = currentBrowseUrl();
+        if (!BrowserUrlNormalizer.isWebUrl(url)) {
+            showToast(getString(R.string.browser_no_link));
+            return;
+        }
+        boolean added = browserStore.toggleBookmark(url, currentBrowseTitle());
+        showToast(getString(added ? R.string.browser_bookmark_added : R.string.browser_bookmark_removed));
+    }
+
+    private void toggleDesktopMode() {
+        boolean desktop = !browserSettings.isDesktopMode();
+        browserSettings.setDesktopMode(desktop);
+        applyBrowserSettingsToTabs();
+        if (x5WebView != null) x5WebView.reload();
+        showToast(getString(desktop ? R.string.browser_desktop_enabled : R.string.browser_desktop_disabled));
+    }
+
+    private void applyBrowserSettingsToTabs() {
+        if (webViewList == null) return;
+        for (WebView webView : webViewList) {
+            if (webView != null) browserSettings.apply(webView.getSettings());
+        }
+    }
+
+    private void clearBrowsingData() {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(R.string.browser_clear_data)
+                .setMessage(R.string.browser_clear_data_message)
+                .setPositiveButton(R.string.browser_clear, (dialog, which) -> {
+                    try {
+                        if (webViewList != null) {
+                            for (WebView webView : webViewList) {
+                                if (webView == null) continue;
+                                webView.clearCache(true);
+                                webView.clearFormData();
+                                webView.clearHistory();
+                            }
+                        }
+                        android.webkit.CookieManager.getInstance().removeAllCookies(null);
+                        android.webkit.CookieManager.getInstance().flush();
+                        android.webkit.WebStorage.getInstance().deleteAllData();
+                        browserStore.clearHistory();
+                        com.oilquiz.app.webview.AppCookieStore.getInstance().clear();
+                        showToast(getString(R.string.browser_clear_done));
+                    } catch (Throwable t) {
+                        AppLogger.e(TAG, "清除浏览数据失败: " + t.getMessage(), t);
+                    }
+                })
+                .setNegativeButton(R.string.browser_cancel, null)
+                .show();
+    }
+
+    private void openDownloads() {
+        try {
+            startActivity(new Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS));
+        } catch (Exception e) {
+            showToast(getString(R.string.browser_downloads_unavailable));
+        }
+    }
+
+    private void showHistoryDialog() {
+        final List<BrowserStore.Entry> entries = browserStore.getHistory(null, 200);
+        if (entries.isEmpty()) {
+            showToast(getString(R.string.browser_no_history));
+            return;
+        }
+        String[] labels = new String[entries.size()];
+        for (int i = 0; i < entries.size(); i++) {
+            labels[i] = historyLabel(entries.get(i));
+        }
+        final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+                .setTitle(R.string.browser_history)
+                .setItems(labels, (d, which) -> loadUrl(entries.get(which).url))
+                .setNeutralButton(R.string.browser_clear_history, (d, which) -> confirmClearHistory())
+                .setNegativeButton(R.string.browser_cancel, null)
+                .create();
+        dialog.show();
+        dialog.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
+            BrowserStore.Entry entry = entries.get(position);
+            new android.app.AlertDialog.Builder(this)
+                    .setMessage(R.string.browser_remove_history)
+                    .setPositiveButton(R.string.browser_delete, (d, which) -> {
+                        browserStore.removeHistory(entry.url);
+                        dialog.dismiss();
+                    })
+                    .setNegativeButton(R.string.browser_cancel, null)
+                    .show();
+            return true;
+        });
+    }
+
+    private void confirmClearHistory() {
+        new android.app.AlertDialog.Builder(this)
+                .setMessage(R.string.browser_clear_history_message)
+                .setPositiveButton(R.string.browser_clear, (d, which) -> {
+                    browserStore.clearHistory();
+                    showToast(getString(R.string.browser_clear_done));
+                })
+                .setNegativeButton(R.string.browser_cancel, null)
+                .show();
+    }
+
+    private void showBookmarksDialog() {
+        final List<BrowserStore.Entry> entries = browserStore.getBookmarks();
+        if (entries.isEmpty()) {
+            showToast(getString(R.string.browser_no_bookmarks));
+            return;
+        }
+        String[] labels = new String[entries.size()];
+        for (int i = 0; i < entries.size(); i++) {
+            labels[i] = historyLabel(entries.get(i));
+        }
+        final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+                .setTitle(R.string.browser_bookmarks)
+                .setItems(labels, (d, which) -> loadUrl(entries.get(which).url))
+                .setNegativeButton(R.string.browser_close, null)
+                .create();
+        dialog.show();
+        dialog.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
+            BrowserStore.Entry entry = entries.get(position);
+            new android.app.AlertDialog.Builder(this)
+                    .setMessage(R.string.browser_remove_bookmark)
+                    .setPositiveButton(R.string.browser_delete, (d, which) -> {
+                        browserStore.removeBookmark(entry.url);
+                        dialog.dismiss();
+                    })
+                    .setNegativeButton(R.string.browser_cancel, null)
+                    .show();
+            return true;
+        });
+    }
+
+    private String historyLabel(BrowserStore.Entry entry) {
+        String host = BrowserUrlNormalizer.hostOf(entry.url);
+        String title = entry.displayTitle();
+        if (host.isEmpty() || title.equals(host)) return title;
+        return title + " · " + host;
+    }
+
+    /** 页内查找：WebView.findAllAsync + 上下跳转，关闭时清掉高亮 */
+    private void showFindDialog() {
+        final WebView webView = x5WebView;
+        if (webView == null) return;
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(8), dp(20), dp(4));
+
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setSingleLine(true);
+        input.setTextSize(15);
+        input.setHint(R.string.browser_find_hint);
+        input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        box.addView(input, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        final TextView count = new TextView(this);
+        count.setTextSize(12);
+        count.setTextColor(uiAdapter.getTextSecondaryColor());
+        count.setPadding(0, dp(6), 0, 0);
+        box.addView(count);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, dp(8), 0, 0);
+        Button prev = createChromeButton(getString(R.string.browser_find_prev), null);
+        Button next = createChromeButton(getString(R.string.browser_find_next), null);
+        prev.setOnClickListener(v -> {
+            try {
+                webView.findNext(false);
+            } catch (Throwable ignored) {
+            }
+        });
+        next.setOnClickListener(v -> {
+            try {
+                webView.findNext(true);
+            } catch (Throwable ignored) {
+            }
+        });
+        row.addView(prev, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(next, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        box.addView(row);
+
+        findDialog = new android.app.AlertDialog.Builder(this)
+                .setTitle(R.string.browser_find_title)
+                .setView(box)
+                .setNegativeButton(R.string.browser_close, null)
+                .create();
+        findDialog.setOnDismissListener(d -> {
+            if (findHandler != null) findHandler.removeCallbacksAndMessages(null);
+            try {
+                webView.clearMatches();
+                webView.setFindListener(null);
+            } catch (Throwable ignored) {
+            }
+            findDialog = null;
+        });
+        webView.setFindListener((activeMatchOrdinal, numberOfMatches, isFinal) -> {
+            if (numberOfMatches <= 0) {
+                count.setText(R.string.browser_find_none);
+            } else {
+                count.setText(getString(R.string.browser_find_count, activeMatchOrdinal, numberOfMatches));
+            }
+        });
+        input.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+                final String query = s == null ? "" : s.toString();
+                if (findHandler == null) return;
+                if (findRunnable != null) findHandler.removeCallbacks(findRunnable);
+                findRunnable = () -> {
+                    try {
+                        if (query.trim().isEmpty()) {
+                            webView.clearMatches();
+                            count.setText("");
+                        } else {
+                            webView.findAllAsync(query);
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                };
+                findHandler.postDelayed(findRunnable, 250);
+            }
+        });
+
+        findDialog.show();
+        input.requestFocus();
+        try {
+            android.view.inputmethod.InputMethodManager imm =
+                    (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 长按链接/图片：给出浏览器习惯的上下文菜单，而不是默认的 WebView 菜单 */
+    private void installLongPressMenu(final WebView webView) {
+        webView.setOnLongClickListener(v -> {
+            WebView.HitTestResult result = webView.getHitTestResult();
+            if (result == null) return false;
+            String extra = result.getExtra();
+            if (extra == null || extra.isEmpty()) return false;
+            switch (result.getType()) {
+                case WebView.HitTestResult.ANCHOR_TYPE:
+                case WebView.HitTestResult.IMAGE_ANCHOR_TYPE:
+                    showLinkContextMenu(extra);
+                    return true;
+                case WebView.HitTestResult.IMAGE_TYPE:
+                case WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE:
+                    showImageContextMenu(extra);
+                    return true;
+                default:
+                    return false;
+            }
+        });
+    }
+
+    private void showLinkContextMenu(final String link) {
+        String[] items = new String[]{
+                getString(R.string.browser_open_in_new_tab),
+                getString(R.string.browser_copy_link),
+                getString(R.string.browser_share_link),
+                getString(R.string.browser_open_external)
+        };
+        new android.app.AlertDialog.Builder(this)
+                .setItems(items, (dialog, which) -> {
+                    switch (which) {
+                        case 0: createNewTab(link); break;
+                        case 1:
+                            copyText(link);
+                            showToast(getString(R.string.browser_link_copied));
+                            break;
+                        case 2: shareLink(link); break;
+                        case 3: openExternal(link); break;
+                        default: break;
+                    }
+                })
+                .setNegativeButton(R.string.browser_cancel, null)
+                .show();
+    }
+
+    private void showImageContextMenu(final String imageUrl) {
+        String[] items = new String[]{
+                getString(R.string.browser_open_image),
+                getString(R.string.browser_copy_image_url),
+                getString(R.string.browser_download_image)
+        };
+        new android.app.AlertDialog.Builder(this)
+                .setItems(items, (dialog, which) -> {
+                    switch (which) {
+                        case 0: createNewTab(imageUrl); break;
+                        case 1:
+                            copyText(imageUrl);
+                            showToast(getString(R.string.browser_link_copied));
+                            break;
+                        case 2: downloadUrl(imageUrl); break;
+                        default: break;
+                    }
+                })
+                .setNegativeButton(R.string.browser_cancel, null)
+                .show();
+    }
+
+    private void downloadUrl(String url) {
+        String ua = x5WebView != null ? x5WebView.getSettings().getUserAgentString() : null;
+        BrowserDownloader.Result result = BrowserDownloader.enqueue(this, url, ua, null, null);
+        if (result.started()) {
+            showToast(getString(R.string.browser_download_started, result.fileName));
+        } else {
+            showToast(getString(R.string.browser_download_unsupported));
+        }
+    }
+
+    /** 通知权限门：已授予直接执行，未授予先请求；拒绝时执行 onDenied（可为空） */
+    private void ensureNotificationPermission(Runnable onGranted, Runnable onDenied) {
+        try {
+            if (android.os.Build.VERSION.SDK_INT < 33
+                    || checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                if (onGranted != null) onGranted.run();
+                return;
+            }
+            pendingNotificationGranted = onGranted;
+            pendingNotificationDenied = onDenied;
+            requestPermissions(
+                    new String[]{android.Manifest.permission.POST_NOTIFICATIONS},
+                    REQ_NOTIFICATION_PERMISSION);
+        } catch (Throwable t) {
+            AppLogger.w(TAG, "申请通知权限失败: " + t.getMessage());
+            if (onDenied != null) onDenied.run();
+        }
+    }
+
+    /** 实际发通知（通知权限已授予后调用） */
+    private void showNotificationInternal(String title, String message) {
+        try {
+            final String channelId = "webview_notifications";
+            android.app.NotificationManager manager =
+                    (android.app.NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager == null) return;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                android.app.NotificationChannel channel = new android.app.NotificationChannel(
+                        channelId, "WebView Notifications",
+                        android.app.NotificationManager.IMPORTANCE_DEFAULT);
+                channel.setDescription("Notifications from WebView");
+                manager.createNotificationChannel(channel);
+            }
+            String safeTitle = (title == null || title.isEmpty())
+                    ? getString(R.string.browser_title) : title;
+            String safeMessage = message == null ? "" : message;
+            android.app.Notification.Builder builder =
+                    new android.app.Notification.Builder(this, channelId)
+                            .setSmallIcon(android.R.drawable.ic_dialog_info)
+                            .setContentTitle(safeTitle)
+                            .setContentText(safeMessage)
+                            .setAutoCancel(true)
+                            .setPriority(android.app.Notification.PRIORITY_DEFAULT);
+            manager.notify((int) System.currentTimeMillis(), builder.build());
+        } catch (Throwable t) {
+            AppLogger.w(TAG, "显示通知失败: " + t.getMessage());
+        }
+    }
+
+    private void updateNavState() {
+        try {
+            setNavEnabled(btnBack, x5WebView != null && x5WebView.canGoBack());
+            setNavEnabled(btnForward, x5WebView != null && x5WebView.canGoForward());
+        } catch (Throwable ignored) {
+            setNavEnabled(btnBack, false);
+            setNavEnabled(btnForward, false);
+        }
+    }
+
+    private void setNavEnabled(Button button, boolean enabled) {
+        if (button == null) return;
+        button.setEnabled(enabled);
+        button.setAlpha(enabled ? 1f : 0.35f);
+    }
+
+    private void recordVisit(WebView view, String url) {
+        if (!BrowserUrlNormalizer.isWebUrl(url)) return;
+        String title = view != null ? view.getTitle() : null;
+        browserStore.recordVisit(url, title);
+    }
+
     @Override
     public boolean onOptionsItemSelected(android.view.MenuItem item) {
         int id = item.getItemId();
         if (id == android.R.id.home) {
-            finish();
+            onBackPressed();
             return true;
         }
         return super.onOptionsItemSelected(item);
     }
-    
-    /**
-     * 检查是否首次启动
-     */
-    private void checkFirstLaunch() {
-        // 加载 Bing 搜索引擎作为主页
-        loadUrl("https://www.baidu.com");
+
+    @Override
+    public void onBackPressed() {
+        // 全屏视频优先退出全屏，不触发网页后退
+        if (fullscreenController != null && fullscreenController.isFullscreen()) {
+            fullscreenController.hide(true);
+            return;
+        }
+        // 浏览器习惯：先退网页历史，再关多余标签，最后才退出
+        if (x5WebView != null && x5WebView.canGoBack()) {
+            x5WebView.goBack();
+            updateNavState();
+            return;
+        }
+        if (webViewList != null && webViewList.size() > 1) {
+            closeTab(currentTabIndex);
+            return;
+        }
+        super.onBackPressed();
     }
     
     /**
@@ -577,6 +1325,22 @@ public class WebViewActivity extends BaseActivity {
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        // 网页通知权限：授予后执行排队动作（补发通知/继续注册后台提醒）
+        if (requestCode == REQ_NOTIFICATION_PERMISSION) {
+            boolean granted = grantResults.length > 0
+                    && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            Runnable onGranted = pendingNotificationGranted;
+            Runnable onDenied = pendingNotificationDenied;
+            pendingNotificationGranted = null;
+            pendingNotificationDenied = null;
+            if (granted) {
+                if (onGranted != null) onGranted.run();
+            } else {
+                showToast(getString(R.string.browser_notification_denied));
+                if (onDenied != null) onDenied.run();
+            }
+            return;
+        }
         // 壳桥权限请求结果转发（Web 侧 requestPermission 回调）
         if (pendingBridgePermission != null) {
             boolean granted = grantResults.length > 0;
@@ -865,7 +1629,9 @@ public class WebViewActivity extends BaseActivity {
      * @param url URL地址
      */
     private void loadUrl(String url) {
+        if (url == null || url.isEmpty()) return;
         exitFileMode();
+        updateAddressBar(url);
         try {
             if (isWeatherWebsite(url)) {
                 url = ensureWeatherHttps(url);
@@ -942,6 +1708,11 @@ public class WebViewActivity extends BaseActivity {
     }
 
     private void loadLocalHtml() {
+        // 正在浏览网页/停留在起始页时，导出目录变化不应把页面顶掉
+        String current = currentBrowseUrl();
+        if (BrowserUrlNormalizer.isWebUrl(current) || BrowserUrlNormalizer.isHome(current)) {
+            return;
+        }
         // 首先尝试加载最近选择的文件
         AppResourceManager resources = AppResourceManager.getInstance(this);
         String lastSelectedFile = resources.getConfigString("webview_last_selected_file", null);
@@ -1066,7 +1837,8 @@ public class WebViewActivity extends BaseActivity {
         currentFile = file;
         if (fileInfoBar == null) return;
         fileInfoBar.setVisibility(View.VISIBLE);
-        if (tabContainer != null) tabContainer.setVisibility(View.GONE);
+        if (tabScroll != null) tabScroll.setVisibility(View.GONE);
+        if (browserChrome != null) browserChrome.setVisibility(View.GONE);
         if (fileInfoTitle != null) fileInfoTitle.setText(file.getName());
         if (fileInfoMeta != null) fileInfoMeta.setText(formatFileSize(file.length()));
         if (getSupportActionBar() != null) getSupportActionBar().setTitle(file.getName());
@@ -1074,9 +1846,15 @@ public class WebViewActivity extends BaseActivity {
     }
 
     private void exitFileMode() {
+        boolean wasFileMode = currentFile != null;
         currentFile = null;
         if (fileInfoBar != null) fileInfoBar.setVisibility(View.GONE);
-        if (tabContainer != null) tabContainer.setVisibility(View.VISIBLE);
+        if (tabScroll != null) tabScroll.setVisibility(View.VISIBLE);
+        if (browserChrome != null) browserChrome.setVisibility(View.VISIBLE);
+        if (wasFileMode && browserSettings != null && x5WebView != null) {
+            // 退出文件阅读态时恢复浏览器缩放/UA，避免把文件字号带到网页
+            browserSettings.apply(x5WebView.getSettings());
+        }
     }
 
     private void applyFileTextZoom() {
@@ -1501,16 +2279,32 @@ public class WebViewActivity extends BaseActivity {
         return exportDir;
     }
 
-    /** 创建新标签页并显示主页（bing）——customUrl 非空时新标签默认不加载，此处补加载 */
+    /** 在当前标签页打开起始页；底部主页按钮 */
     private void openHomeInNewTab() {
+        // 起始页本身是本地页面；新标签默认就是起始页
         createNewTab();
-        // createNewTab 最后已 switchTab 到新标签；customUrl 非空时新标签未加载内容，强制加载主页
-        if (customUrl != null) {
-            loadUrl("https://www.baidu.com");
-        }
     }
 
     private void createNewTab() {
+        createNewTab(null);
+    }
+
+    private void createNewTab(String initialUrl) {
+        if (initialUrl != null
+                && initialUrl.trim().toLowerCase(java.util.Locale.ROOT).startsWith("javascript:")) {
+            return; // 链接/长按菜单里不能把 javascript: 当新标签执行
+        }
+        // window.open / target=_blank 拉起 App 的协议链接：别为它开一个注定报"协议不支持"的新标签，
+        // 直接在当前页面上走协议处置（有应用就开、没有就给出路）
+        if (initialUrl != null && com.oilquiz.app.browser.BrowserSchemeHandler
+                .isSchemeNavigation(initialUrl.trim())) {
+            com.oilquiz.app.browser.BrowserSchemeHandler.handoff(this, initialUrl.trim(), x5WebView, false);
+            return;
+        }
+        if (webViewList != null && webViewList.size() >= MAX_TABS) {
+            showToast(getString(R.string.browser_tab_limit));
+            return;
+        }
         if (newTabButton != null) {
             tabContainer.removeView(newTabButton);
         }
@@ -1523,30 +2317,25 @@ public class WebViewActivity extends BaseActivity {
             
             final LinearLayout tab = new LinearLayout(this);
             tab.setOrientation(LinearLayout.HORIZONTAL);
-            tab.setPadding(16, 16, 16, 16);
+            tab.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            tab.setPadding(dp(12), dp(6), dp(6), dp(6));
             tab.setClickable(true);
             tab.setFocusable(true);
             tab.setFocusableInTouchMode(true);
             final int tabIndex = webViewList.size() - 1;
             
             LinearLayout.LayoutParams tabLayoutParams = new LinearLayout.LayoutParams(
-                    0,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    1.0f
+                    dp(148),
+                    LinearLayout.LayoutParams.WRAP_CONTENT
             );
-            tabLayoutParams.setMargins(0, 0, 8, 0);
+            tabLayoutParams.setMargins(0, 0, dp(6), 0);
             tab.setLayoutParams(tabLayoutParams);
             
             tab.setBackgroundResource(android.R.color.transparent);
             
             TextView tabTitle = new TextView(this);
-            // 第一个标签为默认标签
-            if (tabIndex == 0) {
-                tabTitle.setText(getString(R.string.h_0113d26f));
-            } else {
-                tabTitle.setText(getString(R.string.h_20f0dc68));
-            }
-            tabTitle.setTextSize(15);
+            tabTitle.setText(getString(R.string.browser_new_tab));
+            tabTitle.setTextSize(13);
             tabTitle.setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
             tabTitle.setGravity(android.view.Gravity.CENTER);
             tabTitle.setSingleLine(true);
@@ -1562,8 +2351,8 @@ public class WebViewActivity extends BaseActivity {
             
             Button closeButton = new Button(this);
             closeButton.setText("×");
-            closeButton.setTextSize(20);
-            closeButton.setPadding(14, 10, 14, 10);
+            closeButton.setTextSize(18);
+            closeButton.setPadding(dp(8), dp(4), dp(8), dp(4));
             closeButton.setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
             closeButton.setAllCaps(false);
             closeButton.setBackgroundResource(android.R.color.transparent);
@@ -1575,27 +2364,31 @@ public class WebViewActivity extends BaseActivity {
             closeButton.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    closeTab(tabIndex);
+                    // 关闭其它标签后下标会漂移，按控件当场查位置，别用创建时的 tabIndex
+                    closeTab(tabList.indexOf(tabTitle));
                 }
             });
             LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
             );
-            closeParams.setMargins(8, 0, 0, 0);
+            closeParams.setMargins(dp(4), 0, 0, 0);
             closeButton.setLayoutParams(closeParams);
             tab.addView(closeButton);
             
             tab.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    switchTab(tabIndex);
+                    switchTab(tabList.indexOf(tabTitle));
                 }
             });
             
             tabContainer.addView(tab);
             
             addNewTabButton();
+            if (tabScroll != null) {
+                tabScroll.post(() -> tabScroll.fullScroll(View.FOCUS_RIGHT));
+            }
             
             // 直接使用成员变量webViewContainer添加新的WebView
             if (webViewContainer != null) {
@@ -1607,11 +2400,8 @@ public class WebViewActivity extends BaseActivity {
             
             switchTab(tabIndex);
             
-            // 只有在没有传入自定义URL时才加载默认页面
-            if (customUrl == null) {
-                // 使用WebViewLoadManager加载 Bing 搜索引擎作为主页（带延迟优化）
-                webViewLoadManager.loadUrlDelayed(x5WebView, "https://www.baidu.com", 50);
-            }
+            String target = initialUrl != null ? initialUrl : BrowserUrlNormalizer.HOME_URL;
+            webViewLoadManager.loadUrlDelayed(newWebView, target, 50);
         }
     }
 
@@ -1626,9 +2416,31 @@ public class WebViewActivity extends BaseActivity {
 
         // 壳能力：JS 弹窗路由（配合 onCreateWindow）、媒体自动播放、混合内容兼容
         WebSettings shellSettings = webView.getSettings();
+        shellSettings.setJavaScriptEnabled(true);
         shellSettings.setJavaScriptCanOpenWindowsAutomatically(true);
+        // 不开这个开关，WebChromeClient.onCreateWindow 永远不会被调用
+        shellSettings.setSupportMultipleWindows(true);
         shellSettings.setMediaPlaybackRequiresUserGesture(false);
         shellSettings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW); // 安全：混合内容一律禁止（防降级窃取登录态）
+
+        // 浏览器需要的基础能力：DOM 存储/IndexedDB/表单、content:// 访问、定位
+        shellSettings.setDomStorageEnabled(true);
+        shellSettings.setDatabaseEnabled(true);
+        shellSettings.setAllowContentAccess(true);
+        shellSettings.setGeolocationEnabled(true);
+        shellSettings.setSaveFormData(false);
+        shellSettings.setAllowFileAccess(true);
+        // 跨源文件访问关闭（与 HtmlSandbox 同口径）：file 页不能读任意本地文件
+        shellSettings.setAllowFileAccessFromFileURLs(false);
+        shellSettings.setAllowUniversalAccessFromFileURLs(false);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+            try {
+                shellSettings.setSafeBrowsingEnabled(true);
+            } catch (Throwable ignored) {
+            }
+        }
+        // 桌面版 UA / 文字缩放（用户偏好）
+        browserSettings.apply(shellSettings);
 
         // 身份认证支持：开启 Cookie（含第三方——SSO 联合登录必需），登录态应用内持久化
         android.webkit.CookieManager shellCookieMgr = android.webkit.CookieManager.getInstance();
@@ -1644,10 +2456,27 @@ public class WebViewActivity extends BaseActivity {
             @Override
             public void onPageStarted(String url) {
                 AppLogger.d(TAG, "页面开始加载 " + url);
-                // 触发全局加载回调
-                if (webViewLoadManager != null) {
-                    // 通过WebViewLoadManager的回调通知UI更新
+                // 只给可信本地页面挂 JS 桥；http(s) 页面拿不到文件/数据库/系统能力
+                setJsBridgeEnabled(webView, isTrustedBridgeUrl(url));
+                // 从本地文件阅读态点进网页：恢复浏览器外壳（地址栏/标签栏）
+                if (BrowserUrlNormalizer.isWebUrl(url) && currentFile != null) {
+                    exitFileMode();
                 }
+                runOnUiThread(() -> {
+                    if (webView != x5WebView) return;
+                    currentPageTitle = "";
+                    if (pageProgressBar != null) {
+                        pageProgressBar.setVisibility(View.VISIBLE);
+                        pageProgressBar.setProgress(0);
+                    }
+                    if (loadingStatusText != null) {
+                        loadingStatusText.setVisibility(View.VISIBLE);
+                        loadingStatusText.setTextColor(uiAdapter.getTextSecondaryColor());
+                        loadingStatusText.setText(getString(R.string.h_bd0271ed));
+                    }
+                    updateAddressBar(url);
+                    updateNavState();
+                });
             }
 
             @Override
@@ -1657,14 +2486,49 @@ public class WebViewActivity extends BaseActivity {
                 captureCookiesForUrl(url);
                 // 注入JavaScript来优化页面显示
                 injectOptimizationScript(webView);
-                // 更新标签页标题
-                updateTabTitleFromWebView(currentTabIndex);
+                recordVisit(webView, url);
+                // 某些站点会先导航再确定最终 URL，完成时再按最终来源校准一次
+                setJsBridgeEnabled(webView, isTrustedBridgeUrl(url));
+                runOnUiThread(() -> {
+                    int index = webViewList.indexOf(webView);
+                    if (index >= 0) updateTabTitleFromWebView(index);
+                    if (webView != x5WebView) return;
+                    if (pageProgressBar != null) pageProgressBar.setVisibility(View.GONE);
+                    if (loadingStatusText != null) loadingStatusText.setVisibility(View.GONE);
+                    currentPageTitle = webView.getTitle() == null ? "" : webView.getTitle();
+                    updateAddressBar(url);
+                    updateNavState();
+                    if (getSupportActionBar() != null && currentFile == null) {
+                        getSupportActionBar().setTitle(currentBrowseTitle());
+                    }
+                });
             }
 
             @Override
             public void onError(int errorCode, String description, String failingUrl) {
-                // 错误页已由 RedirectWebViewClient.showErrorPage 统一显示（友好重试页），此处仅记录日志
+                // 错误页已由 RedirectWebViewClient.showErrorPage 统一显示（友好重试页），此处只更新外壳状态
                 AppLogger.e(TAG, "页面加载错误 [" + errorCode + "]: " + description);
+                runOnUiThread(() -> {
+                    if (webView != x5WebView) return;
+                    if (pageProgressBar != null) pageProgressBar.setVisibility(View.GONE);
+                    if (loadingStatusText != null) {
+                        loadingStatusText.setVisibility(View.VISIBLE);
+                        loadingStatusText.setText(getString(R.string.h_866b795e));
+                        loadingStatusText.setTextColor(getResources().getColor(R.color.error_color));
+                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                            if (loadingStatusText != null) {
+                                loadingStatusText.setVisibility(View.GONE);
+                                loadingStatusText.setTextColor(uiAdapter.getTextSecondaryColor());
+                            }
+                        }, 3000);
+                    }
+                    updateNavState();
+                });
+            }
+
+            @Override
+            public void onRendererGone(WebView deadView, String lastUrl) {
+                runOnUiThread(() -> replaceCrashedTab(deadView, lastUrl));
             }
         });
         webView.setWebViewClient(redirectWebViewClient);
@@ -1686,15 +2550,37 @@ public class WebViewActivity extends BaseActivity {
             }
 
             @Override
+            public void onShowCustomView(View view, android.webkit.WebChromeClient.CustomViewCallback callback) {
+                if (fullscreenController == null) {
+                    fullscreenController =
+                            new com.oilquiz.app.browser.BrowserFullscreenController(WebViewActivity.this);
+                }
+                fullscreenController.show(view, callback);
+            }
+
+            @Override
+            public void onHideCustomView() {
+                if (fullscreenController != null) fullscreenController.hide(false);
+            }
+
+            @Override
             public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
-                // 壳能力：window.open / target=_blank 统一路由回当前标签，避免新窗口丢失
-                WebView child = new WebView(view.getContext());
+                // 只响应用户点击触发的 window.open；广告/脚本自动弹窗直接丢弃
+                if (!isUserGesture) return false;
+                // window.open / target=_blank：在新标签页承载，子 WebView 只做 URL 中转
+                WebView child = new WebView(getApplicationContext());
                 child.setWebViewClient(new WebViewClient() {
                     @Override
                     public boolean shouldOverrideUrlLoading(WebView v, String url) {
-                        if (url != null) {
-                            loadUrl(url); // 路由回当前标签 WebView
+                        if (url != null && !url.isEmpty()) {
+                            createNewTab(url);
                         }
+                        v.post(() -> {
+                            try {
+                                v.destroy();
+                            } catch (Throwable ignored) {
+                            }
+                        });
                         return true;
                     }
                 });
@@ -1731,35 +2617,79 @@ public class WebViewActivity extends BaseActivity {
             @Override
             public void onProgressChanged(WebView view, int newProgress) {
                 super.onProgressChanged(view, newProgress);
-                AppLogger.d(TAG, "加载进度: " + newProgress + "%");
+                if (view != x5WebView) return;
                 if (pageProgressBar != null) {
+                    pageProgressBar.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
                     pageProgressBar.setProgress(newProgress);
                 }
                 if (loadingStatusText != null) {
-                    loadingStatusText.setText(getString(R.string.h_c96070db) + newProgress + "%");
+                    if (newProgress >= 100) {
+                        loadingStatusText.setVisibility(View.GONE);
+                    } else {
+                        loadingStatusText.setVisibility(View.VISIBLE);
+                        loadingStatusText.setText(getString(R.string.h_c96070db) + newProgress + "%");
+                    }
                 }
             }
             
             @Override
             public void onReceivedTitle(WebView view, String title) {
                 super.onReceivedTitle(view, title);
-                if (currentTabIndex >= 0 && currentTabIndex < tabList.size()) {
-                    tabList.get(currentTabIndex).setText(title);
-                    updateTabTitleFromWebView(currentTabIndex);
+                int index = webViewList.indexOf(view);
+                if (index >= 0 && index < tabList.size()) {
+                    if (title != null && !title.isEmpty()) tabList.get(index).setText(title);
+                    updateTabTitleFromWebView(index);
+                }
+                if (view == x5WebView && title != null && !title.isEmpty()) {
+                    currentPageTitle = title;
+                    if (getSupportActionBar() != null && currentFile == null) {
+                        getSupportActionBar().setTitle(title);
+                    }
                 }
             }
         });
         
-        // 添加JavaScript接口
-        addJavascriptInterface(webView);
+        // JS 桥按页面来源动态挂载（见 setJsBridgeEnabled），默认不给
+        prepareJsBridge(webView);
+
+        // blob 下载专用桥：对所有页面开放，但只接受本进程生成的随机 requestId
+        try {
+            webView.removeJavascriptInterface("SmartQuizBlob");
+            webView.addJavascriptInterface(new BlobBridge(), "SmartQuizBlob");
+            // 后台提醒桥对所有页面开放；每次注册都要用户弹窗授权，且按页面来源隔离
+            webView.removeJavascriptInterface("SmartQuizPush");
+            webView.addJavascriptInterface(new WebPushBridge(webView), "SmartQuizPush");
+        } catch (Throwable ignored) {
+        }
+
+        // 长按链接/图片：浏览器习惯的上下文菜单
+        installLongPressMenu(webView);
         
         // 设置下载监听器，处理文件下载
         webView.setDownloadListener(new android.webkit.DownloadListener() {
             @Override
             public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimeType, long contentLength) {
-                AppLogger.d(TAG, "开始下载: " + url);
-                AppLogger.d(TAG, "文件类型: " + mimeType);
-                AppLogger.d(TAG, "文件大小: " + contentLength + " bytes");
+                AppLogger.d(TAG, "开始下载: " + url + " 类型: " + mimeType + " 大小: " + contentLength);
+
+                // blob:/data: 下载拿不到可交给 DownloadManager 的地址，走页面回传/Java 解码
+                if (url != null) {
+                    String lower = url.toLowerCase(java.util.Locale.ROOT);
+                    if (lower.startsWith("blob:")) {
+                        startBlobDownload(webView, url, contentDisposition, mimeType);
+                        return;
+                    }
+                    if (lower.startsWith("data:")) {
+                        saveDataUrlDownload(url, contentDisposition, mimeType);
+                        return;
+                    }
+                }
+
+                // magnet:/ed2k:/thunder: 这类"下载"其实是协议拉起：交给 DownloadManager 只会报无效 URI
+                if (com.oilquiz.app.browser.BrowserSchemeHandler.isSchemeNavigation(url)) {
+                    com.oilquiz.app.browser.BrowserSchemeHandler
+                            .handoff(WebViewActivity.this, url, webView, false);
+                    return;
+                }
 
                 // .gguf 模型文件：用 App 内部下载器下载到 ai_models 目录
                 if (url != null) {
@@ -1781,27 +2711,16 @@ public class WebViewActivity extends BaseActivity {
                     }
                 }
 
-                // 处理其他下载请求
-                android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
-                intent.setData(android.net.Uri.parse(url));
-                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                
-                try {
-                    WebViewActivity.this.startActivity(intent);
-                    AppLogger.d(TAG, "已启动下载: " + url);
-                } catch (android.content.ActivityNotFoundException e) {
-                    AppLogger.e(TAG, "无法处理下载: " + e.getMessage());
-                    // 显示错误提示
-                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-                        android.widget.Toast.makeText(WebViewActivity.this,
-                            "无法处理此下载，请检查是否有相应的应用",
-                            android.widget.Toast.LENGTH_SHORT).show();
-                    });
+                // 其余下载统一交给系统 DownloadManager（带 Cookie/UA，通知栏可见，断点由系统负责）
+                BrowserDownloader.Result result = BrowserDownloader.enqueue(
+                        WebViewActivity.this, url, userAgent, contentDisposition, mimeType);
+                if (result.started()) {
+                    showToast(getString(R.string.browser_download_started, result.fileName));
+                } else {
+                    showToast(getString(R.string.browser_download_unsupported));
                 }
             }
         });
-        
-        x5WebView = webView;
         
         AppLogger.d(TAG, "优化的WebView初始化成功，当前池大小: " + webViewLoadManager.getPoolSize());
         
@@ -1832,6 +2751,8 @@ public class WebViewActivity extends BaseActivity {
      */
     private void updateTabTitleFromWebView(int tabIndex) {
         if (tabIndex < 0 || tabIndex >= tabList.size()) return;
+        // 只给当前选中的标签上色；后台标签加载完成不应抢选中态
+        if (tabIndex != currentTabIndex) return;
         
         // 确保选中标签页的文字颜色保持为primary色
         tabList.get(tabIndex).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorPrimary));
@@ -1945,15 +2866,37 @@ public class WebViewActivity extends BaseActivity {
             }
 
             @Override
+            public void onShowCustomView(View view, android.webkit.WebChromeClient.CustomViewCallback callback) {
+                if (fullscreenController == null) {
+                    fullscreenController =
+                            new com.oilquiz.app.browser.BrowserFullscreenController(WebViewActivity.this);
+                }
+                fullscreenController.show(view, callback);
+            }
+
+            @Override
+            public void onHideCustomView() {
+                if (fullscreenController != null) fullscreenController.hide(false);
+            }
+
+            @Override
             public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
-                // 壳能力：window.open / target=_blank 统一路由回当前标签，避免新窗口丢失
-                WebView child = new WebView(view.getContext());
+                // 只响应用户点击触发的 window.open；广告/脚本自动弹窗直接丢弃
+                if (!isUserGesture) return false;
+                // window.open / target=_blank：在新标签页承载，子 WebView 只做 URL 中转
+                WebView child = new WebView(getApplicationContext());
                 child.setWebViewClient(new WebViewClient() {
                     @Override
                     public boolean shouldOverrideUrlLoading(WebView v, String url) {
-                        if (url != null) {
-                            loadUrl(url); // 路由回当前标签 WebView
+                        if (url != null && !url.isEmpty()) {
+                            createNewTab(url);
                         }
+                        v.post(() -> {
+                            try {
+                                v.destroy();
+                            } catch (Throwable ignored) {
+                            }
+                        });
                         return true;
                     }
                 });
@@ -2017,8 +2960,18 @@ public class WebViewActivity extends BaseActivity {
             }
         });
         
-        // 添加JavaScript接口
-        addJavascriptInterface(webView);
+        // JS 桥按页面来源动态挂载（见 setJsBridgeEnabled），默认不给
+        prepareJsBridge(webView);
+
+        // blob 下载专用桥：对所有页面开放，但只接受本进程生成的随机 requestId
+        try {
+            webView.removeJavascriptInterface("SmartQuizBlob");
+            webView.addJavascriptInterface(new BlobBridge(), "SmartQuizBlob");
+            // 后台提醒桥对所有页面开放；每次注册都要用户弹窗授权，且按页面来源隔离
+            webView.removeJavascriptInterface("SmartQuizPush");
+            webView.addJavascriptInterface(new WebPushBridge(webView), "SmartQuizPush");
+        } catch (Throwable ignored) {
+        }
         
         x5WebView = webView;
         
@@ -2087,17 +3040,17 @@ public class WebViewActivity extends BaseActivity {
             return;
         }
         
-        for (Object wv : webViewList) {
-            if (wv instanceof View) {
-                ((View) wv).setVisibility(View.GONE);
-            }
+        for (WebView webView : webViewList) {
+            if (webView != null) webView.setVisibility(View.GONE);
         }
         
         x5WebView = webViewList.get(index);
-        if (x5WebView instanceof View) {
-            ((View) x5WebView).setVisibility(View.VISIBLE);
+        if (x5WebView != null) {
+            x5WebView.setVisibility(View.VISIBLE);
         }
         currentTabIndex = index;
+        currentPageTitle = x5WebView == null || x5WebView.getTitle() == null
+                ? "" : x5WebView.getTitle();
         
         // 更新标签样式 - 类似底部导航栏
         for (int i = 0; i < tabList.size(); i++) {
@@ -2131,56 +3084,113 @@ public class WebViewActivity extends BaseActivity {
                 }
             }
         }
+
+        updateAddressBar(currentBrowseUrl());
+        updateNavState();
+        if (getSupportActionBar() != null && currentFile == null) {
+            getSupportActionBar().setTitle(currentPageTitle.isEmpty()
+                    ? getString(R.string.browser_title) : currentPageTitle);
+        }
+        if (tabScroll != null && index < tabList.size()
+                && tabList.get(index).getParent() instanceof View) {
+            final View tabView = (View) tabList.get(index).getParent();
+            tabScroll.post(() -> tabScroll.smoothScrollTo(Math.max(0, tabView.getLeft() - dp(12)), 0));
+        }
     }
 
     private void closeTab(int index) {
         if (index < 0 || index >= webViewList.size()) {
             return;
         }
-        
-        // 防止关闭默认标签
-        if (index == 0) {
-            android.widget.Toast.makeText(this, getString(R.string.h_69e1adfa), android.widget.Toast.LENGTH_SHORT).show();
-            return;
-        }
-        
-        if (webViewList.size() == 1) {
-            android.widget.Toast.makeText(this, getString(R.string.h_ae735e4b), android.widget.Toast.LENGTH_SHORT).show();
-            return;
-        }
-        
+
+        boolean wasLast = webViewList.size() == 1;
         if (newTabButton != null) {
             tabContainer.removeView(newTabButton);
         }
-        
-        WebView wv = webViewList.get(index);
+
+        WebView wv = webViewList.remove(index);
         if (wv != null) {
+            if (wv == x5WebView) x5WebView = null;
+            if (webViewContainer != null) webViewContainer.removeView(wv);
+            // 先摘 JS 桥（否则回收进池的 WebView 仍带着能读本地文件的接口）
+            setJsBridgeEnabled(wv, false);
             // 使用WebViewLoadManager释放WebView（回收到池中）
             if (webViewLoadManager != null) {
                 webViewLoadManager.releaseWebView(wv);
                 AppLogger.d(TAG, "关闭标签页，WebView已回收到池，当前池大小: " + webViewLoadManager.getPoolSize());
             } else {
-                // 降级处理：直接销毁
-                wv.destroy();
+                try {
+                    wv.destroy();
+                } catch (Throwable ignored) {
+                }
             }
         }
-        webViewList.remove(index);
         
         if (index < tabList.size()) {
-            TextView tabTitle = tabList.get(index);
-            if (tabTitle.getParent() instanceof LinearLayout) {
+            TextView tabTitle = tabList.remove(index);
+            if (tabTitle.getParent() instanceof View) {
                 tabContainer.removeView((View) tabTitle.getParent());
             }
-            tabList.remove(index);
         }
         
         addNewTabButton();
-        
-        if (currentTabIndex >= index) {
+
+        // 最后一个标签关闭后直接换成新的起始页，而不是退出浏览器
+        if (wasLast) {
+            currentTabIndex = 0;
+            createNewTab();
+            return;
+        }
+
+        if (currentTabIndex > index) {
             currentTabIndex--;
+        } else if (currentTabIndex == index) {
+            currentTabIndex = Math.min(index, webViewList.size() - 1);
         }
         
         switchTab(currentTabIndex);
+    }
+
+    /** 渲染进程崩溃/被回收：销毁死亡的 WebView，当前页则用最后 URL 重建标签页 */
+    private void replaceCrashedTab(WebView deadView, String lastUrl) {
+        if (webViewList == null || deadView == null) return;
+        int index = webViewList.indexOf(deadView);
+        if (index < 0) return;
+
+        boolean wasCurrent = index == currentTabIndex;
+        if (newTabButton != null) {
+            tabContainer.removeView(newTabButton);
+        }
+        webViewList.remove(index);
+        if (webViewContainer != null) webViewContainer.removeView(deadView);
+        if (deadView == x5WebView) x5WebView = null;
+        setJsBridgeEnabled(deadView, false);
+        try {
+            deadView.destroy();
+        } catch (Throwable ignored) {
+        }
+        if (index < tabList.size()) {
+            TextView tabTitle = tabList.remove(index);
+            if (tabTitle.getParent() instanceof View) {
+                tabContainer.removeView((View) tabTitle.getParent());
+            }
+        }
+        addNewTabButton();
+
+        if (webViewList.isEmpty()) {
+            currentTabIndex = 0;
+            createNewTab(lastUrl);
+            return;
+        }
+        if (currentTabIndex > index) {
+            currentTabIndex--;
+        } else if (currentTabIndex >= webViewList.size()) {
+            currentTabIndex = webViewList.size() - 1;
+        }
+        switchTab(currentTabIndex);
+        if (wasCurrent) {
+            createNewTab(lastUrl);
+        }
     }
 
     private Button createNavButton(String text, String tooltip) {
@@ -2191,10 +3201,10 @@ public class WebViewActivity extends BaseActivity {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 1
         ));
-        button.setPadding(12, 8, 12, 8);
+        button.setPadding(dp(12), dp(8), dp(12), dp(8));
         button.setTextSize(16);
-        button.setTextColor(getResources().getColor(R.color.black));
-        button.setBackground(createRoundedBackground(uiAdapter.getSurfaceColor(), 8));
+        button.setTextColor(uiAdapter.getTextPrimaryColor());
+        button.setBackground(createRoundedBackground(uiAdapter.getSurfaceColor(), dp(8)));
         button.setTooltipText(tooltip);
         return button;
     }
@@ -2220,15 +3230,18 @@ public class WebViewActivity extends BaseActivity {
         }
         
         // 对于其他页面，只注入最小化的优化脚本
-        String script = "javascript:(function() { " +
+        String script = "(function() { " +
             "var body = document.body;" +
             "if (body && body.scrollWidth > window.innerWidth) {" +
             "  var style = document.createElement('style');" +
             "  style.textContent = 'img { max-width: 100%; height: auto; }';" +
-            "  document.head.appendChild(style);" +
+            "  if (document.head) document.head.appendChild(style);" +
             "}" +
             "})();";
-        view.loadUrl(script);
+        try {
+            view.evaluateJavascript(script, null);
+        } catch (Throwable ignored) {
+        }
     }
     
     /**
@@ -2244,23 +3257,303 @@ public class WebViewActivity extends BaseActivity {
                lowerUrl.contains("tianqi");
     }
 
-    private void addJavascriptInterface(WebView webView) {
-        // 使用模块化的安全接口（替代原来的 WebAppInterface）
-        com.oilquiz.app.webview.js.JSInterfaceManager jsManager = 
-            com.oilquiz.app.webview.js.JSInterfaceManager.getInstance(this);
-        
-        // 注册各模块接口
-        webView.addJavascriptInterface(jsManager.getToolInterface(), "AndroidUtil");
-        webView.addJavascriptInterface(jsManager.getClipboardInterface(), "AndroidClipboard");
-        webView.addJavascriptInterface(jsManager.getFileInterface(), "AndroidFile");
-        webView.addJavascriptInterface(jsManager.getDatabaseInterface(), "AndroidDatabase");
-        advancedBridge = new com.oilquiz.app.webview.js.JSAdvancedInterface(this, webView);
-        webView.addJavascriptInterface(advancedBridge, "AndroidAdvanced");
-        
-        // 保留旧接口（兼容模式，仅转发到新接口）
-        webView.addJavascriptInterface(new WebAppInterface(), "Android");
-        
-        AppLogger.d(TAG, "JavaScript接口已注册（安全模式）");
+    /**
+     * 只给可信页面挂 JS 桥。
+     *
+     * <p>安全边界：WebView 加载的是任意互联网页面，而 Android/AndroidFile/AndroidDatabase
+     * 这些桥能读写本地文件、查数据库、拉起 Activity。旧实现无差别 addJavascriptInterface，
+     * 等于把本地文件系统交给每个访问到的网站。这里按导航 URL 动态挂载/摘除：
+     * 只有 app 自带 assets 与 app 私有目录下的本地页面可用桥，http(s) 页面一律没有。</p>
+     */
+    private void prepareJsBridge(WebView webView) {
+        setJsBridgeEnabled(webView, false);
+    }
+
+    private boolean isTrustedBridgeUrl(String url) {
+        if (url == null || url.isEmpty()) return false;
+        if (url.startsWith("file:///android_asset/")) return true;
+        if (!url.startsWith("file://")) return false;
+        try {
+            String path = android.net.Uri.parse(url).getPath();
+            if (path == null) return false;
+            String files = getFilesDir() != null ? getFilesDir().getAbsolutePath() : null;
+            String cache = getCacheDir() != null ? getCacheDir().getAbsolutePath() : null;
+            java.io.File external = getExternalFilesDir(null);
+            String ext = external != null ? external.getAbsolutePath() : null;
+            return (files != null && (path.startsWith(files + java.io.File.separator) || path.equals(files)))
+                    || (cache != null && (path.startsWith(cache + java.io.File.separator) || path.equals(cache)))
+                    || (ext != null && (path.startsWith(ext + java.io.File.separator) || path.equals(ext)));
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private void setJsBridgeEnabled(WebView webView, boolean enabled) {
+        if (webView == null) return;
+        boolean currently = bridgeEnabledViews.contains(webView);
+        if (enabled == currently) return;
+        try {
+            if (enabled) {
+                com.oilquiz.app.webview.js.JSInterfaceManager jsManager =
+                        com.oilquiz.app.webview.js.JSInterfaceManager.getInstance(this);
+                webView.addJavascriptInterface(jsManager.getToolInterface(), "AndroidUtil");
+                webView.addJavascriptInterface(jsManager.getClipboardInterface(), "AndroidClipboard");
+                webView.addJavascriptInterface(jsManager.getFileInterface(), "AndroidFile");
+                webView.addJavascriptInterface(jsManager.getDatabaseInterface(), "AndroidDatabase");
+                com.oilquiz.app.webview.js.JSAdvancedInterface advanced =
+                        new com.oilquiz.app.webview.js.JSAdvancedInterface(this, webView);
+                webView.addJavascriptInterface(advanced, "AndroidAdvanced");
+                advancedBridges.put(webView, advanced);
+                // 兼容旧页面（app2.html / question-renderer 使用 Android.*）
+                webView.addJavascriptInterface(new WebAppInterface(), "Android");
+                bridgeEnabledViews.add(webView);
+            } else {
+                webView.removeJavascriptInterface("AndroidUtil");
+                webView.removeJavascriptInterface("AndroidClipboard");
+                webView.removeJavascriptInterface("AndroidFile");
+                webView.removeJavascriptInterface("AndroidDatabase");
+                webView.removeJavascriptInterface("AndroidAdvanced");
+                webView.removeJavascriptInterface("Android");
+                com.oilquiz.app.webview.js.JSAdvancedInterface advanced = advancedBridges.remove(webView);
+                if (advanced != null) advanced.destroy();
+                bridgeEnabledViews.remove(webView);
+            }
+        } catch (Throwable t) {
+            AppLogger.w(TAG, "切换 JS 桥失败: " + t.getMessage());
+        }
+    }
+
+    // ==================== blob 下载 ====================
+
+    private synchronized com.oilquiz.app.browser.BlobDownloadManager blobDownloader() {
+        if (blobDownloadManager == null) {
+            blobDownloadManager = new com.oilquiz.app.browser.BlobDownloadManager(this);
+        }
+        return blobDownloadManager;
+    }
+
+    private com.oilquiz.app.browser.BlobDownloadManager.Listener blobDownloadListener() {
+        return new com.oilquiz.app.browser.BlobDownloadManager.Listener() {
+            @Override
+            public void onSaved(String fileName) {
+                showToast(getString(R.string.browser_saved_to_downloads, fileName));
+            }
+
+            @Override
+            public void onError(String reason) {
+                showToast(getString(R.string.browser_blob_failed,
+                        reason == null ? "" : reason));
+            }
+        };
+    }
+
+    private void startBlobDownload(WebView webView, String blobUrl,
+                                   String contentDisposition, String mimeType) {
+        if (webView == null || blobUrl == null) return;
+        com.oilquiz.app.browser.BlobDownloadManager manager = blobDownloader();
+        String requestId = manager.begin(contentDisposition, mimeType, blobDownloadListener());
+        if (requestId == null) {
+            showToast(getString(R.string.browser_blob_busy));
+            return;
+        }
+        showToast(getString(R.string.browser_blob_downloading));
+        try {
+            webView.evaluateJavascript(
+                    com.oilquiz.app.browser.BlobDownloadManager.buildFetchScript(requestId, blobUrl),
+                    null);
+        } catch (Throwable t) {
+            manager.fail(requestId, t.getMessage());
+        }
+    }
+
+    /** data: URL 直接由 Java 解码落盘 */
+    private void saveDataUrlDownload(String dataUrl, String contentDisposition, String mimeType) {
+        showToast(getString(R.string.browser_blob_downloading));
+        blobDownloader().saveDataUrl(dataUrl, contentDisposition, mimeType, blobDownloadListener());
+    }
+
+    /** 页面侧 blob 分片回传桥：只认随机 requestId，不接受路径 */
+    public class BlobBridge {
+        @JavascriptInterface
+        public void chunk(String requestId, String base64) {
+            blobDownloader().append(requestId, base64);
+        }
+
+        @JavascriptInterface
+        public void complete(String requestId) {
+            blobDownloader().complete(requestId);
+        }
+
+        @JavascriptInterface
+        public void fail(String requestId, String message) {
+            blobDownloader().fail(requestId, message);
+        }
+    }
+
+    // ==================== 后台提醒桥 ====================
+
+    /** 可信网页通过 window.SmartQuizPush 注册服务器轮询；关闭页面后仍会收到系统通知 */
+    public class WebPushBridge {
+        private final WebView webView;
+
+        WebPushBridge(WebView webView) {
+            this.webView = webView;
+        }
+
+        @JavascriptInterface
+        public void subscribe(String configJson, String callbackName) {
+            runOnUiThread(() -> requestPushSubscription(configJson, callbackName, webView));
+        }
+
+        @JavascriptInterface
+        public void unsubscribe(String idOrEndpoint, String callbackName) {
+            try {
+                String pageUrl = webView != null ? webView.getUrl() : null;
+                if (pageUrl == null || pageUrl.isEmpty()) {
+                    pushCallback(webView, callbackName, pushError("页面地址未知"));
+                    return;
+                }
+                boolean removed = WebPushManager.get(WebViewActivity.this)
+                        .unregister(idOrEndpoint, pageUrl);
+                pushCallback(webView, callbackName,
+                        "{\"ok\":true,\"removed\":" + removed + "}");
+            } catch (Throwable t) {
+                pushCallback(webView, callbackName, pushError(t.getMessage()));
+            }
+        }
+
+        @JavascriptInterface
+        public void list(String callbackName) {
+            try {
+                pushCallback(webView, callbackName,
+                        WebPushManager.listJson(WebPushManager.get(WebViewActivity.this)
+                                .listForPage(webView.getUrl())));
+            } catch (Throwable t) {
+                pushCallback(webView, callbackName, pushError(t.getMessage()));
+            }
+        }
+
+        @JavascriptInterface
+        public void deviceId(String callbackName) {
+            try {
+                org.json.JSONObject out = new org.json.JSONObject();
+                out.put("ok", true);
+                out.put("deviceId", WebPushManager.get(WebViewActivity.this).deviceId());
+                pushCallback(webView, callbackName, out.toString());
+            } catch (Throwable t) {
+                pushCallback(webView, callbackName, pushError(t.getMessage()));
+            }
+        }
+
+        @JavascriptInterface
+        public void pollNow(String callbackName) {
+            try {
+                // 立即检查只给本地可信页，避免任意网站反复触发后台请求
+                if (!isTrustedBridgeUrl(webView != null ? webView.getUrl() : null)) {
+                    pushCallback(webView, callbackName, pushError("仅本地页面可立即检查"));
+                    return;
+                }
+                WebPushManager.get(WebViewActivity.this).pollNow();
+                pushCallback(webView, callbackName, "{\"ok\":true}");
+            } catch (Throwable t) {
+                pushCallback(webView, callbackName, pushError(t.getMessage()));
+            }
+        }
+
+        @JavascriptInterface
+        public void notifyNow(String configJson, String callbackName) {
+            runOnUiThread(() -> {
+                try {
+                    // 立即通知只给本地可信页，避免任意网站拿它刷通知
+                    if (!isTrustedBridgeUrl(webView != null ? webView.getUrl() : null)) {
+                        pushCallback(webView, callbackName, pushError("仅本地页面可立即通知"));
+                        return;
+                    }
+                    org.json.JSONObject config = new org.json.JSONObject(
+                            configJson == null || configJson.isEmpty() ? "{}" : configJson);
+                    String title = config.optString("title", "");
+                    String body = config.optString("body", "");
+                    String url = config.optString("url", "");
+                    ensureNotificationPermission(
+                            () -> {
+                                com.oilquiz.app.browser.push.WebPushNotifier.showNow(
+                                        WebViewActivity.this, title, body, url);
+                                pushCallback(webView, callbackName, "{\"ok\":true}");
+                            },
+                            () -> pushCallback(webView, callbackName,
+                                    pushError("通知权限未授予")));
+                } catch (Throwable t) {
+                    pushCallback(webView, callbackName, pushError(t.getMessage()));
+                }
+            });
+        }
+    }
+
+    /** 首次为某个 endpoint 注册时弹授权：明确告知会后台轮询 */
+    private void requestPushSubscription(String configJson, String callbackName, WebView webView) {
+        WebPushManager manager = WebPushManager.get(this);
+        WebPushManager.Parsed parsed = WebPushManager.parseConfig(
+                configJson, webView != null ? webView.getUrl() : null);
+        if (parsed.error != null || parsed.subscription == null) {
+            pushCallback(webView, callbackName, pushError(parsed.error));
+            return;
+        }
+        final WebPushSubscription subscription = parsed.subscription;
+        if (manager.hasSubscription(subscription.endpoint, subscription.pageUrl)) {
+            ensureNotificationPermission(
+                    () -> registerPush(subscription, callbackName, webView),
+                    () -> pushCallback(webView, callbackName, pushError("通知权限未授予")));
+            return;
+        }
+        String host = BrowserUrlNormalizer.hostOf(subscription.endpoint);
+        if (host.isEmpty()) host = subscription.endpoint;
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(R.string.webpush_consent_title)
+                .setMessage(getString(R.string.webpush_consent_message,
+                        host, subscription.intervalMinutes))
+                .setPositiveButton(R.string.webpush_allow, (dialog, which) ->
+                        ensureNotificationPermission(
+                                () -> registerPush(subscription, callbackName, webView),
+                                () -> pushCallback(webView, callbackName, pushError("通知权限未授予"))))
+                .setNegativeButton(R.string.webpush_deny, (dialog, which) ->
+                        pushCallback(webView, callbackName, pushError("用户拒绝")))
+                .setOnCancelListener(dialog ->
+                        pushCallback(webView, callbackName, pushError("用户取消")))
+                .show();
+    }
+
+    private void registerPush(WebPushSubscription subscription, String callbackName, WebView webView) {
+        WebPushManager.Result result = WebPushManager.get(this).register(subscription);
+        pushCallback(webView, callbackName, WebPushManager.resultJson(result));
+        if (result.ok) {
+            showToast(getString(R.string.webpush_enabled));
+        }
+    }
+
+    private void pushCallback(WebView webView, String callbackName, String json) {
+        if (webView == null || callbackName == null
+                || !callbackName.matches("[A-Za-z0-9_]{1,64}") || json == null) {
+            return;
+        }
+        final String js = "window['" + callbackName + "'] && window['" + callbackName + "']("
+                + org.json.JSONObject.quote(json) + ");";
+        webView.post(() -> {
+            try {
+                webView.evaluateJavascript(js, null);
+            } catch (Throwable ignored) {
+            }
+        });
+    }
+
+    private static String pushError(String message) {
+        try {
+            org.json.JSONObject out = new org.json.JSONObject();
+            out.put("ok", false);
+            out.put("error", message == null || message.isEmpty() ? "操作失败" : message);
+            return out.toString();
+        } catch (Throwable t) {
+            return "{\"ok\":false,\"error\":\"操作失败\"}";
+        }
     }
 
     public class WebAppInterface {
@@ -3102,27 +4395,8 @@ public class WebViewActivity extends BaseActivity {
         // 系统通知接口
         @JavascriptInterface
         public void showNotification(String title, String message) {
-            runOnUiThread(() -> {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    android.app.NotificationChannel channel = new android.app.NotificationChannel("webview_notifications", "WebView Notifications", android.app.NotificationManager.IMPORTANCE_DEFAULT);
-                    channel.setDescription("Notifications from WebView");
-                    android.app.NotificationManager notificationManager = WebViewActivity.this.getSystemService(android.app.NotificationManager.class);
-                    if (notificationManager != null) {
-                        notificationManager.createNotificationChannel(channel);
-                    }
-                }
-                
-                android.app.Notification.Builder builder = new android.app.Notification.Builder(WebViewActivity.this, "webview_notifications")
-                        .setSmallIcon(android.R.drawable.ic_dialog_info)
-                        .setContentTitle(title)
-                        .setContentText(message)
-                        .setPriority(android.app.Notification.PRIORITY_DEFAULT);
-                
-                android.app.NotificationManager notificationManager = (android.app.NotificationManager) WebViewActivity.this.getSystemService(Context.NOTIFICATION_SERVICE);
-                if (notificationManager != null) {
-                    notificationManager.notify((int) System.currentTimeMillis(), builder.build());
-                }
-            });
+            runOnUiThread(() -> ensureNotificationPermission(
+                    () -> showNotificationInternal(title, message), null));
         }
         
         // 网络相关接口
@@ -3673,11 +4947,45 @@ public class WebViewActivity extends BaseActivity {
     }
 
     @Override
+    protected void onPause() {
+        super.onPause();
+        // 暂停当前页的 JS/媒体计时器；Cookie 落盘，避免进程被杀丢登录态
+        try {
+            if (x5WebView != null) x5WebView.onPause();
+            android.webkit.CookieManager.getInstance().flush();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        try {
+            if (x5WebView != null) x5WebView.onResume();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (advancedBridge != null) {
-            advancedBridge.destroy();
-            advancedBridge = null;
+
+        if (blobDownloadManager != null) {
+            blobDownloadManager.cancelAll();
+            blobDownloadManager = null;
+        }
+        if (fullscreenController != null) {
+            fullscreenController.destroy();
+            fullscreenController = null;
+        }
+        pendingNotificationGranted = null;
+        pendingNotificationDenied = null;
+
+        if (findHandler != null) {
+            findHandler.removeCallbacksAndMessages(null);
+        }
+        if (findDialog != null && findDialog.isShowing()) {
+            findDialog.dismiss();
         }
         
         // 1. 停止文件监控
@@ -3685,22 +4993,40 @@ public class WebViewActivity extends BaseActivity {
             exportDirObserver.stopWatching();
             exportDirObserver = null;
         }
-        
-        // 2. 使用生命周期管理器销毁所有 WebView
+
+        // 2. 回收标签页 WebView：旧实现只清列表，页面销毁后 WebView 仍持有回调/视图引用
+        x5WebView = null;
+        if (webViewList != null) {
+            for (WebView webView : new java.util.ArrayList<>(webViewList)) {
+                if (webView == null) continue;
+                if (webViewContainer != null) webViewContainer.removeView(webView);
+                setJsBridgeEnabled(webView, false);
+                if (webViewLoadManager != null) {
+                    webViewLoadManager.releaseWebView(webView);
+                } else {
+                    try {
+                        webView.destroy();
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+            webViewList.clear();
+        }
+        advancedBridges.clear();
+        bridgeEnabledViews.clear();
+        if (tabList != null) tabList.clear();
+        if (webViewContainer != null) webViewContainer.removeAllViews();
+        if (webViewLoadManager != null) webViewLoadManager.setPageLoadCallback(null);
+
+        // 3. 生命周期管理器清理池与 FileObserver
         com.oilquiz.app.webview.security.WebViewLifecycleManager lifecycleManager = 
             com.oilquiz.app.webview.security.WebViewLifecycleManager.getInstance();
-        
-        // 销毁所有活跃的 WebView
         lifecycleManager.destroyAllWebViews();
         
-        // 3. 清理 JS 接口管理器
+        // 4. 清理 JS 接口管理器
         com.oilquiz.app.webview.js.JSInterfaceManager jsManager = 
             com.oilquiz.app.webview.js.JSInterfaceManager.getInstance(this);
         jsManager.destroy();
-        
-        // 4. 清理列表
-        webViewList.clear();
-        tabList.clear();
         
         AppLogger.d(TAG, "WebViewActivity 销毁完成，所有资源已释放");
     }

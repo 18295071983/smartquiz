@@ -102,15 +102,20 @@ public class WebViewLoadManager {
     private WebView createWebView() {
         AppLogger.d(TAG, "创建新的WebView实例");
         WebView webView = new WebView(context);
-        
+
         // 配置WebSettings
         configureWebSettings(webView.getSettings());
-        
+
+        // 默认客户端只在这里装一次；调用方（如内置浏览器）随后会替换成自己的客户端。
+        // 旧实现每次 loadUrl 都重装默认客户端，会把安全/重定向/错误页客户端静默覆盖掉。
+        webView.setWebViewClient(new OptimizedWebViewClient());
+        webView.setWebChromeClient(new OptimizedWebChromeClient());
+
         // 启用硬件加速
         if (enableHardwareAcceleration && Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         }
-        
+
         return webView;
     }
     
@@ -158,7 +163,12 @@ public class WebViewLoadManager {
         webView.stopLoading();
         webView.clearHistory();
         webView.setVisibility(View.VISIBLE);
-        
+
+        // 池中取出的 WebView 在回收时被清掉了客户端，这里恢复默认；
+        // 调用方若需要安全客户端，会在 acquire 之后自己 setWebViewClient 覆盖。
+        webView.setWebViewClient(new OptimizedWebViewClient());
+        webView.setWebChromeClient(new OptimizedWebChromeClient());
+
         // 恢复图片加载
         webView.getSettings().setLoadsImagesAutomatically(true);
         webView.getSettings().setBlockNetworkImage(false);
@@ -181,6 +191,13 @@ public class WebViewLoadManager {
         // 清除客户端回调
         webView.setWebViewClient(null);
         webView.setWebChromeClient(null);
+        try {
+            // AndroidAdvanced 持有 Activity/WebView 引用，回收时必须一起摘掉
+            webView.removeJavascriptInterface("AndroidAdvanced");
+            webView.removeJavascriptInterface("SmartQuizBlob");
+            webView.removeJavascriptInterface("SmartQuizPush");
+        } catch (Throwable ignored) {
+        }
         
         // 隐藏WebView
         webView.setVisibility(View.GONE);
@@ -223,10 +240,7 @@ public class WebViewLoadManager {
      * 内部加载URL方法
      */
     private void loadUrlInternal(WebView webView, String url) {
-        // 设置加载回调
-        setupLoadCallbacks(webView);
-        
-        // 开始加载
+        // 不再重装客户端：客户端由使用方在 acquire 后设置，重装会覆盖安全/重定向/错误页逻辑
         webView.loadUrl(url);
     }
     
@@ -235,28 +249,16 @@ public class WebViewLoadManager {
      */
     public void loadData(WebView webView, String data, String mimeType, String encoding) {
         if (webView == null || data == null) return;
-        
-        setupLoadCallbacks(webView);
         webView.loadDataWithBaseURL(null, data, mimeType, encoding, null);
     }
     
     /**
      * 带BaseURL加载HTML
      */
-    public void loadDataWithBaseURL(WebView webView, String baseUrl, String data, 
+    public void loadDataWithBaseURL(WebView webView, String baseUrl, String data,
                                      String mimeType, String encoding, String historyUrl) {
         if (webView == null || data == null) return;
-        
-        setupLoadCallbacks(webView);
         webView.loadDataWithBaseURL(baseUrl, data, mimeType, encoding, historyUrl);
-    }
-    
-    /**
-     * 设置加载回调
-     */
-    private void setupLoadCallbacks(WebView webView) {
-        webView.setWebViewClient(new OptimizedWebViewClient());
-        webView.setWebChromeClient(new OptimizedWebChromeClient());
     }
     
     /**
@@ -424,14 +426,17 @@ public class WebViewLoadManager {
      * 注入优化脚本
      */
     private void injectOptimizationScript(WebView view) {
-        String script = "javascript:(function() { " +
+        String script = "(function() { " +
             "var style = document.createElement('style'); " +
             "style.textContent = 'body { max-width: 100%; margin: 0; padding: 10px; overflow-x: hidden; } " +
             "img { max-width: 100%; height: auto; display: block; } " +
             "table { max-width: 100%; overflow-x: auto; display: block; }'; " +
-            "document.head.appendChild(style); " +
+            "if (document.head) document.head.appendChild(style); " +
             "})();";
-        view.loadUrl(script);
+        try {
+            view.evaluateJavascript(script, null);
+        } catch (Throwable ignored) {
+        }
     }
     
     /**

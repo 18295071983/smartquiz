@@ -41,6 +41,12 @@ public class RedirectWebViewClient extends WebViewClient {
     // 页面加载回调
     private PageLoadCallback pageLoadCallback;
 
+    /**
+     * 最后一个成功加载完成的地址：协议导航（{@code ERR_UNKNOWN_URL_SCHEME}）失败时，
+     * 内核会把当前页面替换成自己的错误页，用这个值才能把用户送回原来那页。
+     */
+    private volatile String lastGoodUrl;
+
     public RedirectWebViewClient() {
         this.redirectManager = FileRedirectManager.getInstance();
     }
@@ -63,11 +69,12 @@ public class RedirectWebViewClient extends WebViewClient {
 
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-        // 只处理主框架导航；子框架/内嵌资源交 WebView 自行处理
+        String url = request != null && request.getUrl() != null ? request.getUrl().toString() : null;
         if (request != null && !request.isForMainFrame()) {
-            return super.shouldOverrideUrlLoading(view, request);
+            // 子框架里的 http/图片/接口照常交 WebView；但广告 iframe 里的「打开 App」协议
+            // 同样要接管——否则内核直接在 iframe 里报 scheme 错误，用户点什么都没反应。
+            return com.oilquiz.app.browser.BrowserSchemeHandler.handleNavigation(view, url, true);
         }
-        String url = request.getUrl().toString();
         return handleUrl(view, url);
     }
 
@@ -78,143 +85,13 @@ public class RedirectWebViewClient extends WebViewClient {
     }
 
     /**
-     * 导航策略（壳源码）：
-     * http/https/file/about/data 等 → 应用内加载；
-     * tel/mailto/sms → 交系统；
-     * intent:// → 智能解析（回退网页应用内加载 / 启动对应应用）；
-     * 其他 App 协议（weixin:// 等）→ 有应用则系统打开，无则应用内（错误重试页兜底）
+     * 导航策略：http/https/file/about/data/blob 应用内加载；
+     * tel/mailto/sms/geo/ftp/market 及 App 私有协议、{@code intent://} 交
+     * {@link com.oilquiz.app.browser.BrowserSchemeHandler} 处置
+     * （有应用则打开、有回退网页则应用内加载、都没有则给用户选路子）。
      */
     private boolean handleUrl(WebView view, String url) {
-        if (url == null) return false;
-        if (url.startsWith("http://") || url.startsWith("https://")
-                || url.startsWith("file://") || url.startsWith("about:")
-                || url.startsWith("data:") || url.startsWith("blob:")
-                || url.startsWith("javascript:")) {
-            return false; // 应用内加载
-        }
-        try {
-            String scheme = Uri.parse(url).getScheme();
-            if (scheme != null) {
-                String s = scheme.toLowerCase(java.util.Locale.US);
-                // tel/mailto/sms 交系统（壳源码）
-                if (s.equals("tel") || s.equals("mailto") || s.equals("sms") || s.equals("smsto")) {
-                    try {
-                        view.getContext().startActivity(
-                                new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url)));
-                    } catch (Exception ignored) { }
-                    return true;
-                }
-                // intent:// 智能解析：优先回退网页（应用内加载），再尝试启动对应应用
-                if (s.equals("intent")) {
-                    try {
-                        android.content.Intent intent = android.content.Intent.parseUri(url, android.content.Intent.URI_INTENT_SCHEME);
-                        if (intent != null) {
-                            String fb = intent.getStringExtra("browser_fallback_url");
-                            if (fb != null && !fb.isEmpty()) {
-                                Log.d(TAG, "intent 回退网页: " + fb);
-                                view.loadUrl(fb);
-                                return true;
-                            }
-                            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                            if (view.getContext().getPackageManager().resolveActivity(intent, 0) != null) {
-                                view.getContext().startActivity(intent);
-                                return true;
-                            }
-                        }
-                    } catch (Exception ignored) { }
-                    // 解析失败/无对应应用：提取 URL 中编码网页链接，应用内加载
-                    String fb2 = extractFallbackUrl(url);
-                    if (fb2 != null) {
-                        Log.d(TAG, "intent 无应用，回退编码网页: " + fb2);
-                        view.loadUrl(fb2);
-                        return true;
-                    }
-                    // 都无 → 应用内加载（错误重试页兜底），不交 Chrome 报 scheme 错误
-                    return false;
-                }
-            }
-        } catch (Exception ignored) { }
-        // 其他 App 跳转协议/自定义 scheme：有应用则系统打开
-        try {
-            android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url));
-            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-            if (view.getContext().getPackageManager().resolveActivity(i, 0) != null) {
-                view.getContext().startActivity(i);
-                return true;
-            }
-        } catch (Exception ignored) { }
-        // 无对应应用：弹确认框尝试用系统其他应用打开（跳系统浏览器/系统处理）；
-        // 用户取消则留当前页，不让 WebView 显示 scheme 错误页
-        try {
-            android.content.Context ctx = view.getContext();
-            final String rawUrl = url;
-            if (ctx instanceof android.app.Activity) {
-                android.app.Activity act = (android.app.Activity) ctx;
-                String schemeHint = "";
-                try {
-                    String sc = Uri.parse(url).getScheme();
-                    if (sc != null) schemeHint = sc + "://";
-                } catch (Exception ignored) { }
-                new android.app.AlertDialog.Builder(act)
-                        .setTitle("无法在当前页面打开")
-                        .setMessage("当前链接协议（" + schemeHint + "）无法在本浏览器内解析，是否尝试用系统其他应用打开？\n\n" + rawUrl)
-                        .setPositiveButton("用其他应用打开", (d, w) -> {
-                            try {
-                                android.content.Intent i2 = new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(rawUrl));
-                                act.startActivity(i2);
-                            } catch (Exception e) {
-                                android.widget.Toast.makeText(act, "系统没有能打开此链接的应用", android.widget.Toast.LENGTH_LONG).show();
-                            }
-                        })
-                        .setNegativeButton("取消", null)
-                        .show();
-            } else {
-                android.widget.Toast.makeText(ctx, "当前链接无法解析：" + url, android.widget.Toast.LENGTH_LONG).show();
-            }
-        } catch (Throwable ignored) { }
-        return true;
-    }
-
-    /** 从 App 跳转 URL 中提取网页回退地址（url/u/link/browser_fallback_url 等参数或编码链接） */
-    private static String extractFallbackUrl(String url) {
-        try {
-            android.net.Uri u = Uri.parse(url);
-            String query = u.getQuery();
-            if (query != null) {
-                for (String pair : query.split("&")) {
-                    int idx = pair.indexOf('=');
-                    if (idx <= 0) continue;
-                    String key = pair.substring(0, idx);
-                    String val = android.net.Uri.decode(pair.substring(idx + 1));
-                    if (key.equals("url") || key.equals("u") || key.equals("link")
-                            || key.equals("target") || key.equals("browser_fallback_url")
-                            || key.equals("redirect") || key.equals("fallback")) {
-                        if (val.startsWith("http://") || val.startsWith("https://")) return val;
-                    }
-                }
-            }
-            // URL 内嵌编码链接（scheme://...?url=https%3A%2F%2Fxxx）
-            String s = url;
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("https?%3A%2F%2F[^&%]+")
-                    .matcher(s);
-            if (m.find()) {
-                String dec = android.net.Uri.decode(m.group());
-                if (dec.startsWith("http://") || dec.startsWith("https://")) return dec;
-            }
-            // 双重编码兼容（%25253A%25252F...）：先解码一层再匹配
-            try {
-                String once = android.net.Uri.decode(s);
-                java.util.regex.Matcher m2 = java.util.regex.Pattern
-                        .compile("https?%3A%2F%2F[^&%]+")
-                        .matcher(once);
-                if (m2.find()) {
-                    String dec2 = android.net.Uri.decode(m2.group());
-                    if (dec2.startsWith("http://") || dec2.startsWith("https://")) return dec2;
-                }
-            } catch (Exception ignored) { }
-        } catch (Exception ignored) { }
-        return null;
+        return com.oilquiz.app.browser.BrowserSchemeHandler.handleNavigation(view, url, true);
     }
 
     // ==================== 资源拦截（保留：广告过滤 + hf 代理 + 文件重定向） ====================
@@ -301,12 +178,17 @@ public class RedirectWebViewClient extends WebViewClient {
             return createFileResponse(redirectedFile);
 
         } catch (FileRedirectException e) {
-            // 未配置重定向规则，记录错误并返回错误响应
-            Log.e(TAG, "文件重定向错误: " + e.getMessage());
-            return createErrorResponse(e.getMessage());
+            // 没有配置重定向规则 = 正常加载原文件（旧实现返回 404 错误页，
+            // 会把所有 file:// 页面/本地相对资源都打断）
+            Log.d(TAG, "无文件重定向规则，按原路径加载: " + filePath);
+            return super.shouldInterceptRequest(view, request);
+        } catch (IllegalStateException e) {
+            // 管理器未初始化（WebViewRedirectHelper 未接入）时同样按原路径加载
+            Log.d(TAG, "文件重定向管理器未初始化，按原路径加载: " + filePath);
+            return super.shouldInterceptRequest(view, request);
         } catch (Exception e) {
             Log.e(TAG, "处理文件请求时发生错误: " + e.getMessage(), e);
-            return createErrorResponse("处理文件请求时发生错误: " + e.getMessage());
+            return super.shouldInterceptRequest(view, request);
         }
     }
 
@@ -456,6 +338,12 @@ public class RedirectWebViewClient extends WebViewClient {
     public void onPageFinished(WebView view, String url) {
         super.onPageFinished(view, url);
         Log.d(TAG, "页面加载完成: " + url);
+        // 记住最后一个真正常出现的页面：协议导航失败时要靠它把内核错误页顶回去
+        if (url != null && !url.startsWith("about:") && !url.startsWith("data:")) {
+            lastGoodUrl = url;
+        }
+        // onPageStarted 时 document 可能还不存在，这里再注入一次保证 window.chrome / 分享桥可用
+        injectChromeCompat(view);
         if (pageLoadCallback != null) {
             pageLoadCallback.onPageFinished(url);
         }
@@ -470,64 +358,119 @@ public class RedirectWebViewClient extends WebViewClient {
             Log.d(TAG, "加载被中断(ABORTED)，忽略: " + failingUrl);
             return;
         }
+        // 协议链接（weixin://、intent://、magnet:…）不归 WebView 管：这不是网络问题。
+        // 画"请检查网络连接 + 重新加载"等于骗用户反复点重试，改走协议转交并退回原页面。
+        if (com.oilquiz.app.browser.BrowserSchemeHandler
+                .handleUnknownSchemeError(view, failingUrl, lastGoodUrl)) {
+            Log.i(TAG, "协议导航失败，已转交处置: " + failingUrl + " code=" + errorCode);
+            return;
+        }
         super.onReceivedError(view, errorCode, description, failingUrl);
         Log.e(TAG, "页面加载错误 [" + errorCode + "]: " + description + " - " + failingUrl);
         // 主框架加载失败 → 友好的"重新加载"错误页（壳源码）
         if (failingUrl != null) {
-            showErrorPage(view, failingUrl);
+            showErrorPage(view, failingUrl, errorCode);
         }
     }
 
     @Override
     public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-        // 新版 API（API 23+）：子资源/子框架错误不阻塞主页面
+        int code = error != null ? error.getErrorCode() : 0;
+        String failingUrl = request != null && request.getUrl() != null ? request.getUrl().toString() : null;
+        // 子资源/子框架的协议失败（广告 iframe 里的「打开 App」）也要接管，
+        // 但绝不能因此把主页面顶成错误页：只在成功转交后返回。
         if (request != null && !request.isForMainFrame()) {
+            if (com.oilquiz.app.browser.BrowserSchemeHandler
+                    .handleNavigation(view, failingUrl, true)) {
+                Log.i(TAG, "子框架协议已转交处置: " + failingUrl);
+                return;
+            }
             super.onReceivedError(view, request, error);
             return;
         }
-        int code = error != null ? error.getErrorCode() : 0;
         // ERR_ABORTED=-3：重定向/导航中断的正常信号，不显示错误页
         if (code == -3) {
-            Log.d(TAG, "加载被中断(ABORTED)，忽略(新API): " + (request != null ? request.getUrl() : ""));
+            Log.d(TAG, "加载被中断(ABORTED)，忽略(新API): " + failingUrl);
+            return;
+        }
+        if (com.oilquiz.app.browser.BrowserSchemeHandler
+                .handleUnknownSchemeError(view, failingUrl, lastGoodUrl)) {
+            Log.i(TAG, "协议导航失败，已转交处置(新API): " + failingUrl + " code=" + code);
             return;
         }
         super.onReceivedError(view, request, error);
         Log.e(TAG, "页面加载错误 [新API " + code + "]: "
-                + (error != null ? error.getDescription() : "") + " - " + (request != null ? request.getUrl() : ""));
+                + (error != null ? error.getDescription() : "") + " - " + failingUrl);
         // 主框架加载失败 → 友好的"重新加载"错误页（壳源码）
         if (request != null) {
-            showErrorPage(view, request.getUrl().toString());
+            showErrorPage(view, failingUrl, code);
         }
     }
 
     @Override
     public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
         if (request != null && request.isForMainFrame()) {
+            // HTTP 状态错误（404/500 等）仍可能有正常的站点错误页，交给页面自己展示；
+            // 只有网络层失败才用内置重试页，否则会把站点自带的 404 页面顶掉。
             Log.e(TAG, "HTTP 错误: " + (errorResponse != null ? errorResponse.getStatusCode() : 0)
                     + " - " + request.getUrl());
-            showErrorPage(view, request.getUrl().toString());
         }
         super.onReceivedHttpError(view, request, errorResponse);
     }
 
     @Override
     public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
-        // 渲染进程崩溃保护（壳源码）：不杀掉整个应用，回到错误重试页（API 26+）
-        if (detail != null && detail.didCrash()) {
-            view.post(() -> {
-                android.widget.Toast.makeText(view.getContext(), "页面渲染进程异常，已重置", android.widget.Toast.LENGTH_SHORT).show();
-                showErrorPage(view, view.getUrl());
-            });
-            return true;
+        // 渲染进程崩溃/被系统回收：返回 true 表示应用自己收尾。旧实现继续使用已死亡的
+        // WebView 去加载错误页，等于在死对象上操作；改为回调宿主，由宿主换掉这个标签页。
+        String url = null;
+        try {
+            url = view != null ? view.getUrl() : null;
+        } catch (Throwable ignored) {
+            // 渲染进程已结束时 getUrl 可能不可用
         }
-        return super.onRenderProcessGone(view, detail);
+        boolean crashed = detail != null && detail.didCrash();
+        Log.e(TAG, "渲染进程结束 crashed=" + crashed + " url=" + url);
+        if (pageLoadCallback != null) {
+            pageLoadCallback.onRendererGone(view, url);
+        }
+        return true;
     }
 
-    /** 主框架加载失败 → 友好的错误重试页（壳源码） */
-    private void showErrorPage(WebView view, String url) {
+    /**
+     * 内核错误码翻成人话。
+     *
+     * <p>只认这几个反复出现、含义确定的连接类错误；其余一律带<b>原始码</b>回显，
+     * 不猜语义——猜错的原因会把人引去查 WiFi，而真问题在证书或站点那边。</p>
+     */
+    private static String netErrorReason(int errorCode) {
+        switch (errorCode) {
+            case -2:
+                return "加载失败（内核未给出具体原因）";
+            case -101:
+                return "连接被对方重置（站点中断了这次连接）";
+            case -102:
+                return "站点拒绝连接（端口没在监听或被防火墙挡住）";
+            case -105:
+                return "域名解析失败（DNS 没把这个域名解析出地址）";
+            case -106:
+                return "设备当前未联网";
+            case -118:
+                return "连接超时（站点响应太慢或已下线）";
+            default:
+                return "加载失败（错误码 " + errorCode + "）";
+        }
+    }
+
+    /** 主框架加载失败 → 友好的错误重试页（壳源码）。
+     *
+     * <p>原因行按内核错误码翻成人话：只写"请检查网络连接"会让用户去查 WiFi，
+     * 而真正常见的是 DNS 没解析出来、站点拒绝连接、证书没配对。</p>
+     */
+    private void showErrorPage(WebView view, String url, int errorCode) {
         if (view == null) return;
         String retry = (url != null && !url.isEmpty()) ? url : "about:blank";
         String esc = retry.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;");
+        String reason = netErrorReason(errorCode);
         String html = "<!DOCTYPE html><html><head><meta charset='utf-8'>"
                 + "<meta name='viewport' content='width=device-width,initial-scale=1'>"
                 + "<style>body{font-family:sans-serif;background:#f7f8fa;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}"
@@ -535,7 +478,8 @@ public class RedirectWebViewClient extends WebViewClient {
                 + "h2{color:#333;font-size:18px;margin:0 0 8px}"
                 + "p{font-size:14px;margin:4px 0;color:#999}"
                 + "a{display:inline-block;margin-top:16px;padding:10px 28px;background:#4338ca;color:#fff;border-radius:8px;text-decoration:none;font-size:14px}</style>"
-                + "</head><body><div class='box'><h2>页面加载失败</h2><p>请检查网络连接后重试</p>"
+                + "</head><body><div class='box'><h2>页面加载失败</h2><p>" + reason + "</p>"
+                + "<p style='font-size:12px;word-break:break-all'>" + esc + "</p>"
                 + "<a href='" + esc + "'>重新加载</a></div></body></html>";
         view.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
     }
@@ -547,5 +491,9 @@ public class RedirectWebViewClient extends WebViewClient {
         void onPageStarted(@NonNull String url);
         void onPageFinished(@NonNull String url);
         void onError(int errorCode, @NonNull String description, @NonNull String failingUrl);
+
+        /** 渲染进程崩溃/被回收；宿主应销毁该 WebView 并重建标签页 */
+        default void onRendererGone(WebView view, String url) {
+        }
     }
 }
