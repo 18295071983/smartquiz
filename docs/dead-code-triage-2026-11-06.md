@@ -247,8 +247,18 @@
 `AgentExecutionEngine`、`AIFileExporter`、`ModelHotSwitcher`）命中在 `src/main/assets/pages/
 question-renderer.html`——那个页面里出现这些词得单独看一眼是不是字符串约定，不能当零引用处理。
 
-另外记一条没做的：这 63 个类各自的 layout/drawable 可能已经变成孤儿资源，资源侧扫描不在这道闸里，
-要清得单独按 `src/main/res` 跑一轮（引用形态是 `R.layout.x`/`@layout/x`/`@drawable/x`，与 Java 侧不同）。
+资源侧这轮跑了（`docs/scripts/res_orphan_scan.py`）：**186 个候选**（anim 7、drawable 108、其余为 layout/color/menu/xml）。
+
+**但这 186 个不是删除清单，是队列**——判据比 Java 侧多三处必须过的坎，脚本现在只做到了"标注"：
+1. ViewBinding（本工程开着）：布局 `foo_bar.xml` 在代码里以 `FooBarBinding` 出现，整条链上不出现 `R.layout.foo_bar`，
+   已把 `<Camel>Binding` 纳入检索，否则活布局会被判成孤儿；
+2. 运行时拼名：代码里有 248 个以下划线结尾的字符串前缀，任何以它们开头的资源都不能按整词检索定生死；
+3. **`getIdentifier` 动态取名**：本仓库有三处按字符串取 drawable（`QuestionAdapter:290`、`QuizActivity:1014`、
+   `QWeatherIconMapper:358`——最后那个是天气图标包按码名映射），所以 drawable 这一整类只靠静态检索
+   判孤儿一定不准，脚本对它标"需人工"而不是放行。
+
+结论：anim/layout/menu/xml/color 里那些"名字不像拼出来的、且 @ 引用与 Binding 都查不到"的可以进删除队列，
+drawable 那 108 个要先按 `QWeatherIconMapper` 的名字表和 `imageUri` 传参路径核一轮才能动。
 
 ## 8. 怎么复现这套扫描
 
