@@ -322,22 +322,6 @@ public class AIImportActivity extends BaseActivity {
 
     /** 未授权时引导授权：Android 11+ 弹说明框跳"所有文件访问"设置页；Android 6~10 走运行时权限弹窗 */
     /** 跳转系统"所有文件访问"授权页（优先直达本应用，异常时 fallback 通用入口） */
-    private void openAllFilesAccessSetting() {
-        try {
-            Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
-            intent.setData(android.net.Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
-        } catch (Exception e) {
-            try {
-                Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(intent);
-            } catch (Exception ex) {
-                showToast(getString(R.string.h_7bf382b4) + ex.getMessage());
-            }
-        }
-    }
-
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);

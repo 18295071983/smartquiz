@@ -44,8 +44,6 @@ public final class AIServiceInitializer {
     private static final long MMPROJ_WAIT_TIMEOUT_MS = 15 * 60 * 1000L;
     private static final long INIT_TIMEOUT_MS = 15 * 60 * 1000L; // 初始化总超时 15 分钟，超时强制复位互斥
     /** 文件完整性阈值：实际大小 >= 预期大小 * 该比例 视为完整 */
-    private static final double INTEGRITY_THRESHOLD = 0.90;
-
     /** 默认预置模型：多模态 Agent（视觉理解 + 思考链 + 原生工具调用） */
     public static final String DEFAULT_MODEL_ID = "qwen3.5-4b";   // 原 qwen3.8-4b-distill 无 Q4_0(NPU 不兼容) 已移除；改为 Q4_0 的 4B（NPU 与 llama.cpp 通用）
 

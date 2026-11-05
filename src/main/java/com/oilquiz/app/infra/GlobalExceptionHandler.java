@@ -26,9 +26,6 @@ public class GlobalExceptionHandler implements Thread.UncaughtExceptionHandler {
     private static final String TAG = "GlobalExceptionHandler";
     private static final String CRASH_DIR = "crashes";
     private static final String LOG_DIR = "logs";
-    private static final long MAX_LOG_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-    private static final int MAX_LOG_FILES = 10;
-    
     private final Application application;
     private final Thread.UncaughtExceptionHandler defaultHandler;
     private final SimpleDateFormat dateFormat;
@@ -110,91 +107,6 @@ public class GlobalExceptionHandler implements Thread.UncaughtExceptionHandler {
      */
     public void logDebug(String message) {
         com.oilquiz.app.infra.AppLogger.d(TAG, message);
-    }
-
-    /**
-     * 保存日志到文件
-     */
-    private void saveLog(String level, String message, Throwable throwable) {
-        try {
-            File logDir = new File(application.getFilesDir(), LOG_DIR);
-            if (!logDir.exists()) {
-                logDir.mkdirs();
-            }
-
-            // 按日期命名日志文件
-            SimpleDateFormat fileNameFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
-            String fileName = "app_" + fileNameFormat.format(new Date()) + ".log";
-            File logFile = new File(logDir, fileName);
-
-            // 检查文件大小，如果超过限制则创建新文件
-            if (logFile.exists() && logFile.length() > MAX_LOG_FILE_SIZE) {
-                String newFileName = "app_" + fileNameFormat.format(new Date()) + "_" + System.currentTimeMillis() + ".log";
-                logFile = new File(logDir, newFileName);
-            }
-
-            // 构建日志内容
-            StringBuilder sb = new StringBuilder();
-            sb.append("[").append(dateFormat.format(new Date())).append("]");
-            sb.append("[").append(level).append("] ");
-            sb.append(message);
-            
-            if (throwable != null) {
-                sb.append(" - ").append(throwable.getMessage());
-            }
-            sb.append("\n");
-
-            // 追加写入日志文件
-            BufferedWriter writer = new BufferedWriter(new FileWriter(logFile, true));
-            writer.write(sb.toString());
-            
-            // 如果有异常，写入堆栈跟踪
-            if (throwable != null) {
-                StringWriter sw = new StringWriter();
-                PrintWriter pw = new PrintWriter(sw);
-                throwable.printStackTrace(pw);
-                writer.write(sw.toString());
-                writer.write("\n");
-            }
-            
-            writer.close();
-
-        } catch (IOException e) {
-            Log.e(TAG, "保存日志失败", e);
-        }
-    }
-
-    /**
-     * 清理旧文件，只保留指定数量的最新文件
-     */
-    private void cleanupOldFiles(File directory, int maxFiles) {
-        File[] files = directory.listFiles();
-        if (files == null || files.length <= maxFiles) {
-            return;
-        }
-
-        // 按修改时间排序
-        java.util.Arrays.sort(files, (f1, f2) -> Long.compare(f2.lastModified(), f1.lastModified()));
-
-        // 删除旧文件
-        for (int i = maxFiles; i < files.length; i++) {
-            files[i].delete();
-        }
-    }
-
-    /**
-     * 格式化字节大小
-     */
-    private String formatBytes(long bytes) {
-        if (bytes < 1024) {
-            return bytes + " B";
-        } else if (bytes < 1024 * 1024) {
-            return String.format(Locale.getDefault(), "%.2f KB", bytes / 1024.0);
-        } else if (bytes < 1024 * 1024 * 1024) {
-            return String.format(Locale.getDefault(), "%.2f MB", bytes / (1024.0 * 1024.0));
-        } else {
-            return String.format(Locale.getDefault(), "%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0));
-        }
     }
 
     /**

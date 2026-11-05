@@ -1357,32 +1357,6 @@ public class ToolResultInterpreter {
 
     /** 统计结果数量：优先数组字段，其次整体数组 */
     /** 从 JsonObject 中按多个候选 key 取首个非空字符串值 */
-    private static String firstStr(JsonObject obj, String... keys) {
-        if (obj == null) {
-            return null;
-        }
-        for (String key : keys) {
-            if (obj.has(key)) {
-                JsonElement el = obj.get(key);
-                if (el != null && !el.isJsonNull()) {
-                    if (el.isJsonPrimitive()) {
-                        JsonPrimitive p = el.getAsJsonPrimitive();
-                        String v = p.isString() ? p.getAsString() : p.toString();
-                        if (v != null && !v.isEmpty()) {
-                            return v;
-                        }
-                    } else if (el.isJsonArray()) {
-                        JsonArray arr = el.getAsJsonArray();
-                        if (arr.size() > 0) {
-                            return arr.get(0).toString();
-                        }
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
     /** 将结果对象转为 JsonObject */
     private static JsonObject toJsonObject(Object result) {
         if (result == null) {

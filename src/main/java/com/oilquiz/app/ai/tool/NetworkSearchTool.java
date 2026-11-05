@@ -31,7 +31,6 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
     private static final java.util.regex.Pattern DATE_PATTERN = java.util.regex.Pattern.compile("(?<!\\d)(\\d{4})\\s*[-/年]\\s*(\\d{1,2})\\s*[-/月]\\s*(\\d{1,2})\\s*日?(?!\\d)|(?<!\\d)(\\d{1,2})\\s*[-/]\\s*(\\d{1,2})\\s*[-/]\\s*(\\d{4})(?!\\d)");
     private static final java.util.regex.Pattern PHONE_PATTERN = java.util.regex.Pattern.compile("(1[3-9]\\d{9}|0\\d{2,3}-\\d{7,8})");
     private static final java.util.regex.Pattern EMAIL_PATTERN = java.util.regex.Pattern.compile("([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})");
-    private static final java.util.regex.Pattern URL_PATTERN = java.util.regex.Pattern.compile("(https?://[^\\s\"'<>]+)");
     private static final java.util.regex.Pattern JSON_LD_PATTERN = java.util.regex.Pattern.compile("<script[^>]*type=[\"']application/ld\\+json[\"'][^>]*>([^<]*)</script>", 34);
     private static final java.util.regex.Pattern NUMERIC_ENTITY_PATTERN = java.util.regex.Pattern.compile("&#(x?)([0-9a-fA-F]+);");
     private static final java.util.Set<java.lang.String> DYNAMIC_CONTENT_KEYWORDS = new java.util.HashSet(java.util.Arrays.asList("window.__INITIAL_STATE__", "window.dataLayer", "window.__REDUX_STATE__", "window.APP_DATA", "window.__NEXT_DATA__", "window.__APOLLO_STATE__", "hydration", "ReactDOM.hydrate", "SSR_DATA"));

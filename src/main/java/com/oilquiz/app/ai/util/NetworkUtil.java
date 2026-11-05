@@ -44,12 +44,6 @@ public class NetworkUtil {
         "en-US,en;q=0.9,zh-CN;q=0.8"
     };
 
-    private static final String[] ACCEPT_ENCODING_VALUES = {
-        "gzip, deflate",
-        "gzip, deflate",
-        "deflate, gzip"
-    };
-
     private static final String[] SEC_CH_UA_VALUES = {
         "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\"",
         "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"119\", \"Google Chrome\";v=\"119\"",

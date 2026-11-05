@@ -122,10 +122,6 @@ public class AIService implements ComponentCallbacks2 {
     // 动态优化配置
     private boolean dynamicOptimizationEnabled = true;
     private int lastPerformanceLevel = -1;
-    private static final int PERF_LEVEL_LOW = 0;
-    private static final int PERF_LEVEL_MEDIUM = 1;
-    private static final int PERF_LEVEL_HIGH = 2;
-
     /** 模型加载/释放串行化，避免与异步 release 交错导致 native 状态错乱 */
     private final Object modelInitLock = new Object();
     private volatile boolean openClPreloaded = false;
@@ -310,19 +306,6 @@ public class AIService implements ComponentCallbacks2 {
     }
     
     // 计算历史消息的 token 数量
-    private int calculateHistoryTokenCount(List<PromptBuilder.Message> history) {
-        if (history == null || history.isEmpty()) {
-            return 0;
-        }
-        
-        StringBuilder historyText = new StringBuilder();
-        for (PromptBuilder.Message msg : history) {
-            historyText.append(msg.role()).append(": ").append(msg.content()).append("\n");
-        }
-        
-        return LlamaHelper.countTokens(historyText.toString());
-    }
-    
     // 保存聊天消息
     public void saveChatMessage(long conversationId, String role, String content, boolean isCompressed) {
         if (chatRepository != null) {
@@ -3127,60 +3110,6 @@ public class AIService implements ComponentCallbacks2 {
     }
 
     // ==================== 性能统计和动态优化 ====================
-
-    /**
-     * 更新推理性能统计
-     */
-    private void updateInferenceStats(long elapsedMs, int tokenCount, float speed) {
-        synchronized (inferenceStatsLock) {
-            this.lastInferenceElapsedMs = elapsedMs;
-            this.lastTokenCount = tokenCount;
-            this.lastInferenceSpeed = speed;
-
-            int newPerformanceLevel = calculatePerformanceLevel(speed);
-            if (newPerformanceLevel != lastPerformanceLevel && dynamicOptimizationEnabled) {
-                lastPerformanceLevel = newPerformanceLevel;
-                applyPerformanceOptimization(newPerformanceLevel);
-            }
-
-            AILogger.i(TAG, "推理性能统计 - 耗时: " + elapsedMs + "ms, Token数: " + tokenCount + 
-                    ", 速度: " + String.format("%.2f", speed) + " t/s, 性能等级: " + newPerformanceLevel);
-        }
-    }
-
-    /**
-     * 计算性能等级
-     */
-    private int calculatePerformanceLevel(float speed) {
-        if (speed > 15.0f) return PERF_LEVEL_HIGH;
-        if (speed > 5.0f) return PERF_LEVEL_MEDIUM;
-        return PERF_LEVEL_LOW;
-    }
-
-    /**
-     * 根据性能等级应用优化
-     */
-    private void applyPerformanceOptimization(int performanceLevel) {
-        AILogger.i(TAG, "应用性能等级 " + performanceLevel + " 的优化配置");
-        
-        switch (performanceLevel) {
-            case PERF_LEVEL_HIGH:
-                LlamaHelper.setBatchSize(512);
-                AILogger.i(TAG, "高性能模式: batchSize=512");
-                break;
-            case PERF_LEVEL_MEDIUM:
-                LlamaHelper.setBatchSize(256);
-                AILogger.i(TAG, "中等性能模式: batchSize=256");
-                break;
-            case PERF_LEVEL_LOW:
-                LlamaHelper.setBatchSize(128);
-                int cpuCores = Runtime.getRuntime().availableProcessors();
-                int optimizedThreads = Math.max(2, Math.min(cpuCores, 4));
-                LlamaHelper.setThreadCount(optimizedThreads);
-                AILogger.i(TAG, "低性能模式: batchSize=128, threads=" + optimizedThreads);
-                break;
-        }
-    }
 
     /**
      * 获取最近的推理性能统计

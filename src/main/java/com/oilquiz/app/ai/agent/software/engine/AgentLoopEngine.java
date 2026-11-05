@@ -3140,14 +3140,6 @@ public class AgentLoopEngine {
     /** 工具调用 id（可能缺失，缺失时上层执行前补齐 R4-1） */
     /** 兼容 arguments(JSON 对象/JSON 字符串) / parameters / args 三种取值 */
     /** strftime 格式（%Y/%m/%d/%A 等）→ Java SimpleDateFormat 格式 */
-    private static String convertStrftime(String fmt) {
-        if (fmt == null || fmt.isEmpty()) return null;
-        return fmt.replace("%Y", "yyyy").replace("%m", "MM").replace("%d", "dd")
-                .replace("%H", "HH").replace("%M", "mm").replace("%S", "ss")
-                .replace("%A", "EEEE").replace("%a", "EEE")
-                .replace("%B", "MMMM").replace("%b", "MMM");
-    }
-
     /** 程序拼当前时间文本（format 支持 strftime 或 Java 格式，null 用默认） */
     /** 工具失败时的替代工具映射：引导模型换工具而非放弃（4B 模型需要明确指引）
      *

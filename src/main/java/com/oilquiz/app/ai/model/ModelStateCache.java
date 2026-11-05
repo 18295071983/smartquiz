@@ -25,13 +25,20 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * ModelStateCache - 模型状态缓存管理器
- * 
- * 功能：
- * 1. 模型初始化参数持久化 - 保存/恢复模型加载参数
- * 2. 聊天上下文缓存 - 保存/恢复KV缓存到磁盘
- * 3. 热启动恢复 - 应用重启后快速恢复模型状态
- * 4. 崩溃恢复 - 进程被杀或闪退后恢复
- * 5. 模型切换缓冲 - 模型更换时的快速恢复
+ *
+ * <p>真正接上的只有三件：{@code saveModelState}（AIService 保存侧）、{@code clearCache}
+ * （ExceptionRecoveryManager 在恢复流程里清缓存）、以及 {@code getInstance}。下面这几项
+ * **没有接，而且是有意停用的**，别当已实现引用，也不要顺手"补上"：</p>
+ * <ul>
+ *   <li>热启动/崩溃后的自动恢复：AIService 构造函数里那段 {@code restoreModelState} 已注释掉
+ *       （见 AIService 约 176–186 行）——进程被杀后 START_STICKY 重启会再自动装载模型，
+ *       撞上同一处崩溃就成了崩溃循环，所以刻意只在用户进 AI 页时按需装载；</li>
+ *   <li>KV 缓存落盘恢复：原 {@code restoreKVCache}/{@code restoreChatContext} 零调用，
+ *       2026-11-06 死码清理时删掉（见 docs/dead-code-triage-2026-11-06.md）。活的 KV 记忆
+ *       恢复在 {@code LlamaHelper}（从字节数组恢复记忆 + 基于记忆续写）。</li>
+ * </ul>
+ *
+ * <p>本注释 2026-11-06 改写：原文案列了 5 项"功能"，其中 2 项从未接线。</p>
  */
 public class ModelStateCache {
 
@@ -332,41 +339,6 @@ public class ModelStateCache {
                 ", threads=" + threadCount + ", batch=" + batchSize + ", memPool=" + memoryPoolSize);
         } catch (Exception e) {
             AILogger.w(TAG, "Failed to restore model config: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 恢复 KV Cache
-     * 用于快速恢复聊天上下文
-     */
-    private void restoreKVCache() {
-        try {
-            String kvPath = new File(cacheDir, "kv_cache.json").getAbsolutePath();
-            File kvFile = new File(kvPath);
-            if (!kvFile.exists()) return;
-
-            FileInputStream fis = new FileInputStream(kvPath);
-            byte[] data = new byte[(int) kvFile.length()];
-            fis.read(data);
-            fis.close();
-
-            JSONObject kvMeta = new JSONObject(new String(data));
-            boolean valid = kvMeta.optBoolean("valid", false);
-            long savedTime = kvMeta.optLong("timestamp", 0);
-
-            if (valid) {
-                long elapsed = System.currentTimeMillis() - savedTime;
-                if (elapsed < 24 * 60 * 60 * 1000) {
-                    AILogger.i(TAG, "KV Cache available for fast recovery, age=" + (elapsed / 1000) + "s");
-                    // 标记可以使用快速恢复
-                    kvCacheAvailable = true;
-                } else {
-                    AILogger.i(TAG, "KV Cache expired, will need full reload");
-                    kvCacheAvailable = false;
-                }
-            }
-        } catch (Exception e) {
-            AILogger.w(TAG, "Failed to restore KV Cache: " + e.getMessage());
         }
     }
 
