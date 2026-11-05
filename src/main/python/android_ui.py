@@ -243,6 +243,12 @@ def create_component(component_type, title="", message="", component_id=None,
         #         location(address,city,latitude,longitude)     # 带"在地图中打开/复制坐标"
         #         diff(before,after 或 hunks=[{type:"ctx|add|del",text}])  # 变更对比
         #   题库卡 type: single/multiple/judge/fill/short；fill 的 answer 可用 | 分隔多个可接受答案
+        # 任何卡都可带 actions=[{...}]，按钮点击真实执行（不只 callback）：
+        #   {label,value,action:"callback"} 回传写死值；{label,link:url} 打开(内置浏览器/文件预览/自定义协议转交)；
+        #   {label,copy:文本} 复制；{label,action:"open_app",app:"微信"|package:"com.tencent.mm"} 启动应用；
+        #   {label,action:"am",value:"com.tencent.mm"|"am start -n pkg/.Act"} 同 open_app(am 口径)；
+        #   {label,action:"dial"|"sms"|"email"|"map",value:"号码/地址/主题"} 调系统界面
+        #   （app 传中文名会走包名模糊匹配，匹配不到弹系统选择器；启动失败有 Toast 报错，不会静默）
         # 用法：create_component("类型", props={...参数...})
         # 例如：
         #   create_component("info_card", props={"title":"用户信息","items":[{"label":"姓名","value":"张三"}]})

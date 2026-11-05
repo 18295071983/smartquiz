@@ -1738,7 +1738,7 @@ public class AIToolManager {
                     .addParameter("setting_key", "string", "设置键名", false)
                     .addParameter("setting_value", "string", "设置值", false)
                     .addParameter("control_action", "string", "应用控制: force_stop/clear_data/detailed_info", false)
-                    .addParameter("setting", "string", "设置页: wifi/bluetooth/location/display/sound/storage/app/battery", false)
+                    .addParameter("setting", "string", "设置页: wifi/bluetooth/location/display/sound/storage/app/app_notifications/app_details/write_settings/battery", false)
                     .category("system")
                     .build();
             case "python_execute":
@@ -1843,7 +1843,7 @@ public class AIToolManager {
                     .addParameter("url", "string", "网址或HTML内容(web用)", false)
                     .addParameter("props", "object", "内置组件参数(component_type为内置类型时用)。各类型字段：" + com.oilquiz.app.ai.chat.component.ComponentTypes.PROPS_DOC_CHART + "; info_card:{title,items:[{label,value}]}; table_card:{title,headers:[列名],rows:[[值]]}; image_grid:{images:[完整URL或绝对路径，不要只给文件名],columns}; link_card:{url,title,description}; list_card:{title,items:[{icon,title,description,value}]}; alert_card:{type:'success|warning|error|info',title,content}; metric_card:{title,metrics:[{label,value,color}]}; json_viewer:{title,data,maxHeight}; steps_card:{title,steps:[{status:'done|current|failed|todo',title,description}]}; note_card:{type:'note|quote|tip|summary',content,author}; grid_card:{title,columns,items:[{icon,label,link,copy}]}; quote:{text 或 content,author}; " + com.oilquiz.app.ai.chat.component.ComponentTypes.PROPS_DOC_FILE_CARDS + " " + com.oilquiz.app.ai.chat.component.ComponentTypes.PROPS_DOC_EXTRA_CARDS + "; contact_card:{type:'phone|sms|email',title,value,description}; todo_card:{title,items:[{done:bool,text}]}; " + com.oilquiz.app.ai.chat.component.ComponentTypes.PROPS_DOC_QUIZ_CARD + "; weather_card:{city,temp,text,icon,humidity,windDir,windScale,forecast:[{date,text,tempMin,tempMax}]}; video:{url,title,autoPlay,loop,speed}; audio:{url,title,artist,loop,speed}; code_card:{language,code,title}; progress_card:{title,progress,description}; "
                             + com.oilquiz.app.ai.chat.component.ComponentTypes.PROPS_DOC_HTML + "; "
-                            + "markdown_card:{content:'**加粗** 文本',title}; 任务需要用户提供信息/反馈(确认/选择/输入/点赞等)时加actions:[{label:'按钮文字',value:'回传值',action:'callback'}]或[{label,link:url}]/[{label,copy:文本}],创建后get_result取回用户点击值；临时layout时也可用props={layout:{控件树}}", false)
+                            + "markdown_card:{content:'**加粗** 文本',title}; 任务需要用户提供信息/反馈(确认/选择/输入/点赞等)时加actions:[{label:'按钮文字',value:'回传值',action:'callback'}]或[{label,link:url}]/[{label,copy:文本}]/[{label,action:'open_app',app:'微信'或package:'com.tencent.mm'}]/[{label,action:'am',value:'com.tencent.mm'或'am start -n pkg/.Act'}]/[{label,action:'dial'|'sms'|'email'|'map',value:'...'}],创建后get_result取回用户点击值；临时layout时也可用props={layout:{控件树}}", false)
                     .addParameter("wait_seconds", "integer", "等待秒数(get_result用,默认30)", false)
                     .addParameter("display", "string",
                             com.oilquiz.app.ai.chat.component.ComponentDisplay.DISPLAY_DOC, false)
@@ -1967,10 +1967,14 @@ public class AIToolManager {
                         + "系统级UI: notify(系统通知)/floating_window(悬浮窗,需权限)/toast(屏幕提示)/screenshot(截屏,需MediaProjection)。"
                         + "系统级数据: clipboard(剪贴板读写)/battery(电池状态)/network(网络状态)/volume(音量控制)/brightness(亮度调节)。"
                         + "系统级连接: wifi(WiFi状态/开关)/bluetooth(蓝牙状态/开关)/hotspot(热点,需系统权限)/usb(USB状态)/screen(屏幕)。"
-                        + "系统参数与设备连接管理统一走本工具；跳转系统设置页用 system_resource(open_settings)。")
+                        + "系统参数与设备连接管理统一走本工具；跳转系统设置页用 system_resource(open_settings)。"
+                        + "通知在 Android 13+ 需要 POST_NOTIFICATIONS；没授权时返回 needs_permission，先调 permission_manager(action=request_and_wait, permission=通知)。"
+                        + "蓝牙需要 BLUETOOTH_CONNECT；亮度/系统设置修改需要 WRITE_SETTINGS（会引导去系统授权页）。")
                     .addParameter("action", "string", "操作: notify/toast/floating_window/close_floating/screenshot/clipboard/battery/network/volume/brightness/wifi/bluetooth/hotspot/usb/screen", true)
                     .addParameter("title", "string", "通知标题（notify用）", false)
                     .addParameter("content", "string", "通知内容（notify用）", false)
+                    .addParameter("id", "integer", "通知ID（notify用，可选）", false)
+                    .addParameter("long", "boolean", "Toast 是否长显示", false)
                     .addParameter("text", "string", "Toast文本/剪贴板写入内容/悬浮窗文字", false)
                     .addParameter("op", "string", "子操作: read/write/get/set/up/down/on/off/status/keep_on/keep_off/mobile", false)
                     .addParameter("enable", "boolean", "开关值（network-mobile/hotspot用）", false)

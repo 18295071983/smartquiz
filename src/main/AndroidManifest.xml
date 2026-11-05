@@ -52,6 +52,13 @@
     <!-- 系统级悬浮窗（system_connect floating_window） -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!-- 系统级连接（system_connect bluetooth；Android 12+ 运行时权限） -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <!-- 修改系统设置（亮度/系统设置项；需用户在特殊权限页授权） -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
     <!-- 电池优化豁免 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 

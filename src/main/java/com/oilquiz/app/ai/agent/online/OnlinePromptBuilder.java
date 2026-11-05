@@ -187,6 +187,7 @@ public class OnlinePromptBuilder {
                     {"ai_weather", "天气"}, {"file_generator", "生成文件/文档/报告"},
                     {"python_execute", "运行Python"}, {"document_parser", "文档解析(PDF/Word/PPT/Excel，只读)"},
                     {"system_resource", "系统操作/shell_command/termux_exec/ssh"},
+                    {"system_connect", "通知/剪贴板/音量亮度/WiFi蓝牙/USB"},
                     {"chat_history", "对话历史"}, {"screen_capture", "截屏看屏"},
                     {"task", "任务/待办"}, {"memory", "记忆读写"}, {"excel_tool", "表格处理"},
                     {"smart_research", "深度搜索"}, {"location", "定位"},

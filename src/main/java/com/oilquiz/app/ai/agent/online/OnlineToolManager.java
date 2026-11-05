@@ -266,7 +266,7 @@ public class OnlineToolManager {
         map.put("location", java.util.Arrays.asList("location"));
         map.put("time", java.util.Arrays.asList("time_date"));
         map.put("app", java.util.Arrays.asList("app_operation"));
-        map.put("system", java.util.Arrays.asList("system_resource", "linux_shell"));
+        map.put("system", java.util.Arrays.asList("system_resource", "system_connect", "linux_shell"));
         map.put("media", java.util.Arrays.asList("media_toolkit", "video_to_player"));
         map.put("study_plan", java.util.Arrays.asList("file_generator"));
         map.put("history", java.util.Arrays.asList("chat_history")); // 对话历史（跨会话上下文）
@@ -411,7 +411,14 @@ public class OnlineToolManager {
                 }
                 if (containsAny(msg, "系统信息", "设备信息", "内存", "存储空间", "电池", "wifi", "系统资源")) {
                     include.add("system_resource");
-        include.add("linux_shell");
+                    include.add("system_connect");
+                    include.add("linux_shell");
+                }
+                // 系统级 UI / 设备能力：通知、剪贴板、音量、亮度、蓝牙、热点、USB、截屏、悬浮窗
+                if (containsAny(msg, "系统通知", "通知栏", "发通知", "通知我", "剪贴板", "粘贴板",
+                        "音量", "亮度", "蓝牙", "热点", "usb", "截屏", "截图", "悬浮窗",
+                        "屏幕常亮", "屏幕状态", "system_connect", "设备连接")) {
+                    include.add("system_connect");
                 }
                 if (containsAny(msg, "打电话", "拨号", "联系人", "发短信", "通讯录", "call", "sms", "contact")) {
                     include.add("system_resource");

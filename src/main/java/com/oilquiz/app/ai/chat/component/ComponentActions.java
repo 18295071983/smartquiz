@@ -13,6 +13,9 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * 组件动作行渲染与执行（actions 按钮）。
  *
@@ -20,11 +23,19 @@ import org.json.JSONObject;
  * <pre>
  * "actions": [
  *   {"label":"打开","link":"https://..."},   // http/https 应用内打开；file:// 或绝对路径系统打开
- *   {"label":"复制","copy":"要复制的文本"}
+ *   {"label":"复制","copy":"要复制的文本"},
+ *   {"label":"打开微信","action":"open_app","app":"微信"},              // 或 package:"com.tencent.mm"
+ *   {"label":"打开设置","action":"am","value":"com.android.settings"}, // 兼容 am start -n pkg/.Activity
+ *   {"label":"拨号","action":"dial","value":"10086"},
+ *   {"label":"地图","action":"map","value":"天安门"}
  * ]
  * </pre>
  * 供 AlertCardView / DynamicCardView（自定义组件兜底）等组件共用，
  * 让 Agent 输出的组件按钮真实可点、点击有反应（不再"不能回调"）。
+ *
+ * <p>layout 卡片里的 {@code button}/{@code notice} 节点也走同一套语义
+ * （{@code NativeLayoutRenderer.wireActionClick} 把节点字段拼成这里的 action 再执行）——
+ * 否则聊天流里的布局卡片只有 tag、没有监听器，"打开微信"按钮点下去没反应。</p>
  */
 public final class ComponentActions {
 
@@ -271,16 +282,29 @@ public final class ComponentActions {
         final String action = a.optString("action", "");
         final String componentId = a.optString("component_id", "");
         final String value = a.optString("value", "");
-        if (link.isEmpty() && copy.isEmpty() && action.isEmpty()) return null;
-        return () -> perform(context, label, link, copy, action, componentId, value);
+        final String app = a.optString("app", "");
+        final String pkg = a.optString("package", "");
+        final String text = a.optString("text", "");
+        final String subject = a.optString("subject", "");
+        if (link.isEmpty() && copy.isEmpty() && action.isEmpty()
+                && app.isEmpty() && pkg.isEmpty()) return null;
+        return () -> perform(context, label, link, copy, action, componentId, value,
+                app, pkg, text, subject);
     }
 
     /**
      * 动作点击的统一语义（footer 按钮与旧动作行共用）：
-     * callback/refresh 回传给 Agent，link 打开，copy 进剪贴板。
+     * callback/refresh 回传给 Agent，link 打开，copy 进剪贴板，
+     * open_app/am 启动应用，dial/sms/email/map 调系统界面。
      */
     public static void perform(Context context, String label, String link, String copy,
                                String action, String componentId, String value) {
+        perform(context, label, link, copy, action, componentId, value, "", "", "", "");
+    }
+
+    public static void perform(Context context, String label, String link, String copy,
+                               String action, String componentId, String value,
+                               String app, String pkg, String text, String subject) {
         try {
             if ("callback".equals(action) && componentId != null && !componentId.isEmpty()) {
                 // 交互内置组件：按钮点击把 value 回传给组件注册表（Agent get_result 取回）。
@@ -310,7 +334,7 @@ public final class ComponentActions {
                 notifyResult(context, componentId, "refresh");
                 return;
             }
-            execute(context, link, copy, action);
+            execute(context, link, copy, action, value, app, pkg, text, subject);
         } catch (Throwable t) {
             Toast.makeText(context, "动作执行失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
         }
@@ -318,6 +342,11 @@ public final class ComponentActions {
 
     /** 执行单个动作（link 打开 / copy 复制 / action 内置动作） */
     public static void execute(Context context, String link, String copy, String action) {
+        execute(context, link, copy, action, "", "", "", "", "");
+    }
+
+    public static void execute(Context context, String link, String copy, String action,
+                               String value, String app, String pkg, String text, String subject) {
         if (context == null) return;
         try {
             if (!copy.isEmpty()) {
@@ -327,13 +356,34 @@ public final class ComponentActions {
             if (!action.isEmpty()) {
                 switch (action) {
                     case "copy":
-                        // action=copy 时复制组件内容（调用方把内容放入 copy 字段即可，此处兜底无内容）
                         Toast.makeText(context, "无可用动作", Toast.LENGTH_SHORT).show();
                         return;
                     case "refresh":
-                        // 兜底：直接调用 execute（未带 component_id）时无刷新数据源；
-                        // 交互组件请在 renderActions 链路点击（带 component_id 时转发为 refresh 回调）
                         Toast.makeText(context, "刷新需在组件内触发", Toast.LENGTH_SHORT).show();
+                        return;
+                    case "open_app":
+                    case "launch_app":
+                    case "app":
+                    case "am":
+                    case "am_start":
+                        launchApp(context, app, pkg, value);
+                        return;
+                    case "dial":
+                    case "call":
+                        dial(context, firstNonEmpty(value, app, pkg));
+                        return;
+                    case "sms":
+                        sms(context, firstNonEmpty(value, app, pkg), text);
+                        return;
+                    case "email":
+                        email(context, firstNonEmpty(value, app, pkg), subject, text);
+                        return;
+                    case "map":
+                        openMap(context, firstNonEmpty(value, app, pkg));
+                        return;
+                    case "open_url":
+                    case "url":
+                        openLink(context, firstNonEmpty(link, value));
                         return;
                     default:
                         Toast.makeText(context, "未知动作: " + action, Toast.LENGTH_SHORT).show();
@@ -342,10 +392,181 @@ public final class ComponentActions {
             }
             if (!link.isEmpty()) {
                 openLink(context, link);
+                return;
+            }
+            // 只给了 app/package 没写 action：按打开应用处理
+            if (!app.isEmpty() || !pkg.isEmpty()) {
+                launchApp(context, app, pkg, value);
             }
         } catch (Exception e) {
             Toast.makeText(context, "动作执行失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /**
+     * 卡片开应用的**解析结果**（纯函数产出，不碰 Android API，便于单测）。
+     * 四个字段互斥优先级：error &gt; url &gt; package/app。
+     */
+    public static final class LaunchPlan {
+        public final String packageName;
+        public final String appName;
+        public final String url;
+        public final String error;
+
+        private LaunchPlan(String packageName, String appName, String url, String error) {
+            this.packageName = packageName == null ? "" : packageName;
+            this.appName = appName == null ? "" : appName;
+            this.url = url == null ? "" : url;
+            this.error = error == null ? "" : error;
+        }
+
+        static LaunchPlan error(String message) {
+            return new LaunchPlan("", "", "", message);
+        }
+
+        static LaunchPlan url(String url) {
+            return new LaunchPlan("", "", url, "");
+        }
+
+        static LaunchPlan of(String packageName, String appName) {
+            return new LaunchPlan(packageName, appName, "", "");
+        }
+
+        /** 什么都没解析出来：调用方要提示"动作缺少 app/package"，绝不能静默当成功 */
+        public boolean isEmpty() {
+            return packageName.isEmpty() && appName.isEmpty();
+        }
+
+        /** 交给 system_resource 的参数；空计划返回只有 action 的退化参数（调用方先用 isEmpty 挡掉） */
+        public Map<String, Object> toToolParams() {
+            Map<String, Object> params = new HashMap<>();
+            // system_resource.execute 先看 action，缺了会直接回"缺少参数: action"（失败结果），
+            // 卡片按钮必须显式声明走 open_app 分支，否则点击永远报参数错、应用起不来。
+            params.put("action", "open_app");
+            if (!packageName.isEmpty()) params.put("package", packageName);
+            if (!appName.isEmpty() && !appName.equals(packageName)) params.put("app", appName);
+            return params;
+        }
+    }
+
+    /**
+     * 把卡片上的 {@code app}/{@code package}/{@code value} 归一成启动计划。
+     *
+     * <p>{@code value} 支持三种写法：{@code "am start -n pkg/.Act"}（Agent 常照 shell 习惯写）、
+     * {@code "com.tencent.mm"}（包名）、{@code "微信"}（应用名，交给 system_resource 模糊匹配）。
+     * {@code am} 的非 start 子命令不在卡片里执行——那是 {@code system_resource(shell_command)} 的事，
+     * 卡片按钮只做启动，别在 UI 层长出第二个 shell。</p>
+     */
+    public static LaunchPlan planLaunch(String app, String pkg, String value) {
+        String packageName = pkg == null ? "" : pkg.trim();
+        String appName = app == null ? "" : app.trim();
+        String target = value == null ? "" : value.trim();
+
+        if (packageName.isEmpty() && !target.isEmpty() && target.toLowerCase().startsWith("am ")) {
+            if (!target.toLowerCase().startsWith("am start")) {
+                return LaunchPlan.error("卡片只支持 am start 启动应用；其他 am 子命令请让 Agent 用 system_resource(shell_command)");
+            }
+            String parsed = CardActionTarget.parseAmTarget(target);
+            if (CardActionTarget.isHttpUrl(parsed)) {
+                return LaunchPlan.url(parsed);
+            }
+            int slash = parsed.indexOf('/');
+            if (slash > 0) {
+                packageName = parsed.substring(0, slash);
+            } else if (CardActionTarget.looksLikePackage(parsed)) {
+                packageName = parsed;
+            } else if (!parsed.isEmpty()) {
+                appName = parsed;
+            }
+        } else if (packageName.isEmpty() && CardActionTarget.looksLikePackage(target)) {
+            packageName = target;
+        } else if (packageName.isEmpty() && appName.isEmpty()) {
+            appName = target;
+        }
+        return LaunchPlan.of(packageName, appName);
+    }
+
+    /**
+     * 卡片开启应用：优先复用 system_resource(open_app) 的包名/模糊应用名/系统选择器逻辑。
+     * action=am 时兼容 "am start -n pkg/.Activity" 和 "am start -d https://..."。
+     */
+    private static void launchApp(Context context, String app, String pkg, String value) {
+        LaunchPlan plan = planLaunch(app, pkg, value);
+        if (!plan.error.isEmpty()) {
+            Toast.makeText(context, plan.error, Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!plan.url.isEmpty()) {
+            openLink(context, plan.url);
+            return;
+        }
+        if (plan.isEmpty()) {
+            Toast.makeText(context, "动作缺少 app/package", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        com.oilquiz.app.ai.tool.AIToolResult result =
+                new com.oilquiz.app.ai.tool.SystemResourceTool(context).execute(plan.toToolParams());
+        if (result == null) {
+            Toast.makeText(context, "打开应用失败: 无执行结果", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!result.isSuccess()) {
+            Toast.makeText(context,
+                    result.getErrorMessage() == null ? "打开应用失败" : result.getErrorMessage(),
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private static String firstNonEmpty(String... values) {
+        if (values == null) return "";
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty()) return value.trim();
+        }
+        return "";
+    }
+
+    private static void dial(Context context, String number) {
+        if (number.isEmpty()) {
+            Toast.makeText(context, "缺少电话号码", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent intent = new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + number));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        context.startActivity(intent);
+    }
+
+    private static void sms(Context context, String number, String text) {
+        if (number.isEmpty()) {
+            Toast.makeText(context, "缺少电话号码", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent intent = new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + number));
+        if (text != null && !text.isEmpty()) intent.putExtra("sms_body", text);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        context.startActivity(intent);
+    }
+
+    private static void email(Context context, String to, String subject, String text) {
+        if (to.isEmpty()) {
+            Toast.makeText(context, "缺少收件人邮箱", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent intent = new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + to));
+        if (subject != null && !subject.isEmpty()) intent.putExtra(Intent.EXTRA_SUBJECT, subject);
+        if (text != null && !text.isEmpty()) intent.putExtra(Intent.EXTRA_TEXT, text);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        context.startActivity(intent);
+    }
+
+    private static void openMap(Context context, String query) {
+        if (query.isEmpty()) {
+            Toast.makeText(context, "缺少地图查询内容", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent intent = new Intent(Intent.ACTION_VIEW,
+                Uri.parse("geo:0,0?q=" + Uri.encode(query)));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        context.startActivity(intent);
     }
 
     /** 打开链接：http/https 应用内 WebView；file:// 或绝对路径系统 Intent 打开 */
@@ -355,6 +576,25 @@ public final class ComponentActions {
                 Toast.makeText(context, "链接为空", Toast.LENGTH_SHORT).show();
                 return;
             }
+            String lower = link.toLowerCase();
+            // 兼容 Agent 把启动指令写进 link 的情况：am start -n pkg/.Act / package:pkg
+            if (lower.startsWith("am ")) {
+                launchApp(context, "", "", link);
+                return;
+            }
+            if (lower.startsWith("package:")) {
+                launchApp(context, "", link.substring("package:".length()).trim(), "");
+                return;
+            }
+            if (CardActionTarget.looksLikePackage(link)) {
+                try {
+                    if (context.getPackageManager().getLaunchIntentForPackage(link) != null) {
+                        launchApp(context, "", link, "");
+                        return;
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
             if (link.startsWith("http://") || link.startsWith("https://")) {
                 Intent intent = new Intent(context, com.oilquiz.app.WebViewActivity.class);
                 intent.putExtra("url", link);
@@ -362,6 +602,12 @@ public final class ComponentActions {
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 }
                 context.startActivity(intent);
+                return;
+            }
+            // 自定义协议（weixin://、magnet:、intent://、tel:…）：卡片链接此前一路落到"按文件路径找"，
+            // 报的是"文件不存在"——那是最误导人的一种失败。交同一套协议处置逻辑。
+            if (com.oilquiz.app.browser.BrowserSchemeHandler.isSchemeNavigation(link)) {
+                com.oilquiz.app.browser.BrowserSchemeHandler.handoff(context, link, false);
                 return;
             }
             // file:// 或绝对路径：FileProvider + 系统 Intent（与 SimpleWebViewActivity 打开文件一致）

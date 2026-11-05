@@ -22,7 +22,7 @@ import java.util.Map;
     description = "系统级连接与设备能力工具。"
             + "【系统级UI】notify(系统通知栏)/floating_window(悬浮窗,需悬浮窗权限)/toast(屏幕提示)/screenshot(截屏)。"
             + "【系统级数据】clipboard(剪贴板读写)/battery(电池状态)/network(网络状态/数据开关)/volume(音量控制)/brightness(亮度调节)。"
-            + "【系统级连接】wifi(WiFi信息/开关)/bluetooth(蓝牙开关/扫描)/hotspot(热点开关)/usb(USB连接状态)/screen(屏幕状态/点亮/常亮)。"
+            + "【系统级连接】wifi(WiFi信息/开关)/bluetooth(蓝牙状态/开关)/hotspot(热点开关)/usb(USB连接状态)/screen(屏幕状态/点亮/常亮)。"
             + "设备连接与系统参数管理统一走本工具；需要跳转系统设置页用 system_resource(open_settings)。",
     category = "system",
     aliases = {"system_connect", "sys_connect", "设备连接", "系统连接", "system_ui", "系统UI"},
@@ -167,12 +167,33 @@ public class SystemConnectTool implements AITool {
 
     private AIToolResult notify(Map<String, Object> p) {
         String title = str(p.get("title"));
+        if (title == null || title.trim().isEmpty()) title = "AI 通知";
         String content = p.get("content") != null ? String.valueOf(p.get("content")) : "";
+        // Android 13+ 通知是运行时权限；没授予时直接说清楚，让 Agent 走 permission_manager
+        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(
+                android.Manifest.permission.POST_NOTIFICATIONS)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            Map<String, Object> r = new HashMap<>();
+            r.put("status", "needs_permission");
+            r.put("permission", "通知");
+            r.put("next_action", "permission_manager");
+            r.put("suggestion", "调用 permission_manager(action=request_and_wait, permission=通知) 授权后重试 notify");
+            r.put("message", "缺少通知权限，通知没有发出");
+            return AIToolResult.success(r);
+        }
         int id = p.get("id") != null ? Integer.parseInt(String.valueOf(p.get("id"))) : (int) (System.currentTimeMillis() % 100000);
         try {
             android.app.NotificationManager nm = (android.app.NotificationManager)
                     context.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return AIToolResult.fail("通知服务不可用");
+            if (!nm.areNotificationsEnabled()) {
+                Map<String, Object> r = new HashMap<>();
+                r.put("status", "restricted");
+                r.put("permission", "通知");
+                r.put("message", "系统通知已被关闭，通知没有发出");
+                r.put("suggestion", "请用户到 系统设置→应用→通知 里打开通知");
+                return AIToolResult.success(r);
+            }
             String channelId = "system_connect_notify";
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 android.app.NotificationChannel ch = new android.app.NotificationChannel(
@@ -385,6 +406,12 @@ public class SystemConnectTool implements AITool {
     private AIToolResult brightness(Map<String, Object> p) {
         String op = p.get("op") != null ? String.valueOf(p.get("op")) : "get";
         try {
+            if (("auto".equals(op) || "set".equals(op))
+                    && !android.provider.Settings.System.canWrite(context)) {
+                openWriteSettingsPage();
+                return needsPermission("修改系统设置",
+                        "已打开系统设置页；授予「修改系统设置」后重试 brightness");
+            }
             if ("auto".equals(op)) {
                 android.provider.Settings.System.putInt(context.getContentResolver(),
                         android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
@@ -425,6 +452,26 @@ public class SystemConnectTool implements AITool {
 
     // ==================== 系统级连接 ====================
 
+    private AIToolResult needsPermission(String permission, String suggestion) {
+        Map<String, Object> r = new HashMap<>();
+        r.put("status", "needs_permission");
+        r.put("permission", permission);
+        r.put("suggestion", suggestion);
+        r.put("message", "缺少" + permission + "，操作未执行");
+        return AIToolResult.success(r);
+    }
+
+    private void openWriteSettingsPage() {
+        try {
+            Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                    Uri.parse("package:" + context.getPackageName()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
+        } catch (Throwable ignored) {
+            // 打不开设置页时仍返回 needs_permission，让 Agent 指导用户手动授权
+        }
+    }
+
     private AIToolResult wifi(Map<String, Object> p) {
         String op = p.get("op") != null ? String.valueOf(p.get("op")) : "status";
         try {
@@ -462,6 +509,11 @@ public class SystemConnectTool implements AITool {
 
     private AIToolResult bluetooth(Map<String, Object> p) {
         String op = p.get("op") != null ? String.valueOf(p.get("op")) : "status";
+        if (context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return needsPermission("蓝牙",
+                    "调用 permission_manager(action=request_and_wait, permission=蓝牙) 授权后重试");
+        }
         try {
             android.bluetooth.BluetoothAdapter ba = android.bluetooth.BluetoothAdapter.getDefaultAdapter();
             if (ba == null) return AIToolResult.fail("设备不支持蓝牙");

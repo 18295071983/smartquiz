@@ -193,6 +193,7 @@ public class AIToolUsageGuide {
         guide.append("│ database         │ 题库查询/用户/分数等数据库操作          │\n");
         guide.append("│ excel_tool       │ Excel查询(sheets/query/cell)/修改(write/add) │\n");
         guide.append("│ system_resource  │ 打开应用/URL、发短信、拨打电话等系统操作 │\n");
+        guide.append("│ system_connect   │ 通知/剪贴板/电池/音量/亮度/WiFi/蓝牙/USB/截屏 │\n");
         guide.append("│ app_operation    │ 应用内页面跳转（用户/题库/答题/计划等）  │\n");
         guide.append("│ permission_manager│ 权限检查/请求/状态管理                 │\n");
         guide.append("│ create_dynamic_tool│ 动态创建/管理/删除AI工具              │\n");

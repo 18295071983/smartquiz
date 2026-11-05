@@ -43,9 +43,13 @@ import java.util.concurrent.atomic.AtomicReference;
     aliases = {"open_app", "send_sms", "make_call", "launch_app"},
     actions = {
         @Action(name = "open_app", description = "打开指定应用"),
-        @Action(name = "open_url", description = "打开URL"),
+        @Action(name = "open_url", description = "打开URL（http/https 走应用内浏览器）"),
         @Action(name = "send_sms", description = "发送短信"),
         @Action(name = "make_call", description = "拨打电话"),
+        @Action(name = "send_email", description = "发送邮件"),
+        @Action(name = "open_map", description = "打开地图"),
+        @Action(name = "share_text", description = "分享文本"),
+        @Action(name = "open_settings", description = "打开系统设置页（wifi/bluetooth/location/display/sound/storage/app/app_notifications/app_details/write_settings/battery）"),
         @Action(name = "list_apps", description = "列出已安装应用"),
         @Action(name = "get_app_info", description = "获取应用信息"),
         @Action(name = "app_control", description = "控制应用：强制停止/清除数据/获取详细信息"),
@@ -77,6 +81,7 @@ import java.util.concurrent.atomic.AtomicReference;
         @Param(name = "setting_type", type = "string", description = "设置类型: system/secure/global", required = false),
         @Param(name = "setting_key", type = "string", description = "设置键名", required = false),
         @Param(name = "setting_value", type = "string", description = "设置值", required = false),
+        @Param(name = "setting", type = "string", description = "设置页: wifi/bluetooth/location/display/sound/storage/app/app_notifications/app_details/write_settings/battery", required = false),
         @Param(name = "control_action", type = "string", description = "控制操作: force_stop/clear_data/detailed_info", required = false)
     }
 )
@@ -495,7 +500,16 @@ public class SystemResourceTool implements AITool {
 
             // 正确编码 URL 中的非 ASCII 字符，避免浏览器错误 Punycode 编码
             String encodedUrl = encodeInternationalUrl(url);
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(encodedUrl));
+            Uri uri = Uri.parse(encodedUrl);
+            String scheme = uri.getScheme();
+            Intent intent;
+            if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+                // 应用内浏览器（与聊天链接同一落点），不再跳系统 Chrome
+                intent = new Intent(context, com.oilquiz.app.WebViewActivity.class);
+                intent.putExtra("url", encodedUrl);
+            } else {
+                intent = new Intent(Intent.ACTION_VIEW, uri);
+            }
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(intent);
             
@@ -805,6 +819,19 @@ public class SystemResourceTool implements AITool {
                     break;
                 case "app":
                     intent = new Intent(android.provider.Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS);
+                    break;
+                case "app_notifications": {
+                    intent = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                    intent.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.getPackageName());
+                    break;
+                }
+                case "app_details":
+                    intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:" + context.getPackageName()));
+                    break;
+                case "write_settings":
+                    intent = new Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                            Uri.parse("package:" + context.getPackageName()));
                     break;
                 case "battery":
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -2619,6 +2646,16 @@ public class SystemResourceTool implements AITool {
     /**
      * 修改系统设置
      */
+    private void openWriteSettingsPage() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                    Uri.parse("package:" + context.getPackageName()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
+        } catch (Throwable ignored) {
+        }
+    }
+
     private AIToolResult writeSetting(Map<String, Object> parameters) {
         String settingType = (String) parameters.get("setting_type");
         String settingKey = (String) parameters.get("setting_key");
@@ -2635,8 +2672,29 @@ public class SystemResourceTool implements AITool {
         }
         
         try {
+            String type = settingType.toLowerCase();
+            if ("system".equals(type) && !Settings.System.canWrite(context)) {
+                openWriteSettingsPage();
+                Map<String, Object> result = new HashMap<>();
+                result.put("status", "needs_permission");
+                result.put("permission", "修改系统设置");
+                result.put("type", settingType);
+                result.put("key", settingKey);
+                result.put("value", settingValue);
+                result.put("message", "缺少 WRITE_SETTINGS；已打开系统设置页，授权后重试");
+                return new AIToolResult(result, parameters);
+            }
+            if ("secure".equals(type) || "global".equals(type)) {
+                Map<String, Object> result = new HashMap<>();
+                result.put("status", "restricted");
+                result.put("type", settingType);
+                result.put("key", settingKey);
+                result.put("message", "secure/global 设置需要 WRITE_SECURE_SETTINGS（系统签名或 adb 授权），普通应用无法修改");
+                return new AIToolResult(result, parameters);
+            }
+
             boolean success;
-            switch (settingType.toLowerCase()) {
+            switch (type) {
                 case "system":
                     success = Settings.System.putString(context.getContentResolver(), settingKey, settingValue);
                     break;

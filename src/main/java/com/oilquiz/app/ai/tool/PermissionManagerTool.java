@@ -122,6 +122,11 @@ public class PermissionManagerTool implements AITool {
             PERMISSION_MAP.put("notification", Manifest.permission.POST_NOTIFICATIONS);
             PERMISSION_MAP.put("notifications", Manifest.permission.POST_NOTIFICATIONS);
         }
+        // 蓝牙（Android 12+ 运行时权限；system_connect 开关/状态需要）
+        PERMISSION_MAP.put("蓝牙", Manifest.permission.BLUETOOTH_CONNECT);
+        PERMISSION_MAP.put("蓝牙连接", Manifest.permission.BLUETOOTH_CONNECT);
+        PERMISSION_MAP.put("bluetooth", Manifest.permission.BLUETOOTH_CONNECT);
+        PERMISSION_MAP.put("bluetooth_connect", Manifest.permission.BLUETOOTH_CONNECT);
     }
     
     public PermissionManagerTool(Context context) {

@@ -1606,6 +1606,7 @@ return attachLabel(context, node, props, row, density);
                 btn.setTag(bind);
                 String key = node.optString("key", "");
                 if (!key.isEmpty()) viewRefs.put(key, btn);
+                wireActionClick(context, btn, node, props, node.optString("text", "打开"));
                 return btn;
             }
             case "link": {
@@ -1624,11 +1625,7 @@ return attachLabel(context, node, props, row, density);
                 } else if (!linkUrl.isEmpty()) {
                     lTv.setOnClickListener(v -> {
                         try {
-                            android.content.Intent i = new android.content.Intent(
-                                    android.content.Intent.ACTION_VIEW,
-                                    android.net.Uri.parse(linkUrl));
-                            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                            context.startActivity(i);
+                            com.oilquiz.app.ai.chat.component.ComponentActions.openLink(context, linkUrl);
                         } catch (Exception e) {
                             android.util.Log.w(TAG, "打开链接失败: " + e.getMessage());
                         }
@@ -2244,6 +2241,7 @@ return attachLabel(context, node, props, row, density);
                     nActionTv.setTextSize(12);
                     nActionTv.setTextColor(ComponentColors.accent(context));
                     nActionTv.setTag(nAction);
+                    wireActionClick(context, nActionTv, node, props, nActionLabel);
                     nActionTv.setPadding(dp(8, density), 0, 0, 0);
                     String nKey = node.optString("key", "");
                     if (!nKey.isEmpty()) viewRefs.put(nKey, nActionTv);
@@ -3489,6 +3487,62 @@ return attachLabel(context, node, props, srWrap, density);
     private static int parseColorSafe(String s) {
         if (s == null || s.isEmpty()) return Integer.MIN_VALUE;
         try { return android.graphics.Color.parseColor(s.trim()); } catch (IllegalArgumentException e) { return Integer.MIN_VALUE; }
+    }
+
+    /**
+     * 给 layout 树里可点击的按钮/操作文字挂真实动作。
+     *
+     * <p>此前 button/notice 只 {@code setTag(action)}：弹窗链路（PythonToolManager）会在 render
+     * 之后自己 setOnClickListener 覆盖掉 tag 语义，聊天流卡片却没人接管——于是 Agent 设计的
+     * "打开微信""拨号"按钮点下去毫无反应（用户报"卡片点击后不能跳转应用"）。这里只认领
+     * <b>明确可执行</b>的字段（link/url、copy、app/package、以及 {@link ComponentActions} 认识的
+     * action），普通提交按钮（action 是自定义回调串）一律不挂，保持弹窗链路原样接管。</p>
+     *
+     * <p>action=callback/refresh 需要卡片有可寻址的 component_id（创建时带 props.actions 才有），
+     * 取址口径与 layout/html 卡 submit 共用 {@link ComponentActions#resolveComponentId(JSONObject)}；
+     * 没有则提示"需带 actions 创建"，不做静默失败。</p>
+     */
+    private static void wireActionClick(Context context, View target, JSONObject node,
+                                        JSONObject props, String defaultLabel) {
+        if (context == null || target == null || node == null) return;
+        try {
+            String link = interpolate(node.optString("link", node.optString("url", "")), props);
+            String copy = interpolate(node.optString("copy", ""), props);
+            String app = node.optString("app", "");
+            String pkg = node.optString("package", "");
+            String action = node.optString("action", "");
+            String value = interpolate(node.optString("value", ""), props);
+            boolean actionable = !link.isEmpty() || !copy.isEmpty() || !app.isEmpty() || !pkg.isEmpty()
+                    || "open_app".equals(action) || "launch_app".equals(action) || "app".equals(action)
+                    || "am".equals(action) || "am_start".equals(action) || "dial".equals(action)
+                    || "call".equals(action) || "sms".equals(action) || "email".equals(action)
+                    || "map".equals(action) || "open_url".equals(action) || "url".equals(action)
+                    || "copy".equals(action) || "refresh".equals(action) || "callback".equals(action);
+            if (!actionable) return;
+            if ("callback".equals(action) || "refresh".equals(action)) {
+                String cid = com.oilquiz.app.ai.chat.component.ComponentActions.resolveComponentId(props);
+                if (cid == null || cid.isEmpty()) {
+                    final String what = "callback".equals(action) ? "回传点击" : "刷新";
+                    target.setOnClickListener(v -> android.widget.Toast.makeText(context,
+                            "该卡片没有回传地址：创建时需带 props.actions 才有 component_id 可" + what,
+                            android.widget.Toast.LENGTH_SHORT).show());
+                    return;
+                }
+            }
+            JSONObject act = new JSONObject();
+            act.put("label", defaultLabel == null ? "打开" : defaultLabel);
+            if (!link.isEmpty()) act.put("link", link);
+            if (!copy.isEmpty()) act.put("copy", copy);
+            if (!app.isEmpty()) act.put("app", app);
+            if (!pkg.isEmpty()) act.put("package", pkg);
+            if (!action.isEmpty()) act.put("action", action);
+            if (!value.isEmpty()) act.put("value", value);
+            String cid = com.oilquiz.app.ai.chat.component.ComponentActions.resolveComponentId(props);
+            if (cid != null && !cid.isEmpty()) act.put("component_id", cid);
+            Runnable runner = com.oilquiz.app.ai.chat.component.ComponentActions.actionRunner(context, act);
+            if (runner != null) target.setOnClickListener(v -> runner.run());
+        } catch (Throwable ignored) {
+        }
     }
 
     /**
