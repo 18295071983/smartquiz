@@ -9,6 +9,7 @@ import com.google.android.material.button.MaterialButton;
 import android.widget.ListView;
 import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 import android.widget.RadioGroup;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -72,12 +73,24 @@ public class TemplateSelectionActivity extends AppCompatActivity {
         templateFields = findViewById(R.id.template_fields);
         templateTypeToggle = findViewById(R.id.template_type_toggle);
 
-        // 简化：隐藏内容模板切换（内容模板体系与导出模板分离，避免双模板流程混乱），
-        // 本页专注导出模板（场景化模板）选择
-        if (templateTypeToggle != null) {
-            templateTypeToggle.setVisibility(View.GONE);
-        }
+        // 类型切换真驱动本页：切到哪一类，列表、选中项、详情区、下一步带走的 extra 都跟着换。
+        // 之前这里是无条件 setVisibility(GONE) + isContentTemplateMode=false——控件在布局里、
+        // 监听与两条加载链路（loadExportTemplates / loadContentTemplates）也都写好了，
+        // 唯独没人拨这个开关，所以整个内容模板分支是接了但没通电的死支。
         isContentTemplateMode = false;
+        if (templateTypeToggle != null) {
+            templateTypeToggle.setVisibility(View.VISIBLE);
+            templateTypeToggle.setOnCheckedChangeListener((group, checkedId) -> {
+                boolean content = checkedId == R.id.radio_content_template;
+                if (content == isContentTemplateMode) return;
+                isContentTemplateMode = content;
+                // 换类必须清掉上一类的选中项，否则详情区还显示着另一类模板的名字
+                selectedTemplate = null;
+                selectedContentTemplate = null;
+                updateTemplateList();
+                updateTemplateDescription();
+            });
+        }
 
         nextButton.setOnClickListener(v -> proceedToFieldConfig());
     }
@@ -202,6 +215,10 @@ public class TemplateSelectionActivity extends AppCompatActivity {
         templateViewModel.getTemplates(new TemplateViewModel.GetTemplatesCallback() {
             @Override
             public void onSuccess(List<com.oilquiz.app.model.Template> templates) {
+                if (templates == null || templates.isEmpty()) {
+                    showContentTemplatesEmpty();
+                    return;
+                }
                 // 根据当前选择的导出格式过滤内容模板
                 List<com.oilquiz.app.model.Template> filteredTemplates = filterTemplatesByFormat(templates, selectedFormat);
                 contentTemplates = filteredTemplates;
@@ -221,6 +238,10 @@ public class TemplateSelectionActivity extends AppCompatActivity {
                     updateTemplateDescription();
                 });
 
+                if (filteredTemplates.isEmpty()) {
+                    showContentTemplatesEmpty();
+                    return;
+                }
                 // 默认为第一个模板
                 if (!filteredTemplates.isEmpty()) {
                     selectedContentTemplate = filteredTemplates.get(0);
@@ -237,6 +258,7 @@ public class TemplateSelectionActivity extends AppCompatActivity {
             @Override
             public void onFailure(String error) {
                 android.util.Log.e("TemplateSelection", "Failed to load content templates: " + error);
+                showContentTemplatesEmpty();
                 contentTemplates = new ArrayList<>();
                 ArrayAdapter<String> adapter = new ArrayAdapter<>(TemplateSelectionActivity.this, android.R.layout.simple_list_item_1, new ArrayList<>());
                 templateListView.setAdapter(adapter);
@@ -269,6 +291,21 @@ public class TemplateSelectionActivity extends AppCompatActivity {
         return filtered;
     }
     
+    /** 内容模板一条都没有：列表空着不算交代，得说清去哪儿建 */
+    private void showContentTemplatesEmpty() {
+        contentTemplates = new ArrayList<>();
+        templateListView.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_list_item_1, new ArrayList<String>()));
+        selectedContentTemplate = null;
+        selectedTemplate = null;
+        templateName.setText("没有内容模板");
+        templateDescription.setText("内容模板存在模板库里（模板管理里新建/导入），"
+                + "本页只显示它；导出成品目前不套用这个文件");
+        templateFormat.setText(getString(R.string.h_c3f9cc1b));
+        templateDefault.setVisibility(View.GONE);
+        templateFields.setText("无");
+    }
+
     private void updateTemplateDescription() {
         if (selectedTemplate != null) {
             // 显示导出模板信息
@@ -332,6 +369,11 @@ public class TemplateSelectionActivity extends AppCompatActivity {
                 return;
             }
 
+            // 把话说在前面：内容模板这一路目前只做到"选它、把它的名字带到后面每一屏"，
+            // ExportManager 不读 contentTemplateFilePath——不提醒就等于让用户以为成品套用了模板。
+            Toast.makeText(this, "已选内容模板：" + selectedContentTemplate.getName()
+                    + "（导出成品暂不套用此文件，只有字段配置按它走）",
+                    Toast.LENGTH_LONG).show();
             Intent intent = new Intent(this, FieldConfigActivity.class);
             intent.putExtra("format", selectedFormat.name());
             intent.putExtra("contentTemplateId", selectedContentTemplate.getId());
