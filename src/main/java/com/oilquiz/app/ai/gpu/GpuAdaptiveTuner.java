@@ -144,6 +144,7 @@ public class GpuAdaptiveTuner {
                 return gpuProfile.peakPerformanceTFLOPS / 10;
             }
         } catch (Exception noProfile) {
+            android.util.Log.w("GpuAdaptiveTuner", "拿不到 GPU profile，调速按 5f 这个猜值起步（不是实测峰值）");
         }
         return 5f;
     }

@@ -181,6 +181,7 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
                 return flat.trim();
             }
         } catch (java.lang.Throwable keyUnreadable) {
+            com.oilquiz.app.util.AILogger.w(TAG, "读 metaso key 失败，本轮按没配 key 处理: " + keyUnreadable.getMessage());
         }
         try {
             c = mgr.getAPIConfigByServiceType("metaso_search");
@@ -436,6 +437,7 @@ public class NetworkSearchTool implements com.oilquiz.app.ai.tool.AITool {
                 props.put("items", items);
                 toolResult.withComponent(com.oilquiz.app.ai.chat.component.ComponentData.of("list_card", props));
             } catch (java.lang.Exception cardSkipped) {
+                com.oilquiz.app.util.AILogger.w(TAG, "搜索结果卡片没搭起来，本轮只回文字（链接与标题都在结果里，但界面没列表）: " + cardSkipped.getMessage());
             }
             return toolResult;
         } catch (java.lang.Exception e2) {

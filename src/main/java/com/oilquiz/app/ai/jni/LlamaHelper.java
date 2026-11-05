@@ -1699,6 +1699,7 @@ public class LlamaHelper {
                 return com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
             }
         } catch (Throwable probeFailed) {
+            AILogger.w(TAG, "isEngineReady 探测抛异常，按未就绪处理（可能把已就绪的引擎报成没就绪）: " + probeFailed.getMessage());
             // NpuLlmChat 不可用时退回 llama 判定，保持行为不变
         }
         return isModelInitialized();

@@ -1210,6 +1210,7 @@ public class OnlineInferenceService {
             Thread.currentThread().interrupt();
             throw new java.io.IOException("DNS 解析被中断: " + fullUrl);
         } catch (java.lang.IllegalArgumentException badHost) {
+            AILogger.w(TAG, "预解析主机名失败，首个请求会自己付这次 DNS 开销: " + badHost.getMessage());
             // 非法 URL：交由后续 new URL 抛标准异常
         }
     }

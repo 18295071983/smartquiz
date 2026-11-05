@@ -286,6 +286,7 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
                             }
                         }
                     } catch (Exception thumbnailFailed) {
+                        android.util.Log.w("MessageAttachmentAdapter", "附件缩略图解不出来，这一条只能显示空白（文件本身没动）: " + thumbnailFailed.getMessage());
                         // 采样失败回退 setImageURI（小图无碍）
                     }
                     if (!loaded) {

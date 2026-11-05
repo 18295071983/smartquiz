@@ -55,6 +55,7 @@ public final class ToolGuideFlowFlag {
                     .putBoolean(PREF_KEY, value)
                     .apply();
         } catch (Throwable notStored) {
+            android.util.Log.w("ToolGuideFlowFlag", "开关没写进 SharedPreferences（下次启动会回到默认档）: " + notStored.getMessage());
             // 写不进去就维持现状，不抛
         }
     }

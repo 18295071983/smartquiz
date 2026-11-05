@@ -336,3 +336,14 @@ src/androidTest 里除本类自身**零引用、零生产者**，且文本线（
 
 未验：这些新日志都要对应异常真发生才出现，本轮没构造故障；三条闩锁路径（流式 token 条、城市广播）
 真机各点一次能看到"只报一次"的效果。基线 1746/0/0/1 skipped。
+
+## 17. 自我纠错：批 3 声称的 15 条日志里有 7 条没落盘
+
+复核中危池时用 grep 逐条去**文件里找那段文本**，发现批 3 的 15 处"补日志"里只有 8 处真的写进了源码，
+7 处只完成了改名、日志行根本没落：`ToolGuideFlowFlag.notStored`、`MessageAttachmentAdapter.thumbnailFailed`、
+`GpuAdaptiveTuner.noProfile`、`LlamaHelper.probeFailed`、`OnlineInferenceService.badHost`、
+`NetworkSearchTool.keyUnreadable` / `cardSkipped`。批 3 的提交信息写着"15 条新日志"，那句是错的。
+
+根因不是编译——脚本里多形态分支有一支把插入位置算错后静默什么也没做，**编译器只证明语法，不证明内容**。
+现在这 7 处已重做并逐条 grep 复核（每处 1 次命中），真·空体 670→667、只写日志 1128→1135，
+基线 1746/0/0/1 skipped。往后这批的验收口径加一条：**补完日志要按文本 grep 回来，不能只看 BUILD SUCCESSFUL**。
