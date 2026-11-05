@@ -58,18 +58,18 @@ public class UiInteractor {
     private String extractComponentId(AIToolResult r) {
         if (r == null || r.getResult() == null) return null;
         Object res = r.getResult();
-        try {
-            if (res instanceof Map) {
-                Object cid = ((Map<?, ?>) res).get("component_id");
-                if (cid != null) return cid.toString();
-            }
-        } catch (Throwable ignored) {
+        // Map 分支只是 instanceof + get，抛不出来，不需要 try/catch
+        if (res instanceof Map) {
+            Object cid = ((Map<?, ?>) res).get("component_id");
+            if (cid != null) return cid.toString();
         }
         String out = String.valueOf(res);
         try {
             JSONObject j = new JSONObject(out);
             if (j.has("component_id")) return j.optString("component_id");
         } catch (Exception ignored) {
+            // 刻意：org.json 没有"不抛异常"的解析入口，"不是 JSON"就是这一支的正常结果，
+            // 下面还有正则兜底，不是被隐藏的故障
         }
         java.util.regex.Matcher m = java.util.regex.Pattern
                 .compile("component_id[\"']?\\s*[:=]\\s*[\"']?([A-Za-z0-9_\\-]+)")
@@ -100,7 +100,10 @@ public class UiInteractor {
                     }
                     holder.set(value);
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable err) {
+                // 不吞：工具调用崩在这里的话 holder 会一直是 null，调用方看到的就是"用户没操作"——
+                // 那会把一次故障读成一次沉默，必须留痕
+                AILogger.w(TAG, "取组件结果失败（本轮会被当成用户未操作）: " + componentId + " - " + err);
             } finally {
                 synchronized (lock) { lock.notifyAll(); }
             }
@@ -265,7 +268,11 @@ public class UiInteractor {
             if (message != null) args.put("message", message);
             args.put("max_value", 100);
             execute(args, 10000);
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            // 为什么这里还得包一层：org.json 的 put/putOpt 都声明 checked JSONException（putOpt 也一样），
+            // 不接就得让 progress() 往上传，而它的调用方都是"发个进度就走"的旁路。
+            // 关键是别再让它静默——没进度条是一次可见的降级。
+            AILogger.w(TAG, "进度组件创建失败（本轮无进度提示）: " + title + " - " + t);
         }
     }
 
@@ -276,7 +283,9 @@ public class UiInteractor {
         Thread t = new Thread(() -> {
             try {
                 holder.set(toolManager.executeTool("ui_component", toMap(args)));
-            } catch (Throwable ignored) {
+            } catch (Throwable e) {
+                // 崩在这里等同于"这轮工具没结果"，调用方只能看到 null；不留痕就永远像超时/未操作
+                AILogger.w(TAG, "ui_component 执行线程异常: " + args.optString("action") + " - " + e);
             } finally {
                 synchronized (lock) { lock.notifyAll(); }
             }

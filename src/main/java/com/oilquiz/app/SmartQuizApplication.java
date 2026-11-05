@@ -143,49 +143,46 @@ public class SmartQuizApplication extends Application {
 
         // 死亡归因基座（2026-10-25）：先留存上一次启动代次，再写本次；启动主线程卡死哨兵。
         // 越早在 onCreate 落 BOOT_ID，越好——启动阶段的主线程卡死/崩溃也要能被归因。
-        try {
+        boot("启动代次基座(死亡归因用)", () -> {
             android.content.SharedPreferences cp =
                     getSharedPreferences(CRASH_PREFS, MODE_PRIVATE);
             prevBootId = cp.getString(KEY_SESSION_BOOT, null);
             cp.edit().putString(KEY_SESSION_BOOT, BOOT_ID).apply();
-        } catch (Throwable ignored) {
-        }
+        });
         com.oilquiz.app.infra.MainThreadWatchdog.start(this, BOOT_ID);
 
         // NPU 引擎开关镜像（只读 SharedPreferences + 静态标记，不做任何原生初始化）
-        try { com.oilquiz.app.ai.engine.NpuEngineRouter.init(this); } catch (Throwable ignored) { }
+        boot("NPU 引擎开关镜像", () -> com.oilquiz.app.ai.engine.NpuEngineRouter.init(this));
 
         // PDFBox-Android 必须在使用前 init 一次（PDF 导出/抽取都靠它加载字体与 CMap 资源）。
         // 放在这里而不是各调用点：AdvancedFileParserUtil 的解析方法没有 Context 参数。
-        try { com.oilquiz.app.util.PdfBoxInitializer.ensure(this); } catch (Throwable ignored) { }
+        boot("PDFBox 初始化(PDF 导出/抽取依赖)", () -> com.oilquiz.app.util.PdfBoxInitializer.ensure(this));
 
         // NPU-FAULT-GUARD(2026-11-01)：必须排在 initBackendPreference 之前——
         // ① 先下发致命信号记录的落盘路径（信号处理器在进程被 SIGABRT 打死前写它）；
         // ② 再消费上一次留下的记录：上一次死在硬件层的话，这次装载就临时降级到 opencl，
         //    否则 hexagon 会在同一台机器上反复死。降级不写 gpu_backend 偏好。
-        try {
+        boot("NPU 致命信号通道(落盘路径+上次降级消费)", () -> {
             java.io.File npuLogDir = new java.io.File(getFilesDir(), "oilquiz/logs");
             if (!npuLogDir.exists()) npuLogDir.mkdirs();
             com.oilquiz.app.ai.jni.LlamaHelper.setFatalRecordFile(
                     new java.io.File(npuLogDir, "npu_fatal.last").getAbsolutePath());
             com.oilquiz.app.ai.jni.NpuFaultGuard.consumeBootFatalRecord(this);
-        } catch (Throwable ignored) {
-        }
+        });
 
         // BACKEND-INIT-EARLY(2026-10-09)：GPU 后端偏好必须在这里读，不能等到 Activity。
         // 模型加载由后台线程在启动时就发起（比 Activity.onCreate 早数秒），若等到那时才读
         // SharedPreferences，读到的仍是 LlamaHelper 的静态默认值 "opencl"，会出现
         // "设置里存 hexagon、模型却按 opencl 加载"的不一致（实测相差 6 秒）。
-        try { com.oilquiz.app.ai.jni.LlamaHelper.initBackendPreference(this); } catch (Throwable ignored) { }
+        boot("GPU 后端偏好预读", () -> com.oilquiz.app.ai.jni.LlamaHelper.initBackendPreference(this));
 
         // 服务商配置表挂载（providers.json：地址/服务/思考参数/地址拼装规则统一从此读取）
-        try {
+        boot("服务商配置表挂载(providers.json)", () -> {
             com.oilquiz.app.ai.model.ProviderConfigManager.init(this);
-        } catch (Throwable ignored) {
-        }
+        });
 
         // 推理引擎日志落盘（日志中心「引擎」Tab 的历史来源）：native 追加写，超过 2MB 自动截断
-        try {
+        boot("引擎日志落盘(日志中心「引擎」Tab 来源)", () -> {
             java.io.File engineLogDir = new java.io.File(getFilesDir(), "oilquiz/logs");
             if (!engineLogDir.exists()) engineLogDir.mkdirs();
             com.oilquiz.app.ai.jni.LlamaHelper.setEngineLogFile(
@@ -196,54 +193,42 @@ public class SmartQuizApplication extends Application {
             boolean htpVerbose = getSharedPreferences("ai_chat_prefs", MODE_PRIVATE)
                     .getBoolean("htp_verbose", false);
             com.oilquiz.app.ai.jni.LlamaHelper.setHtpVerbose(htpVerbose);
-        } catch (Throwable ignored) {
-        }
+        });
 
         // 一次性清理旧会话里的伪过程行（"收到你的消息…/Agent模式已激活/正在思考中…"）：
         // 只重写历史 JSON，后台线程做；失败不影响启动（显示层另有兜底隐藏）
-        try {
-            new Thread(() -> {
-                try {
-                    new com.oilquiz.app.ai.util.ChatHistoryManager(SmartQuizApplication.this)
-                            .cleanLegacyProcessRowsOnce();
-                } catch (Throwable ignored) {
-                }
-            }, "legacy-process-row-cleanup").start();
-        } catch (Throwable ignored) {
-        }
-
-        // 预热 Agent 工作区（构造单例即刷新内置文档，两类都无条件重写、不是只在缺失时拷）：
+        // 外层 try 去掉：Thread(...).start() 除了 OOM 不会抛，那不是一个需要"降级"的失败；
+        // 真正的兜底在清理本体上，交给 boot() 收集（后台线程晚到也能看见）
+        new Thread(() -> boot("旧会话伪过程行一次性清理",
+                () -> new com.oilquiz.app.ai.util.ChatHistoryManager(SmartQuizApplication.this)
+                        .cleanLegacyProcessRowsOnce()), "legacy-process-row-cleanup").start();
         // ① 代码生成的三份 —— 工具创建指南.md / 使用速查表.md / 核心工具速查.md；
         // ② assets/apk_shell/guides/ 下自动发现的全部文件（LINUX_TOOLKIT_GUIDE.md、
         //    MEDIA_TOOLKIT_GUIDE.md、HTML_DESIGN_RULES.md、APK_SOURCE_GUIDE.md 等，
         //    新增只要丢进目录、不用改代码）。
         // 因此模型读到的工作区说明永远跟着 APK 里的内容；提示词若引用某份文档而 assets 里没有，
         // 模型就会"照指引去找一个不存在的文件"—— 加引用时记得同步加文档。无服务/权限副作用。
-        try {
+        boot("Agent 工作区预热(内置文档刷新)", () -> {
             com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(this);
-        } catch (Throwable ignored) {
-        }
+        });
 
         // 导入工作区双根初始化：有"所有文件访问"→公共 /sdcard/OilQuiz；无权限 → 私有 files/import_workspace
         // （Python 与 App 同进程可读写私有目录，导入管线无需该权限）
-        try {
+        boot("导入工作区双根初始化", () -> {
             com.oilquiz.app.ai.importing.v2.ImportDirs.init(this);
-        } catch (Throwable ignored) {
-        }
+        });
 
         // 后台线程预生成内置壁纸（仅首次或版本更新时）
         new Thread(() -> {
-            try {
+        boot("内置壁纸预生成", () -> {
                 com.oilquiz.app.theme.WallpaperStore.ensureBuiltin(this);
-            } catch (Throwable ignored) {
-            }
+        });
             // 预热内置 Linux 工具箱（busybox applet 软链接 + 依赖库软链接）。
             // 必须在 Python 引擎起来之前就绪：Python 只在启动时读一次 PATH/LD_LIBRARY_PATH，
             // 否则 python_execute 里的 subprocess 用不到 busybox（实测复现过）。
-            try {
+        boot("内置 Linux 工具箱预热(busybox/依赖库软链)", () -> {
                 com.oilquiz.app.ai.tool.SystemResourceTool.prepareToolkit(this);
-            } catch (Throwable ignored) {
-            }
+        });
         }, "wallpaper-init").start();
 
         // 应用壁纸跟随：系统壁纸变化时，若开启「跟随系统壁纸」模式，重建前台页面刷新背景。
@@ -361,11 +346,10 @@ public class SmartQuizApplication extends Application {
                     // 标记健康后，本次进程无论之后是被划掉还是被 force-stop，下次启动都会
                     // 归为"体面停止"而不再累加崩溃计数（这正是与旧口径的关键区别）。
                     new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                        try {
+        boot("标记本次启动健康并重置崩溃计数", () -> {
                             getSharedPreferences(CRASH_PREFS, MODE_PRIVATE).edit()
                                     .putString(KEY_HEALTHY_BOOT, BOOT_ID).apply();
-                        } catch (Throwable ignored) {
-                        }
+        });
                         resetCrashCount();
                         com.oilquiz.app.util.AILogger.i(TAG, "应用存活超过30秒，标记健康并重置崩溃计数");
                     }, SURVIVE_RESET_MS);
@@ -387,6 +371,46 @@ public class SmartQuizApplication extends Application {
         
         // 立即注册应用生命周期监听，不阻塞
         registerActivityLifecycle();
+        reportBootFailures();
+    }
+
+    /**
+     * 启动期子系统引导的收集器。
+     *
+     * <p>原来 onCreate 里排着 13 个 {@code try { initX(this); } catch (Throwable ignored) {}}：
+     * 单个子系统失败确实不该打断启动（同一台机器上某些 native 装载就是会失败），但那层空 catch
+     * 顺带把"这次启动哪些能力没起来"整个抹掉了——出问题只能在功能侧猜。改成每个子系统起个名字、
+     * 失败进清单，onCreate 末尾**一行**汇总打出去（不是 13 条，免得刷日志中心）；
+     * 清单上报之后才失败的异步引导逐条打，否则就丢了。</p>
+     */
+    private final java.util.Queue<String> bootFailures =
+            new java.util.concurrent.ConcurrentLinkedQueue<>();
+    private volatile boolean bootReported = false;
+
+    private void boot(String what, Runnable step) {
+        try {
+            step.run();
+        } catch (Throwable t) {
+            String line = what + "：" + t.getClass().getSimpleName()
+                    + (t.getMessage() == null || t.getMessage().isEmpty() ? "" : " " + t.getMessage());
+            if (bootReported) {
+                com.oilquiz.app.util.AILogger.w(TAG, "启动后异步引导失败: " + line);
+            } else {
+                bootFailures.add(line);
+            }
+        }
+    }
+
+    private void reportBootFailures() {
+        bootReported = true;
+        if (bootFailures.isEmpty()) return;
+        StringBuilder sb = new StringBuilder();
+        for (String item : bootFailures) {
+            if (sb.length() > 0) sb.append(" | ");
+            sb.append(item);
+        }
+        com.oilquiz.app.util.AILogger.w(TAG, "启动期 " + bootFailures.size()
+                + " 个子系统引导失败（对应功能会降级，排查从这里起）: " + sb);
     }
     
     public static SmartQuizApplication getInstance() {

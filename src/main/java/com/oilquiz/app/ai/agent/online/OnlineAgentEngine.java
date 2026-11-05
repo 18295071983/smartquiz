@@ -331,7 +331,9 @@ public class OnlineAgentEngine {
         try {
             OnlineModelManager.OnlineModelConfig cfg = onlineInferenceService.getActiveConfig();
             if (cfg != null && cfg.modelName != null) model = cfg.modelName;
-        } catch (Throwable ignored) { }
+        } catch (Throwable ignored) {
+            // 刻意：这里只是给调试追踪取个模型名，取不到就留 "unknown"，不该影响执行路径
+        }
         final String m = model;
         debugTracer.onRunStart(debugRunId, m, System.currentTimeMillis());
     }
@@ -469,7 +471,10 @@ public class OnlineAgentEngine {
                     if (removed > 0) {
                         AILogger.i(TAG, "任务结束清理临时工作区: 删除 " + removed + " 个临时文件");
                     }
-                } catch (Throwable ignored) {
+                } catch (Throwable t) {
+                    // 清不掉只是占盘，不该冒泡打断任务收尾（后面还有 maybeAutoContinue + 会话复位），
+                    // 但必须留痕：并行任务下 tmp 越堆越多时要能看出是哪一步没清
+                    AILogger.w(TAG, "任务结束清理临时工作区失败（不影响结果，会残留 tmp）: " + t);
                 }
                 // 目标自动续行（dsh goal-round-driver 对齐）：仍有活跃任务且上轮推进过工具 →
                 // 自动注入【继续任务】再跑一轮（受 MAX_AUTO_CONTINUE / 间隔 / 取消 三重约束）
@@ -1510,7 +1515,9 @@ public class OnlineAgentEngine {
                     + " tools_sha=" + lastToolsHash
                     + " " + SessionToolBudget.describe(cachedToolNames, toolDefBytes)
                     + " thinking=" + enableThinking);
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            // 刻意：CACHE-PROBE 是纯观测（sha256/长度统计），探测失败不能影响本轮请求
+        }
 
         // 工具轮与最终答案轮同额度（原先工具轮降到 8192，长参数/长思考会被斩断后整批丢弃重试）
         int iterMaxTokens = maxTokens;
@@ -1588,7 +1595,10 @@ public class OnlineAgentEngine {
                         if (activeBlock != null && activeBlock.reasoningContent != null) {
                             chainReasoning = activeBlock.reasoningContent;
                         }
-                    } catch (Exception ignored) {}
+                    } catch (Exception e) {
+                        // 兜底本身失败要留痕：否则"思考内容整段丢了"和"模型这次没思考"长得一样
+                        AILogger.w(TAG, "thinkingChain 兜底取 reasoning 失败: " + e);
+                    }
                     if (reasoningContent != null && reasoningContent.length() >= chainReasoning.length()) {
                         result.reasoningContent = reasoningContent;
                     } else if (!chainReasoning.isEmpty()) {
@@ -2037,7 +2047,10 @@ public class OnlineAgentEngine {
             if ("get".equals(action) && obj.has("tool")) {
                 return obj.get("tool").getAsString();
             }
-        } catch (Exception ignored) { }
+        } catch (Exception ignored) {
+            // 刻意：Gson 没有"不抛异常"的解析入口，参数不是合法 JSON 就等于"解析不出目标"，
+            // 由调用方按未命中处理（不是被隐藏的故障）
+        }
         return null;
     }
 
@@ -2379,7 +2392,10 @@ public class OnlineAgentEngine {
                 ids.addAll(com.oilquiz.app.ai.tool.AIToolManager
                         .getInstance(context).getRegisteredToolNames());
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            // 拿不到注册表就只剩下面那份别名表：结果是"真工具名不再被认成暗示调用"，
+            // 这是一种静默的行为漂移，必须能看见（下面别名集合照常保留）
+            AILogger.w(TAG, "注册工具名拉取失败，仅用别名表判暗示调用: " + e);
         }
         // 常见别名/伪代码名（非注册工具，仅用于识别"暗示调用"）
         ids.addAll(java.util.Arrays.asList(
@@ -3246,16 +3262,24 @@ public class OnlineAgentEngine {
     }
 
     private void deleteHistoryFile() {
-        try {
-            java.io.File file = getHistoryFile();
-            // 备份与临时文件也要删：只删主文件的话，下次 restore 会从 .bak 把"已清空"的历史复活
-            for (java.io.File f : new java.io.File[]{
-                    file,
-                    com.oilquiz.app.ai.util.AtomicFileText.backupOf(file),
-                    new java.io.File(file.getPath() + com.oilquiz.app.ai.util.AtomicFileText.TMP_SUFFIX)}) {
-                if (f != null && f.exists()) f.delete();
+        // 不再整段 try/catch 吞：getHistoryFile() 恒返回 File、delete() 也不抛，它返回 false。
+        // 原来把"没删掉"和"抛异常"一起吞成无事发生，而漏删 .bak/tmp 的后果是下一次 restore
+        // 把用户已经"清空"的历史整段复活——那是可被感知的数据行为，必须显式上报。
+        java.io.File file = getHistoryFile();
+        java.io.File bak = com.oilquiz.app.ai.util.AtomicFileText.backupOf(file);
+        java.io.File tmp = new java.io.File(file.getPath()
+                + com.oilquiz.app.ai.util.AtomicFileText.TMP_SUFFIX);
+        StringBuilder left = new StringBuilder();
+        for (java.io.File f : new java.io.File[]{file, bak, tmp}) {
+            if (f == null || !f.exists()) continue;
+            if (!f.delete()) {
+                if (left.length() > 0) left.append("、");
+                left.append(f.getName());
             }
-        } catch (Exception ignored) {}
+        }
+        if (left.length() > 0) {
+            AILogger.audit(TAG, "清空对话未删净（残留文件可能在下一次装载时把历史复活）: " + left);
+        }
     }
 
     /**

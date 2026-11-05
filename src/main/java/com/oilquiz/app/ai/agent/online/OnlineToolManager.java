@@ -203,15 +203,14 @@ public class OnlineToolManager {
             int restored = 0;
             while (keys.hasNext()) {
                 String key = keys.next();
-                try {
-                    org.json.JSONObject entry = root.optJSONObject(key);
-                    if (entry == null) continue;
-                    long ts = entry.optLong("t", 0);
-                    if (now - ts <= CACHE_TTL_MS) {
-                        resultCache.put(key, new CacheEntry(entry.optString("v", ""), ts));
-                        restored++;
-                    }
-                } catch (Exception ignored) {
+                // 全程只用 opt* 系（不抛）+ 纯字段构造 CacheEntry，无需逐条 try/catch；
+                // 真出格的东西由外层那个带 W 日志的 catch 收，不会静默丢缓存条目
+                org.json.JSONObject entry = root.optJSONObject(key);
+                if (entry == null) continue;
+                long ts = entry.optLong("t", 0);
+                if (now - ts <= CACHE_TTL_MS) {
+                    resultCache.put(key, new CacheEntry(entry.optString("v", ""), ts));
+                    restored++;
                 }
             }
             AILogger.i(TAG, "Tool cache restored: " + restored + " entries");
@@ -593,11 +592,10 @@ public class OnlineToolManager {
         // MCP 工具的定义注册在 OnlineToolRegistry（在线专用工具），AIToolManager 查不到，
         // 这里优先用 registry 的定义做校验，查不到再回退 AIToolManager。
         com.oilquiz.app.ai.tool.openai.ToolDefinition validateDef = null;
-        try {
-            OnlineToolRegistry.ToolMeta mcpMeta = registry.getToolMeta(toolName);
-            if (mcpMeta != null && mcpMeta.definition != null) validateDef = mcpMeta.definition;
-        } catch (Exception ignored) {
-        }
+        // getToolMeta 就是 toolMetaIndex.get(name)，抛不出来；包 try/catch 会让"校验定义取不到"
+        // 这件事静默变成"用回退定义校验"，看不出是缓存没建好还是工具真没注册
+        OnlineToolRegistry.ToolMeta mcpMeta = registry.getToolMeta(toolName);
+        if (mcpMeta != null && mcpMeta.definition != null) validateDef = mcpMeta.definition;
         if (validateDef == null) validateDef = aiToolManager.getToolDefinition(toolName);
         try {
             com.oilquiz.app.ai.tool.openai.ToolArgsValidator.Result v =
@@ -1065,6 +1063,8 @@ public class OnlineToolManager {
                     return params;
                 }
             } catch (Throwable ignored) {
+                // 刻意吞掉：org.json / Gson 的解析入口没有"不抛异常"版本，"解析不动"本身就是这一支的
+                // 正常返回值（外面 return null，由调用方降级为明确错误），不是被隐藏的故障。
             }
         }
         return null;

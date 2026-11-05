@@ -84,3 +84,19 @@ ai/bridge/ModelExecutionBridge.java:511  putLocalSampling()  catch Throwable
 ## 6. 局限（别把这些数字当判据）
 
 分档是**关键词启发式**：方法名回扫最多 250 行、匿名内部类里的 catch 可能归到外层方法；`WRITE_HINT` 也会把文件路径里带 "create/update" 的无辜命中算进高危。所以第 2、4 节的名单是**候选队列**，不是结论；每处要不要改，得看它吞掉的那次操作有没有后果。`--json` 输出可以逐条复核，也是下一轮的基线（改完比对哪条消失了）。
+## 7. 当轮改动记录（本文档写完后立刻动手的那批）
+
+按"能修的就不要用 catch"改了一条批次的，改后重跑扫描器：**真·空体 968 → 920**，catch 总数 4477 → 4446（少掉 31 层 try），高危 217 → 191；`1736 tests / 1 skipped / 0 failures` 不变绿。分类如下：
+
+| 改法 | 位置 | 说明 |
+| --- | --- | --- |
+| **删掉 try/catch**（调用本身抛不出来） | `OnlineToolManager.loadCache` 逐条恢复、`executeTool` 的 `getToolMeta`、`UiInteractor.extractComponentId` 的 Map 分支与 `progress()`、`ToolResultInterpreter` 4 个模板循环 | 全是 `opt*`/判型后取值/纯字段读；留着 catch 只会把"少了一条""没进度条"读成正常 |
+| **改成不依赖异常的控制流** | `ToolResultInterpreter` 新增 `intOr` / `firstSignedIntOr` / `looksNumeric`（包级可见，便于测试） | 以前是 `parseInt` + 空 catch 当"这字段不是数字"用；AQI/温度/难度分布/计算结果五处改为显式判形，非数字与解析崩溃不再是同一种静默 |
+| **删掉空 catch，改用返回值判断** | `OnlineAgentEngine.deleteHistoryFile` | 关键一条：`File.delete()` 返回 false 而不是抛，原代码把"没删掉"和"抛异常"一起吞；现在逐个检查返回值，残留 `.bak`/`.tmp` 会以 `[AUDIT]` 报出——漏删等于下次装载把"已清空"的历史复活 |
+| **保留 catch，但必须可见** | `UiInteractor.getResult`/`execute` 工作线程、`OnlineAgentEngine` 的 tmp 清理、thinkingChain 兜底、`getToolIds` 注册表读取、`ModelExecutionBridge` 历史重建与采样兜底 | 这些点吞掉的分别是"工具崩了""清理没做""思考内容整段丢""只剩别名表""一条历史没进上下文"，都会伪装成正常降级，故一律补 W |
+| **保留 catch 并注明理由** | `OnlineToolManager.tryRelaxedParse`、`OnlineAgentEngine.extractToolRegistryTarget`、`CACHE-PROBE` 观测块、`isAnyModelAvailable` 两个探针 | org.json/Gson 没有"不抛异常"的解析入口；这些位置"解析不动"就是正常返回值，不是被藏的故障 |
+| **结构改造** | `SmartQuizApplication.onCreate` 的 13 处 + 一个后台线程点 | 改成 `boot("子系统名", …)` 收集清单，`onCreate` 末尾**一行**汇总 W（不是 13 条日志）；上报后晚到的异步失败逐条打，免得丢。清单标签是人工写的短句，不是从注释截的 |
+| **顺手纠正的口径** | 同上 | org.json 的 `put` 和 `putOpt` **都**声明 checked JSONException（我先按"putOpt 不抛"改，编译直接打回），所以这几处只能保留 try；已把注释里的理由写成"为什么这层去不掉"，不留假声明 |
+| **没动** | `ToolExecutionOrchestrator`（该类全仓零引用，是抽取一半的死副本） | 我先在里面加了日志，随即回滚：改一份没人跑的拷贝正是我这轮在消灭的东西。它归入第 7 节整类候选，跟着那批一起处置 |
+
+未验：`boot()` 的清单只在"真有子系统失败"时才会输出，本轮没有构造失败；`SmartQuizApplication` 的改动需要真机开机一次确认没有把启动顺序改坏（尤其 NPU 致命信号消费必须仍排在后端偏好之前——这条顺序在原注释里写明，改写时保留了原语句顺序）。

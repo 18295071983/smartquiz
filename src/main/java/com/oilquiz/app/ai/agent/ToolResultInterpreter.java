@@ -150,13 +150,18 @@ public class ToolResultInterpreter {
             if (ctx != null && OnlineInferenceService.getInstance(ctx).isOnlineModelAvailable()) {
                 return true;
             }
-        } catch (Throwable ignore) { }
+        } catch (Throwable ignored) {
+            // 刻意：这是"有没有可用模型"的探针，两个来源都探不到才返回 false；
+            // 打日志会让每次建议生成都刷一条，这里保留静默但改名 ignored 表明是有意的
+        }
         try {
             ALChat lc = getLocalChat();
             if (lc != null && lc.isInitialized()) {
                 return true;
             }
-        } catch (Throwable ignore) { }
+        } catch (Throwable ignored) {
+            // 刻意：同上，本地引擎探针（native 未就绪时可能抛）失败就等于"不可用"，由调用方降级
+        }
         return false;
     }
 
@@ -505,15 +510,14 @@ public class ToolResultInterpreter {
             if (aqi != null) {
                 sb.append("AQI ").append(aqi);
                 if (airLv != null) sb.append("（").append(airLv).append("）");
-                try {
-                    int a = Integer.parseInt(aqi);
-                    if (a >= 300) sb.append(" · 严重污染，尽量避免外出");
-                    else if (a >= 200) sb.append(" · 重度污染，外出戴口罩");
-                    else if (a >= 150) sb.append(" · 中度污染，敏感人群减少外出");
-                    else if (a >= 100) sb.append(" · 轻度污染，正常活动即可");
-                    else if (a >= 50)  sb.append(" · 良，空气可接受");
-                    else sb.append(" · 优，空气清新适合户外活动");
-                } catch (Exception ignored) {}
+                int a = intOr(aqi, -1);
+                if (a >= 300) sb.append(" · 严重污染，尽量避免外出");
+                else if (a >= 200) sb.append(" · 重度污染，外出戴口罩");
+                else if (a >= 150) sb.append(" · 中度污染，敏感人群减少外出");
+                else if (a >= 100) sb.append(" · 轻度污染，正常活动即可");
+                else if (a >= 50)  sb.append(" · 良，空气可接受");
+                else if (a >= 0)   sb.append(" · 优，空气清新适合户外活动");
+                // AQI 不是数字（"NA"/空）时不加评语——以前是 parseInt 抛异常被吞，看起来同样是"没有建议"
             }
             if (primary != null && !"NA".equalsIgnoreCase(primary) && !primary.isEmpty()) sb.append("\n    首要污染物：").append(primary);
             if (pm25 != null) sb.append("  PM2.5=").append(pm25);
@@ -566,18 +570,20 @@ public class ToolResultInterpreter {
             else if (wl.contains("晴")) sb.append("\n🧴 紫外线较强，外出注意防晒");
         }
         if (temp != null) {
-            try {
-                int t = Integer.parseInt(temp.replaceAll("[^0-9\\-]", "").split("-")[0]);
+            int t = firstSignedIntOr(temp, Integer.MIN_VALUE);
+            if (t != Integer.MIN_VALUE) {
                 if (t <= 5) sb.append("\n🧥 温度较低，外出注意防寒保暖");
                 else if (t >= 33) sb.append("\n🥵 天气炎热，注意防暑降温、多补水");
                 else if (t >= 28) sb.append("\n🌡 气温较高，建议穿着轻薄透气衣物");
                 else if (t <= 12) sb.append("\n🧣 天气偏凉，可加件外套");
-            } catch (Exception ignored) {}
+            }
         }
         // 预警存在时单独再加一条安全建议
         if (alerts != null && !alerts.trim().isEmpty()) sb.append("\n⚠️ 有气象预警发布，请密切留意天气变化，必要时减少外出");
         // 空气质量>150 再加一条
-        if (aqi != null) { try { int a = Integer.parseInt(aqi); if (a >= 150) sb.append("\n🏠 空气污染较重，建议关闭门窗，室内开启净化器"); } catch (Exception ignored) {} }
+        if (aqi != null && intOr(aqi, -1) >= 150) {
+            sb.append("\n🏠 空气污染较重，建议关闭门窗，室内开启净化器");
+        }
 
         if (sb.length() == 0) {
             // 啥都没有：返回 formatted 或 fallback
@@ -731,9 +737,12 @@ public class ToolResultInterpreter {
             sb.append("\n\n📈 难度分布：");
             int total = 0;
             int[] nums = new int[3];
-            try { nums[0] = Integer.parseInt(easy); total += nums[0]; } catch (Exception ignored) {}
-            try { nums[1] = Integer.parseInt(medium); total += nums[1]; } catch (Exception ignored) {}
-            try { nums[2] = Integer.parseInt(hard); total += nums[2]; } catch (Exception ignored) {}
+            // intOr 取代三段"parseInt + 空 catch"：缺字段/非数字就是 0，不必动用异常控制流程，
+            // 也不用把"总数算不出来"和"该项确实是 0"混成同一种静默
+            nums[0] = intOr(easy, 0);
+            nums[1] = intOr(medium, 0);
+            nums[2] = intOr(hard, 0);
+            total = nums[0] + nums[1] + nums[2];
             if (easy != null)   sb.append("\n• 简单 ").append(easy).append(total > 0 ? " (" + pct(nums[0], total) + ")" : "");
             if (medium != null) sb.append("\n• 中等 ").append(medium).append(total > 0 ? " (" + pct(nums[1], total) + ")" : "");
             if (hard != null)   sb.append("\n• 困难 ").append(hard).append(total > 0 ? " (" + pct(nums[2], total) + ")" : "");
@@ -1045,15 +1054,15 @@ public class ToolResultInterpreter {
                 int n = Math.min(arr.size(), 5);
                 if (n > 0) sb.append("\n🔎 参考链接：\n");
                 for (int i = 0; i < n; i++) {
-                    try {
-                        JsonElement e = arr.get(i);
-                        String lk = null, lt = null;
-                        if (e.isJsonPrimitive()) lk = e.getAsString();
-                        else if (e.isJsonObject()) { lk = strDeep(e.getAsJsonObject(), "url", "link", "href"); lt = strDeep(e.getAsJsonObject(), "title", "name", "text"); }
-                        if (lt != null) sb.append(i + 1).append(". ").append(truncateLines(lt, Integer.MAX_VALUE));
-                        if (lk != null) sb.append(lt != null ? " → " : i + 1 + ". ").append(truncateLines(lk, Integer.MAX_VALUE));
-                        if (lt != null || lk != null) sb.append("\n");
-                    } catch (Exception ignored) {}
+                    JsonElement e = arr.get(i);
+                    String lk = null, lt = null;
+                    if (e.isJsonPrimitive()) lk = e.getAsString();
+                    else if (e.isJsonObject()) { lk = strDeep(e.getAsJsonObject(), "url", "link", "href"); lt = strDeep(e.getAsJsonObject(), "title", "name", "text"); }
+                    if (lt != null) sb.append(i + 1).append(". ").append(truncateLines(lt, Integer.MAX_VALUE));
+                    if (lk != null) sb.append(lt != null ? " → " : i + 1 + ". ").append(truncateLines(lk, Integer.MAX_VALUE));
+                    if (lt != null || lk != null) sb.append("\n");
+                    // 不再包 try/catch：循环体全程 isJsonPrimitive/isJsonObject 判型 + opt 式取值，
+                    // 抛不出异常；包一层只会让"某条没显示出来"变成静默少条
                 }
                 break;
             }
@@ -1085,18 +1094,18 @@ public class ToolResultInterpreter {
                 int n = Math.min(arr.size(), 5);
                 if (n > 0) sb.append("\n📖 参考资料：\n");
                 for (int i = 0; i < n; i++) {
-                    try {
-                        JsonElement e = arr.get(i);
-                        String t = null, u = null;
-                        if (e.isJsonPrimitive()) u = e.getAsString();
-                        else if (e.isJsonObject()) { t = strDeep(e.getAsJsonObject(), "title", "name"); u = strDeep(e.getAsJsonObject(), "url", "link", "href", "source"); }
-                        if (t != null || u != null) {
-                            sb.append(i + 1).append(". ");
-                            if (t != null) sb.append(truncateLines(t, Integer.MAX_VALUE));
-                            if (u != null) sb.append(t != null ? " → " : "").append(truncateLines(u, Integer.MAX_VALUE));
-                            sb.append("\n");
-                        }
-                    } catch (Exception ignored) {}
+                    JsonElement e = arr.get(i);
+                    String t = null, u = null;
+                    if (e.isJsonPrimitive()) u = e.getAsString();
+                    else if (e.isJsonObject()) { t = strDeep(e.getAsJsonObject(), "title", "name"); u = strDeep(e.getAsJsonObject(), "url", "link", "href", "source"); }
+                    if (t != null || u != null) {
+                        sb.append(i + 1).append(". ");
+                        if (t != null) sb.append(truncateLines(t, Integer.MAX_VALUE));
+                        if (u != null) sb.append(t != null ? " → " : "").append(truncateLines(u, Integer.MAX_VALUE));
+                        sb.append("\n");
+                    }
+                    // 不再包 try/catch：循环体全程 isJsonPrimitive/isJsonObject 判型 + opt 式取值，
+                    // 抛不出异常；包一层只会让"某条没显示出来"变成静默少条
                 }
                 break;
             }
@@ -1136,13 +1145,13 @@ public class ToolResultInterpreter {
                 int n = Math.min(arr.size(), 8);
                 if (n > 0) sb.append("，前").append(n).append("个：\n");
                 for (int i = 0; i < n; i++) {
-                    try {
-                        JsonElement e = arr.get(i);
-                        String nm = null;
-                        if (e.isJsonPrimitive()) nm = e.getAsString();
-                        else if (e.isJsonObject()) nm = strDeep(e.getAsJsonObject(), "name", "app_name", "label", "package");
-                        if (nm != null) sb.append("• ").append(truncateLines(nm, Integer.MAX_VALUE)).append("\n");
-                    } catch (Exception ignored) {}
+                    JsonElement e = arr.get(i);
+                    String nm = null;
+                    if (e.isJsonPrimitive()) nm = e.getAsString();
+                    else if (e.isJsonObject()) nm = strDeep(e.getAsJsonObject(), "name", "app_name", "label", "package");
+                    if (nm != null) sb.append("• ").append(truncateLines(nm, Integer.MAX_VALUE)).append("\n");
+                    // 不再包 try/catch：循环体全程 isJsonPrimitive/isJsonObject 判型 + opt 式取值，
+                    // 抛不出异常；包一层只会让"某条没显示出来"变成静默少条
                 }
                 break;
             }
@@ -1214,13 +1223,13 @@ public class ToolResultInterpreter {
                 sb.append("\n🔢 共 ").append(arr.size()).append(" 项，前").append(Math.min(arr.size(), 8)).append("项：\n");
                 int n = Math.min(arr.size(), 8);
                 for (int i = 0; i < n; i++) {
-                    try {
-                        JsonElement e = arr.get(i);
-                        String nm = null;
-                        if (e.isJsonPrimitive()) nm = e.getAsString();
-                        else if (e.isJsonObject()) nm = strDeep(e.getAsJsonObject(), "name", "permission", "perm");
-                        if (nm != null) sb.append("• ").append(truncateLines(nm, Integer.MAX_VALUE)).append("\n");
-                    } catch (Exception ignored) {}
+                    JsonElement e = arr.get(i);
+                    String nm = null;
+                    if (e.isJsonPrimitive()) nm = e.getAsString();
+                    else if (e.isJsonObject()) nm = strDeep(e.getAsJsonObject(), "name", "permission", "perm");
+                    if (nm != null) sb.append("• ").append(truncateLines(nm, Integer.MAX_VALUE)).append("\n");
+                    // 不再包 try/catch：循环体全程 isJsonPrimitive/isJsonObject 判型 + opt 式取值，
+                    // 抛不出异常；包一层只会让"某条没显示出来"变成静默少条
                 }
                 break;
             }
@@ -1234,7 +1243,7 @@ public class ToolResultInterpreter {
         if (result instanceof String) {
             String s = ((String) result).trim();
             if (s.isEmpty()) return "🧮 计算完成";
-            try { Double.parseDouble(s); return "🧮 计算结果：" + s; } catch (Exception ignored) {}
+            if (looksNumeric(s)) return "🧮 计算结果：" + s;
             return s;
         }
         JsonObject obj = toJsonObject(result);
@@ -1296,6 +1305,70 @@ public class ToolResultInterpreter {
     }
 
     /** 从 JsonObject 中按多个候选 key 取首个非空字符串值（兼容 now 子对象，向下查一层） */
+    /**
+     * 整串是十进制整数才返回其值，否则返回 {@code fallback}。
+     *
+     * <p>取代 {@code try { Integer.parseInt(x) } catch (Exception ignored) {}}：显示数据里"这不是个数字"
+     * 是一种正常形状（AQI 可能是 "NA"、难度数可能缺字段），它不是异常，不该用异常做流程控制，
+     * 更不该在吞掉的同时让读者分不清"没这个值"和"解析炸了"。也不做范围校验之外的任何事。</p>
+     */
+    static int intOr(String s, int fallback) {
+        if (s == null) return fallback;
+        String t = s.trim();
+        if (t.isEmpty()) return fallback;
+        int i = 0;
+        boolean neg = false;
+        char first = t.charAt(0);
+        if (first == '-' || first == '+') {
+            neg = first == '-';
+            i = 1;
+            if (t.length() == 1) return fallback;
+        }
+        long v = 0;
+        for (; i < t.length(); i++) {
+            char c = t.charAt(i);
+            if (c < '0' || c > '9') return fallback;
+            v = v * 10 + (c - '0');
+            if (v > 1000000000L) return fallback;
+        }
+        return (int) (neg ? -v : v);
+    }
+
+    /** 从"7℃""-3~5"这类串里取前导带符号整数；一个数字都没有时返回 {@code fallback} */
+    static int firstSignedIntOr(String s, int fallback) {
+        if (s == null) return fallback;
+        int i = 0;
+        int n = s.length();
+        while (i < n) {
+            char c = s.charAt(i);
+            boolean digit = c >= '0' && c <= '9';
+            boolean signWithDigit = (c == '-' || c == '+') && i + 1 < n
+                    && s.charAt(i + 1) >= '0' && s.charAt(i + 1) <= '9';
+            if (digit || signWithDigit) break;
+            i++;
+        }
+        if (i >= n) return fallback;
+        boolean neg = s.charAt(i) == '-';
+        if (s.charAt(i) == '-' || s.charAt(i) == '+') i++;
+        long v = 0;
+        while (i < n) {
+            char c = s.charAt(i);
+            if (c < '0' || c > '9') break;
+            v = v * 10 + (c - '0');
+            i++;
+            if (v > 1000000L) break;
+        }
+        return (int) (neg ? -v : v);
+    }
+
+    /** 是否是可当数字展示的串（整数/小数/科学计数），替代 {@code Double.parseDouble} 的试探式 try/catch */
+    static boolean looksNumeric(String s) {
+        if (s == null) return false;
+        String t = s.trim();
+        if (t.isEmpty()) return false;
+        return t.matches("[-+]?\\d+(\\.\\d+)?([eE][-+]?\\d+)?") || t.matches("[-+]?\\.\\d+([eE][-+]?\\d+)?");
+    }
+
     private static String strDeep(JsonObject obj, String... keys) {
         if (obj == null) return null;
         for (String key : keys) {

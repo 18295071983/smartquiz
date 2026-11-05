@@ -378,23 +378,45 @@ public class ModelExecutionBridge {
         this.pendingExtraSystemSections = sections;
     }
 
-    /** 本地上下文 token 预算：与 UI 侧 getContextBudgetTokens 同口径（safeRef - 1024，本地） */
+    /** 回退到写死预算时只报一次（这方法每轮都调，逐次打会淹日志） */
+    private static volatile boolean budgetFallbackLogged = false;
+
+    /**
+     * 本地上下文 token 预算：与 UI 侧 getContextBudgetTokens 同口径（safeRef - 1024，本地）。
+     *
+     * <p>原先三层 {@code try/catch (Throwable ignored)} 全部去掉：这三处**都抛不出来**——
+     * {@code GenSignalSource.contextUsage()} 契约写明"永不为 null"（内部已按引擎降级），
+     * {@code AIConfig.getContextSize()} 是 {@code optimizationMode.contextSize} 的字段读，
+     * {@code LlamaHelper.getSafeContextReference} 只读 modelMeta 字段、不碰 JNI。
+     * 抱着 catch 只会让人误以为这里有什么危险调用，也把真正的症状（预算取不到、退回写死 8192）
+     * 一起吞掉，所以改成显式判空 + 取不到时打一次 W。</p>
+     */
     private int getLocalContextBudgetTokens() {
         int ctx = 0;
-        try {
-            // CONTEXT-CONTRACT：改走引擎无关契约（NPU 模式下 llama.cpp 的 getContextSize()
-            // 恒为 0 → 预算会一路回退到写死的 8192，与 NPU 实际的 nCtx 不符）
-            long w = com.oilquiz.app.ai.engine.contract.GenSignalSource.contextUsage().window;
-            if (w > 0) ctx = (int) w;
-        } catch (Throwable ignored) {}
-        if (ctx <= 0 && aiConfig != null) {
-            try { ctx = aiConfig.getContextSize(); } catch (Throwable ignored) {}
+        String source = "engine";
+        com.oilquiz.app.ai.engine.contract.ContextUsage usage =
+                com.oilquiz.app.ai.engine.contract.GenSignalSource.contextUsage();
+        if (usage != null && usage.window > 0) {
+            ctx = (int) usage.window;
         }
-        if (ctx <= 0) ctx = 8192;
-        int safeRef = ctx;
-        try {
-            safeRef = LlamaHelper.getSafeContextReference(ctx);
-        } catch (Throwable ignored) {}
+        if (ctx <= 0 && aiConfig != null) {
+            ctx = aiConfig.getContextSize();
+            source = "config";
+        }
+        if (ctx <= 0) {
+            ctx = 8192;
+            source = "default";
+            if (!budgetFallbackLogged) {
+                budgetFallbackLogged = true;
+                AILogger.w(TAG, "本地上下文预算取不到（引擎与配置都给了 0），回退写死 8192——"
+                        + "后续同类回退不再重复打，若上下文表现异常请以本源为线索排查");
+            }
+        }
+        int safeRef = LlamaHelper.getSafeContextReference(ctx);
+        if (source.equals("engine") && safeRef != ctx) {
+            // 引擎报的窗口大于训练窗口时按训练窗口截，这是正常收敛，只在调试级留一行
+            AILogger.d(TAG, "预算按训练窗口收敛: " + ctx + " -> " + safeRef);
+        }
         return Math.max(1024, safeRef - 1024);
     }
 
@@ -471,12 +493,16 @@ public class ModelExecutionBridge {
                 String role = e[0];
                 String content = e[1];
                 if (role == null || role.isEmpty() || content == null || content.isEmpty()) continue;
+                // org.json 的 put/putOpt 都声明 checked JSONException，这一层 try 去不掉；
+                // 但原来的空 catch 会把"某条历史没进上下文"吞成静默，改成 W——
+                // 一条坏数据不该让整段重建悄悄短一截
                 try {
                     org.json.JSONObject m = new org.json.JSONObject();
                     m.put("role", role);
                     m.put("content", content);
                     chatJsonHistory.add(m);
-                } catch (Exception ignored) {
+                } catch (Exception ex) {
+                    AILogger.w(TAG, "重建历史时跳过一条（role=" + role + "）: " + ex);
                 }
             }
             while (chatJsonHistory.size() > CHATJSON_HISTORY_LIMIT) {
@@ -504,11 +530,14 @@ public class ModelExecutionBridge {
         } catch (Throwable t) {
             AILogger.w(TAG, "putLocalSampling failed, fallback 0.6/0.9/40: " + t.getMessage());
         }
+        // 兜底档是三个有限常量（0.6f / DEFAULT_TOP_P / DEFAULT_TOP_K）。org.json 的 put 声明 checked
+        // JSONException，所以这里仍要有 try——但不再空吞：走到这一步还失败说明请求对象本身不正常
         try {
             req.put("temperature", 0.6f);
             req.put("top_p", com.oilquiz.app.ai.config.UserModelParamsManager.DEFAULT_TOP_P);
             req.put("top_k", com.oilquiz.app.ai.config.UserModelParamsManager.DEFAULT_TOP_K);
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            AILogger.w(TAG, "采样参数兜底写入也失败（请求将不带采样字段）: " + t);
         }
     }
 
@@ -937,7 +966,11 @@ public class ModelExecutionBridge {
                 try {
                     npuReady = com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()
                             && com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
-                } catch (Throwable ignored) {
+                } catch (Throwable t) {
+                    // NpuLlmChat 来自依赖库（源码不在本仓库），静态探针也可能触到 native；
+                    // 这里吞掉等于把"NPU 已就绪"判成"未就绪"，代价是白等一轮 llama.cpp 初始化
+                    // （实测约 16 秒），必须可见。这条路径每次装载模型才走一次，不是热路径。
+                    AILogger.w(TAG, "NPU 就绪探测失败，按未就绪处理（可能白跑 llama.cpp 初始化）: " + t);
                 }
                 if (npuReady) {
                     AILogger.i(TAG, "executeInitModel: NPU 模型已就绪 → 跳过 llama.cpp 初始化");
