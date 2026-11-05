@@ -168,7 +168,9 @@ public final class PublicStorageWriter {
                 }
                 return new String(all, StandardCharsets.UTF_8);
             }
-        } catch (Exception ignore) {
+        } catch (Exception fileMissed) {
+            // 不是吞，是换条路读：直接文件读不到还要走 MediaStore 的 URI 读一遍。
+            // 真的两条都失败时由下面那条 catch 报出来，这里重复报会刷日志。
         }
         try {
             Uri uri = findUri(ctx, sub, name);
@@ -195,21 +197,33 @@ public final class PublicStorageWriter {
         }
     }
 
-    /** 文件大小（字节）；不存在/读不到返回 0 */
+    /**
+     * 文件大小（字节）；不存在/读不到返回 0。
+     *
+     * <p>调用方把 0 当"不存在"用（{@link #exists}、TermuxEnvInstaller 的"已导出"判断、
+     * BackupManager 的备份检查），所以这里"查不动"和"确实没有"必须能区分开——
+     * 返回值形状改不动（改一处要拖着三个调用方一起改），那就至少把原因记下来。</p>
+     */
     public static long size(Context ctx, String sub, String name) {
         if (ctx == null || name == null) {
             return 0;
         }
+        Exception fileFailure = null;
         try {
             File f = fileOf(sub, name);
             if (f.isFile()) {
                 return f.length();
             }
-        } catch (Exception ignore) {
+        } catch (Exception e) {
+            fileFailure = e;
         }
         try {
             Uri uri = findUri(ctx, sub, name);
             if (uri == null) {
+                if (fileFailure != null) {
+                    Log.w(TAG, "size 两条路都没拿到(" + name + ")：直接读失败 "
+                            + fileFailure.getMessage() + "，MediaStore 里也查不到这个文件名");
+                }
                 return 0;
             }
             String[] proj = {MediaStore.MediaColumns.SIZE};
@@ -218,8 +232,11 @@ public final class PublicStorageWriter {
                 if (c != null && c.moveToFirst()) {
                     return c.getLong(0);
                 }
+                Log.w(TAG, "size 查到了 URI 但没取到 SIZE 列(" + name + ")，按 0 处理");
             }
-        } catch (Exception ignore) {
+        } catch (Exception e) {
+            Log.w(TAG, "size 失败(" + name + "): " + e.getMessage()
+                    + (fileFailure == null ? "" : "；直接文件读也失败: " + fileFailure.getMessage()));
         }
         return 0;
     }
@@ -229,37 +246,52 @@ public final class PublicStorageWriter {
         return size(ctx, sub, name) > 0;
     }
 
-    /** 删除（File + MediaStore 双删） */
+    /**
+     * 删除（File + MediaStore 双删）。
+     *
+     * <p>原来 MediaStore 那条只要<b>没抛异常</b>就 {@code any = true}——而
+     * {@code ContentResolver.delete()} 是返回删除行数的，没匹配到就返回 0。于是
+     * "文件名对不上、一行都没删"被报成删除成功，调用方（TermuxEnvInstaller 清结果文件、
+     * 卸载清 env）据此认为已经清干净，残留文件下一个任务还会被当成新结果读。</p>
+     */
     public static boolean delete(Context ctx, String sub, String name) {
-        boolean any = false;
+        boolean fileDeleted = false;
         try {
             File f = fileOf(sub, name);
-            if (f.exists() && f.delete()) {
-                any = true;
+            if (f.exists()) {
+                fileDeleted = f.delete();
+                if (!fileDeleted) {
+                    Log.w(TAG, "直接文件删不掉(" + f.getAbsolutePath() + ")，还得靠 MediaStore 那条");
+                }
             }
-        } catch (Exception ignore) {
+        } catch (Exception e) {
+            Log.w(TAG, "删除文件路径这条失败(" + name + "): " + e.getMessage());
         }
+        int rows = 0;
         try {
             String relPath = ROOT_REL + "/" + sub + "/";
-            deleteViaMediaStore(ctx.getContentResolver(), relPath, name);
-            any = true;
-        } catch (Exception ignore) {
+            rows = deleteViaMediaStore(ctx.getContentResolver(), relPath, name);
+        } catch (Exception e) {
+            Log.w(TAG, "MediaStore 删除这条失败(" + name + "): " + e.getMessage());
+        }
+        boolean any = fileDeleted || rows > 0;
+        if (!any) {
+            Log.w(TAG, "删除没落地：文件没删掉、MediaStore 也没匹配到行(" + sub + "/" + name + ")");
         }
         return any;
     }
 
     // ---------- 内部 ----------
 
-    private static void deleteViaMediaStore(ContentResolver cr, String relPath, String name) {
-        try {
-            String selection = MediaStore.Downloads.DISPLAY_NAME + "=? AND "
-                    + MediaStore.Downloads.RELATIVE_PATH + "=?";
-            cr.delete(MediaStore.Downloads.EXTERNAL_CONTENT_URI, selection,
-                    new String[]{name, relPath});
-            cr.delete(MediaStore.Downloads.EXTERNAL_CONTENT_URI, selection,
-                    new String[]{name, relPath.substring(0, relPath.length() - 1)});
-        } catch (Exception ignore) {
-        }
+    /** 双档 relativePath（带/不带尾斜杠）都试一遍，返回删掉的行数 */
+    private static int deleteViaMediaStore(ContentResolver cr, String relPath, String name) {
+        String selection = MediaStore.Downloads.DISPLAY_NAME + "=? AND "
+                + MediaStore.Downloads.RELATIVE_PATH + "=?";
+        int rows = cr.delete(MediaStore.Downloads.EXTERNAL_CONTENT_URI, selection,
+                new String[]{name, relPath});
+        rows += cr.delete(MediaStore.Downloads.EXTERNAL_CONTENT_URI, selection,
+                new String[]{name, relPath.substring(0, relPath.length() - 1)});
+        return rows;
     }
 
     /** 查询第一个匹配 uri（RELATIVE_PATH 带/不带尾斜杠双兼容） */

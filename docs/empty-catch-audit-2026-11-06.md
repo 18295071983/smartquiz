@@ -140,3 +140,40 @@ ai/bridge/ModelExecutionBridge.java:511  putLocalSampling()  catch Throwable
 3. **两套迁移引擎并存**：Room 的 `MIGRATIONS`（权威，17→25）和 `DatabaseUpgradeManager` + `DatabaseVersionChecker`（只覆盖到 20，且 `migrateToV20` 是"预留"空方法）。入口是 数据库管理 → 升级数据库（`DatabaseManagementActivity.java:368`）。实际上大概率碰不到坏路径：`upgrade()` 第一步就 `AppDatabase.getDatabase()` + `getWritableDatabase()`，Room 已经先把库升到 25 了，于是 `needUpgrade=false` 直接报"已是最新版本"。但这两套并存本身就是刚才那条 `default:` 假成功的土壤，要不要把旧的那套摘掉（保留备份/回滚）由你定。
 
 未验：**v17→v25 这条升级链本身没跑过**。手上没有低于 25 的库，`exportSchema = false` 也让 Room 的 `MigrationTestHelper` 用不了（它要 schema JSON）。本轮能保证的是：ALTER 的 SQL 文案逐字未动、新增的 `MigrationSchema` 有真 SQLite 的 10 条用例、以及那条一定会抛异常的旧 DDL 已被删掉。真要把升级链钉死，得造一个 v20 的库 dump 放进 androidTest——那是另一件事，需要设备。
+
+## 9. 批 2b 改动记录（对话历史/原子写/导入/下载/公共存储）
+
+五个文件，都是"写完就算成了"的那类。改后同一脚本重跑（"前"列取 `git worktree` 的 HEAD 副本，不是记录相减）：
+
+| 指标 | 批 2b 前 | 批 2b 后 | 差 |
+| --- | --- | --- | --- |
+| catch 总数（src/main） | 4418 | 4410 | -8 |
+| 真·空体 | 893 | 863 | -30 |
+| 只写注释的空体 | 141 | 140 | -1 |
+| 只写日志 | 965 | 971 | +6 |
+| 只赋值 | 70 | 71 | +1 |
+| 有恢复动作 | 2349 | 2365 | +16 |
+| 高危 / 中危 / 低危 | 191 / 575 / 127 | **165** / 571 / 127 | 高危 -26 |
+
+31 处离开空体/注释池 = 8 处整层删掉 + 23 处改成"有日志/有返回值判断"。这批终于落到高危名单上了（上一批 32 处一条都没算高危）。逐文件（空体+注释）：`AtomicFileText` 2→1、`ChatHistoryManager` 7→0、`ImportMain` 12→1、`ModelDownloadManager` 7→0、`PublicStorageWriter` 6→1；剩下的 3 条是刻意保留的注释型（见下）。
+
+**基线：`1746 tests / 0 failures / 0 errors / 1 skipped` 不变绿。这批没加新测试**——AtomicFileText 已有 5 条、ChatHistoryManager 有 3 个测试类覆盖正常路径，但下面这几条新行为要构造磁盘故障才能验，本轮没构造，属于未验项。
+
+| 改法 | 位置 | 为什么 |
+| --- | --- | --- |
+| **假成功，改成真判据** | `PublicStorageWriter.delete` | MediaStore 那条只要**没抛异常**就 `any = true`，而 `ContentResolver.delete()` 是返回行数的，没匹配到就返回 0。于是"文件名对不上、一行都没删"被报成删除成功；调用方（`TermuxEnvInstaller` 清结果文件、卸 env）据此以为清干净了，残留文件下一个任务还会被当成新结果读。现在按 `fileDeleted || rows>0` 判，两处都没动就 W |
+| **失败被报成正常复用** | `ImportMain` 断点恢复（687 原处） | `jsonToMap` 解析失败返回**空表**，代码照样 `mapping = 空表` 并打印"断点恢复：复用已推理映射，从第 N 行续导"——那是拿空映射套每一行，表现为"这个文件一道题都没有"，且从第 N 行起连重来的机会都没有。现在先解出映射、空表就明确放弃续导（`resumeParse=false`，重新做映射并从第 0 行导入），走的是"缓存映射与表头不一致就放弃缓存"同一判据 |
+| **异常当控制流 → 显式判形 + 计数** | `ImportMain.applyFillBatch` 的 difficulty | `Integer.parseInt` + 空 catch：LLM 回"中等"/"easy"（正常输入）和被吞掉的真故障走同一条路，整列难度静默不填而界面显示"填充完成"。现在 `sv.matches("[-+]?\\d{1,9}")`（源码两个反斜杠，运行时是 `\d`）判过再 parse（判过之后 parse 抛不出来），非数字单独计数、批末一条汇总 |
+| **逐行吞掉 → 汇总可见** | 同方法外层 `catch (Exception ignored)` | 一行的填充结果整份作废。原来"批量跑完一题没填"和"全部填好"在界面上一样。现在 rowErrors + 第一条原因，批末一条 W（不是 N 条） |
+| **备份拿不到不再演成安全** | `AtomicFileText.write` / `copyTo` | rename 到 .bak 失败后退化成复制，复制也失败就**什么兜底都没有**，紧接着照样覆盖主文件。原来 copyTo 返回 void、异常空 catch。现在返回 boolean，拿不到备份就 W 明说"这次覆盖没有回退点"。类注释里两处承诺也改了：备份与主 rename 之间主文件是短暂不存在的（"不丢全部"成立，"旧文件保持原样"不成立） |
+| **"读不到"与"没有"分开** | `AtomicFileText.readText`、`PublicStorageWriter.size` | 两个都把 IOException 塌成 null/0，而调用方（含 `exists()`＝size>0、TermuxEnvInstaller 的"已导出"、BackupManager 的备份检查）按"没有"处理。返回值形状本轮不动（一动要拖三个调用方），但路径 + 原因必须留 W，两条路都失败时合并成一条 |
+| **空 catch 里其实没异常可抛** | `ChatHistoryManager` 的 trimHistoryTrash / deleteSessionHistoryFiles / deleteTrashedHistoryForSession / parseTrashTimestamp | listFiles 失败返回 null、`File.delete()` 失败返回 false、getName 不抛——catch 兜的从来不是异常，而是"没删掉"这件事，于是它把真正需要知道的东西一起吃掉。现在按返回值/存在性判断，`deleteRecursively` 返回残留文件数，清空回收站走 AUDIT，`parseTrashTimestamp` 改 `parse(String, ParsePosition)`（"格式不对"本来就是正常分支，不该用 checked ParseException 撑着那层 try） |
+| **会导致误删的吞异常** | `ChatHistoryManager.sweepOrphanHistoryFiles` | 这批里后果最重的一条：读回收站包在 `catch (Throwable ignored)` 里，读不出就当"回收站是空的"，`known` 少一项就多一个还能恢复的会话被当孤儿删掉历史。现在目录不存在才继续，读不出直接不扫并 W（宁可漏扫，不可误删） |
+| **下载侧的"成功但索引没记上"** | `ModelDownloadManager` 的 onComplete / writeSha256Sidecar / isModelDownloaded / getFileNameFromUrl / finally 三条 close | 记不上索引 = 以后改名自愈认不出这个文件，界面上就是"明明下过还要再下一个 4GB"；sidecar 没写成 = 以后每次校验整包重算；URL 解不出文件名退回 `model.gguf` = sidecar 与索引都对不上号。三处 finally 关流合并成 `closeQuietly(closeable, 说明)`，关不上要说清关的是什么 |
+| **保留 catch 并注明理由** | `AtomicFileText` 的 fsync、`PublicStorageWriter.readTail` 第一条、`ImportMain` 4 处 `JSONObject.put`、`emitLog2` | fsync 有些文件系统不支持（不影响原子性语义）；readTail 第一条是**故意往下走**（换 URI 再读一次，两条都失败由第二条报）；put/putOpt 都声明 checked JSONException（批 1 编译打过我一次，别再凭印象拆），且 key/value 形状都不在它会拒的范围里；emitLog2 兜的是"日志器自己坏了"，改成退到 logcat 而不是吞掉 |
+
+### 这批查到但没动的
+
+- **`resumeParse` 为真但 `bp.mappingJson` 本身为空**：走 else 分支（缓存/推断）却仍从断点行号续导。本轮只处理"有 JSON 但读不出"，因为"空 mappingJson 但缓存命中"是正常组合，要不要一并放弃续导属于导入策略，等你说。
+- **`ChatHistoryManager` 与 `AtomicFileText` 各有一套 `readText`**，`deleteRecursively` 在 `DouyinDownloaderTool`、`PipInstallTool`、`SystemResourceTool`、`ChatHistoryManager` 里各有一份私有实现。收敛成一个工具类是重构，不混进"消静默"这批。
+- **本轮没加测试**。要钉的三条新行为（回收站读不出→不扫、备份拿不到→仍写但有 W、断点映射读不出→重新导入）都需要构造故障；前两条可用一个假的 listFiles/只读目录做，第三条要喂坏 JSON——按批 2c 之后统一安排，还是现在就补，你说一句就行。

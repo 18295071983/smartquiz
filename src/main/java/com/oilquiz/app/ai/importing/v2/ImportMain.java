@@ -683,8 +683,24 @@ public class ImportMain {
             }
         }
 
+        // 断点里的映射先解出来，再决定走哪条路。原写法是 if (resumeParse && ...) 里直接
+        // mapping = jsonToMap(...)，而 jsonToMap 解析失败返回的是空表——于是照样报
+        // "断点恢复：复用已推理映射，从第 N 行续导"，其实是拿一份空映射去套每一行，
+        // 结果表现为"这个文件一道题都没有"，且从第 N 行开始连补的机会都没有。
+        Map<String, String> resumedMapping = null;
         if (resumeParse && bp.mappingJson != null && !bp.mappingJson.isEmpty()) {
-            mapping = jsonToMap(bp.mappingJson);
+            Map<String, String> parsed = jsonToMap(bp.mappingJson);
+            if (parsed.isEmpty()) {
+                AILogger.w(TAG, "断点里的映射 JSON 解析不出内容，放弃续导：重新做映射并从第 0 行导入");
+                emitLog(listener, "断点里的字段映射读不出，放弃续导：重新识别映射并从头导入");
+                resumeParse = false;
+            } else {
+                resumedMapping = parsed;
+            }
+        }
+
+        if (resumedMapping != null) {
+            mapping = resumedMapping;
             summary.resumed = true;
             summary.mappingSource = "breakpoint";
             emitLog(listener, "断点恢复：复用已推理映射，从第 " + bp.parseRowIndex + " 行续导");
@@ -753,7 +769,12 @@ public class ImportMain {
                                     + "系统自动拆分为 optionA/B/C/D。"
                                     + "注意：只有 A/B/C/D 各占一列才分别映射 optionA/optionB/optionC/optionD")
                             .toString();
-                } catch (Exception ignored) {
+                } catch (Exception bad) {
+                    // 词典 JSON 拼不上虚拟字段提示：映射照常跑，但 AI 就不知道
+                    // "可选项/备选答案"这类单列合并的写法——导入质量会不声不响地掉一档。
+                    // 这不是可以静默接受的降级，报出来。
+                    AILogger.w(TAG, "虚拟字段提示没能并进别名词典，本轮 LLM 映射看不到 optionsCombined 说明: "
+                            + bad.getMessage());
                 }
 
                 // 附加修正提示：题库说明/模板说明提取的字段约定（如有），帮助 AI 理解列含义。
@@ -1122,7 +1143,11 @@ public class ImportMain {
                     JSONObject fill = new JSONObject();
                     fill.put("questionType", ruleType);
                     chunkFills.put(String.valueOf(m.optInt("row")), fill);
-                } catch (Exception ignored) {
+                } catch (org.json.JSONException checkedOnly) {
+                    // 去不掉的一层：org.json 的 put 声明 checked JSONException（批 1 教训：
+                    // put 和 putOpt 都抛，别凭印象改成"不会抛"）。这里 key 是字面量或行号字符串、
+                    // value 是刚 new 出来的 JSONObject，都不在 put 会拒的形状里，所以不打日志
+                    // ——它在逐题循环里，抛不出来却要占一条日志的话，噪声会把真故障挤掉。
                 }
                 // 是否还有其他缺失字段（除题型外）→ 保留给 LLM 辅助
                 boolean hasOtherMissing = false;
@@ -1184,7 +1209,10 @@ public class ImportMain {
                 if (ruleType != null) {
                     try {
                         ruleFill.put("questionType", ruleType);
-                    } catch (Exception ignored) {
+                    } catch (org.json.JSONException checkedOnly) {
+                        // 同 ruleFillMissingFields：checked 异常去不掉，key/value 形状都不会抛。
+                        // 真抛了会表现为"规则判定出的题型没生效、白跑一次 LLM"，值得单独报。
+                        AILogger.w(TAG, "规则判出的题型没写进填充表: " + checkedOnly.getMessage());
                     }
                 }
             }
@@ -1240,6 +1268,9 @@ public class ImportMain {
         if (infos.isEmpty()) return;
         List<ImportLlmEngine.FillResult> fills =
                 engine.runFieldFillBatchInfer(infos, fillableCols, docHint);
+        int badDifficulty = 0;
+        int rowErrors = 0;
+        String firstRowError = null;
         for (int k = 0; k < pendingIdx.size(); k++) {
             JSONObject m = missing.optJSONObject(pendingIdx.get(k));
             if (m == null) continue;
@@ -1259,21 +1290,46 @@ public class ImportMain {
                         if (sv.isEmpty()) continue;
                         // difficulty 归一化 1-3
                         if ("difficulty".equals(f)) {
-                            try {
+                            // 原写法是 parseInt + 空 catch：LLM 回"中等"/"easy"（常见）和被吞掉的
+                            // 真故障走的是同一条路，于是整列难度静默不填，界面上却像"填充完成"。
+                            // 改成先显式判形（判过之后 parseInt 抛不出来），非数字单独计数。
+                            if (sv.matches("[-+]?\\d{1,9}")) {
                                 int d = Integer.parseInt(sv);
                                 if (d < 1 || d > 3) d = 1;
-                                fill.put(f, d);
-                            } catch (Exception ignored) {
+                                try {
+                                    fill.put(f, d);
+                                } catch (org.json.JSONException checkedOnly) {
+                                    // 去不掉的一层：org.json 的 put 声明 checked JSONException。
+                                    // key 是字段名、值是 1..3 的整数，不落在 put 会拒绝的形状里。
+                                    AILogger.w(TAG, "难度没填进去（不该发生）: 行"
+                                            + m.optInt("row") + " —— " + checkedOnly.getMessage());
+                                }
+                            } else {
+                                badDifficulty++;
                             }
                             continue;
                         }
                         fill.put(f, sv);
                     }
                 }
-            } catch (Exception ignored) {
+            } catch (Exception rowFailed) {
+                // 这一行的填充整份作废（fill 还没攒够就被打断）。原来是空 catch，
+                // 于是"批量填充跑完、一题没填"和"全部填好"在界面上长得一样。
+                rowErrors++;
+                if (firstRowError == null) {
+                    firstRowError = "行" + m.optInt("row") + " —— " + rowFailed;
+                }
             }
             if (fill.length() == 0) continue; // 无实际填充，跳过回写
             putFillMerge(m, fill, fillsByChunk);
+        }
+        if (badDifficulty > 0) {
+            AILogger.w(TAG, "智能填充：LLM 给的难度有 " + badDifficulty
+                    + " 个值不是数字（已跳过，那一题的难度仍留空）");
+        }
+        if (rowErrors > 0) {
+            AILogger.w(TAG, "智能填充：" + rowErrors + " 行的填充结果整份作废，第一条原因: "
+                    + firstRowError);
         }
         emitProgress(listener, pendingIdx.isEmpty() ? 0
                 : pendingIdx.get(pendingIdx.size() - 1) + 1, missing.length(), "智能填充");
@@ -1294,7 +1350,12 @@ public class ImportMain {
             existing = new JSONObject();
             try {
                 chunkFills.put(row, existing);
-            } catch (Exception ignored) {
+            } catch (org.json.JSONException checkedOnly) {
+                // 挂不上这张表，后面往 existing 里写的东西没人看得见——直接放弃并说明，
+                // 别演成"合并成功"。
+                AILogger.w(TAG, "行 " + row + " 的填充表没挂进分片，本题补全放弃: "
+                        + checkedOnly.getMessage());
+                return;
             }
         }
         try {
@@ -1303,7 +1364,9 @@ public class ImportMain {
                 String k = it.next();
                 existing.put(k, fill.opt(k));
             }
-        } catch (Exception ignored) {
+        } catch (org.json.JSONException checkedOnly) {
+            AILogger.w(TAG, "行 " + row + " 的填充合并中断（部分字段可能没并进去）: "
+                    + checkedOnly.getMessage());
         }
     }
 
@@ -1886,10 +1949,18 @@ public class ImportMain {
                         + csvSafe(c.getString(4)) + "\"\r\n");
             }
             if (count == 0) {
+                // 先把只有表头的这个文件收掉再返回：w 已经新建/截断了报告文件，
+                // 直接 return 会在磁盘上留一份"看起来导出了其实没内容"的 CSV。
+                w.flush();
+                w.close();
+                w = null;
                 boolean deleted = report.delete();
                 if (!deleted && report.exists()) Log.w(TAG, "清理旧缺字段报告失败");
                 return null;
             }
+            // 成功文案要说得住：OutputStreamWriter 自带编码器缓冲，不显式 flush 就报
+            // "报告已导出"，尾部几十行可能还在内存里，close 一失败就整段留在磁盘外。
+            w.flush();
             String msg = "⚠ " + count + " 道题缺少关键字段（分类/答案），报告已导出: "
                     + report.getAbsolutePath()
                     + "\n修复方法：在原表格中为这些题目补充对应列（列名可用：分类、答案、答案解析），"
@@ -1903,13 +1974,17 @@ public class ImportMain {
             if (c != null) {
                 try {
                     c.close();
-                } catch (Exception ignored) {
+                } catch (Exception closeFailed) {
+                    // 关不上就是还占着一个窗口/Cursor 槽位，反复导入会累加。吞掉但要看见。
+                    Log.w(TAG, "缺字段报告的查询没关掉: " + closeFailed.getMessage());
                 }
             }
             if (w != null) {
                 try {
                     w.close();
-                } catch (Exception ignored) {
+                } catch (Exception closeFailed) {
+                    Log.w(TAG, "缺字段报告的文件没关掉（尾部内容可能没写完）: "
+                            + closeFailed.getMessage());
                 }
             }
         }
@@ -1937,7 +2012,9 @@ public class ImportMain {
             if (fos != null) {
                 try {
                     fos.close();
-                } catch (Exception ignored) {
+                } catch (Exception closeFailed) {
+                    // 标记文件决定下一步被不被当成"就绪"，关不上等于这份标记状态未知
+                    AILogger.w(TAG, "就绪标记没关好，内容是否完整未知: " + closeFailed.getMessage());
                 }
             }
         }
@@ -2079,11 +2156,19 @@ public class ImportMain {
         return false;
     }
 
-    /** 日志辅助（避免依赖具体 listener） */
+    /**
+     * 日志辅助（避免依赖具体 listener）。
+     *
+     * <p>这层 catch 留着是因为它兜的是"日志器自己坏了"：AILogger 写文件前先初始化日志目录，
+     * 目录/文件建不出来或轮转抛异常都会从这里冒出来。原来直接吞掉，于是"导入跑完了却一条
+     * ai_logs 都没有"这种现场永远查不到——现在退到 logcat，至少这条还在。</p>
+     */
     private void emitLog2(String msg) {
         try {
             AILogger.i("ImportMain", msg);
-        } catch (Exception ignored) {
+        } catch (Exception loggerBroken) {
+            Log.w(TAG, "ai_logs 写入失败，这条只进了 logcat: " + msg
+                    + " —— " + loggerBroken.getMessage());
         }
     }
 
@@ -2215,6 +2300,12 @@ public class ImportMain {
         return placeholders;
     }
 
+    /**
+     * JSON 对象字符串 → Map。解析失败返回<b>空表</b>（调用方必须自己判空，别把空表当成"没有列"）。
+     *
+     * <p>{@code new JSONObject(json)} 抛 checked JSONException，这层去不掉；要去掉的是
+     * "失败和空对象同一个答案还不吭声"——断点里的映射坏掉时，调用方原来会照样报"复用已推理映射"。</p>
+     */
     private static Map<String, String> jsonToMap(String json) {
         Map<String, String> map = new LinkedHashMap<>();
         try {
@@ -2224,7 +2315,11 @@ public class ImportMain {
                 String k = it.next();
                 map.put(k, o.optString(k, ""));
             }
-        } catch (Exception ignored) {
+        } catch (Exception badJson) {
+            String preview = json == null ? "null"
+                    : (json.length() > 120 ? json.substring(0, 120) + "…" : json);
+            AILogger.w(TAG, "JSON 转 Map 失败，按空表返回: " + preview
+                    + " —— " + badJson.getMessage());
         }
         return map;
     }

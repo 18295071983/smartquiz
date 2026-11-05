@@ -343,7 +343,11 @@ public class ModelDownloadManager {
                     if (id == null || !id.endsWith("_mmproj")) {
                         ModelIndexStore.record(ctxForIndex, presetIdForIndex, new java.io.File(filePath));
                     }
-                } catch (Throwable ignored) {
+                } catch (Throwable notRecorded) {
+                    // 记不上索引=以后"改名自愈"认不出这个文件（isModelDownloaded 会判成未下载，
+                    // 用户被推着重下一个几 GB 的包）。下载本身成功，所以不改返回值，但必须留痕。
+                    AILogger.w(TAG, "下载完成但模型索引没记上（改名自愈以后找不到它）: "
+                            + filePath + " —— " + notRecorded.getMessage());
                 }
                 userCb.onComplete(id, filePath);
             }
@@ -475,7 +479,12 @@ public class ModelDownloadManager {
                 if (queryIdx > 0) fileName = fileName.substring(0, queryIdx);
                 return fileName;
             }
-        } catch (Exception ignored) {}
+        } catch (Exception undecodable) {
+            // 退成 model.gguf 是有代价的：文件名进了 sidecar 与模型索引，改名后靠它对上号，
+            // 认不出来就被判成"未下载"。兜底保留，但要说出是哪条 URL、为什么。
+            AILogger.w(TAG, "URL 解不出文件名，退回 model.gguf: " + url
+                    + " —— " + undecodable.getMessage());
+        }
         return "model.gguf";
     }
 
@@ -777,7 +786,11 @@ public class ModelDownloadManager {
             if (healed != null) {
                 modelPath = healed.getAbsolutePath();
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable healFailed) {
+            // 自愈没跑成，只能按原路径判：文件其实在（换了名），却会被判成"未下载"，
+            // 界面上就是"明明下过还要再下一个 4GB"。这条必须留痕。
+            AILogger.w(TAG, "改名自愈失败，按原路径判是否已下载: "
+                    + modelPath + " —— " + healFailed.getMessage());
         }
         File file = new File(modelPath);
         return file.exists() && file.length() > 0;
@@ -828,7 +841,26 @@ public class ModelDownloadManager {
             try (java.io.FileWriter w = new java.io.FileWriter(sc)) {
                 w.write(sha + "\n" + target.length() + "\n");
             }
-        } catch (Exception ignored) { }
+        } catch (Exception notWritten) {
+            // 没 sidecar 不影响"已下载"，但以后每次校验都要重算整包的 sha256（几 GB），
+            // 而且 sidecar 里那个 size 也是"下载完整性"的判据之一。写不出要有声音。
+            AILogger.w(TAG, "sha256 sidecar 没写成，后续校验只能整包重算: "
+                    + target.getName() + " —— " + notWritten.getMessage());
+        }
+    }
+
+    /**
+     * finally 里收尾用的关流：关不上不改变下载结论（结果已由校验/finalize 决定），
+     * 但"关的是什么、关不上会留什么"必须说出来——原来三条 {@code catch (Exception e) {}}
+     * 把连接泄漏和 .part 没关都压成了无声。
+     */
+    private static void closeQuietly(java.io.Closeable closeable, String what) {
+        if (closeable == null) return;
+        try {
+            closeable.close();
+        } catch (Exception closeFailed) {
+            AILogger.w(TAG, "没关掉" + what + ": " + closeFailed.getMessage());
+        }
     }
 
     /** 读 sidecar：返回 [sha, size]，不存在或损坏返回 null */
@@ -1164,9 +1196,9 @@ okhttp3.Response response = null;
             } catch (Exception e) {
                 throw e;
             } finally {
-                if (response != null) try { response.close(); } catch (Exception e) {}
-                if (inputStream != null) try { inputStream.close(); } catch (IOException e) {}
-                if (outputStream != null) try { outputStream.close(); } catch (IOException e) {}
+                closeQuietly(response, "HTTP 响应（连接槽位会一直占着）");
+                closeQuietly(inputStream, "下载输入流");
+                closeQuietly(outputStream, ".part 输出流（尾部可能没落盘，finalize 靠大小/校验兜底）");
                 if (!isPaused && !isCancelled) {
                     activeDownloads.decrementAndGet();
                     downloadTasks.remove(taskId);

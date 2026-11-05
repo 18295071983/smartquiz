@@ -18,6 +18,7 @@ import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.RoundBounds;
 import com.oilquiz.app.ai.chat.component.ComponentData;
 import com.oilquiz.app.model.AgentTask;
+import com.oilquiz.app.util.AILogger;
 
 import java.io.File;
 import java.io.FileReader;
@@ -198,7 +199,14 @@ public class ChatHistoryManager {
             for (java.util.Map.Entry<String, JsonElement> e : el.getAsJsonObject().entrySet()) {
                 try {
                     obj.put(e.getKey(), gsonToOrgJson(e.getValue()));
-                } catch (org.json.JSONException ignored) {}
+                } catch (org.json.JSONException shouldNotHappen) {
+                    // 这层去不掉：org.json 的 put() 声明的是 checked JSONException
+                    // （批 1 踩过一次，别凭印象改成"不会抛"）。这里 key 来自 Gson 的
+                    // entrySet（不会是 null），值已经是 JSONArray/JSONObject/String/数字/null，
+                    // 所以真抛出来就是我们对 org.json 的判断错了——要说出来，别静默改数据。
+                    AILogger.w(TAG, "Gson→org.json 某个成员没进去（props 会少这一项）: "
+                            + e.getKey() + " —— " + shouldNotHappen.getMessage());
+                }
             }
             return obj;
         }
@@ -686,13 +694,19 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
     public int sweepOrphanHistoryFiles(java.util.Collection<String> knownSessionIds) {
         if (knownSessionIds == null || knownSessionIds.isEmpty()) return 0;
         java.util.Set<String> known = new java.util.HashSet<>(knownSessionIds);
-        // 回收站里的会话仍可恢复：它们的历史文件不能当孤儿清掉（否则恢复回来历史就空了）
-        try {
-            File[] trashed = getTrashDir().listFiles((d, name) -> name.endsWith(".json"));
-            if (trashed != null) {
-                for (File f : trashed) known.add(f.getName().replace(".json", ""));
+        // 回收站里的会话仍可恢复：它们的历史文件不能当孤儿清掉（否则恢复回来历史就空了）。
+        // 原来这一段包在 catch (Throwable ignored) 里——那是把"读不出回收站"和"回收站是空的"
+        // 当成同一件事：known 少一项就多一个"其实还能恢复"的会话被当孤儿删掉。
+        // 现在按能不能确定答案走：目录不存在＝确实没有回收项，继续；读不出来＝直接不扫。
+        File trash = getTrashDir();
+        if (trash.isDirectory()) {
+            File[] trashed = trash.listFiles((d, name) -> name.endsWith(".json"));
+            if (trashed == null) {
+                AILogger.w(TAG, "回收站目录读不出，本轮孤儿清扫整个跳过（宁可漏扫，不可误删）: "
+                        + trash.getPath());
+                return 0;
             }
-        } catch (Throwable ignored) {
+            for (File f : trashed) known.add(f.getName().replace(".json", ""));
         }
         int removed = 0;
         try {
@@ -843,48 +857,83 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         return restored;
     }
 
-    /** 历史回收只保留最近 keep 批（旧批次连同文件一起删） */
+    /**
+     * 历史回收只保留最近 keep 批（旧批次连同文件一起删）。
+     *
+     * <p>原来整段包在 {@code catch (Throwable ignored)} 里，但那里面没有一句会抛：
+     * listFiles 失败返回 null（已判），getName/delete 不抛。空 catch 唯一的作用是让人以为
+     * "删不掉的旧批次会有日志"——其实删没掉根本不知道。改成显式统计残留。</p>
+     */
     private void trimHistoryTrash(int keep) {
-        try {
-            File[] batches = historyTrashRoot().listFiles();
-            if (batches == null || batches.length <= keep) return;
-            java.util.Arrays.sort(batches, (a, b) -> a.getName().compareTo(b.getName()));
-            for (int i = 0; i < batches.length - keep; i++) {
-                deleteRecursively(batches[i]);
-            }
-        } catch (Throwable ignored) {
+        File[] batches = historyTrashRoot().listFiles();
+        if (batches == null || batches.length <= keep) return;
+        java.util.Arrays.sort(batches, (a, b) -> a.getName().compareTo(b.getName()));
+        int left = 0;
+        for (int i = 0; i < batches.length - keep; i++) {
+            left += deleteRecursively(batches[i]);
+        }
+        if (left > 0) {
+            AILogger.w(TAG, "回收站超出保留数的那几批没删净，残留 " + left
+                    + " 个文件（磁盘没腾出来，下次清扫还会碰到它们）");
         }
     }
 
-    private void deleteRecursively(File f) {
-        if (f == null) return;
+    /**
+     * 递归删除，返回<b>没删掉</b>的文件数。
+     *
+     * <p>"删了"和"没删掉但也没报错"在 File.delete() 上是同一件事（它只返回 boolean），
+     * 所以回收站/清空这类动作必须自己数，否则残留会一路往下传，最后表现为
+     * "明明清空了却还能翻出旧会话"。</p>
+     */
+    private int deleteRecursively(File f) {
+        if (f == null) return 0;
+        int left = 0;
         if (f.isDirectory()) {
             File[] kids = f.listFiles();
-            if (kids != null) for (File k : kids) deleteRecursively(k);
+            if (kids != null) {
+                for (File k : kids) left += deleteRecursively(k);
+            }
         }
-        //noinspection ResultOfMethodCallIgnored
-        f.delete();
+        if (!f.delete() && f.exists()) {
+            left++;
+        }
+        return left;
     }
 
-    /** 删除某会话在 filesDir 下的历史文件及原子写/检查点副产物；返回删除个数 */
+    /**
+     * 删除某会话在 filesDir 下的历史文件及原子写/检查点副产物；返回删除个数。
+     *
+     * <p>原来外面包着一层 {@code catch (Throwable ignored)}（注释"清理失败不影响会话本身删除"），
+     * 但那里面同样没有可抛的调用：getFilesDir/listFiles 失败是返回 null，delete 失败是返回 false。
+     * catch 反而把"没删掉"这件事一起吃掉了——而"删了会话却留下历史"正是孤儿清扫那轮在收拾的局面。
+     * 现在按返回值判断，删不掉的直接说出来。</p>
+     */
     private int deleteSessionHistoryFiles(String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) return 0;
+        String safe = sessionId.replaceAll("[^a-zA-Z0-9_-]", "_");
+        File[] files = context.getFilesDir().listFiles();
+        if (files == null) {
+            AILogger.w(TAG, "filesDir 读不出，会话 " + sessionId + " 的历史文件一个都没删");
+            return 0;
+        }
         int removed = 0;
-        try {
-            if (sessionId == null || sessionId.isEmpty()) return 0;
-            String safe = sessionId.replaceAll("[^a-zA-Z0-9_-]", "_");
-            File[] files = context.getFilesDir().listFiles();
-            if (files == null) return 0;
-            for (File f : files) {
-                String n = f.getName();
-                if (!n.contains(".json")) continue;
-                // 前缀匹配会话 id：文件名为 <prefix>_<safeId>_<model>.json 或 <prefix>_<safeId>.json
-                if (n.startsWith("online_agent_history_" + safe)
-                        || n.startsWith("local_chat_history_" + safe)) {
-                    if (f.delete()) removed++;
+        int left = 0;
+        for (File f : files) {
+            String n = f.getName();
+            if (!n.contains(".json")) continue;
+            // 前缀匹配会话 id：文件名为 <prefix>_<safeId>_<model>.json 或 <prefix>_<safeId>.json
+            if (n.startsWith("online_agent_history_" + safe)
+                    || n.startsWith("local_chat_history_" + safe)) {
+                if (f.delete()) {
+                    removed++;
+                } else {
+                    left++;
                 }
             }
-        } catch (Throwable ignored) {
-            // 清理失败不影响会话本身删除
+        }
+        if (left > 0) {
+            AILogger.w(TAG, "会话 " + sessionId + " 的历史有 " + left
+                    + " 个文件没删掉（下次装载还可能把它们读回来）");
         }
         return removed;
     }
@@ -1168,8 +1217,11 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
                         e.sessionId = s.id;
                     }
                 }
-            } catch (Exception ignore) {
-                // 单个坏文件不影响整个列表
+            } catch (Exception badFile) {
+                // 单个坏文件不该拖垮整个列表——但也不能让它伪装成"一个正常但没标题的会话"：
+                // 界面照样列得出来、点恢复却拿回空内容，用户只会以为是我们把消息弄丢了。
+                AILogger.w(TAG, "回收站条目读不出，仅按文件名展示: " + f.getName()
+                        + " —— " + badFile);
             }
             if (e.title == null || e.title.isEmpty()) {
                 e.title = e.sessionId;
@@ -1236,17 +1288,25 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         if (sessionId == null || sessionId.isEmpty()) return 0;
         String safe = sessionId.replaceAll("[^a-zA-Z0-9_-]", "_");
         int removed = 0;
-        try {
-            File[] batches = historyTrashRoot().listFiles();
-            if (batches == null) return 0;
-            for (File batch : batches) {
-                File[] files = batch.listFiles();
-                if (files == null) continue;
-                for (File f : files) {
-                    if (belongsToSession(f.getName(), safe) && f.delete()) removed++;
+        int left = 0;
+        // 外面那层 catch (Throwable ignored) 去掉了：这没有可抛的调用，吞掉的其实只是
+        // "delete() 返回 false"，而那正是需要知道的（回收站会话遗留的历史会一直占着 filesDir）
+        File[] batches = historyTrashRoot().listFiles();
+        if (batches == null) return 0;
+        for (File batch : batches) {
+            File[] files = batch.listFiles();
+            if (files == null) continue;
+            for (File f : files) {
+                if (!belongsToSession(f.getName(), safe)) continue;
+                if (f.delete()) {
+                    removed++;
+                } else if (f.exists()) {
+                    left++;
                 }
             }
-        } catch (Throwable ignored) {
+        }
+        if (left > 0) {
+            AILogger.w(TAG, "回收站会话 " + sessionId + " 遗留的历史有 " + left + " 个文件没删掉");
         }
         return removed;
     }
@@ -1277,7 +1337,11 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
      */
     public int clearTrash() {
         // 回收站整体清空后，历史文件也失去可恢复对象：连 history 批次一起删，避免占盘
-        deleteRecursively(historyTrashRoot());
+        int leftovers = deleteRecursively(historyTrashRoot());
+        if (leftovers > 0) {
+            // 走 AUDIT：清空是用户点出来的维护动作，"清空了却还剩东西"必须能事后查
+            AILogger.audit(TAG, "清空回收站没删净：批次目录残留 " + leftovers + " 个文件");
+        }
         File[] files = getTrashDir().listFiles((d, name) -> name.endsWith(".json"));
         int removed = 0;
         if (files != null) {
@@ -1317,20 +1381,26 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
                 "deleted " + removed + " local history file(s) for " + sessionId);
     }
 
-    /** 文件名前缀 yyyyMMdd_HHmmss → 毫秒时间戳；解析失败退回文件 mtime */
+    /**
+     * 文件名前缀 yyyyMMdd_HHmmss → 毫秒时间戳；解析失败退回文件 mtime。
+     *
+     * <p>用 {@code parse(String, ParsePosition)} 而不是 {@code parse(String)}：后者声明
+     * checked ParseException，于是原代码只能包一层空 catch。这里"格式不对"本来就是
+     * 正常分支（退回 mtime），不该拿异常当分支判断，也不该在退用时一点痕迹都没有。</p>
+     */
     private static long parseTrashTimestamp(String name, long fallback) {
-        try {
-            if (name != null && name.length() >= 15 && name.charAt(8) == '_') {
-                java.text.SimpleDateFormat fmt =
-                        new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US);
-                java.util.Date d = fmt.parse(name.substring(0, 15));
-                if (d != null) {
-                    return d.getTime();
-                }
-            }
-        } catch (Exception ignore) {
+        if (name == null || name.length() < 15 || name.charAt(8) != '_') {
+            return fallback;
         }
-        return fallback;
+        java.text.SimpleDateFormat fmt =
+                new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US);
+        java.text.ParsePosition pos = new java.text.ParsePosition(0);
+        java.util.Date d = fmt.parse(name.substring(0, 15), pos);
+        // 必须是整段都被吃掉才算解析成功：只解析了前 8 位也返回一个 Date，那样时间会是错的
+        if (d == null || pos.getIndex() != 15) {
+            return fallback;
+        }
+        return d.getTime();
     }
 
     private static String readText(File f) throws java.io.IOException {
