@@ -231,3 +231,19 @@ ai/bridge/ModelExecutionBridge.java:511  putLocalSampling()  catch Throwable
 ### 剩下的 10 处怎么处置，等一句话
 
 `AILogger2`（`util/AILogger2.java`，10 处空体）的类注释自己写着 `@deprecated Use AILogger`，而全仓引用只剩两处：它自己和 `AILogger`。也就是说这 10 处的正解不是逐条修，而是**决定这个废弃类切没切干净**：没有活调用方就整包删（连带 10 处），有就把调用点迁到 `AILogger`。按第 4 节的口径（死链默认保留、报账等拍板），我没自己删。
+
+## 12. 批次台账（到本轮为止，接得上的入口）
+
+| 批 | 提交 | 范围 | 关键数字（改后） |
+| --- | --- | --- | --- |
+| 1 | `db49df32` | 工具执行/上下文/boot 路径 | 真·空体 968→920，catch 4477→4446，高危 217→191 |
+| 2a | `0d22eaf1` | `AppDatabase` 迁移 + `MigrationSchema` + `DatabaseUpgradeManager` | 空体+注释 1054→1022（该包清零），新增 10 条 Robolectric 用例 |
+| 2b | `3232ae4c` | 原子写/对话历史/导入引擎/模型下载/公共存储 | 真·空体 893→863，高危 191→165 |
+| 2c | `f435b21d` | Agent 工具（DatabaseTool/ExcelTool）+ 校验 + 浏览器下载 | 真·空体 863→829，高危 165→145 |
+| 3 | `a6e41874` | `e`/`th` 命名的空体一族 | 65→10（全在废弃 AILogger2），高危 145→141 |
+
+现在的全仓状态（`python docs/scripts/empty_catch_audit.py`）：**catch 4392｜真·空体 821｜只写注释 137｜只写日志 983｜只赋值 71｜有恢复 2380｜高危 141／中危 553／低危 127**；基线 **1746 tests / 0 failures / 0 errors / 1 skipped**；APK 已装机并回读校验：`答题宝-debug-2.0.apk` 与设备 `base.apk` 的 md5 同为 `cdad6677a1857449778328a84b3ebbf9`（`adb install -r -g` Success）。
+
+**还没做的**：批 4（中危 553 与低危 127 的按模块扫，判据同前：有副作用的动作失败必须可见，纯展示兜底可保留但要写明为什么吞）。这轮没动它们，一是量大、二是它们绝大多数是 `ignored` 自称的刻意吞掉——收益比前三批低得多。挑文件时记得第 8 节那条教训：**别只按高危名单挑**，`*Migrat*`/`*Dao*`/`*Repository*`/`*Writer*`/`*Store*` 这类名字要单独捞一遍，本批里后果最重的两条（回收站读不出就误删历史、断点映射读不出还报"复用成功"）都不在高危名单上。
+
+**等你拍板的三件**（第 8、10、11 节各一处）：`fallbackToDestructiveMigration` 对 v≤16 旧库的整库重建无提示；三张零消费者的表（`ocr_history`/`question_images`/`ai_usage_log`）+ 两套并存的迁移引擎；`AILogger2` 这个 @Deprecated 类（只剩 10 处空体，没活调用方）是整包删还是把调用点迁完。
