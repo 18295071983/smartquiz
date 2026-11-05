@@ -247,3 +247,16 @@ ai/bridge/ModelExecutionBridge.java:511  putLocalSampling()  catch Throwable
 **还没做的**：批 4（中危 553 与低危 127 的按模块扫，判据同前：有副作用的动作失败必须可见，纯展示兜底可保留但要写明为什么吞）。这轮没动它们，一是量大、二是它们绝大多数是 `ignored` 自称的刻意吞掉——收益比前三批低得多。挑文件时记得第 8 节那条教训：**别只按高危名单挑**，`*Migrat*`/`*Dao*`/`*Repository*`/`*Writer*`/`*Store*` 这类名字要单独捞一遍，本批里后果最重的两条（回收站读不出就误删历史、断点映射读不出还报"复用成功"）都不在高危名单上。
 
 **等你拍板的三件**（第 8、10、11 节各一处）：`fallbackToDestructiveMigration` 对 v≤16 旧库的整库重建无提示；三张零消费者的表（`ocr_history`/`question_images`/`ai_usage_log`）+ 两套并存的迁移引擎；`AILogger2` 这个 @Deprecated 类（只剩 10 处空体，没活调用方）是整包删还是把调用点迁完。
+
+## 13. 批 4a（高危族起头：交互决策卡 + 联网工具）
+
+从剩下的高危 141 里先切了后果最直接的两个文件，13 处：
+
+| 文件 | 处数 | 吞掉的是什么 |
+| --- | --- | --- |
+| `AgentInteractiveDecisionHandler` | 6 | 交互决策卡的 payload 少键：表头清单、`missingCount`、成/重/败统计、按字段分组的缺失数、payload 合并与转 Map。这些卡是**用户点确认的依据**——少一项就是让用户在信息不全的情况下批导入，而且界面看起来一切正常。全部改成 `*Dropped/*Missed` + `AILogger.w` |
+| `JsExecuteTool` | 7 | `timeout` 参数不是数字就按默认档（模型要的秒数没生效）；cookie/登录态取不到就**不带登录态**发请求（拿回来可能是登录页而不是数据，模型却当正常内容用）；请求头没设上；`Set-Cookie` 没接住。6 处补 W，1 处（对已死 WebView 的 stopLoading/destroy）只改名——那条按浏览器红线就该吞 |
+
+基线 1746/0/0/1 skipped 不变；装机件 md5 `69bc0bc0772d9dfae9e267cf7bffabdc`（与设备 `base.apk` 回读一致）。
+
+**高危还剩 128 处**，按文件集中度排：`AIChatActivity` 14、`SystemUIComponentTool` 9、`ServiceStatusManager` 7、`HtmlCardView` 6、`TermuxEnvInstaller` 6、`SystemResourceTool` 5，其余零散。下一批建议就按这个顺序继续（同样是"用户/模型据此做决定"的字段与动作），而不是去扫中危那 553 处——中危绝大多数是 `ignored` 自称的刻意吞掉，先把高危清零收益更大。

@@ -63,7 +63,8 @@ public class AgentInteractiveDecisionHandler implements ImportMain.InteractionHa
                 for (String h : headers) hs.put(h);
             }
             payload.put("headers", hs);
-        } catch (Exception ignored) {
+        } catch (Exception headersDropped) {
+    com.oilquiz.app.util.AILogger.w(TAG, "决策卡少了表头清单，用户是在看不到列名的情况下做映射确认的");
         }
         String msg = "字段映射来源：" + sourceNameOf(mappingSource)
                 + (docHint != null && !docHint.isEmpty() ? "\n题库说明：" + docHint : "")
@@ -103,7 +104,8 @@ public class AgentInteractiveDecisionHandler implements ImportMain.InteractionHa
         JSONObject payload = qualityPayload(preview);
         try {
             payload.put("missingCount", missingCount);
-        } catch (Exception ignored) {
+        } catch (Exception countDropped) {
+    com.oilquiz.app.util.AILogger.w(TAG, "填充确认卡少了 missingCount，卡面数字与实际情况对不上");
         }
         String msg = "检测到 " + missingCount + " 行缺字段。是否用 AI 智能填充缺失字段？";
         Result r = await("fill", "确认智能填充", msg,
@@ -129,7 +131,8 @@ public class AgentInteractiveDecisionHandler implements ImportMain.InteractionHa
             sm.put("duplicated", dup);
             sm.put("failed", failed);
             payload.put("summary", sm);
-        } catch (Exception ignored) {
+        } catch (Exception summaryDropped) {
+    com.oilquiz.app.util.AILogger.w(TAG, "最终确认卡少了成/重/败统计，用户点确认时看不到导入结果");
         }
         String msg = "解析完成，即将入库：预计导入 " + n(imported) + " 题，重复 " + n(dup)
                 + " 题，失败 " + n(failed) + " 题。确认写入题库？";
@@ -219,7 +222,8 @@ public class AgentInteractiveDecisionHandler implements ImportMain.InteractionHa
                 }
             }
             p.put("missingByField", mbf);
-        } catch (Exception ignored) {
+        } catch (Exception fieldDropped) {
+    com.oilquiz.app.util.AILogger.w(TAG, "质量卡少了按字段分组的缺失数（只剩总数）");
         }
         return p;
     }
@@ -241,7 +245,8 @@ public class AgentInteractiveDecisionHandler implements ImportMain.InteractionHa
                 String k = it.next();
                 dst.put(k, src.opt(k));
             }
-        } catch (Exception ignored) {
+        } catch (Exception keyDropped) {
+    com.oilquiz.app.util.AILogger.w(TAG, "决策 payload 合并时少了一个键，卡面可能缺项");
         }
     }
 
@@ -255,7 +260,8 @@ public class AgentInteractiveDecisionHandler implements ImportMain.InteractionHa
                 Object v = obj.opt(k);
                 map.put(k, (v == null || v == JSONObject.NULL) ? null : String.valueOf(v));
             }
-        } catch (Exception ignored) {
+        } catch (Exception keyDropped) {
+    com.oilquiz.app.util.AILogger.w(TAG, "payload 转 Map 少了一个键，回传给引擎的参数会缺");
         }
         return map.isEmpty() ? null : map;
     }

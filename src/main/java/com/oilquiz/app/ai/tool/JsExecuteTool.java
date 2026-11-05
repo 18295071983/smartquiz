@@ -131,7 +131,8 @@ public class JsExecuteTool implements AITool {
                 double secs = Double.parseDouble(String.valueOf(t));
                 timeout = (int) Math.min(MAX_TIMEOUT_SECONDS, Math.max(1, secs));
             }
-        } catch (Exception ignored) {
+        } catch (Exception badTimeout) {
+    com.oilquiz.app.util.AILogger.w(TAG, "timeout 参数不是数字，本轮按默认超时执行（模型要的秒数没生效）: " + badTimeout.getMessage());
         }
         String pageUrl = null;
         Object u = parameters.get("url");
@@ -316,7 +317,7 @@ public class JsExecuteTool implements AITool {
                         wv.stopLoading();
                         wv.loadUrl("about:blank");
                         wv.destroy();
-                    } catch (Throwable ignored) {
+                    } catch (Throwable alreadyGone) {
                     }
                 });
             }
@@ -463,7 +464,8 @@ public class JsExecuteTool implements AITool {
                 try {
                     String ck = android.webkit.CookieManager.getInstance().getCookie(url);
                     if (ck != null) cookie = ck;
-                } catch (Throwable ignored) {
+                } catch (Throwable cookieUnavailable) {
+    com.oilquiz.app.util.AILogger.w(TAG, "取不到 cookie，这次请求不带登录态（拿回来的可能是登录页而不是数据）");
                 }
                 return "{\"ok\":true,\"cookie\":" + org.json.JSONObject.quote(cookie) + "}";
             } catch (Throwable t) {
@@ -494,7 +496,8 @@ public class JsExecuteTool implements AITool {
                             if ("Cookie".equalsIgnoreCase(k)) hasCookie = true;
                             conn.setRequestProperty(k, v);
                         }
-                    } catch (Throwable ignored) {
+                    } catch (Throwable headerSkipped) {
+    com.oilquiz.app.util.AILogger.w(TAG, "有一个请求头没设上，站点可能因此认不出这次请求: " + headerSkipped.getMessage());
                     }
                 }
                 if (!hasCookie) {
@@ -504,7 +507,8 @@ public class JsExecuteTool implements AITool {
                     boolean _hasLogin = false;
                     try {
                         _hasLogin = com.oilquiz.app.webview.AppCookieStore.getInstance().hasLogin(url);
-                    } catch (Throwable ignored) {
+                    } catch (Throwable loginStateUnknown) {
+    com.oilquiz.app.util.AILogger.w(TAG, "登录状态查不出来，按未登录处理");
                     }
                     if (!_plainHttp || !_hasLogin) {
                         try {
@@ -512,7 +516,8 @@ public class JsExecuteTool implements AITool {
                             if (ck != null && !ck.isEmpty()) {
                                 conn.setRequestProperty("Cookie", ck);
                             }
-                        } catch (Throwable ignored) {
+                        } catch (Throwable cookieUnavailable) {
+    com.oilquiz.app.util.AILogger.w(TAG, "取不到 cookie，这次 http 不带登录态");
                         }
                     }
                 }
@@ -565,7 +570,8 @@ public class JsExecuteTool implements AITool {
                             }
                         }
                     }
-                } catch (Throwable ignored) {
+                } catch (Throwable setCookieMissed) {
+    com.oilquiz.app.util.AILogger.w(TAG, "Set-Cookie 没接住，这次请求带不到后续会话: " + setCookieMissed.getMessage());
                 }
                 setCookies.append(']');
                 conn.disconnect();
