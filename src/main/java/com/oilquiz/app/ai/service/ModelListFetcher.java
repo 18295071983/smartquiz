@@ -741,7 +741,33 @@ public class ModelListFetcher {
      * 避免智谱 /api/paas/v4 被错误拼成 /v4/v1/models）
      */
     public CompletableFuture<Boolean> testConnection(String apiUrl, String apiKey) {
+        return testConnectionTimed(apiUrl, apiKey).thenApply(r -> r.success);
+    }
+
+    /** 连接探测结果：成不成功 + 端到端耗时 + 失败原因 */
+    public static final class ConnectionTest {
+        public final boolean success;
+        public final long latencyMs;
+        public final String error;
+
+        ConnectionTest(boolean success, long latencyMs, String error) {
+            this.success = success;
+            this.latencyMs = latencyMs;
+            this.error = error;
+        }
+    }
+
+    /**
+     * 带计时的连接探测——列表那一行"延迟"的唯一数据来源。
+     *
+     * <p>为什么单独开一个方法而不是改 {@link #testConnection} 的返回：那边已有调用方只看布尔。
+     * 计时取"发请求到拿到响应码"，不含读正文：{@code /models} 的 body 长短跟服务商实现有关，
+     * 算进去会让同一家服务商在不同时刻的延迟不可比。{@code OnlineModelAdapter.updateModelStatus}
+     * 与 {@code formatLatency} 早就写好了却一直是零调用，缺的就是这一步计时。</p>
+     */
+    public CompletableFuture<ConnectionTest> testConnectionTimed(String apiUrl, String apiKey) {
         return CompletableFuture.supplyAsync(() -> {
+            long startedAt = System.currentTimeMillis();
             try {
                 String fullUrl = buildOpenAIUrl(apiUrl, "/models");
                 // query-key 型服务商（Gemini 等）：密钥走 URL ?key=
@@ -767,13 +793,16 @@ public class ModelListFetcher {
                             .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
 
                     int responseCode = connection.getResponseCode();
-                    return responseCode == 200;
+                    long latency = System.currentTimeMillis() - startedAt;
+                    return new ConnectionTest(responseCode == 200, latency,
+                            responseCode == 200 ? null : "HTTP " + responseCode);
                 } finally {
                     connection.disconnect();
                 }
             } catch (Exception e) {
                 AILogger.e(TAG, "Connection test failed: " + e.getMessage());
-                return false;
+                return new ConnectionTest(false, System.currentTimeMillis() - startedAt,
+                        e.getClass().getSimpleName() + ": " + e.getMessage());
             }
         }, executor);
     }

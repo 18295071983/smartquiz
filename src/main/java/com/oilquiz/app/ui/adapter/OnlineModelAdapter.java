@@ -55,6 +55,8 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         void onModelSelected(String modelName, String selectedModel);
         /** 编辑已有在线模型配置 */
         default void onEditClick(String modelName) {}
+        /** 长按菜单里的"测试连接"：探测并回填这一行的延迟/状态（不借用"拉模型列表"那条路） */
+        default void onTestConnectionClick(String modelName) {}
     }
 
     private static class DisplayItem {
@@ -706,8 +708,10 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                             }
                             break;
                         case 2: // 测试连接
+                            // 原来这里转调 onFetchModelsClick（拉模型列表）——既不测也不计时，
+                            // 于是列表那行的"延迟"永远是"未探测"，而用户以为刚测过。
                             if (listener != null) {
-                                listener.onFetchModelsClick(item.modelName);
+                                listener.onTestConnectionClick(item.modelName);
                             }
                             break;
                         case 3: // 复制API地址

@@ -816,18 +816,22 @@ public class OnlineModelConfigDialog {
         testConnectionButton.setEnabled(false);
         testConnectionButton.setText("测试中...");
         
-        modelListFetcher.testConnection(url, key).thenAccept(success -> {
+        // 带计时：配置页点"测试连通性"同样该看到延迟数字——列表那行的延迟就是从这条路回填的
+        modelListFetcher.testConnectionTimed(url, key).thenAccept(result -> {
             mainHandler.post(() -> {
                 testConnectionButton.setEnabled(true);
                 testConnectionButton.setText("测试连通性");
                 
-                if (success) {
-                    Toast.makeText(context, "连接成功!", Toast.LENGTH_SHORT).show();
+                if (result.success) {
+                    Toast.makeText(context, "连接成功! 延迟 " + result.latencyMs + "ms",
+                            Toast.LENGTH_SHORT).show();
                     // 连接成功后自动探测模型能力（embedding/vision/webSearch/agent），
                     // 真实请求验证替代配置表硬编码，结果回填能力勾选框
                     probeCapabilitiesAfterConnect(url, key);
                 } else {
-                    Toast.makeText(context, "连接失败，请检查 API 地址和密钥", Toast.LENGTH_SHORT).show();
+                    // 失败也要带耗时与原因：只说"请检查地址和密钥"会把超时(10s)和白名单拒绝混成一句
+                    Toast.makeText(context, "连接失败（耗时 " + result.latencyMs + "ms）："
+                            + result.error, Toast.LENGTH_LONG).show();
                 }
             });
         });

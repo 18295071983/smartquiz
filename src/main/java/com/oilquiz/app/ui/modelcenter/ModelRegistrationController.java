@@ -235,6 +235,32 @@ public class ModelRegistrationController implements OnlineModelAdapter.OnOnlineM
     }
 
     @Override
+    public void onTestConnectionClick(String modelName) {
+                OnlineModelManager.OnlineModelConfig config = findByName(modelName);
+        if (config == null) {
+            Toast.makeText(context, "未找到该模型配置", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (config.apiKey == null || config.apiKey.isEmpty()) {
+            Toast.makeText(context, "未配置 API 密钥，无法测试", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(context, "正在测试连接…", Toast.LENGTH_SHORT).show();
+        com.oilquiz.app.ai.service.ModelListFetcher.getInstance(context)
+                .testConnectionTimed(config.apiUrl, config.apiKey)
+                // 与同类里其它异步回填一致走 activity.runOnUiThread（本类没有自己的 Handler）
+                .thenAccept(r -> activity.runOnUiThread(() -> {
+                    if (adapter != null) {
+                        adapter.updateModelStatus(modelName, r.success ? 1 : 3, r.latencyMs);
+                    }
+                    Toast.makeText(context, r.success
+                                    ? "连接成功，延迟 " + r.latencyMs + "ms"
+                                    : "连接失败（耗时 " + r.latencyMs + "ms）：" + r.error,
+                            Toast.LENGTH_LONG).show();
+                }));
+    }
+
+    @Override
     public void onFetchModelsClick(String modelName) {
         OnlineModelManager.OnlineModelConfig config = findByName(modelName);
         if (config == null) {

@@ -590,6 +590,31 @@ public class ModelSelectorActivity extends AppCompatActivity
     }
 
     @Override
+    public void onTestConnectionClick(String modelName) {
+                OnlineModelManager.OnlineModelConfig config = findOnlineModelByName(modelName);
+        if (config == null) {
+            Toast.makeText(this, getString(R.string.h_aed6aa70), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (config.apiKey == null || config.apiKey.isEmpty()) {
+            Toast.makeText(this, getString(R.string.h_1571dfd4), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(this, "正在测试连接…", Toast.LENGTH_SHORT).show();
+        modelListFetcher.testConnectionTimed(config.apiUrl, config.apiKey)
+                .thenAccept(r -> runOnUiThread(() -> {
+                    // 成功与失败都要回填：失败也带耗时（超时本身就是要显示的那个数字）
+                    if (onlineModelAdapter != null) {
+                        onlineModelAdapter.updateModelStatus(modelName, r.success ? 1 : 3, r.latencyMs);
+                    }
+                    Toast.makeText(this, r.success
+                                    ? "连接成功，延迟 " + r.latencyMs + "ms"
+                                    : "连接失败（耗时 " + r.latencyMs + "ms）：" + r.error,
+                            Toast.LENGTH_LONG).show();
+                }));
+    }
+
+    @Override
     public void onFetchModelsClick(String modelName) {
         OnlineModelManager.OnlineModelConfig config = findOnlineModelByName(modelName);
         if (config == null) {
