@@ -76,7 +76,10 @@ public class AILogger {
         });
     }
     
-    // ========== 可视化日志系统（从AILogger2迁移）==========
+    // ========== 可视化日志系统 ==========
+    // 这一套原本还有个双份（util/AILogger2，670 行，2026-11-06 已整类删除）：
+    // 它连 LogLevel/LogCategory 都是自带一份副本，全仓零引用，两份同名枚举各活各的。
+    // 迁过来的这份才是活的——注意目前连它也没有调用方（见台账第 15 节），别再往回加。
     private static volatile AILogger visualInstance;
     private static final ReentrantLock visualInitLock = new ReentrantLock();
     
@@ -778,7 +781,7 @@ public class AILogger {
         );
     }
     
-    // ========== 可视化日志方法（从AILogger2迁移）==========
+    // ========== 可视化日志方法（本类唯一实现）==========
     
     /**
      * 获取可视化日志单例实例

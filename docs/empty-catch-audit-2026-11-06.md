@@ -286,3 +286,15 @@ ai/bridge/ModelExecutionBridge.java:511  putLocalSampling()  catch Throwable
 所以"备份+提示"只有代码与日志形状，实际效果要等一个真旧库（或造一个 v16 的库 dump）才算数。
 `upgrade()` 改造后同样只在"Room 没升到位"时才会走异常分支，正常态是 needUpgrade=false 直接报
 "已是最新版本"，与原行为一致。基线 1746/0/0/1 skipped；装机件 md5 `9a5e6f18a3ce03c08be79e828aa03944`。
+
+## 15. 高危清完 + AILogger2 整类删除
+
+**高危 141 → 26**（真·空体 821 → 700，catch 4392 → 4386）。做法：115 处补 `AILogger.w`（类名 · 说明 · 方法名 · 异常），20 处形态不敢自动插语句的只改名 `stepFailed`，`HtmlCardView` 对已死 WebView 的 `goBack` 按浏览器红线保持静默只改名。剩下 26 处＝未插日志的那 20 处 + 6 处边角，性质都是"已改名、有原因、只是没打日志"，不是没人看过。
+
+**踩坑两次，都当场纠正**（值得记，因为这是第 8 节同一条判据的回放）：第一版批量脚本对不是 `catch (X ignored) {}` 的形态也做截尾替换，11 个文件括号失衡，编译报"有 catch 没有 try"。用**HEAD 与工作树的 `{`/`}` 差必须一致**这条结构判据把 11 个文件全量回退，再用只做安全形态（下一行必须是单独一行 `}`）的第二版补上；收尾用 `git diff` 数 catch 行的净增/净减＝128/128 相抵，确认没重复也没丢。
+
+**`AILogger2` 已整类删除（670 行）**：全仓零引用（只剩 `AILogger` 里两句"从 AILogger2 迁移"的注释），且它连 `LogLevel`/`LogCategory` 都是**自带一份副本**——和 `AILogger`、`infra/AppLogger` 里的那两份同名枚举各活各的，三份并存。可视化那套（`VisualLogEntry`/`getVisualInstance`/`logThinking`/`logToolCall`/`logAgentStep`）迁进 `AILogger` 的副本才是活的，所以删除不丢任何能力；过期注释同步改掉并写明"别再往回加"。
+
+### 顺带查出来的：可视化日志这一套也没有调用方
+
+删 AILogger2 时按同一判据查了 AILogger 侧的引用面：**除两个日志类自身之外，`VisualLogEntry` / `getVisualInstance` / `logThinking` / `logToolCall` / `logAgentStep` 在 src/main 里一个调用都没有**。也就是说日志中心现在走的是 `getAllLogs`/`getLogsByLevel` 那条文本路线，可视化那半（含 `VisualLogEntry.toMarkdown`、`generateTimelineMarkdown`、`generateStatsMarkdown`、监听器表）是留着但没人驱动的。这一条我**没顺手删**：它要连着核对测试引用面与 `LogsActivity` 的实际取数路径，属于第 7 节那批"整类候选"的处置，不该在批量改日志的同一轮里做。要做的话判据照旧——先报"零调用 + 无写方"，再决定是接上还是删。
