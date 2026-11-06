@@ -32,8 +32,17 @@ public class ContentTemplateExporter implements Exporter {
         String fileExtension = getFileExtensionForFormat(task.getConfig().getFormat());
         File exportFile = new File(ExportManager.getExportDirectory(task.getContext()), fileName + "." + fileExtension);
 
-        // 读取内容模板文件
-        String templateContent = readTemplateFile(task.getConfig().getContentTemplateFilePath(), task.getContext(), task.getConfig().getFormat());
+        ExportManager.ExportFormat format = task.getConfig().getFormat();
+        if (format == ExportManager.ExportFormat.EXCEL || format == ExportManager.ExportFormat.WORD
+                || format == ExportManager.ExportFormat.PDF) {
+            // 内容模板是"文本模板 + 占位符"这一套；Excel/Word/PDF 成品需要的是二进制文档结构，
+            // 而原来这里照样走到 FileWriter 写正文、文件名却是 .xlsx/.docx/.pdf——产的是打不开的文件。
+            // 与其给一个坏文件，不如现在就说不支持，并指回能用的那条路（导出模板模式）。
+            throw new IOException("内容模板模式目前只支持文本类成品（CSV / HTML / Markdown / JSON）；"
+                    + format.name() + " 请改用导出模板，或选文本类格式");
+        }
+        // 读取内容模板文件（读不到就抛，不再用内置默认模板顶替）
+        String templateContent = readTemplateFile(task.getConfig().getContentTemplateFilePath(), task.getContext(), format);
 
         // 生成内容
         String content = generateContent(templateContent, questions, task);
@@ -77,165 +86,74 @@ public class ContentTemplateExporter implements Exporter {
         }
     }
 
-    private String readTemplateFile(String templateFilePath, Context context, ExportManager.ExportFormat format) throws IOException {
-        // 尝试从 assets 目录读取模板文件
-        try {
-            // 移除 assets/ 前缀（如果存在）
-            String assetPath = templateFilePath.replace("assets/", "");
-            try (InputStream inputStream = context.getAssets().open(assetPath);
-                 BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
-                StringBuilder content = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    content.append(line).append("\n");
-                }
-                return content.toString();
+    /**
+     * 取内容模板正文：先按文件系统路径读，再退到 assets，两条都不成就<b>抛</b>。
+     *
+     * <p>原来只走 {@code context.getAssets().open(templateFilePath)}，而内容模板的路径是用户在
+     * 模板管理里填的绝对路径（{@code EditTemplateActivity} 存进 {@code Template.filePath}）——
+     * {@code assets.open("/data/user/0/...")} 必然 IOException，于是每次都落到
+     * 于是过去每次都退到内置默认模板，导出的其实是默认模板，却照样报成功：
+     * 用户挑的模板从头到尾没被读过。这一版把"读不到用户文件"当成失败，不再用默认模板遮。</p>
+     */
+    private String readTemplateFile(String templateFilePath, Context context,
+                                    ExportManager.ExportFormat format) throws IOException {
+        if (templateFilePath == null || templateFilePath.trim().isEmpty()) {
+            throw new IOException("没有指定内容模板文件");
+        }
+        String fromFs = readFromFileSystem(templateFilePath.trim(), context.getFilesDir());
+        if (fromFs != null) {
+            return fromFs;
+        }
+        // assets 里那批内置模板仍可用（路径带不带 assets/ 前缀都认）
+        String assetPath = templateFilePath.replace("assets/", "").replaceFirst("^/+", "");
+        try (InputStream in = context.getAssets().open(assetPath);
+             BufferedReader reader = new BufferedReader(new InputStreamReader(in))) {
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append('\n');
             }
-        } catch (IOException e) {
-            // 如果从 assets 读取失败，使用默认模板
-            return getDefaultTemplate(format);
+            return sb.toString();
+        } catch (IOException assetMiss) {
+            throw new IOException("内容模板读不到：既不是可访问的文件路径，也不在 assets 里（"
+                    + templateFilePath + "）—— 上次失败原因：" + assetMiss.getMessage());
         }
     }
 
-    private String getDefaultTemplate(ExportManager.ExportFormat format) {
-        switch (format) {
-            case MARKDOWN:
-                return "# 导出题目\n\n" +
-                        "## 导出信息\n\n" +
-                        "- 导出时间: {{exportTime}}\n" +
-                        "- 题目数量: {{questionCount}}\n\n" +
-                        "{{questions}}\n" +
-                        "\n---\n\n" +
-                        "## 导出完成";
-            case JSON:
-                return "{\n" +
-                        "  \"exportInfo\": {\n" +
-                        "    \"exportTime\": \"{{exportTime}}\",\n" +
-                        "    \"questionCount\": {{questionCount}}\n" +
-                        "  },\n" +
-                        "  \"questions\": [\n" +
-                        "{{questions}}\n" +
-                        "  ]\n" +
-                        "}";
-            case CSV:
-                return "题目编号,题目类型,题目内容,选项A,选项B,选项C,选项D,正确答案,解析\n" +
-                        "{{questions}}";
-            default:
-                // 默认返回HTML模板
-                return "<!DOCTYPE html>\n" +
-                        "<html lang=\"zh-CN\">\n" +
-                        "<head>\n" +
-                        "<meta charset=\"UTF-8\">\n" +
-                        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n" +
-                        "<title>导出题目</title>\n" +
-                        "<style>\n" +
-                        "* {\n" +
-                        "  box-sizing: border-box;\n" +
-                        "  margin: 0;\n" +
-                        "  padding: 0;\n" +
-                        "}\n" +
-                        "body {\n" +
-                        "  font-family: 'Microsoft YaHei', Arial, sans-serif;\n" +
-                        "  line-height: 1.6;\n" +
-                        "  color: #333;\n" +
-                        "  background-color: #f5f5f5;\n" +
-                        "  padding: 20px;\n" +
-                        "}\n" +
-                        ".container {\n" +
-                        "  max-width: 1000px;\n" +
-                        "  margin: 0 auto;\n" +
-                        "  background-color: #fff;\n" +
-                        "  border-radius: 8px;\n" +
-                        "  box-shadow: 0 2px 10px rgba(0,0,0,0.1);\n" +
-                        "  padding: 30px;\n" +
-                        "}\n" +
-                        "h1 {\n" +
-                        "  color: #2c3e50;\n" +
-                        "  margin-bottom: 30px;\n" +
-                        "  text-align: center;\n" +
-                        "  padding-bottom: 15px;\n" +
-                        "  border-bottom: 2px solid #3498db;\n" +
-                        "}\n" +
-                        ".info {\n" +
-                        "  background-color: #f8f9fa;\n" +
-                        "  padding: 20px;\n" +
-                        "  border-radius: 8px;\n" +
-                        "  margin-bottom: 30px;\n" +
-                        "  border: 1px solid #e9ecef;\n" +
-                        "}\n" +
-                        ".question {\n" +
-                        "  margin-bottom: 30px;\n" +
-                        "  padding: 20px;\n" +
-                        "  border: 1px solid #e0e0e0;\n" +
-                        "  border-radius: 8px;\n" +
-                        "  background-color: #fafafa;\n" +
-                        "  transition: all 0.3s ease;\n" +
-                        "}\n" +
-                        ".question:hover {\n" +
-                        "  box-shadow: 0 2px 8px rgba(0,0,0,0.1);\n" +
-                        "  transform: translateY(-2px);\n" +
-                        "}\n" +
-                        ".question h3 {\n" +
-                        "  color: #2c3e50;\n" +
-                        "  margin-bottom: 15px;\n" +
-                        "  font-size: 18px;\n" +
-                        "}\n" +
-                        ".question-text {\n" +
-                        "  font-size: 16px;\n" +
-                        "  margin-bottom: 15px;\n" +
-                        "  line-height: 1.6;\n" +
-                        "}\n" +
-                        ".options {\n" +
-                        "  margin: 15px 0;\n" +
-                        "  padding-left: 20px;\n" +
-                        "}\n" +
-                        ".options p {\n" +
-                        "  margin: 10px 0;\n" +
-                        "  padding: 5px 0;\n" +
-                        "}\n" +
-                        ".correct-answer {\n" +
-                        "  margin-top: 15px;\n" +
-                        "  padding: 10px;\n" +
-                        "  background-color: #d4edda;\n" +
-                        "  border: 1px solid #c3e6cb;\n" +
-                        "  border-radius: 4px;\n" +
-                        "  color: #155724;\n" +
-                        "  font-weight: 600;\n" +
-                        "}\n" +
-                        ".explanation {\n" +
-                        "  margin-top: 15px;\n" +
-                        "  padding: 15px;\n" +
-                        "  background-color: #e3f2fd;\n" +
-                        "  border-left: 4px solid #2196f3;\n" +
-                        "  border-radius: 4px;\n" +
-                        "  color: #1565c0;\n" +
-                        "}\n" +
-                        ".footer {\n" +
-                        "  margin-top: 40px;\n" +
-                        "  padding-top: 20px;\n" +
-                        "  border-top: 1px solid #e0e0e0;\n" +
-                        "  text-align: center;\n" +
-                        "  color: #666;\n" +
-                        "  font-size: 14px;\n" +
-                        "}\n" +
-                        "</style>\n" +
-                        "</head>\n" +
-                        "<body>\n" +
-                        "<div class=\"container\">\n" +
-                        "<h1>导出题目</h1>\n" +
-                        "<div class=\"info\">\n" +
-                        "<p>导出时间: {{exportTime}}</p>\n" +
-                        "<p>题目数量: {{questionCount}}</p>\n" +
-                        "</div>\n" +
-                        "{{questions}}\n" +
-                        "<div class=\"footer\">\n" +
-                        "<p>导出完成</p>\n" +
-                        "</div>\n" +
-                        "</div>\n" +
-                        "</body>\n" +
-                        "</html>";
+    /**
+     * 按文件系统读模板：绝对路径直接读；相对路径按应用 filesDir 兜一遍（模板管理里存的
+     * 可能是相对形态）。读不到返回 null，由调用方决定是退 assets 还是报错。
+     */
+    static String readFromFileSystem(String templateFilePath, File baseDir) {
+        File f = new File(templateFilePath);
+        if (!f.isAbsolute() && baseDir != null) {
+            f = new File(baseDir, templateFilePath);
+        }
+        if (!f.isFile() || !f.canRead()) {
+            return null;
+        }
+        try (BufferedReader reader = new BufferedReader(
+                new java.io.InputStreamReader(new java.io.FileInputStream(f),
+                        java.nio.charset.StandardCharsets.UTF_8))) {
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append('\n');
+            }
+            return sb.toString();
+        } catch (IOException readFailed) {
+            // 存在但读不动（权限/被占）与"不存在"不同种，这里都交回 null，
+            // 由调用方那句"读不到就失败"统一报，不再演成"用默认模板继续"。
+            android.util.Log.w("ContentTemplateExporter",
+                    "模板文件读失败: " + f.getAbsolutePath() + " —— " + readFailed.getMessage());
+            return null;
         }
     }
+
+    // getDefaultTemplate(...) 已删（原 153 行起，内置 Markdown/JSON/CSV/HTML 四套默认模板正文）。
+    // 它以前的作用是：assets.open 一 IOException 就顶上内置模板——而内容模板路径是用户在模板管理里
+    // 填的绝对路径，那次 open 注定失败，于是"选了模板"永远等于"用默认模板"，还照样报成功。
+    // 现在读不到就抛。要恢复"默认模板"这一档，得让它以一个真实的模板文件出现，不再当兜底。
 
     private String generateContent(String template, List<Question> questions, ExportManager.ExportTask task) {
         // 替换模板中的占位符

@@ -300,7 +300,7 @@ public class TemplateSelectionActivity extends AppCompatActivity {
         selectedTemplate = null;
         templateName.setText("没有内容模板");
         templateDescription.setText("内容模板存在模板库里（模板管理里新建/导入），"
-                + "本页只显示它；导出成品目前不套用这个文件");
+                + "导出时按里面的 {{questions}} 等占位符填充；只支持 CSV / HTML / Markdown / JSON");
         templateFormat.setText(getString(R.string.h_c3f9cc1b));
         templateDefault.setVisibility(View.GONE);
         templateFields.setText("无");
@@ -369,11 +369,17 @@ public class TemplateSelectionActivity extends AppCompatActivity {
                 return;
             }
 
-            // 把话说在前面：内容模板这一路目前只做到"选它、把它的名字带到后面每一屏"，
-            // ExportManager 不读 contentTemplateFilePath——不提醒就等于让用户以为成品套用了模板。
-            Toast.makeText(this, "已选内容模板：" + selectedContentTemplate.getName()
-                    + "（导出成品暂不套用此文件，只有字段配置按它走）",
-                    Toast.LENGTH_LONG).show();
+            // 准确的边界：内容模板会被 ContentTemplateExporter 真读真填，但只有文本类成品成立。
+            if (selectedFormat == ExportManager.ExportFormat.EXCEL
+                    || selectedFormat == ExportManager.ExportFormat.WORD
+                    || selectedFormat == ExportManager.ExportFormat.PDF) {
+                Toast.makeText(this, "内容模板不支持 " + formatLabel(selectedFormat)
+                        + "（只支持 CSV / HTML / Markdown / JSON），导出会直接报错，请换格式或改用导出模板",
+                        Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, "已用内容模板：" + selectedContentTemplate.getName(),
+                        Toast.LENGTH_SHORT).show();
+            }
             Intent intent = new Intent(this, FieldConfigActivity.class);
             intent.putExtra("format", selectedFormat.name());
             intent.putExtra("contentTemplateId", selectedContentTemplate.getId());
