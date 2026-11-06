@@ -109,7 +109,16 @@ public class WeatherWebViewActivity extends AppCompatActivity {
                                                     android.webkit.WebResourceRequest request) {
                 String url = request != null && request.getUrl() != null
                         ? request.getUrl().toString() : null;
-                if (url != null) view.loadUrl(url);
+                if (url != null) {
+                    // 页面里的自定义协议（地图/支付类）不要塞回 WebView：交统一转交层，
+                    // 有应用开应用、没装应用交系统浏览器；普通网页仍在本页加载。
+                    if (com.oilquiz.app.browser.BrowserSchemeHandler.isSchemeNavigation(url)) {
+                        com.oilquiz.app.browser.BrowserSchemeHandler.handoff(
+                                WeatherWebViewActivity.this, url, true);
+                        return true;
+                    }
+                    view.loadUrl(url);
+                }
                 return true;
             }
         });

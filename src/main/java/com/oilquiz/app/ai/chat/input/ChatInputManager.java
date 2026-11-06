@@ -279,6 +279,9 @@ public class ChatInputManager {
                 if (url.startsWith("http://") || url.startsWith("https://")) {
                     activity.startActivity(new Intent(activity, com.oilquiz.app.WebViewActivity.class)
                             .putExtra("url", url));
+                } else if (com.oilquiz.app.browser.BrowserSchemeHandler.isSchemeNavigation(url)) {
+                    // 自定义协议（mailto:/tel:/weixin:…）：同一套转交；没装应用不会只剩"无法打开"
+                    com.oilquiz.app.browser.BrowserSchemeHandler.handoff(activity, url, false);
                 } else {
                     activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))
                             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));

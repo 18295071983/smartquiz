@@ -6,6 +6,8 @@ import android.util.Log;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 
+import com.oilquiz.app.R;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -150,6 +152,21 @@ public final class HtmlSandbox {
                 return new Decision(Trust.REMOTE_PAGE, null, null,
                         Block.HTTP_NOT_ALLOWED, url, false);
             }
+            // 应用协议（weixin:/alipays:/market:…）：WebView 内嵌不了，但整张卡不该只剩
+            // "已拦截：不支持的链接协议"。给一个可点的入口，点击由卡片导航交给统一转交层
+            // （有应用开应用、没装应用交系统浏览器）。
+            if (com.oilquiz.app.browser.BrowserScheme.classify(url)
+                    == com.oilquiz.app.browser.BrowserScheme.Kind.SYSTEM_APP) {
+                String safeUrl = escapeHtml(url);
+                String label = escapeHtml(context != null
+                        ? context.getString(R.string.card_html_open_scheme) : "打开应用链接");
+                return new Decision(Trust.INLINE_UNTRUSTED, null,
+                        "<div style=\"padding:12px 4px;font-family:sans-serif;word-break:break-all\">"
+                                + "<a href=\"" + safeUrl + "\" style=\"font-size:15px\">" + label + "</a>"
+                                + "<div style=\"margin-top:6px;font-size:12px;opacity:.65\">"
+                                + safeUrl + "</div></div>",
+                        null, null, false);
+            }
             // javascript: / data: / blob: / content: / intent: 等
             return new Decision(Trust.INLINE_UNTRUSTED, null, null,
                     Block.SCHEME_UNSUPPORTED, schemeOf(url), false);
@@ -262,6 +279,16 @@ public final class HtmlSandbox {
     private static String schemeOf(String url) {
         int idx = url.indexOf(':');
         return idx > 0 && idx < 16 ? url.substring(0, idx) : "unknown";
+    }
+
+    /** 拼进 HTML 属性/文本前的最小转义（协议串里可能带引号/尖括号） */
+    private static String escapeHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     /** 明文 http 仅放行本机地址（本地服务/调试页），其它 http 拦截 */

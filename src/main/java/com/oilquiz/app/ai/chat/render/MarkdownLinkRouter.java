@@ -25,7 +25,9 @@ import android.util.Log;
  *   <li>{@code http(s)} → App 内 {@code WebViewActivity}（不再跳系统浏览器）。</li>
  *   <li>{@code file://}、绝对路径、工作区相对名 → 解析后应用内预览；不存在给可读提示，
  *       并列出工作区相似文件（模型常缩写文件名）。</li>
- *   <li>其余合法 scheme（tel:/sms:/mailto:/geo:…）→ 交系统；{@code javascript:}/{@code intent:}/
+ *   <li>其余合法 scheme（tel:/sms:/mailto:/geo:/weixin:/alipays:/market:…）→ 交
+ *       {@link com.oilquiz.app.browser.BrowserSchemeHandler}：有应用开应用，没装应用就交系统
+ *       浏览器（不再只丢一句"没有能打开该链接的应用"）；{@code javascript:}/{@code intent:}/
  *       {@code data:} 一律拒绝（正文来自模型输出，不能借一次点击拉起组件或执行代码）。</li>
  * </ol>
  */
@@ -87,6 +89,17 @@ public final class MarkdownLinkRouter {
             if ("http".equals(uri.getScheme()) || "https".equals(uri.getScheme())) {
                 // 3) 网页 → App 内 WebViewActivity（不跳系统浏览器，保留返回/会话上下文）
                 com.oilquiz.app.ai.chat.component.ComponentActions.openLink(context, target);
+                return;
+            }
+
+            // 3.5) 自定义协议（weixin:/alipays:/market:/myapp:…）→ 与浏览器共用同一套转交：
+            // 有应用开应用，没装应用交系统浏览器。此前这类链接落到下面的"按文件路径找"，
+            // 报的是"文件不存在"；就算走到 ACTION_VIEW，也对"没装应用"只丢一句提示。
+            // 注意必须在本地文件分支**之前**：像 myapp:open/page.html 这种正文里带点的
+            // 协议串，会被相对路径解析吃进去。
+            if (com.oilquiz.app.browser.BrowserScheme.classify(target)
+                    == com.oilquiz.app.browser.BrowserScheme.Kind.SYSTEM_APP) {
+                com.oilquiz.app.browser.BrowserSchemeHandler.handoff(context, target, false);
                 return;
             }
 

@@ -87,9 +87,23 @@ public class AppCardView implements ChatComponent {
                 }
             } else if (!TextUtils.isEmpty(pkg)) {
                 intent = context.getPackageManager().getLaunchIntentForPackage(pkg);
+                if (intent == null) {
+                    // 没装这个应用：别停在"应用未找到"。交统一转交去应用商店
+                    // （market 没人接时它会退到系统浏览器/复制，不会崩也不会静默）。
+                    com.oilquiz.app.browser.BrowserSchemeHandler.handoff(
+                            context, "market://details?id=" + Uri.encode(pkg), false);
+                    return;
+                }
             } else if (!TextUtils.isEmpty(uri)) {
                 if (uri.startsWith("http://") || uri.startsWith("https://")) {
                     ComponentActions.openLink(context, uri);
+                    return;
+                }
+                // 卡片 uri 可能就是自定义协议（weixin:/alipays:/amapuri:…）：走统一转交，
+                // 有应用开应用、没装应用交系统浏览器。旧实现直接 ACTION_VIEW，没装应用时
+                // 只剩一句 "卡片打开失败: No Activity found…"。
+                if (com.oilquiz.app.browser.BrowserSchemeHandler.isSchemeNavigation(uri)) {
+                    com.oilquiz.app.browser.BrowserSchemeHandler.handoff(context, uri, false);
                     return;
                 }
                 intent = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));

@@ -348,7 +348,9 @@ public class HtmlCardView implements ChatComponent {
 
             if (trust == HtmlSandbox.Trust.REMOTE_PAGE) {
                 // 网页浏览档：http(s) 留在卡片内连续浏览，其它协议拦下
-                return !(webScheme || url.startsWith("/"));
+                if (webScheme || url.startsWith("/")) return false;
+                handOffScheme(url);
+                return true;
             }
             if (trust == HtmlSandbox.Trust.LOCAL_FILE) {
                 // 本地报表档：目录内相对链接继续留在卡片内；外链交回应用
@@ -365,13 +367,32 @@ public class HtmlCardView implements ChatComponent {
                     ComponentActions.openLink(context, url);
                     return true;
                 }
+                handOffScheme(url);
                 return true;
             }
             // 内置模板 / 模型内联：卡片内不导航，外链交回应用
             if (webScheme) {
                 ComponentActions.openLink(context, url);
+            } else {
+                handOffScheme(url);
             }
             return true;
+        }
+
+        /**
+         * 卡片里的自定义协议（weixin:/alipays:/market:…）交给统一转交层：
+         * 有应用开应用，没装应用就交系统浏览器。
+         *
+         * <p>旧实现把它们直接吞掉（{@code return true}），用户点了没任何反应；
+         * 而"吞掉"和"没装应用"在用户看来是同一件事。</p>
+         */
+        private void handOffScheme(String url) {
+            if (url == null || url.isEmpty()) return;
+            if (com.oilquiz.app.browser.BrowserScheme.classify(url)
+                    != com.oilquiz.app.browser.BrowserScheme.Kind.SYSTEM_APP) {
+                return; // file:/about: 等落在卡片内的其它目标：维持原拦截口径
+            }
+            com.oilquiz.app.browser.BrowserSchemeHandler.handoff(context, url, false);
         }
 
         @Override

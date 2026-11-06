@@ -231,6 +231,19 @@ public class HtmlSandboxTest {
     }
 
     @Test
+    public void appSchemeUrlBecomesAClickableEntryNotABlockedCard() {
+        // 应用协议内嵌不了，但整张卡不该只剩"已拦截：不支持的链接协议"；
+        // 渲染成一个可点入口，点击由 HTML 卡的导航交给统一转交层。
+        String url = "weixin://dl/business/?t=x";
+        HtmlSandbox.Decision d = HtmlSandbox.resolve(null,
+                new ComponentData("html", props("url", url)), "", url);
+
+        assertFalse(d.isBlocked());
+        assertEquals(HtmlSandbox.Trust.INLINE_UNTRUSTED, d.trust);
+        assertTrue(d.html.contains("href=\"" + url + "\""));
+    }
+
+    @Test
     public void localFileOutsideWorkspaceIsBlockedEvenWithoutContext() {
         // context 为 null 时白名单为空 → 任何 file:// 目标都越界，符合"默认拒绝"
         String url = "file:///sdcard/Download/secret.html";

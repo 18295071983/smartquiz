@@ -878,5 +878,7 @@
 
     <string name="card_html_blocked_http">已拦截：卡片内仅允许 https 页面（或本机地址），请复制链接到浏览器打开</string>
     <string name="card_html_blocked_scheme">已拦截：不支持的链接协议 %1$s</string>
+    <!-- 卡片 url 是应用协议（weixin:/alipays:/market:…）时渲染的可点入口 -->
+    <string name="card_html_open_scheme">打开应用链接</string>
 
 </resources>

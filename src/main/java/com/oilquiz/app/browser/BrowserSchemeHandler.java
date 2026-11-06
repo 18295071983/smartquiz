@@ -131,11 +131,15 @@ public final class BrowserSchemeHandler {
      * <ul>
      *   <li>{@code ask}：先问用户——网页凭空把人送出浏览器是钓鱼面，所以默认要确认；
      *       但 {@code tel:/mailto:/sms:/geo:} 这类转交后本来就在系统界面里，不打扰。</li>
-     *   <li>{@code system}：直接交给能处理的应用；没有则回退网页或系统选择器。</li>
+     *   <li>{@code system}：直接交给能处理的应用；没有则回退网页或系统浏览器。</li>
      *   <li>{@code browser}：应用优先，没有应用时显式发给系统浏览器，由它按自己的协议表处理。</li>
      * </ul>
      * 询问时列出的出路来自 {@link BrowserScheme#optionsFor}，其中"打开对应网页"靠协议链接里
      * 带的回退地址（{@code browser_fallback_url}、{@code url=}、{@code link=} 等）。
+     *
+     * <p><b>没有应用能处理时绝不只丢一句提示</b>：直接把地址发给系统浏览器（它可能认这个
+     * 协议、也可能带自己的兜底页），实在连浏览器都不行才复制链接并说明。这是用户明确要的
+     * "不支持就交给系统浏览器处理"。</p>
      */
     public static void handoff(Context context, String url, WebView view, boolean fromWeb) {
         if (context == null || url == null || url.trim().isEmpty()) return;
@@ -158,13 +162,17 @@ public final class BrowserSchemeHandler {
         if (launch == null) {
             launch = buildViewIntent(appCtx, url, fromWeb);
         }
+        String fallback = BrowserScheme.webFallback(url);
+        boolean communication = BrowserScheme.isCommunicationScheme(url);
         if (launch == null) {
-            toast(appCtx, R.string.browser_scheme_bad_url, url);
+            // 连 URI 都拼不出来：至少把原串交给系统浏览器/复制，别报"链接无法解析"就结束
+            if (!handToBrowserOrCopy(appCtx, view, url, fallback, communication)) {
+                toast(appCtx, R.string.browser_scheme_bad_url, url);
+            }
             return;
         }
 
         boolean appResolved = hasResolver(appCtx, launch);
-        String fallback = BrowserScheme.webFallback(url);
         // 用户主动点出来的（卡片按钮 / 地址栏）：点击本身就是确认，直接交给对应应用。
         // 「每次询问」只拦网页凭空发起的跳转——那是钓鱼面，和用户点「导航」不是一回事。
         // 2026-11-06 真机：高德已安装且 amapuri:// 可解析，卡片按钮却先弹了未知协议询问框，
@@ -173,18 +181,38 @@ public final class BrowserSchemeHandler {
         if (userInitiated && appResolved && startIfResolvable(appCtx, launch, url)) {
             return;
         }
-        if (BrowserScheme.POLICY_ASK.equals(policy)
-                && !(appResolved && (userInitiated || BrowserScheme.isCommunicationScheme(url)))) {
-            askUser(context, url, view, launch, fallback, appResolved);
-            return;
+        if (appResolved) {
+            if (BrowserScheme.POLICY_ASK.equals(policy) && !communication) {
+                askUser(context, url, view, launch, fallback, true);
+                return;
+            }
+            if (startIfResolvable(appCtx, launch, url)) return;
+            // 解析得到、启动却失败（应用已卸载/被禁）：继续往下找出路，别停在异常里
         }
-        if (appResolved && startIfResolvable(appCtx, launch, url)) return;
-        if (BrowserScheme.POLICY_SYSTEM_BROWSER.equals(policy)
-                && sendToSystemBrowser(appCtx, view, url, fallback)) {
-            return;
-        }
+        // ★ 没有应用能处理：不问"要不要问"，直接交系统浏览器。旧实现在这里弹一张只写
+        // "手机里没有能处理 xx 协议的应用"的框/提示，用户既打不开也没法继续——这正是
+        // 用户说的"总提示本机不支持协议/没有安装应用"。
+        if (handToBrowserOrCopy(appCtx, view, url, fallback, communication)) return;
+        // 系统浏览器也接不住（或没装浏览器）：有回退网页就应用内打开
         if (openWeb(context, view, fallback)) return;
-        startChooser(appCtx, launch, url);
+        finishWithCopy(appCtx, url);
+    }
+
+    /**
+     * 交系统浏览器；浏览器不可用时退回"应用内打开回退网页"。
+     *
+     * @return true 表示已经有可继续的界面/动作
+     */
+    private static boolean handToBrowserOrCopy(Context appCtx, WebView view, String url,
+                                               String fallback, boolean communication) {
+        if (!communication) {
+            String browser = findBrowserPackage(appCtx);
+            if (browser != null && launchInBrowser(appCtx, browser, url)) {
+                toast(appCtx, R.string.browser_scheme_handed_to_browser, "");
+                return true;
+            }
+        }
+        return openWeb(appCtx, view, fallback);
     }
 
     // ==================== 内部 ====================
@@ -311,40 +339,51 @@ public final class BrowserSchemeHandler {
             chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(chooser);
         } catch (Throwable t) {
-            toast(context, R.string.browser_scheme_no_app, schemeHint(url));
+            // 选择器都起不来（没有任何候选）：别留一句"没有应用"就结束，先试系统浏览器
+            if (!handToBrowserOrCopy(context, null, url, BrowserScheme.webFallback(url),
+                    BrowserScheme.isCommunicationScheme(url))) {
+                finishWithCopy(context, url);
+            }
         }
     }
 
     /**
-     * 交给系统浏览器：把 URL 显式发给默认浏览器包名，由它按自己的协议表处理
+     * 显式交给系统浏览器：把 URL 发给浏览器包名，由它按自己的协议表处理
      * （这正是"系统浏览器能识别、内置浏览器却报错"的那些链接该有的出路）。
      */
-    private static boolean sendToSystemBrowser(Context context, WebView view, String url, String fallback) {
-        String browser = findBrowserPackage(context);
-        if (browser != null) {
-            try {
-                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                intent.setPackage(browser);
-                intent.addCategory(Intent.CATEGORY_BROWSABLE);
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                context.startActivity(intent);
-                Log.i(TAG, "协议已交系统浏览器 " + browser + ": " + url);
-                return true;
-            } catch (Throwable t) {
-                Log.w(TAG, "系统浏览器接不住该协议: " + t.getMessage());
-            }
+    private static boolean launchInBrowser(Context context, String browser, String url) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            intent.setPackage(browser);
+            intent.addCategory(Intent.CATEGORY_BROWSABLE);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
+            Log.i(TAG, "协议已交系统浏览器 " + browser + ": " + url);
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "系统浏览器接不住该协议: " + t.getMessage());
+            return false;
         }
-        // 浏览器也帮不上（或没装）：有回退网页就用内置浏览器打开，否则交不回
-        return openWeb(context, view, fallback);
     }
 
+    /**
+     * 找可用浏览器：优先系统默认浏览器，其次任意一个声明了浏览能力的应用。
+     *
+     * <p>旧实现只问 {@code MATCH_DEFAULT_ONLY}——用户没设默认浏览器时拿到的就是 null，
+     * 于是"交系统浏览器"这条出路整条失效。</p>
+     */
     private static String findBrowserPackage(Context context) {
+        String self = context.getPackageName();
         try {
             Intent probe = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.example.com"));
             probe.addCategory(Intent.CATEGORY_BROWSABLE);
-            List<ResolveInfo> browsers = context.getPackageManager()
-                    .queryIntentActivities(probe, PackageManager.MATCH_DEFAULT_ONLY);
-            String self = context.getPackageName();
+            PackageManager pm = context.getPackageManager();
+            ResolveInfo preferred = pm.resolveActivity(probe, PackageManager.MATCH_DEFAULT_ONLY);
+            if (preferred != null && preferred.activityInfo != null
+                    && !self.equals(preferred.activityInfo.packageName)) {
+                return preferred.activityInfo.packageName;
+            }
+            List<ResolveInfo> browsers = pm.queryIntentActivities(probe, 0);
             if (browsers != null) {
                 for (ResolveInfo info : browsers) {
                     String pkg = info.activityInfo != null ? info.activityInfo.packageName : null;
@@ -356,6 +395,23 @@ public final class BrowserSchemeHandler {
         return null;
     }
 
+    /**
+     * 地址栏输入是否该按协议转交。
+     *
+     * <p>页面/卡片里的链接直接用 {@link #isSchemeNavigation(String)}（那是链接，不必犹豫）；
+     * 地址栏是**用户敲的文字**，带冒号的普通话（"Note: hello"）不能被甩给系统浏览器。
+     * 所以这里多一道：要么一眼就是协议（带 {@code //} 或常见协议名），要么系统里真有
+     * 应用能接这条地址——两者都不满足才当搜索词。</p>
+     */
+    public static boolean isTypedScheme(Context context, String url) {
+        if (!isSchemeNavigation(url)) return false;
+        if (BrowserScheme.isExplicitProtocol(url)) return true;
+        if (context == null) return false;
+        Context appCtx = context.getApplicationContext() != null ? context.getApplicationContext() : context;
+        Intent probe = buildViewIntent(appCtx, url, false);
+        return probe != null && hasResolver(appCtx, probe);
+    }
+
     /** 询问用户：出路顺序 = 对应应用 → 对应网页 → 系统浏览器 → 复制链接 */
     private static void askUser(Context context, String url, WebView view,
                                 Intent viewIntent, String fallback, boolean appResolved) {
@@ -363,13 +419,19 @@ public final class BrowserSchemeHandler {
                 BrowserScheme.classify(url), appResolved, fallback);
         final Context appCtx = context.getApplicationContext() != null ? context.getApplicationContext() : context;
         if (!(context instanceof Activity)) {
-            // 没有 Activity 就弹不了框：给一条能照着做的提示，不做静默失败
-            toast(appCtx, R.string.browser_scheme_no_app, schemeHint(url));
+            // 没有 Activity 就弹不了框：能交系统浏览器就先交，交不出去再复制，不做静默失败
+            if (!handToBrowserOrCopy(appCtx, view, url, fallback,
+                    BrowserScheme.isCommunicationScheme(url))) {
+                finishWithCopy(appCtx, url);
+            }
             return;
         }
         if (keys.isEmpty()) {
             // optionsFor 至少会给"复制链接"；真为空说明调用方传坏了，别画一张只有取消的空框
-            toast(appCtx, R.string.browser_scheme_no_app, schemeHint(url));
+            if (!handToBrowserOrCopy(appCtx, view, url, fallback,
+                    BrowserScheme.isCommunicationScheme(url))) {
+                finishWithCopy(appCtx, url);
+            }
             return;
         }
         String scheme = schemeHint(url);
@@ -418,8 +480,10 @@ public final class BrowserSchemeHandler {
                 toast(appCtx, R.string.browser_scheme_no_browser, "");
             }
         } else if (BrowserScheme.OPT_SYSTEM_BROWSER.equals(key)) {
-            if (!sendToSystemBrowser(appCtx, view, url, fallback)) {
+            if (!handToBrowserOrCopy(appCtx, view, url, fallback,
+                    BrowserScheme.isCommunicationScheme(url))) {
                 toast(appCtx, R.string.browser_scheme_no_browser, "");
+                finishWithCopy(appCtx, url);
             }
         } else {
             copy(appCtx, url);
@@ -456,17 +520,33 @@ public final class BrowserSchemeHandler {
     }
 
     private static void copy(Context context, String url) {
+        if (!copySilently(context, url)) {
+            toast(context, R.string.browser_scheme_copy_failed, "");
+        } else {
+            toast(context, R.string.browser_link_copied, "");
+        }
+    }
+
+    /** 最后一层出路：复制链接，并说清"为什么只能复制"。 */
+    private static void finishWithCopy(Context context, String url) {
+        if (copySilently(context, url)) {
+            toast(context, R.string.browser_scheme_copied_fallback, "");
+        } else {
+            toast(context, R.string.browser_scheme_copy_failed, "");
+        }
+    }
+
+    private static boolean copySilently(Context context, String url) {
         try {
             ClipboardManager cm = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm != null) {
                 cm.setPrimaryClip(ClipData.newPlainText("链接", url));
-                toast(context, R.string.browser_link_copied, "");
-                return;
+                return true;
             }
         } catch (Throwable stepFailed) {
             com.oilquiz.app.util.AILogger.w("BrowserSchemeHandler", "这一步失败，结果可能被当成正常 · copy: " + stepFailed);
         }
-        toast(context, R.string.browser_scheme_copy_failed, "");
+        return false;
     }
 
     private static void toast(Context context, int resId, String arg) {

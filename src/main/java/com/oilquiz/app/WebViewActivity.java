@@ -27,7 +27,6 @@ import com.oilquiz.app.webview.RedirectWebViewClient;
 import com.oilquiz.app.webview.WebViewLoadManager;
 import com.oilquiz.app.webview.security.WebViewSecurityConfig;
 import com.oilquiz.app.webview.security.WebViewLifecycleManager;
-import com.oilquiz.app.webview.security.SecurityWebViewClient;
 import com.oilquiz.app.webview.js.JSInterfaceManager;
 import com.oilquiz.app.webview.js.JSToolInterface;
 import com.oilquiz.app.webview.js.JSClipboardInterface;
@@ -581,9 +580,11 @@ public class WebViewActivity extends BaseActivity {
     private void submitAddressInput() {
         if (browserAddress == null) return;
         String typed = browserAddress.getText().toString().trim();
-        // 地址栏里直接敲协议（weixin://、intent://、magnet:、tel:…）：这类地址 WebView 加载必失败，
-        // 旧口径把它当"不像网址"退回百度搜索，用户看到的是被搜索框吞掉。这里显式转交处置。
-        if (com.oilquiz.app.browser.BrowserSchemeHandler.isSchemeNavigation(typed)) {
+        // 地址栏里直接敲/粘贴协议（weixin://、intent://、magnet:、tel:…）：这类地址 WebView
+        // 加载必失败，旧口径把它当"不像网址"退回百度搜索，用户看到的是被搜索框吞掉。
+        // 这里用 isTypedScheme：带冒号的普通话（"Note: hello"）仍当搜索，只有一眼是协议
+        // 或系统里真有应用能接时才转交。
+        if (com.oilquiz.app.browser.BrowserSchemeHandler.isTypedScheme(this, typed)) {
             browserAddress.clearFocus();
             hideKeyboard();
             com.oilquiz.app.browser.BrowserSchemeHandler.handoff(this, typed, false);
@@ -3449,6 +3450,12 @@ public class WebViewActivity extends BaseActivity {
         public void openUrlInBrowser(String url) {
             runOnUiThread(() -> {
                 try {
+                    // 页面发起的自定义协议：走统一转交（与页面内点击同一口径），
+                    // 不能直接 ACTION_VIEW——没装应用时只剩一句"无法打开链接"。
+                    if (com.oilquiz.app.browser.BrowserSchemeHandler.isSchemeNavigation(url)) {
+                        com.oilquiz.app.browser.BrowserSchemeHandler.handoff(WebViewActivity.this, url, true);
+                        return;
+                    }
                     android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
                     startActivity(intent);
                 } catch (Exception e) {

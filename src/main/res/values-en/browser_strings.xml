@@ -84,7 +84,7 @@
 
     <!-- Custom-scheme handling: the in-app browser cannot render a scheme, so the user picks the way out -->
     <string name="browser_scheme_title">This link is not a web page</string>
-    <string name="browser_scheme_message">The %1$s scheme has to be handled by an app, which this browser cannot do. Choose how to continue:\n\n%2$s</string>
+    <string name="browser_scheme_message">The %1$s scheme opens in an app. Choose how to continue:\n\n%2$s</string>
     <string name="browser_scheme_open_app">Open with the matching app</string>
     <string name="browser_scheme_open_web">Open the matching web page</string>
     <string name="browser_scheme_chooser">Choose how to open</string>
@@ -93,6 +93,8 @@
     <string name="browser_scheme_no_browser">No system browser found, so this address cannot be handed off</string>
     <string name="browser_scheme_bad_url">Cannot parse link: %1$s</string>
     <string name="browser_scheme_copy_failed">Copy failed</string>
+    <string name="browser_scheme_handed_to_browser">No app can handle this scheme, so it was handed to the system browser</string>
+    <string name="browser_scheme_copied_fallback">No app can open this link. It was copied, so you can paste it into a browser</string>
     <string name="browser_scheme_policy_entry">Unknown scheme: %1$s</string>
     <string name="browser_scheme_policy_title">Unknown scheme handling</string>
     <string name="browser_scheme_policy_ask">Ask every time</string>

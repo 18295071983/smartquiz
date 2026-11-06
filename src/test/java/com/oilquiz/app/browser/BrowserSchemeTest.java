@@ -47,8 +47,24 @@ public class BrowserSchemeTest {
         assertEquals(BrowserScheme.Kind.NOT_A_SCHEME, BrowserScheme.classify("example.com:8443"));
         assertEquals(BrowserScheme.Kind.NOT_A_SCHEME, BrowserScheme.classify("微信"));
         assertEquals(BrowserScheme.Kind.NOT_A_SCHEME, BrowserScheme.classify("report.md"));
-        // 没有 "//" 也不是已知协议名的串，一律不当协议（宁可退回搜索，别谎报"没有对应应用"）
-        assertEquals(BrowserScheme.Kind.NOT_A_SCHEME, BrowserScheme.classify("notascheme:whatever"));
+        // 中文标点/全角冒号也不能被当成协议（Character.isLetter('时') 是 true）
+        assertEquals(BrowserScheme.Kind.NOT_A_SCHEME, BrowserScheme.classify("时间: 12:00"));
+    }
+
+    @Test
+    public void anyRfcSchemeIsAProtocolWithoutAPresetList() {
+        // 协议清单永远补不全：不在任何预设表里的私有协议也必须认（交给系统按 ACTION_VIEW 解析）
+        assertEquals(BrowserScheme.Kind.SYSTEM_APP, BrowserScheme.classify("notascheme:whatever"));
+        assertEquals(BrowserScheme.Kind.SYSTEM_APP, BrowserScheme.classify("myapp:open/page.html"));
+        assertEquals(BrowserScheme.Kind.SYSTEM_APP, BrowserScheme.classify("spotify:track:abc"));
+        assertTrue(BrowserSchemeHandler.isSchemeNavigation("notascheme:whatever"));
+        // 常见协议名的全数字正文不能被"端口"误伤
+        assertEquals(BrowserScheme.Kind.SYSTEM_APP, BrowserScheme.classify("tel:10086"));
+        assertEquals(BrowserScheme.Kind.SYSTEM_APP, BrowserScheme.classify("sms:10086"));
+        // 地址栏的口径更严：带冒号的普通话仍按搜索处理，除非系统里真有应用能接
+        assertFalse(BrowserScheme.isExplicitProtocol("Note: hello"));
+        assertTrue(BrowserScheme.isExplicitProtocol("myapp://open"));
+        assertTrue(BrowserScheme.isExplicitProtocol("tel:10086"));
     }
 
     @Test

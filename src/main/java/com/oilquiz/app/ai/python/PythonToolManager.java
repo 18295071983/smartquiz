@@ -1909,6 +1909,14 @@ public class PythonToolManager {
                                     com.oilquiz.app.ai.chat.component.ComponentActions.openLink(view.getContext(), url);
                                     return true;
                                 }
+                                // 自定义协议：统一转交（有应用开应用、没装应用交系统浏览器），
+                                // 旧实现 return false 让 WebView 加载它注定不认识的协议。
+                                if (url != null && com.oilquiz.app.browser.BrowserSchemeHandler
+                                        .isSchemeNavigation(url)) {
+                                    com.oilquiz.app.browser.BrowserSchemeHandler
+                                            .handoff(view.getContext(), url, true);
+                                    return true;
+                                }
                                 return false;
                             }
                         });

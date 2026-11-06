@@ -25,7 +25,8 @@ import java.util.Set;
  *   <li>{@code javascript} → {@link Kind#SCRIPT}，地址栏不许执行脚本。</li>
  *   <li>{@code intent://} → {@link Kind#INTENT}，是 Android 显式 intent 串，要解析而不是当协议。</li>
  *   <li>其余带协议的（{@code tel/mailto/sms/geo/ftp/market/} 及各种 App 私有协议）
- *       → {@link Kind#SYSTEM_APP}，交系统解析。</li>
+ *       → {@link Kind#SYSTEM_APP}，交系统解析。<b>不查预设表</b>：协议清单永远补不全，
+ *       能认多少由装机应用决定（见 {@link #schemeOf}）。</li>
  *   <li>看着像协议其实不是（{@code localhost:8080}、{@code 127.0.0.1:3000/x}、含中文的搜索词）
  *       → {@link Kind#NOT_A_SCHEME}，退回地址栏正常归一，别把端口当协议。</li>
  * </ol>
@@ -62,24 +63,29 @@ public final class BrowserScheme {
             new HashSet<>(Arrays.asList(POLICY_ASK, POLICY_SYSTEM_APP, POLICY_SYSTEM_BROWSER));
 
     /**
-     * 不带 {@code ://} 也算协议的常见名字。
+     * 不带 {@code ://} 的**常见**协议名，只用于回答"地址栏里敲的东西是不是协议"。
      *
-     * <p>为什么需要白名单：按 RFC 3986，{@code localhost:8080} 的 {@code localhost} 是合法
-     * scheme 字面量，照字符判会把开发机地址当成协议转交出去。只认「字符合法 <b>且</b> 后面紧跟
-     * {@code //}」或「在这张表里」，其余带冒号的输入留给 {@link BrowserUrlNormalizer}。</p>
+     * <p>判定不再依赖这张表：协议有多少种由装机应用决定，列表永远补不全（用户看到的就是
+     * "协议预设不全"）。{@link #schemeOf} 按 RFC 3986 的 scheme 语法判，只有
+     * {@code host:端口}（{@code localhost:8080}）这种例外需要拦住。这张表只保留"用户确实
+     * 敲的是协议、不必再问系统"的常见项，以及 {@link #NO_BROWSER_HINT} 的语义分组。</p>
      */
     private static final Set<String> BARE_SCHEMES = new HashSet<>(Arrays.asList(
-            "tel", "mailto", "sms", "smsto", "mms", "geo", "intent", "callto", "skype",
+            "tel", "mailto", "sms", "smsto", "mmsto", "mms", "geo", "intent", "callto", "skype",
             "ftp", "ftps", "sftp", "file", "content", "about", "data", "blob", "javascript",
             "market", "magnet", "ed2k", "thunder", "flashget", "svn", "svn+ssh", "git",
             "weixin", "wx", "alipay", "alipays", "taobao", "openapp", "tmall", "tbopen",
             "snssdk1128", "dingtalk", "weibo", "sinaweibo", "mqq", "qq", "kwai", "eleme",
-            "dianping", "baiduboxapp", "baiduboxlite", "imeituan", "itms-apps", "vscode",
-            "jetbrains", "slack", "telegram", "tg", "whatsapp", "zalo", "line", "viber"));
+            "dianping", "baiduboxapp", "baiduboxlite", "imeituan", "itms-apps", "facetime",
+            "vscode", "jetbrains", "slack", "telegram", "tg", "whatsapp", "zalo", "line", "viber"));
 
-    /** 这些协议转交给通讯/地图类 App 即可，"用系统浏览器打开"对它们没意义 */
+    /**
+     * 这些协议转交给通讯/地图类 App 即可，系统浏览器对它们没有意义
+     * （浏览器既不能拨号也不能写信，转过去只会再报一次"无法处理"）。
+     */
     private static final Set<String> NO_BROWSER_HINT = new HashSet<>(Arrays.asList(
-            "tel", "callto", "skype", "sms", "smsto", "mms", "mailto", "geo"));
+            "tel", "callto", "skype", "sms", "smsto", "mmsto", "mms", "mailto", "geo",
+            "facetime", "wtai"));
 
     private BrowserScheme() {
     }
@@ -88,6 +94,12 @@ public final class BrowserScheme {
 
     /**
      * 取 scheme（小写）；不是协议返回空串。
+     *
+     * <p>不再查预设表：任何符合 RFC 3986 语法的 {@code scheme:…} 都当协议，由系统按
+     * {@code ACTION_VIEW} 去解析——协议有多少种取决于装了什么应用，写死清单必然漏（漏掉的
+     * 结果就是用户看到的"协议预设不全 / 没有应用能打开"）。唯一例外是
+     * {@code host:端口}：{@code localhost:8080}、{@code example.com:8443} 的冒号前确实是
+     * 合法 scheme，但那是在敲地址，不能当协议转交。</p>
      */
     public static String schemeOf(String url) {
         if (url == null) return "";
@@ -99,22 +111,34 @@ public final class BrowserScheme {
         String lower = scheme.toLowerCase(Locale.ROOT);
         String rest = text.substring(colon + 1);
         if (rest.startsWith("//")) return lower;
-        return BARE_SCHEMES.contains(lower) ? lower : "";
+        // 常见协议名优先于"端口"判定：tel:10086、sms:10086 的正文就是全数字
+        if (BARE_SCHEMES.contains(lower)) return lower;
+        // host:端口（端口后可能还跟路径/查询/锚点）
+        if (looksLikePort(rest)) return "";
+        return lower;
+    }
+
+    /**
+     * 是否"一眼就是协议"：带 {@code //} 或属于常见协议名。
+     *
+     * <p>地址栏输入用它兜底：{@code Note: hello} 这种东西语法上也像 {@code note: hello}，
+     * 不该因为一次误判就把用户敲的文字甩给系统浏览器。页面/卡片里的链接不走这条判断。</p>
+     */
+    public static boolean isExplicitProtocol(String url) {
+        if (url == null) return false;
+        String text = url.trim();
+        int colon = text.indexOf(':');
+        if (colon <= 0) return false;
+        String scheme = text.substring(0, colon);
+        if (!isValidScheme(scheme)) return false;
+        return text.substring(colon + 1).startsWith("//")
+                || BARE_SCHEMES.contains(scheme.toLowerCase(Locale.ROOT));
     }
 
     /** 这条 URL 属于哪一类协议 */
     public static Kind classify(String url) {
         String scheme = schemeOf(url);
-        if (scheme.isEmpty()) {
-            // 带冒号但不在白名单：可能仍是真协议（如厂商私有 myapp://），"://" 才是硬证据
-            String text = url == null ? "" : url.trim();
-            int colon = text.indexOf(':');
-            if (colon > 0 && text.substring(colon + 1).startsWith("//")
-                    && isValidScheme(text.substring(0, colon))) {
-                return Kind.SYSTEM_APP;
-            }
-            return Kind.NOT_A_SCHEME;
-        }
+        if (scheme.isEmpty()) return Kind.NOT_A_SCHEME;
         switch (scheme) {
             case "http":
             case "https":
@@ -231,10 +255,37 @@ public final class BrowserScheme {
 
     private static boolean isValidScheme(String scheme) {
         if (scheme == null || scheme.isEmpty()) return false;
-        if (!Character.isLetter(scheme.charAt(0))) return false;
+        // 必须是 ASCII：Character.isLetter('时') 也是 true，按字符类判会把
+        // 「时间: 12:00」这种中文搜索词当成协议。
+        if (!isAsciiAlpha(scheme.charAt(0))) return false;
         for (int i = 1; i < scheme.length(); i++) {
             char c = scheme.charAt(i);
-            if (!Character.isLetterOrDigit(c) && c != '+' && c != '-' && c != '.') return false;
+            if (!isAsciiAlpha(c) && !isAsciiDigit(c) && c != '+' && c != '-' && c != '.') return false;
+        }
+        return true;
+    }
+
+    private static boolean isAsciiAlpha(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+    }
+
+    private static boolean isAsciiDigit(char c) {
+        return c >= '0' && c <= '9';
+    }
+
+    /** 冒号后是不是「端口」：{@code localhost:8080/x} 的 {@code 8080} 是端口，不是协议正文 */
+    private static boolean looksLikePort(String rest) {
+        int end = rest.length();
+        for (int i = 0; i < rest.length(); i++) {
+            char c = rest.charAt(i);
+            if (c == '/' || c == '?' || c == '#') {
+                end = i;
+                break;
+            }
+        }
+        if (end == 0) return false;
+        for (int i = 0; i < end; i++) {
+            if (!isAsciiDigit(rest.charAt(i))) return false;
         }
         return true;
     }

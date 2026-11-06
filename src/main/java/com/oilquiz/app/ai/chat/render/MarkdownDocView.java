@@ -125,12 +125,17 @@ public class MarkdownDocView extends WebView {
         if (url == null || url.isEmpty()) return true;
         if (url.startsWith("#")) return false;                 // 页内锚点
         String lower = url.toLowerCase(Locale.US);
-        if (lower.startsWith("http://") || lower.startsWith("https://")
-                || lower.startsWith("mailto:") || lower.startsWith("tel:")) {
+        if (lower.startsWith("http://") || lower.startsWith("https://")) {
             try {
                 getContext().startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
             } catch (Throwable ignored) {
             }
+            return true;
+        }
+        // 其它协议（mailto:/tel:/weixin:/alipays:/market:…）：交统一转交层——有应用开应用，
+        // 没装应用交系统浏览器/复制。旧实现一律吞掉（return true），用户点了像页面坏了。
+        if (com.oilquiz.app.browser.BrowserSchemeHandler.isSchemeNavigation(url)) {
+            com.oilquiz.app.browser.BrowserSchemeHandler.handoff(getContext(), url, true);
             return true;
         }
         return true;                                           // file/javascript/data 一律不导航

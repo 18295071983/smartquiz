@@ -120,6 +120,33 @@ public class BrowserSchemeHandlerTest {
     }
 
     @Test
+    public void missingAppHandsTheSchemeToTheSystemBrowserInsteadOfDeadEnding() {
+        Activity activity = Robolectric.buildActivity(Activity.class).setup().get();
+        registerBrowser(activity, "com.android.chrome");
+        // 策略是默认的"每次询问"，但系统里没有应用能处理：不该弹一张只写"没有应用"的框，
+        // 也不该只丢一句提示——直接交系统浏览器（用户明确要的"不支持就交给系统浏览器"）。
+        String link = "vendoronly:payload?x=1";
+        BrowserSchemeHandler.handleNavigation(new WebView(activity), link, true);
+        Intent started = shadowOf(activity).getNextStartedActivity();
+        assertNotNull("没有应用时也必须有一条能继续的出路", started);
+        assertEquals("com.android.chrome", started.getPackage());
+        assertEquals(link, started.getDataString());
+        assertNull("没有应用可开时不该再弹询问框", ShadowAlertDialog.getLatestAlertDialog());
+    }
+
+    @Test
+    public void typedPlainTextWithColonStaysASearchNotAHandoff() {
+        Activity activity = Robolectric.buildActivity(Activity.class).setup().get();
+        // 地址栏口径：带冒号的普通话不是协议（没有 "//"、不是常见协议名、系统里也没应用接）
+        assertFalse(BrowserSchemeHandler.isTypedScheme(activity, "Note: hello"));
+        // 私有协议没带 "//"，但系统里真有应用能接 → 按协议转交
+        registerHandler(activity, "vendoronly:payload?x=1", "com.vendor.app", ".Open", false);
+        assertTrue(BrowserSchemeHandler.isTypedScheme(activity, "vendoronly:payload?x=1"));
+        // 一眼是协议的（带 "//"）即使没装应用也认
+        assertTrue(BrowserSchemeHandler.isTypedScheme(activity, "vendoronly://open"));
+    }
+
+    @Test
     public void communicationSchemesLaunchWithoutPrompting() {
         Activity activity = Robolectric.buildActivity(Activity.class).setup().get();
         registerHandler(activity, "tel:10086", "com.android.dialer", ".DialtactsActivity");

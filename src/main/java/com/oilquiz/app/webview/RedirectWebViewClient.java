@@ -11,7 +11,6 @@ import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
-import android.webkit.WebViewClient;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -27,11 +26,14 @@ import java.util.Map;
  * 支持文件重定向 + 壳级 WebView 能力的 WebViewClient
  * - 导航策略（壳源码）：http/https 应用内加载；tel/mailto/sms 交系统；
  *   intent:// 智能解析（回退网页/启动应用）；其他 App 协议有应用则系统打开
+ * - 安全层继承自 {@link com.oilquiz.app.webview.security.SecurityWebViewClient}：危险协议
+ *   （javascript/data）拦截、带登录态的明文 HTTP 只警告不拦截、自定义协议统一转交——内置
+ *   浏览器不再与其它宿主各写一套协议判定
  * - 错误处理（壳源码）：主框架加载失败 → 友好的"重新加载"错误页（不显示系统/Chrome 错误页）
  * - 渲染进程崩溃保护（壳源码）：不杀应用，重置并提示
  * - 保留：Google 广告过滤、hf-mirror DNS 代理、文件重定向
  */
-public class RedirectWebViewClient extends WebViewClient {
+public class RedirectWebViewClient extends com.oilquiz.app.webview.security.SecurityWebViewClient {
 
     private static final String TAG = "RedirectWebViewClient";
 
@@ -69,27 +71,9 @@ public class RedirectWebViewClient extends WebViewClient {
     }
 
     // ==================== 导航策略（壳源码） ====================
-
-    @Override
-    public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-        String url = request != null && request.getUrl() != null ? request.getUrl().toString() : null;
-        if (request != null && !request.isForMainFrame()) {
-            // 子框架里的 http/图片/接口照常交 WebView；但广告 iframe 里的「打开 App」协议
-            // 同样要接管——否则内核直接在 iframe 里报 scheme 错误，用户点什么都没反应。
-            return com.oilquiz.app.browser.BrowserSchemeHandler.handleNavigation(view, url, true);
-        }
-        return handleUrl(view, url);
-    }
-
-    /**
-     * 导航策略：http/https/file/about/data/blob 应用内加载；
-     * tel/mailto/sms/geo/ftp/market 及 App 私有协议、{@code intent://} 交
-     * {@link com.oilquiz.app.browser.BrowserSchemeHandler} 处置
-     * （有应用则打开、有回退网页则应用内加载、都没有则给用户选路子）。
-     */
-    private boolean handleUrl(WebView view, String url) {
-        return com.oilquiz.app.browser.BrowserSchemeHandler.handleNavigation(view, url, true);
-    }
+    // 导航口径全部在安全层（父类 shouldOverrideUrlLoading）：危险协议拦截、带登录态的
+    // 明文 HTTP 只警告、自定义协议/intent:// 统一转交；http(s)/file/about/blob/content
+    // 交内核按壳能力加载。主框架与子框架同一口径，这里不再另写一份。
 
     // ==================== 资源拦截（保留：广告过滤 + hf 代理 + 文件重定向） ====================
 

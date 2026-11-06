@@ -660,7 +660,7 @@ public final class ComponentActions {
         }
         Intent intent = new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + number));
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        context.startActivity(intent);
+        safeStart(context, intent, "没有能拨号的应用");
     }
 
     private static void sms(Context context, String number, String text) {
@@ -671,7 +671,7 @@ public final class ComponentActions {
         Intent intent = new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + number));
         if (text != null && !text.isEmpty()) intent.putExtra("sms_body", text);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        context.startActivity(intent);
+        safeStart(context, intent, "没有能发短信的应用");
     }
 
     private static void email(Context context, String to, String subject, String text) {
@@ -683,7 +683,7 @@ public final class ComponentActions {
         if (subject != null && !subject.isEmpty()) intent.putExtra(Intent.EXTRA_SUBJECT, subject);
         if (text != null && !text.isEmpty()) intent.putExtra(Intent.EXTRA_TEXT, text);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        context.startActivity(intent);
+        safeStart(context, intent, "没有能发邮件的应用");
     }
 
     private static void openMap(Context context, String query) {
@@ -694,7 +694,16 @@ public final class ComponentActions {
         Intent intent = new Intent(Intent.ACTION_VIEW,
                 Uri.parse("geo:0,0?q=" + Uri.encode(query)));
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        context.startActivity(intent);
+        safeStart(context, intent, "没有能打开地图的应用");
+    }
+
+    /** 卡片里的通讯/地图动作：没装对应应用时给提示，不让 ActivityNotFoundException 冒到主线程 */
+    private static void safeStart(Context context, Intent intent, String failure) {
+        try {
+            context.startActivity(intent);
+        } catch (Exception e) {
+            Toast.makeText(context, failure, Toast.LENGTH_SHORT).show();
+        }
     }
 
     /** 打开链接：http/https 应用内 WebView；file:// 或绝对路径系统 Intent 打开 */

@@ -500,6 +500,15 @@ public class SystemResourceTool implements AITool {
                 // 应用内浏览器（与聊天链接同一落点），不再跳系统 Chrome
                 intent = new Intent(context, com.oilquiz.app.WebViewActivity.class);
                 intent.putExtra("url", encodedUrl);
+            } else if (com.oilquiz.app.browser.BrowserSchemeHandler
+                    .isSchemeNavigation(encodedUrl)) {
+                // 自定义协议：走统一转交（有应用开应用、没装应用交系统浏览器）。
+                // 旧实现直接 ACTION_VIEW，没装应用时把 "No Activity found" 当工具失败回给模型。
+                com.oilquiz.app.browser.BrowserSchemeHandler.handoff(context, encodedUrl, false);
+                Map<String, Object> handled = new HashMap<>();
+                handled.put("status", "success");
+                handled.put("message", "已交给系统处理该链接: " + url);
+                return new AIToolResult(handled, parameters);
             } else {
                 intent = new Intent(Intent.ACTION_VIEW, uri);
             }

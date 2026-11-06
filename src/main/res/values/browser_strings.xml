@@ -84,7 +84,7 @@
 
     <!-- 未知/自定义协议处置：内置浏览器不认协议，出路得由用户选 -->
     <string name="browser_scheme_title">该链接不是网页地址</string>
-    <string name="browser_scheme_message">协议 %1$s 需要由应用处理，内置浏览器无法直接打开。选一种方式继续：\n\n%2$s</string>
+    <string name="browser_scheme_message">协议 %1$s 由应用打开。选一种方式继续：\n\n%2$s</string>
     <string name="browser_scheme_open_app">用对应应用打开</string>
     <string name="browser_scheme_open_web">打开对应网页</string>
     <string name="browser_scheme_chooser">选择打开方式</string>
@@ -93,6 +93,8 @@
     <string name="browser_scheme_no_browser">没找到可用的系统浏览器，这条地址交不出去</string>
     <string name="browser_scheme_bad_url">链接无法解析：%1$s</string>
     <string name="browser_scheme_copy_failed">复制失败</string>
+    <string name="browser_scheme_handed_to_browser">没有应用能处理该协议，已交给系统浏览器</string>
+    <string name="browser_scheme_copied_fallback">没有应用能打开该链接，已复制，可粘贴到浏览器打开</string>
     <string name="browser_scheme_policy_entry">未知协议处理：%1$s</string>
     <string name="browser_scheme_policy_title">未知协议处理方式</string>
     <string name="browser_scheme_policy_ask">每次询问</string>

@@ -207,6 +207,14 @@ public class SimpleWebViewActivity extends BaseActivity {
                         Log.w(TAG, "文件链接处理失败: " + url + " - " + e.getMessage());
                     }
                 }
+                // 自定义协议（weixin:/alipays:/market:…）：交统一转交层，有应用开应用、
+                // 没装应用交系统浏览器。旧实现落到最后 return false，让 WebView 去加载
+                // 它注定不认识的协议，页面只剩一张错误页。
+                if (com.oilquiz.app.browser.BrowserSchemeHandler.isSchemeNavigation(url)) {
+                    com.oilquiz.app.browser.BrowserSchemeHandler.handoff(
+                            SimpleWebViewActivity.this, url, true);
+                    return true;
+                }
                 // 相对链接：交给 WebView 内部导航（baseUrl 指向工作区，可打开同目录资源）
                 return false;
             }

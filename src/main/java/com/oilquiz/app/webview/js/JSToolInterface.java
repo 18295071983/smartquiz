@@ -90,13 +90,21 @@ public class JSToolInterface {
     @JavascriptInterface
     public void openUrlInBrowser(String url) {
         if (context == null || url == null) return;
-        try {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(intent);
-        } catch (Exception e) {
-            Log.e(TAG, "无法打开链接: " + url, e);
-            showToast("无法打开链接");
-        }
+        // JS 桥回调不在主线程：协议询问框/系统选择器都要在主线程起
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            try {
+                // 自定义协议统一走转交层：有应用开应用、没装应用交系统浏览器
+                if (com.oilquiz.app.browser.BrowserSchemeHandler.isSchemeNavigation(url)) {
+                    com.oilquiz.app.browser.BrowserSchemeHandler.handoff(context, url, true);
+                    return;
+                }
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+            } catch (Exception e) {
+                Log.e(TAG, "无法打开链接: " + url, e);
+                showToast("无法打开链接");
+            }
+        });
     }
 }
