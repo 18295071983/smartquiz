@@ -134,7 +134,28 @@ public class FileRenderActivity extends BaseActivity {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
                 webSettings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
             }
+            wvHtml.setWebViewClient(new android.webkit.WebViewClient() {
+                @Override
+                public android.webkit.WebResourceResponse shouldInterceptRequest(
+                        android.webkit.WebView view,
+                        android.webkit.WebResourceRequest request) {
+                    android.webkit.WebResourceResponse r = com.oilquiz.app.webview.LocalSiteLoader
+                            .getInstance(FileRenderActivity.this)
+                            .shouldInterceptRequest(request != null ? request.getUrl() : null);
+                    return r != null ? r : super.shouldInterceptRequest(view, request);
+                }
+            });
         }
+    }
+
+    /** 本地 HTML 的相对资源/fetch 走 LocalSiteLoader；没有本地文件时退回 asset base。 */
+    private String htmlBaseUrl() {
+        if (currentFile != null) {
+            String base = com.oilquiz.app.webview.LocalSiteLoader
+                    .getInstance(this).baseUrlForFile(currentFile);
+            if (base != null) return base;
+        }
+        return "file:///android_asset/";
     }
 
     private void handleIntent(Intent intent) {
@@ -327,7 +348,7 @@ public class FileRenderActivity extends BaseActivity {
             String contentStr = (String) content;
             if (contentStr.startsWith("<html") || contentStr.contains("<html") || contentStr.contains("<body") || contentStr.contains("<div")) {
                 Log.d(TAG, "Loading HTML content, length: " + contentStr.length());
-                wvHtml.loadDataWithBaseURL("file:///android_asset/", contentStr, "text/html", "UTF-8", null);
+                wvHtml.loadDataWithBaseURL(htmlBaseUrl(), contentStr, "text/html", "UTF-8", null);
                 wvHtml.setVisibility(View.VISIBLE);
             } else {
                 tvText.setText(contentStr);
@@ -346,7 +367,7 @@ public class FileRenderActivity extends BaseActivity {
             } else if (contentMap.containsKey("htmlContent")) {
                 String htmlContent = String.valueOf(contentMap.get("htmlContent"));
                 Log.d(TAG, "Loading HTML content from map, length: " + htmlContent.length());
-                wvHtml.loadDataWithBaseURL("file:///android_asset/", htmlContent, "text/html", "UTF-8", null);
+                wvHtml.loadDataWithBaseURL(htmlBaseUrl(), htmlContent, "text/html", "UTF-8", null);
                 wvHtml.setVisibility(View.VISIBLE);
             } else if (contentMap.containsKey("content")) {
                 tvText.setText(String.valueOf(contentMap.get("content")));

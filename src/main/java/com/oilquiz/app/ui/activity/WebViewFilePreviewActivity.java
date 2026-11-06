@@ -219,6 +219,14 @@ public class WebViewFilePreviewActivity extends com.oilquiz.app.ui.base.LegacyRe
         // 页面加载完成后同步虚拟列默认映射（拆分预览模式）
         previewWebView.setWebViewClient(new WebViewClient() {
             @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(
+                    WebView view, android.webkit.WebResourceRequest request) {
+                android.webkit.WebResourceResponse r = com.oilquiz.app.webview.LocalSiteLoader
+                        .getInstance(WebViewFilePreviewActivity.this)
+                        .shouldInterceptRequest(request != null ? request.getUrl() : null);
+                return r != null ? r : super.shouldInterceptRequest(view, request);
+            }
+            @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if (pendingVirtualSync) {

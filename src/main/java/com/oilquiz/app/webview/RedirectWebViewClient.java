@@ -80,6 +80,11 @@ public class RedirectWebViewClient extends com.oilquiz.app.webview.security.Secu
     @Override
     @Nullable
     public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+        // 本地多文件站点（LocalSiteLoader）：先交给 WebViewAssetLoader
+        WebResourceResponse local = com.oilquiz.app.webview.LocalSiteLoader
+                .getInstance(view.getContext())
+                .shouldInterceptRequest(request != null ? request.getUrl() : null);
+        if (local != null) return local;
         // Google 广告网络过滤（googlesyndication/doubleclick/googleadservices/adservice）
         Uri uri = request.getUrl();
         if (isGoogleAdRequest(uri)) {

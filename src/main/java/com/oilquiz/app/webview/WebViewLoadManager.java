@@ -403,6 +403,15 @@ public class WebViewLoadManager {
         }
         
         @Override
+        public android.webkit.WebResourceResponse shouldInterceptRequest(
+                WebView view, android.webkit.WebResourceRequest request) {
+            android.webkit.WebResourceResponse r = LocalSiteLoader
+                    .getInstance(view.getContext())
+                    .shouldInterceptRequest(request != null ? request.getUrl() : null);
+            return r != null ? r : super.shouldInterceptRequest(view, request);
+        }
+
+        @Override
         public void onReceivedError(WebView view, android.webkit.WebResourceRequest request,
                                     android.webkit.WebResourceError error) {
             super.onReceivedError(view, request, error);

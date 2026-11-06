@@ -104,6 +104,14 @@ public class SimpleWebViewActivity extends BaseActivity {
 
         // WebViewClient：链接处理 + 页面进度 + JS 交互诊断
         webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(
+                    WebView view, WebResourceRequest request) {
+                android.webkit.WebResourceResponse r = com.oilquiz.app.webview.LocalSiteLoader
+                        .getInstance(view.getContext())
+                        .shouldInterceptRequest(request != null ? request.getUrl() : null);
+                return r != null ? r : super.shouldInterceptRequest(view, request);
+            }
             /**
              * 站点要 HTTP 认证（401/407）。
              *
@@ -336,8 +344,12 @@ public class SimpleWebViewActivity extends BaseActivity {
             }
             // baseUrl 指向 Agent 工作区（相对链接自动解析到工作区文件：
             // <a href="report.md"> → 工作区/report.md，点击可预览）
-            String baseUrl = "file://" + com.oilquiz.app.ai.agent.online.AgentWorkspace
-                    .getInstance(this).getWorkspacePath() + "/";
+            java.io.File workspace = new java.io.File(com.oilquiz.app.ai.agent.online.AgentWorkspace
+                    .getInstance(this).getWorkspacePath());
+            String loaderBase = com.oilquiz.app.webview.LocalSiteLoader
+                    .getInstance(this).baseUrlForDir(workspace);
+            String baseUrl = loaderBase != null ? loaderBase
+                    : "file://" + workspace.getAbsolutePath() + "/";
             webView.loadDataWithBaseURL(baseUrl, content, "text/html", "UTF-8", null);
         } catch (Exception e) {
             Log.e(TAG, "读取 HTML 文件失败: " + e.getMessage(), e);

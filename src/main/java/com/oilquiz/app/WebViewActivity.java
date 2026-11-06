@@ -1622,6 +1622,17 @@ public class WebViewActivity extends BaseActivity {
      */
     private void loadUrl(String url) {
         if (url == null || url.isEmpty()) return;
+        // 本地 file:// 统一走 loadFile：HTML 会用 LocalSiteLoader 虚拟站点承载相对资源/fetch
+        if (url.startsWith("file://")) {
+            try {
+                java.io.File local = new java.io.File(android.net.Uri.parse(url).getPath());
+                if (local.isFile()) {
+                    loadFile(local);
+                    return;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
         exitFileMode();
         updateAddressBar(url);
         try {
@@ -1724,7 +1735,10 @@ public class WebViewActivity extends BaseActivity {
             try {
                 String content = CharsetDetector.readFileAutoDetect(file);
                 // 使用loadDataWithBaseURL加载HTML内容，设置base URL为文件所在目录，确保相对路径资源能正确加载
-                String baseUrl = fileUrl.substring(0, fileUrl.lastIndexOf("/")) + "/";
+                String loaderBase = com.oilquiz.app.webview.LocalSiteLoader
+                        .getInstance(this).baseUrlForFile(file);
+                String baseUrl = loaderBase != null ? loaderBase
+                        : fileUrl.substring(0, fileUrl.lastIndexOf("/")) + "/";
                 loadDataWithBaseURL(baseUrl, content, "text/html", "UTF-8", null);
             } catch (Exception e) {
                 AppLogger.e(TAG, "加载HTML文件失败: " + e.getMessage(), e);
@@ -2542,6 +2556,15 @@ public class WebViewActivity extends BaseActivity {
                 // window.open / target=_blank：在新标签页承载，子 WebView 只做 URL 中转
                 WebView child = new WebView(getApplicationContext());
                 child.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public android.webkit.WebResourceResponse shouldInterceptRequest(
+                            WebView v, android.webkit.WebResourceRequest request) {
+                        android.webkit.WebResourceResponse r = com.oilquiz.app.webview.LocalSiteLoader
+                                .getInstance(v.getContext())
+                                .shouldInterceptRequest(request != null ? request.getUrl() : null);
+                        return r != null ? r : super.shouldInterceptRequest(v, request);
+                    }
+
                     @Override
                     public boolean shouldOverrideUrlLoading(WebView v,
                                                             android.webkit.WebResourceRequest request) {

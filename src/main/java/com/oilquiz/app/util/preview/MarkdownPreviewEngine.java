@@ -220,6 +220,15 @@ public class MarkdownPreviewEngine extends BasePreviewEngine {
 
                 view.setWebViewClient(new WebViewClient() {
                     @Override
+                    public android.webkit.WebResourceResponse shouldInterceptRequest(
+                            WebView v, android.webkit.WebResourceRequest request) {
+                        android.webkit.WebResourceResponse r = com.oilquiz.app.webview.LocalSiteLoader
+                                .getInstance(context)
+                                .shouldInterceptRequest(request != null ? request.getUrl() : null);
+                        return r != null ? r : super.shouldInterceptRequest(v, request);
+                    }
+
+                    @Override
                     public void onPageFinished(WebView v, String url) {
                         // 页面脚本是内联同步执行的，onPageFinished 时正文已渲染；
                         // 再等一帧，避免首次排版/字体还没落定。
@@ -234,7 +243,10 @@ public class MarkdownPreviewEngine extends BasePreviewEngine {
                 view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                         View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
                 view.layout(0, 0, width, height);
-                view.loadDataWithBaseURL(baseUrlOf(file), html, "text/html", "UTF-8", null);
+                String loaderBase = com.oilquiz.app.webview.LocalSiteLoader
+                        .getInstance(context).baseUrlForFile(file);
+                view.loadDataWithBaseURL(loaderBase != null ? loaderBase : baseUrlOf(file),
+                        html, "text/html", "UTF-8", null);
                 MAIN.postDelayed(timeout, TIMEOUT_MS);
             } catch (Throwable t) {
                 Log.w(TAG, "离屏 WebView 初始化失败: " + t.getMessage());

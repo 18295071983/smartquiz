@@ -208,6 +208,15 @@ public class MarkdownWebView extends FrameLayout {
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient() {
             @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(
+                    WebView view, WebResourceRequest request) {
+                android.webkit.WebResourceResponse r = com.oilquiz.app.webview.LocalSiteLoader
+                        .getInstance(view.getContext())
+                        .shouldInterceptRequest(request != null ? request.getUrl() : null);
+                return r != null ? r : super.shouldInterceptRequest(view, request);
+            }
+
+            @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String u = request != null && request.getUrl() != null ? request.getUrl().toString() : null;
                 return handleNavigation(u);
