@@ -376,6 +376,61 @@
 
             </LinearLayout>
 
+            <!-- 内置浏览器（全宽入口）：WebViewActivity 是唯一浏览器壳（地址栏/标签页/历史/下载都在里面） -->
+            <LinearLayout
+                android:id="@+id/btn_browser"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/space_10"
+                android:background="@drawable/weather_card_glass"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="@dimen/space_14">
+
+                <ImageView
+                    android:layout_width="@dimen/size_44"
+                    android:layout_height="@dimen/size_44"
+                    android:contentDescription="@string/browser"
+                    android:src="@drawable/ic_browser_window"
+                    android:tint="@color/future_text_primary" />
+
+                <LinearLayout
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_14"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/browser"
+                        android:textColor="@color/future_text_primary"
+                        android:textSize="@dimen/text_16"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_3"
+                        android:text="@string/browser_entry_desc"
+                        android:textColor="@color/indigo_pale"
+                        android:textSize="@dimen/text_12" />
+
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/chevron_arrow"
+                    android:textColor="@color/future_text_primary"
+                    android:textSize="@dimen/text_28" />
+
+            </LinearLayout>
+
             <!-- 行1：导入导出 / 工具集 -->
             <LinearLayout
                 android:layout_width="match_parent"

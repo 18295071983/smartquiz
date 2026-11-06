@@ -134,7 +134,8 @@ public class AgentExecutionView extends LinearLayout {
         tvStepContent.setText(content != null ? content : "");
 
         String typeColor = getStepTypeColor(stepType);
-        tvStepType.setTextColor(getContext().getResources().getColor(getColorRes(typeColor)));
+        tvStepType.setTextColor(androidx.core.content.ContextCompat.getColor(
+                getContext(), getColorRes(typeColor)));
         tvStepType.setBackgroundResource(getBackgroundRes(typeColor));
 
         toolParamsContainer.setVisibility(View.GONE);
@@ -167,7 +168,8 @@ public class AgentExecutionView extends LinearLayout {
         tvTitle.setText("Agent执行完成");
         tvTitleIcon.setText("🎉");
         tvStepType.setText("完成");
-        tvStepType.setTextColor(getContext().getResources().getColor(R.color.success));
+        tvStepType.setTextColor(androidx.core.content.ContextCompat.getColor(
+                getContext(), R.color.success));
         tvStepType.setBackgroundResource(R.drawable.agent_step_type_tag_success);
 
         if (finalContent != null && !finalContent.isEmpty()) {
@@ -181,7 +183,8 @@ public class AgentExecutionView extends LinearLayout {
         tvTitle.setText("Agent执行失败");
         tvTitleIcon.setText("❌");
         tvStepType.setText("失败");
-        tvStepType.setTextColor(getContext().getResources().getColor(R.color.error));
+        tvStepType.setTextColor(androidx.core.content.ContextCompat.getColor(
+                getContext(), R.color.error));
         tvStepType.setBackgroundResource(R.drawable.agent_step_type_tag_error);
         tvStepContent.setText(error != null ? error : "未知错误");
 

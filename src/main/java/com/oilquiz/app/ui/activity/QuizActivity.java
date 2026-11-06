@@ -464,22 +464,22 @@ public class QuizActivity extends BaseActivity {
         MaterialButton buttonNext = findViewById(R.id.buttonNext);
         if (buttonNext != null) {
             // 保持XML中定义的背景，只更新文字颜色为黑色
-            buttonNext.setTextColor(getResources().getColor(R.color.black));
+            buttonNext.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.black));
         }
         
         MaterialButton buttonPrevious = findViewById(R.id.buttonPrevious);
         if (buttonPrevious != null) {
-            buttonPrevious.setTextColor(getResources().getColor(R.color.black));
+            buttonPrevious.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.black));
         }
         
         MaterialButton buttonMark = findViewById(R.id.buttonMark);
         if (buttonMark != null) {
-            buttonMark.setTextColor(getResources().getColor(R.color.black));
+            buttonMark.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.black));
         }
         
         MaterialButton buttonShowAnswer = findViewById(R.id.buttonShowAnswer);
         if (buttonShowAnswer != null) {
-            buttonShowAnswer.setTextColor(getResources().getColor(R.color.black));
+            buttonShowAnswer.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.black));
         }
         
         // 选项卡片背景由渲染引擎统一管理
@@ -1205,7 +1205,7 @@ public class QuizActivity extends BaseActivity {
                 if (i == currentQuestionIndex) {
                     // 当前题：主色 + 略微放大
                     navButton.setBackgroundResource(R.drawable.nav_button_current);
-                    navButton.setTextColor(getResources().getColor(R.color.white));
+                    navButton.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.white));
                     navButton.setTextSize(13);
                     LinearLayout.LayoutParams curParams = new LinearLayout.LayoutParams(
                             (int) (48 * getResources().getDisplayMetrics().density + 0.5f),
@@ -1215,7 +1215,7 @@ public class QuizActivity extends BaseActivity {
                 } else if (userAnswers != null && i < userAnswers.size()
                         && userAnswers.get(i) != null && !userAnswers.get(i).isEmpty()) {
                     navButton.setBackgroundResource(R.drawable.nav_button_answered);
-                    navButton.setTextColor(getResources().getColor(R.color.white));
+                    navButton.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.white));
                 } else {
                     navButton.setBackgroundResource(R.drawable.nav_button_unanswered);
                     navButton.setTextColor(ThemeColors.attr(this, R.attr.colorControlTextSecondary));
@@ -1256,11 +1256,11 @@ public class QuizActivity extends BaseActivity {
                     if (questionIndex == currentQuestionIndex) {
                         // 当前题目：主色圆形
                         navButton.setBackgroundResource(R.drawable.nav_button_current);
-                        navButton.setTextColor(getResources().getColor(R.color.white));
+                        navButton.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.white));
                     } else if (isAnswered) {
                         // 已作答题目：浅主色圆形
                         navButton.setBackgroundResource(R.drawable.nav_button_answered);
-                        navButton.setTextColor(getResources().getColor(R.color.white));
+                        navButton.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.white));
                     } else {
                         // 未作答题目：白底灰边圆形
                         navButton.setBackgroundResource(R.drawable.nav_button_unanswered);
@@ -1368,13 +1368,13 @@ public class QuizActivity extends BaseActivity {
                     float progress = (float) millisUntilFinished / totalTime;
                     if (progress > 0.5) {
                         // 剩余时间充足
-                        textViewTimer.setTextColor(getResources().getColor(R.color.white));
+                        textViewTimer.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.white));
                     } else if (progress > 0.25) {
                         // 剩余时间中等
-                        textViewTimer.setTextColor(getResources().getColor(R.color.yellow));
+                        textViewTimer.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.yellow));
                     } else {
                         // 剩余时间不足
-                        textViewTimer.setTextColor(getResources().getColor(R.color.red));
+                        textViewTimer.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.red));
                         
                         // 最后10秒添加闪烁效果
                         if (millisUntilFinished < 10000) {
@@ -1396,7 +1396,7 @@ public class QuizActivity extends BaseActivity {
             public void onFinish() {
                 if (textViewTimer != null) {
                     textViewTimer.setText("00:00");
-                    textViewTimer.setTextColor(getResources().getColor(R.color.red));
+                    textViewTimer.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.red));
                     
                     // 时间到的动画效果
                     textViewTimer.animate()
@@ -1832,10 +1832,10 @@ public class QuizActivity extends BaseActivity {
                 String tag = (String) rb.getTag();
                 if (tag != null && tag.equals(correctAnswer)) {
                     rb.setBackgroundResource(R.drawable.option_bg_correct);
-                    rb.setTextColor(getResources().getColor(R.color.success));
+                    rb.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.success));
                 } else if (tag != null && tag.equals(userAnswer) && !tag.equals(correctAnswer)) {
                     rb.setBackgroundResource(R.drawable.option_bg_wrong);
-                    rb.setTextColor(getResources().getColor(R.color.error));
+                    rb.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.error));
                 }
             }
         } else if ("多选题".equals(normalizedType)) {
@@ -1846,10 +1846,10 @@ public class QuizActivity extends BaseActivity {
                 boolean isUserSelected = userAnswer != null && userAnswer.contains(tag);
                 if (isCorrectOption) {
                     cb.setBackgroundResource(R.drawable.option_bg_correct);
-                    cb.setTextColor(getResources().getColor(R.color.success));
+                    cb.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.success));
                 } else if (isUserSelected && !isCorrectOption) {
                     cb.setBackgroundResource(R.drawable.option_bg_wrong);
-                    cb.setTextColor(getResources().getColor(R.color.error));
+                    cb.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.error));
                 }
             }
         }
@@ -2007,7 +2007,7 @@ public class QuizActivity extends BaseActivity {
                 if (textViewAnswer != null) {
                     textViewAnswer.setVisibility(View.VISIBLE);
                     if (isCorrect) {
-                        textViewAnswer.setTextColor(getResources().getColor(R.color.green));
+                        textViewAnswer.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.green));
                         textViewAnswer.setText(getString(R.string.h_16b46626) + correctAnswer + " ✓");
                         correctCount++;
                         
@@ -2023,7 +2023,7 @@ public class QuizActivity extends BaseActivity {
                                     }
                                 });
                     } else {
-                        textViewAnswer.setTextColor(getResources().getColor(R.color.red));
+                        textViewAnswer.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.red));
                         textViewAnswer.setText(getString(R.string.h_16b46626) + correctAnswer + " ✗");
                         
                         // 错误答案的动画效果
@@ -2399,7 +2399,7 @@ public class QuizActivity extends BaseActivity {
                 
                 // 最后1分钟变红色警告
                 if (millisUntilFinished < 60000) {
-                    textViewTimer.setTextColor(getResources().getColor(R.color.error_color));
+                    textViewTimer.setTextColor(androidx.core.content.ContextCompat.getColor(QuizActivity.this, R.color.error_color));
                 }
             }
             

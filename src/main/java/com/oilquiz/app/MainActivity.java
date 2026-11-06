@@ -218,7 +218,7 @@ public class MainActivity extends BaseActivity {
                     android.widget.TextView tvAiStatus = findViewById(R.id.tvAiStatus);
                     if (tvAiStatus != null) {
                         tvAiStatus.setText(getString(R.string.ai_status_unknown));
-                        tvAiStatus.setTextColor(getResources().getColor(R.color.error));
+                        tvAiStatus.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.error));
                     }
                 });
             }
@@ -258,7 +258,7 @@ public class MainActivity extends BaseActivity {
                     npuSb.append(String.format(java.util.Locale.US, " · %.1f t/s", npuTps));
                 }
                 tvAiStatus.setText(npuSb.toString());
-                tvAiStatus.setTextColor(getResources().getColor(
+                tvAiStatus.setTextColor(androidx.core.content.ContextCompat.getColor(this, 
                         "ERROR".equals(npuState) ? R.color.error : R.color.success));
                 return;
             }
@@ -272,17 +272,17 @@ public class MainActivity extends BaseActivity {
                     case INITIALIZED:
                         statusText = getString(R.string.status_online_prefix,
                                 displayModelName != null ? displayModelName : getString(R.string.status_online_api));
-                        statusColor = getResources().getColor(R.color.success);
+                        statusColor = androidx.core.content.ContextCompat.getColor(this, R.color.success);
                         break;
                     case ERROR:
                         // 本地服务 ERROR（如 LlamaHelper 未加载）与在线服务无关，在线仍可用
                         statusText = getString(R.string.status_online_prefix,
                                 displayModelName != null ? displayModelName : getString(R.string.status_local_ready));
-                        statusColor = getResources().getColor(R.color.success);
+                        statusColor = androidx.core.content.ContextCompat.getColor(this, R.color.success);
                         break;
                     default:
                         statusText = getString(R.string.status_online_ready);
-                        statusColor = getResources().getColor(R.color.success);
+                        statusColor = androidx.core.content.ContextCompat.getColor(this, R.color.success);
                         break;
                 }
             } else {
@@ -296,7 +296,7 @@ public class MainActivity extends BaseActivity {
                         } else {
                             statusText = getString(R.string.status_local_ready);
                         }
-                        statusColor = getResources().getColor(R.color.success);
+                        statusColor = androidx.core.content.ContextCompat.getColor(this, R.color.success);
                         break;
                     case MODEL_FILE_PREPARING:
                     case MODEL_LOADING:
@@ -304,11 +304,11 @@ public class MainActivity extends BaseActivity {
                     case CHAT_CONTEXT_CREATING:
                     case NATIVE_LIBRARY_LOADING:
                         statusText = getString(R.string.status_loading_progress, progress);
-                        statusColor = getResources().getColor(R.color.warning);
+                        statusColor = androidx.core.content.ContextCompat.getColor(this, R.color.warning);
                         break;
                     case CPU_FALLBACK:
                         statusText = getString(R.string.status_cpu_progress, progress);
-                        statusColor = getResources().getColor(R.color.warning);
+                        statusColor = androidx.core.content.ContextCompat.getColor(this, R.color.warning);
                         break;
                     case ERROR:
                         if (errorMessage != null && !errorMessage.isEmpty()) {
@@ -316,12 +316,12 @@ public class MainActivity extends BaseActivity {
                         } else {
                             statusText = getString(R.string.status_init_failed);
                         }
-                        statusColor = getResources().getColor(R.color.error);
+                        statusColor = androidx.core.content.ContextCompat.getColor(this, R.color.error);
                         break;
                     case UNINITIALIZED:
                     default:
                         statusText = getString(R.string.status_not_loaded);
-                        statusColor = getResources().getColor(R.color.error);
+                        statusColor = androidx.core.content.ContextCompat.getColor(this, R.color.error);
                         break;
                 }
             }
@@ -538,6 +538,10 @@ public class MainActivity extends BaseActivity {
                 }
             });
         }
+
+        // 内置浏览器入口（2026-11-06）：WebViewActivity 是唯一浏览器壳，
+        // 不传 url 时走 BrowserUrlNormalizer.HOME_URL 起始页。
+        setupButton(R.id.btn_browser, WebViewActivity.class);
         
         // 数据库管理 已移至工具集
         

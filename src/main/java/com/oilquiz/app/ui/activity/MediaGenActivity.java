@@ -643,7 +643,7 @@ public class MediaGenActivity extends Activity {
             imgResult.setVisibility(View.VISIBLE);
             tvVideoInfo.setVisibility(View.GONE);
             videoActions.setVisibility(View.GONE);
-            com.bumptech.glide.Glide.with(this).load(f).into(imgResult);
+            com.bumptech.glide.Glide.with(imgResult).load(f).into(imgResult);
         } else {
             // 视频
             imgResult.setVisibility(View.GONE);
@@ -934,7 +934,7 @@ public class MediaGenActivity extends Activity {
                 .url(url)
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json")
-                .post(okhttp3.RequestBody.create(JSON, body.toString()));
+                .post(okhttp3.RequestBody.create(body.toString(), JSON));
         try (okhttp3.Response resp = client.newCall(rb.build()).execute()) {
             String text = resp.body() != null ? resp.body().string() : "";
             if (!resp.isSuccessful()) {

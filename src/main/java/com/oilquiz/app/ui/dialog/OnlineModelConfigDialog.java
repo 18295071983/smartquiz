@@ -40,6 +40,7 @@ import java.util.concurrent.CompletableFuture;
  * 在线模型配置对话框
  * 支持：API配置、模型列表获取、模型选择、使用量显示
  */
+@SuppressWarnings("deprecation") // 弹窗窗口仍靠 ADJUST_RESIZE 跟输入法收缩
 public class OnlineModelConfigDialog {
 
     private Dialog dialog;

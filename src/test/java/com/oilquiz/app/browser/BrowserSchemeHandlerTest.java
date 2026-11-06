@@ -131,6 +131,51 @@ public class BrowserSchemeHandlerTest {
     }
 
     @Test
+    public void cardInitiatedSchemeLaunchesWithoutAsking() {
+        Activity activity = Robolectric.buildActivity(Activity.class).setup().get();
+        String link = "amapuri://navi?lon=106.2&lat=38.4";
+        registerHandler(activity, link, "com.autonavi.minimap", ".SchemeHandleActivity", false);
+        // fromWeb=false：卡片/地址栏主动点的，点击本身就是确认
+        BrowserSchemeHandler.handleNavigation(new WebView(activity), link, false);
+        Intent started = shadowOf(activity).getNextStartedActivity();
+        assertNotNull("卡片点击应直接交给能处理该协议的应用，不再弹确认框", started);
+        assertEquals("com.autonavi.minimap", started.getPackage());
+        assertEquals("amapuri", started.getData().getScheme());
+        assertNull("用户主动点的不该再弹询问框", ShadowAlertDialog.getLatestAlertDialog());
+    }
+
+    @Test
+    public void unknownSchemeDialogRendersVisibleOptions() {
+        Activity activity = Robolectric.buildActivity(Activity.class).setup().get();
+        String link = "weixin://dl/business/?t=x";
+        registerHandler(activity, link, "com.tencent.mm", ".LaunchUI");
+        BrowserSchemeHandler.handleNavigation(new WebView(activity), link, true);
+        android.app.AlertDialog dialog = ShadowAlertDialog.getLatestAlertDialog();
+        assertNotNull(dialog);
+        // 2026-11-06 真机：setItems 的列表整块渲染成空白，只剩"取消"。
+        // 现在改为自定义纵向选项，这里钉住"每一行真的有文字"。
+        android.view.View custom = dialog.findViewById(android.R.id.custom);
+        assertNotNull("应挂上自定义出路列表", custom);
+        assertTrue(custom instanceof android.view.ViewGroup);
+        android.view.ViewGroup frame = (android.view.ViewGroup) custom;
+        android.view.ViewGroup box = frame;
+        if (frame.getChildCount() == 1 && frame.getChildAt(0) instanceof android.view.ViewGroup) {
+            box = (android.view.ViewGroup) frame.getChildAt(0);
+        }
+        assertTrue("至少要列出可选的出路", box.getChildCount() >= 2);
+        boolean hasText = false;
+        for (int i = 0; i < box.getChildCount(); i++) {
+            android.view.View child = box.getChildAt(i);
+            if (child instanceof android.widget.TextView
+                    && ((android.widget.TextView) child).getText().length() > 0) {
+                hasText = true;
+                break;
+            }
+        }
+        assertTrue("出路行必须有可见文字", hasText);
+    }
+
+    @Test
     public void unknownSchemeErrorRestoresThePageInsteadOfAnErrorPage() {
         Activity activity = Robolectric.buildActivity(Activity.class).setup().get();
         WebView view = new WebView(activity);
@@ -151,8 +196,14 @@ public class BrowserSchemeHandlerTest {
      * 不是产品没转交。</p>
      */
     private static void registerHandler(Activity activity, String url, String pkg, String cls) {
+        registerHandler(activity, url, pkg, cls, true);
+    }
+
+    /** @param browsable false 用于"用户主动点卡片/地址栏"的 Intent（不带 BROWSABLE 约束） */
+    private static void registerHandler(Activity activity, String url, String pkg, String cls,
+                                        boolean browsable) {
         Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-        intent.addCategory(Intent.CATEGORY_BROWSABLE);
+        if (browsable) intent.addCategory(Intent.CATEGORY_BROWSABLE);
         ResolveInfo info = new ResolveInfo();
         ActivityInfo activityInfo = new ActivityInfo();
         activityInfo.packageName = pkg;

@@ -305,6 +305,8 @@
     <string name="ai_analyzer">AI分析器</string>
     <string name="ai_assistant">AI助手</string>
     <string name="ai_chat">AI聊天</string>
+    <string name="browser">浏览器</string>
+    <string name="browser_entry_desc">内置浏览器 · 地址栏 / 标签页 / 下载</string>
     <string name="ai_settings">AI设置</string>
     <string name="generate_answer">生成答案</string>
     

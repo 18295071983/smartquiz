@@ -175,6 +175,7 @@ public class DebugLayoutInjectActivity extends Activity {
     }
 
     /** 弹窗模式：直接用 NativeLayoutRenderer 渲染 layout 到 AlertDialog（含 input → 验证输入法） */
+    @SuppressWarnings("deprecation") // 弹窗窗口仍靠 ADJUST_RESIZE 跟输入法收缩，暂无等价替代
     private void showDialog(org.json.JSONObject layout, String title) {
         android.view.View view = com.oilquiz.app.ai.python.NativeLayoutRenderer.render(
                 this, layout.toString(), null, new java.util.HashMap<>());
@@ -192,7 +193,6 @@ public class DebugLayoutInjectActivity extends Activity {
                 injectIme(dialog.getWindow().getDecorView(), 0);
             }, 250);
         });
-        // 注意：不能 show() 后立即 finish——Activity 销毁时对话框窗口还活着会抛 WindowLeaked。
         // 改为对话框关闭时才结束本 Activity，保证弹窗全程可交互（含输入法唤起验证）。
         dialog.setOnDismissListener(d -> finish());
         dialog.show();

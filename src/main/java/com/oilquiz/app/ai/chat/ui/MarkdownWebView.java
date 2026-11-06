@@ -214,11 +214,6 @@ public class MarkdownWebView extends FrameLayout {
             }
 
             @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                return handleNavigation(url);
-            }
-
-            @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 // 认"最后一次发出的加载"：被后续加载取消掉的旧加载若也回调，

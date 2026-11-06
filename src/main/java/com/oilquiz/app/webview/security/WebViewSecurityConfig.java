@@ -57,12 +57,10 @@ public class WebViewSecurityConfig {
         settings.setSavePassword(false);
         
         // 不保存表单数据
-        settings.setSaveFormData(false);
         
         // ==================== 数据库和存储配置 ====================
         
         // 禁用 WebSQL（已废弃，存在安全风险）
-        settings.setDatabaseEnabled(false);
         
         // DOM 存储（LocalStorage）- 根据需要开启
         settings.setDomStorageEnabled(true);

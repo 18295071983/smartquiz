@@ -232,14 +232,21 @@ public class ToolRegistryTool implements AITool {
                 // 而 get(旧名) 又能命中——两边矛盾，模型就没机会怀疑自己叫错了工具。
                 java.util.List<String> aliasList = mgr.aliasesOf(toolName);
                 if (filter != null) {
+                    // 多关键词（"打开应用 启动"）按**任一词**命中即可：整串当子串会让自然语言查询
+                    // 恒为 0 条（2026-11-06 真机：搜"打开应用 启动 intent"搜不到 system_resource，
+                    // 模型于是断言"没有打开应用的能力"，改去挂按钮）。单关键词行为不变。
                     String dn = toolName.toLowerCase();
                     String dd = d.get("description") != null
                             ? String.valueOf(d.get("description")).toLowerCase() : "";
-                    boolean aliasHit = false;
-                    for (String a : aliasList) {
-                        if (a != null && a.toLowerCase().contains(filter)) { aliasHit = true; break; }
+                    boolean keywordHit = false;
+                    for (String token : splitSearchTokens(filter)) {
+                        if (dn.contains(token) || dd.contains(token)) { keywordHit = true; break; }
+                        for (String a : aliasList) {
+                            if (a != null && a.toLowerCase().contains(token)) { keywordHit = true; break; }
+                        }
+                        if (keywordHit) break;
                     }
-                    if (!dn.contains(filter) && !dd.contains(filter) && !aliasHit) continue;
+                    if (!keywordHit) continue;
                 }
                 if (offset > 0) { offset--; continue; }
                 if (limit >= 0 && tools.size() >= limit) break;
@@ -273,44 +280,40 @@ public class ToolRegistryTool implements AITool {
             com.oilquiz.app.ai.tool.AIToolManager mgr =
                     com.oilquiz.app.ai.tool.AIToolManager.getInstance(context);
             List<Map<String, Object>> descriptions = mgr.getToolDescriptions();
-            String kw = keyword.toLowerCase().trim();
-            List<Map<String, Object>> nameHits = new ArrayList<>();
-            List<Map<String, Object>> aliasHits = new ArrayList<>();
-            List<Map<String, Object>> descHits = new ArrayList<>();
+            String kw = keyword == null ? "" : keyword.toLowerCase().trim();
+            // 分词而不是整串子串匹配（2026-11-06 真机）：
+            // 模型很自然地写 "打开应用 启动 intent 应用操作"，而没有任何一条描述包含这一整串，
+            // 于是 count=0。它据此判定"没有打开应用的能力"，最后去造一个点不动的卡片按钮。
+            java.util.List<String> tokens = splitSearchTokens(kw);
+            List<SearchHit> hits = new ArrayList<>();
             for (Map<String, Object> d : descriptions) {
                 String name = String.valueOf(d.get("name"));
                 String desc = d.get("description") != null ? String.valueOf(d.get("description")) : "";
-                String lowerName = name.toLowerCase();
-                String lowerDesc = desc.toLowerCase();
-                // 命中原因透明化（2026-09-23 v3，模型第二轮测试反馈）：返回 matched 字段
-                // 说明命中在 name 还是 description——截断后描述看不出"为什么命中"
-                boolean hitName = kw.isEmpty() || lowerName.contains(kw);
-                // 别名命中（2026-10-29 评审）：旧名/别名要能被 search 检出，否则"搜不到却 get 得到"
-                String hitAlias = null;
-                if (!hitName && !kw.isEmpty()) {
-                    for (String a : mgr.aliasesOf(name)) {
-                        if (a != null && a.toLowerCase().contains(kw)) { hitAlias = a; break; }
+                // 命中原因透明化（2026-09-23 v3）：matched 说明命中在 name / alias / description；
+                // 多词查询再补 matched_tokens，让模型知道是哪个词把这条捞出来的。
+                SearchScore score = scoreTool(name, desc, mgr.aliasesOf(name), tokens);
+                if (score.score <= 0) continue;
+                Map<String, Object> t = new HashMap<>();
+                t.put("name", name);
+                // NO-CLIP(2026-11-02)：搜索结果同样给全文描述，不裁字数。
+                t.put("description", desc);
+                if (!kw.isEmpty()) {
+                    t.put("matched", score.tier == 3 ? "name" : (score.tier == 2 ? "alias" : "description"));
+                    if (score.alias != null) t.put("matched_alias", score.alias);
+                    if (tokens.size() > 1 && !score.hitTokens.isEmpty()) {
+                        t.put("matched_tokens", new ArrayList<>(score.hitTokens));
                     }
                 }
-                boolean hitDesc = !hitName && hitAlias == null && lowerDesc.contains(kw);
-                if (hitName || hitAlias != null || hitDesc) {
-                    Map<String, Object> t = new HashMap<>();
-                    t.put("name", name);
-                    // NO-CLIP(2026-11-02)：搜索结果同样给全文描述，不裁字数。
-                    t.put("description", desc);
-                    if (!kw.isEmpty()) {
-                        t.put("matched", hitName ? "name" : (hitAlias != null ? "alias" : "description"));
-                        if (hitAlias != null) t.put("matched_alias", hitAlias);
-                    }
-                    (hitName ? nameHits : (hitAlias != null ? aliasHits : descHits)).add(t);
-                }
+                hits.add(new SearchHit(score, name, t));
             }
-            // 2026-09-23 v3.1（模型第三轮反馈）：相关度排序——精确名命中优先于描述命中，
-            // 避免搜 uicomponent 时精确名排第 5
-            List<Map<String, Object>> tools = new ArrayList<>();
-            tools.addAll(nameHits);
-            tools.addAll(aliasHits);
-            tools.addAll(descHits);
+            // 相关度排序：命中词多/命中在名字上优先（避免搜 uicomponent 时精确名排第 5）
+            hits.sort((a, b) -> {
+                if (b.score.score != a.score.score) return b.score.score - a.score.score;
+                if (b.score.tier != a.score.tier) return b.score.tier - a.score.tier;
+                return a.name.compareTo(b.name);
+            });
+            List<Map<String, Object>> tools = new ArrayList<>(hits.size());
+            for (SearchHit h : hits) tools.add(h.card);
             Map<String, Object> result = new HashMap<>();
             result.put("count", tools.size());
             result.put("tools", tools);
@@ -318,6 +321,89 @@ public class ToolRegistryTool implements AITool {
         } catch (Exception e) {
             return new AIToolResult("搜索工具失败: " + e.getMessage(), null);
         }
+    }
+
+    private static final class SearchHit {
+        final SearchScore score;
+        final String name;
+        final Map<String, Object> card;
+
+        SearchHit(SearchScore score, String name, Map<String, Object> card) {
+            this.score = score;
+            this.name = name;
+            this.card = card;
+        }
+    }
+
+    /** 单个工具对一次查询的命中结果：分数、最好命中层级（3=name/2=alias/1=description）、命中词。 */
+    static final class SearchScore {
+        int score;
+        int tier;
+        String alias;
+        final java.util.List<String> hitTokens = new ArrayList<>();
+    }
+
+    /**
+     * 查询分词：空白与中英文逗号/顿号/分号/斜杠/竖线。去重保序。
+     *
+     * <p>这里只做"词"级切分，不做中文分词——工具名和描述本身就是中英混排的短文本，
+     * 按分隔符切开已经能把"打开应用 启动 intent"（模型最常写的样子）还原成可命中的词。</p>
+     */
+    static java.util.List<String> splitSearchTokens(String keyword) {
+        java.util.List<String> out = new ArrayList<>();
+        if (keyword == null) return out;
+        String[] parts = keyword.toLowerCase(java.util.Locale.ROOT).trim()
+                .split("[\\s,，、;；/|]+");
+        for (String p : parts) {
+            String token = p.trim();
+            if (!token.isEmpty() && !out.contains(token)) out.add(token);
+        }
+        return out;
+    }
+
+    /**
+     * 给一个工具打分：名字命中 4 分、别名 3 分、描述 1 分；取每个词的最高档。
+     * 空查询返回"全部命中"（保持 list/search 不带 keyword 时的旧语义）。
+     */
+    static SearchScore scoreTool(String name, String desc, java.util.List<String> aliases,
+                                 java.util.List<String> tokens) {
+        SearchScore r = new SearchScore();
+        if (tokens == null || tokens.isEmpty()) {
+            r.score = 4;
+            r.tier = 3;
+            return r;
+        }
+        String lowerName = name == null ? "" : name.toLowerCase(java.util.Locale.ROOT);
+        String lowerDesc = desc == null ? "" : desc.toLowerCase(java.util.Locale.ROOT);
+        for (String token : tokens) {
+            if (token == null || token.isEmpty()) continue;
+            if (lowerName.contains(token)) {
+                r.score += 4;
+                r.tier = Math.max(r.tier, 3);
+                r.hitTokens.add(token);
+                continue;
+            }
+            String aliasHit = null;
+            if (aliases != null) {
+                for (String a : aliases) {
+                    if (a != null && a.toLowerCase(java.util.Locale.ROOT).contains(token)) {
+                        aliasHit = a;
+                        break;
+                    }
+                }
+            }
+            if (aliasHit != null) {
+                r.score += 3;
+                r.tier = Math.max(r.tier, 2);
+                if (r.alias == null) r.alias = aliasHit;
+                r.hitTokens.add(token);
+            } else if (lowerDesc.contains(token)) {
+                r.score += 1;
+                r.tier = Math.max(r.tier, 1);
+                r.hitTokens.add(token);
+            }
+        }
+        return r;
     }
 
     private AIToolResult getToolSchema(String toolName) {

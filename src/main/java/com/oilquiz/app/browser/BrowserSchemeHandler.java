@@ -10,10 +10,14 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.util.Log;
+import android.util.TypedValue;
 import android.webkit.WebView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 
 import java.util.List;
 import java.util.Locale;
@@ -161,8 +165,16 @@ public final class BrowserSchemeHandler {
 
         boolean appResolved = hasResolver(appCtx, launch);
         String fallback = BrowserScheme.webFallback(url);
+        // 用户主动点出来的（卡片按钮 / 地址栏）：点击本身就是确认，直接交给对应应用。
+        // 「每次询问」只拦网页凭空发起的跳转——那是钓鱼面，和用户点「导航」不是一回事。
+        // 2026-11-06 真机：高德已安装且 amapuri:// 可解析，卡片按钮却先弹了未知协议询问框，
+        // 看起来像"还是打不开"。
+        boolean userInitiated = !fromWeb;
+        if (userInitiated && appResolved && startIfResolvable(appCtx, launch, url)) {
+            return;
+        }
         if (BrowserScheme.POLICY_ASK.equals(policy)
-                && !(appResolved && BrowserScheme.isCommunicationScheme(url))) {
+                && !(appResolved && (userInitiated || BrowserScheme.isCommunicationScheme(url)))) {
             askUser(context, url, view, launch, fallback, appResolved);
             return;
         }
@@ -349,40 +361,74 @@ public final class BrowserSchemeHandler {
                                 Intent viewIntent, String fallback, boolean appResolved) {
         List<String> keys = BrowserScheme.optionsFor(url,
                 BrowserScheme.classify(url), appResolved, fallback);
-        String[] labels = new String[keys.size()];
-        for (int i = 0; i < keys.size(); i++) {
-            labels[i] = optionLabel(context, keys.get(i));
-        }
         final Context appCtx = context.getApplicationContext() != null ? context.getApplicationContext() : context;
         if (!(context instanceof Activity)) {
             // 没有 Activity 就弹不了框：给一条能照着做的提示，不做静默失败
             toast(appCtx, R.string.browser_scheme_no_app, schemeHint(url));
             return;
         }
+        if (keys.isEmpty()) {
+            // optionsFor 至少会给"复制链接"；真为空说明调用方传坏了，别画一张只有取消的空框
+            toast(appCtx, R.string.browser_scheme_no_app, schemeHint(url));
+            return;
+        }
         String scheme = schemeHint(url);
-        new android.app.AlertDialog.Builder(context)
+        // 用自定义纵向选项，而不是 AlertDialog.setItems：2026-11-06 真机截图里列表项整块
+        // 渲染成空白（白底白字/0 高），用户只看到"取消"，误以为没有出路。
+        LinearLayout box = new LinearLayout(context);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(context, 8), 0, dp(context, 8), 0);
+        final android.app.AlertDialog[] dialogRef = new android.app.AlertDialog[1];
+        for (int i = 0; i < keys.size(); i++) {
+            final String key = keys.get(i);
+            TextView row = new TextView(context);
+            row.setText(optionLabel(context, key));
+            row.setTextSize(16);
+            row.setTextColor(ThemeColors.attr(context, R.attr.colorControlText));
+            row.setPadding(dp(context, 16), dp(context, 14), dp(context, 16), dp(context, 14));
+            row.setClickable(true);
+            TypedValue bg = new TypedValue();
+            context.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, bg, true);
+            if (bg.resourceId != 0) row.setBackgroundResource(bg.resourceId);
+            row.setOnClickListener(v -> {
+                if (dialogRef[0] != null) dialogRef[0].dismiss();
+                performOption(context, appCtx, view, viewIntent, fallback, url, key);
+            });
+            box.addView(row);
+        }
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(context)
                 .setTitle(R.string.browser_scheme_title)
                 .setMessage(appCtx.getString(R.string.browser_scheme_message, scheme, url))
-                .setItems(labels, (dialog, which) -> {
-                    String key = keys.get(which);
-                    if (BrowserScheme.OPT_SYSTEM_APP.equals(key)) {
-                        if (!startIfResolvable(appCtx, viewIntent, url)) {
-                            startChooser(appCtx, viewIntent, url);
-                        }
-                    } else if (BrowserScheme.OPT_WEB_FALLBACK.equals(key)) {
-                        if (!openWeb(context, view, fallback)) {
-                            toast(appCtx, R.string.browser_scheme_no_browser, "");
-                        }
-                    } else if (BrowserScheme.OPT_SYSTEM_BROWSER.equals(key)) {
-                        if (!sendToSystemBrowser(appCtx, view, url, fallback)) {
-                            toast(appCtx, R.string.browser_scheme_no_browser, "");
-                        }
-                    } else {
-                        copy(appCtx, url);
-                    }
-                })
+                .setView(box)
                 .setNegativeButton(R.string.browser_cancel, null)
-                .show();
+                .create();
+        dialogRef[0] = dialog;
+        dialog.show();
+    }
+
+    /** 执行询问框里选中的一条出路。 */
+    private static void performOption(Context context, Context appCtx, WebView view,
+                                      Intent viewIntent, String fallback, String url, String key) {
+        if (BrowserScheme.OPT_SYSTEM_APP.equals(key)) {
+            if (!startIfResolvable(appCtx, viewIntent, url)) {
+                startChooser(appCtx, viewIntent, url);
+            }
+        } else if (BrowserScheme.OPT_WEB_FALLBACK.equals(key)) {
+            if (!openWeb(context, view, fallback)) {
+                toast(appCtx, R.string.browser_scheme_no_browser, "");
+            }
+        } else if (BrowserScheme.OPT_SYSTEM_BROWSER.equals(key)) {
+            if (!sendToSystemBrowser(appCtx, view, url, fallback)) {
+                toast(appCtx, R.string.browser_scheme_no_browser, "");
+            }
+        } else {
+            copy(appCtx, url);
+        }
+    }
+
+    private static int dp(Context context, float value) {
+        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value,
+                context.getResources().getDisplayMetrics());
     }
 
     private static String optionLabel(Context context, String key) {

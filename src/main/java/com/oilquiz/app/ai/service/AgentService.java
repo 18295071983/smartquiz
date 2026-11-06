@@ -352,7 +352,7 @@ public class AgentService {
 
         registerToolParamSchema("app_operation",
             new ToolParamSchema("action", "string", "操作类型：navigate(导航), list_pages(列出页面), go_home(返回主页), go_back(返回上一页)", false, "navigate"),
-            new ToolParamSchema("page", "string", "页面名称(如user/question/quiz/study_plan等)", false, null));
+            new ToolParamSchema("page", "string", "页面名称(如user/question/quiz/study_plan/browser等)", false, null));
 
         registerToolParamSchema("permission_manager",
             new ToolParamSchema("action", "string", "操作类型：check(检查), check_all(批量检查), request(请求), request_and_wait(请求并等待), get_status(获取状态), list_permissions(列出权限), explain_permission(解释权限), can_request(是否可请求)", false, "check"),

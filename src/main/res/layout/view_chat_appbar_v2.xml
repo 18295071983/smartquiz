@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 聊天页 v2 顶栏（demo/ai-chat-redesign.html 的 header.appbar）：
-     左：历史抽屉；中：会话标题 + 模型副标题（整块可点，开模型面板）；右：新建 / 更多。
+     左：历史抽屉 + 内置浏览器；中：会话标题 + 模型副标题（整块可点，开模型面板）；右：新建 / 更多。
      2026-10-21：改成 FrameLayout，标题真正居中（demo 是 44 / 1fr / 44 的居中式，
      用 LinearLayout weight 居中会被左侧汉堡与右侧两枚按钮挤偏）。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -21,6 +21,19 @@
         android:padding="@dimen/chat_v2_icon_button_pad"
         android:scaleType="fitCenter"
         android:src="@drawable/ic_menu_hamburger"
+        app:tint="@color/chat_v2_text_2"/>
+
+    <ImageView
+        android:id="@+id/chat_v2_btn_browser"
+        android:layout_width="@dimen/chat_v2_icon_button"
+        android:layout_height="@dimen/chat_v2_icon_button"
+        android:layout_gravity="start|center_vertical"
+        android:layout_marginStart="@dimen/chat_v2_icon_button"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/browser"
+        android:padding="@dimen/chat_v2_icon_button_pad"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_browser_window"
         app:tint="@color/chat_v2_text_2"/>
 
     <!-- 标题 + 副标题：整块点击打开模型面板（demo 的 .title-btn）；水平居中 -->

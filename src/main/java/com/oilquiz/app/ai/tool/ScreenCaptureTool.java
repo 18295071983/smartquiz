@@ -81,16 +81,13 @@ public class ScreenCaptureTool implements AITool {
             try {
                 WindowManager wm = (WindowManager) SmartQuizApplication.getAppContext()
                         .getSystemService(Context.WINDOW_SERVICE);
-                DisplayMetrics metrics = new DisplayMetrics();
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    wm.getCurrentWindowMetrics().getBounds();
-                    wm.getDefaultDisplay().getRealMetrics(metrics);
-                } else {
-                    //noinspection deprecation
-                    wm.getDefaultDisplay().getRealMetrics(metrics);
-                }
-                int w = metrics.widthPixels;
-                int h = metrics.heightPixels;
+                // minSdk 31：直接走 WindowMetrics（旧实现 API 30 分支仍调用了已废弃的
+                // getDefaultDisplay().getRealMetrics，而且忽略了 getBounds 的结果）
+                android.graphics.Rect bounds = wm.getCurrentWindowMetrics().getBounds();
+                DisplayMetrics metrics = SmartQuizApplication.getAppContext()
+                        .getResources().getDisplayMetrics();
+                int w = bounds.width();
+                int h = bounds.height();
                 int dpi = metrics.densityDpi;
                 ImageReader reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2);
                 reader.setOnImageAvailableListener(r -> {
@@ -626,16 +623,10 @@ public class ScreenCaptureTool implements AITool {
         CAPTURE_HANDLER.post(() -> {
             try {
                 WindowManager wm = (WindowManager) appContext.getSystemService(Context.WINDOW_SERVICE);
-                DisplayMetrics metrics = new DisplayMetrics();
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    wm.getCurrentWindowMetrics().getBounds();
-                    wm.getDefaultDisplay().getRealMetrics(metrics);
-                } else {
-                    //noinspection deprecation
-                    wm.getDefaultDisplay().getRealMetrics(metrics);
-                }
-                int w = metrics.widthPixels;
-                int h = metrics.heightPixels;
+                android.graphics.Rect bounds = wm.getCurrentWindowMetrics().getBounds();
+                DisplayMetrics metrics = appContext.getResources().getDisplayMetrics();
+                int w = bounds.width();
+                int h = bounds.height();
                 int dpi = metrics.densityDpi;
 
                 ImageReader reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2);

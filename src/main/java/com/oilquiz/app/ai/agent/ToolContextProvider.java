@@ -117,9 +117,6 @@ public class ToolContextProvider {
 
                 @Override
                 public void onProviderEnabled(String provider) {}
-
-                @Override
-                public void onStatusChanged(String provider, int status, Bundle extras) {}
             };
 
             // 5秒超时
@@ -245,8 +242,8 @@ public class ToolContextProvider {
     /** 通过 Geocoder 反查城市名（同步），失败返回"当前位置" */
     private static String reverseGeocode(Context ctx, double lat, double lon) {
         try {
-            Geocoder geocoder = new Geocoder(ctx, Locale.getDefault());
-            List<Address> addresses = geocoder.getFromLocation(lat, lon, 1);
+            List<Address> addresses = com.oilquiz.app.ai.tool.GeocodeCompat
+                    .fromLocation(ctx, lat, lon, 1);
             if (addresses != null && !addresses.isEmpty()) {
                 Address addr = addresses.get(0);
                 // 优先使用 locality（城市），其次 subAdminArea / adminArea

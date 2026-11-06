@@ -150,7 +150,7 @@ public class ModelListAdapter extends RecyclerView.Adapter<ModelListAdapter.Mode
             modelContextText = itemView.findViewById(R.id.model_context);
 
             itemView.setOnClickListener(v -> {
-                int position = getAdapterPosition();
+                int position = getBindingAdapterPosition();
                 if (position != RecyclerView.NO_POSITION) {
                     ApiModel model = models.get(position);
                     setSelectedModel(model.id);
@@ -161,7 +161,7 @@ public class ModelListAdapter extends RecyclerView.Adapter<ModelListAdapter.Mode
             });
 
             modelRadio.setOnClickListener(v -> {
-                int position = getAdapterPosition();
+                int position = getBindingAdapterPosition();
                 if (position != RecyclerView.NO_POSITION) {
                     ApiModel model = models.get(position);
                     setSelectedModel(model.id);

@@ -172,6 +172,9 @@ public class ComponentRegistry {
      */
     public View render(Context context, ComponentData data) {
         if (data == null || data.type == null) return null;
+        // 历史数据纠偏：file_card 的 path 是网址（网络搜索结果被兜底成文件卡）时，
+        // 按链接卡渲染。否则点开会被当成本地文件送进 FileRenderActivity，报"文件不存在"。
+        data = normalizeRemoteFileCard(data);
         // canonical 优先（table_card/steps_card 等旧名与重复名归一到同一实现），再退回原名
         ChatComponent component = components.get(ComponentTypes.resolve(data.type));
         if (component == null) component = components.get(data.type);
@@ -220,6 +223,17 @@ public class ComponentRegistry {
                     Log.w(TAG, "footer actions failed, fall back to outer row: " + t.getMessage());
                 }
             }
+            // 没有 CardShell 的普通卡片：根是垂直 LinearLayout（自带卡片背景）时，
+            // 把动作行**加进卡片内部**，而不是在外面再套一层——否则按钮飘在卡片底色之外，
+            // 卡片说"点上面的按钮"，用户在卡片上找不到按钮（2026-11-06 markdown_card 同型问题）。
+            if (view instanceof android.widget.LinearLayout
+                    && ((android.widget.LinearLayout) view).getOrientation()
+                    == android.widget.LinearLayout.VERTICAL
+                    && view.getBackground() != null
+                    && ComponentActions.renderActions((android.widget.LinearLayout) view,
+                    context, actions)) {
+                return view;
+            }
             try {
                 android.widget.LinearLayout wrapper = new android.widget.LinearLayout(context);
                 wrapper.setOrientation(android.widget.LinearLayout.VERTICAL);
@@ -233,6 +247,38 @@ public class ComponentRegistry {
             }
         }
         return view;
+    }
+
+    /**
+     * file_card 的 path 是 http(s)/协议链接时改成 link_card。
+     *
+     * <p>历史数据里网络搜索的页面结果被兜底成 file_card（path=https://…，name 甚至为空），
+     * 点开时 FileRenderActivity 拿到一个"本地路径"必然报"文件不存在"。这里在渲染入口
+     * 做一次形状纠正，不用等模型重新生成；新数据由生产者侧（ToolResultCardBinder/
+     * DynamicToolResultRenderer）直接出链接卡。</p>
+     */
+    static ComponentData normalizeRemoteFileCard(ComponentData data) {
+        try {
+            if (data == null || data.props == null) return data;
+            if (!"file".equals(ComponentTypes.resolve(data.type))) return data;
+            String path = data.props.optString("path",
+                    data.props.optString("uri", "")).trim();
+            if (!MediaPathResolver.isRemoteUrl(path)) return data;
+            org.json.JSONObject p = new org.json.JSONObject();
+            p.put("url", path);
+            String name = data.props.optString("name", "").trim();
+            if (name.isEmpty()) {
+                try {
+                    String host = android.net.Uri.parse(path).getHost();
+                    if (host != null && !host.isEmpty()) name = host;
+                } catch (Throwable ignored) {
+                }
+            }
+            p.put("title", name.isEmpty() ? path : name);
+            return ComponentData.of("link_card", p);
+        } catch (Throwable t) {
+            return data;
+        }
     }
 
     /** 在渲染结果里找 CardShell（组件可能把外壳包在包装容器下） */
@@ -249,10 +295,10 @@ public class ComponentRegistry {
         return null;
     }
 
-    /** 自身已渲染 actions 的类型（避免外层重复附加）：alert / contact 卡片内部自带动作区 */
+    /** 自身已渲染 actions 的类型（避免外层重复附加）：alert / contact / markdown 卡片内部自带动作区 */
     private boolean selfRendersActions(String type) {
         String canonical = ComponentTypes.resolve(type);
-        return "alert".equals(canonical) || "contact".equals(canonical);
+        return "alert".equals(canonical) || "contact".equals(canonical) || "markdown".equals(canonical);
     }
 
     /**

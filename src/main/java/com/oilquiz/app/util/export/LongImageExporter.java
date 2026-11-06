@@ -120,7 +120,7 @@ public class LongImageExporter implements Exporter {
         int y = cardMargin + 60; // 顶部留白
 
         // 绘制标题
-        StaticLayout titleLayout = new StaticLayout("题目导出", titlePaint, imageWidth - 2 * cardMargin, Layout.Alignment.ALIGN_CENTER, 1.0f, 0.0f, false);
+        StaticLayout titleLayout = buildLayout("题目导出", titlePaint, imageWidth - 2 * cardMargin, Layout.Alignment.ALIGN_CENTER, 1.0f, 0.0f, false);
         canvas.save();
         canvas.translate(cardMargin, y);
         titleLayout.draw(canvas);
@@ -133,7 +133,7 @@ public class LongImageExporter implements Exporter {
         infoPaint.setTextSize(22);
         String exportTime = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(new java.util.Date());
         String infoText = "共 " + questions.size() + " 道题目 · " + exportTime;
-        StaticLayout infoLayout = new StaticLayout(infoText, infoPaint, imageWidth - 2 * cardMargin, Layout.Alignment.ALIGN_CENTER, 1.0f, 0.0f, false);
+        StaticLayout infoLayout = buildLayout(infoText, infoPaint, imageWidth - 2 * cardMargin, Layout.Alignment.ALIGN_CENTER, 1.0f, 0.0f, false);
         canvas.save();
         canvas.translate(cardMargin, y);
         infoLayout.draw(canvas);
@@ -181,7 +181,7 @@ public class LongImageExporter implements Exporter {
             String typeLabel = (metaText.length() > 0)
                 ? "第" + (i + 1) + "题 · " + metaText.toString()
                 : "第" + (i + 1) + "题";
-            StaticLayout typeLayout = new StaticLayout(typeLabel, typePaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
+            StaticLayout typeLayout = buildLayout(typeLabel, typePaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
             canvas.save();
             canvas.translate(cardMargin + cardPadding, cardY);
             typeLayout.draw(canvas);
@@ -190,7 +190,7 @@ public class LongImageExporter implements Exporter {
 
             // 绘制题目内容
             if (question.getQuestionText() != null && !question.getQuestionText().isEmpty()) {
-                StaticLayout questionLayout = new StaticLayout(question.getQuestionText(), textPaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.2f, 0.0f, false);
+                StaticLayout questionLayout = buildLayout(question.getQuestionText(), textPaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.2f, 0.0f, false);
                 canvas.save();
                 canvas.translate(cardMargin + cardPadding, cardY);
                 questionLayout.draw(canvas);
@@ -206,7 +206,7 @@ public class LongImageExporter implements Exporter {
                     
                     TextPaint optionPaint = new TextPaint(textPaint);
                     optionPaint.setColor(ThemeColors.get(R.color.hc_ff475569));
-                    StaticLayout optionLayout = new StaticLayout(
+                    StaticLayout optionLayout = buildLayout(
                         ExportUtils.OPTION_LABELS[o] + ". " + optionValue,
                         optionPaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.2f, 0.0f, false
                     );
@@ -229,7 +229,7 @@ public class LongImageExporter implements Exporter {
 
             // 绘制正确答案
             if (config.isIncludeAnswers() && question.getCorrectAnswer() != null && !question.getCorrectAnswer().isEmpty()) {
-                StaticLayout answerLayout = new StaticLayout(
+                StaticLayout answerLayout = buildLayout(
                     "正确答案：" + question.getCorrectAnswer(),
                     answerPaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false
                 );
@@ -242,7 +242,7 @@ public class LongImageExporter implements Exporter {
 
             // 绘制答案文本（填空题/简答题）
             if (config.isIncludeAnswers() && question.getAnswerText() != null && !question.getAnswerText().isEmpty()) {
-                StaticLayout answerTextLayout = new StaticLayout(
+                StaticLayout answerTextLayout = buildLayout(
                     "答案文本：" + question.getAnswerText(),
                     answerPaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false
                 );
@@ -255,7 +255,7 @@ public class LongImageExporter implements Exporter {
 
             // 绘制解析
             if (config.isIncludeExplanations() && question.getExplanation() != null && !question.getExplanation().isEmpty()) {
-                StaticLayout explanationLayout = new StaticLayout(
+                StaticLayout explanationLayout = buildLayout(
                     "解析：" + question.getExplanation(),
                     explanationPaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false
                 );
@@ -268,7 +268,7 @@ public class LongImageExporter implements Exporter {
 
             // 绘制详细解析
             if (config.isIncludeExplanations() && question.getAnalysis() != null && !question.getAnalysis().isEmpty()) {
-                StaticLayout analysisLayout = new StaticLayout(
+                StaticLayout analysisLayout = buildLayout(
                     "详细解析：" + question.getAnalysis(),
                     explanationPaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false
                 );
@@ -292,7 +292,7 @@ public class LongImageExporter implements Exporter {
         TextPaint footerPaint = new TextPaint();
         footerPaint.setColor(FOOTER_COLOR);
         footerPaint.setTextSize(20);
-        StaticLayout footerLayout = new StaticLayout("导出完成", footerPaint, imageWidth - 2 * cardMargin, Layout.Alignment.ALIGN_CENTER, 1.0f, 0.0f, false);
+        StaticLayout footerLayout = buildLayout("导出完成", footerPaint, imageWidth - 2 * cardMargin, Layout.Alignment.ALIGN_CENTER, 1.0f, 0.0f, false);
         canvas.save();
         canvas.translate(cardMargin, y + 40);
         footerLayout.draw(canvas);
@@ -378,4 +378,15 @@ public class LongImageExporter implements Exporter {
             throw new IllegalArgumentException("上下文不能为空");
         }
     }
+    /** 统一用 StaticLayout.Builder（旧构造已废弃，参数语义保持一致）。 */
+    private static StaticLayout buildLayout(CharSequence text, TextPaint paint, int width,
+                                            Layout.Alignment align, float spacingMult,
+                                            float spacingAdd, boolean includePad) {
+        return StaticLayout.Builder.obtain(text, 0, text.length(), paint, width)
+                .setAlignment(align)
+                .setLineSpacing(spacingAdd, spacingMult)
+                .setIncludePad(includePad)
+                .build();
+    }
+
 }

@@ -1,7 +1,7 @@
 package com.oilquiz.app.ui.activity;
 
 import android.app.AlertDialog;
-import android.app.ProgressDialog;
+import com.oilquiz.app.ai.python.ProgressDialogCompat;
 import android.content.Context;
 import android.os.Bundle;
 import android.view.View;
@@ -302,10 +302,9 @@ public class DatabaseManagementActivity extends AppCompatActivity {
             return;
         }
 
-        ProgressDialog progressDialog = new ProgressDialog(this);
+        ProgressDialogCompat progressDialog = new ProgressDialogCompat(this);
         progressDialog.setTitle(getString(R.string.h_f263e97e));
         progressDialog.setMessage(getString(R.string.h_885cd96f));
-        progressDialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
         progressDialog.setMax(100);
         progressDialog.setCancelable(false);
         progressDialog.show();
@@ -369,7 +368,7 @@ public class DatabaseManagementActivity extends AppCompatActivity {
     }
 
     private void performBackup() {
-        ProgressDialog progressDialog = ProgressDialog.show(
+        ProgressDialogCompat progressDialog = ProgressDialogCompat.show(
             this, "备份数据库", "正在备份...", true, false);
 
         new Thread(() -> {
@@ -421,7 +420,7 @@ public class DatabaseManagementActivity extends AppCompatActivity {
     }
 
     private void performRestore() {
-        ProgressDialog progressDialog = ProgressDialog.show(
+        ProgressDialogCompat progressDialog = ProgressDialogCompat.show(
             this, "恢复数据库", "正在恢复...", true, false);
 
         new Thread(() -> {
@@ -448,7 +447,7 @@ public class DatabaseManagementActivity extends AppCompatActivity {
     }
 
     private void verifyDatabase() {
-        ProgressDialog progressDialog = ProgressDialog.show(
+        ProgressDialogCompat progressDialog = ProgressDialogCompat.show(
             this, "验证数据库", "正在验证...", true, false);
 
         new Thread(() -> {
@@ -496,7 +495,7 @@ public class DatabaseManagementActivity extends AppCompatActivity {
     }
 
     private void performReset() {
-        ProgressDialog progressDialog = ProgressDialog.show(
+        ProgressDialogCompat progressDialog = ProgressDialogCompat.show(
             this, "重置数据库", "正在重置...", true, false);
 
         new Thread(() -> {
@@ -539,7 +538,7 @@ public class DatabaseManagementActivity extends AppCompatActivity {
             .setTitle(getString(R.string.h_063127ae))
             .setMessage(getString(R.string.h_df4ec7d3))
             .setPositiveButton(getString(R.string.h_2cb472ff), (d, w) -> {
-                ProgressDialog progressDialog = ProgressDialog.show(
+                ProgressDialogCompat progressDialog = ProgressDialogCompat.show(
                     this, "初始化数据库", "正在初始化...", true, false);
 
                 new Thread(() -> {
@@ -571,7 +570,7 @@ public class DatabaseManagementActivity extends AppCompatActivity {
      * 重新初始化数据库
      * 关闭现有连接，删除数据库文件，重新创建数据库
      */
-    private boolean reinitializeDatabase(ProgressDialog progressDialog) {
+    private boolean reinitializeDatabase(ProgressDialogCompat progressDialog) {
         try {
             runOnUiThread(() -> {
                 progressDialog.setMessage(getString(R.string.h_948b0db8));

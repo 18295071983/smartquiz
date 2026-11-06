@@ -665,7 +665,7 @@ public class DashscopeMediaTool implements AITool {
         okhttp3.MediaType JSON = okhttp3.MediaType.parse("application/json; charset=utf-8");
         okhttp3.Request.Builder rb = NetworkUtil.createApiRequestBuilder(url)
                 .header("Authorization", "Bearer " + apiKey)
-                .post(okhttp3.RequestBody.create(JSON, body.toString()));
+                .post(okhttp3.RequestBody.create(body.toString(), JSON));
         if (asyncHeader != null) {
             // 支持多行头："X-MultiModal-Async: true\nX-DashScope-Async: enable"
             for (String line : asyncHeader.split("\n")) {

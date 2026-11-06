@@ -35,6 +35,20 @@ public class SimpleWebViewActivity extends BaseActivity {
         webView = findViewById(R.id.webView);
         progressBar = findViewById(R.id.progressBar);
 
+        // 返回键：WebView 能退先退，否则交给系统（OnBackPressedDispatcher 替代已废弃的 onBackPressed 重写）
+        getOnBackPressedDispatcher().addCallback(this,
+                new androidx.activity.OnBackPressedCallback(true) {
+                    @Override
+                    public void handleOnBackPressed() {
+                        if (webView != null && webView.canGoBack()) {
+                            webView.goBack();
+                        } else {
+                            setEnabled(false);
+                            getOnBackPressedDispatcher().onBackPressed();
+                        }
+                    }
+                });
+
         // 标题栏：优先取 intent title，默认getString(R.string.h_fc1d52a4)
         String title = getIntent().getStringExtra("title");
         setupToolbar(title != null && !title.isEmpty() ? title : getString(R.string.h_fc1d52a4));
@@ -112,11 +126,6 @@ public class SimpleWebViewActivity extends BaseActivity {
             }
 
             // 链接点击：http/https 用系统浏览器打开（页内相对链接由 WebView 内部导航）
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                return handleUrl(url);
-            }
-
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 return handleUrl(request != null && request.getUrl() != null
@@ -329,15 +338,6 @@ public class SimpleWebViewActivity extends BaseActivity {
             webView.loadDataWithBaseURL(null,
                     "<html><body><h1>加载失败</h1><p>" + e.getMessage() + "</p></body></html>",
                     "text/html", "UTF-8", null);
-        }
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
         }
     }
 

@@ -152,7 +152,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
                 file = new File(filePath);
             }
             sheetIndex = intent.getIntExtra(EXTRA_SHEET_INDEX, 0);
-            fieldMapping = (Map<String, Integer>) intent.getSerializableExtra(EXTRA_FIELD_MAPPING);
+            fieldMapping = (Map<String, Integer>) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(intent, EXTRA_FIELD_MAPPING);
             if (fieldMapping == null) {
                 fieldMapping = new HashMap<>();
             }
@@ -298,7 +298,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
             ImageView iconView = loadingContainer.findViewById(android.R.id.icon);
             if (iconView != null) {
                 iconView.setImageResource(R.drawable.ic_error);
-                iconView.setColorFilter(getResources().getColor(R.color.error_color));
+                iconView.setColorFilter(androidx.core.content.ContextCompat.getColor(this, R.color.error_color));
             }
             
             Toast.makeText(WebViewFilePreviewActivity.this, message, Toast.LENGTH_SHORT).show();

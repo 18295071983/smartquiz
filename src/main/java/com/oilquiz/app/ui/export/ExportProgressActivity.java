@@ -64,7 +64,7 @@ public class ExportProgressActivity extends AppCompatActivity {
 
     private void getIntentData() {
         Intent intent = getIntent();
-        config = (ExportManager.ExportConfig) intent.getSerializableExtra("config");
+        config = (ExportManager.ExportConfig) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(intent, "config");
         // 题目列表从内存持有器获取（Intent 序列化大列表会抛 TransactionTooLargeException），
         // 取到本地引用后立即释放静态持有
         questions = ExportQuestionsHolder.get();

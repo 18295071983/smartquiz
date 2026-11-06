@@ -902,8 +902,8 @@ public class WeatherDetailActivity extends AppCompatActivity {
         String detail = null;
         if (Geocoder.isPresent()) {
             try {
-                Geocoder geocoder = new Geocoder(this, java.util.Locale.CHINA);
-                java.util.List<Address> addresses = geocoder.getFromLocation(lat, lon, 1);
+                java.util.List<Address> addresses = com.oilquiz.app.ai.tool.GeocodeCompat
+                        .fromLocation(this, lat, lon, 1);
                 if (addresses != null && !addresses.isEmpty()) {
                     Address address = addresses.get(0);
                     String district = address.getSubLocality();  // 区
@@ -1096,13 +1096,13 @@ public class WeatherDetailActivity extends AppCompatActivity {
             gaugeUvArc.setProgressImmediate(0);
             gaugeUvArc.setText("0");
             gaugeUvArc.setLabel("弱");
-            gaugeUvArc.setArcColor(getResources().getColor(R.color.uv_low));
+            gaugeUvArc.setArcColor(androidx.core.content.ContextCompat.getColor(this, R.color.uv_low));
         }
         if (gaugeHumidityArc != null) {
             gaugeHumidityArc.setProgressImmediate(0);
             gaugeHumidityArc.setText("--%");
             gaugeHumidityArc.setLabel(getString(R.string.h_f1d25753));
-            gaugeHumidityArc.setArcColor(getResources().getColor(R.color.humidity_comfort));
+            gaugeHumidityArc.setArcColor(androidx.core.content.ContextCompat.getColor(this, R.color.humidity_comfort));
         }
 
         if (tvUpdateTime != null) tvUpdateTime.setText(getString(R.string.h_4458129c));
@@ -1595,7 +1595,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
             TextView tvEmpty = new TextView(this);
             tvEmpty.setText(getString(R.string.h_ac7bf3e0));
             tvEmpty.setTextSize(13);
-            tvEmpty.setTextColor(getResources().getColor(R.color.future_text_secondary));
+            tvEmpty.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.future_text_secondary));
             tvEmpty.setPadding(16, 24, 16, 24);
             llDaily.addView(tvEmpty);
         }
@@ -2217,7 +2217,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         tvTitle.setText(info.title);
         tvTitle.setTextSize(14);
         tvTitle.setTypeface(null, Typeface.BOLD);
-        tvTitle.setTextColor(getResources().getColor(R.color.future_text_primary));
+        tvTitle.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.future_text_primary));
         LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
         titleLp.leftMargin = 24;
         tvTitle.setLayoutParams(titleLp);
@@ -2261,7 +2261,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
             TextView tvMeta = new TextView(this);
             tvMeta.setText(meta.toString());
             tvMeta.setTextSize(11);
-            tvMeta.setTextColor(getResources().getColor(R.color.future_text_tertiary));
+            tvMeta.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.future_text_tertiary));
             LinearLayout.LayoutParams metaLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -2275,7 +2275,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
             TextView tvDesc = new TextView(this);
             tvDesc.setText(info.description);
             tvDesc.setTextSize(13);
-            tvDesc.setTextColor(getResources().getColor(R.color.future_text_secondary));
+            tvDesc.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.future_text_secondary));
             tvDesc.setLineSpacing(3, 1);
             LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -2302,7 +2302,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
             TextView tvDefense = new TextView(this);
             tvDefense.setText(info.defense);
             tvDefense.setTextSize(12);
-            tvDefense.setTextColor(getResources().getColor(R.color.future_text_tertiary));
+            tvDefense.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.future_text_tertiary));
             tvDefense.setLineSpacing(2, 1);
             LinearLayout.LayoutParams dLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -2407,7 +2407,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         TextView tvDate = new TextView(this);
         tvDate.setText(shortDate);
         tvDate.setTextSize(11);
-        tvDate.setTextColor(getResources().getColor(R.color.future_text_tertiary));
+        tvDate.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.future_text_tertiary));
         container.addView(tvDate);
 
         // AQI 数值
@@ -2441,7 +2441,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
             TextView tvPrimary = new TextView(this);
             tvPrimary.setText(primary);
             tvPrimary.setTextSize(9);
-            tvPrimary.setTextColor(getResources().getColor(R.color.future_text_tertiary));
+            tvPrimary.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.future_text_tertiary));
             LinearLayout.LayoutParams primLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -2909,9 +2909,9 @@ public class WeatherDetailActivity extends AppCompatActivity {
             }
 
             if (item.isNow) {
-                holder.tvTemp.setTextColor(getResources().getColor(R.color.weather_primary));
+                holder.tvTemp.setTextColor(androidx.core.content.ContextCompat.getColor(holder.tvTemp.getContext(), R.color.weather_primary));
             } else {
-                holder.tvTemp.setTextColor(getResources().getColor(R.color.future_text_primary));
+                holder.tvTemp.setTextColor(androidx.core.content.ContextCompat.getColor(holder.tvTemp.getContext(), R.color.future_text_primary));
             }
         }
 

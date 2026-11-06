@@ -41,12 +41,8 @@ public class FloatingWindowController {
         tv.setElevation(dp(context, 6));
         tv.setGravity(Gravity.CENTER);
 
-        int type;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
-        } else {
-            type = WindowManager.LayoutParams.TYPE_PHONE;
-        }
+        // minSdk 31：TYPE_PHONE 已废弃且不可用，直接用 overlay 类型
+        int type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,

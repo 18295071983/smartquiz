@@ -79,7 +79,7 @@ public class ImportPreviewActivity extends AppCompatActivity {
                 if (f.exists()) chunkFiles.add(f);
             }
         }
-        preview = (ImportMain.QualityPreview) getIntent().getSerializableExtra(EXTRA_PREVIEW);
+        preview = (ImportMain.QualityPreview) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(getIntent(), EXTRA_PREVIEW);
         java.util.ArrayList<String> mappedList =
                 getIntent().getStringArrayListExtra(EXTRA_MAPPED_FIELDS);
         if (mappedList != null) {

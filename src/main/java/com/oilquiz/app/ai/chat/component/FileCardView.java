@@ -143,6 +143,14 @@ public class FileCardView implements ChatComponent {
             // 规范化 path：剥离 file:// 前缀（模型可能传 file:///data/...）、解析相对路径、
             // path 只给到目录时按 name 补齐
             path = normalizePath(context, path, name);
+            // 网址/协议链接不是本地文件：file_card 曾被网络搜索结果复用（path=https://…），
+            // 旧逻辑把它当文件丢给 FileRenderActivity，用户看到的就是"文件不存在"。
+            // 这类目标按链接打开（http/https 走内置浏览器，自定义协议交系统应用）。
+            if (isRemoteTarget(uri, path)) {
+                ComponentActions.openLink(context,
+                        !TextUtils.isEmpty(uri) ? uri : path);
+                return;
+            }
             // 无路径/URI：明确提示（模型创建 file_card 时可能只传了 name 没传真实路径）
             if (TextUtils.isEmpty(uri) && TextUtils.isEmpty(path)) {
                 Toast.makeText(context, "该文件卡片没有可打开的路径（文件可能未生成或路径缺失）",
@@ -196,6 +204,12 @@ public class FileCardView implements ChatComponent {
         } catch (Exception e) {
             Toast.makeText(context, "无法打开文件: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /** 网址/协议链接（不是本地文件）：判定统一在 {@link MediaPathResolver#isRemoteUrl(String)}。 */
+    private static boolean isRemoteTarget(String uri, String path) {
+        String t = !TextUtils.isEmpty(uri) ? uri : path;
+        return MediaPathResolver.isRemoteUrl(t);
     }
 
     /** 判断 uri/path 是否为图片（扩展名 + content:// MIME 双重判断） */
@@ -279,6 +293,17 @@ public class FileCardView implements ChatComponent {
      *  部分目标 App 无法读取（表现为"需要 root"/"文件不存在"）。 */
     private static void shareFile(Context context, String uri, String path, String name) {
         try {
+            // 网址/协议链接：分享的是链接文本，不是本地文件
+            if (isRemoteTarget(uri, path)) {
+                String target = !TextUtils.isEmpty(uri) ? uri : path;
+                Intent linkShare = new Intent(Intent.ACTION_SEND);
+                linkShare.setType("text/plain");
+                linkShare.putExtra(Intent.EXTRA_TEXT, target);
+                if (!TextUtils.isEmpty(name)) linkShare.putExtra(Intent.EXTRA_SUBJECT, name);
+                linkShare.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(Intent.createChooser(linkShare, "分享链接"));
+                return;
+            }
             Intent share = new Intent(Intent.ACTION_SEND);
             share.setType("*/*");
             if (!TextUtils.isEmpty(uri)) {
@@ -339,6 +364,8 @@ public class FileCardView implements ChatComponent {
     private static String normalizePath(Context context, String path, String name) {
         String raw = path == null ? "" : path.trim();
         String bareName = name == null ? "" : name.trim();
+        // 网址/协议链接不是文件：不要拿它去工作区"按名字找文件"，原样交给链接/协议层
+        if (isRemoteTarget("", raw)) return raw;
 
         java.io.File t = TextUtils.isEmpty(raw) ? null
                 : MediaPathResolver.resolveEntryToFile(context, raw, bareName);

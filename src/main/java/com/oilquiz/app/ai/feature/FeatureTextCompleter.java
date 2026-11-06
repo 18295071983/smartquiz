@@ -126,7 +126,7 @@ public final class FeatureTextCompleter {
             return CompletableFuture.completedFuture(AI_UNAVAILABLE);
         }
         return CompletableFuture.supplyAsync(() -> {
-            if (!aiService.isInitialized() && !aiService.initializeSafe()) {
+            if (!aiService.isInitialized() && !aiService.initialize()) {
                 Log.e(TAG, "本地模型初始化失败");
                 return Boolean.FALSE;
             }

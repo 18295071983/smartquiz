@@ -130,7 +130,6 @@ public class WebViewLoadManager {
         // 额外的性能优化
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
         settings.setCacheMode(enableCache ? WebSettings.LOAD_DEFAULT : WebSettings.LOAD_NO_CACHE);
 
         // 伪装为正常 Chrome UA：默认 UA 带 wv 标记会被站点识别为"非正常浏览器"，
@@ -404,8 +403,13 @@ public class WebViewLoadManager {
         }
         
         @Override
-        public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-            super.onReceivedError(view, errorCode, description, failingUrl);
+        public void onReceivedError(WebView view, android.webkit.WebResourceRequest request,
+                                    android.webkit.WebResourceError error) {
+            super.onReceivedError(view, request, error);
+            int errorCode = error != null ? error.getErrorCode() : 0;
+            String description = error != null ? String.valueOf(error.getDescription()) : "";
+            String failingUrl = request != null && request.getUrl() != null
+                    ? request.getUrl().toString() : null;
             AppLogger.e(TAG, "页面加载错误 [" + errorCode + "]: " + description);
             if (pageLoadCallback != null) {
                 pageLoadCallback.onError(errorCode, description, failingUrl);

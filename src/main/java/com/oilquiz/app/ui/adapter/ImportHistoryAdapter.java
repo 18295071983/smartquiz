@@ -87,7 +87,7 @@ public class ImportHistoryAdapter extends RecyclerView.Adapter<ImportHistoryAdap
             btnDelete = itemView.findViewById(R.id.btnDelete);
 
             itemView.setOnClickListener(v -> {
-                int position = getAdapterPosition();
+                int position = getBindingAdapterPosition();
                 if (position != RecyclerView.NO_POSITION && listener != null) {
                     listener.onHistoryItemClick(importHistoryList.get(position));
                 }
@@ -95,7 +95,7 @@ public class ImportHistoryAdapter extends RecyclerView.Adapter<ImportHistoryAdap
 
             if (btnDelete != null) {
                 btnDelete.setOnClickListener(v -> {
-                    int position = getAdapterPosition();
+                    int position = getBindingAdapterPosition();
                     if (position != RecyclerView.NO_POSITION && deleteListener != null) {
                         deleteListener.onHistoryItemDelete(importHistoryList.get(position), position);
                     }
@@ -112,11 +112,11 @@ public class ImportHistoryAdapter extends RecyclerView.Adapter<ImportHistoryAdap
 
             // 根据状态设置颜色
             if ("成功".equals(importHistory.getStatus())) {
-                textViewStatus.setTextColor(itemView.getContext().getResources().getColor(R.color.success_color));
+                textViewStatus.setTextColor(androidx.core.content.ContextCompat.getColor(itemView.getContext(), R.color.success_color));
             } else if ("失败".equals(importHistory.getStatus())) {
-                textViewStatus.setTextColor(itemView.getContext().getResources().getColor(R.color.error_color));
+                textViewStatus.setTextColor(androidx.core.content.ContextCompat.getColor(itemView.getContext(), R.color.error_color));
             } else {
-                textViewStatus.setTextColor(itemView.getContext().getResources().getColor(R.color.warning_color));
+                textViewStatus.setTextColor(androidx.core.content.ContextCompat.getColor(itemView.getContext(), R.color.warning_color));
             }
         }
 

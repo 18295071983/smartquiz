@@ -81,12 +81,6 @@ public class RedirectWebViewClient extends WebViewClient {
         return handleUrl(view, url);
     }
 
-    // 兼容旧版 API（旧版只对主框架导航触发）
-    @Override
-    public boolean shouldOverrideUrlLoading(WebView view, String url) {
-        return handleUrl(view, url);
-    }
-
     /**
      * 导航策略：http/https/file/about/data/blob 应用内加载；
      * tel/mailto/sms/geo/ftp/market 及 App 私有协议、{@code intent://} 交
@@ -370,28 +364,6 @@ public class RedirectWebViewClient extends WebViewClient {
     @Override
     public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
         com.oilquiz.app.browser.BrowserAuthController.handleSslError(view, handler, error);
-    }
-
-    @Override
-    public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-        // ERR_ABORTED=-3：重定向/新导航中断旧加载的正常信号，不显示错误页
-        if (errorCode == -3) {
-            Log.d(TAG, "加载被中断(ABORTED)，忽略: " + failingUrl);
-            return;
-        }
-        // 协议链接（weixin://、intent://、magnet:…）不归 WebView 管：这不是网络问题。
-        // 画"请检查网络连接 + 重新加载"等于骗用户反复点重试，改走协议转交并退回原页面。
-        if (com.oilquiz.app.browser.BrowserSchemeHandler
-                .handleUnknownSchemeError(view, failingUrl, lastGoodUrl)) {
-            Log.i(TAG, "协议导航失败，已转交处置: " + failingUrl + " code=" + errorCode);
-            return;
-        }
-        super.onReceivedError(view, errorCode, description, failingUrl);
-        Log.e(TAG, "页面加载错误 [" + errorCode + "]: " + description + " - " + failingUrl);
-        // 主框架加载失败 → 友好的"重新加载"错误页（壳源码）
-        if (failingUrl != null) {
-            showErrorPage(view, failingUrl, errorCode);
-        }
     }
 
     @Override

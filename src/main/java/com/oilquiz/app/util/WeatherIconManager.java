@@ -2,7 +2,6 @@ package com.oilquiz.app.util;
 
 import android.content.Context;
 import android.graphics.drawable.Drawable;
-import android.os.AsyncTask;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -34,6 +33,12 @@ public class WeatherIconManager {
     private final Map<String, Boolean> downloadingIcons = new HashMap<>();
     private final Map<String, java.util.List<IconLoadCallback>> pendingCallbacks = new HashMap<>();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final java.util.concurrent.ExecutorService iconExecutor =
+            java.util.concurrent.Executors.newFixedThreadPool(2, r -> {
+                Thread t = new Thread(r, "weather-icon");
+                t.setDaemon(true);
+                return t;
+            });
 
     private WeatherIconManager(Context context) {
         this.context = context.getApplicationContext();
@@ -129,7 +134,7 @@ public class WeatherIconManager {
             }
         }
 
-        new DownloadIconTask(iconCode).execute();
+        downloadIconTask(iconCode);
     }
 
     public void loadIconIntoImageView(String iconCode, ImageView imageView) {
@@ -177,50 +182,33 @@ public class WeatherIconManager {
     }
 
     public void downloadAllIcons(OnDownloadCompleteListener listener) {
-        new DownloadAllTask(listener).execute();
+        downloadAllIconsTask(listener);
     }
 
-    private class DownloadIconTask extends AsyncTask<Void, Void, Drawable> {
-        private final String iconCode;
-
-        DownloadIconTask(String iconCode) {
-            this.iconCode = iconCode;
-        }
-
-        @Override
-        protected Drawable doInBackground(Void... voids) {
+    /** 下载单个图标（替代 AsyncTask）。 */
+    private void downloadIconTask(String iconCode) {
+        iconExecutor.execute(() -> {
+            Drawable drawable = null;
             try {
-                boolean success = downloadIcon(iconCode);
-                if (success) {
-                    return getCachedIcon(iconCode);
-                }
+                if (downloadIcon(iconCode)) drawable = getCachedIcon(iconCode);
             } catch (Exception e) {
                 Log.e(TAG, "Error downloading icon " + iconCode + ": " + e.getMessage());
             }
-            return null;
-        }
-
-        @Override
-        protected void onPostExecute(Drawable drawable) {
-            if (drawable != null) {
-                cachedDrawables.put(iconCode, drawable);
-                notifyCallbacks(iconCode, drawable);
-            } else {
-                notifyCallbacks(iconCode, context.getDrawable(R.drawable.wi_unknown));
-            }
-        }
+            final Drawable result = drawable;
+            mainHandler.post(() -> {
+                if (result != null) {
+                    cachedDrawables.put(iconCode, result);
+                    notifyCallbacks(iconCode, result);
+                } else {
+                    notifyCallbacks(iconCode, context.getDrawable(R.drawable.wi_unknown));
+                }
+            });
+        });
     }
 
-    private class DownloadAllTask extends AsyncTask<Void, Integer, Boolean> {
-        private final OnDownloadCompleteListener listener;
-        private int downloaded = 0;
-
-        DownloadAllTask(OnDownloadCompleteListener listener) {
-            this.listener = listener;
-        }
-
-        @Override
-        protected Boolean doInBackground(Void... voids) {
+    /** 下载全部图标（替代 AsyncTask，进度回主线程）。 */
+    private void downloadAllIconsTask(OnDownloadCompleteListener listener) {
+        iconExecutor.execute(() -> {
             String[] iconCodes = {
                 "100", "101", "102", "103", "104",
                 "150", "151", "152", "153",
@@ -232,28 +220,18 @@ public class WeatherIconManager {
                 "800", "801", "802", "803", "804",
                 "900", "901", "999"
             };
-
-            for (String code : iconCodes) {
-                downloadIcon(code);
-                downloaded++;
-                publishProgress(downloaded, iconCodes.length);
+            int total = iconCodes.length;
+            for (int i = 0; i < total; i++) {
+                downloadIcon(iconCodes[i]);
+                final int done = i + 1;
+                if (listener != null) {
+                    mainHandler.post(() -> listener.onProgress(done, total));
+                }
             }
-            return true;
-        }
-
-        @Override
-        protected void onProgressUpdate(Integer... values) {
             if (listener != null) {
-                listener.onProgress(values[0], values[1]);
+                mainHandler.post(() -> listener.onComplete(true));
             }
-        }
-
-        @Override
-        protected void onPostExecute(Boolean success) {
-            if (listener != null) {
-                listener.onComplete(success);
-            }
-        }
+        });
     }
 
     private boolean downloadIcon(String iconCode) {

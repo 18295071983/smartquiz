@@ -2,7 +2,7 @@ package com.oilquiz.app.ai.jni;
 
 import android.util.Log;
 import android.content.Context;
-import android.preference.PreferenceManager;
+import androidx.preference.PreferenceManager;
 import com.oilquiz.app.ai.spi.AppServices;
 import com.oilquiz.app.util.AILogger;
 import com.oilquiz.app.ai.util.PromptBuilder;

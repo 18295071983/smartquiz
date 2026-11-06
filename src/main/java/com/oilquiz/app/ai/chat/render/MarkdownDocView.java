@@ -68,11 +68,6 @@ public class MarkdownDocView extends WebView {
                 return handleUrl(request == null || request.getUrl() == null
                         ? null : request.getUrl().toString());
             }
-
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                return handleUrl(url);
-            }
         });
     }
 

@@ -6,6 +6,7 @@ import android.util.Log;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Locale;
 
 /**
  * 媒体/文件路径统一解析（2026-10-13）。
@@ -42,6 +43,22 @@ import java.util.ArrayList;
  * 落盘归一，三处都走它，不许再各抄一份。</p>
  */
 public final class MediaPathResolver {
+
+    /**
+     * 是否 http(s)/协议链接（**不是**本地文件）。{@code file://}、{@code content://} 不算。
+     *
+     * <p>这是"网址不要当文件打开"的唯一判定：TokenResultCardBinder 选卡、ComponentRegistry
+     * 历史纠偏、FileCardView 打开/分享、FileRenderActivity 兜底都调这一处。要求
+     * {@code scheme://}（而不是裸 {@code scheme:}），避免把 Windows 盘符
+     * {@code C:/tmp/a.md} 误判成协议——这个坑在单元测试里已经踩过一次。</p>
+     */
+    public static boolean isRemoteUrl(String path) {
+        if (path == null) return false;
+        String p = path.trim().toLowerCase(Locale.ROOT);
+        if (p.startsWith("file://") || p.startsWith("content://")) return false;
+        return p.startsWith("http://") || p.startsWith("https://")
+                || p.matches("^[a-z][a-z0-9+.\\-]*://.*");
+    }
 
     private static final String TAG = "MediaPathResolver";
 

@@ -195,6 +195,8 @@
     <string name="ai_analyzer">AI分析器</string>
     <string name="ai_assistant">AI助手</string>
     <string name="ai_chat">AI聊天</string>
+    <string name="browser">瀏覽器</string>
+    <string name="browser_entry_desc">內建瀏覽器 · 網址列 / 分頁 / 下載</string>
     <string name="ai_settings">AI設定</string>
     <string name="generate_answer">生成答案</string>
     

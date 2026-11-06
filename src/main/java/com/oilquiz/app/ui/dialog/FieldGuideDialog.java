@@ -128,10 +128,10 @@ public class FieldGuideDialog extends Dialog {
         try {
             Window window = getWindow();
             if (window != null) {
-                android.graphics.Point size = new android.graphics.Point();
-                window.getWindowManager().getDefaultDisplay().getSize(size);
+                android.graphics.Rect size = window.getWindowManager()
+                        .getCurrentWindowMetrics().getBounds();
                 android.view.WindowManager.LayoutParams lp = window.getAttributes();
-                lp.width = (int) (size.x * 0.92f);
+                lp.width = (int) (size.width() * 0.92f);
                 lp.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;
                 window.setAttributes(lp);
             }

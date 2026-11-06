@@ -130,7 +130,7 @@ public final class BrowserFullscreenController {
     private void hideSystemUi() {
         Window window = activity.getWindow();
         if (window == null) return;
-        window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        // minSdk 31：FLAG_FULLSCREEN 已废弃，统一用 InsetsController
         WindowInsetsController controller = window.getInsetsController();
         if (controller != null) {
             controller.hide(WindowInsets.Type.systemBars());
@@ -142,7 +142,6 @@ public final class BrowserFullscreenController {
     private void showSystemUi() {
         Window window = activity.getWindow();
         if (window == null) return;
-        window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         WindowInsetsController controller = window.getInsetsController();
         if (controller != null) {
             controller.show(WindowInsets.Type.systemBars());

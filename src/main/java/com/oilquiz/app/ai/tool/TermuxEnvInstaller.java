@@ -1569,8 +1569,10 @@ public final class TermuxEnvInstaller {
     public static String installedTermuxSigner(Context ctx) {
         try {
             android.content.pm.PackageInfo pi = ctx.getPackageManager().getPackageInfo(
-                    TERMUX_PACKAGE, PackageManager.GET_SIGNATURES);
-            android.content.pm.Signature[] sigs = pi.signatures;
+                    TERMUX_PACKAGE, PackageManager.GET_SIGNING_CERTIFICATES);
+            android.content.pm.SigningInfo signingInfo = pi.signingInfo;
+            android.content.pm.Signature[] sigs = signingInfo != null
+                    ? signingInfo.getApkContentsSigners() : null;
             if (sigs == null || sigs.length == 0) {
                 return null;
             }

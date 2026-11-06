@@ -85,10 +85,14 @@ public class NativeEnvironmentChecker {
         info.board = Build.BOARD;
         info.bootloader = Build.BOOTLOADER;
         info.fingerprint = Build.FINGERPRINT;
-        info.serial = Build.SERIAL;
+        try {
+            info.serial = Build.getSerial();
+        } catch (Throwable t) {
+            info.serial = Build.UNKNOWN;
+        }
 
         // 获取设备类型
-        if (context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEVISION)) {
+        if (context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK)) {
             info.deviceType = "TV";
         } else if (context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_WATCH)) {
             info.deviceType = "Watch";
@@ -115,7 +119,7 @@ public class NativeEnvironmentChecker {
         info.previewSdkInt = Build.VERSION.PREVIEW_SDK_INT;
 
         // 语言信息
-        Locale locale = context.getResources().getConfiguration().locale;
+        Locale locale = context.getResources().getConfiguration().getLocales().get(0);
         info.language = locale.getLanguage();
         info.country = locale.getCountry();
         info.displayLanguage = locale.getDisplayLanguage();
@@ -139,15 +143,14 @@ public class NativeEnvironmentChecker {
         ScreenInfo info = new ScreenInfo();
 
         WindowManager wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
-        Display display = wm.getDefaultDisplay();
-        DisplayMetrics metrics = new DisplayMetrics();
-        display.getMetrics(metrics);
+        android.graphics.Rect bounds = wm.getCurrentWindowMetrics().getBounds();
+        DisplayMetrics metrics = context.getResources().getDisplayMetrics();
 
-        info.widthPixels = metrics.widthPixels;
-        info.heightPixels = metrics.heightPixels;
+        info.widthPixels = bounds.width();
+        info.heightPixels = bounds.height();
         info.density = metrics.density;
         info.densityDpi = metrics.densityDpi;
-        info.scaledDensity = metrics.scaledDensity;
+        info.scaledDensity = metrics.density * context.getResources().getConfiguration().fontScale;
         info.xdpi = metrics.xdpi;
         info.ydpi = metrics.ydpi;
 
@@ -160,13 +163,9 @@ public class NativeEnvironmentChecker {
         int orientation = context.getResources().getConfiguration().orientation;
         info.orientation = orientation == Configuration.ORIENTATION_LANDSCAPE ? "Landscape" : "Portrait";
 
-        // 获取真实屏幕尺寸（包含导航栏）
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            Point realSize = new Point();
-            display.getRealSize(realSize);
-            info.realWidthPixels = realSize.x;
-            info.realHeightPixels = realSize.y;
-        }
+        // 真实屏幕尺寸（WindowMetrics 已包含系统栏区域）
+        info.realWidthPixels = bounds.width();
+        info.realHeightPixels = bounds.height();
 
         return info;
     }
@@ -255,7 +254,7 @@ public class NativeEnvironmentChecker {
             info.packageName = context.getPackageName();
             info.appName = pm.getApplicationLabel(ai).toString();
             info.versionName = pm.getPackageInfo(context.getPackageName(), 0).versionName;
-            info.versionCode = pm.getPackageInfo(context.getPackageName(), 0).versionCode;
+            info.versionCode = (int) pm.getPackageInfo(context.getPackageName(), 0).getLongVersionCode();
             info.targetSdkVersion = ai.targetSdkVersion;
             info.minSdkVersion = ai.minSdkVersion;
             info.processName = ai.processName;
@@ -299,8 +298,9 @@ public class NativeEnvironmentChecker {
         HardwareInfo info = new HardwareInfo();
 
         // CPU 信息
-        info.cpuAbi = Build.CPU_ABI;
-        info.cpuAbi2 = Build.CPU_ABI2;
+        String[] abis = Build.SUPPORTED_ABIS;
+        info.cpuAbi = abis.length > 0 ? abis[0] : "";
+        info.cpuAbi2 = abis.length > 1 ? abis[1] : "";
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             info.supportedAbis = Build.SUPPORTED_ABIS;
             info.supported32BitAbis = Build.SUPPORTED_32_BIT_ABIS;

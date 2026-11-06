@@ -95,6 +95,7 @@ public final class ComponentFocusHost {
      *
      * @return 成功弹出返回 true；拿不到 Activity、或组件渲染失败返回 false（调用方可降级）
      */
+    @SuppressWarnings("deprecation") // 全屏卡弹窗仍靠 ADJUST_RESIZE 跟输入法收缩，暂无等价替代
     public static boolean open(Context ctx, ComponentData data) {
         if (!canOpen(ctx) || data == null) {
             return false;
@@ -173,7 +174,7 @@ public final class ComponentFocusHost {
             TypedValue tv = new TypedValue();
             if (ctx.getTheme().resolveAttribute(android.R.attr.colorBackground, tv, true)
                     && tv.resourceId != 0) {
-                return ctx.getResources().getColor(tv.resourceId, ctx.getTheme());
+                return androidx.core.content.ContextCompat.getColor(ctx, tv.resourceId);
             }
         } catch (Throwable ignored) {
         }

@@ -295,7 +295,7 @@ public class PDFExporter implements Exporter {
                 if (x < MARGIN) x = MARGIN;
                 stream.beginText();
                 stream.setFont(font, size);
-                stream.setNonStrokingColor(gray, gray, gray);
+                stream.setNonStrokingColor((float) gray / 255f);
                 stream.newLineAtOffset(x, y - size);
                 stream.showText(line);
                 stream.endText();

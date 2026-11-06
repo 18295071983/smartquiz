@@ -43,7 +43,7 @@ import java.util.concurrent.atomic.AtomicReference;
     aliases = {"open_app", "send_sms", "make_call", "launch_app"},
     actions = {
         @Action(name = "open_app", description = "打开指定应用"),
-        @Action(name = "open_url", description = "打开URL（http/https 走应用内浏览器）"),
+        @Action(name = "open_url", description = "打开URL（http/https 走应用内浏览器；amapuri:// 等自定义协议交给系统应用，可直接唤起地图导航）"),
         @Action(name = "send_sms", description = "发送短信"),
         @Action(name = "make_call", description = "拨打电话"),
         @Action(name = "send_email", description = "发送邮件"),
@@ -2804,7 +2804,7 @@ public class SystemResourceTool implements AITool {
         descriptions.put("action", "操作类型: open_app/open_url/send_sms/make_call/send_email/open_map/share_text/open_settings/list_apps/check_app/get_app_info/app_control/shell_command/termux_exec/read_setting/write_setting/get_current_app");
         descriptions.put("app", "应用名称或包名（支持模糊匹配）");
         descriptions.put("package", "应用包名");
-        descriptions.put("url", "网址链接");
+        descriptions.put("url", "网址或协议链接（http/https 走应用内浏览器；amapuri:// 等自定义协议交给系统应用，可直接唤起高德导航）");
         descriptions.put("phone", "电话号码");
         descriptions.put("message", "短信内容");
         descriptions.put("command", "Shell命令（如: pm list packages, dumpsys activity top, sed -n 1,20p 文件, grep -rn TODO /sdcard/Download, wget -O /sdcard/a.zip URL）。单条命令 25 秒超时，超时会终止并返回已产生的输出；系统自带 toybox 命令可直接用，另有内置 busybox（ash/wget/awk/vi/telnet 等）在 PATH 末尾");

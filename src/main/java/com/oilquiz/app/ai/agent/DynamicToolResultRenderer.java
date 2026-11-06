@@ -46,6 +46,11 @@ public final class DynamicToolResultRenderer {
     public static List<ComponentData> render(String toolName, AIToolResult result) {
         List<ComponentData> out = new ArrayList<>();
         if (result == null || !result.isSuccess()) return out;
+        // 工具发现通道的结果是**给模型看的路由元数据**，不是用户数据：
+        // 兜底的 info_card 会把 requested_tool / matched_by / hint / tool 这些内部键原样
+        // 摊到聊天里（2026-11-06 真机：一屏两张"工具列表"卡片，用户只能看到英文键名）。
+        // 调用/结果本身仍由 tool_call 卡片承载，这里不再另造面向用户的卡。
+        if (isDiscoveryMetaTool(toolName)) return out;
         try {
             Object raw = result.getResult();
             JSONObject obj = asObject(raw);
@@ -163,11 +168,19 @@ public final class DynamicToolResultRenderer {
             // 本地 HTML 文档 → 网页卡（判定与 ToolResultCardBinder 共用一处，免得同一个产物出两种形状）
             List<String> webDocs = new ArrayList<>();
             List<String> dirs = new ArrayList<>();
+            List<String> remotes = new ArrayList<>();
             Set<String> plain = new LinkedHashSet<>();
             for (String p : files) {
-                if (ToolResultCardBinder.isWebDocument(p)) webDocs.add(p);
+                if (ToolResultCardBinder.isRemoteUrl(p)) remotes.add(p);
+                else if (ToolResultCardBinder.isWebDocument(p)) webDocs.add(p);
                 else if (ToolResultCardBinder.isDirectoryPath(p)) dirs.add(p);
                 else plain.add(p);
+            }
+            // 网址（网络搜索结果的页面/链接）→ 链接卡：不能出 file_card，点开必报"文件不存在"
+            for (String p : remotes) {
+                if (out.size() >= MAX_CARDS) break;
+                out.add(ComponentData.of("link_card", new JSONObject()
+                        .put("url", p).put("title", p)));
             }
             // 目录 → 浏览卡（file_card 只会把目录名当文件展示，"打开"点进去什么也没有；
             // workspace(action=path) 就踩过这个）
@@ -429,6 +442,11 @@ public final class DynamicToolResultRenderer {
         String status = o.optString("status", "");
         return "error".equalsIgnoreCase(status) || "failed".equalsIgnoreCase(status)
                 || o.optBoolean("error", false);
+    }
+
+    /** 发现通道：输出的是工具名/参数/命中方式，面向模型，不生成用户卡片。 */
+    private static boolean isDiscoveryMetaTool(String toolName) {
+        return "tool_registry".equals(toolName) || "mcp_toolbox".equals(toolName);
     }
 
     private static boolean isMetaKey(String key) {

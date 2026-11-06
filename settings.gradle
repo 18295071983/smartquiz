@@ -3,11 +3,11 @@
 pluginManagement {
     repositories {
         // Chaquopy 仓库
-        maven { url 'https://chaquo.com/maven' }
+        maven { url = new java.net.URI('https://chaquo.com/maven') }
         // 国内镜像源
-        maven { url 'https://maven.aliyun.com/repository/public/' }
-        maven { url 'https://maven.aliyun.com/repository/google/' }
-        maven { url 'https://maven.aliyun.com/repository/gradle-plugin/' }
+        maven { url = new java.net.URI('https://maven.aliyun.com/repository/public/') }
+        maven { url = new java.net.URI('https://maven.aliyun.com/repository/google/') }
+        maven { url = new java.net.URI('https://maven.aliyun.com/repository/gradle-plugin/') }
         // 官方源作为备份
         google()
         mavenCentral()
@@ -18,14 +18,14 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         // Chaquopy 仓库
-        maven { url 'https://chaquo.com/maven' }
+        maven { url = new java.net.URI('https://chaquo.com/maven') }
         // 国内镜像源
-        maven { url 'https://maven.aliyun.com/repository/public/' }
-        maven { url 'https://maven.aliyun.com/repository/google/' }
-        maven { url 'https://maven.aliyun.com/repository/gradle-plugin/' }
-        maven { url 'https://maven.aliyun.com/repository/jcenter/' }
+        maven { url = new java.net.URI('https://maven.aliyun.com/repository/public/') }
+        maven { url = new java.net.URI('https://maven.aliyun.com/repository/google/') }
+        maven { url = new java.net.URI('https://maven.aliyun.com/repository/gradle-plugin/') }
+        maven { url = new java.net.URI('https://maven.aliyun.com/repository/jcenter/') }
         // JitPack仓库
-        maven { url 'https://jitpack.io' }
+        maven { url = new java.net.URI('https://jitpack.io') }
         // 官方源作为备份
         google()
         mavenCentral()

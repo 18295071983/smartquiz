@@ -140,10 +140,23 @@ public class FileRenderActivity extends BaseActivity {
     private void handleIntent(Intent intent) {
         if (intent.hasExtra(EXTRA_FILE_PATH)) {
             String filePath = intent.getStringExtra(EXTRA_FILE_PATH);
+            // 兜底：调用方把网址/协议链接塞进 file_path 时，别当本地文件报"文件不存在"，
+            // 按链接交给内置浏览器/系统应用（2026-11-06 网络搜索 file_card 真机问题）。
+            if (isRemoteTarget(filePath)) {
+                com.oilquiz.app.ai.chat.component.ComponentActions.openLink(this, filePath);
+                finish();
+                return;
+            }
             currentFile = new File(filePath);
             renderFile(currentFile);
         } else if (intent.hasExtra(EXTRA_FILE_URI)) {
-            Uri uri = intent.getParcelableExtra(EXTRA_FILE_URI);
+            Uri uri = com.oilquiz.app.util.IntentExtrasCompat
+                    .getParcelable(intent, EXTRA_FILE_URI, Uri.class);
+            if (uri != null && isRemoteTarget(uri.toString())) {
+                com.oilquiz.app.ai.chat.component.ComponentActions.openLink(this, uri.toString());
+                finish();
+                return;
+            }
             try {
                 currentFile = copyFileFromUri(uri);
                 if (currentFile != null) {
@@ -160,8 +173,12 @@ public class FileRenderActivity extends BaseActivity {
         }
     }
 
-    private void renderFile(File file) {
-        if (file == null || !file.exists()) {
+    /** 网址/协议链接：不是本地文件，交给链接/协议层处理（判定唯一出处 MediaPathResolver）。 */
+    private static boolean isRemoteTarget(String target) {
+        return com.oilquiz.app.ai.chat.component.MediaPathResolver.isRemoteUrl(target);
+    }
+
+    private void renderFile(File file) {        if (file == null || !file.exists()) {
             showError("文件不存在", "无法找到指定的文件");
             return;
         }

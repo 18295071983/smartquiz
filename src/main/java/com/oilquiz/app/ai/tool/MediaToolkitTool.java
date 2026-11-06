@@ -1063,7 +1063,7 @@ public class MediaToolkitTool implements AITool {
                         builder.setAudioMimeType(mime);
                     }
                 } else {
-                    builder.setRemoveAudio(true);
+                    // 去音轨在 EditedMediaItem.Builder.setRemoveAudio 上做（Transformer 级已废弃）
                 }
                 if (fBitrate > 0) {
                     builder.setEncoderFactory(new DefaultEncoderFactory.Builder(context)
@@ -1093,18 +1093,8 @@ public class MediaToolkitTool implements AITool {
                     }
 
                     @Override
-                    public void onTransformationCompleted(MediaItem mediaItem) {
-                        done(null);
-                    }
-
-                    @Override
                     public void onError(androidx.media3.transformer.Composition composition, ExportResult exportResult, ExportException exportException) {
                         fail(exportException);
-                    }
-
-                    @Override
-                    public void onTransformationError(MediaItem mediaItem, Exception exception) {
-                        fail(exception);
                     }
                 });
 
@@ -1464,8 +1454,8 @@ public class MediaToolkitTool implements AITool {
         if ("png".equals(f)) {
             cf = Bitmap.CompressFormat.PNG;
         } else if ("webp".equals(f)) {
-            cf = android.os.Build.VERSION.SDK_INT >= 30
-                    ? Bitmap.CompressFormat.WEBP_LOSSY : Bitmap.CompressFormat.WEBP;
+            // minSdk 31：WEBP 已废弃，直接用有损档（与原 WEBP 语义一致）
+            cf = Bitmap.CompressFormat.WEBP_LOSSY;
         } else {
             cf = Bitmap.CompressFormat.JPEG;
         }
@@ -2214,10 +2204,6 @@ public class MediaToolkitTool implements AITool {
         if (t == null) return "未知错误";
         if (t instanceof ExportException) {
             ExportException e = (ExportException) t;
-            return e.getErrorCodeName() + "(" + e.errorCode + "): " + String.valueOf(e.getMessage());
-        }
-        if (t instanceof androidx.media3.transformer.TransformationException) {
-            androidx.media3.transformer.TransformationException e = (androidx.media3.transformer.TransformationException) t;
             return e.getErrorCodeName() + "(" + e.errorCode + "): " + String.valueOf(e.getMessage());
         }
         String msg = t.getMessage();

@@ -246,7 +246,7 @@ def create_component(component_type, title="", message="", component_id=None,
         # 任何卡都可带 actions=[{...}]，按钮点击真实执行（不只 callback）：
         #   {label,value,action:"callback"} 回传写死值；{label,link:url} 打开(内置浏览器/文件预览/自定义协议转交)；
         #   {label,copy:文本} 复制；{label,action:"open_app",app:"微信"|package:"com.tencent.mm"} 启动应用；
-        #   {label,action:"am",value:"com.tencent.mm"|"am start -n pkg/.Act"} 同 open_app(am 口径)；
+        #   {label,action:"am",value:"com.tencent.mm"|"am start -n pkg/.Act"|"am start -d <url>"} 同 open_app；-d 走协议链接转交
         #   {label,action:"dial"|"sms"|"email"|"map",value:"号码/地址/主题"} 调系统界面
         #   （app 传中文名会走包名模糊匹配，匹配不到弹系统选择器；启动失败有 Toast 报错，不会静默）
         # 用法：create_component("类型", props={...参数...})

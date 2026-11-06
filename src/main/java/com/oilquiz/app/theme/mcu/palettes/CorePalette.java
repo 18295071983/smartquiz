@@ -29,6 +29,7 @@ import com.oilquiz.app.theme.mcu.hct.Hct;
  *     scheme generation. Use {@link palettes.CorePalettes} for core
  *     palettes container class.
  */
+@Deprecated
 public final class CorePalette {
   public TonalPalette a1;
   public TonalPalette a2;
@@ -45,6 +46,7 @@ public final class CorePalette {
    *     scheme generation. Use {@link palettes.CorePalettes} for
    *     core palettes container class.
    */
+  @Deprecated
     public static CorePalette of(int argb) {
     return new CorePalette(argb, false);
   }
@@ -57,6 +59,7 @@ public final class CorePalette {
    *     scheme generation. Use {@link palettes.CorePalettes} for
    *     core palettes container class.
    */
+  @Deprecated
     public static CorePalette contentOf(int argb) {
     return new CorePalette(argb, true);
   }

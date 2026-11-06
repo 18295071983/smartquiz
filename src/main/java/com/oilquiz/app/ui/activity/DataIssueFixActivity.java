@@ -73,8 +73,7 @@ public class DataIssueFixActivity extends BaseActivity {
 
     @Override
     protected void initData() {
-        issueReport = (ExcelUtil.DataIssueReport) getIntent()
-                .getSerializableExtra(EXTRA_DATA_ISSUE_REPORT);
+        issueReport = (ExcelUtil.DataIssueReport) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(getIntent(), EXTRA_DATA_ISSUE_REPORT);
 
         if (issueReport == null) {
             Toast.makeText(this, getString(R.string.h_18b3acdf), Toast.LENGTH_SHORT).show();

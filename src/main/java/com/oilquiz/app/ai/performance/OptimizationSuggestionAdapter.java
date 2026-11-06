@@ -85,15 +85,18 @@ public class OptimizationSuggestionAdapter extends RecyclerView.Adapter<Optimiza
             switch (suggestion.priority) {
                 case HIGH:
                     priorityText.setText("高优先级");
-                    priorityText.setTextColor(itemView.getContext().getResources().getColor(R.color.error));
+                    priorityText.setTextColor(androidx.core.content.ContextCompat.getColor(
+                            itemView.getContext(), R.color.error));
                     break;
                 case MEDIUM:
                     priorityText.setText("中优先级");
-                    priorityText.setTextColor(itemView.getContext().getResources().getColor(R.color.warning));
+                    priorityText.setTextColor(androidx.core.content.ContextCompat.getColor(
+                            itemView.getContext(), R.color.warning));
                     break;
                 case LOW:
                     priorityText.setText("低优先级");
-                    priorityText.setTextColor(itemView.getContext().getResources().getColor(R.color.success));
+                    priorityText.setTextColor(androidx.core.content.ContextCompat.getColor(
+                            itemView.getContext(), R.color.success));
                     break;
             }
 

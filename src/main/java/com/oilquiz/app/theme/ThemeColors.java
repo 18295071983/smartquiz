@@ -25,7 +25,7 @@ public final class ThemeColors {
 
     /** 供无 Application 上下文的静态场景使用 */
     public static int get(Resources res, int resId) {
-        return res.getColor(resId);
+        return res.getColor(resId, null);
     }
 
     /**
@@ -44,7 +44,7 @@ public final class ThemeColors {
                 return tv.data;
             }
             if (tv.resourceId != 0) {
-                return context.getResources().getColor(tv.resourceId);
+                return androidx.core.content.ContextCompat.getColor(context, tv.resourceId);
             }
         }
         return 0;

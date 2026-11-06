@@ -3513,22 +3513,16 @@ return attachLabel(context, node, props, srWrap, density);
             String action = node.optString("action", "");
             String value = interpolate(node.optString("value", ""), props);
             boolean actionable = !link.isEmpty() || !copy.isEmpty() || !app.isEmpty() || !pkg.isEmpty()
+                    || com.oilquiz.app.ai.chat.component.ComponentActions.isUsableTarget(value)
                     || "open_app".equals(action) || "launch_app".equals(action) || "app".equals(action)
                     || "am".equals(action) || "am_start".equals(action) || "dial".equals(action)
                     || "call".equals(action) || "sms".equals(action) || "email".equals(action)
                     || "map".equals(action) || "open_url".equals(action) || "url".equals(action)
                     || "copy".equals(action) || "refresh".equals(action) || "callback".equals(action);
             if (!actionable) return;
-            if ("callback".equals(action) || "refresh".equals(action)) {
-                String cid = com.oilquiz.app.ai.chat.component.ComponentActions.resolveComponentId(props);
-                if (cid == null || cid.isEmpty()) {
-                    final String what = "callback".equals(action) ? "回传点击" : "刷新";
-                    target.setOnClickListener(v -> android.widget.Toast.makeText(context,
-                            "该卡片没有回传地址：创建时需带 props.actions 才有 component_id 可" + what,
-                            android.widget.Toast.LENGTH_SHORT).show());
-                    return;
-                }
-            }
+            // callback/refresh 缺 component_id 时不再在这里拦成一句 toast：
+            // 按钮若还带 link/copy，统一交给 ComponentActions 先做真实动作；
+            // 什么都没有时由 execute() 说明"没有回传地址"。
             JSONObject act = new JSONObject();
             act.put("label", defaultLabel == null ? "打开" : defaultLabel);
             if (!link.isEmpty()) act.put("link", link);

@@ -352,8 +352,7 @@ public class LocationTool implements AITool {
     private String getCityName(double latitude, double longitude) {
         if (android.location.Geocoder.isPresent()) {
             try {
-                Geocoder geocoder = new Geocoder(context, Locale.CHINA);
-                List<Address> addresses = geocoder.getFromLocation(latitude, longitude, 1);
+                List<Address> addresses = GeocodeCompat.fromLocation(context, latitude, longitude, 1);
                 if (addresses != null && !addresses.isEmpty()) {
                     Address address = addresses.get(0);
                     String city = address.getLocality();
@@ -389,8 +388,7 @@ public class LocationTool implements AITool {
     private String getAddressString(double latitude, double longitude) {
         if (android.location.Geocoder.isPresent()) {
             try {
-                Geocoder geocoder = new Geocoder(context, Locale.CHINA);
-                List<Address> addresses = geocoder.getFromLocation(latitude, longitude, 1);
+                List<Address> addresses = GeocodeCompat.fromLocation(context, latitude, longitude, 1);
                 if (addresses != null && !addresses.isEmpty()) {
                     Address a = addresses.get(0);
                     String district = a.getSubLocality();  // 区
@@ -456,29 +454,6 @@ public class LocationTool implements AITool {
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicBoolean callbackInvoked = new AtomicBoolean(false);
 
-        final LocationListener locationListener = new LocationListener() {
-            @Override
-            public void onLocationChanged(Location location) {
-                if (location != null && callbackInvoked.compareAndSet(false, true)) {
-                    resultRef.set(new LocationInfo(location.getLatitude(), location.getLongitude(),
-                            location.getAccuracy(), location.getProvider(), location.getTime()));
-                    latch.countDown();
-                }
-            }
-
-            @Override
-            public void onStatusChanged(String provider, int status, Bundle extras) {}
-
-            @Override
-            public void onProviderEnabled(String provider) {}
-
-            @Override
-            public void onProviderDisabled(String provider) {
-                if (callbackInvoked.compareAndSet(false, true)) {
-                    latch.countDown();
-                }
-            }
-        };
 
         try {
             String provider = null;
@@ -500,33 +475,22 @@ public class LocationTool implements AITool {
             }
 
             if (provider != null && locationManager.isProviderEnabled(provider)) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    CancellationSignal cancellationSignal = new CancellationSignal();
-                    locationManager.getCurrentLocation(
-                            provider,
-                            cancellationSignal,
-                            Executors.newSingleThreadExecutor(),
-                            location -> {
-                                if (location != null && callbackInvoked.compareAndSet(false, true)) {
-                                    resultRef.set(new LocationInfo(location.getLatitude(), location.getLongitude(),
-                                            location.getAccuracy(), location.getProvider(), location.getTime()));
-                                    latch.countDown();
-                                }
+                // minSdk 31：getCurrentLocation 直接可用（requestSingleUpdate 已废弃）
+                CancellationSignal cancellationSignal = new CancellationSignal();
+                locationManager.getCurrentLocation(
+                        provider,
+                        cancellationSignal,
+                        Executors.newSingleThreadExecutor(),
+                        location -> {
+                            if (location != null && callbackInvoked.compareAndSet(false, true)) {
+                                resultRef.set(new LocationInfo(location.getLatitude(), location.getLongitude(),
+                                        location.getAccuracy(), location.getProvider(), location.getTime()));
+                                latch.countDown();
                             }
-                    );
-                } else {
-                    try {
-                        locationManager.requestSingleUpdate(provider, locationListener, Looper.getMainLooper());
-                    } catch (Exception e) {
-                        AILogger.w(TAG, "Single update failed for " + provider + ": " + e.getMessage());
-                    }
-                }
+                        }
+                );
 
                 boolean received = latch.await(LOCATION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-                
-                try {
-                    locationManager.removeUpdates(locationListener);
-                } catch (Exception ignored) {}
 
                 if (received && resultRef.get() != null) {
                     AILogger.i(TAG, "Successfully got location from " + providerType);
@@ -537,7 +501,6 @@ public class LocationTool implements AITool {
             }
         } catch (Exception e) {
             AILogger.e(TAG, "Request location by " + providerType + " error: " + e.getMessage(), e);
-            try { locationManager.removeUpdates(locationListener); } catch (Exception ignored) {}
         }
 
         return null;

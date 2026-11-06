@@ -221,7 +221,7 @@ public class AIIconDemoActivity extends AppCompatActivity {
         public void onCreate(Bundle savedInstanceState) {
             super.onCreate(savedInstanceState);
             if (getArguments() != null) {
-                category = (AIIconCategory) getArguments().getSerializable(ARG_CATEGORY);
+                category = (AIIconCategory) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(getArguments(), ARG_CATEGORY);
             }
         }
 

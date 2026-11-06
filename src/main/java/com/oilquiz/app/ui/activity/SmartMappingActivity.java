@@ -119,8 +119,8 @@ public class SmartMappingActivity extends AppCompatActivity {
                 file = new File(filePath);
             }
             sheetIndex = intent.getIntExtra(EXTRA_SHEET_INDEX, 0);
-            fieldMapping = (Map<String, Integer>) intent.getSerializableExtra(EXTRA_FIELD_MAPPING);
-            importSettings = (ExcelUtil.ImportSettings) intent.getSerializableExtra(EXTRA_IMPORT_SETTINGS);
+            fieldMapping = (Map<String, Integer>) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(intent, EXTRA_FIELD_MAPPING);
+            importSettings = (ExcelUtil.ImportSettings) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(intent, EXTRA_IMPORT_SETTINGS);
             if (importSettings == null) {
                 importSettings = new ExcelUtil.ImportSettings();
             }
@@ -195,7 +195,7 @@ public class SmartMappingActivity extends AppCompatActivity {
     }
     
     private void updateButtonStyles(int selectedType) {
-        int primaryColor = getResources().getColor(R.color.teal_200);
+        int primaryColor = androidx.core.content.ContextCompat.getColor(this, R.color.teal_200);
         
         btnQuestionType.setStrokeWidth(2);
         btnDifficulty.setStrokeWidth(2);
@@ -203,25 +203,25 @@ public class SmartMappingActivity extends AppCompatActivity {
         
         if (selectedType == SmartMappingAdapter.SHOW_QUESTION_TYPE) {
             btnQuestionType.setBackgroundColor(primaryColor);
-            btnQuestionType.setTextColor(getResources().getColor(android.R.color.white));
-            btnDifficulty.setBackgroundColor(getResources().getColor(android.R.color.transparent));
-            btnDifficulty.setTextColor(getResources().getColor(android.R.color.black));
-            btnCategory.setBackgroundColor(getResources().getColor(android.R.color.transparent));
-            btnCategory.setTextColor(getResources().getColor(android.R.color.black));
+            btnQuestionType.setTextColor(androidx.core.content.ContextCompat.getColor(this, android.R.color.white));
+            btnDifficulty.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, android.R.color.transparent));
+            btnDifficulty.setTextColor(androidx.core.content.ContextCompat.getColor(this, android.R.color.black));
+            btnCategory.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, android.R.color.transparent));
+            btnCategory.setTextColor(androidx.core.content.ContextCompat.getColor(this, android.R.color.black));
         } else if (selectedType == SmartMappingAdapter.SHOW_DIFFICULTY) {
-            btnQuestionType.setBackgroundColor(getResources().getColor(android.R.color.transparent));
-            btnQuestionType.setTextColor(getResources().getColor(android.R.color.black));
+            btnQuestionType.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, android.R.color.transparent));
+            btnQuestionType.setTextColor(androidx.core.content.ContextCompat.getColor(this, android.R.color.black));
             btnDifficulty.setBackgroundColor(primaryColor);
-            btnDifficulty.setTextColor(getResources().getColor(android.R.color.white));
-            btnCategory.setBackgroundColor(getResources().getColor(android.R.color.transparent));
-            btnCategory.setTextColor(getResources().getColor(android.R.color.black));
+            btnDifficulty.setTextColor(androidx.core.content.ContextCompat.getColor(this, android.R.color.white));
+            btnCategory.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, android.R.color.transparent));
+            btnCategory.setTextColor(androidx.core.content.ContextCompat.getColor(this, android.R.color.black));
         } else {
-            btnQuestionType.setBackgroundColor(getResources().getColor(android.R.color.transparent));
-            btnQuestionType.setTextColor(getResources().getColor(android.R.color.black));
-            btnDifficulty.setBackgroundColor(getResources().getColor(android.R.color.transparent));
-            btnDifficulty.setTextColor(getResources().getColor(android.R.color.black));
+            btnQuestionType.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, android.R.color.transparent));
+            btnQuestionType.setTextColor(androidx.core.content.ContextCompat.getColor(this, android.R.color.black));
+            btnDifficulty.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, android.R.color.transparent));
+            btnDifficulty.setTextColor(androidx.core.content.ContextCompat.getColor(this, android.R.color.black));
             btnCategory.setBackgroundColor(primaryColor);
-            btnCategory.setTextColor(getResources().getColor(android.R.color.white));
+            btnCategory.setTextColor(androidx.core.content.ContextCompat.getColor(this, android.R.color.white));
         }
     }
 

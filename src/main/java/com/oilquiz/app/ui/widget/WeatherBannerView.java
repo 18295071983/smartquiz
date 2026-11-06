@@ -533,8 +533,8 @@ public class WeatherBannerView extends LinearLayout {
     private String[] resolveGeocoder(double lat, double lon) {
         if (!Geocoder.isPresent()) return new String[]{null, null};
         try {
-            Geocoder geocoder = new Geocoder(getContext(), Locale.CHINA);
-            List<Address> addresses = geocoder.getFromLocation(lat, lon, 1);
+            List<Address> addresses = com.oilquiz.app.ai.tool.GeocodeCompat
+                    .fromLocation(getContext(), lat, lon, 1);
             if (addresses == null || addresses.isEmpty()) return new String[]{null, null};
             Address a = addresses.get(0);
             String city = a.getLocality();                  // 市

@@ -901,9 +901,9 @@ public class LogsActivity extends BaseActivity {
                 holder.tvSource.setText(item.source);
                 try {
                     if (SOURCE_CRASH.equals(item.source)) {
-                        holder.tvSource.setTextColor(getResources().getColor(R.color.error_color, null));
+                        holder.tvSource.setTextColor(androidx.core.content.ContextCompat.getColor(holder.tvSource.getContext(), R.color.error_color));
                     } else if (SOURCE_AI.equals(item.source)) {
-                        holder.tvSource.setTextColor(getResources().getColor(R.color.ai_color, null));
+                        holder.tvSource.setTextColor(androidx.core.content.ContextCompat.getColor(holder.tvSource.getContext(), R.color.ai_color));
                     } else {
                         holder.tvSource.setTextColor(ThemeColors.get(LogsActivity.this, R.color.text_secondary));
                     }
@@ -914,10 +914,10 @@ public class LogsActivity extends BaseActivity {
                 holder.tvLevel.setText(item.level);
                 try {
                     if ("E".equals(item.level)) {
-                        holder.tvLevel.setTextColor(getResources().getColor(R.color.error_color, null));
+                        holder.tvLevel.setTextColor(androidx.core.content.ContextCompat.getColor(holder.tvLevel.getContext(), R.color.error_color));
                         holder.tvLevel.setBackgroundResource(R.drawable.rounded_tag_error);
                     } else if ("W".equals(item.level)) {
-                        holder.tvLevel.setTextColor(getResources().getColor(R.color.warning_color, null));
+                        holder.tvLevel.setTextColor(androidx.core.content.ContextCompat.getColor(holder.tvLevel.getContext(), R.color.warning_color));
                         holder.tvLevel.setBackgroundResource(R.drawable.rounded_tag_warning);
                     } else {
                         holder.tvLevel.setTextColor(ThemeColors.get(LogsActivity.this, R.color.primary_color));

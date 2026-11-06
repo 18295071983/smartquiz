@@ -92,7 +92,7 @@ public final class ComponentTypes {
                     + "收集用户操作两条路：①任何卡都行——create 时带 actions:[{label,value,action:'callback'}]，"
                     + "按钮回传写死的 value；actions 组合语义：{link:url}打开(http/file 与自定义协议都认，"
                     + "协议链接由浏览器问用户后转交应用/系统浏览器)、{copy:text}复制、"
-                    + "{action:'open_app',app:'微信'|package:'com.tencent.mm'}或{action:'am',value:'pkg'|'am start -n pkg/.Act'}启动应用、"
+                    + "{action:'open_app',app:'微信'|package:'com.tencent.mm'}或{action:'am',value:'pkg'|'am start -n pkg/.Act'|'am start -d <url>'}启动应用/打开协议链接、"
                     + "dial/sms/email/map 调系统界面；"
                     + "②只有工作区本地网页文件、且卡带 actions——页面 JS 调"
                     + "Android.submit(payload) 把运行时值(选中项/表单值/图表 drill-down)送进**本卡**结果槽，"

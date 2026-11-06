@@ -568,6 +568,7 @@ public class AIChatActivity extends BaseActivity {
         return R.layout.activity_ai_chat;
     }
 
+    @SuppressWarnings("deprecation") // 31~34 仍需显式透明系统栏；35+ edge-to-edge 接管
     @Override
     protected void initView() {
         try {
@@ -1786,6 +1787,12 @@ public class AIChatActivity extends BaseActivity {
             }
 
             @Override
+            public void onOpenBrowser() {
+                // 内置浏览器唯一壳：不传 url 走起始页（地址栏/标签页/历史/下载都在 WebViewActivity）
+                startActivity(new Intent(AIChatActivity.this, com.oilquiz.app.WebViewActivity.class));
+            }
+
+            @Override
             public void onSearchAsk() {
                 // CHIP-ASK(2026-11-02)：点「🔍 搜索」= 把输入框里的问题直接交给模型并"本轮联网"。
                 // 空输入时退化成参数表单，不让这一下点击变成死路（长按也随时能开表单）。
@@ -1806,6 +1813,7 @@ public class AIChatActivity extends BaseActivity {
                 findViewById(R.id.chip_file),
                 findViewById(R.id.chip_location),
                 findViewById(R.id.chip_app),
+                findViewById(R.id.chip_browser),
                 findViewById(R.id.chip_calc),
                 findViewById(R.id.chip_clear_chat2));
         quickToolModule.addQuickChips(quickGroup);

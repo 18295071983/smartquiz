@@ -77,6 +77,11 @@ public class MarkdownCardView implements ChatComponent {
             card.addView(contentTv);
         }
 
+        // 动作行：与 AlertCardView 同一套 actions 语义，按钮渲染在**卡片内部**。
+        // 2026-11-06 真机：markdown_card 原来不处理 actions，靠 ComponentRegistry 在卡片外
+        // 补一行 12sp 文本；模型口径是"点卡里的按钮"，用户在卡片上看不到按钮，只能问"你让我点哪里"。
+        ComponentActions.renderActions(card, context, p.optJSONArray("actions"));
+
         return card;
     }
 

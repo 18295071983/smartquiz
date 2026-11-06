@@ -64,19 +64,6 @@ public class SecurityWebViewClient extends WebViewClient {
         return handleUrlLoading(view, url, scheme);
     }
 
-    // 兼容旧版 API
-    @Override
-    public boolean shouldOverrideUrlLoading(WebView view, String url) {
-        String scheme = null;
-        try {
-            Uri uri = Uri.parse(url);
-            scheme = uri.getScheme();
-        } catch (Exception e) {
-            Log.w(TAG, "无法解析 URL scheme: " + url);
-        }
-        
-        return handleUrlLoading(view, url, scheme);
-    }
 
     /**
      * 处理 URL 加载

@@ -28,6 +28,7 @@ import com.oilquiz.app.theme.mcu.palettes.CorePalette;
  *     https://github.com/material-foundation/material-color-utilities/blob/main/dev_guide/creating_color_scheme.md
  *     for migration guidance.
  */
+@Deprecated
 public class Scheme {
   private int primary;
   private int onPrimary;

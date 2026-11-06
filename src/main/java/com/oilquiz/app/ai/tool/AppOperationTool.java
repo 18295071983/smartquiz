@@ -26,7 +26,7 @@ import java.util.Map;
     },
     params = {
         @Param(name = "action", type = "string", description = "操作类型: navigate/list_pages/go_home/go_back/get_info/open_settings/share", required = true),
-        @Param(name = "page", type = "string", description = "页面名称(如user/question/quiz/study_plan等;AI生图/文生视频用media_gen)", required = false),
+        @Param(name = "page", type = "string", description = "页面名称(如user/question/quiz/study_plan/browser等;AI生图/文生视频用media_gen；browser可配params={url})", required = false),
         @Param(name = "params", type = "object", description = "动态注入页面参数(navigate用)，如media_gen页: {\"mode\":\"image\",\"prompt\":\"一只橘猫\",\"model\":\"wan2.2-t2i-flash\",\"size\":\"1024*1024\",\"duration\":\"5\"}，页面打开即预填", required = false),
         @Param(name = "setting", type = "string", description = "设置项: wifi/bluetooth/location/display/sound/storage/app", required = false),
         @Param(name = "text", type = "string", description = "分享的文本内容", required = false),
@@ -60,6 +60,10 @@ public class AppOperationTool implements AITool {
             PAGE_MAP.put("导入指南", Class.forName("com.oilquiz.app.ui.activity.ImportGuideActivity"));
             PAGE_MAP.put("question_generate", Class.forName("com.oilquiz.app.ui.activity.QuestionGenerateActivity"));
             PAGE_MAP.put("生成题目", Class.forName("com.oilquiz.app.ui.activity.QuestionGenerateActivity"));
+            // 内置浏览器（WebViewActivity）：params 可带 {"url":"https://..."} 预加载；
+            // 不带 url 打开起始页。此前 list_pages 没有这一项，模型才会回答"这个 App 里没有浏览器"。
+            PAGE_MAP.put("browser", Class.forName("com.oilquiz.app.WebViewActivity"));
+            PAGE_MAP.put("浏览器", Class.forName("com.oilquiz.app.WebViewActivity"));
             PAGE_MAP.put("environment_check", Class.forName("com.oilquiz.app.ui.activity.EnvironmentCheckActivity"));
             PAGE_MAP.put("环境检查", Class.forName("com.oilquiz.app.ui.activity.EnvironmentCheckActivity"));
             PAGE_MAP.put("export", Class.forName("com.oilquiz.app.ui.activity.ExportActivity"));

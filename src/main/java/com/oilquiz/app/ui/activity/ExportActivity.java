@@ -910,11 +910,10 @@ public class ExportActivity extends AppCompatActivity {
             } else {
                 uri = Uri.fromFile(file);
             }
-            Intent intent = new Intent(Intent.ACTION_INSTALL_PACKAGE);
-            intent.setData(uri);
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, "application/vnd.android.package-archive");
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            intent.putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true);
             startActivity(intent);
         } catch (Exception e) {
             Log.e(LOG_PREFIX, "无法安装 APK", e);

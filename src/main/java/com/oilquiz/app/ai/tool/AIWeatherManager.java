@@ -308,9 +308,12 @@ public class AIWeatherManager implements AITool {
             android.content.pm.PackageManager pm = context.getPackageManager();
             String packageName = context.getPackageName();
             android.content.pm.PackageInfo info = pm.getPackageInfo(packageName,
-                    android.content.pm.PackageManager.GET_SIGNATURES);
-            if (info.signatures == null || info.signatures.length == 0) return null;
-            byte[] cert = info.signatures[0].toByteArray();
+                    android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES);
+            android.content.pm.SigningInfo signingInfo = info.signingInfo;
+            android.content.pm.Signature[] sigs = signingInfo != null
+                    ? signingInfo.getApkContentsSigners() : null;
+            if (sigs == null || sigs.length == 0) return null;
+            byte[] cert = sigs[0].toByteArray();
             java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-1");
             byte[] digest = md.digest(cert);
             StringBuilder sb = new StringBuilder();
@@ -620,10 +623,8 @@ public class AIWeatherManager implements AITool {
         //    和风 v7 的 location 参数原生支持该格式，调用方无需区分 ID/坐标。
         try {
             if (android.location.Geocoder.isPresent()) {
-                android.location.Geocoder geocoder =
-                        new android.location.Geocoder(context, java.util.Locale.CHINA);
                 java.util.List<android.location.Address> addresses =
-                        geocoder.getFromLocationName(city, 1);
+                        GeocodeCompat.fromLocationName(context, city, 1);
                 if (addresses != null && !addresses.isEmpty()) {
                     android.location.Address addr = addresses.get(0);
                     if (addr.hasLatitude() && addr.hasLongitude()) {
@@ -709,10 +710,8 @@ public class AIWeatherManager implements AITool {
         // 不依赖和风 geo API（该端点 JWT 403）。CSV 未覆盖的生僻地名也常能解析。
         try {
             if (android.location.Geocoder.isPresent()) {
-                android.location.Geocoder geocoder =
-                        new android.location.Geocoder(context, java.util.Locale.CHINA);
                 java.util.List<android.location.Address> addresses =
-                        geocoder.getFromLocationName(city, 1);
+                        GeocodeCompat.fromLocationName(context, city, 1);
                 if (addresses != null && !addresses.isEmpty()) {
                     android.location.Address addr = addresses.get(0);
                     if (addr.hasLatitude() && addr.hasLongitude()) {

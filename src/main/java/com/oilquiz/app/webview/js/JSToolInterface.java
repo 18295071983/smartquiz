@@ -39,13 +39,10 @@ public class JSToolInterface {
     @JavascriptInterface
     public void vibrate(long milliseconds) {
         if (context == null) return;
-        Vibrator vibrator = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
+        Vibrator vibrator = context.getSystemService(Vibrator.class);
         if (vibrator != null && vibrator.hasVibrator()) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createOneShot(milliseconds, VibrationEffect.DEFAULT_AMPLITUDE));
-            } else {
-                vibrator.vibrate(milliseconds);
-            }
+            vibrator.vibrate(VibrationEffect.createOneShot(
+                    milliseconds, VibrationEffect.DEFAULT_AMPLITUDE));
         }
     }
 

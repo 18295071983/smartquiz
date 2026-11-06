@@ -345,20 +345,15 @@ public class ReminderScheduler {
                     context.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return;
             boolean repeat = "daily".equals(entry.repeatType) || "weekly".equals(entry.repeatType);
-            Notification.Builder builder;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                builder = new Notification.Builder(context, repeat ? CHANNEL_ID_ALARM : CHANNEL_ID);
-            } else {
-                builder = new Notification.Builder(context);
-            }
+            Notification.Builder builder =
+                    new Notification.Builder(context, repeat ? CHANNEL_ID_ALARM : CHANNEL_ID);
             builder.setSmallIcon(android.R.drawable.ic_dialog_info)
                     .setContentTitle(repeat ? "⏰ 定时提醒" : "⏰ 提醒")
                     .setContentText(entry.content)
                     .setStyle(new Notification.BigTextStyle().bigText(entry.content))
                     .setCategory(Notification.CATEGORY_ALARM)
                     .setVisibility(Notification.VISIBILITY_PUBLIC)
-                    .setAutoCancel(true)
-                    .setDefaults(Notification.DEFAULT_SOUND | Notification.DEFAULT_VIBRATE);
+                    .setAutoCancel(true);
             nm.notify("ai_reminder_" + entry.id, entry.id.hashCode() & 0x7fffffff, builder.build());
             AILogger.i(TAG, "提醒已触发: " + entry.content);
         } catch (Exception e) {

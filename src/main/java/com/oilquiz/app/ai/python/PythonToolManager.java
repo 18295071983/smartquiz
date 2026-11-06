@@ -1227,9 +1227,8 @@ public class PythonToolManager {
                                 android.os.Build.VERSION.SDK_INT >= 23
                                         ? android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE
                                         : android.app.PendingIntent.FLAG_UPDATE_CURRENT);
-                        android.app.Notification.Builder builder = android.os.Build.VERSION.SDK_INT >= 26
-                                ? new android.app.Notification.Builder(context, channelId)
-                                : new android.app.Notification.Builder(context);
+                        android.app.Notification.Builder builder =
+                                new android.app.Notification.Builder(context, channelId);
                         builder.setSmallIcon(android.R.drawable.ic_dialog_info)
                                 .setContentTitle(title != null && !title.isEmpty() ? title : "AI 通知")
                                 .setContentText(message != null ? message : "")
@@ -1386,19 +1385,10 @@ public class PythonToolManager {
                         if (title != null && !title.isEmpty() && !propsObj.has("title")) {
                             propsObj.put("title", title);
                         }
-                        // 交互支持：给每个 action 注入 component_id（action=callback 时用）。
-                        // 否则 Python/模型路径渲染的按钮无 component_id，点击落入 execute() 无回调，
-                        // get_result 只能等满超时（Bug2）
-                        org.json.JSONArray actionsArr = propsObj.optJSONArray("actions");
-                        if (actionsArr != null) {
-                            for (int i = 0; i < actionsArr.length(); i++) {
-                                org.json.JSONObject a = actionsArr.optJSONObject(i);
-                                if (a != null) {
-                                    a.put("component_id", id);
-                                    if (!a.has("action")) a.put("action", "callback");
-                                }
-                            }
-                        }
+                        // 注入 component_id + 条件 callback：与 SystemUIComponentTool 共用
+                        // ComponentActions.prepareInteractiveActions，避免两条生产者各抄一份
+                        com.oilquiz.app.ai.chat.component.ComponentActions.prepareInteractiveActions(
+                                propsObj.optJSONArray("actions"), id);
                         com.oilquiz.app.ai.chat.component.ComponentData data =
                                 new com.oilquiz.app.ai.chat.component.ComponentData(renderType, propsObj);
                         android.view.View view = registry.render(fAct, data);
@@ -1456,9 +1446,8 @@ public class PythonToolManager {
                         return;
                     }
                     if ("progress".equals(fType)) {
-                        // 系统进度条对话框（水平进度条，可 update_component 更新；到 max 自动关闭，也可手动取消）
-                        android.app.ProgressDialog pd = new android.app.ProgressDialog(fAct);
-                        pd.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+                        // 自绘进度弹窗（ProgressDialog 已废弃）：保留 setMessage/setMax/setProgress 语义
+                        ProgressDialogCompat pd = new ProgressDialogCompat(fAct);
                         pd.setCancelable(true);
                         pd.setOnCancelListener(d -> {
                             rt.result.compareAndSet("pending", "cancelled");
@@ -1722,7 +1711,7 @@ public class PythonToolManager {
                             if (imgSrc != null && !imgSrc.isEmpty()) {
                                 if (imgSrc.startsWith("http://") || imgSrc.startsWith("https://")) {
                                     try {
-                                        com.bumptech.glide.Glide.with(fAct).load(imgSrc).into(iv);
+                                        com.bumptech.glide.Glide.with(iv).load(imgSrc).into(iv);
                                         loaded = true;
                                     } catch (Throwable ignored) {
                                     }
@@ -1912,7 +1901,10 @@ public class PythonToolManager {
                         ws.setUseWideViewPort(false);
                         wv.setWebViewClient(new android.webkit.WebViewClient() {
                             @Override
-                            public boolean shouldOverrideUrlLoading(android.webkit.WebView view, String url) {
+                            public boolean shouldOverrideUrlLoading(android.webkit.WebView view,
+                                                                    android.webkit.WebResourceRequest request) {
+                                String url = request != null && request.getUrl() != null
+                                        ? request.getUrl().toString() : null;
                                 if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
                                     com.oilquiz.app.ai.chat.component.ComponentActions.openLink(view.getContext(), url);
                                     return true;
@@ -2525,7 +2517,7 @@ public class PythonToolManager {
                                     if (ext.endsWith(".png") || ext.endsWith(".jpg") || ext.endsWith(".jpeg")
                                             || ext.endsWith(".webp") || ext.endsWith(".gif")) {
                                         imgView.setVisibility(android.view.View.VISIBLE);
-                                        com.bumptech.glide.Glide.with(act)
+                                        com.bumptech.glide.Glide.with(imgView)
                                                 .load(new java.io.File(resultFilePath[0])).into(imgView);
                                     } else {
                                         videoInfo.setVisibility(android.view.View.VISIBLE);
@@ -3089,7 +3081,7 @@ public class PythonToolManager {
                                     if (ext.endsWith(".png") || ext.endsWith(".jpg") || ext.endsWith(".jpeg")
                                             || ext.endsWith(".webp") || ext.endsWith(".gif")) {
                                         imgView.setVisibility(android.view.View.VISIBLE);
-                                        com.bumptech.glide.Glide.with(act)
+                                        com.bumptech.glide.Glide.with(imgView)
                                                 .load(new java.io.File(resultFilePath[0])).into(imgView);
                                     } else {
                                         videoInfo.setVisibility(android.view.View.VISIBLE);
@@ -3888,6 +3880,7 @@ public class PythonToolManager {
          * 无法聚焦输入框/不弹输入法的问题（AlertDialog 默认 softInputMode 不弹键盘）。
          * 无输入控件时仅设 ADJUST_UNSPECIFIED（不弹输入法，不影响纯展示）。
          */
+        @SuppressWarnings("deprecation") // 弹窗窗口仍靠 ADJUST_RESIZE 跟输入法收缩，暂无等价替代
         private void configureDialogInput(android.app.AlertDialog dialog) {
             if (dialog == null || dialog.getWindow() == null) return;
             try {
@@ -4171,7 +4164,7 @@ public class PythonToolManager {
             // 录音准备/启动放后台线程（MediaRecorder prepare 可能耗时）
             new Thread(() -> {
                 try {
-                    android.media.MediaRecorder recorder = new android.media.MediaRecorder();
+                    android.media.MediaRecorder recorder = new android.media.MediaRecorder(act);
                     recorder.setAudioSource(android.media.MediaRecorder.AudioSource.MIC);
                     recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4);
                     recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC);
@@ -4491,9 +4484,8 @@ public class PythonToolManager {
                                 android.os.Build.VERSION.SDK_INT >= 23
                                         ? android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE
                                         : android.app.PendingIntent.FLAG_UPDATE_CURRENT);
-                        android.app.Notification.Builder builder = android.os.Build.VERSION.SDK_INT >= 26
-                                ? new android.app.Notification.Builder(context, channelId)
-                                : new android.app.Notification.Builder(context);
+                        android.app.Notification.Builder builder =
+                                new android.app.Notification.Builder(context, channelId);
                         builder.setSmallIcon(android.R.drawable.ic_dialog_info)
                                 .setContentTitle(fTitle != null && !fTitle.isEmpty() ? fTitle : "AI 通知")
                                 .setContentText(fMessage != null ? fMessage : "")
@@ -4523,8 +4515,8 @@ public class PythonToolManager {
             main.post(() -> {
                 try {
                     android.app.Dialog d = rt.dialog;
-                    if (d instanceof android.app.ProgressDialog) {
-                        android.app.ProgressDialog pd = (android.app.ProgressDialog) d;
+                    if (d instanceof ProgressDialogCompat) {
+                        ProgressDialogCompat pd = (ProgressDialogCompat) d;
                         if (fMax > 0) pd.setMax(fMax);
                         if (fProgress >= 0) pd.setProgress(fProgress);
                         if (fTitle != null && !fTitle.isEmpty()) pd.setTitle(fTitle);

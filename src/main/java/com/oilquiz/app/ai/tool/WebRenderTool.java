@@ -199,10 +199,17 @@ public class WebRenderTool implements AITool {
                     }
 
                     @Override
-                    public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                    public void onReceivedError(WebView view,
+                                                android.webkit.WebResourceRequest request,
+                                                android.webkit.WebResourceError error) {
                         // 仅当主页面加载失败才记录（子资源错误忽略）
-                        if (failingUrl != null && failingUrl.equalsIgnoreCase(url)) {
-                            pageError.set("页面加载失败: code=" + errorCode + " " + description);
+                        String failingUrl = request != null && request.getUrl() != null
+                                ? request.getUrl().toString() : null;
+                        if (request != null && request.isForMainFrame()
+                                && failingUrl != null && failingUrl.equalsIgnoreCase(url)) {
+                            pageError.set("页面加载失败: code="
+                                    + (error != null ? error.getErrorCode() : -1) + " "
+                                    + (error != null ? error.getDescription() : ""));
                             pageLoaded.countDown();
                         }
                     }

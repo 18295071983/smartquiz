@@ -20,7 +20,7 @@ public class ThemeColorManager {
 
     /** 旧语义：按资源 id 设置主题色（兼容旧调用点） */
     public void setThemeColor(Context context, int colorRes) {
-        int argb = context.getResources().getColor(colorRes);
+        int argb = androidx.core.content.ContextCompat.getColor(context, colorRes);
         ThemeManager.setThemeColor(context, argb);
     }
 

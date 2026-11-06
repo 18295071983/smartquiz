@@ -53,12 +53,7 @@ public final class WorkspaceActivityNotifier {
             }
             String detail = detailOf(entries);
 
-            Notification.Builder builder;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                builder = new Notification.Builder(context, CHANNEL_ID);
-            } else {
-                builder = new Notification.Builder(context);
-            }
+            Notification.Builder builder = new Notification.Builder(context, CHANNEL_ID);
             PendingIntent pi = openChatIntent(context);
             builder.setSmallIcon(android.R.drawable.ic_dialog_info)
                     .setContentTitle("助手已产出 " + entries.size() + " 个文件")

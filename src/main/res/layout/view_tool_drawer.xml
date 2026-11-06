@@ -249,6 +249,17 @@
                 android:textColor="@color/on_tertiary_container"
                 app:chipStrokeWidth="0dp"/>
 
+            <!-- 内置浏览器：和搜索/文件同级，直接打开 WebViewActivity 起始页（2026-11-06） -->
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_browser"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/browser"
+                android:layout_marginBottom="@dimen/space_4"
+                app:chipBackgroundColor="@color/tertiary_container"
+                android:textColor="@color/on_tertiary_container"
+                app:chipStrokeWidth="0dp"/>
+
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_database"
                 android:layout_width="wrap_content"

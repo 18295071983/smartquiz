@@ -87,8 +87,8 @@ public class MappingEditorActivity extends AppCompatActivity {
         Intent intent = getIntent();
         if (intent != null) {
             // 优先从Intent获取映射数据（从WebViewActivity或ImportActivity传入）
-            Map<String, Integer> intentFieldMapping = (Map<String, Integer>) intent.getSerializableExtra(EXTRA_FIELD_MAPPING);
-            Map<String, String> intentQuestionTypeMapping = (Map<String, String>) intent.getSerializableExtra(EXTRA_QUESTION_TYPE_MAPPING);
+            Map<String, Integer> intentFieldMapping = (Map<String, Integer>) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(intent, EXTRA_FIELD_MAPPING);
+            Map<String, String> intentQuestionTypeMapping = (Map<String, String>) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(intent, EXTRA_QUESTION_TYPE_MAPPING);
             
             if (intentFieldMapping != null && !intentFieldMapping.isEmpty()) {
                 // 有从Intent传入的映射数据，使用它

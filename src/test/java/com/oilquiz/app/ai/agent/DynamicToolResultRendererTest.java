@@ -65,6 +65,21 @@ public class DynamicToolResultRendererTest {
     }
 
     @Test
+    public void remoteUrlBecomesLinkCardNotFileCard() {
+        // 2026-11-06 真机：网络搜索的 .html 结果被兜底成 file_card，点开 FileRenderActivity
+        // 报"文件不存在"（path 是 https 网址，不是本地文件）。
+        String url = "https://k.sina.com.cn/article_7857201856_1d45362c001903fxqg.html";
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("name", "article_7857201856_1d45362c001903fxqg.html");
+        r.put("path", url);
+        List<ComponentData> cards = DynamicToolResultRenderer.render(
+                "network_search", AIToolResult.success(r));
+        assertEquals(1, cards.size());
+        assertEquals("link_card", cards.get(0).type);
+        assertEquals(url, cards.get(0).props.optString("url"));
+    }
+
+    @Test
     public void objectListBecomesListCard() {
         List<Map<String, Object>> list = new ArrayList<>();
         Map<String, Object> a = new LinkedHashMap<>();

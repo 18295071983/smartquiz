@@ -71,7 +71,7 @@ public class AutoBackupManager {
 
         workManager.enqueueUniquePeriodicWork(
                 WORK_NAME,
-                ExistingPeriodicWorkPolicy.REPLACE,
+                ExistingPeriodicWorkPolicy.UPDATE,
                 backupRequest
         );
     }

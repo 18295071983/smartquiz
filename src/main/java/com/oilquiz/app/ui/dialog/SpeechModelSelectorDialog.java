@@ -43,6 +43,7 @@ import java.util.List;
  * 与 OCRModelSelectorDialog 交互一致：列出所有启用 API 端点下的具体模型，
  * 用户为语音识别或语音合成单独指定模型后，对应语音功能即可直接使用。
  */
+@SuppressWarnings("deprecation") // 弹窗窗口仍靠 ADJUST_RESIZE 跟输入法收缩
 public class SpeechModelSelectorDialog {
 
     /** 功能专用模型模式（语音识别/语音合成/文生图/文生视频） */

@@ -215,7 +215,7 @@ public class ModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
             modelCard = itemView.findViewById(R.id.model_card);
 
             itemView.setOnClickListener(v -> {
-                int position = getAdapterPosition();
+                int position = getBindingAdapterPosition();
                 if (position != RecyclerView.NO_POSITION && listener != null) {
                     DisplayItem item = displayItems.get(position);
                     if (item.type == VIEW_TYPE_MODEL && item.modelName != null) {
@@ -239,7 +239,7 @@ public class ModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
 
                 if (isCurrent) {
                     statusTextView.setText(context.getString(R.string.h_be4cd65b));
-                    statusTextView.setTextColor(context.getResources().getColor(R.color.success_color));
+                    statusTextView.setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.success_color));
                     if (modelCard != null) {
                         modelCard.setBackgroundColor(ThemeColors.attr(context, R.attr.colorCardBackground));
                     }

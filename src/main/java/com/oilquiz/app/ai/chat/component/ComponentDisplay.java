@@ -229,6 +229,10 @@ public final class ComponentDisplay {
     /** 决策本体（不碰 Context，单测直接调这条） */
     public static Mode resolveMode(ComponentData comp, Mode tier) {
         if (comp == null) return tier;
+        // 工具发现通道（tool_registry / mcp_toolbox）的通用 info_card 是模型内部路由元数据：
+        // 历史里已落盘的这类卡（requested_tool / matched_by / hint 等原始键）不再显示，
+        // 但不删数据（HIDDEN 口径：数据仍在 message.components 里，可复盘）。
+        if (isDiscoveryMetaCard(comp)) return Mode.HIDDEN;
         // 底线先算：交互/正文类不受声明与默认档影响
         if (isAlwaysInline(comp)) return Mode.INLINE;
         Mode fallback = tier != null ? tier : Mode.PEEK;
@@ -243,6 +247,19 @@ public final class ComponentDisplay {
             if (collapsed != null) return collapsed ? Mode.PEEK : Mode.INLINE;
         }
         return fallback;
+    }
+
+    /**
+     * 发现通道产出的通用 info_card：生产者是 tool_registry / mcp_toolbox 的 info_card。
+     *
+     * <p>只按生产者认，不按 title 认——"工具列表"这个标题在别的工具里也可能出现，
+     * 按标题过滤会误伤真正的用户数据。</p>
+     */
+    static boolean isDiscoveryMetaCard(ComponentData comp) {
+        if (comp == null || comp.props == null) return false;
+        if (!"info".equals(ComponentTypes.resolve(comp.type))) return false;
+        String producer = comp.props.optString("producerToolName", "");
+        return "tool_registry".equals(producer) || "mcp_toolbox".equals(producer);
     }
 
     /** props 里的布尔容错：模型常写 "true"/1/0 字符串 */

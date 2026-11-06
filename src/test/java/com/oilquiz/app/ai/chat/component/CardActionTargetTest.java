@@ -68,4 +68,42 @@ public class CardActionTargetTest {
                 .contains("shell_command"));
         assertTrue(ComponentActions.planLaunch("", "", "").isEmpty());
     }
+
+    @Test
+    public void parsesQuotedCustomSchemeUrlWithoutPackageTruncation() {
+        // 2026-11-06 真机回归：模型写 am start -a VIEW -d "amapuri://…"，旧实现取到首个空格前，
+        // 把首尾引号一起带出，再按首个 '/' 截包名 → `"amapuri:`，点击必失败。
+        String raw = "am start -a android.intent.action.VIEW -d "
+                + "\"amapuri://navi?sourceApplication=amap_mcp&lon=106.249713&lat=38.443075&dev=1&style=2\"";
+        assertEquals("amapuri://navi?sourceApplication=amap_mcp&lon=106.249713&lat=38.443075&dev=1&style=2",
+                CardActionTarget.parseAmTarget(raw));
+        assertTrue(CardActionTarget.isSchemeUri(
+                "amapuri://navi?sourceApplication=amap_mcp&lon=106.249713"));
+        assertFalse(CardActionTarget.isSchemeUri("com.tencent.mm"));
+        assertFalse(CardActionTarget.isSchemeUri("微信"));
+    }
+
+    @Test
+    public void planLaunchRoutesQuotedCustomSchemeToLink() {
+        ComponentActions.LaunchPlan plan = ComponentActions.planLaunch("", "",
+                "am start -a android.intent.action.VIEW -d \"amapuri://navi?lon=106.2&lat=38.4\"");
+        assertEquals("amapuri://navi?lon=106.2&lat=38.4", plan.url);
+        assertEquals("", plan.packageName);
+        assertFalse(plan.isEmpty());
+    }
+
+    @Test
+    public void planLaunchRoutesFileAndMailSchemesToLink() {
+        assertEquals("file:///sdcard/a.txt",
+                ComponentActions.planLaunch("", "", "am start -d 'file:///sdcard/a.txt'").url);
+        assertEquals("mailto:a@b.com",
+                ComponentActions.planLaunch("", "", "am start -d \"mailto:a@b.com\"").url);
+    }
+
+    @Test
+    public void parsesQuotedUrlFollowedByOtherFlags() {
+        assertEquals("https://example.com/a?b=1",
+                CardActionTarget.parseAmTarget(
+                        "am start -d \"https://example.com/a?b=1\" -p com.tencent.mm"));
+    }
 }

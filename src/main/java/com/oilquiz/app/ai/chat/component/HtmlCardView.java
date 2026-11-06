@@ -306,11 +306,6 @@ public class HtmlCardView implements ChatComponent {
         }
 
         @Override
-        public boolean shouldOverrideUrlLoading(WebView view, String url) {
-            return handleNavigation(view, url);
-        }
-
-        @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             String url = request != null && request.getUrl() != null
                     ? request.getUrl().toString() : null;

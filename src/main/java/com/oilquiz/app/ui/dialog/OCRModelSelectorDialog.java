@@ -47,6 +47,7 @@ import java.util.List;
  * 1. "自动选择（推荐）" - 不指定具体模型，按能力自动选择
  * 2. 每个启用的 API 端点下，列出其提供的具体模型（来自缓存或实时拉取）
  */
+@SuppressWarnings("deprecation") // 弹窗窗口仍靠 ADJUST_RESIZE 跟输入法收缩
 public class OCRModelSelectorDialog {
 
     private final Context context;

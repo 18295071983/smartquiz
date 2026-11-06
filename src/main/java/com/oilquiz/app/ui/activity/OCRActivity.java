@@ -349,8 +349,9 @@ public class OCRActivity extends AppCompatActivity {
                 } else {
                     Toast.makeText(this, getString(R.string.h_57418b05), Toast.LENGTH_SHORT).show();
                 }
-            } else if (data != null && data.getExtras() != null) {
-                selectedImage = (Bitmap) data.getExtras().get("data");
+            } else if (data != null) {
+                selectedImage = com.oilquiz.app.util.IntentExtrasCompat
+                        .getParcelable(data, "data", Bitmap.class);
                 if (selectedImage != null) {
                     selectedPdfUri = null;
                     resetUiForSelection();

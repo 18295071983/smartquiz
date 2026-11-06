@@ -157,7 +157,7 @@ public class JSAdvancedInterface {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "js_tts_" + System.currentTimeMillis());
             } else {
-                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null);
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "js_tts_" + System.currentTimeMillis());
             }
         } catch (Exception e) {
             Log.w(TAG, "TTS speak 失败", e);

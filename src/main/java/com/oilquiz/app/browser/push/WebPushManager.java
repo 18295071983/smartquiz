@@ -389,7 +389,7 @@ public final class WebPushManager {
                             .setConstraints(constraints)
                             .build();
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                    WORK_NAME, ExistingPeriodicWorkPolicy.REPLACE, request);
+                    WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request);
             Log.i(TAG, "后台提醒轮询已调度，间隔 " + interval + " 分钟，共 "
                     + subscriptions.size() + " 个订阅");
         } catch (Throwable t) {

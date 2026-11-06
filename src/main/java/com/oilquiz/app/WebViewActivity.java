@@ -410,7 +410,7 @@ public class WebViewActivity extends BaseActivity {
         createNewTabDelayed(100);
 
         // 启动参数优先于起始页（延迟执行，确保 WebView 初始化完成）
-        new android.os.Handler().postDelayed(() -> {
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             // 优先 file_path（本地文件完整预览链路：智能编码检测防 GBK 乱码）
             String localPath = getIntent() != null ? getIntent().getStringExtra("file_path") : null;
             if (localPath != null && !localPath.isEmpty()) {
@@ -434,7 +434,7 @@ public class WebViewActivity extends BaseActivity {
      * 延迟创建新标签页
      */
     private void createNewTabDelayed(long delayMillis) {
-        new android.os.Handler().postDelayed(() -> {
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             createNewTab();
         }, delayMillis);
     }
@@ -1566,7 +1566,7 @@ public class WebViewActivity extends BaseActivity {
                     
                     // 确保x5WebView已设置为新标签页的WebView
                     // 延迟加载文件，确保标签页切换完成
-                    new android.os.Handler().postDelayed(() -> {
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                         AppLogger.d(TAG, "延迟加载文件: " + filePath);
                         loadFile(file);
                     }, 200);
@@ -2399,10 +2399,8 @@ public class WebViewActivity extends BaseActivity {
 
         // 浏览器需要的基础能力：DOM 存储/IndexedDB/表单、content:// 访问、定位
         shellSettings.setDomStorageEnabled(true);
-        shellSettings.setDatabaseEnabled(true);
         shellSettings.setAllowContentAccess(true);
         shellSettings.setGeolocationEnabled(true);
-        shellSettings.setSaveFormData(false);
         shellSettings.setAllowFileAccess(true);
         // 跨源文件访问关闭（与 HtmlSandbox 同口径）：file 页不能读任意本地文件
         shellSettings.setAllowFileAccessFromFileURLs(false);
@@ -2488,7 +2486,7 @@ public class WebViewActivity extends BaseActivity {
                     if (loadingStatusText != null) {
                         loadingStatusText.setVisibility(View.VISIBLE);
                         loadingStatusText.setText(getString(R.string.h_866b795e));
-                        loadingStatusText.setTextColor(getResources().getColor(R.color.error_color));
+                        loadingStatusText.setTextColor(androidx.core.content.ContextCompat.getColor(WebViewActivity.this, R.color.error_color));
                         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                             if (loadingStatusText != null) {
                                 loadingStatusText.setVisibility(View.GONE);
@@ -3339,13 +3337,10 @@ public class WebViewActivity extends BaseActivity {
         
         @JavascriptInterface
         public void vibrate(long milliseconds) {
-            android.os.Vibrator vibrator = (android.os.Vibrator) WebViewActivity.this.getSystemService(Context.VIBRATOR_SERVICE);
+            android.os.Vibrator vibrator = WebViewActivity.this.getSystemService(android.os.Vibrator.class);
             if (vibrator != null && vibrator.hasVibrator()) {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    vibrator.vibrate(android.os.VibrationEffect.createOneShot(milliseconds, android.os.VibrationEffect.DEFAULT_AMPLITUDE));
-                } else {
-                    vibrator.vibrate(milliseconds);
-                }
+                vibrator.vibrate(android.os.VibrationEffect.createOneShot(
+                        milliseconds, android.os.VibrationEffect.DEFAULT_AMPLITUDE));
             }
         }
         
@@ -3874,7 +3869,7 @@ public class WebViewActivity extends BaseActivity {
             org.json.JSONObject o = new org.json.JSONObject();
             try {
                 o.put("versionName", getPackageManager().getPackageInfo(getPackageName(), 0).versionName);
-                o.put("versionCode", getPackageManager().getPackageInfo(getPackageName(), 0).versionCode);
+                o.put("versionCode", getPackageManager().getPackageInfo(getPackageName(), 0).getLongVersionCode());
             } catch (Exception ignored) { }
             return o.toString();
         }
@@ -4691,7 +4686,7 @@ public class WebViewActivity extends BaseActivity {
         // 初始化文件监控
         File exportDir = getExportDirectory();
         if (exportDir != null && exportDir.exists()) {
-            exportDirObserver = new android.os.FileObserver(exportDir.getAbsolutePath()) {
+            exportDirObserver = new android.os.FileObserver(exportDir) {
                 @Override
                 public void onEvent(int event, String path) {
                     if (event == android.os.FileObserver.CREATE || event == android.os.FileObserver.MODIFY) {

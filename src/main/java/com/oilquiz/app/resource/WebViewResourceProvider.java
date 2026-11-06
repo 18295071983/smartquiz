@@ -98,7 +98,7 @@ public class WebViewResourceProvider {
         
         // DOM Storage
         settings.setDomStorageEnabled((Boolean) webViewConfig.get("domStorageEnabled"));
-        settings.setDatabaseEnabled((Boolean) webViewConfig.get("databaseEnabled"));
+        // setDatabaseEnabled 自 API 19 起已是 no-op 且已废弃，不再调用
         
         // Cache
         settings.setCacheMode((Integer) webViewConfig.get("cacheMode"));
@@ -123,8 +123,7 @@ public class WebViewResourceProvider {
         settings.setLoadsImagesAutomatically((Boolean) webViewConfig.get("loadsImagesAutomatically"));
         settings.setMediaPlaybackRequiresUserGesture((Boolean) webViewConfig.get("mediaPlaybackRequiresUserGesture"));
         
-        // Performance
-        settings.setRenderPriority((WebSettings.RenderPriority) webViewConfig.get("renderPriority"));
+        // setRenderPriority 已废弃且无效（渲染优先级由内核调度），不再调用
         
         // Security
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {

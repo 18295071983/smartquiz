@@ -58,18 +58,15 @@ public class SoundResourceProvider {
      * 初始化音效池
      */
     private void initSoundPool() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build();
-            soundPool = new SoundPool.Builder()
-                    .setMaxStreams(10)
-                    .setAudioAttributes(audioAttributes)
-                    .build();
-        } else {
-            soundPool = new SoundPool(10, android.media.AudioManager.STREAM_NOTIFICATION, 0);
-        }
+        // minSdk 31：统一用 Builder（旧构造 SoundPool(int,int,int) 已废弃）
+        AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build();
+        soundPool = new SoundPool.Builder()
+                .setMaxStreams(10)
+                .setAudioAttributes(audioAttributes)
+                .build();
         
         // 设置加载完成监听器
         soundPool.setOnLoadCompleteListener((soundPool, sampleId, status) -> {

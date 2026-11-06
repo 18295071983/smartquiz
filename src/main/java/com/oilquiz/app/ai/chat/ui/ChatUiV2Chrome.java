@@ -208,6 +208,9 @@ public final class ChatUiV2Chrome {
         }
 
         click(header, R.id.chat_v2_btn_history, v -> perform(activity, R.id.btn_history));
+        // 内置浏览器：顶栏常驻入口（应用默认直接进聊天页，主页卡片不一定会被看到）
+        click(header, R.id.chat_v2_btn_browser, v ->
+                activity.startActivity(new Intent(activity, com.oilquiz.app.WebViewActivity.class)));
         click(header, R.id.chat_v2_btn_new, v -> perform(activity, R.id.btn_new_conversation));
         // 「⋯」不再弹自制的信息面板（已删）：状态与运行日志都搬进了工具中心，
         // 这里复用旧汉堡键的点击逻辑打开工具抽屉，不另写一套打开流程。

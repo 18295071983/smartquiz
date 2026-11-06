@@ -86,8 +86,6 @@ public class ResourceManager {
                     .setMaxStreams(5)
                     .setAudioAttributes(audioAttributes)
                     .build();
-        } else {
-            soundPool = new SoundPool(5, android.media.AudioManager.STREAM_NOTIFICATION, 0);
         }
     }
     

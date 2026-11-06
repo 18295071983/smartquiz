@@ -229,6 +229,8 @@
     <string name="ai_analyzer">AI Analyzer</string>
     <string name="ai_assistant">AI Assistant</string>
     <string name="ai_chat">AI Chat</string>
+    <string name="browser">Browser</string>
+    <string name="browser_entry_desc">Built-in browser · address bar / tabs / downloads</string>
     <string name="ai_settings">AI Settings</string>
     <string name="generate_answer">Generate Answer</string>
     <string name="ai_assistance">AI Assistance</string>

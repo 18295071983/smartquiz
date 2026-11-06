@@ -339,10 +339,10 @@ public class ImportActivity extends BaseActivity {
         
         if (status.contains("成功") || status.contains("完成")) {
             statusIcon.setImageResource(R.drawable.ic_check_circle);
-            statusIcon.setColorFilter(getResources().getColor(R.color.success_color));
+            statusIcon.setColorFilter(androidx.core.content.ContextCompat.getColor(this, R.color.success_color));
         } else if (status.contains("失败") || status.contains("错误")) {
             statusIcon.setImageResource(R.drawable.ic_error);
-            statusIcon.setColorFilter(getResources().getColor(R.color.error_color));
+            statusIcon.setColorFilter(androidx.core.content.ContextCompat.getColor(this, R.color.error_color));
         } else if (status.contains("分析") || status.contains("检测")) {
             statusIcon.setImageResource(R.drawable.ic_analyze);
             statusIcon.setColorFilter(ThemeColors.attr(this, R.attr.colorPrimary));
@@ -992,7 +992,7 @@ public class ImportActivity extends BaseActivity {
             }
         } else if (requestCode == REQUEST_CODE_FILE_PREVIEW && resultCode == RESULT_OK && data != null) {
             // 处理文件预览结果
-            this.fieldMapping = (Map<String, Integer>) data.getSerializableExtra(WebViewFilePreviewActivity.EXTRA_RESULT_FIELD_MAPPING);
+            this.fieldMapping = (Map<String, Integer>) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(data, WebViewFilePreviewActivity.EXTRA_RESULT_FIELD_MAPPING);
             if (this.fieldMapping != null && currentFile != null) {
                 // 获取设置参数
                 boolean autoCorrectEmptyCells = data.getBooleanExtra("auto_correct_empty_cells", true);
@@ -1026,7 +1026,7 @@ public class ImportActivity extends BaseActivity {
                 }
                 // 拆分部分自定义映射（用户在拆分预览中重新映射的结果）
                 @SuppressWarnings("unchecked")
-                Map<Integer, String> partMapping = (Map<Integer, String>) data.getSerializableExtra("split_part_mapping");
+                Map<Integer, String> partMapping = (Map<Integer, String>) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(data, "split_part_mapping");
                 if (partMapping != null && !partMapping.isEmpty()) {
                     settings.splitPartMapping = partMapping;
                     this.splitPartMapping = partMapping;
@@ -1051,10 +1051,10 @@ public class ImportActivity extends BaseActivity {
             }
         } else if (requestCode == REQUEST_CODE_SMART_MAPPING && resultCode == RESULT_OK && data != null) {
             // 处理智能映射结果
-            questionTypeMapping = (Map<String, String>) data.getSerializableExtra(SmartMappingActivity.EXTRA_RESULT_QUESTION_TYPE_MAPPING);
-            difficultyMapping = (Map<String, String>) data.getSerializableExtra(SmartMappingActivity.EXTRA_RESULT_DIFFICULTY_MAPPING);
-            categoryMapping = (Map<String, String>) data.getSerializableExtra(SmartMappingActivity.EXTRA_RESULT_CATEGORY_MAPPING);
-            Map<String, Integer> newFieldMapping = (Map<String, Integer>) data.getSerializableExtra(SmartMappingActivity.EXTRA_FIELD_MAPPING);
+            questionTypeMapping = (Map<String, String>) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(data, SmartMappingActivity.EXTRA_RESULT_QUESTION_TYPE_MAPPING);
+            difficultyMapping = (Map<String, String>) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(data, SmartMappingActivity.EXTRA_RESULT_DIFFICULTY_MAPPING);
+            categoryMapping = (Map<String, String>) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(data, SmartMappingActivity.EXTRA_RESULT_CATEGORY_MAPPING);
+            Map<String, Integer> newFieldMapping = (Map<String, Integer>) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(data, SmartMappingActivity.EXTRA_FIELD_MAPPING);
             if (newFieldMapping != null) {
                 fieldMapping = newFieldMapping;
             }
@@ -1067,8 +1067,8 @@ public class ImportActivity extends BaseActivity {
             }
         } else if (requestCode == REQUEST_CODE_EDIT_MAPPING && resultCode == RESULT_OK && data != null) {
             // 处理映射编辑结果
-            Map<String, Integer> newFieldMapping = (Map<String, Integer>) data.getSerializableExtra(MappingEditorActivity.EXTRA_FIELD_MAPPING);
-            Map<String, String> newQuestionTypeMapping = (Map<String, String>) data.getSerializableExtra(MappingEditorActivity.EXTRA_QUESTION_TYPE_MAPPING);
+            Map<String, Integer> newFieldMapping = (Map<String, Integer>) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(data, MappingEditorActivity.EXTRA_FIELD_MAPPING);
+            Map<String, String> newQuestionTypeMapping = (Map<String, String>) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(data, MappingEditorActivity.EXTRA_QUESTION_TYPE_MAPPING);
             
             if (newFieldMapping != null && currentFile != null && currentConfirmation != null) {
                 // 重新生成导入确认信息
@@ -1076,7 +1076,7 @@ public class ImportActivity extends BaseActivity {
             }
         } else if (requestCode == REQUEST_CODE_QUESTION_TYPE_MAPPING && resultCode == RESULT_OK && data != null) {
             // 处理题型映射结果
-            Map<String, String> newQuestionTypeMapping = (Map<String, String>) data.getSerializableExtra(QuestionTypeMapperActivity.EXTRA_RESULT_QUESTION_TYPE_MAPPING);
+            Map<String, String> newQuestionTypeMapping = (Map<String, String>) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(data, QuestionTypeMapperActivity.EXTRA_RESULT_QUESTION_TYPE_MAPPING);
             questionTypeMapping = newQuestionTypeMapping;
             
             // 执行导入
@@ -1085,7 +1085,7 @@ public class ImportActivity extends BaseActivity {
             }
         } else if (requestCode == REQUEST_CODE_DATA_ISSUE_FIX && resultCode == RESULT_OK && data != null) {
             // 处理数据问题修复结果
-            currentIssueReport = (ExcelUtil.DataIssueReport) data.getSerializableExtra(DataIssueFixActivity.EXTRA_RESULT_DATA_ISSUE_REPORT);
+            currentIssueReport = (ExcelUtil.DataIssueReport) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(data, DataIssueFixActivity.EXTRA_RESULT_DATA_ISSUE_REPORT);
             boolean skipAndContinue = data.getBooleanExtra(DataIssueFixActivity.EXTRA_SKIP_AND_CONTINUE, false);
             
             // 继续进行题型映射

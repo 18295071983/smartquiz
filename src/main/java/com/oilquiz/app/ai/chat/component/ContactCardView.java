@@ -99,39 +99,48 @@ public class ContactCardView implements ChatComponent {
                 card.addView(row);
             }
         } else {
-            // 自定义 actions：把 action 名映射到真实 Intent 动作
+            // 自定义 actions：统一走 ComponentActions 那套语义（link/copy/open_app/am/dial/sms/email/map）。
+            // 此前这里自己抄了一份 action→Intent 映射：遇到 open_app/am 就只剩一句"未知动作"toast，
+            // 和卡片按钮的其它出口口径不一致（2026-11-06 全量扫描）。
             for (int i = 0; i < actions.length(); i++) {
                 JSONObject a = actions.optJSONObject(i);
                 if (a == null) continue;
-                final String label = a.optString("label", "操作");
-                String act = a.optString("action", "");
-                final String link = a.optString("link", "");
-                final String copy = a.optString("copy", "");
-                String target = a.optString("value", value);
-                View.OnClickListener listener;
-                if (!copy.isEmpty()) {
-                    listener = v -> com.oilquiz.app.ai.chat.component.ComponentActions.execute(context, "", copy, "");
-                } else if (!link.isEmpty()) {
-                    listener = v -> com.oilquiz.app.ai.chat.component.ComponentActions.openLink(context, link);
-                } else if ("dial".equals(act) || "phone".equals(act)) {
-                    listener = v -> dial(context, target);
-                } else if ("sms".equals(act)) {
-                    listener = v -> sms(context, target);
-                } else if ("email".equals(act)) {
-                    listener = v -> email(context, target);
-                } else if ("map".equals(act)) {
-                    listener = v -> openMap(context, target);
-                } else {
-                    listener = v -> Toast.makeText(context, "未知动作: " + act, Toast.LENGTH_SHORT).show();
+                try {
+                    JSONObject normalized = new JSONObject(a.toString());
+                    if (normalized.optString("value", "").isEmpty() && !value.isEmpty()) {
+                        normalized.put("value", value);
+                    }
+                    if (normalized.optString("action", "").isEmpty()
+                            && normalized.optString("link", "").isEmpty()
+                            && normalized.optString("copy", "").isEmpty()
+                            && normalized.optString("app", "").isEmpty()
+                            && normalized.optString("package", "").isEmpty()) {
+                        String byType = defaultActionForType(type);
+                        if (byType != null) normalized.put("action", byType);
+                    }
+                    Runnable runner = ComponentActions.actionRunner(context, normalized);
+                    if (runner == null) continue;
+                    LinearLayout row = new LinearLayout(context);
+                    row.setOrientation(LinearLayout.HORIZONTAL);
+                    row.setPadding(0, dp(context, 8), 0, 0);
+                    row.addView(actionButton(context,
+                            normalized.optString("label", "操作"), v -> runner.run()));
+                    card.addView(row);
+                } catch (Throwable ignored) {
+                    // 单条 action 解析失败不影响其余按钮
                 }
-                LinearLayout row = new LinearLayout(context);
-                row.setOrientation(LinearLayout.HORIZONTAL);
-                row.setPadding(0, dp(context, 8), 0, 0);
-                row.addView(actionButton(context, label, listener));
-                card.addView(row);
             }
         }
         return card;
+    }
+
+    /** 只写了 label 的按钮按卡片类型补默认动作（电话→拨号、短信→发短信、邮箱→发邮件、地点→地图）。 */
+    private static String defaultActionForType(String type) {
+        if ("phone".equals(type)) return "dial";
+        if ("sms".equals(type)) return "sms";
+        if ("email".equals(type)) return "email";
+        if ("map".equals(type)) return "map";
+        return null;
     }
 
     private TextView actionButton(Context context, String text, View.OnClickListener listener) {

@@ -39,6 +39,7 @@ import androidx.core.view.WindowInsetsControllerCompat;
  * <p>在 setContentView 之后调用，由 SmartQuizApplication 的 ActivityLifecycleCallbacks
  * onActivityCreated 统一接入，无需逐个界面改动。
  */
+@SuppressWarnings("deprecation") // 31~34 仍要显式设系统栏透明色
 public final class EdgeToEdgeHelper {
 
     /** 自有 insets/沉浸逻辑的界面类名（全类名），不接管以免覆盖其自定义监听。 */
@@ -59,6 +60,7 @@ public final class EdgeToEdgeHelper {
     /**
      * 对单个 Activity 应用真 edge-to-edge。任何失败都不影响界面正常显示（静默降级为旧行为）。
      */
+    @SuppressWarnings("deprecation") // API 35+ 由 edge-to-edge 接管；31~34 仍需显式设透明色
     public static void apply(Activity activity) {
         try {
             if (activity == null || isSkipped(activity) || isTranslucent(activity)) {
@@ -347,7 +349,7 @@ public final class EdgeToEdgeHelper {
                     independentCopy(windowBg, activity.getResources());
             if (decorBg != null) {
                 ensureFill(decorBg);
-                activity.getWindow().getDecorView().setBackgroundDrawable(decorBg);
+                activity.getWindow().getDecorView().setBackground(decorBg);
             }
             // 诊断（与壁纸模块同 tag）：确认"页面背景 → 窗口背景"确实同步了、且各为独立实例
             android.util.Log.i("WallpaperDebug", "系统栏背景同步: rootBg="

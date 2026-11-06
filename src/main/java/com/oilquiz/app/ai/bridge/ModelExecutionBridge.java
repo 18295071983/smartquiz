@@ -978,7 +978,7 @@ public class ModelExecutionBridge {
                     modelName = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
                 } else if (aiService != null) {
                     if (!aiService.isInitialized()) {
-                        success = aiService.initializeSafe();
+                        success = aiService.initialize();
                     } else {
                         success = true;
                     }
@@ -1103,8 +1103,8 @@ public class ModelExecutionBridge {
                 AILogger.i(TAG, "NPU 引擎已启用，跳过本地服务初始化检查（由 NpuEngineRouter 负责生成）");
                 return true;
             }
-            AILogger.i(TAG, "Model not initialized, attempting safe init...");
-            if (!aiService.initializeSafe()) {
+            AILogger.i(TAG, "Model not initialized, attempting init on worker thread...");
+            if (!aiService.initialize()) {
                 notifyError(callback, messageId, "AI服务初始化失败");
                 resetGeneration();
                 return false;

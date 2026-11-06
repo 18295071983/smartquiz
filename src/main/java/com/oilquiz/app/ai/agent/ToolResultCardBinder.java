@@ -5,6 +5,7 @@ import android.util.Log;
 
 import com.oilquiz.app.ai.agent.online.AgentWorkspace;
 import com.oilquiz.app.ai.chat.component.ComponentData;
+import com.oilquiz.app.ai.chat.component.MediaPathResolver;
 import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.FileChangeDiff;
 
@@ -1215,12 +1216,24 @@ public final class ToolResultCardBinder {
         if (AUDIO_EXT.contains(ext) || "audio".equals(kind)) {
             return ComponentData.of("audio", new JSONObject().put("url", p).put("title", name));
         }
+        // 网址（含网络搜索结果的 .html 页面）不是本地文件：出链接卡，别让 file_card
+        // 把它交给文件预览页，点开就是"文件不存在"（2026-11-06 真机）。
+        if (isRemoteUrl(p)) {
+            return ComponentData.of("link_card", new JSONObject()
+                    .put("url", p)
+                    .put("title", name.isEmpty() ? p : name));
+        }
         if (name.isEmpty()) {
             return null;
         }
         return ComponentData.of("file_card", new JSONObject()
                 .put("name", name).put("path", p)
                 .put("size", size).put("type", ext));
+    }
+
+    /** 网址/远程协议链接：唯一判定在 {@link MediaPathResolver#isRemoteUrl(String)}。 */
+    static boolean isRemoteUrl(String path) {
+        return MediaPathResolver.isRemoteUrl(path);
     }
 
     /**

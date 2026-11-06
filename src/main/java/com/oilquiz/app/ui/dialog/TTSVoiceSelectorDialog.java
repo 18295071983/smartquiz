@@ -49,6 +49,7 @@ import java.util.Locale;
  *   <li>行内试听，确定后持久化到该端点作用域。</li>
  * </ol>
  */
+@SuppressWarnings("deprecation") // 弹窗窗口仍靠 ADJUST_RESIZE 跟输入法收缩
 public class TTSVoiceSelectorDialog {
 
     private final Context context;

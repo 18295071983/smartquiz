@@ -33,6 +33,11 @@ import java.util.Map;
  * 供 AlertCardView / DynamicCardView（自定义组件兜底）等组件共用，
  * 让 Agent 输出的组件按钮真实可点、点击有反应（不再"不能回调"）。
  *
+ * <p><b>一条 action 可以同时有两层意思</b>：{@code {label,link,copy,app,package}} 是"给用户做的事"，
+ * {@code component_id} 是"给 Agent 回传的地址"。点击先把前者执行掉，再回传后者——
+ * 顺序反过来会把带链接的按钮变成一句"已选择"toast（2026-11-06 真机：卡片上"高德 App 直呼"
+ * 点下去只弹 toast，高德没起来）。</p>
+ *
  * <p>layout 卡片里的 {@code button}/{@code notice} 节点也走同一套语义
  * （{@code NativeLayoutRenderer.wireActionClick} 把节点字段拼成这里的 action 再执行）——
  * 否则聊天流里的布局卡片只有 tag、没有监听器，"打开微信"按钮点下去没反应。</p>
@@ -129,6 +134,50 @@ public final class ComponentActions {
     }
 
     private ComponentActions() {
+    }
+
+    /**
+     * 创建交互卡片时**统一归一 actions**（SystemUIComponentTool / PythonToolManager 两条生产者共用）：
+     * 每个 action 注入 {@code component_id}（get_result 的地址），只有按钮自己没有任何可执行内容
+     * 才默认 {@code action:"callback"}。
+     *
+     * <p>不要在各生产者里再抄一遍：无条件补 callback 会把 {@code {label,link}} /
+     * {@code {label,copy}} 的打开/复制语义吃掉，点击只剩"已选择"toast（2026-11-06 真机）。</p>
+     */
+    public static void prepareInteractiveActions(org.json.JSONArray actions, String componentId) {
+        if (actions == null || componentId == null || componentId.isEmpty()) return;
+        for (int i = 0; i < actions.length(); i++) {
+            try {
+                JSONObject a = actions.optJSONObject(i);
+                if (a == null) continue;
+                a.put("component_id", componentId);
+                if (!a.has("action") && !hasOwnEffect(a)) {
+                    a.put("action", "callback");
+                }
+            } catch (Throwable ignored) {
+                // 单条 action 写不进去不影响其余按钮
+            }
+        }
+    }
+
+    /**
+     * 这条 action 自己有没有可执行内容（有就不该被当成纯 callback）。
+     * 判据与 {@link #actionRunner}/{@link #perform} 一致：link / copy / app / package 任一非空，
+     * 或 value 本身是链接/包名。
+     */
+    public static boolean hasOwnEffect(JSONObject action) {
+        if (action == null) return false;
+        if (!action.optString("link", "").isEmpty()) return true;
+        if (!action.optString("copy", "").isEmpty()) return true;
+        if (!action.optString("app", "").isEmpty()) return true;
+        if (!action.optString("package", "").isEmpty()) return true;
+        String value = action.optString("value", "").trim();
+        if (value.isEmpty()) return false;
+        String lower = value.toLowerCase(java.util.Locale.ROOT);
+        return lower.startsWith("http://") || lower.startsWith("https://")
+                || lower.startsWith("am ") || value.startsWith("package:")
+                || value.matches("^[A-Za-z][A-Za-z0-9+.\\-]*:.+")
+                || value.matches("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+){2,}");
     }
 
     /**
@@ -287,15 +336,24 @@ public final class ComponentActions {
         final String text = a.optString("text", "");
         final String subject = a.optString("subject", "");
         if (link.isEmpty() && copy.isEmpty() && action.isEmpty()
-                && app.isEmpty() && pkg.isEmpty()) return null;
+                && app.isEmpty() && pkg.isEmpty()
+                && !isUsableTarget(value) && !CardActionTarget.looksLikePackage(value)) {
+            // 连 value 也不是链接/包名：这条 action 没有任何可执行内容，别渲染成假按钮
+            return null;
+        }
         return () -> perform(context, label, link, copy, action, componentId, value,
                 app, pkg, text, subject);
     }
 
     /**
      * 动作点击的统一语义（footer 按钮与旧动作行共用）：
-     * callback/refresh 回传给 Agent，link 打开，copy 进剪贴板，
-     * open_app/am 启动应用，dial/sms/email/map 调系统界面。
+     * <b>先做真实动作</b>（link 打开 / copy 复制 / open_app·am 启动应用 / dial·sms·email·map 调系统界面），
+     * <b>再回传</b>（callback/refresh，或卡片本身有回传地址时把这次点击交给 Agent 的 get_result）。
+     *
+     * <p>顺序很重要（2026-11-06 真机）：旧实现把 callback 当互斥分支挡在最前面，而
+     * {@code SystemUIComponentTool}/{@code PythonToolManager} 创建卡片时又给每个 action 无条件补
+     * {@code action:"callback"}，于是 {@code {label,link:amapuri://…}} 点下去只剩一句
+     * "已选择: ① 高德 App 直呼"——用户看到的"弹个 toast 就完事、没有下一步"就是这里。</p>
      */
     public static void perform(Context context, String label, String link, String copy,
                                String action, String componentId, String value) {
@@ -306,35 +364,50 @@ public final class ComponentActions {
                                String action, String componentId, String value,
                                String app, String pkg, String text, String subject) {
         try {
-            if ("callback".equals(action) && componentId != null && !componentId.isEmpty()) {
-                // 交互内置组件：按钮点击把 value 回传给组件注册表（Agent get_result 取回）。
-                // layout 卡片等容器：同时收集容器内输入控件值（input/select/switch 等）合并回传，
-                // 修复"layout 控件输入值无法回传"——仅按钮 value 不含用户填写内容。
-                // 点击反馈：Toast 提示已记录（避免"点了没反应"的体验）
-                Toast.makeText(context, "已选择: "
-                        + (value == null || value.isEmpty() ? label : value),
-                        Toast.LENGTH_SHORT).show();
-                String payload = (value == null || value.isEmpty()) ? label : value;
-                try {
-                    java.util.Map<String, Object> inputs = collectInputs(componentId);
-                    if (inputs != null && !inputs.isEmpty()) {
-                        JSONObject merged = new JSONObject();
-                        merged.put("action", payload);
-                        merged.put("inputs", new JSONObject(
-                                new com.google.gson.Gson().toJson(inputs)));
-                        payload = merged.toString();
-                    }
-                } catch (Throwable ignored) {
+            boolean refreshOnly = "refresh".equals(action);
+            // action 为空时的 value 也可能是模型唯一给的执行目标（链接/包名）。
+            // 显式 action=callback 时不动它：那是"回传值"，不是"打开值"。
+            boolean valueIsTarget = action.isEmpty()
+                    && (isUsableTarget(value) || CardActionTarget.looksLikePackage(value));
+            boolean hasRealWork = !refreshOnly && (!link.isEmpty() || !copy.isEmpty()
+                    || !app.isEmpty() || !pkg.isEmpty()
+                    || (!action.isEmpty() && !"callback".equals(action))
+                    || valueIsTarget);
+            boolean hasCallbackTarget = componentId != null && !componentId.isEmpty();
+
+            if (hasRealWork) {
+                execute(context, link, copy, action, value, app, pkg, text, subject);
+            }
+            if (!hasCallbackTarget) {
+                if (!hasRealWork) {
+                    // 既没有可执行内容、又没有回传地址：说清缺什么，别静默
+                    execute(context, link, copy, action, value, app, pkg, text, subject);
                 }
-                notifyResult(context, componentId, payload);
                 return;
             }
-            if ("refresh".equals(action) && componentId != null && !componentId.isEmpty()) {
+            if (refreshOnly) {
                 Toast.makeText(context, "已请求刷新: " + label, Toast.LENGTH_SHORT).show();
                 notifyResult(context, componentId, "refresh");
                 return;
             }
-            execute(context, link, copy, action, value, app, pkg, text, subject);
+            // 回传给 Agent：真实动作已经做过了就不要再"已选择"糊一次脸，
+            // 纯 callback（只有 value、没有 link/copy/应用）才用 toast 确认这一下被记下了。
+            String payload = (value == null || value.isEmpty()) ? label : value;
+            try {
+                java.util.Map<String, Object> inputs = collectInputs(componentId);
+                if (inputs != null && !inputs.isEmpty()) {
+                    JSONObject merged = new JSONObject();
+                    merged.put("action", payload);
+                    merged.put("inputs", new JSONObject(
+                            new com.google.gson.Gson().toJson(inputs)));
+                    payload = merged.toString();
+                }
+            } catch (Throwable ignored) {
+            }
+            if (!hasRealWork) {
+                Toast.makeText(context, "已选择: " + payload, Toast.LENGTH_SHORT).show();
+            }
+            notifyResult(context, componentId, payload);
         } catch (Throwable t) {
             Toast.makeText(context, "动作执行失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
         }
@@ -353,13 +426,35 @@ public final class ComponentActions {
                 copyToClipboard(context, copy);
                 return;
             }
+            // callback 但卡片没有回传地址（创建时没带 actions）：如果按钮自己还带 link/copy/
+            // app/package，就把 callback 去掉按真实动作执行；什么都没有才明说缺回传地址。
+            if ("callback".equals(action)) {
+                if (link.isEmpty() && copy.isEmpty() && app.isEmpty() && pkg.isEmpty()) {
+                    Toast.makeText(context,
+                            "这张卡没有回传地址（创建时没带 actions），点击没法交给 Agent",
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+                action = "";
+            }
             if (!action.isEmpty()) {
                 switch (action) {
-                    case "copy":
-                        Toast.makeText(context, "无可用动作", Toast.LENGTH_SHORT).show();
+                    case "copy": {
+                        // 动作名叫 copy 却没写 copy 字段是模型常犯的写法；value/text/subject 里
+                        // 有内容就照它复制，别回一句"无可用动作"就完事
+                        String what = firstNonEmpty(value, text, subject, link);
+                        if (what.isEmpty()) {
+                            Toast.makeText(context, "这条复制动作没给内容（copy/value 都是空）",
+                                    Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        copyToClipboard(context, what);
                         return;
+                    }
                     case "refresh":
-                        Toast.makeText(context, "刷新需在组件内触发", Toast.LENGTH_SHORT).show();
+                        // 刷写必须有可寻址的组件；到这儿说明这张卡没有回传地址，说清缺什么
+                        Toast.makeText(context, "这张卡没有回传地址：创建时带 actions 的卡片才能刷新",
+                                Toast.LENGTH_LONG).show();
                         return;
                     case "open_app":
                     case "launch_app":
@@ -385,9 +480,22 @@ public final class ComponentActions {
                     case "url":
                         openLink(context, firstNonEmpty(link, value));
                         return;
-                    default:
-                        Toast.makeText(context, "未知动作: " + action, Toast.LENGTH_SHORT).show();
+                    default: {
+                        // 未知动作名不等于死路：动作自己带的 link/value 能办事就照它办
+                        String target = firstNonEmpty(link, value);
+                        if (isUsableTarget(target)) {
+                            openLink(context, target);
+                            return;
+                        }
+                        if (CardActionTarget.looksLikePackage(target)) {
+                            launchApp(context, "", target, "");
+                            return;
+                        }
+                        Toast.makeText(context, "未知动作: " + action
+                                        + "（可用: link / copy / open_app / am / dial / sms / email / map / open_url）",
+                                Toast.LENGTH_LONG).show();
                         return;
+                    }
                 }
             }
             if (!link.isEmpty()) {
@@ -397,10 +505,28 @@ public final class ComponentActions {
             // 只给了 app/package 没写 action：按打开应用处理
             if (!app.isEmpty() || !pkg.isEmpty()) {
                 launchApp(context, app, pkg, value);
+                return;
+            }
+            // 只剩 value：模型常把链接/包名直接写在 value 上，别让它点了没反应
+            String target = value == null ? "" : value.trim();
+            if (isUsableTarget(target)) {
+                openLink(context, target);
+            } else if (CardActionTarget.looksLikePackage(target)) {
+                launchApp(context, "", target, "");
+            } else if (!target.isEmpty()) {
+                copyToClipboard(context, target);
+            } else {
+                Toast.makeText(context, "这条按钮没写可执行内容（link / copy / app / package / action 都是空）",
+                        Toast.LENGTH_LONG).show();
             }
         } catch (Exception e) {
             Toast.makeText(context, "动作执行失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /** 能不能当链接打开：http/https 或带 scheme 的 URI（amapuri://、file://、mailto:…） */
+    public static boolean isUsableTarget(String target) {
+        return CardActionTarget.isHttpUrl(target) || CardActionTarget.isSchemeUri(target);
     }
 
     /**
@@ -434,7 +560,7 @@ public final class ComponentActions {
 
         /** 什么都没解析出来：调用方要提示"动作缺少 app/package"，绝不能静默当成功 */
         public boolean isEmpty() {
-            return packageName.isEmpty() && appName.isEmpty();
+            return packageName.isEmpty() && appName.isEmpty() && url.isEmpty();
         }
 
         /** 交给 system_resource 的参数；空计划返回只有 action 的退化参数（调用方先用 isEmpty 挡掉） */
@@ -453,7 +579,9 @@ public final class ComponentActions {
      * 把卡片上的 {@code app}/{@code package}/{@code value} 归一成启动计划。
      *
      * <p>{@code value} 支持三种写法：{@code "am start -n pkg/.Act"}（Agent 常照 shell 习惯写）、
-     * {@code "com.tencent.mm"}（包名）、{@code "微信"}（应用名，交给 system_resource 模糊匹配）。
+     * {@code "com.tencent.mm"}（包名）、{@code "微信"}（应用名，交给 system_resource 模糊匹配）；
+     * 以及 {@code am start -d "<url>"} —— 任意 scheme 的 URI（含 {@code amapuri://…} 自定义协议、
+     * {@code file://…}）都按链接语义交给 {@link #openLink}，不再当包名截断。
      * {@code am} 的非 start 子命令不在卡片里执行——那是 {@code system_resource(shell_command)} 的事，
      * 卡片按钮只做启动，别在 UI 层长出第二个 shell。</p>
      */
@@ -467,7 +595,7 @@ public final class ComponentActions {
                 return LaunchPlan.error("卡片只支持 am start 启动应用；其他 am 子命令请让 Agent 用 system_resource(shell_command)");
             }
             String parsed = CardActionTarget.parseAmTarget(target);
-            if (CardActionTarget.isHttpUrl(parsed)) {
+            if (CardActionTarget.isHttpUrl(parsed) || CardActionTarget.isSchemeUri(parsed)) {
                 return LaunchPlan.url(parsed);
             }
             int slash = parsed.indexOf('/');

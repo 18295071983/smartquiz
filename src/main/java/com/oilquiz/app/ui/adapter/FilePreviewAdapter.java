@@ -136,7 +136,7 @@ public class FilePreviewAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                         }
                         
                         // 移除高亮效果
-                        headerItem.setBackgroundColor(context.getResources().getColor(R.color.transparent));
+                        headerItem.setBackgroundColor(androidx.core.content.ContextCompat.getColor(context, R.color.transparent));
                     }
                 }
 

@@ -11,7 +11,7 @@ import com.oilquiz.app.R;
  * 快捷工具 chip 模块：统一管理 AI 对话界面快捷区的工具入口 chip。
  *
  * 职责：
- * 1. 绑定 XML 静态工具 chip 的点击事件（查天气/搜索/数据库/文件/定位/应用/聚合工具包/清空对话）；
+ * 1. 绑定 XML 静态工具 chip 的点击事件（查天气/搜索/浏览器/数据库/文件/定位/应用/聚合工具包/清空对话）；
  *    其中「搜索」短按=一键联网发问、长按=参数表单（2026-11-02）；
  * 2. 动态构建快捷 chip（聚合方案：出行准备 / 学习查询 / 网页研究）；
  * 3. 集中维护"快捷工具 → 工具引导"的映射，新增加入口只需在此登记，宿主界面代码不被污染。
@@ -34,6 +34,14 @@ public class QuickToolChipModule {
 
         /** 清空当前对话 */
         void onClearChat();
+
+        /**
+         * 打开内置浏览器（WebViewActivity 起始页）。
+         * 默认实现为空，宿主不接时退回"弹工具引导"，避免变死入口。
+         */
+        default void onOpenBrowser() {
+            onToolGuide("web_render");
+        }
 
         /**
          * 联网一键发问（2026-11-02）：点「搜索」把输入框里的问题直接交给模型，
@@ -62,18 +70,23 @@ public class QuickToolChipModule {
      * @param chipFile     文件   → file_reader
      * @param chipLocation 定位   → location
      * @param chipApp      应用   → app_operation
+     * @param chipBrowser  浏览器 → 打开 WebViewActivity（内置浏览器壳）
      * @param chipComposite 聚合工具包 → 打开聚合方案列表（本身不是工具）
      * @param chipClear    清空对话
      */
     public void bindStaticToolChips(Chip chipWeather, Chip chipSearch, Chip chipDatabase,
                                     Chip chipFile, Chip chipLocation, Chip chipApp,
-                                    Chip chipComposite, Chip chipClear) {
+                                    Chip chipBrowser, Chip chipComposite, Chip chipClear) {
         bindToolChip(chipWeather, "ai_weather");
         bindSearchChip(chipSearch);
         bindToolChip(chipDatabase, "database");
         bindToolChip(chipFile, "file_reader");
         bindToolChip(chipLocation, "location");
         bindToolChip(chipApp, "app_operation");
+        // 内置浏览器：不是 Agent 工具，直接开 WebViewActivity（地址栏/标签页/历史/下载）
+        if (chipBrowser != null) {
+            chipBrowser.setOnClickListener(v -> callback.onOpenBrowser());
+        }
         // 聚合工具包：不是单个工具，点开列出全部聚合方案（出行准备/学习查询/网页研究…）
         if (chipComposite != null) {
             chipComposite.setOnClickListener(v -> callback.onToolPackList());

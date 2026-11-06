@@ -244,8 +244,8 @@ public class ChatInputManager {
             @Override
             public boolean onMove(RecyclerView recyclerView, RecyclerView.ViewHolder viewHolder, 
                                 RecyclerView.ViewHolder target) {
-                int fromPos = viewHolder.getAdapterPosition();
-                int toPos = target.getAdapterPosition();
+                int fromPos = viewHolder.getBindingAdapterPosition();
+                int toPos = target.getBindingAdapterPosition();
                 if (attachmentAdapter != null) {
                     attachmentAdapter.moveAttachment(fromPos, toPos);
                 }

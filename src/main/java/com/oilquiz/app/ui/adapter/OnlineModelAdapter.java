@@ -516,7 +516,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             }
 
             itemView.setOnClickListener(v -> {
-                int position = getAdapterPosition();
+                int position = getBindingAdapterPosition();
                 if (position != RecyclerView.NO_POSITION && listener != null) {
                     DisplayItem item = displayItems.get(position);
                     if (item.type == VIEW_TYPE_MODEL && item.modelName != null) {
@@ -526,7 +526,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             });
 
             itemView.setOnLongClickListener(v -> {
-                int position = getAdapterPosition();
+                int position = getBindingAdapterPosition();
                 if (position != RecyclerView.NO_POSITION && listener != null) {
                     DisplayItem item = displayItems.get(position);
                     if (item.type == VIEW_TYPE_MODEL && item.modelName != null) {
@@ -538,7 +538,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             });
 
             deleteButton.setOnClickListener(v -> {
-                int position = getAdapterPosition();
+                int position = getBindingAdapterPosition();
                 if (position != RecyclerView.NO_POSITION && listener != null) {
                     DisplayItem item = displayItems.get(position);
                     if (item.type == VIEW_TYPE_MODEL && item.modelName != null) {
@@ -549,7 +549,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
             if (editButton != null) {
                 editButton.setOnClickListener(v -> {
-                    int position = getAdapterPosition();
+                    int position = getBindingAdapterPosition();
                     if (position != RecyclerView.NO_POSITION && listener != null) {
                         DisplayItem item = displayItems.get(position);
                         if (item.type == VIEW_TYPE_MODEL && item.modelName != null) {
@@ -561,7 +561,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
             if (enableButton != null) {
                 enableButton.setOnClickListener(v -> {
-                    int position = getAdapterPosition();
+                    int position = getBindingAdapterPosition();
                     if (position != RecyclerView.NO_POSITION && listener != null) {
                         DisplayItem item = displayItems.get(position);
                         if (item.type == VIEW_TYPE_MODEL && item.modelName != null) {
@@ -574,7 +574,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
             if (fetchModelsButton != null) {
                 fetchModelsButton.setOnClickListener(v -> {
-                    int position = getAdapterPosition();
+                    int position = getBindingAdapterPosition();
                     if (position != RecyclerView.NO_POSITION && listener != null) {
                         DisplayItem item = displayItems.get(position);
                         if (item.type == VIEW_TYPE_MODEL && item.modelName != null) {
@@ -589,7 +589,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                     @Override
                     public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
                         if (isBinding) return;
-                        int adapterPosition = getAdapterPosition();
+                        int adapterPosition = getBindingAdapterPosition();
                         if (adapterPosition != RecyclerView.NO_POSITION && listener != null) {
                             DisplayItem item = displayItems.get(adapterPosition);
                             if (item.type == VIEW_TYPE_MODEL && item.modelName != null) {
@@ -656,7 +656,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                 // Status text
                 if (item.isCurrent) {
                     statusTextView.setText(R.string.current_using);
-                    statusTextView.setTextColor(context.getResources().getColor(R.color.success_color));
+                    statusTextView.setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.success_color));
                 } else {
                     statusTextView.setText(R.string.click_to_switch);
                     statusTextView.setTextColor(ThemeColors.attr(context, R.attr.colorPrimary));

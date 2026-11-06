@@ -309,7 +309,7 @@ public class VoiceInputTool implements AITool {
     private AIToolResult recordToFile(File outFile, int durationSeconds) {
         MediaRecorder recorder = null;
         try {
-            recorder = new MediaRecorder();
+            recorder = new MediaRecorder(context);
             recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
             recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);

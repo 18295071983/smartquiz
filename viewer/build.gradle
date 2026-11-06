@@ -3,13 +3,13 @@ plugins {
 }
 
 android {
-    namespace "org.libreoffice"
-    compileSdk 34
+    namespace = "org.libreoffice"
+    compileSdk = 34
 
     defaultConfig {
-        minSdk 31
-        targetSdk 34
-        multiDexEnabled true
+        minSdk = 31
+        targetSdk = 34
+        multiDexEnabled = true
         buildConfigField "String", "BUILD_ID_SHORT", "\"dev\""
         buildConfigField "String", "VENDOR", "\"LibreOffice\""
         buildConfigField "String", "PRIVACY_POLICY_URL", "\"\""
@@ -23,7 +23,7 @@ android {
     }
 
     compileOptions {
-        encoding 'UTF-8'
+        encoding = 'UTF-8'
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }

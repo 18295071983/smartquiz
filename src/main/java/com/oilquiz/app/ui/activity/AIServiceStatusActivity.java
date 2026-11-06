@@ -252,7 +252,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 Toast.makeText(this, getString(R.string.h_c9fe41a6), Toast.LENGTH_SHORT).show();
 
                 new Thread(() -> {
-                    boolean success = aiService.initializeSafe();
+                    boolean success = aiService.initialize();
 
                     runOnUiThread(() -> {
                         if (success) {
@@ -292,7 +292,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 if (checkedId == R.id.backend_opencl) choice = "opencl";
                 else if (checkedId == R.id.backend_vulkan) choice = "vulkan";
                 else if (checkedId == R.id.backend_hexagon) choice = "hexagon";
-                android.preference.PreferenceManager.getDefaultSharedPreferences(this)
+                androidx.preference.PreferenceManager.getDefaultSharedPreferences(this)
                         .edit().putString("gpu_backend", choice).apply();
                 LlamaHelper.setBackend(choice);
                 // 换引擎 ⇒ 作废 prompt→response 缓存：缓存 key 不带引擎身份，
@@ -639,7 +639,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             }
             if (onlineApiStatus != null) {
                 onlineApiStatus.setText(getString(R.string.h_c5ea9c6a));
-                onlineApiStatus.setTextColor(getResources().getColor(R.color.success));
+                onlineApiStatus.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.success));
             }
             // 模型信息
             String modelName = activeConfig.selectedModel != null && !activeConfig.selectedModel.isEmpty()
@@ -679,7 +679,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             }
             if (onlineApiStatus != null) {
                 onlineApiStatus.setText(getString(R.string.h_71dc8feb));
-                onlineApiStatus.setTextColor(getResources().getColor(R.color.error));
+                onlineApiStatus.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.error));
             }
             if (onlineModelInfo != null) {
                 onlineModelInfo.setText(getString(R.string.h_a8076f9b));
@@ -779,7 +779,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                         openclStatus.setText(backendName2 + (openclLoaded ? " · 已启用" : " · 未启用"));
                     }
                 }
-                openclStatus.setTextColor(openclLoaded ? getResources().getColor(R.color.success) : getResources().getColor(R.color.error));
+                openclStatus.setTextColor(openclLoaded ? androidx.core.content.ContextCompat.getColor(this, R.color.success) : androidx.core.content.ContextCompat.getColor(this, R.color.error));
             }
             
             if (gpuLight != null) {
@@ -797,13 +797,13 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                     } else {
                         gpuMode = "CPU模式";
                     }
-                    gpuColor = getResources().getColor(R.color.success);
+                    gpuColor = androidx.core.content.ContextCompat.getColor(this, R.color.success);
                 } else if (openclLoaded) {
                     gpuMode = "已就绪";
-                    gpuColor = getResources().getColor(R.color.warning);
+                    gpuColor = androidx.core.content.ContextCompat.getColor(this, R.color.warning);
                 } else {
                     gpuMode = "未启用";
-                    gpuColor = getResources().getColor(R.color.error);
+                    gpuColor = androidx.core.content.ContextCompat.getColor(this, R.color.error);
                 }
                 
                 if (!npuSvc().isNpuEngineEnabled()) {
@@ -821,7 +821,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 if (!npuSvc().isNpuEngineEnabled()) {
                     openclStatus.setText(getString(R.string.h_467b3e03));
                 }
-                openclStatus.setTextColor(getResources().getColor(R.color.error));
+                openclStatus.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.error));
             }
             
             if (gpuLight != null) {
@@ -833,15 +833,15 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 if (!npuSvc().isNpuEngineEnabled()) {
                     gpuStatus.setText(getString(R.string.h_4637765b));
                 }
-                gpuStatus.setTextColor(getResources().getColor(R.color.error));
+                gpuStatus.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.error));
             }
         }
     }
 
     private void updateMainStatus(boolean modelLoaded, boolean isInitialized) {
-        int successColor = getResources().getColor(R.color.success);
-        int warningColor = getResources().getColor(R.color.warning);
-        int errorColor = getResources().getColor(R.color.error);
+        int successColor = androidx.core.content.ContextCompat.getColor(this, R.color.success);
+        int warningColor = androidx.core.content.ContextCompat.getColor(this, R.color.warning);
+        int errorColor = androidx.core.content.ContextCompat.getColor(this, R.color.error);
         
         if (statusLight != null) {
             if (modelLoaded) {
@@ -961,7 +961,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             if (!npuSvc().isNpuEngineEnabled()) {
                 libStatus.setText(isLibraryLoaded ? getString(R.string.h_bec33d31) : getString(R.string.h_467b3e03));
             }
-            libStatus.setTextColor(isLibraryLoaded ? getResources().getColor(R.color.success) : getResources().getColor(R.color.error));
+            libStatus.setTextColor(isLibraryLoaded ? androidx.core.content.ContextCompat.getColor(this, R.color.success) : androidx.core.content.ContextCompat.getColor(this, R.color.error));
         }
     }
     
@@ -977,7 +977,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             if (!npuSvc().isNpuEngineEnabled()) {
                 contextInfo.setText(contextActive ? getString(R.string.h_f6ebf8f5) : getString(R.string.h_d70e9bdf));
             }
-            contextInfo.setTextColor(contextActive ? getResources().getColor(R.color.success) : getResources().getColor(R.color.error));
+            contextInfo.setTextColor(contextActive ? androidx.core.content.ContextCompat.getColor(this, R.color.success) : androidx.core.content.ContextCompat.getColor(this, R.color.error));
         }
     }
     

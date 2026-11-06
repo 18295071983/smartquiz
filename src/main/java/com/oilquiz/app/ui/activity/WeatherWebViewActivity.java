@@ -53,7 +53,6 @@ public class WeatherWebViewActivity extends AppCompatActivity {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
         settings.setSupportZoom(true);
@@ -94,8 +93,11 @@ public class WeatherWebViewActivity extends AppCompatActivity {
             }
 
             @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                view.loadUrl(url);
+            public boolean shouldOverrideUrlLoading(WebView view,
+                                                    android.webkit.WebResourceRequest request) {
+                String url = request != null && request.getUrl() != null
+                        ? request.getUrl().toString() : null;
+                if (url != null) view.loadUrl(url);
                 return true;
             }
         });

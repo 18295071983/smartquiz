@@ -78,7 +78,14 @@ public class SystemTtsEngine {
             }
 
             @Override
+            @SuppressWarnings("deprecation")
             public void onError(String utteranceId) {
+                // 该抽象方法仍是 API 的必实现项（onError(String) 已废弃但没有默认实现）
+                done.complete(false);
+            }
+
+            @Override
+            public void onError(String utteranceId, int errorCode) {
                 done.complete(false);
             }
         });

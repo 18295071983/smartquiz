@@ -77,7 +77,7 @@ public class FilePreviewActivity extends AppCompatActivity {
                 file = new File(filePath);
             }
             sheetIndex = intent.getIntExtra(EXTRA_SHEET_INDEX, 0);
-            fieldMapping = (Map<String, Integer>) intent.getSerializableExtra(EXTRA_FIELD_MAPPING);
+            fieldMapping = (Map<String, Integer>) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(intent, EXTRA_FIELD_MAPPING);
         }
         
         // 如果文件路径为空，启动文件选择器

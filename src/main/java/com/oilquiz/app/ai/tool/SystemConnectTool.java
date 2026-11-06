@@ -210,9 +210,8 @@ public class SystemConnectTool implements AITool {
             android.app.PendingIntent pi = android.app.PendingIntent.getActivity(context, id, intent,
                     Build.VERSION.SDK_INT >= 23 ? android.app.PendingIntent.FLAG_UPDATE_CURRENT
                             | android.app.PendingIntent.FLAG_IMMUTABLE : android.app.PendingIntent.FLAG_UPDATE_CURRENT);
-            android.app.Notification.Builder builder = Build.VERSION.SDK_INT >= 26
-                    ? new android.app.Notification.Builder(context, channelId)
-                    : new android.app.Notification.Builder(context);
+            android.app.Notification.Builder builder =
+                    new android.app.Notification.Builder(context, channelId);
             builder.setSmallIcon(android.R.drawable.ic_dialog_info)
                     .setContentTitle(title)
                     .setContentText(content)

@@ -83,7 +83,12 @@ public class MediaProjectionService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         startForeground(NOTIFICATION_ID, buildNotification());
-        Intent data = intent != null ? intent.getParcelableExtra("projection_data") : null;
+        // API 31/32 没有 typed getParcelableExtra，只能走旧签名；API 33+ 用类型化版本
+        @SuppressWarnings("deprecation")
+        Intent data = intent == null ? null
+                : (android.os.Build.VERSION.SDK_INT >= 33
+                    ? intent.getParcelableExtra("projection_data", Intent.class)
+                    : intent.getParcelableExtra("projection_data"));
         if (data != null) {
             try {
                 MediaProjectionManager mpm = (MediaProjectionManager)
@@ -152,12 +157,7 @@ public class MediaProjectionService extends Service {
     }
 
     private Notification buildNotification() {
-        Notification.Builder builder;
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            builder = new Notification.Builder(this, CHANNEL_ID);
-        } else {
-            builder = new Notification.Builder(this);
-        }
+        Notification.Builder builder = new Notification.Builder(this, CHANNEL_ID);
         return builder
                 .setContentTitle("答题宝正在屏幕共享")
                 .setContentText("Agent 截屏中，可随时在对话中说「停止截屏」结束")

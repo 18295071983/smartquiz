@@ -86,7 +86,8 @@ public class TemplateAdapter extends BaseAdapter {
         if (isSelectionMode && selectedTemplates.contains(template)) {
             convertView.setBackgroundColor(ThemeColors.attr(context, R.attr.colorPrimary));
         } else {
-            convertView.setBackgroundColor(context.getResources().getColor(android.R.color.transparent));
+            convertView.setBackgroundColor(androidx.core.content.ContextCompat.getColor(
+                    context, android.R.color.transparent));
         }
 
         return convertView;

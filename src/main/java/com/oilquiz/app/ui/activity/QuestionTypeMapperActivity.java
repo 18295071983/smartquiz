@@ -61,7 +61,7 @@ public class QuestionTypeMapperActivity extends AppCompatActivity {
         detectedQuestionTypes = getIntent().getStringArrayListExtra(EXTRA_DETECTED_QUESTION_TYPES);
         // 获取传入的现有映射
         if (getIntent().hasExtra(EXTRA_QUESTION_TYPE_MAPPING)) {
-            questionTypeMapping = (Map<String, String>) getIntent().getSerializableExtra(EXTRA_QUESTION_TYPE_MAPPING);
+            questionTypeMapping = (Map<String, String>) com.oilquiz.app.util.IntentExtrasCompat.getSerializable(getIntent(), EXTRA_QUESTION_TYPE_MAPPING);
         } else {
             questionTypeMapping = new HashMap<>();
         }

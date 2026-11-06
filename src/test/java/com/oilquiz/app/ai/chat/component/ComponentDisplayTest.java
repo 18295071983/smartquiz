@@ -36,6 +36,25 @@ public class ComponentDisplayTest {
     // ==================== 档位优先级 ====================
 
     @Test
+    public void discoveryMetaCardsAreHiddenEvenWhenInlineDeclared() {
+        // 2026-11-06 真机：tool_registry 的结果被通用兜底成 info_card，
+        // requested_tool / matched_by / hint / tool 这些内部键原样摊在聊天里。
+        ComponentData registry = comp("info_card",
+                "{\"display\":\"inline\",\"title\":\"工具列表\",\"producerToolName\":\"tool_registry\","
+                        + "\"items\":[{\"label\":\"requested_tool\",\"value\":\"app_operation\"}]}");
+        assertEquals(ComponentDisplay.Mode.HIDDEN,
+                ComponentDisplay.resolveMode(registry, ComponentDisplay.Mode.INLINE));
+        ComponentData mcp = comp("info_card",
+                "{\"display\":\"inline\",\"producerToolName\":\"mcp_toolbox\"}");
+        assertEquals(ComponentDisplay.Mode.HIDDEN,
+                ComponentDisplay.resolveMode(mcp, ComponentDisplay.Mode.INLINE));
+        // 普通 info_card 不受影响
+        ComponentData normal = comp("info_card", "{\"display\":\"inline\",\"title\":\"信息\"}");
+        assertEquals(ComponentDisplay.Mode.INLINE,
+                ComponentDisplay.resolveMode(normal, ComponentDisplay.Mode.PEEK));
+    }
+
+    @Test
     public void modelDeclarationBeatsUserDefaultTier() {
         ComponentData table = comp("table_card",
                 "{\"title\":\"成绩\",\"headers\":[\"姓名\",\"分数\"],\"rows\":[[\"甲\",90]]}");

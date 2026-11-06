@@ -246,13 +246,13 @@ public class QuestionDetailActivity extends AppCompatActivity {
         difficultyTextView.setText(getString(R.string.h_46b04b28) + getDifficultyText(question.getDifficulty()));
         switch (question.getDifficulty()) {
             case 1:
-                difficultyTextView.setTextColor(getResources().getColor(R.color.colorEasy));
+                difficultyTextView.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.colorEasy));
                 break;
             case 2:
-                difficultyTextView.setTextColor(getResources().getColor(R.color.colorMedium));
+                difficultyTextView.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.colorMedium));
                 break;
             case 3:
-                difficultyTextView.setTextColor(getResources().getColor(R.color.colorHard));
+                difficultyTextView.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.colorHard));
                 break;
             default:
                 difficultyTextView.setTextColor(ThemeColors.attr(this, R.attr.colorPrimary));
@@ -264,7 +264,7 @@ public class QuestionDetailActivity extends AppCompatActivity {
         String correctAnswer = question.getCorrectAnswer();
         if (correctAnswer != null && !correctAnswer.trim().isEmpty()) {
             correctAnswerTextView.setText(getString(R.string.h_16b46626) + correctAnswer);
-            correctAnswerTextView.setTextColor(getResources().getColor(R.color.colorCorrect));
+            correctAnswerTextView.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.colorCorrect));
         } else {
             correctAnswerTextView.setText(getString(R.string.h_da3a7a79));
             correctAnswerTextView.setTextColor(ThemeColors.attr(this, R.attr.colorPrimary));
@@ -306,10 +306,10 @@ public class QuestionDetailActivity extends AppCompatActivity {
             tv.setTextSize(16);
             boolean isCorrect = correctLetters.contains(key);
             tv.setTextColor(isCorrect
-                    ? getResources().getColor(R.color.colorCorrect)
+                    ? androidx.core.content.ContextCompat.getColor(this, R.color.colorCorrect)
                     : ThemeColors.attr(this, R.attr.colorControlText));
             if (isCorrect) {
-                tv.setBackgroundColor(getResources().getColor(R.color.colorCorrectLight));
+                tv.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, R.color.colorCorrectLight));
             }
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);

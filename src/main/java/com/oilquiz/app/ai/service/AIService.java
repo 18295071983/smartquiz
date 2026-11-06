@@ -2833,7 +2833,8 @@ public class AIService implements ComponentCallbacks2 {
             gpuMemoryMB = gpuDetector.getAvailableGpuMemoryMB();
         }
         
-        int gpuLayers = resourceConfig.getOptimalGpuLayers(true, gpuMemoryMB);
+        // 走未废弃的 7 参重载；这里没有模型路径/架构信息，保持旧重载的默认行为
+        int gpuLayers = resourceConfig.getOptimalGpuLayers(true, gpuMemoryMB, 0, 4096, 0, null, null);
         
         AILogger.i(TAG, "calculateOptimalGpuLayers: gpuMem=" + gpuMemoryMB + "MB, gpuLayers=" + gpuLayers);
         

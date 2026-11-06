@@ -23,7 +23,7 @@ public class ImageGeneratorUtil {
     public enum ImageFormat {
         JPEG(Bitmap.CompressFormat.JPEG, 85),
         PNG(Bitmap.CompressFormat.PNG, 100),
-        WEBP(Bitmap.CompressFormat.WEBP, 85);
+        WEBP(Bitmap.CompressFormat.WEBP_LOSSY, 85);
 
         final Bitmap.CompressFormat format;
         final int quality;

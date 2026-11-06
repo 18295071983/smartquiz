@@ -2,7 +2,7 @@ package com.oilquiz.app.ui.activity;
 
 import com.oilquiz.app.SmartQuizApplication;
 import android.app.AlertDialog;
-import android.app.ProgressDialog;
+import com.oilquiz.app.ai.python.ProgressDialogCompat;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -135,7 +135,7 @@ public class FieldManagementActivity extends AppCompatActivity {
     }
 
     private void loadFields(String tableName) {
-        ProgressDialog progressDialog = ProgressDialog.show(
+        ProgressDialogCompat progressDialog = ProgressDialogCompat.show(
             this, "加载字段", "正在加载字段信息...", true, false);
 
         new Thread(() -> {
@@ -328,7 +328,7 @@ public class FieldManagementActivity extends AppCompatActivity {
      * 添加字段
      */
     private void addField(String tableName, String fieldName, String fieldType, boolean nullable, String defaultValue) {
-        ProgressDialog progressDialog = ProgressDialog.show(
+        ProgressDialogCompat progressDialog = ProgressDialogCompat.show(
             this, "添加字段", "正在添加字段...", true, false);
 
         new Thread(() -> {

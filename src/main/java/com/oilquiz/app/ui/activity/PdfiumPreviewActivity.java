@@ -138,7 +138,8 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
     @Override
     protected void initData() {
         filePath = getIntent().getStringExtra(EXTRA_FILE_PATH);
-        fileUri = getIntent().getParcelableExtra(EXTRA_FILE_URI);
+        fileUri = com.oilquiz.app.util.IntentExtrasCompat
+                .getParcelable(getIntent(), EXTRA_FILE_URI, Uri.class);
 
         pdfManager = new PdfiumPreviewManager(this);
 
