@@ -194,13 +194,9 @@ public class JSAdvancedInterface {
                 Window w = activity.getWindow();
                 if (w == null) return;
                 View decor = w.getDecorView();
-                int flags = decor.getSystemUiVisibility();
-                if ("dark".equals(style)) {
-                    flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-                } else {
-                    flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-                }
-                decor.setSystemUiVisibility(flags);
+                androidx.core.view.WindowInsetsControllerCompat controller =
+                        androidx.core.view.WindowCompat.getInsetsController(w, decor);
+                controller.setAppearanceLightStatusBars("dark".equals(style));
             } catch (Exception e) {
                 Log.w(TAG, "setStatusBarStyle 失败", e);
             }

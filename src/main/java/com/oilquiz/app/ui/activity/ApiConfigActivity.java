@@ -1210,7 +1210,7 @@ public class ApiConfigActivity extends BaseActivity {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.setType("application/json");
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        startActivityForResult(Intent.createChooser(intent, "选择JSON文件"), REQUEST_CODE_IMPORT_FILE);
+        startActivityForResultCompat(Intent.createChooser(intent, "选择JSON文件"), REQUEST_CODE_IMPORT_FILE);
     }
 
     private void exportToJson() {
@@ -1250,7 +1250,7 @@ public class ApiConfigActivity extends BaseActivity {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.setType("*/*");
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        startActivityForResult(Intent.createChooser(intent, "选择配置文件"), REQUEST_CODE_IMPORT_CONFIG_FILE);
+        startActivityForResultCompat(Intent.createChooser(intent, "选择配置文件"), REQUEST_CODE_IMPORT_CONFIG_FILE);
     }
 
     private void scanArchiveDirectory() {
@@ -1418,7 +1418,7 @@ public class ApiConfigActivity extends BaseActivity {
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
             intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-            startActivityForResult(intent, REQUEST_CODE_SELECT_FOLDER);
+            startActivityForResultCompat(intent, REQUEST_CODE_SELECT_FOLDER);
         } catch (Exception e) {
             Toast.makeText(this, getString(R.string.h_3360d889) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }

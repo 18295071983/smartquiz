@@ -28,6 +28,7 @@ import com.oilquiz.app.R;
 import java.util.ArrayList;
 import java.util.List;
 
+@SuppressWarnings("deprecation") // 弹窗窗口仍靠 ADJUST_RESIZE 跟输入法收缩
 public class CitySearchDialog extends Dialog {
 
     public interface OnCitySelectedListener {

@@ -109,13 +109,13 @@ public class ImportGuideActivity extends BaseActivity {
     private void startAIImport() {
         if (!ensurePublicStoragePermission()) return;
         Intent intent = new Intent(this, AIImportActivity.class);
-        startActivityForResult(intent, REQUEST_CODE_AI_IMPORT);
+        startActivityForResultCompat(intent, REQUEST_CODE_AI_IMPORT);
     }
 
     private void startDirectImport() {
         if (!ensurePublicStoragePermission()) return;
         Intent intent = new Intent(this, ImportActivity.class);
-        startActivityForResult(intent, REQUEST_CODE_IMPORT);
+        startActivityForResultCompat(intent, REQUEST_CODE_IMPORT);
     }
 
     /** 模板导入：进入新模板导入页（下载标准模板 → 填写 → 直接导入入库） */

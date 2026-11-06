@@ -29,7 +29,7 @@ import com.oilquiz.app.theme.ThemeColors;
  * 
  * 使用腾讯浏览服务 SDK 预览 Office 和 PDF 文件
  */
-public class TBSFilePreviewActivity extends Activity {
+public class TBSFilePreviewActivity extends com.oilquiz.app.ui.base.LegacyResultActivity {
     
     private static final String TAG = "TBSFilePreviewActivity";
     private static final String EXTRA_FILE_PATH = "file_path";
@@ -55,6 +55,15 @@ public class TBSFilePreviewActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        getOnBackPressedDispatcher().addCallback(this,
+                new androidx.activity.OnBackPressedCallback(true) {
+                    @Override
+                    public void handleOnBackPressed() {
+                        if (tbsManager != null) tbsManager.closeFile();
+                        setEnabled(false);
+                        getOnBackPressedDispatcher().onBackPressed();
+                    }
+                });
         
         // 获取文件路径
         filePath = getIntent().getStringExtra(EXTRA_FILE_PATH);
@@ -352,14 +361,6 @@ public class TBSFilePreviewActivity extends Activity {
         }
     }
     
-    @Override
-    public void onBackPressed() {
-        // 关闭 TBS 预览
-        if (tbsManager != null) {
-            tbsManager.closeFile();
-        }
-        super.onBackPressed();
-    }
     
     /**
      * 启动文件选择器
@@ -385,7 +386,7 @@ public class TBSFilePreviewActivity extends Activity {
         intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
         
         try {
-            startActivityForResult(Intent.createChooser(intent, "选择要预览的文件"), REQUEST_CODE_FILE_PICKER);
+            startActivityForResultCompat(Intent.createChooser(intent, "选择要预览的文件"), REQUEST_CODE_FILE_PICKER);
         } catch (android.content.ActivityNotFoundException ex) {
             AppLogger.e(TAG, "没有找到文件选择器应用", ex);
             new android.app.AlertDialog.Builder(this)

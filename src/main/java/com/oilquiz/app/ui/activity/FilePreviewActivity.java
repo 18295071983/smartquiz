@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Map;
 import com.oilquiz.app.ui.adapter.FilePreviewAdapter;
 
-public class FilePreviewActivity extends AppCompatActivity {
+public class FilePreviewActivity extends com.oilquiz.app.ui.base.LegacyResultActivity {
 
     public static final String EXTRA_FILE_PATH = "file_path";
     public static final String EXTRA_SHEET_INDEX = "sheet_index";
@@ -245,7 +245,7 @@ public class FilePreviewActivity extends AppCompatActivity {
         intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
         
         try {
-            startActivityForResult(Intent.createChooser(intent, "选择要预览的文件"), REQUEST_CODE_FILE_PICKER);
+            startActivityForResultCompat(Intent.createChooser(intent, "选择要预览的文件"), REQUEST_CODE_FILE_PICKER);
         } catch (android.content.ActivityNotFoundException ex) {
             AppLogger.e("FilePreviewActivity", "没有找到文件选择器应用", ex);
             new android.app.AlertDialog.Builder(this)

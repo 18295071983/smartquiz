@@ -35,7 +35,7 @@ import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 
-public class WebViewFilePreviewActivity extends AppCompatActivity {
+public class WebViewFilePreviewActivity extends com.oilquiz.app.ui.base.LegacyResultActivity {
 
     public static final String EXTRA_FILE_PATH = "file_path";
     public static final String EXTRA_SHEET_INDEX = "sheet_index";
@@ -1081,7 +1081,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
         intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
         
         try {
-            startActivityForResult(Intent.createChooser(intent, "选择要预览的文件"), REQUEST_CODE_FILE_PICKER);
+            startActivityForResultCompat(Intent.createChooser(intent, "选择要预览的文件"), REQUEST_CODE_FILE_PICKER);
         } catch (android.content.ActivityNotFoundException ex) {
             AppLogger.e("WebViewFilePreviewActivity", "没有找到文件选择器应用", ex);
             new android.app.AlertDialog.Builder(this)

@@ -337,6 +337,7 @@ public class ThemeActivity extends AppCompatActivity {
     }
 
     /** 注册壁纸变化双通道监听：颜色事件（Android 12+）+ ACTION_WALLPAPER_CHANGED 广播（全版本兜底） */
+    @SuppressWarnings("deprecation") // 壁纸变更广播仍是平台唯一可靠信号
     private void registerWallpaperListeners() {
         try {
             if (colorsListener == null) {

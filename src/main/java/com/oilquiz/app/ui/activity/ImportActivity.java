@@ -411,7 +411,7 @@ public class ImportActivity extends BaseActivity {
             intent.putExtra(ImportResultActivity.EXTRA_IMPORT_TIME, result.importTime);
             intent.putExtra(ImportResultActivity.EXTRA_FILE_NAME, currentFile != null ? currentFile.getName() : null);
             intent.putStringArrayListExtra(ImportResultActivity.EXTRA_ERROR_MESSAGES, new ArrayList<>(result.errorMessages));
-            startActivityForResult(intent, REQUEST_CODE_IMPORT_RESULT);
+            startActivityForResultCompat(intent, REQUEST_CODE_IMPORT_RESULT);
         });
     }
 
@@ -431,7 +431,7 @@ public class ImportActivity extends BaseActivity {
                     "application/x-sqlite3", "application/octet-stream",
                     "application/x-sqlite", "application/vnd.sqlite3"
             });
-            startActivityForResult(intent, REQUEST_CODE_PICK_FILE);
+            startActivityForResultCompat(intent, REQUEST_CODE_PICK_FILE);
         } catch (Exception e) {
             android.util.Log.w(TAG, "ACTION_OPEN_DOCUMENT 启动失败，降级为 ACTION_GET_CONTENT: " + e.getMessage());
             try {
@@ -445,7 +445,7 @@ public class ImportActivity extends BaseActivity {
                         "application/json",
                         "application/x-sqlite3", "application/octet-stream"
                 });
-                startActivityForResult(fallback, REQUEST_CODE_PICK_FILE);
+                startActivityForResultCompat(fallback, REQUEST_CODE_PICK_FILE);
             } catch (Exception ex) {
                 Toast.makeText(this, getString(R.string.h_b5586d9b) + ex.getMessage(), Toast.LENGTH_SHORT).show();
             }
@@ -774,7 +774,7 @@ public class ImportActivity extends BaseActivity {
         intent.putExtra(WebViewFilePreviewActivity.EXTRA_FILE_PATH, file.getAbsolutePath());
         intent.putExtra(WebViewFilePreviewActivity.EXTRA_SHEET_INDEX, sheetIndex);
         intent.putExtra(WebViewFilePreviewActivity.EXTRA_FIELD_MAPPING, (java.io.Serializable) fieldMapping);
-        startActivityForResult(intent, REQUEST_CODE_FILE_PREVIEW);
+        startActivityForResultCompat(intent, REQUEST_CODE_FILE_PREVIEW);
     }
     
     private void startSmartMapping(File file, int sheetIndex, Map<String, Integer> fieldMapping, ImportSettings settings) {
@@ -783,7 +783,7 @@ public class ImportActivity extends BaseActivity {
         intent.putExtra(SmartMappingActivity.EXTRA_SHEET_INDEX, sheetIndex);
         intent.putExtra(SmartMappingActivity.EXTRA_FIELD_MAPPING, (java.io.Serializable) fieldMapping);
         intent.putExtra(SmartMappingActivity.EXTRA_IMPORT_SETTINGS, (java.io.Serializable) settings);
-        startActivityForResult(intent, REQUEST_CODE_SMART_MAPPING);
+        startActivityForResultCompat(intent, REQUEST_CODE_SMART_MAPPING);
     }
     
     private void generateImportConfirmation(File file, int sheetIndex, Map<String, Integer> fieldMapping, ExcelUtil.ImportSettings settings) {
@@ -898,7 +898,7 @@ public class ImportActivity extends BaseActivity {
         intent.putExtra(MappingEditorActivity.EXTRA_FIELD_MAPPING, (java.io.Serializable) confirmation.fieldMapping);
         intent.putExtra(MappingEditorActivity.EXTRA_QUESTION_TYPE_MAPPING, (java.io.Serializable) questionTypeMapping);
         intent.putExtra(MappingEditorActivity.EXTRA_COLUMN_HEADERS, new ArrayList<>(columnHeaders));
-        startActivityForResult(intent, REQUEST_CODE_EDIT_MAPPING);
+        startActivityForResultCompat(intent, REQUEST_CODE_EDIT_MAPPING);
     }
 
     private void editQuestionTypeMapping(File file, int sheetIndex, ExcelUtil.ImportConfirmation confirmation) {
@@ -910,7 +910,7 @@ public class ImportActivity extends BaseActivity {
                 Intent intent = new Intent(this, QuestionTypeMapperActivity.class);
                 intent.putExtra(QuestionTypeMapperActivity.EXTRA_DETECTED_QUESTION_TYPES, new ArrayList<>(detectedQuestionTypes));
                 intent.putExtra(QuestionTypeMapperActivity.EXTRA_QUESTION_TYPE_MAPPING, (java.io.Serializable) questionTypeMapping);
-                startActivityForResult(intent, REQUEST_CODE_QUESTION_TYPE_MAPPING);
+                startActivityForResultCompat(intent, REQUEST_CODE_QUESTION_TYPE_MAPPING);
             });
         }).start();
     }

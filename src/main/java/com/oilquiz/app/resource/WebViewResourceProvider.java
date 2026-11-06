@@ -73,8 +73,8 @@ public class WebViewResourceProvider {
         // 文件访问设置
         webViewConfig.put("allowFileAccess", true);
         webViewConfig.put("allowContentAccess", true);
-        webViewConfig.put("allowFileAccessFromFileURLs", true);
-        webViewConfig.put("allowUniversalAccessFromFileURLs", true);
+        webViewConfig.put("allowFileAccessFromFileURLs", false);
+        webViewConfig.put("allowUniversalAccessFromFileURLs", false);
         
         // 多媒体设置
         webViewConfig.put("loadsImagesAutomatically", true);
@@ -116,8 +116,6 @@ public class WebViewResourceProvider {
         // File Access
         settings.setAllowFileAccess((Boolean) webViewConfig.get("allowFileAccess"));
         settings.setAllowContentAccess((Boolean) webViewConfig.get("allowContentAccess"));
-        settings.setAllowFileAccessFromFileURLs((Boolean) webViewConfig.get("allowFileAccessFromFileURLs"));
-        settings.setAllowUniversalAccessFromFileURLs((Boolean) webViewConfig.get("allowUniversalAccessFromFileURLs"));
         
         // Media
         settings.setLoadsImagesAutomatically((Boolean) webViewConfig.get("loadsImagesAutomatically"));

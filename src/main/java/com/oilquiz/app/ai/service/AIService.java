@@ -3448,6 +3448,7 @@ public class AIService implements ComponentCallbacks2 {
      * TRIM_MEMORY_MODERATE：后台进程受限，释放所有可释放资源
      */
     @Override
+    @SuppressWarnings("deprecation") // TRIM_MEMORY_* 常量为平台唯一可用的档位
     public void onTrimMemory(int level) {
         AILogger.i(TAG, "收到内存紧张通知，级别: " + level);
 
@@ -3558,6 +3559,7 @@ public class AIService implements ComponentCallbacks2 {
         // 不处理配置变更
     }
 
+    @SuppressWarnings("deprecation") // 平台仍以 onLowMemory 作为最后的内存压力信号
     @Override
     public void onLowMemory() {
         AILogger.w(TAG, "onLowMemory: 系统内存严重不足！");

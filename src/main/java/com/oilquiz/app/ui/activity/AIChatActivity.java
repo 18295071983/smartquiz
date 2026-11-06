@@ -543,7 +543,8 @@ public class AIChatActivity extends BaseActivity {
 
     private final android.content.ComponentCallbacks2 memoryCallback = new android.content.ComponentCallbacks2() {
         @Override
-        public void onTrimMemory(int level) {
+        @SuppressWarnings("deprecation") // TRIM_MEMORY_* 常量为平台唯一可用的档位
+    public void onTrimMemory(int level) {
             if (aiService != null) {
                 int result = com.oilquiz.app.ai.jni.LlamaHelper.handleMemoryPressure(level);
                 if (result > 0) {
@@ -555,6 +556,7 @@ public class AIChatActivity extends BaseActivity {
         }
         @Override
         public void onConfigurationChanged(android.content.res.Configuration newConfig) {}
+        @SuppressWarnings("deprecation") // 平台仍以 onLowMemory 作为最后的内存压力信号
         @Override
         public void onLowMemory() {
             if (aiService != null) {
@@ -10137,6 +10139,7 @@ public class AIChatActivity extends BaseActivity {
                 sourceTag = "⚡"; // 本地 native
                 // 阶段标签：THINKING 思考段用 🧠，GENERATING 正文用 ⚡
                 try {
+                    @SuppressWarnings("deprecation") // 引擎状态接口由 native 层维护
                     String pj = appNativeSource().getGenPhase();
                     if (pj != null && !pj.isEmpty()) {
                         String ph = new org.json.JSONObject(pj).optString("phase", "");
@@ -12808,6 +12811,7 @@ public class AIChatActivity extends BaseActivity {
     };
 
     /** 系统内存紧张 → 主动卸载 NPU 模型 */
+    @SuppressWarnings("deprecation") // TRIM_MEMORY_* 常量为平台唯一可用的档位
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);

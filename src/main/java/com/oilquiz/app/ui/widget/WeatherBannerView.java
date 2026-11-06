@@ -585,8 +585,8 @@ public class WeatherBannerView extends LinearLayout {
         try {
             ConnectivityManager cm = (ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm == null) return false;
-            NetworkInfo info = cm.getActiveNetworkInfo();
-            return info != null && info.isConnected();
+            android.net.Network active = cm.getActiveNetwork();
+            return active != null && cm.getNetworkCapabilities(active) != null;
         } catch (Exception e) {
             return false;
         }

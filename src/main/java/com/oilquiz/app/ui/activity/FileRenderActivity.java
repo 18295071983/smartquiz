@@ -797,7 +797,7 @@ public class FileRenderActivity extends BaseActivity {
                 Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 intent.setType("*/*");
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
-                startActivityForResult(intent, 1001);
+                startActivityForResultCompat(intent, 1001);
             })
             .setNegativeButton(getString(R.string.h_625fb26b), (dialog, which) -> {
                 finish();

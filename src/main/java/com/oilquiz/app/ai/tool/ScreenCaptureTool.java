@@ -284,13 +284,13 @@ public class ScreenCaptureTool implements AITool {
         });
         try {
             if (Looper.myLooper() == Looper.getMainLooper()) {
-                activity.startActivityForResult(captureIntent, requestCode);
+                startForResultCompat(activity, captureIntent, requestCode);
             } else {
                 final CountDownLatch launched = new CountDownLatch(1);
                 final AtomicReference<Throwable> launchErr = new AtomicReference<>();
                 activity.runOnUiThread(() -> {
                     try {
-                        activity.startActivityForResult(captureIntent, requestCode);
+                        startForResultCompat(activity, captureIntent, requestCode);
                     } catch (Throwable t) {
                         launchErr.set(t);
                     } finally {
@@ -710,4 +710,13 @@ public class ScreenCaptureTool implements AITool {
     public static void releaseProjection() {
         MediaProjectionService.stop(SmartQuizApplication.getAppContext());
     }
+    @SuppressWarnings("deprecation") // 非 LegacyResultActivity 宿主的兜底（现有流程不会走到）
+    private static void startForResultCompat(android.app.Activity activity,
+                                             android.content.Intent intent, int requestCode) {
+        if (activity == null) return;
+        if (!com.oilquiz.app.ui.base.LegacyResultActivity.startForResult(activity, intent, requestCode)) {
+            activity.startActivityForResult(intent, requestCode);
+        }
+    }
+
 }

@@ -162,6 +162,27 @@ public class WebViewActivity extends BaseActivity {
         }
         
         super.onCreate(savedInstanceState);
+        getOnBackPressedDispatcher().addCallback(this,
+                new androidx.activity.OnBackPressedCallback(true) {
+                    @Override
+                    public void handleOnBackPressed() {
+                        if (fullscreenController != null && fullscreenController.isFullscreen()) {
+                            fullscreenController.hide(true);
+                            return;
+                        }
+                        if (x5WebView != null && x5WebView.canGoBack()) {
+                            x5WebView.goBack();
+                            updateNavState();
+                            return;
+                        }
+                        if (webViewList != null && webViewList.size() > 1) {
+                            closeTab(currentTabIndex);
+                            return;
+                        }
+                        setEnabled(false);
+                        getOnBackPressedDispatcher().onBackPressed();
+                    }
+                });
 
         // 准备 WebView 文件重定向规则        
         // com.oilquiz.app.webview.WebViewRedirectHelper.prepareWebView(this);
@@ -1106,8 +1127,7 @@ public class WebViewActivity extends BaseActivity {
             String extra = result.getExtra();
             if (extra == null || extra.isEmpty()) return false;
             switch (result.getType()) {
-                case WebView.HitTestResult.ANCHOR_TYPE:
-                case WebView.HitTestResult.IMAGE_ANCHOR_TYPE:
+                case WebView.HitTestResult.SRC_ANCHOR_TYPE:
                     showLinkContextMenu(extra);
                     return true;
                 case WebView.HitTestResult.IMAGE_TYPE:
@@ -1218,8 +1238,7 @@ public class WebViewActivity extends BaseActivity {
                             .setSmallIcon(android.R.drawable.ic_dialog_info)
                             .setContentTitle(safeTitle)
                             .setContentText(safeMessage)
-                            .setAutoCancel(true)
-                            .setPriority(android.app.Notification.PRIORITY_DEFAULT);
+                            .setAutoCancel(true);
             manager.notify((int) System.currentTimeMillis(), builder.build());
         } catch (Throwable t) {
             AppLogger.w(TAG, "显示通知失败: " + t.getMessage());
@@ -1252,31 +1271,12 @@ public class WebViewActivity extends BaseActivity {
     public boolean onOptionsItemSelected(android.view.MenuItem item) {
         int id = item.getItemId();
         if (id == android.R.id.home) {
-            onBackPressed();
+            getOnBackPressedDispatcher().onBackPressed();
             return true;
         }
         return super.onOptionsItemSelected(item);
     }
 
-    @Override
-    public void onBackPressed() {
-        // 全屏视频优先退出全屏，不触发网页后退
-        if (fullscreenController != null && fullscreenController.isFullscreen()) {
-            fullscreenController.hide(true);
-            return;
-        }
-        // 浏览器习惯：先退网页历史，再关多余标签，最后才退出
-        if (x5WebView != null && x5WebView.canGoBack()) {
-            x5WebView.goBack();
-            updateNavState();
-            return;
-        }
-        if (webViewList != null && webViewList.size() > 1) {
-            closeTab(currentTabIndex);
-            return;
-        }
-        super.onBackPressed();
-    }
     
     /**
      * 打开文件选择对话框
@@ -1290,7 +1290,7 @@ public class WebViewActivity extends BaseActivity {
         
         // 启动文件选择活动
         try {
-            startActivityForResult(android.content.Intent.createChooser(intent, "选择文件"), 100);
+            startActivityForResultCompat(android.content.Intent.createChooser(intent, "选择文件"), 100);
         } catch (android.content.ActivityNotFoundException ex) {
             // 如果没有文件管理器，显示提示
             new android.app.AlertDialog.Builder(this)
@@ -1903,10 +1903,11 @@ public class WebViewActivity extends BaseActivity {
      * @return 是否有网络连接
      */
     private boolean isNetworkConnected() {
-        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
         if (cm != null) {
-            android.net.NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
-            return activeNetwork != null && activeNetwork.isConnectedOrConnecting();
+            android.net.Network active = cm.getActiveNetwork();
+            return active != null && cm.getNetworkCapabilities(active) != null;
         }
         return false;
     }
@@ -2403,8 +2404,6 @@ public class WebViewActivity extends BaseActivity {
         shellSettings.setGeolocationEnabled(true);
         shellSettings.setAllowFileAccess(true);
         // 跨源文件访问关闭（与 HtmlSandbox 同口径）：file 页不能读任意本地文件
-        shellSettings.setAllowFileAccessFromFileURLs(false);
-        shellSettings.setAllowUniversalAccessFromFileURLs(false);
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
             try {
                 shellSettings.setSafeBrowsingEnabled(true);
@@ -2513,7 +2512,7 @@ public class WebViewActivity extends BaseActivity {
                 if (filePathCallback != null) filePathCallback.onReceiveValue(null);
                 filePathCallback = callback;
                 try {
-                    startActivityForResult(android.content.Intent.createChooser(params.createIntent(), "选择文件"), REQ_FILE_CHOOSER);
+                    startActivityForResultCompat(android.content.Intent.createChooser(params.createIntent(), "选择文件"), REQ_FILE_CHOOSER);
                     return true;
                 } catch (Exception e) {
                     filePathCallback = null;
@@ -2543,7 +2542,10 @@ public class WebViewActivity extends BaseActivity {
                 WebView child = new WebView(getApplicationContext());
                 child.setWebViewClient(new WebViewClient() {
                     @Override
-                    public boolean shouldOverrideUrlLoading(WebView v, String url) {
+                    public boolean shouldOverrideUrlLoading(WebView v,
+                                                            android.webkit.WebResourceRequest request) {
+                        String url = request != null && request.getUrl() != null
+                                ? request.getUrl().toString() : null;
                         if (url != null && !url.isEmpty()) {
                             createNewTab(url);
                         }
@@ -4146,7 +4148,7 @@ public class WebViewActivity extends BaseActivity {
                 Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 intent.setType("image/*");
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
-                startActivityForResult(intent, 101);
+                startActivityForResultCompat(intent, 101);
             });
         }
         
@@ -4160,15 +4162,16 @@ public class WebViewActivity extends BaseActivity {
         // 网络相关接口
         @JavascriptInterface
         public String getNetworkType() {
-            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) WebViewActivity.this.getSystemService(Context.CONNECTIVITY_SERVICE);
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                    WebViewActivity.this.getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm != null) {
-                android.net.NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
-                if (activeNetwork != null) {
-                    if (activeNetwork.getType() == android.net.ConnectivityManager.TYPE_WIFI) {
-                        return "WIFI";
-                    } else if (activeNetwork.getType() == android.net.ConnectivityManager.TYPE_MOBILE) {
-                        return "MOBILE";
-                    }
+                android.net.Network active = cm.getActiveNetwork();
+                android.net.NetworkCapabilities caps = active != null
+                        ? cm.getNetworkCapabilities(active) : null;
+                if (caps != null) {
+                    if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) return "WIFI";
+                    if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)) return "MOBILE";
+                    if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)) return "ETHERNET";
                 }
             }
             return "NONE";

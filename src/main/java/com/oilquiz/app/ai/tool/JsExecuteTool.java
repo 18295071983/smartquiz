@@ -184,8 +184,6 @@ public class JsExecuteTool implements AITool {
                 s.setDomStorageEnabled(pageUrl != null);
                 s.setAllowFileAccess(false);
                 s.setAllowContentAccess(false);
-                s.setAllowFileAccessFromFileURLs(false);
-                s.setAllowUniversalAccessFromFileURLs(false);
                 s.setJavaScriptCanOpenWindowsAutomatically(false);
                 // 与浏览器一致的伪装 UA（真实页面模式下站点 Cookie 策略按正常 Chrome 处理）
                 s.setUserAgentString(com.oilquiz.app.webview.WebViewDefaults.CHROME_USER_AGENT);

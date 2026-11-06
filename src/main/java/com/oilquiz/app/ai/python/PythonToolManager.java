@@ -2045,7 +2045,7 @@ public class PythonToolManager {
                         | android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
             }
             try {
-                act.startActivityForResult(intent, requestCode);
+                startForResultCompat(act, intent, requestCode);
             } catch (Throwable t) {
                 PythonToolManager.AGENT_PICKERS.remove(requestCode);
                 rt.result.set("cancelled:无法打开选择器");
@@ -4972,4 +4972,13 @@ public class PythonToolManager {
                     || lower.endsWith(".svg");
         }
     }
+    @SuppressWarnings("deprecation") // 非 LegacyResultActivity 宿主的兜底（现有流程不会走到）
+    private static void startForResultCompat(android.app.Activity act,
+                                             android.content.Intent intent, int requestCode) {
+        if (act == null) return;
+        if (!com.oilquiz.app.ui.base.LegacyResultActivity.startForResult(act, intent, requestCode)) {
+            act.startActivityForResult(intent, requestCode);
+        }
+    }
+
 }

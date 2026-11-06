@@ -43,7 +43,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 
-public class OCRActivity extends AppCompatActivity {
+public class OCRActivity extends com.oilquiz.app.ui.base.LegacyResultActivity {
 
     private static final int PICK_IMAGE_REQUEST = 1;
     private static final int CAMERA_REQUEST = 2;
@@ -266,12 +266,12 @@ public class OCRActivity extends AppCompatActivity {
             // Android 13+：Photo Picker（系统相册界面，SAF 无存储权限，返回 content:// URI）
             // 用户点"从相册选择"期望进相册，ACTION_OPEN_DOCUMENT 会弹文件管理器，语义不符
             Intent intent = new Intent(MediaStore.ACTION_PICK_IMAGES);
-            startActivityForResult(intent, PICK_IMAGE_REQUEST);
+            startActivityForResultCompat(intent, PICK_IMAGE_REQUEST);
         } else {
             // 低版本：ACTION_GET_CONTENT（SAF，无需存储权限），系统选择器可直接进入相册
             Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
             intent.setType("image/*");
-            startActivityForResult(Intent.createChooser(intent, "选择图片"), PICK_IMAGE_REQUEST);
+            startActivityForResultCompat(Intent.createChooser(intent, "选择图片"), PICK_IMAGE_REQUEST);
         }
     }
     
@@ -283,7 +283,7 @@ public class OCRActivity extends AppCompatActivity {
         intent.setType("*/*");
         intent.setAction(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        startActivityForResult(intent, PICK_PDF_REQUEST);
+        startActivityForResultCompat(intent, PICK_PDF_REQUEST);
     }
 
     private void openCamera() {
@@ -294,7 +294,7 @@ public class OCRActivity extends AppCompatActivity {
                 public void onGranted() {
                     Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
                     if (intent.resolveActivity(getPackageManager()) != null) {
-                        startActivityForResult(intent, CAMERA_REQUEST);
+                        startActivityForResultCompat(intent, CAMERA_REQUEST);
                     }
                 }
 
@@ -306,7 +306,7 @@ public class OCRActivity extends AppCompatActivity {
         } else {
             Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
             if (intent.resolveActivity(getPackageManager()) != null) {
-                startActivityForResult(intent, CAMERA_REQUEST);
+                startActivityForResultCompat(intent, CAMERA_REQUEST);
             }
         }
     }

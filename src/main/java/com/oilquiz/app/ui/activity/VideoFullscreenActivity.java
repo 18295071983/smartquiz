@@ -162,8 +162,12 @@ public class VideoFullscreenActivity extends Activity {
         audio.setOnClickListener(v -> showTrackDialog(C.TRACK_TYPE_AUDIO));
 
         try {
-            castContext = CastContext.getSharedInstance(this);
-            castContext.getSessionManager().addSessionManagerListener(castListener, CastSession.class);
+            CastContext.getSharedInstance(this, getMainExecutor())
+                    .addOnSuccessListener(ctx -> {
+                        castContext = ctx;
+                        ctx.getSessionManager().addSessionManagerListener(castListener, CastSession.class);
+                    })
+                    .addOnFailureListener(e -> castContext = null);
         } catch (Throwable ignored) {
             castContext = null;   // 无 Play Services / 未配置 Cast：不显示按钮，不影响播放
         }
@@ -272,7 +276,8 @@ public class VideoFullscreenActivity extends Activity {
                 .build();
         RemoteMediaClient client = session.getRemoteMediaClient();
         if (client == null) return;
-        client.load(info).setResultCallback(result -> {
+        client.load(new com.google.android.gms.cast.MediaLoadRequestData.Builder()
+                .setMediaInfo(info).build()).setResultCallback(result -> {
             if (!result.getStatus().isSuccess()) {
                 Toast.makeText(VideoFullscreenActivity.this,
                         "投屏加载失败：" + result.getStatus().getStatusMessage(),

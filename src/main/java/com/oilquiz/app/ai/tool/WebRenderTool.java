@@ -161,8 +161,6 @@ public class WebRenderTool implements AITool {
                 s.setDomStorageEnabled(true);
                 s.setAllowFileAccess(false);
                 s.setAllowContentAccess(false);
-                s.setAllowFileAccessFromFileURLs(false);
-                s.setAllowUniversalAccessFromFileURLs(false);
                 s.setJavaScriptCanOpenWindowsAutomatically(false);
                 s.setLoadWithOverviewMode(true);
                 s.setUseWideViewPort(true);

@@ -54,8 +54,6 @@ public class MarkdownDocView extends WebView {
         s.setDomStorageEnabled(false);
         s.setAllowFileAccess(true);          // 文档里的本地图片
         s.setAllowContentAccess(false);
-        s.setAllowFileAccessFromFileURLs(false);
-        s.setAllowUniversalAccessFromFileURLs(false);
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(false);
         s.setSupportZoom(false);

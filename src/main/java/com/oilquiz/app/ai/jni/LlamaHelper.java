@@ -47,6 +47,7 @@ import java.util.concurrent.TimeUnit;
  * @author AI Team
  * @since 2024
  */
+@SuppressWarnings("deprecation") // Thread.getId 在 minSdk 31 没有替代
 public class LlamaHelper {
     private static final String TAG = "LlamaHelper";
     private static final String LIBRARY_NAME = "llama-jni";

@@ -36,7 +36,7 @@ import com.oilquiz.app.ai.stats.TokenStatsManager;
 import java.util.Arrays;
 import java.util.List;
 
-public class AIServiceStatusActivity extends AppCompatActivity implements AIService.StatusObserver {
+public class AIServiceStatusActivity extends com.oilquiz.app.ui.base.LegacyResultActivity implements AIService.StatusObserver {
 
     private static final String TAG = "AIServiceStatusActivity";
     private static final int REQUEST_SELECT_MODEL = 1003;
@@ -327,7 +327,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             btnSelectModel.setOnClickListener(v -> {
                 // 在线模型的注册与选用统一收进模型中心
                 Intent intent = ModelCenterActivity.intent(this);
-                startActivityForResult(intent, REQUEST_SELECT_MODEL);
+                startActivityForResultCompat(intent, REQUEST_SELECT_MODEL);
             });
         }
 

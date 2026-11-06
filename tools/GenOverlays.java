@@ -1,5 +1,6 @@
 import com.oilquiz.app.theme.mcu.hct.Hct;
-import com.oilquiz.app.theme.mcu.scheme.Scheme;
+import com.oilquiz.app.theme.ThemePalette;
+import com.oilquiz.app.theme.ThemePaletteProvider;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -48,30 +49,30 @@ public class GenOverlays {
         return String.format("#%06X", 0xFFFFFF & argb);
     }
 
-    static void writeStyle(StringBuilder sb, String name, Scheme s) {
+    static void writeStyle(StringBuilder sb, String name, ThemePalette s) {
         sb.append("    <style name=\"").append(name).append("\" parent=\"\">\n");
-        sb.append("        <item name=\"colorPrimary\">").append(hex(s.getPrimary())).append("</item>\n");
-        sb.append("        <item name=\"colorPrimaryVariant\">").append(hex(s.getPrimary())).append("</item>\n");
-        sb.append("        <item name=\"colorOnPrimary\">").append(hex(s.getOnPrimary())).append("</item>\n");
-        sb.append("        <item name=\"colorPrimaryContainer\">").append(hex(s.getPrimaryContainer())).append("</item>\n");
-        sb.append("        <item name=\"colorOnPrimaryContainer\">").append(hex(s.getOnPrimaryContainer())).append("</item>\n");
-        sb.append("        <item name=\"colorSecondary\">").append(hex(s.getSecondary())).append("</item>\n");
-        sb.append("        <item name=\"colorSecondaryContainer\">").append(hex(s.getSecondaryContainer())).append("</item>\n");
-        sb.append("        <item name=\"colorOnSecondary\">").append(hex(s.getOnSecondary())).append("</item>\n");
-        sb.append("        <item name=\"colorOnSecondaryContainer\">").append(hex(s.getOnSecondaryContainer())).append("</item>\n");
-        sb.append("        <item name=\"colorTertiary\">").append(hex(s.getTertiary())).append("</item>\n");
-        sb.append("        <item name=\"colorTertiaryContainer\">").append(hex(s.getTertiaryContainer())).append("</item>\n");
-        sb.append("        <item name=\"colorOnTertiary\">").append(hex(s.getOnTertiary())).append("</item>\n");
-        sb.append("        <item name=\"colorOnTertiaryContainer\">").append(hex(s.getOnTertiaryContainer())).append("</item>\n");
-        sb.append("        <item name=\"colorSurface\">").append(hex(s.getSurface())).append("</item>\n");
-        sb.append("        <item name=\"colorOnSurface\">").append(hex(s.getOnSurface())).append("</item>\n");
-        sb.append("        <item name=\"colorSurfaceVariant\">").append(hex(s.getSurfaceVariant())).append("</item>\n");
-        sb.append("        <item name=\"colorOnSurfaceVariant\">").append(hex(s.getOnSurfaceVariant())).append("</item>\n");
-        sb.append("        <item name=\"colorOutline\">").append(hex(s.getOutline())).append("</item>\n");
-        sb.append("        <item name=\"colorBackground\">").append(hex(s.getBackground())).append("</item>\n");
-        sb.append("        <item name=\"colorOnBackground\">").append(hex(s.getOnBackground())).append("</item>\n");
-        sb.append("        <item name=\"android:statusBarColor\">").append(hex(s.getPrimary())).append("</item>\n");
-        sb.append("        <item name=\"android:navigationBarColor\">").append(hex(s.getSurface())).append("</item>\n");
+        sb.append("        <item name=\"colorPrimary\">").append(hex(s.primary)).append("</item>\n");
+        sb.append("        <item name=\"colorPrimaryVariant\">").append(hex(s.primary)).append("</item>\n");
+        sb.append("        <item name=\"colorOnPrimary\">").append(hex(s.onPrimary)).append("</item>\n");
+        sb.append("        <item name=\"colorPrimaryContainer\">").append(hex(s.primaryContainer)).append("</item>\n");
+        sb.append("        <item name=\"colorOnPrimaryContainer\">").append(hex(s.onPrimaryContainer)).append("</item>\n");
+        sb.append("        <item name=\"colorSecondary\">").append(hex(s.secondary)).append("</item>\n");
+        sb.append("        <item name=\"colorSecondaryContainer\">").append(hex(s.secondaryContainer)).append("</item>\n");
+        sb.append("        <item name=\"colorOnSecondary\">").append(hex(s.onSecondary)).append("</item>\n");
+        sb.append("        <item name=\"colorOnSecondaryContainer\">").append(hex(s.onSecondaryContainer)).append("</item>\n");
+        sb.append("        <item name=\"colorTertiary\">").append(hex(s.tertiary)).append("</item>\n");
+        sb.append("        <item name=\"colorTertiaryContainer\">").append(hex(s.tertiaryContainer)).append("</item>\n");
+        sb.append("        <item name=\"colorOnTertiary\">").append(hex(s.onTertiary)).append("</item>\n");
+        sb.append("        <item name=\"colorOnTertiaryContainer\">").append(hex(s.onTertiaryContainer)).append("</item>\n");
+        sb.append("        <item name=\"colorSurface\">").append(hex(s.surface)).append("</item>\n");
+        sb.append("        <item name=\"colorOnSurface\">").append(hex(s.onSurface)).append("</item>\n");
+        sb.append("        <item name=\"colorSurfaceVariant\">").append(hex(s.surfaceVariant)).append("</item>\n");
+        sb.append("        <item name=\"colorOnSurfaceVariant\">").append(hex(s.onSurfaceVariant)).append("</item>\n");
+        sb.append("        <item name=\"colorOutline\">").append(hex(s.outline)).append("</item>\n");
+        sb.append("        <item name=\"colorBackground\">").append(hex(s.background)).append("</item>\n");
+        sb.append("        <item name=\"colorOnBackground\">").append(hex(s.onBackground)).append("</item>\n");
+        sb.append("        <item name=\"android:statusBarColor\">").append(hex(s.primary)).append("</item>\n");
+        sb.append("        <item name=\"android:navigationBarColor\">").append(hex(s.surface)).append("</item>\n");
         sb.append("    </style>\n");
     }
 
@@ -85,15 +86,15 @@ public class GenOverlays {
         dark.append("<resources>\n");
         dark.append("    <!-- 动态主题 overlay（深色）— 由 material-color-utilities HCT 算法生成，勿手改 -->\n");
         for (Preset p : PRESETS) {
-            writeStyle(light, "ThemeOverlay.SmartQuiz." + p.resName, Scheme.light(p.argb));
-            writeStyle(dark, "ThemeOverlay.SmartQuiz." + p.resName, Scheme.dark(p.argb));
+            writeStyle(light, "ThemeOverlay.SmartQuiz." + p.resName, ThemePaletteProvider.light(p.argb));
+            writeStyle(dark, "ThemeOverlay.SmartQuiz." + p.resName, ThemePaletteProvider.dark(p.argb));
         }
         // 24 色相网格（自定义色 / 皮肤扩展色就近映射）
         for (int i = 0; i < HUE_STEPS; i++) {
             String suffix = String.format("Hue%02d", i);
             int seed = Hct.from(i * (360.0 / HUE_STEPS), GRID_CHROMA, GRID_TONE).toInt();
-            writeStyle(light, "ThemeOverlay.SmartQuiz." + suffix, Scheme.light(seed));
-            writeStyle(dark, "ThemeOverlay.SmartQuiz." + suffix, Scheme.dark(seed));
+            writeStyle(light, "ThemeOverlay.SmartQuiz." + suffix, ThemePaletteProvider.light(seed));
+            writeStyle(dark, "ThemeOverlay.SmartQuiz." + suffix, ThemePaletteProvider.dark(seed));
         }
         light.append("</resources>\n");
         dark.append("</resources>\n");

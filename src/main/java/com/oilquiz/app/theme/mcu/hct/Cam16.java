@@ -21,8 +21,6 @@ import static java.lang.Math.max;
 import com.oilquiz.app.theme.mcu.utils.ColorUtils;
 import com.oilquiz.app.theme.mcu.utils.MathUtils;
 
-import com.oilquiz.app.R;
-import com.oilquiz.app.theme.ThemeColors;
 /**
  * CAM16, a color appearance model. Colors are not just defined by their hex code, but rather, a hex
  * code and viewing conditions.

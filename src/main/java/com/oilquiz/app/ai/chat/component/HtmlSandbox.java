@@ -403,8 +403,6 @@ public final class HtmlSandbox {
         s.setJavaScriptEnabled(scriptsEnabled(trust));
         s.setAllowContentAccess(false);
         s.setAllowFileAccess(trust == Trust.LOCAL_FILE);   // 仅本地报表文件需要
-        s.setAllowFileAccessFromFileURLs(false);           // API30 起默认 false，显式钉住
-        s.setAllowUniversalAccessFromFileURLs(false);      // 同上：禁止 file 页读任意源
         // setDatabaseEnabled 在 API 19 之后已是 no-op，且已废弃：不再调用
         s.setGeolocationEnabled(false);
         s.setJavaScriptCanOpenWindowsAutomatically(false);

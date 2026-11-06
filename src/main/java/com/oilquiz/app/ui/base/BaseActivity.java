@@ -20,7 +20,7 @@ import dagger.hilt.android.AndroidEntryPoint;
  * 提供通用的功能和工具方法
  */
 @AndroidEntryPoint
-public abstract class BaseActivity extends AppCompatActivity {
+public abstract class BaseActivity extends LegacyResultActivity {
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {

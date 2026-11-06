@@ -95,6 +95,14 @@ public class AIServiceInitActivity extends BaseActivity
 
     @Override
     protected void initView() {
+        getOnBackPressedDispatcher().addCallback(this,
+                new androidx.activity.OnBackPressedCallback(true) {
+                    @Override
+                    public void handleOnBackPressed() {
+                        destroyed = true;
+                        finish();
+                    }
+                });
         tvTitle = findViewById(R.id.tv_title);
         tvSubtitle = findViewById(R.id.tv_subtitle);
         checkSection = findViewById(R.id.check_section);
@@ -708,9 +716,4 @@ public class AIServiceInitActivity extends BaseActivity
         super.onDestroy();
     }
 
-    @Override
-    public void onBackPressed() {
-        destroyed = true;
-        finish();
-    }
 }

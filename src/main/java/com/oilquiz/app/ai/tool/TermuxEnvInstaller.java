@@ -851,6 +851,7 @@ public final class TermuxEnvInstaller {
      * Android 上都可能只返回本应用自己的进程，所以 {@code false} 只能读成"看不到"，不能当"确定没在跑"；
      * 反过来 {@code true} 是可信的。用它做分流的地方都要给"看不到"留一条不依赖结论的路。
      */
+    @SuppressWarnings("deprecation") // 高版本只能看到本应用进程；true 可信、false 不代表没跑
     public static boolean termuxProcessAlive(Context ctx) {
         try {
             android.app.ActivityManager am = (android.app.ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);

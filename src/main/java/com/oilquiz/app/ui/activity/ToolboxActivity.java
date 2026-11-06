@@ -17,7 +17,7 @@ import com.oilquiz.app.ui.export.FieldConfigActivity;
 import com.oilquiz.app.ui.export.ExportProgressActivity;
 import com.oilquiz.app.ui.export.TemplateSelectionActivity;
 
-public class ToolboxActivity extends AppCompatActivity {
+public class ToolboxActivity extends com.oilquiz.app.ui.base.LegacyResultActivity {
 
     private static final int REQUEST_OPEN_OFFICE = 2001;
 
@@ -136,7 +136,7 @@ public class ToolboxActivity extends AppCompatActivity {
                 "text/csv",
                 "application/rtf"
             });
-            startActivityForResult(intent, REQUEST_OPEN_OFFICE);
+            startActivityForResultCompat(intent, REQUEST_OPEN_OFFICE);
         } catch (Exception e) {
             android.widget.Toast.makeText(this, getString(R.string.h_ac1d1bd3) + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
         }

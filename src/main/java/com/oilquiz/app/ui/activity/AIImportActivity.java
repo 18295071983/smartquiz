@@ -213,7 +213,7 @@ public class AIImportActivity extends BaseActivity {
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
             intent.setType("*/*");
-            startActivityForResult(intent, REQUEST_PICK_FILE);
+            startActivityForResultCompat(intent, REQUEST_PICK_FILE);
         });
 
         // 开始智能导入（v2 管线：自动分析字段，单文件/多文件均支持）
@@ -1223,7 +1223,7 @@ public class AIImportActivity extends BaseActivity {
                             intent.putStringArrayListExtra(ImportPreviewActivity.EXTRA_MAPPED_FIELDS,
                                     new java.util.ArrayList<>(preview.mappedFields));
                         }
-                        startActivityForResult(intent, REQUEST_IMPORT_PREVIEW);
+                        startActivityForResultCompat(intent, REQUEST_IMPORT_PREVIEW);
                     } catch (Exception e) {
                         android.util.Log.w(DTAG, "启动预览页异常: " + e.getMessage());
                         synchronized (previewWaitLock) {

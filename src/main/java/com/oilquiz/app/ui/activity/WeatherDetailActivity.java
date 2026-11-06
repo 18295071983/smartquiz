@@ -416,7 +416,6 @@ public class WeatherDetailActivity extends AppCompatActivity {
                 if (tvUpdateTime != null) tvUpdateTime.setText(getString(R.string.h_e41ae320));
                 loadWeatherData();
             }
-            @Override public void onStatusChanged(String provider, int status, Bundle extras) {}
             @Override public void onProviderEnabled(String provider) {}
             @Override public void onProviderDisabled(String provider) {}
         };

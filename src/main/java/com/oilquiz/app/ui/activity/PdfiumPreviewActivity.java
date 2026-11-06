@@ -315,7 +315,7 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         
         try {
-            startActivityForResult(Intent.createChooser(intent, "选择要预览的PDF文件"), REQUEST_CODE_FILE_PICKER);
+            startActivityForResultCompat(Intent.createChooser(intent, "选择要预览的PDF文件"), REQUEST_CODE_FILE_PICKER);
         } catch (android.content.ActivityNotFoundException ex) {
             AppLogger.e(TAG, "没有找到文件选择器应用", ex);
             new android.app.AlertDialog.Builder(this)

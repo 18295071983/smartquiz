@@ -135,6 +135,7 @@ public class SenseVoiceAsr {
             context.getApplicationContext().registerComponentCallbacks(
                     new android.content.ComponentCallbacks2() {
                         @Override
+                        @SuppressWarnings("deprecation") // 内存档位常量平台唯一
                         public void onTrimMemory(int level) {
                             if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW
                                     || level == android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
@@ -142,6 +143,7 @@ public class SenseVoiceAsr {
                             }
                         }
 
+                        @SuppressWarnings("deprecation") // 平台仍以 onLowMemory 作为最后信号
                         @Override
                         public void onLowMemory() {
                             releaseIfIdle();

@@ -25,7 +25,7 @@ import com.oilquiz.app.ai.model.ModelManager;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.util.ModelFileSelector;
 
-public class ModelImportActivity extends AppCompatActivity {
+public class ModelImportActivity extends com.oilquiz.app.ui.base.LegacyResultActivity {
     
     private static final String TAG = "ModelImportActivity";
     private static final int FILE_PICKER_REQUEST = 1001;
@@ -177,7 +177,7 @@ public class ModelImportActivity extends AppCompatActivity {
      */
     private void selectModelFile() {
         Intent intent = ModelFileSelector.createModelFilePickerIntent();
-        startActivityForResult(intent, FILE_PICKER_REQUEST);
+        startActivityForResultCompat(intent, FILE_PICKER_REQUEST);
     }
     
     /**

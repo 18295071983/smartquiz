@@ -29,10 +29,8 @@ public class WebViewSecurityConfig {
         // ==================== 文件访问配置 ====================
         
         // 禁止从 file:// URL 访问其他文件（防止跨域攻击）
-        settings.setAllowFileAccessFromFileURLs(false);
         
         // 禁止从 file:// URL 访问任意来源（防止 CSS/JS 攻击）
-        settings.setAllowUniversalAccessFromFileURLs(false);
         
         // 允许 file:// 访问同源文件（保留必要功能）
         settings.setAllowFileAccess(true);
@@ -54,7 +52,6 @@ public class WebViewSecurityConfig {
         // ==================== 密码和数据保存配置 ====================
         
         // 不保存密码
-        settings.setSavePassword(false);
         
         // 不保存表单数据
         
@@ -80,7 +77,6 @@ public class WebViewSecurityConfig {
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         
         // 不使用缓存目录存储数据库
-        settings.setDatabasePath(null);
         
         // ==================== 安全浏览（Android O+）====================
         
@@ -110,7 +106,7 @@ public class WebViewSecurityConfig {
      */
     public static int getRecommendedContentMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            return WebSettings.LOAD_NORMAL;
+            return WebSettings.LOAD_DEFAULT;
         }
         return WebSettings.LOAD_DEFAULT;
     }

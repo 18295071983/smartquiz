@@ -188,7 +188,7 @@ public class BackupActivity extends BaseActivity {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
-        startActivityForResult(intent, REQUEST_CODE_PICK_BACKUP);
+        startActivityForResultCompat(intent, REQUEST_CODE_PICK_BACKUP);
     }
 
     @Override

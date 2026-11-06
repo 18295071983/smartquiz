@@ -350,9 +350,17 @@ public class SystemConnectTool implements AITool {
         }
         android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
                 context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        android.net.NetworkInfo info = cm != null ? cm.getActiveNetworkInfo() : null;
-        boolean connected = info != null && info.isConnected();
-        String type = info != null ? info.getTypeName() : "无网络";
+        android.net.Network activeNetwork = cm != null ? cm.getActiveNetwork() : null;
+        android.net.NetworkCapabilities caps = activeNetwork != null
+                ? cm.getNetworkCapabilities(activeNetwork) : null;
+        boolean connected = caps != null;
+        String type = "无网络";
+        if (caps != null) {
+            if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) type = "WIFI";
+            else if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)) type = "MOBILE";
+            else if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)) type = "ETHERNET";
+            else type = "OTHER";
+        }
         Map<String, Object> r = new HashMap<>();
         r.put("status", "success");
         r.put("connected", connected);
@@ -477,19 +485,21 @@ public class SystemConnectTool implements AITool {
             android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
                     context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             if (wm == null) return AIToolResult.fail("WiFi 服务不可用");
-            if ("on".equals(op)) {
-                if (Build.VERSION.SDK_INT >= 29) {
-                    return AIToolResult.fail("Android 10+ 不允许应用直接开关 WiFi，请让用户手动在快捷设置开启");
-                }
-                wm.setWifiEnabled(true);
-            } else if ("off".equals(op)) {
-                if (Build.VERSION.SDK_INT >= 29) {
-                    return AIToolResult.fail("Android 10+ 不允许应用直接开关 WiFi，请让用户手动在快捷设置关闭");
-                }
-                wm.setWifiEnabled(false);
+            if ("on".equals(op) || "off".equals(op)) {
+                // Android 10+ 不允许应用直接开关 WiFi：打开系统 WiFi 面板让用户确认
+                android.content.Intent panel = new android.content.Intent(
+                        android.provider.Settings.Panel.ACTION_WIFI);
+                panel.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(panel);
+                Map<String, Object> r = new HashMap<>();
+                r.put("status", "needs_user_action");
+                r.put("enabled", wm.isWifiEnabled());
+                r.put("message", "已打开系统 WiFi 面板，请让用户手动" + ("on".equals(op) ? "开启" : "关闭"));
+                return AIToolResult.success(r);
             }
             boolean enabled = wm.isWifiEnabled();
             String ssid = "";
+            @SuppressWarnings("deprecation") // SSID 仍只能从 WifiManager.getConnectionInfo 取
             android.net.wifi.WifiInfo wi = wm.getConnectionInfo();
             if (wi != null && wi.getSSID() != null) {
                 ssid = wi.getSSID().replace("\"", "");
@@ -514,20 +524,23 @@ public class SystemConnectTool implements AITool {
                     "调用 permission_manager(action=request_and_wait, permission=蓝牙) 授权后重试");
         }
         try {
-            android.bluetooth.BluetoothAdapter ba = android.bluetooth.BluetoothAdapter.getDefaultAdapter();
+            android.bluetooth.BluetoothManager bm = (android.bluetooth.BluetoothManager)
+                    context.getSystemService(Context.BLUETOOTH_SERVICE);
+            android.bluetooth.BluetoothAdapter ba = bm != null ? bm.getAdapter() : null;
             if (ba == null) return AIToolResult.fail("设备不支持蓝牙");
             if ("on".equals(op)) {
-                if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(
-                        android.Manifest.permission.BLUETOOTH_CONNECT) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                    return AIToolResult.fail("需要 BLUETOOTH_CONNECT 权限才能操作蓝牙，请先在设置中授权");
-                }
-                ba.enable();
+                // Android 13+ 不允许静默 enable：拉起系统请求对话框
+                android.content.Intent request = new android.content.Intent(
+                        android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE);
+                request.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(request);
+                Map<String, Object> r = new HashMap<>();
+                r.put("status", "needs_user_action");
+                r.put("enabled", ba.isEnabled());
+                r.put("message", "已拉起系统蓝牙开启确认，请让用户点允许");
+                return AIToolResult.success(r);
             } else if ("off".equals(op)) {
-                if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(
-                        android.Manifest.permission.BLUETOOTH_CONNECT) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                    return AIToolResult.fail("需要 BLUETOOTH_CONNECT 权限才能操作蓝牙，请先在设置中授权");
-                }
-                ba.disable();
+                return AIToolResult.fail("Android 13+ 不允许应用直接关闭蓝牙，请让用户手动在快捷设置关闭");
             }
             boolean enabled = ba.isEnabled();
             String name = "";

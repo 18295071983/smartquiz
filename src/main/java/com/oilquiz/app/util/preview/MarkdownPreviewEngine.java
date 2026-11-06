@@ -209,8 +209,6 @@ public class MarkdownPreviewEngine extends BasePreviewEngine {
                 settings.setDomStorageEnabled(false);
                 settings.setAllowFileAccess(true);          // md 同目录的本地图片
                 settings.setAllowContentAccess(false);
-                settings.setAllowFileAccessFromFileURLs(false);
-                settings.setAllowUniversalAccessFromFileURLs(false);
                 settings.setJavaScriptCanOpenWindowsAutomatically(false);
                 settings.setBlockNetworkLoads(true);        // 缩略图不拉网络资源：离线、快
                 settings.setBlockNetworkImage(true);

@@ -24,6 +24,7 @@ import dagger.hilt.android.HiltAndroidApp;
  * 使用 Hilt 进行依赖注入
  */
 @HiltAndroidApp
+@SuppressWarnings("deprecation") // 壁纸变更广播/内存档位仍是平台唯一信号
 public class SmartQuizApplication extends Application {
 
     private static final String TAG = "SmartQuizApplication";

@@ -37,7 +37,7 @@ import com.oilquiz.app.ui.dialog.OnlineModelConfigDialog;
 import java.util.ArrayList;
 import java.util.List;
 
-public class ModelSelectorActivity extends AppCompatActivity 
+public class ModelSelectorActivity extends com.oilquiz.app.ui.base.LegacyResultActivity 
         implements ModelAdapter.OnModelClickListener, OnlineModelAdapter.OnOnlineModelClickListener {
 
     private static final String TAG = "ModelSelectorActivity";
@@ -388,7 +388,7 @@ public class ModelSelectorActivity extends AppCompatActivity
 
     private void importModel() {
         Intent intent = new Intent(this, ModelImportActivity.class);
-        startActivityForResult(intent, REQUEST_IMPORT_MODEL);
+        startActivityForResultCompat(intent, REQUEST_IMPORT_MODEL);
     }
 
     private void showAddOnlineModelDialog() {
