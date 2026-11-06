@@ -350,6 +350,17 @@ public class TemplateSelectionActivity extends AppCompatActivity {
             templateDefault.setVisibility(View.GONE);
             templateDescription.setText(selectedContentTemplate.getDescription());
             templateFields.setText(getString(R.string.h_9b7536df) + selectedContentTemplate.getFilePath());
+            // 提前把"导出会失败"的原因摊开：导出侧对缺 {{questions}} 的模板是直接抛错的，
+            // 别让用户走到最后一步才知道。判据与导出用的是同一个 hasQuestionsPlaceholder。
+            String body = com.oilquiz.app.util.export.ContentTemplateExporter
+                    .readFromFileSystem(selectedContentTemplate.getFilePath(), getFilesDir());
+            if (body == null) {
+                templateFields.setText(templateFields.getText()
+                        + "\n⚠ 模板文件读不到（导出会直接失败，检查模板管理里登记的路径）");
+            } else if (!com.oilquiz.app.util.export.ContentTemplateExporter.hasQuestionsPlaceholder(body)) {
+                templateFields.setText(templateFields.getText()
+                        + "\n⚠ 模板里没有 {{questions}} 占位符（导出会直接失败）");
+            }
         } else {
             // 重置所有字段
             templateName.setText(getString(R.string.h_a5d1c511));

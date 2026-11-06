@@ -124,7 +124,29 @@ public class ContentTemplateExporter implements Exporter {
      * 按文件系统读模板：绝对路径直接读；相对路径按应用 filesDir 兜一遍（模板管理里存的
      * 可能是相对形态）。读不到返回 null，由调用方决定是退 assets 还是报错。
      */
-    static String readFromFileSystem(String templateFilePath, File baseDir) {
+    /**
+     * 模板里有没有"题目列表"占位符：大小写不敏感，容忍 {@code {{ questions }}} 这种带空格的写法。
+     * 导出前与向导页都用它做预检。
+     */
+    public static boolean hasQuestionsPlaceholder(String template) {
+        if (template == null) return false;
+        // 用手写的字符扫描而不是正则：占位符只有 {{questions}} 一种形状，正则在这里既难读
+        // 又要过两层转义（`\\{{` 在 Java 字符串里是 `\{{`，遇到 `\\s` 还会被判成文本块），
+        // 出过一次错就不想再靠转义过日子。
+        String s = template.toLowerCase(java.util.Locale.ROOT);
+        int from = 0;
+        while (true) {
+            int open = s.indexOf("{{", from);
+            if (open < 0) return false;
+            int close = s.indexOf("}}", open + 2);
+            if (close < 0) return false;
+            if (s.substring(open + 2, close).trim().equals("questions")) return true;
+            from = close + 2;
+        }
+    }
+
+    /** 按文件系统读模板（向导页预检也用这条，保证判据和导出时一致） */
+    public static String readFromFileSystem(String templateFilePath, File baseDir) {
         File f = new File(templateFilePath);
         if (!f.isAbsolute() && baseDir != null) {
             f = new File(baseDir, templateFilePath);
@@ -155,7 +177,22 @@ public class ContentTemplateExporter implements Exporter {
     // 填的绝对路径，那次 open 注定失败，于是"选了模板"永远等于"用默认模板"，还照样报成功。
     // 现在读不到就抛。要恢复"默认模板"这一档，得让它以一个真实的模板文件出现，不再当兜底。
 
-    private String generateContent(String template, List<Question> questions, ExportManager.ExportTask task) {
+    /**
+     * 填充：把 {@code {{questions}}} 换成按格式生成的题目块。
+     *
+     * <p><b>没有这个占位符就不导出</b>：内容模板唯一的作用就是往这个位置灌题，缺了它
+     * 产出的是"整份模板 + 一道题都没有"的空壳——以前照样返回成功，用户拿到文件还以为
+     * 模板生效了。这里直接抛，并指出缺的是哪个占位符；模板读不到是另一条错误，也已单独报。</p>
+     */
+    private String generateContent(String template, List<Question> questions,
+                                   ExportManager.ExportTask task) throws java.io.IOException {
+        if (!hasQuestionsPlaceholder(template)) {
+            throw new java.io.IOException("内容模板里没有 {{questions}} 占位符，导出得到的是没有题目的空壳；"
+                    + "请在模板里加 {{questions}}（另可用 {{questionCount}} / {{exportTime}}）");
+        }
+        if (questions == null || questions.isEmpty()) {
+            throw new java.io.IOException("没有可导出的题目（内容模板至少要有一道题才有意义）");
+        }
         // 替换模板中的占位符
         String content = template;
 

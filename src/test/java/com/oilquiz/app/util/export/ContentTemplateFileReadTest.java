@@ -103,4 +103,25 @@ public class ContentTemplateFileReadTest {
         // 空文件是"读到了但没内容"，与"读不到"必须可区分：这里返回空串而不是 null
         assertEquals("", content);
     }
+
+    /**
+     * 缺 {{questions}} 的模板要能被判出来——导出侧靠它直接失败，而不是产出一份"没有题目的空壳"
+     * 还报成功。
+     */
+    @Test
+    public void detectsQuestionsPlaceholder() {
+        assertTrue(ContentTemplateExporter.hasQuestionsPlaceholder("# 题库\n\n{{questions}}\n"));
+        // 容忍空格与大小写：用户手写模板时这两种写法都很常见
+        assertTrue(ContentTemplateExporter.hasQuestionsPlaceholder("{{ Questions }}"));
+        assertTrue(ContentTemplateExporter.hasQuestionsPlaceholder("{{questions}}和{{questionCount}}"));
+    }
+
+    @Test
+    public void missingPlaceholderIsRejected() {
+        assertTrue(!ContentTemplateExporter.hasQuestionsPlaceholder("# 题库\n\n{{questionCount}} 道\n"));
+        // 只是"看起来像"：没有闭合、或拼错的键名都不算
+        assertTrue(!ContentTemplateExporter.hasQuestionsPlaceholder("{{questions"));
+        assertTrue(!ContentTemplateExporter.hasQuestionsPlaceholder("{{questionList}}"));
+        assertTrue(!ContentTemplateExporter.hasQuestionsPlaceholder(null));
+    }
 }
