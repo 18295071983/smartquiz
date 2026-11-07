@@ -1030,25 +1030,56 @@ public class FileReaderTool implements AITool {
     }
 
     private File resolveFile(String filePath) {
-        File file = new File(filePath);
+        if (filePath == null || filePath.trim().isEmpty()) return null;
+        String p = filePath.trim();
+        File file = new File(p);
         if (file.exists()) return file;
-        File appFile = new File(context.getFilesDir(), filePath);
+        File appFile = new File(context.getFilesDir(), p);
         if (appFile.exists()) return appFile;
+        // WORKSPACE-READ(2026-11-07)：本地薄工具 read_file 的描述承诺“支持工作区相对文件名”，
+        // 但这里原来只查绝对路径与应用私有目录。真机 2026-11-07：模型按指南传
+        // APK_SOURCE_GUIDE.md / HTML_DESIGN_RULES.md，全部“文件不存在”，又被误导到应用私有目录
+        // 里翻 .json，连烧多轮。工作区是三处相对路径的权威解析器（files/→tmp/→根→按名兜底），
+        // 这里直接复用它；绝对路径/应用私有目录仍优先保持原有语义。
+        try {
+            // 只把“相对路径 / file:// URI”交给工作区解析；绝对路径没命中就应报不存在，
+            // 不要拿同名文件顶替（那会把“路径写错”静默变成“读到了另一份文件”）。
+            if (!new File(p).isAbsolute()) {
+                File wsFile = com.oilquiz.app.ai.agent.online.AgentWorkspace
+                        .getInstance(context).resolveExistingFile(p);
+                if (wsFile != null && wsFile.isFile()) return wsFile;
+            }
+        } catch (Throwable ignored) {
+            // 工作区未初始化（如轻量单测/异常装配）：保持原有“找不到”语义
+        }
         return null;
     }
 
-    /** 文件不存在时的提示（列出应用目录中可用文件，便于 Agent 修正路径） */
+    /** 文件不存在时的提示（列出工作区可用文件，便于 Agent 修正路径） */
     private AIToolResult fileNotFoundResult(String filePath, Map<String, Object> parameters) {
-        File[] files = context.getFilesDir().listFiles();
         StringBuilder hint = new StringBuilder("文件不存在: " + filePath);
-        if (files != null && files.length > 0) {
-            hint.append("\n应用目录中可用的文件:");
-            for (File f : files) {
-                hint.append("\n  - ").append(f.getName());
+        // WORKSPACE-HINT(2026-11-07)：原来列的是**应用私有目录**（oilquiz/bin/conversations…），
+        // 这些名字对模型没有任何可操作价值，反而让它把私有目录当工作区继续猜（真机连烧 5 轮）。
+        // 工作区才是生成/保存文件的默认位置，失败提示应该指向那里。
+        int listed = 0;
+        try {
+            File dir = com.oilquiz.app.ai.agent.online.AgentWorkspace
+                    .getInstance(context).getFilesDir();
+            File[] files = dir != null ? dir.listFiles() : null;
+            if (files != null && files.length > 0) {
+                hint.append("\n工作区 files/ 中可用的文件:");
+                for (File f : files) {
+                    if (listed >= 20) {
+                        hint.append("\n  …");
+                        break;
+                    }
+                    hint.append("\n  - ").append(f.getName());
+                    listed++;
+                }
             }
-        } else {
-            hint.append("\n应用目录为空，可先用 file_generator 工具创建文件");
+        } catch (Throwable ignored) {
         }
+        hint.append("\n提示：工作区文件可直接传文件名或 files/xxx；列全部文件用 workspace(action=list)。");
         return new AIToolResult(hint.toString(), parameters);
     }
 

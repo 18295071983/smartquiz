@@ -46,12 +46,19 @@ public class ResourceConfig {
     // ========== 上下文大小 ==========
     /** 上下文大小下限（保证单次推理） */
     private static final int MIN_CONTEXT_SIZE = 2048;
-    /** 上下文大小上限（手机端封顶 16K：Qwen3-4B KV≈90KB/token，32K 纯 KV≈2.9GB，
-     *  叠加权重后 6~8GB 设备加载即被杀进程；16K KV≈1.4GB 才是设备可承受的量级） */
-    private static final int MAX_CONTEXT_SIZE = 16384;
+    /** 上下文大小上限（设备粗档封顶，与参数面板手动上限 32768 对齐）。
+     *
+     *  CONTEXT-CAP-32K(2026-11-07)：原值 16384，理由是"Qwen3-4B KV≈90KB/token，32K 纯 KV≈2.9GB"。
+     *  那是**按单一老模型的 KV 代价给所有模型定的全局封顶**，而当前主力模型是混合注意力：
+     *  Qwen3.5-2B 实测 12288 B/token（24 层里只有 6 层存 KV）→ 32K 仅 384MB；
+     *  Qwen3.5-4B 20KB/token → 32K 仅 640MB。11GB 设备完全放得下，却被一刀切成 16K。
+     *  真正该按模型 KV 代价把关的是下游两处（都已存在、都用 GGUF 精确值）：
+     *    · AIService CONTEXT-DYNAMIC / LAYERS-FIRST：权重 + KV + 缓冲 ≤ 可用内存 80%；
+     *    · native memoryPool 预算：KV ≤ memoryPoolSize（0.45×可用内存，2GB 封顶）。
+     *  所以这里只保留"设备总内存粗档 + 32K 天花板"，不再替模型判定 KV 装不装得下。
+     *  小设备仍由下面的总内存档位保护（<4GB→4K、4-6GB→8K、6-8GB→12K）。 */
+    private static final int MAX_CONTEXT_SIZE = 32768;
     /** 默认上下文大小 */
-    /** 推理预留 token 数（输入 + 输出） */
-    private static final int INFERENCE_RESERVE_TOKENS = 512;
 
     // ========== 内存限制 ==========
     /** 内存池大小上限（MB）（16K 上下文封顶后 KV≈1.4GB，2GB 池子足够并留余量；
@@ -470,7 +477,9 @@ public class ResourceConfig {
 
         // 按设备总内存定档（用 totalMemory 而非瞬时 availableMemory：可用内存随后台
         // 应用大幅波动，会导致同一设备上下文跳变；且 KV 缓存是常驻内存，必须按总内存规划）。
-        // KV 成本参考（Qwen3-4B ≈ 90KB/token）：4K≈0.4GB、8K≈0.7GB、12K≈1.1GB、16K≈1.4GB。
+        // 这里只是**设备粗档**：KV 代价因模型而异（混合注意力的 Qwen3.5-2B 实测 12KB/token，
+        // 老 Qwen3-4B 约 90KB/token，相差 7 倍），精确把关在 AIService CONTEXT-DYNAMIC
+        // 与 native memoryPool 预算两处，均按 GGUF 真实架构算，不靠这张表。
         if (totalMemoryMB < 4096) {
             // 极小内存（<4GB）：4K
             maxAllowed = 4096;
@@ -484,7 +493,7 @@ public class ResourceConfig {
             maxAllowed = 12288;
             AILogger.i(TAG, "Mid device (6-8GB total), max context=12288");
         } else {
-            // 大内存（≥8GB）：16K 封顶（不再放行 32K）
+            // 大内存（≥8GB）：放行到 32K 天花板，实际能开多大由下游按模型 KV 代价决定
             maxAllowed = MAX_CONTEXT_SIZE;
             AILogger.i(TAG, "Large device (≥8GB total), max context=" + MAX_CONTEXT_SIZE);
         }
@@ -504,13 +513,14 @@ public class ResourceConfig {
             effectiveSize = minRequired;
         }
 
-        // 确保预留足够的推理空间
-        int contextWithReserve = effectiveSize + INFERENCE_RESERVE_TOKENS;
-        if (contextWithReserve > maxAllowed) {
-            // 预留空间后超出上限，减少上下文大小
-            effectiveSize = Math.max(minRequired, maxAllowed - INFERENCE_RESERVE_TOKENS);
-            AILogger.i(TAG, "Adjusted context to " + effectiveSize + " to reserve " + INFERENCE_RESERVE_TOKENS + " tokens for inference");
-        }
+        // CONTEXT-RESERVE-ONCE(2026-11-07)：这里原来还有一段"effectiveSize + 512 > maxAllowed
+        // 就把 effectiveSize 削到 maxAllowed - 512"的推理预留。删掉，理由两条：
+        //   ① n_ctx 本身就是"输入 + 输出"共用的窗口，输出预留已由引擎侧负责
+        //      （AgentLoopEngine 的 OUTPUT_RESERVE_TOKENS / NATIVE_GENERATION_RESERVE，
+        //       以及 NO_OUTPUT_CAP：输出上限 = 窗口剩余），在这里再削一次是重复预留；
+        //   ② 它让**任何等于上限的请求**都拿不到上限值：档位 ULTIMATE 写 16384、实际交付 15872，
+        //      用户在面板里选 32768 也只会拿到 32256，日志与 UI 显示的都不是真值。
+        // 现在档位值/手动值就是交付值（除非被上面的设备粗档或下游 KV 预算明确改写并打日志）。
 
         AILogger.i(TAG, "Optimal context size: " + effectiveSize + 
                 " (requested=" + requestedContextSize + 
@@ -522,14 +532,31 @@ public class ResourceConfig {
     // ========== 内存池大小计算 ==========
 
     /**
-     * 计算最优内存池大小
-     * 
+     * 计算最优内存池大小（兼容入口：用构造时的 ActivityManager 快照）。
+     *
      * @param requestedSize 请求的内存池大小（MB）
      * @return 安全的内存池大小（MB）
      */
     public int getOptimalMemoryPoolSize(int requestedSize) {
-        // 根据可用内存计算上限
-        long maxSafePool = (long) (availableMemoryMB * SYSTEM_MEM_RESERVE_RATIO);
+        return getOptimalMemoryPoolSize(requestedSize, availableMemoryMB, "ActivityManager");
+    }
+
+    /**
+     * SYS-PROBE(2026-11-08)：用调用方传入的**实测可用内存**算池上限。
+     *
+     * <p>内存池是 native 侧 KV 的硬预算（超过就钳 n_ctx）。它此前用构造时的
+     * {@code ActivityManager.MemoryInfo.availMem}——那是加载前的瞬时快照，重载时会
+     * 把"即将释放的旧权重"也算成不可用，于是池被无故缩小（真机日志 2048→1389/1854MB），
+     * 虽然本次 KV peak 只有 144MB 没被卡到，但口径和 AIService 已经统一到
+     * {@code /proc/meminfo MemAvailable} 的预算基线不一致。</p>
+     *
+     * @param requestedSize        请求的内存池大小（MB）
+     * @param effectiveAvailableMB 实测可用内存（MB）；&le;0 时退回构造快照
+     * @param source               数据来源标签（只进日志，便于对账）
+     */
+    public int getOptimalMemoryPoolSize(int requestedSize, long effectiveAvailableMB, String source) {
+        long availableMB = effectiveAvailableMB > 0 ? effectiveAvailableMB : availableMemoryMB;
+        long maxSafePool = (long) (availableMB * SYSTEM_MEM_RESERVE_RATIO);
         maxSafePool = Math.min(maxSafePool, MAX_MEMORY_POOL_MB);
         maxSafePool = Math.max(maxSafePool, MIN_MEMORY_POOL_MB);
 
@@ -537,10 +564,13 @@ public class ResourceConfig {
         safeSize = Math.max(safeSize, MIN_MEMORY_POOL_MB);
 
         if (safeSize < requestedSize) {
-            AILogger.w(TAG, "Memory pool reduced from " + requestedSize + "MB to " + safeSize + "MB for safety");
+            AILogger.w(TAG, "Memory pool reduced from " + requestedSize + "MB to " + safeSize
+                    + "MB for safety (available=" + availableMB + "MB[" + source + "], cap="
+                    + maxSafePool + "MB)");
         }
 
-        AILogger.i(TAG, "Optimal memory pool size: " + safeSize + "MB");
+        AILogger.i(TAG, "Optimal memory pool size: " + safeSize + "MB (available="
+                + availableMB + "MB[" + source + "])");
         return safeSize;
     }
 

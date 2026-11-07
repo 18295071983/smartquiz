@@ -2,9 +2,10 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project(llama-jni)
 
-# 16KB-PAGE(2026-11-02)：Android 15+ 要求 native 库的 ELF LOAD 段按 16 KB 对齐
+# 16KB-PAGE(2026-11-02，2026-11-08 复核)：Android 15+ 要求 native 库的 ELF LOAD 段按 16 KB 对齐
 # （否则系统提示"未适配 16KB 页面"，16K 内核设备上直接加载失败）。
-# NDK r26 默认仍是 4 KB；这里显式指定，覆盖本工程编出的所有 .so（llama-jni / ggml-probe）。
+# NDK r26 默认仍是 4 KB；NDK r28 起 arm64 默认 16 KB。这里显式指定，覆盖本工程编出的
+# 所有 .so（llama-jni / ggml-probe），使行为不依赖工具链默认值（升级 r28 后已复核仍为 0x4000）。
 # 注意：这只解决"我们自己编的库"，预编译 AAR（onnxruntime/opencv/mlkit）和 LibreOffice 引擎
 # 需要各自重编或升级版本，见 docs/LICENSING_AND_COMPLIANCE.md 与 CHANGELOG。
 add_link_options(-Wl,-z,max-page-size=16384)
@@ -99,7 +100,43 @@ if(GGML_VULKAN)
         # ggml-vulkan 通过 vkGetInstanceProcAddr 动态加载所有 Vulkan 函数，自适应任何 GPU
         set(NDK_VULKAN_LIB "${ANDROID_NDK}/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/${NDK_VULKAN_ARCH_TRIPLE}/34/libvulkan.so")
         message(STATUS "Vulkan: Using NDK stub libvulkan.so (API 34) - runtime adaptive via vkGetInstanceProcAddr")
-        
+
+        # VULKAN-HPP(2026-11-08)：NDK r27 起删掉了 vulkan/vulkan.hpp（C++ 绑定），
+        # 而 ggml-vulkan 必须用它。这里按优先级找一份 C++ 头：
+        #   ① 仓库内 vendor（如果以后加）；
+        #   ② 本机 MSYS2 的 vulkan-headers（pacman: mingw-w64-x86_64-vulkan-headers，
+        #      本机为 1.4.341，与 NDK 26 的 sysroot 头同版）；
+        #   ③ VULKAN_SDK。
+        # 关键：只把 **vulkan/ 子目录** 拷进构建目录再用，绝不把整个 mingw include
+        # 加进 Android 编译——那会让 windows.h/stdio.h 之类的头顶掉 NDK 的。
+        set(VULKAN_HEADERS_DIR "")
+        if(NOT EXISTS "${NDK_VULKAN_INCLUDE}/vulkan/vulkan.hpp")
+            if(EXISTS "${CMAKE_SOURCE_DIR}/vulkan-headers/vulkan/vulkan.hpp")
+                set(VULKAN_HEADERS_DIR "${CMAKE_SOURCE_DIR}/vulkan-headers")
+            else()
+                set(_vk_hpp_roots
+                    "C:/msys64/mingw64/include"
+                    "$ENV{MSYS2_ROOT}/mingw64/include"
+                    "$ENV{VULKAN_SDK}/include")
+                foreach(_root ${_vk_hpp_roots})
+                    if(_root AND EXISTS "${_root}/vulkan/vulkan.hpp")
+                        # vulkan_core.h 还会 include "vk_video/..."（视频编解码结构），
+                        # 两个目录必须一起拷，否则 341 的 core 头找不到 vk_video。
+                        file(COPY "${_root}/vulkan" "${_root}/vk_video" DESTINATION "${CMAKE_BINARY_DIR}/vk-headers")
+                        set(VULKAN_HEADERS_DIR "${CMAKE_BINARY_DIR}/vk-headers")
+                        message(STATUS "Vulkan: NDK has no vulkan.hpp, copied C++ headers from ${_root}")
+                        break()
+                    endif()
+                endforeach()
+            endif()
+            if(VULKAN_HEADERS_DIR STREQUAL "")
+                message(FATAL_ERROR
+                    "Vulkan C++ headers (vulkan/vulkan.hpp) not found: NDK r27+ removed them. "
+                    "Install MSYS2 mingw-w64-x86_64-vulkan-headers, set VULKAN_SDK, "
+                    "or vendor Vulkan-Headers into src/main/cpp/vulkan-headers.")
+            endif()
+        endif()
+
         if(EXISTS "${NDK_VULKAN_INCLUDE}/vulkan/vulkan.h")
             message(STATUS "Vulkan: NDK headers found at ${NDK_VULKAN_INCLUDE}")
         else()
@@ -129,7 +166,14 @@ if(GGML_VULKAN)
     message(STATUS "Vulkan backend: ENABLED (glslc: ${GLSLC_EXECUTABLE})")
     
     # 预配置 Vulkan find_package 变量 (NDK 交叉编译)
-    set(Vulkan_INCLUDE_DIRS "${NDK_VULKAN_INCLUDE}" CACHE PATH "Vulkan include dirs" FORCE)
+    # FindVulkan 会用自己的 find_path 结果覆盖 Vulkan_INCLUDE_DIRS，真正生效的是
+    # Vulkan_INCLUDE_DIR；缺 C++ 头时两个都指向 fallback，避免它又找回头文件缺失的 NDK。
+    if(VULKAN_HEADERS_DIR)
+        set(Vulkan_INCLUDE_DIR "${VULKAN_HEADERS_DIR}" CACHE PATH "Vulkan include dir" FORCE)
+        set(Vulkan_INCLUDE_DIRS "${VULKAN_HEADERS_DIR}" CACHE PATH "Vulkan include dirs" FORCE)
+    else()
+        set(Vulkan_INCLUDE_DIRS "${NDK_VULKAN_INCLUDE}" CACHE PATH "Vulkan include dirs" FORCE)
+    endif()
     set(Vulkan_LIBRARIES "${NDK_VULKAN_LIB}" CACHE FILEPATH "Vulkan libraries" FORCE)
     set(Vulkan_LIBRARY "${NDK_VULKAN_LIB}" CACHE FILEPATH "Vulkan library" FORCE)
     set(Vulkan_FOUND TRUE CACHE BOOL "Vulkan found" FORCE)
@@ -169,10 +213,27 @@ if(GGML_OPENCL AND ANDROID_ABI STREQUAL "arm64-v8a")
             message(STATUS "OpenCL: Using NDK stub library for compilation: ${NDK_OPENCL_LIB}")
             message(STATUS "OpenCL: Runtime will load vendor driver from /vendor/lib64/libOpenCL.so")
         else()
-            message(WARNING "NDK OpenCL stub library not found at ${NDK_OPENCL_LIB}")
-            set(OpenCL_LIBRARIES "" CACHE FILEPATH "OpenCL libraries" FORCE)
-            set(OpenCL_LIBRARY "" CACHE FILEPATH "OpenCL library" FORCE)
-            message(STATUS "OpenCL: Dynamic runtime loading enabled (no linking)")
+            # NDK-OPENCL-STUB(2026-11-08)：NDK r28 的 sysroot 里**删掉了** libOpenCL.so 存根
+            # （r26.1 还有）。ggml-opencl 的 CMakeLists 第一行是 find_package(OpenCL REQUIRED)，
+            # 没有库会直接配置失败，所以这里必须给一个链接期存根。
+            # 用仓库内自带的 OpenCL-ICD-Loader 构建产物：它的 SONAME 就是 libOpenCL.so，
+            # 与旧 NDK 存根对 libllama-jni.so 的 DT_NEEDED 完全一致；它**不打包**，
+            # 运行时仍由设备提供同名库（与升级前行为相同）。
+            set(INREPO_OPENCL_STUB "${CMAKE_SOURCE_DIR}/opencl/stub/libOpenCL.so")
+            if(NOT EXISTS "${INREPO_OPENCL_STUB}")
+                set(INREPO_OPENCL_STUB "${CMAKE_SOURCE_DIR}/opencl/build/lib/libOpenCL.so")
+            endif()
+            if(EXISTS "${INREPO_OPENCL_STUB}")
+                set(OpenCL_LIBRARIES "${INREPO_OPENCL_STUB}" CACHE FILEPATH "OpenCL libraries" FORCE)
+                set(OpenCL_LIBRARY "${INREPO_OPENCL_STUB}" CACHE FILEPATH "OpenCL library" FORCE)
+                message(STATUS "OpenCL: NDK r28 removed its stub; using in-repo ICD-loader build for linking: ${INREPO_OPENCL_STUB}")
+            else()
+                # 不静默关掉 GPU：宁可配置失败并说清缺什么，也不要悄悄跑到 CPU 上。
+                message(FATAL_ERROR
+                        "OpenCL stub not found. NDK r28 no longer ships libOpenCL.so; "
+                        "build src/main/cpp/opencl/OpenCL-ICD-Loader for arm64-v8a to "
+                        "src/main/cpp/opencl/build/lib/libOpenCL.so, or set OpenCL_LIBRARY.")
+            endif()
         endif()
     else()
         message(WARNING "OpenCL headers not found at ${OPENCL_HEADERS_DIR}!")
@@ -229,6 +290,8 @@ add_library(
     llama-jni
     SHARED
     native-lib.cpp
+    native-probe.cpp
+    sys_probe.cpp
     llama-bridge.cpp
     agent_kv_cache.cpp
 )
@@ -303,6 +366,25 @@ set_target_properties(
     PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}"
 )
+
+# LIBOMP-16K(2026-11-08)：libllama-jni.so 的 DT_NEEDED 里有 libomp.so，但 AGP 不会
+# 自动打包 NDK 的 OpenMP 运行时，实际进包的是 jniLibs 里的旧副本（4 KB 对齐）。
+# NDK r28 的 aarch64 libomp 是 16 KB 对齐；每次构建把它同步到 jniLibs，
+# 避免"主库 16K、运行时库 4K"这种在 16K 内核设备上照样加载失败的情况。
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    file(GLOB _ndk_libomp_candidates
+        "${ANDROID_NDK}/toolchains/llvm/prebuilt/windows-x86_64/lib/clang/*/lib/linux/aarch64/libomp.so")
+    if(_ndk_libomp_candidates)
+        list(GET _ndk_libomp_candidates -1 _ndk_libomp)
+        add_custom_command(TARGET llama-jni POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_ndk_libomp}"
+                    "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libomp.so"
+            COMMENT "LIBOMP-16K: syncing ${_ndk_libomp} into jniLibs")
+    else()
+        message(WARNING "LIBOMP-16K: NDK libomp.so not found; keeping existing jniLibs copy")
+    endif()
+endif()
 
 # ============================================================================
 # ggml-probe：探测能否把 GenieX 的 Hexagon(NPU) 后端挂到我们自己的 llama.cpp 上。

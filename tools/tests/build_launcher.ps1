@@ -23,7 +23,8 @@ if (-not $ndk -or -not (Test-Path $ndk)) {
 }
 $tc = Join-Path $ndk 'toolchains\llvm\prebuilt\windows-x86_64\bin'
 Write-Host "NDK = $ndk"
-& (Join-Path $tc 'aarch64-linux-android31-clang.cmd') -O2 -static -o $dst $src
+& (Join-Path $tc 'aarch64-linux-android31-clang.cmd') -O2 -static `
+    '-Wl,-z,max-page-size=16384' -o $dst $src
 if ($LASTEXITCODE -ne 0) { throw '编译失败' }
 & (Join-Path $tc 'llvm-strip.exe') $dst
 Write-Host ("OK  " + $dst + "  " + (Get-Item $dst).Length + " bytes")

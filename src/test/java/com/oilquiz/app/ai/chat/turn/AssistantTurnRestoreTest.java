@@ -171,6 +171,40 @@ public class AssistantTurnRestoreTest {
         assertEquals(types(AssistantTurn.fromMessage(msg)), types(msg.assistantTurn));
     }
 
+    /**
+     * TOOL-ID-DUP-DATA(2026-11-07)：2026-11-07 之前的本地引擎每轮都从 call_1 重新编号，
+     * 一条消息里多个工具调用会共用同一个 toolCallId。组件列表本身是执行顺序，parts 是轮次顺序，
+     * 同一个 id 必须按出现次序一一配对；旧实现 byId.put 只留最后一个，真机上 8 个 read_file
+     * 卡全部显示成最后一次读的文件。
+     */
+    @Test
+    public void duplicateToolCallIdsPairComponentsInOrder() {
+        ChatMessage msg = ChatMessage.createAIMessage("mDup", "第一段\n\n第二段\n\n第三段", 1000L);
+        msg.turnId = "TDup";
+        msg.contentRoundBounds = new ArrayList<>(Arrays.asList(6, 12));
+        msg.contentRoundToolIds = new ArrayList<>(Arrays.asList("call_1", "call_1"));
+        msg.components = new ArrayList<>(Arrays.asList(
+                tool("call_1", "工具A", "结果A"),
+                tool("call_1", "工具B", "结果B")));
+        RoundBounds.normalize(msg);
+
+        AssistantTurn turn = AssistantTurn.fromMessage(msg);
+        AssistantTurn.groupTools(turn); // 与渲染前的 parts 归一同步：result part 并入 call
+        List<AssistantTurn.Part> calls = new ArrayList<>();
+        for (AssistantTurn.Part p : turn.parts) {
+            if (p == null) continue;
+            if (AssistantTurn.Part.TYPE_TOOL_CALL.equals(p.type)) calls.add(p);
+            if (AssistantTurn.Part.TYPE_TOOL_GROUP.equals(p.type) && p.group != null) {
+                calls.addAll(p.group);
+            }
+        }
+        assertEquals(2, calls.size());
+        assertEquals("工具A", calls.get(0).toolName);
+        assertEquals("结果A", calls.get(0).result);
+        assertEquals("工具B", calls.get(1).toolName);
+        assertEquals("结果B", calls.get(1).result);
+    }
+
     @Test
     public void restoreIsIdempotentAndNeverRewritesLegacyContent() {
         ChatMessage msg = legacyTwoToolMsg();

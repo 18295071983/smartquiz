@@ -1006,13 +1006,20 @@ public class AssistantTurn {
     /** 从消息的 tool_call 组件回填 name/args/status/result，并补 TOOL_RESULT part。 */
     private static void fillToolPartsFromComponents(AssistantTurn turn, ChatMessage msg) {
         if (msg.components == null || msg.components.isEmpty()) return;
-        java.util.Map<String, org.json.JSONObject> byId = new java.util.HashMap<>();
+        // TOOL-ID-DUP-DATA(2026-11-07)：同一 toolCallId 的组件可能不止一个。
+        // 2026-11-07 之前的本地引擎每轮都从 call_1 重新编号，一条消息里 8 个工具调用全叫 call_1；
+        // 旧实现 byId.put 只留最后一个 → 每张工具卡都显示最后一次的参数/结果（真机两个对话里
+        // 8 个 read_file 卡全变成同一个文件）。这里改成按 id 建队列、按 part 顺序逐个消费：
+        // 组件本身是执行顺序，parts 是轮次顺序，同 id 的多次调用按出现次序一一对应。
+        java.util.Map<String, java.util.ArrayDeque<org.json.JSONObject>> byId = new java.util.HashMap<>();
         java.util.List<org.json.JSONObject> all = new java.util.ArrayList<>();
         for (com.oilquiz.app.ai.chat.component.ComponentData c : msg.components) {
             if (c == null || c.props == null || !"tool_call".equals(c.type)) continue;
             all.add(c.props);
             String id = c.props.optString("toolCallId", "");
-            if (!id.isEmpty()) byId.put(id, c.props);
+            if (!id.isEmpty()) {
+                byId.computeIfAbsent(id, k -> new java.util.ArrayDeque<>()).add(c.props);
+            }
         }
         java.util.Set<org.json.JSONObject> used =
                 java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
@@ -1021,7 +1028,8 @@ public class AssistantTurn {
         for (Part p : new ArrayList<>(turn.parts)) {
             if (p == null || !Part.TYPE_TOOL_CALL.equals(p.type)) continue;
             if (p.toolCallId == null || p.toolCallId.isEmpty()) continue;
-            org.json.JSONObject props = byId.get(p.toolCallId);
+            java.util.ArrayDeque<org.json.JSONObject> queue = byId.get(p.toolCallId);
+            org.json.JSONObject props = queue != null ? queue.pollFirst() : null;
             if (props == null) continue;
             used.add(props);
             attachToolProps(turn, p, props);

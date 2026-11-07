@@ -75,7 +75,11 @@ android {
     namespace = "com.oilquiz.app"
     compileSdk = 36
     buildToolsVersion "36.0.0"
-    ndkVersion = "26.1.10909125"
+    // NDK-16K(2026-11-08)：26.1 -> 28.2（r28c）。用户明确要求对齐 16 KB 页内核：
+    // r28 起 arm64 链接器默认按 16 KB 对齐 LOAD 段（r26 需要 CMakeLists 里显式
+    // -Wl,-z,max-page-size=16384）。该显式参数仍保留，升级后用它复核而不是先删。
+    // 本机 25.2/27.0 目录只有 .installer 空壳，28.2 是 sdkmanager 实装。
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId "com.oilquiz.app"
@@ -217,6 +221,16 @@ android {
         exclude "META-INF/LICENSE-W3C-TEST"
 
         pickFirst "**/libvulkan.so.*"
+        // OPENCL-STUB-NOT-PACKAGED(2026-11-08)：NDK r28 删掉了 libOpenCL.so 链接存根，
+        // 我们改用 src/main/cpp/opencl/stub/libOpenCL.so 只做链接（SONAME=libOpenCL.so）。
+        // AGP 会把链接行里的项目内 .so 当运行时依赖打进包——必须排除：
+        // 运行时 DT_NEEDED libOpenCL.so 仍由设备/厂商提供（与升级 NDK 前完全一致），
+        // 而且这份存根本身是 4 KB 对齐，进包反而破坏 16K。
+        exclude "**/libOpenCL.so"
+        // libc++_shared.so 必须是 NDK r28 的 16 KB 版本。旧 NDK 拷来的 4 KB 副本会经
+        // pickFirst 胜出并在 16K 设备上加载失败；本地 jniLibs 里现在放的是 NDK 28 原版
+        // 经 llvm-strip 后的 1.2MB 副本（16K）。没有这份时 AGP 会自动打包 NDK 原版
+        // （9MB，仍 16K），两种都可。
         pickFirst "**/libc++_shared.so"
         // libomp.so 两边都有：我们自己的 llama.cpp（libllama-jni.so 的 DT_NEEDED 里有 libomp.so）
         // 和 GenieX AAR。GenieX 的库实测不需要 libomp（libggml-cpu/libllama 都不依赖它），

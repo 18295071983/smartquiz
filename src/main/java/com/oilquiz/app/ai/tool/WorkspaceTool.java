@@ -261,8 +261,7 @@ public class WorkspaceTool implements AITool, StructuredParamTool {
                     result.put("message", "已清空工作区，删除 " + removed + " 个文件");
                     return AIToolResult.success(result);
                 }
-                case "list":
-                default: {
+                case "list": {
                     List<AgentWorkspace.WorkspaceFile> files = ws.listFiles();
                     Map<String, Object> result = new HashMap<>();
                     result.put("count", files.size());
@@ -286,6 +285,14 @@ public class WorkspaceTool implements AITool, StructuredParamTool {
                     result.put("message", files.isEmpty() ? "工作区为空" : "工作区文件:\n" + summary);
                     return AIToolResult.success(result);
                 }
+                // WORKSPACE-ACTION(2026-11-07)：未知 action 不能再静默回落成 list。
+                // 真机 2026-11-07：本地模型把动作写成 read_file（被另一个薄工具名带偏），这里
+                // 返回的不是报错而是一份目录列表，模型以为"读到了文件"继续换路径重试，连烧 5 轮。
+                // 缺省 action 仍按描述走 list，但**给了不认识的 action 必须明确拒绝**并列出可选值。
+                default:
+                    return AIToolResult.fail("未知 action: " + action
+                            + "。可用 action: list/path/read/versions/restore/delete/clear"
+                            + "（读取文件内容用 read，没有 read_file 这个动作）");
             }
         } catch (Exception e) {
             AILogger.e(TAG, "Workspace tool error: " + e.getMessage(), e);

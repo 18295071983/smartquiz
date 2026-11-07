@@ -14,6 +14,7 @@ import com.oilquiz.app.util.AILogger;
 
 import com.oilquiz.app.ai.agent.ToolResultInterpreter;
 import com.oilquiz.app.ai.jni.LlamaHelper;
+import com.oilquiz.app.ai.jni.SystemProbe;
 import com.oilquiz.app.ai.model.Model;
 import com.oilquiz.app.ai.model.ModelChunkLoader;
 import com.oilquiz.app.ai.model.ModelDownloadManager;
@@ -994,6 +995,81 @@ public class AIService implements ComponentCallbacks2 {
             // 获取模型文件大小用于估算层数与上下文（大模型需降低上下文减少 KV 内存）
             long modelSizeMB = modelFile.length() / (1024 * 1024);
 
+            // CONTEXT-RESIDENT(2026-11-07)：把"旧模型权重即将被释放"这笔账算回来。
+            //
+            // 实测故障（本机 ai_log_20261107）：同一设备同一模型，冷启动 availMem=2636MB → ctx=12288、
+            // GPU 25/24 层；10 秒后重载 availMem=1399MB → kvBudget=0 → ctx 被压到 floor 4096、
+            // GPU 只剩 15/24 层，随后 Agent 第一轮就撞 "Prompt过长: 3634 >= 3584" 拒收。
+            // 差的这 1237MB 正是**上一份仍常驻的 1158MB 权重**：
+            //   · 这里只 chatDestroy()（仅释放 chat/KV，见 LlamaHelper.chatDestroy），权重还在；
+            //   · native initModel 是**先 delete s_helperContext 再加载新模型**（native-lib.cpp），
+            //     也就是说测量时被扣掉的那份权重，在新分配发生前就已经还给系统了。
+            // 于是旧账被扣了两次：一次在 availMem 读数里，一次在下面的 "- modelSizeMB"。
+            //
+            // 修法：预算基线取"释放旧权重后的可用内存" = 读数 + 旧模型权重字节。这样重载与冷启动
+            // 同账，下游所有按 availMem 分档的地方（CONTEXT-DYNAMIC / 4B 预检 / GPU 层数档位 /
+            // LAYERS-FIRST）一次性全部修正，不需要各自打补丁。
+            // SYS-PROBE(2026-11-08)：两个数都改成实测量——可用内存取 /proc/meminfo 的 MemAvailable
+            // （内核口径），权重取 native llama_model_size()（张量实际字节）。文件长度只是探针
+            // 不可用时的兜底，并在日志里标明来源，避免再把代理值当事实。
+            // 旧模型权重仍常驻的字节数：优先问 native 的 llama_model_size()（张量实际
+            // 占用，含量化后的真实字节），而不是把文件长度当代理；native 探针不可用时
+            // 才退回文件 stat（零成本，但 mmap 头/对齐会与真实占用有出入）。
+            long residentWeightsMB = 0;
+            String residentSource = "none";
+            if (LlamaHelper.isModelInitialized()) {
+                long residentBytes = SystemProbe.loadedModelSizeBytes();
+                if (residentBytes > 0) {
+                    residentWeightsMB = residentBytes / (1024 * 1024);
+                    residentSource = "llama_model_size";
+                } else if (!SystemProbe.isAvailable() && currentModelName != null
+                        && !currentModelName.isEmpty()) {
+                    try {
+                        String prevPath = findModelPath(currentModelName);
+                        if (prevPath != null) {
+                            File prevFile = new File(prevPath);
+                            if (prevFile.isFile()) {
+                                residentWeightsMB = prevFile.length() / (1024 * 1024);
+                                residentSource = "file-length-fallback";
+                            }
+                        }
+                    } catch (Throwable t) {
+                        AILogger.w(TAG, "CONTEXT-RESIDENT: 旧模型大小读取失败(" + t.getMessage() + ")，按 0 计");
+                    }
+                }
+            }
+
+            // 瞬时可用内存：优先 /proc/meminfo 的 MemAvailable（内核口径），并用本进程
+            // VmRSS 交叉校验——权重是 mmap 进来的，RSS 能覆盖它才说明"释放旧权重"
+            // 能真正还回这些页；RSS 远小于权重时说明那些页只是 page cache，
+            // MemAvailable 已经把它们算作可回收，再加回去就是反向重复记账。
+            long rawAvailMemMB = memoryInfo.availableMemoryMB;
+            long kernelAvailMB = SystemProbe.memAvailableMB();
+            long selfRssMB = SystemProbe.processRssMB();
+            if (kernelAvailMB > 0) {
+                AILogger.i(TAG, "MEM-PROBE: /proc/meminfo MemAvailable=" + kernelAvailMB
+                        + "MB（内核口径）, ActivityManager.availMem=" + rawAvailMemMB
+                        + "MB, 本进程 RSS=" + selfRssMB + "MB");
+                rawAvailMemMB = kernelAvailMB;
+            } else {
+                AILogger.w(TAG, "MEM-PROBE: /proc/meminfo MemAvailable 不可用，回退 ActivityManager.availMem="
+                        + rawAvailMemMB + "MB");
+            }
+            long availAfterReleaseMB = rawAvailMemMB;
+            if (residentWeightsMB > 0) {
+                boolean weightsInRss = selfRssMB <= 0 || selfRssMB * 2 >= residentWeightsMB;
+                if (weightsInRss) {
+                    availAfterReleaseMB += residentWeightsMB;
+                    AILogger.i(TAG, "CONTEXT-RESIDENT: 旧模型权重 " + residentWeightsMB + "MB（来源="
+                            + residentSource + "，RSS=" + selfRssMB + "MB）仍在读数里，native initModel 会先释放再加载 => 预算基线 availMem "
+                            + rawAvailMemMB + "MB + " + residentWeightsMB + "MB = " + availAfterReleaseMB + "MB");
+                } else {
+                    AILogger.w(TAG, "CONTEXT-RESIDENT: 权重 " + residentWeightsMB + "MB 远大于本进程 RSS "
+                            + selfRssMB + "MB，判断为 page cache（MemAvailable 已计入可回收），不再加回，基线="
+                            + availAfterReleaseMB + "MB");
+                }
+            }
+
             // ARCH-ONCE(2026-10-09)：**加载前一次性读取模型架构**，后续所有决策复用这一份。
             //
             // 设计动机（用户提出）：原先架构信息被分散读取、且读取时机偏晚 ——
@@ -1024,17 +1100,24 @@ public class AIService implements ComponentCallbacks2 {
             }
 
             // 获取上下文大小用于计算 KV 缓存（模型尺寸感知：8B 级大模型自动降档）
-            int contextSize = calculateOptimalContextSize(memoryInfo.totalMemoryMB, memoryInfo.availableMemoryMB, gpuMemoryMB > 0, modelSizeMB);
+            int contextSize = calculateOptimalContextSize(memoryInfo.totalMemoryMB, availAfterReleaseMB, gpuMemoryMB > 0, modelSizeMB);
 
-            // 用户手动上下文覆盖（参数面板写入 user_model_params）：仿 gpu_layers_manual 机制
+            // 用户手动上下文覆盖（参数面板写入 user_model_params）：仿 gpu_layers_manual 机制。
+            // CONTEXT-USER-AUTHORITATIVE(2026-11-07)：这里只**读取凭据**，真正取值放到下面
+            // KV 代价已知之后 —— 因为这是一次显式选择，自动档（CONTEXT-DYNAMIC / LAYERS-FIRST /
+            // 4B 紧内存档）一律不得再把它静默夹小。原实现先赋值再被三道自动档往下夹，
+            // 用户在面板里选 32768、日志里却出现 ctx=4096，且没有任何一处说明是谁改的。
+            // 现在唯一能改动它的只有"KV 常驻物理上限"（按总内存算），且必须 WARN 带数字。
+            boolean userFixedContext = false;
+            int userContextSize = 0;
             try {
                 android.content.SharedPreferences userPrefs = context.getSharedPreferences(
                         "user_model_params", android.content.Context.MODE_PRIVATE);
                 if (!userPrefs.getBoolean("use_auto", true)) {
                     int manualCtx = userPrefs.getInt("context_size_manual", -1);
                     if (manualCtx >= 512 && manualCtx <= 32768) {
-                        contextSize = manualCtx;
-                        AILogger.i(TAG, "User manual context override: " + contextSize);
+                        userFixedContext = true;
+                        userContextSize = manualCtx;
                     }
                 }
             } catch (Exception e) {
@@ -1068,19 +1151,60 @@ public class AIService implements ComponentCallbacks2 {
                             + " => " + kvBytesPerToken + " B/token");
                 }
             }
-            if (kvBytesPerToken > 0) {
+            // AGENT-CONTEXT-FLOOR(2026-11-08)：本地 Agent 的 tools schema + 多轮历史增长快，
+            // 12288 在 8–9K prompt 时就触发历史裁剪；裁剪会把 KV 前缀在中间截断，混合注意力
+            // 无法 partial rollback → 每轮全量 prefill（真机 01:28:32：8683 > 7776 → 6615，
+            // 随后 full eval 7056）。对**非用户固定**的大内存设备（>=8GB），把默认窗口直接
+            // 拉到应用硬上限 32768，再由 CONTEXT-DYNAMIC 按模型真实 KV 代价 + 可用内存降：
+            //   · 2B（12288 B/token）：32K KV=384MB，11GB 设备实测 PSS 807MB、剩余 2.6GB，稳；
+            //   · 4B（~90KB/token）：32K KV≈2.9GB，maxCtxByMem 会把它压回几千，不会硬上；
+            //   · 4B 紧内存档仍会 clamp 到 6144；LAYERS-FIRST / native memoryPool 再兜底；
+            //   · 用户手动值（userFixedContext）完全不动。
+            // 这不是"放宽上限"，而是把"为省 240MB KV 每轮多算 6–7K token"的账翻过来。
+            if (!userFixedContext && kvBytesPerToken > 0
+                    && memoryInfo.totalMemoryMB >= 8192 && contextSize < 32768) {
+                int before = contextSize;
+                contextSize = 32768;
+                AILogger.i(TAG, "AGENT-CONTEXT-FLOOR: 默认本地窗口 " + before + " -> " + contextSize
+                        + " (totalMem=" + memoryInfo.totalMemoryMB + "MB, kv=" + kvBytesPerToken
+                        + " B/token; 应用硬上限，随后由 CONTEXT-DYNAMIC 按 KV 预算钳制)");
+            }
+            // CONTEXT-RESIDENT(2026-11-07) 修正：上面这段"可用内存"原先直接取瞬时 availMem，
+            // 重载时旧权重还常驻在读数里、又被 "- modelSizeMB" 扣第二次，于是 kvBudget 归零、
+            // ctx 落到 floor 4096（本机 11GB 设备 + 12KB/token 的模型，KV 只要 144MB）。
+            // 现在基线换成 availAfterReleaseMB（已把即将释放的旧权重加回来），公式本身不变。
+            // 另：KV 是**常驻**分配，档位上限按总内存规划（与 ResourceConfig.getOptimalContextSize
+            // 同一口径），瞬时 availMem 只用来回答"这次新增的分配现在装不装得下"。
+            if (userFixedContext) {
+                contextSize = userContextSize;
+                long userKvMB = kvBytesPerToken > 0
+                        ? (kvBytesPerToken * contextSize) / (1024 * 1024) : 0;
+                // 物理护栏：KV 常驻不得超过总内存的 25%（11GB 设备 ≈ 2.7GB，
+                // 对 12KB/token 的模型折合 23 万 token，远高于任何档位；对 90KB/token 的
+                // 老模型折合 3 万 token，也仍在面板上限之内）。这不是档位偏好，是"别把系统饿死"。
+                int kvCeilingCtx = maxContextByKvBudget(memoryInfo.totalMemoryMB / 4, kvBytesPerToken);
+                if (kvCeilingCtx > 0 && contextSize > kvCeilingCtx) {
+                    AILogger.w(TAG, "User manual context " + contextSize + " 需要 KV " + userKvMB
+                            + "MB，超过总内存 25% 的常驻上限（" + (memoryInfo.totalMemoryMB / 4)
+                            + "MB => " + kvCeilingCtx + " tokens），按物理上限取值");
+                    contextSize = kvCeilingCtx;
+                } else {
+                    AILogger.i(TAG, "User manual context override: " + contextSize
+                            + " (KV " + userKvMB + "MB, " + kvBytesPerToken + " B/token)，自动降档已跳过");
+                }
+            } else if (kvBytesPerToken > 0) {
                 // 预算 = 可用内存 × 80%（留 20% 给系统与显示合成 —— 雪花就是显示被饿死导致的），
                 // 再扣除权重常驻与计算缓冲（经验取权重的 25%）
                 long ctxBufMB = Math.max(64, modelSizeMB / 4);
-                long ctxBudgetMB = (long) (memoryInfo.availableMemoryMB * 0.80);
+                long ctxBudgetMB = (long) (availAfterReleaseMB * 0.80);
                 long kvBudgetForCtxMB = Math.max(0, ctxBudgetMB - modelSizeMB - ctxBufMB);
-                int maxCtxByMem = (int) ((kvBudgetForCtxMB * 1024L * 1024L) / kvBytesPerToken);
-                maxCtxByMem = (maxCtxByMem / 512) * 512;                 // 对齐 512
+                int maxCtxByMem = maxContextByKvBudget(kvBudgetForCtxMB, kvBytesPerToken);
                 int ctxFloor = 4096;                                     // Agent 场景底线
                 int ctxCap   = contextSize;                              // 不超过静态档位值
                 int dynCtx = Math.max(ctxFloor, Math.min(ctxCap, maxCtxByMem));
                 AILogger.i(TAG, "CONTEXT-DYNAMIC: kv=" + kvBytesPerToken + " B/token, budget=" + ctxBudgetMB
-                        + "MB, kvBudget=" + kvBudgetForCtxMB + "MB -> maxCtxByMem=" + maxCtxByMem
+                        + "MB (availAfterRelease=" + availAfterReleaseMB + "MB), kvBudget=" + kvBudgetForCtxMB
+                        + "MB -> maxCtxByMem=" + maxCtxByMem
                         + ", static=" + ctxCap + ", floor=" + ctxFloor + " => ctx=" + dynCtx);
                 if (dynCtx < contextSize) {
                     AILogger.w(TAG, "CONTEXT-DYNAMIC: context " + contextSize + " -> " + dynCtx
@@ -1102,8 +1226,11 @@ public class AIService implements ComponentCallbacks2 {
                     // ARCH-ONCE：复用上面已读好的架构，避免同一次加载内重复解析 GGUF 头部
                     arch);
 
-            // 根据系统剩余可用内存动态调整 GPU 层数，防止内存不足导致卡顿或 OOM
-            long availMemMB = memoryInfo.availableMemoryMB;
+            // 根据系统剩余可用内存动态调整 GPU 层数，防止内存不足导致卡顿或 OOM。
+            // CONTEXT-RESIDENT：基线用"释放旧权重后"的可用内存，否则重载 4B 时旧权重把读数压到
+            // 2200MB 以下，下面的预检会**每次重载都误报"可用内存不足"并拒绝加载**；
+            // GPU 层数档位同理（本机实测重载被从 25/24 砍到 15/24，decode 掉到 CPU↔GPU 交替）。
+            long availMemMB = availAfterReleaseMB;
             // ---- 4B 级大模型内存预检：宁可明确失败/慢跑，也不硬加载导致 OOM 或系统卡死 ----
             if (modelSizeMB > 1800) {
                 if (availMemMB > 0 && availMemMB < 2200) {
@@ -1118,7 +1245,9 @@ public class AIService implements ComponentCallbacks2 {
                     // 内存偏紧：GPU offload + 大 KV 有风险，降级为 CPU-only + 更小 context，保证能跑（慢但正常）
                     AILogger.w(TAG, "4B model with tight memory (" + availMemMB + "MB): forcing CPU-only + smaller context to guarantee functionality");
                     gpuLayers = 0;
-                    contextSize = Math.min(contextSize, 6144);
+                    if (!userFixedContext) {
+                        contextSize = Math.min(contextSize, 6144);
+                    }
                 }
             }
             // 4B 级及以上模型（>1800MB）：共享内存 GPU 全量 offload 不增内存总量，且
@@ -1162,7 +1291,9 @@ public class AIService implements ComponentCallbacks2 {
                 //
                 // 背景（实测雪花）：层数档位只按"模型大小 + 可用内存"分档，忽略了**KV 占用因模型而异**。
                 // 同样 8192 上下文，MiniCPM5 的 KV = 43008 B/token（336 MiB），
-                // 而 Qwen3.5-2B 只有 49152 B/token 但在 25 层档位下仅 96 MiB —— 前者是后者的 3.5 倍。
+                // 而 Qwen3.5-2B 实测只有 12288 B/token（24 层里仅 6 层存 KV）→ 8192 仅 96 MiB，
+                // 前者是后者的 3.5 倍。（此处原写"49152 B/token"，那是按全层数高估 4 倍的旧值，
+                //  与本机 KV model 日志的 12288 矛盾，已按实测更正。）
                 // MiniCPM5 被分到 43 层后，权重 42×35MB≈1470MB + KV 336MB ≈ 1.8GB，
                 // 而设备可用内存只有约 1.9GB → MemFree 掉到 221MB → lowmemorykiller 杀后台
                 // → 显示合成被饿死 → **屏幕雪花**。
@@ -1197,29 +1328,43 @@ public class AIService implements ComponentCallbacks2 {
                             + "MB, budget=" + budgetMB + "MB (availMem=" + availMemMB + "MB, 80%)");
 
                     if (gpuSideMB > budgetMB) {
-                        // 超预算 → 先砍 context（保层数）
-                        long maxAffordableKvMB = Math.max(0, budgetMB - gpuBufMB);
-                        long maxCtx = (maxAffordableKvMB * 1024L * 1024L) / kvBytesPerToken;
-                        // 对齐 512，并夹到 [4096, 当前值]（4096 是 Agent 场景底线）
-                        maxCtx = (maxCtx / 512) * 512;
-                        maxCtx = Math.max(4096, Math.min(contextSize, maxCtx));
-                        if (maxCtx < contextSize) {
-                            AILogger.w(TAG, "LAYERS-FIRST: context " + contextSize + " -> " + maxCtx
-                                    + " to preserve all " + gpuLayers + " GPU layers (KV "
-                                    + kvFullMB + "MB -> " + ((kvBytesPerToken * maxCtx) / (1024 * 1024)) + "MB)");
-                            contextSize = (int) maxCtx;
-                        }
-                        // 砍到 4096 仍不够 → 才反过来砍层数（最后手段：优先保系统不出雪花）
-                        if (gpuSideMB > budgetMB && contextSize <= 4096) {
-                            long overMB = gpuSideMB - budgetMB;
-                            long layerMB = Math.max(1, weightsFullMB / arch.blockCount);
-                            int cut = (int) (overMB / layerMB) + 1;
-                            int newLayers = Math.max(8, gpuLayers - cut);
-                            if (newLayers < gpuLayers) {
-                                AILogger.w(TAG, "LAYERS-FIRST: still over budget even at ctx=4096 ("
-                                        + gpuSideMB + "MB > " + budgetMB + "MB), cutting GPU layers "
-                                        + gpuLayers + " -> " + newLayers + " as last resort");
-                                gpuLayers = newLayers;
+                        if (userFixedContext) {
+                            // CONTEXT-USER-AUTHORITATIVE：用户显式选定的窗口不被自动档夹小。
+                            // 也不砍层数 —— 按上面 LAYERS-FIRST 自己的口径，共享内存手机上砍层数
+                            // 并不省内存，只会让 decode 变慢，那是"假安全"。这里只把账报清楚：
+                            // 物理上限（总内存 25%）已在取值时把过，剩下的是瞬时压力，
+                            // 真装不下时 native 建 context 会失败并如实报错，不静默降级。
+                            AILogger.w(TAG, "LAYERS-FIRST: 用户指定 ctx=" + contextSize + " 的 GPU 侧新增 "
+                                    + gpuSideMB + "MB 超过瞬时预算 " + budgetMB + "MB（availMem=" + availMemMB
+                                    + "MB×80%）；保留用户取值，不降窗口也不砍层数");
+                        } else {
+                            // 超预算 → 先砍 context（保层数）
+                            long maxAffordableKvMB = Math.max(0, budgetMB - gpuBufMB);
+                            long maxCtx = maxContextByKvBudget(maxAffordableKvMB, kvBytesPerToken);
+                            // 夹到 [4096, 当前值]（4096 是 Agent 场景底线）
+                            maxCtx = Math.max(4096, Math.min(contextSize, maxCtx));
+                            if (maxCtx < contextSize) {
+                                AILogger.w(TAG, "LAYERS-FIRST: context " + contextSize + " -> " + maxCtx
+                                        + " to preserve all " + gpuLayers + " GPU layers (KV "
+                                        + kvFullMB + "MB -> " + ((kvBytesPerToken * maxCtx) / (1024 * 1024)) + "MB)");
+                                contextSize = (int) maxCtx;
+                                // 砍完 context 后必须**重算** GPU 侧占用：原实现拿砍之前的 gpuSideMB
+                                // 去判"砍到 4096 仍不够"，于是 KV 已经降下来了却照样砍层数，
+                                // 白把权重推回 CPU（每 token 多一次 CPU↔GPU 同步）。
+                                gpuSideMB = (kvBytesPerToken * contextSize) / (1024 * 1024) + gpuBufMB;
+                            }
+                            // 砍到 4096 仍不够 → 才反过来砍层数（最后手段：优先保系统不出雪花）
+                            if (gpuSideMB > budgetMB && contextSize <= 4096) {
+                                long overMB = gpuSideMB - budgetMB;
+                                long layerMB = Math.max(1, weightsFullMB / arch.blockCount);
+                                int cut = (int) (overMB / layerMB) + 1;
+                                int newLayers = Math.max(8, gpuLayers - cut);
+                                if (newLayers < gpuLayers) {
+                                    AILogger.w(TAG, "LAYERS-FIRST: still over budget even at ctx=4096 ("
+                                            + gpuSideMB + "MB > " + budgetMB + "MB), cutting GPU layers "
+                                            + gpuLayers + " -> " + newLayers + " as last resort");
+                                    gpuLayers = newLayers;
+                                }
                             }
                         }
                     }
@@ -1244,7 +1389,10 @@ public class AIService implements ComponentCallbacks2 {
 
             int threadCount = resourceConfig.getOptimalThreadCount();
             int batchSize = resourceConfig.getOptimalBatchSize(LlamaHelper.getBatchSize());
-            int memoryPoolSize = resourceConfig.getOptimalMemoryPoolSize(LlamaHelper.getMemoryPoolSize());
+            // SYS-PROBE(2026-11-08)：池预算用"释放旧权重后"的实测基线，与 CONTEXT-DYNAMIC
+            // 同一口径；否则重载时旧权重仍算在占用里，池会被无故缩小。
+            int memoryPoolSize = resourceConfig.getOptimalMemoryPoolSize(
+                    LlamaHelper.getMemoryPoolSize(), availAfterReleaseMB, "availAfterRelease");
 
             // 4B 级模型（>1800MB）统一收紧：batch 减半降 prefill 峰值计算内存，
             // 内存池收紧避免 native 按预算放行过大 KV（权重 2.4GB 常驻，需给系统留余量）。
@@ -2736,7 +2884,12 @@ public class AIService implements ComponentCallbacks2 {
             // 只计算线程数、批处理大小、内存池大小（不计算 GPU 层数）
             int threadCount = resourceConfig.getOptimalThreadCount();
             int batchSize = resourceConfig.getOptimalBatchSize(mode.batchSize);
-            int memoryPoolSize = resourceConfig.getOptimalMemoryPoolSize(mode.memoryPoolMB);
+            // SYS-PROBE(2026-11-08)：这里只是加载前的初始值，最终以 loadModelLocked 的
+            // availAfterRelease 为准；但两边都用实测内存，避免"预置一个偏小的池"先入为主。
+            long probeAvailMB = SystemProbe.memAvailableMB();
+            int memoryPoolSize = probeAvailMB > 0
+                    ? resourceConfig.getOptimalMemoryPoolSize(mode.memoryPoolMB, probeAvailMB, "SystemProbe.MemAvailable")
+                    : resourceConfig.getOptimalMemoryPoolSize(mode.memoryPoolMB);
 
             // 应用计算后的参数（只设置线程数、批处理大小、内存池大小）
             LlamaHelper.setThreadCount(threadCount);
@@ -2774,6 +2927,23 @@ public class AIService implements ComponentCallbacks2 {
         AILogger.i(TAG, "Thread Count: " + threadCount + ", Batch: " + batchSize + ", Pool: " + memoryPoolSize + "MB");
     }
     
+    /**
+     * CONTEXT-RESIDENT(2026-11-07)：把"KV 预算(MB) + 每 token KV 代价(B)"解成上下文 token 数。
+     *
+     * <p>抽成纯函数是因为原来这段算式在 CONTEXT-DYNAMIC 与 LAYERS-FIRST 各写了一遍（含 512 对齐），
+     * 两处口径漂过；现在只有一处。对齐 512 与 llama.cpp 的 n_ctx 粒度一致，向下取整保证不超预算。
+     *
+     * @param kvBudgetMB      可用于 KV 的内存（MB），&le;0 表示一个 token 都放不下
+     * @param kvBytesPerToken 每 token 的 KV 字节数（GGUF 精确值），&le;0 表示未知
+     * @return 能容纳的最大上下文（512 对齐）；未知/无预算返回 0，由调用方决定退回哪条路
+     */
+    static int maxContextByKvBudget(long kvBudgetMB, long kvBytesPerToken) {
+        if (kvBudgetMB <= 0 || kvBytesPerToken <= 0) return 0;
+        long ctx = (kvBudgetMB * 1024L * 1024L) / kvBytesPerToken;
+        ctx = (ctx / 512) * 512;
+        return (int) Math.min(ctx, Integer.MAX_VALUE);
+    }
+
     /**
      * 根据当前优化模式返回 Context Size
      */

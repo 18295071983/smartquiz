@@ -80,6 +80,12 @@ bool AgentKvCache::truncate(llama_memory_t mem) {
     // 深截断（截断距离 = cachedNPast - matchedLen）超出回滚窗口必然失败 → 回退全量 prefill。
     // 保留失败详情便于诊断（2026-09-23 真机实测：每次工具轮后 PARTIAL 均在此失败，20s/轮）。
     //
+    // KV-TRIM-TAIL(2026-11-08)：不要试图用 sys_probe::kvTrimTail() 替换这里——它内部也是
+    // 同一条 llama_memory_seq_rm(mem, 0, keep, -1)，而失败根因是 ctx_params.n_rs_seq=0
+    // （循环层不保留回滚快照），不是"截断方向不对"。要省掉全量 prefill，只能避免 prompt
+    // 在中间失配（历史裁剪/模板变化）或增大 n_ctx 让裁剪不发生；n_rs_seq>0 的内存代价
+    // 本机实测过大（见 native-lib.cpp 2540 附近：设 256 直接触发 lowmemorykiller）。
+    //
     // LOG-LEVEL-FIX(2026-11-01)：这行原先用 LOGE，引擎日志里每轮一条红字，读日志的人会当成
     // 引擎故障——实际是**设计内的性能回退**（下一行 I 级 "full eval %zu tokens" 已记录结果）。
     // 降到 KV 调试级，与 KV-STATS 同类：诊断时开 debug 才看，用户视图不再出现假报错。

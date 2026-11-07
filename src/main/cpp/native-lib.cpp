@@ -30,6 +30,10 @@
 #include "mtmd.h"
 #include "mtmd-helper.h"
 #include "agent_kv_cache.h"
+// SYS-PROBE(2026-11-08)：系统/引擎实时事实采集（页大小走 sysconf，KV 占用走
+// llama_memory_seq_pos_*，权重走 llama_model_size）。见 sys_probe.h 顶部说明。
+#include "sys_probe.h"
+#include "native_probe_bridge.h"
 #include <nlohmann/json.hpp>
 #include <vulkan/vulkan.h>
 
@@ -3934,7 +3938,16 @@ public:
             } else {
                 useIncremental = false;
                 llama_memory_clear(mem, false);
-                AGENT_KV_LOGI("PARTIAL truncate failed, full eval %zu tokens", tokens_list.size());
+                // 注意：这里即使改成 sys_probe::kvTrimTail() 也是同一条
+                // llama_memory_seq_rm(mem, 0, keep, -1)，结果不会变——失败根因是
+                // n_rs_seq=0（循环层不保留回滚快照），不是"截断方向不对"。
+                // 把 rollback 与 n_rs_seq 带出来，下一次看到这条能直接判断：
+                //   rollback 小且 n_rs_seq=0 → 混合记忆的硬限制；
+                //   rollback 很大（历史被裁剪/模板变化）→ 前缀已不成立，全量本就不可避免。
+                AGENT_KV_LOGI("PARTIAL truncate failed, full eval %zu tokens (rollback=%d, n_rs_seq=%u; "
+                              "hybrid recurrent state cannot partially rollback; expected, not an error)",
+                              tokens_list.size(), kvCache.cachedNPast() - kvCache.matchedLen(),
+                              (unsigned) llama_n_rs_seq(ctx));
             }
         }
 
@@ -7036,6 +7049,46 @@ static std::mutex s_globalMutex;
 // 实测标签推导会把 <tool_call> 误判为思考标签（0 open/1 close），导致正文剥离失效。
 
 static NativeChatContext* g_chatContext = nullptr;
+
+// ============================================================================
+// PROBE-BRIDGE(2026-11-08)：给 native-probe.cpp 的只读快照接口。
+//
+// 定义放在 s_helperContext 之后（它是文件级 static）。外部只拿到 POD 拷贝，
+// 不解引用任何句柄；并发口径沿用 nativeGetContextSize：reinterpret → isValid()
+// → 读，不加新锁。真正防止"装载中被探测"的是 Java 侧 modelInitLock 的串行化，
+// 在 native 侧另造一把不覆盖 initModel 的锁只会制造假安全。
+// ============================================================================
+namespace probebridge {
+
+sysprobe::EngineInfo engineInfo() {
+    llama_jni::InferenceContext* helper = s_helperContext;
+    if (helper == nullptr || !helper->isValid()) {
+        return sysprobe::EngineInfo{};
+    }
+    // countKvLayers() 是混合注意力模型的真实 KV 层数（结果在 InferenceContext 内缓存）；
+    // 探测失败返回 0，probeEngine 会退回全部层数。
+    return sysprobe::probeEngine(helper->getModel(),
+                                 helper->getLlamaContext(),
+                                 helper->countKvLayers());
+}
+
+bool kvTrimTail(int keepTokens) {
+    llama_jni::InferenceContext* helper = s_helperContext;
+    if (helper == nullptr || !helper->isValid()) {
+        return false;
+    }
+    return sysprobe::kvTrimTail(helper->getLlamaContext(), keepTokens);
+}
+
+bool kvClear() {
+    llama_jni::InferenceContext* helper = s_helperContext;
+    if (helper == nullptr || !helper->isValid()) {
+        return false;
+    }
+    return sysprobe::kvClear(helper->getLlamaContext());
+}
+
+} // namespace probebridge
 
 // 清理Native层消息内容
 static std::string sanitizeNativeMessage(const std::string& message) {

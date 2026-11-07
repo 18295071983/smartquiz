@@ -63,10 +63,14 @@ public class ChatGuideToolFactsTest {
         }
     }
 
-    /** "定位"不在这一次的能力里：旧弹框把它写进本地清单，用户问了模型永远点不到 */
+    /**
+     * WHERE-AM-I(2026-11-07)：location 已进本地核心集——真机"我在哪"因为拿不到定位工具，
+     * 模型只能拿天气/搜索代查，最后答"无法得知你具体在哪里"。旧断言（"不在核心集"）
+     * 与现在的注入集相反，保留它只会把正确修复判红。
+     */
     @Test
-    public void localCoreSetDoesNotAdvertiseLocation() {
-        assertFalse("本地核心集没有 location，UI 不能再把它当成本地能力宣传",
+    public void localCoreSetAdvertisesLocation() {
+        assertTrue("本地核心集必须包含 location，否则“我在哪”没有可调用的定位工具",
                 AgentLoopEngine.localCoreToolNames().contains("location"));
     }
 

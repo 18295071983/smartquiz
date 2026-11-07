@@ -141,6 +141,69 @@ public class LocalThinToolsTest {
     }
 
     /**
+     * DATABASE-THIN(2026-11-07)：本地核心集必须能取题库数据（题数/分页/只读 SQL），
+     * 且薄 schema 只暴露只读动作；execute_sql 必须挡掉多语句与非 SELECT。
+     * 真机 2026-11-07：用户说“你不是有数据库题目吗”，本地 Agent 只有 search_questions，
+     * 结果把“题库/导出 APK”当题干关键词搜出 0 条，然后去翻应用目录空转。
+     */
+    @Test
+    public void databaseThinToolIsInCoreAndReadOnly() throws Exception {
+        String[] core = (String[]) readStatic("DEFAULT_CORE_TOOLS");
+        assertTrue("database 必须在本地核心集里（否则模型无取数入口）",
+                new HashSet<>(Arrays.asList(core)).contains("database"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, ?> thin = (Map<String, ?>) readStatic("LOCAL_THIN_TOOLS");
+        Object entry = thin.get("database");
+        assertTrue("database 必须有薄 schema（避免注入完整 20+ action 定义）", entry != null);
+        java.lang.reflect.Field paramsF = entry.getClass().getDeclaredField("params");
+        paramsF.setAccessible(true);
+        String[][] params = (String[][]) paramsF.get(entry);
+        Set<String> names = new HashSet<>();
+        for (String[] p : params) names.add(p[0]);
+        assertTrue("database 需要 action", names.contains("action"));
+        assertTrue("database 需要 sql（execute_sql 用）", names.contains("sql"));
+        assertTrue("database 需要 page/page_size（分页取题）",
+                names.contains("page") && names.contains("page_size"));
+
+        assertTrue(AgentLoopEngine.isLocalDatabaseReadAction("get_question_count"));
+        assertTrue(AgentLoopEngine.isLocalDatabaseReadAction("get_questions"));
+        assertTrue(AgentLoopEngine.isLocalDatabaseReadAction("execute_sql"));
+        assertFalse("写动作不得进入薄 database",
+                AgentLoopEngine.isLocalDatabaseReadAction("delete_question"));
+
+        assertTrue(AgentLoopEngine.isReadOnlySelectSql("SELECT id FROM question LIMIT 1"));
+        assertTrue("尾部一个分号应放行", AgentLoopEngine.isReadOnlySelectSql("select 1;"));
+        assertFalse("非 SELECT 必须拒绝", AgentLoopEngine.isReadOnlySelectSql("DELETE FROM question"));
+        assertFalse("分号多语句必须拒绝",
+                AgentLoopEngine.isReadOnlySelectSql("select 1; delete from question"));
+        assertFalse("空 SQL 必须拒绝", AgentLoopEngine.isReadOnlySelectSql("  "));
+    }
+
+    /**
+     * WHERE-AM-I(2026-11-07)：本地核心集必须能回答“我在哪”。
+     * 真机 2026-11-07：location 不在注入集，模型拿 ai_weather（空 city 自动定位）和
+     * network_search 代查，最后答“无法得知你具体在哪里”。
+     */
+    @Test
+    public void locationIsInCoreAndWhereAmIIntentIsNarrow() throws Exception {
+        String[] core = (String[]) readStatic("DEFAULT_CORE_TOOLS");
+        assertTrue("location 必须在本地核心集里（否则“我在哪”没有可调用的定位工具）",
+                new HashSet<>(Arrays.asList(core)).contains("location"));
+        String fc = invokePrompt("buildFcSystemPrompt");
+        assertTrue("提示词应给出位置问题的工具选用规则", fc.contains("location"));
+
+        assertTrue(AgentLoopEngine.isWhereAmIQuery("我在哪"));
+        assertTrue(AgentLoopEngine.isWhereAmIQuery("我现在在哪里？"));
+        assertTrue(AgentLoopEngine.isWhereAmIQuery("我在哪个城市"));
+        assertTrue(AgentLoopEngine.isWhereAmIQuery("这是哪"));
+        assertTrue(AgentLoopEngine.isWhereAmIQuery("当前位置"));
+        assertFalse("“在哪买票”不是位置查询",
+                AgentLoopEngine.isWhereAmIQuery("我在哪买票"));
+        assertFalse(AgentLoopEngine.isWhereAmIQuery("今天天气怎么样"));
+    }
+
+    /**
      * TOOL-DISCOVERY(2026-11-01)：本地工具名由 native PEG 逐字枚举，中途改集会毁 tools 前缀，
      * 所以"发现"必须能直接落地为执行——tool_registry 必须常驻核心，且它的薄 schema 里
      * 必须带 tool 与 args 两个参数，否则 call 动作无法表达目标与参数（发现出来也调不动）。
@@ -494,6 +557,51 @@ public class LocalThinToolsTest {
 
         String unknown = (String) m.invoke(null, "boom-xyz", "fallback");
         assertTrue("未知错误保留原文供排查", unknown.contains("boom-xyz"));
+    }
+
+    /**
+     * PROMPT-DOOR(2026-11-08)：预算与 native 门同源的两条纯算术。
+     *
+     * <p>真机 11-07 的故障链是"窗口 4096 → 门容量 3584 → 预算却回退写死 4000"，
+     * 于是请求必然被门拒收。这两条函数就是把"预算恒不超过门"变成可执行断言：
+     * 任何容量下（包括小于输出预留的极小窗口）预算都不得 ≥ 门容量。</p>
+     */
+    @Test
+    public void promptBudgetIsAlwaysInsideTheDoor() {
+        // 正常窗口：预算 = 门容量 − 输出预留
+        assertEquals(6000, AgentLoopEngine.promptBudgetFor(10000, 4000));
+
+        // 小窗口：输出预留装不下时按容量 1/3 缩，至少 256，仍严格小于门
+        int tiny = AgentLoopEngine.promptBudgetFor(1000, 4000);
+        assertEquals(667, tiny);
+        assertTrue("缩减后的预算必须仍小于门容量", tiny < 1000);
+
+        int tinyCtx = AgentLoopEngine.promptBudgetFor(512, 4000);
+        assertEquals(256, tinyCtx);
+
+        // 容量未知：沿用历史兜底值（调用方 computePromptBudget 会先判 <=0 再回退）
+        assertEquals(4000, AgentLoopEngine.promptBudgetFor(0, 4000));
+        assertEquals(4000, AgentLoopEngine.promptBudgetFor(-1, 4000));
+
+        // 不变量：只要容量 > 0，预算就严格小于门容量（否则请求必被 native 拒）
+        for (int capacity : new int[]{512, 1024, 3584, 4096, 8192, 12288, 32256, 32768}) {
+            int budget = AgentLoopEngine.promptBudgetFor(capacity, 4000);
+            assertTrue("capacity=" + capacity + " 时预算 " + budget + " 不应 >= 门容量",
+                    budget > 0 && budget < capacity);
+        }
+    }
+
+    @Test
+    public void promptFitsDoorUsesTheSameStrictBoundaryAsNative() {
+        // 门是 promptTokens >= capacity 即拒；两者相等必须判"装不下"
+        assertTrue(AgentLoopEngine.promptFitsDoor(3583, 3584));
+        assertFalse("等于门容量必须拒绝（与 LlamaHelper 的 >= 同口径）",
+                AgentLoopEngine.promptFitsDoor(3584, 3584));
+        assertFalse(AgentLoopEngine.promptFitsDoor(4000, 3584));
+
+        // 容量未知（<=0）时放行，交给门自己兜底，不拿猜测值拦请求
+        assertTrue(AgentLoopEngine.promptFitsDoor(999999, 0));
+        assertTrue(AgentLoopEngine.promptFitsDoor(999999, -1));
     }
 
     private static Object readInstance(Object target, String field) throws Exception {

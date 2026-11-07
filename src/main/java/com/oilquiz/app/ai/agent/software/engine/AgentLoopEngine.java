@@ -130,15 +130,23 @@ public class AgentLoopEngine {
             UserModelParamsManager.DEFAULT_ANSWER_TEMPERATURE;
 
     /** 工具 → 中文标签（程序化总结/toast 用）。
-     *  CORE-TOOLS-4(2026-10-11)：本地 Agent 只做这 4 个工具调用，故只保留可达的四条映射。
-     *  原先 30 条覆盖全量注册表，其中 26 条永远查不到（不可达）—— 留着会让后来者误判
-     *  "本引擎支持这些工具"。将来若恢复某工具的能力，在此补一条即可（toolLabel 缺省回退原名）。 */
+     *  只保留**当前核心集里可达**的工具：不可达的名字留着会让后来者误判"本引擎支持这些工具"。
+     *  将来若恢复某工具的能力，在此补一条即可（toolLabel 缺省回退原名）。 */
     private static final java.util.Map<String, String> TOOL_LABELS = new java.util.HashMap<>();
     static {
         TOOL_LABELS.put("time_date", "时间日期");
         TOOL_LABELS.put("location", "位置");
         TOOL_LABELS.put("ai_weather", "天气");
         TOOL_LABELS.put("network_search", "搜索");
+        TOOL_LABELS.put("read_file", "读文件");
+        TOOL_LABELS.put("write_file", "写文件");
+        TOOL_LABELS.put("calculate", "计算");
+        TOOL_LABELS.put("search_questions", "搜题");
+        TOOL_LABELS.put("database", "题库");
+        TOOL_LABELS.put("workspace", "工作区");
+        TOOL_LABELS.put("tool_registry", "工具发现");
+        TOOL_LABELS.put("memory", "记忆");
+        TOOL_LABELS.put("task", "任务");
     }
 
     /** 程序化执行结果：text 为程序直接输出的最终回复（不调模型） */
@@ -152,10 +160,16 @@ public class AgentLoopEngine {
     }
 
     /**
-     * 常驻核心工具（2026-10-11 定为产品范围）：时间(time_date)、定位(location)、
-     * 天气(ai_weather)、联网搜索(network_search)。本地 Agent **只做这四个工具调用**。
+     * 常驻核心工具（会话开始<b>静态</b>注入，中途改集会毁 tools 前缀）。
      *
-     * <p><b>为什么这四个就是能力上限（重要，别照搬在线路径的经验）</b>：
+     * <p>当前名单以本数组为唯一权威：时间/定位/天气/联网搜索 + 薄工具
+     * read_file/write_file/calculate/search_questions/database + 发现与记忆
+     * tool_registry/memory/task + 工作区 workspace。UI 与提示词要报数量或清单，
+     * 一律走 {@link #localCoreToolNames()}，不要再抄一份字面量。
+     * <b>注入集有多大，prompt 前缀就有多大</b>：小窗口（内存降档到 4096）下这份 schema
+     * 本身就可能装不下，见 {@link #describePromptOverflow}。</p>
+     *
+     * <p><b>为什么"注入集就是能力上限"（重要，别照搬在线路径的经验）</b>：
      * native 的 PEG 语法按本次请求的 tools 数组**逐字枚举**工具名 ——
      * {@code atomic(literal(name))} + 该工具自己的参数 schema
      * （llama.cpp/common/chat-peg-parser.cpp standard_json_tools）。
@@ -166,36 +180,39 @@ public class AgentLoopEngine {
      *
      * <p>因此 <b>不要</b>把 {@code resolveToolNameFuzzy} 当作补救手段：
      * 它只能归一化**已经在 tools 数组里的名字**（如别名 ui_control → ui_component），
-     * 无法让未注入的工具变得可调用。将来若要恢复 4 个之外的能力，需要新增一条
-     * "引擎侧注入"通道（意图匹配或发现工具返回工具名后由 Java 加入 activeTools），
+     * 无法让未注入的工具变得可调用。注入集之外的能力只有两条真通路：
+     * ① 加进本数组（静态、会话开始生效）；② 经 {@code tool_registry} 的 get/call 发现并代执行
+     * （2026-11-01 起常驻，代执行不需要该工具的 schema 进 tools 数组）。
      * 单靠改 prompt 或让模型猜名字都无效。</p>
      *
-     * <p><b>2026-10-25 更新（本地专用薄工具适配层，见 {@link #LOCAL_THIN_TOOLS}）</b>：
-     * 上面说的"引擎侧注入通道"已用**静态**方式落地——核心集从 4 扩到 9，新增的都是
-     * **单用途薄工具**（{@code read_file}/{@code write_file}/{@code calculate}/
-     * {@code search_questions}/{@code recall_history}：schema 里无 action enum、
-     * 参数只留必要一两个、描述一句话），执行时由 {@code executeToolSafely} 翻译成真实工具
-     * （如 read_file→file_reader(action=read)、calculate→calculator、search_questions→database(action=search_questions)）。
+     * <p><b>薄工具适配层（2026-10-25，见 {@link #LOCAL_THIN_TOOLS}）</b>：
+     * read_file/write_file/calculate/search_questions/database 都是**单用途薄工具**
+     * （schema 里无 action enum、参数只留必要一两个、描述一句话），执行时由
+     * {@code executeToolSafely} 翻译成真实工具（如 read_file→file_reader(action=read)、
+     * calculate→calculator、search_questions→database(action=search_questions)）。
      * 之所以"薄"而不是直接注入 file_reader：大 schema 吃前缀、action enum 是 4B 选错的高发点；
-     * 薄工具既省 token 又少可选值。只在**会话开始静态**注入（中途加会破坏 KV 前缀）。
-     * 所以下方"移出 file_reader"的表述指的是**完整多 action 那份**，读文件能力现以薄工具回来了。</p>
+     * 薄工具既省 token 又少可选值。</p>
      *
-     * <p>本次移出的 5 个（如需恢复，加回下面的数组即可，schema 由 buildToolsJson 自动处理）：
-     * {@code tool_registry}（原 list/search/get 发现通道）、
-     * {@code smart_research}（搜索→阅读→摘要多步链，现由 network_search 覆盖）、
-     * {@code memory}（跨会话记忆）、{@code file_reader}（读本地文件）、
-     * {@code workspace}（工作区文件浏览）。</p>
-     *
-     * <p>历史沿革（保留以便回退判断）：
+     * <p>历史沿革（保留以便回退判断，<b>以下都不是当前状态</b>）：
      * 2026-10-05 补 ai_weather/smart_research/memory —— 原先只有
      * time_date/location/tool_registry/file_reader/workspace，而 sessionTools 只在会话首条消息
      * 播种一次 → 模型整轮看不到天气工具（"我无法获取天气信息"的根因）；
      * 2026-10-09 补 network_search —— 实测"查油价"这类非天气实时查询被错派给 ai_weather，
-     * 因为核心集里唯一带"实时查询"语义的就是 ai_weather。</p>
+     * 因为核心集里唯一带"实时查询"语义的就是 ai_weather；
+     * 2026-10-11 曾收窄到 4 个（time_date/location/ai_weather/network_search），同时移出
+     * tool_registry/smart_research/memory/file_reader/workspace（当时写的"只做这四个"已失效）；
+     * 2026-10-25 起以薄工具逐个恢复读文件/写文件/计算/搜题；
+     * 2026-11-01 恢复 tool_registry（发现+代执行）、memory、task、workspace；
+     * 2026-11-07 补只读 database，并把 location 的选用规则写进提示词（问"我在哪"不再拿天气代查）。</p>
      */
     private static final String[] DEFAULT_CORE_TOOLS = {
-            "time_date", "ai_weather", "network_search",
+            "time_date", "location", "ai_weather", "network_search",
             "read_file", "write_file", "calculate", "search_questions",
+            // DATABASE-THIN(2026-11-07)：题库查询曾经只能走 search_questions（按题干搜），
+            // 用户问“题库里有多少题/把题库导出”时模型没有可调用的取数入口，只能去翻应用目录
+            // （真机 2026-11-07 两个对话就是这样空转的）。database 以薄 schema 常驻核心集，
+            // 只暴露 count/questions/只读 SQL 三个动作；完整 database 定义仍留在 tool_registry。
+            "database",
             // TOOL-DISCOVERY(2026-11-01)：本地工具名由 native PEG 逐字枚举，会话中途改集会毁
             // tools 前缀（全量 re-prefill ~20s）。所以"能力广度"不能靠堆工具，而是：
             // 核心集只留高频，其余一律经 tool_registry 发现，并由它的 call 动作代执行。
@@ -209,10 +226,10 @@ public class AgentLoopEngine {
      * 本地常驻核心工具名（只读副本，顺序与注入顺序一致）。
      *
      * <p><b>WHY（2026-11-02，GUIDE-DYNAMIC-TOOLS）</b>：聊天页的「使用说明」弹框此前把本地
-     * 能力写死成"5 个核心工具（天气/时间/定位/搜索/记忆）"，而本数组早已是 11 个且<b>没有
-     * location</b> —— 用户在弹框里读到"定位"，实际模型永远点不到它。这与"提示词核心清单
-     * 硬编码≠CORE_TOOLS"是同一个坑，只是残留在 UI 侧。UI 要报数量/名单一律从这里取，
-     * 不要再抄一份字面量。</p>
+     * 能力写死成"5 个核心工具（天气/时间/定位/搜索/记忆）"，而本数组早已不是那个数、当时还
+     * <b>没有 location</b> —— 用户在弹框里读到"定位"，实际模型永远点不到它（location 已于
+     * 2026-11-07 补进核心集）。这与"提示词核心清单硬编码≠CORE_TOOLS"是同一个坑，只是残留在
+     * UI 侧。UI 要报数量/名单一律从这里取，不要再抄一份字面量。</p>
      */
     public static java.util.List<String> localCoreToolNames() {
         return java.util.Collections.unmodifiableList(
@@ -260,9 +277,27 @@ public class AgentLoopEngine {
                 "calculator", null,
                 new String[][]{}));
         LOCAL_THIN_TOOLS.put("search_questions", new ThinTool(
-                "从本地题库按关键词搜索题目，返回匹配的题目（含选项/答案/解析等）。keyword 为关键词或知识点。",
-                new String[][]{{"keyword", "string", "搜索关键词/知识点", "1"}},
+                "从本地题库按题干关键词搜索题目，返回匹配的题目（含选项/答案/解析等）。keyword 为题干里的关键词或知识点；"
+                        + "不要用“题库/导出/统计”这类词搜它（题干里没有这种词）。要题数、全部题目或按字段筛选，用 database。",
+                new String[][]{{"keyword", "string", "题干关键词/知识点", "1"}},
                 "database", "search_questions",
+                new String[][]{}));
+        // DATABASE-THIN(2026-11-07)：本地核心集原先没有数据库取数入口，用户说“你不是有数据库题目吗”
+        // 时模型只能去翻应用目录。这里只暴露三件只读操作（题数/分页题目/一条 SELECT），
+        // 既让“题库有多少题、题目内容是什么、导出前取数”可落地，又不把 20 个 action 全塞给 4B。
+        // action 用真实值透传（ThinTool.action=null），执行前有只读白名单/只读 SQL 校验。
+        LOCAL_THIN_TOOLS.put("database", new ThinTool(
+                "本地题库数据库（SQLite，只读）。action 只能是 get_question_count（总题数）、"
+                        + "get_questions（分页题目，page 从 1 开始、page_size 最多 50）、"
+                        + "execute_sql（执行一条 SELECT）。question 表字段：questionText/optionA~D/"
+                        + "correctAnswer/questionType/explanation 等。用户问题库统计、题目内容、导出前取数时用。",
+                new String[][]{
+                        {"action", "string", "get_question_count / get_questions / execute_sql（只读）", "1"},
+                        {"page", "integer", "get_questions 用：页码，从 1 开始", "0"},
+                        {"page_size", "integer", "get_questions 用：每页条数（默认 20，最多 50）", "0"},
+                        {"sql", "string", "execute_sql 用：一条 SELECT 语句", "0"},
+                },
+                "database", null,
                 new String[][]{}));
         LOCAL_THIN_TOOLS.put("tool_registry", new ThinTool(
                 // TOOL-CHOICE(2026-11-02)：真机出现过 action=read_url（编的）——把它能接受的动作
@@ -299,7 +334,8 @@ public class AgentLoopEngine {
                 "task", null,
                 new String[][]{}));
         LOCAL_THIN_TOOLS.put("workspace", new ThinTool(
-                "工作区：生成或改过的文件都在这里。list/path/read/versions 只读；restore 与 delete 会改/删文件，"
+                "工作区：生成或改过的文件都在这里。list/path/read/versions 只读（读文件内容用 action=read，"
+                        + "没有 read_file 这个动作）；restore 与 delete 会改/删文件，"
                         + "必须同时传 confirm=\"true\"（字符串 true 或 1 均可识别），否则工具拒绝执行并提示；"
                         + "restore 前先 versions 拿到版本号。",
                 new String[][]{
@@ -600,18 +636,18 @@ public class AgentLoopEngine {
         if (sessionTools.isEmpty()) {
             sessionTools.addAll(selectedTools);
         }
-        // 注入集：初始 = 会话级工具集（= DEFAULT_CORE_TOOLS 的 4 个）。
-        // CORE-TOOLS-4(2026-10-11)：本地 Agent 只做这 4 个工具调用，故此处不再有其它扩展途径；
-        // 下面 FC 循环里的"动态注入"分支因此恒不触发（见该处注释）。
+        // 注入集：初始 = 会话级工具集（= DEFAULT_CORE_TOOLS 全量，名单以该数组为权威）。
+        // 集外能力不再靠"猜名字调用成功后注入"，而是走常驻的 tool_registry(get/call) 代执行；
+        // 下面 FC 循环里的"动态注入"分支因此基本休眠（见该处注释）。
         final java.util.Set<String> activeTools = new java.util.LinkedHashSet<>(sessionTools);
         String toolsJson = buildToolsJson(new ArrayList<>(activeTools));
         byte[] toolsJsonBytes = toolsJson.getBytes(StandardCharsets.UTF_8);
         AILogger.i(TAG, "Initial tools: " + activeTools.size() + " tools, schema len: " + toolsJson.length());
-        // CORE-TOOLS-4(2026-10-11)：核心集收窄到 4 个后，必须能一眼看出实际生效的核心工具
+        // 必须能一眼看出实际生效的核心工具名单
         // ——尤其 time_date 走 Python 注册块，注册失败时它会静默消失（buildToolsJson 对 null 定义
         // 直接 continue），只靠数量无法定位问题。
         AILogger.i(TAG, "Core tools: " + selectedTools + " (active initial: " + activeTools + ")");
-        // SCHEMA-DUMP(2026-10-11)：核对"模型实际看到的工具定义"。四个核心工具走两条不同路径 ——
+        // SCHEMA-DUMP(2026-10-11)：核对"模型实际看到的工具定义"。核心工具走两条不同路径 ——
         // ai_weather / network_search 用 AIToolManager.getToolDefinition 的 switch 定义（有 enum、
         // 参数类型正确）；time_date / location 无 switch case，走 createToolDefinitionFromAITool
         // 注解路径（参数一律 string、required=false，枚举靠 PARAM_ENUM_OVERRIDES 补）。
@@ -700,9 +736,7 @@ public class AgentLoopEngine {
                     + "（默认 action=ask；需要一批来源/链接才用 search，别为多看几条反复搜）。"
                     + "不要把训练记忆里的旧信息当成本次结果；查不到就如实说。");
         }
-        if (modelFcMode && selectedTools.contains("ai_weather") && userMessage != null
-                && (userMessage.contains("天气") || userMessage.contains("气温") || userMessage.contains("温度")
-                    || userMessage.contains("下雨") || userMessage.contains("预报") || userMessage.contains("湿度"))) {
+        if (modelFcMode && selectedTools.contains("ai_weather") && isWeatherQuery(userMessage)) {
             String city = extractCityFromMessage(userMessage);
             if (city != null && !city.isEmpty()) {
                 String cityId = getCityLocationId(city); // 优先用和风城市编码查询，最精确
@@ -726,6 +760,16 @@ public class AgentLoopEngine {
                 // 模型无从传它们，文案再提"不要带 lat/lon"就是在教模型回避一个不存在的参数。
                 effectiveUserMessage = userMessage + "\n\n【本次任务】用户要查当前位置/附近的天气，直接调用 ai_weather 工具、不要带 city 参数（系统会自动使用手机定位的城市）；action 按问法选 current(实时)/forecast(预报)/air_quality(空气质量) 等。";
             }
+        }
+        // WHERE-AM-I(2026-11-07)：定位工具已注入核心集，但真机 2026-11-07 “我在哪”仍被模型
+        // 拿 ai_weather（空 city 自动定位）和 network_search 代查，最后答“无法得知你具体在哪里”。
+        // 与天气直给指令同一策略：把本轮该用哪个工具写进 prompt 末尾，避免 4B 在工具之间绕路。
+        if (modelFcMode && selectedTools.contains("location") && isWhereAmIQuery(userMessage)
+                && !isWeatherQuery(userMessage)) {
+            effectiveUserMessage = appendTailBlock(effectiveUserMessage,
+                    "【本次任务】用户问的是当前位置：直接调用 location（action=get_current 获取经纬度/城市/地址；"
+                    + "只要城市名用 get_city），不要用 ai_weather 或 network_search 代查。"
+                    + "定位失败或无权限时如实说明，并引导用户开启定位权限。");
         }
         // 动态状态（长期记忆摘要 + 活跃任务清单）从 system 移出，改为本轮 user 消息末尾 D 块注入：
         // system 前缀保持静态 → 本地 KV 缓存命中（与上方天气指令同款策略，见 buildCurrentTimeLine 注释）；
@@ -848,6 +892,17 @@ public class AgentLoopEngine {
         // 每轮迭代开始重置，退出路径读最后一次状态
         lastStreamed = false;
 
+        // TOOL-CALL-ID-UNIQUE(2026-11-07)：工具调用 id 必须在**整个回合内**唯一，不能只在本轮唯一。
+        // 旧实现把 callSeq 声明在循环体内，每轮重置 → 每轮第一个调用都叫 call_1。下游多处按
+        // toolCallId 做关联（AssistantTurn.fillToolPartsFromComponents 的 byId、groupTools 的
+        // callById、synthesizeAbortedToolResults 的配对集合），重复 id 会让后一轮的结果覆盖前一轮：
+        // 真机 2026-11-07 的两个对话里，同一张消息的 8 个 read_file 卡全部显示成最后一次读的文件。
+        // 前缀用纳秒时间戳：同一进程里不同回合也不会和已落盘的旧 id 撞车，模板只要求 assistant
+        // tool_calls 与紧随其后的 tool 消息 id 相等，不限制格式。
+        final String toolCallIdPrefix = "call_" + Long.toString(System.nanoTime(), 36) + "_";
+        int toolCallSeq = 0;
+        java.util.Set<String> usedToolCallIds = new java.util.HashSet<>();
+
         for (int iteration = 1; iteration <= getAgentMaxIterations(); iteration++) {
             // 取消（2026-10-25）：用户已点停止 → 立即收尾，不再发起新一轮解码
             if (cancelRequested.get()) {
@@ -884,6 +939,17 @@ public class AgentLoopEngine {
 
             // 每轮推理前裁剪历史，确保单次推理 prompt 不超预算（防截断/decode崩溃）
             history = trimHistoryToFit(history, toolsJson, promptBudget);
+
+            // PROMPT-DOOR(2026-11-07)：裁完仍装不下就**别发请求**。native 那道门只回英文
+            // "Prompt too long: N tokens, aborting"，上层再把它喂给解释推理，模型就自己编原因
+            // （真机 11-07 说成"生成的回复内容太长"，实际超长的是 prompt 不是回复）。
+            // 这里提前给出带数字与下一步的准确原因，走统一退出路径（弹框/解释/兜底共用同一句）。
+            String overflow = describePromptOverflow(history, toolsJson, activeTools.size(), null);
+            if (overflow != null) {
+                AILogger.w(TAG, "Prompt overflow at iteration " + iteration + ", not sending: " + overflow);
+                lastExitReason = overflow;
+                break;
+            }
 
             // 构建请求 JSON（spec §7.2.1 step b）
             // tool_choice 恒为 auto：实测 tool_choice=required 会让 Qwen3-4B 退化
@@ -981,12 +1047,11 @@ public class AgentLoopEngine {
             List<ToolCall> toolCalls = genResult.toolCalls != null
                     ? genResult.toolCalls : new ArrayList<>();
 
-            // 动态注入（CORE-TOOLS-4 后为休眠路径）：
-            // 把本轮实际调用的工具名并入 activeTools，下轮起注入其 schema。
-            // 当前核心集固定 4 个、且没有任何其它途径扩展 activeTools，而 native PEG 语法
-            // 只允许生成 activeTools 里的工具名（见 DEFAULT_CORE_TOOLS 注释），
-            // 因此本循环的 !contains 分支恒不成立 —— 保留它是为将来恢复发现通道时复用，
-            // 不承担任何实际功能。真正的名字归一（别名/模糊匹配）在 resolveToolNameFuzzy。
+            // 动态注入（基本休眠）：把本轮实际调用的工具名并入 activeTools，下轮起注入其 schema。
+            // native PEG 语法只允许生成 activeTools 里的工具名（见 DEFAULT_CORE_TOOLS 注释），
+            // 薄工具名又跳过模糊解析，所以下面 !contains 分支实际很难成立；集外能力的真通路是
+            // tool_registry(get/call) 代执行，不需要把那份大 schema 中途塞进来（塞了会毁 KV 前缀）。
+            // 保留本分支是为将来恢复"引擎侧注入"时复用。名字归一（别名/模糊匹配）在 resolveToolNameFuzzy。
             for (ToolCall tc : toolCalls) {
                 if (tc.toolName != null && !tc.toolName.isEmpty()) {
                     // 薄工具名（read_file/write_file）不能被模糊解析成真实工具名（如 file_reader），
@@ -1005,10 +1070,14 @@ public class AgentLoopEngine {
                 }
             }
 
-            // R4-1：执行工具前补齐 tool_call id（assistant 消息与 tool 消息共用同一 id）
-            int callSeq = 0;
+            // R4-1：执行工具前补齐 tool_call id（assistant 消息与 tool 消息共用同一 id）。
+            // TOOL-CALL-ID-UNIQUE(2026-11-07)：id 在**整个回合**内唯一（见循环外 toolCallIdPrefix 注释），
+            // 不再每轮从 call_1 重新编号；native 若给了重复 id 也改写，保证下游按 id 关联不串轮。
             for (ToolCall tc : toolCalls) {
-                if (tc.id == null || tc.id.isEmpty()) tc.id = "call_" + (++callSeq);
+                if (tc.id == null || tc.id.isEmpty() || !usedToolCallIds.add(tc.id)) {
+                    tc.id = toolCallIdPrefix + (++toolCallSeq);
+                    usedToolCallIds.add(tc.id);
+                }
             }
 
             // 空回复检查：工具轮的 complete.content 通常为空（纯 tool_call 输出），
@@ -1257,12 +1326,24 @@ public class AgentLoopEngine {
             }
 
             // 上下文长度兜底校验（trim 后理论上不会触发，作为安全网）
+            // TOOL-RESULT-REFIT(2026-11-07)：每轮开头 trim 到预算内，但**追加完本轮工具结果后**
+            // 可能刚好把窗口顶破（真机：轮首裁到 7511/7776，一条 1642 字符的 tool_registry 结果
+            // 就超了 → 第 3 轮直接收尾，模型拿着“没查到题库”的残缺上下文编结论）。
+            // 这里先按新历史再裁一次（仍从最旧消息丢起，保留当前工具轮），只有裁不动才收尾。
+            if (countTokensSafe(serializeHistory(history)) + countTokensSafe(toolsJson) > promptBudget) {
+                history = trimHistoryToFit(history, toolsJson, promptBudget);
+            }
             if (countTokensSafe(serializeHistory(history)) + countTokensSafe(toolsJson) > promptBudget) {
                 // 挤掉更早的历史之后仍然超预算：说明**本轮这条工具结果本身就装不下**。
                 // 数据不做静默裁剪，改成把数字说出来，让模型/用户决定下一步（缩小 limit、分段读、或换问题）。
                 String who = biggestToolResultName != null ? biggestToolResultName : "工具";
-                lastExitReason = who + " 返回了 " + biggestToolResultChars
-                        + " 字符（未截断），已超出本轮上下文预算，装不下更早的历史";
+                String detail = who + " 返回了 " + biggestToolResultChars + " 字符（未截断）";
+                // PROMPT-DOOR(2026-11-07)：连门都装不下时用带窗口数字与下一步的说法；
+                // 只是挤掉了输出预留（门还装得下）时说清是预算不足，别谎报成"窗口满了"。
+                String door = describePromptOverflow(history, toolsJson, activeTools.size(), detail);
+                lastExitReason = door != null ? door
+                        : detail + "，已超出本轮 prompt 预算 " + promptBudget
+                        + " tokens（留给回答的空间不足），装不下更早的历史";
                 AILogger.w(TAG, "Context still too large after trim, ending loop. 最大一条工具结果: "
                         + who + " " + biggestToolResultChars + " 字符，promptBudget=" + promptBudget + " tokens");
                 break;
@@ -1469,6 +1550,54 @@ public class AgentLoopEngine {
         }
     }
 
+    /** 本地薄 database 的只读动作白名单（完整 database 定义仍在 tool_registry，不受此限）。 */
+    static boolean isLocalDatabaseReadAction(String action) {
+        return "get_question_count".equals(action)
+                || "get_questions".equals(action)
+                || "execute_sql".equals(action);
+    }
+
+    /**
+     * WHERE-AM-I(2026-11-07)：识别“我在哪/当前位置”这类问法，用于本轮直给 location 指令。
+     *
+     * <p>不用 contains("在哪") 一刀切：那会把“我在哪买票/在哪下载”也判成位置查询。
+     * 这里只认整句问位置（“我在哪/我在哪里/我现在在哪/我在哪个城市/这是哪/当前位置”）。</p>
+     */
+    static boolean isWhereAmIQuery(String message) {
+        if (message == null) return false;
+        String s = message.trim().replace(" ", "");
+        if (s.isEmpty()) return false;
+        if (s.contains("当前位置") || s.contains("我的位置")
+                || s.contains("这是哪") || s.contains("这里是哪")) {
+            return true;
+        }
+        return s.matches("^我(现在)?在(哪|哪里|什么地方|啥地方)(个)?(城市|地方)?[？?。!！]?$");
+    }
+
+    /** 天气问法判据（天气直给指令与“我在哪”直给指令共用，避免“当前位置的天气”同时命中两套指令）。 */
+    static boolean isWeatherQuery(String message) {
+        return message != null && (message.contains("天气") || message.contains("气温")
+                || message.contains("温度") || message.contains("下雨")
+                || message.contains("预报") || message.contains("湿度"));
+    }
+
+    /**
+     * DATABASE-READONLY(2026-11-07)：本地薄 database 的 SQL 只读校验。
+     *
+     * <p>真实 database 的 execute_sql 支持分号多语句；薄工具给的是 4B 模型，一句"只读"约束
+     * 挡不住它把 "select ...; delete from question" 一起发下去。这里只放行单条 SELECT：
+     * 去掉尾部一个分号后不允许再出现分号，且首词必须是 select。</p>
+     */
+    static boolean isReadOnlySelectSql(String sql) {
+        if (sql == null) return false;
+        String s = sql.trim();
+        while (s.endsWith(";")) {
+            s = s.substring(0, s.length() - 1).trim();
+        }
+        if (s.isEmpty() || s.indexOf(';') >= 0) return false;
+        return s.regionMatches(true, 0, "select", 0, 6);
+    }
+
     /**
      * 轮末持久化会话序列：上一轮实际发送的请求（去 system）+ 助手最终输出。
      * 下一轮 prompt = system + 该序列 + 新用户消息 = 上一轮 KV 缓存的严格超集
@@ -1602,13 +1731,14 @@ public class AgentLoopEngine {
      * @param requested 调用方原本想给的上限（仅在 n_ctx 未知时作为回落值）
      */
     private int resolveGenerationCap(List<ChatMessage> history, byte[] toolsJson, int requested) {
-        final int ctx = getEffectiveContextSize();
-        if (ctx <= 0) return Math.max(256, requested);
+        // PROMPT-DOOR(2026-11-07)：与 buildRequestJson 同口径，按门容量（已扣 native guard）算
+        final int capacity = getSafePromptCapacity();
+        if (capacity <= 0) return Math.max(256, requested);
         String tools = (toolsJson == null || toolsJson.length == 0)
                 ? "" : new String(toolsJson, StandardCharsets.UTF_8);
         int promptTokens = countTokensSafe(serializeHistory(history))
                 + countTokensSafe(tools) + TEMPLATE_OVERHEAD_RESERVE;
-        return Math.max(256, ctx - promptTokens - NATIVE_GENERATION_RESERVE);
+        return Math.max(256, capacity - promptTokens);
     }
 
     /**
@@ -2221,9 +2351,12 @@ public class AgentLoopEngine {
             // 现在能给的生成空间就是本次剩余的整个上下文窗口，什么时候收口由模型自己的 EOS
             // 或 native 的 ctx_full/max_tokens 兜底决定（stop cause 会进引擎日志）。
             // ctx 取不到（老 so / 模型未加载）时退回调用方给的数，别算出 0 把回答掐死。
-            final int ctx = getEffectiveContextSize();
-            int clamped = (ctx > 0)
-                    ? Math.max(256, ctx - promptTokens - NATIVE_GENERATION_RESERVE)
+            // PROMPT-DOOR(2026-11-07)：改按**门容量**算（min(nCtxTrain, runtime) − 512），
+            // 与 computePromptBudget/promptFitsDoor 同源。只看 runtime 会在训练窗口更小的模型上
+            // 承诺门根本不允许的生成量；容量里已扣掉 native guard，不再重复减。
+            final int capacity = getSafePromptCapacity();
+            int clamped = (capacity > 0)
+                    ? Math.max(256, capacity - promptTokens)
                     : Math.max(256, maxTokens);
             req.put("max_tokens", clamped);
             req.put("temperature", temperature);   // R8-2 / USER-PARAMS：由调用方按"决策轮 vs 回答轮"传入（默认均 0.7）。过低(0.6)会让 2B 在工具调用时过度保守，只敢用默认 action/参数；过高则破坏 chatJson 结构化输出稳定性
@@ -2314,25 +2447,107 @@ public class AgentLoopEngine {
     // 该策略同时保证 tools 前缀字节跨轮稳定（会话级工具集 sessionTools 跨轮保留）。
 
     /**
-     * 计算单次推理的 prompt token 预算：
-     * 按实际生效上下文的 80% 计算（80% prompt + 剩余留作输出），上限留出足够推理空间。
+     * 计算单次推理的 prompt token 预算。
+     *
+     * <p>P1(2026-10-07)：预算 = 窗口 − 输出预留 − native guard，取代原来的固定 80% 比例
+     * （比例制只约束 prompt，把生成空间压到 2454 &lt; OUTPUT_RESERVE_TOKENS=4000，
+     * 长回答必然触发 native "Context full, stopping generation" 且上层无信号）。</p>
+     *
+     * <p>PROMPT-DOOR(2026-11-07)：预算还必须与 {@code LlamaHelper.chatJson} 的"最后一扇门"
+     * <b>同源</b>——那道门按 {@code getSafeContextReference(n_ctx) - 512} 拒收超长 prompt。
+     * 原实现在 {@code n_ctx - 4000 - 512 <= 0}（窗口 ≤4512）时回退写死的 4000，
+     * <b>比门允许的 3584 还大</b>：裁剪一步都不做，请求发出去必被拒。真机 11-07 16:58
+     * 就是这条链——可用内存 1399MB / 模型 1158MB → CONTEXT-DYNAMIC 把 12288 降到 floor 4096
+     * → 预算回退 4000 → 门报 "Prompt过长: 3634 >= 3584"。现在小窗口按容量缩输出预留，
+     * 预算恒不超过门；真装不下由 {@link #promptFitsDoor} 在发请求前拦下并说清原因。</p>
      */
     private int computePromptBudget() {
-        try {
-            int ctxSize = getEffectiveContextSize();
-            if (ctxSize > 0) {
-                // P1(2026-10-07)：预算 = n_ctx − 输出预留 − native guard。
-                // 原固定 80% 比例只约束 prompt，把生成空间压到 2454（n_ctx=12288 时）
-                // < OUTPUT_RESERVE_TOKENS=4000 → 长回答必然触发 native
-                // "Context full, stopping generation"（native-lib.cpp:3115）且无上层信号。
-                // 输出预留按真实最大生成上限计：n_ctx=12288 → 预算 7776，生成空间 4512 ≥ 4000。
-                int budget = ctxSize - OUTPUT_RESERVE_TOKENS - NATIVE_GENERATION_RESERVE;
-                if (budget > 0) return budget;
-            }
-        } catch (Throwable t) {
-            AILogger.w(TAG, "computePromptBudget failed: " + t.getMessage());
+        int capacity = getSafePromptCapacity();
+        if (capacity <= 0) {
+            AILogger.w(TAG, "computePromptBudget: 窗口未知，回退 4000 tokens");
+            return 4000;
         }
-        return 4000;
+        return promptBudgetFor(capacity, OUTPUT_RESERVE_TOKENS);
+    }
+
+    /**
+     * 门允许的最大 prompt token 数：与 {@code LlamaHelper} 各入口的
+     * {@code getSafeContextReference(ctx) - GENERATION_RESERVE} 逐值同口径。
+     *
+     * <p>为什么不能只用 {@link #getEffectiveContextSize()}：门取的是
+     * {@code min(nCtxTrain, runtimeCtx)}，训练窗口比运行窗口小的模型上只看 runtime 会高估容量，
+     * 照样撞门。NPU 路径不走 llama.cpp 那道门，按规划窗口算。
+     * 取不到窗口时返回 0，调用方据此<b>跳过</b>预检，而不是拿猜测值拦请求。</p>
+     */
+    private int getSafePromptCapacity() {
+        try {
+            int ctx = getEffectiveContextSize();
+            if (ctx <= 0) return 0;
+            if (!com.oilquiz.app.ai.engine.NpuAwareText.isNpu()) {
+                ctx = LlamaHelper.getSafeContextReference(ctx);
+            }
+            return Math.max(0, ctx - NATIVE_GENERATION_RESERVE);
+        } catch (Throwable t) {
+            AILogger.w(TAG, "getSafePromptCapacity failed: " + t.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * 纯算术（可单测）：预算 = 门容量 − 输出预留。
+     * 预留装不下时按容量的 1/3 缩（至少 256），<b>绝不回退到比门还大的固定值</b>——
+     * 那等于放弃裁剪，把必然失败的请求发给 native。
+     */
+    static int promptBudgetFor(int capacity, int outputReserve) {
+        if (capacity <= 0) return 4000;
+        int budget = capacity - outputReserve;
+        if (budget > 0) return budget;
+        int reserve = Math.max(256, capacity / 3);
+        return Math.max(256, capacity - reserve);
+    }
+
+    /**
+     * 纯判据（可单测）：prompt 是否装得进门。与门一致用 {@code >=} 判拒
+     * （{@code LlamaHelper}: {@code promptTokens >= safeRef - 512} 即拒），
+     * 容量未知（≤0）时放行，由门自己兜底。
+     */
+    static boolean promptFitsDoor(int promptTokens, int capacity) {
+        return capacity <= 0 || promptTokens < capacity;
+    }
+
+    /**
+     * PROMPT-DOOR(2026-11-07)：按门口径核算本轮 prompt，装不下时给出<b>带数字与下一步</b>的原因。
+     *
+     * <p>分两种装不下，下一步完全不同，不能混成一句"上下文已满"：</p>
+     * <ul>
+     * <li><b>工具定义本身就超</b>：窗口被内存降档到 floor（真机 4096），而核心工具 schema
+     *     加模板开销已逼近门容量——裁历史无济于事，出路是释放内存/换大窗口模型；</li>
+     * <li><b>历史+工具定义超</b>：裁剪已到地板（{@code trimHistoryToFit} 保底 4 条不动，
+     *     再删会破坏 KV 前缀），出路是清空对话历史或换大窗口模型。</li>
+     * </ul>
+     *
+     * @param detail 附加归因（如撑爆预算的那条工具结果），可为 null
+     * @return 装得下返回 null；装不下返回可直接给用户看的原因
+     */
+    private String describePromptOverflow(List<ChatMessage> history, String toolsJson,
+                                          int toolCount, String detail) {
+        int capacity = getSafePromptCapacity();
+        if (capacity <= 0) return null; // 窗口未知：不拿猜测值拦请求，交给门兜底
+        String schema = toolsJson != null ? toolsJson : "";
+        int schemaTokens = countTokensSafe(schema) + TEMPLATE_OVERHEAD_RESERVE;
+        int promptTokens = countTokensSafe(serializeHistory(history)) + schemaTokens;
+        if (promptFitsDoor(promptTokens, capacity)) return null;
+        int window = capacity + NATIVE_GENERATION_RESERVE;
+        String tail = (detail != null && !detail.isEmpty()) ? detail + "。" : "";
+        if (schemaTokens >= capacity) {
+            return tail + "上下文窗口只有 " + window + " tokens（可用内存不足时会自动降档），"
+                    + "光 " + toolCount + " 个工具定义加模板开销就要约 " + schemaTokens
+                    + " tokens，本轮 prompt 共约 " + promptTokens + "，超出安全上限 " + capacity
+                    + "。请关掉后台应用释放内存后重进对话，或改用窗口更大的模型/在线模型";
+        }
+        return tail + "本轮 prompt（历史+工具定义）约 " + promptTokens + " tokens，超出窗口 "
+                + window + " 的安全上限 " + capacity + "，历史已裁到最少仍装不下。"
+                + "可以清空当前对话历史后重试，或改用窗口更大的模型";
     }
 
     /**
@@ -2658,6 +2873,11 @@ public class AgentLoopEngine {
                 // 服务端读不了的页面（返回服务错误码）就换一个来源或改用 webpage_reader。
                 + "网页正文太长就用 start_char/max_chars 分段续读，读完一段再读下一段。"
                 + "用户说\u201c记住\u201d或告知姓名、住址、偏好等稳定信息时用 memory 保存，需要回忆时用 memory 读。"
+                // WHERE-AM-I(2026-11-07)：定位工具此前不在本地核心集，"我在哪"被模型拿
+                // ai_weather（空 city 会走系统定位）和 network_search 代查，最后答"无法得知你
+                // 具体在哪里"。location 现已注入，这里补一句跨工具选用规则，避免 4B 绕回天气/搜索。
+                + "问\u201c我在哪/当前位置/这是哪\u201d用 location：action=get_current 拿经纬度+城市+地址"
+                + "（只要城市名用 get_city），不要用 ai_weather 或 network_search 代查，也不要用天气结果猜位置。"
                 + "问天气用 ai_weather：用户说了城市就传 city，没说就不传（系统自动用手机定位）。"
                 + "地名换算不出位置时先换成它所属的县市重查，不知道上级是什么就用 network_search"
                 + "搜\u201c<地名>属于哪个县市\u201d；还不行就如实说查不到，"
@@ -2895,10 +3115,30 @@ public class AgentLoopEngine {
         return tools.toString();
     }
 
+    /**
+     * 供 token 计数用的历史文本（<b>不进请求字节</b>，请求由 buildRequestJson 另行构造，
+     * 所以这里补字段不会动 KV 前缀）。
+     *
+     * <p>PROMPT-DOOR(2026-11-07)：必须数<b>门会数的东西</b>。原实现只拼 {@code role: content}，
+     * 而 {@code LlamaHelper.estimateChatJsonPromptTokens} 还数 assistant 的
+     * {@code tool_calls[].function.arguments}，模板另外渲染 {@code reasoning_content}。
+     * 多轮工具对话里这两项能占几百到上千 token，漏数就会出现"引擎说装得下、门拒收"：
+     * 真机 11-07 16:58 引擎一步没裁，门报 3634 &gt;= 3584。</p>
+     */
     private String serializeHistory(List<ChatMessage> history) {
         StringBuilder sb = new StringBuilder();
         for (ChatMessage m : history) {
             sb.append(m.role).append(": ").append(m.content).append("\n");
+            if (m.toolCalls != null) {
+                for (ToolCall tc : m.toolCalls) {
+                    if (tc == null) continue;
+                    if (tc.toolName != null) sb.append(tc.toolName).append(' ');
+                    if (tc.args != null) sb.append(tc.args.toString()).append('\n');
+                }
+            }
+            if (m.reasoningContent != null && !m.reasoningContent.isEmpty()) {
+                sb.append(m.reasoningContent).append('\n');
+            }
         }
         return sb.toString();
     }
@@ -3186,7 +3426,8 @@ public class AgentLoopEngine {
                 }
                 return "换更具体的关键词再搜一次（按次扣额度，一次就把 limit 给够，最多 50）；仍为空就如实说没查到，不要连续重跑同一条查询";
             }
-            case "location": return "网络搜索该城市的信息；用户问本地天气时不必先定位，直接调 ai_weather";
+            case "location": return "如实告知定位失败/无权限，并引导用户打开定位权限；"
+                    + "不要用 network_search 或天气结果代替当前位置";
             case "time_date": return "network_search（联网查日期时间）";
             default: return null;
         }
@@ -3228,6 +3469,26 @@ public class AgentLoopEngine {
         ThinTool thin = LOCAL_THIN_TOOLS.get(toolName);
         if (thin != null) {
             params = thin.translate(params);
+            // DATABASE-READONLY(2026-11-07)：本地薄 database 是给 4B 的取数入口，只允许
+            // 题数/分页题目/单条 SELECT。白名单与 SQL 校验必须在翻译后、执行前做——否则模型
+            // 只要写 action=delete_question 或 "select ...; delete ..." 就能越过薄 schema 的说明。
+            // 注意判据是**薄工具名**是 database：search_questions 也映射到真实 database
+            //（action=search_questions），不能被这份只读白名单误伤。
+            if ("database".equals(toolName)) {
+                String action = params.get("action") != null
+                        ? String.valueOf(params.get("action")).trim() : "";
+                if (!isLocalDatabaseReadAction(action)) {
+                    return AIToolResult.fail("本地题库只读：action 只能是 get_question_count / "
+                            + "get_questions / execute_sql；要改题库请在题库页操作");
+                }
+                if ("execute_sql".equals(action)) {
+                    String sql = params.get("sql") != null ? String.valueOf(params.get("sql")) : "";
+                    if (!isReadOnlySelectSql(sql)) {
+                        return AIToolResult.fail("本地题库只读：execute_sql 只接受一条 SELECT 语句"
+                                + "（不能包含第二条 SQL；分页取题请用 get_questions）");
+                    }
+                }
+            }
             toolName = thin.realTool;
         }
 
@@ -3625,6 +3886,18 @@ public class AgentLoopEngine {
         if (lower.contains("out of memory") || lower.contains("memory allocation")
                 || lower.contains("failed to allocate")) {
             return "内存不足，推理被中断";
+        }
+        if (lower.contains("prompt too long") || e.contains("Prompt过长")) {
+            // PROMPT-DOOR(2026-11-07)：超长的是**输入**（历史+工具定义），不是回复。
+            // 原来没有这条分支，英文原文落到"推理引擎报错：Prompt too long: 3634 tokens, aborting"
+            // 再被喂给解释推理，模型自己编成"生成的回复内容太长（超过模型限制）"——
+            // 用户照着去缩短问题完全没用，真正该做的是清历史/释放内存/换大窗口模型。
+            String n = null;
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\d+").matcher(e);
+            if (m.find()) n = m.group();
+            return "输入超长被推理引擎拒收" + (n != null ? "（本轮 prompt 约 " + n + " tokens）" : "")
+                    + "：装不下的是历史+工具定义，不是回复内容。"
+                    + "请清空当前对话历史或释放手机内存后重试，也可改用窗口更大的模型/在线模型";
         }
         return "推理引擎报错：" + clipString(e, 120);
     }

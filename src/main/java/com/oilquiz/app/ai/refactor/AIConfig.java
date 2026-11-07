@@ -20,8 +20,9 @@ public class AIConfig {
         BALANCED(1, "均衡模式", 12288, 128, 2048, 3, true),
         /** 性能模式：更大上下文，更好回复质量 */
         PERFORMANCE(2, "性能模式", 16384, 256, 2560, 4, true),
-        /** 极限模式：最大资源利用，适合高端设备（受 ResourceConfig 16K 封顶约束） */
-        ULTIMATE(3, "极限模式", 16384, 512, 3072, 4, true);
+        /** 极限模式：最大资源利用，适合高端设备（32K 与参数面板手动上限一致；
+         *  实际能否开满由 AIService 按模型真实 KV 代价 + 可用内存判定，不再被 16K 一刀切） */
+        ULTIMATE(3, "极限模式", 32768, 512, 3072, 4, true);
 
         public final int id;
         public final String displayName;

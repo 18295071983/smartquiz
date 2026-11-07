@@ -139,71 +139,11 @@ public class ModelColdStartOptimizer {
     }
     
     // ========== 模型加载优化 ==========
-    
-    /**
-     * 优化模型加载参数
-     * 根据历史加载记录和模型特性，返回最优的加载参数
-     * 
-     * @param modelPath 模型路径
-     * @param requestedContextSize 请求的上下文大小
-     * @return 优化后的加载参数
-     */
-    public LoadParams getOptimizedLoadParams(String modelPath, int requestedContextSize) {
-        LoadParams params = new LoadParams();
-        params.modelPath = modelPath;
-        
-        // 获取模型文件信息
-        File modelFile = new File(modelPath);
-        if (!modelFile.exists()) {
-            AILogger.e(TAG, "Model file not found: " + modelPath);
-            return params;
-        }
-        
-        long fileSize = modelFile.length();
-        String modelKey = getModelKey(modelPath);
-        
-        // 获取历史加载统计
-        LoadStats stats = getLoadStats(modelKey);
-        
-        // 根据历史数据优化参数
-        if (stats.loadCount > 0) {
-            AILogger.i(TAG, "Found load history for model: " + modelKey);
-            AILogger.i(TAG, "Stats: " + stats);
-            
-            // 使用历史最优线程数
-            params.useOptimalThreads = true;
-            params.contextSize = Math.min(requestedContextSize, 16384);
-            
-            // 根据历史加载时间判断是否需要预加载
-            if (stats.avgLoadTimeMs > 5000) {
-                AILogger.i(TAG, "Model historically slow to load, enabling pre-warming");
-                params.enablePreWarming = true;
-            }
-        } else {
-            AILogger.i(TAG, "No load history for model: " + modelKey);
-            params.contextSize = requestedContextSize;
-        }
-        
-        // 根据文件大小优化
-        if (fileSize > 2L * 1024 * 1024 * 1024) {
-            // 大模型（>2GB）：使用 mmap 和更多线程
-            AILogger.i(TAG, "Large model detected, enabling mmap optimization");
-            params.useMmap = true;
-            params.enableChunkedPreload = true;
-        } else if (fileSize > 500 * 1024 * 1024) {
-            // 中等模型（500MB-2GB）：使用 mmap
-            params.useMmap = true;
-        }
-        
-        // 检查是否已预加载
-        if (isModelPreloaded(modelPath)) {
-            AILogger.i(TAG, "Model already preloaded, load should be fast");
-            params.preloaded = true;
-        }
-        
-        AILogger.i(TAG, "Optimized params: " + params);
-        return params;
-    }
+
+    // DEAD-PATH-REMOVED(2026-11-08)：这里原有 getOptimizedLoadParams()/LoadParams，
+    // 全仓库零调用，且把 context 夹在 Math.min(requestedContextSize, 16384)。
+    // 窗口决策现在已经统一由 AIService 负责（用户固定值 / CONTEXT-DYNAMIC / KV 物理上限），
+    // 再留一个没人调用、却写死 16K 的入口，只会给以后重新接线的人埋一个暗坑，故整段删除。
     
     /**
      * 记录模型加载完成
@@ -571,31 +511,6 @@ public class ModelColdStartOptimizer {
     }
     
     // ========== 数据类 ==========
-    
-    /**
-     * 加载参数
-     */
-    public static class LoadParams {
-        public String modelPath;
-        public int contextSize = 4096;
-        public boolean useOptimalThreads = false;
-        public boolean useMmap = false;
-        public boolean enableChunkedPreload = false;
-        public boolean enablePreWarming = false;
-        public boolean preloaded = false;
-        
-        @Override
-        public String toString() {
-            return "LoadParams{" +
-                    "ctx=" + contextSize +
-                    ", optimalThreads=" + useOptimalThreads +
-                    ", mmap=" + useMmap +
-                    ", chunked=" + enableChunkedPreload +
-                    ", warmUp=" + enablePreWarming +
-                    ", preloaded=" + preloaded +
-                    '}';
-        }
-    }
     
     /**
      * 预加载回调接口

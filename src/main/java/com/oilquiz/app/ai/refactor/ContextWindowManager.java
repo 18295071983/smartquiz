@@ -5,6 +5,7 @@ import android.util.Log;
 
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.jni.LlamaHelper;
+import com.oilquiz.app.ai.jni.SystemProbe;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.util.ChatHistoryManager;
 import com.oilquiz.app.util.AILogger;
@@ -57,6 +58,14 @@ public class ContextWindowManager {
     
     public int getCurrentTokenCount() {
         try {
+            // SYS-PROBE(2026-11-08)：分子用**真实 KV 占用**（llama_memory_seq_pos_max(seq 0)+1），
+            // 而不是 s_helperContext 的 total_tokens_in_kv 记账——记账在裁剪/软清/异常路径上
+            // 会与真实 KV 脱节（真机上出现过"记账 0、KV 仍占满"导致裁剪不触发）。
+            long[] engine = SystemProbe.engine();
+            if (engine[SystemProbe.ENGINE_VALID] != 0
+                    && engine[SystemProbe.ENGINE_HAS_CTX] != 0) {
+                return (int) engine[SystemProbe.ENGINE_KV_TOKENS];
+            }
             if (aiService != null && aiService.isInitialized()) {
                 return LlamaHelper.getTokenCount();
             }
@@ -67,13 +76,25 @@ public class ContextWindowManager {
     }
     
     public int getMaxContextTokens() {
+        // SYS-PROBE(2026-11-08)：优先用**真实 n_ctx**（native 建出来的那个窗口），而不是
+        // AIConfig 档位值——后者是构造函数里一次性读的，加载后窗口被内存动态调整过，
+        // 它永远不会知道，于是手动 32768 会被它按 12288 提前裁剪。
+        int real = LlamaHelper.getContextSize();
+        if (real > 0) {
+            return real;
+        }
+        int engineCtx = SystemProbe.engineContextSize();
+        if (engineCtx > 0) {
+            return engineCtx;
+        }
         return maxContextTokens;
     }
     
     public float getContextUsagePercent() {
         int current = getCurrentTokenCount();
-        if (maxContextTokens <= 0) return 0;
-        return (float) current / maxContextTokens;
+        int max = getMaxContextTokens();
+        if (max <= 0) return 0;
+        return (float) current / max;
     }
     
     public boolean shouldTrim() {
@@ -124,7 +145,7 @@ public class ContextWindowManager {
     
     public void ensureSpaceForResponse(int expectedResponseTokens) {
         int current = getCurrentTokenCount();
-        int available = maxContextTokens - current;
+        int available = getMaxContextTokens() - current;
         
         if (available < expectedResponseTokens) {
             int needed = expectedResponseTokens - available;
@@ -150,7 +171,7 @@ public class ContextWindowManager {
     
     public String getStatus() {
         int current = getCurrentTokenCount();
-        int max = maxContextTokens;
+        int max = getMaxContextTokens();
         float percent = getContextUsagePercent();
         
         return String.format("Context: %d/%d tokens (%.1f%%)", 
