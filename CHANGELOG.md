@@ -1,5 +1,18 @@
 # 变更日志
 
+## [2026-11-08] fix(vulkan)：Adreno 840 device lost 不再把诊断调用变成进程崩溃
+
+真机 tombstone：Vulkan prefill 先 `vk::Queue::submit: ErrorDeviceLost`，ggml-vulkan 随后调用
+`vkGetDeviceFaultInfoEXT` 采集诊断，Adreno 840 驱动 `0842.44.1` 在该状态下空指针写 → SIGSEGV。
+原来日志里的 `Shader compilation failed` 来自同进程 WebView/Chromium，不是 ggml。
+
+- vendored llama.cpp：Qualcomm 跳过 `vkGetDeviceFaultInfoEXT`；pipeline 失败改用
+  `GGML_LOG_ERROR` 并带 shader 名；GPU 能力行升 INFO。
+- 新增 `VulkanFaultGuard`：观测 device lost 后，下一次装载把显式 `vulkan` 运行时替换为
+  `opencl`（不改写偏好；设置页重选后端即解除）。
+- 验证：修复后不再 SIGSEGV，改为干净的 `ErrorDeviceLost` 错误；coopmat/async/串行提交
+  单变量 A/B 均不能消除驱动侧 device lost。详见 `docs/adreno-vulkan-device-lost-2026-11-08.md`。
+
 ## [2026-11-04] feat(speech)：补 MiniMax TTS 专用引擎（/v1/t2a_v2）
 
 枚举语音链路时发现：`providers.json` 里 MiniMax 配了 `speech-02-hd`，但代码里没有它的引擎，

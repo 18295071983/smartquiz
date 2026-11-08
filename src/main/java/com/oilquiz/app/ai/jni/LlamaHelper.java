@@ -212,6 +212,26 @@ public class LlamaHelper {
     }
 
     /**
+     * 运行时后端守卫链：NPU 致命中断降级 -> Vulkan device lost 降级。
+     *
+     * <p>两者都只在<b>装载期</b>替换本次真正下发的后端，不写回 {@code gpu_backend} 偏好；
+     * 任一层发生替换都要作废 prompt→response 缓存（缓存 key 不带引擎身份）。
+     * 顺序固定：先 NPU（hexagon→opencl），再看 Vulkan（vulkan→opencl），不会互相覆盖。</p>
+     */
+    private static String applyBackendGuards(android.content.Context ctx, String requested) {
+        String afterNpu = applyNpuGuardOverride(ctx, requested);
+        String afterVk = VulkanFaultGuard.effectiveBackend(ctx, afterNpu);
+        if (afterVk != null && !afterVk.equals(afterNpu)) {
+            try {
+                com.oilquiz.app.ai.refactor.CacheManager.invalidateEngineCache(ctx, "vulkan-device-lost-demote");
+            } catch (Throwable t) {
+                AILogger.w(TAG, "invalidateEngineCache after Vulkan demote failed: " + t.getMessage());
+            }
+        }
+        return afterVk;
+    }
+
+    /**
      * BACKEND-INIT-EARLY(2026-10-09)：在**进程启动时**读取并下发 GPU 后端偏好。
      *
      * <p>为什么必须在 Application.onCreate 调：模型加载由后台线程在 App 启动时就发起，
@@ -249,7 +269,7 @@ public class LlamaHelper {
                 if (saved != null && !saved.isEmpty()) {
                     // NPU-FAULT-GUARD(2026-11-01)：装载期覆盖点。降级只做运行时替换，
                     // 不写回 gpu_backend（那是用户显式选择），见 NpuFaultGuard。
-                    sBackendPreference = applyNpuGuardOverride(context, saved.trim().toLowerCase());
+                    sBackendPreference = applyBackendGuards(context, saved.trim().toLowerCase());
                 }
             }
         } catch (Throwable t) {
@@ -325,7 +345,7 @@ public class LlamaHelper {
                 if (saved != null && !saved.isEmpty()) {
                     // NPU-FAULT-GUARD(2026-11-01)：同上，装载前最后一道覆盖点
                     // （initBackendPreference 之后用户可能又在设置页改过偏好）。
-                    sBackendPreference = applyNpuGuardOverride(ctx, saved.trim().toLowerCase());
+                    sBackendPreference = applyBackendGuards(ctx, saved.trim().toLowerCase());
                 }
             }
         } catch (Throwable t) {
@@ -982,7 +1002,8 @@ public class LlamaHelper {
         }
 
         try {
-            nativeChatJson(requestJson.getBytes(StandardCharsets.UTF_8), callback);
+            nativeChatJson(requestJson.getBytes(StandardCharsets.UTF_8),
+                    guardedJsonCallback(callback));
         } catch (UnsatisfiedLinkError e) {
             AILogger.e(TAG, "[chatJson] UnsatisfiedLinkError: " + e.getMessage());
             if (callback != null) callback.onError("Native method not available");
@@ -995,6 +1016,37 @@ public class LlamaHelper {
     }
 
     private static native void nativeChatJson(byte[] requestJson, JsonCallback callback);
+
+    /**
+     * chatJson 回调守卫：观测 Vulkan device lost 并置位降级标记，事件原样转发。
+     *
+     * <p>放在最底层（所有本地 Agent/普通对话都经过 chatJson）而不是每个 UI 错误分支，
+     * 避免"某条路径漏判"；匹配词只认驱动错误文本，不解析/改写正常 token 内容。</p>
+     */
+    private static JsonCallback guardedJsonCallback(JsonCallback delegate) {
+        if (delegate == null) return null;
+        return new JsonCallback() {
+            @Override
+            public void onJson(String json) {
+                detectVulkanDeviceLost(json);
+                delegate.onJson(json);
+            }
+
+            @Override
+            public void onError(String error) {
+                detectVulkanDeviceLost(error);
+                delegate.onError(error);
+            }
+        };
+    }
+
+    private static void detectVulkanDeviceLost(String text) {
+        if (text == null || text.isEmpty()) return;
+        if (text.contains("ErrorDeviceLost") || text.contains("device lost")) {
+            VulkanFaultGuard.onDeviceLost(AppServices.appContext());
+        }
+    }
+
     // ===== KV 记忆引擎（独立 seq 1，长文档 KV 持久化，living-kv 方案）=====
     private static native boolean nativeKvMemPreload(long handle, String text);
     private static native byte[] nativeKvMemSave(long handle);

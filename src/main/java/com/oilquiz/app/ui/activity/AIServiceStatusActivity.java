@@ -295,6 +295,8 @@ public class AIServiceStatusActivity extends com.oilquiz.app.ui.base.LegacyResul
                 androidx.preference.PreferenceManager.getDefaultSharedPreferences(this)
                         .edit().putString("gpu_backend", choice).apply();
                 LlamaHelper.setBackend(choice);
+                // 用户显式重选后端 = 允许重新验证驱动；解除此前 Vulkan device-lost 的运行期降级
+                com.oilquiz.app.ai.jni.VulkanFaultGuard.clear(this);
                 // 换引擎 ⇒ 作废 prompt→response 缓存：缓存 key 不带引擎身份，
                 // 否则 12h 内同一句会命中上一个引擎（甚至坏着时）写入的答案。
                 com.oilquiz.app.ai.refactor.CacheManager.invalidateEngineCache(
