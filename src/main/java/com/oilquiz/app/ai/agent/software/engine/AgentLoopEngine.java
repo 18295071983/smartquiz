@@ -713,6 +713,14 @@ public class AgentLoopEngine {
             }
         }
         for (ChatMessage m : sessionMessages) {
+            // TOOL-HISTORY-CONTAMINATION(2026-11-08)：普通对话模式系统提示明确“不调用任何工具”，
+            // 但 sessionMessages 会回放上一轮 FC 模式的 tool_call/tool 消息。真机 T133 因此
+            // 看到上一轮 calculate 结果，思考里声称“我已经用 calculate 得到结果 4”，实际本轮
+            // toolCalls=0。工具不可用的轮次必须把工具消息从 prompt 历史里剔除，避免把
+            // “历史工具结果”误导成“本轮工具结果”。
+            if (!modelFcMode && ("tool".equals(m.role) || m.toolCalls != null)) {
+                continue;
+            }
             history.add(m);
         }
         // 本轮动态任务指令（缓存命中优化）：天气直给指令从 system 移到本轮 user 消息末尾。
@@ -2828,6 +2836,10 @@ public class AgentLoopEngine {
                 : "你是答题宝App中的AI聊天助手，是App内\"AI对话\"功能模块的助手。\n");
         sb.append("你的工作：与正在使用答题宝的用户进行自然对话，解答学习、生活、技术等各类问题，给出清晰有用的回答。\n");
         sb.append("你的方式：不调用任何工具，完全依靠自身知识回答；不确定时如实说明，不编造。\n");
+        // TOOL-HISTORY-HONESTY(2026-11-08)：历史里可能还留着早前工具模式的 tool_call/tool 结果。
+        // 本轮工具不可用，模型不能把历史结果当成“我刚调用过”，否则 T133 会编造 calculate 调用。
+        sb.append("历史里可能还有更早轮次的工具记录；本轮工具不可用，不要声称调用过任何工具，"
+                + "也不要复述工具过程；只依据历史结论回答。\n");
         sb.append("你的风格：用中文，简洁自然、口语化，像熟悉的朋友聊天，先给结论再补细节。\n\n");
 
         return sb.toString();
@@ -2871,6 +2883,11 @@ public class AgentLoopEngine {
         }
         sb.append("能直接答就直接答，天气/新闻/时刻这类实时信息必须用工具查，不要凭记忆答；"
                 + "写入或覆盖文件前先征得用户确认；工具没返回的数据不要编。用中文，先结论后细节。\n");
+        // TOOL-HISTORY-HONESTY(2026-11-08)：历史回放里有更早轮次的 tool_call/tool 结果，
+        // 模型会把它当成“本轮已经调用过”。明确区分“历史工具结果”和“本轮工具结果”，
+        // 本轮没有 tool 结果就必须重新调用或如实说没查到，不能声称已调用。
+        sb.append("历史里出现过的工具调用/结果只属于更早轮次，不代表本轮；"
+                + "本轮没有工具结果时，不要声称已经调用过工具，需要就重新调用。\n");
         sb.append("【工具】直接调用的是本次注入的这些工具；需要本次没注入的能力时，先用 tool_registry"
                 + "（get 看参数、call 代执行，call 的参数里写工具名是允许的）。"
                 // TOOL-CHOICE(2026-11-02)：真机思考日志实锤——2B 把"探索工具"理解成"上网搜工具"，
