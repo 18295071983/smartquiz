@@ -269,6 +269,17 @@ public class AIToolManager {
         registerToolFactory("unit_converter", UnitConverterTool.class, UnitConverterTool::new);
         // 知识库：独立 SQLite+FTS4，全文检索与管理（内容由用户维护）
         registerToolFactory("knowledge_base", KnowledgeBaseTool.class, KnowledgeBaseTool::new);
+        // TOOL-PARITY(2026-11-08)：以下都是本地 13 核心/在线核心依赖的 Java 工具，
+        // 不能注册在 Python try 块里——Chaquopy 初始化失败时它们会整体消失，
+        // 本地核心集名字还在但 schema 被 buildToolsJson 静默跳过（真机“工具有名字没定义”）。
+        registerToolFactory("time_date", TimeDateTool.class, TimeDateTool::new);
+        registerToolFactory("calculator", CalculatorTool.class, CalculatorTool::new);
+        registerToolFactory("memory", MemoryTool.class, MemoryTool::new);
+        registerToolFactory("task", TaskTool.class, TaskTool::new);
+        registerToolFactory("workspace", WorkspaceTool.class, WorkspaceTool::new);
+        // douyin_downloader 是 Java 包装（内部脚本 assets/douyin_downloader.py）；注册放外面，
+        // Python 缺失时“调用报错”而不是“工具不存在”，在线/本地核心仍可按名发现。
+        registerToolFactory("douyin_downloader", DouyinDownloaderTool.class, DouyinDownloaderTool::new);
         
         try {
             registerToolFactory("python_execute", PythonExecuteTool.class, PythonExecuteTool::new);
@@ -278,8 +289,6 @@ public class AIToolManager {
             registerToolFactory("document_parser", DocumentParserTool.class, DocumentParserTool::new);
             registerToolFactory("python_chart", PythonChartTool.class, PythonChartTool::new);
             registerToolFactory("ai_create_tool", AIToolCreatorTool.class, AIToolCreatorTool::new);
-            registerToolFactory("time_date", TimeDateTool.class, TimeDateTool::new);
-            registerToolFactory("calculator", CalculatorTool.class, CalculatorTool::new);
             registerToolFactory("js_execute", JsExecuteTool.class, JsExecuteTool::new); // JS执行（WebView内核，弥补无Node缺口）
             registerToolFactory("pip_install", PipInstallTool.class, PipInstallTool::new); // 运行时安装纯Python包
             registerToolFactory("remote_dsh", RemoteDshTool.class, RemoteDshTool::new); // 远程控制电脑（dsh桥接）
@@ -287,18 +296,13 @@ public class AIToolManager {
             registerToolFactory("screen_watch", ScreenWatchTool.class, ScreenWatchTool::new); // 盯梢（监控屏幕直到目标出现/消失/画面变化）
             registerToolFactory("web_render", WebRenderTool.class, WebRenderTool::new); // 网页渲染浏览（DOM文本+截图）
             registerToolFactory("image_gen", ImageGenTool.class, ImageGenTool::new);
-            registerToolFactory("memory", MemoryTool.class, MemoryTool::new);
             registerToolFactory("chat_history", ChatHistoryTool.class, ChatHistoryTool::new); // 对话历史（跨会话上下文，读本地持久化历史文件）
-            // 2026-09-25：抖音下载工具由动态工具固化为内置工具（脚本内置 assets/douyin_downloader.py，v2.4）
-            registerToolFactory("douyin_downloader", DouyinDownloaderTool.class, DouyinDownloaderTool::new);
-        registerToolFactory("task", TaskTool.class, TaskTool::new); // 维度四 P0-1：任务状态跟踪
         registerToolFactory("import_list_files", ImportListFilesTool.class, ImportListFilesTool::new); // AI导入：发现题库文件
         registerToolFactory("import_start", ImportStartTool.class, ImportStartTool::new); // AI导入：启动异步导入
         registerToolFactory("import_status", ImportStatusTool.class, ImportStatusTool::new); // AI导入：查询进度
         registerToolFactory("import_cancel", ImportCancelTool.class, ImportCancelTool::new); // AI导入：取消
         registerToolFactory("import_decide", ImportDecideTool.class, ImportDecideTool::new); // AI导入：决策回传（ui_component 交互后）
         registerToolFactory("reminder", ReminderTool.class, ReminderTool::new); // 维度十 PER-02：定时提醒
-            registerToolFactory("workspace", WorkspaceTool.class, WorkspaceTool::new);
             Log.i(TAG, "Python tool factories registered");
         } catch (Throwable e) {
             Log.w(TAG, "Failed to register Python tool factories: " + e.getMessage());
