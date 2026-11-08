@@ -2007,7 +2007,7 @@ public class AgentLoopEngine {
                     }
                 }
             }
-        });
+        }, "AgentLoopEngine");
 
         try {
             boolean completed = latch.await(SYNC_TIMEOUT_MS, TimeUnit.MILLISECONDS);
