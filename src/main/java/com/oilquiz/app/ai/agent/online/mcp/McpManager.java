@@ -1664,7 +1664,7 @@ public class McpManager {
     // ==================== 密钥与服务的匹配 ====================
 
     /** MCP 服务所属服务商（用于推荐匹配的密钥，避免"乱引"不兼容的 key）。 */
-    public enum McpProvider { ALIYUN, TENCENT, MODELSCOPE, UNKNOWN }
+    public enum McpProvider { ALIYUN, TENCENT, MODELSCOPE, GITEE, UNKNOWN }
 
     /**
      * 按 server 的 URL / 名称推断服务商。无法判定返回 UNKNOWN
@@ -1687,6 +1687,11 @@ public class McpManager {
                 || text.contains("model-scope") || text.contains("ms.show")) {
             return McpProvider.MODELSCOPE;
         }
+        // GITEE-MCP(2026-11-08)：官方远程 https://api.gitee.com/mcp 用个人访问令牌（Bearer）。
+        // 补上服务商识别，密钥页可直接“引用匹配密钥”，不用在全部密钥里手工找。
+        if (text.contains("gitee") || text.contains("码云")) {
+            return McpProvider.GITEE;
+        }
         return McpProvider.UNKNOWN;
     }
 
@@ -1705,6 +1710,8 @@ public class McpManager {
             case MODELSCOPE:
                 return t.contains("modelscope") || t.contains("魔搭")
                         || t.contains("model-scope") || t.contains("ms.show");
+            case GITEE:
+                return t.contains("gitee") || t.contains("码云");
             default:
                 return false;
         }
@@ -1768,6 +1775,8 @@ public class McpManager {
                 return "腾讯系";
             case MODELSCOPE:
                 return "魔搭（ModelScope）";
+            case GITEE:
+                return "Gitee（码云）";
             default:
                 return "未知/通用";
         }
