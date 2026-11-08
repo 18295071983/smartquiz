@@ -102,7 +102,7 @@ public class OnlineAgentEngine {
      * 版本不一致（提示词升级）→ 丢弃重建（缓存 miss 一次属合理）。
      * 【注意】修改 OnlinePromptBuilder 的提示词模板时，必须同步递增此版本号。
      */
-    private static final String PROMPT_VERSION = "20261027-v10";
+    private static final String PROMPT_VERSION = "20261108-v11";
 
     /** Agent 执行模式 */
     public enum AgentMode {
@@ -294,7 +294,8 @@ public class OnlineAgentEngine {
         this.context = context;
         this.toolManager = toolManager;
         this.onlineInferenceService = OnlineInferenceService.getInstance(context);
-        this.promptBuilder = new OnlinePromptBuilder(toolManager.getToolGuideInstance());
+        this.promptBuilder = new OnlinePromptBuilder(toolManager.getToolGuideInstance(),
+                com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine.resolvePersonaFor(context));
         this.thinkingChain = new OnlineThinkingChain();
         this.executor = Executors.newFixedThreadPool(TOOL_WAIT_THREADS, r -> {
             Thread t = new Thread(r, "OnlineAgent-Worker");

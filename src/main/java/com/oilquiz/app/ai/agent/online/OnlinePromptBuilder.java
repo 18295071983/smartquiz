@@ -20,9 +20,17 @@ import java.util.List;
 public class OnlinePromptBuilder {
 
     private final OnlineToolGuide guide;
+    /** 用户自定义人设（与本地 AgentLoopEngine.resolvePersonaFor 同一口径）；null=用内置身份。 */
+    private final String persona;
 
     public OnlinePromptBuilder(OnlineToolGuide guide) {
+        this(guide, null);
+    }
+
+    public OnlinePromptBuilder(OnlineToolGuide guide, String persona) {
         this.guide = guide;
+        String p = persona == null ? null : persona.trim();
+        this.persona = (p == null || p.isEmpty() || "请用中文回答。".equals(p)) ? null : p;
     }
 
     // ==================== 分段顺序（dsh SECTION_ORDERS 风格，集中管理） ====================
@@ -161,8 +169,18 @@ public class OnlinePromptBuilder {
         // 模型要在两段同义指令间自行对齐——本地提示词那边同样按这个口径收。
         // 与本地 AgentLoopEngine.buildFcSystemPrompt 的角色句保持同一措辞。
         sb.append("【角色】\n");
-        sb.append("你是手机App里帮用户解决问题的助手：能直接答就直接答，"
-                + "需要查证、读写、生成时调用工具完成。\n\n");
+        // PERSONA-ONLINE(2026-11-08)：在线路径此前完全忽略 AIConfig.system_prompt，
+        // 用户设置的人设只在本地生效；现在与本地 resolvePersonaFor 同口径注入。
+        if (persona != null) {
+            sb.append(persona).append('\n');
+        } else {
+            sb.append("你是手机App里帮用户解决问题的助手：");
+        }
+        if (persona != null) {
+            sb.append("你能直接答就直接答，需要查证、读写、生成时调用工具完成。\n\n");
+        } else {
+            sb.append("能直接答就直接答，需要查证、读写、生成时调用工具完成。\n\n");
+        }
         return sb.toString();
     }
 
@@ -246,7 +264,8 @@ public class OnlinePromptBuilder {
         sb.append("- 用中文回答用户问题，语气自然、口语化、像真人助手");
         if (takeover) sb.append("，避免机械的列表式堆砌");
         sb.append("\n");
-        sb.append("- 回答要简洁、准确、有条理；先给结论，再补关键细节\n");
+        sb.append("- 回答要准确、有条理；简单问题简洁，复杂问题给必要细节，"
+                + "不要为了简短省略关键步骤、代码或引用；先给结论，再补关键细节\n");
         sb.append("- 倾向用 UI 组件输出信息：凡是有结构的内容（列表、表格、指标、步骤、待办、联系方式、题目、天气、文件、代码等），优先用 ui_component 创建组件卡片展示，而不是普通文本或 Markdown 表格\n");
         sb.append("- 如果使用了工具，在回答中自然地融入工具结果，说明数据来源\n");
         if (!takeover) sb.append("- 如果工具失败，向用户说明原因并提供替代建议\n");
@@ -273,8 +292,15 @@ public class OnlinePromptBuilder {
         // 接管档只多一句"由你自主推进"，因为这一档确实由模型全权决定轮数；
         // 不可逆先确认、不编造这两条在【执行规范】里已有，不再在角色段复述一遍。
         sb.append("【角色】\n");
-        sb.append("你是手机App里帮用户解决问题的助手，本轮由你自主接管：自己决定步骤、"
-                + "可多轮可并行地调用工具，直到把事办完或确认办不到。\n\n");
+        // PERSONA-ONLINE(2026-11-08)：接管档同样尊重用户人设。
+        if (persona != null) {
+            sb.append(persona).append('\n');
+            sb.append("本轮由你自主接管：自己决定步骤、可多轮可并行地调用工具，"
+                    + "直到把事办完或确认办不到。\n\n");
+        } else {
+            sb.append("你是手机App里帮用户解决问题的助手，本轮由你自主接管：自己决定步骤、"
+                    + "可多轮可并行地调用工具，直到把事办完或确认办不到。\n\n");
+        }
         return sb.toString();
     }
 

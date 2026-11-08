@@ -164,6 +164,16 @@ public class OnlinePromptBuilderAssemblyTest {
     }
 
     /** 段标题都要存在，且相对顺序与注册顺序一致 */
+    @Test
+    public void personaIsInjectedIntoBothOnlinePrompts() {
+        String persona = "你是一位化工厂的工艺工程师助手，回答要带单位与量程。";
+        OnlinePromptBuilder b = new OnlinePromptBuilder(null, persona);
+        assertTrue("普通在线提示词必须尊重用户人设",
+                b.buildSystemPrompt().contains(persona));
+        assertTrue("接管在线提示词必须尊重用户人设",
+                b.buildSystemPromptTakeover().contains(persona));
+    }
+
     private static void assertSectionOrder(String prompt, String... titles) {
         int last = -1;
         for (String t : titles) {
