@@ -102,7 +102,7 @@ public class OnlineAgentEngine {
      * 版本不一致（提示词升级）→ 丢弃重建（缓存 miss 一次属合理）。
      * 【注意】修改 OnlinePromptBuilder 的提示词模板时，必须同步递增此版本号。
      */
-    private static final String PROMPT_VERSION = "20261108-v11";
+    private static final String PROMPT_VERSION = "20261108-v12";
 
     /** Agent 执行模式 */
     public enum AgentMode {
