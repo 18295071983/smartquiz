@@ -2906,6 +2906,11 @@ public class AgentLoopEngine {
                 // MCP(2026-11-04)：本地不改静态工具集，统一经 tool_registry 发现 mcp_toolbox；
                 // 工具箱内部再 search/get/call 外部 MCP 服务，避免中途改 tools 前缀触发 re-prefill。
                 + "需要外部服务（MCP）能力时，用 tool_registry 找 mcp_toolbox（search/get/call），不要联网搜 MCP。"
+                // TOOL-PARITY(2026-11-08)：在线核心里的 knowledge_base/ui_component/douyin_downloader/
+                // mcp_toolbox 在本地工具库同样注册，只是没进 13 个静态核心（避免 2B 前缀膨胀）。
+                // 告诉模型"可发现"，避免它直接回答"我没有这个能力"。
+                + "本次未注入的知识库、UI 组件、抖音下载、MCP 等能力也在工具库里："
+                + "先用 tool_registry(list/search/get) 找到再 call，不要直接说自己没有该能力。"
                 // WORKSPACE/MEMORY(2026-11-01)：这两个工具此前只在 schema 里，模型不会主动想到用。
                 // 一句规则各给一次触发场景，避免它绕道 read_file 猜工作区路径、或把偏好当闲聊丢掉。
                 + "生成或改过的文件都在工作区：列文件/读内容/看历史版本并回退用 workspace（工作区相对路径别拿别的读取工具瞎猜）。"
