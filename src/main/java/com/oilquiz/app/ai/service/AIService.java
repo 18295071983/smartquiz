@@ -1167,12 +1167,12 @@ public class AIService implements ComponentCallbacks2 {
             if (!userFixedContext && kvBytesPerToken > 0
                     && memoryInfo.totalMemoryMB >= 8192 && contextSize < 32768) {
                 int before = contextSize;
-                int floor = availAfterReleaseMB >= 4096 ? 32768 : 16384;
+                int floor = availAfterReleaseMB >= 6144 ? 32768 : 16384;
                 contextSize = floor;
                 AILogger.i(TAG, "AGENT-CONTEXT-FLOOR: 默认本地窗口 " + before + " -> " + contextSize
                         + " (totalMem=" + memoryInfo.totalMemoryMB + "MB, availAfterRelease="
                         + availAfterReleaseMB + "MB, kv=" + kvBytesPerToken
-                        + " B/token; 32K 仅在 >=4096MB 可用时启用，随后由 CONTEXT-DYNAMIC 钳制)");
+                        + " B/token; 32K 仅在 >=6144MB 可用时启用，随后由 CONTEXT-DYNAMIC 钳制)");
             }
             // CONTEXT-RESIDENT(2026-11-07) 修正：上面这段"可用内存"原先直接取瞬时 availMem，
             // 重载时旧权重还常驻在读数里、又被 "- modelSizeMB" 扣第二次，于是 kvBudget 归零、
@@ -1479,6 +1479,11 @@ public class AIService implements ComponentCallbacks2 {
                     contextSize,
                     threadCount
             );
+            if (result == 0) {
+                // 记录真实加载窗口；后续 chat context 的 ctxSize=0 会取模型默认 32768，
+                // 在 11GB 设备上造成 KV/swap 翻倍、decode 掉到 1.8 tok/s（2026-11-08 实测）。
+                loadedModelContextSize = contextSize;
+            }
             long modelLoadTime = System.currentTimeMillis() - modelLoadStart;
             AILogger.i(TAG, "[PERF] Native model initialization time: " + modelLoadTime + "ms ("
                     + String.format("%.2f", modelLoadTime / 1000.0) + "s)");
@@ -1506,6 +1511,7 @@ public class AIService implements ComponentCallbacks2 {
                 );
                 if (result == 0) {
                     AILogger.i(TAG, "Successfully initialized in CPU-only mode after GPU failure");
+                    loadedModelContextSize = cpuContextSize;
                 } else {
                     AILogger.e(TAG, "CPU fallback also failed with code: " + result);
                 }
@@ -3773,6 +3779,8 @@ public class AIService implements ComponentCallbacks2 {
 
     // ========== Native Chat Context API ==========
     private String chatSystemPrompt = null;
+    /** MODEL-CTX(2026-11-08)：模型加载时实际使用的 context；chat context 不得擅自回到模型默认 32768。 */
+    private volatile int loadedModelContextSize = 0;
 
     private long tryCreateChatContextWithFallback(String globalPrompt, String systemPrompt, String normalPrompt, int nThreads) {
         // 首值 0 = 使用模型加载时的完整上下文（native chatCreate 对 ctxSize<=0 取模型 n_ctx，
@@ -3796,6 +3804,14 @@ public class AIService implements ComponentCallbacks2 {
             }
         } catch (Throwable t) {
             AILogger.w(TAG, "Memory-aware ctxSize detection failed: " + t.getMessage());
+        }
+        // MODEL-CTX：chat context 不能超过模型实际加载窗口。此前 firstCtx=0 时 native 取模型
+        // 默认 n_ctx=32768，而模型是按 16384 加载的 → chat KV 翻倍、swap 9.6GB、decode 1.8 tok/s。
+        if (loadedModelContextSize > 0) {
+            firstCtx = firstCtx <= 0 ? loadedModelContextSize
+                    : Math.min(firstCtx, loadedModelContextSize);
+            AILogger.i(TAG, "Chat context capped to model load context=" + loadedModelContextSize
+                    + " -> firstCtx=" + firstCtx);
         }
         // 按从大到小构造降序候选（去重，且只取 ≤ firstCtx 的值），保证后续降级只减不增
         int[] ctxSizes;

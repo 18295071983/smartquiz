@@ -6487,6 +6487,20 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
+    /**
+     * ERROR→COMPLETE 去重：重试成功后，把上一条“未生成回复/生成出错”的 ERROR 气泡替换掉，
+     * 避免同一用户回合同时留下 ERROR + COMPLETED 两条 AI（真机 T132）。
+     */
+    private void removeLatestErrorBubble() {
+        if (chatHistory.isEmpty()) return;
+        int last = chatHistory.size() - 1;
+        ChatMessage msg = chatHistory.get(last);
+        if (msg == null || msg.type != ChatMessage.MessageType.ERROR) return;
+        chatHistory.remove(last);
+        if (chatAdapter != null) chatAdapter.notifyItemRemoved(last);
+        saveHistoryAsync();
+    }
+
     private void handleGenerationError(String errorMsg) {
         runOnUiThread(() -> {
             endGeneration();
@@ -7465,12 +7479,17 @@ public class AIChatActivity extends BaseActivity {
     private class AgentCallbackImpl implements AgentChatHandler.AgentChatCallback {
         /** 本轮 Agent 是否已结束（onComplete 置位）：防引擎补发 onError 重复走错误路径触发崩溃 */
         private final java.util.concurrent.atomic.AtomicBoolean completed = new java.util.concurrent.atomic.AtomicBoolean(false);
+        /** TERMINAL-DEDUPE(2026-11-08)：本轮是否出现过错误气泡，用于 onComplete 迟到时替换而不是叠加。 */
+        private volatile boolean hadError = false;
+        private volatile long lastErrorAt = 0L;
 
         /** 每轮新 Agent 执行前调用：重置本轮完成标志。
          *  根因：AgentCallbackImpl 随 AgentChatHandler 复用（多轮对话共享同一实例），
          *  completed 若跨轮保持 true，第二轮 onComplete 的 CAS 会失败 → 回复不处理、UI 卡"处理中"。 */
         void resetForNewTurn() {
             completed.set(false);
+            hadError = false;
+            lastErrorAt = 0L;
         }
 
         @Override
@@ -7737,6 +7756,15 @@ public class AIChatActivity extends BaseActivity {
         public void onComplete(String fullText) {
             // 幂等：只处理第一次完成事件（重复/迟到回调直接忽略）
             if (!completed.compareAndSet(false, true)) return;
+            // EMPTY-COMPLETE(2026-11-08)：本地模型可能只产出思考、没有正文，旧逻辑
+            // 仍把空串当 COMPLETED（真机 T128“你是谁”内容 0、状态 COMPLETED）。
+            // 空回复是失败，不是成功；交给统一错误收口，不能落一条空气泡。
+            if ((fullText == null || fullText.trim().isEmpty())
+                    && !userStoppedCurrentGeneration) {
+                lastAgentUserMessage = null;
+                handleGenerationError("模型未生成内容，请重试");
+                return;
+            }
             // 本地推理上下文独立化（2026-09-14）：Agent 轮次完成后回写该轮对话到本地推理历史，
             // 与普通对话共享同一真相源（普通↔Agent 来回切换不失忆）
             // 2026-10-25：空正文不回写。用户点停止时引擎只回收"已产出的部分正文"，
@@ -7779,6 +7807,12 @@ public class AIChatActivity extends BaseActivity {
             // 清理组ID（执行完成，不插入系统消息）
             runOnUiThread(() -> {
                 if (uiDetached) return; // UI 已分离：结果已落盘，跳过界面更新
+                // ERROR→COMPLETE(2026-11-08)：先报错后成功的重试轮，最后一条 ERROR 气泡
+                // 必须被成功结果替换，而不是留下 ERROR + COMPLETED 两条 AI（T132）。
+                if (hadError && System.currentTimeMillis() - lastErrorAt < 120_000L) {
+                    removeLatestErrorBubble();
+                    hadError = false;
+                }
                 // 状态栏恢复（执行完成 / 用户停止）
                 updateAgentStatusBar(finishLabel, false);
                 // 气泡内步骤状态（完成态只更新步骤行；统计读数在工具抽屉）
@@ -7796,6 +7830,11 @@ public class AIChatActivity extends BaseActivity {
             if ("[TOOL_CALL]".equals(error)) return;
             // 已完成后再报错：忽略（避免 completeGeneration 后又走 handleGenerationError 删错消息）
             if (completed.get()) return;
+            // TERMINAL-DEDUPE：记录本轮出现过错误。不立刻置 completed——
+            // 本地 Agent 有时先回 error、随后重试成功并回调 onComplete；
+            // 若这里直接 completed=true，会把真正的成功结果吞掉。
+            hadError = true;
+            lastErrorAt = System.currentTimeMillis();
             // 本轮失败：清除待回写标记，防止下一轮 onComplete 误回写旧用户消息
             lastAgentUserMessage = null;
             runOnUiThread(() -> {

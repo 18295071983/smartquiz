@@ -1752,8 +1752,13 @@ private:
             for (auto id : tokIds(t)) sp.preserved_tokens.insert(id);
         }
 
-        // --- reasoning budget：仅用于启用"思考段内抑制 lazy grammar" ---
-        // 仅当 start 与 end 都非空时上游才会创建该采样器；budget=-1 → INT_MAX（不限额度）。
+        // --- reasoning budget：既用于“思考段内抑制 lazy grammar”，也给思考设上限 ---
+        // 仅当 start 与 end 都非空时上游才会创建该采样器。
+        // THINK-BUDGET(2026-11-08)：此前传 -1（不限），真机 T129/T135 出现 12k/8.8k 字符
+        // 英文空转（“Wait...” 反复自我确认），单轮思考 97–180s。给一个有限预算，
+        // 由上游 reasoning-budget sampler 在预算耗尽时强制收束思考、进入正文；
+        // 这不是改提示词/删工具，只是给模型的“思考长度”一个上限。
+        constexpr int kReasoningBudgetTokens = 2048;
         auto startIds = tokIds(chatParams->thinking_start_tag);
         if (!startIds.empty()) {
             std::vector<std::vector<llama_token>> endSeqs;
@@ -1762,11 +1767,12 @@ private:
                 if (!ids.empty()) endSeqs.push_back(std::move(ids));
             }
             if (!endSeqs.empty()) {
-                sp.reasoning_budget_tokens = -1;      // 不限预算，只为抑制 grammar
+                sp.reasoning_budget_tokens = kReasoningBudgetTokens;
                 sp.reasoning_budget_start  = std::move(startIds);
                 sp.reasoning_budget_end    = std::move(endSeqs);
-                LOGD("reasoning-budget(via common_sampler): start=%zu ids, %zu end seq(s), budget=unlimited (grammar inhibition only)",
-                     sp.reasoning_budget_start.size(), sp.reasoning_budget_end.size());
+                LOGD("reasoning-budget(via common_sampler): start=%zu ids, %zu end seq(s), budget=%d tokens",
+                     sp.reasoning_budget_start.size(), sp.reasoning_budget_end.size(),
+                     kReasoningBudgetTokens);
             } else {
                 LOGW("reasoning-budget: thinking_end_tags produced no tokens, grammar inhibition unavailable");
             }
