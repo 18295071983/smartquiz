@@ -59,4 +59,15 @@ public class InferenceGatewaySourceTest {
                         + "否则会拿 NPU 的 32768/52 覆盖本地 llama 的 16384/4473",
                 src.contains("NpuLlmChat.isEngineEnabled() && NpuLlmChat.isLoaded()"));
     }
+
+    @Test
+    public void gatewayWaitsForChatContextBeforeBegin() throws Exception {
+        String src = read("src/main/java/com/oilquiz/app/ai/inference/InferenceGateway.java");
+        assertTrue("Gateway must wait for chat context before begin",
+                src.contains("awaitBackendReady(30_000L)"));
+        assertTrue("Readiness must use ContextLedger.isChatReady (n_ctx>0)",
+                src.contains("ContextLedger.isChatReady()"));
+        assertTrue("NPU has its own GenieX lifecycle",
+                src.contains("NpuEngineRouter.isNpuActive()"));
+    }
 }

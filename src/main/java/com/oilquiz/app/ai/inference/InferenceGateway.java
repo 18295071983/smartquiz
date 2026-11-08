@@ -63,6 +63,48 @@ public final class InferenceGateway {
     }
 
     /**
+     * BACKEND-LINK(2026-11-08)：本地 llama 请求必须在 chat context 真正建好后才能开始。
+     * 之前只检查“模型在内存/native handle 有效”，会在 n_ctx 还没建出来时放行，
+     * native 直接回 Helper context not initialized —— 用户看到“推理没有开始”。
+     * NPU 走自己的 GenieX 生命周期，不要求 llama chat context。
+     */
+    public boolean isBackendReady() {
+        try {
+            if (NpuEngineRouter.isNpuActive()
+                    || com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                // NPU 有自己的 GenieX 加载/错误语义；交给 NpuEngineRouter 报准确状态，
+                // 不要用 llama chatReady 把它误判成“本地后端未就绪”。
+                return true;
+            }
+        } catch (Throwable ignored) {
+        }
+        return ContextLedger.isChatReady();
+    }
+
+    /**
+     * 只等，不在这里 initModel；装载由 UI/Bridge 的单飞流程负责。
+     * 放在 begin 之前，等待期间不占用生成锁。
+     */
+    public boolean awaitBackendReady(long timeoutMs) {
+        if (isBackendReady()) return true;
+        long deadline = System.currentTimeMillis() + Math.max(0L, timeoutMs);
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(200L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+            if (isBackendReady()) return true;
+        }
+        return false;
+    }
+
+    public void chatJson(String requestJson, LlamaHelper.JsonCallback callback) {
+        chatJson(requestJson, callback, "unknown");
+    }
+
+    /**
      * 开始一次生成。返回 generationId；已有生成在跑返回 -1。
      * 调用方必须在 complete/error/异常/超时分支调用 {@link #end(long)}，
      * 或使用会自动释放的 {@link #chatJson}/{@link #chatSend}。
@@ -112,12 +154,14 @@ public final class InferenceGateway {
      * 统一 chatJson 入口：自动 begin/end，complete/error 自动释放。
      * 这是 AgentLoopEngine / ModelExecutionBridge 的 chatJson 唯一入口。
      */
-    public void chatJson(String requestJson, LlamaHelper.JsonCallback callback) {
-        chatJson(requestJson, callback, "unknown");
-    }
-
     public void chatJson(String requestJson, LlamaHelper.JsonCallback callback, String owner) {
         if (callback == null) return;
+        // 后端未就绪就不 begin：避免 UI 看到“已开始生成”，实际 native 还没上下文。
+        if (!awaitBackendReady(30_000L)) {
+            callback.onError("本地推理后端未就绪（chat context 未建立），"
+                    + "本次请求没有开始。请等模型加载完成后再发送。");
+            return;
+        }
         long id = begin(owner);
         if (id < 0) {
             callback.onError("推理通道忙（当前 owner=" + activeOwner
@@ -156,6 +200,11 @@ public final class InferenceGateway {
     public void chatSend(String message, int maxTokens, float temperature, float topP, int topK,
                          boolean enableThinking, LlamaHelper.TokenCallback callback, String owner) {
         if (callback == null) return;
+        if (!awaitBackendReady(30_000L)) {
+            callback.onError("本地推理后端未就绪（chat context 未建立），"
+                    + "本次请求没有开始。请等模型加载完成后再发送。");
+            return;
+        }
         long id = begin(owner);
         if (id < 0) {
             callback.onError("推理通道忙（当前 owner=" + activeOwner

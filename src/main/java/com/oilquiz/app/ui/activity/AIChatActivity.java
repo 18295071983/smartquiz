@@ -10353,7 +10353,12 @@ public class AIChatActivity extends BaseActivity {
             return modelBridge != null
                     && modelBridge.isModelInMemory()
                     && modelBridge.isModelInitialized()
-                    && com.oilquiz.app.ai.jni.LlamaHelper.isNativeStateValid();
+                    && com.oilquiz.app.ai.jni.LlamaHelper.isNativeStateValid()
+                    // BACKEND-LINK(2026-11-08)：模型在内存/native handle 有效，不代表 chat context
+                    // 已经建好。必须和推理后端用同一把尺子：ContextLedger.chatReady
+                    // （nativeValid && n_ctx>0），否则会放行“还没开始推理”的消息，
+                    // 引擎随后收到 Helper context not initialized。
+                    && com.oilquiz.app.ai.inference.ContextLedger.isChatReady();
         } catch (Throwable t) {
             return false;
         }
@@ -10385,6 +10390,7 @@ public class AIChatActivity extends BaseActivity {
      */
     private void retrySendWhenReady(String msg, int attempt) {
         if (isLocalEngineReady()) {
+            modelInitInFlight = false;
             if (serviceStatusManager != null) serviceStatusManager.setLoadingModel(false);
             hideLoading();
             if (msg != null && !msg.isEmpty()) {
@@ -10395,9 +10401,13 @@ public class AIChatActivity extends BaseActivity {
             }
             return;
         }
-        if (attempt >= 6) {
+        // 模型加载 + chat context 建立可能远超旧口径的 3s（16K/32K 上下文真机可达 20s+）。
+        // 60 × 500ms = 30s：期间只等待，不重复 initModel，不提前把消息判死。
+        if (attempt >= 60) {
+            modelInitInFlight = false;
             hideLoading();
-            addErrorMessage("模型未就绪", "模型已加载但引擎状态未恢复，请重新选择模型或重启应用后重试", true);
+            addErrorMessage("推理后端未就绪",
+                    "模型已加载，但推理上下文在 30 秒内没有建立完成。请稍后重新发送，或重新选择模型。", true);
             return;
         }
         uiHandler.postDelayed(() -> retrySendWhenReady(msg, attempt + 1), 500);
@@ -10437,6 +10447,29 @@ public class AIChatActivity extends BaseActivity {
         // 判据只认 isNativeStateValid（不嗅探错误文案）。
         if (!isLocalEngineReady()) {
             final String msg = pendingMessage;
+            // BACKEND-LINK：模型已经加载、但 chat context 还没建好时，不要再下发一次
+            // initModel（会重建/释放上下文，反而更慢）；只等后端把 n_ctx 建出来。
+            boolean modelLoadedButChatNotReady = false;
+            try {
+                modelLoadedButChatNotReady = modelBridge != null
+                        && modelBridge.isModelInMemory()
+                        && modelBridge.isModelInitialized()
+                        && com.oilquiz.app.ai.jni.LlamaHelper.isNativeStateValid()
+                        && !com.oilquiz.app.ai.inference.ContextLedger.isChatReady();
+            } catch (Throwable ignored) {
+            }
+            if (modelLoadedButChatNotReady) {
+                if (modelInitInFlight) {
+                    enqueuePending(msg, "推理上下文正在建立，已加入队列，就绪后自动发送");
+                    ensureConsumedMessage = true;
+                    return false;
+                }
+                modelInitInFlight = true;
+                showLoading("等待推理上下文...", "模型已加载，正在建立 chat context...");
+                showToast("⏳ 等待推理上下文建立...");
+                retrySendWhenReady(msg, 0);
+                return false;
+            }
             // 单飞：已经有一轮装载在跑就不再下发 initModel，后来的消息一律排队等就绪
             if (modelInitInFlight) {
                 enqueuePending(msg, "模型正在初始化，已加入队列，就绪后自动发送");

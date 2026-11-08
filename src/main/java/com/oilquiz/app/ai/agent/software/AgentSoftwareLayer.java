@@ -5,6 +5,8 @@ import android.content.Context;
 import com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine;
 import com.oilquiz.app.ai.agent.software.model.*;
 import com.oilquiz.app.ai.jni.LlamaHelper;
+import com.oilquiz.app.ai.engine.NpuEngineRouter;
+import com.oilquiz.app.ai.inference.ContextLedger;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.util.AILogger;
 
@@ -308,6 +310,18 @@ public class AgentSoftwareLayer {
         try {
             executor.execute(() -> {
                 try {
+                    // BACKEND-LINK(2026-11-08)：引擎不能在后端 chat context 未建立时先跑起来。
+                    // UI 侧已经会排队等就绪；这里是最后一道护栏，覆盖 Bridge/别的入口。
+                    // NPU 走自己的 GenieX 生命周期，不要求 llama chat context。
+                    if (!NpuEngineRouter.isNpuActive()
+                            && !com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()
+                            && !awaitChatContextReady(20_000L)) {
+                        if (taskCallback != null) {
+                            taskCallback.onError("本地推理后端未就绪（chat context 未建立），"
+                                    + "本次请求没有开始。请等模型加载完成后再发送。");
+                        }
+                        return;
+                    }
                     AgentResponse response = processMessageInternal(userMessage, enableThinking, history);
                     if (response != null && response.cancelled) {
                         // 取消收尾：仍然把"已产出的部分正文"作为完成事件交下去，
@@ -337,6 +351,27 @@ public class AgentSoftwareLayer {
         return true;
     }
     
+    /**
+     * 等本地 llama chat context 真正可用（nativeValid && n_ctx>0）。
+     * 只等，不在这里 initModel；装载由 UI/Bridge 的单飞流程负责，避免重复建上下文。
+     */
+    private boolean awaitChatContextReady(long timeoutMs) {
+        long deadline = System.currentTimeMillis() + Math.max(0L, timeoutMs);
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                if (ContextLedger.isChatReady()) return true;
+            } catch (Throwable ignored) {
+            }
+            try {
+                Thread.sleep(200L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
+    }
+
     /**
      * 内部处理流程 - MiMo 单循环架构
      */
