@@ -652,14 +652,9 @@ public class AgentDebugBridge extends BroadcastReceiver {
                 || e.contains("interrupted") || e.contains("dns") || e.contains("unreachable");
     }
 
-    /** 本地就绪 = native context 有效 **且** chat context 已建立（getContextSize>0）。 */
+    /** 本地就绪 = native context 有效 **且** chat context 已建立（统一走 InferenceGateway/ContextLedger）。 */
     private static boolean isLocalReady() {
-        try {
-            return com.oilquiz.app.ai.jni.LlamaHelper.isNativeStateValid()
-                    && com.oilquiz.app.ai.jni.LlamaHelper.getContextSize() > 0;
-        } catch (Throwable t) {
-            return false;
-        }
+        return com.oilquiz.app.ai.inference.InferenceGateway.get().isChatReady();
     }
 
     /**

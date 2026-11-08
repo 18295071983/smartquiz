@@ -114,6 +114,10 @@ public final class AgentDebugSnapshot {
         put(root, "malloc", toArray(SystemProbe.mallocInfo()));
         put(root, "engine", toArray(SystemProbe.engine()));
         put(root, "devices", devices());
+        // INFERENCE-GATEWAY：同一份 owner/生成锁/ContextLedger 读数，排查“谁在跑、为什么 busy”。
+        put(root, "gateway", com.oilquiz.app.ai.inference.InferenceGateway.get().describe());
+        put(root, "context_ledger",
+                com.oilquiz.app.ai.inference.ContextLedger.snapshot().describe());
         return root;
     }
 

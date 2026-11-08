@@ -8,6 +8,7 @@ import com.oilquiz.app.ai.agent.software.model.AgentStats;
 import com.oilquiz.app.ai.chat.parser.ThinkingTagConfig;
 import com.oilquiz.app.ai.chat.parser.ToolCallTagConfig;
 import com.oilquiz.app.ai.config.UserModelParamsManager;
+import com.oilquiz.app.ai.inference.InferenceGateway;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.service.AIService;
@@ -1910,7 +1911,7 @@ public class AgentLoopEngine {
             // 取不到就保持空配置（按纯正文处理，不吞除）
         }
 
-        NpuEngineRouter.chatJson(requestJson, new LlamaHelper.JsonCallback() {
+        InferenceGateway.get().chatJson(requestJson, new LlamaHelper.JsonCallback() {
             @Override
             public void onJson(String json) {
                 if (done[0]) return;
@@ -2013,11 +2014,14 @@ public class AgentLoopEngine {
             if (!completed) {
                 AILogger.e(TAG, "chatJson timeout after " + SYNC_TIMEOUT_MS + "ms");
                 lastGenerationError = "chatJson timeout after " + SYNC_TIMEOUT_MS + "ms";
+                // 超时可能等不到 complete/error：显式释放闸门，否则下一条消息永久 busy
+                InferenceGateway.get().forceEnd("AgentLoopEngine");
                 return null;
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             lastGenerationError = "interrupted";
+            InferenceGateway.get().forceEnd("AgentLoopEngine");
             return null;
         }
 
@@ -2025,6 +2029,8 @@ public class AgentLoopEngine {
             // cancelled（R3-2）与真实错误统一视为本轮失败，走 run() 统一退出路径
             AILogger.e(TAG, "chatJson error: " + errorHolder[0]);
             lastGenerationError = errorHolder[0];
+            // 解析异常/非常规 error 事件可能不是标准 {"type":"error"}，闸门必须显式释放
+            InferenceGateway.get().forceEnd("AgentLoopEngine");
             return null;
         }
 

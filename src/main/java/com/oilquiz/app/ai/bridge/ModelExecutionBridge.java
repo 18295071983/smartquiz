@@ -1,7 +1,7 @@
 package com.oilquiz.app.ai.bridge;
 
 import android.content.Context;
-import com.oilquiz.app.ai.engine.NpuEngineRouter;
+import com.oilquiz.app.ai.inference.InferenceGateway;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -173,7 +173,8 @@ public class ModelExecutionBridge {
                     resetGeneration();
                     return;
                 }
-                NpuEngineRouter.chatJson(requestJson, new BridgeJsonCallback(command.messageId, callback));
+                InferenceGateway.get().chatJson(requestJson,
+                        new BridgeJsonCallback(command.messageId, callback), "ModelExecutionBridge");
 
             } catch (Throwable t) {
                 AILogger.e(TAG, "Send message failed", t);
@@ -879,7 +880,8 @@ public class ModelExecutionBridge {
                     resetGeneration();
                     return;
                 }
-                NpuEngineRouter.chatJson(requestJson, new AgentJsonCallback(command.messageId, callback));
+                InferenceGateway.get().chatJson(requestJson,
+                        new AgentJsonCallback(command.messageId, callback), "ModelExecutionBridge");
 
             } catch (Throwable t) {
                 AILogger.e(TAG, "Agent send message failed", t);
@@ -901,6 +903,8 @@ public class ModelExecutionBridge {
         } catch (Throwable t) {
             AILogger.e(TAG, "Stop generation error", t);
         }
+        // INFERENCE-GATEWAY：chatStop 只停 native；统一闸门也要释放，否则下一轮 busy。
+        InferenceGateway.get().cancelAll();
 
         String msgId = currentMessageId;
         mainHandler.post(() -> {
@@ -1152,6 +1156,9 @@ public class ModelExecutionBridge {
         // NPU-FAULT-GUARD(2026-11-01)：兜底收尾，幂等。取消/异常/早退这些没走 complete 的路径
         // 也必须结掉这一轮，否则"在飞"标记留在盘上，下次启动会被误判成"死在推理轮内"。
         com.oilquiz.app.ai.jni.NpuFaultGuard.onRoundEnd(appContext);
+        // INFERENCE-GATEWAY：complete/error 之外的早退（构建请求失败、异常、取消）也要释放闸门，
+        // 否则下一次 send 会被 "推理通道忙" 拒绝。owner 限定，不会误放 Agent 的生成。
+        InferenceGateway.get().forceEnd("ModelExecutionBridge");
         isGenerating.set(false);
         currentMessageId = null;
         currentCallback = null;
@@ -1639,7 +1646,8 @@ public class ModelExecutionBridge {
                     completeNativeGeneration(content, messageId, callback);
                     return;
                 }
-                NpuEngineRouter.chatJson(nextReq, new AgentJsonCallback(messageId, callback));
+                InferenceGateway.get().chatJson(nextReq,
+                        new AgentJsonCallback(messageId, callback), "ModelExecutionBridge");
             } catch (Throwable t) {
                 AILogger.e(TAG, "Agent native tool call error", t);
                 completeNativeGeneration(content, messageId, callback);

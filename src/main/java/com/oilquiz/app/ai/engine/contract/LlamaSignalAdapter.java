@@ -128,12 +128,11 @@ public final class LlamaSignalAdapter {
      */
     public static ContextUsage contextUsage() {
         try {
-            // KV-REAL(2026-11-08)：先取真实 seq_pos_max+1。旧实现优先读 AgentKvCache
-            // 的 cached_npast（记账值），真机出现 52 vs 4304/4664，上下文仪表/守卫会差约 4K token。
-            long realSize = LlamaHelper.getContextSize();
-            long realUsed = LlamaHelper.getContextUsedTokens();
-            if (realSize > 0) {
-                return new ContextUsage(realSize, Math.max(0, realUsed), ENGINE);
+            // CONTEXT-LEDGER：服务层/UI 与 Agent/普通对话共用同一份上下文快照。
+            com.oilquiz.app.ai.inference.ContextLedger.Snapshot ledger =
+                    com.oilquiz.app.ai.inference.ContextLedger.snapshot();
+            if (ledger.nCtx > 0) {
+                return new ContextUsage(ledger.nCtx, Math.max(0, ledger.realUsed), ENGINE);
             }
 
             String stats = LlamaHelper.getKvCacheStats();
