@@ -1,0 +1,74 @@
+From 3659cc364c417a78b8c467de226cab467e1f0ad7 Mon Sep 17 00:00:00 2001
+From: SmartQuiz Developer <developer@smartquiz.com>
+Date: Sun, 8 Nov 2026 15:48:18 +0800
+Subject: [PATCH] vulkan: skip broken device fault query on Adreno
+
+Adreno 840 driver 0842.44.1 null-derefs in vkGetDeviceFaultInfoEXT after a
+device lost, turning a recoverable submit failure into SIGSEGV. Skip the
+optional diagnostic on Qualcomm and log a plain warning instead.
+
+Route pipeline creation failures through GGML_LOG_ERROR with the shader name
+(stderr is not visible on Android), and promote the GPU capability line to INFO.
+
+Assisted-by: Qoder
+---
+ ggml/src/ggml-vulkan/ggml-vulkan.cpp | 15 +++++++++++----
+ 1 file changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index 8347cd1b..3c6208dd 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -150,6 +150,13 @@ void ggml_vk_print_device_fault_info(const vk_device& device) {
+     if (!device->device_fault || !device->pfn_vkGetDeviceFaultInfoEXT) {
+         return;
+     }
++    // Adreno 840 driver 0842.44.1 null-derefs inside vkGetDeviceFaultInfoEXT when the
++    // device is already lost. Skip the optional diagnostic instead of crashing the process.
++    if (device->vendor_id == VK_VENDOR_ID_QUALCOMM) {
++        GGML_LOG_WARN("ggml_vulkan: device lost on %s (device fault info query skipped on Adreno)\n",
++                device->name.c_str());
++        return;
++    }
+ 
+     VkDeviceFaultCountsEXT fault_counts {};
+     fault_counts.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_COUNTS_EXT;
+@@ -687,7 +694,7 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
+     try {
+         pipeline->shader_module = device->device.createShaderModule(shader_module_create_info);
+     } catch (const vk::SystemError& e) {
+-        std::cerr << "ggml_vulkan: shader module creation failed for " << pipeline->name << ": " << e.what() << std::endl;
++        GGML_LOG_ERROR("ggml_vulkan: shader module creation failed for %s: %s\n", pipeline->name.c_str(), e.what());
+         throw;
+     }
+ 
+@@ -701,7 +708,7 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
+     try {
+         pipeline->layout = device->device.createPipelineLayout(pipeline_layout_create_info);
+     } catch (const vk::SystemError& e) {
+-        std::cerr << "ggml_vulkan: pipeline layout creation failed for " << pipeline->name << ": " << e.what() << std::endl;
++        GGML_LOG_ERROR("ggml_vulkan: pipeline layout creation failed for %s: %s\n", pipeline->name.c_str(), e.what());
+         throw;
+     }
+ 
+@@ -771,7 +778,7 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
+     try {
+         pipeline->pipeline = device->device.createComputePipeline(VK_NULL_HANDLE, compute_pipeline_create_info).value;
+     } catch (const vk::SystemError& e) {
+-        std::cerr << "ggml_vulkan: compute pipeline creation failed for " << pipeline->name << ": " << e.what() << std::endl;
++        GGML_LOG_ERROR("ggml_vulkan: compute pipeline creation failed for %s: %s\n", pipeline->name.c_str(), e.what());
+         throw;
+     }
+ 
+@@ -5242,7 +5249,7 @@ static void ggml_vk_print_gpu_info(size_t idx) {
+ #endif
+ 
+     std::string device_name = props2.properties.deviceName.data();
+-    GGML_LOG_DEBUG("ggml_vulkan: %zu = %s (%s) | uma: %d | rebar: %d | fp16: %s | bf16: %d | fp4: %d | warp size: %zu | shared memory: %d | int dot: %d | matrix cores: %s\n",
++    GGML_LOG_INFO("ggml_vulkan: %zu = %s (%s) | uma: %d | rebar: %d | fp16: %s | bf16: %d | fp4: %d | warp size: %zu | shared memory: %d | int dot: %d | matrix cores: %s\n",
+               idx, device_name.c_str(), driver_props.driverName.data(), uma, rebar, fp16_str, bf16, fp4, subgroup_size,
+               props2.properties.limits.maxComputeSharedMemorySize, integer_dot_product, matrix_cores.c_str());
+ 
+-- 
+2.53.0.windows.2
+

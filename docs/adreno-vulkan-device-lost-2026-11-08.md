@@ -52,6 +52,10 @@ WebView/Chromium Vulkan 实例（HWUI 也走 Vulkan）。不要按这几行去�
    Android 上 stderr 不进日志，原先完全看不到失败的是哪条管线。
 3. GPU 能力行从 DEBUG 提升到 INFO（fp16/matrix cores/int dot 等）。
 
+该修复以 patch 形式随主仓库留存：
+`src/main/cpp/patches/llama.cpp/0001-vulkan-skip-broken-device-fault-query-on-Adreno.patch`
+（nested repo 提交 `3659cc36`，基线 `4e5f228d`）。
+
 修复后同一 prompt 不再 SIGSEGV，错误路径变为：
 
 ```text
