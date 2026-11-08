@@ -1034,9 +1034,12 @@ public class AgentLoopEngine {
             if (reasoning == null || reasoning.isEmpty()) {
                 reasoning = extractThought(response);
             }
-            if (reasoning != null && !reasoning.isEmpty() && callback != null) {
-                callback.onThinkingUpdate("第 " + iteration + " 轮思考: " + truncate(reasoning, 120));
-            }
+            // THINK-DUP-FIX(2026-11-08)：思考已在 generateWithChatJsonSync 的 thinking/reasoning
+            // 事件里逐 token 推给 UI；这里**不能**再补一条
+            //   "第 N 轮思考: " + truncate(reasoning, 120)
+            // ——UI 会把它追加进同一个 thinkingContent，真机 T129/T130/T131 都出现
+            // “原文 + 第 N 轮思考 + 截断副本”（12k 字符思考文件 76KB）。
+            // 轮次标题由 thinkingRounds/UI 负责，原始 reasoning 由 genResult 负责，二者不要混写。
 
             // 工具调用解析：**唯一权威来源是 native 层**。
             // native 用模板的 PEG parser（common_chat_parse）解析并下发 tool_call 事件，
@@ -2800,7 +2803,8 @@ public class AgentLoopEngine {
                 : "问具体时刻时如实说明只能提供日期，无法给出准确时刻";
         return "\n\n【当前真实日期】" + today + "\n"
                 + "用户问日期/星期时直接采用以上日期；" + timeHint + "。不要使用训练数据中的日期。\n"
-                + "本块是本轮实时提供的，对话历史里出现过的【当前真实日期】都是更早轮次的快照，一律不采用。";
+                + "这是本轮唯一有效日期；对话历史里的【当前真实日期】都是更早轮次的快照，一律不采用。"
+                + "本条只用于日期判断，不要复述、解释或反复确认这条规则；思考也用中文，简洁，不要循环自我确认。";
     }
 
     /**
