@@ -11660,7 +11660,7 @@ public class AIChatActivity extends BaseActivity {
                     if (result != null) c.props.put("result", result);
                     // 附加该工具通过 withComponent 产生的结构化组件（list_card 等），实时显示不等 Agent 完成
                     java.util.List<com.oilquiz.app.ai.chat.component.ComponentData> drained =
-                            com.oilquiz.app.ai.chat.component.ComponentCollector.drain();
+                            com.oilquiz.app.ai.chat.component.ComponentCollector.drainForTool(toolName);
                     if (drained != null && !drained.isEmpty()) {
                         // PRODUCT-OWNER(2026-10-13)：给每个产物标注归属工具（toolCallId 优先、
                         // 无 id 时退化到 toolName），供 ChatAdapter 的 renderRoundAssembled 把产物

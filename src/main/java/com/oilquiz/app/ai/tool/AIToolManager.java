@@ -460,7 +460,7 @@ public class AIToolManager {
             AIToolResult result = tool.execute(parameters);
             // 工具侧桥接：工具结果携带结构化 UI 组件时收集，本轮生成完成时附加到 AI 消息
             if (result != null && result.getComponent() != null) {
-                com.oilquiz.app.ai.chat.component.ComponentCollector.collect(result.getComponent());
+                com.oilquiz.app.ai.chat.component.ComponentCollector.collectForTool(resolved, result.getComponent());
                 // 产出留痕（前台无感；离开页面时用于通知/回灌提示）
                 com.oilquiz.app.ai.agent.WorkspaceActivityLog.getInstance()
                         .record(context, resolved, result.getComponent());
@@ -519,7 +519,7 @@ public class AIToolManager {
                         && displayParam != null && !String.valueOf(displayParam).trim().isEmpty()) {
                     card.props.put("display", String.valueOf(displayParam).trim());
                 }
-                com.oilquiz.app.ai.chat.component.ComponentCollector.collect(card);
+                com.oilquiz.app.ai.chat.component.ComponentCollector.collectForTool(toolName, card);
             }
             // 产出留痕：与上面卡片同源，不额外解析
             com.oilquiz.app.ai.agent.WorkspaceActivityLog.getInstance()
