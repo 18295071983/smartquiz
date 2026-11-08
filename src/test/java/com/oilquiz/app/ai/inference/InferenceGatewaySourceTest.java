@@ -46,9 +46,17 @@ public class InferenceGatewaySourceTest {
                 src.contains("InferenceGateway.get().chatJson"));
         assertTrue("ModelExecutionBridge 必须显式传 owner",
                 src.contains("\"ModelExecutionBridge\""));
-        assertFalse("ModelExecutionBridge 不得再持有 NpuEngineRouter import/调用",
+        assertFalse("ModelExecutionBridge 不得再持有 NpuEngineRouter.chatJson 调用",
                 src.contains("NpuEngineRouter.chatJson("));
         assertTrue("早退/取消路径必须 forceEnd，避免下一次 busy",
                 src.contains("InferenceGateway.get().forceEnd(\"ModelExecutionBridge\")"));
+    }
+
+    @Test
+    public void npuSignalRequiresLoadedModel() throws Exception {
+        String src = read("src/main/java/com/oilquiz/app/ai/engine/contract/NpuSignalAdapter.java");
+        assertTrue("NPU 状态适配器必须同时检查 engineEnabled 与 isLoaded，"
+                        + "否则会拿 NPU 的 32768/52 覆盖本地 llama 的 16384/4473",
+                src.contains("NpuLlmChat.isEngineEnabled() && NpuLlmChat.isLoaded()"));
     }
 }

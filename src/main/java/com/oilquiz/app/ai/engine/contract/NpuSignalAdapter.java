@@ -29,7 +29,10 @@ public final class NpuSignalAdapter {
     /** 供 UI 入队前判定用（避免 UI 直连 NpuLlmChat） */
     public static boolean isActive() {
         try {
-            return NpuLlmChat.isEngineEnabled();
+            // NPU-SIGNAL-STALE(2026-11-08)：只看 isEngineEnabled 会把“开关还开着、模型实际没加载”
+            // 误判成 NPU 在跑。AIServiceStatusActivity 因此显示 NPU 的 32768/52，而本地 llama
+            // 实际是 16384/4473。必须同时 loaded，才是当前真正生效的引擎。
+            return NpuLlmChat.isEngineEnabled() && NpuLlmChat.isLoaded();
         } catch (Throwable t) {
             return false;
         }
