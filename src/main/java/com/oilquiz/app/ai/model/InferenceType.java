@@ -8,10 +8,10 @@ public enum InferenceType {
     LOCAL("本地模型"),
     ONLINE("在线模型"),
     /** Qualcomm GenieX 运行时：GGUF 直接跑在 Hexagon NPU（SM8750 / SM8850） */
-    NPU("NPU（GenieX）");
+    NPU("NPU（HTP）");
 
     /** NPU 引擎在"选择模型"列表里的虚拟模型 ID */
-    public static final String NPU_MODEL_ID = "npu-geniex-hexagon";
+    public static final String NPU_MODEL_ID = "npu-htp-hexagon";
 
     private final String displayName;
 

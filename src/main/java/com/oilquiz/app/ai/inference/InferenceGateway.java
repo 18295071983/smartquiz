@@ -64,20 +64,10 @@ public final class InferenceGateway {
 
     /**
      * BACKEND-LINK(2026-11-08)：本地 llama 请求必须在 chat context 真正建好后才能开始。
-     * 之前只检查“模型在内存/native handle 有效”，会在 n_ctx 还没建出来时放行，
-     * native 直接回 Helper context not initialized —— 用户看到“推理没有开始”。
-     * NPU 走自己的 GenieX 生命周期，不要求 llama chat context。
+     * GenieX 已移除；NPU 现在是 llama.cpp 的 ggml-hexagon/HTP 设备，仍然走同一个
+     * NativeChatContext，因此判据统一为 ContextLedger.chatReady，不再有 NPU 例外。
      */
     public boolean isBackendReady() {
-        try {
-            if (NpuEngineRouter.isNpuActive()
-                    || com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
-                // NPU 有自己的 GenieX 加载/错误语义；交给 NpuEngineRouter 报准确状态，
-                // 不要用 llama chatReady 把它误判成“本地后端未就绪”。
-                return true;
-            }
-        } catch (Throwable ignored) {
-        }
         return ContextLedger.isChatReady();
     }
 

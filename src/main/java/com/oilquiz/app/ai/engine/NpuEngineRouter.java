@@ -43,7 +43,7 @@ public final class NpuEngineRouter {
     // NPU 加载失败/未就绪也会回退。状态栏此前只能表达"选择"，无法表达"实际"。
     // 这里在**每个真实决策点**记录本轮实际使用的引擎，供 UI 读取真实路径。
     // 取值：{@link #ENGINE_NPU} / {@link #ENGINE_LLAMA}；null 表示尚未有任何一轮推理。
-    public static final String ENGINE_NPU = "npu-geniex";
+    public static final String ENGINE_NPU = "npu-htp";
     public static final String ENGINE_LLAMA = "llama-cpp";
 
     private static volatile String actualEngine = null;
@@ -64,6 +64,21 @@ public final class NpuEngineRouter {
     }
 
     private static void recordActualEngine(String engine, String reason) {
+        // BACKEND-LABEL(2026-11-08)：GenieX 已移除；实际 NPU 是 llama.cpp 的
+        // ggml-hexagon/HTP。只要 native 解析到 hexagon，就把“llama-cpp”标成 npu-htp，
+        // 避免日志/状态栏在 HTP 正常工作时仍写“未路由到 NPU”。
+        if (ENGINE_LLAMA.equals(engine)) {
+            try {
+                String resolved = LlamaHelper.getResolvedBackend();
+                if ("hexagon".equalsIgnoreCase(resolved)) {
+                    engine = ENGINE_NPU;
+                    reason = "llama.cpp HTP 设备（ggml-hexagon）";
+                } else if (resolved != null && !resolved.isEmpty()) {
+                    reason = "llama.cpp " + resolved + " 后端";
+                }
+            } catch (Throwable ignored) {
+            }
+        }
         actualEngine = engine;
         actualEngineReason = reason;
         Log.i(TAG, "实际推理引擎 = " + engine + "（" + reason + "）");

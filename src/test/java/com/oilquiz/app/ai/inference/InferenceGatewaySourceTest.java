@@ -67,7 +67,5 @@ public class InferenceGatewaySourceTest {
                 src.contains("awaitBackendReady(30_000L)"));
         assertTrue("Readiness must use ContextLedger.isChatReady (n_ctx>0)",
                 src.contains("ContextLedger.isChatReady()"));
-        assertTrue("NPU has its own GenieX lifecycle",
-                src.contains("NpuEngineRouter.isNpuActive()"));
     }
 }

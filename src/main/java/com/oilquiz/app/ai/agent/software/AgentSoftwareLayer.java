@@ -5,7 +5,6 @@ import android.content.Context;
 import com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine;
 import com.oilquiz.app.ai.agent.software.model.*;
 import com.oilquiz.app.ai.jni.LlamaHelper;
-import com.oilquiz.app.ai.engine.NpuEngineRouter;
 import com.oilquiz.app.ai.inference.ContextLedger;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.util.AILogger;
@@ -311,11 +310,8 @@ public class AgentSoftwareLayer {
             executor.execute(() -> {
                 try {
                     // BACKEND-LINK(2026-11-08)：引擎不能在后端 chat context 未建立时先跑起来。
-                    // UI 侧已经会排队等就绪；这里是最后一道护栏，覆盖 Bridge/别的入口。
-                    // NPU 走自己的 GenieX 生命周期，不要求 llama chat context。
-                    if (!NpuEngineRouter.isNpuActive()
-                            && !com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()
-                            && !awaitChatContextReady(20_000L)) {
+                    // GenieX 已移除；NPU=llama.cpp HTP，同样依赖 NativeChatContext。
+                    if (!awaitChatContextReady(20_000L)) {
                         if (taskCallback != null) {
                             taskCallback.onError("本地推理后端未就绪（chat context 未建立），"
                                     + "本次请求没有开始。请等模型加载完成后再发送。");
