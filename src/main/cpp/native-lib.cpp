@@ -1487,14 +1487,9 @@ static void classifyToolCallTags(const std::vector<std::string>& preservedTokens
 // 交给解析侧（server-common.cpp 存 chat_parser，server-schema.cpp 回填），这里对齐。
 static common_chat_parser_params makeChatParserParams(const common_chat_params & chat_params) {
     common_chat_parser_params parser_params(chat_params);
-    // chat_params.parser 是 PEG 语法的序列化串（parser.save()），用 load() 反序列化
-    // 回 arena：common_peg_arena 禁用了拷贝赋值，只能走这条路。
-    if (!chat_params.parser.empty()) {
-        parser_params.parser.load(chat_params.parser);
-    } else {
-        // 纯内容模板（无工具语法）属于正常情况，只记调试日志
-        LOGD("chat parse: no PEG parser in template, content-only parsing");
-    }
+    // chat_params.parser is a common_peg_arena; the parser params constructor
+    // copies only the format and generation prompt, so copy the arena here.
+    parser_params.parser = chat_params.parser;
     return parser_params;
 }
 
@@ -4402,7 +4397,7 @@ public:
         try {
             chat_params = common_chat_templates_apply(chat_templates.get(), inputs);
             LOGD("Chat template applied, prompt length: %zu, format: %s",
-                 chat_params.prompt.size(), common_chat_format_name(chat_params.format));
+                 chat_params.prompt.str().size(), common_chat_format_name(chat_params.format));
             // 提取模板思考标签（统一标签源），供流式思考段剥离
             mThinkStartTag = chat_params.thinking_start_tag;
             mThinkEndTags = chat_params.thinking_end_tags;
@@ -4415,7 +4410,7 @@ public:
             return generateStreamFromMessages(messages, maxTokens, temperature, topP, topK, enableThinking, callback);
         }
 
-        if (chat_params.prompt.empty()) {
+        if (chat_params.prompt.str().empty()) {
             std::string error = "Chat template produced empty prompt";
             setLastError(error);
             callback("", true, error);
@@ -4462,7 +4457,7 @@ public:
         // （实测："需要调用 location 工具…" 却没有任何 <function> 输出）。
         // generateStreamIncremental 收 chat_params 并已实现 preserved_tokens 透传，
         // 与 chatJson 路径行为一致；同时启用 KV 增量（Agent 多轮省 prefill）。
-        bool genOk = generateStreamIncremental(chat_params.prompt, maxTokens, temperature, topP, topK,
+        bool genOk = generateStreamIncremental(chat_params.prompt.str(), maxTokens, temperature, topP, topK,
                                                false, wrappedCallback, &chat_params);
 
         // 生成完成后，用 common_chat_parse 解析模型输出
@@ -4471,8 +4466,8 @@ public:
         if (genOk && !collectedText.empty()) {
             try {
                 common_chat_parser_params parser_params = makeChatParserParams(chat_params);
-                parser_params.parse_tool_calls = true;
-                common_chat_msg parsed = common_chat_parse(collectedText, false, parser_params);
+                
+                common_chat_msg parsed = common_chat_parse(common_chat_input(collectedText), false, parser_params);
 
                 if (outParseResult != nullptr) {
                     outParseResult->tool_calls = std::move(parsed.tool_calls);
@@ -4600,7 +4595,7 @@ public:
         try {
             chat_params = common_chat_templates_apply(chat_templates.get(), inputs);
             LOGI("chatJson: template applied, prompt length: %zu, format: %s",
-                 chat_params.prompt.size(), common_chat_format_name(chat_params.format));
+                 chat_params.prompt.str().size(), common_chat_format_name(chat_params.format));
 
             // 提取模板思考标签（统一标签源），供流式思考段剥离
             mThinkStartTag = chat_params.thinking_start_tag;
@@ -4610,9 +4605,9 @@ public:
             LOGV("chatJson: thinking tags from template: start='%s', %zu end tag(s)",
                  mThinkStartTag.c_str(), mThinkEndTags.size());
             // 调试：打印模板 prompt 开头与末尾，排查"模型输出模板前缀/双前缀"问题
-            std::string p0 = chat_params.prompt.substr(0, 250);
-            std::string p1 = chat_params.prompt.size() > 250
-                    ? chat_params.prompt.substr(chat_params.prompt.size() - 300) : "";
+            std::string p0 = chat_params.prompt.str().substr(0, 250);
+            std::string p1 = chat_params.prompt.str().size() > 250
+                    ? chat_params.prompt.str().substr(chat_params.prompt.str().size() - 300) : "";
             LOGV("chatJson: PROMPT_HEAD>>%s<<", p0.c_str());
             if (!p1.empty()) LOGV("chatJson: PROMPT_TAIL>>%s<<", p1.c_str());
         } catch (const std::exception& e) {
@@ -4667,7 +4662,7 @@ public:
             return fbOk;
         }
 
-        if (chat_params.prompt.empty()) {
+        if (chat_params.prompt.str().empty()) {
             sendError("Chat template produced empty prompt");
             return false;
         }
@@ -4693,7 +4688,7 @@ public:
         // 否则思考内容被当作正文下发（泄漏到 UI/TTS）。
         bool promptTailInThinking = false;
         {
-            std::string tail = chat_params.prompt;
+            std::string tail = chat_params.prompt.str();
             size_t lastNs = tail.find_last_not_of(" \t\r\n");
             if (lastNs != std::string::npos) tail = tail.substr(0, lastNs + 1);
             promptTailInThinking = !mThinkStartTag.empty()
@@ -4857,8 +4852,8 @@ public:
                     partialParseCounter = 0;
                     try {
                         common_chat_parser_params pp = makeChatParserParams(chat_params);
-                        pp.parse_tool_calls = true;
-                        common_chat_msg partial = common_chat_parse(collectedText, true, pp);
+                        
+                        common_chat_msg partial = common_chat_parse(common_chat_input(collectedText), true, pp);
                         if (!partial.tool_calls.empty()) {
                             isInToolCall = true;   // 检测到 tool_call 输出，锁定后续标记
                             LOGV("chatJson: is_partial detected tool_call output");
@@ -4935,7 +4930,7 @@ public:
                  chat_params.grammar.empty() ? "none" : "set", chat_params.grammar.size(),
                  (int)chat_params.grammar_lazy, chat_params.grammar_triggers.size(),
                  chat_params.preserved_tokens.size(), chat_params.additional_stops.size());
-            genOk = generateStreamIncremental(chat_params.prompt, maxTokens, temperature, topP, topK, false, tokenCallback, &chat_params);
+            genOk = generateStreamIncremental(chat_params.prompt.str(), maxTokens, temperature, topP, topK, false, tokenCallback, &chat_params);
         } catch (const std::exception& e) {
             // GPU shader 编译失败等异常：转错误事件而非崩进程（libc++abi terminate）
             LOGE("chatJson generation threw: %s", e.what());
@@ -4969,8 +4964,8 @@ public:
         bool parseOk = false;
         try {
             common_chat_parser_params parser_params = makeChatParserParams(chat_params);
-            parser_params.parse_tool_calls = true;
-            parsed = common_chat_parse(collectedText, false, parser_params);
+            
+            parsed = common_chat_parse(common_chat_input(collectedText), false, parser_params);
             parseOk = true;
         } catch (const std::exception& e) {
             LOGW("chatJson: common_chat_parse failed (%s), degrading to complete(collectedText)", e.what());
@@ -5675,16 +5670,16 @@ std::string InferenceContext::applyChatTemplateForMessages(const std::vector<std
                 inputs.enable_thinking = enableThinking && supports_thinking;
 
                 common_chat_params params = common_chat_templates_apply(tmpl.get(), inputs);
-                if (!params.prompt.empty()) {
+                if (!params.prompt.str().empty()) {
                     // 与 generateWithTools 一致：同步缓存模板标签，供流式思考剥离使用
                     if (!params.thinking_start_tag.empty()) {
                         mThinkStartTag = params.thinking_start_tag;
                         mThinkEndTags = params.thinking_end_tags;
                     }
                     LOGI("applyChatTemplateForMessages: template=%zu bytes, thinking=%d (requested=%d, supports=%d), startTag='%s'",
-                         params.prompt.size(), (int)inputs.enable_thinking, (int)enableThinking,
+                         params.prompt.str().size(), (int)inputs.enable_thinking, (int)enableThinking,
                          (int)supports_thinking, mThinkStartTag.c_str());
-                    return params.prompt;
+                    return params.prompt.str();
                 }
                 LOGW("applyChatTemplateForMessages: template produced empty prompt, falling back to legacy API");
             } catch (const std::exception& e) {
@@ -5890,7 +5885,7 @@ private:
         inputs.enable_thinking = thinkingEnabled && supports_thinking;
         try {
             common_chat_params params = common_chat_templates_apply(chat_templates.get(), inputs);
-            if (params.prompt.empty()) {
+            if (params.prompt.str().empty()) {
                 LOGW("applyChatTemplateWithThinking: empty prompt, fallback");
                 return applyChatTemplate(addAssistantStart);
             }
@@ -5900,7 +5895,7 @@ private:
                 g_lastChatParams = params;
                 g_lastChatParamsValid = true;
             }
-            return params.prompt;
+            return params.prompt.str();
         } catch (const std::exception& e) {
             LOGW("applyChatTemplateWithThinking failed: %s, fallback", e.what());
             return applyChatTemplate(addAssistantStart);
@@ -6612,7 +6607,7 @@ public:
         bool useParser = false;
         if (g_lastChatParamsValid && !g_lastChatParams.parser.empty()) {
             chatParserParams = llama_jni::makeChatParserParams(g_lastChatParams);
-            chatParserParams.parse_tool_calls = true;
+            
             useParser = true;
             LOGV("chatSend: PEG parser enabled for tool-call detection");
         } else {
@@ -6721,7 +6716,7 @@ public:
                         // 只要解析出 tool_calls 即认定该轮是工具调用轮 —— 不再依赖
                         // 模型专有标记，<tool_call>/<function=/tool_call_begin 一视同仁。
                         try {
-                            common_chat_msg pm = common_chat_parse(fullResponse, true, chatParserParams);
+                            common_chat_msg pm = common_chat_parse(common_chat_input(fullResponse), true, chatParserParams);
                             if (!pm.tool_calls.empty()) {
                                 toolCallAt = 0;
                             } else {
