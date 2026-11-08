@@ -1461,19 +1461,41 @@ public class AgentLoopEngine {
      * 会话身份变更检测：首条历史消息变了（切换会话/清空/换模型）→ 重建会话序列。
      * 同会话内 bridge 历史只增不减（首条不变），序列保留 → 前缀字节稳定。
      */
-    private void resetSessionIfHistoryChanged(List<HistoryEntry> priorHistory) {
-        if (sessionMessages.isEmpty()) return; // 尚无会话状态，稍后首次种子化
-        String firstContent = null;
-        if (priorHistory != null) {
-            for (HistoryEntry h : priorHistory) {
-                if (h != null && h.content != null && !h.content.trim().isEmpty()) {
-                    firstContent = h.content;
-                    break;
-                }
+    /**
+     * 历史清空判据（2026-11-08）：
+     * <ul>
+     *   <li>{@code null} = 调用方未提供历史（调试桥单轮注入）——<b>不是</b>清空，必须保留会话；</li>
+     *   <li>非 null 但首条非空消息不存在（空列表/全空内容）= 显式清空。</li>
+     * </ul>
+     * 旧实现把 null 也当清空，导致同 session 第二轮仍重置、每轮 19.5s 全量 prefill。
+     */
+    static boolean isHistoryExplicitlyCleared(List<HistoryEntry> priorHistory) {
+        if (priorHistory == null) return false;
+        for (HistoryEntry h : priorHistory) {
+            if (h != null && h.content != null && !h.content.trim().isEmpty()) return false;
+        }
+        return true;
+    }
+
+    static String firstHistoryContent(List<HistoryEntry> priorHistory) {
+        if (priorHistory == null) return null;
+        for (HistoryEntry h : priorHistory) {
+            if (h != null && h.content != null && !h.content.trim().isEmpty()) {
+                return h.content;
             }
         }
-        if (firstContent == null) {
-            // 对话已清空（bridge 历史空）
+        return null;
+    }
+
+    private void resetSessionIfHistoryChanged(List<HistoryEntry> priorHistory) {
+        if (sessionMessages.isEmpty()) return; // 尚无会话状态，稍后首次种子化
+        // HISTORY-NULL(2026-11-08)：null = 调用方没提供历史（如调试桥单轮注入），
+        // 不等于"历史被清空"。之前这里把 null 也当清空，导致同 session 第二轮仍重置，
+        // 每轮 prompt 都从 4292 token 全量 prefill（真机 19.5s），多轮记忆也丢。
+        // 显式清空必须由调用方传空列表或 resetSessionSequence()。
+        if (priorHistory == null) return;
+        if (isHistoryExplicitlyCleared(priorHistory)) {
+            // 对话已清空（调用方显式传空历史）
             if (!sessionMessages.isEmpty()) {
                 AILogger.i(TAG, "Session history cleared, resetting KV-stable sequence");
                 sessionMessages.clear();
@@ -1481,6 +1503,7 @@ public class AgentLoopEngine {
             sessionTools.clear(); // 工具集随会话重置（下次 run 重新填充核心4工具，见 DEFAULT_CORE_TOOLS）
             return;
         }
+        String firstContent = firstHistoryContent(priorHistory);
         ChatMessage first = sessionMessages.get(0);
         String stored = first != null ? first.content : null;
         // startsWith 而非 equals：会话首条消息若走 Agent 路径，序列里存的是带 D 块
