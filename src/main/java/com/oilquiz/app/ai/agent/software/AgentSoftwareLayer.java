@@ -39,6 +39,39 @@ public class AgentSoftwareLayer {
     // ========== 状态管理 ==========
     private final AtomicBoolean isProcessing = new AtomicBoolean(false);
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+
+    /**
+     * LOCAL-OWNER(2026-11-08)：本地 Agent 只能有一个 owner。
+     *
+     * <p>聊天页、调试桥、后台执行此前各自 new AgentSoftwareLayer，各自持有
+     * AgentLoopEngine.sessionMessages，却共用同一个 native context/KV；切任务就会
+     * 改前缀 → AgentKvCache 全量 prefill。这里收敛为一个共享实例，用
+     * {@link #processMessageForSession} 做“任务级 callback + session 隔离”。</p>
+     */
+    private static volatile AgentSoftwareLayer shared;
+
+    public static AgentSoftwareLayer getShared(Context context, AIService aiService) {
+        AgentSoftwareLayer local = shared;
+        if (local == null) {
+            synchronized (AgentSoftwareLayer.class) {
+                local = shared;
+                if (local == null) {
+                    Context app = context != null ? context.getApplicationContext() : null;
+                    local = new AgentSoftwareLayer(app, aiService);
+                    shared = local;
+                }
+            }
+        }
+        return local;
+    }
+
+    /** 当前共享实例（没有则 null；调试/状态查询用，不创建）。 */
+    public static AgentSoftwareLayer peekShared() {
+        return shared;
+    }
+
+    /** 最近一次任务使用的 session id；换 session 时清会话序列。 */
+    private volatile String lastSessionId;
     
     // ========== 回调 ==========
     public interface AgentCallback {
@@ -73,7 +106,7 @@ public class AgentSoftwareLayer {
         default void onTruncated(String detail) {}
     }
     
-    private AgentCallback callback;
+    private volatile AgentCallback callback;
     
     public AgentSoftwareLayer(Context context, AIService aiService) {
         this.aiService = aiService;
@@ -230,46 +263,78 @@ public class AgentSoftwareLayer {
      */
     public void processMessage(String userMessage, boolean enableThinking,
                                java.util.List<AgentLoopEngine.HistoryEntry> history) {
+        start(userMessage, enableThinking, history, callback, null);
+    }
+
+    /**
+     * LOCAL-OWNER(2026-11-08)：共享实例的任务级入口。
+     *
+     * <p>callback 按任务传入，避免聊天页/调试桥/后台任务互相覆盖；sessionId 变化时
+     * 清一次 AgentLoopEngine 的会话序列，同 session 保留多轮上下文。同一时刻只允许
+     * 一个任务（native context 本身也是单路），重入通过 callback.onBusy 给出终态。</p>
+     */
+    public boolean processMessageForSession(String userMessage, boolean enableThinking,
+                                            java.util.List<AgentLoopEngine.HistoryEntry> history,
+                                            AgentCallback callback, String sessionId) {
+        return start(userMessage, enableThinking, history, callback, sessionId);
+    }
+
+    private boolean start(String userMessage, boolean enableThinking,
+                          java.util.List<AgentLoopEngine.HistoryEntry> history,
+                          AgentCallback taskCallback, String sessionId) {
         if (isProcessing.getAndSet(true)) {
             // 重入（2026-10-25）：旧实现只打一行日志就静默 return。上层在调用前已经把
             // 状态栏切成"⏳ 模型处理中…"并记好待回写的用户消息，于是被丢弃的这条消息
             // 既没有 onComplete 也没有 onError —— 界面永久停在"处理中"。
             // 现在给出明确的 busy 终态，由 UI 提示并回滚它自己记的待回写状态。
             AILogger.w(TAG, "Already processing a message, notifying onBusy instead of dropping silently");
-            AgentCallback cb = callback;
-            if (cb != null) {
+            if (taskCallback != null) {
                 try {
-                    cb.onBusy(userMessage);
+                    taskCallback.onBusy(userMessage);
                 } catch (Throwable t) {
                     AILogger.w(TAG, "onBusy callback failed: " + t.getMessage());
                 }
             }
-            return;
+            return false;
         }
-        
-        executor.execute(() -> {
-            try {
-                AgentResponse response = processMessageInternal(userMessage, enableThinking, history);
-                if (response != null && response.cancelled) {
-                    // 取消收尾：仍然把"已产出的部分正文"作为完成事件交下去，
-                    // UI 侧沿用既有的 userStopped/FINISH_STOPPED 标注，不另造一套终态；
-                    // 引擎此时**没有**再发起任何解码（见 AgentLoopEngine 取消分支）。
-                    AILogger.i(TAG, "Run cancelled: delivering partial answer (len="
-                            + (response.finalAnswer != null ? response.finalAnswer.length() : 0) + ")");
+
+        this.callback = taskCallback;
+        if (sessionId != null && !sessionId.equals(lastSessionId)) {
+            resetSessionSequence();
+            lastSessionId = sessionId;
+            AILogger.i(TAG, "Local session switched -> reset sequence: " + sessionId);
+        }
+
+        try {
+            executor.execute(() -> {
+                try {
+                    AgentResponse response = processMessageInternal(userMessage, enableThinking, history);
+                    if (response != null && response.cancelled) {
+                        // 取消收尾：仍然把"已产出的部分正文"作为完成事件交下去，
+                        // UI 侧沿用既有的 userStopped/FINISH_STOPPED 标注，不另造一套终态；
+                        // 引擎此时**没有**再发起任何解码（见 AgentLoopEngine 取消分支）。
+                        AILogger.i(TAG, "Run cancelled: delivering partial answer (len="
+                                + (response.finalAnswer != null ? response.finalAnswer.length() : 0) + ")");
+                    }
+                    if (taskCallback != null) {
+                        taskCallback.onComplete(response);
+                    }
+                } catch (Throwable t) {
+                    AILogger.e(TAG, "Error processing message: " + t.getMessage(), t);
+                    if (taskCallback != null) {
+                        String errorMsg = t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
+                        taskCallback.onError("处理失败: " + errorMsg);
+                    }
+                } finally {
+                    isProcessing.set(false);
                 }
-                if (callback != null) {
-                    callback.onComplete(response);
-                }
-            } catch (Throwable t) {
-                AILogger.e(TAG, "Error processing message: " + t.getMessage(), t);
-                if (callback != null) {
-                    String errorMsg = t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
-                    callback.onError("处理失败: " + errorMsg);
-                }
-            } finally {
-                isProcessing.set(false);
-            }
-        });
+            });
+        } catch (Throwable t) {
+            isProcessing.set(false);
+            if (taskCallback != null) taskCallback.onError("无法提交本地推理任务: " + t.getMessage());
+            return false;
+        }
+        return true;
     }
     
     /**

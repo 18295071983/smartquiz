@@ -68,6 +68,9 @@ public class AgentChatHandler {
     private final SmartIntentRecognizer intentRecognizer;
     private final com.oilquiz.app.ai.refactor.AIConfig aiConfig;
     private AgentSoftwareLayer softwareLayer;
+    private final AgentSoftwareLayer.AgentCallback softwareCallback;
+    /** 本地会话 id（与在线 engine.setSessionId 共用）；切换时共享层会清本地序列。 */
+    private volatile String localSessionId;
     private volatile boolean isShutdown = false;
 
     private InferenceMode currentInferenceMode = InferenceMode.REACT;
@@ -115,9 +118,10 @@ public class AgentChatHandler {
         this.intentRecognizer = SmartIntentRecognizer.getInstance(activity);
         this.aiConfig = new com.oilquiz.app.ai.refactor.AIConfig(activity);
         
-        // 初始化新的 AgentSoftwareLayer
-        this.softwareLayer = new AgentSoftwareLayer(activity, aiService);
-        this.softwareLayer.setCallback(new AgentSoftwareLayer.AgentCallback() {
+        // LOCAL-OWNER(2026-11-08)：使用进程级共享本地层；callback 按任务传入，
+        // 不再每个页面 new 一个独立 session 的 AgentSoftwareLayer。
+        this.softwareLayer = AgentSoftwareLayer.getShared(activity.getApplicationContext(), aiService);
+        this.softwareCallback = new AgentSoftwareLayer.AgentCallback() {
             @Override
             public void onStepUpdate(String step, String detail) {
                 AILogger.i(TAG, "Agent step: " + step + " - " + detail);
@@ -225,7 +229,8 @@ public class AgentChatHandler {
                     callback.onInferenceProgress(tokenCount, tokensPerSecond);
                 }
             }
-        });
+        };
+        this.softwareLayer.setCallback(this.softwareCallback);
 
         engine.setCallback(new AgentCallback() {
             @Override
@@ -369,7 +374,9 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         if (useLocalAgent) {
             AILogger.i(TAG, "Local model → AgentSoftwareLayer (JSON 协议)"
                     + ", history: " + (history != null ? history.size() : 0));
-            softwareLayer.processMessage(message, enableThinking, history);
+            // callback/session 按任务传入，避免共享层被其他页面/调试桥覆盖
+            softwareLayer.processMessageForSession(message, enableThinking, history,
+                    softwareCallback, localSessionId);
         } else {
             // 在线模型 → OnlineAgentEngine
             engine.execute(message, maxTokens, enableThinking);
@@ -424,6 +431,7 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
 
     /** 切换会话 ID（引擎按会话隔离历史：保存当前 → 恢复目标） */
     public void setSessionId(String sessionId) {
+        this.localSessionId = sessionId;
         engine.setSessionId(sessionId);
     }
 

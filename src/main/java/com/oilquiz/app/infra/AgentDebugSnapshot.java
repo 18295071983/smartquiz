@@ -45,7 +45,10 @@ public final class AgentDebugSnapshot {
             // 真实 KV 占用用 llama_memory_seq_pos_max+1；getContextUsedTokens 是
             // NativeChatContext 的记账值，二者在工具轮/裁剪后会分叉（真机见过 52 vs 4496）。
             put(model, "contextUsed", realKv);
-            put(model, "contextUsedBookkeeping", chatCtx > 0 ? LlamaHelper.getContextUsedTokens() : 0);
+            put(model, "contextUsedBookkeeping", chatCtx > 0 ? LlamaHelper.getContextUsedTokensBookkeeping() : 0);
+            // 服务层实际读到的数：和 SystemProbe 的 realKv 对账；JNI real 符号缺失时这里会退化成 52。
+            put(model, "llamaContextUsed", LlamaHelper.getContextUsedTokens());
+            put(model, "llamaContextRemaining", LlamaHelper.getContextRemainingTokens());
             put(model, "contextRemaining", Math.max(0, runtimeCtx - realKv));
             put(model, "gpuLayers", LlamaHelper.getGPULayers());
             put(model, "threads", LlamaHelper.getThreadCount());
@@ -124,7 +127,7 @@ public final class AgentDebugSnapshot {
             sb.append("MODEL  ").append(meta != null ? meta.modelName : "?")
                     .append("  nCtx=").append(nCtx)
                     .append("  kv=").append(SystemProbe.engineKvTokens())
-                    .append("(bookkeeping=").append(LlamaHelper.getContextUsedTokens()).append(")")
+                    .append("(bookkeeping=").append(LlamaHelper.getContextUsedTokensBookkeeping()).append(")")
                     .append("  gpuLayers=").append(LlamaHelper.getGPULayers())
                     .append("  pool=").append(LlamaHelper.getMemoryPoolSize()).append("MB\n");
         } catch (Throwable t) {

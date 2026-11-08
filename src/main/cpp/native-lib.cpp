@@ -6948,7 +6948,27 @@ public:
 
     int getContextUsedTokens() const { return total_tokens_in_kv; }
 
+    /**
+     * 真实 KV 占用：llama_memory_seq_pos_max(seq=0)+1。
+     *
+     * <p>total_tokens_in_kv 是 NativeChatContext 的记账值，工具轮/外部 KV 改动/裁剪后
+     * 会与真实 KV 分叉（真机见过 52 vs 4304/4664）。上下文剩余空间、UI 仪表必须以
+     * 真实 KV 为准；记账值只用于增量缓存统计。</p>
+     */
+    int getRealContextUsedTokens() const {
+        if (ctx == nullptr) return 0;
+        llama_memory_t mem = llama_get_memory(ctx);
+        if (mem == nullptr) return 0;
+        const llama_pos pmax = llama_memory_seq_pos_max(mem, 0);
+        return pmax >= 0 ? (int) (pmax + 1) : 0;
+    }
+
     int getContextRemainingTokens() const { return n_ctx > 0 ? n_ctx - total_tokens_in_kv : 0; }
+
+    int getRealContextRemainingTokens() const {
+        if (n_ctx <= 0) return 0;
+        return std::max(0, n_ctx - getRealContextUsedTokens());
+    }
 
     /**
      * 检查是否有足够的上下文空间用于单次推理
@@ -9964,6 +9984,31 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetContextUsedTokens(
     auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
     if (chatCtx && chatCtx->isValid()) {
         return chatCtx->getContextUsedTokens();
+    }
+    return 0;
+}
+
+/** 真实 KV 占用（seq_pos_max+1），不是 NativeChatContext 记账值。 */
+JNIEXPORT jint JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetContextUsedTokensReal(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jlong handle) {
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    if (chatCtx && chatCtx->isValid()) {
+        return chatCtx->getRealContextUsedTokens();
+    }
+    return 0;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetContextRemainingTokensReal(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jlong handle) {
+    auto* chatCtx = reinterpret_cast<NativeChatContext*>(handle);
+    if (chatCtx && chatCtx->isValid()) {
+        return chatCtx->getRealContextRemainingTokens();
     }
     return 0;
 }

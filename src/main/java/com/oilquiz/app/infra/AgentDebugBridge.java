@@ -99,8 +99,6 @@ public class AgentDebugBridge extends BroadcastReceiver {
      * OnlineAgentEngine，调试台把它标成"本地智能体"是措辞误导。
      */
     private static volatile AgentSoftwareLayer sLocalLayer;
-    /** 本地注入的上一次 session id：本地层是常驻的，换 session 必须清会话序列，否则串上下文。 */
-    private static volatile String sLastLocalSessionId;
 
     // ---------------- 状态管理（SharedPreferences 持久化） ----------------
 
@@ -397,7 +395,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                         if (localHolder[0] == null) {
                             AgentSoftwareLayer layer = sLocalLayer;
                             if (layer == null) {
-                                layer = new AgentSoftwareLayer(app, AIService.getInstance(app));
+                                layer = AgentSoftwareLayer.getShared(app, AIService.getInstance(app));
                                 sLocalLayer = layer;
                             }
                             localHolder[0] = layer;
@@ -606,8 +604,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                 } else {
                     meta.refreshStartSnapshot();
                     meta.markReady();
-                    prepareLocalSession(localHolder[0], meta.session);
-                    localHolder[0].processMessage(effectivePrompt, thinking);
+                    localHolder[0].processMessageForSession(effectivePrompt, thinking, null, localCb, meta.session);
                 }
             } else {
                 meta.markReady();
@@ -666,23 +663,6 @@ public class AgentDebugBridge extends BroadcastReceiver {
     }
 
     /**
-     * BRIDGE-SESSION(2026-11-08)：session 参数对本地层也要生效。
-     *
-     * <p>AgentSoftwareLayer 是常驻单例，AgentLoopEngine.sessionMessages 会跨任务保留；
-     * 之前 bridge 只把 session 写进 status/debug，本地层完全没消费它，于是
-     * session=A 的问句会带进 session=B 的历史，既污染回答又让 prompt 变大。
-     * 换 session 时清一次会话序列；同 session 保留多轮上下文。</p>
-     */
-    private static void prepareLocalSession(AgentSoftwareLayer layer, String sid) {
-        if (layer == null) return;
-        String id = sid == null ? "" : sid;
-        if (id.equals(sLastLocalSessionId)) return;
-        layer.resetSessionSequence();
-        sLastLocalSessionId = id;
-        Log.i(TAG, "local session switched -> reset sequence: " + id);
-    }
-
-    /**
      * 等 chat context 真正建立后再跑本地 Agent。
      *
      * <p>initializeAsync 的 ok 只代表模型/native context 成功，不等于 chatCreate 已完成；
@@ -694,10 +674,9 @@ public class AgentDebugBridge extends BroadcastReceiver {
         if (isLocalReady() && layer != null) {
             meta.refreshStartSnapshot();
             meta.markReady();
-            prepareLocalSession(layer, meta.session);
             emitState("connection", "本地引擎就绪（chat context 已建立），开始推理");
             emit("── 本地引擎就绪，开始推理 ──");
-            layer.processMessage(prompt, thinking);
+            layer.processMessageForSession(prompt, thinking, null, cb, meta.session);
             return;
         }
         if (attempt >= 200) {

@@ -148,12 +148,13 @@ public class AgentExecutionEngine {
         ensureChatContext();
 
         // 直接创建AgentSoftwareLayer（只需Context，完全与UI解耦）
-        AgentSoftwareLayer softwareLayer = new AgentSoftwareLayer(appContext, aiService);
-        softwareLayer.setCallback(createSoftwareCallback(messageId, state));
+        AgentSoftwareLayer softwareLayer = AgentSoftwareLayer.getShared(appContext, aiService);
         softwareLayerMap.put(messageId, softwareLayer);
 
         // 在后台执行（思考开关由上层传入 enableThinking，引擎不硬编码）
-        softwareLayer.processMessage(userMessage, enableThinking);
+        // LOCAL-OWNER：共享层按任务传 callback + session，避免每次任务 new 一个独立会话。
+        softwareLayer.processMessageForSession(userMessage, enableThinking, null,
+                createSoftwareCallback(messageId, state), messageId);
     }
 
     /**
@@ -351,6 +352,17 @@ public class AgentExecutionEngine {
         AgentExecutionState state = stateMap.get(messageId);
         if (state != null) {
             state.cancel();
+        }
+
+        // CANCEL-NATIVE(2026-11-08)：只置 state 标志不会打断正在跑的 native 生成；
+        // 共享层必须收到 cancel()（内部 loopEngine.cancel + stopGeneration）。
+        AgentSoftwareLayer layer = softwareLayerMap.get(messageId);
+        if (layer != null) {
+            try {
+                layer.cancel();
+            } catch (Throwable t) {
+                AILogger.w(TAG, "softwareLayer.cancel failed: " + t.getMessage());
+            }
         }
 
         emitEvent(messageId, ExecutionEvent.cancelled(messageId));

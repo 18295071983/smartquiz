@@ -128,6 +128,14 @@ public final class LlamaSignalAdapter {
      */
     public static ContextUsage contextUsage() {
         try {
+            // KV-REAL(2026-11-08)：先取真实 seq_pos_max+1。旧实现优先读 AgentKvCache
+            // 的 cached_npast（记账值），真机出现 52 vs 4304/4664，上下文仪表/守卫会差约 4K token。
+            long realSize = LlamaHelper.getContextSize();
+            long realUsed = LlamaHelper.getContextUsedTokens();
+            if (realSize > 0) {
+                return new ContextUsage(realSize, Math.max(0, realUsed), ENGINE);
+            }
+
             String stats = LlamaHelper.getKvCacheStats();
             if (stats != null && !stats.isEmpty()) {
                 JSONObject o = new JSONObject(stats);

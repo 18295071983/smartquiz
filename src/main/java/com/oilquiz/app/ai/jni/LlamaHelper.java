@@ -2557,16 +2557,39 @@ public class LlamaHelper {
         }
     }
     
+    /**
+     * 真实 KV 占用：llama_memory_seq_pos_max(seq=0)+1。
+     *
+     * <p>这个数才是"上下文里实际有多少 token"，工具轮/外部 KV 改动后不会像
+     * NativeChatContext.total_tokens_in_kv 那样停留在 52。上下文守卫、剩余空间、
+     * UI 仪表统一用这个；记账值见 {@link #getContextUsedTokensBookkeeping()}。</p>
+     */
     public static int getContextUsedTokens() {
         if (!libraryLoaded || chatContextHandle == 0) return 0;
-        try { 
-            int nativeValue = nativeGetContextUsedTokens(chatContextHandle);
-            return nativeValue > 0 ? nativeValue : contextUsedTokens;
-        } catch (UnsatisfiedLinkError e) { 
-            return contextUsedTokens; 
+        try {
+            return Math.max(0, nativeGetContextUsedTokensReal(chatContextHandle));
+        } catch (UnsatisfiedLinkError e) {
+            // 旧 native 没有 real 符号（热更新/降级包）时退回旧读数，不让调用方崩
+            try {
+                int nativeValue = nativeGetContextUsedTokens(chatContextHandle);
+                return nativeValue > 0 ? nativeValue : contextUsedTokens;
+            } catch (UnsatisfiedLinkError e2) {
+                return contextUsedTokens;
+            }
         }
     }
-    
+
+    /** NativeChatContext 的记账值（增量缓存统计用），不是真实 KV 占用。 */
+    public static int getContextUsedTokensBookkeeping() {
+        if (!libraryLoaded || chatContextHandle == 0) return 0;
+        try {
+            int nativeValue = nativeGetContextUsedTokens(chatContextHandle);
+            return nativeValue > 0 ? nativeValue : contextUsedTokens;
+        } catch (UnsatisfiedLinkError e) {
+            return contextUsedTokens;
+        }
+    }
+
     public static int getContextRemainingTokens() {
         int total = getContextSize();
         int used = getContextUsedTokens();
@@ -2649,6 +2672,8 @@ public class LlamaHelper {
     private static native int nativeHandleMemoryPressure(int level);
     private static native int nativeGetContextSize(long handle);
     private static native int nativeGetContextUsedTokens(long handle);
+    private static native int nativeGetContextUsedTokensReal(long handle);
+    private static native int nativeGetContextRemainingTokensReal(long handle);
     private static native int nativeGetContextRemainingTokens(long handle);
     private static native boolean nativeHasEnoughContextSpace(long handle, int promptTokens, int maxOutputTokens);
     private static native void nativeClearContextForInference(long handle);

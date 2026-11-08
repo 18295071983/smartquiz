@@ -42,6 +42,10 @@ public class LocalAgentCancelPathTest {
             "src/main/java/com/oilquiz/app/ai/agent/software/AgentSoftwareLayer.java";
     private static final String HANDLER_PATH =
             "src/main/java/com/oilquiz/app/ai/chat/AgentChatHandler.java";
+    private static final String EXECUTION_PATH =
+            "src/main/java/com/oilquiz/app/ai/agent/AgentExecutionEngine.java";
+    private static final String BRIDGE_PATH =
+            "src/main/java/com/oilquiz/app/infra/AgentDebugBridge.java";
     private static final String ROUTER_PATH =
             "src/main/java/com/oilquiz/app/ai/agent/AgentRouter.java";
     private static final String ACTIVITY_PATH =
@@ -156,12 +160,14 @@ public class LocalAgentCancelPathTest {
     @Test
     public void reentrantSendNotifiesBusyInsteadOfSilentDrop() throws Exception {
         String src = readSrc(LAYER_PATH);
-        String process = methodBody(src,
-                "public void processMessage(String userMessage, boolean enableThinking,");
+        // LOCAL-OWNER(2026-11-08)：重入判定收敛到 start(...)，processMessage 只做委托；
+        // 断言打在真正执行 busy 回调的方法上，避免重构后测试只认旧方法名。
+        String start = methodBody(src,
+                "private boolean start(String userMessage, boolean enableThinking,");
         assertTrue("重入必须回调 onBusy（旧实现静默 return → UI 永久挂『处理中』）",
-                process.contains("cb.onBusy(userMessage)"));
+                start.contains("taskCallback.onBusy(userMessage)"));
         assertTrue("重入分支不得直接 return 而不给终态",
-                process.contains("return;") && process.contains("onBusy"));
+                start.contains("return false;") && start.contains("onBusy"));
         assertTrue("AgentCallback 需声明 onBusy 默认方法",
                 src.contains("default void onBusy(String userMessage) {}"));
         // 取消轮仍要作为完成事件交付（UI 沿用既有的"已停止"标注，不另造终态）
@@ -200,6 +206,26 @@ public class LocalAgentCancelPathTest {
         assertTrue("AgentChatCallback 需声明 onAgentBusy 默认方法",
                 src.contains("default void onAgentBusy(String userMessage) {}"));
         assertTrue("软件层 onBusy 必须转发给 UI", src.contains("callback.onAgentBusy(userMessage)"));
+    }
+
+    @Test
+    public void localAgentHasSingleSharedOwner() throws Exception {
+        String layer = readSrc(LAYER_PATH);
+        assertTrue("本地层必须提供进程级共享入口",
+                layer.contains("public static AgentSoftwareLayer getShared("));
+        assertTrue("共享入口必须支持任务级 callback + session",
+                layer.contains("processMessageForSession("));
+
+        assertTrue("聊天页必须用共享本地层，不能自己 new",
+                readSrc(HANDLER_PATH).contains("AgentSoftwareLayer.getShared("));
+        assertTrue("调试桥必须用共享本地层",
+                readSrc(BRIDGE_PATH).contains("AgentSoftwareLayer.getShared("));
+        String execution = readSrc(EXECUTION_PATH);
+        assertTrue("后台执行必须用共享本地层",
+                execution.contains("AgentSoftwareLayer.getShared("));
+
+        assertTrue("后台取消必须打到共享本地层，不能只改 state",
+                execution.contains("layer.cancel();"));
     }
 
     // ===== 5) UI：停止不得被标成"执行完成"，空正文不得写进历史 =====
