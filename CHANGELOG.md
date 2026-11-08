@@ -6,12 +6,35 @@
 `vkGetDeviceFaultInfoEXT` 采集诊断，Adreno 840 驱动 `0842.44.1` 在该状态下空指针写 → SIGSEGV。
 原来日志里的 `Shader compilation failed` 来自同进程 WebView/Chromium，不是 ggml。
 
-- vendored llama.cpp：Qualcomm 跳过 `vkGetDeviceFaultInfoEXT`；pipeline 失败改用
-  `GGML_LOG_ERROR` 并带 shader 名；GPU 能力行升 INFO。
+- vendored llama.cpp（nested repo `3659cc36`）：Qualcomm 跳过 `vkGetDeviceFaultInfoEXT`；
+  pipeline 失败改用 `GGML_LOG_ERROR` 并带 shader 名；GPU 能力行升 INFO。
 - 新增 `VulkanFaultGuard`：观测 device lost 后，下一次装载把显式 `vulkan` 运行时替换为
   `opencl`（不改写偏好；设置页重选后端即解除）。
 - 验证：修复后不再 SIGSEGV，改为干净的 `ErrorDeviceLost` 错误；coopmat/async/串行提交
   单变量 A/B 均不能消除驱动侧 device lost。详见 `docs/adreno-vulkan-device-lost-2026-11-08.md`。
+
+## [2026-11-08] fix(agent)：T145 搜索意图、天气城市身份、思考数据与 token 统计
+
+真机 T145 四项修复：
+
+- **显式搜索被天气直给吞掉**：用户说“搜索验证”时，旧逻辑仍注入“直接调 ai_weather、优先用此值”，
+  模型只调 `ai_weather + location`，`network_search` 0 次。现在显式搜索（搜索/搜一下/上网查/
+  查证/核实）优先：不再注入天气独占指令；同一句还要天气时要求“先 network_search 核对，
+  再 ai_weather 取权威数据”。FC system 提示词补同一条跨工具规则。
+- **天气只回显城市编码**：`ai_weather` 收到和风编码时，格式化文本与结构化结果都补
+  “解析后全名 (编码)”，例如 `山西省 忻州市 五台县 (101101003)`；查询参数仍使用编码，
+  不改数据归属。
+- **思考数据三份各写**：提交/恢复时由 `AssistantTurn` 的 reasoning parts 统一投影
+  `thinkingRounds` / `thinkingContent` / 耗时；legacy 字段只作兼容投影。统计栏不再把最后一轮
+  思考重复计数。
+- **token 统计用字符数且不含思考**：引擎改按真实 token 统计正文+思考（跨工具轮累计）；
+  `inferenceProgress` 直接回写 `tokensGenerated` / `tokensPerSecond`；完成态优先采用 progress
+  计数，不再依赖恒为 0 的 native 计数器。
+- **Vulkan 默认门控**：native auto 与指定后端回退都不再选 Vulkan（Adreno 840 为已知坏路）；
+  无 HTP/OpenCL 时回退 CPU，Vulkan 只保留用户显式选择。
+
+验证：`LocalThinToolsTest` 新增显式搜索判据断言，`AssistantTurnRestoreTest` 新增思考投影用例；
+全量单测 `1821 tests / 1 skipped(LIVE_NET) / 0 failures`；native 编译与 `assembleDebug` 通过。
 
 ## [2026-11-04] feat(speech)：补 MiniMax TTS 专用引擎（/v1/t2a_v2）
 
