@@ -46,6 +46,7 @@ import com.oilquiz.app.ai.service.UsageTracker;
 import com.oilquiz.app.ai.util.APIConfigParser;
 import com.oilquiz.app.ai.util.APIKeyManager;
 import com.oilquiz.app.ai.util.ApiKeyCipher;
+import com.oilquiz.app.security.totp.TotpVault;
 import com.oilquiz.app.ui.base.BaseActivity;
 import com.oilquiz.app.R;
 
@@ -455,6 +456,53 @@ public class ApiConfigActivity extends BaseActivity {
         card.addView(t3);
 
         llHefengSection.addView(card, 0);
+
+        // TOTP 保险库入口：和普通 API key 分开，密钥只在本机 Keystore 加密保存，
+        // 不接 AI/Agent、不参与云备份（backup_rules/data_extraction_rules 已排除）。
+        LinearLayout totpCard = new LinearLayout(this);
+        totpCard.setOrientation(LinearLayout.VERTICAL);
+        totpCard.setPadding(dp4(12), dp4(10), dp4(12), dp4(10));
+        LinearLayout.LayoutParams totpLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        totpLp.setMargins(0, dp4(4), 0, dp4(6));
+        GradientDrawable totpBg = new GradientDrawable();
+        totpBg.setColor(ContextCompat.getColor(this, R.color.surface_variant));
+        totpBg.setCornerRadius(dp4(10));
+        totpCard.setBackground(totpBg);
+        totpCard.setLayoutParams(totpLp);
+
+        TextView totpTitle = new TextView(this);
+        int totpCount = TotpVault.getInstance(this).count();
+        totpTitle.setText("🔐 TOTP 验证器（内置）"
+                + (totpCount > 0 ? " · " + totpCount + " 个账号" : " · 未添加账号"));
+        totpTitle.setTextSize(13);
+        totpTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        totpTitle.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+        totpCard.addView(totpTitle);
+
+        TextView totpDesc = new TextView(this);
+        totpDesc.setText("通用 TOTP 保险库：本地 Keystore 加密、不回退明文、禁止截屏、不接 AI/云同步。"
+                + "GitHub 2FA 建议同时保留 recovery codes 或硬件密钥。");
+        totpDesc.setTextSize(11);
+        totpDesc.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary));
+        totpDesc.setPadding(0, dp4(4), 0, dp4(6));
+        totpCard.addView(totpDesc);
+
+        TextView totpBtn = new TextView(this);
+        totpBtn.setText("打开 TOTP 验证器");
+        totpBtn.setTextSize(12);
+        totpBtn.setGravity(Gravity.CENTER);
+        totpBtn.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+        GradientDrawable totpBtnBg = new GradientDrawable();
+        totpBtnBg.setColor(ContextCompat.getColor(this, R.color.primary_container));
+        totpBtnBg.setCornerRadius(dp4(16));
+        totpBtn.setBackground(totpBtnBg);
+        totpBtn.setPadding(dp4(14), dp4(6), dp4(14), dp4(6));
+        totpBtn.setOnClickListener(v ->
+                startActivity(new Intent(this, TotpVaultActivity.class)));
+        totpCard.addView(totpBtn, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        llHefengSection.addView(totpCard);
     }
 
     // ==================== 和风天气 JWT 高级凭证（免内置共享） ====================

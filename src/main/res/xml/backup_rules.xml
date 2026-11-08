@@ -4,4 +4,7 @@
     <include domain="database" path="" />
     <include domain="file" path="" />
     <include domain="external" path="" />
+    <!-- TOTP 保险库不能云备份/换机迁移：Keystore 密钥不随备份走，
+         且把 2FA 密钥复制到云端会削弱第二因素。 -->
+    <exclude domain="sharedpref" path="totp_vault.xml" />
 </full-backup-content>

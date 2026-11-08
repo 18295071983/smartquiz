@@ -443,6 +443,11 @@
             android:parentActivityName=".ui.activity.AgentManagerActivity" />
 
         <activity
+            android:name=".ui.activity.TotpVaultActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.activity.ApiConfigActivity" />
+
+        <activity
             android:name=".ui.activity.McpMarketActivity"
             android:exported="false"
             android:parentActivityName=".ui.activity.McpManagerActivity" />

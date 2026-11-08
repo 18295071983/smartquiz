@@ -5,11 +5,15 @@
         <include domain="database" path="" />
         <include domain="file" path="" />
         <include domain="external" path="" />
+        <!-- TOTP 保险库不参与云备份（Keystore 密钥不可迁移，且不应复制 2FA 密钥）。 -->
+        <exclude domain="sharedpref" path="totp_vault.xml" />
     </cloud-backup>
     <device-transfer>
         <include domain="sharedpref" path="" />
         <include domain="database" path="" />
         <include domain="file" path="" />
         <include domain="external" path="" />
+        <!-- 换机也不迁移 TOTP 保险库；用户应使用外部加密备份/恢复码。 -->
+        <exclude domain="sharedpref" path="totp_vault.xml" />
     </device-transfer>
 </data-extraction-rules>
