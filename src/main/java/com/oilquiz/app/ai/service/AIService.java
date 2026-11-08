@@ -1046,10 +1046,11 @@ public class AIService implements ComponentCallbacks2 {
             long rawAvailMemMB = memoryInfo.availableMemoryMB;
             long kernelAvailMB = SystemProbe.memAvailableMB();
             long selfRssMB = SystemProbe.processRssMB();
+            long selfSwapMB = SystemProbe.processSwapMB();
             if (kernelAvailMB > 0) {
                 AILogger.i(TAG, "MEM-PROBE: /proc/meminfo MemAvailable=" + kernelAvailMB
                         + "MB（内核口径）, ActivityManager.availMem=" + rawAvailMemMB
-                        + "MB, 本进程 RSS=" + selfRssMB + "MB");
+                        + "MB, 本进程 RSS=" + selfRssMB + "MB, swap=" + selfSwapMB + "MB");
                 rawAvailMemMB = kernelAvailMB;
             } else {
                 AILogger.w(TAG, "MEM-PROBE: /proc/meminfo MemAvailable 不可用，回退 ActivityManager.availMem="
@@ -1156,7 +1157,9 @@ public class AIService implements ComponentCallbacks2 {
             // 无法 partial rollback → 每轮全量 prefill（真机 01:28:32：8683 > 7776 → 6615，
             // 随后 full eval 7056）。对**非用户固定**的大内存设备（>=8GB），把默认窗口直接
             // 拉到应用硬上限 32768，再由 CONTEXT-DYNAMIC 按模型真实 KV 代价 + 可用内存降：
-            //   · 2B（12288 B/token）：32K KV=384MB，11GB 设备实测 PSS 807MB、剩余 2.6GB，稳；
+            //   · 2B（12288 B/token）：32K KV=384MB；MemAvailable 4.7GB 时 VmRSS 842MB、
+            //     无 swap；但 2.7GB 时同一 32K 实测 VmSwap 503MB（模型被换出，decode 会掉速），
+            //     所以 32K 只在可用内存充足时启用，否则退 16K；
             //   · 4B（~90KB/token）：32K KV≈2.9GB，maxCtxByMem 会把它压回几千，不会硬上；
             //   · 4B 紧内存档仍会 clamp 到 6144；LAYERS-FIRST / native memoryPool 再兜底；
             //   · 用户手动值（userFixedContext）完全不动。
@@ -1164,10 +1167,12 @@ public class AIService implements ComponentCallbacks2 {
             if (!userFixedContext && kvBytesPerToken > 0
                     && memoryInfo.totalMemoryMB >= 8192 && contextSize < 32768) {
                 int before = contextSize;
-                contextSize = 32768;
+                int floor = availAfterReleaseMB >= 4096 ? 32768 : 16384;
+                contextSize = floor;
                 AILogger.i(TAG, "AGENT-CONTEXT-FLOOR: 默认本地窗口 " + before + " -> " + contextSize
-                        + " (totalMem=" + memoryInfo.totalMemoryMB + "MB, kv=" + kvBytesPerToken
-                        + " B/token; 应用硬上限，随后由 CONTEXT-DYNAMIC 按 KV 预算钳制)");
+                        + " (totalMem=" + memoryInfo.totalMemoryMB + "MB, availAfterRelease="
+                        + availAfterReleaseMB + "MB, kv=" + kvBytesPerToken
+                        + " B/token; 32K 仅在 >=4096MB 可用时启用，随后由 CONTEXT-DYNAMIC 钳制)");
             }
             // CONTEXT-RESIDENT(2026-11-07) 修正：上面这段"可用内存"原先直接取瞬时 availMem，
             // 重载时旧权重还常驻在读数里、又被 "- modelSizeMB" 扣第二次，于是 kvBudget 归零、

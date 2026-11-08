@@ -233,6 +233,16 @@ public final class SystemProbe {
         return processRssBytes() / MB;
     }
 
+    /** 本进程被换出到 zram/swap 的字节数；RSS 单独看会漏掉这部分。 */
+    public static long processSwapBytes() {
+        long[] a = self();
+        return a[SELF_VALID] != 0 ? a[SELF_VM_SWAP_BYTES] : 0;
+    }
+
+    public static long processSwapMB() {
+        return processSwapBytes() / MB;
+    }
+
     /** true 表示内核提供 PSI；false 时 pressure 读数没有意义（不是 0）。 */
     public static boolean pressureAvailable() {
         return pressure()[PRESSURE_VALID] != 0;
@@ -316,6 +326,7 @@ public final class SystemProbe {
                 + " swap=" + (m[MEM_SWAP_FREE_BYTES] / MB) + "/" + (m[MEM_SWAP_TOTAL_BYTES] / MB) + "MB"
                 + " pageSize=" + m[MEM_PAGE_SIZE_BYTES]
                 + " | self rss=" + (s[SELF_RSS_BYTES] / MB) + "MB"
+                + " swap=" + (s[SELF_VM_SWAP_BYTES] / MB) + "MB"
                 + " fds=" + s[SELF_FD_COUNT] + " threads=" + s[SELF_THREADS];
     }
 

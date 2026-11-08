@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import com.oilquiz.app.ai.jni.LlamaHelper;
+import com.oilquiz.app.ai.jni.SystemProbe;
 import com.oilquiz.app.util.AILogger;
 
 import java.io.File;
@@ -368,13 +369,21 @@ public class ModelColdStartOptimizer {
         long fileSize = modelFile.length();
         String modelKey = getModelKey(modelPath);
         
+        // CONTEXT-META-FIX(2026-11-08)：此前这里读 LlamaHelper.getContextSize()，
+        // 但它在 chatCreate 之前（本方法紧跟 nativeInitModel 调用）必然返回 0——
+        // 于是 SharedPreferences 里所有 meta_context_* 都被写成 0（真机日志已复现）。
+        // 模型 context 在 chat context 之前就已存在，直接问 native 的真实 n_ctx。
+        int runtimeCtx = SystemProbe.engineContextSize();
+        if (runtimeCtx <= 0) {
+            runtimeCtx = LlamaHelper.getContextSize();
+        }
         ModelMetadata metadata = new ModelMetadata(
                 modelPath,
                 fileSize,
                 loadTimeMs,
                 LlamaHelper.getThreadCount(),
                 LlamaHelper.getGPULayers(),
-                LlamaHelper.getContextSize()
+                runtimeCtx
         );
         
         // 保存到内存缓存
