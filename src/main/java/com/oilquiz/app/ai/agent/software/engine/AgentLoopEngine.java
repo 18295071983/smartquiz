@@ -607,6 +607,8 @@ public class AgentLoopEngine {
                              List<HistoryEntry> priorHistory) {
         long startTime = System.currentTimeMillis();
         int totalTokens = 0;
+        // 最近一次进度回调的速度：退出路径补发 token 总数时沿用，避免把已知速度写成 0
+        float lastProgressTps = 0f;
         int toolCallCount = 0;
         // 新一轮开始：清除上一轮的取消标志。引擎实例是常驻的（AgentChatHandler 只 new 一次），
         // 不复位就会出现"上一轮被用户停止 → 这一轮刚进循环就被判为取消"。
@@ -745,7 +747,14 @@ public class AgentLoopEngine {
                     + "（默认 action=ask；需要一批来源/链接才用 search，别为多看几条反复搜）。"
                     + "不要把训练记忆里的旧信息当成本次结果；查不到就如实说。");
         }
-        if (modelFcMode && selectedTools.contains("ai_weather") && isWeatherQuery(userMessage)) {
+        // T145-SEARCH-PRIORITY(2026-11-08)：用户明确说"搜索/搜一下/上网查/查证"时，搜索是显式意图，
+        // 优先级高于天气直给。旧逻辑无条件注入"直接调用 ai_weather、优先用此值"，模型据此
+        // 只调 ai_weather + location（T145 真机：network_search 0 次），用户的"搜索验证"被静默吞掉。
+        boolean explicitSearch = modelFcMode
+                && selectedTools.contains("network_search")
+                && isExplicitSearchRequest(userMessage);
+        if (modelFcMode && selectedTools.contains("ai_weather") && isWeatherQuery(userMessage)
+                && !explicitSearch) {
             String city = extractCityFromMessage(userMessage);
             if (city != null && !city.isEmpty()) {
                 String cityId = getCityLocationId(city); // 优先用和风城市编码查询，最精确
@@ -769,6 +778,25 @@ public class AgentLoopEngine {
                 // 模型无从传它们，文案再提"不要带 lat/lon"就是在教模型回避一个不存在的参数。
                 effectiveUserMessage = userMessage + "\n\n【本次任务】用户要查当前位置/附近的天气，直接调用 ai_weather 工具、不要带 city 参数（系统会自动使用手机定位的城市）；action 按问法选 current(实时)/forecast(预报)/air_quality(空气质量) 等。";
             }
+        }
+        // T145-SEARCH-PRIORITY(2026-11-08)：显式搜索请求单独直给，且与天气查询组合时要求
+        // "先搜后查"——只写 system 规则不够：2B/4B 会顺着相邻的天气指令直接调 ai_weather。
+        if (explicitSearch) {
+            String searchCity = isWeatherQuery(userMessage)
+                    ? extractCityFromMessage(userMessage) : null;
+            StringBuilder searchTask = new StringBuilder("【本次任务】用户明确要求联网搜索/验证："
+                    + "先调用 network_search（默认 action=ask）查一次最新信息，用查到的结果回答或核对；"
+                    + "不要把训练记忆里的旧信息当成本次结果，查不到就如实说。");
+            if (searchCity != null && !searchCity.isEmpty()) {
+                String searchCityId = getCityLocationId(searchCity);
+                String searchLocParam = searchCityId != null ? searchCityId : searchCity;
+                searchTask.append(" 用户同一句里还要 ").append(searchCity)
+                        .append(" 的天气：搜索核对之后，再调用 ai_weather 传 city=")
+                        .append(searchLocParam)
+                        .append(" 取权威天气数据（action 按问法选）；回答里区分搜索信息与天气工具数据，")
+                        .append("不要只凭训练记忆或不搜就答。");
+            }
+            effectiveUserMessage = appendTailBlock(effectiveUserMessage, searchTask.toString());
         }
         // WHERE-AM-I(2026-11-07)：定位工具已注入核心集，但真机 2026-11-07 “我在哪”仍被模型
         // 拿 ai_weather（空 city 自动定位）和 network_search 代查，最后答“无法得知你具体在哪里”。
@@ -827,7 +855,7 @@ public class AgentLoopEngine {
             if (plain != null && plain.content != null && !plain.content.trim().isEmpty()) {
                 String clean = cleanResponse(plain.content);
                 logAnswerReconcile("plain", plain.content, clean);
-                totalTokens += plain.content.length();
+                totalTokens += countTokensSafe(plain.content) + countTokensSafe(plain.reasoning);
                 if (!clean.isEmpty() && !isPromptLeakage(clean)) {
                     AILogger.i(TAG, "Plain chat answer: " + truncate(clean, 80));
                     finalAnswer = clean;
@@ -1017,12 +1045,25 @@ public class AgentLoopEngine {
                 // 每轮独立 fullText 快照：不是 delta，不是最后拼接
                 callback.onRoundComplete(iteration, cleanResponse(response));
             }
-            int iterTokens = response != null ? response.length() : 0;
+            // 提取思考过程（C++ 层通过 onReasoning / onJson reasoning 事件传递；
+            // 未走回调时回退从文本 <think>/<thought> 标签提取，reasoning_content 对齐）。
+            // TOKEN-COUNT(2026-11-08)：提前到进度回调之前 —— 思考 token 也是模型产出的 token，
+            // 旧实现只数 response.length()（还是字符数），思考段完全不计，UI 的
+            // tokensGenerated / tokensPerSecond 因此长期偏低；T145 真机报告了这一点。
+            String reasoning = genResult.reasoning;
+            if (reasoning == null || reasoning.isEmpty()) {
+                reasoning = extractThought(response);
+            }
+            int iterContentTokens = countTokensSafe(response);
+            int iterReasoningTokens = countTokensSafe(reasoning);
+            int iterTokens = iterContentTokens + iterReasoningTokens;
             totalTokens += iterTokens;
 
             if (callback != null) {
                 long elapsed = System.currentTimeMillis() - genStart;
+                // tps 是本轮（正文+思考）速度；totalTokens 是跨工具轮累计，只用于 token 总数。
                 float tps = elapsed > 0 ? (iterTokens * 1000.0f) / elapsed : 0;
+                if (tps > 0f) lastProgressTps = tps;
                 callback.onInferenceProgress(totalTokens, tps);
                 callback.onIterationEnd(iteration, response);
             }
@@ -1036,12 +1077,6 @@ public class AgentLoopEngine {
                 if (callback != null) callback.onTruncated("第 " + iteration + " 轮回答因上下文已满被截断");
             }
 
-            // 提取思考过程（C++ 层通过 onReasoning / onJson reasoning 事件传递；
-            // 未走回调时回退从文本 <think>/<thought> 标签提取，reasoning_content 对齐）
-            String reasoning = genResult.reasoning;
-            if (reasoning == null || reasoning.isEmpty()) {
-                reasoning = extractThought(response);
-            }
             // THINK-DUP-FIX(2026-11-08)：思考已在 generateWithChatJsonSync 的 thinking/reasoning
             // 事件里逐 token 推给 UI；这里**不能**再补一条
             //   "第 N 轮思考: " + truncate(reasoning, 120)
@@ -1393,7 +1428,11 @@ public class AgentLoopEngine {
                 clean = cleanResponse(finalGen.content);
                 logAnswerReconcile("final", finalGen.content, clean);
                 finalGenRaw = finalGen.content;
-                totalTokens += finalGen.content.length();
+                totalTokens += countTokensSafe(finalGen.content)
+                        + countTokensSafe(finalGen.reasoning);
+                // 退出路径的总结也是一次模型生成：把累计 token 补发一次，否则完成态会漏掉
+                // 这一段（进度回调只发生在循环内每一轮末尾）。
+                if (callback != null) callback.onInferenceProgress(totalTokens, lastProgressTps);
                 AILogger.i(TAG, "Final summary generated: " + truncate(clean, 120));
             } else {
                 AILogger.w(TAG, "Final summary generation failed, falling back to last meaningful response");
@@ -1614,6 +1653,33 @@ public class AgentLoopEngine {
         return message != null && (message.contains("天气") || message.contains("气温")
                 || message.contains("温度") || message.contains("下雨")
                 || message.contains("预报") || message.contains("湿度"));
+    }
+
+    /**
+     * 用户是否<b>明确要求联网搜索/查证</b>（T145，2026-11-08）。
+     *
+     * <p><b>为什么需要单独判</b>：天气直给指令（见 {@code run()} 里的【本次任务】块）会写
+     * "直接调用 ai_weather、优先用此值"，模型据此只调 ai_weather + location，把用户前面
+     * 那句"搜索验证"整个吞掉。T145 真机实测就是"用户要求搜索验证 → 模型只调了
+     * ai_weather + location，network_search 0 次"。搜索是用户显式意图，不能被别的直给指令覆盖。</p>
+     *
+     * <p>判据刻意只认"指向网络动作"的词：{@code 搜索引擎/搜索算法/二分搜索} 这类学习提问
+     * 不算联网请求，否则会把"讲解搜索算法"错派给付费搜索工具。</p>
+     */
+    static boolean isExplicitSearchRequest(String message) {
+        if (message == null) return false;
+        String s = message.trim().replace(" ", "").replace("\u3000", "");
+        if (s.isEmpty()) return false;
+        // 学习/技术名词：讨论搜索本身，不是让助手去网上搜
+        if (s.contains("搜索算法") || s.contains("搜索技巧") || s.contains("搜索引擎")
+                || s.contains("搜索原理") || s.contains("二分搜索")
+                || s.contains("深度优先搜索") || s.contains("广度优先搜索")) {
+            return false;
+        }
+        return s.contains("搜索") || s.contains("搜一下") || s.contains("帮我搜")
+                || s.contains("网上查") || s.contains("上网查") || s.contains("联网查")
+                || s.contains("网上搜") || s.contains("联网搜") || s.contains("百度一下")
+                || s.contains("谷歌一下") || s.contains("查证") || s.contains("核实一下");
     }
 
     /**
@@ -2918,6 +2984,10 @@ public class AgentLoopEngine {
                 // 然后用训练知识补全（幻觉）。现在明确告诉它分页参数。
                 + "内容一次看不完就分页续读：read_file（带 start_line/end_line，从 1 开始、每段≤200 行），"
                 + "读完一段再读下一段，不要凭猜测补齐。"
+                // T145-SEARCH-PRIORITY(2026-11-08)：显式搜索是用户意图，不能被天气/其他工具的
+                // 直给指令覆盖；真机 T145 只说"搜索验证"，模型却只调 ai_weather + location。
+                + "用户明确说搜索/搜一下/上网查/网上查/查证/核实时，必须先用 network_search 查一次再答，"
+                + "不能只凭记忆或天气工具作答；用户同时要天气时，先搜再调 ai_weather。"
                 + "搜索：默认用 ask 拿结论（一般提问它就够），只有要一批来源/链接/原文时才用 search 等其它 action；"
                 + "找论文/文库/图片/播客要带 scope（scholar/document/image/video/podcast，默认只搜网页）。"
                 + "秘塔按次计费（一次调用一次额度，与返回条数无关）：一次就把 limit 给够、把问题问清，不要连续换词重搜。"

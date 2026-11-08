@@ -204,6 +204,23 @@ public class LocalThinToolsTest {
     }
 
     /**
+     * T145-SEARCH-PRIORITY(2026-11-08)：用户明确说"搜索/搜一下/上网查/查证"时，
+     * 搜索意图必须被识别；"搜索算法/搜索引擎"这类学习提问不算联网请求。
+     */
+    @Test
+    public void explicitSearchRequestIsNarrowAndRecognized() {
+        assertTrue(AgentLoopEngine.isExplicitSearchRequest("搜索验证五台县天气"));
+        assertTrue(AgentLoopEngine.isExplicitSearchRequest("帮我搜一下今天的新闻"));
+        assertTrue(AgentLoopEngine.isExplicitSearchRequest("上网查查这个说法对不对"));
+        assertTrue(AgentLoopEngine.isExplicitSearchRequest("查证一下 2026 年的高考时间"));
+        assertFalse("讨论搜索算法不是联网请求",
+                AgentLoopEngine.isExplicitSearchRequest("讲讲二分搜索算法"));
+        assertFalse(AgentLoopEngine.isExplicitSearchRequest("搜索引擎是怎么工作的"));
+        assertFalse(AgentLoopEngine.isExplicitSearchRequest("今天天气怎么样"));
+        assertFalse(AgentLoopEngine.isExplicitSearchRequest(null));
+    }
+
+    /**
      * TOOL-DISCOVERY(2026-11-01)：本地工具名由 native PEG 逐字枚举，中途改集会毁 tools 前缀，
      * 所以"发现"必须能直接落地为执行——tool_registry 必须常驻核心，且它的薄 schema 里
      * 必须带 tool 与 args 两个参数，否则 call 动作无法表达目标与参数（发现出来也调不动）。

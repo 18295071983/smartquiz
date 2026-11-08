@@ -5169,6 +5169,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         message.inferenceProgress.processedTokens = processedTokens;
         message.inferenceProgress.tokensPerSecond = tokensPerSecond;
+        // TOKEN-COUNT(2026-11-08)：消息级统计与 progress 同源回写，避免 UI 各处读到 0/字符数。
+        if (processedTokens > 0) message.tokensGenerated = processedTokens;
+        if (tokensPerSecond > 0f) message.tokensPerSecond = tokensPerSecond;
         notifyItemChanged(position, PAYLOAD_STATUS_UPDATE);
     }
 

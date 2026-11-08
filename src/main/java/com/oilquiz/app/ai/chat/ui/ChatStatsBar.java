@@ -186,8 +186,14 @@ public class ChatStatsBar extends LinearLayout {
                 tokens += Math.max(0, m.tokensGenerated);
                 durationMs += Math.max(0, m.generationTimeMs);
                 if (m.modelInfo != null) cost += Math.max(0, m.modelInfo.costEstimate);
-                if (m.thinkingRounds != null) thinkingRounds += m.thinkingRounds.size();
-                if (m.thinkingContent != null && !m.thinkingContent.trim().isEmpty()) thinkingRounds++;
+                // THINKING-PROJECTION(2026-11-08)：thinkingContent 只是最后一轮的兼容投影，
+                // 有 thinkingRounds 时不能再加 1（旧实现每轮都多算一段思考）。
+                int rounds = m.thinkingRounds != null ? m.thinkingRounds.size() : 0;
+                if (rounds == 0 && m.thinkingContent != null
+                        && !m.thinkingContent.trim().isEmpty()) {
+                    rounds = 1;
+                }
+                thinkingRounds += rounds;
             } else if (t == ChatMessage.MessageType.THINKING) {
                 thinkingRounds++;
             } else if (t == ChatMessage.MessageType.TOOL_CALL) {
@@ -224,8 +230,13 @@ public class ChatStatsBar extends LinearLayout {
                     tokens += Math.max(0, m.tokensGenerated);
                     durationMs += Math.max(0, m.generationTimeMs);
                     if (m.modelInfo != null) cost += Math.max(0, m.modelInfo.costEstimate);
-                    if (m.thinkingRounds != null) thinking += m.thinkingRounds.size();
-                    if (m.thinkingContent != null && !m.thinkingContent.trim().isEmpty()) thinking++;
+                    // 同上：有逐轮列表就以列表为准，thinkingContent 不再单独计数
+                    int rounds = m.thinkingRounds != null ? m.thinkingRounds.size() : 0;
+                    if (rounds == 0 && m.thinkingContent != null
+                            && !m.thinkingContent.trim().isEmpty()) {
+                        rounds = 1;
+                    }
+                    thinking += rounds;
                     if (m.tokensPerSecond > 0) { tokensPerSec += m.tokensPerSecond; tpsCount++; }
                     break;
                 case THINKING: thinking++; break;

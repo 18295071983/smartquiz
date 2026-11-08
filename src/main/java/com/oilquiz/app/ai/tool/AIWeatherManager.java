@@ -2561,30 +2561,84 @@ public class AIWeatherManager implements AITool {
                     break;
             }
             
+            AIToolResult result;
             switch (action) {
                 case "current":
-                    return getCurrentWeatherAITool(city, lat, lon, useLocation);
+                    result = getCurrentWeatherAITool(city, lat, lon, useLocation);
+                    break;
                 case "forecast":
-                    return getForecastAITool(city, lat, lon, useLocation);
+                    result = getForecastAITool(city, lat, lon, useLocation);
+                    break;
                 case "hourly":
-                    return getHourlyAITool(city, lat, lon, useLocation);
+                    result = getHourlyAITool(city, lat, lon, useLocation);
+                    break;
                 case "air_quality":
-                    return getAirQualityAITool(city, lat, lon, useLocation);
+                    result = getAirQualityAITool(city, lat, lon, useLocation);
+                    break;
                 case "alerts":
-                    return getAlertsAITool(city, lat, lon, useLocation);
+                    result = getAlertsAITool(city, lat, lon, useLocation);
+                    break;
                 case "indices":
-                    return getIndicesAITool(city, lat, lon, useLocation);
+                    result = getIndicesAITool(city, lat, lon, useLocation);
+                    break;
                 case "all":
-                    return getAllWeatherAITool(city, lat, lon, useLocation);
+                    result = getAllWeatherAITool(city, lat, lon, useLocation);
+                    break;
                 default:
-                    return getCurrentWeatherAITool(city, lat, lon, useLocation);
+                    result = getCurrentWeatherAITool(city, lat, lon, useLocation);
+                    break;
             }
+            // CITY-IDENTITY(2026-11-08)：模型传和风编码（如 T145 的 101101003）时，
+            // 各格式化路径只会回显入参本身 → 模型看到"城市: 101101003"，无法证明这就是五台县，
+            // 只能猜或重问。这里统一补上解析后的城市全名，编码保留在括号里便于核对。
+            return applyCityIdentity(result, city);
         } catch (Exception e) {
             Log.e(TAG, "Error executing AI weather tool: " + e.getMessage(), e);
             return new AIToolResult("天气查询失败: " + e.getMessage(), parameters);
         }
     }
     
+    /**
+     * 把结果里的"城市"从**入参编码**补成"解析后的城市全名（编码）"（CITY-IDENTITY, 2026-11-08）。
+     *
+     * <p>背景（T145）：引擎侧天气直给会传和风 LocationID（如 101101003），而
+     * {@code parseHefengWeatherResponse} / SDK 的格式化文本都直接回显入参 →
+     * 模型只看到"城市: 101101003"，无法确认这是"五台县"，也就无法向用户证明数据归属。
+     * 解析失败/非编码入参时原样返回（不猜、不改写用户给的名称）。</p>
+     *
+     * <p>只改展示投影（formatted_result 与结构化 city/location_id），不改查询参数——
+     * 编码仍是本次请求真正使用的 location，避免"显示的是另一个城市"。</p>
+     */
+    private AIToolResult applyCityIdentity(AIToolResult result, String rawCity) {
+        if (result == null || !result.isSuccess()) return result;
+        if (rawCity == null || !rawCity.trim().matches("\\d{6,12}")) return result;
+        Object payload = result.getResult();
+        if (!(payload instanceof Map)) return result;
+        try {
+            com.oilquiz.app.weather.QWeatherCityManager.CityEntry entry =
+                    resolveCityEntry(rawCity.trim());
+            if (entry == null || entry.nameZh == null || entry.nameZh.isEmpty()) return result;
+            String fullName = entry.getFullName();
+            if (fullName == null || fullName.trim().isEmpty()) fullName = entry.nameZh;
+            String shown = fullName + " (" + rawCity.trim() + ")";
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) payload;
+            Object currentCity = map.get("city");
+            if (currentCity == null || rawCity.trim().equals(String.valueOf(currentCity))) {
+                map.put("city", entry.nameZh);
+            }
+            map.put("location_id", rawCity.trim());
+            Object formatted = map.get("formatted_result");
+            if (formatted instanceof String) {
+                map.put("formatted_result", ((String) formatted)
+                        .replace("城市: " + rawCity.trim(), "城市: " + shown));
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "applyCityIdentity failed for " + rawCity + ": " + t.getMessage());
+        }
+        return result;
+    }
+
     private AIToolResult getCurrentWeatherAITool(String city, Double lat, Double lon, boolean useLocation) {
         try {
             String result = null;

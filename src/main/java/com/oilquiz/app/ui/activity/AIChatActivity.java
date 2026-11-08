@@ -337,6 +337,14 @@ public class AIChatActivity extends BaseActivity {
     private volatile long lastTokenUiUpdateTime = 0;
     /** 流式 token 统计（onToken 实时累计，节流刷新状态栏） */
     private volatile long streamingTokenCount = 0;
+    /**
+     * 本轮累计的思考 token 数（不随思考轮次清零）。
+     *
+     * <p>TOKEN-COUNT(2026-11-08)：{@link #reasoningTokenCount} 是"当前思考轮"的滑动窗口，
+     * 每轮开始会清零，只能算速度；而 tokensGenerated 统计的是整轮产出，必须单独累计。
+     * 旧实现完成态只数正文 token，思考段整段不计（T145 报告）。
+     */
+    private volatile long totalReasoningTokens = 0;
     private volatile long streamingStartTime = 0;
     private volatile long lastTokenStatsUiUpdateTime = 0;
     /**
@@ -6392,6 +6400,7 @@ public class AIChatActivity extends BaseActivity {
      */
     private void noteReasoningTokenForSpeed() {
         reasoningTokenCount++;
+        totalReasoningTokens++;
         long now = System.currentTimeMillis();
         if (reasoningStartTime <= 0) reasoningStartTime = now;
         if (now - lastReasoningSpeedUiTime < 300) return;
@@ -6431,12 +6440,19 @@ public class AIChatActivity extends BaseActivity {
         if (messageIndex < 0 || messageIndex >= chatHistory.size()) return;
         
         ChatMessage msg = chatHistory.get(messageIndex);
-        if (msg.inferenceProgress != null) {
-            msg.inferenceProgress.processedTokens = processedTokens;
-            msg.inferenceProgress.tokensPerSecond = tokensPerSecond;
-            if (chatAdapter != null) {
-                chatAdapter.notifyItemChanged(messageIndex, ChatAdapter.PAYLOAD_STATUS_UPDATE);
-            }
+        if (msg == null) return;
+        if (msg.inferenceProgress == null) {
+            msg.inferenceProgress = new ChatMessage.InferenceProgress(
+                    ChatMessage.InferencePhase.GENERATING);
+        }
+        msg.inferenceProgress.processedTokens = processedTokens;
+        msg.inferenceProgress.tokensPerSecond = tokensPerSecond;
+        // TOKEN-COUNT(2026-11-08)：progress 是这一轮 token 的权威来源，消息级字段同步回写，
+        // 避免完成态再按字符数/恒为 0 的 native 计数器重新估算（思考 token 也会丢）。
+        if (processedTokens > 0) msg.tokensGenerated = processedTokens;
+        if (tokensPerSecond > 0f) msg.tokensPerSecond = tokensPerSecond;
+        if (chatAdapter != null) {
+            chatAdapter.notifyItemChanged(messageIndex, ChatAdapter.PAYLOAD_STATUS_UPDATE);
         }
     }
 
@@ -7341,18 +7357,35 @@ public class AIChatActivity extends BaseActivity {
                     finalMsg.components.addAll(drained);
                 }
                 
+                // 兜底保留最后一段思考（普通对话没有逐轮快照，投影不会覆盖它）；
+                // 必须在 applyToMessage 之前写，否则会把 parts 投影出的权威值盖回实时缓冲。
+                synchronized (streamingLock) {
+                    if (currentThinkingContent != null && currentThinkingContent.length() > 0) {
+                        finalMsg.thinkingContent = currentThinkingContent.toString();
+                    }
+                }
                 // canonical 回合落库：parts 是顺序与内容的权威，content 只做兼容投影
                 // （modelCalls 只留每轮的 round/stopReason/timestamp/toolIds 元信息，全文不落库）
                 finalMsg.assistantTurn =
                         com.oilquiz.app.ai.chat.turn.AssistantTurn.fromMessage(finalMsg);
-                // parts 是权威：提交时统一派生 content/bounds/toolIds
+                // parts 是权威：提交时统一派生 content/bounds/toolIds 与 thinking* 投影
                 finalMsg.assistantTurn.applyToMessage(finalMsg);
                 int finalTokenCount = tokenCount;
-                // 优先使用 native 层 token 计数（仅本地模型；在线模式不调用 native，避免未初始化崩溃）
-                if (!shouldUseOnlineModel()) {
-                    int nativeTokens = LlamaHelper.getTokenCount();
-                    if (nativeTokens > 0) {
-                        finalTokenCount = nativeTokens;
+                // TOKEN-COUNT(2026-11-08)：inferenceProgress 已经按真实 token（正文+思考、跨工具轮）
+                // 记好了，优先用它回写消息字段；旧实现只读 native getTokenCount()，而该计数器
+                // 在 addTokenCount 从未被调用的情况下恒为 0，于是永远退回"估算"且不含思考。
+                int progressTokens = finalMsg.inferenceProgress != null
+                        ? finalMsg.inferenceProgress.processedTokens : 0;
+                if (progressTokens > 0) {
+                    finalTokenCount = progressTokens;
+                } else if (!shouldUseOnlineModel()) {
+                    // 普通对话路径没有 progress 回写：按流式回调的 token 粒度累计（含思考段）。
+                    int callbackTokens = (int) (streamingTokenCount + totalReasoningTokens);
+                    if (callbackTokens > 0) {
+                        finalTokenCount = callbackTokens;
+                    } else {
+                        int nativeTokens = LlamaHelper.getTokenCount();
+                        if (nativeTokens > 0) finalTokenCount = nativeTokens;
                     }
                 }
                 if (finalTokenCount <= 0 && finalContent != null && !finalContent.isEmpty()) {
@@ -7377,7 +7410,17 @@ public class AIChatActivity extends BaseActivity {
                 if (finalGenerationTime > 0) {
                     finalMsg.generationTimeMs = finalGenerationTime;
                 }
-                
+                // TOKEN-COUNT(2026-11-08)：速度也从 inferenceProgress 回写；没有 progress 时
+                // 才用"总 token / 总耗时"兜底（总耗时含工具执行，只会低估，不会虚高）。
+                float finalTps = finalMsg.inferenceProgress != null
+                        ? finalMsg.inferenceProgress.tokensPerSecond : 0f;
+                if (finalTps <= 0f && finalTokenCount > 0 && finalGenerationTime > 0) {
+                    finalTps = finalTokenCount * 1000f / finalGenerationTime;
+                }
+                if (finalTps > 0f) {
+                    finalMsg.tokensPerSecond = finalTps;
+                }
+
                 if (finalMsg.inferenceProgress != null) {
                     finalMsg.inferenceProgress.phase = ChatMessage.InferencePhase.COMPLETED;
                 }
@@ -7394,12 +7437,6 @@ public class AIChatActivity extends BaseActivity {
                     }
                 }
 
-                synchronized (streamingLock) {
-                    if (currentThinkingContent != null && currentThinkingContent.length() > 0) {
-                        finalMsg.thinkingContent = currentThinkingContent.toString();
-                    }
-                }
-                
                 if (chatAdapter != null) {
                     chatAdapter.notifyItemChanged(messageIndex);
                     if (finalTokenCount > 0 && finalGenerationTime > 0) {
@@ -7638,7 +7675,8 @@ public class AIChatActivity extends BaseActivity {
             if (now - lastTokenStatsUiUpdateTime >= 300) {
                 lastTokenStatsUiUpdateTime = now;
                 final long elapsed = now - streamingStartTime;
-                final int tokens = (int) streamingTokenCount;
+                // 思考 token 也计入总产出（它们同样占生成时间与上下文）
+                final int tokens = (int) (streamingTokenCount + totalReasoningTokens);
                 runOnUiThread(() -> {
                     float tps = elapsed > 0 ? tokens * 1000f / elapsed : 0;
                     updateStreamingTokenStats(tokens, tps);
@@ -7906,6 +7944,9 @@ public class AIChatActivity extends BaseActivity {
                     }
                     msg.inferenceProgress.processedTokens = tokenCount;
                     msg.inferenceProgress.tokensPerSecond = tokensPerSecond;
+                    // TOKEN-COUNT(2026-11-08)：消息级字段同步回写，别等完成态再从别的源猜。
+                    if (tokenCount > 0) msg.tokensGenerated = tokenCount;
+                    if (tokensPerSecond > 0f) msg.tokensPerSecond = tokensPerSecond;
 
                     // 使用与普通模式相同的payload更新UI
                     if (chatAdapter != null) {
@@ -8021,6 +8062,7 @@ public class AIChatActivity extends BaseActivity {
         streamingStartTime = 0;
         lastTokenStatsUiUpdateTime = 0;
         reasoningTokenCount = 0;
+        totalReasoningTokens = 0;
         reasoningStartTime = 0;
         lastReasoningSpeedUiTime = 0;
         

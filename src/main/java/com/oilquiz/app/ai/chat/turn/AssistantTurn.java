@@ -1106,6 +1106,11 @@ public class AssistantTurn {
     public void applyToMessage(ChatMessage msg) {
         if (msg == null) return;
         if (textPartsAreSlices) return; // 正文/边界的真值本来就在 msg 上，切片 turn 不回写（见字段注释）
+        // THINKING-PROJECTION(2026-11-08)：提交/恢复时思考也只保留 parts 这一份权威。
+        // 此前 thinkingContent（实时缓冲）、thinkingRounds（按轮追加）、parts[reasoning]
+        // 三条链各自写，T145 检查时同一轮思考在会话 JSON 里能找到三份且可能不一致。
+        // 现在与 content 同口径：parts 是顺序/内容真值，两个 legacy 字段是兼容投影。
+        syncThinkingProjection(msg);
         StringBuilder sb = new StringBuilder();
         java.util.List<Integer> bounds = new java.util.ArrayList<>();
         java.util.List<String> ids = new java.util.ArrayList<>();
@@ -1126,6 +1131,46 @@ public class AssistantTurn {
         msg.content = sb.toString();
         msg.contentRoundBounds = bounds;
         msg.contentRoundToolIds = ids;
+    }
+
+    /**
+     * 把 reasoning parts 投影回 legacy 思考字段（THINKING-PROJECTION, 2026-11-08）。
+     *
+     * <p>适用面：只有"逐轮快照是权威"的新消息（{@code roundSnapshots} 非空）。旧数据
+     * 的 parts 本来就是从 {@code thinkingRounds} 切出来的，再投影回去只会改写既有记录，
+     * 因此直接跳过（与 content 的 {@code textPartsAreSlices} 同一条边界）。</p>
+     *
+     * <p>防丢：若 legacy 的轮数比 parts 多（异常时序/被截断的轮次），保留 legacy 不动——
+     * 投影只用于消除"同一轮两份不同文本"，不应该删掉重建不出来的内容。</p>
+     */
+    private void syncThinkingProjection(ChatMessage msg) {
+        if (msg.roundSnapshots == null || msg.roundSnapshots.isEmpty()) return;
+        java.util.List<String> rounds = new java.util.ArrayList<>();
+        java.util.List<Long> durations = new java.util.ArrayList<>();
+        for (Part p : parts) {
+            if (p == null || !Part.TYPE_REASONING.equals(p.type) || !hasText(p.text)) continue;
+            rounds.add(p.text);
+            durations.add(Math.max(0L, p.durationMs));
+        }
+        if (rounds.isEmpty()) return;
+        int legacyCount = msg.thinkingRounds == null ? 0 : msg.thinkingRounds.size();
+        if (legacyCount > rounds.size()) return;
+        if (!rounds.equals(msg.thinkingRounds)) {
+            msg.thinkingRounds = rounds;
+        }
+        // 轮 id 与轮数严格同下标：已有 id 且数量对齐时保留（用户的折叠状态按 id 记），
+        // 否则用确定性的 turnId-K<n> 补齐，避免 legacy 列表漂移后 UI 取不到 id。
+        if (msg.thinkingRoundIds == null || msg.thinkingRoundIds.size() != rounds.size()) {
+            java.util.List<String> ids = new java.util.ArrayList<>(rounds.size());
+            String prefix = msg.turnId != null ? msg.turnId : "T";
+            for (int i = 0; i < rounds.size(); i++) {
+                ids.add(prefix + "-K" + (i + 1));
+            }
+            msg.thinkingRoundIds = ids;
+        }
+        msg.thinkingRoundDurationsMs = durations;
+        // legacy 语义：thinkingContent = 当前（最后一轮）思考的实时文本
+        msg.thinkingContent = rounds.get(rounds.size() - 1);
     }
 
     /** 兼容投影：按 parts 顺序拼出正文（不含 tool 参数/结果）。 */

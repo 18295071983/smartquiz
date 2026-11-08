@@ -67,6 +67,45 @@ public class AssistantTurnRestoreTest {
                 AssistantTurn.fromMessage(msg).modelCalls.get(0).content);
     }
 
+    /**
+     * THINKING-PROJECTION(2026-11-08)：提交后思考只认 parts 这一份权威，
+     * thinkingRounds / thinkingContent 是兼容投影——旧标签页留下的不同文本必须被覆盖，
+     * 轮数/耗时/轮 id 与 parts 对齐；legacy 多出的轮次不能被删。
+     */
+    @Test
+    public void reasoningPartsProjectBackToLegacyThinkingFields() {
+        ChatMessage msg = ChatMessage.createAIMessage("m7", "正文", 1000L);
+        msg.turnId = "T7";
+        msg.status = ChatMessage.MessageStatus.COMPLETED;
+        msg.roundSnapshots = new ArrayList<>();
+        msg.roundSnapshots.add(new ChatMessage.RoundSnapshot(1, "第一轮正文", "第一轮权威思考", 11L));
+        msg.roundSnapshots.add(new ChatMessage.RoundSnapshot(2, "第二轮正文", "第二轮权威思考", 12L));
+        // 模拟三套数据漂移：legacy 列表是旧文本（内容不同），thinkingContent 停在上一轮
+        msg.thinkingRounds = new ArrayList<>(Arrays.asList("旧思考甲", "旧思考乙"));
+        msg.thinkingRoundIds = new ArrayList<>(Arrays.asList("T7-K1", "T7-K2"));
+        msg.thinkingRoundDurationsMs = new ArrayList<>(Arrays.asList(1L, 2L));
+        msg.thinkingContent = "旧思考乙";
+
+        AssistantTurn turn = AssistantTurn.fromMessage(msg);
+        turn.applyToMessage(msg);
+
+        assertEquals(Arrays.asList("第一轮权威思考", "第二轮权威思考"), msg.thinkingRounds);
+        // 耗时来源是 legacy 列表（parts 的 durationMs 也取自这里），投影后保持同下标
+        assertEquals(Arrays.asList(1L, 2L), msg.thinkingRoundDurationsMs);
+        assertEquals("已对齐的轮 id 不应被重发", Arrays.asList("T7-K1", "T7-K2"), msg.thinkingRoundIds);
+        assertEquals("thinkingContent 是最后一轮投影", "第二轮权威思考", msg.thinkingContent);
+
+        // 防丢：legacy 比 parts 多一轮时保留 legacy，不用投影删掉重建不出来的内容
+        ChatMessage legacyExtra = ChatMessage.createAIMessage("m8", "正文", 1000L);
+        legacyExtra.turnId = "T8";
+        legacyExtra.status = ChatMessage.MessageStatus.COMPLETED;
+        legacyExtra.roundSnapshots = new ArrayList<>();
+        legacyExtra.roundSnapshots.add(new ChatMessage.RoundSnapshot(1, "正文", "一轮思考", 1L));
+        legacyExtra.thinkingRounds = new ArrayList<>(Arrays.asList("一轮思考", "多出来的思考"));
+        AssistantTurn.fromMessage(legacyExtra).applyToMessage(legacyExtra);
+        assertEquals("legacy 多出来的轮次不能被投影删掉", 2, legacyExtra.thinkingRounds.size());
+    }
+
     private static int countOccurrences(String haystack, String needle) {
         int n = 0;
         for (int i = haystack.indexOf(needle); i >= 0; i = haystack.indexOf(needle, i + 1)) n++;

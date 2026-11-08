@@ -2278,7 +2278,7 @@ public:
                 // devices —— 留空等于让 llama.cpp 自行枚举全部设备，而多设备会把
                 // 权重分片落到未预期的后端上并导致模型加载 segfault
                 // （signal 11 -> ggml_backend_dev_get_props）。改为只挑一个。
-                ggml_backend_dev_t fbNpu = nullptr, fbOpenCL = nullptr, fbVulkan = nullptr;
+                ggml_backend_dev_t fbNpu = nullptr, fbOpenCL = nullptr;
                 for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
                     ggml_backend_dev_t dev = ggml_backend_dev_get(i);
                     if (!dev) continue;
@@ -2291,9 +2291,19 @@ public:
                     enum ggml_backend_dev_type dType = ggml_backend_dev_type(dev);
                     if (dType != GGML_BACKEND_DEVICE_TYPE_GPU && dType != GGML_BACKEND_DEVICE_TYPE_IGPU) continue;
                     if (!fbOpenCL && strstr(regName, "OpenCL") != nullptr) fbOpenCL = dev;
-                    else if (!fbVulkan && strstr(regName, "Vulkan") != nullptr) fbVulkan = dev;
                 }
-                ggml_backend_dev_t fb = fbNpu ? fbNpu : (fbOpenCL ? fbOpenCL : fbVulkan);
+                // VULKAN-DEFAULT-OFF(2026-11-08)：请求的后端不在时，回退候选**不含 Vulkan**。
+                // Adreno 840 实测 Vulkan 驱动 shader 编译失败（乱码/复读），而它是"请求 opencl/
+                // hexagon 但设备没枚举到"时的静默兜底，用户根本没选过 Vulkan。默认宁可靠 CPU。
+                ggml_backend_dev_t fb = fbNpu ? fbNpu : fbOpenCL;
+                if (fb == nullptr) {
+                    this->gpuLayers = 0;
+                    std::lock_guard<std::mutex> rbLock(g_resolvedBackendMutex);
+                    g_resolvedBackend = "cpu";
+                    LOGW("Backend switch: no HTP/OpenCL device for requested '%s'; Vulkan is opt-in only, "
+                         "falling back to CPU | %s", backendChoice.c_str(),
+                         describeBackendRegistry().c_str());
+                }
                 if (fb != nullptr) {
                     selectedDevices.push_back(fb);
                     selectedDevices.push_back(nullptr);
@@ -2318,7 +2328,9 @@ public:
         } else {
             // AUTO-PICK(2026-10-09)：auto = 自动挑**一个**后端，优先 NPU。
             //
-            // 优先级：Hexagon/HTP(NPU) > OpenCL > Vulkan。
+            // 优先级：Hexagon/HTP(NPU) > OpenCL > CPU（VULKAN-DEFAULT-OFF，2026-11-08：
+            // Vulkan 不再参与 auto 择优，Adreno 840 上驱动 shader 编译失败是已知坏路；
+            // 需要时用户在设置页显式选 vulkan）。
             //   - NPU 优先：实测本机 prefill 约 1500 tok/s、decode 29~34 tok/s，
             //     明显优于 OpenCL（prefill 约 205、decode 约 15.6）。
             //   - OpenCL 优于 Vulkan：CMakeLists 记录本工程 Vulkan 走基础路径
@@ -2336,7 +2348,6 @@ public:
             // 引擎日志新增的 "Backend registry:" 行会把这件事写在明面上。
             ggml_backend_dev_t pickedNpu = nullptr;
             ggml_backend_dev_t pickedOpenCL = nullptr;
-            ggml_backend_dev_t pickedVulkan = nullptr;
             for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
                 ggml_backend_dev_t dev = ggml_backend_dev_get(i);
                 if (!dev) continue;
@@ -2352,12 +2363,13 @@ public:
                 if (dType != GGML_BACKEND_DEVICE_TYPE_GPU && dType != GGML_BACKEND_DEVICE_TYPE_IGPU) continue;
                 if (pickedOpenCL == nullptr && strstr(regName, "OpenCL") != nullptr) {
                     pickedOpenCL = dev;
-                } else if (pickedVulkan == nullptr && strstr(regName, "Vulkan") != nullptr) {
-                    pickedVulkan = dev;
                 }
+                // VULKAN-DEFAULT-OFF(2026-11-08)：auto 不再把 Vulkan 当兜底。Adreno 840 上
+                // ggml-vulkan 的 shader 编译在驱动侧失败（乱码/复读），而 auto 是绝大多数
+                // 用户的默认档 —— 没有 HTP/OpenCL 时宁可 CPU，也不静默进这条已知坏路。
+                // 需要 Vulkan 的用户可在设置页显式选 vulkan（那条路径仍保留）。
             }
-            ggml_backend_dev_t picked = pickedNpu ? pickedNpu
-                                     : (pickedOpenCL ? pickedOpenCL : pickedVulkan);
+            ggml_backend_dev_t picked = pickedNpu ? pickedNpu : pickedOpenCL;
             if (picked != nullptr) {
                 selectedDevices.clear();
                 selectedDevices.push_back(picked);
@@ -2368,29 +2380,24 @@ public:
                 // auto 的解析结果：优先级与上面选设备的顺序一致
                 {
                     std::lock_guard<std::mutex> rbLock(g_resolvedBackendMutex);
-                    g_resolvedBackend = (picked == pickedNpu) ? "hexagon"
-                                      : (picked == pickedOpenCL ? "opencl" : "vulkan");
+                    g_resolvedBackend = (picked == pickedNpu) ? "hexagon" : "opencl";
                 }
                 // 每次模型加载一行：auto 的落点原本只在 LOGD 里（引擎日志不收 'D'），
                 // 于是"默认想跑 NPU、实际跑在 OpenCL"这件事在用户视图里完全无痕。
-                // 落到 Vulkan 时升级为 WARN：本包的 Vulkan 走的是 NDK glslc 基础路径
-                // （没有 cooperativeMatrix/bfloat16），Adreno 840 实测会出乱码/复读，
-                // 所以它是自动择优的**最后手段**，只在 HTP 与 OpenCL 都没有设备时才用。
-                // 不干脆改走纯 CPU：那会让只有 Vulkan 的机型慢到不可用，而单设备选择本身
-                // 是安全的（多设备才是历史 segfault 的来源）。
-                if (picked == pickedVulkan) {
-                    LOGW("Backend switch: auto mode fell back to Vulkan (name=%s) - no HTP/OpenCL device available; "
-                         "this path is known to garble output on some Adreno drivers, htp_build=%s",
-                         ggml_backend_dev_name(picked) ? ggml_backend_dev_name(picked) : "null",
-                         g_htpBackendCompiledIn ? "in" : "absent");
-                } else {
-                    LOGI("Backend switch: auto mode picked single device (backend=%s, name=%s, htp_build=%s)",
-                         pickedRegName,
-                         ggml_backend_dev_name(picked) ? ggml_backend_dev_name(picked) : "null",
-                         g_htpBackendCompiledIn ? "in" : "absent");
-                }
+                LOGI("Backend switch: auto mode picked single device (backend=%s, name=%s, htp_build=%s)",
+                     pickedRegName,
+                     ggml_backend_dev_name(picked) ? ggml_backend_dev_name(picked) : "null",
+                     g_htpBackendCompiledIn ? "in" : "absent");
             } else {
-                LOGW("Backend switch: auto mode found no usable device, using all available devices");
+                // VULKAN-DEFAULT-OFF(2026-11-08)：auto 没有 HTP/OpenCL 时回退 CPU，不再交给
+                // llama.cpp 枚举全部设备（那会把 Vulkan 拉进来）。Vulkan 只能由用户显式选择。
+                this->gpuLayers = 0;
+                {
+                    std::lock_guard<std::mutex> rbLock(g_resolvedBackendMutex);
+                    g_resolvedBackend = "cpu";
+                }
+                LOGW("Backend switch: auto mode found no HTP/OpenCL device; Vulkan is opt-in only, "
+                     "falling back to CPU | %s", describeBackendRegistry().c_str());
             }
         }
         

@@ -166,8 +166,11 @@ public class LlamaHelper {
     //   · 设为 opencl 的历史理由（2026-10-07）：Vulkan 走基础路径较慢，而 auto 会把
     //     Vulkan 与 OpenCL 一起放进 devices 互相拖慢。该理由只否定了旧的 auto 行为，
     //     不构成选 opencl 优于 NPU 的依据。
-    //   · auto 现在的行为（2026-10-09）与默认值一致：只挑一个设备，优先 NPU，
-    //     再退 OpenCL / Vulkan。旧 auto 传入多个设备会导致模型加载 segfault
+    //   · auto 现在的行为：只挑一个设备，优先 NPU，再退 OpenCL。
+    //     VULKAN-DEFAULT-OFF(2026-11-08)：不再退 Vulkan —— Adreno 840 实测驱动 shader
+    //     编译失败（乱码/复读），auto 是默认档，不能静默进已知坏路；没有 NPU/OpenCL
+    //     时回退 CPU。Vulkan 只能由用户显式选择（设置项写 vulkan）。
+    //     旧 auto 传入多个设备会导致模型加载 segfault
     //     （signal 11 -> ggml_backend_dev_get_props），已修。
     // 想换回：设置项写 opencl / vulkan / auto 即可（运行时生效，无需重新编译）。
     public static final String DEFAULT_BACKEND = "hexagon";
