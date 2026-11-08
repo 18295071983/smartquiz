@@ -278,6 +278,7 @@ EngineInfo probeEngine(const llama_model* model,
         info.nCtxSeq = llama_n_ctx_seq(ctx);
         info.nBatch = llama_n_batch(ctx);
         info.nUbatch = llama_n_ubatch(ctx);
+        info.nRsSeq = llama_n_rs_seq(ctx);
 
         llama_memory_t mem = llama_get_memory(ctx);
         if (mem != nullptr) {

@@ -92,7 +92,9 @@ public final class SystemProbe {
     public static final int ENGINE_HEAD_COUNT_KV = 15;
     public static final int ENGINE_HEAD_DIM = 16;
     public static final int ENGINE_KV_BYTES_PER_TOKEN = 17;
-    private static final int ENGINE_LEN = 18;
+    /** llama_n_rs_seq：0 表示循环层不支持部分回滚（hybrid 模型 PARTIAL 复用失败的根因）。 */
+    public static final int ENGINE_N_RS_SEQ = 18;
+    private static final int ENGINE_LEN = 19;
 
     private static final boolean LIB_LOADED;
 
@@ -310,6 +312,7 @@ public final class SystemProbe {
                 + " kvPos=[" + a[ENGINE_KV_POS_MIN] + "," + a[ENGINE_KV_POS_MAX] + "]"
                 + " kvLayers=" + a[ENGINE_KV_LAYERS] + "/" + a[ENGINE_BLOCK_COUNT]
                 + " kvBytes/token=" + a[ENGINE_KV_BYTES_PER_TOKEN]
+                + " n_rs_seq=" + a[ENGINE_N_RS_SEQ]
                 + " state=" + (a[ENGINE_STATE_SIZE_BYTES] / MB) + "MB";
     }
 

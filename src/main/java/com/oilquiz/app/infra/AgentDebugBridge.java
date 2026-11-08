@@ -60,6 +60,9 @@ import com.oilquiz.app.ai.agent.online.OnlineToolResult;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.service.AIService;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
@@ -286,7 +289,16 @@ public class AgentDebugBridge extends BroadcastReceiver {
         final File outDir = new File(app.getExternalFilesDir(null), "agent_bridge");
         outDir.mkdirs();
         final File out = new File(outDir, "result_" + ts + ".txt");
-        final StringBuilder sb = new StringBuilder();
+        final File debugOut = new File(outDir, "debug_" + ts + ".json");
+        final String sessionId = (session == null || session.isEmpty()) ? "ext_" + ts : session;
+        // 关键：logcat-capture 线程与引擎回调线程都会写这里，必须用线程安全容器；
+        // 之前用 StringBuilder，收尾时两边并发 append 可能抛 StringIndexOutOfBounds 或丢尾部日志。
+        final StringBuffer sb = new StringBuffer();
+        final JSONObject startSnapshot = AgentDebugSnapshot.capture(app);
+        final long taskStartMs = System.currentTimeMillis();
+        final int promptTokens = countTokensSafe(prompt);
+        final TaskMeta meta = new TaskMeta(app, out, debugOut, sb, displayPrompt, promptType,
+                useLocalEngine ? "local" : "online", sessionId, taskStartMs, promptTokens, startSnapshot);
 
         // 自动跳转调试控制台（实时显示连通状态与执行过程）
         openDebugActivity(app);
@@ -311,8 +323,11 @@ public class AgentDebugBridge extends BroadcastReceiver {
         // ===== 启动 logcat 监听：捕获引擎详细日志，追加到结果文件 =====
         final Process[] logcatProc = {null};
         try {
+            // -T：只从本任务开始时刻抓，避免把历史缓冲区里的旧日志混进本次结果；
+            // 多抓 SystemProbe/ContextWindowManager/ResourceConfig，探针读数才能和引擎日志对上。
+            final String logcatSince = new SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US).format(new Date());
             logcatProc[0] = Runtime.getRuntime().exec(
-                new String[]{"logcat", "-v", "time", "-s",
+                new String[]{"logcat", "-v", "time", "-T", logcatSince, "-s",
                     "OnlineAgentEngine:V", "OnlinePromptBuilder:V",
                     "OnlineToolManager:V", "AIService:V",
                     "OnlineInferenceService:V",
@@ -320,6 +335,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                     // 本地引擎/原生层的标签根本不在过滤器里
                     "AgentSoftwareLayer:V", "AgentLoopEngine:V",
                     "LlamaHelper:V", "LlamaJNI:V", "AgentKvCache:V",
+                    "SystemProbe:V", "ContextWindowManager:V", "ResourceConfig:V",
                     "AgentDebugBridge:V"});
             final java.io.BufferedReader logReader = new java.io.BufferedReader(
                 new java.io.InputStreamReader(logcatProc[0].getInputStream(), StandardCharsets.UTF_8));
@@ -363,8 +379,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
         try {
             final int[] attempt = {0};
             final boolean[] retrying = {false};
-            final int[] outTokens = {0};   // 本轮已输出的 token 数（思考+正文）
-            final String sid = (session != null && !session.isEmpty()) ? session : "ext_" + ts;
+            final String sid = sessionId;
             // 复用同一引擎实例重试：保留 messageHistory/thinkingChain，断点续传（近似）
             final OnlineToolManager[] tmHolder = {null};
             final OnlineAgentEngine[] engineHolder = {null};
@@ -374,7 +389,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
             executeTask[0] = new Runnable() {
                 @Override public void run() {
                     attempt[0]++;
-                    outTokens[0] = 0;   // 每轮重新计数（部分输出按轮判定）
+                    // 每轮重新计数已由 TaskMeta.markFirstToken/计数自然累积；零输出重连不丢统计
                     if (useLocalEngine) {
                         // 本地引擎常驻复用：模型冷加载数秒~十余秒，且同实例保留 KV/历史
                         if (localHolder[0] == null) {
@@ -392,19 +407,21 @@ public class AgentDebugBridge extends BroadcastReceiver {
                         engineHolder[0].setSessionId(sid);
                     }
                     emitState("connection", (useLocalEngine
-                            ? "本地引擎就绪(AgentSession → llama.cpp)"
+                            ? "本地引擎就绪(AgentSoftwareLayer → llama.cpp)"
                             : "在线引擎就绪(OnlineAgentEngine)")
-                            + "，会话隔离=" + (useLocalEngine ? "进程内常驻(不适用)" : sid)
+                            + "，会话隔离=" + (useLocalEngine ? "进程内常驻(共享本地会话)" : sid)
                             + (attempt[0] > 1 ? "（第 " + attempt[0] + " 次尝试，断点续传）" : ""));
 
                     AgentCallback cb = new AgentCallback() {
                         @Override public void onToken(String token) {
-                            outTokens[0]++;
+                            meta.contentTokens++;
+                            meta.markFirstToken();
                             sb.append("TOKEN: ").append(token).append('\n');
                             emit("TOKEN: " + token);
                         }
                         @Override public void onThinkingToken(String token) {
-                            outTokens[0]++;
+                            meta.thinkingTokens++;
+                            meta.markFirstToken();
                             sb.append("THINK: ").append(token).append('\n');
                             emit("THINK: " + token);
                         }
@@ -413,10 +430,12 @@ public class AgentDebugBridge extends BroadcastReceiver {
                             emit("── 思考结束 ──");
                         }
                         @Override public void onToolCallStart(String id, String name, String args) {
+                            meta.toolStart();
                             sb.append("[TOOL] ").append(name).append(' ').append(args).append('\n');
                             emit("▶ 工具调用: " + name + " " + args);
                         }
                         @Override public void onToolCallComplete(String id, String name, OnlineToolResult r) {
+                            meta.toolEnd(name, true, String.valueOf(r));
                             sb.append("[TOOL-OK] ").append(name).append(" -> ").append(r).append('\n');
                             emit("✔ 工具完成: " + name + " -> " + r);
                         }
@@ -425,6 +444,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                             emit("[STEP] " + step + " " + detail);
                         }
                         @Override public void onComplete(String fullText) {
+                            meta.error = null;
                             sb.append("=== COMPLETE ===\n").append(fullText).append('\n');
                             emitState("status", "✅ 完成");
                             emit("── 执行完成 ──");
@@ -433,23 +453,24 @@ public class AgentDebugBridge extends BroadcastReceiver {
                             save("done", fullText); Log.i(TAG, "done -> " + out); release();
                         }
                         @Override public void onError(String error) {
+                            meta.error = error;
                             sb.append("=== ERROR ===\n").append(error).append('\n');
                             emitState("status", "❌ 错误: " + error);
                             emit("── 执行出错: " + error + " ──");
-                            if (outTokens[0] > 0) {
+                            if (meta.totalTokens() > 0) {
                                 // 已有输出（思考/正文任意 token）：连接是通的，中断属流式瞬时故障。
                                 // 不粗暴判为网络问题重试，保留已生成内容按「部分完成」收尾。
                                 String partialTail = sb.length() > 0
                                         ? sb.substring(Math.max(0, sb.length() - 600))
                                         : "";
                                 sb.append("=== PARTIAL ===\n")
-                                    .append("连接中断，已保留部分输出（已输出 token=").append(outTokens[0]).append("）\n");
+                                    .append("连接中断，已保留部分输出（已输出 token=").append(meta.totalTokens()).append("）\n");
                                 emitState("status", "⚠️ 连接中断，已保留部分输出");
                                 emit("── 连接中断，已保留部分输出 ──");
                                 emitRaw("[RESULT] partial result=" + out.getName() + " " + tsStamp());
                                 emitRaw("[ANSWER] 部分输出：" + oneLine(partialTail, 300));
-                                Log.w(TAG, "partial (tokens=" + outTokens[0] + ", err=" + error + ") -> " + out);
-                                save("partial", "连接中断，已保留部分输出（token=" + outTokens[0] + "）。\n"
+                                Log.w(TAG, "partial (tokens=" + meta.totalTokens() + ", err=" + error + ") -> " + out);
+                                save("partial", "连接中断，已保留部分输出（token=" + meta.totalTokens() + "）。\n"
                                         + "已生成尾部：" + partialTail.trim());
                                 release();
                             } else if (attempt[0] < MAX_RETRY && isNetworkError(error)) {
@@ -469,10 +490,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                             }
                         }
                         void save(String status, String resultText) {
-                            try (OutputStreamWriter w = new OutputStreamWriter(new FileOutputStream(out, true), StandardCharsets.UTF_8)) {
-                                w.write(sb.toString());
-                            } catch (Exception e) { Log.e(TAG, "save fail", e); }
-                            writeStatus(status, out, displayPrompt, promptType, resultText);
+                            writeTaskArtifacts(meta, status, resultText);
                         }
                         void release() {
                             finishOnce.run();
@@ -482,11 +500,14 @@ public class AgentDebugBridge extends BroadcastReceiver {
                     // 本地引擎回调适配：与在线通道共用同一套落盘/状态约定
                     final AgentSoftwareLayer.AgentCallback localCb = new AgentSoftwareLayer.AgentCallback() {
                         @Override public void onToken(String token) {
-                            outTokens[0]++;
+                            meta.contentTokens++;
+                            meta.markFirstToken();
                             sb.append("TOKEN: ").append(token).append('\n');
                             emit("TOKEN: " + token);
                         }
                         @Override public void onThinkingUpdate(String thought) {
+                            meta.thinkingTokens++;
+                            meta.markFirstToken();
                             sb.append("THINK: ").append(thought).append('\n');
                             emit("THINK: " + thought);
                         }
@@ -495,10 +516,12 @@ public class AgentDebugBridge extends BroadcastReceiver {
                             emit("[STEP] " + step + " " + detail);
                         }
                         @Override public void onToolCallStart(String name, String args) {
+                            meta.toolStart();
                             sb.append("[TOOL] ").append(name).append(' ').append(args).append('\n');
                             emit("▶ 工具调用: " + name + " " + args);
                         }
                         @Override public void onToolCallComplete(String name, boolean ok, String result) {
+                            meta.toolEnd(name, ok, result);
                             sb.append(ok ? "[TOOL-OK] " : "[TOOL-FAIL] ").append(name)
                               .append(" -> ").append(result).append('\n');
                             emit((ok ? "✔ 工具完成: " : "✖ 工具失败: ") + name + " -> " + oneLine(result, 200));
@@ -511,6 +534,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                         @Override public void onComplete(AgentResponse response) {
                             String fullText = (response != null && response.finalAnswer != null)
                                     ? response.finalAnswer : "";
+                            meta.error = null;
                             sb.append("=== COMPLETE ===\n").append(fullText).append('\n');
                             emitState("status", "✅ 完成(本地)");
                             emit("── 执行完成 ──");
@@ -520,6 +544,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                             finishOnce.run();
                         }
                         @Override public void onError(String error) {
+                            meta.error = error;
                             sb.append("=== ERROR ===\n").append(error).append('\n');
                             emitState("status", "❌ 错误(本地): " + error);
                             emit("── 本地执行出错: " + error + " ──");
@@ -528,16 +553,13 @@ public class AgentDebugBridge extends BroadcastReceiver {
                             finishOnce.run();
                         }
                         @Override public void onBusy(String msg) {
+                            meta.error = "busy: " + msg;
                             emit("── 本地引擎忙，本次注入未执行 ──");
                             saveLocal("busy", "本地引擎忙，未执行");
                             finishOnce.run();
                         }
                         void saveLocal(String status, String text) {
-                            try (OutputStreamWriter w = new OutputStreamWriter(
-                                    new FileOutputStream(out, true), StandardCharsets.UTF_8)) {
-                                w.write(sb.toString());
-                            } catch (Exception e) { Log.e(TAG, "save fail", e); }
-                            writeStatus(status, out, displayPrompt, promptType, text);
+                            writeTaskArtifacts(meta, status, text);
                         }
                     };
 
@@ -549,7 +571,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                     Log.i(TAG, "execute#" + attempt[0] + ": " + prompt + " (engine=" + (useLocalEngine ? "local" : "online") + ", session=" + sid + ", maxTokens=" + maxTokens + ", thinking=" + thinking + ")");
                     sb.append(fullVisible ? "PROMPT: " : "PROMPT_SUMMARY: ")
                             .append(displayPrompt).append('\n');
-                    writeStatus("running", out, displayPrompt, promptType, "");
+                    writeRunningStatus(meta);
                     // 外部注入模式：加系统提示前缀，优化行为
             String effectivePrompt = "[调试模式] 你现在处于外部调试通道。请：\n"
                     + "1. 直接输出完整答案，不要反问用户（如\"你要出门吗？\"）\n"
@@ -565,24 +587,27 @@ public class AgentDebugBridge extends BroadcastReceiver {
                 // "Helper context not initialized"、10ms 返回兜底句 —— 那是假成功，
                 // 会把"引擎根本没跑"读成"模型答不出来"。
                 final AIService aiService = AIService.getInstance(app);
-                if (!com.oilquiz.app.ai.jni.LlamaHelper.isNativeStateValid()) {
-                    emitState("connection", "本地引擎未就绪（native chat context 缺失），异步加载中…");
-                    emit("── 本地引擎加载中，就绪后自动开始推理 ──");
+                // 本地就绪判据必须是 **chat context 已建立**（getContextSize()>0），不是
+                // isNativeStateValid()：真机复现，模型还在加载时 isNativeStateValid 已为 true，
+                // 此时 AgentLoopEngine 读到 native=0，用 4096 兜底门把 3720 token 的 prompt
+                // 拒成 "Prompt过长: 3720 >= 3584"，调试桥就会把"引擎没就绪"记成"模型答不了"。
+                if (!isLocalReady()) {
+                    emitState("connection", "本地引擎未就绪（chat context 未建立），等待加载…");
+                    emit("── 等待本地模型/chat context 就绪 ──");
                     aiService.initializeAsync(ok -> {
-                        boolean ready = ok && com.oilquiz.app.ai.jni.LlamaHelper.isNativeStateValid();
-                        if (!ready) {
-                            localCb.onError("本地引擎未就绪: initializeAsync=" + ok + ", nativeStateValid="
-                                    + com.oilquiz.app.ai.jni.LlamaHelper.isNativeStateValid()
-                                    + "（请在应用内选一个本地模型后重试）");
+                        if (!ok) {
+                            localCb.onError("本地引擎初始化失败: initializeAsync=false");
                             return;
                         }
-                        emitState("connection", "本地引擎就绪，开始推理");
-                        localHolder[0].processMessage(effectivePrompt, thinking);
+                        waitForLocalReady(localHolder[0], effectivePrompt, thinking, localCb, meta, 0);
                     });
                 } else {
+                    meta.refreshStartSnapshot();
+                    meta.markReady();
                     localHolder[0].processMessage(effectivePrompt, thinking);
                 }
             } else {
+                meta.markReady();
                 engineHolder[0].execute(effectivePrompt, maxTokens, thinking);
             }
             // 已提交给引擎（或已提交异步加载），广播使命结束 → 立刻交还令牌，
@@ -598,7 +623,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                 Log.w(TAG, "timeout " + TASK_TIMEOUT_MS + "ms, 释放并发锁");
                 emitState("status", "⏱ 超时释放并发锁");
                 emitRaw("[RESULT] timeout result=" + out.getName() + " " + tsStamp());
-                writeStatus("timeout", out, displayPrompt, promptType, "任务超时（120s），已释放并发锁，结果不完整");
+                writeTaskArtifacts(meta, "timeout", "任务超时（120s），已释放并发锁，结果不完整");
                 finishOnce.run();
             }, TASK_TIMEOUT_MS);
         } catch (Throwable t) {
@@ -607,10 +632,8 @@ public class AgentDebugBridge extends BroadcastReceiver {
             emitState("status", "❌ 初始化失败: " + t);
             emit("── 初始化失败: " + t + " ──");
             emitRaw("[RESULT] init_error " + t + " " + tsStamp());
-            try (OutputStreamWriter w = new OutputStreamWriter(new FileOutputStream(out), StandardCharsets.UTF_8)) {
-                w.write(sb.toString());
-            } catch (Exception ignored) {}
-            writeStatus("error", out, displayPrompt, promptType, "初始化失败: " + t);
+            meta.error = "init: " + t;
+            writeTaskArtifacts(meta, "error", "初始化失败: " + t);
             finishOnce.run();
         }
     }
@@ -629,6 +652,48 @@ public class AgentDebugBridge extends BroadcastReceiver {
                 || e.contains("interrupted") || e.contains("dns") || e.contains("unreachable");
     }
 
+    /** 本地就绪 = native context 有效 **且** chat context 已建立（getContextSize>0）。 */
+    private static boolean isLocalReady() {
+        try {
+            return com.oilquiz.app.ai.jni.LlamaHelper.isNativeStateValid()
+                    && com.oilquiz.app.ai.jni.LlamaHelper.getContextSize() > 0;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * 等 chat context 真正建立后再跑本地 Agent。
+     *
+     * <p>initializeAsync 的 ok 只代表模型/native context 成功，不等于 chatCreate 已完成；
+     * 真机上模型的 context 已 16384、chat handle 还是 0 的窗口里，AgentLoopEngine 会用
+     * 4096 的兜底门拒 prompt。这里按 500ms 轮询，最多 100s（任务总超时 120s）。</p>
+     */
+    private static void waitForLocalReady(AgentSoftwareLayer layer, String prompt, boolean thinking,
+                                          AgentSoftwareLayer.AgentCallback cb, TaskMeta meta, int attempt) {
+        if (isLocalReady() && layer != null) {
+            meta.refreshStartSnapshot();
+            meta.markReady();
+            emitState("connection", "本地引擎就绪（chat context 已建立），开始推理");
+            emit("── 本地引擎就绪，开始推理 ──");
+            layer.processMessage(prompt, thinking);
+            return;
+        }
+        if (attempt >= 200) {
+            String detail;
+            try {
+                detail = "nativeValid=" + com.oilquiz.app.ai.jni.LlamaHelper.isNativeStateValid()
+                        + ", contextSize=" + com.oilquiz.app.ai.jni.LlamaHelper.getContextSize();
+            } catch (Throwable t) {
+                detail = "state query failed: " + t;
+            }
+            cb.onError("本地引擎在 100s 内未就绪（" + detail + "）");
+            return;
+        }
+        new Handler(Looper.getMainLooper()).postDelayed(
+                () -> waitForLocalReady(layer, prompt, thinking, cb, meta, attempt + 1), 500);
+    }
+
     private static String tsStamp() {
         return new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date());
     }
@@ -641,33 +706,236 @@ public class AgentDebugBridge extends BroadcastReceiver {
         return t;
     }
 
-    /**
-     * 状态回执文件（外部轮询标准接口）：agent_bridge/status.json
-     * PC 端：adb shell cat /sdcard/Android/data/com.oilquiz.app/files/agent_bridge/status.json
-     * 或轮询该文件判断任务 running/done/error/timeout。
-     */
-    private static void writeStatus(String status, File resultFile, String displayPrompt, String promptType, String resultText) {
+    private static int countTokensSafe(String text) {
         try {
-            File dir = resultFile.getParentFile();
-            if (dir == null) return;
-            String promptSafe = (displayPrompt == null ? "" : displayPrompt)
-                    .replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
-            String rt = (resultText == null ? "" : resultText)
-                    .replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
-            if (rt.length() > 2000) rt = rt.substring(0, 2000) + "…[截断]";
-            String json = "{\"status\":\"" + status + "\",\"result\":\""
-                    + resultFile.getName() + "\",\"prompt_type\":\"" + promptType
-                    + "\",\"prompt\":\"" + promptSafe
-                    + "\",\"result_text\":\"" + rt
-                    + "\",\"time\":\"" + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date()) + "\"}\n";
-            java.io.FileWriter w = new java.io.FileWriter(new File(dir, "status.json"));
+            return com.oilquiz.app.ai.jni.LlamaHelper.countTokens(text);
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
+    private static int countLines(String s) {
+        if (s == null || s.isEmpty()) return 0;
+        int n = 1;
+        for (int i = 0; i < s.length(); i++) if (s.charAt(i) == '\n') n++;
+        return n;
+    }
+
+    /**
+     * DEBUG-TASK-META(2026-11-08)：一次注入任务的完整统计。
+     * 收尾时一次性落 result/debug/status 三个文件，避免各处 save 口径漂移。
+     */
+    private static final class TaskMeta {
+        final Context app;
+        final File out;
+        final File debugOut;
+        final StringBuffer sb;
+        final String displayPrompt;
+        final String promptType;
+        final String engine;
+        final String session;
+        final long startMs;
+        int promptTokens;
+        volatile JSONObject startSnapshot;
+        final JSONArray toolTraces = new JSONArray();
+        final AtomicBoolean artifactsWritten = new AtomicBoolean(false);
+        int contentTokens;
+        int thinkingTokens;
+        int toolCalls;
+        long firstTokenMs = -1;
+        long toolStartMs = -1;
+        long readyMs = -1;
+        String error;
+
+        TaskMeta(Context app, File out, File debugOut, StringBuffer sb,
+                 String displayPrompt, String promptType, String engine, String session,
+                 long startMs, int promptTokens, JSONObject startSnapshot) {
+            this.app = app;
+            this.out = out;
+            this.debugOut = debugOut;
+            this.sb = sb;
+            this.displayPrompt = displayPrompt;
+            this.promptType = promptType;
+            this.engine = engine;
+            this.session = session;
+            this.startMs = startMs;
+            this.promptTokens = promptTokens;
+            this.startSnapshot = startSnapshot;
+        }
+
+        void markFirstToken() {
+            if (firstTokenMs < 0) firstTokenMs = System.currentTimeMillis();
+        }
+
+        /** 模型/chat context 真正就绪、即将提交推理的时刻。用于把模型加载从 TTFT 里拆出来。 */
+        void markReady() {
+            if (readyMs < 0) readyMs = System.currentTimeMillis();
+        }
+
+        /** 模型/chat context 就绪后刷新 start 快照，避免 start 里全是 0 被当成错误读数。 */
+        void refreshStartSnapshot() {
             try {
-                w.write(json);
-            } finally {
-                w.close();
+                startSnapshot = AgentDebugSnapshot.capture(app);
+            } catch (Throwable ignored) {
             }
-        } catch (Exception e) {
-            Log.e(TAG, "status write fail", e);
+        }
+
+        void toolStart() {
+            toolCalls++;
+            toolStartMs = System.currentTimeMillis();
+        }
+
+        void toolEnd(String name, boolean ok, String result) {
+            long now = System.currentTimeMillis();
+            try {
+                JSONObject t = new JSONObject();
+                t.put("name", name == null ? "" : name);
+                t.put("ok", ok);
+                t.put("ms", toolStartMs > 0 ? now - toolStartMs : -1);
+                t.put("result", oneLine(result, 1000));
+                toolTraces.put(t);
+            } catch (Throwable ignored) {
+            }
+            toolStartMs = -1;
+        }
+
+        int totalTokens() {
+            return contentTokens + thinkingTokens;
+        }
+    }
+
+    /** 写 status.json 的 running 快照；外部轮询在任务刚开始时也能拿到模型/探针事实。 */
+    private static void writeRunningStatus(TaskMeta m) {
+        try {
+            JSONObject st = new JSONObject();
+            st.put("schema", 2);
+            st.put("status", "running");
+            st.put("result", m.out.getName());
+            st.put("debug", m.debugOut.getName());
+            st.put("prompt_type", m.promptType);
+            st.put("prompt", m.displayPrompt);
+            st.put("prompt_tokens", m.promptTokens);
+            st.put("engine", m.engine);
+            st.put("session", m.session);
+            st.put("started_at", m.startMs);
+            st.put("time", nowText());
+            st.put("start", m.startSnapshot);
+            atomicWrite(new File(m.out.getParentFile(), "status.json"), st.toString());
+        } catch (Throwable t) {
+            Log.e(TAG, "running status write fail", t);
+        }
+    }
+
+    /** 收尾：result（人读）+ debug.json（结构化）+ status.json（外部轮询）。 */
+    private static void writeTaskArtifacts(TaskMeta m, String status, String resultText) {
+        // onError 与 timeout 可能同时到达：只允许第一次落盘，避免 timeout 覆盖已完成的 done。
+        if (!m.artifactsWritten.compareAndSet(false, true)) return;
+        // logcat 线程还在往 sb 里 append；先给它一个短暂 drain 窗口，否则最后几十行日志会丢。
+        try {
+            Thread.sleep(250);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+        String content = m.sb.toString();
+        long endMs = System.currentTimeMillis();
+        String safeResult = resultText == null ? "" : resultText;
+        // 任务开始时模型可能还没加载完，countTokens 会返回 0；收尾时 tokenizer 已就绪，重算一次。
+        if (m.promptTokens <= 0) {
+            m.promptTokens = countTokensSafe(m.displayPrompt);
+        }
+
+        try (OutputStreamWriter w = new OutputStreamWriter(
+                new FileOutputStream(m.out, false), StandardCharsets.UTF_8)) {
+            w.write(content);
+        } catch (Throwable t) {
+            Log.e(TAG, "result write fail", t);
+        }
+
+        try {
+            JSONObject debug = new JSONObject();
+            debug.put("schema", 2);
+            debug.put("status", status);
+            debug.put("engine", m.engine);
+            debug.put("session", m.session);
+            debug.put("started_at", m.startMs);
+            debug.put("ended_at", endMs);
+            debug.put("elapsed_ms", endMs - m.startMs);
+            debug.put("prompt", m.displayPrompt);
+            debug.put("prompt_type", m.promptType);
+            debug.put("prompt_tokens", m.promptTokens);
+            debug.put("content_tokens", m.contentTokens);
+            debug.put("thinking_tokens", m.thinkingTokens);
+            debug.put("tool_calls", m.toolCalls);
+            debug.put("engine_ready_ms", m.readyMs > 0 ? m.readyMs - m.startMs : -1);
+            debug.put("first_token_ms", m.firstTokenMs > 0 ? m.firstTokenMs - m.startMs : -1);
+            debug.put("first_token_after_ready_ms",
+                    m.firstTokenMs > 0 && m.readyMs > 0 ? m.firstTokenMs - m.readyMs : -1);
+            debug.put("result_chars", safeResult.length());
+            debug.put("result", safeResult);
+            debug.put("error", m.error);
+            debug.put("tool_traces", m.toolTraces);
+            debug.put("log_lines", countLines(content));
+            debug.put("log", content);
+            debug.put("start", m.startSnapshot);
+            debug.put("end", AgentDebugSnapshot.capture(m.app));
+            atomicWrite(m.debugOut, debug.toString(2));
+        } catch (Throwable t) {
+            Log.e(TAG, "debug write fail", t);
+        }
+
+        try {
+            JSONObject st = new JSONObject();
+            st.put("schema", 2);
+            st.put("status", status);
+            st.put("result", m.out.getName());
+            st.put("debug", m.debugOut.getName());
+            st.put("prompt_type", m.promptType);
+            st.put("prompt", m.displayPrompt);
+            st.put("result_text", safeResult);      // 不再截断：完整文本在 status 里也可见
+            st.put("result_chars", safeResult.length());
+            st.put("engine", m.engine);
+            st.put("session", m.session);
+            st.put("started_at", m.startMs);
+            st.put("ended_at", endMs);
+            st.put("elapsed_ms", endMs - m.startMs);
+            st.put("prompt_tokens", m.promptTokens);
+            st.put("content_tokens", m.contentTokens);
+            st.put("thinking_tokens", m.thinkingTokens);
+            st.put("tool_calls", m.toolCalls);
+            st.put("engine_ready_ms", m.readyMs > 0 ? m.readyMs - m.startMs : -1);
+            st.put("first_token_ms", m.firstTokenMs > 0 ? m.firstTokenMs - m.startMs : -1);
+            st.put("first_token_after_ready_ms",
+                    m.firstTokenMs > 0 && m.readyMs > 0 ? m.firstTokenMs - m.readyMs : -1);
+            st.put("error", m.error);
+            st.put("log_lines", countLines(content));
+            st.put("time", nowText());
+            atomicWrite(new File(m.out.getParentFile(), "status.json"), st.toString());
+        } catch (Throwable t) {
+            Log.e(TAG, "status write fail", t);
+        }
+    }
+
+    private static String nowText() {
+        return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date());
+    }
+
+    /** 原子替换，避免外部轮询正好读到写了一半的 JSON。 */
+    private static void atomicWrite(File target, String text) {
+        try {
+            File dir = target.getParentFile();
+            if (dir != null) dir.mkdirs();
+            File tmp = new File(dir, target.getName() + ".tmp");
+            try (OutputStreamWriter w = new OutputStreamWriter(
+                    new FileOutputStream(tmp, false), StandardCharsets.UTF_8)) {
+                w.write(text);
+            }
+            if (!tmp.renameTo(target)) {
+                if (!target.delete() || !tmp.renameTo(target)) {
+                    Log.w(TAG, "atomic rename failed: " + target);
+                }
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, "atomic write fail: " + target, t);
         }
     }
 }

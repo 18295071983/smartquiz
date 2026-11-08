@@ -109,7 +109,7 @@ Java_com_oilquiz_app_ai_jni_SystemProbe_nativeProbeMalloc(JNIEnv* env, jclass /*
 // [valid, hasModel, hasCtx, modelSizeBytes, modelParams, stateSizeBytes,
 //  nCtx, nCtxSeq, nBatch, nUbatch,
 //  kvPosMin, kvPosMax, kvTokens,
-//  kvLayers, blockCount, headCountKv, headDim, kvBytesPerToken]
+//  kvLayers, blockCount, headCountKv, headDim, kvBytesPerToken, nRsSeq]
 JNIEXPORT jlongArray JNICALL
 Java_com_oilquiz_app_ai_jni_SystemProbe_nativeProbeEngine(JNIEnv* env, jclass /* clazz */) {
     const sysprobe::EngineInfo ei = probebridge::engineInfo();
@@ -132,6 +132,7 @@ Java_com_oilquiz_app_ai_jni_SystemProbe_nativeProbeEngine(JNIEnv* env, jclass /*
             static_cast<int64_t>(ei.headCountKv),
             static_cast<int64_t>(ei.headDim),
             static_cast<int64_t>(ei.kvBytesPerToken),
+            static_cast<int64_t>(ei.nRsSeq),
     };
     return toLongArray(env, v);
 }

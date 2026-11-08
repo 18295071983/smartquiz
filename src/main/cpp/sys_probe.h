@@ -132,6 +132,9 @@ struct EngineInfo {
     uint32_t nCtxSeq = 0;
     uint32_t nBatch = 0;
     uint32_t nUbatch = 0;
+    // llama_n_rs_seq(ctx)：循环层回滚快照数。0 = 不支持部分回滚（seq_rm 只能整段删）。
+    // 混合模型（GDN/SSM）上这是 PARTIAL KV 复用失败的直接原因，必须实测而不是猜。
+    uint32_t nRsSeq = 0;
 
     // seq 0 的真实 KV 位置（-1 = 空）。kvTokens = pos_max + 1。
     int32_t  kvPosMin = -1;

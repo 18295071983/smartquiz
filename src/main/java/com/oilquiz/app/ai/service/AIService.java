@@ -1545,6 +1545,10 @@ public class AIService implements ComponentCallbacks2 {
                         + String.format("%.2f", totalLoadTimeMs / 1000.0) + "s)");
                 AILogger.i(TAG, "[PERF] GPU layers: " + LlamaHelper.getGPULayers());
                 AILogger.i(TAG, "[PERF] Context size: " + contextSize);
+                // SYS-PROBE-SNAPSHOT(2026-11-08)：加载完成后打一条完整快照，便于把
+                // "探针读数"和 adb /proc 真值逐项对账（含 pageSize、swap、n_rs_seq、真实 KV）。
+                AILogger.i(TAG, "SYS-PROBE memory: " + SystemProbe.describeMemory());
+                AILogger.i(TAG, "SYS-PROBE engine: " + SystemProbe.describeEngine());
                 
                 AILogger.i(TAG, "Creating default chat context...");
                 updateServiceStage(AIServiceState.ServiceStage.CHAT_CONTEXT_CREATING, "创建对话上下文...", 95);

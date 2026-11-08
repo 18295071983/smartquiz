@@ -453,7 +453,14 @@ public class SmartQuizApplication extends Application {
                 try {
                     android.view.ViewGroup wc = (android.view.ViewGroup) activity.findViewById(android.R.id.content);
                     android.view.View root = (wc != null && wc.getChildCount() > 0) ? wc.getChildAt(0) : wc;
-                    com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, root);
+                    // DEBUG-CONSOLE(2026-11-08)：调试台是纯深色控制台，壁纸（尤其猫和老鼠兜底图）
+                    // 会把日志压得不可读，也会让探针面板与气泡混在一起。调试页跳过壁纸，
+                    // 只保留 edge-to-edge/状态栏同步，根布局自己给 #0b1020。
+                    final boolean debugConsole =
+                            activity instanceof com.oilquiz.app.ui.activity.AgentDebugActivity;
+                    if (!debugConsole) {
+                        com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, root);
+                    }
                     // 统一沉浸: 窗口背景同步为页面根背景(壁纸/背景图)延伸到系统栏
                     com.oilquiz.app.theme.EdgeToEdgeHelper.syncWindowBackground(activity, root);
                     // 图标自适应: 按状态栏区实际背景亮度设深/浅图标(含 AI 对话等 insets 白名单页)
@@ -466,13 +473,17 @@ public class SmartQuizApplication extends Application {
                     if (root != null) {
                         final android.view.View fRoot = root;
                         root.postDelayed(() -> {
-                            com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, fRoot);
+                            if (!debugConsole) {
+                                com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, fRoot);
+                            }
                             com.oilquiz.app.theme.EdgeToEdgeHelper.syncWindowBackground(activity, fRoot);
                             com.oilquiz.app.theme.EdgeToEdgeHelper.syncStatusBarIcons(activity, fRoot);
                             com.oilquiz.app.theme.EdgeToEdgeHelper.stabilizeNavBar(activity, fRoot);
                         }, 300);
                         root.postDelayed(() -> {
-                            com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, fRoot);
+                            if (!debugConsole) {
+                                com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, fRoot);
+                            }
                             com.oilquiz.app.theme.EdgeToEdgeHelper.syncWindowBackground(activity, fRoot);
                             com.oilquiz.app.theme.EdgeToEdgeHelper.syncStatusBarIcons(activity, fRoot);
                             com.oilquiz.app.theme.EdgeToEdgeHelper.stabilizeNavBar(activity, fRoot);

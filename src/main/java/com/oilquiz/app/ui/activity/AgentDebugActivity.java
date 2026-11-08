@@ -30,10 +30,11 @@ import com.oilquiz.app.ai.agent.ToolResultInterpreter;
 import com.oilquiz.app.ai.agent.debug.DebugSpan;
 import com.oilquiz.app.ai.agent.debug.DebugTracer;
 import com.oilquiz.app.ai.agent.online.OnlineToolResult;
-import com.oilquiz.app.ai.chat.ChatAdapter;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.ui.TokenStatsBar;
 import com.oilquiz.app.infra.AgentDebugBridge;
+import com.oilquiz.app.infra.AgentDebugSnapshot;
+import com.oilquiz.app.ui.debug.AgentDebugStreamAdapter;
 import com.oilquiz.app.ui.debug.DebugSpanAdapter;
 
 import org.json.JSONArray;
@@ -58,7 +59,8 @@ import java.util.UUID;
  *     （{t:token|think|tool_start|tool_end|llm_usage|run_start|run_end}），兼容旧格式与 [PROMPT]/[ANSWER]。
  *
  * 持久化：每次 run 结束写入 filesDir/debug_traces/runId.json，支持历史回放与 JSON 导出。
- * 本地智能体：AgentSession + DebugTracer（引擎侧 LLM 级 token/耗时钩子）。
+ * AgentSession：在线模型 + DebugTracer（引擎侧 LLM 级 token/耗时钩子）。
+ * 本地模型走 adb AGENT_EXEC（AgentSoftwareLayer），注入后同样显示在本页，别把两者混为一谈。
  */
 public class AgentDebugActivity extends AppCompatActivity implements TokenStatsBar.StatsSource {
 
@@ -69,6 +71,8 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
     private TextView tvConnState;
     private TextView tvStatusPill;
     private TextView tvTokenStats;
+    private TextView tvProbe;
+    private MaterialButton btnCopyProbe;
     private EditText etPrompt;
     private TokenStatsBar tokenBar;
     private RecyclerView rvSpan, rvChat, rvRaw;
@@ -77,7 +81,7 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
 
     private static class StreamState {
         RecyclerView rv;
-        ChatAdapter adapter;
+        AgentDebugStreamAdapter adapter;
         List<ChatMessage> msgs = new ArrayList<>();
         ChatMessage ai;
         StringBuilder think = new StringBuilder();
@@ -106,6 +110,13 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private static final int VIEW_SPAN = 0, VIEW_CHAT = 1, VIEW_RAW = 2;
+    /** DEBUG-PROBE：页面在前台时每 3s 刷新一次，直接读 SystemProbe/LlamaHelper，不做推测。 */
+    private final Runnable probeTick = new Runnable() {
+        @Override public void run() {
+            refreshProbe();
+            ui.postDelayed(this, 3000);
+        }
+    };
 
     // =====================================================================
     // DebugTracer：引擎侧 LLM 级 token / 耗时 / run 生命周期
@@ -494,6 +505,8 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
         tvConnState = findViewById(R.id.tv_conn_state);
         tvStatusPill = findViewById(R.id.tv_status_pill);
         tvTokenStats = findViewById(R.id.tv_token_stats);
+        tvProbe = findViewById(R.id.tv_probe);
+        btnCopyProbe = findViewById(R.id.btn_copy_probe);
         etPrompt = findViewById(R.id.et_prompt);
         panelRaw = findViewById(R.id.panel_raw);
         rvSpan = findViewById(R.id.rv_span);
@@ -506,6 +519,14 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
 
         tokenBar = new TokenStatsBar(this, tvTokenStats, this);
 
+        // DEBUG-PROBE：长按或按钮复制完整 JSON（与 adb 拿到的 debug_*.json 同源）
+        if (tvProbe != null) {
+            tvProbe.setOnLongClickListener(v -> { copyProbeJson(); return true; });
+        }
+        if (btnCopyProbe != null) {
+            btnCopyProbe.setOnClickListener(v -> copyProbeJson());
+        }
+
         // ---------- 追踪瀑布 ----------
         spanAdapter = new DebugSpanAdapter(spans, this::showSpanDetail);
         rvSpan.setLayoutManager(new LinearLayoutManager(this));
@@ -514,13 +535,13 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
 
         // ---------- 对话流 / 原始流 ----------
         dialog.rv = rvChat;
-        dialog.adapter = new ChatAdapter(dialog.msgs, action -> { });
+        dialog.adapter = new AgentDebugStreamAdapter(dialog.msgs);
         dialog.rv.setLayoutManager(new LinearLayoutManager(this));
         dialog.rv.setAdapter(dialog.adapter);
         dialog.rv.setItemAnimator(null);
 
         raw.rv = rvRaw;
-        raw.adapter = new ChatAdapter(raw.msgs, action -> { });
+        raw.adapter = new AgentDebugStreamAdapter(raw.msgs);
         raw.rv.setLayoutManager(new LinearLayoutManager(this));
         raw.rv.setAdapter(raw.adapter);
         raw.rv.setItemAnimator(null);
@@ -596,6 +617,11 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
         tabSpan.setText((which == VIEW_SPAN ? "● " : "") + "追踪瀑布");
         tabChat.setText((which == VIEW_CHAT ? "● " : "") + "对话流");
         tabRaw.setText((which == VIEW_RAW ? "● " : "") + "原始流");
+        int active = Color.parseColor("#e2e8f0");
+        int inactive = Color.parseColor("#7c8aa5");
+        tabSpan.setTextColor(which == VIEW_SPAN ? active : inactive);
+        tabChat.setTextColor(which == VIEW_CHAT ? active : inactive);
+        tabRaw.setTextColor(which == VIEW_RAW ? active : inactive);
     }
 
     // =====================================================================
@@ -663,7 +689,7 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
     private void appendAiToken(StreamState s, String token) {
         ensureAi(s);
         s.ai.content = (s.ai.content == null ? "" : s.ai.content) + token;
-        s.adapter.notifyItemChanged(s.msgs.indexOf(s.ai), ChatAdapter.PAYLOAD_CONTENT_UPDATE);
+        s.adapter.notifyItemChanged(s.msgs.indexOf(s.ai));
         scrollBottom(s);
     }
 
@@ -681,7 +707,7 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
     }
 
     // =====================================================================
-    // 本地智能体执行（AgentSession + DebugTracer）
+    // AgentSession 执行（在线模型；本地模型请走 AgentDebugBridge，别把标签写成"本地"）
     // =====================================================================
     private void runLocalAgent() {
         String prompt = etPrompt.getText() == null ? "" : etPrompt.getText().toString().trim();
@@ -705,7 +731,7 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
         raw.ai = null;
         addUser(dialog, prompt);
         addUser(raw, prompt);
-        beginRun("本地智能体");
+        beginRun("AgentSession(在线)");
 
         agentSession.setCallback(new AgentCallback() {
             @Override public void onToken(String token) {
@@ -978,8 +1004,34 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
     private void refreshBridgeState() {
         boolean on = AgentDebugBridge.isEnabled(this);
         switchBridge.setChecked(on);
+        // Material3 switch 在页面刚恢复时可能还在跑 thumb 动画；调试页要求状态一眼可读，
+        // 直接跳到当前 drawable，避免出现"文字已开启、开关还显示关闭"的自相矛盾。
+        switchBridge.jumpDrawablesToCurrentState();
         tvBridgeState.setText(on ? "已开启 · 外部广播可注入" : "已关闭 · 点击开启");
         tvToken.setText(AgentDebugBridge.getToken(this));
+    }
+
+    /** DEBUG-PROBE：直接读 SystemProbe/LlamaHelper 的当前事实，展示与桥一致的诊断。 */
+    private void refreshProbe() {
+        if (tvProbe == null) return;
+        try {
+            tvProbe.setText(AgentDebugSnapshot.summary(this));
+        } catch (Throwable t) {
+            tvProbe.setText("probe error: " + t);
+        }
+    }
+
+    private void copyProbeJson() {
+        try {
+            String json = AgentDebugSnapshot.capture(this).toString(2);
+            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(ClipData.newPlainText("AgentDebugProbe", json));
+                Toast.makeText(this, "诊断 JSON 已复制（" + json.length() + " 字符）", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Throwable t) {
+            Toast.makeText(this, "复制失败: " + t, Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void setPill(String text, int bgRes, String colorHex) {
@@ -1008,12 +1060,16 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
         super.onResume();
         AgentDebugBridge.setListener(listener);
         refreshBridgeState();
+        refreshProbe();
+        ui.removeCallbacks(probeTick);
+        ui.post(probeTick);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
         AgentDebugBridge.setListener(null);
+        ui.removeCallbacks(probeTick);
     }
 
     @Override

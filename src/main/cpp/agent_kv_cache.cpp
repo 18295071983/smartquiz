@@ -38,8 +38,11 @@ void AgentKvCache::plan(const std::vector<llama_token>& tokensList, llama_memory
     } else if (partialIncremental) {
         strategy_ = Strategy::PARTIAL;
         partCount_++;
-        AGENT_KV_LOGI("PARTIAL: matched %d/%d tokens, delta eval %zu tokens",
-                      matchedLen_, cachedNPast_, tokensList.size() - matchedLen_);
+        // 把"失配点在 prompt 内还是生成尾"带出来：matched < lastPromptTokens 说明
+        // 历史/模板重渲染已经改了 prompt 中段，不是单纯生成尾漂移。
+        AGENT_KV_LOGI("PARTIAL: matched %d/%d (prompt=%d + gen=%d), delta eval %zu tokens",
+                      matchedLen_, cachedNPast_, lastPromptTokens_, lastGeneratedTokens_,
+                      tokensList.size() - matchedLen_);
     } else {
         // ---- 3. MISS 原因细分（诊断：区分"该清"与"意外清掉"）----
         fullCount_++;

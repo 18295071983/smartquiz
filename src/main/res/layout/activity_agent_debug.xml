@@ -9,7 +9,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="?attr/colorSurface">
+    android:background="#0b1020">
 
     <!-- ===== 顶栏：标题 + 状态胶囊 + 历史 ===== -->
     <LinearLayout
@@ -192,6 +192,33 @@
                 android:textColor="#6ee7b7"
                 android:background="#10152a"
                 android:visibility="gone"/>
+
+            <!-- DEBUG-PROBE：与调试桥 debug_*.json 同源的实时快照 -->
+            <TextView
+                android:id="@+id/tv_probe"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="#0b1020"
+                android:fontFamily="monospace"
+                android:maxLines="7"
+                android:ellipsize="end"
+                android:padding="8dp"
+                android:text="探针加载中…"
+                android:textColor="#a7b0c8"
+                android:textSize="10sp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_copy_probe"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:minWidth="0dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:text="复制诊断 JSON"
+                android:textSize="11sp"/>
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
@@ -372,7 +399,7 @@
             android:minWidth="0dp"
             android:paddingStart="14dp"
             android:paddingEnd="14dp"
-            android:text="运行"
+            android:text="运行（在线）"
             android:textSize="13sp"/>
 
         <com.google.android.material.button.MaterialButton
@@ -395,7 +422,7 @@
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         android:paddingBottom="12dp"
-        android:text="本地：输入指令运行智能体（追踪瀑布可观测 LLM/工具/思考各层耗时与 token，含缓存命中）；外部：adb broadcast AGENT_EXEC 注入自动跳转本页；两路事件统一为 JSON 行。"
+        android:text="运行按钮走 AgentSession（在线模型）；本地模型请用 adb AGENT_EXEC（engine=local 或 auto），执行过程同样实时显示在本页。调试桥每次任务都会落 result_*.txt + debug_*.json（完整模型/KV/RSS/探针/工具耗时），status.json 只做轮询入口。"
         android:textSize="11sp"
         android:textColor="#8b93a7"/>
 </LinearLayout>
