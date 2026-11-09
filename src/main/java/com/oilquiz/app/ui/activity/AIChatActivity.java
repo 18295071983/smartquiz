@@ -10288,7 +10288,7 @@ public class AIChatActivity extends BaseActivity {
         if (!isLocalEngineReady()) {
             final String msg = pendingMessage;
             // BACKEND-LINK：模型已经加载、但 chat context 还没建好时，不要再下发一次
-            // initModel（会重建/释放上下文，反而更慢）；只等后端把 n_ctx 建出来。
+            // initModel（会重建/释放上下文，反而更慢）；下方主动下发 initContext 仅重建上下文。
             boolean modelLoadedButChatNotReady = false;
             try {
                 modelLoadedButChatNotReady = modelBridge != null
@@ -10305,9 +10305,48 @@ public class AIChatActivity extends BaseActivity {
                     return false;
                 }
                 modelInitInFlight = true;
-                showLoading("等待推理上下文...", "模型已加载，正在建立 chat context...");
-                showToast("⏳ 等待推理上下文建立...");
-                retrySendWhenReady(msg, 0);
+                showLoading("重建推理上下文...", "模型已在内存，正在重建 chat context...");
+                showToast("⏳ 正在重建推理上下文...");
+                // CTX-REBUILD-ON-DEMAND(2026-11-09)：模型在内存但 chat context 已失效，典型触发是
+                // 退后台 TRIM_MEMORY_UI_HIDDEN → AIService.onTrimMemory 调 chatDestroy()（只释放上下文、
+                // 保留模型，真机日志可见"聊天上下文已释放"）。旧实现这里只 retrySendWhenReady 被动轮询，
+                // 但没有任何执行者会重建上下文：initChatContext 只在模型装载后/推理执行内调用，而推理
+                // 又被本就绪门挡住 → 循环等待 30s 超时，期间排队的消息因 drainQueueIfAny 永不触发而卡死。
+                // 改为主动下发 initContext（仅建上下文、不重载模型，复用 ModelExecutionBridge 既有命令），
+                // 单飞由 modelInitInFlight 守护；建成回调里再走 retrySendWhenReady 发送/排空队列。
+                modelBridge.execute(ChatCommand.initContext(null), new BridgeCallback() {
+                    @Override public void onGenerationStarted(String messageId) {}
+                    @Override public void onToken(String messageId, String token) {}
+                    @Override public void onGenerationComplete(String messageId, String fullContent, int tokens, long elapsedMs, float tps) {}
+                    @Override public void onGenerationError(String messageId, String error) {}
+                    @Override public void onGenerationStopped(String messageId) {}
+                    @Override public void onInferenceProgress(String messageId, int tokens, float tps) {}
+                    @Override public void onContextCleared() {}
+                    @Override public void onModelInitialized(boolean success, String modelName) {}
+                    @Override public void onModelReloaded(boolean success) {}
+                    @Override public void onModelInfo(String modelName, boolean isInitialized, boolean usingGPU, int gpuLayers) {}
+                    @Override public void onTokenCount(int count) {}
+                    @Override public void onNativeStateChecked(boolean isValid) {}
+                    @Override public void onMemoryPressureHandled(int result) {}
+                    @Override public void onToolCallStart(String messageId, String toolName, String args) {}
+                    @Override public void onToolCallComplete(String messageId, String toolName, boolean success, String result) {}
+                    @Override public void onThinkingUpdate(String messageId, int stepNumber, String stepType, String title, String content, int progress) {}
+
+                    @Override
+                    public void onContextInitialized(boolean success) {
+                        if (success) {
+                            // 上下文已建好 → retrySendWhenReady 首轮即判就绪，发送本条或排空队列，
+                            // 并在其内部复位 modelInitInFlight / 收起 loading。回调已在主线程。
+                            retrySendWhenReady(msg, 0);
+                        } else {
+                            modelInitInFlight = false;
+                            if (serviceStatusManager != null) serviceStatusManager.setLoadingModel(false);
+                            hideLoading();
+                            addErrorMessage("推理上下文重建失败",
+                                    "模型已在内存，但重建 chat context 失败。请重新选择模型，或重启应用后再试。", true);
+                        }
+                    }
+                });
                 return false;
             }
             // 单飞：已经有一轮装载在跑就不再下发 initModel，后来的消息一律排队等就绪
