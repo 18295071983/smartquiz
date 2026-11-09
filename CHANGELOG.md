@@ -1,5 +1,26 @@
 # 变更日志
 
+## [2026-11-09] fix(chat)：模型在内存但 chat context 失效时主动重建
+
+退后台 `TRIM_MEMORY_UI_HIDDEN` → `AIService.onTrimMemory` 会 `chatDestroy()`（只释放上下文、保留模型）。
+此后发送时旧实现只被动 `retrySendWhenReady` 轮询，但没有任何执行者会重建上下文（`initChatContext`
+只在模型装载后 / 推理执行内调用，而推理又被本就绪门挡住）→ 空等 30s 超时，期间排队消息因
+`drainQueueIfAny` 永不触发而卡死。
+
+- "模型已在内存 + 已初始化 + native 状态有效 + chat 未就绪"分支改为主动下发
+  `ChatCommand.initContext(null)`（只建上下文、不重载模型），单飞由 `modelInitInFlight` 守护；
+- 成功回调里再走 `retrySendWhenReady` 发送本条或排空队列；失败复位标志、收起 loading 并给
+  "推理上下文重建失败"错误卡，不再静默超时。
+- 提交：`d5482b77`（本文件补记）。
+
+## [2026-11-09] fix(htp)：v85 skel 补进包
+
+上游 `ggml-hexagon` 已 `build_htp_skel(v85)` 且 `add_dependencies` 覆盖全部 5 个 HTP_PROJECTS，
+但本仓库的拷贝循环停在 v81：v85 编出来却不进 `jniLibs`，v85 设备（下一代 Hexagon）运行时会按
+`file:///libggml-htp-v85.so` 找不到库。SDK 需 6.7.0.0+（`hexagon_arch.cmake` 才有 v85 分支，
+工具链 21.0.04 起带 v85 目标库）。验证：`assembleDebug` 后 5 个 skel 齐全。
+- 提交：`f0108948`（本文件补记）。
+
 ## [2026-11-09] refactor(npu)：删除 GenieX 死壳，NPU 收敛为 llama.cpp 的加速后端
 
 现场结论："日志说 NPU 未启用、是不是选错了 NPU" —— 真机其实一直跑在 HTP0 上。判据问的是已停用的
