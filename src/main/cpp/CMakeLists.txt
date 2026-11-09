@@ -334,7 +334,12 @@ endif()
 if(GGML_HEXAGON)
     target_link_libraries(llama-jni ggml-hexagon)
     message(STATUS "NPU: linked ggml-hexagon backend (HTP)")
-    foreach(_htp_v v73 v75 v79 v81)
+    # HTP-V85-PACK(2026-11-09)：与上游 skel 构建清单对齐（ggml-hexagon/CMakeLists.txt
+    # 已 build_htp_skel(v85)，且 add_dependencies 覆盖全部 5 个 HTP_PROJECTS）。
+    # 此前拷贝循环停在 v81：v85 skel 每次都编出来却不进包，v85 设备（下一代
+    # Hexagon）运行时会按 file:///libggml-htp-v85.so 找不到库。SDK 需 6.7.0.0+
+    # （hexagon_arch.cmake 才有 v85 分支，工具链 21.0.04 起带 v85 目标库）。
+    foreach(_htp_v v73 v75 v79 v81 v85)
         add_custom_command(TARGET llama-jni POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "$<TARGET_FILE_DIR:ggml-hexagon>/libggml-htp-${_htp_v}.so"
