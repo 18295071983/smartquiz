@@ -1,6 +1,5 @@
 package com.oilquiz.app.ai.inference;
 
-import com.oilquiz.app.ai.engine.NpuEngineRouter;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.util.AILogger;
 
@@ -13,7 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * INFERENCE-GATEWAY(2026-11-08)：Agent / 普通对话进入推理引擎的唯一闸门。
  *
  * <p>当前真实调用链里，AgentLoopEngine、ModelExecutionBridge 都直接调
- * {@code NpuEngineRouter.chatJson}，AIService/InferenceRouter 又是另外两个入口。
+ * {@code LlamaHelper.chatJson}，AIService/InferenceRouter 又是另外两个入口。
  * 结果是没有统一的“谁在生成、上下文够不够、现在能不能进、取消打谁”。</p>
  *
  * <p>本类只做基础设施，不改模型/工具能力：</p>
@@ -133,7 +132,7 @@ public final class InferenceGateway {
     /** 取消当前生成：先停 native/NPU，再释放闸门。 */
     public void cancelAll() {
         try {
-            NpuEngineRouter.stopGeneration();
+            LlamaHelper.stopGeneration();
         } catch (Throwable t) {
             AILogger.w(TAG, "stopGeneration failed: " + t.getMessage());
         }
@@ -179,7 +178,7 @@ public final class InferenceGateway {
             }
         };
         try {
-            NpuEngineRouter.chatJson(requestJson, wrapped);
+            LlamaHelper.chatJson(requestJson, wrapped);
         } catch (Throwable t) {
             if (finished.compareAndSet(false, true)) end(id);
             callback.onError("推理入口异常: " + t.getMessage());
@@ -222,7 +221,7 @@ public final class InferenceGateway {
             }
         };
         try {
-            NpuEngineRouter.chatSend(message, maxTokens, temperature, topP, topK,
+            LlamaHelper.chatSend(message, maxTokens, temperature, topP, topK,
                     enableThinking, wrapped);
         } catch (Throwable t) {
             if (finished.compareAndSet(false, true)) end(id);

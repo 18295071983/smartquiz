@@ -1,7 +1,6 @@
 package com.oilquiz.app.ai.engine;
 
 import android.util.Log;
-import com.oilquiz.app.ai.engine.NpuEngineRouter;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.util.PromptBuilder;
 
@@ -36,7 +35,7 @@ public class ALChat {
         // 避免硬编码 ChatML 格式导致非 ChatML 模型格式不匹配
         List<PromptBuilder.Message> messages = new ArrayList<>();
         messages.add(new PromptBuilder.Message("user", message));
-        return NpuEngineRouter.generate(messages, maxTokens, temperature, topP, topK);
+        return LlamaHelper.generate(messages, maxTokens, temperature, topP, topK);
     }
 
     public void close() {

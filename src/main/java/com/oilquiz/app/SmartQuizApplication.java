@@ -153,9 +153,6 @@ public class SmartQuizApplication extends Application {
         });
         com.oilquiz.app.infra.MainThreadWatchdog.start(this, BOOT_ID);
 
-        // NPU 引擎开关镜像（只读 SharedPreferences + 静态标记，不做任何原生初始化）
-        boot("NPU 引擎开关镜像", () -> com.oilquiz.app.ai.engine.NpuEngineRouter.init(this));
-
         // PDFBox-Android 必须在使用前 init 一次（PDF 导出/抽取都靠它加载字体与 CMap 资源）。
         // 放在这里而不是各调用点：AdvancedFileParserUtil 的解析方法没有 Context 参数。
         boot("PDFBox 初始化(PDF 导出/抽取依赖)", () -> com.oilquiz.app.util.PdfBoxInitializer.ensure(this));
@@ -649,19 +646,6 @@ public class SmartQuizApplication extends Application {
      */
     private void preloadAIServiceInternal() {
         try {
-            // NPU（Qualcomm GenieX）引擎已启用时跳过本地 GGUF 预加载：
-            // 那条路用的是自己的侧载模型，预加载 llama.cpp 模型只会白占内存，
-            // 而且模型缺失时还会触发"准备模型文件/自动恢复"的告警循环。
-            try {
-                if (com.oilquiz.app.ai.inference.InferenceRouter
-                        .getInstance(this).isNpuEngineEnabled()) {
-                    com.oilquiz.app.util.AILogger.i(TAG,
-                            "NPU（GenieX）引擎已启用，跳过本地 GGUF 预加载");
-                    return;
-                }
-            } catch (Throwable ignored) {
-            }
-
             // 一键初始化进行中：跳过自动预加载，避免与下载/加载互相冲突
             if (com.oilquiz.app.ai.service.AIServiceInitializer.isInitializing()) {
                 com.oilquiz.app.util.AILogger.i(TAG,

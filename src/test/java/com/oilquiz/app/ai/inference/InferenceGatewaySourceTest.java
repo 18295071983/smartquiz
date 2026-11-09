@@ -13,8 +13,8 @@ import java.nio.file.Paths;
  * INFERENCE-GATEWAY(2026-11-08)：基础设施迁移约束。
  *
  * <p>AgentLoopEngine / ModelExecutionBridge 必须走 InferenceGateway.chatJson，
- * 不允许再直接调 NpuEngineRouter.chatJson；owner 必须显式传入，否则超时 forceEnd
- * 找不到对应 generation，会把闸门永久锁死。</p>
+ * 不允许绕过闸门直接调 {@code LlamaHelper.chatJson}；owner 必须显式传入，否则超时
+ * forceEnd 找不到对应 generation，会把闸门永久锁死。</p>
  */
 public class InferenceGatewaySourceTest {
 
@@ -35,8 +35,8 @@ public class InferenceGatewaySourceTest {
                 src.contains("InferenceGateway.get().chatJson(requestJson"));
         assertTrue("AgentLoopEngine 必须显式传 owner，供超时 forceEnd 精确释放",
                 src.contains("\"AgentLoopEngine\""));
-        assertFalse("AgentLoopEngine 不得再直接调 NpuEngineRouter.chatJson",
-                src.contains("NpuEngineRouter.chatJson("));
+        assertFalse("AgentLoopEngine 不得绕过闸门直接调 LlamaHelper.chatJson",
+                src.contains("LlamaHelper.chatJson("));
     }
 
     @Test
@@ -46,18 +46,10 @@ public class InferenceGatewaySourceTest {
                 src.contains("InferenceGateway.get().chatJson"));
         assertTrue("ModelExecutionBridge 必须显式传 owner",
                 src.contains("\"ModelExecutionBridge\""));
-        assertFalse("ModelExecutionBridge 不得再持有 NpuEngineRouter.chatJson 调用",
-                src.contains("NpuEngineRouter.chatJson("));
+        assertFalse("ModelExecutionBridge 不得绕过闸门直接调 LlamaHelper.chatJson",
+                src.contains("LlamaHelper.chatJson("));
         assertTrue("早退/取消路径必须 forceEnd，避免下一次 busy",
                 src.contains("InferenceGateway.get().forceEnd(\"ModelExecutionBridge\")"));
-    }
-
-    @Test
-    public void npuSignalRequiresLoadedModel() throws Exception {
-        String src = read("src/main/java/com/oilquiz/app/ai/engine/contract/NpuSignalAdapter.java");
-        assertTrue("NPU 状态适配器必须同时检查 engineEnabled 与 isLoaded，"
-                        + "否则会拿 NPU 的 32768/52 覆盖本地 llama 的 16384/4473",
-                src.contains("NpuLlmChat.isEngineEnabled() && NpuLlmChat.isLoaded()"));
     }
 
     @Test

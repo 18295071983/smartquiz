@@ -127,22 +127,13 @@ public final class ToolCallTagConfig {
     /**
      * 当前引擎的工具调用标签。
      *
-     * <p>规则与 {@link ThinkingTagConfig#forCurrentEngine()} 一致：</p>
-     * <ol>
-     *   <li>NPU：GenieX 模板在 SDK 侧，llama.cpp native 上下文不存在 → 取不到模板标签，
-     *       用 Qwen 系默认（{@code <tool_call>}），与 {@code NpuEngineRouter} 的 meta 事件一致。</li>
-     *   <li>其他引擎：用 native 模板下发的标签；取不到时返回 empty（不做吞除）。</li>
-     * </ol>
+     * <p>规则与 {@link ThinkingTagConfig#forCurrentEngine()} 一致：用 native 模板下发的标签；
+     * 取不到时返回 empty（不做吞除）。</p>
+     *
+     * <p><b>GENIEX-REMOVED(2026-11-09)</b>：原来还有"GenieX 侧硬编码 Qwen 默认标签"的分支，
+     * 判据已随 GenieX 删除而恒假，一并移除。HTP 后端仍是 llama.cpp，标签同由 native 提供。</p>
      */
     public static ToolCallTagConfig forCurrentEngine() {
-        try {
-            if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
-                return fromJson("{\"tool_call_open_tags\":[\"<tool_call\"],"
-                        + "\"tool_call_close_tags\":[\"</tool_call>\"]}");
-            }
-        } catch (Throwable ignored) {
-            // NpuLlmChat 不可用时按 llama.cpp 处理
-        }
         try {
             return com.oilquiz.app.ai.jni.LlamaHelper.getToolCallTags();
         } catch (Throwable t) {

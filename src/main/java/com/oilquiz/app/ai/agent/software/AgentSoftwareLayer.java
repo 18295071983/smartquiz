@@ -394,9 +394,8 @@ public class AgentSoftwareLayer {
                             response.stats.thinkingSteps));
         }
 
-        // 上下文预警（CONTEXT-CONTRACT：统一走引擎无关契约，原先直连 llama.cpp 的
-        // getContextUsagePercent()，NPU 模式下恒为 0 → 预警永不触发）
-        float usagePercent = com.oilquiz.app.ai.engine.NpuAwareText.contextUsagePercent();
+        // 上下文预警（CONTEXT-CONTRACT：统一走引擎无关契约，拿不到时给 UNKNOWN 而不是假 0）
+        float usagePercent = com.oilquiz.app.ai.jni.LlamaHelper.getContextUsagePercent();
         if (usagePercent >= 80.0f && usagePercent < 100.0f) {
             AILogger.w(TAG, String.format("Context usage warning: %.1f%%", usagePercent));
             if (callback != null) {
@@ -439,16 +438,7 @@ public class AgentSoftwareLayer {
         } catch (Throwable t) {
             AILogger.w(TAG, "loopEngine.cancel failed: " + t.getMessage());
         }
-        // 2) NPU-AWARE(2026-10-07)：原实现只调 LlamaHelper.stopGeneration()，而 NPU 模式下
-        // 那条 native 路径根本没有在跑的生成 —— 表现为"Agent 跑起来后取消按钮停不掉"。
-        // 这里按引擎分别打断。
-        try {
-            if (com.oilquiz.app.ai.engine.NpuAwareText.isNpu()) {
-                com.oilquiz.app.ai.engine.NpuLlmChat.stopGenerate();
-            }
-        } catch (Throwable t) {
-            AILogger.w(TAG, "NPU stopGenerate failed: " + t.getMessage());
-        }
+        // 2) 打断在跑的 native 生成（取消按钮必须真的停住解码）。
         try {
             LlamaHelper.stopGeneration();   // native shouldStop 置位，打断阻塞中的 chatJson/generateStream
         } catch (Throwable t) {

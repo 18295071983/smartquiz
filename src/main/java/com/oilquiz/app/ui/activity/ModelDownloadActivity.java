@@ -1106,15 +1106,12 @@ public class ModelDownloadActivity extends BaseActivity {
                 }
             }
 
-            /** 名称前缀徽标：NPU 原生 / 看图 / 本机不适用（用户一眼区分模式） */
+            /** 名称前缀徽标：看图 / 本机不适用（用户一眼区分模式） */
             private String badges(com.oilquiz.app.ai.model.ModelPresetConfig.ModelPreset p) {
                 if (p == null) {
                     return "";
                 }
                 StringBuilder sb = new StringBuilder();
-                if ("qairt".equalsIgnoreCase(p.geniexRuntime)) {
-                    sb.append("【NPU 原生】");
-                }
                 if (Boolean.TRUE.equals(p.supportsVision)
                         || (p.mmprojUrl != null && !p.mmprojUrl.isEmpty())) {
                     sb.append("【🖼看图】");
@@ -1136,14 +1133,10 @@ public class ModelDownloadActivity extends BaseActivity {
                 info.append(getString(R.string.h_dd388bb1)).append(preset.quantization)
                     .append(getString(R.string.h_a82c4621)).append(preset.contextLength / 1024).append("K")
                     .append(getString(R.string.h_565866d2)).append(preset.minRamMB).append(" MB");
-                // 引擎标识 + 本机适用性说明
+                // 本机适用性说明（GENIEX-REMOVED 2026-11-09：GGUF 是唯一产物形态，
+                // 原先的 qairt/NPU 原生分支已无对应条目）
                 if (src != null) {
-                    boolean qairt = "qairt".equalsIgnoreCase(src.geniexRuntime);
-                    // 兼容性标记：qairt 是预编译 QNN context → 只能跑 NPU 路径；
-                    // GGUF 走 llama.cpp 加载（compute_unit=HTP 即用 NPU），因此两条引擎都能用。
-                    info.append("  · 引擎: ").append(qairt
-                            ? "NPU 原生(qairt·自包含) · 兼容: 仅 NPU（llama.cpp 不可用）"
-                            : "GGUF+HTP · 兼容: NPU + llama.cpp 双引擎");
+                    info.append("  · 引擎: GGUF+HTP · 兼容: NPU + llama.cpp 双引擎");
                     if (Boolean.FALSE.equals(src.applicable)) {
                         info.append("\n⚠️ ").append(src.unapplicableReason == null
                                 ? "本机不适用（内存不足）" : src.unapplicableReason);
@@ -1516,7 +1509,7 @@ public class ModelDownloadActivity extends BaseActivity {
     }
 
     // ==================== MODEL-FILE-MANAGER: 模型目录文件管理 ====================
-    /** 模型目录：与 NpuLlmChat/ModelDownloadManager 使用的目录保持一致 */
+    /** 模型目录：与 ModelDownloadManager 使用的目录保持一致 */
     private java.io.File modelDir() {
         java.io.File d = new java.io.File(getFilesDir(), "ai_models");
         if (!d.exists()) {

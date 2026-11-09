@@ -64,8 +64,6 @@ import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.refactor.CacheManager;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.inference.InferenceRouter;
-import com.oilquiz.app.ai.refactor.AIInferenceCore;
-import com.oilquiz.app.ai.callback.StreamCallback;
 import com.oilquiz.app.ai.chat.ChatModeManager;
 import com.oilquiz.app.ai.stats.TokenStatsManager;
 import com.oilquiz.app.ui.adapter.AttachmentAdapter;
@@ -980,9 +978,7 @@ public class AIChatActivity extends BaseActivity {
                 modelBridge.setLocalSessionId(currentSessionId);
             }
 
-            // NPU（GenieX）引擎不需要 llama.cpp 的本地服务：它自带模型加载与管理
-            boolean npuEngineOn = isNpuEngineOn();
-            if (aiService == null && !shouldUseOnlineModel() && !npuEngineOn) {
+            if (aiService == null && !shouldUseOnlineModel()) {
                 showToast(getString(R.string.h_16b746be));
                 return;
             }
@@ -1266,11 +1262,10 @@ public class AIChatActivity extends BaseActivity {
     /**
      * 新一轮生成前配置 {@code OutputRouter} —— **三条推理路径共用同一套规则**。
      *
-     * <p><b>为什么需要统一（2026-10-07 审计定位）</b>：本项目三条路径（llama.cpp / NPU / 在线）
+     * <p><b>为什么需要统一（2026-10-07 审计定位）</b>：本项目两条路径（llama.cpp / 在线）
      * 各自用不同机制分离思考段与正文：
      * <ul>
      *   <li>llama.cpp：**native C++** 按模板标签分流，事件已是分开的（{@code thinking}/{@code token}）；</li>
-     *   <li>NPU：路由层 {@code NpuEngineRouter.ThinkStreamer} 按标签分流，事件同样已分开；</li>
      *   <li>在线：SSE 解析层按字段（{@code reasoning_content}）分流，走强类型回调。</li>
      * </ul>
      * 也就是说**上游已经把思考和正文分开了**。但这里原先还会 {@code setThinkingEnabled(true)}，
@@ -1285,9 +1280,7 @@ public class AIChatActivity extends BaseActivity {
      *       只有在线路径（不经 router 分流、也不喂分好的 tag 事件）才保留该兜底。</li>
      *   <li>思考标签仍要注入：上游若因任何原因漏发了标签（例如标签确实出现在正文流里），
      *       router 还能按标签补救，避免标签文本被当正文显示。</li>
-     *   <li>不硬编码任何引擎的标签：由 {@link LlamaHelper#getThinkingTags()} 统一提供；
-     *       NPU 侧其 chat template 不在 native 上下文里，取不到时用默认 Qwen 标签兜底
-     *       （与 {@code NpuEngineRouter} 发给 UI 的 meta 事件保持一致）。</li>
+     *   <li>不硬编码任何引擎的标签：由 {@link LlamaHelper#getThinkingTags()} 统一提供。</li>
      * </ol>
      */
     private void configureOutputRouterForNewTurn(boolean enableThinking) {
@@ -1336,7 +1329,7 @@ public class AIChatActivity extends BaseActivity {
                 + ", 工具调用标签=" + (toolTags != null && toolTags.isAvailable() ? toolTags.toString() : "无")
                 + ", 由 router 猜分段=" + (onlineRoute && enableThinking)
                 + ", 解析器权威=" + parserActive
-                + "（本地路径分段权威在上游：" + (isNpuEngineOn() ? "NPU" : "llama.cpp") + "）");
+                + "（本地路径分段权威在上游：llama.cpp）");
     }
 
     private void initOutputRouter() {
@@ -1623,7 +1616,7 @@ public class AIChatActivity extends BaseActivity {
         // StreamingTokenPipeline —— 两者互相回调形成闭环，但**没有任何代码调用
         // streamingPipeline.processToken()**，即整块从未参与真实分流；它们却各自持有一份
         // "思考标签"配置，属于"影子分流"，会让人误以为分段逻辑在那里。
-        // 分段职责现已统一到上游（native / NpuEngineRouter.ThinkStreamer / 在线字段解析）
+        // 分段职责现已统一到上游（native / 在线字段解析）
         // 与 OutputRouter（唯一渲染入口），故整块删除。
     }
 
@@ -4146,8 +4139,8 @@ public class AIChatActivity extends BaseActivity {
                                 return false;
                             }
                         }
-                        // llama.cpp mtmd 是 bitmaps[1] 单图硬限，NPU VLM 可以一次挂多张
-                        @Override public boolean supportsLocalMultiImage() { return isNpuEngineOn(); }
+                        // llama.cpp mtmd 是 bitmaps[1] 单图硬限
+                        @Override public boolean supportsLocalMultiImage() { return false; }
                         @Override public int getModelContextSize() {
                             return aiConfig != null ? aiConfig.getContextSize() : 0;
                         }
@@ -4499,16 +4492,6 @@ public class AIChatActivity extends BaseActivity {
                         .prepareVisionImage(this, file));
             }
             final String visionImagePath = visionImagePaths.get(0);
-            // NPU-VLM-IMAGE: 同一批预处理图也交给 NPU 的 VLM 路径
-            // （NpuLlmChat 会在 VLM 分支把它们逐个作为 VlmContent("image", path) 挂到最后一条
-            //   user 消息，再由 injectMediaPathsToConfig 注入 GenerationConfig；
-            //   非 VLM 模型下该设置无效，llama.cpp 仍按 imagePath 单图处理）
-            try {
-                if (isNpuEngineOn()) {
-                    com.oilquiz.app.ai.engine.NpuLlmChat.setPendingImagePaths(visionImagePaths);
-                }
-            } catch (Throwable ignored) {
-            }
             // 多轮上下文：取当前图片消息之前的 USER/AI 文本消息（图片消息本身不入历史，
             // 其文本离开图片会误导模型）
             final java.util.List<ChatMessage> history = buildVisionHistory(1);
@@ -4655,13 +4638,6 @@ public class AIChatActivity extends BaseActivity {
             }
             if (visionImagePaths.isEmpty()) return false;
             final String visionImagePath = visionImagePaths.get(0);
-        // NPU-VLM-IMAGE: 同上（图片追问路径，NPU 一次挂整批复用图）
-        try {
-            if (isNpuEngineOn()) {
-                com.oilquiz.app.ai.engine.NpuLlmChat.setPendingImagePaths(visionImagePaths);
-            }
-        } catch (Throwable ignored) {
-        }
             // 历史：图片消息之前的 USER/AI 文本
             final java.util.List<ChatMessage> history = new java.util.ArrayList<>();
             for (int i = 0; i < lastImageIndex; i++) {
@@ -5085,43 +5061,6 @@ public class AIChatActivity extends BaseActivity {
     }
 
 
-    /**
-     * NPU-PRELOAD（方案 B）：进入聊天页时后台预加载 NPU 模型。
-     * 设计要点：只在**聊天页**触发，绝不放进启动路径 —— 原生层（QNN/Genie/GenieX）偶发 abort
-     * 时最多影响本页提示，不会变成"一打开就秒退"。已在加载/已加载/引擎关闭时不重复触发。
-     */
-    private void preloadNpuIfNeeded() {
-        try {
-            // ONLINE-MODEL-GUARD: 当前选的是在线模型 → 完全不加载本地(NPU)模型
-            // （省内存/省电，避免在线与本地两套引擎争资源；判定写法与聊天页既有 getActiveModel 一致）
-            try {
-                if (onlineModelManager != null && onlineModelManager.getActiveModel() != null) {
-                    AppLogger.ai(TAG, "在线模型已激活 → 跳过 NPU 预加载（不加载本地模型）");
-                    return;
-                }
-            } catch (Throwable t) {
-                AppLogger.aiW(TAG, "在线模型判定失败（按本地处理）: " + t.getMessage());
-            }
-            if (!isNpuEngineOn()) {
-                return;
-            }
-            if (com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded()) {
-                return;
-            }
-            if ("LOADING".equals(com.oilquiz.app.ai.engine.NpuLlmChat.getStateName())) {
-                return;   // 已在加载中
-            }
-            AppLogger.ai(TAG, "NPU 预加载：进入聊天页 → 交给 AIService 托管加载");
-            // NPU-SERVICE-OWNED：加载统一由 AIService 托管（后台单线程 npu-load、幂等、180s 超时），
-            // 这里只表达"用户已进入聊天页"这一**运行时意图** —— 用它区分"用户触发"与"冷启动路径"，
-            // 服务内部因此不需要一刀切地拒绝加载。
-            com.oilquiz.app.ai.service.AIService.getInstance(getApplicationContext())
-                    .ensureNpuLoadedAsync(ok -> AppLogger.ai(TAG, "NPU 预加载结果(服务托管): " + ok));
-        } catch (Throwable t) {
-            AppLogger.aiW(TAG, "NPU 预加载异常: " + t);
-        }
-    }
-
     /** 顶部状态条数据源（按引擎分派；与 demo 的 NativeSource 注入一致） */
     private com.oilquiz.app.ai.chat.ui.AppNativeSource appNativeSource() {
         if (nativeSourceRef == null) {
@@ -5136,22 +5075,9 @@ public class AIChatActivity extends BaseActivity {
         try {
             // 简化路由：在线模型 → 完整 Agent（工具调用自动）；本地模型 → 普通对话
             // （模式精简为 普通/深度思考 两个，深度思考由普通对话路径注入思考指令+enableThinking）
-            // R3-1/R8-2：本地 Agent 实验开关开启时，本地模型也走 Agent
-            // 2026-10-05：NPU（GenieX）引擎下**同样**走 Agent —— 原先这里用 !npuEngineOn 直接
-            // 落到普通对话（当时以为 NPU 没有工具能力），导致 NPU 模式永远 tools=0、Agent 永不启动。
-            // 现在 NPU 已能驱动 Agent 循环（NpuEngineRouter.chatJson + 事件协议对齐）→ 放行。
-            // NPU-FAST-CHAT（历史背景，已被 ROUTE-UNIFIED 取代）：曾因"Agent 路径每轮重复 prefill
-            // 2k 工具 schema（前缀不命中，20 token 输出要 5.4s）"而让 NPU 默认走普通对话。
-            // 现在会话级 KV 回放 + 16K 上下文已落地，路由统一进 Agent 引擎；
+            // R3-1/R8-2：本地 Agent 实验开关开启时，本地模型也走 Agent。
+            // 会话级 KV 回放 + 16K 上下文已落地，路由统一进 Agent 引擎；
             // 这个开关只决定注不注入工具（见下方 ROUTE-UNIFIED 注释），不再决定走哪条路。
-            // 仍把它同步给引擎：工具开关 = 需要工具/更大上下文与更长输出。
-            try {
-                boolean agentOn = aiConfig != null && aiConfig.isLocalAgentEnabled();
-                if (isNpuEngineOn()) {
-                    com.oilquiz.app.ai.engine.NpuLlmChat.setNpuAgentEnabled(agentOn);
-                }
-            } catch (Throwable ignored) {
-            }
             // ROUTE-UNIFIED(2026-11-01)：在线与本地统一走 Agent 引擎。
             // 在线本来就不看"智能助手"开关（shouldUseOnlineModel() 直接进 processChatMessageWithAgent）；
             // 本地此前按开关分叉出"普通对话"（不注入工具、也没有工具发现入口），两套 prompt/KV 语义并存。
@@ -5175,9 +5101,7 @@ public class AIChatActivity extends BaseActivity {
     private void processChatMessageNormal(String message) {
         // 轮次模式标记（历史/会话记录用；上下文构建共享完整历史，不再隔离）
         markLastUserMessageMode(ChatMessage.TURN_MODE_NORMAL);
-        // NPU（GenieX）引擎不依赖 aiService：跳过下面的"请选择模型"弹窗，直接进 NPU 推理路由
-        boolean npuOnForNormal = isNpuEngineOn();
-        if (aiService == null && !npuOnForNormal) {
+        if (aiService == null) {
             // 2026-11-02（GUIDE-DYNAMIC-TOOLS）：这里原本抄了第二套"还没有配置模型"文案
             // （体积、工具总数都是抄来的猜测值，且和空对话引导那套各改各的）。
             // 现在与进页面那份共用同一个弹框：一份文案、一套出口（一键初始化 + 模型下载）。
@@ -5194,9 +5118,7 @@ public class AIChatActivity extends BaseActivity {
         }
         
         // 检查 Native 层状态，如果无效则自动恢复
-        // NPU（GenieX）引擎下跳过：那条路不用 llama.cpp 的 native 上下文，否则会被"自动恢复"
-        // 截走（去加载本机不存在的本地模型），表现就是卡在"准备模型文件"。
-        if (!isNpuEngineOn() && !modelBridge.isNativeStateValid()) {
+        if (!modelBridge.isNativeStateValid()) {
             AppLogger.aiW(TAG, "Native state invalid, triggering auto-recovery");
             addSystemMessage("⚠️ 检测到AI模型状态异常，正在自动恢复...", ChatMessage.SystemMessageType.WARNING);
             if (recoveryHandler != null) {
@@ -5270,52 +5192,7 @@ public class AIChatActivity extends BaseActivity {
                 AppLogger.aiW(TAG, "set extra system sections failed: " + e.getMessage());
             }
         }
-        // ==================== NPU（Qualcomm GenieX）引擎分支 ====================
-        // 关键：对话页的本地普通对话走的是 modelBridge.execute(...) → AIService（llama.cpp），
-        // 根本不经过 InferenceRouter。所以 NPU 必须在这里分流，否则开了 NPU 也会去加载本地
-        // GGUF（本机没有 → "模型文件不存在" / 卡在"准备模型文件"）。
         BridgeCallback bridgeCallback = createBridgeCallback(streamingIndex, streamingId);
-        // 能力感知：深度思考（思考链）请求留在 llama.cpp —— NPU 侧载的 Qwen3 是纯对话模型，
-        // 走 NPU 会让思考链能力变差（功能不降级）。多模态/工具链本来就不走这条分支。
-        // 【已关闭顶层拦截】NPU 不在这一层抢走消息：必须先让 modelBridge → AIService → Agent
-        // 决定"要不要调工具"，需要工具时再由 NpuEngineRouter.generateWithTools 走 NPU。
-        // 否则 NPU 一开，所有消息都被截成普通对话（Agent 永远不启动）——2026-10-05 实测确认。
-        if (false && isNpuEngineOn()) {
-            AppLogger.ai(TAG, "NPU（GenieX）引擎：改走 NPU 流式推理，跳过 modelBridge/AIService");
-            bridgeCallback.onGenerationStarted(streamingId);
-            final long npuStartMs = System.currentTimeMillis();
-            final StringBuilder npuFull = new StringBuilder();
-            com.oilquiz.app.ai.refactor.AIInferenceCore.InferenceConfig npuConfig =
-                    new com.oilquiz.app.ai.refactor.AIInferenceCore.InferenceConfig();
-            npuConfig.maxTokens = actualMaxTokens;
-            npuConfig.temperature = 0.7f;
-            // 深度思考透传给 GenieX 的 enable_thinking（applyChatTemplate 第 4 参）
-            npuConfig.enableThinking = enableThinking;
-            npuConfig.history = chatHistory == null ? null : new java.util.ArrayList<>(chatHistory);
-            inferenceRouter.generateStream(prompt, npuConfig, new StreamCallback() {
-                @Override
-                public void onToken(String token) {
-                    npuFull.append(token);
-                    bridgeCallback.onToken(streamingId, token);
-                }
-
-                @Override
-                public void onComplete(String fullText) {
-                    String text = fullText != null ? fullText : npuFull.toString();
-                    long elapsed = System.currentTimeMillis() - npuStartMs;
-                    bridgeCallback.onGenerationComplete(streamingId, text,
-                            com.oilquiz.app.ai.engine.NpuLlmChat.getLastTokens(), elapsed,
-                            com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps());
-                }
-
-                @Override
-                public void onError(String error) {
-                    bridgeCallback.onGenerationError(streamingId, error);
-                }
-            });
-            return;
-        }
-
         modelBridge.execute(ChatCommand.sendMessage(streamingId, prompt, actualMaxTokens, enableThinking),
             bridgeCallback);
     }
@@ -5348,11 +5225,9 @@ public class AIChatActivity extends BaseActivity {
      *
      * <p><b>2026-11-02 重写（GUIDE-DYNAMIC-TOOLS）</b>，原实现三条口径都是错的：</p>
      * <ol>
-     *   <li><b>三态被塌成两态</b>：引擎只看 {@code getActiveModel()!=null}。开着 NPU 又配置过在线模型时
-     *       它写"在线模型"，而 {@code InferenceRouter} 里 NPU 优先，实际跑的是 NPU；反过来纯 NPU 用户
-     *       {@code aiService.getCurrentModelName()} 恒空（GenieX 不经 llama.cpp 服务），两个判据都 false
-     *       → 被弹"还没有配置模型"。现在引擎名取 {@code getEffectiveInferenceType()}（与顶部横幅同源的
-     *       显示层口径），"有没有模型可跑"按 在线 / NPU / llama.cpp 三态各自判。</li>
+     *   <li><b>引擎判断口径</b>：只按 {@code getActiveModel()!=null} 会把"配置过在线模型但没启用"
+     *       当成在线。现在引擎名取 {@code getCurrentInferenceType()}（与顶部横幅同源），
+     *       "有没有模型可跑"按在线 / 本地两类各自判。</li>
      *   <li><b>工具数量与名单写死在 Java</b>："本地常驻 5 个（天气/时间/定位/搜索/记忆）"实际早已是
      *       11 个且<b>不含定位</b>；"共 40+ 工具"是与注册表漂移的猜测值；"调用到其他工具时自动动态加入"
      *       对本地根本不成立（native PEG 按本次 tools 数组逐字枚举，未注入 schema 的名字模型生成不出来，
@@ -5418,7 +5293,7 @@ public class AIChatActivity extends BaseActivity {
     private com.oilquiz.app.ai.model.InferenceType guideEngineType() {
         try {
             if (inferenceRouter != null) {
-                return inferenceRouter.getEffectiveInferenceType();
+                return inferenceRouter.getCurrentInferenceType();
             }
         } catch (Throwable t) {
             AppLogger.aiW(TAG, "引擎口径取失败，退回在线/本地直觉: " + t.getMessage());
@@ -5428,22 +5303,9 @@ public class AIChatActivity extends BaseActivity {
                 : com.oilquiz.app.ai.model.InferenceType.LOCAL;
     }
 
-    /** 三态任一"有模型可跑"：在线看就绪门，NPU 看引擎开+模型库，llama.cpp 看当前/已下载模型 */
+    /** 两类任一"有模型可跑"：在线看就绪门，本地看当前/已下载模型 */
     private boolean isAnyEngineModelUsable() {
-        return isOnlineReady() || npuModelUsable() || localLlamaModelUsable();
-    }
-
-    /** NPU（GenieX）侧是否有可用模型：已加载 / 已指定 / 模型库里挑得到（读盘，后台线程调用） */
-    private boolean npuModelUsable() {
-        if (!isNpuEngineOn()) return false;
-        try {
-            if (com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded()) return true;
-            if (!com.oilquiz.app.ai.engine.NpuLlmChat.currentOrPreferredModelName().isEmpty()) return true;
-            return !com.oilquiz.app.ai.engine.NpuLlmChat.listAvailableModels(this).isEmpty();
-        } catch (Throwable t) {
-            AppLogger.aiW(TAG, "NPU 模型探测失败: " + t.getMessage());
-            return false;
-        }
+        return isOnlineReady() || localLlamaModelUsable();
     }
 
     /** llama.cpp 本地侧是否有可用模型：当前模型名，或模型目录里真的有文件（读盘，后台线程调用） */
@@ -6635,8 +6497,7 @@ public class AIChatActivity extends BaseActivity {
                         return;
                     }
                     endGeneration();
-                    // NPU 引擎下不算"native 失效"：那条路不依赖 llama.cpp 的 native 上下文
-                    boolean nativeInvalid = !isNpuEngineOn() && !modelBridge.isNativeStateValid();
+                    boolean nativeInvalid = !modelBridge.isNativeStateValid();
                     boolean shouldRecover = nativeInvalid &&
                         (recoveryHandler == null || !recoveryHandler.isRecovering()) &&
                         (serviceStatusManager == null || !serviceStatusManager.isLoadingModel());
@@ -7010,8 +6871,7 @@ public class AIChatActivity extends BaseActivity {
                 endGeneration();
                 
                 // 检查是否因 Native 状态无效导致错误
-                // NPU 引擎下不算"native 失效"（不依赖 llama.cpp native 上下文）
-                boolean nativeInvalid = !isNpuEngineOn() && !modelBridge.isNativeStateValid();
+                boolean nativeInvalid = !modelBridge.isNativeStateValid();
                 boolean shouldRecover = nativeInvalid && (recoveryHandler == null || !recoveryHandler.isRecovering()) && (serviceStatusManager == null || !serviceStatusManager.isLoadingModel());
                 
                 if (currentStreamingContent != null && currentStreamingContent.length() > 0) {
@@ -8878,10 +8738,7 @@ public class AIChatActivity extends BaseActivity {
 
         // 检查AI服务是否可用
         boolean useOnlineModel = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
-        // 2026-10-05：原先这里在 NPU 引擎下直接 return（当时认为 NPU 做不了工具调用），
-        // 结果 Agent 永远不初始化 → 每次都降级成"Agent 引擎未就绪，已降级为普通对话"。
-        // 现在 NPU 已能驱动 Agent 循环（NpuEngineRouter.chatJson + 事件协议对齐）→ 不再拦截。
-        if (!useOnlineModel && !isNpuEngineOn() && (modelBridge == null || !modelBridge.isModelInitialized())) {
+        if (!useOnlineModel && (modelBridge == null || !modelBridge.isModelInitialized())) {
             // M13：补充原因日志——在线路径无需本地模型；本地路径未就绪时说明是"等待初始化"而非错误，
             // 模型就绪后 modelChangeListener 会再次触发本方法完成初始化
             AppLogger.aiW(TAG, "Agent模式需要AI服务已初始化，当前AI服务未就绪"
@@ -9232,7 +9089,6 @@ public class AIChatActivity extends BaseActivity {
         // NPU-SESSION-RESET: 清空对话时同步重置 NPU 会话（GenieX LlmWrapper.reset()）——
         // 官方 demo 在新会话时调用（MainActivity.kt:1136）；不调用会让 KV 里残留旧上下文。
         try {
-            com.oilquiz.app.ai.engine.NpuLlmChat.resetIncrementalSession();
         } catch (Throwable t) {
             AppLogger.aiW(TAG, "NPU 会话重置异常: " + t);
         }
@@ -10033,39 +9889,12 @@ public class AIChatActivity extends BaseActivity {
             // GenerationStatusBar 内部已做"值没变就不写"，因此这里统一委托，保证单一写入者。
             if (genStatusBar != null) {
                 genStatusBar.refresh();
-                refreshEngineLineIfEngineChanged();
                 return;
             }
             refreshNativeStateUILegacy();
-            refreshEngineLineIfEngineChanged();
         } catch (Throwable t) {
             if (tvGenPhase != null) tvGenPhase.setVisibility(View.GONE);
             if (tvKvStats != null) tvKvStats.setVisibility(View.GONE);
-        }
-    }
-
-    /** 上次已渲染到第 1 行的"实际引擎"（变化检测用，避免覆盖加载阶段文案） */
-    private volatile String lastRenderedActualEngine = null;
-
-    /**
-     * 实际推理引擎变化时刷新第 1 行（ACTUAL-ENGINE，2026-10-08）。
-     *
-     * <p>为什么需要：引擎是在**本轮推理开始时**才确定的（可能从 NPU 回退到 llama.cpp），
-     * 而第 1 行平时不会自动重算，状态栏就会长期停留在"用户的选择"而不是"实际路径"。</p>
-     *
-     * <p>为什么做变化检测：{@code updateStatusDisplay()} / {@code startLoadingTimer()} 会持续往
-     * 第 1 行写加载阶段文案（「模型加载中 5s」等），无条件刷新会把它们覆盖掉。
-     * 只在 {@code NpuEngineRouter.getActualEngine()} 真的变化时改写，两者互不干扰。</p>
-     */
-    private void refreshEngineLineIfEngineChanged() {
-        try {
-            String actual = com.oilquiz.app.ai.engine.NpuEngineRouter.getActualEngine();
-            if (actual == null) return;                       // 尚无推理记录：保持原有文案
-            if (actual.equals(lastRenderedActualEngine)) return;
-            lastRenderedActualEngine = actual;
-            restoreEngineStatusLine();
-        } catch (Throwable ignored) {
-            // 引擎信息取不到不影响主流程
         }
     }
 
@@ -10259,15 +10088,6 @@ public class AIChatActivity extends BaseActivity {
         // 必须让 completeGeneration 知道这是停止而不是正常完成（否则会闪一下"已完成"）
         userStoppedCurrentGeneration = true;
         pendingFinishKind = com.oilquiz.app.ai.chat.InferenceStatusPhrases.FINISH_STOPPED;
-        // NPU-STOP: NPU 引擎下走 GenieX stopStream()（否则点停止对 NPU 生成无效）
-        try {
-            if (isNpuEngineOn()) {
-                com.oilquiz.app.ai.engine.NpuLlmChat.stopGeneration();
-                AppLogger.ai(TAG, "已请求中止 NPU 生成");
-            }
-        } catch (Throwable t) {
-            AppLogger.aiW(TAG, "中止 NPU 生成异常: " + t);
-        }
         try {
             if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
             if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
@@ -10369,22 +10189,6 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * NPU（Qualcomm GenieX）引擎是否开启。
-     *
-     * <p>开启后，所有"llama.cpp 本地模型"的状态检查（模型文件是否存在 / native 上下文是否有效 /
-     * 自动恢复）都必须跳过 —— 否则发送会被自动恢复逻辑截走，去加载本机并不存在的本地模型，
-     * 界面就卡在「准备模型文件」。
-     */
-    private boolean isNpuEngineOn() {
-        try {
-            return com.oilquiz.app.ai.inference.InferenceRouter
-                    .getInstance(this).isNpuEngineEnabled();
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
-    /**
      * READY-GATE(2026-11-01)：本地推理是否就绪。
      * 判据 = 引擎在内存 + 模型已初始化 + native 状态有效。第三个是这次补的关键：
      * 只看前两个时，上下文已失效的引擎也会被放行，随后才回"未初始化"——
@@ -10468,12 +10272,6 @@ public class AIChatActivity extends BaseActivity {
 
     private boolean ensureModelLoaded(String pendingMessage) {
         if (shouldUseOnlineModel()) {
-            return true;
-        }
-        // NPU（Qualcomm GenieX）引擎：模型由 GenieX 自己按需加载（本地侧载 GGUF），
-        // 跟 llama.cpp 那套"本地模型文件必须在"的检查无关 —— 否则开了 NPU 也会被这里拦住，
-        // 报"模型文件不存在，请重新导入或切换模型"。
-        if (isNpuEngineOn()) {
             return true;
         }
         if (aiService == null) { showToast(getString(R.string.h_24e21aa7)); return false; }
@@ -10860,12 +10658,8 @@ public class AIChatActivity extends BaseActivity {
                     used = estimateHistoryTokens();
                 }
             } else {
-                // CONTEXT-CONTRACT（2026-10-07）：本地引擎（llama.cpp / NPU）的上下文用量
-                // 改由引擎无关契约提供。原先这里手写 if (isNpuEngineOn()) 分支：
-                //   · 引擎判断散落在 UI，每加一个引擎都要改这里；
-                //   · 且曾因直接读 llama.cpp 的 getContextSize()（NPU 下为 0）
-                //     把仪表打成故障态（用户看到的"上下文故障"）。
-                // 现在 UI 不认识任何引擎，只读 ContextUsage。
+                // CONTEXT-CONTRACT（2026-10-07）：本地引擎的上下文用量改由引擎无关契约提供。
+                // UI 不认识任何引擎，只读 ContextUsage（拿不到时是 UNKNOWN，由这里降级）。
                 com.oilquiz.app.ai.engine.contract.ContextUsage cu =
                         com.oilquiz.app.ai.engine.contract.GenSignalSource.contextUsage();
                 window = cu.window;
@@ -12891,57 +12685,6 @@ public class AIChatActivity extends BaseActivity {
         remoteDshBar.setVisibility(View.VISIBLE);
     }
 
-    // ==================== NPU-IDLE-RELEASE: 不用就把内存还回去（常驻=快，闲置=省内存） ====================
-    /**
-     * 后台闲置多久后释放 NPU 模型（毫秒）。
-     *
-     * <p>2026-10-07 调整：从 2 分钟放宽到 15 分钟。原值 2 分钟对"加载慢"的贡献极大——
-     * 实测日志显示 12 分钟内卸载过 3 次（12:25:39 / 12:26:51 / 12:38:44），而模型 484MB、
-     * 重载要十几秒：用户切出去看一眼消息再回来，第一句话必然是冷启动。
-     * NPU 引擎开着时人本来就在连续对话，2 分钟太短；真要省内存，系统 LMK 与
-     * onTrimMemory 的紧急释放（见下方）仍然会在真正紧张时出手。</p>
-     */
-    private static final long NPU_IDLE_RELEASE_MS = 15 * 60 * 1000L;
-    private final android.os.Handler npuIdleHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    private final Runnable npuIdleRelease = new Runnable() {
-        @Override
-        public void run() {
-            try {
-                if (com.oilquiz.app.ai.engine.NpuEngineState.get().getInferencePhase()
-                        != com.oilquiz.app.ai.engine.NpuEngineState.InferencePhase.IDLE) {
-                    AppLogger.ai(TAG, "NPU 闲置释放：仍在推理 → " + (NPU_IDLE_RELEASE_MS / 60000) + " 分钟后再试");
-                    npuIdleHandler.postDelayed(this, NPU_IDLE_RELEASE_MS);
-                    return;
-                }
-                if (!isNpuEngineOn()) {
-                    return;
-                }
-                AppLogger.ai(TAG, "NPU 闲置释放：后台超 " + (NPU_IDLE_RELEASE_MS / 60000) + " 分钟且空闲 → 卸载模型，内存还给系统");
-                com.oilquiz.app.ai.service.AIService.getInstance(getApplicationContext()).releaseNpu();
-            } catch (Throwable t) {
-                AppLogger.aiW(TAG, "NPU 闲置释放失败: " + t.getMessage());
-            }
-        }
-    };
-
-    /** 系统内存紧张 → 主动卸载 NPU 模型 */
-    @SuppressWarnings("deprecation") // TRIM_MEMORY_* 常量为平台唯一可用的档位
-    @Override
-    public void onTrimMemory(int level) {
-        super.onTrimMemory(level);
-        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
-            try {
-                AppLogger.ai(TAG, "onTrimMemory(" + level + ") → 内存紧张，卸载 NPU 模型");
-                npuIdleHandler.removeCallbacks(npuIdleRelease);
-                if (isNpuEngineOn()) {
-                    com.oilquiz.app.ai.service.AIService.getInstance(getApplicationContext()).releaseNpu();
-                }
-            } catch (Throwable t) {
-                AppLogger.aiW(TAG, "onTrimMemory 释放失败: " + t.getMessage());
-            }
-        }
-    }
-
     /**
      * 聊天页被 {@code REORDER_TO_FRONT} 复用时的入口（见 {@code ChatNavigation}）。
      *
@@ -13000,11 +12743,6 @@ public class AIChatActivity extends BaseActivity {
         } catch (Throwable t) {
             android.util.Log.w(TAG, "后台产出回灌失败: " + t.getMessage());
         }
-        // NPU-IDLE-RELEASE: 回前台 → 取消闲置释放（正在用就保持常驻）
-        npuIdleHandler.removeCallbacks(npuIdleRelease);
-        // NPU-PRELOAD: 方案 B —— 只在聊天页后台预加载 NPU 模型（不进启动路径，
-        // 避免原生层 abort 演变成"打开就秒退"；用户打字的时间用来加载）。
-        preloadNpuIfNeeded();
         // 电脑连接状态可能在「远程连接（电脑）」界面被改过：回来自动刷新顶部状态条
         refreshRemoteDshBar();
         // 同步本地Agent开关状态（可能在其他页面切换过）
@@ -13057,13 +12795,6 @@ public class AIChatActivity extends BaseActivity {
         if (scrollAnchorKeeper != null) {
             scrollAnchorKeeper.release();
             scrollAnchorKeeper = null;
-        }
-        try {
-            npuIdleHandler.removeCallbacks(npuIdleRelease);
-            if (isFinishing() && isNpuEngineOn()) {
-                com.oilquiz.app.ai.service.AIService.getInstance(getApplicationContext()).releaseNpu();
-            }
-        } catch (Throwable ignored) {
         }
         super.onDestroy();
         if (genStatusBar != null) genStatusBar.stopPolling();
@@ -13134,11 +12865,6 @@ public class AIChatActivity extends BaseActivity {
         com.oilquiz.app.ai.agent.WorkspaceActivityLog.getInstance().setForeground(false);
         // STATUSBAR-POLLING: 离开聊天页停止轮询（原先无 onPause，轮询会一直跑）
         if (genStatusBar != null) genStatusBar.stopPolling();
-        // NPU-IDLE-RELEASE: 进后台 → 闲置超时后若仍空闲则卸载模型（见 NPU_IDLE_RELEASE_MS 的取值说明）
-        npuIdleHandler.removeCallbacks(npuIdleRelease);
-        if (isNpuEngineOn()) {
-            npuIdleHandler.postDelayed(npuIdleRelease, NPU_IDLE_RELEASE_MS);
-        }
         // 停止时保存当前会话到历史（更新当前会话而非重复创建副本；与 saveHistoryAsync 互斥）
         if (chatHistoryManager != null && chatHistory != null && !chatHistory.isEmpty()) {
             final List<ChatMessage> copy = new ArrayList<>(chatHistory);

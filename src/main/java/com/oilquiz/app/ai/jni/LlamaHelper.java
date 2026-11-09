@@ -396,6 +396,114 @@ public class LlamaHelper {
 
     private static native String nativeGetResolvedBackend();
 
+    /**
+     * NPU-BACKEND-TRUTH(2026-11-09)：本次加载**实际**用的加速后端（wire 值）。
+     *
+     * <p>存在理由：GenieX 移除后，"NPU 到底有没有在用"只剩一个真值来源 —— native 选设备时
+     * 记下的解析值。此前日志与状态各自去问 GenieX 开关（该开关 2026-11-01 起恒假、
+     * 11-09 已整条删除），于是 HTP0 明明在跑，日志每轮仍写 "NPU=false / 未走 NPU"，
+     * 读日志的人只能得出"NPU 没启用"的错误结论。</p>
+     *
+     * <p>取值只看 native 的**解析值**（它由选设备分支在每次装载时重写，装载开始会先清空）。
+     * <b>不</b>回落到 {@link #getLoadedBackend()}（那是本次装载"下发的偏好"，属于意图不是事实）：
+     * 曾经两条都用过，结果偏好为 hexagon、实际回落到 CPU 时，界面一边纯 CPU 推理一边宣告 NPU。
+     * 要报"用户想用哪个后端"请用 {@link #getEffectiveBackend()}。</p>
+     *
+     * <p><b>不要</b>用"是否开启某个 NPU 引擎开关"来回答这个问题 —— HTP 模式恰恰就是
+     * llama.cpp 换了个加速后端。</p>
+     *
+     * @return "hexagon" / "opencl" / "vulkan" / "cpu"；尚未选定或库未加载时返回空串
+     */
+    public static String getActualBackend() {
+        if (!libraryLoaded) return "";   // 未加载时省掉一次必然失败的 JNI（调用方在 500ms 轮询里）
+        String resolved = getResolvedBackend();
+        return resolved == null ? "" : resolved;
+    }
+
+    /**
+     * 实际加速后端的**短显示名**：NPU / OpenCL / Vulkan / CPU；取不到时返回空串。
+     *
+     * <p>与 {@link #backendLabel(String)} 的分工：后者是设置项/状态页用的长名
+     * （"NPU (Hexagon)"、未知值说成"自动"，那是偏好语义）；这里报的是实际落点，
+     * 所以纯 CPU 必须说 CPU，未知必须闭嘴，不能把"自动"当成实际结果。
+     * 聊天统计行与横幅摘要共用这一份词，避免各页再写一遍 switch。</p>
+     */
+    public static String accelBackendLabel() {
+        String b = getActualBackend();
+        if (b == null || b.isEmpty() || "auto".equals(b)) {
+            return "";
+        }
+        if ("hexagon".equals(b)) return "NPU";
+        if ("cpu".equals(b)) return "CPU";
+        return backendLabel(b);
+    }
+
+    /**
+     * 一行紧凑摘要：{@code NPU·HTP0·25层} / {@code OpenCL·GPUOpenCL·25层} / {@code CPU}。
+     * 供顶部横幅与日志使用；后端未知时返回空串（调用方据此整段省略，不写"未知"占位）。
+     *
+     * <p>为什么带设备名：光说"NPU"分不清是哪颗设备，真机注册表里同时有 Vulkan0 /
+     * GPUOpenCL / HTP0 / CPU 四个设备，设备名才是"权重到底放在哪"的证据。</p>
+     *
+     * <p>为什么缓存：横幅随服务状态 500ms 轮询刷新，而设备名要过一次 JNI + JSON 解析。
+     * 后端与层数只在模型加载时变化，故按 (backend, layers) 做键缓存，值变化才重算；
+     * 用不可变数组整体替换（volatile）避免读到半更新的键值对。</p>
+     */
+    public static String accelBackendSummary() {
+        String backend = getActualBackend();
+        if (backend == null || backend.isEmpty() || "auto".equals(backend)) {
+            return "";
+        }
+        int layers = getGPULayers();
+        String key = backend + "|" + layers;
+        String[] cache = sAccelSummaryCache;
+        if (cache != null && key.equals(cache[0])) {
+            return cache[1];
+        }
+        String text;
+        if ("cpu".equals(backend) || layers <= 0) {
+            // 没卸载任何层就是纯 CPU，此时报后端名会让人以为权重在加速器上
+            text = "CPU";
+        } else {
+            String label = accelBackendLabel();
+            if (label.isEmpty()) {
+                return "";
+            }
+            String dev = accelDeviceName(backend);
+            text = label + (dev.isEmpty() ? "" : "·" + dev) + "·" + layers + "层";
+        }
+        sAccelSummaryCache = new String[]{key, text};
+        return text;
+    }
+
+    /** {@link #accelBackendSummary()} 的 (键, 值) 缓存；整体替换，不做就地修改。 */
+    private static volatile String[] sAccelSummaryCache = null;
+
+    /**
+     * 从 ggml 设备注册表里取该后端的设备名（如 hexagon → HTP0）。取不到返回空串。
+     * 判据与 {@link #backendHasDevice(String)} 同源：按注册名匹配，不按 device type
+     * （HTP 实测报 type=GPU 而非 ACCEL）。
+     */
+    private static String accelDeviceName(String backend) {
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray(getDeviceCaps());
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject d = arr.optJSONObject(i);
+                if (d == null) continue;
+                String reg = d.optString("backend", "");
+                boolean hit = ("hexagon".equals(backend) && (reg.contains("HTP") || reg.contains("Hexagon")))
+                        || ("opencl".equals(backend) && reg.contains("OpenCL"))
+                        || ("vulkan".equals(backend) && reg.contains("Vulkan"));
+                if (hit) {
+                    return d.optString("name", "");
+                }
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "accelDeviceName(" + backend + ") failed: " + t.getMessage());
+        }
+        return "";
+    }
+
     // ========== 推理锁方法 ==========
 
     /**
@@ -1712,18 +1820,6 @@ public class LlamaHelper {
             try {
                 cachedModelInitialized = nativeIsModelInitialized();
                 lastModelInitCheckTime = now;
-                // NPU-DIAG: 在 NPU 引擎开启时，这个 native 调用必然返回 false（llama.cpp 上下文
-                // 故意不创建）。若它出现在消息路径上，调用方就会误判"没就绪"并进入等待。
-                // 这里打印调用线程与堆栈，用于定位到底是谁在轮询它（实测每 2.4s 一次、共 7 次）。
-                if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
-                    StackTraceElement[] st = Thread.currentThread().getStackTrace();
-                    StringBuilder sb = new StringBuilder();
-                    for (int i = 2; i < Math.min(st.length, 9); i++) {
-                        sb.append("\n    at ").append(st[i]);
-                    }
-                    AILogger.w(TAG, "[NPU-DIAG] nativeIsModelInitialized 被调用（线程 "
-                            + Thread.currentThread().getName() + "，NPU 模式下必为 false）" + sb);
-                }
             } catch (UnsatisfiedLinkError e) {
                 AILogger.e(TAG, "Error checking if model is initialized: " + e.getMessage(), e);
                 cachedModelInitialized = false;
@@ -1737,27 +1833,13 @@ public class LlamaHelper {
     private static native boolean nativeIsModelInitialized();
 
     /**
-     * 推理引擎是否"有模型可用"——**NPU 感知**的替代判定。
+     * 推理引擎是否"有模型可用"。
      *
-     * <p>背景（2026-10-07 实测定位）：NPU 引擎开启时 llama.cpp 上下文**故意不创建**，
-     * 于是 {@link #isModelInitialized()} 永远返回 false（native 日志刷屏
-     * {@code s_helperContext is nullptr, returning false}）。而不少上层逻辑把
-     * "llama 模型没就绪"当成"引擎没好"→ 进入等待/轮询，白等一轮超时后才继续。
-     * 实测一次首轮对话因此多花约 16 秒（8 次 x 2.4s，等于 isModelInitialized 的缓存周期），
-     * 而真正的推理只用了 0.93 秒。</p>
-     *
-     * <p>所以判断"能否推理"时应当用它：NPU 开着就看 NPU 是否就绪，否则再看 llama。</p>
+     * <p>历史上这里有第二条判据（GenieX 引擎开着就问 GenieX 是否已加载）。GenieX 已于
+     * 2026-11-09 整条删除，且 HTP 后端本身就是 llama.cpp —— 所以现在只问 llama 状态。
+     * 保留方法名（30+ 调用点用它表达"能否推理"），不再做引擎分支。</p>
      */
     public static boolean isEngineReady() {
-        try {
-            if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
-                // NPU 路径：模型已加载（READY/GENERATING）即视为就绪
-                return com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
-            }
-        } catch (Throwable probeFailed) {
-            AILogger.w(TAG, "isEngineReady 探测抛异常，按未就绪处理（可能把已就绪的引擎报成没就绪）: " + probeFailed.getMessage());
-            // NpuLlmChat 不可用时退回 llama 判定，保持行为不变
-        }
         return isModelInitialized();
     }
 
@@ -1897,9 +1979,11 @@ public class LlamaHelper {
     /**
      * ACCEL-CAPS(2026-10-09)：返回**全部** ggml 设备的能力 JSON。
      *
-     * <p>每项含：backend / name / desc / type / memory_free_mb / memory_total_mb /
-     * mem_type / mem_align / caps_async / caps_host_buffer / caps_from_host /
-     * caps_events / caps_mmap / device_id / host_buft。</p>
+     * <p>每项含：backend / name / desc / type。
+     * （BACKEND-TRUTH 2026-11-09 核对：原 javadoc 还列了 memory_free_mb / memory_total_mb /
+     * mem_type / caps_* 等十来项，但 native 侧 nativeGetDeviceCaps 只写这四个键——
+     * ggml_backend_dev_get_props 在本机实测会 SIGSEGV，早已停用。照旧注释去 opt 那些键
+     * 只会拿到默认值，还会以为"设备没显存"。以产出侧为准。）</p>
      *
      * <p>走 ggml 的**设备无关**接口，所以 Vulkan、OpenCL、Hexagon(NPU)、CPU 都能报出
      * 显存与能力位。此前设备信息页只查 OpenCL（它直接调 clGetDeviceInfo），

@@ -153,8 +153,8 @@ public class LocalAgentCancelPathTest {
                         + "循环还在收尾却被当成空闲，会让上层再按一次停止什么也不做，"
                         + "并允许新消息与上一轮残留回调混用同一个 callback",
                 cancel.contains("isProcessing.set(false)"));
-        assertTrue("NPU 与 llama.cpp 两个停止入口都要保留",
-                cancel.contains("NpuLlmChat.stopGenerate()") && cancel.contains("LlamaHelper.stopGeneration()"));
+        assertTrue("cancel() 必须打到 native 停止入口（否则点了停止解码还在跑）",
+                cancel.contains("LlamaHelper.stopGeneration()"));
     }
 
     @Test

@@ -13,9 +13,6 @@ import java.util.List;
 public class ModelPresetConfig {
     private static final String TAG = "ModelPresetConfig";
     private static final String PRESETS_FILE = "models_presets.json";
-    /** NPU 原生格式（qairt 预编译 QNN context）清单：独立文件，由 GenieX ModelManagerWrapper 下载 */
-    private static final String NPU_NATIVE_PRESETS_FILE = "models_presets_npu_native.json";
-
     public static class ModelPreset {
         public String id;
         public String name;
@@ -45,14 +42,16 @@ public class ModelPresetConfig {
         public String backupSha256;
         public String backupMmprojSha256;
 
-        // ===== GenieX 官方目录信息（NPU 原生/qairt 与多模态走 SDK 自身下载与加载）=====
-        public String geniexModelName;    // 官方 catalog 的 modelName
-        public String geniexRuntime;      // llama_cpp | qairt
-        public String geniexType;         // llm | vlm
+        // ===== GenieX 目录遗留字段（GENIEX-REMOVED 2026-11-09）=====
+        // 运行时已删除，这些字段不再有任何下载/加载路径消费；保留是为了继续解析旧 JSON
+        // （Gson 会忽略未知字段，但仓库里的预设仍写着它们）。新条目不需要再填。
+        public String geniexModelName;
+        public String geniexRuntime;
+        public String geniexType;
         public String geniexQuant;
-        public String hub;                // HUGGINGFACE | MODELSCOPE | AUTO
-        public String chipset;            // 例如 SM8750
-        public Boolean applicable;        // 本机是否适用（null = 未标注）
+        public String hub;
+        public String chipset;
+        public Boolean applicable;        // 本机是否适用（null = 未标注）；下载列表仍按它过滤
         public String unapplicableReason;
         public Boolean supportsVision;
         public Boolean supportsThinking;
@@ -70,19 +69,9 @@ public class ModelPresetConfig {
             PresetContainer container = new Gson().fromJson(reader, PresetContainer.class);
             reader.close();
             if (container != null && container.presets != null) {
-                // 追加 NPU 原生格式（qairt）清单：失败不影响 GGUF 主清单
-                try {
-                    InputStream is2 = context.getAssets().open(NPU_NATIVE_PRESETS_FILE);
-                    InputStreamReader reader2 = new InputStreamReader(is2);
-                    PresetContainer c2 = new Gson().fromJson(reader2, PresetContainer.class);
-                    reader2.close();
-                    if (c2 != null && c2.presets != null) {
-                        container.presets.addAll(c2.presets);
-                        Log.i(TAG, "NPU 原生(qairt)清单已合并: " + c2.presets.size() + " 条");
-                    }
-                } catch (Exception e2) {
-                    Log.w(TAG, "NPU 原生清单加载失败（忽略）: " + e2.getMessage());
-                }
+                // GENIEX-REMOVED(2026-11-09)：原先这里还会合并 models_presets_npu_native.json
+                // （qairt 预编译产物，由 GenieX SDK 下载）。运行时已删除，那份清单只剩空数组，
+                // 合并逻辑一并移除 —— 留着只会让人以为还有第二类可下载产物。
                 return container.presets;
             }
         } catch (Exception e) {

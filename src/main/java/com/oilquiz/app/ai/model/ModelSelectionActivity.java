@@ -129,8 +129,8 @@ public class ModelSelectionActivity extends AppCompatActivity {
         // 实际切换到选中的本地模型
         String modelName = model.getName();
 
-        // NPU（GenieX）切引擎的分支已删除(2026-11-01)，理由见 initModels() 里的注释；
-        // InferenceRouter.isNpuEngineEnabled() 现在恒为 false，这里不再需要"选别的模型就关掉 NPU"。
+        // NPU（GenieX）切引擎的分支已删除(2026-11-01)，运行时在 11-09 整条移除；
+        // 现在"选模型"就是纯本地 llama.cpp 切换。
 
         inferenceRouter.switchModel(modelName);
         Toast.makeText(this, getString(R.string.h_f70a7dc7) + modelName, Toast.LENGTH_SHORT).show();

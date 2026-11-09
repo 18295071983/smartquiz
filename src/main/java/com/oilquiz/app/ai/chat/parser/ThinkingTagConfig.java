@@ -106,28 +106,17 @@ public final class ThinkingTagConfig {
      *
      * <p>为什么需要统一（2026-10-07 审计定位）：本项目三条路径（llama.cpp / NPU / 在线）的思考标签
      * 原先各取各的 —— llama.cpp 走 {@code LlamaHelper.getThinkingTags()}（native 模板），
-     * NPU 侧则在不同调用点分别写 {@code null} 或硬编码默认值，于是"思考/正文分流"的行为
+     * 另一个引擎侧则在不同调用点分别写 {@code null} 或硬编码默认值，于是"思考/正文分流"的行为
      * 因入口而异，出现"有时分开、有时混在一起"。</p>
      *
-     * <p>规则：</p>
-     * <ol>
-     *   <li>NPU：GenieX 的模板在 SDK 侧，llama.cpp 的 native 上下文不存在 → 取不到模板标签，
-     *       使用与 {@code NpuEngineRouter} 发给 UI 的 meta 事件**一致**的默认标签，
-     *       保证"上游分流用的标签"和"下游兜底用的标签"是同一套。</li>
-     *   <li>其他引擎：用 native 模板提供的标签（{@code LlamaHelper.getThinkingTags()}），
-     *       标签不可用时返回 empty（不做剥离），与既有行为一致。</li>
-     * </ol>
+     * <p>规则：用 native 模板提供的标签（{@code LlamaHelper.getThinkingTags()}），
+     * 标签不可用时返回 empty（不做剥离），与既有行为一致。</p>
+     *
+     * <p><b>GENIEX-REMOVED(2026-11-09)</b>：这里原有"NPU 走硬编码 Qwen 标签"的分支，
+     * 判据是 GenieX 引擎开关（结构性恒假）。GenieX 删除后只剩一条真实路径；
+     * HTP 后端跑的还是 llama.cpp，模板标签同样由 native 提供，不走硬编码。</p>
      */
     public static ThinkingTagConfig forCurrentEngine() {
-        try {
-            if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
-                // 与 NpuEngineRouter 的 meta 事件保持一致（Qwen 系默认）
-                return fromJson("{\"thinking_start_tag\":\"<think>\","
-                        + "\"thinking_end_tags\":[\"</think>\"]}");
-            }
-        } catch (Throwable ignored) {
-            // NpuLlmChat 不可用时按 llama.cpp 处理
-        }
         try {
             return com.oilquiz.app.ai.jni.LlamaHelper.getThinkingTags();
         } catch (Throwable t) {

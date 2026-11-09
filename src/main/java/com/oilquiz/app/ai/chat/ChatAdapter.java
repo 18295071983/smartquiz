@@ -2739,28 +2739,20 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * 加速后端显示名。层数由 -ngl 决定，而目标设备可能是 Hexagon NPU
      * （它作为 GPU 类型设备参与卸载），故按实际生效后端取词。
      *
-     * <p>优先用 native 回传的**解析结果**：偏好为 "auto" 时它才说明最终落到
-     * 哪个设备（真机上 auto 会解析成 HTP/NPU）。解析结果为空（尚未加载模型或
-     * 纯 CPU）时退回偏好值。</p>
+     * <p>BACKEND-TRUTH(2026-11-09)：这里原先自己抄了一份"解析值→偏好值→switch 取词"，
+     * 与横幅、路由日志各写一份，三处必然漂开（同一个 hexagon 在这写"NPU"、别处写"NPU (Hexagon)"）。
+     * 现在统一委托 {@code LlamaHelper.accelBackendLabel()}，本方法只保留消息尾巴特有的兜底：
+     * 后端未知时写"GPU"——调用点已判定 {@code usingGPU && gpuLayers>0}，写空串会渲染出
+     * " ·  25层"；而这条统计行是**历史消息**的记录，无法回溯当时的后端，只能报"未知"。</p>
      */
     private String accelLabel() {
-        String b = null;
         try {
-            b = com.oilquiz.app.ai.jni.LlamaHelper.getResolvedBackend();
-            if (b == null || b.isEmpty()) {
-                b = com.oilquiz.app.ai.jni.LlamaHelper.getLoadedBackend();
-            }
+            String label = com.oilquiz.app.ai.jni.LlamaHelper.accelBackendLabel();
+            if (!label.isEmpty()) return label;
         } catch (Throwable ignored) {
             // 取不到时退回通用词，不影响渲染
         }
-        if (b == null || b.isEmpty()) return "GPU";
-        switch (b) {
-            case "hexagon": return "NPU";
-            case "opencl":  return "OpenCL";
-            case "vulkan":  return "Vulkan";
-            case "auto":    return "自动";
-            default:        return "GPU";
-        }
+        return "GPU";
     }
 
     /**

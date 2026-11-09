@@ -1,7 +1,6 @@
 package com.oilquiz.app.ai.agent.software.engine;
 
 import android.content.Context;
-import com.oilquiz.app.ai.engine.NpuEngineRouter;
 
 import com.oilquiz.app.ai.agent.software.model.AgentResponse;
 import com.oilquiz.app.ai.agent.software.model.AgentStats;
@@ -1865,7 +1864,7 @@ public class AgentLoopEngine {
             contents[i] = history.get(i).content.getBytes(StandardCharsets.UTF_8);
         }
 
-        NpuEngineRouter.generateWithTools(roles, contents, toolsJson,
+        LlamaHelper.generateWithTools(roles, contents, toolsJson,
                 resolveGenerationCap(history, toolsJson, maxTokens), temperature,
                 0.9f, 40, thinking, new LlamaHelper.TokenCallback() {
                     @Override
@@ -2582,16 +2581,13 @@ public class AgentLoopEngine {
      *
      * <p>为什么不能只用 {@link #getEffectiveContextSize()}：门取的是
      * {@code min(nCtxTrain, runtimeCtx)}，训练窗口比运行窗口小的模型上只看 runtime 会高估容量，
-     * 照样撞门。NPU 路径不走 llama.cpp 那道门，按规划窗口算。
-     * 取不到窗口时返回 0，调用方据此<b>跳过</b>预检，而不是拿猜测值拦请求。</p>
+     * 照样撞门。取不到窗口时返回 0，调用方据此<b>跳过</b>预检，而不是拿猜测值拦请求。</p>
      */
     private int getSafePromptCapacity() {
         try {
             int ctx = getEffectiveContextSize();
             if (ctx <= 0) return 0;
-            if (!com.oilquiz.app.ai.engine.NpuAwareText.isNpu()) {
-                ctx = LlamaHelper.getSafeContextReference(ctx);
-            }
+            ctx = LlamaHelper.getSafeContextReference(ctx);
             return Math.max(0, ctx - NATIVE_GENERATION_RESERVE);
         } catch (Throwable t) {
             AILogger.w(TAG, "getSafePromptCapacity failed: " + t.getMessage());
@@ -2665,24 +2661,9 @@ public class AgentLoopEngine {
      */
     private int getEffectiveContextSize() {
         int preset = aiConfig != null ? aiConfig.getContextSize() : 0;
-        // NPU-AWARE(2026-10-07)：原实现只读 LlamaHelper.getContextSize()，NPU 模式下恒为 0
-        // → 回退预设或写死的 8192，而 NPU 实际规划出的 nCtx（实测 8192）才是真窗口。
-        // 走 NpuAwareText 按引擎取，并用同一份日志保留原有的可观测性。
         int real = 0;
         try {
-            if (com.oilquiz.app.ai.engine.NpuAwareText.isNpu()) {
-                // NPU-CONTRACT：plannedNCtxValue() 未规划时返回 -1（未知），**不再给猜测值**。
-                // 未知时在这里显式触发一次内存规划（幂等，同模型不重复解析 GGUF），
-                // 这样拿到的就是真实窗口，而不是把 4096/8192 这类兜底值当成窗口用
-                // —— 那会把 Agent 的预算压到装不下工具定义+多轮结果。
-                real = com.oilquiz.app.ai.engine.NpuLlmChat.plannedNCtxValue();
-                if (real <= 0 && appContext != null) {
-                    com.oilquiz.app.ai.engine.NpuLlmChat.planForCurrentModel(appContext);
-                    real = com.oilquiz.app.ai.engine.NpuLlmChat.plannedNCtxValue();
-                }
-            } else {
-                real = LlamaHelper.getContextSize();
-            }
+            real = LlamaHelper.getContextSize();
         } catch (Throwable t) {
             AILogger.w(TAG, "getContextSize failed: " + t.getMessage());
         }
@@ -2690,9 +2671,7 @@ public class AgentLoopEngine {
         if (ctxSize <= 0) {
             ctxSize = 8192; // 兜底
         }
-        AILogger.i(TAG, "Effective context: preset=" + preset + ", native=" + real + ", using " + ctxSize
-                + " [isNpu=" + com.oilquiz.app.ai.engine.NpuAwareText.isNpu()
-                + ", npuPlanned=" + com.oilquiz.app.ai.engine.NpuLlmChat.plannedNCtxValue() + "]");
+        AILogger.i(TAG, "Effective context: preset=" + preset + ", native=" + real + ", using " + ctxSize);
         return ctxSize;
     }
 
@@ -4212,9 +4191,11 @@ public class AgentLoopEngine {
 
     private int countTokensSafe(String text) {
         if (text == null || text.isEmpty()) return 0;
-        // NPU-AWARE：NPU 模式下 llama.cpp tokenizer 未加载，countTokens 恒 0 →
-        // Agent 的单轮 prompt 预算与历史裁剪会全部失真。按引擎选数据源。
-        return com.oilquiz.app.ai.engine.NpuAwareText.countTokens(text);
+        try {
+            return LlamaHelper.countTokens(text);
+        } catch (Throwable t) {
+            return Math.max(1, text.length() / 4);
+        }
     }
 
     private String truncate(String s, int maxLen) {

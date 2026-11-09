@@ -1,5 +1,35 @@
 # 变更日志
 
+## [2026-11-09] refactor(npu)：删除 GenieX 死壳，NPU 收敛为 llama.cpp 的加速后端
+
+现场结论："日志说 NPU 未启用、是不是选错了 NPU" —— 真机其实一直跑在 HTP0 上。判据问的是已停用的
+GenieX 引擎开关（`NpuLlmChat.isEngineEnabled()` / `InferenceRouter.NPU_ENGINE_AVAILABLE=false`，
+结构性恒假）；11-08 为了让横幅别写"未路由到 NPU"，又把解析到 hexagon 的 `llama-cpp` 改标成 `npu-htp`。
+引擎身份被冒充后 `getEffectiveInferenceType()` 返回 NPU，抽屉把 KV / 上下文 / 本地 token 三行写死成
+「NPU 不上报」。本次把"引擎"与"加速后端"拆开，并删掉 GenieX 整条运行时（净减 4071 行 / 49 个文件）。
+
+- **引擎 vs 加速后端分离**：`InferenceType` 只留 `LOCAL/ONLINE`；新增 `LlamaHelper.getActualBackend()`
+  （只认 native 解析值，**不**回落到偏好——偏好是意图不是事实）、`accelBackendLabel()`、
+  `accelBackendSummary()`（`NPU·HTP0·25层`，按 后端+层数 缓存，供 500ms 轮询）。横幅、工具抽屉、
+  消息状态尾巴、引擎日志统一取这一份，不再各写一个 switch。
+- **删除 GenieX 运行时**：`NpuLlmChat`、`NpuEngineRouter`（去掉 NPU 分支后只剩裸转发）、`NpuEngineState`、
+  `NpuSignalAdapter`、`NpuAwareText`、`InferenceType.NPU`、`InferenceRouter` 的 NPU 引擎 API、
+  `AIService` 的 NPU 托管与只读代理、状态页 73 个恒真守卫及 `refreshEngineRows`、GenieX 模型目录下载、
+  空的 `models_presets_npu_native.json`。**保留** `NpuFaultGuard`（HTP 致命信号兜底）、HTP 后端选择与
+  探针（`hasNpuDevice` / `isHtpBackendBuilt`）、`npu_force_cpu`。
+- **native 真值修正**：GPU 装载失败→CPU 重试成功后把 `g_resolvedBackend` 写成 `cpu`（原来停在
+  hexagon，纯 CPU 却对外宣告 NPU）；每次装载开始与 `release()` 清空解析值，避免上一轮残账；
+  `Vulkan GPU detected` / `GPU mode working correctly` 等措辞改为按枚举与选中的后端报。
+- **顶栏副标题按屏幕自适应**：不再固定 180dp，按居中的模型块到左右图标组的较近距离 ×2 计算上限，
+  `onLayoutChange` 重算（分屏/旋转），文本短时仍居中、长时末尾省略。
+- **验证**：全仓 grep 已删符号 = 0；改动文件 javac 错误集与 HEAD 逐条一致（`AIService` / `InferenceRouter` /
+  `AgentLoopEngine` / `ModelExecutionBridge` 整文件零错误）；native `clang++ -fsyntax-only`
+  （项目真实 defines/includes）通过；`assembleDebug` 2m8s 成功，32 个 dex 内 `NpuLlmChat` = 0、
+  新串「加速后端」在包，装机后 base.apk md5 与本地一致。**未真机复测**对话 / Agent / 视觉 / 取消。
+- 测试同步：删 `NpuEngineRouterPhaseTest`（ThinkStreamer 已不存在），`GenSignalContractTest` 去掉两条
+  NPU 用例，`LocalAgentCancelPathTest` / `InferenceGatewaySourceTest` 断言改为"不绕过 Gateway 直调
+  `LlamaHelper.chatJson`"。
+
 ## [2026-11-08] fix(vulkan)：Adreno 840 device lost 不再把诊断调用变成进程崩溃
 
 真机 tombstone：Vulkan prefill 先 `vk::Queue::submit: ErrorDeviceLost`，ggml-vulkan 随后调用

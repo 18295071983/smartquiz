@@ -247,69 +247,24 @@ public class ModelDownloadManager {
     }
 
     public String downloadPresetModel(String modelId, ModelPresetInfo presetInfo, DownloadCallback callback) {
-        // NPU-QAIRT-DOWNLOAD: 无直链的条目（NPU 原生/qairt）→ 走 GenieX ModelManagerWrapper
-        // 按官方 catalog 的 modelName 下载（自包含产物，无需 mmproj）。
-        // 这里按 modelId 回查预设拿 geniex 字段，避免改动 ModelPresetInfo/ModelInfo 两条构造链。
+        // GENIEX-REMOVED(2026-11-09)：无直链的条目（原来是 NPU 原生/qairt，走 GenieX SDK
+        // 按官方 catalog 下载）现在没有可用的下载通道了。必须在这里明确报错并返回：
+        // 往下走会用空的 downloadUrl 拼出坏路径，变成"下载成功但文件不存在"的假成功。
         if (presetInfo.downloadUrl == null || presetInfo.downloadUrl.isEmpty()) {
+            String why = "此模型没有下载地址（原 GenieX 原生模型已不再支持，请选 GGUF 条目）";
             try {
                 java.util.List<ModelPresetConfig.ModelPreset> all =
                         ModelPresetConfig.loadPresets(context);
                 ModelPresetConfig.ModelPreset p = ModelPresetConfig.findPreset(all, modelId);
-                if (p != null && Boolean.FALSE.equals(p.applicable)) {
-                    // QAIRT-UNAVAILABLE: 已知本机不适用的条目不再发起必然失败的 pull
-                    String why = p.unapplicableReason == null ? "本机不适用" : p.unapplicableReason;
-                    AILogger.w(TAG, "跳过下载（" + why + "）: " + modelId);
-                    if (callback != null) {
-                        callback.onError(modelId, why);
-                    }
-                    return modelId;
+                if (p != null && p.unapplicableReason != null && !p.unapplicableReason.isEmpty()) {
+                    why = p.unapplicableReason;
                 }
-                if (p != null && p.geniexModelName != null && !p.geniexModelName.isEmpty()) {
-                    AILogger.i(TAG, "NPU 原生模型走 GenieX 目录下载: " + p.geniexModelName
-                            + " (runtime=" + p.geniexRuntime + ", quant=" + p.geniexQuant + ")");
-                    // qairt（NPU 原生）产物在 Qualcomm AI Hub，不是 HF；
-                    // 官方 catalog 里 qairt 条目 hub=AUTO 且无 quant 字段 → 这里同样不传 quant/chipset，
-                    // 让 GenieX 自行解析（之前传 HUGGINGFACE + Q4_0 会导致找不到产物、下载不动）。
-                    boolean qairtRuntime = "qairt".equalsIgnoreCase(p.geniexRuntime);
-                    AILogger.i(TAG, "GenieX 目录下载参数: model=" + p.geniexModelName
-                            + " runtime=" + p.geniexRuntime
-                            + " hub=" + (p.hub == null ? "AUTO" : p.hub)
-                            + " quant=" + (qairtRuntime ? "(null)" : p.geniexQuant));
-                    com.oilquiz.app.ai.engine.NpuLlmChat.downloadModel(
-                            context,
-                            p.geniexModelName,
-                            qairtRuntime ? null : (p.geniexQuant == null ? "Q4_0" : p.geniexQuant),
-                            p.hub == null ? "AUTO" : p.hub,
-                            null,    // chipset：qairt 不指定，交给 SDK 按当前设备解析
-                            null,    // localPath：null = 走 SDK 目录下载（非本地侧载）
-                            // 进度桥接：GenieX DownloadListener -> 我们的 DownloadCallback
-                            (callback == null) ? null : new com.oilquiz.app.ai.engine.NpuLlmChat.DownloadListener() {
-                                @Override
-                                public void onProgress(float percent, String modelName) {
-                                    callback.onProgress(modelId, (int) percent, 0L, 0L);
-                                }
-
-                                @Override
-                                public void onCompleted(String modelName) {
-                                    callback.onComplete(modelId, modelName);
-                                }
-
-                                @Override
-                                public void onError(int code, String message) {
-                                    callback.onError(modelId, "[" + code + "] " + message);
-                                }
-                            });
-                    return modelId;
-                }
-                AILogger.w(TAG, "该预设无直链且非 GenieX 目录条目，无法下载: " + modelId);
-                if (callback != null) {
-                    callback.onError(modelId, "此模型没有下载地址（既无直链也非 GenieX 目录条目）");
-                }
-            } catch (Throwable t) {
-                AILogger.w(TAG, "GenieX 目录下载失败: " + t);
-                if (callback != null) {
-                    callback.onError(modelId, "GenieX 目录下载失败: " + t.getMessage());
-                }
+            } catch (Throwable ignored) {
+                // 查不到原因就用上面那句通用说明，不影响"明确失败"这件事
+            }
+            AILogger.w(TAG, "跳过下载（" + why + "）: " + modelId);
+            if (callback != null) {
+                callback.onError(modelId, why);
             }
             return modelId;
         }
@@ -1324,13 +1279,13 @@ okhttp3.Response response = null;
             if (presets != null) {
                 for (ModelPresetConfig.ModelPreset p : presets) {
                     if (p == null) continue;
-                    // 放行两类：① 有直链的 GGUF；② 无直链但属于 GenieX 官方目录（NPU 原生/qairt）
-                    // —— 原先只放行 ①，导致 qairt 条目在下载页完全不可见。
+                    // 只放行有直链的条目。GENIEX-REMOVED(2026-11-09)：原先还放行"无直链但属于
+                    // GenieX 官方目录（qairt）"的条目——下载通道随后者一起删除了，放进来只会
+                    // 变成点不动的假条目。
                     boolean hasUrl = p.downloadUrl != null && !p.downloadUrl.isEmpty();
-                    boolean geniexCatalog = p.geniexModelName != null && !p.geniexModelName.isEmpty();
                     // APPLICABLE-GUARD: 标记为本机不适用的条目不进下载列表（避免用户下了用不了）
                     if (Boolean.FALSE.equals(p.applicable)) continue;
-                    if (!hasUrl && !geniexCatalog) continue;
+                    if (!hasUrl) continue;
                     ModelPresetInfo info = ModelPresetConfig.toPresetInfo(p);
                     if (info != null) list.add(info);
                 }

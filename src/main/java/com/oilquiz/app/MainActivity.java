@@ -230,38 +230,6 @@ public class MainActivity extends BaseActivity {
                                    String stageMessage, int progress, String errorMessage) {
         android.widget.TextView tvAiStatus = findViewById(R.id.tvAiStatus);
         if (tvAiStatus != null) {
-            // NPU-STATUS-CARD: NPU 引擎开启时，主界面状态卡按 NPU 实际状态显示
-            // （原先一律走本地 llama.cpp 服务语义 → NPU 模式下永远红字"未加载"）
-            // NPU-SINGLE-SOURCE: 状态卡改为只读 AIService（服务是 NPU 运行时的唯一 owner），
-            // 不再直连 NpuLlmChat —— 后续 UI 侧只要读服务状态即可，便于统一与替换。
-            com.oilquiz.app.ai.service.AIService npuSvc =
-                    com.oilquiz.app.ai.service.AIService.getInstance(this);
-            if (npuSvc != null && npuSvc.isNpuEngineEnabled()) {
-                String npuState = npuSvc.getNpuStateName();
-                String npuModel = npuSvc.getNpuModelName();
-                float npuTps = npuSvc.getNpuLastTps();
-                boolean npuReady = "READY".equals(npuState) || "GENERATING".equals(npuState);
-                StringBuilder npuSb = new StringBuilder("NPU ");
-                if (npuReady) {
-                    npuSb.append("已就绪");
-                } else if ("LOADING".equals(npuState)) {
-                    npuSb.append("加载中");
-                } else if ("ERROR".equals(npuState)) {
-                    npuSb.append("不可用");
-                } else {
-                    npuSb.append("待加载");   // IDLE：首次发送消息时载入
-                }
-                if (npuModel != null && !npuModel.isEmpty()) {
-                    npuSb.append(" · ").append(npuModel);
-                }
-                if (npuTps > 0) {
-                    npuSb.append(String.format(java.util.Locale.US, " · %.1f t/s", npuTps));
-                }
-                tvAiStatus.setText(npuSb.toString());
-                tvAiStatus.setTextColor(androidx.core.content.ContextCompat.getColor(this, 
-                        "ERROR".equals(npuState) ? R.color.error : R.color.success));
-                return;
-            }
             String statusText;
             int statusColor;
             

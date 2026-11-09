@@ -1833,7 +1833,7 @@ private:
     std::vector<std::string> mThinkEndTags;
     std::vector<std::string> mToolCallOpenTags;    // 如 {"<function", "<param", "<tool_call"}
     std::vector<std::string> mToolCallCloseTags;   // 如 {"</function>", "</param>", "</tool_call>"}
-    std::string backendChoice = "auto";  // GPU 后端：auto=全部 / opencl / vulkan（设置项控制，加载时按 devices 过滤）
+    std::string backendChoice = "auto";  // 加速后端偏好：auto=按 HTP>OpenCL 自动挑单个 / hexagon / opencl / vulkan（设置项控制，加载时按 devices 过滤）
 
     // ===== 生成流程状态机（native）=====
     // 统一管理生成阶段与停止原因，替代散落的布尔/字符串状态，
@@ -2023,7 +2023,16 @@ public:
             GeneratingGuard(std::atomic<bool>& f) : flag(f) {}
             ~GeneratingGuard() { flag = false; }
         } guard(isGenerating);
-        
+
+        // BACKEND-TRUTH(2026-11-09)：每次装载先把"实际落点"清成未知，再由下面的选设备分支写入真值。
+        // 不清的话，上一次成功跑在 hexagon 的记录会跨装载残留：新一次装载若在选设备之前失败，
+        // Java 侧 getActualBackend()（横幅/日志的后端权威）仍会报 hexagon，于是在没有模型、
+        // 纯 CPU 的状态下对外宣告"NPU 25层"。宁可显示"未知"，也不留上一轮的旧账。
+        {
+            std::lock_guard<std::mutex> rbLock(g_resolvedBackendMutex);
+            g_resolvedBackend.clear();
+        }
+
         // 先读取全局设置
         this->gpuLayers = s_defaultGpuLayers;
         this->threadCount = nThreads;
@@ -2200,10 +2209,14 @@ public:
              s_openclLoaded ? "true" : "false", hasGPU ? "true" : "false");
         
         // ========== GPU 加速 ==========
-        // GPU 后端：OpenCL（GGML_OPENCL=ON，Adreno 专用驱动 libOpenCL_adreno.so +
-        // Adreno 优化 kernel；llama-adreno 实测 Adreno 830 663 t/s prefill）。
-        // 日志文案沿用 "Vulkan GPU detected" 为历史遗留，实际为 ggml 后端检测
-        // （OpenCL/Vulkan 任一可用即 hasGPU=true），不影响后端选择。
+        // 加速后端：HTP/Hexagon(NPU) > OpenCL(Adreno) > CPU，Vulkan 仅用户显式选择才参与。
+        // OpenCL 侧：GGML_OPENCL=ON，Adreno 专用驱动 libOpenCL_adreno.so + Adreno 优化 kernel
+        // （llama-adreno 实测 Adreno 830 663 t/s prefill）。
+        // BACKEND-TRUTH(2026-11-09)：下面两行日志原来写死 "Vulkan GPU detected"，而 hasGPU 的
+        // 判据是"ggml 枚举到了任意 GPU/IGPU 类型设备"——HTP0 也报 type=GPU，于是真机跑在 NPU 上
+        // 时日志却说"检测到 Vulkan"，读日志的人据此认定后端选错了。此处后端尚未选定（选择发生在
+        // 下面的 devices 过滤），所以只报"枚举到了加速设备" + "请求的后端偏好"，落点由选定处的
+        // "Backend switch:" 与加载成功后的 "Accel offload working:" 两行负责，不在这里猜。
         bool gpuAvailable = hasGPU;
         if (gpuAvailable && this->gpuLayers < 0) {
             // 仅当 Java 端传入负数（"未指定/自动"哨兵）时才自动使用安全上限。
@@ -2212,7 +2225,8 @@ public:
             // 强改成 GPU，在 Vulkan shader 与驱动不兼容的设备（如 Adreno 750）
             // 上直接崩溃（createComputePipeline: ErrorUnknown）。
             this->gpuLayers = MAX_GPU_LAYERS;
-            LOGI("Vulkan GPU detected, auto-setting GPU layers to %d (mixed GPU+CPU inference)", this->gpuLayers);
+            LOGI("Accel device detected (requested backend=%s), auto-setting offload layers to %d "
+                 "(mixed accel+CPU inference)", backendChoice.c_str(), this->gpuLayers);
         }
         // 最终安全限幅：确保 GPU 层数不超过 MAX_GPU_LAYERS
         if (this->gpuLayers > MAX_GPU_LAYERS) {
@@ -2220,8 +2234,10 @@ public:
                  this->gpuLayers, MAX_GPU_LAYERS, MAX_GPU_LAYERS);
             this->gpuLayers = MAX_GPU_LAYERS;
         }
-        LOGI("GPU available: %s, Vulkan GPU detected: %s, GPU layers: %d (mixed inference: remaining layers on CPU)",
-             gpuAvailable ? "true" : "false", hasGPU ? "true" : "false", this->gpuLayers);
+        LOGI("Accel available: %s, accel device enumerated: %s, requested backend: %s, offload layers: %d "
+             "(mixed inference: remaining layers on CPU)",
+             gpuAvailable ? "true" : "false", hasGPU ? "true" : "false",
+             backendChoice.c_str(), this->gpuLayers);
         
         // 配置多 GPU 分片参数（手机通常只有 1 个 GPU，但保留扩展性）
         // split_mode=LAYER: 按层分配给不同 GPU，适合异构设备
@@ -2449,7 +2465,16 @@ public:
                     return false;
                 }
                 s_gpuWorking = false;
-                LOGD("Model loaded successfully with CPU fallback in %llds", elapsed);
+                // BACKEND-TRUTH(2026-11-09)：GPU 装载失败→CPU 重试成功时，选设备阶段记下的
+                // g_resolvedBackend 还停在 hexagon/opencl。那条值现在被 Java 的横幅/日志当作
+                // "权重到底跑在哪"的权威（LlamaHelper.getActualBackend），不更新就会一边纯 CPU
+                // 推理、一边对外宣告 NPU 25层。这里改成 cpu 才是真值。
+                {
+                    std::lock_guard<std::mutex> rbLock(g_resolvedBackendMutex);
+                    g_resolvedBackend = "cpu";
+                }
+                LOGI("Accel offload failed; model loaded with CPU fallback in %llds "
+                     "(backend resolved to cpu, layers=0)", elapsed);
             } else {
                 LOGE("Failed to load model");
                 return false;
@@ -2459,7 +2484,17 @@ public:
             if (this->gpuLayers > 0) {
                 s_gpuTested = true;
                 s_gpuWorking = true;
-                LOGI("GPU mode working correctly with %d layers", this->gpuLayers);
+                // BACKEND-TRUTH(2026-11-09)：原来只写 "GPU mode working correctly"，看不出
+                // 落点（真机同时注册了 HTP0/OpenCL/Vulkan 三颗设备，术语"GPU"无法区分）。
+                // 这里回读选设备时记下的解析值——它就是 Java 侧 getActualBackend() 的真值来源。
+                std::string resolvedSnapshot;
+                {
+                    std::lock_guard<std::mutex> rbLock(g_resolvedBackendMutex);
+                    resolvedSnapshot = g_resolvedBackend;
+                }
+                LOGI("Accel offload working correctly: backend=%s, layers=%d",
+                     resolvedSnapshot.empty() ? "unknown" : resolvedSnapshot.c_str(),
+                     this->gpuLayers);
             } else {
                 s_gpuWorking = false;
                 LOGV("CPU mode working");
@@ -3150,6 +3185,14 @@ public:
         gpuLayers = 0;
         memoryPoolSize = 0;
         batchSize = 32;
+
+        // BACKEND-TRUTH(2026-11-09)：模型释放后"实际落点"也不存在了，这里一并清空。
+        // 不清的话 Java 侧会拿上一轮的 hexagon 配上刚归零的层数，在"没有模型"的状态下
+        // 算出并显示一个"CPU"后端——那同样是一句没有事实支撑的断言。
+        {
+            std::lock_guard<std::mutex> rbLock(g_resolvedBackendMutex);
+            g_resolvedBackend.clear();
+        }
         
         LOGD("Model resources released (llama backend kept alive for next load)");
     }
@@ -7519,7 +7562,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatSend(
     };
 
     // CHATSEND-SIGNAL-GUARD(2026-11-01)：本函数是本地推理唯一在跑的入口
-    // （ModelExecutionBridge → NpuEngineRouter.chatJson → LlamaHelper.chatJson → 这里），
+    // （ModelExecutionBridge → LlamaHelper.chatJson → 这里），
     // 但致命信号兜底原先只包了 nativeGenerateStream*/runPureInference 那 5 个站点。
     // 后果：hexagon 后端在 DSP 故障时走 GGML_ABORT → abort() → SIGABRT，没人接就等于整个
     // 进程没了——这就是"NPU 抖一下就是闪退"的根因。这里补上仓库里已有的同一套机制：

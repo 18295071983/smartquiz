@@ -205,6 +205,7 @@ public final class ChatUiV2Chrome {
         if (subtitle != null) {
             subtitle.setText(modelSubtitle(ctx));
             subtitle.setTag(TAG_SUBTITLE);
+            bindAdaptiveSubtitleWidth(activity, header, subtitle);
         }
 
         click(header, R.id.chat_v2_btn_history, v -> perform(activity, R.id.btn_history));
@@ -225,9 +226,50 @@ public final class ChatUiV2Chrome {
         return header;
     }
 
+    /**
+     * 顶栏副标题宽度**按屏幕自适应**（2026-11-09，替代固定 180dp）。
+     *
+     * <p>副标题要同时容纳「引擎 · 加速后端 · 模型 · 状态」（如
+     * {@code 本地模型 · NPU·HTP0·25层 · Qwen3.5-4B-Q4_0.gguf · 就绪}），固定宽度在窄屏会压到
+     * 左右两组图标、宽屏又白白截断。这里按实际布局算：中间那块是水平居中的，能用的宽度 =
+     * 到左侧图标右边缘与到右侧按钮左边缘这两段里**较短者 ×2**，再扣掉状态点与间距；
+     * 只设上限、不强制宽度，所以文本短时仍按内容居中，长时在末尾打省略号。</p>
+     *
+     * <p>用 {@code OnLayoutChangeListener} 而不是只算一次：分屏/折叠屏/横竖屏切换都会改变
+     * 顶栏宽度，监听里重算即可，无需重建页面。</p>
+     */
+    private static void bindAdaptiveSubtitleWidth(Activity activity, View header, TextView subtitle) {
+        // 首帧先给一个按屏幕宽度的估计值，避免 maxWidth 尚未生效时文本溢出压到图标
+        try {
+            int screenW = activity.getResources().getDisplayMetrics().widthPixels;
+            subtitle.setMaxWidth(Math.max(dp(activity, 120), screenW - dp(activity, 200)));
+        } catch (Throwable ignored) {
+        }
+        header.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            try {
+                int width = right - left;
+                if (width <= 0) return;
+                View leftGroup = v.findViewById(R.id.chat_v2_btn_browser);   // 左组最右的图标
+                View rightGroup = v.findViewById(R.id.chat_v2_btn_new);      // 右组最左的图标
+                if (leftGroup == null || rightGroup == null) return;
+                int center = width / 2;
+                // 居中的那块左右各有一段空隙，取较短的一侧 ×2 才是不会互相压住的宽度
+                int half = Math.min(center - leftGroup.getRight(), rightGroup.getLeft() - center);
+                if (half <= 0) return;
+                View dot = v.findViewById(R.id.chat_v2_status_dot);
+                int reserve = dp(activity, 8) + (dot == null ? 0 : dot.getWidth() + dp(activity, 6));
+                int max = Math.max(dp(activity, 120), half * 2 - reserve);
+                if (subtitle.getMaxWidth() != max) {
+                    subtitle.setMaxWidth(max);
+                }
+            } catch (Throwable ignored) {
+                // 宽度算不出来就沿用上一次的上限，不影响顶栏其余功能
+            }
+        });
+    }
+
     /** 给 v2 顶栏上的一个控件挂点击回调；控件缺失时静默跳过（不影响其余入口） */
-    private static void click(View root, int id, View.OnClickListener listener) {
-        View v = root.findViewById(id);
+    private static void click(View root, int id, View.OnClickListener listener) {        View v = root.findViewById(id);
         if (v != null) v.setOnClickListener(listener);
     }
 

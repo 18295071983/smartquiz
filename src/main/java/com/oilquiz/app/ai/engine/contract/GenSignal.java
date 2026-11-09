@@ -35,8 +35,8 @@ public final class GenSignal {
     /**
      * 生成阶段。**这是唯一允许 UI 分支的枚举**——它语义明确，且与任何引擎的实现细节无关。
      *
-     * <p>注意与"引擎加载阶段"区分：加载属于引擎生命周期（{@code NpuEngineState.Stage} /
-     * {@code AIServiceState.ServiceStage}），不属于"这条消息在生成中的哪一步"。</p>
+     * <p>注意与"引擎加载阶段"区分：加载属于引擎生命周期（{@code AIServiceState.ServiceStage}），
+     * 不属于"这条消息在生成中的哪一步"。</p>
      */
     public enum Phase {
         /** 没有生成在进行 */

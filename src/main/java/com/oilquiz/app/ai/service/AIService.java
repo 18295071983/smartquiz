@@ -1,7 +1,6 @@
 package com.oilquiz.app.ai.service;
 
 import android.content.ComponentCallbacks2;
-import com.oilquiz.app.ai.engine.NpuEngineRouter;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -408,28 +407,6 @@ public class AIService implements ComponentCallbacks2 {
             instance = new AIService(context);
         }
 
-        // ==================== 入口检测分支：NPU 运行时 ====================
-        // NPU-BRANCH（2026-10-07）：NPU 是后加的"一等运行时"，它与在线 API 路径同构——
-        // 不依赖 llama.cpp 模型。但本类下方那段"热启动探测"是**纯 llama.cpp 语义**
-        // （判断 llama 模型是否在内存），NPU 模式下 llama.cpp 上下文故意不创建 →
-        // LlamaHelper.isModelInitialized() 恒为 false → 会把 isInitialized 反复重置为 false。
-        //
-        // 危害不是"慢"而是**状态污染**：getInstance() 是 static synchronized 的高频入口
-        // （状态栏每 800ms 经 AppNativeSource.npu() 调一次），而全项目 30+ 处用
-        // AIService.isInitialized() 判定"服务是否可用"——于是 NPU 正常工作时界面仍报
-        // "上下文/服务异常"，并反复触发本地模型加载流程。
-        //
-        // 所以这里在**入口就分支**：NPU 运行时直接走 NPU 语义，完全不进入 llama.cpp 那套逻辑。
-        if (instance.isNpuRuntimeActive()) {
-            // NPU 引擎已开启：服务可用性由 NPU 自己回答，绝不问 llama.cpp。
-            // 注意是"引擎已开启"而非"模型已加载"——加载中/失败也属于 NPU 运行时的管辖范围，
-            // 由 NpuEngineState 对外表达进度与错误，不应让 llama 状态把服务标记为未初始化。
-            if (!instance.isInitialized) {
-                instance.isInitialized = true;
-            }
-            return instance;
-        }
-
         if (!instance.hotStartEnabled) {
             return instance;
         }
@@ -455,35 +432,6 @@ public class AIService implements ComponentCallbacks2 {
         }
 
         return instance;
-    }
-
-    /**
-     * 当前是否处于 **NPU 运行时**（引擎开关已打开）。
-     *
-     * <p>这是本类所有"该不该碰 llama.cpp"判断的**唯一依据**：NPU 运行时下，
-     * llama.cpp 的模型/上下文状态没有任何参考意义，凡是以它为准的门禁、状态同步、
-     * 资源释放都应跳过。</p>
-     *
-     * <p>判据用"引擎已开启"而不是"模型已加载"：加载中、加载失败同样属于 NPU 运行时的
-     * 管辖范围，其进度与错误由 {@code NpuEngineState} 对外表达；若此时回落去信 llama 状态，
-     * 又会把服务误标为不可用。</p>
-     */
-    public boolean isNpuRuntimeActive() {
-        try {
-            return com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled();
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
-    /** NPU 运行时下模型是否已就绪（供状态栏/门禁使用） */
-    public boolean isNpuRuntimeReady() {
-        try {
-            return com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()
-                    && com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
-        } catch (Throwable t) {
-            return false;
-        }
     }
 
     /**
@@ -893,11 +841,6 @@ public class AIService implements ComponentCallbacks2 {
      * 在已持有 {@link #modelInitLock} 的前提下执行模型加载。
      */
     private boolean loadModelLocked(String modelName) {
-        // NPU 引擎开启时本地服务本就无模型，不该在这里报"找不到模型文件"（会弹 AI服务初始化失败）
-        if (isNpuRuntimeActive()) {
-            AILogger.i(TAG, "NPU 引擎已启用，跳过本地模型定位检查");
-            return false;
-        }
         long totalStartTime = System.currentTimeMillis();
         long phaseStartTime = totalStartTime;
         
@@ -1704,7 +1647,7 @@ public class AIService implements ComponentCallbacks2 {
 
                 // nativeGenerateStream 是同步阻塞调用，回调在当前线程同步触发
                 // 不需要 wait/notify 机制，直接在回调里 post 结果到主线程
-                NpuEngineRouter.generateStream(messages, adjustedMaxTokens, 0.7f, 0.9f, 40, false, new LlamaHelper.TokenCallback() {
+                LlamaHelper.generateStream(messages, adjustedMaxTokens, 0.7f, 0.9f, 40, false, new LlamaHelper.TokenCallback() {
                     private StringBuilder fullResponse = new StringBuilder();
 
                     @Override
@@ -1849,7 +1792,7 @@ public class AIService implements ComponentCallbacks2 {
                     mainHandler.post(() -> callback.onError(new IllegalArgumentException("消息列表为空")));
                     return;
                 }
-                NpuEngineRouter.generateStream(messages, adjustedMaxTokens, 0.7f, 0.9f, 40, false, buildStreamCallback(completed, watchdogFuture, startTime, prompt, callback));
+                LlamaHelper.generateStream(messages, adjustedMaxTokens, 0.7f, 0.9f, 40, false, buildStreamCallback(completed, watchdogFuture, startTime, prompt, callback));
                 
                 AILogger.i(TAG, "Generation setup completed!");
             } catch (OutOfMemoryError e) {
@@ -2027,7 +1970,7 @@ public class AIService implements ComponentCallbacks2 {
                 AILogger.i(TAG, "调整生成 token 数: 原始 " + maxTokens + ", 调整后 " + adjustedMaxTokens);
                 
                 AILogger.i(TAG, "Calling LlamaHelper.generate with messages (auto chat template)...");
-                String result = NpuEngineRouter.generate(messages, adjustedMaxTokens, 0.7f, 0.9f, 40);
+                String result = LlamaHelper.generate(messages, adjustedMaxTokens, 0.7f, 0.9f, 40);
                 AILogger.i(TAG, "LlamaHelper.generate completed, result length: " + (result != null ? result.length() : 0));
                 
                 // 清理模型输出中的乱码/非法字符
@@ -2115,7 +2058,7 @@ public class AIService implements ComponentCallbacks2 {
             List<PromptBuilder.Message> messages = buildMessagesForModel(prompt, history, null);
             AILogger.i(TAG, "Calling LlamaHelper.generate with messages (auto chat template)...");
 
-            String result = NpuEngineRouter.generate(messages, adjustedMaxTokens, 0.7f, 0.9f, 40);
+            String result = LlamaHelper.generate(messages, adjustedMaxTokens, 0.7f, 0.9f, 40);
 
             // 清理模型输出中的乱码/非法字符
             String cleaned = ToolResultInterpreter.cleanModelOutput(result);
@@ -3360,13 +3303,6 @@ public class AIService implements ComponentCallbacks2 {
      * @return true 如果启动了恢复流程，false 如果模型已在内存中
      */
     public boolean tryHotStart(HotStartCallback callback) {
-        if (isNpuRuntimeActive()) {
-            AILogger.i(TAG, "NPU 引擎已启用，跳过 tryHotStart");
-            if (callback != null) {
-                callback.onHotStartComplete(false, "NPU 引擎已启用，跳过本地模型加载");
-            }
-            return false;
-        }
         if (!hotStartEnabled) {
             AILogger.i(TAG, "热启动已禁用");
             return false;
@@ -3446,20 +3382,13 @@ public class AIService implements ComponentCallbacks2 {
     /**
      * 检查是否可以热启动
      *
-     * <p>2026-10-25：这里原先只排除"NPU 引擎已启用"一种情况，于是出现自相矛盾的现场——
-     * 启动预加载按"已激活在线模型"跳过了本地模型，8 秒后回前台的热启动却照样把
+     * <p>2026-10-25：启动预加载按"已激活在线模型"跳过了本地模型，8 秒后回前台的热启动却照样把
      * Qwen3.5-2B-Q4 的权重捞进内存（真机实测 native {@code Heap Alloc≈984MB}、swap 492MB，
      * 而用户全程用的是在线模型）。现在补上与预加载同一份判定
      * （{@link com.oilquiz.app.ai.model.LocalModelLoadPolicy}），"要不要主动加载本地模型"
      * 只留一处口径。用户显式加载模型/发起本地对话走 {@code loadModel}，不经过这里，不受影响。</p>
      */
     public boolean canHotStart() {
-        // NPU 引擎开启时绝不热启动本地 llama.cpp 模型：否则启动/回前台就抢先把权重加载进来，
-        // 既占内存又让"当前引擎"变回 llama.cpp（2026-10-05 实测：Agent 进程日志出现 LlamaJNI sched_reserve）。
-        if (isNpuRuntimeActive()) {
-            AILogger.i(TAG, "NPU 引擎已启用，canHotStart=false（跳过本地模型热启动）");
-            return false;
-        }
         String skipReason = com.oilquiz.app.ai.model.LocalModelLoadPolicy.skipReason(context);
         if (skipReason != null) {
             AILogger.i(TAG, "canHotStart=false：" + skipReason);
@@ -3555,17 +3484,21 @@ public class AIService implements ComponentCallbacks2 {
         }
         
         // 检查模型是否在内存中
-        // NPU-CTXSTATE(2)：这里同样是纯 llama.cpp 语义。NPU 模式下 llama.cpp 上下文不存在，
-        // isModelInitialized() 恒为 false → 会把 isInitialized 重置为 false 并 notifyStatusChange()，
-        // 界面随即显示"服务/上下文异常"。NPU 就绪时直接认定可用。
-        boolean npuReadyFg = false;
+        boolean modelInMemory = LlamaHelper.isModelInitialized();
+        // BACKEND-TRUTH(2026-11-09)：日志里报"权重跑在哪颗设备"，而不是问 GenieX 开关。
+        // 后者（NpuLlmChat.isEngineEnabled）是 GenieX 运行时的残留判据、结构性恒假，
+        // 却让人在 HTP0 正常工作时读到 "NPU=false" 从而误判"NPU 没启用"。
+        String accelFg;
         try {
-            npuReadyFg = isNpuRuntimeActive()
-                    && com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
-        } catch (Throwable ignored) {
+            accelFg = LlamaHelper.accelBackendSummary();
+            if (accelFg.isEmpty()) {
+                String raw = LlamaHelper.getActualBackend();
+                accelFg = (raw == null || raw.isEmpty()) ? "未知" : raw;
+            }
+        } catch (Throwable t) {
+            accelFg = "读取失败";
         }
-        boolean modelInMemory = npuReadyFg || LlamaHelper.isModelInitialized();
-        AILogger.i(TAG, "模型在内存中: " + modelInMemory + " (NPU=" + npuReadyFg
+        AILogger.i(TAG, "模型在内存中: " + modelInMemory + " (加速后端=" + accelFg
                 + "), Java状态: " + isInitialized);
         
         // 如果模型不在内存但Java状态显示已初始化，同步状态
@@ -3681,27 +3614,6 @@ public class AIService implements ComponentCallbacks2 {
      */
     private void unloadModelForMemoryPressure(String reason) {
         try {
-            // NPU-CTXSTATE(3)：NPU 模式下必须**区分后端**再决定是否抹状态。
-            // 本函数原本无条件释放 llama.cpp 资源并 isInitialized=false / currentModelName=null，
-            // 最后还向所有 UI 观察者广播 onStatusChanged(false, null)。但 NPU 的常驻模型
-            // （NpuLlmChat 持有的 GenieX 句柄）根本不在这里释放——于是 NPU 好好地在内存里，
-            // App 却对外宣告"模型已卸载、服务未初始化" → 界面显示上下文/服务异常。
-            // 现在：NPU 就绪时只做"停推理 + 广播仍在就绪"，不动 NPU 也不抹状态。
-            boolean npuReadyMp = false;
-            try {
-                npuReadyMp = isNpuRuntimeActive()
-                        && com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
-            } catch (Throwable ignored) {
-            }
-            if (npuReadyMp) {
-                AILogger.w(TAG, "内存压力(" + reason + ")：NPU 模型仍在内存 → 保留服务状态，不释放 NPU");
-                try {
-                    com.oilquiz.app.ai.engine.NpuLlmChat.stopGenerate();
-                } catch (Throwable ignored) {
-                }
-                return;
-            }
-
             // 停掉推理（如果有）
             try {
                 LlamaHelper.stopGeneration();
@@ -4248,7 +4160,7 @@ public class AIService implements ComponentCallbacks2 {
                     effectiveMaxTokens = maxTokens;
                 }
 
-                NpuEngineRouter.chatSend(message, effectiveMaxTokens, 0.7f, 0.9f, 40, enableThinking, new LlamaHelper.TokenCallback() {
+                LlamaHelper.chatSend(message, effectiveMaxTokens, 0.7f, 0.9f, 40, enableThinking, new LlamaHelper.TokenCallback() {
                     @Override
                     public void onToken(String token) {
                         if (wrappedCallback != null) {
@@ -4418,9 +4330,8 @@ public class AIService implements ComponentCallbacks2 {
     /**
      * 上下文窗口容量 —— **引擎无关契约**。
      *
-     * <p>原先直连 {@code LlamaHelper.getContextSize()}：NPU 模式下 llama.cpp 没有上下文，
-     * 恒返回 0，于是所有据此判断"上下文还剩多少"的调用方（Agent 预算、工具结果解读、
-     * 上下文仪表）在 NPU 下全部失真。现在统一走契约层，由引擎适配器给出正确数字。</p>
+     * <p>现在只有本地 llama.cpp 一个引擎，但仍走契约层：契约里还带着"在线模型不适用、
+     * 拿不到时给 UNKNOWN"的降级语义，各处调用方据此统一处理，不需要各自判断引擎。</p>
      */
     public int getContextSize() {
         long w = com.oilquiz.app.ai.engine.contract.GenSignalSource.contextUsage().window;
@@ -4433,7 +4344,6 @@ public class AIService implements ComponentCallbacks2 {
     }
 
     public int getContextRemainingTokens() {
-        // NPU 侧没有"剩余"概念（每轮全量喂 prompt，KV 不复用），用 窗口-已用 表达
         int win = getContextSize();
         if (win > 0) {
             return Math.max(0, win - getContextUsedTokens());
@@ -4442,7 +4352,7 @@ public class AIService implements ComponentCallbacks2 {
     }
 
     public float getContextUsagePercent() {
-        return com.oilquiz.app.ai.engine.NpuAwareText.contextUsagePercent();
+        return LlamaHelper.getContextUsagePercent();
     }
     
     public void logContextStats() {
@@ -4732,23 +4642,6 @@ public class AIService implements ComponentCallbacks2 {
         return getAvailableDomesticModels().size();
     }
 
-    // ==================== NPU 运行时托管（2026-10-05）====================
-    // 设计：把 NPU 当作与"在线 API 路径"同构的一等运行时交给 AIService 管理
-    // —— 在线路径本就不依赖本地 llama.cpp 模型（modelLoaded=false 也能用），NPU 同理。
-    // 红线：**不在冷启动路径自动加载**（原生层 abort 会导致"打开就秒退"）；
-    // initialize()/initializeSafe()/preloadModel() 在 NPU 模式下仍早退，只提供"被显式请求时加载"的入口。
-    private final java.util.concurrent.atomic.AtomicBoolean npuLoading =
-            new java.util.concurrent.atomic.AtomicBoolean(false);
-    private java.util.concurrent.ExecutorService npuExecutor;
-    /** NPU 加载在途时排队的等待者；本轮加载结束后一并回调**真实结果** */
-    private final java.util.List<InitializeCallback> npuPendingCallbacks =
-            java.util.Collections.synchronizedList(new java.util.ArrayList<>());
-
-    /** NPU 运行时是否已加载 */
-    public boolean isNpuLoaded() {
-        return com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
-    }
-
     // ==================== FORCE-CPU-PREF: 用户手动强制 CPU 推理 ====================
     private static final String PREF_NPU_FORCE_CPU = "npu_force_cpu";
 
@@ -4770,210 +4663,6 @@ public class AIService implements ComponentCallbacks2 {
             AILogger.i(TAG, "[NPU] 强制 CPU 推理 = " + force + "（下次加载生效）");
         } catch (Throwable t) {
             AILogger.w(TAG, "设置强制 CPU 失败: " + t.getMessage());
-        }
-    }
-
-    /** UI 只读代理：NPU 推理状态机 JSON（字段与 llama.cpp 的 getGenPhase 对齐） */
-    public String getNpuGenPhase() {
-        return com.oilquiz.app.ai.engine.NpuEngineState.get().getInferenceJson();
-    }
-
-    /** UI 只读代理：NPU 推理阶段中文标签（空闲/处理提示/思考中/生成中） */
-    public String getNpuInferenceLabel() {
-        return com.oilquiz.app.ai.engine.NpuEngineState.get().getInferencePhaseLabel();
-    }
-
-    /** UI 只读代理：NPU 带进度的状态标签（如「加载中 15%」） */
-    public String getNpuStageLabel() {
-        return com.oilquiz.app.ai.engine.NpuEngineState.get().getStageLabel();
-    }
-
-    /** NPU 当前状态名（IDLE / LOADING / READY / GENERATING / ERROR） */
-    public String getNpuStateName() {
-        return com.oilquiz.app.ai.engine.NpuEngineState.get().getStageName();
-    }
-
-    /**
-     * 显式请求加载 NPU 模型：幂等 + 后台单线程 + 结果回调。
-     * 只应在 UI/请求触发时调用（聊天页 onResume、首次发送、用户手动点）。
-     */
-    public void ensureNpuLoadedAsync(InitializeCallback callback) {
-        // 投机解码自动生效：若模型已加载、但用户刚下载了同词表 draft → 先释放再重载
-        if (com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded()) {
-            boolean needReload = false;
-            try {
-                needReload = com.oilquiz.app.ai.engine.NpuLlmChat.needsReloadForSpec();
-            } catch (Throwable ignored) {
-            }
-            if (!needReload) {
-                if (callback != null) {
-                    callback.onResult(true);
-                }
-                return;
-            }
-            AILogger.i(TAG, "[NPU] 检测到可用的 draft 模型 → 自动重载以启用投机解码");
-            releaseNpu();
-        }
-        if (!npuLoading.compareAndSet(false, true)) {
-            // NPU-LOAD-WAIT（2026-10-07）：原先这里直接 callback.onResult(true)，语义是错的——
-            // true 只表示"已在加载中、你不必重复触发"，却被下游当成"模型可用"。
-            // 后果：NpuEngineRouter.ensureLoadedBlocking 拿到 true 但二次校验 isLoaded()==false
-            // → 整条消息被判为"未走 NPU"并**回退 llama.cpp**（NPU 模式下那条路根本不可用）。
-            // 现在改为排队：等本轮加载真正结束，再把真实结果回调给所有等待者。
-            synchronized (npuPendingCallbacks) {
-                npuPendingCallbacks.add(callback);
-            }
-            AILogger.i(TAG, "[NPU] 已有加载在途 → 本次调用排队等待真实结果（不误报 true）");
-            return;
-        }
-        synchronized (this) {
-            if (npuExecutor == null) {
-                npuExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(
-                        r -> new Thread(r, "npu-load"));
-            }
-        }
-        final android.content.Context ctx = context;   // AIService 单例自持的 app context
-        npuExecutor.execute(() -> {
-            boolean ok = false;
-            try {
-                final java.util.concurrent.CountDownLatch latch =
-                        new java.util.concurrent.CountDownLatch(1);
-                final boolean[] res = {false};
-                com.oilquiz.app.ai.engine.NpuLlmChat.ensureLoadedAsync(ctx,
-                        new com.oilquiz.app.ai.engine.NpuLlmChat.LoadListener() {
-                            @Override
-                            public void onLoaded(String modelName) {
-                                res[0] = true;
-                                AILogger.i(TAG, "[NPU] 模型加载完成(服务托管): " + modelName);
-                                latch.countDown();
-                            }
-
-                            @Override
-                            public void onError(String message) {
-                                AILogger.w(TAG, "[NPU] 模型加载失败(服务托管): " + message);
-                                latch.countDown();
-                            }
-                        });
-                latch.await(180, java.util.concurrent.TimeUnit.SECONDS);
-                ok = res[0];
-            } catch (Throwable t) {
-                AILogger.w(TAG, "[NPU] ensureNpuLoadedAsync 异常: " + t);
-            } finally {
-                npuLoading.set(false);
-            }
-            if (callback != null) {
-                callback.onResult(ok);
-            }
-            // 把真实结果回给所有"在途排队"的调用方（它们原会被误报 true）
-            java.util.List<InitializeCallback> waiters;
-            synchronized (npuPendingCallbacks) {
-                waiters = new java.util.ArrayList<>(npuPendingCallbacks);
-                npuPendingCallbacks.clear();
-            }
-            if (!waiters.isEmpty()) {
-                AILogger.i(TAG, "[NPU] 加载结束(ok=" + ok + ")，回调 " + waiters.size() + " 个排队等待者");
-            }
-            for (InitializeCallback w : waiters) {
-                if (w != null) {
-                    try {
-                        w.onResult(ok);
-                    } catch (Throwable t) {
-                        AILogger.w(TAG, "[NPU] 排队回调异常: " + t.getMessage());
-                    }
-                }
-            }
-        });
-    }
-
-    /** 释放 NPU 权重（与本地 llama.cpp 互斥时调用） */
-    public void releaseNpu() {
-        try {
-            com.oilquiz.app.ai.engine.NpuLlmChat.release();
-        } catch (Throwable ignored) {
-        }
-    }
-
-    /** UI 只读代理：NPU 引擎开关（避免 UI 各处直连 NpuLlmChat） */
-    public boolean isNpuEngineEnabled() {
-        return com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled();
-    }
-
-    /** UI 只读代理：当前 NPU 模型名（未加载时返回空串） */
-    public String getNpuModelName() {
-        String n = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
-        return n == null ? "" : n;
-    }
-
-    /** UI 只读代理：上次 NPU 生成的 token 数 */
-    public int getNpuLastTokens() {
-        return com.oilquiz.app.ai.engine.NpuLlmChat.getLastTokens();
-    }
-
-    /**
-     * UI 只读代理：NPU 规划出的上下文长度。
-     *
-     * <p>对话页的"上下文仪表"原本只读 {@code LlamaHelper.getContextSize()}，NPU 模式下为 0 →
-     * 仪表走 {@code window<=0} 分支显示故障态，用户看到"上下文故障"。这里给 NPU 提供 window。</p>
-     */
-    public int getNpuContextSize() {
-        try {
-            return com.oilquiz.app.ai.engine.NpuLlmChat.plannedNCtxValue();
-        } catch (Throwable t) {
-            return 0;
-        }
-    }
-
-    /** UI 只读代理：NPU 当前上下文占用量（本轮 prompt + 已生成） */
-    public int getNpuContextUsed() {
-        try {
-            return com.oilquiz.app.ai.engine.NpuLlmChat.getLastCtxUsed();
-        } catch (Throwable t) {
-            return 0;
-        }
-    }
-
-    /** UI 只读代理：上次 NPU 生成速度（t/s） */
-    public float getNpuLastTps() {
-        return com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();
-    }
-
-    /** UI 只读代理：将要使用的 NPU 模型名（未加载时返回首选模型，供状态显示） */
-    public String getNpuPreferredModelName() {
-        String n = com.oilquiz.app.ai.engine.NpuLlmChat.currentOrPreferredModelName();
-        return n == null ? "" : n;
-    }
-
-    /** UI 只读代理：当前规划出的 NPU 上下文长度 */
-    public int getNpuPlannedNCtx() {
-        return com.oilquiz.app.ai.engine.NpuLlmChat.plannedNCtxValue();
-    }
-
-    /** UI 只读代理：上次 NPU 生成耗时（毫秒） */
-    public long getNpuLastElapsedMs() {
-        return com.oilquiz.app.ai.engine.NpuLlmChat.getLastElapsedMs();
-    }
-
-    /** 推理期 WakeLock（供 NPU 生成路径复用，避免灭屏/切后台导致 decode 停顿） */
-    public void acquireInferenceLock() {
-        try {
-            if (inferenceWakeLock != null && !inferenceWakeLock.isHeld()) {
-                inferenceWakeLock.acquire(10 * 60 * 1000L);   // 上限 10 分钟，防泄漏
-                AILogger.i(TAG, "推理 WakeLock 已获取（NPU 路径）");
-            }
-        } catch (Throwable t) {
-            AILogger.w(TAG, "acquireInferenceLock 失败: " + t);
-        }
-    }
-
-    /** 释放推理期 WakeLock */
-    public void releaseInferenceLock() {
-        try {
-            if (inferenceWakeLock != null && inferenceWakeLock.isHeld()) {
-                inferenceWakeLock.release();
-                AILogger.i(TAG, "推理 WakeLock 已释放");
-            }
-        } catch (Throwable t) {
-            AILogger.w(TAG, "releaseInferenceLock 失败: " + t);
         }
     }
 }

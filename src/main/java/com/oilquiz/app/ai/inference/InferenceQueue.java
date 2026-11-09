@@ -6,7 +6,6 @@ import android.os.Looper;
 import android.util.Log;
 
 import com.oilquiz.app.ai.agent.ToolResultInterpreter;
-import com.oilquiz.app.ai.engine.NpuEngineRouter;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.util.AILogger;
@@ -158,7 +157,7 @@ public class InferenceQueue {
         }
 
         // 调用 LLM 进行推理（硬件层）
-        String result = NpuEngineRouter.generate(task.prompt, maxTokens, temperature, topP, topK);
+        String result = LlamaHelper.generate(task.prompt, maxTokens, temperature, topP, topK);
 
         if (result == null || result.isEmpty()) {
             throw new RuntimeException("LLM returned empty result");
@@ -436,7 +435,7 @@ class StreamingInferenceManager {
             }
 
             // 使用 LLM 进行流式生成（硬件层）
-            NpuEngineRouter.generateStream(prompt, params.nPredict, params.temperature,
+            LlamaHelper.generateStream(prompt, params.nPredict, params.temperature,
                 params.topP, params.topK, false, new LlamaHelper.TokenCallback() {
                 private final StringBuilder fullResponse = new StringBuilder();
                 private int tokenCount = 0;

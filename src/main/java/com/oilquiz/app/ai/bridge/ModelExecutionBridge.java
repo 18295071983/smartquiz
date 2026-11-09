@@ -964,23 +964,7 @@ public class ModelExecutionBridge {
             try {
                 boolean success = false;
                 String modelName = "";
-                // NPU-SHORTCUT: NPU 模式下 llama.cpp 侧永远初始化不了，走 initializeSafe() 只会
-                // 白等一轮（实测消息路径因此固定多花 16 秒）。NPU 模型已就绪就直接回报成功。
-                boolean npuReady = false;
-                try {
-                    npuReady = com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()
-                            && com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
-                } catch (Throwable t) {
-                    // NpuLlmChat 来自依赖库（源码不在本仓库），静态探针也可能触到 native；
-                    // 这里吞掉等于把"NPU 已就绪"判成"未就绪"，代价是白等一轮 llama.cpp 初始化
-                    // （实测约 16 秒），必须可见。这条路径每次装载模型才走一次，不是热路径。
-                    AILogger.w(TAG, "NPU 就绪探测失败，按未就绪处理（可能白跑 llama.cpp 初始化）: " + t);
-                }
-                if (npuReady) {
-                    AILogger.i(TAG, "executeInitModel: NPU 模型已就绪 → 跳过 llama.cpp 初始化");
-                    success = true;
-                    modelName = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
-                } else if (aiService != null) {
+                if (aiService != null) {
                     if (!aiService.isInitialized()) {
                         success = aiService.initialize();
                     } else {
@@ -1101,12 +1085,6 @@ public class ModelExecutionBridge {
             return false;
         }
         if (!aiService.isInitialized()) {
-            // NPU 引擎模式下本地 llama.cpp 服务本来就是"未初始化"的空闲状态（我们主动跳过预加载），
-            // 这里必须放行 —— 否则请求到不了 NPU 路径：表现为"AI服务初始化失败" + NPU 状态永远待加载。
-            if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
-                AILogger.i(TAG, "NPU 引擎已启用，跳过本地服务初始化检查（由 NpuEngineRouter 负责生成）");
-                return true;
-            }
             AILogger.i(TAG, "Model not initialized, attempting init on worker thread...");
             if (!aiService.initialize()) {
                 notifyError(callback, messageId, "AI服务初始化失败");
@@ -1212,20 +1190,11 @@ public class ModelExecutionBridge {
     /**
      * 引擎是否已初始化（可供推理）。
      *
-     * <p>原本只看 {@code aiService.isInitialized()}，在 NPU 模式下恒为 false —— 于是消息路径
-     * 的就绪守卫（AIChatActivity「初始化AI服务...」那一段）**每条消息都会去跑一遍 llama.cpp 的
-     * initModel**，白等一轮超时。实测该等待稳定为 16 秒（主线程每 2.4s 轮询一次共 7 次），
-     * 而真正的 NPU 推理只要 0.9 秒。NPU 开着时改为看 NPU 是否就绪。</p>
+     * <p>只看 {@code aiService.isInitialized()}。历史上这里还有"GenieX 引擎开着就问 GenieX"
+     * 的分支（NPU 模式下 llama.cpp 上下文不创建，恒 false → 每条消息白等 16 秒轮询）；
+     * GenieX 已删除，而 HTP 后端就是 llama.cpp，不存在"另一个引擎已就绪"的情况。</p>
      */
     public boolean isModelInitialized() {
-        try {
-            if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
-                return com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded()
-                        || (aiService != null && aiService.isInitialized());
-            }
-        } catch (Throwable ignored) {
-            // NpuLlmChat 不可用时按原逻辑判定
-        }
         return aiService != null && aiService.isInitialized();
     }
     public boolean isChatContextActive() {

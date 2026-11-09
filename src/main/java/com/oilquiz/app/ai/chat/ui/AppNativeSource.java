@@ -8,15 +8,12 @@ import com.oilquiz.app.ai.engine.contract.GenSignalSource;
 /**
  * 状态条数据源实现：**只把引擎无关契约转交给渲染层**。
  *
- * <p><b>契约重构（2026-10-07）</b>：本类原先逐个方法判断"是不是 NPU"再分别取数
- * （{@code npu() ? NpuEngineState : LlamaHelper}），共 6 个方法各写一遍。这有两个问题：
- * <ul>
- *   <li>引擎判断散落在 UI 适配层，每加一个引擎都要改这里；</li>
- *   <li>返回值是字符串化 JSON，字段名靠约定 —— 实测 NPU 的 prefill 字段名与状态栏期望不一致，
- *       于是静默降级、长期显示 llama.cpp 术语「⏳ 预处理」。</li>
- * </ul>
+ * <p><b>契约重构（2026-10-07）</b>：本类原先逐个方法判断"是不是 NPU"再分别取数，
+ * 共 6 个方法各写一遍 —— 引擎判断散落在 UI 适配层，每加一个引擎都要改这里；
+ * 且返回值是字符串化 JSON，字段名靠约定，曾因此静默降级、长期显示「⏳ 预处理」。</p>
  *
- * <p>现在引擎分派集中在 {@link GenSignalSource}，本类退化为纯转发，不再认识任何引擎。</p>
+ * <p>现在分派集中在 {@link GenSignalSource}（2026-11-09 后只剩本地 llama.cpp 一路），
+ * 本类退化为纯转发，不再认识任何引擎。</p>
  */
 public class AppNativeSource implements GenerationStatusBar.NativeSource {
 

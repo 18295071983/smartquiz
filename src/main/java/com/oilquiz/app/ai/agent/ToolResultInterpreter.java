@@ -210,14 +210,18 @@ public class ToolResultInterpreter {
             // 这里按实际可用空间动态收缩，保证 prompt+output 始终在安全参考值内
             int maxTokens = LOCAL_INTERPRET_MAX_TOKENS;
             try {
-                // CONTEXT-CONTRACT：改走引擎无关契约 + NPU 感知的 token 计数。
-                // 原先直连 LlamaHelper.getContextSize()/countTokens()，NPU 模式下两者恒为 0
-                // → 这段"按可用空间动态收缩"的预算逻辑在 NPU 下整段失效（走不到 if）。
+                // CONTEXT-CONTRACT：走引擎无关契约取窗口，token 数直接用 native 分词器。
+                // 原先多绕了一层"NPU 感知"封装（GenieX 的估算器），GenieX 删除后那条分支恒不生效。
                 int ctxSize = (int) Math.max(0,
                         com.oilquiz.app.ai.engine.contract.GenSignalSource.contextUsage().window);
                 if (ctxSize > 0) {
                     int safeRef = com.oilquiz.app.ai.jni.LlamaHelper.getSafeContextReference(ctxSize);
-                    int promptTokens = com.oilquiz.app.ai.engine.NpuAwareText.countTokens(prompt);
+                    int promptTokens;
+                    try {
+                        promptTokens = com.oilquiz.app.ai.jni.LlamaHelper.countTokens(prompt);
+                    } catch (Throwable t) {
+                        promptTokens = 0;
+                    }
                     if (promptTokens <= 0) {
                         // token 计数不可用时按中文 1 字≈1 token 保守估算
                         promptTokens = prompt.length();

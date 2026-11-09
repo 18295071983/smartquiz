@@ -421,7 +421,7 @@ public class AICenterActivity extends AppCompatActivity {
      * 应是「模型」页——那里本地与在线都能点选切换，也带添加/导入/下载/一键初始化/语音模型。
      * 所以本卡的按钮只负责"显示 + 一跳"。</p>
      *
-     * <p>引擎口径取 {@code getEffectiveInferenceType()}：与聊天页顶部横幅、工具抽屉同一判据，
+     * <p>引擎口径取 {@code getCurrentInferenceType()}：与聊天页顶部横幅、工具抽屉同一判据，
      * 避免出现"横幅写本地模型、这页写在线模型"的分叉。</p>
      */
     private void updateCurrentModelDisplay() {
@@ -430,7 +430,7 @@ public class AICenterActivity extends AppCompatActivity {
         }
         try {
             com.oilquiz.app.ai.model.InferenceType type =
-                    inferenceRouter != null ? inferenceRouter.getEffectiveInferenceType()
+                    inferenceRouter != null ? inferenceRouter.getCurrentInferenceType()
                             : com.oilquiz.app.ai.model.InferenceType.LOCAL;
             tvCurrentModelEngine.setText("引擎：" + type.getDisplayName());
 

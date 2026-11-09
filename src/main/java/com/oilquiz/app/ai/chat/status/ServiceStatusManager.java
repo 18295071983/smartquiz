@@ -83,176 +83,21 @@ public class ServiceStatusManager {
         aiStatusObserver = new AIService.DetailedStatusObserver() {
             @Override
             public void onStateChanged(AIServiceState.ServiceStage stage, String message, int progress, long elapsedMs) {
-                // NPU（GenieX）引擎下本地服务状态与本轮推理无关 → 不覆盖状态栏
-                if (isNpuEngineOn()) return;
                 activity.runOnUiThread(() -> handleStatusChange(stage, message, progress, elapsedMs));
             }
             @Override
             public void onError(String errorMessage) {
-                // 关键：NPU 引擎下本地模型缺失/初始化失败不该弹进对话（否则界面一直报"AI服务初始化失败"，
-                // 而实际上 NPU 推理是正常的）
-                if (isNpuEngineOn()) return;
                 activity.runOnUiThread(() -> handleError(errorMessage));
             }
             @Override
             public void onInitialized(String modelName, long loadTimeMs) {
-                if (isNpuEngineOn()) return;
                 activity.runOnUiThread(() -> handleInitialized(modelName, loadTimeMs));
             }
         };
         aiService.registerDetailedStatusObserver(aiStatusObserver);
     }
 
-    // ==================== NPU（Qualcomm GenieX）引擎 ====================
-
-    /** NPU（GenieX）引擎是否开启 */
-    private boolean isNpuEngineOn() {
-        try {
-            return inferenceRouter != null && inferenceRouter.isNpuEngineEnabled();
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
-    /**
-     * NPU 状态一行摘要（顶部状态栏显示用）。
-     *
-     * <p>结构：{@code NPU（GenieX） · <中间随状态变化的词> [· 补充]}，例如：</p>
-     * <pre>
-     *   NPU（GenieX） · 模型加载中 6s     加载期（秒数每秒递增）
-     *   NPU（GenieX） · Qwen3.5-2B-Q4_0 · 就绪
-     *                              已就绪且无任务：这行走 engineStatusLine，模型名在中间
-     *   NPU（GenieX） · 处理提示          正在 prefill
-     *   NPU（GenieX） · 思考中            思考链
-     *   NPU（GenieX） · 生成中 · 12.3 t/s 出正文，带速度
-     *   NPU（GenieX） · 不可用            出错
-     * </pre>
-     *
-     * <p>2026-10-31：原先这些行写泛称「AI ·」，与本地/在线两路的「本地模型 ·」「在线模型 ·」
-     * 不对称，用户在加载期与生成期看不出当前是 NPU 还是 llama.cpp；改成取
-     * {@code InferenceType.NPU} 的显示名，三态都点名。</p>
-     *
-     * <p>WHY（2026-10-07）：原先中间是固定的"已就绪"，只有加载完成那一刻才动一下；
-     * 而 NpuEngineState 本就维护着与加载正交的**推理阶段**（IDLE/PREPROCESS/THINKING/GENERATING），
-     * 状态栏却没消费它。改成让中间段随真实状态变化，一行就能表达"AI 现在在干什么"。</p>
-     */
-    private String npuStatusLine() {
-        // 引擎名一律取 InferenceType.NPU 的显示名，不再写泛称「AI」——
-        // 三态（本地模型 / 在线模型 / NPU（GenieX））里任何一行横幅都必须能点名当前引擎，
-        // 否则加载期与生成期用户看不出这是 NPU 还是 llama.cpp（空闲期走 engineStatusLine 本来就带名）。
-        final String engineTag = com.oilquiz.app.ai.model.InferenceType.NPU.getDisplayName();
-        // 加载/出错：阶段标签本身就是"现在在做什么"（如"模型加载中 6s"、"AI 不可用"）
-        String stageLabel = npuSvc().getNpuStageLabel();
-        boolean ready = false;
-        try {
-            ready = com.oilquiz.app.ai.engine.NpuEngineState.get().isReady();
-        } catch (Throwable ignored) {
-        }
-        if (!ready) {
-            return (stageLabel == null || stageLabel.isEmpty())
-                    ? engineTag + " · 待加载" : (engineTag + " · " + stageLabel);
-        }
-
-        // 已就绪：用推理阶段作为中间段
-        String phase = null;
-        try {
-            phase = com.oilquiz.app.ai.engine.NpuEngineState.get().getInferencePhaseLabel();
-        } catch (Throwable ignored) {
-        }
-        boolean idle = (phase == null || phase.isEmpty());
-        if (idle) {
-            // 空闲：统一走「引擎 · 模型 · 就绪」，与本地/在线两条路径措辞一致
-            return engineStatusLine("就绪");
-        }
-
-        StringBuilder sb = new StringBuilder(engineTag).append(" · ").append(phase);
-        float tps = npuSvc().getNpuLastTps();
-        if (tps > 0) {
-            sb.append(" · ").append(String.format(java.util.Locale.US, "%.1f t/s", tps));
-        }
-        return sb.toString();
-    }
-
-    private String npuStateName(String state) {
-        if (state == null) return "未知";
-        switch (state) {
-            case "IDLE": return "待加载（首次发送时自动加载）";
-            case "LOADING": return "模型加载中";
-            case "READY": return "就绪";
-            case "GENERATING": return "生成中";
-            case "DOWNLOADING": return "模型下载中";
-            case "ERROR": return "不可用";
-            default: return state;
-        }
-    }
-
-    /** NPU 状态详情对话框（独立于本地 AIService） */
-    private void showNpuStatusDetails() {
-        String model = npuSvc().getNpuModelName();
-        int tokens = npuSvc().getNpuLastTokens();
-        long elapsed = npuSvc().getNpuLastElapsedMs();
-        float tps = npuSvc().getNpuLastTps();
-        StringBuilder sb = new StringBuilder();
-        sb.append("引擎: Qualcomm GenieX（llama_cpp 运行时）\n");
-        sb.append("算力单元: Hexagon NPU（HTP）\n");
-        sb.append("状态: ").append(npuStateName(npuSvc().getNpuStateName())).append('\n');
-        String willUse = npuModelWillUse();
-        sb.append("模型: ").append(model == null || model.isEmpty()
-                ? (willUse == null ? "未加载（模型库为空，请先下载 Q4_0）" : willUse + "（待加载）")
-                : model).append('\n');
-        if (tokens > 0) {
-            sb.append("上次推理: ").append(tokens).append(" tokens / ")
-                    .append(elapsed).append(" ms / ")
-                    .append(String.format(java.util.Locale.US, "%.1f t/s", tps)).append('\n');
-        }
-        sb.append("App 模型库: files/ai_models → ").append(willUse == null ? "（空）" : willUse).append('\n');
-        sb.append("(\u4e0d\u4f9d\u8d56 llama.cpp \u672c\u5730\u670d\u52a1)");
-
-        new AlertDialog.Builder(activity)
-                .setTitle("AI服务状态详情（NPU / GenieX）")
-                .setMessage(sb.toString())
-                .setPositiveButton("模型下载", (d, w) -> openModelDownload())
-                .setNegativeButton("关闭", null)
-                .show();
-    }
-
-    /**
-     * 把 NPU 状态映射到顶部状态栏。
-     *
-     * <p>注意进度参数：NPU 侧 {@code setCurrentStage} 里的百分比是**阶段入口写死的常量**
-     * （10 / 45 / 100），不是测量值，而 SDK 也没有加载进度回调，所以**不把它当百分比展示**
-     * （界面文案只用 {@link #npuStatusLine()} 的阶段名 + 已耗时）。
-     * 但也不该硬写 100 —— 那会让加载中的进度条显示"已满"，同样失真；
-     * 这里用"加载中 0 / 就绪 100"来表达"未完成 / 完成"两态，不对未完成量做虚假的精确断言。</p>
-     */
-    private void updateNpuStatusBar() {
-        boolean ready = false;
-        boolean busy = false;
-        try {
-            com.oilquiz.app.ai.engine.NpuEngineState st =
-                    com.oilquiz.app.ai.engine.NpuEngineState.get();
-            ready = st.isReady();
-            busy = st.isStageBusy();
-        } catch (Throwable stepFailed) {
-            com.oilquiz.app.util.AILogger.w("ServiceStatusManager", "这一步失败，结果可能被当成正常 · updateNpuStatusBar: " + stepFailed);
-        }
-        // 只在**确实处于加载阶段**时开心跳：让"（已 X 秒）"真的在走。
-        // 不能用 !ready 作条件 —— 那样"尚未加载"的常态也会每秒跑一个无意义的定时器。
-        if (busy) {
-            startNpuLoadingTimer();
-        } else {
-            stopNpuLoadingTimer();
-        }
-        updateStatusDisplay(
-                ready ? AIServiceState.ServiceStage.INITIALIZED
-                        : AIServiceState.ServiceStage.MODEL_LOADING,
-                npuStatusLine(),
-                ready ? 100 : 0,
-                0);
-    }
-
     public void unregisterObserver() {
-        stopNpuLoadingTimer();
         if (aiService != null && aiStatusObserver != null) {
             aiService.unregisterDetailedStatusObserver(aiStatusObserver);
             aiStatusObserver = null;
@@ -260,28 +105,6 @@ public class ServiceStatusManager {
     }
 
     public void updateInitialStatus() {
-        if (isNpuEngineOn()) {
-            updateNpuStatusBar();
-            // NPU-STATUS-OBSERVER: 订阅 NPU 状态机 —— 聊天页横幅原先没有任何刷新触发，
-            // 引擎已 READY/GENERATING 时横幅仍停在初始的"待加载"。
-            if (!npuObserverRegistered) {
-                npuObserverRegistered = true;
-                try {
-                    com.oilquiz.app.ai.engine.NpuEngineState.get().addListener(
-                            (stage, msg, percent) -> {
-                                try {
-                                    // 阶段变化即刷新（原来硬写 INITIALIZED/100，导致加载中也显示"就绪满格"）
-                                    activity.runOnUiThread(this::updateNpuStatusBar);
-                                } catch (Throwable stepFailed) {
-                                    com.oilquiz.app.util.AILogger.w("ServiceStatusManager", "这一步失败，结果可能被当成正常 · updateInitialStatus: " + stepFailed);
-                                }
-                            });
-                } catch (Throwable stepFailed) {
-                    com.oilquiz.app.util.AILogger.w("ServiceStatusManager", "这一步失败，结果可能被当成正常 · updateInitialStatus: " + stepFailed);
-                }
-            }
-            return;
-        }
         if (inferenceRouter != null && inferenceRouter.isUsingOnlineModel()) {
             updateOnlineModelStatus();
             return;
@@ -322,11 +145,6 @@ public class ServiceStatusManager {
     }
 
     public void showStatusDetails() {
-        // NPU（GenieX）引擎：本地 AIService 跟当前推理无关，显示 NPU 自己的详情
-        if (isNpuEngineOn()) {
-            showNpuStatusDetails();
-            return;
-        }
         if (inferenceRouter != null && inferenceRouter.isUsingOnlineModel()) {
             showOnlineModelDetails();
             return;
@@ -432,22 +250,6 @@ public class ServiceStatusManager {
             .show();
     }
 
-    /**
-     * 打开「模型下载」页：NPU 模型走项目原有下载功能（`models_presets.json` 里已有
-     * Qwen3-0.6B / Qwen3-1.7B 的 **Q4_0** 预设 —— Q4_0 才是 Hexagon NPU 原生加速的量化）。
-     *
-     * <p>2026-10-04：独立的「NPU 推理」页已删除。NPU 已接进主对话流程，引擎开关在
-     * 「模型选择」页的「NPU 引擎（GenieX）」行，模型下载走这里。
-     */
-    private void openModelDownload() {
-        try {
-            activity.startActivity(new android.content.Intent(activity,
-                    com.oilquiz.app.ui.activity.ModelDownloadActivity.class));
-        } catch (Throwable t) {
-            callback.onShowToast("打不开模型下载页: " + t);
-        }
-    }
-
     public void setLoadingModel(boolean loading) {
         this.isLoadingModel = loading;
         if (!loading) {
@@ -509,7 +311,7 @@ public class ServiceStatusManager {
 
         // 本地模型文件不存在（没下过 / 已删除）：**不是故障**，是"本来就不该尝试加载"。
         // 不再往对话里写"AI服务初始化失败"、也不弹 toast —— 否则用户会以为 App 坏了，
-        // 而实际上（开了 NPU 时）推理完全正常，只是本地那份模型没下而已。
+        // 而实际上只是本地那份模型没下而已。
         try {
             if (aiService != null && !aiService.isCurrentModelFileExists()) {
                 android.util.Log.i("ServiceStatusManager",
@@ -519,9 +321,7 @@ public class ServiceStatusManager {
         } catch (Throwable ignored) {
         }
 
-        if (!npuSvc().isNpuEngineEnabled()) {
-            callback.onAddErrorMessage("AI服务初始化失败", errorMessage, true);
-        }
+        callback.onAddErrorMessage("AI服务初始化失败", errorMessage, true);
         callback.onShowToast("模型加载失败");
     }
 
@@ -547,8 +347,8 @@ public class ServiceStatusManager {
 
         String stageIcon = getStageIcon(stage);
         String stageName = getStageDisplayName(stage);
-        // 文案统一走"短句 + 秒数"（与 NPU 侧同一套）：原实现优先用 stageMessage，
-        // 而那是各调用点手写的中文长句（如"加载模型到内存中..."），与 NPU 侧风格不一致。
+        // 文案统一走"短句 + 秒数"（与状态机同一套）：原实现优先用 stageMessage，
+        // 而那是各调用点手写的中文长句（如"加载模型到内存中..."），与状态机风格不一致。
         // 这里让 AIServiceState.getStageLabel() 作为唯一来源；它取不到时再退回 stageMessage。
         String humanLabel = null;
         // UNINITIALIZED 的短标签是"AI 待加载"，会把上面按"是否有模型文件/是否已加载"分好的
@@ -587,17 +387,11 @@ public class ServiceStatusManager {
         }
 
         if (stage == AIServiceState.ServiceStage.INITIALIZED) {
-            // NPU-BANNER-ICON2
-            stageIcon = npuSvc().isNpuEngineEnabled() ? "\uD83E\uDDE0" : "\uD83D\uDCF1";
-            // NPU-BANNER-FIX
             // 注意：init 分支原先硬拼 "本地推理就绪 · " + message，而后面的 message 是
             // AIService 写入的 stageMessage（"AI服务已就绪"）—— 两段同义，读起来是重复的
             // （实测显示为"本地推理就绪 · AI服务已就绪"）。统一只保留一处人话即可。
-            // 统一文案：NPU 用其阶段行，其余（llama.cpp/在线）用「引擎 · 模型 · 就绪」。
-            // 原先本地分支写死"本地推理就绪"，既缺引擎也缺模型名。
-            displayMessage = npuSvc().isNpuEngineEnabled()
-                    ? (message != null && !message.isEmpty() ? message : npuStatusLine())
-                    : engineStatusLine("就绪");
+            // 统一文案：本地/在线都用「引擎 · 模型 · 就绪」，引擎名与模型名都由 engineStatusLine 拼。
+            displayMessage = engineStatusLine("就绪");
         }
 
         serviceStatusIcon.setText(stageIcon);
@@ -630,15 +424,53 @@ public class ServiceStatusManager {
     }
 
     /**
-     * 状态栏统一文案：「引擎 · 模型 · 状态」。
+     * 横幅用的引擎名（两态：本地模型 / 在线模型）。
+     *
+     * <p>口径 = {@link InferenceRouter#getCurrentInferenceType()}。
+     *
+     * <p>2026-10-31：这段判定从 engineStatusLine 里抽出来给 {@link #withEngine} 共用，
+     * 让顶部横幅与工具抽屉用同一个判据 —— 两处各写一份必然漂开。</p>
+     *
+     * <p>GENIEX-REMOVED(2026-11-09)：原先还有第三态 NPU（GenieX），以及"实际引擎"与"配置引擎"
+     * 的区分（NpuEngineRouter 记录本轮真实决策）。GenieX 删除后只剩本地/在线两态，
+     * 没有"选了 A 实际跑 B"的可能，这个区分也随之取消。</p>
+     */
+    private String currentEngineName() {
+        try {
+            if (inferenceRouter == null) return null;
+            com.oilquiz.app.ai.model.InferenceType type = inferenceRouter.getCurrentInferenceType();
+            return type != null ? type.getDisplayName() : null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /**
+     * 任何时刻横幅都要能点名当前引擎。
+     * 加载期/生成期的文案来自 {@code AIServiceState.getStageLabel()}，那是引擎无关短句
+     * （如"模型加载中 6s"），过去直接上屏 → 用户看不出这次加载的是哪一侧。
+     * 已经点名的（engineStatusLine 的产物）不重复拼。
+     */
+    private String withEngine(String label) {
+        if (label == null || label.isEmpty()) return label;
+        String engine = currentEngineName();
+        if (engine == null || engine.isEmpty()) return label;
+        if (label.startsWith(engine) || label.contains("本地模型")
+                || label.contains("在线模型")) {
+            return label;
+        }
+        return engine + " · " + label;
+    }
+
+    /**
+     * 状态栏统一文案：「引擎 · 加速后端 · 模型 · 状态」。
      *
      * <p>存在理由：原先本地路径写死 {@code "本地推理就绪"}（不含引擎与模型名）、在线路径写
-     * {@code "云端推理就绪 · 模型名"}、NPU 路径写 {@code "AI · 空闲 · 模型名"} —— 三种措辞并存，
-     * 且本地/NPU 两条都用 {@code "本地模型"} 字样，用户无法从状态栏区分当前到底跑在
-     * llama.cpp 还是 GenieX NPU 上。</p>
+     * {@code "云端推理就绪 · 模型名"} —— 措辞并存，用户无法从状态栏看出当前用的是哪一侧、
+     * 哪个模型。</p>
      *
-     * <p>引擎与模型名一律取自 {@code InferenceRouter}（全项目路由权威，优先级 NPU &gt; 在线 &gt; 本地），
-     * 本方法不自行判断引擎，避免"开了 NPU 开关就当成在用 NPU"这类误报。</p>
+     * <p>引擎与模型名一律取自 {@code InferenceRouter}（全项目路由权威），
+     * 本方法不自行判断引擎，避免"选了 A 就当成在用 A"这类误报。</p>
      *
      * <p>可见性：{@code public} 供 {@code AIChatActivity} 在 Agent 执行结束后把第 1 行复位成
      * 「引擎 · 模型」（阶段文案只走第 3 行，不再覆盖第 1 行）。</p>
@@ -647,43 +479,6 @@ public class ServiceStatusManager {
      * @return 如 {@code "本地模型 · MiniCPM5-2B-Q4_K_M.gguf · 就绪"}；
      *         引擎信息不可用时退回 {@code state}
      */
-    /**
-     * 横幅用的引擎名（三态：本地模型 / 在线模型 / NPU（GenieX））。
-     *
-     * <p>口径 = {@link InferenceRouter#getEffectiveInferenceType()}：优先本轮**实际执行**的引擎，
-     * 而不是"用户选了哪个"（ACTUAL-ENGINE 2026-10-08；开了 NPU 开关也可能实际跑在 llama.cpp 上：
-     * 多模态请求直接不路由 NPU、NPU 加载失败无条件回退，决策记录点在 NpuEngineRouter）。</p>
-     *
-     * <p>2026-10-31：这段判定从 engineStatusLine 里抽出来给 {@link #withEngine} 共用，
-     * 并把"实际引擎"的换算下沉到路由层，让顶部横幅与工具抽屉用同一个判据 —— 两处各写一份必然漂开。</p>
-     */
-    private String currentEngineName() {
-        try {
-            if (inferenceRouter == null) return null;
-            com.oilquiz.app.ai.model.InferenceType type = inferenceRouter.getEffectiveInferenceType();
-            return type != null ? type.getDisplayName() : null;
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    /**
-     * 三态一致：任何时刻横幅都要能点名当前引擎。
-     * 加载期/生成期的文案来自 {@code AIServiceState.getStageLabel()}，那是引擎无关短句
-     * （如"模型加载中 6s"），过去直接上屏 → 用户看不出这次加载的是哪一侧。
-     * 已经点名的（engineStatusLine / npuStatusLine 的产物）不重复拼。
-     */
-    private String withEngine(String label) {
-        if (label == null || label.isEmpty()) return label;
-        String engine = currentEngineName();
-        if (engine == null || engine.isEmpty()) return label;
-        if (label.startsWith(engine) || label.contains("本地模型")
-                || label.contains("在线模型") || label.contains("NPU")) {
-            return label;
-        }
-        return engine + " · " + label;
-    }
-
     public String engineStatusLine(String state) {
         try {
             if (inferenceRouter != null) {
@@ -691,12 +486,17 @@ public class ServiceStatusManager {
 
                 if (engine != null && !engine.isEmpty()) {
                     String model = inferenceRouter.getCurrentModelName();
-                    // NPU 模型名自带「（NPU）」后缀，与引擎名重复，去掉避免
-                    // "NPU（GenieX） · Qwen3（NPU）" 这类同义重复
-                    if (model != null && model.contains("（NPU）")) {
-                        model = model.replace("（NPU）", "").trim();
-                    }
                     StringBuilder sb = new StringBuilder(engine);
+                    // BACKEND-TRUTH(2026-11-09)：引擎名只回答"谁在执行"（llama.cpp → 本地模型），
+                    // 回答不了"权重跑在哪颗设备上"。HTP0 就是 NPU，可它在引擎维度属于 LOCAL，
+                    // 于是横幅长期只写"本地模型"，用户据此以为 NPU 没启用。这里紧跟引擎名补一段
+                    // 后端真值（NPU·HTP0·25层 / OpenCL·…·N层 / CPU）。
+                    // 为什么放在模型名**之前**：service_status_text 是 weight=1 + maxLines=1 +
+                    // ellipsize=end，模型文件名很长，放后面会被整段截掉 = 等于没显示。
+                    String accel = localAccelSegment();
+                    if (!accel.isEmpty()) {
+                        sb.append(" · ").append(accel);
+                    }
                     if (model != null && !model.isEmpty()) {
                         sb.append(" · ").append(model);
                     }
@@ -710,6 +510,29 @@ public class ServiceStatusManager {
             // 引擎信息取不到就退回状态词，不影响原有行为
         }
         return state != null ? state : "";
+    }
+
+    /**
+     * 横幅里的"加速后端"段（BACKEND-TRUTH，2026-11-09）。
+     *
+     * <p>只在**本地引擎**下补：在线模型跑在服务商侧，没有本地加速后端。取不到后端就返回空串，
+     * 横幅退回原来的「引擎 · 模型 · 状态」，绝不猜一个"CPU"上去。</p>
+     *
+     * <p>性能：本方法被 500ms 轮询间接调用。后端与层数每次读的是 native 的轻量 getter，
+     * 真正贵的"设备名"查询（{@code getDeviceCaps()} 过 JNI 再解析 JSON）在
+     * {@code LlamaHelper.accelBackendSummary()} 里按 (后端, 层数) 缓存，只有落点真变了才重查。</p>
+     */
+    private String localAccelSegment() {
+        try {
+            if (inferenceRouter == null) return "";
+            if (inferenceRouter.getCurrentInferenceType()
+                    != com.oilquiz.app.ai.model.InferenceType.LOCAL) {
+                return "";
+            }
+            return com.oilquiz.app.ai.jni.LlamaHelper.accelBackendSummary();
+        } catch (Throwable ignored) {
+            return "";
+        }
     }
 
     private void updateOnlineModelStatus() {
@@ -741,8 +564,8 @@ public class ServiceStatusManager {
             public void run() {
                 if (aiService == null || aiService.getServiceState() == null) return;
 
-                // 文案统一交给 AIServiceState.getStageLabel()（短句 + 秒数，与 NPU 侧一致）。
-                // 原先这里自己拼 "%s (已耗时: %.1fs)"：既与 NPU 侧风格不一，
+                // 文案统一交给 AIServiceState.getStageLabel()（短句 + 秒数，与状态机一致）。
+                // 原先这里自己拼 "%s (已耗时: %.1fs)"：既与状态机风格不一，
                 // 又会把 updateStatusDisplay 刚写好的文案覆盖掉。取不到才退回 message。
                 String displayMessage = null;
                 try {
@@ -769,46 +592,6 @@ public class ServiceStatusManager {
         if (uiHandler != null && loadingTimerRunnable != null) {
             uiHandler.removeCallbacks(loadingTimerRunnable);
             loadingTimerRunnable = null;
-        }
-    }
-
-    // ---- NPU 加载心跳 ----
-    // 复用不了上面那个 loadingTimer：它读的是 aiService（llama.cpp）的 ServiceState，
-    // 且续跑条件是 aiService.getServiceState().isLoading() —— NPU 加载时 llama 侧并没有在加载，
-    // 所以定时器会立刻停掉，界面上"已耗时"永远不会走字。
-    // 这里直接以 NpuEngineState 为准：**只要还没 READY/ERROR 就每秒刷新**，
-    // 让"加载权重（已 Xs）"里的秒数真的在动（SDK 无加载进度回调，这是唯一可得的活动信号）。
-    private Runnable npuLoadingTimerRunnable;
-
-    private void startNpuLoadingTimer() {
-        if (uiHandler == null) return;
-        stopNpuLoadingTimer();
-        npuLoadingTimerRunnable = new Runnable() {
-            @Override
-            public void run() {
-                boolean done;
-                try {
-                    com.oilquiz.app.ai.engine.NpuEngineState st =
-                            com.oilquiz.app.ai.engine.NpuEngineState.get();
-                    // 不在加载阶段（已就绪 / 已失败 / 未加载）就停止心跳
-                    done = !st.isStageBusy();
-                } catch (Throwable t) {
-                    done = true;
-                }
-                updateNpuStatusBar();     // 重新求值 → 标签里的"已 Xs"随之前进
-                if (serviceStatusIcon != null) serviceStatusIcon.setText("\uD83E\uDDE0");
-                if (!done) {
-                    uiHandler.postDelayed(this, 1000);
-                }
-            }
-        };
-        uiHandler.postDelayed(npuLoadingTimerRunnable, 1000);
-    }
-
-    private void stopNpuLoadingTimer() {
-        if (uiHandler != null && npuLoadingTimerRunnable != null) {
-            uiHandler.removeCallbacks(npuLoadingTimerRunnable);
-            npuLoadingTimerRunnable = null;
         }
     }
 
@@ -918,24 +701,12 @@ public class ServiceStatusManager {
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("AI Status Details", fullDetails));
                 callback.onShowToast("已复制到剪贴板");
             })
-            // NPU 是设备能力，跟当前跑的是本地还是云端模型无关 → 两个详情页都给入口
-            // （之前只加在"本地"那份上，用云端模型的人根本看不到按钮）
             .setNegativeButton("关闭", null)
             .show();
     }
 
     private String buildFullDetailsText() {
         StringBuilder details = new StringBuilder();
-        // NPU-AWARE(2026-10-07)：本方法整段是 llama.cpp 的本地运行信息（Native库/显存/速度/
-        // token/模型信息）。NPU 模式下这些全无意义（对应 native 调用恒为 0/空）。
-        // 目前唯一调用点在已做 NPU 早退的本地详情路径里，这里加防御性守卫，
-        // 避免将来被其它入口调用时又泄出一堆 llama.cpp 内容。
-        if (isNpuEngineOn()) {
-            details.append("\uD83E\uDD16 NPU（GenieX）引擎\n\n");
-            details.append(npuStatusLine()).append("\n");
-            return details.toString();
-        }
-        details.append("\uD83E\uDD16 AI服务状态详情\n\n");
 
         AIServiceState state = aiService.getServiceState();
         if (state != null) {
@@ -984,20 +755,6 @@ public class ServiceStatusManager {
             }
         } catch (Exception ignored) { }
 
-        // NPU（GenieX 端侧推理）：只报零成本信息，真加载/推理走详情页的「NPU 推理」按钮。
-        // 2026-10-03 换轨：旧的手搓 QNN+Genie 自检已退休（随包 QNN 库会与 GenieX AAR 同名互顶，
-        // 且只能自检不能推理）；现在能力与状态统一由 GenieX SDK 汇报。
-        details.append("\n\uD83E\uDDE0 NPU（Qualcomm GenieX）\n");
-        details.append("运行时: GenieX SDK（llama_cpp 跑 GGUF / qairt 跑 AI Hub 预编译）\n");
-        details.append("算力单元: Hexagon NPU（HTP）· Adreno GPU · CPU\n");
-        details.append("状态: ").append(npuSvc().getNpuStageLabel());
-        String npuModel = npuSvc().getNpuModelName();
-        if (npuModel != null && !npuModel.isEmpty()) details.append(" · ").append(npuModel);
-        float tps = npuSvc().getNpuLastTps();
-        if (tps > 0) details.append(" · 上次 ").append(String.format(java.util.Locale.US, "%.1f t/s", tps));
-        details.append("\n");
-        details.append("入口: 本页下方「NPU 推理」（支持 SM8750 / SM8850）\n");
-
         return details.toString();
     }
 
@@ -1031,41 +788,5 @@ public class ServiceStatusManager {
             case ERROR: return "错误";
             default: return "处理中";
         }
-    }
-
-    /** NPU 将要使用的模型（App 模型库 files/ai_models 里 Q4_0 优先、其次体积最大）；没有返回 null */
-    private String npuModelWillUse() {
-        try {
-            java.io.File dir = new java.io.File(activity.getFilesDir(), "ai_models");
-            java.io.File[] files = dir.listFiles((d, n) -> n.toLowerCase().endsWith(".gguf"));
-            if (files == null || files.length == 0) {
-                return null;
-            }
-            java.io.File best = null;
-            for (java.io.File f : files) {
-                if (best == null) {
-                    best = f;
-                    continue;
-                }
-                boolean fq4 = f.getName().toLowerCase().contains("q4_0");
-                boolean bq4 = best.getName().toLowerCase().contains("q4_0");
-                if (fq4 != bq4) {
-                    if (fq4) best = f;
-                } else if (f.length() > best.length()) {
-                    best = f;
-                }
-            }
-            return best == null ? null : best.getName();
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    /** UI 单一状态源：NPU 只读值统一走 AIService（聊天页横幅） */
-    /** NPU-STATUS-OBSERVER：是否已订阅 NPU 状态机（避免重复注册） */
-    private boolean npuObserverRegistered = false;
-
-    private com.oilquiz.app.ai.service.AIService npuSvc() {
-        return com.oilquiz.app.ai.service.AIService.getInstance(activity);
     }
 }

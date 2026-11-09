@@ -153,50 +153,6 @@ public class GenSignalContractTest {
         assertNull(GenSignalTextMapper.toStatusText(s, STRINGS));
     }
 
-    /**
-     * 回归：NPU 阶段必须能到达 GENERATING。
-     *
-     * <p>历史故障（2026-10-07 用户实测）：{@code NpuEngineState.onGeneratingStarted()} 全项目
-     * 零调用，{@code inferencePhase} 永远停在 PREPROCESS → 正文已在输出，状态栏却一直显示
-     * 「⏳ 处理提示」，解码速度也永远没机会显示。本用例锁定状态机本身能正确换段。</p>
-     */
-    @Test
-    public void NPU状态机必须能从预处理推进到生成() {
-        com.oilquiz.app.ai.engine.NpuEngineState st =
-                com.oilquiz.app.ai.engine.NpuEngineState.get();
-        st.beginInference();
-        assertEquals("beginInference 应进入 PREPROCESS",
-                com.oilquiz.app.ai.engine.NpuEngineState.InferencePhase.PREPROCESS,
-                st.getInferencePhase());
-
-        st.onGeneratingStarted();
-        assertEquals("首个正文 token 必须能把阶段推进到 GENERATING",
-                com.oilquiz.app.ai.engine.NpuEngineState.InferencePhase.GENERATING,
-                st.getInferencePhase());
-
-        // 映射到契约后应当是 GENERATING（而不是让 UI 一直显示预处理）
-        assertEquals(GenSignal.Phase.GENERATING,
-                com.oilquiz.app.ai.engine.contract.NpuSignalAdapter.current().phase);
-
-        st.endInference(5, 20f);
-        assertEquals(com.oilquiz.app.ai.engine.NpuEngineState.InferencePhase.IDLE,
-                st.getInferencePhase());
-    }
-
-    /** 回归：仍在 PREPROCESS 时，契约必须给出引擎自己的标签（而不是 llama.cpp 的术语） */
-    @Test
-    public void 预处理阶段的契约标签来自NPU状态机() {
-        com.oilquiz.app.ai.engine.NpuEngineState st =
-                com.oilquiz.app.ai.engine.NpuEngineState.get();
-        st.beginInference();
-        GenSignal sig = com.oilquiz.app.ai.engine.contract.NpuSignalAdapter.current();
-        assertEquals(GenSignal.Phase.PREPROCESS, sig.phase);
-        assertEquals("处理提示", sig.phaseLabel);
-        // NPU 的 prefillPercent 是阶段量（0），不应被当成"进度为 0"上报
-        assertFalse("阶段量进度不应上报为可用进度", sig.hasProgress());
-        st.endInference(0, 0f);
-    }
-
     // ==================== KV 统计（可选能力） ====================
 
     @Test
