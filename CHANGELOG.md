@@ -29,6 +29,7 @@ GenieX 引擎开关（`NpuLlmChat.isEngineEnabled()` / `InferenceRouter.NPU_ENGI
 - 测试同步：删 `NpuEngineRouterPhaseTest`（ThinkStreamer 已不存在），`GenSignalContractTest` 去掉两条
   NPU 用例，`LocalAgentCancelPathTest` / `InferenceGatewaySourceTest` 断言改为"不绕过 Gateway 直调
   `LlamaHelper.chatJson`"。
+- 提交：`e7fdee2a`（本文件补记）。
 
 ## [2026-11-08] fix(vulkan)：Adreno 840 device lost 不再把诊断调用变成进程崩溃
 
