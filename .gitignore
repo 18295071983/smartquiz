@@ -357,3 +357,10 @@ b*.log
 c*.log
 t*.log
 j*.log
+
+# ============ 本机临时物（2026-11-10：.tmp-* 截图/测试脚本、1401 构建日志、cookie 日志） ============
+.tmp-*/
+.tmp-*.png
+.tmpG/
+/1401/
+scripts/prune_dsh_cookies.log
