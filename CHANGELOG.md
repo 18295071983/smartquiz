@@ -1,5 +1,17 @@
 # 变更日志
 
+## [2026-11-10] refactor(remote_dsh)：同步消息按 turn/step 分组重建 parts
+
+上一节虽然用了 `AssistantTurn`，但 part 是"按事件到达顺序追加"，多步任务里工具卡会排到
+当前正文后面，和 App 引擎的编排不一致。
+
+- 转换器改成按 `(turn, step)` 建分组模型：每步 `reasoning / text / tools(call+result)`；
+- `rebuildDshParts()` 按 turn/step 升序重建：每步 `reasoning → text → 该步工具调用（含结果）`；
+- part id 由 `turn-step-callId` 派生，增量 binder 能复用已有视图（不整条重建）；
+- 正文/思考在收尾时按步合并（`collectDshAnswer/Thinking`），`turn/end` 落一次 `last_sync_reply`。
+- **验证**：`compileReleaseJavaWithJavac`、`assembleRelease` 通过，APK 已装机。
+- **影响**：多步任务的渲染顺序现在与电脑端一致（思考/正文/工具按步交错）。
+
 ## [2026-11-10] refactor(remote_dsh)：同步消息改走 App 的 parts 体系（一条 AssistantTurn）
 
 上一版把正文/思考塞进 `content`/`thinkingContent`、工具另建 `TOOL_CALL` 消息 —— 看着能用，

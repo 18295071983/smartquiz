@@ -3816,23 +3816,14 @@ public class AIChatActivity extends BaseActivity {
             addUserMessage(syncText);
             inputMessage.setText("");
 
-            // 占位气泡：随后由 **DSH 原始事件流** 驱动（插件只转发，转换在手机端）
             final ChatMessage live = ChatMessage.createAIMessage(
                     java.util.UUID.randomUUID().toString(), "", System.currentTimeMillis(), null, 0, 0);
             live.turnId = currentTurnId;
             live.subId = ChatIdDispatcher.getInstance().applySubId(ChatIdDispatcher.IdType.AI, currentTurnId);
             live.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.THINKING);
-            // ★ 走 App 自己的 parts 体系：一条 AssistantTurn 里放 reasoning / text / tool parts，
-            //   由 PartsTurnBinder → ReasoningPartRenderer / TextPartRenderer / 工具卡渲染器接管。
-            final long baseTs = System.currentTimeMillis();
             dshLiveTurn = new com.oilquiz.app.ai.chat.turn.AssistantTurn();
             dshLiveTurn.turnId = currentTurnId;
-            dshReasoningPart = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.reasoning(
-                    "dsh-remote-reasoning", "", baseTs);
-            dshTextPart = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.text(
-                    "dsh-remote-text", "", baseTs);
-            dshLiveTurn.parts.add(dshReasoningPart);
-            dshLiveTurn.parts.add(dshTextPart);
+            dshSteps.clear();
             live.assistantTurn = dshLiveTurn;
             chatHistory.add(live);
             final int liveIdx = chatHistory.size() - 1;
@@ -3840,116 +3831,21 @@ public class AIChatActivity extends BaseActivity {
             scrollToBottom(true);
 
             new Thread(() -> {
-                final StringBuilder answer = new StringBuilder();
-                final StringBuilder thinking = new StringBuilder();
                 final long[] lastNotify = {0L};
                 try {
                     int since = com.oilquiz.app.ai.tool.RemoteDshTool.inject(AIChatActivity.this, target, syncText);
                     com.oilquiz.app.ai.tool.RemoteDshTool.subscribeEvents(AIChatActivity.this, target, since, 600,
                             new com.oilquiz.app.ai.tool.RemoteDshTool.DshEventListener() {
-                                @Override public void onReady(int seq) { /* 事件会从 since 补齐 */ }
+                                @Override public void onReady(int seq) { /* 从 since 补齐 */ }
 
                                 @Override public void onEvent(org.json.JSONObject ev) {
-                                    String type = ev.optString("type", "");
-                                    if ("turn/start".equals(type)) {
-                                        setLivePhase(live, liveIdx, ChatMessage.InferencePhase.THINKING);
-                                        return;
-                                    }
-                                    if ("assistant/message".equals(type)) {
-                                        org.json.JSONObject data = ev.optJSONObject("data");
-                                        org.json.JSONObject msg = data == null ? null : data.optJSONObject("message");
-                                        org.json.JSONArray parts = msg == null ? null : msg.optJSONArray("content");
-                                        StringBuilder a = new StringBuilder();
-                                        StringBuilder b = new StringBuilder();
-                                        if (parts != null) {
-                                            for (int i = 0; i < parts.length(); i += 1) {
-                                                org.json.JSONObject p = parts.optJSONObject(i);
-                                                if (p == null) continue;
-                                                String pt = p.optString("type");
-                                                String tx = p.optString("text");
-                                                if (tx.isEmpty()) continue;
-                                                if ("reasoning".equals(pt) || "thinking".equals(pt)) b.append(tx);
-                                                else a.append(tx);
-                                            }
-                                        }
-                                        if (a.length() > 0) {
-                                            if (answer.length() > 0) answer.append("\n\n");
-                                            answer.append(a);
-                                        }
-                                        if (b.length() > 0) {
-                                            if (thinking.length() > 0) thinking.append("\n\n");
-                                            thinking.append(b);
-                                        }
-                                        pushLiveSync(live, liveIdx, lastNotify, answer.toString(), thinking.toString(), false);
-                                        if (a.length() > 0) setLivePhase(live, liveIdx, ChatMessage.InferencePhase.GENERATING);
-                                        return;
-                                    }
-                                    if ("approval".equals(type)) {
-                                        showDshApprovalDialog(ev.optString("id"), ev.optJSONObject("request"));
-                                        return;
-                                    }
-                                    if ("approval_gone".equals(type)) {
-                                        dismissDshApprovalDialog(ev.optString("id"));
-                                        return;
-                                    }
-                                    if ("approval/request".equals(type)) {
-                                        org.json.JSONObject d = ev.optJSONObject("data");
-                                        String tool = "";
-                                        String detail = "";
-                                        if (d != null) {
-                                            tool = d.optString("tool", d.optString("name", d.optString("kind", "")));
-                                            detail = d.optString("summary", d.optString("command", d.optString("input", "")));
-                                            if (detail.isEmpty()) {
-                                                String raw = d.toString();
-                                                detail = raw.length() > 200 ? raw.substring(0, 200) + "…" : raw;
-                                            }
-                                        }
-                                        final String fTool = tool.isEmpty() ? "工具" : tool;
-                                        final String fDetail = detail;
-                                        runOnUiThread(() -> addSystemMessage(
-                                                "⏳ 电脑端在等审批：" + fTool + (fDetail.isEmpty() ? "" : "\n" + fDetail)
-                                                        + "\n（现在需要有人在电脑上点「允许 / 拒绝」）",
-                                                ChatMessage.SystemMessageType.INFO));
-                                        return;
-                                    }
-                                    if ("tool/call".equals(type)) {
-                                        org.json.JSONObject d = ev.optJSONObject("data");
-                                        if (d != null) {
-                                            onDshToolCall(d.optString("callId"), d.optString("name"),
-                                                    d.optString("arguments"));
-                                        }
-                                        return;
-                                    }
-                                    if ("tool/result".equals(type)) {
-                                        org.json.JSONObject d = ev.optJSONObject("data");
-                                        if (d != null) {
-                                            StringBuilder txt = new StringBuilder();
-                                            org.json.JSONObject m = d.optJSONObject("message");
-                                            org.json.JSONArray parts = m == null ? null : m.optJSONArray("content");
-                                            if (parts != null) {
-                                                for (int i = 0; i < parts.length(); i += 1) {
-                                                    org.json.JSONObject p = parts.optJSONObject(i);
-                                                    if (p != null && "text".equals(p.optString("type"))) {
-                                                        txt.append(p.optString("text"));
-                                                    }
-                                                }
-                                            }
-                                            onDshToolResult(d.optString("toolCallId"), txt.toString(),
-                                                    d.optBoolean("isError", false) || d.optBoolean("is_error", false));
-                                        }
-                                        return;
-                                    }
-                                    if ("turn/end".equals(type)) {
-                                        pushLiveSync(live, liveIdx, new long[]{0L}, answer.toString(), thinking.toString(), true);
-                                        com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncReply(AIChatActivity.this, answer.toString());
-                                        com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncThinking(AIChatActivity.this, thinking.toString());
-                                    }
+                                    applyDshEvent(ev, live, liveIdx, lastNotify);
                                 }
 
-                                @Override public void onEnd() { /* turn/end 已经收尾 */ }
+                                @Override public void onEnd() { /* turn/end 已收尾 */ }
 
                                 @Override public void onError(String message) {
-                                    pushLiveSync(live, liveIdx, new long[]{0L}, "同步失败：" + message, thinking.toString(), true);
+                                    pushLiveSync(live, liveIdx, new long[]{0L}, "同步失败：" + message, "", true);
                                 }
                             });
                 } catch (Exception e) {
@@ -12868,6 +12764,8 @@ public class AIChatActivity extends BaseActivity {
      */
     /** 方案3：直连电脑模式 —— 每条消息直接发到电脑执行，不经过手机端模型 */
     /** 同步会话的那条 AssistantTurn（reasoning/text/tool parts 都在一条里，交给 PartsTurnBinder 渲） */
+    /** turn → step → 零件（与 App 引擎的编排一致） */
+    private final java.util.TreeMap<Integer, java.util.TreeMap<Integer, DshStep>> dshSteps = new java.util.TreeMap<>();
     private com.oilquiz.app.ai.chat.turn.AssistantTurn dshLiveTurn;
     private com.oilquiz.app.ai.chat.turn.AssistantTurn.Part dshReasoningPart;
     private com.oilquiz.app.ai.chat.turn.AssistantTurn.Part dshTextPart;
@@ -12995,48 +12893,179 @@ public class AIChatActivity extends BaseActivity {
         }, "dsh-approval").start();
     }
 
-    /** DSH 事件 tool/call → 原生工具卡片（MessageType.TOOL_CALL） */
-    private void onDshToolCall(String callId, String name, String arguments) {
-        if (chatHistory == null || name == null || name.isEmpty()) return;
-        runOnUiThread(() -> {
-            if (dshLiveTurn == null) return;
-            dshLiveTurn.parts.add(com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.toolCall(
-                    "dsh-call-" + (callId == null ? "x" : callId), callId, name,
-                    arguments == null ? "" : arguments, "running", System.currentTimeMillis()));
-            notifyLiveSyncMessage();
-        });
+    // ===== DSH 事件 → parts 转换器（按 turn/step 分组，和 App 引擎的编排对齐） =====
+    /** 每步的零件：reasoning / text / 工具（含结果） */
+    private static final class DshStep {
+        String reasoning = "";
+        String text = "";
+        final java.util.LinkedHashMap<String, DshTool> tools = new java.util.LinkedHashMap<>();
     }
 
-    /** DSH 事件 tool/result → 回填到对应工具卡片 */
-    private void onDshToolResult(String callId, String text, boolean isError) {
-        if (chatHistory == null) return;
-        runOnUiThread(() -> {
-            if (dshLiveTurn == null) return;
-            com.oilquiz.app.ai.chat.turn.AssistantTurn.Part call = null;
-            for (com.oilquiz.app.ai.chat.turn.AssistantTurn.Part p : dshLiveTurn.parts) {
-                if (p != null && com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TOOL_CALL.equals(p.type)
-                        && callId != null && callId.equals(p.toolCallId)) {
-                    call = p;
-                    break;
+    private static final class DshTool {
+        com.oilquiz.app.ai.chat.turn.AssistantTurn.Part call;
+        String result;
+        boolean error;
+    }
+
+    private DshStep dshStep(int turn, int step) {
+        java.util.TreeMap<Integer, DshStep> steps = dshSteps.get(turn);
+        if (steps == null) { steps = new java.util.TreeMap<>(); dshSteps.put(turn, steps); }
+        DshStep box = steps.get(step);
+        if (box == null) { box = new DshStep(); steps.put(step, box); }
+        return box;
+    }
+
+    /**
+     * 一条 DSH 原始事件 → 更新分组模型 → 重建 parts。
+     *
+     * 顺序与 App 引擎一致：按 turn/step 升序，每步内 reasoning → text → 该步的工具调用（含结果）。
+     * part id 用 session/step/callId 派生，保证增量 binder 能复用已有视图。
+     */
+    private void applyDshEvent(org.json.JSONObject ev, ChatMessage live, int liveIdx, long[] lastNotify) {
+        String type = ev.optString("type", "");
+        org.json.JSONObject data = ev.optJSONObject("data");
+        int turn = data == null ? 1 : data.optInt("turn", 1);
+        int step = data == null ? 1 : data.optInt("step", 1);
+
+        if ("turn/start".equals(type)) {
+            setLivePhase(live, liveIdx, ChatMessage.InferencePhase.THINKING);
+            return;
+        }
+        if ("assistant/message".equals(type)) {
+            org.json.JSONObject msg = data == null ? null : data.optJSONObject("message");
+            org.json.JSONArray parts = msg == null ? null : msg.optJSONArray("content");
+            StringBuilder a = new StringBuilder();
+            StringBuilder b = new StringBuilder();
+            if (parts != null) {
+                for (int i = 0; i < parts.length(); i += 1) {
+                    org.json.JSONObject p = parts.optJSONObject(i);
+                    if (p == null) continue;
+                    String pt = p.optString("type");
+                    String tx = p.optString("text");
+                    if (tx.isEmpty()) continue;
+                    if ("reasoning".equals(pt) || "thinking".equals(pt)) b.append(tx);
+                    else a.append(tx);
                 }
             }
-            if (call == null) return;
-            call.status = isError ? "error" : "completed";
-            dshLiveTurn.parts.add(com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.toolResult(
-                    call, text == null ? "" : text, System.currentTimeMillis()));
+            DshStep box = dshStep(turn, step);
+            if (a.length() > 0) box.text = a.toString();
+            if (b.length() > 0) box.reasoning = b.toString();
+            rebuildDshParts();
+            String answerSoFar = collectDshAnswer();
+            String thinkingSoFar = collectDshThinking();
+            pushLiveSync(live, liveIdx, lastNotify, answerSoFar, thinkingSoFar, false);
+            if (a.length() > 0) setLivePhase(live, liveIdx, ChatMessage.InferencePhase.GENERATING);
+            return;
+        }
+        if ("tool/call".equals(type) && data != null) {
+            String callId = data.optString("callId");
+            if (callId.isEmpty()) return;
+            DshStep box = dshStep(turn, step);
+            if (!box.tools.containsKey(callId)) {
+                DshTool tool = new DshTool();
+                tool.call = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.toolCall(
+                        "dsh-call-" + callId, callId, data.optString("name"),
+                        data.optString("arguments"), "running", System.currentTimeMillis());
+                box.tools.put(callId, tool);
+            }
+            rebuildDshParts();
             notifyLiveSyncMessage();
-        });
+            return;
+        }
+        if ("tool/result".equals(type) && data != null) {
+            String callId = data.optString("toolCallId");
+            DshStep box = dshStep(turn, step);
+            DshTool tool = box.tools.get(callId);
+            if (tool == null) return;
+            StringBuilder txt = new StringBuilder();
+            org.json.JSONObject m = data.optJSONObject("message");
+            org.json.JSONArray parts = m == null ? null : m.optJSONArray("content");
+            if (parts != null) {
+                for (int i = 0; i < parts.length(); i += 1) {
+                    org.json.JSONObject p = parts.optJSONObject(i);
+                    if (p != null && "text".equals(p.optString("type"))) txt.append(p.optString("text"));
+                }
+            }
+            tool.result = txt.toString();
+            tool.error = data.optBoolean("isError", false) || data.optBoolean("is_error", false);
+            if (tool.call != null) tool.call.status = tool.error ? "error" : "completed";
+            rebuildDshParts();
+            notifyLiveSyncMessage();
+            return;
+        }
+        if ("turn/end".equals(type)) {
+            rebuildDshParts();
+            String answer = collectDshAnswer();
+            String thinking = collectDshThinking();
+            pushLiveSync(live, liveIdx, new long[]{0L}, answer, thinking, true);
+            com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncReply(AIChatActivity.this, answer);
+            com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncThinking(AIChatActivity.this, thinking);
+            dismissDshApprovalDialog(null);
+        }
     }
 
     /** 同步模式下重绑当前那条 assistant 消息（parts 变化后靠它触发增量刷新） */
     private void notifyLiveSyncMessage() {
-        if (chatAdapter == null || chatHistory == null) return;
+        if (chatAdapter == null || chatHistory == null || dshLiveTurn == null) return;
         for (int i = chatHistory.size() - 1; i >= 0; i -= 1) {
-            if (chatHistory.get(i) == null) continue;
-            if (chatHistory.get(i).assistantTurn == dshLiveTurn) {
+            ChatMessage m = chatHistory.get(i);
+            if (m == null) continue;
+            if (m.assistantTurn == dshLiveTurn) {
                 chatAdapter.notifyItemChanged(i);
                 scrollToBottom(true);
                 return;
+            }
+        }
+    }
+
+    private String collectDshAnswer() {
+        StringBuilder sb = new StringBuilder();
+        for (java.util.TreeMap<Integer, DshStep> steps : dshSteps.values()) {
+            for (DshStep box : steps.values()) {
+                if (box.text == null || box.text.isEmpty()) continue;
+                if (sb.length() > 0) sb.append("\n\n");
+                sb.append(box.text);
+            }
+        }
+        return sb.toString();
+    }
+
+    private String collectDshThinking() {
+        StringBuilder sb = new StringBuilder();
+        for (java.util.TreeMap<Integer, DshStep> steps : dshSteps.values()) {
+            for (DshStep box : steps.values()) {
+                if (box.reasoning == null || box.reasoning.isEmpty()) continue;
+                if (sb.length() > 0) sb.append("\n\n");
+                sb.append(box.reasoning);
+            }
+        }
+        return sb.toString();
+    }
+
+    /** 按 turn/step 重建 parts（reasoning → text → 工具调用及其结果） */
+    private void rebuildDshParts() {
+        if (dshLiveTurn == null) return;
+        dshLiveTurn.parts.clear();
+        for (java.util.Map.Entry<Integer, java.util.TreeMap<Integer, DshStep>> t : dshSteps.entrySet()) {
+            for (java.util.Map.Entry<Integer, DshStep> s : t.getValue().entrySet()) {
+                DshStep box = s.getValue();
+                String prefix = t.getKey() + "-" + s.getKey();
+                if (!box.reasoning.isEmpty()) {
+                    dshLiveTurn.parts.add(com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.reasoning(
+                            "dsh-r-" + prefix, box.reasoning, System.currentTimeMillis()));
+                }
+                if (!box.text.isEmpty()) {
+                    dshLiveTurn.parts.add(com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.text(
+                            "dsh-t-" + prefix, box.text, System.currentTimeMillis()));
+                }
+                for (DshTool tool : box.tools.values()) {
+                    if (tool.call == null) continue;
+                    dshLiveTurn.parts.add(tool.call);
+                    if (tool.result != null) {
+                        dshLiveTurn.parts.add(com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.toolResult(
+                                tool.call, tool.result, System.currentTimeMillis()));
+                    }
+                }
             }
         }
     }
@@ -13060,14 +13089,8 @@ public class AIChatActivity extends BaseActivity {
         final String c = content;
         final String th = thinking;
         runOnUiThread(() -> {
-            if (c != null) {
-                live.content = c;
-                if (dshTextPart != null) dshTextPart.text = c;
-            }
-            if (th != null && !th.isEmpty()) {
-                live.thinkingContent = th;
-                if (dshReasoningPart != null) dshReasoningPart.text = th;
-            }
+            if (c != null) live.content = c;
+            if (th != null && !th.isEmpty()) live.thinkingContent = th;
             if (done && live.inferenceProgress != null) {
                 live.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.COMPLETED);
             }
