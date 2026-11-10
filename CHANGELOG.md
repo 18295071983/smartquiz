@@ -19,16 +19,22 @@ llama.cpp 的 `mtmd_tokenize` 签名本来就收 `bitmaps[] + n_bitmaps`，只�
   "图片过多：图像与提示共需 X tokens，加上输出预留 Y 超出上下文 Z…"，由上层提示减少图片或调大上下文。
 - **Java**：`LlamaHelper.generateWithImage` 新增 `List<String> imagePaths` 重载，原单图重载转调它
   （`OCRRecognizeTool.image_understand_local` 等旧调用无需改动）；native 声明同步为 `String[]`。
-- **上限**：`AttachmentVisionPipeline.LOCAL_VISION_MAX_IMAGES = 2`，`localVisionImageLimit()` 由原来的
-  `MAX_VISION_IMAGES(5)/1` 改为按该常量返回。首版取 2 是因为一张图在 mtmd 里是数百到上千 token，
-  4K 上下文两张就贴上限、prefill 延迟线性增长；真机验证后再放宽。
+- **上限**：`AttachmentVisionPipeline.LOCAL_VISION_MAX_IMAGES = MAX_VISION_IMAGES(5)`，
+  `localVisionImageLimit()` 按该常量返回。这里只做"物理上可能"的上限——**真正的约束是 native 侧
+  tokenize 后按真实 `llama_n_ctx()` 做的 token 预检**，装不下就显式报错并说明需要多少 token。
+  上下文由用户手动值优先（`AIService` 加载时 `contextSize = userContextSize`，只有超 KV 显存/内存
+  上限才夹紧），所以不能用静态张数代表用户上下文；早先版本先设 2 张，是在不知道用户实际窗口时
+  的保守值，已作废。
 - **宿主**：`AIChatActivity.supportsLocalMultiImage()` 由写死 `false` 改为 `true`；
   `handleLocalVisionImages` 不再只用 `visionImagePaths.get(0)`，预处理后的图全部下发；
   `startLocalVisionGeneration` 与追问复用 `tryFollowUpVision` 同步收 `List<String>`；
   降级文案由"只能理解 1 张"改为按实际上限拼数量。
 - **验证**：`compileDebugJavaWithJavac` 通过、`assembleDebug` 通过（`libllama-jni.so` 201,640,464 B，
   已用二进制搜索确认新错误串在包内）、全量 **257 suite / 1866 tests / 0 failures / 0 errors / 1 skipped**。
-  **多图未真机验证**：能编不能证明 prefill 耗时、显存与回答质量在设备上成立，需实测两张图。
+  **多图未真机验证**：能编不能证明 prefill 耗时、显存与回答质量在设备上成立，需实测多张图。
+- **纠正**：早先在本节写"4K 上下文两张就贴上限"是把 `InferenceConfigManager:176`（模型 ≥7000MB
+  的自动档位上限）当成了主链路口径。主链路的 `n_ctx` 是运行时 `llama_n_ctx()` 真值，且加载时
+  用户手动上下文优先，不存在"视觉链路写死 4096"。
 - 提交：`c7ea8fad`（与下方 fix(attach) 节同一提交）。
 
 ## [2026-11-10] fix(attach)：落盘名保留中文 + OCR 引擎标识如实 + 在线 OCR 不再误选非视觉模型 + 看图工具补视觉闸门

@@ -4422,7 +4422,7 @@ public class AIChatActivity extends BaseActivity {
      * 图片 → 视觉通道的单一决策出口。返回 true 表示本轮已由视觉链路接管。
      *
      * 优先级按"谁能完整吃下这批图"排，而不是本地/在线的固定顺序：
-     * 1. 本地视觉且引擎支持本次图片数（llama.cpp mtmd 是 bitmaps[1] 单图硬限，NPU VLM 支持多图）；
+     * 1. 本地视觉且引擎装得下本次图片数（native mtmd 已按数组接图，装不下由运行时 token 预检拦）；
      * 2. 在线视觉模型（单次最多 {@code MAX_VISION_IMAGES} 张，另受请求体字节预算约束）；
      * 3. 两边都接不住 → false，调用方落回 OCR 文本 + Agent。
      * 本地只能 1 张而本次发了 3 张时，先给在线机会，不再像旧实现那样整批降级成 OCR。
@@ -4631,7 +4631,7 @@ public class AIChatActivity extends BaseActivity {
                 AppLogger.ai(TAG, "Follow-up vision skipped: " + localFollowUpBlocked);
                 return false;
             }
-            // 复用该轮图片：llama.cpp mtmd 是单图硬限（bitmaps[1]），NPU VLM 可以整批复用
+            // 复用该轮图片：本地视觉已支持多图（native mtmd 数组），张数按 localLimit 裁剪
             int localLimit = getVisionPipeline().localVisionImageLimit();
             if (localLimit <= 0) return false;
             List<ChatMessage.Attachment> reuseImages =

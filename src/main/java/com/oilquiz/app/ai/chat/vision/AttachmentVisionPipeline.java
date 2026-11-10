@@ -42,7 +42,7 @@ public class AttachmentVisionPipeline {
         OnlineModelManager.OnlineModelConfig getActiveModel();
         String getCurrentModelName();
         boolean isLocalVisionLoaded();   // LlamaHelper.isMultimodalLoaded && isModelInitialized
-        /** 本地引擎是否能一次吃多张图（llama.cpp mtmd 是 bitmaps[1] 单图硬限，NPU VLM 支持 List） */
+        /** 本地引擎是否能一次吃多张图（native mtmd 已按数组接图，2026-11-10；旧版是 bitmaps[1] 单图） */
         boolean supportsLocalMultiImage();
         int getModelContextSize();
     }
@@ -218,11 +218,12 @@ public class AttachmentVisionPipeline {
     /**
      * 本地多模态一次最多带几张图（2026-11-10）。
      *
-     * <p>native 侧原本写死 {@code bitmaps[1]}，现在已按数组接图；但每张图在 mtmd 里是数百到
-     * 上千 token，4K 上下文两张就可能贴上限（native 侧会先算 token 再决定是否报错）。
-     * 首版给 2 张，真机验证过 prefill 耗时与显存后再放宽到 {@link #MAX_VISION_IMAGES}。</p>
+     * <p>这里只做"物理上可能"的上限，与在线同一口径；**真正约束是 native 的运行时 token 预检**
+     * （tokenize 后按真实 {@code llama_n_ctx()} 判断装不装得下，装不下显式报错并说明需要多少
+     * token）。上下文由用户手动值优先（{@code AIService} 加载时 {@code contextSize = userContextSize}），
+     * 所以不能用一个静态张数去代表用户上下文。</p>
      */
-    public static final int LOCAL_VISION_MAX_IMAGES = 2;
+    public static final int LOCAL_VISION_MAX_IMAGES = MAX_VISION_IMAGES;
 
     /**
      * 本地视觉本次能吃几张图：0=不可用；1=引擎只吃单图；其余按 {@link #LOCAL_VISION_MAX_IMAGES}。
