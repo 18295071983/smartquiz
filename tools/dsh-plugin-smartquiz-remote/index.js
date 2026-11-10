@@ -919,6 +919,62 @@ export function apply(ctx, config) {
     }
   });
 
+  /**
+   * GET /events?session_id=…&since=<seq>&timeout=<秒>&follow=1
+   *
+   * **原样转发 DSH 的事件流**，不在插件里做任何 UI 适配：
+   *   data: {"type":"ready","session_id":…,"seq":N}
+   *   data: {"type":"event","event":{type,seq,time,data}}   ← 逐条原样
+   *   data: {"type":"end"}
+   *
+   * 手机端拿到后自己把事件映射成 ChatMessage / parts（正文、思考、工具卡片）。
+   * 这样 DSH 侧新增事件类型时，插件不需要跟着改。
+   */
+  route('exact', '/events', async (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+    const sid = String(q.searchParams.get('session_id') ?? '').trim();
+    if (!sid) return sendJson(res, 400, { ok: false, error: '需要 session_id' });
+    const sinceParam = Number(q.searchParams.get('since') ?? '-1');
+    const timeoutSec = Math.max(5, Math.min(1800, Number(q.searchParams.get('timeout') ?? '600') || 600));
+    const follow = q.searchParams.get('follow') === '1';
+    res.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    const sse = (o) => { try { res.write('data: ' + JSON.stringify(o) + '\n\n'); } catch { /* 断连 */ } };
+    const live0 = ctx.sessions.get(sid);
+    if (!live0) {
+      sse({ type: 'gone', session_id: sid });
+      try { res.end(); } catch { /* 已断 */ }
+      return;
+    }
+    let cursor = Number.isFinite(sinceParam) && sinceParam >= 0 ? sinceParam : Math.max(0, Number(live0.seq ?? 0) - 40);
+    sse({ type: 'ready', session_id: sid, seq: Number(live0.seq ?? 0) });
+    const deadline = Date.now() + timeoutSec * 1000;
+    let closed = false;
+    req.on('close', () => { closed = true; });
+    while (!closed && Date.now() < deadline) {
+      const live = ctx.sessions.get(sid);
+      if (!live) { sse({ type: 'gone', session_id: sid }); break; }
+      const seq = Number(live.seq ?? 0);
+      for (; cursor < seq; cursor += 1) {
+        const ev = live.eventAt?.(cursor);
+        if (ev) sse({ type: 'event', event: ev });
+      }
+      if (!follow) {
+        // 非 follow：把当前已有的事件发完就结束（适合"补历史"）
+        break;
+      }
+      // eslint-disable-next-line no-await-in-loop -- 顺序轮询
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    sse({ type: 'end' });
+    try { res.end(); } catch { /* 已断 */ }
+  });
+
   route('exact', '/pair', (req, res) => {
     if (!isLocal(req)) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }); res.end('pair page is local-only'); return; }
     const tpl = readAsset('pair_page.html');
@@ -1243,6 +1299,63 @@ export function apply(ctx, config) {
           const before = ctx.sessions.get(target);
           const seqBefore = Number(before?.seq ?? 0);
           const baseReply = lastAssistant(before) || '';
+          // ★ 流式分支：手机带 stream:true 时，边跑边推，而不是等整轮结束再一次性回。
+          //   事件：start / thinking(全文) / text(全文) / done / error。
+          //   推“全文”而不是 delta —— 手机端直接替换内容即可，丢一两个事件也不会错位。
+          if (body.stream === true) {
+            res.writeHead(200, {
+              'content-type': 'text/event-stream; charset=utf-8',
+              'cache-control': 'no-cache, no-transform',
+              connection: 'keep-alive',
+              'x-accel-buffering': 'no',
+            });
+            const sse = (o) => { try { res.write('data: ' + JSON.stringify(o) + '\n\n'); } catch { /* 断连 */ } };
+            sse({ type: 'start', session_id: target, resumed });
+            let lastAnswer = '';
+            let lastThinking = '';
+            let finished = false;
+            let turnErrorText = '';
+            try {
+              agent.followup({
+                id: randomBytes(16).toString('hex'),
+                role: 'user',
+                content: [{ type: 'text', text }],
+                source: { kind: 'user' },
+              });
+              while (Date.now() - startedAt < timeoutMs) {
+                await new Promise((r) => setTimeout(r, 150));
+                const live = ctx.sessions.get(target);
+                if (!live) break;
+                const parts = assistantPartsSince(live, seqBefore);
+                if (parts.thinking && parts.thinking !== lastThinking) {
+                  lastThinking = parts.thinking;
+                  sse({ type: 'thinking', text: lastThinking });
+                }
+                if (parts.answer && parts.answer !== lastAnswer) {
+                  lastAnswer = parts.answer;
+                  sse({ type: 'text', text: lastAnswer });
+                }
+                const seq = Number(live?.seq ?? 0);
+                for (let i = seq - 1; i >= Math.max(0, seq - 30); i -= 1) {
+                  const ev = live.eventAt?.(i);
+                  if (ev?.type !== 'turn/end') continue;
+                  if (ev?.data?.reason?.kind === 'error') {
+                    turnErrorText = String(ev.data.reason.error?.message ?? ev.data.reason.error ?? '').slice(0, 300);
+                  }
+                  finished = true;
+                  break;
+                }
+                if (finished) break;
+              }
+              promptCount += 1;
+              if (turnErrorText) sse({ type: 'error', error: turnErrorText });
+              else sse({ type: 'done', reply: lastAnswer, thinking: lastThinking || undefined, timed_out: !finished });
+            } catch (e) {
+              sse({ type: 'error', error: String(e?.message ?? e) });
+            }
+            try { res.end(); } catch { /* 已断 */ }
+            return;
+          }
           agent.followup({
             id: randomBytes(16).toString('hex'),
             role: 'user',
@@ -1290,6 +1403,35 @@ export function apply(ctx, config) {
         } catch (e) {
           return sendJson(res, 500, { ok: false, action: 'sync', error: String(e?.message ?? e) });
         }
+      }
+      if (action === 'inject') {
+        // 只把消息投进会话并立刻返回（不等回复）。手机随后用 /events 订阅事件流，
+        // 自己渲染思考/正文/工具 —— 这是"原样转发 + 手机端转换"的主路径。
+        const target = String(body.target_session_id ?? '').trim();
+        const text = (typeof body.text === 'string' ? body.text : '').trim();
+        if (!target || !text) return sendJson(res, 400, { ok: false, action, error: '需要 target_session_id 和 text' });
+        let agent = (() => { try { return ctx.agents?.get?.(target); } catch { return undefined; } })();
+        let resumed = false;
+        if (!agent) {
+          try {
+            let h = resumedHandles.get(target);
+            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target }); if (h) resumedHandles.set(target, h); }
+            agent = h?.agent ?? h ?? null;
+            resumed = Boolean(agent);
+          } catch (e) {
+            return sendJson(res, 409, { ok: false, action, error: 'cannot_resume', resume_error: String(e?.message ?? e) });
+          }
+        }
+        if (!agent) return sendJson(res, 409, { ok: false, action, error: 'live_session_required' });
+        const seqBefore = Number(ctx.sessions.get(target)?.seq ?? 0);
+        agent.followup({
+          id: randomBytes(16).toString('hex'),
+          role: 'user',
+          content: [{ type: 'text', text }],
+          source: { kind: 'user' },
+        });
+        promptCount += 1;
+        return sendJson(res, 200, { ok: true, action: 'inject', session_id: target, resumed, seq_before: seqBefore });
       }
       if (action === 'sync_state') {
         const target = String(body.target_session_id ?? '').trim();

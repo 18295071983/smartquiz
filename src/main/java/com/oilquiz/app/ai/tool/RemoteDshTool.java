@@ -9,8 +9,10 @@ import com.oilquiz.app.ai.tool.annotation.Action;
 import com.oilquiz.app.ai.tool.annotation.Param;
 import com.oilquiz.app.ai.tool.annotation.Tool;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -268,6 +270,187 @@ public class RemoteDshTool implements AITool {
             }
         }
         return out;
+    }
+
+    /** DSH 原始事件回调（后台线程触发） */
+    public interface DshEventListener {
+        void onReady(int seq);
+        void onEvent(org.json.JSONObject event);
+        void onEnd();
+        void onError(String message);
+    }
+
+    /**
+     * 只把用户消息注入电脑端会话，立刻返回"注入前的 seq"。
+     * 手机随后用 {@link #subscribeEvents} 订阅原始事件流，自己做渲染转换。
+     */
+    public static int inject(Context c, String target, String text) throws Exception {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        Map<String, Object> body = new HashMap<>();
+        body.put("action", "inject");
+        body.put("target_session_id", target);
+        body.put("text", text);
+        Map<String, Object> resp = tool.httpJson(tool.getBaseUrl() + "/session", "POST", body, 40);
+        if (!Boolean.TRUE.equals(resp.get("ok"))) {
+            throw new Exception(String.valueOf(resp.get("error")));
+        }
+        Object sb = resp.get("seq_before");
+        return sb instanceof Number ? ((Number) sb).intValue() : 0;
+    }
+
+    /**
+     * 订阅插件转发的 **DSH 原始事件流**（SSE，逐条 {type,seq,time,data}）。
+     *
+     * 插件不做任何 UI 适配；由手机端把事件映射成 ChatMessage / parts。
+     */
+    public static void subscribeEvents(Context c, String sid, int since, int timeoutSec, DshEventListener listener) {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        HttpURLConnection conn = null;
+        try {
+            String url = tool.getBaseUrl() + "/events?session_id=" + java.net.URLEncoder.encode(sid, "UTF-8")
+                    + "&since=" + since + "&follow=1&timeout=" + Math.max(5, timeoutSec);
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(30000);
+            conn.setReadTimeout((timeoutSec + 30) * 1000);
+            conn.setRequestProperty("Accept", "text/event-stream");
+            String token = tool.getToken();
+            if (!token.isEmpty()) conn.setRequestProperty("Authorization", "Bearer " + token);
+            if (conn.getResponseCode() >= 400) {
+                listener.onError("HTTP " + conn.getResponseCode());
+                return;
+            }
+            try (BufferedReader br = new BufferedReader(
+                    new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                StringBuilder data = new StringBuilder();
+                while ((line = br.readLine()) != null) {
+                    if (line.isEmpty()) {
+                        if (data.length() > 0) {
+                            dispatchDshEvent(data.toString(), listener);
+                            data.setLength(0);
+                        }
+                        continue;
+                    }
+                    if (line.startsWith("data:")) data.append(line.substring(5).trim());
+                }
+                if (data.length() > 0) dispatchDshEvent(data.toString(), listener);
+            }
+            listener.onEnd();
+        } catch (Exception e) {
+            listener.onError(String.valueOf(e.getMessage()));
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private static void dispatchDshEvent(String raw, DshEventListener listener) {
+        try {
+            org.json.JSONObject msg = new org.json.JSONObject(raw);
+            String type = msg.optString("type", "");
+            if ("ready".equals(type)) {
+                listener.onReady(msg.optInt("seq", 0));
+            } else if ("event".equals(type)) {
+                org.json.JSONObject ev = msg.optJSONObject("event");
+                if (ev != null) listener.onEvent(ev);
+            } else if ("end".equals(type) || "gone".equals(type)) {
+                listener.onEnd();
+            }
+        } catch (Exception ignored) {
+            // 坏事件跳过
+        }
+    }
+
+    /** 同步流式回调（在后台线程触发，调用方自行 post 到 UI） */
+    public interface SyncStreamListener {
+        void onStart();
+        void onThinking(String text);
+        void onText(String text);
+        void onDone(String reply, String thinking);
+        void onError(String message);
+    }
+
+    /**
+     * 把一句话发进电脑端正在运行的会话，并**流式**接收：思考、正文边跑边回。
+     *
+     * 之前只有一次性接口（等整轮跑完才响应），手机上就是"发出去要等好一会才见到回复"。
+     * 这里走 SSE：插件侧每 150ms 推一次"当前全文"，手机拿到就刷新气泡。
+     */
+    public static void syncStream(Context c, String target, String text, int timeoutSec, SyncStreamListener listener) {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        HttpURLConnection conn = null;
+        try {
+            org.json.JSONObject body = new org.json.JSONObject();
+            body.put("action", "sync");
+            body.put("target_session_id", target);
+            body.put("text", text);
+            body.put("stream", true);
+            body.put("timeout", timeoutSec);
+            conn = (HttpURLConnection) new URL(tool.getBaseUrl() + "/session").openConnection();
+            conn.setConnectTimeout(30000);
+            conn.setReadTimeout((timeoutSec + 30) * 1000);
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            conn.setRequestProperty("Accept", "text/event-stream");
+            String token = tool.getToken();
+            if (!token.isEmpty()) conn.setRequestProperty("Authorization", "Bearer " + token);
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+            }
+            int code = conn.getResponseCode();
+            if (code >= 400) {
+                listener.onError("HTTP " + code);
+                return;
+            }
+            try (BufferedReader br = new BufferedReader(
+                    new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                StringBuilder data = new StringBuilder();
+                while ((line = br.readLine()) != null) {
+                    if (line.isEmpty()) {
+                        if (data.length() > 0) {
+                            dispatchStreamEvent(data.toString(), listener);
+                            data.setLength(0);
+                        }
+                        continue;
+                    }
+                    if (line.startsWith("data:")) data.append(line.substring(5).trim());
+                }
+                if (data.length() > 0) dispatchStreamEvent(data.toString(), listener);
+            }
+        } catch (Exception e) {
+            listener.onError(String.valueOf(e.getMessage()));
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private static void dispatchStreamEvent(String raw, SyncStreamListener listener) {
+        try {
+            org.json.JSONObject ev = new org.json.JSONObject(raw);
+            String type = ev.optString("type", "");
+            switch (type) {
+                case "start":
+                    listener.onStart();
+                    break;
+                case "thinking":
+                    listener.onThinking(ev.optString("text", ""));
+                    break;
+                case "text":
+                    listener.onText(ev.optString("text", ""));
+                    break;
+                case "done":
+                    listener.onDone(ev.optString("reply", ""), ev.optString("thinking", ""));
+                    break;
+                case "error":
+                    listener.onError(ev.optString("error", "未知错误"));
+                    break;
+                default:
+                    break;
+            }
+        } catch (Exception ignored) {
+            // 单个坏事件不影响整条流
+        }
     }
 
     /**

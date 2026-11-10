@@ -3801,44 +3801,94 @@ public class AIChatActivity extends BaseActivity {
         // ==== 状态条上的三种远程模式：同步 / 直连 / 智能 ====
         // 同步：消息进电脑上**正在打开的那条会话**（插件用宿主内 live agent 注入，双端实时可见）
         if (com.oilquiz.app.ai.tool.RemoteDshTool.MODE_SYNC.equals(remoteMode())) {
-            String syncText = inputMessage.getText().toString().trim();
+            final String syncText = inputMessage.getText().toString().trim();
             if (syncText.isEmpty()) { showToast(getString(R.string.h_b922f77a)); return; }
             if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
                     || !com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)) {
                 showToast("电脑未连接：请先在「远程连接（电脑）」里配对并连接");
                 return;
             }
-            if (com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this).isEmpty()) {
+            final String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+            if (target.isEmpty()) {
                 showToast("同步模式还没有目标会话：去「远程连接（电脑）」里选一条电脑会话");
                 return;
             }
             addUserMessage(syncText);
             inputMessage.setText("");
-            final String syncTask = syncText;
-            new Thread(new Runnable() {
-                @Override public void run() {
-                    String outText;
-                    try {
-                        java.util.Map<String, Object> p = new java.util.HashMap<String, Object>();
-                        p.put("action", "sync_send");
-                        p.put("task", syncTask);
-                        com.oilquiz.app.ai.tool.AIToolResult r =
-                                com.oilquiz.app.ai.tool.AIToolManager.getInstance(AIChatActivity.this)
-                                        .executeTool("remote_dsh", p);
-                        outText = (r != null && r.isSuccess())
-                                ? String.valueOf(r.getResult())
-                                : ("同步失败：" + (r != null ? r.getErrorMessage() : "未知错误"));
-                    } catch (Throwable t) {
-                        outText = "同步异常：" + t.getMessage();
-                    }
-                    final String fOut = outText;
-                    final String fThinking = com.oilquiz.app.ai.tool.RemoteDshTool.getLastSyncThinking(AIChatActivity.this);
-                    com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncThinking(AIChatActivity.this, "");
-                    runOnUiThread(new Runnable() {
-                        @Override public void run() { addAIMessage("💻 " + fOut, fThinking); }
-                    });
+
+            // 占位气泡：随后由 **DSH 原始事件流** 驱动（插件只转发，转换在手机端）
+            final ChatMessage live = ChatMessage.createAIMessage(
+                    java.util.UUID.randomUUID().toString(), "", System.currentTimeMillis(), null, 0, 0);
+            live.turnId = currentTurnId;
+            live.subId = ChatIdDispatcher.getInstance().applySubId(ChatIdDispatcher.IdType.AI, currentTurnId);
+            live.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.THINKING);
+            chatHistory.add(live);
+            final int liveIdx = chatHistory.size() - 1;
+            if (chatAdapter != null) chatAdapter.notifyItemInserted(liveIdx);
+            scrollToBottom(true);
+
+            new Thread(() -> {
+                final StringBuilder answer = new StringBuilder();
+                final StringBuilder thinking = new StringBuilder();
+                final long[] lastNotify = {0L};
+                try {
+                    int since = com.oilquiz.app.ai.tool.RemoteDshTool.inject(AIChatActivity.this, target, syncText);
+                    com.oilquiz.app.ai.tool.RemoteDshTool.subscribeEvents(AIChatActivity.this, target, since, 600,
+                            new com.oilquiz.app.ai.tool.RemoteDshTool.DshEventListener() {
+                                @Override public void onReady(int seq) { /* 事件会从 since 补齐 */ }
+
+                                @Override public void onEvent(org.json.JSONObject ev) {
+                                    String type = ev.optString("type", "");
+                                    if ("turn/start".equals(type)) {
+                                        setLivePhase(live, liveIdx, ChatMessage.InferencePhase.THINKING);
+                                        return;
+                                    }
+                                    if ("assistant/message".equals(type)) {
+                                        org.json.JSONObject data = ev.optJSONObject("data");
+                                        org.json.JSONObject msg = data == null ? null : data.optJSONObject("message");
+                                        org.json.JSONArray parts = msg == null ? null : msg.optJSONArray("content");
+                                        StringBuilder a = new StringBuilder();
+                                        StringBuilder b = new StringBuilder();
+                                        if (parts != null) {
+                                            for (int i = 0; i < parts.length(); i += 1) {
+                                                org.json.JSONObject p = parts.optJSONObject(i);
+                                                if (p == null) continue;
+                                                String pt = p.optString("type");
+                                                String tx = p.optString("text");
+                                                if (tx.isEmpty()) continue;
+                                                if ("reasoning".equals(pt) || "thinking".equals(pt)) b.append(tx);
+                                                else a.append(tx);
+                                            }
+                                        }
+                                        if (a.length() > 0) {
+                                            if (answer.length() > 0) answer.append("\n\n");
+                                            answer.append(a);
+                                        }
+                                        if (b.length() > 0) {
+                                            if (thinking.length() > 0) thinking.append("\n\n");
+                                            thinking.append(b);
+                                        }
+                                        pushLiveSync(live, liveIdx, lastNotify, answer.toString(), thinking.toString(), false);
+                                        if (a.length() > 0) setLivePhase(live, liveIdx, ChatMessage.InferencePhase.GENERATING);
+                                        return;
+                                    }
+                                    if ("turn/end".equals(type)) {
+                                        pushLiveSync(live, liveIdx, new long[]{0L}, answer.toString(), thinking.toString(), true);
+                                        com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncReply(AIChatActivity.this, answer.toString());
+                                        com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncThinking(AIChatActivity.this, thinking.toString());
+                                    }
+                                }
+
+                                @Override public void onEnd() { /* turn/end 已经收尾 */ }
+
+                                @Override public void onError(String message) {
+                                    pushLiveSync(live, liveIdx, new long[]{0L}, "同步失败：" + message, thinking.toString(), true);
+                                }
+                            });
+                } catch (Exception e) {
+                    pushLiveSync(live, liveIdx, new long[]{0L}, "同步失败：" + e.getMessage(), "", true);
                 }
-            }, "remote-dsh-sync").start();
+            }, "remote-dsh-events").start();
             return;
         }
         // ==== 方案3：直连电脑模式（点/长按聊天页顶部电脑横条切换）====
@@ -12813,6 +12863,43 @@ public class AIChatActivity extends BaseActivity {
      * 那条回复，看起来"两端不一致"。这里用 read 接口补回来，并用
      * last_sync_reply 判重，不会重复插入。
      */
+    /**
+     * 流式刷新同步气泡（节流 200ms，done 时立即刷新并收尾）。
+     *
+     * 直接改 ChatMessage 的 content / thinkingContent 再 notifyItemChanged，
+     * 就能复用既有的 parts 渲染（正文 TextPartRenderer、思考 ReasoningPartRenderer）。
+     */
+    /** 更新占位气泡的阶段（思考中 / 回答中 / 已完成） */
+    private void setLivePhase(ChatMessage live, int idx, ChatMessage.InferencePhase phase) {
+        runOnUiThread(() -> {
+            if (live.inferenceProgress != null && live.inferenceProgress.phase == phase) return;
+            live.inferenceProgress = new ChatMessage.InferenceProgress(phase);
+            if (chatAdapter != null && idx >= 0 && idx < chatHistory.size()) {
+                chatAdapter.notifyItemChanged(idx);
+            }
+        });
+    }
+
+    private void pushLiveSync(ChatMessage live, int idx, long[] lastNotify,
+                              String content, String thinking, boolean done) {
+        long now = System.currentTimeMillis();
+        if (!done && now - lastNotify[0] < 200) return;
+        lastNotify[0] = now;
+        final String c = content;
+        final String th = thinking;
+        runOnUiThread(() -> {
+            if (c != null) live.content = c;
+            if (th != null && !th.isEmpty()) live.thinkingContent = th;
+            if (done && live.inferenceProgress != null) {
+                live.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.COMPLETED);
+            }
+            if (chatAdapter != null && idx >= 0 && idx < chatHistory.size()) {
+                chatAdapter.notifyItemChanged(idx);
+            }
+            if (done) scrollToBottom(true);
+        });
+    }
+
     private void maybeReconcileSync() {
         if (!com.oilquiz.app.ai.tool.RemoteDshTool.MODE_SYNC.equals(remoteMode())) return;
         final String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);

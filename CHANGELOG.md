@@ -1,5 +1,26 @@
 # 变更日志
 
+## [2026-11-10] refactor(remote_dsh)：同步改成"插件原样转发 DSH 事件流 + 手机端转换"
+
+之前是插件把整轮跑完再一次性回一个字符串：手机上要干等、只能挂普通消息、还得在插件里
+模仿 UI（把思考拼成排版）。现在改成**职责分离**——插件只转发 DSH 的原始事件，手机端用
+自己的 parts 体系做转换和渲染。
+
+- **插件**：
+  - `GET /events?session_id&since&follow&timeout`：把 `ctx.sessions` 的事件**逐条原样**以 SSE
+    转发（`turn/start`、`user/message`、`assistant/message{content:[{type:'reasoning'|'text'}]}`、
+    `tool/call`、`step/end`、`turn/end`…），不做任何 UI 适配。
+  - `POST /session {action:'inject', target_session_id, text}`：只投递消息、立刻返回
+    `seq_before`，不等回复（配合上面的事件流）。
+- **手机**：`RemoteDshTool.inject()` + `subscribeEvents()`；同步模式改为
+  占位气泡 → 订阅事件 → 按 part 类型把 `reasoning` 写进 `thinkingContent`、`text` 写进
+  `content` → `turn/end` 收尾（阶段 THINKING → GENERATING → COMPLETED），流式刷新节流 200ms。
+- **为什么**：DSH 以后新增事件类型时，插件不用跟着改；适配全部收敛到手机端的转换器。
+- **验证**：探针实测事件序列
+  `turn/start → user/message → assistant/message(parts: reasoning,text) → step/end → turn/end{completed}`；
+  `inject` 返回 `resumed:true, seq_before:21`；`compileReleaseJavaWithJavac`、`assembleRelease` 通过。
+- **未做**：`tool/call`、`tool/result` 还没映射成工具卡片（当前只取文本与思考）；审批事件也还没接。
+
 ## [2026-11-10] fix(remote_dsh)：同步回复走 parts 渲染（思考不再混进正文）+ 空闲会话 resume + 列表按活跃度
 
 上一节把同步接通了，但回复到手机上有三处“看着能用、细节不对”，这一节收尾：
