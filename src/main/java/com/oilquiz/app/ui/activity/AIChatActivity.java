@@ -3822,6 +3822,18 @@ public class AIChatActivity extends BaseActivity {
             live.turnId = currentTurnId;
             live.subId = ChatIdDispatcher.getInstance().applySubId(ChatIdDispatcher.IdType.AI, currentTurnId);
             live.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.THINKING);
+            // ★ 走 App 自己的 parts 体系：一条 AssistantTurn 里放 reasoning / text / tool parts，
+            //   由 PartsTurnBinder → ReasoningPartRenderer / TextPartRenderer / 工具卡渲染器接管。
+            final long baseTs = System.currentTimeMillis();
+            dshLiveTurn = new com.oilquiz.app.ai.chat.turn.AssistantTurn();
+            dshLiveTurn.turnId = currentTurnId;
+            dshReasoningPart = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.reasoning(
+                    "dsh-remote-reasoning", "", baseTs);
+            dshTextPart = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.text(
+                    "dsh-remote-text", "", baseTs);
+            dshLiveTurn.parts.add(dshReasoningPart);
+            dshLiveTurn.parts.add(dshTextPart);
+            live.assistantTurn = dshLiveTurn;
             chatHistory.add(live);
             final int liveIdx = chatHistory.size() - 1;
             if (chatAdapter != null) chatAdapter.notifyItemInserted(liveIdx);
@@ -12855,6 +12867,11 @@ public class AIChatActivity extends BaseActivity {
      * 三种状态：未配对（红）/ 已连接（绿）/ 已断开（黄），点一下进「远程连接（电脑）」。
      */
     /** 方案3：直连电脑模式 —— 每条消息直接发到电脑执行，不经过手机端模型 */
+    /** 同步会话的那条 AssistantTurn（reasoning/text/tool parts 都在一条里，交给 PartsTurnBinder 渲） */
+    private com.oilquiz.app.ai.chat.turn.AssistantTurn dshLiveTurn;
+    private com.oilquiz.app.ai.chat.turn.AssistantTurn.Part dshReasoningPart;
+    private com.oilquiz.app.ai.chat.turn.AssistantTurn.Part dshTextPart;
+
     private android.app.AlertDialog dshApprovalDialog;
     private String dshApprovalId;
 
@@ -12982,16 +12999,11 @@ public class AIChatActivity extends BaseActivity {
     private void onDshToolCall(String callId, String name, String arguments) {
         if (chatHistory == null || name == null || name.isEmpty()) return;
         runOnUiThread(() -> {
-            ChatMessage toolMsg = ChatMessage.createToolCallMessage(callId, name, arguments == null ? "" : arguments);
-            toolMsg.turnId = currentTurnId;
-            toolMsg.subId = ChatIdDispatcher.getInstance()
-                    .applySubId(ChatIdDispatcher.IdType.TOOL, currentTurnId);
-            if (toolMsg.toolCallInfo != null) {
-                toolMsg.toolCallInfo.status = ChatMessage.ToolCallInfo.ToolCallStatus.RUNNING;
-            }
-            chatHistory.add(toolMsg);
-            if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
-            scrollToBottom(true);
+            if (dshLiveTurn == null) return;
+            dshLiveTurn.parts.add(com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.toolCall(
+                    "dsh-call-" + (callId == null ? "x" : callId), callId, name,
+                    arguments == null ? "" : arguments, "running", System.currentTimeMillis()));
+            notifyLiveSyncMessage();
         });
     }
 
@@ -12999,18 +13011,34 @@ public class AIChatActivity extends BaseActivity {
     private void onDshToolResult(String callId, String text, boolean isError) {
         if (chatHistory == null) return;
         runOnUiThread(() -> {
-            for (int i = chatHistory.size() - 1; i >= 0; i -= 1) {
-                ChatMessage m = chatHistory.get(i);
-                if (m == null || m.toolCallInfo == null) continue;
-                if (callId != null && !callId.equals(m.toolCallInfo.toolCallId)) continue;
-                m.toolCallInfo.result = text == null ? "" : text;
-                m.toolCallInfo.status = isError
-                        ? ChatMessage.ToolCallInfo.ToolCallStatus.FAILED
-                        : ChatMessage.ToolCallInfo.ToolCallStatus.COMPLETED;
-                if (chatAdapter != null) chatAdapter.notifyItemChanged(i);
+            if (dshLiveTurn == null) return;
+            com.oilquiz.app.ai.chat.turn.AssistantTurn.Part call = null;
+            for (com.oilquiz.app.ai.chat.turn.AssistantTurn.Part p : dshLiveTurn.parts) {
+                if (p != null && com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TOOL_CALL.equals(p.type)
+                        && callId != null && callId.equals(p.toolCallId)) {
+                    call = p;
+                    break;
+                }
+            }
+            if (call == null) return;
+            call.status = isError ? "error" : "completed";
+            dshLiveTurn.parts.add(com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.toolResult(
+                    call, text == null ? "" : text, System.currentTimeMillis()));
+            notifyLiveSyncMessage();
+        });
+    }
+
+    /** 同步模式下重绑当前那条 assistant 消息（parts 变化后靠它触发增量刷新） */
+    private void notifyLiveSyncMessage() {
+        if (chatAdapter == null || chatHistory == null) return;
+        for (int i = chatHistory.size() - 1; i >= 0; i -= 1) {
+            if (chatHistory.get(i) == null) continue;
+            if (chatHistory.get(i).assistantTurn == dshLiveTurn) {
+                chatAdapter.notifyItemChanged(i);
+                scrollToBottom(true);
                 return;
             }
-        });
+        }
     }
 
     /** 更新占位气泡的阶段（思考中 / 回答中 / 已完成） */
@@ -13032,8 +13060,14 @@ public class AIChatActivity extends BaseActivity {
         final String c = content;
         final String th = thinking;
         runOnUiThread(() -> {
-            if (c != null) live.content = c;
-            if (th != null && !th.isEmpty()) live.thinkingContent = th;
+            if (c != null) {
+                live.content = c;
+                if (dshTextPart != null) dshTextPart.text = c;
+            }
+            if (th != null && !th.isEmpty()) {
+                live.thinkingContent = th;
+                if (dshReasoningPart != null) dshReasoningPart.text = th;
+            }
             if (done && live.inferenceProgress != null) {
                 live.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.COMPLETED);
             }

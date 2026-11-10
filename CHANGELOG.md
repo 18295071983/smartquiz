@@ -1,5 +1,20 @@
 # 变更日志
 
+## [2026-11-10] refactor(remote_dsh)：同步消息改走 App 的 parts 体系（一条 AssistantTurn）
+
+上一版把正文/思考塞进 `content`/`thinkingContent`、工具另建 `TOOL_CALL` 消息 —— 看着能用，
+但没有走 parts 组件（工具卡是“另一条消息”，思考也不是同一条 turn 里的 reasoning part）。
+
+- 同步开始时建**一条** `AssistantTurn`：`parts = [reasoning, text]`，挂到 `msg.assistantTurn`；
+- `tool/call` → `Part.toolCall(...)` 追加到同一 turn；`tool/result` → `Part.toolResult(call, …)`；
+- 流式更新直接改 part 的 `text`，再 `notifyItemChanged` → `PartsTurnBinder` 增量复用
+  （思考走 `ReasoningPartRenderer`，正文走 `TextPartRenderer`，工具走工具卡渲染器，同一个容器）；
+- `content`/`thinkingContent` 仍然同步写一份，供「补回复」与持久化使用；
+- 不再新建 `TOOL_CALL` 消息，避免与 parts 里的工具卡双渲。
+- **验证**：`compileReleaseJavaWithJavac`、`assembleRelease` 通过，APK 已装机。
+- **已知取舍**：part 顺序是 `[reasoning, text, 按到达顺序的 tool…]`，多步任务里工具卡会排在
+  当前正文之后（App 引擎按 step 交错，这里按事件到达顺序追加）。
+
 ## [2026-11-10] feat(remote_dsh)：手机端可应答电脑审批（双端先答先赢）
 
 按"双端任选"实现：电脑弹窗和手机弹窗同时存在，谁先点谁生效。
