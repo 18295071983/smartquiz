@@ -1,5 +1,21 @@
 # 变更日志
 
+## [2026-11-10] feat(remote_dsh)：前台服务常驻同步（切后台/锁屏也能收）
+
+之前同步只在"聊天页前台 + 一轮进行中"有效，切后台就断。现在：
+
+- 新增 `RemoteSyncService`（`foregroundServiceType="dataSync"`）：常驻订阅插件事件流，
+  断线 3 秒重连（带 `last_seq` 游标），把最新一条 assistant 文本刷到常驻通知
+  「电脑端 · 同步中 / …最后一段回复」；点通知回到对话。
+- `AIChatActivity.onResume` 里按「同步模式 + 已连接 + 有目标会话」拉起服务，
+  避免无脑常驻；渲染仍只在聊天页做，回到页面用同一游标补拉，两边靠 `seq` 去重。
+- Manifest 注册服务（权限 `FOREGROUND_SERVICE*` 已有）。
+- **真机验证**：`dumpsys activity services` → `RemoteSyncService isForeground=true
+  foregroundId=3418 types=0x1`；`dumpsys notification` → 通知标题「电脑端 · 同步中」，
+  渠道 `remote_dsh_sync`。
+- **仍未做**：`C. 步级进度文案`（已有工具卡状态，缺"第 N 步"聚合）；`A. 真·逐字流`
+  （DSH 会话事件是 step 粒度，逐字要接 runtime token 流，待评估）。
+
 ## [2026-11-10] feat(remote_dsh)：手机侧断点续传（last_seq + 补拉 + 去重）
 
 插件侧的可续传事件流已就绪（`?since=` / `Last-Event-ID` / 日志补发 / snapshot 兜底），

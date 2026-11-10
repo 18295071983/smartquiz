@@ -13506,6 +13506,28 @@ public class AIChatActivity extends BaseActivity {
         }, "dsh-catchup").start();
     }
 
+    /**
+     * 拉起前台同步服务：切后台/锁屏时也能继续收电脑端消息。
+     * 只在"同步模式 + 已连接 + 有目标会话"时启动，避免无脑常驻。
+     */
+    private void startRemoteSyncService() {
+        try {
+            if (!com.oilquiz.app.ai.tool.RemoteDshTool.MODE_SYNC.equals(remoteMode())) return;
+            String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+            if (target.isEmpty()) return;
+            if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
+                    || !com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)) return;
+            android.content.Intent svc = new android.content.Intent(this,
+                    com.oilquiz.app.ai.tool.RemoteSyncService.class);
+            svc.putExtra(com.oilquiz.app.ai.tool.RemoteSyncService.EXTRA_TARGET, target);
+            svc.putExtra(com.oilquiz.app.ai.tool.RemoteSyncService.EXTRA_SINCE,
+                    com.oilquiz.app.ai.tool.RemoteDshTool.getLastSeq(this, target));
+            androidx.core.content.ContextCompat.startForegroundService(this, svc);
+        } catch (Throwable ignored) {
+            // 前台服务起不来不影响主流程
+        }
+    }
+
     // ===== 反向通道：轮询"电脑让我在本机执行的指令"（仅白名单工具）=====
     private final android.os.Handler dshCmdHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private boolean dshCmdPolling = false;
@@ -13806,6 +13828,7 @@ public class AIChatActivity extends BaseActivity {
 
     @Override
     protected void onResume() {
+        startRemoteSyncService();
         catchUpSync();
         startDshCommandPolling();
         super.onResume();

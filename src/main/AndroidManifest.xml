@@ -509,6 +509,11 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- 远程同步前台服务：切后台/锁屏时继续收电脑端消息（dataSync 类型） -->
+        <service
+            android:name=".ai.tool.RemoteSyncService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
         <!-- 屏幕共享前台服务（Android 14 MediaProjection 强制要求） -->
         <service
             android:name=".ai.tool.MediaProjectionService"
