@@ -27,7 +27,7 @@
 
 import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { chmodSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { networkInterfaces, homedir } from 'node:os';
+import { networkInterfaces, homedir, constants as osConstants, setPriority } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exec, execFile, spawn } from 'node:child_process';
@@ -37,12 +37,119 @@ import { createServer } from 'node:http';
 /** CLI 子进程的权限档位（apply 里由 cfg 覆盖；runCliTask 在模块作用域用） */
 const CLI_PERM = { mode: 'danger-full-access', approval: 'never' };
 
+// ==================== CLI 子进程调度：直连模式"电脑卡"的根治 ====================
+//
+// 直连模式每来一句话都会 `dsh --profile headless` 起一个**完整的 DSH 宿主进程**：
+// 实测冷启动 ~1.5s、峰值内存 ~256MB、一轮普通任务 6s+。手机端等不到回复就会重发，
+// HTTP 超时/切后台又会把连接断掉 —— 而这些子进程以前没有任何人管：不排队、不取消、不杀。
+// 连发 3~5 句就能同时堆 3~5 个宿主（1GB+ 内存 + 多个模型请求），电脑自然卡。
+//
+// 这里做四件事：
+//   ① 并发闸门（cliMaxConcurrent，默认 1）：排队执行，绝不并行堆进程；
+//   ② 队列上限（cliMaxQueued，默认 3）：再多就直接回"忙"，不让请求无限堆积；
+//   ③ 客户端断开 / 超过手机给的 timeout → 杀掉**整棵**进程树 —— Windows 上只 kill
+//      cmd.exe 会留下 DeepSeek Harness.exe 孤儿（实测客户端断开 12s 后仍在跑）；
+//   ④ 子进程降到 BelowNormal 优先级：跑任务时电脑仍然能正常响应。
+const CLI_SLOT = { running: 0, queued: 0, max: 1, maxQueued: 3 };
+const cliWaiters = [];
+/** 客户端断开后留给子进程收尾的时间；到点还没退出就连整棵树一起杀 */
+const CLI_ABORT_GRACE_MS = 3000;
+
+const abortError = () => { const e = new Error('aborted'); e.code = 'aborted'; return e; };
+
+/** 杀整棵进程树：Windows 用 taskkill /T，POSIX 用进程组（spawn 时 detached） */
+function killTree(pid) {
+  if (!pid) return;
+  try {
+    if (process.platform === 'win32') {
+      const p = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+      p.on('error', () => { /* taskkill 异常不影响主流程 */ });
+    } else {
+      try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch { /* 已退出 */ } }
+    }
+  } catch { /* 进程已退出 */ }
+}
+
+/** 降低子进程优先级：CPU 抢得再凶，桌面端也不会被拖住 */
+function lowerPriority(pid) {
+  if (!pid) return;
+  try {
+    const p = osConstants?.priority?.PRIORITY_BELOW_NORMAL;
+    if (typeof setPriority === 'function' && p !== undefined) setPriority(pid, p);
+  } catch { /* 平台/权限不支持时忽略 */ }
+}
+
+/** 取一个 CLI 槽位：并发上限内立即给；否则排队（排队中被取消则立刻失败，不会 spawn） */
+function acquireCliSlot(signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(abortError()); return; }
+    const release = () => {
+      CLI_SLOT.running = Math.max(0, CLI_SLOT.running - 1);
+      const next = cliWaiters.shift();
+      CLI_SLOT.queued = cliWaiters.length;
+      if (next) {
+        next.cleanup();
+        CLI_SLOT.running += 1;
+        next.resolve(() => release());
+      }
+    };
+    if (CLI_SLOT.running < CLI_SLOT.max) {
+      CLI_SLOT.running += 1;
+      resolve(release);
+      return;
+    }
+    if (cliWaiters.length >= CLI_SLOT.maxQueued) {
+      reject(Object.assign(new Error('busy'), { code: 'busy' }));
+      return;
+    }
+    const waiter = { resolve, reject, cleanup: () => {} };
+    if (signal) {
+      const onAbort = () => {
+        const i = cliWaiters.indexOf(waiter);
+        if (i >= 0) cliWaiters.splice(i, 1);
+        CLI_SLOT.queued = cliWaiters.length;
+        reject(abortError());
+      };
+      try { signal.addEventListener('abort', onAbort, { once: true }); } catch { /* 忽略 */ }
+      waiter.cleanup = () => { try { signal.removeEventListener('abort', onAbort); } catch { /* 忽略 */ } };
+    }
+    cliWaiters.push(waiter);
+    CLI_SLOT.queued = cliWaiters.length;
+  });
+}
+
 export const name = 'smartquiz-remote';
 
 
 /** 插件目录（配对页/二维码库随包分发；.token 持久化于此） */
 const PLUGIN_DIR = dirname(fileURLToPath(import.meta.url));
 const readAsset = (file) => { try { return readFileSync(join(PLUGIN_DIR, file), 'utf8'); } catch { return ''; } };
+
+// ==================== 直连会话协商：两端认同一个电脑会话 id ====================
+//
+// 旧行为：手机先 `action=start` 拿一个自己生成的 `smartquiz-xxx` 当会话 id，插件再让
+// CLI 起一条**另一条** `session-xxx` 真会话，两边靠 `.sessions.json` 的映射绑在一起。
+// 映射只在"成功"时落盘：超时/取消/清配置就丢，下一次又是新会话 → 电脑侧栏越攒越多，
+// 手机和电脑说的不是同一条对话。
+//
+// 现在两端协商：电脑端决定并持久化「对话码 → 电脑会话 id」，每次回话都把
+// `dsh_session_id` 带回给手机；手机存下来、下次作为 `target_session_id` 带回来。
+// 对话码留空 = 默认直连对话（一台电脑一条）；填 `work` 这类短码 = 各自一条专属对话。
+const SESSION_MAP_FILE = join(PLUGIN_DIR, '.sessions.json');
+function readSessionMap() {
+  try {
+    const j = JSON.parse(readFileSync(SESSION_MAP_FILE, 'utf8'));
+    return j && typeof j === 'object' ? j : {};
+  } catch { return {}; }
+}
+function writeSessionMap(mem) {
+  return writeSecret(SESSION_MAP_FILE, JSON.stringify(mem, null, 2));
+}
+/** 对话码 → 绑定槽：留空是默认直连对话，填了就是该码的专属对话 */
+function bindingKeyOf(code) {
+  const c = String(code ?? '').trim().slice(0, 32);
+  return c ? '@code:' + c : '@direct';
+}
 
 /**
  * 写「含密钥」的文件：只给当前用户读写。
@@ -154,6 +261,20 @@ const sendJson = (res, status, obj) => {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(obj));
 };
+
+/**
+ * 把一次 HTTP 响应的生命周期变成 AbortSignal。
+ *
+ * 手机端读超时（timeout+30s）、切后台、主动取消都会把连接断掉：这时 `res` 会触发
+ * 'close' 而 `writableEnded` 仍是 false —— 这就是"手机不要这条回复了"的可靠信号。
+ * 直连模式的 CLI 子进程必须跟着停，否则电脑会替一个没人等的任务继续烧 CPU。
+ */
+function requestAbort(res) {
+  const ac = new AbortController();
+  const onClose = () => { if (!res.writableEnded) { try { ac.abort(); } catch { /* 忽略 */ } } };
+  try { res.on('close', onClose); } catch { /* 忽略 */ }
+  return ac;
+}
 /**
  * 跑一轮对话。两条路径都试，按证据择一：
  *  ① 先把 user/message 作为 surface 事件追加进会话（dsh-session 文档：surface 事件必须带 surfaceOp 才会进入模型历史）
@@ -192,38 +313,90 @@ function carryPreamble(carried, text) {
   ].join('\n');
 }
 
-async function runTurn(ctx, handle, sid, text, cfg) {
+async function runTurn(ctx, handle, sid, text, cfg, runOpts) {
+  const opts = runOpts ?? {};
   // CLI-MODE（默认）：走 `dsh --profile headless "<任务>"`，不依赖 DSH 内部模块 ✓
   if (cfg.cliMode !== false) {
-    // MEMORY-MAP: 我们的 session_id → DSH 持久会话 id（跨调用/跨重启记忆 ✓）
-    const memFile = join(PLUGIN_DIR, '.sessions.json');
-    let mem = {}; try { mem = JSON.parse(readFileSync(memFile, 'utf8')); } catch { mem = {}; }
+    const mem = readSessionMap();
     /**
-     * mem 的两种值：
-     *   'session-xxx'                         → 直接续写这条（正常的手机会话）
-     *   { target, history }                   → 刚从电脑端「接过来」的会话：把上下文
-     *                                           作为前缀塞进新会话（copy-on-write），
-     *                                           不再 --session-id 续写 —— 因为 DSH 的
-     *                                           会话是单写者的，电脑端开着那条时续写会
-     *                                           报 "already owned by an active write owner"。
+     * 绑定优先级：
+     *   ① 手机带回来的 target_session_id（两端协商的结果）
+     *   ② 对话码对应的持久绑定（@direct / @code:xxx）—— 手机丢了 id 也能接上
+     *   ③ 旧版按手机 session_id 存的映射（兼容老数据）
+     * ② 里的 { target, history } 是 attach（copy-on-write）留下的对象，另走前缀逻辑。
      */
-    const raw = mem[sid];
-    const carried = raw !== null && typeof raw === 'object' ? raw : null;
-    const dshSid = carried ? '' : (typeof raw === 'string' ? raw : '');
+    const slot = bindingKeyOf(opts.sessionCode);
+    const slotRaw = mem[slot];
+    const legacyRaw = mem[sid];
+    const carried = slotRaw !== null && typeof slotRaw === 'object'
+      ? slotRaw
+      : (legacyRaw !== null && typeof legacyRaw === 'object' ? legacyRaw : null);
+    const boundSid = (() => {
+      if (typeof slotRaw === 'string' && slotRaw) return slotRaw;
+      if (typeof legacyRaw === 'string' && legacyRaw) return legacyRaw;
+      return '';
+    })();
+    const explicitSid = String(opts.targetSessionId || '').trim();
+    const dshSid = carried ? '' : (explicitSid || boundSid);
+    /** 一拿到电脑会话 id 就落盘（超时/取消也记）：下次续同一条，不会再冒出新会话 */
+    const remember = (id) => {
+      if (!id || carried) return;
+      if (mem[slot] === id && !(mem[sid] && mem[sid] !== id)) return;
+      mem[slot] = id;
+      if (explicitSid && explicitSid !== id) mem[sid] = id;   // 兼容旧的按手机 id 查询
+      writeSessionMap(mem);
+    };
     const promptText = carried && Array.isArray(carried.history) && carried.history.length
       ? carryPreamble(carried, text)
       : text;
     const cands = resolveDshCli(cfg);
+    /**
+     * 单次预算：不能超过手机这一条请求自己的 timeout（以前固定 5 分钟 ——
+     * 手机 120s 就放弃、连接也断了，子进程却还在跑满 5 分钟）。
+     * 排队时间也扣在这里面：deadline - now。
+     */
+    const hardCap = Math.max(3000, Number(cfg.cliTimeoutMs) || 300000);
+    const budgetMs = Number.isFinite(opts.deadline)
+      ? Math.min(hardCap, Math.max(3000, opts.deadline - Date.now()))
+      : hardCap;
     let lastErr = '';
     for (const cli of cands) {
-      const r = await runCliTask(cli, cfg.cliProfile || 'headless', promptText, cfg.cliTimeoutMs || 300000, cfg.__onData, dshSid, cfg.workingDir);
+      let r;
+      try {
+        r = await runCliTask(cli, cfg.cliProfile || 'headless', promptText, budgetMs, cfg.__onData, dshSid, cfg.workingDir,
+          { signal: opts.signal, budgetMs });
+      } catch (e) {
+        if (e?.code === 'busy') {
+          return { reply: '', via: 'busy', error: '电脑端正在执行上一条消息（直连一次只跑一条），这条没有发出去，请稍后再发' };
+        }
+        if (e?.code === 'aborted') {
+          return { reply: '', via: 'cli-aborted', error: '手机端已取消/超时，电脑侧已停止执行' };
+        }
+        return { reply: '', via: 'cli-error', error: '电脑端执行异常：' + String(e?.message ?? e).slice(0, 200) };
+      }
+      if (r.aborted) {
+        remember(r.sessionId);
+        return { reply: '', via: 'cli-aborted', error: '手机端已取消/超时，电脑侧已停止执行', dshSession: r.sessionId || dshSid };
+      }
+      remember(r.sessionId);
       if (r.ok && r.output) {
-        if (r.sessionId && r.sessionId !== dshSid) { mem[sid] = r.sessionId; writeSecret(memFile, JSON.stringify(mem, null, 2)); }
-        return { reply: r.output, via: 'cli:' + cli, debug: { cli_ms: r.ms, cli_code: r.code, dsh_session: r.sessionId || '(none)', memory: carried ? 'carried' : (dshSid ? 'resumed' : 'new') } };
+        return { reply: r.output, via: 'cli:' + cli, dshSession: r.sessionId || dshSid, debug: { cli_ms: r.ms, cli_code: r.code, dsh_session: r.sessionId || '(none)', memory: carried ? 'carried' : (dshSid ? 'resumed' : 'new') } };
       }
       lastErr = `${cli} → code=${r.code} ${r.err ?? ''} ${String(r.output).slice(0, 120)}`;
+      if (r.code === -1) {
+        // 超时别再换下一个候选重跑：那等于把同一轮任务再做一遍，白烧 CPU
+        const secs = Math.round(budgetMs / 1000);
+        const partial = r.output ? r.output + '\n\n（超过 ' + secs + 's 未完成，电脑侧已中断）' : '';
+        return {
+          reply: partial,
+          via: 'cli-timeout',
+          error: '这一轮在 ' + secs + 's 内没跑完，已中断（电脑侧进程已结束）',
+          dshSession: r.sessionId || dshSid,
+          debug: { cli_ms: r.ms, cli_code: r.code },
+        };
+      }
     }
-    return { reply: '', via: 'cli-failed', error: '电脑端执行失败：' + (lastErr || '未知错误（dsh --profile ' + (cfg.cliProfile || 'headless') + ' 没有返回内容）'), debug: { cli_errors: lastErr } };
+    return { reply: '', via: 'cli-failed', error: '电脑端执行失败：' + (lastErr || '未知错误（dsh --profile ' + (cfg.cliProfile || 'headless') + ' 没有返回内容）'), dshSession: dshSid, debug: { cli_errors: lastErr } };
   }
   const session = ctx.sessions.get(sid);
   const seqBefore = Number(session?.seq ?? 0);
@@ -247,7 +420,7 @@ async function runTurn(ctx, handle, sid, text, cfg) {
     } else {
       const s2 = ctx.sessions.get(sid);
       const t = lastAssistant(s2);
-      if (t) return { reply: t.length > cfg.maxReplyChars ? t.slice(0, cfg.maxReplyChars) : t, via,
+      if (t) return { reply: t.length > cfg.maxReplyChars ? t.slice(0, cfg.maxReplyChars) : t, via, dshSession: sid,
                       debug: snapshot(s2) };
     }
   }
@@ -256,7 +429,7 @@ async function runTurn(ctx, handle, sid, text, cfg) {
   const s3 = ctx.sessions.get(sid);
   let reply = lastAssistant(s3);
   if (reply.length > cfg.maxReplyChars) reply = reply.slice(0, cfg.maxReplyChars);
-  return { reply, via, debug: snapshot(s3) };
+  return { reply, via, dshSession: sid, debug: snapshot(s3) };
 }
 
 /** CLI-MODE: 用 `dsh --profile <p> "<task>"` 跑任务（旧 Python 桥的机制，已验证可行 ✓）
@@ -273,9 +446,18 @@ function resolveDshCli(config) {
   return cands;
 }
 
-/** 跑一条 CLI 任务；onData 逐块收到 stdout（流式用），返回 { ok, output, code, ms } */
-function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId, workingDir) {
-  return new Promise((resolve) => {
+/**
+ * 跑一条 CLI 任务；onData 逐块收到 stdout（流式用）。
+ * 返回 { ok, output, code, ms, err, aborted }；`aborted` = 客户端断开后被杀。
+ *
+ * ★ 所有 CLI 任务都经过 acquireCliSlot()：并发上限内才真起进程，否则排队。
+ *   opts.signal  —— 手机请求的 AbortSignal（连接断开/超时触发），到点杀整棵进程树
+ *   opts.budgetMs —— 这次任务最多跑多久（手机给的 timeout 与 cliTimeoutMs 取小）
+ */
+function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId, workingDir, opts) {
+  const signal = opts?.signal;
+  const budgetMs = Math.max(3000, Math.min(Number(opts?.budgetMs) || Number(timeoutMs) || 300000, 6 * 3600 * 1000));
+  return acquireCliSlot(signal).then((release) => new Promise((resolve) => {
     const started = Date.now();
     const isCmd = /\.(cmd|bat)$/i.test(String(cliPath));
     /**
@@ -328,9 +510,12 @@ function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId, wor
     const permArgs = ' --permission-mode ' + permMode + ' --approval-policy ' + approvalPolicy;
     const fullLine = '"' + cliPath + '" --profile ' + prof + ' --json' + memArgs + permArgs + ' -';
     let out = '';
-    let done = false;
+    let settled = false;
     let finalText = '';
     let sessionId = dshSessionId || '';
+    let childProc = null;
+    let timer = null;
+    let abortTimer = null;
     const consume = (chunk) => {
       for (const line of String(chunk).split(/\r?\n/)) {
         const s = line.trim();
@@ -350,35 +535,65 @@ function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId, wor
         } catch { /* 非 JSON 行忽略 */ }
       }
     };
-    const finish = (code, err) => { if (done) return; done = true;
+    /** 杀掉这一轮的进程树（子进程可能已经自己退出，killTree 会静默忽略） */
+    const killChild = () => { try { if (childProc?.pid) killTree(childProc.pid); } catch { /* 忽略 */ } };
+    const finish = (code, err) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (abortTimer) clearTimeout(abortTimer);
+      if (signal) { try { signal.removeEventListener('abort', onAbort); } catch { /* 忽略 */ } }
+      try { release(); } catch { /* 忽略 */ }
       const reply = (finalText || out).trim();
-      resolve({ ok: code === 0, output: reply, sessionId, code, ms: Date.now() - started, err }); };
+      resolve({ ok: code === 0, output: reply, sessionId, code, ms: Date.now() - started, err, aborted: code === -4 });
+    };
+    /**
+     * 客户端断开（手机 HTTP 超时 / 切后台 / 主动取消）：
+     * 先给 3 秒收尾，再把整棵进程树杀掉 —— 否则这个 250MB 的 DSH 宿主会一直
+     * 跑到自己的 5 分钟上限，连发几句就把电脑堆卡（本次要修的核心问题）。
+     */
+    const onAbort = () => {
+      if (settled || abortTimer) return;
+      abortTimer = setTimeout(() => { killChild(); finish(-4, 'aborted'); }, CLI_ABORT_GRACE_MS);
+    };
+    if (signal) {
+      if (signal.aborted) { finish(-4, 'aborted'); return; }
+      try { signal.addEventListener('abort', onAbort, { once: true }); } catch { /* 忽略 */ }
+    }
+    timer = setTimeout(() => { killChild(); finish(-1, 'timeout'); }, budgetMs);
     try {
       if (isCmd) {
-        // .cmd：整条命令行交给 cmd（唯一可靠方式 ✓）
         // .cmd：整条命令行交给 cmd（唯一可靠方式 ✓）。
         // ★ 正文走 stdin（`-`），不要拼进命令行：cmd 会把换行当成命令分隔符，
         //   多行 prompt 只会有第一行生效（实测：接续上下文只到了标题那一行）。
-        const child = exec(fullLine, { windowsHide: true, maxBuffer: 16 * 1024 * 1024, timeout: timeoutMs,
-          env: cliEnv, cwd: workdir },
+        // ★ 超时/取消都由上面自己的 timer + killTree 处理，不用 exec 的 timeout
+        //   （exec 的 timeout 只杀 cmd.exe，会留下 DeepSeek Harness.exe 孤儿）。
+        const child = exec(fullLine, {
+          windowsHide: true, maxBuffer: 16 * 1024 * 1024,
+          env: cliEnv, cwd: workdir, detached: process.platform !== 'win32',
+        },
           (err, stdout, stderr) => {
             const s = String(stdout ?? ''); const e2 = String(stderr ?? '');
             if (s) { out += s; consume(s); }
             if (e2) out += e2;
             finish(err ? (err.code ?? 1) : 0, err ? String(err.message).slice(0, 120) : undefined);
           });
+        childProc = child;
+        lowerPriority(child.pid);
         try { child.stdin?.write(text); child.stdin?.end(); } catch { /* 子进程已退出 */ }
-        void child;
       } else {
-        const child = spawn(cliPath, ['--profile', prof, '--json', ...(dshSessionId ? ['--session-id', dshSessionId] : []), '--permission-mode', CLI_PERM.mode, '--approval-policy', CLI_PERM.approval, text], { windowsHide: true, env: cliEnv, cwd: workdir });
-        const timer = setTimeout(() => { try { child.kill(); } catch { /* 忽略 */ } finish(-1, 'timeout'); }, timeoutMs);
+        const child = spawn(cliPath, ['--profile', prof, '--json', ...(dshSessionId ? ['--session-id', dshSessionId] : []), '--permission-mode', CLI_PERM.mode, '--approval-policy', CLI_PERM.approval, text], {
+          windowsHide: true, env: cliEnv, cwd: workdir, detached: process.platform !== 'win32',
+        });
+        childProc = child;
+        lowerPriority(child.pid);
         child.stdout?.on('data', (b) => { const s = b.toString('utf8'); out += s; consume(s); });
         child.stderr?.on('data', (b) => { out += b.toString('utf8'); });
-        child.on('error', (e) => { clearTimeout(timer); finish(-2, String(e?.message ?? e)); });
-        child.on('close', (code) => { clearTimeout(timer); finish(code ?? 0); });
+        child.on('error', (e) => { finish(-2, String(e?.message ?? e)); });
+        child.on('close', (code) => { finish(code ?? 0); });
       }
     } catch (e) { finish(-3, String(e?.message ?? e)); }
-  });
+  }));
 }
 /** 递归深挖任意结构里的文本（DSH 的 assistant/message 内嵌流结构不固定，故不做形状假设） */
 function collectText(x, out, depth = 0) {
@@ -533,6 +748,9 @@ export function apply(ctx, config) {
     maxReplyChars: 4000, allowExec: true, execTimeoutMs: 120000,
     cliMode: true, cliProfile: 'headless', cliTimeoutMs: 300000, dshPath: '', publicUrl: '',
     workingDir: '',   // CLI 任务的 cwd：决定手机会话归到哪个工作区（空=继承宿主 cwd）
+    // 直连模式最多同时跑几个 `dsh` 子进程 / 队列里最多排几条。
+    // 默认 1 + 3：实测每个子进程 ~256MB，串行执行才不会把电脑堆卡。
+    cliMaxConcurrent: 1, cliMaxQueued: 3,
   };
   const cfg = { ...DEFAULTS, ...(config ?? {}) };
   const prefix = cfg.pathPrefix ?? '';
@@ -550,6 +768,9 @@ export function apply(ctx, config) {
   // 手机直连 / CLI 任务的权限档位（默认全权，避免 Windows 上 windows-acl 授权失败）
   CLI_PERM.mode = String(cfg.cliPermissionMode || 'danger-full-access').trim();
   CLI_PERM.approval = String(cfg.cliApprovalPolicy || 'never').trim();
+  // 直连并发闸门（见 CLI_SLOT 注释）：默认一次只跑一条，排队上限 3
+  CLI_SLOT.max = Math.max(1, Math.min(4, Number(cfg.cliMaxConcurrent) || 1));
+  CLI_SLOT.maxQueued = Math.max(0, Math.min(20, Number(cfg.cliMaxQueued) || 0));
   // 注意：主令牌不再在此处取一次就固定（见下方 mainToken()：惰性读取，便于轮换）
   const startedAt = Date.now();
   /**
@@ -751,7 +972,7 @@ export function apply(ctx, config) {
   const statusBody = () => ({
     ok: true,
     service: 'dsh-plugin-remote',
-    version: 6,
+    version: 7,
     bridge: 'dsh-plugin',
     channels: { session_acp: true, exec: allowExec === true },
     acp_agent: { provider: cfg.provider || '(none)', model: cfg.model || '(none)', preset: lastPreset, transport: 'in-process' },
@@ -759,6 +980,16 @@ export function apply(ctx, config) {
     session_streams: handles.size,
     sessions_count: handles.size,
     active_jobs: activeJobs,
+    // 直连模式的 CLI 子进程池：running/queued 是面板与手机端判断"电脑忙不忙"的依据
+    cli: {
+      mode: cfg.cliMode === false ? 'in-process' : 'cli',
+      running: CLI_SLOT.running,
+      queued: CLI_SLOT.queued,
+      max: CLI_SLOT.max,
+      max_queued: CLI_SLOT.maxQueued,
+      priority: 'below-normal',
+      timeout_ms: Number(cfg.cliTimeoutMs) || 300000,
+    },
     devices: devices.devices.length,
     // 主令牌最近一次被使用的时间：手机端只有在"还没换成设备令牌"或"用设备令牌失败退回主令牌"时才走主令牌，
     // 有值就说明当前有连接在用主令牌（面板据此提示，避免把"设备数 0"误读成"没人连着"）
@@ -792,7 +1023,7 @@ export function apply(ctx, config) {
   });
 
   route('exact', '/health', (req, res) =>
-    sendJson(res, 200, { ok: true, service: 'dsh-plugin-remote', version: 6 }));
+    sendJson(res, 200, { ok: true, service: 'dsh-plugin-remote', version: 7 }));
 
   // ---------------- 电脑端会话：列出 / 只读查看 ----------------
   // 目的：手机不只知道"自己那条会话"，还能看到电脑上正在聊/聊过的会话（只读），
@@ -819,6 +1050,15 @@ export function apply(ctx, config) {
   };
 
   const persistence = () => { try { return ctx.get('sessionPersistence'); } catch { return undefined; } };
+  /** 电脑上是否真有这条会话（直连协商/恢复时先验一下，避免拿一个死 id 去续写） */
+  const sessionExists = async (id) => {
+    if (!id) return false;
+    try {
+      const svc = persistence();
+      const st = svc?.stat ? await svc.stat(id) : null;
+      return Boolean(st);
+    } catch { return false; }
+  };
 
   /** 持久化事件 → {role,text}；只取 user/assistant 的文本，不碰工具结果与推理 */
   const messageOf = (ev) => {
@@ -871,17 +1111,21 @@ export function apply(ctx, config) {
     return (await readStoredTail(id, max)).messages;
   }
 
-  /** 读会话标题（`session/title` 事件；只读开头几十条，别为一条标题扫全量日志） */
+  /** 读会话标题与头部信息（`session/title` 与 header；只读开头几十条，别为一条标题扫全量日志） */
     async function readStoredHead(id) {
     const svc = persistence();
-    if (!svc || typeof svc.open !== 'function') return { title: '', firstUser: '' };
+    if (!svc || typeof svc.open !== 'function') return { title: '', firstUser: '', agentPreset: '' };
     const handle = await svc.open(id, 'read');
     try {
+      // 会话头不在事件流里，是 handle.header（形如 {..., "agentPreset":"standard"}）。
+      // 有 agentPreset 就说明这条会话是桌面端预设建的，headless one-shot CLI 拒绝续写。
+      let agentPreset = typeof handle?.header?.agentPreset === 'string' ? handle.header.agentPreset : '';
       const got = await handle.read(0, 80);
       const events = Array.isArray(got) ? got : (got?.events ?? []);
       let title = '';
       let firstUser = '';
       for (const ev of events) {
+        if (!agentPreset && ev?.type === 'session' && typeof ev.agentPreset === 'string') agentPreset = ev.agentPreset;
         if (ev?.type === 'session/title' && ev?.data && typeof ev.data.title === 'string') title = ev.data.title;
         if (!firstUser && ev?.type === 'user/message') {
           const kind = ev?.data?.source?.kind;
@@ -891,7 +1135,7 @@ export function apply(ctx, config) {
           }
         }
       }
-      return { title: title.trim(), firstUser };
+      return { title: title.trim(), firstUser, agentPreset };
     } finally { try { await handle.close?.(); } catch { /* 已关 */ } }
   }
 
@@ -1373,8 +1617,87 @@ export function apply(ctx, config) {
     sendJson(res, 200, statusBody());
   });
 
-  /** 一轮对话（非流式 / SSE 流式） */
-  const runPrompt = async (req, res, sid, text, wantsStream) => {
+  /**
+   * 宿主进程内跑一轮（不启 CLI）。
+   *
+   * ★ 为什么需要：headless 的 one-shot CLI 续写会话有两个硬限制：
+   *   ① 会话头部带 `agentPreset`（桌面端建的都是 "standard"）时直接拒绝：
+   *      "runs under agent preset standard, which the one-shot runner does not compose"；
+   *   ② 桌面端正打开着那条会话时，子进程拿不到写权（单写者）。
+   * 而插件与桌面端在**同一个宿主进程**里：ctx.agents.get/resume 拿到的就是写者本身。
+   * 所以"用户在电脑上正看这条对话"时改走这条路 —— 消息会直接出现在电脑那条对话里
+   * （这正是用户想要的），手机照常拿到回复。
+   */
+  const getLiveAgent = (target) => {
+    try { return ctx.agents?.get?.(target) ?? null; } catch { return null; }
+  };
+
+  const sessionAgentPreset = async (id) => {
+    try { return (await readStoredHead(id)).agentPreset || ''; } catch { return ''; }
+  };
+
+  const runInProcessTurn = async (target, text, turnOpts) => {
+    const deadline = Number.isFinite(turnOpts?.deadline) ? turnOpts.deadline : Date.now() + 120000;
+    const signal = turnOpts?.signal;
+    let agent = getLiveAgent(target);
+    let resumed = false;
+    let resumeError = '';
+    if (!agent) {
+      try {
+        let h = resumedHandles.get(target);
+        if (!h) { h = await ctx.agents.resume({ resumeSessionId: target }); if (h) resumedHandles.set(target, h); }
+        agent = h?.agent ?? h ?? null;
+        resumed = Boolean(agent);
+      } catch (e) { resumeError = String(e?.message ?? e).slice(0, 200); }
+    }
+    if (!agent || typeof agent.followup !== 'function') return { ok: false, resumeError };
+    if (signal?.aborted) return { ok: false, aborted: true };
+    const live = ctx.sessions.get(target);
+    if (!live) return { ok: false, resumeError: resumeError || '会话不在宿主内存里' };
+    const seqBefore = Number(live.seq ?? 0);
+    const baseReply = lastAssistant(live) || '';
+    try {
+      agent.followup({ id: randomBytes(16).toString('hex'), role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } });
+    } catch (e) {
+      return { ok: false, resumeError: String(e?.message ?? e).slice(0, 200) };
+    }
+    let reply = '';
+    let turnError = '';
+    let timedOut = true;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 200));
+      if (signal?.aborted) return { ok: false, aborted: true, via: resumed ? 'in-process:resume' : 'in-process:live' };
+      const cur = ctx.sessions.get(target);
+      if (!cur) break;
+      const seq = Number(cur.seq ?? 0);
+      if (seq > seqBefore) {
+        const t = assistantTextSince(cur, seqBefore);
+        if (t && t !== baseReply) { reply = t; timedOut = false; break; }
+        for (let i = seq - 1; i >= Math.max(0, seq - 40); i -= 1) {
+          const ev = cur.eventAt?.(i);
+          if (ev?.type === 'turn/end' && ev?.data?.reason?.kind === 'error') {
+            turnError = String(ev.data.reason.error?.message ?? ev.data.reason.error ?? '').slice(0, 300);
+            break;
+          }
+        }
+        if (turnError) break;
+      }
+    }
+    const cur = ctx.sessions.get(target);
+    const parts = assistantPartsSince(cur, seqBefore);
+    if (!reply) reply = (parts.answer || parts.thinking || '').trim();
+    return {
+      ok: Boolean(reply) && !turnError,
+      reply, timedOut, turnError, resumeError,
+      via: resumed ? 'in-process:resume' : 'in-process:live',
+    };
+  };
+
+  /** 一轮对话（非流式 / SSE 流式）
+   *  runOpts.signal   —— 手机连接断开/超时 → 取消 CLI 子进程
+   *  runOpts.deadline —— 手机给的时间预算（ms 时间戳），CLI 不能跑过它 */
+  const runPrompt = async (req, res, sid, text, wantsStream, runOpts) => {
+    const opts = runOpts ?? {};
     // CLI 模式下不需要（也不该）在宿主里建 agent：任务由 `dsh --profile headless`
     // 子进程执行。之前无论哪种模式都先 create 一次，attach 到电脑端已有会话后
     // 会撞上 "session already exists"（那条 id 在宿主里已经存在）。
@@ -1386,11 +1709,49 @@ export function apply(ctx, config) {
       handles.set(sid, handle); local.set(sid, []);
     }
     if (!wantsStream) {
-      const r = await runTurn(ctx, handle, sid, text, cfg);
+      const target = String(opts.targetSessionId || '').trim();
+      let r;
+      if (cliMode && target) {
+        /**
+         * 什么时候不能走 CLI：
+         *   · 会话头部带 agentPreset（桌面端建的都是 "standard"）→ CLI 直接拒绝续写；
+         *   · 桌面端正打开着这条会话（宿主里有 live agent）→ CLI 拿不到写权。
+         * 这两种情况都改由宿主进程内接管，用户正在看的那条对话会实时收到消息。
+         */
+        const liveAgent = getLiveAgent(target);
+        const preset = liveAgent ? '' : await sessionAgentPreset(target);
+        if (liveAgent || preset) {
+          const ir = await runInProcessTurn(target, text, { signal: opts.signal, deadline: opts.deadline });
+          if (ir?.reply) {
+            r = { reply: ir.reply, via: ir.via, dshSession: target, debug: { via: ir.via, in_process: true, preset: preset || '(live)' } };
+          } else if (ir?.aborted) {
+            r = { reply: '', via: 'cli-aborted', error: '手机端已取消/超时，电脑侧已停止等待', dshSession: target };
+          } else {
+            r = { reply: '', via: 'in-process-failed', dshSession: target,
+              error: '电脑端这条对话正在使用中，进程内接管失败：' + (ir?.resumeError || ir?.turnError || '未知原因') };
+          }
+        }
+      }
+      if (!r) {
+        r = await runTurn(ctx, handle, sid, text, cfg, { signal: opts.signal, deadline: opts.deadline,
+          targetSessionId: opts.targetSessionId, sessionCode: opts.sessionCode });
+        // CLI 续不上（预设不兼容 / 被别的进程占着）→ 再试一次宿主内接管
+        if (!r.reply && cliMode && target && !r.aborted
+            && /agent preset|one-shot runner|write owner|already owned|compose/i.test(String(r.error || ''))) {
+          const ir = await runInProcessTurn(target, text, { signal: opts.signal, deadline: opts.deadline });
+          if (ir?.reply) {
+            r = { reply: ir.reply, via: ir.via, dshSession: target, debug: { via: ir.via, fallback: 'after-cli' } };
+          } else if (ir?.turnError) {
+            r = { ...r, error: '电脑端这一轮报错：' + ir.turnError };
+          }
+        }
+      }
+      // 手机已经断开（超时/取消）：不再往死连接上写，也不要记进本地历史
+      if (opts.signal?.aborted) { try { res.end(); } catch { /* 已断开 */ } return; }
       const dbg = { via: r.via, model: modelInfo(), selection: lastSelection, selectionInstaller, preset: lastPreset, ...r.debug };
       // 失败要说出来：以前 CLI 起不来时回 ok:true + 空 reply，手机端只显示「电脑没回话」
       if (!r.reply && r.error) {
-        return sendJson(res, 200, { ok: false, action: 'prompt', session_id: sid, reply: '', error: r.error, debug: dbg });
+        return sendJson(res, 200, { ok: false, action: 'prompt', session_id: sid, dsh_session_id: r.dshSession || '', reply: '', error: r.error, debug: dbg });
       }
       { const hist = local.get(sid) ?? []; hist.push({ role: 'user', text }); hist.push({ role: 'assistant', text: r.reply }); local.set(sid, hist); }
       promptCount += 1;
@@ -1398,7 +1759,7 @@ export function apply(ctx, config) {
       const h = local.get(sid) ?? [];
       h.push({ role: 'user', text: text.slice(0, 2000) }, { role: 'assistant', text: reply.slice(0, 2000) });
       local.set(sid, h);
-      sendJson(res, 200, { ok: true, action: 'prompt', session_id: sid, reply, duration_ms: dbg.cli_ms ?? null, turn: 1, debug: dbg });
+      sendJson(res, 200, { ok: true, action: 'prompt', session_id: sid, dsh_session_id: r.dshSession || '', reply, duration_ms: dbg.cli_ms ?? null, turn: 1, debug: dbg });
       return;
     }
     // SSE：进程内轮询 event-sourced 会话日志（assistant/message、tool/result）
@@ -1424,7 +1785,8 @@ export function apply(ctx, config) {
       } catch (e) { sse({ type: 'warn', error: String(e?.message ?? e) }); }
     }, 150);
     try {
-      const rr = await runTurn(ctx, handle, sid, text, { ...cfg, __onData: (s) => sse({ type: 'text', text: s }) });
+      const rr = await runTurn(ctx, handle, sid, text, { ...cfg, __onData: (s) => sse({ type: 'text', text: s }) },
+        { signal: opts.signal, deadline: opts.deadline, targetSessionId: opts.targetSessionId, sessionCode: opts.sessionCode });
       { const hist = local.get(sid) ?? []; hist.push({ role: 'user', text }); hist.push({ role: 'assistant', text: rr.reply }); local.set(sid, hist); }
       promptCount += 1;
       const s = ctx.sessions.get(sid);
@@ -1432,7 +1794,7 @@ export function apply(ctx, config) {
       if (s) for (const m of (s.deriveMessages?.() ?? [])) if (m?.role === 'assistant' && textOf(m)) reply = textOf(m);
       if (reply.length > cfg.maxReplyChars) reply = reply.slice(0, cfg.maxReplyChars);
       if (!reply && rr.error) sse({ type: 'error', action: 'prompt', session_id: sid, error: rr.error });
-      else sse({ type: 'done', action: 'prompt', session_id: sid, reply, debug: { via: rr.via, ...rr.debug } });
+      else sse({ type: 'done', action: 'prompt', session_id: sid, dsh_session_id: rr.dshSession || '', reply, debug: { via: rr.via, ...rr.debug } });
     } catch (e) {
       sse({ type: 'error', action: 'prompt', session_id: sid, error: String(e?.message ?? e) });
     } finally {
@@ -1454,16 +1816,67 @@ export function apply(ctx, config) {
     try {
       if (action === 'start') {
         const sid = `smartquiz-${randomBytes(6).toString('hex')}`;
-        if (!ctx.agents || !ctx.sessions) throw new Error('agents/sessions 服务不可用');
-        const handle = await ctx.agents.create(await createInput(sid));
-        handles.set(sid, handle); local.set(sid, []);
-        return sendJson(res, 200, { ok: true, action: 'start', session_id: sid });
+        // ★ CLI 模式下**不要**在宿主里建 agent：那会落一条空的 `smartquiz-*` 会话，
+        //   正是电脑侧栏里"一堆会话"的来源。真正的电脑会话由 CLI 建，建好后通过
+        //   `dsh_session_id` 回给手机（两端认同同一个 id）。
+        if (cfg.cliMode === false) {
+          if (!ctx.agents || !ctx.sessions) throw new Error('agents/sessions 服务不可用');
+          const handle = await ctx.agents.create(await createInput(sid));
+          handles.set(sid, handle);
+        }
+        local.set(sid, []);
+        return sendJson(res, 200, { ok: true, action: 'start', session_id: sid, dsh_session_id: '' });
       }
       if (action === 'get_status') return sendJson(res, 200, { ...statusBody(), action: 'get_status' });
       if (action === 'set_config') return sendJson(res, 200, { ok: true, action: 'set_config', note: '配置由手机侧持有' });
 
       const sid = typeof body.session_id === 'string' && body.session_id
         ? body.session_id : `smartquiz-${randomBytes(6).toString('hex')}`;
+
+      // ---- 直连会话协商：手机问"我的直连对话是哪条电脑会话"，电脑说了算 ----
+      if (action === 'direct_state' || action === 'direct_bind') {
+        const code = String(body.session_code ?? '').trim();
+        const slot = bindingKeyOf(code);
+        const mem = readSessionMap();
+        if (action === 'direct_bind') {
+          const target = String(body.target_session_id ?? body.direct_session_id ?? '').trim();
+          if (!target) {
+            delete mem[slot];
+            writeSessionMap(mem);
+            return sendJson(res, 200, { ok: true, action: 'direct_bind', session_code: code, direct_session_id: '' });
+          }
+          if (!(await sessionExists(target))) {
+            return sendJson(res, 404, { ok: false, action: 'direct_bind', session_code: code,
+              error: '电脑上没有这条会话：' + target });
+          }
+          mem[slot] = target;
+          writeSessionMap(mem);
+          let title = ''; try { title = await readStoredTitle(target); } catch { /* 忽略 */ }
+          return sendJson(res, 200, { ok: true, action: 'direct_bind', session_code: code,
+            direct_session_id: target, title, exists: true, agent_preset: await sessionAgentPreset(target) });
+        }
+        let id = typeof mem[slot] === 'string' ? mem[slot] : '';
+        let exists = id ? await sessionExists(id) : false;
+        // 手机记得 id 但电脑侧绑定丢了（清过 .sessions.json / 换过插件包）：先认回来，别新建
+        const known = String(body.target_session_id ?? '').trim();
+        if ((!id || !exists) && known && known !== id && await sessionExists(known)) {
+          id = known;
+          exists = true;
+          const mem2 = readSessionMap();
+          mem2[slot] = known;
+          writeSessionMap(mem2);
+        }
+        let created = false;
+        // ★ 不在 direct_state 里凭空建会话：DSH 的会话必须带工作目录才可被 CLI 续写，
+        //   宿主 API 建出来的会 "recorded no working directory"（实测）。所以第一次真正
+        //   发消息时由 CLI 建（带 cwd），插件把 dsh_session_id 回给手机 —— 电脑端仍然是
+        //   唯一决定 id 的一方，手机只保存/回传。
+        let title = '';
+        if (exists && id) { try { title = await readStoredTitle(id); } catch { title = ''; } }
+        return sendJson(res, 200, { ok: true, action: 'direct_state', session_code: code,
+          direct_session_id: id, title, exists,
+          created, agent_preset: id ? await sessionAgentPreset(id) : '' });
+      }
 
       if (action === 'history') {
         const max = Number.isFinite(body.max) ? Math.max(1, Math.min(200, body.max)) : 10;
@@ -1545,7 +1958,7 @@ export function apply(ctx, config) {
             let lastErr = '';
             for (const cli of cands) {
               // eslint-disable-next-line no-await-in-loop -- 串行尝试，失败才换下一个
-              const r = await runCliTask(cli, cfg.cliProfile || 'headless', preamble, cfg.cliTimeoutMs || 300000, null, '', cfg.workingDir);
+              const r = await runCliTask(cli, cfg.cliProfile || 'headless', preamble, cfg.cliTimeoutMs || 300000, null, '', cfg.workingDir, {});
               if (r.ok && r.output) {
                 promptCount += 1;
                 return sendJson(res, 200, {
@@ -1740,7 +2153,20 @@ export function apply(ctx, config) {
       const text = (typeof body.text === 'string' && body.text ? body.text : (typeof body.prompt === 'string' && body.prompt ? body.prompt : (typeof body.task === 'string' ? body.task : ''))).trim();
       if (!text) return sendJson(res, 400, { ok: false, action: 'prompt', error: 'text 不能为空' });
       const wantsStream = body.stream === true || String(req.headers['accept'] ?? '').includes('text/event-stream');
-      await runPrompt(req, res, sid, text, wantsStream);
+      // 手机给的 timeout（秒）在这里真正生效：到点杀 CLI 子进程，手机断开也杀。
+      // 以前 CLI 固定 300s，手机 120s 就放弃 —— 中间 3 分钟纯属白烧 CPU/内存。
+      const timeoutSec = Number.isFinite(body.timeout) ? Math.max(5, Math.min(600, Number(body.timeout))) : 120;
+      const abort = requestAbort(res);
+      // 直连协商：手机带回来的电脑会话 id 先验存在（否则 CLI 续写会报错），
+      // 无效就当没带 —— 由 CLI 新建一条，并把新 id 回给手机。
+      let targetSid = String(body.target_session_id ?? '').trim();
+      if (targetSid && !(await sessionExists(targetSid))) targetSid = '';
+      await runPrompt(req, res, sid, text, wantsStream, {
+        signal: abort.signal,
+        deadline: Date.now() + timeoutSec * 1000,
+        targetSessionId: targetSid,
+        sessionCode: typeof body.session_code === 'string' ? body.session_code : '',
+      });
     } catch (e) {
       sendJson(res, 500, { ok: false, action, error: String(e?.message ?? e) });
     }
@@ -1756,7 +2182,18 @@ export function apply(ctx, config) {
     const text = (typeof body.text === 'string' && body.text ? body.text : (typeof body.prompt === 'string' && body.prompt ? body.prompt : (typeof body.task === 'string' ? body.task : ''))).trim();
     if (!text) return sendJson(res, 400, { ok: false, error: 'text is required' });
     const wantsStream = body.stream === true || String(req.headers['accept'] ?? '').includes('text/event-stream');
-    try { await runPrompt(req, res, sid, text, wantsStream); }
+    const timeoutSec = Number.isFinite(body.timeout) ? Math.max(5, Math.min(600, Number(body.timeout))) : 120;
+    const abort = requestAbort(res);
+    try {
+      let targetSid = String(body.target_session_id ?? '').trim();
+      if (targetSid && !(await sessionExists(targetSid))) targetSid = '';
+      await runPrompt(req, res, sid, text, wantsStream, {
+        signal: abort.signal,
+        deadline: Date.now() + timeoutSec * 1000,
+        targetSessionId: targetSid,
+        sessionCode: typeof body.session_code === 'string' ? body.session_code : '',
+      });
+    }
     catch (e) { sendJson(res, 500, { ok: false, error: String(e?.message ?? e) }); }
   });
 

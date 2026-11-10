@@ -50,6 +50,10 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private Runnable pickerTick;
     private String lastLightSig = "";
     private MaterialButton pickSessionBtn;
+    /** 直连会话（两端协商出来的电脑会话 id）：显示 + 对话码输入 */
+    private TextView valueDirectSession;
+    private TextInputEditText inputDirectCode;
+    private MaterialButton saveDirectCodeBtn;
     private TextView probeText;
     private TextView probeTime;
     private MaterialButton connectBtn;
@@ -118,6 +122,16 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             btnImportHistory.setOnClickListener(v -> importRemoteHistory());
         }
             pickSessionBtn.setOnClickListener(v -> pickSession());
+        }
+
+        valueDirectSession = findViewById(R.id.value_direct_session);
+        inputDirectCode = findViewById(R.id.input_direct_code);
+        saveDirectCodeBtn = findViewById(R.id.btn_save_direct_code);
+        if (inputDirectCode != null) {
+            inputDirectCode.setText(RemoteDshTool.getDirectCode(this));
+        }
+        if (saveDirectCodeBtn != null) {
+            saveDirectCodeBtn.setOnClickListener(v -> saveDirectCode());
         }
 
         bindActions();
@@ -502,6 +516,54 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         });
     }
 
+    /** 保存对话码：换码 = 换一条电脑对话，然后立刻和电脑对齐一次 */
+    private void saveDirectCode() {
+        String code = inputDirectCode == null ? "" : inputDirectCode.getText().toString().trim();
+        RemoteDshTool.setDirectCode(this, code);
+        refresh();
+        toast(code.isEmpty() ? "已切回默认直连对话（发一条消息后自动建立）" : "直连对话码：" + code);
+        syncDirectState(true);
+    }
+
+    /**
+     * 和电脑对齐"直连对话"是哪条电脑会话。
+     *
+     * 电脑端是唯一权威（会话 id 在电脑落盘、由插件回传），手机这边只是缓存 ——
+     * 这就是"两端说的是同一条对话"的来源。重装/清数据后也靠它接回原来那条。
+     */
+    private void syncDirectState(boolean toastResult) {
+        if (!RemoteDshTool.isConfigured(this)) {
+            refresh();
+            return;
+        }
+        new Thread(() -> {
+            String id = "";
+            String title = "";
+            String err = null;
+            try {
+                java.util.Map<String, Object> st = RemoteDshTool.syncDirectState(getApplicationContext());
+                id = st.get("direct_session_id") == null ? "" : String.valueOf(st.get("direct_session_id"));
+                title = st.get("title") == null ? "" : String.valueOf(st.get("title"));
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+            final String fId = id;
+            final String fTitle = title;
+            final String fErr = err;
+            runOnUiThread(() -> {
+                refresh();
+                if (!toastResult) return;
+                if (fErr != null) {
+                    toast("同步直连会话失败：" + fErr);
+                } else if (fId.isEmpty()) {
+                    toast("电脑端还没有这条直连对话：发一条消息后会自动建立");
+                } else {
+                    toast("已与电脑同步：" + (fTitle.isEmpty() ? shortId(fId) : fTitle));
+                }
+            });
+        }, "remote-dsh-direct-state").start();
+    }
+
     /** 刷新状态区（不联网）：状态点/文案、地址令牌会话、按钮可用性 */
     private void refresh() {
         boolean configured = RemoteDshTool.isConfigured(this);
@@ -538,6 +600,14 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             String t = RemoteDshTool.getSyncTarget(this);
             String title = RemoteDshTool.getSyncTitle(this);
             valueSyncTarget.setText(t.isEmpty() ? "(未选择)" : (title.isEmpty() ? shortId(t) : title));
+        }
+        if (valueDirectSession != null) {
+            String code = RemoteDshTool.getDirectCode(this);
+            String id = RemoteDshTool.getDirectSessionId(this);
+            String title = RemoteDshTool.getDirectTitle(this);
+            String bound = id.isEmpty() ? "(首次发送时建立)" : (title.isEmpty() ? shortId(id) : title + " · " + shortId(id));
+            valueDirectSession.setText((code.isEmpty() ? "默认" : code) + " · " + bound);
+            if (inputDirectCode != null && !inputDirectCode.hasFocus()) inputDirectCode.setText(code);
         }
         setEnabled(connectBtn, configured && !busy);
         setEnabled(disconnectBtn, configured && connected && !busy);
@@ -592,6 +662,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                     showProbe(COLOR_ERR, "连接失败 ✗\n" + fText, "最近探测 " + stamp + "（" + ms + "ms）");
                 }
                 refresh();
+                if (fOk) syncDirectState(false);
                 if (toastResult) {
                     toast(fOk ? "已连接电脑" : "连接失败，看下方原因");
                 }

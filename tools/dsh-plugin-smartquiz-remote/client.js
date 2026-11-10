@@ -120,6 +120,15 @@ window.__ModuleLoader__.load({
                 ? (' · 待处理 ' + st.approval_relay.pending) : ' · 无待处理'),
             h('div', null, '反向指令：', h('b', null, st.cmd_queue
               ? (st.cmd_queue.queued + ' 待执行 / ' + st.cmd_queue.done + ' 已完成') : '—')),
+            // 直连模式（手机每句话在电脑上起一个 dsh 子进程）：单并发 + 低优先级，电脑才不卡
+            st.cli && h('div', null, '直连执行：', h('b', null,
+              st.cli.mode === 'in-process'
+                ? '进程内（轻量）'
+                : (st.cli.running > 0 ? '运行中' : '空闲')
+                  + (st.cli.queued > 0 ? ' · 排队 ' + st.cli.queued : '')),
+              st.cli.mode === 'in-process'
+                ? ' · 不起子进程'
+                : ' · 单并发（上限 ' + st.cli.max + '，低优先级）'),
             (st.cmd_queue && st.cmd_queue.allowed)
               ? h('div', { style: { opacity: 0.8 } }, '白名单：' + st.cmd_queue.allowed.join('、'))
               : null,

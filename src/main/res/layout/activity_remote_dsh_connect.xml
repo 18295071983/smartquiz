@@ -178,6 +178,65 @@
                         android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
+                <!-- 直连专属对话：手机与电脑协商同一个电脑会话 id（留空=默认直连对话） -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="56dp"
+                        android:text="直连对话"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
+                    <TextView
+                        android:id="@+id/value_direct_session"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="end"
+                        android:text="(首次发送时建立)"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlText"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:hint="直连对话码（留空=默认）"
+                        app:helperText="手机和电脑用同一个码认领同一条电脑对话；重装后填回同一个码即可接上"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusBottomEnd="12dp">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/input_direct_code"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="text"
+                            android:maxLines="1"
+                            android:textSize="@dimen/text_14"/>
+                    </com.google.android.material.textfield.TextInputLayout>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_save_direct_code"
+                        android:layout_width="wrap_content"
+                        android:layout_height="@dimen/size_44"
+                        android:layout_marginStart="@dimen/space_8"
+                        android:text="保存并同步"
+                        android:textSize="@dimen/text_14"
+                        android:textAllCaps="false"
+                        app:cornerRadius="@dimen/radius_22"/>
+                </LinearLayout>
+
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_pick_session"
                     android:layout_width="match_parent"

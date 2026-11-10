@@ -120,6 +120,16 @@ public class RemoteDshTool implements AITool {
     /** 主令牌：二维码里带的原值。设备令牌换不到或被吊销时退回它，也是重新登记设备的凭据 */
     public static final String KEY_MAIN_TOKEN = "main_token";
     private static final String KEY_SESSION = "session_id";
+    /**
+     * 两端协商出来的「直连电脑会话 id」（session-xxxx）：由电脑插件落盘并在每次回话里
+     * 带回来，手机只负责保存、下次原样带回去。这样手机和电脑说的是**同一条对话**，
+     * 而不是各记各的随机 id（旧行为：电脑越用越多会话、两边对不上）。
+     */
+    private static final String KEY_DSH_SESSION = "dsh_session_id";
+    /** 该电脑会话的标题（只用于界面显示，随时可从电脑刷新） */
+    private static final String KEY_DSH_TITLE = "dsh_session_title";
+    /** 直连对话码：留空 = 默认直连对话；填 work 之类 = 该码的专属对话（两端同一个码） */
+    private static final String KEY_DIRECT_CODE = "direct_code";
     /** 连接开关：false = 用户主动断开（配置保留，但工具一律拒绝执行，直到重新连接） */
     private static final String KEY_CONNECTED = "connected";
     private static final int DEFAULT_TIMEOUT_SECONDS = 120;
@@ -201,6 +211,66 @@ public class RemoteDshTool implements AITool {
 
     private String getSessionId() {
         return getPrefs().getString(KEY_SESSION, "");
+    }
+
+    // ---------- 直连会话协商（两端同一个 session id） ----------
+    public static String getDirectSessionId(Context c) {
+        String s = prefsOf(c).getString(KEY_DSH_SESSION, "");
+        return s == null ? "" : s.trim();
+    }
+
+    public static void setDirectSessionId(Context c, String id) {
+        if (id == null || id.trim().isEmpty()) {
+            prefsOf(c).edit().remove(KEY_DSH_SESSION).remove(KEY_DSH_TITLE).apply();
+        } else {
+            prefsOf(c).edit().putString(KEY_DSH_SESSION, id.trim()).apply();
+        }
+    }
+
+    public static String getDirectTitle(Context c) {
+        String s = prefsOf(c).getString(KEY_DSH_TITLE, "");
+        return s == null ? "" : s.trim();
+    }
+
+    public static String getDirectCode(Context c) {
+        String s = prefsOf(c).getString(KEY_DIRECT_CODE, "");
+        return s == null ? "" : s.trim();
+    }
+
+    /** 改对话码 = 换一条电脑对话：本地旧 id 立即作废（再由电脑侧确认新 code 的绑定） */
+    public static void setDirectCode(Context c, String code) {
+        String v = code == null ? "" : code.trim();
+        android.content.SharedPreferences.Editor ed = prefsOf(c).edit();
+        if (v.isEmpty()) ed.remove(KEY_DIRECT_CODE); else ed.putString(KEY_DIRECT_CODE, v);
+        ed.remove(KEY_DSH_SESSION).remove(KEY_DSH_TITLE).apply();
+    }
+
+    /**
+     * 问电脑"这个对话码对应哪条电脑会话"，并写回本机。
+     * 电脑端 `direct_state` 是唯一权威：手机丢了本地 id（重装/清数据）时靠它接回同一条对话。
+     */
+    public static Map<String, Object> syncDirectState(Context c) throws Exception {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        org.json.JSONObject body = new org.json.JSONObject();
+        body.put("action", "direct_state");
+        String code = getDirectCode(c);
+        if (!code.isEmpty()) body.put("session_code", code);
+        // 电脑端是权威：手机记得的旧 id 也带上，万一电脑侧绑定丢了可以认回来
+        // （不会新建一条把老对话甩掉；真正建会话仍由电脑端在第一条消息时完成）
+        String known = getDirectSessionId(c);
+        if (!known.isEmpty()) body.put("target_session_id", known);
+        String raw = tool.postSessionRaw(body, 15);
+        org.json.JSONObject j = new org.json.JSONObject(raw);
+        String id = j.optString("direct_session_id", "");
+        String title = j.optString("title", "");
+        if (!id.isEmpty()) {
+            prefsOf(c).edit().putString(KEY_DSH_SESSION, id).putString(KEY_DSH_TITLE, title).apply();
+        }
+        Map<String, Object> out = new HashMap<>();
+        out.put("direct_session_id", id);
+        out.put("title", title);
+        out.put("exists", j.optBoolean("exists", false));
+        return out;
     }
 
     private void saveSessionId(String sessionId) {
@@ -731,6 +801,8 @@ public class RemoteDshTool implements AITool {
         }
         if (targetChanged) {
             ed.remove(KEY_SESSION);
+            // 换电脑了：直连会话 id 属于旧电脑，作废（下次由新电脑重新协商）
+            ed.remove(KEY_DSH_SESSION).remove(KEY_DSH_TITLE);
         }
         ed.apply();
         // 每次手动保存都登记一次：不要加 targetChanged 条件（2026-10-06 实测踩坑）——
@@ -1321,6 +1393,12 @@ public class RemoteDshTool implements AITool {
                 if (err != null && "unauthorized".equals(err)) {
                     return AIToolResult.fail("鉴权失败(401)：token 不正确，请 action=set_config 重新配置 token");
                 }
+                // ★ 两端协商的关键一步：电脑把"这次实际写的是哪条会话"回传，存下来下次带回去。
+                //   即使这一轮失败（超时/中断），只要电脑报了 id 也要存 —— 否则下次又新建一条。
+                Object dshId = resp.get("dsh_session_id");
+                if (dshId != null && !String.valueOf(dshId).trim().isEmpty()) {
+                    setDirectSessionId(context, String.valueOf(dshId));
+                }
                 ok = resp.get("ok");
                 reply = resp.get("reply");
                 dur = resp.get("duration_ms");
@@ -1672,6 +1750,11 @@ public class RemoteDshTool implements AITool {
         body.put("session_id", sid);
         body.put("text", task);
         body.put("timeout", timeout);
+        // 两端协商：把电脑上次给的会话 id / 对话码带回去，电脑据此续同一条对话
+        String direct = getDirectSessionId(context);
+        if (!direct.isEmpty()) body.put("target_session_id", direct);
+        String code = getDirectCode(context);
+        if (!code.isEmpty()) body.put("session_code", code);
         // 不在这里吞异常：读超时（电脑端迟迟不回）与连不上是两种问题，要让 handleRun 分辨并给出不同提示
         return httpJson(baseUrl + "/session", "POST", body, timeout + 30);
     }

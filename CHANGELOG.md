@@ -1,5 +1,139 @@
 # 变更日志
 
+## [2026-11-10] chore(remote_dsh)：直连 id 由电脑端下发（不在空闲时凭空建会话）
+
+按"电脑端有就下发、没有就由电脑端建一条把 id 给手机"的口径核对了一遍，结论与实现：
+
+- **电脑端是唯一权威**：`direct_state` 有绑定就回 id/标题；没有就留空，手机显示
+  「首次发送时建立」，不自己造 id；
+- **第一次真正发消息时由电脑端建**（CLI 带 cwd），插件把 `dsh_session_id` 落盘并回传，
+  手机保存、下次作为 `target_session_id` 带回 —— 之后一直复用同一条；
+- **为什么不在 `direct_state` 里预建**（实测过，没走通）：
+  - `ctx.sessions.create({id,cwd})` 是宿主私有接口，签名未知，报
+    `session header id "[object Object]" does not match session id "[object Object]"`；
+  - `ctx.agents.create()` 能建出来，但会话头**不带 cwd**，CLI 续写直接报
+    `recorded no working directory, so it ...`，等于建了条用不了的；
+- 手机端未绑定时的文案从「(自动协商)」改为「(首次发送时建立)」；
+- **验证**：`direct_state`（带 ensure）前后会话数 48 → 48（不新增）；首条消息后返回
+  `session-cbab63c1-1239-4147-9391-c15c27befad0`、`agent_preset=''`（可被 CLI 续写、全权），
+  再查 `direct_state` 返回同一条 id/标题；APK 已重建安装。
+
+## [2026-11-10] fix(remote_dsh)：电脑上正看着直连对话时，手机发不进去（改宿主内接管）
+
+**现象**：在电脑上打开/看着直连那条对话，手机再发就失败；把电脑那边切走又恢复。两种报错：
+- `session "…" runs under agent preset "standard", which the one-shot runner does not compose`
+- `already owned by an active write owner`（DSH 单写者）
+
+**根因**（本机取证）：
+- 桌面端创建的会话**头部**带 `agentPreset:"standard"`（实测 `session-fb22a2d5…` 的
+  `handle.header.agentPreset`），headless 的 one-shot CLI 明确拒绝续写这种会话；
+- 桌面端正打开着会话时，宿主进程持有写权；CLI 是另一个写者，拿不到；
+- 之前直连只有 "起 CLI 子进程" 一条路，所以一"看"就断。
+
+**修法**（插件 v7，热重载即生效；APK 内置插件包同步）：
+- `readStoredHead` 改从 `handle.header` 读 `agentPreset`（原来扫事件流读不到 → 检测一直是空）；
+- `runPrompt` 分路：目标会话**有 live agent**（用户正看/正在跑）或**头部带 agentPreset**
+  → 走新的 `runInProcessTurn()`（`ctx.agents.get/resume` + `followup` + 轮询 `seq`），
+  消息直接进电脑那条对话，手机照常拿回复；
+- CLI 仍用于 CLI 自己创建的会话（无 agentPreset、`danger-full-access`）；
+- CLI 若仍报 preset/owned → 自动再试一次进程内接管，不再一断到底；
+- `direct_state` / `direct_bind` 增加 `agent_preset` 字段，便于排查"这条为什么续不上"。
+
+**验证**：
+- `direct_bind` 绑到桌面会话 → 返回 `agent_preset=standard`（修前是空串，等于永远走 CLI）；
+- 测试会话：`seed` 走 CLI 创建 → `sync` 让宿主持有写权 → 连续两次定向 run 都返回
+  `via=in-process:live`，回复 `live-ok`/`live-two` 正确；
+- `sync` 的 resume 路径此前已实测可用（本次复用同一套 `ctx.agents` 逻辑）；
+- 正常 CLI 会话（无 preset、无 live agent）仍走 CLI：`smoke-ok` 实测 `via=cli:…dsh.cmd`；
+- APK 已重建安装，内置插件包与源码同哈希 `e8012b45…`。
+
+**边界**：进程内接管用**该会话自己的权限档位**（桌面会话通常是 workspace-write + ask），
+需要审批时手机/电脑两端会弹；要全程全权，用 CLI 创建的直连对话（无 agentPreset）即可。
+
+## [2026-11-10] feat(remote_dsh)：直连会话两端协商（不再越用越多）+ 直连对话码 + 清理 48 条空壳会话
+
+**现象**：电脑侧栏冒出一堆 `smartquiz-*` 空会话；手机以为在跟"我的对话"聊，电脑实际写的是
+另一条；重装/清配置后接不回原来那条 —— 两端说的不是同一个会话 id。
+
+**根因**（本机取证）：
+1. `POST /session {action:'start'}` 在 CLI 模式下仍然 `ctx.agents.create()`：手机每要一次
+   新会话，就在宿主里落一条 `smartquiz-*` 空壳。实测 **48 条**（265~1150 字节：只有
+   header + 最多一条没有回复的 user 消息）。
+2. 手机存的是自己生成的 `smartquiz-xxx`，真正写入的是 CLI 的 `session-xxx`；两边靠插件
+   `.sessions.json` 映射。而映射只在**成功**时落盘 —— 超时/取消/清配置就丢，下次再新建一条。
+3. 于是"会话数 = 手机点过多少次新会话 + 失败重试次数"，不是话题数。
+
+**修法**（`@local/smartquiz-remote` 0.3.1 / v7；APK 内置插件包同步）：
+- **电脑端是唯一权威**：prompt/run 响应新增 `dsh_session_id`（这一轮实际写入的电脑会话），
+  CLI 一报出 session id 就落盘（超时/取消也记），下次续同一条；
+- 新增 `action:'direct_state'`（按 `session_code` 查绑定 + 标题 + 是否还在）与
+  `action:'direct_bind'`（绑定/解绑）；
+- 绑定槽：留空 = `@direct`（一台电脑一条默认直连对话）；填码 = `@code:<码>`
+  （同一个码 = 同一条对话，可用来分主题）；
+- `action:'start'` 在 CLI 模式下不再建宿主 agent（空壳来源消失）；
+- **手机**：保存 `dsh_session_id`，下一条消息作为 `target_session_id` 带回；新增
+  「直连对话码」输入 +「保存并同步」；连接成功后自动 `direct_state` 对齐；换电脑
+  （地址/令牌变化）时作废旧绑定；旧映射仍兼容（按手机 `session_id` 查最后一条）。
+
+**验证**（插件热重载后本机实测）：
+- 同一对话码连跑三轮 → 都是 `session-cf25e387-6f3e-437d-b3cc-f23c5ceb523a`，第 2/3 轮
+  `memory=resumed`；只传码、不传 `target_session_id` 也能接回（重装场景）；
+- `direct_state` → `session-cf25e387… / 标题 "Reply with code-one" / exists=true`；
+  `direct_bind` 解绑后 `exists=false`；
+- `action:'start'` 前后 `_no-cwd` 下 `smartquiz-*` 目录数 **48 → 48**（不再新增）；
+- 清理：48 条空壳（0 条含 AI 回复）移到
+  `~/.workbuddy/dsh-home/_quarantine/smartquiz-shells-20261110/`（可恢复），
+  `workspace.json` 对它们 0 引用；
+- `:compileReleaseJavaWithJavac` 通过；`assembleRelease` 通过；APK 已装机（2.0）；
+- **真机端到端**（装新 APK 后）：手机直连发一句 → 电脑 `prompts 3→4`，`.sessions.json`
+  出现 `@direct = session-52444437-…`（首次升级会沿用手机会话的旧映射，把老对话接成
+  默认直连对话），手机「远程连接（电脑）」页显示 `默认 · 下一曲 · …37697cf653` ——
+  两端看到的是同一个 id；回复 4069ms 回到手机。
+- 另：项目工作区里还有 24 条「新建对话但没说话」的空会话，它们被 `workspace.json`
+  引用（桌面侧栏状态），**没有动**，需要时在电脑侧栏删除即可。
+
+**边界**：~~直连仍受 DSH 单写者约束 —— 那条电脑会话正被桌面端打开时，CLI 续写会报
+`already owned`~~ → 已在下一节修复（桌面端正看着时自动改走宿主进程内接管）。
+
+## [2026-11-10] fix(remote_dsh)：直连模式把电脑拖卡（CLI 子进程堆积 + 没人杀）
+
+**现象**：手机用「直连」发几轮，电脑明显变卡（风扇起、桌面发涩）；其实很多任务手机早就
+超时放弃了，电脑还在替它跑。
+
+**根因**（本机实测复现）：
+- 直连每句话都会 `dsh --profile headless` 起一个**完整 DSH 宿主进程**：冷启动 ~1.5s、
+  峰值内存 ~256MB、一轮普通任务 6s+；
+- 插件对它**不排队、不取消、不杀**：手机 HTTP `timeout+30s` 就断开，CLI 却按
+  `cliTimeoutMs=300s` 继续跑；`body.timeout` 在 CLI 分支里根本没被读到；
+- 实测：客户端断开 12s 后，`DeepSeek Harness.exe`（~200MB）和它拉的
+  `powershell Start-Sleep 60` 仍在跑；
+- 用户等不到回复就连点重发 → 3~5 个宿主并行（1GB+ 内存 + 多个模型请求）→ 电脑卡。
+
+**修法**（`@local/smartquiz-remote` 0.3.1 / v7；APK 内置插件包同步）：
+- `CLI_SLOT` 并发闸门：默认单并发（`cliMaxConcurrent=1`）、排队上限 3（`cliMaxQueued=3`），
+  再多就立刻回「电脑端正在执行上一条消息（直连一次只跑一条）」；
+- 手机的 `timeout` 真正生效：`runTurn` 把 `deadline` 传进 `runCliTask`，到点中断并回
+  「这一轮在 Ns 内没跑完，已中断」；超时不换候选重跑（否则等于同一轮做两遍）；
+- 连接断开即取消：`requestAbort(res)` 把 `res` 的 `close`（且 `writableEnded=false`）
+  变成 AbortSignal，3 秒宽限后杀进程；
+- `killTree()`：Windows 用 `taskkill /pid <pid> /T /F` 杀**整棵树**（原来 `exec` 的
+  timeout 只杀 `cmd.exe`，留下 Electron 孤儿；POSIX 用进程组）；
+- 子进程降到 `BelowNormal` 优先级（`os.setPriority`），跑任务时桌面不被抢 CPU；
+- `/status` 新增 `cli:{mode,running,queued,max,max_queued,priority}`，插件面板显示
+  「直连执行：运行中 / 排队 N」。
+
+**验证**（插件热重载后本机实测）：
+- 2 条并发 → `running=1 / queued=1`，`DeepSeek Harness.exe` 始终只有 1 个，
+  `PriorityClass=BelowNormal`；
+- 5 条并发 → `running=1 / queued=3`，第 5 条立刻收到明确的 busy 错误；
+- 客户端中途断开 → 3~4s 内 CLI 进程归零（修前会留到 300s）；
+- `timeout=6` → 6.2s 返回中断错误且无残留进程；普通一轮 3.6s 正常回复；
+- `docs/remote_dsh-usage.md` 补「直连模式为什么不会把电脑拖卡」+ 2 条排查项；
+  导出用插件包（`src/main/assets/remote_dsh/plugin/`）与源码同哈希（index.js `3BD70AE8…`）。
+
+**未做 / 边界**：没有改手机端 —— 旧 APK 连新插件就生效；直连仍是"整轮完成才回话"，
+逐字流式属于另一件事。若把 `cliMaxConcurrent` 调到 2 以上，等于允许并行堆宿主，不建议。
+
 ## [2026-11-10] 本轮汇总：双端同步从"能用"到"稳定可用"（25 个提交）
 
 一天之内把手机 ↔ 电脑 DSH 的同步链路补完并修稳，按主题归拢：
