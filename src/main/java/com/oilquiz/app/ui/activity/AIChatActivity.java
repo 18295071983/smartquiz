@@ -3874,7 +3874,7 @@ public class AIChatActivity extends BaseActivity {
         }
         // ==== 方案3：直连电脑模式（点/长按聊天页顶部电脑横条切换）====
         // 消息直接交给 remote_dsh 执行，不经过手机端模型，因此不再受"模型是否愿意调用/是否支持 function calling"影响
-        if (remoteDirectMode) {
+        if (com.oilquiz.app.ai.tool.RemoteDshTool.MODE_DIRECT.equals(remoteMode()) || remoteDirectMode) {
             String directText = inputMessage.getText().toString().trim();
             if (directText.isEmpty()) { showToast(getString(R.string.h_b922f77a)); return; }
             if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
@@ -3892,6 +3892,7 @@ public class AIChatActivity extends BaseActivity {
                         java.util.Map<String, Object> p = new java.util.HashMap<String, Object>();
                         p.put("action", "run");
                         p.put("task", directTask);
+                        p.put("text", directTask);   // 插件侧读 text/prompt/task 任一
                         com.oilquiz.app.ai.tool.AIToolResult r =
                                 com.oilquiz.app.ai.tool.AIToolManager.getInstance(AIChatActivity.this)
                                         .executeTool("remote_dsh", p);
@@ -3960,6 +3961,37 @@ public class AIChatActivity extends BaseActivity {
         if (!hasImageAttachment && !ensureModelLoaded(message)) {
             AppLogger.aiW(TAG, "[sendMessage] ensureModelLoaded 返回 false, consumed="
                     + ensureConsumedMessage + ", msg=" + message);
+            // 智能模式兜底（2026-11-10）：手机端模型没就绪时，别再让用户"发不出去"，
+            // 电脑已连接就直接把这句转给电脑执行（等同直连一次）。
+            if (com.oilquiz.app.ai.tool.RemoteDshTool.MODE_AUTO.equals(remoteMode())
+                    && !message.isEmpty()
+                    && com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
+                    && com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)) {
+                addUserMessage(message);
+                inputMessage.setText("");
+                final String autoTask = message;
+                showToast("智能模式：手机模型未就绪，已转给电脑执行");
+                new Thread(() -> {
+                    String outText;
+                    try {
+                        java.util.Map<String, Object> p = new java.util.HashMap<>();
+                        p.put("action", "run");
+                        p.put("task", autoTask);
+                        p.put("text", autoTask);
+                        com.oilquiz.app.ai.tool.AIToolResult r =
+                                com.oilquiz.app.ai.tool.AIToolManager.getInstance(AIChatActivity.this)
+                                        .executeTool("remote_dsh", p);
+                        outText = (r != null && r.isSuccess())
+                                ? String.valueOf(r.getResult())
+                                : ("电脑执行失败：" + (r != null ? r.getErrorMessage() : "未知错误"));
+                    } catch (Throwable t) {
+                        outText = "电脑执行异常：" + t.getMessage();
+                    }
+                    final String fOut = outText;
+                    runOnUiThread(() -> addAIMessage("💻 " + fOut));
+                }, "remote-dsh-auto").start();
+                return;
+            }
             if (!ensureConsumedMessage) {
                 // 旧口径：未就绪时消息先落库，装载成功后由回调补发（不改历史观感）
                 addUserMessage(message);

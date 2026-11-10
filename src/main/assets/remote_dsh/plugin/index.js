@@ -34,6 +34,9 @@ import { exec, execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 
 
+/** CLI 子进程的权限档位（apply 里由 cfg 覆盖；runCliTask 在模块作用域用） */
+const CLI_PERM = { mode: 'danger-full-access', approval: 'never' };
+
 export const name = 'smartquiz-remote';
 
 
@@ -317,13 +320,13 @@ function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId, wor
     })();
     // ★ .cmd 走 stdin：正文不拼进命令行（换行会被 cmd 截断）
     const memArgs = dshSessionId ? ' --session-id ' + dshSessionId : '';
-    const fullLine = '"' + cliPath + '" --profile ' + prof + ' --json' + memArgs + permArgs + ' -';
     // ★ 2026-11-10：CLI 子进程默认 workspace-write，Windows 上会撞
     //   "sandbox-local windows-acl temp grant materialization failed"（手机直连时看到的就是这句）。
     //   这里显式给权限档位，默认全权，可用配置覆盖。
-    const permMode = String(cfg.cliPermissionMode || 'danger-full-access').trim();
-    const approvalPolicy = String(cfg.cliApprovalPolicy || 'never').trim();
+    const permMode = CLI_PERM.mode;
+    const approvalPolicy = CLI_PERM.approval;
     const permArgs = ' --permission-mode ' + permMode + ' --approval-policy ' + approvalPolicy;
+    const fullLine = '"' + cliPath + '" --profile ' + prof + ' --json' + memArgs + permArgs + ' -';
     let out = '';
     let done = false;
     let finalText = '';
@@ -367,7 +370,7 @@ function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId, wor
         try { child.stdin?.write(text); child.stdin?.end(); } catch { /* 子进程已退出 */ }
         void child;
       } else {
-        const child = spawn(cliPath, ['--profile', prof, '--json', ...(dshSessionId ? ['--session-id', dshSessionId] : []), '--permission-mode', String(cfg.cliPermissionMode || 'danger-full-access').trim(), '--approval-policy', String(cfg.cliApprovalPolicy || 'never').trim(), text], { windowsHide: true, env: cliEnv, cwd: workdir });
+        const child = spawn(cliPath, ['--profile', prof, '--json', ...(dshSessionId ? ['--session-id', dshSessionId] : []), '--permission-mode', CLI_PERM.mode, '--approval-policy', CLI_PERM.approval, text], { windowsHide: true, env: cliEnv, cwd: workdir });
         const timer = setTimeout(() => { try { child.kill(); } catch { /* 忽略 */ } finish(-1, 'timeout'); }, timeoutMs);
         child.stdout?.on('data', (b) => { const s = b.toString('utf8'); out += s; consume(s); });
         child.stderr?.on('data', (b) => { out += b.toString('utf8'); });
@@ -544,6 +547,9 @@ export function apply(ctx, config) {
     try { return String(readFileSync(join(PLUGIN_DIR, '.public-url'), 'utf8')).trim(); } catch { return ''; }
   })();
   cfg.publicUrl = effectivePublicUrl;
+  // 手机直连 / CLI 任务的权限档位（默认全权，避免 Windows 上 windows-acl 授权失败）
+  CLI_PERM.mode = String(cfg.cliPermissionMode || 'danger-full-access').trim();
+  CLI_PERM.approval = String(cfg.cliApprovalPolicy || 'never').trim();
   // 注意：主令牌不再在此处取一次就固定（见下方 mainToken()：惰性读取，便于轮换）
   const startedAt = Date.now();
   /**
@@ -1511,7 +1517,7 @@ export function apply(ctx, config) {
         // 写者始终是宿主进程本身（ctx.agents.get 拿到的就是 GUI 在用的 agent），
         // 因此不违反单写者；桌面上会实时看到这句用户消息。
         const target = String(body.target_session_id ?? '').trim();
-        const text = (typeof body.text === 'string' ? body.text : (typeof body.prompt === 'string' ? body.prompt : '')).trim();
+        const text = (typeof body.text === 'string' && body.text ? body.text : (typeof body.prompt === 'string' && body.prompt ? body.prompt : (typeof body.task === 'string' ? body.task : ''))).trim();
         if (!target || !text) return sendJson(res, 400, { ok: false, action, error: '需要 target_session_id 和 text' });
         // 桌面端空闲时，会话只是"打开着"但**没有 live agent**（agent 随 turn 结束被销毁），
         // 所以不能只 get：取不到就用 resume 按持久化日志重建一个，然后照常 followup。
@@ -1674,7 +1680,7 @@ export function apply(ctx, config) {
         // 只把消息投进会话并立刻返回（不等回复）。手机随后用 /events 订阅事件流，
         // 自己渲染思考/正文/工具 —— 这是"原样转发 + 手机端转换"的主路径。
         const target = String(body.target_session_id ?? '').trim();
-        const text = (typeof body.text === 'string' ? body.text : '').trim();
+        const text = (typeof body.text === 'string' && body.text ? body.text : (typeof body.task === 'string' ? body.task : '')).trim();
         if (!target || !text) return sendJson(res, 400, { ok: false, action, error: '需要 target_session_id 和 text' });
         let agent = (() => { try { return ctx.agents?.get?.(target); } catch { return undefined; } })();
         let resumed = false;
@@ -1729,9 +1735,9 @@ export function apply(ctx, config) {
         } catch { resumable = false; }
         return sendJson(res, 200, { ok: true, action: 'sync_state', session_id: target, live, resumable });
       }
-      if (action !== 'prompt') return sendJson(res, 400, { ok: false, error: `unknown action: ${action}` });
+      if (action !== 'prompt' && action !== 'run' && action !== 'send') return sendJson(res, 400, { ok: false, error: `unknown action: ${action}` });
 
-      const text = (typeof body.text === 'string' ? body.text : (typeof body.prompt === 'string' ? body.prompt : '')).trim();
+      const text = (typeof body.text === 'string' && body.text ? body.text : (typeof body.prompt === 'string' && body.prompt ? body.prompt : (typeof body.task === 'string' ? body.task : ''))).trim();
       if (!text) return sendJson(res, 400, { ok: false, action: 'prompt', error: 'text 不能为空' });
       const wantsStream = body.stream === true || String(req.headers['accept'] ?? '').includes('text/event-stream');
       await runPrompt(req, res, sid, text, wantsStream);
@@ -1747,7 +1753,7 @@ export function apply(ctx, config) {
     try { body = JSON.parse((await readBody(req)) || '{}'); }
     catch (e) { return sendJson(res, 400, { ok: false, error: `bad json: ${e?.message ?? e}` }); }
     const sid = typeof body.session_id === 'string' && body.session_id ? body.session_id : `smartquiz-${randomBytes(6).toString('hex')}`;
-    const text = (typeof body.text === 'string' ? body.text : (typeof body.prompt === 'string' ? body.prompt : '')).trim();
+    const text = (typeof body.text === 'string' && body.text ? body.text : (typeof body.prompt === 'string' && body.prompt ? body.prompt : (typeof body.task === 'string' ? body.task : ''))).trim();
     if (!text) return sendJson(res, 400, { ok: false, error: 'text is required' });
     const wantsStream = body.stream === true || String(req.headers['accept'] ?? '').includes('text/event-stream');
     try { await runPrompt(req, res, sid, text, wantsStream); }
