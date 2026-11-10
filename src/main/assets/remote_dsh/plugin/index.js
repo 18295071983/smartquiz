@@ -317,7 +317,13 @@ function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId, wor
     })();
     // ★ .cmd 走 stdin：正文不拼进命令行（换行会被 cmd 截断）
     const memArgs = dshSessionId ? ' --session-id ' + dshSessionId : '';
-    const fullLine = '"' + cliPath + '" --profile ' + prof + ' --json' + memArgs + ' -';
+    const fullLine = '"' + cliPath + '" --profile ' + prof + ' --json' + memArgs + permArgs + ' -';
+    // ★ 2026-11-10：CLI 子进程默认 workspace-write，Windows 上会撞
+    //   "sandbox-local windows-acl temp grant materialization failed"（手机直连时看到的就是这句）。
+    //   这里显式给权限档位，默认全权，可用配置覆盖。
+    const permMode = String(cfg.cliPermissionMode || 'danger-full-access').trim();
+    const approvalPolicy = String(cfg.cliApprovalPolicy || 'never').trim();
+    const permArgs = ' --permission-mode ' + permMode + ' --approval-policy ' + approvalPolicy;
     let out = '';
     let done = false;
     let finalText = '';
@@ -361,7 +367,7 @@ function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId, wor
         try { child.stdin?.write(text); child.stdin?.end(); } catch { /* 子进程已退出 */ }
         void child;
       } else {
-        const child = spawn(cliPath, ['--profile', prof, '--json', ...(dshSessionId ? ['--session-id', dshSessionId] : []), text], { windowsHide: true, env: cliEnv, cwd: workdir });
+        const child = spawn(cliPath, ['--profile', prof, '--json', ...(dshSessionId ? ['--session-id', dshSessionId] : []), '--permission-mode', String(cfg.cliPermissionMode || 'danger-full-access').trim(), '--approval-policy', String(cfg.cliApprovalPolicy || 'never').trim(), text], { windowsHide: true, env: cliEnv, cwd: workdir });
         const timer = setTimeout(() => { try { child.kill(); } catch { /* 忽略 */ } finish(-1, 'timeout'); }, timeoutMs);
         child.stdout?.on('data', (b) => { const s = b.toString('utf8'); out += s; consume(s); });
         child.stderr?.on('data', (b) => { out += b.toString('utf8'); });
