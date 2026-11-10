@@ -5528,10 +5528,17 @@ public:
      * @param enableThinking 是否启用思考
      * @param callback 流式回调
      */
+    /**
+     * 带图像的多模态流式生成（支持一次多张，2026-11-10）。
+     *
+     * <p>此前只吃 1 张（{@code bitmaps[1]} + {@code mtmd_tokenize(..., 1)}），多图在 Java 侧被
+     * 整批降级成 OCR 文本。mtmd 的 tokenize 接口本来就收数组，限制只是这里写死的数量。
+     * 多图时 prompt 里按张数放 N 个 marker，tokenize 的 {@code n_bitmaps} 与之一致。</p>
+     */
     bool generateStreamWithImage(
         const std::vector<std::pair<std::string, std::string>>& history,
         const std::string& userText,
-        const std::string& imagePath,
+        const std::vector<std::string>& imagePaths,
         int maxTokens, float temperature, float topP, int topK,
         bool enableThinking, TokenCallback callback) {
         if (!isMultimodalLoaded()) {
@@ -5539,14 +5546,24 @@ public:
             callback("", true, "Multimodal not loaded");
             return false;
         }
+        if (imagePaths.empty()) {
+            LOGE("generateStreamWithImage: empty image list");
+            callback("", true, "No image provided");
+            return false;
+        }
 
         LOGD("=== STREAM GENERATE WITH IMAGE START ===");
-        LOGV("History count: %zu, Text length: %zu, Image: %s, maxTokens: %d",
-             history.size(), userText.size(), imagePath.c_str(), maxTokens);
+        LOGV("History count: %zu, Text length: %zu, Images: %zu, maxTokens: %d",
+             history.size(), userText.size(), imagePaths.size(), maxTokens);
 
-        // 1. 构建当前用户消息（带图像标记）
+        // 1. 构建当前用户消息：每个图像一个 marker，顺序与 imagePaths 一致
         const char* marker = mtmd_default_marker();
-        std::string currentUserMsg = std::string(marker) + "\n" + userText;
+        std::string markers;
+        for (size_t i = 0; i < imagePaths.size(); ++i) {
+            if (i > 0) markers += "\n";
+            markers += marker;
+        }
+        std::string currentUserMsg = markers + "\n" + userText;
 
         // 2. 添加当前消息到历史
         std::vector<std::pair<std::string, std::string>> allMessages = history;
@@ -5559,20 +5576,42 @@ public:
             callback("", true, "Failed to format prompt");
             return false;
         }
-        LOGV("Full prompt (history + image) length: %zu", fullPrompt.size());
+        LOGV("Full prompt (history + %zu image marker) length: %zu", imagePaths.size(), fullPrompt.size());
 
         // 4. 多轮历史不再单独预评估：fullPrompt 已包含历史 + 当前图像消息，
         //    统一由 mtmd_tokenize 一次分词、mtmd_helper_eval_chunks 从 0 位置单趟评估，
         //    避免"历史先写入 KV cache 再以 n_past=0 评估全 prompt"导致的历史被覆盖/错位 bug。
         //    （与文本路径一致：每轮全量重评估，不做跨轮 KV 复用）
 
-        // 5. 加载图像
+        // 5. 逐张加载图像；任一张失败就整体放弃（半批图片的上下文会误导模型）
         mtmd_helper_init_opt initOpt = {};
-        mtmd_helper_bitmap_wrapper bitmapWrapper = mtmd_helper_bitmap_init_from_file(s_mtmdCtx, imagePath.c_str(), false, initOpt);
-        if (bitmapWrapper.bitmap == nullptr) {
-            LOGE("Failed to load image: %s", imagePath.c_str());
-            callback("", true, "Failed to load image");
-            return false;
+        std::vector<mtmd_helper_bitmap_wrapper> wrappers;
+        wrappers.reserve(imagePaths.size());
+        auto freeBitmaps = [&wrappers]() {
+            for (auto& w : wrappers) {
+                if (w.bitmap != nullptr) {
+                    mtmd_bitmap_free(w.bitmap);
+                    w.bitmap = nullptr;
+                }
+            }
+        };
+
+        for (const auto& path : imagePaths) {
+            mtmd_helper_bitmap_wrapper wrapper =
+                mtmd_helper_bitmap_init_from_file(s_mtmdCtx, path.c_str(), false, initOpt);
+            if (wrapper.bitmap == nullptr) {
+                LOGE("Failed to load image: %s", path.c_str());
+                freeBitmaps();
+                callback("", true, "Failed to load image: " + path);
+                return false;
+            }
+            wrappers.push_back(wrapper);
+        }
+
+        std::vector<const mtmd_bitmap*> bitmaps;
+        bitmaps.reserve(wrappers.size());
+        for (const auto& w : wrappers) {
+            bitmaps.push_back(w.bitmap);
         }
 
         // 6. 构建输入
@@ -5582,37 +5621,44 @@ public:
         inputText.add_special = true;
         inputText.parse_special = true;
 
-        const mtmd_bitmap* bitmaps[1] = { bitmapWrapper.bitmap };
-
         // 7. 分词（图像 + 当前消息）
         mtmd_input_chunks* chunks = mtmd_input_chunks_init();
-        int32_t tokenizeRes = mtmd_tokenize(s_mtmdCtx, chunks, &inputText, bitmaps, 1);
+        int32_t tokenizeRes = mtmd_tokenize(s_mtmdCtx, chunks, &inputText,
+                                            bitmaps.data(), bitmaps.size());
         if (tokenizeRes != 0) {
             LOGE("mtmd_tokenize failed: %d", tokenizeRes);
             mtmd_input_chunks_free(chunks);
-            mtmd_bitmap_free(bitmapWrapper.bitmap);
+            freeBitmaps();
             callback("", true, "Failed to tokenize");
             return false;
         }
 
-        // 8. 评估图像 + 完整 prompt（含历史）token —— 统一从 0 位置单趟评估
-        llama_pos n_past = 0;
-        
-        // 检查上下文容量
+        // 8. 上下文容量预检（2026-11-10）：多图时每张图在 mtmd 里是数百到上千 token，
+        //    4K 上下文两张图就可能装不下。以前这里只是 clearContextForInference() 后继续，
+        //    但 n_past 本来就是 0、清 KV 不会腾出位置，最终必然在生成阶段溢出。
+        //    现在直接报错回退，把"为什么不行"交给上层（Java 侧据此提示减少图片或调大上下文）。
         size_t totalTokens = mtmd_helper_get_n_tokens(chunks);
-        LOGV("Image+prompt tokens: %zu, n_past: %d, total: %zu", totalTokens, (int)n_past, totalTokens + n_past);
-        
         int n_ctx = llama_n_ctx(ctx);
-        if ((int)(totalTokens + n_past) > n_ctx - maxTokens) {
-            LOGW("Tokens exceed context, clearing KV cache");
-            clearContextForInference();
-            n_past = 0;
+        llama_pos n_past = 0;
+        LOGV("Image+prompt tokens: %zu, ctx: %d, reserve(maxTokens): %d",
+             totalTokens, n_ctx, maxTokens);
+        if ((int) totalTokens + maxTokens > n_ctx) {
+            LOGE("Image tokens exceed context: need %zu + %d > %d", totalTokens, maxTokens, n_ctx);
+            mtmd_input_chunks_free(chunks);
+            freeBitmaps();
+            callback("", true,
+                     "图片过多：图像与提示共需 " + std::to_string(totalTokens)
+                     + " tokens，加上输出预留 " + std::to_string(maxTokens)
+                     + " 超出上下文 " + std::to_string(n_ctx)
+                     + "。请减少图片数量或调大上下文长度");
+            return false;
         }
 
+        // 9. 评估图像 + 完整 prompt（含历史）token —— 统一从 0 位置单趟评估
         llama_pos new_n_past = 0;
         int32_t evalRes = mtmd_helper_eval_chunks(s_mtmdCtx, ctx, chunks, n_past, 0, 256, true, &new_n_past);
         mtmd_input_chunks_free(chunks);
-        mtmd_bitmap_free(bitmapWrapper.bitmap);
+        freeBitmaps();
 
         if (evalRes != 0) {
             LOGE("mtmd_helper_eval_chunks failed: %d", evalRes);
@@ -8341,7 +8387,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithImage(
     jclass /* clazz */,
     jobjectArray historyArray,  // 历史消息数组: [{"role":"user","content":"..."}, ...]
     jstring prompt,
-    jstring imagePath,
+    jobjectArray imagePaths,    // 图像路径数组（1~N 张，顺序即 prompt 里 marker 的顺序）
     jint maxTokens,
     jfloat temperature,
     jfloat topP,
@@ -8417,9 +8463,19 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithImage(
     LOGV("Received %zu history messages for multimodal generation", history.size());
 
     std::string promptContent = jstringToUtf8(env, prompt);
-    std::string imagePathContent = jstringToUtf8(env, imagePath);
-    if (promptContent.empty() || imagePathContent.empty()) {
-        LOGE("nativeGenerateWithImage: prompt 或 imagePath 为空/解码失败");
+    std::vector<std::string> imagePathContents;
+    if (imagePaths != nullptr) {
+        jsize imageCount = env->GetArrayLength(imagePaths);
+        for (jsize i = 0; i < imageCount; i++) {
+            jstring pathStr = (jstring) env->GetObjectArrayElement(imagePaths, i);
+            if (pathStr == nullptr) continue;
+            std::string path = jstringToUtf8(env, pathStr);
+            if (!path.empty()) imagePathContents.push_back(path);
+            env->DeleteLocalRef(pathStr);
+        }
+    }
+    if (promptContent.empty() || imagePathContents.empty()) {
+        LOGE("nativeGenerateWithImage: prompt 为空或未提供有效 imagePath");
         return;
     }
 
@@ -8508,9 +8564,9 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithImage(
         }
     };
 
-    // 执行多模态生成（传入历史消息）
+    // 执行多模态生成（传入历史消息 + 1~N 张图）
     SAFE_RUN_INFERENCE(env, globalCallback, onErrorMethod,
-        s_helperContext->generateStreamWithImage(history, promptContent, imagePathContent, maxTokens, temperature, topP, topK, enableThinking, tokenCallback)
+        s_helperContext->generateStreamWithImage(history, promptContent, imagePathContents, maxTokens, temperature, topP, topK, enableThinking, tokenCallback)
     );
 }
 

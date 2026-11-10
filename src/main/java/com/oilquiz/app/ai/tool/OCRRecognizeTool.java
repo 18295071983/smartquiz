@@ -325,6 +325,17 @@ public class OCRRecognizeTool implements AITool {
                 AILogger.d(TAG, "imageUnderstandOnline: no active online model");
                 return null;
             }
+            // 视觉能力闸门：与聊天链路 isOnlineVisionModel() 同一口径。当前激活模型是纯文本
+            // 模型时（如 deepseek-chat）也必须拦下——否则会发一次注定 400 的看图请求，
+            // 白等最多 90s 才回退本地/OCR。能力字段优先，没标记时按模型名兜底。
+            String activeModelName = active.selectedModel != null ? active.selectedModel : active.modelName;
+            boolean visionCapable = active.supportsVision
+                    || com.oilquiz.app.ai.service.OnlineOCRService.looksLikeVisionModel(activeModelName);
+            if (!visionCapable) {
+                AILogger.d(TAG, "imageUnderstandOnline: active model is not vision-capable, skip online vision: "
+                        + activeModelName);
+                return null;
+            }
             // 统一走视觉编码出口：按真实字节定 MIME、长边 1568 降采样、预算内质量梯度，
             // 不再"原字节 + 硬标 jpeg + 超 4MB 直接放弃在线视觉"
             com.oilquiz.app.ai.util.ImagePreprocessUtil.PreparedVisionImage prepared =

@@ -1391,10 +1391,32 @@ public class LlamaHelper {
     public static void generateWithImage(List<ChatMessage> history, String prompt, String imagePath, int maxTokens,
                                           float temperature, float topP, int topK,
                                           boolean enableThinking, TokenCallback callback) {
+        List<String> paths = new java.util.ArrayList<>(1);
+        if (imagePath != null && !imagePath.isEmpty()) paths.add(imagePath);
+        generateWithImage(history, prompt, paths, maxTokens, temperature, topP, topK, enableThinking, callback);
+    }
+
+    /**
+     * 带图像的多模态生成（支持一次多张，2026-11-10）。
+     *
+     * <p>mtmd 侧本来就按数组接图，此前只是 native 写死 {@code bitmaps[1]}。多张图的顺序
+     * 与 prompt 里 marker 的顺序一致，调用方需保证路径有效且数量已按上下文预算裁剪过。</p>
+     *
+     * @param imagePaths 1~N 张图的本地路径（顺序即模型看到的 image 1 / image 2）
+     */
+    public static void generateWithImage(List<ChatMessage> history, String prompt, List<String> imagePaths, int maxTokens,
+                                          float temperature, float topP, int topK,
+                                          boolean enableThinking, TokenCallback callback) {
         if (!libraryLoaded) {
             AILogger.e(TAG, "Library not loaded, cannot generate with image");
             if (callback != null) {
                 callback.onError("Library not loaded");
+            }
+            return;
+        }
+        if (imagePaths == null || imagePaths.isEmpty()) {
+            if (callback != null) {
+                callback.onError("No image provided");
             }
             return;
         }
@@ -1409,7 +1431,8 @@ public class LlamaHelper {
         }
         try {
             ChatMessage[] historyArray = history != null ? history.toArray(new ChatMessage[0]) : null;
-            nativeGenerateWithImage(historyArray, prompt, imagePath, maxTokens, temperature, topP, topK, enableThinking, callback);
+            nativeGenerateWithImage(historyArray, prompt, imagePaths.toArray(new String[0]),
+                    maxTokens, temperature, topP, topK, enableThinking, callback);
         } catch (UnsatisfiedLinkError e) {
             AILogger.e(TAG, "Error generating with image: " + e.getMessage(), e);
             if (callback != null) {
@@ -1423,7 +1446,7 @@ public class LlamaHelper {
     private static native boolean nativeLoadMultimodal(String mmprojPath);
     private static native void nativeReleaseMultimodal();
     private static native boolean nativeIsMultimodalLoaded();
-    private static native void nativeGenerateWithImage(ChatMessage[] history, String prompt, String imagePath, int maxTokens,
+    private static native void nativeGenerateWithImage(ChatMessage[] history, String prompt, String[] imagePaths, int maxTokens,
                                                         float temperature, float topP, int topK,
                                                         boolean enableThinking, TokenCallback callback);
 

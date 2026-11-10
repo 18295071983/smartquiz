@@ -238,6 +238,10 @@ public class OCRManager {
      * 从文件路径进行在线 OCR（优先在线视觉模型，失败回退本地）
      */
     public CompletableFuture<String> recognizeFileOnlineFirst(String filePath, String language) {
+        // 本次调用开始重置引擎标记：在线失败时本方法内部会静默回退本地 OCR，
+        // 调用方只能靠 lastEngine 判断真正用了哪个引擎。不重置的话上一次的
+        // 值会残留，把本地识别误标成"在线视觉模型 OCR"（这个标记会被写进模型上下文）。
+        lastEngine = "";
         OnlineOCRService onlineOCR = OnlineOCRService.getInstance(context);
         if (onlineOCR.isAvailable()) {
             String langCode = mapLanguageCode(language);

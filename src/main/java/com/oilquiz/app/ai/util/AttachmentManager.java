@@ -193,12 +193,31 @@ public class AttachmentManager {
         }
     }
 
-    /** 去掉路径分隔符等非法字符（文件名来自 Uri path，可能带目录段） */
-    private String sanitizeFileName(String name) {
+    /** 单个文件名上限（含扩展名），超长名在部分 ROM 上会写失败 */
+    private static final int MAX_FILE_NAME_LEN = 120;
+
+    /**
+     * 清洗文件名（文件名来自 Uri path，可能带目录段）。
+     *
+     * <p>只清真正危险的部分：路径分隔符、控制字符、Windows 保留字符，以及 "." 开头的
+     * 隐藏文件语义；其余（中文、空格、括号等）原样保留 —— 旧实现用
+     * {@code [^a-zA-Z0-9._-]} 白名单，会把"期末复习资料.jpg"整条洗成 {@code ____.jpg}，
+     * 落盘名丢了辨识度，日志与附件目录里无法对应回用户选的哪张图。</p>
+     */
+    static String sanitizeFileName(String name) {
         if (name == null || name.isEmpty()) return "attachment";
-        String cleaned = name.replaceAll("[^a-zA-Z0-9._-]", "_");
-        // 只剩扩展名的畸形名（".jpg"）补一个前缀，避免写出隐藏文件
+        String cleaned = name.replaceAll("[\\p{Cntrl}/\\\\:*?\"<>|]", "_").trim();
+        if (cleaned.isEmpty()) return "attachment";
+        // "." / ".." / "..." 在 File 语义里指向当前/上级目录，必须改写
+        if (cleaned.replace(".", "").isEmpty()) return "attachment" + cleaned;
+        // 只剩扩展名的畸形名（".jpg"）补前缀，避免写出隐藏文件
         if (cleaned.startsWith(".")) cleaned = "attachment" + cleaned;
+        if (cleaned.length() > MAX_FILE_NAME_LEN) {
+            int dot = cleaned.lastIndexOf('.');
+            // 扩展名过长（不是正常后缀）时不当作扩展名保留
+            String ext = (dot > 0 && cleaned.length() - dot <= 10) ? cleaned.substring(dot) : "";
+            cleaned = cleaned.substring(0, MAX_FILE_NAME_LEN - ext.length()) + ext;
+        }
         return cleaned;
     }
 

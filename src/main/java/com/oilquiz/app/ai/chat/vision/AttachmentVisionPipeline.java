@@ -216,13 +216,22 @@ public class AttachmentVisionPipeline {
     }
 
     /**
-     * 本地视觉本次能吃几张图：0=不可用；1=llama.cpp mtmd 单图硬限；其余按在线同一预算。
+     * 本地多模态一次最多带几张图（2026-11-10）。
+     *
+     * <p>native 侧原本写死 {@code bitmaps[1]}，现在已按数组接图；但每张图在 mtmd 里是数百到
+     * 上千 token，4K 上下文两张就可能贴上限（native 侧会先算 token 再决定是否报错）。
+     * 首版给 2 张，真机验证过 prefill 耗时与显存后再放宽到 {@link #MAX_VISION_IMAGES}。</p>
+     */
+    public static final int LOCAL_VISION_MAX_IMAGES = 2;
+
+    /**
+     * 本地视觉本次能吃几张图：0=不可用；1=引擎只吃单图；其余按 {@link #LOCAL_VISION_MAX_IMAGES}。
      * 本次图片数超过该上限时，宿主先把整批交给在线视觉（若可用），在线也不可用才整批改走
      * OCR 文本 —— 不做"只看第一张、其余静默丢掉"那种取舍。
      */
     public int localVisionImageLimit() {
         if (!env.isLocalVisionLoaded()) return 0;
-        return env.supportsLocalMultiImage() ? MAX_VISION_IMAGES : 1;
+        return env.supportsLocalMultiImage() ? LOCAL_VISION_MAX_IMAGES : 1;
     }
 
     /** 在线模型是否支持视觉（配置能力字段优先，模型名关键词兜底） */

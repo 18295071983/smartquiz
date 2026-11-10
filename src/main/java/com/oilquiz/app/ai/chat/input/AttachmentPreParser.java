@@ -247,7 +247,12 @@ public class AttachmentPreParser {
             }
             result.status = ParseStatus.SUCCESS;
             result.content = text.trim();
-            result.method = "online_ocr";
+            // 记录真正生效的引擎：在线可用且成功 → online_ocr；在线失败内部已回退本地、
+            // 或在线不可用 → local_ocr。这个 method 会原文写进给模型的增强消息
+            // （AttachmentPromptBuilder），一律写 online_ocr 等于告诉模型"用的是在线视觉模型识别"，
+            // 实际可能是本地 RapidOCR，模型会据此误判识别质量。
+            result.method = OCRManager.ENGINE_ONLINE.equals(ocrManager.getLastEngine())
+                    ? "online_ocr" : "local_ocr";
         } catch (java.util.concurrent.TimeoutException e) {
             result.status = ParseStatus.FAILED;
             result.errorCode = ERR_PARSE_TIMEOUT;

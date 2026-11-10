@@ -247,12 +247,7 @@ public class OnlineOCRService {
             for (OnlineModelManager.OnlineModelConfig config : allModels) {
                 if (!config.enabled) continue;
                 String m = (config.selectedModel != null ? config.selectedModel : config.modelName);
-                if (m == null) continue;
-                String ml = m.toLowerCase();
-                if (ml.contains("vision") || ml.contains("-vl") || ml.contains("gpt-4o")
-                        || ml.contains("gemini") || ml.contains("claude-3")
-                        || ml.contains("qwen-vl") || ml.contains("internvl")
-                        || ml.contains("llava") || ml.contains("moondream")) {
+                if (looksLikeVisionModel(m)) {
                     AILogger.i(TAG, "Vision model detected by name: " + m);
                     return config;
                 }
@@ -266,6 +261,51 @@ public class OnlineOCRService {
             AILogger.e(TAG, "selectVisionModel failed: " + e.getMessage(), e);
             return null;
         }
+    }
+
+    /**
+     * 已知"能吃 image_url 图片输入"的模型族关键词（能力字段未标记时的兜底）。
+     *
+     * <p>{@code claude-3} 保留整族：Claude 3 的 opus/sonnet/haiku 都支持图片输入，
+     * 按族名收敛反而会漏掉便宜型号。</p>
+     */
+    private static final String[] VISION_NAME_HINTS = {
+            "vision", "-vl", "vl-",
+            "qwen-vl", "internvl", "llava", "moondream", "minicpm-v", "cogvlm", "pixtral",
+            "gpt-4o", "gpt-4.1", "gpt-5", "o4-mini",
+            "gemini", "claude-3", "claude-sonnet", "claude-opus",
+            "glm-4v", "step-1v", "yi-vl"
+    };
+
+    /**
+     * 同前缀但明确不吃 {@code image_url} 的变体。光加族名会把它们一起捞进来：
+     * 例如 {@code gpt-4o-audio-preview} / {@code gpt-4o-transcribe} 命中 {@code gpt-4o}、
+     * {@code gemini-embedding-001} 命中 {@code gemini}——选中后请求直接 400，
+     * 白跑一次（最多 60s 超时）才回退本地 OCR。
+     */
+    private static final String[] NON_VISION_NAME_HINTS = {
+            "audio", "realtime", "transcribe", "tts", "speech",
+            "embedding", "rerank", "dalle", "dall-e", "image-gen", "moderation"
+    };
+
+    /**
+     * 按模型名判定是否"可能支持图片输入"（仅在能力字段缺失时兜底）。
+     * 先排除非视觉变体，再匹配视觉族名，两者都是小写包含匹配。
+     *
+     * <p>公开给同类视觉判定复用（{@code OCRRecognizeTool.image_understand} 用它避免
+     * 对纯文本模型发一次注定 400 的看图请求）。</p>
+     */
+    public static boolean looksLikeVisionModel(String modelName) {
+        if (modelName == null) return false;
+        String lower = modelName.toLowerCase(java.util.Locale.ROOT).trim();
+        if (lower.isEmpty()) return false;
+        for (String bad : NON_VISION_NAME_HINTS) {
+            if (lower.contains(bad)) return false;
+        }
+        for (String hint : VISION_NAME_HINTS) {
+            if (lower.contains(hint)) return true;
+        }
+        return false;
     }
 
     /**

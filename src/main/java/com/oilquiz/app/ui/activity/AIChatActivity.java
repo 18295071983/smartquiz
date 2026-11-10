@@ -4014,10 +4014,12 @@ public class AIChatActivity extends BaseActivity {
                         displayMsg.append(localVisionNotReady
                                 ? getString(R.string.h_96262f69)
                                 : "当前没有可用的视觉模型（本地 vision 未加载、在线模型不支持图片），本次图片改用文字识别通道。");
-                    } else if (localLimit == 1 && imageAttachments.size() > 1 && !onlineVision) {
-                        // llama.cpp mtmd 是单图硬限（native 侧 bitmaps[1]），一次只吃一张
-                        displayMsg.append("本地视觉单次只能理解 1 张图片，本次 ").append(imageAttachments.size())
-                                .append(" 张全部改用文字识别通道；逐张发送可以直接看图，或改用支持图片的在线模型。");
+                    } else if (localLimit > 0 && imageAttachments.size() > localLimit && !onlineVision) {
+                        // 本地视觉能看图但一次装不下这么多张（上限见 LOCAL_VISION_MAX_IMAGES：
+                        // 每张图在 mtmd 里是数百到上千 token，受上下文容量约束）
+                        displayMsg.append("本地视觉单次最多理解 ").append(localLimit)
+                                .append(" 张图片，本次 ").append(imageAttachments.size())
+                                .append(" 张全部改用文字识别通道；分批发送可以直接看图，或改用支持图片的在线模型。");
                     }
                 }
                 displayMsg.append(getString(R.string.h_a791b767));
@@ -4139,8 +4141,9 @@ public class AIChatActivity extends BaseActivity {
                                 return false;
                             }
                         }
-                        // llama.cpp mtmd 是 bitmaps[1] 单图硬限
-                        @Override public boolean supportsLocalMultiImage() { return false; }
+                        // native 侧已改为按数组接图（mtmd_tokenize 收 bitmaps[]），
+                        // 张数上限由 AttachmentVisionPipeline.LOCAL_VISION_MAX_IMAGES 控制
+                        @Override public boolean supportsLocalMultiImage() { return true; }
                         @Override public int getModelContextSize() {
                             return aiConfig != null ? aiConfig.getContextSize() : 0;
                         }
@@ -4485,13 +4488,19 @@ public class AIChatActivity extends BaseActivity {
             final String userText = com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline
                     .visionUserText(originalMessage);
             // 图片预处理：WebP/HEIC 等重编码为 JPEG + 长边降采样，
-            // 解决原生 mtmd(stb_image) 不支持 WebP/HEIC、大图全尺寸解码 OOM 两个问题
+            // 解决原生 mtmd(stb_image) 不支持 WebP/HEIC、大图全尺寸解码 OOM 两个问题。
+            // 多图时全部下发（native 已支持数组，张数上限见 LOCAL_VISION_MAX_IMAGES）
             List<String> visionImagePaths = new ArrayList<>();
             for (java.io.File file : imageFiles) {
-                visionImagePaths.add(com.oilquiz.app.ai.util.ImagePreprocessUtil
-                        .prepareVisionImage(this, file));
+                String prepared = com.oilquiz.app.ai.util.ImagePreprocessUtil
+                        .prepareVisionImage(this, file);
+                if (prepared != null) visionImagePaths.add(prepared);
             }
-            final String visionImagePath = visionImagePaths.get(0);
+            if (visionImagePaths.isEmpty()) {
+                AppLogger.w(TAG, "Vision: no usable image after preprocess, falling back to OCR path");
+                processMessageWithAttachments(originalMessage, imageAtts);
+                return;
+            }
             // 多轮上下文：取当前图片消息之前的 USER/AI 文本消息（图片消息本身不入历史，
             // 其文本离开图片会误导模型）
             final java.util.List<ChatMessage> history = buildVisionHistory(1);
@@ -4501,7 +4510,7 @@ public class AIChatActivity extends BaseActivity {
             final float topP = aiConfig != null ? aiConfig.getTopP() : 0.9f;
             final int topK = aiConfig != null ? aiConfig.getTopK() : 40;
 
-            startLocalVisionGeneration(history, userText, visionImagePath,
+            startLocalVisionGeneration(history, userText, visionImagePaths,
                     maxTokens, temperature, topP, topK, visionThinkingEnabled);
         } catch (Exception e) {
             AppLogger.e(TAG, "handleLocalVisionImages error: " + e.getMessage(), e);
@@ -4519,7 +4528,7 @@ public class AIChatActivity extends BaseActivity {
      * 含竞态缓解：调用前在工作线程再次确认多模态就绪，避免 UI 线程检查后、生成线程执行前用户切换模型。
      */
     private void startLocalVisionGeneration(java.util.List<ChatMessage> history, String userText,
-                                            String visionImagePath, int maxTokens,
+                                            List<String> visionImagePaths, int maxTokens,
                                             float temperature, float topP, int topK,
                                             boolean visionThinkingEnabled) {
         final String msgId = java.util.UUID.randomUUID().toString();
@@ -4550,7 +4559,7 @@ public class AIChatActivity extends BaseActivity {
                     });
                     return;
                 }
-                LlamaHelper.generateWithImage(history, userText, visionImagePath,
+                LlamaHelper.generateWithImage(history, userText, visionImagePaths,
                         maxTokens, temperature, topP, topK, visionThinkingEnabled,
                         new LlamaHelper.TokenCallback() {
                             @Override public void onToken(String token) {
@@ -4637,7 +4646,7 @@ public class AIChatActivity extends BaseActivity {
                         .prepareVisionImage(this, file));
             }
             if (visionImagePaths.isEmpty()) return false;
-            final String visionImagePath = visionImagePaths.get(0);
+            // 追问复用同样按引擎能力整批带上（localLimit 已按 LOCAL_VISION_MAX_IMAGES 裁剪）
             // 历史：图片消息之前的 USER/AI 文本
             final java.util.List<ChatMessage> history = new java.util.ArrayList<>();
             for (int i = 0; i < lastImageIndex; i++) {
@@ -4665,7 +4674,7 @@ public class AIChatActivity extends BaseActivity {
             final boolean thinkingEnabled = thinkingFlag;
             AppLogger.ai(TAG, "Follow-up vision: reuse " + visionImagePaths.size()
                     + " image(s) for: " + message);
-            startLocalVisionGeneration(history, message, visionImagePath,
+            startLocalVisionGeneration(history, message, visionImagePaths,
                     maxTokens, temperature, topP, topK, thinkingEnabled);
             return true;
         } catch (Exception e) {

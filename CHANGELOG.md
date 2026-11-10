@@ -1,5 +1,66 @@
 # 变更日志
 
+## [2026-11-10] feat(vision)：本地视觉支持一次多图（native mtmd 改数组）
+
+此前本地看图一次只能传 1 张，2 张以上且在线模型不支持图片时整批降级成 OCR 文本。根因不是"NPU 能力"，
+而是 native 一行写死：`const mtmd_bitmap* bitmaps[1] = { … }; mtmd_tokenize(…, bitmaps, 1)`。
+llama.cpp 的 `mtmd_tokenize` 签名本来就收 `bitmaps[] + n_bitmaps`，只是工程里数量固定成 1。
+（顺带纠正：`GenieX` 移除后 QNN/Hexagon 只是 llama.cpp 的一个 backend，与多图能力无关；
+代码里从未有过 `setPendingImagePaths`，它只出现在注释里。）
+
+- **native**：`generateStreamWithImage` 入参由 `const std::string& imagePath` 改为
+  `const std::vector<std::string>& imagePaths`；prompt 里按张数放 N 个 `mtmd_default_marker()`；
+  逐张 `mtmd_helper_bitmap_init_from_file` 后传 `bitmaps.data() / size()` 给 `mtmd_tokenize`；
+  任一张加载失败即整体放弃并释放已加载的 bitmap（半批图片的上下文会误导模型）。
+  JNI `nativeGenerateWithImage` 的 `jstring imagePath` 相应改为 `jobjectArray imagePaths`。
+- **上下文容量预检**：原逻辑只有一句 `if (totalTokens + n_past > n_ctx - maxTokens) clearContextForInference()`，
+  但 `n_past` 恒为 0、清 KV 不会腾出位置，等于无效分支，多图时必在生成阶段溢出。
+  现改为 tokenize 后直接校验 `totalTokens + maxTokens > n_ctx`，超出就回调错误
+  "图片过多：图像与提示共需 X tokens，加上输出预留 Y 超出上下文 Z…"，由上层提示减少图片或调大上下文。
+- **Java**：`LlamaHelper.generateWithImage` 新增 `List<String> imagePaths` 重载，原单图重载转调它
+  （`OCRRecognizeTool.image_understand_local` 等旧调用无需改动）；native 声明同步为 `String[]`。
+- **上限**：`AttachmentVisionPipeline.LOCAL_VISION_MAX_IMAGES = 2`，`localVisionImageLimit()` 由原来的
+  `MAX_VISION_IMAGES(5)/1` 改为按该常量返回。首版取 2 是因为一张图在 mtmd 里是数百到上千 token，
+  4K 上下文两张就贴上限、prefill 延迟线性增长；真机验证后再放宽。
+- **宿主**：`AIChatActivity.supportsLocalMultiImage()` 由写死 `false` 改为 `true`；
+  `handleLocalVisionImages` 不再只用 `visionImagePaths.get(0)`，预处理后的图全部下发；
+  `startLocalVisionGeneration` 与追问复用 `tryFollowUpVision` 同步收 `List<String>`；
+  降级文案由"只能理解 1 张"改为按实际上限拼数量。
+- **验证**：`compileDebugJavaWithJavac` 通过、`assembleDebug` 通过（`libllama-jni.so` 201,640,464 B，
+  已用二进制搜索确认新错误串在包内）、全量 **257 suite / 1866 tests / 0 failures / 0 errors / 1 skipped**。
+  **多图未真机验证**：能编不能证明 prefill 耗时、显存与回答质量在设备上成立，需实测两张图。
+
+## [2026-11-10] fix(attach)：落盘名保留中文 + OCR 引擎标识如实 + 在线 OCR 不再误选非视觉模型 + 看图工具补视觉闸门
+
+排查"AI 对话插入图片怎么处理"时翻出的四处状态失真，都不改变功能，但会让日志/模型上下文说谎：
+
+- **文件名**：`AttachmentManager.sanitizeFileName` 原是 `[^a-zA-Z0-9._-]` 白名单，`期末复习资料.jpg`
+  会整条洗成 `____.jpg`，附件目录和日志里没法对应回用户选的是哪张图。改为只清危险字符
+  （路径分隔符、控制字符、Windows 保留字符），中文/空格/括号原样保留；同时补 `MAX_FILE_NAME_LEN=120`
+  截断（保扩展名）、`.`/`..`/`.jpg` 补前缀防目录语义与隐藏文件。方法改 `static` 以便直接测。
+- **OCR 引擎标识**：`AttachmentPreParser.parseImage` 成功时一律写 `method="online_ocr"`，而
+  `recognizeFileOnlineFirst` 在线失败会**内部静默回退本地**、在线不可用时直接走本地。这个 `method`
+  会原文写进给模型的增强消息（`AttachmentPromptBuilder:140`），等于告诉模型"用的是在线视觉模型识别"，
+  实际可能是本地 RapidOCR，模型会据此误判识别质量（`methodLabel` 里 `local_ocr` 因此是死分支）。
+  现按 `OCRManager.getLastEngine()` 如实区分；`recognizeFileOnlineFirst` 入口重置 `lastEngine`，
+  避免上一次的值残留把本地识别误标成在线。
+- **在线 OCR 选模型**：`OnlineOCRService.selectVisionModel` 第 4 级"按模型名猜视觉能力"是纯族名包含匹配，
+  会把同前缀的非视觉变体一起捞进来——`gpt-4o-audio-preview` / `gpt-4o-transcribe` 命中 `gpt-4o`、
+  `gemini-embedding-001` 命中 `gemini`，选中后请求 400，白跑一次（最多 60s）才回退本地 OCR。
+  现抽成 `looksLikeVisionModel`：先排非视觉变体（audio/realtime/transcribe/tts/speech/embedding/rerank/
+  dalle/image-gen/moderation），再匹配视觉族名。**`claude-3` 整族保留**——Claude 3 的 opus/sonnet/haiku
+  都吃图，收窄会误伤便宜型号（上一版评审里"claude-3 太宽"的说法据此纠正）。
+- **看图工具补闸门**：`OCRRecognizeTool.imageUnderstandOnline` 原先只判"激活端点 enabled"就发图，
+  **不校验模型是否支持视觉**——当前激活模型是纯文本模型（如 `deepseek-chat`）时会发一次注定 400 的
+  看图请求，白等最多 90s 才回退本地/OCR。聊天链路早有这道闸（`isOnlineVisionModel()`），工具侧漏了。
+  现与聊天链路同一口径：`supportsVision` 优先、没标记按模型名兜底（复用 `OnlineOCRService.looksLikeVisionModel`，
+  该方法因此改为 public）。
+- **验证**：新增 `AttachmentManagerTest` 6 条 + `OnlineOCRServiceTest` 6 条（后者钉住 gpt-4o 家族与
+  audio/transcribe 变体、gemini 与 embedding 变体、claude-3 三档不被误伤、qwen/glm 视觉后缀、
+  纯文本与 embedding 名不误判、null/空值）。全量 **257 suite / 1866 tests / 0 failures / 0 errors / 1 skipped**
+  （基线 255/1854）。
+- **未做**：未装机真机复测（只影响落盘文件名、日志字段与在线 OCR 的模型挑选，不改变通道选择）；未提交。
+
 ## [2026-11-10] fix(knowledge)：切块小块归并 + stats 暴露回填进度
 
 App 内实测（两份真实文档 64 块）暴露两处：Markdown「结论句 + 紧跟子标题」被切成两块，命中前者只返回
