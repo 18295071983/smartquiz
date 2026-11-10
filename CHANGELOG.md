@@ -50,7 +50,7 @@
 - **装包坑**：`.cxx` 里 `vulkan-shaders-gen.exe` 缺 `libstdc++-6.dll` / `libgcc_s_seh-1.dll` /
   `libwinpthread-1.dll`（MinGW 编），从 `C:\msys64\mingw64\bin` 复制进去才编得过；本机 PowerShell
   `PATH` 无 `System32` 时 llama.cpp 链接会报 `'cmd.exe' 不是内部或外部命令`，装包前先补。
-- 提交：本文件补记。
+- 提交：`b035f531`（本文件补记）。
 
 ## [2026-11-09] fix(chat)：模型在内存但 chat context 失效时主动重建
 
