@@ -966,13 +966,15 @@ export function apply(ctx, config) {
         if (ev) sse({ type: 'event', event: ev });
       }
       // 审批：把当前挂着的推给手机（各推一次），结束了的通知撤回
-      for (const a of pendingApprovalsOf(sid)) {
+      for (const a of [...pendingRemoteOf(sid, 'approval'), ...pendingRemoteOf(sid, 'question')]) {
         if (announced.has(a.id)) continue;
         announced.add(a.id);
-        sse({ type: 'approval', id: a.id, request: a.request });
+        sse({ type: a.kind === 'question' ? 'question' : 'approval', id: a.id, request: a.request });
       }
       for (const id of [...announced]) {
-        if (pendingApprovalsOf(sid).some((a) => a.id === id)) continue;
+        const still = [...pendingRemoteOf(sid, 'approval'), ...pendingRemoteOf(sid, 'question')]
+          .some((a) => a.id === id);
+        if (still) continue;
         announced.delete(id);
         sse({ type: 'approval_gone', id });
       }
@@ -1009,21 +1011,28 @@ export function apply(ctx, config) {
     } catch { return null; }
   };
 
-  /** 某条会话当前挂着的审批（id + 请求体），拿不到返回空数组 */
-  const pendingApprovalsOf = (sessionId) => {
+  /**
+   * 某条会话当前挂着的"远端待答事件"（审批 / agent 反问）。
+   * 返回值里的 `kind` 决定手机端弹哪种框。
+   */
+  const pendingRemoteOf = (sessionId, kind) => {
     const gw = approvalGateway();
     if (!gw) return [];
+    const eventName = kind === 'question' ? 'user-questions/request' : 'approval/request';
     const out = [];
     try {
       for (const pending of gw.pendingRemoteEvents.values()) {
         const f = pending?.frame;
-        if (!f || f.event !== 'approval/request') continue;
+        if (!f || f.event !== eventName) continue;
         if (sessionId && String(f.agentId) !== String(sessionId)) continue;
-        out.push({ id: String(pending.id), request: f.request ?? null, agent_id: String(f.agentId ?? '') });
+        out.push({ id: String(pending.id), kind, request: f.request ?? null, agent_id: String(f.agentId ?? '') });
       }
     } catch { /* 结构变了就当没有 */ }
     return out;
   };
+
+  /** 兼容旧调用点：只要审批 */
+  const pendingApprovalsOf = (sessionId) => pendingRemoteOf(sessionId, 'approval');
 
   /** 手机应答：先答先赢；失败返回错误说明 */
   const answerApproval = (approvalId, allow) => {
@@ -1504,7 +1513,7 @@ export function apply(ctx, config) {
         return sendJson(res, 200, {
           ok: true, action: 'approval_state',
           gateway: Boolean(approvalGateway()),
-          pending: pendingApprovalsOf(target || null),
+          pending: [...pendingRemoteOf(target || null, 'approval'), ...pendingRemoteOf(target || null, 'question')],
         });
       }
       if (action === 'approval') {

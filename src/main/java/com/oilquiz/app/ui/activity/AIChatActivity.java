@@ -12842,6 +12842,41 @@ public class AIChatActivity extends BaseActivity {
      * 直接改 ChatMessage 的 content / thinkingContent 再 notifyItemChanged，
      * 就能复用既有的 parts 渲染（正文 TextPartRenderer、思考 ReasoningPartRenderer）。
      */
+    /**
+     * DSH 的 agent 反问（user-questions/request）：先只读提示。
+     *
+     * 代答需要知道网关期望的答案结构（web 客户端那侧组装），没实测前不猜，
+     * 先在手机上告诉你"电脑端在等你回答什么"。
+     */
+    private void showDshQuestionNotice(org.json.JSONObject request) {
+        if (request == null) return;
+        StringBuilder sb = new StringBuilder();
+        org.json.JSONArray questions = request.optJSONArray("questions");
+        if (questions != null) {
+            for (int i = 0; i < questions.length(); i += 1) {
+                org.json.JSONObject q = questions.optJSONObject(i);
+                if (q == null) continue;
+                String text = q.optString("question", q.optString("prompt", q.optString("header", "")));
+                if (text.isEmpty()) continue;
+                if (sb.length() > 0) sb.append("\n");
+                sb.append("· ").append(text);
+                org.json.JSONArray options = q.optJSONArray("options");
+                if (options != null && options.length() > 0) {
+                    sb.append("（");
+                    for (int k = 0; k < options.length(); k += 1) {
+                        if (k > 0) sb.append(" / ");
+                        sb.append(options.optString(k));
+                    }
+                    sb.append("）");
+                }
+            }
+        }
+        final String detail = sb.length() > 0 ? sb.toString() : request.toString();
+        runOnUiThread(() -> addSystemMessage(
+                "❓ 电脑端在等你回答：\n" + detail + "\n（暂时需要在电脑上回答；手机代答还没接）",
+                ChatMessage.SystemMessageType.INFO));
+    }
+
     /** DSH 审批事件 → 手机上的允许/拒绝对话框（先答先赢，电脑端弹窗随之收掉） */
     private void showDshApprovalDialog(String id, org.json.JSONObject request) {
         if (id == null || id.isEmpty()) return;
@@ -12884,7 +12919,12 @@ public class AIChatActivity extends BaseActivity {
             try {
                 boolean ok = com.oilquiz.app.ai.tool.RemoteDshTool.answerApproval(AIChatActivity.this, id, allow);
                 runOnUiThread(() -> {
-                    if (!ok) showToast("审批没送达（可能已在电脑上处理）");
+                    if (!ok) {
+                        showToast("审批没送达");
+                        addSystemMessage("⚠️ 审批没送达：可能已在电脑上处理，或这个 DSH 版本不支持中继。"
+                                + "\n如果电脑端还挂着审批，请在电脑上点一下；也可以在手机上再发一句让任务重试。",
+                                ChatMessage.SystemMessageType.WARNING);
+                    }
                     dismissDshApprovalDialog(id);
                 });
             } catch (Exception e) {
@@ -12927,6 +12967,18 @@ public class AIChatActivity extends BaseActivity {
         int turn = data == null ? 1 : data.optInt("turn", 1);
         int step = data == null ? 1 : data.optInt("step", 1);
 
+        if ("approval".equals(type)) {
+            showDshApprovalDialog(ev.optString("id"), ev.optJSONObject("request"));
+            return;
+        }
+        if ("question".equals(type)) {
+            showDshQuestionNotice(ev.optJSONObject("request"));
+            return;
+        }
+        if ("approval_gone".equals(type) || "question_gone".equals(type)) {
+            dismissDshApprovalDialog(ev.optString("id"));
+            return;
+        }
         if ("turn/start".equals(type)) {
             setLivePhase(live, liveIdx, ChatMessage.InferencePhase.THINKING);
             return;

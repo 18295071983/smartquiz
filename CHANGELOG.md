@@ -1,5 +1,20 @@
 # 变更日志
 
+## [2026-11-10] feat(remote_dsh)：手机端显示 agent 反问 + 审批失败提示
+
+- 插件的 pending 中继从"只认审批"泛化为 `pendingRemoteOf(sessionId, kind)`，同时覆盖
+  `approval/request` 与 `user-questions/request`；`/events` 会推 `question` / `approval`，
+  结束推 `approval_gone`；`approval_state` 的 `pending` 也包含反问。
+- 手机端收到 `question` → 一条系统消息列出问题与选项（**只读**）：
+  「❓ 电脑端在等你回答：…（暂时需要在电脑上回答；手机代答还没接）」。
+- 审批应答失败（`approval_not_found` / 网关不可用）时，除了 toast，还在聊天里留一条
+  WARNING：「⚠️ 审批没送达：可能已在电脑上处理，或这个 DSH 版本不支持中继…」，
+  并提示可以再发一句让任务重试。
+- **为什么反问只做只读**：`user-questions/request` 的应答值结构由 web 客户端组装，
+  没有实测样本前不猜（猜错会静默失败）。要接代答，需要先抓到一次客户端回执的真实 payload。
+- **验证**：`approval_state → {"gateway":true,"pending":[]}`；编译与打包通过，APK 已装机。
+- **未验证**：反问与审批的真实触发仍未跑过（当前 `danger-full-access`，两者都不触发）。
+
 ## [2026-11-10] refactor(remote_dsh)：同步消息按 turn/step 分组重建 parts
 
 上一节虽然用了 `AssistantTurn`，但 part 是"按事件到达顺序追加"，多步任务里工具卡会排到
