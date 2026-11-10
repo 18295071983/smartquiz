@@ -761,6 +761,26 @@ export function apply(ctx, config) {
     prompts: promptCount,
     port: ctx.webServer.port,
     uptime_ms: Date.now() - startedAt,
+    // ---- 新增：双端能力的可见状态（面板据此显示）----
+    events: { since: true, log_replay: true, snapshot: true, heartbeat: 15 },
+    approval_relay: (() => {
+      const gw = (() => { try { return approvalGateway(); } catch { return null; } })();
+      let pending = 0;
+      try { pending = pendingRemoteOf(null, 'approval').length + pendingRemoteOf(null, 'question').length; } catch { /* ignore */ }
+      return { gateway: Boolean(gw), pending };
+    })(),
+    cmd_queue: (() => {
+      const list = [...cmdQueue.values()];
+      return {
+        allowed: [...CMD_ALLOW],
+        queued: list.filter((c) => c.state !== 'done').length,
+        done: list.filter((c) => c.state === 'done').length,
+        recent: list.slice(-5).map((c) => ({
+          id: c.id, tool: c.tool, state: c.state, ok: c.ok, at: c.createdAt,
+          result: String(c.result || '').slice(0, 120),
+        })),
+      };
+    })(),
   });
 
   route('exact', '/health', (req, res) =>
@@ -1305,7 +1325,8 @@ export function apply(ctx, config) {
   });
 
   route('exact', '/status', (req, res) => {
-    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    // DSH Web UI 面板是同源 fetch，不带 Bearer —— 本机请求放行只读状态（不含令牌）；远程仍要令牌。
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     sendJson(res, 200, statusBody());
   });
 
