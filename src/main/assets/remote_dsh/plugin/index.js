@@ -745,7 +745,7 @@ export function apply(ctx, config) {
   const statusBody = () => ({
     ok: true,
     service: 'dsh-plugin-remote',
-    version: 5,
+    version: 6,
     bridge: 'dsh-plugin',
     channels: { session_acp: true, exec: allowExec === true },
     acp_agent: { provider: cfg.provider || '(none)', model: cfg.model || '(none)', preset: lastPreset, transport: 'in-process' },
@@ -759,6 +759,8 @@ export function apply(ctx, config) {
     main_token_last_seen: mainTokenLastSeen,
     pairing_codes_pending: pairingCodes.size,
     prompts: promptCount,
+    // 隧道/公网域名：手机连接页的“隧道域名”就用它；没配置时是空串
+    public_url: String(cfg.publicUrl ?? '').trim(),
     port: ctx.webServer.port,
     uptime_ms: Date.now() - startedAt,
     // ---- 新增：双端能力的可见状态（面板据此显示）----
@@ -784,7 +786,7 @@ export function apply(ctx, config) {
   });
 
   route('exact', '/health', (req, res) =>
-    sendJson(res, 200, { ok: true, service: 'dsh-plugin-remote', version: 5 }));
+    sendJson(res, 200, { ok: true, service: 'dsh-plugin-remote', version: 6 }));
 
   // ---------------- 电脑端会话：列出 / 只读查看 ----------------
   // 目的：手机不只知道"自己那条会话"，还能看到电脑上正在聊/聊过的会话（只读），

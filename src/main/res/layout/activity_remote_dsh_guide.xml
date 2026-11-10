@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   remote_dsh 使用教程：怎么用 + 电脑端怎么配 + 一键导出电脑端程序。
-  入口：「远程连接（电脑）」顶部按钮。
+  2026-11-10 重写：补上「同步/直连两种模式」「导入电脑历史」「审批双端」「后台通知」等新能力。
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -34,19 +34,19 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="🖥️ 远程控制电脑（怎么用）"
+                    android:text="🖥 远程控制电脑（怎么用）"
                     android:textSize="@dimen/text_18"
                     android:textStyle="bold"
-                    android:textColor="?attr/colorControlText"/>
+                    android:textColor="?attr/colorControlText" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_8"
-                    android:lineSpacingExtra="3dp"
-                    android:text="配对之后，你可以直接对 AI 说人话，让它在你电脑上干活：\n· 「用电脑看看 D 盘有哪些项目文件夹」\n· 「在电脑上跑一下 git status，把原始输出贴出来」\n· 「把这份文档在电脑上转成 PDF」\n\n需要：一台电脑（Windows / macOS / Linux）+ 手机能访问到这台电脑（同一 Wi-Fi，或做内网穿透）。\n大多数用户用不到这个功能，不用就忽略本页即可。"
+                    android:lineSpacingExtra="4dp"
+                    android:text="配对之后，你可以在手机上直接让电脑上的 AI 干活。\n\n两种模式（聊天页顶部状态条点一下可切换）：\n· 同步模式 —— 消息发给电脑端「同一条对话」，电脑和手机看到的是同一段对话，思考、工具卡、产物都会同步显示\n· 直连模式 —— 电脑端新开一条会话执行，不打断你电脑上正在聊的那条\n\n配对一次，之后切后台、锁屏都还能收到电脑端的新消息（通知栏提示）。"
                     android:textSize="@dimen/text_13"
-                    android:textColor="?attr/colorControlTextSecondary"/>
+                    android:textColor="?attr/colorControlTextSecondary" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -68,31 +68,29 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="第 1 步 · 电脑端准备（一次性，约 5 分钟）"
+                    android:text="第 1 步 · 电脑端准备（一次性）"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="?attr/colorControlText"/>
+                    android:textColor="?attr/colorControlText" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_8"
                     android:lineSpacingExtra="4dp"
-                    android:text="1) 电脑上装 Node.js 18+（nodejs.org）\n2) 装 Python 3.9+（python.org，Windows 安装时勾选 Add Python to PATH）\n3) 装 dsh：命令行执行  npm install -g @deepseek-ai/dsh  然后运行 dsh 按提示配置好模型（0.1.5+ 都行，装到最新版最省事）\n4) 把下面导出的 6 个文件放到电脑上同一个文件夹里（缺一不可）"
+                    android:text="1) 电脑装好 DeepSeek Harness（桌面版）并登录\n2) 装本插件：插件管理器 → 从文件夹安装 → 选下面导出的 plugin 文件夹 → 重启 DSH\n3) 重启后打开 DSH，输入框上方点「📱 手机远程」→「在电脑上打开配对页」\n4) 电脑和手机在同一 Wi-Fi 时扫「局域网」那张码；不在同一网段就扫「公网/隧道」那张（需要先在面板里填隧道域名）"
                     android:textSize="@dimen/text_13"
-                    android:textColor="?attr/colorControlTextSecondary"/>
+                    android:textColor="?attr/colorControlTextSecondary" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_export"
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/size_44"
                     android:layout_marginTop="@dimen/space_12"
-                    android:text="导出电脑端程序到手机"
-                    android:textSize="@dimen/text_14"
+                    android:text="导出电脑端插件（拷到电脑上安装）"
                     android:textAllCaps="false"
-                    android:textColor="?attr/colorOnPrimary"
-                    app:backgroundTint="?attr/colorPrimary"
-                    app:cornerRadius="@dimen/radius_22"/>
+                    android:textSize="@dimen/text_14"
+                    app:cornerRadius="@dimen/radius_22" />
 
                 <TextView
                     android:id="@+id/export_result"
@@ -100,22 +98,12 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_8"
                     android:lineSpacingExtra="3dp"
-                    android:text="导出的文件夹：Download/OilQuiz/remote_dsh/（含 README.md，里面有同样的步骤说明）。\n用数据线 / 微信 / 网盘把整个文件夹传到电脑上。"
                     android:textSize="@dimen/text_12"
-                    android:textColor="?attr/colorControlTextHint"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_8"
-                    android:lineSpacingExtra="4dp"
-                    android:text="5) 打开 DSH → 插件管理器 → 「从文件夹安装」→ 选 plugin 文件夹 → 重启 DSH\n   · 只会弹一个窗口：桥接服务（8218）。桥接会自己在后台拉起 dsh 的 ACP 会话（stdio），不再需要单独的「ACP 服务」窗口，也不占用 7800 端口、不需要 ACP 令牌\n   · 窗口会显示「访问令牌」和电脑上的 dsh 版本，并自动打开配对页 http://127.0.0.1:8218/pair"
-                    android:textSize="@dimen/text_13"
-                    android:textColor="?attr/colorControlTextSecondary"/>
+                    android:textColor="?attr/colorControlTextSecondary" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ===== 手机端连接 ===== -->
+        <!-- ===== 手机端配对 ===== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -133,35 +121,23 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="第 2 步 · 手机连接"
+                    android:text="第 2 步 · 手机配对"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="?attr/colorControlText"/>
+                    android:textColor="?attr/colorControlText" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_8"
                     android:lineSpacingExtra="4dp"
-                    android:text="6) 回到「远程连接（电脑）」→ 点「扫码配对」→ 扫电脑屏幕上配对页的二维码\n7) 扫完自动填好地址和令牌，状态变成「已连接」就能用了\n8) 想更方便？在连接界面打开「在聊天页顶部显示连接状态条」，聊天页顶部就会常驻显示连接状态"
+                    android:text="回到本页上一级「远程连接（电脑）」：\n· 扫码配对 —— 扫电脑上打开的配对页\n· 或手填：地址填电脑插件面板里的地址（局域网 http://IP:8218 或隧道 https://…），令牌填面板里的 32 位令牌\n\n连上后顶部会显示「已连接」，并列出已配对设备数。"
                     android:textSize="@dimen/text_13"
-                    android:textColor="?attr/colorControlTextSecondary"/>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_goto_connect"
-                    android:layout_width="match_parent"
-                    android:layout_height="@dimen/size_44"
-                    android:layout_marginTop="@dimen/space_12"
-                    android:text="去连接（扫码配对 / 手动填地址）"
-                    android:textSize="@dimen/text_14"
-                    android:textAllCaps="false"
-                    android:textColor="?attr/colorOnSecondaryContainer"
-                    app:backgroundTint="?attr/colorSecondaryContainer"
-                    app:cornerRadius="@dimen/radius_22"/>
+                    android:textColor="?attr/colorControlTextSecondary" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ===== 排查 + 安全 ===== -->
+        <!-- ===== 选会话 ===== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -179,38 +155,99 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="连不上怎么排查"
+                    android:text="第 3 步 · 选一条电脑会话"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="?attr/colorControlText"/>
+                    android:textColor="?attr/colorControlText" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_8"
                     android:lineSpacingExtra="4dp"
-                    android:text="· 电脑上那个窗口是否还开着？关掉窗口 = 断开（桥接与它拉起的 dsh 子进程一起退出）\n· 手机和电脑在同一个 Wi-Fi 吗？不同网络要先做内网穿透（花生壳 / frp / Tailscale 等），把电脑 8218 端口映射出去，然后用「手动配置」填穿透后的地址\n· 令牌要和电脑窗口里打印的一致（配对页上也能看到）\n· 点「连接」会显示具体失败原因，按提示排查\n· 窗口里报 error: unknown option '--host' → 电脑上还是旧版程序（0.1.5 时代要单独开 7800）：回本页重新「导出电脑端程序」，覆盖电脑上的旧文件\n· 让它跑命令时回来说沙箱/ACL 报错 → 用新版脚本启动即可（默认 --permission-mode danger-full-access，不再走 Windows 沙箱）"
+                    android:text="点「选择电脑会话（同步/接续用）」：\n· 列表只显示「还在用」的会话 —— 归档的、以及没有标题也没有消息的空会话都不会出现\n· 框里每 3 秒自动对齐电脑端，新开的对话会自动出现\n· 选中后自动切到同步模式\n\n想把电脑上已有的整段对话搬到手机：点「把电脑这条对话的历史导入本机」，导入后会生成一条本地历史并自动打开，可离线回看。"
                     android:textSize="@dimen/text_13"
-                    android:textColor="?attr/colorControlTextSecondary"/>
+                    android:textColor="?attr/colorControlTextSecondary" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ===== 能用什么 ===== -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_12"
+            app:cardElevation="4dp"
+            app:cardCornerRadius="16dp"
+            app:cardBackgroundColor="?attr/colorCardBackground">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/space_16">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_12"
-                    android:text="安全"
+                    android:text="配对后能做什么"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="?attr/colorControlText"/>
+                    android:textColor="?attr/colorControlText" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_8"
                     android:lineSpacingExtra="4dp"
-                    android:text="· 只有配对过（拿到访问令牌）的手机才能连上，令牌只存在电脑本地文件里\n· 不用时关掉电脑上的窗口即可（桥接与 dsh 子进程一起退出）；App 里「断开」只影响手机侧，电脑端不受影响\n· 拿到令牌的手机 = 能让电脑上的 AI 读写文件、执行命令（默认不受沙箱限制），等同于把电脑交给你自己的 AI —— 请自行确认电脑上环境可信；做了公网隧道时尤其要保管好令牌"
+                    android:text="· 对话同步：手机上发一句，电脑那条对话里会出现；电脑在跑的过程（思考、第几步、正在运行哪个工具）手机上也能看到\n· 工具卡与卡片：待办、产物文件、命令、子代理、工作流进度、模型报错都会变成卡片\n· 审批：电脑弹审批时手机也弹，「谁先点谁生效」，另一端自动消失\n· 后台通知：切后台/锁屏仍会收，通知栏显示「电脑端 · 同步中」和最新一段回复，点通知回到对话\n· 断线续传：App 被杀、网络断了，回来会按上次的进度自动补拉，不丢消息"
                     android:textSize="@dimen/text_13"
-                    android:textColor="?attr/colorControlTextSecondary"/>
+                    android:textColor="?attr/colorControlTextSecondary" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
+
+        <!-- ===== 常见问题 ===== -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_12"
+            app:cardElevation="4dp"
+            app:cardCornerRadius="16dp"
+            app:cardBackgroundColor="?attr/colorCardBackground">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/space_16">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="常见问题"
+                    android:textSize="@dimen/text_16"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorControlText" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:lineSpacingExtra="4dp"
+                    android:text="· 连不上：确认电脑 DSH 开着、插件已装并重启；隧道域名是否正确；面板里「已配对设备」是否 ≥1\n· 消息不同步：看聊天页顶部状态条是否「同步模式」、是否已选目标会话\n· 审批点了没反应：可能已在电脑上处理，或端口只在局域网可用\n· 电脑端 AI 报「余额不足 / QUOTA」：去 DeepSeek 账户充值，手机上会显示一张红色报错卡\n· 安装 Python 包崩溃：只能装预编译 wheel；需要现场编译的包请用电脑或 Termux"
+                    android:textSize="@dimen/text_13"
+                    android:textColor="?attr/colorControlTextSecondary" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_goto_connect"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_48"
+            android:layout_marginTop="@dimen/space_8"
+            android:layout_marginBottom="@dimen/space_24"
+            android:text="去配对 / 连接"
+            android:textAllCaps="false"
+            android:textSize="@dimen/text_15"
+            app:cornerRadius="@dimen/radius_24" />
     </LinearLayout>
 </ScrollView>
