@@ -248,7 +248,7 @@ async function runTurn(ctx, handle, sid, text, cfg) {
                       debug: snapshot(s2) };
     }
   }
-  await handle.agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } });
+  await handle.agent.followup({ id: randomBytes(16).toString('hex'), role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } });
   await handle.agent.whenIdle();
   const s3 = ctx.sessions.get(sid);
   let reply = lastAssistant(s3);
@@ -1069,7 +1069,14 @@ export function apply(ctx, config) {
         }
         const timeoutMs = Number.isFinite(body.timeout) ? Math.max(5, Math.min(600, body.timeout)) * 1000 : 120000;
         try {
-          agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } });
+          // ★ 必须带 id/role：只传 {content, source} 时宿主可能原样落盘，
+          //   之后模型请求会出现 "messages[2]: missing field `role`"（实测踩到）。
+          agent.followup({
+            id: randomBytes(16).toString('hex'),
+            role: 'user',
+            content: [{ type: 'text', text }],
+            source: { kind: 'user' },
+          });
           let timedOut = false;
           await Promise.race([
             Promise.resolve(agent.whenIdle?.()),
