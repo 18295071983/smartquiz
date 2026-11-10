@@ -1,5 +1,27 @@
 # 变更日志
 
+## [2026-11-10] feat(remote_dsh)：DSH 消息流专属卡片 + id 统一走 ChatIdDispatcher
+
+- **组件收集**：新增 [docs/remote_dsh-message-stream.md](docs/remote_dsh-message-stream.md)，
+  把电脑端 `dsh-client-ui-*` 的消息流组件与事件（approval / user-questions / tool /
+  goal / plan / jobs / deliverables / workspace changes / subagent / schedule / workflow）
+  逐一对照到手机端的 parts 与原生卡片。
+- **手机端新增映射**（都落在同一条 `AssistantTurn` 的 `Part.data` 上）：
+  - `todo/write` → `todo_card`（`{title, items:[{text,done}]}`）
+  - `deliverables/presented` → `file_list`（`{title, files:[{name,path,type}]}`）
+  - `goal/activation-changed` → `alert`
+  - `workspace/changes` → `alert`（事件只有 `{turn}`，明细仍在电脑端）
+  - `job/registered` → `alert`
+  - `command/run` → `alert`
+  - 同 key 的卡片覆盖式更新（`upsertDshDataPart`），todo 反复写不会堆一屏。
+- **id 分发适配**：同步链路里所有 part / 组件 id 从自造的 `dsh-r-1-1`、`dsh-call-x`
+  改为 **`ChatIdDispatcher.applySubId(IdType, currentTurnId)`** 发放
+  （`T{n}-A/F/C{n}`），并按逻辑 key 缓存复用 —— 否则两套 id 体系并存，组件注册表与
+  会话恢复（`adoptId`）会打架。`ComponentData.id` 也用同一个 id。
+- **验证**：`compileReleaseJavaWithJavac`、`assembleRelease` 通过，APK 已装机。
+- **未接**：`plan/*`、`subagent/*`、`schedule`、`workflow-run`（事件形状未采样）；
+  `user-questions` 仍只读。
+
 ## [2026-11-10] feat(remote_dsh)：手机端显示 agent 反问 + 审批失败提示
 
 - 插件的 pending 中继从"只认审批"泛化为 `pendingRemoteOf(sessionId, kind)`，同时覆盖

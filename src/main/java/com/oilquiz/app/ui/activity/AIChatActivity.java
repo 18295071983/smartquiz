@@ -3824,6 +3824,7 @@ public class AIChatActivity extends BaseActivity {
             dshLiveTurn = new com.oilquiz.app.ai.chat.turn.AssistantTurn();
             dshLiveTurn.turnId = currentTurnId;
             dshSteps.clear();
+            dshPartIds.clear();
             live.assistantTurn = dshLiveTurn;
             chatHistory.add(live);
             final int liveIdx = chatHistory.size() - 1;
@@ -12766,6 +12767,8 @@ public class AIChatActivity extends BaseActivity {
     /** 同步会话的那条 AssistantTurn（reasoning/text/tool parts 都在一条里，交给 PartsTurnBinder 渲） */
     /** turn → step → 零件（与 App 引擎的编排一致） */
     private final java.util.TreeMap<Integer, java.util.TreeMap<Integer, DshStep>> dshSteps = new java.util.TreeMap<>();
+    /** 逻辑 key → 由 ChatIdDispatcher 发放的 id（重建 parts 时复用，避免和本地消息抢号） */
+    private final java.util.HashMap<String, String> dshPartIds = new java.util.HashMap<>();
     private com.oilquiz.app.ai.chat.turn.AssistantTurn dshLiveTurn;
     private com.oilquiz.app.ai.chat.turn.AssistantTurn.Part dshReasoningPart;
     private com.oilquiz.app.ai.chat.turn.AssistantTurn.Part dshTextPart;
@@ -12947,6 +12950,21 @@ public class AIChatActivity extends BaseActivity {
         boolean error;
     }
 
+    /**
+     * 同步链路的 part/组件 id 一律走 {@link ChatIdDispatcher} 发放（T{n}-A/F/C{n}）。
+     *
+     * 之前用 "dsh-r-1-1" 这种自造 id：和 App 本地生成的 id 两套体系并存，
+     * 组件注册表/恢复（adoptId）都按发号器格式认，混着用会打架。这里按逻辑 key 缓存，
+     * 重建 parts 时复用同一个 id（增量 binder 才不会整块重建）。
+     */
+    private String dshPartId(String key, ChatIdDispatcher.IdType type) {
+        String id = dshPartIds.get(key);
+        if (id != null) return id;
+        id = ChatIdDispatcher.getInstance().applySubId(type, currentTurnId);
+        dshPartIds.put(key, id);
+        return id;
+    }
+
     private DshStep dshStep(int turn, int step) {
         java.util.TreeMap<Integer, DshStep> steps = dshSteps.get(turn);
         if (steps == null) { steps = new java.util.TreeMap<>(); dshSteps.put(turn, steps); }
@@ -13016,8 +13034,9 @@ public class AIChatActivity extends BaseActivity {
             if (!box.tools.containsKey(callId)) {
                 DshTool tool = new DshTool();
                 tool.call = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.toolCall(
-                        "dsh-call-" + callId, callId, data.optString("name"),
-                        data.optString("arguments"), "running", System.currentTimeMillis());
+                        dshPartId("call-" + callId, ChatIdDispatcher.IdType.TOOL), callId,
+                        data.optString("name"), data.optString("arguments"), "running",
+                        System.currentTimeMillis());
                 box.tools.put(callId, tool);
             }
             rebuildDshParts();
@@ -13045,6 +13064,88 @@ public class AIChatActivity extends BaseActivity {
             notifyLiveSyncMessage();
             return;
         }
+        if ("todo/write".equals(type) && data != null) {
+            // 待办 → todo_card（原生 TodoCardView，props {title, items:[{text,done}]}）
+            org.json.JSONObject props = new org.json.JSONObject();
+            jput(props, "title", "待办");
+            org.json.JSONArray items = new org.json.JSONArray();
+            org.json.JSONArray todos = data.optJSONArray("todos");
+            if (todos != null) {
+                for (int i = 0; i < todos.length(); i += 1) {
+                    org.json.JSONObject t = todos.optJSONObject(i);
+                    if (t == null) continue;
+                    jadd(items, jput(jput(new org.json.JSONObject(), "text",
+                            t.optString("content")), "done", "completed".equals(t.optString("status"))));
+                }
+            }
+            jput(props, "items", items);
+            upsertDshDataPart("dsh-todo-" + turn,
+                    com.oilquiz.app.ai.chat.component.ComponentData.of("todo_card", props));
+            return;
+        }
+        if ("deliverables/presented".equals(type) && data != null) {
+            // 产物 → file_list（原生文件卡，props {title, files:[{name,path,type}]}）
+            org.json.JSONObject props = new org.json.JSONObject();
+            jput(props, "title", "本轮产物");
+            org.json.JSONArray files = new org.json.JSONArray();
+            org.json.JSONArray srcs = data.optJSONArray("files");
+            if (srcs != null) {
+                for (int i = 0; i < srcs.length(); i += 1) {
+                    org.json.JSONObject f = srcs.optJSONObject(i);
+                    if (f == null) continue;
+                    String path = f.optString("path");
+                    if (path.isEmpty()) continue;
+                    jadd(files, jput(jput(jput(new org.json.JSONObject(), "path", path),
+                            "name", baseNameOf(path)), "type", "file"));
+                }
+            }
+            jput(props, "files", files);
+            upsertDshDataPart("dsh-files-" + turn,
+                    com.oilquiz.app.ai.chat.component.ComponentData.of("file_list", props));
+            return;
+        }
+        if ("goal/activation-changed".equals(type) && data != null) {
+            // 目标 → alert（原生告警卡，props {title, content, level}）
+            org.json.JSONObject goal = data.optJSONObject("goal");
+            String text = goal != null ? goal.optString("text", goal.optString("title", ""))
+                    : data.optString("text", "");
+            if (!text.isEmpty()) {
+                org.json.JSONObject props = jput(jput(new org.json.JSONObject(), "title", "当前目标"),
+                        "content", text);
+                jput(props, "level", "info");
+                upsertDshDataPart("dsh-goal-" + turn,
+                        com.oilquiz.app.ai.chat.component.ComponentData.of("alert", props));
+            }
+            return;
+        }
+        if ("workspace/changes".equals(type)) {
+            // 文件变更 → alert（事件只有 {turn}，明细在电脑端，先给个提示卡）
+            org.json.JSONObject props = jput(jput(new org.json.JSONObject(), "title", "文件变更"),
+                    "content", "本轮在电脑工作区有文件改动（明细见电脑端）");
+            jput(props, "level", "info");
+            upsertDshDataPart("dsh-changes-" + turn,
+                    com.oilquiz.app.ai.chat.component.ComponentData.of("alert", props));
+            return;
+        }
+        if ("job/registered".equals(type) && data != null) {
+            // 后台任务 → alert（props {title, content, level}）
+            String label = data.optString("label", data.optString("kind", "后台任务"));
+            org.json.JSONObject props = jput(jput(new org.json.JSONObject(), "title", "后台任务启动"),
+                    "content", label);
+            jput(props, "level", "info");
+            upsertDshDataPart("dsh-job-" + data.optString("jobId", String.valueOf(turn)),
+                    com.oilquiz.app.ai.chat.component.ComponentData.of("alert", props));
+            return;
+        }
+        if ("command/run".equals(type) && data != null) {
+            // 命令 → alert
+            org.json.JSONObject props = jput(jput(new org.json.JSONObject(), "title", "执行命令"),
+                    "content", (data.optString("name") + " " + data.optString("args")).trim());
+            jput(props, "level", "info");
+            upsertDshDataPart("dsh-cmd-" + data.optString("commandId", String.valueOf(turn)),
+                    com.oilquiz.app.ai.chat.component.ComponentData.of("alert", props));
+            return;
+        }
         if ("turn/end".equals(type)) {
             rebuildDshParts();
             String answer = collectDshAnswer();
@@ -13054,6 +13155,39 @@ public class AIChatActivity extends BaseActivity {
             com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncThinking(AIChatActivity.this, thinking);
             dismissDshApprovalDialog(null);
         }
+    }
+
+    /** org.json 的 put/append 在本工程是受检异常，统一在这里吞掉：坏字段不影响整卡 */
+    private static org.json.JSONObject jput(org.json.JSONObject obj, String key, Object value) {
+        try { obj.put(key, value); } catch (Exception ignored) { /* 跳过坏字段 */ }
+        return obj;
+    }
+
+    private static org.json.JSONArray jadd(org.json.JSONArray arr, Object value) {
+        try { arr.put(value); } catch (Exception ignored) { /* 跳过坏元素 */ }
+        return arr;
+    }
+
+    /** 同一 id 的 data part 覆盖式更新（todo 会反复写，别堆积） */
+    private void upsertDshDataPart(String key,
+                                   com.oilquiz.app.ai.chat.component.ComponentData data) {
+        if (dshLiveTurn == null || data == null) return;
+        String id = dshPartId("data-" + key, ChatIdDispatcher.IdType.COMPONENT);
+        data.id = id;                       // 组件注册表也认这个 id（卡片定位/更新用）
+        for (int i = dshLiveTurn.parts.size() - 1; i >= 0; i -= 1) {
+            com.oilquiz.app.ai.chat.turn.AssistantTurn.Part p = dshLiveTurn.parts.get(i);
+            if (p != null && id.equals(p.id)) dshLiveTurn.parts.remove(i);
+        }
+        dshLiveTurn.parts.add(com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.data(
+                id, data, System.currentTimeMillis()));
+        notifyLiveSyncMessage();
+    }
+
+    private static String baseNameOf(String path) {
+        if (path == null) return "";
+        String p = path.replace('\\', '/');
+        int i = p.lastIndexOf('/');
+        return i >= 0 ? p.substring(i + 1) : p;
     }
 
     /** 同步模式下重绑当前那条 assistant 消息（parts 变化后靠它触发增量刷新） */
@@ -13104,11 +13238,11 @@ public class AIChatActivity extends BaseActivity {
                 String prefix = t.getKey() + "-" + s.getKey();
                 if (!box.reasoning.isEmpty()) {
                     dshLiveTurn.parts.add(com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.reasoning(
-                            "dsh-r-" + prefix, box.reasoning, System.currentTimeMillis()));
+                            dshPartId("r-" + prefix, ChatIdDispatcher.IdType.COMPONENT), box.reasoning, System.currentTimeMillis()));
                 }
                 if (!box.text.isEmpty()) {
                     dshLiveTurn.parts.add(com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.text(
-                            "dsh-t-" + prefix, box.text, System.currentTimeMillis()));
+                            dshPartId("t-" + prefix, ChatIdDispatcher.IdType.COMPONENT), box.text, System.currentTimeMillis()));
                 }
                 for (DshTool tool : box.tools.values()) {
                     if (tool.call == null) continue;
