@@ -953,6 +953,7 @@ export function apply(ctx, config) {
     }
     let cursor = Number.isFinite(sinceParam) && sinceParam >= 0 ? sinceParam : Math.max(0, Number(live0.seq ?? 0) - 40);
     sse({ type: 'ready', session_id: sid, seq: Number(live0.seq ?? 0) });
+    const announced = new Set();
     const deadline = Date.now() + timeoutSec * 1000;
     let closed = false;
     req.on('close', () => { closed = true; });
@@ -964,6 +965,17 @@ export function apply(ctx, config) {
         const ev = live.eventAt?.(cursor);
         if (ev) sse({ type: 'event', event: ev });
       }
+      // 审批：把当前挂着的推给手机（各推一次），结束了的通知撤回
+      for (const a of pendingApprovalsOf(sid)) {
+        if (announced.has(a.id)) continue;
+        announced.add(a.id);
+        sse({ type: 'approval', id: a.id, request: a.request });
+      }
+      for (const id of [...announced]) {
+        if (pendingApprovalsOf(sid).some((a) => a.id === id)) continue;
+        announced.delete(id);
+        sse({ type: 'approval_gone', id });
+      }
       if (!follow) {
         // 非 follow：把当前已有的事件发完就结束（适合"补历史"）
         break;
@@ -974,6 +986,60 @@ export function apply(ctx, config) {
     sse({ type: 'end' });
     try { res.end(); } catch { /* 已断 */ }
   });
+
+  /**
+   * 审批中继用的"网关桥"。
+   *
+   * DSH 的审批是 typertGateway 把 approval/request 转发给所有 owner client、谁先应答谁
+   * settle（先答先赢）。插件跑在宿主里，直接读它的 pendingRemoteEvents 并调用
+   * settleRemoteEvent 就能"替手机点一下"，桌面端对应弹窗会因 settle 而收掉。
+   *
+   * 这些都是**私有字段**：用特性探测包住，DSH 升级后拿不到就自动退回"只提醒"，
+   * 不影响任何既有功能。
+   */
+  const approvalGateway = () => {
+    let gw;
+    try { gw = ctx.typertGateway; } catch { gw = undefined; }
+    if (!gw) {
+      try { gw = ctx.get?.('typertGateway'); } catch { gw = undefined; }
+    }
+    try {
+      if (!gw || typeof gw.settleRemoteEvent !== 'function' || !(gw.pendingRemoteEvents instanceof Map)) return null;
+      return gw;
+    } catch { return null; }
+  };
+
+  /** 某条会话当前挂着的审批（id + 请求体），拿不到返回空数组 */
+  const pendingApprovalsOf = (sessionId) => {
+    const gw = approvalGateway();
+    if (!gw) return [];
+    const out = [];
+    try {
+      for (const pending of gw.pendingRemoteEvents.values()) {
+        const f = pending?.frame;
+        if (!f || f.event !== 'approval/request') continue;
+        if (sessionId && String(f.agentId) !== String(sessionId)) continue;
+        out.push({ id: String(pending.id), request: f.request ?? null, agent_id: String(f.agentId ?? '') });
+      }
+    } catch { /* 结构变了就当没有 */ }
+    return out;
+  };
+
+  /** 手机应答：先答先赢；失败返回错误说明 */
+  const answerApproval = (approvalId, allow) => {
+    const gw = approvalGateway();
+    if (!gw) return { ok: false, error: 'gateway_unavailable', hint: '这个 DSH 版本的网关不暴露审批中继（插件会自动退回只提醒）' };
+    try {
+      for (const pending of gw.pendingRemoteEvents.values()) {
+        if (String(pending.id) !== String(approvalId)) continue;
+        gw.settleRemoteEvent(pending, { kind: 'result', value: allow ? 'allowed' : 'rejected' });
+        return { ok: true, decision: allow ? 'allowed' : 'rejected' };
+      }
+      return { ok: false, error: 'approval_not_found', hint: '这条审批已经结束了（可能刚被电脑端点了，或已超时）' };
+    } catch (e) {
+      return { ok: false, error: String(e?.message ?? e) };
+    }
+  };
 
   route('exact', '/pair', (req, res) => {
     if (!isLocal(req)) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }); res.end('pair page is local-only'); return; }
@@ -1432,6 +1498,24 @@ export function apply(ctx, config) {
         });
         promptCount += 1;
         return sendJson(res, 200, { ok: true, action: 'inject', session_id: target, resumed, seq_before: seqBefore });
+      }
+      if (action === 'approval_state') {
+        const target = String(body.target_session_id ?? '').trim();
+        return sendJson(res, 200, {
+          ok: true, action: 'approval_state',
+          gateway: Boolean(approvalGateway()),
+          pending: pendingApprovalsOf(target || null),
+        });
+      }
+      if (action === 'approval') {
+        const id = String(body.approval_id ?? '').trim();
+        if (!id) return sendJson(res, 400, { ok: false, action, error: '需要 approval_id' });
+        const decision = String(body.decision ?? '').trim().toLowerCase();
+        if (decision !== 'allow' && decision !== 'deny') {
+          return sendJson(res, 400, { ok: false, action, error: "decision 只能是 allow / deny" });
+        }
+        const r = answerApproval(id, decision === 'allow');
+        return sendJson(res, r.ok ? 200 : 409, { ...r, action: 'approval', approval_id: id });
       }
       if (action === 'sync_state') {
         const target = String(body.target_session_id ?? '').trim();

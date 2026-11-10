@@ -3872,6 +3872,14 @@ public class AIChatActivity extends BaseActivity {
                                         if (a.length() > 0) setLivePhase(live, liveIdx, ChatMessage.InferencePhase.GENERATING);
                                         return;
                                     }
+                                    if ("approval".equals(type)) {
+                                        showDshApprovalDialog(ev.optString("id"), ev.optJSONObject("request"));
+                                        return;
+                                    }
+                                    if ("approval_gone".equals(type)) {
+                                        dismissDshApprovalDialog(ev.optString("id"));
+                                        return;
+                                    }
                                     if ("approval/request".equals(type)) {
                                         org.json.JSONObject d = ev.optJSONObject("data");
                                         String tool = "";
@@ -12847,6 +12855,9 @@ public class AIChatActivity extends BaseActivity {
      * 三种状态：未配对（红）/ 已连接（绿）/ 已断开（黄），点一下进「远程连接（电脑）」。
      */
     /** 方案3：直连电脑模式 —— 每条消息直接发到电脑执行，不经过手机端模型 */
+    private android.app.AlertDialog dshApprovalDialog;
+    private String dshApprovalId;
+
     private boolean remoteDirectMode = false;
 
     /** 当前远程模式（智能/直连/同步），存在 RemoteDshTool 偏好里，跨页与重启保留 */
@@ -12916,6 +12927,57 @@ public class AIChatActivity extends BaseActivity {
      * 直接改 ChatMessage 的 content / thinkingContent 再 notifyItemChanged，
      * 就能复用既有的 parts 渲染（正文 TextPartRenderer、思考 ReasoningPartRenderer）。
      */
+    /** DSH 审批事件 → 手机上的允许/拒绝对话框（先答先赢，电脑端弹窗随之收掉） */
+    private void showDshApprovalDialog(String id, org.json.JSONObject request) {
+        if (id == null || id.isEmpty()) return;
+        String tool = request == null ? "" : request.optString("tool", request.optString("name", ""));
+        String detail = request == null ? "" : request.optString("summary",
+                request.optString("command", request.optString("reason", "")));
+        if (detail.isEmpty() && request != null) detail = request.toString();
+        if (detail.length() > 400) detail = detail.substring(0, 400) + "…";
+        final String fId = id;
+        final String fDetail = detail;
+        final String fTool = tool.isEmpty() ? "工具" : tool;
+        runOnUiThread(() -> {
+            dismissDshApprovalDialog(null);
+            dshApprovalId = fId;
+            dshApprovalDialog = new android.app.AlertDialog.Builder(AIChatActivity.this)
+                    .setTitle("电脑端请求审批：" + fTool)
+                    .setMessage(fDetail)
+                    .setPositiveButton("允许", (d, w) -> replyApproval(fId, true))
+                    .setNegativeButton("拒绝", (d, w) -> replyApproval(fId, false))
+                    .setNeutralButton("交给电脑", (d, w) -> { /* 不答，留给桌面端 */ })
+                    .setCancelable(true)
+                    .create();
+            dshApprovalDialog.show();
+        });
+    }
+
+    private void dismissDshApprovalDialog(String id) {
+        runOnUiThread(() -> {
+            if (id != null && !id.equals(dshApprovalId)) return;
+            if (dshApprovalDialog != null) {
+                try { dshApprovalDialog.dismiss(); } catch (Exception ignored) { }
+                dshApprovalDialog = null;
+                dshApprovalId = null;
+            }
+        });
+    }
+
+    private void replyApproval(String id, boolean allow) {
+        new Thread(() -> {
+            try {
+                boolean ok = com.oilquiz.app.ai.tool.RemoteDshTool.answerApproval(AIChatActivity.this, id, allow);
+                runOnUiThread(() -> {
+                    if (!ok) showToast("审批没送达（可能已在电脑上处理）");
+                    dismissDshApprovalDialog(id);
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> showToast("审批失败：" + e.getMessage()));
+            }
+        }, "dsh-approval").start();
+    }
+
     /** DSH 事件 tool/call → 原生工具卡片（MessageType.TOOL_CALL） */
     private void onDshToolCall(String callId, String name, String arguments) {
         if (chatHistory == null || name == null || name.isEmpty()) return;

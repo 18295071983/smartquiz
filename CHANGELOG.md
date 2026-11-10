@@ -1,5 +1,25 @@
 # 变更日志
 
+## [2026-11-10] feat(remote_dsh)：手机端可应答电脑审批（双端先答先赢）
+
+按"双端任选"实现：电脑弹窗和手机弹窗同时存在，谁先点谁生效。
+
+- **网关语义**：DSH 把 `approval/request` 经 `typertGateway.pendingRemoteEvents` 转发给所有
+  owner client，任一方应答即 `settleRemoteEvent`，其余投递作废 —— 先答先赢是网关自带的。
+- **插件**：特性探测 `ctx.get('typertGateway')`（拿不到就返回 null，只保留提醒）；
+  `GET /events` 里合成 `{type:'approval', id, request}` 推给手机、`approval_gone` 撤回；
+  新增 `{action:'approval', approval_id, decision:'allow'|'deny'}` → `settleRemoteEvent`；
+  `{action:'approval_state'}` 用来自检网关是否可达。
+- **手机**：收到审批事件弹 `AlertDialog`（允许 / 拒绝 / 交给电脑），回传走上面的 action；
+  `approval_gone` 自动关掉弹窗。
+- **坑**：把 `inject` 从数组改成 `{required, optional}` 会让插件**加载失败**（8218 直接不监听），
+  已回滚；改为容错读取（先 `ctx.typertGateway`，再 `ctx.get`）。
+- **验证**：`approval_state → {"gateway":true,"pending":[]}`（自检通过）；
+  `compileReleaseJavaWithJavac`、`assembleRelease` 通过，APK 已装机。
+- **未验证**：真实审批没跑过 —— 当前权限是 `danger-full-access`，审批不触发；要测需切
+  `workspace-write` + `ask`。`{kind:'result', value:'allowed'}` 的结算形状是照网关代码推的，
+  若不对会表现为"点了没反应"，届时看 `settleRemoteEvent` 的返回就知道。
+
 ## [2026-11-10] feat(remote_dsh)：手机端显示"电脑端在等审批"提醒
 
 - 转换器新增 `approval/request` → 一条系统消息：「⏳ 电脑端在等审批：<工具> <内容>

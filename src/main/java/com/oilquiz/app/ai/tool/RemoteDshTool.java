@@ -360,6 +360,20 @@ public class RemoteDshTool implements AITool {
         }
     }
 
+    /**
+     * 手机上应答一条审批（先答先赢：电脑端那个弹窗会因 settle 自动收掉）。
+     * @param allow true=允许，false=拒绝
+     */
+    public static boolean answerApproval(Context c, String approvalId, boolean allow) throws Exception {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        Map<String, Object> body = new HashMap<>();
+        body.put("action", "approval");
+        body.put("approval_id", approvalId);
+        body.put("decision", allow ? "allow" : "deny");
+        Map<String, Object> resp = tool.httpJson(tool.getBaseUrl() + "/session", "POST", body, 30);
+        return Boolean.TRUE.equals(resp.get("ok"));
+    }
+
     /** 同步流式回调（在后台线程触发，调用方自行 post 到 UI） */
     public interface SyncStreamListener {
         void onStart();
