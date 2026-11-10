@@ -125,6 +125,42 @@ public final class ToolMetaRegistry {
         m.put("import_list_files", "列出导入文件");
         m.put("import_decide", "导入决策");
         m.put("import_cancel", "取消导入");
+        // ===== DSH-TOOL-NAMES：电脑端工具（同步模式下来自 tool/call.data.name）=====
+        // 表里没有的名字会走 polish() 变成英文原名，手机上看着像"未处理的工具"。
+        m.put("pwsh", "终端命令");
+        m.put("bash", "终端命令");
+        m.put("shell", "终端命令");
+        m.put("read", "读取文件");
+        m.put("write", "写入文件");
+        m.put("edit", "修改文件");
+        m.put("grep", "搜索内容");
+        m.put("glob", "查找文件");
+        m.put("read_image", "查看图片");
+        m.put("web_search", "联网搜索");
+        m.put("web_fetch", "抓取网页");
+        m.put("todo_write", "更新待办");
+        m.put("subagent", "子代理");
+        m.put("subagent_fork", "子代理");
+        m.put("send_message", "给子代理发消息");
+        m.put("interrupt_agent", "停止子代理");
+        m.put("list_agents", "子代理列表");
+        m.put("workflow", "工作流");
+        m.put("skill", "加载技能");
+        m.put("present", "展示文件");
+        m.put("schedule_create", "新建定时任务");
+        m.put("schedule_edit", "修改定时任务");
+        m.put("schedule_list", "定时任务列表");
+        m.put("schedule_view", "查看定时任务");
+        m.put("ask_user_question", "向你提问");
+        m.put("create_goal", "创建目标");
+        m.put("update_goal", "更新目标");
+        m.put("get_goal", "查看目标");
+        m.put("job_output", "后台任务输出");
+        m.put("job_kill", "结束后台任务");
+        m.put("job_list", "后台任务列表");
+        m.put("plugin_manager", "插件管理");
+        m.put("load_workspace_dependencies", "依赖路径");
+        m.put("working_directory", "切换工作目录");
         NAMES = Collections.unmodifiableMap(m);
     }
 
