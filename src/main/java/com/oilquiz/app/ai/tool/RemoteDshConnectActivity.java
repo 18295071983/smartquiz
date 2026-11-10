@@ -153,6 +153,61 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
      * 走历史文件而不是持续镜像：导入后在历史抽屉里可见、可离线回看，
      * 不再依赖补拉把内容重新拼出来。
      */
+    /** 导入进度对话框（不确定进度条 + 文案） */
+    private android.app.AlertDialog buildImportProgressDialog() {
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad, pad, pad);
+
+        android.widget.TextView tv = new android.widget.TextView(this);
+        tv.setText("正在接收电脑端历史…");
+        tv.setTextSize(14f);
+        box.addView(tv);
+
+        android.widget.ProgressBar bar = new android.widget.ProgressBar(this);
+        bar.setIndeterminate(true);
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = pad / 2;
+        box.addView(bar, lp);
+
+        return new android.app.AlertDialog.Builder(this)
+                .setTitle("导入电脑对话历史")
+                .setView(box)
+                .setCancelable(false)
+                .create();
+    }
+
+    private void updateImportProgress(android.app.AlertDialog dialog, String text) {
+        if (dialog == null || !dialog.isShowing()) return;
+        try {
+            android.view.View root = dialog.getWindow() == null ? null : dialog.getWindow().getDecorView();
+            android.widget.TextView tv = root == null ? null : findFirstTextView(root);
+            if (tv != null) tv.setText(text);
+        } catch (Throwable ignored) { /* 进度文案更新失败不影响导入 */ }
+    }
+
+    private android.widget.TextView findFirstTextView(android.view.View root) {
+        if (root instanceof android.widget.TextView) return (android.widget.TextView) root;
+        if (root instanceof android.view.ViewGroup) {
+            android.view.ViewGroup g = (android.view.ViewGroup) root;
+            for (int i = 0; i < g.getChildCount(); i += 1) {
+                android.widget.TextView tv = findFirstTextView(g.getChildAt(i));
+                if (tv != null) return tv;
+            }
+        }
+        return null;
+    }
+
+    private void dismissDialogSafe(android.app.AlertDialog dialog) {
+        if (dialog == null) return;
+        try {
+            if (dialog.isShowing() && !isFinishing() && !isDestroyed()) dialog.dismiss();
+        } catch (Throwable ignored) { /* 已不可用 */ }
+    }
+
     private void importRemoteHistory() {
         final String target = RemoteDshTool.getSyncTarget(this);
         if (target.isEmpty()) {
@@ -164,11 +219,33 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             return;
         }
         final String title = RemoteDshTool.getSyncTitle(this);
-        toast("开始导入…（会话越长越慢，请稍候）");
+
+        // 进度对话框：导入是"取事件 → 逐条转消息 → 写历史"，长会话要几秒，
+        // 没有反馈用户会以为没点到。
+        final android.app.AlertDialog progressDialog = buildImportProgressDialog();
+        showDialogSafe(progressDialog);
+
         new Thread(() -> {
             try {
-                DshHistoryImporter.Result r = DshHistoryImporter.importSession(this, target, title);
+                DshHistoryImporter.Result r = DshHistoryImporter.importSession(this, target, title,
+                        new DshHistoryImporter.Progress() {
+                            private long lastAt = 0L;
+
+                            @Override public void onEvents(int count) {
+                                long now = System.currentTimeMillis();
+                                if (now - lastAt < 200) return;
+                                lastAt = now;
+                                runOnUiThread(() -> updateImportProgress(progressDialog,
+                                        "正在接收电脑端历史… " + count + " 条事件"));
+                            }
+
+                            @Override public void onBuilding(int events) {
+                                runOnUiThread(() -> updateImportProgress(progressDialog,
+                                        "已收到 " + events + " 条事件，正在生成对话…"));
+                            }
+                        });
                 runOnUiThread(() -> {
+                    dismissDialogSafe(progressDialog);
                     if (r.count <= 0) {
                         toast("没有可导入的消息（会话可能为空）");
                     } else {
@@ -186,7 +263,10 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                     }
                 });
             } catch (Throwable e) {
-                runOnUiThread(() -> toast("导入失败：" + e.getMessage()));
+                runOnUiThread(() -> {
+                    dismissDialogSafe(progressDialog);
+                    toast("导入失败：" + e.getMessage());
+                });
             }
         }, "dsh-history-import").start();
     }

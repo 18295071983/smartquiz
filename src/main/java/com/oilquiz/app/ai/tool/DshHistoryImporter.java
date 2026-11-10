@@ -28,6 +28,15 @@ public final class DshHistoryImporter {
     private DshHistoryImporter() {
     }
 
+    /** 进度回调（在后台线程触发；调用方自行 post 到 UI） */
+    public interface Progress {
+        /** 已收到的事件条数（会话越长越多） */
+        void onEvents(int count);
+
+        /** 事件收完、开始转消息 */
+        void onBuilding(int events);
+    }
+
     /** 导入结果：导入的消息条数 + 本地会话 id */
     public static final class Result {
         public final int count;
@@ -48,7 +57,13 @@ public final class DshHistoryImporter {
      * @param title  电脑端会话标题（仅用于提示，历史标题仍由首条用户消息生成）
      */
     public static Result importSession(Context ctx, String target, String title) throws Exception {
-        List<JSONObject> events = fetchAllEvents(ctx, target);
+        return importSession(ctx, target, title, null);
+    }
+
+    public static Result importSession(Context ctx, String target, String title, Progress progress)
+            throws Exception {
+        List<JSONObject> events = fetchAllEvents(ctx, target, progress);
+        if (progress != null) progress.onBuilding(events.size());
         List<ChatMessage> messages = buildMessages(events);
         if (messages.isEmpty()) return new Result(0, null, title);
 
@@ -81,7 +96,7 @@ public final class DshHistoryImporter {
         } catch (Throwable ignored) { /* 记不住就下次新建，不影响导入 */ }
     }
 
-    private static List<JSONObject> fetchAllEvents(Context ctx, String target) throws Exception {
+    private static List<JSONObject> fetchAllEvents(Context ctx, String target, Progress progress) throws Exception {
         final List<JSONObject> out = new ArrayList<>();
         // 导入要的是"整条历史"，阈值放到 100 万：否则长会话（事件 >5000）会被服务端
         // 降级成 snapshot（只有角色+文本），导入器就收不到任何 event，表现出"没有可导入的消息"。
@@ -124,13 +139,18 @@ public final class DshHistoryImporter {
                     }
 
                     @Override public void onEvent(JSONObject event) {
-                        if (event != null) out.add(event);
+                        if (event == null) return;
+                        out.add(event);
+                        if (progress != null && out.size() % 200 == 0) {
+                            progress.onEvents(out.size());
+                        }
                     }
 
                     @Override public void onEnd() { }
 
                     @Override public void onError(String message) { }
                 });
+        if (progress != null && !out.isEmpty()) progress.onEvents(out.size());
         return out;
     }
 
