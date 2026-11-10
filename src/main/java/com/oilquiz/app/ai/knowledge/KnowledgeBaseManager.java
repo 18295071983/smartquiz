@@ -119,6 +119,17 @@ public class KnowledgeBaseManager {
     private static final int SNIPPET_BEFORE = 40;
     private static final int SNIPPET_AFTER = 120;
 
+    // ===== 切块（导入文档时）=====
+    /**
+     * 短于此字数的块不单独成块。
+     *
+     * <p>Markdown 里"结论句"后面紧跟子标题时，结论句会被 flushChunk 切成只有一句话的独立块，
+     * 检索命中它只能拿到没有下文的半句话（证据在下一块）。见 {@link #mergeTinyChunks}。</p>
+     */
+    private static final int MIN_CHUNK_CHARS = 150;
+    /** 归并后单块字数上限：超过就宁可保持独立，避免把一块撑成"两段无关内容" */
+    private static final int MAX_MERGED_CHARS = 1000;
+
     // ===== 在线语义重排（embedding 余弦重排 + rerank 精排）=====
     /** 语义重排候选上限（取召回结果的前 N 条做向量重排，控制在线调用次数与延迟） */
     private static final int SEMANTIC_CANDIDATES = 8;
@@ -2642,7 +2653,7 @@ public class KnowledgeBaseManager {
      * 把整篇文本按 Markdown 标题层级切块：
      * 标题路径（用 " - " 连接）作为块标题；无标题时用文档名；正文按空行分段，超长再硬切。
      */
-    private static List<KnowledgeChunk> chunkText(String text, String docTitle, String category, String source) {
+    static List<KnowledgeChunk> chunkText(String text, String docTitle, String category, String source) {
         List<KnowledgeChunk> chunks = new ArrayList<>();
         if (text == null || text.trim().isEmpty()) {
             return chunks;
@@ -2679,7 +2690,44 @@ public class KnowledgeBaseManager {
             }
         }
         flushChunk(chunks, headings, buffer, docTitle, category, source);
+        mergeTinyChunks(chunks);
         return chunks;
+    }
+
+    /**
+     * 小块归并（2026-11-10）：把不足 {@link #MIN_CHUNK_CHARS} 的非首块并进前一块。
+     *
+     * <p>"标题下面先一句结论、再挂三条证据"这种结构，切块器会在子标题处 flush，
+     * 结论句独立成一块、证据落到下一块；检索命中前者只返回没有下文的半句话。
+     * 归并后合并长度超过 {@link #MAX_MERGED_CHARS} 则保持独立——宁碎不串味。</p>
+     */
+    private static void mergeTinyChunks(List<KnowledgeChunk> chunks) {
+        for (int i = chunks.size() - 1; i >= 1; i--) {
+            KnowledgeChunk cur = chunks.get(i);
+            KnowledgeChunk prev = chunks.get(i - 1);
+            String body = cur.content == null ? "" : cur.content;
+            if (body.isEmpty() || body.length() >= MIN_CHUNK_CHARS) {
+                continue;
+            }
+            String head = prev.content == null ? "" : prev.content;
+            if (head.length() + body.length() + 1 > MAX_MERGED_CHARS) {
+                continue;
+            }
+            prev.content = head.isEmpty() ? body : head + "\n" + body;
+            chunks.remove(i);
+        }
+        // 首块也可能短（上级标题本身没正文，结论句直接落成了第 1 块）：并入后一块，标题沿用后一块的
+        if (chunks.size() >= 2) {
+            String body = chunks.get(0).content == null ? "" : chunks.get(0).content;
+            if (!body.isEmpty() && body.length() < MIN_CHUNK_CHARS) {
+                KnowledgeChunk next = chunks.get(1);
+                String head = next.content == null ? "" : next.content;
+                if (head.length() + body.length() + 1 <= MAX_MERGED_CHARS) {
+                    next.content = body + "\n" + head;
+                    chunks.remove(0);
+                }
+            }
+        }
     }
 
     private static void flushChunk(List<KnowledgeChunk> chunks, List<String> headings,
@@ -3317,6 +3365,9 @@ public class KnowledgeBaseManager {
             result.put("total", total);
             result.put("documents", documents);
             result.put("embedded", embedded);
+            // 导入后立刻看 stats 会比 total 小：后台回填还在分批跑，这里把"还差多少"写明，
+            // 避免把异步进度当成"缺向量"（真缺时 pending 会一直不动）
+            result.put("embedding_pending", Math.max(0, total - embedded));
             String embModel = metaString(db, META_EMBEDDING_MODEL);
             result.put("embedding_model", embModel == null ? "" : embModel);
 

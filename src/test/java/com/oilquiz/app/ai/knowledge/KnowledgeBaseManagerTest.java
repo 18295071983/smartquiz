@@ -415,6 +415,33 @@ public class KnowledgeBaseManagerTest {
         assertEquals(1, row.optInt("chunk_seq"));
     }
 
+    /** 切块（2026-11-10）：“结论句 + 紧跟子标题”曾被切成两块，检索命中前者只拿到半句话；短块要并入相邻块。 */
+    @Test
+    public void shortLeadingSentenceIsMergedWithTheFollowingEvidence() {
+        String md = "# 播放器手册\n"
+                + "## 为什么不能直接塞进去跑\n"
+                + "Android 上「塞一个 ffmpeg 可执行文件进去跑」这条路试过并失败（提交 56a8821）：\n"
+                + "### 三条原因\n"
+                + "1. Termux 版 ffmpeg 依赖大量 stub 库；\n"
+                + "2. 名字与 ABI 冲突；\n"
+                + "3. 不允许执行写进数据目录的二进制。\n";
+        java.util.List<KnowledgeBaseManager.KnowledgeChunk> chunks =
+                KnowledgeBaseManager.chunkText(md, "播放器手册", "general", "/sdcard/x.md");
+        assertEquals("结论句应并进证据块，不该单独成块: " + chunks.size(), 1, chunks.size());
+        assertTrue("合并后要含结论句: " + chunks.get(0).content, chunks.get(0).content.contains("塞一个 ffmpeg"));
+        assertTrue("合并后要含证据: " + chunks.get(0).content, chunks.get(0).content.contains("stub 库"));
+    }
+
+    /** stats 要能说明“还差多少没向量化”：导入后后台还在跑时 pending > 0，别让人误判成缺数据。 */
+    @Test
+    public void statsReportsEmbeddingPendingInsteadOfLookingIncomplete() {
+        manager.storeChunks(docChunks("手册", "/sdcard/p.md", "第一块 alpha1", "第二块 beta2"), "手册", "/sdcard/p.md");
+        JSONObject stats = manager.stats();
+        assertEquals(2, stats.optInt("total"));
+        assertEquals(0, stats.optInt("embedded"));
+        assertEquals("没有向量来源时 pending 应等于总数", 2, stats.optInt("embedding_pending"));
+    }
+
     /** 删掉一块后文档指纹要重算：块数变小，且再导"原版"必须被判成内容不同（否则哈希永远对不上库）。 */
     @Test
     public void deletingOneChunkRefreshesDocumentFingerprint() {

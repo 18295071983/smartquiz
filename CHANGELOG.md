@@ -1,5 +1,23 @@
 # 变更日志
 
+## [2026-11-10] fix(knowledge)：切块小块归并 + stats 暴露回填进度
+
+App 内实测（两份真实文档 64 块）暴露两处：Markdown「结论句 + 紧跟子标题」被切成两块，命中前者只返回
+半句话、证据在下一块；导入后立刻 `stats` 报 `embedded 104/123`，看着像漏了 19 块，实际后台回填还在跑
+（直读库 123/123 全有向量）。
+
+- **小块归并**：`chunkText` 结束后走 `mergeTinyChunks`——不足 `MIN_CHUNK_CHARS=150` 的非首块并入
+  前一块（合并后超 `MAX_MERGED_CHARS=1000` 则保持独立，宁碎不串味）；首块也短时并入后一块、标题
+  沿用后一块的。`chunkText` 改为包内可见以便直接测切块结果。
+- **stats 自解释**：`stats()` 增 `embedding_pending = total - embedded`，把「还在回填」和「缺向量」
+  分开。顺带核对了 `embedded` 的 SQL 口径（`WHERE embedding IS NOT NULL`）本就正确，问题只是没区分
+  异步进度，不是计数 bug。
+- **验证**：新增 `shortLeadingSentenceIsMergedWithTheFollowingEvidence`、
+  `statsReportsEmbeddingPendingInsteadOfLookingIncomplete` 两条，`KnowledgeBaseManagerTest` 30→32；
+  全量 **255 suite / 1854 tests / 0 failures / 0 errors / 1 skipped**；`installDebug` 装机成功。
+- **未真机复测**：只改了导入切块与 stats 字段，真机上要重新导入同一篇文档才看得到块数变化。
+- 提交：本文件补记。
+
 ## [2026-11-10] feat(knowledge)：知识库 v6 语义召回 + 本地 bge 向量模型走 ONNX 真机跑通（small→base）
 
 现场问题：知识库只有关键词召回，问法一模糊就 0 命中或排错（「怎么查天气预报」关键词得分 0，

@@ -152,7 +152,8 @@ v5 细节（2026-11-10，修"整句查询恒 0 命中"）：
   **有在线端点时默认先用在线**（省流量）；要离线自足就传 `local=true`——不管在线可不可用，
   先把本地模型拉下来，下完再调一次 `embed`，`currentEmbedder()` 本地优先，会自动改用它重算全部向量。
 - **`stats` 能看状态**：`embedding_source` = `local` / `online` / `downloading` / `none`；
-  `local_embedding` = `missing` / `downloading` / `ready` / `failed`；`local_embedding_dir` 是落盘路径。
+  `local_embedding` = `missing` / `downloading` / `ready` / `failed`；`local_embedding_dir` 是落盘路径；
+  `embedding_pending` = `total - embedded`，导入后后台回填还在跑时的"还差多少"，不是缺数据。
 - **本地与在线的向量不通用**：`kb_meta.embedding_model` 记的是 `local|模型名` 或 `apiUrl|模型名`，
   换来源即整列作废重建——不同模型的向量空间不同，混着算余弦只会得出噪声。
 - **不走 llama.cpp**：`LlamaHelper` 只有 `nEmbd` 元数据，没有 embedding 输出通道；
@@ -177,6 +178,9 @@ v5 细节（2026-11-10，修"整句查询恒 0 命中"）：
 - **溯源**：`search`/`list`/`get` 结果都带 `doc_id` + `chunk_seq`，可以说"这是《手册》第 3 块"。
 - **导出保结构**：`export` 额外写 `chunk_seq`；`import_json`/`import_file` 按 `source` 分组成篇写入
   （否则导回来只剩散块，文档身份丢失）。恢复备份走 `dedup=false`，语义是**覆盖**同 source 的旧块。
+- **切块**（2026-11-10）：按 Markdown 标题分组，单块上限 800 字（超长按空行 → 句号硬切）；
+  不足 150 字的非首块并进前一块（合并后超 1000 字则保持独立）——避免"标题下先一句结论、
+  再挂三条证据"被切成两块，检索命中前者只拿到没有下文的半句话。
 
 迁移：结构变更在 `onUpgrade`（`ALTER TABLE` 加两列 + `createTables` 建新表/索引）；
 **数据回填**在开库后的 `ensureDocumentsV5()`——按 `source` 分组、**一次只装一篇**聚合，
