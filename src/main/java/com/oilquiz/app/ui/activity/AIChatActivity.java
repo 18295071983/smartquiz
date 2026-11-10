@@ -3828,6 +3828,8 @@ public class AIChatActivity extends BaseActivity {
             dshLiveTurn.turnId = currentTurnId;
             dshSteps.clear();
             dshPartIds.clear();
+            dshMirrorTurn = "";
+            dshMirrorMessage = null;
             dshLiveMessage = live;
             dshSyncTarget = target;
             dshLastSeq = -1;
@@ -12796,6 +12798,9 @@ public class AIChatActivity extends BaseActivity {
     private String dshSyncTarget = "";
     private int dshLastSeq = -1;
     private boolean dshCatchUpRunning = false;
+    /** 同一个 turn 的补拉复用同一条气泡（避免 3 秒一跳建出一串重复气泡） */
+    private String dshMirrorTurn = "";
+    private ChatMessage dshMirrorMessage;
     private ChatMessage dshLiveMessage;
     private int dshLastTurn = 1;
     private int dshLastStep = 1;
@@ -13463,6 +13468,43 @@ public class AIChatActivity extends BaseActivity {
                 dshCatchUpRunning = false;
                 return;
             }
+            // 同一轮（turn）复用已有气泡：补拉是分多次到达的，不能每批都新建一条
+            String firstTurn = "";
+            for (org.json.JSONObject ev : events) {
+                org.json.JSONObject d = ev.optJSONObject("data");
+                if (d != null && d.has("turn")) { firstTurn = String.valueOf(d.optInt("turn", 0)); break; }
+            }
+            final boolean reuse = !firstTurn.isEmpty() && firstTurn.equals(dshMirrorTurn)
+                    && dshMirrorMessage != null && chatHistory != null && chatHistory.contains(dshMirrorMessage);
+            if (reuse) {
+                final int idx = chatHistory.indexOf(dshMirrorMessage);
+                dshLiveMessage = dshMirrorMessage;
+                dshLiveTurn = dshMirrorMessage.assistantTurn;
+                if (dshLiveTurn == null) {
+                    dshLiveTurn = new com.oilquiz.app.ai.chat.turn.AssistantTurn();
+                    dshLiveTurn.turnId = dshMirrorMessage.turnId;
+                    dshMirrorMessage.assistantTurn = dshLiveTurn;
+                }
+                if (dshMirrorMessage.components == null) {
+                    dshMirrorMessage.components = new java.util.ArrayList<>();
+                }
+                for (org.json.JSONObject ev : events) {
+                    final org.json.JSONObject one = ev;
+                    runOnUiThread(() -> {
+                        try {
+                            applyDshEvent(one, dshMirrorMessage, idx, new long[]{0L});
+                        } catch (Throwable ignored) { /* 单条坏事件忽略 */ }
+                    });
+                }
+                if (dshLastSeq >= 0) {
+                    com.oilquiz.app.ai.tool.RemoteDshTool.setLastSeq(AIChatActivity.this, target, dshLastSeq);
+                }
+                runOnUiThread(() -> {
+                    saveHistoryAsync();
+                });
+                dshCatchUpRunning = false;
+                return;
+            }
             // 真的有新东西才建气泡（否则每 3 秒闪一下）
             final ChatMessage live = ChatMessage.createAIMessage(
                     java.util.UUID.randomUUID().toString(), "", System.currentTimeMillis(), null, 0, 0);
@@ -13485,6 +13527,8 @@ public class AIChatActivity extends BaseActivity {
                 if (chatAdapter != null) chatAdapter.notifyItemInserted(liveIdx[0]);
                 scrollToBottom(true);
             });
+            dshMirrorTurn = firstTurn;
+            dshMirrorMessage = live;
             for (org.json.JSONObject ev : events) {
                 final org.json.JSONObject one = ev;
                 // 事件必须在主线程落到模型上：后台线程改 chatHistory/components 会与
