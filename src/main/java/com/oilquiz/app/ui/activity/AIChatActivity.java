@@ -13280,15 +13280,32 @@ public class AIChatActivity extends BaseActivity {
             return;
         }
         if ("compaction/start".equals(type) || "compaction/summary".equals(type)) {
-            // 上下文压缩（start / summary / end）
-            String content = "compaction/summary".equals(type)
-                    ? "上下文已压缩，摘要已保留" : "上下文压缩中…";
+            // 上下文压缩：start 给提示，summary 给可读摘要（markdown_doc 卡片）
+            String key = "dsh-compact-" + (data == null ? turn : data.optString("compactionId", String.valueOf(turn)));
+            if ("compaction/summary".equals(type) && data != null) {
+                StringBuilder text = new StringBuilder();
+                org.json.JSONArray summary = data.optJSONArray("summary");
+                if (summary != null) {
+                    for (int i = 0; i < summary.length(); i += 1) {
+                        org.json.JSONObject part = summary.optJSONObject(i);
+                        if (part != null && "text".equals(part.optString("type"))) {
+                            text.append(part.optString("text"));
+                        }
+                    }
+                }
+                if (text.length() > 0) {
+                    org.json.JSONObject props = new org.json.JSONObject();
+                    jput(props, "title", "上下文压缩摘要");
+                    jput(props, "content", text.toString());
+                    upsertDshDataPart(key, com.oilquiz.app.ai.chat.component.ComponentData.of("markdown_doc", props));
+                    return;
+                }
+            }
             org.json.JSONObject props = new org.json.JSONObject();
             jput(props, "title", "上下文压缩");
-            jput(props, "content", content);
+            jput(props, "content", "上下文压缩中…");
             jput(props, "level", "info");
-            upsertDshDataPart("dsh-compact-" + (data == null ? turn : data.optString("compactionId", String.valueOf(turn))),
-                    com.oilquiz.app.ai.chat.component.ComponentData.of("alert", props));
+            upsertDshDataPart(key, com.oilquiz.app.ai.chat.component.ComponentData.of("alert", props));
             return;
         }
         if ("turn/end".equals(type)) {
