@@ -342,10 +342,12 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             String last = str(m.get("last"));
             if (last.length() > 36) last = last.substring(0, 36) + "…";
             String when = ago(m.get("updated_at"));
+            // 单行：标题 · 时间 @目录（之前把"最后一句"也拼进来，每条占两行、看着很乱）
+            String tail = last.length() > 0 ? "  · " + last : "";
             labels[i] = (title.isEmpty() ? shortId(sid) : title)
                     + (when.isEmpty() ? "" : "  · " + when)
                     + (cwd.isEmpty() ? "" : "  @" + baseName(cwd))
-                    + (last.isEmpty() ? "" : "\n" + last);
+                    + tail;
         }
         return labels;
     }

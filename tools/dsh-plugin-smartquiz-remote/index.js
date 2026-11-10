@@ -931,7 +931,10 @@ export function apply(ctx, config) {
         if (!row.title && row.last) row.title = row.last.replace(/\s+/g, ' ').slice(0, 24);
       } catch { /* 单条读失败不影响列表 */ }
     }
-    return picked;
+    // 空会话（没有标题、也没有任何真人消息）不进入列表：
+    // 这类多是早期 ACP/CLI 留下的壳，手机选择框里只会挡住真正在用的会话。
+    const nonEmpty = opts.includeEmpty ? picked : picked.filter((r) => (r.title && r.title.length > 0) || (r.last && r.last.length > 0));
+    return nonEmpty;
   }
 
   /**
