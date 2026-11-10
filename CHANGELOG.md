@@ -1,5 +1,40 @@
 # 变更日志
 
+## [2026-11-10] feat(remote_dsh)：双端同步（注入 live 会话）+ 状态条扩充 + 会话选择器 + 坏会话修复
+
+上一节做的是「接过来继续」（copy-on-write，电脑那条不动）。这一节补真同步：手机说的话
+直接进电脑上**正打开的那条会话**，两边看到同一个对话。顺带把聊天页顶部那条状态条从
+一行文字扩成「主行 + 副行 + 模式徽标」，并给「选会话」补了界面入口——此前只有 AI 工具
+动作，人点不到（用户反馈"选不了电脑会话"）。
+
+- **插件**（`@local/smartquiz-remote`）：
+  - 新增 `POST /session {action:'sync', target_session_id, text, timeout?}`：用
+    `ctx.agents.get(id)` 取桌面端正在运行的 agent，`followup()` 注入用户消息、
+    `whenIdle()` 后回读 `deriveMessages`。写者始终是宿主进程本身，因此不触碰单写者限制。
+    目标没在电脑上打开时返回 409 `live_session_required`（提示改用 attach）；带超时
+    （默认 120s），超时返回 `timed_out` + 已有内容，不挂死。
+  - 新增 `POST /session {action:'sync_state', target_session_id}` → `{ live: boolean }`。
+  - `GET /sessions.json` 每条增加 `title`：读 `session/title` 事件（只看开头 80 条），
+    手机端终于按标题认会话，而不是一串 `…3f9a2c1b`。
+  - **修**：进程内追加路径写 `user/message` 时漏了消息 `id`，DSH 校验判
+    `… lacks an identified message`，整条会话在 GUI 与手机两侧都打不开（`历史加载失败：
+    corrupt`）。现在补 `id` + `role`。
+- **App**：
+  - 状态条：主行（连接状态 + 地址）、副行（模式 + 目标会话标题）、右侧模式徽标。点徽标
+    循环 **智能 → 直连 → 同步**，长按仍是老的直连开关，点整条进管理页，✕ 隐藏。
+  - 「远程连接（电脑）」页新增 **同步目标** 行 + **选择电脑会话（同步/接续用）** 按钮：
+    拉 `/sessions.json` 列最近 15 条（标题 + @项目 + 最后一句），选中即写目标并切同步模式。
+  - `remote_dsh` 工具新增 `sync_send` / `sync_state`；`list_sessions` 输出带标题。
+- **坏数据修复**：`tools/fix-message-ids.mjs` 扫描 199 个会话、修复 8 个缺 id 的文件
+  （补 `user/message.id`；重编码严格保持「首个 zstd frame 只放 header 行」——压成一整帧
+  会被判 `first frame is not exactly one header line`）。2 个早期测试会话另有 surface head
+  缺陷、补不回来，已移入 `~/.workbuddy/dsh-home/_quarantine/`；原文件均留 `*.bak-ids-*` 备份。
+- **验证**：`sync_state` 对本机当前会话返回 `live:true`；attach → 续聊实测回「正常」；
+  `/sessions.json` 返回标题；`compileReleaseJavaWithJavac` 与 `assembleRelease` 通过；
+  APK 内 dex 含 `sync_send`，asset 插件与源码同哈希。
+- **未做**：sync 的「两端同时操作」只在接口层验证，未在真机双端并发实测；审批卡住时
+  sync 会等到超时后返回已有内容，不是实时推送。
+
 ## [2026-11-10] feat(remote_dsh)：手机端列/读/接续电脑端会话（copy-on-write）
 
 手机端原来只能看到"自己那条"会话的历史：电脑上聊到一半换到手机，只能从头复述。这次补上另一半——

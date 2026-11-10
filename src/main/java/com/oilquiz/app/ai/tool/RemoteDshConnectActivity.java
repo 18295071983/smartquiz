@@ -42,6 +42,8 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private TextView valueUrl;
     private TextView valueToken;
     private TextView valueSession;
+    private TextView valueSyncTarget;
+    private MaterialButton pickSessionBtn;
     private TextView probeText;
     private TextView probeTime;
     private MaterialButton connectBtn;
@@ -101,11 +103,90 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                     startActivity(new Intent(this, RemoteDshGuideActivity.class)));
         }
 
+        valueSyncTarget = findViewById(R.id.value_sync_target);
+        pickSessionBtn = findViewById(R.id.btn_pick_session);
+        if (pickSessionBtn != null) {
+            pickSessionBtn.setOnClickListener(v -> pickSession());
+        }
+
         bindActions();
         refresh();
         if (RemoteDshTool.isConfigured(this)) {
             probe(false, false);
         }
+    }
+
+    /**
+     * 选择同步目标：拉电脑上的会话列表，选一条后设为 sync 目标并切到同步模式。
+     *
+     * 之前只有 AI 工具动作（list_sessions/attach_session），界面上没有入口 ——
+     * 用户「选不了电脑会话」就是缺这一块。网络调用放后台线程，主线程只弹对话框。
+     */
+    private void pickSession() {
+        if (!RemoteDshTool.isConfigured(this)) {
+            toast("还没配对电脑：先扫码配对");
+            return;
+        }
+        if (pickSessionBtn != null) pickSessionBtn.setEnabled(false);
+        new Thread(() -> {
+            try {
+                java.util.List<java.util.Map<String, Object>> list = RemoteDshTool.fetchSessions(this, 15);
+                runOnUiThread(() -> {
+                    if (pickSessionBtn != null) pickSessionBtn.setEnabled(true);
+                    if (list.isEmpty()) {
+                        toast("电脑上没有可选的对话（先在电脑上聊一句，或检查插件版本）");
+                        return;
+                    }
+                    String[] labels = new String[list.size()];
+                    for (int i = 0; i < list.size(); i++) {
+                        java.util.Map<String, Object> m = list.get(i);
+                        String sid = str(m.get("session_id"));
+                        String title = str(m.get("title"));
+                        String cwd = str(m.get("cwd"));
+                        String last = str(m.get("last"));
+                        if (last.length() > 36) last = last.substring(0, 36) + "…";
+                        labels[i] = (title.isEmpty() ? shortId(sid) : title)
+                                + (cwd.isEmpty() ? "" : "  @" + baseName(cwd))
+                                + (last.isEmpty() ? "" : "\n" + last);
+                    }
+                    new AlertDialog.Builder(this)
+                            .setTitle("选择电脑会话（同步目标）")
+                            .setItems(labels, (d, which) -> {
+                                java.util.Map<String, Object> m = list.get(which);
+                                String sid = str(m.get("session_id"));
+                                String title = str(m.get("title"));
+                                RemoteDshTool.setSyncTarget(this, sid);
+                                RemoteDshTool.setSyncTitle(this, title);
+                                RemoteDshTool.setMode(this, RemoteDshTool.MODE_SYNC);
+                                refresh();
+                                toast("已选择「" + (title.isEmpty() ? shortId(sid) : title) + "」，并切到同步模式");
+                            })
+                            .setNegativeButton("取消", null)
+                            .show();
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    if (pickSessionBtn != null) pickSessionBtn.setEnabled(true);
+                    toast("读取电脑会话失败: " + e.getMessage());
+                });
+            }
+        }, "pick-remote-session").start();
+    }
+
+    private static String str(Object o) {
+        return o == null ? "" : String.valueOf(o).trim();
+    }
+
+    private static String shortId(String id) {
+        String s = str(id);
+        return s.length() <= 12 ? s : "…" + s.substring(s.length() - 10);
+    }
+
+    private static String baseName(String path) {
+        String p = str(path).replace('\\', '/');
+        while (p.endsWith("/")) p = p.substring(0, p.length() - 1);
+        int i = p.lastIndexOf('/');
+        return i >= 0 ? p.substring(i + 1) : p;
     }
 
     @Override
@@ -206,6 +287,11 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         }
         if (configured && text(urlInput).isEmpty()) {
             urlInput.setText(RemoteDshTool.configValue(this, "base_url"));
+        }
+        if (valueSyncTarget != null) {
+            String t = RemoteDshTool.getSyncTarget(this);
+            String title = RemoteDshTool.getSyncTitle(this);
+            valueSyncTarget.setText(t.isEmpty() ? "(未选择)" : (title.isEmpty() ? shortId(t) : title));
         }
         setEnabled(connectBtn, configured && !busy);
         setEnabled(disconnectBtn, configured && connected && !busy);

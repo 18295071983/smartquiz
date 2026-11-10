@@ -86,6 +86,8 @@ import java.util.Map;
                 @Action(name = "list_sessions", description = "列出电脑上最近的对话（看电脑端在聊什么）"),
                 @Action(name = "read_session", description = "只读查看电脑上某条对话（target_session_id 必填）"),
                 @Action(name = "attach_session", description = "把电脑上某条对话接到当前会话继续（target_session_id 必填）"),
+                @Action(name = "sync_send", description = "把话发进电脑上正在打开的那条会话（真双端同步，target 默认用上次 attach/list 的）"),
+                @Action(name = "sync_state", description = "查同步目标那条会话现在是否在电脑上打开（live）"),
                 @Action(name = "get_status", description = "检查桥接服务与 dsh 状态"),
                 @Action(name = "set_config", description = "配置电脑地址(base_url)与访问令牌(token)")
         },
@@ -202,6 +204,70 @@ public class RemoteDshTool implements AITool {
     private void saveSessionId(String sessionId) {
         if (sessionId == null || sessionId.trim().isEmpty()) return;
         getPrefs().edit().putString(KEY_SESSION, sessionId.trim()).apply();
+    }
+
+    // ---------- 远程模式（状态条上可切换：智能 / 直连 / 同步） ----------
+    //
+    // auto   默认：消息走手机端模型，由它决定要不要调 remote_dsh
+    // direct 直连：每条消息直接发到电脑执行（不进手机模型）
+    // sync   同步：发到电脑上**当前打开的那条会话**里，电脑端实时看到（插件用 ctx.agents.get 注入）
+    private static final String KEY_MODE = "remote_mode";
+    private static final String KEY_SYNC_TARGET = "sync_target";
+    private static final String KEY_SYNC_TITLE = "sync_title";
+    public static final String MODE_AUTO = "auto";
+    public static final String MODE_DIRECT = "direct";
+    public static final String MODE_SYNC = "sync";
+
+    public static String getMode(Context c) {
+        String m = prefsOf(c).getString(KEY_MODE, MODE_AUTO);
+        return m == null ? MODE_AUTO : m.trim();
+    }
+
+    public static void setMode(Context c, String mode) {
+        String m = mode == null ? MODE_AUTO : mode.trim();
+        if (!MODE_DIRECT.equals(m) && !MODE_SYNC.equals(m)) m = MODE_AUTO;
+        prefsOf(c).edit().putString(KEY_MODE, m).apply();
+    }
+
+    /** 同步目标：电脑端那条会话的 id（由 list_sessions / attach_session 写入） */
+    public static String getSyncTarget(Context c) {
+        String s = prefsOf(c).getString(KEY_SYNC_TARGET, "");
+        return s == null ? "" : s.trim();
+    }
+
+    public static void setSyncTarget(Context c, String sessionId) {
+        prefsOf(c).edit().putString(KEY_SYNC_TARGET, sessionId == null ? "" : sessionId.trim()).apply();
+    }
+
+    /** 同步目标的标题（界面上显示比 session-id 友好） */
+    public static String getSyncTitle(Context c) {
+        String s = prefsOf(c).getString(KEY_SYNC_TITLE, "");
+        return s == null ? "" : s.trim();
+    }
+
+    public static void setSyncTitle(Context c, String title) {
+        prefsOf(c).edit().putString(KEY_SYNC_TITLE, title == null ? "" : title.trim()).apply();
+    }
+
+    /**
+     * 给界面用的会话列表（「远程连接（电脑）」里的同步目标选择器）。
+     * 返回 [{session_id, cwd, last}]，失败抛异常由调用方提示。
+     */
+    public static List<Map<String, Object>> fetchSessions(Context c, int limit) throws Exception {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        Map<String, Object> resp = tool.httpJson(tool.getBaseUrl() + "/sessions.json?limit=" + Math.max(1, limit),
+                "GET", null, 20);
+        List<Map<String, Object>> out = new java.util.ArrayList<>();
+        Object arr = resp.get("sessions");
+        if (arr instanceof List) {
+            for (Object o : (List<?>) arr) {
+                if (o instanceof Map) {
+                    //noinspection unchecked
+                    out.add((Map<String, Object>) o);
+                }
+            }
+        }
+        return out;
     }
 
     // ---------- 连接状态（供「远程连接（电脑）」界面与本工具共用） ----------
@@ -460,6 +526,10 @@ public class RemoteDshTool implements AITool {
                     return handleReadSession(parameters);
                 case "attach_session":
                     return handleAttachSession(parameters);
+                case "sync_send":
+                    return handleSyncSend(parameters);
+                case "sync_state":
+                    return handleSyncState(parameters);
                 case "shell":
                     return handleShell(parameters);
                 case "connect":
@@ -954,7 +1024,9 @@ public class RemoteDshTool implements AITool {
                     String sid = m.get("session_id") == null ? "" : String.valueOf(m.get("session_id"));
                     if (sid.isEmpty()) continue;
                     shown++;
-                    sb.append(i).append(". ").append(sid);
+                    String title = m.get("title") == null ? "" : String.valueOf(m.get("title")).trim();
+                    sb.append(i).append(". ").append(title.isEmpty() ? sid : title);
+                    if (!title.isEmpty()) sb.append("\n   id: ").append(sid);
                     String cwd = m.get("cwd") == null ? "" : String.valueOf(m.get("cwd"));
                     if (!cwd.isEmpty()) sb.append("  @ ").append(baseName(cwd));
                     Object last = m.get("last");
@@ -1016,12 +1088,75 @@ public class RemoteDshTool implements AITool {
             if (!Boolean.TRUE.equals(resp.get("ok"))) {
                 return AIToolResult.fail("接续失败: " + (resp.get("error") == null ? "未知错误" : resp.get("error")));
             }
+            setSyncTarget(context, target);            // 之后 sync_send 默认就用这条
             Object hist = resp.get("history");
             int n = hist instanceof List ? ((List<?>) hist).size() : 0;
             return AIToolResult.success("已把电脑端会话 " + target + " 接到当前会话（带过来 " + n + " 条记录）。"
                     + "\n接下来直接说你要做什么就行——会带着那段上下文继续（电脑端那条不会被改动，两边从此各自演化）。");
         } catch (Exception e) {
             return AIToolResult.fail("接续失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * action=sync_send：把这句话注入电脑上**正在打开**的那条会话。
+     *
+     * 与 run 的区别：run 走 CLI 子进程、结果是另一条独立会话；sync_send 走宿主里的 live agent，
+     * 电脑端界面上会实时出现你说的话和回复 —— 这才是同一条会话的双端同步。
+     */
+    private AIToolResult handleSyncSend(Map<String, Object> parameters) {
+        AIToolResult gate = precheck();
+        if (gate != null) return gate;
+        String text = str(parameters.get("task"));
+        if (text.isEmpty()) text = str(parameters.get("text"));
+        if (text.isEmpty()) return AIToolResult.fail("sync_send 需要 task（要发到电脑上的那句话）");
+        String target = str(parameters.get("target_session_id"));
+        if (target.isEmpty()) target = getSyncTarget(context);
+        if (target.isEmpty()) {
+            return AIToolResult.fail("还不知道要同步到哪条会话：先 action=list_sessions 选一条，"
+                    + "再 action=attach_session（或直接带 target_session_id）");
+        }
+        int timeout = resolveTimeout(parameters);
+        Map<String, Object> body = new HashMap<>();
+        body.put("action", "sync");
+        body.put("target_session_id", target);
+        body.put("text", text);
+        body.put("timeout", timeout);
+        try {
+            Map<String, Object> resp = httpJson(getBaseUrl() + "/session", "POST", body, timeout + 30);
+            if (!Boolean.TRUE.equals(resp.get("ok"))) {
+                String err = resp.get("error") == null ? "未知错误" : String.valueOf(resp.get("error"));
+                String hint = resp.get("hint") == null ? "" : String.valueOf(resp.get("hint"));
+                return AIToolResult.fail("同步失败: " + err + (hint.isEmpty() ? "" : "\n" + hint));
+            }
+            setSyncTarget(context, target);
+            String reply = str(resp.get("reply"));
+            boolean timedOut = Boolean.TRUE.equals(resp.get("timed_out"));
+            return AIToolResult.success("💻 同步 · " + target + (timedOut ? "（这一轮还没跑完，可能在等审批）" : "")
+                    + "\n" + (reply.isEmpty() ? "（这一轮没有文字回复）" : reply));
+        } catch (Exception e) {
+            return AIToolResult.fail("同步失败: " + e.getMessage());
+        }
+    }
+
+    /** action=sync_state：那条会话现在是否在电脑上打开（live 才能同步） */
+    private AIToolResult handleSyncState(Map<String, Object> parameters) {
+        AIToolResult gate = precheck();
+        if (gate != null) return gate;
+        String target = str(parameters.get("target_session_id"));
+        if (target.isEmpty()) target = getSyncTarget(context);
+        if (target.isEmpty()) return AIToolResult.fail("还没有同步目标：先用 list_sessions + attach_session 选一条");
+        Map<String, Object> body = new HashMap<>();
+        body.put("action", "sync_state");
+        body.put("target_session_id", target);
+        try {
+            Map<String, Object> resp = httpJson(getBaseUrl() + "/session", "POST", body, 30);
+            boolean live = Boolean.TRUE.equals(resp.get("live"));
+            return AIToolResult.success((live ? "可以同步 ✓ " : "当前不能同步 ✗ ") + target
+                    + (live ? "\n这条会话在电脑上开着，sync_send 的消息会直接出现在那个对话里。"
+                            : "\n这条会话没在电脑上打开：先在电脑上打开它；或改用 attach_session（复制上下文另起一条）。"));
+        } catch (Exception e) {
+            return AIToolResult.fail("查询同步状态失败: " + e.getMessage());
         }
     }
 

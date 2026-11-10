@@ -227,8 +227,11 @@ async function runTurn(ctx, handle, sid, text, cfg) {
   let via = 'surface-append';
   try {
     if (session?.append) {
+      // ★ 必须带 id：DSH 校验要求消息事件有"identified message"，
+      //   只写 {role,content,source} 会落成坏数据（seq 27 lacks an identified message），
+      //   之后这条会话在 GUI 与手机两侧都读不出来（历史加载失败：corrupt）。
       session.append('user/message',
-        { role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } },
+        { id: randomBytes(16).toString('hex'), role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } },
         { surfaceOp: 'append' });
     } else { via = 'followup'; }
   } catch (e) { via = 'followup(' + String(e?.message ?? e).slice(0, 60) + ')'; }
@@ -717,6 +720,22 @@ export function apply(ctx, config) {
     } finally { try { await handle.close?.(); } catch { /* 已关 */ } }
   }
 
+  /** 读会话标题（`session/title` 事件；只读开头几十条，别为一条标题扫全量日志） */
+  async function readStoredTitle(id) {
+    const svc = persistence();
+    if (!svc || typeof svc.open !== 'function') return '';
+    const handle = await svc.open(id, 'read');
+    try {
+      const got = await handle.read(0, 80);
+      const events = Array.isArray(got) ? got : (got?.events ?? []);
+      let title = '';
+      for (const ev of events) {
+        if (ev?.type === 'session/title' && ev?.data && typeof ev.data.title === 'string') title = ev.data.title;
+      }
+      return title.trim();
+    } finally { try { await handle.close?.(); } catch { /* 已关 */ } }
+  }
+
   /** 列出已落盘会话，按最近写入排序 */
   async function listStoredSessions(limit = 20) {
     const svc = persistence();
@@ -743,9 +762,11 @@ export function apply(ctx, config) {
     const desktopRows = rows.filter((r) => !r.session_id.startsWith('smartquiz-'));
     desktopRows.sort((a, b) => (b.mtime ?? b.created_at ?? 0) - (a.mtime ?? a.created_at ?? 0));
     const picked = desktopRows.slice(0, Math.max(1, Math.min(200, limit)));
-    // 给前若干条补一句"最后说了什么"，否则手机端只看到一串 session-id，选不出是哪条
+    // 给前若干条补"标题 + 最后说了什么"，否则手机端只看到一串 session-id，选不出是哪条
     for (const row of picked.slice(0, Math.min(10, picked.length))) {
       try {
+        const title = await readStoredTitle(row.session_id);
+        if (title) row.title = title;
         const recent = await readStoredMessages(row.session_id, 3);
         const lastUser = [...recent].reverse().find((m) => m.role === 'user');
         const snippet = (lastUser ?? recent[recent.length - 1])?.text ?? '';
@@ -1031,6 +1052,46 @@ export function apply(ctx, config) {
           mode: 'copy-on-write',
           note: '已接过来：下一条消息会带上这段上下文在新会话里继续（电脑端那条不会被改动）',
         });
+      }
+      if (action === 'sync') {
+        // 真·双端同步：把手机这句话**注入桌面端正在运行的那条会话**。
+        // 插件跑在宿主进程里，ctx.agents.get(id) 拿到的就是 GUI 正在用的那个 agent，
+        // 所以写者始终只有宿主一个，不存在单写者冲突；桌面上会实时看到这句用户消息。
+        const target = String(body.target_session_id ?? '').trim();
+        const text = (typeof body.text === 'string' ? body.text : (typeof body.prompt === 'string' ? body.prompt : '')).trim();
+        if (!target || !text) return sendJson(res, 400, { ok: false, action, error: '需要 target_session_id 和 text' });
+        const agent = (() => { try { return ctx.agents?.get?.(target); } catch { return undefined; } })();
+        if (!agent) {
+          return sendJson(res, 409, {
+            ok: false, action, error: 'live_session_required',
+            hint: '这条会话现在没有在桌面端打开；先在电脑上打开它，或改用 attach（复制上下文另起一条）',
+          });
+        }
+        const timeoutMs = Number.isFinite(body.timeout) ? Math.max(5, Math.min(600, body.timeout)) * 1000 : 120000;
+        try {
+          agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } });
+          let timedOut = false;
+          await Promise.race([
+            Promise.resolve(agent.whenIdle?.()),
+            new Promise((r) => setTimeout(() => { timedOut = true; r(); }, timeoutMs)),
+          ]);
+          const live = ctx.sessions.get(target);
+          const reply = lastAssistant(live) || '';
+          promptCount += 1;
+          return sendJson(res, 200, {
+            ok: true, action: 'sync', session_id: target, reply, timed_out: timedOut,
+            hint: timedOut ? '这一轮还没结束（可能在等审批），已先返回现有内容' : undefined,
+            debug: { via: 'in-process', seq: Number(live?.seq ?? 0) || null },
+          });
+        } catch (e) {
+          return sendJson(res, 500, { ok: false, action: 'sync', error: String(e?.message ?? e) });
+        }
+      }
+      if (action === 'sync_state') {
+        const target = String(body.target_session_id ?? '').trim();
+        let live = false;
+        try { live = Boolean(target) && Boolean(ctx.agents?.get?.(target)); } catch { live = false; }
+        return sendJson(res, 200, { ok: true, action: 'sync_state', session_id: target, live });
       }
       if (action !== 'prompt') return sendJson(res, 400, { ok: false, error: `unknown action: ${action}` });
 

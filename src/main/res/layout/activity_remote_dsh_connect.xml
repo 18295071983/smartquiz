@@ -153,6 +153,42 @@
                         android:textSize="@dimen/text_14"
                         android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
+
+                <!-- 同步目标：手机消息要发进电脑上哪一条会话（同步 / 接续用） -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="56dp"
+                        android:text="同步目标"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
+                    <TextView
+                        android:id="@+id/value_sync_target"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="end"
+                        android:text="(未选择)"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlText"/>
+                </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_pick_session"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_44"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text="选择电脑会话（同步/接续用）"
+                    android:textSize="@dimen/text_14"
+                    android:textAllCaps="false"
+                    android:textColor="?attr/colorOnSecondaryContainer"
+                    app:backgroundTint="?attr/colorSecondaryContainer"
+                    app:cornerRadius="@dimen/radius_22"/>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

@@ -210,16 +210,47 @@
                 android:layout_marginEnd="@dimen/space_8"
                 android:background="@drawable/circle_red"/>
 
-            <TextView
-                android:id="@+id/remote_dsh_text"
+            <!-- 主行 + 副行：主行给状态，副行给"当前模式/同步目标"（不占额外高度） -->
+            <LinearLayout
                 android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="电脑未配对"
-                android:textSize="@dimen/text_12"
-                android:textColor="?attr/colorControlText"
-                android:maxLines="1"
-                android:ellipsize="end"/>
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/remote_dsh_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="电脑未配对"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlText"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+
+                <TextView
+                    android:id="@+id/remote_dsh_sub"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="配对后可在手机上远程操作电脑"
+                    android:textSize="10sp"
+                    android:textColor="?attr/colorControlTextSecondary"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
+            <!-- 模式徽标：点一下在「智能 → 直连 → 同步」之间切换 -->
+            <TextView
+                android:id="@+id/remote_dsh_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/space_6"
+                android:text="智能"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:textColor="?attr/colorPrimary"
+                android:paddingHorizontal="6dp"
+                android:paddingVertical="2dp"/>
 
             <TextView
                 android:id="@+id/remote_dsh_action"

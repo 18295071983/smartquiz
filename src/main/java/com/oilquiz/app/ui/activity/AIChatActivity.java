@@ -230,6 +230,8 @@ public class AIChatActivity extends BaseActivity {
     private android.view.View remoteDshBar;
     private android.view.View remoteDshDot;
     private android.widget.TextView remoteDshText;
+    private android.widget.TextView remoteDshSub;
+    private android.widget.TextView remoteDshBadge;
     private android.widget.TextView remoteDshAction;
     /** 状态条上的 ✕（隐藏；偏好可在「远程连接（电脑）」里重新打开） */
     private android.widget.ImageButton remoteDshHide;
@@ -627,12 +629,17 @@ public class AIChatActivity extends BaseActivity {
         remoteDshBar = findViewById(R.id.remote_dsh_bar);
         remoteDshDot = findViewById(R.id.remote_dsh_dot);
         remoteDshText = findViewById(R.id.remote_dsh_text);
+        remoteDshSub = findViewById(R.id.remote_dsh_sub);
+        remoteDshBadge = findViewById(R.id.remote_dsh_badge);
         remoteDshAction = findViewById(R.id.remote_dsh_action);
         if (remoteDshBar != null) {
             remoteDshBar.setOnLongClickListener(v -> { toggleRemoteDirectMode(); return true; });
             remoteDshBar.setOnClickListener(v ->
                     startActivity(new Intent(AIChatActivity.this,
                             com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class)));
+        }
+        if (remoteDshBadge != null) {
+            remoteDshBadge.setOnClickListener(v -> cycleRemoteMode());
         }
         remoteDshHide = findViewById(R.id.remote_dsh_hide);
         if (remoteDshHide != null) {
@@ -3791,6 +3798,47 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void sendMessage() {
+        // ==== 状态条上的三种远程模式：同步 / 直连 / 智能 ====
+        // 同步：消息进电脑上**正在打开的那条会话**（插件用宿主内 live agent 注入，双端实时可见）
+        if (com.oilquiz.app.ai.tool.RemoteDshTool.MODE_SYNC.equals(remoteMode())) {
+            String syncText = inputMessage.getText().toString().trim();
+            if (syncText.isEmpty()) { showToast(getString(R.string.h_b922f77a)); return; }
+            if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
+                    || !com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)) {
+                showToast("电脑未连接：请先在「远程连接（电脑）」里配对并连接");
+                return;
+            }
+            if (com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this).isEmpty()) {
+                showToast("同步模式还没有目标会话：去「远程连接（电脑）」里选一条电脑会话");
+                return;
+            }
+            addUserMessage(syncText);
+            inputMessage.setText("");
+            final String syncTask = syncText;
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    String outText;
+                    try {
+                        java.util.Map<String, Object> p = new java.util.HashMap<String, Object>();
+                        p.put("action", "sync_send");
+                        p.put("task", syncTask);
+                        com.oilquiz.app.ai.tool.AIToolResult r =
+                                com.oilquiz.app.ai.tool.AIToolManager.getInstance(AIChatActivity.this)
+                                        .executeTool("remote_dsh", p);
+                        outText = (r != null && r.isSuccess())
+                                ? String.valueOf(r.getResult())
+                                : ("同步失败：" + (r != null ? r.getErrorMessage() : "未知错误"));
+                    } catch (Throwable t) {
+                        outText = "同步异常：" + t.getMessage();
+                    }
+                    final String fOut = outText;
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() { addAIMessage("💻 " + fOut); }
+                    });
+                }
+            }, "remote-dsh-sync").start();
+            return;
+        }
         // ==== 方案3：直连电脑模式（点/长按聊天页顶部电脑横条切换）====
         // 消息直接交给 remote_dsh 执行，不经过手机端模型，因此不再受"模型是否愿意调用/是否支持 function calling"影响
         if (remoteDirectMode) {
@@ -12678,17 +12726,70 @@ public class AIChatActivity extends BaseActivity {
     /** 方案3：直连电脑模式 —— 每条消息直接发到电脑执行，不经过手机端模型 */
     private boolean remoteDirectMode = false;
 
+    /** 当前远程模式（智能/直连/同步），存在 RemoteDshTool 偏好里，跨页与重启保留 */
+    private String remoteMode() {
+        return com.oilquiz.app.ai.tool.RemoteDshTool.getMode(this);
+    }
+
+    private static String modeLabel(String mode) {
+        if (com.oilquiz.app.ai.tool.RemoteDshTool.MODE_DIRECT.equals(mode)) return "直连";
+        if (com.oilquiz.app.ai.tool.RemoteDshTool.MODE_SYNC.equals(mode)) return "同步";
+        return "智能";
+    }
+
+    /** 会话 id 太长：只留尾部，状态条上够认。 */
+    private static String shortId(String id) {
+        if (id == null) return "";
+        String s = id.trim();
+        return s.length() <= 12 ? s : "…" + s.substring(s.length() - 10);
+    }
+
+    /** 点徽标循环：智能 → 直连 → 同步 → 智能 */
+    private void cycleRemoteMode() {
+        if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)) {
+            showToast("还没配对电脑：请先扫码配对");
+            return;
+        }
+        String m = remoteMode();
+        String next;
+        if (com.oilquiz.app.ai.tool.RemoteDshTool.MODE_AUTO.equals(m)) {
+            next = com.oilquiz.app.ai.tool.RemoteDshTool.MODE_DIRECT;
+        } else if (com.oilquiz.app.ai.tool.RemoteDshTool.MODE_DIRECT.equals(m)) {
+            next = com.oilquiz.app.ai.tool.RemoteDshTool.MODE_SYNC;
+        } else {
+            next = com.oilquiz.app.ai.tool.RemoteDshTool.MODE_AUTO;
+        }
+        applyRemoteMode(next);
+    }
+
+    private void applyRemoteMode(String mode) {
+        com.oilquiz.app.ai.tool.RemoteDshTool.setMode(this, mode);
+        remoteDirectMode = com.oilquiz.app.ai.tool.RemoteDshTool.MODE_DIRECT.equals(mode);
+        String msg;
+        if (com.oilquiz.app.ai.tool.RemoteDshTool.MODE_DIRECT.equals(mode)) {
+            msg = "直连电脑：每条消息直接发到电脑执行";
+        } else if (com.oilquiz.app.ai.tool.RemoteDshTool.MODE_SYNC.equals(mode)) {
+            String t = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+            msg = t.isEmpty()
+                    ? "同步模式：还没选电脑会话 —— 去「远程连接（电脑）」里选一条"
+                    : "同步模式：消息会发进电脑会话 " + shortId(t);
+        } else {
+            msg = "智能模式：由手机 AI 决定要不要用电脑";
+        }
+        showToast(msg);
+        refreshRemoteDshBar();
+    }
+
     private void toggleRemoteDirectMode() {
         if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)) {
             showToast("还没配对电脑：请先扫码配对");
             return;
         }
-        remoteDirectMode = !remoteDirectMode;
-        showToast(remoteDirectMode
-                ? "已进入「直连电脑模式」：每条消息直接发到电脑执行 💻"
-                : "已退出直连电脑模式：恢复由 AI 决定是否调用电脑");
-        refreshRemoteDshBar();
+        applyRemoteMode(com.oilquiz.app.ai.tool.RemoteDshTool.MODE_DIRECT.equals(remoteMode())
+                ? com.oilquiz.app.ai.tool.RemoteDshTool.MODE_AUTO
+                : com.oilquiz.app.ai.tool.RemoteDshTool.MODE_DIRECT);
     }
+
     private void refreshRemoteDshBar() {
         if (remoteDshBar == null) {
             return;
@@ -12700,37 +12801,66 @@ public class AIChatActivity extends BaseActivity {
         }
         boolean configured = com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this);
         boolean connected = com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this);
+        String mode = remoteMode();
+        remoteDirectMode = com.oilquiz.app.ai.tool.RemoteDshTool.MODE_DIRECT.equals(mode);
         int dotRes;
-        String text;
+        String title;
+        String sub;
         String action;
+        String badge = modeLabel(mode);
         if (!configured) {
             dotRes = R.drawable.circle_red;
-            text = "电脑未配对：可远程控制电脑（扫码即可）";
+            title = "电脑未配对：可远程控制电脑";
+            sub = "点这里扫码配对，之后手机就能用电脑干活";
             action = "去配对 ›";
-        } else if (connected) {
+            badge = "—";
+        } else if (!connected) {
+            dotRes = R.drawable.circle_yellow;
+            title = "电脑已断开：AI 会被拒绝执行";
+            sub = "到「远程连接（电脑）」里重新连接";
+            action = "去连接 ›";
+        } else if (com.oilquiz.app.ai.tool.RemoteDshTool.MODE_SYNC.equals(mode)) {
             dotRes = R.drawable.circle_green;
-            text = "电脑已连接：" + com.oilquiz.app.ai.tool.RemoteDshTool.configValue(this, "base_url")
-                    + "（AI 可远程操作）";
+            String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+            String syncTitle = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTitle(this);
+            title = "电脑已连接 · " + hostOf(com.oilquiz.app.ai.tool.RemoteDshTool.configValue(this, "base_url"));
+            sub = target.isEmpty()
+                    ? "同步模式 · 还没选电脑会话（去「远程连接」选一条）"
+                    : "同步模式 · " + (syncTitle.isEmpty() ? shortId(target) : syncTitle);
+            action = "管理 ›";
+        } else if (com.oilquiz.app.ai.tool.RemoteDshTool.MODE_DIRECT.equals(mode)) {
+            dotRes = R.drawable.circle_green;
+            title = "电脑已连接 · " + hostOf(com.oilquiz.app.ai.tool.RemoteDshTool.configValue(this, "base_url"));
+            sub = "直连模式 · 每条消息直接发到电脑执行";
             action = "管理 ›";
         } else {
-            dotRes = R.drawable.circle_yellow;
-            text = "电脑已断开：AI 会被拒绝执行";
-            action = "去连接 ›";
+            dotRes = R.drawable.circle_green;
+            title = "电脑已连接 · " + hostOf(com.oilquiz.app.ai.tool.RemoteDshTool.configValue(this, "base_url"));
+            sub = "智能模式 · 由手机 AI 决定要不要用电脑";
+            action = "管理 ›";
         }
         remoteDshDot.setBackground(androidx.core.content.ContextCompat.getDrawable(this, dotRes));
-        remoteDshText.setText(text);
-        remoteDshAction.setText(action);
-        if (remoteDirectMode && configured && connected) {
-            dotRes = R.drawable.circle_green;
-            text = "💻 直连电脑模式：每条消息直接发到电脑（点一下退出）";
-            action = "退出 ›";
-            remoteDshDot.setBackground(androidx.core.content.ContextCompat.getDrawable(this, dotRes));
-            remoteDshText.setText(text);
-            remoteDshAction.setText(action);
-            remoteDshBar.setVisibility(View.VISIBLE);
-            return;
+        remoteDshText.setText(title);
+        if (remoteDshSub != null) {
+            remoteDshSub.setText(sub);
+            remoteDshSub.setVisibility(View.VISIBLE);
         }
+        if (remoteDshBadge != null) {
+            remoteDshBadge.setText(badge);
+            remoteDshBadge.setVisibility(configured ? View.VISIBLE : View.GONE);
+        }
+        remoteDshAction.setText(action);
         remoteDshBar.setVisibility(View.VISIBLE);
+    }
+
+    /** 从 base_url 里取 host:port，状态条上显示短一点 */
+    private static String hostOf(String baseUrl) {
+        if (baseUrl == null) return "";
+        String s = baseUrl.trim();
+        int i = s.indexOf("://");
+        if (i >= 0) s = s.substring(i + 3);
+        while (s.endsWith("/")) s = s.substring(0, s.length() - 1);
+        return s;
     }
 
     /**
