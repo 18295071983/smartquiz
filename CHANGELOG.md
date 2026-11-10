@@ -29,6 +29,7 @@ llama.cpp 的 `mtmd_tokenize` 签名本来就收 `bitmaps[] + n_bitmaps`，只�
 - **验证**：`compileDebugJavaWithJavac` 通过、`assembleDebug` 通过（`libllama-jni.so` 201,640,464 B，
   已用二进制搜索确认新错误串在包内）、全量 **257 suite / 1866 tests / 0 failures / 0 errors / 1 skipped**。
   **多图未真机验证**：能编不能证明 prefill 耗时、显存与回答质量在设备上成立，需实测两张图。
+- 提交：`c7ea8fad`（与下方 fix(attach) 节同一提交）。
 
 ## [2026-11-10] fix(attach)：落盘名保留中文 + OCR 引擎标识如实 + 在线 OCR 不再误选非视觉模型 + 看图工具补视觉闸门
 
@@ -59,7 +60,8 @@ llama.cpp 的 `mtmd_tokenize` 签名本来就收 `bitmaps[] + n_bitmaps`，只�
   audio/transcribe 变体、gemini 与 embedding 变体、claude-3 三档不被误伤、qwen/glm 视觉后缀、
   纯文本与 embedding 名不误判、null/空值）。全量 **257 suite / 1866 tests / 0 failures / 0 errors / 1 skipped**
   （基线 255/1854）。
-- **未做**：未装机真机复测（只影响落盘文件名、日志字段与在线 OCR 的模型挑选，不改变通道选择）；未提交。
+- **未做**：未装机真机复测（只影响落盘文件名、日志字段与在线 OCR 的模型挑选，不改变通道选择）。
+- 提交：`c7ea8fad`（本文件补记）。
 
 ## [2026-11-10] fix(knowledge)：切块小块归并 + stats 暴露回填进度
 
