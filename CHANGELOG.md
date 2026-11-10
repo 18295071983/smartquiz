@@ -22,7 +22,7 @@
   最后一条回复”补回来（`sync_last_reply` 判重）。
 - **验证**：sync 对空闲会话 `resumed:true`、766ms 返回；思考型 prompt 实测
   `reply="3293"` / `thinking="Compute 37*89 = …"` 分离；`/sessions.json` 509ms、标题不再为空。
-- 提交：见下方 `docs(changelog)` 补的那条
+- 提交：`32ee6edf`
 
 ## [2026-11-10] feat(remote_dsh)：双端同步（注入 live 会话）+ 状态条扩充 + 会话选择器 + 坏会话修复
 
