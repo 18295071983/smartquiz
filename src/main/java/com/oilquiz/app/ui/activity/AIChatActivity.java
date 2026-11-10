@@ -3825,6 +3825,9 @@ public class AIChatActivity extends BaseActivity {
             dshLiveTurn.turnId = currentTurnId;
             dshSteps.clear();
             dshPartIds.clear();
+            dshLastTurn = 1;
+            dshLastStep = 1;
+            dshJobCount.clear();
             live.assistantTurn = dshLiveTurn;
             chatHistory.add(live);
             final int liveIdx = chatHistory.size() - 1;
@@ -12769,6 +12772,11 @@ public class AIChatActivity extends BaseActivity {
     private final java.util.TreeMap<Integer, java.util.TreeMap<Integer, DshStep>> dshSteps = new java.util.TreeMap<>();
     /** 逻辑 key → 由 ChatIdDispatcher 发放的 id（重建 parts 时复用，避免和本地消息抢号） */
     private final java.util.HashMap<String, String> dshPartIds = new java.util.HashMap<>();
+    /** 最近一次带 turn/step 的事件位置：job/command/todo 这类事件不带，需要"跟在当前步后面" */
+    private int dshLastTurn = 1;
+    private int dshLastStep = 1;
+    /** 每个 turn 的后台任务计数（聚合成一张卡，别一个任务一张） */
+    private final java.util.HashMap<Integer, Integer> dshJobCount = new java.util.HashMap<>();
     private com.oilquiz.app.ai.chat.turn.AssistantTurn dshLiveTurn;
     private com.oilquiz.app.ai.chat.turn.AssistantTurn.Part dshReasoningPart;
     private com.oilquiz.app.ai.chat.turn.AssistantTurn.Part dshTextPart;
@@ -12982,8 +12990,14 @@ public class AIChatActivity extends BaseActivity {
     private void applyDshEvent(org.json.JSONObject ev, ChatMessage live, int liveIdx, long[] lastNotify) {
         String type = ev.optString("type", "");
         org.json.JSONObject data = ev.optJSONObject("data");
-        int turn = data == null ? 1 : data.optInt("turn", 1);
-        int step = data == null ? 1 : data.optInt("step", 1);
+        boolean hasTurn = data != null && data.has("turn");
+        boolean hasStep = data != null && data.has("step");
+        int turn = hasTurn ? data.optInt("turn", dshLastTurn) : dshLastTurn;
+        int step = hasStep ? data.optInt("step", dshLastStep) : dshLastStep;
+        if (hasTurn) {
+            dshLastTurn = turn;
+            if (hasStep) dshLastStep = step;
+        }
 
         if ("approval".equals(type)) {
             showDshApprovalDialog(ev.optString("id"), ev.optJSONObject("request"));
@@ -13128,12 +13142,13 @@ public class AIChatActivity extends BaseActivity {
             return;
         }
         if ("job/registered".equals(type) && data != null) {
-            // 后台任务 → alert（props {title, content, level}）
+            // 后台任务 → 一个 turn 聚合一张 alert（否则每个工具一张，一屏全是"后台任务启动"）
             String label = data.optString("label", data.optString("kind", "后台任务"));
-            org.json.JSONObject props = jput(jput(new org.json.JSONObject(), "title", "后台任务启动"),
-                    "content", label);
+            int n = dshJobCount.merge(turn, 1, Integer::sum);
+            String content = n <= 1 ? label : (n + " 个后台任务，最近：" + label);
+            org.json.JSONObject props = jput(jput(new org.json.JSONObject(), "title", "后台任务"), "content", content);
             jput(props, "level", "info");
-            upsertDshDataPart("dsh-job-" + data.optString("jobId", String.valueOf(turn)),
+            upsertDshDataPart("dsh-jobs-" + turn,
                     com.oilquiz.app.ai.chat.component.ComponentData.of("alert", props));
             return;
         }

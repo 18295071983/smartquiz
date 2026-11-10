@@ -1,5 +1,18 @@
 # 变更日志
 
+## [2026-11-10] fix(remote_dsh)：无 turn/step 的事件落位 + 后台任务卡聚合（真机回放发现）
+
+用 `/events` 抓了本会话 245 条真实事件回放，发现两个问题：
+
+1. `todo/write`、`job/registered`、`command/run` 这些事件**不带 `turn`/`step`**，转换器一律按
+   (1,1) 落位 → 19 张「后台任务」卡全堆在第一步。现在记住最近一次带 turn/step 的位置，
+   这些事件跟到当前步后面。
+2. 每个工具调用都发一次 `job/registered` → 每步一张「后台任务启动」卡，一屏噪声。
+   现在按 turn 聚合成一张（`dsh-jobs-<turn>`，内容为「N 个后台任务，最近：<label>」）。
+- **回放验证**（emulate2）：45 个事件步正确分组，`todo_card` 跟到含 `todo_write` 的那一步，
+  `执行命令` 落在含 pwsh 的步，后台任务按步出现且每轮一张聚合卡。
+- **验证**：`compileReleaseJavaWithJavac`、`assembleRelease` 通过，APK 已装机。
+
 ## [2026-11-10] feat(remote_dsh)：DSH 消息流专属卡片 + id 统一走 ChatIdDispatcher
 
 - **组件收集**：新增 [docs/remote_dsh-message-stream.md](docs/remote_dsh-message-stream.md)，
