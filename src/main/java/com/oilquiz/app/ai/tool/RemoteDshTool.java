@@ -250,6 +250,74 @@ public class RemoteDshTool implements AITool {
     }
 
     /**
+     * 轻量列表：只要 id + 最后活动时间（电脑端只 stat 目录，不解码日志）。
+     * 给界面做"有没有变化"的轮询用。
+     */
+    public static List<Map<String, Object>> fetchSessionsLight(Context c, int limit) throws Exception {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        Map<String, Object> resp = tool.httpJson(
+                tool.getBaseUrl() + "/sessions.json?light=1&limit=" + Math.max(1, limit), "GET", null, 15);
+        List<Map<String, Object>> out = new java.util.ArrayList<>();
+        Object arr = resp.get("sessions");
+        if (arr instanceof List) {
+            for (Object o : (List<?>) arr) {
+                if (o instanceof Map) {
+                    //noinspection unchecked
+                    out.add((Map<String, Object>) o);
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 读电脑端某条会话最近一条 assistant 文本（同步模式"补回复"用）。
+     *
+     * 场景：手机在等回复时被强杀/断网，电脑那轮照样跑完了；回到聊天页时用它
+     * 把"你错过的最后一条回复"补上，避免两端内容不一致。
+     */
+    public static String fetchLastAssistant(Context c, String sid) throws Exception {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        Map<String, Object> body = new HashMap<>();
+        body.put("action", "read");
+        body.put("session_id", sid);
+        body.put("max", 4);
+        Map<String, Object> resp = tool.httpJson(tool.getBaseUrl() + "/session", "POST", body, 40);
+        if (!Boolean.TRUE.equals(resp.get("ok"))) return "";
+        Object hist = resp.get("history");
+        if (hist instanceof List) {
+            List<?> list = (List<?>) hist;
+            for (int i = list.size() - 1; i >= 0; i -= 1) {
+                Object o = list.get(i);
+                if (!(o instanceof Map)) continue;
+                Map<?, ?> m = (Map<?, ?>) o;
+                if (!"assistant".equals(String.valueOf(m.get("role")))) continue;
+                String text = m.get("text") == null ? "" : String.valueOf(m.get("text"));
+                if (!text.trim().isEmpty()) return text;
+            }
+        }
+        return "";
+    }
+
+    /** 最近一次同步回复里的思考内容：交给聊天界面按 reasoning part 渲染 */
+    public static String getLastSyncThinking(Context c) {
+        return prefsOf(c).getString("sync_last_thinking", "");
+    }
+
+    public static void setLastSyncThinking(Context c, String text) {
+        prefsOf(c).edit().putString("sync_last_thinking", text == null ? "" : text).apply();
+    }
+
+    /** 最近一次通过同步拿到的回复（用来判重，避免补重复） */
+    public static String getLastSyncReply(Context c) {
+        return prefsOf(c).getString("sync_last_reply", "");
+    }
+
+    public static void setLastSyncReply(Context c, String text) {
+        prefsOf(c).edit().putString("sync_last_reply", text == null ? "" : text).apply();
+    }
+
+    /**
      * 给界面用的会话列表（「远程连接（电脑）」里的同步目标选择器）。
      * 返回 [{session_id, cwd, last}]，失败抛异常由调用方提示。
      */
@@ -1131,9 +1199,17 @@ public class RemoteDshTool implements AITool {
             }
             setSyncTarget(context, target);
             String reply = str(resp.get("reply"));
+            setLastSyncReply(context, reply);
+            String thinking = str(resp.get("thinking"));
             boolean timedOut = Boolean.TRUE.equals(resp.get("timed_out"));
-            return AIToolResult.success("💻 同步 · " + target + (timedOut ? "（这一轮还没跑完，可能在等审批）" : "")
-                    + "\n" + (reply.isEmpty() ? "（这一轮没有文字回复）" : reply));
+            // 思考内容**不拼进正文**：交给聊天界面写进 thinkingContent，
+            // 由 ReasoningPartRenderer 渲染成可折叠的「已深度思考」段落（和电脑端一致）。
+            setLastSyncThinking(context, thinking);
+            StringBuilder sb = new StringBuilder();
+            sb.append("💻 同步 · ").append(shortId(target))
+                    .append(timedOut ? "（这一轮还没跑完，可能在等审批）" : "");
+            sb.append("\n").append(reply.isEmpty() ? "（这一轮没有文字回复）" : reply);
+            return AIToolResult.success(sb.toString());
         } catch (Exception e) {
             return AIToolResult.fail("同步失败: " + e.getMessage());
         }
@@ -1173,6 +1249,12 @@ public class RemoteDshTool implements AITool {
 
     private static String str(Object o) {
         return o == null ? "" : String.valueOf(o).trim();
+    }
+
+    /** 会话 id 太长：文案里只留尾部，够认就行 */
+    private static String shortId(String id) {
+        String s = str(id);
+        return s.length() <= 12 ? s : "…" + s.substring(s.length() - 10);
     }
 
     /** 路径最后一段，用于把 cwd 显示短一点 */

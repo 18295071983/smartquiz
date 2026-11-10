@@ -3832,8 +3832,10 @@ public class AIChatActivity extends BaseActivity {
                         outText = "同步异常：" + t.getMessage();
                     }
                     final String fOut = outText;
+                    final String fThinking = com.oilquiz.app.ai.tool.RemoteDshTool.getLastSyncThinking(AIChatActivity.this);
+                    com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncThinking(AIChatActivity.this, "");
                     runOnUiThread(new Runnable() {
-                        @Override public void run() { addAIMessage("💻 " + fOut); }
+                        @Override public void run() { addAIMessage("💻 " + fOut, fThinking); }
                     });
                 }
             }, "remote-dsh-sync").start();
@@ -10515,6 +10517,30 @@ public class AIChatActivity extends BaseActivity {
         saveHistoryAsync();
     }
 
+    /**
+     * 带思考过程的 AI 消息。
+     *
+     * 手机的消息流是 parts 架构（{@code ReasoningPartRenderer} 按 msg.thinkingContent
+     * 渲染成可折叠的「已深度思考」），所以同步回复的思考内容必须写进 thinkingContent，
+     * 而不是拼进正文 —— 拼进正文会被当成普通 Markdown 显示，和电脑端不一致。
+     */
+    private void addAIMessage(String message, String thinking) {
+        if (chatHistory == null) return;
+        ChatMessage ai = ChatMessage.createAIMessage(java.util.UUID.randomUUID().toString(),
+                message, System.currentTimeMillis(), null, 0, 0);
+        if (thinking != null && !thinking.trim().isEmpty()) {
+            ai.thinkingContent = thinking.trim();
+        }
+        ai.turnId = currentTurnId;
+        ai.subId = ChatIdDispatcher.getInstance()
+                .applySubId(ChatIdDispatcher.IdType.AI, currentTurnId);
+        chatHistory.add(ai);
+        if (chatAdapter != null) {
+            chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+        }
+        scrollToBottom(true);
+    }
+
     private void addAIMessage(String message) {
         if (chatHistory == null) return;
 
@@ -12780,6 +12806,33 @@ public class AIChatActivity extends BaseActivity {
         refreshRemoteDshBar();
     }
 
+    /**
+     * 同步模式下回到聊天页：拉一次电脑端目标会话的最后一条回复。
+     *
+     * 手机在等回复时被强杀、或切走断网，电脑那轮仍然会跑完 —— 手机这边就少了
+     * 那条回复，看起来"两端不一致"。这里用 read 接口补回来，并用
+     * last_sync_reply 判重，不会重复插入。
+     */
+    private void maybeReconcileSync() {
+        if (!com.oilquiz.app.ai.tool.RemoteDshTool.MODE_SYNC.equals(remoteMode())) return;
+        final String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+        if (target.isEmpty()) return;
+        if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
+                || !com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)) return;
+        new Thread(() -> {
+            try {
+                String last = com.oilquiz.app.ai.tool.RemoteDshTool.fetchLastAssistant(this, target);
+                if (last == null || last.trim().isEmpty()) return;
+                String seen = com.oilquiz.app.ai.tool.RemoteDshTool.getLastSyncReply(this);
+                if (last.trim().equals(seen.trim())) return;
+                com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncReply(this, last.trim());
+                runOnUiThread(() -> addAIMessage("（补：电脑端最新回复）\n" + last.trim()));
+            } catch (Exception ignored) {
+                // 补不到就算了，不打扰用户
+            }
+        }, "sync-reconcile").start();
+    }
+
     private void toggleRemoteDirectMode() {
         if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)) {
             showToast("还没配对电脑：请先扫码配对");
@@ -12921,6 +12974,8 @@ public class AIChatActivity extends BaseActivity {
         } catch (Throwable t) {
             android.util.Log.w(TAG, "后台产出回灌失败: " + t.getMessage());
         }
+        // 同步模式：把"手机被强杀/断网期间错过的最后一条电脑回复"补回来
+        maybeReconcileSync();
         // 电脑连接状态可能在「远程连接（电脑）」界面被改过：回来自动刷新顶部状态条
         refreshRemoteDshBar();
         // 同步本地Agent开关状态（可能在其他页面切换过）

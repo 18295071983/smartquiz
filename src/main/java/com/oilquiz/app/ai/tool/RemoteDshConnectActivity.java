@@ -43,6 +43,12 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private TextView valueToken;
     private TextView valueSession;
     private TextView valueSyncTarget;
+    private android.app.AlertDialog sessionDialog;
+    private android.widget.ArrayAdapter<String> sessionAdapter;
+    private final java.util.List<java.util.Map<String, Object>> sessionRows = new java.util.ArrayList<>();
+    private final android.os.Handler pickerHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable pickerTick;
+    private String lastLightSig = "";
     private MaterialButton pickSessionBtn;
     private TextView probeText;
     private TextView probeTime;
@@ -130,39 +136,14 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         if (pickSessionBtn != null) pickSessionBtn.setEnabled(false);
         new Thread(() -> {
             try {
-                java.util.List<java.util.Map<String, Object>> list = RemoteDshTool.fetchSessions(this, 15);
+                java.util.List<java.util.Map<String, Object>> list = RemoteDshTool.fetchSessions(RemoteDshConnectActivity.this, 20);
                 runOnUiThread(() -> {
                     if (pickSessionBtn != null) pickSessionBtn.setEnabled(true);
                     if (list.isEmpty()) {
                         toast("电脑上没有可选的对话（先在电脑上聊一句，或检查插件版本）");
                         return;
                     }
-                    String[] labels = new String[list.size()];
-                    for (int i = 0; i < list.size(); i++) {
-                        java.util.Map<String, Object> m = list.get(i);
-                        String sid = str(m.get("session_id"));
-                        String title = str(m.get("title"));
-                        String cwd = str(m.get("cwd"));
-                        String last = str(m.get("last"));
-                        if (last.length() > 36) last = last.substring(0, 36) + "…";
-                        labels[i] = (title.isEmpty() ? shortId(sid) : title)
-                                + (cwd.isEmpty() ? "" : "  @" + baseName(cwd))
-                                + (last.isEmpty() ? "" : "\n" + last);
-                    }
-                    new AlertDialog.Builder(this)
-                            .setTitle("选择电脑会话（同步目标）")
-                            .setItems(labels, (d, which) -> {
-                                java.util.Map<String, Object> m = list.get(which);
-                                String sid = str(m.get("session_id"));
-                                String title = str(m.get("title"));
-                                RemoteDshTool.setSyncTarget(this, sid);
-                                RemoteDshTool.setSyncTitle(this, title);
-                                RemoteDshTool.setMode(this, RemoteDshTool.MODE_SYNC);
-                                refresh();
-                                toast("已选择「" + (title.isEmpty() ? shortId(sid) : title) + "」，并切到同步模式");
-                            })
-                            .setNegativeButton("取消", null)
-                            .show();
+                    showSessionDialog(list);
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
@@ -172,6 +153,105 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             }
         }, "pick-remote-session").start();
     }
+
+    /**
+     * 会话选择框：**每 3 秒自动对齐一次电脑端**。
+     *
+     * 先用轻量接口（只 stat 目录拿 mtime）判断"有没有变化"，变了才拉完整列表，
+     * 所以既可以实时更新，又不会每 3 秒读一遍 120 条会话日志。
+     */
+    private void showSessionDialog(java.util.List<java.util.Map<String, Object>> list) {
+        stopPickerPolling();
+        sessionRows.clear();
+        sessionRows.addAll(list);
+        sessionAdapter = new android.widget.ArrayAdapter<>(this,
+                android.R.layout.simple_list_item_1,
+                new java.util.ArrayList<>(java.util.Arrays.asList(labelsFor(sessionRows))));
+        sessionDialog = new AlertDialog.Builder(this)
+                .setTitle("选择电脑会话（同步目标）")
+                .setAdapter(sessionAdapter, (d, which) -> {
+                    if (which < 0 || which >= sessionRows.size()) return;
+                    java.util.Map<String, Object> m = sessionRows.get(which);
+                    String sid = str(m.get("session_id"));
+                    String title = str(m.get("title"));
+                    RemoteDshTool.setSyncTarget(this, sid);
+                    RemoteDshTool.setSyncTitle(this, title);
+                    RemoteDshTool.setMode(this, RemoteDshTool.MODE_SYNC);
+                    refresh();
+                    toast("已选择「" + (title.isEmpty() ? shortId(sid) : title) + "」，并切到同步模式");
+                    d.dismiss();
+                })
+                .setNeutralButton("刷新", (d, w) -> pickSession())
+                .setNegativeButton("取消", null)
+                .create();
+        sessionDialog.setOnDismissListener(d -> stopPickerPolling());
+        sessionDialog.show();
+        startPickerPolling();
+    }
+
+    private String[] labelsFor(java.util.List<java.util.Map<String, Object>> rows) {
+        String[] labels = new String[rows.size()];
+        for (int i = 0; i < rows.size(); i++) {
+            java.util.Map<String, Object> m = rows.get(i);
+            String sid = str(m.get("session_id"));
+            String title = str(m.get("title"));
+            String cwd = str(m.get("cwd"));
+            String last = str(m.get("last"));
+            if (last.length() > 36) last = last.substring(0, 36) + "…";
+            String when = ago(m.get("updated_at"));
+            labels[i] = (title.isEmpty() ? shortId(sid) : title)
+                    + (when.isEmpty() ? "" : "  · " + when)
+                    + (cwd.isEmpty() ? "" : "  @" + baseName(cwd))
+                    + (last.isEmpty() ? "" : "\n" + last);
+        }
+        return labels;
+    }
+
+    private void startPickerPolling() {
+        stopPickerPolling();
+        pickerTick = new Runnable() {
+            @Override public void run() {
+                if (sessionDialog == null || !sessionDialog.isShowing()) return;
+                new Thread(() -> {
+                    try {
+                        java.util.List<java.util.Map<String, Object>> light = RemoteDshTool.fetchSessionsLight(RemoteDshConnectActivity.this, 20);
+                        StringBuilder sb = new StringBuilder();
+                        for (java.util.Map<String, Object> m : light) {
+                            sb.append(str(m.get("session_id"))).append(':').append(str(m.get("updated_at"))).append(';');
+                        }
+                        String sig = sb.toString();
+                        if (sig.equals(lastLightSig)) return;
+                        lastLightSig = sig;
+                        java.util.List<java.util.Map<String, Object>> full = RemoteDshTool.fetchSessions(RemoteDshConnectActivity.this, 20);
+                        runOnUiThread(() -> {
+                            if (sessionDialog == null || !sessionDialog.isShowing()) return;
+                            if (full.isEmpty()) return;
+                            sessionRows.clear();
+                            sessionRows.addAll(full);
+                            if (sessionAdapter != null) {
+                                sessionAdapter.clear();
+                                sessionAdapter.addAll(labelsFor(sessionRows));
+                                sessionAdapter.notifyDataSetChanged();
+                            }
+                        });
+                    } catch (Exception ignored) {
+                        // 轮询失败不打扰用户，下个周期再试
+                    }
+                }, "poll-remote-sessions").start();
+                pickerHandler.postDelayed(this, 3000);
+            }
+        };
+        pickerHandler.postDelayed(pickerTick, 3000);
+    }
+
+    private void stopPickerPolling() {
+        if (pickerTick != null) {
+            pickerHandler.removeCallbacks(pickerTick);
+            pickerTick = null;
+        }
+        lastLightSig = "";
+    }
+
 
     private static String str(Object o) {
         return o == null ? "" : String.valueOf(o).trim();
@@ -187,6 +267,27 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         while (p.endsWith("/")) p = p.substring(0, p.length() - 1);
         int i = p.lastIndexOf('/');
         return i >= 0 ? p.substring(i + 1) : p;
+    }
+
+    /** 把「最后活动时间（毫秒）」写成"3 分钟前"这种；拿不到就返回空串 */
+    private static String ago(Object msObj) {
+        if (msObj == null) return "";
+        long ms;
+        try {
+            ms = (long) Double.parseDouble(String.valueOf(msObj));
+        } catch (Exception e) {
+            return "";
+        }
+        if (ms <= 0) return "";
+        long diff = System.currentTimeMillis() - ms;
+        if (diff < 0) diff = 0;
+        long min = diff / 60000L;
+        if (min < 1) return "刚刚";
+        if (min < 60) return min + " 分钟前";
+        long hour = min / 60;
+        if (hour < 24) return hour + " 小时前";
+        long day = hour / 24;
+        return day + " 天前";
     }
 
     @Override

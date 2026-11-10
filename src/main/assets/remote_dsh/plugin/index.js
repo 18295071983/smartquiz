@@ -26,7 +26,7 @@
  */
 
 import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
-import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { networkInterfaces, homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -387,6 +387,41 @@ function collectText(x, out, depth = 0) {
   return out;
 }
 /** 健壮地从一条消息里取文本（兼容多种结构：content 数组/字符串、text、parts、reasoning） */
+/**
+ * 把一条消息拆成「回答正文」和「思考内容」。
+ *
+ * DSH 的 assistant/message 里 content 是混合 part 数组，形如
+ *   [{type:'reasoning', text:'…'}, {type:'text', text:'…'}]
+ * 之前用 collectText 一把抓，把 reasoning 也拼进了正文 —— 手机上看到的就是
+ * "先说一段思考，再跟答案"。这里按 part.type 分开。
+ */
+function partsOf(message) {
+  const out = { answer: '', thinking: '' };
+  const walk = (content) => {
+    if (typeof content === 'string') { out.answer += content; return; }
+    if (!Array.isArray(content)) return;
+    for (const p of content) {
+      if (!p || typeof p !== 'object') continue;
+      const t = String(p.type ?? '');
+      const think = t === 'reasoning' || t === 'thinking' || t === 'redacted_thinking';
+      const txt = typeof p.text === 'string' ? p.text : (typeof p.content === 'string' ? p.content : '');
+      if (!txt) continue;
+      if (think) out.thinking += txt;
+      else out.answer += txt;
+    }
+  };
+  const body = (message && typeof message === 'object' && message.message && typeof message.message === 'object')
+    ? message.message
+    : message;
+  if (body && typeof body === 'object') {
+    walk(body.content);
+    if (!out.answer && typeof body.text === 'string') out.answer = body.text;
+  } else if (typeof message === 'string') {
+    out.answer = message;
+  }
+  return out;
+}
+
 function textOf(m) {
   if (m === null || m === undefined) return '';
   { const acc = collectText(m, []); if (acc.length) return acc.join(''); }
@@ -427,6 +462,30 @@ function snapshot(session) {
   return out;
 }
 
+/**
+ * 从 `from` 开始扫事件，取最后一条 assistant/message 的文本。
+ *
+ * 为什么不用 deriveMessages：resume 出来的会话里它可能还没重算，取到的是旧内容或空串
+ * （实测：seq 21→34 明明跑了，reply 却是空）。事件是落盘的原始事实，更可靠。
+ */
+function assistantPartsSince(session, from) {
+  const out = { answer: '', thinking: '' };
+  try {
+    const seq = Number(session?.seq ?? 0);
+    for (let i = Math.max(0, Number(from) || 0); i < seq; i += 1) {
+      const ev = session.eventAt?.(i);
+      if (ev?.type !== 'assistant/message') continue;
+      const p = partsOf(ev?.data);
+      if (p.answer && p.answer.trim()) out.answer = p.answer;
+      if (p.thinking && p.thinking.trim()) out.thinking = p.thinking;
+    }
+  } catch { /* 忽略 */ }
+  return out;
+}
+
+function assistantTextSince(session, from) {
+  return assistantPartsSince(session, from).answer;
+}
 /** 取最后一条 assistant 文本（多结构兼容） */
 function lastAssistant(session) {
   try {
@@ -434,7 +493,7 @@ function lastAssistant(session) {
     for (let i = msgs.length - 1; i >= 0; i -= 1) {
       const m = msgs[i];
       if ((m?.role ?? m?.author ?? '') !== 'assistant') continue;
-      const t = textOf(m);
+      const t = (partsOf(m).answer || '').trim();
       if (t) return t;
     }
   } catch { /* 忽略 */ }
@@ -481,7 +540,9 @@ export function apply(ctx, config) {
   cfg.publicUrl = effectivePublicUrl;
   // 注意：主令牌不再在此处取一次就固定（见下方 mainToken()：惰性读取，便于轮换）
   const startedAt = Date.now();
-  const handles = new Map();     // session_id -> agent handle
+  const handles = new Map();
+  /** 由 sync 自己 resume 出来的 agent 句柄（sessionId → handle），避免每次重开 */
+  const resumedHandles = new Map();     // session_id -> agent handle
   const local = new Map();       // session_id -> [{role,text}]（兜底历史）
   let promptCount = 0;
   let activeJobs = 0;
@@ -695,13 +756,20 @@ export function apply(ctx, config) {
     const kind = data?.source?.kind;
     if (t === 'user/message' && typeof kind === 'string' && kind !== 'user') return null;
     const body = t === 'assistant/message' ? (data.message ?? data) : data;
-    const text = textOf(body).trim();
+    const text = (partsOf(body).answer || '').trim();
     if (!text) return null;
     return { role: t === 'user/message' ? 'user' : 'assistant', text };
   };
 
-  /** 读一条已落盘会话的最近 N 条消息（read 句柄，不抢写所有权；只读尾部，避免整条日志进内存） */
-  async function readStoredMessages(id, max = 20) {
+  /**
+   * 读一条已落盘会话的尾部：最近 N 条消息 + 最后活动时间。
+   *
+   * 只读尾部（stat 拿 eventCount 后从 offset 读），别把整条日志读进内存。
+   * `lastTime` 用来排序：snapshot 里没有可靠的 mtime（location 常常缺），
+   * 之前按 created_at 排，导致"很久以前创建、但一直在聊"的会话沉底 ——
+   * 手机端看到的就是一堆旧会话。
+   */
+  async function readStoredTail(id, max = 20) {
     const svc = persistence();
     if (!svc || typeof svc.open !== 'function') throw new Error('sessionPersistence 不可用');
     const handle = await svc.open(id, 'read');
@@ -715,65 +783,118 @@ export function apply(ctx, config) {
       const got = offset === undefined ? await handle.read() : await handle.read(offset);
       const events = Array.isArray(got) ? got : (got?.events ?? []);
       const out = [];
-      for (const ev of events) { const m = messageOf(ev); if (m) out.push(m); }
-      return out.slice(-Math.max(1, Math.min(200, max)));
+      let lastTime = 0;
+      for (const ev of events) {
+        if (typeof ev?.time === 'number' && ev.time > lastTime) lastTime = ev.time;
+        const m = messageOf(ev);
+        if (m) out.push(m);
+      }
+      return { messages: out.slice(-Math.max(1, Math.min(200, max))), lastTime };
     } finally { try { await handle.close?.(); } catch { /* 已关 */ } }
   }
 
+  async function readStoredMessages(id, max = 20) {
+    return (await readStoredTail(id, max)).messages;
+  }
+
   /** 读会话标题（`session/title` 事件；只读开头几十条，别为一条标题扫全量日志） */
-  async function readStoredTitle(id) {
+    async function readStoredHead(id) {
     const svc = persistence();
-    if (!svc || typeof svc.open !== 'function') return '';
+    if (!svc || typeof svc.open !== 'function') return { title: '', firstUser: '' };
     const handle = await svc.open(id, 'read');
     try {
       const got = await handle.read(0, 80);
       const events = Array.isArray(got) ? got : (got?.events ?? []);
       let title = '';
+      let firstUser = '';
       for (const ev of events) {
         if (ev?.type === 'session/title' && ev?.data && typeof ev.data.title === 'string') title = ev.data.title;
+        if (!firstUser && ev?.type === 'user/message') {
+          const kind = ev?.data?.source?.kind;
+          if (typeof kind !== 'string' || kind === 'user') {
+            const t = (partsOf(ev?.data).answer || '').trim();
+            if (t) firstUser = t;
+          }
+        }
       }
-      return title.trim();
+      return { title: title.trim(), firstUser };
     } finally { try { await handle.close?.(); } catch { /* 已关 */ } }
   }
 
-  /** 列出已落盘会话，按最近写入排序 */
+  /** 兼容旧调用点 */
+  async function readStoredTitle(id) {
+    return (await readStoredHead(id)).title;
+  }
+
+  /** 列出已落盘会话，按**最后活动时间**排序（不是创建时间） */
   async function listStoredSessions(limit = 20) {
     const svc = persistence();
-    if (!svc || typeof svc.list !== 'function') return [];
-    const all = await svc.list();
-    const rows = (Array.isArray(all) ? all : []).map((snap) => {
-      const h = snap?.header ?? snap ?? {};
-      let mtime = 0;
-      const p = snap?.location;
-      if (typeof p === 'string' && p) { try { mtime = statSync(p).mtimeMs; } catch { /* 读不到就算了 */ } }
-      return {
-        session_id: String(h.id ?? ''),
-        cwd: String(h.cwd ?? ''),
-        created_at: Number(h.createdAt ?? 0) || null,
-        mtime: mtime || null,
-        events: Number(snap?.eventCount ?? 0) || null,
-      };
-    }).filter((r) => r.session_id !== '');
-    /**
-     * 名单是给"看电脑端在聊什么"用的，而 `smartquiz-*` 是插件自己的手机会话 id。
-     * 它们也会被落盘（早期非 CLI 模式在宿主里 create 过 agent），但读出来是空壳
-     * （没有 cwd、没有一句话），混在列表里只会让手机端多出一串点不开的条目。
-     */
+    const idx = sessionFileIndex();                 // id → 文件 mtime，只 stat，不解码日志
+    let rows = [];
+    if (svc && typeof svc.list === 'function') {
+      const all = await svc.list();
+      rows = (Array.isArray(all) ? all : []).map((snap) => {
+        const h = snap?.header ?? snap ?? {};
+        return { session_id: String(h.id ?? ''), cwd: String(h.cwd ?? ''), created_at: Number(h.createdAt ?? 0) || null };
+      }).filter((r) => r.session_id !== '');
+    } else {
+      rows = [...idx.keys()].map((id) => ({ session_id: id, cwd: '', created_at: null }));
+    }
     const desktopRows = rows.filter((r) => !r.session_id.startsWith('smartquiz-'));
-    desktopRows.sort((a, b) => (b.mtime ?? b.created_at ?? 0) - (a.mtime ?? a.created_at ?? 0));
-    const picked = desktopRows.slice(0, Math.max(1, Math.min(200, limit)));
-    // 给前若干条补"标题 + 最后说了什么"，否则手机端只看到一串 session-id，选不出是哪条
-    for (const row of picked.slice(0, Math.min(10, picked.length))) {
+    // 排序用文件 mtime（≈ 最后一次写入），不再为每条读一遍日志尾；
+    // 只有真正要返回的那几条才补标题/最后一句，避免会话多时一次请求要等十几秒。
+    for (const row of desktopRows) row.updated_at = idx.get(row.session_id) ?? null;
+    desktopRows.sort((a, b) => (b.updated_at ?? b.created_at ?? 0) - (a.updated_at ?? a.created_at ?? 0));
+    const lim = Math.max(1, Math.min(200, limit));
+    const picked = desktopRows.slice(0, lim);
+    for (const row of picked) {
       try {
-        const title = await readStoredTitle(row.session_id);
+        const head = await readStoredHead(row.session_id);
+        // 早期 ACP/headless 会话没有 session/title 事件：用第一条用户消息兜底，
+        // 否则手机列表里会出现没有标题的空白项（实测踩到）。
+        const title = head.title || (head.firstUser ? head.firstUser.replace(/\s+/g, ' ').slice(0, 24) : '');
         if (title) row.title = title;
-        const recent = await readStoredMessages(row.session_id, 3);
-        const lastUser = [...recent].reverse().find((m) => m.role === 'user');
-        const snippet = (lastUser ?? recent[recent.length - 1])?.text ?? '';
+        const tail = await readStoredTail(row.session_id, 3);
+        if (tail.lastTime) row.updated_at = Math.max(row.updated_at ?? 0, tail.lastTime);
+        const lastUser = [...tail.messages].reverse().find((m) => m.role === 'user');
+        const snippet = (lastUser ?? tail.messages[tail.messages.length - 1])?.text ?? '';
         if (snippet) row.last = snippet.slice(0, 120);
+        // 头 80 条里既没有标题、也没有真人消息（ACP/长会话常见）：再用"最后一句"兜底，
+        // 保证手机列表里不会出现无标题的空白项。
+        if (!row.title && row.last) row.title = row.last.replace(/\s+/g, ' ').slice(0, 24);
       } catch { /* 单条读失败不影响列表 */ }
     }
     return picked;
+  }
+
+  /**
+   * 轻量索引：只 stat 目录拿"会话 id → 文件 mtime"，**不解码日志**。
+   * 手机端开着选择框时用它每几秒问一次"有没有变化"（一次 readdir + stat，毫秒级），
+   * 有变化再拉完整列表 —— 比每次都读 120 条日志便宜两个数量级。
+   */
+  function sessionFileIndex() {
+    const root = join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'sessions');
+    const out = new Map();
+    let buckets = [];
+    try { buckets = readdirSync(root, { withFileTypes: true }); } catch { return out; }
+    for (const bucket of buckets) {
+      if (!bucket.isDirectory()) continue;
+      const bp = join(root, bucket.name);
+      let dirs = [];
+      try { dirs = readdirSync(bp, { withFileTypes: true }); } catch { continue; }
+      for (const d of dirs) {
+        if (!d.isDirectory()) continue;
+        const dir = join(bp, d.name);
+        let mtime = 0;
+        try { mtime = statSync(join(dir, 'session.v4.jsonl.zstd')).mtimeMs; } catch {
+          try { mtime = statSync(join(dir, 'session.jsonl.zstd')).mtimeMs; } catch {
+            try { mtime = statSync(dir).mtimeMs; } catch { /* 跳过 */ }
+          }
+        }
+        if (mtime) out.set(d.name, mtime);
+      }
+    }
+    return out;
   }
 
   route('exact', '/sessions.json', async (req, res) => {
@@ -781,7 +902,17 @@ export function apply(ctx, config) {
     try {
       const q = new URL(req.url ?? '/', 'http://dsh.invalid');
       const limit = Number(q.searchParams.get('limit') ?? 20);
-      const sessions = await listStoredSessions(Number.isFinite(limit) ? limit : 20);
+      const lim = Math.max(1, Math.min(200, Number.isFinite(limit) ? limit : 20));
+      if (q.searchParams.get('light') === '1') {
+        const idx = sessionFileIndex();
+        const rows = [...idx.entries()]
+          .filter(([id]) => !id.startsWith('smartquiz-'))
+          .map(([id, mtime]) => ({ session_id: id, updated_at: mtime }))
+          .sort((a, b) => b.updated_at - a.updated_at)
+          .slice(0, lim);
+        return sendJson(res, 200, { ok: true, light: true, count: rows.length, sessions: rows });
+      }
+      const sessions = await listStoredSessions(lim);
       sendJson(res, 200, { ok: true, count: sessions.length, sessions });
     } catch (e) {
       sendJson(res, 500, { ok: false, error: String(e?.message ?? e) });
@@ -957,7 +1088,7 @@ export function apply(ctx, config) {
           const ev = s.eventAt?.(i); const type = String(ev?.type ?? '');
           if (type === 'tool/result') sse({ type: 'tool', data: ev?.data ?? null });
           else if (type === 'assistant/message') {
-            const t = collectText(ev?.data, []).join('') || textOf(ev?.data);
+            const t = (partsOf(ev?.data).answer || '');
             if (t && t !== lastText) { lastText = t; sse({ type: 'text', text: t }); }
           }
         }
@@ -1054,41 +1185,107 @@ export function apply(ctx, config) {
         });
       }
       if (action === 'sync') {
-        // 真·双端同步：把手机这句话**注入桌面端正在运行的那条会话**。
-        // 插件跑在宿主进程里，ctx.agents.get(id) 拿到的就是 GUI 正在用的那个 agent，
-        // 所以写者始终只有宿主一个，不存在单写者冲突；桌面上会实时看到这句用户消息。
+        // 真·双端同步：把手机这句话注入桌面端**正在运行**的那条会话。
+        // 写者始终是宿主进程本身（ctx.agents.get 拿到的就是 GUI 在用的 agent），
+        // 因此不违反单写者；桌面上会实时看到这句用户消息。
         const target = String(body.target_session_id ?? '').trim();
         const text = (typeof body.text === 'string' ? body.text : (typeof body.prompt === 'string' ? body.prompt : '')).trim();
         if (!target || !text) return sendJson(res, 400, { ok: false, action, error: '需要 target_session_id 和 text' });
-        const agent = (() => { try { return ctx.agents?.get?.(target); } catch { return undefined; } })();
+        // 桌面端空闲时，会话只是"打开着"但**没有 live agent**（agent 随 turn 结束被销毁），
+        // 所以不能只 get：取不到就用 resume 按持久化日志重建一个，然后照常 followup。
+        let agent = (() => { try { return ctx.agents?.get?.(target); } catch { return undefined; } })();
+        let resumed = false;
+        let resumeError = '';
         if (!agent) {
-          return sendJson(res, 409, {
-            ok: false, action, error: 'live_session_required',
-            hint: '这条会话现在没有在桌面端打开；先在电脑上打开它，或改用 attach（复制上下文另起一条）',
-          });
+          try {
+            let h = resumedHandles.get(target);
+            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target }); if (h) resumedHandles.set(target, h); }
+            agent = h?.agent ?? h ?? null;
+            resumed = Boolean(agent);
+          } catch (e) {
+            resumeError = String(e?.message ?? e).slice(0, 300);
+          }
+        }
+        if (!agent) {
+          // ★ 兼容兜底：既没有 live agent、又 resume 不起来（最常见是被别的进程占着写权，
+          //   比如桌面端刚打开这条会话）。此时不直接报错，而是把最近记录当上下文、
+          //   用 CLI 在新会话里跑一遍 —— 手机至少能拿到回复，行为退化成 attach。
+          try {
+            const hist = await readStoredMessages(target, 20);
+            const preamble = carryPreamble({ target, history: hist }, text);
+            const cands = resolveDshCli(cfg);
+            let lastErr = '';
+            for (const cli of cands) {
+              // eslint-disable-next-line no-await-in-loop -- 串行尝试，失败才换下一个
+              const r = await runCliTask(cli, cfg.cliProfile || 'headless', preamble, cfg.cliTimeoutMs || 300000, null, '', cfg.workingDir);
+              if (r.ok && r.output) {
+                promptCount += 1;
+                return sendJson(res, 200, {
+                  ok: true, action: 'sync', session_id: target, reply: r.output,
+                  fallback: 'carry', resume_error: resumeError || undefined,
+                  hint: '这条会话被占用，已用"复制上下文另起一条"的方式执行（电脑上那条不会变）',
+                  debug: { via: 'cli-carry', cli_ms: r.ms },
+                });
+              }
+              lastErr = cli + ' → code=' + r.code + ' ' + String(r.output).slice(0, 120);
+            }
+            return sendJson(res, 502, {
+              ok: false, action: 'sync', error: '兜底执行也失败：' + lastErr,
+              resume_error: resumeError || undefined,
+            });
+          } catch (e) {
+            return sendJson(res, 500, { ok: false, action: 'sync', error: String(e?.message ?? e) });
+          }
         }
         const timeoutMs = Number.isFinite(body.timeout) ? Math.max(5, Math.min(600, body.timeout)) * 1000 : 120000;
+        const startedAt = Date.now();
         try {
-          // ★ 必须带 id/role：只传 {content, source} 时宿主可能原样落盘，
-          //   之后模型请求会出现 "messages[2]: missing field `role`"（实测踩到）。
+          const before = ctx.sessions.get(target);
+          const seqBefore = Number(before?.seq ?? 0);
+          const baseReply = lastAssistant(before) || '';
           agent.followup({
             id: randomBytes(16).toString('hex'),
             role: 'user',
             content: [{ type: 'text', text }],
             source: { kind: 'user' },
           });
-          let timedOut = false;
-          await Promise.race([
-            Promise.resolve(agent.whenIdle?.()),
-            new Promise((r) => setTimeout(() => { timedOut = true; r(); }, timeoutMs)),
-          ]);
-          const live = ctx.sessions.get(target);
-          const reply = lastAssistant(live) || '';
+          // ★ 不能只等 whenIdle：刚投递、还没起 turn 的那一瞬间 agent 也是 idle 的，
+          //   于是会立刻返回**上一条** assistant 内容 —— 手机端看到的就是"答非所问/没回复"。
+          //   改成盯会话 seq：seq 涨了、且最后一条 assistant 变了，才算这一轮真有回复。
+          let reply = '';
+          let timedOut = true;
+          let turnError = '';
+          while (Date.now() - startedAt < timeoutMs) {
+            await new Promise((r) => setTimeout(r, 250));
+            const live = ctx.sessions.get(target);
+            if (!live) break;
+            const seq = Number(live?.seq ?? 0);
+            if (seq > seqBefore) {
+              const t = assistantTextSince(live, seqBefore);
+              if (t && t !== baseReply) { reply = t; timedOut = false; break; }
+              for (let i = seq - 1; i >= Math.max(0, seq - 40); i -= 1) {
+                const ev = live.eventAt?.(i);
+                if (ev?.type === 'turn/end' && ev?.data?.reason?.kind === 'error') {
+                  turnError = String(ev.data.reason.error?.message ?? ev.data.reason.error ?? '').slice(0, 300);
+                  break;
+                }
+              }
+              if (turnError) break;
+            }
+          }
           promptCount += 1;
+          const live = ctx.sessions.get(target);
+          // 正文为空但确实思考过时，至少把思考内容兜回来，别让手机显示空白
+          const finalParts = assistantPartsSince(live, seqBefore);
+          if (!reply) reply = (finalParts.answer || finalParts.thinking || '').trim();
+          const thinking = finalParts.thinking ? finalParts.thinking.trim().slice(0, 4000) : '';
           return sendJson(res, 200, {
-            ok: true, action: 'sync', session_id: target, reply, timed_out: timedOut,
-            hint: timedOut ? '这一轮还没结束（可能在等审批），已先返回现有内容' : undefined,
-            debug: { via: 'in-process', seq: Number(live?.seq ?? 0) || null },
+            ok: !turnError, action: 'sync', session_id: target, reply, thinking: thinking || undefined,
+            waited_ms: Date.now() - startedAt, timed_out: timedOut,
+            error: turnError || undefined,
+            hint: turnError ? '电脑端这一轮报错：' + turnError
+              : timedOut ? '这一轮还没跑完（可能在等审批或模型很慢），已先返回现有内容' : undefined,
+            debug: { via: 'in-process', resumed, seq: Number(live?.seq ?? 0) || null, seq_before: seqBefore || null },
           });
         } catch (e) {
           return sendJson(res, 500, { ok: false, action: 'sync', error: String(e?.message ?? e) });
@@ -1098,7 +1295,13 @@ export function apply(ctx, config) {
         const target = String(body.target_session_id ?? '').trim();
         let live = false;
         try { live = Boolean(target) && Boolean(ctx.agents?.get?.(target)); } catch { live = false; }
-        return sendJson(res, 200, { ok: true, action: 'sync_state', session_id: target, live });
+        let resumable = false;
+        try {
+          const svc = persistence();
+          const st = target && svc?.stat ? await svc.stat(target) : null;
+          resumable = Boolean(st);
+        } catch { resumable = false; }
+        return sendJson(res, 200, { ok: true, action: 'sync_state', session_id: target, live, resumable });
       }
       if (action !== 'prompt') return sendJson(res, 400, { ok: false, error: `unknown action: ${action}` });
 

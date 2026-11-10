@@ -1,5 +1,29 @@
 # 变更日志
 
+## [2026-11-10] fix(remote_dsh)：同步回复走 parts 渲染（思考不再混进正文）+ 空闲会话 resume + 列表按活跃度
+
+上一节把同步接通了，但回复到手机上有三处“看着能用、细节不对”，这一节收尾：
+
+- **思考混进正文**：插件把 `assistant/message` 的 content 一把抓（`collectText`），
+  `[{type:'reasoning'},{type:'text'}]` 被拼成一整段，手机上“思考 + 答案”黏在一起。
+  现在按 part.type 分流成 `reply` / `thinking` 两个字段，手机写进 `ChatMessage.thinkingContent`，
+  由既有的 `ReasoningPartRenderer` 渲染（可折叠、13px muted、左侧竖线），与电脑端一致。
+- **空闲会话发不进去**（`live_session_required`）：桌面端空闲时没有 live agent，
+  `ctx.agents.get()` 取不到。现在 `ctx.agents.resume({resumeSessionId})` 按日志重建后照常注入。
+- **回复取到空串/上一轮**：只等 `whenIdle()` 会在“刚投递、turn 还没起”时立刻返回。
+  改为盯会话 seq：涨了且 assistant 文本变了才算数；文本改从事件里取（`deriveMessages` 在
+  resume 后不可靠，实测 seq 21→34 跑了却返回空）。
+- **兜底**：resume 也失败（会话被别的进程占写权）时不报错，把最近记录当上下文用 CLI 新起一条，
+  返回 `fallback: 'carry'`，手机一定有回复。
+- **列表**：排序改用文件 mtime（`readdir + stat`），完整列表 9.7s → 0.9s；新增
+  `?light=1` 轻量接口（35ms）供手机 3 秒轮询；补 `session/title` 缺失时的兜底标题
+  （第一条用户消息 → 最后一句），不再出现空白项。
+- **手机端**：选择框改成可刷新列表 + 3 秒自动对齐；回到聊天页时把“强杀/断网期间错过的
+  最后一条回复”补回来（`sync_last_reply` 判重）。
+- **验证**：sync 对空闲会话 `resumed:true`、766ms 返回；思考型 prompt 实测
+  `reply="3293"` / `thinking="Compute 37*89 = …"` 分离；`/sessions.json` 509ms、标题不再为空。
+- 提交：见下方 `docs(changelog)` 补的那条
+
 ## [2026-11-10] feat(remote_dsh)：双端同步（注入 live 会话）+ 状态条扩充 + 会话选择器 + 坏会话修复
 
 上一节做的是「接过来继续」（copy-on-write，电脑那条不动）。这一节补真同步：手机说的话
