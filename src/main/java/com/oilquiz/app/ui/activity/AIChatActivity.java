@@ -3800,6 +3800,41 @@ public class AIChatActivity extends BaseActivity {
         dialog.setContentView(container);
     }
 
+    /** 直连/智能模式的"等一下"占位气泡：先让用户看到有反应，回复回来再原地替换 */
+    private ChatMessage addRemotePendingBubble(String hint) {
+        android.util.Log.i("DSHSEND", "addPending: adapter=" + (chatAdapter != null)
+                + " history=" + (chatHistory == null ? -1 : chatHistory.size()));
+        ChatMessage msg = ChatMessage.createAIMessage(
+                java.util.UUID.randomUUID().toString(), hint, System.currentTimeMillis(), null, 0, 0);
+        msg.turnId = currentTurnId;
+        msg.subId = ChatIdDispatcher.getInstance().applySubId(ChatIdDispatcher.IdType.AI, currentTurnId);
+        msg.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.THINKING);
+        chatHistory.add(msg);
+        if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+        scrollToBottom(true);
+        return msg;
+    }
+
+    /** 把占位气泡换成最终回复（找不到就退化成新加一条） */
+    private void finishRemotePendingBubble(ChatMessage pending, String text) {
+        final String content = text == null ? "" : text;
+        runOnUiThread(() -> {
+            int idx = pending == null ? -1 : chatHistory.indexOf(pending);
+            android.util.Log.i("DSHSEND", "finish: idx=" + idx + " adapter=" + (chatAdapter != null)
+                    + " history=" + chatHistory.size());
+            if (idx >= 0) {
+                pending.content = content;
+                pending.inferenceProgress = new ChatMessage.InferenceProgress(
+                        ChatMessage.InferencePhase.COMPLETED);
+                if (chatAdapter != null) chatAdapter.notifyItemChanged(idx);
+                scrollToBottom(true);
+                saveHistoryAsync();
+            } else {
+                addAIMessage(content);
+            }
+        });
+    }
+
     private void sendMessage() {
         // ==== 状态条上的三种远程模式：同步 / 直连 / 智能 ====
         // 同步：消息进电脑上**正在打开的那条会话**（插件用宿主内 live agent 注入，双端实时可见）
@@ -3884,6 +3919,14 @@ public class AIChatActivity extends BaseActivity {
             }
             addUserMessage(directText);
             inputMessage.setText("");
+            // 可见标记：确认这次真的走了"直连电脑"，而不是被手机模型接管
+            addSystemMessage("💻 直连模式：已发给电脑执行（不走手机模型）", ChatMessage.SystemMessageType.INFO);
+            android.util.Log.i("DSHSEND", "direct branch: adapter=" + (chatAdapter != null)
+                    + " history=" + (chatHistory == null ? -1 : chatHistory.size())
+                    + " mode=" + remoteMode() + " connected="
+                    + com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this));
+            final ChatMessage pending = addRemotePendingBubble("正在电脑上执行…");
+            android.util.Log.i("DSHSEND", "after insert: history=" + chatHistory.size());
             final String directTask = directText;
             new Thread(new Runnable() {
                 @Override public void run() {
@@ -3902,10 +3945,7 @@ public class AIChatActivity extends BaseActivity {
                     } catch (Throwable t) {
                         outText = "电脑执行异常：" + t.getMessage();
                     }
-                    final String fOut = outText;
-                    runOnUiThread(new Runnable() {
-                        @Override public void run() { addAIMessage("💻 " + fOut); }
-                    });
+                    finishRemotePendingBubble(pending, "💻 " + outText);
                 }
             }, "remote-dsh-direct").start();
             return;
@@ -3969,6 +4009,7 @@ public class AIChatActivity extends BaseActivity {
                     && com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)) {
                 addUserMessage(message);
                 inputMessage.setText("");
+                final ChatMessage autoPending = addRemotePendingBubble("智能模式：已转给电脑执行，等待回复…");
                 final String autoTask = message;
                 showToast("智能模式：手机模型未就绪，已转给电脑执行");
                 new Thread(() -> {
@@ -3987,8 +4028,7 @@ public class AIChatActivity extends BaseActivity {
                     } catch (Throwable t) {
                         outText = "电脑执行异常：" + t.getMessage();
                     }
-                    final String fOut = outText;
-                    runOnUiThread(() -> addAIMessage("💻 " + fOut));
+                    finishRemotePendingBubble(autoPending, "💻 " + outText);
                 }, "remote-dsh-auto").start();
                 return;
             }
