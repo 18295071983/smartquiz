@@ -75,10 +75,8 @@ public class RemoteSyncService extends Service {
 
                             @Override public void onEvent(JSONObject ev) {
                                 int s = ev.optInt("seq", -1);
-                                if (s > seqBox.get()) {
-                                    seqBox.set(s);
-                                    RemoteDshTool.setLastSeq(RemoteSyncService.this, target, s);
-                                }
+                                // 同上：不动 prefs，否则回页面补拉会被"跳过"
+                                if (s > seqBox.get()) seqBox.set(s);
                                 if (!"assistant/message".equals(ev.optString("type"))) return;
                                 String text = extractText(ev);
                                 if (text.isEmpty()) return;

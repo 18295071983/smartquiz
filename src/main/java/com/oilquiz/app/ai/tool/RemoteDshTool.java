@@ -390,7 +390,10 @@ public class RemoteDshTool implements AITool {
         HttpURLConnection conn = null;
         try {
             String url = tool.getBaseUrl() + "/events?session_id=" + java.net.URLEncoder.encode(sid, "UTF-8")
-                    + "&since=" + since + "&follow=" + (follow ? "1" : "0") + "&timeout=" + Math.max(5, timeoutSec);
+                    + "&since=" + since + "&follow=" + (follow ? "1" : "0") + "&timeout=" + Math.max(5, timeoutSec)
+                    // 缺口优先用"事件重放"补齐（能逐条落进聊天气泡）；
+                    // 只有真的大到离谱（>5000 条）才让服务端退化成 snapshot。
+                    + "&snapshot_threshold=5000";
             conn = (HttpURLConnection) new URL(url).openConnection();
             conn.setConnectTimeout(30000);
             conn.setReadTimeout((timeoutSec + 30) * 1000);
