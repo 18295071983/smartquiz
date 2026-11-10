@@ -35,7 +35,7 @@ llama.cpp 的 `mtmd_tokenize` 签名本来就收 `bitmaps[] + n_bitmaps`，只�
 - **纠正**：早先在本节写"4K 上下文两张就贴上限"是把 `InferenceConfigManager:176`（模型 ≥7000MB
   的自动档位上限）当成了主链路口径。主链路的 `n_ctx` 是运行时 `llama_n_ctx()` 真值，且加载时
   用户手动上下文优先，不存在"视觉链路写死 4096"。
-- 提交：`c7ea8fad`（与下方 fix(attach) 节同一提交）。
+- 提交：`c7ea8fad`（多图主体，与下方 fix(attach) 节同一提交）、`dbc49668`（上限由 2 张放开到 5 张 + 清理过期注释）。
 
 ## [2026-11-10] fix(attach)：落盘名保留中文 + OCR 引擎标识如实 + 在线 OCR 不再误选非视觉模型 + 看图工具补视觉闸门
 
