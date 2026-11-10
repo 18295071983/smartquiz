@@ -1,5 +1,17 @@
 # 变更日志
 
+## [2026-11-10] fix(remote_dsh)：同步的一轮结束就落盘（原来只在 onStop 保存）
+
+排查"对话历史收集"时发现：`AIChatActivity` 的历史保存点主要在 `onStop` 与各发送/工具回调里，
+同步这条链路（注入 → 订阅事件 → 边收边改 `assistantTurn`）**从不调 `saveHistoryAsync`**。
+结果：正常退出会保存（`onStop` 兜底），但 App 被强杀/后台被杀时，这一轮同步对话直接丢。
+
+- `turn/end` 处理里补 `saveHistoryAsync()`；
+- `ChatMessage.assistantTurn` 是普通字段（非 transient），Gson 会把它连同 parts 一起持久化，
+  卡片（`todo_card` / `file_list` / `alert`）在恢复后仍然在；`content`/`thinkingContent`
+  也同步写了一份，作为 parts 缺失时的兜底重建来源。
+- **验证**：`compileReleaseJavaWithJavac`、`assembleRelease` 通过，APK 已装机。
+
 ## [2026-11-10] fix(remote_dsh)：无 turn/step 的事件落位 + 后台任务卡聚合（真机回放发现）
 
 用 `/events` 抓了本会话 245 条真实事件回放，发现两个问题：

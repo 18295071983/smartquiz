@@ -13168,6 +13168,8 @@ public class AIChatActivity extends BaseActivity {
             pushLiveSync(live, liveIdx, new long[]{0L}, answer, thinking, true);
             com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncReply(AIChatActivity.this, answer);
             com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncThinking(AIChatActivity.this, thinking);
+            // 同步的一轮结束就落盘：原来只有 onStop 才保存，App 被强杀时这一轮会丢
+            saveHistoryAsync();
             dismissDshApprovalDialog(null);
         }
     }
