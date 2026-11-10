@@ -1,5 +1,23 @@
 # 变更日志
 
+## [2026-11-10] feat(remote_dsh)：工作流进度卡（真机跑了一次 workflow 采样）
+
+跑了一个两阶段 workflow（两个子代理各回一个字母），抓到事件：
+
+| 事件 | payload |
+|---|---|
+| `tool-workflow/run-start` | `{runId, name:'wf-sample'}` |
+| `tool-workflow/agent-start` | `{runId, seq, label:'wf-a', phase:'阶段一', childId}` |
+| `tool-workflow/agent-end` | `{runId, seq, outcome:'completed'}` |
+| `tool-workflow/run-end` | `{runId, stopReason:'completed'}` |
+
+实现：按 `runId` 维护步骤表，渲染成原生 **steps 卡**
+「工作流：wf-sample / 阶段一 · wf-a ✅ / 阶段二 · wf-b ✅」，
+agent-start 置 `current`，agent-end 置 `done|failed`，run-end 收尾并回收状态。
+
+- **验证**：`compileReleaseJavaWithJavac`、`assembleRelease` 通过，APK 已装机。
+- 采样同时确认：workflow 的每个子代理还会各发一条 `subagent/catalog`（已有子代理卡）。
+
 ## [2026-11-10] feat(remote_dsh)：子代理/重试/模型报错/上下文压缩卡片（真机采样）
 
 起了一个真实子代理并抓了 90 秒事件流，采到 4 类之前没接的事件：

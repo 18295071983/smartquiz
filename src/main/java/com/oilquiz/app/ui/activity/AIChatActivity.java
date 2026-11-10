@@ -3830,6 +3830,7 @@ public class AIChatActivity extends BaseActivity {
             dshLastTurn = 1;
             dshLastStep = 1;
             dshJobCount.clear();
+            dshWfRuns.clear();
             live.assistantTurn = dshLiveTurn;
             chatHistory.add(live);
             final int liveIdx = chatHistory.size() - 1;
@@ -12776,6 +12777,12 @@ public class AIChatActivity extends BaseActivity {
     private final java.util.HashMap<String, String> dshPartIds = new java.util.HashMap<>();
     /** 最近一次带 turn/step 的事件位置：job/command/todo 这类事件不带，需要"跟在当前步后面" */
     /** 当前同步消息：工具卡/卡片走它的 components（parts 闸门从这里重建 tool/data part） */
+    /** workflow 运行状态：runId → 名称 + 各子任务状态（真机事件 tool-workflow/*） */
+    private static final class DshWfRun {
+        String name = "";
+        final java.util.LinkedHashMap<Integer, org.json.JSONObject> steps = new java.util.LinkedHashMap<>();
+    }
+    private final java.util.HashMap<String, DshWfRun> dshWfRuns = new java.util.HashMap<>();
     private ChatMessage dshLiveMessage;
     private int dshLastTurn = 1;
     private int dshLastStep = 1;
@@ -13173,6 +13180,55 @@ public class AIChatActivity extends BaseActivity {
                     com.oilquiz.app.ai.chat.component.ComponentData.of("alert", props));
             return;
         }
+        if ("tool-workflow/run-start".equals(type) && data != null) {
+            String runId = data.optString("runId");
+            if (runId.isEmpty()) return;
+            DshWfRun run = new DshWfRun();
+            run.name = data.optString("name", "工作流");
+            dshWfRuns.put(runId, run);
+            renderDshWorkflow(runId);
+            return;
+        }
+        if ("tool-workflow/agent-start".equals(type) && data != null) {
+            String runId = data.optString("runId");
+            DshWfRun run = dshWfRuns.get(runId);
+            if (run == null) return;
+            int seq = data.optInt("seq", run.steps.size() + 1);
+            String phase = data.optString("phase", "");
+            String label = data.optString("label", "子任务");
+            org.json.JSONObject wfStep = new org.json.JSONObject();
+            jput(wfStep, "title", phase.isEmpty() ? label : (phase + " · " + label));
+            jput(wfStep, "status", "current");
+            run.steps.put(seq, wfStep);
+            renderDshWorkflow(runId);
+            return;
+        }
+        if ("tool-workflow/agent-end".equals(type) && data != null) {
+            String runId = data.optString("runId");
+            DshWfRun run = dshWfRuns.get(runId);
+            if (run == null) return;
+            org.json.JSONObject wfStep = run.steps.get(data.optInt("seq", -1));
+            if (wfStep != null) {
+                String outcome = data.optString("outcome", "completed");
+                jput(wfStep, "status", "completed".equals(outcome) ? "done" : "failed");
+            }
+            renderDshWorkflow(runId);
+            return;
+        }
+        if ("tool-workflow/run-end".equals(type) && data != null) {
+            String runId = data.optString("runId");
+            DshWfRun run = dshWfRuns.get(runId);
+            if (run == null) return;
+            String stop = data.optString("stopReason", "completed");
+            for (org.json.JSONObject wfStep : run.steps.values()) {
+                if ("current".equals(wfStep.optString("status"))) {
+                    jput(wfStep, "status", "completed".equals(stop) ? "done" : "failed");
+                }
+            }
+            renderDshWorkflow(runId);
+            dshWfRuns.remove(runId);
+            return;
+        }
         if ("subagent/catalog".equals(type) && data != null) {
             // 子代理登记（真机采样：{version, childId, childCreatedAt, mode, label}）
             String label = data.optString("label", "子代理");
@@ -13257,6 +13313,21 @@ public class AIChatActivity extends BaseActivity {
     private static org.json.JSONArray jadd(org.json.JSONArray arr, Object value) {
         try { arr.put(value); } catch (Exception ignored) { /* 跳过坏元素 */ }
         return arr;
+    }
+
+    /** 工作流进度 → steps 卡（原生 StepsCardView：{title, steps:[{title,status}]}） */
+    private void renderDshWorkflow(String runId) {
+        DshWfRun run = dshWfRuns.get(runId);
+        if (run == null) return;
+        org.json.JSONArray steps = new org.json.JSONArray();
+        for (org.json.JSONObject step : run.steps.values()) {
+            jadd(steps, step);
+        }
+        org.json.JSONObject props = new org.json.JSONObject();
+        jput(props, "title", "工作流：" + run.name);
+        jput(props, "steps", steps);
+        upsertDshDataPart("dsh-wf-" + runId,
+                com.oilquiz.app.ai.chat.component.ComponentData.of("steps", props));
     }
 
     /** 同一 id 的 data part 覆盖式更新（todo 会反复写，别堆积） */
