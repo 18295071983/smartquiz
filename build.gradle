@@ -53,6 +53,43 @@ def checkBinaryAssets = {
 // 在配置阶段校验：让错误尽早出现，而不是等到某个 task 深处
 checkBinaryAssets()
 
+// ============================================================
+// REMOTE-DSH-PLUGIN(2026-11-10)：App 内置的电脑端插件必须齐全。
+//
+// 「怎么用 / 电脑端怎么配」页的「导出电脑端插件」直接读 assets/remote_dsh/plugin/。
+// 这些文件如果漏了/没同步，Gradle 本身不会报错，APK 只是悄悄少一个文件 ——
+// 用户导出的插件装到电脑上就是旧版或缺文件。这里在配置阶段就检查：
+//   · 缺文件 → 直接构建失败（附修复方式）；
+//   · 与 tools 源码不一致 → 告警（提示跑同步脚本）。
+//   tools/dsh-plugin-smartquiz-remote/  ← 插件源码（改这里）
+//   src/main/assets/remote_dsh/plugin/  ← 打进 APK 的副本（scripts/sync-remote-dsh-plugin.ps1）
+// ============================================================
+def checkRemoteDshPlugin = {
+    def assetDir = new File(project.rootDir, 'src/main/assets/remote_dsh/plugin')
+    def toolDir = new File(project.rootDir, 'tools/dsh-plugin-smartquiz-remote')
+    def names = ['package.json', 'index.js', 'client.js', 'cordis.patch.yml',
+                 'icon.svg', 'pair_page.html', 'qrcodegen.js', '安装说明.txt']
+    def missing = names.findAll { !new File(assetDir, it).isFile() }
+    if (!missing.isEmpty()) {
+        throw new GradleException("\n\n" + ('=' * 78) + "\n" +
+            "App 内置的电脑端插件缺文件：${missing.join('、')}\n" +
+            "目录：${assetDir}\n" +
+            "这是「导出电脑端插件」的数据源；缺了导出的包会装不上/缺功能。\n" +
+            "修复：从 ${toolDir} 复制这 8 个文件过去，或运行 scripts/sync-remote-dsh-plugin.ps1。\n" +
+            ('=' * 78) + "\n")
+    }
+    def sha256 = { File f -> java.security.MessageDigest.getInstance('SHA-256').digest(f.bytes) }
+    def drifted = names.findAll { n ->
+        def t = new File(toolDir, n)
+        t.isFile() && !java.util.Arrays.equals(sha256(new File(assetDir, n)), sha256(t))
+    }
+    if (!drifted.isEmpty()) {
+        logger.warn("⚠ [remote_dsh] 内置插件与 tools 源码不一致：${drifted.join('、')}")
+        logger.warn("  要随包更新，先运行 scripts/sync-remote-dsh-plugin.ps1 再构建。")
+    }
+}
+checkRemoteDshPlugin()
+
 // 配置资源处理
 afterEvaluate {
     if (android?.applicationVariants) {

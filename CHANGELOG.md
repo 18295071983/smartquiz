@@ -1,5 +1,17 @@
 # 变更日志
 
+## [2026-11-10] chore(build)：内置电脑端插件加构建期校验 + 同步脚本
+
+App 的「导出电脑端插件」直接读 `src/main/assets/remote_dsh/plugin/`。以前漏文件/忘记同步时
+Gradle 不会报错，APK 只会悄悄少文件或带旧包。现在：
+
+- `build.gradle` 配置阶段检查这 8 个文件：**缺任何一个 → 构建失败**（附修复命令）；
+  与 `tools/dsh-plugin-smartquiz-remote` 源码哈希不一致 → **告警**（提示重新同步）；
+- 新增 `scripts/sync-remote-dsh-plugin.ps1`：把 tools 源码同步进 App 内置包；
+  `-Verify` 只校验不改文件（UTF-8 BOM，兼容 powershell 5.1）；
+- **验证**：故意移走 `qrcodegen.js` → `gradlew help` 失败并报「缺文件：qrcodegen.js」；
+  恢复后通过；`-Verify` 输出 8/8 一致；`assembleRelease` 通过。
+
 ## [2026-11-10] chore(remote_dsh)：直连 id 由电脑端下发（不在空闲时凭空建会话）
 
 按"电脑端有就下发、没有就由电脑端建一条把 id 给手机"的口径核对了一遍，结论与实现：
