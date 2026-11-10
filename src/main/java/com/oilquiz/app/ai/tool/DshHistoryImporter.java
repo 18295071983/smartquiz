@@ -100,7 +100,10 @@ public final class DshHistoryImporter {
         final List<JSONObject> out = new ArrayList<>();
         // 导入要的是"整条历史"，阈值放到 100 万：否则长会话（事件 >5000）会被服务端
         // 降级成 snapshot（只有角色+文本），导入器就收不到任何 event，表现出"没有可导入的消息"。
+        // 只拉"能变成消息/工具卡"的 4 类事件：其余（request/header、session-log、job、web…）
+        // 导入用不到，却在隧道上占绝大多数字节 —— 过滤后事件数从 9000+ 降到一千多。
         RemoteDshTool.subscribeEvents(ctx, target, 0, 120, false, 1_000_000,
+                "user/message,assistant/message,tool/call,tool/result",
                 new RemoteDshTool.DshEventListener() {
                     @Override public void onReady(int seq) { }
 

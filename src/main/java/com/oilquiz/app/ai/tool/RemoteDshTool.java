@@ -392,13 +392,24 @@ public class RemoteDshTool implements AITool {
      */
     public static void subscribeEvents(Context c, String sid, int since, int timeoutSec,
                                        boolean follow, int snapshotThreshold, DshEventListener listener) {
+        subscribeEvents(c, sid, since, timeoutSec, follow, snapshotThreshold, null, listener);
+    }
+
+    /**
+     * @param types 只转发这些事件类型（逗号分隔；null/空 = 全量）。
+     *              导入历史时用，能把 9000+ 条事件压到一千多条。
+     */
+    public static void subscribeEvents(Context c, String sid, int since, int timeoutSec,
+                                       boolean follow, int snapshotThreshold, String types,
+                                       DshEventListener listener) {
         RemoteDshTool tool = new RemoteDshTool(c);
         HttpURLConnection conn = null;
         try {
             String url = tool.getBaseUrl() + "/events?session_id=" + java.net.URLEncoder.encode(sid, "UTF-8")
                     + "&since=" + since + "&follow=" + (follow ? "1" : "0") + "&timeout=" + Math.max(5, timeoutSec)
                     // 缺口阈值：默认 5000；导入历史时传极大值，强制走"事件重放"。
-                    + "&snapshot_threshold=" + Math.max(50, snapshotThreshold);
+                    + "&snapshot_threshold=" + Math.max(50, snapshotThreshold)
+                    + (types == null || types.isEmpty() ? "" : "&types=" + java.net.URLEncoder.encode(types, "UTF-8"));
             conn = (HttpURLConnection) new URL(url).openConnection();
             conn.setConnectTimeout(30000);
             conn.setReadTimeout((timeoutSec + 30) * 1000);

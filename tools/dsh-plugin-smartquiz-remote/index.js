@@ -987,6 +987,14 @@ export function apply(ctx, config) {
     const timeoutSec = Math.max(5, Math.min(1800, Number(q.searchParams.get('timeout') ?? '600') || 600));
     const follow = q.searchParams.get('follow') === '1';
     const snapshotThreshold = Math.max(50, Number(q.searchParams.get('snapshot_threshold') ?? '500') || 500);
+    // 可选事件类型过滤（导入历史时只要 4 类，能把 9000+ 条压到一千多条）
+    const typesFilter = new Set(
+      String(q.searchParams.get('types') ?? '')
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean),
+    );
+    const passType = (ev) => typesFilter.size === 0 || typesFilter.has(String(ev?.type ?? ''));
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache, no-transform',
