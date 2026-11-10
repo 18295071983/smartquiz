@@ -1,5 +1,16 @@
 # 变更日志
 
+## [2026-11-10] feat(remote_dsh)：手机端事件转换器补齐工具卡片
+
+上一节把插件改成"原样转发事件"，手机端转换器只映射了正文/思考。这一节补上工具调用：
+
+- `tool/call` → `ChatMessage.createToolCallMessage(callId, name, arguments)`，状态 RUNNING；
+- `tool/result` → 按 `toolCallId` 回填 `toolCallInfo.result`，状态 COMPLETED / FAILED；
+- 都是插到当前回合里，走既有的原生工具卡片渲染（不再需要插件做任何格式化）。
+- **验证**：`compileReleaseJavaWithJavac`、`assembleRelease` 通过，APK 已装机。
+- **仍未映射**：`approval/request`（审批卡片）、`user-questions`；多步 assistant 消息目前
+  按顺序累加（长任务会分成多段，后续可按 step 归并）。
+
 ## [2026-11-10] refactor(remote_dsh)：同步改成"插件原样转发 DSH 事件流 + 手机端转换"
 
 之前是插件把整轮跑完再一次性回一个字符串：手机上要干等、只能挂普通消息、还得在插件里

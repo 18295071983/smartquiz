@@ -3872,6 +3872,33 @@ public class AIChatActivity extends BaseActivity {
                                         if (a.length() > 0) setLivePhase(live, liveIdx, ChatMessage.InferencePhase.GENERATING);
                                         return;
                                     }
+                                    if ("tool/call".equals(type)) {
+                                        org.json.JSONObject d = ev.optJSONObject("data");
+                                        if (d != null) {
+                                            onDshToolCall(d.optString("callId"), d.optString("name"),
+                                                    d.optString("arguments"));
+                                        }
+                                        return;
+                                    }
+                                    if ("tool/result".equals(type)) {
+                                        org.json.JSONObject d = ev.optJSONObject("data");
+                                        if (d != null) {
+                                            StringBuilder txt = new StringBuilder();
+                                            org.json.JSONObject m = d.optJSONObject("message");
+                                            org.json.JSONArray parts = m == null ? null : m.optJSONArray("content");
+                                            if (parts != null) {
+                                                for (int i = 0; i < parts.length(); i += 1) {
+                                                    org.json.JSONObject p = parts.optJSONObject(i);
+                                                    if (p != null && "text".equals(p.optString("type"))) {
+                                                        txt.append(p.optString("text"));
+                                                    }
+                                                }
+                                            }
+                                            onDshToolResult(d.optString("toolCallId"), txt.toString(),
+                                                    d.optBoolean("isError", false) || d.optBoolean("is_error", false));
+                                        }
+                                        return;
+                                    }
                                     if ("turn/end".equals(type)) {
                                         pushLiveSync(live, liveIdx, new long[]{0L}, answer.toString(), thinking.toString(), true);
                                         com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncReply(AIChatActivity.this, answer.toString());
@@ -12869,6 +12896,41 @@ public class AIChatActivity extends BaseActivity {
      * 直接改 ChatMessage 的 content / thinkingContent 再 notifyItemChanged，
      * 就能复用既有的 parts 渲染（正文 TextPartRenderer、思考 ReasoningPartRenderer）。
      */
+    /** DSH 事件 tool/call → 原生工具卡片（MessageType.TOOL_CALL） */
+    private void onDshToolCall(String callId, String name, String arguments) {
+        if (chatHistory == null || name == null || name.isEmpty()) return;
+        runOnUiThread(() -> {
+            ChatMessage toolMsg = ChatMessage.createToolCallMessage(callId, name, arguments == null ? "" : arguments);
+            toolMsg.turnId = currentTurnId;
+            toolMsg.subId = ChatIdDispatcher.getInstance()
+                    .applySubId(ChatIdDispatcher.IdType.TOOL, currentTurnId);
+            if (toolMsg.toolCallInfo != null) {
+                toolMsg.toolCallInfo.status = ChatMessage.ToolCallInfo.ToolCallStatus.RUNNING;
+            }
+            chatHistory.add(toolMsg);
+            if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+            scrollToBottom(true);
+        });
+    }
+
+    /** DSH 事件 tool/result → 回填到对应工具卡片 */
+    private void onDshToolResult(String callId, String text, boolean isError) {
+        if (chatHistory == null) return;
+        runOnUiThread(() -> {
+            for (int i = chatHistory.size() - 1; i >= 0; i -= 1) {
+                ChatMessage m = chatHistory.get(i);
+                if (m == null || m.toolCallInfo == null) continue;
+                if (callId != null && !callId.equals(m.toolCallInfo.toolCallId)) continue;
+                m.toolCallInfo.result = text == null ? "" : text;
+                m.toolCallInfo.status = isError
+                        ? ChatMessage.ToolCallInfo.ToolCallStatus.FAILED
+                        : ChatMessage.ToolCallInfo.ToolCallStatus.COMPLETED;
+                if (chatAdapter != null) chatAdapter.notifyItemChanged(i);
+                return;
+            }
+        });
+    }
+
     /** 更新占位气泡的阶段（思考中 / 回答中 / 已完成） */
     private void setLivePhase(ChatMessage live, int idx, ChatMessage.InferencePhase phase) {
         runOnUiThread(() -> {
