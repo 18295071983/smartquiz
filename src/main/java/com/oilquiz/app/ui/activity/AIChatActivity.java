@@ -3851,7 +3851,11 @@ public class AIChatActivity extends BaseActivity {
                                 @Override public void onReady(int seq) { /* 从 since 补齐 */ }
 
                                 @Override public void onEvent(org.json.JSONObject ev) {
-                                    applyDshEvent(ev, live, liveIdx, lastNotify);
+                                    runOnUiThread(() -> {
+                                        try {
+                                            applyDshEvent(ev, live, liveIdx, lastNotify);
+                                        } catch (Throwable ignored) { /* 单条坏事件忽略 */ }
+                                    });
                                 }
 
                                 @Override public void onEnd() { /* turn/end 已收尾 */ }
@@ -12989,7 +12993,14 @@ public class AIChatActivity extends BaseActivity {
     private String dshPartId(String key, ChatIdDispatcher.IdType type) {
         String id = dshPartIds.get(key);
         if (id != null) return id;
-        id = ChatIdDispatcher.getInstance().applySubId(type, currentTurnId);
+        try {
+            id = ChatIdDispatcher.getInstance().applySubId(type, currentTurnId);
+        } catch (Throwable ignored) {
+            id = null;
+        }
+        if (id == null || id.isEmpty()) {
+            id = "dsh-" + Math.abs(String.valueOf(key).hashCode());
+        }
         dshPartIds.put(key, id);
         return id;
     }
@@ -13390,14 +13401,14 @@ public class AIChatActivity extends BaseActivity {
      */
     private void upsertDshComponent(String id, com.oilquiz.app.ai.chat.component.ComponentData data) {
         ChatMessage live = dshLiveMessage;
-        if (live == null || data == null) return;
+        if (live == null || data == null || id == null || id.isEmpty()) return;
         data.id = id;
         if (live.components == null) {
             live.components = new java.util.ArrayList<>();
         }
         for (int i = live.components.size() - 1; i >= 0; i -= 1) {
             com.oilquiz.app.ai.chat.component.ComponentData c = live.components.get(i);
-            if (c != null && id.equals(c.id)) live.components.remove(i);
+            if (c != null && java.util.Objects.equals(id, c.id)) live.components.remove(i);
         }
         live.components.add(data);
         notifyLiveSyncMessage();
@@ -13475,7 +13486,16 @@ public class AIChatActivity extends BaseActivity {
                 scrollToBottom(true);
             });
             for (org.json.JSONObject ev : events) {
-                applyDshEvent(ev, live, liveIdx[0], new long[]{0L});
+                final org.json.JSONObject one = ev;
+                // 事件必须在主线程落到模型上：后台线程改 chatHistory/components 会与
+                // RecyclerView 的读取并发，轻则 NotifyDataSetChanged 失效，重则崩溃。
+                runOnUiThread(() -> {
+                    try {
+                        applyDshEvent(one, live, liveIdx[0], new long[]{0L});
+                    } catch (Throwable ignored) {
+                        // 单条坏事件不影响整批补拉
+                    }
+                });
             }
             if (snapshot[0] != null && snapshotSeq[0] > dshLastSeq) {
                 dshLastSeq = snapshotSeq[0];
@@ -13615,17 +13635,32 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /** 同步模式下重绑当前那条 assistant 消息（parts 变化后靠它触发增量刷新） */
+    /** 安全通知：后台线程/过期下标一律丢弃，避免 notifyItemChanged(-1) 崩 */
+    private void safeNotifyItemChanged(int idx) {
+        if (chatAdapter == null || chatHistory == null) return;
+        if (idx < 0 || idx >= chatHistory.size()) return;
+        runOnUiThread(() -> messageList.post(() -> {
+            if (chatAdapter == null || idx < 0 || idx >= chatHistory.size()) return;
+            chatAdapter.notifyItemChanged(idx);
+        }));
+    }
+
     private void notifyLiveSyncMessage() {
         if (chatAdapter == null || chatHistory == null || dshLiveTurn == null) return;
-        for (int i = chatHistory.size() - 1; i >= 0; i -= 1) {
-            ChatMessage m = chatHistory.get(i);
-            if (m == null) continue;
-            if (m.assistantTurn == dshLiveTurn) {
-                chatAdapter.notifyItemChanged(i);
-                scrollToBottom(true);
-                return;
+        // 事件在后台线程上解析，必须回主线程再动 Adapter；
+        // 再 post 一层，避免正好在 layout 期间 notify（RecyclerView: Already in the pool!）
+        runOnUiThread(() -> messageList.post(() -> {
+            if (chatAdapter == null || chatHistory == null || dshLiveTurn == null) return;
+            for (int i = chatHistory.size() - 1; i >= 0; i -= 1) {
+                ChatMessage m = chatHistory.get(i);
+                if (m == null) continue;
+                if (m.assistantTurn == dshLiveTurn) {
+                    chatAdapter.notifyItemChanged(i);
+                    scrollToBottom(true);
+                    return;
+                }
             }
-        }
+        }));
     }
 
     private String collectDshAnswer() {
@@ -13693,9 +13728,7 @@ public class AIChatActivity extends BaseActivity {
             live.inferenceProgress.phase = phase;
             live.inferenceProgress.phaseText = text;
             live.inferenceProgress.phaseStartTime = System.currentTimeMillis();
-            if (idx >= 0 && chatAdapter != null && idx < chatHistory.size()) {
-                chatAdapter.notifyItemChanged(idx);
-            }
+            safeNotifyItemChanged(idx);
         });
     }
 
@@ -13704,9 +13737,7 @@ public class AIChatActivity extends BaseActivity {
         runOnUiThread(() -> {
             if (live.inferenceProgress != null && live.inferenceProgress.phase == phase) return;
             live.inferenceProgress = new ChatMessage.InferenceProgress(phase);
-            if (chatAdapter != null && idx >= 0 && idx < chatHistory.size()) {
-                chatAdapter.notifyItemChanged(idx);
-            }
+            safeNotifyItemChanged(idx);
         });
     }
 
@@ -13723,9 +13754,7 @@ public class AIChatActivity extends BaseActivity {
             if (done && live.inferenceProgress != null) {
                 live.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.COMPLETED);
             }
-            if (chatAdapter != null && idx >= 0 && idx < chatHistory.size()) {
-                chatAdapter.notifyItemChanged(idx);
-            }
+            safeNotifyItemChanged(idx);
             if (done) scrollToBottom(true);
         });
     }

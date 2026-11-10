@@ -128,6 +128,20 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
      * 之前只有 AI 工具动作（list_sessions/attach_session），界面上没有入口 ——
      * 用户「选不了电脑会话」就是缺这一块。网络调用放后台线程，主线程只弹对话框。
      */
+    /**
+     * 安全弹窗：activity 已 finish/destroyed 时 show() 会抛 BadTokenException，
+     * 这里统一挡掉（回页面加载会话列表是异步的，很容易晚到）。
+     */
+    private void showDialogSafe(android.app.AlertDialog dialog) {
+        if (dialog == null) return;
+        if (isFinishing() || isDestroyed()) return;
+        try {
+            if (!dialog.isShowing()) dialog.show();
+        } catch (Throwable ignored) {
+            // 窗口 token 失效（切页/旋转）时静默丢弃
+        }
+    }
+
     private void pickSession() {
         if (!RemoteDshTool.isConfigured(this)) {
             toast("还没配对电脑：先扫码配对");
@@ -185,7 +199,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 .setNegativeButton("取消", null)
                 .create();
         sessionDialog.setOnDismissListener(d -> stopPickerPolling());
-        sessionDialog.show();
+        showDialogSafe(sessionDialog);
         startPickerPolling();
     }
 
@@ -330,7 +344,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             }
         });
 
-        clearBtn.setOnClickListener(v -> new AlertDialog.Builder(this)
+        clearBtn.setOnClickListener(v -> showDialogSafe(new AlertDialog.Builder(this)
                 .setTitle("清除配置")
                 .setMessage("将删除保存的电脑地址、访问令牌、会话记录与连接状态。\n"
                         + "电脑端不受影响；清除后要重新扫码或手动填写才能再用。")
@@ -343,7 +357,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                     toast("已清除电脑连接配置");
                 })
                 .setNegativeButton("取消", null)
-                .show());
+                .create()));
 
         saveBtn.setOnClickListener(v -> {
             String err = RemoteDshTool.saveManualConfig(this,
