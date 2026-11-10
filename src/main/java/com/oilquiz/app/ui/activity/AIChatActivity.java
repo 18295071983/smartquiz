@@ -13034,6 +13034,16 @@ public class AIChatActivity extends BaseActivity {
             dismissDshApprovalDialog(ev.optString("id"));
             return;
         }
+        if ("step/start".equals(type)) {
+            setDshPhaseText(live, liveIdx, ChatMessage.InferencePhase.THINKING,
+                    "第 " + step + " 步 · 思考中");
+            return;
+        }
+        if ("step/end".equals(type)) {
+            setDshPhaseText(live, liveIdx, ChatMessage.InferencePhase.GENERATING,
+                    "第 " + step + " 步 · 完成");
+            return;
+        }
         if ("turn/start".equals(type)) {
             setLivePhase(live, liveIdx, ChatMessage.InferencePhase.THINKING);
             return;
@@ -13069,6 +13079,12 @@ public class AIChatActivity extends BaseActivity {
             if (callId.isEmpty()) return;
             DshStep box = dshStep(turn, step);
             if (!box.tools.containsKey(callId)) {
+                { // 步级进度：正在运行哪个工具
+                    String nm = data.optString("name", "").trim();
+                    if (nm.isEmpty()) nm = "工具";
+                    setDshPhaseText(live, liveIdx, ChatMessage.InferencePhase.GENERATING,
+                            "第 " + step + " 步 · 正在运行 " + nm);
+                }
                 DshTool tool = new DshTool();
                 String toolName = data.optString("name", "").trim();
                 if (toolName.isEmpty()) toolName = "工具";
@@ -13667,6 +13683,25 @@ public class AIChatActivity extends BaseActivity {
                 }
             }
         }
+    }
+
+    /**
+     * 步级进度文案：写进 inferenceProgress.phaseText（底部状态行与思考折叠头共用）。
+     * 形如「第 3 步 · 正在运行 pwsh」。
+     */
+    private void setDshPhaseText(ChatMessage live, int idx, ChatMessage.InferencePhase phase, String text) {
+        if (live == null) return;
+        runOnUiThread(() -> {
+            if (live.inferenceProgress == null) {
+                live.inferenceProgress = new ChatMessage.InferenceProgress(phase);
+            }
+            live.inferenceProgress.phase = phase;
+            live.inferenceProgress.phaseText = text;
+            live.inferenceProgress.phaseStartTime = System.currentTimeMillis();
+            if (idx >= 0 && chatAdapter != null && idx < chatHistory.size()) {
+                chatAdapter.notifyItemChanged(idx);
+            }
+        });
     }
 
     /** 更新占位气泡的阶段（思考中 / 回答中 / 已完成） */

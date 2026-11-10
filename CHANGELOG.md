@@ -1,5 +1,18 @@
 # 变更日志
 
+## [2026-11-10] feat(remote_dsh)：步级进度文案（第 N 步 · 正在运行 X）
+
+同步过来的回合在手机上不再只显示"正在思考…"这种笼统状态：
+
+- `step/start` → 「第 N 步 · 思考中」
+- `tool/call` → 「第 N 步 · 正在运行 pwsh」
+- `step/end` → 「第 N 步 · 完成」
+
+实现：写进 `ChatMessage.inferenceProgress.phaseText`（底部状态行与思考折叠头共用这一份），
+随事件即时刷新 —— 复用现有状态行机制，没有新增 UI。
+- **验证**：`compileReleaseJavaWithJavac`、`assembleRelease` 通过，APK 已装机；
+  真机可见性依赖一次同步回合（需要手机发一句触发）。
+
 ## [2026-11-10] feat(remote_dsh)：前台服务常驻同步（切后台/锁屏也能收）
 
 之前同步只在"聊天页前台 + 一轮进行中"有效，切后台就断。现在：
