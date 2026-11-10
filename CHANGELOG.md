@@ -1,5 +1,40 @@
 # 变更日志
 
+## [2026-11-10] feat(remote_dsh)：手机端列/读/接续电脑端会话（copy-on-write）
+
+手机端原来只能看到"自己那条"会话的历史：电脑上聊到一半换到手机，只能从头复述。这次补上另一半——
+列出电脑端最近的对话、只读查看、把其中一条接到手机上继续。
+
+- **协议**（`@local/smartquiz-remote` 0.2.1）：
+  `GET /sessions.json?limit=N` 列出已落盘会话（`cwd` + 前 10 条的「最后一句」）；
+  `POST /session {action:'read'}` 只读读最近 N 条，回 `history` 与拼好的 `text`；
+  `POST /session {action:'attach'}` 把记录存进 `.sessions.json`，下一条消息以它作前缀。
+- **为什么是 copy-on-write，不是 `--session-id` 续写**：DSH 的会话存储是单写者的，桌面端开着那条会话时
+  子进程续写直接报 `already owned by an active write owner`。复制上下文另起一条永不打架，代价是两边从此各自演化。
+- **四个"看着能用其实没生效"的坑（都实测过）**：
+  - **多行 prompt 被 cmd 吃掉**：`.cmd` 走 `exec` 时正文拼在命令行里，`cmd` 把换行当命令分隔符，
+    接续上下文只到达标题那一行。改为 `dsh … -` 并把正文写进 stdin（`dsh --profile headless --help` 明确 `-` reads stdin）。
+  - **`DSH_SESSION_ID` 被继承**：子进程拿到宿主的 `DSH_SESSION_ID` 后直接写进用户当前的桌面会话
+    （读回来的历史全是桌面端推理）。现在剥掉 `DSH_SESSION_ID/DSH_WEB_URL/DSH_SHELL/DSH_PROFILE_DIR/DSH_PROFILE`。
+  - **子进程缺 API Key**：0.2.2 起 `--profile headless` 的默认路由需要 Key，而 credentials 服务不保证注入，
+    CLI 只回空串（手机侧表现是「电脑没回话」）。现在从 `$DSH_HOME/.credentials.yaml` 的 `refs.DEEPSEEK_API_KEY`
+    补进子进程环境（已有环境变量时不动）。
+  - **cwd 未指定**：手机会话全落在 `profiles/desktop` 名下，桌面侧栏里既不在项目工作区也难找。
+    新增 `workingDir` 配置，本项目配成 `D:\qzq\smartquiz`，与桌面端同一工作区。
+- **只保留真人输入**：`read`/`attach` 过滤掉 `user/message` 里 `source.kind != 'user'` 的条目——
+  每次附带的 runtime context / system-reminder 也记成 user 消息，原样回传手机只会是一屏噪声。
+- **列表口径**：`smartquiz-*` 是插件自己的手机侧会话 id，落盘后是空壳（无 cwd、无一句文字），
+  从 `/sessions.json` 滤掉，免得手机端多出一串点不开的条目。
+- **顺带的安全收口**：配对码由 `Math.random` 换成 `randomInt`（CSPRNG）；`/pair/claim` 按来源地址计失败次数
+  （8 次/5 分钟）后 429，待用配对码上限 5 个；令牌比较改 `timingSafeEqual`；含密钥的文件
+  （`.token`/`.devices.json`/`.sessions.json`/`.allow-exec`/`.public-url`）统一按 0600 写，POSIX 上不再落 0644。
+- **App 侧**：`RemoteDshTool` 新增 `list_sessions` / `read_session` / `attach_session`
+  （`target_session_id` 参数，`max` 统一 1~200），文案里带「先 list 再 attach」的引导。
+- **验证**：`/sessions.json` 与 `read` 返回符合预期；真实一轮 attach（目标 `session-839f2987…`）产生的子会话
+  `session-e065a9d8…` 收到完整前言与两条历史，回复「正常」，`workingDir` 生效（cwd 为 `D:\qzq\smartquiz`）。
+  Java 侧 `:compileDebugJavaWithJavac` 通过；手机端三个新 action 未真机验证。
+- 提交：`<待补>`
+
 ## [2026-11-10] feat(vision)：本地视觉支持一次多图（native mtmd 改数组）
 
 此前本地看图一次只能传 1 张，2 张以上且在线模型不支持图片时整批降级成 OCR 文本。根因不是"NPU 能力"，

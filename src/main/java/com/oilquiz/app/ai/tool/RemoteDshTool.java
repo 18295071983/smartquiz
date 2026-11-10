@@ -16,6 +16,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -82,14 +83,18 @@ import java.util.Map;
                 @Action(name = "clear_config", description = "清空配对配置（地址/令牌/会话全清；要临时停用请用 disconnect）"),
                 @Action(name = "start", description = "新建 dsh 会话（重置电脑端记忆），返回新的 session_id"),
                 @Action(name = "history", description = "读当前会话最近历史（max=条数，默认10）"),
+                @Action(name = "list_sessions", description = "列出电脑上最近的对话（看电脑端在聊什么）"),
+                @Action(name = "read_session", description = "只读查看电脑上某条对话（target_session_id 必填）"),
+                @Action(name = "attach_session", description = "把电脑上某条对话接到当前会话继续（target_session_id 必填）"),
                 @Action(name = "get_status", description = "检查桥接服务与 dsh 状态"),
                 @Action(name = "set_config", description = "配置电脑地址(base_url)与访问令牌(token)")
         },
         params = {
-                @Param(name = "action", type = "string", description = "操作: run(默认，自然语言任务) / shell(直接跑命令) / connect(连接电脑) / disconnect(临时停用，保留配置) / clear_config(清空配置) / pair(扫码配对) / register_device(把主令牌换成可单独吊销的设备令牌，补登记用) / start / history / get_status / set_config", required = false),
+                @Param(name = "action", type = "string", description = "操作: run(默认，自然语言任务) / shell(直接跑命令) / connect(连接电脑) / disconnect(临时停用，保留配置) / clear_config(清空配置) / pair(扫码配对) / register_device(把主令牌换成可单独吊销的设备令牌，补登记用) / start / history / list_sessions(列电脑上的对话) / read_session(只读看某条) / attach_session(接到某条继续) / get_status / set_config", required = false),
                 @Param(name = "task", type = "string", description = "run=任务描述（自然语言）；shell=要执行的命令原文", required = false),
                 @Param(name = "shell", type = "string", description = "shell 动作的执行器: auto(默认，优先 pwsh 回退 powershell) / cmd / bash", required = false),
-                @Param(name = "max", type = "integer", description = "history 读取条数（默认 10，范围 1~200）", required = false),
+                @Param(name = "max", type = "integer", description = "history/read_session/list_sessions 的条数（默认 10，范围 1~200）", required = false),
+                @Param(name = "target_session_id", type = "string", description = "read_session/attach_session 要操作的电脑端会话 id（来自 list_sessions）", required = false),
                 @Param(name = "base_url", type = "string", description = "电脑端桥接地址，如 http://192.168.1.100:8218（set_config 用）", required = false),
                 @Param(name = "token", type = "string", description = "桥接服务访问令牌（set_config 用，bridge 启动时打印）", required = false),
                 @Param(name = "timeout", type = "integer", description = "任务超时秒数（默认 120，范围 5~600）", required = false)
@@ -449,6 +454,12 @@ public class RemoteDshTool implements AITool {
                     return handleStart();
                 case "history":
                     return handleHistory(parameters);
+                case "list_sessions":
+                    return handleListSessions(parameters);
+                case "read_session":
+                    return handleReadSession(parameters);
+                case "attach_session":
+                    return handleAttachSession(parameters);
                 case "shell":
                     return handleShell(parameters);
                 case "connect":
@@ -917,6 +928,125 @@ public class RemoteDshTool implements AITool {
         } catch (Exception e) {
             return AIToolResult.fail("远程调用异常: " + e.getMessage());
         }
+    }
+
+    /**
+     * action=list_sessions：列出电脑上最近的对话（只读）。
+     *
+     * 手机端只能看到"自己那条"历史，看不到用户在电脑上正聊的内容。这个动作补上另一半：
+     * 先列出来（id + 工作区 + 最后一句），再用 read_session 看详情、attach_session 接着聊。
+     */
+    private AIToolResult handleListSessions(Map<String, Object> parameters) {
+        AIToolResult gate = precheck();
+        if (gate != null) return gate;
+        int limit = resolveMax(parameters, 10);
+        try {
+            Map<String, Object> resp = httpJson(getBaseUrl() + "/sessions.json?limit=" + limit, "GET", null, 30);
+            Object arr = resp.get("sessions");
+            StringBuilder sb = new StringBuilder("电脑上最近的对话：\n");
+            int shown = 0;
+            if (arr instanceof List) {
+                int i = 0;
+                for (Object o : (List<?>) arr) {
+                    i++;
+                    if (!(o instanceof Map)) continue;
+                    Map<?, ?> m = (Map<?, ?>) o;
+                    String sid = m.get("session_id") == null ? "" : String.valueOf(m.get("session_id"));
+                    if (sid.isEmpty()) continue;
+                    shown++;
+                    sb.append(i).append(". ").append(sid);
+                    String cwd = m.get("cwd") == null ? "" : String.valueOf(m.get("cwd"));
+                    if (!cwd.isEmpty()) sb.append("  @ ").append(baseName(cwd));
+                    Object last = m.get("last");
+                    if (last != null && !String.valueOf(last).isEmpty()) {
+                        sb.append("\n   …").append(String.valueOf(last));
+                    }
+                    sb.append('\n');
+                }
+            }
+            if (shown == 0) return AIToolResult.success("电脑上没有可列的对话（可能还没聊过，或插件版本太旧）");
+            sb.append("\n用 read_session 看某条（target_session_id=上面的 id），或 attach_session 接到当前会话继续。");
+            return AIToolResult.success(sb.toString());
+        } catch (Exception e) {
+            return AIToolResult.fail("列电脑端会话失败: " + e.getMessage());
+        }
+    }
+
+    /** action=read_session：只读查看电脑上某条对话（不会改动它） */
+    private AIToolResult handleReadSession(Map<String, Object> parameters) {
+        AIToolResult gate = precheck();
+        if (gate != null) return gate;
+        String target = str(parameters.get("target_session_id"));
+        if (target.isEmpty()) return AIToolResult.fail("read_session 需要 target_session_id（先 action=list_sessions 拿到 id）");
+        int max = resolveMax(parameters, 20);
+        Map<String, Object> body = new HashMap<>();
+        body.put("action", "read");
+        body.put("session_id", target);
+        body.put("max", max);
+        try {
+            Map<String, Object> resp = httpJson(getBaseUrl() + "/session", "POST", body, 60);
+            if (!Boolean.TRUE.equals(resp.get("ok"))) {
+                return AIToolResult.fail("读会话失败: " + (resp.get("error") == null ? "未知错误" : resp.get("error")));
+            }
+            String text = resp.get("text") == null ? "" : String.valueOf(resp.get("text"));
+            if (text.isEmpty()) return AIToolResult.success("这条会话里没有可读的文字消息: " + target);
+            return AIToolResult.success("电脑端会话 " + target + "（只读）：\n" + text);
+        } catch (Exception e) {
+            return AIToolResult.fail("读会话失败: " + e.getMessage());
+        }
+    }
+
+    /** action=attach_session：把电脑上那条对话的上下文接到当前会话，下一条消息接着聊 */
+    private AIToolResult handleAttachSession(Map<String, Object> parameters) {
+        AIToolResult gate = precheck();
+        if (gate != null) return gate;
+        String target = str(parameters.get("target_session_id"));
+        if (target.isEmpty()) return AIToolResult.fail("attach_session 需要 target_session_id（先 action=list_sessions 拿到 id）");
+        String sid = getSessionId();
+        if (sid.isEmpty()) {
+            return AIToolResult.fail("还没有手机会话：先 action=start 建一条，再 attach_session");
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("action", "attach");
+        body.put("session_id", sid);
+        body.put("target_session_id", target);
+        body.put("max", resolveMax(parameters, 20));
+        try {
+            Map<String, Object> resp = httpJson(getBaseUrl() + "/session", "POST", body, 60);
+            if (!Boolean.TRUE.equals(resp.get("ok"))) {
+                return AIToolResult.fail("接续失败: " + (resp.get("error") == null ? "未知错误" : resp.get("error")));
+            }
+            Object hist = resp.get("history");
+            int n = hist instanceof List ? ((List<?>) hist).size() : 0;
+            return AIToolResult.success("已把电脑端会话 " + target + " 接到当前会话（带过来 " + n + " 条记录）。"
+                    + "\n接下来直接说你要做什么就行——会带着那段上下文继续（电脑端那条不会被改动，两边从此各自演化）。");
+        } catch (Exception e) {
+            return AIToolResult.fail("接续失败: " + e.getMessage());
+        }
+    }
+
+    /** 参数 max：1~200，默认 fallback */
+    private static int resolveMax(Map<String, Object> parameters, int fallback) {
+        Object m = parameters != null ? parameters.get("max") : null;
+        if (m == null) return fallback;
+        try {
+            return (int) Math.min(200, Math.max(1, Double.parseDouble(String.valueOf(m))));
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    private static String str(Object o) {
+        return o == null ? "" : String.valueOf(o).trim();
+    }
+
+    /** 路径最后一段，用于把 cwd 显示短一点 */
+    private static String baseName(String path) {
+        if (path == null) return "";
+        String p = path.replace('\\', '/');
+        while (p.endsWith("/")) p = p.substring(0, p.length() - 1);
+        int i = p.lastIndexOf('/');
+        return i >= 0 ? p.substring(i + 1) : p;
     }
 
     /**

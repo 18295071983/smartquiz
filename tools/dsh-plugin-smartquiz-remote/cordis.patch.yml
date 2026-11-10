@@ -14,6 +14,11 @@
                                       # 本行只在 .allow-exec 不存在时作为初始默认值。
         cliMode: true                 # 用 dsh --profile headless 跑任务（含多轮记忆 --session-id）
         cliProfile: headless
+        # ★ CLI 任务的 cwd：决定手机会话在桌面端侧栏里归到哪个工作区。
+        #   空 = 继承宿主 cwd（桌面端会落到 profiles/desktop，手机对话不易找到）；
+        #   填你的项目目录，手机会话就和桌面端同一工作区，可点开接着聊。
+        #   例：workingDir: 'D:\qzq\smartquiz'
+        workingDir: ''
         lanEnabled: true              # 自建局域网入口（DSH 自带 webserver 只听 127.0.0.1）
         lanPort: 8218
         extraLanPorts: '80'           # 附加监听端口（花生壳默认转发到本机 80 时有用）

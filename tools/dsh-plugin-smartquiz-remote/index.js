@@ -25,8 +25,8 @@
  *   ctx.sessions.get(id).deriveMessages(); session.seq / session.eventAt(seq); h.dispose()
  */
 
-import { randomBytes } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { networkInterfaces, homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,6 +40,22 @@ export const name = 'smartquiz-remote';
 /** 插件目录（配对页/二维码库随包分发；.token 持久化于此） */
 const PLUGIN_DIR = dirname(fileURLToPath(import.meta.url));
 const readAsset = (file) => { try { return readFileSync(join(PLUGIN_DIR, file), 'utf8'); } catch { return ''; } };
+
+/**
+ * 写「含密钥」的文件：只给当前用户读写。
+ *
+ * 这些文件里是主令牌 / 设备令牌 / 会话映射，任一泄漏都等于远程执行权。
+ * 原来用 writeFileSync(file, data, 'utf8')，在 Linux/macOS 上按 umask 022 会落成 0644 ——
+ * 同一台机器上的其他用户（或备份/同步工具）能直接读走。POSIX 上强制 0600；
+ * Windows 没有 POSIX mode（chmod 基本是 no-op，不会报错），ACL 由用户目录继承。
+ */
+function writeSecret(file, data) {
+  try {
+    writeFileSync(file, data, { encoding: 'utf8', mode: 0o600 });
+    try { chmodSync(file, 0o600); } catch { /* Windows / 只读盘 */ }
+    return true;
+  } catch { return false; }
+}
 
 export const inject = ['webServer', 'agents', 'sessions'];   // 三者都必须声明：cordis 不允许访问未 inject 的服务
 // ==================== 鉴权升级：一次性配对码 + 设备令牌 + 白名单 ====================
@@ -59,7 +75,7 @@ function loadDevices(file) {
   }
 }
 function saveDevices(file, data) {
-  try { writeFileSync(file, JSON.stringify(data, null, 2), 'utf8'); return true; } catch { return false; }
+  return writeSecret(file, JSON.stringify(data, null, 2));
 }
 
 function lanIpv4All() {
@@ -114,7 +130,7 @@ function resolveToken(ctx, cfg) {
   const file = join(PLUGIN_DIR, '.token');
   try { const saved = readFileSync(file, 'utf8').trim(); if (saved) return saved; } catch { /* 首次 */ }
   const generated = randomBytes(16).toString('hex');
-  try { writeFileSync(file, generated, 'utf8'); } catch { /* 只读则退化为内存 */ }
+  writeSecret(file, generated);
   ctx.logger?.info?.(`[smartquiz-remote] 已持久化访问令牌（${file}）: ${generated}`);
   return generated;
 }
@@ -141,24 +157,70 @@ const sendJson = (res, status, obj) => {
  *  ② 再唤醒 agent（whenIdle）；若会话没有任何增长，则退回 followup() 路径
  * 返回 { reply, debug }
  */
+/**
+ * 把"电脑端那条会话"的最近记录拼成前缀，交给新会话当上下文。
+ *
+ * 为什么不直接 --session-id 续写：DSH 的会话存储是**单写者**的，同一条会话
+ * 同一时刻只能有一个写句柄。桌面端开着它时，子进程续写会直接报
+ * "already owned by an active write owner"。复制上下文另起一条，代价是
+ * 两边从此刻开始各自演化（不是同一条 session），收益是永远不打架。
+ */
+function carryPreamble(carried, text) {
+  const lines = [];
+  let budget = 4000;                                   // 前缀上限，别把上下文挤爆
+  for (const m of carried.history) {
+    const who = m?.role === 'user' ? '用户' : '助手';
+    const body = String(m?.text ?? '').trim();
+    if (!body) continue;
+    const line = `${who}: ${body.length > 600 ? body.slice(0, 600) + '…' : body}`;
+    if (line.length > budget) break;
+    budget -= line.length;
+    lines.push(line);
+  }
+  if (!lines.length) return text;
+  return [
+    '【接续上下文】以下是电脑端会话 ' + String(carried.target ?? '') + ' 的最近记录。',
+    '请在理解这些内容的基础上接着回答最后的问题，不要复述历史。',
+    '',
+    ...lines,
+    '',
+    '---',
+    text,
+  ].join('\n');
+}
+
 async function runTurn(ctx, handle, sid, text, cfg) {
   // CLI-MODE（默认）：走 `dsh --profile headless "<任务>"`，不依赖 DSH 内部模块 ✓
   if (cfg.cliMode !== false) {
     // MEMORY-MAP: 我们的 session_id → DSH 持久会话 id（跨调用/跨重启记忆 ✓）
     const memFile = join(PLUGIN_DIR, '.sessions.json');
     let mem = {}; try { mem = JSON.parse(readFileSync(memFile, 'utf8')); } catch { mem = {}; }
-    const dshSid = mem[sid] || '';
+    /**
+     * mem 的两种值：
+     *   'session-xxx'                         → 直接续写这条（正常的手机会话）
+     *   { target, history }                   → 刚从电脑端「接过来」的会话：把上下文
+     *                                           作为前缀塞进新会话（copy-on-write），
+     *                                           不再 --session-id 续写 —— 因为 DSH 的
+     *                                           会话是单写者的，电脑端开着那条时续写会
+     *                                           报 "already owned by an active write owner"。
+     */
+    const raw = mem[sid];
+    const carried = raw !== null && typeof raw === 'object' ? raw : null;
+    const dshSid = carried ? '' : (typeof raw === 'string' ? raw : '');
+    const promptText = carried && Array.isArray(carried.history) && carried.history.length
+      ? carryPreamble(carried, text)
+      : text;
     const cands = resolveDshCli(cfg);
     let lastErr = '';
     for (const cli of cands) {
-      const r = await runCliTask(cli, cfg.cliProfile || 'headless', text, cfg.cliTimeoutMs || 300000, cfg.__onData, dshSid);
+      const r = await runCliTask(cli, cfg.cliProfile || 'headless', promptText, cfg.cliTimeoutMs || 300000, cfg.__onData, dshSid, cfg.workingDir);
       if (r.ok && r.output) {
-        if (r.sessionId && r.sessionId !== dshSid) { mem[sid] = r.sessionId; try { writeFileSync(memFile, JSON.stringify(mem, null, 2), 'utf8'); } catch { /* 忽略 */ } }
-        return { reply: r.output, via: 'cli:' + cli, debug: { cli_ms: r.ms, cli_code: r.code, dsh_session: r.sessionId || '(none)', memory: dshSid ? 'resumed' : 'new' } };
+        if (r.sessionId && r.sessionId !== dshSid) { mem[sid] = r.sessionId; writeSecret(memFile, JSON.stringify(mem, null, 2)); }
+        return { reply: r.output, via: 'cli:' + cli, debug: { cli_ms: r.ms, cli_code: r.code, dsh_session: r.sessionId || '(none)', memory: carried ? 'carried' : (dshSid ? 'resumed' : 'new') } };
       }
       lastErr = `${cli} → code=${r.code} ${r.err ?? ''} ${String(r.output).slice(0, 120)}`;
     }
-    return { reply: '', via: 'cli-failed', debug: { cli_errors: lastErr } };
+    return { reply: '', via: 'cli-failed', error: '电脑端执行失败：' + (lastErr || '未知错误（dsh --profile ' + (cfg.cliProfile || 'headless') + ' 没有返回内容）'), debug: { cli_errors: lastErr } };
   }
   const session = ctx.sessions.get(sid);
   const seqBefore = Number(session?.seq ?? 0);
@@ -206,14 +268,53 @@ function resolveDshCli(config) {
 }
 
 /** 跑一条 CLI 任务；onData 逐块收到 stdout（流式用），返回 { ok, output, code, ms } */
-function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId) {
+function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId, workingDir) {
   return new Promise((resolve) => {
     const started = Date.now();
     const isCmd = /\.(cmd|bat)$/i.test(String(cliPath));
-    // ★ 路径含空格：.cmd 必须用 exec 把"一整条命令行"交给 cmd（spawn 的数组参数会被 Node 二次加引号 ✗，实测报 '\"…dsh.cmd\"' 不是内部或外部命令 ✗）
-    const qText = '"' + String(text).replace(/"/g, '""') + '"';
+    /**
+     * 子进程的工作目录。
+     *
+     * ★ 为什么重要：DSH 按 **cwd** 把会话归到某个"工作区"（sessions/--<slug>--/）。
+     * 不指定时子进程继承宿主进程的 cwd —— 桌面端的 host 跑在
+     * `~/.workbuddy/dsh-home/profiles/desktop`，于是手机发起的会话全落在那个
+     * 目录名下，桌面端侧栏里既不在项目工作区、也不容易找到。
+     * 指定成项目目录后，手机会话就和桌面端同一个工作区，能在侧栏里点开接着聊。
+     */
+    const workdir = (() => {
+      const dir = String(workingDir || '').trim();
+      if (!dir) return undefined;
+      try { return existsSync(dir) ? dir : undefined; } catch { return undefined; }
+    })();
+    /** 子进程用的 profile：空值会让命令行变成 `--profile  --json`（DSH 会报 invalid profile） */
+    const prof = String(profile || '').trim() || 'headless';
+    /**
+     * 子进程环境。
+     *
+     * ★ 2026-11-10 修复：DSH 0.2.2 起桌面端走 account 路由，而 `--profile headless`
+     *   的默认路由是 `deepseek-official`，需要 API Key。凭据在
+     *   $DSH_HOME/.credentials.yaml 的 refs.DEEPSEEK_API_KEY 里，但子进程的
+     *   credentials service 不一定会把它注入 LLM 路由（实测 MISSING_CREDENTIAL），
+     *   于是 CLI 任务只回空串、phone 端看到「电脑没回话」。
+     *   这里直接把它作为环境变量补进去；已有环境变量时不动（用户可以自己覆盖）。
+     */
+    const cliEnv = (() => {
+      const env = { ...process.env, DSH_HOME: process.env.DSH_HOME };
+      // ★ 必须剥掉宿主的会话上下文，否则子进程会"继承"桌面端正在用的会话：
+      //   实测 DSH_SESSION_ID 被 CLI 采纳后，手机任务直接写进了用户当前的桌面会话
+      //   （读回来的历史里全是桌面端的推理过程）。手机任务必须是独立会话。
+      for (const key of ['DSH_SESSION_ID', 'DSH_WEB_URL', 'DSH_SHELL', 'DSH_PROFILE_DIR', 'DSH_PROFILE']) {
+        delete env[key];
+      }
+      if (!env.DEEPSEEK_API_KEY) {
+        const k = readDeepseekApiKey();
+        if (k) env.DEEPSEEK_API_KEY = k;
+      }
+      return env;
+    })();
+    // ★ .cmd 走 stdin：正文不拼进命令行（换行会被 cmd 截断）
     const memArgs = dshSessionId ? ' --session-id ' + dshSessionId : '';
-    const fullLine = '"' + cliPath + '" --profile ' + profile + ' --json' + memArgs + ' ' + qText;
+    const fullLine = '"' + cliPath + '" --profile ' + prof + ' --json' + memArgs + ' -';
     let out = '';
     let done = false;
     let finalText = '';
@@ -243,17 +344,21 @@ function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId) {
     try {
       if (isCmd) {
         // .cmd：整条命令行交给 cmd（唯一可靠方式 ✓）
+        // .cmd：整条命令行交给 cmd（唯一可靠方式 ✓）。
+        // ★ 正文走 stdin（`-`），不要拼进命令行：cmd 会把换行当成命令分隔符，
+        //   多行 prompt 只会有第一行生效（实测：接续上下文只到了标题那一行）。
         const child = exec(fullLine, { windowsHide: true, maxBuffer: 16 * 1024 * 1024, timeout: timeoutMs,
-          env: { ...process.env, DSH_HOME: process.env.DSH_HOME } },
+          env: cliEnv, cwd: workdir },
           (err, stdout, stderr) => {
             const s = String(stdout ?? ''); const e2 = String(stderr ?? '');
             if (s) { out += s; consume(s); }
             if (e2) out += e2;
             finish(err ? (err.code ?? 1) : 0, err ? String(err.message).slice(0, 120) : undefined);
           });
+        try { child.stdin?.write(text); child.stdin?.end(); } catch { /* 子进程已退出 */ }
         void child;
       } else {
-        const child = spawn(cliPath, ['--profile', profile, '--json', ...(dshSessionId ? ['--session-id', dshSessionId] : []), text], { windowsHide: true, env: { ...process.env, DSH_HOME: process.env.DSH_HOME } });
+        const child = spawn(cliPath, ['--profile', prof, '--json', ...(dshSessionId ? ['--session-id', dshSessionId] : []), text], { windowsHide: true, env: cliEnv, cwd: workdir });
         const timer = setTimeout(() => { try { child.kill(); } catch { /* 忽略 */ } finish(-1, 'timeout'); }, timeoutMs);
         child.stdout?.on('data', (b) => { const s = b.toString('utf8'); out += s; consume(s); });
         child.stderr?.on('data', (b) => { out += b.toString('utf8'); });
@@ -356,6 +461,7 @@ export function apply(ctx, config) {
     token: '', provider: 'deepseek-account', model: 'deepseek-flash', pathPrefix: '',   // 显式：插件创建的 agent 需要明确模型路由
     maxReplyChars: 4000, allowExec: true, execTimeoutMs: 120000,
     cliMode: true, cliProfile: 'headless', cliTimeoutMs: 300000, dshPath: '', publicUrl: '',
+    workingDir: '',   // CLI 任务的 cwd：决定手机会话归到哪个工作区（空=继承宿主 cwd）
   };
   const cfg = { ...DEFAULTS, ...(config ?? {}) };
   const prefix = cfg.pathPrefix ?? '';
@@ -394,7 +500,37 @@ export function apply(ctx, config) {
   const devices = loadDevices(DEVICE_FILE);          // { devices: [{id,name,token,created_at,last_seen}] }
   const pairingCodes = new Map();                    // code -> expiresAt(ms)
   const PAIR_TTL_MS = 5 * 60 * 1000;                 // 一次性配对码 5 分钟
-  const deviceByToken = (t) => devices.devices.find((d) => d.token === t);
+  /** 同时最多挂 5 个待用配对码：多到溢出说明有人在狂刷 /pair/code */
+  const PAIR_MAX_PENDING = 5;
+  /**
+   * 配对码尝试节流。
+   *
+   * 配对码只有 6 位（90 万种），拿到一枚就能换长期设备令牌 → 令牌能调 /exec。
+   * 原来 /pair/claim 对错误码没有任何计数：只要有一枚有效码存在，同网段的人就能
+   * 在 5 分钟窗口里无限次试。这里按来源地址计失败次数，超过阈值直接 429。
+   */
+  const PAIR_MAX_FAILS = 8;
+  const PAIR_WINDOW_MS = 5 * 60 * 1000;
+  const pairAttempts = new Map();                    // ip -> { count, resetAt }
+  const pairThrottled = (ip) => {
+    const rec = pairAttempts.get(ip);
+    return Boolean(rec) && rec.resetAt > Date.now() && rec.count >= PAIR_MAX_FAILS;
+  };
+  const pairFail = (ip) => {
+    const now = Date.now();
+    let rec = pairAttempts.get(ip);
+    if (!rec || rec.resetAt <= now) { rec = { count: 0, resetAt: now + PAIR_WINDOW_MS }; pairAttempts.set(ip, rec); }
+    rec.count += 1;
+    if (pairAttempts.size > 256) {                       // 简单的表大小上限，避免被大量源地址撑爆
+      for (const [k, v] of pairAttempts) if (v.resetAt <= now) pairAttempts.delete(k);
+    }
+  };
+  /** 定长比较：令牌比较不做提前返回（`===` 会在第一个不同字节处退出） */
+  const safeEqual = (a, b) => {
+    const x = Buffer.from(String(a ?? '')); const y = Buffer.from(String(b ?? ''));
+    return x.length === y.length && x.length > 0 && timingSafeEqual(x, y);
+  };
+  const deviceByToken = (t) => devices.devices.find((d) => safeEqual(d.token, t));
 
   // ---- 远程执行命令开关（allowExec）：面板可切换、落盘、下次启动仍生效 ----
   // 优先级：面板写入的 .allow-exec 文件 > 插件配置 allowExec。
@@ -411,7 +547,7 @@ export function apply(ctx, config) {
   };
   let allowExec = (() => { const f = readAllowExecFile(); return f !== null ? f : cfg.allowExec === true; })();
   const writeAllowExec = (v) => {
-    try { writeFileSync(ALLOW_EXEC_FILE, v ? 'true' : 'false', 'utf8'); return true; } catch { return false; }
+    return writeSecret(ALLOW_EXEC_FILE, v ? 'true' : 'false');
   };
 
   /**
@@ -437,7 +573,7 @@ export function apply(ctx, config) {
     const m = /^Bearer\s+(.+)$/i.exec((req.headers['authorization'] ?? '').trim());
     if (m === null) return false;
     const t = m[1];
-    if (t === mainToken()) { mainTokenLastSeen = Date.now(); return true; }
+    if (safeEqual(t, mainToken())) { mainTokenLastSeen = Date.now(); return true; }
     const d = deviceByToken(t);
     if (d === undefined) return false;
     d.last_seen = Date.now();
@@ -540,6 +676,96 @@ export function apply(ctx, config) {
 
   route('exact', '/health', (req, res) =>
     sendJson(res, 200, { ok: true, service: 'dsh-plugin-remote', version: 5 }));
+
+  // ---------------- 电脑端会话：列出 / 只读查看 ----------------
+  // 目的：手机不只知道"自己那条会话"，还能看到电脑上正在聊/聊过的会话（只读），
+  // 需要时再 attach 过去接着聊（写入口唯一性见 /session action=attach 的说明）。
+  const persistence = () => { try { return ctx.get('sessionPersistence'); } catch { return undefined; } };
+
+  /** 持久化事件 → {role,text}；只取 user/assistant 的文本，不碰工具结果与推理 */
+  const messageOf = (ev) => {
+    const t = String(ev?.type ?? '');
+    if (t !== 'user/message' && t !== 'assistant/message') return null;
+    const data = ev?.data ?? {};
+    // 只保留真人输入：DSH 把每次的 runtime context / system-reminder 也记成
+    // user/message（source.kind 不是 'user'），原样回传手机只会是一屏噪声。
+    const kind = data?.source?.kind;
+    if (t === 'user/message' && typeof kind === 'string' && kind !== 'user') return null;
+    const body = t === 'assistant/message' ? (data.message ?? data) : data;
+    const text = textOf(body).trim();
+    if (!text) return null;
+    return { role: t === 'user/message' ? 'user' : 'assistant', text };
+  };
+
+  /** 读一条已落盘会话的最近 N 条消息（read 句柄，不抢写所有权；只读尾部，避免整条日志进内存） */
+  async function readStoredMessages(id, max = 20) {
+    const svc = persistence();
+    if (!svc || typeof svc.open !== 'function') throw new Error('sessionPersistence 不可用');
+    const handle = await svc.open(id, 'read');
+    try {
+      let offset;
+      try {
+        const st = await svc.stat?.(id);
+        const total = Number(st?.eventCount ?? 0);
+        if (total > 0) offset = Math.max(0, total - Math.max(40, max * 6));
+      } catch { /* stat 不可用就读全量 */ }
+      const got = offset === undefined ? await handle.read() : await handle.read(offset);
+      const events = Array.isArray(got) ? got : (got?.events ?? []);
+      const out = [];
+      for (const ev of events) { const m = messageOf(ev); if (m) out.push(m); }
+      return out.slice(-Math.max(1, Math.min(200, max)));
+    } finally { try { await handle.close?.(); } catch { /* 已关 */ } }
+  }
+
+  /** 列出已落盘会话，按最近写入排序 */
+  async function listStoredSessions(limit = 20) {
+    const svc = persistence();
+    if (!svc || typeof svc.list !== 'function') return [];
+    const all = await svc.list();
+    const rows = (Array.isArray(all) ? all : []).map((snap) => {
+      const h = snap?.header ?? snap ?? {};
+      let mtime = 0;
+      const p = snap?.location;
+      if (typeof p === 'string' && p) { try { mtime = statSync(p).mtimeMs; } catch { /* 读不到就算了 */ } }
+      return {
+        session_id: String(h.id ?? ''),
+        cwd: String(h.cwd ?? ''),
+        created_at: Number(h.createdAt ?? 0) || null,
+        mtime: mtime || null,
+        events: Number(snap?.eventCount ?? 0) || null,
+      };
+    }).filter((r) => r.session_id !== '');
+    /**
+     * 名单是给"看电脑端在聊什么"用的，而 `smartquiz-*` 是插件自己的手机会话 id。
+     * 它们也会被落盘（早期非 CLI 模式在宿主里 create 过 agent），但读出来是空壳
+     * （没有 cwd、没有一句话），混在列表里只会让手机端多出一串点不开的条目。
+     */
+    const desktopRows = rows.filter((r) => !r.session_id.startsWith('smartquiz-'));
+    desktopRows.sort((a, b) => (b.mtime ?? b.created_at ?? 0) - (a.mtime ?? a.created_at ?? 0));
+    const picked = desktopRows.slice(0, Math.max(1, Math.min(200, limit)));
+    // 给前若干条补一句"最后说了什么"，否则手机端只看到一串 session-id，选不出是哪条
+    for (const row of picked.slice(0, Math.min(10, picked.length))) {
+      try {
+        const recent = await readStoredMessages(row.session_id, 3);
+        const lastUser = [...recent].reverse().find((m) => m.role === 'user');
+        const snippet = (lastUser ?? recent[recent.length - 1])?.text ?? '';
+        if (snippet) row.last = snippet.slice(0, 120);
+      } catch { /* 单条读失败不影响列表 */ }
+    }
+    return picked;
+  }
+
+  route('exact', '/sessions.json', async (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    try {
+      const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+      const limit = Number(q.searchParams.get('limit') ?? 20);
+      const sessions = await listStoredSessions(Number.isFinite(limit) ? limit : 20);
+      sendJson(res, 200, { ok: true, count: sessions.length, sessions });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e?.message ?? e) });
+    }
+  });
 
   route('exact', '/pair', (req, res) => {
     if (!isLocal(req)) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }); res.end('pair page is local-only'); return; }
@@ -648,7 +874,7 @@ export function apply(ctx, config) {
       }
       cfg.publicUrl = url;
       try {
-        writeFileSync(join(PLUGIN_DIR, '.public-url'), url ? url + '\n' : '', 'utf8');
+        writeSecret(join(PLUGIN_DIR, '.public-url'), url ? url + '\n' : '');
       } catch (e) { return sendJson(res, 500, { ok: false, error: String(e?.message ?? e) }); }
       sendJson(res, 200, { ok: true, public_url: url,
         note: url ? '已保存：配对页会多出一个「公网/隧道」二维码 ✓' : '已清除：只保留局域网二维码 ✓' });
@@ -669,18 +895,26 @@ export function apply(ctx, config) {
 
   /** 一轮对话（非流式 / SSE 流式） */
   const runPrompt = async (req, res, sid, text, wantsStream) => {
+    // CLI 模式下不需要（也不该）在宿主里建 agent：任务由 `dsh --profile headless`
+    // 子进程执行。之前无论哪种模式都先 create 一次，attach 到电脑端已有会话后
+    // 会撞上 "session already exists"（那条 id 在宿主里已经存在）。
+    const cliMode = cfg.cliMode !== false;
     let handle = handles.get(sid);
-    if (handle === undefined) {
+    if (!cliMode && handle === undefined) {
       if (!ctx.agents || !ctx.sessions) throw new Error('agents/sessions 服务不可用');
       handle = await ctx.agents.create(await createInput(sid));
       handles.set(sid, handle); local.set(sid, []);
     }
     if (!wantsStream) {
       const r = await runTurn(ctx, handle, sid, text, cfg);
+      const dbg = { via: r.via, model: modelInfo(), selection: lastSelection, selectionInstaller, preset: lastPreset, ...r.debug };
+      // 失败要说出来：以前 CLI 起不来时回 ok:true + 空 reply，手机端只显示「电脑没回话」
+      if (!r.reply && r.error) {
+        return sendJson(res, 200, { ok: false, action: 'prompt', session_id: sid, reply: '', error: r.error, debug: dbg });
+      }
       { const hist = local.get(sid) ?? []; hist.push({ role: 'user', text }); hist.push({ role: 'assistant', text: r.reply }); local.set(sid, hist); }
       promptCount += 1;
       let reply = r.reply;
-      const dbg = { via: r.via, model: modelInfo(), selection: lastSelection, selectionInstaller, preset: lastPreset, ...r.debug };
       const h = local.get(sid) ?? [];
       h.push({ role: 'user', text: text.slice(0, 2000) }, { role: 'assistant', text: reply.slice(0, 2000) });
       local.set(sid, h);
@@ -717,7 +951,8 @@ export function apply(ctx, config) {
       let reply = rr.reply || lastText;
       if (s) for (const m of (s.deriveMessages?.() ?? [])) if (m?.role === 'assistant' && textOf(m)) reply = textOf(m);
       if (reply.length > cfg.maxReplyChars) reply = reply.slice(0, cfg.maxReplyChars);
-      sse({ type: 'done', action: 'prompt', session_id: sid, reply, debug: { via: rr.via, ...rr.debug } });
+      if (!reply && rr.error) sse({ type: 'error', action: 'prompt', session_id: sid, error: rr.error });
+      else sse({ type: 'done', action: 'prompt', session_id: sid, reply, debug: { via: rr.via, ...rr.debug } });
     } catch (e) {
       sse({ type: 'error', action: 'prompt', session_id: sid, error: String(e?.message ?? e) });
     } finally {
@@ -758,6 +993,44 @@ export function apply(ctx, config) {
         if (localItems.length) items = localItems; else if (s) items = (s.deriveMessages?.() ?? []).map((m) => ({ role: m?.role ?? 'assistant', text: textOf(m) })).filter((x) => x.text);
         const sliced = items.slice(-max);
         return sendJson(res, 200, { ok: true, action: 'history', session_id: sid, count: sliced.length, history: sliced, text: sliced.map(function(m){return (m.role === 'user' ? '我: ' : '电脑: ') + m.text;}).join(String.fromCharCode(10)) });
+      }
+      if (action === 'read') {
+        // 只读查看电脑端任意一条会话（默认读 body.session_id；也可用 target_session_id）
+        const target = String(body.target_session_id ?? body.session_id ?? '').trim();
+        if (!target) return sendJson(res, 400, { ok: false, action, error: '需要 session_id' });
+        const max = Number.isFinite(body.max) ? Math.max(1, Math.min(200, body.max)) : 20;
+        try {
+          const history = await readStoredMessages(target, max);
+          return sendJson(res, 200, {
+            ok: true, action: 'read', session_id: target, count: history.length, history,
+            text: history.map((m) => (m.role === 'user' ? '我: ' : '电脑: ') + m.text).join('\n'),
+          });
+        } catch (e) {
+          return sendJson(res, 500, { ok: false, action: 'read', error: String(e?.message ?? e) });
+        }
+      }
+      if (action === 'attach') {
+        // 把电脑端某条会话「接」到手机上继续。
+        // 注意：DSH 会话是单写者的，直接续写会与桌面端抢写句柄（报 already owned），
+        // 所以这里用 copy-on-write：读最近的记录当上下文，下一条消息在**新会话**里
+        // 带着这段上下文开始。两边从此各自演化，但不会再冲突。
+        const target = String(body.target_session_id ?? '').trim();
+        if (!target) return sendJson(res, 400, { ok: false, action, error: '需要 target_session_id' });
+        const max = Number.isFinite(body.max) ? Math.max(1, Math.min(200, body.max)) : 20;
+        let history = [];
+        try { history = await readStoredMessages(target, max); } catch (e) {
+          return sendJson(res, 500, { ok: false, action, error: '读取电脑端会话失败：' + String(e?.message ?? e) });
+        }
+        const memFile = join(PLUGIN_DIR, '.sessions.json');
+        let mem = {}; try { mem = JSON.parse(readFileSync(memFile, 'utf8')); } catch { mem = {}; }
+        mem[sid] = { target, history, at: Date.now() };
+        writeSecret(memFile, JSON.stringify(mem, null, 2));
+        handles.delete(sid); local.delete(sid);        // 旧句柄/旧历史作废
+        return sendJson(res, 200, {
+          ok: true, action: 'attach', session_id: sid, attached_to: target, count: history.length, history,
+          mode: 'copy-on-write',
+          note: '已接过来：下一条消息会带上这段上下文在新会话里继续（电脑端那条不会被改动）',
+        });
       }
       if (action !== 'prompt') return sendJson(res, 400, { ok: false, error: `unknown action: ${action}` });
 
@@ -814,7 +1087,9 @@ export function apply(ctx, config) {
     if (!isLocalOrAuth(req)) return sendJson(res, 403, { ok: false, error: 'local-only or device token required' });
     const now = Date.now();
     for (const [c, exp] of pairingCodes) if (exp <= now) pairingCodes.delete(c);
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    while (pairingCodes.size >= PAIR_MAX_PENDING) pairingCodes.delete(pairingCodes.keys().next().value);
+    // ★ 用 CSPRNG：Math.random 是可预测的 PRNG，不能用来生成凭据
+    const code = String(randomInt(100000, 1000000));
     pairingCodes.set(code, now + PAIR_TTL_MS);
     sendJson(res, 200, { ok: true, code, expires_in_ms: PAIR_TTL_MS,
                          hint: '手机上输入此 6 位码换取设备令牌（或用 /pair 页面二维码）' });
@@ -832,12 +1107,16 @@ export function apply(ctx, config) {
   route('exact', '/pair/claim', async (req, res) => {
     let body = {};
     try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
+    const clientIp = String(req.socket?.remoteAddress ?? 'unknown');
+    if (pairThrottled(clientIp)) {
+      return sendJson(res, 429, { ok: false, error: 'too_many_attempts', hint: '配对码尝试过于频繁，请 5 分钟后再试' });
+    }
     const code = String(body.code ?? '').trim();
     let via = '';
     if (code) {
       const exp = pairingCodes.get(code);
-      if (exp === undefined) return sendJson(res, 400, { ok: false, error: 'invalid_code' });
-      if (exp <= Date.now()) { pairingCodes.delete(code); return sendJson(res, 410, { ok: false, error: 'code_expired' }); }
+      if (exp === undefined) { pairFail(clientIp); return sendJson(res, 400, { ok: false, error: 'invalid_code' }); }
+      if (exp <= Date.now()) { pairingCodes.delete(code); pairFail(clientIp); return sendJson(res, 410, { ok: false, error: 'code_expired' }); }
       pairingCodes.delete(code);                     // 一次性
       via = 'code';
     } else if (authOk(req)) {
@@ -845,6 +1124,7 @@ export function apply(ctx, config) {
     } else {
       return sendJson(res, 401, { ok: false, error: 'need_code_or_token' });
     }
+    pairAttempts.delete(clientIp);                   // 成功一次即清零，正常配对不受影响
     const rawName = String(body.device_name ?? '手机').trim().slice(0, 60);
     const name = rawName || '手机';
     // 同名设备视为"同一台重新登记"：复用并替换旧记录，而不是无限追加。
