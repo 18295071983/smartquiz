@@ -1,6 +1,6 @@
 {
-  "version": "2026-10-27-v1",
-  "note": "2026-10-27-v1：补齐各家端点（智谱/百度/华为/讯飞/方舟/阶跃/MiMo/百炼族/Ollama/DeepSeek·MiniMax webSearch），逐条证据见各条 note；改动内容即版本号，缓存版本闸据此让位给随包表。\n\n在线模型服务商配置表 v3：在 v2 基础上新增 services 对象声明每家服务能力（chat/agent/vision/webSearch/embedding/rerank/imageGen/functionCalling/tts/asr）。thinking.param 取值：'thinking.type'=嵌套对象{thinking:{type:'enabled'}}，'enable_thinking'=扁平布尔，'reasoning_effort'=扁平字符串。auth 枚举：bearer|x-api-key|query-key|apikey-header|hmac-xfyun|oauth-baidu|none。外部更新：覆盖 filesDir/providers.json 后 reload 即生效。 models[] 支持两种形态：纯字符串（仅声明 chat，能力继承服务商级 services）；对象 {\"name\":\"...\",\"capabilities\":[\"chat\",\"vision\",\"agent\",\"webSearch\",\"embedding\",\"rerank\",\"imageGen\",\"functionCalling\",\"tts\",\"asr\",\"thinking\"]}（模型级能力，与服务商级取交集，API 未返回的预置模型自动并入模型列表）。 reasoning 字段归一化：流式/非流式统一按 reasoning_content || reasoning || thinking 非空即用（覆盖 OpenAI 兼容/Ollama /v1/Ollama 原生）。多轮上下文回传策略：默认按规范不回传思考内容（LM Studio/DeepSeek 规范），DeepSeek 思考模式自动补空串；若某在线模型\"不回传 reasoning 会报 400\"，在服务商对象加 \"requiresReasoningInContext\": true（该服务商所有 assistant 消息始终带 reasoning_content，且去掉 thinking 重试时不剥离）。",
+  "version": "2026-11-10-v2",
+  "note": "2026-11-10-v2：把 DeepSeek 的 services.embedding 由 enabled:true 改为 false（官方 API Docs 无 embeddings 能力页、Models & Pricing 只列 chat/vision/FIM 与 Search/Fetch，未列任何 embedding 模型；此前标 true 会让模型能力判定误以为 DeepSeek 能算向量，实际必 404）。知识库 v6 的向量层因此改为「在已启用端点里挑一个声明了 embeddingModel 的」，不再绑定当前对话模型。2026-10-27-v1：补齐各家端点（智谱/百度/华为/讯飞/方舟/阶跃/MiMo/百炼族/Ollama/DeepSeek·MiniMax webSearch），逐条证据见各条 note；改动内容即版本号，缓存版本闸据此让位给随包表。\n\n在线模型服务商配置表 v3：在 v2 基础上新增 services 对象声明每家服务能力（chat/agent/vision/webSearch/embedding/rerank/imageGen/functionCalling/tts/asr）。thinking.param 取值：'thinking.type'=嵌套对象{thinking:{type:'enabled'}}，'enable_thinking'=扁平布尔，'reasoning_effort'=扁平字符串。auth 枚举：bearer|x-api-key|query-key|apikey-header|hmac-xfyun|oauth-baidu|none。外部更新：覆盖 filesDir/providers.json 后 reload 即生效。 models[] 支持两种形态：纯字符串（仅声明 chat，能力继承服务商级 services）；对象 {\"name\":\"...\",\"capabilities\":[\"chat\",\"vision\",\"agent\",\"webSearch\",\"embedding\",\"rerank\",\"imageGen\",\"functionCalling\",\"tts\",\"asr\",\"thinking\"]}（模型级能力，与服务商级取交集，API 未返回的预置模型自动并入模型列表）。 reasoning 字段归一化：流式/非流式统一按 reasoning_content || reasoning || thinking 非空即用（覆盖 OpenAI 兼容/Ollama /v1/Ollama 原生）。多轮上下文回传策略：默认按规范不回传思考内容（LM Studio/DeepSeek 规范），DeepSeek 思考模式自动补空串；若某在线模型\"不回传 reasoning 会报 400\"，在服务商对象加 \"requiresReasoningInContext\": true（该服务商所有 assistant 消息始终带 reasoning_content，且去掉 thinking 重试时不剥离）。",
   "chatEndpoint": "/chat/completions",
   "modelsEndpoint": "/models",
   "embeddingEndpoint": "/embeddings",
@@ -1036,13 +1036,13 @@
           "coexistWithTools": true,
           "note": "官方 Responses API（/responses）支持 web_search/web_search_2025_08_26 工具（服务端执行，自动续推上限10轮）；chat/completions 不支持内置 web_search。普通对话已由自有 network_search 工具预搜索接管；官方注入仅对 /responses 端点生效（腾讯云托管另用 enable_search，阿里百炼托管用 Responses web_search）。coexistWithTools=true 允许官方 web_search 与自定义 function 工具同请求注入，运行期若吃 400 会自动退回保守行为"
         },
-        "embedding": {
-          "enabled": true,
-          "endpoint": "/embeddings"
-        },
         "rerank": {
           "enabled": false,
           "note": "DeepSeek 无 rerank 端点"
+        },
+        "embedding": {
+          "enabled": false,
+          "note": "DeepSeek 官方无 /embeddings 端点：API Docs 无 embeddings 能力页，Models & Pricing（2026-11 版）只列 chat/vision/FIM 与 Search/Fetch，未列任何 embedding 模型。第三方站点宣称的 deepseek-embed / 1024 维不是官方口径。需要向量能力请在设置里另注册一家声明了 embeddingModel 的服务商（百炼 text-embedding-v3 / 硅基流动 BAAI/bge-m3 / 智谱 embedding-3），知识库会自动挑一个可用的端点，不要求它同时是当前对话模型"
         },
         "imageGen": {
           "enabled": false,

@@ -39,10 +39,11 @@ import java.util.Map;
         category = "knowledge",
         aliases = {"kb", "knowledge", "wiki_search"},
         actions = {
-                @Action(name = "list", description = "列出知识库轻量索引（id/标题/分类/关键词/来源/更新时间，不含正文）；回答“知识库里有什么”或先定位再取详情时用", params = {
+                @Action(name = "list", description = "列出知识库轻量索引（id/标题/分类/关键词/来源/更新时间/文档序号，不含正文）；回答“知识库里有什么”或先定位再取详情时用；超过一页用 offset 翻页", params = {
                         @Param(name = "category", type = "string", description = "分类过滤（可选）", required = false),
                         @Param(name = "tag", type = "string", description = "按标签/别名精确过滤（匹配 keywords 里的整词，可选）", required = false),
-                        @Param(name = "limit", type = "int", description = "条数上限，默认20，最大100", required = false)
+                        @Param(name = "limit", type = "int", description = "条数上限，默认20，最大100", required = false),
+                        @Param(name = "offset", type = "int", description = "跳过前 N 条（翻页用，默认0；返回里有 next_offset 就传它）", required = false)
                 }),
                 @Action(name = "get", description = "按 id 取单条知识的完整正文（先 list/search 拿 id）；不会一次返回多条", params = {
                         @Param(name = "id", type = "int", description = "知识ID", required = true)
@@ -51,7 +52,7 @@ import java.util.Map;
                         @Param(name = "query", type = "string", description = "检索关键词（模糊检索用；精确取时可省略）", required = false),
                         @Param(name = "id", type = "int", description = "精确取：按知识ID（与 exact_title 二选一）", required = false),
                         @Param(name = "exact_title", type = "string", description = "精确取：标题全等（与 id 二选一）", required = false),
-                        @Param(name = "category", type = "string", description = "分类过滤，如 general/guide/faq；tool_defs=系统工具定义库（查工具用法/参数用）；不传则检索全部", required = false),
+                        @Param(name = "category", type = "string", description = "分类过滤，如 general/guide/faq；tool_defs=系统工具定义库（查工具用法/参数用）；不传=检索用户知识（自动排除 tool_defs）", required = false),
                         @Param(name = "tag", type = "string", description = "按标签/别名精确过滤（匹配 keywords 整词；别名/同义词建议存 keywords）", required = false),
                         @Param(name = "top_k", type = "int", description = "返回条数上限，默认5，最大20", required = false)
                 }),
@@ -85,12 +86,18 @@ import java.util.Map;
                         @Param(name = "category", type = "string", description = "知识分类，默认 general", required = false),
                         @Param(name = "title", type = "string", description = "指定标题（优先于文件名，图片/音频建议传入，如 化学笔记截图/课堂录音）", required = false)
                 }),
-                @Action(name = "delete", description = "按id或标题删除知识", params = {
-                        @Param(name = "id", type = "int", description = "知识ID（与title二选一）", required = false),
-                        @Param(name = "title", type = "string", description = "知识标题精确匹配（与id二选一）", required = false)
+                @Action(name = "delete", description = "按id、标题或来源删除知识；文档导入的整篇内容用 source（通常是文件绝对路径）一次删干净", params = {
+                        @Param(name = "id", type = "int", description = "知识ID（与 title/source 三选一）", required = false),
+                        @Param(name = "title", type = "string", description = "知识标题精确匹配（与 id/source 三选一；文档导入的多块同标题会一起删）", required = false),
+                        @Param(name = "source", type = "string", description = "来源（导入时的文件绝对路径）：删除该来源下的全部块，用于整篇替换", required = false)
                 }),
-                @Action(name = "clear", description = "清空全部知识库内容"),
-                @Action(name = "stats", description = "知识库统计：总量、分类分布、最近更新时间")
+                @Action(name = "clear", description = "清空知识库内容（含系统工具定义 tool_defs；清掉后下次 Agent 初始化会自动重灌）"),
+                @Action(name = "export", description = "导出知识库为JSON文件（结构与 import_json 一致，可直接 import_file 导回），用于备份", params = {
+                        @Param(name = "file_path", type = "string", description = "导出文件绝对路径（可选；不传则写到 app 私有目录 knowledge_export_<时间戳>.json）", required = false),
+                        @Param(name = "category", type = "string", description = "只导出该分类（可选，不传导出全部）", required = false)
+                }),
+                @Action(name = "stats", description = "知识库统计：总量、分类分布、最近更新时间、已向量化块数（embedded）"),
+                @Action(name = "embed", description = "为现有知识补全本地向量（写入时自动算，只是给老库/换模型后补一次）：会按块调用在线 embedding，消耗额度；已有向量的块跳过；没配 embedding 模型时返回 0")
         },
         params = {
                 @Param(name = "action", type = "string", description = "操作类型", required = true),
@@ -106,9 +113,10 @@ import java.util.Map;
                 @Param(name = "find_title", type = "string", description = "按标题精确定位（update 用，仅唯一命中时可用）", required = false),
                 @Param(name = "exact_title", type = "string", description = "精确取：标题全等（search 用，与 id 二选一）", required = false),
                 @Param(name = "limit", type = "int", description = "条数上限（list 用，默认20，最大100）", required = false),
+                @Param(name = "offset", type = "int", description = "翻页偏移（list 用，跳过前 N 条）", required = false),
                 @Param(name = "items", type = "array", description = "批量知识数组", required = false),
                 @Param(name = "json", type = "string", description = "知识JSON字符串", required = false),
-                @Param(name = "file_path", type = "string", description = "知识JSON文件路径（import_file使用）", required = false)
+                @Param(name = "file_path", type = "string", description = "文件绝对路径（import_file 读JSON / import_document 读文档·图片·音频 / export 写导出文件）", required = false)
         }
 )
 public class KnowledgeBaseTool implements AITool {
@@ -133,29 +141,34 @@ public class KnowledgeBaseTool implements AITool {
                 + "add/add_batch 添加、update 修改(按id或唯一标题，只改传入字段)、"
                 + "import_json/import_file 导入JSON、"
                 + "import_document 直接导入文件(Word/Excel/TXT/MD/CSV/PDF/HTML/图片OCR/音频ASR转写自动切块)、"
-                + "delete 删除、clear 清空、stats 统计。知识库内容由用户维护，用于回答应用专属问题";
+                + "delete 删除(按id/标题/来源)、export 导出备份、clear 清空(含工具定义，会自动重灌)、stats 统计、"
+                + "embed 补全本地向量(老库/换模型后用，消耗 embedding 额度)。"
+                + "检索结果带 doc_id/chunk_seq，可说明这是某篇文档的第几块；search 传 semantic=true 且库已有向量时"
+                + "会做语义扩召回（关键词 + 向量两路融合，能捞回关键词没命中的同义问法）。"
+                + "知识库内容由用户维护，用于回答应用专属问题";
     }
 
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("action", "操作类型：search(检索)/add(加一条)/add_batch(批量加)/update(改一条)/import_json(导入JSON字符串)/import_file(导入JSON文件)/import_document(直接导入文档·图片·音频)/delete(删)/clear(清空)/stats(统计)");
-        params.put("query", "检索关键词（search 模糊检索用；精确取可省略）");
+        params.put("action", "操作类型：search(检索)/add(加一条)/add_batch(批量加)/update(改一条)/import_json(导入JSON字符串)/import_file(导入JSON文件)/import_document(直接导入文档·图片·音频)/delete(按id·标题·来源删)/export(导出备份)/clear(清空)/stats(统计)");
+        params.put("query", "检索关键词（search 模糊检索用；可用用户原话，系统按虚词切分，不必手工压成两字词；精确取可省略）");
         params.put("category", "分类（search/list 过滤 / add 写入 / update 修改，可选）");
         params.put("tag", "标签/别名精确过滤（list/search 用）：对 keywords 做整词匹配，不做分词；别名/同义词/标签建议直接写进 keywords，逗号分隔");
         params.put("top_k", "返回条数上限（search 可选，默认5）");
         params.put("limit", "条数上限（list 可选，默认20，最大100）");
-        params.put("semantic", "语义重排开关（search 可选，默认false；true=启用在线embedding重排+rerank精排，会消费在线API；未配置embedding专用能力时自动回退关键词检索）");
+        params.put("offset", "翻页偏移（list 可选）：跳过前 N 条；返回里带 next_offset 时直接传它取下一页");
+        params.put("semantic", "语义扩召回开关（search 可选，默认 true）：本地已有向量时关键词召回 + 向量余弦召回两路融合，能捞回关键词没命中的同义/口语化问法；还没回填向量或没配模型时自动退回关键词，不额外消费。传 false 可强制只走关键词");
         params.put("title", "标题（add 必填；update 时为新标题 / import_document 可选）");
         params.put("content", "内容（add 必填；update 时为新正文）");
         params.put("keywords", "关键词（add/update 可选）");
-        params.put("source", "来源（add/update 可选）");
+        params.put("source", "来源（add/update 可选；delete 传 source 会删掉该来源下的整篇）");
         params.put("id", "知识ID（get/delete/update 使用；search 传 id 表示精确取）");
         params.put("find_title", "按标题精确定位（update 用；仅当标题唯一时可用，命中多条会报错要求改用 id）");
         params.put("exact_title", "精确取：标题全等（search 用，与 id 二选一，不做模糊召回）");
         params.put("items", "批量知识数组（add_batch 必填）");
         params.put("json", "知识JSON字符串（import_json 必填）");
-        params.put("file_path", "文件绝对路径（import_file 为JSON文件 / import_document 为文档、图片、音频）");
+        params.put("file_path", "文件绝对路径（import_file 为JSON文件 / import_document 为文档、图片、音频 / export 为导出目标）");
         return params;
     }
 
@@ -189,13 +202,17 @@ public class KnowledgeBaseTool implements AITool {
                     return doImportDocument(parameters);
                 case "delete":
                     return doDelete(parameters);
+                case "export":
+                    return doExport(parameters);
                 case "clear":
                     return doClear(parameters);
                 case "stats":
                     return doStats(parameters);
+                case "embed":
+                    return doEmbed(parameters);
                 default:
                     return new AIToolResult("未知操作: " + action
-                            + "（支持 list/get/search/add/add_batch/update/import_json/import_file/import_document/delete/clear/stats）", parameters);
+                            + "（支持 list/get/search/add/add_batch/update/import_json/import_file/import_document/delete/export/clear/stats/embed）", parameters);
             }
         } catch (Exception e) {
             Log.e(TAG, "execute 异常: " + e.getMessage(), e);
@@ -210,11 +227,13 @@ public class KnowledgeBaseTool implements AITool {
         String category = stringParam(parameters, "category");
         String tag = stringParam(parameters, "tag");
         int limit = intParam(parameters, "limit", 20);
-        JSONArray rows = manager.listMeta(category, tag, limit);
+        int offset = intParam(parameters, "offset", 0);
+        JSONArray rows = manager.listMeta(category, tag, limit, offset);
         String lastError = manager.getLastError();
         Map<String, Object> info = new HashMap<>();
         info.put("action", "list");
         info.put("count", rows.length());
+        info.put("offset", offset);
         info.put("tag", tag == null ? "" : tag);
         info.put("category", category == null ? "" : category);
         if (lastError != null && !lastError.isEmpty()) {
@@ -224,6 +243,11 @@ public class KnowledgeBaseTool implements AITool {
         JSONObject payload = new JSONObject();
         try {
             payload.put("count", rows.length());
+            payload.put("offset", offset);
+            // 拿满一页说明后面可能还有：直接告诉模型下一页从哪开始，省一轮试错
+            if (rows.length() >= Math.min(limit <= 0 ? 20 : limit, 100)) {
+                payload.put("next_offset", offset + rows.length());
+            }
             payload.put("note", "这是索引（不含正文）；要正文用 action=get(id=…)，模糊检索用 action=search(query=…)");
             payload.put("items", rows);
         } catch (Exception ignored) {
@@ -274,28 +298,17 @@ public class KnowledgeBaseTool implements AITool {
         }
         String category = stringParam(parameters, "category");
         int topK = intParam(parameters, "top_k", 5);
-        // 语义重排默认关闭：只有显式 semantic=true 才消费在线 embedding/rerank API
+        // v6：默认开启语义扩召回——库里有向量时查询侧只多 1 次 embedding，能捞回关键词没命中的同义问法；
+        // 没回填向量 / 没配模型时自动退回关键词（不报错、不额外消费）。显式 semantic=false 可关掉。
         Object semanticObj = parameters.get("semantic");
-        boolean semantic = semanticObj != null
-                && (Boolean.TRUE.equals(semanticObj)
-                    || "true".equalsIgnoreCase(String.valueOf(semanticObj).trim()));
+        boolean semantic = semanticObj == null
+                || Boolean.TRUE.equals(semanticObj)
+                || "true".equalsIgnoreCase(String.valueOf(semanticObj).trim());
         String tag = stringParam(parameters, "tag");
+        // 分类隔离已在 v5 下推到 SQL（manager.search 内：不传 category 时 WHERE category <> 'tool_defs'）。
+        // 这里不再做 Java 侧二次剔除——那层过滤发生在 top_k 之后，会把召回名额白让给工具定义。
         JSONArray results = manager.search(query, category, tag, topK, semantic);
         String lastError = manager.getLastError();
-
-        // 分类隔离（2026-09-23）：不传 category 的"用户知识检索"默认排除系统工具定义库 tool_defs，
-        // 避免用户查资料时把工具定义搜进来；显式 category=tool_defs 时才返回工具定义
-        if ((category == null || category.trim().isEmpty()) && results.length() > 0) {
-            JSONArray filtered = new JSONArray();
-            for (int i = 0; i < results.length(); i++) {
-                JSONObject item = results.optJSONObject(i);
-                if (item == null) continue;
-                if ("tool_defs".equals(item.optString("category", ""))) continue;
-                if ("system_tool_defs".equals(item.optString("source", ""))) continue;
-                filtered.put(item);
-            }
-            results = filtered;
-        }
 
         Map<String, Object> info = new HashMap<>();
         info.put("action", "search");
@@ -518,6 +531,7 @@ public class KnowledgeBaseTool implements AITool {
     private AIToolResult doDelete(Map<String, Object> parameters) {
         Object idObj = parameters.get("id");
         String title = stringParam(parameters, "title");
+        String source = stringParam(parameters, "source");
         Map<String, Object> info = new HashMap<>();
         info.put("action", "delete");
 
@@ -533,9 +547,33 @@ public class KnowledgeBaseTool implements AITool {
         if (title != null && !title.trim().isEmpty()) {
             int deleted = manager.deleteByTitle(title.trim());
             info.put("deleted", deleted);
+            // 文档导入的多块同标题会一起删掉：明确说清楚，别让模型以为只删了一条
+            String body = deleted > 1
+                    ? "{\"success\":true,\"deleted\":" + deleted + ",\"note\":\"同标题 " + deleted + " 块一并删除\"}"
+                    : "{\"success\":true,\"deleted\":" + deleted + "}";
+            return new AIToolResult(body, info, true);
+        }
+        if (source != null && !source.trim().isEmpty()) {
+            int deleted = manager.deleteBySource(source.trim());
+            info.put("deleted", deleted);
             return new AIToolResult("{\"success\":true,\"deleted\":" + deleted + "}", info, true);
         }
-        return new AIToolResult("缺少参数: id 或 title", parameters);
+        return new AIToolResult("缺少参数: id、title 或 source", parameters);
+    }
+
+    /** 导出备份：结构与 import_json 一致，可直接 import_file 导回 */
+    private AIToolResult doExport(Map<String, Object> parameters) {
+        String filePath = stringParam(parameters, "file_path");
+        String category = stringParam(parameters, "category");
+        JSONObject result = manager.exportJson(filePath, category);
+        Map<String, Object> info = new HashMap<>();
+        info.put("action", "export");
+        info.put("file", result.optString("file"));
+        info.put("count", result.optInt("count", 0));
+        if (!result.optBoolean("success", false)) {
+            return new AIToolResult(result.optString("message", "导出失败"), info);
+        }
+        return new AIToolResult(result.toString(), info, true);
     }
 
     private AIToolResult doClear(Map<String, Object> parameters) {
@@ -543,7 +581,8 @@ public class KnowledgeBaseTool implements AITool {
         Map<String, Object> info = new HashMap<>();
         info.put("action", "clear");
         info.put("cleared", cleared);
-        return new AIToolResult("{\"success\":true,\"cleared\":" + cleared + "}", info, true);
+        return new AIToolResult("{\"success\":true,\"cleared\":" + cleared
+                + ",\"message\":\"已清空（含系统工具定义，下次初始化会自动重灌）\"}", info, true);
     }
 
     private AIToolResult doStats(Map<String, Object> parameters) {
@@ -551,6 +590,90 @@ public class KnowledgeBaseTool implements AITool {
         Map<String, Object> info = new HashMap<>();
         info.put("action", "stats");
         return new AIToolResult(stats.toString(), info, true);
+    }
+
+    /**
+     * 补齐向量：给老库/换模型后用。已有向量的块跳过。
+     *
+     * <p>没有任何向量来源时（既没下本地模型、也没配在线 embedding），触发一次后台下载（约 98MB），
+     * 立即返回不阻塞——下载与推理都在后台，绝不把"模型没下"变成工具调用卡住。</p>
+     */
+    private AIToolResult doEmbed(Map<String, Object> parameters) {
+        // local=true：明确要"离线自足"，即使在线端点可用也先把本地模型拉下来
+        Object localObj = parameters.get("local");
+        boolean forceLocal = localObj != null
+                && (Boolean.TRUE.equals(localObj) || "true".equalsIgnoreCase(String.valueOf(localObj).trim()));
+        if (forceLocal && !manager.localEmbedding().isAvailable()) {
+            boolean started = manager.localEmbedding().downloadInBackground(null);
+            JSONObject payload = new JSONObject();
+            Map<String, Object> info = new HashMap<>();
+            info.put("action", "embed");
+            info.put("embedding_source", "downloading");
+            info.put("local_embedding_dir", manager.localEmbedding().dir().getAbsolutePath());
+            try {
+                payload.put("download", started ? "started" : "failed");
+                payload.put("embedding_source", "downloading");
+                payload.put("local_embedding_dir", manager.localEmbedding().dir().getAbsolutePath());
+                payload.put("message", started
+                        ? "已开始后台下载本地向量模型（bge-base-zh-v1.5，约 98MB，走 hf-mirror）；"
+                        + "下载完再调一次 embed，就会改用本地模型重算全部向量。"
+                        : "本地向量模型下载未能启动（可能已在下载中）。");
+            } catch (Exception ignored) {
+            }
+            return new AIToolResult(payload.toString(), info, true);
+        }
+
+        JSONObject pre = manager.stats();
+        String source = pre.optString("embedding_source", "none");
+        if ("none".equals(source) || "downloading".equals(source)) {
+            boolean started = "downloading".equals(source)
+                    || manager.localEmbedding().downloadInBackground(null);
+            JSONObject payload = new JSONObject();
+            Map<String, Object> info = new HashMap<>();
+            info.put("action", "embed");
+            info.put("embedding_source", started ? "downloading" : "none");
+            info.put("local_embedding_dir", pre.optString("local_embedding_dir"));
+            try {
+                payload.put("embedding_source", started ? "downloading" : "none");
+                payload.put("download", started ? "started" : "failed");
+                payload.put("local_embedding_dir", pre.optString("local_embedding_dir"));
+                payload.put("message", started
+                        ? "正在后台下载本地向量模型（bge-base-zh-v1.5，约 98MB，走 hf-mirror）；下完再调一次 embed 即可补向量。"
+                        : "既没有本地向量模型、也没有可用的在线 embedding 端点，无法补全向量。");
+            } catch (Exception ignored) {
+            }
+            return new AIToolResult(payload.toString(), info, true);
+        }
+
+        int added = manager.backfillAllEmbeddings();
+        JSONObject stats = manager.stats();
+        Map<String, Object> info = new HashMap<>();
+        info.put("action", "embed");
+        info.put("embedded_now", added);
+        info.put("embedded_total", stats.optInt("embedded"));
+        info.put("embedding_source", stats.optString("embedding_source"));
+        String err = manager.getLastError();
+        if (err != null && !err.isEmpty()) {
+            info.put("error", err);
+            return new AIToolResult("补全向量失败: " + err, info);
+        }
+        JSONObject payload = new JSONObject();
+        try {
+            payload.put("embedded_now", added);
+            payload.put("embedded_total", stats.optInt("embedded"));
+            payload.put("total", stats.optInt("total"));
+            payload.put("embedding_source", stats.optString("embedding_source"));
+            if (added == 0) {
+                payload.put("message", "没有新增向量：要么全都已向量化，要么当前来源不可用"
+                        + "（本地模型未就绪 / 在线端点没声明 embedding 模型）");
+            } else if ("online".equals(stats.optString("embedding_source"))) {
+                payload.put("hint", "本批用的是在线接口；想离线可用（不烧额度）再调一次 embed 并传 local=true，"
+                        + "会下载约 98MB 本地模型并自动改用它重算。");
+            }
+        } catch (Exception ignored) {
+            // 普通字段不会触发
+        }
+        return new AIToolResult(payload.toString(), info, true);
     }
 
     // ==================== 参数取值工具 ====================

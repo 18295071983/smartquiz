@@ -4,6 +4,8 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteDatabaseCorruptException;
+import android.database.sqlite.SQLiteException;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.net.Uri;
 import android.util.Log;
@@ -19,15 +21,28 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -66,17 +81,38 @@ public class KnowledgeBaseManager {
      *     改普通表 + 归一化 search_text 列做包含式检索；升级时补列并回填。
      * v4（2026-10-28）：search_text 从"原文小写"改为"空格分隔的 token 流"（中文 bigram、英文按词），
      *     查询同口径 + 空格边界整 token 匹配；升级时按新口径重建全表 search_text（数据迁移，不加列）。
+     * v5（2026-11-10）：新增 kb_documents 文档层（一篇文档 = 一行，带 doc_hash/chunk_count），
+     *     kb_chunks 补 doc_id/chunk_seq 两列做溯源，并补 source / updated_at / doc_id 三个索引。
+     *     结构变更在 onUpgrade 里做（ALTER 幂等），**数据回填**放开库后的 ensureDocumentsV5()——同 v4 的理由。
+     * v6（2026-11-10）：kb_chunks 补 embedding BLOB，存 float32 本地向量（写入侧算好、查询侧只算 query）。
+     *     这是"真语义召回"：向量召回不依赖关键词命中，能捞回同义/口语化问法；关键词召回继续保留，
+     *     两路用 RRF 融合。旧库该列为 NULL，由后台 backfillEmbeddings() 分批补算。
      */
-    private static final int DB_VERSION = 4;
+    private static final int DB_VERSION = 6;
 
     /** 查询时返回的默认结果条数上限 */
     private static final int DEFAULT_TOP_K = 5;
     /** 结果条数上限（防止一次拉取过多） */
     private static final int MAX_TOP_K = 20;
-    /** 单次检索参与打分的候选上限（SQL 先按更新时间取最近 N 条候选，再在 Java 侧打分排序） */
-    private static final int MAX_CANDIDATES = 300;
-    /** 查询 token 数量上限（防止超长句子拼出病态查询） */
-    private static final int MAX_QUERY_TOKENS = 12;
+    /**
+     * 有查询时最多扫多少行（上限保护）。
+     *
+     * <p>v5 起召回从"全 token AND"改成"OR"，候选集会明显变大，再不能像 v4 那样
+     * 先 `LIMIT 50` 再打分（那会把真正相关但排在第 51 行的块直接丢掉）。
+     * 个人库量级（几千条）下 5000 等于全量扫，这里只是防脏数据/异常库失控。</p>
+     */
+    private static final int MAX_SCAN_ROWS = 5000;
+    /** 查询 token 数量上限（OR 召回后放宽：旧 AND 语义下 12 已经是天花板） */
+    private static final int MAX_QUERY_TOKENS = 24;
+    /**
+     * 覆盖率门槛（2026-11-10）：命中 token 数 / 总 token 数 低于此值不返回。
+     *
+     * <p>OR 召回必然会带进来"只命中一个泛词"的行，靠这个门槛把它们挡在结果之外；
+     * 0.34 的取值含义：3 个 token 的查询至少命中 1 个、6 个 token 至少命中 2 个。</p>
+     */
+    private static final double MIN_COVERAGE = 0.34;
+    /** 检索慢查询告警阈值（记日志用，不改行为） */
+    private static final long SLOW_SEARCH_MS = 500;
     /** 无匹配位置时摘要截取长度 */
     private static final int SNIPPET_FALLBACK_CHARS = 120;
     /** 摘要命中点前后保留的字符数 */
@@ -88,18 +124,42 @@ public class KnowledgeBaseManager {
     private static final int SEMANTIC_CANDIDATES = 8;
     /** rerank 精排条数（对 embedding 重排后的前 N 条精排） */
     private static final int RERANK_TOP = 5;
-    /** embedding 重排整体超时（含 query + 全部候选向量化） */
-    private static final long EMBEDDING_TIMEOUT_MS = 20000;
+    /** embedding 重排整体超时（含 query + 全部候选向量化）。
+     *  v6 起从 20s 收到 4s：单条几百字的向量化正常在 1s 内完成，超过 4s 基本是服务不可用；
+     *  这条路径在工具检索的同步链上，等 20s 等于把"服务挂了"转嫁成"主 agent 卡 20 秒"。 */
+    private static final long EMBEDDING_TIMEOUT_MS = 4000;
     /** rerank 精排超时 */
     private static final long RERANK_TIMEOUT_MS = 10000;
     /** 向量化内容截断长度（防超长文档撑爆 token 限制） */
     private static final int EMBED_CONTENT_MAX = 300;
+
+    // ===== v6 本地向量召回（RAG）=====
+    /** 向量库元数据键：当前向量是用哪个模型算的；模型变了旧向量整批作废重建 */
+    private static final String META_EMBEDDING_MODEL = "embedding_model";
+    /** 一次回填最多处理多少块（后台分批，不阻塞写入与导入） */
+    private static final int EMBED_BACKFILL_BATCH = 24;
+    /** 全量回填最多跑多少批（4800 块；失败批会提前退出，不会无限重试） */
+    private static final int EMBED_MAX_ROUNDS = 200;
+    /** 语义召回的最低余弦（低于它视为无关，不靠向量把噪声灌进结果） */
+    private static final double SEMANTIC_MIN_COS = 0.30;
+    /** 语义召回候选倍数：limit × N 参与融合，保证向量独有命中能挤进最终榜 */
+    private static final int SEMANTIC_RECALL_FACTOR = 3;
+    /** RRF 融合常数：score = Σ 1/(K + rank)，越小头部越集中 */
+    private static final double RRF_K = 60.0;
+    /** 向量路连续失败多少次后停用 */
+    private static final int SEMANTIC_FAIL_THRESHOLD = 2;
+    /** 停用时长：期间静默走关键词（不报错、不等待超时、不再打 embedding 接口） */
+    private static final long SEMANTIC_COOLDOWN_MS = 10 * 60 * 1000L;
 
     private static volatile KnowledgeBaseManager instance;
     private final Context context;
     private volatile KnowledgeDbHelper dbHelper;
     /** 最近一次失败的原始原因（供工具层向用户/模型如实回报，避免"检索失败"被当成"没找到"） */
     private volatile String lastError;
+    /** 向量路连续失败次数（熔断用；成功一次即清零） */
+    private volatile int semanticFailStreak;
+    /** 向量路停用到什么时刻（毫秒时间戳）；期间静默只用关键词，不报错、不再等超时 */
+    private volatile long semanticCooldownUntil;
 
     /** 单个知识块（内部数据结构） */
     public static class KnowledgeChunk {
@@ -110,6 +170,10 @@ public class KnowledgeBaseManager {
         public String content;
         public String source;
         public long updatedAt;
+        /** 所属文档 id（kb_documents.doc_id）；0 = 手工单条知识，不属于任何文档 */
+        public long docId;
+        /** 在该文档内的块序号（从 1 开始）；0 = 非文档块 */
+        public int chunkSeq;
 
         public KnowledgeChunk() {
         }
@@ -156,6 +220,29 @@ public class KnowledgeBaseManager {
             // v3→v4 的数据重建**不放在 onUpgrade 里**：它跑在 SQLiteOpenHelper 的升级事务中，
             // 逐行 UPDATE 在单测实测会被外层事务吞掉（版本抬到 4、search_text 却没变）。
             // 改为开库后由 ensureSearchTextV4() 在独立事务里重建，见 getReadableDb()/getWritableDb()。
+            if (oldVersion < 5) {
+                // v4→v5：补文档层两列（表本身由上面的 createTables 建）
+                try {
+                    db.execSQL("ALTER TABLE kb_chunks ADD COLUMN doc_id INTEGER NOT NULL DEFAULT 0");
+                } catch (Exception e) {
+                    Log.i(TAG, "doc_id 列已存在或添加失败: " + e.getMessage());
+                }
+                try {
+                    db.execSQL("ALTER TABLE kb_chunks ADD COLUMN chunk_seq INTEGER NOT NULL DEFAULT 0");
+                } catch (Exception e) {
+                    Log.i(TAG, "chunk_seq 列已存在或添加失败: " + e.getMessage());
+                }
+                // 数据回填同样不放在这里，见 ensureDocumentsV5()
+            }
+            if (oldVersion < 6) {
+                // v5→v6：补本地向量列。数据（向量本身）不在这里算：
+                // 每条都要调在线 embedding，放进升级事务会让开库卡到几秒甚至超时
+                try {
+                    db.execSQL("ALTER TABLE kb_chunks ADD COLUMN embedding BLOB");
+                } catch (Exception e) {
+                    Log.i(TAG, "embedding 列已存在或添加失败: " + e.getMessage());
+                }
+            }
         }
 
         /**
@@ -200,12 +287,33 @@ public class KnowledgeBaseManager {
                     + "content TEXT NOT NULL,"
                     + "source TEXT NOT NULL DEFAULT '',"
                     + "search_text TEXT NOT NULL DEFAULT '',"
+                    + "doc_id INTEGER NOT NULL DEFAULT 0,"
+                    + "chunk_seq INTEGER NOT NULL DEFAULT 0,"
+                    + "embedding BLOB,"
+                    + "created_at INTEGER NOT NULL,"
+                    + "updated_at INTEGER NOT NULL"
+                    + ")");
+            // v5 文档层：一篇导入的文档一行，块通过 kb_chunks.doc_id 关联
+            // 为什么单独一张表：去重、整篇替换、溯源（"第几块"）都需要"文档"这个身份，
+            // 只靠 source 字符串约定要么每次现算全篇哈希、要么没法判断块序。
+            db.execSQL("CREATE TABLE IF NOT EXISTS kb_documents ("
+                    + "doc_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    + "title TEXT NOT NULL DEFAULT '',"
+                    + "category TEXT NOT NULL DEFAULT 'general',"
+                    + "source TEXT NOT NULL DEFAULT '',"
+                    + "doc_hash TEXT NOT NULL DEFAULT '',"
+                    + "chunk_count INTEGER NOT NULL DEFAULT 0,"
                     + "created_at INTEGER NOT NULL,"
                     + "updated_at INTEGER NOT NULL"
                     + ")");
             db.execSQL("CREATE TABLE IF NOT EXISTS kb_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL DEFAULT '')");
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_kb_chunks_category ON kb_chunks(category)");
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_kb_chunks_title ON kb_chunks(title)");
+            // v5 新增：去重/整篇删按 source 查、list 按 updated_at 排序、溯源自 doc_id
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_kb_chunks_source ON kb_chunks(source)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_kb_chunks_updated ON kb_chunks(updated_at)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_kb_chunks_doc ON kb_chunks(doc_id)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_kb_documents_source ON kb_documents(source)");
         }
     }
 
@@ -255,35 +363,109 @@ public class KnowledgeBaseManager {
     }
 
     private SQLiteDatabase getReadableDb() {
-        KnowledgeDbHelper helper = dbHelper;
-        if (helper == null) {
-            synchronized (this) {
-                if (dbHelper == null) {
-                    dbHelper = new KnowledgeDbHelper(context);
-                }
-                helper = dbHelper;
-            }
-        }
-        SQLiteDatabase db = helper.getReadableDatabase();
-        dropLegacyFtsIfPresent(db);
-        ensureSearchTextV4(db);
-        return db;
+        return openWithRecovery(false);
     }
 
     private SQLiteDatabase getWritableDb() {
-        KnowledgeDbHelper helper = dbHelper;
-        if (helper == null) {
-            synchronized (this) {
-                if (dbHelper == null) {
-                    dbHelper = new KnowledgeDbHelper(context);
+        return openWithRecovery(true);
+    }
+
+    /**
+     * 取库连接：一次损坏自愈 + 开库后迁移。
+     *
+     * <p>为什么要把这三件事绑在一起：`ensure*` 迁移必须在拿到的这个连接上跑，而损坏恢复又必须
+     * 在拿连接失败时介入。分散在调用方每个方法里既容易漏，也容易在恢复后还拿着旧 helper。</p>
+     */
+    private SQLiteDatabase openWithRecovery(boolean writable) {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                SQLiteDatabase db = writable
+                        ? ensureHelper().getWritableDatabase()
+                        : ensureHelper().getReadableDatabase();
+                dropLegacyFtsIfPresent(db);
+                ensureSearchTextV4(db);
+                ensureDocumentsV5(db);
+                return db;
+            } catch (SQLiteException e) {
+                if (attempt == 0 && isCorruption(e)) {
+                    recoverCorruptedDatabase(e);
+                    continue;   // 重建后再开一次
                 }
-                helper = dbHelper;
+                throw e;
             }
         }
-        SQLiteDatabase db = helper.getWritableDatabase();
-        dropLegacyFtsIfPresent(db);
-        ensureSearchTextV4(db);
-        return db;
+        throw new IllegalStateException("知识库数据库不可用（重建后仍打不开）");
+    }
+
+    /** 懒建/复用 helper（单例字段可能被损坏恢复清空） */
+    private KnowledgeDbHelper ensureHelper() {
+        KnowledgeDbHelper helper = dbHelper;
+        if (helper != null) {
+            return helper;
+        }
+        synchronized (this) {
+            if (dbHelper == null) {
+                dbHelper = new KnowledgeDbHelper(context);
+            }
+            return dbHelper;
+        }
+    }
+
+    /**
+     * 判断"这次开库失败是不是库文件坏了"。
+     *
+     * <p>只认明确的损坏信号：把普通的 SQL 错误也当损坏去重建库，等于用"丢光用户数据"来掩盖一个 bug。</p>
+     */
+    private static boolean isCorruption(SQLiteException e) {
+        if (e instanceof SQLiteDatabaseCorruptException) {
+            return true;
+        }
+        String msg = e.getMessage();
+        if (msg == null) {
+            return false;
+        }
+        String lower = msg.toLowerCase(Locale.ROOT);
+        return lower.contains("malformed")
+                || lower.contains("not a database")
+                || lower.contains("sqlite_corrupt")
+                || lower.contains("database disk image is malformed");
+    }
+
+    /**
+     * 损坏自愈（2026-11-10）：把坏库文件**改名留档**（不删），再建一个空库。
+     *
+     * <p>补的是"坏一次就永久废掉"的死路：此前库文件损坏后每次调用都抛
+     * {@code SQLiteDatabaseCorruptException}，用户只能清数据——把唯一资产一起清掉。
+     * 现在原文件仍在 {@code knowledge_base.db.corrupted-<时间戳>}，还能按需抢救/上报排查。</p>
+     */
+    private void recoverCorruptedDatabase(SQLiteException cause) {
+        String stamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(new Date());
+        Log.e(TAG, "knowledge_base.db 疑似损坏（" + cause.getMessage() + "），改名留档后重建空库");
+        try {
+            if (dbHelper != null) {
+                dbHelper.close();
+            }
+        } catch (Throwable ignored) {
+            // 连接本身可能已经坏掉，关不掉不影响后续改名
+        }
+        dbHelper = null;
+        File dbFile = context.getDatabasePath(DB_NAME);
+        File dir = dbFile.getParentFile();
+        for (String suffix : new String[]{"", "-wal", "-shm"}) {
+            File from = new File(dir, DB_NAME + suffix);
+            if (!from.exists()) {
+                continue;
+            }
+            File to = new File(dir, DB_NAME + suffix + ".corrupted-" + stamp);
+            if (!from.renameTo(to)) {
+                Log.w(TAG, "损坏库留档失败（继续重建）: " + from.getName());
+            }
+        }
+        lastError = "知识库数据库损坏，已重建空库；原文件保留为 " + DB_NAME + ".corrupted-" + stamp
+                + "（如需抢救可从导出备份 import 回来）";
+        synchronized (this) {
+            dbHelper = new KnowledgeDbHelper(context);
+        }
     }
 
     /**
@@ -328,6 +510,228 @@ public class KnowledgeBaseManager {
     }
 
     private volatile boolean searchTextV4Checked = false;
+
+    /** 文档层回填只跑一次的进程内标记（库内另有 kb_meta.documents_version 兜住跨进程） */
+    private volatile boolean documentsV5Checked = false;
+
+    /**
+     * v5 数据回填（2026-11-10）：把 v4 时代的"一堆平块"聚合成"文档 + 块"。
+     *
+     * <p>回填口径：{@code source} 相同且非空的块归为一篇文档，块序按 id 升序编号；
+     * {@code source} 为空的（手工 {@code add} 的单条知识）保持 {@code doc_id=0}，不属于任何文档。</p>
+     *
+     * <p>内存：**一次只装一篇**（几十块），不是一次性把全表读进内存——v4 的 search_text 回填就是
+     * 全表进 List，万块级峰值 30MB，那是有 OOM 风险的写法，这里不再复制。</p>
+     */
+    private void ensureDocumentsV5(SQLiteDatabase db) {
+        if (documentsV5Checked || db == null) {
+            return;
+        }
+        synchronized (this) {
+            if (documentsV5Checked) {
+                return;
+            }
+            documentsV5Checked = true;
+            try {
+                if (metaInt(db, "documents_version") >= 5) {
+                    return;
+                }
+                int docs = rebuildDocuments(db);
+                db.execSQL("INSERT OR REPLACE INTO kb_meta(k, v) VALUES('documents_version', '5')");
+                Log.i(TAG, "文档层 v5 回填完成: " + docs + " 篇");
+            } catch (Throwable t) {
+                // 回填失败不该让整个知识库不可用：块还在，只是没有文档身份（去重会回退到现算哈希）
+                Log.w(TAG, "ensureDocumentsV5 失败: " + t.getMessage());
+            }
+        }
+    }
+
+    /** 按 source 聚合既有块、建文档记录并回写 doc_id/chunk_seq，返回构建的文档数 */
+    private int rebuildDocuments(SQLiteDatabase db) {
+        List<String> sources = new ArrayList<>();
+        Cursor cursor = null;
+        try {
+            cursor = db.rawQuery("SELECT source FROM kb_chunks WHERE source <> '' GROUP BY source", null);
+            while (cursor.moveToNext()) {
+                String s = cursor.getString(0);
+                if (s != null && !s.trim().isEmpty()) {
+                    sources.add(s);
+                }
+            }
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        if (sources.isEmpty()) {
+            return 0;
+        }
+        int docs = 0;
+        db.beginTransaction();
+        try {
+            for (String source : sources) {
+                List<Object[]> rows = new ArrayList<>();
+                StringBuilder sb = new StringBuilder();
+                String title = "";
+                String category = "general";
+                long created = 0;
+                long updated = 0;
+                cursor = db.rawQuery("SELECT id, title, category, content, created_at, updated_at"
+                        + " FROM kb_chunks WHERE source = ? ORDER BY id", new String[]{source});
+                try {
+                    while (cursor.moveToNext()) {
+                        long id = cursor.getLong(0);
+                        if (rows.isEmpty()) {
+                            title = safe(cursor.getString(1));
+                            category = safe(cursor.getString(2));
+                            created = cursor.getLong(4);
+                        }
+                        sb.append(safe(cursor.getString(3))).append('\n');
+                        updated = Math.max(updated, cursor.getLong(5));
+                        rows.add(new Object[]{id});
+                    }
+                } finally {
+                    cursor.close();
+                    cursor = null;
+                }
+                if (rows.isEmpty()) {
+                    continue;
+                }
+                long docId = upsertDocument(db, title, category, source, md5(sb.toString()),
+                        rows.size(), created, updated);
+                for (int i = 0; i < rows.size(); i++) {
+                    db.execSQL("UPDATE kb_chunks SET doc_id = ?, chunk_seq = ? WHERE id = ?",
+                            new Object[]{docId, i + 1, rows.get(i)[0]});
+                }
+                docs++;
+            }
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+        }
+        return docs;
+    }
+
+    /** 读库内迁移标记（读不到/非法按 0 处理） */
+    private static int metaInt(SQLiteDatabase db, String key) {
+        Cursor cursor = null;
+        try {
+            cursor = db.rawQuery("SELECT v FROM kb_meta WHERE k = ?", new String[]{key});
+            if (cursor.moveToFirst()) {
+                return (int) Long.parseLong(cursor.getString(0));
+            }
+        } catch (Throwable ignored) {
+            // 老库没有 kb_meta 表：当作未迁移
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        return 0;
+    }
+
+    /** 某篇文档的现状（去重只看这两项：哈希 + 块数） */
+    private static final class DocState {
+        long docId;
+        int count;
+        String hash = "";
+    }
+
+    /** 按 source 取文档记录（去重的主路径：O(1) 读 doc_hash，不再现算全篇） */
+    private DocState findDocument(String source) {
+        DocState state = new DocState();
+        if (source == null || source.trim().isEmpty()) {
+            return state;
+        }
+        Cursor cursor = null;
+        try {
+            SQLiteDatabase db = getReadableDb();
+            cursor = db.rawQuery("SELECT doc_id, doc_hash, chunk_count FROM kb_documents"
+                    + " WHERE source = ? ORDER BY doc_id DESC LIMIT 1", new String[]{source.trim()});
+            if (cursor.moveToFirst()) {
+                state.docId = cursor.getLong(0);
+                state.hash = safe(cursor.getString(1));
+                state.count = cursor.getInt(2);
+            }
+        } catch (Exception e) {
+            // 查不出来不该阻断导入：退化成"当作没导过"，由调用方走旧口径现算
+            Log.w(TAG, "findDocument 失败: " + e.getMessage());
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        return state;
+    }
+
+    /** 插入或更新一篇文档记录，返回 doc_id */
+    private static long upsertDocument(SQLiteDatabase db, String title, String category, String source,
+                                       String hash, int chunkCount, long created, long updated) {
+        ContentValues values = new ContentValues();
+        values.put("title", title);
+        values.put("category", (category == null || category.trim().isEmpty()) ? "general" : category);
+        values.put("source", source);
+        values.put("doc_hash", hash);
+        values.put("chunk_count", chunkCount);
+        values.put("updated_at", updated == 0 ? System.currentTimeMillis() : updated);
+        Cursor cursor = db.rawQuery("SELECT doc_id FROM kb_documents WHERE source = ? LIMIT 1",
+                new String[]{source});
+        long docId = 0;
+        try {
+            if (cursor.moveToFirst()) {
+                docId = cursor.getLong(0);
+            }
+        } finally {
+            cursor.close();
+        }
+        if (docId > 0) {
+            db.update("kb_documents", values, "doc_id = ?", new String[]{String.valueOf(docId)});
+            return docId;
+        }
+        values.put("created_at", created == 0 ? System.currentTimeMillis() : created);
+        return db.insertOrThrow("kb_documents", null, values);
+    }
+
+    /**
+     * 重算某篇文档的哈希与块数（块被改动/删除后调用）。
+     *
+     * <p>为什么要重算而不是只维护计数：{@code doc_hash} 是去重的唯一依据，
+     * 只改计数会让"内容变了却仍被判为没变"，下次导入被错误跳过。</p>
+     */
+    private void refreshDocument(long docId) {
+        if (docId <= 0) {
+            return;
+        }
+        Cursor cursor = null;
+        try {
+            SQLiteDatabase db = getWritableDb();
+            cursor = db.rawQuery("SELECT content FROM kb_chunks WHERE doc_id = ? ORDER BY chunk_seq, id",
+                    new String[]{String.valueOf(docId)});
+            StringBuilder sb = new StringBuilder();
+            int count = 0;
+            while (cursor.moveToNext()) {
+                count++;
+                sb.append(safe(cursor.getString(0))).append('\n');
+            }
+            cursor.close();
+            cursor = null;
+            if (count == 0) {
+                db.delete("kb_documents", "doc_id = ?", new String[]{String.valueOf(docId)});
+                return;
+            }
+            ContentValues values = new ContentValues();
+            values.put("doc_hash", md5(sb.toString()));
+            values.put("chunk_count", count);
+            values.put("updated_at", System.currentTimeMillis());
+            db.update("kb_documents", values, "doc_id = ?", new String[]{String.valueOf(docId)});
+        } catch (Exception e) {
+            Log.w(TAG, "refreshDocument 失败: " + e.getMessage());
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+    }
 
     /**
      * 清理历史版本的 FTS 虚拟表（v1=FTS5 / v2=FTS4）。v3 起检索不再依赖 FTS。
@@ -400,11 +804,18 @@ public class KnowledgeBaseManager {
      */
     public JSONArray search(String query, String category, String tag, int topK, boolean semanticRerank) {
         int limit = (topK <= 0) ? DEFAULT_TOP_K : Math.min(topK, MAX_TOP_K);
-        JSONArray results = searchInternal(query, category, tag, limit);
         boolean hasQuery = query != null && !query.trim().isEmpty();
-        // 语义重排含网络调用（最长 20s+10s），放在锁外执行，避免长时间阻塞其他知识库操作
-        if (hasQuery && semanticRerank) {
-            results = applySemanticRerank(results, query, limit);
+        JSONArray results;
+        if (hasQuery && semanticRerank && semanticHealthy() && countEmbeddings(category) > 0) {
+            // v6：本地已有向量 → 关键词 + 向量两路召回，RRF 融合（能捞回关键词没命中的同义问法）
+            results = hybridSearch(query, category, tag, limit);
+        } else {
+            // 向量还没回填（或显式没配模型）→ 保持 v5 行为：
+            // 先关键词召回；semanticRerank=true 时再做旧的"在线 embedding 重排"（只重排、不扩召回）
+            results = searchInternal(query, category, tag, limit);
+            if (hasQuery && semanticRerank) {
+                results = applySemanticRerank(results, query, limit);
+            }
         }
         return results;
     }
@@ -420,7 +831,7 @@ public class KnowledgeBaseManager {
      * @param limit    条数上限（<=0 用 20，最大 100）
      */
     public synchronized JSONArray listMeta(String category, int limit) {
-        return listMeta(category, null, limit);
+        return listMeta(category, null, limit, 0);
     }
 
     /**
@@ -430,8 +841,21 @@ public class KnowledgeBaseManager {
      * @param tag 标签/别名（对 keywords 整词匹配）；空=不过滤
      */
     public synchronized JSONArray listMeta(String category, String tag, int limit) {
+        return listMeta(category, tag, limit, 0);
+    }
+
+    /**
+     * 轻量索引（v5 补分页）：多了 {@code offset}，解决"超过 100 条就再也看不到"的问题。
+     *
+     * <p>翻页口径是 {@code ORDER BY updated_at DESC, id DESC}：批量导入的块 {@code updated_at} 完全相同，
+     * 只按时间排序时翻页会重复/漏行，加 id 兜底让顺序稳定。</p>
+     *
+     * @param offset 跳过前 N 条（>=0）；配合工具层的 {@code list(offset=…)} 做翻页
+     */
+    public synchronized JSONArray listMeta(String category, String tag, int limit, int offset) {
         lastError = null;
         int cap = limit <= 0 ? 20 : Math.min(limit, 100);
+        int skip = Math.max(offset, 0);
         JSONArray out = new JSONArray();
         Cursor cursor = null;
         try {
@@ -449,10 +873,12 @@ public class KnowledgeBaseManager {
                 where.append(tagClause());
                 args.add("%," + normalizeTag(tag) + ",%");
             }
-            String sql = "SELECT id, title, category, keywords, source, updated_at FROM kb_chunks"
+            String sql = "SELECT id, title, category, keywords, source, updated_at, doc_id, chunk_seq"
+                    + " FROM kb_chunks"
                     + (where.length() > 0 ? " WHERE " + where : "")
-                    + " ORDER BY updated_at DESC LIMIT ?";
+                    + " ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?";
             args.add(String.valueOf(cap));
+            args.add(String.valueOf(skip));
             cursor = db.rawQuery(sql, args.toArray(new String[0]));
             while (cursor.moveToNext()) {
                 JSONObject item = new JSONObject();
@@ -462,6 +888,8 @@ public class KnowledgeBaseManager {
                 item.put("keywords", safe(cursor.getString(3)));
                 item.put("source", safe(cursor.getString(4)));
                 item.put("updated_at", cursor.getLong(5));
+                item.put("doc_id", cursor.getLong(6));
+                item.put("chunk_seq", cursor.getInt(7));
                 out.put(item);
             }
         } catch (Exception e) {
@@ -488,7 +916,7 @@ public class KnowledgeBaseManager {
         Cursor cursor = null;
         try {
             SQLiteDatabase db = getReadableDb();
-            cursor = db.rawQuery("SELECT id, title, category, keywords, source, updated_at, content "
+            cursor = db.rawQuery("SELECT id, title, category, keywords, source, updated_at, content, doc_id, chunk_seq "
                     + "FROM kb_chunks WHERE id = ?", new String[]{String.valueOf(id)});
             if (!cursor.moveToFirst()) {
                 lastError = "未找到 id=" + id + " 的知识";
@@ -502,6 +930,8 @@ public class KnowledgeBaseManager {
             item.put("source", safe(cursor.getString(4)));
             item.put("updated_at", cursor.getLong(5));
             item.put("content", safe(cursor.getString(6)));
+            item.put("doc_id", cursor.getLong(7));
+            item.put("chunk_seq", cursor.getInt(8));
             return item;
         } catch (Exception e) {
             lastError = "读取知识失败: " + e.getMessage();
@@ -535,7 +965,7 @@ public class KnowledgeBaseManager {
                 lastError = "精确检索需要 id 或 exact_title";
                 return out;
             }
-            cursor = db.rawQuery("SELECT id, title, category, keywords, source, updated_at, content "
+            cursor = db.rawQuery("SELECT id, title, category, keywords, source, updated_at, content, doc_id, chunk_seq "
                             + "FROM kb_chunks WHERE title = ? ORDER BY updated_at DESC LIMIT ?",
                     new String[]{exactTitle.trim(), String.valueOf(cap)});
             while (cursor.moveToNext()) {
@@ -547,6 +977,8 @@ public class KnowledgeBaseManager {
                 item.put("source", safe(cursor.getString(4)));
                 item.put("updated_at", cursor.getLong(5));
                 item.put("content", safe(cursor.getString(6)));
+                item.put("doc_id", cursor.getLong(7));
+                item.put("chunk_seq", cursor.getInt(8));
                 out.put(item);
             }
         } catch (Exception e) {
@@ -580,11 +1012,25 @@ public class KnowledgeBaseManager {
                 .replace(" ", "").replace("　", "").replace("，", ",");
     }
 
-    /** 关键词检索主体（同步、持锁）：LIKE 召回 → Java 侧打分为相关度排序 → 取前 limit 条 */
+    /**
+     * 关键词检索主体（同步、持锁）。
+     *
+     * <p>v5（2026-11-10）改了两件事，都是为了修"整句查询恒 0 命中"：</p>
+     * <ol>
+     *   <li><b>召回从 AND 改成 OR</b>：旧版每个 token 都拼 {@code AND}，而 token 是跨词边界的
+     *       bigram（"光气泄漏怎么处理" 切出 漏怎/么处，任何文档里都不存在），只要有一个 token
+     *       匹配不上就整条归零。改成 OR 之后召回变宽，精度交给下面的覆盖率门槛。</li>
+     *   <li><b>不再先 {@code LIMIT} 再打分</b>：旧版 {@code ORDER BY updated_at DESC LIMIT max(limit*10,50)}，
+     *       命中集一大就只剩最近 50 行参与排序（批量导入时间戳全相同，实际取的是最早那批）。
+     *       现在扫全部命中行（上限 {@link #MAX_SCAN_ROWS}），Java 侧按
+     *       "覆盖率 → 词频分 → 更新时间"排序，最后只为入选的 limit 条回表取正文。</li>
+     * </ol>
+     */
     private synchronized JSONArray searchInternal(String query, String category, String tag, int limit) {
         lastError = null;
         JSONArray results = new JSONArray();
         Cursor cursor = null;
+        long startedAt = System.currentTimeMillis();
         boolean hasQuery = query != null && !query.trim().isEmpty();
         boolean hasCategory = category != null && !category.trim().isEmpty();
         boolean hasTag = tag != null && !tag.trim().isEmpty();
@@ -598,19 +1044,26 @@ public class KnowledgeBaseManager {
 
             StringBuilder where = new StringBuilder();
             List<String> args = new ArrayList<>();
-            for (String token : tokens) {
-                if (where.length() > 0) {
-                    where.append(" AND ");
+
+            if (hasQuery) {
+                // OR 召回：命中任意一个 token 都进候选，精度由覆盖率门槛 + 排序保证
+                where.append('(');
+                for (int i = 0; i < tokens.size(); i++) {
+                    if (i > 0) {
+                        where.append(" OR ");
+                    }
+                    // bigram 用"空格边界"整 token 匹配：不然 "光合" 会匹配到 "光合作" 里的子串；
+                    // 单字查询没有边界可言，退回包含匹配（否则单字永远查不到）
+                    String token = tokens.get(i);
+                    if (token.length() >= 2) {
+                        where.append("(' ' || search_text || ' ') LIKE ?");
+                        args.add("% " + token + " %");
+                    } else {
+                        where.append("search_text LIKE ?");
+                        args.add("%" + token + "%");
+                    }
                 }
-                // bigram 用"空格边界"整 token 匹配：不然 "光合" 会匹配到 "光合作" 里的子串；
-                // 单字查询没有边界可言，退回包含匹配（否则单字永远查不到）
-                if (token.length() >= 2) {
-                    where.append("(' ' || search_text || ' ') LIKE ?");
-                    args.add("% " + token + " %");
-                } else {
-                    where.append("search_text LIKE ?");
-                    args.add("%" + token + "%");
-                }
+                where.append(')');
             }
             if (hasCategory) {
                 if (where.length() > 0) {
@@ -626,59 +1079,123 @@ public class KnowledgeBaseManager {
                 where.append(tagClause());
                 args.add("%," + normalizeTag(tag) + ",%");
             }
-            // 有查询时多取候选用于打分排序；无查询时直接取 limit 条
-            int fetchLimit = hasQuery
-                    ? Math.min(MAX_CANDIDATES, Math.max(limit * 10, 50))
-                    : limit;
-            String sql = "SELECT id, title, category, keywords, source, updated_at, content FROM kb_chunks"
-                    + (where.length() > 0 ? " WHERE " + where : "")
-                    + " ORDER BY updated_at DESC LIMIT ?";
-            args.add(String.valueOf(fetchLimit));
+            if (!hasCategory) {
+                // 分类隔离（2026-11-10 下推到 SQL）：不传 category 的检索默认排除系统工具定义库 tool_defs。
+                // v4 时这层过滤在工具层 Java 侧、且发生在 top_k 截断**之后**——每轮召回会被工具定义
+                // 白占名额（召 8 条有 5 条是工具用法，用户资料被挤掉）。放到 WHERE 里，命中集一开始就干净。
+                // 需要工具定义时显式传 category="tool_defs"（OnlineToolManager 就是这么调的）。
+                if (where.length() > 0) {
+                    where.append(" AND ");
+                }
+                where.append("category <> 'tool_defs'");
+            }
 
-            List<JSONObject> items = new ArrayList<>();
+            // 无查询词（只按分类/标签列）：保持原行为——直接按更新时间取 limit 条
+            if (!hasQuery) {
+                String sql = "SELECT id, title, category, keywords, source, updated_at, content, doc_id, chunk_seq"
+                        + " FROM kb_chunks"
+                        + (where.length() > 0 ? " WHERE " + where : "")
+                        + " ORDER BY updated_at DESC LIMIT ?";
+                args.add(String.valueOf(limit));
+                cursor = db.rawQuery(sql, args.toArray(new String[0]));
+                while (cursor.moveToNext()) {
+                    results.put(rowFromCursor(cursor, tokens, 0, 0));
+                }
+                return results;
+            }
+
+            // ===== 第一遍：扫全部命中行，只算覆盖率/分数，不驻留正文 =====
+            // 候选行数可能上千，把每行正文都建成 JSONObject 会白白吃内存；
+            // 这里只留 id + 分数，等排序选出 limit 条再回表取正文。
+            String scanSql = "SELECT id, title, category, keywords, content, updated_at FROM kb_chunks WHERE "
+                    + where + " LIMIT ?";
+            args.add(String.valueOf(MAX_SCAN_ROWS));
+
+            List<Long> ids = new ArrayList<>();
+            List<Long> updateds = new ArrayList<>();
             List<Integer> scores = new ArrayList<>();
-            cursor = db.rawQuery(sql, args.toArray(new String[0]));
+            List<Double> coverages = new ArrayList<>();
+            int scanned = 0;
+            cursor = db.rawQuery(scanSql, args.toArray(new String[0]));
             while (cursor.moveToNext()) {
-                JSONObject item = new JSONObject();
+                scanned++;
                 String title = cursor.getString(1) == null ? "" : cursor.getString(1);
                 String cat = cursor.getString(2) == null ? "" : cursor.getString(2);
                 String keywords = cursor.getString(3) == null ? "" : cursor.getString(3);
-                String content = cursor.getString(6) == null ? "" : cursor.getString(6);
-                item.put("id", cursor.getLong(0));
-                item.put("title", title);
-                item.put("category", cat);
-                item.put("keywords", keywords);
-                item.put("source", cursor.getString(4) == null ? "" : cursor.getString(4));
-                item.put("updated_at", cursor.getLong(5));
-                item.put("content", content);
-                item.put("snippet", buildSnippet(content, tokens));
-                int score = scoreOf(tokens, title, cat, keywords, content);
-                item.put("score", score);
-                items.add(item);
-                scores.add(score);
+                String content = cursor.getString(4) == null ? "" : cursor.getString(4);
+                RowScore rs = scoreRow(tokens, title, cat, keywords, content);
+                ids.add(cursor.getLong(0));
+                updateds.add(cursor.getLong(5));
+                scores.add(rs.score);
+                coverages.add(rs.coverage);
+            }
+            cursor.close();
+            cursor = null;
+
+            if (scanned >= MAX_SCAN_ROWS) {
+                Log.w(TAG, "检索命中行数触顶 " + MAX_SCAN_ROWS + "，超出部分未参与排序（query=" + query + "）");
             }
 
-            // 相关度降序 + 同分按更新时间降序（Java 侧稳定排序，替代原来仅按时间排序）
-            if (hasQuery && items.size() > 1) {
-                Integer[] order = new Integer[items.size()];
-                for (int i = 0; i < order.length; i++) {
-                    order[i] = i;
+            // 排序键：覆盖率（越高越相关）→ 词频分 → 更新时间
+            Integer[] order = new Integer[ids.size()];
+            for (int i = 0; i < order.length; i++) {
+                order[i] = i;
+            }
+            Arrays.sort(order, (a, b) -> {
+                int cmp = Double.compare(coverages.get(b), coverages.get(a));
+                if (cmp != 0) {
+                    return cmp;
                 }
-                Arrays.sort(order, (a, b) -> {
-                    int cmp = Integer.compare(scores.get(b), scores.get(a));
-                    if (cmp != 0) {
-                        return cmp;
-                    }
-                    long ta = items.get(a).optLong("updated_at", 0);
-                    long tb = items.get(b).optLong("updated_at", 0);
-                    return Long.compare(tb, ta);
-                });
-                for (int i = 0; i < order.length && i < limit; i++) {
-                    results.put(items.get(order[i]));
+                cmp = Integer.compare(scores.get(b), scores.get(a));
+                if (cmp != 0) {
+                    return cmp;
                 }
-            } else {
-                for (int i = 0; i < items.size() && i < limit; i++) {
-                    results.put(items.get(i));
+                return Long.compare(updateds.get(b), updateds.get(a));
+            });
+
+            // 覆盖率门槛：OR 召回带进来的泛词行在这里被挡掉
+            List<Long> topIds = new ArrayList<>();
+            Map<Long, Integer> scoreById = new LinkedHashMap<>();
+            Map<Long, Double> coverageById = new LinkedHashMap<>();
+            for (int idx : order) {
+                if (coverages.get(idx) < MIN_COVERAGE) {
+                    break;   // 已按覆盖率降序，后面的只会更低
+                }
+                topIds.add(ids.get(idx));
+                scoreById.put(ids.get(idx), scores.get(idx));
+                coverageById.put(ids.get(idx), coverages.get(idx));
+                if (topIds.size() >= limit) {
+                    break;
+                }
+            }
+            if (topIds.isEmpty()) {
+                return results;
+            }
+
+            // ===== 第二遍：只为入选的 limit 条回表取正文（顺序按排名还原） =====
+            StringBuilder in = new StringBuilder("id IN (");
+            List<String> idArgs = new ArrayList<>();
+            for (int i = 0; i < topIds.size(); i++) {
+                if (i > 0) {
+                    in.append(',');
+                }
+                in.append('?');
+                idArgs.add(String.valueOf(topIds.get(i)));
+            }
+            in.append(')');
+            cursor = db.rawQuery("SELECT id, title, category, keywords, source, updated_at, content, doc_id, chunk_seq "
+                    + "FROM kb_chunks WHERE " + in, idArgs.toArray(new String[0]));
+            Map<Long, JSONObject> fetched = new LinkedHashMap<>();
+            while (cursor.moveToNext()) {
+                JSONObject row = rowFromCursor(cursor, tokens,
+                        scoreById.containsKey(cursor.getLong(0)) ? scoreById.get(cursor.getLong(0)) : 0,
+                        coverageById.containsKey(cursor.getLong(0)) ? coverageById.get(cursor.getLong(0)) : 0);
+                fetched.put(cursor.getLong(0), row);
+            }
+            for (Long id : topIds) {
+                JSONObject row = fetched.get(id);
+                if (row != null) {
+                    results.put(row);
                 }
             }
         } catch (Exception e) {
@@ -688,33 +1205,70 @@ public class KnowledgeBaseManager {
             if (cursor != null) {
                 cursor.close();
             }
+            long cost = System.currentTimeMillis() - startedAt;
+            if (cost >= SLOW_SEARCH_MS) {
+                Log.w(TAG, "检索耗时 " + cost + "ms（tokens=" + tokens.size() + "），已接近全表扫描成本上限");
+            }
         }
         return results;
+    }
+
+    /** 把游标当前行转成结果 JSON（带 snippet / score / coverage） */
+    private static JSONObject rowFromCursor(Cursor cursor, List<String> tokens, int score, double coverage)
+            throws JSONException {
+        JSONObject item = new JSONObject();
+        String content = cursor.getString(6) == null ? "" : cursor.getString(6);
+        item.put("id", cursor.getLong(0));
+        item.put("title", cursor.getString(1) == null ? "" : cursor.getString(1));
+        item.put("category", cursor.getString(2) == null ? "" : cursor.getString(2));
+        item.put("keywords", cursor.getString(3) == null ? "" : cursor.getString(3));
+        item.put("source", cursor.getString(4) == null ? "" : cursor.getString(4));
+        item.put("updated_at", cursor.getLong(5));
+        item.put("content", content);
+        item.put("snippet", buildSnippet(content, tokens));
+        item.put("score", score);
+        item.put("coverage", Math.round(coverage * 100) / 100.0);
+        // 溯源（v5）：doc_id + chunk_seq 合起来能说"这是某篇文档的第几块"；
+        // doc_id=0 是手工单条知识，没有块序
+        item.put("doc_id", cursor.getLong(7));
+        item.put("chunk_seq", cursor.getInt(8));
+        return item;
     }
 
     /**
      * 相关度打分：标题/分类/关键词命中权重 3，正文命中权重 1。
      * 每个 token 只计一次（SQL 已保证每个 token 至少在某处命中，因此得分恒 > 0）。
      */
+    /** 单行打分结果：词频分 + 覆盖率（覆盖率是 v5 新增的主排序键） */
+    private static final class RowScore {
+        int score;
+        double coverage;
+    }
+
     /**
-     * 相关度打分（v4，BM25 近似）：词频取对数 + 字段权重 + 正文长度归一。
+     * 相关度打分（v4 词频 + v5 覆盖率）：词频取对数 + 字段权重 + 正文长度归一，同时统计覆盖率。
      *
-     * <p>v3 是"命中即 3 分 / 1 分"的粗打分，长文档里出现一次也算命中，排不出相关度。
-     * 这里对每个 token 统计在标题/分类/关键词（权重 3）与正文（权重 1）里的出现次数，
-     * 用 {@code 1 + log(1+tf)} 压长尾，再按正文长度做轻度归一（短文档同分更靠前）。</p>
+     * <p>为什么要把覆盖率拉进来：v4 是"全 token AND"，进到打分阶段的行必然**全部** token 命中，
+     * 覆盖率恒等于 1，排序只剩"谁重复得多、谁更短"——那套 BM25 近似其实没起作用。
+     * v5 改成 OR 召回后，覆盖率高才是"真的讲的是这件事"，这才是主排序键；词频分降为同覆盖率下的次序。</p>
      */
-    private static int scoreOf(List<String> tokens, String title, String category,
-                               String keywords, String content) {
+    private static RowScore scoreRow(List<String> tokens, String title, String category,
+                                     String keywords, String content) {
+        RowScore out = new RowScore();
         if (tokens == null || tokens.isEmpty()) {
-            return 0;
+            return out;
         }
         String head = ((title == null ? "" : title) + " " + (category == null ? "" : category)
                 + " " + (keywords == null ? "" : keywords)).toLowerCase(Locale.ROOT);
         String body = content == null ? "" : content.toLowerCase(Locale.ROOT);
         double raw = 0;
+        int hits = 0;
         for (String token : tokens) {
             int tfHead = countOccurrences(head, token);
             int tfBody = countOccurrences(body, token);
+            if (tfHead > 0 || tfBody > 0) {
+                hits++;
+            }
             if (tfHead > 0) {
                 raw += 3.0 * (1.0 + Math.log(1.0 + tfHead));
             }
@@ -722,12 +1276,13 @@ public class KnowledgeBaseManager {
                 raw += 1.0 * (1.0 + Math.log(1.0 + tfBody));
             }
         }
-        if (raw <= 0) {
-            return 0;
+        out.coverage = (double) hits / tokens.size();
+        if (raw > 0) {
+            // 长度归一：1200 字以内的文档基本不惩罚，长文档轻微降权（BM25 的 b 项近似）
+            double norm = 1.0 / (1.0 + body.length() / 1200.0);
+            out.score = (int) Math.round(raw * norm * 10);
         }
-        // 长度归一：1200 字以内的文档基本不惩罚，长文档轻微降权（BM25 的 b 项近似）
-        double norm = 1.0 / (1.0 + body.length() / 1200.0);
-        return (int) Math.round(raw * norm * 10);
+        return out;
     }
 
     /** 子串出现次数（token 已小写；用于词频，不区分大小写） */
@@ -746,7 +1301,54 @@ public class KnowledgeBaseManager {
 
     /** 查询分词：短横线/标点剥离，英文数字按词、中文按相邻两字（bigram），去重并限制数量 */
     private static final Pattern TOKEN_PATTERN = Pattern.compile("[a-z0-9]+|[\\u4e00-\\u9fff]+");
+    /** 非词字符（标点/空白/符号）：先把整句切成"语义段"，段内才切 bigram */
+    private static final Pattern QUERY_BREAK = Pattern.compile("[^a-z0-9\\u4e00-\\u9fff]+");
 
+    /**
+     * 查询切分点（2026-11-10，v5）：中文虚词/疑问词，当作**段边界**而不是 token。
+     *
+     * <p>为什么必须切：入库侧和查询侧的 bigram 都是在"无标点的连续中文段"内按相邻两字生成的，
+     * 所以「光气泄漏怎么处理」会切出 {@code 漏怎}、{@code 么处} 这种**任何文档里都不存在**的
+     * token（它们跨越了词边界）。v4 又把这些 token 全 AND 起来，于是整句查询基本恒 0 命中。</p>
+     *
+     * <p>这里只收**双字以上**的虚词：单字虚词（在/和/有/为）不能当分隔符，否则"在线/和平/有机"
+     * 这类实词会被切坏；单字虚词改在 token 生成后剔除（见 {@link #STOP_CHARS}）。</p>
+     */
+    private static final String[] QUERY_STOPWORDS = {
+            "为什么", "怎么样", "怎么办", "什么样", "能不能", "有没有", "可不可以", "是什么", "有什么",
+            "怎么", "怎样", "什么", "为何", "如何", "哪些", "哪个", "哪里", "是否", "多少",
+            "可以", "需要", "应该", "请问", "帮我", "麻烦", "告诉", "说明", "介绍",
+            "一下", "这个", "那个", "这些", "那些", "我们", "你们", "他们",
+            "以及", "还有", "或者", "但是", "因为", "所以", "如果", "那么", "然后",
+            "时候", "关于", "有关", "里面", "中的",
+    };
+
+    /** 按长度降序拼成"或"式正则，长的先切（否则"怎么样"会被"怎么"先啃掉一半） */
+    private static final Pattern QUERY_STOPWORD_PATTERN = buildStopwordPattern();
+
+    /** 单独成词时要剔除的单字虚词（它们从不单独检索，留着只会稀释覆盖率） */
+    private static final String STOP_CHARS = "的了是吗呢吧啊嗯和与及或而但就都也还很要把被给对从到这那我你他它有";
+
+    private static Pattern buildStopwordPattern() {
+        String[] sorted = QUERY_STOPWORDS.clone();
+        Arrays.sort(sorted, (a, b) -> Integer.compare(b.length(), a.length()));
+        StringBuilder sb = new StringBuilder();
+        for (String word : sorted) {
+            if (sb.length() > 0) {
+                sb.append('|');
+            }
+            sb.append(Pattern.quote(word));
+        }
+        return Pattern.compile(sb.toString());
+    }
+
+    /**
+     * 查询分词（v5，2026-11-10）：先按标点/空白/虚词把整句切成"语义段"，再在每段内部切 bigram。
+     *
+     * <p>与入库侧 {@link #buildSearchText} 保持同一口径（bigram、空格分隔），但**不跨词边界**：
+     * 「光气泄漏怎么处理」→ 光气/气泄/泄漏 + 处理，而不是把 漏怎/么处 也算进来。
+     * 这样召回才能命中「光气泄漏应急处理流程」这类真实条目。</p>
+     */
     static List<String> tokenizeQuery(String raw) {
         List<String> tokens = new ArrayList<>();
         if (raw == null) {
@@ -757,19 +1359,46 @@ public class KnowledgeBaseManager {
             return tokens;
         }
         Set<String> unique = new LinkedHashSet<>();
-        Matcher m = TOKEN_PATTERN.matcher(s);
-        while (m.find() && unique.size() < MAX_QUERY_TOKENS) {
-            String t = m.group();
-            if (isAsciiRun(t)) {
-                unique.add(t);
-            } else if (t.length() == 1) {
-                unique.add(t);
-            } else {
-                // 中文连续段切相邻两字：与入库侧 buildSearchText 同口径，
-                // 顺序敏感（"光合作用"→光合/合作/作用），比逐字 AND 精确得多
-                for (int i = 0; i + 1 < t.length() && unique.size() < MAX_QUERY_TOKENS; i++) {
-                    unique.add(t.substring(i, i + 2));
+        for (String segment : QUERY_BREAK.split(s)) {
+            if (unique.size() >= MAX_QUERY_TOKENS) {
+                break;
+            }
+            for (String piece : QUERY_STOPWORD_PATTERN.split(segment)) {
+                if (unique.size() >= MAX_QUERY_TOKENS) {
+                    break;
                 }
+                Matcher m = TOKEN_PATTERN.matcher(piece);
+                while (m.find()) {
+                    if (unique.size() >= MAX_QUERY_TOKENS) {
+                        break;
+                    }
+                    String t = m.group();
+                    if (isAsciiRun(t)) {
+                        unique.add(t);
+                    } else if (t.length() == 1) {
+                        unique.add(t);
+                    } else {
+                        // 中文段内切相邻两字：与入库侧 buildSearchText 同口径，
+                        // 顺序敏感（"光合作用"→光合/合作/作用），比逐字 AND 精确得多
+                        for (int i = 0; i + 1 < t.length() && unique.size() < MAX_QUERY_TOKENS; i++) {
+                            unique.add(t.substring(i, i + 2));
+                        }
+                    }
+                }
+            }
+        }
+        // 单个 token 时不做单字虚词剔除：否则查"的"这类单字会直接变成空查询
+        if (unique.size() > 1) {
+            List<String> filtered = new ArrayList<>(unique.size());
+            for (String t : unique) {
+                if (t.length() == 1 && STOP_CHARS.indexOf(t.charAt(0)) >= 0) {
+                    continue;
+                }
+                filtered.add(t);
+            }
+            if (!filtered.isEmpty()) {
+                unique.clear();
+                unique.addAll(filtered);
             }
         }
         tokens.addAll(unique);
@@ -839,6 +1468,493 @@ public class KnowledgeBaseManager {
         return sb.toString();
     }
 
+    // ==================== 本地向量召回（v6 / RAG）====================
+
+    /**
+     * 向量化能力。生产实现走在线 embedding 端点；单测注入确定性假向量，
+     * 避免 Robolectric 里真的发网络请求。
+     */
+    interface Embedder {
+        float[] embed(String text) throws Exception;
+    }
+
+    private volatile Embedder embedder;
+
+    /** 本地向量模型（离线 ONNX）：惰性创建，构造时不加载任何东西 */
+    private volatile com.oilquiz.app.ai.embedding.LocalEmbeddingModel localEmbedding;
+
+    /** 本地向量模型句柄（只看状态、不触发加载）；文件在不在由 isAvailable() 判断 */
+    com.oilquiz.app.ai.embedding.LocalEmbeddingModel localEmbedding() {
+        com.oilquiz.app.ai.embedding.LocalEmbeddingModel m = localEmbedding;
+        if (m == null) {
+            synchronized (this) {
+                m = localEmbedding;
+                if (m == null) {
+                    m = new com.oilquiz.app.ai.embedding.LocalEmbeddingModel(context);
+                    localEmbedding = m;
+                }
+            }
+        }
+        return m;
+    }
+
+    /** 仅测试用：替换向量化实现（null = 恢复在线默认实现）；换实现即清掉熔断状态 */
+    void setEmbedderForTesting(Embedder e) {
+        this.embedder = e;
+        resetSemanticBreaker();
+    }
+
+    /**
+     * 挑一个真正能做 embedding 的端点。
+     *
+     * <p>优先当前对话模型所在端点（同一个 key 最省事）；它没声明 embedding 模型时，
+     * 在已启用的端点里找一个声明了的——这样"DeepSeek 聊天 + 百炼/硅基流动向量"这种组合也能用，
+     * 不必为了向量把主力模型换掉。都没有返回 null（调用方降级为纯关键词）。
+     */
+    private OnlineModelManager.OnlineModelConfig pickEmbeddingConfig(OnlineModelManager omm) {
+        OnlineModelManager.OnlineModelConfig active = omm.getActiveModel();
+        if (canEmbed(active)) return active;
+        java.util.List<OnlineModelManager.OnlineModelConfig> all = omm.getEnabledModels();
+        if (all != null) {
+            for (OnlineModelManager.OnlineModelConfig cfg : all) {
+                if (canEmbed(cfg)) return cfg;
+            }
+        }
+        return null;
+    }
+
+    /** 该端点能否算向量：有地址、有 key、且服务商配置表声明了 embedding 模型 */
+    private static boolean canEmbed(OnlineModelManager.OnlineModelConfig cfg) {
+        if (cfg == null || isBlank(cfg.apiUrl) || isBlank(cfg.apiKey)) return false;
+        try {
+            return !isBlank(ProviderConfigManager.get().getServiceModel(cfg.apiUrl, "embedding"));
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 向量路当前是否可用：熔断期内一律 false，调用方直接走关键词（不报错、不等待） */
+    private boolean semanticHealthy() {
+        return System.currentTimeMillis() >= semanticCooldownUntil;
+    }
+
+    /**
+     * 记一次向量调用失败：连续失败达到阈值就停用一段时间。
+     *
+     * <p>目的是"静默不启用"：模型不支持 / 端点挂了 / key 失效时，不能让每次检索都白等一次超时，
+     * 更不能把异常抛给主 agent。停用期间检索结果完全等同纯关键词，只是少了语义扩召回。</p>
+     */
+    private void noteSemanticFailure() {
+        int n = ++semanticFailStreak;
+        long now = System.currentTimeMillis();
+        if (n >= SEMANTIC_FAIL_THRESHOLD && now >= semanticCooldownUntil) {
+            semanticCooldownUntil = now + SEMANTIC_COOLDOWN_MS;
+            Log.w(TAG, "向量召回连续失败 " + n + " 次，静默停用 "
+                    + (SEMANTIC_COOLDOWN_MS / 60000) + " 分钟（期间只用关键词检索，不影响结果返回）");
+        }
+    }
+
+    /** 向量调用成功：清掉失败计数与冷却，下次照常启用 */
+    private void noteSemanticSuccess() {
+        semanticFailStreak = 0;
+        semanticCooldownUntil = 0L;
+    }
+
+    private void resetSemanticBreaker() {
+        semanticFailStreak = 0;
+        semanticCooldownUntil = 0L;
+    }
+
+    /**
+     * 当前可用的向量化实现：注入的优先，其次本地 ONNX 模型，最后走在线 embedding。
+     *
+     * <p>本地优先的理由：零成本、离线、不依赖任何 key 与服务商能力；单条 300 字在手机上约几十毫秒，
+     * 比一次在线调用更稳。文件不在时 {@code isAvailable()} 为 false，直接跳过，连加载都不尝试。</p>
+     *
+     * <p>配置不全（无 apiUrl/apiKey/embedding 模型）且本地也没有时返回 null，调用方据此降级为纯关键词——
+     * "没配"不是错误，不能因此报错或返回空结果。</p>
+     */
+    private Embedder currentEmbedder() {
+        Embedder injected = embedder;
+        if (injected != null) return injected;
+
+        com.oilquiz.app.ai.embedding.LocalEmbeddingModel local = localEmbedding();
+        if (local.isAvailable()) {
+            return local::embed;
+        }
+        try {
+            OnlineModelManager omm = OnlineModelManager.getInstance(context);
+            if (omm == null) return null;
+            OnlineModelManager.OnlineModelConfig cfg = pickEmbeddingConfig(omm);
+            if (cfg == null) return null;
+            OnlineInferenceService ois = OnlineInferenceService.getInstance(context);
+            if (ois == null) return null;
+            return text -> {
+                List<Float> vec = ois.generateEmbeddingAsync(text, cfg)
+                        .get(EMBEDDING_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                if (vec == null || vec.isEmpty()) return null;
+                float[] out = new float[vec.size()];
+                for (int i = 0; i < out.length; i++) out[i] = vec.get(i);
+                return out;
+            };
+        } catch (Exception e) {
+            Log.w(TAG, "取向量化实现失败，降级关键词检索: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** 当前向量的模型标识（本地固定为 local|模型名；在线为 apiUrl + 模型名）；都不可用返回 null */
+    private String embeddingModelTag() {
+        if (localEmbedding().isAvailable()) {
+            return "local|" + com.oilquiz.app.ai.embedding.LocalEmbeddingModel.MODEL_ID;
+        }
+        try {
+            OnlineModelManager omm = OnlineModelManager.getInstance(context);
+            if (omm == null) return null;
+            OnlineModelManager.OnlineModelConfig cfg = pickEmbeddingConfig(omm);
+            if (cfg == null) return null;
+            String model = ProviderConfigManager.get().getServiceModel(cfg.apiUrl, "embedding");
+            if (isBlank(model)) return null;
+            return cfg.apiUrl + "|" + model;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** float32 小端打包（1 万块 × 512 维 ≈ 20 MB，比 JSON 文本省一个数量级） */
+    private static byte[] packVector(float[] vec) {
+        if (vec == null || vec.length == 0) return null;
+        ByteBuffer buf = ByteBuffer.allocate(vec.length * 4).order(ByteOrder.LITTLE_ENDIAN);
+        for (float v : vec) buf.putFloat(v);
+        return buf.array();
+    }
+
+    private static float[] unpackVector(byte[] bytes) {
+        if (bytes == null || bytes.length < 4 || bytes.length % 4 != 0) return null;
+        ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+        float[] out = new float[bytes.length / 4];
+        for (int i = 0; i < out.length; i++) out[i] = buf.getFloat();
+        return out;
+    }
+
+    /** 余弦相似度（float 版）；维度不一致（换过模型、旧向量没重建）返回 -1，排到最后 */
+    private static double cosine(float[] a, float[] b) {
+        if (a == null || b == null || a.length == 0 || a.length != b.length) return -1;
+        double dot = 0, na = 0, nb = 0;
+        for (int i = 0; i < a.length; i++) {
+            dot += (double) a[i] * b[i];
+            na += (double) a[i] * a[i];
+            nb += (double) b[i] * b[i];
+        }
+        if (na == 0 || nb == 0) return -1;
+        return dot / (Math.sqrt(na) * Math.sqrt(nb));
+    }
+
+    /** 读 kb_meta 字符串标记（表缺失/键缺失返回 null） */
+    private static String metaString(SQLiteDatabase db, String key) {
+        Cursor cursor = null;
+        try {
+            cursor = db.rawQuery("SELECT v FROM kb_meta WHERE k = ?", new String[]{key});
+            if (cursor.moveToFirst()) return cursor.getString(0);
+        } catch (Throwable ignored) {
+            // 老库没有 kb_meta 表
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return null;
+    }
+
+    private static void metaSet(SQLiteDatabase db, String key, String value) {
+        db.execSQL("INSERT OR REPLACE INTO kb_meta(k, v) VALUES(?, ?)", new Object[]{key, value});
+    }
+
+    /**
+     * 为还没向量化的块补算向量（后台调用、分批、可续跑）。
+     *
+     * <p>为什么不在写入时算：addBatch 是导入路径，几百块 × 一次在线调用会把导入从秒级拖成分钟级。
+     * 这里每次最多 {@link #EMBED_BACKFILL_BATCH} 块，断了下次接着扫 {@code embedding IS NULL}。</p>
+     *
+     * @param max 本次处理上限（<=0 用默认批大小）
+     * @return 本次成功写入的条数（0 = 没有待补块 / 向量化不可用）
+     */
+    public int backfillEmbeddings(int max) {
+        Embedder emb = currentEmbedder();
+        if (emb == null) return 0;
+        if (!semanticHealthy()) return 0;   // 已熔断：不再打 embedding 接口，等冷却结束
+
+        // 模型换了（维度可能不同）：旧向量整批作废重建。判断放在读取之前
+        String modelTag = embeddingModelTag();
+        if (modelTag != null) {
+            try {
+                SQLiteDatabase db = getWritableDb();
+                String old = metaString(db, META_EMBEDDING_MODEL);
+                if (!modelTag.equals(old)) {
+                    db.execSQL("UPDATE kb_chunks SET embedding = NULL");
+                    metaSet(db, META_EMBEDDING_MODEL, modelTag);
+                    Log.i(TAG, "embedding 模型变更，旧向量已作废待重建: " + modelTag);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "检查 embedding 模型标记失败: " + e.getMessage());
+            }
+        }
+
+        int limit = max <= 0 ? EMBED_BACKFILL_BATCH : Math.min(max, EMBED_BACKFILL_BATCH);
+        List<Long> ids = new ArrayList<>();
+        List<String> texts = new ArrayList<>();
+        Cursor cursor = null;
+        try {
+            SQLiteDatabase db = getReadableDb();
+            cursor = db.rawQuery("SELECT id, title, content FROM kb_chunks WHERE embedding IS NULL LIMIT ?",
+                    new String[]{String.valueOf(limit)});
+            while (cursor.moveToNext()) {
+                ids.add(cursor.getLong(0));
+                String title = safe(cursor.getString(1));
+                String content = safe(cursor.getString(2));
+                String text = content.isEmpty() ? title : title + " " + content;
+                texts.add(text.length() > EMBED_CONTENT_MAX ? text.substring(0, EMBED_CONTENT_MAX) : text);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "取待向量化块失败: " + e.getMessage());
+            return 0;
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        if (ids.isEmpty()) return 0;
+
+        int done = 0;
+        for (int i = 0; i < ids.size(); i++) {
+            if (!semanticHealthy()) break;   // 本批已触发熔断：剩下的留到冷却之后再补
+            try {
+                byte[] packed = packVector(emb.embed(texts.get(i)));
+                if (packed == null) {
+                    noteSemanticFailure();
+                    continue;
+                }
+                ContentValues cv = new ContentValues();
+                cv.put("embedding", packed);
+                getWritableDb().update("kb_chunks", cv, "id = ?", new String[]{String.valueOf(ids.get(i))});
+                done++;
+                noteSemanticSuccess();
+            } catch (Throwable t) {
+                // 单条失败不拖垮整批（限流 / 单条超长都只影响自己）；连续失败会触发熔断
+                noteSemanticFailure();
+                Log.w(TAG, "块 " + ids.get(i) + " 向量化失败: " + t.getMessage());
+            }
+        }
+        return done;
+    }
+
+    /** 导入后自动补向量的后台线程（单线程：避免并发把 embedding 限额打爆） */
+    private static final ExecutorService EMBED_WORKER = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "kb-embed-backfill");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /** 测试可关掉自动回填，避免后台线程干扰断言 */
+    private volatile boolean autoBackfill = true;
+
+    void setAutoBackfillForTesting(boolean enabled) {
+        this.autoBackfill = enabled;
+    }
+
+    /**
+     * 补齐所有没有向量的块（同步，最多 {@link #EMBED_MAX_ROUNDS} 批）。
+     *
+     * <p>给"工具显式触发 / 老库首次接入 embedding 模型"用；会消耗在线额度。</p>
+     */
+    public int backfillAllEmbeddings() {
+        int total = 0;
+        for (int i = 0; i < EMBED_MAX_ROUNDS; i++) {
+            int n = backfillEmbeddings(EMBED_BACKFILL_BATCH);
+            if (n <= 0) break;   // 没待补块，或这一批全失败（不无限重试）
+            total += n;
+        }
+        return total;
+    }
+
+    /** 写入成功后异步补向量；没配 embedding 时立刻返回，不产生任何后台任务 */
+    private void scheduleBackfill() {
+        if (!autoBackfill) return;
+        try {
+            if (currentEmbedder() == null) return;
+        } catch (Throwable t) {
+            return;
+        }
+        EMBED_WORKER.submit(() -> {
+            try {
+                backfillAllEmbeddings();
+            } catch (Throwable t) {
+                Log.w(TAG, "后台向量回填中断: " + t.getMessage());
+            }
+        });
+    }
+
+    /** 已有向量的块数（按分类条件）；0 表示"还没回填/没配模型"，此时不能走向量召回 */
+    public synchronized int countEmbeddings(String category) {
+        Cursor cursor = null;
+        try {
+            SQLiteDatabase db = getReadableDb();
+            StringBuilder where = new StringBuilder("embedding IS NOT NULL");
+            List<String> args = new ArrayList<>();
+            if (category != null && !category.trim().isEmpty()) {
+                where.append(" AND category = ?");
+                args.add(category.trim());
+            } else {
+                where.append(" AND category <> 'tool_defs'");
+            }
+            cursor = db.rawQuery("SELECT COUNT(*) FROM kb_chunks WHERE " + where, args.toArray(new String[0]));
+            if (cursor.moveToFirst()) return cursor.getInt(0);
+        } catch (Exception e) {
+            Log.w(TAG, "统计向量条数失败: " + e.getMessage());
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return 0;
+    }
+
+    /**
+     * 语义召回（本地向量余弦）：不依赖关键词命中，能捞回同义 / 改写 / 口语化问法。
+     *
+     * <p>成本：查询侧只算 1 次 query 向量，其余全是本地点积（向量在写入侧就算好存库）。
+     * 不可用时（没配模型 / 还没回填 / 调用失败）返回空数组——调用方必须保留关键词结果，
+     * 不能因为向量路失败把"本来就找得到的东西"也弄丢。</p>
+     */
+    public JSONArray semanticSearch(String query, String category, int topK) {
+        JSONArray empty = new JSONArray();
+        if (query == null || query.trim().isEmpty()) return empty;
+        if (!semanticHealthy()) return empty;
+        int limit = topK <= 0 ? DEFAULT_TOP_K : Math.min(topK, MAX_TOP_K);
+        Embedder emb = currentEmbedder();
+        if (emb == null) return empty;
+
+        float[] qVec;
+        try {
+            qVec = emb.embed(query.trim());
+        } catch (Throwable t) {
+            noteSemanticFailure();
+            Log.w(TAG, "query 向量化失败，本次只用关键词召回: " + t.getMessage());
+            return empty;
+        }
+        if (qVec == null || qVec.length == 0) {
+            noteSemanticFailure();
+            return empty;
+        }
+        noteSemanticSuccess();
+
+        List<String> tokens = tokenizeQuery(query);
+        Map<Long, Double> scoreById = new LinkedHashMap<>();
+        List<Long> ids = new ArrayList<>();
+        Cursor cursor = null;
+        try {
+            SQLiteDatabase db = getReadableDb();
+            StringBuilder where = new StringBuilder("embedding IS NOT NULL");
+            List<String> args = new ArrayList<>();
+            if (category != null && !category.trim().isEmpty()) {
+                where.append(" AND category = ?");
+                args.add(category.trim());
+            } else {
+                where.append(" AND category <> 'tool_defs'");
+            }
+            cursor = db.rawQuery("SELECT id, embedding FROM kb_chunks WHERE " + where,
+                    args.toArray(new String[0]));
+            while (cursor.moveToNext()) {
+                double sim = cosine(qVec, unpackVector(cursor.getBlob(1)));
+                if (sim < SEMANTIC_MIN_COS) continue;   // 余弦太低的直接丢，别用向量灌噪声
+                ids.add(cursor.getLong(0));
+                scoreById.put(cursor.getLong(0), sim);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "语义召回失败，降级关键词: " + e.getMessage());
+            return empty;
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        if (ids.isEmpty()) return empty;
+
+        ids.sort((a, b) -> Double.compare(scoreById.get(b), scoreById.get(a)));
+        List<Long> topIds = ids.subList(0, Math.min(limit, ids.size()));
+
+        JSONArray out = new JSONArray();
+        Cursor cursor2 = null;
+        try {
+            SQLiteDatabase db = getReadableDb();
+            StringBuilder in = new StringBuilder("id IN (");
+            List<String> idArgs = new ArrayList<>();
+            for (int i = 0; i < topIds.size(); i++) {
+                if (i > 0) in.append(',');
+                in.append('?');
+                idArgs.add(String.valueOf(topIds.get(i)));
+            }
+            in.append(')');
+            cursor2 = db.rawQuery("SELECT id, title, category, keywords, source, updated_at, content, doc_id, chunk_seq "
+                    + "FROM kb_chunks WHERE " + in, idArgs.toArray(new String[0]));
+            Map<Long, JSONObject> fetched = new LinkedHashMap<>();
+            while (cursor2.moveToNext()) {
+                JSONObject row = rowFromCursor(cursor2, tokens, 0, 0);
+                long id = cursor2.getLong(0);
+                double sim = scoreById.containsKey(id) ? scoreById.get(id) : 0;
+                row.put("semantic_score", Math.round(sim * 100) / 100.0);
+                fetched.put(id, row);
+            }
+            for (Long id : topIds) {
+                JSONObject row = fetched.get(id);
+                if (row != null) out.put(row);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "语义召回回表失败: " + e.getMessage());
+        } finally {
+            if (cursor2 != null) cursor2.close();
+        }
+        return out;
+    }
+
+    /**
+     * 混合召回：关键词（OR + 覆盖率）+ 向量（本地余弦），RRF 融合。
+     *
+     * <p>为什么用 RRF 而不是直接加分数：两路分数量纲不同（覆盖率 0~1、余弦 -1~1），
+     * 按排名倒数相加不用调参；同一块两路都靠前会自然上浮，向量独有命中也能进榜。</p>
+     */
+    private JSONArray hybridSearch(String query, String category, String tag, int limit) {
+        int wide = Math.min(MAX_TOP_K, Math.max(limit, limit * Math.max(1, SEMANTIC_RECALL_FACTOR)));
+        JSONArray kw = searchInternal(query, category, tag, wide);
+        JSONArray sem = isBlank(tag) ? semanticSearch(query, category, wide) : new JSONArray();
+
+        Map<Long, Double> fused = new LinkedHashMap<>();
+        Map<Long, JSONObject> rows = new LinkedHashMap<>();
+        for (int i = 0; i < kw.length(); i++) {
+            JSONObject o = kw.optJSONObject(i);
+            if (o == null) continue;
+            long id = o.optLong("id", -1);
+            if (id < 0) continue;
+            fused.put(id, (fused.containsKey(id) ? fused.get(id) : 0) + 1.0 / (RRF_K + i + 1));
+            rows.put(id, o);
+        }
+        for (int i = 0; i < sem.length(); i++) {
+            JSONObject o = sem.optJSONObject(i);
+            if (o == null) continue;
+            long id = o.optLong("id", -1);
+            if (id < 0) continue;
+            fused.put(id, (fused.containsKey(id) ? fused.get(id) : 0) + 1.0 / (RRF_K + i + 1));
+            if (!rows.containsKey(id)) rows.put(id, o);   // 关键词那版带 snippet/coverage，优先保留
+        }
+
+        List<Long> order = new ArrayList<>(fused.keySet());
+        order.sort((a, b) -> Double.compare(fused.get(b), fused.get(a)));
+        JSONArray out = new JSONArray();
+        for (int i = 0; i < order.size() && i < limit; i++) {
+            JSONObject o = rows.get(order.get(i));
+            if (o == null) continue;
+            try {
+                o.put("rrf_score", Math.round(fused.get(order.get(i)) * 1000) / 1000.0);
+            } catch (JSONException ignored) {
+                // put 失败不影响结果本体
+            }
+            out.put(o);
+        }
+        return out;
+    }
+
     // ==================== 在线语义重排 ====================
 
     /**
@@ -849,11 +1965,12 @@ public class KnowledgeBaseManager {
      */
     private JSONArray applySemanticRerank(JSONArray bm25Results, String query, int limit) {
         if (bm25Results == null || bm25Results.length() < 2 || limit <= 1) return bm25Results;
+        if (!semanticHealthy()) return bm25Results;   // 熔断期内不做在线重排，直接原序返回
         try {
             OnlineModelManager omm = OnlineModelManager.getInstance(context);
             if (omm == null) return bm25Results;
-            OnlineModelManager.OnlineModelConfig cfg = omm.getActiveModel();
-            if (cfg == null || isBlank(cfg.apiUrl) || isBlank(cfg.apiKey)) return bm25Results;
+            OnlineModelManager.OnlineModelConfig cfg = pickEmbeddingConfig(omm);
+            if (cfg == null) return bm25Results;
             ProviderConfigManager pcm = ProviderConfigManager.get();
             String embModel = pcm.getServiceModel(cfg.apiUrl, "embedding");
             if (isBlank(embModel)) return bm25Results; // 配置表未声明 embedding 模型 → 不语义重排
@@ -863,10 +1980,14 @@ public class KnowledgeBaseManager {
             int n = Math.min(bm25Results.length(), SEMANTIC_CANDIDATES);
             if (n < 2) return bm25Results;
 
-            // 1) query 向量（超时兜底，失败降级）
+            // 1) query 向量（超时兜底，失败降级；连续失败会熔断，之后不再进入本函数）
             List<Float> qVec = ois.generateEmbeddingAsync(query, cfg)
                     .get(EMBEDDING_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-            if (qVec == null || qVec.isEmpty()) return bm25Results;
+            if (qVec == null || qVec.isEmpty()) {
+                noteSemanticFailure();
+                return bm25Results;
+            }
+            noteSemanticSuccess();
 
             // 2) 候选内容并行向量化 + 余弦相似度
             List<CompletableFuture<List<Float>>> futures = new ArrayList<>(n);
@@ -1017,17 +2138,20 @@ public class KnowledgeBaseManager {
             return -1;
         }
         db.beginTransaction();
+        long insertedId = -1;
         try {
-            long id = db.insertOrThrow("kb_chunks", null, chunkValues(chunk, now));
+            insertedId = db.insertOrThrow("kb_chunks", null, chunkValues(chunk, now));
             db.setTransactionSuccessful();
-            return id;
         } catch (Exception e) {
             lastError = e.getMessage();
             Log.e(TAG, "addChunk 失败: " + e.getMessage(), e);
-            return -1;
         } finally {
             db.endTransaction();
         }
+        if (insertedId > 0) {
+            scheduleBackfill();
+        }
+        return insertedId;
     }
 
     /**
@@ -1052,6 +2176,7 @@ public class KnowledgeBaseManager {
             return 0;
         }
         db.beginTransaction();
+        boolean committed = false;
         try {
             for (int i = 0; i < items.length(); i++) {
                 JSONObject obj = items.optJSONObject(i);
@@ -1069,13 +2194,18 @@ public class KnowledgeBaseManager {
                 added++;
             }
             db.setTransactionSuccessful();
+            committed = true;
         } catch (Exception e) {
             lastError = e.getMessage();
             Log.e(TAG, "addBatch 失败: " + e.getMessage(), e);
         } finally {
             db.endTransaction();
         }
-        return added;
+        // 事务没提交成功就是整体回滚：此时返回回滚前的计数等于骗人（"失败但加了 37 条"）
+        if (committed && added > 0) {
+            scheduleBackfill();
+        }
+        return committed ? added : 0;
     }
 
     /**
@@ -1095,7 +2225,7 @@ public class KnowledgeBaseManager {
         try {
             String trimmed = json.trim();
             if (trimmed.startsWith("[")) {
-                return addBatch(new JSONArray(trimmed));
+                return importChunks(new JSONArray(trimmed));
             }
             JSONObject root = new JSONObject(trimmed);
             JSONArray chunks = root.optJSONArray("chunks");
@@ -1103,12 +2233,77 @@ public class KnowledgeBaseManager {
                 lastError = "JSON 中缺少 chunks 数组（也不支持顶层对象格式）";
                 return 0;
             }
-            return addBatch(chunks);
+            return importChunks(chunks);
         } catch (JSONException e) {
             lastError = "JSON 解析失败: " + e.getMessage();
             Log.e(TAG, "importJson 解析失败: " + e.getMessage());
             return 0;
         }
+    }
+
+    /**
+     * 导入一组块（v5）：带 {@code source} 的按来源聚成一篇文档写入（保留文档层与块序），
+     * 没有 {@code source} 的当手工条目（{@code doc_id=0}）。
+     *
+     * <p>为什么按 source 分组：Python 预处理脚本和 {@code export} 产出的 JSON 都是"一篇文档多个块、
+     * 同 source"，逐块 addBatch 会把文档层丢掉——导回来的库没有文档身份，去重和溯源就都失效了。</p>
+     */
+    private int importChunks(JSONArray items) {
+        if (items == null) {
+            return 0;
+        }
+        Map<String, List<KnowledgeChunk>> bySource = new LinkedHashMap<>();
+        List<KnowledgeChunk> loose = new ArrayList<>();
+        for (int i = 0; i < items.length(); i++) {
+            JSONObject obj = items.optJSONObject(i);
+            if (obj == null) {
+                continue;
+            }
+            KnowledgeChunk chunk = fromJson(obj);
+            if (chunk == null || (chunk.title.isEmpty() && chunk.content.isEmpty())) {
+                continue;
+            }
+            if (chunk.content.isEmpty()) {
+                chunk.content = chunk.title;
+            }
+            if (chunk.source.isEmpty()) {
+                loose.add(chunk);
+                continue;
+            }
+            List<KnowledgeChunk> list = bySource.get(chunk.source);
+            if (list == null) {
+                list = new ArrayList<>();
+                bySource.put(chunk.source, list);
+            }
+            list.add(chunk);
+        }
+        int added = 0;
+        for (Map.Entry<String, List<KnowledgeChunk>> entry : bySource.entrySet()) {
+            List<KnowledgeChunk> chunks = entry.getValue();
+            JSONObject result = storeChunks(chunks, chunks.get(0).title, entry.getKey(), false);
+            if (result.optBoolean("success")) {
+                added += result.optInt("added");
+            }
+        }
+        if (!loose.isEmpty()) {
+            // 手工条目（无 source）回到 addBatch：它们不属于任何文档，doc_id 应为 0
+            JSONArray looseJson = new JSONArray();
+            for (KnowledgeChunk chunk : loose) {
+                JSONObject obj = new JSONObject();
+                try {
+                    obj.put("title", chunk.title);
+                    obj.put("category", chunk.category);
+                    obj.put("keywords", chunk.keywords);
+                    obj.put("content", chunk.content);
+                    obj.put("source", chunk.source);
+                } catch (JSONException ignored) {
+                    // 普通字符串不会触发
+                }
+                looseJson.put(obj);
+            }
+            added += addBatch(looseJson);
+        }
+        return added;
     }
 
     // ==================== 文档直接导入 ====================
@@ -1239,22 +2434,101 @@ public class KnowledgeBaseManager {
         }
     }
 
-    /** 切块结果统一入库（事务），返回结果 JSON */
-    private JSONObject storeChunks(List<KnowledgeChunk> chunks, String docTitle, String filePath) {
+    /**
+     * 切块结果统一入库（事务），返回结果 JSON。
+     *
+     * <p>包内可见（非 private）：单测要直接喂 {@link KnowledgeChunk} 覆盖"重复导入/冲突"分支，
+     * 走 {@code importDocument} 会连带依赖 FileContentExtractor（Robolectric 下不可靠）。</p>
+     */
+    JSONObject storeChunks(List<KnowledgeChunk> chunks, String docTitle, String filePath) {
+        return storeChunks(chunks, docTitle, filePath, true);
+    }
+
+    /**
+     * @param dedup 是否做"同一来源重复导入"检查。恢复备份（{@code import_file}）要传 false：
+     *              那是用户显式要求的写入，不该因为库里已有同 source 就报冲突
+     */
+    JSONObject storeChunks(List<KnowledgeChunk> chunks, String docTitle, String filePath, boolean dedup) {
         JSONObject result = new JSONObject();
         int added = 0;
         long now = System.currentTimeMillis();
+        String source = filePath == null ? "" : filePath.trim();
+
+        // 重复导入检查（2026-11-10，v5 起走文档层）：同一个 source 已经入过库时
+        //   · 内容哈希一致 → 跳过（避免"同一文件两次导入 = 库里两份"）
+        //   · 内容不同     → 报冲突，要求先显式 delete(source=…) 再导（不静默删用户数据）
+        // 哈希从 kb_documents.doc_hash 直接读（O(1)），不再像 v4 那样每次把全篇正文捞出来现算。
+        String newHash = contentHash(chunks);
+        if (dedup && !source.isEmpty()) {
+            DocState existing = findDocument(source);
+            if (existing.count <= 0) {
+                // 兼容：文档层尚未回填/回填失败（只有块、没有文档身份）时，回退到按块现算
+                SourceState legacy = inspectSource(source);
+                existing.count = legacy.count;
+                existing.hash = legacy.hash;
+            }
+            if (existing.count > 0) {
+                if (newHash.equals(existing.hash)) {
+                    try {
+                        result.put("success", true);
+                        result.put("added", 0);
+                        result.put("skipped", true);
+                        result.put("existing", existing.count);
+                        result.put("title", docTitle);
+                        result.put("source", filePath);
+                        result.put("message", "该文件内容未变化，已跳过重复导入（库内已有 " + existing.count + " 块）");
+                    } catch (JSONException ignored) {
+                        // 普通字符串不会触发
+                    }
+                    return result;
+                }
+                try {
+                    result.put("success", false);
+                    result.put("conflict", true);
+                    result.put("existing", existing.count);
+                    result.put("title", docTitle);
+                    result.put("source", filePath);
+                    result.put("message", "该来源已导入过（" + existing.count + " 块）且内容与本次不同。"
+                            + "如需用新版本替换，请先 knowledge_base(action=delete, source=…) 再重新导入；"
+                            + "直接导入会在库里留下新旧两份");
+                } catch (JSONException ignored) {
+                    // 普通字符串不会触发
+                }
+                return result;
+            }
+        }
+
         try {
             SQLiteDatabase db = getWritableDb();
             db.beginTransaction();
+            boolean committed = false;
             try {
-                for (KnowledgeChunk chunk : chunks) {
+                // 恢复备份（dedup=false）语义是"覆盖"：先清掉同 source 的旧块，
+                // 否则 upsert 文档记录会把块数写小，而旧块还留在库里（数量和内容都对不上）
+                if (!dedup && !source.isEmpty()) {
+                    db.delete("kb_chunks", "source = ?", new String[]{source});
+                }
+                // 文档层先建（一篇一行），块再带 doc_id + 序号写入——
+                // 这样"第几块"有了持久身份，去重也不必再扫全篇
+                long docId = 0;
+                if (!source.isEmpty()) {
+                    String category = chunks.isEmpty() ? "general" : chunks.get(0).category;
+                    docId = upsertDocument(db, docTitle, category, source, newHash, chunks.size(), now, now);
+                }
+                for (int i = 0; i < chunks.size(); i++) {
+                    KnowledgeChunk chunk = chunks.get(i);
+                    chunk.docId = docId;
+                    chunk.chunkSeq = docId > 0 ? i + 1 : 0;
                     db.insertOrThrow("kb_chunks", null, chunkValues(chunk, now));
                     added++;
                 }
                 db.setTransactionSuccessful();
+                committed = true;
             } finally {
                 db.endTransaction();
+            }
+            if (!committed) {
+                added = 0;
             }
         } catch (Exception e) {
             lastError = e.getMessage();
@@ -1266,11 +2540,17 @@ public class KnowledgeBaseManager {
             result.put("added", added);
             result.put("title", docTitle);
             result.put("source", filePath);
+            if (!source.isEmpty()) {
+                result.put("doc_id", findDocument(source).docId);
+            }
             if (chunks.isEmpty()) {
                 result.put("message", "未提取到可入库的文本内容（图片多为OCR未识别、音频多为无语音或过短）");
             }
         } catch (JSONException ignored) {
             // 正常字符串不会触发
+        }
+        if (added > 0) {
+            scheduleBackfill();
         }
         return result;
     }
@@ -1285,6 +2565,71 @@ public class KnowledgeBaseManager {
             // JSONObject.put 仅对非法值抛异常，message 为普通字符串不会触发
         }
         return result;
+    }
+
+    // ==================== 按来源去重（2026-11-10） ====================
+
+    /** 某个来源当前在库里的状态：块数 + 内容哈希 */
+    private static final class SourceState {
+        int count;
+        String hash = "";
+    }
+
+    /**
+     * 读某个 source 的既有内容并算哈希，用于判断"这个文件是不是已经导过"。
+     *
+     * <p>不额外加 doc_hash 列：加列要抬 DB_VERSION、老数据还得回填一遍，
+     * 而按 source 把正文拼起来现算哈希对这个量级（一篇文档几十块）完全够用。</p>
+     */
+    private SourceState inspectSource(String source) {
+        SourceState state = new SourceState();
+        if (source == null || source.trim().isEmpty()) {
+            return state;
+        }
+        Cursor cursor = null;
+        try {
+            SQLiteDatabase db = getReadableDb();
+            cursor = db.rawQuery("SELECT content FROM kb_chunks WHERE source = ? ORDER BY id",
+                    new String[]{source});
+            StringBuilder sb = new StringBuilder();
+            while (cursor.moveToNext()) {
+                state.count++;
+                sb.append(cursor.getString(0) == null ? "" : cursor.getString(0)).append('\n');
+            }
+            state.hash = md5(sb.toString());
+        } catch (Exception e) {
+            // 查不出来不该阻断导入：退化成"当作没导过"
+            Log.w(TAG, "检查重复导入失败: " + e.getMessage());
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        return state;
+    }
+
+    /** 待入库块的正文哈希（与 {@link #inspectSource} 同口径拼接） */
+    private static String contentHash(List<KnowledgeChunk> chunks) {
+        StringBuilder sb = new StringBuilder();
+        for (KnowledgeChunk chunk : chunks) {
+            sb.append(chunk.content == null ? "" : chunk.content).append('\n');
+        }
+        return md5(sb.toString());
+    }
+
+    private static String md5(String text) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] digest = md.digest(text.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                sb.append(String.format(Locale.ROOT, "%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            // MD5 一定存在；拿不到就退化成空串（调用方按"内容不同"处理，不会误跳）
+            return "";
+        }
     }
 
     // ==================== 文本切块（与 Python 预处理脚本逻辑对齐） ====================
@@ -1429,9 +2774,11 @@ public class KnowledgeBaseManager {
         String oldKeywords;
         String oldContent;
         String oldSource;
+        long oldDocId = 0;
         Cursor cursor = null;
         try {
-            cursor = db.rawQuery("SELECT title, category, keywords, content, source FROM kb_chunks WHERE id = ?",
+            cursor = db.rawQuery(
+                    "SELECT title, category, keywords, content, source, doc_id FROM kb_chunks WHERE id = ?",
                     new String[]{String.valueOf(id)});
             if (!cursor.moveToFirst()) {
                 lastError = "未找到 id=" + id + " 的知识";
@@ -1442,6 +2789,7 @@ public class KnowledgeBaseManager {
             oldKeywords = cursor.getString(2);
             oldContent = cursor.getString(3);
             oldSource = cursor.getString(4);
+            oldDocId = cursor.getLong(5);
         } catch (Exception e) {
             lastError = "读取原记录失败: " + e.getMessage();
             Log.e(TAG, "updateChunk 读取原记录失败: " + e.getMessage(), e);
@@ -1473,6 +2821,22 @@ public class KnowledgeBaseManager {
         values.put("source", merged.source);
         values.put("search_text", buildSearchText(merged));
         values.put("updated_at", now);
+        // v5：改了 source 等于"这块换了归属文档"，得重新挂靠，否则会挂在旧文档下、把旧文档的哈希算错
+        long targetDocId = oldDocId;
+        String newSource = merged.source == null ? "" : merged.source.trim();
+        String prevSource = oldSource == null ? "" : oldSource.trim();
+        boolean sourceChanged = !newSource.equals(prevSource);
+        if (sourceChanged) {
+            if (newSource.isEmpty()) {
+                values.put("doc_id", 0);
+                values.put("chunk_seq", 0);
+                targetDocId = 0;
+            } else {
+                targetDocId = upsertDocument(db, merged.title, merged.category, newSource, "", 1, now, now);
+                values.put("doc_id", targetDocId);
+                values.put("chunk_seq", nextChunkSeq(db, targetDocId));
+            }
+        }
         db.beginTransaction();
         try {
             int rows = db.update("kb_chunks", values, "id = ?", new String[]{String.valueOf(id)});
@@ -1481,13 +2845,34 @@ public class KnowledgeBaseManager {
                 lastError = "未找到 id=" + id + " 的知识";
                 return false;
             }
-            return true;
         } catch (Exception e) {
             lastError = e.getMessage();
             Log.e(TAG, "updateChunk 失败: " + e.getMessage(), e);
             return false;
         } finally {
             db.endTransaction();
+        }
+        // 事务外重算文档哈希/块数（内容或归属变了，去重依据必须跟着变）
+        refreshDocument(oldDocId);
+        if (targetDocId != oldDocId) {
+            refreshDocument(targetDocId);
+        }
+        return true;
+    }
+
+    /** 文档内下一个块序号（空文档从 1 开始） */
+    private static int nextChunkSeq(SQLiteDatabase db, long docId) {
+        Cursor cursor = null;
+        try {
+            cursor = db.rawQuery("SELECT COALESCE(MAX(chunk_seq), 0) + 1 FROM kb_chunks WHERE doc_id = ?",
+                    new String[]{String.valueOf(docId)});
+            return cursor.moveToFirst() ? cursor.getInt(0) : 1;
+        } catch (Exception e) {
+            return 1;
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
         }
     }
 
@@ -1546,19 +2931,81 @@ public class KnowledgeBaseManager {
         lastError = null;
         try {
             SQLiteDatabase db = getWritableDb();
+            long docId = docIdOfChunk(db, id);
             db.beginTransaction();
+            int rows;
             try {
-                int rows = db.delete("kb_chunks", "id = ?", new String[]{String.valueOf(id)});
+                rows = db.delete("kb_chunks", "id = ?", new String[]{String.valueOf(id)});
                 db.setTransactionSuccessful();
-                return rows > 0;
             } finally {
                 db.endTransaction();
             }
+            if (rows > 0) {
+                // 文档层要跟着变：少了一块，hash 和块数都不再对（否则下次导入被误判"没变"）
+                refreshDocument(docId);
+                return true;
+            }
+            return false;
         } catch (Exception e) {
             lastError = e.getMessage();
             Log.e(TAG, "deleteById 失败: " + e.getMessage(), e);
             return false;
         }
+    }
+
+    /** 取某个块所属的文档 id（0 = 不属于任何文档） */
+    private static long docIdOfChunk(SQLiteDatabase db, long chunkId) {
+        Cursor cursor = null;
+        try {
+            cursor = db.rawQuery("SELECT doc_id FROM kb_chunks WHERE id = ?",
+                    new String[]{String.valueOf(chunkId)});
+            return cursor.moveToFirst() ? cursor.getLong(0) : 0;
+        } catch (Exception e) {
+            return 0;
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+    }
+
+    /**
+     * 按来源（通常是导入文件的绝对路径）删除整篇知识。
+     *
+     * <p>补的是导入侧的缺口：`import_document` 按 source 写了一整篇的块，
+     * 但删除侧只有 id / title / category，改版文档没法整体替换（只能 list 之后一条条删）。</p>
+     *
+     * @return 删除的条数
+     */
+    public synchronized int deleteBySource(String source) {
+        if (source == null || source.trim().isEmpty()) {
+            return 0;
+        }
+        lastError = null;
+        SQLiteDatabase db;
+        try {
+            db = getWritableDb();
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            Log.e(TAG, "deleteBySource 打开数据库失败: " + e.getMessage(), e);
+            return 0;
+        }
+        db.beginTransaction();
+        int deleted = 0;
+        try {
+            // v5：优先按文档身份删（同 source 的块 doc_id 一致），再用 source 兜底旧数据
+            deleted = db.delete("kb_chunks",
+                    "source = ? OR doc_id IN (SELECT doc_id FROM kb_documents WHERE source = ?)",
+                    new String[]{source.trim(), source.trim()});
+            db.delete("kb_documents", "source = ?", new String[]{source.trim()});
+            db.setTransactionSuccessful();
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            Log.e(TAG, "deleteBySource 失败: " + e.getMessage(), e);
+        } finally {
+            db.endTransaction();
+        }
+        return deleted;
     }
 
     /**
@@ -1581,7 +3028,19 @@ public class KnowledgeBaseManager {
         }
         db.beginTransaction();
         int deleted = 0;
+        List<Long> affectedDocs = new ArrayList<>();
         try {
+            // 先记下受影响的文档，删完再逐篇重算（按标题删会把一篇文档删成残篇）
+            Cursor cursor = db.rawQuery(
+                    "SELECT DISTINCT doc_id FROM kb_chunks WHERE title = ? AND doc_id > 0",
+                    new String[]{title.trim()});
+            try {
+                while (cursor.moveToNext()) {
+                    affectedDocs.add(cursor.getLong(0));
+                }
+            } finally {
+                cursor.close();
+            }
             deleted = db.delete("kb_chunks", "title = ?", new String[]{title.trim()});
             db.setTransactionSuccessful();
         } catch (Exception e) {
@@ -1589,6 +3048,9 @@ public class KnowledgeBaseManager {
             Log.e(TAG, "deleteByTitle 失败: " + e.getMessage(), e);
         } finally {
             db.endTransaction();
+        }
+        for (Long docId : affectedDocs) {
+            refreshDocument(docId);
         }
         return deleted;
     }
@@ -1599,8 +3061,7 @@ public class KnowledgeBaseManager {
      *
      * @return 删除的条数
      */
-    public synchronized int deleteByCategory(String category) {
-        if (category == null || category.trim().isEmpty()) {
+    public synchronized int deleteByCategory(String category) {        if (category == null || category.trim().isEmpty()) {
             return 0;
         }
         lastError = null;
@@ -1616,6 +3077,8 @@ public class KnowledgeBaseManager {
         int deleted = 0;
         try {
             deleted = db.delete("kb_chunks", "category = ?", new String[]{category.trim()});
+            // v5：文档记录同步删，别留下没有块的孤儿文档（下次 list/去重会读到假数据）
+            db.delete("kb_documents", "category = ?", new String[]{category.trim()});
             db.setTransactionSuccessful();
         } catch (Exception e) {
             lastError = e.getMessage();
@@ -1627,9 +3090,46 @@ public class KnowledgeBaseManager {
     }
 
     /**
-     * 清空知识库。
+     * 某分类的条数（2026-11-10：`ensureToolDefsInKnowledgeBase` 用它判断"是否真灌过"）。
      *
-     * @return 清空的条数
+     * <p>为什么需要：入灌标记存在 SharedPreferences（`ai_agent_tooldefs/tool_defs_version`），
+     * 而数据在 db。两者会错位——`clear(include_tool_defs=true)` 清掉了 tool_defs、标记还在，
+     * 或者删库文件重来但 prefs 没清，都会让下次启动**以为已灌过、直接 return**，工具用法检索从此空着。
+     * 所以判据必须是"标记对得上 **且** 库里真有货"。</p>
+     *
+     * @return 条数；查询失败返回 -1（调用方据此按"不确定"处理，仍按已灌过处理，不反复重建）
+     */
+    public synchronized int countByCategory(String category) {
+        if (category == null || category.trim().isEmpty()) {
+            return -1;
+        }
+        Cursor cursor = null;
+        try {
+            SQLiteDatabase db = getReadableDb();
+            cursor = db.rawQuery("SELECT count(*) FROM kb_chunks WHERE category = ?",
+                    new String[]{category.trim()});
+            return cursor.moveToFirst() ? cursor.getInt(0) : -1;
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            Log.e(TAG, "countByCategory 失败: " + e.getMessage(), e);
+            return -1;
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+    }
+
+    /**
+     * 清空知识库——**全清**，连 {@code category=tool_defs} 一起删。
+     *
+     * <p>2026-11-10 定稿：一度改成"默认保留 tool_defs"，后来撤掉了。理由是那条保护的唯一正当性
+     * 是"清掉之后回不来"，而现在 {@code OnlineToolManager.ensureToolDefsInKnowledgeBase}
+     * 会校验"版本标记对得上 **且** 库里真有 tool_defs 行"，清空后下次 Agent 初始化自动重灌，
+     * 不需要抬 {@code TOOL_DEFS_VERSION}。既然能自愈，语义就该是最直白的"清空"，
+     * 不该让用户/模型去判断要不要多传一个请求里的 flag。</p>
+     *
+     * @return 实际删除的条数
      */
     public synchronized int clear() {
         lastError = null;
@@ -1638,7 +3138,9 @@ public class KnowledgeBaseManager {
             db.beginTransaction();
             try {
                 int rows = db.delete("kb_chunks", null, null);
+                db.delete("kb_documents", null, null);
                 db.setTransactionSuccessful();
+                resetSemanticBreaker();   // 库都清了，向量状态从头开始（避免带旧熔断/旧模型标记）
                 return rows;
             } finally {
                 db.endTransaction();
@@ -1650,12 +3152,116 @@ public class KnowledgeBaseManager {
         }
     }
 
+    // ==================== 导出备份（2026-11-10） ====================
+
+    /**
+     * 导出知识库为 JSON 文件，结构与 {@code import_json} 的 {@code {"chunks":[…]}} 一致，可直接导回。
+     *
+     * <p>补的是资产安全缺口：库里全是用户自己导入/沉淀的内容，删掉就没有源文件，
+     * 但此前只有 import 没有 export。这里逐块流式写文件，不把整库拼成一个字符串（避免大库 OOM）。</p>
+     *
+     * @param filePath 目标文件绝对路径；null/空则写到 app 私有目录 {@code knowledge_export_<时间戳>.json}
+     * @param category 只导出该分类；null/空导出全部
+     * @return {"success":true,"file":..,"count":N} 或 {"success":false,"message":..}
+     */
+    public synchronized JSONObject exportJson(String filePath, String category) {
+        lastError = null;
+        Cursor cursor = null;
+        try {
+            SQLiteDatabase db = getReadableDb();
+            File target = resolveExportFile(filePath);
+            if (target == null) {
+                return errorResult("无法确定导出路径：请传入可写的绝对路径");
+            }
+            File parent = target.getParentFile();
+            if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                return errorResult("无法创建导出目录: " + parent.getAbsolutePath());
+            }
+
+            boolean byCategory = category != null && !category.trim().isEmpty();
+            String where = byCategory ? " WHERE category = ?" : "";
+            String[] args = byCategory ? new String[]{category.trim()} : null;
+
+            int count = 0;
+            cursor = db.rawQuery("SELECT COUNT(*) FROM kb_chunks" + where, args);
+            if (cursor.moveToFirst()) {
+                count = cursor.getInt(0);
+            }
+            cursor.close();
+            cursor = null;
+
+            cursor = db.rawQuery("SELECT title, category, keywords, content, source, chunk_seq FROM kb_chunks"
+                    + where + " ORDER BY id", args);
+            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
+                    new FileOutputStream(target), StandardCharsets.UTF_8));
+            try {
+                writer.write("{\"version\":1,\"exported_at\":" + System.currentTimeMillis()
+                        + ",\"count\":" + count + ",\"chunks\":[");
+                int written = 0;
+                while (cursor.moveToNext()) {
+                    if (written > 0) {
+                        writer.write(',');
+                    }
+                    JSONObject item = new JSONObject();
+                    item.put("title", cursor.getString(0) == null ? "" : cursor.getString(0));
+                    item.put("category", cursor.getString(1) == null ? "" : cursor.getString(1));
+                    item.put("keywords", cursor.getString(2) == null ? "" : cursor.getString(2));
+                    item.put("content", cursor.getString(3) == null ? "" : cursor.getString(3));
+                    item.put("source", cursor.getString(4) == null ? "" : cursor.getString(4));
+                    // v5：把块序一起导出，导回来才能还原"第几块"（文件按 id 排序，即建库时的块序）
+                    item.put("chunk_seq", cursor.getInt(5));
+                    writer.write(item.toString());
+                    written++;
+                }
+                writer.write("]}");
+            } finally {
+                writer.close();
+            }
+
+            JSONObject result = new JSONObject();
+            result.put("success", true);
+            result.put("file", target.getAbsolutePath());
+            result.put("count", count);
+            if (byCategory) {
+                result.put("category", category.trim());
+            }
+            if (count == 0) {
+                result.put("message", "该范围内没有内容，导出的是空文件");
+            }
+            return result;
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            Log.e(TAG, "exportJson 失败: " + e.getMessage(), e);
+            return errorResult("导出失败: " + e.getMessage());
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+    }
+
+    /** 导出目标文件：传了路径就用它，否则落到 app 私有目录下带时间戳的文件 */
+    private File resolveExportFile(String filePath) {
+        if (filePath != null && !filePath.trim().isEmpty()) {
+            return new File(filePath.trim());
+        }
+        String name = "knowledge_export_"
+                + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(new Date()) + ".json";
+        File dir = context.getExternalFilesDir(null);
+        if (dir == null) {
+            dir = context.getFilesDir();
+        }
+        return dir == null ? null : new File(dir, name);
+    }
+
     // ==================== 统计 ====================
 
     /**
      * 知识库统计信息。
      *
-     * @return {"total":N,"categories":{category:count,...},"last_updated":ts,"db_version":N}
+     * @return {"total":N,"documents":N,"categories":{...},"last_updated":ts,"db_version":N}
+     *         {@code db_version} 是**实际**库内版本（{@code PRAGMA user_version}），不是常量——
+     *         库文件被替换/迁移失败时，读常量只会给出"一切正常"的假象
      */
     public synchronized JSONObject stats() {
         lastError = null;
@@ -1664,12 +3270,20 @@ public class KnowledgeBaseManager {
         try {
             SQLiteDatabase db = getReadableDb();
             int total = 0;
+            int documents = 0;
             long lastUpdated = 0;
+            int dbVersion = 0;
             JSONObject categories = new JSONObject();
 
             cursor = db.rawQuery("SELECT COUNT(*) FROM kb_chunks", null);
             if (cursor.moveToFirst()) {
                 total = cursor.getInt(0);
+            }
+            cursor.close();
+
+            cursor = db.rawQuery("SELECT COUNT(*) FROM kb_documents", null);
+            if (cursor.moveToFirst()) {
+                documents = cursor.getInt(0);
             }
             cursor.close();
 
@@ -1679,17 +3293,54 @@ public class KnowledgeBaseManager {
             }
             cursor.close();
 
+            // v6：已向量化的块数 + 当前向量模型标识（0 / 空 = 还没回填，此时 semantic 走旧重排路径）
+            int embedded = 0;
+            cursor = db.rawQuery("SELECT COUNT(*) FROM kb_chunks WHERE embedding IS NOT NULL", null);
+            if (cursor.moveToFirst()) {
+                embedded = cursor.getInt(0);
+            }
+            cursor.close();
+
             cursor = db.rawQuery("SELECT category, COUNT(*) FROM kb_chunks GROUP BY category ORDER BY COUNT(*) DESC", null);
             while (cursor.moveToNext()) {
                 categories.put(cursor.getString(0), cursor.getInt(1));
             }
             cursor.close();
+
+            cursor = db.rawQuery("PRAGMA user_version", null);
+            if (cursor.moveToFirst()) {
+                dbVersion = cursor.getInt(0);
+            }
+            cursor.close();
             cursor = null;
 
             result.put("total", total);
+            result.put("documents", documents);
+            result.put("embedded", embedded);
+            String embModel = metaString(db, META_EMBEDDING_MODEL);
+            result.put("embedding_model", embModel == null ? "" : embModel);
+
+            // v6.1：向量来源一眼可辨——本地模型 / 在线端点 / 都没有
+            com.oilquiz.app.ai.embedding.LocalEmbeddingModel local = localEmbedding();
+            String source;
+            if (local.isAvailable()) {
+                source = "local";
+            } else if (local.state() == com.oilquiz.app.ai.embedding.LocalEmbeddingModel.State.DOWNLOADING) {
+                source = "downloading";
+            } else {
+                source = "none";
+                try {
+                    OnlineModelManager omm = OnlineModelManager.getInstance(context);
+                    if (omm != null && pickEmbeddingConfig(omm) != null) source = "online";
+                } catch (Throwable ignored) {
+                }
+            }
+            result.put("embedding_source", source);
+            result.put("local_embedding", local.state().name().toLowerCase(java.util.Locale.ROOT));
+            result.put("local_embedding_dir", local.dir().getAbsolutePath());
             result.put("categories", categories);
             result.put("last_updated", lastUpdated);
-            result.put("db_version", DB_VERSION);
+            result.put("db_version", dbVersion);
         } catch (Exception e) {
             lastError = e.getMessage();
             Log.e(TAG, "stats 失败: " + e.getMessage(), e);
@@ -1711,6 +3362,8 @@ public class KnowledgeBaseManager {
         values.put("content", chunk.content);
         values.put("source", chunk.source);
         values.put("search_text", buildSearchText(chunk));
+        values.put("doc_id", chunk.docId);
+        values.put("chunk_seq", chunk.chunkSeq);
         values.put("created_at", now);
         values.put("updated_at", now);
         return values;

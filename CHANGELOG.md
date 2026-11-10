@@ -1,5 +1,57 @@
 # 变更日志
 
+## [2026-11-10] feat(knowledge)：知识库 v6 语义召回 + 本地 bge 向量模型走 ONNX 真机跑通（small→base）
+
+现场问题：知识库只有关键词召回，问法一模糊就 0 命中或排错（「怎么查天气预报」关键词得分 0，
+`location`/`time_date` 完全进不了榜）。先试的三条路都是死路，已排除：`OnlineModelManager` 的
+`FEATURE_*` 只在在线端点之间选模型，加 `FEATURE_EMBEDDING` 语义不对；`LlamaHelper` 只有 `nEmbd`
+元数据、没有 embedding 输出通道，走 llama.cpp 要改 native；独立向量库（Chroma/Milvus/LanceDB）
+与个人知识库量级不匹配。最终用包里已有的 ONNX Runtime 1.18（RapidOCR / SenseVoice 在用）跑中文 bge，
+不新增任何依赖。
+
+- **v6 schema**（`DB_VERSION 6`）：`kb_chunks.embedding` 存 float32 小端 BLOB，`kb_meta.embedding_model`
+  记来源 tag（`local|模型名` 或 `apiUrl|模型名`）。tag 一变就 `UPDATE kb_chunks SET embedding = NULL`
+  整列作废、开库后分批重算（`EMBED_BACKFILL_BATCH=24`、最多 200 轮）；不在 `onUpgrade` 里逐行算
+  （v4 实测升级事务会吞掉逐行 UPDATE）。
+- **混合召回**：关键词 OR 拼 + `MIN_COVERAGE=0.34` 门槛，语义侧取 `SEMANTIC_CANDIDATES=8`、
+  cosine ≥ `0.30`，再用 `RRF_K=60` 融合去重，`semantic` 默认开。连续 2 次语义失败静默停用 10 分钟
+  （`SEMANTIC_COOLDOWN_MS`）、成功清零——**任何情况下不给主 agent 制造故障**。规模已实测（4000 块：
+  单 token 20ms / 3 tokens 21ms / 6 tokens 20ms，insert 1270ms），换检索引擎收益≈0。
+- **本地向量**：`BertWordPieceTokenizer` 纯 Java（21128 词表、中文/假名/谚文逐字、标点独立、
+  英文 NFD 去重音 + `##` 贪心最长匹配、超长截断保 SEP，无 JNI 无 NLP 库）；
+  `LocalEmbeddingModel` 懒加载 ONNX session、CLS 池化 + L2 归一、输入名自适应
+  （`attention_mask`/`token_type_ids`/`position_ids`）、下载先写 `.part` 再 rename、
+  四态 `state()`（MISSING/DOWNLOADING/READY/FAILED）、加载失败即封存本次运行不重试。
+- **取用顺序**：注入（测试）> 本地（`isAvailable()`）> 在线。`stats` 报
+  `embedding_source`（local/online/downloading/none）、`local_embedding`（missing/…/ready）、
+  `local_embedding_dir`。`embed` 增 `local` 参数：原触发条件「既没本地也没在线才下载」会让有在线
+  端点时永远拉不到本地模型，现在 `local=true` 不管在线可用与否都先把本地模型拉到后台、立即返回
+  `download=started`；在线回填完成时返回体带 `hint` 提示可转本地。
+- **模型 small → base**：`bge-small-zh-v1.5`（512 维/24MB）真机跑通后发现模糊问法噪声明显
+  （「路线规划」把 `douyin_downloader` 排进结果），换 `bge-base-zh-v1.5` int8（768 维、
+  `model_quantized.onnx` 102,868,746 字节、词表 109,540/21128 行）。下载源 **hf-mirror 优先、HF 官方兜底**
+  （开发机直连官方 25s 超时）。
+- **providers.json `2026-11-10-v2`**：DeepSeek 的 `services.embedding` 由 `true` 改 `false`
+  （官方 API Docs 无 embeddings 能力页，Models & Pricing 只列 chat/vision/FIM 与 Search&Fetch），
+  向量端点改为「在已启用端点里挑一个声明了 `embeddingModel` 的」，不要求它同时是当前对话模型。
+- **工具层**：`knowledge_base` 增至 14 个动作（`list/get/search/add/add_batch/update/import_json/
+  import_file/import_document/delete/export/clear/stats/embed`），新增/改动作四处必须同步
+  （`@Action` + `execute` 的 `case` + `AIToolManager` 显式 schema + `assets/tool_guide_flow.json` 术语表，
+  漏最后一处会红 `ToolGuideFlowValidatorTest`）；本轮为 `embed` 补了 `local` 参数的 schema 与描述。
+- **真机实测（25113PN0EC，`ai_log_20261110.txt` + 会话 `8e14bfe0-…`）**：`embed local=true` →
+  `embedded_now 59 / total 59`、`embedding_source=local`，耗时 11,567ms（含首次加载 98MB 模型）；
+  `stats` → `local|bge-base-zh-v1.5`、`local_embedding=ready`；直读 `kb_chunks.embedding`
+  → blob 3072 字节 = 768×4（确认不是旧 512 维残留）；单次检索 46ms，「读取 Excel 表格里的数据」
+  → `excel_tool` 66 分第一，「想找一条去某地的路线怎么规划」→ `location` 第一。
+- **测试**：新增 `BertWordPieceTokenizerTest`(7)、`LocalEmbeddingModelTest`(4，只钉「缺失/损坏时静默不启用」，
+  JVM 加载不了 ORT native)、`KnowledgeBaseSemanticSearchTest`(8，概念字典假向量、不联网)、
+  `KnowledgeBaseToolAdminTest`(3)、`KnowledgeBaseScaleProbeTest`(1，规模探针)。
+  全量 **255 suite / 1852 tests / 0 failures / 0 errors / 1 skipped**。
+- **装包坑**：`.cxx` 里 `vulkan-shaders-gen.exe` 缺 `libstdc++-6.dll` / `libgcc_s_seh-1.dll` /
+  `libwinpthread-1.dll`（MinGW 编），从 `C:\msys64\mingw64\bin` 复制进去才编得过；本机 PowerShell
+  `PATH` 无 `System32` 时 llama.cpp 链接会报 `'cmd.exe' 不是内部或外部命令`，装包前先补。
+- 提交：本文件补记。
+
 ## [2026-11-09] fix(chat)：模型在内存但 chat context 失效时主动重建
 
 退后台 `TRIM_MEMORY_UI_HIDDEN` → `AIService.onTrimMemory` 会 `chatDestroy()`（只释放上下文、保留模型）。

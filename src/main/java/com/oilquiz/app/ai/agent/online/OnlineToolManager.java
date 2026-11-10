@@ -793,10 +793,21 @@ public class OnlineToolManager {
             android.content.SharedPreferences prefs = appContext.getSharedPreferences(
                     "ai_agent_tooldefs", android.content.Context.MODE_PRIVATE);
             String ingested = prefs.getString("tool_defs_version", "");
-            if (TOOL_DEFS_VERSION.equals(ingested)) return;
-
             com.oilquiz.app.ai.knowledge.KnowledgeBaseManager kb =
                     com.oilquiz.app.ai.knowledge.KnowledgeBaseManager.getInstance(appContext);
+            // 版本标记在 prefs、数据在 db，两者会错位：clear(include_tool_defs=true) 清掉了 tool_defs
+            // 而标记还在；或删库文件重来但 prefs 没清。只信标记 → 下次启动直接 return，
+            // 工具用法检索从此永远是空的。所以必须"标记对得上 **且** 库里真有货"才算灌过。
+            int existing = kb.countByCategory(TOOL_DEFS_CATEGORY);
+            boolean versionMatched = TOOL_DEFS_VERSION.equals(ingested);
+            if (versionMatched && existing > 0) return;
+            // existing < 0：查询失败，按"已灌过"处理，避免反复重建
+            if (versionMatched && existing < 0) return;
+            if (versionMatched) {
+                AILogger.w(TAG, "Tool defs vanish from KB though version matched, re-ingest: v"
+                        + TOOL_DEFS_VERSION);
+            }
+
             // 1. 清理旧条目（2026-09-23 v4：按 category 一次删光——按 title 遍历曾因
             //    返回格式字段名不匹配漏删，导致 export_apk 等工具残留重复条目 id 159/225/291）
             try {

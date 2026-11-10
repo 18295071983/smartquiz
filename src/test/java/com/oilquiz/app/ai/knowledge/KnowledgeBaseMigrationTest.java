@@ -18,12 +18,12 @@ import org.robolectric.RobolectricTestRunner;
 import java.io.File;
 
 /**
- * 知识库 v3 → v4 数据迁移（2026-10-28，U1 bigram）。
+ * 知识库老库升级（2026-10-28 起，v3 → 现行版本）。
  *
  * <p>v3 的 {@code search_text} 存的是"原文小写"，v4 换成"空格分隔的 bigram token 流"。
  * 老用户盘上已经有 63 条工具定义（category=tool_defs），必须靠 onUpgrade **原地重算**，
  * 不能要求清库重导。这条用例模拟一个 v3 库，验证：开库即迁移、search_text 真的变成
- * bigram 流、按 bigram 能查到、user_version 抬到 4。</p>
+ * bigram 流、按 bigram 能查到、user_version 抬到现行版本（v5：v4 重建检索文本 + v5 建文档层）。</p>
  */
 @RunWith(RobolectricTestRunner.class)
 public class KnowledgeBaseMigrationTest {
@@ -86,7 +86,13 @@ public class KnowledgeBaseMigrationTest {
         SQLiteDatabase reopened = SQLiteDatabase.openDatabase(
                 dbFile.getPath(), null, SQLiteDatabase.OPEN_READONLY);
         try {
-            assertEquals("user_version 应抬到 4", 4, reopened.getVersion());
+            // v3 老库一路升到现行版本：v4 重建 search_text、v5 建文档层（空表也算建成）
+            assertEquals("user_version 应抬到现行版本 v6", 6, reopened.getVersion());
+            Cursor docTable = reopened.rawQuery(
+                    "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='kb_documents'", null);
+            assertTrue(docTable.moveToFirst());
+            assertEquals("v5 应建出 kb_documents 表", 1, docTable.getInt(0));
+            docTable.close();
             Cursor c = reopened.rawQuery("SELECT search_text FROM kb_chunks LIMIT 1", null);
             assertTrue(c.moveToFirst());
             String st = c.getString(0);

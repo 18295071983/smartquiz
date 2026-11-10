@@ -31,8 +31,10 @@
           "import_file": "导入JSON文件",
           "import_document": "导入文档",
           "delete": "删除",
+          "export": "导出备份",
           "clear": "清空",
-          "stats": "统计"
+          "stats": "统计",
+          "embed": "补全向量"
         }
       },
       "memory": {

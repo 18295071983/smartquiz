@@ -2243,33 +2243,40 @@ public class AIToolManager {
                                 + "list 轻量索引(id/标题/分类/关键词，不含正文)、get 按 id 取单条全文、search 模糊检索（也可传 id/exact_title 精确取）、" + "add/add_batch 添加知识、update 修改已有知识（按 id 或唯一标题，只改传入字段、id 不变）、"
                                 + "import_json/import_file 导入知识 JSON、"
                                 + "import_document 直接导入文件（Word/Excel/TXT/MD/CSV/PDF/HTML/图片OCR/音频ASR转写，自动切块）、"
-                                + "delete 删除、clear 清空、stats 统计。"
+                                + "delete 删除（按 id/标题/来源 source）、export 导出备份、clear 清空、"
+                                + "stats 统计（含 embedded 已向量化块数、embedding_source=local/online/downloading/none）、"
+                                + "embed 补齐向量（老库/换模型后用；既没本地模型也没在线端点时会后台下载约 98MB 本地向量模型并立即返回）。"
                                 + "用户问应用专属或用户自己资料里的内容时，先 search 知识库再回答，不要凭空作答。"
                                 + "分类说明：category=tool_defs 是系统工具定义库（查询工具用法/参数/适用场景用）；"
-                                + "不传 category 检索全部（用户知识各分类都会命中）；查用户资料时如需精准可传具体分类如 guide/faq。")
+                                + "不传 category 检索用户知识（自动排除 tool_defs，避免工具定义挤掉资料命中名额）；查用户资料时如需精准可传具体分类如 guide/faq。")
                     .addParameter("action", "string", "操作类型", true, null, Arrays.asList(
                             "list", "get", "search", "add", "add_batch", "update", "import_json", "import_file",
-                            "import_document", "delete", "clear", "stats"))
-                    .addParameter("query", "string", "检索关键词（search 必填）：中文/英文/数字均可", false)
+                            "import_document", "delete", "export", "clear", "stats", "embed"))
+                    .addParameter("query", "string", "检索关键词（search 必填）：中文/英文/数字均可；可直接用用户原话，系统按虚词切分后再匹配，不必手工压成两字词", false)
                     .addParameter("category", "string", "分类（search 过滤 / add 写入 / update 修改，可选，默认 general；tool_defs=系统工具定义库，查工具用法/参数时用）", false)
                     .addParameter("tag", "string", "标签/别名精确过滤（list/search 用）：对 keywords 做整词匹配、不分词；别名/同义词/标签建议写进 keywords（逗号分隔）", false)
                     .addParameter("top_k", "integer", "返回条数上限（search 可选，默认 5，最大 20）", false)
-                    .addParameter("semantic", "boolean", "语义重排（search 可选，默认 false）：true=在线 embedding 重排+rerank 精排（消费在线 API），未配置时自动回退关键词检索", false)
+                    .addParameter("semantic", "boolean", "语义扩召回（search 可选，默认 true）：本地已有向量时关键词召回 + 向量余弦召回两路融合，能捞回关键词没命中的同义/口语化问法（之前只是重排、不扩大召回）；没回填向量/没配模型时自动退回关键词。传 false 强制只走关键词", false)
+                    .addParameter("local", "boolean", "embed 可选，默认 false：true 时优先补本地向量模型（约 98MB，走 hf-mirror 后台下载），下完再调一次 embed 就会改用它重算，之后离线可用且不消耗 embedding 额度", false)
                     .addParameter("title", "string", "标题（add 必填；update 时为新标题；import_document 可选，图片/音频建议传语义化标题；delete 可按标题删）", false)
                     .addParameter("content", "string", "知识正文（add 必填；update 时为新正文）", false)
                     .addParameter("keywords", "string", "关键词，逗号分隔（add/update 可选，增强检索命中）", false)
-                    .addParameter("source", "string", "来源标识，如文件名/链接（add/update 可选）", false)
+                    .addParameter("source", "string", "来源标识，如文件名/绝对路径（add/update 可选；delete 传 source 会删掉该来源下的整篇）", false)
                     .addParameter("id", "integer", "知识 ID（list/search 结果里带 id；get/delete/update 使用；search 传 id 表示精确取）", false)
                     .addParameter("find_title", "string", "按标题精确定位（update 用，与 id 二选一）：仅当标题唯一时可用，命中多条会报错要求改用 id", false)
                     .addParameter("exact_title", "string", "精确取：标题全等（search 用，与 id 二选一，不做模糊召回）", false)
                     .addParameter("limit", "integer", "条数上限（list 可选，默认 20，最大 100）", false)
+                    .addParameter("offset", "integer", "翻页偏移（list 可选）：跳过前 N 条；返回里带 next_offset 时传它取下一页", false)
                     .addParameter("items", "array", "知识对象数组（add_batch 必填），每项 {title, content, category?, keywords?, source?}", false)
                     .addParameter("json", "string", "知识 JSON 字符串（import_json 必填）：{\"chunks\":[{...}]} 或裸数组", false)
-                    .addParameter("file_path", "string", "文件绝对路径（import_file=知识 JSON 文件；import_document=Word/Excel/TXT/MD/CSV/PDF/HTML/图片/音频）", false)
+                    .addParameter("file_path", "string", "文件绝对路径（import_file=知识 JSON 文件；import_document=Word/Excel/TXT/MD/CSV/PDF/HTML/图片/音频；export=导出目标文件，不传则写 app 私有目录）", false)
                     .category("knowledge")
                     .whenToUse("用户问应用专属/个人笔记/课程资料类内容时先 knowledge_base(action=search, query=关键词)；"
                             + "用户要把文件、资料、笔记、录音、截图加入知识库时用 knowledge_base(action=import_document, file_path=绝对路径)；"
-                            + "用户要改已入库的某条知识（改了错别字/结论过期/分类放错）时用 knowledge_base(action=update, id=search 结果里的 id, 需要改的字段)；" + "想知道知识库里有什么先 knowledge_base(action=list) 看索引，再 action=get(id=…) 取全文，不要用 search 把整页正文拉回来")
+                            + "用户要改已入库的某条知识（改了错别字/结论过期/分类放错）时用 knowledge_base(action=update, id=search 结果里的 id, 需要改的字段)；"
+                            + "文档改版要整体替换时先 knowledge_base(action=delete, source=原文件绝对路径) 再 import_document（直接重导会留两份）；"
+                            + "用户要备份知识库时用 knowledge_base(action=export)；"
+                            + "想知道知识库里有什么先 knowledge_base(action=list) 看索引，再 action=get(id=…) 取全文，不要用 search 把整页正文拉回来")
                     .build();
             default:
                 // 已注册工厂但未在 switch 中显式定义的工具（memory/workspace/image_gen/

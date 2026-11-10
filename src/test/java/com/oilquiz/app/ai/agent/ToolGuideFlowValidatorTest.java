@@ -404,7 +404,7 @@ public class ToolGuideFlowValidatorTest {
     @Test
     public void shippedTermsCoverEveryDeclaredActionValueOfKnowledgeBase() {
         // knowledge_base 是唯一在 switch 分支里声明了 action 枚举、又没有手写精细引导的工具，
-        // 所以它的 12 个动作今天就会以原始值出现在选项卡上。随包术语表必须全覆盖，
+        // 所以它的动作会以原始值出现在选项卡上。随包术语表必须全覆盖，
         // 否则以后有人加一个 action 却没加词条，这条会红。
         ToolGuideTerms terms = ToolGuideConfigLoader.terms(ctx());
         ParamDefinition action = paramOf("knowledge_base", "action");
