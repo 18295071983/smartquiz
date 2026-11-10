@@ -235,6 +235,51 @@ public class ChatHistoryManager {
      * Gson 序列化时 ConcurrentModificationException（Crash）。
      * 返回的列表与调用方完全解耦，可安全序列化。
      */
+    /**
+     * 并发下的深拷贝：渲染线程在改 {@code assistantTurn.parts} 时，clone()/copy() 会抛
+     * {@link java.util.ConcurrentModificationException} —— 重试几次即可（每次改动只有几微秒）。
+     */
+    /** 并发安全地拷贝列表：失败就返回 null（历史里少这份附属数据，不影响正文） */
+    private static <T> java.util.List<T> safeCopyList(java.util.List<T> src) {
+        if (src == null) return null;
+        for (int i = 0; i < 4; i += 1) {
+            try {
+                return new ArrayList<>(src);
+            } catch (java.util.ConcurrentModificationException e) {
+                try { Thread.sleep(8); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            }
+        }
+        return null;
+    }
+
+    private static ChatMessage cloneWithRetry(ChatMessage msg) {
+        for (int i = 0; i < 4; i += 1) {
+            try {
+                return msg.clone();
+            } catch (java.util.ConcurrentModificationException e) {
+                try { Thread.sleep(8); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            } catch (RuntimeException e) {
+                try { Thread.sleep(8); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            }
+        }
+        return null;
+    }
+
+    private static com.oilquiz.app.ai.chat.turn.AssistantTurn copyTurnWithRetry(
+            com.oilquiz.app.ai.chat.turn.AssistantTurn turn) {
+        if (turn == null) return null;
+        for (int i = 0; i < 4; i += 1) {
+            try {
+                return turn.copy();
+            } catch (java.util.ConcurrentModificationException e) {
+                try { Thread.sleep(8); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            } catch (RuntimeException e) {
+                try { Thread.sleep(8); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            }
+        }
+        return null;
+    }
+
         public static List<ChatMessage> deepCopyForSave(List<ChatMessage> chatHistory) {
         if (chatHistory == null) return new ArrayList<>();
         List<ChatMessage> copy = new ArrayList<>(chatHistory.size());
@@ -242,31 +287,31 @@ public class ChatHistoryManager {
             if (msg == null) { copy.add(null); continue; }
             // 基于 clone()（Builder 深拷贝 thinkingSteps/attachments），
             // 再补上 clone() 未覆盖的可变集合与运行时字段（防并发修改 CME）
-            ChatMessage m = msg.clone();
+            ChatMessage m = cloneWithRetry(msg);
+            if (m == null) { copy.add(null); continue; }
             // 消息对 id 持久化（2026-09-14）：clone() 的 Builder 不含 turnId/subId，
             // 若不补拷，保存后所有消息的回合/子 id 丢失，适配器按 id 管理失效
             m.turnId = msg.turnId;
             m.subId = msg.subId;
-            m.components = msg.components != null ? new ArrayList<>(msg.components) : null;
-            m.thinkingRounds = msg.thinkingRounds != null ? new ArrayList<>(msg.thinkingRounds) : null;
+            m.components = safeCopyList(msg.components);
+            m.thinkingRounds = safeCopyList(msg.thinkingRounds);
             // 正文轮次边界随 components 一起拷贝：clone() 的 Builder 未覆盖该字段，若不补拷，
             // 保存后 contentRoundBounds 丢失 → 历史加载时 roundAssembled=false，通道 A（renderRoundAssembled
             // 内联"思考→正文→工具"时序）被跳过，工具卡片退回通道 B「工具过程」折叠渲染，
             // 导致实时（内联）与重进（折叠）两种形态不一致。补拷后历史加载与实时走同一渲染路径。
-            m.contentRoundBounds = msg.contentRoundBounds != null ? new ArrayList<>(msg.contentRoundBounds) : null;
+            m.contentRoundBounds = safeCopyList(msg.contentRoundBounds);
             // 每轮完整正文快照（2026-10-21）：clone() 的 Builder 不覆盖，需显式拷贝
-            m.roundSnapshots = msg.roundSnapshots != null
-                    ? new ArrayList<>(msg.roundSnapshots) : null;
-            m.assistantTurn = msg.assistantTurn != null ? msg.assistantTurn.copy() : null;
+            m.roundSnapshots = safeCopyList(msg.roundSnapshots);
+            // 渲染线程可能正在往 parts 里加内容：copy() 遍历时会 CME，重试几次；
+            // 仍失败就放弃这一轮（content/thinkingContent 还在，历史能照常恢复）。
+            m.assistantTurn = copyTurnWithRetry(msg.assistantTurn);
             // 边界身份（2026-10-21）：与 bounds 等长的 toolCallId，旧数据可为 null
-            m.contentRoundToolIds = msg.contentRoundToolIds != null
-                    ? new ArrayList<>(msg.contentRoundToolIds) : null;
+            m.contentRoundToolIds = safeCopyList(msg.contentRoundToolIds);
             // 思考轮 id 随轮次内容一起拷贝（2026-09-14）：恢复后 id 与轮次一一对应不丢
-            m.thinkingRoundIds = msg.thinkingRoundIds != null ? new ArrayList<>(msg.thinkingRoundIds) : null;
+            m.thinkingRoundIds = safeCopyList(msg.thinkingRoundIds);
             // 每轮耗时也要跟着拷（2026-10-20）："每轮单独成行"后行尾要显示这一轮的秒数，
             // 丢了就只能退回"第 N 轮思考"没有耗时
-            m.thinkingRoundDurationsMs = msg.thinkingRoundDurationsMs != null
-                    ? new ArrayList<>(msg.thinkingRoundDurationsMs) : null;
+            m.thinkingRoundDurationsMs = safeCopyList(msg.thinkingRoundDurationsMs);
             // Agent 运行时字段（clone() 的 Builder 未覆盖，直接赋值）
             m.agentToolsExpanded = msg.agentToolsExpanded;
             m.agentMode = msg.agentMode;

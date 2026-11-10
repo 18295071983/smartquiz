@@ -789,6 +789,27 @@ export function apply(ctx, config) {
   // ---------------- 电脑端会话：列出 / 只读查看 ----------------
   // 目的：手机不只知道"自己那条会话"，还能看到电脑上正在聊/聊过的会话（只读），
   // 需要时再 attach 过去接着聊（写入口唯一性见 /session action=attach 的说明）。
+  /**
+   * 已归档的会话 id（$DSH_HOME/storages/workspace.json → global.archivedSessionIds）。
+   * 手机端选会话只该看到"还在用"的，归档的不用同步。
+   */
+  let archivedCache = { at: 0, ids: new Set() };
+  const archivedSessionIds = () => {
+    try {
+      const home = process.env.DSH_HOME || '';
+      if (!home) return archivedCache.ids;
+      const p = join(home, 'storages', 'workspace.json');
+      const st = statSync(p);
+      if (st.mtimeMs === archivedCache.at) return archivedCache.ids;
+      const j = JSON.parse(readFileSync(p, 'utf8'));
+      const list = j?.global?.archivedSessionIds;
+      archivedCache = { at: st.mtimeMs, ids: new Set(Array.isArray(list) ? list.map(String) : []) };
+      return archivedCache.ids;
+    } catch {
+      return archivedCache.ids;
+    }
+  };
+
   const persistence = () => { try { return ctx.get('sessionPersistence'); } catch { return undefined; } };
 
   /** 持久化事件 → {role,text}；只取 user/assistant 的文本，不碰工具结果与推理 */
@@ -872,7 +893,7 @@ export function apply(ctx, config) {
   }
 
   /** 列出已落盘会话，按**最后活动时间**排序（不是创建时间） */
-  async function listStoredSessions(limit = 20) {
+  async function listStoredSessions(limit = 20, opts = {}) {
     const svc = persistence();
     const idx = sessionFileIndex();                 // id → 文件 mtime，只 stat，不解码日志
     let rows = [];
@@ -885,7 +906,8 @@ export function apply(ctx, config) {
     } else {
       rows = [...idx.keys()].map((id) => ({ session_id: id, cwd: '', created_at: null }));
     }
-    const desktopRows = rows.filter((r) => !r.session_id.startsWith('smartquiz-'));
+    const archivedSet = opts.includeArchived ? new Set() : archivedSessionIds();
+    const desktopRows = rows.filter((r) => !r.session_id.startsWith('smartquiz-') && !archivedSet.has(r.session_id));
     // 排序用文件 mtime（≈ 最后一次写入），不再为每条读一遍日志尾；
     // 只有真正要返回的那几条才补标题/最后一句，避免会话多时一次请求要等十几秒。
     for (const row of desktopRows) row.updated_at = idx.get(row.session_id) ?? null;
