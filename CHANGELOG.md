@@ -16,7 +16,7 @@ App 内实测（两份真实文档 64 块）暴露两处：Markdown「结论句 
   `statsReportsEmbeddingPendingInsteadOfLookingIncomplete` 两条，`KnowledgeBaseManagerTest` 30→32；
   全量 **255 suite / 1854 tests / 0 failures / 0 errors / 1 skipped**；`installDebug` 装机成功。
 - **未真机复测**：只改了导入切块与 stats 字段，真机上要重新导入同一篇文档才看得到块数变化。
-- 提交：本文件补记。
+- 提交：`45692cce`（本文件补记）。
 
 ## [2026-11-10] feat(knowledge)：知识库 v6 语义召回 + 本地 bge 向量模型走 ONNX 真机跑通（small→base）
 
