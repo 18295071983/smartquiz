@@ -34,6 +34,11 @@ window.__ModuleLoader__.load({
       }, [loadBalance]);
 
       React.useEffect(() => { if (open) load(); }, [open, load]);
+      React.useEffect(() => {
+        if (!open) return undefined;
+        const t = setInterval(load, 5000);
+        return () => clearInterval(t);
+      }, [open, load]);
       React.useEffect(() => { if (info) setPubUrl(info.public_url || ''); }, [info]);
 
       /** 切换"允许远程执行命令"（仅本机可调） */
@@ -102,6 +107,27 @@ window.__ModuleLoader__.load({
               h('span', null, '允许手机在电脑上执行命令（/exec）')),
             h('span', { style: { opacity: 0.7 } },
               (st && st.channels && st.channels.exec) ? '当前：允许' : '当前：禁止')),
+          // ★ 双端能力（2026-11-10）：事件流 / 审批中继 / 反向指令队列
+          st && h('div', {
+            style: { marginTop: 6, paddingTop: 6, borderTop: '1px dashed currentColor' },
+          },
+            h('div', null, '事件流：', h('b', null, st.events
+              ? ('✓ 可续传' + (st.events.log_replay ? '（含日志补发）' : '') + ' · 快照兜底 · 心跳 ' + st.events.heartbeat + 's')
+              : '—')),
+            h('div', null, '审批中继：', h('b', null,
+              st.approval_relay && st.approval_relay.gateway ? '✓ 网关可达' : '✗ 网关不可用'),
+              (st.approval_relay && st.approval_relay.pending)
+                ? (' · 待处理 ' + st.approval_relay.pending) : ' · 无待处理'),
+            h('div', null, '反向指令：', h('b', null, st.cmd_queue
+              ? (st.cmd_queue.queued + ' 待执行 / ' + st.cmd_queue.done + ' 已完成') : '—')),
+            (st.cmd_queue && st.cmd_queue.allowed)
+              ? h('div', { style: { opacity: 0.8 } }, '白名单：' + st.cmd_queue.allowed.join('、'))
+              : null,
+            (st.cmd_queue && st.cmd_queue.recent && st.cmd_queue.recent.length > 0)
+              ? h('div', { style: { opacity: 0.85, wordBreak: 'break-all' } },
+                  '最近：' + st.cmd_queue.recent.map((c) => c.tool + '(' + c.state + ')').join(' · '))
+              : null,
+          ),
 info && h('div', null, '二维码：', h('button', {
             style: { ...chip, padding: '2px 8px', fontSize: 12 },
             onClick: () => { fetch('/pair/open', { method: 'POST' }).then((r) => r.json()).then((j) => setErr(j && j.ok ? '' : '打开失败')).catch(() => setErr('打开失败')); },
