@@ -112,6 +112,11 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         valueSyncTarget = findViewById(R.id.value_sync_target);
         pickSessionBtn = findViewById(R.id.btn_pick_session);
         if (pickSessionBtn != null) {
+
+        android.widget.Button btnImportHistory = findViewById(R.id.btn_import_history);
+        if (btnImportHistory != null) {
+            btnImportHistory.setOnClickListener(v -> importRemoteHistory());
+        }
             pickSessionBtn.setOnClickListener(v -> pickSession());
         }
 
@@ -140,6 +145,41 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         } catch (Throwable ignored) {
             // 窗口 token 失效（切页/旋转）时静默丢弃
         }
+    }
+
+    /**
+     * 把电脑端当前选中会话的**整条历史**导入成本机的一条对话历史。
+     *
+     * 走历史文件而不是持续镜像：导入后在历史抽屉里可见、可离线回看，
+     * 不再依赖补拉把内容重新拼出来。
+     */
+    private void importRemoteHistory() {
+        final String target = RemoteDshTool.getSyncTarget(this);
+        if (target.isEmpty()) {
+            toast("先选择一条电脑会话");
+            return;
+        }
+        if (!RemoteDshTool.isConfigured(this) || !RemoteDshTool.isConnected(this)) {
+            toast("电脑未连接：请先配对/连接");
+            return;
+        }
+        final String title = RemoteDshTool.getSyncTitle(this);
+        toast("开始导入…（会话越长越慢，请稍候）");
+        new Thread(() -> {
+            try {
+                DshHistoryImporter.Result r = DshHistoryImporter.importSession(this, target, title);
+                runOnUiThread(() -> {
+                    if (r.count <= 0) {
+                        toast("没有可导入的消息（会话可能为空）");
+                    } else {
+                        toast("已导入 " + r.count + " 条消息到本机历史：" + (r.title == null ? "" : r.title));
+                        refresh();
+                    }
+                });
+            } catch (Throwable e) {
+                runOnUiThread(() -> toast("导入失败：" + e.getMessage()));
+            }
+        }, "dsh-history-import").start();
     }
 
     private void pickSession() {

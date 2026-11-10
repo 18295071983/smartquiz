@@ -189,6 +189,17 @@
                     android:textColor="?attr/colorOnSecondaryContainer"
                     app:backgroundTint="?attr/colorSecondaryContainer"
                     app:cornerRadius="@dimen/radius_22"/>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_import_history"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_44"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text="把电脑这条对话的历史导入本机"
+                    android:textSize="@dimen/text_14"
+                    android:textAllCaps="false"
+                    android:textColor="?attr/colorOnTertiaryContainer"
+                    app:backgroundTint="?attr/colorTertiaryContainer"
+                    app:cornerRadius="@dimen/radius_22"/>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
