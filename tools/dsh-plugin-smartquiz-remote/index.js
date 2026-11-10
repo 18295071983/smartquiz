@@ -1021,7 +1021,9 @@ export function apply(ctx, config) {
         sse({ type: 'snapshot', session_id: sid, seq: replay.seq, turns: replay.turns, source: 'log' });
       } else {
         sse({ type: 'ready', session_id: sid, seq: replay.seq, source: 'log', since });
-        for (const ev of replay.events) sse({ type: 'event', event: ev });
+        for (const ev of replay.events) {
+          if (passType(ev)) sse({ type: 'event', event: ev });
+        }
       }
       return finish();
     }
@@ -1044,7 +1046,7 @@ export function apply(ctx, config) {
       const seq = Number(live.seq ?? 0);
       for (; cursor < seq; cursor += 1) {
         const ev = live.eventAt?.(cursor);
-        if (ev) sse({ type: 'event', event: ev });
+        if (ev && passType(ev)) sse({ type: 'event', event: ev });
       }
       for (const a of [...pendingRemoteOf(sid, 'approval'), ...pendingRemoteOf(sid, 'question')]) {
         if (announced.has(a.id)) continue;
