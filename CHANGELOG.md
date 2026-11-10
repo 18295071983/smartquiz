@@ -33,7 +33,7 @@
 - **验证**：`/sessions.json` 与 `read` 返回符合预期；真实一轮 attach（目标 `session-839f2987…`）产生的子会话
   `session-e065a9d8…` 收到完整前言与两条历史，回复「正常」，`workingDir` 生效（cwd 为 `D:\qzq\smartquiz`）。
   Java 侧 `:compileDebugJavaWithJavac` 通过；手机端三个新 action 未真机验证。
-- 提交：`<待补>`
+- 提交：`4073ad10`
 
 ## [2026-11-10] feat(vision)：本地视觉支持一次多图（native mtmd 改数组）
 
