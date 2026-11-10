@@ -480,6 +480,13 @@ class PythonToolEngine:
                     '--trusted-host', trusted_host,
                     '--no-compile',
                     '--disable-pip-version-check',
+                    # 2026-11-10 崩溃修复：Chaquopy 下 pip 默认会做 build isolation ——
+                    # 起一个子进程 pip install pybind11/setuptools，那个子进程在手机上
+                    # 直接 SIGABRT（crash buffer 里是 app_process64 + pip/__pip-runner__）。
+                    '--no-build-isolation',
+                    # 只装预编译 wheel：需要现场编译的包一律失败并给出明确提示，而不是崩掉进程。
+                    '--only-binary', ':all:',
+                    '--prefer-binary',
                     '--quiet'
                 ]
                 try:
@@ -522,7 +529,14 @@ class PythonToolEngine:
                 result["message"] = f"成功安装 {package_name} (使用国内镜像)"
                 result["installed"] = True
             else:
-                result["message"] = f"安装失败: {last_error}"
+                # 只装 wheel：没有 arm64/universal wheel 时需要现场编译，手机端不支持
+                # （旧行为会触发 build isolation 子进程直接把进程 SIGABRT 掉）。
+                hint = ""
+                low = str(last_error).lower()
+                if 'only-binary' in low or 'no matching distribution' in low or 'no binary' in low:
+                    hint = ("\n该包没有预编译 wheel（需要现场编译），手机端无法安装；"
+                            "请换纯 Python 包、已预装库，或改用 Termux 完整 Python 环境。")
+                result["message"] = f"安装失败: {last_error}{hint}"
                 result["fallback_message"] = self._get_install_help(package_name)
         except Exception as e:
             result["message"] = f"安装失败: {e}"
