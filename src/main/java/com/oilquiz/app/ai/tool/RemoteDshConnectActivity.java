@@ -174,6 +174,15 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                     } else {
                         toast("已导入 " + r.count + " 条消息到本机历史：" + (r.title == null ? "" : r.title));
                         refresh();
+                        if (r.sessionId != null && !r.sessionId.isEmpty()) {
+                            try {
+                                android.content.Intent open = new android.content.Intent(
+                                        RemoteDshConnectActivity.this,
+                                        com.oilquiz.app.ui.activity.AIChatActivity.class);
+                                open.putExtra("open_session_id", r.sessionId);
+                                startActivity(open);
+                            } catch (Throwable ignored) { /* 打不开就让用户从历史里点 */ }
+                        }
                     }
                 });
             } catch (Throwable e) {

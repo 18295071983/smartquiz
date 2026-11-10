@@ -13929,8 +13929,24 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
+    /** 被「导入历史」等外部入口指定要打开的会话（只消费一次） */
+    private String pendingOpenSessionId = null;
+
     @Override
     protected void onResume() {
+        try {
+            android.content.Intent it = getIntent();
+            String want = it == null ? null : it.getStringExtra("open_session_id");
+            if (want != null && !want.isEmpty() && !want.equals(currentSessionId)
+                    && !want.equals(pendingOpenSessionId)) {
+                pendingOpenSessionId = want;
+                it.removeExtra("open_session_id");
+                com.oilquiz.app.ai.util.ConversationSession target =
+                        chatHistoryManager == null ? null : chatHistoryManager.loadConversationSession(want);
+                if (target != null) switchToSession(target);
+            }
+        } catch (Throwable ignored) { /* 打不开就保持当前会话 */ }
+
         startRemoteSyncService();
         catchUpSync();
         startDshCommandPolling();

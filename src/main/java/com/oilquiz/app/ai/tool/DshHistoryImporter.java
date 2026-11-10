@@ -53,13 +53,34 @@ public final class DshHistoryImporter {
         if (messages.isEmpty()) return new Result(0, null, title);
 
         ChatHistoryManager mgr = new ChatHistoryManager(ctx);
+        // 同一条电脑会话重复导入 → 覆盖原来那一条，而不是每次都新建
+        String existing = mappedLocalSession(ctx, target);
+        if (existing != null && mgr.loadConversationSession(existing) == null) existing = null;
         com.oilquiz.app.ai.util.ConversationSession session =
-                mgr.saveCurrentChatAsSession(messages, null);
+                mgr.saveCurrentChatAsSession(messages, existing);
         if (session == null) return new Result(0, null, title);
+        rememberMapping(ctx, target, session.id);
         return new Result(messages.size(), session.id, session.title);
     }
 
     /** 一次性把事件流读完（follow=0；插件侧会按 seq 顺序重放） */
+    /** 电脑会话 id → 本机历史会话 id（保证重复导入是"更新"而不是"新增"） */
+    private static String mappedLocalSession(Context ctx, String target) {
+        try {
+            return ctx.getSharedPreferences("remote_dsh", Context.MODE_PRIVATE)
+                    .getString("import_sid_" + target, null);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static void rememberMapping(Context ctx, String target, String localId) {
+        try {
+            ctx.getSharedPreferences("remote_dsh", Context.MODE_PRIVATE)
+                    .edit().putString("import_sid_" + target, localId).apply();
+        } catch (Throwable ignored) { /* 记不住就下次新建，不影响导入 */ }
+    }
+
     private static List<JSONObject> fetchAllEvents(Context ctx, String target) throws Exception {
         final List<JSONObject> out = new ArrayList<>();
         RemoteDshTool.subscribeEvents(ctx, target, 0, 90, false,
