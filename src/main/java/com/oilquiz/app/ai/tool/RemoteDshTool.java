@@ -272,6 +272,60 @@ public class RemoteDshTool implements AITool {
         return out;
     }
 
+    /**
+     * 轮询"电脑让我在本机执行的指令"（反向通道）。
+     *
+     * 只放行插件白名单里的工具（ui_component / ui_component_plugin / task / reminder），
+     * 执行仍在本机，结果回执给电脑。
+     */
+    public static org.json.JSONArray pollCommands(Context c) throws Exception {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        org.json.JSONObject body = new org.json.JSONObject();
+        body.put("action", "cmd_poll");
+        String raw = tool.postSessionRaw(body, 20);
+        return new org.json.JSONObject(raw).optJSONArray("commands");
+    }
+
+    /** 回执：某条指令在本机执行完了 */
+    public static void ackCommand(Context c, String cmdId, boolean ok, String result) throws Exception {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        org.json.JSONObject body = new org.json.JSONObject();
+        body.put("action", "cmd_ack");
+        body.put("cmd_id", cmdId);
+        body.put("ok", ok);
+        body.put("result", result == null ? "" : result);
+        tool.postSessionRaw(body, 20);
+    }
+
+    /** 直接 POST /session，返回原始响应（避免 Map 解析丢数组） */
+    private String postSessionRaw(org.json.JSONObject body, int timeoutSec) throws Exception {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(getBaseUrl() + "/session").openConnection();
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout((timeoutSec + 10) * 1000);
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            String token = getToken();
+            if (!token.isEmpty()) conn.setRequestProperty("Authorization", "Bearer " + token);
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+            }
+            int code = conn.getResponseCode();
+            java.io.InputStream in = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            if (in == null) return "{}";
+            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+            byte[] tmp = new byte[4096];
+            int n;
+            while ((n = in.read(tmp)) > 0) buf.write(tmp, 0, n);
+            in.close();
+            return new String(buf.toByteArray(), StandardCharsets.UTF_8);
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
     /** DSH 原始事件回调（后台线程触发） */
     public interface DshEventListener {
         void onReady(int seq);

@@ -13383,6 +13383,81 @@ public class AIChatActivity extends BaseActivity {
         return i >= 0 ? p.substring(i + 1) : p;
     }
 
+    // ===== 反向通道：轮询"电脑让我在本机执行的指令"（仅白名单工具）=====
+    private final android.os.Handler dshCmdHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private boolean dshCmdPolling = false;
+
+    /** 进入聊天页/连接就绪后启动；重复调用无副作用 */
+    private void startDshCommandPolling() {
+        if (dshCmdPolling) return;
+        if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
+                || !com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)) return;
+        dshCmdPolling = true;
+        dshCmdHandler.postDelayed(dshCmdTick, 1500);
+    }
+
+    private void stopDshCommandPolling() {
+        dshCmdPolling = false;
+        dshCmdHandler.removeCallbacks(dshCmdTick);
+    }
+
+    private final Runnable dshCmdTick = new Runnable() {
+        @Override public void run() {
+            if (!dshCmdPolling) return;
+            new Thread(() -> {
+                try {
+                    org.json.JSONArray cmds = com.oilquiz.app.ai.tool.RemoteDshTool.pollCommands(AIChatActivity.this);
+                    if (cmds != null) {
+                        for (int i = 0; i < cmds.length(); i += 1) {
+                            org.json.JSONObject cmd = cmds.optJSONObject(i);
+                            if (cmd != null) executeRemoteCommand(cmd);
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // 网络抖动：下一轮再试
+                } finally {
+                    if (dshCmdPolling) dshCmdHandler.postDelayed(dshCmdTick, 4000);
+                }
+            }, "dsh-cmd-poll").start();
+        }
+    };
+
+    /** 执行一条电脑下发的指令（工具名 + 参数），结果回执 */
+    private void executeRemoteCommand(org.json.JSONObject cmd) {
+        String id = cmd.optString("id");
+        String tool = cmd.optString("tool");
+        org.json.JSONObject args = cmd.optJSONObject("args");
+        if (id.isEmpty() || tool.isEmpty()) return;
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        if (args != null) {
+            java.util.Iterator<String> keys = args.keys();
+            while (keys.hasNext()) {
+                String k = keys.next();
+                params.put(k, args.opt(k));
+            }
+        }
+        boolean ok = false;
+        String text = "";
+        try {
+            com.oilquiz.app.ai.tool.AIToolResult r = com.oilquiz.app.ai.tool.AIToolManager
+                    .getInstance(AIChatActivity.this).executeTool(tool, params);
+            ok = r != null && r.isSuccess();
+            Object value = r == null ? null : r.getResult();
+            text = value == null ? "" : String.valueOf(value);
+        } catch (Exception e) {
+            ok = false;
+            text = "执行失败：" + e.getMessage();
+        }
+        final boolean fOk = ok;
+        final String fText = text;
+        try {
+            com.oilquiz.app.ai.tool.RemoteDshTool.ackCommand(AIChatActivity.this, id, fOk, fText);
+        } catch (Exception ignored) { /* 回执失败不影响本机结果 */ }
+        runOnUiThread(() -> {
+            if (!fOk) showToast("电脑下发的 " + tool + " 执行失败");
+        });
+    }
+
     /** 同步模式下重绑当前那条 assistant 消息（parts 变化后靠它触发增量刷新） */
     private void notifyLiveSyncMessage() {
         if (chatAdapter == null || chatHistory == null || dshLiveTurn == null) return;
@@ -13608,6 +13683,7 @@ public class AIChatActivity extends BaseActivity {
 
     @Override
     protected void onResume() {
+        startDshCommandPolling();
         super.onResume();
         // STATUSBAR: 回前台只在"确实还在生成"时恢复心跳，空闲不轮询；
         // 另补刷一次，避免后台期间状态条停在离开那一刻的旧值
@@ -13760,6 +13836,7 @@ public class AIChatActivity extends BaseActivity {
 
     @Override
     protected void onStop() {
+        stopDshCommandPolling();
         super.onStop();
         // 离开可见状态：此后工具产出改为"通知 + 回来回灌"，不再指望界面更新
         com.oilquiz.app.ai.agent.WorkspaceActivityLog.getInstance().setForeground(false);

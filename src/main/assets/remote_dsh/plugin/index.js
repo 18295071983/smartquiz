@@ -546,6 +546,25 @@ export function apply(ctx, config) {
   cfg.publicUrl = effectivePublicUrl;
   // 注意：主令牌不再在此处取一次就固定（见下方 mainToken()：惰性读取，便于轮换）
   const startedAt = Date.now();
+  /**
+   * 反向指令队列：PC → 手机。只放行"纯 UI / 轻状态"工具，执行仍在手机侧完成。
+   * 泛洪保护：最多 50 条、10 分钟过期；执行结果回传后再由 PC 读取。
+   */
+  const cmdQueue = new Map();
+  const CMD_ALLOW = new Set(['ui_component', 'ui_component_plugin', 'task', 'reminder']);
+  const CMD_MAX = 50;
+  const CMD_TTL_MS = 10 * 60 * 1000;
+  const pruneCommands = () => {
+    const now = Date.now();
+    for (const [id, c] of cmdQueue) {
+      if (now - c.createdAt > CMD_TTL_MS) cmdQueue.delete(id);
+    }
+    while (cmdQueue.size > CMD_MAX) {
+      const oldest = cmdQueue.keys().next().value;
+      if (oldest === undefined) break;
+      cmdQueue.delete(oldest);
+    }
+  };
   const handles = new Map();
   /** 由 sync 自己 resume 出来的 agent 句柄（sessionId → handle），避免每次重开 */
   const resumedHandles = new Map();     // session_id -> agent handle
@@ -941,9 +960,13 @@ export function apply(ctx, config) {
     const q = new URL(req.url ?? '/', 'http://dsh.invalid');
     const sid = String(q.searchParams.get('session_id') ?? '').trim();
     if (!sid) return sendJson(res, 400, { ok: false, error: '需要 session_id' });
-    const sinceParam = Number(q.searchParams.get('since') ?? '-1');
+    // 游标优先级：?since= → SSE 标准头 Last-Event-ID → -1（首次）
+    const headerId = req.headers?.['last-event-id'];
+    const sinceRaw = q.searchParams.get('since');
+    const sinceParam = Number(sinceRaw ?? (headerId ?? '-1'));
     const timeoutSec = Math.max(5, Math.min(1800, Number(q.searchParams.get('timeout') ?? '600') || 600));
     const follow = q.searchParams.get('follow') === '1';
+    const snapshotThreshold = Math.max(50, Number(q.searchParams.get('snapshot_threshold') ?? '500') || 500);
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache, no-transform',
@@ -951,18 +974,42 @@ export function apply(ctx, config) {
       'x-accel-buffering': 'no',
     });
     const sse = (o) => { try { res.write('data: ' + JSON.stringify(o) + '\n\n'); } catch { /* 断连 */ } };
-    const live0 = ctx.sessions.get(sid);
-    if (!live0) {
-      sse({ type: 'gone', session_id: sid });
-      try { res.end(); } catch { /* 已断 */ }
-      return;
-    }
-    let cursor = Number.isFinite(sinceParam) && sinceParam >= 0 ? sinceParam : Math.max(0, Number(live0.seq ?? 0) - 40);
-    sse({ type: 'ready', session_id: sid, seq: Number(live0.seq ?? 0) });
-    const announced = new Set();
-    const deadline = Date.now() + timeoutSec * 1000;
+    const ping = () => { try { res.write(': ping\n\n'); } catch { /* 断连 */ } };
     let closed = false;
     req.on('close', () => { closed = true; });
+    const finish = () => { sse({ type: 'end' }); try { res.end(); } catch { /* 已断 */ } };
+    const since = Number.isFinite(sinceParam) && sinceParam >= 0 ? sinceParam : -1;
+    const live0 = ctx.sessions.get(sid);
+
+    // ★ 非 live 会话：从持久化会话日志补发（"补发会话文件"）
+    if (!live0) {
+      const replay = await replaySessionLog(sid, since, snapshotThreshold);
+      if (!replay) {
+        sse({ type: 'gone', session_id: sid });
+        try { res.end(); } catch { /* 已断 */ }
+        return;
+      }
+      if (replay.snapshot) {
+        sse({ type: 'snapshot', session_id: sid, seq: replay.seq, turns: replay.turns, source: 'log' });
+      } else {
+        sse({ type: 'ready', session_id: sid, seq: replay.seq, source: 'log', since });
+        for (const ev of replay.events) sse({ type: 'event', event: ev });
+      }
+      return finish();
+    }
+
+    const seqNow = Number(live0.seq ?? 0);
+    // ★ 首次连接或缺口过大：给快照（历史批），随后继续增量
+    if (since < 0 || seqNow - since > snapshotThreshold) {
+      sse({ type: 'snapshot', session_id: sid, seq: seqNow, turns: snapshotTurns(live0), source: 'live' });
+      if (!follow) return finish();
+    } else {
+      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since });
+    }
+    let cursor = since >= 0 ? Math.min(since, seqNow) : seqNow;
+    const announced = new Set();
+    const deadline = Date.now() + timeoutSec * 1000;
+    let lastPing = Date.now();
     while (!closed && Date.now() < deadline) {
       const live = ctx.sessions.get(sid);
       if (!live) { sse({ type: 'gone', session_id: sid }); break; }
@@ -971,7 +1018,6 @@ export function apply(ctx, config) {
         const ev = live.eventAt?.(cursor);
         if (ev) sse({ type: 'event', event: ev });
       }
-      // 审批：把当前挂着的推给手机（各推一次），结束了的通知撤回
       for (const a of [...pendingRemoteOf(sid, 'approval'), ...pendingRemoteOf(sid, 'question')]) {
         if (announced.has(a.id)) continue;
         announced.add(a.id);
@@ -984,16 +1030,97 @@ export function apply(ctx, config) {
         announced.delete(id);
         sse({ type: 'approval_gone', id });
       }
-      if (!follow) {
-        // 非 follow：把当前已有的事件发完就结束（适合"补历史"）
-        break;
-      }
+      if (!follow) break;
+      if (Date.now() - lastPing > 15000) { lastPing = Date.now(); ping(); }
       // eslint-disable-next-line no-await-in-loop -- 顺序轮询
       await new Promise((r) => setTimeout(r, 150));
     }
-    sse({ type: 'end' });
-    try { res.end(); } catch { /* 已断 */ }
+    return finish();
   });
+
+  /** 会话的"历史批"：最近 20 条消息（角色 + 文本），首次连接 / 缺口过大时用 */
+  const snapshotTurns = (session) => {
+    const turns = [];
+    try {
+      const msgs = session?.deriveMessages?.() ?? [];
+      for (const m of msgs.slice(-20)) {
+        const role = m?.role === 'user' ? 'user' : 'assistant';
+        const text = typeof m?.content === 'string'
+          ? m.content
+          : Array.isArray(m?.content)
+            ? m.content.map((p) => (p && typeof p.text === 'string' ? p.text : '')).join('')
+            : '';
+        if (text) turns.push({ role, text: String(text).slice(0, 4000) });
+      }
+    } catch { /* 拿不到就空快照 */ }
+    return turns;
+  };
+
+  /**
+   * 从持久化会话日志读事件（"补发会话文件"）。
+   *
+   * DSH 把会话写在 $DSH_HOME/sessions/--<cwd>--/<id>/session.v4.jsonl.zstd：首帧是头部、
+   * 之后是事件帧。按 zstd 魔数切帧解压、逐行 JSON、过滤 seq > since。
+   * 返回 null 表示这个环境读不了（老 Node 没有 zstd），调用方回 gone。
+   */
+  const replaySessionLog = async (sessionId, since, threshold) => {
+    let dec;
+    try {
+      const zlib = await import('node:zlib');
+      dec = zlib.zstdDecompressSync ?? zlib.default?.zstdDecompressSync;
+    } catch { /* 老 Node 没有 zstd */ }
+    const home = process.env.DSH_HOME || '';
+    if (!dec || !home) return null;
+    const root = join(home, 'sessions');
+    let file = '';
+    try {
+      for (const dir of readdirSync(root)) {
+        const cand = join(root, dir, sessionId, 'session.v4.jsonl.zstd');
+        if (existsSync(cand)) { file = cand; break; }
+      }
+    } catch { return null; }
+    if (!file) return null;
+    let text = '';
+    try {
+      const buf = readFileSync(file);
+      const magic = [0x28, 0xb5, 0x2f, 0xfd];
+      const starts = [];
+      for (let i = 0; i + 3 < buf.length; i += 1) {
+        if (buf[i] === magic[0] && buf[i + 1] === magic[1] && buf[i + 2] === magic[2] && buf[i + 3] === magic[3]) starts.push(i);
+      }
+      for (let k = 0; k < starts.length; k += 1) {
+        const seg = buf.subarray(starts[k], k + 1 < starts.length ? starts[k + 1] : buf.length);
+        try { text += dec(seg).toString('utf8'); } catch { /* 跳过坏帧 */ }
+      }
+    } catch { return null; }
+    const events = [];
+    let seq = 0;
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      let ev;
+      try { ev = JSON.parse(line); } catch { continue; }
+      if (typeof ev?.seq === 'number') {
+        seq = Math.max(seq, ev.seq);
+        if (ev.seq > since) events.push(ev);
+      }
+    }
+    if (since < 0 || events.length > threshold) {
+      const turns = [];
+      for (const ev of events.slice(-120)) {
+        if (ev.type === 'user/message') {
+          const t = Array.isArray(ev.data?.content) ? ev.data.content.map((p) => p?.text ?? '').join('') : '';
+          if (t) turns.push({ role: 'user', text: t.slice(0, 2000) });
+        } else if (ev.type === 'assistant/message') {
+          const t = (ev.data?.message?.content ?? [])
+            .filter((p) => p && p.type !== 'reasoning')
+            .map((p) => p.text ?? '').join('');
+          if (t) turns.push({ role: 'assistant', text: t.slice(0, 4000) });
+        }
+      }
+      return { snapshot: true, seq, turns: turns.slice(-20) };
+    }
+    return { snapshot: false, seq, events };
+  };
 
   /**
    * 审批中继用的"网关桥"。
