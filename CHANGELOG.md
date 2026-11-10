@@ -1,5 +1,26 @@
 # 变更日志
 
+## [2026-11-10] feat(remote_dsh)：子代理/重试/模型报错/上下文压缩卡片（真机采样）
+
+起了一个真实子代理并抓了 90 秒事件流，采到 4 类之前没接的事件：
+
+| 事件 | 实际 payload |
+|---|---|
+| `subagent/catalog` | `{version, childId, childCreatedAt, mode:'continuable', label}` |
+| `llm/retry` | `{retry, maxRetries, delayMs, failure:{message, code:'TRANSPORT'}}` |
+| `assistant/attempt` | `{turn, step, stream:[{chunk:{type:'finish', reason:{kind:'error', failure:{message:'Insufficient Balance', code:'QUOTA', status:402}}}}]}` |
+| `compaction/start / summary / end` | `{compactionId, turn, summary:[{type:'text',text}]}` |
+
+对应卡片（都写进 `components` → data part，原生 alert 卡）：
+
+- 子代理 → 「子代理：<label>（可续跑）」
+- 模型重试 → 「模型重试：第 1/5 次（TRANSPORT），稍后重试」（按 turn 覆盖更新）
+- 模型报错 → 「模型报错：Insufficient Balance」（level=error）
+- 上下文压缩 → 「上下文压缩：压缩中 / 已压缩」
+
+- **验证**：`compileReleaseJavaWithJavac`、`assembleRelease` 通过，APK 已装机。
+- **仍未接**：`workflow` 多阶段进度（需跑一次 workflow 采样）、`user-questions` 代答。
+
 ## [2026-11-10] fix(remote_dsh)：工具卡显示"未命名工具"（卡片改写入 msg.components）
 
 现象：手机上同步的工具卡显示「已运行 1 个工具」/「未命名工具」，正文正常。

@@ -13173,6 +13173,68 @@ public class AIChatActivity extends BaseActivity {
                     com.oilquiz.app.ai.chat.component.ComponentData.of("alert", props));
             return;
         }
+        if ("subagent/catalog".equals(type) && data != null) {
+            // 子代理登记（真机采样：{version, childId, childCreatedAt, mode, label}）
+            String label = data.optString("label", "子代理");
+            String mode = data.optString("mode", "");
+            org.json.JSONObject props = new org.json.JSONObject();
+            jput(props, "title", "子代理");
+            jput(props, "content", label + ("continuable".equals(mode) ? "（可续跑）" : ""));
+            jput(props, "level", "info");
+            upsertDshDataPart("dsh-subagent-" + data.optString("childId", String.valueOf(turn)),
+                    com.oilquiz.app.ai.chat.component.ComponentData.of("alert", props));
+            return;
+        }
+        if ("llm/retry".equals(type) && data != null) {
+            // 模型重试（真机采样：{retry, maxRetries, delayMs, failure:{message,code}}）
+            org.json.JSONObject failure = data.optJSONObject("failure");
+            String code = failure == null ? "" : failure.optString("code", "");
+            int retry = data.optInt("retry", 0);
+            int max = data.optInt("maxRetries", 0);
+            org.json.JSONObject props = new org.json.JSONObject();
+            jput(props, "title", "模型重试");
+            jput(props, "content", "第 " + retry + (max > 0 ? "/" + max : "") + " 次"
+                    + (code.isEmpty() ? "" : "（" + code + "）") + "，稍后重试");
+            jput(props, "level", "warning");
+            upsertDshDataPart("dsh-retry-" + turn,
+                    com.oilquiz.app.ai.chat.component.ComponentData.of("alert", props));
+            return;
+        }
+        if ("assistant/attempt".equals(type) && data != null) {
+            // 一次模型尝试的失败（真机采样：stream[].chunk.type=finish, reason.kind=error, failure.message）
+            org.json.JSONArray stream = data.optJSONArray("stream");
+            if (stream == null) return;
+            for (int i = 0; i < stream.length(); i += 1) {
+                org.json.JSONObject item = stream.optJSONObject(i);
+                org.json.JSONObject chunk = item == null ? null : item.optJSONObject("chunk");
+                if (chunk == null || !"finish".equals(chunk.optString("type"))) continue;
+                org.json.JSONObject reason = chunk.optJSONObject("reason");
+                if (reason == null || !"error".equals(reason.optString("kind"))) continue;
+                org.json.JSONObject failure = reason.optJSONObject("failure");
+                String message = failure == null ? "" : failure.optString("message", "");
+                if (message.isEmpty()) message = "模型调用失败";
+                org.json.JSONObject props = new org.json.JSONObject();
+                jput(props, "title", "模型报错");
+                jput(props, "content", message);
+                jput(props, "level", "error");
+                upsertDshDataPart("dsh-fail-" + turn,
+                        com.oilquiz.app.ai.chat.component.ComponentData.of("alert", props));
+                return;
+            }
+            return;
+        }
+        if ("compaction/start".equals(type) || "compaction/summary".equals(type)) {
+            // 上下文压缩（start / summary / end）
+            String content = "compaction/summary".equals(type)
+                    ? "上下文已压缩，摘要已保留" : "上下文压缩中…";
+            org.json.JSONObject props = new org.json.JSONObject();
+            jput(props, "title", "上下文压缩");
+            jput(props, "content", content);
+            jput(props, "level", "info");
+            upsertDshDataPart("dsh-compact-" + (data == null ? turn : data.optString("compactionId", String.valueOf(turn))),
+                    com.oilquiz.app.ai.chat.component.ComponentData.of("alert", props));
+            return;
+        }
         if ("turn/end".equals(type)) {
             rebuildDshParts();
             String answer = collectDshAnswer();
