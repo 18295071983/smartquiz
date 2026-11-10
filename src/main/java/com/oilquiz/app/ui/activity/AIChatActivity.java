@@ -3825,6 +3825,8 @@ public class AIChatActivity extends BaseActivity {
             dshLiveTurn.turnId = currentTurnId;
             dshSteps.clear();
             dshPartIds.clear();
+            dshLiveMessage = live;
+            live.components = new java.util.ArrayList<>();
             dshLastTurn = 1;
             dshLastStep = 1;
             dshJobCount.clear();
@@ -12773,6 +12775,8 @@ public class AIChatActivity extends BaseActivity {
     /** 逻辑 key → 由 ChatIdDispatcher 发放的 id（重建 parts 时复用，避免和本地消息抢号） */
     private final java.util.HashMap<String, String> dshPartIds = new java.util.HashMap<>();
     /** 最近一次带 turn/step 的事件位置：job/command/todo 这类事件不带，需要"跟在当前步后面" */
+    /** 当前同步消息：工具卡/卡片走它的 components（parts 闸门从这里重建 tool/data part） */
+    private ChatMessage dshLiveMessage;
     private int dshLastTurn = 1;
     private int dshLastStep = 1;
     /** 每个 turn 的后台任务计数（聚合成一张卡，别一个任务一张） */
@@ -12954,6 +12958,7 @@ public class AIChatActivity extends BaseActivity {
 
     private static final class DshTool {
         com.oilquiz.app.ai.chat.turn.AssistantTurn.Part call;
+        com.oilquiz.app.ai.chat.component.ComponentData component;
         String result;
         boolean error;
     }
@@ -13047,14 +13052,19 @@ public class AIChatActivity extends BaseActivity {
             DshStep box = dshStep(turn, step);
             if (!box.tools.containsKey(callId)) {
                 DshTool tool = new DshTool();
-                tool.call = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.toolCall(
-                        dshPartId("call-" + callId, ChatIdDispatcher.IdType.TOOL), callId,
-                        data.optString("name"), data.optString("arguments"), "running",
-                        System.currentTimeMillis());
+                String toolName = data.optString("name", "").trim();
+                if (toolName.isEmpty()) toolName = "工具";
+                org.json.JSONObject props = new org.json.JSONObject();
+                jput(props, "toolCallId", callId);
+                jput(props, "toolName", toolName);
+                jput(props, "args", data.optString("arguments"));
+                jput(props, "status", "running");
+                tool.component = com.oilquiz.app.ai.chat.component.ComponentData
+                        .of("tool_call", props);
                 box.tools.put(callId, tool);
+                upsertDshComponent(dshPartId("call-" + callId, ChatIdDispatcher.IdType.TOOL),
+                        tool.component);
             }
-            rebuildDshParts();
-            notifyLiveSyncMessage();
             return;
         }
         if ("tool/result".equals(type) && data != null) {
@@ -13073,9 +13083,11 @@ public class AIChatActivity extends BaseActivity {
             }
             tool.result = txt.toString();
             tool.error = data.optBoolean("isError", false) || data.optBoolean("is_error", false);
-            if (tool.call != null) tool.call.status = tool.error ? "error" : "completed";
-            rebuildDshParts();
-            notifyLiveSyncMessage();
+            if (tool.component != null && tool.component.props != null) {
+                jput(tool.component.props, "status", tool.error ? "failed" : "success");
+                jput(tool.component.props, "result", tool.result);
+                notifyLiveSyncMessage();
+            }
             return;
         }
         if ("todo/write".equals(type) && data != null) {
@@ -13188,15 +13200,29 @@ public class AIChatActivity extends BaseActivity {
     /** 同一 id 的 data part 覆盖式更新（todo 会反复写，别堆积） */
     private void upsertDshDataPart(String key,
                                    com.oilquiz.app.ai.chat.component.ComponentData data) {
-        if (dshLiveTurn == null || data == null) return;
-        String id = dshPartId("data-" + key, ChatIdDispatcher.IdType.COMPONENT);
-        data.id = id;                       // 组件注册表也认这个 id（卡片定位/更新用）
-        for (int i = dshLiveTurn.parts.size() - 1; i >= 0; i -= 1) {
-            com.oilquiz.app.ai.chat.turn.AssistantTurn.Part p = dshLiveTurn.parts.get(i);
-            if (p != null && id.equals(p.id)) dshLiveTurn.parts.remove(i);
+        if (data == null) return;
+        upsertDshComponent(dshPartId("data-" + key, ChatIdDispatcher.IdType.COMPONENT), data);
+    }
+
+    /**
+     * 把组件写进当前消息的 {@code components}。
+     *
+     * 关键：parts 闸门（ChatAdapter）是 {@code AssistantTurn.fromMessageForParts(msg)} 重建的，
+     * 它读的是 {@code msg.components}（fillToolPartsFromComponents / appendDataParts），
+     * **不读** {@code msg.assistantTurn}。所以工具卡与各类卡片必须落到 components 才会渲染。
+     */
+    private void upsertDshComponent(String id, com.oilquiz.app.ai.chat.component.ComponentData data) {
+        ChatMessage live = dshLiveMessage;
+        if (live == null || data == null) return;
+        data.id = id;
+        if (live.components == null) {
+            live.components = new java.util.ArrayList<>();
         }
-        dshLiveTurn.parts.add(com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.data(
-                id, data, System.currentTimeMillis()));
+        for (int i = live.components.size() - 1; i >= 0; i -= 1) {
+            com.oilquiz.app.ai.chat.component.ComponentData c = live.components.get(i);
+            if (c != null && id.equals(c.id)) live.components.remove(i);
+        }
+        live.components.add(data);
         notifyLiveSyncMessage();
     }
 

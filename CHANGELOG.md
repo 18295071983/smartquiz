@@ -1,5 +1,24 @@
 # 变更日志
 
+## [2026-11-10] fix(remote_dsh)：工具卡显示"未命名工具"（卡片改写入 msg.components）
+
+现象：手机上同步的工具卡显示「已运行 1 个工具」/「未命名工具」，正文正常。
+
+根因：手机渲染 parts 的闸门是
+`AssistantTurn.fromMessageForParts(msg)` → `fromMessage(msg)`，它按
+`content/thinkingContent` 建 text/reasoning part，再
+`fillToolPartsFromComponents(turn, msg)` / `appendDataParts(turn, msg)` **从 `msg.components` 建
+tool/data part** —— 而 **不读 `msg.assistantTurn`**。我之前把工具 part 与卡片都写进
+`assistantTurn.parts`，闸门根本看不到 → 工具 part 的 `toolName` 为空
+→ `ToolActivityRowView` 落到 `chat_v2_tool_unknown`「未命名工具」。
+
+- 工具：`tool/call` 写 `ComponentData.of("tool_call", {toolCallId, toolName, args, status})`，
+  `tool/result` 回填同一组件的 `status`/`result`；
+- 卡片（todo/file_list/alert）：同样写进 `components`，用 `ChatIdDispatcher` 发的 id 覆盖式更新；
+- 顺带修组卡文案：`ToolGroupPartRenderer` 在**单个工具**时直接显示工具名
+  （之前固定「🔧 已运行 1 个工具」）。
+- **验证**：`compileReleaseJavaWithJavac`、`assembleRelease` 通过，APK 已装机。
+
 ## [2026-11-10] fix(remote_dsh)：同步的一轮结束就落盘（原来只在 onStop 保存）
 
 排查"对话历史收集"时发现：`AIChatActivity` 的历史保存点主要在 `onStop` 与各发送/工具回调里，

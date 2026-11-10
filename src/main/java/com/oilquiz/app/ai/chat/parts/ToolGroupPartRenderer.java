@@ -72,6 +72,18 @@ public final class ToolGroupPartRenderer implements PartRenderer {
         return root;
     }
 
+    /** 工具名：优先 PC 侧发来的原始名，过一遍展示名表，空则"工具" */
+    private static String nameOf(Part p) {
+        String raw = p == null || p.toolName == null ? "" : p.toolName.trim();
+        if (raw.isEmpty()) return "工具";
+        try {
+            String display = com.oilquiz.app.ai.chat.ToolMetaRegistry.displayName(raw);
+            return display == null || display.isEmpty() ? raw : display;
+        } catch (Throwable t) {
+            return raw;
+        }
+    }
+
     @Override
     public void bindView(View view, Part part, PartHost host) {
         Views v = view instanceof LinearLayout ? (Views) ((LinearLayout) view).getTag() : null;
@@ -95,11 +107,19 @@ public final class ToolGroupPartRenderer implements PartRenderer {
             // 工具侧「思考」文案：AssistantTurn 按"本轮第一个工具开始到现在"的耗时算好并放进
             // part.statusText（参与指纹）；这里只负责显示。旧数据没有该字段时退回计数文案。
             String phrase = part.statusText;
-            v.header.setText(phrase != null && !phrase.isEmpty()
-                    ? ("⏳ " + phrase)
-                    : ("⏳ " + n + " 个工具执行中"));
+            if (phrase != null && !phrase.isEmpty()) {
+                v.header.setText("⏳ " + phrase);
+            } else if (n == 1) {
+                v.header.setText("⏳ 正在运行 " + nameOf(members.get(0)));
+            } else {
+                v.header.setText("⏳ " + n + " 个工具执行中");
+            }
         } else {
-            v.header.setText("🔧 已运行 " + n + " 个工具");
+            // 单工具时直接显示工具名：否则组卡头部只有"已运行 1 个工具"，
+            // 用户看到的就是"这个工具没名字"（成员行沿用 legacy 紧凑行文案）。
+            v.header.setText(n == 1
+                    ? ("🔧 " + nameOf(members.get(0)))
+                    : ("🔧 已运行 " + n + " 个工具"));
         }
 
         // 成员行（对齐 legacy 紧凑行 item_chat_v2_tool_row，不是整张 ToolCallCardView），
