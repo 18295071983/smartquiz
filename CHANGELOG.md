@@ -1,5 +1,22 @@
 # 变更日志
 
+## [2026-11-10] feat(remote_dsh)：手机侧断点续传（last_seq + 补拉 + 去重）
+
+插件侧的可续传事件流已就绪（`?since=` / `Last-Event-ID` / 日志补发 / snapshot 兜底），
+这节把手机端接上：
+
+- `RemoteDshTool`：`getLastSeq/setLastSeq`（按 `sync_seq_<target>` 存 SharedPreferences）、
+  `subscribeEvents(...)` 增加 `follow` 参数、`DshEventListener.onSnapshot` 默认方法（向后兼容）；
+- 同步进行中：每条事件记 `seq`，`turn/end` 时落盘 `last_seq`；
+- 回到页面（onResume）：`catchUpSync()` 用 `last_seq` 以 `follow=0` 补拉错过的电脑端事件，
+  在占位气泡里按同一套转换器渲染；没有新事件就把占位气泡移除；
+- 服务端回 `snapshot`（首次连接/缺口 > 500）时：把最后一条 assistant 文本落进气泡 +
+  一条「已从电脑端补齐最近 N 条历史」提示，避免整段重灌造成重复；
+- 重复事件天然不重放（服务端从 since 之后发；转换器按 turn/step 覆盖式更新）。
+- **验证**：`compileReleaseJavaWithJavac`、`assembleRelease` 通过，APK 已装机；
+  插件侧实测：live 会话 `since=0` 返回 `snapshot(seq=7888)`；非 live 会话从 zstd 日志重放 17 条事件
+  （`source:"log"`）。
+
 ## [2026-11-10] feat(remote_dsh)：工作流进度卡（真机跑了一次 workflow 采样）
 
 跑了一个两阶段 workflow（两个子代理各回一个字母），抓到事件：

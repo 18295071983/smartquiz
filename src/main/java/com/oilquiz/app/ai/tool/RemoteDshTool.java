@@ -326,9 +326,36 @@ public class RemoteDshTool implements AITool {
         }
     }
 
+    /** 断点续传游标：某条电脑会话，手机已经处理到哪个 seq（-1 = 没记录） */
+    public static int getLastSeq(Context c, String target) {
+        if (target == null || target.isEmpty()) return -1;
+        try {
+            return prefsOf(c).getInt("sync_seq_" + target, -1);
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
+    public static void setLastSeq(Context c, String target, int seq) {
+        if (target == null || target.isEmpty() || seq < 0) return;
+        try {
+            prefsOf(c).edit().putInt("sync_seq_" + target, seq).apply();
+        } catch (Throwable ignored) {
+            // 存不上就下次从头补，不影响主流程
+        }
+    }
+
+    /** 兼容旧签名：默认 follow（同步进行中的实时订阅） */
+    public static void subscribeEvents(Context c, String sid, int since, int timeoutSec, DshEventListener l) {
+        subscribeEvents(c, sid, since, timeoutSec, true, l);
+    }
+
     /** DSH 原始事件回调（后台线程触发） */
     public interface DshEventListener {
         void onReady(int seq);
+
+        /** 服务端给的是"历史批"（首次连接/缺口过大）。默认忽略，保持向后兼容 */
+        default void onSnapshot(int seq, org.json.JSONArray turns) { }
         void onEvent(org.json.JSONObject event);
         void onEnd();
         void onError(String message);
@@ -357,12 +384,13 @@ public class RemoteDshTool implements AITool {
      *
      * 插件不做任何 UI 适配；由手机端把事件映射成 ChatMessage / parts。
      */
-    public static void subscribeEvents(Context c, String sid, int since, int timeoutSec, DshEventListener listener) {
+    public static void subscribeEvents(Context c, String sid, int since, int timeoutSec,
+                                       boolean follow, DshEventListener listener) {
         RemoteDshTool tool = new RemoteDshTool(c);
         HttpURLConnection conn = null;
         try {
             String url = tool.getBaseUrl() + "/events?session_id=" + java.net.URLEncoder.encode(sid, "UTF-8")
-                    + "&since=" + since + "&follow=1&timeout=" + Math.max(5, timeoutSec);
+                    + "&since=" + since + "&follow=" + (follow ? "1" : "0") + "&timeout=" + Math.max(5, timeoutSec);
             conn = (HttpURLConnection) new URL(url).openConnection();
             conn.setConnectTimeout(30000);
             conn.setReadTimeout((timeoutSec + 30) * 1000);
@@ -406,6 +434,8 @@ public class RemoteDshTool implements AITool {
             } else if ("event".equals(type)) {
                 org.json.JSONObject ev = msg.optJSONObject("event");
                 if (ev != null) listener.onEvent(ev);
+            } else if ("snapshot".equals(type)) {
+                listener.onSnapshot(msg.optInt("seq", -1), msg.optJSONArray("turns"));
             } else if ("end".equals(type) || "gone".equals(type)) {
                 listener.onEnd();
             }

@@ -1499,7 +1499,10 @@ public class AIChatActivity extends BaseActivity {
                         }
                         finishAutoSpeak(msg);
                     }
-                    saveHistoryAsync();
+                    if (!dshSyncTarget.isEmpty() && dshLastSeq >= 0) {
+                com.oilquiz.app.ai.tool.RemoteDshTool.setLastSeq(AIChatActivity.this, dshSyncTarget, dshLastSeq);
+            }
+            saveHistoryAsync();
                 });
             }
         });
@@ -3826,6 +3829,8 @@ public class AIChatActivity extends BaseActivity {
             dshSteps.clear();
             dshPartIds.clear();
             dshLiveMessage = live;
+            dshSyncTarget = target;
+            dshLastSeq = -1;
             live.components = new java.util.ArrayList<>();
             dshLastTurn = 1;
             dshLastStep = 1;
@@ -12783,6 +12788,10 @@ public class AIChatActivity extends BaseActivity {
         final java.util.LinkedHashMap<Integer, org.json.JSONObject> steps = new java.util.LinkedHashMap<>();
     }
     private final java.util.HashMap<String, DshWfRun> dshWfRuns = new java.util.HashMap<>();
+    /** 当前同步目标会话 + 已处理到的事件序号（断点续传用） */
+    private String dshSyncTarget = "";
+    private int dshLastSeq = -1;
+    private boolean dshCatchUpRunning = false;
     private ChatMessage dshLiveMessage;
     private int dshLastTurn = 1;
     private int dshLastStep = 1;
@@ -13001,6 +13010,8 @@ public class AIChatActivity extends BaseActivity {
      */
     private void applyDshEvent(org.json.JSONObject ev, ChatMessage live, int liveIdx, long[] lastNotify) {
         String type = ev.optString("type", "");
+        int evSeq = ev.optInt("seq", -1);
+        if (evSeq > dshLastSeq) dshLastSeq = evSeq;
         org.json.JSONObject data = ev.optJSONObject("data");
         boolean hasTurn = data != null && data.has("turn");
         boolean hasStep = data != null && data.has("step");
@@ -13383,6 +13394,118 @@ public class AIChatActivity extends BaseActivity {
         return i >= 0 ? p.substring(i + 1) : p;
     }
 
+    /**
+     * 断点续传：回到页面时按 last_seq 补拉错过的电脑端事件。
+     *
+     * 游标是 DSH 的 seq；插件侧支持 ?since= 重放（live 用内存、非 live 读会话日志），
+     * 缺口过大时返回 snapshot（历史批），这里渲染成提示 + 历史消息。
+     */
+    private void catchUpSync() {
+        if (dshCatchUpRunning) return;
+        if (!com.oilquiz.app.ai.tool.RemoteDshTool.MODE_SYNC.equals(remoteMode())) return;
+        final String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+        if (target.isEmpty()) return;
+        if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
+                || !com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)) return;
+        final int since = com.oilquiz.app.ai.tool.RemoteDshTool.getLastSeq(this, target);
+        if (since < 0) return;
+        dshCatchUpRunning = true;
+        new Thread(() -> {
+            final ChatMessage live = ChatMessage.createAIMessage(
+                    java.util.UUID.randomUUID().toString(), "", System.currentTimeMillis(), null, 0, 0);
+            live.turnId = ChatIdDispatcher.getInstance().applyMasterId();
+            live.subId = ChatIdDispatcher.getInstance().applySubId(ChatIdDispatcher.IdType.AI, live.turnId);
+            live.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.THINKING);
+            final boolean[] applied = {false};
+            final int[] liveIdx = {-1};
+            runOnUiThread(() -> {
+                dshSteps.clear();
+                dshPartIds.clear();
+                dshLiveTurn = new com.oilquiz.app.ai.chat.turn.AssistantTurn();
+                dshLiveTurn.turnId = live.turnId;
+                live.assistantTurn = dshLiveTurn;
+                live.components = new java.util.ArrayList<>();
+                dshLiveMessage = live;
+                dshSyncTarget = target;
+                dshLastSeq = since;
+                chatHistory.add(live);
+                liveIdx[0] = chatHistory.size() - 1;
+                if (chatAdapter != null) chatAdapter.notifyItemInserted(liveIdx[0]);
+            });
+            try {
+                com.oilquiz.app.ai.tool.RemoteDshTool.subscribeEvents(AIChatActivity.this, target, since, 60, false,
+                        new com.oilquiz.app.ai.tool.RemoteDshTool.DshEventListener() {
+                            @Override public void onReady(int seq) { /* 增量开始 */ }
+
+                            @Override public void onSnapshot(int seq, org.json.JSONArray turns) {
+                                if (seq > 0) dshLastSeq = seq;
+                                int n = turns == null ? 0 : turns.length();
+                                String lastAssistant = "";
+                                if (turns != null) {
+                                    for (int i = turns.length() - 1; i >= 0; i -= 1) {
+                                        org.json.JSONObject t = turns.optJSONObject(i);
+                                        if (t != null && "assistant".equals(t.optString("role"))) {
+                                            lastAssistant = t.optString("text", "");
+                                            break;
+                                        }
+                                    }
+                                }
+                                final String tail = lastAssistant;
+                                if (!tail.isEmpty()) applied[0] = true;
+                                runOnUiThread(() -> {
+                                    if (!tail.isEmpty()) {
+                                        live.content = tail;
+                                        live.inferenceProgress = new ChatMessage.InferenceProgress(
+                                                ChatMessage.InferencePhase.COMPLETED);
+                                        if (liveIdx[0] >= 0 && chatAdapter != null) {
+                                            chatAdapter.notifyItemChanged(liveIdx[0]);
+                                        }
+                                    }
+                                    addSystemMessage("已从电脑端补齐最近 " + n + " 条历史"
+                                            + (tail.isEmpty() ? "" : "，下面是最后一条回复"),
+                                            ChatMessage.SystemMessageType.INFO);
+                                });
+                            }
+
+                            @Override public void onEvent(org.json.JSONObject ev) {
+                                applied[0] = true;
+                                applyDshEvent(ev, live, liveIdx[0], new long[]{0L});
+                            }
+
+                            @Override public void onEnd() {
+                                if (!dshSyncTarget.isEmpty() && dshLastSeq >= 0) {
+                                    com.oilquiz.app.ai.tool.RemoteDshTool.setLastSeq(
+                                            AIChatActivity.this, dshSyncTarget, dshLastSeq);
+                                }
+                                if (!applied[0]) {
+                                    runOnUiThread(() -> {
+                                        for (int i = chatHistory.size() - 1; i >= 0; i -= 1) {
+                                            if (chatHistory.get(i) == live) {
+                                                chatHistory.remove(i);
+                                                if (chatAdapter != null) chatAdapter.notifyItemRemoved(i);
+                                                break;
+                                            }
+                                        }
+                                    });
+                                } else {
+                                    runOnUiThread(() -> {
+                                        if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
+                                        saveHistoryAsync();
+                                    });
+                                }
+                                dshCatchUpRunning = false;
+                            }
+
+                            @Override public void onError(String message) {
+                                dshCatchUpRunning = false;
+                            }
+                        });
+            } catch (Exception e) {
+                dshCatchUpRunning = false;
+            }
+        }, "dsh-catchup").start();
+    }
+
     // ===== 反向通道：轮询"电脑让我在本机执行的指令"（仅白名单工具）=====
     private final android.os.Handler dshCmdHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private boolean dshCmdPolling = false;
@@ -13683,6 +13806,7 @@ public class AIChatActivity extends BaseActivity {
 
     @Override
     protected void onResume() {
+        catchUpSync();
         startDshCommandPolling();
         super.onResume();
         // STATUSBAR: 回前台只在"确实还在生成"时恢复心跳，空闲不轮询；
