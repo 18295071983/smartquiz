@@ -347,7 +347,13 @@ public class RemoteDshTool implements AITool {
 
     /** 兼容旧签名：默认 follow（同步进行中的实时订阅） */
     public static void subscribeEvents(Context c, String sid, int since, int timeoutSec, DshEventListener l) {
-        subscribeEvents(c, sid, since, timeoutSec, true, l);
+        subscribeEvents(c, sid, since, timeoutSec, true, 5000, l);
+    }
+
+    /** 兼容旧签名：默认缺口阈值 5000 条（超过则由服务端退化成 snapshot） */
+    public static void subscribeEvents(Context c, String sid, int since, int timeoutSec,
+                                       boolean follow, DshEventListener l) {
+        subscribeEvents(c, sid, since, timeoutSec, follow, 5000, l);
     }
 
     /** DSH 原始事件回调（后台线程触发） */
@@ -385,15 +391,14 @@ public class RemoteDshTool implements AITool {
      * 插件不做任何 UI 适配；由手机端把事件映射成 ChatMessage / parts。
      */
     public static void subscribeEvents(Context c, String sid, int since, int timeoutSec,
-                                       boolean follow, DshEventListener listener) {
+                                       boolean follow, int snapshotThreshold, DshEventListener listener) {
         RemoteDshTool tool = new RemoteDshTool(c);
         HttpURLConnection conn = null;
         try {
             String url = tool.getBaseUrl() + "/events?session_id=" + java.net.URLEncoder.encode(sid, "UTF-8")
                     + "&since=" + since + "&follow=" + (follow ? "1" : "0") + "&timeout=" + Math.max(5, timeoutSec)
-                    // 缺口优先用"事件重放"补齐（能逐条落进聊天气泡）；
-                    // 只有真的大到离谱（>5000 条）才让服务端退化成 snapshot。
-                    + "&snapshot_threshold=5000";
+                    // 缺口阈值：默认 5000；导入历史时传极大值，强制走"事件重放"。
+                    + "&snapshot_threshold=" + Math.max(50, snapshotThreshold);
             conn = (HttpURLConnection) new URL(url).openConnection();
             conn.setConnectTimeout(30000);
             conn.setReadTimeout((timeoutSec + 30) * 1000);

@@ -83,11 +83,45 @@ public final class DshHistoryImporter {
 
     private static List<JSONObject> fetchAllEvents(Context ctx, String target) throws Exception {
         final List<JSONObject> out = new ArrayList<>();
-        RemoteDshTool.subscribeEvents(ctx, target, 0, 90, false,
+        // 导入要的是"整条历史"，阈值放到 100 万：否则长会话（事件 >5000）会被服务端
+        // 降级成 snapshot（只有角色+文本），导入器就收不到任何 event，表现出"没有可导入的消息"。
+        RemoteDshTool.subscribeEvents(ctx, target, 0, 120, false, 1_000_000,
                 new RemoteDshTool.DshEventListener() {
                     @Override public void onReady(int seq) { }
 
-                    @Override public void onSnapshot(int seq, JSONArray turns) { }
+                    @Override public void onSnapshot(int seq, JSONArray turns) {
+                        // 兜底：万一是真正的超大会话，snapshot 的 turn 也要能落成消息
+                        if (turns == null) return;
+                        for (int i = 0; i < turns.length(); i += 1) {
+                            JSONObject t = turns.optJSONObject(i);
+                            if (t == null) continue;
+                            JSONObject synthetic = new JSONObject();
+                            try {
+                                synthetic.put("type", "user".equals(t.optString("role"))
+                                        ? "user/message" : "assistant/message");
+                                JSONObject data = new JSONObject();
+                                if ("user/message".equals(synthetic.optString("type"))) {
+                                    JSONArray content = new JSONArray();
+                                    JSONObject p = new JSONObject();
+                                    p.put("type", "text");
+                                    p.put("text", t.optString("text"));
+                                    content.put(p);
+                                    data.put("content", content);
+                                } else {
+                                    JSONObject message = new JSONObject();
+                                    JSONArray content = new JSONArray();
+                                    JSONObject p = new JSONObject();
+                                    p.put("type", "text");
+                                    p.put("text", t.optString("text"));
+                                    content.put(p);
+                                    message.put("content", content);
+                                    data.put("message", message);
+                                }
+                                synthetic.put("data", data);
+                            } catch (Exception ignored) { /* 跳过坏 turn */ }
+                            out.add(synthetic);
+                        }
+                    }
 
                     @Override public void onEvent(JSONObject event) {
                         if (event != null) out.add(event);
