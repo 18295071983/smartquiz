@@ -1,16 +1,18 @@
 # 变更日志
 
-## [2026-11-10] chore(build)：内置电脑端插件加构建期校验 + 同步脚本
+## [2026-11-10] chore(build)：内置电脑端插件改为构建时自动同步
 
 App 的「导出电脑端插件」直接读 `src/main/assets/remote_dsh/plugin/`。以前漏文件/忘记同步时
-Gradle 不会报错，APK 只会悄悄少文件或带旧包。现在：
+Gradle 不报错，APK 只会悄悄少文件或带旧包；只加校验也还得手动跑脚本。现在：
 
-- `build.gradle` 配置阶段检查这 8 个文件：**缺任何一个 → 构建失败**（附修复命令）；
-  与 `tools/dsh-plugin-smartquiz-remote` 源码哈希不一致 → **告警**（提示重新同步）；
-- 新增 `scripts/sync-remote-dsh-plugin.ps1`：把 tools 源码同步进 App 内置包；
-  `-Verify` 只校验不改文件（UTF-8 BOM，兼容 powershell 5.1）；
-- **验证**：故意移走 `qrcodegen.js` → `gradlew help` 失败并报「缺文件：qrcodegen.js」；
-  恢复后通过；`-Verify` 输出 8/8 一致；`assembleRelease` 通过。
+- `build.gradle` 新增 `syncRemoteDshPlugin`，挂在 `mergeAssets` 之前：每次构建自动把
+  `tools/dsh-plugin-smartquiz-remote` 的 8 个文件刷进 assets（内容相同则跳过）；
+- `tools/...` 是唯一真源；源码缺文件 → 配置阶段直接构建失败（不会悄悄打包旧包）；
+- `scripts/sync-remote-dsh-plugin.ps1` 保留作「立刻同步 / 提交前、CI 校验」
+  （`-Verify` 只读，UTF-8 BOM 兼容 powershell 5.1）；
+- **验证**：手改 `assets/.../index.js` 后构建 → 自动还原为 tools 版本（日志
+  `[remote_dsh] 已自动同步内置插件：index.js`）；删掉 `assets/.../qrcodegen.js` 后
+  `assembleRelease` → 自动重建；`assembleRelease` 通过，构建后 `git status` 干净。
 
 ## [2026-11-10] chore(remote_dsh)：直连 id 由电脑端下发（不在空闲时凭空建会话）
 

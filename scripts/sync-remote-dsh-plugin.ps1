@@ -2,10 +2,9 @@
   把电脑端插件源码（tools/dsh-plugin-smartquiz-remote）同步进 App 内置包
   （src/main/assets/remote_dsh/plugin），并逐文件校验。
 
-  为什么需要：
-    · App 的「导出电脑端插件」按钮直接读 assets/remote_dsh/plugin/；
-    · 改了 tools 里的插件却忘记同步，APK 里的就是旧包（Gradle 只会告警，不会自动复制）。
-  build.gradle 的 checkRemoteDshPlugin 会在缺文件时让构建失败、不一致时告警。
+  说明：正常构建会自动同步（build.gradle 的 syncRemoteDshPlugin 挂在 mergeAssets 前），
+        平时不需要手动跑；本脚本用于"立刻同步"或提交前/CI 校验。
+        源码缺文件时构建会直接失败（tools 是唯一真源）。
 
   用法：
     powershell -NoProfile -ExecutionPolicy Bypass -File scripts\sync-remote-dsh-plugin.ps1           # 复制 + 校验
