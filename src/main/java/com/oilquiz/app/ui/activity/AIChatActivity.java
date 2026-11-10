@@ -3872,6 +3872,26 @@ public class AIChatActivity extends BaseActivity {
                                         if (a.length() > 0) setLivePhase(live, liveIdx, ChatMessage.InferencePhase.GENERATING);
                                         return;
                                     }
+                                    if ("approval/request".equals(type)) {
+                                        org.json.JSONObject d = ev.optJSONObject("data");
+                                        String tool = "";
+                                        String detail = "";
+                                        if (d != null) {
+                                            tool = d.optString("tool", d.optString("name", d.optString("kind", "")));
+                                            detail = d.optString("summary", d.optString("command", d.optString("input", "")));
+                                            if (detail.isEmpty()) {
+                                                String raw = d.toString();
+                                                detail = raw.length() > 200 ? raw.substring(0, 200) + "…" : raw;
+                                            }
+                                        }
+                                        final String fTool = tool.isEmpty() ? "工具" : tool;
+                                        final String fDetail = detail;
+                                        runOnUiThread(() -> addSystemMessage(
+                                                "⏳ 电脑端在等审批：" + fTool + (fDetail.isEmpty() ? "" : "\n" + fDetail)
+                                                        + "\n（现在需要有人在电脑上点「允许 / 拒绝」）",
+                                                ChatMessage.SystemMessageType.INFO));
+                                        return;
+                                    }
                                     if ("tool/call".equals(type)) {
                                         org.json.JSONObject d = ev.optJSONObject("data");
                                         if (d != null) {

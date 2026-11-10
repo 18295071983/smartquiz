@@ -1,5 +1,17 @@
 # 变更日志
 
+## [2026-11-10] feat(remote_dsh)：手机端显示"电脑端在等审批"提醒
+
+- 转换器新增 `approval/request` → 一条系统消息：「⏳ 电脑端在等审批：<工具> <内容>
+  （现在需要有人在电脑上点允许/拒绝）」；字段做防御式提取（`tool/name/kind`、
+  `summary/command/input`，取不到就截断原始 JSON）。
+- **为什么只做提醒不做按钮**：DSH 的审批是"单一终端应答者"模型 ——
+  `ctx.waterfall(scopeTarget(agent), 'approval/request', req, fallback)`，一个部署只应
+  组合一个应答者（桌面 GUI 的那个）。插件再加一个应答者等于**接管**审批：桌面不再弹窗，
+  手机离线时任务会卡到超时。要真正在手机上点允许，需要先定策略
+  （手机优先 / 桌面优先 / 双端任选），并处理超时回落（fail-closed）。
+- **验证**：`compileReleaseJavaWithJavac`、`assembleRelease` 通过，APK 已装机。
+
 ## [2026-11-10] feat(remote_dsh)：手机端事件转换器补齐工具卡片
 
 上一节把插件改成"原样转发事件"，手机端转换器只映射了正文/思考。这一节补上工具调用：
