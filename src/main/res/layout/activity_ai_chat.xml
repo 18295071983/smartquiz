@@ -514,6 +514,14 @@
                     app:chipIcon="@drawable/ic_chat_v2_bulb"
                     app:chipIconSize="14dp"/>
 
+                <LinearLayout
+                    android:id="@+id/remote_cards_lane"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="@dimen/space_12"
+                    android:visibility="gone"/>
+
                 <com.oilquiz.app.ai.chat.input.ChatInputBar
                     android:id="@+id/chat_input_bar"
                     android:layout_width="match_parent"

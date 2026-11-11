@@ -44,7 +44,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_8"
                     android:lineSpacingExtra="4dp"
-                    android:text="配对之后，你可以在手机上直接让电脑上的 AI 干活。\n\n两种模式（聊天页顶部状态条点一下可切换）：\n· 同步模式 —— 消息发给电脑端「同一条对话」，电脑和手机看到的是同一段对话，思考、工具卡、产物都会同步显示\n· 直连模式 —— 电脑端新开一条会话执行，不打断你电脑上正在聊的那条\n\n配对一次，之后切后台、锁屏都还能收到电脑端的新消息（通知栏提示）。"
+                    android:text="配对之后，你可以在手机上直接让电脑上的 AI 干活。\n\n执行位置由电脑自动选择（不用你切模式）：\n· 这条对话正在电脑上打开 → 宿主内执行：电脑和手机看到同一段对话，思考、工具卡、产物实时同步，零冷启动\n· 没在电脑上打开 → 子进程续写：随时可用，不打断你在电脑上正在聊的别的话题\n\n你只需要选择「跟随哪条对话」。配对一次，之后切后台、锁屏都还能收到电脑端的新消息（通知栏提示）。"
                     android:textSize="@dimen/text_13"
                     android:textColor="?attr/colorControlTextSecondary" />
             </LinearLayout>
@@ -165,7 +165,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_8"
                     android:lineSpacingExtra="4dp"
-                    android:text="点「选择电脑会话（同步/接续用）」：\n· 列表只显示「还在用」的会话 —— 归档的、以及没有标题也没有消息的空会话都不会出现\n· 框里每 3 秒自动对齐电脑端，新开的对话会自动出现\n· 选中后自动切到同步模式\n\n想把电脑上已有的整段对话搬到手机：点「把电脑这条对话的历史导入本机」，导入后会生成一条本地历史并自动打开，可离线回看。"
+                    android:text="点「选择要跟随的电脑对话」：\n· 列表只显示「还在用」的会话 —— 归档的、以及没有标题也没有消息的空会话都不会出现\n· 框里每 3 秒自动对齐电脑端，新开的对话会自动出现\n· 选中后手机就跟随这条对话，执行位置由电脑按「是否打开着」自动决定\n\n想把电脑上已有的整段对话搬到手机：点「把电脑这条对话的历史导入本机」，导入后会生成一条本地历史并自动打开，可离线回看。"
                     android:textSize="@dimen/text_13"
                     android:textColor="?attr/colorControlTextSecondary" />
             </LinearLayout>
@@ -233,7 +233,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_8"
                     android:lineSpacingExtra="4dp"
-                    android:text="· 连不上：确认电脑 DSH 开着、插件已装并重启；隧道域名是否正确；面板里「已配对设备」是否 ≥1\n· 消息不同步：看聊天页顶部状态条是否「同步模式」、是否已选目标会话\n· 审批点了没反应：可能已在电脑上处理，或端口只在局域网可用\n· 电脑端 AI 报「余额不足 / QUOTA」：去 DeepSeek 账户充值，手机上会显示一张红色报错卡\n· 安装 Python 包崩溃：只能装预编译 wheel；需要现场编译的包请用电脑或 Termux"
+                    android:text="· 连不上：确认电脑 DSH 开着、插件已装并重启；隧道域名是否正确；面板里「已配对设备」是否 ≥1\n· 消息不同步：看远程连接页是否已选「要跟随的对话」，以及「自检 / 对账」里「呼吸」是否显示在线\n· 审批点了没反应：可能已在电脑上处理，或端口只在局域网可用\n· 电脑端 AI 报「余额不足 / QUOTA」：去 DeepSeek 账户充值，手机上会显示一张红色报错卡\n· 安装 Python 包崩溃：只能装预编译 wheel；需要现场编译的包请用电脑或 Termux"
                     android:textSize="@dimen/text_13"
                     android:textColor="?attr/colorControlTextSecondary" />
             </LinearLayout>

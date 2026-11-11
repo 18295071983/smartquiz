@@ -72,6 +72,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private static final int VIEW_TYPE_CONTEXT_INJECTION = 13;
     /** 系统提示词行（system prompt 变更记录/全文展示，点击看全文） */
     private static final int VIEW_TYPE_SYSTEM_PROMPT = 14;
+    /** 远程卡片（v2 view 片段：审批/连接等） —— 独立 item type，不影响既有消息 */
+    private static final int VIEW_TYPE_REMOTE_CARD = 15;
 
     public static final String PAYLOAD_CONTENT_UPDATE = "content_update";
     public static final String PAYLOAD_STATUS_UPDATE = "status_update";
@@ -322,6 +324,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return VIEW_TYPE_TOOL_CALL;
             case ERROR:
                 return VIEW_TYPE_ERROR;
+            case REMOTE_CARD:
+                return VIEW_TYPE_REMOTE_CARD;
             default:
                 return VIEW_TYPE_SYSTEM;
         }
@@ -349,6 +353,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return new ToolCallViewHolder(inflater.inflate(R.layout.item_tool_call_message, parent, false));
             case VIEW_TYPE_ERROR:
                 return new ErrorMessageViewHolder(inflater.inflate(R.layout.item_error_message, parent, false));
+            case VIEW_TYPE_REMOTE_CARD: {
+                LinearLayout box = new LinearLayout(parent.getContext());
+                box.setOrientation(LinearLayout.VERTICAL);
+                int padH = dpToPx(12, parent.getContext());
+                int padV = dpToPx(4, parent.getContext());
+                box.setPadding(padH, padV, padH, padV);
+                box.setLayoutParams(new RecyclerView.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                return new RemoteCardViewHolder(box);
+            }
             default:
                 return new SystemMessageViewHolder(inflater.inflate(R.layout.item_system_message, parent, false));
         }
@@ -778,6 +792,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 break;
             case VIEW_TYPE_ERROR:
                 bindErrorMessage((ErrorMessageViewHolder) holder, message);
+                break;
+            case VIEW_TYPE_REMOTE_CARD:
+                com.oilquiz.app.ai.tool.RemoteCardView.render(
+                        ((RemoteCardViewHolder) holder).container, message.remoteCardView);
                 break;
         }
         if (holder instanceof AIMessageViewHolder) {
@@ -5316,4 +5334,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     // ===================== Search & Filter =====================
 
+    /** 远程卡片 Holder：容器交给 RemoteCardView 动态填充（不绑死布局 id） */
+    static class RemoteCardViewHolder extends RecyclerView.ViewHolder {
+        final LinearLayout container;
+
+        RemoteCardViewHolder(LinearLayout container) {
+            super(container);
+            this.container = container;
+        }
+    }
 }

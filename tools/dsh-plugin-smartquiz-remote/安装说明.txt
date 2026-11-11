@@ -1,6 +1,8 @@
 SmartQuiz Remote —— DSH 原生插件（装在电脑的 DeepSeek Harness 上）
 ================================================================
-版本：0.3.1（插件内部 v7）
+版本：0.3.2（插件内部 v8）
+  · v8 新增「自检 + 双端对账」：/health 自检（cwd/dsh_home/preset/exec）、/reconcile 逐条对账、/ack 回执水位线
+  · v8 修 cwd 静默降级：工作目录无效时不再无声继承宿主 cwd，降级事实写入 /health
   · v7 修「直连模式电脑容易卡」：CLI 子进程单并发 + 手机超时/断开即杀整棵进程树 + 低优先级
 
 【这是什么】
@@ -46,6 +48,35 @@ SmartQuiz Remote —— DSH 原生插件（装在电脑的 DeepSeek Harness 上�
       ui_component / ui_component_plugin / task / reminder
   · 不会把 DSH 的 Web 界面暴露到局域网（插件只暴露自己的接口）
   · 手机端会话列表只显示"活跃"会话（归档的、没有标题也没有消息的空会话不列出）
+
+【协议 v2（v8.2 起，双端同源）】
+  · GET  /v2/session?code=  会话身份权威：返回 { id, bound, needs_first_message, live, execution }
+  · POST /v2/session        { action: 'state'|'list'|'attach', code?, session_id?, bind? }
+                            会话 id 永远由电脑签发；手机只持"对话码"，换机/重装都能接回同一条对话
+  · 手机端 SDK：RemoteSdk.java（hello / sessionState / listSessions / attach / view / send / ack / reconcile / events / streamUrl）
+  · 手机端事件流：RemoteStream.java（读 SSE，断连自停、超时自结束）；工具 action=events 按 since 增量拉事件
+  · GET  /v2/schema   字段字典：sessions_count / plugin_sessions / active_jobs / last_seq / acked_seq / digest / execution / verdict
+  · POST /v2/hello    握手 + 能力协商（返回 capabilities / features / limits）
+  · GET  /v2/view     服务端派生 ViewModel：{ header, cards[] }
+                      cards.kind = status(rows) | checks(items) | session(rows) | timeline(messages)
+                      电脑面板与手机页面渲染同一份，文案只在服务端定义一次
+  · POST /v2/message  { session_id, text, stream?, timeout? } 复用 legacy runPrompt（CLI/宿主内两条路），响应头 x-dsh-protocol: 2
+  · GET  /v2/stream?session_id=&since=   SSE 事件流：先按 since 回放，再 1.5s 增量 + 保活；信封 { v, seq, id, ts, type, data }
+  · POST /v2/ack / POST /v2/reconcile    与 /ack /reconcile 同一实现（无双份代码）
+  · /status 新增 text_lines：计数类文案由服务端给，手机不再自己拼（旧客户端自动退回本地格式）
+  · 消息来源台账：.origins.jsonl 记录"插件代手机发送"的（会话id + 文本hash + 时间），
+                    /v2/view 时间线每条消息带 origin=phone|desktop，两端显示「你(手机)」「你(电脑)」
+                    匹配规则：同会话 + 同文本 + 10 分钟窗口内 → phone，否则 desktop（启发式）
+
+【自检与双端对账（v8）】
+  · GET  /health（带令牌或本机）→ checks[]：host_cwd / dsh_home / exec_channel / agent_preset / session_mount
+      host_cwd 红 = 宿主工作目录不是真实目录，所有起子进程的工具都会报 ENOENT（看着像 powershell/rg 丢了）
+  · POST /ack { session_id, seq?, ids?[] } → 回执水位线，落盘 .acks.json，只增不减
+  · POST /reconcile { session_id, messages?, digest?, last_seq?, acks?, light? }
+      light=1 → 只回 { digest, last_seq, event_count, message_count } + 当前回执，适合定时轮询
+      传 messages[] → 逐条比对，返回 verdict(match|diverged) + first_divergence + missing_on_client / extra_on_client
+      digest 算法：sha256(每条消息 "role\0text" 顺序拼接、换行分隔)，手机端可用同样算法离线自校验
+  · 推荐时序：手机每 30s 拉 light 摘要 → digest 不一致才拉全文 → 修完立刻 POST /ack 推进水位线
 
 【排查】
   · 手机上"探测桥接失败"：① 先确认地址端口 ② 局域网需同一网段 ③ 公网需隧道映射到 8218

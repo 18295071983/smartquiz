@@ -33,7 +33,9 @@ public class ChatMessage {
         TOOL_CALL,
         TOOL_RESULT,
         AGENT_SUMMARY,
-        ERROR
+        ERROR,
+        /** 远程卡片（v2 view 片段：审批/连接/自检等），由 RemoteCardView 渲染 */
+        REMOTE_CARD
     }
 
     /** 消息状态 */
@@ -175,6 +177,9 @@ public class ChatMessage {
 
     /** 消息类型 */
     public MessageType type;
+
+    /** 远程卡片数据（仅 MessageType.REMOTE_CARD 使用：{ header, cards[] }） */
+    public java.util.Map<String, Object> remoteCardView;
 
     /** 消息状态 */
     public MessageStatus status;
@@ -1409,10 +1414,18 @@ public class ChatMessage {
     }
 
     /**
+     * 创建远程卡片消息（v2 `/v2/view` 的片段，由 RemoteCardView 渲染）
+     */
+    public static ChatMessage createRemoteCard(java.util.Map<String, Object> view) {
+        ChatMessage m = new Builder(MessageType.REMOTE_CARD).build();
+        m.remoteCardView = view;
+        return m;
+    }
+
+    /**
      * 创建系统消息
      */
-    public static ChatMessage createSystemMessage(String content, SystemMessageType systemType) {
-        return new Builder(MessageType.SYSTEM)
+    public static ChatMessage createSystemMessage(String content, SystemMessageType systemType) {        return new Builder(MessageType.SYSTEM)
                 .content(content)
                 .systemType(systemType)
                 .build();

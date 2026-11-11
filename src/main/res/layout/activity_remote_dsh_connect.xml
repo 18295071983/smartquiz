@@ -325,6 +325,36 @@
                     android:text=""
                     android:textSize="@dimen/text_12"
                     android:textColor="?attr/colorControlTextHint"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_self_check"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text="自检 / 对账"
+                    android:textSize="@dimen/text_14"
+                    android:textAllCaps="false"/>
+
+                <TextView
+                    android:id="@+id/self_check_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:fontFamily="monospace"
+                    android:lineSpacingExtra="3dp"
+                    android:text=""
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextSecondary"
+                    android:visibility="gone"/>
+
+                <LinearLayout
+                    android:id="@+id/self_check_cards"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:orientation="vertical"
+                    android:visibility="gone"/>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

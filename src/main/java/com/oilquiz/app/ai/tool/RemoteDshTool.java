@@ -90,18 +90,30 @@ import java.util.Map;
                 @Action(name = "attach_session", description = "把电脑上某条对话接到当前会话继续（target_session_id 必填）"),
                 @Action(name = "sync_send", description = "把话发进电脑上正在打开的那条会话（真双端同步，target 默认用上次 attach/list 的）"),
                 @Action(name = "sync_state", description = "查同步目标那条会话现在是否在电脑上打开（live）"),
+                @Action(name = "health", description = "电脑端自检：工作目录/DSH_HOME/预设挂载/执行通道 五项检查（插件 v8）"),
+                @Action(name = "view", description = "协议 v2 统一视图：状态卡 + 自检卡 + 会话卡 + 时间线（双端同源）"),
+                @Action(name = "session", description = "查/管理电脑端会话身份（session_action: state 默认 / list / attach），id 由电脑签发"),
+                @Action(name = "events", description = "拉电脑端事件流（/v2/stream，按 since 增量），看刚才发生了什么；结果可直接 ack"),
+                @Action(name = "reconcile", description = "双端对账：拿电脑侧权威摘要（digest/last_seq/未回执条数），和本机状态比"),
+                @Action(name = "ack", description = "回执：告诉电脑本机已收到 seq 之前的全部消息（对账水位线，只增不减）"),
                 @Action(name = "get_status", description = "检查桥接服务与 dsh 状态"),
                 @Action(name = "set_config", description = "配置电脑地址(base_url)与访问令牌(token)")
         },
         params = {
-                @Param(name = "action", type = "string", description = "操作: run(默认，自然语言任务) / shell(直接跑命令) / connect(连接电脑) / disconnect(临时停用，保留配置) / clear_config(清空配置) / pair(扫码配对) / register_device(把主令牌换成可单独吊销的设备令牌，补登记用) / start / history / list_sessions(列电脑上的对话) / read_session(只读看某条) / attach_session(接到某条继续) / get_status / set_config", required = false),
+                @Param(name = "action", type = "string", description = "操作: run(默认，自然语言任务) / shell(直接跑命令) / connect(连接电脑) / disconnect(临时停用，保留配置) / clear_config(清空配置) / pair(扫码配对) / register_device(把主令牌换成可单独吊销的设备令牌，补登记用) / start / history / list_sessions(列电脑上的对话) / read_session(只读看某条) / attach_session(接到某条继续) / get_status / set_config / health(电脑端自检) / reconcile(双端对账) / ack(回执水位线)", required = false),
                 @Param(name = "task", type = "string", description = "run=任务描述（自然语言）；shell=要执行的命令原文", required = false),
                 @Param(name = "shell", type = "string", description = "shell 动作的执行器: auto(默认，优先 pwsh 回退 powershell) / cmd / bash", required = false),
                 @Param(name = "max", type = "integer", description = "history/read_session/list_sessions 的条数（默认 10，范围 1~200）", required = false),
                 @Param(name = "target_session_id", type = "string", description = "read_session/attach_session 要操作的电脑端会话 id（来自 list_sessions）", required = false),
                 @Param(name = "base_url", type = "string", description = "电脑端桥接地址，如 http://192.168.1.100:8218（set_config 用）", required = false),
                 @Param(name = "token", type = "string", description = "桥接服务访问令牌（set_config 用，bridge 启动时打印）", required = false),
-                @Param(name = "timeout", type = "integer", description = "任务超时秒数（默认 120，范围 5~600）", required = false)
+                @Param(name = "timeout", type = "integer", description = "任务超时秒数（默认 120，范围 5~600）", required = false),
+                @Param(name = "seq", type = "integer", description = "ack 用：已确认收到的消息序号（水位线，只增不减）", required = false),
+                @Param(name = "code", type = "string", description = "对话码（session 动作用；留空=默认直连对话）。会话 id 永远由电脑签发", required = false),
+                @Param(name = "session_action", type = "string", description = "session 动作的子操作: state(默认，查 code 绑到哪条) / list(列电脑会话) / attach(把 target_session_id 接到 code 上)", required = false),
+                @Param(name = "since", type = "integer", description = "events 用：从这个序号之后开始拉（默认 0）", required = false),
+                @Param(name = "wait_ms", type = "integer", description = "events 用：最多等多久（默认 3000，范围 500~15000）", required = false),
+                @Param(name = "session_id", type = "string", description = "health/reconcile/ack 作用的目标会话 id（默认用当前会话）", required = false)
         }
 )
 public class RemoteDshTool implements AITool {
@@ -178,7 +190,7 @@ public class RemoteDshTool implements AITool {
         return context.getSharedPreferences(PREF, Context.MODE_PRIVATE);
     }
 
-    private String getBaseUrl() {
+    String getBaseUrl() {
         return getPrefs().getString(KEY_URL, "");
     }
 
@@ -186,7 +198,7 @@ public class RemoteDshTool implements AITool {
      * 当前使用的令牌：**优先设备令牌**（可单独吊销），没有才用主令牌。
      * 兼容老配置：只存过 KEY_TOKEN 的手机走 device_token 为空 → 返回 KEY_TOKEN（原来的行为不变）。
      */
-    private String getToken() {
+    String getToken() {
         SharedPreferences p = getPrefs();
         String dt = p.getString(KEY_DEVICE_TOKEN, "");
         if (dt != null && !dt.trim().isEmpty()) return dt.trim();
@@ -278,27 +290,41 @@ public class RemoteDshTool implements AITool {
         getPrefs().edit().putString(KEY_SESSION, sessionId.trim()).apply();
     }
 
-    // ---------- 远程模式（状态条上可切换：智能 / 直连 / 同步） ----------
+    // ---------- 远程会话（不再有"模式"） ----------
     //
-    // auto   默认：消息走手机端模型，由它决定要不要调 remote_dsh
-    // direct 直连：每条消息直接发到电脑执行（不进手机模型）
-    // sync   同步：发到电脑上**当前打开的那条会话**里，电脑端实时看到（插件用 ctx.agents.get 注入）
-    private static final String KEY_MODE = "remote_mode";
+    // 旧版有 auto / direct / sync 三种模式，由手机端猜该走哪条路；猜错的代价就是
+    // 「同步失败、连接错误」。现在收敛成一条规则，由**电脑端**按事实决定执行位置：
+    //   · 会话在桌面端活着 → 宿主内执行（零冷启动、双端同屏）
+    //   · 否则             → CLI 续写（桌面没开也能用）
+    // 手机只保留"跟哪条对话"（对话码 / sync_target），不再保存 mode。
     private static final String KEY_SYNC_TARGET = "sync_target";
     private static final String KEY_SYNC_TITLE = "sync_title";
+
+    /**
+     * @deprecated 模式已收敛。仅保留常量与 getMode 供旧调用点编译通过；
+     * 现在永远返回 auto —— 执行位置由电脑端按"会话是否 live"决定。
+     */
+    @Deprecated
     public static final String MODE_AUTO = "auto";
+
+    /** @deprecated 见 {@link #MODE_AUTO} */
+    @Deprecated
     public static final String MODE_DIRECT = "direct";
+
+    /** @deprecated 见 {@link #MODE_AUTO} */
+    @Deprecated
     public static final String MODE_SYNC = "sync";
 
+    /** @deprecated 模式已收敛，恒为 auto。 */
+    @Deprecated
     public static String getMode(Context c) {
-        String m = prefsOf(c).getString(KEY_MODE, MODE_AUTO);
-        return m == null ? MODE_AUTO : m.trim();
+        return MODE_AUTO;
     }
 
+    /** @deprecated 模式已收敛：不再落盘，调用无副作用。 */
+    @Deprecated
     public static void setMode(Context c, String mode) {
-        String m = mode == null ? MODE_AUTO : mode.trim();
-        if (!MODE_DIRECT.equals(m) && !MODE_SYNC.equals(m)) m = MODE_AUTO;
-        prefsOf(c).edit().putString(KEY_MODE, m).apply();
+        // no-op：执行位置由服务端决定
     }
 
     /** 同步目标：电脑端那条会话的 id（由 list_sessions / attach_session 写入） */
@@ -469,15 +495,79 @@ public class RemoteDshTool implements AITool {
      * @param types 只转发这些事件类型（逗号分隔；null/空 = 全量）。
      *              导入历史时用，能把 9000+ 条事件压到一千多条。
      */
+    /** 事件流的"代"：递增即让所有在跑的重连循环退出（页面销毁时调 cancelEventStreams） */
+    private static final java.util.concurrent.atomic.AtomicLong STREAM_GEN =
+            new java.util.concurrent.atomic.AtomicLong(0);
+
+    /** 取消当前所有事件流订阅（下一次 subscribeEvents 会拿到新代，不受影响） */
+    public static void cancelEventStreams() {
+        STREAM_GEN.incrementAndGet();
+    }
+
     public static void subscribeEvents(Context c, String sid, int since, int timeoutSec,
                                        boolean follow, int snapshotThreshold, String types,
                                        DshEventListener listener) {
         RemoteDshTool tool = new RemoteDshTool(c);
+        if (!follow) {
+            // 一次性导入历史：保持原行为，读完就结束
+            try {
+                streamOnce(tool, sid, since, timeoutSec, false, snapshotThreshold, types, listener);
+            } catch (Exception e) {
+                listener.onError(String.valueOf(e.getMessage()));
+            }
+            listener.onEnd();
+            return;
+        }
+        /**
+         * ★ 2026-11-12：follow 模式改为**自动重连**。
+         *
+         * 之前一条 SSE 断了就直接 onError/onEnd，手机就"再也不会更新"——
+         * 表现就是「连接流不稳定、消息不同步、不补发」。
+         * 现在：断线 → 指数退避（1s 起，上限 30s，±50% 抖动）→ 带 since 游标续传，
+         * 连续 8 次失败才真正报错；正常收到 end（服务端 600s 超时）也自动接上。
+         */
+        int cursor = since;
+        int failures = 0;
+        final long gen = STREAM_GEN.get();
+        final long deadline = System.currentTimeMillis() + 30L * 60 * 1000;
+        while (System.currentTimeMillis() < deadline && STREAM_GEN.get() == gen) {
+            try {
+                int next = streamOnce(tool, sid, cursor, timeoutSec, true, snapshotThreshold, types, listener);
+                if (next > cursor) cursor = next;
+                failures = 0;          // 连上并正常结束 → 重置退避
+            } catch (Exception e) {
+                failures += 1;
+                if (failures >= 8) {
+                    listener.onError(String.valueOf(e.getMessage()));
+                    break;
+                }
+            }
+            long backoff = Math.min(30000L, 1000L << Math.min(failures, 5));
+            backoff = backoff / 2 + (long) (Math.random() * backoff / 2);
+            // 分段睡眠：cancelEventStreams() 后最多 200ms 就能退出，不用等满退避
+            long slept = 0;
+            while (slept < backoff && STREAM_GEN.get() == gen) {
+                try {
+                    Thread.sleep(Math.min(200, backoff - slept));
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    listener.onEnd();
+                    return;
+                }
+                slept += 200;
+            }
+        }
+        listener.onEnd();
+    }
+
+    /** 连一次 SSE，返回本次收到的最大 seq（断线后作为 since 续传） */
+    private static int streamOnce(RemoteDshTool tool, String sid, int since, int timeoutSec, boolean follow,
+                                  int snapshotThreshold, String types, DshEventListener listener) throws Exception {
         HttpURLConnection conn = null;
+        int cursor = since;
         try {
             String url = tool.getBaseUrl() + "/events?session_id=" + java.net.URLEncoder.encode(sid, "UTF-8")
                     + "&since=" + since + "&follow=" + (follow ? "1" : "0") + "&timeout=" + Math.max(5, timeoutSec)
-                    // 缺口阈值：默认 5000；导入历史时传极大值，强制走"事件重放"。
                     + "&snapshot_threshold=" + Math.max(50, snapshotThreshold)
                     + (types == null || types.isEmpty() ? "" : "&types=" + java.net.URLEncoder.encode(types, "UTF-8"));
             conn = (HttpURLConnection) new URL(url).openConnection();
@@ -486,10 +576,8 @@ public class RemoteDshTool implements AITool {
             conn.setRequestProperty("Accept", "text/event-stream");
             String token = tool.getToken();
             if (!token.isEmpty()) conn.setRequestProperty("Authorization", "Bearer " + token);
-            if (conn.getResponseCode() >= 400) {
-                listener.onError("HTTP " + conn.getResponseCode());
-                return;
-            }
+            int code = conn.getResponseCode();
+            if (code >= 400) throw new Exception("HTTP " + code);
             try (BufferedReader br = new BufferedReader(
                     new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
@@ -497,20 +585,56 @@ public class RemoteDshTool implements AITool {
                 while ((line = br.readLine()) != null) {
                     if (line.isEmpty()) {
                         if (data.length() > 0) {
-                            dispatchDshEvent(data.toString(), listener);
+                            cursor = handleStreamMessage(data.toString(), cursor, follow, listener);
                             data.setLength(0);
                         }
                         continue;
                     }
                     if (line.startsWith("data:")) data.append(line.substring(5).trim());
                 }
-                if (data.length() > 0) dispatchDshEvent(data.toString(), listener);
+                if (data.length() > 0) cursor = handleStreamMessage(data.toString(), cursor, follow, listener);
             }
-            listener.onEnd();
-        } catch (Exception e) {
-            listener.onError(String.valueOf(e.getMessage()));
+            return cursor;
         } finally {
             if (conn != null) conn.disconnect();
+        }
+    }
+
+    /** 解析一条 SSE 消息并更新游标；返回新的 seq 游标 */
+    private static int handleStreamMessage(String raw, int cursor, boolean follow, DshEventListener listener) {
+        try {
+            org.json.JSONObject msg = new org.json.JSONObject(raw);
+            String type = msg.optString("type", "");
+            if ("ready".equals(type)) {
+                listener.onReady(msg.optInt("seq", 0));
+                return cursor;
+            }
+            if ("event".equals(type)) {
+                org.json.JSONObject ev = msg.optJSONObject("event");
+                if (ev != null) {
+                    int s = ev.optInt("seq", cursor);
+                    if (s > cursor) cursor = s;
+                    listener.onEvent(ev);
+                }
+                return cursor;
+            }
+            if ("snapshot".equals(type)) {
+                int s = msg.optInt("seq", cursor);
+                if (s > cursor) cursor = s;
+                listener.onSnapshot(s, msg.optJSONArray("turns"));
+                return cursor;
+            }
+            if ("pulse".equals(type)) {
+                // 心跳：只用于判活/测 RTT，不推进游标
+                return cursor;
+            }
+            if ("end".equals(type) || "gone".equals(type)) {
+                if (!follow) listener.onEnd();
+                return cursor;
+            }
+            return cursor;
+        } catch (Exception e) {
+            return cursor;   // 坏事件跳过
         }
     }
 
@@ -706,6 +830,39 @@ public class RemoteDshTool implements AITool {
             }
         }
         return out;
+    }
+
+    /**
+     * 给界面用：电脑端自检原始 JSON（插件 v8 的 /health）。
+     * 「远程连接（电脑）」页点「自检」时调用，失败抛异常由界面提示。
+     */
+    public static Map<String, Object> fetchHealth(Context c) throws Exception {
+        RemoteDshTool t = new RemoteDshTool(c);
+        return t.httpJson(t.getBaseUrl() + "/health", "GET", null, 15);
+    }
+
+    /**
+     * 给界面用：双端对账（light 模式）原始 JSON（插件 v8 的 /reconcile）。
+     * sid 留空则用当前会话 / 直连会话。
+     */
+    public static Map<String, Object> fetchReconcile(Context c, String sid) throws Exception {
+        RemoteDshTool t = new RemoteDshTool(c);
+        String s = sid == null ? "" : sid.trim();
+        if (s.isEmpty()) s = t.resolveTargetSession(null);
+        if (s.isEmpty()) throw new Exception("没有可对账的会话：先发一条消息，或在下方选一个同步目标");
+        return t.httpJson(t.getBaseUrl() + "/reconcile?light=1&session_id="
+                + java.net.URLEncoder.encode(s, "UTF-8"), "GET", null, 15);
+    }
+
+    /**
+     * 给界面用：协议 v2 的统一视图（服务端派生 cards）。
+     * 电脑面板与手机页面渲染同一份数据，不再各自拼文案。
+     */
+    public static Map<String, Object> fetchView(Context c, String sid) throws Exception {
+        RemoteDshTool t = new RemoteDshTool(c);
+        String s = sid == null ? "" : sid.trim();
+        String q = s.isEmpty() ? "" : "?session_id=" + java.net.URLEncoder.encode(s, "UTF-8");
+        return t.httpJson(t.getBaseUrl() + "/v2/view" + q, "GET", null, 15);
     }
 
     // ---------- 连接状态（供「远程连接（电脑）」界面与本工具共用） ----------
@@ -970,6 +1127,18 @@ public class RemoteDshTool implements AITool {
                     return handleSyncSend(parameters);
                 case "sync_state":
                     return handleSyncState(parameters);
+                case "health":
+                    return handleHealth();
+                case "view":
+                    return handleView(parameters);
+                case "session":
+                    return handleSession(parameters);
+                case "events":
+                    return handleEvents(parameters);
+                case "reconcile":
+                    return handleReconcile(parameters);
+                case "ack":
+                    return handleAck(parameters);
                 case "shell":
                     return handleShell(parameters);
                 case "connect":
@@ -1169,6 +1338,388 @@ public class RemoteDshTool implements AITool {
         }
     }
 
+    /** 数值宽松解析（HTTP 字段可能是 Integer/Long/String） */
+    private static int asInt(Object o) {
+        if (o instanceof Number) return ((Number) o).intValue();
+        try { return Integer.parseInt(String.valueOf(o == null ? "" : o).trim()); } catch (Exception e) { return 0; }
+    }
+
+    /** 对账目标会话：参数 session_id → 当前会话 → 直连会话 */
+    private String resolveTargetSession(Map<String, Object> p) {
+        Object o = p == null ? null : p.get("session_id");
+        String s = o == null ? "" : String.valueOf(o).trim();
+        if (!s.isEmpty()) return s;
+        String cur = getSessionId();
+        if (cur != null && !cur.trim().isEmpty()) return cur.trim();
+        return getDirectSessionId(context);
+    }
+
+    /**
+     * 电脑端自检（插件 v8 的 /health，逐项 checks）。
+     *
+     * 手机上最常踩的坑都能一眼看出来：host_cwd 红 = 宿主工作目录不是真实目录，
+     * 所有起子进程的工具都会报 ENOENT（看着像 powershell/rg 丢了，其实是被 cwd 连累）。
+     */
+    private AIToolResult handleHealth() {
+        String baseUrl = getBaseUrl();
+        if (baseUrl.isEmpty()) {
+            return AIToolResult.fail("remote_dsh 未配置：" + firstTimeHint());
+        }
+        try {
+            Map<String, Object> resp = httpJson(baseUrl + "/health", "GET", null, 30);
+            int code = asInt(resp.get("_http_code"));
+            if (code >= 400) {
+                return AIToolResult.fail("电脑端 /health 返回 HTTP " + code + "：" + resp.get("error"));
+            }
+            int ver = asInt(resp.get("version"));
+            if (ver < 8) {
+                return AIToolResult.fail("电脑端插件版本 " + (resp.get("version") == null ? "?" : resp.get("version"))
+                        + " 太旧（自检要 ≥ 8）。\n请重启电脑上的 DSH，让 v8 插件加载后再试。");
+            }
+            StringBuilder sb = new StringBuilder("电脑端自检（插件 v" + ver + "）\n");
+            sb.append(Boolean.FALSE.equals(resp.get("ok")) ? "总体: 有错误 ✗" : "总体: 正常 ✓").append("\n");
+            Object checks = resp.get("checks");
+            if (checks instanceof List) {
+                for (Object c : (List<?>) checks) {
+                    if (!(c instanceof Map)) continue;
+                    Map<?, ?> m = (Map<?, ?>) c;
+                    boolean ok = Boolean.TRUE.equals(m.get("ok"));
+                    String sev = String.valueOf(m.get("severity"));
+                    String mark = ok ? "  ✓ " : ("error".equals(sev) ? "  ✗ " : "  ○ ");
+                    sb.append(mark).append(m.get("name")).append(": ")
+                      .append(m.get("detail")).append("\n");
+                    if (!ok && m.get("hint") != null) {
+                        sb.append("      → ").append(m.get("hint")).append("\n");
+                    }
+                }
+            }
+            Object cwd = resp.get("cwd");
+            if (cwd instanceof Map) {
+                Object warn = ((Map<?, ?>) cwd).get("warning");
+                if (warn instanceof Map) {
+                    sb.append("⚠ cwd 降级: 请求 ").append(((Map<?, ?>) warn).get("requested"))
+                      .append(" 不可用 → ").append(((Map<?, ?>) warn).get("fallback")).append("\n");
+                }
+            }
+            Object agent = resp.get("agent");
+            if (agent instanceof Map) {
+                sb.append("预设: ").append(((Map<?, ?>) agent).get("preset"))
+                  .append("  会话: ").append(((Map<?, ?>) agent).get("sessions_count")).append("\n");
+            }
+            return AIToolResult.success(sb.toString().trim());
+        } catch (Exception e) {
+            return AIToolResult.fail("自检失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 协议 v2 统一视图：渲染服务端 cards（状态 / 自检 / 会话 / 时间线）。
+     * 与电脑面板、手机页面用的是同一份数据，不存在"两端说法不一致"。
+     */
+    private AIToolResult handleView(Map<String, Object> parameters) {
+        String baseUrl = getBaseUrl();
+        if (baseUrl.isEmpty()) {
+            return AIToolResult.fail("remote_dsh 未配置：" + firstTimeHint());
+        }
+        String sid = resolveTargetSession(parameters);
+        try {
+            Map<String, Object> resp = RemoteDshTool.fetchView(context, sid);
+            int code = asInt(resp.get("_http_code"));
+            if (code >= 400) {
+                return AIToolResult.fail("取视图失败 HTTP " + code + "：" + resp.get("error"));
+            }
+            if (!(resp.get("cards") instanceof List)) {
+                return AIToolResult.fail("电脑端没有返回 cards（插件可能是旧版，需要 ≥ v8/v2）");
+            }
+            return AIToolResult.success(renderViewText(resp));
+        } catch (Exception e) {
+            return AIToolResult.fail("视图获取失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 把 v2 ViewModel 渲染成文本（**唯一实现**：AI 工具与「远程连接」页共用）。
+     * 只认 cards[].kind：status/session(rows) · checks(items) · timeline(messages)。
+     */
+    public static String renderViewText(Map<String, Object> resp) {
+        StringBuilder sb = new StringBuilder("电脑端视图（v2）\n");
+        Object header = resp.get("header");
+        if (header instanceof Map) {
+            Object t = ((Map<?, ?>) header).get("title");
+            if (t != null && !String.valueOf(t).trim().isEmpty()) sb.append("会话: ").append(t).append("\n");
+        }
+        Object cards = resp.get("cards");
+        if (cards instanceof List) {
+            for (Object co : (List<?>) cards) {
+                if (!(co instanceof Map)) continue;
+                Map<?, ?> c = (Map<?, ?>) co;
+                sb.append("· ").append(c.get("title") == null ? c.get("kind") : c.get("title")).append("\n");
+                Object rows = c.get("rows");
+                if (rows instanceof List) {
+                    for (Object r : (List<?>) rows) {
+                        if (!(r instanceof Map)) continue;
+                        Map<?, ?> m = (Map<?, ?>) r;
+                        sb.append("  ").append(m.get("label")).append(": ").append(m.get("value")).append("\n");
+                    }
+                }
+                Object items = c.get("items");
+                if (items instanceof List) {
+                    for (Object it : (List<?>) items) {
+                        if (!(it instanceof Map)) continue;
+                        Map<?, ?> m = (Map<?, ?>) it;
+                        String state = String.valueOf(m.get("state"));
+                        String mark = "ok".equals(state) ? "✓ " : ("error".equals(state) ? "✗ " : "○ ");
+                        sb.append("  ").append(mark).append(m.get("name")).append(": ").append(m.get("detail")).append("\n");
+                    }
+                }
+                Object msgs = c.get("messages");
+                if (msgs instanceof List) {
+                    for (Object mo : (List<?>) msgs) {
+                        if (!(mo instanceof Map)) continue;
+                        Map<?, ?> m = (Map<?, ?>) mo;
+                        String role;
+                        if ("user".equals(String.valueOf(m.get("role")))) {
+                            role = "phone".equals(String.valueOf(m.get("origin"))) ? "你(手机)" : "你(电脑)";
+                        } else {
+                            role = "AI";
+                        }
+                        String text = String.valueOf(m.get("text") == null ? "" : m.get("text"))
+                                .replaceAll("\\s+", " ");
+                        if (text.length() > 60) text = text.substring(0, 60) + "…";
+                        sb.append("  ").append(role).append(": ").append(text).append("\n");
+                    }
+                }
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    /**
+     * 会话身份管理（协议 v2 / RemoteSdk）：state 查绑定、list 列电脑会话、attach 改绑定。
+     * 关键：返回的 id 一律是**电脑签发**的，客户端只保存/展示，绝不自己造。
+     */
+    private AIToolResult handleSession(Map<String, Object> parameters) {
+        RemoteSdk sdk = new RemoteSdk(context);
+        if (!sdk.isConfigured()) {
+            return AIToolResult.fail("remote_dsh 未配置：" + firstTimeHint());
+        }
+        String sub = str(parameters.get("session_action")).trim().toLowerCase();
+        if (sub.isEmpty()) sub = "state";
+        String code = str(parameters.get("code")).trim();
+        if (code.isEmpty()) code = getDirectCode(context);
+        try {
+            if ("list".equals(sub)) {
+                Map<String, Object> r = sdk.listSessions(20);
+                Object arr = r.get("sessions");
+                if (!(arr instanceof List)) {
+                    return AIToolResult.fail("电脑端没有返回会话列表（插件需要 ≥ v8/v2）");
+                }
+                StringBuilder sb = new StringBuilder("电脑上的会话（" + ((List<?>) arr).size() + " 条）\n");
+                int i = 0;
+                for (Object o : (List<?>) arr) {
+                    if (!(o instanceof Map)) continue;
+                    Map<?, ?> m = (Map<?, ?>) o;
+                    sb.append(++i).append(". ")
+                      .append(m.get("title") == null || String.valueOf(m.get("title")).isEmpty()
+                              ? "(无标题)" : m.get("title"))
+                      .append("\n   id: ").append(m.get("id")).append("\n");
+                }
+                sb.append("\n用 session_action=attach + target_session_id=<id> 接到当前对话码上");
+                return AIToolResult.success(sb.toString());
+            }
+            if ("attach".equals(sub)) {
+                String target = str(parameters.get("target_session_id")).trim();
+                if (target.isEmpty()) {
+                    return AIToolResult.fail("attach 需要 target_session_id（先 session_action=list 查）");
+                }
+                Map<String, Object> r = sdk.attach(target, code, true);
+                String id = RemoteSdk.sessionIdOf(r);
+                if (id.isEmpty()) return AIToolResult.fail("绑定失败：" + r.get("error"));
+                return AIToolResult.success("已把对话码「" + (code.isEmpty() ? "默认" : code) + "」接到 " + id);
+            }
+            Map<String, Object> r = sdk.sessionState(code);
+            Object sObj = r.get("session");
+            StringBuilder sb = new StringBuilder("会话身份（电脑签发）\n");
+            sb.append("对话码: ").append(code.isEmpty() ? "(默认直连)" : code).append("\n");
+            if (!(sObj instanceof Map)) {
+                sb.append("电脑没有返回 session 字段");
+                return AIToolResult.success(sb.toString());
+            }
+            Map<?, ?> s = (Map<?, ?>) sObj;
+            String id = RemoteSdk.sessionIdOf(r);
+            sb.append("会话 id: ").append(id.isEmpty() ? "(尚未创建，发第一条消息时创建)" : id).append("\n");
+            sb.append("已绑定: ").append(Boolean.TRUE.equals(s.get("bound")) ? "是" : "否").append("\n");
+            Object ex = r.get("execution");
+            if (ex instanceof Map) {
+                Object kind = ((Map<?, ?>) ex).get("kind");
+                Object profile = ((Map<?, ?>) ex).get("profile");
+                sb.append("执行位置: ").append(kind)
+                  .append("（").append(profile == null ? "宿主进程内" : profile).append("）\n");
+            }
+            if (Boolean.TRUE.equals(s.get("needs_first_message"))) {
+                sb.append("发一条消息即会自动创建并绑定");
+            }
+            return AIToolResult.success(sb.toString());
+        } catch (Exception e) {
+            return AIToolResult.fail("会话操作失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 事件流（/v2/stream）：拉 since 之后的事件，给 AI 一份"刚才发生了什么"。
+     * 事件信封与电脑面板渲染的是同一份，只是这里转成文本。
+     */
+    private AIToolResult handleEvents(Map<String, Object> parameters) {
+        RemoteSdk sdk = new RemoteSdk(context);
+        if (!sdk.isConfigured()) {
+            return AIToolResult.fail("remote_dsh 未配置：" + firstTimeHint());
+        }
+        String sid = resolveTargetSession(parameters);
+        if (sid.isEmpty()) {
+            return AIToolResult.fail("需要会话 id：先 run 一条任务，或用 session_action=list 查一条");
+        }
+        long since = asInt(parameters.get("since"));
+        int wait = asInt(parameters.get("wait_ms"));
+        if (wait <= 0) wait = 3000;
+        wait = Math.max(500, Math.min(15000, wait));
+        try {
+            java.util.List<java.util.Map<String, Object>> events = sdk.events(sid, since, wait);
+            if (events.isEmpty()) {
+                return AIToolResult.success("最近 " + wait + "ms 没有新事件（since=" + since + "，会话 " + sid + "）");
+            }
+            StringBuilder sb = new StringBuilder("收到 " + events.size() + " 条事件（since=" + since + "）\n");
+            long last = since;
+            for (java.util.Map<String, Object> e : events) {
+                long seq = e.get("seq") instanceof Number ? ((Number) e.get("seq")).longValue() : 0;
+                if (seq > last) last = seq;
+                String type = String.valueOf(e.get("type"));
+                String text = eventText(e);
+                sb.append("#").append(seq).append(" ").append(type);
+                if (!text.isEmpty()) sb.append("：").append(text);
+                sb.append("\n");
+            }
+            sb.append("\n如需确认收到：action=ack seq=").append(last);
+            return AIToolResult.success(sb.toString());
+        } catch (Exception e) {
+            return AIToolResult.fail("读事件流失败: " + e.getMessage());
+        }
+    }
+
+    /** 从事件 data 里抽一句可读文本（消息、工具卡都尽量给点信息） */
+    private static String eventText(java.util.Map<String, Object> e) {
+        Object d = e.get("data");
+        if (!(d instanceof java.util.Map)) return "";
+        java.util.Map<?, ?> m = (java.util.Map<?, ?>) d;
+        Object body = m.get("message") instanceof java.util.Map ? m.get("message") : m;
+        String text = "";
+        if (body instanceof java.util.Map) {
+            java.util.Map<?, ?> b = (java.util.Map<?, ?>) body;
+            Object t = b.get("text");
+            if (t != null) text = String.valueOf(t);
+            if (text.isEmpty()) {
+                Object c = b.get("content");
+                if (c instanceof java.util.List) {
+                    StringBuilder sb = new StringBuilder();
+                    for (Object p : (java.util.List<?>) c) {
+                        if (p instanceof java.util.Map) {
+                            Object pt = ((java.util.Map<?, ?>) p).get("text");
+                            if (pt != null) sb.append(pt);
+                        }
+                    }
+                    text = sb.toString();
+                }
+            }
+        }
+        text = text.replaceAll("\\s+", " ").trim();
+        if (text.length() > 80) text = text.substring(0, 80) + "…";
+        return text;
+    }
+
+    /**
+     * 双端对账（插件 v8 的 /reconcile，light 模式）。
+     *
+     * 拿电脑侧的权威摘要（digest / last_seq / 消息数）+ 回执水位线，
+     * 和本机看到的最后序号对照，回答"我落后没有、还差几条"。
+     */
+    private AIToolResult handleReconcile(Map<String, Object> parameters) {
+        String baseUrl = getBaseUrl();
+        if (baseUrl.isEmpty()) {
+            return AIToolResult.fail("remote_dsh 未配置：" + firstTimeHint());
+        }
+        String sid = resolveTargetSession(parameters);
+        if (sid.isEmpty()) {
+            return AIToolResult.fail("没有可对账的会话：先 run 一条任务，或用 list_sessions 查一条 session_id 再指定");
+        }
+        try {
+            String url = baseUrl + "/reconcile?light=1&session_id="
+                    + java.net.URLEncoder.encode(sid, "UTF-8");
+            Map<String, Object> resp = httpJson(url, "GET", null, 30);
+            int code = asInt(resp.get("_http_code"));
+            if (code == 404 || "no_session".equals(resp.get("verdict"))) {
+                return AIToolResult.fail("电脑上没有这条会话：" + sid
+                        + "\n" + (resp.get("hint") == null ? "" : resp.get("hint")));
+            }
+            if (code >= 400) {
+                return AIToolResult.fail("对账失败 HTTP " + code + "：" + resp.get("error"));
+            }
+            StringBuilder sb = new StringBuilder("双端对账（电脑侧为准）\n");
+            sb.append("会话: ").append(sid).append("\n");
+            Object host = resp.get("host");
+            if (host instanceof Map) {
+                Map<?, ?> h = (Map<?, ?>) host;
+                sb.append("电脑端: 消息 ").append(h.get("message_count"))
+                  .append(" 条，事件 ").append(h.get("event_count"))
+                  .append("，last_seq=").append(h.get("last_seq")).append("\n");
+                sb.append("摘要: ").append(h.get("digest")).append("\n");
+            }
+            Object ack = resp.get("ack");
+            if (ack instanceof Map) {
+                Map<?, ?> a = (Map<?, ?>) ack;
+                sb.append("已回执到: seq=").append(a.get("acked_seq"))
+                  .append("（未回执 ").append(a.get("unacked_count")).append(" 条）\n");
+            }
+            sb.append("\n若本机已完整收到，执行 action=ack seq=<电脑端 last_seq> 推进水位线。");
+            return AIToolResult.success(sb.toString());
+        } catch (Exception e) {
+            return AIToolResult.fail("对账异常: " + e.getMessage());
+        }
+    }
+
+    /** 回执：告诉电脑本机已收到 seq 之前的全部消息（水位线只增不减，落盘不丢） */
+    private AIToolResult handleAck(Map<String, Object> parameters) {
+        String baseUrl = getBaseUrl();
+        if (baseUrl.isEmpty()) {
+            return AIToolResult.fail("remote_dsh 未配置：" + firstTimeHint());
+        }
+        String sid = resolveTargetSession(parameters);
+        if (sid.isEmpty()) {
+            return AIToolResult.fail("ack 需要会话：先 run 一条任务，或指定 session_id");
+        }
+        int seq = asInt(parameters == null ? null : parameters.get("seq"));
+        if (seq <= 0) {
+            return AIToolResult.fail("ack 需要 seq（已确认收到的最后一条序号）；"
+                    + "可先 action=reconcile 看电脑端的 last_seq");
+        }
+        try {
+            Map<String, Object> body = new HashMap<>();
+            body.put("session_id", sid);
+            body.put("seq", seq);
+            Map<String, Object> resp = httpJson(baseUrl + "/ack", "POST", body, 30);
+            int code = asInt(resp.get("_http_code"));
+            if (code >= 400) {
+                return AIToolResult.fail("回执失败 HTTP " + code + "：" + resp.get("error"));
+            }
+            Object ack = resp.get("ack");
+            if (ack instanceof Map) {
+                return AIToolResult.success("回执已记录：seq=" + ((Map<?, ?>) ack).get("acked_seq")
+                        + "，累计回执 id " + ((Map<?, ?>) ack).get("acked_count") + " 个");
+            }
+            return AIToolResult.success("回执已记录");
+        } catch (Exception e) {
+            return AIToolResult.fail("回执异常: " + e.getMessage());
+        }
+    }
+
     /**
      * 状态文本（handleStatus 与「远程连接（电脑）」界面的探测共用）。
      * 版本号一律来自 ACP 自报（agentInfo），不写死——之前写死过 "dsh 0.1.5"，
@@ -1199,10 +1750,21 @@ public class RemoteDshTool implements AITool {
         if (streams instanceof java.util.List) {
             sb.append("活跃会话流: ").append(((java.util.List<?>) streams).size()).append("\n");
         }
-        Object cnt = resp.get("sessions_count");
-        if (cnt != null) sb.append("电脑端 dsh 会话数: ").append(cnt).append("\n");
-        Object jobs = resp.get("active_jobs");
-        if (jobs != null) sb.append("电脑端在跑任务: ").append(jobs).append("\n");
+        // 计数类文案由服务端给（text_lines），两端不再各拼一套；旧服务端没有这个字段时退回本地拼
+        Object lines = resp.get("text_lines");
+        if (lines instanceof List && !((List<?>) lines).isEmpty()) {
+            for (Object l : (List<?>) lines) sb.append(l).append("\n");
+        } else {
+            Object cnt = resp.get("sessions_count");
+            Object pluginSessions = resp.get("plugin_sessions");
+            if (cnt != null) {
+                sb.append("电脑端会话: ").append(cnt).append(" 条");
+                if (pluginSessions != null) sb.append("（插件在管 ").append(pluginSessions).append(" 条）");
+                sb.append("\n");
+            }
+            Object jobs = resp.get("active_jobs");
+            if (jobs != null) sb.append("插件在跑任务: ").append(jobs).append(" 个（0 = 空闲）\n");
+        }
         // 插件（smartquiz-remote）信息：隧道域名 / 服务端口 / 已配对设备数（来自 /status ✓）
         Object pubUrl = resp.get("public_url");
         if (pubUrl != null && !String.valueOf(pubUrl).trim().isEmpty()) {
@@ -1750,6 +2312,8 @@ public class RemoteDshTool implements AITool {
         body.put("session_id", sid);
         body.put("text", task);
         body.put("timeout", timeout);
+        // 幂等键：手机重试/重连补发时带同一个 id，电脑端据此去重（避免同一条消息被执行两次）
+        body.put("client_msg_id", java.util.UUID.randomUUID().toString());
         // 两端协商：把电脑上次给的会话 id / 对话码带回去，电脑据此续同一条对话
         String direct = getDirectSessionId(context);
         if (!direct.isEmpty()) body.put("target_session_id", direct);
@@ -1776,7 +2340,7 @@ public class RemoteDshTool implements AITool {
      * 发送 HTTP 请求并解析 JSON 响应。
      * @return 解析后的 Map；连接失败返回 null；HTTP 错误也尝试解析 body。
      */
-    private Map<String, Object> httpJson(String url, String method, Map<String, Object> body, int timeoutSec) throws Exception {
+    Map<String, Object> httpJson(String url, String method, Map<String, Object> body, int timeoutSec) throws Exception {
         HttpURLConnection conn = null;
         try {
             conn = (HttpURLConnection) new URL(url).openConnection();

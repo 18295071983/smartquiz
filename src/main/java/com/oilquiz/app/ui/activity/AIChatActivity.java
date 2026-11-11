@@ -1563,6 +1563,7 @@ public class AIChatActivity extends BaseActivity {
 
         // 6. ChatInputManager - 输入管理（经 ChatInputBar 组件接线）
         chatInputBar = findViewById(R.id.chat_input_bar);
+        remoteCardsLane = findViewById(R.id.remote_cards_lane);
         if (chatInputBar != null) {
             inputManager = chatInputBar.attachManager(this, new ChatInputManager.Callback() {
                 @Override public void onSendMessage(String text) { sendMessage(); }
@@ -3890,6 +3891,10 @@ public class AIChatActivity extends BaseActivity {
                                 @Override public void onEvent(org.json.JSONObject ev) {
                                     runOnUiThread(() -> {
                                         try {
+                                            String et = ev.optString("type");
+                                            if ("approval".equals(et) || "approval_gone".equals(et)) {
+                                                refreshRemoteCards();
+                                            }
                                             applyDshEvent(ev, live, liveIdx, lastNotify);
                                         } catch (Throwable ignored) { /* 单条坏事件忽略 */ }
                                     });
@@ -12887,15 +12892,74 @@ public class AIChatActivity extends BaseActivity {
 
     private boolean remoteDirectMode = false;
 
-    /** 当前远程模式（智能/直连/同步），存在 RemoteDshTool 偏好里，跨页与重启保留 */
+    /** 当前执行策略（已收敛：恒为自动，由电脑端决定宿主内/子进程） */
     private String remoteMode() {
         return com.oilquiz.app.ai.tool.RemoteDshTool.getMode(this);
+    }
+
+    /** 对话页的远程卡片区（保留给无消息流场景；当前审批走消息流） */
+    private android.widget.LinearLayout remoteCardsLane;
+    /** 最近一次渲染的审批卡片签名，避免同一条审批重复插入 */
+    private String lastRemoteCardSig = "";
+
+    /** 把一张 v2 卡片作为**消息流里的 item** 插入（独立 ViewType，不影响既有消息） */
+    private void addRemoteCardMessage(java.util.Map<String, Object> view) {
+        if (chatHistory == null || view == null) return;
+        ChatMessage m = ChatMessage.createRemoteCard(view);
+        chatHistory.add(m);
+        if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+        scrollToBottom();
+        saveHistoryAsync();
+    }
+
+    /**
+     * 拉取 /v2/view 的卡片，只保留「待你处理」这类需要立刻看见的卡，
+     * 用 RemoteCardView 渲染到对话页输入栏上方（原生卡片，不是文本）。
+     */
+    private void refreshRemoteCards() {
+        final String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+        if (remoteCardsLane == null) return;
+        if (target == null || target.isEmpty()) {
+            remoteCardsLane.setVisibility(android.view.View.GONE);
+            return;
+        }
+        new Thread(() -> {
+            java.util.Map<String, Object> v = null;
+            try {
+                v = com.oilquiz.app.ai.tool.RemoteDshTool.fetchView(this, target);
+            } catch (Exception ignored) { /* 电脑不可达就保持原样 */ }
+            final java.util.Map<String, Object> fv = v;
+            runOnUiThread(() -> {
+                if (remoteCardsLane == null || fv == null) return;
+                Object cardsObj = fv.get("cards");
+                if (!(cardsObj instanceof java.util.List)) return;
+                java.util.List<Object> keep = new java.util.ArrayList<>();
+                for (Object o : (java.util.List<?>) cardsObj) {
+                    if (!(o instanceof java.util.Map)) continue;
+                    Object kind = ((java.util.Map<?, ?>) o).get("kind");
+                    if ("approval".equals(kind)) keep.add(o);
+                }
+                if (keep.isEmpty()) {
+                    remoteCardsLane.removeAllViews();
+                    remoteCardsLane.setVisibility(android.view.View.GONE);
+                    return;
+                }
+                java.util.Map<String, Object> sub = new java.util.HashMap<>();
+                sub.put("header", fv.get("header"));
+                sub.put("cards", keep);
+                String sig = keep.toString();
+                if (sig.equals(lastRemoteCardSig)) return;   // 同一条审批不重复插卡
+                lastRemoteCardSig = sig;
+                if (remoteCardsLane != null) remoteCardsLane.setVisibility(android.view.View.GONE);
+                addRemoteCardMessage(sub);
+            });
+        }, "remote-cards").start();
     }
 
     private static String modeLabel(String mode) {
         if (com.oilquiz.app.ai.tool.RemoteDshTool.MODE_DIRECT.equals(mode)) return "直连";
         if (com.oilquiz.app.ai.tool.RemoteDshTool.MODE_SYNC.equals(mode)) return "同步";
-        return "智能";
+        return "自动";
     }
 
     /** 会话 id 太长：只留尾部，状态条上够认。 */

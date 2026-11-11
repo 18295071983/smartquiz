@@ -1,5 +1,48 @@
 # 变更日志
 
+## [2026-11-12] feat(remote_dsh)：协议 v2 + 双端同源（视图/会话身份/心跳/审批/卡片）
+
+电脑端插件与手机端整体重构，目标是把"主机 + 遥控器"改成"两个客户端 + 一个权威服务端"。
+
+**协议 v2（插件 v8）**
+- 新增 `/v2/schema`（字段字典）、`/v2/hello`（能力协商）、`/v2/view`（服务端派生 ViewModel：status/checks/session/timeline/connections/approval 卡片）、`/v2/session`、`/v2/message`、`/v2/stream`、`/v2/pulse`、`/v2/ack`、`/v2/reconcile`；
+- `/v2/message` 非流式响应升级为 v2 信封 `{v, ok, session_id, reply, execution, error?, debug?, legacy}`，旧字段保留在 `legacy` 兼容；
+- `/v2/ack`、`/v2/reconcile` 与 legacy 共用同一 handler，无双实现。
+
+**会话身份权威化**
+- `.sessions.json` 收敛为唯一绑定表，读写统一走 `sessionBinding`；绑定会话消失时自动解绑；
+- 手机端只持"对话码 + 电脑签发的 session_id"，新增 `RemoteSdk`（hello/sessionState/list/attach/view/send/ack/reconcile/pulse/events/streamUrl）；
+- 新增 `client_msg_id` 幂等键，服务端 10 分钟内同 (会话, id) 只受理一次。
+
+**连接与断线**
+- 新增"呼吸"：`/v2/pulse` 返回在线状态 / 落后条数 / 回执水位线；连接登记表 10s 心跳、30s 判离线，`/v2/view` 可见；
+- 修复非 live 会话 `/events` 补发历史后直接断流的问题：改为轮询持久化日志持续推送；
+- 客户端事件流改为自动重连：指数退避（0.5s→30s，±50% 抖动）、连续 8 次失败才报错、`since` 游标续传、30 分钟上限、`cancelEventStreams()` 可立即取消；
+- SSE 心跳由注释行改为 `pulse` 事件，可测 RTT。
+
+**审批进时间线**
+- `/v2/view` 新增「待你处理」卡（含 approval_id）；`/v2/stream` 发 `event: approval` / `approval_gone`；
+- 手机对话页收到审批事件自动插入卡片消息（新增 `ChatMessage.MessageType.REMOTE_CARD` 与 `ChatAdapter.VIEW_TYPE_REMOTE_CARD = 15`，独立 item type，不影响既有消息）。
+
+**模式收敛（去掉"三选一"）**
+- 执行位置由电脑按事实决定：会话 live → 宿主内执行；否则 CLI 续写。`executionInfo(sid)` 返回 `{mode, preferred, reason}`，prompt/sync/session/view 共用；
+- 客户端删除模式开关：`setMode` 变 no-op、`getMode` 恒 `auto`、状态条标签统一「自动」，引导页文案同步改写；
+- 新增 `warmReuse`（默认开）：CLI 跑完后台 `agents.resume` 成宿主内句柄（上限 4 条），下一轮不再冷启动。
+
+**状态去重（删第三份数据）**
+- 删除插件内存历史缓存 `local`：history 只认"活会话 deriveMessages"或"落盘日志"（并过滤掉 tool 行）；
+- 新增消息来源台账 `.origins.jsonl`：时间线标 `origin=phone|desktop`，两端显示「你(手机)/你(电脑)」。
+
+**手机端卡片组件**
+- 新增 `RemoteCardView`（圆角浅卡 + 状态色 + 角色 chip，颜色走主题），替换「远程连接 → 自检」的等宽文本；
+- 对话页新增审批卡片消息流（见上）与输入栏上方卡片区兜底。
+
+**验证**
+- 插件：`node --check` 通过；假 ctx 跑 `apply()` 注册 29 条路由；`/v2/pulse`、`/v2/view`（cards=status,checks,connections）、`/v2/session` 实测正常；
+- App：`assembleDebug` 多次 BUILD SUCCESSFUL；APK 装机（小米 25113PN0EC）验证卡片渲染与 RTT 显示；
+- 文档：新增 `docs/remote_dsh-architecture-review.md`（现状问题、目标分层、迁移路线、实施进度）。
+
+
 ## [2026-11-10] chore(build)：内置电脑端插件改为构建时自动同步
 
 App 的「导出电脑端插件」直接读 `src/main/assets/remote_dsh/plugin/`。以前漏文件/忘记同步时

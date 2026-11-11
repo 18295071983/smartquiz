@@ -56,6 +56,9 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private MaterialButton saveDirectCodeBtn;
     private TextView probeText;
     private TextView probeTime;
+    private MaterialButton selfCheckBtn;
+    private TextView selfCheckText;
+    private android.widget.LinearLayout selfCheckCards;
     private MaterialButton connectBtn;
     private MaterialButton disconnectBtn;
     private MaterialButton scanBtn;
@@ -69,6 +72,20 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private volatile boolean busy;
     /** 是否做过首次自动探测（onResume 会被重复调用，避免每次返回都打网络） */
     private boolean probedOnce;
+    /**
+     * 页面可见时的自动刷新（5 秒）。
+     * 之前只有点「连接」才探测一次，用户盯着「会话数 0」以为数据不更新 —— 实际是没人去问。
+     */
+    private final android.os.Handler autoHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable autoProbeTask = new Runnable() {
+        @Override
+        public void run() {
+            if (!isFinishing() && RemoteDshTool.isConfigured(RemoteDshConnectActivity.this)) {
+                probe(false, false, true);
+            }
+            autoHandler.postDelayed(this, 5000);
+        }
+    };
 
     private static final int COLOR_OK = 0xFF15803D;
     private static final int COLOR_WARN = 0xFFB45309;
@@ -90,6 +107,12 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         valueSession = findViewById(R.id.value_session);
         probeText = findViewById(R.id.probe_text);
         probeTime = findViewById(R.id.probe_time);
+        selfCheckBtn = findViewById(R.id.btn_self_check);
+        selfCheckText = findViewById(R.id.self_check_text);
+        selfCheckCards = findViewById(R.id.self_check_cards);
+        if (selfCheckBtn != null) {
+            selfCheckBtn.setOnClickListener(v -> runSelfCheck());
+        }
         connectBtn = findViewById(R.id.btn_connect);
         disconnectBtn = findViewById(R.id.btn_disconnect);
         scanBtn = findViewById(R.id.btn_scan);
@@ -139,6 +162,83 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         if (RemoteDshTool.isConfigured(this)) {
             probe(false, false);
         }
+    }
+
+    /**
+     * 「自检 / 对账」：一次拿到电脑端 v8 插件的 /health 五项检查 + /reconcile 摘要。
+     *
+     * 放这里的价值：手机端遇到"电脑没反应"时，不用再猜是网络、令牌还是电脑端工具挂了——
+     * host_cwd 红就说明电脑上所有起子进程的工具都会报 ENOENT。
+     */
+    private void runSelfCheck() {
+        if (!RemoteDshTool.isConfigured(this)) {
+            toast("还没配对电脑：先扫码或在下面填地址和令牌");
+            return;
+        }
+        if (selfCheckText != null) selfCheckText.setVisibility(View.GONE);
+        if (selfCheckCards != null) {
+            selfCheckCards.setVisibility(View.VISIBLE);
+            selfCheckCards.removeAllViews();
+        }
+        new Thread(() -> {
+            java.util.Map<String, Object> v = null;
+            String err = null;
+            try {
+                // v2：一次拿"状态卡 + 自检卡 + 会话卡 + 时间线"，与服务端/电脑面板同源
+                v = RemoteDshTool.fetchView(getApplicationContext(), RemoteDshTool.getDirectSessionId(this));
+                int code = asInt(v.get("_http_code"));
+                if (code >= 400) {
+                    err = "取视图失败 HTTP " + code + "：" + v.get("error");
+                } else if (!(v.get("cards") instanceof java.util.List)) {
+                    err = "电脑端插件太旧：没有 cards（需要 ≥ v8 / 协议 v2）\n请重启电脑上的 DSH 再试";
+                }
+            } catch (Exception e) {
+                err = "自检异常: " + e.getMessage();
+            }
+
+            boolean online = false;
+            long rtt = 0;
+            Object gap = null;
+            String pulseErr = null;
+            try {
+                long t0 = System.currentTimeMillis();
+                java.util.Map<String, Object> p = new RemoteSdk(getApplicationContext())
+                        .pulse(RemoteDshTool.getDirectSessionId(this), 0);
+                rtt = System.currentTimeMillis() - t0;
+                gap = p.get("gap");
+                online = true;
+            } catch (Exception pe) {
+                pulseErr = pe.getMessage();
+            }
+
+            final java.util.Map<String, Object> fv = v;
+            final String fErr = err;
+            final boolean fOnline = online;
+            final long fRtt = rtt;
+            final Object fGap = gap;
+            final String fPulseErr = pulseErr;
+            runOnUiThread(() -> {
+                if (fErr != null || fv == null) {
+                    if (selfCheckCards != null) selfCheckCards.setVisibility(View.GONE);
+                    if (selfCheckText != null) {
+                        selfCheckText.setVisibility(View.VISIBLE);
+                        selfCheckText.setText(fErr == null ? "自检失败" : fErr);
+                    }
+                    return;
+                }
+                if (selfCheckCards != null) {
+                    // 原生卡片渲染（对齐电脑面板的设计语言），不再是等宽文本
+                    RemoteCardView.render(selfCheckCards, fv);
+                    RemoteCardView.appendBreath(selfCheckCards, fOnline, fRtt, fGap, fPulseErr);
+                }
+            });
+        }).start();
+    }
+
+    /** 宽松整数解析（HTTP 字段可能是 Integer/Long/String） */
+    private static int asInt(Object o) {
+        if (o instanceof Number) return ((Number) o).intValue();
+        try { return Integer.parseInt(String.valueOf(o == null ? "" : o).trim()); } catch (Exception e) { return 0; }
     }
 
     /**
@@ -325,7 +425,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 android.R.layout.simple_list_item_1,
                 new java.util.ArrayList<>(java.util.Arrays.asList(labelsFor(sessionRows))));
         sessionDialog = new AlertDialog.Builder(this)
-                .setTitle("选择电脑会话（同步目标）")
+                .setTitle("选择要跟随的电脑对话")
                 .setAdapter(sessionAdapter, (d, which) -> {
                     if (which < 0 || which >= sessionRows.size()) return;
                     java.util.Map<String, Object> m = sessionRows.get(which);
@@ -333,9 +433,8 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                     String title = str(m.get("title"));
                     RemoteDshTool.setSyncTarget(this, sid);
                     RemoteDshTool.setSyncTitle(this, title);
-                    RemoteDshTool.setMode(this, RemoteDshTool.MODE_SYNC);
                     refresh();
-                    toast("已选择「" + (title.isEmpty() ? shortId(sid) : title) + "」，并切到同步模式");
+                    toast("已跟随「" + (title.isEmpty() ? shortId(sid) : title) + "」（执行位置由电脑自动决定）");
                     d.dismiss();
                 })
                 .setNeutralButton("刷新", (d, w) -> pickSession())
@@ -459,6 +558,15 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 probe(false, false);
             }
         }
+        // 可见期间每 5 秒自动刷新一次（静默，不闪"正在探测"）
+        autoHandler.removeCallbacks(autoProbeTask);
+        autoHandler.postDelayed(autoProbeTask, 5000);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        autoHandler.removeCallbacks(autoProbeTask);
     }
 
     private void bindActions() {
@@ -624,13 +732,22 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
      * @param toastResult 是否弹提示
      */
     private void probe(boolean setIntent, boolean toastResult) {
+        probe(setIntent, toastResult, false);
+    }
+
+    /**
+     * @param silent true = 自动刷新用：不先写"正在探测…"，只把结果换上去（避免每 5 秒闪一次）
+     */
+    private void probe(boolean setIntent, boolean toastResult, boolean silent) {
         if (busy) {
             return;
         }
         busy = true;
         probedOnce = true;
         refresh();
-        showProbe(COLOR_WARN, "正在探测电脑端桥接…", null);
+        if (!silent) {
+            showProbe(COLOR_WARN, "正在探测电脑端桥接…", null);
+        }
 
         new Thread(() -> {
             final long t0 = System.currentTimeMillis();

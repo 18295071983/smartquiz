@@ -14,6 +14,7 @@ window.__ModuleLoader__.load({
       const [info, setInfo] = React.useState(null);
       const [st, setSt] = React.useState(null);
       const [bal, setBal] = React.useState(null);
+      const [vw, setVw] = React.useState(null);
       const [err, setErr] = React.useState('');
       const [note, setNote] = React.useState('');
       const [pubUrl, setPubUrl] = React.useState('');
@@ -30,6 +31,8 @@ window.__ModuleLoader__.load({
           .catch((e) => setErr(String(e && e.message ? e.message : e)));
         // /status 走主令牌读取在浏览器里拿不到，改为本地读取一次即可（同源、仅本机）
         fetch('/status').then((r) => (r.ok ? r.json() : null)).then((j) => setSt(j)).catch(() => setSt(null));
+        // v2 统一视图：服务端派生 cards，电脑面板与手机页面渲染同一份
+        fetch('/v2/view').then((r) => (r.ok ? r.json() : null)).then((j) => setVw(j)).catch(() => setVw(null));
         loadBalance();
       }, [loadBalance]);
 
@@ -72,6 +75,29 @@ window.__ModuleLoader__.load({
         padding: '3px 10px', borderRadius: 999, cursor: 'pointer',
         border: '1px solid currentColor', opacity: 0.9,
       };
+      /** v2 ViewModel → 文本行（两端同一套规则，只在服务端定义数据） */
+      const cardLines = (c) => {
+        if (!c) return [];
+        if (c.kind === 'status' || c.kind === 'session') {
+          return (c.rows || []).map((r) => r.label + '：' + r.value);
+        }
+        if (c.kind === 'checks' || c.kind === 'connections') {
+          return (c.items || []).map((it) =>
+            (it.state === 'ok' ? '✓ ' : (it.state === 'error' ? '✗ ' : '○ ')) + it.name + '：' + it.detail);
+        }
+        if (c.kind === 'timeline') {
+          return (c.messages || []).map((m) => {
+            const who = m.role === 'user'
+              ? (m.origin === 'phone' ? '你(手机)' : '你(电脑)')
+              : 'AI';
+            return who + '：' + String(m.text || '').replace(/\s+/g, ' ').slice(0, 60);
+          });
+        }
+        return [];
+      };
+      const vwHasError = !!(vw && (vw.cards || []).some((c) =>
+        c.kind === 'checks' && (c.items || []).some((i) => i.state === 'error')));
+
       return h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0' } },
         h('button', { style: chip, onClick: () => setOpen((v) => !v), title: '手机远程接入（答题宝）' },
           '📱 手机远程' + (open ? ' ▲' : ' ▼')),
@@ -96,6 +122,8 @@ window.__ModuleLoader__.load({
               bal.error === 'no_api_key' ? '未配置 API Key' : '读取失败（' + (bal.error || '?') + '）')),
           info && h('div', null, '局域网：', h('code', null, info.base_url)),
           info && h('div', null, '已配对设备：', h('b', null, String((st && st.devices) || 0) + ' 台')),
+          st && h('div', null, '电脑会话：', h('b', null, String(st.sessions_count == null ? '—' : st.sessions_count) + ' 条'),
+            st.plugin_sessions != null ? ('（插件在管 ' + st.plugin_sessions + '）') : ''),
           // ★ 远程执行命令开关（2026-10-06 用户要求做成 UI）。仅本机可改：手机端只显示状态。
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 } },
             h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' } },
@@ -136,6 +164,21 @@ window.__ModuleLoader__.load({
               ? h('div', { style: { opacity: 0.85, wordBreak: 'break-all' } },
                   '最近：' + st.cmd_queue.recent.map((c) => c.tool + '(' + c.state + ')').join(' · '))
               : null,
+          ),
+          // ★ v2 统一视图：服务端派生 cards，电脑面板与手机页面渲染同一份
+          vw && h('div', {
+            style: { marginTop: 6, paddingTop: 6, borderTop: '1px dashed currentColor' },
+          },
+            h('div', null, '电脑自检：', h('b', null, vwHasError ? '✗ 有错误' : '✓ 正常'),
+              '  v2 · ' + new Date(vw.generated_at || Date.now()).toLocaleTimeString()),
+            vw.header && vw.header.title
+              ? h('div', { style: { opacity: 0.9 } }, '当前会话：' + vw.header.title) : null,
+            (vw.cards || []).map((c, i) => h('div', { key: i, style: { marginTop: 4 } },
+              h('div', { style: { opacity: 0.7 } }, '· ' + (c.title || c.kind)),
+              cardLines(c).map((t, j) => h('div', {
+                key: j, style: { opacity: 0.9, wordBreak: 'break-all' },
+              }, t)),
+            )),
           ),
 info && h('div', null, '二维码：', h('button', {
             style: { ...chip, padding: '2px 8px', fontSize: 12 },
