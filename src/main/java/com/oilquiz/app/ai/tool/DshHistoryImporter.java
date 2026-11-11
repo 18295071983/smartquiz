@@ -3,7 +3,10 @@ package com.oilquiz.app.ai.tool;
 import android.content.Context;
 
 import com.oilquiz.app.ai.chat.ChatMessage;
-import com.oilquiz.app.ai.chat.component.ComponentData;
+import com.oilquiz.app.ai.remote.DshCards;
+import com.oilquiz.app.ai.remote.DshEvent;
+import com.oilquiz.app.ai.remote.DshProjection;
+import com.oilquiz.app.ai.remote.DshTimeline;
 import com.oilquiz.app.ai.util.ChatHistoryManager;
 
 import org.json.JSONArray;
@@ -19,14 +22,32 @@ import java.util.List;
  * 一份本地历史文件；导入之后它在历史抽屉里可见、可搜索、可离线回看，不需要靠每次补拉
  * 重新拼。</p>
  *
- * <p>数据来源：插件 {@code /events?since=0&follow=0} 的原样事件重放（live 读内存、
- * 非 live 解压会话日志）。转换规则与实时转换器一致：reasoning → thinkingContent、
- * text → content、tool/call+tool/result → components 里的 tool_call 卡。</p>
+ * <p><b>与实时同步同源（2026-11-12 重构）</b>：这里不再自带一套"Dsh 事件 → 消息"的规则，
+ * 而是复用 {@link DshTimeline}（事件归约）+ {@link DshProjection}（消息投影）。
+ * 旧实现的导入器只认四类事件，导入出来的会话<b>没有任何工具结果卡、待办卡、工作流卡</b>，
+ * 与手机实时看到的是两种样子；现在两条路径逐字段一致，只是导入一次性读完整段事件流。</p>
  */
 public final class DshHistoryImporter {
 
     private DshHistoryImporter() {
     }
+
+    /**
+     * 导入时只拉"能变成消息/卡片"的事件类型。
+     *
+     * <p>全量事件里 {@code request/header}、{@code session-log}、{@code web/*} 这类占绝大多数字节
+     * 却没有任何 UI 产物；过滤后长会话的事件数从 9000+ 降到一千多，隧道上快一个量级。
+     * 过滤表必须与 {@link DshTimeline} / {@link DshCards} 支持的类型保持同步。</p>
+     */
+    static final String EVENT_TYPES = String.join(",",
+            "user/message", "assistant/message", "tool/call", "tool/result",
+            "approval", "approval_gone", "question", "question_gone",
+            "todo/write", "deliverables/presented", "goal/activation-changed", "workspace/changes",
+            "job/registered", "command/run",
+            "tool-workflow/run-start", "tool-workflow/agent-start",
+            "tool-workflow/agent-end", "tool-workflow/run-end",
+            "subagent/catalog", "llm/retry", "assistant/attempt",
+            "compaction/start", "compaction/summary");
 
     /** 进度回调（在后台线程触发；调用方自行 post 到 UI） */
     public interface Progress {
@@ -78,7 +99,6 @@ public final class DshHistoryImporter {
         return new Result(messages.size(), session.id, session.title);
     }
 
-    /** 一次性把事件流读完（follow=0；插件侧会按 seq 顺序重放） */
     /** 电脑会话 id → 本机历史会话 id（保证重复导入是"更新"而不是"新增"） */
     private static String mappedLocalSession(Context ctx, String target) {
         try {
@@ -100,10 +120,8 @@ public final class DshHistoryImporter {
         final List<JSONObject> out = new ArrayList<>();
         // 导入要的是"整条历史"，阈值放到 100 万：否则长会话（事件 >5000）会被服务端
         // 降级成 snapshot（只有角色+文本），导入器就收不到任何 event，表现出"没有可导入的消息"。
-        // 只拉"能变成消息/工具卡"的 4 类事件：其余（request/header、session-log、job、web…）
-        // 导入用不到，却在隧道上占绝大多数字节 —— 过滤后事件数从 9000+ 降到一千多。
         RemoteDshTool.subscribeEvents(ctx, target, 0, 120, false, 1_000_000,
-                "user/message,assistant/message,tool/call,tool/result",
+                EVENT_TYPES,
                 new RemoteDshTool.DshEventListener() {
                     @Override public void onReady(int seq) { }
 
@@ -115,23 +133,18 @@ public final class DshHistoryImporter {
                             if (t == null) continue;
                             JSONObject synthetic = new JSONObject();
                             try {
-                                synthetic.put("type", "user".equals(t.optString("role"))
-                                        ? "user/message" : "assistant/message");
+                                boolean user = "user".equals(t.optString("role"));
+                                synthetic.put("type", user ? "user/message" : "assistant/message");
                                 JSONObject data = new JSONObject();
-                                if ("user/message".equals(synthetic.optString("type"))) {
-                                    JSONArray content = new JSONArray();
-                                    JSONObject p = new JSONObject();
-                                    p.put("type", "text");
-                                    p.put("text", t.optString("text"));
-                                    content.put(p);
+                                JSONObject message = new JSONObject();
+                                JSONArray content = new JSONArray();
+                                JSONObject p = new JSONObject();
+                                p.put("type", "text");
+                                p.put("text", t.optString("text"));
+                                content.put(p);
+                                if (user) {
                                     data.put("content", content);
                                 } else {
-                                    JSONObject message = new JSONObject();
-                                    JSONArray content = new JSONArray();
-                                    JSONObject p = new JSONObject();
-                                    p.put("type", "text");
-                                    p.put("text", t.optString("text"));
-                                    content.put(p);
                                     message.put("content", content);
                                     data.put("message", message);
                                 }
@@ -157,88 +170,98 @@ public final class DshHistoryImporter {
         return out;
     }
 
-    /** DSH 事件 → 本机 ChatMessage（用户 / AI + 工具卡组件） */
-    private static List<ChatMessage> buildMessages(List<JSONObject> events) {
+    /**
+     * 事件流 → 本机 ChatMessage：用户消息照原样落；每次 {@code user/message} 之前
+     * 的助手事件聚成**一条** AI 消息（含思考/正文/工具卡/数据卡），与实时同步同构。
+     *
+     * <p>package-private + 无 Context：纯逻辑，单测直接喂事件。</p>
+     */
+    static List<ChatMessage> buildMessages(List<JSONObject> events) {
         List<ChatMessage> out = new ArrayList<>();
-        ChatMessage lastAi = null;
-        for (JSONObject ev : events) {
-            String type = ev.optString("type", "");
-            long ts = ev.optLong("time", 0L);
-            if (ts <= 0) ts = System.currentTimeMillis();
-            JSONObject data = ev.optJSONObject("data");
+        DshTimeline timeline = new DshTimeline();
+        ChatMessage assistant = null;
+        int[] componentSeq = {0};
 
-            if ("user/message".equals(type) && data != null) {
-                String text = collectText(data.optJSONArray("content"));
-                if (text.isEmpty()) continue;
-                ChatMessage msg = ChatMessage.createUserMessage(text);
-                msg.timestamp = ts;
-                out.add(msg);
-                lastAi = null;
-            } else if ("assistant/message".equals(type) && data != null) {
-                JSONObject message = data.optJSONObject("message");
-                JSONArray parts = message == null ? null : message.optJSONArray("content");
-                StringBuilder answer = new StringBuilder();
-                StringBuilder thinking = new StringBuilder();
-                if (parts != null) {
-                    for (int i = 0; i < parts.length(); i += 1) {
-                        JSONObject p = parts.optJSONObject(i);
-                        if (p == null) continue;
-                        String pt = p.optString("type");
-                        String tx = p.optString("text");
-                        if (tx.isEmpty()) continue;
-                        if ("reasoning".equals(pt) || "thinking".equals(pt)) thinking.append(tx);
-                        else answer.append(tx);
-                    }
+        for (JSONObject raw : events) {
+            DshEvent ev = DshEvent.from(raw);
+            if (ev == null) continue;
+            long ts = ev.ts > 0 ? ev.ts : System.currentTimeMillis();
+
+            if ("user/message".equals(ev.type)) {
+                finishAssistant(out, assistant, timeline, ts, componentSeq);
+                String text = ev.data != null
+                        ? DshCards.collectText(ev.data.optJSONArray("content")) : "";
+                if (!text.isEmpty()) {
+                    ChatMessage user = ChatMessage.createUserMessage(text);
+                    user.timestamp = ts;
+                    out.add(user);
                 }
-                if (answer.length() == 0 && thinking.length() == 0) continue;
-                ChatMessage ai = ChatMessage.createAIMessage(
-                        java.util.UUID.randomUUID().toString(), answer.toString(), ts, null, 0, 0);
-                if (thinking.length() > 0) ai.thinkingContent = thinking.toString();
-                out.add(ai);
-                lastAi = ai;
-            } else if ("tool/call".equals(type) && data != null) {
-                if (lastAi == null) continue;
-                String callId = data.optString("callId");
-                if (callId.isEmpty()) continue;
-                JSONObject props = new JSONObject();
-                try {
-                    props.put("toolCallId", callId);
-                    props.put("toolName", data.optString("name", "工具"));
-                    props.put("args", data.optString("arguments"));
-                    props.put("status", "success");
-                } catch (Exception ignored) { /* 字段坏了就跳过 */ }
-                if (lastAi.components == null) lastAi.components = new ArrayList<>();
-                lastAi.components.add(ComponentData.of("tool_call", props));
-            } else if ("tool/result".equals(type) && data != null) {
-                if (lastAi == null || lastAi.components == null) continue;
-                String callId = data.optString("toolCallId");
-                String text = "";
-                JSONObject message = data.optJSONObject("message");
-                if (message != null) text = collectText(message.optJSONArray("content"));
-                for (ComponentData c : lastAi.components) {
-                    if (c == null || c.props == null) continue;
-                    if (!callId.equals(c.props.optString("toolCallId"))) continue;
-                    try {
-                        c.props.put("result", text);
-                        c.props.put("status",
-                                data.optBoolean("isError", false) ? "failed" : "success");
-                    } catch (Exception ignored) { /* 忽略 */ }
-                    break;
-                }
+                timeline = new DshTimeline();
+                assistant = null;
+                continue;
+            }
+
+            if (assistant == null) {
+                assistant = ChatMessage.createAIMessage(
+                        java.util.UUID.randomUUID().toString(), "", ts, null, 0, 0);
+                assistant.timestamp = ts;
+                out.add(assistant);
+            }
+            try {
+                DshTimeline.Update up = timeline.reduce(ev);
+                collectApprovals(assistant, up, timeline, ts);
+            } catch (Throwable ignored) {
+                // 单条坏事件不影响整段导入
             }
         }
+        finishAssistant(out, assistant, timeline, System.currentTimeMillis(), componentSeq);
         return out;
     }
 
-    private static String collectText(JSONArray parts) {
-        if (parts == null) return "";
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < parts.length(); i += 1) {
-            JSONObject p = parts.optJSONObject(i);
-            if (p == null) continue;
-            if ("reasoning".equals(p.optString("type"))) continue;
-            sb.append(p.optString("text"));
+    /** 审批事件也进历史：导入后的会话照样能看到"当时批了什么" */
+    private static void collectApprovals(ChatMessage assistant, DshTimeline.Update up,
+                                         DshTimeline timeline, long ts) {
+        if (assistant == null || up == null) return;
+        for (DshTimeline.Action action : up.actions) {
+            if (action.kind == DshTimeline.ActionKind.APPROVAL) {
+                if (assistant.approvals == null) assistant.approvals = new ArrayList<>();
+                boolean exists = false;
+                for (ChatMessage.ApprovalRequest r : assistant.approvals) {
+                    if (r != null && action.id.equals(r.id)) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists) {
+                    assistant.approvals.add(new ChatMessage.ApprovalRequest(
+                            action.id, "", DshCards.approvalTool(action.request),
+                            DshCards.approvalDetail(action.request),
+                            com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.APPROVAL_PENDING,
+                            timeline.currentRound(), ts > 0 ? ts : System.currentTimeMillis(), "dsh"));
+                }
+            } else if (action.kind == DshTimeline.ActionKind.APPROVAL_GONE
+                    && assistant.approvals != null) {
+                for (ChatMessage.ApprovalRequest r : assistant.approvals) {
+                    if (r != null && r.isPending()
+                            && (action.id == null || action.id.isEmpty() || action.id.equals(r.id))) {
+                        r.status = "expired";
+                    }
+                }
+            }
         }
-        return sb.toString().trim();
+    }
+
+    /** 把攒在时间线里的助手回合投影成消息；只有一条空壳（无正文/思考/卡片）时摘掉 */
+    private static void finishAssistant(List<ChatMessage> out, ChatMessage assistant,
+                                        DshTimeline timeline, long now, int[] componentSeq) {
+        if (assistant == null) return;
+        DshProjection.project(assistant, timeline, key -> "dsh-I" + (++componentSeq[0]), now);
+        boolean hasText = assistant.content != null && !assistant.content.isEmpty();
+        boolean hasThinking = assistant.thinkingContent != null && !assistant.thinkingContent.isEmpty();
+        boolean hasCards = assistant.components != null && !assistant.components.isEmpty();
+        boolean hasApprovals = assistant.approvals != null && !assistant.approvals.isEmpty();
+        if (!hasText && !hasThinking && !hasCards && !hasApprovals) {
+            out.remove(assistant);
+        }
     }
 }

@@ -74,6 +74,7 @@ public final class PartRendererRegistry {
                 .register(new ReasoningPartRenderer())
                 .register(new ErrorPartRenderer())
                 .register(new ApprovalPartRenderer())
+                .register(new QuestionPartRenderer())
                 .register(toolCall)
                 .register(new ToolResultPartRenderer(toolCall.componentFactory()))
                 .register(new ToolGroupPartRenderer())

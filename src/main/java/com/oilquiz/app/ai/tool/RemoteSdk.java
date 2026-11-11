@@ -40,9 +40,13 @@ public final class RemoteSdk {
         return tool.httpJson(tool.getBaseUrl() + path, method, body, timeoutSec);
     }
 
-    /** 握手 + 能力协商：先问电脑"你能给我什么"，再决定调哪些接口 */
+    /** 握手 + 能力协商：带上客户端 caps，电脑端据此裁剪卡片/事件 */
+    public Map<String, Object> hello(String sessionId) throws Exception {
+        return call("/v2/hello", "POST", RemoteCaps.helloBody(sessionId), 15);
+    }
+
     public Map<String, Object> hello() throws Exception {
-        return call("/v2/hello", "GET", null, 15);
+        return hello("");
     }
 
     /** 查某个对话码当前绑定到电脑上的哪条会话（权威答案） */
@@ -71,10 +75,22 @@ public final class RemoteSdk {
         return call("/v2/session", "POST", b, 20);
     }
 
-    /** 服务端派生的统一视图（状态 / 自检 / 会话 / 时间线） */
+    /** 直连绑定（空 id = 清掉 @direct，下一次直连由电脑新建手机专属会话） */
+    public Map<String, Object> directBind(String sessionId) throws Exception {
+        Map<String, Object> b = new HashMap<>();
+        b.put("action", "direct_bind");
+        if (sessionId != null && !sessionId.trim().isEmpty()) {
+            b.put("target_session_id", sessionId.trim());
+        }
+        // direct_bind 只有 legacy /session 路由处理（/v2/session 不支持该 action）
+        return call("/session", "POST", b, 20);
+    }
+
+    /** 服务端派生的统一视图（状态 / 自检 / 会话 / 时间线），带客户端 caps 让其裁剪 */
     public Map<String, Object> view(String sessionId) throws Exception {
         String s = sessionId == null ? "" : sessionId.trim();
-        String q = s.isEmpty() ? "" : "?session_id=" + URLEncoder.encode(s, "UTF-8");
+        String q = "?caps=" + URLEncoder.encode(RemoteCaps.csv(), "UTF-8")
+                + (s.isEmpty() ? "" : "&session_id=" + URLEncoder.encode(s, "UTF-8"));
         return call("/v2/view" + q, "GET", null, 20);
     }
 
@@ -118,10 +134,11 @@ public final class RemoteSdk {
         return call("/v2/reconcile" + q, "GET", null, 20);
     }
 
-    /** SSE 事件流地址（客户端自己用 HttpURLConnection 读） */
+    /** SSE 事件流地址（客户端自己用 HttpURLConnection 读）；带 caps 让服务端过滤审批事件 */
     public String streamUrl(String sessionId, long since) throws Exception {
         return tool.getBaseUrl() + "/v2/stream?session_id="
-                + URLEncoder.encode(sessionId, "UTF-8") + "&since=" + Math.max(0, since);
+                + URLEncoder.encode(sessionId, "UTF-8") + "&since=" + Math.max(0, since)
+                + "&caps=" + URLEncoder.encode(RemoteCaps.csv(), "UTF-8");
     }
 
     /**

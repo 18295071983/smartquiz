@@ -85,6 +85,11 @@ public class AssistantTurn {
         public static final String TYPE_ERROR = "error";
         /** 审批/人机确认块（对齐 AI SDK 的 approval-requested/responded 态）。 */
         public static final String TYPE_APPROVAL = "approval";
+        /**
+         * 人工问答块（2026-11-12）：与 approval 分开，因为它的答案是"选项/自由文本"，
+         * 不是一个布尔决策。{@code args} 承载 JSON：{callId, detail, options[], multiSelect}。
+         */
+        public static final String TYPE_QUESTION = "question";
         /** 产物/数据卡块（chart/table/json/文件…，对齐 AI SDK 的 data-* part）。 */
         public static final String TYPE_DATA = "data";
         /** 连续多工具折叠成的一张组卡（对齐 legacy "已运行N个工具"），成员在 {@link #group}。 */
@@ -212,6 +217,27 @@ public class AssistantTurn {
             p.status = status != null ? status : APPROVAL_PENDING;
             p.timestamp = ts;
             return p;
+        }
+
+        /**
+         * 人工问答 part：{@code text}=问题，{@code args}=JSON（callId/detail/options/multiSelect），
+         * {@code status}=pending/answered/expired，{@code toolCallId}=ask 的调用 id。
+         */
+        public static Part question(String id, String toolCallId, String prompt, String argsJson,
+                                    String status, long ts) {
+            Part p = new Part();
+            p.id = id;
+            p.type = TYPE_QUESTION;
+            p.toolCallId = toolCallId;
+            p.text = prompt != null ? prompt : "";
+            p.args = argsJson != null ? argsJson : "";
+            p.status = status != null ? status : APPROVAL_PENDING;
+            p.timestamp = ts;
+            return p;
+        }
+
+        public boolean isQuestionPending() {
+            return TYPE_QUESTION.equals(type) && (status == null || APPROVAL_PENDING.equals(status));
         }
 
         /** 产物/数据 part：真正内容在 {@code data}（引用 {@code ChatMessage.components}）。 */
@@ -372,6 +398,8 @@ public class AssistantTurn {
             }
         }
         fillToolPartsFromComponents(turn, msg);
+        appendApprovalParts(turn, msg);
+        appendQuestionParts(turn, msg);
         appendDataParts(turn, msg);
 
         applyLiveThinking(turn, msg, liveCallId, liveRoundIndex, base);
@@ -862,6 +890,8 @@ public class AssistantTurn {
             }
         }
         fillToolPartsFromComponents(turn, msg);
+        appendApprovalParts(turn, msg);
+        appendQuestionParts(turn, msg);
         appendDataParts(turn, msg);
         return turn;
     }
@@ -978,11 +1008,16 @@ public class AssistantTurn {
      * <p>id 稳定：优先 {@code data:{componentId}}，缺 id 用序号（components 顺序确定，重建稳定）。
      * 把组件内容摘要写进 {@code args}（参与指纹）——否则同类型的两个卡片指纹全同，引擎会误判"没变"
      * 而跳过第二个的绑定。{@code data} 本身是渲染用的 transient 引用。</p>
+     *
+     * <p>顺序：组件带 {@link com.oilquiz.app.ai.chat.component.ComponentData#round} 时插到该轮
+     * 正文/工具之后（见 {@link #insertPartsByRound}），0 则保持旧行为追加到末尾。</p>
      */
     private static void appendDataParts(AssistantTurn turn, ChatMessage msg) {
         if (msg.components == null || msg.components.isEmpty()) {
             return;
         }
+        java.util.List<Part> extras = new java.util.ArrayList<>();
+        java.util.List<Integer> rounds = new java.util.ArrayList<>();
         int idx = 0;
         for (com.oilquiz.app.ai.chat.component.ComponentData c : msg.components) {
             if (c == null || "tool_call".equals(c.type)) {
@@ -992,9 +1027,144 @@ public class AssistantTurn {
             String id = (c.id != null && !c.id.isEmpty()) ? ("data:" + c.id) : ("data#" + idx);
             Part p = Part.data(id, c, 0L);
             p.args = contentDigest(c);
-            turn.parts.add(p);
+            extras.add(p);
+            rounds.add(c.round);
             idx++;
         }
+        insertPartsByRound(turn, extras, rounds);
+    }
+
+    /**
+     * 审批请求 → {@code approval} part（对齐 AI SDK 的 approval 块，2026-11-12 接上生产者）。
+     *
+     * <p>以前审批只有旁路弹窗：时间线里没有记录，用户滑上去就找不到"当时批了什么"。
+     * 现在它和所属轮次的正文/工具一起进 parts，渲染由既有的
+     * {@code ApprovalPartRenderer} 负责（按钮 → {@code PartHost.onApprovalDecision}）。</p>
+     */
+    private static void appendApprovalParts(AssistantTurn turn, ChatMessage msg) {
+        if (msg.approvals == null || msg.approvals.isEmpty()) {
+            return;
+        }
+        java.util.List<Part> extras = new java.util.ArrayList<>();
+        java.util.List<Integer> rounds = new java.util.ArrayList<>();
+        for (ChatMessage.ApprovalRequest a : msg.approvals) {
+            if (a == null) continue;
+            String status = a.status == null || a.status.isEmpty()
+                    ? Part.APPROVAL_PENDING : a.status;
+            extras.add(Part.approval(a.partId(), a.toolCallId, a.permission, a.prompt, status,
+                    a.timestamp > 0 ? a.timestamp : 0L));
+            rounds.add(a.round);
+        }
+        insertPartsByRound(turn, extras, rounds);
+    }
+
+    /**
+     * 人工问答 → {@code question} part（2026-11-12）。
+     *
+     * <p>{@code args} 里带 callId/detail/options/multiSelect/answer，渲染器据此出选项按钮与自由文本；
+     * 答案回传后只改 {@code status}=answered + {@code answer}，不再重建问题。</p>
+     */
+    private static void appendQuestionParts(AssistantTurn turn, ChatMessage msg) {
+        if (msg.questions == null || msg.questions.isEmpty()) {
+            return;
+        }
+        // 按 callId 分组：一次 ask 可能带多个问题，DSH 要求"一次提交整批答案"，
+        // 所以渲染成一张卡（多问题块 + 一个提交按钮），不能一个问题一张卡。
+        java.util.LinkedHashMap<String, java.util.List<ChatMessage.QuestionRequest>> byCall =
+                new java.util.LinkedHashMap<>();
+        for (ChatMessage.QuestionRequest q : msg.questions) {
+            if (q == null) continue;
+            String key = q.partId();
+            byCall.computeIfAbsent(key, k -> new java.util.ArrayList<>()).add(q);
+        }
+        java.util.List<Part> extras = new java.util.ArrayList<>();
+        java.util.List<Integer> rounds = new java.util.ArrayList<>();
+        for (java.util.Map.Entry<String, java.util.List<ChatMessage.QuestionRequest>> e : byCall.entrySet()) {
+            java.util.List<ChatMessage.QuestionRequest> group = e.getValue();
+            ChatMessage.QuestionRequest first = group.get(0);
+            org.json.JSONObject args = new org.json.JSONObject();
+            org.json.JSONArray questions = new org.json.JSONArray();
+            boolean anyPending = false;
+            for (ChatMessage.QuestionRequest q : group) {
+                if (q.isPending()) anyPending = true;
+                org.json.JSONObject item = new org.json.JSONObject();
+                try {
+                    item.put("id", q.id == null ? "" : q.id);
+                    item.put("question", q.question == null ? "" : q.question);
+                    item.put("detail", q.detail == null ? "" : q.detail);
+                    item.put("header", q.header == null ? "" : q.header);
+                    item.put("multiSelect", q.multiSelect);
+                    item.put("answer", q.answer == null ? "" : q.answer);
+                    if (q.options != null && !q.options.trim().isEmpty()) {
+                        item.put("options", new org.json.JSONArray(q.options));
+                    }
+                } catch (Exception ignored) {
+                    // 坏选项不影响问题正文
+                }
+                try { questions.put(item); } catch (Exception ignored) { /* 坏项跳过 */ }
+            }
+            try {
+                args.put("callId", first.callId == null ? "" : first.callId);
+                args.put("questions", questions);
+            } catch (Exception ignored) {
+                // ignore
+            }
+            String status = anyPending ? Part.APPROVAL_PENDING
+                    : (first.status == null || first.status.isEmpty() ? Part.APPROVAL_PENDING : first.status);
+            String partId = first.partId();
+            extras.add(Part.question(partId, first.callId, first.question, args.toString(), status,
+                    first.timestamp));
+            rounds.add(first.round);
+        }
+        insertPartsByRound(turn, extras, rounds);
+    }
+
+    /**
+     * 按轮次把附加 part（数据卡 / 审批卡）插进有序 parts。
+     *
+     * <p>轮次取自已有 part id 的 {@code -R{n}} 约定（{@link #roundOfPart}，与
+     * {@code roundSnapshots.round} 同口径）：遇到第一个"轮次更大"的 part 就插在它前面，
+     * 于是卡片落在它自己那一轮的正文/工具之后、下一轮之前。round=0 保持末尾追加。</p>
+     */
+    private static void insertPartsByRound(AssistantTurn turn, java.util.List<Part> extras,
+                                           java.util.List<Integer> rounds) {
+        if (extras == null || extras.isEmpty()) return;
+        java.util.List<Part> out = new java.util.ArrayList<>(turn.parts);
+        for (int k = 0; k < extras.size(); k += 1) {
+            Part p = extras.get(k);
+            if (p == null) continue;
+            int round = rounds != null && k < rounds.size() && rounds.get(k) != null
+                    ? rounds.get(k) : 0;
+            if (round <= 0) {
+                out.add(p);
+                continue;
+            }
+            int at = out.size();
+            for (int i = 0; i < out.size(); i += 1) {
+                if (roundOfPart(out.get(i)) > round) {
+                    at = i;
+                    break;
+                }
+            }
+            out.add(at, p);
+        }
+        turn.parts = out;
+    }
+
+    /** 从 part id 的 {@code -R{n}} 段取轮次；解析不出（data/approval/legacy）返回 0 */
+    private static int roundOfPart(Part p) {
+        if (p == null || p.id == null) return 0;
+        int marker = p.id.lastIndexOf("-R");
+        if (marker < 0) return 0;
+        int i = marker + 2;
+        int n = 0;
+        int digits = 0;
+        while (i < p.id.length() && Character.isDigit(p.id.charAt(i))) {
+            n = n * 10 + (p.id.charAt(i) - '0');
+            i += 1;
+            digits += 1;
+        }
+        return digits > 0 ? n : 0;
     }
 
     /** 组件内容稳定摘要（String.hashCode 规范稳定），写进 data part 的 args 供指纹区分。 */
@@ -1004,8 +1174,7 @@ public class AssistantTurn {
     }
 
     /** 从消息的 tool_call 组件回填 name/args/status/result，并补 TOOL_RESULT part。 */
-    private static void fillToolPartsFromComponents(AssistantTurn turn, ChatMessage msg) {
-        if (msg.components == null || msg.components.isEmpty()) return;
+    private static void fillToolPartsFromComponents(AssistantTurn turn, ChatMessage msg) {        if (msg.components == null || msg.components.isEmpty()) return;
         // TOOL-ID-DUP-DATA(2026-11-07)：同一 toolCallId 的组件可能不止一个。
         // 2026-11-07 之前的本地引擎每轮都从 call_1 重新编号，一条消息里 8 个工具调用全叫 call_1；
         // 旧实现 byId.put 只留最后一个 → 每张工具卡都显示最后一次的参数/结果（真机两个对话里

@@ -1,5 +1,265 @@
 # 变更日志
 
+## [2026-11-12] feat(remote_dsh)：直连会话与跟随会话拆成两套绑定（@direct / @code:follow）
+
+用户观察："直连模式与续写模式为何都会落到「下一曲」这个会话中？" 根因是**选择电脑会话时把默认
+`@direct` 也写成了所选会话**，再叠加客户端身份合并，直连和续写就只剩一个目标。按用户选择改成两套：
+
+**① 电脑端两个绑定**
+- `@direct`：手机专属直连会话（首次直连时由 CLI 创建并回绑，不再被"选择会话"覆盖）；
+- `@code:follow`：从桌面选的「跟随会话」（切换会话只写这个）；
+- 迁移：若 `@direct` 与 `@code:follow` 相同（历史污染），清掉 `@direct`，直连下次重新建；
+- `direct_bind`（target 为空）可显式清空直连绑定。
+
+**② 手机端两个身份**
+- `attached_session`（跟随）：聊天通道、续写、视图、事件流、对账都用它；
+- `direct_session`（直连）：`run`/直连执行用它；`sendPrompt` 只在有直连 id 时带 target，
+  没有就让电脑按 `@direct` 新建；
+- `syncSessionIdentity` 只对齐 follow（不再查默认 `@direct`）；新增 `syncDirectIdentity` 对齐直连；
+- `resolveTargetSession` 默认跟随后者（不再优先手机本地 id / 直连 id）；
+- 选择会话只 `attach(sid, "follow", bind=true)`，不碰 `@direct`；换直连码也不清跟随。
+
+**③ 界面**
+- 连接页两行：**跟随会话**（当前桌面会话）与**直连会话**（手机专属，未建立时显示"首次直连时建立"）；
+- 直连和续写不再是同一个目标的两种叫法：直连不落进桌面「下一曲」，跟随/续写留在你选的那条。
+
+**测试**
+- `RemoteSessionIdentityTest` 扩到 6 条：跟随/直连独立、切跟随不动直连、旧 `dsh_session_id` 只在
+  与跟随不同时才认作直连、换直连码保留跟随；
+- `route_selftest.js` 15 条、`caps_selftest.js` 7 条全绿。
+
+## [2026-11-12] feat(remote_dsh)：连接收进前台服务（单例 RemoteConnection）+ 会话身份收成一个 id
+
+用户口径："APK 轮询不好，App 可以设计个服务级的模块专门用来维护通道、传输数据，避免网络波动；
+另外远程连接界面里直连对话和同步目标的会话 id 不一致，怎么解决？"
+
+**① 服务级通道：`RemoteConnection`（单例）+ `RemoteSyncService`（前台服务持有）**
+- 新增 [`RemoteConnection`](src/main/java/com/oilquiz/app/ai/tool/RemoteConnection.java)：全 App 唯一一条
+  `RemoteChannel`，负责"解析会话身份 → 开流 → 扇出事件"；页面只 `addListener/removeListener`；
+- [`RemoteSyncService`](src/main/java/com/oilquiz/app/ai/tool/RemoteSyncService.java) 重写：不再自己
+  `while(running) subscribeEvents` 轮询，改为持有 `RemoteConnection`、把状态/最新回复刷到通知；
+- 切页/旋转/锁屏都不再断连：Activity 销毁只退订，不用重建流；网络抖动由通道层指数退避 + `since` 续传；
+- **传输游标与渲染游标分离**：`transport_seq_<sid>` 由连接管理器独占（重连用），页面的 `last_seq`
+  仍由页面在渲染后推进 —— 后台收事件不会把页面该补的那段"吃掉"；回到前台时页面按自己的游标
+  做一次 `since` 补拉，再订阅实时事件。
+
+**② 会话身份收成一个 id（解决"直连对话 vs 同步目标不一致"）**
+- 旧版两个键 `dsh_session_id`（直连）与 `sync_target`（同步目标）各写各的，连接页会同时显示两条 id；
+- 新增权威键 `attached_session` / `attached_title`：`getSyncTarget` / `getDirectSessionId` /
+  `getSyncTitle` / `getDirectTitle` 全部读写它，旧键保留为**镜像**（旧 APK/旧代码仍读得到，自动迁移）；
+- 连接时 `syncSessionIdentity()` 一次请求对齐：电脑有绑定 → 以电脑为准；电脑没有、本地有 →
+  把本地这条 `attach(bind=true)` 让电脑也认它；两边都没有 → 空（首次发送时由电脑创建）；
+- 插件 `/v2/session?action=state` 补回 `session.title`，连接页/聊天状态条直接显示电脑端标题。
+
+**③ 首次连接不回放历史**
+- `/events` 支持 `since=-2`（"从现在开始"）：只回 `ready`，不重放历史；
+- `RemoteConnection` 在没有传输游标时用 `-2` 开流，避免首次连接把整条会话灌进气泡；
+- 需要补历史仍走 `since=<last_seq>` 或「导入历史」。
+
+**测试**
+- 新增 `RemoteSessionIdentityTest`（4 条）：旧键迁移、canonical 覆盖旧键、清空别名、传输游标按会话隔离；
+- `route_selftest.js` 增到 **15 条**：新增「`since=-2` 不回放历史」；
+- 全量单测 / `assembleDebug` 见本轮构建结果。
+
+## [2026-11-12] refactor(remote_dsh)：通道改成"一次请求、服务端推送"（去掉轮询 / 默认会话 / 对账摘要）
+
+用户口径："客户端的通道还是有问题……远程连接界面怎么还有默认会话呢？而且对账也对不上。
+不应当是客户端连接时发一个请求，然后服务端下发数据吗？" —— 对，之前是三条轮询链 + 两套游标，
+方向反了。这轮把通道收成一条。
+
+**① 一条通道：RemoteChannel（一次 `/events?follow=1`，服务端持续推）**
+- 服务端 `/events` 连接后立即下发 `state`（会话 id/标题/是否 live/执行位置/last_seq/acked_seq）
+  与 `view`（`/v2/view` 同源 cards），之后每 5 秒推一次 `view`、10 秒心跳、事件按 seq 增量推；
+- 手机端新增 [`RemoteChannel`](src/main/java/com/oilquiz/app/ai/tool/RemoteChannel.java)：
+  自带断线指数退避、`since` 续传、每 5 秒 `ack`、把 `state/view/pulse/event` 分发给页面；
+- **删掉的轮询**：聊天页每 3 秒 `catchUpSync`、连接页每 5 秒 `/status` 自动探测、
+  会话选择器每 3 秒重拉、发消息时为每条消息临时开一条 600s 的事件流；
+- 聊天页现在只做三件事：`dispatch 事件 → applyDshEvent → 推进 since`；电脑端自己敲的消息
+  也会经通道过来（没有占位气泡时自动补一条）。
+
+**② 去掉"默认会话"**
+- 连接页删掉「直连对话 / 对话码（留空=默认）」整块 UI 与对应文案；
+- 连上时先发**一个请求** `GET /v2/session?action=state`，由电脑回答"绑到哪条会话、标题是什么"；
+  没有绑定就显示「首次发送时由电脑建立」——客户端不再有"默认会话"这个概念，也不再自己造 id；
+- 通道 `state` 到达后用服务端下发的 id/标题覆盖本地缓存（`setSyncTarget/setSyncTitle`）。
+
+**③ 对账口径统一为 seq 游标**
+- `/reconcile?light=1&last_seq=N` 现在返回 `verdict: match|behind` + `gap`（落后几条事件）；
+- 客户端 `fetchReconcile` / AI `action=reconcile` 都带上本机游标，结论直接显示"一致 / 落后 N 条"；
+- 不再比 `sha256(role\0text)` 摘要——那份摘要对 tool 行、context 注入的归一化与手机本地不一致，
+  正是"对账永远对不上"的来源；旧客户端的 digest 参数仍兼容（回 diverged/match 老口径）。
+
+**④ 兼容与边界**
+- 旧服务端（无 `state/view` 推送）：RemoteChannel 收不到就只当事件流用，连接页退回手动「自检」；
+- 旧 APK（旧轮询）：服务端仍兼容，不做破坏性改动；
+- 后台前台服务 `RemoteSyncService` 仍是轮询（只发通知、不推进渲染游标），下一步可切到同一通道。
+
+**测试**
+- `route_selftest.js` 增到 **14 条**：新增「/events 连接即推 state/view」「对账 last_seq → behind/match + gap」；
+- 新增 `RemoteChannelJsonTest`：state 的嵌套对象/数组解析；
+- 全量单测见本轮构建结果（0 失败）。
+
+## [2026-11-12] feat(remote_dsh)：补齐五项缺失能力（逐字流 / 日程 / 计划 / 反问代答 / 子代理面板）
+
+用户口径："缺少功能你就增加……缺少的组件、模块，你想怎么补就怎么补；实在兼容不上的两边协调"。
+这五项此前被写成"做不到"，核对 DSH 文档与源码后结论是：**都能在插件宿主内补，不需要改 DSH 协议**
+（除了新增我们自己的 v2 路由/合成事件）。
+
+**① 逐字流（token 级）**
+- DSH 确实不把 token 写进会话日志，但宿主内 agent 有进程内瞬态事件 `agent/assistant-stream`
+  （`{agent, frame}`，chunk 里是 `text-delta` / `reasoning-delta` / `tool-call-delta`）；
+- 插件新增进程内订阅表 `STREAM_HUB`，把 frame 转成合成事件 `stream/delta`（带 session/turn/step）
+  写进该会话的 `/events` 与 `/v2/stream` 连接（按 `parts.stream` 能力门禁）；
+- 手机端 `DshTimeline` 直接把增量追加到所在步骤的正文/思考，随后的 `assistant/message`（权威累计值）
+  等长/更长时替换，不重复；投影按 80ms 节流，避免每个 token 重建整条消息。
+
+**② 日程（`schedule/*` 不在会话日志里）**
+- 插件新增 `GET/POST /v2/schedule`：接 `ctx.schedule` 的 `catalog/list/view/history/run/edit`
+  （形状按 `@deepseek-ai/dsh-schedule` 的 `ScheduleEditRequest`：`{id, action:'update'|'delete', patch?, expectedUpdatedAt?}`）；
+- `ctx.on('schedule/changed')` → 手机 `/events` 收 `schedule/changed`，对话里提示一次、面板页重拉；
+- 手机新增「日程 · 计划 · 子代理」页面：列任务（标题/状态/下次）、「执行一次」「删除」。
+
+**③ 计划（`plan/*` 同样不在日志里）**
+- 真实事件是 `plan/mode`（`{active}`，持久会话事件），手机端现在把它渲染成状态卡并记住状态；
+- 插件新增 `GET/POST /v2/plan`，读写 `ctx.planMode.get/set(agent, active)`（要求会话在电脑端 live）；
+- 扩展面板里给「进入/退出计划模式」开关。
+
+**④ 反问代答（`user-questions`）**
+- 答案结构按官方 seam：`AskUserQuestionAnswer = { answers:[{id, selected:[], custom?}] }`，
+  一次 ask 的**整批**问题一次提交（拆开提交会被 `BAD_ANSWER` 拒绝）；
+- 插件新增 `POST /v2/answer` 两条通道：阻塞中的问题 settle `typertGateway` 的 pending 事件
+  （与电脑端先答先赢）；超时后 `continued` 的问题走 `ctx.userQuestions.answer(agent, callId, answer)`；
+- 手机端新增 `question` part + `QuestionPartRenderer`（多问题块、单选/多选、自由文本、整批提交），
+  替代原来的"请去电脑上回答"只读提示；历史导入同样收问答。
+
+**⑤ 子代理面板**
+- 插件新增 `GET /v2/subagents`：读根会话日志里的 `subagent/catalog` 得到子会话目录，
+  再读每个子会话的尾部事件（是否 live / 最近正文 / 最近工具），返回 `children[]`；
+- `ctx.on('session/event')` 把子会话的 durable 事件转成 `subagent/activity` 合成事件推给根会话，
+  手机端据此实时更新「子代理 · label」卡；扩展面板里列完整目录与最近活动。
+
+**能力协商（caps）同步扩容**：客户端与 `caps.js` 从 14 项增到 25 项
+（`view.cards.schedule/subagents/plan`、`parts.stream`、`parts.questions`、`schedule.read/write`、
+`plan.read/write`、`questions.answer`、`subagents.panel`）；新事件/新路由按 caps 门禁，
+legacy 客户端（不声明 caps）仍一律放行。
+
+**测试**
+- 插件 `route_selftest.js`（新增 12 条，假 ctx 起插件、直接打路由）：路由注册、日程读/执行、
+  caps 403、计划读/写/非 live 409、子代理目录+最近活动、答案两条通道（gateway/continued）、
+  缺 answers 400、`/events` 收 `stream/delta`；
+- `caps_selftest.js` 仍 7 条全绿；Java 侧新增 7 条：`DshTimelineTest`（增量追加/权威替换、计划卡、
+  子代理活动卡、日程变化标记）、`AssistantTurnPositionTest`（一次 ask 分组一张卡）、
+  `QuestionPartRendererTest`（整批提交含 selected/custom、已回答隐藏提交按钮）。
+
+**边界**：CLI 子进程没有进程内 token 流（仍是 step 粒度）；日程的新建/改时间规则仍建议在电脑面板做
+（手机做执行/删除）；外部子代理后端（ACP/Codex）若不在会话日志留 catalog，只能看到登记过的部分；
+运行中的电脑端插件需重新加载后新路由/新事件才生效。
+
+## [2026-11-12] feat(remote_dsh)：先补基础设施再接线（卡片定位 / 审批进时间线 / 能力协商）
+
+用户口径："我手机上缺少了一些原生模块，导致你妥协了；建议先把基础设施做好，再接线"。
+上一轮确实留了两条妥协（数据卡只能堆末尾、审批只能弹窗），根因不在转换器而在平台层。
+这轮先把**通用能力**补进 App/插件，DSH 只是第一个消费者：
+
+**① 卡片定位（不再全堆末尾）**
+- `ComponentData.round`（1 基，Gson 持久化；0 = 旧行为）；`AssistantTurn.insertPartsByRound()`
+  按 part id 的 `-R{n}` 轮次键把 data/approval part 插到该轮正文/工具之后；
+- `DshTimeline.roundOfCard()` / `currentRound()` 记录卡片与审批属于第几步，投影时写进 `round`；
+- 旧数据（round=0）保持末尾追加，不迁移、不改落盘格式。
+
+**② 审批进时间线（先有生产者，再谈接线）**
+- `ChatMessage.approvals`（持久化：id/toolCallId/permission/prompt/status/round/source）；
+- `AssistantTurn.appendApprovalParts()` → `ApprovalPartRenderer`（本来就有，缺的一直是生产者）；
+- `ChatAdapter.ApprovalDecisionListener` + `ChatPartsHost` 回调正式接通（以前是空实现）：
+  允许/拒绝 → 就地改状态并重绑 → 回传电脑端；回传失败回滚成 pending 并提示；
+- DSH 审批不再弹 `AlertDialog`：落成时间线里的卡片，`approval_gone` → 标 `expired`；
+- 历史导入也收审批事件（`EVENT_TYPES` 增加 4 类），导入后的会话能看到"当时批了什么"。
+
+**③ 降级可观测**
+- `bindWithParts` 在"part 类型未接管 / 构建不出可渲 parts"时打 `ChatAdapter.parts` 日志
+  （type + id），不再静默回落 legacy —— 以前只能靠肉眼发现"怎么突然变回旧渲染"。
+
+**④ 能力协商（协议层）**
+- 客户端新增 `RemoteCaps`（14 项：view.cards.* / parts.* / events.* / cmd.*），
+  随 `/v2/hello`、`/v2/view`、`/events`、`/v2/stream` 上送；`RemoteSdk.hello()` 改为 POST 带 client/caps；
+- 插件新增纯函数模块 `caps.js`（normalize/unknown/missing/allows/filterViewCards/eventAllowed/summarize）
+  + `caps_selftest.js`（node 7 条）；`index.js` 接入：hello 回显 caps 与按 caps 裁剪的 features、
+  `/v2/view` 裁掉客户端渲染不了的卡、`/v2/stream`/`/events` 在客户端没有 `parts.approval` 时不下发审批事件；
+- **legacy 兼容**：不声明 caps 的旧客户端一律"全允许"，行为与升级前一致；
+- `/v2/view` 新增「能力协商」卡（客户端 N 项 / 未识别 / 缺少），`RemoteCardView` 直接渲染，
+  两端能力差异不再只写在日志里。
+
+**测试**（新增 12 条 Java + 7 条 node）
+- `AssistantTurnPositionTest`（4）：`round` 卡插到该轮之后、`round=0` 仍末尾、纯工具步卡跟在工具组后、审批按轮次排序；
+- `RemoteCapsTest`（3）：客户端 caps 唯一性/顺序、hello body 形状、**读插件 `caps.js` 做双向比对**（缺一边就红）；
+- `DshTimelineTest` +1：卡片记住自己属于第几步；`DshProjectionTest` +1：两步时间线里卡片插在第一步之后；
+  `DshHistoryImporterTest` +1：审批进导入历史并标 expired；
+- `caps_selftest.js`（7）：legacy 不裁、按 kind 裁卡、审批事件按 parts.approval 过滤、未知能力不静默。
+
+**边界**：`cmd.*` 只做了声明、`/exec` 与 `cmd_enqueue` 尚未按设备 caps 逐条强制；运行中的电脑端插件需
+重新加载后才按 caps 裁剪；真机回归（多工具/待办/审批一轮）仍未跑。
+
+## [2026-11-12] refactor(remote_dsh)：手机端 UI 转换器重做（事件 → 时间线 → 投影）+ 卡片渲染修复
+
+用户口径："手机端 dsh 远程连接功能的 UI 转换器设计的不好"。核对后不是文案/配色问题，是**分层**问题：
+旧转换器是 `AIChatActivity.applyDshEvent` 里约 380 行 if-else，把 JSON 解析、turn/step 归组、
+卡片 props、审批弹框、进度文案、断点游标全压在一个方法里，而且**写错了渲染真值**——
+它维护的 `msg.assistantTurn.parts` 根本不是渲染输入（`ChatAdapter` 每次绑定都从
+`roundSnapshots + components` 现建 parts）。
+
+**新分层**（新增 `com.oilquiz.app.ai.remote`，纯 JVM、不依赖 Android）：
+
+- `DshEvent`：信封解析一次（type/seq/id/ts/data/turn/step，保留 raw 给 approval 顶层字段）；
+- `DshTimeline`：唯一归约器 —— 位置归组、工具 call/result 配对、`seq` 去重、审批/反问副作用、
+  进度文案，输出 `Update`（改了什么，而不是"顺便改 UI"）；
+- `DshCards`：事件 → 卡片（`todo_card`/`file_list`/`steps`/`alert`/`markdown_doc`），
+  同 key 覆盖、后台任务按 turn 聚合，props 拼接与文案集中在一处；
+- `DshProjection`：时间线 → `roundSnapshots`（每步一条：思考/正文/工具）+ `components`
+  + `content/thinkingContent`，组件 id 由调用方注入。
+
+**修掉的具体缺陷**：
+
+- **交错顺序**：旧实现手机上永远是"一大段思考 + 一大段正文 + 末尾一堆卡"；现在每步一条快照，
+  渲染层按 `reasoning → text → tool_group → 下一步…` 装配，与电脑端一致；
+- **删除死数据**：不再写 `assistantTurn.parts`，也不再用 `assistantTurn`（它会触发
+  `applyToMessage` 反向覆盖 content）；`DshTool.call` 那个从没赋过值的字段随之删除；
+- **游标不再先跑**：归约/投影成功后才 `setLastSeq`；补拉整批在同一个 UI 线程任务里
+  渲染完再落游标（旧代码后台线程先存游标、再 post 渲染 —— 渲染失败就永久丢事件）；
+- **导入与实时同源**：`DshHistoryImporter` 改用同一套 `DshTimeline/DshProjection`，
+  导入的会话终于有工具结果卡/待办卡/工作流卡（旧导入器只认 4 类事件，还把工具状态写死 success）；
+  事件过滤表从 4 类扩到 19 类，仍比全量少一个量级；
+- **去重要分清层**：`seq <= lastSeq` 在归约器里忽略，重放不会把 `job/registered` 的计数翻倍；
+- **可观测**：未识别事件按类型计数（`DshTimeline.unknownTypes()`），不再静默丢弃；
+- **不再依赖隐藏全局态**：`upsertDshComponent` 那个"忽略入参、直接改 `dshLiveMessage`"的写法删除，
+  投影按传入消息写入，补拉复用气泡时不会把卡片写到另一条消息上。
+
+**同批修的卡片渲染器 `RemoteCardView`**（"服务端 view → 原生卡片"这一层，连接页自检与
+聊天页 REMOTE_CARD 共用）——都不是崩溃，而是"看起来能用、信息丢了"：
+
+- **暗色主题下整张卡消失**：底色/描边写死 `0x0A000000`/`0x1A000000`（4%/10% 黑），
+  深色底上等于透明；改为读主题 `colorSurfaceVariant`/`colorOutline`，暗色有兜底色；
+- **kind 当标题**：没有 title 时把 `checks`/`timeline` 这种英文内部词显示给用户；
+  改为中文兜底（自检/连接/会话/待处理/最近消息）；
+- **丢字段**：`checks[].hint` 与卡片级 `detail`/`error` 全被忽略 —— 自检失败只看到现象、
+  看不到"建议"；会话读取失败更是一张只有标题的空卡；现在两者都渲染；
+- **时间线不可读**：每条消息硬截 3 行不可展开；改为点击展开/收起；
+- **每 3 秒全量重建**：展开态被清、滚动跳动；改为内容签名未变直接跳过；
+- **"呼吸"卡叠加**：`appendBreath` 每次追加，轮询几次一屏都是"呼吸"；改为复用同一张只改文字；
+- **`approval_id` 被丢弃**：待处理卡不可交互；挂到行 tag 并暴露 `approvalIdOf(view)` 给页面接。
+
+`RemoteCardViewTest`（Robolectric，6 条）覆盖：中文兜底、hint/detail 可见、卡片级错误可见、
+同内容不重建、呼吸卡不叠加、时间线可展开/收起。
+
+**测试**（新增 29 条 = 转换器 23 + 卡片渲染 6，全绿）：`DshTimelineTest`（归组/工具配对/卡片聚合/seq 幂等/审批/未知事件）、
+`DshProjectionTest`（用 `AssistantTurn.fromMessageForParts` 反证交错顺序、幂等、纯工具步）、
+`DshHistoryImporterTest`（导入与实时形状一致、跨 turn 拆分、空气泡不落库）。
+
+**文档**：新增 [docs/remote_dsh-ui-converter.md](docs/remote_dsh-ui-converter.md)（旧设计问题清单、
+新分层、渲染契约、事件映射表、游标语义、兼容与边界）。
+
+**边界**：数据卡仍追加在 parts 末尾（要交错需改 `appendDataParts`）；审批仍是弹框 + 连接页卡片、
+没落成消息 item；「第 N 步 · 正在运行 X」文案仍在客户端拼；真机多工具/待办回合待回归。
+
 ## [2026-11-12] feat(remote_dsh)：协议 v2 + 双端同源（视图/会话身份/心跳/审批/卡片）
 
 电脑端插件与手机端整体重构，目标是把"主机 + 遥控器"改成"两个客户端 + 一个权威服务端"。

@@ -43,6 +43,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private TextView valueToken;
     private TextView valueSession;
     private TextView valueSyncTarget;
+    private TextView valueDirect;
     private android.app.AlertDialog sessionDialog;
     private android.widget.ArrayAdapter<String> sessionAdapter;
     private final java.util.List<java.util.Map<String, Object>> sessionRows = new java.util.ArrayList<>();
@@ -50,10 +51,6 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private Runnable pickerTick;
     private String lastLightSig = "";
     private MaterialButton pickSessionBtn;
-    /** 直连会话（两端协商出来的电脑会话 id）：显示 + 对话码输入 */
-    private TextView valueDirectSession;
-    private TextInputEditText inputDirectCode;
-    private MaterialButton saveDirectCodeBtn;
     private TextView probeText;
     private TextView probeTime;
     private MaterialButton selfCheckBtn;
@@ -72,20 +69,6 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private volatile boolean busy;
     /** 是否做过首次自动探测（onResume 会被重复调用，避免每次返回都打网络） */
     private boolean probedOnce;
-    /**
-     * 页面可见时的自动刷新（5 秒）。
-     * 之前只有点「连接」才探测一次，用户盯着「会话数 0」以为数据不更新 —— 实际是没人去问。
-     */
-    private final android.os.Handler autoHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    private final Runnable autoProbeTask = new Runnable() {
-        @Override
-        public void run() {
-            if (!isFinishing() && RemoteDshTool.isConfigured(RemoteDshConnectActivity.this)) {
-                probe(false, false, true);
-            }
-            autoHandler.postDelayed(this, 5000);
-        }
-    };
 
     private static final int COLOR_OK = 0xFF15803D;
     private static final int COLOR_WARN = 0xFFB45309;
@@ -136,7 +119,14 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                     startActivity(new Intent(this, RemoteDshGuideActivity.class)));
         }
 
+        android.view.View insightBtn = findViewById(R.id.btn_insight);
+        if (insightBtn != null) {
+            insightBtn.setOnClickListener(v ->
+                    startActivity(new Intent(this, RemoteDshInsightActivity.class)));
+        }
+
         valueSyncTarget = findViewById(R.id.value_sync_target);
+        valueDirect = findViewById(R.id.value_direct);
         pickSessionBtn = findViewById(R.id.btn_pick_session);
         if (pickSessionBtn != null) {
 
@@ -147,15 +137,6 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             pickSessionBtn.setOnClickListener(v -> pickSession());
         }
 
-        valueDirectSession = findViewById(R.id.value_direct_session);
-        inputDirectCode = findViewById(R.id.input_direct_code);
-        saveDirectCodeBtn = findViewById(R.id.btn_save_direct_code);
-        if (inputDirectCode != null) {
-            inputDirectCode.setText(RemoteDshTool.getDirectCode(this));
-        }
-        if (saveDirectCodeBtn != null) {
-            saveDirectCodeBtn.setOnClickListener(v -> saveDirectCode());
-        }
 
         bindActions();
         refresh();
@@ -433,6 +414,14 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                     String title = str(m.get("title"));
                     RemoteDshTool.setSyncTarget(this, sid);
                     RemoteDshTool.setSyncTitle(this, title);
+                    // 把「跟随」写到电脑的 @code:follow，不碰 @direct（直连专属）
+                    new Thread(() -> {
+                        try {
+                            new RemoteSdk(getApplicationContext()).attach(sid, "follow", true);
+                        } catch (Exception ignored) {
+                            // 本地已跟随；下次连接时 syncSessionIdentity 会再对齐
+                        }
+                    }, "follow-attach").start();
                     refresh();
                     toast("已跟随「" + (title.isEmpty() ? shortId(sid) : title) + "」（执行位置由电脑自动决定）");
                     d.dismiss();
@@ -496,10 +485,9 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                         // 轮询失败不打扰用户，下个周期再试
                     }
                 }, "poll-remote-sessions").start();
-                pickerHandler.postDelayed(this, 3000);
             }
         };
-        pickerHandler.postDelayed(pickerTick, 3000);
+        pickerHandler.post(pickerTick);
     }
 
     private void stopPickerPolling() {
@@ -551,22 +539,131 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // 从扫码页返回：重读配置（扫码成功 = 已连接）并自动探测一次
-        if (probedOnce) {
-            refresh();
-            if (RemoteDshTool.isConfigured(this)) {
-                probe(false, false);
-            }
-        }
-        // 可见期间每 5 秒自动刷新一次（静默，不闪"正在探测"）
-        autoHandler.removeCallbacks(autoProbeTask);
-        autoHandler.postDelayed(autoProbeTask, 5000);
+        // 从扫码页返回：重读配置并开通道
+        if (probedOnce) refresh();
+        attachConnection();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        autoHandler.removeCallbacks(autoProbeTask);
+        detachConnection();
+    }
+
+    // ===== 订阅全 App 唯一通道（2026-11-12）：页面不再自己开连接 =====
+
+    private com.oilquiz.app.ai.tool.RemoteConnection.Listener connListener;
+
+    private void attachConnection() {
+        com.oilquiz.app.ai.tool.RemoteConnection conn =
+                com.oilquiz.app.ai.tool.RemoteConnection.get(this);
+        if (connListener == null) {
+            connListener = new com.oilquiz.app.ai.tool.RemoteConnection.Listener() {
+                @Override
+                public void onState(java.util.Map<String, Object> state) {
+                    runOnUiThread(() -> applyChannelState(state));
+                }
+
+                @Override
+                public void onView(java.util.Map<String, Object> view) {
+                    runOnUiThread(() -> {
+                        if (selfCheckCards != null) {
+                            RemoteCardView.render(selfCheckCards, view);
+                            RemoteCardView.appendBreath(selfCheckCards, true, 0, null, null);
+                            selfCheckCards.setVisibility(View.VISIBLE);
+                        }
+                        if (selfCheckText != null) selfCheckText.setVisibility(View.GONE);
+                    });
+                }
+
+                @Override
+                public void onPulse(long serverTs, int seq) {
+                    runOnUiThread(() -> {
+                        if (selfCheckCards != null) {
+                            RemoteCardView.appendBreath(selfCheckCards, true, 0, null, null);
+                        }
+                    });
+                }
+
+                @Override
+                public void onConnection(boolean online, String detail) {
+                    runOnUiThread(() -> {
+                        if (online) {
+                            dot(R.drawable.circle_green);
+                            statusText.setText("已连接");
+                            statusText.setTextColor(COLOR_OK);
+                            if (statusHint != null) {
+                                statusHint.setText("电脑端推送已连接"
+                                        + (detail == null || detail.isEmpty() ? "" : " · " + detail));
+                            }
+                        } else {
+                            boolean noSession = detail != null && detail.contains("还没有绑定会话");
+                            dot(noSession ? R.drawable.circle_yellow : R.drawable.circle_yellow);
+                            statusText.setText(noSession ? "待建立会话" : "连接中断");
+                            statusText.setTextColor(noSession ? COLOR_WARN : COLOR_WARN);
+                            if (statusHint != null) {
+                                statusHint.setText(noSession
+                                        ? "电脑端还没有绑定会话：发第一条消息时由电脑创建并下发 id"
+                                        : "正在重连：" + (detail == null ? "" : detail));
+                            }
+                            if (noSession) applyNoSessionState();
+                        }
+                    });
+                }
+            };
+        }
+        conn.addListener(connListener);
+        if (!conn.isStarted() && RemoteDshTool.isConfigured(this)) conn.start();
+        if (conn.state() == null) applyNoSessionState();
+    }
+
+    private void detachConnection() {
+        if (connListener != null) {
+            com.oilquiz.app.ai.tool.RemoteConnection.get(this).removeListener(connListener);
+        }
+    }
+
+    private void applyNoSessionState() {
+        if (valueSession != null) valueSession.setText("(未建立)");
+        if (valueSyncTarget != null) valueSyncTarget.setText("(首次发送时由电脑建立)");
+        if (valueDirect != null) {
+            String d = RemoteDshTool.getDirectSessionId(this);
+            valueDirect.setText(d.isEmpty() ? "(首次直连时建立，手机专属)" : shortId(d));
+        }
+        if (statusHint != null) {
+            statusHint.setText("电脑端还没有绑定会话：发第一条消息时由电脑创建并下发 id");
+        }
+    }
+
+    /**
+     * 服务端下发的权威状态：会话 id / 标题 / 是否 live / 执行位置。
+     * 客户端本地不再有"默认会话"这种东西 —— 有就是有，没有就显示"首次发送时由电脑建立"。
+     */
+    private void applyChannelState(java.util.Map<String, Object> state) {
+        if (state == null) return;
+        String id = str(state.get("session_id"));
+        String title = str(state.get("title"));
+        boolean live = Boolean.TRUE.equals(state.get("live"));
+        if (!id.isEmpty()) {
+            RemoteDshTool.setSyncTarget(this, id);
+            if (!title.isEmpty()) RemoteDshTool.setSyncTitle(this, title);
+        }
+        if (valueSyncTarget != null) {
+            valueSyncTarget.setText(id.isEmpty()
+                    ? "(由电脑下发：首次发送时建立)"
+                    : (title.isEmpty() ? shortId(id) : title + " · " + shortId(id)));
+        }
+        // valueSession 是本机历史会话（local），不再被电脑端 id 覆盖
+        if (valueSession != null) {
+            valueSession.setText(orDash(RemoteDshTool.configValue(this, "session_id")));
+        }
+        if (statusHint != null && id.isEmpty()) {
+            statusHint.setText("会话尚未建立：发第一条消息时由电脑创建并下发 id");
+        } else if (statusHint != null) {
+            statusHint.setText(live
+                    ? "会话正在电脑端运行（实时推送）"
+                    : "会话未在电脑端打开（电脑会用 CLI 续写）");
+        }
     }
 
     private void bindActions() {
@@ -584,6 +681,10 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 return;
             }
             RemoteDshTool.disconnect(this);
+            // 断开 = 停掉唯一通道（前台服务一并停），否则后台还会继续收
+            com.oilquiz.app.ai.tool.RemoteConnection.get(this).stop();
+            stopService(new android.content.Intent(this,
+                    com.oilquiz.app.ai.tool.RemoteSyncService.class));
             refresh();
             showProbe(COLOR_WARN, "已断开：AI 现在不能在电脑上执行任务。\n配置保留，点「连接」即可恢复。", null);
             toast("已断开电脑连接");
@@ -624,17 +725,8 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         });
     }
 
-    /** 保存对话码：换码 = 换一条电脑对话，然后立刻和电脑对齐一次 */
-    private void saveDirectCode() {
-        String code = inputDirectCode == null ? "" : inputDirectCode.getText().toString().trim();
-        RemoteDshTool.setDirectCode(this, code);
-        refresh();
-        toast(code.isEmpty() ? "已切回默认直连对话（发一条消息后自动建立）" : "直连对话码：" + code);
-        syncDirectState(true);
-    }
-
     /**
-     * 和电脑对齐"直连对话"是哪条电脑会话。
+     * 和电脑对齐"当前是哪条电脑会话"。
      *
      * 电脑端是唯一权威（会话 id 在电脑落盘、由插件回传），手机这边只是缓存 ——
      * 这就是"两端说的是同一条对话"的来源。重装/清数据后也靠它接回原来那条。
@@ -664,7 +756,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 if (fErr != null) {
                     toast("同步直连会话失败：" + fErr);
                 } else if (fId.isEmpty()) {
-                    toast("电脑端还没有这条直连对话：发一条消息后会自动建立");
+                    toast("电脑端还没有当前会话：发一条消息后会自动建立");
                 } else {
                     toast("已与电脑同步：" + (fTitle.isEmpty() ? shortId(fId) : fTitle));
                 }
@@ -707,15 +799,16 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         if (valueSyncTarget != null) {
             String t = RemoteDshTool.getSyncTarget(this);
             String title = RemoteDshTool.getSyncTitle(this);
-            valueSyncTarget.setText(t.isEmpty() ? "(未选择)" : (title.isEmpty() ? shortId(t) : title));
+            valueSyncTarget.setText(t.isEmpty()
+                    ? "(由电脑下发：首次发送时建立)"
+                    : (title.isEmpty() ? shortId(t) : title + " · " + shortId(t)));
         }
-        if (valueDirectSession != null) {
-            String code = RemoteDshTool.getDirectCode(this);
-            String id = RemoteDshTool.getDirectSessionId(this);
-            String title = RemoteDshTool.getDirectTitle(this);
-            String bound = id.isEmpty() ? "(首次发送时建立)" : (title.isEmpty() ? shortId(id) : title + " · " + shortId(id));
-            valueDirectSession.setText((code.isEmpty() ? "默认" : code) + " · " + bound);
-            if (inputDirectCode != null && !inputDirectCode.hasFocus()) inputDirectCode.setText(code);
+        if (valueDirect != null) {
+            String d = RemoteDshTool.getDirectSessionId(this);
+            String dt = RemoteDshTool.getDirectTitle(this);
+            valueDirect.setText(d.isEmpty()
+                    ? "(首次直连时建立，手机专属)"
+                    : (dt.isEmpty() ? shortId(d) : dt + " · " + shortId(d)));
         }
         setEnabled(connectBtn, configured && !busy);
         setEnabled(disconnectBtn, configured && connected && !busy);
@@ -775,6 +868,8 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 String stamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
                 if (fOk) {
                     showProbe(COLOR_OK, "电脑端在线 ✓\n" + fText, "最近探测 " + stamp + "（" + ms + "ms）");
+                    // 探测成功 = 可以开唯一通道（服务端推送 state/view/事件）
+                    com.oilquiz.app.ai.tool.RemoteConnection.get(this).start();
                 } else {
                     showProbe(COLOR_ERR, "连接失败 ✗\n" + fText, "最近探测 " + stamp + "（" + ms + "ms）");
                 }

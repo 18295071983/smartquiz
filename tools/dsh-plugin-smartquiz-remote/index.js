@@ -35,10 +35,36 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exec, execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
+import { SERVER_CAPS, filterViewCards, eventAllowed, normalizeCaps, summarize, allows } from './caps.js';
 
 
 /** CLI 子进程的权限档位（apply 里由 cfg 覆盖；runCliTask 在模块作用域用） */
 const CLI_PERM = { mode: 'danger-full-access', approval: 'never' };
+
+/**
+ * 进程内 SSE 订阅表（2026-11-12）。
+ *
+ * 为什么放模块作用域：`agent/assistant-stream` 是宿主级事件，token 增量要在**订阅了这条会话**
+ * 的 /events 连接上实时写出。放在 apply 闭包里也能跑，但 CLI 子进程路径（runCliTask 的 onData）
+ * 不经过 apply 的闭包，统一放这里两边都能用。
+ *
+ * 订阅者形如 `{ sid, caps, send(obj) }`；`sid=''` 表示广播给所有连接（日程变化）。
+ * 写失败不在这里清理：连接关闭时由订阅者自己 `STREAM_HUB.delete(sub)`。
+ */
+const STREAM_HUB = new Set();
+
+function streamBroadcast(sid, obj) {
+  if (!obj) return;
+  for (const sub of STREAM_HUB) {
+    if (!sub) continue;
+    if (sid && sub.sid !== sid) continue;
+    try {
+      sub.send(obj);
+    } catch {
+      // 断连/背压：由连接自己的 close 回调移除
+    }
+  }
+}
 
 /**
  * cwd 守卫的最近一次告警。
@@ -306,6 +332,17 @@ const sessionBinding = {
     return out;
   },
 };
+
+// 迁移：旧版「选择会话」会把空对话码写成 @direct，导致直连和跟随共用一条。
+// 现在 @direct 只给手机专属直连；若它等于 @code:follow，就清掉，直连下次重新建。
+try {
+  const m = readSessionMap();
+  const follow = m['@code:follow'];
+  if (follow && typeof follow === 'string' && m['@direct'] === follow) {
+    delete m['@direct'];
+    writeSessionMap(m);
+  }
+} catch { /* 迁移失败不影响主流程 */ }
 
 /**
  * 写「含密钥」的文件：只给当前用户读写。
@@ -1160,6 +1197,421 @@ export function apply(ctx, config) {
     localRoutes.set(prefix + path, handler);
     ctx.effect(() => ctx.webServer.register({ kind, path: prefix + path, handler }));
   };
+  // ===== 2026-11-12 新增：实时桥（token 增量 / 日程 / 计划 / 子代理 / 问答答案） =====
+  //
+  // 背景：手机端以前只能看到"回合/步骤"粒度的持久事件；日程与计划根本不在会话日志里；
+  // 子代理只有一条登记卡；agent 反问只能只读。这些都能在宿主内补，不要求 DSH 改协议：
+  //   · token 增量：`agent/assistant-stream` 的瞬态 chunk（草稿，不落盘）；
+  //   · 日程：`ctx.schedule` 管理 API + `schedule/changed` 事件；
+  //   · 计划：`ctx.planMode.get/set`（持久 `plan/mode` 事件仍由会话日志转发）；
+  //   · 子代理：根会话日志里的 `subagent/catalog` + 子会话事件 → 实时活动流；
+  //   · 反问：`typertGateway` 的 pending 事件 settle（与审批同一套网关）。
+
+  // 可选能力：用 ctx.get(name) 读取（不经 inject），避免为不存在的服务建"永远等待"的子插件。
+  const serviceOf = (name) => {
+    try {
+      return ctx.get?.(name) ?? null;
+    } catch {
+      return null;
+    }
+  };
+  const scheduleSvc = () => serviceOf('schedule');
+  const planSvc = () => serviceOf('planMode');
+  const questionsSvc = () => serviceOf('userQuestions');
+  const liveAgentOf = (sid) => {
+    if (!sid) return null;
+    try { return ctx.agents?.get?.(sid) ?? null; } catch { return null; }
+  };
+  /** 子会话 id → 根会话 id（由 subagent/catalog 事件建立） */
+  const childParent = new Map();
+  const childLabel = new Map();
+
+  const sessionEventBrief = (event) => {
+    const t = String(event?.type ?? '');
+    const d = event?.data ?? {};
+    if (t === 'assistant/message') {
+      const text = (d.message?.content ?? [])
+        .filter((p) => p && p.type !== 'reasoning')
+        .map((p) => p.text ?? '').join('').trim();
+      return text ? { kind: 'text', text: text.slice(0, 200) } : null;
+    }
+    if (t === 'tool/call') {
+      return { kind: 'tool', tool: String(d.name ?? '工具'), args: String(d.arguments ?? '').slice(0, 120) };
+    }
+    if (t === 'tool/result') {
+      return { kind: 'tool-result', toolCallId: String(d.toolCallId ?? ''), error: Boolean(d.isError) };
+    }
+    if (t === 'turn/end') {
+      return { kind: 'turn-end', stop: String(d.stopReason ?? d.stop_reason ?? '') };
+    }
+    if (t === 'step/start' || t === 'step/end') {
+      return { kind: 'step', step: Number(d.step ?? 0) || 0, phase: t };
+    }
+    return null;
+  };
+
+  /** 读一条会话的全部事件：优先持久化日志（冷会话），否则读内存会话 */
+  const readSessionEvents = async (sid) => {
+    try {
+      const svc = persistence();
+      if (svc && typeof svc.open === 'function') {
+        const h = await svc.open(sid, 'read');
+        try {
+          const got = await h.read();
+          return Array.isArray(got) ? got : (got?.events ?? []);
+        } finally { try { await h.close?.(); } catch { /* 已关 */ } }
+      }
+    } catch { /* 落盘日志不可用则退回内存 */ }
+    try {
+      const s = ctx.sessions.get(sid);
+      if (s && Number.isFinite(s.seq)) {
+        const out = [];
+        for (let i = 1; i <= s.seq; i += 1) {
+          const e = s.eventAt?.(i);
+          if (e) out.push(e);
+        }
+        return out;
+      }
+    } catch { /* 会话不在内存 */ }
+    return [];
+  };
+
+  /** 子代理目录：根会话日志里的 subagent/catalog + 每个子会话的实时状态/最近活动 */
+  const subagentsOf = async (sid) => {
+    const events = await readSessionEvents(sid);
+    const children = [];
+    const seen = new Set();
+    for (const ev of events) {
+      if (String(ev?.type) !== 'subagent/catalog') continue;
+      const d = ev?.data ?? {};
+      const childId = String(d.childId ?? '');
+      if (!childId || seen.has(childId)) continue;
+      seen.add(childId);
+      childParent.set(childId, sid);
+      const label = String(d.label ?? '');
+      if (label) childLabel.set(childId, label);
+      children.push({
+        child_id: childId,
+        label,
+        mode: String(d.mode ?? ''),
+        created_at: String(d.childCreatedAt ?? ''),
+      });
+    }
+    for (const c of children) {
+      try { c.live = Boolean(ctx.agents?.get?.(c.child_id)); } catch { c.live = false; }
+      try {
+        const evs = await readSessionEvents(c.child_id);
+        c.events = evs.length;
+        for (let i = evs.length - 1; i >= 0; i -= 1) {
+          const brief = sessionEventBrief(evs[i]);
+          if (!brief) continue;
+          c.last = brief;
+          c.last_at = Number(evs[i]?.time) || 0;
+          break;
+        }
+        for (let i = evs.length - 1; i >= 0; i -= 1) {
+          if (String(evs[i]?.type) !== 'assistant/message') continue;
+          const text = (evs[i]?.data?.message?.content ?? [])
+            .filter((p) => p && p.type !== 'reasoning')
+            .map((p) => p.text ?? '').join('').trim();
+          if (text) { c.last_text = text.slice(-400); break; }
+        }
+      } catch { /* 单个子会话读失败不影响列表 */ }
+    }
+    return children;
+  };
+
+  // ---- 实时桥：token 增量 ----
+  // 只在宿主内 agent 上有效（CLI 子进程没有进程内流）；手机端按 parts.stream 能力订阅。
+  try {
+    ctx.on('agent/assistant-stream', (payload) => {
+      const agent = payload?.agent;
+      const frame = payload?.frame;
+      const sid = String(agent?.id ?? '');
+      if (!sid || !frame) return;
+      if (frame.type === 'chunk') {
+        const c = frame.chunk;
+        if (!c) return;
+        const base = { session_id: sid, turn: frame.turn, step: frame.step, attempt: frame.attemptId };
+        if (c.type === 'text-delta') {
+          streamBroadcast(sid, { v: 2, type: 'stream/delta', data: { ...base, kind: 'text', text: String(c.text ?? '') } });
+        } else if (c.type === 'reasoning-delta') {
+          streamBroadcast(sid, { v: 2, type: 'stream/delta', data: { ...base, kind: 'reasoning', text: String(c.text ?? '') } });
+        } else if (c.type === 'tool-call-delta') {
+          streamBroadcast(sid, { v: 2, type: 'stream/delta', data: { ...base, kind: 'tool', tool: String(c.name ?? ''), tool_call_id: String(c.id ?? ''), arguments_delta: String(c.argumentsDelta ?? '') } });
+        }
+      } else if (frame.type === 'end') {
+        streamBroadcast(sid, { v: 2, type: 'stream/end', data: { session_id: sid, outcome: frame.outcome?.kind ?? 'committed' } });
+      }
+    });
+  } catch (e) { /* 宿主没有该事件（旧版） */ }
+
+  // ---- 实时桥：日程变化 / 子代理活动 ----
+  try {
+    ctx.on('schedule/changed', () => {
+      streamBroadcast('', { v: 2, type: 'schedule/changed', ts: Date.now() });
+    });
+  } catch { /* 旧版没有 schedule */ }
+
+  try {
+    ctx.on('session/event', (session, event) => {
+      const sid = String(session?.id ?? '');
+      if (!sid || !event) return;
+      const t = String(event.type ?? '');
+      if (t === 'subagent/catalog') {
+        const d = event.data ?? {};
+        const childId = String(d.childId ?? '');
+        if (childId) {
+          childParent.set(childId, sid);
+          if (d.label) childLabel.set(childId, String(d.label));
+        }
+        return;
+      }
+      const root = childParent.get(sid);
+      if (!root) return;
+      const brief = sessionEventBrief(event);
+      if (!brief) return;
+      streamBroadcast(root, {
+        v: 2, type: 'subagent/activity',
+        data: {
+          root_id: root, child_id: sid, label: childLabel.get(sid) ?? '',
+          event: t, ts: Number(event.time) || Date.now(), ...brief,
+        },
+      });
+    });
+  } catch { /* 旧版没有 session/event 监听 */ }
+
+  /** 能力校验：不声明 caps 的旧客户端一律放行（与 caps.js 同一口径） */
+  const capsAllowed = (caps, cap) => allows(caps, cap);
+
+  route('exact', '/v2/schedule', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const svc = scheduleSvc();
+    if (!svc) {
+      return sendJson(res, 503, {
+        ok: false, v: 2, error: 'schedule_unavailable',
+        hint: '这个 DSH 版本没有 schedule 服务（或未在 profile 里启用）',
+      });
+    }
+    let body = {};
+    let action = 'catalog';
+    let caps = '';
+    let id = '';
+    try {
+      if (String(req.method || 'GET').toUpperCase() === 'GET') {
+        const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+        action = String(q.searchParams.get('action') || 'catalog');
+        id = String(q.searchParams.get('id') || '');
+        caps = q.searchParams.get('caps') ?? '';
+      } else {
+        body = JSON.parse((await readBody(req)) || '{}');
+        action = String(body.action || 'catalog');
+        id = String(body.id || '');
+        caps = body.caps ?? '';
+      }
+    } catch { /* 用默认值 */ }
+    if (!capsAllowed(caps, 'schedule.read')) {
+      return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'schedule.read' });
+    }
+    try {
+      switch (action) {
+        case 'list': {
+          const r = await svc.list({
+            active: typeof body.active === 'boolean' ? body.active : undefined,
+            limit: Number(body.limit) || undefined,
+            offset: Number(body.offset) || undefined,
+          });
+          return sendJson(res, 200, { ok: true, v: 2, action, ...r, caps: summarize(caps) });
+        }
+        case 'view': {
+          const r = await svc.view({ id });
+          return sendJson(res, 200, { ok: true, v: 2, action, id, result: r, caps: summarize(caps) });
+        }
+        case 'history': {
+          const r = await svc.history({ id, limit: Number(body.limit) || 20, before: body.before });
+          return sendJson(res, 200, { ok: true, v: 2, action, id, result: r, caps: summarize(caps) });
+        }
+        case 'run': {
+          if (!capsAllowed(caps, 'schedule.write')) {
+            return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'schedule.write' });
+          }
+          const r = await svc.run({ id });
+          return sendJson(res, 200, { ok: true, v: 2, action, id, result: r, caps: summarize(caps) });
+        }
+        case 'edit': {
+          if (!capsAllowed(caps, 'schedule.write')) {
+            return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'schedule.write' });
+          }
+          const want = String(body.edit_action || 'update');
+          const request = want === 'delete'
+            ? { id, action: 'delete' }
+            : { id, action: 'update', patch: body.patch ?? {} };
+          // 只有调用方显式带了 expectedUpdatedAt 才做乐观比较；
+          // 传 null 会被理解为"与缺失的修订比较"，会把已有修订的任务判成 schedule_conflict
+          if (body.expectedUpdatedAt !== undefined) request.expectedUpdatedAt = body.expectedUpdatedAt;
+          const r = await svc.edit(request);
+          return sendJson(res, 200, { ok: true, v: 2, action, id, result: r, caps: summarize(caps) });
+        }
+        case 'catalog':
+        default: {
+          const tasks = await svc.catalog();
+          return sendJson(res, 200, { ok: true, v: 2, action: 'catalog', tasks, caps: summarize(caps) });
+        }
+      }
+    } catch (e) {
+      return sendJson(res, 400, {
+        ok: false, v: 2, error: 'schedule_failed',
+        detail: String(e?.message ?? e).slice(0, 300),
+      });
+    }
+  });
+
+  route('exact', '/v2/plan', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const svc = planSvc();
+    if (!svc) {
+      return sendJson(res, 503, {
+        ok: false, v: 2, error: 'plan_unavailable',
+        hint: '这个 DSH 版本没有 plan-mode 插件',
+      });
+    }
+    let body = {};
+    let sid = '';
+    let caps = '';
+    try {
+      if (String(req.method || 'GET').toUpperCase() === 'GET') {
+        const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+        sid = String(q.searchParams.get('session_id') || '');
+        caps = q.searchParams.get('caps') ?? '';
+      } else {
+        body = JSON.parse((await readBody(req)) || '{}');
+        sid = String(body.session_id || '');
+        caps = body.caps ?? '';
+      }
+    } catch { /* 用默认值 */ }
+    if (!capsAllowed(caps, 'plan.read')) {
+      return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'plan.read' });
+    }
+    const agent = liveAgentOf(sid);
+    if (!agent) {
+      return sendJson(res, 409, {
+        ok: false, v: 2, error: 'agent_not_live',
+        hint: '这条会话当前不在电脑端运行（plan 状态只能通过 live agent 读写）',
+      });
+    }
+    try {
+      if (String(req.method || 'GET').toUpperCase() !== 'GET') {
+        if (!capsAllowed(caps, 'plan.write')) {
+          return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'plan.write' });
+        }
+        if (typeof body.active !== 'boolean') {
+          return sendJson(res, 400, { ok: false, error: 'active_required' });
+        }
+        const how = svc.set(agent, body.active);
+        const st = svc.get(agent) ?? {};
+        return sendJson(res, 200, {
+          ok: true, v: 2, how, active: Boolean(st.active), pending: st.pending, caps: summarize(caps),
+        });
+      }
+      const st = svc.get(agent) ?? {};
+      return sendJson(res, 200, {
+        ok: true, v: 2, active: Boolean(st.active), pending: st.pending, caps: summarize(caps),
+      });
+    } catch (e) {
+      return sendJson(res, 400, {
+        ok: false, v: 2, error: 'plan_failed', detail: String(e?.message ?? e).slice(0, 300),
+      });
+    }
+  });
+
+  route('exact', '/v2/subagents', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let sid = '';
+    let caps = '';
+    try {
+      if (String(req.method || 'GET').toUpperCase() === 'GET') {
+        const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+        sid = String(q.searchParams.get('session_id') || '');
+        caps = q.searchParams.get('caps') ?? '';
+      } else {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        sid = String(b.session_id || '');
+        caps = b.caps ?? '';
+      }
+    } catch { /* 用默认值 */ }
+    if (!capsAllowed(caps, 'subagents.panel')) {
+      return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'subagents.panel' });
+    }
+    if (!sid) return sendJson(res, 400, { ok: false, error: 'session_id required' });
+    try {
+      const children = await subagentsOf(sid);
+      return sendJson(res, 200, { ok: true, v: 2, session_id: sid, children, caps: summarize(caps) });
+    } catch (e) {
+      return sendJson(res, 500, {
+        ok: false, v: 2, error: 'subagents_failed', detail: String(e?.message ?? e).slice(0, 300),
+      });
+    }
+  });
+
+  route('exact', '/v2/answer', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    if (String(req.method || 'GET').toUpperCase() === 'GET') {
+      return sendJson(res, 405, { ok: false, error: 'POST required' });
+    }
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch {
+      return sendJson(res, 400, { ok: false, error: 'bad json body' });
+    }
+    if (!capsAllowed(body.caps, 'questions.answer')) {
+      return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'questions.answer' });
+    }
+    // 答案批次：每个问题恰好一条 {id, selected:[], custom?}
+    const answers = Array.isArray(body.answers) ? body.answers : [];
+    const normalized = answers
+      .filter((a) => a && typeof a.id === 'string' && a.id)
+      .map((a) => ({
+        id: a.id,
+        selected: Array.isArray(a.selected) ? a.selected.map(String) : [],
+        ...(typeof a.custom === 'string' && a.custom.trim() ? { custom: a.custom.trim() } : {}),
+      }));
+    if (!normalized.length) return sendJson(res, 400, { ok: false, error: 'answers_required' });
+
+    // ① 走审批/问答网关：先答先赢（与桌面端竞争）
+    const gw = approvalGateway();
+    if (gw && body.id) {
+      try {
+        for (const pending of gw.pendingRemoteEvents.values()) {
+          if (String(pending.id) !== String(body.id)) continue;
+          if (String(pending?.frame?.event) !== 'user-questions/request') continue;
+          gw.settleRemoteEvent(pending, { kind: 'result', value: { answers: normalized } });
+          return sendJson(res, 200, { ok: true, v: 2, via: 'gateway', id: String(body.id) });
+        }
+      } catch { /* 网关结构变化，退回 continued */ }
+    }
+    // ② continued（超时后仍可答）：需要 live agent + callId
+    const sid = String(body.session_id || '');
+    const callId = String(body.call_id || '');
+    const svc = questionsSvc();
+    const agent = liveAgentOf(sid);
+    if (svc && typeof svc.answer === 'function' && agent && callId) {
+      try {
+        const accepted = await svc.answer(agent, callId, { answers: normalized });
+        return sendJson(res, 200, {
+          ok: Boolean(accepted), v: 2, via: 'continued',
+          hint: accepted ? undefined : '这条问题已经不可回答（已过期或已结算）',
+        });
+      } catch (e) {
+        return sendJson(res, 400, {
+          ok: false, v: 2, error: 'answer_failed', detail: String(e?.message ?? e).slice(0, 300),
+        });
+      }
+    }
+    return sendJson(res, 404, {
+      ok: false, v: 2, error: 'question_not_found',
+      hint: '问题已结束，或这条会话不在电脑端运行（continued 需要 live agent）',
+    });
+  });
+
   // 磁盘会话数的短缓存：statusBody 被面板 5 秒轮询一次，别每次都全盘 stat
   let dshSessionsCache = { at: 0, n: 0 };
   const dshSessionsOnDisk = () => {
@@ -1419,12 +1871,23 @@ export function apply(ctx, config) {
     // light=1：只回摘要（手机定时对账用，不需要正文）
     const light = body.light === true || String(body.light ?? '') === '1';
     if (light) {
+      // 对账的"权威口径"只有一个：seq 游标。
+      // 老版只回 summary，手机永远判不出"对不对"；现在带 last_seq（手机已收到的最大序号）
+      // 就回 match/behind + gap，客户端不需要再自己算摘要。
+      const clientSeqLight = (() => {
+        const raw = Number(body.last_seq ?? body.client_last_seq);
+        return Number.isFinite(raw) && raw >= 0 ? raw : null;
+      })();
+      const gap = clientSeqLight === null ? null : Math.max(0, lastSeq - clientSeqLight);
+      const verdictLight = gap === null ? 'summary' : (gap === 0 ? 'match' : 'behind');
       return sendJson(res, 200, {
-        ok: true, session_id: sid, verdict: 'summary', checked_at: Date.now(), light: true,
+        ok: true, session_id: sid, verdict: verdictLight, checked_at: Date.now(), light: true,
         host: {
           exists: true, event_count: events.length, last_seq: lastSeq, last_time: lastTime,
           message_count: rows.length, digest: hostDigest,
         },
+        client: { last_seq: clientSeqLight },
+        gap,
         ack: ackSummary,
       });
     }
@@ -1573,13 +2036,23 @@ export function apply(ctx, config) {
       }
     } catch { body = {}; }
     const sid = String(body?.session_id || '').trim();
+    // 能力协商（2026-11-12）：客户端带 caps 就按它裁剪下发内容；不带则是 legacy（一切照发）。
+    const caps = summarize(body?.caps);
+    const client = body?.client && typeof body.client === 'object' ? body.client : null;
     sendJson(res, 200, {
       ok: true, v: 2,
       server: { name: 'smartquiz-remote', version: 8, node: process.version, platform: process.platform },
-      capabilities: ['view', 'message', 'stream', 'ack', 'reconcile', 'schema', 'health'],
+      capabilities: [...SERVER_CAPS],
+      caps,
+      client: client ? {
+        id: String(client.id ?? ''), kind: String(client.kind ?? ''), ver: String(client.ver ?? ''),
+      } : null,
+      // 兼容旧字段：features 仍是布尔表，但已按客户端能力裁剪（legacy 客户端全部为 true）
       features: {
         event_stream: true, since_replay: true, ack_watermark: true,
         view_model: true, tool_cards: true, approval_relay: Boolean(approvalGateway()),
+        approval_timeline: !caps.missing.includes('parts.approval'),
+        view_timeline: !caps.missing.includes('view.cards.timeline'),
       },
       session: sid ? { id: sid, exists: await sessionExists(sid) } : null,
       limits: { max_message_chars: 200000, stream_keepalive_ms: 15000, stream_max_ms: 600000 },
@@ -1683,6 +2156,21 @@ export function apply(ctx, config) {
         });
       }
     }
+    // 能力协商可见化：两端各自声明了什么、缺什么，直接进时间线/自检页，而不是只写日志
+    if (opts.caps) {
+      const c = opts.caps;
+      cards.push({
+        kind: 'caps', title: '能力协商',
+        rows: [
+          {
+            label: '客户端',
+            value: c.legacy ? '未声明（兼容模式）' : (c.client.length + ' 项 · v' + c.version),
+          },
+          { label: '未识别', value: c.unknown.length ? c.unknown.join('、') : '无' },
+          { label: '缺少', value: c.missing.length ? c.missing.join('、') : '无' },
+        ],
+      });
+    }
     return { v: 2, ok: true, generated_at: Date.now(), header, cards };
   };
 
@@ -1690,19 +2178,26 @@ export function apply(ctx, config) {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     let sid = '';
     let withTimeline = true;
+    let caps = [];
     try {
       if (String(req.method || 'GET').toUpperCase() === 'GET') {
         const q = new URL(req.url ?? '/', 'http://dsh.invalid');
         sid = String(q.searchParams.get('session_id') || '').trim();
         withTimeline = q.searchParams.get('timeline') !== '0';
+        caps = normalizeCaps(q.searchParams.get('caps') ?? '');
       } else {
         const b = JSON.parse((await readBody(req)) || '{}');
         sid = String(b?.session_id || '').trim();
         withTimeline = b?.timeline !== false;
+        caps = normalizeCaps(b?.caps ?? '');
       }
     } catch { /* 用默认值 */ }
     try {
-      sendJson(res, 200, await buildView(sid, { withTimeline }));
+      const view = await buildView(sid, { withTimeline, caps: summarize(caps) });
+      // 能力协商：客户端声明了就不下发它渲染不了的卡（legacy 客户端不裁）
+      view.cards = filterViewCards(view.cards, caps);
+      view.caps = summarize(caps);
+      sendJson(res, 200, view);
     } catch (e) {
       sendJson(res, 500, { ok: false, v: 2, error: String(e?.message ?? e) });
     }
@@ -1825,15 +2320,22 @@ export function apply(ctx, config) {
     // state / ensure —— 同一个语义：查"这个 code 现在绑到哪条会话"
     let id = sessionBinding.get(code);
     let exists = false;
+    let title = '';
     if (id) {
       exists = await sessionExists(id);
       // 绑定的会话没了（被删/归档/清过季）：把死绑定清掉，别让客户端拿着死 id 续写
       if (!exists) { sessionBinding.set(code, ''); id = ''; }
     }
+    if (id) {
+      try {
+        const head = await readStoredHead(id);
+        title = String(head?.title ?? '');
+      } catch { /* 标题只是展示 */ }
+    }
     sendJson(res, 200, {
       ok: true, v: 2, action, execution,
       session: {
-        id, code, exists, bound: Boolean(id),
+        id, code, title, exists, bound: Boolean(id),
         // 首次对话由执行器创建并回绑；客户端拿到 needs_first_message 就发一条消息即可
         needs_first_message: !id,
         live: (() => { try { return Boolean(id) && Boolean(ctx.agents?.get?.(id)); } catch { return false; } })(),
@@ -1929,6 +2431,7 @@ export function apply(ctx, config) {
     const q = new URL(req.url ?? '/', 'http://dsh.invalid');
     const sid = String(q.searchParams.get('session_id') || '').trim();
     const since = Number(q.searchParams.get('since') || 0) || 0;
+    const caps = q.searchParams.get('caps') ?? '';
     if (!sid) return sendJson(res, 400, { ok: false, error: 'session_id required' });
     const svc = persistence();
     if (!svc || typeof svc.open !== 'function') return sendJson(res, 503, { ok: false, error: 'sessionPersistence 不可用' });
@@ -1949,13 +2452,31 @@ export function apply(ctx, config) {
       ts: Number(ev?.time) || 0, type: String(ev?.type ?? ''), data: ev?.data ?? null,
     })}\n\n`);
 
+    // 实时桥：与 /events 共用 STREAM_HUB（token 增量、子代理活动、日程变化）
+    const sub = {
+      sid,
+      caps,
+      send: (o) => {
+        if (!o || !eventAllowed(o.type, caps)) return;
+        write(`data: ${JSON.stringify({
+          v: 2, seq: 0, id: null, ts: Date.now(),
+          type: String(o.type ?? ''), data: o.data ?? null,
+        })}\n\n`);
+      },
+    };
+    STREAM_HUB.add(sub);
+
     // 1) 回放
     try {
       const h = await svc.open(sid, 'read');
       try {
         const got = await h.read();
         const events = Array.isArray(got) ? got : (got?.events ?? []);
-        for (const ev of events) { if ((Number(ev?.seq) || 0) > since) sendEv(ev); }
+        for (const ev of events) {
+          if ((Number(ev?.seq) || 0) <= since) continue;
+          if (!eventAllowed(ev?.type, caps)) continue; // 客户端不具备该能力
+          sendEv(ev);
+        }
         offset = events.length;
       } finally { try { await h.close?.(); } catch { /* 已关 */ } }
     } catch (e) {
@@ -1967,6 +2488,8 @@ export function apply(ctx, config) {
     // 2) 增量轮询
     const announcedApprovals = new Set();
     const pumpApprovals = () => {
+      // 能力协商：客户端不支持 approval 块就不推审批事件（否则手机端只能静默丢弃）
+      if (!eventAllowed('approval', caps)) return;
       try {
         const pend = [...pendingRemoteOf(sid, 'approval'), ...pendingRemoteOf(sid, 'question')];
         for (const a of pend) {
@@ -1999,7 +2522,9 @@ export function apply(ctx, config) {
           write(`event: pulse\ndata: ${JSON.stringify({ v: 2, ts: Date.now(), seq: since })}\n\n`);
           return;
         }
-        for (const ev of events) sendEv(ev);
+        for (const ev of events) {
+          if (eventAllowed(ev?.type, caps)) sendEv(ev);
+        }
         offset += events.length;
       } catch { /* 单次读取失败不终止流 */ }
     }, 1500);
@@ -2008,6 +2533,7 @@ export function apply(ctx, config) {
       if (closed) return;
       closed = true;
       clearInterval(timer);
+      STREAM_HUB.delete(sub);
       dropConnection(sid);
       try { res.end(); } catch { /* ignore */ }
     };
@@ -2263,7 +2789,13 @@ export function apply(ctx, config) {
         .map((t) => t.trim())
         .filter(Boolean),
     );
-    const passType = (ev) => typesFilter.size === 0 || typesFilter.has(String(ev?.type ?? ''));
+    const caps = q.searchParams.get('caps') ?? '';
+    const passType = (ev) => {
+      const t = String(ev?.type ?? '');
+      if (typesFilter.size > 0 && !typesFilter.has(t)) return false;
+      // 能力协商：客户端声明不支持 approval 块时，审批事件不下发（legacy 不裁）
+      return eventAllowed(t, caps);
+    };
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache, no-transform',
@@ -2271,6 +2803,17 @@ export function apply(ctx, config) {
       'x-accel-buffering': 'no',
     });
     const sse = (o) => { try { res.write('data: ' + JSON.stringify(o) + '\n\n'); } catch { /* 断连 */ } };
+    // 实时桥订阅：token 增量 / 子代理活动 / 日程变化都经这里推给手机。
+    // 事件类型按 caps 过滤（例如没声明 parts.stream 就不收 delta）。
+    const sub = {
+      sid,
+      caps,
+      send: (o) => {
+        if (!o || !eventAllowed(o.type, caps)) return;
+        sse(o);
+      },
+    };
+    STREAM_HUB.add(sub);
     // 心跳 = pulse 事件（不再只是注释行）：客户端能据此测 RTT、发现"假在线"
     const ping = () => {
       touchConnection(sid, 'events');
@@ -2278,15 +2821,71 @@ export function apply(ctx, config) {
       sse({ type: 'pulse', ts: Date.now(), seq: Number(live?.seq ?? 0) || 0 });
     };
     let closed = false;
-    req.on('close', () => { closed = true; dropConnection(sid); });
+    let viewTimer = null;
+    req.on('close', () => {
+      closed = true;
+      if (viewTimer) clearInterval(viewTimer);
+      STREAM_HUB.delete(sub);
+      dropConnection(sid);
+    });
     touchConnection(sid, 'events');
-    const finish = () => { sse({ type: 'end' }); try { res.end(); } catch { /* 已断 */ } };
-    const since = Number.isFinite(sinceParam) && sinceParam >= 0 ? sinceParam : -1;
+    const finish = () => {
+      closed = true;
+      if (viewTimer) clearInterval(viewTimer);
+      sse({ type: 'end' });
+      try { res.end(); } catch { /* 已断 */ }
+    };
+    // ★ 2026-11-12：连接即下发「权威状态 + 视图」，之后由服务端持续推送。
+    //   客户端不再每 3/5 秒轮询 /v2/view + /v2/pulse：一次连接、服务端说话。
+    const pushState = async () => {
+      try {
+        const live = ctx.sessions.get(sid);
+        let dshSeq = Number(live?.seq ?? 0) || 0;
+        if (!live) {
+          try {
+            const st = await persistence()?.stat?.(sid);
+            dshSeq = Number(st?.eventCount ?? 0) || 0;
+          } catch { /* 无持久化 */ }
+        }
+        const head = await (async () => {
+          try { return await readStoredHead(sid); } catch { return null; }
+        })();
+        let code = '';
+        try {
+          for (const [k, v] of Object.entries(sessionBinding.dump())) {
+            if (v === sid) { code = k; break; }
+          }
+        } catch { /* ignore */ }
+        sse({
+          type: 'state', data: {
+            session_id: sid,
+            exists: Boolean(live) || Boolean(head),
+            live: Boolean(live),
+            title: String(head?.title ?? ''),
+            agent_preset: String(head?.agentPreset ?? ''),
+            code: code === '@direct' ? '' : code,
+            execution: executionInfo(sid),
+            last_seq: dshSeq,
+            acked_seq: Number((ACK_STORE.get(sid) ?? {}).acked_seq ?? 0) || 0,
+            server_time: Date.now(),
+          },
+        });
+      } catch { /* 状态失败不影响事件 */ }
+    };
+    const pushView = async () => {
+      try { sse({ type: 'view', data: await buildView(sid, { withTimeline: false }) }); } catch { /* ignore */ }
+    };
+    pushState();
+    pushView();
+    viewTimer = setInterval(() => { if (!closed) pushView(); }, 5000);
+    // since = -2 means "start from now": no history replay (first connect / no cursor)
+    const since = sinceParam === -2 ? -2
+      : (Number.isFinite(sinceParam) && sinceParam >= 0 ? sinceParam : -1);
     const live0 = ctx.sessions.get(sid);
 
     // ★ 非 live 会话：从持久化会话日志补发（"补发会话文件"）
     if (!live0) {
-      const replay = await replaySessionLog(sid, since, snapshotThreshold);
+      const replay = await replaySessionLog(sid, since === -2 ? 1_000_000_000 : since, snapshotThreshold);
       if (!replay) {
         sse({ type: 'gone', session_id: sid });
         try { res.end(); } catch { /* 已断 */ }
@@ -2340,7 +2939,11 @@ export function apply(ctx, config) {
 
     const seqNow = Number(live0.seq ?? 0);
     // ★ 首次连接或缺口过大：给快照（历史批），随后继续增量
-    if (since < 0 || seqNow - since > snapshotThreshold) {
+    if (since === -2) {
+      // explicit "from now": ready only, no replay (first connect must not dump history)
+      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since });
+      if (!follow) return finish();
+    } else if (since < 0 || seqNow - since > snapshotThreshold) {
       sse({ type: 'snapshot', session_id: sid, seq: seqNow, turns: snapshotTurns(live0), source: 'live' });
       if (!follow) return finish();
     } else {

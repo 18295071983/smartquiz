@@ -247,8 +247,9 @@ GET /v2/view?session=session-xxx
 |---|---|---|---|
 | 1 | **热 agent 复用**（"进程池"的可行替代） | ✅ 已实现（`warmReuse`，默认开）：CLI 跑完后台 `agents.resume` 成宿主内句柄，下一轮直接宿主内执行；上限 4 条，失败自动退回 CLI | 待真机验证"第二轮确实不再起子进程" |
 | 2 | **`/v2/message` 改为 v2 信封** | ✅ 已做：非流式响应包成 `{v,ok,session_id,reply,execution,error?,debug?,legacy}`；SSE 透传 | 旧字段保留在 `legacy` 兼容 |
-| 3 | **审批进时间线** | ✅ 服务端：`/v2/view` 新增「待你处理」卡；`/v2/stream` 发 `event: approval` / `approval_gone` | 手机聊天页尚未消费该事件 |
-| 4 | **手机端通用 card renderer** | 🟡 `RemoteCardView`（原生卡片组件，对齐电脑面板设计语言）已用于「远程连接 → 自检」页 | 尚未接进 AI 对话页消息流 |
+| 3 | **审批进时间线** | ✅ 两端闭环：服务端 `/v2/view`「待你处理」卡 + `/v2/stream` `event: approval`；手机端落成 `ChatMessage.approvals` → `approval` part（允许/拒绝按钮 → `onApprovalDecision` → 回传电脑端，失败回滚成 pending） | — |
+| 4 | **手机端通用 card renderer** | ✅ `RemoteCardView` 用于「远程连接 → 自检」；数据卡按 `ComponentData.round` 插进对话页对应步骤之后（不再全堆末尾） | 交错粒度到"步骤"，尚未细到"工具内部产物"（产物走 `attachOwnedProducts` 已挂在工具卡下） |
+| 5 | **能力协商** | ✅ 客户端 `RemoteCaps`（14 项）随 hello/view/events 上送；服务端 `caps.js` 按 caps 裁剪卡片与审批事件，`/v2/view` 回显「能力协商」卡（客户端/未识别/缺少） | 反向命令（cmd.*）的 caps 门禁仅声明、尚未逐工具强制 |
 | 5 | **物理拆包** | `index.js` ~3100 行、`RemoteDshTool.java` ~2500 行 | 纯工程整理，逻辑已分层 |
 | 6 | **真·CLI 进程池** | ❌ 放弃 | `dsh headless` 是一次性 CLI（`--help` 明确 "answer one task, exit"），没有常驻协议 |
 

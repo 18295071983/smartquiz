@@ -179,6 +179,34 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         void onMessageLongClick(ChatMessage message);
     }
 
+    /**
+     * 审批 part 的决策回调（2026-11-12）。
+     *
+     * <p>渲染层只负责"点到了哪个 part"，回传给谁由页面决定：DSH 同步的审批回电脑端，
+     * 本机引擎的审批回权限流。以前 {@code ChatPartsHost.onApprovalDecision} 在适配器里是空实现，
+     * 于是审批只能走旁路弹窗。</p>
+     */
+    public interface ApprovalDecisionListener {
+        void onApprovalDecision(ChatMessage message, String partId, String toolCallId, boolean approved);
+    }
+
+    private ApprovalDecisionListener approvalDecisionListener;
+
+    public void setApprovalDecisionListener(ApprovalDecisionListener listener) {
+        this.approvalDecisionListener = listener;
+    }
+
+    /** 问答 part 提交答案（JSON：{answers:[{id,selected,custom?}]}） */
+    public interface QuestionAnswerListener {
+        void onQuestionAnswer(ChatMessage message, String partId, String answerJson);
+    }
+
+    private QuestionAnswerListener questionAnswerListener;
+
+    public void setQuestionAnswerListener(QuestionAnswerListener listener) {
+        this.questionAnswerListener = listener;
+    }
+
     public void setRetryClickListener(OnRetryClickListener listener) {
         this.retryClickListener = listener;
     }
@@ -3311,17 +3339,22 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (p == null) {
                 continue;
             }
-            boolean allowed = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TEXT.equals(p.type)
-                    || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_REASONING.equals(p.type)
-                    || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TOOL_CALL.equals(p.type)
-                    || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TOOL_RESULT.equals(p.type)
-                    || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TOOL_GROUP.equals(p.type)
-                    || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_DATA.equals(p.type);
-            if (!allowed) {
-                // 闸门保留给"将来真加 error/approval 生产者"的场景；**当前不可达**——
-                // fromMessageForParts 只产上面这六种，生产代码里没有 error/approval part 的写者。
-                return false;
-            }
+                // 2026-11-12：approval 已接入生产者（ChatMessage.approvals → AssistantTurn 投影），
+                // 这里放行；其余未复刻类型仍回落 legacy。
+                boolean allowed = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TEXT.equals(p.type)
+                        || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_REASONING.equals(p.type)
+                        || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TOOL_CALL.equals(p.type)
+                        || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TOOL_RESULT.equals(p.type)
+                        || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TOOL_GROUP.equals(p.type)
+                        || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_APPROVAL.equals(p.type)
+                        || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_QUESTION.equals(p.type)
+                        || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_DATA.equals(p.type);
+                if (!allowed) {
+                    // 未复刻类型：显式记一笔再回落，避免"手机上突然变回旧渲染"却查不到原因
+                    com.oilquiz.app.util.AILogger.w("ChatAdapter.parts",
+                            "回落 legacy：part 类型未接管 type=" + p.type + " id=" + p.id);
+                    return false;
+                }
             // mermaid/公式已被 expandInline 切成 html data part，text part 不再含其结构。
         }
 
@@ -3329,7 +3362,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             holder.partsHost = new ChatPartsHost(ctx, new ChatPartsHost.Callback() {
                 @Override
                 public void onApprovalDecision(String partId, String toolCallId, boolean approved) {
-                    // 审批 part 的生产者（在线引擎/权限流）尚未接入，这里先占位；接入后回调权限流。
+                    // 回传给页面（DSH 同步 → 电脑端；本机引擎 → 权限流）。没人接时保持无操作。
+                    if (approvalDecisionListener != null) {
+                        approvalDecisionListener.onApprovalDecision(message, partId, toolCallId, approved);
+                    }
+                }
+
+                @Override
+                public void onQuestionAnswer(String partId, String answerJson) {
+                    if (questionAnswerListener != null) {
+                        questionAnswerListener.onQuestionAnswer(message, partId, answerJson);
+                    }
                 }
 
                 @Override

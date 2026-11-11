@@ -65,7 +65,7 @@ checkBinaryAssets()
 //   src/main/assets/remote_dsh/plugin/  ← 打进 APK 的副本（构建自动刷新）
 // ============================================================
 def remoteDshPluginFiles = ['package.json', 'index.js', 'client.js', 'cordis.patch.yml',
-                            'icon.svg', 'pair_page.html', 'qrcodegen.js', '安装说明.txt']
+                            'icon.svg', 'pair_page.html', 'qrcodegen.js', 'caps.js', '安装说明.txt']
 def remoteDshSrcDir = new File(project.rootDir, 'tools/dsh-plugin-smartquiz-remote')
 def remoteDshAssetDir = new File(project.rootDir, 'src/main/assets/remote_dsh/plugin')
 

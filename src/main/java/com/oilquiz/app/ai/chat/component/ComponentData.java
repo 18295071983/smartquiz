@@ -31,6 +31,15 @@ public class ComponentData {
     public JSONObject props;
 
     /**
+     * 该卡片所属的模型轮次（1 基；0 = 未定位）。
+     *
+     * <p>data part 以前只能统一追加到 parts 末尾，于是"第 2 步产出的待办卡"会跑到整条消息最后。
+     * 这里记录轮次后，{@code AssistantTurn} 会把 data part 插到该轮正文/工具之后（见
+     * {@code insertPartsByRound}）。0 保持旧行为（末尾追加），旧数据不需要迁移。</p>
+     */
+    public int round;
+
+    /**
      * 内部模板标记（Track B0-1）：由应用自己的渲染器（如 {@code MermaidMathSplitter}）置位，
      * 表示这段 HTML 是我们拼出来的可信模板，可在沙箱里执行脚本。
      *

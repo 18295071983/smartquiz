@@ -102,6 +102,10 @@ public class ChatHistoryManager {
                 obj.addProperty("id", src.id);
             }
             obj.addProperty("type", src.type);
+            // 轮次定位（2026-11-12）：data part 靠它插到"第 N 步"之后，而不是统一堆末尾
+            if (src.round > 0) {
+                obj.addProperty("round", src.round);
+            }
             if (src.props != null) {
                 obj.add("props", ChatHistoryManager.orgJsonPropsToGson(src.props));
             } else {
@@ -136,6 +140,11 @@ public class ChatHistoryManager {
                     props = new org.json.JSONObject();
                 }
                 ComponentData cd = new ComponentData(type, props);
+                // 恢复轮次定位（旧数据无 round 字段时保持 0 = 末尾追加）
+                JsonElement roundEl = obj.get("round");
+                if (roundEl != null && !roundEl.isJsonNull()) {
+                    cd.round = roundEl.getAsInt();
+                }
                 // 恢复组件 id（2026-09-14；旧数据无 id 字段时保持 null，惰性补发）
                 JsonElement idEl = obj.get("id");
                 if (idEl != null && !idEl.isJsonNull()) {

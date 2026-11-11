@@ -164,6 +164,12 @@
             android:exported="false"
             android:label="怎么用（电脑端怎么配）"
             android:parentActivityName=".ai.tool.RemoteDshConnectActivity" />
+        <!-- 远程连接扩展面板：日程 / 计划模式 / 子代理 -->
+        <activity
+            android:name=".ai.tool.RemoteDshInsightActivity"
+            android:exported="false"
+            android:label="日程 · 计划 · 子代理"
+            android:parentActivityName=".ai.tool.RemoteDshConnectActivity" />
         <activity
             android:name=".infra.DebugKeyInjectActivity"
             android:exported="false"

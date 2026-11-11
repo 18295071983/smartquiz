@@ -28,30 +28,39 @@
 |---|---|---|---|
 | `assistant/message`（reasoning part） | `Part.reasoning` → `ReasoningPartRenderer` | — | ✅ |
 | `assistant/message`（text part） | `Part.text` → `TextPartRenderer` | — | ✅ |
+| `agent/assistant-stream`（合成 `stream/delta`） | 追加到该步 `text/reasoning`（不落盘） | — | ✅ 逐字流 |
 | `tool/call` / `tool/result` | `Part.toolCall` / `Part.toolResult`（按 turn/step 交错） | — | ✅ |
-| `approval/request` | 原生 `AlertDialog`（允许/拒绝/交给电脑） | — | ✅ 已接线 |
-| `user-questions/request` | 系统消息提示（只读） | — | ✅ 只读 |
+| `approval/request` | `Part.approval` → 时间线审批卡（允许/拒绝） | `{permission, prompt, status}` | ✅ |
+| `user-questions/request` | `Part.question` → 问答卡（选项/多选/自由文本，整批提交） | `{callId, questions[]}` | ✅ 可代答 |
 | `todo/write` | `Part.data` → `todo_card` | `{title, items:[{text,done}]}` | ✅ |
 | `deliverables/presented` | `Part.data` → `file_list` | `{title, files:[{name,path,type}]}` | ✅ |
 | `goal/activation-changed` | `Part.data` → `alert` | `{title, content, level}` | ✅ 尽力解析 |
 | `workspace/changes` | `Part.data` → `alert` | — | ✅ 仅提示 |
 | `job/registered` | `Part.data` → `alert` | — | ✅ |
 | `command/run` | `Part.data` → `alert` | — | ✅ |
-| `plan/*` | 可用 `steps` 卡（`{title, steps:[{title,status}]}`） | — | ⛔ 未接 |
-| `subagent/*` | 可用 `alert` / `markdown_doc` | — | ⛔ 未接 |
+| `plan/mode` | `Part.data` → `alert`（计划模式状态卡）；`/v2/plan` 开关 | `{active, pending}` | ✅ |
+| `subagent/catalog` + 合成 `subagent/activity` | `alert`（子代理卡，实时更新）+ `/v2/subagents` 面板 | `{child_id, label, last}` | ✅ |
+| `schedule/*`（**不是会话事件**） | `/v2/schedule` 拉 `ctx.schedule`；`schedule/changed` 提示重拉 | `{title, kind, status, scheduledAt}` | ✅ |
 | `turn/end` | 阶段 → COMPLETED；落 `last_sync_reply` | — | ✅ |
 
-## 三、实现要点
+## 三、实现要点（2026-11-12 重构后）
 
-- 一条同步回复只建**一条** `AssistantTurn`，挂在 `ChatMessage.assistantTurn`；
-  `PartsTurnBinder` 按 `part.id` 增量复用视图，所以 id 必须稳定
-  （`dsh-r-<turn>-<step>`、`dsh-t-<turn>-<step>`、`dsh-call-<callId>`、`dsh-todo-<turn>`…）。
-- 同 id 的 data part 用覆盖式更新（`upsertDshDataPart`），避免 todo 反复写堆一屏。
-- 事件里的 `turn` / `step` 决定 part 顺序：按 turn/step 升序，每步
-  `reasoning → text → 该步工具调用（含结果）`，与 App 引擎的编排一致。
-- `org.json` 的 `put/append` 在本工程是受检异常，统一走 `jput/jadd` 包装，坏字段只丢字段。
+- 转换规则全部在 `com.oilquiz.app.ai.remote`：`DshEvent`（信封）→ `DshTimeline`（归约/卡片/动作）
+  → `DshProjection`（`roundSnapshots` + `components`）；Activity 只做"投影 + 落屏 + 副作用"。
+- 顺序真值是 `roundSnapshots`：一步一条（思考/正文/该步工具），渲染层按
+  `reasoning → text → tool_group → 下一步…` 装配；数据卡/审批卡/问答卡带 `round`
+  插到该步之后（`ComponentData.round` / `Part` 轮次）。
+- 组件 id 由 `ChatIdDispatcher` 发号并按逻辑 key 复用（`Tn-Fn` / `Tn-Cn`），
+  补拉重投影不会换 id、不闪；历史导入用 `dsh-I{n}`。
+- 同一 ask 的多个问题必须在**一张卡**里、一次提交整批答案（DSH 要求 `BAD_ANSWER` 校验）；
+- `seq` 去重与游标：`DshTimeline` 按 seq 去重；Activity 在投影落屏后才持久化 `last_seq`。
 
-## 四、未接的部分
+## 四、仍未接的部分
 
-- `user-questions` 的手机代答：缺网关期望的答案 payload 样本，先只读提示。
-- `plan` / `subagent` / `schedule` / `workflow-run`：事件形状未采样，留待实测补。
+- CLI 子进程的 token 流：`dsh headless` 是一次性进程，没有进程内 `agent/assistant-stream`；
+  它的输出仍以 step 粒度落盘（插件可在 `runCliTask` 里转发，但会话 id 与手机订阅的 target 不完全一致，
+  本轮没接）。
+- 日程的"新建/改时间规则"：手机目前只做执行/删除/看历史；新建走电脑面板或 `/v2/schedule` 直接调。
+- 外部子代理后端（ACP/Codex）若不在会话日志里写 `subagent/catalog`，子代理面板只能看到登记过的部分。
+- 计划正文的富展示：`exit_plan_mode` 的计划 markdown 现在走问答卡的 detail/普通 tool 参数，
+  还没做专门的 plan 卡排版。

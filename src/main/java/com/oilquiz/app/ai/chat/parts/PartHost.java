@@ -59,6 +59,15 @@ public interface PartHost {
      */
     void onApprovalDecision(String partId, String toolCallId, boolean approved);
 
+    /**
+     * 问答 part 提交答案（2026-11-12）。
+     *
+     * @param partId     question part 的稳定 id
+     * @param answerJson JSON：{answers:[{id,selected:[...],custom?}]}
+     */
+    default void onQuestionAnswer(String partId, String answerJson) {
+    }
+
     /** 工具组"已运行N个工具"折叠卡是否展开（宿主按 groupId 记，通常存于 ChatMessage）。默认折叠。 */
     default boolean toolGroupExpanded(String groupId) {
         return false;

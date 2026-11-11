@@ -28,9 +28,13 @@ import java.util.Locale;
  */
 public final class ChatPartsHost implements PartHost {
 
-    /** 宿主回调：审批决策、内容尺寸变化、全屏展示工具结果全文。 */
+    /** 宿主回调：审批决策、问答提交、内容尺寸变化、全屏展示工具结果全文。 */
     public interface Callback {
         void onApprovalDecision(String partId, String toolCallId, boolean approved);
+
+        /** 问答 part 提交答案（JSON）；默认忽略（没有宿主的单测环境） */
+        default void onQuestionAnswer(String partId, String answerJson) {
+        }
 
         void onPartsContentChanged();
 
@@ -114,6 +118,13 @@ public final class ChatPartsHost implements PartHost {
     public void onApprovalDecision(String partId, String toolCallId, boolean approved) {
         if (callback != null) {
             callback.onApprovalDecision(partId, toolCallId, approved);
+        }
+    }
+
+    @Override
+    public void onQuestionAnswer(String partId, String answerJson) {
+        if (callback != null) {
+            callback.onQuestionAnswer(partId, answerJson);
         }
     }
 

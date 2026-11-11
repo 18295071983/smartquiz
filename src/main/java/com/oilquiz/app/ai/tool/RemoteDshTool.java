@@ -225,22 +225,47 @@ public class RemoteDshTool implements AITool {
         return getPrefs().getString(KEY_SESSION, "");
     }
 
-    // ---------- 直连会话协商（两端同一个 session id） ----------
+    // ---------- 直连会话（手机专属）与跟随会话（桌面选的那条）分开 ----------
+    // 2026-11-12 v2：@direct 只给直连用；选择电脑会话只写 @code:follow。
+    private static final String KEY_DIRECT_SESSION = "direct_session";
+    private static final String KEY_DIRECT_TITLE = "direct_title";
+
     public static String getDirectSessionId(Context c) {
-        String s = prefsOf(c).getString(KEY_DSH_SESSION, "");
+        String s = prefsOf(c).getString(KEY_DIRECT_SESSION, "");
+        if (s == null || s.trim().isEmpty()) {
+            // 旧数据迁移：dsh_session_id 以前可能被选择会话覆盖过，和跟随会话相同就不算直连
+            String legacy = prefsOf(c).getString(KEY_DSH_SESSION, "");
+            if (legacy != null && !legacy.trim().isEmpty()
+                    && !legacy.trim().equals(canonicalSessionId(c))) {
+                s = legacy;
+            }
+        }
         return s == null ? "" : s.trim();
     }
 
     public static void setDirectSessionId(Context c, String id) {
-        if (id == null || id.trim().isEmpty()) {
-            prefsOf(c).edit().remove(KEY_DSH_SESSION).remove(KEY_DSH_TITLE).apply();
+        String v = id == null ? "" : id.trim();
+        android.content.SharedPreferences.Editor ed = prefsOf(c).edit();
+        if (v.isEmpty()) {
+            ed.remove(KEY_DIRECT_SESSION).remove(KEY_DIRECT_TITLE).remove(KEY_DSH_SESSION);
         } else {
-            prefsOf(c).edit().putString(KEY_DSH_SESSION, id.trim()).apply();
+            ed.putString(KEY_DIRECT_SESSION, v);
+            ed.putString(KEY_DSH_SESSION, v);   // 兼容旧代码
         }
+        ed.apply();
+    }
+
+    public static void setDirectSession(Context c, String id, String title) {
+        setDirectSessionId(c, id);
+        String t = title == null ? "" : title.trim();
+        android.content.SharedPreferences.Editor ed = prefsOf(c).edit();
+        if (t.isEmpty()) ed.remove(KEY_DIRECT_TITLE).remove(KEY_DSH_TITLE);
+        else ed.putString(KEY_DIRECT_TITLE, t).putString(KEY_DSH_TITLE, t);
+        ed.apply();
     }
 
     public static String getDirectTitle(Context c) {
-        String s = prefsOf(c).getString(KEY_DSH_TITLE, "");
+        String s = prefsOf(c).getString(KEY_DIRECT_TITLE, "");
         return s == null ? "" : s.trim();
     }
 
@@ -254,7 +279,9 @@ public class RemoteDshTool implements AITool {
         String v = code == null ? "" : code.trim();
         android.content.SharedPreferences.Editor ed = prefsOf(c).edit();
         if (v.isEmpty()) ed.remove(KEY_DIRECT_CODE); else ed.putString(KEY_DIRECT_CODE, v);
-        ed.remove(KEY_DSH_SESSION).remove(KEY_DSH_TITLE).apply();
+        // 换直连码只作废直连身份；跟随会话（attached/sync）不受影响
+        ed.remove(KEY_DIRECT_SESSION).remove(KEY_DIRECT_TITLE)
+          .remove(KEY_DSH_SESSION).remove(KEY_DSH_TITLE).apply();
     }
 
     /**
@@ -275,9 +302,12 @@ public class RemoteDshTool implements AITool {
         org.json.JSONObject j = new org.json.JSONObject(raw);
         String id = j.optString("direct_session_id", "");
         String title = j.optString("title", "");
-        if (!id.isEmpty()) {
-            prefsOf(c).edit().putString(KEY_DSH_SESSION, id).putString(KEY_DSH_TITLE, title).apply();
+        if (!id.isEmpty() && id.equals(canonicalSessionId(c))) {
+            // 历史上 @direct 被"选择会话"覆盖过：不再把它当直连会话
+            id = "";
+            title = "";
         }
+        setDirectSession(c, id, title);
         Map<String, Object> out = new HashMap<>();
         out.put("direct_session_id", id);
         out.put("title", title);
@@ -299,6 +329,147 @@ public class RemoteDshTool implements AITool {
     // 手机只保留"跟哪条对话"（对话码 / sync_target），不再保存 mode。
     private static final String KEY_SYNC_TARGET = "sync_target";
     private static final String KEY_SYNC_TITLE = "sync_title";
+
+    // ===== 单一会话身份（2026-11-12） =====
+    //
+    // 以前"直连对话（dsh_session_id）"和"同步目标（sync_target）"是两个键，各写各的：
+    // 连接页会同时显示两条 id，通道各自 attach，谁也不服谁。现在只有一个权威 id：
+    //   attached_session / attached_title
+    // 旧键仍保留为"镜像"（旧代码/旧 APK 要读），但读一律先读新键，写一律经 setCanonicalSession。
+    private static final String KEY_ATTACHED = "attached_session";
+    private static final String KEY_ATTACHED_TITLE = "attached_title";
+    private static final String KEY_TRANSPORT_SEQ = "transport_seq_";
+    /** 一次性迁移：直连/跟随拆分前，@direct 可能被"选择会话"写过，首次升级要清空 */
+    private static final String KEY_DIRECT_SPLIT = "direct_split_v2";
+
+    /** 当前附着的电脑会话 id（唯一权威；旧键自动迁移） */
+    public static String canonicalSessionId(Context c) {
+        android.content.SharedPreferences p = prefsOf(c);
+        String s = p.getString(KEY_ATTACHED, "");
+        if (s == null || s.trim().isEmpty()) s = p.getString(KEY_SYNC_TARGET, "");
+        if (s == null || s.trim().isEmpty()) s = p.getString(KEY_DSH_SESSION, "");
+        return s == null ? "" : s.trim();
+    }
+
+    public static String canonicalSessionTitle(Context c) {
+        android.content.SharedPreferences p = prefsOf(c);
+        String s = p.getString(KEY_ATTACHED_TITLE, "");
+        if (s == null || s.trim().isEmpty()) s = p.getString(KEY_SYNC_TITLE, "");
+        if (s == null || s.trim().isEmpty()) s = p.getString(KEY_DSH_TITLE, "");
+        return s == null ? "" : s.trim();
+    }
+
+    /** 写唯一身份；同时镜像到旧键（兼容旧代码/旧 APK） */
+    public static void setCanonicalSession(Context c, String id, String title) {
+        String v = id == null ? "" : id.trim();
+        String t = title == null ? "" : title.trim();
+        android.content.SharedPreferences.Editor ed = prefsOf(c).edit();
+        if (v.isEmpty()) {
+            ed.remove(KEY_ATTACHED).remove(KEY_ATTACHED_TITLE)
+              .remove(KEY_SYNC_TARGET).remove(KEY_SYNC_TITLE);
+        } else {
+            ed.putString(KEY_ATTACHED, v).putString(KEY_SYNC_TARGET, v);
+            if (t.isEmpty()) {
+                ed.remove(KEY_ATTACHED_TITLE).remove(KEY_SYNC_TITLE);
+            } else {
+                ed.putString(KEY_ATTACHED_TITLE, t).putString(KEY_SYNC_TITLE, t);
+            }
+        }
+        ed.apply();
+    }
+
+    /**
+     * 和电脑对齐「跟随会话」（@code:follow）：一次请求，服务端说了算。
+     *
+     * <ul>
+     *   <li>电脑有 follow 绑定 → 以电脑为准（id + 标题），本地旧 id 丢掉；</li>
+     *   <li>电脑没有、本地有 → attach 到 follow 码（bind=true），让电脑也认它；</li>
+     *   <li>都没有 → 空（还没选/首次发送时建立）。</li>
+     * </ul>
+     *
+     * <p>注意：不再碰 {@code @direct}；直连有自己的 {@link #syncDirectIdentity}。</p>
+     *
+     * @return 对齐后的跟随会话 id（空 = 还没有）
+     */
+    public static String syncSessionIdentity(Context c) throws Exception {
+        RemoteSdk sdk = new RemoteSdk(c);
+        String local = canonicalSessionId(c);
+        Map<String, Object> resp = sdk.sessionState("follow");
+        String id = RemoteSdk.sessionIdOf(resp);
+        String title = titleOf(resp);
+        if (!id.isEmpty()) {
+            setCanonicalSession(c, id, title);
+            return id;
+        }
+        if (!local.isEmpty()) {
+            try {
+                sdk.attach(local, "follow", true);
+                setCanonicalSession(c, local, canonicalSessionTitle(c));
+                return local;
+            } catch (Exception e) {
+                setCanonicalSession(c, "", "");
+                return "";
+            }
+        }
+        return "";
+    }
+
+    /**
+     * 和电脑对齐「直连会话」（{@code @direct}，手机专属）。
+     *
+     * <p>迁移：如果 {@code @direct} 与当前跟随会话是同一 id（历史上被"选择会话"覆盖过），
+     * 就清掉这个直连绑定 —— 直连改回自己的会话，首次直连时由电脑新建，不再落进桌面会话。</p>
+     */
+    public static String syncDirectIdentity(Context c) throws Exception {
+        RemoteSdk sdk = new RemoteSdk(c);
+        String follow = canonicalSessionId(c);
+        if (!prefsOf(c).getBoolean(KEY_DIRECT_SPLIT, false)) {
+            // 旧版"选择会话"污染过 @direct（它可能等于当前跟随会话，也可能是别的桌面会话）：
+            // 拆分后第一次运行统一清掉，直连改由首次直连时新建手机专属会话。
+            try {
+                sdk.directBind("");
+            } catch (Exception ignored) {
+                // 清不掉就下次再试；先按空展示
+            }
+            prefsOf(c).edit().putBoolean(KEY_DIRECT_SPLIT, true).apply();
+            setDirectSession(c, "", "");
+            return "";
+        }
+        Map<String, Object> resp = sdk.sessionState("");
+        String id = RemoteSdk.sessionIdOf(resp);
+        String title = titleOf(resp);
+        if (!id.isEmpty() && id.equals(follow)) {
+            try {
+                sdk.directBind("");
+            } catch (Exception ignored) {
+                // 清不掉就先按空处理；下次再试
+            }
+            id = "";
+            title = "";
+        }
+        setDirectSession(c, id, title);
+        return id;
+    }
+
+    private static String titleOf(Map<String, Object> resp) {
+        Object sess = resp == null ? null : resp.get("session");
+        if (sess instanceof Map) {
+            Object t = ((Map<?, ?>) sess).get("title");
+            if (t != null) return String.valueOf(t);
+        }
+        return "";
+    }
+
+    // ===== 传输游标（服务级通道用；与渲染游标分开） =====
+    public static int getTransportSeq(Context c, String sid) {
+        if (sid == null || sid.isEmpty()) return -1;
+        return prefsOf(c).getInt(KEY_TRANSPORT_SEQ + sid, -1);
+    }
+
+    public static void setTransportSeq(Context c, String sid, int seq) {
+        if (sid == null || sid.isEmpty() || seq < 0) return;
+        prefsOf(c).edit().putInt(KEY_TRANSPORT_SEQ + sid, seq).apply();
+    }
 
     /**
      * @deprecated 模式已收敛。仅保留常量与 getMode 供旧调用点编译通过；
@@ -327,24 +498,25 @@ public class RemoteDshTool implements AITool {
         // no-op：执行位置由服务端决定
     }
 
-    /** 同步目标：电脑端那条会话的 id（由 list_sessions / attach_session 写入） */
+    /** 同步目标：= 唯一会话身份（旧名保留给调用点） */
     public static String getSyncTarget(Context c) {
-        String s = prefsOf(c).getString(KEY_SYNC_TARGET, "");
-        return s == null ? "" : s.trim();
+        return canonicalSessionId(c);
     }
 
     public static void setSyncTarget(Context c, String sessionId) {
-        prefsOf(c).edit().putString(KEY_SYNC_TARGET, sessionId == null ? "" : sessionId.trim()).apply();
+        String v = sessionId == null ? "" : sessionId.trim();
+        // 换会话时旧标题必须作废，否则界面会把上一条的标题当成本条的（看起来像"硬编码"）
+        String old = canonicalSessionId(c);
+        setCanonicalSession(c, v, v.equals(old) ? canonicalSessionTitle(c) : "");
     }
 
-    /** 同步目标的标题（界面上显示比 session-id 友好） */
+    /** 同步目标的标题 */
     public static String getSyncTitle(Context c) {
-        String s = prefsOf(c).getString(KEY_SYNC_TITLE, "");
-        return s == null ? "" : s.trim();
+        return canonicalSessionTitle(c);
     }
 
     public static void setSyncTitle(Context c, String title) {
-        prefsOf(c).edit().putString(KEY_SYNC_TITLE, title == null ? "" : title.trim()).apply();
+        setCanonicalSession(c, canonicalSessionId(c), title);
     }
 
     /**
@@ -569,6 +741,7 @@ public class RemoteDshTool implements AITool {
             String url = tool.getBaseUrl() + "/events?session_id=" + java.net.URLEncoder.encode(sid, "UTF-8")
                     + "&since=" + since + "&follow=" + (follow ? "1" : "0") + "&timeout=" + Math.max(5, timeoutSec)
                     + "&snapshot_threshold=" + Math.max(50, snapshotThreshold)
+                    + "&caps=" + java.net.URLEncoder.encode(RemoteCaps.csv(), "UTF-8")
                     + (types == null || types.isEmpty() ? "" : "&types=" + java.net.URLEncoder.encode(types, "UTF-8"));
             conn = (HttpURLConnection) new URL(url).openConnection();
             conn.setConnectTimeout(30000);
@@ -601,7 +774,7 @@ public class RemoteDshTool implements AITool {
     }
 
     /** 解析一条 SSE 消息并更新游标；返回新的 seq 游标 */
-    private static int handleStreamMessage(String raw, int cursor, boolean follow, DshEventListener listener) {
+    static int handleStreamMessage(String raw, int cursor, boolean follow, DshEventListener listener) {
         try {
             org.json.JSONObject msg = new org.json.JSONObject(raw);
             String type = msg.optString("type", "");
@@ -631,6 +804,12 @@ public class RemoteDshTool implements AITool {
             if ("end".equals(type) || "gone".equals(type)) {
                 if (!follow) listener.onEnd();
                 return cursor;
+            }
+            // 插件直接下发的合成事件（不是 event/snapshot 这种控制帧）：
+            // approval / question / stream/delta / plan/mode / subagent/activity / schedule/changed…
+            // 以前这里直接 return，把它们全吞了（所以"审批只在弹窗里出现过、时间线里没有"）。
+            if (!type.isEmpty()) {
+                listener.onEvent(msg);
             }
             return cursor;
         } catch (Exception e) {
@@ -850,8 +1029,11 @@ public class RemoteDshTool implements AITool {
         String s = sid == null ? "" : sid.trim();
         if (s.isEmpty()) s = t.resolveTargetSession(null);
         if (s.isEmpty()) throw new Exception("没有可对账的会话：先发一条消息，或在下方选一个同步目标");
+        // 带上本机游标：服务端据此回 match/behind + gap（对账口径只剩 seq，不再各算一份摘要）
+        int since = getLastSeq(c, s);
         return t.httpJson(t.getBaseUrl() + "/reconcile?light=1&session_id="
-                + java.net.URLEncoder.encode(s, "UTF-8"), "GET", null, 15);
+                + java.net.URLEncoder.encode(s, "UTF-8")
+                + "&last_seq=" + Math.max(0, since), "GET", null, 15);
     }
 
     /**
@@ -861,8 +1043,87 @@ public class RemoteDshTool implements AITool {
     public static Map<String, Object> fetchView(Context c, String sid) throws Exception {
         RemoteDshTool t = new RemoteDshTool(c);
         String s = sid == null ? "" : sid.trim();
-        String q = s.isEmpty() ? "" : "?session_id=" + java.net.URLEncoder.encode(s, "UTF-8");
+        // 带客户端 caps：电脑端据此裁剪卡片（legacy 客户端不传 → 不裁）
+        String q = "?caps=" + java.net.URLEncoder.encode(RemoteCaps.csv(), "UTF-8")
+                + (s.isEmpty() ? "" : "&session_id=" + java.net.URLEncoder.encode(s, "UTF-8"));
         return t.httpJson(t.getBaseUrl() + "/v2/view" + q, "GET", null, 15);
+    }
+
+    /**
+     * 回答一次 ask（2026-11-12）：答案批次整批回传。
+     *
+     * @param batchId 网关 pending 事件 id（阻塞中的问题用它，与电脑端先答先赢）
+     * @param callId  ask 的工具调用 id（超时后 continued 的问题用它）
+     * @return 电脑端是否受理
+     */
+    public static boolean answerQuestion(Context c, String sid, String batchId, String callId,
+                                         String answerJson) throws Exception {
+        org.json.JSONArray answers = null;
+        try {
+            answers = new org.json.JSONObject(answerJson).optJSONArray("answers");
+        } catch (Exception ignored) {
+            // 下面按空处理
+        }
+        if (answers == null || answers.length() == 0) return false;
+        Map<String, Object> b = new HashMap<>();
+        b.put("session_id", sid == null ? "" : sid);
+        if (batchId != null && !batchId.isEmpty()) b.put("id", batchId);
+        if (callId != null && !callId.isEmpty()) b.put("call_id", callId);
+        b.put("answers", answers);
+        b.put("caps", RemoteCaps.csv());
+        RemoteDshTool t = new RemoteDshTool(c);
+        Map<String, Object> r = t.httpJson(t.getBaseUrl() + "/v2/answer", "POST", b, 25);
+        return Boolean.TRUE.equals(r.get("ok"));
+    }
+
+    /** 日程目录（宿主级任务，与电脑端面板同一份数据） */
+    public static Map<String, Object> fetchSchedule(Context c) throws Exception {
+        RemoteDshTool t = new RemoteDshTool(c);
+        String q = "?action=catalog&caps=" + java.net.URLEncoder.encode(RemoteCaps.csv(), "UTF-8");
+        return t.httpJson(t.getBaseUrl() + "/v2/schedule" + q, "GET", null, 20);
+    }
+
+    /** 日程写操作：run / edit（patch 或删除） */
+    public static Map<String, Object> scheduleAction(Context c, String action, String id,
+                                                     org.json.JSONObject extra) throws Exception {
+        RemoteDshTool t = new RemoteDshTool(c);
+        Map<String, Object> b = new HashMap<>();
+        b.put("action", action);
+        b.put("id", id == null ? "" : id);
+        b.put("caps", RemoteCaps.csv());
+        if (extra != null) {
+            java.util.Iterator<String> keys = extra.keys();
+            while (keys.hasNext()) {
+                String k = keys.next();
+                b.put(k, extra.opt(k));
+            }
+        }
+        return t.httpJson(t.getBaseUrl() + "/v2/schedule", "POST", b, 25);
+    }
+
+    /** 计划模式状态（需要会话在电脑端 live） */
+    public static Map<String, Object> fetchPlan(Context c, String sid) throws Exception {
+        RemoteDshTool t = new RemoteDshTool(c);
+        String q = "?session_id=" + java.net.URLEncoder.encode(sid == null ? "" : sid, "UTF-8")
+                + "&caps=" + java.net.URLEncoder.encode(RemoteCaps.csv(), "UTF-8");
+        return t.httpJson(t.getBaseUrl() + "/v2/plan" + q, "GET", null, 15);
+    }
+
+    public static Map<String, Object> setPlan(Context c, String sid, boolean active) throws Exception {
+        RemoteDshTool t = new RemoteDshTool(c);
+        Map<String, Object> b = new HashMap<>();
+        b.put("session_id", sid == null ? "" : sid);
+        b.put("active", active);
+        b.put("caps", RemoteCaps.csv());
+        return t.httpJson(t.getBaseUrl() + "/v2/plan", "POST", b, 15);
+    }
+
+    /** 子代理目录 + 最近活动 */
+    public static Map<String, Object> fetchSubagents(Context c, String sid) throws Exception {
+        RemoteDshTool t = new RemoteDshTool(c);
+        String q = "?session_id=" + java.net.URLEncoder.encode(sid == null ? "" : sid, "UTF-8")
+                + "&caps=" + java.net.URLEncoder.encode(RemoteCaps.csv(), "UTF-8");
+        return t.httpJson(t.getBaseUrl() + "/v2/subagents" + q, "GET", null, 20);
     }
 
     // ---------- 连接状态（供「远程连接（电脑）」界面与本工具共用） ----------
@@ -1349,9 +1610,10 @@ public class RemoteDshTool implements AITool {
         Object o = p == null ? null : p.get("session_id");
         String s = o == null ? "" : String.valueOf(o).trim();
         if (!s.isEmpty()) return s;
-        String cur = getSessionId();
-        if (cur != null && !cur.trim().isEmpty()) return cur.trim();
-        return getDirectSessionId(context);
+        // 视图/事件/对账默认看「跟随会话」，不是直连专属会话
+        String follow = getSyncTarget(context);
+        if (!follow.isEmpty()) return follow;
+        return getSessionId();
     }
 
     /**
@@ -1651,8 +1913,10 @@ public class RemoteDshTool implements AITool {
             return AIToolResult.fail("没有可对账的会话：先 run 一条任务，或用 list_sessions 查一条 session_id 再指定");
         }
         try {
+            int localSeq = getLastSeq(context, sid);
             String url = baseUrl + "/reconcile?light=1&session_id="
-                    + java.net.URLEncoder.encode(sid, "UTF-8");
+                    + java.net.URLEncoder.encode(sid, "UTF-8")
+                    + "&last_seq=" + Math.max(0, localSeq);
             Map<String, Object> resp = httpJson(url, "GET", null, 30);
             int code = asInt(resp.get("_http_code"));
             if (code == 404 || "no_session".equals(resp.get("verdict"))) {
@@ -1664,6 +1928,9 @@ public class RemoteDshTool implements AITool {
             }
             StringBuilder sb = new StringBuilder("双端对账（电脑侧为准）\n");
             sb.append("会话: ").append(sid).append("\n");
+            sb.append("结论: ").append(verdictText(resp)).append("\n");
+            Object gap = resp.get("gap");
+            if (gap != null) sb.append("落后: ").append(gap).append(" 条事件\n");
             Object host = resp.get("host");
             if (host instanceof Map) {
                 Map<?, ?> h = (Map<?, ?>) host;
@@ -1683,6 +1950,15 @@ public class RemoteDshTool implements AITool {
         } catch (Exception e) {
             return AIToolResult.fail("对账异常: " + e.getMessage());
         }
+    }
+
+    /** 对账结论的人话（新服务端只回 match/behind；旧版可能回 summary/diverged） */
+    private static String verdictText(Map<String, Object> resp) {
+        Object v = resp == null ? null : resp.get("verdict");
+        if ("match".equals(v)) return "一致（本机游标已到电脑端最新）";
+        if ("behind".equals(v)) return "落后（需要补拉）";
+        if ("diverged".equals(v)) return "不一致（按摘要比对）";
+        return "未判定（服务端旧版，没带 last_seq）";
     }
 
     /** 回执：告诉电脑本机已收到 seq 之前的全部消息（水位线只增不减，落盘不丢） */

@@ -1,9 +1,11 @@
 package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.graphics.drawable.GradientDrawable;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -12,17 +14,39 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * RemoteCardView —— 把服务端 `/v2/view` 的 cards[] 渲染成**原生卡片组件**。
+ * RemoteCardView —— 把服务端 {@code /v2/view} 的 {@code cards[]} 渲染成**原生卡片**。
  *
- * 设计语言对齐电脑面板：圆角浅卡片 + 小号灰标签 + 加粗值 + 状态色（✓ 绿 / ✗ 红 / ○ 黄）。
- * 之前手机上是用等宽 TextView 把 cards 拼成纯文本（妥协方案），这个类取代它。
+ * <p>它是"网页面板 → 手机原生"的 UI 转换器：输入只有 {@code List<Map>}，输出只有 View，
+ * 不碰网络、不碰状态机。三条使用路径共用它：连接页自检、聊天页 REMOTE_CARD item、
+ * 审批卡插入。</p>
  *
- * 支持的 card.kind：
- *   status / session  → rows[]   （label + value 两列）
- *   checks / connections / approval → items[] （state + name + detail）
- *   timeline          → messages[] （role + origin + text）
+ * <h3>2026-11-12 修的设计问题</h3>
+ * <ul>
+ *   <li><b>暗色主题下整张卡消失</b>：底色/描边写死 {@code 0x0A000000}/{@code 0x1A000000}
+ *       （4%/10% 黑），暗色底上等于透明。改为读主题 {@code colorSurfaceVariant}/{@code colorOutline}。</li>
+ *   <li><b>kind 当标题</b>：没有 title 时直接把 {@code status}/{@code checks} 这种英文
+ *       kind 显示给用户。改为中文映射。</li>
+ *   <li><b>丢字段</b>：{@code checks[].hint}、卡片级 {@code detail}/{@code error} 全被忽略 ——
+ *       自检失败时手机上只剩一个名字，看不到原因（会话读取失败时更是一张空白卡）。</li>
+ *   <li><b>时间线不可读</b>：每条消息硬截 3 行且无法展开。改为点一下展开/收起。</li>
+ *   <li><b>每 3 秒全量重建</b>：自检轮询每次都 {@code removeAllViews}，正在看的展开态被清掉、
+ *       滚动位置跳动。改为内容签名未变直接跳过。</li>
+ *   <li><b>审批卡不可点</b>：{@code approval_id} 被丢掉。现在把它挂到行上（tag），
+ *       由调用方决定要不要接点击。</li>
+ *   <li><b>"呼吸"卡会叠</b>：{@link #appendBreath} 每次追加一张。改为先移除上一张。</li>
+ * </ul>
+ *
+ * 支持的 card.kind：status / session（rows）、checks / connections / approval（items）、
+ * timeline（messages）；未知 kind 只要有 rows/items/messages 也照渲染，只是标题走兜底。
  */
 public final class RemoteCardView {
+
+    /**
+     * 渲染内容签名：内容和上次一致就跳过重建（自检 3 秒一轮，避免闪/丢展开态）。
+     * 用无 key 的 tag（容器是专用 ViewGroup，不与其他代码共用），避免 setTag(int) 要求
+     * 应用私有 id 资源。
+     */
+    private static final Object TAG_BREATH = new Object();
 
     private RemoteCardView() {
     }
@@ -30,15 +54,24 @@ public final class RemoteCardView {
     public static void render(ViewGroup container, Map<String, Object> view) {
         if (container == null || view == null) return;
         Context ctx = container.getContext();
+        Object cardsObj = view.get("cards");
+        boolean hasCards = cardsObj instanceof List && !((List<?>) cardsObj).isEmpty();
+        String signature = hasCards
+                ? String.valueOf(view.get("header")) + "|" + String.valueOf(cardsObj) : "";
+        // 有内容且没变：保留展开态/滚动位置，连空态也不重画
+        if (hasCards && signature.equals(container.getTag())) return;
+        container.setTag(signature);
         container.removeAllViews();
-        container.setVisibility(android.view.View.VISIBLE);
+        container.setVisibility(View.VISIBLE);
 
         Object header = view.get("header");
         if (header instanceof Map) {
-            Object title = ((Map<?, ?>) header).get("title");
-            if (title != null && !String.valueOf(title).trim().isEmpty()) {
+            String title = str(((Map<?, ?>) header).get("title"));
+            String badge = str(((Map<?, ?>) header).get("badge"));
+            if (!title.isEmpty() || !badge.isEmpty()) {
                 TextView tv = new TextView(ctx);
-                tv.setText("跟随：" + title);
+                tv.setText("跟随：" + (title.isEmpty() ? "(未命名会话)" : title)
+                        + (badge.isEmpty() ? "" : " · " + badge));
                 tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
                 tv.setTextColor(secondary(ctx));
                 tv.setPadding(0, 0, 0, dp(ctx, 6));
@@ -47,64 +80,154 @@ public final class RemoteCardView {
         }
 
         Object cards = view.get("cards");
-        if (!(cards instanceof List)) return;
+        if (!(cards instanceof List) || ((List<?>) cards).isEmpty()) {
+            container.addView(empty(ctx, "电脑端没有返回卡片（可点「刷新」重试）"));
+            return;
+        }
+        int rendered = 0;
         for (Object co : (List<?>) cards) {
             if (!(co instanceof Map)) continue;
-            Map<?, ?> card = (Map<?, ?>) co;
-            container.addView(buildCard(ctx, card));
+            View card = buildCard(ctx, (Map<?, ?>) co);
+            if (card != null) {
+                container.addView(card);
+                rendered += 1;
+            }
         }
+        if (rendered == 0) container.addView(empty(ctx, "暂无内容"));
     }
 
-    /** 追加一张"呼吸"卡（RTT / 在线 / 落后条数），由界面在拿到 pulse 后调用 */
+    /**
+     * 追加一张"呼吸"卡（RTT / 在线 / 落后条数）。重复调用只保留最新一张：
+     * 旧实现每次刷新都追加，轮询几次后一屏都是"呼吸"。
+     */
     public static void appendBreath(ViewGroup container, boolean online, long rttMs, Object gap, String error) {
         if (container == null) return;
         Context ctx = container.getContext();
-        LinearLayout box = cardBox(ctx);
-        box.addView(cardTitle(ctx, "呼吸"));
         String text = online
-                ? "✓ 在线 · RTT " + rttMs + "ms · 落后 " + (gap == null ? "?" : gap) + " 条"
-                : "✗ 心跳失败" + (error == null || error.isEmpty() ? "" : "：" + error);
+                ? "在线 · RTT " + rttMs + "ms · 落后 " + (gap == null ? "?" : gap) + " 条"
+                : "心跳失败" + (error == null || error.isEmpty() ? "" : "：" + error);
+        int color = online ? okColor(ctx) : errColor(ctx);
+        // 复用上一张"呼吸"卡：只改文字。旧实现每次追加，轮询几次后一屏都是"呼吸"
+        for (int i = container.getChildCount() - 1; i >= 0; i -= 1) {
+            View child = container.getChildAt(i);
+            if (!TAG_BREATH.equals(child.getTag()) || !(child instanceof LinearLayout)) continue;
+            LinearLayout existing = (LinearLayout) child;
+            if (existing.getChildCount() > 1 && existing.getChildAt(1) instanceof TextView) {
+                TextView tv = (TextView) existing.getChildAt(1);
+                tv.setText(text);
+                tv.setTextColor(color);
+                return;
+            }
+            container.removeViewAt(i);
+        }
+        LinearLayout box = cardBox(ctx);
+        box.setTag(TAG_BREATH);
+        box.addView(cardTitle(ctx, "呼吸"));
         TextView tv = new TextView(ctx);
         tv.setText(text);
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        tv.setTextColor(online ? okColor() : errColor());
+        tv.setTextColor(color);
         box.addView(tv);
         container.addView(box);
     }
 
+    /** 某一行的审批 id（没有则空串）；渲染器只负责挂上，交互由页面决定 */
+    public static String approvalIdOf(View row) {
+        if (row == null) return "";
+        Object tag = row.getTag();
+        return tag == null ? "" : String.valueOf(tag);
+    }
+
     // ---------------- 单张卡片 ----------------
 
-    private static LinearLayout buildCard(Context ctx, Map<?, ?> card) {
+    private static View buildCard(Context ctx, Map<?, ?> card) {
+        String kind = str(card.get("kind"));
         LinearLayout box = cardBox(ctx);
-        Object title = card.get("title");
-        box.addView(cardTitle(ctx, title == null ? String.valueOf(card.get("kind")) : String.valueOf(title)));
+        box.addView(cardTitle(ctx, titleOf(kind, str(card.get("title")))));
 
-        Object rows = card.get("rows");
-        if (rows instanceof List) {
-            for (Object r : (List<?>) rows) {
-                if (!(r instanceof Map)) continue;
-                Map<?, ?> m = (Map<?, ?>) r;
-                box.addView(row(ctx, str(m.get("label")), str(m.get("value"))));
-            }
+        // 卡片级说明：会话读取失败/插件降级时，这是唯一的原因来源
+        String detail = str(card.get("detail"));
+        String error = str(card.get("error"));
+        if (!detail.isEmpty() || !error.isEmpty()) {
+            TextView tv = new TextView(ctx);
+            tv.setText(error.isEmpty() ? detail : (detail.isEmpty() ? error : detail + "\n" + error));
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            tv.setTextColor(error.isEmpty() ? secondary(ctx) : errColor(ctx));
+            tv.setPadding(0, 0, 0, dp(ctx, 4));
+            box.addView(tv);
         }
 
-        Object items = card.get("items");
-        if (items instanceof List) {
-            for (Object it : (List<?>) items) {
-                if (!(it instanceof Map)) continue;
-                Map<?, ?> m = (Map<?, ?>) it;
-                box.addView(item(ctx, str(m.get("state")), str(m.get("name")), str(m.get("detail"))));
-            }
-        }
+        int rows = renderRows(ctx, box, card.get("rows"));
+        int items = renderItems(ctx, box, card.get("items"));
+        int messages = renderMessages(ctx, box, card.get("messages"));
+        return rows + items + messages > 0 || !detail.isEmpty() || !error.isEmpty() ? box : null;
+    }
 
-        Object messages = card.get("messages");
-        if (messages instanceof List) {
-            for (Object mo : (List<?>) messages) {
-                if (!(mo instanceof Map)) continue;
-                box.addView(message(ctx, (Map<?, ?>) mo));
-            }
+    private static int renderRows(Context ctx, LinearLayout box, Object rowsObj) {
+        if (!(rowsObj instanceof List)) return 0;
+        int n = 0;
+        for (Object r : (List<?>) rowsObj) {
+            if (!(r instanceof Map)) continue;
+            Map<?, ?> m = (Map<?, ?>) r;
+            box.addView(row(ctx, str(m.get("label")), str(m.get("value"))));
+            n += 1;
         }
-        return box;
+        return n;
+    }
+
+    private static int renderItems(Context ctx, LinearLayout box, Object itemsObj) {
+        if (!(itemsObj instanceof List)) return 0;
+        int n = 0;
+        for (Object it : (List<?>) itemsObj) {
+            if (!(it instanceof Map)) continue;
+            Map<?, ?> m = (Map<?, ?>) it;
+            View line = item(ctx, str(m.get("state")), str(m.get("name")),
+                    str(m.get("detail")), str(m.get("hint")));
+            String approvalId = str(m.get("approval_id"));
+            if (!approvalId.isEmpty()) {
+                line.setTag(approvalId);
+                line.setClickable(true);
+                line.setFocusable(true);
+            }
+            box.addView(line);
+            n += 1;
+        }
+        return n;
+    }
+
+    private static int renderMessages(Context ctx, LinearLayout box, Object messagesObj) {
+        if (!(messagesObj instanceof List)) return 0;
+        int n = 0;
+        for (Object mo : (List<?>) messagesObj) {
+            if (!(mo instanceof Map)) continue;
+            box.addView(message(ctx, (Map<?, ?>) mo));
+            n += 1;
+        }
+        return n;
+    }
+
+    /** 无 title 时的中文兜底 —— 绝不再把 kind 原文漏给用户 */
+    private static String titleOf(String kind, String title) {
+        if (title != null && !title.trim().isEmpty()) return title;
+        switch (kind) {
+            case "status": return "电脑端";
+            case "checks": return "自检";
+            case "connections": return "连接";
+            case "session": return "会话";
+            case "approval": return "待你处理";
+            case "timeline": return "最近消息";
+            case "caps": return "能力协商";
+            default: return "信息";
+        }
+    }
+
+    private static View empty(Context ctx, String text) {
+        TextView tv = new TextView(ctx);
+        tv.setText(text);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tv.setTextColor(secondary(ctx));
+        tv.setPadding(0, dp(ctx, 6), 0, dp(ctx, 6));
+        return tv;
     }
 
     private static LinearLayout cardBox(Context ctx) {
@@ -113,8 +236,8 @@ public final class RemoteCardView {
         box.setPadding(dp(ctx, 12), dp(ctx, 10), dp(ctx, 12), dp(ctx, 10));
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(ctx, 14));
-        bg.setColor(0x0A000000);
-        bg.setStroke(1, 0x1A000000);
+        bg.setColor(surface(ctx));
+        bg.setStroke(1, outline(ctx));
         box.setBackground(bg);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -154,7 +277,7 @@ public final class RemoteCardView {
         return line;
     }
 
-    private static LinearLayout item(Context ctx, String state, String name, String detail) {
+    private static LinearLayout item(Context ctx, String state, String name, String detail, String hint) {
         LinearLayout line = new LinearLayout(ctx);
         line.setOrientation(LinearLayout.HORIZONTAL);
         line.setPadding(0, dp(ctx, 3), 0, dp(ctx, 3));
@@ -162,7 +285,10 @@ public final class RemoteCardView {
         TextView mark = new TextView(ctx);
         mark.setText("ok".equals(state) ? "✓" : ("error".equals(state) ? "✗" : "○"));
         mark.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        mark.setTextColor("ok".equals(state) ? okColor() : ("error".equals(state) ? errColor() : warnColor()));
+        mark.setTextColor("ok".equals(state) ? okColor(ctx)
+                : ("error".equals(state) ? errColor(ctx) : warnColor(ctx)));
+        mark.setContentDescription("ok".equals(state) ? "正常"
+                : ("error".equals(state) ? "异常" : "注意"));
         line.addView(mark);
 
         LinearLayout right = new LinearLayout(ctx);
@@ -175,9 +301,14 @@ public final class RemoteCardView {
         n.setTextColor(primary(ctx));
         right.addView(n);
 
-        if (detail != null && !detail.isEmpty()) {
+        // detail 是现象，hint 是"怎么办"：旧渲染把 hint 整个丢了，用户只能看到错误看不到救援
+        String secondary = detail == null ? "" : detail;
+        if (hint != null && !hint.trim().isEmpty()) {
+            secondary = secondary.isEmpty() ? ("建议：" + hint) : (secondary + "\n建议：" + hint);
+        }
+        if (!secondary.isEmpty()) {
             TextView d = new TextView(ctx);
-            d.setText(detail);
+            d.setText(secondary);
             d.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
             d.setTextColor(secondary(ctx));
             right.addView(d);
@@ -189,7 +320,7 @@ public final class RemoteCardView {
     private static LinearLayout message(Context ctx, Map<?, ?> m) {
         LinearLayout line = new LinearLayout(ctx);
         line.setOrientation(LinearLayout.HORIZONTAL);
-        line.setPadding(0, dp(ctx, 2), 0, dp(ctx, 2));
+        line.setPadding(0, dp(ctx, 4), 0, dp(ctx, 4));
 
         String role = str(m.get("role"));
         boolean user = "user".equals(role);
@@ -200,15 +331,23 @@ public final class RemoteCardView {
         TextView chip = new TextView(ctx);
         chip.setText(who);
         chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        chip.setTextColor(user ? 0xFF1565C0 : 0xFF6A1B9A);
+        chip.setTextColor(user ? accent(ctx) : tertiary(ctx));
         line.addView(chip);
 
         TextView text = new TextView(ctx);
         text.setText(str(m.get("text")));
         text.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         text.setTextColor(primary(ctx));
+        // 预览 3 行；点一下展开全文（时间线在手机上常常只有半句话，旧实现永远看不全）
         text.setMaxLines(3);
         text.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        text.setClickable(true);
+        text.setOnClickListener(v -> {
+            boolean collapsed = text.getMaxLines() == 3;
+            text.setMaxLines(collapsed ? Integer.MAX_VALUE : 3);
+            text.setEllipsize(collapsed ? null : android.text.TextUtils.TruncateAt.END);
+            text.invalidate();
+        });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         lp.leftMargin = dp(ctx, 8);
         line.addView(text, lp);
@@ -225,6 +364,11 @@ public final class RemoteCardView {
         return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, ctx.getResources().getDisplayMetrics()));
     }
 
+    private static boolean dark(Context ctx) {
+        int mode = ctx.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        return mode == Configuration.UI_MODE_NIGHT_YES;
+    }
+
     private static int themeColor(Context ctx, int attr, int fallback) {
         TypedValue tv = new TypedValue();
         if (ctx.getTheme().resolveAttribute(attr, tv, true)) {
@@ -234,23 +378,42 @@ public final class RemoteCardView {
         return fallback;
     }
 
+    /** 卡片底色：走主题（暗色下不能再用半透明黑） */
+    private static int surface(Context ctx) {
+        int attr = com.google.android.material.R.attr.colorSurfaceVariant;
+        return themeColor(ctx, attr, dark(ctx) ? 0x1FFFFFFF : 0x0A000000);
+    }
+
+    private static int outline(Context ctx) {
+        int attr = com.google.android.material.R.attr.colorOutline;
+        return themeColor(ctx, attr, dark(ctx) ? 0x33FFFFFF : 0x1A000000);
+    }
+
     private static int primary(Context ctx) {
-        return themeColor(ctx, android.R.attr.textColorPrimary, 0xFF222222);
+        return themeColor(ctx, android.R.attr.textColorPrimary, dark(ctx) ? 0xFFEEEEEE : 0xFF222222);
     }
 
     private static int secondary(Context ctx) {
-        return themeColor(ctx, android.R.attr.textColorSecondary, 0xFF777777);
+        return themeColor(ctx, android.R.attr.textColorSecondary, dark(ctx) ? 0xFFAAAAAA : 0xFF777777);
     }
 
-    private static int okColor() {
-        return 0xFF2E7D32;
+    private static int accent(Context ctx) {
+        return themeColor(ctx, com.google.android.material.R.attr.colorPrimary, 0xFF1565C0);
     }
 
-    private static int errColor() {
-        return 0xFFC62828;
+    private static int tertiary(Context ctx) {
+        return themeColor(ctx, com.google.android.material.R.attr.colorTertiary, 0xFF6A1B9A);
     }
 
-    private static int warnColor() {
-        return 0xFFF9A825;
+    private static int okColor(Context ctx) {
+        return dark(ctx) ? 0xFF81C784 : 0xFF2E7D32;
+    }
+
+    private static int errColor(Context ctx) {
+        return themeColor(ctx, com.google.android.material.R.attr.colorError, 0xFFC62828);
+    }
+
+    private static int warnColor(Context ctx) {
+        return dark(ctx) ? 0xFFFFD54F : 0xFFF9A825;
     }
 }

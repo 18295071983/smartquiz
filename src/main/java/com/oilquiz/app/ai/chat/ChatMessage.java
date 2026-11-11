@@ -419,6 +419,104 @@ public class ChatMessage {
         roundSnapshots.add(snapshot);
     }
 
+    /**
+     * 审批 / 人机确认请求（2026-11-12）。
+     *
+     * <p>以前审批是"旁路弹窗"：电脑端弹、手机端弹，时间线里没有记录，用户滑上去就再也找不到
+     * 当时批了什么。这里把它落成消息的一部分，由 {@link com.oilquiz.app.ai.chat.turn.AssistantTurn}
+     * 投影成 {@code approval} part（渲染器 {@code ApprovalPartRenderer} 已有，缺的正是生产者），
+     * 于是审批与它所属的那一步正文/工具在同一个时间线里、可回溯、可点。</p>
+     */
+    public java.util.List<ApprovalRequest> approvals;
+
+    /** 一条审批请求；{@code status} 取值见 {@code AssistantTurn.Part.APPROVAL_*}。 */
+    public static class ApprovalRequest {
+        /** 电脑端/引擎的审批 id（回传时用它） */
+        public String id;
+        /** 关联的工具调用 id（可空） */
+        public String toolCallId;
+        /** 权限名（如 write_file / shell），渲染为"请求权限：X" */
+        public String permission;
+        /** 说明文案（工具参数摘要 / 命令 / 原因） */
+        public String prompt;
+        /** pending / approved / denied / expired */
+        public String status;
+        /** 归属轮次（1 基；0 = 未定位，末尾追加） */
+        public int round;
+        public long timestamp;
+        /** 来源：dsh（电脑端）/ local（本机引擎）；决定决策回调往哪送 */
+        public String source;
+
+        public ApprovalRequest() {
+        }
+
+        public ApprovalRequest(String id, String toolCallId, String permission, String prompt,
+                               String status, int round, long timestamp, String source) {
+            this.id = id;
+            this.toolCallId = toolCallId;
+            this.permission = permission;
+            this.prompt = prompt;
+            this.status = status;
+            this.round = round;
+            this.timestamp = timestamp;
+            this.source = source;
+        }
+
+        public String partId() {
+            return "approval:" + (id == null ? "" : id);
+        }
+
+        public boolean isPending() {
+            return status == null || status.isEmpty() || "pending".equals(status);
+        }
+    }
+
+    /**
+     * 人工问答（2026-11-12）：agent 用 ask_user_question 停下来等人回答。
+     *
+     * <p>以前手机只显示"去电脑上回答"；现在落成时间线里的问答卡（选项/多选/自由文本），
+     * 答案经 {@code /v2/answer} 回传（网关 pending 或 continued 两种入口都支持）。</p>
+     */
+    public java.util.List<QuestionRequest> questions;
+
+    /** 一条待回答的问题；{@code options} 为 [{label,description}] 的 JSON 数组。 */
+    public static class QuestionRequest {
+        /** 问题 id（同一次 ask 里唯一；回答批次靠它路由） */
+        public String id;
+        /** ask 的工具调用 id（continued 回答需要） */
+        public String callId;
+        /** 这次 ask 的网关事件 id（阻塞式问题用它回传；可空） */
+        public String batchId;
+        /** 问题正文 */
+        public String question;
+        /** 补充说明 */
+        public String detail;
+        /** 可选标题 */
+        public String header;
+        /** 选项 JSON 数组；空 = 自由文本 */
+        public String options;
+        public boolean multiSelect;
+        /** pending / answered / expired */
+        public String status;
+        /** 已选标签（JSON 数组字符串）或自由文本，用于"已回答"回显 */
+        public String answer;
+        /** 归属轮次（1 基；0 = 末尾） */
+        public int round;
+        public long timestamp;
+
+        public QuestionRequest() {
+        }
+
+        public String partId() {
+            String key = callId == null || callId.isEmpty() ? batchId : callId;
+            return "question:" + (key == null ? "" : key);
+        }
+
+        public boolean isPending() {
+            return status == null || status.isEmpty() || "pending".equals(status);
+        }
+    }
+
     /** 系统消息动作载荷（如本地Agent拦截时保存的原始问题，供"强行执行"按钮重发），仅运行时使用 */
     public String actionPayload;
 
