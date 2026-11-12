@@ -1471,7 +1471,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /** 复制：剥离组件标记后的可读文本 */
     private void doCopy(android.content.Context ctx, ChatMessage message) {
         if (message == null) return;
-        String exportContent = stripComponentMarkersForExport(message.content);
+        String exportContent = stripComponentMarkersForExport(readableText(message));
         copyToClipboard(ctx, exportContent);
         if (actionClickListener != null) {
             actionClickListener.onAction(ChatMessage.Action.copy(exportContent));
@@ -1479,9 +1479,33 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     /** 朗读 / 停止朗读（状态由 Activity 回写 speakingMessageId 驱动） */
+    /**
+     * 取消息的"可朗读/可复制正文"。
+     *
+     * <p>电脑端（DSH）消息的正文由投影写进 {@code roundSnapshots}，某些路径下
+     * {@code message.content} 是空的——直接拿 content 去朗读/分享就是空字符串。</p>
+     */
+    private static String readableText(ChatMessage m) {
+        if (m == null) return "";
+        String c = m.content == null ? "" : m.content.trim();
+        if (!c.isEmpty()) return c;
+        if (m.roundSnapshots != null) {
+            StringBuilder sb = new StringBuilder();
+            for (ChatMessage.RoundSnapshot s : m.roundSnapshots) {
+                if (s == null || s.content == null) continue;
+                String t = s.content.trim();
+                if (t.isEmpty()) continue;
+                if (sb.length() > 0) sb.append("\n\n");
+                sb.append(t);
+            }
+            if (sb.length() > 0) return sb.toString();
+        }
+        return c;
+    }
+
     private void doSpeak(android.content.Context ctx, ChatMessage message) {
         if (message == null) return;
-        String exportContent = stripComponentMarkersForExport(message.content);
+        String exportContent = stripComponentMarkersForExport(readableText(message));
         if (actionClickListener != null) {
             actionClickListener.onAction(ChatMessage.Action.speak(message.id, exportContent));
         }
@@ -1493,8 +1517,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /** 分享（沿用旧口径：同时派发 copy 的埋点，不改语义） */
     private void doShare(android.content.Context ctx, ChatMessage message) {
         if (message == null) return;
-        String exportContent = stripComponentMarkersForExport(message.content);
-        shareText(ctx, message.content);
+        String text = readableText(message);
+        String exportContent = stripComponentMarkersForExport(text);
+        shareText(ctx, text);
         if (actionClickListener != null) {
             actionClickListener.onAction(ChatMessage.Action.copy(exportContent));
         }
