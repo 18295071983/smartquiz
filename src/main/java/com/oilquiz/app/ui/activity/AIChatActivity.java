@@ -13228,6 +13228,13 @@ public class AIChatActivity extends BaseActivity {
                 public void onState(java.util.Map<String, Object> state) {
                     runOnUiThread(() -> {
                         refreshRemoteDshBar();
+                        // 连接即同步标题：state 里带的是电脑端那条会话的标题，
+                        // 重装/重开后本地会话没标题时，别让顶栏退化成「AI 对话」
+                        Object title = state.get("title");
+                        if (title != null && !String.valueOf(title).trim().isEmpty()) {
+                            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateTitle(AIChatActivity.this,
+                                    String.valueOf(title).trim());
+                        }
                         // 会话身份刚由电脑下发：现在才值得拉前台服务（之前可能没有 target）
                         startRemoteSyncService();
                     });
