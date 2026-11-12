@@ -13770,6 +13770,52 @@ public class AIChatActivity extends BaseActivity {
         }
         boolean ok = false;
         String text = "";
+        // 轻量 UI 动作不是 AIToolManager 的注册工具，先在这里原生处理（2026-11-12）。
+        String title = params.get("title") == null ? "" : String.valueOf(params.get("title"));
+        String body = params.get("text") != null ? String.valueOf(params.get("text"))
+                : (params.get("content") == null ? "" : String.valueOf(params.get("content")));
+        if ("toast".equals(tool) || "dialog".equals(tool)
+                || "notification".equals(tool) || "reminder".equals(tool)) {
+            final String fTitle = title.isEmpty() ? "来自电脑端" : title;
+            final String fBody = body;
+            final String fTool = tool;
+            runOnUiThread(() -> {
+                if ("toast".equals(fTool)) {
+                    showToast(fBody.isEmpty() ? fTitle : fBody);
+                } else if ("dialog".equals(fTool)) {
+                    new android.app.AlertDialog.Builder(AIChatActivity.this)
+                            .setTitle(fTitle)
+                            .setMessage(fBody)
+                            .setPositiveButton("知道了", null)
+                            .show();
+                } else {
+                    android.app.NotificationManager nm = (android.app.NotificationManager)
+                            getSystemService(NOTIFICATION_SERVICE);
+                    if (nm != null) {
+                        String ch = "dsh_cmd";
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            nm.createNotificationChannel(new android.app.NotificationChannel(
+                                    ch, "电脑端消息", android.app.NotificationManager.IMPORTANCE_DEFAULT));
+                        }
+                        android.app.Notification.Builder b = android.os.Build.VERSION.SDK_INT
+                                >= android.os.Build.VERSION_CODES.O
+                                ? new android.app.Notification.Builder(this, ch)
+                                : new android.app.Notification.Builder(this);
+                        b.setContentTitle(fTitle).setContentText(fBody)
+                                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                                .setAutoCancel(true);
+                        nm.notify((int) (System.currentTimeMillis() & 0xFFFFFF), b.build());
+                    }
+                }
+            });
+            try {
+                com.oilquiz.app.ai.tool.RemoteDshTool.ackCommand(
+                        AIChatActivity.this, id, true, tool + " shown");
+            } catch (Exception ignored) {
+                // 回执失败不影响本机结果
+            }
+            return;
+        }
         try {
             com.oilquiz.app.ai.tool.AIToolResult r = com.oilquiz.app.ai.tool.AIToolManager
                     .getInstance(AIChatActivity.this).executeTool(tool, params);

@@ -322,7 +322,8 @@ public final class RemoteConnection {
     private void open(String sessionId, int since) {
         closeChannel();
         sid = sessionId;
-        startCommandPoller();
+        // 反向指令统一由 AIChatActivity 的 executeRemoteCommand 处理（它走完整 AIToolManager
+        // 管线，ui_component 等能真正生效）。这里不再起第二套轮询，避免两边抢指令。
         Log.i(TAG, "[DSH] open sid=" + sessionId + " since=" + since);
         channel = new RemoteChannel(app, sessionId, since, new RemoteChannel.Listener() {
             @Override
