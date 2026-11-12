@@ -471,33 +471,6 @@ public class RemoteDshTool implements AITool {
         prefsOf(c).edit().putInt(KEY_TRANSPORT_SEQ + sid, seq).apply();
     }
 
-    /**
-     * @deprecated 模式已收敛。仅保留常量与 getMode 供旧调用点编译通过；
-     * 现在永远返回 auto —— 执行位置由电脑端按"会话是否 live"决定。
-     */
-    @Deprecated
-    public static final String MODE_AUTO = "auto";
-
-    /** @deprecated 见 {@link #MODE_AUTO} */
-    @Deprecated
-    public static final String MODE_DIRECT = "direct";
-
-    /** @deprecated 见 {@link #MODE_AUTO} */
-    @Deprecated
-    public static final String MODE_SYNC = "sync";
-
-    /** @deprecated 模式已收敛，恒为 auto。 */
-    @Deprecated
-    public static String getMode(Context c) {
-        return MODE_AUTO;
-    }
-
-    /** @deprecated 模式已收敛：不再落盘，调用无副作用。 */
-    @Deprecated
-    public static void setMode(Context c, String mode) {
-        // no-op：执行位置由服务端决定
-    }
-
     /** 同步目标：= 唯一会话身份（旧名保留给调用点） */
     public static String getSyncTarget(Context c) {
         return canonicalSessionId(c);
