@@ -13297,7 +13297,63 @@ public class AIChatActivity extends BaseActivity {
 
     private com.oilquiz.app.ai.tool.RemoteConnection.Listener dshConnListener;
 
+    /**
+     * 一次性清理旧的 DSH 镜像历史（2026-11-12）。
+     *
+     * <p>老消息里存的是当时的 components（工具状态还是 {@code running}），重建出来就是
+     * 一片"正在运行 X"，改渲染逻辑也救不回来 —— 用户确认这些老消息不要了。这里只清
+     * <b>由电脑端投影出来的</b>消息（组件 id 以 {@code dsh-} 开头，或组件类型是 dsh_*），
+     * 本地自己产生的对话不受影响。</p>
+     *
+     * <p>用 SharedPreferences 标记只跑一次，避免每次进页面都删。</p>
+     */
+    private void purgeLegacyDshHistoryOnce() {
+        try {
+            android.content.SharedPreferences sp =
+                    getSharedPreferences("dsh_resync", MODE_PRIVATE);
+            if (sp.getBoolean("purged_v1", false)) return;
+            if (chatHistory == null || chatHistory.isEmpty()) return;
+            java.util.List<ChatMessage> keep = new java.util.ArrayList<>();
+            int removed = 0;
+            for (ChatMessage m : chatHistory) {
+                if (isDshMirrorMessage(m)) {
+                    removed += 1;
+                    continue;
+                }
+                keep.add(m);
+            }
+            sp.edit().putBoolean("purged_v1", true).apply();
+            if (removed == 0) return;
+            chatHistory.clear();
+            chatHistory.addAll(keep);
+            dshMirrorMessage = null;
+            dshLiveMessage = null;
+            dshTimeline = new com.oilquiz.app.ai.remote.DshTimeline();
+            dshComponentIds.clear();
+            dshLastSeq = -1;
+            if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
+            saveHistoryAsync();
+            android.util.Log.i("DshProbe", "[purge] removed legacy DSH messages=" + removed);
+        } catch (Throwable t) {
+            android.util.Log.w("DshProbe", "[purge] failed: " + t);
+        }
+    }
+
+    /** 这条消息是不是电脑端投影出来的（组件 id 以 dsh- 开头，或类型是 dsh_* 系列）。 */
+    private static boolean isDshMirrorMessage(ChatMessage m) {
+        if (m == null || m.components == null || m.components.isEmpty()) return false;
+        for (com.oilquiz.app.ai.chat.component.ComponentData c : m.components) {
+            if (c == null) continue;
+            String type = c.type == null ? "" : c.type;
+            if (type.startsWith("dsh_")) return true;
+            String id = c.id == null ? "" : c.id;
+            if (id.startsWith("dsh-")) return true;
+        }
+        return false;
+    }
+
     private void attachDshConnection() {
+        purgeLegacyDshHistoryOnce();
         com.oilquiz.app.ai.tool.RemoteConnection conn =
                 com.oilquiz.app.ai.tool.RemoteConnection.get(this);
         if (dshConnListener == null) {
