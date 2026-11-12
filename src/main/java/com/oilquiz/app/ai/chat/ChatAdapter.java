@@ -3341,6 +3341,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (holder.contentHost == null) {
             return false;
         }
+        // 长按菜单（复制/引用/详情/重新渲染对话）以前只挂在 legacy 绑定路径里，
+        // parts 接管的气泡（DSH 同步过来的消息全走这条）根本没有长按监听 —— 用户长按没反应。
+        // 这里在接管路径上也挂一遍；legacy 分支自己还会再挂（幂等，重复设置无副作用）。
+        setupItemViewInteraction(holder.itemView, message);
         // 能力覆盖闸门：先构建 parts（fromMessageForStreaming/Parts，不改 live assistantTurn）并判定
         // ① 每个 part 都有注册渲染器；② 只接管 allowed 名单里的类型（P3f–P3j 已逐类复刻并放开：
         //    text/reasoning/tool_call/tool_result/tool_group/data，见下方循环）；
