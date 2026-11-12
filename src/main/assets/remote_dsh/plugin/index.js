@@ -3458,6 +3458,27 @@ export function apply(ctx, config) {
     const action = typeof body.action === 'string' && body.action ? body.action : 'prompt';
 
     try {
+      if (action === 'new_session') {
+        // 手机点「新建对话」：在电脑端真正建一条会话，并绑定为跟随会话（@code:follow）。
+        // 和 action=start 的区别：start 只发手机侧句柄、不建电脑会话；new_session 会建。
+        if (!ctx.agents || !ctx.sessions) {
+          return sendJson(res, 503, { ok: false, action, error: 'agents/sessions 服务不可用' });
+        }
+        const sid = `session-${randomBytes(16).toString('hex')}`;
+        let handle;
+        try {
+          handle = await ctx.agents.create(await createInput(sid));
+        } catch (e) {
+          return sendJson(res, 500, { ok: false, action, error: 'create_failed: ' + String(e?.message ?? e) });
+        }
+        // 保留句柄：inject 走 ctx.agents.get 时能直接命中这条新会话（不再冷启动/resume）
+        handles.set(sid, handle);
+        rememberWarm(sid, handle);
+        sessionBinding.set('follow', sid);
+        let title = '';
+        try { title = String(ctx.sessions.get(sid)?.header?.title ?? ''); } catch { /* 还没标题 */ }
+        return sendJson(res, 200, { ok: true, action: 'new_session', session_id: sid, title });
+      }
       if (action === 'start') {
         const sid = `smartquiz-${randomBytes(6).toString('hex')}`;
         // ★ CLI 模式下**不要**在宿主里建 agent：那会落一条空的 `smartquiz-*` 会话，
