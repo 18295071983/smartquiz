@@ -13658,20 +13658,20 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 同一条 DSH 会话**始终复用同一条镜像气泡**（2026-11-12 修复）。
+     * 每个 DSH turn 一条镜像气泡（2026-11-12 二次修正）。
      *
-     * <p>以前是"每个 turn 新建气泡 + 新建 DshTimeline + dshLastSeq 归 -1"：上一轮气泡
-     * 在 turn 结束那一刻就冻结了，之后到达的 {@code tool/result}、{@code job/settled}
-     * 即使被处理，写的是新气泡的时间线 —— 旧气泡的卡片永远停在当时的「运行中」，
-     * 正文也会缺段（用户反馈"状态没翻、历史和电脑端对不上"就是这条）。
-     * </p>
+     * <p>曾一度改成"整条会话复用同一条气泡"，结果问答配不上：同一条气泡里既有上一轮的
+     * 回复又有下一轮的回复，用户消息插进来只能按位置猜锚点（用户反馈"电脑端问题和回复
+     * 没有配对"）。渲染器是按"一条消息 = 一轮问答"设计的，跨轮复用必然串行。</p>
      *
-     * <p>现在轮次只作为时间线内部的分段（{@code DshTimeline} 本来就按 turn 分组），
-     * 气泡与时间线跨轮复用，游标也不再随气泡重置。</p>
+     * <p>现在：turn 变化就新建气泡（各自的正文/工具/卡片），时间线也跟着换成本轮的；
+     * 上一轮气泡冻结但它那一轮的结果已经基本到齐（结果晚到的会以孤儿兜底落成已完成卡）。</p>
      */
     private ChatMessage ensureMirrorBubble(String turn) {
         if (dshMirrorMessage != null && chatHistory != null
-                && chatHistory.contains(dshMirrorMessage)) {
+                && chatHistory.contains(dshMirrorMessage)
+                && (turn == null || turn.isEmpty() || dshMirrorTurn == null
+                    || dshMirrorTurn.isEmpty() || turn.equals(dshMirrorTurn))) {
             if (turn != null && !turn.isEmpty()) dshMirrorTurn = turn;
             return dshMirrorMessage;
         }
