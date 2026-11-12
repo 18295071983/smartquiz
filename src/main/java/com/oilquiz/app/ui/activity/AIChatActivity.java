@@ -13339,6 +13339,15 @@ public class AIChatActivity extends BaseActivity {
             if (!"stream/delta".equals(type)) {
                 AppLogger.ai(TAG, "[DSH] 通道事件 " + type + " seq=" + ev.optInt("seq", -1));
             }
+            // 幂等：补缺口和实时通道可能重叠回放同一条（实测 turn/end 1765 来了两次，
+            // 第二次会 ensureMirrorBubble 出一个空气泡）
+            int evSeq = ev.optInt("seq", -1);
+            if (evSeq > 0 && evSeq <= dshLastSeq) return;
+            // 这些事件不产生正文，不能拿去建镜像气泡（否则一条 user/message 就多一个空泡）
+            if ("user/message".equals(type) || "job/registered".equals(type) || "job/settled".equals(type)
+                    || type.startsWith("session-log-")) {
+                return;
+            }
             // 通道控制帧（state/view/pulse）由连接管理器消费，不进时间线
             if ("state".equals(type) || "view".equals(type) || "pulse".equals(type)
                     || "ready".equals(type)) {
