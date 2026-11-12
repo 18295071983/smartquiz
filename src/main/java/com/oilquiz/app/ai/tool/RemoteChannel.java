@@ -101,7 +101,7 @@ public final class RemoteChannel {
         while (!closed) {
             final boolean[] gotAnything = {false};
             try {
-                RemoteDshTool.subscribeEvents(app, sid, lastSeq, 300, true, 5000, RemoteCaps.csv(),
+                RemoteDshTool.subscribeEvents(app, sid, lastSeq, 300, true, 5000, (String) null,
                         new RemoteDshTool.DshEventListener() {
                             @Override
                             public void onReady(int seq) {

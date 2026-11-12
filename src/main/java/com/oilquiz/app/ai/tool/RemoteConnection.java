@@ -154,6 +154,7 @@ public final class RemoteConnection {
     private void open(String sessionId, int since) {
         closeChannel();
         sid = sessionId;
+        Log.i(TAG, "[DSH] open sid=" + sessionId + " since=" + since);
         channel = new RemoteChannel(app, sessionId, since, new RemoteChannel.Listener() {
             @Override
             public void onState(Map<String, Object> state) {
@@ -194,6 +195,7 @@ public final class RemoteConnection {
             @Override
             public void onConnection(boolean up, String detail) {
                 online = up;
+                Log.i(TAG, "[DSH] connection=" + up + " " + detail);
                 deliver(l -> l.onConnection(up, detail));
             }
         });

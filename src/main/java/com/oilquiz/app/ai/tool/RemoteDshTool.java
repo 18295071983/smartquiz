@@ -758,9 +758,16 @@ public class RemoteDshTool implements AITool {
             if ("event".equals(type)) {
                 org.json.JSONObject ev = msg.optJSONObject("event");
                 if (ev != null) {
+                    String et = ev.optString("type", "");
+                    if (!"stream/delta".equals(et)) {
+                        // 诊断：持久事件是否真的到了手机（deltas 太多不打印）
+                        Log.i(TAG, "[SSE] event " + et + " seq=" + ev.optInt("seq", -1));
+                    }
                     int s = ev.optInt("seq", cursor);
                     if (s > cursor) cursor = s;
                     listener.onEvent(ev);
+                } else {
+                    Log.w(TAG, "[SSE] event 帧缺少 event 字段 len=" + raw.length());
                 }
                 return cursor;
             }
@@ -786,6 +793,9 @@ public class RemoteDshTool implements AITool {
             }
             return cursor;
         } catch (Exception e) {
+            // 诊断：大帧被隧道截断/拼坏时，这里以前是完全静默的
+            Log.w(TAG, "[SSE] 解析失败 len=" + (raw == null ? 0 : raw.length())
+                    + " err=" + e.getMessage() + " head=" + (raw == null ? "" : raw.substring(0, Math.min(120, raw.length()))));
             return cursor;   // 坏事件跳过
         }
     }

@@ -9168,6 +9168,14 @@ public class AIChatActivity extends BaseActivity {
 
     private int repairOrphanTurns() {
         if (chatHistory == null || chatHistory.isEmpty()) return 0;
+        // 连着电脑时回复走 /events 通道，可能比本地"孤儿判定"晚到；
+        // 这时补「未生成回复」会凭空多一条假占位（实测 14:41 / 14:55 各一条）。
+        // 注意有 3 处直接调用本方法，所以判断必须放在这里，而不只是 scheduleOrphanRepair。
+        if (com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
+                && com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)
+                && !com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this).isEmpty()) {
+            return 0;
+        }
         if (isGenerating || currentStreamingMessageId != null) return 0;
         java.util.List<ChatMessage> added = ChatTurnPairing.insertMissingReplies(
                 chatHistory, ChatTurnPairing.ORPHAN_REPLY_TEXT);
@@ -13328,6 +13336,9 @@ public class AIChatActivity extends BaseActivity {
         if (ev == null) return;
         try {
             String type = ev.optString("type", "");
+            if (!"stream/delta".equals(type)) {
+                AppLogger.ai(TAG, "[DSH] 通道事件 " + type + " seq=" + ev.optInt("seq", -1));
+            }
             // 通道控制帧（state/view/pulse）由连接管理器消费，不进时间线
             if ("state".equals(type) || "view".equals(type) || "pulse".equals(type)
                     || "ready".equals(type)) {
@@ -13351,8 +13362,9 @@ public class AIChatActivity extends BaseActivity {
                 com.oilquiz.app.ai.tool.RemoteDshTool.setLastSeq(this, chanSid, seq);
             }
             dshLastEventAt = System.currentTimeMillis();
-        } catch (Throwable ignored) {
-            // 单条坏事件不拖垮整条通道
+        } catch (Throwable t) {
+            // 单条坏事件不拖垮整条通道（但要能看到是什么坏了，别静默）
+            AppLogger.aiW(TAG, "[DSH] 事件处理失败: " + t);
         }
     }
 
