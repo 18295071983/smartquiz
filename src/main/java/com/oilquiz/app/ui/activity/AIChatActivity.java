@@ -13616,12 +13616,17 @@ public class AIChatActivity extends BaseActivity {
             long time = ev.optLong("time", System.currentTimeMillis());
             if (hasUserMessageNear(text, time)) return;
             // 顺序修正：token/工具事件是实时广播，user/message 走 500ms 轮询，
-            // 助手气泡可能先建出来。若最新镜像气泡是在这条消息之后创建的，
-            // 说明它属于这一轮 —— 用户消息必须插在它前面，否则回复跑到问题上面。
+            // 助手气泡可能先建出来。若镜像气泡还在列表末尾，用户消息必须插在它前面，
+            // 否则回复跑到问题上面（真机现象：电脑端发消息，回复显示在消息上方）。
+            //
+            // 注意：不能再用时间戳判断锚点 —— 镜像气泡已经改为**跨轮复用**，
+            // 它的 timestamp 停留在第一轮，永远早于新消息，条件恒为 false。
+            // 判据改成"它是不是当前最后一条"，与时间戳无关。
             ChatMessage anchor = null;
             if (dshMirrorMessage != null && chatHistory != null
+                    && !chatHistory.isEmpty()
                     && chatHistory.contains(dshMirrorMessage)
-                    && dshMirrorMessage.timestamp >= time - 1000L) {
+                    && chatHistory.get(chatHistory.size() - 1) == dshMirrorMessage) {
                 anchor = dshMirrorMessage;
             }
             insertUserMessageBefore(text, anchor);
