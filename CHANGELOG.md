@@ -1,5 +1,27 @@
 # 变更日志
 
+## [2026-11-12] feat(remote_dsh)：打通电脑端 → 手机的反向指令通道
+
+用户口径：「你可以使用手机客户端的工具吗」「接了以后你会用吗」——要求一次性做好。
+
+**插件侧**（`tools/dsh-plugin-smartquiz-remote/index.js`）
+- 新增 `POST /cmd {tool,args}` 入队（校验白名单，返回 `cmd_id`）、`/cmd/poll`、`/cmd/ack`、`/cmd/result`
+- 补上 `/session action=cmd_poll` / `cmd_ack`——App 侧 `RemoteDshTool.pollCommands/ackCommand`
+  早就按这两个 action 写好了，插件一直没实现，这条线此前是断的
+- 白名单：`ui_component` / `toast` / `dialog` / `notification` / `reminder`
+
+**手机侧**
+- 反向指令统一由 `AIChatActivity.executeRemoteCommand` 执行（走完整 `AIToolManager` 管线，
+  `ui_component` 等真工具能生效）；`toast`/`dialog`/`notification`/`reminder` 在其中原生处理
+- 去掉 `RemoteConnection` 里重复的轮询（两套会抢指令）
+- 回执带结果文案（如 `toast shown`），`/cmd/result` 不再是空串
+
+**边界**：只做纯 UI / 轻状态，不碰文件、不跑命令、不改权限；执行始终在手机侧完成。
+
+**实测**：`dialog` 已目视确认（中文正常）、`notification` 回执 `done`，
+入队到回执约 4 秒（Activity 轮询间隔）。注意：执行器依赖聊天页存活，
+后台常驻需下沉到 `RemoteSyncService`。
+
 ## [2026-11-12] fix(remote_dsh)：审批/工具状态/历史同步全线修复 + DSH 原生卡片
 
 用户口径：「手机上点审批允许没有反应」「工具卡一直显示运行中」「历史和电脑端对不上，重进界面才好」。
