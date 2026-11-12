@@ -1502,10 +1502,55 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private void doRegenerate(android.content.Context ctx, ChatMessage message) {
         if (message == null) return;
+        // 电脑端（DSH）同步来的消息：重新生成必须在电脑端跑，不能交给本机引擎
+        // （否则手机上会用它自己的小模型"重新生成"，答非所问）。
+        // 做法：把这条消息之前的那句用户输入重新注入电脑端会话，由宿主 agent 重跑。
+        if (isDshMessage(message)) {
+            String prompt = lastUserPromptBefore(message);
+            if (!prompt.isEmpty()) {
+                final String text = prompt;
+                new Thread(() -> {
+                    try {
+                        String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(ctx);
+                        if (!target.isEmpty()) {
+                            com.oilquiz.app.ai.tool.RemoteDshTool.inject(ctx, target, text);
+                        }
+                    } catch (Exception ignored) {
+                        // 投递失败就让用户重试；不弹错也能从气泡状态看出来
+                    }
+                }, "dsh-regenerate").start();
+                return;
+            }
+        }
         if (actionClickListener != null) {
             actionClickListener.onAction(ChatMessage.Action.regenerate(message.id));
         }
         ComponentActions.dispatchChatAction(ctx, "regen:" + message.id);
+    }
+
+    /** 这条消息是不是电脑端（DSH）投影出来的。 */
+    private static boolean isDshMessage(ChatMessage m) {
+        if (m == null || m.components == null) return false;
+        for (com.oilquiz.app.ai.chat.component.ComponentData c : m.components) {
+            if (c == null) continue;
+            if (c.type != null && c.type.startsWith("dsh_")) return true;
+            if (c.id != null && c.id.startsWith("dsh-")) return true;
+        }
+        return false;
+    }
+
+    /** 取这条 AI 消息之前最近的一条用户输入（DSH 重新生成要用它重投）。 */
+    private String lastUserPromptBefore(ChatMessage message) {
+        if (messages == null || message == null) return "";
+        int idx = messages.indexOf(message);
+        if (idx < 0) idx = messages.size() - 1;
+        for (int i = idx - 1; i >= 0 && i < messages.size(); i -= 1) {
+            ChatMessage m = messages.get(i);
+            if (m == null || m.type != ChatMessage.MessageType.USER) continue;
+            String c = m.content == null ? "" : m.content.trim();
+            if (!c.isEmpty()) return c;
+        }
+        return "";
     }
 
     private void doNewChat(android.content.Context ctx) {
