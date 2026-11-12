@@ -516,6 +516,10 @@
         </provider>
 
         <!-- 远程同步前台服务：切后台/锁屏时继续收电脑端消息（dataSync 类型） -->
+        <receiver
+            android:name=".ai.tool.RemoteCmdActionReceiver"
+            android:exported="false" />
+
         <service
             android:name=".ai.tool.RemoteSyncService"
             android:exported="false"

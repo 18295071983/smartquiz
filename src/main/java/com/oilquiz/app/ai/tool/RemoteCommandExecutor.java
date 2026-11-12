@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Build;
 
 import java.util.Map;
@@ -29,6 +30,11 @@ public final class RemoteCommandExecutor {
      * @return 给电脑端看的结果文案
      */
     public static String execute(Context ctx, String tool, Map<String, Object> args) {
+        return execute(ctx, tool, args, null);
+    }
+
+    /** 带指令 id 的重载：通知按钮回传需要它。 */
+    public static String execute(Context ctx, String tool, Map<String, Object> args, String cmdId) {
         if (ctx == null || tool == null) return "no context";
         String title = str(args == null ? null : args.get("title"));
         String text = args == null ? "" : str(args.get("text") != null
@@ -44,15 +50,25 @@ public final class RemoteCommandExecutor {
             case "dialog":
             case "ui_component":
                 // 后台没有 Activity：退化成通知，至少让人能看到
-                return notify(ctx, title.isEmpty() ? "来自电脑端" : title, text);
+                return notify(ctx, title.isEmpty() ? "来自电脑端" : title, text, cmdId, args == null ? null : args.get("actions"));
             case "notification":
             case "reminder":
             default:
-                return notify(ctx, title.isEmpty() ? "来自电脑端" : title, text);
+                return notify(ctx, title.isEmpty() ? "来自电脑端" : title, text, cmdId, args == null ? null : args.get("actions"));
         }
     }
 
     private static String notify(Context ctx, String title, String text) {
+        return notify(ctx, title, text, null, null);
+    }
+
+    /**
+     * 发通知；带 actions 时挂按钮，点了把选择回传给电脑端（见 {@link RemoteCmdActionReceiver}）。
+     *
+     * @param cmdId   反向指令 id（按钮回传时带上）
+     * @param actions 形如 [{"label":"同意","value":"yes"}]，可为空
+     */
+    static String notify(Context ctx, String title, String text, String cmdId, Object actions) {
         try {
             NotificationManager nm =
                     (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -69,7 +85,30 @@ public final class RemoteCommandExecutor {
                     .setContentText(text == null ? "" : text)
                     .setSmallIcon(android.R.drawable.ic_dialog_info)
                     .setAutoCancel(true);
-            nm.notify((int) (System.currentTimeMillis() & 0xFFFFFF), b.build());
+            // 动作按钮：每个按钮一个广播，点了直接回传
+            if (actions instanceof java.util.List && cmdId != null && !cmdId.isEmpty()) {
+                int req = 0;
+                for (Object o : (java.util.List<?>) actions) {
+                    if (!(o instanceof Map)) continue;
+                    Map<?, ?> m = (Map<?, ?>) o;
+                    String label = str(m.get("label"));
+                    String value = str(m.get("value"));
+                    if (label.isEmpty()) continue;
+                    Intent it = new Intent(ctx, RemoteCmdActionReceiver.class);
+                    it.setAction(RemoteCmdActionReceiver.ACTION);
+                    it.putExtra(RemoteCmdActionReceiver.EXTRA_CMD_ID, cmdId);
+                    it.putExtra(RemoteCmdActionReceiver.EXTRA_VALUE, value);
+                    it.putExtra(RemoteCmdActionReceiver.EXTRA_LABEL, label);
+                    android.app.PendingIntent pi = android.app.PendingIntent.getBroadcast(
+                            ctx, req++, it,
+                            android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                                    | android.app.PendingIntent.FLAG_IMMUTABLE);
+                    b.addAction(new Notification.Action.Builder(null, label, pi).build());
+                }
+            }
+            nm.notify((int) (cmdId != null && !cmdId.isEmpty()
+                    ? (cmdId.hashCode() & 0xFFFFFF)
+                    : (System.currentTimeMillis() & 0xFFFFFF)), b.build());
             return "notification shown";
         } catch (Throwable t) {
             return "notify failed: " + t;

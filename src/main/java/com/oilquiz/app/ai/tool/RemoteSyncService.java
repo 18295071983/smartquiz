@@ -134,7 +134,7 @@ public class RemoteSyncService extends Service {
                             String result;
                             boolean ok = true;
                             try {
-                                result = RemoteCommandExecutor.execute(this, tool, args);
+                                result = RemoteCommandExecutor.execute(this, tool, args, id);
                             } catch (Throwable t) {
                                 ok = false;
                                 result = String.valueOf(t);
