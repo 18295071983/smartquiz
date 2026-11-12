@@ -10566,6 +10566,26 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
+     * 把镜像来的用户消息插到指定位置（anchor 之前）；anchor = null 时追加到末尾。
+     *
+     * <p>电脑端 user/message 走持久事件轮询，可能晚于实时广播的助手 token/工具事件到达，
+     * 导致助手气泡先建出来。这里把用户消息回插到该轮气泡之前，保证「问题在上、回复在下」。</p>
+     */
+    private void insertUserMessageBefore(String message, ChatMessage anchor) {
+        if (chatHistory == null) return;
+        ChatMessage msg = newUserMessageForTurn(message, null, false);
+        int at = chatHistory.size();
+        if (anchor != null) {
+            int idx = chatHistory.indexOf(anchor);
+            if (idx >= 0) at = idx;
+        }
+        chatHistory.add(at, msg);
+        if (chatAdapter != null) chatAdapter.notifyItemInserted(at);
+        scrollToBottom(true);
+        refreshSessionStats();
+    }
+
+    /**
      * 带思考过程的 AI 消息。
      *
      * 手机的消息流是 parts 架构（{@code ReasoningPartRenderer} 按 msg.thinkingContent
@@ -13421,7 +13441,16 @@ public class AIChatActivity extends BaseActivity {
             if (text.isEmpty()) return;
             long time = ev.optLong("time", System.currentTimeMillis());
             if (hasUserMessageNear(text, time)) return;
-            addUserMessage(text);
+            // 顺序修正：token/工具事件是实时广播，user/message 走 500ms 轮询，
+            // 助手气泡可能先建出来。若最新镜像气泡是在这条消息之后创建的，
+            // 说明它属于这一轮 —— 用户消息必须插在它前面，否则回复跑到问题上面。
+            ChatMessage anchor = null;
+            if (dshMirrorMessage != null && chatHistory != null
+                    && chatHistory.contains(dshMirrorMessage)
+                    && dshMirrorMessage.timestamp >= time - 1000L) {
+                anchor = dshMirrorMessage;
+            }
+            insertUserMessageBefore(text, anchor);
             saveHistoryAsync();
         } catch (Throwable t) {
             AppLogger.aiW(TAG, "[DSH] 镜像用户消息失败: " + t);
