@@ -3472,6 +3472,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     holder.partsContainer, partsRegistry, holder.partsHost);
         }
         holder.partsBinder.bind(partsTurn);
+        // 底部操作栏（复制 / 重新生成 / 更多）以前只在 legacy 绑定里接监听，
+        // parts 接管的气泡（DSH 同步消息全走这条）按钮是死的。这里补上：
+        // 完成态或失败可重试时显示，与 legacy 的同名判据保持一致。
+        boolean retryable = message.status == ChatMessage.MessageStatus.ERROR
+                || message.status == ChatMessage.MessageStatus.FAILED;
+        bindV2Actions(holder, message, message.isCompleted() || retryable);
         return true;
     }
 
