@@ -49,6 +49,7 @@ public class RemoteSyncService extends Service {
         }
         ensureChannel();
         startForeground(NOTIF_ID, buildNotification("正在连接电脑…"));
+        startReverseCommandPoller();
 
         final RemoteConnection conn = RemoteConnection.get(this);
         if (listener == null) {
@@ -86,12 +87,78 @@ public class RemoteSyncService extends Service {
 
     @Override
     public void onDestroy() {
+        cmdPolling = false;
         if (listener != null) {
             RemoteConnection.get(this).removeListener(listener);
             listener = null;
         }
         RemoteConnection.get(this).stop();
         super.onDestroy();
+    }
+
+    // ===== 反向指令轮询（电脑端 → 手机，2026-11-12 下沉到服务）=====
+    //
+    // 以前执行器在 AIChatActivity 里：App 切后台或页面销毁就收不到指令，
+    // "人不在手机旁"这个场景等于不成立。这里在服务层再起一条，
+    // 保证前台服务活着就能收。
+    //
+    // 与 Activity 侧执行器的分工：
+    //   · 聊天页在前台时由 Activity 执行（完整 AIToolManager 管线，ui_component 能真弹卡）
+    //   · 否则由本服务执行（toast / 通知；dialog 与 ui_component 退化为通知）
+    // pollCommands 取走即标 delivering，两边不会重复执行同一条。
+    private volatile boolean cmdPolling = false;
+    private Thread cmdThread;
+
+    private void startReverseCommandPoller() {
+        if (cmdPolling) return;
+        cmdPolling = true;
+        cmdThread = new Thread(() -> {
+            while (cmdPolling) {
+                try {
+                    JSONArray cmds = RemoteDshTool.pollCommands(this);
+                    if (cmds != null) {
+                        for (int i = 0; i < cmds.length(); i += 1) {
+                            JSONObject c = cmds.optJSONObject(i);
+                            if (c == null) continue;
+                            String id = c.optString("id", "");
+                            String tool = c.optString("tool", "");
+                            JSONObject a = c.optJSONObject("args");
+                            java.util.Map<String, Object> args = new java.util.HashMap<>();
+                            if (a != null) {
+                                java.util.Iterator<String> it = a.keys();
+                                while (it.hasNext()) {
+                                    String k = it.next();
+                                    args.put(k, a.opt(k));
+                                }
+                            }
+                            String result;
+                            boolean ok = true;
+                            try {
+                                result = RemoteCommandExecutor.execute(this, tool, args);
+                            } catch (Throwable t) {
+                                ok = false;
+                                result = String.valueOf(t);
+                            }
+                            try {
+                                RemoteDshTool.ackCommand(this, id, ok, result);
+                            } catch (Exception ignored) {
+                                // 回执失败：10 分钟后自然过期
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {
+                    // 单轮失败不退出
+                }
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }, "dsh-cmd-svc");
+        cmdThread.setDaemon(true);
+        cmdThread.start();
     }
 
     private static String textOf(JSONObject data) {
