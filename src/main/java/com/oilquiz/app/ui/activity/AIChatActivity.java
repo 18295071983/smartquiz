@@ -1503,9 +1503,12 @@ public class AIChatActivity extends BaseActivity {
                         }
                         finishAutoSpeak(msg);
                     }
-                    if (!dshSyncTarget.isEmpty() && dshLastSeq >= 0) {
-                com.oilquiz.app.ai.tool.RemoteDshTool.setLastSeq(AIChatActivity.this, dshSyncTarget, dshLastSeq);
-            }
+                    String cursorSid = !dshSyncTarget.isEmpty()
+                            ? dshSyncTarget
+                            : com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(AIChatActivity.this);
+                    if (!cursorSid.isEmpty() && dshLastSeq >= 0) {
+                        com.oilquiz.app.ai.tool.RemoteDshTool.setLastSeq(AIChatActivity.this, cursorSid, dshLastSeq);
+                    }
             saveHistoryAsync();
                 });
             }
@@ -9151,6 +9154,13 @@ public class AIChatActivity extends BaseActivity {
      */
     private void scheduleOrphanRepair() {
         if (messageList == null) return;
+        // 连着电脑时回复走 /events 通道，可能比本地"孤儿判定"晚到；
+        // 这时补「未生成回复」会凭空多一条假占位（实测 14:41 那条）。
+        if (com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
+                && com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)
+                && !com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this).isEmpty()) {
+            return;
+        }
         // 给正常 processChatMessage 同步创建 AI 占位留出时间；只有提前返回/真正没建
         // 占位时才补 ERROR 占位，避免和正在创建的 AI 抢位。
         messageList.postDelayed(this::repairOrphanTurns, 1500);
@@ -12783,6 +12793,10 @@ public class AIChatActivity extends BaseActivity {
     /** 当前同步目标会话 + 已成功投影落屏的事件序号（断点续传用） */
     private String dshSyncTarget = "";
     private int dshLastSeq = -1;
+    /** 最近一次收到通道事件的时间（补尾判断"静默"用） */
+    private long dshLastEventAt = 0;
+    /** 补尾重试次数（最多 3 次，避免无谓轮询） */
+    private int tailRepairAttempts = 0;
     /** 流式投影节流（token 增量） */
     private long dshLastProjectMs = 0;
     /** 日程变化提示节流 */
@@ -13229,6 +13243,8 @@ public class AIChatActivity extends BaseActivity {
             conn.start();
         }
         catchUpOnce();
+        // 断线/切页可能只收到半截：静默几秒后向电脑要一次全文，补尾巴
+        if (messageList != null) messageList.postDelayed(this::repairLastReplyTail, 3000);
     }
 
     private void detachDshConnection() {
@@ -13264,6 +13280,49 @@ public class AIChatActivity extends BaseActivity {
         }, "dsh-catchup-once").start();
     }
 
+    /**
+     * 补尾：通道断过/页面切走过时，只收到增量帧的最后一条回复会少一截
+     * （turn/end 和权威 assistant/message 没到）。向电脑要一次全文，
+     * 只在「当前气泡是它的前缀」时补上尾巴；正在出字时不动，稍后再试。
+     */
+    private void repairLastReplyTail() {
+        String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+        if (target.isEmpty()
+                || !com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
+                || !com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)) return;
+        // 还在收事件 → 让通道自己走完，过几秒再看
+        if (System.currentTimeMillis() - dshLastEventAt < 3000) {
+            if (tailRepairAttempts < 3) {
+                tailRepairAttempts += 1;
+                if (messageList != null) messageList.postDelayed(this::repairLastReplyTail, 4000);
+            }
+            return;
+        }
+        tailRepairAttempts = 0;
+        new Thread(() -> {
+            try {
+                final String full = com.oilquiz.app.ai.tool.RemoteDshTool.fetchLastAssistant(this, target);
+                if (full == null || full.trim().isEmpty()) return;
+                runOnUiThread(() -> applyTailRepair(full.trim()));
+            } catch (Exception ignored) { /* 电脑不可达：下次再补 */ }
+        }, "dsh-tail-repair").start();
+    }
+
+    /** 只补同一段回复被截断的情况：完整文本以已显示文本开头且更长 */
+    private void applyTailRepair(String full) {
+        ChatMessage live = dshLiveMessage;
+        if (live == null || chatHistory == null || !chatHistory.contains(live)) return;
+        String shown = live.content == null ? "" : live.content.trim();
+        if (shown.isEmpty()) return;                 // 没有可对照的，宁可不补
+        if (full.length() <= shown.length() || !full.startsWith(shown)) return;
+        int idx = chatHistory.indexOf(live);
+        live.content = full;
+        live.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.COMPLETED);
+        if (chatAdapter != null) chatAdapter.notifyItemChanged(idx);
+        saveHistoryAsync();
+        AppLogger.ai(TAG, "[DSH] 回复补尾 " + shown.length() + " → " + full.length());
+    }
+
     /** 通道事件 → 时间线：复用 applyDshEvent（durable 事件 + stream/delta 等合成事件） */
     private void onChannelEvent(org.json.JSONObject ev) {
         if (ev == null) return;
@@ -13284,10 +13343,14 @@ public class AIChatActivity extends BaseActivity {
             applyDshEvent(ev, live, idx, new long[]{0L});
             int seq = ev.optInt("seq", -1);
             String chanSid = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
-            if (seq > dshLastSeq && !chanSid.isEmpty()) {
-                dshLastSeq = seq;
+            if (seq > 0 && !chanSid.isEmpty()) {
+                if (seq > dshLastSeq) dshLastSeq = seq;
+                // 每个事件都落盘：切后台/被系统杀掉再回来，靠它补缺口。
+                // 原来只在 onPause 写，而且 dshSyncTarget 只有「手机发过消息」才有值 ——
+                // 光看电脑对话（镜像）时游标永远是 -1，补缺口直接 return，尾巴就丢了。
                 com.oilquiz.app.ai.tool.RemoteDshTool.setLastSeq(this, chanSid, seq);
             }
+            dshLastEventAt = System.currentTimeMillis();
         } catch (Throwable ignored) {
             // 单条坏事件不拖垮整条通道
         }
