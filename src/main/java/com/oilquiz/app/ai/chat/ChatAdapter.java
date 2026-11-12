@@ -122,6 +122,28 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private InferenceStateManager inferenceStateManager;
     private InferenceProgressUpdateListener inferenceProgressListener;
 
+    /**
+     * 强制整页重建（2026-11-12）：把 adapter 摘下来再挂回去，让 RecyclerView 丢弃全部
+     * ViewHolder —— 连 parts 指纹缓存一起失效，等价于"退出再进页面"，但不用离开当前页。
+     *
+     * <p>用途：气泡内容串位 / 顺序错乱时的手动兜底入口（长按消息 → 重新渲染对话）。</p>
+     */
+    public void forceRerender() {
+        RecyclerView rv = attachedRecyclerView;
+        if (rv == null) {
+            notifyDataSetChanged();
+            return;
+        }
+        RecyclerView.Adapter<?> current = rv.getAdapter();
+        if (current == null) {
+            notifyDataSetChanged();
+            return;
+        }
+        rv.setAdapter(null);
+        rv.setAdapter(current);
+        notifyDataSetChanged();
+    }
+
     @Override
     public void onAttachedToRecyclerView(@NonNull RecyclerView recyclerView) {
         super.onAttachedToRecyclerView(recyclerView);
@@ -1102,6 +1124,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             menu.getMenu().add(0, 5, 4, "🗑 删除");
         }
         menu.getMenu().add(0, 6, 5, "ℹ️ 详情");
+        // 手动重渲染（2026-11-12）：视图复用 / parts 缓存偶尔会让气泡内容串位，
+        // 以前只能退出再进页面。这里给一个就地重建的入口。
+        menu.getMenu().add(0, 9, 6, "🔄 重新渲染对话");
         // Agent 消息：额外提供"导出执行日志"和"复制步骤内容"
         if (message.agentMode && message.agentExecutionState != null) {
             menu.getMenu().add(0, 7, 6, "📄 导出执行日志 (JSON)");
@@ -1138,6 +1163,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 case 6:
                     actionClickListener.onAction(ChatMessage.Action.showDetail(msgId));
                     ComponentActions.dispatchChatAction(ctx, "detail:" + msgId);
+                    return true;
+                case 9:
+                    forceRerender();
                     return true;
                 case 7:
                     // 导出执行日志为 JSON
