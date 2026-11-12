@@ -989,7 +989,16 @@ export function apply(ctx, config) {
    * 泛洪保护：最多 50 条、10 分钟过期；执行结果回传后再由 PC 读取。
    */
   const cmdQueue = new Map();
-  const CMD_ALLOW = new Set(['ui_component', 'ui_component_plugin', 'task', 'reminder']);
+  /**
+   * 反向指令白名单（2026-11-12 放开并落地）：
+   * 电脑端只能让手机做"纯 UI / 轻状态"的事，绝不碰文件、命令、权限。
+   *  - ui_component  : 走手机现有组件管线创建原生卡片/弹窗（AgentService 入口）
+   *  - toast         : 轻提示，不打断
+   *  - dialog        : 系统对话框（确认/提示），会打断，慎用
+   *  - notification  : 通知栏，适合人不在手机旁
+   *  - reminder      : 本地提醒（后续接日程；当前落成通知）
+   */
+  const CMD_ALLOW = new Set(['ui_component', 'toast', 'dialog', 'notification', 'reminder']);
   const CMD_MAX = 50;
   const CMD_TTL_MS = 10 * 60 * 1000;
   const pruneCommands = () => {
@@ -3256,6 +3265,90 @@ export function apply(ctx, config) {
     try { console.warn('[smartquiz-remote] approval answerer 未注册:', String(e?.message ?? e)); } catch { /* ignore */ }
   }
 
+  /**
+   * 反向指令：电脑端 → 手机（2026-11-12 接线）。
+   *
+   * <p>以前只有 {@code cmdQueue} 骨架和白名单，没有任何入队/取用接口，
+   * PC 侧永远推不动手机。现在三件套齐了：</p>
+   * <ul>
+   *   <li>{@code POST /cmd {tool, args}} —— PC 入队（校验白名单，返回 cmd_id）</li>
+   *   <li>{@code GET /cmd/poll?since=} —— 手机取待执行指令（取走即标 delivering）</li>
+   *   <li>{@code POST /cmd/ack {id, ok, result}} —— 手机回执（PC 可按 id 查结果）</li>
+   * </ul>
+   * <p>只放行纯 UI / 轻状态工具；执行始终在手机侧完成，插件不替手机做任何事。</p>
+   */
+  route('exact', '/cmd', async (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use POST' });
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch (e) {
+      return sendJson(res, 400, { ok: false, error: 'bad json: ' + String(e?.message ?? e) });
+    }
+    const tool = String(body.tool ?? '').trim();
+    if (!tool) return sendJson(res, 400, { ok: false, error: '需要 tool' });
+    if (!CMD_ALLOW.has(tool)) {
+      return sendJson(res, 403, {
+        ok: false, error: 'tool_not_allowed', tool,
+        allowed: [...CMD_ALLOW],
+        hint: '反向通道只放行纯 UI / 轻状态工具，执行在手机侧完成',
+      });
+    }
+    pruneCommands();
+    const id = randomBytes(8).toString('hex');
+    const cmd = {
+      id, tool,
+      args: body.args && typeof body.args === 'object' ? body.args : {},
+      state: 'queued',          // queued → delivering → done
+      createdAt: Date.now(),
+      result: null,
+      error: null,
+    };
+    cmdQueue.set(id, cmd);
+    return sendJson(res, 200, { ok: true, cmd_id: id, tool, state: cmd.state });
+  });
+
+  route('exact', '/cmd/poll', (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    pruneCommands();
+    const out = [];
+    for (const c of cmdQueue.values()) {
+      if (c.state !== 'queued') continue;
+      c.state = 'delivering';
+      c.deliveredAt = Date.now();
+      out.push({ id: c.id, tool: c.tool, args: c.args, created_at: c.createdAt });
+    }
+    return sendJson(res, 200, { ok: true, commands: out, count: out.length });
+  });
+
+  route('exact', '/cmd/ack', async (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use POST' });
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
+    const id = String(body.cmd_id ?? body.id ?? '').trim();
+    const c = cmdQueue.get(id);
+    if (!c) return sendJson(res, 404, { ok: false, error: 'cmd_not_found', id });
+    c.state = 'done';
+    c.ok = body.ok !== false;
+    c.result = body.result ?? null;
+    c.error = body.error ? String(body.error).slice(0, 300) : null;
+    c.doneAt = Date.now();
+    return sendJson(res, 200, { ok: true, cmd_id: id, state: c.state });
+  });
+
+  route('exact', '/cmd/result', (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const url = new URL(req.url, 'http://127.0.0.1');
+    const id = String(url.searchParams.get('id') ?? '').trim();
+    const c = cmdQueue.get(id);
+    if (!c) return sendJson(res, 404, { ok: false, error: 'cmd_not_found', id });
+    return sendJson(res, 200, {
+      ok: true, cmd_id: id, tool: c.tool, state: c.state,
+      result: c.result, error: c.error,
+      created_at: c.createdAt, done_at: c.doneAt ?? null,
+    });
+  });
+
   route('exact', '/pair', (req, res) => {
     if (!isLocal(req)) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }); res.end('pair page is local-only'); return; }
     const tpl = readAsset('pair_page.html');
@@ -3915,6 +4008,28 @@ export function apply(ctx, config) {
         });
         promptCount += 1;
         return sendJson(res, 200, { ok: true, action: 'inject', session_id: target, resumed, seq_before: seqBefore });
+      }
+      if (action === 'cmd_poll') {
+        // 手机端轮询反向指令（2026-11-12 接线）：契约与 App 侧 RemoteDshTool.pollCommands 对齐。
+        pruneCommands();
+        const out = [];
+        for (const c of cmdQueue.values()) {
+          if (c.state !== 'queued') continue;
+          c.state = 'delivering';
+          c.deliveredAt = Date.now();
+          out.push({ id: c.id, tool: c.tool, args: c.args, created_at: c.createdAt });
+        }
+        return sendJson(res, 200, { ok: true, action, commands: out, count: out.length });
+      }
+      if (action === 'cmd_ack') {
+        const id = String(body.cmd_id ?? body.id ?? '').trim();
+        const c = cmdQueue.get(id);
+        if (!c) return sendJson(res, 404, { ok: false, action, error: 'cmd_not_found', cmd_id: id });
+        c.state = 'done';
+        c.ok = body.ok !== false;
+        c.result = body.result ?? null;
+        c.doneAt = Date.now();
+        return sendJson(res, 200, { ok: true, action, cmd_id: id, state: c.state });
       }
       if (action === 'approval_state') {
         const target = String(body.target_session_id ?? '').trim();

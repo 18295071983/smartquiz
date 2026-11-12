@@ -179,9 +179,150 @@ public final class RemoteConnection {
         }
     }
 
+    /**
+     * 反向指令轮询（电脑端 → 手机，2026-11-12）。
+     *
+     * <p>插件侧新增了 {@code /cmd}（入队）、{@code /cmd/poll}（取用）、{@code /cmd/ack}（回执）。
+     * 这里每 3 秒拉一次，按白名单执行纯 UI / 轻状态动作，执行完回执。
+     * 电脑端只能让手机"弹点东西"——不碰文件、不跑命令、不改权限。</p>
+     */
+    private volatile boolean cmdPollerRunning = false;
+    private Thread cmdPollerThread;
+
+    private void startCommandPoller() {
+        if (cmdPollerRunning) return;
+        cmdPollerRunning = true;
+        cmdPollerThread = new Thread(() -> {
+            while (cmdPollerRunning && started) {
+                try {
+                    // 已有契约：RemoteDshTool.pollCommands 返回 JSONArray（/session action=cmd_poll）
+                    org.json.JSONArray cmds = RemoteDshTool.pollCommands(app);
+                    if (cmds != null) {
+                        for (int i = 0; i < cmds.length(); i += 1) {
+                            org.json.JSONObject c = cmds.optJSONObject(i);
+                            if (c == null) continue;
+                            Map<String, Object> cmd = new java.util.HashMap<>();
+                            cmd.put("id", c.optString("id", ""));
+                            cmd.put("tool", c.optString("tool", ""));
+                            org.json.JSONObject a = c.optJSONObject("args");
+                            if (a != null) cmd.put("args", jsonToMap(a));
+                            execCommand(cmd);
+                        }
+                    }
+                } catch (Throwable ignored) {
+                    // 单轮失败不退出轮询
+                }
+                try {
+                    Thread.sleep(3000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }, "dsh-cmd-poller");
+        cmdPollerThread.setDaemon(true);
+        cmdPollerThread.start();
+    }
+
+    /** 执行一条反向指令（都在主线程做 UI）。 */
+    @SuppressWarnings("unchecked")
+    private void execCommand(Map<String, Object> cmd) {
+        if (cmd == null) return;
+        final String id = String.valueOf(cmd.get("id") == null ? "" : cmd.get("id"));
+        final String tool = String.valueOf(cmd.get("tool") == null ? "" : cmd.get("tool"));
+        final Map<String, Object> args = cmd.get("args") instanceof Map
+                ? (Map<String, Object>) cmd.get("args") : new java.util.HashMap<>();
+        final String title = str(args.get("title"));
+        final String text = str(args.get("text") != null ? args.get("text") : args.get("content"));
+        main.post(() -> {
+            String result;
+            try {
+                switch (tool) {
+                    case "toast":
+                        android.widget.Toast.makeText(app, text.isEmpty() ? title : text,
+                                android.widget.Toast.LENGTH_LONG).show();
+                        result = "toast shown";
+                        break;
+                    case "dialog":
+                    case "ui_component": {
+                        android.app.AlertDialog.Builder b =
+                                new android.app.AlertDialog.Builder(app, android.R.style.Theme_Material_Light_Dialog_Alert);
+                        if (!title.isEmpty()) b.setTitle(title);
+                        if (!text.isEmpty()) b.setMessage(text);
+                        b.setPositiveButton("知道了", null);
+                        b.show();
+                        result = "dialog shown";
+                        break;
+                    }
+                    case "notification":
+                    case "reminder":
+                    default: {
+                        showNotification(title.isEmpty() ? "来自电脑端" : title, text);
+                        result = "notification shown";
+                        break;
+                    }
+                }
+                try {
+                    RemoteDshTool.ackCommand(app, id, true, result);
+                } catch (Exception ignored) {
+                    // 回执失败：指令 10 分钟后自然过期
+                }
+            } catch (Throwable t) {
+                try {
+                    RemoteDshTool.ackCommand(app, id, false, String.valueOf(t));
+                } catch (Exception ignored) {
+                    // 同上
+                }
+            }
+        });
+    }
+
+    private static String str(Object o) {
+        return o == null ? "" : String.valueOf(o);
+    }
+
+    /** JSONObject → Map（反向指令 args 用）。 */
+    private static Map<String, Object> jsonToMap(org.json.JSONObject o) {
+        Map<String, Object> m = new java.util.HashMap<>();
+        if (o == null) return m;
+        java.util.Iterator<String> it = o.keys();
+        while (it.hasNext()) {
+            String k = it.next();
+            m.put(k, o.opt(k));
+        }
+        return m;
+    }
+
+    /** 通知：反向通道里"人不在手机旁"的场景用得上。 */
+    private void showNotification(String title, String content) {
+        try {
+            android.app.NotificationManager nm =
+                    (android.app.NotificationManager) app.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            String ch = "dsh_cmd";
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                android.app.NotificationChannel channel = new android.app.NotificationChannel(
+                        ch, "电脑端消息", android.app.NotificationManager.IMPORTANCE_DEFAULT);
+                nm.createNotificationChannel(channel);
+            }
+            android.app.Notification.Builder b = android.os.Build.VERSION.SDK_INT
+                    >= android.os.Build.VERSION_CODES.O
+                    ? new android.app.Notification.Builder(app, ch)
+                    : new android.app.Notification.Builder(app);
+            b.setContentTitle(title)
+                    .setContentText(content == null ? "" : content)
+                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setAutoCancel(true);
+            nm.notify((int) (System.currentTimeMillis() & 0xFFFFFF), b.build());
+        } catch (Throwable ignored) {
+            // 没通知权限就静默失败，回执照常
+        }
+    }
+
     private void open(String sessionId, int since) {
         closeChannel();
         sid = sessionId;
+        startCommandPoller();
         Log.i(TAG, "[DSH] open sid=" + sessionId + " since=" + since);
         channel = new RemoteChannel(app, sessionId, since, new RemoteChannel.Listener() {
             @Override
