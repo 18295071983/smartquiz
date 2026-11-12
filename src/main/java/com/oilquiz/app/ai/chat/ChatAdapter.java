@@ -628,7 +628,27 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             lp.setMarginStart(iconGap);
         }
         v2Actions.addView(v2BtnCopy);
+        // 朗读（2026-11-12 补）：和复制同级，常用操作不该藏在「更多」里
+        ImageView v2BtnSpeak = createIconAction(ctx, R.drawable.ic_speaker,
+                R.string.chat_speak, 0, iconColor);
+        if (v2BtnSpeak != null) {
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) v2BtnSpeak.getLayoutParams();
+            lp.setMarginStart(iconGap);
+            v2Actions.addView(v2BtnSpeak);
+        }
+        // 分享：复制之外的另一种"带出去"
+        ImageView v2BtnShare = createIconAction(ctx, R.drawable.ic_share,
+                R.string.chat_share, 0, iconColor);
+        if (v2BtnShare != null) {
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) v2BtnShare.getLayoutParams();
+            lp.setMarginStart(iconGap);
+            v2Actions.addView(v2BtnShare);
+        }
         v2Actions.addView(v2BtnRegenerate);
+        if (v2BtnRegenerate != null) {
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) v2BtnRegenerate.getLayoutParams();
+            if (v2BtnSpeak != null) lp.setMarginStart(iconGap);
+        }
         v2Actions.addView(v2BtnMore);
         root.addView(v2Actions);
 
@@ -683,6 +703,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.v2BtnCopy = v2BtnCopy;
         holder.v2BtnRegenerate = v2BtnRegenerate;
         holder.v2BtnMore = v2BtnMore;
+        holder.v2BtnSpeak = v2BtnSpeak;
+        holder.v2BtnShare = v2BtnShare;
         // 纯文本气泡的 WebView 渲染器：作为 contentHost 的第二子 View，默认 GONE，
         // 仅 webMarkdownEnabled 时接管正文（与 messageText 二选一）。随 holder 复用，
         // 存活上限由 Activity 侧 setMaxRecycledViews(VIEW_TYPE_AI, N) 兜底。
@@ -1298,6 +1320,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (holder.v2BtnCopy != null) holder.v2BtnCopy.setOnClickListener(null);
             if (holder.v2BtnRegenerate != null) holder.v2BtnRegenerate.setOnClickListener(null);
             if (holder.v2BtnMore != null) holder.v2BtnMore.setOnClickListener(null);
+            if (holder.v2BtnSpeak != null) holder.v2BtnSpeak.setOnClickListener(null);
+            if (holder.v2BtnShare != null) holder.v2BtnShare.setOnClickListener(null);
             return;
         }
         // 直接调动作方法，不再转发给被 GONE 的旧胶囊（2026-10-20 S3，解报告耦合 C1）
@@ -1309,6 +1333,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         if (holder.v2BtnMore != null) {
             holder.v2BtnMore.setOnClickListener(v -> openMessageActionSheet(holder, message));
+        }
+        if (holder.v2BtnSpeak != null) {
+            holder.v2BtnSpeak.setOnClickListener(v -> doSpeak(v.getContext(), message));
+        }
+        if (holder.v2BtnShare != null) {
+            holder.v2BtnShare.setOnClickListener(v -> doShare(v.getContext(), message));
         }
     }
 
@@ -5071,6 +5101,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         /** 操作段整行（三图标 + 更多）；动作走 doCopy/doRegenerate/...，不依赖旧胶囊 */
         LinearLayout v2ActionRow;
         ImageView v2BtnCopy;
+        ImageView v2BtnSpeak;
+        ImageView v2BtnShare;
         ImageView v2BtnRegenerate;
         ImageView v2BtnMore;
         /**
