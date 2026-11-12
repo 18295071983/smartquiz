@@ -17,7 +17,7 @@
 | `turn/end` | 392 | 状态 | 收尾/落库（`reason.kind` 可判错/中断/超长） |
 | `step/start` | 5,817 | 状态 | 第 N 步 |
 | `step/end` | 5,816 | 状态 | 第 N 步完成 |
-| `user/message` | 831 | 忽略 | 手机自己发的话本地已上屏；电脑端手敲的暂不镜像（见"待办"） |
+| `user/message` | 831 | 正文 ✅新增 | 电脑端手敲的消息镜像成 USER 气泡；手机自己发的按文本+时间窗去重 |
 | `assistant/message` | 5,799 | 正文 | 正文+思考权威值 |
 | `assistant/attempt` | 18 | 卡片 | 模型失败尝试 →「模型报错」 |
 | `tool/call` | 6,714 | 卡片 | 工具卡（调用中） |
@@ -34,7 +34,7 @@
 | `web/deepseek-search-llm-request` | 144 | 忽略 | 搜索插件的内部请求记录 |
 | `session/title-llm-request` | 29 | 忽略 | 自动起标题的内部请求 |
 | `agent/inbox/spliced` | 935 | 忽略 | 向模型收件箱插消息（steering） |
-| `session/title` | 113 | **未渲染** | 电脑端标题变化，手机标题栏不跟着变（待办） |
+| `session/title` | 113 | 状态 ✅新增 | 电脑端标题变化同步到手机标题栏 |
 | `workspace/changes` | 141 | 卡片 | 「文件变更」（只有 turn，明细在电脑端） |
 | `sandbox/mode` | 137 | 卡片 ✅新增 | 「沙箱模式」 |
 | `approval/policy` | 137 | 卡片 ✅新增 | 「审批策略」 |
@@ -67,12 +67,12 @@
 | `tool-workflow/agent-end` | 2 | 卡片 | 工作流子任务完成 |
 | `tool-workflow/run-end` | 1 | 卡片 | 工作流结束 |
 
-## 二、仍待补的两项
+## 二、2026-11-12 已补齐的两项
 
-1. **`session/title`（113 次）**：电脑端会话标题变化没有同步到手机标题栏。
-   需要在 `DshTimeline.Update` 里透出 title，由 `AIChatActivity` 更新标题控件。
-2. **`user/message`（831 次）**：电脑端手敲的消息不会镜像到手机。
-   手机自己发的消息已经本地落过，直接渲染会重复；需要按「文本 + 时间窗」去重后再插入 USER 气泡。
+1. **`session/title`**：`DshTimeline.Update.sessionTitle` 透出标题，`AIChatActivity` 调
+   `ChatUiV2Chrome.updateTitle` 同步标题栏。
+2. **`user/message`**：`mirrorUserMessage` 把电脑端手敲消息镜像成 USER 气泡；
+   `source.kind != user` 的合成上下文不显示；手机自己发的按「文本 + 10 分钟窗口」去重。
 
 其余未渲染类型均为模型面向/纯日志记录，按设计不该出现在聊天界面。
 

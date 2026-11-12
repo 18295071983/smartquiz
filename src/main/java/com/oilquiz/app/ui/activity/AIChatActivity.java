@@ -13169,6 +13169,9 @@ public class AIChatActivity extends BaseActivity {
                     break;
             }
         }
+        if (up.sessionTitle != null && !up.sessionTitle.trim().isEmpty()) {
+            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateTitle(this, up.sessionTitle.trim());
+        }
         if (up.phaseText != null && up.phase != null) {
             setDshPhaseText(live, liveIdx, up.phase, up.phaseText);
         } else if (up.phase != null) {
@@ -13343,9 +13346,15 @@ public class AIChatActivity extends BaseActivity {
             // 第二次会 ensureMirrorBubble 出一个空气泡）
             int evSeq = ev.optInt("seq", -1);
             if (evSeq > 0 && evSeq <= dshLastSeq) return;
-            // 这些事件不产生正文，不能拿去建镜像气泡（否则一条 user/message 就多一个空泡）
-            if ("user/message".equals(type) || "job/registered".equals(type) || "job/settled".equals(type)
-                    || type.startsWith("session-log-")) {
+            // 电脑端手敲的消息：镜像成 USER 气泡（手机自己发的同文本会被去重跳过）
+            if ("user/message".equals(type)) {
+                mirrorUserMessage(ev);
+                advanceCursor(ev);
+                return;
+            }
+            // 这些事件不产生正文，不能拿去建镜像气泡；但游标要推进，避免补拉时反复重放
+            if (type.startsWith("session-log-")) {
+                advanceCursor(ev);
                 return;
             }
             // 通道控制帧（state/view/pulse）由连接管理器消费，不进时间线
@@ -13361,20 +13370,70 @@ public class AIChatActivity extends BaseActivity {
             int idx = chatHistory.indexOf(live);
             if (idx < 0) return;
             applyDshEvent(ev, live, idx, new long[]{0L});
-            int seq = ev.optInt("seq", -1);
-            String chanSid = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
-            if (seq > 0 && !chanSid.isEmpty()) {
-                if (seq > dshLastSeq) dshLastSeq = seq;
-                // 每个事件都落盘：切后台/被系统杀掉再回来，靠它补缺口。
-                // 原来只在 onPause 写，而且 dshSyncTarget 只有「手机发过消息」才有值 ——
-                // 光看电脑对话（镜像）时游标永远是 -1，补缺口直接 return，尾巴就丢了。
-                com.oilquiz.app.ai.tool.RemoteDshTool.setLastSeq(this, chanSid, seq);
-            }
-            dshLastEventAt = System.currentTimeMillis();
+            advanceCursor(ev);
         } catch (Throwable t) {
             // 单条坏事件不拖垮整条通道（但要能看到是什么坏了，别静默）
             AppLogger.aiW(TAG, "[DSH] 事件处理失败: " + t);
         }
+    }
+
+    /** 只推进游标（跳过不渲染的事件时用），保证补拉不会反复重放 */
+    private void advanceCursor(org.json.JSONObject ev) {
+        int seq = ev.optInt("seq", -1);
+        String sid = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+        if (seq > 0 && !sid.isEmpty()) {
+            if (seq > dshLastSeq) dshLastSeq = seq;
+            com.oilquiz.app.ai.tool.RemoteDshTool.setLastSeq(this, sid, seq);
+        }
+        dshLastEventAt = System.currentTimeMillis();
+    }
+
+    /**
+     * 电脑端手敲的 user/message → 手机 USER 气泡。
+     *
+     * <p>手机自己发的消息已经在本地落过，直接渲染会重复；按「文本 + 时间窗」去重。
+     * `source.kind` 不是 user 的是 agent.inject 之类的合成上下文，不显示。</p>
+     */
+    private void mirrorUserMessage(org.json.JSONObject ev) {
+        try {
+            org.json.JSONObject data = ev.optJSONObject("data");
+            if (data == null) return;
+            org.json.JSONObject src = data.optJSONObject("source");
+            String kind = src == null ? "" : src.optString("kind", "");
+            if (!kind.isEmpty() && !"user".equals(kind)) return;
+            org.json.JSONArray parts = data.optJSONArray("content");
+            StringBuilder sb = new StringBuilder();
+            if (parts != null) {
+                for (int i = 0; i < parts.length(); i += 1) {
+                    org.json.JSONObject p = parts.optJSONObject(i);
+                    if (p == null) continue;
+                    if ("text".equals(p.optString("type"))) sb.append(p.optString("text"));
+                }
+            }
+            String text = sb.toString().trim();
+            if (text.isEmpty()) return;
+            long time = ev.optLong("time", System.currentTimeMillis());
+            if (hasUserMessageNear(text, time)) return;
+            addUserMessage(text);
+            saveHistoryAsync();
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "[DSH] 镜像用户消息失败: " + t);
+        }
+    }
+
+    /** 本地是否已有同文本的用户消息（10 分钟窗口；手机自己发的消息靠它去重） */
+    private boolean hasUserMessageNear(String text, long time) {
+        if (chatHistory == null) return false;
+        long lo = time - 10 * 60 * 1000L;
+        long hi = time + 2 * 60 * 1000L;
+        for (int i = chatHistory.size() - 1; i >= 0; i -= 1) {
+            ChatMessage m = chatHistory.get(i);
+            if (m == null || m.type != ChatMessage.MessageType.USER) continue;
+            if (m.timestamp < lo || m.timestamp > hi) continue;
+            String c = m.content == null ? "" : m.content.trim();
+            if (c.equals(text)) return true;
+        }
+        return false;
     }
 
     private static String turnOfEvent(org.json.JSONObject ev) {

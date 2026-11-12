@@ -102,12 +102,14 @@ public final class DshTimeline {
         public boolean scheduleChanged;
         public ChatMessage.InferencePhase phase;
         public String phaseText;
+        /** 电脑端会话标题变了（session/title 事件）；null = 没变 */
+        public String sessionTitle;
         public int seq = -1;
         public final List<Action> actions = new ArrayList<>();
 
         public boolean hasAnything() {
             return contentChanged || cardsChanged || ended || scheduleChanged || phase != null
-                    || phaseText != null || !actions.isEmpty();
+                    || phaseText != null || sessionTitle != null || !actions.isEmpty();
         }
 
         public static Update none(int seq) {
@@ -270,6 +272,11 @@ public final class DshTimeline {
             case "schedule/changed":
                 u.scheduleChanged = true;
                 break;
+            case "session/title": {
+                String title = ev.data == null ? "" : ev.data.optString("title", "").trim();
+                if (!title.isEmpty()) u.sessionTitle = title;
+                break;
+            }
             case "approval":
                 u.actions.add(new Action(ActionKind.APPROVAL, ev.id, ev.raw.optJSONObject("request")));
                 break;
