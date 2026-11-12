@@ -285,6 +285,28 @@ public class RemoteDshTool implements AITool {
     }
 
     /**
+     * 让电脑端**真正新建一条会话**并绑定为跟随会话（{@code @code:follow}）。
+     *
+     * <p>与 {@code action=start} 的区别：start 只发一个手机侧句柄、不建电脑会话；
+     * 本方法会调用插件 {@code new_session}，电脑侧 {@code ctx.agents.create} 一条新会话，
+     * 后续手机消息注入这条会话。返回电脑签发的 session id。</p>
+     */
+    public static String newSession(Context c) throws Exception {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        org.json.JSONObject body = new org.json.JSONObject();
+        body.put("action", "new_session");
+        String raw = tool.postSessionRaw(body, 60);
+        org.json.JSONObject j = new org.json.JSONObject(raw);
+        if (!j.optBoolean("ok", false)) {
+            throw new Exception(j.optString("error", "new_session failed"));
+        }
+        String id = j.optString("session_id", "").trim();
+        if (id.isEmpty()) throw new Exception("电脑端没有返回 session_id");
+        setCanonicalSession(c, id, j.optString("title", ""));
+        return id;
+    }
+
+    /**
      * 问电脑"这个对话码对应哪条电脑会话"，并写回本机。
      * 电脑端 `direct_state` 是唯一权威：手机丢了本地 id（重装/清数据）时靠它接回同一条对话。
      */

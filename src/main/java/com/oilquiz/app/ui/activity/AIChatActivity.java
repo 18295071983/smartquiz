@@ -9256,7 +9256,48 @@ public class AIChatActivity extends BaseActivity {
     /**
      * 开始新对话：先自动保存当前会话到历史，再清空上下文。
      */
+    /**
+     * 手机点「新建对话」时，让电脑端真正新建一条会话并切换跟随。
+     *
+     * <p>本地会话照常清空（{@link #startNewConversation()} 的后半段），这里只负责
+     * 电脑侧：调插件 {@code new_session} → 电脑建会话并绑 {@code @code:follow}
+     * → 本机写回 session id → 重开通道，之后消息自动进新会话。</p>
+     */
+    private void startNewRemoteConversation() {
+        new Thread(() -> {
+            try {
+                final String id = com.oilquiz.app.ai.tool.RemoteDshTool.newSession(this);
+                runOnUiThread(() -> {
+                    dshMirrorMessage = null;
+                    dshLiveMessage = null;
+                    dshMirrorTurn = "";
+                    dshLastSeq = -1;
+                    dshSyncTarget = id;
+                    try {
+                        com.oilquiz.app.ai.tool.RemoteConnection conn =
+                                com.oilquiz.app.ai.tool.RemoteConnection.get(this);
+                        conn.stop();
+                        conn.start();
+                    } catch (Throwable ignored) { /* 连不上会在状态条显示 */ }
+                    try {
+                        com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateTitle(this, "新对话");
+                    } catch (Throwable ignored) { /* 标题控件未就绪 */ }
+                    startRemoteSyncService();
+                    refreshRemoteDshBar();
+                    showToast("已在电脑上新建会话，后续消息自动跟随");
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> showToast("新建电脑会话失败：" + e.getMessage()));
+            }
+        }, "remote-new-session").start();
+    }
+
     private void startNewConversation() {
+        // 连着电脑时，"新建对话" = 让电脑端真建一条新会话，后续消息自动跟随它
+        if (com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
+                && com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)) {
+            startNewRemoteConversation();
+        }
         try {
             if (isGenerating) {
                 if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
