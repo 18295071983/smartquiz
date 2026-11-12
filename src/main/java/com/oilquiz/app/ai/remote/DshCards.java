@@ -47,18 +47,32 @@ public final class DshCards {
         return "todo/write".equals(type)
                 || "deliverables/presented".equals(type)
                 || "goal/activation-changed".equals(type)
+                || "goal/change".equals(type)
                 || "workspace/changes".equals(type)
                 || "job/registered".equals(type)
+                || "job/settled".equals(type)
                 || "command/run".equals(type)
+                || "command/done".equals(type)
                 || "tool-workflow/run-start".equals(type)
                 || "tool-workflow/agent-start".equals(type)
                 || "tool-workflow/agent-end".equals(type)
                 || "tool-workflow/run-end".equals(type)
                 || "subagent/catalog".equals(type)
+                || "subagent/descriptor".equals(type)
                 || "llm/retry".equals(type)
+                || "llm/retry-started".equals(type)
                 || "assistant/attempt".equals(type)
                 || "compaction/start".equals(type)
-                || "compaction/summary".equals(type);
+                || "compaction/summary".equals(type)
+                || "compaction/prune".equals(type)
+                || "compaction/end".equals(type)
+                || "working-directory/change".equals(type)
+                || "sandbox/mode".equals(type)
+                || "permission/preset".equals(type)
+                || "approval/policy".equals(type)
+                || "agent-preset/selected".equals(type)
+                || "approval/asked".equals(type)
+                || "approval/decided".equals(type);
     }
 
     /**
@@ -201,6 +215,92 @@ public final class DshCards {
                 }
                 return new Card(key, "markdown_doc",
                         obj("title", "上下文压缩摘要", "content", text));
+            }
+            case "goal/change": {
+                JSONObject goal = data.optJSONObject("goal");
+                String text = goal != null
+                        ? goal.optString("text", goal.optString("title", ""))
+                        : data.optString("text", "");
+                String op = data.optString("operation", "");
+                int rounds = data.optInt("roundsStarted", 0);
+                StringBuilder sb = new StringBuilder(text.isEmpty() ? "目标状态变更" : text);
+                if (!op.isEmpty()) sb.append("（").append(op).append("）");
+                if (rounds > 0) sb.append(" · 已进行 ").append(rounds).append(" 轮");
+                return new Card("goal-state", "alert",
+                        obj("title", "当前目标", "content", sb.toString(), "level", "info"));
+            }
+            case "job/settled": {
+                String label = data.optString("label", data.optString("kind", "后台任务"));
+                String status = data.optString("status", "");
+                boolean bad = "failed".equals(status) || "error".equals(status) || "cancelled".equals(status);
+                return new Card("jobs-" + turn, "alert",
+                        obj("title", "后台任务",
+                                "content", label + (status.isEmpty() ? " · 已结束" : " · " + status),
+                                "level", bad ? "error" : "info"));
+            }
+            case "command/done": {
+                String text = data.optString("text", "");
+                return new Card("cmd-" + data.optString("commandId", String.valueOf(turn)), "alert",
+                        obj("title", "命令完成",
+                                "content", text.isEmpty() ? "命令执行完成" : text,
+                                "level", "info"));
+            }
+            case "compaction/prune": {
+                int tokens = data.optInt("shadowedTokenCount", 0);
+                return new Card("compact-prune", "alert",
+                        obj("title", "上下文清理",
+                                "content", tokens > 0 ? ("已清理约 " + tokens + " tokens 的历史") : "已清理部分历史",
+                                "level", "info"));
+            }
+            case "compaction/end":
+                return new Card("compact-" + data.optString("compactionId", String.valueOf(turn)), "alert",
+                        obj("title", "上下文压缩", "content", "压缩完成", "level", "info"));
+            case "working-directory/change": {
+                String cwd = data.optString("cwd", "");
+                return new Card("cwd", "alert",
+                        obj("title", "工作目录", "content", cwd.isEmpty() ? "已切换" : cwd, "level", "info"));
+            }
+            case "sandbox/mode":
+                return new Card("sandbox", "alert",
+                        obj("title", "沙箱模式", "content", data.optString("mode", ""), "level", "info"));
+            case "permission/preset":
+                return new Card("permission", "alert",
+                        obj("title", "权限档位", "content", data.optString("preset", ""), "level", "info"));
+            case "approval/policy":
+                return new Card("approval-policy", "alert",
+                        obj("title", "审批策略", "content", data.optString("policy", ""), "level", "info"));
+            case "agent-preset/selected":
+                return new Card("agent-preset", "alert",
+                        obj("title", "智能体预设", "content", data.optString("agentPreset", ""), "level", "info"));
+            case "subagent/descriptor": {
+                String label = data.optString("label", "子代理");
+                String mode = data.optString("mode", "");
+                return new Card("subagent-" + label, "alert",
+                        obj("title", "子代理 · " + label,
+                                "content", mode.isEmpty() ? "已创建" : ("模式：" + mode),
+                                "level", "info"));
+            }
+            case "llm/retry-started":
+                return new Card("retry-" + turn, "alert",
+                        obj("title", "模型重试",
+                                "content", "第 " + data.optInt("retry", 0) + " 次重试中…",
+                                "level", "warning"));
+            case "approval/asked": {
+                String id = data.optString("id", String.valueOf(turn));
+                String reason = data.optString("reason", "");
+                String tool = data.optString("toolName", "工具");
+                return new Card("approval-" + id, "alert",
+                        obj("title", "需要审批 · " + tool,
+                                "content", reason.isEmpty() ? "等待你的允许/拒绝" : reason,
+                                "level", "warning"));
+            }
+            case "approval/decided": {
+                String id = data.optString("id", String.valueOf(turn));
+                String outcome = data.optString("outcome", "");
+                return new Card("approval-" + id, "alert",
+                        obj("title", "审批结果",
+                                "content", "allowed".equals(outcome) || "allow".equals(outcome) ? "已允许" : "已拒绝",
+                                "level", "info"));
             }
             default:
                 return null;
