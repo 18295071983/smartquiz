@@ -85,25 +85,28 @@ public final class RemoteCommandExecutor {
                     .setContentText(text == null ? "" : text)
                     .setSmallIcon(android.R.drawable.ic_dialog_info)
                     .setAutoCancel(true);
-            // 动作按钮：每个按钮一个广播，点了直接回传
-            if (actions instanceof java.util.List && cmdId != null && !cmdId.isEmpty()) {
+            // 动作按钮：每个按钮一个广播，点了直接回传。
+            // 注意：args 是从 JSONObject 转过来的，actions 在这边是 org.json.JSONArray，
+            // 不是 java.util.List —— 只判断 List 的话按钮永远加不上（真机现象：通知没按钮）。
+            java.util.List<Object> actList = new java.util.ArrayList<>();
+            if (actions instanceof org.json.JSONArray) {
+                org.json.JSONArray ja = (org.json.JSONArray) actions;
+                for (int i = 0; i < ja.length(); i += 1) actList.add(ja.optJSONObject(i));
+            } else if (actions instanceof java.util.List) {
+                actList.addAll((java.util.List<?>) actions);
+            }
+            if (!actList.isEmpty() && cmdId != null && !cmdId.isEmpty()) {
                 int req = 0;
-                for (Object o : (java.util.List<?>) actions) {
-                    if (!(o instanceof Map)) continue;
-                    Map<?, ?> m = (Map<?, ?>) o;
-                    String label = str(m.get("label"));
-                    String value = str(m.get("value"));
-                    if (label.isEmpty()) continue;
-                    Intent it = new Intent(ctx, RemoteCmdActionReceiver.class);
-                    it.setAction(RemoteCmdActionReceiver.ACTION);
-                    it.putExtra(RemoteCmdActionReceiver.EXTRA_CMD_ID, cmdId);
-                    it.putExtra(RemoteCmdActionReceiver.EXTRA_VALUE, value);
-                    it.putExtra(RemoteCmdActionReceiver.EXTRA_LABEL, label);
-                    android.app.PendingIntent pi = android.app.PendingIntent.getBroadcast(
-                            ctx, req++, it,
-                            android.app.PendingIntent.FLAG_UPDATE_CURRENT
-                                    | android.app.PendingIntent.FLAG_IMMUTABLE);
-                    b.addAction(new Notification.Action.Builder(null, label, pi).build());
+                for (Object o : actList) {
+                    if (o instanceof org.json.JSONObject) {
+                        org.json.JSONObject jo = (org.json.JSONObject) o;
+                        String label = jo.optString("label", "");
+                        String value = jo.optString("value", "");
+                        addActionButton(ctx, b, cmdId, label, value, req++);
+                    } else if (o instanceof Map) {
+                        Map<?, ?> m = (Map<?, ?>) o;
+                        addActionButton(ctx, b, cmdId, str(m.get("label")), str(m.get("value")), req++);
+                    }
                 }
             }
             nm.notify((int) (cmdId != null && !cmdId.isEmpty()
@@ -117,5 +120,21 @@ public final class RemoteCommandExecutor {
 
     private static String str(Object o) {
         return o == null ? "" : String.valueOf(o);
+    }
+
+    /** 给通知加一颗按钮（点了走 {@link RemoteCmdActionReceiver} 回传）。 */
+    private static void addActionButton(Context ctx, Notification.Builder b,
+                                        String cmdId, String label, String value, int req) {
+        if (label == null || label.isEmpty()) return;
+        Intent it = new Intent(ctx, RemoteCmdActionReceiver.class);
+        it.setAction(RemoteCmdActionReceiver.ACTION);
+        it.putExtra(RemoteCmdActionReceiver.EXTRA_CMD_ID, cmdId);
+        it.putExtra(RemoteCmdActionReceiver.EXTRA_VALUE, value == null ? "" : value);
+        it.putExtra(RemoteCmdActionReceiver.EXTRA_LABEL, label);
+        android.app.PendingIntent pi = android.app.PendingIntent.getBroadcast(
+                ctx, req, it,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                        | android.app.PendingIntent.FLAG_IMMUTABLE);
+        b.addAction(new Notification.Action.Builder(null, label, pi).build());
     }
 }

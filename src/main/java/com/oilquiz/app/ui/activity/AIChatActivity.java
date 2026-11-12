@@ -13774,8 +13774,27 @@ public class AIChatActivity extends BaseActivity {
         String title = params.get("title") == null ? "" : String.valueOf(params.get("title"));
         String body = params.get("text") != null ? String.valueOf(params.get("text"))
                 : (params.get("content") == null ? "" : String.valueOf(params.get("content")));
-        if ("toast".equals(tool) || "dialog".equals(tool)
-                || "notification".equals(tool) || "reminder".equals(tool)) {
+        if ("notification".equals(tool) || "reminder".equals(tool)) {
+            // 通知统一交给 RemoteCommandExecutor：只有它会挂 actions 按钮。
+            // 以前这里自己发通知，没有按钮——聊天页在前台时指令走这条，用户就看不到按钮。
+            String result;
+            boolean nOk = true;
+            try {
+                result = com.oilquiz.app.ai.tool.RemoteCommandExecutor
+                        .execute(this, tool, params, id);
+            } catch (Throwable t) {
+                nOk = false;
+                result = String.valueOf(t);
+            }
+            try {
+                com.oilquiz.app.ai.tool.RemoteDshTool.ackCommand(
+                        AIChatActivity.this, id, nOk, result);
+            } catch (Exception ignored) {
+                // 回执失败不影响本机结果
+            }
+            return;
+        }
+        if ("toast".equals(tool) || "dialog".equals(tool)) {
             final String fTitle = title.isEmpty() ? "来自电脑端" : title;
             final String fBody = body;
             final String fTool = tool;
