@@ -71,6 +71,11 @@ public final class RemoteConnection {
     private volatile Map<String, Object> lastState;
     private volatile boolean online;
     private RemoteChannel channel;
+    /**
+     * 本次进程内还没做过全量重放。首次连接时置 false 并用 since=0 重建时间线，
+     * 之后的重连仍按传输游标续传（见 resolveAndOpen 的缺口修复注释）。
+     */
+    private boolean firstConnectSinceLaunch = true;
 
     private RemoteConnection(Context app) {
         this.app = app;
@@ -148,7 +153,30 @@ public final class RemoteConnection {
         int cursor = RemoteDshTool.getTransportSeq(app, id);
         // 没有传输游标 = 首次连接：从"现在"开始（-2），不要把整条历史重放进页面
         if (cursor < 0) cursor = -2;
+        // ★ 本地增量（2026-11-12）：连上就按**缓存的传输游标**续传，不做全量重放。
+        //   持久化的 cursor 就是本地缓存的水位：服务端按 seq 只补它之后的事件。
+        //   只有服务端明确告知"缺口过大"（发 snapshot）时才重建，见 RemoteChannel.onSnapshot。
+        if (firstConnectSinceLaunch) {
+            firstConnectSinceLaunch = false;
+        }
         open(id, cursor);
+    }
+
+    /**
+     * 页面落屏确认：把游标推进到已渲染的 seq，并落盘供下次启动续传。
+     *
+     * @param seq 已被页面消费（落屏）的最大 seq
+     */
+    public void confirmApplied(int seq) {
+        RemoteChannel ch = channel;
+        if (ch != null) ch.confirmApplied(seq);
+        if (sid != null && !sid.isEmpty()) {
+            try {
+                RemoteDshTool.setTransportSeq(app, sid, seq);
+            } catch (Throwable ignored) {
+                // 落盘失败不影响本次会话
+            }
+        }
     }
 
     private void open(String sessionId, int since) {

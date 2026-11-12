@@ -663,19 +663,22 @@ public class AssistantTurn {
         while (i < merged.size()) {
             Part p = merged.get(i);
             if (p != null && Part.TYPE_TOOL_CALL.equals(p.type)) {
-                String roundKey = roundKeyOf(p);
+                String roundKey = turnKeyOf(p);
                 java.util.List<Part> run = new java.util.ArrayList<>();
                 run.add(p);
                 int j = i + 1;
                 while (j < merged.size() && merged.get(j) != null
                         && Part.TYPE_TOOL_CALL.equals(merged.get(j).type)
-                        && roundKey.equals(roundKeyOf(merged.get(j)))) {
+                        && roundKey.equals(turnKeyOf(merged.get(j)))) {
                     run.add(merged.get(j));
                     j++;
                 }
                 if (run.size() >= 1) {
                     // 阈值取 1：legacy 每个工具轮都走活动卡（单工具也显示"已运行 1 个工具"，
                     // 真机基线截图可见），若只在 ≥2 时成组，单工具会渲成整张 ToolCallCardView，观感与现网不一致。
+                    // 2026-11-12：分组键从"模型轮次"改成"整条 turn"——手机上一个 turn 里
+                    // 每一步都渲染一行「⏳ 正在运行 X」，连续几步就叠成一片（用户反馈的视觉噪音）。
+                    // 同一 turn 的工具现在折成一张组卡，头部只保留一行状态。
                     out.add(Part.toolGroup(run.get(0).id + ":grp", run, run.get(0).timestamp));
                 } else {
                     out.add(p);
@@ -702,6 +705,23 @@ public class AssistantTurn {
      * <p>取不到轮次键（旧数据/孤儿工具 part）时用整条 id 兜底：等价于"各自成组"，
      * 不会把来源不明的工具并进别人的组。</p>
      */
+    /**
+     * 工具 part 所属 <b>turn</b> 的键：id 形如 {@code T534-R3:tool:call_xx}，
+     * 截到 {@code -R} 之前（{@code T534}）。
+     *
+     * <p>2026-11-12 由"模型轮次"改口径：手机上每一步工具都渲染一行「⏳ 正在运行 X」，
+     * 一个 turn 有几步就叠几行，视觉噪音很大。改成按 turn 归组后，一个 turn 的工具
+     * 折成一张组卡、只占一行头部状态。</p>
+     */
+    private static String turnKeyOf(Part p) {
+        String id = p != null ? p.id : null;
+        if (id == null || id.isEmpty()) return "";
+        int cut = id.indexOf(':');
+        String head = cut > 0 ? id.substring(0, cut) : id;
+        int r = head.indexOf("-R");
+        return r > 0 ? head.substring(0, r) : head;
+    }
+
     private static String roundKeyOf(Part p) {
         String id = p != null ? p.id : null;
         if (id == null || id.isEmpty()) return "";
@@ -1051,11 +1071,33 @@ public class AssistantTurn {
             if (a == null) continue;
             String status = a.status == null || a.status.isEmpty()
                     ? Part.APPROVAL_PENDING : a.status;
-            extras.add(Part.approval(a.partId(), a.toolCallId, a.permission, a.prompt, status,
-                    a.timestamp > 0 ? a.timestamp : 0L));
+            Part part = Part.approval(a.partId(), a.toolCallId, a.permission, a.prompt, status,
+                    a.timestamp > 0 ? a.timestamp : 0L);
+            // 能对上具体工具调用就钉在它下面（审批和它批的那次调用是同一件事），
+            // 对不上才退回"按轮次插到这一轮末尾"。
+            if (insertAfterToolCall(turn, part)) continue;
+            extras.add(part);
             rounds.add(a.round);
         }
         insertPartsByRound(turn, extras, rounds);
+    }
+
+    /**
+     * 把审批 part 插到同名 toolCallId 的调用/结果之后。
+     *
+     * @return 找到对应工具调用并插入返回 true；找不到返回 false（调用方退回按轮次插）
+     */
+    private static boolean insertAfterToolCall(AssistantTurn turn, Part part) {
+        if (part == null || part.toolCallId == null || part.toolCallId.isEmpty()) return false;
+        int at = -1;
+        for (int i = 0; i < turn.parts.size(); i += 1) {
+            Part p = turn.parts.get(i);
+            if (p == null || !part.toolCallId.equals(p.toolCallId)) continue;
+            if (Part.TYPE_TOOL_CALL.equals(p.type) || Part.TYPE_TOOL_RESULT.equals(p.type)) at = i;
+        }
+        if (at < 0) return false;
+        turn.parts.add(at + 1, part);
+        return true;
     }
 
     /**

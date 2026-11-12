@@ -28,7 +28,75 @@ import com.oilquiz.app.ai.chat.util.ToolResultText;
  */
 final class ToolActivityRowView {
 
+    /**
+     * 把一次 shell 调用渲染成 {@code dsh_command} 原生卡。
+     *
+     * @return 非 shell 工具/命令提取失败时返回 null，调用方退回原来的行渲染
+     */
+    private static View renderCommandCard(Context ctx, AssistantTurn.Part call) {
+        if (call == null || !ToolCommandCard.isShellToolName(call.toolName)) return null;
+        org.json.JSONObject props = new org.json.JSONObject();
+        try {
+            props.put("toolName", call.toolName == null ? "" : call.toolName);
+            props.put("args", call.args == null ? "" : call.args);
+            props.put("status", call.status == null ? "running" : call.status);
+            props.put("result", call.result == null ? "" : call.result);
+        } catch (org.json.JSONException e) {
+            return null;
+        }
+        org.json.JSONObject cmd = ToolCommandCard.build(props);
+        if (cmd == null) return null;
+        try {
+            return com.oilquiz.app.ai.chat.component.ComponentRegistry.getInstance()
+                    .render(ctx, com.oilquiz.app.ai.chat.component.ComponentData.of(ToolCommandCard.TYPE, cmd));
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     private ToolActivityRowView() {
+    }
+
+    /**
+     * 工具参数的**人话预览**（工具卡那一行的副标题）。
+     *
+     * <p>以前直接 {@code desc.setText(call.args)}：手机上一整行原始 JSON
+     * {@code {"command":"Start-Sleep -Seconds 3\n$adb = ..."}}，换行被吃掉、转义符裸露，
+     * 完全没法读。现在按语义取一个字段：</p>
+     * <ul>
+     *   <li>{@code command} → 命令本体（shell 工具最该给人看的东西）</li>
+     *   <li>{@code path/file_path/filePath} → 路径</li>
+     *   <li>其他 JSON → {@code key=value · key=value}，最多截 80 字</li>
+     *   <li>非 JSON → 原样（纯文本参数不动）</li>
+     * </ul>
+     */
+    static String argsPreview(String raw) {
+        if (raw == null) return "";
+        String s = raw.trim();
+        if (s.isEmpty()) return "";
+        if (!s.startsWith("{")) return s;
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(s);
+            String cmd = o.optString("command", "").trim();
+            if (!cmd.isEmpty()) return cmd;
+            String path = o.optString("file_path",
+                    o.optString("filePath", o.optString("path", ""))).trim();
+            if (!path.isEmpty()) return path;
+            StringBuilder sb = new StringBuilder();
+            java.util.Iterator<String> keys = o.keys();
+            while (keys.hasNext()) {
+                String k = keys.next();
+                String v = String.valueOf(o.opt(k));
+                if (v.isEmpty() || "null".equals(v)) continue;
+                if (sb.length() > 0) sb.append(" · ");
+                sb.append(k).append('=').append(v);
+                if (sb.length() > 80) break;
+            }
+            return sb.toString();
+        } catch (Throwable t) {
+            // 坏 JSON 不拖垮渲染：原样显示
+            return s;
+        }
     }
 
     /**
@@ -38,6 +106,12 @@ final class ToolActivityRowView {
      */
     static View build(Context ctx, ViewGroup parent, AssistantTurn.Part call, int index,
                       PartHost host) {
+        // shell 类工具：直接出**终端命令卡**原生组件，而不是"工具名 + 一行参数"的行。
+        // 分组工具卡（ToolGroupPartRenderer）走的就是这个方法，之前只改了单卡渲染器，
+        // 命令还是显示成行 —— 这里补上，两条渲染路径长相才一致。
+        View commandCard = renderCommandCard(ctx, call);
+        if (commandCard != null) return commandCard;
+
         LinearLayout wrap = new LinearLayout(ctx);
         wrap.setOrientation(LinearLayout.VERTICAL);
         wrap.setLayoutParams(new ViewGroup.LayoutParams(
@@ -53,7 +127,7 @@ final class ToolActivityRowView {
         }
         TextView desc = line.findViewById(R.id.chat_v2_tool_row_desc);
         if (desc != null) {
-            String summary = call.args == null ? "" : call.args.trim();
+            String summary = argsPreview(call.args);
             desc.setText(summary);
             desc.setVisibility(summary.isEmpty() ? View.GONE : View.VISIBLE);
         }

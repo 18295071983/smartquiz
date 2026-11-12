@@ -91,7 +91,18 @@ public final class ToolCallPartRenderer implements PartRenderer {
         } else {
             ProductCards.releaseAll(group); // 先深度释放旧子树（含产物 WebView）
         }
-        View card = factory.create(host.context(), ComponentData.of(ToolCardProps.TYPE, props));
+        // 按工具种类挑**原生卡片**：shell 类用终端命令卡（等宽命令 + 状态灯 + 输出），
+        // 其余仍用单行工具卡。DSH 通道与本机引擎共用这条判定，两条路长相一致。
+        String cardType = ToolCardProps.TYPE;
+        JSONObject cardProps = props;
+        if (ToolCommandCard.isShellTool(props)) {
+            JSONObject cmdProps = ToolCommandCard.build(props);
+            if (cmdProps != null) {
+                cardType = ToolCommandCard.TYPE;
+                cardProps = cmdProps;
+            }
+        }
+        View card = factory.create(host.context(), ComponentData.of(cardType, cardProps));
         if (card != null) {
             group.addView(card, 0);
         }

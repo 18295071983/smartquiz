@@ -87,6 +87,18 @@ public final class RemoteChannel {
         worker.start();
     }
 
+    /**
+     * 页面落屏确认：只有确认过的事件才算"送达"，游标从这里推进。
+     *
+     * <p>见 {@code onEvent} 里的说明：把游标从"派发即推进"改成"落屏后推进"，
+     * 断线/切后台期间没落屏的事件下次重连会被重放，而不是被静默跳过。</p>
+     *
+     * @param seq 已落屏的最大 seq（小于等于当前游标时忽略）
+     */
+    public void confirmApplied(int seq) {
+        if (seq > lastSeq) lastSeq = seq;
+    }
+
     /** 关通道：置位 + 取消所有进行中的事件流（下一次订阅拿新代） */
     public void close() {
         closed = true;
@@ -106,15 +118,24 @@ public final class RemoteChannel {
                             @Override
                             public void onReady(int seq) {
                                 if (closed) return;
-                                if (seq > lastSeq) lastSeq = seq;
+                                // 不再用"服务器当前 seq"覆盖游标：那等于宣布"之前的事件都收过了"。
                                 listener.onConnection(true, "已连接");
                             }
 
                             @Override
                             public void onSnapshot(int seq, JSONArray turns) {
-                                // 缺口过大时服务端给的是快照；通道层只同步游标，
-                                // 具体怎么补历史由页面决定（时间线已有增量，不在这里重建）。
-                                if (seq > lastSeq) lastSeq = seq;
+                                // 服务端说"缺口过大，给你一份快照"：这是唯一需要放弃
+                                // 本地增量、整段重建的信号。通道层把它转成一条内部事件，
+                                // 由页面丢掉本地时间线并按快照重建。
+                                JSONObject snapshot = new JSONObject();
+                                try {
+                                    snapshot.put("type", "__force_resync");
+                                    snapshot.put("seq", -1);
+                                    snapshot.put("data", new JSONObject().put("server_seq", seq));
+                                } catch (org.json.JSONException ignored) {
+                                    return;
+                                }
+                                listener.onEvent(snapshot);
                             }
 
                             @Override
@@ -134,8 +155,12 @@ public final class RemoteChannel {
                                     listener.onPulse(event.optLong("ts", 0L), event.optInt("seq", lastSeq));
                                     return;
                                 }
-                                int seq = event.optInt("seq", -1);
-                                if (seq > lastSeq) lastSeq = seq;
+                                // ★ 2026-11-12：这里**不再**随手推进游标。
+                                //   以前是"派发即推进"，页面不在前台/事件被 per-turn 游标丢弃时，
+                                //   事件在传输层已经算送达，于是重连永远不会再补 —— 手机侧工具卡
+                                //   停在"运行中"、正文缺段就是这么来的。
+                                //   现在只有页面真正落屏后回调 confirmApplied(seq) 才提交游标；
+                                //   没人确认就不推进，下次重连照原样重放（重放幂等）。
                                 listener.onEvent(event);
                                 maybeAck();
                             }

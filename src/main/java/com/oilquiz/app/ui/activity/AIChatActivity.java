@@ -12857,6 +12857,8 @@ public class AIChatActivity extends BaseActivity {
      * 这里只持有"当前这条同步气泡对应的时间线"。
      */
     private com.oilquiz.app.ai.remote.DshTimeline dshTimeline = new com.oilquiz.app.ai.remote.DshTimeline();
+    /** 进程内还没做过"以服务端为准"的重建；首次连上时置 false。 */
+    private boolean dshResyncPending = true;
     /** 逻辑 key → 组件 id：同一 key 复用，增量 binder 才不会整块重建 */
     private final java.util.HashMap<String, String> dshComponentIds = new java.util.HashMap<>();
     /** 当前同步目标会话 + 已成功投影落屏的事件序号（断点续传用） */
@@ -13093,8 +13095,12 @@ public class AIChatActivity extends BaseActivity {
         for (ChatMessage.ApprovalRequest a : live.approvals) {
             if (a != null && id.equals(a.id)) return; // 事件重放：只留一条
         }
+        // callId 必须带上：PartRenderer 用它把审批钉到对应工具卡下面（以前写死空串，
+        // 于是审批在时间线里是"漂着的一张卡"，跟 pwsh/read 那次调用对不上）。
+        String callId = request == null ? "" : request.optString("callId", "");
         live.approvals.add(new ChatMessage.ApprovalRequest(
-                id, "", com.oilquiz.app.ai.remote.DshCards.approvalTool(request),
+                id, callId == null ? "" : callId,
+                com.oilquiz.app.ai.remote.DshCards.approvalTool(request),
                 com.oilquiz.app.ai.remote.DshCards.approvalDetail(request),
                 com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.APPROVAL_PENDING,
                 dshTimeline.currentRound(), System.currentTimeMillis(), "dsh"));
@@ -13205,6 +13211,8 @@ public class AIChatActivity extends BaseActivity {
      * 随后 UI 异常被吞掉 —— 这条事件就再也不会被补拉回来。现在归约/投影抛异常时游标不动。</p>
      */
     private void applyDshEvent(org.json.JSONObject raw, ChatMessage live, int liveIdx, long[] lastNotify) {
+        android.util.Log.i("DshProbe", "[apply] type=" + raw.optString("type", "")
+                + " seq=" + raw.optInt("seq", -1) + " tlSeq=" + dshTimeline.lastSeq());
         final com.oilquiz.app.ai.remote.DshTimeline.Update up;
         try {
             up = dshTimeline.reduce(com.oilquiz.app.ai.remote.DshEvent.from(raw));
@@ -13269,6 +13277,15 @@ public class AIChatActivity extends BaseActivity {
             // 同步的一轮结束就落盘：原来只有 onStop 才保存，App 被强杀时这一轮会丢
             saveHistoryAsync();
             resolveDshApproval(live, null);
+            // ★ 一轮结束：把阶段状态机一起收尾（2026-11-12）。
+            //   phase 是独立状态机，不跟通道收尾时，界面那行"正在运行 X"会永远挂着并逐轮堆叠。
+            //   这里和 DshTimeline 的 turn/end → COMPLETED 对齐，作为 UI 侧最后一道兜底。
+            runOnUiThread(() -> {
+                live.inferenceProgress = new ChatMessage.InferenceProgress(
+                        ChatMessage.InferencePhase.COMPLETED);
+                int endIdx = chatHistory != null ? chatHistory.indexOf(live) : -1;
+                if (endIdx >= 0) safeNotifyItemChanged(endIdx);
+            });
         }
         dshLastSeq = Math.max(dshLastSeq, up.seq);
     }
@@ -13311,6 +13328,24 @@ public class AIChatActivity extends BaseActivity {
                     runOnUiThread(() -> {
                         if (remoteDshSub != null && !online) {
                             remoteDshSub.setText("通道重连中：" + (detail == null ? "" : detail));
+                        }
+                        // ★ 重连后必须放开渲染游标（2026-11-12）：传输层会从它自己的
+                        //   "已落屏"游标重放，但渲染层还持有上次启动落盘的 dshLastSeq，
+                        //   重放出来的 tool/result 会在 handleChannelEvent 开头被
+                        //   `evSeq <= dshLastSeq` 直接丢弃 —— 于是卡片永远停在进行态。
+                        //   这里把渲染游标归 -1，让重放的事件真正进入时间线；
+                        //   DshTimeline 按 assistant/message 覆盖式写入，重复应用是幂等的。
+                        // ★ 重连后放开渲染游标（2026-11-12）：传输层会从它自己的
+                        //   "已落屏"游标重放，但渲染层还持有上次启动落盘的 dshLastSeq，
+                        //   重放出来的 tool/result 会在 handleChannelEvent 开头被
+                        //   `evSeq <= dshLastSeq` 直接丢弃 —— 于是卡片永远停在进行态。
+                        //   这里把渲染游标归 -1，让重放的事件真正进入时间线；
+                        //   DshTimeline 按 assistant/message 覆盖式写入，重复应用是幂等的。
+                        if (online) {
+                            dshLastSeq = -1;
+                            // 注意：这里**不再**清空时间线。历史按"本地缓存 + 增量续传"
+                            // （传输游标就是缓存水位）；只有服务端发 snapshot（缺口过大）
+                            // 时才由通道层触发重建。
                         }
                         refreshRemoteDshBar();
                     });
@@ -13405,7 +13440,45 @@ public class AIChatActivity extends BaseActivity {
     /** 通道事件 → 时间线：复用 applyDshEvent（durable 事件 + stream/delta 等合成事件） */
     private void onChannelEvent(org.json.JSONObject ev) {
         if (ev == null) return;
+        final int evSeqOuter = ev.optInt("seq", -1);
         try {
+            handleChannelEvent(ev);
+        } catch (Throwable t) {
+            // 单条坏事件不拖垮整条通道（但要能看到是什么坏了，别静默）
+            AppLogger.aiW(TAG, "[DSH] 事件处理失败: " + t);
+        } finally {
+            // ★ 落屏确认（2026-11-12）：事件真正处理完才推进传输游标。
+            //   以前游标在通道层"派发即推进"，页面不在前台/事件被丢弃时，这条事件
+            //   在传输层已经算送达，重连永远不会再补 —— 手机侧工具卡停在"运行中"、
+            //   正文缺段、历史与电脑端对不上就是这么来的。
+            if (evSeqOuter > 0) confirmApplied(evSeqOuter);
+        }
+    }
+
+    /** 把已落屏的 seq 报给连接层（推进传输游标 + 落盘）。 */
+    private void confirmApplied(int seq) {
+        try {
+            com.oilquiz.app.ai.tool.RemoteConnection.get(this).confirmApplied(seq);
+        } catch (Throwable ignored) {
+            // 连接层不在时忽略：下次连接会按旧游标重放，不会丢
+        }
+    }
+
+    /** 通道事件处理体（异常隔离与落屏确认由 {@link #onChannelEvent} 负责）。 */
+    private void handleChannelEvent(org.json.JSONObject ev) {
+        {
+            // 服务端要求重建（缺口过大）：丢掉本地时间线，后续事件按新水位重新归约。
+            // 这是"本地缓存 + 增量"唯一的例外出口。
+            if ("__force_resync".equals(ev.optString("type", ""))) {
+                // 注意判空：内部事件不保证带 data（NPE 会直接崩在 UI 线程）
+                org.json.JSONObject resyncData = ev.optJSONObject("data");
+                android.util.Log.i("DshProbe", "[resync] server_seq="
+                        + (resyncData == null ? -1 : resyncData.optInt("server_seq", -1)));
+                dshTimeline = new com.oilquiz.app.ai.remote.DshTimeline();
+                dshComponentIds.clear();
+                dshLastSeq = -1;
+                return;
+            }
             String type = ev.optString("type", "");
             if (!"stream/delta".equals(type)) {
                 AppLogger.ai(TAG, "[DSH] 通道事件 " + type + " seq=" + ev.optInt("seq", -1));
@@ -13413,7 +13486,14 @@ public class AIChatActivity extends BaseActivity {
             // 幂等：补缺口和实时通道可能重叠回放同一条（实测 turn/end 1765 来了两次，
             // 第二次会 ensureMirrorBubble 出一个空气泡）
             int evSeq = ev.optInt("seq", -1);
-            if (evSeq > 0 && evSeq <= dshLastSeq) return;
+            // 去重只认**时间线自己**的 lastSeq（进程内、与重放起点天然一致）。
+            // 以前比的是消息上持久化的 dshLastSeq —— 那是跨进程高水位，全量重放时
+            // 低序号事件会被它全部误杀，归约根本走不到，卡片永远停在进行态。
+            // 不再按 seq 丢弃"比高水位旧"的事件（2026-11-12）。
+            // 实测服务端会乱序/补发：job/settled、tool/result 的 seq 常常小于时间线高水位，
+            // 一丢就永远停在"运行中"。幂等由 DshTimeline 自己保证：卡片按 key 覆盖、
+            // 步骤按 (turn,step) 归并、正文由 assistant/message 覆盖式写入。
+            if (evSeq > 0 && evSeq == dshTimeline.lastSeq()) return;
             // 电脑端手敲的消息：镜像成 USER 气泡（手机自己发的同文本会被去重跳过）
             if ("user/message".equals(type)) {
                 mirrorUserMessage(ev);
@@ -13439,9 +13519,6 @@ public class AIChatActivity extends BaseActivity {
             if (idx < 0) return;
             applyDshEvent(ev, live, idx, new long[]{0L});
             advanceCursor(ev);
-        } catch (Throwable t) {
-            // 单条坏事件不拖垮整条通道（但要能看到是什么坏了，别静默）
-            AppLogger.aiW(TAG, "[DSH] 事件处理失败: " + t);
         }
     }
 
@@ -13520,14 +13597,21 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 同一 DSH turn 复用同一条气泡；新 turn 才建新的。
-     * 电脑端自己敲的消息也会经通道过来 —— 这时没有本地占位气泡，就在这里补一条。
+     * 同一条 DSH 会话**始终复用同一条镜像气泡**（2026-11-12 修复）。
+     *
+     * <p>以前是"每个 turn 新建气泡 + 新建 DshTimeline + dshLastSeq 归 -1"：上一轮气泡
+     * 在 turn 结束那一刻就冻结了，之后到达的 {@code tool/result}、{@code job/settled}
+     * 即使被处理，写的是新气泡的时间线 —— 旧气泡的卡片永远停在当时的「运行中」，
+     * 正文也会缺段（用户反馈"状态没翻、历史和电脑端对不上"就是这条）。
+     * </p>
+     *
+     * <p>现在轮次只作为时间线内部的分段（{@code DshTimeline} 本来就按 turn 分组），
+     * 气泡与时间线跨轮复用，游标也不再随气泡重置。</p>
      */
     private ChatMessage ensureMirrorBubble(String turn) {
         if (dshMirrorMessage != null && chatHistory != null
-                && chatHistory.contains(dshMirrorMessage)
-                && (turn.isEmpty() || dshMirrorTurn.isEmpty() || turn.equals(dshMirrorTurn))) {
-            if (!turn.isEmpty()) dshMirrorTurn = turn;
+                && chatHistory.contains(dshMirrorMessage)) {
+            if (turn != null && !turn.isEmpty()) dshMirrorTurn = turn;
             return dshMirrorMessage;
         }
         ChatMessage live = ChatMessage.createAIMessage(

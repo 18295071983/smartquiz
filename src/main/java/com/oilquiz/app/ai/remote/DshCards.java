@@ -70,9 +70,12 @@ public final class DshCards {
                 || "sandbox/mode".equals(type)
                 || "permission/preset".equals(type)
                 || "approval/policy".equals(type)
-                || "agent-preset/selected".equals(type)
-                || "approval/asked".equals(type)
-                || "approval/decided".equals(type);
+                || "agent-preset/selected".equals(type);
+        // 2026-11-12：approval/asked 与 approval/decided 不再出"提示卡"。
+        // 审批已经落成 approval part（带允许/拒绝按钮、绑定 toolCallId 钉在工具卡下面），
+        // 再出一张同名 alert 卡就是同一件事画两遍，而且那张卡点不动（用户反馈"没绑定"）。
+                // || "approval/asked".equals(type)
+                // || "approval/decided".equals(type);
     }
 
     /**
@@ -121,25 +124,29 @@ public final class DshCards {
                         ? goal.optString("text", goal.optString("title", ""))
                         : data.optString("text", "");
                 if (text.isEmpty()) return null;
-                return new Card("goal-" + turn, "alert",
-                        obj("title", "当前目标", "content", text, "level", "info"));
+                return new Card("goal-" + turn, "dsh_notice",
+                        obj("title", "当前目标", "text", text, "level", "info"));
             }
             case "workspace/changes":
                 // 事件只有 {turn}，明细在电脑端 —— 如实说明，不假装手机上有内容
-                return new Card("changes-" + turn, "alert", obj("title", "文件变更",
-                        "content", "本轮在电脑工作区有文件改动（明细见电脑端）", "level", "info"));
+                return new Card("changes-" + turn, "dsh_notice", obj("title", "文件变更",
+                        "text", "本轮在电脑工作区有文件改动（明细见电脑端）", "level", "info"));
             case "job/registered": {
                 String label = data.optString("label", data.optString("kind", "后台任务"));
-                int n = jobCount.merge(turn, 1, Integer::sum);
-                String content = n <= 1 ? label : (n + " 个后台任务，最近：" + label);
-                return new Card("jobs-" + turn, "alert",
-                        obj("title", "后台任务", "content", content, "level", "info"));
+                // ★ 卡片 key 必须是**任务身份**，不能是 turn（2026-11-12）：
+                //   以前按 "jobs-<turn>"，job/settled 若落在另一轮就覆盖不到，
+                //   于是后台任务卡永远停在「运行中」（真机截图可复现）。
+                String jobId = data.optString("jobId",
+                        data.optString("id", data.optString("job_id", ""))).trim();
+                String key = jobId.isEmpty() ? ("jobs-" + turn) : ("job-" + jobId);
+                return new Card(key, "dsh_job",
+                        obj("label", label, "status", "running"));
             }
             case "command/run":
-                return new Card("cmd-" + data.optString("commandId", String.valueOf(turn)), "alert",
-                        obj("title", "执行命令",
-                                "content", (data.optString("name") + " " + data.optString("args")).trim(),
-                                "level", "info"));
+                // 命令执行 = 终端命令卡（等宽 + 状态灯），而不是“执行命令”提示卡
+                return new Card("cmd-" + data.optString("commandId", String.valueOf(turn)), "dsh_command",
+                        obj("command", (data.optString("name") + " " + data.optString("args")).trim(),
+                                "status", "running"));
             case "tool-workflow/run-start": {
                 String runId = data.optString("runId");
                 if (runId.isEmpty()) return null;
@@ -188,8 +195,8 @@ public final class DshCards {
                 String label = data.optString("label", "子代理");
                 String mode = data.optString("mode", "");
                 String content = label + ("continuable".equals(mode) ? "（可续跑）" : "");
-                return new Card("subagent-" + data.optString("childId", String.valueOf(turn)), "alert",
-                        obj("title", "子代理", "content", content, "level", "info"));
+                return new Card("subagent-" + data.optString("childId", String.valueOf(turn)), "dsh_notice",
+                        obj("title", "子代理", "text", content, "level", "info"));
             }
             case "llm/retry": {
                 JSONObject failure = data.optJSONObject("failure");
@@ -198,20 +205,20 @@ public final class DshCards {
                 int max = data.optInt("maxRetries", 0);
                 String content = "第 " + retry + (max > 0 ? "/" + max : "") + " 次"
                         + (code.isEmpty() ? "" : "（" + code + "）") + "，稍后重试";
-                return new Card("retry-" + turn, "alert",
-                        obj("title", "模型重试", "content", content, "level", "warning"));
+                return new Card("retry-" + turn, "dsh_notice",
+                        obj("title", "模型重试", "text", content, "level", "warning"));
             }
             case "assistant/attempt":
                 return attemptFailureCard(data, turn);
             case "compaction/start":
                 return new Card("compact-" + data.optString("compactionId", String.valueOf(turn)),
-                        "alert", obj("title", "上下文压缩", "content", "上下文压缩中…", "level", "info"));
+                        "dsh_notice", obj("title", "上下文压缩", "text", "上下文压缩中…", "level", "info"));
             case "compaction/summary": {
                 String key = "compact-" + data.optString("compactionId", String.valueOf(turn));
                 String text = collectText(data.optJSONArray("summary"));
                 if (text.isEmpty()) {
-                    return new Card(key, "alert",
-                            obj("title", "上下文压缩", "content", "上下文压缩中…", "level", "info"));
+                    return new Card(key, "dsh_notice",
+                            obj("title", "上下文压缩", "text", "上下文压缩中…", "level", "info"));
                 }
                 return new Card(key, "markdown_doc",
                         obj("title", "上下文压缩摘要", "content", text));
@@ -226,62 +233,68 @@ public final class DshCards {
                 StringBuilder sb = new StringBuilder(text.isEmpty() ? "目标状态变更" : text);
                 if (!op.isEmpty()) sb.append("（").append(op).append("）");
                 if (rounds > 0) sb.append(" · 已进行 ").append(rounds).append(" 轮");
-                return new Card("goal-state", "alert",
+                return new Card("goal-state", "dsh_notice",
                         obj("title", "当前目标", "content", sb.toString(), "level", "info"));
             }
             case "job/settled": {
                 String label = data.optString("label", data.optString("kind", "后台任务"));
                 String status = data.optString("status", "");
                 boolean bad = "failed".equals(status) || "error".equals(status) || "cancelled".equals(status);
-                return new Card("jobs-" + turn, "alert",
-                        obj("title", "后台任务",
-                                "content", label + (status.isEmpty() ? " · 已结束" : " · " + status),
-                                "level", bad ? "error" : "info"));
+                // 与 job/registered 用同一个 key（任务身份，不是 turn）：
+                // 任务卡从"运行中"原地变成"已完成/失败"，跨轮也能对上。
+                String jobId = data.optString("jobId",
+                        data.optString("id", data.optString("job_id", ""))).trim();
+                String key = jobId.isEmpty() ? ("jobs-" + turn) : ("job-" + jobId);
+                return new Card(key, "dsh_job",
+                        obj("label", label,
+                                "status", status.isEmpty() ? (bad ? "failed" : "success") : status));
             }
             case "command/done": {
                 String text = data.optString("text", "");
-                return new Card("cmd-" + data.optString("commandId", String.valueOf(turn)), "alert",
-                        obj("title", "命令完成",
-                                "content", text.isEmpty() ? "命令执行完成" : text,
-                                "level", "info"));
+                // 同一 commandId 的卡：命令卡原地补上输出，不再另起一张“命令完成”提示卡
+                return new Card("cmd-" + data.optString("commandId", String.valueOf(turn)), "dsh_command",
+                        obj("command", data.optString("command",
+                                        (data.optString("name") + " " + data.optString("args")).trim()),
+                                "status", data.optBoolean("failed", false) ? "failed" : "success",
+                                "output", text));
             }
             case "compaction/prune": {
                 int tokens = data.optInt("shadowedTokenCount", 0);
-                return new Card("compact-prune", "alert",
+                return new Card("compact-prune", "dsh_notice",
                         obj("title", "上下文清理",
                                 "content", tokens > 0 ? ("已清理约 " + tokens + " tokens 的历史") : "已清理部分历史",
                                 "level", "info"));
             }
             case "compaction/end":
-                return new Card("compact-" + data.optString("compactionId", String.valueOf(turn)), "alert",
+                return new Card("compact-" + data.optString("compactionId", String.valueOf(turn)), "dsh_notice",
                         obj("title", "上下文压缩", "content", "压缩完成", "level", "info"));
             case "working-directory/change": {
                 String cwd = data.optString("cwd", "");
-                return new Card("cwd", "alert",
+                return new Card("cwd", "dsh_notice",
                         obj("title", "工作目录", "content", cwd.isEmpty() ? "已切换" : cwd, "level", "info"));
             }
             case "sandbox/mode":
-                return new Card("sandbox", "alert",
+                return new Card("sandbox", "dsh_notice",
                         obj("title", "沙箱模式", "content", data.optString("mode", ""), "level", "info"));
             case "permission/preset":
-                return new Card("permission", "alert",
+                return new Card("permission", "dsh_notice",
                         obj("title", "权限档位", "content", data.optString("preset", ""), "level", "info"));
             case "approval/policy":
-                return new Card("approval-policy", "alert",
+                return new Card("approval-policy", "dsh_notice",
                         obj("title", "审批策略", "content", data.optString("policy", ""), "level", "info"));
             case "agent-preset/selected":
-                return new Card("agent-preset", "alert",
+                return new Card("agent-preset", "dsh_notice",
                         obj("title", "智能体预设", "content", data.optString("agentPreset", ""), "level", "info"));
             case "subagent/descriptor": {
                 String label = data.optString("label", "子代理");
                 String mode = data.optString("mode", "");
-                return new Card("subagent-" + label, "alert",
+                return new Card("subagent-" + label, "dsh_notice",
                         obj("title", "子代理 · " + label,
                                 "content", mode.isEmpty() ? "已创建" : ("模式：" + mode),
                                 "level", "info"));
             }
             case "llm/retry-started":
-                return new Card("retry-" + turn, "alert",
+                return new Card("retry-" + turn, "dsh_notice",
                         obj("title", "模型重试",
                                 "content", "第 " + data.optInt("retry", 0) + " 次重试中…",
                                 "level", "warning"));
@@ -289,7 +302,7 @@ public final class DshCards {
                 String id = data.optString("id", String.valueOf(turn));
                 String reason = data.optString("reason", "");
                 String tool = data.optString("toolName", "工具");
-                return new Card("approval-" + id, "alert",
+                return new Card("approval-" + id, "dsh_notice",
                         obj("title", "需要审批 · " + tool,
                                 "content", reason.isEmpty() ? "等待你的允许/拒绝" : reason,
                                 "level", "warning"));
@@ -297,7 +310,7 @@ public final class DshCards {
             case "approval/decided": {
                 String id = data.optString("id", String.valueOf(turn));
                 String outcome = data.optString("outcome", "");
-                return new Card("approval-" + id, "alert",
+                return new Card("approval-" + id, "dsh_notice",
                         obj("title", "审批结果",
                                 "content", "allowed".equals(outcome) || "allow".equals(outcome) ? "已允许" : "已拒绝",
                                 "level", "info"));
@@ -320,7 +333,7 @@ public final class DshCards {
             JSONObject failure = reason.optJSONObject("failure");
             String message = failure == null ? "" : failure.optString("message", "");
             if (message.isEmpty()) message = "模型调用失败";
-            return new Card("fail-" + turn, "alert",
+            return new Card("fail-" + turn, "dsh_notice",
                     obj("title", "模型报错", "content", message, "level", "error"));
         }
         return null;
@@ -347,7 +360,7 @@ public final class DshCards {
 
     /** 计划模式状态卡（由 {@code plan/mode} 事件驱动） */
     public Card planCard(boolean active) {
-        return new Card("plan", "alert", obj(
+        return new Card("plan", "dsh_notice", obj(
                 "title", "计划模式",
                 "content", active ? "已开启：模型先给计划，等你批准后再执行" : "已关闭",
                 "level", "info"));
@@ -357,12 +370,14 @@ public final class DshCards {
     public Card subagentCard(String childId, String label, String content) {
         String title = "子代理";
         if (label != null && !label.trim().isEmpty()) title += " · " + label.trim();
-        return new Card("subagent-" + childId, "alert",
+        return new Card("subagent-" + childId, "dsh_notice",
                 obj("title", title, "content", content == null ? "" : content, "level", "info"));
     }
     public static String approvalTool(JSONObject request) {
         if (request == null) return "工具";
-        String tool = request.optString("tool", request.optString("name", ""));
+        // DSH 的 approval/request 用 toolName；本地引擎用 tool/name。三个都认，别再退化成“工具”。
+        String tool = request.optString("toolName",
+                request.optString("tool", request.optString("name", "")));
         return tool.trim().isEmpty() ? "工具" : tool.trim();
     }
 

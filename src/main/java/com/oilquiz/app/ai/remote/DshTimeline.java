@@ -210,17 +210,52 @@ public final class DshTimeline {
                 break;
             }
             case "tool/result": {
-                String callId = ev.data != null ? ev.data.optString("toolCallId").trim() : "";
+                // ★ 字段位置（2026-11-12 实测）：DSH 的 tool/result 把调用 id 放在
+                //   data.message.toolCallId 里，**不是** data.toolCallId（那是 tool/call 的形状）。
+                //   以前这里读 data.toolCallId 永远拿到空串 → 每次都判成"结果先到"直接丢弃，
+                //   于是工具卡永远停在"运行中"（打点证据：[probe] tool/result MISS callId=）。
+                JSONObject resMsg = ev.data != null ? ev.data.optJSONObject("message") : null;
+                String callId = "";
+                if (resMsg != null) {
+                    callId = resMsg.optString("toolCallId", "").trim();
+                    if (callId.isEmpty()) {
+                        JSONObject src = resMsg.optJSONObject("source");
+                        if (src != null) callId = src.optString("callId", "").trim();
+                    }
+                }
+                if (callId.isEmpty() && ev.data != null) {
+                    callId = ev.data.optString("toolCallId", "").trim();
+                }
                 Step box = step(turn, step);
                 Tool tool = box.tools.get(callId);
-                // 结果先到（补拉丢头/事件乱序）：不落一张没有调用的幽灵卡
-                if (tool == null) break;
+                // 结果不一定落在"同一个 step"里：宿主补拉/乱序时 tool/result 的 step 字段
+                // 可能和 tool/call 不同（真机就是这样：日志里 tool/result 到了，但按当前 step
+                // 查不到调用 → 直接 break → 卡片永远停"运行中"）。这里退一步在本轮所有步骤里
+                // 找这个 callId，再退一步往更早的轮次找。
+                if (tool == null) {
+                    tool = findToolByCallId(turn, callId);
+                }
+                // 真的没有对应调用（结果先到/半截历史）：兜底建一条**已完成**的工具记录，
+                // 而不是丢弃。否则卡片永远停在"运行中"，而这条结果其实是有效的。
+                if (tool == null) {
+                    android.util.Log.w("DshTimeline", "[probe] tool/result ORPHAN callId=" + callId
+                            + " turn=" + turn + " step=" + step);
+                    if (!callId.isEmpty()) {
+                        tool = new Tool(callId, "", "");
+                        box.tools.put(callId, tool);
+                    } else {
+                        break;
+                    }
+                }
                 JSONObject message = ev.data.optJSONObject("message");
                 tool.result = message != null
                         ? DshCards.collectText(message.optJSONArray("content")) : "";
-                tool.error = ev.data.optBoolean("isError", false)
-                        || ev.data.optBoolean("is_error", false);
+                tool.error = (resMsg != null && resMsg.optBoolean("isError", false))
+                        || (ev.data != null && (ev.data.optBoolean("isError", false)
+                        || ev.data.optBoolean("is_error", false)));
                 tool.finished = true;
+                android.util.Log.i("DshTimeline", "[probe] tool/result OK callId=" + callId
+                        + " turn=" + turn + " step=" + step + " error=" + tool.error);
                 u.contentChanged = true;
                 u.cardsChanged = true;
                 break;
@@ -228,6 +263,11 @@ public final class DshTimeline {
             case "turn/end":
                 u.ended = true;
                 u.contentChanged = true;
+                // ★ 阶段状态机必须跟着通道事件收尾（2026-11-12）：以前只置 ended，
+                //   inferenceProgress 仍停在上一个 phase（GENERATING/THINKING），
+                //   界面上那行"正在运行 终端命令"就永远挂着、还会一轮一轮堆叠。
+                u.phase = ChatMessage.InferencePhase.COMPLETED;
+                u.phaseText = null;
                 break;
             case "stream/delta": {
                 // 实时 token 增量（宿主内 agent 的瞬态帧，不落盘）：直接追加到所在步骤，
@@ -305,6 +345,42 @@ public final class DshTimeline {
         if (ev.seq > lastSeq) lastSeq = ev.seq;
         u.seq = lastSeq;
         return u;
+    }
+
+    /**
+     * 在整条时间线里按 callId 找工具调用（先本轮、再更早的轮次）。
+     *
+     * <p>用途：{@code tool/result} 的 step 字段与 {@code tool/call} 不一致时（补拉/乱序会这样），
+     * 只按当前 step 查会 miss，结果被当成"结果先到"丢掉，卡片永远停在运行中。</p>
+     */
+    private Tool findToolByCallId(int turn, String callId) {
+        if (callId == null || callId.isEmpty()) return null;
+        TreeMap<Integer, Step> byStep = steps.get(turn);
+        if (byStep != null) {
+            for (Step box : byStep.values()) {
+                Tool t = box.tools.get(callId);
+                if (t != null) return t;
+            }
+        }
+        for (Map.Entry<Integer, TreeMap<Integer, Step>> e : steps.descendingMap().entrySet()) {
+            if (e.getKey() == turn) continue;
+            for (Step box : e.getValue().values()) {
+                Tool t = box.tools.get(callId);
+                if (t != null) return t;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 时间线自己已经归约到的最新 seq（-1 = 还没吞过事件）。
+     *
+     * <p>它是去重的唯一正确依据：时间线是进程内的，重放起点与它天然一致；
+     * 而消息上持久化的 {@code dshLastSeq} 是跨进程高水位，重放的低序号会被它误杀
+     * （真机表现：tool/result 到了却进不了归约，卡片停在"运行中"）。</p>
+     */
+    public int lastSeq() {
+        return lastSeq;
     }
 
     private Step step(int turn, int step) {

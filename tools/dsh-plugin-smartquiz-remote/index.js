@@ -31,7 +31,7 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { chmodSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync, appendFileSync } from 'node:fs';
 import { networkInterfaces, homedir, constants as osConstants, setPriority } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exec, execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -1163,6 +1163,31 @@ export function apply(ctx, config) {
 
   const agentOptions = (cfg.provider && cfg.model) ? { provider: cfg.provider, model: cfg.model } : undefined;
   /**
+   * 新建会话的 cwd —— 必须显式给，**不能省**。
+   *
+   * ★ 2026-11-12 事故：以前 createInput 只传 { sessionId }，`ctx.agents.create` 建出来的
+   *   会话头部就没有 cwd（落到 $DSH_HOME/sessions/_no-cwd/）。DSH 读历史时
+   *   api-session-controller 的 validateObservationAddress 对 `header.cwd === undefined`
+   *   一律 rejectNotFound → 桌面端点开那条对话就显示「历史加载失败：session "…" not found
+   *   （session/not-found）」，明明日志里一个字都没丢。
+   *
+   *   桌面端自己的建会话路径（createAgent）是带 `meta: { cwd, agentPreset }` 的，
+   *   ctx.agents.create 的 meta 会由 sessions.prepare 写进会话头部；cwd 必须是**绝对路径**。
+   *
+   *   取值顺序与 CLI 路径保持一致：cfg.workingDir（须是已存在目录）→ 宿主进程 cwd
+   *   （桌面端即 ~/.workbuddy/dsh-home/profiles/desktop）。
+   */
+  const sessionCwd = () => {
+    const dir = String(cfg.workingDir || '').trim();
+    if (dir) {
+      // 会话头部校验要求 cwd 是绝对路径，这里先归一化（cfg 里可能写相对路径）
+      const abs = (() => { try { return resolve(dir); } catch { return ''; } })();
+      try { if (abs && statSync(abs).isDirectory()) return abs; } catch { /* 落到宿主 cwd */ }
+      CWD_GUARD.lastWarning = { at: Date.now(), requested: dir, fallback: '(宿主 cwd)', reason: '建会话时 workingDir 不存在，已退回宿主 cwd' };
+    }
+    try { return process.cwd(); } catch { return undefined; }
+  };
+  /**
    * 建会话输入 —— 照抄 dsh-api-session-controller 的 composeAgent()：
    *   ① ctx.get('agentPresets') 拿预设服务（无需 inject ✓）
    *   ② resolve(undefined) 取默认预设 id
@@ -1170,7 +1195,16 @@ export function apply(ctx, config) {
    *   ★ 少了 mount，agent 循环会启动却无事可做（step 立即 end、不发模型请求）——实测过 ✗
    */
   const createInput = async (sid) => {
-    const base = agentOptions ? { sessionId: sid, agentOptions } : { sessionId: sid };
+    const cwd = sessionCwd();
+    // meta.cwd 会由 sessions.prepare 写进会话头部：它决定会话归到哪个工作区目录，
+    // 也决定桌面端能不能读这条会话的历史（头部没 cwd → 一律 session/not-found）。
+    // ★ 不在这里塞 meta.agentPreset：插件 sessionAgentPreset() 用头部 agentPreset 判断
+    //   "能不能走 CLI 续写"，写上以后手机会话就全被切成进程内接管了（行为变更，另说）。
+    const base = {
+      sessionId: sid,
+      ...(cwd === undefined ? {} : { meta: { cwd } }),
+      ...(agentOptions ? { agentOptions } : {}),
+    };
     // 会话级模型选择：照抄 api-session-controller.agentOptions()/installSelection()
     const sel = (() => { try { return ctx.agentDefaultModel?.currentSelection?.() ?? null; } catch { return null; } })();
     const effective = sel ?? (cfg.provider && cfg.model ? { provider: cfg.provider, model: cfg.model } : null);
@@ -2120,10 +2154,12 @@ export function apply(ctx, config) {
             { label: '回执', value: 'seq=' + (Number(ack.acked_seq) || 0) },
           ],
         });
-        // 待审批/待回答：作为时间线上的一等卡片（以前只走旁路 relay，手机看不到上下文）
+        // 待回答的提问：仍然在这里汇总。
+        // 审批不再进这张卡 —— 审批已经有 approval part（带按钮、绑定 toolCallId 钉在工具卡下面），
+        // 再列一遍就是同一件事画两遍，而且这张卡点不动（用户反馈"审批没跟卡片绑定"）。
         const pendingItems = (() => {
           try {
-            return [...pendingRemoteOf(sid, 'approval'), ...pendingRemoteOf(sid, 'question')];
+            return pendingRemoteOf(sid, 'question');
           } catch { return []; }
         })();
         if (pendingItems.length) {
@@ -3091,19 +3127,44 @@ export function apply(ctx, config) {
    * 某条会话当前挂着的"远端待答事件"（审批 / agent 反问）。
    * 返回值里的 `kind` 决定手机端弹哪种框。
    */
+  /**
+   * 手机兜底审批：电脑端没有活跃 owner client 时，由插件自己接管 waterfall。
+   *
+   * 背景：DSH 的审批是 waterfall，桌面 UI 作为 owner client 应答；客户端一旦不在，
+   * 请求会立刻按 'unavailable' 落地（fail-closed），手机根本来不及点 —— 实测
+   * 两次提权都是 0 毫秒就报 "no approval channel is available"。
+   * 这里挂一个前置应答者：只在「当前没有活跃 owner client」时接管，把请求挂住、
+   * 经 SSE 推给手机，等手机点完再返回 DSH 认可的闭集取值；电脑端在场时直接 next()，
+   * 完全维持原来的 gateway 中继（先答先赢），不改变既有行为。
+   */
+  const phoneApprovals = new Map();        // id -> { id, kind, agentId, request, settle }
+  const PHONE_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
+
+  const phonePendingOf = (sessionId, kind) => {
+    const out = [];
+    for (const e of phoneApprovals.values()) {
+      if (e.kind !== kind) continue;
+      if (sessionId && String(e.agentId) !== String(sessionId)) continue;
+      out.push({ id: e.id, kind, request: e.request, agent_id: e.agentId });
+    }
+    return out;
+  };
+
   const pendingRemoteOf = (sessionId, kind) => {
-    const gw = approvalGateway();
-    if (!gw) return [];
     const eventName = kind === 'question' ? 'user-questions/request' : 'approval/request';
     const out = [];
-    try {
-      for (const pending of gw.pendingRemoteEvents.values()) {
-        const f = pending?.frame;
-        if (!f || f.event !== eventName) continue;
-        if (sessionId && String(f.agentId) !== String(sessionId)) continue;
-        out.push({ id: String(pending.id), kind, request: f.request ?? null, agent_id: String(f.agentId ?? '') });
-      }
-    } catch { /* 结构变了就当没有 */ }
+    const gw = approvalGateway();
+    if (gw) {
+      try {
+        for (const pending of gw.pendingRemoteEvents.values()) {
+          const f = pending?.frame;
+          if (!f || f.event !== eventName) continue;
+          if (sessionId && String(f.agentId) !== String(sessionId)) continue;
+          out.push({ id: String(pending.id), kind, request: f.request ?? null, agent_id: String(f.agentId ?? '') });
+        }
+      } catch { /* 结构变了就当没有 */ }
+    }
+    out.push(...phonePendingOf(sessionId, kind));
     return out;
   };
 
@@ -3112,19 +3173,88 @@ export function apply(ctx, config) {
 
   /** 手机应答：先答先赢；失败返回错误说明 */
   const answerApproval = (approvalId, allow) => {
+    // ① 插件自己挂住的（电脑端不在场的那条路）
+    const local = phoneApprovals.get(String(approvalId));
+    if (local) {
+      const outcome = allow ? 'allowed-once' : 'rejected';
+      return local.settle(outcome)
+        ? { ok: true, decision: outcome, relay: 'plugin' }
+        : { ok: false, error: 'approval_not_found', hint: '这条审批已经结束了（可能已超时）' };
+    }
+    // ② 电脑端在场：走原来的 gateway 中继（与桌面端先答先赢）
     const gw = approvalGateway();
     if (!gw) return { ok: false, error: 'gateway_unavailable', hint: '这个 DSH 版本的网关不暴露审批中继（插件会自动退回只提醒）' };
     try {
       for (const pending of gw.pendingRemoteEvents.values()) {
         if (String(pending.id) !== String(approvalId)) continue;
-        gw.settleRemoteEvent(pending, { kind: 'result', value: allow ? 'allowed' : 'rejected' });
-        return { ok: true, decision: allow ? 'allowed' : 'rejected' };
+        // DSH 的 ApprovalOutcome 是闭集：'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'。
+        // 这里曾写成 'allowed'，不在词表里，approval 服务会按 "rogue non-vocabulary return
+        // value" 归一化成 'unavailable' —— 于是手机点“允许”等于没批准（工具侧报
+        // SANDBOX_ESCALATION_UNAVAILABLE / 没有可用的审批通道）。
+        gw.settleRemoteEvent(pending, { kind: 'result', value: allow ? 'allowed-once' : 'rejected' });
+        return { ok: true, decision: allow ? 'allowed-once' : 'rejected' };
       }
       return { ok: false, error: 'approval_not_found', hint: '这条审批已经结束了（可能刚被电脑端点了，或已超时）' };
     } catch (e) {
       return { ok: false, error: String(e?.message ?? e) };
     }
   };
+
+  // 审批兜底应答者：只在「电脑端没有活跃 owner client」时接管，电脑端在场就 next()。
+  // 整个注册包在 try 里：老版本 DSH 没有这个事件时不要把插件加载搞崩。
+  try {
+  ctx.effect(() => ctx.on('approval/request', (request, next) => {
+    let gw = null;
+    try { gw = approvalGateway(); } catch { gw = null; }
+    let live = false;
+    try {
+      live = Boolean(gw && typeof gw.hasLiveClient === 'function' && gw.hasLiveClient());
+    } catch { live = false; }
+    if (live) return next();
+
+    // 没有手机在追这条会话时不要接管：否则会把没人应答的审批挂满超时，
+    // 反而把"快速失败"变成"卡 5 分钟"。没人看就走原来的 next()（fail-closed）。
+    const sessionId = String(request?.agent?.session?.id ?? '');
+    let watching = false;
+    try {
+      for (const s of STREAM_HUB) {
+        if (String(s?.sid) === sessionId) { watching = true; break; }
+      }
+    } catch { watching = false; }
+    if (!watching) return next();
+
+    return new Promise((resolve) => {
+      const id = randomBytes(16).toString('hex');
+      const agentId = String(request?.agent?.session?.id ?? request?.agent?.id ?? '');
+      const timer = setTimeout(() => { entry.settle('unavailable'); }, PHONE_APPROVAL_TIMEOUT_MS);
+      const onAbort = () => { entry.settle('cancelled'); };
+      const entry = {
+        id,
+        kind: 'approval',
+        agentId,
+        request: {
+          toolName: request?.toolName ?? null,
+          callId: request?.callId ?? null,
+          reason: request?.reason ?? request?.displayReason ?? null,
+        },
+        settle: (outcome) => {
+          if (!phoneApprovals.has(id)) return false;
+          phoneApprovals.delete(id);
+          clearTimeout(timer);
+          try { request?.signal?.removeEventListener?.('abort', onAbort); } catch { /* ignore */ }
+          resolve(outcome);
+          return true;
+        },
+      };
+      phoneApprovals.set(id, entry);
+      try { request?.signal?.addEventListener?.('abort', onAbort, { once: true }); } catch { /* ignore */ }
+      if (request?.signal?.aborted) onAbort();
+    });
+  }));
+  } catch (e) {
+    // 注册失败就退回"只提醒"：审批仍可在电脑端处理，不影响其它功能
+    try { console.warn('[smartquiz-remote] approval answerer 未注册:', String(e?.message ?? e)); } catch { /* ignore */ }
+  }
 
   route('exact', '/pair', (req, res) => {
     if (!isLocal(req)) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }); res.end('pair page is local-only'); return; }
@@ -3803,6 +3933,45 @@ export function apply(ctx, config) {
         }
         const r = answerApproval(id, decision === 'allow');
         return sendJson(res, r.ok ? 200 : 409, { ...r, action: 'approval', approval_id: id });
+      }
+      if (action === 'component_action') {
+        // 卡片按钮回传：手机点了电脑端产出的卡片上的 actions[] 按钮，把这次点击
+        // 作为一条 user 事件注入对应会话，让电脑端的 agent 真正"看见"这次操作。
+        // 以前只有本机引擎那套组件结果槽（get_result），DSH 卡片点了等于丢进黑洞。
+        const target = String(body.target_session_id ?? '').trim();
+        const componentId = String(body.component_id ?? '').trim();
+        const act = String(body.act ?? body.action_name ?? body.value ?? '').trim();
+        const label = String(body.label ?? body.value_text ?? act).trim();
+        if (!target) return sendJson(res, 400, { ok: false, action, error: '需要 target_session_id' });
+        if (!componentId && !act) return sendJson(res, 400, { ok: false, action, error: '需要 component_id 或 act' });
+        let agent = (() => { try { return ctx.agents?.get?.(target); } catch { return undefined; } })();
+        let resumed = false;
+        if (!agent) {
+          try {
+            let h = resumedHandles.get(target);
+            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target }); if (h) rememberWarm(target, h); }
+            agent = h?.agent ?? h ?? null;
+            resumed = Boolean(agent);
+          } catch (e) {
+            return sendJson(res, 409, { ok: false, action, error: 'cannot_resume', resume_error: String(e?.message ?? e) });
+          }
+        }
+        if (!agent) return sendJson(res, 409, { ok: false, action, error: 'live_session_required' });
+        const title = String(body.title ?? '').trim();
+        const text = '【卡片操作】用户点了卡片'
+          + (title ? '「' + title.slice(0, 60) + '」' : '')
+          + '上的按钮「' + (label || act || '按钮').slice(0, 60) + '」'
+          + (componentId ? '（component_id=' + componentId.slice(0, 80) + '）' : '')
+          + (act && act !== label ? '，动作值=' + act.slice(0, 120) : '')
+          + '。请按这个意图继续。';
+        agent.followup({
+          id: randomBytes(16).toString('hex'),
+          role: 'user',
+          content: [{ type: 'text', text }],
+          source: { kind: 'user' },
+        });
+        promptCount += 1;
+        return sendJson(res, 200, { ok: true, action: 'component_action', session_id: target, resumed });
       }
       if (action === 'sync_state') {
         const target = String(body.target_session_id ?? '').trim();

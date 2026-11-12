@@ -39,7 +39,9 @@ public class AlertCardView implements ChatComponent {
     @Override
     public View createView(Context context, ComponentData data) {
         JSONObject p = data.props != null ? data.props : new JSONObject();
-        String type = p.optString("type", "info");
+        // 兼容两种字段：原生组件约定用 type，DSH 事件映射早先写的是 level。
+        // 之前只认 type → DSH 过来的 alert 全部退化成 info 紫色，四档级别形同虚设。
+        String type = p.optString("type", p.optString("level", "info"));
         String title = p.optString("title", "");
         String content = p.optString("content", "");
 

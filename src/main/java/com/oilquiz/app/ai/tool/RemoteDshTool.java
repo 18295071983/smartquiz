@@ -855,6 +855,32 @@ public class RemoteDshTool implements AITool {
         return Boolean.TRUE.equals(resp.get("ok"));
     }
 
+    /**
+     * 卡片按钮回传：把电脑端产出的卡片上一次点击送回宿主会话。
+     *
+     * <p>以前 DSH 卡片的 {@code actions[]} 点了只在本机结果槽里打转（那套回调是给本机引擎
+     * Agent 用的），电脑端完全收不到 —— 用户反馈"点了按钮返回不到你这里"。
+     * 这里补上上行链路：宿主插件收到 {@code component_action} 后，会把这次点击作为一条
+     * user 事件注入对应会话，电脑端的 agent 就能接着处理。</p>
+     *
+     * @param componentId 组件 id（DSH 侧发号，形如 dsh-xxxx）
+     * @param value       按钮值（actions[].value 或 label）
+     * @return 宿主是否受理
+     */
+    public static boolean sendComponentAction(Context c, String componentId, String value) throws Exception {
+        String target = getSyncTarget(c);
+        if (target == null || target.isEmpty()) return false;
+        RemoteDshTool tool = new RemoteDshTool(c);
+        Map<String, Object> body = new HashMap<>();
+        body.put("action", "component_action");
+        body.put("target_session_id", target);
+        body.put("component_id", componentId == null ? "" : componentId);
+        body.put("act", value == null ? "" : value);
+        body.put("label", value == null ? "" : value);
+        Map<String, Object> resp = tool.httpJson(tool.getBaseUrl() + "/session", "POST", body, 30);
+        return Boolean.TRUE.equals(resp.get("ok"));
+    }
+
     /** 同步流式回调（在后台线程触发，调用方自行 post 到 UI） */
     public interface SyncStreamListener {
         void onStart();

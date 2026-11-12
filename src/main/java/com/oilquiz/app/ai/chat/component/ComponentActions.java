@@ -257,6 +257,18 @@ public final class ComponentActions {
     private static void notifyResult(Context context, String componentId, String value) {
         android.util.Log.i("ComponentActions", "notifyResult cid=" + componentId + " value=" + value
                 + " cb=" + (resultCallback != null));
+        // 0. DSH（电脑端）产出的卡片：组件 id 由 dshComponentId() 发号，前缀 dsh-。
+        //    这类卡片的按钮必须回电脑端宿主，本机结果槽收不到它（以前就是这么丢的）。
+        if (componentId != null && componentId.startsWith("dsh-")) {
+            try {
+                boolean sent = com.oilquiz.app.ai.tool.RemoteDshTool
+                        .sendComponentAction(context, componentId, value);
+                android.util.Log.i("ComponentActions", "DSH 卡片动作回传 sent=" + sent);
+                if (sent) return;
+            } catch (Throwable t) {
+                android.util.Log.w("ComponentActions", "DSH 卡片动作回传失败: " + t);
+            }
+        }
         // 1. 按 component_id 精确分发（增量注册表优先）
         if (componentId != null) {
             java.util.function.BiConsumer<String, String> cb = componentCallbacks.get(componentId);

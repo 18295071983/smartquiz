@@ -57,6 +57,8 @@ public final class DshProjection {
 
         List<ChatMessage.RoundSnapshot> snapshots = new ArrayList<>();
         List<ComponentData> components = new ArrayList<>();
+        List<Integer> bounds = new ArrayList<>();       // 每轮正文的累计长度（contentRoundBounds）
+        List<String> roundToolIds = new ArrayList<>();  // 每轮的首个 toolCallId（contentRoundToolIds）
         StringBuilder content = new StringBuilder();
         StringBuilder thinking = new StringBuilder();
         int round = 0;
@@ -85,6 +87,13 @@ public final class DshProjection {
                 }
             }
             snapshots.add(snapshot);
+            // 流式渲染（AssistantTurn.fromMessageForStreaming）按 contentRoundBounds 切片取顺序真值。
+            // DSH 投影此前只写 roundSnapshots、不写这个字段 —— 于是流式期切片为空，
+            // 手机侧正文整段消失、只剩"正在运行 X"的阶段行，工具行也停在进行态。
+            // 这里同步写一份边界，让两条渲染路径拿到同一份顺序。
+            bounds.add(content.length());
+            roundToolIds.add(snapshot.toolCallIds != null && !snapshot.toolCallIds.isEmpty()
+                    ? snapshot.toolCallIds.get(0) : "");
         }
 
         for (DshCards.Card card : timeline.orderedCards()) {
@@ -100,6 +109,9 @@ public final class DshProjection {
         msg.thinkingContent = thinking.length() > 0 ? thinking.toString() : null;
         msg.roundSnapshots = snapshots;
         msg.components = components;
+        // 与 roundSnapshots 同源的顺序信息：流式/未完成那一档渲染器读的就是它。
+        msg.contentRoundBounds = bounds;
+        msg.contentRoundToolIds = roundToolIds;
         // 单一投影：渲染真值是 roundSnapshots/components，assistantTurn 会反向覆盖它们
         msg.assistantTurn = null;
     }
