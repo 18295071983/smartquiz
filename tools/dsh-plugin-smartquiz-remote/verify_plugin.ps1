@@ -1,4 +1,4 @@
-﻿# verify_plugin.ps1 —— SmartQuiz Remote 插件一键端到端验证
+# verify_plugin.ps1 —— SmartQuiz Remote 插件一键端到端验证
 # 用法：pwsh -File verify_plugin.ps1    （powershell.exe 5.1 也能跑：文件带 UTF-8 BOM，
 #        且请求体已显式按 UTF-8 编码，不会出现中文乱码）
 # 可选参数 -PublicUrl：隧道域名（不给则读插件目录 .public-url），用于第 10.5 步的加固回归
@@ -11,7 +11,7 @@ param(
 # 因此本脚本先取设备表快照，运行结束（含中途失败）时在 finally 里 POST /devices/revoke
 # 吊销本次新增的记录，并复核设备表是否复原。
 $ErrorActionPreference = 'Continue'
-$base = 'http://127.0.0.1:19387'
+$base = 'http://127.0.0.1:8218'
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $tf = Join-Path $dir '.token'
 $newDevices = @()
