@@ -82,6 +82,15 @@ public class RemoteSyncService extends Service {
         }
         conn.addListener(listener);
         conn.start();
+        // 补一次当前状态：连接是单例，若服务在连接**已建立之后**才挂监听，
+        // 那条 online 回调永远不会再来，通知就永远停在启动时的「正在连接电脑…」。
+        try {
+            if (RemoteDshTool.isConnected(this)) {
+                update(buildNotification("已连接" + (title.isEmpty() ? "" : " · " + title)));
+            }
+        } catch (Throwable ignored) {
+            // 状态读取失败保持原文案
+        }
         return START_STICKY;
     }
 
