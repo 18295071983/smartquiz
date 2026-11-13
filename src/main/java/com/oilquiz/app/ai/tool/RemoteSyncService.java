@@ -26,6 +26,8 @@ public class RemoteSyncService extends Service {
 
     public static final String EXTRA_TARGET = "target";
     public static final String EXTRA_SINCE = "since";
+    /** 开机自启入口标记（见 RemoteBootReceiver）：只用于日志/诊断 */
+    public static final String ACTION_BOOT_START = "com.oilquiz.app.REMOTE_BOOT_START";
     private static final String CHANNEL_ID = "remote_dsh_sync";
     /** 告警通知通道：IMPORTANCE_DEFAULT 才会响/弹（常驻的同步通知是 LOW，只安静显示） */
     private static final String ALERT_CHANNEL_ID = "remote_dsh_alert";
@@ -81,11 +83,19 @@ public class RemoteSyncService extends Service {
                     // ALERT(2026-11-13)：需要人处理的事单独弹一条通知。
                     // 前台那条常驻通知只显示"已连接/最后一句"，既不响也不弹；用户锁屏时
                     // 根本不知道电脑正在等他审批。审批/提问 → 提醒；审批被处理 → 收回。
-                    if ("approval".equals(type) || "question".equals(type)) {
+                    if ("approval".equals(type)) {
+                        // 审批通知归**前台服务**所有（2026-11-13）：进程在后台也能弹、也能点。
+                        // 以前只在 Activity 存活时由页面发通知，退到后台就什么都没有了。
+                        JSONObject req = event.optJSONObject("request");
+                        String tool = req == null ? "" : req.optString("toolName",
+                                req.optString("tool", req.optString("name", "")));
+                        String detail = requestBrief(event);
+                        notifyApproval(event.optString("id", ""), tool, detail);
+                        return;
+                    }
+                    if ("question".equals(type)) {
                         if (!com.oilquiz.app.ui.activity.AIChatActivity.isForegroundForAlerts()) {
-                            notifyAlert(NOTIF_ID_APPROVAL,
-                                    "approval".equals(type) ? "电脑端等待审批" : "电脑端有问题待回答",
-                                    requestBrief(event));
+                            notifyAlert(NOTIF_ID_APPROVAL, "电脑端有问题待回答", requestBrief(event));
                         }
                         return;
                     }
@@ -222,8 +232,57 @@ public class RemoteSyncService extends Service {
      * <p>与前台常驻通知分开：常驻那条是 IMPORTANCE_LOW（安静），这条是 DEFAULT（会响/弹）。
      * 没有通知权限时静默失败——连接本身不受影响。</p>
      */
-    private void notifyAlert(int id, String title, String text) {
+    /**
+     * 审批通知归前台服务（2026-11-13）。
+     *
+     * <p>以前审批提醒只在 Activity 里发，退到后台就既没有通知也无法回传。现在由服务持有：
+     * 通道事件一到就发（带「允许/拒绝」两颗按钮），点击走 {@link RemoteCmdActionReceiver}
+     * 直接回传，不依赖页面存活。</p>
+     */
+    private void notifyApproval(String id, String tool, String detail) {
+        if (id == null || id.isEmpty()) return;
         try {
+            ensureAlertChannel();
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            Notification.Builder b = android.os.Build.VERSION.SDK_INT >= 26
+                    ? new Notification.Builder(this, ALERT_CHANNEL_ID)
+                    : new Notification.Builder(this);
+            Intent open = new Intent(this, com.oilquiz.app.ui.activity.AIChatActivity.class);
+            open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            PendingIntent pi = PendingIntent.getActivity(this, NOTIF_ID_APPROVAL, open,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            String text = (tool == null || tool.isEmpty() ? "有一条审批待处理" : "请求权限：" + tool)
+                    + (detail == null || detail.isEmpty() ? "" : " · " + detail);
+            b.setContentTitle("待你处理")
+                    .setContentText(text.length() > 120 ? text.substring(0, 120) + "…" : text)
+                    .setStyle(new Notification.BigTextStyle().bigText(text))
+                    .setSmallIcon(com.oilquiz.app.R.mipmap.ic_launcher)
+                    .setContentIntent(pi)
+                    .setAutoCancel(true)
+                    .setOnlyAlertOnce(true);
+            b.addAction(new Notification.Action.Builder(null, "允许",
+                    approvalAction(id, "allow", 1)).build());
+            b.addAction(new Notification.Action.Builder(null, "拒绝",
+                    approvalAction(id, "deny", 2)).build());
+            nm.notify(NOTIF_ID_APPROVAL, b.build());
+        } catch (Throwable ignored) {
+            // 没通知权限：静默，通道照常
+        }
+    }
+
+    /** 审批按钮：广播到 RemoteCmdActionReceiver，后台也能点 */
+    private PendingIntent approvalAction(String id, String decision, int req) {
+        Intent it = new Intent(this, RemoteCmdActionReceiver.class);
+        it.setAction(RemoteCmdActionReceiver.ACTION);
+        it.putExtra(RemoteCmdActionReceiver.EXTRA_APPROVAL_ID, id);
+        it.putExtra(RemoteCmdActionReceiver.EXTRA_APPROVAL_DECISION, decision);
+        it.putExtra(RemoteCmdActionReceiver.EXTRA_NOTIF_ID, NOTIF_ID_APPROVAL);
+        return PendingIntent.getBroadcast(this, NOTIF_ID_APPROVAL + req, it,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    private void notifyAlert(int id, String title, String text) {        try {
             ensureAlertChannel();
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return;

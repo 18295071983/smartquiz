@@ -20,6 +20,8 @@ public class RemoteCmdActionReceiver extends BroadcastReceiver {
     /** 审批通知的按钮（2026-11-13）：直接回传审批决定，不需要 Activity */
     public static final String EXTRA_APPROVAL_ID = "approval_id";
     public static final String EXTRA_APPROVAL_DECISION = "approval_decision";
+    /** 通知 id（服务用 NOTIF_ID_APPROVAL，页面用 7701；点击后按这个撤） */
+    public static final String EXTRA_NOTIF_ID = "notif_id";
     /** 审批通知固定 id（与 DockSlotBus 的待处理提醒共用一条） */
     public static final int APPROVAL_NOTIFICATION_ID = 7701;
 
@@ -29,17 +31,23 @@ public class RemoteCmdActionReceiver extends BroadcastReceiver {
         final String approvalId = intent.getStringExtra(EXTRA_APPROVAL_ID);
         if (approvalId != null && !approvalId.isEmpty()) {
             final boolean allow = "allow".equals(intent.getStringExtra(EXTRA_APPROVAL_DECISION));
+            android.util.Log.i("DshApproval", "[notify-action] 点击 id=" + approvalId
+                    + " decision=" + (allow ? "allow" : "deny"));
             new Thread(() -> {
                 try {
-                    RemoteDshTool.answerApproval(context, approvalId, allow);
-                } catch (Exception ignored) {
-                    // 审批可能已结束：忽略
+                    boolean ok = RemoteDshTool.answerApproval(context, approvalId, allow);
+                    android.util.Log.i("DshApproval", "[notify-action] 回传结果 ok=" + ok);
+                } catch (Exception e) {
+                    android.util.Log.w("DshApproval", "[notify-action] 回传失败: " + e);
                 }
             }, "dsh-approval-action").start();
             try {
                 android.app.NotificationManager nm =
                         (android.app.NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-                if (nm != null) nm.cancel(APPROVAL_NOTIFICATION_ID);
+                if (nm != null) {
+                    nm.cancel(intent.getIntExtra(EXTRA_NOTIF_ID, APPROVAL_NOTIFICATION_ID));
+                    nm.cancel(APPROVAL_NOTIFICATION_ID);
+                }
             } catch (Throwable ignored) {
                 // 取消失败不影响
             }

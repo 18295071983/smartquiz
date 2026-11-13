@@ -13625,9 +13625,10 @@ public class AIChatActivity extends BaseActivity {
                 }
             }
         }
-        // 通知栏联动：有审批就把"允许/拒绝"挂到通知按钮上（2026-11-13 恢复昨天的能力）
+        // 通知栏联动：审批通知由**前台服务**负责（后台也能弹/能点）；
+        // 页面只负责提问类提醒，避免同一件事两条通知打架
         com.oilquiz.app.ai.chat.status.PendingActionNotifier.sync(
-                this, approvals, questions, firstApprovalId, firstApprovalTool, AIChatActivity.class);
+                this, 0, questions, "", "", AIChatActivity.class);
         // 可交互卡片 / 子代理轨迹卡 直接放甲板
         refreshPendingCard();
     }

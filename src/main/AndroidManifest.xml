@@ -42,6 +42,7 @@
     <uses-permission android:name="android.permission.WRITE_CONTACTS" />
 
     <!-- 后台权限 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -519,6 +520,18 @@
         <receiver
             android:name=".ai.tool.RemoteCmdActionReceiver"
             android:exported="false" />
+
+        <!-- 开机自启：把常驻连接拉回来（后台/锁屏才能收到审批通知） -->
+        <receiver
+            android:name=".ai.tool.RemoteBootReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.android.internal.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".ai.tool.RemoteSyncService"
