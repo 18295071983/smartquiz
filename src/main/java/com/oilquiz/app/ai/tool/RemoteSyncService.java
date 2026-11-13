@@ -28,6 +28,20 @@ public class RemoteSyncService extends Service {
     public static final String EXTRA_SINCE = "since";
     /** 开机自启入口标记（见 RemoteBootReceiver）：只用于日志/诊断 */
     public static final String ACTION_BOOT_START = "com.oilquiz.app.REMOTE_BOOT_START";
+    /** 页面自己处理了审批：让服务把常驻通知上的审批绑定撤掉，避免"通知 + 页内对话框"同时出现 */
+    public static final String ACTION_CLEAR_APPROVAL = "com.oilquiz.app.REMOTE_CLEAR_APPROVAL";
+
+    /** 页面处理审批时调用：撤掉连接通知上的审批绑定（不杀服务） */
+    public static void clearApprovalBinding(Context context) {
+        if (context == null) return;
+        try {
+            Intent it = new Intent(context, RemoteSyncService.class);
+            it.setAction(ACTION_CLEAR_APPROVAL);
+            androidx.core.content.ContextCompat.startForegroundService(context, it);
+        } catch (Throwable ignored) {
+            // 服务没起也无所谓：本来就没有绑定
+        }
+    }
 
     /**
      * 拉起常驻连接服务（幂等）。
@@ -81,6 +95,13 @@ public class RemoteSyncService extends Service {
             RemoteDshTool.setCanonicalSession(this, target, RemoteDshTool.getSyncTitle(this));
         }
         ensureChannel();
+        if (intent != null && ACTION_CLEAR_APPROVAL.equals(intent.getAction())) {
+            // 页内已经处理/展示审批：撤掉通知上的绑定，避免同一件事两处同时显示
+            pendingApprovalId = "";
+            pendingApprovalText = "";
+            refreshConnectionNotification();
+            return START_STICKY;
+        }
         startForeground(NOTIF_ID, buildNotification("正在连接电脑…"));
         startReverseCommandPoller();
 

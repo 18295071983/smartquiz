@@ -13252,6 +13252,9 @@ public class AIChatActivity extends BaseActivity {
      */
     private void showDshApprovalDialog(String id, org.json.JSONObject request) {
         if (id == null || id.isEmpty()) return;
+        // 页面要自己弹对话框了：让服务撤掉常驻通知上的审批绑定，
+        // 否则用户会同时看到"通知里的审批"和"对话页里的审批"（用户反馈的重复显示）。
+        com.oilquiz.app.ai.tool.RemoteSyncService.clearApprovalBinding(this);
         String tool = request == null ? "" : request.optString("tool", request.optString("name", ""));
         String detail = request == null ? "" : request.optString("summary",
                 request.optString("command", request.optString("reason", "")));
@@ -14652,6 +14655,33 @@ public class AIChatActivity extends BaseActivity {
     /**
      * 拉起前台同步服务：切后台/锁屏时也能继续收电脑端消息（只发通知，不推进渲染游标）。
      */
+    /**
+     * 页内补弹待审批（2026-11-13）。
+     *
+     * <p>用户从通知栏点进来时，审批帧早就消费过了，不会再有回调；靠历史里的 pending
+     * 状态补一次对话框。弹之前先让服务撤掉通知绑定，避免"通知 + 对话框"同时显示。</p>
+     */
+    private void showPendingApprovalFromHistory() {
+        if (chatHistory == null) return;
+        for (ChatMessage m : chatHistory) {
+            if (m == null || m.approvals == null) continue;
+            for (ChatMessage.ApprovalRequest a : m.approvals) {
+                if (a == null || !a.isPending() || !"dsh".equals(a.source)) continue;
+                if (a.id == null || a.id.isEmpty()) continue;
+                org.json.JSONObject req = new org.json.JSONObject();
+                try {
+                    req.put("toolName", a.permission == null ? "" : a.permission);
+                    req.put("reason", a.prompt == null ? "" : a.prompt);
+                    req.put("callId", a.toolCallId == null ? "" : a.toolCallId);
+                } catch (Exception ignored) {
+                    // 拼不出来就只显示标题
+                }
+                showDshApprovalDialog(a.id, req);
+                return;
+            }
+        }
+    }
+
     private void startRemoteSyncService() {
         // 统一走 RemoteSyncService.ensureStarted（配对即启动，连接由服务自己建）
         com.oilquiz.app.ai.tool.RemoteSyncService.ensureStarted(this);
@@ -15021,6 +15051,8 @@ public class AIChatActivity extends BaseActivity {
         startRemoteSyncService();
         attachDshConnection();
         startDshCommandPolling();
+        // 从通知栏点进来：待审批要立刻在页内弹出来（服务那条通知随之下掉，避免两处同时显示）
+        showPendingApprovalFromHistory();
         super.onResume();
         // STATUSBAR: 回前台只在"确实还在生成"时恢复心跳，空闲不轮询；
         // 另补刷一次，避免后台期间状态条停在离开那一刻的旧值
