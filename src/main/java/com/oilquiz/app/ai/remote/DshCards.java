@@ -431,13 +431,6 @@ public final class DshCards {
                 "level", "info"));
     }
 
-    /** 子代理卡（同 key 覆盖：catalog 建卡、activity 更新最近动作） */
-    public Card subagentCard(String childId, String label, String content) {
-        String title = "子代理";
-        if (label != null && !label.trim().isEmpty()) title += " · " + label.trim();
-        return new Card("subagent-" + childId, "dsh_notice",
-                obj("title", title, "content", content == null ? "" : content, "level", "info"));
-    }
     public static String approvalTool(JSONObject request) {
         if (request == null) return "工具";
         // DSH 的 approval/request 用 toolName；本地引擎用 tool/name。三个都认，别再退化成“工具”。

@@ -99,6 +99,13 @@ public final class DshProjection {
                     ? snapshot.toolCallIds.get(0) : "");
         }
 
+        // B15 durable（2026-11-13）：每个子代理投影成一张 subagent_card。
+        // 组件随消息落盘 → 重进会话/重启后仍是同一张卡（这是 durable 的关键），
+        // 不再依赖"重连时补发最后一帧"的临时手段。
+        for (DshTimeline.Subagent sa : timeline.subagents()) {
+            components.add(subagentComponent(sa, source));
+        }
+
         for (DshCards.Card card : timeline.orderedCards()) {
             ComponentData data = ComponentData.of(card.type, card.props);
             data.source = "dsh";
@@ -155,6 +162,33 @@ public final class DshProjection {
         ComponentData data = ComponentData.of("layout", layout);
         data.source = "dsh";
         data.id = ids.idFor("layout:" + tool.callId);
+        return data;
+    }
+
+    /**
+     * 子代理轨迹 → {@code subagent_card} 组件（2026-11-13，B15 durable）。
+     *
+     * <p>props：{@code {label, childId, lastText, steps:[{tool,args,status,result}]}}。
+     * 空轨迹也保留一张卡（至少能看出"某子代理正在跑"），但完全无信息（无 label 无步骤）时不产卡。</p>
+     */
+    private static ComponentData subagentComponent(DshTimeline.Subagent sa, IdSource ids) {
+        JSONObject props = DshCards.obj(
+                "childId", sa.childId,
+                "label", sa.label == null || sa.label.isEmpty() ? "子代理" : sa.label);
+        if (sa.lastText != null && !sa.lastText.isEmpty()) {
+            DshCards.put(props, "lastText", sa.lastText);
+        }
+        org.json.JSONArray steps = new org.json.JSONArray();
+        for (DshTimeline.SubagentStep st : sa.steps.values()) {
+            JSONObject row = DshCards.obj(
+                    "tool", st.tool, "args", st.args, "status", st.status);
+            if (st.result != null && !st.result.isEmpty()) DshCards.put(row, "result", st.result);
+            steps.put(row);
+        }
+        if (steps.length() > 0) DshCards.put(props, "steps", steps);
+        ComponentData data = ComponentData.of("subagent_card", props);
+        data.source = "dsh";
+        data.id = ids.idFor("subagent:" + sa.childId);
         return data;
     }
 

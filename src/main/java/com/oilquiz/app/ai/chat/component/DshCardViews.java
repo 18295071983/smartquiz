@@ -374,4 +374,136 @@ final class DshCardViews {
             return card;
         }
     }
+
+    // ======================================================================
+    // 4) 子代理轨迹卡（B15 durable）
+    // ======================================================================
+
+    /**
+     * 子代理轨迹（{@code subagent_card}）：每个子代理一张卡，列出它最近跑过的工具与结果。
+     *
+     * <p>props：{@code {label, childId?, lastText?, steps:[{tool,args,status,result}]}}。
+     * 这张卡由 {@code DshProjection} 从合成活动累积投影而来，**随消息落盘**——
+     * 所以重进会话/重启后仍是同一张卡（durable），而不是"重连补发一帧"的临时状态。</p>
+     */
+    static final class DshSubagentCard implements ChatComponent {
+
+        /** 最多显示几步（其余用"+N 步"提示，卡不被撑爆） */
+        private static final int MAX_ROWS = 6;
+
+        @Override
+        public String getType() {
+            return "subagent_card";
+        }
+
+        @Override
+        public boolean canRender(ComponentData data) {
+            return data != null && data.props != null
+                    && (data.props.has("label") || data.props.has("steps"));
+        }
+
+        @Override
+        public View createView(Context context, ComponentData data) {
+            JSONObject p = data.props != null ? data.props : new JSONObject();
+            String label = p.optString("label", "子代理");
+            String lastText = p.optString("lastText", "");
+            org.json.JSONArray steps = p.optJSONArray("steps");
+
+            LinearLayout card = new LinearLayout(context);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(dp(context, 12), dp(context, 9), dp(context, 12), dp(context, 9));
+            card.setBackground(surface(context));
+
+            LinearLayout head = new LinearLayout(context);
+            head.setOrientation(LinearLayout.HORIZONTAL);
+            head.setGravity(Gravity.CENTER_VERTICAL);
+
+            View dot = new View(context);
+            GradientDrawable dotBg = new GradientDrawable();
+            dotBg.setShape(GradientDrawable.OVAL);
+            dotBg.setColor(ComponentColors.accent(context));
+            dot.setBackground(dotBg);
+            LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(context, 7), dp(context, 7));
+            dotLp.setMargins(0, 0, dp(context, 8), 0);
+            head.addView(dot, dotLp);
+
+            TextView title = new TextView(context);
+            title.setText("子代理 · " + label);
+            title.setTextSize(12.5f);
+            title.setTextColor(ComponentColors.textPrimary(context));
+            title.setMaxLines(1);
+            title.setEllipsize(TextUtils.TruncateAt.END);
+            title.setLayoutParams(new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            head.addView(title);
+
+            if (steps != null && steps.length() > 0) {
+                TextView count = new TextView(context);
+                count.setText(steps.length() + " 步");
+                count.setTextSize(11);
+                count.setTextColor(ComponentColors.textSecondary(context));
+                head.addView(count);
+            }
+            card.addView(head);
+
+            int shown = 0;
+            if (steps != null) {
+                for (int i = 0; i < steps.length() && shown < MAX_ROWS; i += 1, shown += 1) {
+                    JSONObject st = steps.optJSONObject(i);
+                    if (st == null) continue;
+                    card.addView(stepRow(context, st));
+                }
+                if (steps.length() > shown) {
+                    TextView more = new TextView(context);
+                    more.setText("+" + (steps.length() - shown) + " 步");
+                    more.setTextSize(11);
+                    more.setTextColor(ComponentColors.textSecondary(context));
+                    more.setPadding(dp(context, 15), dp(context, 2), 0, 0);
+                    card.addView(more);
+                }
+            } else if (!TextUtils.isEmpty(lastText)) {
+                TextView sub = new TextView(context);
+                sub.setText(lastText);
+                sub.setTextSize(11);
+                sub.setTextColor(ComponentColors.textSecondary(context));
+                sub.setMaxLines(2);
+                sub.setEllipsize(TextUtils.TruncateAt.END);
+                sub.setPadding(dp(context, 15), dp(context, 3), 0, 0);
+                card.addView(sub);
+            }
+            return card;
+        }
+
+        private View stepRow(Context context, JSONObject st) {
+            String tool = st.optString("tool", "工具");
+            String args = st.optString("args", "");
+            String status = st.optString("status", "running");
+            String result = st.optString("result", "");
+
+            LinearLayout col = new LinearLayout(context);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.setPadding(dp(context, 15), dp(context, 3), 0, 0);
+
+            TextView line = new TextView(context);
+            String text = "• " + tool + (TextUtils.isEmpty(args) ? "" : "（" + args + "）");
+            line.setText(text);
+            line.setTextSize(11.5f);
+            line.setTextColor("failed".equals(status)
+                    ? ComponentColors.error(context) : ComponentColors.textPrimary(context));
+            line.setMaxLines(1);
+            line.setEllipsize(TextUtils.TruncateAt.END);
+            col.addView(line);
+
+            if (!TextUtils.isEmpty(result)) {
+                TextView res = new TextView(context);
+                res.setText(result);
+                res.setTextSize(11);
+                res.setTextColor(ComponentColors.textSecondary(context));
+                res.setMaxLines(2);
+                res.setEllipsize(TextUtils.TruncateAt.END);
+                col.addView(res);
+            }
+            return col;
+        }
+    }
 }

@@ -61,9 +61,39 @@ const STREAM_HUB = new Set();
 const CUSTOM_SLOTS = new Map();
 
 /**
+ * 一次性告警（避免热重载/轮询把同一错误刷满日志）：key 首次出现才打一行。
+ */
+const WARNED_ONCE = new Set();
+function warnOnce(key, message) {
+  if (!key || WARNED_ONCE.has(key)) return;
+  WARNED_ONCE.add(key);
+  try {
+    console.warn(message);
+  } catch {
+    // console 不可用时忽略
+  }
+}
+
+/**
  * 子代理最近一条活动（childId → 合成帧）。合成帧没有事件源，重连后靠它补发（B15）。
  */
 const SUBAGENT_LAST = new Map();
+
+/**
+ * 子代理活动轮询器（2026-11-13，B15)。
+ *
+ * <p>为什么需要：DSH 的 {@code session/event} 只把**根会话**事件送到插件；
+ * 子会话（子代理）的事件不在同一条总线上，于是 {@code subagent/activity} 从来没真发出来过
+ * （真机验证：只收到 {@code subagent/catalog}，0 条 activity）。</p>
+ *
+ * <p>这里改成"看到 catalog 就开始轻量轮询子会话日志"：按 seq 增量补事件、
+ * 合成 activity 帧发给根会话。子代理不 live 且连续一段时间没有新事件就自停，
+ * 最多跑 10 分钟，避免泄漏。</p>
+ */
+const SUBAGENT_POLLERS = new Map();
+const SUBAGENT_POLL_MS = 1500;
+const SUBAGENT_POLL_IDLE_TICKS = 40;      // 60s 无新事件即停
+const SUBAGENT_POLL_MAX_MS = 10 * 60 * 1000;
 
 function streamBroadcast(sid, obj) {
   if (!obj) return;
@@ -1816,6 +1846,82 @@ export function apply(ctx, config) {
     console.warn('[smartquiz-remote] phone_ui 注册失败（忽略）: ' + PHONE_TOOL_STATE.error);
   }
 
+  /**
+   * 子代理活动轮询（2026-11-13，B15）：子会话事件不在 session/event 总线上，
+   * 只能按 seq 增量读它的会话日志，再合成 activity 帧发给根会话。
+   */
+  const startChildPolling = (childId, root) => {
+    if (!childId || !root) return;
+    if (SUBAGENT_POLLERS.has(childId)) return;
+    const state = { lastSeq: -1, idle: 0, timer: null };
+    const startedAt = Date.now();
+    const stop = () => {
+      if (state.timer) clearInterval(state.timer);
+      SUBAGENT_POLLERS.delete(childId);
+    };
+    state.timer = setInterval(() => {
+      // CRASH-GUARD（2026-11-13）：宿主热重载时旧的定时器可能还在跑，
+      // Node 里定时器回调抛出的异常**没有宿主兜底，会直接杀掉整个进程**（真机：
+      // 改插件文件触发 HMR 后 DSH 客户端闪退）。所以这里整段 try/catch，
+      // 任何异常只记一次日志并自停，绝不让插件把宿主带走。
+      try {
+        if (Date.now() - startedAt > SUBAGENT_POLL_MAX_MS) {
+          stop();
+          return;
+        }
+        const pending = readSessionEvents(childId);
+        if (!pending || typeof pending.then !== 'function') {
+          state.idle += 1;
+          if (state.idle >= SUBAGENT_POLL_IDLE_TICKS) stop();
+          return;
+        }
+        pending.then((events) => {
+          try {
+            let fresh = 0;
+            for (const ev of events) {
+              const seq = Number(ev?.seq ?? -1);
+              if (!Number.isFinite(seq) || seq <= state.lastSeq) continue;
+              state.lastSeq = seq;
+              const brief = sessionEventBrief(ev);
+              if (!brief) continue;
+              fresh += 1;
+              const frame = {
+                root_id: root,
+                child_id: childId,
+                label: childLabel.get(childId) ?? '',
+                event: String(ev?.type ?? ''),
+                ts: Number(ev?.time) || Date.now(),
+                ...brief,
+              };
+              SUBAGENT_LAST.set(childId, frame);
+              streamBroadcast(root, { v: 2, type: 'subagent/activity', data: frame });
+            }
+            state.idle = fresh > 0 ? 0 : state.idle + 1;
+            let live = false;
+            try {
+              live = Boolean(ctx.agents?.get?.(childId));
+            } catch {
+              live = false;
+            }
+            if (!live && state.idle >= SUBAGENT_POLL_IDLE_TICKS) stop();
+          } catch (e) {
+            warnOnce('subagent-poll-tick', '[smartquiz-remote] 子代理轮询回调异常（已停）: ' + String(e?.message ?? e));
+            stop();
+          }
+        }).catch((e) => {
+          state.idle += 1;
+          if (state.idle >= SUBAGENT_POLL_IDLE_TICKS) stop();
+          warnOnce('subagent-poll-read', '[smartquiz-remote] 读子会话日志失败: ' + String(e?.message ?? e));
+        });
+      } catch (e) {
+        warnOnce('subagent-poll-sync', '[smartquiz-remote] 子代理轮询同步异常（已停）: ' + String(e?.message ?? e));
+        stop();
+      }
+    }, SUBAGENT_POLL_MS);
+    if (state.timer.unref) state.timer.unref();
+    SUBAGENT_POLLERS.set(childId, state);
+  };
+
   try {
     ctx.on('session/event', (session, event) => {
       const sid = String(session?.id ?? '');
@@ -1831,6 +1937,7 @@ export function apply(ctx, config) {
           childParent.set(childId, sid);
           if (d.label) childLabel.set(childId, String(d.label));
           broadcastSubagentsSlot();
+          startChildPolling(childId, sid);
         }
         return;
       }
@@ -5052,6 +5159,11 @@ export function apply(ctx, config) {
   ctx.effect(() => () => {
     for (const h of handles.values()) { try { h.dispose(); } catch { /* 忽略 */ } }
     handles.clear();
+    // B15：停掉所有子代理轮询器，避免宿主重载后定时器泄漏
+    for (const st of SUBAGENT_POLLERS.values()) {
+      try { if (st.timer) clearInterval(st.timer); } catch { /* 忽略 */ }
+    }
+    SUBAGENT_POLLERS.clear();
   });
 
   ctx.logger?.info?.(`[smartquiz-remote] 挂载: /health /reconcile /pair /pair.json /status /config /session /run /exec /reset `

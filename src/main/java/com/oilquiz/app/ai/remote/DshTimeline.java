@@ -135,6 +135,50 @@ public final class DshTimeline {
     private final Map<String, Integer> unknownTypes = new TreeMap<>();
 
     /**
+     * 子代理及其**耐久**活动轨迹（2026-11-13，B15 durable）。
+     *
+     * <p>以前子代理只合成一张 {@code dsh_notice} 提示卡，内容随最后一条活动覆盖，
+     * 看不出"跑了哪些工具、结果如何"。现在把 {@code subagent/activity} 累成结构化步骤，
+     * 投影成 {@code subagent_card} 组件：组件随消息落盘，重进会话仍是同一张卡。</p>
+     */
+    public static final class SubagentStep {
+        public final String key;
+        public String callId = "";
+        public String tool = "";
+        public String args = "";
+        public String status = "running";   // running / success / failed
+        public String result = "";
+        public long ts;
+
+        SubagentStep(String key) {
+            this.key = key == null ? "" : key;
+        }
+    }
+
+    /** 一个子代理 + 最近若干步（超过上限丢最旧的） */
+    public static final class Subagent {
+        public final String childId;
+        public String label = "";
+        /** 最近一次输出摘要（可选，卡片里作副标题） */
+        public String lastText = "";
+        public final LinkedHashMap<String, SubagentStep> steps = new LinkedHashMap<>();
+
+        Subagent(String childId) {
+            this.childId = childId == null ? "" : childId;
+        }
+    }
+
+    /** 每步子代理最多保留多少步（避免一张卡无限长） */
+    static final int MAX_SUBAGENT_STEPS = 12;
+
+    private final LinkedHashMap<String, Subagent> subagents = new LinkedHashMap<>();
+
+    /** 子代理轨迹（投影与测试用；按首次出现顺序） */
+    public java.util.Collection<Subagent> subagents() {
+        return subagents.values();
+    }
+
+    /**
      * 已知但**故意不渲染**的内部事件（2026-11-13，B14）。
      *
      * <p>它们只在电脑端内部流转（LLM 请求头/上下文、hook、PTC 分发、图片落盘等），
@@ -345,10 +389,38 @@ public final class DshTimeline {
                 if (ev.data == null) break;
                 String childId = ev.data.optString("child_id");
                 if (childId.isEmpty()) break;
-                String label = ev.data.optString("label", "");
-                cards.put("subagent-" + childId,
-                        cardMapper.subagentCard(childId, label, subagentBrief(ev.data)));
-                cardRounds.put("subagent-" + childId, 0);
+                Subagent sa = subagents.get(childId);
+                if (sa == null) {
+                    sa = new Subagent(childId);
+                    subagents.put(childId, sa);
+                }
+                String label = ev.data.optString("label", "").trim();
+                if (!label.isEmpty()) sa.label = label;
+                String kind = ev.data.optString("kind", "");
+                long ts = ev.raw == null ? 0L : ev.raw.optLong("ts", 0L);
+                if ("tool".equals(kind)) {
+                    String callId = ev.data.optString("callId", "").trim();
+                    SubagentStep st = new SubagentStep(
+                            callId.isEmpty() ? ("k" + sa.steps.size()) : callId);
+                    st.callId = callId;
+                    st.tool = ev.data.optString("tool", "工具");
+                    st.args = ev.data.optString("args", "");
+                    st.ts = ts;
+                    sa.steps.put(st.key, st);
+                    trimSubagentSteps(sa);
+                } else if ("tool-result".equals(kind)) {
+                    String callId = ev.data.optString("toolCallId", "").trim();
+                    SubagentStep st = callId.isEmpty() ? lastRunningStep(sa) : sa.steps.get(callId);
+                    if (st != null) {
+                        st.status = ev.data.optBoolean("error", false) ? "failed" : "success";
+                        String text = ev.data.optString("text", "").trim();
+                        if (!text.isEmpty()) st.result = text;
+                        st.ts = ts;
+                    }
+                } else if ("text".equals(kind)) {
+                    String text = ev.data.optString("text", "").trim();
+                    if (!text.isEmpty()) sa.lastText = text;
+                }
                 u.cardsChanged = true;
                 break;
             }
@@ -473,33 +545,23 @@ public final class DshTimeline {
         return planActive;
     }
 
-    /** 子代理活动的可读摘要 */
-    private static String subagentBrief(JSONObject data) {
-        String kind = data.optString("kind", "");
-        if ("text".equals(kind)) {
-            String text = data.optString("text", "").trim();
-            return text.isEmpty() ? "正在输出" : ("最近：" + text);
+    /** 超过上限丢最旧的一步（保持插入序） */
+    private static void trimSubagentSteps(Subagent sa) {
+        while (sa.steps.size() > MAX_SUBAGENT_STEPS) {
+            java.util.Iterator<String> it = sa.steps.keySet().iterator();
+            if (!it.hasNext()) break;
+            it.next();
+            it.remove();
         }
-        if ("tool".equals(kind)) {
-            String tool = data.optString("tool", "工具");
-            String args = data.optString("args", "");
-            return "正在运行 " + tool + (args.isEmpty() ? "" : "（" + args + "）");
+    }
+
+    /** 结果帧没带 callId 时，挂到最近一个还在跑的那一步上 */
+    private static SubagentStep lastRunningStep(Subagent sa) {
+        SubagentStep fallback = null;
+        for (SubagentStep st : sa.steps.values()) {
+            if ("running".equals(st.status)) fallback = st;
         }
-        if ("tool-result".equals(kind)) {
-            // B15：子会话的工具结果正文也带过来（根会话只靠这条合成帧看到结果）
-            boolean err = data.optBoolean("error", false);
-            String text = data.optString("text", "").trim();
-            if (text.isEmpty()) return err ? "工具失败" : "工具完成";
-            return (err ? "工具失败：" : "工具完成：") + text;
-        }
-        if ("step".equals(kind)) {
-            return "第 " + data.optInt("step", 0) + " 步";
-        }
-        if ("turn-end".equals(kind)) {
-            String stop = data.optString("stop", "");
-            return stop.isEmpty() ? "本轮结束" : ("本轮结束（" + stop + "）");
-        }
-        return "";
+        return fallback;
     }
 
     /** 卡片所属轮次（1 基；0 = 还没有对应步骤）。渲染层据此把卡插到"第 N 步"之后 */

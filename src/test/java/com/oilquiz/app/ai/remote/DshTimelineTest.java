@@ -347,17 +347,19 @@ public class DshTimelineTest {
     }
 
     @Test
-    public void subagentActivityUpdatesCatalogCard() {
+    public void subagentActivityUpdatesDurableState() {
         DshTimeline tl = new DshTimeline();
         feed(tl, subagentActivity(2, "child-1", "调研", "text", "正在整理资料", null));
 
-        DshCards.Card card = null;
-        for (DshCards.Card c : tl.orderedCards()) {
-            if ("subagent-child-1".equals(c.key)) card = c;
+        DshTimeline.Subagent sa = null;
+        for (DshTimeline.Subagent s : tl.subagents()) {
+            if ("child-1".equals(s.childId)) sa = s;
         }
-        assertNotNull(card);
-        assertEquals("子代理 · 调研", card.props.optString("title"));
-        assertTrue(card.props.optString("content").contains("正在整理资料"));
+        // B15 durable（2026-11-13）：子代理不再合成"最近动作"提示卡，
+        // 而是累积成结构化轨迹，投影成 subagent_card 后随消息落盘。
+        assertNotNull("子代理活动应进入耐久轨迹", sa);
+        assertEquals("调研", sa.label);
+        assertEquals("正在整理资料", sa.lastText);
     }
 
     @Test

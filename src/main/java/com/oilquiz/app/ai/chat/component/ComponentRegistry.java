@@ -97,6 +97,8 @@ public class ComponentRegistry {
         register(new DshCardViews.DshCommandCard());
         register(new DshCardViews.DshJobCard());
         register(new DshCardViews.DshNoticeCard());
+        // 子代理轨迹卡（B15 durable）：从子会话合成活动累积，投影后随消息落盘
+        register(new DshCardViews.DshSubagentCard());
         // Layout 原语桥接：把 NativeLayoutRenderer 的单控件渲染暴露为聊天流卡片
         // （table/steps/timeline/alert/stat/qrcode/barcode/calendar/图表/stepper 等，
         //  props 直接作为单控件节点渲染，Agent 可用 component_type=xxx 直接生成）
