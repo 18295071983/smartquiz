@@ -483,6 +483,28 @@ await test('ui.slot 支持会话作用域，并在重连时补发（B18）', asy
   void pending;
 });
 
+await test('/v2/action 动作枚举：未知动作返回允许列表', async () => {
+  const r = await call('/v2/action', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'nope', caps: 'cmd.ui' }),
+  });
+  assert.equal(r.res.statusCode, 400);
+  assert.ok(Array.isArray(r.json.allowed), '应返回 allowed 列表');
+  assert.ok(r.json.allowed.includes('ui.slot'), 'allowed 应含 ui.slot');
+  assert.ok(r.json.allowed.includes('permission.set'), 'allowed 应含 permission.set');
+});
+
+await test('/v2/action permission.set：宿主无服务时明确 409 + failed', async () => {
+  const r = await call('/v2/action', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'permission.set', sandbox: 'workspace-write', caps: 'cmd.ui' }),
+  });
+  assert.equal(r.res.statusCode, 409, '拿不到服务应 409：' + r.res.text().slice(0, 200));
+  assert.equal(r.json.ok, false);
+  assert.ok(Array.isArray(r.json.failed) && r.json.failed.length > 0, '应给出失败原因');
+  assert.ok(String(r.json.hint || '').length > 0, '应提示去电脑端改');
+});
+
 console.log(`\n${passed} passed${process.exitCode ? '（有失败）' : ''}`);
 // /events 的定时器会让 node 不退出；自检结束按结果直接退出
 process.exit(process.exitCode ?? 0);

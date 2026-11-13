@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.tool;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -74,11 +75,11 @@ public class DshHistoryImporterTest {
                 "expired", ai.approvals.get(0).status);
 
         AssistantTurn turn = AssistantTurn.fromMessageForParts(ai);
-        boolean hasApprovalPart = false;
         for (AssistantTurn.Part p : turn.parts) {
-            if (AssistantTurn.Part.TYPE_APPROVAL.equals(p.type)) hasApprovalPart = true;
+            // 2026-11-13：审批不再进 parts（甲板卡槽渲染），但数据必须还在
+            assertNotEquals("导入的审批不应再挂 part", AssistantTurn.Part.TYPE_APPROVAL, p.type);
         }
-        assertTrue("审批要在时间线里能查到", hasApprovalPart);
+        assertEquals("审批数据仍在消息里", 1, ai.approvals.size());
     }
 
     @Test

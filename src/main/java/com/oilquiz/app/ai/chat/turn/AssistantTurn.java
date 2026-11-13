@@ -398,8 +398,8 @@ public class AssistantTurn {
             }
         }
         fillToolPartsFromComponents(turn, msg);
-        appendApprovalParts(turn, msg);
-        appendQuestionParts(turn, msg);
+        // 审批/反问不再挂 part（2026-11-13）：它们已经在甲板的卡槽里渲染，
+        // 消息流再挂一遍就是同一张卡画两次。数据仍只在 msg.approvals/questions 里。
         appendDataParts(turn, msg);
 
         applyLiveThinking(turn, msg, liveCallId, liveRoundIndex, base);
@@ -910,8 +910,7 @@ public class AssistantTurn {
             }
         }
         fillToolPartsFromComponents(turn, msg);
-        appendApprovalParts(turn, msg);
-        appendQuestionParts(turn, msg);
+        // 同上：审批/反问只走甲板卡槽，不进消息流 parts
         appendDataParts(turn, msg);
         return turn;
     }
@@ -1046,7 +1045,10 @@ public class AssistantTurn {
             }
             // DECK-ONLY（2026-11-13）：标记为 deck_only 的组件只画在甲板卡槽里
             // （子代理轨迹这类"状态型"卡片），消息流不再重复画一张。
-            if (c.props != null && c.props.optBoolean("deck_only", false)) {
+            // 另外按类型也挡一次：早期落盘的 subagent_card 没有 deck_only 标记，
+            // 只认标记会让老会话里同一张卡"甲板一份 + 消息流一份"。
+            boolean deckOnly = c.props != null && c.props.optBoolean("deck_only", false);
+            if (deckOnly || "subagent_card".equals(c.type)) {
                 idx++;
                 continue;
             }
@@ -1067,6 +1069,13 @@ public class AssistantTurn {
      * 现在它和所属轮次的正文/工具一起进 parts，渲染由既有的
      * {@code ApprovalPartRenderer} 负责（按钮 → {@code PartHost.onApprovalDecision}）。</p>
      */
+    /**
+     * 审批 part 生产者 —— **已停用**（2026-11-13）。
+     *
+     * <p>审批卡改在甲板卡槽渲染（{@code AIChatActivity.refreshPendingCard}），
+     * 消息流再挂一份就是重复挂卡。保留方法体仅供历史对照，不再有调用方。</p>
+     */
+    @Deprecated
     private static void appendApprovalParts(AssistantTurn turn, ChatMessage msg) {
         if (msg.approvals == null || msg.approvals.isEmpty()) {
             return;
@@ -1112,6 +1121,11 @@ public class AssistantTurn {
      * <p>{@code args} 里带 callId/detail/options/multiSelect/answer，渲染器据此出选项按钮与自由文本；
      * 答案回传后只改 {@code status}=answered + {@code answer}，不再重建问题。</p>
      */
+    /**
+     * 反问 part 生产者 —— **已停用**（2026-11-13），理由同 {@link #appendApprovalParts}：
+     * 问卡只在甲板卡槽渲染。
+     */
+    @Deprecated
     private static void appendQuestionParts(AssistantTurn turn, ChatMessage msg) {
         if (msg.questions == null || msg.questions.isEmpty()) {
             return;

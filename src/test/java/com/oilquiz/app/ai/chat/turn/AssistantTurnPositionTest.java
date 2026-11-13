@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.chat.turn;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 
 import com.oilquiz.app.ai.chat.ChatMessage;
@@ -70,15 +71,14 @@ public class AssistantTurnPositionTest {
         List<String> types = new ArrayList<>();
         for (AssistantTurn.Part p : turn.parts) types.add(p.type);
 
-        // 第一步正文 → 第二步正文 → 第二步的审批（round=2）→ 无轮次审批（末尾）
-        assertEquals(Arrays.asList("text", "text", "approval", "approval"), types);
-        AssistantTurn.Part pending = turn.parts.get(2);
-        assertEquals("approval:ap_1", pending.id);
-        assertEquals("write_file", pending.toolName);
-        assertEquals("覆盖 config.json？", pending.text);
-        assertEquals(AssistantTurn.Part.APPROVAL_PENDING, pending.status);
-        assertEquals("approval:ap_0", turn.parts.get(3).id);
-        assertEquals(AssistantTurn.Part.APPROVAL_APPROVED, turn.parts.get(3).status);
+        // 审批只在甲板卡槽渲染（2026-11-13）：消息流 parts 里不再出现 approval，
+        // 数据仍然留在 msg.approvals（甲板卡就是从这里构造的）。
+        assertEquals(Arrays.asList("text", "text"), types);
+        assertEquals(2, msg.approvals.size());
+        assertEquals("ap_1", msg.approvals.get(0).id);
+        assertEquals("write_file", msg.approvals.get(0).permission);
+        assertEquals(AssistantTurn.Part.APPROVAL_PENDING, msg.approvals.get(0).status);
+        assertEquals(AssistantTurn.Part.APPROVAL_APPROVED, msg.approvals.get(1).status);
     }
 
     @Test
@@ -93,7 +93,11 @@ public class AssistantTurnPositionTest {
 
         AssistantTurn turn = AssistantTurn.fromMessageForParts(msg);
         assertEquals("text", turn.parts.get(0).type);
-        assertEquals("approval", turn.parts.get(1).type);
+        // 审批不进 parts（甲板卡槽负责渲染），数据仍在 msg.approvals
+        for (AssistantTurn.Part p : turn.parts) {
+            assertNotEquals("approval", p.type);
+        }
+        assertEquals(1, msg.approvals.size());
     }
 
     @Test
@@ -107,29 +111,23 @@ public class AssistantTurnPositionTest {
         msg.questions.add(question("q2", "call-9", "还要什么？", 1));
 
         AssistantTurn turn = AssistantTurn.fromMessageForParts(msg);
-        AssistantTurn.Part qp = null;
+        // 反问也不进 parts（甲板卡槽渲染），数据仍在 msg.questions
         for (AssistantTurn.Part p : turn.parts) {
-            if (AssistantTurn.Part.TYPE_QUESTION.equals(p.type)) qp = p;
+            assertNotEquals(AssistantTurn.Part.TYPE_QUESTION, p.type);
         }
-        assertNotNull(qp);
-        assertEquals("question:call-9", qp.id);
-        assertEquals(AssistantTurn.Part.APPROVAL_PENDING, qp.status);
-        JSONObject args = new JSONObject(qp.args);
-        assertEquals("call-9", args.optString("callId"));
-        assertEquals("一次 ask 的两个问题要在一张卡里", 2,
-                args.optJSONArray("questions").length());
+        assertEquals(2, msg.questions.size());
+        assertEquals("q1", msg.questions.get(0).id);
+        assertEquals("call-9", msg.questions.get(0).callId);
 
-        // 已回答：状态变了，问题内容不丢
+        // 已回答：状态变了，问题内容不丢（甲板卡按 status 决定要不要继续显示）
         msg.questions.get(0).status = "answered";
         msg.questions.get(1).status = "answered";
         AssistantTurn answered = AssistantTurn.fromMessageForParts(msg);
-        AssistantTurn.Part aq = null;
         for (AssistantTurn.Part p : answered.parts) {
-            if (AssistantTurn.Part.TYPE_QUESTION.equals(p.type)) aq = p;
+            assertNotEquals(AssistantTurn.Part.TYPE_QUESTION, p.type);
         }
-        assertNotNull(aq);
-        assertEquals("answered", aq.status);
-        assertEquals(2, new JSONObject(aq.args).optJSONArray("questions").length());
+        assertEquals("answered", msg.questions.get(0).status);
+        assertEquals(2, msg.questions.size());
     }
 
     private static ChatMessage.QuestionRequest question(String id, String callId,

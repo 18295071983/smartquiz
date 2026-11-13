@@ -1534,13 +1534,59 @@ export function apply(ctx, config) {
     }
     const running = list.filter((j) => j.status === 'running').length;
     const failed = list.filter((j) => j.failed).length;
+    // 文案收敛（2026-11-13）：一行读完，"N 在跑 · 共 M 条"；失败优先提示
     streamBroadcast('', { v: 2, type: 'ui/slot', data: {
       id: 'jobs',
       priority: 40,
-      title: '后台任务',
-      detail: running > 0 ? `${running} 运行中 · 共 ${list.length}` : `共 ${list.length}`,
+      title: failed > 0 ? '任务（有失败）' : '任务',
+      detail: running > 0
+        ? `${running} 个在跑 · 共 ${list.length} 条`
+        : `共 ${list.length} 条 · 空闲`,
       action: 'jobs',
       warn: failed > 0,
+    } });
+  };
+
+  /**
+   * 子代理插槽：只有"还在跑"或"最近 90 秒有活动"才显示（2026-11-13）。
+   *
+   * <p>以前 childParent 一旦有登记就永远显示（真机：子代理早就结束了，槽还挂着）。
+   * 现在按活着的 agent + 最近活动时间判断，没有就发空帧移除。</p>
+   */
+  const SUBAGENT_SLOT_TTL_MS = 90 * 1000;
+  const broadcastSubagentsSlot = () => {
+    if (childParent.size === 0) {
+      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'subagents' } });
+      return;
+    }
+    const now = Date.now();
+    let live = 0;
+    let active = 0;
+    for (const childId of childParent.keys()) {
+      let isLive = false;
+      try {
+        isLive = Boolean(ctx.agents?.get?.(childId));
+      } catch {
+        isLive = false;
+      }
+      const last = SUBAGENT_LAST.get(childId);
+      const recent = Boolean(last && now - Number(last.ts || 0) < SUBAGENT_SLOT_TTL_MS);
+      if (isLive) live += 1;
+      if (isLive || recent) active += 1;
+    }
+    if (active === 0) {
+      // 全部结束且无近期活动 → 让槽消失（真机反馈："不活动/完成就让它消失"）
+      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'subagents' } });
+      return;
+    }
+    streamBroadcast('', { v: 2, type: 'ui/slot', data: {
+      id: 'subagents',
+      priority: 50,
+      title: '子代理',
+      detail: live > 0
+        ? `${live} 个在跑 · 共 ${active} 个`
+        : `最近活动 ${active} 个 · 已结束`,
+      action: 'subagents',
     } });
   };
 
@@ -1554,18 +1600,6 @@ export function apply(ctx, config) {
     }
     streamBroadcast(target, { v: 2, type: 'ui/slot', data: {
       id: 'goal', session_id: sid || '', priority: 30, title: '目标', detail: g.title || '', action: 'goal',
-    } });
-  };
-
-  /** 子代理：数量够说明"正在分工干活"，但手机端不需要知道每个细节（面板里有）。 */
-  const broadcastSubagentsSlot = () => {
-    const n = childParent.size;
-    if (n === 0) {
-      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'subagents' } });
-      return;
-    }
-    streamBroadcast('', { v: 2, type: 'ui/slot', data: {
-      id: 'subagents', priority: 50, title: '子代理', detail: `${n} 个`, action: 'subagents',
     } });
   };
 
@@ -1589,7 +1623,23 @@ export function apply(ctx, config) {
    * 不猜服务 API；`danger-full-access` 标黄——那是真的高风险。</p>
    */
   const broadcastPermissionSlot = () => {
-    const parts = [PERM_STATE.sandbox, PERM_STATE.preset, PERM_STATE.policy].filter((s) => s && s.length);
+    // 文案中文化（2026-11-13）：sandbox/policy 是内部枚举，直接显示 workspace-write 看着累
+    const SANDBOX_LABEL = {
+      'read-only': '只读',
+      'workspace-write': '可写',
+      'danger-full-access': '完全访问',
+    };
+    const POLICY_LABEL = {
+      never: '审批:从不',
+      ask: '审批:每次',
+      always: '审批:总是',
+      auto: '审批:自动',
+    };
+    const parts = [
+      SANDBOX_LABEL[PERM_STATE.sandbox] ?? PERM_STATE.sandbox,
+      PERM_STATE.preset,
+      POLICY_LABEL[PERM_STATE.policy] ?? PERM_STATE.policy,
+    ].filter((s) => s && String(s).length);
     if (parts.length === 0) {
       streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'permission' } });
       return;
@@ -1858,6 +1908,10 @@ export function apply(ctx, config) {
     const stop = () => {
       if (state.timer) clearInterval(state.timer);
       SUBAGENT_POLLERS.delete(childId);
+      // 子代理结束时让"子代理"插槽重新算一次（不活动/完成就该消失）
+      try {
+        broadcastSubagentsSlot();
+      } catch { /* 插槽刷新失败不影响主流程 */ }
     };
     state.timer = setInterval(() => {
       // CRASH-GUARD（2026-11-13）：宿主热重载时旧的定时器可能还在跑，
@@ -1897,6 +1951,12 @@ export function apply(ctx, config) {
               streamBroadcast(root, { v: 2, type: 'subagent/activity', data: frame });
             }
             state.idle = fresh > 0 ? 0 : state.idle + 1;
+            if (fresh > 0) {
+              // 有动静就刷新插槽（"1 个在跑 · 共 2 个"这类文案要跟着变）
+              try {
+                broadcastSubagentsSlot();
+              } catch { /* 忽略 */ }
+            }
             let live = false;
             try {
               live = Boolean(ctx.agents?.get?.(childId));

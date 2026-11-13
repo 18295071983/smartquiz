@@ -13050,26 +13050,83 @@ public class AIChatActivity extends BaseActivity {
             return;
         }
         float density = getResources().getDisplayMetrics().density;
-        int padH = (int) (8 * density);
-        int padV = (int) (3 * density);
+        int padH = (int) (10 * density);
+        int padV = (int) (4 * density);
+        int minH = (int) (28 * density);       // 视觉高度；点击区再向外扩 10dp
         int shown = 0;
         for (final com.oilquiz.app.ai.chat.status.DockSlotBus.Slot s : rows) {
             if (shown >= com.oilquiz.app.ai.chat.status.DshUiCatalogLoader.HARD_MAX) break;   // 兜底护栏
+            com.oilquiz.app.ai.chat.status.DeckRowModel model =
+                    com.oilquiz.app.ai.chat.status.DeckRowModel.of(s);
+
+            // 整行可点：圆角底 + 涟漪 + 右侧箭头（以前只有一段 TextView，指不准也点不动）
+            android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+            row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setMinimumHeight(minH);
+            row.setPadding(padH, padV, padH, padV);
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setCornerRadius(8 * density);
+            bg.setColor(model.warn ? 0x1AE65100 : 0x14000000);
+            row.setBackground(bg);
+            android.widget.LinearLayout.LayoutParams rowLp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+            rowLp.bottomMargin = (int) (2 * density);
+            row.setLayoutParams(rowLp);
+
+            // 状态点（警示色/常规色）
+            View dot = new View(this);
+            android.graphics.drawable.GradientDrawable dotBg = new android.graphics.drawable.GradientDrawable();
+            dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            dotBg.setColor(model.warn ? 0xFFE65100 : 0xFF9E9E9E);
+            dot.setBackground(dotBg);
+            android.widget.LinearLayout.LayoutParams dotLp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            (int) (6 * density), (int) (6 * density));
+            dotLp.rightMargin = (int) (8 * density);
+            row.addView(dot, dotLp);
+
             android.widget.TextView tv = new android.widget.TextView(this);
-            String text = s.title;
-            if (!s.detail.isEmpty()) text = text.isEmpty() ? s.detail : text + " · " + s.detail;
+            String text = model.title;
+            if (!model.detail.isEmpty()) text = text.isEmpty() ? model.detail : text + " · " + model.detail;
             tv.setText(text);
-            tv.setTextSize(11f);
-            tv.setMaxLines(2);
+            tv.setTextSize(12.5f);
+            tv.setMaxLines(1);
             tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            tv.setTextColor(s.warn ? android.graphics.Color.parseColor("#E65100")
-                    : android.graphics.Color.parseColor("#666666"));
-            tv.setPadding(padH, padV, padH, padV);
-            if (!s.action.isEmpty()) {
-                tv.setClickable(true);
-                tv.setOnClickListener(v -> onDockSlotClick(s.action));
+            tv.setTextColor(model.warn ? 0xFFB23C00 : 0xFF3C3C3C);
+            tv.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                    0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            row.addView(tv);
+
+            if (model.clickable) {
+                android.widget.TextView chevron = new android.widget.TextView(this);
+                chevron.setText("›");
+                chevron.setTextSize(16f);
+                chevron.setTextColor(0xFF9E9E9E);
+                android.widget.LinearLayout.LayoutParams clp =
+                        new android.widget.LinearLayout.LayoutParams(
+                                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+                clp.leftMargin = (int) (6 * density);
+                row.addView(chevron, clp);
+
+                row.setClickable(true);
+                row.setOnClickListener(v -> onDockSlotClick(s.action));
+                // 视觉 32dp，实际点击区 48dp：上下各扩 8dp（TouchDelegate，不占额外高度）
+                final int grow = (int) (8 * density);
+                final View rowRef = row;
+                row.post(() -> {
+                    android.graphics.Rect rect = new android.graphics.Rect();
+                    rowRef.getHitRect(rect);
+                    rect.top -= grow;
+                    rect.bottom += grow;
+                    if (dockSlotHost != null) dockSlotHost.setTouchDelegate(
+                            new android.view.TouchDelegate(rect, rowRef));
+                });
             }
-            dockSlotHost.addView(tv);
+            dockSlotHost.addView(row);
             shown++;
         }
         dockSlotHost.setVisibility(shown > 0 ? View.VISIBLE : View.GONE);
@@ -13529,6 +13586,17 @@ public class AIChatActivity extends BaseActivity {
      */
     private boolean renderDeckOnlyComponent() {
         if (dockCardHost == null || chatHistory == null) return false;
+        // 子代理卡只在"确实有活跃子代理"时显示（插件用 subagents 插槽表达这件事）：
+        // 不活动/完成 → 插件撤掉插槽 → 这里也随之隐藏（用户反馈：不能一直挂着）。
+        boolean subagentActive = false;
+        for (com.oilquiz.app.ai.chat.status.DockSlotBus.Slot s
+                : com.oilquiz.app.ai.chat.status.DockSlotBus.list()) {
+            if (s != null && "subagents".equals(s.id)) {
+                subagentActive = true;
+                break;
+            }
+        }
+        if (!subagentActive) return false;
         for (int i = chatHistory.size() - 1; i >= 0; i -= 1) {
             ChatMessage m = chatHistory.get(i);
             if (m == null || m.components == null) continue;
