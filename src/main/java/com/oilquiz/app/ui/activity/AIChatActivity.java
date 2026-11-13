@@ -61,7 +61,6 @@ import com.oilquiz.app.ai.chat.ChatTurnPairing;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.chat.ChatAdapter;
 import com.oilquiz.app.ai.refactor.AIConfig;
-import com.oilquiz.app.ai.refactor.CacheManager;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.chat.ChatModeManager;
@@ -173,6 +172,10 @@ public class AIChatActivity extends BaseActivity {
     private android.widget.LinearLayout queueBar;
     /** 本轮任务进度插槽（独立于消息流；由 AgentProgressBus 驱动） */
     private android.widget.LinearLayout agentProgressSlot;
+    /** DSH 实时状态 dock 插槽宿主（后台任务/目标/压缩中…；由 DockSlotBus 驱动） */
+    private android.widget.LinearLayout dockSlotHost;
+    private final com.oilquiz.app.ai.chat.status.DockSlotBus.Listener dockSlotListener =
+            slots -> runOnUiThread(() -> renderDockSlots(slots));
     private android.widget.TextView tvAgentProgressTitle;
     private android.widget.TextView tvAgentProgressPct;
     private android.widget.TextView tvAgentProgressMsg;
@@ -291,11 +294,73 @@ public class AIChatActivity extends BaseActivity {
     private com.google.android.material.chip.Chip chipResumeInterrupted;
     /** 输入区上方的联网搜索开关（Chip，切换当前在线模型 supportsWebSearch 即时生效） */
     private com.google.android.material.chip.Chip chipWebSearch;
-    private CacheManager cacheManager;
     private OnlineModelManager onlineModelManager;
 
     private volatile boolean isGenerating = false;
     private volatile boolean isDirectStreaming = false;
+
+    // ---- FOCUS-COLLAPSE(2026-11-13)：旧轮 AI 回复折叠（纯渲染态，历史原样不动）----
+    /** 最近几轮的 AI 回复保持展开；更早的收成一行摘要 */
+    private static final int FOCUS_KEEP_TURNS = 3;
+    /** 展开后多久没被碰过就自动收起 */
+    private static final long FOCUS_RECOLLAPSE_MS = 30_000L;
+    /** 当前被用户手动展开的消息 id（到点后统一收起） */
+    private final java.util.Set<String> focusExpandedIds = new java.util.HashSet<>();
+    private final Runnable focusRecollapse = () -> {
+        if (focusExpandedIds.isEmpty()) return;
+        focusExpandedIds.clear();
+        applyFocusCollapse();
+    };
+
+    /**
+     * 把"最近 {@link #FOCUS_KEEP_TURNS} 轮"之前的 AI 回复折叠成一行。
+     *
+     * <p>只改渲染标记，<b>不动 chatHistory</b>：历史文件里一个字都不变。
+     * 用户消息始终正常渲染——它是折叠的锚点，保证窗口看起来仍是一轮一轮的。</p>
+     */
+    private void applyFocusCollapse() {
+        if (chatHistory == null || chatAdapter == null) return;
+        int userSeen = 0;
+        int boundary = -1;
+        for (int i = chatHistory.size() - 1; i >= 0; i--) {
+            if (chatHistory.get(i).isUserMessage()) {
+                userSeen += 1;
+                if (userSeen == FOCUS_KEEP_TURNS) {
+                    boundary = i;
+                    break;
+                }
+            }
+        }
+        if (boundary <= 0) return;   // 轮数不够，全部保持原样
+        boolean changed = false;
+        for (int i = 0; i < boundary; i++) {
+            ChatMessage m = chatHistory.get(i);
+            if (m.isAIMessage() && !m.isFocusCollapsed() && !focusExpandedIds.contains(m.id)) {
+                m.setFocusCollapsed(true);
+                changed = true;
+            }
+        }
+        if (changed) chatAdapter.notifyItemRangeChanged(0, boundary);
+    }
+
+    /** 展开后重新计时：这段时间内用户任何滚动/操作都算"还在看"，到点才收起。 */
+    private void scheduleFocusRecollapse() {
+        if (uiHandler == null) return;
+        uiHandler.removeCallbacks(focusRecollapse);
+        uiHandler.postDelayed(focusRecollapse, FOCUS_RECOLLAPSE_MS);
+    }
+
+    /**
+     * 用户此刻是否就在聊天页（供后台服务判断"还要不要弹通知"）。
+     *
+     * <p>在页内时审批卡已经渲染出来了，再弹一条通知就是重复打扰；锁屏/切后台才需要提醒。</p>
+     */
+    private static volatile boolean sForegroundForAlerts = false;
+
+    /** 后台服务用：页面在前台时不必为审批/任务失败再弹通知。 */
+    public static boolean isForegroundForAlerts() {
+        return sForegroundForAlerts;
+    }
     /** UI 已分离标志（Activity 销毁/重建后置 true）：生成继续在桥/服务层运行，
      *  回调不再更新界面，只做结果落盘；重进界面通过文件恢复 + 热加载轮询 */
     private volatile boolean uiDetached = false;
@@ -754,6 +819,9 @@ public class AIChatActivity extends BaseActivity {
                 agentProgressSlot.setClickable(true);
                 agentProgressSlot.setOnClickListener(v -> showTaskMonitor());
             }
+            dockSlotHost = findViewById(R.id.dock_slot_host);
+            // 注册即回放当前插槽（后台跑着的任务回到前台也能看到）
+            com.oilquiz.app.ai.chat.status.DockSlotBus.addListener(dockSlotListener);
             tvQueueInfo = findViewById(R.id.tv_queue_info);
             btnQueueCancel = findViewById(R.id.btn_queue_cancel);
             busySendMode = getSharedPreferences("ai_prefs", MODE_PRIVATE).getString(PREFS_BUSY_MODE, "block");
@@ -769,12 +837,23 @@ public class AIChatActivity extends BaseActivity {
             // 从根上消除 pre-layout 失配窗口（RecyclerView Inconsistency "offset:-1" 崩溃的必要条件）。
             // 代价：消息插入/删除无动画，换取聊天列表在高频流式更新下的稳定。
             messageList.setItemAnimator(null);
+            // PERF(2026-11-13)：列表尺寸不随内容变化（由父布局决定），省掉每次 notify 的 requestLayout；
+            // 再多留几个离屏 holder，快速滚动/插入时少一次重建（WebView 回收上限另在 ChatAdapter 里控制）。
+            messageList.setHasFixedSize(true);
+            messageList.setItemViewCacheSize(4);
             chatHistory = new ArrayList<>();
             chatAdapter = new ChatAdapter(chatHistory, this::handleAction);
             // 审批 part 的决策回调（2026-11-12）：DSH 同步的审批回电脑端，改状态后原地重绑
             chatAdapter.setApprovalDecisionListener(this::onApprovalPartDecision);
             // 问答 part 的提交回调：选项/自由文本整批回传电脑端
             chatAdapter.setQuestionAnswerListener(this::onQuestionPartAnswer);
+            // 折叠行点击：就地展开那一条（纯渲染标记，历史不动），并起一个"闲置自动收起"计时
+            chatAdapter.setOnCollapsedAiClickListener((message, position) -> {
+                message.setFocusCollapsed(false);
+                focusExpandedIds.add(message.id);
+                chatAdapter.notifyItemChanged(position);
+                scheduleFocusRecollapse();
+            });
             // v2：空状态是首屏，可见性由 ChatAdapter 既有的数据观察者切换
             //（onChanged / 插入 / 删除都会同步），不再依赖各个手动调用点。
             if (chatV2EmptyState != null) {
@@ -785,6 +864,8 @@ public class AIChatActivity extends BaseActivity {
                 @Override public void onScrolled(androidx.recyclerview.widget.RecyclerView rv, int dx, int dy) {
                     updateScrollBottomButton();
                     updateLoadMoreButton();
+                    // 还在翻看：把"自动收起"的计时往后推
+                    if (!focusExpandedIds.isEmpty()) scheduleFocusRecollapse();
                 }
             });
             // 流式贴底控制器（2026-10-25）：内容增长时只在 pinned 状态下下一帧滚到新底部
@@ -981,7 +1062,9 @@ public class AIChatActivity extends BaseActivity {
             registerModelChangeListener();
 
             // 创建模型执行桥接器 - UI与模型之间的唯一通道
-            modelBridge = ModelExecutionBridge.getInstance(this, aiService, agentService, aiConfig);
+            // LOCAL-AGENT-SPLIT(2026-11-13)：桥接器只负责本地普通对话；本地 Agent 走
+            // AgentChatHandler → AgentSoftwareLayer → AgentLoopEngine，不再经过此桥的 agent 分支。
+            modelBridge = ModelExecutionBridge.getInstance(this, aiService, aiConfig);
 
             // 本地推理上下文独立化（2026-09-14）：恢复当前会话的推理历史
             //（Activity 重建/重启后本地模型上下文按会话恢复，不再清空从头开始）
@@ -1010,7 +1093,6 @@ public class AIChatActivity extends BaseActivity {
                 initAgentChatHandler();
             }
 
-            cacheManager = CacheManager.getInstance(this);
             weatherManager = new AIWeatherManager(this, AIWeatherManager.WeatherProvider.HEFENG);
 
             // 初始化 Token 统计管理器
@@ -3812,10 +3894,13 @@ public class AIChatActivity extends BaseActivity {
     private ChatMessage addRemotePendingBubble(String hint) {
         android.util.Log.i("DSHSEND", "addPending: adapter=" + (chatAdapter != null)
                 + " history=" + (chatHistory == null ? -1 : chatHistory.size()));
+        String pendingTurnId = currentTurnId != null && !currentTurnId.isEmpty()
+                ? currentTurnId : ChatIdDispatcher.getInstance().peekMasterId();
         ChatMessage msg = ChatMessage.createAIMessage(
-                java.util.UUID.randomUUID().toString(), hint, System.currentTimeMillis(), null, 0, 0);
-        msg.turnId = currentTurnId;
-        msg.subId = ChatIdDispatcher.getInstance().applySubId(ChatIdDispatcher.IdType.AI, currentTurnId);
+                java.util.UUID.randomUUID().toString(),
+                hint, System.currentTimeMillis(), null, 0, 0);
+        msg.turnId = pendingTurnId;
+        msg.subId = msg.id;
         msg.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.THINKING);
         chatHistory.add(msg);
         if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
@@ -4108,7 +4193,7 @@ public class AIChatActivity extends BaseActivity {
                 displayMsg.append(getString(R.string.h_a791b767));
 
                 ChatMessage sysMsg = ChatMessage.createSystemMessage(
-                        java.util.UUID.randomUUID().toString(),
+                        systemMessageId(),
                         displayMsg.toString(),
                         ChatMessage.SystemMessageType.INFO,
                         System.currentTimeMillis()
@@ -4423,7 +4508,7 @@ public class AIChatActivity extends BaseActivity {
                 displayMsg.append(getString(R.string.h_a791b767));
 
                 ChatMessage sysMsg = ChatMessage.createSystemMessage(
-                        java.util.UUID.randomUUID().toString(),
+                        systemMessageId(),
                         displayMsg.toString(),
                         ChatMessage.SystemMessageType.INFO,
                         System.currentTimeMillis()
@@ -5129,7 +5214,7 @@ public class AIChatActivity extends BaseActivity {
         final String text = sb.toString();
         runOnUiThread(() -> {
             ChatMessage sysMsg = ChatMessage.createSystemMessage(
-                    java.util.UUID.randomUUID().toString(), text,
+                    systemMessageId(), text,
                     ChatMessage.SystemMessageType.INFO, System.currentTimeMillis());
             chatHistory.add(sysMsg);
             if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
@@ -5220,14 +5305,9 @@ public class AIChatActivity extends BaseActivity {
             return;
         }
 
-        // 本地多模态追问：上一轮发过图、当前纯文字且本地视觉已就绪 → 自动复用该图走视觉理解（不走纯文本/缓存）
+        // 本地多模态追问：上一轮发过图、当前纯文字且本地视觉已就绪 → 自动复用该图走视觉理解
         if (tryFollowUpVision(message)) {
             return;
-        }
-
-        if (cacheManager != null && aiConfig != null && aiConfig.isCacheEnabled()) {
-            String cached = cacheManager.getCachedResponse(message);
-            if (cached != null) { addAIMessage(cached); addSystemMessage("(来自缓存)"); return; }
         }
 
         synchronized (streamingLock) {
@@ -5239,6 +5319,7 @@ public class AIChatActivity extends BaseActivity {
             agentToolNames.clear();
             currentStreamingContent = new StringBuilder();
             startThinkingBuffer();
+            // 流式气泡先用**临时 id**：正常结束时转正，中断丢弃时连号都不用烧
             currentStreamingMessageId = java.util.UUID.randomUUID().toString();
             resetStreamingTts();
             resetStreamingState();
@@ -5864,7 +5945,8 @@ public class AIChatActivity extends BaseActivity {
                 agentToolNames.clear();
                 currentStreamingContent = new StringBuilder();
                 startThinkingBuffer();
-                currentStreamingMessageId = java.util.UUID.randomUUID().toString();
+                // 流式气泡先用**临时 id**：正常结束时转正，中断丢弃时连号都不用烧
+            currentStreamingMessageId = java.util.UUID.randomUUID().toString();
                 resetStreamingTts();
                 resetStreamingState();
 
@@ -6505,7 +6587,7 @@ public class AIChatActivity extends BaseActivity {
                         chatHistory.add(errMsg);
                     } else {
                         chatHistory.add(ChatMessage.createSystemMessage(
-                                java.util.UUID.randomUUID().toString(), errorMsg,
+                                systemMessageId(), errorMsg,
                                 ChatMessage.SystemMessageType.INFO, System.currentTimeMillis()));
                     }
                     if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
@@ -7421,11 +7503,9 @@ public class AIChatActivity extends BaseActivity {
                     AppLogger.i(TAG, "Token统计 - 输入: " + inputTokens + ", 输出: " + outputTokens);
                 }
 
-                if (cacheManager != null && aiConfig != null && aiConfig.isCacheEnabled() && finalContent != null && !finalContent.isEmpty()) {
-                    String prompt = messageIndex >= 1 ? chatHistory.get(messageIndex - 1).content : "";
-                    if (!prompt.isEmpty()) cacheManager.cacheResponse(prompt, finalContent);
-                }
-
+                // CACHE-SCOPE(2026-11-13)：只回填"本地普通对话"这一轮（与读侧同一口径）。
+                // 三个引擎共用 completeGeneration，此前在线/Agent 的回答也会被写进缓存，
+                // 之后可能被普通对话原样返回（不推理、不发请求）。
                 // 自动语音合成：开启时 AI 回复完成后自动朗读（流式已朗读则冲刷收尾）
                 finishAutoSpeak(finalMsg);
             }
@@ -8054,9 +8134,52 @@ public class AIChatActivity extends BaseActivity {
         uiHandler.postDelayed(statusPhraseTicker, 1200);
     }
 
+    /**
+     * 渲染窗口上限：超过就把最老的若干条移出列表（磁盘历史不动，「加载更早」能再拉回来）。
+     *
+     * <p>锚点：切点向后对齐到**第一条用户消息**，保证窗口从完整一轮开始——否则会出现
+     * "开头是一段工具结果/半截助手回复"的观感。这是老设计里"以用户消息为锚"的那条规则。</p>
+     */
+    private static final int MAX_RENDERED_MESSAGES = 200;
+
+    private void trimRenderedWindow() {
+        if (chatAdapter == null || chatHistory == null) return;
+        int overflow = chatHistory.size() - MAX_RENDERED_MESSAGES;
+        if (overflow <= 0) return;
+        int cut = overflow;
+        while (cut < chatHistory.size() && !chatHistory.get(cut).isUserMessage()) cut++;
+        if (cut >= chatHistory.size()) return;   // 全是非用户消息：宁可不动，别把整屏裁空
+        chatHistory.subList(0, cut).clear();
+        // 记进"前端未加载"计数：否则「加载更早」的偏移会错位，重复或漏拉
+        if (historySourceSessionId != null) sessionFrontSkipped += cut;
+        else aiHistoryFrontSkipped += cut;
+        chatAdapter.notifyDataSetChanged();
+        updateLoadMoreButton();
+    }
+
+    /**
+     * 消息 id 统一走派发器（2026-11-13）。
+     *
+     * <p>唯一性来自两处：主计数器持久化（跨进程不回收）+ 每 {@code 主id|类型} 独立分桶。
+     * 取不到（没有当前回合）时退回 UUID，绝不能返回 null——消息 id 是渲染层锚点。</p>
+     */
+    /**
+     * 系统/提示行的 id：有回合就挂到当前回合；没有回合（启动早期、无会话）退回 UUID。
+     *
+     * <p>退回而不是"新开一回合"是刻意的：系统行不该推进主 id 计数器，否则启动期打印的
+     * 几条提示会把 T 序号推高，历史里的回合号看起来像断了几档。</p>
+     */
+    private String systemMessageId() {
+        return java.util.UUID.randomUUID().toString();
+    }
+
     private void endGeneration() {
         isGenerating = false;
         isDirectStreaming = false;
+        // 一轮结束才裁窗口：这是列表"只在尾部增长"的唯一确定时机，从头部裁不会打断阅读
+        trimRenderedWindow();
+        // 再给旧轮 AI 回复套上折叠（最近 3 轮保持展开）
+        applyFocusCollapse();
         // 完成态短摘要（完成后展示约 2 秒）：先取本轮真实耗时，再清 generationStartTime
         final long finishedElapsedMs = generationStartTime > 0
                 ? Math.max(0L, System.currentTimeMillis() - generationStartTime) : 0L;
@@ -8591,6 +8714,9 @@ public class AIChatActivity extends BaseActivity {
             java.util.List<String> issuedIds = new java.util.ArrayList<>();
             for (ChatMessage m : messages) {
                 if (m == null) continue;
+                // 消息 id 现在也是派发器发的 T{n}-{码}{k}，必须一并认领；
+                // 旧数据的 UUID id 会被 adoptId 判为非该形态而忽略，不会误认。
+                if (m.id != null && !m.id.isEmpty()) issuedIds.add(m.id);
                 if (m.subId != null && !m.subId.isEmpty()) issuedIds.add(m.subId);
                 if (m.thinkingRoundIds != null) issuedIds.addAll(m.thinkingRoundIds);
                 if (m.components != null) {
@@ -9594,9 +9720,6 @@ public class AIChatActivity extends BaseActivity {
             if (modelBridge != null) modelBridge.execute(ChatCommand.clearContext(), null);
             if (agentChatHandler != null) agentChatHandler.clearHistory();
 
-            // 重新生成时失效缓存，确保重新推理而非返回缓存结果
-            if (cacheManager != null) cacheManager.invalidateCache(userContent);
-
             // 有 turnId 的 user 直接复用原回合，不再 addUserMessage 复制一条新 USER：
             // 否则重试孤儿占位会变成「两条一样的用户消息 + 一条新 AI」，配对更乱。
             if (userMessage.turnId != null && !userMessage.turnId.isEmpty()) {
@@ -10273,8 +10396,6 @@ public class AIChatActivity extends BaseActivity {
         // 模型对着自己的旧答案续写——真机表现就是"点重试后答非所问"（曾只回一句错误的当前日期）。
         if (modelBridge != null) modelBridge.dropLastLocalTurn();
         if (agentChatHandler != null) agentChatHandler.resetLocalSessionSequence();
-        // 重新生成时失效缓存，确保重新推理
-        if (cacheManager != null) cacheManager.invalidateCache(lastUserMsg);
         processChatMessage(lastUserMsg);
     }
 
@@ -10757,7 +10878,7 @@ public class AIChatActivity extends BaseActivity {
     private void addSystemMessage(String message) {
         if (chatHistory == null) return;
 
-        ChatMessage sysMsg = ChatMessage.createSystemMessage(java.util.UUID.randomUUID().toString(), message, ChatMessage.SystemMessageType.INFO, System.currentTimeMillis());
+        ChatMessage sysMsg = ChatMessage.createSystemMessage(systemMessageId(), message, ChatMessage.SystemMessageType.INFO, System.currentTimeMillis());
         // 本轮 Agent 执行中：过程消息归入执行组（必要时补建 header），随 header 折叠/展开
         if (currentAgentGroupId != null) {
             ensureAgentGroupHeader();
@@ -11134,7 +11255,7 @@ public class AIChatActivity extends BaseActivity {
             sys.append("【环境上下文】当前日期：").append(new java.text.SimpleDateFormat("yyyy年M月d日 EEEE", java.util.Locale.CHINA).format(new java.util.Date()));
             String content = "系统提示词已更新：" + desc + "\n\n" + sys.toString().trim();
             ChatMessage row = ChatMessage.createSystemMessage(
-                    java.util.UUID.randomUUID().toString(), content,
+                    systemMessageId(), content,
                     ChatMessage.SystemMessageType.SYSTEM_PROMPT, System.currentTimeMillis());
             chatHistory.add(row);
             if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
@@ -11162,7 +11283,7 @@ public class AIChatActivity extends BaseActivity {
             if (sb.length() == 0) return;
             String content = "本轮已注入上下文（记忆/任务自动携带，模型可直接使用）\n\n" + sb.toString().trim();
             ChatMessage row = ChatMessage.createSystemMessage(
-                    java.util.UUID.randomUUID().toString(), content,
+                    systemMessageId(), content,
                     ChatMessage.SystemMessageType.CONTEXT_INJECTION, System.currentTimeMillis());
             chatHistory.add(row);
             if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
@@ -12816,6 +12937,103 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
+    /**
+     * 渲染 DSH dock 插槽（2026-11-13）：最多 3 条，每条一行标题（可选一行细节）。
+     *
+     * <p>这里刻意用代码建 TextView 而不是新增 XML：插槽种类会持续增加（后台任务/目标/压缩/审批…），
+     * 每加一种就加一份布局文件不划算；统一的"一行文字 + 可选点击"足够表达这些状态。</p>
+     */
+    private void renderDockSlots(java.util.List<com.oilquiz.app.ai.chat.status.DockSlotBus.Slot> slots) {
+        if (dockSlotHost == null) return;
+        dockSlotHost.removeAllViews();
+        if (slots == null || slots.isEmpty()) {
+            dockSlotHost.setVisibility(View.GONE);
+            return;
+        }
+        float density = getResources().getDisplayMetrics().density;
+        int padH = (int) (8 * density);
+        int padV = (int) (3 * density);
+        int shown = 0;
+        for (final com.oilquiz.app.ai.chat.status.DockSlotBus.Slot s : slots) {
+            if (shown >= 3) break;   // 护栏：插槽在输入区上方，超过 3 条会把聊天区挤没
+            android.widget.TextView tv = new android.widget.TextView(this);
+            String text = s.title;
+            if (!s.detail.isEmpty()) text = text.isEmpty() ? s.detail : text + " · " + s.detail;
+            tv.setText(text);
+            tv.setTextSize(11f);
+            tv.setMaxLines(2);
+            tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            tv.setTextColor(s.warn ? android.graphics.Color.parseColor("#E65100")
+                    : android.graphics.Color.parseColor("#666666"));
+            tv.setPadding(padH, padV, padH, padV);
+            if (!s.action.isEmpty()) {
+                tv.setClickable(true);
+                tv.setOnClickListener(v -> onDockSlotClick(s.action));
+            }
+            dockSlotHost.addView(tv);
+            shown++;
+        }
+        dockSlotHost.setVisibility(View.VISIBLE);
+    }
+
+    /** 插槽点击：任务/目标/子代理/MCP/日程 → 扩展面板；其余 → 远程连接页。 */
+    private void onDockSlotClick(String action) {        if ("jobs".equals(action) || "goal".equals(action) || "schedule".equals(action)
+                || "subagents".equals(action) || "mcp".equals(action) || "permission".equals(action)) {
+            // 后台任务 / 目标 / 日程 / 计划 / 子代理 / MCP 都在这个面板里（P3 复用，不再新开页面）
+            startActivity(new android.content.Intent(this,
+                    com.oilquiz.app.ai.tool.RemoteDshInsightActivity.class));
+            return;
+        }
+        startActivity(new android.content.Intent(this,
+                com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class));
+    }
+
+    /**
+     * 把 DSH 事件映射成 dock 插槽（只挑"有持续状态"的几类；其余仍走时间线卡片）。
+     *
+     * <p>判断标准：这个功能有没有"现在处于什么状态、用户能操作"——有就进插槽，只有历史就走卡片。</p>
+     */
+    private void updateDockSlotsForEvent(String type, org.json.JSONObject ev) {
+        if (type == null || type.isEmpty()) return;
+        switch (type) {
+            // JOB/GOAL 已由服务端派生并走 ui/slot 下发（2026-11-13），手机端不再重复产一条，
+            // 否则同一件事会出现两行（真机截图：两条"后台任务"）。
+            case "compaction/start":
+                // 压缩会卡好几秒：不说明的话用户以为死机了
+                com.oilquiz.app.ai.chat.status.DockSlotBus.update(
+                        new com.oilquiz.app.ai.chat.status.DockSlotBus.Slot(
+                                "compaction", 10, "正在压缩上下文…", "", "", true));
+                break;
+            case "compaction/end":
+                com.oilquiz.app.ai.chat.status.DockSlotBus.remove("compaction");
+                break;
+            case "ui/slot": {
+                // 通用插槽（P4，2026-11-13）：电脑端声明 id/priority/title/detail/warn/action，
+                // 手机只做渲染——新增 DSH 能力不需要发新版 APK。title 与 detail 都为空 = 移除。
+                org.json.JSONObject slot = ev.optJSONObject("data");
+                String id = slot == null ? "" : slot.optString("id", "").trim();
+                if (id.isEmpty()) break;
+                String title = slot.optString("title", "");
+                String detail = slot.optString("detail", "");
+                if (title.isEmpty() && detail.isEmpty()) {
+                    com.oilquiz.app.ai.chat.status.DockSlotBus.remove(id);
+                    break;
+                }
+                com.oilquiz.app.ai.chat.status.DockSlotBus.update(
+                        new com.oilquiz.app.ai.chat.status.DockSlotBus.Slot(
+                                id,
+                                slot.optInt("priority", 70),
+                                title,
+                                detail,
+                                slot.optString("action", ""),
+                                slot.optBoolean("warn", false)));
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
     /** 刷新进度插槽的第二行：当前工具活动 + 本会话任务计数（生成中由心跳定时刷新） */
     private void refreshProgressSlotMeta() {
         if (tvAgentProgressMeta == null) return;
@@ -12861,6 +13079,8 @@ public class AIChatActivity extends BaseActivity {
     private boolean dshResyncPending = true;
     /** 逻辑 key → 组件 id：同一 key 复用，增量 binder 才不会整块重建 */
     private final java.util.HashMap<String, String> dshComponentIds = new java.util.HashMap<>();
+    /** 无回合可挂时的兜底序号（hashCode 会撞，递增不会） */
+    private int dshFallbackSeq = 0;
     /** 当前同步目标会话 + 已成功投影落屏的事件序号（断点续传用） */
     private String dshSyncTarget = "";
     private int dshLastSeq = -1;
@@ -13185,19 +13405,23 @@ public class AIChatActivity extends BaseActivity {
      * <p>投影每次都会整体重建 {@code components}，增量 binder 按 id 复用视图；id 必须跨
      * "每 3 秒补拉重投影"保持稳定，否则整块重建、卡片/工具卡会闪。</p>
      */
-    private String dshComponentId(String key) {
+    private String dshComponentId(String key, String turnId) {
         String id = dshComponentIds.get(key);
         if (id != null) return id;
         boolean tool = key != null && key.startsWith("tool:");
+        // 挂到**这条 DSH 气泡自己的回合**（不是本地 currentTurnId）：否则组件 id 前缀与
+        // 消息 turnId 脱节，恢复时按回合聚合会归错组。
+        String turn = turnId != null && !turnId.isEmpty() ? turnId : currentTurnId;
         try {
             id = ChatIdDispatcher.getInstance().applySubId(
                     tool ? ChatIdDispatcher.IdType.TOOL : ChatIdDispatcher.IdType.COMPONENT,
-                    currentTurnId);
+                    turn);
         } catch (Throwable ignored) {
             id = null;
         }
         if (id == null || id.isEmpty()) {
-            id = "dsh-" + Integer.toHexString(String.valueOf(key).hashCode());
+            // 没有回合可用时的兜底：进程内递增，**不能**用 hashCode（32 位会撞，撞了就是两张卡同一个 id）
+            id = "dsh-" + (dshFallbackSeq++);
         }
         dshComponentIds.put(key, id);
         return id;
@@ -13253,7 +13477,7 @@ public class AIChatActivity extends BaseActivity {
             if (force || now - dshLastProjectMs >= 80) {
                 dshLastProjectMs = now;
                 com.oilquiz.app.ai.remote.DshProjection.project(live, dshTimeline,
-                        this::dshComponentId, now);
+                        key -> dshComponentId(key, live.turnId), now);
                 pushLiveSync(live, liveIdx, up.ended ? new long[]{0L} : lastNotify,
                         dshTimeline.answer(), dshTimeline.thinking(), up.ended);
             }
@@ -13539,6 +13763,8 @@ public class AIChatActivity extends BaseActivity {
             if (!"stream/delta".equals(type)) {
                 AppLogger.ai(TAG, "[DSH] 通道事件 " + type + " seq=" + ev.optInt("seq", -1));
             }
+            // DOCK-SLOTS(2026-11-13)：有"持续状态"的事件同时更新输入区上方的插槽
+            updateDockSlotsForEvent(type, ev);
             // 幂等：补缺口和实时通道可能重叠回放同一条（实测 turn/end 1765 来了两次，
             // 第二次会 ensureMirrorBubble 出一个空气泡）
             int evSeq = ev.optInt("seq", -1);
@@ -13675,10 +13901,14 @@ public class AIChatActivity extends BaseActivity {
             if (turn != null && !turn.isEmpty()) dshMirrorTurn = turn;
             return dshMirrorMessage;
         }
+        // 转换层也走派发器（不只是下游补）：先拿主 id，再按它申请子 id 当消息 id。
+        // 于是 T{n}-A{k} 既是有序锚点（渲染/恢复归位），又由持久化主计数器保证唯一。
+        String mirrorTurnId = ChatIdDispatcher.getInstance().applyMasterId();
         ChatMessage live = ChatMessage.createAIMessage(
-                java.util.UUID.randomUUID().toString(), "", System.currentTimeMillis(), null, 0, 0);
-        live.turnId = ChatIdDispatcher.getInstance().applyMasterId();
-        live.subId = ChatIdDispatcher.getInstance().applySubId(ChatIdDispatcher.IdType.AI, live.turnId);
+                java.util.UUID.randomUUID().toString(),
+                "", System.currentTimeMillis(), null, 0, 0);
+        live.turnId = mirrorTurnId;
+        live.subId = live.id;
         live.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.THINKING);
         live.components = new java.util.ArrayList<>();
         dshTimeline = new com.oilquiz.app.ai.remote.DshTimeline();
@@ -13959,15 +14189,43 @@ public class AIChatActivity extends BaseActivity {
             title = "电脑已断开：AI 会被拒绝执行";
             sub = "到「远程连接（电脑）」里重新连接";
             action = "去连接 ›";
+            // 断开就别再显示上一台电脑的忙碌状态
+            com.oilquiz.app.ai.tool.RemoteStatusMonitor.clear();
         } else {
-            dotRes = R.drawable.circle_green;
+            // BAR-V2(2026-11-13)：已连接时显示「电脑现在忙不忙」，而不只是「连上了」。
+            // 数据源两个：/status（节流 15s，失败保留上次）+ 通道心跳里的 seq 游标。
+            com.oilquiz.app.ai.tool.RemoteStatusSnapshot st =
+                    com.oilquiz.app.ai.tool.RemoteStatusMonitor.get();
+            // 黄 = 需要人处理（待审批 / 排队）；"运行中"是正常状态，保持绿
+            boolean needsAttention = st != null && st.ok
+                    && (st.approvalsPending > 0 || st.cliQueued > 0);
+            dotRes = needsAttention ? R.drawable.circle_yellow : R.drawable.circle_green;
+
+            title = (st != null && st.ok)
+                    ? "电脑已连接 · " + st.headline()
+                    : "电脑已连接 · " + hostOf(com.oilquiz.app.ai.tool.RemoteDshTool.configValue(this, "base_url"));
+
             String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
             String syncTitle = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTitle(this);
-            title = "电脑已连接 · " + hostOf(com.oilquiz.app.ai.tool.RemoteDshTool.configValue(this, "base_url"));
-            sub = target.isEmpty()
+            StringBuilder sb = new StringBuilder();
+            sb.append(target.isEmpty()
                     ? "连接即遥控 · 还没选跟随会话（点这里去选）"
-                    : "连接即遥控 · 跟随「" + (syncTitle.isEmpty() ? shortId(target) : syncTitle) + "」";
+                    : "连接即遥控 · 跟随「" + (syncTitle.isEmpty() ? shortId(target) : syncTitle) + "」");
+            com.oilquiz.app.ai.tool.RemoteConnection conn =
+                    com.oilquiz.app.ai.tool.RemoteConnection.get(this);
+            int server = conn.serverSeq();
+            int applied = conn.appliedSeq();
+            if (server >= 0) {
+                sb.append(" · seq ").append(Math.max(0, applied)).append('/').append(server);
+            }
+            int behind = conn.behindCount();
+            if (behind > 0) sb.append(" · 落后 ").append(behind);
+            sub = sb.toString();
             action = "管理 ›";
+
+            // 后台拉一次 /status（节流 15s，单飞）；回来后重刷这条状态条
+            com.oilquiz.app.ai.tool.RemoteStatusMonitor.refreshAsync(this, 15000L,
+                    () -> runOnUiThread(this::refreshRemoteDshBar));
         }
         remoteDshDot.setBackground(androidx.core.content.ContextCompat.getDrawable(this, dotRes));
         remoteDshText.setText(title);
@@ -14020,7 +14278,15 @@ public class AIChatActivity extends BaseActivity {
     private String pendingOpenSessionId = null;
 
     @Override
+    protected void onPause() {
+        // 离开页面后，审批/任务失败才需要弹通知（页内已有审批卡，重复提醒是打扰）
+        sForegroundForAlerts = false;
+        super.onPause();
+    }
+
+    @Override
     protected void onResume() {
+        sForegroundForAlerts = true;
         try {
             android.content.Intent it = getIntent();
             String want = it == null ? null : it.getStringExtra("open_session_id");
@@ -14114,6 +14380,7 @@ public class AIChatActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
+        com.oilquiz.app.ai.chat.status.DockSlotBus.removeListener(dockSlotListener);
         // 贴底控制器 / 滚动锚点都持有 messageList 的 preDraw/scroll 监听器，必须解绑，避免强引用泄漏。
         if (stickToBottom != null) {
             stickToBottom.release();

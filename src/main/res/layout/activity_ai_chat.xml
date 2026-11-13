@@ -398,6 +398,17 @@
                 android:padding="@dimen/space_8"
                 android:gravity="center_vertical">
 
+                <!-- dock 插槽宿主（2026-11-13）：DSH 实时状态（后台任务/目标/压缩中…）挂在这里，
+                     不进消息流、不随聊天刷新重建；由 DockSlotBus 驱动，最多渲染 3 条。 -->
+                <LinearLayout
+                    android:id="@+id/dock_slot_host"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="16dp"
+                    android:layout_marginBottom="4dp"
+                    android:orientation="vertical"
+                    android:visibility="gone"/>
+
                 <!-- 本轮任务进度插槽（2026-10-27）：独立于消息流的一条细进度条，
                      不参与 RecyclerView 渲染，因此不会被聊天刷新/重建冲掉。
                      由 AgentProgressBus 驱动（ui_component action=progress），endGeneration 时清空。 -->

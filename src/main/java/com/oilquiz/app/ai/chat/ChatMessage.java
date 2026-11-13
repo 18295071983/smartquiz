@@ -1591,6 +1591,22 @@ public class ChatMessage {
 
     // ==================== 类型判断方法 ====================
 
+    /**
+     * 纯渲染态：这条 AI 回复当前被"旧消息折叠"成一行摘要。
+     *
+     * <p><b>transient 是刻意的</b>：Gson 不序列化 transient 字段，所以这个折叠状态
+     * 永远不会写进历史文件——历史保持原样，折叠只影响屏幕。展开时置回 false 重新绑定即可。</p>
+     */
+    private transient boolean focusCollapsed = false;
+
+    public boolean isFocusCollapsed() {
+        return focusCollapsed;
+    }
+
+    public void setFocusCollapsed(boolean focusCollapsed) {
+        this.focusCollapsed = focusCollapsed;
+    }
+
     public boolean isUserMessage() {
         return type == MessageType.USER;
     }

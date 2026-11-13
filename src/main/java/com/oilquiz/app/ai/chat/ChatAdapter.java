@@ -1243,7 +1243,62 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         bindUserAttachments(holder, message);
     }
 
+    /** 点击折叠行 → 展开（由 Activity 决定展开后多久自动收起）。 */
+    public interface OnCollapsedAiClickListener {
+        void onExpandCollapsedAi(ChatMessage message, int position);
+    }
+
+    private OnCollapsedAiClickListener collapsedAiClickListener;
+
+    public void setOnCollapsedAiClickListener(OnCollapsedAiClickListener l) {
+        this.collapsedAiClickListener = l;
+    }
+
+    /**
+     * 折叠态渲染：只留一行摘要，其它子树全部让路。
+     *
+     * <p>顺带的好处：折叠的消息连 markdown/parts 都不建，滚动长历史时省掉大量视图与渲染。</p>
+     */
+    private void bindCollapsedAi(AIMessageViewHolder holder, ChatMessage message) {
+        holder.holderMessage = message;
+        LinearLayout host = holder.contentHost;
+        if (host == null) return;
+        host.removeAllViews();
+        TextView stub = new TextView(host.getContext());
+        String preview = firstLineOf(message.content);
+        stub.setText(preview.isEmpty()
+                ? "AI 回复已折叠 · 点击展开"
+                : "AI 回复已折叠 · 点击展开  ·  " + preview);
+        stub.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f);
+        int pad = (int) (2 * host.getResources().getDisplayMetrics().density);
+        stub.setPadding(0, pad, 0, pad);
+        stub.setOnClickListener(v -> {
+            if (collapsedAiClickListener != null) {
+                int pos = holder.getBindingAdapterPosition();
+                if (pos != androidx.recyclerview.widget.RecyclerView.NO_POSITION) {
+                    collapsedAiClickListener.onExpandCollapsedAi(message, pos);
+                }
+            }
+        });
+        host.addView(stub);
+    }
+
+    /** 折叠摘要用：内容首行，最多 40 字。 */
+    private static String firstLineOf(String content) {
+        if (content == null) return "";
+        int nl = content.indexOf('\n');
+        String line = (nl >= 0 ? content.substring(0, nl) : content).trim();
+        if (line.length() > 40) line = line.substring(0, 40) + "…";
+        return line;
+    }
+
     private void bindAIMessage(AIMessageViewHolder holder, ChatMessage message, String timeStr, int position) {
+        // FOCUS-COLLAPSE(2026-11-13)：旧轮的 AI 回复只渲染成一行摘要（用户消息始终正常渲染）。
+        // 纯渲染态：数据/历史一个字不动，展开就是把这个 transient 标记置回 false 再重绑。
+        if (message.isFocusCollapsed()) {
+            bindCollapsedAi(holder, message);
+            return;
+        }
         // 消息引用绑定（2026-09-14）：思考轮独立折叠状态 / 轮次组件 id 锚点读写
         holder.holderMessage = message;
         // 接管标记按"同一条消息 + 开关仍开着"延续，不再无条件复位（P6 流式接管，2026-10-24）。

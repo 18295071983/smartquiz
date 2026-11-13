@@ -195,12 +195,19 @@ public final class DshTimeline {
             }
             case "tool/call": {
                 if (ev.data == null) break;
-                String callId = ev.data.optString("callId").trim();
-                if (callId.isEmpty()) break;
+                // FIELD-FIX(2026-11-13)：只认 callId 一种拼写时，插件/DSH 换了字段名（call_id /
+                // toolCallId / tool_call_id）就整张工具卡丢失。这里按常见拼写依次尝试。
+                String callId = firstNonEmpty(ev.data, "callId", "call_id", "toolCallId", "tool_call_id");
+                if (callId.isEmpty()) {
+                    android.util.Log.w("DshTimeline", "[probe] tool/call 缺 callId，丢弃: "
+                            + ev.data.toString().substring(0, Math.min(160, ev.data.toString().length())));
+                    break;
+                }
                 Step box = step(turn, step);
                 if (!box.tools.containsKey(callId)) {
-                    box.tools.put(callId, new Tool(callId, ev.data.optString("name", ""),
-                            ev.data.optString("arguments", "")));
+                    String toolName = firstNonEmpty(ev.data, "name", "toolName", "tool_name");
+                    String toolArgs = firstNonEmpty(ev.data, "arguments", "args", "argumentsDelta");
+                    box.tools.put(callId, new Tool(callId, toolName, toolArgs));
                     u.cardsChanged = true;
                     u.contentChanged = true;
                     u.phase = ChatMessage.InferencePhase.GENERATING;
@@ -235,17 +242,17 @@ public final class DshTimeline {
                 if (tool == null) {
                     tool = findToolByCallId(turn, callId);
                 }
-                // 真的没有对应调用（结果先到/半截历史）：兜底建一条**已完成**的工具记录，
-                // 而不是丢弃。否则卡片永远停在"运行中"，而这条结果其实是有效的。
+                // 真的没有对应调用（结果先到/半截历史）：**丢弃**，不要凭空造一张工具卡。
+                // ORPHAN-NO-CARD(2026-11-13)：2026-11-12 曾在这里兜底建一条空名字的工具记录，
+                // 结果是从中途订阅时时间线里多出一张**没有工具名、只有结果**的卡
+                // （DshProjection.toolComponent 直接取 tool.name，空名就是空标题）。
+                // 真正"卡片停在运行中"的场景是**结果找错了 step**，那已由上面的
+                // findToolByCallId 兜住；连调用都没见过的结果没有可归属的卡，丢弃且不置
+                // cardsChanged —— 与 DshTimelineTest#toolResultWithoutCall_... 的既定契约一致。
                 if (tool == null) {
                     android.util.Log.w("DshTimeline", "[probe] tool/result ORPHAN callId=" + callId
-                            + " turn=" + turn + " step=" + step);
-                    if (!callId.isEmpty()) {
-                        tool = new Tool(callId, "", "");
-                        box.tools.put(callId, tool);
-                    } else {
-                        break;
-                    }
+                            + " turn=" + turn + " step=" + step + " → dropped");
+                    break;
                 }
                 JSONObject message = ev.data.optJSONObject("message");
                 tool.result = message != null
@@ -353,6 +360,16 @@ public final class DshTimeline {
      * <p>用途：{@code tool/result} 的 step 字段与 {@code tool/call} 不一致时（补拉/乱序会这样），
      * 只按当前 step 查会 miss，结果被当成"结果先到"丢掉，卡片永远停在运行中。</p>
      */
+    /** 依次尝试多个字段名，取第一个非空值（各版本/各方对同一字段的拼写不一致）。 */
+    private static String firstNonEmpty(JSONObject o, String... keys) {
+        if (o == null) return "";
+        for (String k : keys) {
+            String v = o.optString(k, "").trim();
+            if (!v.isEmpty()) return v;
+        }
+        return "";
+    }
+
     private Tool findToolByCallId(int turn, String callId) {
         if (callId == null || callId.isEmpty()) return null;
         TreeMap<Integer, Step> byStep = steps.get(turn);

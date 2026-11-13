@@ -216,16 +216,36 @@ public class DshTimelineTest {
         assertEquals("第二项", card.props.optJSONArray("items").optJSONObject(0).optString("text"));
     }
 
+    /**
+     * 后台任务卡：2026-11-12 起按**任务身份**建卡（有 jobId 用 jobId，没有才退回 turn）。
+     *
+     * <p>旧契约是"同一 turn 聚合成一条『2 个后台任务，最近：下载 B』"的文字卡；现在每个任务
+     * 自己一张 {@code dsh_job} 卡（{@code label}/{@code status}），因为聚合卡在 job/settled
+     * 落到另一轮时覆盖不到，卡会永远停在「运行中」（真机可复现）。没有 jobId 的事件仍按
+     * turn 兜底 —— 同 turn 的后一条覆盖前一条，所以这里只留最后一条的名字。</p>
+     */
     @Test
-    public void jobRegistered_aggregatesPerTurn() {
+    public void jobCardsAreKeptPerTurnWhenNoJobId() {
         DshTimeline tl = new DshTimeline();
         feed(tl, job(1, 1, "下载 A"));
         feed(tl, job(1, 2, "下载 B"));
         feed(tl, job(2, 3, "转码 C"));
 
         assertEquals(2, tl.orderedCards().size());
-        String first = tl.orderedCards().get(0).props.optString("content");
-        assertEquals("2 个后台任务，最近：下载 B", first);
+        DshCards.Card first = tl.orderedCards().get(0);
+        assertEquals("dsh_job", first.type);
+        assertEquals("下载 B", first.props.optString("label"));
+        assertEquals("running", first.props.optString("status"));
+    }
+
+    @Test
+    public void jobCardKeyedByJobId_survivesAcrossTurns() {
+        DshTimeline tl = new DshTimeline();
+        feed(tl, jobWithId(1, 1, "j-1", "下载 A"));
+        feed(tl, jobWithId(2, 2, "j-1", "下载 A"));
+
+        assertEquals("同一任务跨轮只占一张卡", 1, tl.orderedCards().size());
+        assertEquals("job-j-1", tl.orderedCards().get(0).key);
     }
 
     @Test
@@ -234,12 +254,13 @@ public class DshTimelineTest {
         JSONObject one = job(1, 7, "任务");
 
         feed(tl, one);
+        assertEquals(1, tl.orderedCards().size());
         assertEquals("首条后台任务只显示自己的名字", "任务",
-                tl.orderedCards().get(0).props.optString("content"));
+                tl.orderedCards().get(0).props.optString("label"));
 
         feed(tl, one); // 断线重连，服务端从 since 重放
-        assertEquals("重放不能把计数加成 2", "任务",
-                tl.orderedCards().get(0).props.optString("content"));
+        assertEquals("重放不能多出一张卡", 1, tl.orderedCards().size());
+        assertEquals("任务", tl.orderedCards().get(0).props.optString("label"));
     }
 
     @Test
@@ -362,6 +383,17 @@ public class DshTimelineTest {
         JSONObject d = located(turn, step);
         try {
             d.put("label", label);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+        return envelope("job/registered", 30 + step, d);
+    }
+
+    private static JSONObject jobWithId(int turn, int step, String jobId, String label) {
+        JSONObject d = located(turn, step);
+        try {
+            d.put("label", label);
+            d.put("jobId", jobId);
         } catch (Exception e) {
             throw new AssertionError(e);
         }
