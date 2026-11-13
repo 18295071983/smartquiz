@@ -119,3 +119,24 @@
 - `AIChatActivity` 内的折叠/窗口逻辑目前**无单测**（逻辑在 Activity，需先抽类才能测）——M1 抽 `StatusDeckController` 时会顺带解决甲板部分。
 - 插件侧（`index.js`）无自动化测试，只能做语法检查（`node --check`）+ 真机验收。
 - 布局组件的渲染（`NativeLayoutRenderer`）依赖 Android 视图，暂不做 JVM 单测，靠真机 A4 兜。
+
+---
+
+## 4. 已落地（2026-11-13 晚）
+
+| 用例 | 落地方式 | 备注 |
+|---|---|---|
+| A1 | DeckMetrics 埋点 + 	ools/verify_deck.ps1 | 真机实测 deck=42dp / chat=489dp / share=8%（阈值 12%）|
+| A2 | StatusDeckControllerTest（7 条） | 进度可见 1 条 / 否则 2 条 / 排序稳定 / 空 id / 零上限 / clear / 配置覆盖 |
+| A3 | StickToBottomA3Test（2 条，Robolectric） | pinned 视口变化后贴底；pinnedBefore=false 时位置不动 |
+| A4（部分） | DshProjectionLayoutTest（4 条） | meta.layout → layout 组件，children/actions 原样透传；**未真机验证** |
+| A7（部分） | DshUiCatalogLoaderTest（5 条） | 默认/合法/坏 JSON/越界/缺 deck |
+| A8（部分） | ChatHistoryManagerAtomicSaveTest + ChatHistoryManagerDeepCopyTest | 原子写与补拷；动态卡恢复未验 |
+| A9（插件侧） | oute_selftest（22 条） | 目录三层 / UI 目录 / 作用域 / 重连补发 / 裁剪 |
+
+### 仍未落地
+
+- A4/A5/A7/A8 的**真机**验证（需要一份真实带 meta.layout 的工具结果 / 覆盖配置文件）
+- A6 审批回传专门用例
+- B 表：componentIdIsPrefixedByTurnId（B2 复核未加断言）、dsnBubbleIdEqualsSubId（B6）、
+  B10 崩溃注入（kill -9）

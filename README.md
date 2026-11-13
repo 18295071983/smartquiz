@@ -32,7 +32,7 @@
 | 热启动恢复 | 重新加载 | 即时可用 | **即时** |
 | 中文编码处理 | Modified UTF-8 (有问题) | 标准 UTF-8 | **修复** |
 
-**详细优化内容请参阅** [CHANGELOG.md](CHANGELOG.md) 和 [AI 服务与推理设计](docs/development/04-ai-service-inference.md)。
+**详细优化内容请参阅** [CHANGELOG.md](CHANGELOG.md) 和 [AI 对话相关设计](docs/dsh-remote-ui-design/00-overall.md)。
 
 ## 功能概览
 
@@ -258,14 +258,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-asr-model.ps1
 
 详细文档请参阅 [docs/](docs/) 目录：
 
-- [系统架构设计](docs/system/system_architecture.md)
-- [Agent 架构设计](docs/development/02-ai-agent-architecture.md)
-- [数据库结构设计](docs/database/database_structure.md)
-- [AI 服务与推理设计](docs/development/04-ai-service-inference.md)
-- [开发规范](docs/development/09-development-guide.md)
-- [项目架构总览](docs/development/01-project-overview.md)
-- [模块清单](docs/development/08-module-inventory.md)
+- [DSH 远程 UI · 总体设计](docs/dsh-remote-ui-design/00-overall.md)
+- [DSH 远程 UI · 分模块设计](docs/dsh-remote-ui-design/10-modules.md)
+- [DSH 远程 UI · 单测与验收](docs/dsh-remote-ui-design/90-tests-acceptance.md)
+- [DSH 远程 UI · 交叉审查与缺陷清单](docs/dsh-remote-ui-design/99-review-findings.md)
+- [DSH 远程 UI · 架构 v2（参考）](docs/dsh-remote-ui-architecture-v2-2026-11-13.md)
+- [UI 设计资料](docs/ui/)
+- [历史设计归档](docs/legacy/)
 - [路线图](ROADMAP.md)
+- [变更日志](CHANGELOG.md)
+
+> 说明（2026-11-13）：此前这里链向的 `docs/development/*`、`docs/system/*`、`docs/database/*`
+> 在本仓库并不存在（7 个死链），已改为实际存在的文档入口。
 
 ## 许可证
 

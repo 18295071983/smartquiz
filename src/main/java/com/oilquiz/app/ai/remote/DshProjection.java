@@ -84,6 +84,9 @@ public final class DshProjection {
                 for (DshTimeline.Tool tool : step.tools.values()) {
                     snapshot.toolCallIds.add(tool.callId);
                     components.add(toolComponent(tool, source));
+                    // P2（2026-11-13）：官方载荷里的动态版式单独成一个 layout 组件
+                    ComponentData layout = layoutComponent(tool, source);
+                    if (layout != null) components.add(layout);
                 }
             }
             snapshots.add(snapshot);
@@ -132,6 +135,26 @@ public final class DshProjection {
         ComponentData data = ComponentData.of("tool_call", props);
         data.source = "dsh";
         data.id = ids.idFor("tool:" + tool.callId);
+        return data;
+    }
+
+    /**
+     * 官方载荷里的动态版式 → {@code layout} 组件（2026-11-13，P2）。
+     *
+     * <p>来源是工具通过 {@code output.presentationMeta} 派生的 {@code tool/result.meta}，
+     * 约定 {@code meta.layout} 为 LayoutCardView 的 props（容器/图元/样式，可含 {@code actions}）。
+     * 这是**不发版**扩展手机界面的合规通道：插件不能发自定义持久事件，但能随工具结果带 meta。</p>
+     *
+     * <p>props 原样透传，不在这里校验/重建 —— 渲染层对未知图元与坏节点已有 fallback；
+     * 没有 layout 时返回 null，避免产生空组件。</p>
+     */
+    private static ComponentData layoutComponent(DshTimeline.Tool tool, IdSource ids) {
+        if (!(tool.meta instanceof JSONObject)) return null;
+        JSONObject layout = ((JSONObject) tool.meta).optJSONObject("layout");
+        if (layout == null || layout.length() == 0) return null;
+        ComponentData data = ComponentData.of("layout", layout);
+        data.source = "dsh";
+        data.id = ids.idFor("layout:" + tool.callId);
         return data;
     }
 

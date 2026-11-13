@@ -223,3 +223,16 @@ tool_group / 展开态 / 运行统计 = transient
 ### 验收
 - 落盘后重进会话：动态卡在、id 不变、审批/问答可重试
 - 崩溃后文件可读（`maxTurnId` 不倒退）
+
+---
+
+## 实现现状（2026-11-13 晚）
+
+| 模块 | 设计 | 现状 |
+|---|---|---|
+| M1 甲板 | StatusDeckController | ✅ 已建（i/chat/status/StatusDeckController）；布局合并为 status_deck 单容器；行选择是纯函数，可直接单测 |
+| M2 动态卡 | meta > layout > 现成卡 > 注册类型 | 🟡 ComponentData.source 已加并落盘；meta.layout → layout 组件 已实现（P2）；ctions 依赖 component_action（已有链路）；**未真机验证** |
+| M3 配置表 | DshUiCatalogLoader | ✅ 已建；当前只消费 deck.max_rows_* 两项，损坏/非法一律回退 1/2 |
+| M4 ActionSink | 组件动作落点 | 🟡 未建 ActionSink 类；DSH 卡片动作走 ComponentActions → /session component_action（B4 修好路由后可用） |
+| M5 事件目录 | 三层 + 前缀族 + caps | ✅ 84 条三层、/v2/ui/catalog、前缀族、pushView 裁剪 |
+| M7 持久化 | 补拷 + 原子写 | ✅ B9/B11 补拷、B10 fsync+.bak+rename |

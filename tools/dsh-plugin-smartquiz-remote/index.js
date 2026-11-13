@@ -60,6 +60,11 @@ const STREAM_HUB = new Set();
  */
 const CUSTOM_SLOTS = new Map();
 
+/**
+ * 子代理最近一条活动（childId → 合成帧）。合成帧没有事件源，重连后靠它补发（B15）。
+ */
+const SUBAGENT_LAST = new Map();
+
 function streamBroadcast(sid, obj) {
   if (!obj) return;
   for (const sub of STREAM_HUB) {
@@ -1897,13 +1902,14 @@ export function apply(ctx, config) {
       if (!root) return;
       const brief = sessionEventBrief(event);
       if (!brief) return;
-      streamBroadcast(root, {
-        v: 2, type: 'subagent/activity',
-        data: {
-          root_id: root, child_id: sid, label: childLabel.get(sid) ?? '',
-          event: t, ts: Number(event.time) || Date.now(), ...brief,
-        },
-      });
+      const frame = {
+        root_id: root, child_id: sid, label: childLabel.get(sid) ?? '',
+        event: t, ts: Number(event.time) || Date.now(), ...brief,
+      };
+      // B15（2026-11-13）：子代理活动是合成帧，没有任何事件源可以回放 —— 连上之后
+      // 之前发生过的"子代理正在做什么"就全没了。这里按 child 留最后一条，重连时补发。
+      SUBAGENT_LAST.set(sid, frame);
+      streamBroadcast(root, { v: 2, type: 'subagent/activity', data: frame });
     });
   } catch { /* 旧版没有 session/event 监听 */ }
 
@@ -3646,6 +3652,14 @@ export function apply(ctx, config) {
     for (const data of CUSTOM_SLOTS.values()) {
       if (data.session_id && data.session_id !== sid) continue;   // 别的会话的不发（B18）
       sse({ type: 'ui/slot', data });
+    }
+    // 子代理最近活动补发（B15）：最多 10 个 child，避免重连瞬间灌爆
+    let subagentReplay = 0;
+    for (const frame of SUBAGENT_LAST.values()) {
+      if (subagentReplay >= 10) break;
+      if (frame.root_id && frame.root_id !== sid) continue;
+      sse({ type: 'subagent/activity', data: frame });
+      subagentReplay += 1;
     }
     viewTimer = setInterval(() => { if (!closed) pushView(); }, 5000);
     // since = -2 means "start from now": no history replay (first connect / no cursor)

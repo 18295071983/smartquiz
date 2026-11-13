@@ -1,5 +1,12 @@
 # DSH 远程 UI 架构：插槽 / 动态渲染 / 配置下发 迭代设计
 
+> **已被取代（2026-11-13）**：本文是第一版设计稿，结论与优先级已被
+> [`docs/dsh-remote-ui-design/00-overall.md`](dsh-remote-ui-design/00-overall.md)（总体）、
+> [`10-modules.md`](dsh-remote-ui-design/10-modules.md)、
+> [`90-tests-acceptance.md`](dsh-remote-ui-design/90-tests-acceptance.md)、
+> [`99-review-findings.md`](dsh-remote-ui-design/99-review-findings.md) 取代。
+> 保留本文仅为追溯设计演进；**实现以设计目录下的四份文档为准**。
+
 - 日期：2026-11-13
 - 范围：AI 对话页插槽布局、DSH 消息转换器、动态渲染交互组件、配置表与下发机制、插件服务端
 - 状态：**设计稿（待评审）**，本轮不改代码
