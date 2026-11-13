@@ -13502,13 +13502,28 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /** 状态条徽标/长按：只有一种执行策略（连接即遥控），点一下只做说明，不再切模式。 */
+    /** 远程使用说明（2026-11-14）：把「怎么连、连不上怎么办」写清楚，而不是一句 toast 打发。 */
     private void showRemoteHint() {
-        if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)) {
-            showToast("还没配对电脑：请先扫码配对");
-            return;
-        }
-        showToast("连接即遥控：聊天消息直接发给电脑；断开电脑后才用手机模型");
-        refreshRemoteDshBar();
+        String msg = "① 电脑：启动 DSH，远程插件已启用\n"
+                + "    浏览器打开 http://127.0.0.1:8218/health，应返回 {\"ok\":true,...}\n"
+                + "② 配对：手机连同一 WiFi → 远程连接页填\n"
+                + "    地址 http://电脑IP:8218（端口固定 8218）\n"
+                + "    令牌 电脑上 tools/dsh-plugin-smartquiz-remote/.token 的 32 位整串\n"
+                + "③ 验证：点「自检 / 对账」，能出 host_cwd 等卡片就通了\n"
+                + "\n连不上时先看提示：\n"
+                + "· 「被挡住 / 超时」= 电脑网络被当成『公用』，防火墙拦入站\n"
+                + "     管理员 PowerShell：Set-NetConnectionProfile -InterfaceAlias \"以太网\" -NetworkCategory Private\n"
+                + "· 电脑上运行 tools/check-remote-lan.ps1，看哪一项 [FAIL]\n"
+                + "· 手机 IP 是 192.168.101.x = 无线路由还是路由模式，要改 AP/桥接\n"
+                + "· 详细说明：电脑 docs/remote_dsh-usage.md 第九节";
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("远程连接怎么用")
+                .setMessage(msg)
+                .setPositiveButton("打开配对页", (d, w) -> startActivity(
+                        new Intent(AIChatActivity.this,
+                                com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class)))
+                .setNegativeButton("知道了", null)
+                .show();
     }
 
     /**

@@ -168,11 +168,10 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 // v2：一次拿"状态卡 + 自检卡 + 会话卡 + 时间线"，与服务端/电脑面板同源
                 v = RemoteDshTool.fetchView(getApplicationContext(), RemoteDshTool.getDirectSessionId(this));
                 int code = asInt(v.get("_http_code"));
-                if (code == 401 || code == 403) {
-                    // 401 几乎都是"刚装/刚清数据，令牌还没生效就点了自检"，不是插件坏了
-                    err = "还没连上电脑或令牌失效：先点「连接」探测；仍失败就重新扫电脑配对页";
-                } else if (code >= 400) {
-                    err = "取视图失败 HTTP " + code + "：" + v.get("error");
+                if (code >= 400) {
+                    // 统一走人话提示：401=令牌、404=端口/版本、5xx=插件出错
+                    err = com.oilquiz.app.ai.tool.RemoteErrorHints
+                            .ofHttp(code, String.valueOf(v.get("error"))).display();
                 } else if (!(v.get("cards") instanceof java.util.List)) {
                     err = "电脑端插件太旧：没有 cards（需要 ≥ v8 / 协议 v2）\n请重启电脑上的 DSH 再试";
                 }
@@ -854,12 +853,14 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 text = RemoteDshTool.probeStatusText(getApplicationContext());
                 ok = true;
             } catch (Exception e) {
-                String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-                text = "不可达: " + msg
-                        + "\n地址: " + RemoteDshTool.configValue(this, "base_url")
-                        + "\n排查：① 电脑端已安装 DSH 插件（插件管理器 → 从文件夹安装 plugin 文件夹 → 重启 DSH）"
-                        + " ② 手机与电脑同网/隧道可用 ③ 令牌是否与桥接一致";
+                // 2026-11-14：不再把异常原文甩给用户，翻译成「一句话原因 + 现在怎么做」
+                com.oilquiz.app.ai.tool.RemoteErrorHints.Hint hint =
+                        com.oilquiz.app.ai.tool.RemoteErrorHints.of(e);
+                String base = RemoteDshTool.configValue(this, "base_url");
+                text = hint.headline + "\n" + (base.isEmpty() ? "地址：(未配置)" : "地址：" + base)
+                        + (hint.action.isEmpty() ? "" : "\n" + hint.action);
                 ok = false;
+                com.oilquiz.app.util.AILogger.w("RemoteDshConnect", "probe failed: " + hint.raw);
             }
             final long ms = System.currentTimeMillis() - t0;
             final String fText = text;
