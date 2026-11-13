@@ -14653,22 +14653,8 @@ public class AIChatActivity extends BaseActivity {
      * 拉起前台同步服务：切后台/锁屏时也能继续收电脑端消息（只发通知，不推进渲染游标）。
      */
     private void startRemoteSyncService() {
-        try {
-            String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
-            // 只要配对过就拉起服务（2026-11-13）：以前还要求 isConnected，可调用时机常早于
-            // 连接建立，于是服务永远起不来 —— 后台/锁屏就没有通知可用。连接由服务自己建。
-            if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)) return;
-            android.content.Intent svc = new android.content.Intent(this,
-                    com.oilquiz.app.ai.tool.RemoteSyncService.class);
-            if (!target.isEmpty()) {
-                svc.putExtra(com.oilquiz.app.ai.tool.RemoteSyncService.EXTRA_TARGET, target);
-                svc.putExtra(com.oilquiz.app.ai.tool.RemoteSyncService.EXTRA_SINCE,
-                        com.oilquiz.app.ai.tool.RemoteDshTool.getLastSeq(this, target));
-            }
-            androidx.core.content.ContextCompat.startForegroundService(this, svc);
-        } catch (Throwable ignored) {
-            // 前台服务起不来不影响主流程
-        }
+        // 统一走 RemoteSyncService.ensureStarted（配对即启动，连接由服务自己建）
+        com.oilquiz.app.ai.tool.RemoteSyncService.ensureStarted(this);
     }
 
     // ===== 反向通道：轮询"电脑让我在本机执行的指令"（仅白名单工具）=====

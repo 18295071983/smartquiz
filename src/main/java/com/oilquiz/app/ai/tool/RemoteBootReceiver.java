@@ -27,17 +27,8 @@ public class RemoteBootReceiver extends BroadcastReceiver {
             return;
         }
         try {
-            // 没配对就不启动：空连接只会平白弹常驻通知
-            RemoteDshTool tool = new RemoteDshTool(context);
-            String token = tool.getToken();
-            if (token == null || token.isEmpty()) return;
-            Intent svc = new Intent(context, RemoteSyncService.class);
-            svc.setAction(RemoteSyncService.ACTION_BOOT_START);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(svc);
-            } else {
-                context.startService(svc);
-            }
+            // 没配对就不启动（ensureStarted 内部已判断）
+            RemoteSyncService.ensureStarted(context);
         } catch (Throwable ignored) {
             // 系统限制（后台启动 FGS）时静默：用户打开 App 仍会正常启动服务
         }

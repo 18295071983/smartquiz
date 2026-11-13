@@ -55,6 +55,10 @@ public class MainActivity extends BaseActivity {
             return;
         }
         resources = AppResourceManager.getInstance(this);
+
+        // 常驻连接（2026-11-13）：App 一启动就把前台服务拉起来。
+        // 后台/锁屏的审批通知全靠它；放在这里而不是只在对话页，避免"从首页进"就没服务。
+        com.oilquiz.app.ai.tool.RemoteSyncService.ensureStarted(this);
         
         // 检查是否使用 WebView 视图
         boolean useWebView = resources.getConfigBoolean("home_view_web", false);

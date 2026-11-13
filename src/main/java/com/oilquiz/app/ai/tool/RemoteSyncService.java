@@ -28,6 +28,30 @@ public class RemoteSyncService extends Service {
     public static final String EXTRA_SINCE = "since";
     /** 开机自启入口标记（见 RemoteBootReceiver）：只用于日志/诊断 */
     public static final String ACTION_BOOT_START = "com.oilquiz.app.REMOTE_BOOT_START";
+
+    /**
+     * 拉起常驻连接服务（幂等）。
+     *
+     * <p>给 Activity / Application / 开机广播共用：只要配对过就应该有这条连接，
+     * 后台和锁屏的审批通知全靠它。以前启动条件里还要求"已连接"，调用时机又很早，
+     * 结果服务从来没起来过（用户反馈"连接通知能看到，其他通知看不到"）。</p>
+     */
+    public static void ensureStarted(Context context) {
+        if (context == null) return;
+        try {
+            if (!RemoteDshTool.isConfigured(context)) return;
+            Intent svc = new Intent(context, RemoteSyncService.class);
+            svc.setAction(ACTION_BOOT_START);
+            String target = RemoteDshTool.getSyncTarget(context);
+            if (target != null && !target.isEmpty()) {
+                svc.putExtra(EXTRA_TARGET, target);
+                svc.putExtra(EXTRA_SINCE, RemoteDshTool.getLastSeq(context, target));
+            }
+            androidx.core.content.ContextCompat.startForegroundService(context, svc);
+        } catch (Throwable ignored) {
+            // 前台服务起不来不影响主流程
+        }
+    }
     private static final String CHANNEL_ID = "remote_dsh_sync";
     /** 告警通知通道：IMPORTANCE_DEFAULT 才会响/弹（常驻的同步通知是 LOW，只安静显示） */
     private static final String ALERT_CHANNEL_ID = "remote_dsh_alert";
@@ -40,6 +64,9 @@ public class RemoteSyncService extends Service {
 
     private RemoteConnection.Listener listener;
     private String title = "";
+    /** 待审批绑定在常驻通知上（空 = 没有待审批） */
+    private String pendingApprovalId = "";
+    private String pendingApprovalText = "";
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -84,13 +111,19 @@ public class RemoteSyncService extends Service {
                     // 前台那条常驻通知只显示"已连接/最后一句"，既不响也不弹；用户锁屏时
                     // 根本不知道电脑正在等他审批。审批/提问 → 提醒；审批被处理 → 收回。
                     if ("approval".equals(type)) {
-                        // 审批通知归**前台服务**所有（2026-11-13）：进程在后台也能弹、也能点。
-                        // 以前只在 Activity 存活时由页面发通知，退到后台就什么都没有了。
+                        // 审批**绑到常驻连接通知上**（2026-11-13）：用户明确要求"与连接通知绑定"。
+                        // 单独发一条 alert 容易被系统折叠成自动分组摘要（实测出现
+                        // GROUP_SUMMARY|SILENT 的汇总条，子通知看不见），而常驻通知一定可见。
                         JSONObject req = event.optJSONObject("request");
                         String tool = req == null ? "" : req.optString("toolName",
                                 req.optString("tool", req.optString("name", "")));
-                        String detail = requestBrief(event);
-                        notifyApproval(event.optString("id", ""), tool, detail);
+                        pendingApprovalId = event.optString("id", "");
+                        pendingApprovalText = (tool == null || tool.isEmpty() ? "有一条审批待处理" : "请求权限：" + tool);
+                        String brief = requestBrief(event);
+                        if (brief != null && !brief.isEmpty()) pendingApprovalText += " · " + brief;
+                        android.util.Log.i("DshSvc", "[approval] 绑定到连接通知 id=" + pendingApprovalId
+                                + " text=" + pendingApprovalText);
+                        refreshConnectionNotification();
                         return;
                     }
                     if ("question".equals(type)) {
@@ -100,6 +133,12 @@ public class RemoteSyncService extends Service {
                         return;
                     }
                     if ("approval_gone".equals(type) || "question_gone".equals(type)) {
+                        if ("approval_gone".equals(type)) {
+                            pendingApprovalId = "";
+                            pendingApprovalText = "";
+                            android.util.Log.i("DshSvc", "[approval] 结束，恢复连接通知");
+                            refreshConnectionNotification();
+                        }
                         cancelAlert(NOTIF_ID_APPROVAL);
                         return;
                     }
@@ -384,11 +423,29 @@ public class RemoteSyncService extends Service {
         open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pi = PendingIntent.getActivity(this, 0, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        b.setContentTitle("电脑端 · 远程连接")
-                .setContentText(text == null ? "" : text)
+        b.setContentTitle(pendingApprovalId.isEmpty() ? "电脑端 · 远程连接" : "待你处理 · 电脑端请求审批")
+                .setContentText(pendingApprovalId.isEmpty()
+                        ? (text == null ? "" : text)
+                        : (pendingApprovalText == null ? "" : pendingApprovalText))
                 .setSmallIcon(com.oilquiz.app.R.mipmap.ic_launcher)
                 .setContentIntent(pi)
-                .setOngoing(true);
+                .setOngoing(true)
+                .setOnlyAlertOnce(false);
+        if (!pendingApprovalId.isEmpty()) {
+            // 审批按钮直接挂在常驻通知上：后台/锁屏都能点，点完走广播回传
+            b.addAction(new Notification.Action.Builder(null, "允许",
+                    approvalAction(pendingApprovalId, "allow", 1)).build());
+            b.addAction(new Notification.Action.Builder(null, "拒绝",
+                    approvalAction(pendingApprovalId, "deny", 2)).build());
+        }
         return b.build();
+    }
+
+    /** 审批状态变了就重画常驻通知（有审批挂按钮，没有就恢复连接状态文案） */
+    private void refreshConnectionNotification() {
+        String text = pendingApprovalId.isEmpty()
+                ? ("已连接" + (title.isEmpty() ? "" : " · " + title))
+                : pendingApprovalText;
+        update(buildNotification(text));
     }
 }
