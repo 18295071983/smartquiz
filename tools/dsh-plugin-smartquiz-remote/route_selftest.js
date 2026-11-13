@@ -371,6 +371,22 @@ await test('/v2/ui/catalog 供客户端拉取（版本 + 事件 + 槽位）', as
   }
 });
 
+await test('/cmd 声明 caps 但缺 cmd.ui → 403；未声明则放行', async () => {
+  const denied = await call('/cmd', {
+    method: 'POST',
+    body: JSON.stringify({ tool: 'toast', args: { text: 'x' }, caps: 'events.stream' }),
+  });
+  assert.equal(denied.res.statusCode, 403, '实际响应：' + denied.res.text().slice(0, 200));
+  assert.equal(denied.json.error, 'caps_denied');
+  assert.equal(denied.json.need, 'cmd.ui');
+  const legacy = await call('/cmd', {
+    method: 'POST',
+    body: JSON.stringify({ tool: 'toast', args: { text: 'x' } }),
+  });
+  assert.equal(legacy.res.statusCode, 200, '不声明 caps 的旧客户端不应被挡');
+  assert.ok(legacy.json.cmd_id, '应返回 cmd_id');
+});
+
 console.log(`\n${passed} passed${process.exitCode ? '（有失败）' : ''}`);
 // /events 的定时器会让 node 不退出；自检结束按结果直接退出
 process.exit(process.exitCode ?? 0);

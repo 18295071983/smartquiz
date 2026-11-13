@@ -1716,6 +1716,64 @@ export function apply(ctx, config) {
     } catch { /* console 不可用时忽略 */ }
   };
 
+  // ================= 反向通道的生产者（2026-11-13） =================
+  // 现状缺口：/cmd 的队列、poll、ack 全都实现了，但**没有任何入口能入队** —— 面板没有按钮，
+  // 插件也没注册工具，实际只能人工 curl。这里注册一个 phone_ui 工具，让 agent 能主动把
+  // 一条 UI 指令推到手机。注册失败（旧版 DSH 没有 tools 服务/形状不同）只告警，不影响插件。
+  try {
+    const tools = (typeof ctx.get === 'function' ? ctx.get('tools') : null) ?? ctx.tools;
+    if (tools && typeof tools.register === 'function') {
+      tools.register({
+        name: 'phone_ui',
+        description: '把一条 UI 指令推送到已配对的手机：slot（插槽）或 toast/dialog/notification。'
+          + '仅适用于需要用户立刻看到的轻量提示，不要用于长文本。',
+        parameters: {
+          type: 'object',
+          properties: {
+            kind: { type: 'string', enum: ['slot', 'toast', 'notification'], description: '指令类型' },
+            title: { type: 'string', description: '标题（slot/notification 必填）' },
+            detail: { type: 'string', description: '正文/副标题' },
+            priority: { type: 'number', description: 'slot 优先级，越小越靠上，默认 50' },
+            id: { type: 'string', description: 'slot id，同 id 会覆盖；默认 phone_ui' },
+          },
+          required: ['kind'],
+        },
+        execute: async (args) => {
+          const kind = String(args?.kind ?? '');
+          const title = String(args?.title ?? '').trim();
+          const detail = String(args?.detail ?? '').trim();
+          if (!title && !detail) return { ok: false, error: 'title/detail 至少给一个' };
+          if (kind === 'slot') {
+            streamBroadcast('', { v: 2, type: 'ui/slot', data: {
+              id: String(args?.id ?? 'phone_ui'),
+              priority: Number(args?.priority ?? 50) || 50,
+              title,
+              detail,
+            } });
+            return { ok: true, kind, id: String(args?.id ?? 'phone_ui') };
+          }
+          const tool = kind === 'notification' ? 'notification' : 'toast';
+          if (!CMD_ALLOW.has(tool)) return { ok: false, error: 'tool_not_allowed' };
+          pruneCommands();
+          const id = randomBytes(8).toString('hex');
+          cmdQueue.set(id, {
+            id, tool,
+            args: { title: title || detail, body: detail, text: title || detail },
+            state: 'queued',
+            createdAt: Date.now(),
+            result: null,
+          });
+          return { ok: true, kind, cmd_id: id, queued: true };
+        },
+      });
+      console.log('[smartquiz-remote] 已注册工具 phone_ui（反向通道生产者）');
+    } else {
+      console.log('[smartquiz-remote] 没有 tools 服务，跳过 phone_ui 注册（反向通道仍只能人工 curl）');
+    }
+  } catch (e) {
+    console.warn('[smartquiz-remote] phone_ui 注册失败（忽略）: ' + String(e?.message ?? e));
+  }
+
   try {
     ctx.on('session/event', (session, event) => {
       const sid = String(session?.id ?? '');
@@ -3801,6 +3859,11 @@ export function apply(ctx, config) {
     }
     const tool = String(body.tool ?? '').trim();
     if (!tool) return sendJson(res, 400, { ok: false, error: '需要 tool' });
+    // CAPS-GATE（2026-11-13）：反向指令只做纯 UI，声明的客户端必须有 cmd.ui。
+    // 未声明 caps 的旧客户端一律放行（allows 的既有语义），所以不会切断现网。
+    if (!allows(normalizeCaps(body.caps ?? ''), 'cmd.ui')) {
+      return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'cmd.ui' });
+    }
     if (!CMD_ALLOW.has(tool)) {
       return sendJson(res, 403, {
         ok: false, error: 'tool_not_allowed', tool,
