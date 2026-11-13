@@ -72,7 +72,10 @@ public class ChatHistoryManager {
     // 字节上限仅作极端超大文件兜底（正常不触发）
     private static final int MIN_SESSION_MESSAGES = 30;       // 裁剪时至少保留的消息数
     private static final long MAX_SESSION_FILE_BYTES = 64L * 1024 * 1024; // 单文件 JSON 兜底上限(64MB)
-    public static final int HISTORY_PAGE_SIZE = 100;          // 历史分段加载每页条数
+    // PERF(2026-11-13)：100 → 50。首屏一次性渲染的条数减半（每条都要建 markdown/parts 视图），
+    // 低端机上"进会话先卡一下"的主要来源就是这个页大小；更早的消息仍可按页继续加载。
+    // 注：这条改动曾在 ID 回滚时被 `git checkout -- ChatHistoryManager` 连带还原，此处恢复。
+    public static final int HISTORY_PAGE_SIZE = 50;           // 历史分段加载每页条数
 
     private final Context context;
     private final Gson gson;
