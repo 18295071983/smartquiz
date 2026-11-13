@@ -274,3 +274,44 @@ App 里"端口显示 45972" | 那是手机临时源端口，不是要填的端�
 - 穿隧（花生壳/vicp 等）解决的是"手机在外网访问电脑"，客户端跑在**电脑**上，属于出站
 - 局域网直连不需要穿隧；穿隧停了不影响同网段直连
 - 两者可并存：App 里填局域网地址就用直连，填域名就走穿隧
+
+### 9.7 无线调试（不用 USB 装包 / 排障）
+
+手机和电脑在同一局域网时，可以用 Android 11+ 的「无线调试」装 APK、抓截图、跑 adb，不必插线。
+
+**手机侧（一次性）**
+
+1. 设置 → 关于手机 → 连点「版本号」7 次（开发者选项）
+2. 设置 → 开发者选项 → **无线调试** → 打开
+3. 点「使用配对码配对设备」，**保持这个弹窗/页面打开**（配对码 6 位，几分钟有效）
+
+**电脑侧（一条命令）**
+
+```powershell
+# 只发现服务（确认手机在广播）
+powershell -ExecutionPolicy Bypass -File tools\wireless-adb.ps1 -ListOnly
+
+# 配对 + 连接
+powershell -ExecutionPolicy Bypass -File tools\wireless-adb.ps1 -PairCode 123456
+
+# 配对 + 连接 + 装 APK
+powershell -ExecutionPolicy Bypass -File tools\wireless-adb.ps1 -PairCode 123456 `
+  -Apk build\outputs\apk\debug\答题宝-debug-2.0.apk
+```
+
+脚本会：`adb mdns services` 发现 `_adb-tls-pairing/_adb-tls-connect` → `adb pair` → `adb connect` →（可选）`install -r` → 启动 App。
+配对成功后设备会一直出现在 `adb devices`，直到手机重启或关闭无线调试。
+
+**实测**：发现 `192.168.1.10:33061` → 连接成功 → 796MB APK 无线安装约 112 秒。
+
+**常见问题**
+
+| 现象 | 处理 |
+|---|---|
+`-ListOnly` 看不到服务 | 手机无线调试没开，或配对页已关；重开后 15 秒内重跑 |
+配对失败 | 码过期/输错；关掉配对窗重开，重新拿 6 位码 |
+`adb devices` 显示 `unauthorized` | 手机上点「允许 USB 调试」（无线也需要首次授权）|
+装包中途断开 | 无线调试页面被系统回收；保持屏幕常亮或重连后再试 |
+
+> 无线调试和局域网直连（9.1–9.6）互不影响：前者是**电脑控制手机**（装包/截图），
+> 后者是**手机控制电脑**（DSH 远程）。
