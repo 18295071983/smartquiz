@@ -342,6 +342,55 @@ public class RemoteSyncService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
+    /**
+     * 独立审批通知 + 自定义视图（2026-11-13）：对齐 Qoder 那种"折叠状态就能看到按钮"。
+     *
+     * <p>为什么不用前台服务通知：实测 FGS 通知挂自定义视图会被 MIUI 序列化成 0 bytes，
+     * 整条通知消失。普通通知（非 ongoing、独立 id）走自定义视图是正常的。</p>
+     */
+    private void notifyApprovalCard(String id, String text) {
+        if (id == null || id.isEmpty()) return;
+        try {
+            ensureAlertChannel();
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            Notification.Builder b = android.os.Build.VERSION.SDK_INT >= 26
+                    ? new Notification.Builder(this, ALERT_CHANNEL_ID)
+                    : new Notification.Builder(this);
+            Intent open = new Intent(this, com.oilquiz.app.ui.activity.AIChatActivity.class);
+            open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            PendingIntent pi = PendingIntent.getActivity(this, NOTIF_ID_APPROVAL, open,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            b.setSmallIcon(com.oilquiz.app.R.mipmap.ic_launcher)
+                    .setAutoCancel(true)
+                    .setOnlyAlertOnce(true)
+                    .setContentIntent(pi)
+                    .setPriority(Notification.PRIORITY_HIGH)
+                    .setCategory(Notification.CATEGORY_MESSAGE);
+            android.widget.RemoteViews rv = new android.widget.RemoteViews(
+                    getPackageName(), com.oilquiz.app.R.layout.notification_approval);
+            // 单行布局：标题里带权限名，按钮右对齐（折叠态高度受限，多行会被裁）
+            rv.setTextViewText(com.oilquiz.app.R.id.approval_title,
+                    text == null || text.isEmpty() ? "待你处理 · 电脑端请求审批"
+                            : (text.indexOf("请求权限") >= 0 ? text : "请求权限：" + text));
+            rv.setOnClickPendingIntent(com.oilquiz.app.R.id.approval_allow,
+                    approvalAction(id, "allow", 1));
+            rv.setOnClickPendingIntent(com.oilquiz.app.R.id.approval_deny,
+                    approvalAction(id, "deny", 2));
+            b.setCustomContentView(rv);
+            b.setCustomBigContentView(rv);
+            // 系统 action 作为锁屏/无障碍的兜底（MIUI 折叠态不显示它们，但展开还在）
+            b.addAction(new Notification.Action.Builder(null, "允许",
+                    approvalAction(id, "allow", 1)).build());
+            b.addAction(new Notification.Action.Builder(null, "拒绝",
+                    approvalAction(id, "deny", 2)).build());
+            nm.notify(NOTIF_ID_APPROVAL, b.build());
+            android.util.Log.i("DshSvc", "[approval] 自定义视图通知已发 id=" + id);
+        } catch (Throwable t) {
+            android.util.Log.w("DshSvc", "[approval] 自定义视图通知失败: " + t);
+        }
+    }
+
     private void notifyAlert(int id, String title, String text) {        try {
             ensureAlertChannel();
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);

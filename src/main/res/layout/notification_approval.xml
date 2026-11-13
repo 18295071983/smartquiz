@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  审批通知的紧凑自定义视图（2026-11-13）。
+
+  MIUI/HyperOS 会把折叠态通知的内容裁到一行高度：之前"标题+正文+按钮"三行布局里，
+  按钮被裁掉（用户只看到标题正文，以为没有按钮）。这里压成**单行**：
+  左侧标题（可省略号）+ 右侧「允许」「拒绝」两颗按钮，总高 44dp，折叠态完整可见。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/approval_root"
+    android:layout_width="match_parent"
+    android:layout_height="44dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingLeft="12dp"
+    android:paddingRight="12dp">
+
+    <TextView
+        android:id="@+id/approval_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:text="待你处理 · 请求权限：write_file" />
+
+    <TextView
+        android:id="@+id/approval_text"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/approval_allow"
+        android:layout_width="64dp"
+        android:layout_height="34dp"
+        android:gravity="center"
+        android:background="#FF1A73E8"
+        android:textColor="#FFFFFFFF"
+        android:textStyle="bold"
+        android:textSize="13sp"
+        android:text="允许" />
+
+    <TextView
+        android:id="@+id/approval_deny"
+        android:layout_width="64dp"
+        android:layout_height="34dp"
+        android:layout_marginLeft="6dp"
+        android:gravity="center"
+        android:background="#FFE8EAED"
+        android:textColor="#FF3C4043"
+        android:textSize="13sp"
+        android:text="拒绝" />
+</LinearLayout>
