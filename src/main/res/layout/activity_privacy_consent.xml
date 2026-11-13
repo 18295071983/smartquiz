@@ -35,7 +35,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/space_12"
                 android:lineSpacingExtra="4dp"
-                android:text="使用前请阅读并同意《隐私政策》。\n\n答题宝不运营收集用户数据的服务器：题库、答题记录、AI 对话与工作区文件默认只保存在本机；只有你主动使用联网功能时，相关内容才会发送到你自行配置的第三方服务（模型服务商、天气、语音等），并受这些服务商自己的隐私政策约束。\n\n应用会按功能申请相机、麦克风、定位、通讯录、通知等权限，均可在系统设置中随时撤回；不收集 IMEI、MAC、Android ID 等设备标识，不投放广告、不做用户画像。"
+                android:text="使用前请阅读并同意《隐私政策》与《免责条款》（含 AI 输出仅供参考、执行类功能风险自担等条款）。\n\n答题宝不运营收集用户数据的服务器：题库、答题记录、AI 对话与工作区文件默认只保存在本机；只有你主动使用联网功能时，相关内容才会发送到你自行配置的第三方服务（模型服务商、天气、语音等），并受这些服务商自己的隐私政策约束。\n\n应用会按功能申请相机、麦克风、定位、通讯录、通知等权限，均可在系统设置中随时撤回；不收集 IMEI、MAC、Android ID 等设备标识，不投放广告、不做用户画像。"
                 android:textColor="?attr/colorControlTextSecondary"
                 android:textSize="@dimen/text_14" />
         </LinearLayout>
@@ -53,7 +53,7 @@
         style="@style/Widget.MaterialComponents.Button.TextButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="查看完整《隐私政策》" />
+        android:text="查看完整《隐私政策》与《免责条款》" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_refuse"
