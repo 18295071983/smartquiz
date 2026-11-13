@@ -304,7 +304,7 @@ DSH 自己的 Web Client 用一套类型化 Slot 系统组合 UI，关键机制�
 | **B8** | ✅ 已修 | `buildView` 补齐 `schedule/subagents/plan` 三张卡；自检断言"存在 + 被 caps 裁剪"（21 passed）|
 | **B9** | ✅ 已修 | `deepCopyForSave` 补拷 `remoteCardView`；`ChatHistoryManagerDeepCopyTest` 2 条 |
 | **B11** | ✅ 已修 | 同补拷 `approvals/questions`；重启后 pending 审批不再消失 |
-| **B14** | 🟡 部分 | 事件目录重建为 84 条三层（session 63 / host 5 / synth 16）+ 前缀族；**但缺的类型只是"登记"，手机端仍未渲染**（如 `system/message`、`compaction/summary`）|
+| **B14** | ✅ 已修 | 目录重建为 84 条三层 + 前缀族；渲染侧补 9 类卡（system/developer/feedback/team×5），13 类内部事件明确忽略（不再污染 unknown 计数）；`DshCardsB14Test` 5 条 |
 | **B18** | 🟡 部分 | `ui/slot` 帧已带 `session_id`；仍是全局广播（客户端可先过滤）|
 | **B1** | ✅ 已修 | 断连时 `DockSlotBus.clear()`；甲板显隐补 `onViewportChanged`；D1 可见时 D3 只留 1 条 |
 | **B12** | ✅ 已修 | `/v2/view` 不再往对话流插卡；`refreshRemoteCards`/`addRemoteCardMessage`/`remoteCardsLane` 及布局空容器已删；旧 REMOTE_CARD 消息仍按 legacy 渲染 |
