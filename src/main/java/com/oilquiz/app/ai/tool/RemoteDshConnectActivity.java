@@ -95,6 +95,8 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         selfCheckCards = findViewById(R.id.self_check_cards);
         if (selfCheckBtn != null) {
             selfCheckBtn.setOnClickListener(v -> runSelfCheck());
+        android.view.View quickBtn = findViewById(R.id.btn_quick_test);
+        if (quickBtn != null) quickBtn.setOnClickListener(v -> runQuickSelfTest());
         }
         connectBtn = findViewById(R.id.btn_connect);
         disconnectBtn = findViewById(R.id.btn_disconnect);
@@ -887,6 +889,56 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         }, "remote-dsh-probe").start();
     }
 
+
+    /**
+     * 快捷自测（2026-11-14）：按连接链路逐步检查，直接告诉用户卡在哪一步、为什么、怎么修。
+     * 与「自检 / 对账」的区别：那个查连上之后的电脑状态，这个查"为什么连不上"。
+     */
+    private void runQuickSelfTest() {
+        final String url = RemoteDshTool.configValue(this, "base_url");
+        String tok = RemoteDshTool.configValue(this, "device_token");
+        if (tok == null || tok.trim().isEmpty()) tok = RemoteDshTool.configValue(this, "token");
+        final String token = tok == null ? "" : tok.trim();
+        showProbe(COLOR_WARN, "正在自测连接链路…", null);
+        new Thread(() -> {
+            com.oilquiz.app.ai.tool.RemoteSelfTest.Report report =
+                    com.oilquiz.app.ai.tool.RemoteSelfTest.run(getApplicationContext(), url, token);
+            runOnUiThread(() -> {
+                showProbe(report.allOk() ? COLOR_OK : COLOR_ERR,
+                        report.allOk() ? "快捷自测：全链路通过 ✅" : "快捷自测发现问题：\n" + report.firstFailureHint(),
+                        "自测耗时 " + report.elapsedMs + "ms");
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("快捷自测")
+                        .setMessage(report.text())
+                        .setPositiveButton("复制诊断", (d, w) -> {
+                            android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                                    getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                            if (cm != null) {
+                                cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                                        "dsh-remote-selftest", report.diagnostic()));
+                                toast("诊断已复制");
+                            }
+                        })
+                        .setNeutralButton("使用说明", (d, w) -> showHelpOrHint())
+                        .setNegativeButton("关闭", null)
+                        .show();
+            });
+        }, "remote-quick-test").start();
+    }
+
+    /** 使用说明入口：本页有 guide 就复用，没有就弹一段文本。 */
+    private void showHelpOrHint() {
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("连不上怎么排查")
+                .setMessage("① 电脑：DSH 运行中，浏览器开 http://127.0.0.1:8218/health 应返回 {\"ok\":true}\n"
+                        + "② 电脑上跑 tools/check-remote-lan.ps1，看哪项 [FAIL]\n"
+                        + "③ 若提示「超时/被挡住」：Windows 把网络当成『公用』，管理员执行\n"
+                        + "   Set-NetConnectionProfile -InterfaceAlias \"以太网\" -NetworkCategory Private\n"
+                        + "④ 手机 IP 是 192.168.101.x：无线路由器要改 AP/桥接\n"
+                        + "⑤ 详细说明：电脑 docs/remote_dsh-usage.md 第九节")
+                .setPositiveButton("知道了", null)
+                .show();
+    }
     private void showProbe(int color, String text, String timeText) {
         probeText.setTextColor(color);
         probeText.setText(text);

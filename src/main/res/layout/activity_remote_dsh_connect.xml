@@ -305,6 +305,16 @@
                     android:textColor="?attr/colorControlTextHint"/>
 
                 <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_quick_test"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text="快捷自测（查为什么连不上）"
+                    android:textSize="@dimen/text_14"
+                    android:textAllCaps="false"/>
+
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_self_check"
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="wrap_content"
