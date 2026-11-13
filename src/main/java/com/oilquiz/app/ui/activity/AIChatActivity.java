@@ -13903,6 +13903,16 @@ public class AIChatActivity extends BaseActivity {
      * 现在落进 {@code ChatMessage.approvals}，由 {@code AssistantTurn} 投影成 approval part，
      * 复用既有 {@code ApprovalPartRenderer}（允许/拒绝按钮 → onApprovalDecision）。</p>
      */
+    /**
+     * 网关中继来的审批 id（2026-11-13）。
+     *
+     * <p>这类 id 和落盘审计事件的 id 是**两套**：网关给的是 pending 对象的 id，
+     * `approval/decided` 带的是审批服务生成的 id。所以中继审批经常"等不到"
+     * 对应的 decided / gone，pending 一直挂着让通知栏虚高。这里登记它们，
+     * 一旦有任何审批落地事件就把这些中继 id 全部收掉。</p>
+     */
+    private final java.util.Set<String> relayApprovalIds = new java.util.HashSet<>();
+
     private void addDshApproval(ChatMessage live, String id, org.json.JSONObject request) {
         if (live == null || id == null || id.isEmpty()) return;
         if (live.approvals == null) live.approvals = new java.util.ArrayList<>();
@@ -13918,7 +13928,31 @@ public class AIChatActivity extends BaseActivity {
                 com.oilquiz.app.ai.remote.DshCards.approvalDetail(request),
                 com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.APPROVAL_PENDING,
                 dshTimeline.currentRound(), System.currentTimeMillis(), "dsh"));
+        relayApprovalIds.add(id);
         refreshDshApprovalMessage(live);
+    }
+
+    /**
+     * 有审批落地（decided / gone）→ 收掉所有中继审批。
+     *
+     * <p>中继审批与审计审批 id 不同源，等不到自己的 decided；只要这一批审批已经
+     * 有结论，就把它们全部标过期，通知栏才会真的消失。</p>
+     */
+    private void clearRelayApprovals(String keepId) {
+        if (relayApprovalIds.isEmpty() || chatHistory == null) return;
+        boolean changed = false;
+        for (ChatMessage m : chatHistory) {
+            if (m == null || m.approvals == null) continue;
+            for (ChatMessage.ApprovalRequest a : m.approvals) {
+                if (a == null || !a.isPending()) continue;
+                if (!relayApprovalIds.contains(a.id)) continue;
+                if (keepId != null && keepId.equals(a.id)) continue;
+                a.status = "expired";
+                changed = true;
+            }
+        }
+        relayApprovalIds.removeIf(id -> !id.equals(keepId));
+        if (changed) refreshAttentionSlot();
     }
 
     /** 电脑端已处理/撤回：把还挂着的审批标成过期（保留记录，便于回看） */
@@ -14081,6 +14115,7 @@ public class AIChatActivity extends BaseActivity {
                     break;
                 case APPROVAL_GONE:
                     resolveDshApproval(live, action.id, action.outcome);
+                    clearRelayApprovals(null);   // 中继 id 与审计 id 不同源，一并收掉
                     refreshAttentionSlot();   // 电脑端答了 → 通知栏也要撤
                     break;
                 case QUESTION_GONE:
@@ -14418,6 +14453,7 @@ public class AIChatActivity extends BaseActivity {
                     }
                 }
                 dismissDshApprovalDialog(goneId);
+                clearRelayApprovals(null);
                 refreshAttentionSlot();
                 return;
             }
