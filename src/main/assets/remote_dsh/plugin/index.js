@@ -416,6 +416,11 @@ const QRELAY = { seen: 0, taken: 0, last_sid: '', reason: '' };
 /** 审批中继诊断（同 QRELAY）：hooked=已挂钩的 agent 数；seen/taken 按 waterfall 调用计 */
 const ARELAY = { hooked: 0, seen: 0, taken: 0, last_sid: '', reason: '' };
 
+/** 调试用假审批（2026-11-13）：id → { id, at, timer }，供 debug.approval 与回传共用 */
+const TEST_APPROVALS = new Map();
+/** 测试审批回传记录（诊断：证明"通知按钮真的点到了电脑端"） */
+const TEST_APPROVAL_LOG = [];
+
 /**
  * 审批回传诊断（2026-11-13）：手机点"允许/拒绝"时记录当时到底有什么可结算。
  * calls=点了几次；local=插件自己挂起的数量；gateway_pending=网关待答数量（附 id 样本）；
@@ -2245,6 +2250,40 @@ function presetSvcOf(ctx) {
     let body = {};
     try { body = JSON.parse((await readBody(req)) || '{}'); } catch { body = {}; }
     const action = String(body.action ?? '').trim();
+
+    /**
+     * 调试用审批注入（2026-11-13）：
+     *
+     * <p>真实审批常常被宿主 10~15 秒内自动答掉，手机端根本没机会有人点。
+     * 这个动作推一条"假审批"，默认停 60 秒，专门用来验证：
+     * 锁屏通知能不能出现、允许/拒绝按钮能不能回传。</p>
+     *
+     * <p>回传走 {@code /session action=approval}（id 命中这里的测试表），
+     * 结果通过 {@code approval_gone} 通知手机收兜，并记录到 TEST_APPROVAL.log。</p>
+     */
+    if (action === 'debug.approval') {
+      if (!allows(normalizeCaps(body.caps ?? ''), 'cmd.ui')) {
+        return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'cmd.ui' });
+      }
+      const id = 'test-' + randomBytes(6).toString('hex');
+      const ttlMs = Math.max(10, Math.min(600, Number(body.ttl_sec ?? 60) || 60)) * 1000;
+      const tool = String(body.tool ?? '测试审批').trim() || '测试审批';
+      const reason = String(body.reason ?? '用于验证手机端通知与按钮').trim();
+      const entry = { id, at: Date.now(), timer: null };
+      entry.timer = setTimeout(() => {
+        TEST_APPROVALS.delete(id);
+        streamBroadcast(String(body.session_id ?? ''), {
+          v: 2, type: 'approval_gone', id, ts: Date.now(),
+        });
+      }, ttlMs);
+      TEST_APPROVALS.set(id, entry);
+      streamBroadcast(String(body.session_id ?? ''), {
+        v: 2, type: 'approval', id, kind: 'approval', ts: Date.now(),
+        request: { toolName: tool, reason, callId: '' },
+      });
+      return sendJson(res, 200, { ok: true, v: 2, id, ttl_sec: ttlMs / 1000 });
+    }
+
     if (action === 'ui.slot') {
       // 脚本/面板推插槽（不依赖 agent 调 phone_ui）。声明了 caps 的客户端需要 cmd.ui。
       if (!allows(normalizeCaps(body.caps ?? ''), 'cmd.ui')) {
@@ -2361,7 +2400,7 @@ function presetSvcOf(ctx) {
     }
     return sendJson(res, 400, {
       ok: false, v: 2, error: 'unknown_action', action,
-      allowed: ['ui.slot', 'permission.set', 'jobs.clear', 'resync'],
+      allowed: ['ui.slot', 'permission.set', 'jobs.clear', 'resync', 'debug.approval'],
     });
   });
 
@@ -2660,6 +2699,7 @@ function presetSvcOf(ctx) {
       question_relay: QRELAY,
       approval_relay: ARELAY,
       approval_debug: APPDBG,
+      test_approval: { pending: TEST_APPROVALS.size, log: TEST_APPROVAL_LOG.slice(-5) },
     },
     // ★ 单一文案模板：手机 / 电脑 UI 直接渲染这组行，不再各自拼一套说法
     text_lines: (() => {
@@ -4395,6 +4435,17 @@ function presetSvcOf(ctx) {
         APPDBG.gateway_ids = ids;
       }
     } catch { /* 诊断失败不影响主流程 */ }
+    // ⓪ 测试审批（debug.approval 注入的）：直接收掉并通知手机
+    const testEntry = TEST_APPROVALS.get(String(approvalId));
+    if (testEntry) {
+      TEST_APPROVALS.delete(String(approvalId));
+      try { clearTimeout(testEntry.timer); } catch { /* ignore */ }
+      streamBroadcast('', { v: 2, type: 'approval_gone', id: String(approvalId), ts: Date.now() });
+      TEST_APPROVAL_LOG.push({ id: String(approvalId), decision: allow ? 'allowed-once' : 'rejected', at: Date.now() });
+      if (TEST_APPROVAL_LOG.length > 20) TEST_APPROVAL_LOG.shift();
+      return { ok: true, decision: allow ? 'allowed-once' : 'rejected', relay: 'test' };
+    }
+
     // ① 插件自己挂住的（电脑端不在场的那条路）
     const local = phoneApprovals.get(String(approvalId));
     if (local) {

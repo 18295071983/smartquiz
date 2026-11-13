@@ -505,6 +505,16 @@ await test('/v2/action permission.set：宿主无服务时明确 409 + failed', 
   assert.ok(String(r.json.hint || '').length > 0, '应提示去电脑端改');
 });
 
+await test('/v2/action debug.approval：注入可停留的测试审批', async () => {
+  const r = await call('/v2/action', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'debug.approval', caps: 'cmd.ui', ttl_sec: 15, tool: '测试审批' }),
+  });
+  assert.equal(r.res.statusCode, 200, '应接受 debug.approval：' + r.res.text().slice(0, 160));
+  assert.ok(String(r.json.id || '').startsWith('test-'), '应返回 test- 开头的 id');
+  assert.equal(r.json.ttl_sec, 15);
+});
+
 console.log(`\n${passed} passed${process.exitCode ? '（有失败）' : ''}`);
 // /events 的定时器会让 node 不退出；自检结束按结果直接退出
 process.exit(process.exitCode ?? 0);
