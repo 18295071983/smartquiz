@@ -1504,11 +1504,13 @@ export function apply(ctx, config) {
 
   const broadcastGoalSlot = (sid) => {
     const g = GOAL_STATE.get(sid);
+    // B18：目标属于某个会话，只发给该会话的订阅者（目标切换时不会串到别的对话）
+    const target = sid || '';
     if (!g || !g.active) {
-      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'goal', session_id: sid || '' } });
+      streamBroadcast(target, { v: 2, type: 'ui/slot', data: { id: 'goal', session_id: sid || '' } });
       return;
     }
-    streamBroadcast('', { v: 2, type: 'ui/slot', data: {
+    streamBroadcast(target, { v: 2, type: 'ui/slot', data: {
       id: 'goal', session_id: sid || '', priority: 30, title: '目标', detail: g.title || '', action: 'goal',
     } });
   };
@@ -1823,7 +1825,8 @@ export function apply(ctx, config) {
       const root = childParent.get(sid);
       // 上下文压缩：开/关各发一次插槽（目录里登记过但一直没有发送实现，属 B8 同类缺口）
       if (t === 'compaction/start' || t === 'compaction/end') {
-        streamBroadcast('', { v: 2, type: 'ui/slot', data: t === 'compaction/start'
+        // B18：压缩是会话内的事，只发给该会话（否则别的对话也会看到"正在压缩"）
+        streamBroadcast(sid, { v: 2, type: 'ui/slot', data: t === 'compaction/start'
           ? { id: 'compaction', session_id: sid, priority: 10, title: '正在压缩上下文…' }
           : { id: 'compaction', session_id: sid } });
         return;
@@ -1990,12 +1993,14 @@ export function apply(ctx, config) {
     const slotId = String(id ?? '').trim() || 'phone_ui';
     const t = String(title ?? '').trim();
     const d = String(detail ?? '').trim();
+    // B18（2026-11-13）：带 session_id 的插槽只发给该会话的订阅者（以前一律全局广播）。
+    const target = String(extra.session_id ?? '').trim();
     if (!t && !d) {
-      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: slotId } });
-      return { id: slotId, removed: true };
+      streamBroadcast(target, { v: 2, type: 'ui/slot', data: { id: slotId, ...(target ? { session_id: target } : {}) } });
+      return { id: slotId, removed: true, ...(target ? { session_id: target } : {}) };
     }
     const data = { id: slotId, priority: Number(priority) || 50, title: t, detail: d, ...extra };
-    streamBroadcast('', { v: 2, type: 'ui/slot', data });
+    streamBroadcast(target, { v: 2, type: 'ui/slot', data });
     return { ...data, removed: false };
   };
 
@@ -2026,6 +2031,9 @@ export function apply(ctx, config) {
           ? { action: String(body.slot_action).trim() }
           : {}),
         ...(body.warn === true ? { warn: true } : {}),
+        ...(body.session_id && String(body.session_id).trim()
+          ? { session_id: String(body.session_id).trim() }
+          : {}),
       });
       return sendJson(res, 200, { ok: true, v: 2, action, slot });
     }

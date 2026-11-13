@@ -13056,6 +13056,12 @@ public class AIChatActivity extends BaseActivity {
                 org.json.JSONObject slot = ev.optJSONObject("data");
                 String id = slot == null ? "" : slot.optString("id", "").trim();
                 if (id.isEmpty()) break;
+                // SCOPE（2026-11-13，B18）：带 session_id 的插槽只属于那个会话。
+                // 以前全局广播，别的会话压缩/建目标时这里也会亮一行，属于串台。
+                String scoped = slot.optString("session_id", "").trim();
+                if (!scoped.isEmpty() && !dshSyncTarget.isEmpty() && !scoped.equals(dshSyncTarget)) {
+                    break;
+                }
                 String title = slot.optString("title", "");
                 String detail = slot.optString("detail", "");
                 if (title.isEmpty() && detail.isEmpty()) {

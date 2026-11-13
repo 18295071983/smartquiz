@@ -461,6 +461,17 @@ await test('/v2/view 补齐 schedule/subagents/plan 三张卡（B8）', async ()
   }
 });
 
+await test('ui.slot 支持会话作用域（B18）', async () => {
+  const scoped = await call('/v2/action', {
+    method: 'POST',
+    body: JSON.stringify({
+      action: 'ui.slot', id: 'scoped', title: '会话内插槽', detail: '只有这个会话能看到',
+      session_id: 'root-1', caps: 'cmd.ui',
+    }),
+  });
+  assert.equal(scoped.json.slot.session_id, 'root-1', '插槽应带会话作用域');
+});
+
 console.log(`\n${passed} passed${process.exitCode ? '（有失败）' : ''}`);
 // /events 的定时器会让 node 不退出；自检结束按结果直接退出
 process.exit(process.exitCode ?? 0);
