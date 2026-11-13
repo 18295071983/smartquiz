@@ -257,44 +257,81 @@ public final class ComponentActions {
     private static void notifyResult(Context context, String componentId, String value) {
         android.util.Log.i("ComponentActions", "notifyResult cid=" + componentId + " value=" + value
                 + " cb=" + (resultCallback != null));
-        // 0. DSH（电脑端）产出的卡片：组件 id 由 dshComponentId() 发号（T5-C12 / T5-T3），
-        //    这类卡片的按钮必须回电脑端宿主，本机结果槽收不到它（以前就是这么丢的）。
-        //    B4（2026-11-13）：以前用 startsWith("dsh-") 嗅探，而真实 id 是派发器发的
-        //    T{n}-C{k} —— 于是所有 DSH 卡片动作都被误判成本机事件。改为查来源登记表，
-        //    历史恢复后由 ComponentData.source 重新登记。
-        if (com.oilquiz.app.ai.remote.DshComponentIds.isDshComponent(componentId)) {
-            try {
-                boolean sent = com.oilquiz.app.ai.tool.RemoteDshTool
-                        .sendComponentAction(context, componentId, value);
-                android.util.Log.i("ComponentActions", "DSH 卡片动作回传 sent=" + sent);
-                if (sent) return;
-            } catch (Throwable t) {
-                android.util.Log.w("ComponentActions", "DSH 卡片动作回传失败: " + t);
-            }
+        // M4 ActionSink（2026-11-13）：不再在方法里写"先前缀、再精确回调、最后兜底"的链，
+        // 统一交给有序 sink 表：DSH 在前（按来源登记表判定，B4），本机回调在最后兜底。
+        com.oilquiz.app.ai.chat.component.action.ActionEvent event =
+                com.oilquiz.app.ai.chat.component.action.ActionEvent.of(componentId, value);
+        boolean handled = ROUTER.dispatch(context, event);
+        if (!handled) {
+            android.util.Log.w("ComponentActions", "动作无人认领（可能是旧卡片/已卸载组件） " + event);
         }
-        // 1. 按 component_id 精确分发（增量注册表优先）
-        if (componentId != null) {
-            java.util.function.BiConsumer<String, String> cb = componentCallbacks.get(componentId);
-            if (cb != null) {
-                try {
-                    cb.accept(componentId, value);
-                } catch (Throwable ignored) {
+    }
+
+    /** 动作路由器（动态卡/宿主/测试都可以加 sink；顺序即优先级） */
+    private static final com.oilquiz.app.ai.chat.component.action.ActionRouter ROUTER =
+            new com.oilquiz.app.ai.chat.component.action.ActionRouter();
+
+    static {
+        // 1) 电脑端：只认来源登记表里的组件 id
+        ROUTER.addSink(new com.oilquiz.app.ai.chat.component.action.DshActionSink());
+        // 2) 本机回调：精确 id 优先，其次全局兜底（保持旧行为）
+        ROUTER.addSink(new com.oilquiz.app.ai.chat.component.action.ActionSink() {
+            @Override
+            public String id() {
+                return "local";
+            }
+
+            @Override
+            public boolean canHandle(com.oilquiz.app.ai.chat.component.action.ActionEvent e) {
+                return true;   // 兜底：具体能不能处理由 send 判断
+            }
+
+            @Override
+            public boolean send(Context ctx,
+                                com.oilquiz.app.ai.chat.component.action.ActionEvent e) {
+                java.util.function.BiConsumer<String, String> exact =
+                        e.componentId.isEmpty() ? null : componentCallbacks.get(e.componentId);
+                if (exact != null) {
+                    try {
+                        exact.accept(e.componentId, e.value);
+                        return true;
+                    } catch (Throwable t) {
+                        android.util.Log.w("ComponentActions", "精确回调抛异常: " + t);
+                    }
                 }
-                return;
+                java.util.function.BiConsumer<String, String> cb = resultCallback;
+                if (cb == null) {
+                    cb = ensureResultCallback(ctx);
+                    android.util.Log.i("ComponentActions", "兜底注册后 cb=" + (cb != null));
+                }
+                if (cb != null && !e.componentId.isEmpty()) {
+                    try {
+                        cb.accept(e.componentId, e.value);
+                        return true;
+                    } catch (Throwable t) {
+                        android.util.Log.w("ComponentActions", "全局回调抛异常: " + t);
+                    }
+                }
+                return false;
             }
-        }
-        // 2. 回退全局回调（兼容旧组件/未注册场景）
-        java.util.function.BiConsumer<String, String> cb = resultCallback;
-        if (cb == null) {
-            cb = ensureResultCallback(context);
-            android.util.Log.i("ComponentActions", "兜底注册后 cb=" + (cb != null));
-        }
-        if (cb != null && componentId != null && value != null) {
-            try {
-                cb.accept(componentId, value);
-            } catch (Throwable ignored) {
-            }
-        }
+        });
+    }
+
+    /** 暴露给动态卡/测试：统一入口，渲染器不关心传输 */
+    public static com.oilquiz.app.ai.chat.component.action.ActionRouter router() {
+        return ROUTER;
+    }
+
+    /**
+     * 动态卡/宿主可直接用它发动作（JSON 形状见 {@code ActionEvent.fromPayload}）。
+     *
+     * @return 是否有人消费
+     */
+    public static boolean dispatchAction(Context context, org.json.JSONObject actionJson) {
+        com.oilquiz.app.ai.chat.component.action.ActionEvent e =
+                com.oilquiz.app.ai.chat.component.action.ActionEvent.fromPayload(actionJson);
+        if (e == null) return false;
+        return ROUTER.dispatch(context, e);
     }
 
     /**
