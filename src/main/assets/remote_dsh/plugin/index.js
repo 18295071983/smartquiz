@@ -1492,6 +1492,20 @@ export function apply(ctx, config) {
   const MCP_SERVERS = new Set();
   /** 权限/沙箱/审批策略的最近一次取值（由会话事件更新，见 broadcastPermissionSlot） */
   const PERM_STATE = { sandbox: '', preset: '', policy: '', agentPreset: '', ts: 0 };
+
+/**
+ * 权限预设服务（dsh-permission-presets 的 PermissionPresetService）。
+ *
+ * <p>服务名是 {@code permissionPresets}（在 DSH 包里固定），但挂载方式随版本可能是
+ * {@code ctx.permissionPresets} 或 {@code ctx.get('permissionPresets')}，统一探测。</p>
+ */
+function presetSvcOf(ctx) {
+  try {
+    return ctx.permissionPresets ?? ctx.get?.('permissionPresets') ?? null;
+  } catch {
+    return null;
+  }
+}
   const JOB_STATE_MAX = 20;
 
   // ---- 落盘（PRUNE：重启后仍能看到"最近发生过什么"）----
@@ -2162,7 +2176,24 @@ export function apply(ctx, config) {
   /** 权限状态（沙箱 / 档位 / 审批策略的最近取值）。 */
   route('exact', '/v2/permission', (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
-    return sendJson(res, 200, { ok: true, v: 2, ...PERM_STATE });
+    // 在线改权限要用宿主真实服务（2026-11-13）：dsh-permission-presets 的 permissionPresets.set(session, name)
+    // 才是"整套预设"的正规入口；sandbox 单独改没有公开 setter，所以只暴露预设列表。
+    const svc = presetSvc();
+    let presets = [];
+    try {
+      if (svc && typeof svc.catalog === 'function') {
+        const c = svc.catalog();
+        if (c && Array.isArray(c.options)) presets = c.options;
+      }
+      if (!presets.length && svc && Array.isArray(svc.names)) {
+        presets = svc.names.map((n) => ({ value: n, name: n }));
+      }
+    } catch { /* 目录结构变了就当没有 */ }
+    return sendJson(res, 200, {
+      ok: true, v: 2, ...PERM_STATE,
+      presets,
+      can_change: Boolean(svc && typeof svc.set === 'function'),
+    });
   });
 
   /**
@@ -2227,7 +2258,8 @@ export function apply(ctx, config) {
         return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'cmd.ui' });
       }
       const sandbox = String(body.sandbox ?? '').trim();
-      const policy = String(body.policy ?? body.preset ?? '').trim();
+      const policy = String(body.policy ?? body.preset_policy ?? '').trim();
+      const preset = String(body.preset ?? '').trim();
       const svcOf = (name) => {
         try {
           return ctx[name] ?? ctx.get?.(name) ?? null;
@@ -2235,6 +2267,34 @@ export function apply(ctx, config) {
           return null;
         }
       };
+      // ① 预设优先：permissionPresets.set(session, name) 一次改完 sandbox+approval
+      if (preset) {
+        const svc = presetSvcOf(ctx);
+        if (!svc || typeof svc.set !== 'function') {
+          return sendJson(res, 409, {
+            ok: false, v: 2, action, applied: [], failed: ['preset:unavailable'],
+            hint: '这个 DSH 版本没有 permissionPresets 服务，请在电脑端改',
+          });
+        }
+        const sid = String(body.session_id ?? '').trim();
+        const session = sid ? (() => { try { return ctx.sessions.get(sid); } catch { return null; } })() : null;
+        if (!session) {
+          return sendJson(res, 409, {
+            ok: false, v: 2, action, applied: [], failed: ['preset:no_session'],
+            hint: '会话不在电脑端运行，无法改权限',
+          });
+        }
+        try {
+          await svc.set(session, preset);
+          broadcastPermissionSlot();
+          return sendJson(res, 200, { ok: true, v: 2, action, applied: ['preset'], preset });
+        } catch (e) {
+          return sendJson(res, 409, {
+            ok: false, v: 2, action, applied: [], failed: ['preset:' + String(e?.message ?? e).slice(0, 100)],
+            hint: '电脑端拒绝了这次变更（预设名可能已不存在）',
+          });
+        }
+      }
       const applied = [];
       const failed = [];
       if (sandbox) {
@@ -2265,8 +2325,8 @@ export function apply(ctx, config) {
           }
         }
       }
-      if (!sandbox && !policy) {
-        return sendJson(res, 400, { ok: false, error: 'need_sandbox_or_policy' });
+      if (!sandbox && !policy && !preset) {
+        return sendJson(res, 400, { ok: false, error: 'need_preset_or_sandbox_or_policy' });
       }
       broadcastPermissionSlot();
       const ok = applied.length > 0;
@@ -2483,6 +2543,16 @@ export function apply(ctx, config) {
         ...(typeof a.custom === 'string' && a.custom.trim() ? { custom: a.custom.trim() } : {}),
       }));
     if (!normalized.length) return sendJson(res, 400, { ok: false, error: 'answers_required' });
+
+    // ⓪ 插件自己接管的反问（waterfall 里挂住的）：直接把答案 resolve 回去
+    const relayId = String(body.id ?? '').trim();
+    const relay = relayId ? phoneQuestions.get(relayId) : null;
+    if (relay) {
+      phoneQuestions.delete(relayId);
+      try { clearTimeout(relay.timer); } catch { /* ignore */ }
+      relay.resolve({ answers: normalized });
+      return sendJson(res, 200, { ok: true, v: 2, via: 'phone_relay', id: relayId });
+    }
 
     // ① 走审批/问答网关：先答先赢（与桌面端竞争）
     const gw = approvalGateway();
@@ -4123,6 +4193,15 @@ export function apply(ctx, config) {
   const phoneApprovals = new Map();        // id -> { id, kind, agentId, request, settle }
   const PHONE_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
 
+  /**
+   * 手机托管的 agent 反问（2026-11-13）。
+   *
+   * <p>反问没有像审批那样的 "远端待答事件表"给我们轮询，只能自己去接 waterfall：
+   * 只在这个会话确实有手机在追时接管，把问题推给手机并 await，手机点完经
+   * {@code /v2/answer} 回来才 resolve —— 桌面端不参与，避免两边抢答。</p>
+   */
+  const phoneQuestions = new Map();        // id -> { id, sessionId, resolve, reject, timer }
+
   const phonePendingOf = (sessionId, kind) => {
     const out = [];
     for (const e of phoneApprovals.values()) {
@@ -4237,6 +4316,47 @@ export function apply(ctx, config) {
   } catch (e) {
     // 注册失败就退回"只提醒"：审批仍可在电脑端处理，不影响其它功能
     try { console.warn('[smartquiz-remote] approval answerer 未注册:', String(e?.message ?? e)); } catch { /* ignore */ }
+  }
+
+  // 反问（user-questions/request，waterfall）：把问题推给手机并等它回答。
+  // 只在"这个会话有手机在追"时接管；否则 next() 交给桌面端。
+  try {
+    ctx.effect(() => ctx.on('user-questions/request', async (request, next) => {
+      const sessionId = String(request?.agent?.session?.id ?? '');
+      let watching = false;
+      try {
+        for (const s of STREAM_HUB) {
+          if (String(s?.sid) === sessionId) { watching = true; break; }
+        }
+      } catch { watching = false; }
+      if (!watching) return next();
+
+      const id = 'q-' + randomBytes(8).toString('hex');
+      const questions = Array.isArray(request?.questions) ? request.questions : [];
+      // 手机端 DshTimeline 的 question 分支读信封顶层的 request，同时保留 data 方便调试
+      streamBroadcast(sessionId, {
+        v: 2, type: 'question', id, kind: 'question', ts: Date.now(),
+        request: { questions },
+        data: { id, session_id: sessionId, questions },
+      });
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          phoneQuestions.delete(id);
+          reject(new Error('ASK_TIMEOUT'));
+        }, PHONE_APPROVAL_TIMEOUT_MS);
+        const onAbort = () => {
+          if (!phoneQuestions.has(id)) return;
+          phoneQuestions.delete(id);
+          clearTimeout(timer);
+          reject(new Error('ASK_ABORTED'));
+        };
+        phoneQuestions.set(id, { id, sessionId, resolve, reject, timer });
+        try { request?.signal?.addEventListener?.('abort', onAbort, { once: true }); } catch { /* ignore */ }
+        if (request?.signal?.aborted) onAbort();
+      });
+    }));
+  } catch (e) {
+    try { console.warn('[smartquiz-remote] user-questions answerer 未注册:', String(e?.message ?? e)); } catch { /* ignore */ }
   }
 
   /**
@@ -5292,6 +5412,11 @@ export function apply(ctx, config) {
       try { if (st.timer) clearInterval(st.timer); } catch { /* 忽略 */ }
     }
     SUBAGENT_POLLERS.clear();
+    // 反问中继：宿主卸载时把挂着的请求全部拒绝，避免 waterfall 永远不返回
+    for (const q of phoneQuestions.values()) {
+      try { clearTimeout(q.timer); q.reject(new Error('ASK_ABORTED')); } catch { /* ignore */ }
+    }
+    phoneQuestions.clear();
   });
 
   ctx.logger?.info?.(`[smartquiz-remote] 挂载: /health /reconcile /pair /pair.json /status /config /session /run /exec /reset `

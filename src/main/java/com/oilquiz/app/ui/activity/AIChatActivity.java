@@ -189,7 +189,11 @@ public class AIChatActivity extends BaseActivity {
     /** 甲板行选择（M1）：进度条可见 1 条 / 否则 2 条；渲染由 renderDeckRows 执行 */
     private com.oilquiz.app.ai.chat.status.StatusDeckController deckController;
     private final com.oilquiz.app.ai.chat.status.DockSlotBus.Listener dockSlotListener =
-            slots -> runOnUiThread(() -> renderDockSlots(slots));
+            slots -> runOnUiThread(() -> {
+                renderDockSlots(slots);
+                // 插槽变化会影响甲板卡：子代理槽没了 → 轨迹卡也该跟着消失
+                refreshPendingCard();
+            });
     private android.widget.TextView tvAgentProgressTitle;
     private android.widget.TextView tvAgentProgressPct;
     private android.widget.TextView tvAgentProgressMsg;
