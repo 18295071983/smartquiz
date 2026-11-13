@@ -413,6 +413,9 @@ export const AUTH_DOC = 'once-pairing-code -> device token -> revocable whitelis
 /** 反问中继诊断（2026-11-13）：seen=事件有没有到插件；taken=有没有接管；reason=最近一次原因 */
 const QRELAY = { seen: 0, taken: 0, last_sid: '', reason: '' };
 
+/** 审批中继诊断（同 QRELAY）：hooked=已挂钩的 agent 数；seen/taken 按 waterfall 调用计 */
+const ARELAY = { hooked: 0, seen: 0, taken: 0, last_sid: '', reason: '' };
+
 /** phone_ui 工具的注册状态（诊断：/status.plugin_features 里可见） */
 const PHONE_TOOL_STATE = { registered: false, error: '' };
 
@@ -2648,6 +2651,7 @@ function presetSvcOf(ctx) {
       phone_tool: PHONE_TOOL_STATE.registered,
       phone_tool_error: PHONE_TOOL_STATE.error,
       question_relay: QRELAY,
+      approval_relay: ARELAY,
     },
     // ★ 单一文案模板：手机 / 电脑 UI 直接渲染这组行，不再各自拼一套说法
     text_lines: (() => {
@@ -3843,6 +3847,11 @@ function presetSvcOf(ctx) {
     const q = new URL(req.url ?? '/', 'http://dsh.invalid');
     const sid = String(q.searchParams.get('session_id') ?? '').trim();
     if (!sid) return sendJson(res, 400, { ok: false, error: '需要 session_id' });
+    // 有手机在追这个会话：立刻把该 agent 的审批/反问 waterfall 挂上
+    // （agent 可能在本插件加载之后才创建，这里按需补挂）
+    try {
+      hookAgent(ctx.agents?.get?.(sid));
+    } catch { /* 拿不到 agent 就等 agent/created */ }
     // 游标优先级：?since= → SSE 标准头 Last-Event-ID → -1（首次）
     const headerId = req.headers?.['last-event-id'];
     const sinceRaw = q.searchParams.get('since');
@@ -4208,6 +4217,129 @@ function presetSvcOf(ctx) {
    * {@code /v2/answer} 回来才 resolve —— 桌面端不参与，避免两边抢答。</p>
    */
   const phoneQuestions = new Map();        // id -> { id, sessionId, resolve, reject, timer }
+
+  /**
+   * agent 作用域挂钩（2026-11-13）。
+   *
+   * <p>`approval/request` 与 `user-questions/request` 都是 `Scoped<Agent>` 事件：
+   * 在插件 root 上下文注册**永远收不到**（实测 /status 里 seen=0）。
+   * 正确做法是像 DSH 自己的子代理那样，在 `agent.ctx` 上注册（见 dsh-subagent/manager.ts）。
+   * 这里对所有存活 agent 挂钩，并在 agent/created 时补挂。</p>
+   */
+  const SCOPED_AGENTS = new Set();
+  const SCOPED_DISPOSERS = [];
+
+  const approvalWaterfall = (sid, request, next) => {
+    ARELAY.seen += 1;
+    ARELAY.last_sid = sid;
+    let watching = false;
+    try {
+      for (const s of STREAM_HUB) {
+        if (String(s?.sid) === sid) { watching = true; break; }
+      }
+    } catch { watching = false; }
+    if (!watching) {
+      ARELAY.reason = 'no_stream:' + sid;
+      return next();
+    }
+    ARELAY.taken += 1;
+    ARELAY.reason = 'taken:' + sid;
+    return new Promise((resolve) => {
+      const id = randomBytes(16).toString('hex');
+      const detail = {
+        toolName: request?.toolName ?? null,
+        callId: request?.callId ?? null,
+        reason: request?.reason ?? request?.displayReason ?? null,
+      };
+      const timer = setTimeout(() => { entry.settle('unavailable'); }, PHONE_APPROVAL_TIMEOUT_MS);
+      const onAbort = () => { entry.settle('cancelled'); };
+      const entry = {
+        id,
+        kind: 'approval',
+        agentId: sid,
+        request: detail,
+        settle: (outcome) => {
+          if (!phoneApprovals.has(id)) return false;
+          phoneApprovals.delete(id);
+          clearTimeout(timer);
+          try { request?.signal?.removeEventListener?.('abort', onAbort); } catch { /* ignore */ }
+          resolve(outcome);
+          return true;
+        },
+      };
+      phoneApprovals.set(id, entry);
+      try { request?.signal?.addEventListener?.('abort', onAbort, { once: true }); } catch { /* ignore */ }
+      if (request?.signal?.aborted) onAbort();
+      // 推给手机：手机按 approval 帧渲染甲板卡；点击走 /session action=approval → settle
+      streamBroadcast(sid, {
+        v: 2, type: 'approval', id, kind: 'approval', ts: Date.now(), request: detail,
+      });
+    });
+  };
+
+  const questionWaterfall = (sid, request, next) => {
+    QRELAY.seen += 1;
+    QRELAY.last_sid = sid;
+    let watching = false;
+    try {
+      for (const s of STREAM_HUB) {
+        if (String(s?.sid) === sid) { watching = true; break; }
+      }
+    } catch { watching = false; }
+    if (!watching) {
+      QRELAY.reason = 'no_stream:' + sid;
+      return next();
+    }
+    QRELAY.taken += 1;
+    QRELAY.reason = 'taken:' + sid;
+    const id = 'q-' + randomBytes(8).toString('hex');
+    const questions = Array.isArray(request?.questions) ? request.questions : [];
+    streamBroadcast(sid, {
+      v: 2, type: 'question', id, kind: 'question', ts: Date.now(),
+      request: { questions },
+      data: { id, session_id: sid, questions },
+    });
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        phoneQuestions.delete(id);
+        reject(new Error('ASK_TIMEOUT'));
+      }, PHONE_APPROVAL_TIMEOUT_MS);
+      const onAbort = () => {
+        if (!phoneQuestions.has(id)) return;
+        phoneQuestions.delete(id);
+        clearTimeout(timer);
+        reject(new Error('ASK_ABORTED'));
+      };
+      phoneQuestions.set(id, { id, sessionId: sid, resolve, reject, timer });
+      try { request?.signal?.addEventListener?.('abort', onAbort, { once: true }); } catch { /* ignore */ }
+      if (request?.signal?.aborted) onAbort();
+    });
+  };
+
+  const hookAgent = (agent) => {
+    try {
+      const sid = String(agent?.session?.id ?? agent?.id ?? '');
+      const actx = agent?.ctx;
+      if (!sid || !actx || typeof actx.on !== 'function' || SCOPED_AGENTS.has(sid)) return;
+      SCOPED_AGENTS.add(sid);
+      const offA = actx.on('approval/request', (request, next) => approvalWaterfall(sid, request, next));
+      const offQ = actx.on('user-questions/request', (request, next) => questionWaterfall(sid, request, next));
+      SCOPED_DISPOSERS.push(() => {
+        try { offA?.(); } catch { /* ignore */ }
+        try { offQ?.(); } catch { /* ignore */ }
+      });
+      ARELAY.hooked = SCOPED_AGENTS.size;
+    } catch (e) {
+      ARELAY.reason = 'hook_fail:' + String(e?.message ?? e).slice(0, 80);
+    }
+  };
+
+  try {
+    for (const a of (ctx.agents?.list?.() ?? [])) hookAgent(a);
+    ctx.effect(() => ctx.on('agent/created', (payload) => hookAgent(payload?.agent ?? payload)));
+  } catch (e) {
+    ARELAY.reason = 'list_fail:' + String(e?.message ?? e).slice(0, 80);
+  }
 
   const phonePendingOf = (sessionId, kind) => {
     const out = [];
@@ -5431,6 +5563,12 @@ function presetSvcOf(ctx) {
       try { clearTimeout(q.timer); q.reject(new Error('ASK_ABORTED')); } catch { /* ignore */ }
     }
     phoneQuestions.clear();
+    // agent 作用域挂钩也要解绑，避免宿主重载后重复应答
+    for (const off of SCOPED_DISPOSERS.splice(0)) {
+      try { off(); } catch { /* ignore */ }
+    }
+    SCOPED_AGENTS.clear();
+    ARELAY.hooked = 0;
   });
 
   ctx.logger?.info?.(`[smartquiz-remote] 挂载: /health /reconcile /pair /pair.json /status /config /session /run /exec /reset `
