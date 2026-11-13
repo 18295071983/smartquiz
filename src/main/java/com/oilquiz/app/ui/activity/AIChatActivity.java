@@ -8714,6 +8714,12 @@ public class AIChatActivity extends BaseActivity {
         } catch (Throwable t) {
             android.util.Log.w(TAG, "DshComponentIds.markFromHistory failed: " + t.getMessage());
         }
+        // 恢复完历史后补一次"待你处理"指路牌：断线重进时挂着的审批/反问也能被看到
+        try {
+            refreshAttentionSlot();
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "refreshAttentionSlot failed: " + t.getMessage());
+        }
         // 先播种主 id：恢复出 T1..Tn 后，派发器必须从 n+1 继续发号，
         // 否则新回合又是 T1 → 与旧消息 turnId 重号，按 turnId 定位会命中旧气泡
         try {
@@ -13094,7 +13100,12 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /** 插槽点击：任务/目标/子代理/MCP/日程 → 扩展面板；其余 → 远程连接页。 */
-    private void onDockSlotClick(String action) {        if ("jobs".equals(action) || "goal".equals(action) || "schedule".equals(action)
+    private void onDockSlotClick(String action) {
+        if ("attention".equals(action)) {
+            scrollToPendingAttention();
+            return;
+        }
+        if ("jobs".equals(action) || "goal".equals(action) || "schedule".equals(action)
                 || "subagents".equals(action) || "mcp".equals(action) || "permission".equals(action)) {
             // 后台任务 / 目标 / 日程 / 计划 / 子代理 / MCP 都在这个面板里（P3 复用，不再新开页面）
             startActivity(new android.content.Intent(this,
@@ -13325,6 +13336,81 @@ public class AIChatActivity extends BaseActivity {
             safeNotifyItemChanged(idx);
             saveHistoryAsync();
         }
+        refreshAttentionSlot();
+    }
+
+    /**
+     * "待你处理"插槽（2026-11-13）：审批/反问卡本身留在消息流（真值只有一份），
+     * 插槽只放一个指路牌 —— 几条待处理、是什么、点一下滚到那张卡。
+     *
+     * <p>为什么不把卡直接放进插槽：插槽是一行 11sp 状态条，装不下按钮/多选/自由输入；
+     * 而且会造成"卡里状态"和"插槽状态"两个写入者，必然打架。</p>
+     */
+    private void refreshAttentionSlot() {
+        int approvals = 0;
+        int questions = 0;
+        String firstLabel = "";
+        if (chatHistory != null) {
+            for (ChatMessage m : chatHistory) {
+                if (m == null) continue;
+                if (m.approvals != null) {
+                    for (ChatMessage.ApprovalRequest a : m.approvals) {
+                        if (a == null || !a.isPending()) continue;
+                        approvals += 1;
+                        if (firstLabel.isEmpty()) {
+                            firstLabel = a.permission == null ? "" : a.permission;
+                        }
+                    }
+                }
+                if (m.questions != null) {
+                    for (ChatMessage.QuestionRequest q : m.questions) {
+                        if (q == null || !q.isPending()) continue;
+                        questions += 1;
+                        if (firstLabel.isEmpty()) {
+                            firstLabel = q.question == null ? "" : q.question;
+                        }
+                    }
+                }
+            }
+        }
+        com.oilquiz.app.ai.chat.status.DockSlotBus.Slot slot =
+                com.oilquiz.app.ai.chat.status.PendingAttention.slotOf(approvals, questions, firstLabel);
+        if (slot == null) {
+            com.oilquiz.app.ai.chat.status.DockSlotBus.remove(
+                    com.oilquiz.app.ai.chat.status.PendingAttention.SLOT_ID);
+        } else {
+            com.oilquiz.app.ai.chat.status.DockSlotBus.update(slot);
+        }
+    }
+
+    /** 点"待你处理"插槽：滚到第一条待处理的审批/反问并高亮（只定位，不复制卡片） */
+    private void scrollToPendingAttention() {
+        if (chatHistory == null || messageList == null) return;
+        for (int i = chatHistory.size() - 1; i >= 0; i -= 1) {
+            ChatMessage m = chatHistory.get(i);
+            if (m == null) continue;
+            boolean hit = false;
+            if (m.approvals != null) {
+                for (ChatMessage.ApprovalRequest a : m.approvals) {
+                    if (a != null && a.isPending()) {
+                        hit = true;
+                        break;
+                    }
+                }
+            }
+            if (!hit && m.questions != null) {
+                for (ChatMessage.QuestionRequest q : m.questions) {
+                    if (q != null && q.isPending()) {
+                        hit = true;
+                        break;
+                    }
+                }
+            }
+            if (hit) {
+                messageList.smoothScrollToPosition(i);
+                return;
+            }
+        }
     }
 
     /** 问答卡提交：先标记已回答，再回传电脑端；失败回滚 pending */
@@ -13424,6 +13510,7 @@ public class AIChatActivity extends BaseActivity {
             safeNotifyItemChanged(idx);
             saveHistoryAsync();
         }
+        refreshAttentionSlot();
     }
 
     /** 审批块上的允许/拒绝：先就地改状态，再回传电脑端；回传失败回滚成待处理 */
