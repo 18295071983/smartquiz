@@ -338,3 +338,39 @@ DSH 自己的 Web Client 用一套类型化 Slot 系统组合 UI，关键机制�
 
 - `slot_action`（插槽点击出口）与 B8 三卡：代码已提交，**运行实例待下次重启生效**
 - B1 的"推理中只留 1 条"需要 D1 出现才能验证（DSH 路径不写 `AgentProgressBus`，需本机 agent 触发）
+
+---
+
+## 17. 审批通知与回传：最终结论（2026-11-13 晚，真机取证）
+
+### 17.1 事实链（按日志时间）
+
+| 时间 | 证据 | 结论 |
+|---|---|---|
+| 19:16:01 | `DshSvc: [approval] 绑定到连接通知 id=…` | 插件 → 通道 → 服务 链路通 |
+| 19:16:11 | `DshSvc: [approval] 结束，恢复连接通知` | 审批只活了 10 秒，被宿主自动答掉 |
+| 19:26:59 | 自定义视图通知 `contentView=… (0 bytes)` | MIUI 剥离第三方自定义视图 → 通知不显示 |
+| 19:35 | 单行自定义视图 + 普通通知 | 仍按默认布局渲染，按钮不可见 |
+| 19:37 | `dumpsys` 中 3418/3419 两条并存 | 绑定的连接通知可见，自定义卡被系统吞掉 |
+
+### 17.2 结论
+
+1. **回传链路本身是通的**：`/v2/action debug.approval` 注入 → 服务收到 → 绑定通知 →（按钮点击）→ `/session action=approval`。
+2. **"看不到审批"的头号原因不是通知，而是审批存活时间太短**：宿主应答者 10~15 秒内自动答掉。想验 UI 必须用 `debug.approval`（60~600 秒）。
+3. **MIUI 折叠态不显示系统 action**，自定义视图也被剥离（0 bytes 取证）。因此"折叠态直接显示允许/拒绝"在 MIUI 上**无法用标准通知实现**；Qoder 那种效果要么是 heads-up 横幅，要么用了我们尚未复现的模板（待对照其 dumpsys）。
+4. **"与连接通知绑定"是正确方向**：常驻通知一定可见，绑上去后至少标题/正文能提示"待你处理"。
+
+### 17.3 已知坑（都踩过）
+
+| 坑 | 表现 | 修法 |
+|---|---|---|
+| `startRemoteSyncService` 要求 `isConnected` | 服务从未启动，后台没通知 | 改成 `isConfigured`，`ensureStarted()` 统一入口 |
+| 只有两条窄路径启动服务 | 从首页进就没有服务 | `MainActivity.onCreate` 也调用 |
+| 重启手机后连接不恢复 | 锁屏收不到 | `RemoteBootReceiver` + `RECEIVE_BOOT_COMPLETED` |
+| 通知中审批 id 与审计 id 不同源 | pending 永远挂着、通知不消失 | `relayApprovalIds` + `clearRelayApprovals` |
+| 页内弹框 + 通知同时显示 | 同一审批两份 | `clearApprovalBinding()` |
+
+### 17.4 未决 / 下一步
+
+- [ ] 折叠态按钮：需要一条 Qoder 通知的 `dumpsys notification` 结构做对照（渠道 importance / style / actions / contentView 字节数）
+- [ ] `approval_relay.seen` 仍为 0：agent 作用域 waterfall 没有派发到插件，现依赖网关中继；若要让手机"先答先赢"，需解决 scoped 注册
