@@ -2,6 +2,7 @@
 <!-- 远程连接扩展面板：日程 / 计划模式 / 子代理（2026-11-12） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/insight_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -16,6 +17,7 @@
         android:layout_marginBottom="@dimen/space_8">
 
         <TextView
+            android:id="@+id/insight_title"
             android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -26,10 +28,14 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_insight_refresh"
-            style="@style/Widget.Material3.Button.TextButton"
+            style="@style/Widget.Material3.Button.TonalButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:minWidth="88dp"
+            android:minHeight="44dp"
+            android:paddingHorizontal="20dp"
             android:text="刷新"
+            android:textSize="14sp"
             android:textAllCaps="false"/>
     </LinearLayout>
 

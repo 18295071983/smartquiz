@@ -23,6 +23,9 @@ public class RemoteDshStreamParseTest {
         int readySeq = -1;
         int snapshot = 0;
         boolean ended = false;
+        int pulses = 0;
+        long pulseTs = -1;
+        int pulseSeq = -1;
 
         @Override public void onReady(int seq) {
             readySeq = seq;
@@ -30,6 +33,12 @@ public class RemoteDshStreamParseTest {
 
         @Override public void onSnapshot(int seq, org.json.JSONArray turns) {
             snapshot += 1;
+        }
+
+        @Override public void onPulse(long serverTs, int seq) {
+            pulses += 1;
+            pulseTs = serverTs;
+            pulseSeq = seq;
         }
 
         @Override public void onEvent(JSONObject event) {
@@ -79,12 +88,29 @@ public class RemoteDshStreamParseTest {
     public void controlFramesStayControl() {
         Capture c = new Capture();
         RemoteDshTool.handleStreamMessage("{\"type\":\"ready\",\"seq\":9}", -1, true, c);
-        RemoteDshTool.handleStreamMessage("{\"type\":\"pulse\",\"seq\":10}", 9, true, c);
+        RemoteDshTool.handleStreamMessage("{\"type\":\"pulse\",\"ts\":123,\"seq\":10}", 9, true, c);
         RemoteDshTool.handleStreamMessage("{\"type\":\"snapshot\",\"seq\":11,\"turns\":[]}", 9, true, c);
 
         assertEquals(9, c.readySeq);
         assertEquals(1, c.snapshot);
         assertEquals("控制帧不能当业务事件派发", 0, c.events.size());
         assertTrue(c.snapshot == 1);
+    }
+
+    /**
+     * HEARTBEAT-VISIBLE（2026-11-13）：心跳必须能到订阅方。
+     *
+     * <p>以前 `pulse` 在解析器里被当控制帧直接 return，上层永远收不到——于是"在线"只在建流
+     * 那一次成立，链路半死也没人知道。这条钉住"心跳不派发成业务事件，但必须触发 onPulse"。</p>
+     */
+    @Test
+    public void pulseReachesListenerInsteadOfBeingSwallowed() {
+        Capture c = new Capture();
+        RemoteDshTool.handleStreamMessage("{\"type\":\"pulse\",\"ts\":123,\"seq\":10}", 9, true, c);
+
+        assertEquals("心跳应触发 onPulse", 1, c.pulses);
+        assertEquals(123, c.pulseTs);
+        assertEquals(10, c.pulseSeq);
+        assertEquals("心跳不是业务事件", 0, c.events.size());
     }
 }

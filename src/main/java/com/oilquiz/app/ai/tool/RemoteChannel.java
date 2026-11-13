@@ -166,10 +166,18 @@ public final class RemoteChannel {
                             }
 
                             @Override
+                            public void onPulse(long serverTs, int seq) {
+                                if (closed) return;
+                                // 心跳也算"这条流还活着"：断线判定与退避重置都据此。
+                                gotAnything[0] = true;
+                                listener.onPulse(serverTs, seq);
+                            }
+
+                            @Override
                             public void onEnd() {
                                 if (closed) return;
-                                // 服务端 5 分钟超时是正常的；subscribeEvents 会自己重连，
-                                // 这里只把状态告诉界面。
+                                // 服务端到点（默认 600s）或 gone 之后正常收尾：这里只报状态，
+                                // 真正的重连接口在 subscribeEvents 内部（带 since 续传）。
                                 listener.onConnection(true, "等待重连");
                             }
 

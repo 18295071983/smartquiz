@@ -625,6 +625,17 @@ public class RemoteDshTool implements AITool {
 
         /** 服务端给的是"历史批"（首次连接/缺口过大）。默认忽略，保持向后兼容 */
         default void onSnapshot(int seq, org.json.JSONArray turns) { }
+
+        /**
+         * 心跳（服务端每 10s 一条）。
+         *
+         * <p>HEARTBEAT-VISIBLE(2026-11-13)：`pulse` 以前在 {@link #handleStreamMessage} 里
+         * 被当作"控制帧"直接 return，于是订阅方**永远收不到心跳**：界面上的"在线"只来自
+         * 建流那一次 onReady，之后链路死了也没人知道；而且没有任何"多久没消息 = 断线"的判据，
+         * 半开连接能静默挂到读超时。心跳单独开一个回调，既不动控制帧语义，又能给上层做判活。</p>
+         */
+        default void onPulse(long serverTs, int seq) { }
+
         void onEvent(org.json.JSONObject event);
         void onEnd();
         void onError(String message);
@@ -740,7 +751,11 @@ public class RemoteDshTool implements AITool {
                     + (types == null || types.isEmpty() ? "" : "&types=" + java.net.URLEncoder.encode(types, "UTF-8"));
             conn = (HttpURLConnection) new URL(url).openConnection();
             conn.setConnectTimeout(30000);
-            conn.setReadTimeout((timeoutSec + 30) * 1000);
+            // LIVENESS(2026-11-13)：读超时原本是 (timeoutSec+30) 秒（默认 330s）——链路被
+            // 隧道/Wi-Fi 睡眠悄悄掐断时，TCP 没有 FIN，readLine 会一直阻塞到这个值，表现为
+            // "看着在线、其实 5 分多钟什么都不来"。服务端每 10s 一条 pulse、每 5s 一条 view，
+            // 所以 35s 内一个字节都没有就是死链路，直接抛出去走重连。
+            conn.setReadTimeout(35000);
             conn.setRequestProperty("Accept", "text/event-stream");
             String token = tool.getToken();
             if (!token.isEmpty()) conn.setRequestProperty("Authorization", "Bearer " + token);
@@ -753,7 +768,15 @@ public class RemoteDshTool implements AITool {
                 while ((line = br.readLine()) != null) {
                     if (line.isEmpty()) {
                         if (data.length() > 0) {
-                            cursor = handleStreamMessage(data.toString(), cursor, follow, listener);
+                            String frame = data.toString();
+                            // GONE-FAILURE(2026-11-13)：会话在电脑端不存在时服务端发 gone 后
+                            // 主动 end()。以前这里被当控制帧吞掉 → 正常结束 → failures 归零 →
+                            // 1 秒后重连 → 又是 gone，形成每秒一次的空转，界面却一直"没有新内容"。
+                            // 当失败处理：退避会逐次放大，连续 8 次后把真实原因报到界面。
+                            if (frame.contains("\"type\":\"gone\"")) {
+                                throw new java.io.IOException("会话在电脑端已不存在（gone）");
+                            }
+                            cursor = handleStreamMessage(frame, cursor, follow, listener);
                             data.setLength(0);
                         }
                         continue;
@@ -800,7 +823,8 @@ public class RemoteDshTool implements AITool {
                 return cursor;
             }
             if ("pulse".equals(type)) {
-                // 心跳：只用于判活/测 RTT，不推进游标
+                // 心跳：只用于判活/测 RTT，不推进游标；单独回调给上层（见 onPulse 注释）
+                listener.onPulse(msg.optLong("ts", 0L), msg.optInt("seq", cursor));
                 return cursor;
             }
             if ("end".equals(type) || "gone".equals(type)) {

@@ -27,7 +27,11 @@ public class RemoteSyncService extends Service {
     public static final String EXTRA_TARGET = "target";
     public static final String EXTRA_SINCE = "since";
     private static final String CHANNEL_ID = "remote_dsh_sync";
+    /** 告警通知通道：IMPORTANCE_DEFAULT 才会响/弹（常驻的同步通知是 LOW，只安静显示） */
+    private static final String ALERT_CHANNEL_ID = "remote_dsh_alert";
     private static final int NOTIF_ID = 0x0D5A;
+    private static final int NOTIF_ID_APPROVAL = 0x0D5B;
+    private static final int NOTIF_ID_JOB = 0x0D5C;
 
     /** 最近一条 assistant 文本（通知展示用） */
     public static volatile String lastText = "";
@@ -72,7 +76,35 @@ public class RemoteSyncService extends Service {
                 @Override
                 public void onEvent(JSONObject event) {
                     if (event == null) return;
-                    if (!"assistant/message".equals(event.optString("type"))) return;
+                    String type = event.optString("type", "");
+
+                    // ALERT(2026-11-13)：需要人处理的事单独弹一条通知。
+                    // 前台那条常驻通知只显示"已连接/最后一句"，既不响也不弹；用户锁屏时
+                    // 根本不知道电脑正在等他审批。审批/提问 → 提醒；审批被处理 → 收回。
+                    if ("approval".equals(type) || "question".equals(type)) {
+                        if (!com.oilquiz.app.ui.activity.AIChatActivity.isForegroundForAlerts()) {
+                            notifyAlert(NOTIF_ID_APPROVAL,
+                                    "approval".equals(type) ? "电脑端等待审批" : "电脑端有问题待回答",
+                                    requestBrief(event));
+                        }
+                        return;
+                    }
+                    if ("approval_gone".equals(type) || "question_gone".equals(type)) {
+                        cancelAlert(NOTIF_ID_APPROVAL);
+                        return;
+                    }
+                    if ("job/settled".equals(type)) {
+                        JSONObject d = event.optJSONObject("data");
+                        boolean failed = d != null && (d.optBoolean("failed", false)
+                                || "failed".equals(d.optString("status", "")));
+                        if (failed && !com.oilquiz.app.ui.activity.AIChatActivity.isForegroundForAlerts()) {
+                            notifyAlert(NOTIF_ID_JOB, "后台任务失败",
+                                    d == null ? "" : d.optString("label", ""));
+                        }
+                        return;
+                    }
+
+                    if (!"assistant/message".equals(type)) return;
                     String text = textOf(event.optJSONObject("data"));
                     if (text.isEmpty()) return;
                     lastText = text;
@@ -182,6 +214,84 @@ public class RemoteSyncService extends Service {
             sb.append(p.optString("text"));
         }
         return sb.toString().trim();
+    }
+
+    /**
+     * 弹一条"需要人处理"的通知（审批 / 任务失败）。
+     *
+     * <p>与前台常驻通知分开：常驻那条是 IMPORTANCE_LOW（安静），这条是 DEFAULT（会响/弹）。
+     * 没有通知权限时静默失败——连接本身不受影响。</p>
+     */
+    private void notifyAlert(int id, String title, String text) {
+        try {
+            ensureAlertChannel();
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            Notification.Builder b;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                b = new Notification.Builder(this, ALERT_CHANNEL_ID);
+            } else {
+                b = new Notification.Builder(this);
+            }
+            Intent open = new Intent(this, com.oilquiz.app.ui.activity.AIChatActivity.class);
+            open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            PendingIntent pi = PendingIntent.getActivity(this, id, open,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            b.setContentTitle(title)
+                    .setContentText(text == null ? "" : text)
+                    .setSmallIcon(com.oilquiz.app.R.mipmap.ic_launcher)
+                    .setContentIntent(pi)
+                    .setAutoCancel(true);
+            nm.notify(id, b.build());
+        } catch (Throwable ignored) {
+            // 没通知权限：静默失败，不影响通道
+        }
+    }
+
+    /** 审批/提问已在电脑端被处理时收回通知（先点先赢，另一端不该还挂着）。 */
+    private void cancelAlert(int id) {
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(id);
+        } catch (Throwable ignored) {
+            // 取消失败无害
+        }
+    }
+
+    private void ensureAlertChannel() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return;
+        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return;
+        if (nm.getNotificationChannel(ALERT_CHANNEL_ID) != null) return;
+        NotificationChannel ch = new NotificationChannel(ALERT_CHANNEL_ID, "电脑端提醒",
+                NotificationManager.IMPORTANCE_DEFAULT);
+        ch.setDescription("电脑端等待审批、后台任务失败等需要你处理的提醒");
+        nm.createNotificationChannel(ch);
+    }
+
+    /**
+     * 从审批/提问请求里取一句可读描述。
+     *
+     * <p>字段随 DSH 版本而变（toolName / title / description / questions[]…），
+     * 全部按可选处理，取不到就空串——通知没有正文也比不弹好。</p>
+     */
+    private static String requestBrief(JSONObject event) {
+        JSONObject req = event == null ? null : event.optJSONObject("request");
+        if (req == null) return "";
+        String[] keys = {"toolName", "title", "description", "question", "prompt", "reason", "summary"};
+        for (String k : keys) {
+            String v = req.optString(k, "").trim();
+            if (!v.isEmpty()) return v.length() > 60 ? v.substring(0, 60) + "…" : v;
+        }
+        JSONArray qs = req.optJSONArray("questions");
+        if (qs != null && qs.length() > 0) {
+            JSONObject q = qs.optJSONObject(0);
+            if (q != null) {
+                String v = q.optString("question", q.optString("title", "")).trim();
+                if (!v.isEmpty()) return v.length() > 60 ? v.substring(0, 60) + "…" : v;
+            }
+        }
+        return "";
     }
 
     private void update(Notification n) {

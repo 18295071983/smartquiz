@@ -86,6 +86,45 @@ public final class RemoteSdk {
         return call("/session", "POST", b, 20);
     }
 
+    /** 桥接/ACP 通道状态（GET /status）：手机上用它显示"运行中 / 排队 / 待审批 / 版本"。 */
+    public Map<String, Object> status() throws Exception {
+        return call("/status", "GET", null, 8);
+    }
+
+    /** 电脑端后台任务列表（插件按会话事件派生的状态，见 /v2/jobs）。 */
+    public Map<String, Object> jobs() throws Exception {
+        return call("/v2/jobs", "GET", null, 15);
+    }
+
+    /** 电脑端目标状态（事件派生）；sessionId 为空则列全部。 */
+    public Map<String, Object> goal(String sessionId) throws Exception {
+        String s = sessionId == null ? "" : sessionId.trim();
+        String q = s.isEmpty() ? "" : "?session_id=" + URLEncoder.encode(s, "UTF-8");
+        return call("/v2/goal" + q, "GET", null, 15);
+    }
+
+    /** 本进程用过的 MCP 服务（插件从 mcp__<server>__<tool> 工具名派生）。 */
+    public Map<String, Object> mcp() throws Exception {
+        return call("/v2/mcp", "GET", null, 15);
+    }
+
+    /** 权限状态（沙箱 / 档位 / 审批策略的最近取值）。 */
+    public Map<String, Object> permission() throws Exception {
+        return call("/v2/permission", "GET", null, 10);
+    }
+
+    /**
+     * 客户端可发起的白名单操作（{@code jobs.clear} / {@code resync}）。
+     *
+     * <p>服务端只认白名单，未知动作会 400 并返回 allowed 列表——不做通用 RPC。</p>
+     */
+    public Map<String, Object> action(String action, Map<String, Object> extra) throws Exception {
+        Map<String, Object> b = new HashMap<>();
+        b.put("action", action);
+        if (extra != null) b.putAll(extra);
+        return call("/v2/action", "POST", b, 15);
+    }
+
     /** 服务端派生的统一视图（状态 / 自检 / 会话 / 时间线），带客户端 caps 让其裁剪 */
     public Map<String, Object> view(String sessionId) throws Exception {
         String s = sessionId == null ? "" : sessionId.trim();

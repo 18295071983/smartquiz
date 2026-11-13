@@ -67,9 +67,23 @@ public final class RemoteConnection {
     private final CopyOnWriteArrayList<Listener> listeners = new CopyOnWriteArrayList<>();
 
     private volatile boolean started;
+    /**
+     * 是否已经有线程在"解析身份 + 开通道"。
+     *
+     * <p>为什么需要：Activity 的 onResume 与前台服务会几乎同时调 {@link #start()}，
+     * 而通道对象要等身份对齐完才赋值。没有这个闸门时，两次调用都看到 {@code channel == null}
+     * 就各自开一条流——真机实测同一 sid 在 4ms 内开了两条 SSE，事件被回放两遍
+     * （日志里 seq 3220–3228 各出现两次）。</p>
+     */
+    private final java.util.concurrent.atomic.AtomicBoolean opening =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
     private volatile String sid = "";
     private volatile Map<String, Object> lastState;
     private volatile boolean online;
+    /** 服务端心跳里带的 seq（电脑端已产生到哪一条）；-1 = 还没收到 */
+    private volatile int serverSeq = -1;
+    /** 手机上已收到/已应用到的最大 seq；-1 = 还没收到事件 */
+    private volatile int appliedSeq = -1;
     private RemoteChannel channel;
     /**
      * 本次进程内还没做过全量重放。首次连接时置 false 并用 since=0 重建时间线，
@@ -105,21 +119,119 @@ public final class RemoteConnection {
         return lastState;
     }
 
+    /** 电脑端已产生到的 seq（心跳/状态下发时更新）；-1 = 未知。 */
+    public int serverSeq() {
+        return serverSeq;
+    }
+
+    /** 手机已应用到的 seq；-1 = 还没收到事件。 */
+    public int appliedSeq() {
+        return appliedSeq;
+    }
+
+    /** 落后多少条（服务端领先客户端的事件数）；未知时返回 -1。 */
+    public int behindCount() {
+        int s = serverSeq;
+        int a = appliedSeq;
+        if (s < 0) return -1;
+        return Math.max(0, s - Math.max(0, a));
+    }
+
     /** 幂等启动：解析身份 → 开唯一通道 */
     public void start() {
-        if (started) return;
+        if (started) {
+            // ZOMBIE-FIX(2026-11-13)：started 是"服务应该连着"，不等于"通道还活着"。
+            // 前台服务被系统重启、或通道因异常退出后，channel 会是 null / 已 closed，
+            // 而老实现直接 return —— 于是界面显示"已连接"、实际永远收不到事件。
+            // 这里补一次存活检查：死了就重开。
+            RemoteChannel ch = channel;
+            if (ch != null && !ch.isClosed()) return;
+        }
+        // OPEN-GATE(2026-11-13)：并发调用只放一个线程去开，避免同一 sid 起两条 SSE
+        if (!opening.compareAndSet(false, true)) return;
         started = true;
+        startNetworkWatch();
         new Thread(this::resolveAndOpen, "remote-connection").start();
+    }
+
+    // ---- 网络切换即重开（NETWORK-FIX，2026-11-13）----
+    // Wi-Fi ↔ 蜂窝、换 AP、隧道重建时，旧 TCP 不会立刻报错，只会在读超时后才发现；
+    // 这段时间手机"看着在线"却收不到任何事件。系统既然会告诉我们网络变了，就主动重连。
+
+    private android.net.ConnectivityManager.NetworkCallback netCallback;
+    /** 注册回调会立刻回调一次 onAvailable，别把它当成"网络切换"再连一遍 */
+    private volatile boolean netCallbackPrimed = false;
+
+    private final Runnable netReconnect = () -> {
+        if (!started) return;
+        if (!opening.compareAndSet(false, true)) return;   // 已有线程在开，别并发出第二条
+        closeChannel();
+        new Thread(this::resolveAndOpen, "remote-connection-net").start();
+    };
+
+    private void scheduleReconnect() {
+        if (!started) return;
+        main.removeCallbacks(netReconnect);
+        main.postDelayed(netReconnect, 1500);   // 抖动去重：切换过程中只重连一次
+    }
+
+    private void startNetworkWatch() {
+        if (netCallback != null) return;
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                    app.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return;
+            netCallback = new android.net.ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onAvailable(android.net.Network network) {
+                    if (!netCallbackPrimed) { netCallbackPrimed = true; return; }
+                    scheduleReconnect();
+                }
+
+                @Override
+                public void onLost(android.net.Network network) {
+                    scheduleReconnect();
+                }
+            };
+            cm.registerDefaultNetworkCallback(netCallback);
+        } catch (Throwable t) {
+            // 没权限 / 旧系统：退化为读超时兜底（RemoteDshTool 侧 35s）
+            netCallback = null;
+        }
+    }
+
+    private void stopNetworkWatch() {
+        if (netCallback == null) return;
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                    app.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) cm.unregisterNetworkCallback(netCallback);
+        } catch (Throwable ignored) {
+            // 已注销/无权限
+        }
+        netCallback = null;
+        netCallbackPrimed = false;
+        main.removeCallbacks(netReconnect);
     }
 
     /** 停止并释放通道（用户断开/服务销毁时） */
     public void stop() {
         started = false;
         online = false;
+        stopNetworkWatch();
         closeChannel();
     }
 
     private void resolveAndOpen() {
+        try {
+            resolveAndOpenInner();
+        } finally {
+            // 无论成功/早退（未配置、已断开、对齐失败），都要放开闸门，否则永远开不了下一条
+            opening.set(false);
+        }
+    }
+
+    private void resolveAndOpenInner() {
         if (!RemoteDshTool.isConfigured(app)) {
             deliverConnection(false, "还没配置电脑地址/令牌");
             return;
@@ -281,6 +393,19 @@ public final class RemoteConnection {
         return o == null ? "" : String.valueOf(o);
     }
 
+    /** 容错取整：Map 里的数字可能是 Integer/Long/String。 */
+    private static int intOf(Object o, int def) {
+        if (o instanceof Number) return ((Number) o).intValue();
+        if (o instanceof String) {
+            try {
+                return Integer.parseInt(((String) o).trim());
+            } catch (NumberFormatException ignored) {
+                return def;
+            }
+        }
+        return def;
+    }
+
     /** JSONObject → Map（反向指令 args 用）。 */
     private static Map<String, Object> jsonToMap(org.json.JSONObject o) {
         Map<String, Object> m = new java.util.HashMap<>();
@@ -329,6 +454,14 @@ public final class RemoteConnection {
             @Override
             public void onState(Map<String, Object> state) {
                 lastState = state;
+                // 服务端权威游标：首连时把 applied 对齐到 last_seq（否则状态栏会显示 0/N 的假落后）
+                if (state != null) {
+                    int ls = intOf(state.get("last_seq"), -1);
+                    if (ls >= 0) {
+                        if (ls > serverSeq) serverSeq = ls;
+                        if (appliedSeq < 0) appliedSeq = ls;
+                    }
+                }
                 // 服务端是唯一权威：id/标题以它为准（本地旧键会被镜像覆盖）
                 if (state != null) {
                     Object id = state.get("session_id");
@@ -350,6 +483,7 @@ public final class RemoteConnection {
             public void onEvent(JSONObject event) {
                 int seq = event == null ? -1 : event.optInt("seq", -1);
                 if (seq > 0) {
+                    if (seq > appliedSeq) appliedSeq = seq;
                     // 传输游标：只给下一次重连用，不推进页面渲染游标
                     RemoteDshTool.setTransportSeq(app, sessionId, seq);
                 }
@@ -359,6 +493,7 @@ public final class RemoteConnection {
             @Override
             public void onPulse(long serverTs, int seq) {
                 online = true;
+                if (seq >= 0 && seq > serverSeq) serverSeq = seq;
                 deliver(l -> l.onPulse(serverTs, seq));
             }
 

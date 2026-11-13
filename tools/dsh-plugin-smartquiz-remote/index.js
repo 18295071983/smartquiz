@@ -1390,27 +1390,311 @@ export function apply(ctx, config) {
   } catch (e) { /* 宿主没有该事件（旧版） */ }
 
   // ---- 实时桥：日程变化 / 子代理活动 ----
+  /**
+   * SCHEDULE-SLOT(2026-11-13)：把日程概览作为**通用 ui/slot** 下发。
+   *
+   * 手机端只做通用渲染（id/priority/title/detail/warn/action），不认识 id 也照样显示成一行；
+   * 以后新增这类"持续状态"（技能、MCP、待办…）只需在这里多推一条 slot，**不用发新版 APK**。
+   */
+  const pushScheduleSlot = async () => {
+    try {
+      const svc = scheduleSvc();
+      if (!svc) return;
+      const r = await svc.list({ active: true, limit: 50 });
+      const items = Array.isArray(r?.items) ? r.items : (Array.isArray(r?.list) ? r.list : []);
+      if (items.length === 0) {
+        // 空 slot = 让手机端移除这一条
+        streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'schedule' } });
+        return;
+      }
+      streamBroadcast('', { v: 2, type: 'ui/slot', data: {
+        id: 'schedule',
+        priority: 60,
+        title: '定时任务',
+        detail: items.length + ' 个启用中',
+        action: 'schedule',
+      } });
+    } catch {
+      // 日程服务不可用：不发 slot，手机端保留上一次
+    }
+  };
+
+  // ---- 事件派生状态：后台任务 / 目标（2026-11-13）----
+  // 不从 DSH 内部服务猜 API（版本间不稳），而是用插件**已经在转发**的会话事件自建状态：
+  // 这样跨版本稳定，而且和手机时间线看到的是同一份事实。
+  // 对外： GET /v2/jobs、/v2/goal（供手机列表页）+ ui/slot（供输入区上方的插槽）。
+  const JOB_STATE = new Map();     // jobId -> { id, label, status, failed, ts }
+  const GOAL_STATE = new Map();    // sid   -> { title, active, ts }
+  /** 本次 DSH 进程里用过的 MCP 服务（从 tool/call 的 mcp__<server>__<tool> 名字派生） */
+  const MCP_SERVERS = new Set();
+  /** 权限/沙箱/审批策略的最近一次取值（由会话事件更新，见 broadcastPermissionSlot） */
+  const PERM_STATE = { sandbox: '', preset: '', policy: '', agentPreset: '', ts: 0 };
+  const JOB_STATE_MAX = 20;
+
+  // ---- 落盘（PRUNE：重启后仍能看到"最近发生过什么"）----
+  // 注意：运行中的 job 在重启后不可能还在跑，加载时统一降级成 done（别骗人）。
+  const JOBS_FILE = join(PLUGIN_DIR, '.jobs.json');
+  const GOALS_FILE = join(PLUGIN_DIR, '.goals.json');
+  let stateSaveTimer = null;
+  const scheduleStateSave = () => {
+    if (stateSaveTimer) return;
+    stateSaveTimer = setTimeout(() => {
+      stateSaveTimer = null;
+      try {
+        writeSecret(JOBS_FILE, JSON.stringify({ savedAt: Date.now(), jobs: [...JOB_STATE.values()] }, null, 2));
+        writeSecret(GOALS_FILE, JSON.stringify({ savedAt: Date.now(), goals: Object.fromEntries(GOAL_STATE) }, null, 2));
+      } catch { /* 落盘失败不影响内存状态 */ }
+    }, 500);
+  };
+  const loadPersistedState = () => {
+    try {
+      const j = JSON.parse(readFileSync(JOBS_FILE, 'utf8'));
+      for (const it of (Array.isArray(j?.jobs) ? j.jobs : [])) {
+        if (!it || !it.id) continue;
+        JOB_STATE.set(String(it.id), { ...it, status: it.status === 'running' ? 'done' : it.status });
+      }
+    } catch { /* 首次没有文件 */ }
+    try {
+      const g = JSON.parse(readFileSync(GOALS_FILE, 'utf8'));
+      for (const [sid, it] of Object.entries(g?.goals ?? {})) {
+        if (sid && it) GOAL_STATE.set(String(sid), it);
+      }
+    } catch { /* 首次没有文件 */ }
+  };
+  loadPersistedState();
+
+  const broadcastJobsSlot = () => {
+    const list = [...JOB_STATE.values()];
+    if (list.length === 0) {
+      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'jobs' } });
+      return;
+    }
+    const running = list.filter((j) => j.status === 'running').length;
+    const failed = list.filter((j) => j.failed).length;
+    streamBroadcast('', { v: 2, type: 'ui/slot', data: {
+      id: 'jobs',
+      priority: 40,
+      title: '后台任务',
+      detail: running > 0 ? `${running} 运行中 · 共 ${list.length}` : `共 ${list.length}`,
+      action: 'jobs',
+      warn: failed > 0,
+    } });
+  };
+
+  const broadcastGoalSlot = (sid) => {
+    const g = GOAL_STATE.get(sid);
+    if (!g || !g.active) {
+      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'goal' } });
+      return;
+    }
+    streamBroadcast('', { v: 2, type: 'ui/slot', data: {
+      id: 'goal', priority: 30, title: '目标', detail: g.title || '', action: 'goal',
+    } });
+  };
+
+  /** 子代理：数量够说明"正在分工干活"，但手机端不需要知道每个细节（面板里有）。 */
+  const broadcastSubagentsSlot = () => {
+    const n = childParent.size;
+    if (n === 0) {
+      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'subagents' } });
+      return;
+    }
+    streamBroadcast('', { v: 2, type: 'ui/slot', data: {
+      id: 'subagents', priority: 50, title: '子代理', detail: `${n} 个`, action: 'subagents',
+    } });
+  };
+
+  /** MCP：只统计本次会话真正调用过的服务（没连过的不编）。 */
+  const broadcastMcpSlot = () => {
+    const n = MCP_SERVERS.size;
+    if (n === 0) {
+      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'mcp' } });
+      return;
+    }
+    streamBroadcast('', { v: 2, type: 'ui/slot', data: {
+      id: 'mcp', priority: 55, title: 'MCP 服务', detail: `${n} 个已用过`, action: 'mcp',
+    } });
+  };
+
+  /**
+   * 权限状态插槽（2026-11-13）：沙箱模式 / 权限档位 / 审批策略。
+   *
+   * <p>这三样决定"电脑能替你做多危险的事"，是手机上最该一眼看到的可信信息之一。
+   * 数据来自 DSH 自己的事件（sandbox/mode、permission/preset、approval/policy），
+   * 不猜服务 API；`danger-full-access` 标黄——那是真的高风险。</p>
+   */
+  const broadcastPermissionSlot = () => {
+    const parts = [PERM_STATE.sandbox, PERM_STATE.preset, PERM_STATE.policy].filter((s) => s && s.length);
+    if (parts.length === 0) {
+      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'permission' } });
+      return;
+    }
+    streamBroadcast('', { v: 2, type: 'ui/slot', data: {
+      id: 'permission',
+      priority: 35,
+      title: '权限',
+      detail: parts.join(' · '),
+      action: 'permission',
+      warn: PERM_STATE.sandbox === 'danger-full-access',
+    } });
+  };
+
+  /** 从 mcp__<server>__<tool> 取服务名 */
+  const mcpServerOf = (toolName) => {
+    const n = String(toolName ?? '');
+    if (!n.startsWith('mcp__')) return '';
+    const rest = n.slice(5);
+    const cut = rest.indexOf('__');
+    return cut > 0 ? rest.slice(0, cut) : rest;
+  };
+
   try {
     ctx.on('schedule/changed', () => {
       streamBroadcast('', { v: 2, type: 'schedule/changed', ts: Date.now() });
+      pushScheduleSlot();
     });
   } catch { /* 旧版没有 schedule */ }
+
+  /**
+   * 事件枚举表（2026-11-13）：DSH 会话事件 → 手机端。
+   *
+   * <p>原则：<b>枚举全部已知类型</b>，说明每类在手机端做什么；表格之外的类型不丢弃，
+   * 只在 {@link noteEventType} 里记一次"未登记"，并通过 {@code /v2/events/catalog} 暴露出来。
+   * 这样换 DSH 版本冒出新型事件时，是"看得见的新类型"，而不是悄悄少了一块内容。</p>
+   *
+   * <p>{@code forward} = 是否会进聊天时间线；{@code slot} = 是否还驱动输入区上方的插槽。</p>
+   */
+  const EVENT_CATALOG = {
+    // ---- 消息与回合 ----
+    'user/message': { forward: true, desc: '电脑端手敲的用户消息（手机镜像成 USER 气泡）' },
+    'assistant/message': { forward: true, desc: '助手正文（权威累计值，覆盖流式草稿）' },
+    'turn/start': { forward: true, desc: '回合开始' },
+    'turn/end': { forward: true, desc: '回合结束（含结束原因）' },
+    'step/start': { forward: true, desc: '步骤开始' },
+    'step/end': { forward: true, desc: '步骤结束' },
+    'tool/call': { forward: true, desc: '工具调用（工具卡的来源）' },
+    'tool/result': { forward: true, desc: '工具结果（按 callId 回填到工具卡）' },
+    'error': { forward: true, desc: '错误' },
+    'cwd': { forward: true, desc: '工作目录变更' },
+    // ---- 交互 ----
+    'approval': { forward: true, desc: '审批请求（带允许/拒绝）' },
+    'approval_gone': { forward: true, desc: '审批已处理/撤回' },
+    'question': { forward: true, desc: '反问（带选项）' },
+    'question_gone': { forward: true, desc: '反问已处理/撤回' },
+    'plan/mode': { forward: true, desc: '计划模式开关' },
+    // ---- 权限/沙箱 ----
+    'sandbox/mode': { forward: true, slot: 'permission', desc: '沙箱模式' },
+    'permission/preset': { forward: true, slot: 'permission', desc: '权限档位' },
+    'approval/policy': { forward: true, slot: 'permission', desc: '审批策略' },
+    'agent-preset/selected': { forward: true, desc: '智能体预设变更' },
+    // ---- 子代理 / 后台任务 / 目标 ----
+    'subagent/catalog': { forward: true, slot: 'subagents', desc: '子代理登记（目录）' },
+    'subagent/descriptor': { forward: true, desc: '子代理描述' },
+    'subagent/activity': { forward: true, desc: '子代理实时活动（合成事件）' },
+    'job/registered': { forward: true, slot: 'jobs', desc: '后台任务开始' },
+    'job/settled': { forward: true, slot: 'jobs', desc: '后台任务结束（成功/失败）' },
+    'goal/change': { forward: true, slot: 'goal', desc: '目标内容变更' },
+    'goal/activation-changed': { forward: true, slot: 'goal', desc: '目标激活状态变更' },
+    // ---- 上下文 / 日程 ----
+    'compaction/start': { forward: true, slot: 'compaction', desc: '上下文压缩开始' },
+    'compaction/end': { forward: true, slot: 'compaction', desc: '上下文压缩结束' },
+    'schedule/changed': { forward: true, slot: 'schedule', desc: '日程变更' },
+    'session/title': { forward: true, desc: '会话标题变更' },
+    'session/request_permission': { forward: true, desc: '会话级权限请求' },
+    // ---- 传输层（不落盘，仅实时） ----
+    'stream/delta': { forward: true, desc: 'token/工具增量（瞬态，不落盘）' },
+    'stream/end': { forward: true, desc: '增量流结束' },
+  };
+
+  /** 已观察到的"表外"事件类型（诊断用；同类型只记一次日志） */
+  const unseenEventTypes = new Map();
+
+  const noteEventType = (t) => {
+    if (!t) return;
+    if (EVENT_CATALOG[t]) return;
+    if (t.startsWith('session-log-')) return;   // 前缀族：日志投影行，不进时间线
+    if (unseenEventTypes.has(t)) return;
+    unseenEventTypes.set(t, Date.now());
+    try {
+      console.warn('[smartquiz-remote] 未登记的事件类型（仍会转发，但请补进 EVENT_CATALOG）: ' + t);
+    } catch { /* console 不可用时忽略 */ }
+  };
 
   try {
     ctx.on('session/event', (session, event) => {
       const sid = String(session?.id ?? '');
       if (!sid || !event) return;
       const t = String(event.type ?? '');
+      // EVENT-CATALOG(2026-11-13)：所有事件类型都在下面这张表里登记；没登记的只记一次日志，
+      // 但**照常转发**——"我可能不用，但你不能没有"。
+      noteEventType(t);
       if (t === 'subagent/catalog') {
         const d = event.data ?? {};
         const childId = String(d.childId ?? '');
         if (childId) {
           childParent.set(childId, sid);
           if (d.label) childLabel.set(childId, String(d.label));
+          broadcastSubagentsSlot();
         }
         return;
       }
       const root = childParent.get(sid);
+      // 任务 / 目标的持续状态：在"只转子代理活动"的早退之前处理（主会话事件也要收）
+      if (t === 'job/registered' || t === 'job/settled') {
+        const d = event.data ?? {};
+        const id = String(d.jobId ?? d.id ?? d.job_id ?? '');
+        if (id) {
+          const prev = JOB_STATE.get(id) ?? {};
+          const failed = Boolean(d.failed) || String(d.status ?? '') === 'failed';
+          JOB_STATE.set(id, {
+            id,
+            // 标签只留 60 字：手机插槽最多两行，命令原文太长会把别的插槽挤下去
+            label: String(d.label ?? d.kind ?? prev.label ?? '后台任务').slice(0, 60),
+            status: t === 'job/registered' ? 'running' : (failed ? 'failed' : 'done'),
+            failed,
+            ts: Number(event.time) || Date.now(),
+          });
+          // 只留最近 N 条，避免长时间会话无限增长
+          if (JOB_STATE.size > JOB_STATE_MAX) {
+            const oldest = [...JOB_STATE.values()].sort((a, b) => a.ts - b.ts)[0];
+            if (oldest) JOB_STATE.delete(oldest.id);
+          }
+          broadcastJobsSlot();
+          scheduleStateSave();
+        }
+        return;
+      }
+      if (t === 'goal/change' || t === 'goal/activation-changed') {
+        const d = event.data ?? {};
+        GOAL_STATE.set(sid, {
+          title: String(d.title ?? d.goal ?? d.text ?? ''),
+          active: d.active !== false,
+          ts: Number(event.time) || Date.now(),
+        });
+        broadcastGoalSlot(sid);
+        scheduleStateSave();
+        return;
+      }
+      // 权限/沙箱/审批策略：只在变化时更新一次，用作状态插槽
+      if (t === 'sandbox/mode' || t === 'permission/preset'
+          || t === 'approval/policy' || t === 'agent-preset/selected') {
+        const d = event.data ?? {};
+        if (t === 'sandbox/mode') PERM_STATE.sandbox = String(d.mode ?? '');
+        else if (t === 'permission/preset') PERM_STATE.preset = String(d.preset ?? '');
+        else if (t === 'approval/policy') PERM_STATE.policy = String(d.policy ?? '');
+        else PERM_STATE.agentPreset = String(d.agentPreset ?? '');
+        PERM_STATE.ts = Number(event.time) || Date.now();
+        broadcastPermissionSlot();
+        return;
+      }
+      // MCP：只从真实工具调用里认服务名（mcp__<server>__<tool>），不猜"连了几个"
+      if (t === 'tool/call') {
+        const srv = mcpServerOf(event.data?.name);
+        if (srv && !MCP_SERVERS.has(srv)) {
+          MCP_SERVERS.add(srv);
+          broadcastMcpSlot();
+        }
+      }
       if (!root) return;
       const brief = sessionEventBrief(event);
       if (!brief) return;
@@ -1426,6 +1710,93 @@ export function apply(ctx, config) {
 
   /** 能力校验：不声明 caps 的旧客户端一律放行（与 caps.js 同一口径） */
   const capsAllowed = (caps, cap) => allows(caps, cap);
+
+  /** 后台任务列表（事件派生状态，见 JOB_STATE）。 */
+  route('exact', '/v2/jobs', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const items = [...JOB_STATE.values()].sort((a, b) => b.ts - a.ts).slice(0, 50);
+    return sendJson(res, 200, {
+      ok: true, v: 2, count: items.length,
+      running: items.filter((j) => j.status === 'running').length,
+      items,
+    });
+  });
+
+  /** 目标状态（事件派生）；带 session_id 查单条，不带则列全部。 */
+  route('exact', '/v2/goal', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+    const sid = String(q.searchParams.get('session_id') ?? '').trim();
+    if (sid) {
+      return sendJson(res, 200, { ok: true, v: 2, session_id: sid, goal: GOAL_STATE.get(sid) ?? null });
+    }
+    return sendJson(res, 200, {
+      ok: true, v: 2,
+      goals: [...GOAL_STATE.entries()].map(([s, g]) => ({ session_id: s, ...g })),
+    });
+  });
+
+  /** 本进程用过的 MCP 服务（从工具名派生，不猜"连了几个"）。 */
+  route('exact', '/v2/mcp', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const servers = [...MCP_SERVERS].sort();
+    return sendJson(res, 200, { ok: true, v: 2, count: servers.length, servers });
+  });
+
+  /**
+   * 事件枚举表（诊断/对接用）：返回插件登记的全部事件类型 + 运行期见过的"表外"类型。
+   *
+   * <p>手机端不依赖它也能工作；它的价值是换 DSH 版本后能立刻看出"多了/少了什么"。</p>
+   */
+  route('exact', '/v2/events/catalog', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const types = Object.keys(EVENT_CATALOG).sort();
+    const unregistered = [...unseenEventTypes.keys()].sort();
+    return sendJson(res, 200, {
+      ok: true, v: 2,
+      count: types.length,
+      types: types.map((t) => ({ type: t, ...EVENT_CATALOG[t] })),
+      unregistered,
+    });
+  });
+
+  /** 权限状态（沙箱 / 档位 / 审批策略的最近取值）。 */
+  route('exact', '/v2/permission', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    return sendJson(res, 200, { ok: true, v: 2, ...PERM_STATE });
+  });
+
+  /**
+   * 客户端可发起的操作（白名单）。
+   *
+   * <p>为什么是白名单而不是通用 RPC：手机端一旦能"发任意动作"，权限边界就只靠 ui 自觉。
+   * 这里只放两个**无破坏性**的：清空任务列表（本地展示态）与重建时间线（resync）。
+   * 计划开关走 /v2/plan（已有写权限校验），日程执行走 /v2/schedule，不在这里重复开口子。</p>
+   */
+  route('exact', '/v2/action', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    if (String(req.method || 'GET').toUpperCase() === 'GET') {
+      return sendJson(res, 405, { ok: false, error: 'use_post' });
+    }
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { body = {}; }
+    const action = String(body.action ?? '').trim();
+    if (action === 'jobs.clear') {
+      JOB_STATE.clear();
+      scheduleStateSave();
+      broadcastJobsSlot();
+      return sendJson(res, 200, { ok: true, v: 2, action, jobs: 0 });
+    }
+    if (action === 'resync') {
+      // 手机时间线乱了的出口：广播一条"重建"信号（手机侧 handleChannelEvent 已实现）
+      streamBroadcast('', { v: 2, type: '__force_resync', data: { server_seq: Number(body.server_seq ?? -1) } });
+      return sendJson(res, 200, { ok: true, v: 2, action });
+    }
+    return sendJson(res, 400, {
+      ok: false, v: 2, error: 'unknown_action', action,
+      allowed: ['jobs.clear', 'resync'],
+    });
+  });
 
   route('exact', '/v2/schedule', async (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
@@ -2922,6 +3293,14 @@ export function apply(ctx, config) {
     };
     pushState();
     pushView();
+    // 连上就把四类持续状态各推一次（jobs / goal / subagents / mcp）；之后按事件增量刷新
+    broadcastJobsSlot();
+    broadcastGoalSlot(sid);
+    broadcastSubagentsSlot();
+    broadcastMcpSlot();
+    broadcastPermissionSlot();
+    // 日程概览（通用 ui/slot）
+    pushScheduleSlot();
     viewTimer = setInterval(() => { if (!closed) pushView(); }, 5000);
     // since = -2 means "start from now": no history replay (first connect / no cursor)
     const since = sinceParam === -2 ? -2
