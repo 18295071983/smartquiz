@@ -26,7 +26,8 @@
 - 意图 + 粗分解：`SmartIntentRecognizer.recognize()`（关键词/正则/LLM，LLM 路径为保 KV 本地禁用）+ `splitIntoSubTasks`（按"然后/接着/再"切）+ `recognizeMultiIntent`。→ **意图与廉价分解现成**（但当前路由没在本地循环前 gate 它）。
 - 状态/阶段块：`AgentExecutionState.BlockType` 已声明 `PLANNING/OBSERVATION/REFLECTION`，但本地路径从不 emit。
 - 任务：`TaskTool` add/update/complete/fail/list + `ChatHistoryManager.saveAgentTaskList/loadAgentTaskList` 持久化。→ **但 "task" 不在 `DEFAULT_CORE_TOOLS`，本地 FC 循环调不到**，只能被 `buildTaskSummary` 只读注入。
-- 清缓存/拼提示：`LlamaHelper.clearHistory()`(native clear) / `AIService.clearHistory`、`ResponseCacheManager`(prompt-hash 答案缓存、clearSession)、`trimHistoryToFit`+`compactionSummary`（已实现"摘要压缩 + 只增不改"保 KV）。`NpuEngineRouter.generate/generateWithTools/chatSend/chatJson` 为生成入口。
+- 清缓存/拼提示：`LlamaHelper.clearHistory()`(native clear) / `AIService.clearHistory`、`trimHistoryToFit`+`compactionSummary`（已实现"摘要压缩 + 只增不改"保 KV）。`NpuEngineRouter.generate/generateWithTools/chatSend/chatJson` 为生成入口。
+  ~~`ResponseCacheManager`(prompt-hash 答案缓存)~~：2026-11-13 起该能力整体不存在（层2 答案缓存连 `CacheManager` 一起删了，见 `inference-cache-hit-design-2026-10-30.md` v1.2 §3）。
 
 **真缺**：① 由循环驱动的显式 PLANNING 阶段（意图编排当初被移除）；② 反思 GATE（评价→回滚/重跑某步）；③ 本地引擎的**可恢复长任务队列 / pause-resume-step**（只有在线 `AgentRouter` 有）；④ 结构化任务图（现只有跨轮扁平列表）；⑤ 把 `task` 变成本地可调用（薄工具或薄动作）。
 
@@ -42,7 +43,7 @@
 4. **Reflector（复盘 gate，复用 `ReflectionEngine`）**：步骤级或答案级触发一次 `reflect()`；判"证据不足/方向错"则**追加 `[REFLECT] 教训`** 并重规划/重跑该步（上限 1–2，对齐 `MAX_RETRIES`）。不推翻已入历史的前缀，只在尾部加。
 5. **Finalizer**：全部步骤 done → 走现有 `generateFinalAnswer` 汇总；`Summarizer` 可选压缩长会话。
 6. **ResumeDriver（长任务续跑）**：跨调用从 `loadAgentTaskList` 读未完成队列 → 注入为 `[PLAN pending]` 尾消息 → 继续 Executor。这就是"继续完成"。**只有这条链路需要"中途加东西"，但加的是尾部消息（会话序列本就逐字节 replay），不破前缀。**
-7. **Cache/Prompt 控制**：阈值式——历史 >60% 预算 `trimHistoryToFit`（已有）；触发 `compactionSummary`（已有）；答案级 `ResponseCacheManager`；显式清 KV = `LlamaHelper.clearHistory`（在**会话切换/重置**时，不在中途，否则丢前缀）。
+7. **Cache/Prompt 控制**：阈值式——历史 >60% 预算 `trimHistoryToFit`（已有）；触发 `compactionSummary`（已有）；显式清 KV = `LlamaHelper.clearHistory`（在**会话切换/重置**时，不在中途，否则丢前缀）。答案级缓存已取消（2026-11-13），不要再按本条去接 `ResponseCacheManager`。
 
 ## 4. 分阶段落地（PoC 优先，可回退）
 

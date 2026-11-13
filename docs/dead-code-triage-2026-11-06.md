@@ -234,12 +234,17 @@
 
 **6 个卡在闸上没删**（有命中就要人判，机器不替）：
 
-- `GpuAdaptiveTuner` — GpuAdaptiveTuner.java
-- `AgentExecutionEngine` — AgentExecutionEngine.java
-- `TypeConverter` — TypeConverter.java
-- `AIFileExporter` — AIFileExporter.java
-- `ModelHotSwitcher` — ModelHotSwitcher.java
-- `GgmlProbe` — GgmlProbe.java
+> **2026-11-13 追记**：已删 4 个。核实结果：那四条命中全部只出现在
+> `src/main/assets/pages/question-renderer.html` 的**架构说明表格**里（给人看的文字，
+> 不是代码引用），人工判定后放行。删除后编译通过、全量 1934 用例 0 失败。
+> 仍卡着 2 个，理由见下。
+
+- ~~`GpuAdaptiveTuner`~~ — 已删（2026-11-13，仅 HTML 表格命中）
+- ~~`AgentExecutionEngine`~~ — 已删（2026-11-13，仅 HTML 表格命中）
+- `TypeConverter` — 仍保留（命中打包资产 `program/services.rdb`）
+- ~~`AIFileExporter`~~ — 已删（2026-11-13，仅 HTML 表格命中）
+- ~~`ModelHotSwitcher`~~ — 已删（2026-11-13，仅 HTML 表格命中）
+- `GgmlProbe` — 仍保留（命中 `src/main/cpp/ggml-probe.cpp`，需先读那段 C++）
 
 命中来源分两种：`GgmlProbe` 命中在 `src/main/cpp/ggml-probe.cpp`（native 侧真按这个名字有牵连，
 删前得读那段 C++ 确认是引用还是注释）；`TypeConverter` 命中在打包进来的 LibreOffice 资产
