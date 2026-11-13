@@ -12,6 +12,9 @@ import java.util.Map;
  * <p>口径来源（插件 {@code statusBody()}）：{@code cli.running/queued/max}、
  * {@code approval_relay.pending}、{@code devices}、{@code sessions_count}、
  * {@code active_jobs}、{@code version}。</p>
+ *
+ * <p>2026-11-13 扩展：合并 {@code /v2/usage} 的 token/上下文/模型（{@link #withUsage}），
+ * 并记录一次 {@code /status} 往返耗时当 RTT。</p>
  */
 public final class RemoteStatusSnapshot {
 
@@ -26,9 +29,28 @@ public final class RemoteStatusSnapshot {
     public final int activeJobs;
     public final long fetchedAt;
 
+    // ---- 2026-11-13：/v2/usage 合并进来的字段 ----
+    public final boolean usageOk;
+    public final int pressureTokens;
+    public final int contextWindow;
+    public final int totalTokens;
+    public final String model;
+    public final String effort;
+    public final long rttMs;
+    public final String serviceVersion;
+
     public RemoteStatusSnapshot(boolean ok, String version, int cliRunning, int cliQueued, int cliMax,
                                 int approvalsPending, int devices, int sessionsCount, int activeJobs,
                                 long fetchedAt) {
+        this(ok, version, cliRunning, cliQueued, cliMax, approvalsPending, devices, sessionsCount,
+                activeJobs, fetchedAt, false, 0, 0, 0, "", "", 0L, "");
+    }
+
+    public RemoteStatusSnapshot(boolean ok, String version, int cliRunning, int cliQueued, int cliMax,
+                                int approvalsPending, int devices, int sessionsCount, int activeJobs,
+                                long fetchedAt, boolean usageOk, int pressureTokens, int contextWindow,
+                                int totalTokens, String model, String effort, long rttMs,
+                                String serviceVersion) {
         this.ok = ok;
         this.version = version == null ? "" : version;
         this.cliRunning = Math.max(0, cliRunning);
@@ -39,6 +61,29 @@ public final class RemoteStatusSnapshot {
         this.sessionsCount = Math.max(0, sessionsCount);
         this.activeJobs = Math.max(0, activeJobs);
         this.fetchedAt = fetchedAt;
+        this.usageOk = usageOk;
+        this.pressureTokens = Math.max(0, pressureTokens);
+        this.contextWindow = Math.max(0, contextWindow);
+        this.totalTokens = Math.max(0, totalTokens);
+        this.model = model == null ? "" : model;
+        this.effort = effort == null ? "" : effort;
+        this.rttMs = Math.max(0L, rttMs);
+        this.serviceVersion = serviceVersion == null ? "" : serviceVersion;
+    }
+
+    /** 合并 {@code /v2/usage} 响应（失败就保留主快照原样）。 */
+    public RemoteStatusSnapshot withUsage(Object usage, long rtt) {
+        if (usage == null) return this;
+        return new RemoteStatusSnapshot(ok, version, cliRunning, cliQueued, cliMax, approvalsPending,
+                devices, sessionsCount, activeJobs, fetchedAt,
+                boolOf(child(usage, "ok"), false),
+                intOf(child(usage, "pressure_tokens"), 0),
+                intOf(child(usage, "context_window"), 0),
+                intOf(child(usage, "total_tokens"), 0),
+                strOf(child(usage, "model")),
+                strOf(child(usage, "effort")),
+                rtt,
+                version);
     }
 
     /** 电脑端当前执行态：运行中 / 排队 N / 空闲。 */
@@ -49,11 +94,7 @@ public final class RemoteStatusSnapshot {
         return "空闲";
     }
 
-    /**
-     * 需要黄色提示的原因；空串 = 健康。
-     *
-     * <p>顺序即优先级：待审批最急（人不动它就一直挂着），其次排队，最后后台任务。</p>
-     */
+    /** 需要黄色提示的原因；空串 = 健康。 */
     public String warningText() {
         if (approvalsPending > 0) return "审批 " + approvalsPending;
         if (cliQueued > 0) return "排队 " + cliQueued;
@@ -69,8 +110,31 @@ public final class RemoteStatusSnapshot {
         return sb.toString();
     }
 
+    /** 上下文占用（有 contextWindow 才算得出百分比）。 */
+    public String contextText() {
+        if (!usageOk || pressureTokens <= 0 || contextWindow <= 0) return "";
+        int pct = (int) Math.max(0, Math.min(100, Math.round(pressureTokens * 100.0 / contextWindow)));
+        return "上下文 " + pct + "%";
+    }
+
+    /** 本轮 token（>=1K 用 K 表示）。 */
+    public String tokensText() {
+        if (!usageOk || totalTokens <= 0) return "";
+        if (totalTokens < 1000) return totalTokens + " tok";
+        return String.format(java.util.Locale.US, "%.1fK tok", totalTokens / 1000.0);
+    }
+
+    public boolean hasUsage() {
+        return usageOk && (pressureTokens > 0 || totalTokens > 0);
+    }
+
     /** 解析 `/status` 响应（容错：缺字段一律 0/空，不让状态条因为某个字段改名而崩）。 */
     public static RemoteStatusSnapshot parse(Object root, long fetchedAt) {
+        return parse(root, fetchedAt, 0L);
+    }
+
+    /** 同上，额外记录一次 /status 往返耗时（状态条的 RTT）。 */
+    public static RemoteStatusSnapshot parse(Object root, long fetchedAt, long rttMs) {
         Object cli = child(root, "cli");
         Object approval = child(root, "approval_relay");
         return new RemoteStatusSnapshot(
@@ -83,7 +147,8 @@ public final class RemoteStatusSnapshot {
                 intOf(child(root, "devices"), 0),
                 intOf(child(root, "sessions_count"), 0),
                 intOf(child(root, "active_jobs"), 0),
-                fetchedAt);
+                fetchedAt,
+                false, 0, 0, 0, "", "", rttMs, "");
     }
 
     // ---- 容错取值：httpJson 可能给 Map，也可能是 JSONObject ----

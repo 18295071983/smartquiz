@@ -716,7 +716,8 @@ public class AIChatActivity extends BaseActivity {
         remoteDshBadge = findViewById(R.id.remote_dsh_badge);
         remoteDshAction = findViewById(R.id.remote_dsh_action);
         if (remoteDshBar != null) {
-            remoteDshBar.setOnLongClickListener(v -> { showRemoteHint(); return true; });
+            // 长按看全部动态指标（阶段/轮步/模型/上下文/token/RTT/重连）；说明留在详情弹窗里
+            remoteDshBar.setOnLongClickListener(v -> { showRemoteStatusDetail(); return true; });
             remoteDshBar.setOnClickListener(v ->
                     startActivity(new Intent(AIChatActivity.this,
                             com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class)));
@@ -14939,41 +14940,66 @@ public class AIChatActivity extends BaseActivity {
             action = "去连接 ›";
             // 断开就别再显示上一台电脑的忙碌状态
             com.oilquiz.app.ai.tool.RemoteStatusMonitor.clear();
+            com.oilquiz.app.ai.tool.RemoteLiveStatus.reset();
         } else {
-            // BAR-V2(2026-11-13)：已连接时显示「电脑现在忙不忙」，而不只是「连上了」。
-            // 数据源两个：/status（节流 15s，失败保留上次）+ 通道心跳里的 seq 游标。
+            // BAR-V3(2026-11-13)：已连接时显示"电脑现在在干什么"，而不只是"连上了"。
+            // 数据源三个：会话事件派生的实时状态（阶段/工具/计时）+ /status（忙闲/审批/队列）
+            // + /v2/usage（上下文占用/本轮 token/模型）。RTT 用 /status 往返耗时。
             com.oilquiz.app.ai.tool.RemoteStatusSnapshot st =
                     com.oilquiz.app.ai.tool.RemoteStatusMonitor.get();
-            // 黄 = 需要人处理（待审批 / 排队）；"运行中"是正常状态，保持绿
-            boolean needsAttention = st != null && st.ok
-                    && (st.approvalsPending > 0 || st.cliQueued > 0);
-            dotRes = needsAttention ? R.drawable.circle_yellow : R.drawable.circle_green;
-
-            title = (st != null && st.ok)
-                    ? "电脑已连接 · " + st.headline()
-                    : "电脑已连接 · " + hostOf(com.oilquiz.app.ai.tool.RemoteDshTool.configValue(this, "base_url"));
-
-            String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
-            String syncTitle = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTitle(this);
-            StringBuilder sb = new StringBuilder();
-            sb.append(target.isEmpty()
-                    ? "连接即遥控 · 还没选跟随会话（点这里去选）"
-                    : "连接即遥控 · 跟随「" + (syncTitle.isEmpty() ? shortId(target) : syncTitle) + "」");
+            com.oilquiz.app.ai.tool.RemoteLiveStatus.Snapshot live =
+                    com.oilquiz.app.ai.tool.RemoteLiveStatus.snapshot();
             com.oilquiz.app.ai.tool.RemoteConnection conn =
                     com.oilquiz.app.ai.tool.RemoteConnection.get(this);
-            int server = conn.serverSeq();
-            int applied = conn.appliedSeq();
-            if (server >= 0) {
-                sb.append(" · seq ").append(Math.max(0, applied)).append('/').append(server);
+
+            boolean needsAttention = st != null && st.ok
+                    && (st.approvalsPending > 0 || st.cliQueued > 0);
+            if (live.phase == com.oilquiz.app.ai.tool.RemoteLiveStatus.Phase.WAITING_APPROVAL) {
+                needsAttention = true;
             }
-            int behind = conn.behindCount();
-            if (behind > 0) sb.append(" · 落后 ").append(behind);
-            sub = sb.toString();
+            dotRes = needsAttention ? R.drawable.circle_yellow : R.drawable.circle_green;
+
+            String phase = remotePhaseText(live);
+            String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+            String syncTitle = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTitle(this);
+            String follow = target.isEmpty()
+                    ? "还没选跟随会话（点这里去选）"
+                    : "跟随「" + (syncTitle.isEmpty() ? shortId(target) : syncTitle) + "」";
+
+            if (!conn.isOnline()) {
+                title = "电脑已连接 · 重连中" + (conn.reconnectCount() > 0 ? "（第 " + conn.reconnectCount() + " 次）" : "");
+                sub = follow + " · 正在恢复通道，稍等几秒";
+            } else {
+                title = "电脑已连接 · " + phase;
+                StringBuilder sb = new StringBuilder(follow);
+                if (live.turn > 0) {
+                    sb.append(" · ").append(live.turn).append(" 轮");
+                    if (live.step > 0) sb.append(" ").append(live.step).append(" 步");
+                }
+                if (st != null && st.ok && st.rttMs > 0) sb.append(" · RTT ").append(st.rttMs).append("ms");
+                if (live.lastEventAgeMs >= 0) sb.append(" · ").append(remoteAgo(live.lastEventAgeMs));
+                if (st != null && st.usageOk) {
+                    String ctx = st.contextText();
+                    String tok = st.tokensText();
+                    if (!ctx.isEmpty()) sb.append(" · ").append(ctx);
+                    if (!tok.isEmpty()) sb.append(" · ").append(tok);
+                }
+                if (st != null && st.ok && st.approvalsPending > 0) sb.append(" · 审批 ").append(st.approvalsPending);
+                if (st != null && st.ok && st.cliQueued > 0) sb.append(" · 排队 ").append(st.cliQueued);
+                if (st != null && st.ok && st.activeJobs > 0) sb.append(" · 后台 ").append(st.activeJobs);
+                int behind = conn.behindCount();
+                if (behind > 0) sb.append(" · 落后 ").append(behind);
+                if (conn.reconnectCount() > 0) sb.append(" · 重连 ").append(conn.reconnectCount());
+                sub = sb.toString();
+            }
             action = "管理 ›";
 
-            // 后台拉一次 /status（节流 15s，单飞）；回来后重刷这条状态条
-            com.oilquiz.app.ai.tool.RemoteStatusMonitor.refreshAsync(this, 15000L,
+            // 后台拉一次 /status + /v2/usage（节流 15s，单飞）；回来后重刷这条状态条
+            com.oilquiz.app.ai.tool.RemoteStatusMonitor.refreshAsync(this,
+                    com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this), 15000L,
                     () -> runOnUiThread(this::refreshRemoteDshBar));
+            // 1s 心跳：工具/生成/等待审批的秒数用本地时钟跳，服务端日志静止也照跳
+            scheduleRemoteBarTick();
         }
         remoteDshDot.setBackground(androidx.core.content.ContextCompat.getDrawable(this, dotRes));
         remoteDshText.setText(title);
@@ -14987,6 +15013,133 @@ public class AIChatActivity extends BaseActivity {
         }
         remoteDshAction.setText(action);
         remoteDshBar.setVisibility(View.VISIBLE);
+    }
+
+    // ===== 远程状态条：动态信息（2026-11-13）=====
+
+    private final android.os.Handler remoteBarTickHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable remoteBarTick = () -> {
+        try {
+            refreshRemoteDshBar();
+        } catch (Throwable ignored) {
+        }
+    };
+
+    /** 已连接时每秒重刷一次：工具/生成/等待审批的秒数由本地时钟驱动。 */
+    private void scheduleRemoteBarTick() {
+        remoteBarTickHandler.removeCallbacks(remoteBarTick);
+        remoteBarTickHandler.postDelayed(remoteBarTick, 1000L);
+    }
+
+    private void stopRemoteBarTick() {
+        remoteBarTickHandler.removeCallbacks(remoteBarTick);
+    }
+
+    /** 阶段文案：空闲 / 思考中 0:12 / 生成中 / 执行 bash 0:42 / 等待审批 / 压缩上下文 / 重试中。 */
+    private static String remotePhaseText(com.oilquiz.app.ai.tool.RemoteLiveStatus.Snapshot s) {
+        if (s == null) return "空闲";
+        String d = remoteDuration(s.phaseElapsedMs);
+        switch (s.phase) {
+            case THINKING:
+                return d.isEmpty() ? "思考中" : "思考中 " + d;
+            case GENERATING:
+                return d.isEmpty() ? "生成中" : "生成中 " + d;
+            case TOOL:
+                String name = s.tool == null || s.tool.isEmpty() ? "工具" : s.tool;
+                return d.isEmpty() ? "执行 " + name : "执行 " + name + " " + d;
+            case WAITING_APPROVAL:
+                return d.isEmpty() ? "等待审批" : "等待审批 " + d;
+            case COMPACTING:
+                return d.isEmpty() ? "压缩上下文" : "压缩上下文 " + d;
+            case RETRYING:
+                return d.isEmpty() ? "重试中" : "重试中 " + d;
+            default:
+                return "空闲";
+        }
+    }
+
+    private static String remoteDuration(long ms) {
+        if (ms <= 0L) return "";
+        long sec = ms / 1000L;
+        if (sec < 60L) return "0:" + (sec < 10L ? "0" : "") + sec;
+        return (sec / 60L) + ":" + String.format(java.util.Locale.US, "%02d", sec % 60L);
+    }
+
+    private static String remoteAgo(long ms) {
+        if (ms < 0L) return "";
+        if (ms < 1500L) return "刚刚";
+        if (ms < 60000L) return (ms / 1000L) + "s 前";
+        if (ms < 3600000L) return (ms / 60000L) + "m 前";
+        return (ms / 3600000L) + "h 前";
+    }
+
+    /** 长按状态条：全部动态指标（阶段/轮步/模型/上下文/token/RTT/序列/重连）。 */
+    private void showRemoteStatusDetail() {
+        try {
+            com.oilquiz.app.ai.tool.RemoteLiveStatus.Snapshot live =
+                    com.oilquiz.app.ai.tool.RemoteLiveStatus.snapshot();
+            com.oilquiz.app.ai.tool.RemoteStatusSnapshot st =
+                    com.oilquiz.app.ai.tool.RemoteStatusMonitor.get();
+            com.oilquiz.app.ai.tool.RemoteConnection conn =
+                    com.oilquiz.app.ai.tool.RemoteConnection.get(this);
+            StringBuilder sb = new StringBuilder();
+            sb.append("阶段：").append(remotePhaseText(live)).append('\n');
+            if (live.turn > 0) {
+                sb.append("进度：第 ").append(live.turn).append(" 轮");
+                if (live.step > 0) sb.append(" / 第 ").append(live.step).append(" 步");
+                sb.append('\n');
+            } else if (live.step > 0) {
+                sb.append("进度：第 ").append(live.step).append(" 步\n");
+            }
+            if (live.lastEventAt > 0L) {
+                sb.append("最近事件：").append(remoteAgo(System.currentTimeMillis() - live.lastEventAt)).append('\n');
+            }
+            sb.append("事件：本次连接 ").append(live.events)
+                    .append(" 条 · 近 1 分钟 ").append(live.windowEvents).append(" 条\n");
+            sb.append("通道：").append(conn.isOnline() ? "在线" : "重连中");
+            if (conn.reconnectCount() > 0) sb.append("（重连 ").append(conn.reconnectCount()).append(" 次）");
+            sb.append(" · seq ").append(Math.max(0, conn.appliedSeq())).append('/').append(Math.max(0, conn.serverSeq()));
+            int behind = conn.behindCount();
+            if (behind > 0) sb.append(" · 落后 ").append(behind);
+            sb.append('\n');
+            if (st != null) {
+                if (st.rttMs > 0) sb.append("RTT：").append(st.rttMs).append("ms\n");
+                sb.append("电脑：").append(st.executionText());
+                if (st.approvalsPending > 0) sb.append(" · 待审批 ").append(st.approvalsPending);
+                if (st.cliQueued > 0) sb.append(" · 排队 ").append(st.cliQueued);
+                if (st.activeJobs > 0) sb.append(" · 后台 ").append(st.activeJobs);
+                sb.append('\n');
+                if (st.usageOk) {
+                    if (!st.model.isEmpty()) {
+                        sb.append("模型：").append(st.model);
+                        if (!st.effort.isEmpty()) sb.append(" · ").append(st.effort);
+                        sb.append('\n');
+                    }
+                    String ctx = st.contextText();
+                    if (!ctx.isEmpty()) {
+                        sb.append("上下文：").append(st.pressureTokens).append(" / ")
+                                .append(st.contextWindow).append("（").append(ctx.replace("上下文 ", "")).append("）\n");
+                    }
+                    String tok = st.tokensText();
+                    if (!tok.isEmpty()) sb.append("本轮 token：").append(tok).append('\n');
+                } else {
+                    sb.append("token：电脑端插件未提供（旧版本或会话未在运行）\n");
+                }
+                sb.append("插件版本：v").append(st.version.isEmpty() ? "?" : st.version).append('\n');
+            } else {
+                sb.append("状态：还没拿到电脑端 /status\n");
+            }
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("远程连接状态")
+                    .setMessage(sb.toString().trim())
+                    .setPositiveButton("知道了", null)
+                    .setNeutralButton("使用说明", (d, w) -> showRemoteHint())
+                    .show();
+        } catch (Throwable t) {
+            android.widget.Toast.makeText(this, "状态详情打开失败：" + t.getMessage(),
+                    android.widget.Toast.LENGTH_SHORT).show();
+        }
     }
 
     /** 从 base_url 里取 host:port，状态条上显示短一点 */
@@ -15029,6 +15182,7 @@ public class AIChatActivity extends BaseActivity {
     protected void onPause() {
         // 离开页面后，审批/任务失败才需要弹通知（页内已有审批卡，重复提醒是打扰）
         sForegroundForAlerts = false;
+        stopRemoteBarTick();
         super.onPause();
     }
 

@@ -402,7 +402,7 @@ function writeSecret(file, data) {
   } catch { return false; }
 }
 
-export const inject = ['webServer', 'agents', 'sessions', 'tools'];   // tools：注册 phone_ui（反向通道生产者）
+export const inject = ['webServer', 'agents', 'sessions', 'tools', 'tokenMeter'];   // tools：注册 phone_ui；tokenMeter：状态栏的 token/上下文
 // ==================== 鉴权升级：一次性配对码 + 设备令牌 + 白名单 ====================
 // 设计：主令牌（配置/环境变量/持久化文件）仍是"主人"凭证；
 //       手机用「一次性配对码」（5 分钟有效、一次性）换取「设备令牌」，之后只带设备令牌；
@@ -2676,6 +2676,61 @@ function presetSvcOf(ctx) {
       policy: String(CLI_PERM.mode),
     };
   };
+  /**
+   * 会话 token / 上下文 / 模型（2026-11-13）：给手机状态栏显示"上下文占用、本轮 token、模型"。
+   *
+   * 数据来自宿主 tokenMeter 服务（sessionProjections 投影）：
+   *   contextPressure(session) -> { pressureTokens, contextWindow }
+   *   measure(session)         -> { totalTokens, surfaceTokens }
+   * 会话不在本进程（没在跑）或服务不可用时返回 ok:false + reason，不抛。
+   */
+  const lastRequestHeaderOf = (session) => {
+    try {
+      const seq = Number(session?.seq ?? 0);
+      const floor = Math.max(1, seq - 300);
+      for (let i = seq; i >= floor; i -= 1) {
+        const e = session?.eventAt?.(i);
+        if (e?.type !== 'request/header') continue;
+        const head = e?.data?.header?.config ?? {};
+        if (!head.model && !head.provider) continue;
+        return {
+          provider: String(head.provider ?? ''),
+          model: String(head.model ?? ''),
+          max_tokens: Number(head.maxTokens ?? 0) || null,
+          effort: String(head.reasoningEffort ?? ''),
+        };
+      }
+    } catch { /* 尾部不可读就当没有 */ }
+    return null;
+  };
+
+  const sessionUsage = (sid) => {
+    const out = { ok: false, session_id: sid };
+    if (!sid) { out.reason = 'no_session'; return out; }
+    let session = null;
+    try { session = ctx.sessions?.get?.(sid) ?? null; } catch { session = null; }
+    if (!session) { out.reason = 'session_not_live'; return out; }
+    const meter = ctx.tokenMeter;
+    if (!meter) { out.reason = 'no_token_meter'; return out; }
+    try {
+      const pressure = meter.contextPressure?.(session) ?? {};
+      const measured = meter.measure?.(session) ?? {};
+      out.ok = true;
+      out.pressure_tokens = Number.isFinite(pressure.pressureTokens) ? pressure.pressureTokens : null;
+      out.context_window = Number.isFinite(pressure.contextWindow) ? pressure.contextWindow : null;
+      out.total_tokens = Number(measured.totalTokens ?? 0) || 0;
+      out.surface_tokens = Number(measured.surfaceTokens ?? 0) || 0;
+      const head = lastRequestHeaderOf(session);
+      if (head) {
+        out.provider = head.provider;
+        out.model = head.model;
+        out.max_tokens = head.max_tokens;
+        out.effort = head.effort;
+      }
+    } catch (e) { out.reason = String(e?.message ?? e).slice(0, 160); }
+    return out;
+  };
+
   const statusBody = () => ({
     ok: true,
     service: 'dsh-plugin-remote',
@@ -4804,6 +4859,14 @@ function presetSvcOf(ctx) {
     // DSH Web UI 面板是同源 fetch，不带 Bearer —— 本机请求放行只读状态（不含令牌）；远程仍要令牌。
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     sendJson(res, 200, statusBody());
+  });
+
+  /** GET /v2/usage?session_id= —— 手机状态栏的 token/上下文/模型（2026-11-13） */
+  route('exact', '/v2/usage', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const u = new URL(req.url ?? '/', 'http://dsh.invalid');
+    const sid = String(u.searchParams.get('session_id') ?? '').trim();
+    return sendJson(res, 200, sessionUsage(sid));
   });
 
   /**

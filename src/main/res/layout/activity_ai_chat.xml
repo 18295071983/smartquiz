@@ -235,7 +235,7 @@
                     android:text="配对后可在手机上远程操作电脑"
                     android:textSize="10sp"
                     android:textColor="?attr/colorControlTextSecondary"
-                    android:maxLines="1"
+                    android:maxLines="2"
                     android:ellipsize="end"/>
             </LinearLayout>
 

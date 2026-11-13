@@ -107,6 +107,11 @@ public final class RemoteConnection {
         return started;
     }
 
+    /** 本次连接期间的重连次数（0 表示没掉过线）。 */
+    public int reconnectCount() {
+        return reconnectCount;
+    }
+
     public boolean isOnline() {
         return online;
     }
@@ -161,6 +166,8 @@ public final class RemoteConnection {
     private android.net.ConnectivityManager.NetworkCallback netCallback;
     /** 注册回调会立刻回调一次 onAvailable，别把它当成"网络切换"再连一遍 */
     private volatile boolean netCallbackPrimed = false;
+    /** 状态条用：本次连接期间发生了几次重连（2026-11-13） */
+    private volatile int reconnectCount = 0;
 
     private final Runnable netReconnect = () -> {
         if (!started) return;
@@ -486,6 +493,10 @@ public final class RemoteConnection {
                     if (seq > appliedSeq) appliedSeq = seq;
                     // 传输游标：只给下一次重连用，不推进页面渲染游标
                     RemoteDshTool.setTransportSeq(app, sessionId, seq);
+                }
+                // 状态条实时状态（2026-11-13）：阶段/工具/计时都由事件驱动
+                if (event != null) {
+                    RemoteLiveStatus.onEvent(event.optString("type", ""), event.optJSONObject("data"));
                 }
                 deliver(l -> l.onEvent(event));
             }

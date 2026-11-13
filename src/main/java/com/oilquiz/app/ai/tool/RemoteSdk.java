@@ -91,6 +91,18 @@ public final class RemoteSdk {
         return call("/status", "GET", null, 8);
     }
 
+    /**
+     * 会话 token / 上下文 / 模型（GET /v2/usage，插件 v8.1+）。
+     *
+     * <p>2026-11-13：状态栏要显示"上下文占用 / 本轮 token / 模型"。
+     * 插件侧读宿主 tokenMeter；会话不在电脑端内存时返回 ok:false + reason。</p>
+     */
+    public Map<String, Object> usage(String sessionId) throws Exception {
+        String s = sessionId == null ? "" : sessionId.trim();
+        String q = s.isEmpty() ? "" : "?session_id=" + URLEncoder.encode(s, "UTF-8");
+        return call("/v2/usage" + q, "GET", null, 8);
+    }
+
     /** 电脑端后台任务列表（插件按会话事件派生的状态，见 /v2/jobs）。 */
     public Map<String, Object> jobs() throws Exception {
         return call("/v2/jobs", "GET", null, 15);
