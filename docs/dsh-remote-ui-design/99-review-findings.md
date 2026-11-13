@@ -238,3 +238,58 @@ DSH 版本 `@deepseek-ai/dsh` **0.2.2-rc.2**。
 - M5 动态卡：必须走 `/events` 事件；**不能等 agent 主动推**（插件无工具注册）。
 - M1 的 D1：DSH 生成态来自 `live.inferenceProgress`；B15 说明根会话连工具事件都收不到，D1/D2 不应假设有 durable 事件。
 - 事件目录工作量按"补 36 条 + 三层分类"重估：**P1 内 2-3 天**。
+
+---
+
+## 15. 开源资料对照（2026-11-13 补）
+
+DSH 已开源：仓库 [`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness)（developer preview），文档站 [`deepseek-harness.github.io`](https://deepseek-harness.github.io/deepseek-harness/)。本机 asar 版本 `0.2.2-rc.2`。
+
+### 15.1 `tool/result.meta` 是官方的"卡片载荷"（直接改变 M2）
+
+> "`meta` 是 opaque 的（产出工具拥有其形状，并在 `presentResult` 里读回），但 MUST JSON-serializable：`Session.append` 用 `isJsonValue` 运行时校验，非可序列化 `meta` 在源头被拒；durable 日志在 replay 时**复现同一张卡**。"
+
+来源：[会话子系统文档](https://deepseek-harness.github.io/deepseek-harness/reference/subsystems/session)
+
+**结论**：动态卡不该自造 part 类型、也不该只靠客户端投影——**应优先用工具结果的 `meta`**：
+- 它天生随事件落盘、天生 replay 一致；
+- 非 JSON 值在源头被拒，不会出现我们发现的 `byte[]→"[B@…"` 静默损坏；
+- 我们的 `DshProjection` 现在完全没读 `meta`。
+
+### 15.2 仓外插件**不能**发自定义会话事件（证实 B14 的处置方向）
+
+> "out-of-repo plugin cannot emit a custom session event type without making every session it touches unloadable after a restart. 持久化读路径拒绝未知事件类型，除非信封带 `ignorable: true`；但 `Session.append` 没提供设置该标记的入口，且 known-event 集合由仓库自身的 `SessionEventMap` 合并构建。"
+
+来源：[Discussion #5474](https://github.com/deepseek-ai/deepseek-harness/discussions/5474)
+
+**结论**：
+- 插件合成的 `stream/delta`/`subagent/activity`/`ui/slot` **只能当传输帧**，不能伪装成 session 事件——与我们现状一致，但文档里要写明这条边界；
+- 想新增**持久化**事件类型做不到；动态卡只能走 `meta`（§15.1）或 `components`；
+- `plugin:*` 前缀事件形如"同一条事件流但 `ignorable:true`"，监听方必须放行（B14 的处置已包含）。
+
+### 15.3 Slots 子系统：我们手机端插槽的**参考实现**
+
+DSH 自己的 Web Client 用一套类型化 Slot 系统组合 UI，关键机制值得照搬（[Slots 文档](https://deepseek-harness.github.io/deepseek-harness/reference/subsystems/slots)）：
+
+| 机制 | DSH 做法 | 我们的现状 |
+|---|---|---|
+| 基数 | `single` / `list` / `keyed` / `chain` / `hoc` 五类 | `DockSlotBus` 只有"按 id 覆盖 + 优先级排序"，等价于 `list` 的简化版 |
+| 作用域 | `root` / `session-maybe` / `session` | 无作用域概念，`ui/slot` 还是**全局广播** |
+| 优先级 | `single/list/keyed/hoc` 是遮蔽优先级；`chain` 是选举顺序 | 只有排序，无"遮蔽" |
+| 声明前置 | 向**未声明**的 slot 注册会在插件激活时**失败**；重复声明他人 child 也失败 | 任意 id 都能注册，无校验 → B8 类漂移的温床 |
+| 生命周期 | 跟随 Cordis effect：销毁 entry 即移除贡献并递归折叠子 slot | 监听器不注销（review 指出的泄漏点） |
+| 组合位置 | 会话页有 `conversation.composer.dock`、`conversation.input.*`、`conversation.chat.node`（keyed 分发） | 我们的甲板位置≈`composer.dock`；part 分发≈`chat.node` |
+
+**对 M1 的修正**：甲板应按 `single`（一个 dock）+ 内部 `list`（D3 行）建模，**注册前必须声明 slot key**（未声明直接报错，从源头阻止漂移）；并补 `scope=session`，避免 `ui/slot` 全局广播串会话。
+
+**对 M2 的修正**：`conversation.chat.node` 的 keyed 分发正是"kind → 组件"的官方形态——我们的 `ComponentRegistry` 已等价，不必再造。
+
+### 15.4 新增/调整的工作项
+
+| # | 项 | 依据 | 归属 |
+|---|---|---|---|
+| **B17** | `DshProjection` 未读 `tool/result.meta`，动态卡没有走官方载荷 | §15.1 | P2 |
+| **B18** | `ui/slot` 是全局广播、无 session 作用域，且注册无声明校验 | §15.3 | P1 |
+| 调整 | M1 按 `single + list` 建模、加声明校验与注销 | §15.3 | P0/P1 |
+| 调整 | M2 优先用 `meta`，`components` 仅作兜底 | §15.1 | P2 |
+| 约束 | 插件合成帧不得伪装成 session 事件；`plugin:` 前缀必须放行 | §15.2 | P1 |
