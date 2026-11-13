@@ -309,7 +309,7 @@ DSH 自己的 Web Client 用一套类型化 Slot 系统组合 UI，关键机制�
 | **B1** | ✅ 已修 | 断连时 `DockSlotBus.clear()`；甲板显隐补 `onViewportChanged`；D1 可见时 D3 只留 1 条 |
 | **B12** | ✅ 已修 | `/v2/view` 不再往对话流插卡；`refreshRemoteCards`/`addRemoteCardMessage`/`remoteCardsLane` 及布局空容器已删；旧 REMOTE_CARD 消息仍按 legacy 渲染 |
 | **B13** | ✅ 已修 | `safeNotifyItemChanged` 改为按消息对象重定位：归档后不再刷错行 |
-| **B15** | 🟡 部分 | 合成 activity 现在带结果正文（`工具完成：…`）；**durable 卡片仍需专用 lane**，未做 |
+| **B15** | ✅ 已按约束实现 | 合成 activity 带 `callId` + 结果正文（`工具完成：…`），子代理卡按 `childId` 汇总；**durable 卡片不做**——需要新增 part 类型，违反"不新增 part 类型"硬约束，且会让子会话的工具卡与根会话轮次/ID 体系打架 |
 | **B16** | ✅ 已修 | `state` 帧检测落后 >500 → 重建时间线（服务端超阈值只发 snapshot，不再静默缺段）；落后 100 的整数倍记一条日志 |
 | **B17** | ✅ 已修 | `DshTimeline.Tool.meta` + `toolComponent` 投影进 props；`DshProjectionMetaTest` 2 条 |
 | **B2** | ✅ 复核无需改 | `dshComponentId` 已用 `applySubId(…, 气泡 turnId)`，id 前缀与消息 turnId 一致 |
