@@ -56,7 +56,6 @@ public class AIConfig {
     private float topP = 0.9f;
     private int topK = 40;
     private String systemPrompt = "请用中文回答。";
-    private boolean cacheEnabled = true;
     private boolean autoModeEnabled = false; // 禁用自动模式切换，所有模式由用户手动选择
     private boolean intentRecognitionEnabled = true;
     private boolean agentEnabled = true; // 启用 Agent 模式
@@ -100,13 +99,6 @@ public class AIConfig {
         }
         
         systemPrompt = prefs.getString("system_prompt", "请用中文回答。");
-        
-        try {
-            cacheEnabled = prefs.getBoolean("cache_enabled", true);
-        } catch (ClassCastException e) {
-            prefs.edit().remove("cache_enabled").putBoolean("cache_enabled", true).apply();
-            cacheEnabled = true;
-        }
         
         try {
             autoModeEnabled = prefs.getBoolean("auto_mode_enabled", true);
@@ -158,7 +150,6 @@ public class AIConfig {
             .putFloat("top_p", topP)
             .putInt("top_k", topK)
             .putString("system_prompt", systemPrompt)
-            .putBoolean("cache_enabled", cacheEnabled)
             .putBoolean("auto_mode_enabled", autoModeEnabled)
             .putBoolean("intent_recognition_enabled", intentRecognitionEnabled)
             .putBoolean("agent_enabled", agentEnabled)
@@ -182,9 +173,6 @@ public class AIConfig {
 
     public String getSystemPrompt() { return systemPrompt; }
     public void setSystemPrompt(String systemPrompt) { this.systemPrompt = systemPrompt; saveToPreferences(); }
-
-    public boolean isCacheEnabled() { return cacheEnabled; }
-    public void setCacheEnabled(boolean cacheEnabled) { this.cacheEnabled = cacheEnabled; saveToPreferences(); }
 
     public boolean isAutoModeEnabled() { return autoModeEnabled; }
     public void setAutoModeEnabled(boolean autoModeEnabled) { this.autoModeEnabled = autoModeEnabled; saveToPreferences(); }

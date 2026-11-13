@@ -94,9 +94,12 @@ public class ComponentTypesTest {
         }
         // 2026-10-23：新增 playlist/agenda/location/diff 四张卡后上限从 22 提到 26。
         // 2026-10-25：恢复 note_card/grid_card 后上限到 28；新增 markdown_doc（整篇 .md 文档卡）后到 29。
-        // 这个断言的意义是"目录不能无限膨胀"，不是固定 22；再加类型请连带评估提示词体积。
-        assertTrue("面向模型的目录应控制在 29 条以内，实际 " + catalog.length(),
-                catalog.length() <= 29);
+        // 2026-11-13：远程时间线新增 dsh_command / dsh_job / dsh_notice 三张卡 → 32。
+        //   这三张不是新造的类型：DshCardViews 里各有渲染器，遥控电脑时的命令/后台任务/提示
+        //   都靠它们，属于"目录跟着真实能力走"。
+        // 这个断言的意义是"目录不能悄悄膨胀"，不是固定 29；再加类型请连带评估提示词体积。
+        assertTrue("面向模型的目录应控制在 32 条以内，实际 " + catalog.length(),
+                catalog.length() <= 32);
     }
 
     @Test

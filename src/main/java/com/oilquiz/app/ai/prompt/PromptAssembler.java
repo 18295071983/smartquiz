@@ -14,12 +14,17 @@ import java.util.TreeMap;
  *   <li><b>命名分段</b>：{@link PromptSection} 按 name 注册，order 升序 + name 字典序确定性排序；</li>
  *   <li><b>scope 覆盖</b>：注册可带 scope（模式），assemble(scope) 时 scoped 段覆盖 global 同名段（shadow），
  *       变量同理（scoped 优先）；</li>
- *   <li><b>动态上下文</b>：{@link PromptContext} 注册为独立快照段，渲染为"当前运行时上下文"消息；</li>
  *   <li><b>严格变量插值</b>：仅 {@code {{name}}}（name 匹配 {@code [a-z][a-z0-9_]*}），未知/畸形/无值抛错并带
  *       段名诊断；interpolate=false 的段保留原文；</li>
- *   <li><b>complete 段</b>：active 的 complete 段唯一，组装后恢复为唯一 prompt 段（contexts 照常保留）；</li>
  *   <li><b>注册返回 disposer</b>：所有 register 方法返回 {@link Runnable}，可幂等卸载。</li>
  * </ul>
+ *
+ * <p>CLEANUP(2026-11-13)：dsh 的 <b>动态上下文（PromptContext）</b> 与 <b>complete 段</b> 两套语义已删除。
+ * 前者在本项目没有任何调用方，且在线链路的运行时信息（环境上下文/当前时刻）受"必须落在 messages
+ * 特定位置"约束，装配器这条路永远接不上；后者解决的"整档替换"已由 OnlinePromptBuilder 的
+ * assist/takeover 两套注册覆盖。留着是两段看着能用、实际不跑的分支，删掉后本类只剩真正在用的
+ * 分段排序 + scope 覆盖 + 变量插值。</p>
+ *
  * 线程安全：注册/组装均持内部锁（注册频率极低，组装每轮一次，锁开销可忽略）。
  */
 public final class PromptAssembler {
@@ -37,10 +42,6 @@ public final class PromptAssembler {
     private final Map<String, PromptSection> globalSections = new TreeMap<>();
     /** scope -> (name -> section) */
     private final Map<String, Map<String, PromptSection>> scopedSections = new HashMap<>();
-    /** name -> context（global 层） */
-    private final Map<String, PromptContext> globalContexts = new TreeMap<>();
-    /** scope -> (name -> context) */
-    private final Map<String, Map<String, PromptContext>> scopedContexts = new HashMap<>();
     /** name -> provider（global 层；scoped 同名覆盖 global） */
     private final Map<String, VariableProvider> globalVariables = new HashMap<>();
     private final Map<String, Map<String, VariableProvider>> scopedVariables = new HashMap<>();
@@ -71,25 +72,6 @@ public final class PromptAssembler {
         }
     }
 
-    /** 注册动态上下文段；同层重复名抛错。 */
-    public Runnable registerContext(PromptContext context) {
-        return registerContext(context, null);
-    }
-
-    /** 注册动态上下文段到指定 scope。 */
-    public Runnable registerContext(PromptContext context, String scope) {
-        if (context == null) throw new IllegalArgumentException("context must not be null");
-        synchronized (lock) {
-            Map<String, PromptContext> map = ctxLayer(scope, true);
-            if (map.containsKey(context.name)) {
-                throw new IllegalArgumentException("prompt context \"" + context.name + "\" is already registered"
-                        + (scope == null ? "" : " in scope \"" + scope + "\""));
-            }
-            map.put(context.name, context);
-            return disposer(() -> unregisterCtx(context.name, scope, true));
-        }
-    }
-
     /** 注册变量提供者；scoped 同名覆盖 global。 */
     public Runnable registerVariable(String name, VariableProvider provider) {
         return registerVariable(name, provider, null);
@@ -117,7 +99,7 @@ public final class PromptAssembler {
     // ==================== 组装 ====================
 
     /**
-     * 组装：scope 链收集（global 全部 + 匹配 scope 层）→ 同名覆盖 → order 排序 → 求值 → 校验 complete 唯一。
+     * 组装：scope 链收集（global 全部 + 匹配 scope 层）→ 同名覆盖 → order 排序 → 求值。
      * @param ctx 组装上下文（scope 决定哪些 scoped 段参与）
      * @return 组装结果（未插值；渲染时才插值）
      */
@@ -147,37 +129,11 @@ public final class PromptAssembler {
             ordered.sort((a, b) -> a.order != b.order ? Integer.compare(a.order, b.order)
                     : a.name.compareTo(b.name));
 
-            List<PromptSection> completeList = new ArrayList<>();
-            for (PromptSection s : ordered) if (s.complete) completeList.add(s);
-            if (completeList.size() > 1) {
-                throw new IllegalStateException("multiple complete prompt sections are active: "
-                        + completeList.stream().map(s -> "\"" + s.name + "\"").collect(java.util.stream.Collectors.joining(", ")));
-            }
-            PromptSection complete = completeList.isEmpty() ? null : completeList.get(0);
-
             List<PromptAssembly.Section> sections = new ArrayList<>();
             for (PromptSection s : ordered) {
                 sections.add(new PromptAssembly.Section(s.name, s.resolve(c), s.interpolate));
             }
-            if (complete != null) {
-                sections.clear();
-                sections.add(new PromptAssembly.Section(complete.name, complete.resolve(c), complete.interpolate));
-            }
-
-            // 上下文：global + 匹配 scope
-            Map<String, PromptContext> ctxMerged = new TreeMap<>(globalContexts);
-            for (Map.Entry<String, Map<String, PromptContext>> layer : scopedContexts.entrySet()) {
-                if (!c.matches(layer.getKey())) continue;
-                ctxMerged.putAll(layer.getValue());
-            }
-            List<PromptContext> ctxOrdered = new ArrayList<>(ctxMerged.values());
-            ctxOrdered.sort((a, b) -> a.order != b.order ? Integer.compare(a.order, b.order)
-                    : a.name.compareTo(b.name));
-            List<PromptAssembly.Ctx> contexts = new ArrayList<>();
-            for (PromptContext p : ctxOrdered) {
-                contexts.add(new PromptAssembly.Ctx(p.name, p.resolve(c)));
-            }
-            return new PromptAssembly(sections, contexts, variables);
+            return new PromptAssembly(sections, variables);
         }
     }
 
@@ -196,22 +152,6 @@ public final class PromptAssembler {
             sb.append(text.trim());
         }
         return sb.toString();
-    }
-
-    /**
-     * 渲染动态上下文快照：与 dsh 的 {@code joinContextSections} 同款前缀语义
-     * （"本快照取代更早的运行时上下文快照"），空内容返回空串。
-     */
-    public static String renderContextSnapshot(PromptAssembly assembly) {
-        StringBuilder body = new StringBuilder();
-        for (PromptAssembly.Ctx c : assembly.contexts) {
-            String text = interpolate("ctx:" + c.name, c.text, assembly);
-            if (text == null || text.trim().isEmpty()) continue;
-            if (body.length() > 0) body.append("\n\n");
-            body.append(text.trim());
-        }
-        if (body.length() == 0) return "";
-        return "当前运行时上下文。此快照取代更早的运行时上下文快照。\n\n" + body;
     }
 
     /** 严格插值：畸形引用（含裸 {{）、未知变量、无值变量均抛错并带段名诊断；interpolate=false 由调用方跳过 */
@@ -263,16 +203,6 @@ public final class PromptAssembler {
         return m;
     }
 
-    private Map<String, PromptContext> ctxLayer(String scope, boolean create) {
-        if (scope == null) return globalContexts;
-        Map<String, PromptContext> m = scopedContexts.get(scope);
-        if (m == null && create) {
-            m = new TreeMap<>();
-            scopedContexts.put(scope, m);
-        }
-        return m;
-    }
-
     private Map<String, VariableProvider> varLayer(String scope, boolean create) {
         if (scope == null) return globalVariables;
         Map<String, VariableProvider> m = scopedVariables.get(scope);
@@ -286,13 +216,6 @@ public final class PromptAssembler {
     private void unregister(String name, String scope, boolean fromDisposer) {
         synchronized (lock) {
             Map<String, PromptSection> map = layer(scope, false);
-            if (map != null) map.remove(name);
-        }
-    }
-
-    private void unregisterCtx(String name, String scope, boolean fromDisposer) {
-        synchronized (lock) {
-            Map<String, PromptContext> map = ctxLayer(scope, false);
             if (map != null) map.remove(name);
         }
     }

@@ -95,6 +95,21 @@ public class OnlineAgentEngine {
     private static final int HISTORY_TOKEN_BUDGET = 24000;
 
     /**
+     * 历史裁剪高水位（相对预算的百分比）：token 数**严格超过**它才裁。
+     *
+     * <p>HYSTERESIS(2026-11-13)：与 {@link #HISTORY_TRIM_LOW_WATER_PCT} 组成一对滞回阈值。
+     * 裁剪对服务商前缀缓存是破坏性的——system 之后的历史整体平移，缓存从第一个被移除的
+     * token 起失效（见 dsh-agent-loop 的 KV Cache effect：replacement，不是 append）。
+     * 若按 100% 判，长对话会在预算边缘反复触发：带一点就裁、裁完又慢慢长回来，等于每轮
+     * 都在打掉前缀。放宽到 110% 后，同一段对话只会偶发裁一次。
+     *
+     * <p>安全性：budget 本身只占模型窗口的 60%，110% 仍只到窗口的 66%，不会撞上下文上限。
+     */
+    private static final int HISTORY_TRIM_HIGH_WATER_PCT = 110;
+    /** 历史裁剪低水位：一旦触发就一次裁到预算的这个比例，给后续几轮留出带宽。 */
+    private static final int HISTORY_TRIM_LOW_WATER_PCT = 80;
+
+    /**
      * 系统提示词版本标记（缓存命中优化）。
      * persistHistory 时写入 system 消息的 "pv" 字段（仅落盘，不进入请求体）；
      * restoreHistory 时若历史里的 pv 与当前版本一致 → 原样保留 system/环境/记忆
@@ -716,26 +731,19 @@ public class OnlineAgentEngine {
         // 长期记忆（缓存命中优化）：移出前缀区，改为请求末尾 D 块动态注入。
         // 每轮以当前用户消息刷新摘要——记忆库变化（用户新增/更新记忆）立即生效，
         // 但只影响请求尾部，system+历史前缀保持稳定 → 服务商前缀缓存不受记忆变化影响。
-        // 闲聊轮不注入（2026-09-23，极致精简）：闲聊就是随便聊，不携带任务相关记忆块；
-        // 任务轮/知识轮才带记忆摘要（模型据此运用用户信息）。闲聊轮用户信息缺失时模型可如实说明。
-        if (!isCasualChat(userMessage)) {
-            latestMemorySummary = AgentMemoryStore.getInstance(context).buildMemorySummary(userMessage);
-            if (latestMemorySummary != null && !latestMemorySummary.isEmpty()) {
-                AILogger.i(TAG, "Long-term memory refreshed: "
-                        + AgentMemoryStore.getInstance(context).size() + " entries");
-            }
-        } else {
-            latestMemorySummary = null;
+        //
+        // CASUAL-REMOVED(2026-11-13)：这里原先按 isCasualChat() 分叉出"闲聊轮不注入记忆"，
+        // 而那个方法恒 return false —— 分支从未执行。现在直写成实况：每轮都注入。
+        latestMemorySummary = AgentMemoryStore.getInstance(context).buildMemorySummary(userMessage);
+        if (latestMemorySummary != null && !latestMemorySummary.isEmpty()) {
+            AILogger.i(TAG, "Long-term memory refreshed: "
+                    + AgentMemoryStore.getInstance(context).size() + " entries");
         }
 
-        // 1.5.5 知识库自动检索（2026-09-23 好好利用）：非闲聊轮对用户消息全文检索知识库，
+        // 1.5.5 知识库自动检索（2026-09-23 好好利用）：对用户消息全文检索知识库，
         // 命中 top-3 注入请求末尾【相关资料】块——用户问应用专属/个人资料问题时，
         // 模型直接看到相关材料作答，无需先想起"知识库"这个工具（knowledge_base 也在核心集可主动用）
-        if (!isCasualChat(userMessage)) {
-            latestKnowledgeContext = buildKnowledgeContext(userMessage);
-        } else {
-            latestKnowledgeContext = null;
-        }
+        latestKnowledgeContext = buildKnowledgeContext(userMessage);
 
         // 1.5 恢复历史时暂存的【对话历史摘要】插回（在所有 system 消息之后，保持前缀稳定：
         // 提示词/环境上下文在摘要之前，跨会话不因摘要内容变化导致前缀 miss；
@@ -766,12 +774,12 @@ public class OnlineAgentEngine {
         // ai_weather(天气高频) network_search(搜索高频) calculator(计算)
         // control_lookup(低频控件参数查询，构建UI多用，token小)
         // knowledge_base(用户知识库：检索/导入，应用专属资料问答的必用工具，schema 小 → 常驻核心集)
-        // 常驻核心工具集（硬编码高频，2026-09-23 精简 12→8）：
-        // 低频工具（tool_registry/permission_manager/control_lookup/knowledge_base）移出常驻，
-        // 由 getToolDefinitionsForMessageAndCore 的关键词意图按需临时加回（能力不降，每轮省 ~4 个 schema）
-        // 常驻核心 5 个（2026-09-23 v3）：模型自行发现制——只保留入口/UI/文件/搜索/计算，
-        // 其余（weather/file_generator/task/memory/knowledge_base/permission/control…）一律走
-        // tool_registry 发现 + getToolDefinitionsForMessageAndCore 关键词意图按需注入（能力不降，每轮省 ~12K）
+        //
+        // 常驻核心工具集的**唯一权威是 CORE_TOOLS 常量**（当前 8 个）。此处不再复述数量：
+        // 历史上这段注释写过 12→8、核心 5、核心 6 三种口径，与常量实际值漂了不止一次，
+        // 而工具清单本身在提示词里由 coreTools() 动态取数（见 «【核心工具】» 段），不会漂。
+        // 低频工具（permission_manager/control_lookup 等）由 tool_registry 发现 +
+        // getToolDefinitionsForMessageAndCore 的关键词意图按需临时加回，能力不降。
         java.util.Set<String> coreTools = new java.util.LinkedHashSet<>(CORE_TOOLS);
         // 附件增强消息（AttachmentPromptBuilder）会点名 file_reader / ocr_recognize：
         // 提示词里出现的工具必须在**本轮** tools 里真实可用，否则模型照着提示词点名只会拿到
@@ -780,21 +788,14 @@ public class OnlineAgentEngine {
         coreTools.addAll(com.oilquiz.app.ai.chat.attachment.AttachmentToolHints
                 .mentionedTools(effectiveUserMessage));
         // 模型驱动工具注入（2026-09-23 v4，dsh-agent-loop 对齐）：
-        // 每轮 tools = 核心 6（稳定前缀，缓存命中）+ 高频预载（≤2）+ 本轮调用即注册。
+        // 每轮 tools = 核心集（以 CORE_TOOLS 为准，稳定前缀 → 缓存命中）+ 高频预载（≤2）+ 本轮调用即注册。
         // 零预判——不按关键词/KB/意图注入工具；模型要新工具 → tool_registry(get) 发现，
         // 调用成功即注册进本轮缓存。工具结果进历史，模型基于结果作答。
         // 闲聊模式已废弃：每一轮恒带工具，短消息恒有工具能力，根除 DSML 硬调。
-        String toolsJson;
-        boolean casualChatTurn = isCasualChat(effectiveUserMessage);
-        if (casualChatTurn) {
-            toolsJson = null;
-            AILogger.i(TAG, "Casual chat detected, tools=null (token saving)");
-        } else {
-            toolsJson = getStableToolsJson(effectiveUserMessage, coreTools, cfg);
-        }
+        String toolsJson = getStableToolsJson(effectiveUserMessage, coreTools, cfg);
         liveToolsJson = null; // 每 execute 重置：模型 get 新工具前，工具集=核心+预载
         int toolCount = countToolsInJson(toolsJson);
-        if (toolCount == 0 && !casualChatTurn) {
+        if (toolCount == 0) {
             AILogger.w(TAG, "No tools available! Agent will run without tool calling capability.");
         }
 
@@ -1237,9 +1238,41 @@ public class OnlineAgentEngine {
     }
 
     /**
+     * 纯判据（可单测）：历史 token 是否越过裁剪高水位。
+     *
+     * <p>两边都转 {@code long} 再乘：{@code tokenCount * 110 / 100} 在 int 上先乘后除，
+     * 大窗口模型（预算 60 万级）会溢出成负数，判据随之失真。
+     *
+     * @param tokenCount 当前历史估算 token 数
+     * @param budget     本模型的 token 预算（≤0 表示窗口未知，不据此拦截）
+     * @return true 表示应当触发裁剪
+     */
+    static boolean overHistoryHighWater(int tokenCount, int budget) {
+        if (budget <= 0) return false;
+        return (long) tokenCount * 100L > (long) budget * HISTORY_TRIM_HIGH_WATER_PCT;
+    }
+
+    /**
+     * 纯算术（可单测）：触发裁剪后要裁到的目标 token 数（预算的 {@value #HISTORY_TRIM_LOW_WATER_PCT}%）。
+     * 预算未知（≤0）时返回 0，调用方据此退化为"按条数上限裁剪"。
+     */
+    static int historyTrimTarget(int budget) {
+        if (budget <= 0) return 0;
+        return (int) Math.min(Integer.MAX_VALUE, (long) budget * HISTORY_TRIM_LOW_WATER_PCT / 100L);
+    }
+
+    /**
      * 截断并压缩消息历史（发送前调用）。
-     * 触发条件：消息条数超过 MAX_HISTORY_MESSAGES，或估算 token 超过动态预算
-     * （基于模型上下文窗口的 60%，为工具结果/回答预留空间；未知模型回退 24K）。
+     * 触发条件：消息条数超过 MAX_HISTORY_MESSAGES，或估算 token 越过动态预算的
+     * 高水位（预算 = 上下文窗口的 60%，为工具结果/回答预留空间；未知模型回退 24K；
+     * 高水位 = 预算的 {@value #HISTORY_TRIM_HIGH_WATER_PCT}%）。
+     *
+     * <p>HYSTERESIS(2026-11-13)：token 侧不按 100% 判，而是"超 110% 才裁、一次裁到 80%"。
+     * 裁剪会把 system 之后的历史整体平移，服务商前缀缓存从第一个被移除的 token 起失效
+     * （dsh-agent-loop 的 KV Cache effect 把这种操作归为 replacement，与 append 相对）。
+     * 按 100% 判会让长对话在预算边缘反复触发，等于每轮都打掉前缀；放宽到高水位后，
+     * 同一段对话只偶发裁一次，多带的输入远比一次全量 prefill 便宜。
+     *
      * 策略：保留首条 system 消息 + 摘要消息 + 最近 MAX_HISTORY_MESSAGES-1 条消息。
      * 安全保证：截断点不会落在 tool 消息上（否则其对应的 assistant.tool_calls 被移除，
      * 导致 API 报错）。若截断点处为 tool 消息，继续前移直至非 tool 消息。
@@ -1263,13 +1296,22 @@ public class OnlineAgentEngine {
                     ? msg.get("content").getAsString() : "";
             tokenCount += estimateTokens(content);
         }
-        boolean overBudget = tokenCount > budget;
+        boolean overBudget = overHistoryHighWater(tokenCount, budget);
         boolean overCount = messageHistory.size() > MAX_HISTORY_MESSAGES;
-        if (!overBudget && !overCount) return;
+        if (!overBudget && !overCount) {
+            // 落在 [budget, high-water) 区间时故意不裁：多带这点输入，换前缀不被平移。
+            if (tokenCount > budget) {
+                AILogger.i(TAG, "History in hysteresis band, not trimming: " + tokenCount
+                        + " tokens, budget " + budget + " (high water " + HISTORY_TRIM_HIGH_WATER_PCT + "%)");
+            }
+            return;
+        }
 
-        // 计算需要移除的条数：优先满足 token 预算（移除到预算的一半，避免频繁触发），再满足条数上限
+        // 计算需要移除的条数：优先满足 token 预算（一次裁到低水位，留出带宽让下一次请求
+        // 不再立刻触发），再满足条数上限
         int toRemove = 0;
         if (overBudget) {
+            int target = historyTrimTarget(budget);
             int running = 0;
             for (int i = 1; i < messageHistory.size(); i++) {
                 JsonObject msg = messageHistory.get(i);
@@ -1277,7 +1319,7 @@ public class OnlineAgentEngine {
                         ? msg.get("content").getAsString() : "";
                 running += estimateTokens(content);
                 toRemove++;
-                if (running >= tokenCount - budget / 2) break;
+                if (running >= tokenCount - target) break;
             }
         }
         if (overCount) {
@@ -2211,16 +2253,16 @@ public class OnlineAgentEngine {
      * 获取「模型驱动」的工具定义 JSON（2026-09-23 v4，dsh-agent-loop 对齐）。
      *
      * dsh 设计：工具集 per-agent 稳定呈现、模型自主选择，引擎不做关键词/意图预判。
-     * 本方法让 tools 段 = 核心 6（前缀稳定，缓存命中）+ 高频预载（历史行为自适应，≤2）：
+     * 本方法让 tools 段 = 核心集（{@link #CORE_TOOLS}，前缀稳定 → 缓存命中）+ 高频预载（≤2）：
      * - 零预判：不关键词、不 KB 工具检索、不问模型意图——模型要什么工具，
      *   tool_registry(get) 发现（50 token 轻量），调用即注册进本轮缓存；
      * - 用完即走：非核心工具不跨 execute 累积，工具执行结果已进历史；
-     * - 核心 6 顺序固定 → 服务商前缀缓存持续命中。
+     * - 核心集顺序固定 → 服务商前缀缓存持续命中。
      */
     private String getStableToolsJson(String userMessage, Set<String> coreTools,
                                       OnlineModelManager.OnlineModelConfig cfg) {
         try {
-            // 1. 模型驱动：核心 6 稳定呈现（dsh：per-agent 稳定工具集，模型自主选择）
+            // 1. 模型驱动：核心集稳定呈现（dsh：per-agent 稳定工具集，模型自主选择）
             cachedToolNames.clear();
             cachedToolNames.addAll(coreTools);
 
@@ -2552,17 +2594,6 @@ public class OnlineAgentEngine {
             // 排除"继续帮我看一下XX"这类明确新诉求（含具体动词+对象的继续，按普通消息处理）
             return s.length() <= 12 || !s.contains("帮");
         }
-        return false;
-    }
-
-    /**
-     * 闲聊模式已废弃（2026-09-23，用户决定）：不再区分闲聊/任务轮，
-     * 每一轮都按正常任务处理——恒带工具、恒带记忆、恒做知识库检索。
-     * 收益：模型能力全开，"继续/接着"等短消息不再被误判闲聊导致 tools=null
-     * （根除 DSML 文本硬调工具问题）；代价是闲聊轮多带 ~3K token（tools），
-     * 但缓存命中后实际增量很小。恒返回 false = 永远非闲聊。
-     */
-    private boolean isCasualChat(String message) {
         return false;
     }
 

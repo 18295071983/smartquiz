@@ -195,40 +195,21 @@ public class LlamaHelper {
     /**
      * NPU-FAULT-GUARD(2026-11-01)：把用户偏好经守卫折算成本次装载真正下发的中断后端。
      *
-     * <p>若守卫处于降级态且偏好是 hexagon，这里返回 opencl；否则原样返回。
-     * 发生替换时按设置页切换后端那条既有不变量作废 prompt→response 缓存
-     * （缓存 key 不带引擎身份，不清会命中另一个引擎写的答案）。</p>
+     * <p>若守卫处于降级态且偏好是 hexagon，这里返回 opencl；否则原样返回。</p>
      */
     private static String applyNpuGuardOverride(android.content.Context ctx, String requested) {
-        String chosen = NpuFaultGuard.effectiveBackend(ctx, requested);
-        if (chosen != null && !chosen.equals(requested)) {
-            try {
-                com.oilquiz.app.ai.refactor.CacheManager.invalidateEngineCache(ctx, "npu-fault-demote");
-            } catch (Throwable t) {
-                AILogger.w(TAG, "invalidateEngineCache after backend demote failed: " + t.getMessage());
-            }
-        }
-        return chosen;
+        return NpuFaultGuard.effectiveBackend(ctx, requested);
     }
 
     /**
      * 运行时后端守卫链：NPU 致命中断降级 -> Vulkan device lost 降级。
      *
-     * <p>两者都只在<b>装载期</b>替换本次真正下发的后端，不写回 {@code gpu_backend} 偏好；
-     * 任一层发生替换都要作废 prompt→response 缓存（缓存 key 不带引擎身份）。
+     * <p>两者都只在<b>装载期</b>替换本次真正下发的后端，不写回 {@code gpu_backend} 偏好。
      * 顺序固定：先 NPU（hexagon→opencl），再看 Vulkan（vulkan→opencl），不会互相覆盖。</p>
      */
     private static String applyBackendGuards(android.content.Context ctx, String requested) {
         String afterNpu = applyNpuGuardOverride(ctx, requested);
-        String afterVk = VulkanFaultGuard.effectiveBackend(ctx, afterNpu);
-        if (afterVk != null && !afterVk.equals(afterNpu)) {
-            try {
-                com.oilquiz.app.ai.refactor.CacheManager.invalidateEngineCache(ctx, "vulkan-device-lost-demote");
-            } catch (Throwable t) {
-                AILogger.w(TAG, "invalidateEngineCache after Vulkan demote failed: " + t.getMessage());
-            }
-        }
-        return afterVk;
+        return VulkanFaultGuard.effectiveBackend(ctx, afterNpu);
     }
 
     /**

@@ -8164,8 +8164,14 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetKvCacheStats(JNIEnv* env, jclas
         j["plans"] = kc.planCount();
         j["inc"] = kc.incCount();
         j["part"] = kc.partCount();
+        j["part_applied"] = kc.partAppliedCount();
         j["full"] = kc.fullCount();
+        // HIT-RATE-HONEST(2026-11-13)：hit_rate_pct 只算真正复用成功的部分；
+        // 计划态另给一个键，两者差值 = PARTIAL 截断失败回退全量的比例。
+        // 老消费方（DeviceInfo / 性能面板 / LlamaSignalAdapter）读 hit_rate_pct 即自动变诚实，
+        // 不需要同步改 UI。
         j["hit_rate_pct"] = kc.hitRate() * 100.0;
+        j["hit_rate_planned_pct"] = kc.plannedHitRate() * 100.0;
         j["valid"] = kc.valid();
         j["full_reason"] = kc.fullEvalReason();
     } else {

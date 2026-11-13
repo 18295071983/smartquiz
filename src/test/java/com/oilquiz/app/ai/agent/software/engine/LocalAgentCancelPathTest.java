@@ -42,8 +42,6 @@ public class LocalAgentCancelPathTest {
             "src/main/java/com/oilquiz/app/ai/agent/software/AgentSoftwareLayer.java";
     private static final String HANDLER_PATH =
             "src/main/java/com/oilquiz/app/ai/chat/AgentChatHandler.java";
-    private static final String EXECUTION_PATH =
-            "src/main/java/com/oilquiz/app/ai/agent/AgentExecutionEngine.java";
     private static final String BRIDGE_PATH =
             "src/main/java/com/oilquiz/app/infra/AgentDebugBridge.java";
     private static final String ROUTER_PATH =
@@ -220,12 +218,9 @@ public class LocalAgentCancelPathTest {
                 readSrc(HANDLER_PATH).contains("AgentSoftwareLayer.getShared("));
         assertTrue("调试桥必须用共享本地层",
                 readSrc(BRIDGE_PATH).contains("AgentSoftwareLayer.getShared("));
-        String execution = readSrc(EXECUTION_PATH);
-        assertTrue("后台执行必须用共享本地层",
-                execution.contains("AgentSoftwareLayer.getShared("));
-
-        assertTrue("后台取消必须打到共享本地层，不能只改 state",
-                execution.contains("layer.cancel();"));
+        // DEAD-CODE(2026-11-13)：原先这里还断言 AgentExecutionEngine（"后台执行"）用共享层。
+        // 那个类全仓零引用（每条消息新建 layer → 序列恒空 → 全量 prefill），已删除；
+        // 后台执行若将来恢复，应直接复用 AgentSoftwareLayer.getShared，不要再新建一层。
     }
 
     // ===== 5) UI：停止不得被标成"执行完成"，空正文不得写进历史 =====

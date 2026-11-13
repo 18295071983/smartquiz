@@ -102,6 +102,15 @@ public class AgentLoopEngine {
     private static final int OUTPUT_RESERVE_TOKENS = 4000;
     /** native 生成预留（native-lib.cpp GENERATION_RESERVE=512）：prompt 上限 n_ctx−512 的最后防线 */
     private static final int NATIVE_GENERATION_RESERVE = 512;
+    /**
+     * 本地历史裁剪的低水位（相对 prompt 预算的百分比）：**触发后一次裁到这个比例**。
+     *
+     * <p>HYSTERESIS(2026-11-13)：旧实现"超出就裁、裁到刚好不超"——于是下一轮加一条消息又超，
+     * 每轮都从头部丢一条，历史窗口每次平移一格，KV 前缀每轮都断（混合架构下 PARTIAL 必失败 →
+     * 全量 re-prefill）。裁到 80% 之后，要再长回高水位才触发下一次，同一段对话从"每轮裁"
+     * 变成"偶发裁一次"。</p>
+     */
+    private static final int HISTORY_TRIM_LOW_WATER_PCT = 80;
     /** 模板渲染 overhead 预留：Java token 计数基于简化文本（serializeHistory），
      *  实际模板含 <|im_start|> 等特殊 token 与工具格式包装，需预留余量防低估 */
     private static final int TEMPLATE_OVERHEAD_RESERVE = 512;
@@ -1864,12 +1873,18 @@ public class AgentLoopEngine {
             contents[i] = history.get(i).content.getBytes(StandardCharsets.UTF_8);
         }
 
+        // LOCAL-ROUND-METRICS(2026-11-13)：本地 Agent 直连 native（不经 InferenceGateway），
+        // 所以单轮账在这里自己起一份，落点与 gateway 相同（RoundLog 同一格式）。
+        // 只记时间戳不增加任何推理开销：prefill/decode 的分界就是"第一条回调"。
+        final com.oilquiz.app.ai.inference.LocalRoundMetrics metrics =
+                new com.oilquiz.app.ai.inference.LocalRoundMetrics("AgentLoopEngine");
         LlamaHelper.generateWithTools(roles, contents, toolsJson,
                 resolveGenerationCap(history, toolsJson, maxTokens), temperature,
                 0.9f, 40, thinking, new LlamaHelper.TokenCallback() {
                     @Override
                     public void onToken(String token) {
                         if (token == null || token.isEmpty()) return;
+                        metrics.markEvent();
                         fullTextBuf.append(token);
                         if (callback != null) {
                             callback.onToken(token);
@@ -1879,6 +1894,7 @@ public class AgentLoopEngine {
                     @Override
                     public void onToolCalls(List<OnlineInferenceService.ToolCallInfo> toolCalls) {
                         if (toolCalls != null && !toolCalls.isEmpty()) {
+                            metrics.markEvent();
                             toolCallsHolder.addAll(toolCalls);
                             AILogger.i(TAG, "Received " + toolCalls.size() + " tool calls from C++ layer");
                         }
@@ -1887,6 +1903,7 @@ public class AgentLoopEngine {
                     @Override
                     public void onReasoning(String reasoning) {
                         if (reasoning != null && !reasoning.isEmpty()) {
+                            metrics.markEvent();
                             reasoningBuf.append(reasoning);
                             AILogger.i(TAG, "Received reasoning (" + reasoning.length() + " chars) from C++ layer");
                             if (callback != null) {
@@ -1897,6 +1914,8 @@ public class AgentLoopEngine {
 
                     @Override
                     public void onComplete(String fullText) {
+                        metrics.markFinished();
+                        com.oilquiz.app.ai.inference.RoundLog.log(TAG, metrics);
                         if (fullText != null && !fullText.isEmpty()) {
                             synchronized (fullTextBuf) {
                                 fullTextBuf.setLength(0);
@@ -1908,6 +1927,8 @@ public class AgentLoopEngine {
 
                     @Override
                     public void onError(String error) {
+                        metrics.markFinished();
+                        com.oilquiz.app.ai.inference.RoundLog.log(TAG, metrics);
                         errorHolder[0] = error;
                         latch.countDown();
                     }
@@ -2690,6 +2711,32 @@ public class AgentLoopEngine {
     }
 
     /**
+     * 纯判据（可单测）：本轮历史是否越过裁剪高水位。
+     *
+     * <p>规则：默认吃掉"预算与 native 门之间余量"的 1/4，并硬夹在 {@code door - 512} 以下
+     * （native 在 {@code prompt >= safeRef - 512} 就拒收）。门未知（≤0）时退回旧口径
+     * （预算本身）。返回值**不会小于预算**——否则会比改动前更早触发裁剪。</p>
+     *
+     * @param budgetTokens 本轮 prompt 预算（预留了 OUTPUT_RESERVE_TOKENS）
+     * @param doorTokens   native 拒收线（{@code getSafePromptCapacity()}，0=窗口未知）
+     */
+    static int historyHighWater(int budgetTokens, int doorTokens) {
+        if (budgetTokens <= 0) return 0;
+        if (doorTokens <= 0) return budgetTokens;
+        long gap = Math.max(0L, (long) doorTokens - budgetTokens);
+        long soft = (long) budgetTokens + gap / 4L;
+        long ceiling = (long) doorTokens - 512L;
+        if (soft > ceiling) soft = ceiling;
+        return (int) Math.max(budgetTokens, soft);
+    }
+
+    /** 纯算术（可单测）：裁剪目标 = 预算的 {@value #HISTORY_TRIM_LOW_WATER_PCT}%，不低于 256。 */
+    static int historyTrimTarget(int budgetTokens) {
+        if (budgetTokens <= 0) return 0;
+        return (int) Math.max(256L, (long) budgetTokens * HISTORY_TRIM_LOW_WATER_PCT / 100L);
+    }
+
+    /**
      * 每轮推理前裁剪历史，使 历史+schema 的 token 总量不超过预算。
      *
      * <p><b>KV-CACHE-STABLE（2026-10-07 实测修复）：本方法必须保持"只增不改"性质。</b>
@@ -2705,13 +2752,33 @@ public class AgentLoopEngine {
      *
      * <p>现在超预算时**只从头部丢弃最旧消息**（丢弃让窗口滑动，剩下的序列仍然稳定且连续），
      * 绝不原地改写已进入历史的消息。
+     *
+     * <p>HYSTERESIS(2026-11-13)：触发与目标分成两个水位——越过 {@link #historyHighWater}
+     * 才裁，一次裁到 {@link #historyTrimTarget}（预算的 80%）。旧实现裁到"刚好不超"，下一轮
+     * 立刻又触发，等于每轮平移一次窗口、每轮打掉 KV 前缀。
+     *
+     * <p>高水位**不能**照在线侧那样直接取 110%：本类的预算 = 门 − 4000（OUTPUT_RESERVE），
+     * 大窗口模型（如 64K）下 110% 会越过 native 的 `prompt >= safeRef − 512` 拒收线。
+     * 所以只允许吃掉"预算与门之间那段余量"的 1/4，并且硬性夹在门 − 512 以下。
      */
     private List<ChatMessage> trimHistoryToFit(List<ChatMessage> history, String toolsJson, int budgetTokens) {
         int schemaTokens = countTokensSafe(toolsJson);
         int total = countTokensSafe(serializeHistory(history)) + schemaTokens;
+        // 快速放行：连预算都没到就不必去算门（getSafePromptCapacity 会读 native 并打日志，
+        // 每轮都调用会让引擎日志被 "Effective context: …" 刷屏）。
         if (total <= budgetTokens) return history;
+        // 门 = native 拒收线（getSafePromptCapacity 与 native 同口径）；0 表示窗口未知
+        final int door = getSafePromptCapacity();
+        final int highWater = historyHighWater(budgetTokens, door);
+        final int target = historyTrimTarget(budgetTokens);
+        if (total <= highWater) {
+            AILogger.i(TAG, "History in hysteresis band, not trimming: " + total
+                    + " tokens (budget=" + budgetTokens + ", high water=" + highWater + ")");
+            return history;
+        }
 
-        AILogger.w(TAG, "Trimming history: " + total + " > " + budgetTokens + " tokens");
+        AILogger.w(TAG, "Trimming history: " + total + " > high water " + highWater
+                + " (budget=" + budgetTokens + ", door=" + door + "), trim target=" + target);
         List<ChatMessage> trimmed = new ArrayList<>(history);
 
         // 超预算：从最旧消息开始，把要丢弃的非工具对话压缩成一条"历史要点"
@@ -2720,7 +2787,7 @@ public class AgentLoopEngine {
         // 保留 system + 最新 N 轮（注意不能用 remove(size-2)：那会从中间删，
         // 留下"最旧+最新"两条、丢掉中间较新的上下文）
         List<ChatMessage> evicted = new ArrayList<>();
-        while (trimmed.size() > 4 && total > budgetTokens) {
+        while (trimmed.size() > 4 && total > target) {
             ChatMessage old = trimmed.remove(1);
             if (old != null) evicted.add(old);
             total = countTokensSafe(serializeHistory(trimmed)) + schemaTokens;
@@ -2739,7 +2806,8 @@ public class AgentLoopEngine {
             }
         }
 
-        AILogger.i(TAG, "History trimmed to " + trimmed.size() + " messages, " + total + " tokens");
+        AILogger.i(TAG, "History trimmed to " + trimmed.size() + " messages, " + total
+                + " tokens (trim target " + target + ")");
         return trimmed;
     }
 

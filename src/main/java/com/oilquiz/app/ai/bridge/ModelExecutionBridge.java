@@ -10,7 +10,6 @@ import com.oilquiz.app.ai.chat.ChatModeManager;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.service.AIService;
-import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.util.AILogger;
 
 import java.util.List;
@@ -22,7 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 模型执行桥接器 - UI与模型之间的唯一通道
  *
  * 设计原则：
- * 1. UI不直接调用AIService/LlamaHelper/AgentService，全部通过此桥接器
+ * 1. UI不直接调用AIService/LlamaHelper，全部通过此桥接器
  * 2. 所有模型操作在后台线程执行，回调在主线程返回
  * 3. native崩溃被try-catch隔离，不传播到UI
  * 4. 支持取消操作
@@ -32,7 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *       ↓ ChatCommand
  *   ModelExecutionBridge (桥接层)
  *       ↓ 调用
- *   AIService / LlamaHelper / AgentService (模型层)
+ *   AIService / LlamaHelper (模型层)
  *       ↓ JNI
  *   本地模型
  *       ↓ 回调
@@ -48,7 +47,6 @@ public class ModelExecutionBridge {
 
     private final Context appContext;
     private final AIService aiService;
-    private final AgentService agentService;
     private final AIConfig aiConfig;
 
     // 后台执行线程
@@ -69,23 +67,17 @@ public class ModelExecutionBridge {
     private volatile BridgeCallback currentCallback;
     private volatile boolean isCancelled = false;
 
-    // Agent工具调用循环计数
-    private int agentToolLoopCount = 0;
-
-    private ModelExecutionBridge(Context context, AIService aiService,
-                                  AgentService agentService, AIConfig aiConfig) {
+    private ModelExecutionBridge(Context context, AIService aiService, AIConfig aiConfig) {
         this.appContext = context.getApplicationContext();
         this.aiService = aiService;
-        this.agentService = agentService;
         this.aiConfig = aiConfig;
     }
 
-    public static ModelExecutionBridge getInstance(Context context, AIService aiService,
-                                                     AgentService agentService, AIConfig aiConfig) {
+    public static ModelExecutionBridge getInstance(Context context, AIService aiService, AIConfig aiConfig) {
         if (instance == null) {
             synchronized (ModelExecutionBridge.class) {
                 if (instance == null) {
-                    instance = new ModelExecutionBridge(context, aiService, agentService, aiConfig);
+                    instance = new ModelExecutionBridge(context, aiService, aiConfig);
                 }
             }
         }
@@ -105,9 +97,6 @@ public class ModelExecutionBridge {
         switch (command.type) {
             case SEND_MESSAGE:
                 executeSendMessage(command, callback);
-                break;
-            case SEND_MESSAGE_AGENT:
-                executeSendMessageAgent(command, callback);
                 break;
             case STOP_GENERATION:
                 executeStopGeneration(callback);
@@ -151,7 +140,6 @@ public class ModelExecutionBridge {
         isCancelled = false;
         currentMessageId = command.messageId;
         currentCallback = callback;
-        agentToolLoopCount = 0;
         // NPU-FAULT-GUARD(2026-11-01)：记"本轮在飞"（跨进程归因）+ 快照致命信号计数（轮末判降级）
         com.oilquiz.app.ai.jni.NpuFaultGuard.onRoundStart(
                 appContext, com.oilquiz.app.ai.jni.LlamaHelper.getBackend());
@@ -609,121 +597,6 @@ public class ModelExecutionBridge {
         }
     }
 
-    /**
-     * 构建 Agent 模式的 chatJson 请求（原生工具链路）：
-     * - 与 buildChatJsonRequest 同构，但携带 tools（OpenAI 格式）并 tool_choice=auto
-     * - 首轮（userMessage 非空）：历史 + 当前用户消息
-     * - 续轮（userMessage 为 null）：仅历史（工具结果轮，模型基于工具结果继续）
-     * C++ 层按模型模板注入工具定义并负责解析输出（common_chat_parse）。
-     */
-    private String buildAgentChatJsonRequest(String userMessage, int maxTokens) {
-        try {
-            org.json.JSONObject req = new org.json.JSONObject();
-            req.put("action", "chat");
-            org.json.JSONArray msgs = new org.json.JSONArray();
-            // TEMPLATE-COMPAT(2026-11-01)：模板只渲染 messages[0] 的 system，且后续任何 system
-            // 都会 raise → native 回退 flat（丢 tools/PEG）。本构建器此前完全不发 system，
-            // 角色/规则/人设/日期全缺；这里补唯一一条首部 system（历史里只有 user/assistant/tool）。
-            StringBuilder sysContent = new StringBuilder(
-                    com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine.buildAgentSystemPrompt(
-                            com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine.resolvePersonaFor(appContext)));
-            sysContent.append("\n\n").append(
-                    com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine.buildDateTailBlock(true).trim());
-            org.json.JSONObject sysMsg = new org.json.JSONObject();
-            sysMsg.put("role", "system");
-            sysMsg.put("content", sysContent.toString());
-            msgs.put(sysMsg);
-            synchronized (this) {
-                for (org.json.JSONObject m : chatJsonHistory) {
-                    String r = m.optString("role", "");
-                    if ("system".equals(r)) continue;   // 防御：历史里不掺 system
-                    msgs.put(m);
-                }
-            }
-            if (userMessage != null && !userMessage.isEmpty()) {
-                org.json.JSONObject cur = new org.json.JSONObject();
-                cur.put("role", "user");
-                cur.put("content", userMessage);
-                msgs.put(cur);
-                appendChatJsonHistory("user", userMessage);
-            }
-            if (msgs.length() == 0) {
-                AILogger.e(TAG, "buildAgentChatJsonRequest: empty messages");
-                return null;
-            }
-            req.put("messages", msgs);
-            req.put("enable_thinking", false);
-            req.put("max_tokens", maxTokens);
-            putLocalSampling(req);
-            req.put("tool_choice", "auto");
-            if (agentService != null) {
-                String toolsJson = agentService.getAgentOpenAIToolDefinitions();
-                if (toolsJson != null && !toolsJson.isEmpty() && !"[]".equals(toolsJson)) {
-                    org.json.JSONArray arr = new org.json.JSONArray(toolsJson);
-                    req.put("tools", arr);
-                    // 原生 Agent 这条路的注入集是"内置全量 + 动态全量"（AIToolManager 自己定）。
-                    // 计数记下来才能和在线侧对账：同一次对话两条路带的工具集本来就不该一样，
-                    // 但差多少必须看得见。注意这条路不能注 MCP——mcp__ 名字的执行路由
-                    // 只在 OnlineToolManager 里有，原生侧没有。
-                    AILogger.i(TAG, "TOOLS-PROBE(native-agent) tools_count=" + arr.length()
-                            + " tools_bytes=" + toolsJson.length());
-                }
-            }
-            return req.toString();
-        } catch (Exception e) {
-            AILogger.e(TAG, "buildAgentChatJsonRequest failed: " + e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 记录 assistant 的工具调用消息到 chatJson 历史（OpenAI 兼容格式，C++ oaicompat 解析）。
-     * content 为该轮正文（可能为空——模型只输出工具调用时）。
-     */
-    private synchronized void appendChatJsonHistoryToolCalls(
-            List<com.oilquiz.app.ai.service.OnlineInferenceService.ToolCallInfo> toolCalls, String content) {
-        try {
-            org.json.JSONObject m = new org.json.JSONObject();
-            m.put("role", "assistant");
-            m.put("content", content != null ? content : "");
-            org.json.JSONArray tcs = new org.json.JSONArray();
-            for (com.oilquiz.app.ai.service.OnlineInferenceService.ToolCallInfo tc : toolCalls) {
-                org.json.JSONObject tcObj = new org.json.JSONObject();
-                tcObj.put("id", tc.id != null && !tc.id.isEmpty() ? tc.id : "call_" + System.nanoTime());
-                tcObj.put("type", "function");
-                org.json.JSONObject fn = new org.json.JSONObject();
-                fn.put("name", tc.name != null ? tc.name : "");
-                fn.put("arguments", tc.arguments != null ? tc.arguments : "{}");
-                tcObj.put("function", fn);
-                tcs.put(tcObj);
-            }
-            m.put("tool_calls", tcs);
-            chatJsonHistory.add(m);
-            trimChatJsonHistory();
-            persistLocalHistory();
-        } catch (Exception e) {
-            AILogger.w(TAG, "appendChatJsonHistoryToolCalls failed: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 记录工具执行结果到 chatJson 历史（role=tool 消息，C++ 模板层渲染 <tool_response> 等）。
-     */
-    private synchronized void appendChatJsonHistoryToolResult(String toolCallId, String toolName, String content) {
-        try {
-            org.json.JSONObject m = new org.json.JSONObject();
-            m.put("role", "tool");
-            m.put("tool_call_id", toolCallId);
-            if (toolName != null) m.put("name", toolName);
-            m.put("content", content != null ? content : "");
-            chatJsonHistory.add(m);
-            trimChatJsonHistory();
-            persistLocalHistory();
-        } catch (Exception e) {
-            AILogger.w(TAG, "appendChatJsonHistoryToolResult failed: " + e.getMessage());
-        }
-    }
-
     private void trimChatJsonHistory() {
         while (chatJsonHistory.size() > CHATJSON_HISTORY_LIMIT) {
             chatJsonHistory.remove(0);
@@ -841,55 +714,6 @@ public class ModelExecutionBridge {
                 AILogger.e(TAG, "chatJson event parse error: " + e.getMessage());
             }
         }
-    }
-
-    private void executeSendMessageAgent(ChatCommand command, BridgeCallback callback) {
-        if (isGenerating.get()) {
-            notifyError(callback, command.messageId, "正在生成中，请稍候");
-            return;
-        }
-
-        isGenerating.set(true);
-        isCancelled = false;
-        currentMessageId = command.messageId;
-        currentCallback = callback;
-        agentToolLoopCount = 0;
-        // NPU-FAULT-GUARD(2026-11-01)：记"本轮在飞"（跨进程归因）+ 快照致命信号计数（轮末判降级）
-        com.oilquiz.app.ai.jni.NpuFaultGuard.onRoundStart(
-                appContext, com.oilquiz.app.ai.jni.LlamaHelper.getBackend());
-
-        notifyStarted(callback, command.messageId);
-
-        executor.execute(() -> {
-            try {
-                if (!ensureModelInitialized(callback, command.messageId)) return;
-                if (isCancelled) return;
-
-                ensureChatContext();
-                if (isCancelled) return;
-
-                // Agent 模式改用 chatJson + tools（原生工具链路，与普通对话同源）：
-                // C++ common_chat_templates_apply 按模型模板注入工具定义（Qwen3.5 自动用
-                // <tools> + XML 形态），模型按原生格式输出，common_chat_parse 负责解析
-                // （Qwen3.5 XML / Qwen3 JSON / 其他模板格式均有 PEG 解析支持），
-                // 解析结果经流式 tool_call 事件回调 Java。Java 侧不再拼 system prompt
-                // 工具描述 + 正则解析，解析失败时才由 complete 兜底降级。
-                String requestJson = buildAgentChatJsonRequest(command.content, command.maxTokens);
-                if (requestJson == null) {
-                    notifyError(callback, command.messageId, "构建Agent推理请求失败");
-                    resetGeneration();
-                    return;
-                }
-                InferenceGateway.get().chatJson(requestJson,
-                        new AgentJsonCallback(command.messageId, callback), "ModelExecutionBridge");
-
-            } catch (Throwable t) {
-                AILogger.e(TAG, "Agent send message failed", t);
-                notifyError(callback, command.messageId,
-                    "Agent执行失败: " + (t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName()));
-                resetGeneration();
-            }
-        });
     }
 
     // ========== 停止生成 ==========
@@ -1140,7 +964,6 @@ public class ModelExecutionBridge {
         isGenerating.set(false);
         currentMessageId = null;
         currentCallback = null;
-        agentToolLoopCount = 0;
     }
 
     // ========== 安全的Native调用包装 ==========
@@ -1227,415 +1050,5 @@ public class ModelExecutionBridge {
         executeStopGeneration(null);
         executor.shutdown();
         AILogger.i(TAG, "Bridge shutdown");
-    }
-
-    // ========== Token回调实现 ==========
-
-    /**
-     * 普通生成的Token回调
-     */
-    private class BridgeTokenCallback implements LlamaHelper.TokenCallback {
-        private final String messageId;
-        private final BridgeCallback callback;
-        private final StringBuilder fullResponse = new StringBuilder();
-        private final long startTime = System.currentTimeMillis();
-        private int tokenCount = 0;
-
-        BridgeTokenCallback(String messageId, BridgeCallback callback) {
-            this.messageId = messageId;
-            this.callback = callback;
-        }
-
-        @Override
-        public void onToken(String token) {
-            if (isCancelled) return;
-            if (token != null) {
-                fullResponse.append(token);
-                tokenCount++;
-                mainHandler.post(() -> {
-                    if (callback != null) callback.onToken(messageId, token);
-                });
-            }
-        }
-
-        @Override
-        public void onComplete(String fullText) {
-            if (isCancelled) return;
-            long elapsed = System.currentTimeMillis() - startTime;
-            float tps = elapsed > 0 ? (tokenCount * 1000.0f) / elapsed : 0;
-            String content = fullText != null ? fullText : fullResponse.toString();
-            int finalCount = tokenCount;
-            long finalElapsed = elapsed;
-            float finalTps = tps;
-
-            mainHandler.post(() -> {
-                if (callback != null) {
-                    callback.onGenerationComplete(messageId, content, finalCount, finalElapsed, finalTps);
-                }
-            });
-            resetGeneration();
-        }
-
-        @Override
-        public void onError(String error) {
-            if (isCancelled) return;
-            mainHandler.post(() -> {
-                if (callback != null) {
-                    callback.onGenerationError(messageId, error != null ? error : "Unknown error");
-                }
-            });
-            resetGeneration();
-        }
-    }
-
-    /**
-     * Agent模式的Token回调 - 包含工具调用处理
-     */
-    private class AgentTokenCallback implements LlamaHelper.TokenCallback {
-        private final String messageId;
-        private final BridgeCallback callback;
-        private final StringBuilder fullResponse = new StringBuilder();
-        private final long startTime = System.currentTimeMillis();
-        private int tokenCount = 0;
-
-        AgentTokenCallback(String messageId, BridgeCallback callback) {
-            this.messageId = messageId;
-            this.callback = callback;
-        }
-
-        @Override
-        public void onToken(String token) {
-            if (isCancelled) return;
-            if (token != null) {
-                fullResponse.append(token);
-                tokenCount++;
-                mainHandler.post(() -> {
-                    if (callback != null) callback.onToken(messageId, token);
-                });
-            }
-        }
-
-        @Override
-        public void onComplete(String fullText) {
-            if (isCancelled) return;
-
-            String content = fullText != null ? fullText : fullResponse.toString();
-
-            // 检查是否有工具调用：
-            // - Qwen3 系：<|tool_call_begin|> 标记
-            // - Qwen3.5 系：<tool_call> 块内 <function=...> XML 参数形态（无 tool_call_begin 标记）
-            // - 通用/降级：<tool_call> 块内 JSON 形态（含 "name" 字段）
-            boolean hasToolCallMarker = content.contains("<|tool_call_begin|>")
-                    || content.contains("<function=")
-                    || (content.contains("<tool_call>") && content.contains("\"name\""));
-            if (hasToolCallMarker && agentService != null &&
-                agentToolLoopCount < agentService.getMaxToolLoops()) {
-
-                handleAgentToolCall(content, messageId, callback);
-            } else {
-                // 普通完成
-                long elapsed = System.currentTimeMillis() - startTime;
-                float tps = elapsed > 0 ? (tokenCount * 1000.0f) / elapsed : 0;
-                int finalCount = tokenCount;
-                long finalElapsed = elapsed;
-                float finalTps = tps;
-                String finalContent = content;
-
-                mainHandler.post(() -> {
-                    if (callback != null) {
-                        callback.onGenerationComplete(messageId, finalContent, finalCount, finalElapsed, finalTps);
-                    }
-                });
-                resetGeneration();
-            }
-        }
-
-        @Override
-        public void onError(String error) {
-            if (isCancelled) return;
-            mainHandler.post(() -> {
-                if (callback != null) {
-                    callback.onGenerationError(messageId, error != null ? error : "Unknown error");
-                }
-            });
-            resetGeneration();
-        }
-
-        private void handleAgentToolCall(String content, String messageId, BridgeCallback callback) {
-            try {
-                List<AgentService.ToolCall> toolCalls = agentService.parseToolCalls(content);
-                if (toolCalls == null || toolCalls.isEmpty()) {
-                    // 解析失败，直接返回内容
-                    completeAgentGeneration(content, messageId, callback);
-                    return;
-                }
-
-                agentToolLoopCount++;
-
-                for (AgentService.ToolCall call : toolCalls) {
-                    // 通知UI工具调用开始
-                    String toolName = call.name;
-                    String toolArgs = call.arguments;
-                    mainHandler.post(() -> {
-                        if (callback != null) {
-                            callback.onToolCallStart(messageId, toolName, toolArgs);
-                        }
-                    });
-
-                    // 执行工具
-                    AgentService.ToolResult result = agentService.executeTool(call);
-                    boolean success = result != null && result.success;
-                    String resultStr = result != null && result.result != null ? result.result : "";
-
-                    // 通知UI工具调用完成
-                    String finalResultStr = resultStr;
-                    mainHandler.post(() -> {
-                        if (callback != null) {
-                            callback.onToolCallComplete(messageId, toolName, success, finalResultStr);
-                        }
-                    });
-
-                    // 将工具结果送回模型继续生成
-                    if (result != null) {
-                        String toolResultMsg = agentService.formatToolResultForContext(result);
-                        aiService.chatSend(toolResultMsg, aiConfig.getMaxTokens(), false,
-                            new AgentTokenCallback(messageId, callback));
-                        return; // 等待新的回调
-                    }
-                }
-
-                // 所有工具调用完成，直接返回
-                completeAgentGeneration(content, messageId, callback);
-
-            } catch (Throwable t) {
-                AILogger.e(TAG, "Agent tool call error", t);
-                completeAgentGeneration(content, messageId, callback);
-            }
-        }
-
-        private void completeAgentGeneration(String content, String messageId, BridgeCallback callback) {
-            long elapsed = System.currentTimeMillis() - startTime;
-            float tps = elapsed > 0 ? (tokenCount * 1000.0f) / elapsed : 0;
-            int finalCount = tokenCount;
-            long finalElapsed = elapsed;
-            float finalTps = tps;
-            // TOOL-SYNTAX-STRIP(2026-10-09): Agent mode lets the model emit tool-call
-            // markup with no <tool_call> wrapper (e.g. bare <function=...>). The stream
-            // path already swallows such tokens, but this text still reaches the UI and
-            // the saved history verbatim. Tags come from the chat template
-            // (LlamaHelper.getToolCallTags()), never hardcoded here.
-            String finalContent = com.oilquiz.app.ai.chat.parser.OutputRouter
-                    .stripToolCallSyntax(content, LlamaHelper.getToolCallTags());
-
-            mainHandler.post(() -> {
-                if (callback != null) {
-                    callback.onGenerationComplete(messageId, finalContent, finalCount, finalElapsed, finalTps);
-                }
-            });
-            resetGeneration();
-        }
-    }
-
-    /**
-     * Agent 模式 chatJson 回调（原生工具链路，利用 C++ common_chat_parse 解析结果）：
-     * - token -> 正文流式；thinking/reasoning -> 思考区（onThinkingUpdate）
-     * - tool_call -> 收集（C++ 已解析并只发 arguments 闭合完整的调用）+ onToolCallStart
-     * - complete -> 有工具调用则执行工具、回填 role=tool 历史并发起下一轮；否则最终完成
-     * - error -> onGenerationError
-     * 每轮 chatJson 使用新的 AgentJsonCallback 实例，状态（正文/工具列表）按轮隔离。
-     */
-    private class AgentJsonCallback implements LlamaHelper.JsonCallback {
-        private final String messageId;
-        private final BridgeCallback callback;
-        private final StringBuilder bodyBuf = new StringBuilder();
-        private final long startTime = System.currentTimeMillis();
-        private int tokenCount = 0;
-        private final List<com.oilquiz.app.ai.service.OnlineInferenceService.ToolCallInfo> toolCalls =
-                new java.util.ArrayList<>();
-        private boolean toolCallsHandled = false;
-        /** 是否已收到过 `thinking` 增量事件（用于忽略随后的 `reasoning` 全文，避免思考区重复） */
-        private boolean thinkingStreamed = false;
-
-        AgentJsonCallback(String messageId, BridgeCallback callback) {
-            this.messageId = messageId;
-            this.callback = callback;
-        }
-
-        @Override
-        public void onJson(String json) {
-            if (isCancelled) return;
-            try {
-                org.json.JSONObject event = new org.json.JSONObject(json);
-                String type = event.optString("type", "");
-                switch (type) {
-                    case "token": {
-                        String token = event.optString("content", "");
-                        if (!token.isEmpty()) {
-                            // TOOLCALL-TOKEN-GUARD（2026-10-07 审计定位）：工具调用期的 token
-                            // 由 is_tool_call=true 标记，不应计入正文（结构化 tool_call 事件另行下发）。
-                            if (event.optBoolean("is_tool_call", false)) {
-                                break;
-                            }
-                            bodyBuf.append(token);
-                            tokenCount++;
-                            mainHandler.post(() -> {
-                                if (callback != null) callback.onToken(messageId, token);
-                            });
-                        }
-                        break;
-                    }
-                    case "thinking":
-                    case "reasoning": {
-                        // THINK-DEDUP（2026-10-07 审计定位）：上游对**同一段思考内容**会发两个事件
-                        // —— `thinking`（增量）与 `reasoning`（全文）。普通对话路径有 thinkingStreamed
-                        // 去重，但 Agent 路径（本回调）没有，于是同一段思考被追加两遍，思考区里内容重复。
-                        // 这里加与普通对话同等的去重：一旦收到过 thinking 增量，就忽略后续 reasoning 全文。
-                        String tk = event.optString("content", "");
-                        if (!tk.isEmpty()) {
-                            if ("reasoning".equals(type) && thinkingStreamed) {
-                                break;   // 已有增量，全文事件忽略（避免重复追加）
-                            }
-                            if ("thinking".equals(type)) {
-                                thinkingStreamed = true;
-                            }
-                            mainHandler.post(() -> {
-                                if (callback != null) {
-                                    callback.onThinkingUpdate(messageId, 1, "thinking", "思考", tk, 0);
-                                }
-                            });
-                        }
-                        break;
-                    }
-                    case "tool_call": {
-                        // C++ common_chat_parse 解析出的原生工具调用（arguments 已闭合）
-                        com.oilquiz.app.ai.service.OnlineInferenceService.ToolCallInfo tc =
-                                new com.oilquiz.app.ai.service.OnlineInferenceService.ToolCallInfo();
-                        tc.id = event.optString("id", "");
-                        if (tc.id == null || tc.id.isEmpty()) {
-                            tc.id = "call_" + System.nanoTime();   // Qwen3.5 XML 无 id，生成一个供 tool 消息回填
-                        }
-                        tc.name = event.optString("name", "");
-                        tc.arguments = event.optString("arguments", "{}");
-                        if (tc.name.isEmpty()) break;
-                        toolCalls.add(tc);
-                        final String toolName = tc.name;
-                        final String toolArgs = tc.arguments;
-                        mainHandler.post(() -> {
-                            if (callback != null) callback.onToolCallStart(messageId, toolName, toolArgs);
-                        });
-                        break;
-                    }
-                    case "complete": {
-                        String content = event.optString("content", "");
-                        final String finalContent = content != null && !content.isEmpty()
-                                ? content : bodyBuf.toString();
-
-                        if (!toolCalls.isEmpty() && !toolCallsHandled) {
-                            toolCallsHandled = true;
-                            handleNativeToolCalls(finalContent, messageId, callback);
-                            return;
-                        }
-                        // 最终回答（本轮无工具调用）
-                        long elapsed = System.currentTimeMillis() - startTime;
-                        float tps = elapsed > 0 ? (tokenCount * 1000.0f) / elapsed : 0;
-                        final int finalCount = tokenCount;
-                        final long finalElapsed = elapsed;
-                        final float finalTps = tps;
-                        final String finalAnswer = finalContent;
-                        mainHandler.post(() -> {
-                            if (callback != null) {
-                                callback.onGenerationComplete(messageId, finalAnswer, finalCount, finalElapsed, finalTps);
-                            }
-                        });
-                        com.oilquiz.app.ai.jni.NpuFaultGuard.markDelivered();
-                        resetGeneration();
-                        break;
-                    }
-                    case "error": {
-                        String err = event.optString("message", "未知错误");
-                        // NPU-FAULT-GUARD(2026-11-01)：本轮以错误收尾——先结掉这一轮，拿到
-                        // "是否已触发降级"的下一步提示；错误卡要能说清接下来会发生什么，
-                        // 而不是只报失败（普通错误不会产生提示，原样透传）。
-                        String guardHint = com.oilquiz.app.ai.jni.NpuFaultGuard.onRoundEnd(appContext);
-                        final String errFinal = guardHint != null ? err + "\n" + guardHint : err;
-                        mainHandler.post(() -> {
-                            if (callback != null) callback.onGenerationError(messageId, errFinal);
-                        });
-                        resetGeneration();
-                        break;
-                    }
-                    default:
-                        break;
-                }
-            } catch (Exception e) {
-                AILogger.e(TAG, "Agent chatJson event parse error: " + e.getMessage());
-            }
-        }
-
-        /**
-         * 执行 C++ 解析出的工具调用并驱动下一轮：
-         * 1. 回填 assistant tool_calls 消息（content 为该轮正文）
-         * 2. 逐个 executeTool，通知 UI，回填 role=tool 结果消息
-         * 3. 发起下一轮 chatJson（无新 user 消息，模型基于工具结果继续）
-         */
-        private void handleNativeToolCalls(String content, String messageId, BridgeCallback callback) {
-            try {
-                if (agentService == null || agentToolLoopCount >= agentService.getMaxToolLoops()) {
-                    AILogger.w(TAG, "Agent tool loop limit reached: " + agentToolLoopCount);
-                    completeNativeGeneration(content, messageId, callback);
-                    return;
-                }
-                agentToolLoopCount++;
-
-                // 1. assistant tool_calls 历史
-                appendChatJsonHistoryToolCalls(toolCalls, content);
-
-                // 2. 逐个执行工具 + 回填 tool 结果
-                for (com.oilquiz.app.ai.service.OnlineInferenceService.ToolCallInfo tc : toolCalls) {
-                    if (isCancelled) return;
-                    AgentService.ToolCall call = new AgentService.ToolCall(tc.name, tc.arguments);
-                    AgentService.ToolResult result = agentService.executeTool(call);
-                    boolean success = result != null && result.success;
-                    String resultStr = result != null && result.result != null ? result.result : "";
-                    appendChatJsonHistoryToolResult(tc.id, tc.name, resultStr);
-                    final String toolName = tc.name;
-                    final String finalResultStr = resultStr;
-                    final boolean finalSuccess = success;
-                    mainHandler.post(() -> {
-                        if (callback != null) {
-                            callback.onToolCallComplete(messageId, toolName, finalSuccess, finalResultStr);
-                        }
-                    });
-                }
-
-                // 3. 下一轮（模型基于工具结果继续生成）
-                if (isCancelled) return;
-                String nextReq = buildAgentChatJsonRequest(null, aiConfig.getMaxTokens());
-                if (nextReq == null) {
-                    completeNativeGeneration(content, messageId, callback);
-                    return;
-                }
-                InferenceGateway.get().chatJson(nextReq,
-                        new AgentJsonCallback(messageId, callback), "ModelExecutionBridge");
-            } catch (Throwable t) {
-                AILogger.e(TAG, "Agent native tool call error", t);
-                completeNativeGeneration(content, messageId, callback);
-            }
-        }
-
-        private void completeNativeGeneration(String content, String messageId, BridgeCallback callback) {
-            long elapsed = System.currentTimeMillis() - startTime;
-            float tps = elapsed > 0 ? (tokenCount * 1000.0f) / elapsed : 0;
-            final int finalCount = tokenCount;
-            final long finalElapsed = elapsed;
-            final float finalTps = tps;
-            final String finalContent = content;
-            mainHandler.post(() -> {
-                if (callback != null) {
-                    callback.onGenerationComplete(messageId, finalContent, finalCount, finalElapsed, finalTps);
-                }
-            });
-            resetGeneration();
-        }
     }
 }

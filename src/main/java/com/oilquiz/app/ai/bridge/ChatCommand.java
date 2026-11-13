@@ -11,7 +11,6 @@ public class ChatCommand {
     public enum CommandType {
         // 消息生成
         SEND_MESSAGE,
-        SEND_MESSAGE_AGENT,
         STOP_GENERATION,
         // 上下文管理
         CLEAR_CONTEXT,
@@ -50,13 +49,6 @@ public class ChatCommand {
         cmd.content = content;
         cmd.maxTokens = maxTokens;
         cmd.enableThinking = thinking;
-        return cmd;
-    }
-
-    public static ChatCommand sendMessageAgent(String messageId, String content, int maxTokens) {
-        ChatCommand cmd = new ChatCommand(CommandType.SEND_MESSAGE_AGENT, messageId);
-        cmd.content = content;
-        cmd.maxTokens = maxTokens;
         return cmd;
     }
 

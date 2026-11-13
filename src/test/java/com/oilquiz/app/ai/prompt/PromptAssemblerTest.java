@@ -13,8 +13,10 @@ import org.junit.Test;
  * 2) scoped 段覆盖 global 同名段（shadow）
  * 3) 重复注册（同层）抛错；disposer 幂等卸载
  * 4) 严格变量插值：{{name}} 未知/畸形/无值抛错；interpolate=false 保留原文
- * 5) complete 段：多于一个 active 抛错；存在时恢复为唯一 prompt 段
- * 6) 动态上下文渲染："当前运行时上下文"前缀 + 空段丢弃
+ *
+ * <p>CLEANUP(2026-11-13)：dsh 的 PromptContext（运行时上下文快照）与 complete 段语义已从
+ * PromptAssembler 删除，对应用例一并移除——它们在生产代码里没有任何调用方，
+ * 留着测试只会让"这个能力还在用"看起来像真的。
  */
 public class PromptAssemblerTest {
 
@@ -129,56 +131,21 @@ public class PromptAssemblerTest {
         assertEquals("值 {{b}}", a.assemble(AssembleContext.global()).render());
     }
 
-    // ===== 5. complete 段 =====
+    // ===== 5. 空段与排版 =====
 
     @Test
-    public void singleCompleteBecomesSoleSection() {
+    public void emptySectionsDroppedAndJoinedByBlankLine() {
         PromptAssembler a = new PromptAssembler();
-        a.registerSection(PromptSection.of("identity", -1000, "你是答题宝助手"));
-        a.registerSection(PromptSection.of("persona", 0, "普通 persona"));
-        a.registerSection(PromptSection.of("override", 0, "本地模式完整提示").complete(true), "local");
-        assertEquals("你是答题宝助手\n\n普通 persona",
-                a.assemble(AssembleContext.global()).render());
-        assertEquals("本地模式完整提示",
-                a.assemble(AssembleContext.of("local")).render());
+        a.registerSection(PromptSection.of("blank", 0, "   "));
+        a.registerSection(PromptSection.of("one", 1, "A"));
+        a.registerSection(PromptSection.of("two", 2, "B"));
+        assertEquals("A\n\nB", a.assemble(AssembleContext.global()).render());
     }
 
     @Test
-    public void multipleCompleteThrows() {
+    public void allEmptyRendersEmptyString() {
         PromptAssembler a = new PromptAssembler();
-        a.registerSection(PromptSection.of("c1", 0, "x").complete(true));
-        a.registerSection(PromptSection.of("c2", 0, "y").complete(true));
-        assertThrows(IllegalStateException.class, () -> a.assemble(AssembleContext.global()));
-    }
-
-    // ===== 6. 动态上下文 =====
-
-    @Test
-    public void contextRenderedAsRuntimeSnapshot() {
-        PromptAssembler a = new PromptAssembler();
-        a.registerContext(PromptContext.of("session", 200, "当前会话：答题模式"));
-        a.registerSection(PromptSection.of("s", 0, "S"));
-        PromptAssembly as = a.assemble(AssembleContext.global());
-        assertEquals("S", as.render());
-        String snap = as.renderContextSnapshot();
-        assertTrue(snap.startsWith("当前运行时上下文。此快照取代更早的运行时上下文快照。"));
-        assertTrue(snap.contains("当前会话：答题模式"));
-    }
-
-    @Test
-    public void emptyContextsRenderEmptySnapshot() {
-        PromptAssembler a = new PromptAssembler();
-        a.registerContext(PromptContext.of("empty", 0, "   "));
-        assertEquals("", a.assemble(AssembleContext.global()).renderContextSnapshot());
-    }
-
-    @Test
-    public void contextsJoinInOrder() {
-        PromptAssembler a = new PromptAssembler();
-        a.registerContext(PromptContext.of("later", 200, "B"));
-        a.registerContext(PromptContext.of("early", 100, "A"));
-        String snap = a.assemble(AssembleContext.global()).renderContextSnapshot();
-        assertTrue(snap.contains("\n\nA\n\nB"));
-        assertFalse(snap.contains("\n\nB\n\nA"));
+        a.registerSection(PromptSection.of("blank", 0, "   "));
+        assertEquals("", a.assemble(AssembleContext.global()).render());
     }
 }

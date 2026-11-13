@@ -55,9 +55,11 @@ void AgentKvCache::plan(const std::vector<llama_token>& tokensList, llama_memory
                       matchedLen_, tokensList.size(), cachedNPast_);
     }
 
-    // ---- 监控：周期性输出聚合统计 ----
+    // ---- 监控：聚合统计 ----
+    // 首轮也打一次：短会话（plan < STATS_INTERVAL）否则一条摘要都看不到，而"第一次就没命中"
+    // 恰恰是最有诊断价值的那个点（首轮通常 FULL，用它对照后续 inc）。
     planCount_++;
-    if (planCount_ % STATS_INTERVAL == 0) {
+    if (planCount_ == 1 || planCount_ % STATS_INTERVAL == 0) {
         dumpStats();
     }
 }
@@ -65,17 +67,27 @@ void AgentKvCache::plan(const std::vector<llama_token>& tokensList, llama_memory
 void AgentKvCache::dumpStats() {
     long total = planCount_;
     double hit = hitRate();
+    double planned = plannedHitRate();
     double usage = ctxUsage();
-    AGENT_KV_LOGD_KV("KV-STATS: plans=%ld inc=%d part=%d full=%d hit=%.1f%% "
-                  "ctx_usage=%.1f%% (cachedNPast=%d/%d)",
-                  total, incCount_, partCount_, fullCount_, hit * 100.0,
-                  usage * 100.0, cachedNPast_, ctxSize_);
+    // 两个百分比并排：hit=实际复用，planned=计划复用。差值就是"打算 PARTIAL 但截断失败"
+    // 的那部分（本机混合架构下通常等于全部 part）——排障时先看差值，再看 full_reason。
+    //
+    // KV-STATS-VISIBLE(2026-11-13)：这行原为 DEBUG，而 engineLogAppend 有一条
+    // `if (level == 'D') return;` —— 于是 App 内"引擎日志"页与落盘日志里永远看不到摘要，
+    // 只能在 logcat 里捞。命中率改成实际态之后，这个摘要就是唯一能回答"本地优化到底有没有效"
+    // 的数，必须能落地。降为 DEBUG 的那批（PARTIAL seq_rm 失败）保持原级别不动：那是
+    // 设计内的性能回退，不该在用户视图里冒充故障。
+    AGENT_KV_LOGI("KV-STATS: plans=%ld inc=%d part=%d part_applied=%d full=%d "
+                  "hit=%.1f%% planned=%.1f%% ctx_usage=%.1f%% (cachedNPast=%d/%d)",
+                  total, incCount_, partCount_, partApplied_, fullCount_, hit * 100.0,
+                  planned * 100.0, usage * 100.0, cachedNPast_, ctxSize_);
 }
 
 bool AgentKvCache::truncate(llama_memory_t mem) {
     if (mem == nullptr || strategy_ != Strategy::PARTIAL) return false;
     // 删除 [matchedLen_, ∞) 的 KV（只保留前缀）
     if (llama_memory_seq_rm(mem, 0, matchedLen_, -1)) {
+        partApplied_++;   // HIT-RATE-HONEST：只有这里成功，才算真正复用上（命中率分子）
         AGENT_KV_LOGI("PARTIAL truncated at %d", matchedLen_);
         return true;
     }

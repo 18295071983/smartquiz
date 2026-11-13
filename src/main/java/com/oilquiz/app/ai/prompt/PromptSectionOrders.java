@@ -17,9 +17,8 @@ public final class PromptSectionOrders {
     public static final int STRUCTURED_OUTPUT = 9900;
     public static final int PERSONA_SUFFIX = 10200;
 
-    /** 动态上下文段的标准位置 */
+    /** 运行时信息段（环境上下文等）的标准位置——dsh 里同号用于 context，本项目只用于 section */
     public static final int CONTEXT_RUNTIME = 100;
-    public static final int CONTEXT_SESSION = 200;
 
     private PromptSectionOrders() {
     }

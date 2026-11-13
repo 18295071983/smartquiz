@@ -158,9 +158,11 @@ public final class InferenceGateway {
             return;
         }
         final AtomicBoolean finished = new AtomicBoolean(false);
+        final LocalRoundMetrics metrics = new LocalRoundMetrics(owner);
         LlamaHelper.JsonCallback wrapped = new LlamaHelper.JsonCallback() {
             @Override
             public void onJson(String json) {
+                metrics.markEvent();
                 // 先释放再回调：ModelExecutionBridge 的 complete/tool 回调可能同步发起下一轮
                 // chatJson，若先回调后释放会把自己判成 busy。
                 if (isTerminal(json)) finishOnce();
@@ -174,7 +176,11 @@ public final class InferenceGateway {
             }
 
             private void finishOnce() {
-                if (finished.compareAndSet(false, true)) end(id);
+                if (finished.compareAndSet(false, true)) {
+                    metrics.markFinished();
+                    end(id);
+                    logRound(metrics);
+                }
             }
         };
         try {
@@ -201,22 +207,32 @@ public final class InferenceGateway {
             return;
         }
         final AtomicBoolean finished = new AtomicBoolean(false);
+        final LocalRoundMetrics metrics = new LocalRoundMetrics(owner);
         LlamaHelper.TokenCallback wrapped = new LlamaHelper.TokenCallback() {
             @Override
             public void onToken(String token) {
+                metrics.markEvent();
                 callback.onToken(token);
             }
 
             @Override
             public void onComplete(String fullText) {
                 // 先释放再回调：完成回调里可能同步触发下一轮
-                if (finished.compareAndSet(false, true)) end(id);
+                if (finished.compareAndSet(false, true)) {
+                    metrics.markFinished();
+                    end(id);
+                    logRound(metrics);
+                }
                 callback.onComplete(fullText);
             }
 
             @Override
             public void onError(String error) {
-                if (finished.compareAndSet(false, true)) end(id);
+                if (finished.compareAndSet(false, true)) {
+                    metrics.markFinished();
+                    end(id);
+                    logRound(metrics);
+                }
                 callback.onError(error);
             }
         };
@@ -227,6 +243,17 @@ public final class InferenceGateway {
             if (finished.compareAndSet(false, true)) end(id);
             callback.onError("推理入口异常: " + t.getMessage());
         }
+    }
+
+    /**
+     * 落一行单轮账（LOCAL-ROUND-METRICS，2026-11-13）。
+     *
+     * <p>token 数从 native 的 KV 记账读回：那是本轮**实际 decode** 的 prompt + 生成 token，
+     * 比在 Java 侧数回调事件准（工具轮的 arguments 增量不算正文）。读不到就只记时间。
+     * 具体实现见 {@link RoundLog}（AgentLoopEngine 走 native 直连，也复用同一个落点）。</p>
+     */
+    private void logRound(LocalRoundMetrics m) {
+        RoundLog.log(TAG, m);
     }
 
     /** 轻量判定终态事件；只有 complete/error 会释放闸门。 */

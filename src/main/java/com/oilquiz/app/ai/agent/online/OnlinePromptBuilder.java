@@ -38,6 +38,7 @@ public class OnlinePromptBuilder {
     /** assist 模式（本地辅助） */
     static final int ORDER_PERSONA = 0;
     static final int ORDER_TOOLS_GUIDE = 100;
+    /** 工具发现段：assist / takeover 共用同一段文本与同一位置，注册在 {@link #registerSharedSections} */
     static final int ORDER_TOOL_DISCOVERY = 200;
     static final int ORDER_KNOWLEDGE_STRATEGY = 300;
     static final int ORDER_KNOWLEDGE_BASE = 400;
@@ -53,7 +54,7 @@ public class OnlinePromptBuilder {
     /** takeover 模式（模型接管） */
     static final int ORDER_PERSONA_TAKEOVER = 0;
     static final int ORDER_TOOLS_QUICKREF = 100;
-    static final int ORDER_TOOL_DISCOVERY_TAKEOVER = 200;
+    // 200 = ORDER_TOOL_DISCOVERY（两档共用，见 registerSharedSections），故不再单独定义 takeover 版
     static final int ORDER_CALL_RULES = 300;
     static final int ORDER_KNOWLEDGE_STRATEGY_TAKEOVER = 400;
     static final int ORDER_KNOWLEDGE_BASE_TAKEOVER = 500;
@@ -76,6 +77,7 @@ public class OnlinePromptBuilder {
      */
     public String buildSystemPrompt() {
         PromptAssembler assembler = new PromptAssembler();
+        registerSharedSections(assembler);
         registerAssistSections(assembler);
         return assembler.assemble(AssembleContext.global()).render();
     }
@@ -88,6 +90,7 @@ public class OnlinePromptBuilder {
      */
     public String buildSystemPromptTakeover() {
         PromptAssembler assembler = new PromptAssembler();
+        registerSharedSections(assembler);
         registerTakeoverSections(assembler);
         return assembler.assemble(AssembleContext.global()).render();
     }
@@ -108,6 +111,7 @@ public class OnlinePromptBuilder {
     public String buildSystemPromptWithRuntime(boolean takeover, boolean enableThinking,
                                                String thinkingInstruction, String workspaceBlock) {
         PromptAssembler assembler = new PromptAssembler();
+        registerSharedSections(assembler);
         if (takeover) {
             registerTakeoverSections(assembler);
         } else {
@@ -124,12 +128,29 @@ public class OnlinePromptBuilder {
         return assembler.assemble(AssembleContext.global()).render();
     }
 
-    // ==================== 段注册（assist / takeover） ====================
+    // ==================== 段注册（共享 / assist / takeover） ====================
+
+    /**
+     * 模式无关的共享段：assist 与 takeover 的文本与 order 完全一致，只注册一次。
+     *
+     * <p>SHARED(2026-11-13)：{@code tool_discovery} 原先在两档里各注册一份
+     * {@link #buildToolDiscoverySection()}，还各配一个 order 常量（{@code ORDER_TOOL_DISCOVERY} /
+     * {@code ORDER_TOOL_DISCOVERY_TAKEOVER}，值都是 200）。那份文案里写着"本会话每轮注入 N 个核心工具"
+     * 与完整工具名单——两份拷贝里只改一份，就会让两档对模型说不同的话（本项目已经漂过不止一次，
+     * 比如"说 6 个实际 7 个"）。两档 order 相同，提到共享层对渲染结果<b>零影响</b>：
+     * golden 两份快照逐字不变，只有注册次数从 2 降到 1。
+     *
+     * <p>其余 5 个段（knowledge_strategy / knowledge_base / component_guide / memory / execution）
+     * 文本也相同，但两档的 order 不同，暂未并入：统一 order 会改 prompt 结构，需要单独评审 +
+     * 重跑 golden 确认段序变化。
+     */
+    private void registerSharedSections(PromptAssembler a) {
+        a.registerSection(PromptSection.of("tool_discovery", ORDER_TOOL_DISCOVERY, buildToolDiscoverySection()));
+    }
 
     private void registerAssistSections(PromptAssembler a) {
         a.registerSection(PromptSection.of("persona", ORDER_PERSONA, buildPersonaSection()));
         a.registerSection(PromptSection.of("tools_guide", ORDER_TOOLS_GUIDE, buildToolsGuideSection()));
-        a.registerSection(PromptSection.of("tool_discovery", ORDER_TOOL_DISCOVERY, buildToolDiscoverySection()));
         a.registerSection(PromptSection.of("knowledge_strategy", ORDER_KNOWLEDGE_STRATEGY, buildKnowledgeStrategySection()));
         a.registerSection(PromptSection.of("knowledge_base", ORDER_KNOWLEDGE_BASE, buildKnowledgeBaseSection()));
         a.registerSection(PromptSection.of("component_guide", ORDER_COMPONENT_GUIDE, buildComponentGuideMiniSection()));
@@ -147,7 +168,6 @@ public class OnlinePromptBuilder {
         if (guide != null) {
             a.registerSection(PromptSection.of("tools_quickref", ORDER_TOOLS_QUICKREF, buildToolsQuickRefSection()));
         }
-        a.registerSection(PromptSection.of("tool_discovery", ORDER_TOOL_DISCOVERY_TAKEOVER, buildToolDiscoverySection()));
         a.registerSection(PromptSection.of("call_rules", ORDER_CALL_RULES, buildCallRulesSection()));
         a.registerSection(PromptSection.of("knowledge_strategy", ORDER_KNOWLEDGE_STRATEGY_TAKEOVER, buildKnowledgeStrategySection()));
         a.registerSection(PromptSection.of("knowledge_base", ORDER_KNOWLEDGE_BASE_TAKEOVER, buildKnowledgeBaseSection()));

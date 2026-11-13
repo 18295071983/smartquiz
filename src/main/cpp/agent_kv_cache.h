@@ -114,8 +114,26 @@ public:
     int incCount() const { return incCount_; }
     int partCount() const { return partCount_; }
     int fullCount() const { return fullCount_; }
+    /** PARTIAL 里**截断成功**的次数——只有这些才真的省了 prefill。 */
+    int partAppliedCount() const { return partApplied_; }
     int contextSize() const { return ctxSize_; }
+
+    /**
+     * 实际命中率：分子只算真正复用成功的（INCREMENTAL 全中 + PARTIAL 截断成功）。
+     *
+     * <p>HIT-RATE-HONEST(2026-11-13)：原实现把 {@code partCount_}（**计划**走 PARTIAL 的次数）
+     * 直接计入分子，而混合架构（attention+recurrent）在 {@code n_rs_seq=0} 下
+     * {@code llama_memory_seq_rm} 的深截断必然失败 → 调用方回退全量 prefill。
+     * 于是设备页可以显示接近 100% 的命中率，实际每轮都在全量重算——这个指标是本地侧
+     * **唯一**能回答"优化有没有效"的数，失真等于所有性能判断都失去依据。
+     * 计划态口径保留在 plannedHitRate() 里，仅用于诊断两者差距。
+     */
     double hitRate() const {
+        return planCount_ > 0 ? (double)(incCount_ + partApplied_) / (double)planCount_ : 0.0;
+    }
+
+    /** 计划态命中率（含"打算 PARTIAL 但截断失败"）：与 {@link #hitRate()} 的差值即回退量。 */
+    double plannedHitRate() const {
         return planCount_ > 0 ? (double)(incCount_ + partCount_) / (double)planCount_ : 0.0;
     }
     /** 上下文占用比例（0.0-1.0）：cachedNPast / n_ctx */
@@ -142,7 +160,8 @@ private:
     int ctxSize_ = 0;              // n_ctx（上下文总长）
     long planCount_ = 0;           // plan 总调用次数
     int incCount_ = 0;             // INCREMENTAL 次数
-    int partCount_ = 0;            // PARTIAL 次数
+    int partCount_ = 0;            // PARTIAL 计划次数（含后来截断失败的）
+    int partApplied_ = 0;          // PARTIAL 截断成功次数（真正省了 prefill）
     int fullCount_ = 0;            // FULL 次数
 };
 

@@ -616,14 +616,16 @@ public class AssistantTurnTest {
     }
 
     /**
-     * 跨模型轮次的工具不能并成一张组卡（2026-10-28）。
+     * 同一 turn 内的工具折成一张组卡（2026-11-12 口径）。
      *
-     * <p>真机会话里连续几轮"只发工具、没有思考"时，旧实现把第 3~7 轮的工具并成一张
-     * {@code 已运行 5 个工具}，同一段里又只给有思考的轮出「已深度思考」行，于是历史看起来
-     * 是 1、2、5、4 这种跳变计数，轮次边界整段消失。轮次键取自 part id 的 {@code T533-R3} 段。</p>
+     * <p>历史口径换过一次，别照着旧断言改回去：2026-10-28 曾按**模型轮次**断开（跨轮合并会让
+     * "已运行 N 个工具"横跨多轮、与逐轮思考行对不上）；2026-11-12 又改回**按 turn** 归组——
+     * 手机上一个 turn 每一步都渲染一行「⏳ 正在运行 X」，连续几步就叠成一片（真机反馈的视觉
+     * 噪音）。两者是产品取舍，当前以 turn 为准；跨 turn 仍必须分开，见
+     * {@link #toolGroupsDoNotMergeAcrossTurns}。</p>
      */
     @Test
-    public void toolGroupsDoNotMergeAcrossModelRounds() {
+    public void toolGroupsFoldWithinOneTurn() {
         AssistantTurn turn = new AssistantTurn();
         turn.turnId = "T9";
         AssistantTurn.Part r1c1 = AssistantTurn.Part.toolCall(
@@ -650,12 +652,41 @@ public class AssistantTurnTest {
         for (AssistantTurn.Part p : turn.parts) {
             if (AssistantTurn.Part.TYPE_TOOL_GROUP.equals(p.type)) groups.add(p);
         }
-        assertEquals("轮 1 / 轮 2 / 轮 3 各一张组卡", 3, groups.size());
+        assertEquals("同一 turn 的工具折成一张组卡（2026-11-12 口径）", 1, groups.size());
+        assertEquals("c1", groups.get(0).group.get(0).toolCallId);
+        assertEquals("c2", groups.get(0).group.get(1).toolCallId);
+        assertEquals("c3", groups.get(0).group.get(2).toolCallId);
+        assertEquals("c4", groups.get(0).group.get(3).toolCallId);
+    }
+
+    /**
+     * 跨 **turn** 仍然不能并组（与 {@link #toolGroupsFoldWithinOneTurn} 配套）。
+     *
+     * <p>归组键是 id 的 {@code T{n}} 段：同一 turn 内折成一张、不同 turn 各一张。
+     * 这条守住"分组口径可以调，但不能退化成全局一张卡"。</p>
+     */
+    @Test
+    public void toolGroupsDoNotMergeAcrossTurns() {
+        AssistantTurn turn = new AssistantTurn();
+        turn.turnId = "T9";
+        AssistantTurn.Part t9 = AssistantTurn.Part.toolCall(
+                "T9-R1:tool:c1", "c1", "python_execute", "{}", "done", 1L);
+        AssistantTurn.Part t10 = AssistantTurn.Part.toolCall(
+                "T10-R1:tool:c2", "c2", "python_execute", "{}", "done", 2L);
+        turn.parts.add(t9);
+        turn.parts.add(AssistantTurn.Part.toolResult(t9, "a", 1L));
+        turn.parts.add(t10);
+        turn.parts.add(AssistantTurn.Part.toolResult(t10, "b", 2L));
+
+        AssistantTurn.groupTools(turn);
+
+        java.util.List<AssistantTurn.Part> groups = new ArrayList<>();
+        for (AssistantTurn.Part p : turn.parts) {
+            if (AssistantTurn.Part.TYPE_TOOL_GROUP.equals(p.type)) groups.add(p);
+        }
+        assertEquals("不同 turn 各一张组卡", 2, groups.size());
         assertEquals(1, groups.get(0).group.size());
         assertEquals(1, groups.get(1).group.size());
-        assertEquals("同一轮的并行工具仍折进同一张", 2, groups.get(2).group.size());
-        assertEquals("c3", groups.get(2).group.get(0).toolCallId);
-        assertEquals("c4", groups.get(2).group.get(1).toolCallId);
     }
 
     /**

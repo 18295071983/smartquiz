@@ -13,8 +13,16 @@ import com.oilquiz.app.util.AILogger;
 /**
  * Agent 统一路由入口（纯在线）。
  *
- * 本地 Agent 已弃用（原生 FC 工具循环在 4B 上不稳定），本地模型使用普通对话；
- * 本路由仅服务在线模型：OnlineAgentEngine（原生 function calling + reasoning_content）。
+ * <p>本地 Agent **不走本类**：本地模型开"智能助手"后由
+ * {@code AIChatActivity.processChatMessageWithAgent} → {@code AgentChatHandler} →
+ * {@code AgentSoftwareLayer.getShared()} → {@code AgentLoopEngine} 驱动（见该链路的
+ * 停止/取消不变量测试 {@code LocalAgentCancelPathTest}）。本类只服务在线模型：
+ * OnlineAgentEngine（原生 function calling + reasoning_content）。
+ *
+ * <p>DEAD-CODE(2026-11-13)：本类历史上还兼过本地 Agent 的入口，那段路由已删；
+ * 同时删掉的还有 {@code ModelExecutionBridge} 里的第二套 agent 工具循环
+ * （{@code SEND_MESSAGE_AGENT}，零调用）与 {@code AgentExecutionEngine}（零引用）。
+ * 现在"本地 Agent"只有一条实现，改工具协议时不要改错地方。
  */
 public class AgentRouter {
 
