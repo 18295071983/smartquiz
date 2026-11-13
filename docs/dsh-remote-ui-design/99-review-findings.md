@@ -179,3 +179,62 @@
 - P1 不是"单文件回退"：B2/B3 在 `DshProjection`/`ChatAdapter`，B4 涉及 `ActionSink`+`ComponentActions`+`ChatMessage`+Activity，B5 在插件，至少 6 个文件
 - 插件回滚要**先留副本 + 重启 DSH**；仓库无版本化插件目录，新增 `ui_cards.js`/`ui_catalog.js` 要列进回滚清单
 - P3 配置表：删覆盖档是唯一干净回滚
+
+---
+
+## 14. DSH 事件产出与插件能力（三路调查，2026-11-13）
+
+方法：① 读 DSH 源码枚举权威类型；② 真实抓 `/events` 两段各 28s；③ 通读插件能力。
+DSH 版本 `@deepseek-ai/dsh` **0.2.2-rc.2**。
+
+### 14.1 权威规模：63 条 session 事件，插件目录覆盖 21 条（33%）
+
+- `dsh-session/src/known-event-types.ts:22-86` 的 `KNOWN_SESSION_EVENT_TYPES` = **63 条**
+- 信封 `SessionEvent` = `{type, seq, time, data, ignorable?, surfaceOp?, sourceEventSeqs?}` —— **有 seq+time，无 id**
+- `EVENT_CATALOG` 命中 **21/63**；**缺 36 条可实际产出**（另 6 条无写入者）；**多 12 条**不是 session 事件
+
+### 14.2 必须分三层（否则对账永远对不上）
+
+| 层 | 类型 | 来源 |
+|---|---|---|
+| **session 事件（63）** | `system/message`、`developer/message`、`compaction/summary`、`tool/ptc-dispatch`、`team/*`、`tool-workflow/*`、`deliverables/presented`、`approval/asked`/`approval/decided` … | DSH 会话日志，带 seq |
+| **宿主事件（Cordis）** | `agent/assistant-stream`（token 流真名）、`approval/request`、`user-questions/request`、`goal/activation-changed`、`schedule/changed` | `ctx.on`，非 session 事件 |
+| **插件合成帧** | `stream/delta`、`stream/end`、`subagent/activity`、`approval_gone`、`ui/slot` | 插件自造（DSH 全库 0 命中） |
+
+**实测信封层**（手机真正解析的）：`stream/delta` 802 条、`ui/slot` 35、`subagent/activity` 21、`event` 21、`view` 12、`pulse` 4、`stream/end` 3、`ready`/`state`/`end` 各 2。
+其中 `ui/slot`/`view`/`pulse`/`state`/`ready`/`end` 与包装层 `event` **都不在目录里**。
+
+### 14.3 新发现（B14–B16）
+
+| # | 缺陷 | 证据 | 影响 | 归属 |
+|---|---|---|---|---|
+| **B14** | 事件覆盖仅 21/63（33%），且目录把宿主事件/合成帧混在一起 | 源码 63 条 vs `index.js:1567` 33 条 | 系统消息、压缩详情、产物、工作区变更、PTC、团队/工作流手机全看不到 | **P1** |
+| **B15** | **根会话收不到工具/任务事件**：`tool/call`/`tool/result`/`job/*` 只出现在做事的子会话，手机绑定的根会话只收到合成的 `subagent/activity` | 抓包 A 窗口（根）0 条 tool/job；B 窗口（子）3/3/2 条 | 手机端工具卡/job 卡的来源其实是合成帧，不是 durable 事件 → 恢复后不可重建 | **P1** |
+| **B16** | **回执缺口 1345 条**：`acked_seq=4485` vs `last_seq=5830`，而 `since=-2` 不重放历史 | 抓包 `state` 帧 | 手机冷启动会缺一大段；只能靠 `/v2/stream` 补拉 | P1 |
+
+### 14.4 目录重做的硬要求（替代 v2 §8 的 B8）
+
+1. 按三层分类重建 `EVENT_CATALOG`：`session` / `host` / `synth` 三个分区，各自标注 `forward`/`slot`。
+2. 补 36 条可产出类型；把 12 条非 session 事件迁到 host/synth 分区。
+3. **加 `plugin:` 前缀放行规则**（`ignorable:true`，走同一事件流但不在 63 条内）。
+4. `noteEventType` 对 `session-log-` 前缀**静默跳过、不记未登记**（`index.js:1615`）→ 改为按前缀族登记，否则永远发现不了新日志类型。
+5. 对账口径分开：**信封 `type`** 与 **内层 `event.type`** 两张表，否则 `subagent/activity`/`stream/*` 会被误判为"未出现"。
+
+### 14.5 插件能力盘点（与设计相关的结论）
+
+| 结论 | 事实 |
+|---|---|
+| 手机端能力 | v2 全套（对话/SSE/审批问答/日程计划/子代理/卡片/对账/设备管理/可选 exec） |
+| 改不了电脑侧配置 | `/config`(allowExec)、`/pair`、`/pair.json`、`/balance` **仅本机回环** |
+| **反向通道没有生产者** | `CMD_ALLOW` 5 工具已实现队列/poll/ack，但插件**零 LLM 工具注册**（无 `ctx.tool`），面板 `client.js` 也无入口 → 只能人工 curl |
+| **没有服务端推配置** | 可推的只有 `state`/`view`/`ui/slot`/`pulse`/`approval`/`__force_resync`；能力表只能客户端拉 `/v2/hello` |
+| caps 从未校验 | `cmd.ui`/`cmd.shell` 只声明无实现；`/cmd*` 只校验 token |
+| 两条视图通道不一致 | `/v2/view` 走 `filterViewCards`；SSE `view` 不裁剪、无 caps 卡、无 timeline |
+| 两份插件副本 | SHA256 完全一致（9 个文件），改完必须同步 `src/main/assets/remote_dsh/plugin/` |
+
+### 14.6 对设计文档的修正（覆盖 v2 §1.10 / §8）
+
+- M3 配置下发：**改为客户端拉取**（`/v2/hello` 版本 + 目录端点）；服务端推是可选增强，当前无通道。
+- M5 动态卡：必须走 `/events` 事件；**不能等 agent 主动推**（插件无工具注册）。
+- M1 的 D1：DSH 生成态来自 `live.inferenceProgress`；B15 说明根会话连工具事件都收不到，D1/D2 不应假设有 durable 事件。
+- 事件目录工作量按"补 36 条 + 三层分类"重估：**P1 内 2-3 天**。
