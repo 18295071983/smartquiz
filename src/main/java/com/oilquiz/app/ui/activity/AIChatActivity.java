@@ -13197,13 +13197,81 @@ public class AIChatActivity extends BaseActivity {
                 com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class));
     }
 
+    /** 正在回传的审批 id：防连环点（先答先赢，重复点只会造成竞态） */
+    private final java.util.Set<String> approvalInFlight =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
+
+    /** 昨天的审批对话框（2026-11-13 恢复）：同一时间只挂一条，approval_gone 收掉 */
+    private android.app.AlertDialog dshApprovalDialog;
+    private String dshApprovalId;
+
     /**
-     * 权限槽点击 → 变更卡（2026-11-13）。
+     * 审批槽点击 → 变更卡（2026-11-13）。
      *
      * <p>以前点权限行直接跳面板，看不出能改什么。现在弹一张卡列沙箱模式/审批策略，
      * 选完发 {@code /v2/action permission.set}；电脑端改不动时明确提示去电脑端改，
      * 不假装成功（插件会回 {@code not_supported} + failed 明细）。</p>
      */
+    /**
+     * DSH 审批事件 → 手机上的允许/拒绝对话框（**昨天 c73c0434 的原实现，2026-11-13 恢复**）。
+     *
+     * <p>为什么用对话框而不是甲板卡：审批是打断式交互，用户要立刻看到；甲板卡是常驻状态区，
+     * 放进甲板反而要用户去找。恢复这条路径是因为手机端在 B12 重构时被删了，插件却一直在发
+     * {@code approval} 帧（pumpApprovals → 网关 pendingRemoteEvents），两边对不上。</p>
+     *
+     * <p>竞态语义：先答先赢。电脑上点了之后，网关里这条 pending 就没了，手机再点会收到
+     * approval_not_found —— 这是设计如此，不是通道坏了。</p>
+     */
+    private void showDshApprovalDialog(String id, org.json.JSONObject request) {
+        if (id == null || id.isEmpty()) return;
+        String tool = request == null ? "" : request.optString("tool", request.optString("name", ""));
+        String detail = request == null ? "" : request.optString("summary",
+                request.optString("command", request.optString("reason", "")));
+        if (detail.isEmpty() && request != null) detail = request.toString();
+        if (detail.length() > 400) detail = detail.substring(0, 400) + "…";
+        final String fId = id;
+        final String fDetail = detail;
+        final String fTool = tool.isEmpty() ? "工具" : tool;
+        runOnUiThread(() -> {
+            dismissDshApprovalDialog(null);
+            dshApprovalId = fId;
+            dshApprovalDialog = new android.app.AlertDialog.Builder(AIChatActivity.this)
+                    .setTitle("电脑端请求审批：" + fTool)
+                    .setMessage(fDetail)
+                    .setPositiveButton("允许", (d, w) -> replyApproval(fId, true))
+                    .setNegativeButton("拒绝", (d, w) -> replyApproval(fId, false))
+                    .setNeutralButton("交给电脑", (d, w) -> { /* 不答，留给桌面端 */ })
+                    .setCancelable(true)
+                    .create();
+            dshApprovalDialog.show();
+        });
+    }
+
+    private void dismissDshApprovalDialog(String id) {
+        runOnUiThread(() -> {
+            if (id != null && !id.equals(dshApprovalId)) return;
+            if (dshApprovalDialog != null) {
+                try { dshApprovalDialog.dismiss(); } catch (Exception ignored) { }
+                dshApprovalDialog = null;
+                dshApprovalId = null;
+            }
+        });
+    }
+
+    private void replyApproval(String id, boolean allow) {
+        new Thread(() -> {
+            try {
+                boolean ok = com.oilquiz.app.ai.tool.RemoteDshTool.answerApproval(AIChatActivity.this, id, allow);
+                runOnUiThread(() -> {
+                    if (!ok) showToast("审批没送达（可能已在电脑上处理）");
+                    dismissDshApprovalDialog(id);
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> showToast("审批失败：" + e.getMessage()));
+            }
+        }, "dsh-approval").start();
+    }
+
     private void showPermissionChange() {
         String current = "";
         for (com.oilquiz.app.ai.chat.status.DockSlotBus.Slot s
@@ -13528,19 +13596,8 @@ public class AIChatActivity extends BaseActivity {
             for (int i = chatHistory.size() - 1; i >= 0 && part == null; i -= 1) {
                 ChatMessage m = chatHistory.get(i);
                 if (m == null) continue;
-                if (m.approvals != null) {
-                    for (ChatMessage.ApprovalRequest a : m.approvals) {
-                        if (a == null || !a.isPending()) continue;
-                        part = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.approval(
-                                a.partId(), a.toolCallId,
-                                a.permission == null ? "" : a.permission,
-                                a.prompt == null ? "" : a.prompt,
-                                com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.APPROVAL_PENDING,
-                                a.timestamp);
-                        owner = m;
-                        break;
-                    }
-                }
+                // 审批不进甲板卡：原生对话框负责（showDshApprovalDialog），
+                // 这里只看 questions/子代理，避免"对话框 + 卡片"两套交互
                 if (part != null) break;
                 if (m.questions != null) {
                     for (ChatMessage.QuestionRequest q : m.questions) {
@@ -13814,13 +13871,29 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /** 电脑端已处理/撤回：把还挂着的审批标成过期（保留记录，便于回看） */
+    /**
+     * 电脑端已处理/撤回：按 outcome 落终态（2026-11-13）。
+     *
+     * <p>审批是**先答先赢**：电脑上点了之后这边再点必然是失败的。以前失败文案只说
+     * "没送达"，看起来像手机坏了；现在把 outcome 落到卡片状态上，卡直接变成"已允许/已拒绝"。</p>
+     */
     private void resolveDshApproval(ChatMessage live, String id) {
+        resolveDshApproval(live, id, "");
+    }
+
+    private void resolveDshApproval(ChatMessage live, String id, String outcome) {
         if (live == null || live.approvals == null) return;
         boolean changed = false;
         for (ChatMessage.ApprovalRequest a : live.approvals) {
             if (a == null || !a.isPending()) continue;
             if (id != null && !id.isEmpty() && !id.equals(a.id)) continue;
-            a.status = "expired";
+            if ("allowed-once".equals(outcome)) {
+                a.status = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.APPROVAL_APPROVED;
+            } else if ("rejected".equals(outcome)) {
+                a.status = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.APPROVAL_DENIED;
+            } else {
+                a.status = "expired";
+            }
             changed = true;
         }
         if (changed) refreshDshApprovalMessage(live);
@@ -13854,13 +13927,25 @@ public class AIChatActivity extends BaseActivity {
                 break;
             }
         }
-        if (target == null || !target.isPending()) return;
+        if (target == null) return;
+        if (!target.isPending()) {
+            // 先答先赢：电脑上点过了，再点没有意义（以前这里静默返回，看起来像"没反应"）
+            showToast("这条审批已在电脑端处理（先答先赢）");
+            return;
+        }
         final ChatMessage.ApprovalRequest req = target;
+        if (!approvalInFlight.add(req.id)) {
+            showToast("正在回传，请稍候…");
+            return;
+        }
         req.status = approved
                 ? com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.APPROVAL_APPROVED
                 : com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.APPROVAL_DENIED;
         refreshDshApprovalMessage(msg);
-        if (!"dsh".equals(req.source)) return; // 本机引擎的审批另有处理器
+        if (!"dsh".equals(req.source)) {
+            approvalInFlight.remove(req.id);
+            return; // 本机引擎的审批另有处理器
+        }
         new Thread(() -> {
             boolean ok = false;
             String err = null;
@@ -13873,12 +13958,14 @@ public class AIChatActivity extends BaseActivity {
             final boolean fOk = ok;
             final String fErr = err;
             runOnUiThread(() -> {
+                approvalInFlight.remove(req.id);
                 if (fOk) return;
                 req.status = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.APPROVAL_PENDING;
                 refreshDshApprovalMessage(msg);
-                showToast("审批没送达：" + (fErr == null ? "电脑端可能已处理" : fErr));
-                addSystemMessage("⚠️ 这条审批没送达电脑端（可能已在电脑上处理）。"
-                                + "\n如果电脑端还挂着审批，请在电脑上点一下；也可以在手机上再发一句让任务重试。",
+                // 竞态说实话：大概率是电脑端先答了，而不是手机通道坏了
+                showToast("没赶上：电脑端可能已先处理");
+                addSystemMessage("⚠️ 这条审批没赶上（电脑端先答或已超时）。"
+                                + "\n审批是「先答先赢」，手机和电脑同时点只有一个生效；下次看到审批先在一端点。",
                         ChatMessage.SystemMessageType.WARNING);
             });
         }, "dsh-approval").start();
@@ -13942,7 +14029,7 @@ public class AIChatActivity extends BaseActivity {
                     addDshQuestions(live, action.id, action.request);
                     break;
                 case APPROVAL_GONE:
-                    resolveDshApproval(live, action.id);
+                    resolveDshApproval(live, action.id, action.outcome);
                     break;
                 case QUESTION_GONE:
                     resolveDshQuestions(live, action.id);
@@ -14255,6 +14342,16 @@ public class AIChatActivity extends BaseActivity {
                 return;
             }
             String type = ev.optString("type", "");
+            // 审批通道帧（2026-11-13 恢复昨天 c73c0434 的行为）：直接弹原生对话框，
+            // 不走时间线，也不进甲板卡（甲板是常驻状态区，审批是打断式交互）。
+            if ("approval".equals(type)) {
+                showDshApprovalDialog(ev.optString("id"), ev.optJSONObject("request"));
+                return;
+            }
+            if ("approval_gone".equals(type)) {
+                dismissDshApprovalDialog(ev.optString("id"));
+                return;
+            }
             if (!"stream/delta".equals(type)) {
                 AppLogger.ai(TAG, "[DSH] 通道事件 " + type + " seq=" + ev.optInt("seq", -1));
             }

@@ -46,11 +46,18 @@ public final class DshTimeline {
         public final ActionKind kind;
         public final String id;
         public final JSONObject request;
+        /** approval/decided 的结果（allowed-once / rejected / cancelled / unavailable）；其他动作为空 */
+        public final String outcome;
 
         Action(ActionKind kind, String id, JSONObject request) {
+            this(kind, id, request, "");
+        }
+
+        Action(ActionKind kind, String id, JSONObject request, String outcome) {
             this.kind = kind;
             this.id = id != null ? id : "";
             this.request = request;
+            this.outcome = outcome == null ? "" : outcome;
         }
     }
 
@@ -472,7 +479,10 @@ public final class DshTimeline {
             }
             case "approval/decided": {
                 String id = ev.data == null ? "" : ev.data.optString("id", "").trim();
-                if (!id.isEmpty()) u.actions.add(new Action(ActionKind.APPROVAL_GONE, id, null));
+                String outcome = ev.data == null ? "" : ev.data.optString("outcome", "").trim();
+                if (!id.isEmpty()) {
+                    u.actions.add(new Action(ActionKind.APPROVAL_GONE, id, null, outcome));
+                }
                 break;
             }
             case "approval_gone":

@@ -71,6 +71,7 @@ public class DshTimelineApprovalEventTest {
         assertEquals(1, u.actions.size());
         assertEquals("ap-1", u.actions.get(0).id);
         assertTrue("decided 应通知收卡", isGone(u.actions.get(0)));
+        assertEquals("allowed-once", u.actions.get(0).outcome);
     }
 
     @Test
