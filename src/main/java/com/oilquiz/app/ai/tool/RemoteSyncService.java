@@ -132,19 +132,24 @@ public class RemoteSyncService extends Service {
                     // 前台那条常驻通知只显示"已连接/最后一句"，既不响也不弹；用户锁屏时
                     // 根本不知道电脑正在等他审批。审批/提问 → 提醒；审批被处理 → 收回。
                     if ("approval".equals(type)) {
-                        // 审批**绑到常驻连接通知上**（2026-11-13）：用户明确要求"与连接通知绑定"。
-                        // 单独发一条 alert 容易被系统折叠成自动分组摘要（实测出现
-                        // GROUP_SUMMARY|SILENT 的汇总条，子通知看不见），而常驻通知一定可见。
+                        // 两条通知分工（2026-11-13，修正"绑到保活通知"的错误）：
+                        //   3418 = 前台服务保活通知：安静、不响不弹，只显示连接状态
+                        //   3419 = 审批提醒：IMPORTANCE_HIGH，会弹 heads-up，带允许/拒绝/详情
+                        // 之前把审批绑到 3418，等于让它继承"不响不弹"，所以用户完全看不到。
                         JSONObject req = event.optJSONObject("request");
                         String tool = req == null ? "" : req.optString("toolName",
                                 req.optString("tool", req.optString("name", "")));
                         pendingApprovalId = event.optString("id", "");
                         pendingApprovalText = (tool == null || tool.isEmpty() ? "有一条审批待处理" : "请求权限：" + tool);
                         String brief = requestBrief(event);
-                        if (brief != null && !brief.isEmpty()) pendingApprovalText += " · " + brief;
-                        android.util.Log.i("DshSvc", "[approval] 绑定到连接通知 id=" + pendingApprovalId
+                        if (brief != null && !brief.isEmpty() && !brief.contains(String.valueOf(tool))) {
+                            pendingApprovalText += " · " + brief;
+                        }
+                        android.util.Log.i("DshSvc", "[approval] 发独立审批通知 id=" + pendingApprovalId
                                 + " text=" + pendingApprovalText);
+                        // 保活通知保持"连接状态"文案（不要挂审批：前台通知不响不弹）
                         refreshConnectionNotification();
+                        notifyApproval(event.optString("id", ""), tool, brief);
                         return;
                     }
                     if ("question".equals(type)) {
@@ -314,18 +319,24 @@ public class RemoteSyncService extends Service {
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             String text = (tool == null || tool.isEmpty() ? "有一条审批待处理" : "请求权限：" + tool)
                     + (detail == null || detail.isEmpty() ? "" : " · " + detail);
-            b.setContentTitle("待你处理")
+            b.setContentTitle("待你处理 · 电脑端请求审批")
                     .setContentText(text.length() > 120 ? text.substring(0, 120) + "…" : text)
                     .setStyle(new Notification.BigTextStyle().bigText(text))
                     .setSmallIcon(com.oilquiz.app.R.mipmap.ic_launcher)
                     .setContentIntent(pi)
                     .setAutoCancel(true)
-                    .setOnlyAlertOnce(true);
+                    // 每条审批都要响/弹一次：以前 true 会把后续审批静音，等于没提醒
+                    .setOnlyAlertOnce(false)
+                    .setPriority(Notification.PRIORITY_HIGH)
+                    .setCategory(Notification.CATEGORY_MESSAGE)
+                    .setDefaults(Notification.DEFAULT_ALL);
             b.addAction(new Notification.Action.Builder(null, "允许",
                     approvalAction(id, "allow", 1)).build());
             b.addAction(new Notification.Action.Builder(null, "拒绝",
                     approvalAction(id, "deny", 2)).build());
+            b.addAction(new Notification.Action.Builder(null, "详情", pi).build());
             nm.notify(NOTIF_ID_APPROVAL, b.build());
+            android.util.Log.i("DshSvc", "[approval] 审批提醒已发（high 渠道）");
         } catch (Throwable ignored) {
             // 没通知权限：静默，通道照常
         }
@@ -430,10 +441,20 @@ public class RemoteSyncService extends Service {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return;
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
-        if (nm.getNotificationChannel(ALERT_CHANNEL_ID) != null) return;
+        NotificationChannel existing = nm.getNotificationChannel(ALERT_CHANNEL_ID);
+        // 必须是 IMPORTANCE_HIGH：DEFAULT 不会弹 heads-up，用户锁屏/后台根本注意不到
+        // （2026-11-13：审批被绑到保活通知后彻底没提醒，就是因为前台通知不响不弹）。
+        if (existing != null) {
+            if (existing.getImportance() < NotificationManager.IMPORTANCE_HIGH) {
+                existing.setImportance(NotificationManager.IMPORTANCE_HIGH);
+                nm.createNotificationChannel(existing);
+            }
+            return;
+        }
         NotificationChannel ch = new NotificationChannel(ALERT_CHANNEL_ID, "电脑端提醒",
-                NotificationManager.IMPORTANCE_DEFAULT);
+                NotificationManager.IMPORTANCE_HIGH);
         ch.setDescription("电脑端等待审批、后台任务失败等需要你处理的提醒");
+        ch.enableVibration(true);
         nm.createNotificationChannel(ch);
     }
 
