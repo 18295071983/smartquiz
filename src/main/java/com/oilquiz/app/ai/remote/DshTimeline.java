@@ -62,6 +62,14 @@ public final class DshTimeline {
         public String result = "";
         public boolean error;
         public boolean finished;
+        /**
+         * 工具结果的展示元数据（{@code tool/result.meta}）。
+         *
+         * <p>DSH 官方约定：工具可以用 {@code output.presentationMeta} 派生一份可回放的 JSON，
+         * 持久化在 {@code tool/result.meta} 上，replay 时用它复现同一张卡片（diff/read/search/web…）。
+         * 这里原样保留，投影时塞进组件 props —— 手机端渲染不读也不影响，读的话无需重新解析。</p>
+         */
+        public Object meta;
 
         Tool(String callId, String name, String args) {
             this.callId = callId != null ? callId : "";
@@ -261,6 +269,11 @@ public final class DshTimeline {
                         || (ev.data != null && (ev.data.optBoolean("isError", false)
                         || ev.data.optBoolean("is_error", false)));
                 tool.finished = true;
+                // META(2026-11-13)：官方卡片载荷，原样保留（对象/数组/字符串都可能）
+                Object meta = ev.data.opt("meta");
+                if (meta != null && !(meta instanceof JSONObject && ((JSONObject) meta).length() == 0)) {
+                    tool.meta = meta;
+                }
                 android.util.Log.i("DshTimeline", "[probe] tool/result OK callId=" + callId
                         + " turn=" + turn + " step=" + step + " error=" + tool.error);
                 u.contentChanged = true;

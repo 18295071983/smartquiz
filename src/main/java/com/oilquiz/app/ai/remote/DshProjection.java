@@ -124,6 +124,10 @@ public final class DshProjection {
                 "args", tool.args,
                 "status", tool.error ? "failed" : (tool.finished ? "success" : "running"));
         if (!tool.result.isEmpty()) DshCards.put(props, "result", tool.result);
+        // META(2026-11-13)：把官方 tool/result.meta 一起投影进组件 props。
+        // 现在手机端卡片还没消费它，但落盘/恢复/后续做 diff/read/search 卡都靠它，
+        // 丢了就只能回电脑端重取 —— 所以宁可先带上。
+        if (tool.meta != null) DshCards.put(props, "meta", tool.meta);
         ComponentData data = ComponentData.of("tool_call", props);
         data.id = ids.idFor("tool:" + tool.callId);
         return data;
