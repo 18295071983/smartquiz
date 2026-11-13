@@ -85,10 +85,13 @@
 
 ---
 
-## 5. 缺陷回归对照（B1–B10）
+## 5. 缺陷回归对照（B1–B13，归属以 `99-review-findings.md` 为准）
 
 | 缺陷 | 回归手段 |
 |---|---|
+| **B11（P0，丢数据）** | `approvals`/`questions` 未进 `deepCopyForSave`/`clone` → 保存副本里为空，重启后 pending 审批消失 | 新单测断言 `approvals.size()` 保存前后不变 |
+| **B12（P0）** | `/v2/view` 远程卡重复且不可交互（信号只在进程内） | 删除后重放不再重复插卡、无空条目 |
+| **B13（P2）** | 位置索引与归档冲突（头部删除后 `notifyItemChanged(pos)` 可能刷错行） | 插入用户消息后再刷新，断言刷的是正确行 |
 | B1 `DockSlotBus.clear()` 无调用方 | M1 `endGenerationClearsSlots` + A2 |
 | B2 `dshComponentId` key 无 turnId | M2 `componentIdIsPrefixedByTurnId` |
 | B3 props 指纹不排序 | M2 `propsKeyOrderDoesNotChangeFingerprint` |
