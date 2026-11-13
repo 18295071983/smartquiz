@@ -453,13 +453,25 @@ public class RemoteSyncService extends Service {
                 .setOngoing(true)
                 .setOnlyAlertOnce(false);
         if (!pendingApprovalId.isEmpty()) {
-            // 审批按钮直接挂在常驻通知上：后台/锁屏都能点，点完走广播回传
+            // 展开通知显示完整信息（下划就能看到），并挂 3 个按钮：
+            // Android 通知最多 3 个 action，这里刚好用完：允许 / 拒绝 / 详情。
+            String detail = pendingApprovalText == null ? "" : pendingApprovalText;
+            b.setStyle(new Notification.BigTextStyle().bigText(detail));
+            b.setSubText("审批 ID " + shortId(pendingApprovalId));
             b.addAction(new Notification.Action.Builder(null, "允许",
                     approvalAction(pendingApprovalId, "allow", 1)).build());
             b.addAction(new Notification.Action.Builder(null, "拒绝",
                     approvalAction(pendingApprovalId, "deny", 2)).build());
+            // 详情：打开对话页看完整上下文（这条是唯一会拉起页面的入口）
+            b.addAction(new Notification.Action.Builder(null, "详情", pi).build());
         }
         return b.build();
+    }
+
+    /** id 太长，通知副标题只显示前 8 位，够对照日志 */
+    private static String shortId(String id) {
+        if (id == null) return "";
+        return id.length() <= 8 ? id : id.substring(0, 8) + "…";
     }
 
     /** 审批状态变了就重画常驻通知（有审批挂按钮，没有就恢复连接状态文案） */
