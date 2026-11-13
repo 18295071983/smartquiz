@@ -12872,11 +12872,19 @@ public class AIChatActivity extends BaseActivity {
     /** 渲染本轮进度插槽；snapshot=null 表示清空隐藏 */
     private void renderAgentProgress(com.oilquiz.app.ai.chat.status.AgentProgressBus.Snapshot s) {
         if (agentProgressSlot == null) return;
+        final boolean wasVisible = agentProgressSlot.getVisibility() == View.VISIBLE;
+        // 改高度前先记 pinned（改完布局 pinned 会变）
+        final boolean pinnedBefore = stickToBottom != null && stickToBottom.isPinned();
         if (s == null) {
             agentProgressSlot.setVisibility(View.GONE);
+            if (wasVisible) {
+                notifyViewportAfterHeightChange(pinnedBefore, true, false);
+                refreshDeckSlots();   // D1 收起后 D3 可放宽到 2 条
+            }
             return;
         }
         agentProgressSlot.setVisibility(View.VISIBLE);
+        if (!wasVisible) notifyViewportAfterHeightChange(pinnedBefore, false, true);
         if (tvAgentProgressTitle != null) {
             tvAgentProgressTitle.setText(s.title == null || s.title.isEmpty() ? "任务进度" : s.title);
         }
@@ -12891,6 +12899,34 @@ public class AIChatActivity extends BaseActivity {
             tvAgentProgressMsg.setVisibility(has ? View.VISIBLE : View.GONE);
         }
         refreshProgressSlotMeta();
+    }
+
+    /**
+     * P0 最小一刀（2026-11-13）：甲板压缩 + 视口通知。
+     *
+     * <p>D1（推理进度）可见时 D3（DSH 插槽）只留 1 条，否则 2 条——总行数 ≤3，
+     * 与既有护栏一致；实测"推理中 + 3 条插槽"会占掉约 130dp（聊天区 ~23%）。</p>
+     */
+    private void refreshDeckSlots() {
+        try {
+            renderDockSlots(com.oilquiz.app.ai.chat.status.DockSlotBus.list());
+        } catch (Throwable ignored) {
+            // 甲板刷新失败不影响消息区
+        }
+    }
+
+    /** 显隐改变列表高度后补一次视口通知：否则静止（非流式）时会留一截被裁且不自动补。 */
+    private void notifyViewportAfterHeightChange(boolean pinnedBefore, boolean visibleBefore,
+                                                 boolean visibleNow) {
+        if (visibleBefore == visibleNow) return;
+        if (stickToBottom == null || messageList == null) return;
+        messageList.post(() -> {
+            try {
+                stickToBottom.onViewportChanged(pinnedBefore);
+            } catch (Throwable ignored) {
+                // 视口通知失败不致命：下一次 insets/滚动会自愈
+            }
+        });
     }
 
     /**
@@ -12945,9 +12981,16 @@ public class AIChatActivity extends BaseActivity {
      */
     private void renderDockSlots(java.util.List<com.oilquiz.app.ai.chat.status.DockSlotBus.Slot> slots) {
         if (dockSlotHost == null) return;
+        final boolean wasVisible = dockSlotHost.getVisibility() == View.VISIBLE;
+        final boolean pinnedBefore = stickToBottom != null && stickToBottom.isPinned();
+        // D1（推理进度）可见时只留 1 条插槽，否则 2 条：总行数 ≤3，且不与推理状态机抢空间
+        final boolean d1Visible = agentProgressSlot != null
+                && agentProgressSlot.getVisibility() == View.VISIBLE;
+        final int maxRows = d1Visible ? 1 : 2;
         dockSlotHost.removeAllViews();
         if (slots == null || slots.isEmpty()) {
             dockSlotHost.setVisibility(View.GONE);
+            notifyViewportAfterHeightChange(pinnedBefore, wasVisible, false);
             return;
         }
         float density = getResources().getDisplayMetrics().density;
@@ -12955,7 +12998,7 @@ public class AIChatActivity extends BaseActivity {
         int padV = (int) (3 * density);
         int shown = 0;
         for (final com.oilquiz.app.ai.chat.status.DockSlotBus.Slot s : slots) {
-            if (shown >= 3) break;   // 护栏：插槽在输入区上方，超过 3 条会把聊天区挤没
+            if (shown >= maxRows) break;   // 护栏：D1 可见 1 条 / 否则 2 条
             android.widget.TextView tv = new android.widget.TextView(this);
             String text = s.title;
             if (!s.detail.isEmpty()) text = text.isEmpty() ? s.detail : text + " · " + s.detail;
@@ -12973,7 +13016,8 @@ public class AIChatActivity extends BaseActivity {
             dockSlotHost.addView(tv);
             shown++;
         }
-        dockSlotHost.setVisibility(View.VISIBLE);
+        dockSlotHost.setVisibility(shown > 0 ? View.VISIBLE : View.GONE);
+        notifyViewportAfterHeightChange(pinnedBefore, wasVisible, shown > 0);
     }
 
     /** 插槽点击：任务/目标/子代理/MCP/日程 → 扩展面板；其余 → 远程连接页。 */
@@ -13608,6 +13652,12 @@ public class AIChatActivity extends BaseActivity {
                     runOnUiThread(() -> {
                         if (remoteDshSub != null && !online) {
                             remoteDshSub.setText("通道重连中：" + (detail == null ? "" : detail));
+                        }
+                        // 断连清空甲板插槽（2026-11-13）：插槽全是 transient 的"正在发生"状态，
+                        // 通道断了就没人会再更新它们，留着只会一直占高度（此前 DockSlotBus.clear()
+                        // 在生产代码里零调用）。
+                        if (!online) {
+                            com.oilquiz.app.ai.chat.status.DockSlotBus.clear();
                         }
                         // ★ 重连后必须放开渲染游标（2026-11-12）：传输层会从它自己的
                         //   "已落屏"游标重放，但渲染层还持有上次启动落盘的 dshLastSeq，
