@@ -82,3 +82,33 @@ busybox/curl/ssh 等工具链库 —— 均 `LOAD_align = 0x4000`（NDK 28 + `-W
 aapt2 dump xmltree build\outputs\apk\debug\答题宝-debug-2.0.apk --file AndroidManifest.xml | Select-String pageSizeCompat
 # A: ...:pageSizeCompat(0x010106ab)=32
 ```
+
+## 5. 为什么"源码树"和"APK"的数字对不上（2026-11-13 对账）
+
+`python tools/check_native_consistency.py build/outputs/apk/debug/答题宝-debug-2.0.apk`
+
+| 集合 | 数量 | 说明 |
+|---|---|---|
+| 源码树 arm64 ELF | 56 | `jniLibs/arm64-v8a` + `src/main/cpp` 预编译 + `viewer/jniLibs` |
+| APK arm64 ELF | 84 | 还包含 **AAR 依赖自带**的 .so（不在仓库里）|
+| 两边都有 | 54 | 其中 BAD 18（NSS 13 + Hexagon 5）|
+| **只在 APK** | **30** | ffmpeg/Chaquopy/Python、ML Kit、PDFium、ORT、OpenCV、TFLite、RTMP —— 其中 BAD 12 |
+| 只在源码树 | 2 | `libOpenCL.so`（编译 stub，未打包）、`libvulkan.so`（device-libs，未打包）|
+
+因此：
+
+- 源码树 BAD = **19**（18 上面 + OpenCL stub）
+- APK BAD = **30** = 18（有源码/预编译目录里的）+ 12（AAR 依赖里的）
+- 差的 11 就是"AAR 带进来的 4 KB 库"，仓库里根本搜不到，所以两端数字必然不同
+
+## 6. 构建门禁（2026-11-13 追加）
+
+`build.gradle` 末尾新增 `verifyNative16k`，挂在 `mergeDebugNativeLibs` / `mergeReleaseNativeLibs` 之后：
+
+```powershell
+.\gradlew.bat verifyNative16k              # 只告警（默认）
+.\gradlew.bat verifyNative16k -Penforce16k # 有 4KB 库直接失败
+```
+
+规则：只查 `arm64-v8a`（abiFilters 唯一随包 ABI）；`libggml-htp-*`（Hexagon DSP）白名单跳过。
+当前强制模式输出 **25 个**（30 减去 5 个 Hexagon）。

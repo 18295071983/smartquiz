@@ -805,3 +805,72 @@ def dshFixEmbedKernel = { File f ->
 }
 dshFixEmbedKernel(new File(rootDir,
         "src/main/cpp/llama.cpp/ggml/src/ggml-opencl/kernels/embed_kernel.py"))
+
+// ===== 16 KB 页对齐门禁（2026-11-13）=====
+// 见 docs/android-16kb-page-audit-2026-11-13.md
+// 默认只告警；加 -Penforce16k 时，只要合并后的 arm64 库里还有 4 KB LOAD 对齐就直接失败。
+// Hexagon DSP 库（libggml-htp-*）由 Hexagon SDK 加载，不经 Android 链接器，白名单跳过。
+def elfIs16k = { File f ->
+    byte[] b = f.bytes
+    if (b.length < 64) return true
+    if (!(b[0] == (byte) 0x7f && b[1] == (byte) 0x45 && b[2] == (byte) 0x4c && b[3] == (byte) 0x46)) return true
+    if (b[4] != 2) return true                       // 只查 ELF64
+    boolean le = b[5] == 1
+    def u16 = { int o -> le ? ((b[o] & 0xff) | ((b[o + 1] & 0xff) << 8)) : (((b[o] & 0xff) << 8) | (b[o + 1] & 0xff)) }
+    def u32 = { int o ->
+        le ? ((b[o] & 0xff) | ((b[o + 1] & 0xff) << 8) | ((b[o + 2] & 0xff) << 16) | ((b[o + 3] & 0xff) << 24))
+           : (((b[o] & 0xff) << 24) | ((b[o + 1] & 0xff) << 16) | ((b[o + 2] & 0xff) << 8) | (b[o + 3] & 0xff))
+    }
+    def u64 = { int o ->
+        long v = 0
+        for (int i = 0; i < 8; i++) {
+            int idx = le ? o + 7 - i : o + i
+            v = (v << 8) | (b[idx] & 0xff)
+        }
+        v
+    }
+    int phentsize = u16(54)
+    int phnum = u16(56)
+    long phoff = u64(32)
+    for (int i = 0; i < Math.min(phnum, 64); i++) {
+        int base = (int) (phoff + (long) i * phentsize)
+        if (base + 56 > b.length) break
+        if (u32(base) == 1) {                        // PT_LOAD
+            long align = u64(base + 48)
+            if (align > 0 && align < 0x4000) return false
+        }
+    }
+    true
+}
+
+def verifyNative16k = tasks.register('verifyNative16k') {
+    doLast {
+        def roots = [file('build/intermediates/merged_native_libs'), file('src/main/jniLibs/arm64-v8a')]
+        def bad = new TreeSet<String>()
+        roots.each { root ->
+            if (root.exists()) {
+                root.eachFileRecurse { f ->
+                    if (!f.name.endsWith('.so')) return
+                    // 只查随包的 arm64-v8a（abiFilters 只有它）；x86_64 是本地构建残留，不进 APK
+                    if (!f.absolutePath.replace('\\', '/').contains('/arm64-v8a/')) return
+                    if (f.name.startsWith('libggml-htp-')) return   // Hexagon DSP：免检
+                    if (!elfIs16k(f)) bad << f.name
+                }
+            }
+        }
+        if (bad.isEmpty()) {
+            logger.lifecycle('[16K] native 库全部 16 KB 对齐')
+            return
+        }
+        def msg = "[16K] ${bad.size()} 个 .so 仍是 4 KB LOAD 对齐（16 KB 设备 dlopen 会失败）: ${bad.join(', ')}"
+        logger.warn(msg)
+        if (project.hasProperty('enforce16k')) {
+            throw new GradleException(msg + '  —— 修复或去掉 -Penforce16k')
+        }
+    }
+}
+tasks.configureEach { t ->
+    if (t.name == 'mergeDebugNativeLibs' || t.name == 'mergeReleaseNativeLibs') {
+        t.finalizedBy(verifyNative16k)
+    }
+}
