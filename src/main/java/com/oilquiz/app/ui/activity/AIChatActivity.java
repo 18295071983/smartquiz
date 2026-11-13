@@ -1652,7 +1652,6 @@ public class AIChatActivity extends BaseActivity {
 
         // 6. ChatInputManager - 输入管理（经 ChatInputBar 组件接线）
         chatInputBar = findViewById(R.id.chat_input_bar);
-        remoteCardsLane = findViewById(R.id.remote_cards_lane);
         if (chatInputBar != null) {
             inputManager = chatInputBar.attachManager(this, new ChatInputManager.Callback() {
                 @Override public void onSendMessage(String text) { sendMessage(); }
@@ -13142,64 +13141,11 @@ public class AIChatActivity extends BaseActivity {
     private ChatMessage dshMirrorMessage;
     private ChatMessage dshLiveMessage;
 
-    /** 对话页的远程卡片区（保留给无消息流场景；当前审批走消息流） */
-    private android.widget.LinearLayout remoteCardsLane;
-    /** 最近一次渲染的审批卡片签名，避免同一条审批重复插入 */
-    private String lastRemoteCardSig = "";
-
-    /** 把一张 v2 卡片作为**消息流里的 item** 插入（独立 ViewType，不影响既有消息） */
-    private void addRemoteCardMessage(java.util.Map<String, Object> view) {
-        if (chatHistory == null || view == null) return;
-        ChatMessage m = ChatMessage.createRemoteCard(view);
-        chatHistory.add(m);
-        if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
-        scrollToBottom();
-        saveHistoryAsync();
-    }
-
-    /**
-     * 拉取 /v2/view 的卡片，只保留「待你处理」这类需要立刻看见的卡，
-     * 用 RemoteCardView 渲染到对话页输入栏上方（原生卡片，不是文本）。
-     */
-    private void refreshRemoteCards() {
-        final String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
-        if (remoteCardsLane == null) return;
-        if (target == null || target.isEmpty()) {
-            remoteCardsLane.setVisibility(android.view.View.GONE);
-            return;
-        }
-        new Thread(() -> {
-            java.util.Map<String, Object> v = null;
-            try {
-                v = com.oilquiz.app.ai.tool.RemoteDshTool.fetchView(this, target);
-            } catch (Exception ignored) { /* 电脑不可达就保持原样 */ }
-            final java.util.Map<String, Object> fv = v;
-            runOnUiThread(() -> {
-                if (remoteCardsLane == null || fv == null) return;
-                Object cardsObj = fv.get("cards");
-                if (!(cardsObj instanceof java.util.List)) return;
-                java.util.List<Object> keep = new java.util.ArrayList<>();
-                for (Object o : (java.util.List<?>) cardsObj) {
-                    if (!(o instanceof java.util.Map)) continue;
-                    Object kind = ((java.util.Map<?, ?>) o).get("kind");
-                    if ("approval".equals(kind)) keep.add(o);
-                }
-                if (keep.isEmpty()) {
-                    remoteCardsLane.removeAllViews();
-                    remoteCardsLane.setVisibility(android.view.View.GONE);
-                    return;
-                }
-                java.util.Map<String, Object> sub = new java.util.HashMap<>();
-                sub.put("header", fv.get("header"));
-                sub.put("cards", keep);
-                String sig = keep.toString();
-                if (sig.equals(lastRemoteCardSig)) return;   // 同一条审批不重复插卡
-                lastRemoteCardSig = sig;
-                if (remoteCardsLane != null) remoteCardsLane.setVisibility(android.view.View.GONE);
-                addRemoteCardMessage(sub);
-            });
-        }, "remote-cards").start();
-    }
+    // 远程卡片（`/v2/view`）不再进对话流（2026-11-13，B12）：
+    // 这条路径与"会话时间线 = 事件投影"重复且是死路（RemoteCardView 只做静态渲染、
+    // 审批行没人接点击；签名只在进程内、重放会重复插卡；保存后变空条目）。
+    // 审批/反问由 approval / question part 承载；自检卡在「远程连接」页看。
+    // 旧数据里的 REMOTE_CARD 消息仍由 ChatAdapter 的 legacy 分支渲染，不丢历史。
 
     /** 会话 id 太长：只留尾部，状态条上够认。 */
     private static String shortId(String id) {
@@ -13838,12 +13784,29 @@ public class AIChatActivity extends BaseActivity {
                 return;
             }
             // 通道控制帧（state/view/pulse）由连接管理器消费，不进时间线
-            if ("state".equals(type) || "view".equals(type) || "pulse".equals(type)
-                    || "ready".equals(type)) {
+            if ("state".equals(type)) {
+                // GAP-FIX（2026-11-13，B16）：回执落后太多时不要指望"补丁式"续传 ——
+                // 服务端在 gap 超过阈值时只发 snapshot、不回放历史，于是本地时间线会缺一大段，
+                // 工具卡/正文停在旧状态。这里检测到落后就重建时间线，让后续事件从头归约；
+                // 重建代价远小于"静默缺一段"。
+                int server = ev.optInt("last_seq", -1);
+                int acked = ev.optInt("acked_seq", -1);
+                if (server > 0 && acked > 0) {
+                    int gap = server - acked;
+                    if (gap > 500) {
+                        AppLogger.aiW(TAG, "[DSH] 回执落后 " + gap + " 条（>" + 500
+                                + "），重建时间线以免缺段");
+                        dshTimeline = new com.oilquiz.app.ai.remote.DshTimeline();
+                        dshComponentIds.clear();
+                        dshLastSeq = -1;
+                    } else if (gap > 0 && gap % 100 == 0) {
+                        AppLogger.ai(TAG, "[DSH] 回执落后 " + gap + " 条");
+                    }
+                }
                 return;
             }
-            if ("approval".equals(type) || "approval_gone".equals(type)) {
-                refreshRemoteCards();
+            if ("view".equals(type) || "pulse".equals(type) || "ready".equals(type)) {
+                return;
             }
             ChatMessage live = ensureMirrorBubble(turnOfEvent(ev));
             if (live == null) return;

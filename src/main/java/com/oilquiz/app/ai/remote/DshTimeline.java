@@ -459,7 +459,11 @@ public final class DshTimeline {
             return "正在运行 " + tool + (args.isEmpty() ? "" : "（" + args + "）");
         }
         if ("tool-result".equals(kind)) {
-            return data.optBoolean("error", false) ? "工具失败" : "工具完成";
+            // B15：子会话的工具结果正文也带过来（根会话只靠这条合成帧看到结果）
+            boolean err = data.optBoolean("error", false);
+            String text = data.optString("text", "").trim();
+            if (text.isEmpty()) return err ? "工具失败" : "工具完成";
+            return (err ? "工具失败：" : "工具完成：") + text;
         }
         if ("step".equals(kind)) {
             return "第 " + data.optInt("step", 0) + " 步";

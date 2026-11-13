@@ -1514,11 +1514,12 @@ public class ChatMessage {
     /**
      * 创建远程卡片消息（v2 `/v2/view` 的片段，由 RemoteCardView 渲染）
      */
-    public static ChatMessage createRemoteCard(java.util.Map<String, Object> view) {
-        ChatMessage m = new Builder(MessageType.REMOTE_CARD).build();
-        m.remoteCardView = view;
-        return m;
-    }
+    /**
+     * 远程卡片（`/v2/view` 片段）的构造入口已停用（2026-11-13，B12）。
+     *
+     * <p>保留 {@link #remoteCardView} 字段与 {@code ChatAdapter} 的 legacy 分支，
+     * 是为了让**磁盘上已有的** REMOTE_CARD 消息还能正常渲染；新消息不再产生。</p>
+     */
 
     /**
      * 创建系统消息
