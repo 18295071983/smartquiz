@@ -307,10 +307,10 @@ DSH 自己的 Web Client 用一套类型化 Slot 系统组合 UI，关键机制�
 | **B14** | 🟡 部分 | 事件目录重建为 84 条三层（session 63 / host 5 / synth 16）+ 前缀族；**但缺的类型只是"登记"，手机端仍未渲染**（如 `system/message`、`compaction/summary`）|
 | **B18** | 🟡 部分 | `ui/slot` 帧已带 `session_id`；仍是全局广播（客户端可先过滤）|
 | **B1** | ✅ 已修 | 断连时 `DockSlotBus.clear()`；甲板显隐补 `onViewportChanged`；D1 可见时 D3 只留 1 条 |
-| **B12** | ⬜ 未做 | `/v2/view` 远程卡死路仍在（建议整条删除，B7 一并消失）|
+| **B12** | ✅ 已修 | `/v2/view` 不再往对话流插卡；`refreshRemoteCards`/`addRemoteCardMessage`/`remoteCardsLane` 及布局空容器已删；旧 REMOTE_CARD 消息仍按 legacy 渲染 |
 | **B13** | ⬜ 未修 | 位置索引与归档冲突 |
-| **B15** | ⬜ 未修 | 根会话收不到 durable `tool/*`、`job/*`（只有合成 activity）|
-| **B16** | ⬜ 未修 | 回执缺口（`acked_seq` 落后 `last_seq`，`since=-2` 不重放）|
+| **B15** | 🟡 部分 | 合成 activity 现在带结果正文（`工具完成：…`）；**durable 卡片仍需专用 lane**，未做 |
+| **B16** | ✅ 已修 | `state` 帧检测落后 >500 → 重建时间线（服务端超阈值只发 snapshot，不再静默缺段）；落后 100 的整数倍记一条日志 |
 | **B17** | ✅ 已修 | `DshTimeline.Tool.meta` + `toolComponent` 投影进 props；`DshProjectionMetaTest` 2 条 |
 | **B2/B3** | ⬜ 未修 | 动态卡前置（组件 id 加 turnId、props 排序）|
 | **B6/B10** | ⬜ 未修 | id 命名统一、会话文件 fsync/`.bak` |
