@@ -217,4 +217,20 @@ public class ChatIdDispatcherTest {
         long prev = Long.parseLong(after.substring(1));
         org.junit.Assert.assertTrue("下界只增不退", small > prev);
     }
+
+    /**
+     * B2（2026-11-13）：组件/工具 id 必须带所属回合前缀。
+     *
+     * <p>DSH 的组件 id 由 {@code dshComponentId()} 调这里发号；一旦前缀丢了，
+     * 恢复时按回合聚合就会归错组（审查 B2 的原始现象）。</p>
+     */
+    @Test
+    public void componentAndToolIdsCarryOwningTurnPrefix() {
+        ChatIdDispatcher d = ChatIdDispatcher.getInstance();
+        String turn = d.applyMasterId();
+        assertTrue("组件 id 必须带回合前缀：" + turn,
+                d.applySubId(ChatIdDispatcher.IdType.COMPONENT, turn).startsWith(turn + "-C"));
+        assertTrue("工具 id 必须带回合前缀（类型码 F）：" + turn,
+                d.applySubId(ChatIdDispatcher.IdType.TOOL, turn).startsWith(turn + "-F"));
+    }
 }

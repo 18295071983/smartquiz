@@ -87,4 +87,25 @@ public class ChatHistoryManagerAtomicSaveTest {
         JSONArray arr = new JSONArray(read(mainFile));
         assertTrue("主文件应是合法 JSON 数组且非空", arr.length() >= 1);
     }
+
+    /**
+     * B10 的"崩溃注入"等价用例（2026-11-13）：上次保存在写临时文件时被杀，
+     * 留下半截 {@code .tmp}。下一次保存必须忽略/覆盖它，主文件仍是合法 JSON。
+     */
+    @Test
+    public void staleTempFromCrashedSaveDoesNotCorruptMain() throws Exception {
+        manager.saveAIChatHistory(Collections.singletonList(ai("T1-A1", "keep")));
+
+        File tmp = new File(context.getFilesDir(), TMP);
+        java.nio.file.Files.write(tmp.toPath(),
+                "[{\"broken\":".getBytes(StandardCharsets.UTF_8));   // 半截 JSON
+        assertTrue(tmp.exists());
+
+        manager.saveAIChatHistory(Collections.singletonList(ai("T1-A2", "next")));
+
+        assertFalse("保存成功后不应留下上次的残片", tmp.exists());
+        JSONArray arr = new JSONArray(read(mainFile));
+        assertTrue("主文件必须可解析", arr.length() >= 1);
+        assertTrue("主文件应是最新内容", read(mainFile).contains("next"));
+    }
 }

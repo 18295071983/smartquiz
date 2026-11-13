@@ -14000,15 +14000,12 @@ public class AIChatActivity extends BaseActivity {
         // 于是 T{n}-A{k} 既是有序锚点（渲染/恢复归位），又由持久化主计数器保证唯一。
         // ID-NAMING（2026-11-13，B6）：消息 id 直接用派发器发的子 id（T{n}-A{k}），
         // 不再用 UUID 而让 subId 指回自己 —— 以前 id≠subId，按 id 排序/聚合时和 turnId 脱节。
-        String mirrorTurnId = ChatIdDispatcher.getInstance().applyMasterId();
-        String mirrorSubId = ChatIdDispatcher.getInstance()
-                .applySubId(ChatIdDispatcher.IdType.AI, mirrorTurnId);
+        com.oilquiz.app.ai.remote.DshMirrorIds.Ids mirrorIds =
+                com.oilquiz.app.ai.remote.DshMirrorIds.allocate();
         ChatMessage live = ChatMessage.createAIMessage(
-                mirrorSubId != null && !mirrorSubId.isEmpty()
-                        ? mirrorSubId
-                        : java.util.UUID.randomUUID().toString(),
+                mirrorIds.subId.isEmpty() ? java.util.UUID.randomUUID().toString() : mirrorIds.subId,
                 "", System.currentTimeMillis(), null, 0, 0);
-        live.turnId = mirrorTurnId;
+        live.turnId = mirrorIds.turnId;
         live.subId = live.id;
         live.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.THINKING);
         live.components = new java.util.ArrayList<>();
