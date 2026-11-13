@@ -57,3 +57,28 @@ busybox/curl/ssh 等工具链库 —— 均 `LOAD_align = 0x4000`（NDK 28 + `-W
    - P1：TFLite / ONNX Runtime / OpenCV（OCR、语音）→ 升依赖版本
    - P2：ML Kit / PDFium / RTMP → 升依赖或替换
 4. 发版门槛：`python tools/check_elf_16k.py` 必须 `BAD=0`（或用白名单排除 2.3 的免检项）。
+
+## 4. 兼容模式（2026-11-13 追加）
+
+按 [Android 16 行为变更](https://developer.android.com/about/versions/16/behavior-changes-all) 与
+[16 KB 向后兼容选项（AOSP）](https://source.android.google.cn/docs/core/architecture/16kb-page-size/16kb-backcompat-option)：
+
+- Android 16+ 设备检测到 4 KB LOAD 对齐的 `.so` 时，**会自动以 16 KB 兼容模式运行**，
+  并在首次启动弹一次"应用不是 16 KB 兼容"的提示；
+- 在 manifest 中声明 `android:pageSizeCompat="enabled"` 可**强制启用兼容模式并抑制该提示**
+  （属性由 compileSdk 36 提供，取值 `enabled`/`disabled`，二进制 manifest 里是 `32`/`64`）；
+- 该属性只影响**运行期**兼容模式，不改变 ELF 本身；若厂商安装器（如 MIUI/HyperOS 的
+  "ELF 检查"）在安装阶段硬性拒绝，仍需 `adb install` 或移除 4 KB 库。
+
+本项目已加：
+
+```xml
+<application android:pageSizeCompat="enabled" ... >
+```
+
+复核命令：
+
+```powershell
+aapt2 dump xmltree build\outputs\apk\debug\答题宝-debug-2.0.apk --file AndroidManifest.xml | Select-String pageSizeCompat
+# A: ...:pageSizeCompat(0x010106ab)=32
+```
