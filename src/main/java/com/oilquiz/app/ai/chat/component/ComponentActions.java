@@ -261,21 +261,32 @@ public final class ComponentActions {
         // 统一交给有序 sink 表：DSH 在前（按来源登记表判定，B4），本机回调在最后兜底。
         com.oilquiz.app.ai.chat.component.action.ActionEvent event =
                 com.oilquiz.app.ai.chat.component.action.ActionEvent.of(componentId, value);
-        boolean handled = ROUTER.dispatch(context, event);
+        boolean handled = router().dispatch(context, event);
         if (!handled) {
             android.util.Log.w("ComponentActions", "动作无人认领（可能是旧卡片/已卸载组件） " + event);
         }
     }
 
-    /** 动作路由器（动态卡/宿主/测试都可以加 sink；顺序即优先级） */
+    /**
+     * 动作路由器（**动态**落点表：运行时注册/替换/摘除；按 priority 升序、可按 channel 过滤）。
+     *
+     * <p>内置两个 sink 只是"默认安装"：{@code dsh}（优先级 10）与 {@code local}（900，兜底）。
+     * 宿主/页面/插件可以用 {@link #registerSink} 替换或新增，用 {@link #unregisterSink} 在页面退出时摘除。</p>
+     */
     private static final com.oilquiz.app.ai.chat.component.action.ActionRouter ROUTER =
             new com.oilquiz.app.ai.chat.component.action.ActionRouter();
+    private static volatile boolean defaultSinksInstalled = false;
 
-    static {
+    /** 幂等安装默认 sink（懒安装：先注册自定义的也能正常工作） */
+    private static synchronized void ensureDefaultSinks() {
+        if (defaultSinksInstalled) return;
+        defaultSinksInstalled = true;
         // 1) 电脑端：只认来源登记表里的组件 id
-        ROUTER.addSink(new com.oilquiz.app.ai.chat.component.action.DshActionSink());
+        ROUTER.register("dsh", com.oilquiz.app.ai.chat.component.action.ActionRouter.PRIORITY_DSH,
+                new com.oilquiz.app.ai.chat.component.action.DshActionSink());
         // 2) 本机回调：精确 id 优先，其次全局兜底（保持旧行为）
-        ROUTER.addSink(new com.oilquiz.app.ai.chat.component.action.ActionSink() {
+        ROUTER.register("local", com.oilquiz.app.ai.chat.component.action.ActionRouter.PRIORITY_LOCAL,
+                new com.oilquiz.app.ai.chat.component.action.ActionSink() {
             @Override
             public String id() {
                 return "local";
@@ -317,9 +328,30 @@ public final class ComponentActions {
         });
     }
 
-    /** 暴露给动态卡/测试：统一入口，渲染器不关心传输 */
+    /** 暴露给动态卡/宿主/测试：统一入口，渲染器不关心传输 */
     public static com.oilquiz.app.ai.chat.component.action.ActionRouter router() {
+        ensureDefaultSinks();
         return ROUTER;
+    }
+
+    /** 运行时注册一个落点（同 id 覆盖；priority 越小越先） */
+    public static void registerSink(String id, int priority,
+                                    com.oilquiz.app.ai.chat.component.action.ActionSink sink) {
+        ensureDefaultSinks();
+        ROUTER.register(id, priority, sink);
+    }
+
+    /** 运行时注册一个"限定通道"的落点（channels 为空 = 所有通道） */
+    public static void registerSink(String id, int priority, java.util.Set<String> channels,
+                                    com.oilquiz.app.ai.chat.component.action.ActionSink sink) {
+        ensureDefaultSinks();
+        ROUTER.register(id, priority, channels, sink);
+    }
+
+    /** 运行时摘除（页面退出/插件卸载；幂等） */
+    public static boolean unregisterSink(String id) {
+        ensureDefaultSinks();
+        return ROUTER.unregister(id);
     }
 
     /**
@@ -331,7 +363,7 @@ public final class ComponentActions {
         com.oilquiz.app.ai.chat.component.action.ActionEvent e =
                 com.oilquiz.app.ai.chat.component.action.ActionEvent.fromPayload(actionJson);
         if (e == null) return false;
-        return ROUTER.dispatch(context, e);
+        return router().dispatch(context, e);
     }
 
     /**
