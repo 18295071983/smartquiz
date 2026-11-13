@@ -53,13 +53,13 @@
 
 | 模块 | 职责 | 主要落点 | 阶段 |
 |---|---|---|---|
-| **M1 状态甲板** | 三档状态合成、显隐、视口通知、插槽清理 | `StatusDeckController`（新）+ `DockSlotBus` | P0 |
-| **M2 动态卡** | 服务端数据 → `ComponentData` → 现成卡/layout 组件 | `DshProjection` + `ComponentRegistry` | P2 |
-| **M3 配置表** | 事件/卡片/槽位三张表 + 版本闸 + 覆盖链 + 监听 | `DshUiCatalog`（新） | P3 |
-| **M4 交互上行** | 动作分流与回传，替代前缀嗅探 | `ActionSink`（新）+ `ComponentActions` | P1 |
-| **M5 插件事件** | 事件枚举、插槽帧、动态卡构造、caps 裁剪 | `index.js` / `caps.js` | P4 |
-| **M6 消息转换** | 事件 → 时间线 → 消息；字段容错 | `DshTimeline` / `DshProjection` | 已有 |
-| **M7 落盘恢复** | 与在线/本地 agent 同构的持久化 | `ChatHistoryManager` / `ChatIdDispatcher` | P1 |
+| **M1 状态甲板** | `single`(dock) + 内部 `list`(行)、`scope=session`、先声明后注册、显隐与视口通知、插槽清理 | `StatusDeckController`（新）+ `DockSlotBus` | P0 |
+| **M2 动态卡** | 载荷优先级：**`tool/result.meta`** > `layout` > 现成卡 > 注册类型 | `DshProjection` + `ComponentRegistry` | P2 |
+| **M3 配置表** | 事件/卡片/槽位三张表 + 版本闸 + 覆盖链 + 监听；**客户端拉取**（服务端无推配置通道） | `DshUiCatalog`（新） | P3 |
+| **M4 交互上行** | 动作分流与回传，替代前缀嗅探；前置是 `ComponentData.source` | `ActionSink`（新，放 `ai/chat/component` 或 `ai/remote`）+ `ComponentActions` | P1 |
+| **M5 插件事件** | 三层事件目录（session/host/synth）、插槽帧、动态卡构造、caps 一致性 | `index.js` / `caps.js` | P1/P4 |
+| **M6 消息转换** | 事件 → 时间线 → 消息；字段容错；**读 `meta`**（B17） | `DshTimeline` / `DshProjection` | 已有/P2 |
+| **M7 落盘恢复** | 与在线/本地 agent 同构的持久化 | `ChatHistoryManager` / `ChatIdDispatcher` | P0/P1 |
 
 ## 5. 数据流
 
@@ -101,6 +101,9 @@ DshTimeline.reduce ──► DshProjection ──► ChatMessage.components ─�
 9. **`approvals`/`questions`/`remoteCardView` 必须进 `deepCopyForSave` + `clone()`**（B11；"新增字段同步"不够，这三个已在漏）。
 10. **`ComponentData.id` 必须非空**；props 禁放二进制/大整数/大字符串（`byte[]` 会落成 `"[B@…"`，>2^53 失真，无大小上限）。
 11. **`ActionSink` 先于动态卡落地**（现有路由靠 `dsh-` 嗅探，与 `T{n}` 前缀互斥，过渡期两条都要留）。
+12. **事件必须按三层分类**：`session`（63 条真实事件）/ `host`（Cordis 事件）/ `synth`（插件合成帧）。合成帧**不得伪装成 session 事件**（仓外插件无法新增持久化事件类型）。
+13. **Slot 先声明后注册**：未声明的 key 直接拒绝；`ui/slot` 必须带 `scope=session`，不允许全局广播。
+14. **动态卡载荷优先级**：`tool/result.meta` > `layout` > 现成卡 > 注册类型；`meta` 必须 JSON 可序列化（源头有校验）。
 
 ## 8. 与工作区规范
 

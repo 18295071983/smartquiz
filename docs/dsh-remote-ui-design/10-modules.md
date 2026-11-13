@@ -11,14 +11,16 @@
 ### 职责
 把"推理进度 + 工具活动 + DSH 插槽"合成一个容器，三档显示，控制总行数与会话结束时的清理。
 
-> **审查修正（v2.1，以此为准）**
-> - **D1 数据源分模式**：本机 → `AgentProgressBus`；**DSH → `live.inferenceProgress` / `setDshPhaseText`**（DSH 从不写 AgentProgressBus，靠它 D1 永不亮）
-> - **D2 数据源**：服务端 `/status.text_lines`（不本地拼文案，遵守"两端不拼文案"）
-> - 回调改 `onDeckHeightChanged(wasVisible, nowVisible)`；Host 内**先取 `isPinned()`** 再改可见性，post 后调 `onViewportChanged`
-> - `refresh()` 的触发集合写死：slot 变化 / 进度变化 / queue 变化 / ticker（现 ticker 绕过控制器直调 meta）
-> - **注册不要在 `:824`**（早于 `stickToBottom` 与 `setAdapter`，回放会 NPE）；放 `onResume` 或 post 到下一帧
-> - `clear()` 不转调 `AgentProgressBus.clear()`（其静态 Handler 会让 JVM 测试崩），由 Host 注入
-> - **DSH `turn/end` 不走 `endGeneration()`** → 清理点应为 DSH ended / 切会话 / 断连，且只清 transient
+> **收敛（v2.2，依据 `99-review-findings.md` §14–§15 与 DSH 官方文档，以此为准）**
+> - **建模照 DSH Slots**：dock 是 `single`，D3 行是内部 `list`；**scope = session**（避免 `ui/slot` 全局广播串会话）
+> - **先声明后注册**：未声明的 slot key 直接拒绝（DSH 在插件激活时失败），从源头阻止 B8 类漂移
+> - **D1 数据源分模式**：本机 → `AgentProgressBus`；**DSH → `live.inferenceProgress` / `setDshPhaseText`**（DSH 从不写 AgentProgressBus）
+> - **D2 数据源**：服务端 `/status.text_lines`（不本地拼文案）
+> - 回调 `onDeckHeightChanged(wasVisible, nowVisible)`；Host 内**先取 `isPinned()`** 再改可见性，post 后调 `onViewportChanged`
+> - `refresh()` 触发集合写死：slot / 进度 / queue / ticker
+> - **注册不要在 `:824`**（早于 `stickToBottom` 与 `setAdapter`）；放 `onResume` 或 post 到下一帧；**必须可注销**
+> - `clear()` 由 Host 注入，不转调 `AgentProgressBus.clear()`（其静态 Handler 会让 JVM 测试崩）
+> - **DSH `turn/end` 不走 `endGeneration()`** → 清理点：DSH ended / 切会话 / 断连，且只清 transient
 
 ### 接口（新建 `ai/chat/status/StatusDeckController`）
 ```java
@@ -59,12 +61,16 @@ void clear();     // 会话结束/断连
 ### 职责
 服务端只下发数据，客户端渲染出卡片/表单，并把交互结果回传。
 
-### 三种形态
-| 形态 | `ComponentData.type` | props | 用途 |
+### 载荷优先级（v2.2 收敛：官方载荷优先）
+
+| 优先级 | 载荷 | 来源 | 说明 |
 |---|---|---|---|
-| 现成卡 | `progress_card`/`steps_card`/`todo_card`/`table_card`/`tool_call` | 各自契约 | 单点状态 |
-| layout | `layout` | `{layout:{...}}` | 任意嵌套 + 70 图元 + 表单 |
-| 注册类型 | `UIComponentTypeRegistry` 注册名 | `{render:{kind:"card"\|"layout"}}` | 复用的语义化组合 |
+| **1** | **`tool/result.meta`** | DSH 官方 | JSON 序列化在源头校验、replay 复现同一张卡；**`DshProjection` 现在完全没读（B17）** |
+| 2 | `layout` 组件 | `ComponentRegistry` | 任意嵌套 + 64 图元 + 表单，适合无工具归属的展示卡 |
+| 3 | 现成卡 | `progress_card`/`steps_card`/`todo_card`/`table_card`/`tool_call` | 单点状态；契约固定 |
+| 4 | 注册类型 | `UIComponentTypeRegistry` | 语义化复用组合（`render.card`/`render.layout`） |
+
+**边界（B14/§15.2）**：仓外插件**无法**新增持久化事件类型，所以"新卡"只能走 `meta` 或 `components`，不能靠发明事件。
 
 ### 关键约束
 - 只用 `components` 承载（自动落盘/恢复），**不新增 part 类型**
@@ -162,11 +168,13 @@ enum Source { DSH, LOCAL }
 事件枚举、插槽帧、动态卡构造、caps 裁剪一致性。
 
 ### 改动点
-- `EVENT_CATALOG`（已有 33 类）与 `dsh_ui_catalog.json` 的 events 段**同源**
+- **事件目录按三层重建**（B14）：`session`（63 条真实事件）/ `host`（Cordis 事件）/ `synth`（插件合成帧），各自标 `forward`/`slot`
+- 补 36 条可产出类型；把 12 条非 session 事件迁到 host/synth；加 `plugin:` 前缀放行
+- `noteEventType` 对 `session-log-` 前缀静默跳过 → 改为按前缀族登记
 - `buildView` 追加动态卡；`VIEW_CARD_CAP` 加 `dynamic` 映射
 - **`pushView` 补 caps + `filterViewCards`**（B5）
-- `ui/slot` 加 `eventAllowed` 门（caps 裁剪）
-- 拆出 `ui_cards.js` / `ui_catalog.js`，`index.js` 只 require（对应 ROADMAP 拆分）
+- `ui/slot` 加 `eventAllowed` 门 + **session 作用域**（B18）；新 cap 名要先在客户端声明，否则现网收不到
+- 拆出 `ui_cards.js` / `ui_catalog.js`，`index.js` 只 `import`（ESM）；改完**同步 assets 副本**
 
 ### 验收
 - 服务端加卡不发版；GET 与 SSE 两条通道裁剪结果一致
