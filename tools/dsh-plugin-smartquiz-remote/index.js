@@ -410,6 +410,9 @@ export const inject = ['webServer', 'agents', 'sessions', 'tools'];   // tools�
 // 存储：设备表落在插件目录 .devices.json（后续可迁到 dsh-credentials 凭据库）。
 export const AUTH_DOC = 'once-pairing-code -> device token -> revocable whitelist';
 
+/** 反问中继诊断（2026-11-13）：seen=事件有没有到插件；taken=有没有接管；reason=最近一次原因 */
+const QRELAY = { seen: 0, taken: 0, last_sid: '', reason: '' };
+
 /** phone_ui 工具的注册状态（诊断：/status.plugin_features 里可见） */
 const PHONE_TOOL_STATE = { registered: false, error: '' };
 
@@ -2178,7 +2181,7 @@ function presetSvcOf(ctx) {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     // 在线改权限要用宿主真实服务（2026-11-13）：dsh-permission-presets 的 permissionPresets.set(session, name)
     // 才是"整套预设"的正规入口；sandbox 单独改没有公开 setter，所以只暴露预设列表。
-    const svc = presetSvc();
+    const svc = presetSvcOf(ctx);
     let presets = [];
     try {
       if (svc && typeof svc.catalog === 'function') {
@@ -2640,8 +2643,12 @@ function presetSvcOf(ctx) {
     sessions_count: dshSessionsOnDisk(),
     plugin_sessions: handles.size,
     active_jobs: activeJobs,
-    // 插件自身能力状态（诊断）：phone_ui 是否真的注册上了
-    plugin_features: { phone_tool: PHONE_TOOL_STATE.registered, phone_tool_error: PHONE_TOOL_STATE.error },
+    // 插件自身能力状态（诊断）：phone_ui 是否真的注册上了；反问中继有没有收到事件
+    plugin_features: {
+      phone_tool: PHONE_TOOL_STATE.registered,
+      phone_tool_error: PHONE_TOOL_STATE.error,
+      question_relay: QRELAY,
+    },
     // ★ 单一文案模板：手机 / 电脑 UI 直接渲染这组行，不再各自拼一套说法
     text_lines: (() => {
       const disk = dshSessionsOnDisk();
@@ -4322,14 +4329,21 @@ function presetSvcOf(ctx) {
   // 只在"这个会话有手机在追"时接管；否则 next() 交给桌面端。
   try {
     ctx.effect(() => ctx.on('user-questions/request', async (request, next) => {
+      QRELAY.seen += 1;
       const sessionId = String(request?.agent?.session?.id ?? '');
+      QRELAY.last_sid = sessionId;
       let watching = false;
       try {
         for (const s of STREAM_HUB) {
           if (String(s?.sid) === sessionId) { watching = true; break; }
         }
       } catch { watching = false; }
-      if (!watching) return next();
+      if (!watching) {
+        QRELAY.reason = 'no_stream:' + sessionId;
+        return next();
+      }
+      QRELAY.taken += 1;
+      QRELAY.reason = 'taken:' + sessionId;
 
       const id = 'q-' + randomBytes(8).toString('hex');
       const questions = Array.isArray(request?.questions) ? request.questions : [];
