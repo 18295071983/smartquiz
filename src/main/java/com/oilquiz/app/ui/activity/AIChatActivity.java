@@ -735,6 +735,9 @@ public class AIChatActivity extends BaseActivity {
             });
         }
         refreshRemoteDshBar();
+        // 打开对话页就把常驻连接拉起来（2026-11-13）：后台/锁屏的审批通知靠它，
+        // 以前只在"新建会话/跟进到 title"两条路径里顺手启动，多数时候服务根本没起来。
+        startRemoteSyncService();
             btnModelDownload = findViewById(R.id.btn_model_download);
             btnAiInit = findViewById(R.id.btn_ai_init);
             btnChatGuide = findViewById(R.id.btn_chat_guide);
@@ -14652,8 +14655,9 @@ public class AIChatActivity extends BaseActivity {
     private void startRemoteSyncService() {
         try {
             String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
-            if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
-                    || !com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)) return;
+            // 只要配对过就拉起服务（2026-11-13）：以前还要求 isConnected，可调用时机常早于
+            // 连接建立，于是服务永远起不来 —— 后台/锁屏就没有通知可用。连接由服务自己建。
+            if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)) return;
             android.content.Intent svc = new android.content.Intent(this,
                     com.oilquiz.app.ai.tool.RemoteSyncService.class);
             if (!target.isEmpty()) {
