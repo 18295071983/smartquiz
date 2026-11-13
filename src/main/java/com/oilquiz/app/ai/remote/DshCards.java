@@ -70,7 +70,17 @@ public final class DshCards {
                 || "sandbox/mode".equals(type)
                 || "permission/preset".equals(type)
                 || "approval/policy".equals(type)
-                || "agent-preset/selected".equals(type);
+                || "agent-preset/selected".equals(type)
+                // B14（2026-11-13）：这些类型此前只是"登记在目录里"，手机端完全不渲染。
+                || "system/message".equals(type)
+                || "developer/message".equals(type)
+                || "feedback/message-put".equals(type)
+                || "feedback/message-delete".equals(type)
+                || "team/mode".equals(type)
+                || "team/task".equals(type)
+                || "team/member".equals(type)
+                || "team/message/queued".equals(type)
+                || "team/message/delivered".equals(type);
         // 2026-11-12：approval/asked 与 approval/decided 不再出"提示卡"。
         // 审批已经落成 approval part（带允许/拒绝按钮、绑定 toolCallId 钉在工具卡下面），
         // 再出一张同名 alert 卡就是同一件事画两遍，而且那张卡点不动（用户反馈"没绑定"）。
@@ -223,6 +233,51 @@ public final class DshCards {
                 return new Card(key, "markdown_doc",
                         obj("title", "上下文压缩摘要", "content", text));
             }
+            // B14（2026-11-13）：目录里登记过、手机端却完全没渲染的类型
+            case "system/message": {
+                String text = messageText(data);
+                if (text.isEmpty()) return null;
+                return new Card("system-" + turn, "dsh_notice",
+                        obj("title", "系统消息", "content", text, "level", "info"));
+            }
+            case "developer/message": {
+                String text = messageText(data);
+                if (text.isEmpty()) return null;
+                if (text.length() > 240) text = text.substring(0, 240) + "…";
+                return new Card("developer-" + turn, "dsh_notice",
+                        obj("title", "开发者指令", "content", text, "level", "info"));
+            }
+            case "feedback/message-put":
+                return new Card("feedback-put-" + turn, "dsh_notice",
+                        obj("title", "消息已更新", "text", "电脑端改动了历史消息（以电脑端为准）", "level", "info"));
+            case "feedback/message-delete":
+                return new Card("feedback-del-" + turn, "dsh_notice",
+                        obj("title", "消息已删除", "text", "电脑端删除了历史消息（以电脑端为准）", "level", "warning"));
+            case "team/mode": {
+                String mode = data.optString("mode", data.optString("value", ""));
+                return new Card("team-mode", "dsh_notice",
+                        obj("title", "团队模式", "text", mode.isEmpty() ? "已切换" : mode, "level", "info"));
+            }
+            case "team/task": {
+                String title = data.optString("title",
+                        data.optString("subject", data.optString("taskId", "团队任务")));
+                String status = data.optString("status", "");
+                return new Card("team-task-" + data.optString("taskId", title), "dsh_notice",
+                        obj("title", "团队任务",
+                                "text", status.isEmpty() ? title : (title + " · " + status),
+                                "level", "info"));
+            }
+            case "team/member": {
+                String name = data.optString("name", data.optString("label", "成员"));
+                return new Card("team-member-" + name, "dsh_notice",
+                        obj("title", "团队成员", "text", name, "level", "info"));
+            }
+            case "team/message/queued":
+            case "team/message/delivered": {
+                String text = messageText(data);
+                return new Card("team-msg-" + turn, "dsh_notice",
+                        obj("title", "团队消息", "text", text.isEmpty() ? "成员间消息" : text, "level", "info"));
+            }
             case "goal/change": {
                 JSONObject goal = data.optJSONObject("goal");
                 String text = goal != null
@@ -343,6 +398,16 @@ public final class DshCards {
         JSONArray steps = new JSONArray();
         for (JSONObject step : run.steps.values()) add(steps, step);
         return new Card("wf-" + runId, "steps", obj("title", "工作流：" + run.name, "steps", steps));
+    }
+
+    /** 从 message 形态或 text 字段取正文（system/developer/team 消息共用，B14） */
+    private static String messageText(JSONObject data) {
+        if (data == null) return "";
+        JSONObject msg = data.optJSONObject("message");
+        String text = msg != null ? collectText(msg.optJSONArray("content")) : "";
+        if (text.isEmpty()) text = collectText(data.optJSONArray("content"));
+        if (text.isEmpty()) text = data.optString("text", data.optString("summary", ""));
+        return text.trim();
     }
 
     /** content[{type,text}] 里正文部分的拼接（reasoning 不算正文）；实时转换与历史导入共用 */

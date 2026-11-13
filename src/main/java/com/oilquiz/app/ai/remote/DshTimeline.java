@@ -134,6 +134,29 @@ public final class DshTimeline {
     private final DshCards cardMapper = new DshCards();
     private final Map<String, Integer> unknownTypes = new TreeMap<>();
 
+    /**
+     * 已知但**故意不渲染**的内部事件（2026-11-13，B14）。
+     *
+     * <p>它们只在电脑端内部流转（LLM 请求头/上下文、hook、PTC 分发、图片落盘等），
+     * 手机上没有任何可展示的语义；如果丢进 {@link #unknownTypes}，"未识别类型"
+     * 这个监控数字就永远降不到 0，真正新增的类型反而被噪声埋掉。</p>
+     */
+    private static final java.util.Set<String> IGNORED_TYPES =
+            new java.util.HashSet<>(java.util.Arrays.asList(
+                    "agent/inbox/spliced",
+                    "hook/invoked",
+                    "hook/result",
+                    "image/offload",
+                    "model/selection",
+                    "request/context",
+                    "request/header",
+                    "session/end-seed",
+                    "session/title-llm-request",
+                    "subagent/model-selection-policy",
+                    "tool/ptc-dispatch",
+                    "tool/ptc-dispatch-start",
+                    "web/deepseek-search-llm-request"));
+
     private int lastTurn = 1;
     private int lastStep = 1;
     private int lastSeq = -1;
@@ -330,6 +353,7 @@ public final class DshTimeline {
                 break;
             }
             case "schedule/changed":
+            case "schedule/change":
                 u.scheduleChanged = true;
                 break;
             case "session/title": {
@@ -356,7 +380,10 @@ public final class DshTimeline {
                     cardRounds.put(card.key, roundIndexOf(turn, step));
                     u.cardsChanged = true;
                 } else if (!DshCards.handles(ev.type)) {
-                    unknownTypes.merge(ev.type, 1, Integer::sum);
+                    // B14（2026-11-13）：纯内部事件（LLM 请求头、hook、PTC 分发等）不渲染、
+                    // 也不该被算成"未识别类型"——否则监控里的 unknown 计数永远降不下来，
+                    // 真正新增的类型反而被噪声埋掉。
+                    if (!IGNORED_TYPES.contains(ev.type)) unknownTypes.merge(ev.type, 1, Integer::sum);
                 }
                 break;
             }
