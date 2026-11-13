@@ -178,7 +178,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                     err = "电脑端插件太旧：没有 cards（需要 ≥ v8 / 协议 v2）\n请重启电脑上的 DSH 再试";
                 }
             } catch (Exception e) {
-                err = "自检异常: " + e.getMessage();
+                err = com.oilquiz.app.ai.tool.RemoteErrorHints.of(e).display();
             }
 
             boolean online = false;
@@ -927,15 +927,19 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     }
 
     /** 使用说明入口：本页有 guide 就复用，没有就弹一段文本。 */
+    /** 连不上时的说明：只给用户能做的动作，不甩命令。 */
     private void showHelpOrHint() {
         new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("连不上怎么排查")
-                .setMessage("① 电脑：DSH 运行中，浏览器开 http://127.0.0.1:8218/health 应返回 {\"ok\":true}\n"
-                        + "② 电脑上跑 tools/check-remote-lan.ps1，看哪项 [FAIL]\n"
-                        + "③ 若提示「超时/被挡住」：Windows 把网络当成『公用』，管理员执行\n"
-                        + "   Set-NetConnectionProfile -InterfaceAlias \"以太网\" -NetworkCategory Private\n"
-                        + "④ 手机 IP 是 192.168.101.x：无线路由器要改 AP/桥接\n"
-                        + "⑤ 详细说明：电脑 docs/remote_dsh-usage.md 第九节")
+                .setTitle("连不上？按这两步做")
+                .setMessage("第 1 步（最常见的原因）\n"
+                        + "在电脑上双击 tools\\fix-remote-lan.cmd，弹窗里点「是」，等它自己跑完。\n"
+                        + "它只做两件事：允许手机访问电脑、放行 DSH 的端口，不改别的东西。\n"
+                        + "\n第 2 步\n"
+                        + "确认手机和电脑连的是同一个 WiFi（不是访客 WiFi），然后点「快捷自测」。\n"
+                        + "\n还是不行？\n"
+                        + "· 「DSH 没在运行」→ 在电脑上打开 DSH，等 10 秒\n"
+                        + "· 手机 IP 是 192.168.101.x → 无线路由器要改成桥接，找人帮你改一次就好\n"
+                        + "· 换了新手机/重装了 App → 用「扫码配对」重新配一次")
                 .setPositiveButton("知道了", null)
                 .show();
     }

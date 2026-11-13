@@ -13504,18 +13504,14 @@ public class AIChatActivity extends BaseActivity {
     /** 状态条徽标/长按：只有一种执行策略（连接即遥控），点一下只做说明，不再切模式。 */
     /** 远程使用说明（2026-11-14）：把「怎么连、连不上怎么办」写清楚，而不是一句 toast 打发。 */
     private void showRemoteHint() {
-        String msg = "① 电脑：启动 DSH，远程插件已启用\n"
-                + "    浏览器打开 http://127.0.0.1:8218/health，应返回 {\"ok\":true,...}\n"
-                + "② 配对：手机连同一 WiFi → 远程连接页填\n"
-                + "    地址 http://电脑IP:8218（端口固定 8218）\n"
-                + "    令牌 电脑上 tools/dsh-plugin-smartquiz-remote/.token 的 32 位整串\n"
-                + "③ 验证：点「自检 / 对账」，能出 host_cwd 等卡片就通了\n"
-                + "\n连不上时先看提示：\n"
-                + "· 「被挡住 / 超时」= 电脑网络被当成『公用』，防火墙拦入站\n"
-                + "     管理员 PowerShell：Set-NetConnectionProfile -InterfaceAlias \"以太网\" -NetworkCategory Private\n"
-                + "· 电脑上运行 tools/check-remote-lan.ps1，看哪一项 [FAIL]\n"
-                + "· 手机 IP 是 192.168.101.x = 无线路由还是路由模式，要改 AP/桥接\n"
-                + "· 详细说明：电脑 docs/remote_dsh-usage.md 第九节";
+        String msg = "怎么连（两步）\n"
+                + "1. 电脑上打开 DSH，手机连和电脑同一个 WiFi\n"
+                + "2. 点「打开配对页」，用「扫码配对」扫电脑上的二维码，自动填好\n"
+                + "\n连不上怎么办\n"
+                + "· 先点「快捷自测」，它会直接告诉你卡在哪一步\n"
+                + "· 提示「被挡住」→ 在电脑上双击 tools\\fix-remote-lan.cmd，弹窗点「是」，跑完再重试\n"
+                + "· 提示「DSH 没在运行」→ 在电脑上打开 DSH，等 10 秒\n"
+                + "· 手机 IP 是 192.168.101.x → 无线路由器要改成桥接（找人帮你改一次）";
         new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle("远程连接怎么用")
                 .setMessage(msg)

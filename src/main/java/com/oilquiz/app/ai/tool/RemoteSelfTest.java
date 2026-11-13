@@ -141,7 +141,7 @@ public final class RemoteSelfTest {
                     parsed = null;
                 } else if (port != 8218) {
                     r.steps.add(new Step("地址格式", "FAIL", "端口是 " + port + "，不是 8218",
-                            "插件端口固定 8218；45972 这类是临时端口，不能填"));
+                            "端口只填 8218；手机上看到的 45972 这类数字不用填"));
                     parsed = null;
                 } else {
                     r.steps.add(new Step("地址格式", "PASS", scheme + "://" + host + ":" + port, ""));
@@ -156,13 +156,13 @@ public final class RemoteSelfTest {
         // 2) 令牌
         if (tok.isEmpty()) {
             r.steps.add(new Step("令牌", "FAIL", "未填",
-                    "填电脑 tools/dsh-plugin-smartquiz-remote/.token 的 32 位整串"));
+                    "在电脑上重新复制令牌；或直接用「扫码配对」自动填"));
         } else if (tok.length() != 32) {
             r.steps.add(new Step("令牌", "FAIL", "长度 " + tok.length() + "（应为 32）",
-                    "重新复制整串，注意不要带空格/换行"));
+                    "重新复制整串，不要带空格或换行"));
         } else if (!tok.matches("[0-9a-fA-F]{32}")) {
             r.steps.add(new Step("令牌", "WARN", "长度对，但含非十六进制字符",
-                    "确认复制的是 .token 内容，不是别的密钥"));
+                    "确认复制的是电脑上显示的令牌整串，不是别的密码"));
         } else {
             r.steps.add(new Step("令牌", "PASS", "长度 32", ""));
         }
@@ -195,20 +195,16 @@ public final class RemoteSelfTest {
                 r.steps.add(new Step("TCP 8218", "PASS", "已连通（" + (System.currentTimeMillis() - c0) + "ms）", ""));
             } catch (java.net.SocketTimeoutException e) {
                 r.steps.add(new Step("TCP 8218", "FAIL", "连接超时",
-                        "电脑把网络当成『公用』拦了入站：管理员 PowerShell 执行 "
-                                + "Set-NetConnectionProfile -InterfaceAlias \"以太网\" -NetworkCategory Private；"
-                                + "或确认手机和电脑同一 WiFi"));
+                        "电脑的安全设置把手机挡住了：双击电脑上的 tools\\fix-remote-lan.cmd，弹窗点「是」，跑完再重试"));
             } catch (java.net.ConnectException e) {
                 r.steps.add(new Step("TCP 8218", "FAIL", "连接被拒（端口没开）",
-                        "电脑上 DSH 没跑或插件没启用：浏览器开 http://127.0.0.1:8218/health 验证；"
-                                + "仍不行在电脑上跑 tools/check-remote-lan.ps1"));
+                        "电脑上的 DSH 没在运行：打开 DSH 等 10 秒；还不行就双击电脑上的 tools\\fix-remote-lan.cmd"));
             } catch (java.net.NoRouteToHostException e) {
                 r.steps.add(new Step("TCP 8218", "FAIL", "没有路由到这台电脑",
-                        "手机和电脑不在同一网段：看手机 IP 是否 192.168.1.x；"
-                                + "若是 192.168.101.x，无线路由器要改 AP/桥接"));
+                        "手机不在电脑的网络里：连同一个 WiFi；手机 IP 是 192.168.101.x 的话，无线路由器要改桥接"));
             } catch (Exception e) {
                 r.steps.add(new Step("TCP 8218", "FAIL", brief(e),
-                        "先在手机浏览器打开 http://电脑IP:8218/health 验证网络"));
+                        "先点「快捷自测」重试；仍不行就在电脑上双击 tools\\fix-remote-lan.cmd"));
             }
         }
 
@@ -219,7 +215,7 @@ public final class RemoteSelfTest {
                 boolean ok = body != null && body.contains("\"ok\"") && body.contains("true");
                 r.steps.add(new Step("/health", ok ? "PASS" : "WARN",
                         ok ? "返回 ok:true" : "返回内容不像插件：" + cut(body, 60),
-                        ok ? "" : "电脑端 8218 可能被别的程序占用"));
+                        ok ? "" : "电脑上 8218 端口被别的程序占了：重启 DSH 或重启电脑"));
             } catch (Exception e) {
                 r.steps.add(new Step("/health", "FAIL", brief(e),
                         "能连端口但 HTTP 不通：确认电脑端是 DSH 远程插件，而不是别的服务"));
@@ -232,12 +228,12 @@ public final class RemoteSelfTest {
                     boolean ok = body != null && body.contains("\"ok\"") && body.contains("true");
                     r.steps.add(new Step("/status（鉴权）", ok ? "PASS" : "WARN",
                             ok ? "令牌有效" : "返回： " + cut(body, 60),
-                            ok ? "" : "令牌可能失效：重新复制 .token 或扫码重配"));
+                            ok ? "" : "配对信息过期：在电脑上打开配对页，用手机重新扫码"));
                 } catch (Exception e) {
                     String msg = brief(e);
                     if (msg.contains("401") || msg.contains("403")) {
                         r.steps.add(new Step("/status（鉴权）", "FAIL", "HTTP 401（令牌无效）",
-                                "重新复制 .token 整串，或在电脑打开 http://127.0.0.1:8218/pair 扫码重配"));
+                                "在电脑上打开配对页，用手机重新扫码（最快）"));
                     } else {
                         r.steps.add(new Step("/status（鉴权）", "WARN", msg, "不影响连接，可忽略"));
                     }
