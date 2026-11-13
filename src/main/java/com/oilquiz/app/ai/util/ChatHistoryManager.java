@@ -264,6 +264,19 @@ public class ChatHistoryManager {
         return null;
     }
 
+    /** 并发安全地浅拷贝 Map（远程卡只含 JSON 兼容值，浅拷贝足够；失败返回 null） */
+    private static java.util.Map<String, Object> safeCopyMap(java.util.Map<String, Object> src) {
+        if (src == null) return null;
+        for (int i = 0; i < 4; i += 1) {
+            try {
+                return new java.util.LinkedHashMap<>(src);
+            } catch (java.util.ConcurrentModificationException e) {
+                try { Thread.sleep(8); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            }
+        }
+        return null;
+    }
+
     private static ChatMessage cloneWithRetry(ChatMessage msg) {
         for (int i = 0; i < 4; i += 1) {
             try {
@@ -292,7 +305,8 @@ public class ChatHistoryManager {
         return null;
     }
 
-        public static List<ChatMessage> deepCopyForSave(List<ChatMessage> chatHistory) {
+    @SuppressWarnings("unchecked")
+    public static List<ChatMessage> deepCopyForSave(List<ChatMessage> chatHistory) {
         if (chatHistory == null) return new ArrayList<>();
         List<ChatMessage> copy = new ArrayList<>(chatHistory.size());
         for (ChatMessage msg : chatHistory) {
@@ -336,6 +350,13 @@ public class ChatHistoryManager {
             m.agentStepStatus = msg.agentStepStatus;
             m.hasUserToggledExpand = msg.hasUserToggledExpand;
             m.agentExecutionState = msg.agentExecutionState;
+            // SAVE-COPY-FIX（2026-11-13，B11/B9）：approvals/questions/remoteCardView 都**不是**
+            // transient，但 clone() 与本方法此前都没有补拷 → 保存副本里这三项恒为空：
+            //   · pending 审批/问答保存后丢失（重启再也点不了）；
+            //   · 远程卡（/v2/view 片段）重进会话变成空壳。
+            m.approvals = safeCopyList(msg.approvals);
+            m.questions = safeCopyList(msg.questions);
+            m.remoteCardView = safeCopyMap(msg.remoteCardView);
             copy.add(m);
         }
         // 保存前把轮次边界归一（数量/单调/范围/toolCallId），坏数据不落盘
