@@ -312,8 +312,10 @@ DSH 自己的 Web Client 用一套类型化 Slot 系统组合 UI，关键机制�
 | **B15** | 🟡 部分 | 合成 activity 现在带结果正文（`工具完成：…`）；**durable 卡片仍需专用 lane**，未做 |
 | **B16** | ✅ 已修 | `state` 帧检测落后 >500 → 重建时间线（服务端超阈值只发 snapshot，不再静默缺段）；落后 100 的整数倍记一条日志 |
 | **B17** | ✅ 已修 | `DshTimeline.Tool.meta` + `toolComponent` 投影进 props；`DshProjectionMetaTest` 2 条 |
-| **B2/B3** | ⬜ 未修 | 动态卡前置（组件 id 加 turnId、props 排序）|
-| **B6/B10** | ⬜ 未修 | id 命名统一、会话文件 fsync/`.bak` |
+| **B2** | ✅ 复核无需改 | `dshComponentId` 已用 `applySubId(…, 气泡 turnId)`，id 前缀与消息 turnId 一致 |
+| **B3** | ✅ 已修 | 指纹改用规范化 JSON（对象键排序、数组保序）；`AssistantTurnCanonicalJsonTest` 4 条 |
+| **B6** | ✅ 已修 | 镜像气泡 id 直接用 `T{n}-A{k}`（id == subId，与 turnId 同源） |
+| **B10** | ✅ 已修 | 临时文件 fsync → `.bak` → 同目录 rename 原子覆盖；`ChatHistoryManagerAtomicSaveTest` 3 条 |
 
 ### 16.1 已在线验证的能力（真机）
 
