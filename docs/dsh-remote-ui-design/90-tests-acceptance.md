@@ -1,0 +1,118 @@
+# DSH 远程 UI · 单测与验收
+
+- 版本：v2.0（2026-11-13）
+- 上位文档：`00-overall.md`、`10-modules.md`
+
+---
+
+## 1. 测试基线
+
+| 项 | 当前值 |
+|---|---|
+| 单测套件 | 273 |
+| 用例数 | 1959（含本轮新增 5 条） |
+| 失败 | 0 |
+| 运行命令 | `.\gradlew.bat testDebugUnitTest --console=plain *> log`，结果看 `build/test-results/testDebugUnitTest/*.xml` |
+
+**注意**：Gradle 偶发 `Failed to execute ... AsyncCacheAccessDecoratedCache` 噪音，退出码仍为 0 时以 XML 计数为准。
+
+---
+
+## 2. 本轮已交付的单测
+
+| 类 | 用例 | 覆盖 |
+|---|---|---|
+| `DshTimelineToolCallFieldTest` | `acceptsCamelCaseCallId` / `acceptsSnakeCaseCallId` / `acceptsToolCallId` / `acceptsSnakeCaseToolCallId` / `missingCallIdProducesNoCard` | 转换器字段容错（B 类缺陷的前置保障） |
+
+已有且相关：`DockSlotBusTest`(6)、`RemoteStatusSnapshotTest`(8)、`DshTimelineTest`(4)、`PromptAssemblerTest`(13)、`OnlinePromptBuilderAssemblyTest`(11)、`LocalAgentCancelPathTest`(13)、`LocalHistoryTrimWatermarkTest`(6)、`OnlineAgentEngineHistoryTrimWatermarkTest`(7)、`LocalRoundMetricsTest`(5)。
+
+---
+
+## 3. 待补单测（按模块，实现时同步写）
+
+### M1 状态甲板
+| 用例 | 断言 |
+|---|---|
+| `d1VisibleCapsD3ToOne` | D1 可见 + 3 条插槽 → 只渲染 1 条 |
+| `d1HiddenAllowsTwo` | D1 隐藏 → 渲染 2 条 |
+| `emptyDeckIsGone` | 三档全空 → `visible=false` 且未回调 viewport |
+| `visibilityAlwaysNotifiesHost` | 任一档变化 → `onDeckVisibilityChanged` 恰好一次 |
+| `endGenerationClearsSlots` | `clear()` 后插槽列表空 |
+
+### M2 动态卡
+| 用例 | 断言 |
+|---|---|
+| `propsKeyOrderDoesNotChangeFingerprint` | 两种 key 顺序的 props → 指纹相同（B3） |
+| `componentIdIsPrefixedByTurnId` | 同一 card.key 在 T3/T8 下得到不同 id（B2） |
+| `unknownKindFallsBackToDynamicCard` | 未注册 type → 渲染不抛、非 null |
+| `layoutPropsListedInComponentData` | `type=layout` 的 `ComponentData` 可落盘并读回 props |
+
+### M4 交互上行
+| 用例 | 断言 |
+|---|---|
+| `dshSourceGoesToRemote` | `Source.DSH` → 调用 `sendComponentAction` |
+| `localSourceGoesToPython` | `Source.LOCAL` → 调用 `notifyChatComponentResult` |
+| `emptyActionIdIsIgnored` | 空 action → 两条路都不调 |
+
+### M3 配置表
+| 用例 | 断言 |
+|---|---|
+| `olderOverrideIsIgnored` | 覆盖档版本旧于随包 → 用随包 |
+| `corruptJsonFallsBack` | 坏 JSON → 内置兜底，不抛 |
+| `invalidateNotifiesOnce` | `invalidate()` → 监听器各回调一次 |
+
+### M7 落盘恢复
+| 用例 | 断言 |
+|---|---|
+| `remoteCardViewSurvivesSave` | 保存副本里 `remoteCardView` 非空（B9） |
+| `dsnBubbleIdEqualsSubId` | DSH 气泡 `id == subId` 且形如 `T{n}-A{k}`（B6） |
+
+---
+
+## 4. 真机验收清单
+
+| # | 场景 | 步骤 | 期望 | 证据 |
+|---|---|---|---|---|
+| A1 | 甲板不挤聊天区 | 触发一次长工具链（推理中）+ 让电脑端产生 3 条插槽 | 聊天可视高度损失 <5%；D3 只显示 1 条 | 截图对比；`slot-layout` 估算 130dp→<30dp |
+| A2 | 插槽无残留 | 等生成结束；再断开电脑端 | 2 秒内插槽清空；断连后不残留 | 截图 + `DockSlotBus` 日志 |
+| A3 | 贴底不裁切 | 甲板出现/消失时静止不动 | 列表末条完整可见 | 截图（静止状态） |
+| A4 | 动态卡渲染 | 服务端下发一个 `layout` 卡片帧 | 手机显示对应界面，无需发版 | 截图 + `/v2/view` 返回 |
+| A5 | 表单回传 | 点动态卡里的提交按钮 | 电脑端会话出现 user 消息 | 电脑端时间线截图 |
+| A6 | 审批回传 | 手机点允许/拒绝 | 电脑端生效；失败则回滚成待处理 | 两端截图 |
+| A7 | 配置生效 | 推一份新 `dsh_ui_catalog.json` 到 filesDir | 重进会话后版式变化；损坏则回退 | `AILogger.audit` |
+| A8 | 落盘恢复 | 发一条带动态卡的对话后杀进程重进 | 动态卡仍在、id 不变；远程卡不空 | 重启前后截图 + 会话 JSON |
+| A9 | caps 一致 | 对比 GET `/v2/view` 与 SSE `view` 帧 | 两者裁剪结果一致 | 抓包对比 |
+
+---
+
+## 5. 缺陷回归对照（B1–B10）
+
+| 缺陷 | 回归手段 |
+|---|---|
+| B1 `DockSlotBus.clear()` 无调用方 | M1 `endGenerationClearsSlots` + A2 |
+| B2 `dshComponentId` key 无 turnId | M2 `componentIdIsPrefixedByTurnId` |
+| B3 props 指纹不排序 | M2 `propsKeyOrderDoesNotChangeFingerprint` |
+| B4 回传前缀嗅探 | M4 `dshSourceGoesToRemote` + A5 |
+| B5 `pushView` 绕过 caps | A9 |
+| B6 DSH 气泡 id≠subId | M7 `dsnBubbleIdEqualsSubId` |
+| B7 `RemoteCardView` 审批点击未接线 | A6（若改为废弃该卡，则删用例） |
+| B8 caps 声明无实现 | A9 + 代码审查（声明与构造点一一对应） |
+| B9 `remoteCardView` 未补拷 | M7 `remoteCardViewSurvivesSave` + A8 |
+| B10 会话文件无 fsync/.bak | 可选：崩溃注入测试（手动 kill -9 后校验 JSON 可解析） |
+
+---
+
+## 6. 回归门禁
+
+1. `testDebugUnitTest` 全绿（0 failures / 0 errors）。
+2. 新增/修改的每个模块至少 1 条 JVM 单测（甲板控制器、ActionSink、DshUiCatalog 均为纯逻辑，可测）。
+3. 每次迭代提交前跑一次全量，并附 XML 计数作为证据。
+4. 涉及布局的改动必须附真机截图（推理中 + 空闲各一张）。
+
+---
+
+## 7. 尚未覆盖（如实记录）
+
+- `AIChatActivity` 内的折叠/窗口逻辑目前**无单测**（逻辑在 Activity，需先抽类才能测）——M1 抽 `StatusDeckController` 时会顺带解决甲板部分。
+- 插件侧（`index.js`）无自动化测试，只能做语法检查（`node --check`）+ 真机验收。
+- 布局组件的渲染（`NativeLayoutRenderer`）依赖 Android 视图，暂不做 JVM 单测，靠真机 A4 兜。
