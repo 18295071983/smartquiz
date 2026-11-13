@@ -98,6 +98,7 @@ public final class DshProjection {
 
         for (DshCards.Card card : timeline.orderedCards()) {
             ComponentData data = ComponentData.of(card.type, card.props);
+            data.source = "dsh";
             data.id = source.idFor("card:" + card.key);
             // 轮次定位：让 `AssistantTurn` 把卡插到它自己那一步的正文/工具之后，
             // 而不是统一堆到整条消息末尾（这正是之前"卡片全在最后"的根因）。
@@ -129,6 +130,7 @@ public final class DshProjection {
         // 丢了就只能回电脑端重取 —— 所以宁可先带上。
         if (tool.meta != null) DshCards.put(props, "meta", tool.meta);
         ComponentData data = ComponentData.of("tool_call", props);
+        data.source = "dsh";
         data.id = ids.idFor("tool:" + tool.callId);
         return data;
     }

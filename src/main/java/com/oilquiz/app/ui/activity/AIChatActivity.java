@@ -174,6 +174,12 @@ public class AIChatActivity extends BaseActivity {
     private android.widget.LinearLayout agentProgressSlot;
     /** DSH 实时状态 dock 插槽宿主（后台任务/目标/压缩中…；由 DockSlotBus 驱动） */
     private android.widget.LinearLayout dockSlotHost;
+    /** 状态甲板容器（M1）：进度条 + 插槽的父容器，A1 验收就是量它的高度 */
+    private android.widget.LinearLayout statusDeck;
+    /** 甲板配置表（M3）：filesDir/dsh_ui_catalog.json 可覆盖 maxRows，缺失/损坏回退 1/2 */
+    private com.oilquiz.app.ai.chat.status.DshUiCatalogLoader deckCatalog;
+    /** 甲板行选择（M1）：进度条可见 1 条 / 否则 2 条；渲染由 renderDeckRows 执行 */
+    private com.oilquiz.app.ai.chat.status.StatusDeckController deckController;
     private final com.oilquiz.app.ai.chat.status.DockSlotBus.Listener dockSlotListener =
             slots -> runOnUiThread(() -> renderDockSlots(slots));
     private android.widget.TextView tvAgentProgressTitle;
@@ -820,6 +826,14 @@ public class AIChatActivity extends BaseActivity {
                 agentProgressSlot.setOnClickListener(v -> showTaskMonitor());
             }
             dockSlotHost = findViewById(R.id.dock_slot_host);
+            statusDeck = findViewById(R.id.status_deck);
+            // 甲板策略（M1/M3，2026-11-13）：行选择交给控制器，上限读配置表
+            // （filesDir/dsh_ui_catalog.json 可覆盖；缺失/损坏自动回退 1/2）。
+            deckCatalog = com.oilquiz.app.ai.chat.status.DshUiCatalogLoader.load(
+                    new java.io.File(getFilesDir(),
+                            com.oilquiz.app.ai.chat.status.DshUiCatalogLoader.FILE_NAME));
+            deckController = new com.oilquiz.app.ai.chat.status.StatusDeckController(this::renderDeckRows);
+            deckController.applyCatalog(deckCatalog);
             // 注册即回放当前插槽（后台跑着的任务回到前台也能看到）
             com.oilquiz.app.ai.chat.status.DockSlotBus.addListener(dockSlotListener);
             tvQueueInfo = findViewById(R.id.tv_queue_info);
@@ -1532,7 +1546,8 @@ public class AIChatActivity extends BaseActivity {
             public void onToolCall(String toolName, org.json.JSONObject parameters) {
                 runOnUiThread(() -> {
                     showToast(getString(R.string.h_06c7a8f8) + toolName);
-                    // TODO: 显示工具调用 UI
+                    // 工具调用过程已由 Agent 进度条 + 工具卡承载（components / AssistantTurn），
+                    // 这里不再另画一套"工具调用 UI"（旧 TODO 已由组件化方案实现）。
                 });
             }
 
@@ -8692,6 +8707,13 @@ public class AIChatActivity extends BaseActivity {
 
     private void ensureRecoveredIds(java.util.List<ChatMessage> messages) {
         if (messages == null) return;
+        // 恢复出的电脑端卡片要重新登记来源（B4）：登记表是内存态，重启后得按
+        // ComponentData.source 重建，否则这些卡片的按钮又会被当成本机事件。
+        try {
+            com.oilquiz.app.ai.remote.DshComponentIds.markFromHistory(messages);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "DshComponentIds.markFromHistory failed: " + t.getMessage());
+        }
         // 先播种主 id：恢复出 T1..Tn 后，派发器必须从 n+1 继续发号，
         // 否则新回合又是 T1 → 与旧消息 turnId 重号，按 turnId 定位会命中旧气泡
         try {
@@ -12879,11 +12901,18 @@ public class AIChatActivity extends BaseActivity {
             if (wasVisible) {
                 notifyViewportAfterHeightChange(pinnedBefore, true, false);
                 refreshDeckSlots();   // D1 收起后 D3 可放宽到 2 条
+                updateDeckVisibility();
+                logDeckMetrics();
             }
             return;
         }
         agentProgressSlot.setVisibility(View.VISIBLE);
-        if (!wasVisible) notifyViewportAfterHeightChange(pinnedBefore, false, true);
+        if (!wasVisible) {
+            notifyViewportAfterHeightChange(pinnedBefore, false, true);
+            refreshDeckSlots();   // 进度条出现 → 插槽从 2 条收到 1 条
+            updateDeckVisibility();
+            logDeckMetrics();
+        }
         if (tvAgentProgressTitle != null) {
             tvAgentProgressTitle.setText(s.title == null || s.title.isEmpty() ? "任务进度" : s.title);
         }
@@ -12980,14 +13009,25 @@ public class AIChatActivity extends BaseActivity {
      */
     private void renderDockSlots(java.util.List<com.oilquiz.app.ai.chat.status.DockSlotBus.Slot> slots) {
         if (dockSlotHost == null) return;
+        // 行选择交给 StatusDeckController（M1）：上限来自配置表，进度条可见 1 条 / 否则 2 条。
+        // 控制器缺失时退回旧默认值，绝不因为配置问题把甲板搞没。
+        boolean progressVisible = agentProgressSlot != null
+                && agentProgressSlot.getVisibility() == View.VISIBLE;
+        if (deckController == null) {
+            renderDeckRows(com.oilquiz.app.ai.chat.status.StatusDeckController.select(
+                    slots, progressVisible, 1, 2));
+            return;
+        }
+        deckController.onSlotsChanged(slots, progressVisible);
+    }
+
+    /** 控制器选好行之后的真正渲染（只负责 inflate + 视口通知，不再做截断决策） */
+    private void renderDeckRows(java.util.List<com.oilquiz.app.ai.chat.status.DockSlotBus.Slot> rows) {
+        if (dockSlotHost == null) return;
         final boolean wasVisible = dockSlotHost.getVisibility() == View.VISIBLE;
         final boolean pinnedBefore = stickToBottom != null && stickToBottom.isPinned();
-        // D1（推理进度）可见时只留 1 条插槽，否则 2 条：总行数 ≤3，且不与推理状态机抢空间
-        final boolean d1Visible = agentProgressSlot != null
-                && agentProgressSlot.getVisibility() == View.VISIBLE;
-        final int maxRows = d1Visible ? 1 : 2;
         dockSlotHost.removeAllViews();
-        if (slots == null || slots.isEmpty()) {
+        if (rows == null || rows.isEmpty()) {
             dockSlotHost.setVisibility(View.GONE);
             notifyViewportAfterHeightChange(pinnedBefore, wasVisible, false);
             return;
@@ -12996,8 +13036,8 @@ public class AIChatActivity extends BaseActivity {
         int padH = (int) (8 * density);
         int padV = (int) (3 * density);
         int shown = 0;
-        for (final com.oilquiz.app.ai.chat.status.DockSlotBus.Slot s : slots) {
-            if (shown >= maxRows) break;   // 护栏：D1 可见 1 条 / 否则 2 条
+        for (final com.oilquiz.app.ai.chat.status.DockSlotBus.Slot s : rows) {
+            if (shown >= com.oilquiz.app.ai.chat.status.DshUiCatalogLoader.HARD_MAX) break;   // 兜底护栏
             android.widget.TextView tv = new android.widget.TextView(this);
             String text = s.title;
             if (!s.detail.isEmpty()) text = text.isEmpty() ? s.detail : text + " · " + s.detail;
@@ -13017,6 +13057,40 @@ public class AIChatActivity extends BaseActivity {
         }
         dockSlotHost.setVisibility(shown > 0 ? View.VISIBLE : View.GONE);
         notifyViewportAfterHeightChange(pinnedBefore, wasVisible, shown > 0);
+        updateDeckVisibility();
+        logDeckMetrics();
+    }
+
+    /** 甲板容器可见性：两块都隐藏时整块收起（避免残留 margin 占高度） */
+    private void updateDeckVisibility() {
+        if (statusDeck == null) return;
+        boolean progress = agentProgressSlot != null && agentProgressSlot.getVisibility() == View.VISIBLE;
+        boolean slots = dockSlotHost != null && dockSlotHost.getVisibility() == View.VISIBLE;
+        statusDeck.setVisibility(progress || slots ? View.VISIBLE : View.GONE);
+    }
+
+    /**
+     * A1 验收埋点（2026-11-13）：记录甲板与聊天区高度，供 `tools/verify_deck.ps1` 采集。
+     * 阈值：甲板占"甲板+聊天区"不超过 12%（90-tests-acceptance A1）。
+     */
+    private void logDeckMetrics() {
+        if (statusDeck == null || messageList == null) return;
+        final android.widget.LinearLayout deck = statusDeck;
+        final androidx.recyclerview.widget.RecyclerView chat = messageList;
+        chartPost(() -> {
+            float density = getResources().getDisplayMetrics().density;
+            int deckDp = Math.round(deck.getHeight() / density);
+            int chatDp = Math.round(chat.getHeight() / density);
+            int share = (deckDp + chatDp) > 0 ? Math.round(deckDp * 100f / (deckDp + chatDp)) : -1;
+            android.util.Log.i("DeckMetrics", "deck_dp=" + deckDp + " chat_dp=" + chatDp
+                    + " deck_share=" + share + "%");
+        });
+    }
+
+    /** post 到聊天列表的消息队列（统一入口，测试可替换） */
+    private void chartPost(Runnable r) {
+        if (messageList != null) messageList.post(r);
+        else runOnUiThread(r);
     }
 
     /** 插槽点击：任务/目标/子代理/MCP/日程 → 扩展面板；其余 → 远程连接页。 */
@@ -13420,6 +13494,8 @@ public class AIChatActivity extends BaseActivity {
             id = "dsh-" + (dshFallbackSeq++);
         }
         dshComponentIds.put(key, id);
+        // B4 / M4：登记来源，动作回传时按它路由（不再靠 id 前缀嗅探）
+        com.oilquiz.app.ai.remote.DshComponentIds.mark(id);
         return id;
     }
 

@@ -31,6 +31,18 @@ public class ComponentData {
     public JSONObject props;
 
     /**
+     * 来源标记（2026-11-13，M4 前置）：{@code "dsh"}=电脑端投影产出，{@code null/""}=本地引擎。
+     *
+     * <p>为什么要落盘：DSH 卡片的按钮必须回传给电脑端宿主，而
+     * {@code ComponentActions} 只拿得到组件 id；靠 {@code startsWith("dsh-")} 嗅探在
+     * 旧数据/新 id 上都会错判。带上来源后，恢复出来的历史卡片仍能正确路由。</p>
+     *
+     * <p>同时它是 M2"载荷优先级 meta &gt; layout &gt; 现成卡 &gt; 注册类型"的判定输入：
+     * 官方载荷与插件自造卡的来源不同，不能靠字段猜。</p>
+     */
+    public String source;
+
+    /**
      * 该卡片所属的模型轮次（1 基；0 = 未定位）。
      *
      * <p>data part 以前只能统一追加到 parts 末尾，于是"第 2 步产出的待办卡"会跑到整条消息最后。
@@ -87,6 +99,7 @@ public class ComponentData {
         try {
             obj.put("type", type);
             obj.put("props", props != null ? props : new JSONObject());
+            if (source != null && !source.isEmpty()) obj.put("source", source);
             return obj.toString();
         } catch (Exception e) {
             return null;
@@ -105,7 +118,11 @@ public class ComponentData {
                         ? obj.get("type").getAsString() : null;
                 if (type == null || type.isEmpty()) return null;
                 org.json.JSONObject props = gsonObjToOrgJson(obj.get("props"));
-                return new ComponentData(type, props != null ? props : new JSONObject());
+                ComponentData data = new ComponentData(type, props != null ? props : new JSONObject());
+                if (obj.has("source") && !obj.get("source").isJsonNull()) {
+                    data.source = obj.get("source").getAsString();
+                }
+                return data;
             }
         } catch (Exception stepFailed) {
             com.oilquiz.app.util.AILogger.w("ComponentData", "这一步失败，结果可能被当成正常 · fromPersistableJson: " + stepFailed);

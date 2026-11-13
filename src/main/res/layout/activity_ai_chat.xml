@@ -398,6 +398,16 @@
                 android:padding="@dimen/space_8"
                 android:gravity="center_vertical">
 
+                <!-- 状态甲板（2026-11-13，M1）：进度条 + 插槽合并为**一个**容器。
+                     行选择由 StatusDeckController 统一决定（进度可见 1 条 / 否则 2 条，
+                     上限来自 filesDir/dsh_ui_catalog.json，缺失回退 1/2）。
+                     id=status_deck 同时供 A1 验收脚本量高度用。 -->
+                <LinearLayout
+                    android:id="@+id/status_deck"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
                 <!-- dock 插槽宿主（2026-11-13）：DSH 实时状态（后台任务/目标/压缩中…）挂在这里，
                      不进消息流、不随聊天刷新重建；由 DockSlotBus 驱动，最多渲染 3 条。 -->
                 <LinearLayout
@@ -476,6 +486,8 @@
                         android:visibility="gone"
                         android:textColor="?attr/colorControlTextSecondary"/>
                 </LinearLayout>
+
+                </LinearLayout><!-- /status_deck -->
 
                 <!-- 发送队列条：忙时排队模式显示待发送消息，可一键清空 -->
                 <LinearLayout

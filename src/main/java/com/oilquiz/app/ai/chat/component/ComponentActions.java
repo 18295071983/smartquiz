@@ -257,9 +257,12 @@ public final class ComponentActions {
     private static void notifyResult(Context context, String componentId, String value) {
         android.util.Log.i("ComponentActions", "notifyResult cid=" + componentId + " value=" + value
                 + " cb=" + (resultCallback != null));
-        // 0. DSH（电脑端）产出的卡片：组件 id 由 dshComponentId() 发号，前缀 dsh-。
+        // 0. DSH（电脑端）产出的卡片：组件 id 由 dshComponentId() 发号（T5-C12 / T5-T3），
         //    这类卡片的按钮必须回电脑端宿主，本机结果槽收不到它（以前就是这么丢的）。
-        if (componentId != null && componentId.startsWith("dsh-")) {
+        //    B4（2026-11-13）：以前用 startsWith("dsh-") 嗅探，而真实 id 是派发器发的
+        //    T{n}-C{k} —— 于是所有 DSH 卡片动作都被误判成本机事件。改为查来源登记表，
+        //    历史恢复后由 ComponentData.source 重新登记。
+        if (com.oilquiz.app.ai.remote.DshComponentIds.isDshComponent(componentId)) {
             try {
                 boolean sent = com.oilquiz.app.ai.tool.RemoteDshTool
                         .sendComponentAction(context, componentId, value);

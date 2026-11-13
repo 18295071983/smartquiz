@@ -47,8 +47,26 @@ public final class RemoteCommandExecutor {
                 h.post(() -> android.widget.Toast.makeText(ctx, msg,
                         android.widget.Toast.LENGTH_LONG).show());
                 return "toast shown";
+            case "ui_component": {
+                // 语义对齐（2026-11-13）：这个名字以前直接退化成通知，名不副实。
+                // 现在真的渲染成"输入区上方插槽"（与插件 ui/slot 同一套 DockSlotBus）；
+                // id/title/detail 为空时仍退化成通知，避免静默丢失。
+                String sid = str(args == null ? null : args.get("id"));
+                if (sid == null || sid.trim().isEmpty()) sid = "remote_cmd";
+                int pri = 70;
+                Object rawPri = args == null ? null : args.get("priority");
+                if (rawPri instanceof Number) pri = ((Number) rawPri).intValue();
+                if (title.isEmpty() && text.isEmpty()) {
+                    com.oilquiz.app.ai.chat.status.DockSlotBus.remove(sid);
+                    return "slot removed";
+                }
+                com.oilquiz.app.ai.chat.status.DockSlotBus.update(
+                        new com.oilquiz.app.ai.chat.status.DockSlotBus.Slot(
+                                sid, pri, title, text,
+                                str(args == null ? null : args.get("action")), false));
+                return "slot shown";
+            }
             case "dialog":
-            case "ui_component":
                 // 后台没有 Activity：退化成通知，至少让人能看到
                 return notify(ctx, title.isEmpty() ? "来自电脑端" : title, text, cmdId, args == null ? null : args.get("actions"));
             case "notification":
