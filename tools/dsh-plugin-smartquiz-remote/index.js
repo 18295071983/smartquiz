@@ -52,6 +52,13 @@ const CLI_PERM = { mode: 'danger-full-access', approval: 'never' };
  * 写失败不在这里清理：连接关闭时由订阅者自己 `STREAM_HUB.delete(sub)`。
  */
 const STREAM_HUB = new Set();
+/**
+ * 客户端/工具推上来的自定义插槽（{@code ui/slot} / {@code phone_ui}）。
+ *
+ * <p>插槽是瞬态帧，没有事件源：App 重启/重连后服务端不会回放，于是自定义插槽全没了
+ * （jobs/goal 这类有派生状态，连上会重推）。这里留一份内存表，连接建立时补发。</p>
+ */
+const CUSTOM_SLOTS = new Map();
 
 function streamBroadcast(sid, obj) {
   if (!obj) return;
@@ -1996,10 +2003,12 @@ export function apply(ctx, config) {
     // B18（2026-11-13）：带 session_id 的插槽只发给该会话的订阅者（以前一律全局广播）。
     const target = String(extra.session_id ?? '').trim();
     if (!t && !d) {
+      CUSTOM_SLOTS.delete(slotId);
       streamBroadcast(target, { v: 2, type: 'ui/slot', data: { id: slotId, ...(target ? { session_id: target } : {}) } });
       return { id: slotId, removed: true, ...(target ? { session_id: target } : {}) };
     }
     const data = { id: slotId, priority: Number(priority) || 50, title: t, detail: d, ...extra };
+    CUSTOM_SLOTS.set(slotId, data);
     streamBroadcast(target, { v: 2, type: 'ui/slot', data });
     return { ...data, removed: false };
   };
@@ -3632,6 +3641,12 @@ export function apply(ctx, config) {
     broadcastPermissionSlot();
     // 日程概览（通用 ui/slot）
     pushScheduleSlot();
+    // 自定义插槽补发（2026-11-13）：ui.slot / phone_ui 推的东西没有事件源，
+    // 不在这里补的话，App 一重启就全消失了（真机复现：推完的「本会话插槽」重启后不见）。
+    for (const data of CUSTOM_SLOTS.values()) {
+      if (data.session_id && data.session_id !== sid) continue;   // 别的会话的不发（B18）
+      sse({ type: 'ui/slot', data });
+    }
     viewTimer = setInterval(() => { if (!closed) pushView(); }, 5000);
     // since = -2 means "start from now": no history replay (first connect / no cursor)
     const since = sinceParam === -2 ? -2

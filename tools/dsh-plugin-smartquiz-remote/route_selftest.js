@@ -461,7 +461,7 @@ await test('/v2/view 补齐 schedule/subagents/plan 三张卡（B8）', async ()
   }
 });
 
-await test('ui.slot 支持会话作用域（B18）', async () => {
+await test('ui.slot 支持会话作用域，并在重连时补发（B18）', async () => {
   const scoped = await call('/v2/action', {
     method: 'POST',
     body: JSON.stringify({
@@ -470,6 +470,17 @@ await test('ui.slot 支持会话作用域（B18）', async () => {
     }),
   });
   assert.equal(scoped.json.slot.session_id, 'root-1', '插槽应带会话作用域');
+
+  // 新订阅（模拟 App 重启后重连）应当收到刚才那条自定义插槽
+  const handler = routes.get('/events');
+  const res = fakeRes();
+  const req = fakeReq({ url: '/events?session_id=root-1&follow=1&since=-2&caps=parts.stream' });
+  const pending = handler(req, res);
+  await new Promise((r) => setTimeout(r, 80));
+  const body = res.text();
+  assert.ok(body.includes('ui/slot'), '重连后应补发 ui/slot：' + body.slice(0, 300));
+  assert.ok(body.includes('会话内插槽'), '补发的插槽内容应带标题：' + body.slice(0, 400));
+  void pending;
 });
 
 console.log(`\n${passed} passed${process.exitCode ? '（有失败）' : ''}`);
