@@ -1866,16 +1866,44 @@ function presetSvcOf(ctx) {
     properties: {
       kind: {
         type: 'string',
-        enum: ['slot', 'toast', 'notification'],
-        description: '指令类型：slot=输入区上方插槽；toast/notification=手机提醒',
+        enum: ['slot', 'toast', 'notification', 'approval_test'],
+        description: '指令类型：slot=输入区上方插槽；toast/notification=手机提醒；'
+          + 'approval_test=注入一条可停留的测试审批（验证手机通知与允许/拒绝按钮）',
       },
       title: { type: 'string', description: '标题（slot/notification 建议必填）' },
-      detail: { type: 'string', description: '正文或副标题' },
+      detail: { type: 'string', description: '正文或副标题；approval_test 时作为原因' },
       priority: { type: 'number', description: 'slot 优先级，越小越靠上，默认 50' },
       id: { type: 'string', description: 'slot id，同 id 会覆盖；默认 phone_ui' },
+      ttl_sec: { type: 'number', description: 'approval_test 停留秒数（10~600，默认 60）' },
     },
     required: ['kind'],
     additionalProperties: false,
+  };
+
+  /**
+   * 注入一条测试审批（2026-11-13）。
+   *
+   * <p>真实审批常被宿主 10~15 秒内自动答掉，肉眼验证不了通知/按钮；
+   * 这个函数同时给 `debug.approval` 动作和 `phone_ui(approval_test)` 工具用。</p>
+   */
+  const injectTestApproval = ({ sessionId, ttlSec, tool, reason } = {}) => {
+    const id = 'test-' + randomBytes(6).toString('hex');
+    const ttlMs = Math.max(10, Math.min(600, Number(ttlSec ?? 60) || 60)) * 1000;
+    const entry = { id, at: Date.now(), timer: null };
+    entry.timer = setTimeout(() => {
+      TEST_APPROVALS.delete(id);
+      streamBroadcast(String(sessionId ?? ''), { v: 2, type: 'approval_gone', id, ts: Date.now() });
+    }, ttlMs);
+    TEST_APPROVALS.set(id, entry);
+    streamBroadcast(String(sessionId ?? ''), {
+      v: 2, type: 'approval', id, kind: 'approval', ts: Date.now(),
+      request: {
+        toolName: String(tool ?? '测试审批').trim() || '测试审批',
+        reason: String(reason ?? '用于验证手机端通知与按钮').trim(),
+        callId: '',
+      },
+    });
+    return { id, ttl_sec: ttlMs / 1000 };
   };
 
   try {
@@ -1885,8 +1913,9 @@ function presetSvcOf(ctx) {
     } else {
       const phoneUiDef = {
         name: 'phone_ui',
-        description: '把一条 UI 指令推送到已配对的手机：slot（输入区上方的插槽）或 toast/notification（提醒）。'
-          + '只用于需要用户立刻看到的轻量提示，不要用于长文本。',
+        description: '把一条 UI 指令推送到已配对的手机：slot（输入区上方插槽）、toast/notification（提醒），'
+          + '或 approval_test（注入可停留 10~600 秒的测试审批，验证通知与允许/拒绝按钮）。'
+          + '只用于需要用户立刻看到的轻量提示，不要用于长文本；审批/提问的真实推送由审批中继自动完成，不需要这个工具。',
         // 字段 DSL 只声明一次；注册时优先交给官方 defineTool 编译（含运行时入参校验），
         // 拿不到时退回本地编译的等价 JSON Schema。
         parameters: PHONE_UI_PARAMS,
@@ -1898,6 +1927,12 @@ function presetSvcOf(ctx) {
           const kind = String(args?.kind ?? '');
           const title = String(args?.title ?? '').trim();
           const detail = String(args?.detail ?? '').trim();
+          if (kind === 'approval_test') {
+            const r = injectTestApproval({
+              sessionId: '', ttlSec: args?.ttl_sec, tool: title || '测试审批', reason: detail,
+            });
+            return '已注入测试审批 ' + r.id + '（停留 ' + r.ttl_sec + ' 秒；手机上点允许/拒绝后看 /status.plugin_features.test_approval）';
+          }
           if (!title && !detail) return '未推送：title/detail 至少给一个';
           if (kind === 'slot') {
             const slot = pushUiSlot(args?.id, args?.priority, title, detail);
@@ -2265,23 +2300,13 @@ function presetSvcOf(ctx) {
       if (!allows(normalizeCaps(body.caps ?? ''), 'cmd.ui')) {
         return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'cmd.ui' });
       }
-      const id = 'test-' + randomBytes(6).toString('hex');
-      const ttlMs = Math.max(10, Math.min(600, Number(body.ttl_sec ?? 60) || 60)) * 1000;
-      const tool = String(body.tool ?? '测试审批').trim() || '测试审批';
-      const reason = String(body.reason ?? '用于验证手机端通知与按钮').trim();
-      const entry = { id, at: Date.now(), timer: null };
-      entry.timer = setTimeout(() => {
-        TEST_APPROVALS.delete(id);
-        streamBroadcast(String(body.session_id ?? ''), {
-          v: 2, type: 'approval_gone', id, ts: Date.now(),
-        });
-      }, ttlMs);
-      TEST_APPROVALS.set(id, entry);
-      streamBroadcast(String(body.session_id ?? ''), {
-        v: 2, type: 'approval', id, kind: 'approval', ts: Date.now(),
-        request: { toolName: tool, reason, callId: '' },
+      const injected = injectTestApproval({
+        sessionId: body.session_id,
+        ttlSec: body.ttl_sec,
+        tool: body.tool,
+        reason: body.reason,
       });
-      return sendJson(res, 200, { ok: true, v: 2, id, ttl_sec: ttlMs / 1000 });
+      return sendJson(res, 200, { ok: true, v: 2, id: injected.id, ttl_sec: injected.ttl_sec });
     }
 
     if (action === 'ui.slot') {
