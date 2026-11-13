@@ -402,6 +402,34 @@ await test('/cmd 中文按 UTF-8 原样往返（不变成 ??）', async () => {
   assert.equal(got.args.title, '编码自检');
 });
 
+await test('/v2/action ui.slot 推送/移除插槽（中文原样、caps 门禁）', async () => {
+  const pushed = await call('/v2/action', {
+    method: 'POST',
+    body: JSON.stringify({
+      action: 'ui.slot', id: 'selftest', priority: 42,
+      title: '自检插槽', detail: '中文详情 · 应原样', caps: 'cmd.ui',
+    }),
+  });
+  assert.equal(pushed.res.statusCode, 200, '推送失败：' + pushed.res.text().slice(0, 200));
+  assert.equal(pushed.json.slot.title, '自检插槽');
+  assert.equal(pushed.json.slot.detail, '中文详情 · 应原样');
+  assert.equal(pushed.json.slot.priority, 42);
+  assert.equal(pushed.json.slot.removed, false);
+
+  const removed = await call('/v2/action', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'ui.slot', id: 'selftest', caps: 'cmd.ui' }),
+  });
+  assert.equal(removed.json.slot.removed, true, '空 title/detail 应表示移除');
+
+  const denied = await call('/v2/action', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'ui.slot', id: 'x', title: 't', caps: 'events.stream' }),
+  });
+  assert.equal(denied.res.statusCode, 403, '缺 cmd.ui 应 403');
+  assert.equal(denied.json.error, 'caps_denied');
+});
+
 console.log(`\n${passed} passed${process.exitCode ? '（有失败）' : ''}`);
 // /events 的定时器会让 node 不退出；自检结束按结果直接退出
 process.exit(process.exitCode ?? 0);

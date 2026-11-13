@@ -1769,14 +1769,10 @@ export function apply(ctx, config) {
           const detail = String(args?.detail ?? '').trim();
           if (!title && !detail) return '未推送：title/detail 至少给一个';
           if (kind === 'slot') {
-            const slotId = String(args?.id ?? 'phone_ui');
-            streamBroadcast('', { v: 2, type: 'ui/slot', data: {
-              id: slotId,
-              priority: Number(args?.priority ?? 50) || 50,
-              title,
-              detail,
-            } });
-            return '已推送到手机插槽 ' + slotId;
+            const slot = pushUiSlot(args?.id, args?.priority, title, detail);
+            return slot.removed
+              ? '已移除手机插槽 ' + slot.id
+              : '已推送到手机插槽 ' + slot.id;
           }
           const tool = kind === 'notification' ? 'notification' : 'toast';
           if (!CMD_ALLOW.has(tool)) return '未推送：' + tool + ' 不在白名单';
@@ -1982,6 +1978,23 @@ export function apply(ctx, config) {
   });
 
   /**
+   * 通用插槽推送（2026-11-13）：`phone_ui` 工具与 `POST /v2/action {action:'ui.slot'}`
+   * 共用同一段逻辑。title 与 detail 都为空 = 移除该插槽（与手机端约定一致）。
+   */
+  const pushUiSlot = (id, priority, title, detail, extra = {}) => {
+    const slotId = String(id ?? '').trim() || 'phone_ui';
+    const t = String(title ?? '').trim();
+    const d = String(detail ?? '').trim();
+    if (!t && !d) {
+      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: slotId } });
+      return { id: slotId, removed: true };
+    }
+    const data = { id: slotId, priority: Number(priority) || 50, title: t, detail: d, ...extra };
+    streamBroadcast('', { v: 2, type: 'ui/slot', data });
+    return { ...data, removed: false };
+  };
+
+  /**
    * 客户端可发起的操作（白名单）。
    *
    * <p>为什么是白名单而不是通用 RPC：手机端一旦能"发任意动作"，权限边界就只靠 ui 自觉。
@@ -1996,6 +2009,17 @@ export function apply(ctx, config) {
     let body = {};
     try { body = JSON.parse((await readBody(req)) || '{}'); } catch { body = {}; }
     const action = String(body.action ?? '').trim();
+    if (action === 'ui.slot') {
+      // 脚本/面板推插槽（不依赖 agent 调 phone_ui）。声明了 caps 的客户端需要 cmd.ui。
+      if (!allows(normalizeCaps(body.caps ?? ''), 'cmd.ui')) {
+        return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'cmd.ui' });
+      }
+      const slot = pushUiSlot(body.id, body.priority, body.title, body.detail, {
+        ...(body.action && String(body.action).trim() ? { action: String(body.action).trim() } : {}),
+        ...(body.warn === true ? { warn: true } : {}),
+      });
+      return sendJson(res, 200, { ok: true, v: 2, action, slot });
+    }
     if (action === 'jobs.clear') {
       JOB_STATE.clear();
       scheduleStateSave();
@@ -2009,7 +2033,7 @@ export function apply(ctx, config) {
     }
     return sendJson(res, 400, {
       ok: false, v: 2, error: 'unknown_action', action,
-      allowed: ['jobs.clear', 'resync'],
+      allowed: ['ui.slot', 'jobs.clear', 'resync'],
     });
   });
 
