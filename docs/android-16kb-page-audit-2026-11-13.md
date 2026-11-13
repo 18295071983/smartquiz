@@ -1,8 +1,15 @@
 # Android 16 KB 页对齐审计（2026-11-13）
 
 > 背景：Android 15 起，targetSdk ≥ 35 的应用在 **16 KB 页** 设备上要求所有 `.so` 的
-> `PT_LOAD` 段 `p_align ≥ 0x4000`；不满足的库 `dlopen` 会失败（`has invalid ELF alignment`）。
+> `PT_LOAD` 段 `p_align ≥ 0x4000`；不满足的库在**未启用兼容模式**时 `dlopen` 会失败
+> （`has invalid ELF alignment`）。
 > 本项目 `targetSdk = 36`、`ndkVersion = 28.2.13676358`、`abiFilters = arm64-v8a`。
+>
+> **准确语义（2026-11-13 修正）**：
+> - 4 KB 页设备（如本次真机 `PAGE_SIZE=4096`）：4 KB 对齐库**完全兼容**，无需处理；
+> - 16 KB 页设备：启用 16 KB 向后兼容模式（`android:pageSizeCompat="enabled"`）后**可以运行**，
+>   但官方表述是 "lets *some* apps run"，稳定性不如 16 KB 对齐；
+> - Google Play 上架：targetSdk 35+ 含 4 KB 对齐库**会被拒绝**（硬性政策，与设备能否运行无关）。
 
 ## 1. 检查方法
 
