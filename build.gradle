@@ -289,7 +289,7 @@ android {
             // targetSdk>=29 的应用不能执行自己写进 data 目录的文件，只有系统解压出来的
             // nativeLibraryDir 里的文件才允许 execve —— 所以必须打开 legacy 打包方式（=解压）。
             // Android 里 ApplicationInfo.nativeLibraryDir 会指向这些真实文件。
-            useLegacyPackaging = true
+            useLegacyPackaging = false   // 16KB：.so 不压缩，AGP 按 16KB 对齐（系统检查器才能正确解析）
             // busybox 是已 strip 过的 ELF 可执行文件，别让 AGP 的 strip 任务再动它
             // 内置工具链全部免 strip：既有已 strip 的 ELF，也有 shell 脚本(包装)、tar.gz(依赖库包)、
             // PEM(CA) 与 JSON(工具清单)，AGP 对非 ELF 跑 llvm-strip 会失败

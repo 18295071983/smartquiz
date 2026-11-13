@@ -112,3 +112,25 @@ aapt2 dump xmltree build\outputs\apk\debug\答题宝-debug-2.0.apk --file Androi
 
 规则：只查 `arm64-v8a`（abiFilters 唯一随包 ABI）；`libggml-htp-*`（Hexagon DSP）白名单跳过。
 当前强制模式输出 **25 个**（30 减去 5 个 Hexagon）。
+
+## 7. PageSizeMismatchDialog 实测（2026-11-13 晚，Android 17 真机）
+
+现象：清数据后首启弹出系统对话框「Android 应用兼容性 / 以下库未进行 16 KB 对齐」。
+
+排查（干净卸载 + 重装，排除"不再显示"的抑制状态）：
+
+| 条件 | 对话框 |
+|---|---|
+| `pageSizeCompat` 属性缺失 | 出现 |
+| `targetSdk = 35`（无属性）| 出现（与 targetSdk 无关）|
+| `pageSizeCompat="enabled"` + 干净重装 | **不出现** |
+
+对话框归属：`Window{... PageSizeMismatchDialog}`，`package=android`、`mOwnerUid=1000`、
+`ty=APPLICATION_OVERLAY` —— 是 **AOSP 系统进程**（frameworks/base `PageSizeMismatchDialog`），
+不是小米商店/安全中心。AOSP 注释明确：设置 `pageSizeCompat="enabled"` 或 `"disabled"` 都会跳过该对话框。
+
+结论：
+- 保留 `android:pageSizeCompat="enabled"`（强制兼容模式 + 跳过提示）；
+- 顺带把 `useLegacyPackaging` 改为 `false`：.so 不压缩、AGP 按 16KB 对齐，系统检查器能正确解析
+  （之前全部 DEFLATE，导致对话框里大量"未知错误"误报）；代价是 APK 从 792MB 涨到 991MB。
+- 真正 4KB 对齐的库仍存在（`check_elf_16k.py` 可查），只是不再每次启动弹框；上架 Play 前仍需清零。
