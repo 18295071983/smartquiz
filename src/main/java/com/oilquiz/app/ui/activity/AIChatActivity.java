@@ -8730,7 +8730,32 @@ public class AIChatActivity extends BaseActivity {
             android.util.Log.w(TAG, "DshComponentIds.markFromHistory failed: " + t.getMessage());
         }
         // 恢复完历史后补一次"待你处理"指路牌：断线重进时挂着的审批/反问也能被看到
+        // 顺手把**上一进程遗留的 pending 审批**标过期：审批是网关里的活对象，
+        // DSH 重启后这些 id 早就失效，还挂 pending 只会让通知栏数字虚高（实测"共 4 条"）。
         try {
+            long staleBefore = System.currentTimeMillis() - 10 * 60 * 1000L;
+            int expired = 0;
+            for (ChatMessage m : messages) {
+                if (m == null) continue;
+                if (m.approvals != null) {
+                    for (ChatMessage.ApprovalRequest a : m.approvals) {
+                        if (a == null || !a.isPending()) continue;
+                        if (!"dsh".equals(a.source)) continue;
+                        if (a.timestamp > 0 && a.timestamp > staleBefore) continue;
+                        a.status = "expired";
+                        expired += 1;
+                    }
+                }
+                if (m.questions != null) {
+                    for (ChatMessage.QuestionRequest q : m.questions) {
+                        if (q == null || !q.isPending()) continue;
+                        if (q.timestamp > 0 && q.timestamp > staleBefore) continue;
+                        q.status = "expired";
+                        expired += 1;
+                    }
+                }
+            }
+            if (expired > 0) android.util.Log.i(TAG, "[DSH] 清理过期待处理 " + expired + " 条");
             refreshAttentionSlot();
         } catch (Throwable t) {
             android.util.Log.w(TAG, "refreshAttentionSlot failed: " + t.getMessage());
@@ -13263,13 +13288,39 @@ public class AIChatActivity extends BaseActivity {
             try {
                 boolean ok = com.oilquiz.app.ai.tool.RemoteDshTool.answerApproval(AIChatActivity.this, id, allow);
                 runOnUiThread(() -> {
-                    if (!ok) showToast("审批没送达（可能已在电脑上处理）");
+                    if (!ok) {
+                        showToast("审批没送达（可能已在电脑上处理）");
+                    } else {
+                        // 本地先落终态：通知栏/待处理计数立刻更新，不用等 approval_gone 帧
+                        markApprovalDecided(id, allow);
+                    }
                     dismissDshApprovalDialog(id);
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> showToast("审批失败：" + e.getMessage()));
             }
         }, "dsh-approval").start();
+    }
+
+    /**
+     * 审批已决定（本机点的）：落状态 + 刷新通知栏（2026-11-13）。
+     *
+     * <p>以前只 dismiss 对话框，`msg.approvals` 还停在 pending，于是通知栏一直挂着
+     * "待你处理"——用户点了允许却看到待办没消失。这里把状态和通知一起收口。</p>
+     */
+    private void markApprovalDecided(String id, boolean allow) {
+        if (chatHistory == null || id == null || id.isEmpty()) return;
+        for (ChatMessage m : chatHistory) {
+            if (m == null || m.approvals == null) continue;
+            for (ChatMessage.ApprovalRequest a : m.approvals) {
+                if (a == null || !id.equals(a.id)) continue;
+                a.status = allow
+                        ? com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.APPROVAL_APPROVED
+                        : com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.APPROVAL_DENIED;
+                refreshDshApprovalMessage(m);
+            }
+        }
+        refreshAttentionSlot();
     }
 
     private void showPermissionChange() {
@@ -14030,6 +14081,7 @@ public class AIChatActivity extends BaseActivity {
                     break;
                 case APPROVAL_GONE:
                     resolveDshApproval(live, action.id, action.outcome);
+                    refreshAttentionSlot();   // 电脑端答了 → 通知栏也要撤
                     break;
                 case QUESTION_GONE:
                     resolveDshQuestions(live, action.id);
@@ -14345,11 +14397,28 @@ public class AIChatActivity extends BaseActivity {
             // 审批通道帧（2026-11-13 恢复昨天 c73c0434 的行为）：直接弹原生对话框，
             // 不走时间线，也不进甲板卡（甲板是常驻状态区，审批是打断式交互）。
             if ("approval".equals(type)) {
+                // 状态也要落进消息：通知栏的"允许/拒绝"按钮、待处理计数都从 msg.approvals 读。
+                // 只弹对话框不落状态，通知栏就没卡可挂（用户反馈"通知没挂卡"）。
+                ChatMessage live = ensureMirrorBubble(turnOfEvent(ev));
+                if (live != null) {
+                    addDshApproval(live, ev.optString("id"), ev.optJSONObject("request"));
+                    refreshAttentionSlot();
+                }
                 showDshApprovalDialog(ev.optString("id"), ev.optJSONObject("request"));
                 return;
             }
             if ("approval_gone".equals(type)) {
-                dismissDshApprovalDialog(ev.optString("id"));
+                String goneId = ev.optString("id", "");
+                if (chatHistory != null) {
+                    for (ChatMessage m : chatHistory) {
+                        if (m == null || m.approvals == null) continue;
+                        for (ChatMessage.ApprovalRequest a : m.approvals) {
+                            if (a != null && goneId.equals(a.id)) resolveDshApproval(m, goneId);
+                        }
+                    }
+                }
+                dismissDshApprovalDialog(goneId);
+                refreshAttentionSlot();
                 return;
             }
             if (!"stream/delta".equals(type)) {
