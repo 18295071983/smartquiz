@@ -3,6 +3,7 @@
 - 版本：v2.0（2026-11-13）
 - 关联：`docs/dsh-remote-ui-architecture-v2-2026-11-13.md`（调查与决策依据）、`10-modules.md`（分模块）、`90-tests-acceptance.md`（测试与验收）
 - 状态：设计定稿，实现按 P0→P4 推进
+- **修订（v2.1）**：交叉审查结论见 `99-review-findings.md`；**阶段划分、缺陷归属、验收改法以它为准**，本文 §9 已同步重排
 
 ---
 
@@ -96,6 +97,10 @@ DshTimeline.reduce ──► DshProjection ──► ChatMessage.components ─�
 5. 组件 id 以**所属消息的 turnId** 作前缀，且跨重投影稳定。
 6. 不新增 part 类型（5 个必改点，漏一个整条消息回落 legacy）。
 7. 交互只走三条既有上行，不新造协议。
+8. **输入区任何高度变化**都要走同一入口（`thinking_indicator`、`attachment_list`、chip 行、`queue_bar`、键盘 insets 都在改高度；现有 4 处未通知）。
+9. **`approvals`/`questions`/`remoteCardView` 必须进 `deepCopyForSave` + `clone()`**（B11；"新增字段同步"不够，这三个已在漏）。
+10. **`ComponentData.id` 必须非空**；props 禁放二进制/大整数/大字符串（`byte[]` 会落成 `"[B@…"`，>2^53 失真，无大小上限）。
+11. **`ActionSink` 先于动态卡落地**（现有路由靠 `dsh-` 嗅探，与 `T{n}` 前缀互斥，过渡期两条都要留）。
 
 ## 8. 与工作区规范
 
@@ -107,8 +112,12 @@ DshTimeline.reduce ──► DshProjection ──► ChatMessage.components ─�
 
 | 阶段 | 内容 | 工期 | 依赖 |
 |---|---|---|---|
-| P0 | M1 甲板合并 + `DockSlotBus.clear()` | 1 天 | — |
-| P1 | B2/B4/B9 等缺陷 + M4 ActionSink + M7 对齐 | 1-2 天 | — |
-| P2 | M2 动态卡（layout + actions） | 1-2 天 | P1 |
-| P3 | M3 配置表 + 下发 | 1-2 天 | — |
-| P4 | M5 插件动态卡 + caps 一致性 | 1-2 天 | P2/P3 |
+| P0 | **B11** 补拷 `approvals/questions/remoteCardView`（+clone+单测）→ **B12** 删除 `/v2/view` 远程卡整条路径 | 2-3 天 | — |
+| P1 | **B5** `pushView` 补 caps + **B8** caps 声明与构造矩阵 + B1（DSH ended/切会话/断连清 transient slot） | 2-3 天 | — |
+| P2 | 动态卡：本地 fixture 验证 `layout` → B3/B2/B4（含 source 注入）→ B13 索引改按 message 查找 | 2-3 天 | P1 的 B5 |
+| P3 | B6（id 命名）+ B10（原子写加固）+ 配置表（仅给甲板 maxRows 供值） | 2-3 天 | — |
+| P4 | 插件动态卡（走 `/events`，不走 `/v2/view`）+ 拆模块（ESM `import`） | 2-3 天 | P2 |
+
+总计 **10-14 天**（原估 6-9 天低估约 2 倍）。更早验证的顺序：P2 用本地 fixture 先证明 `layout` 能渲染，再 P4 做服务端卡，最后 P3。
+
+**两天最小一刀**（不建控制器、不删布局 id）：`renderDockSlots` 压到 1 条 + `renderAgentProgress` 收起 msg/meta + 两处补 `onViewportChanged` + DSH ended/切会话清 transient slot + 三行深拷贝补拷。详见 `99-review-findings.md` §6。

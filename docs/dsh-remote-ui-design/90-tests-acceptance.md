@@ -73,15 +73,15 @@
 
 | # | 场景 | 步骤 | 期望 | 证据 |
 |---|---|---|---|---|
-| A1 | 甲板不挤聊天区 | 触发一次长工具链（推理中）+ 让电脑端产生 3 条插槽 | 聊天可视高度损失 <5%；D3 只显示 1 条 | 截图对比；`slot-layout` 估算 130dp→<30dp |
-| A2 | 插槽无残留 | 等生成结束；再断开电脑端 | 2 秒内插槽清空；断连后不残留 | 截图 + `DockSlotBus` 日志 |
-| A3 | 贴底不裁切 | 甲板出现/消失时静止不动 | 列表末条完整可见 | 截图（静止状态） |
+| A1 | 甲板不挤聊天区 | 固定设备脚本，记录 `status_deck.getHeight()` 与 `messageList.getHeight()`；分别在"本机 agent"与"DSH 远程"两种基线下测 | deck ≤72dp；视口减少 ≤12%；D3 ≤1 条 | 脚本输出（不用截图） |
+| A2 | 插槽无残留 | `StatusDeckControllerTest(FakeHost)`：注入 3 slot → DSH `turn/end` → 断言 `DockSlotBus.list()` 为空并输出 reason | 清空且只清 transient | 单测 |
+| A3 | 贴底不裁切 | pinned 状态下断言 `onViewportChanged(true)` 恰好一次、`lastChild.bottom≈height-padding`、`!canScrollVertically(1)` | 不裁切 | 单测 + 截图各一张 |
 | A4 | 动态卡渲染 | 服务端下发一个 `layout` 卡片帧 | 手机显示对应界面，无需发版 | 截图 + `/v2/view` 返回 |
 | A5 | 表单回传 | 点动态卡里的提交按钮 | 电脑端会话出现 user 消息 | 电脑端时间线截图 |
 | A6 | 审批回传 | 手机点允许/拒绝 | 电脑端生效；失败则回滚成待处理 | 两端截图 |
 | A7 | 配置生效 | 推一份新 `dsh_ui_catalog.json` 到 filesDir | 重进会话后版式变化；损坏则回退 | `AILogger.audit` |
 | A8 | 落盘恢复 | 发一条带动态卡的对话后杀进程重进 | 动态卡仍在、id 不变；远程卡不空 | 重启前后截图 + 会话 JSON |
-| A9 | caps 一致 | 对比 GET `/v2/view` 与 SSE `view` 帧 | 两者裁剪结果一致 | 抓包对比 |
+| A9 | caps 一致 | 用**只声明 `events.stream`** 的 caps 请求 GET 与 SSE 两条通道（全 caps 时 `filterViewCards` 是恒等映射，会假阳性） | 两者都等于 `filterViewCards(cards, reduced)` | 抓包对比 + caps 矩阵（每个 cap 必须有构造点+渲染器） |
 
 ---
 

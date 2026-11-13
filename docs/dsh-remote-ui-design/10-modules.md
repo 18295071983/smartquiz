@@ -11,6 +11,15 @@
 ### 职责
 把"推理进度 + 工具活动 + DSH 插槽"合成一个容器，三档显示，控制总行数与会话结束时的清理。
 
+> **审查修正（v2.1，以此为准）**
+> - **D1 数据源分模式**：本机 → `AgentProgressBus`；**DSH → `live.inferenceProgress` / `setDshPhaseText`**（DSH 从不写 AgentProgressBus，靠它 D1 永不亮）
+> - **D2 数据源**：服务端 `/status.text_lines`（不本地拼文案，遵守"两端不拼文案"）
+> - 回调改 `onDeckHeightChanged(wasVisible, nowVisible)`；Host 内**先取 `isPinned()`** 再改可见性，post 后调 `onViewportChanged`
+> - `refresh()` 的触发集合写死：slot 变化 / 进度变化 / queue 变化 / ticker（现 ticker 绕过控制器直调 meta）
+> - **注册不要在 `:824`**（早于 `stickToBottom` 与 `setAdapter`，回放会 NPE）；放 `onResume` 或 post 到下一帧
+> - `clear()` 不转调 `AgentProgressBus.clear()`（其静态 Handler 会让 JVM 测试崩），由 Host 注入
+> - **DSH `turn/end` 不走 `endGeneration()`** → 清理点应为 DSH ended / 切会话 / 断连，且只清 transient
+
 ### 接口（新建 `ai/chat/status/StatusDeckController`）
 ```java
 interface Host {
@@ -116,6 +125,13 @@ filesDir/dsh_ui_catalog.json（覆盖档，必须严格新于随包）
 ### 职责
 把卡片/动态卡的动作分流到正确的上行通道，替代 `componentId.startsWith("dsh-")` 嗅探。
 
+> **审查修正（v2.1）：这个接口的前置比它本身多**
+> 1. **`Source` 在数据层不存在**：`ChatMessage` 只有 `ApprovalRequest.source`，`ComponentData` 无 source → 必须新增 `ComponentData.source` + 投影置值 + `deepCopyForSave`/`clone` + `focusClone` + 6 个渲染调用点
+> 2. **`DshProjection` 现在根本不注入 `actions`/`component_id`** → M4 的验收前提不成立，先补投影
+> 3. **保持现行为**：发送失败要**回落本机回显**（现状如此），不要严格分派
+> 4. `sendComponentAction` 是**同步 HTTP（30s）**，必须移出 UI 线程并给失败回调
+> 5. `Source`/`Port` 放 `ai/chat/component` 或 `ai/remote`，实现注入（避免 `ai/chat/component→ai/tool` 新依赖边）
+
 ### 接口（新建 `ai/tool/ActionSink`）
 ```java
 void submit(String componentId, String value, Source source);
@@ -190,8 +206,10 @@ tool_group / 展开态 / 运行统计 = transient
 ```
 
 ### 待办
+- **B11（P0，最高）**：`approvals`/`questions` 非 transient 却不在 `clone()`/`deepCopyForSave` → 每次保存被清空，重启后 pending 审批消失
+- **B12（P0）**：`/v2/view` 远程卡重复且不可交互 → 建议整条删除（B7/B9 随之消失）
 - B6：DSH 气泡 `id = subId = T{n}-A{k}`（窄修，不动派发器）
-- B10（可选）：会话文件补 fsync / `.bak`
+- B10：会话文件补 fsync / `.bak`（有整文件丢失窗口）
 - 动态卡展开态：若需持久化，新建非 transient 字段 + 两处补拷；否则保持 transient（与现有一致）
 
 ### 验收
