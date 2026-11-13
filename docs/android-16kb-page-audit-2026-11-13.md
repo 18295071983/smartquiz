@@ -141,3 +141,28 @@ aapt2 dump xmltree build\outputs\apk\debug\答题宝-debug-2.0.apk --file Androi
 - 顺带把 `useLegacyPackaging` 改为 `false`：.so 不压缩、AGP 按 16KB 对齐，系统检查器能正确解析
   （之前全部 DEFLATE，导致对话框里大量"未知错误"误报）；代价是 APK 从 792MB 涨到 991MB。
 - 真正 4KB 对齐的库仍存在（`check_elf_16k.py` 可查），只是不再每次启动弹框；上架 Play 前仍需清零。
+
+## 8. 依赖升级后的复测（2026-11-13 夜）
+
+本轮把**非 LibreOffice** 的 4 KB 库逐个处理，实测 APK 内 arm64 库从 89 个 / BAD 30 → **88 个 / BAD 24**，
+扣除免检项后真实 BAD 从 **25 → 14**。
+
+| 改动 | 版本 | 消除的 4 KB 库 |
+|---|---|---|
+| 删除 TensorFlow Lite（代码零引用）| 2.15.0 → 移除 | `libtensorflowlite_jni`、`libtensorflowlite_gpu_jni` |
+| ONNX Runtime 升级 | 1.18.0 → **1.32.0** | `libonnxruntime`、`libonnxruntime4j_jni` |
+| ML Kit 升级 | text-recognition 16.0.0→16.0.1；labeling 17.0.7→17.0.9；labeling-custom→17.0.3；object-detection→17.0.2 | `libmlkit_google_ocr_pipeline`、`libmlkitcommonpipeline` |
+| PDFium 换 16 KB 分支 | `com.github.barteksc:pdfium-android:1.9.0` → `io.github.oothp:pdfium-android:1.9.5-beta01` | `libmodpdfium`、`libmodft2`、`libmodpng` |
+| CameraX 升级 | 1.3.1 → **1.4.2** | `libimage_processing_util_jni` |
+| OpenCV 显式升级 | 4.9.0 → **4.14.0** | `libopencv_java4` |
+
+仍未解决（14 个）：
+
+| 库 | 分组 | 处理方式 |
+|---|---|---|
+| `liblo-native-code` + 12 个 NSS/NSPR/sqlite3 | LibreOffice 引擎 | Linux + NDK 28 重编（见 `docs/libreoffice-16k-build.md`）|
+| `librtmp-jni` | `io.antmedia:rtmp-client:3.2.0`（唯一版本，无新版）| 需源码重编，或去掉 RTMP 功能 |
+| 5 个 Hexagon `libggml-htp-*` | DSP 库 | 免检（不经 Android 链接器）|
+| 5 个非 ELF 占位（`libcacert.pem.so` 等）| 资源容器 | 系统检查器误报；可改名 `.dat` + 改用 `noCompress` 资源 |
+
+APK 体积：792 MB（压缩）→ **1049 MB**（`useLegacyPackaging=false` + OpenCV 4.14）。
