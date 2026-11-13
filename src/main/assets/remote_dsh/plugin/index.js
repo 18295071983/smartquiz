@@ -3350,22 +3350,34 @@ export function apply(ctx, config) {
 
     // 2) 增量轮询
     const announcedApprovals = new Set();
+    const announcedKinds = new Map();   // id → 'approval' | 'question'（gone 帧要用对类型）
     const pumpApprovals = () => {
-      // 能力协商：客户端不支持 approval 块就不推审批事件（否则手机端只能静默丢弃）
-      if (!eventAllowed('approval', caps)) return;
+      // 两种帧的能力不同（parts.approval / parts.questions）：分开判定，
+      // 以前一律按 approval 判，反问能力缺失的客户端会连审批也收不到。
+      const allowApproval = eventAllowed('approval', caps);
+      const allowQuestion = eventAllowed('question', caps);
+      if (!allowApproval && !allowQuestion) return;
       try {
         const pend = [...pendingRemoteOf(sid, 'approval'), ...pendingRemoteOf(sid, 'question')];
         for (const a of pend) {
           if (announcedApprovals.has(a.id)) continue;
+          const isQuestion = String(a.kind) === 'question';
+          // FRAME-TYPE-FIX（2026-11-13）：以前两类都发 type='approval' —— 反问被渲染成审批卡，
+          // 点"允许"时把反问 id 当审批 id 送，电脑端结算失败（用户反馈"点了不会传、ask 卡也没有"）。
+          if (isQuestion ? !allowQuestion : !allowApproval) continue;
           announcedApprovals.add(a.id);
-          write(`event: approval\ndata: ${JSON.stringify({
-            v: 2, type: 'approval', id: a.id, kind: a.kind, request: a.request ?? null, ts: Date.now(),
+          announcedKinds.set(a.id, isQuestion ? 'question' : 'approval');
+          const evType = isQuestion ? 'question' : 'approval';
+          write(`event: ${evType}\ndata: ${JSON.stringify({
+            v: 2, type: evType, id: a.id, kind: a.kind, request: a.request ?? null, ts: Date.now(),
           })}\n\n`);
         }
         for (const id of [...announcedApprovals]) {
           if (pend.some((a) => a.id === id)) continue;
           announcedApprovals.delete(id);
-          write(`event: approval_gone\ndata: ${JSON.stringify({ v: 2, type: 'approval_gone', id, ts: Date.now() })}\n\n`);
+          const gone = (announcedKinds.get(id) === 'question') ? 'question_gone' : 'approval_gone';
+          announcedKinds.delete(id);
+          write(`event: ${gone}\ndata: ${JSON.stringify({ v: 2, type: gone, id, ts: Date.now() })}\n\n`);
         }
       } catch { /* 审批网关不可用时忽略 */ }
     };
