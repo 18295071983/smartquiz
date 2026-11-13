@@ -326,9 +326,15 @@ DSH 自己的 Web Client 用一套类型化 Slot 系统组合 UI，关键机制�
 - 插槽推送：`POST /v2/action {action:'ui.slot'}` 推 → 真机出现「插槽自检」行 → 空帧移除成功
 - 甲板：D1 不可见时显示 2 条（`后台任务` + `子代理`），推理中只留 1 条（代码已改，待场景验证）
 
-### 16.2 未验证 / 待重启
+### 16.2 重启后已验证（2026-11-13 16:04）
 
-- 插件侧 B15（activity 带结果正文）：已提交，运行实例待重启
+- GET /v2/view?caps=status,schedule,subagents,plan → 卡片 status,schedule,subagents,plan,caps；只声明 status 时裁到 status,caps（B8 生效）
+- POST /v2/action {action:'ui.slot', slot_action:'jobs'} → 返回 slot.action='jobs'，真机出现「重启后自检 · B8/槽位已生效」且排在「后台任务」之上（优先级 15）（排序 + 上限 2 条生效）
+- phone_tool: true（重启后工具仍在）
+
+### 16.3 仍未验证
+
+- B15 的 	ext 字段：需要有子代理在跑的窗口才能看到真实 activity；当前进程 childParent.size=0，合成帧不会产生
 
 - `slot_action`（插槽点击出口）与 B8 三卡：代码已提交，**运行实例待下次重启生效**
 - B1 的"推理中只留 1 条"需要 D1 出现才能验证（DSH 路径不写 `AgentProgressBus`，需本机 agent 触发）
