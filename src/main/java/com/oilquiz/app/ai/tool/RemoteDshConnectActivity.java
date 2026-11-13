@@ -168,7 +168,10 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 // v2：一次拿"状态卡 + 自检卡 + 会话卡 + 时间线"，与服务端/电脑面板同源
                 v = RemoteDshTool.fetchView(getApplicationContext(), RemoteDshTool.getDirectSessionId(this));
                 int code = asInt(v.get("_http_code"));
-                if (code >= 400) {
+                if (code == 401 || code == 403) {
+                    // 401 几乎都是"刚装/刚清数据，令牌还没生效就点了自检"，不是插件坏了
+                    err = "还没连上电脑或令牌失效：先点「连接」探测；仍失败就重新扫电脑配对页";
+                } else if (code >= 400) {
                     err = "取视图失败 HTTP " + code + "：" + v.get("error");
                 } else if (!(v.get("cards") instanceof java.util.List)) {
                     err = "电脑端插件太旧：没有 cards（需要 ≥ v8 / 协议 v2）\n请重启电脑上的 DSH 再试";
@@ -539,8 +542,9 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // 从扫码页返回：重读配置并开通道
-        if (probedOnce) refresh();
+        // 每次回到页面都重读配置：以前只有"探测过"才 refresh，
+        // 首次进入时地址/令牌显示停留在布局默认的"(未配置)"（实测 2026-11-13）
+        refresh();
         attachConnection();
     }
 
