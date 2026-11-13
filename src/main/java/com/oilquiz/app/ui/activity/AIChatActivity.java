@@ -176,6 +176,14 @@ public class AIChatActivity extends BaseActivity {
     private android.widget.LinearLayout dockSlotHost;
     /** 状态甲板容器（M1）：进度条 + 插槽的父容器，A1 验收就是量它的高度 */
     private android.widget.LinearLayout statusDeck;
+    /** 待处理卡槽：审批/反问的可交互卡片（与消息流同一套 part 渲染器） */
+    private android.widget.LinearLayout dockCardHost;
+    /** part 渲染器表（deck 卡片复用，不另写一套） */
+    private com.oilquiz.app.ai.chat.parts.PartRendererRegistry deckPartRenderer;
+    /** deck 卡片的最小宿主（只实现审批/反问用到的几个方法） */
+    private DeckPartHost deckPartHost;
+    /** 当前 deck 卡片对应的消息（审批/反问按 partId 回查） */
+    private ChatMessage deckCardOwner;
     /** 甲板配置表（M3）：filesDir/dsh_ui_catalog.json 可覆盖 maxRows，缺失/损坏回退 1/2 */
     private com.oilquiz.app.ai.chat.status.DshUiCatalogLoader deckCatalog;
     /** 甲板行选择（M1）：进度条可见 1 条 / 否则 2 条；渲染由 renderDeckRows 执行 */
@@ -827,6 +835,9 @@ public class AIChatActivity extends BaseActivity {
             }
             dockSlotHost = findViewById(R.id.dock_slot_host);
             statusDeck = findViewById(R.id.status_deck);
+            dockCardHost = findViewById(R.id.dock_card_host);
+            deckPartRenderer = com.oilquiz.app.ai.chat.parts.PartRendererRegistry.createDefault();
+            deckPartHost = new DeckPartHost();
             // 甲板策略（M1/M3，2026-11-13）：行选择交给控制器，上限读配置表
             // （filesDir/dsh_ui_catalog.json 可覆盖；缺失/损坏自动回退 1/2）。
             deckCatalog = com.oilquiz.app.ai.chat.status.DshUiCatalogLoader.load(
@@ -13380,6 +13391,168 @@ public class AIChatActivity extends BaseActivity {
                     com.oilquiz.app.ai.chat.status.PendingAttention.SLOT_ID);
         } else {
             com.oilquiz.app.ai.chat.status.DockSlotBus.update(slot);
+        }
+        // 通知栏联动：有 pending 才提醒，处理完自动撤
+        com.oilquiz.app.ai.chat.status.PendingActionNotifier.sync(
+                this, approvals, questions, AIChatActivity.class);
+        // 可交互卡片直接放甲板（与消息流同一套渲染器）
+        refreshPendingCard();
+    }
+
+    /**
+     * 把最近一条待处理的审批/反问渲染成**甲板上的卡片**（2026-11-13）。
+     *
+     * <p>为什么现在能放了：卡片渲染走 {@code PartRendererRegistry}，这里只需要一个最小
+     * {@link com.oilquiz.app.ai.chat.parts.PartHost} 把按钮回调接回 Activity；
+     * 不复制卡片、不造第二份状态 —— 状态仍只存在 {@code ChatMessage.approvals/questions}。</p>
+     */
+    private void refreshPendingCard() {
+        if (dockCardHost == null || deckPartRenderer == null) return;
+        ChatMessage owner = null;
+        com.oilquiz.app.ai.chat.turn.AssistantTurn.Part part = null;
+        if (chatHistory != null) {
+            for (int i = chatHistory.size() - 1; i >= 0 && part == null; i -= 1) {
+                ChatMessage m = chatHistory.get(i);
+                if (m == null) continue;
+                if (m.approvals != null) {
+                    for (ChatMessage.ApprovalRequest a : m.approvals) {
+                        if (a == null || !a.isPending()) continue;
+                        part = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.approval(
+                                a.partId(), a.toolCallId,
+                                a.permission == null ? "" : a.permission,
+                                a.prompt == null ? "" : a.prompt,
+                                com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.APPROVAL_PENDING,
+                                a.timestamp);
+                        owner = m;
+                        break;
+                    }
+                }
+                if (part != null) break;
+                if (m.questions != null) {
+                    for (ChatMessage.QuestionRequest q : m.questions) {
+                        if (q == null || !q.isPending()) continue;
+                        part = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.question(
+                                q.partId(), q.callId,
+                                q.question == null ? "" : q.question,
+                                questionArgs(q),
+                                "pending", q.timestamp);
+                        owner = m;
+                        break;
+                    }
+                }
+            }
+        }
+        if (part == null || owner == null) {
+            dockCardHost.removeAllViews();
+            dockCardHost.setVisibility(View.GONE);
+            deckCardOwner = null;
+            updateDeckVisibility();
+            return;
+        }
+        com.oilquiz.app.ai.chat.parts.PartRenderer renderer = deckPartRenderer.resolve(part);
+        if (renderer == null) {
+            dockCardHost.removeAllViews();
+            dockCardHost.setVisibility(View.GONE);
+            updateDeckVisibility();
+            return;
+        }
+        deckCardOwner = owner;
+        deckPartHost.setOwner(owner);
+        dockCardHost.removeAllViews();
+        View card = renderer.createView(deckPartHost, dockCardHost);
+        if (card == null) {
+            dockCardHost.setVisibility(View.GONE);
+            updateDeckVisibility();
+            return;
+        }
+        dockCardHost.addView(card);
+        renderer.bindView(card, part, deckPartHost);
+        dockCardHost.setVisibility(View.VISIBLE);
+        updateDeckVisibility();
+    }
+
+    /** question part 需要的参数 JSON（callId/detail/options/multiSelect） */
+    private static String questionArgs(ChatMessage.QuestionRequest q) {
+        org.json.JSONObject args = new org.json.JSONObject();
+        try {
+            if (q.callId != null && !q.callId.isEmpty()) args.put("callId", q.callId);
+            if (q.detail != null && !q.detail.isEmpty()) args.put("detail", q.detail);
+            if (q.options != null && !q.options.isEmpty()) {
+                args.put("options", new org.json.JSONArray(q.options));
+            }
+            args.put("multiSelect", q.multiSelect);
+        } catch (Exception ignored) {
+            // 参数拼装失败就让问题卡退化成纯文本
+        }
+        return args.toString();
+    }
+
+    /**
+     * 甲板卡片的最小 PartHost：只实现审批/反问用得到的约定；
+     * markdown 相关走纯文本兜底（这两类卡片本身不用 markdown）。
+     */
+    private final class DeckPartHost implements com.oilquiz.app.ai.chat.parts.PartHost {
+        private ChatMessage owner;
+
+        void setOwner(ChatMessage m) {
+            this.owner = m;
+        }
+
+        @Override
+        public android.content.Context context() {
+            return AIChatActivity.this;
+        }
+
+        @Override
+        public int availableWidth() {
+            int w = statusDeck != null ? statusDeck.getWidth() : 0;
+            if (w <= 0) {
+                w = getResources().getDisplayMetrics().widthPixels
+                        - (int) (32 * getResources().getDisplayMetrics().density);
+            }
+            return Math.max(0, w);
+        }
+
+        @Override
+        public ChatMessage message() {
+            return owner;
+        }
+
+        @Override
+        public boolean webMarkdownEnabled() {
+            return false;
+        }
+
+        @Override
+        public boolean dark() {
+            return false;
+        }
+
+        @Override
+        public String markdownThemeVars() {
+            return "";
+        }
+
+        @Override
+        public void renderMarkdown(android.widget.TextView target, String markdown) {
+            if (target != null) target.setText(markdown == null ? "" : markdown);
+        }
+
+        @Override
+        public void onApprovalDecision(String partId, String toolCallId, boolean approved) {
+            if (owner != null) onApprovalPartDecision(owner, partId, toolCallId, approved);
+            refreshAttentionSlot();
+        }
+
+        @Override
+        public void onQuestionAnswer(String partId, String answerJson) {
+            if (owner != null) onQuestionPartAnswer(owner, partId, answerJson);
+            refreshAttentionSlot();
+        }
+
+        @Override
+        public void invalidateSize() {
+            if (dockCardHost != null) dockCardHost.requestLayout();
         }
     }
 

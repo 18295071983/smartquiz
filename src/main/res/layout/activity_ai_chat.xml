@@ -408,6 +408,18 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
+                <!-- 待处理卡槽（2026-11-13）：审批/反问的**可交互卡片**直接放进甲板，
+                     与消息流里同一张卡共用 part 渲染器；处理完即移除。
+                     放在插槽文本行之上，尺寸随卡片自适应（卡片本身已经是紧凑布局）。 -->
+                <LinearLayout
+                    android:id="@+id/dock_card_host"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="16dp"
+                    android:layout_marginBottom="4dp"
+                    android:orientation="vertical"
+                    android:visibility="gone"/>
+
                 <!-- dock 插槽宿主（2026-11-13）：DSH 实时状态（后台任务/目标/压缩中…）挂在这里，
                      不进消息流、不随聊天刷新重建；由 DockSlotBus 驱动，最多渲染 3 条。 -->
                 <LinearLayout
