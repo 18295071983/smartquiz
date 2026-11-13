@@ -1279,13 +1279,26 @@ export function apply(ctx, config) {
       return text ? { kind: 'text', text: text.slice(0, 200) } : null;
     }
     if (t === 'tool/call') {
-      return { kind: 'tool', tool: String(d.name ?? '工具'), args: String(d.arguments ?? '').slice(0, 120) };
+      // FIELD-FIX：callId 必须在，手机才能把 tool/result 关联回这张卡（此前只有名字/参数）
+      return {
+        kind: 'tool',
+        callId: String(d.callId ?? ''),
+        tool: String(d.name ?? '工具'),
+        args: String(d.arguments ?? '').slice(0, 120),
+      };
     }
     if (t === 'tool/result') {
-      return { kind: 'tool-result', toolCallId: String(d.toolCallId ?? ''), error: Boolean(d.isError) };
+      // DSH 把调用 id 放在 data.message.toolCallId（不是 data.toolCallId）
+      const msg = d.message ?? {};
+      return {
+        kind: 'tool-result',
+        toolCallId: String(msg.toolCallId ?? d.toolCallId ?? ''),
+        error: Boolean(msg.isError ?? d.isError ?? d.error),
+      };
     }
     if (t === 'turn/end') {
-      return { kind: 'turn-end', stop: String(d.stopReason ?? d.stop_reason ?? '') };
+      // DSH 的结束原因在 data.reason.kind
+      return { kind: 'turn-end', stop: String(d.reason?.kind ?? d.stopReason ?? d.stop_reason ?? '') };
     }
     if (t === 'step/start' || t === 'step/end') {
       return { kind: 'step', step: Number(d.step ?? 0) || 0, phase: t };
@@ -1484,11 +1497,11 @@ export function apply(ctx, config) {
   const broadcastGoalSlot = (sid) => {
     const g = GOAL_STATE.get(sid);
     if (!g || !g.active) {
-      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'goal' } });
+      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'goal', session_id: sid || '' } });
       return;
     }
     streamBroadcast('', { v: 2, type: 'ui/slot', data: {
-      id: 'goal', priority: 30, title: '目标', detail: g.title || '', action: 'goal',
+      id: 'goal', session_id: sid || '', priority: 30, title: '目标', detail: g.title || '', action: 'goal',
     } });
   };
 
@@ -1725,8 +1738,8 @@ export function apply(ctx, config) {
       // 上下文压缩：开/关各发一次插槽（目录里登记过但一直没有发送实现，属 B8 同类缺口）
       if (t === 'compaction/start' || t === 'compaction/end') {
         streamBroadcast('', { v: 2, type: 'ui/slot', data: t === 'compaction/start'
-          ? { id: 'compaction', priority: 10, title: '正在压缩上下文…' }
-          : { id: 'compaction' } });
+          ? { id: 'compaction', session_id: sid, priority: 10, title: '正在压缩上下文…' }
+          : { id: 'compaction', session_id: sid } });
         return;
       }
       // 任务 / 目标的持续状态：在"只转子代理活动"的早退之前处理（主会话事件也要收）
