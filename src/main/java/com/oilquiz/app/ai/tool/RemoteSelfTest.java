@@ -76,17 +76,24 @@ public final class RemoteSelfTest {
             return "";
         }
 
-        /** 弹窗正文。 */
+        /** 弹窗正文（2026-11-14 第三版：只列有问题的步骤，通过的合成一行）。 */
         public String text() {
             StringBuilder sb = new StringBuilder();
+            int failures = 0;
+            int warns = 0;
             for (Step s : steps) {
+                if ("PASS".equals(s.level)) continue;
                 sb.append(s.line()).append('\n');
+                if (s.ok()) warns++; else failures++;
+            }
+            if (sb.length() == 0) {
+                return "✅ 全通（" + elapsedMs + "ms），可以点「连接」";
             }
             sb.append('\n');
-            if (allOk()) {
-                sb.append("结论：全链路通过，可以点「连接」了（").append(elapsedMs).append("ms）");
+            if (failures > 0) {
+                sb.append("先修上面这条（").append(elapsedMs).append("ms）");
             } else {
-                sb.append("结论：先修上面标 ❌ 的那一步（").append(elapsedMs).append("ms）");
+                sb.append("能用，但注意上面的提示（").append(elapsedMs).append("ms）");
             }
             return sb.toString();
         }

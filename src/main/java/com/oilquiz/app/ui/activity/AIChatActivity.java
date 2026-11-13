@@ -15036,69 +15036,18 @@ public class AIChatActivity extends BaseActivity {
      * 状态条副标题。轮播关闭时给一条"全量摘要"；开启后按 5s 在
      * 「会话 → 网络 → 用量」三屏之间切换（2026-11-13）。
      */
+    /** 状态条副标题（第三版：只留会话与"要人管"的，指标都进长按详情）。 */
     private String buildRemoteBarSub(com.oilquiz.app.ai.tool.RemoteConnection conn,
                                      com.oilquiz.app.ai.tool.RemoteStatusSnapshot st,
                                      com.oilquiz.app.ai.tool.RemoteLiveStatus.Snapshot live,
                                      String follow) {
-        StringBuilder sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder(follow);
+        if (live.turn > 0) sb.append(" · ").append(live.turn).append(" 轮");
+        if (st != null && st.ok && st.approvalsPending > 0) {
+            sb.append(" · 待审批 ").append(st.approvalsPending);
+        }
         int behind = conn.behindCount();
-        boolean rotate = com.oilquiz.app.ai.tool.RemoteDshTool.isBarRotateEnabled(this);
-        if (!rotate) {
-            sb.append(follow);
-            if (live.turn > 0) {
-                sb.append(" · ").append(live.turn).append(" 轮");
-                if (live.step > 0) sb.append(" ").append(live.step).append(" 步");
-            }
-            if (st != null && st.ok && st.rttMs > 0) sb.append(" · RTT ").append(st.rttMs).append("ms");
-            if (live.lastEventAgeMs >= 0) sb.append(" · ").append(remoteAgo(live.lastEventAgeMs));
-            if (st != null && st.usageOk) {
-                String ctx = st.contextText();
-                String tok = st.tokensText();
-                String cache = st.cacheText();
-                if (!ctx.isEmpty()) sb.append(" · ").append(ctx);
-                if (!tok.isEmpty()) sb.append(" · ").append(tok);
-                if (!cache.isEmpty()) sb.append(" · ").append(cache);
-            }
-            if (st != null && st.ok && st.approvalsPending > 0) sb.append(" · 审批 ").append(st.approvalsPending);
-            if (st != null && st.ok && st.cliQueued > 0) sb.append(" · 排队 ").append(st.cliQueued);
-            if (st != null && st.ok && st.activeJobs > 0) sb.append(" · 后台 ").append(st.activeJobs);
-            if (behind > 0) sb.append(" · 落后 ").append(behind);
-            if (conn.reconnectCount() > 0) sb.append(" · 重连 ").append(conn.reconnectCount());
-            return sb.toString();
-        }
-        int mode = (int) ((System.currentTimeMillis() / 5000L) % 3L);
-        if (mode == 0) {
-            sb.append(follow);
-            if (live.turn > 0) {
-                sb.append(" · ").append(live.turn).append(" 轮");
-                if (live.step > 0) sb.append(" ").append(live.step).append(" 步");
-            }
-            if (live.lastEventAgeMs >= 0) sb.append(" · ").append(remoteAgo(live.lastEventAgeMs));
-        } else if (mode == 1) {
-            sb.append("网络 · ").append(conn.isOnline() ? "在线" : "重连中");
-            if (st != null && st.rttMs > 0) sb.append(" · RTT ").append(st.rttMs).append("ms");
-            if (behind > 0) sb.append(" · 落后 ").append(behind);
-            if (conn.reconnectCount() > 0) sb.append(" · 重连 ").append(conn.reconnectCount());
-            sb.append(" · ").append(live.windowEvents).append(" 条/分");
-        } else {
-            sb.append("用量");
-            if (st != null && st.usageOk) {
-                String ctx = st.contextText();
-                String tok = st.tokensText();
-                String cache = st.cacheText();
-                if (!ctx.isEmpty()) sb.append(" · ").append(ctx);
-                if (!tok.isEmpty()) sb.append(" · ").append(tok);
-                if (!cache.isEmpty()) sb.append(" · ").append(cache);
-            } else {
-                sb.append(" · token 统计未就绪");
-            }
-            if (st != null && st.ok) {
-                if (st.approvalsPending > 0) sb.append(" · 审批 ").append(st.approvalsPending);
-                if (st.cliQueued > 0) sb.append(" · 排队 ").append(st.cliQueued);
-                if (st.activeJobs > 0) sb.append(" · 后台 ").append(st.activeJobs);
-                if (st.approvalsPending == 0 && st.cliQueued == 0 && st.activeJobs == 0) sb.append(" · 无待办");
-            }
-        }
+        if (behind > 3) sb.append(" · 落后 ").append(behind);
         return sb.toString();
     }
 
@@ -15202,13 +15151,7 @@ public class AIChatActivity extends BaseActivity {
                     .setMessage(sb.toString().trim())
                     .setPositiveButton("知道了", null)
                     .setNeutralButton("使用说明", (d, w) -> showRemoteHint())
-                    .setNegativeButton(com.oilquiz.app.ai.tool.RemoteDshTool.isBarRotateEnabled(this)
-                                    ? "关闭轮播" : "开启轮播",
-                            (d, w) -> {
-                                com.oilquiz.app.ai.tool.RemoteDshTool.setBarRotateEnabled(this,
-                                        !com.oilquiz.app.ai.tool.RemoteDshTool.isBarRotateEnabled(this));
-                                refreshRemoteDshBar();
-                            })
+                    .setNegativeButton("关闭", null)
                     .show();
         } catch (Throwable t) {
             android.widget.Toast.makeText(this, "状态详情打开失败：" + t.getMessage(),

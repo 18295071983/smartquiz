@@ -6,9 +6,7 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 /**
- * 远程连接失败提示的映射（2026-11-14 第二版：只给用户能做的动作）。
- *
- * <p>只验证关键分支，防止以后改动又把命令行/英文异常甩给用户。</p>
+ * 远程连接失败提示（2026-11-14 第三版）：只保留两个主要原因，最多两行。
  */
 public class RemoteErrorHintsTest {
 
@@ -17,7 +15,7 @@ public class RemoteErrorHintsTest {
     }
 
     @Test
-    public void refusedPointsToOpeningDsh() {
+    public void refusedSaysDshNotRunning() {
         RemoteErrorHints.Hint h = RemoteErrorHints.of(
                 new java.net.ConnectException("failed to connect to /192.168.1.2 (port 8218): Connection refused"));
         assertTrue(headline(h).contains("DSH"));
@@ -26,48 +24,59 @@ public class RemoteErrorHintsTest {
     }
 
     @Test
-    public void timeoutPointsToOneClickFix() {
+    public void timeoutBlamesPublicNetwork() {
         RemoteErrorHints.Hint h = RemoteErrorHints.of(new java.net.SocketTimeoutException("timeout"));
-        assertTrue(headline(h).contains("挡住"));
+        assertTrue(headline(h).contains("公用"));
         assertTrue(h.action.contains("fix-remote-lan.cmd"));
         assertTrue(h.action.contains("「是」"));
     }
 
     @Test
-    public void unknownHostAsksForComputerIp() {
+    public void unknownHostBlamesDifferentNetwork() {
         RemoteErrorHints.Hint h = RemoteErrorHints.of(new java.net.UnknownHostException("ir158286vw95.vicp.fun"));
-        assertTrue(headline(h).contains("找不到"));
-        assertTrue(h.action.contains("电脑IP"));
+        assertTrue(headline(h).contains("网络不通"));
+        assertTrue(h.action.contains("同一个 WiFi"));
+        assertTrue(h.action.contains("192.168.101.x"));
     }
 
     @Test
-    public void unauthorizedAsksForRepairingPairing() {
+    public void unauthorizedSaysPairingExpired() {
         RemoteErrorHints.Hint h = RemoteErrorHints.ofHttp(401, "unauthorized");
         assertTrue(headline(h).contains("过期"));
         assertTrue(h.action.contains("扫码"));
     }
 
     @Test
-    public void notFoundMentionsPort8218() {
+    public void notFoundSaysAddressWrong() {
         RemoteErrorHints.Hint h = RemoteErrorHints.ofHttp(404, "not found");
+        assertTrue(headline(h).contains("地址"));
         assertTrue(h.action.contains("8218"));
     }
 
     @Test
     public void serverErrorSuggestsRestart() {
         RemoteErrorHints.Hint h = RemoteErrorHints.ofHttp(500, "boom");
-        assertTrue(h.action.contains("重启 DSH"));
+        assertTrue(h.action.contains("重启"));
     }
 
     @Test
-    public void displayHasTwoParts() {
-        RemoteErrorHints.Hint h = RemoteErrorHints.ofHttp(401, "unauthorized");
-        String d = h.display();
-        assertTrue(d.contains("\n"));
-        assertEquals(h.headline, d.substring(0, d.indexOf('\n')));
+    public void displayIsAtMostTwoLines() {
+        RemoteErrorHints.Hint[] hints = {
+                RemoteErrorHints.of(new java.net.SocketTimeoutException("t")),
+                RemoteErrorHints.of(new java.net.ConnectException("Connection refused")),
+                RemoteErrorHints.of(new java.net.UnknownHostException("x")),
+                RemoteErrorHints.ofHttp(401, ""),
+                RemoteErrorHints.ofHttp(404, ""),
+                RemoteErrorHints.ofHttp(503, ""),
+        };
+        for (RemoteErrorHints.Hint h : hints) {
+            String d = h.display();
+            assertEquals("最多两行: " + d, 1, d.split("\n", -1).length - 1);
+            assertTrue(d.startsWith(h.headline));
+        }
     }
 
-    /** 界面文案里不应该再出现命令行/脚本调试入口。 */
+    /** 用户可见文案里不应再出现开发者命令（fix-remote-lan.cmd 是给用户双击的，允许）。 */
     @Test
     public void noDeveloperCommandsInUserCopy() {
         String[] userCopy = {
@@ -79,9 +88,9 @@ public class RemoteErrorHintsTest {
                 RemoteErrorHints.ofHttp(503, "").display(),
         };
         for (String copy : userCopy) {
-            assertTrue("不应出现 PowerShell: " + copy, !copy.toLowerCase().contains("powershell"));
-            assertTrue("不应出现 Set-NetConnectionProfile: " + copy,
-                    !copy.toLowerCase().contains("set-netconnectionprofile"));
+            String low = copy.toLowerCase(java.util.Locale.US);
+            assertTrue("不应出现 PowerShell: " + copy, !low.contains("powershell"));
+            assertTrue("不应出现 Set-NetConnectionProfile: " + copy, !low.contains("set-netconnectionprofile"));
             assertTrue("不应出现 check-remote-lan: " + copy, !copy.contains("check-remote-lan.ps1"));
             assertTrue("不应出现 127.0.0.1: " + copy, !copy.contains("127.0.0.1"));
         }
