@@ -451,6 +451,30 @@ public final class DshTimeline {
             case "approval":
                 u.actions.add(new Action(ActionKind.APPROVAL, ev.id, ev.raw.optJSONObject("request")));
                 break;
+            // 持久审批事件（2026-11-13）：approval/request 是 agent 作用域 waterfall，
+            // 插件根上下文收不到；但 approval/asked 是**落盘审计事件**，一定能收到。
+            // 按它出卡：形状 {id, toolName, callId?, reason?}；approval/decided 收卡/标结果。
+            case "approval/asked": {
+                JSONObject d = ev.data == null ? new JSONObject() : ev.data;
+                String id = d.optString("id", "").trim();
+                if (id.isEmpty()) break;
+                JSONObject request = new JSONObject();
+                try {
+                    request.put("id", id);
+                    request.put("toolName", d.optString("toolName", ""));
+                    request.put("callId", d.optString("callId", ""));
+                    request.put("reason", d.optString("reason", ""));
+                } catch (Exception ignored) {
+                    // 字段拼装失败就当没有 reason
+                }
+                u.actions.add(new Action(ActionKind.APPROVAL, id, request));
+                break;
+            }
+            case "approval/decided": {
+                String id = ev.data == null ? "" : ev.data.optString("id", "").trim();
+                if (!id.isEmpty()) u.actions.add(new Action(ActionKind.APPROVAL_GONE, id, null));
+                break;
+            }
             case "approval_gone":
                 u.actions.add(new Action(ActionKind.APPROVAL_GONE, ev.id, null));
                 break;

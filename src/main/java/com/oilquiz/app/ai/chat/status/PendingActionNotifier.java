@@ -49,6 +49,20 @@ public final class PendingActionNotifier {
 
     /** 有 pending 就发（同 id 覆盖），没有就撤 */
     public static void sync(Context context, int approvals, int questions, Class<?> targetActivity) {
+        sync(context, approvals, questions, "", "", targetActivity);
+    }
+
+    /**
+     * 带审批动作的通知（2026-11-13）：恢复"通知栏挂按钮、点一下就能处理"的能力。
+     *
+     * <p>注意按钮只作用于**最新一条审批**：审批需要看具体权限名/命令，堆多条按钮会串。
+     * 其余条目用正文里的条数表达，点通知进对话页看甲板卡。</p>
+     *
+     * @param approvalId 最新待审批 id（空 = 只有提问/没有可点项）
+     * @param toolName   审批对应的工具/权限名（正文展示）
+     */
+    public static void sync(Context context, int approvals, int questions,
+                            String approvalId, String toolName, Class<?> targetActivity) {
         if (context == null) return;
         if (titleFor(approvals, questions).isEmpty()) {
             clear(context);
@@ -78,17 +92,42 @@ public final class PendingActionNotifier {
             Notification.Builder b = Build.VERSION.SDK_INT >= 26
                     ? new Notification.Builder(context, CHANNEL_ID)
                     : new Notification.Builder(context);
+            String text = contentText(approvals, questions);
+            boolean hasApprovalAction = approvalId != null && !approvalId.isEmpty();
+            if (hasApprovalAction) {
+                String tool = toolName == null ? "" : toolName.trim();
+                text = (tool.isEmpty() ? "有一条审批待处理" : ("请求权限：" + tool))
+                        + (approvals + questions > 1 ? ("（共 " + (approvals + questions) + " 条）") : "");
+            }
             b.setSmallIcon(android.R.drawable.stat_notify_more)
                     .setContentTitle(titleFor(approvals, questions))
-                    .setContentText(contentText(approvals, questions))
+                    .setContentText(text)
                     .setAutoCancel(true)
                     .setOnlyAlertOnce(true)
                     .setContentIntent(pi);
+            if (hasApprovalAction) {
+                b.addAction(new Notification.Action.Builder(null, "允许",
+                        approvalAction(context, approvalId, "allow", 1)).build());
+                b.addAction(new Notification.Action.Builder(null, "拒绝",
+                        approvalAction(context, approvalId, "deny", 2)).build());
+            }
             nm.notify(NOTIFICATION_ID, b.build());
         } catch (Throwable t) {
             // 通知失败绝不能影响对话页
             android.util.Log.w("PendingActionNotifier", "通知栏联动失败: " + t);
         }
+    }
+
+    /** 审批按钮的广播 PendingIntent（不依赖 Activity，后台也能点） */
+    private static PendingIntent approvalAction(Context context, String approvalId,
+                                               String decision, int reqCode) {
+        Intent it = new Intent(context, com.oilquiz.app.ai.tool.RemoteCmdActionReceiver.class);
+        it.setAction(com.oilquiz.app.ai.tool.RemoteCmdActionReceiver.ACTION);
+        it.putExtra(com.oilquiz.app.ai.tool.RemoteCmdActionReceiver.EXTRA_APPROVAL_ID, approvalId);
+        it.putExtra(com.oilquiz.app.ai.tool.RemoteCmdActionReceiver.EXTRA_APPROVAL_DECISION, decision);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
+        return PendingIntent.getBroadcast(context, NOTIFICATION_ID + reqCode, it, flags);
     }
 
     public static void clear(Context context) {

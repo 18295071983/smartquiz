@@ -13484,12 +13484,19 @@ public class AIChatActivity extends BaseActivity {
     private void refreshAttentionSlot() {
         int approvals = 0;
         int questions = 0;
+        String firstApprovalId = "";
+        String firstApprovalTool = "";
         if (chatHistory != null) {
             for (ChatMessage m : chatHistory) {
                 if (m == null) continue;
                 if (m.approvals != null) {
                     for (ChatMessage.ApprovalRequest a : m.approvals) {
-                        if (a != null && a.isPending()) approvals += 1;
+                        if (a == null || !a.isPending()) continue;
+                        approvals += 1;
+                        if (firstApprovalId.isEmpty() && a.id != null) {
+                            firstApprovalId = a.id;
+                            firstApprovalTool = a.permission == null ? "" : a.permission;
+                        }
                     }
                 }
                 if (m.questions != null) {
@@ -13499,9 +13506,9 @@ public class AIChatActivity extends BaseActivity {
                 }
             }
         }
-        // 通知栏联动：有 pending 才提醒，处理完自动撤
+        // 通知栏联动：有审批就把"允许/拒绝"挂到通知按钮上（2026-11-13 恢复昨天的能力）
         com.oilquiz.app.ai.chat.status.PendingActionNotifier.sync(
-                this, approvals, questions, AIChatActivity.class);
+                this, approvals, questions, firstApprovalId, firstApprovalTool, AIChatActivity.class);
         // 可交互卡片 / 子代理轨迹卡 直接放甲板
         refreshPendingCard();
     }

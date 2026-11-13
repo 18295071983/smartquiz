@@ -17,10 +17,34 @@ public class RemoteCmdActionReceiver extends BroadcastReceiver {
     public static final String EXTRA_CMD_ID = "cmd_id";
     public static final String EXTRA_VALUE = "value";
     public static final String EXTRA_LABEL = "label";
+    /** 审批通知的按钮（2026-11-13）：直接回传审批决定，不需要 Activity */
+    public static final String EXTRA_APPROVAL_ID = "approval_id";
+    public static final String EXTRA_APPROVAL_DECISION = "approval_decision";
+    /** 审批通知固定 id（与 DockSlotBus 的待处理提醒共用一条） */
+    public static final int APPROVAL_NOTIFICATION_ID = 7701;
 
     @Override
     public void onReceive(Context context, Intent intent) {
         if (intent == null) return;
+        final String approvalId = intent.getStringExtra(EXTRA_APPROVAL_ID);
+        if (approvalId != null && !approvalId.isEmpty()) {
+            final boolean allow = "allow".equals(intent.getStringExtra(EXTRA_APPROVAL_DECISION));
+            new Thread(() -> {
+                try {
+                    RemoteDshTool.answerApproval(context, approvalId, allow);
+                } catch (Exception ignored) {
+                    // 审批可能已结束：忽略
+                }
+            }, "dsh-approval-action").start();
+            try {
+                android.app.NotificationManager nm =
+                        (android.app.NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null) nm.cancel(APPROVAL_NOTIFICATION_ID);
+            } catch (Throwable ignored) {
+                // 取消失败不影响
+            }
+            return;
+        }
         final String cmdId = intent.getStringExtra(EXTRA_CMD_ID);
         final String value = intent.getStringExtra(EXTRA_VALUE);
         final String label = intent.getStringExtra(EXTRA_LABEL);
