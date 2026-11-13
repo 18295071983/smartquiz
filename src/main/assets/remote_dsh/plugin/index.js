@@ -360,13 +360,16 @@ function writeSecret(file, data) {
   } catch { return false; }
 }
 
-export const inject = ['webServer', 'agents', 'sessions'];   // 三者都必须声明：cordis 不允许访问未 inject 的服务
+export const inject = ['webServer', 'agents', 'sessions', 'tools'];   // tools：注册 phone_ui（反向通道生产者）
 // ==================== 鉴权升级：一次性配对码 + 设备令牌 + 白名单 ====================
 // 设计：主令牌（配置/环境变量/持久化文件）仍是"主人"凭证；
 //       手机用「一次性配对码」（5 分钟有效、一次性）换取「设备令牌」，之后只带设备令牌；
 //       设备可列出、可吊销（吊销不需要改主令牌）。
 // 存储：设备表落在插件目录 .devices.json（后续可迁到 dsh-credentials 凭据库）。
 export const AUTH_DOC = 'once-pairing-code -> device token -> revocable whitelist';
+
+/** phone_ui 工具的注册状态（诊断：/status.plugin_features 里可见） */
+const PHONE_TOOL_STATE = { registered: false, error: '' };
 
 function loadDevices(file) {
   try {
@@ -1719,41 +1722,46 @@ export function apply(ctx, config) {
   // ================= 反向通道的生产者（2026-11-13） =================
   // 现状缺口：/cmd 的队列、poll、ack 全都实现了，但**没有任何入口能入队** —— 面板没有按钮，
   // 插件也没注册工具，实际只能人工 curl。这里注册一个 phone_ui 工具，让 agent 能主动把
-  // 一条 UI 指令推到手机。注册失败（旧版 DSH 没有 tools 服务/形状不同）只告警，不影响插件。
+  // 一条 UI 指令推到手机。
+  // 形状按官方 tool 文档：parameters 用 DSH 的字段 DSL（required 写在字段里）、必须给
+  // output.schema + output.render；注册失败只告警，不影响插件其余功能。
   try {
-    const tools = (typeof ctx.get === 'function' ? ctx.get('tools') : null) ?? ctx.tools;
-    if (tools && typeof tools.register === 'function') {
-      tools.register({
+    if (!ctx.tools || typeof ctx.tools.register !== 'function') {
+      PHONE_TOOL_STATE.error = 'no ctx.tools (inject 未生效?)';
+      console.warn('[smartquiz-remote] 没有 tools 服务，跳过 phone_ui 注册');
+    } else {
+      ctx.tools.register({
         name: 'phone_ui',
-        description: '把一条 UI 指令推送到已配对的手机：slot（插槽）或 toast/dialog/notification。'
-          + '仅适用于需要用户立刻看到的轻量提示，不要用于长文本。',
+        description: '把一条 UI 指令推送到已配对的手机：slot（输入区上方的插槽）或 toast/notification（提醒）。'
+          + '只用于需要用户立刻看到的轻量提示，不要用于长文本。',
         parameters: {
-          type: 'object',
-          properties: {
-            kind: { type: 'string', enum: ['slot', 'toast', 'notification'], description: '指令类型' },
-            title: { type: 'string', description: '标题（slot/notification 必填）' },
-            detail: { type: 'string', description: '正文/副标题' },
-            priority: { type: 'number', description: 'slot 优先级，越小越靠上，默认 50' },
-            id: { type: 'string', description: 'slot id，同 id 会覆盖；默认 phone_ui' },
-          },
-          required: ['kind'],
+          kind: { type: 'string', required: true, description: 'slot | toast | notification' },
+          title: { type: 'string', description: '标题（slot/notification 建议必填）' },
+          detail: { type: 'string', description: '正文/副标题' },
+          priority: { type: 'number', description: 'slot 优先级，越小越靠上，默认 50' },
+          id: { type: 'string', description: 'slot id，同 id 会覆盖；默认 phone_ui' },
+        },
+        output: {
+          schema: { type: 'string' },
+          render: (_args, value) => [{ type: 'text', text: String(value) }],
         },
         execute: async (args) => {
           const kind = String(args?.kind ?? '');
           const title = String(args?.title ?? '').trim();
           const detail = String(args?.detail ?? '').trim();
-          if (!title && !detail) return { ok: false, error: 'title/detail 至少给一个' };
+          if (!title && !detail) return '未推送：title/detail 至少给一个';
           if (kind === 'slot') {
+            const slotId = String(args?.id ?? 'phone_ui');
             streamBroadcast('', { v: 2, type: 'ui/slot', data: {
-              id: String(args?.id ?? 'phone_ui'),
+              id: slotId,
               priority: Number(args?.priority ?? 50) || 50,
               title,
               detail,
             } });
-            return { ok: true, kind, id: String(args?.id ?? 'phone_ui') };
+            return '已推送到手机插槽 ' + slotId;
           }
           const tool = kind === 'notification' ? 'notification' : 'toast';
-          if (!CMD_ALLOW.has(tool)) return { ok: false, error: 'tool_not_allowed' };
+          if (!CMD_ALLOW.has(tool)) return '未推送：' + tool + ' 不在白名单';
           pruneCommands();
           const id = randomBytes(8).toString('hex');
           cmdQueue.set(id, {
@@ -1763,15 +1771,15 @@ export function apply(ctx, config) {
             createdAt: Date.now(),
             result: null,
           });
-          return { ok: true, kind, cmd_id: id, queued: true };
+          return '已入队 ' + tool + '（cmd_id=' + id + '，等手机轮询执行）';
         },
       });
+      PHONE_TOOL_STATE.registered = true;
       console.log('[smartquiz-remote] 已注册工具 phone_ui（反向通道生产者）');
-    } else {
-      console.log('[smartquiz-remote] 没有 tools 服务，跳过 phone_ui 注册（反向通道仍只能人工 curl）');
     }
   } catch (e) {
-    console.warn('[smartquiz-remote] phone_ui 注册失败（忽略）: ' + String(e?.message ?? e));
+    PHONE_TOOL_STATE.error = String(e?.message ?? e);
+    console.warn('[smartquiz-remote] phone_ui 注册失败（忽略）: ' + PHONE_TOOL_STATE.error);
   }
 
   try {
@@ -2264,6 +2272,8 @@ export function apply(ctx, config) {
     sessions_count: dshSessionsOnDisk(),
     plugin_sessions: handles.size,
     active_jobs: activeJobs,
+    // 插件自身能力状态（诊断）：phone_ui 是否真的注册上了
+    plugin_features: { phone_tool: PHONE_TOOL_STATE.registered, phone_tool_error: PHONE_TOOL_STATE.error },
     // ★ 单一文案模板：手机 / 电脑 UI 直接渲染这组行，不再各自拼一套说法
     text_lines: (() => {
       const disk = dshSessionsOnDisk();
