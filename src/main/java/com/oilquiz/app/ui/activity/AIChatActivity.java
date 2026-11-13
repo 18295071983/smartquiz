@@ -14009,7 +14009,11 @@ public class AIChatActivity extends BaseActivity {
         live.subId = live.id;
         live.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.THINKING);
         live.components = new java.util.ArrayList<>();
+        // B15 durable：换气泡会重建时间线，但子代理往往横跨两次切换 ——
+        // 把旧时间线的子代理轨迹继承过来，否则落盘的卡只有 label、步骤全丢（真机复现）。
+        com.oilquiz.app.ai.remote.DshTimeline previousTimeline = dshTimeline;
         dshTimeline = new com.oilquiz.app.ai.remote.DshTimeline();
+        dshTimeline.adoptSubagentsFrom(previousTimeline);
         dshComponentIds.clear();
         dshLastSeq = -1;
         dshLiveMessage = live;

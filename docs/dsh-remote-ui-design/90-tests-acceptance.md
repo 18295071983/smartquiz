@@ -140,3 +140,13 @@
 - A6 审批回传专门用例
 - B 表：componentIdIsPrefixedByTurnId（B2 复核未加断言）、dsnBubbleIdEqualsSubId（B6）、
   B10 崩溃注入（kill -9）
+### 子代理 durable 卡（B15，2026-11-13 晚）
+
+| 用例 | 断言 |
+|---|---|
+| DshSubagentDurableTest（6 条） | 调用+结果合成一步、失败态、多子代理隔离、12 步上限、无 callId 归并、**换气泡继承轨迹** |
+| DshProjectionSubagentCardTest（3 条） | props 契约（label/steps/source=dsh/id 稳定）、持久化往返、无子代理不产卡 |
+| DshSubagentCardRenderTest（2 条，Robolectric） | 注册表能拿到实现（不掉 JSON 兜底）、标题/步数/「+N 步」/lastText 兜底 |
+
+真机证据：iles/ai_chat_history.json 内出现 {"id":"T478-C1","type":"subagent_card",...}；
+插件侧 subagent/activity 帧数从 **0 → 44**（子会话日志轮询合成）。

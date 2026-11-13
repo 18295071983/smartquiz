@@ -117,6 +117,22 @@ public class DshSubagentDurableTest {
         assertEquals("done", st.result);
     }
 
+    @Test
+    public void subagentStepsSurviveBubbleSwitch() {
+        DshTimeline first = new DshTimeline();
+        first.reduce(event("subagent/activity", 1, bridge("c1", "call-1", "read", "a")));
+        first.reduce(event("subagent/activity", 2, result("c1", "call-1", false, "ok")));
+
+        // 换气泡：Activity 会新建时间线并继承
+        DshTimeline second = new DshTimeline();
+        second.adoptSubagentsFrom(first);
+
+        DshTimeline.Subagent sa = second.subagents().iterator().next();
+        assertEquals("换气泡后子代理仍应在", "c1", sa.childId);
+        assertEquals("步骤不能丢", 1, sa.steps.size());
+        assertEquals("success", sa.steps.values().iterator().next().status);
+    }
+
     // ---- helpers：构造带多个字段的合成帧 ----
 
     private static JSONObject bridge(String childId, String callId, String tool, String args) {

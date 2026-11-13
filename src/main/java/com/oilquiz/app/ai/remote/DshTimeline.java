@@ -179,6 +179,21 @@ public final class DshTimeline {
     }
 
     /**
+     * 把旧时间线的子代理轨迹并入本时间线（2026-11-13，B15 durable）。
+     *
+     * <p>DSH 每换一个气泡就重建时间线（{@code ensureMirrorBubble}）。子代理往往横跨
+     * 两次气泡切换，如果不继承，卡片会只剩 label、步骤全丢（真机上是这样：
+     * 落盘的卡只有 label 没有 steps）。这里按 childId 继承，已存在的不覆盖。</p>
+     */
+    public void adoptSubagentsFrom(DshTimeline previous) {
+        if (previous == null || previous == this) return;
+        for (Subagent sa : previous.subagents()) {
+            if (sa == null || sa.childId.isEmpty()) continue;
+            if (!subagents.containsKey(sa.childId)) subagents.put(sa.childId, sa);
+        }
+    }
+
+    /**
      * 已知但**故意不渲染**的内部事件（2026-11-13，B14）。
      *
      * <p>它们只在电脑端内部流转（LLM 请求头/上下文、hook、PTC 分发、图片落盘等），
