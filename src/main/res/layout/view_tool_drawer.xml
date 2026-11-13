@@ -46,7 +46,6 @@
             android:paddingHorizontal="12dp"
             android:paddingVertical="6dp"
             android:layout_marginBottom="@dimen/space_12">
-
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -54,6 +53,7 @@
                 android:gravity="center_vertical"
                 android:paddingVertical="6dp">
                 <TextView
+                    android:id="@+id/tv_drawer_model_label"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="0.35"
@@ -69,15 +69,14 @@
                     android:textColor="?attr/colorControlText"
                     android:singleLine="true"
                     android:ellipsize="end"/>
-            </LinearLayout>
-
-            <LinearLayout
+            </LinearLayout>            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:paddingVertical="6dp">
                 <TextView
+                    android:id="@+id/tv_drawer_balance_label"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="0.35"
@@ -93,15 +92,14 @@
                     android:textColor="?attr/colorControlText"
                     android:singleLine="true"
                     android:ellipsize="end"/>
-            </LinearLayout>
-
-            <LinearLayout
+            </LinearLayout>            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:paddingVertical="6dp">
                 <TextView
+                    android:id="@+id/tv_drawer_tokens_label"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="0.35"
@@ -117,15 +115,14 @@
                     android:textColor="?attr/colorControlText"
                     android:singleLine="true"
                     android:ellipsize="end"/>
-            </LinearLayout>
-
-            <LinearLayout
+            </LinearLayout>            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:paddingVertical="6dp">
                 <TextView
+                    android:id="@+id/tv_drawer_kv_label"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="0.35"
@@ -141,15 +138,14 @@
                     android:textColor="?attr/colorControlText"
                     android:singleLine="true"
                     android:ellipsize="end"/>
-            </LinearLayout>
-
-            <LinearLayout
+            </LinearLayout>            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:paddingVertical="6dp">
                 <TextView
+                    android:id="@+id/tv_drawer_context_label"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="0.35"
@@ -165,75 +161,7 @@
                     android:textColor="?attr/colorControlText"
                     android:singleLine="true"
                     android:ellipsize="end"/>
-            </LinearLayout>
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingVertical="6dp">
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="0.35"
-                    android:text="电脑"
-                    android:textSize="@dimen/text_12"
-                    android:textColor="?attr/colorControlTextSecondary"/>
-                <TextView
-                    android:id="@+id/tv_drawer_remote"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="0.65"
-                    android:textSize="@dimen/text_12"
-                    android:textColor="?attr/colorControlText"
-                    android:singleLine="true"
-                    android:ellipsize="end"/>
-            </LinearLayout>            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingVertical="6dp">
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="0.35"
-                    android:text="链路"
-                    android:textSize="@dimen/text_12"
-                    android:textColor="?attr/colorControlTextSecondary"/>
-                <TextView
-                    android:id="@+id/tv_drawer_link"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="0.65"
-                    android:textSize="@dimen/text_12"
-                    android:textColor="?attr/colorControlText"
-                    android:singleLine="true"
-                    android:ellipsize="end"/>
-            </LinearLayout>            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingVertical="6dp">
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="0.35"
-                    android:text="用量"
-                    android:textSize="@dimen/text_12"
-                    android:textColor="?attr/colorControlTextSecondary"/>
-                <TextView
-                    android:id="@+id/tv_drawer_usage"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="0.65"
-                    android:textSize="@dimen/text_12"
-                    android:textColor="?attr/colorControlText"
-                    android:singleLine="true"
-                    android:ellipsize="end"/>
             </LinearLayout>        </LinearLayout>
-
         <!-- ===== 模型选择 ===== -->
         <TextView
             android:layout_width="wrap_content"

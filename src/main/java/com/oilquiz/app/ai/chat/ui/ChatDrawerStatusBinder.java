@@ -129,12 +129,19 @@ public final class ChatDrawerStatusBinder {
      * 把最新值写进抽屉。KV / 上下文优先读引擎契约（生成期间源控件可能被隐藏或停在上一轮），
      * 其余行抄源控件文本；空值统一显示「暂无数据」。
      */
+    /** 本地/远程同一组五行：连着远程时换成远程指标，断开后自动换回本地。 */
     public static void refresh(Activity activity) {
         if (activity == null) return;
         try {
+            boolean remote = com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(activity)
+                    && com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(activity);
+            applyLabels(activity, remote);
+            if (remote) {
+                fillRemote(activity);
+                return;
+            }
             final InferenceType engine = currentEngine(activity);
             boolean online = engine == InferenceType.ONLINE;
-            // 一次刷新只取一次 KV 统计（JNI + JSON 解析），供 KV/Token 两行共用
             GenSignal.KvStats kv = online ? null : GenSignalSource.kvStats();
 
             for (int[] pair : PAIRS) {
@@ -160,71 +167,93 @@ public final class ChatDrawerStatusBinder {
                 }
                 String finalText = TextUtils.isEmpty(value)
                         ? activity.getString(R.string.chat_v2_no_data) : value;
-                // 值没变就不写：setText 即使同值也会 requestLayout，500ms 轮询会持续抖动
                 if (!TextUtils.equals(LAST_TEXT.get(pair[1]), finalText)) {
                     target.setText(finalText);
                     LAST_TEXT.put(pair[1], finalText);
                 }
             }
-            refreshRemote(activity);
         } catch (Throwable ignored) {
         }
     }
 
-    /**
-     * 远程（电脑）三行：状态、链路、用量。与状态条同源（RemoteLiveStatus / RemoteStatusMonitor），
-     * 抽屉打开期间跟本地行一样 500ms 刷新；未配对/断开时显示明确状态而不是空白（2026-11-14）。
-     */
-    private static void refreshRemote(Activity activity) {
-        TextView remote = activity.findViewById(R.id.tv_drawer_remote);
-        TextView link = activity.findViewById(R.id.tv_drawer_link);
-        TextView usage = activity.findViewById(R.id.tv_drawer_usage);
-        if (remote == null && link == null && usage == null) return;
+    private static final int[] LABEL_IDS = {
+            R.id.tv_drawer_model_label, R.id.tv_drawer_balance_label, R.id.tv_drawer_tokens_label,
+            R.id.tv_drawer_kv_label, R.id.tv_drawer_context_label};
+    private static final int[] LOCAL_LABEL_RES = {
+            R.string.chat_v2_model, R.string.chat_v2_balance, R.string.chat_v2_tokens,
+            R.string.chat_v2_kv, R.string.chat_v2_context};
+    private static final String[] REMOTE_LABELS = {"电脑", "链路", "模型", "上下文", "Token"};
+    private static final int[] VALUE_IDS = {
+            R.id.tv_drawer_model, R.id.tv_drawer_balance, R.id.tv_drawer_tokens,
+            R.id.tv_drawer_kv, R.id.tv_drawer_context};
 
-        boolean configured = com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(activity);
-        boolean connected = com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(activity);
-        String remoteText;
-        String linkText = "—";
-        String usageText = "—";
-
-        if (!configured) {
-            remoteText = "未配对";
-        } else if (!connected) {
-            remoteText = "已断开";
-        } else {
-            com.oilquiz.app.ai.tool.RemoteLiveStatus.Snapshot live =
-                    com.oilquiz.app.ai.tool.RemoteLiveStatus.snapshot();
-            com.oilquiz.app.ai.tool.RemoteStatusSnapshot st =
-                    com.oilquiz.app.ai.tool.RemoteStatusMonitor.get();
-            com.oilquiz.app.ai.tool.RemoteConnection conn =
-                    com.oilquiz.app.ai.tool.RemoteConnection.get(activity);
-
-            remoteText = "已连接 · " + remotePhase(live);
-            StringBuilder lk = new StringBuilder(conn.isOnline() ? "在线" : "重连中");
-            if (st != null && st.rttMs > 0) lk.append(" · RTT ").append(st.rttMs).append("ms");
-            if (conn.behindCount() > 0) lk.append(" · 落后 ").append(conn.behindCount());
-            if (conn.reconnectCount() > 0) lk.append(" · 重连 ").append(conn.reconnectCount());
-            linkText = lk.toString();
-
-            if (st != null && st.usageOk) {
-                StringBuilder us = new StringBuilder();
-                String ctx = st.contextText();
-                String tok = st.tokensText();
-                String cache = st.cacheText();
-                if (!ctx.isEmpty()) us.append(ctx.replace("上下文 ", ""));
-                if (!tok.isEmpty()) { if (us.length() > 0) us.append(" · "); us.append(tok); }
-                if (!cache.isEmpty()) { if (us.length() > 0) us.append(" · "); us.append(cache); }
-                usageText = us.length() == 0 ? "暂无数据" : us.toString();
-            } else {
-                usageText = "暂无数据";
-            }
-            // 抽屉打开时顺带拉一次 /status（15s 节流，失败保留上次）
-            com.oilquiz.app.ai.tool.RemoteStatusMonitor.refreshAsync(activity,
-                    com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(activity), 15000L, null);
+    /** 连接远程时把标签换成远程语义；断开恢复本地标签。 */
+    private static void applyLabels(Activity a, boolean remote) {
+        for (int i = 0; i < LABEL_IDS.length; i++) {
+            TextView tv = a.findViewById(LABEL_IDS[i]);
+            if (tv == null) continue;
+            String want = remote ? REMOTE_LABELS[i] : a.getString(LOCAL_LABEL_RES[i]);
+            setDrawerText(tv, LABEL_IDS[i], want);
         }
-        setDrawerText(remote, R.id.tv_drawer_remote, remoteText);
-        setDrawerText(link, R.id.tv_drawer_link, linkText);
-        setDrawerText(usage, R.id.tv_drawer_usage, usageText);
+    }
+
+    /** 远程五行：电脑（阶段）/链路/模型/上下文/Token。 */
+    private static void fillRemote(Activity a) {
+        com.oilquiz.app.ai.tool.RemoteLiveStatus.Snapshot live =
+                com.oilquiz.app.ai.tool.RemoteLiveStatus.snapshot();
+        com.oilquiz.app.ai.tool.RemoteStatusSnapshot st =
+                com.oilquiz.app.ai.tool.RemoteStatusMonitor.get();
+        com.oilquiz.app.ai.tool.RemoteConnection conn =
+                com.oilquiz.app.ai.tool.RemoteConnection.get(a);
+
+        String[] vals = new String[5];
+        String phase = remotePhase(live);
+        if (live != null && live.phaseElapsedMs > 0
+                && live.phase != com.oilquiz.app.ai.tool.RemoteLiveStatus.Phase.IDLE) {
+            phase += " " + duration(live.phaseElapsedMs);
+        }
+        vals[0] = "已连接 · " + phase;
+
+        StringBuilder link = new StringBuilder(conn.isOnline() ? "在线" : "重连中");
+        if (st != null && st.rttMs > 0) link.append(" · RTT ").append(st.rttMs).append("ms");
+        if (conn.behindCount() > 0) link.append(" · 落后 ").append(conn.behindCount());
+        if (conn.reconnectCount() > 0) link.append(" · 重连 ").append(conn.reconnectCount());
+        vals[1] = link.toString();
+
+        boolean usage = st != null && st.usageOk;
+        vals[2] = usage && !st.model.isEmpty()
+                ? st.model + (st.effort.isEmpty() ? "" : " · " + st.effort) : "—";
+        if (usage && st.contextWindow > 0) {
+            int pct = (int) Math.max(0, Math.min(100, Math.round(st.pressureTokens * 100.0 / st.contextWindow)));
+            vals[3] = pct + "% · " + kB(st.pressureTokens) + "/" + kB(st.contextWindow);
+        } else {
+            vals[3] = usage ? st.contextText().replace("上下文 ", "") : "—";
+        }
+        if (usage) {
+            String tok = st.tokensText();
+            String cache = st.cacheText();
+            vals[4] = tok.isEmpty() ? (cache.isEmpty() ? "—" : cache)
+                    : (cache.isEmpty() ? tok : tok + " · " + cache);
+        } else {
+            vals[4] = "—";
+        }
+
+        for (int i = 0; i < VALUE_IDS.length; i++) {
+            setDrawerText(a.findViewById(VALUE_IDS[i]), VALUE_IDS[i], vals[i]);
+        }
+        com.oilquiz.app.ai.tool.RemoteStatusMonitor.refreshAsync(a,
+                com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(a), 15000L, null);
+    }
+
+    private static String duration(long ms) {
+        long sec = Math.max(0, ms / 1000);
+        return sec < 60 ? ("0:" + (sec < 10 ? "0" : "") + sec) : (sec / 60) + ":" + String.format(java.util.Locale.US, "%02d", sec % 60);
+    }
+
+    private static String kB(int tokens) {
+        if (tokens <= 0) return "0";
+        if (tokens < 1000) return String.valueOf(tokens);
+        return String.format(java.util.Locale.US, "%.0fK", tokens / 1000.0);
     }
 
     private static void setDrawerText(TextView tv, int id, String text) {
