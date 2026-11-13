@@ -186,6 +186,8 @@ gradle/wrapper/gradle-*.zip
 
 # ============ AAR/Zip binaries ============
 *.aar
+# 例外：PhotoView 本地 AAR（脱离 JitPack，必须入库）
+!libs/photoview-2.3.0.aar
 *.zip
 
 # ============ Temp/Export ============
