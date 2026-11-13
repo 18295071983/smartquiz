@@ -293,3 +293,38 @@ DSH 自己的 Web Client 用一套类型化 Slot 系统组合 UI，关键机制�
 | 调整 | M1 按 `single + list` 建模、加声明校验与注销 | §15.3 | P0/P1 |
 | 调整 | M2 优先用 `meta`，`components` 仅作兜底 | §15.1 | P2 |
 | 约束 | 插件合成帧不得伪装成 session 事件；`plugin:` 前缀必须放行 | §15.2 | P1 |
+
+---
+
+## 16. 修复进度（2026-11-13 晚）
+
+| # | 状态 | 证据 / 说明 |
+|---|---|---|
+| **B5** | ✅ 已修 | SSE `pushView` 补 `normalizeCaps + filterViewCards`，与 GET `/v2/view` 同口径 |
+| **B8** | ✅ 已修 | `buildView` 补齐 `schedule/subagents/plan` 三张卡；自检断言"存在 + 被 caps 裁剪"（21 passed）|
+| **B9** | ✅ 已修 | `deepCopyForSave` 补拷 `remoteCardView`；`ChatHistoryManagerDeepCopyTest` 2 条 |
+| **B11** | ✅ 已修 | 同补拷 `approvals/questions`；重启后 pending 审批不再消失 |
+| **B14** | 🟡 部分 | 事件目录重建为 84 条三层（session 63 / host 5 / synth 16）+ 前缀族；**但缺的类型只是"登记"，手机端仍未渲染**（如 `system/message`、`compaction/summary`）|
+| **B18** | 🟡 部分 | `ui/slot` 帧已带 `session_id`；仍是全局广播（客户端可先过滤）|
+| **B1** | ✅ 已修 | 断连时 `DockSlotBus.clear()`；甲板显隐补 `onViewportChanged`；D1 可见时 D3 只留 1 条 |
+| **B12** | ⬜ 未做 | `/v2/view` 远程卡死路仍在（建议整条删除，B7 一并消失）|
+| **B13** | ⬜ 未修 | 位置索引与归档冲突 |
+| **B15** | ⬜ 未修 | 根会话收不到 durable `tool/*`、`job/*`（只有合成 activity）|
+| **B16** | ⬜ 未修 | 回执缺口（`acked_seq` 落后 `last_seq`，`since=-2` 不重放）|
+| **B17** | ⬜ 未修 | `DshProjection` 未读 `tool/result.meta`（官方卡片载荷）|
+| **B2/B3** | ⬜ 未修 | 动态卡前置（组件 id 加 turnId、props 排序）|
+| **B6/B10** | ⬜ 未修 | id 命名统一、会话文件 fsync/`.bak` |
+
+### 16.1 已在线验证的能力（真机）
+
+- 事件目录：`/v2/events/catalog` → 84 条、`by_layer={session:63,host:5,synth:16}`、`unregistered=0`
+- UI 目录：`/v2/ui/catalog` → `version=2026-11-13-v1`、10 个槽位、25 项 caps
+- 工具：`phone_tool: true`（`phone_ui` 注册成功）
+- 反向通道：`toast` / `notification` 往返 `done`，通知栏中文原文（`dumpsys notification` 取证）
+- 插槽推送：`POST /v2/action {action:'ui.slot'}` 推 → 真机出现「插槽自检」行 → 空帧移除成功
+- 甲板：D1 不可见时显示 2 条（`后台任务` + `子代理`），推理中只留 1 条（代码已改，待场景验证）
+
+### 16.2 未验证 / 待重启
+
+- `slot_action`（插槽点击出口）与 B8 三卡：代码已提交，**运行实例待下次重启生效**
+- B1 的"推理中只留 1 条"需要 D1 出现才能验证（DSH 路径不写 `AgentProgressBus`，需本机 agent 触发）
