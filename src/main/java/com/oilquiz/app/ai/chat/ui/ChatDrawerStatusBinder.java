@@ -166,7 +166,86 @@ public final class ChatDrawerStatusBinder {
                     LAST_TEXT.put(pair[1], finalText);
                 }
             }
+            refreshRemote(activity);
         } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 远程（电脑）三行：状态、链路、用量。与状态条同源（RemoteLiveStatus / RemoteStatusMonitor），
+     * 抽屉打开期间跟本地行一样 500ms 刷新；未配对/断开时显示明确状态而不是空白（2026-11-14）。
+     */
+    private static void refreshRemote(Activity activity) {
+        TextView remote = activity.findViewById(R.id.tv_drawer_remote);
+        TextView link = activity.findViewById(R.id.tv_drawer_link);
+        TextView usage = activity.findViewById(R.id.tv_drawer_usage);
+        if (remote == null && link == null && usage == null) return;
+
+        boolean configured = com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(activity);
+        boolean connected = com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(activity);
+        String remoteText;
+        String linkText = "—";
+        String usageText = "—";
+
+        if (!configured) {
+            remoteText = "未配对";
+        } else if (!connected) {
+            remoteText = "已断开";
+        } else {
+            com.oilquiz.app.ai.tool.RemoteLiveStatus.Snapshot live =
+                    com.oilquiz.app.ai.tool.RemoteLiveStatus.snapshot();
+            com.oilquiz.app.ai.tool.RemoteStatusSnapshot st =
+                    com.oilquiz.app.ai.tool.RemoteStatusMonitor.get();
+            com.oilquiz.app.ai.tool.RemoteConnection conn =
+                    com.oilquiz.app.ai.tool.RemoteConnection.get(activity);
+
+            remoteText = "已连接 · " + remotePhase(live);
+            StringBuilder lk = new StringBuilder(conn.isOnline() ? "在线" : "重连中");
+            if (st != null && st.rttMs > 0) lk.append(" · RTT ").append(st.rttMs).append("ms");
+            if (conn.behindCount() > 0) lk.append(" · 落后 ").append(conn.behindCount());
+            if (conn.reconnectCount() > 0) lk.append(" · 重连 ").append(conn.reconnectCount());
+            linkText = lk.toString();
+
+            if (st != null && st.usageOk) {
+                StringBuilder us = new StringBuilder();
+                String ctx = st.contextText();
+                String tok = st.tokensText();
+                String cache = st.cacheText();
+                if (!ctx.isEmpty()) us.append(ctx.replace("上下文 ", ""));
+                if (!tok.isEmpty()) { if (us.length() > 0) us.append(" · "); us.append(tok); }
+                if (!cache.isEmpty()) { if (us.length() > 0) us.append(" · "); us.append(cache); }
+                usageText = us.length() == 0 ? "暂无数据" : us.toString();
+            } else {
+                usageText = "暂无数据";
+            }
+            // 抽屉打开时顺带拉一次 /status（15s 节流，失败保留上次）
+            com.oilquiz.app.ai.tool.RemoteStatusMonitor.refreshAsync(activity,
+                    com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(activity), 15000L, null);
+        }
+        setDrawerText(remote, R.id.tv_drawer_remote, remoteText);
+        setDrawerText(link, R.id.tv_drawer_link, linkText);
+        setDrawerText(usage, R.id.tv_drawer_usage, usageText);
+    }
+
+    private static void setDrawerText(TextView tv, int id, String text) {
+        if (tv == null) return;
+        String v = text == null ? "" : text;
+        if (!TextUtils.equals(LAST_TEXT.get(id), v)) {
+            tv.setText(v);
+            LAST_TEXT.put(id, v);
+        }
+    }
+
+    private static String remotePhase(com.oilquiz.app.ai.tool.RemoteLiveStatus.Snapshot s) {
+        if (s == null) return "空闲";
+        switch (s.phase) {
+            case THINKING: return "思考中";
+            case GENERATING: return "生成中";
+            case TOOL: return "执行 " + (s.tool == null || s.tool.isEmpty() ? "工具" : s.tool);
+            case WAITING_APPROVAL: return "等待审批";
+            case COMPACTING: return "压缩上下文";
+            case RETRYING: return "重试中";
+            default: return "空闲";
         }
     }
 

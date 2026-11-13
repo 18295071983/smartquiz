@@ -717,7 +717,12 @@ public class AIChatActivity extends BaseActivity {
         remoteDshAction = findViewById(R.id.remote_dsh_action);
         if (remoteDshBar != null) {
             // 长按看全部动态指标（阶段/轮步/模型/上下文/token/RTT/重连）；说明留在详情弹窗里
-            remoteDshBar.setOnLongClickListener(v -> { showRemoteStatusDetail(); return true; });
+            remoteDshBar.setOnLongClickListener(v -> {
+                // 2026-11-14：详情改用现成的工具抽屉「状态」区（不再弹自定义长文本）
+                drawerLayout.openDrawer(findViewById(R.id.tool_drawer));
+                com.oilquiz.app.ai.chat.ui.ChatDrawerStatusBinder.refresh(this);
+                return true;
+            });
             remoteDshBar.setOnClickListener(v ->
                     startActivity(new Intent(AIChatActivity.this,
                             com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class)));
@@ -15087,76 +15092,6 @@ public class AIChatActivity extends BaseActivity {
         if (ms < 60000L) return (ms / 1000L) + "s 前";
         if (ms < 3600000L) return (ms / 60000L) + "m 前";
         return (ms / 3600000L) + "h 前";
-    }
-
-    /** 长按状态条：全部动态指标（阶段/轮步/模型/上下文/token/RTT/序列/重连）。 */
-    private void showRemoteStatusDetail() {
-        try {
-            com.oilquiz.app.ai.tool.RemoteLiveStatus.Snapshot live =
-                    com.oilquiz.app.ai.tool.RemoteLiveStatus.snapshot();
-            com.oilquiz.app.ai.tool.RemoteStatusSnapshot st =
-                    com.oilquiz.app.ai.tool.RemoteStatusMonitor.get();
-            com.oilquiz.app.ai.tool.RemoteConnection conn =
-                    com.oilquiz.app.ai.tool.RemoteConnection.get(this);
-            StringBuilder sb = new StringBuilder();
-            sb.append("阶段：").append(remotePhaseText(live)).append('\n');
-            if (live.turn > 0) {
-                sb.append("进度：第 ").append(live.turn).append(" 轮");
-                if (live.step > 0) sb.append(" / 第 ").append(live.step).append(" 步");
-                sb.append('\n');
-            } else if (live.step > 0) {
-                sb.append("进度：第 ").append(live.step).append(" 步\n");
-            }
-            if (live.lastEventAt > 0L) {
-                sb.append("最近事件：").append(remoteAgo(System.currentTimeMillis() - live.lastEventAt)).append('\n');
-            }
-            sb.append("事件：本次连接 ").append(live.events)
-                    .append(" 条 · 近 1 分钟 ").append(live.windowEvents).append(" 条\n");
-            sb.append("通道：").append(conn.isOnline() ? "在线" : "重连中");
-            if (conn.reconnectCount() > 0) sb.append("（重连 ").append(conn.reconnectCount()).append(" 次）");
-            sb.append(" · seq ").append(Math.max(0, conn.appliedSeq())).append('/').append(Math.max(0, conn.serverSeq()));
-            int behind = conn.behindCount();
-            if (behind > 0) sb.append(" · 落后 ").append(behind);
-            sb.append('\n');
-            if (st != null) {
-                if (st.rttMs > 0) sb.append("RTT：").append(st.rttMs).append("ms\n");
-                sb.append("电脑：").append(st.executionText());
-                if (st.approvalsPending > 0) sb.append(" · 待审批 ").append(st.approvalsPending);
-                if (st.cliQueued > 0) sb.append(" · 排队 ").append(st.cliQueued);
-                if (st.activeJobs > 0) sb.append(" · 后台 ").append(st.activeJobs);
-                sb.append('\n');
-                if (st.usageOk) {
-                    if (!st.model.isEmpty()) {
-                        sb.append("模型：").append(st.model);
-                        if (!st.effort.isEmpty()) sb.append(" · ").append(st.effort);
-                        sb.append('\n');
-                    }
-                    String ctx = st.contextText();
-                    if (!ctx.isEmpty()) {
-                        sb.append("上下文：").append(st.pressureTokens).append(" / ")
-                                .append(st.contextWindow).append("（").append(ctx.replace("上下文 ", "")).append("）\n");
-                    }
-                    String tok = st.tokensText();
-                    if (!tok.isEmpty()) sb.append("本轮 token：").append(tok).append('\n');
-                    if (st.cacheHitPct > 0) sb.append("缓存命中：").append(st.cacheHitPct).append("%\n");
-                } else {
-                    sb.append("token：电脑端插件未提供（旧版本或会话未在运行）\n");
-                }
-                sb.append("插件版本：v").append(st.version.isEmpty() ? "?" : st.version).append('\n');
-            } else {
-                sb.append("状态：还没拿到电脑端 /status\n");
-            }
-            new androidx.appcompat.app.AlertDialog.Builder(this)
-                    .setTitle("远程连接状态")
-                    .setMessage(sb.toString().trim())
-                    .setPositiveButton("知道了", null)
-                    .setNeutralButton("使用说明", (d, w) -> showRemoteHint())
-                    .setNegativeButton("关闭", null)
-                    .show();
-        } catch (Throwable t) {
-            android.widget.Toast.makeText(this, "状态详情打开失败：" + t.getMessage(),
-                    android.widget.Toast.LENGTH_SHORT).show();
-        }
     }
 
     /** 从 base_url 里取 host:port，状态条上显示短一点 */
