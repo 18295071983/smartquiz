@@ -416,6 +416,13 @@ const QRELAY = { seen: 0, taken: 0, last_sid: '', reason: '' };
 /** 审批中继诊断（同 QRELAY）：hooked=已挂钩的 agent 数；seen/taken 按 waterfall 调用计 */
 const ARELAY = { hooked: 0, seen: 0, taken: 0, last_sid: '', reason: '' };
 
+/**
+ * 审批回传诊断（2026-11-13）：手机点"允许/拒绝"时记录当时到底有什么可结算。
+ * calls=点了几次；local=插件自己挂起的数量；gateway_pending=网关待答数量（附 id 样本）；
+ * 若两者都是 0，说明审批在电脑侧已被别的应答者结算（"被抢答"），不是手机被屏蔽。
+ */
+const APPDBG = { calls: 0, local: 0, gateway_pending: 0, gateway_ids: [], ok: false, last_error: '', last_at: 0 };
+
 /** phone_ui 工具的注册状态（诊断：/status.plugin_features 里可见） */
 const PHONE_TOOL_STATE = { registered: false, error: '' };
 
@@ -2652,6 +2659,7 @@ function presetSvcOf(ctx) {
       phone_tool_error: PHONE_TOOL_STATE.error,
       question_relay: QRELAY,
       approval_relay: ARELAY,
+      approval_debug: APPDBG,
     },
     // ★ 单一文案模板：手机 / 电脑 UI 直接渲染这组行，不再各自拼一套说法
     text_lines: (() => {
@@ -4374,17 +4382,37 @@ function presetSvcOf(ctx) {
 
   /** 手机应答：先答先赢；失败返回错误说明 */
   const answerApproval = (approvalId, allow) => {
+    APPDBG.calls += 1;
+    APPDBG.local = phoneApprovals.size;
+    APPDBG.last_at = Date.now();
+    APPDBG.gateway_pending = 0;
+    APPDBG.gateway_ids = [];
+    try {
+      const gwDbg = approvalGateway();
+      if (gwDbg) {
+        const ids = [...gwDbg.pendingRemoteEvents.keys()].slice(0, 5).map(String);
+        APPDBG.gateway_pending = gwDbg.pendingRemoteEvents.size;
+        APPDBG.gateway_ids = ids;
+      }
+    } catch { /* 诊断失败不影响主流程 */ }
     // ① 插件自己挂住的（电脑端不在场的那条路）
     const local = phoneApprovals.get(String(approvalId));
     if (local) {
       const outcome = allow ? 'allowed-once' : 'rejected';
-      return local.settle(outcome)
+      const settled = local.settle(outcome);
+      APPDBG.ok = Boolean(settled);
+      APPDBG.last_error = settled ? '' : 'local_settle_failed';
+      return settled
         ? { ok: true, decision: outcome, relay: 'plugin' }
         : { ok: false, error: 'approval_not_found', hint: '这条审批已经结束了（可能已超时）' };
     }
     // ② 电脑端在场：走原来的 gateway 中继（与桌面端先答先赢）
     const gw = approvalGateway();
-    if (!gw) return { ok: false, error: 'gateway_unavailable', hint: '这个 DSH 版本的网关不暴露审批中继（插件会自动退回只提醒）' };
+    if (!gw) {
+      APPDBG.ok = false;
+      APPDBG.last_error = 'gateway_unavailable';
+      return { ok: false, error: 'gateway_unavailable', hint: '这个 DSH 版本的网关不暴露审批中继（插件会自动退回只提醒）' };
+    }
     try {
       for (const pending of gw.pendingRemoteEvents.values()) {
         if (String(pending.id) !== String(approvalId)) continue;
@@ -4393,10 +4421,16 @@ function presetSvcOf(ctx) {
         // value" 归一化成 'unavailable' —— 于是手机点“允许”等于没批准（工具侧报
         // SANDBOX_ESCALATION_UNAVAILABLE / 没有可用的审批通道）。
         gw.settleRemoteEvent(pending, { kind: 'result', value: allow ? 'allowed-once' : 'rejected' });
+        APPDBG.ok = true;
+        APPDBG.last_error = '';
         return { ok: true, decision: allow ? 'allowed-once' : 'rejected' };
       }
+      APPDBG.ok = false;
+      APPDBG.last_error = 'approval_not_found';
       return { ok: false, error: 'approval_not_found', hint: '这条审批已经结束了（可能刚被电脑端点了，或已超时）' };
     } catch (e) {
+      APPDBG.ok = false;
+      APPDBG.last_error = String(e?.message ?? e);
       return { ok: false, error: String(e?.message ?? e) };
     }
   };
