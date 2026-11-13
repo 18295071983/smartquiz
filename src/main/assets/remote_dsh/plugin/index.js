@@ -2015,7 +2015,11 @@ export function apply(ctx, config) {
         return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'cmd.ui' });
       }
       const slot = pushUiSlot(body.id, body.priority, body.title, body.detail, {
-        ...(body.action && String(body.action).trim() ? { action: String(body.action).trim() } : {}),
+        // 注意：body.action 是**分发动作名**（'ui.slot'），不能拿来做插槽点击动作。
+        // 插槽的点击动作由 slot_action（或别名 link）单独指定，例如 'jobs' / 'schedule'。
+        ...(body.slot_action && String(body.slot_action).trim()
+          ? { action: String(body.slot_action).trim() }
+          : {}),
         ...(body.warn === true ? { warn: true } : {}),
       });
       return sendJson(res, 200, { ok: true, v: 2, action, slot });

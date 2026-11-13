@@ -415,6 +415,17 @@ await test('/v2/action ui.slot 推送/移除插槽（中文原样、caps 门禁�
   assert.equal(pushed.json.slot.detail, '中文详情 · 应原样');
   assert.equal(pushed.json.slot.priority, 42);
   assert.equal(pushed.json.slot.removed, false);
+  assert.ok(!pushed.json.slot.action, '分发动作名不能变成插槽点击动作：'
+    + JSON.stringify(pushed.json.slot));
+
+  const withLink = await call('/v2/action', {
+    method: 'POST',
+    body: JSON.stringify({
+      action: 'ui.slot', id: 'selftest-link', title: '带出口', detail: '点我进任务',
+      slot_action: 'jobs', caps: 'cmd.ui',
+    }),
+  });
+  assert.equal(withLink.json.slot.action, 'jobs', 'slot_action 应作为插槽点击动作');
 
   const removed = await call('/v2/action', {
     method: 'POST',
