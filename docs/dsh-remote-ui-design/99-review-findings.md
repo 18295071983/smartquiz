@@ -311,7 +311,7 @@ DSH 自己的 Web Client 用一套类型化 Slot 系统组合 UI，关键机制�
 | **B13** | ⬜ 未修 | 位置索引与归档冲突 |
 | **B15** | ⬜ 未修 | 根会话收不到 durable `tool/*`、`job/*`（只有合成 activity）|
 | **B16** | ⬜ 未修 | 回执缺口（`acked_seq` 落后 `last_seq`，`since=-2` 不重放）|
-| **B17** | ⬜ 未修 | `DshProjection` 未读 `tool/result.meta`（官方卡片载荷）|
+| **B17** | ✅ 已修 | `DshTimeline.Tool.meta` + `toolComponent` 投影进 props；`DshProjectionMetaTest` 2 条 |
 | **B2/B3** | ⬜ 未修 | 动态卡前置（组件 id 加 turnId、props 排序）|
 | **B6/B10** | ⬜ 未修 | id 命名统一、会话文件 fsync/`.bak` |
 
