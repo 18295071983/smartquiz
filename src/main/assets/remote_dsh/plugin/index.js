@@ -2704,6 +2704,51 @@ function presetSvcOf(ctx) {
     return null;
   };
 
+  /**
+   * 会话 token 桶（含缓存命中）：按 seq 增量累加，避免每次请求全量扫上万条事件。
+   * 来源与 token-meter 的 usage-projection 一致：assistant/message|attempt 的 data.usage
+   * 或 stream 里最后一个 usage 样本。
+   */
+  const SESSION_TOKEN_CACHE = new Map();
+  const lastStreamUsage = (node, depth = 0) => {
+    if (!node || typeof node !== 'object' || depth > 4) return null;
+    if (node.usage && typeof node.usage === 'object') return node.usage;
+    if (Array.isArray(node)) {
+      for (let i = node.length - 1; i >= 0; i -= 1) {
+        const u = lastStreamUsage(node[i], depth + 1);
+        if (u) return u;
+      }
+      return null;
+    }
+    const keys = Object.keys(node);
+    for (let i = keys.length - 1; i >= 0; i -= 1) {
+      const u = lastStreamUsage(node[keys[i]], depth + 1);
+      if (u) return u;
+    }
+    return null;
+  };
+  const tokenBucketsOf = (sid, session) => {
+    const seq = Number(session?.seq ?? 0);
+    let c = SESSION_TOKEN_CACHE.get(sid);
+    if (!c || c.seq > seq) c = { seq: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    const from = Math.max(1, Number(c.seq) + 1);
+    for (let i = from; i <= seq; i += 1) {
+      let e = null;
+      try { e = session?.eventAt?.(i); } catch { e = null; }
+      if (!e) continue;
+      if (e.type !== 'assistant/message' && e.type !== 'assistant/attempt') continue;
+      const u = e?.data?.usage ?? lastStreamUsage(e?.data?.stream);
+      if (!u) continue;
+      c.input += Number(u.inputTokens ?? 0) || 0;
+      c.output += Number(u.outputTokens ?? 0) || 0;
+      c.cacheRead += Number(u.cacheReadTokens ?? 0) || 0;
+      c.cacheWrite += Number(u.cacheWriteTokens ?? 0) || 0;
+    }
+    c.seq = seq;
+    SESSION_TOKEN_CACHE.set(sid, c);
+    return c;
+  };
+
   const sessionUsage = (sid) => {
     const out = { ok: false, session_id: sid };
     if (!sid) { out.reason = 'no_session'; return out; }
@@ -2727,6 +2772,14 @@ function presetSvcOf(ctx) {
         out.max_tokens = head.max_tokens;
         out.effort = head.effort;
       }
+      const buckets = tokenBucketsOf(sid, session);
+      const promptTokens = buckets.input + buckets.cacheRead + buckets.cacheWrite;
+      out.input_tokens = buckets.input;
+      out.output_tokens = buckets.output;
+      out.cache_read_tokens = buckets.cacheRead;
+      out.cache_write_tokens = buckets.cacheWrite;
+      out.cache_hit_pct = promptTokens > 0
+        ? Math.round((buckets.cacheRead * 100) / promptTokens) : 0;
     } catch (e) { out.reason = String(e?.message ?? e).slice(0, 160); }
     return out;
   };

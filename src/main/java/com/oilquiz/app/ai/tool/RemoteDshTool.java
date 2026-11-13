@@ -1248,6 +1248,17 @@ public class RemoteDshTool implements AITool {
      * **默认关闭**（2026-09-27 按用户要求）：大多数用户不用远程控制电脑，不该在聊天页常驻占一行；
      * 需要的人在「远程连接（电脑）」里打开开关，或配对后自行开启。
      */
+    /** 状态条轮播（会话/网络/用量 每 5s 切换，2026-11-13）。 */
+    public static boolean isBarRotateEnabled(Context c) {
+        return c.getApplicationContext().getSharedPreferences(PREF_UI, Context.MODE_PRIVATE)
+                .getBoolean("remote_bar_rotate", false);
+    }
+
+    public static void setBarRotateEnabled(Context c, boolean enabled) {
+        c.getApplicationContext().getSharedPreferences(PREF_UI, Context.MODE_PRIVATE)
+                .edit().putBoolean("remote_bar_rotate", enabled).apply();
+    }
+
     public static boolean isBarEnabled(Context c) {
         return c.getApplicationContext().getSharedPreferences(PREF_UI, Context.MODE_PRIVATE)
                 .getBoolean(KEY_SHOW_BAR, false);

@@ -36,6 +36,7 @@ public final class RemoteStatusSnapshot {
     public final int totalTokens;
     public final String model;
     public final String effort;
+    public final int cacheHitPct;
     public final long rttMs;
     public final String serviceVersion;
 
@@ -43,13 +44,13 @@ public final class RemoteStatusSnapshot {
                                 int approvalsPending, int devices, int sessionsCount, int activeJobs,
                                 long fetchedAt) {
         this(ok, version, cliRunning, cliQueued, cliMax, approvalsPending, devices, sessionsCount,
-                activeJobs, fetchedAt, false, 0, 0, 0, "", "", 0L, "");
+                activeJobs, fetchedAt, false, 0, 0, 0, "", "", 0, 0L, "");
     }
 
     public RemoteStatusSnapshot(boolean ok, String version, int cliRunning, int cliQueued, int cliMax,
                                 int approvalsPending, int devices, int sessionsCount, int activeJobs,
                                 long fetchedAt, boolean usageOk, int pressureTokens, int contextWindow,
-                                int totalTokens, String model, String effort, long rttMs,
+                                int totalTokens, String model, String effort, int cacheHitPct, long rttMs,
                                 String serviceVersion) {
         this.ok = ok;
         this.version = version == null ? "" : version;
@@ -67,6 +68,7 @@ public final class RemoteStatusSnapshot {
         this.totalTokens = Math.max(0, totalTokens);
         this.model = model == null ? "" : model;
         this.effort = effort == null ? "" : effort;
+        this.cacheHitPct = Math.max(0, Math.min(100, cacheHitPct));
         this.rttMs = Math.max(0L, rttMs);
         this.serviceVersion = serviceVersion == null ? "" : serviceVersion;
     }
@@ -82,6 +84,7 @@ public final class RemoteStatusSnapshot {
                 intOf(child(usage, "total_tokens"), 0),
                 strOf(child(usage, "model")),
                 strOf(child(usage, "effort")),
+                intOf(child(usage, "cache_hit_pct"), 0),
                 rtt,
                 version);
     }
@@ -124,6 +127,11 @@ public final class RemoteStatusSnapshot {
         return String.format(java.util.Locale.US, "%.1fK tok", totalTokens / 1000.0);
     }
 
+    /** 缓存命中率（有数据才显示）。 */
+    public String cacheText() {
+        return usageOk && cacheHitPct > 0 ? "缓存 " + cacheHitPct + "%" : "";
+    }
+
     public boolean hasUsage() {
         return usageOk && (pressureTokens > 0 || totalTokens > 0);
     }
@@ -148,7 +156,7 @@ public final class RemoteStatusSnapshot {
                 intOf(child(root, "sessions_count"), 0),
                 intOf(child(root, "active_jobs"), 0),
                 fetchedAt,
-                false, 0, 0, 0, "", "", rttMs, "");
+                false, 0, 0, 0, "", "", 0, rttMs, "");
     }
 
     // ---- 容错取值：httpJson 可能给 Map，也可能是 JSONObject ----
