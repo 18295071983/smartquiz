@@ -35,7 +35,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exec, execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { SERVER_CAPS, filterViewCards, eventAllowed, normalizeCaps, summarize, allows } from './caps.js';
+import { SERVER_CAPS, CAP_VERSION, filterViewCards, eventAllowed, normalizeCaps, summarize, allows } from './caps.js';
 
 
 /** CLI 子进程的权限档位（apply 里由 cfg 覆盖；runCliTask 在模块作用域用） */
@@ -1565,54 +1565,137 @@ export function apply(ctx, config) {
    * <p>{@code forward} = 是否会进聊天时间线；{@code slot} = 是否还驱动输入区上方的插槽。</p>
    */
   const EVENT_CATALOG = {
-    // ---- 消息与回合 ----
-    'user/message': { forward: true, desc: '电脑端手敲的用户消息（手机镜像成 USER 气泡）' },
-    'assistant/message': { forward: true, desc: '助手正文（权威累计值，覆盖流式草稿）' },
-    'turn/start': { forward: true, desc: '回合开始' },
-    'turn/end': { forward: true, desc: '回合结束（含结束原因）' },
-    'step/start': { forward: true, desc: '步骤开始' },
-    'step/end': { forward: true, desc: '步骤结束' },
-    'tool/call': { forward: true, desc: '工具调用（工具卡的来源）' },
-    'tool/result': { forward: true, desc: '工具结果（按 callId 回填到工具卡）' },
-    'error': { forward: true, desc: '错误' },
-    'cwd': { forward: true, desc: '工作目录变更' },
-    // ---- 交互 ----
-    'approval': { forward: true, desc: '审批请求（带允许/拒绝）' },
-    'approval_gone': { forward: true, desc: '审批已处理/撤回' },
-    'question': { forward: true, desc: '反问（带选项）' },
-    'question_gone': { forward: true, desc: '反问已处理/撤回' },
-    'plan/mode': { forward: true, desc: '计划模式开关' },
-    // ---- 权限/沙箱 ----
-    'sandbox/mode': { forward: true, slot: 'permission', desc: '沙箱模式' },
-    'permission/preset': { forward: true, slot: 'permission', desc: '权限档位' },
-    'approval/policy': { forward: true, slot: 'permission', desc: '审批策略' },
-    'agent-preset/selected': { forward: true, desc: '智能体预设变更' },
-    // ---- 子代理 / 后台任务 / 目标 ----
-    'subagent/catalog': { forward: true, slot: 'subagents', desc: '子代理登记（目录）' },
-    'subagent/descriptor': { forward: true, desc: '子代理描述' },
-    'subagent/activity': { forward: true, desc: '子代理实时活动（合成事件）' },
-    'job/registered': { forward: true, slot: 'jobs', desc: '后台任务开始' },
-    'job/settled': { forward: true, slot: 'jobs', desc: '后台任务结束（成功/失败）' },
-    'goal/change': { forward: true, slot: 'goal', desc: '目标内容变更' },
-    'goal/activation-changed': { forward: true, slot: 'goal', desc: '目标激活状态变更' },
-    // ---- 上下文 / 日程 ----
-    'compaction/start': { forward: true, slot: 'compaction', desc: '上下文压缩开始' },
-    'compaction/end': { forward: true, slot: 'compaction', desc: '上下文压缩结束' },
-    'schedule/changed': { forward: true, slot: 'schedule', desc: '日程变更' },
-    'session/title': { forward: true, desc: '会话标题变更' },
-    'session/request_permission': { forward: true, desc: '会话级权限请求' },
-    // ---- 传输层（不落盘，仅实时） ----
-    'stream/delta': { forward: true, desc: 'token/工具增量（瞬态，不落盘）' },
-    'stream/end': { forward: true, desc: '增量流结束' },
+    // ================= layer: session（DSH 会话事件，63 条权威表） =================
+    // 逐条对应 dsh-session/src/known-event-types.ts；forward=false 的是纯内部记录，
+    // 保留在表里只为"看得见"，不推给手机。
+    'turn/start': { layer: 'session', forward: true, desc: '回合开始' },
+    'turn/end': { layer: 'session', forward: true, desc: '回合结束（含结束原因）' },
+    'step/start': { layer: 'session', forward: true, desc: '步骤开始' },
+    'step/end': { layer: 'session', forward: true, desc: '步骤结束' },
+    'user/message': { layer: 'session', forward: true, desc: '用户消息（含注入/steering）' },
+    'developer/message': { layer: 'session', forward: true, desc: '开发者消息（会话内增量）' },
+    'system/message': { layer: 'session', forward: true, desc: '系统提示词节点（surface 0）' },
+    'assistant/message': { layer: 'session', forward: true, desc: '助手正文（权威累计值）' },
+    'assistant/attempt': { layer: 'session', forward: false, desc: '未提交正文的模型尝试（内部）' },
+    'tool/call': { layer: 'session', forward: true, desc: '工具调用（工具卡来源）' },
+    'tool/result': { layer: 'session', forward: true, slot: 'jobs', desc: '工具结果（meta 可带卡片）' },
+    'request/header': { layer: 'session', forward: false, desc: '请求头快照（仅日志）' },
+    'request/context': { layer: 'session', forward: false, desc: '路由上下文（仅日志）' },
+    'session/end-seed': { layer: 'session', forward: false, desc: '继承/恢复边界标记' },
+    'approval/policy': { layer: 'session', forward: true, slot: 'permission', desc: '审批策略' },
+    'approval/asked': { layer: 'session', forward: true, desc: '审批请求（durable）' },
+    'approval/decided': { layer: 'session', forward: true, desc: '审批结果（durable）' },
+    'compaction/start': { layer: 'session', forward: true, slot: 'compaction', desc: '上下文压缩开始' },
+    'compaction/summary': { layer: 'session', forward: true, slot: 'compaction', desc: '压缩摘要' },
+    'compaction/end': { layer: 'session', forward: true, slot: 'compaction', desc: '上下文压缩结束' },
+    'compaction/prune': { layer: 'session', forward: true, desc: '工具结果裁剪' },
+    'image/offload': { layer: 'session', forward: false, desc: '图片外置（内部）' },
+    'command/run': { layer: 'session', forward: true, desc: '命令开始' },
+    'command/done': { layer: 'session', forward: true, desc: '命令结束' },
+    'subagent/catalog': { layer: 'session', forward: true, slot: 'subagents', desc: '子代理登记' },
+    'subagent/descriptor': { layer: 'session', forward: true, desc: '子代理描述' },
+    'subagent/model-selection-policy': { layer: 'session', forward: false, desc: '子代理模型策略' },
+    'job/registered': { layer: 'session', forward: true, slot: 'jobs', desc: '后台任务开始' },
+    'job/settled': { layer: 'session', forward: true, slot: 'jobs', desc: '后台任务结束' },
+    'goal/change': { layer: 'session', forward: true, slot: 'goal', desc: '目标内容变更' },
+    'team/mode': { layer: 'session', forward: true, desc: '团队模式开关' },
+    'team/task': { layer: 'session', forward: true, desc: '团队任务' },
+    'plan/mode': { layer: 'session', forward: true, desc: '计划模式开关' },
+    'permission/preset': { layer: 'session', forward: true, slot: 'permission', desc: '权限档位' },
+    'sandbox/mode': { layer: 'session', forward: true, slot: 'permission', desc: '沙箱模式' },
+    'agent-preset/selected': { layer: 'session', forward: true, desc: '智能体预设' },
+    'session/title': { layer: 'session', forward: true, desc: '会话标题' },
+    'session/title-llm-request': { layer: 'session', forward: false, desc: '标题 LLM 请求（内部）' },
+    'model/selection': { layer: 'session', forward: false, desc: '模型选择（内部）' },
+    'agent/inbox/spliced': { layer: 'session', forward: false, desc: '收件箱拼接（内部）' },
+    'todo/write': { layer: 'session', forward: true, desc: '待办清单写入' },
+    'deliverables/presented': { layer: 'session', forward: true, desc: '产物交付' },
+    'workspace/changes': { layer: 'session', forward: true, desc: '工作区变更' },
+    'working-directory/change': { layer: 'session', forward: true, desc: '工作目录变更' },
+    'tool/ptc-dispatch-start': { layer: 'session', forward: true, desc: 'PTC 子调用开始' },
+    'tool/ptc-dispatch': { layer: 'session', forward: true, desc: 'PTC 子调用结果' },
+    'tool-workflow/run-start': { layer: 'session', forward: true, desc: '工作流开始' },
+    'tool-workflow/agent-start': { layer: 'session', forward: true, desc: '工作流子代理开始' },
+    'tool-workflow/agent-end': { layer: 'session', forward: true, desc: '工作流子代理结束' },
+    'tool-workflow/run-end': { layer: 'session', forward: true, desc: '工作流结束' },
+    'llm/retry': { layer: 'session', forward: false, desc: 'LLM 重试（内部）' },
+    'llm/retry-started': { layer: 'session', forward: false, desc: 'LLM 重试开始（内部）' },
+    'web/deepseek-search-llm-request': { layer: 'session', forward: false, desc: '搜索 LLM 请求（内部）' },
+    'session-log-deepseek/delivery-accepted': { layer: 'session', forward: true, desc: '日志交付水位' },
+    'feedback/record': { layer: 'session', forward: false, desc: '反馈记录（内部）' },
+    'feedback/message-put': { layer: 'session', forward: false, desc: '反馈写入（内部）' },
+    'feedback/message-delete': { layer: 'session', forward: false, desc: '反馈删除（内部）' },
+    // 以下 6 条无写入者，仅旧日志可读（保留以兼容 replay）
+    'hook/invoked': { layer: 'session', forward: false, legacy: true, desc: '钩子调用（旧日志）' },
+    'hook/result': { layer: 'session', forward: false, legacy: true, desc: '钩子结果（旧日志）' },
+    'schedule/change': { layer: 'session', forward: false, legacy: true, desc: '日程变更（旧日志）' },
+    'team/member': { layer: 'session', forward: false, legacy: true, desc: '团队成员（旧日志）' },
+    'team/message/queued': { layer: 'session', forward: false, legacy: true, desc: '团队消息入队（旧日志）' },
+    'team/message/delivered': { layer: 'session', forward: false, legacy: true, desc: '团队消息投递（旧日志）' },
+
+    // ================= layer: host（Cordis 宿主事件，非 session 事件） =================
+    'agent/assistant-stream': { layer: 'host', forward: true, desc: 'token 流真名（插件转成 stream/delta）' },
+    'approval/request': { layer: 'host', forward: true, desc: '审批请求（宿主网关）' },
+    'user-questions/request': { layer: 'host', forward: true, desc: '反问请求（宿主网关）' },
+    'goal/activation-changed': { layer: 'host', forward: true, slot: 'goal', desc: '目标激活状态' },
+    'schedule/changed': { layer: 'host', forward: true, slot: 'schedule', desc: '日程变更' },
+
+    // ================= layer: synth（插件合成帧，DSH 无此类型） =================
+    'stream/delta': { layer: 'synth', forward: true, desc: 'token/工具增量（瞬态）' },
+    'stream/end': { layer: 'synth', forward: true, desc: '增量流结束' },
+    'subagent/activity': { layer: 'synth', forward: true, desc: '子代理活动（由子会话事件合成）' },
+    'approval': { layer: 'synth', forward: true, desc: '审批帧（由宿主事件合成）' },
+    'approval_gone': { layer: 'synth', forward: true, desc: '审批已处理/撤回' },
+    'question': { layer: 'synth', forward: true, desc: '反问帧' },
+    'question_gone': { layer: 'synth', forward: true, desc: '反问已处理/撤回' },
+    'ui/slot': { layer: 'synth', forward: true, desc: '插槽帧' },
+    'ui/config': { layer: 'synth', forward: true, desc: 'UI 目录/配置帧（预留）' },
+    'view': { layer: 'synth', forward: false, desc: 'ViewModel 快照（控制帧）' },
+    'state': { layer: 'synth', forward: false, desc: '连接状态（控制帧）' },
+    'pulse': { layer: 'synth', forward: false, desc: '心跳' },
+    'ready': { layer: 'synth', forward: false, desc: '流建立' },
+    'end': { layer: 'synth', forward: false, desc: '流结束' },
+    '__force_resync': { layer: 'synth', forward: false, desc: '强制重建' },
+    'event': { layer: 'synth', forward: true, desc: 'durable 事件包装层' },
   };
 
   /** 已观察到的"表外"事件类型（诊断用；同类型只记一次日志） */
   const unseenEventTypes = new Map();
 
+  /**
+   * 前缀族（不是精确类型，按前缀放行）：
+   * - {@code session-log-*}：日志投影行，DSH 侧由各 session-log 包发出；
+   * - {@code plugin:*}：插件发的事件，走同一条事件流但带 {@code ignorable:true}，
+   *   持久化读取会拒绝未被认领的类型，监听方必须按前缀放行。
+   */
+  const PREFIX_FAMILIES = ['session-log-', 'plugin:'];
+
+  /**
+   * UI 目录版本：表结构或槽位变化时手改。客户端按它判断要不要重新拉表。
+   * 2026-11-13-v1：事件目录改为 session/host/synth 三层；补 compaction 插槽。
+   */
+  const UI_CATALOG_VERSION = '2026-11-13-v1';
+
+  /** 预留给手机的槽位（与手机端 10-modules M1 的三档模型对应） */
+  const RESERVED_SLOTS = [
+    { id: 'dock.progress', kind: 'single', scope: 'session', desc: 'D1 推理/工具进度' },
+    { id: 'dock.summary', kind: 'single', scope: 'session', desc: 'D2 摘要/计数' },
+    { id: 'dock.1', kind: 'list', scope: 'session', max_rows: 2, desc: 'D3 插槽（D1 可见时 1 条）' },
+    { id: 'compaction', kind: 'single', scope: 'session', desc: '上下文压缩中' },
+    { id: 'jobs', kind: 'list', scope: 'session', desc: '后台任务' },
+    { id: 'goal', kind: 'single', scope: 'session', desc: '目标' },
+    { id: 'permission', kind: 'list', scope: 'session', desc: '沙箱/档位/审批策略' },
+    { id: 'subagents', kind: 'single', scope: 'session', desc: '子代理数量' },
+    { id: 'mcp', kind: 'list', scope: 'session', desc: 'MCP 服务' },
+    { id: 'schedule', kind: 'single', scope: 'session', desc: '日程概览' },
+  ];
+
+  const isPrefixFamily = (t) => PREFIX_FAMILIES.some((p) => t.startsWith(p));
+
   const noteEventType = (t) => {
     if (!t) return;
     if (EVENT_CATALOG[t]) return;
-    if (t.startsWith('session-log-')) return;   // 前缀族：日志投影行，不进时间线
+    if (isPrefixFamily(t)) return;   // 前缀族已登记，不算未登记
     if (unseenEventTypes.has(t)) return;
     unseenEventTypes.set(t, Date.now());
     try {
@@ -1639,6 +1722,13 @@ export function apply(ctx, config) {
         return;
       }
       const root = childParent.get(sid);
+      // 上下文压缩：开/关各发一次插槽（目录里登记过但一直没有发送实现，属 B8 同类缺口）
+      if (t === 'compaction/start' || t === 'compaction/end') {
+        streamBroadcast('', { v: 2, type: 'ui/slot', data: t === 'compaction/start'
+          ? { id: 'compaction', priority: 10, title: '正在压缩上下文…' }
+          : { id: 'compaction' } });
+        return;
+      }
       // 任务 / 目标的持续状态：在"只转子代理活动"的早退之前处理（主会话事件也要收）
       if (t === 'job/registered' || t === 'job/settled') {
         const d = event.data ?? {};
@@ -1752,11 +1842,38 @@ export function apply(ctx, config) {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     const types = Object.keys(EVENT_CATALOG).sort();
     const unregistered = [...unseenEventTypes.keys()].sort();
+    const byLayer = { session: 0, host: 0, synth: 0 };
+    for (const t of types) {
+      const layer = EVENT_CATALOG[t]?.layer;
+      if (layer && byLayer[layer] !== undefined) byLayer[layer] += 1;
+    }
     return sendJson(res, 200, {
       ok: true, v: 2,
       count: types.length,
+      by_layer: byLayer,
+      prefix_families: PREFIX_FAMILIES,
       types: types.map((t) => ({ type: t, ...EVENT_CATALOG[t] })),
       unregistered,
+    });
+  });
+
+  /**
+   * UI 目录（客户端拉取用，2026-11-13）。
+   *
+   * <p>手机端没有"服务端推配置"的通道（可推的只有 state/view/ui/slot/pulse/approval），
+   * 所以配置由客户端拉：先拿 {@code version}，变化了再取 events/slots 全表。</p>
+   */
+  route('exact', '/v2/ui/catalog', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const types = Object.keys(EVENT_CATALOG).sort();
+    return sendJson(res, 200, {
+      ok: true, v: 2,
+      version: UI_CATALOG_VERSION,
+      server_caps_version: CAP_VERSION,
+      prefix_families: PREFIX_FAMILIES,
+      events: types.map((t) => ({ type: t, ...EVENT_CATALOG[t] })),
+      slots: RESERVED_SLOTS,
+      caps: SERVER_CAPS,
     });
   });
 
@@ -3289,7 +3406,13 @@ export function apply(ctx, config) {
       } catch { /* 状态失败不影响事件 */ }
     };
     const pushView = async () => {
-      try { sse({ type: 'view', data: await buildView(sid, { withTimeline: false }) }); } catch { /* ignore */ }
+      try {
+        // CAPS-FIX（2026-11-13）：SSE 的 view 也必须按 caps 裁剪，否则与 GET /v2/view 口径不一致。
+        const normalized = normalizeCaps(caps);
+        const view = await buildView(sid, { withTimeline: false, caps: normalized });
+        view.cards = filterViewCards(view.cards, normalized);
+        sse({ type: 'view', data: view });
+      } catch { /* ignore */ }
     };
     pushState();
     pushView();
