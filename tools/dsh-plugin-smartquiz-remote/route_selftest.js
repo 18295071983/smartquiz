@@ -441,6 +441,26 @@ await test('/v2/action ui.slot 推送/移除插槽（中文原样、caps 门禁�
   assert.equal(denied.json.error, 'caps_denied');
 });
 
+await test('/v2/view 补齐 schedule/subagents/plan 三张卡（B8）', async () => {
+  const caps = 'view.cards.status,view.cards.schedule,view.cards.subagents,view.cards.plan';
+  const { res, json } = await call('/v2/view?session_id=root-1&timeline=0&caps=' + caps);
+  assert.equal(res.statusCode, 200);
+  const kinds = json.cards.map((c) => c.kind);
+  for (const k of ['schedule', 'subagents', 'plan']) {
+    assert.ok(kinds.includes(k), '缺卡片 ' + k + '：' + JSON.stringify(kinds));
+  }
+  const schedule = json.cards.find((c) => c.kind === 'schedule');
+  assert.ok(Array.isArray(schedule.rows) && schedule.rows.length >= 1, '日程卡应有 rows');
+  const subs = json.cards.find((c) => c.kind === 'subagents');
+  assert.ok(subs.rows.some((r) => r.label === '已登记'), '子代理卡应显示登记数');
+  // 只声明 status 的客户端不应该看到这三张卡（caps 裁剪必须生效）
+  const reduced = await call('/v2/view?session_id=root-1&timeline=0&caps=view.cards.status');
+  const reducedKinds = reduced.json.cards.map((c) => c.kind);
+  for (const k of ['schedule', 'subagents', 'plan']) {
+    assert.ok(!reducedKinds.includes(k), '裁剪失效，仍出现 ' + k);
+  }
+});
+
 console.log(`\n${passed} passed${process.exitCode ? '（有失败）' : ''}`);
 // /events 的定时器会让 node 不退出；自检结束按结果直接退出
 process.exit(process.exitCode ?? 0);

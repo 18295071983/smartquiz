@@ -2817,6 +2817,73 @@ export function apply(ctx, config) {
         });
       }
     }
+    // B8（2026-11-13）：caps 里早就声明了 schedule/subagents/plan，但 buildView 从来没有
+    // 构造点 —— 声明了却永远出不来。这里补三张只读卡（数据源都是插件已有的）。
+    try {
+      const svc = scheduleSvc();
+      if (!svc) {
+        cards.push({
+          kind: 'schedule', title: '日程',
+          rows: [{ label: '状态', value: '这个 DSH 版本没有 schedule 服务' }],
+        });
+      } else {
+        const r = await svc.list({ active: true, limit: 50 });
+        const items = Array.isArray(r?.items) ? r.items : (Array.isArray(r?.list) ? r.list : []);
+        cards.push({
+          kind: 'schedule', title: '日程',
+          rows: items.length
+            ? items.slice(0, 8).map((t, i) => ({
+                label: String(t.title ?? t.name ?? ('任务 ' + (i + 1))),
+                value: String(t.nextRunAt ?? t.next_run_at ?? t.cron ?? t.at ?? t.status ?? ''),
+              }))
+            : [{ label: '状态', value: '暂无启用中的定时任务' }],
+        });
+      }
+    } catch (e) {
+      cards.push({
+        kind: 'schedule', title: '日程', error: 'schedule_failed',
+        detail: String(e?.message ?? e).slice(0, 120),
+      });
+    }
+
+    // 子代理：用插件进程内登记表（subagent/catalog 建立），不扫会话日志
+    try {
+      const labels = [...childLabel.values()].slice(0, 8);
+      cards.push({
+        kind: 'subagents', title: '子代理',
+        rows: [
+          { label: '已登记', value: childParent.size + ' 个' },
+          ...(labels.length ? [{ label: '最近', value: labels.join('、') }] : []),
+        ],
+      });
+    } catch { /* 忽略：这张卡不影响其他卡 */ }
+
+    // 计划模式：与 /v2/plan 同一约束——需要会话在电脑端 live
+    try {
+      const svc = planSvc();
+      const agent = liveAgentOf(sid);
+      if (svc && agent) {
+        const st = svc.get(agent) ?? {};
+        cards.push({
+          kind: 'plan', title: '计划模式',
+          rows: [{ label: '状态', value: st.active ? '已开启（先给计划，批准后执行）' : '已关闭' }],
+        });
+      } else {
+        cards.push({
+          kind: 'plan', title: '计划模式',
+          rows: [{
+            label: '状态',
+            value: svc ? '会话不在电脑端运行（无法读写）' : '这个 DSH 版本没有 plan-mode 插件',
+          }],
+        });
+      }
+    } catch (e) {
+      cards.push({
+        kind: 'plan', title: '计划模式', error: 'plan_failed',
+        detail: String(e?.message ?? e).slice(0, 120),
+      });
+    }
+
     // 能力协商可见化：两端各自声明了什么、缺什么，直接进时间线/自检页，而不是只写日志
     if (opts.caps) {
       const c = opts.caps;
