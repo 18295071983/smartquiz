@@ -453,8 +453,8 @@ public class RemoteSyncService extends Service {
                 .setOngoing(true)
                 .setOnlyAlertOnce(false);
         if (!pendingApprovalId.isEmpty()) {
-            // 展开通知显示完整信息（下划就能看到），并挂 3 个按钮：
-            // Android 通知最多 3 个 action，这里刚好用完：允许 / 拒绝 / 详情。
+            // 展开通知显示完整信息；系统 action 在 MIUI 上是"展开那一行"后才出现
+            // （试过自定义 RemoteViews：MIUI 把它序列化成 0 bytes，通知直接不显示，已回退）。
             String detail = pendingApprovalText == null ? "" : pendingApprovalText;
             b.setStyle(new Notification.BigTextStyle().bigText(detail));
             b.setSubText("审批 ID " + shortId(pendingApprovalId));
