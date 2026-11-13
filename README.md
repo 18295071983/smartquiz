@@ -261,6 +261,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-asr-model.ps1
 - [DSH 远程 UI · 总体设计](docs/dsh-remote-ui-design/00-overall.md)
 - [DSH 远程 UI · 分模块设计](docs/dsh-remote-ui-design/10-modules.md)
 - [DSH 远程 UI · 单测与验收](docs/dsh-remote-ui-design/90-tests-acceptance.md)
+- [DSH 远程 UI · 手机端审批/通知使用说明](docs/dsh-remote-ui-design/96-usage-notifications.md)
 - [DSH 远程 UI · 交叉审查与缺陷清单](docs/dsh-remote-ui-design/99-review-findings.md)
 - [DSH 远程 UI · 架构 v2（参考）](docs/dsh-remote-ui-architecture-v2-2026-11-13.md)
 - [UI 设计资料](docs/ui/)
