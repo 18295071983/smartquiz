@@ -26,8 +26,6 @@ dependencyResolutionManagement {
         maven { url = new java.net.URI('https://maven.aliyun.com/repository/central/') }
         maven { url = new java.net.URI('https://maven.aliyun.com/repository/gradle-plugin/') }
         maven { url = new java.net.URI('https://maven.aliyun.com/repository/jcenter/') }
-        // JitPack仓库
-        maven { url = new java.net.URI('https://jitpack.io') }
         // 官方源作为备份
         google()
         mavenCentral()
