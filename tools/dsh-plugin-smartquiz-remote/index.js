@@ -1293,10 +1293,15 @@ export function apply(ctx, config) {
     if (t === 'tool/result') {
       // DSH 把调用 id 放在 data.message.toolCallId（不是 data.toolCallId）
       const msg = d.message ?? {};
+      const text = (msg.content ?? [])
+        .filter((p) => p && p.type !== 'reasoning')
+        .map((p) => p.text ?? '').join('').trim();
       return {
         kind: 'tool-result',
         toolCallId: String(msg.toolCallId ?? d.toolCallId ?? ''),
         error: Boolean(msg.isError ?? d.isError ?? d.error),
+        // B15：把结果正文也带过来（子会话的工具结果，根会话只能靠这条合成帧看到）
+        text: text.slice(0, 160),
       };
     }
     if (t === 'turn/end') {
