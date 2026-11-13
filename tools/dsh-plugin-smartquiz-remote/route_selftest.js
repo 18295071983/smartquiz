@@ -346,6 +346,31 @@ await test('/events?since=-2 不回放历史（首次连接只 ready）', async 
   void pending;
 });
 
+await test('/v2/events/catalog 三层计数与前缀族', async () => {
+  const { res, json } = await call('/v2/events/catalog');
+  assert.equal(res.statusCode, 200);
+  assert.equal(json.by_layer.session, 63, 'session 层应为 DSH 权威 63 条：' + JSON.stringify(json.by_layer));
+  assert.ok(json.by_layer.host >= 5, 'host 层应包含宿主事件');
+  assert.ok(json.by_layer.synth >= 10, 'synth 层应包含插件合成帧');
+  assert.ok(json.prefix_families.includes('plugin:'), '必须登记 plugin: 前缀族');
+  assert.ok(json.prefix_families.includes('session-log-'), '必须登记 session-log- 前缀族');
+  const sample = json.types.find((t) => t.type === 'approval/asked');
+  assert.ok(sample && sample.layer === 'session', 'approval/asked 必须登记为 session 事件');
+});
+
+await test('/v2/ui/catalog 供客户端拉取（版本 + 事件 + 槽位）', async () => {
+  const { res, json } = await call('/v2/ui/catalog');
+  assert.equal(res.statusCode, 200);
+  assert.match(String(json.version), /^\d{4}-\d{2}-\d{2}-v\d+$/, '版本应形如 YYYY-MM-DD-vN');
+  assert.equal(json.events.length, json.events.length, 'events 应为数组');
+  assert.ok(json.events.length >= 80, '目录应覆盖三层共 80+ 条');
+  assert.ok(Array.isArray(json.slots) && json.slots.length >= 10, '槽位表至少 10 条');
+  for (const s of json.slots) {
+    assert.ok(s.id && s.kind && s.scope, '槽位必须带 id/kind/scope：' + JSON.stringify(s));
+    assert.equal(s.scope, 'session', '槽位作用域应为 session：' + s.id);
+  }
+});
+
 console.log(`\n${passed} passed${process.exitCode ? '（有失败）' : ''}`);
 // /events 的定时器会让 node 不退出；自检结束按结果直接退出
 process.exit(process.exitCode ?? 0);
