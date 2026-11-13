@@ -308,7 +308,7 @@ DSH 自己的 Web Client 用一套类型化 Slot 系统组合 UI，关键机制�
 | **B18** | 🟡 部分 | `ui/slot` 帧已带 `session_id`；仍是全局广播（客户端可先过滤）|
 | **B1** | ✅ 已修 | 断连时 `DockSlotBus.clear()`；甲板显隐补 `onViewportChanged`；D1 可见时 D3 只留 1 条 |
 | **B12** | ✅ 已修 | `/v2/view` 不再往对话流插卡；`refreshRemoteCards`/`addRemoteCardMessage`/`remoteCardsLane` 及布局空容器已删；旧 REMOTE_CARD 消息仍按 legacy 渲染 |
-| **B13** | ⬜ 未修 | 位置索引与归档冲突 |
+| **B13** | ✅ 已修 | `safeNotifyItemChanged` 改为按消息对象重定位：归档后不再刷错行 |
 | **B15** | 🟡 部分 | 合成 activity 现在带结果正文（`工具完成：…`）；**durable 卡片仍需专用 lane**，未做 |
 | **B16** | ✅ 已修 | `state` 帧检测落后 >500 → 重建时间线（服务端超阈值只发 snapshot，不再静默缺段）；落后 100 的整数倍记一条日志 |
 | **B17** | ✅ 已修 | `DshTimeline.Tool.meta` + `toolComponent` 投影进 props；`DshProjectionMetaTest` 2 条 |
@@ -325,6 +325,8 @@ DSH 自己的 Web Client 用一套类型化 Slot 系统组合 UI，关键机制�
 - 甲板：D1 不可见时显示 2 条（`后台任务` + `子代理`），推理中只留 1 条（代码已改，待场景验证）
 
 ### 16.2 未验证 / 待重启
+
+- 插件侧 B15（activity 带结果正文）：已提交，运行实例待重启
 
 - `slot_action`（插槽点击出口）与 B8 三卡：代码已提交，**运行实例待下次重启生效**
 - B1 的"推理中只留 1 条"需要 D1 出现才能验证（DSH 路径不写 `AgentProgressBus`，需本机 agent 触发）
