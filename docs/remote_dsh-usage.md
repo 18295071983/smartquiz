@@ -148,6 +148,7 @@ POST /session {"action":"enqueue_cmd","tool":"ui_component","args":{...}}
 | 直连回「电脑端正在执行上一条消息」 | 队列满了（默认 3）。等当前这轮结束再发，或调大 `cliMaxQueued` |
 | 电脑上正看着直连对话，手机发不进去 | 已修：目标会话有 live agent / 带 `agentPreset` 时自动改走宿主进程内投递（消息会实时出现在电脑那条对话里）；`/status` 不显示该错误后仍失败，看 `/session {action:'direct_state'}` 返回的 `agent_preset` |
 | Python 装包崩溃 | 已修：pip 加 `--no-build-isolation --only-binary :all:`；需要编译的包会直接报错 |
+| 手机连不上电脑（同网段） | 先跑 `tools/check-remote-lan.ps1`；最常见是 Windows 网络被识别为「公用」导致入站被拦，处理见**第九节** |
 
 ## 七、已知限制
 
@@ -192,3 +193,84 @@ POST /session {"action":"enqueue_cmd","tool":"ui_component","args":{…}}
 POST /session {"action":"cmd_poll"}   # 手机侧轮询
 POST /session {"action":"cmd_ack","cmd_id":"…","ok":true,"result":"…"}
 ```
+
+## 九、局域网直连（不走内网穿透）
+
+> 2026-11-14 补：手机和电脑在同一局域网时，**不需要穿隧**，直连更快也更稳。
+> 这一节按"照着做就不会不通"来写；电脑侧自检一条命令：`tools/check-remote-lan.ps1`。
+
+### 9.1 什么时候用哪种
+
+| 场景 | 连接方式 | 说明 |
+|---|---|---|
+手机和电脑在同一 WiFi/局域网 | **局域网直连** | 地址填 `http://<电脑IP>:8218` |
+手机在外网（流量/别人家 WiFi） | 内网穿透 或 Tailscale | 穿隧服务要开着，否则连不上 |
+
+### 9.2 电脑侧（3 步）
+
+1. **确认插件在监听**（DSH 开着、插件已启用）：
+   ```powershell
+   Get-NetTCPConnection -LocalPort 8218 -State Listen
+   # 期望看到 0.0.0.0:8218 或 [::]:8218
+   ```
+2. **跑自检脚本**（只读检查 + 打印修复命令）：
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File tools\check-remote-lan.ps1
+   ```
+   全绿且退出码 0，电脑侧就没问题了；脚本会直接打印"手机填这个地址：`http://x.x.x.x:8218`"。
+3. **最常见的不通：Windows 把网络识别成"公用"**，Public 防火墙拦入站。脚本第 5 项会报 `[FAIL]`，按提示用**管理员** PowerShell 二选一：
+   ```powershell
+   # A. 把网卡改成专用（推荐，最小改动）
+   Set-NetConnectionProfile -InterfaceAlias "以太网" -NetworkCategory Private
+
+   # B. 或者加一条 8218 入站放行规则
+   New-NetFirewallRule -DisplayName "DSH remote 8218" -Direction Inbound -Protocol TCP -LocalPort 8218 -Action Allow
+   ```
+   > 判断依据：`Get-NetConnectionProfile` 里 `NetworkCategory=Public` 且 `Get-NetFirewallProfile` 里 `Public Enabled=True`。
+   > 以前用穿隧能通、局域网反而不通，就是因为它走的是**出站**，而手机连电脑是**入站**。
+
+### 9.3 手机侧（4 步）
+
+1. 连和电脑同一个 WiFi，确认 IP 同网段（如 `192.168.1.x`；不同网段说明无线路由还没桥接，见第九.5）
+2. 手机浏览器先验证网络：
+   ```
+   http://<电脑IP>:8218/health
+   ```
+   看到 `{"ok":true,"service":"dsh-plugin-remote","version":8,...}` 才继续
+3. App →「远程连接（电脑）」：
+   ```
+   地址：http://<电脑IP>:8218
+   令牌：<电脑上 tools/dsh-plugin-smartquiz-remote/.token 里的 32 位整串>
+   ```
+4. 点「连接」→「自检 / 对账」，能出卡片（host_cwd / dsh_home / exec_channel…）即成功
+
+### 9.4 不通时的对照表
+
+| 现象 | 最可能原因 | 动作 |
+|---|---|---|
+浏览器 `/health` 超时 | Windows 防火墙（Public 拦入站） | 9.2 第 3 步，改 Private 或加规则 |
+浏览器 `/health` 超时，但同网段 | 路由器 AP 隔离 / 手机连了访客 WiFi | 关访客网络/AP 隔离，或换主 WiFi |
+手机 IP 是 `192.168.101.x` | 无线路由还是路由模式（双 NAT） | 改 AP/桥接（见 9.5） |
+App 里"端口显示 45972" | 那是手机临时源端口，不是要填的端口 | 端口固定填 **8218** |
+`/health` 通但 App 连不上 | 地址多了 `/`、令牌带空格/过期 | 地址不带结尾斜杠；重新复制令牌 |
+插件不在监听 | DSH 没开 / 插件没启用 | 启动 DSH，确认插件 enabled |
+电脑重启后又不通 | 网络类型被重置回 Public | 再跑 `check-remote-lan.ps1` |
+
+### 9.5 无线路由器要桥接（否则两个网段互不可见）
+
+典型家庭拓扑：**有线路由器 A 拨号**（`192.168.1.1`）→ **无线路由器 B**（默认 `192.168.101.1`，双 NAT）→ 手机在 `192.168.101.x`，**访问不到** `192.168.1.x` 的电脑。
+
+把 B 改成 AP/桥接（华为 TC32 联通定制为例）：
+
+1. 进 B 后台（`192.168.101.1`），先关 **wo-Link / X-link**（否则 WiFi 参数会被上级同步）
+2. 「我要上网 → 上网方式」选 **桥接 / Bridge(AP)**
+3. 若没有桥接选项：关 DHCP + LAN IP 改成 `192.168.1.3` + 网线从 WAN 口换到 LAN 口
+4. 手机重连 WiFi，IP 变成 `192.168.1.x` 即成功
+
+桥接后 B 的管理页可能进不去（`192.168.1.3` 只回 ping、不开 80），不影响使用；要改设置从它 WiFi 侧试 `192.168.101.1`，进不去就恢复出厂重配。
+
+### 9.6 和穿隧的关系
+
+- 穿隧（花生壳/vicp 等）解决的是"手机在外网访问电脑"，客户端跑在**电脑**上，属于出站
+- 局域网直连不需要穿隧；穿隧停了不影响同网段直连
+- 两者可并存：App 里填局域网地址就用直连，填域名就走穿隧
