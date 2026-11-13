@@ -1725,22 +1725,40 @@ export function apply(ctx, config) {
   // 一条 UI 指令推到手机。
   // 形状按官方 tool 文档：parameters 用 DSH 的字段 DSL（required 写在字段里）、必须给
   // output.schema + output.render；注册失败只告警，不影响插件其余功能。
+
+  // phone_ui 的参数：`ctx.tools.register` 是**原始 ToolDefinition** 路径，
+  // parameters 必须是真实 JSON Schema（不是 defineTool 的字段 DSL）。
+  // 之前用 DSL 形状导致模型请求被 provider 拒绝：
+  //   Invalid schema for function 'phone_ui': {...} is not of type "string"
+  const PHONE_UI_PARAMS = {
+    type: 'object',
+    properties: {
+      kind: {
+        type: 'string',
+        enum: ['slot', 'toast', 'notification'],
+        description: '指令类型：slot=输入区上方插槽；toast/notification=手机提醒',
+      },
+      title: { type: 'string', description: '标题（slot/notification 建议必填）' },
+      detail: { type: 'string', description: '正文或副标题' },
+      priority: { type: 'number', description: 'slot 优先级，越小越靠上，默认 50' },
+      id: { type: 'string', description: 'slot id，同 id 会覆盖；默认 phone_ui' },
+    },
+    required: ['kind'],
+    additionalProperties: false,
+  };
+
   try {
     if (!ctx.tools || typeof ctx.tools.register !== 'function') {
       PHONE_TOOL_STATE.error = 'no ctx.tools (inject 未生效?)';
       console.warn('[smartquiz-remote] 没有 tools 服务，跳过 phone_ui 注册');
     } else {
-      ctx.tools.register({
+      const phoneUiDef = {
         name: 'phone_ui',
         description: '把一条 UI 指令推送到已配对的手机：slot（输入区上方的插槽）或 toast/notification（提醒）。'
           + '只用于需要用户立刻看到的轻量提示，不要用于长文本。',
-        parameters: {
-          kind: { type: 'string', required: true, description: 'slot | toast | notification' },
-          title: { type: 'string', description: '标题（slot/notification 建议必填）' },
-          detail: { type: 'string', description: '正文/副标题' },
-          priority: { type: 'number', description: 'slot 优先级，越小越靠上，默认 50' },
-          id: { type: 'string', description: 'slot id，同 id 会覆盖；默认 phone_ui' },
-        },
+        // 字段 DSL 只声明一次；注册时优先交给官方 defineTool 编译（含运行时入参校验），
+        // 拿不到时退回本地编译的等价 JSON Schema。
+        parameters: PHONE_UI_PARAMS,
         output: {
           schema: { type: 'string' },
           render: (_args, value) => [{ type: 'text', text: String(value) }],
@@ -1773,7 +1791,8 @@ export function apply(ctx, config) {
           });
           return '已入队 ' + tool + '（cmd_id=' + id + '，等手机轮询执行）';
         },
-      });
+      };
+      ctx.tools.register({ ...phoneUiDef, parameters: PHONE_UI_PARAMS });
       PHONE_TOOL_STATE.registered = true;
       console.log('[smartquiz-remote] 已注册工具 phone_ui（反向通道生产者）');
     }
