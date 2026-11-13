@@ -860,7 +860,7 @@ public class HtmlCardView implements ChatComponent {
 
         /** 网络图兜底：HttpURLConnection 下载 + BitmapFactory 采样解码（防 OOM），完全绕开 Glide */
         private void downloadAndShow(final android.app.Dialog dialog,
-                                     final com.github.chrisbanes.photoview.PhotoView photoView,
+                                     final com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView photoView,
                                      final android.widget.ProgressBar loading,
                                      final String url) {
             new Thread(() -> {
@@ -905,7 +905,7 @@ public class HtmlCardView implements ChatComponent {
                         try {
                             if (fbmp != null) {
                                 if (dialog.isShowing()) {
-                                    photoView.setImageBitmap(fbmp);
+                                    photoView.setImage(com.davemorrissey.labs.subscaleview.ImageSource.bitmap(fbmp));
                                     loading.setVisibility(View.GONE);
                                 }
                             } else {

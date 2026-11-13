@@ -13,7 +13,7 @@ import androidx.annotation.Nullable;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
-import com.github.chrisbanes.photoview.PhotoView;
+import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView;
 
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -54,7 +54,7 @@ public class FileRenderActivity extends BaseActivity {
     private TextView tvLoading;
     private TextView tvProgress;
     private LinearLayout contentLayout;
-    private PhotoView ivImage;
+    private SubsamplingScaleImageView ivImage;
     private TextView tvText;
     private WebView wvHtml;
     private MarkdownDocView mdDoc;
@@ -103,8 +103,8 @@ public class FileRenderActivity extends BaseActivity {
 
         setupWebView();
         // 图片内容用 PhotoView（焦点缩放/平移/双击），无 setScaleX 抖动
-        ivImage.setZoomable(true);
-        ivImage.setMaximumScale(6f);
+        ivImage.setMinimumScaleType(SubsamplingScaleImageView.SCALE_TYPE_CENTER_INSIDE);
+        ivImage.setMaxScale(6f);
     }
 
     @Override
@@ -379,35 +379,12 @@ public class FileRenderActivity extends BaseActivity {
         }
     }
 
-    /** 用 PhotoView 展示位图，并按位图/视图尺寸显式回到完整适配，避免缩放错乱。 */
-    private void showImageBitmap(PhotoView pv, Bitmap bmp) {
-        pv.setImageBitmap(bmp);
-        pv.post(() -> {
-            int vw = pv.getWidth();
-            int vh = pv.getHeight();
-            float fs;
-            if (vw > 0 && vh > 0 && bmp != null && bmp.getWidth() > 0 && bmp.getHeight() > 0) {
-                fs = Math.min((float) vw / bmp.getWidth(), (float) vh / bmp.getHeight());
-            } else {
-                fs = pv.getScale();
-            }
-            if (fs > 0f) {
-                try {
-                    // PhotoView 约束：min < medium < max。小图适配到满屏时 fs 可能 >= medium(1.75)，
-                    // 直接 setMinimumScale 会抛 IllegalArgumentException（线上崩溃 2026-09-25 00:14:58）
-                    float med = pv.getMediumScale();
-                    if (med <= 0f) med = 1.75f;
-                    if (fs >= med) {
-                        pv.setMediumScale(fs * 1.01f);
-                    }
-                    pv.setMinimumScale(fs);
-                    pv.setMaximumScale(Math.max(pv.getMaximumScale(), fs * 6f));
-                    pv.setScale(fs, false);
-                } catch (IllegalArgumentException e) {
-                    Log.w(TAG, "PhotoView scale adjust skipped: " + e.getMessage());
-                }
-            }
-        });
+    /** 展示位图：SubsamplingScaleImageView 自带"适配屏幕 + 双指缩放 + 双击"，无需手算 scale。 */
+    private void showImageBitmap(SubsamplingScaleImageView pv, Bitmap bmp) {
+        if (pv == null || bmp == null) return;
+        pv.setImage(com.davemorrissey.labs.subscaleview.ImageSource.bitmap(bmp));
+        pv.setMinimumScaleType(SubsamplingScaleImageView.SCALE_TYPE_CENTER_INSIDE);
+        pv.setMaxScale(6f);
         pv.setVisibility(View.VISIBLE);
     }
 

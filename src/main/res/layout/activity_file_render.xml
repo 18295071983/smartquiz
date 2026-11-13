@@ -37,7 +37,7 @@
             android:layout_height="match_parent"
             android:orientation="vertical">
 
-            <com.github.chrisbanes.photoview.PhotoView
+            <com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
                 android:id="@+id/iv_image"
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/size_0"

@@ -25,10 +25,28 @@ public final class ImagePreviewUtil {
             dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
             final android.widget.FrameLayout root = new android.widget.FrameLayout(context);
             root.setBackgroundColor(android.graphics.Color.BLACK);
-            final com.github.chrisbanes.photoview.PhotoView photoView =
-                    new com.github.chrisbanes.photoview.PhotoView(context);
+            final com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView photoView =
+                    new com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView(context);
             photoView.setBackgroundColor(android.graphics.Color.BLACK);
-            photoView.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+            // SubsamplingScaleImageView 没有 setScaleType：用 SCALE_TYPE_CENTER_INSIDE 等价 FIT_CENTER
+            photoView.setMinimumScaleType(com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView.SCALE_TYPE_CENTER_INSIDE);
+            // SSIV 没有单击回调（会接管触摸做缩放/平移），改用右上角关闭按钮
+            final android.widget.TextView closeBtn = new android.widget.TextView(context);
+            closeBtn.setText("✕");
+            closeBtn.setTextSize(26f);
+            closeBtn.setTextColor(android.graphics.Color.WHITE);
+            closeBtn.setGravity(android.view.Gravity.CENTER);
+            closeBtn.setPadding(24, 8, 24, 8);
+            closeBtn.setOnClickListener(v -> {
+                try { dialog.dismiss(); } catch (Throwable ignored) { }
+            });
+            android.widget.FrameLayout.LayoutParams closeLp = new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.view.Gravity.TOP | android.view.Gravity.END);
+            closeLp.topMargin = 24;
+            closeLp.rightMargin = 16;
+            root.addView(closeBtn, closeLp);
             root.addView(photoView, new android.widget.FrameLayout.LayoutParams(
                     android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
                     android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
@@ -82,7 +100,7 @@ public final class ImagePreviewUtil {
 
     /** 本地文件：BitmapFactory 采样解码（防 OOM），后台线程执行 */
     private static void decodeFileInThread(final android.app.Dialog dialog,
-                                           final com.github.chrisbanes.photoview.PhotoView photoView,
+                                           final com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView photoView,
                                            final android.widget.ProgressBar loading,
                                            final android.content.Context context,
                                            final java.io.File file) {
@@ -93,7 +111,7 @@ public final class ImagePreviewUtil {
                     try {
                         if (bmp != null) {
                             if (dialog.isShowing()) {
-                                photoView.setImageBitmap(bmp);
+                                photoView.setImage(com.davemorrissey.labs.subscaleview.ImageSource.bitmap(bmp));
                                 loading.setVisibility(android.view.View.GONE);
                             }
                         } else {
@@ -110,7 +128,7 @@ public final class ImagePreviewUtil {
 
     /** content://：ContentResolver 流 + 采样解码 */
     private static void decodeContentInThread(final android.app.Dialog dialog,
-                                              final com.github.chrisbanes.photoview.PhotoView photoView,
+                                              final com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView photoView,
                                               final android.widget.ProgressBar loading,
                                               final android.content.Context context,
                                               final String uri) {
@@ -144,7 +162,7 @@ public final class ImagePreviewUtil {
                     try {
                         if (fbmp != null) {
                             if (dialog.isShowing()) {
-                                photoView.setImageBitmap(fbmp);
+                                photoView.setImage(com.davemorrissey.labs.subscaleview.ImageSource.bitmap(fbmp));
                                 loading.setVisibility(android.view.View.GONE);
                             }
                         } else {
@@ -161,7 +179,7 @@ public final class ImagePreviewUtil {
 
     /** 网络图：HttpURLConnection 下载 + 采样解码（绕开 Glide），超时 8s/10s */
     private static void downloadInThread(final android.app.Dialog dialog,
-                                         final com.github.chrisbanes.photoview.PhotoView photoView,
+                                         final com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView photoView,
                                          final android.widget.ProgressBar loading,
                                          final android.content.Context context,
                                          final String url) {
@@ -207,7 +225,7 @@ public final class ImagePreviewUtil {
                     try {
                         if (fbmp != null) {
                             if (dialog.isShowing()) {
-                                photoView.setImageBitmap(fbmp);
+                                photoView.setImage(com.davemorrissey.labs.subscaleview.ImageSource.bitmap(fbmp));
                                 loading.setVisibility(android.view.View.GONE);
                             }
                         } else {
