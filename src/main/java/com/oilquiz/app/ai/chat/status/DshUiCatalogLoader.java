@@ -24,11 +24,11 @@ public final class DshUiCatalogLoader {
     /** 覆盖文件名（放 filesDir 下即生效；不需要发版） */
     public static final String FILE_NAME = "dsh_ui_catalog.json";
 
-    public static final int DEFAULT_MAX_WITH_PROGRESS = 1;
-    public static final int DEFAULT_MAX_WITHOUT_PROGRESS = 2;
+    public static final int DEFAULT_MAX_WITH_PROGRESS = 2;
+    public static final int DEFAULT_MAX_WITHOUT_PROGRESS = 5;
 
     /** 硬上限：再多会把聊天区挤没（与既有护栏一致） */
-    public static final int HARD_MAX = 3;
+    public static final int HARD_MAX = 6;
 
     private final int maxRowsWithProgress;
     private final int maxRowsWithoutProgress;

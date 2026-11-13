@@ -14918,6 +14918,7 @@ public class AIChatActivity extends BaseActivity {
         // 用户可关（✕ 或「远程连接（电脑）」里的开关）：关了就不再常驻显示
         if (!com.oilquiz.app.ai.tool.RemoteDshTool.isBarEnabled(this)) {
             remoteDshBar.setVisibility(View.GONE);
+            com.oilquiz.app.ai.tool.RemoteStatusSlots.clear();
             return;
         }
         boolean configured = com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this);
@@ -14941,6 +14942,7 @@ public class AIChatActivity extends BaseActivity {
             // 断开就别再显示上一台电脑的忙碌状态
             com.oilquiz.app.ai.tool.RemoteStatusMonitor.clear();
             com.oilquiz.app.ai.tool.RemoteLiveStatus.reset();
+            com.oilquiz.app.ai.tool.RemoteStatusSlots.clear();
         } else {
             // BAR-V3(2026-11-13)：已连接时显示"电脑现在在干什么"，而不只是"连上了"。
             // 数据源三个：会话事件派生的实时状态（阶段/工具/计时）+ /status（忙闲/审批/队列）
@@ -14979,6 +14981,8 @@ public class AIChatActivity extends BaseActivity {
             com.oilquiz.app.ai.tool.RemoteStatusMonitor.refreshAsync(this,
                     com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this), 15000L,
                     () -> runOnUiThread(this::refreshRemoteDshBar));
+            // 数据插槽：阶段/会话/链路/用量/模型 各占一行（甲板按优先级选行）
+            com.oilquiz.app.ai.tool.RemoteStatusSlots.publish(this);
             // 1s 心跳：工具/生成/等待审批的秒数用本地时钟跳，服务端日志静止也照跳
             scheduleRemoteBarTick();
         }
@@ -15344,6 +15348,7 @@ public class AIChatActivity extends BaseActivity {
     @Override
     protected void onDestroy() {
         com.oilquiz.app.ai.chat.status.DockSlotBus.removeListener(dockSlotListener);
+        com.oilquiz.app.ai.tool.RemoteStatusSlots.clear();
         // 贴底控制器 / 滚动锚点都持有 messageList 的 preDraw/scroll 监听器，必须解绑，避免强引用泄漏。
         if (stickToBottom != null) {
             stickToBottom.release();
