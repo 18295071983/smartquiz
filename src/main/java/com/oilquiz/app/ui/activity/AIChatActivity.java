@@ -13916,9 +13916,15 @@ public class AIChatActivity extends BaseActivity {
         }
         // 转换层也走派发器（不只是下游补）：先拿主 id，再按它申请子 id 当消息 id。
         // 于是 T{n}-A{k} 既是有序锚点（渲染/恢复归位），又由持久化主计数器保证唯一。
+        // ID-NAMING（2026-11-13，B6）：消息 id 直接用派发器发的子 id（T{n}-A{k}），
+        // 不再用 UUID 而让 subId 指回自己 —— 以前 id≠subId，按 id 排序/聚合时和 turnId 脱节。
         String mirrorTurnId = ChatIdDispatcher.getInstance().applyMasterId();
+        String mirrorSubId = ChatIdDispatcher.getInstance()
+                .applySubId(ChatIdDispatcher.IdType.AI, mirrorTurnId);
         ChatMessage live = ChatMessage.createAIMessage(
-                java.util.UUID.randomUUID().toString(),
+                mirrorSubId != null && !mirrorSubId.isEmpty()
+                        ? mirrorSubId
+                        : java.util.UUID.randomUUID().toString(),
                 "", System.currentTimeMillis(), null, 0, 0);
         live.turnId = mirrorTurnId;
         live.subId = live.id;
@@ -14103,9 +14109,15 @@ public class AIChatActivity extends BaseActivity {
     private void safeNotifyItemChanged(int idx) {
         if (chatAdapter == null || chatHistory == null) return;
         if (idx < 0 || idx >= chatHistory.size()) return;
+        // INDEX-FIX（2026-11-13，B13）：maybeArchiveAfterSave 会从头部整块删消息，
+        // 而这里 post 到主线程之后 idx 可能已经指向另一条 —— 于是刷错行（正文/工具卡不更新，
+        // 或者别的行被重绑）。记下"调用时这一行是谁"，执行时按对象重新定位；找不到就放弃。
+        final ChatMessage target = chatHistory.get(idx);
         runOnUiThread(() -> messageList.post(() -> {
-            if (chatAdapter == null || idx < 0 || idx >= chatHistory.size()) return;
-            chatAdapter.notifyItemChanged(idx);
+            if (chatAdapter == null || chatHistory == null) return;
+            int now = chatHistory.indexOf(target);
+            if (now < 0) return;
+            chatAdapter.notifyItemChanged(now);
         }));
     }
 

@@ -386,9 +386,33 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             writeMessagesPreservingHead(writer, file, false, headCount, toSave);
             writer.write("]");
             writer.close();
-            // 原子替换：先写临时文件，再重命名
-            if (file.exists()) file.delete();
-            tempFile.renameTo(file);
+            // ATOMIC-SAVE（2026-11-13，B10）：旧实现"先 delete 再 rename"，
+            // 中间任何一次进程被杀/断电都会让历史文件彻底消失（没有备份、没有 fsync）。
+            // 现在：① 临时文件 fsync 落盘；② 旧文件留一份 .bak；③ 同目录 rename 原子覆盖
+            // （POSIX 允许覆盖式 rename），只有不支持覆盖的文件系统才退回旧的删除路径。
+            try (java.io.FileOutputStream syncOut = new java.io.FileOutputStream(tempFile, true)) {
+                syncOut.getFD().sync();
+            } catch (Exception e) {
+                Log.w(TAG, "历史文件 fsync 失败（继续保存）: " + e.getMessage());
+            }
+            File backupFile = new File(context.getFilesDir(), AI_CHAT_HISTORY_FILE + ".bak");
+            if (file.exists()) {
+                try {
+                    copyFile(file, backupFile);
+                } catch (Exception e) {
+                    Log.w(TAG, "历史文件备份失败（继续保存）: " + e.getMessage());
+                }
+            }
+            if (!tempFile.renameTo(file)) {
+                // 少数文件系统不允许覆盖：退回"删了再改名"，此时 .bak 是唯一回捞点
+                if (file.exists() && !file.delete()) {
+                    Log.e(TAG, "替换历史文件失败：旧文件删不掉，新数据留在 .tmp");
+                    return;
+                }
+                if (!tempFile.renameTo(file)) {
+                    Log.e(TAG, "替换历史文件失败：rename 不生效，旧数据可从 .bak 回捞");
+                }
+            }
         } catch (IOException e) {
             Log.e(TAG, "Error saving AI chat history", e);
         }

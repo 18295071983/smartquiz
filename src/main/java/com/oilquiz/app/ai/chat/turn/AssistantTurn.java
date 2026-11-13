@@ -1211,8 +1211,40 @@ public class AssistantTurn {
 
     /** 组件内容稳定摘要（String.hashCode 规范稳定），写进 data part 的 args 供指纹区分。 */
     private static String contentDigest(com.oilquiz.app.ai.chat.component.ComponentData c) {
-        String key = c.type + "|" + (c.props != null ? c.props.toString() : "");
+        // FINGERPRINT-FIX（2026-11-13，B3）：JSONObject.toString() 保留插入顺序，
+        // 而 props 可能是 HashMap/不同构造路径产出 —— 同样的内容能算出不同指纹，于是
+        // 每次重投影都"看起来变了"→ 整卡重绑（闪烁 + 丢失展开态）。这里改成规范化 JSON：
+        // 对象键按字典序，数组保序；数字/布尔/字符串按原样。
+        String key = c.type + "|" + canonicalJson(c.props);
         return Integer.toString(key.hashCode());
+    }
+
+    /** 规范化 JSON（供指纹用）：对象键排序、数组保序，保证同内容必得同串。 */
+    static String canonicalJson(Object value) {
+        if (value == null) return "null";
+        if (value instanceof org.json.JSONObject) {
+            org.json.JSONObject o = (org.json.JSONObject) value;
+            java.util.List<String> keys = new java.util.ArrayList<>();
+            java.util.Iterator<String> it = o.keys();
+            while (it.hasNext()) keys.add(it.next());
+            java.util.Collections.sort(keys);
+            StringBuilder sb = new StringBuilder("{");
+            for (int i = 0; i < keys.size(); i += 1) {
+                if (i > 0) sb.append(',');
+                sb.append(keys.get(i)).append(':').append(canonicalJson(o.opt(keys.get(i))));
+            }
+            return sb.append('}').toString();
+        }
+        if (value instanceof org.json.JSONArray) {
+            org.json.JSONArray a = (org.json.JSONArray) value;
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < a.length(); i += 1) {
+                if (i > 0) sb.append(',');
+                sb.append(canonicalJson(a.opt(i)));
+            }
+            return sb.append(']').toString();
+        }
+        return String.valueOf(value);
     }
 
     /** 从消息的 tool_call 组件回填 name/args/status/result，并补 TOOL_RESULT part。 */
