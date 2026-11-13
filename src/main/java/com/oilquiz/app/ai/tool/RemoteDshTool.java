@@ -905,6 +905,24 @@ public class RemoteDshTool implements AITool {
         return Boolean.TRUE.equals(resp.get("ok"));
     }
 
+    /**
+     * 在线改权限（2026-11-13）：权限槽点开变更卡后，把选择发回电脑端插件。
+     *
+     * <p>走 {@code /v2/action permission.set}（与 ui.slot 同一个入口）；
+     * 插件做特性探测，改不了会回 {@code not_supported}，调用方据此提示"去电脑端改"。</p>
+     *
+     * @return 电脑端返回的 JSON（ok / applied / failed / hint），失败返回 null
+     */
+    public static org.json.JSONObject setPermission(Context c, org.json.JSONObject request) throws Exception {
+        if (request == null) return null;
+        RemoteDshTool tool = new RemoteDshTool(c);
+        org.json.JSONObject body = new org.json.JSONObject(request.toString());
+        body.put("caps", "cmd.ui");   // /v2/action 的 caps 门禁
+        Map<String, Object> resp = tool.httpJsonBody(
+                tool.getBaseUrl() + "/v2/action", "POST", body.toString(), 15);
+        return resp == null ? null : new org.json.JSONObject(resp);
+    }
+
     /** 同步流式回调（在后台线程触发，调用方自行 post 到 UI） */
     public interface SyncStreamListener {
         void onStart();
@@ -2672,6 +2690,17 @@ public class RemoteDshTool implements AITool {
      * @return 解析后的 Map；连接失败返回 null；HTTP 错误也尝试解析 body。
      */
     Map<String, Object> httpJson(String url, String method, Map<String, Object> body, int timeoutSec) throws Exception {
+        byte[] payload = body == null ? null : jsonEncode(body).getBytes(StandardCharsets.UTF_8);
+        return httpJsonBytes(url, method, payload, timeoutSec);
+    }
+
+    /** 已编码好的 JSON 请求体（动态卡/权限变更这类直接拼 JSON 的调用走这里） */
+    Map<String, Object> httpJsonBody(String url, String method, String jsonBody, int timeoutSec) throws Exception {
+        byte[] payload = jsonBody == null ? null : jsonBody.getBytes(StandardCharsets.UTF_8);
+        return httpJsonBytes(url, method, payload, timeoutSec);
+    }
+
+    private Map<String, Object> httpJsonBytes(String url, String method, byte[] payload, int timeoutSec) throws Exception {
         HttpURLConnection conn = null;
         try {
             conn = (HttpURLConnection) new URL(url).openConnection();
@@ -2685,10 +2714,9 @@ public class RemoteDshTool implements AITool {
             if (!token.isEmpty()) {
                 conn.setRequestProperty("Authorization", "Bearer " + token);
             }
-            if (body != null) {
+            if (payload != null) {
                 conn.setDoOutput(true);
                 conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                byte[] payload = jsonEncode(body).getBytes(StandardCharsets.UTF_8);
                 try (OutputStream os = conn.getOutputStream()) {
                     os.write(payload);
                 }

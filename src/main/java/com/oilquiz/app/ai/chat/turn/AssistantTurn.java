@@ -1044,6 +1044,12 @@ public class AssistantTurn {
                 idx++;
                 continue;
             }
+            // DECK-ONLY（2026-11-13）：标记为 deck_only 的组件只画在甲板卡槽里
+            // （子代理轨迹这类"状态型"卡片），消息流不再重复画一张。
+            if (c.props != null && c.props.optBoolean("deck_only", false)) {
+                idx++;
+                continue;
+            }
             String id = (c.id != null && !c.id.isEmpty()) ? ("data:" + c.id) : ("data#" + idx);
             Part p = Part.data(id, c, 0L);
             p.args = contentDigest(c);

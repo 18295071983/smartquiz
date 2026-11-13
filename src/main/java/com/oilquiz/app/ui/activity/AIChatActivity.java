@@ -13116,6 +13116,15 @@ public class AIChatActivity extends BaseActivity {
             scrollToPendingAttention();
             return;
         }
+        if ("permission".equals(action)) {
+            showPermissionChange();
+            return;
+        }
+        openDockSlotPanel(action);
+    }
+
+    /** 其余插槽：任务/目标/日程/子代理/MCP 进面板，未知动作进远程连接页 */
+    private void openDockSlotPanel(String action) {
         if ("jobs".equals(action) || "goal".equals(action) || "schedule".equals(action)
                 || "subagents".equals(action) || "mcp".equals(action) || "permission".equals(action)) {
             // 后台任务 / 目标 / 日程 / 计划 / 子代理 / MCP 都在这个面板里（P3 复用，不再新开页面）
@@ -13125,6 +13134,55 @@ public class AIChatActivity extends BaseActivity {
         }
         startActivity(new android.content.Intent(this,
                 com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class));
+    }
+
+    /**
+     * 权限槽点击 → 变更卡（2026-11-13）。
+     *
+     * <p>以前点权限行直接跳面板，看不出能改什么。现在弹一张卡列沙箱模式/审批策略，
+     * 选完发 {@code /v2/action permission.set}；电脑端改不动时明确提示去电脑端改，
+     * 不假装成功（插件会回 {@code not_supported} + failed 明细）。</p>
+     */
+    private void showPermissionChange() {
+        String current = "";
+        for (com.oilquiz.app.ai.chat.status.DockSlotBus.Slot s
+                : com.oilquiz.app.ai.chat.status.DockSlotBus.list()) {
+            if (s != null && "permission".equals(s.id)) current = s.detail;
+        }
+        final String currentDetail = current;
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(com.oilquiz.app.ai.chat.status.PermissionChangeCard.title(currentDetail))
+                .setItems(com.oilquiz.app.ai.chat.status.PermissionChangeCard.items(),
+                        (dialog, which) -> {
+                            final org.json.JSONObject body =
+                                    com.oilquiz.app.ai.chat.status.PermissionChangeCard.requestFor(which);
+                            if (body == null) return;
+                            new Thread(() -> {
+                                org.json.JSONObject resp = null;
+                                String err = null;
+                                try {
+                                    resp = com.oilquiz.app.ai.tool.RemoteDshTool
+                                            .setPermission(AIChatActivity.this, body);
+                                } catch (Exception e) {
+                                    err = e.getMessage();
+                                }
+                                final org.json.JSONObject fResp = resp;
+                                final String fErr = err;
+                                runOnUiThread(() -> {
+                                    boolean ok = fResp != null && fResp.optBoolean("ok", false);
+                                    if (ok) {
+                                        showToast("权限已提交");
+                                    } else {
+                                        String hint = fResp == null ? (fErr == null ? "电脑端不可达" : fErr)
+                                                : fResp.optString("hint",
+                                                fResp.optString("error", "电脑端没有应用这次变更"));
+                                        showToast("没改成：" + hint);
+                                    }
+                                });
+                            }, "dsh-permission-set").start();
+                        })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     /**
@@ -13357,45 +13415,33 @@ public class AIChatActivity extends BaseActivity {
      * <p>为什么不把卡直接放进插槽：插槽是一行 11sp 状态条，装不下按钮/多选/自由输入；
      * 而且会造成"卡里状态"和"插槽状态"两个写入者，必然打架。</p>
      */
+    /**
+     * 刷新"待处理"UI（2026-11-13）：甲板卡片 + 通知栏。
+     *
+     * <p>原来的文本指路牌已去掉 —— 既然卡片本身就在甲板上，再加一行"点这里定位"就是多余的卡。</p>
+     */
     private void refreshAttentionSlot() {
         int approvals = 0;
         int questions = 0;
-        String firstLabel = "";
         if (chatHistory != null) {
             for (ChatMessage m : chatHistory) {
                 if (m == null) continue;
                 if (m.approvals != null) {
                     for (ChatMessage.ApprovalRequest a : m.approvals) {
-                        if (a == null || !a.isPending()) continue;
-                        approvals += 1;
-                        if (firstLabel.isEmpty()) {
-                            firstLabel = a.permission == null ? "" : a.permission;
-                        }
+                        if (a != null && a.isPending()) approvals += 1;
                     }
                 }
                 if (m.questions != null) {
                     for (ChatMessage.QuestionRequest q : m.questions) {
-                        if (q == null || !q.isPending()) continue;
-                        questions += 1;
-                        if (firstLabel.isEmpty()) {
-                            firstLabel = q.question == null ? "" : q.question;
-                        }
+                        if (q != null && q.isPending()) questions += 1;
                     }
                 }
             }
         }
-        com.oilquiz.app.ai.chat.status.DockSlotBus.Slot slot =
-                com.oilquiz.app.ai.chat.status.PendingAttention.slotOf(approvals, questions, firstLabel);
-        if (slot == null) {
-            com.oilquiz.app.ai.chat.status.DockSlotBus.remove(
-                    com.oilquiz.app.ai.chat.status.PendingAttention.SLOT_ID);
-        } else {
-            com.oilquiz.app.ai.chat.status.DockSlotBus.update(slot);
-        }
         // 通知栏联动：有 pending 才提醒，处理完自动撤
         com.oilquiz.app.ai.chat.status.PendingActionNotifier.sync(
                 this, approvals, questions, AIChatActivity.class);
-        // 可交互卡片直接放甲板（与消息流同一套渲染器）
+        // 可交互卡片 / 子代理轨迹卡 直接放甲板
         refreshPendingCard();
     }
 
@@ -13443,6 +13489,8 @@ public class AIChatActivity extends BaseActivity {
             }
         }
         if (part == null || owner == null) {
+            // 没有待处理：退回"子代理轨迹卡"（deck_only，只画在甲板）
+            if (renderDeckOnlyComponent()) return;
             dockCardHost.removeAllViews();
             dockCardHost.setVisibility(View.GONE);
             deckCardOwner = null;
@@ -13469,6 +13517,36 @@ public class AIChatActivity extends BaseActivity {
         renderer.bindView(card, part, deckPartHost);
         dockCardHost.setVisibility(View.VISIBLE);
         updateDeckVisibility();
+    }
+
+    /**
+     * 把"只画在甲板"的组件（子代理轨迹卡等）渲染进卡槽。
+     *
+     * <p>这些组件带 {@code props.deck_only=true}：消息流不画（{@code AssistantTurn} 跳过），
+     * 但数据仍在 {@code ChatMessage.components} 里随消息落盘 —— 所以重进会话还能恢复。</p>
+     *
+     * @return true = 已渲染一张甲板卡
+     */
+    private boolean renderDeckOnlyComponent() {
+        if (dockCardHost == null || chatHistory == null) return false;
+        for (int i = chatHistory.size() - 1; i >= 0; i -= 1) {
+            ChatMessage m = chatHistory.get(i);
+            if (m == null || m.components == null) continue;
+            for (int j = m.components.size() - 1; j >= 0; j -= 1) {
+                com.oilquiz.app.ai.chat.component.ComponentData cd = m.components.get(j);
+                if (cd == null || cd.props == null) continue;
+                if (!cd.props.optBoolean("deck_only", false)) continue;
+                View view = com.oilquiz.app.ai.chat.component.ComponentRegistry.getInstance()
+                        .render(this, cd);
+                if (view == null) continue;
+                dockCardHost.removeAllViews();
+                dockCardHost.addView(view);
+                dockCardHost.setVisibility(View.VISIBLE);
+                updateDeckVisibility();
+                return true;
+            }
+        }
+        return false;
     }
 
     /** question part 需要的参数 JSON（callId/detail/options/multiSelect） */

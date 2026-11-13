@@ -186,6 +186,9 @@ public final class DshProjection {
             steps.put(row);
         }
         if (steps.length() > 0) DshCards.put(props, "steps", steps);
+        // 只画在甲板卡槽里（2026-11-13）：子代理是"当前状态"而不是对话内容，
+        // 放聊天流会跟甲板重复；数据仍随消息落盘（durable），只是消息流不再画。
+        DshCards.put(props, "deck_only", true);
         ComponentData data = ComponentData.of("subagent_card", props);
         data.source = "dsh";
         data.id = ids.idFor("subagent:" + sa.childId);

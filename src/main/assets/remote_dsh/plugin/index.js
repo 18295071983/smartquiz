@@ -2159,6 +2159,62 @@ export function apply(ctx, config) {
       });
       return sendJson(res, 200, { ok: true, v: 2, action, slot });
     }
+    if (action === 'permission.set') {
+      // 权限槽的"变更卡"（2026-11-13）：手机选一个沙箱模式/审批策略，这里尽力落到宿主服务。
+      // 服务名/方法名不同版本可能不一样，全部做特性探测；一个都落不下去就明确回 not_supported，
+      // 让手机提示"去电脑端改"，而不是假装成功。
+      if (!allows(normalizeCaps(body.caps ?? ''), 'cmd.ui')) {
+        return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'cmd.ui' });
+      }
+      const sandbox = String(body.sandbox ?? '').trim();
+      const policy = String(body.policy ?? body.preset ?? '').trim();
+      const svcOf = (name) => {
+        try {
+          return ctx[name] ?? ctx.get?.(name) ?? null;
+        } catch {
+          return null;
+        }
+      };
+      const applied = [];
+      const failed = [];
+      if (sandbox) {
+        const sb = svcOf('sandbox');
+        const fn = sb && (sb.setMode || sb.changeMode || sb.set);
+        if (typeof fn !== 'function') {
+          failed.push('sandbox:' + (sb ? 'no_setter' : 'unavailable'));
+        } else {
+          try {
+            await fn.call(sb, sandbox);
+            applied.push('sandbox');
+          } catch (e) {
+            failed.push('sandbox:' + String(e?.message ?? e).slice(0, 80));
+          }
+        }
+      }
+      if (policy) {
+        const perm = svcOf('permissions') ?? svcOf('approvalPolicy') ?? null;
+        const fn = perm && (perm.setPreset || perm.setPolicy || perm.applyPreset);
+        if (typeof fn !== 'function') {
+          failed.push('policy:' + (perm ? 'no_setter' : 'unavailable'));
+        } else {
+          try {
+            await fn.call(perm, policy);
+            applied.push('policy');
+          } catch (e) {
+            failed.push('policy:' + String(e?.message ?? e).slice(0, 80));
+          }
+        }
+      }
+      if (!sandbox && !policy) {
+        return sendJson(res, 400, { ok: false, error: 'need_sandbox_or_policy' });
+      }
+      broadcastPermissionSlot();
+      const ok = applied.length > 0;
+      return sendJson(res, ok ? 200 : 409, {
+        ok, v: 2, action, applied, failed,
+        hint: ok ? undefined : '这个 DSH 版本不暴露在线改权限的接口，请在电脑端改',
+      });
+    }
     if (action === 'jobs.clear') {
       JOB_STATE.clear();
       scheduleStateSave();
@@ -2172,7 +2228,7 @@ export function apply(ctx, config) {
     }
     return sendJson(res, 400, {
       ok: false, v: 2, error: 'unknown_action', action,
-      allowed: ['ui.slot', 'jobs.clear', 'resync'],
+      allowed: ['ui.slot', 'permission.set', 'jobs.clear', 'resync'],
     });
   });
 

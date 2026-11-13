@@ -57,7 +57,7 @@ public final class DshCards {
                 || "tool-workflow/agent-start".equals(type)
                 || "tool-workflow/agent-end".equals(type)
                 || "tool-workflow/run-end".equals(type)
-                || "subagent/catalog".equals(type)
+                // 2026-11-13：subagent/catalog 不再出提示卡（子代理改由甲板轨迹卡承载）
                 || "subagent/descriptor".equals(type)
                 || "llm/retry".equals(type)
                 || "llm/retry-started".equals(type)
@@ -200,13 +200,6 @@ public final class DshCards {
                 Card done = workflowCard(runId, run);
                 workflows.remove(runId);
                 return done;
-            }
-            case "subagent/catalog": {
-                String label = data.optString("label", "子代理");
-                String mode = data.optString("mode", "");
-                String content = label + ("continuable".equals(mode) ? "（可续跑）" : "");
-                return new Card("subagent-" + data.optString("childId", String.valueOf(turn)), "dsh_notice",
-                        obj("title", "子代理", "text", content, "level", "info"));
             }
             case "llm/retry": {
                 JSONObject failure = data.optJSONObject("failure");
