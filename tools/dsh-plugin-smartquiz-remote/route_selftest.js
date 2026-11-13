@@ -387,6 +387,21 @@ await test('/cmd 声明 caps 但缺 cmd.ui → 403；未声明则放行', async 
   assert.ok(legacy.json.cmd_id, '应返回 cmd_id');
 });
 
+await test('/cmd 中文按 UTF-8 原样往返（不变成 ??）', async () => {
+  const text = '中文编码自检 · 不能变成 ??';
+  const queued = await call('/cmd', {
+    method: 'POST',
+    body: JSON.stringify({ tool: 'notification', args: { title: '编码自检', text }, caps: 'cmd.ui' }),
+  });
+  assert.equal(queued.res.statusCode, 200, '入队失败：' + queued.res.text().slice(0, 200));
+  const polled = await call('/cmd/poll');
+  assert.equal(polled.res.statusCode, 200);
+  const got = (polled.json.commands || []).find((c) => c && c.args && c.args.text === text);
+  assert.ok(got, '中文应原样返回（会被 PowerShell/ASCII 编码压成 ??）：'
+    + JSON.stringify(polled.json).slice(0, 300));
+  assert.equal(got.args.title, '编码自检');
+});
+
 console.log(`\n${passed} passed${process.exitCode ? '（有失败）' : ''}`);
 // /events 的定时器会让 node 不退出；自检结束按结果直接退出
 process.exit(process.exitCode ?? 0);
