@@ -162,6 +162,18 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
 
 
         bindActions();
+        // 「连接管理」按钮在 onCreate 里绑（之前放进 bindActions 的替换位置落到了
+        // 保存按钮的 handler 里，导致按钮点了没反应）
+        try {
+            View profilesBtn = findViewById(R.id.btn_profiles);
+            if (profilesBtn != null) {
+                profilesBtn.setOnClickListener(v -> RemoteProfilesActivity.open(this));
+            } else {
+                android.util.Log.w("RemoteDshConnect", "找不到 btn_profiles");
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("RemoteDshConnect", "绑定连接管理按钮失败: " + t.getMessage());
+        }
         refresh();
         if (RemoteDshTool.isConfigured(this)) {
             probe(false, false);
@@ -814,6 +826,16 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             }
         } catch (Throwable ignored) { /* 加不上也不影响扫码 */ }
 
+        // 「连接管理」静态按钮：打开独立页面（不再往本页动态插 chips）
+        try {
+            View profilesBtn = findViewById(R.id.btn_profiles);
+            if (profilesBtn != null) {
+                profilesBtn.setOnClickListener(v ->
+                        com.oilquiz.app.ai.tool.RemoteProfilesActivity.open(this));
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("RemoteDshConnect", "绑定连接管理按钮失败: " + t.getMessage());
+        }
         renderProfiles();
     }
 
@@ -880,7 +902,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             box.addView(scroll, Math.max(0, index),
                     new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.WRAP_CONTENT));
-        } catch (Throwable ignored) { /* 列表出问题不影响连接页本身 */ }
+        } catch (Throwable t) { android.util.Log.w("RemoteDshConnect", "renderProfiles 失败: " + t, t); }
     }
 
     /** 输入 6 位配对码 → 换设备令牌 → 保存并连接 */

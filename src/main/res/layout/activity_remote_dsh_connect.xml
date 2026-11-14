@@ -18,6 +18,18 @@
 
         <!-- 连接配置列表（2026-11-14）：固定容器，代码只往里填 chips。
              不再用"动态插到某个父容器"的做法——那条路依赖布局结构，真机上失配过三次。 -->
+        <!-- 连接管理入口（2026-11-14）：静态按钮，点开独立页面看/切换所有已存连接。
+             之前想把这排 chips 动态插进页面，一直插不进去（找不到容器），改成静态按钮 + 独立页。 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_profiles"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_44"
+            android:layout_marginBottom="@dimen/space_10"
+            android:text="连接管理（切换已保存的连接）"
+            android:textAllCaps="false"
+            android:textSize="@dimen/text_13"
+            app:cornerRadius="@dimen/radius_22" />
+
         <HorizontalScrollView
             android:id="@+id/profiles_scroll"
             android:layout_width="match_parent"
