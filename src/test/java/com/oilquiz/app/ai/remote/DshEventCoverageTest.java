@@ -151,6 +151,21 @@ public class DshEventCoverageTest {
         assertFalse(timeline.unknownTypes().containsKey("future/event"));
     }
 
+    /**
+     * 2026-11-14 真机回归：job/settled、compaction/*、ui/slot 这些"已登记为忽略"的类型，
+     * 不能走动态兜底 —— 否则每个纯状态事件都会变成一张 "电脑事件 · xxx" 的 JSON 卡。
+     */
+    @Test
+    public void ignoredTypesNeverBecomeDynamicCards() {
+        String[] types = {"job/settled", "compaction/summary", "ui/slot", "permission/preset",
+                "agent/inbox/spliced", "view", "state"};
+        for (String t : types) {
+            DshTimeline tl = new DshTimeline();
+            tl.reduce(DshEvent.from(event(t, 1, payload("title", "x", "content", "y"))));
+            assertTrue(t + " 不应出卡", tl.orderedCards().isEmpty());
+        }
+    }
+
     @Test
     public void unknownProtocolEventDoesNotSpam() {
         DshTimeline timeline = new DshTimeline();

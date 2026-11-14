@@ -235,7 +235,10 @@ public final class DshTimeline {
                     "goal/change",
                     "permission/preset", "sandbox/mode", "approval/policy",
                     "agent-preset/selected", "model/selection",
-                    "agent/inbox/spliced"));
+                    "agent/inbox/spliced",
+                    // 2026-11-14：合成帧/通道帧不是会话事件，绝不能进时间线渲染（否则会变成 JSON 卡）
+                    "ui/slot", "ui/card", "state", "view", "pulse", "hello", "cmd", "view_def",
+                    "__force_resync", "approval", "approval_gone", "question", "question_gone"));
 
     private int lastTurn = 1;
     private int lastStep = 1;
@@ -538,7 +541,13 @@ public final class DshTimeline {
                  * 协议类事件没有可读内容，mapUnknown 返回 null，仍只计"未知类型"供诊断。
                  */
                 boolean known = DshCards.handles(ev.type);
-                DshCards.Card card = known ? cardMapper.map(ev, turn) : cardMapper.mapUnknown(ev, turn);
+                // 2026-11-14：**忽略表里的类型不能走动态兜底** —— 否则每个纯状态/协议事件
+                // （job/settled、compaction/*、ui/slot…）都会变成一张 "电脑事件 · xxx" 的 JSON 卡。
+                // 动态兜底只服务"真正没见过的新类型"。
+                boolean ignoredType = IGNORED_TYPES.contains(ev.type);
+                DshCards.Card card = known
+                        ? cardMapper.map(ev, turn)
+                        : (ignoredType ? null : cardMapper.mapUnknown(ev, turn));
                 if (card != null) {
                     cards.put(card.key, card); // 同 key 覆盖，保持首次出现的位置
                     cardRounds.put(card.key, roundIndexOf(turn, step));
