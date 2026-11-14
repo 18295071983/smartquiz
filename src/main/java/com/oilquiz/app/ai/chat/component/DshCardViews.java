@@ -39,6 +39,50 @@ final class DshCardViews {
                 context.getResources().getDisplayMetrics());
     }
 
+    /**
+     * 提示卡全文弹窗（2026-11-14）：卡片上正文最多 3 行，点开看全 + 一键复制。
+     *
+     * <p>为什么用弹窗而不是"展开卡片"：这些提示卡是**历史里也要能看**的 durable 组件，
+     * 展开状态没有地方落盘；弹窗无状态、点完即走，也不会让聊天页高度抖动。</p>
+     */
+    static void showNoticeDialog(Context context, String title, String text) {
+        if (context == null) return;
+        try {
+            LinearLayout box = new LinearLayout(context);
+            box.setOrientation(LinearLayout.VERTICAL);
+            int pad = dp(context, 18);
+            box.setPadding(pad, dp(context, 8), pad, 0);
+            TextView body = new TextView(context);
+            body.setText(text == null ? "" : text);
+            body.setTextSize(13.5f);
+            body.setTextColor(ComponentColors.textPrimary(context));
+            body.setTextIsSelectable(true);   // 长按可直接选中复制
+            box.addView(body);
+            new android.app.AlertDialog.Builder(context)
+                    .setTitle(TextUtils.isEmpty(title) ? "详情" : title)
+                    .setView(box)
+                    .setPositiveButton("复制", (d, w) -> copyText(context, text))
+                    .setNegativeButton("关闭", null)
+                    .show();
+        } catch (Throwable t) {
+            android.util.Log.w("DshCardViews", "提示卡详情弹窗失败: " + t);
+        }
+    }
+
+    /** 复制到剪贴板 + 轻提示（Android 13+ 系统会自己弹复制提示，这里多一句也无害） */
+    static void copyText(Context context, String text) {
+        try {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                    context.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("dsh", text == null ? "" : text));
+            }
+            android.widget.Toast.makeText(context, "已复制", android.widget.Toast.LENGTH_SHORT).show();
+        } catch (Throwable t) {
+            android.util.Log.w("DshCardViews", "复制失败: " + t);
+        }
+    }
+
     static GradientDrawable surface(Context context) {
         GradientDrawable gd = new GradientDrawable();
         gd.setColor(ComponentColors.background(context));
@@ -371,6 +415,20 @@ final class DshCardViews {
                 col.addView(tv);
             }
             card.addView(col);
+            /**
+             * 2026-11-14：点一下展开全文。
+             *
+             * <p>提示卡正文最多 3 行（{@code maxLines=3}），而这次新绑定的几类事件恰恰信息量在正文里：
+             * "插话已入队"带的是你插的那句话、`subagent/catalog` 带的是子代理模式、
+             * `hook/result` 带的是钩子输出、`image/offload` 带的是省了多少上下文。截断后看不到，
+             * 所以给整张卡加一个"点击查看全文 + 复制"的兜底交互（纯本地，不走动作总线）。</p>
+             */
+            if (!TextUtils.isEmpty(text) && text.length() > 40) {
+                final String fullTitle = title;
+                final String fullText = text;
+                card.setOnClickListener(v -> showNoticeDialog(context, fullTitle, fullText));
+                card.setClickable(true);
+            }
             // 注意：这里**不要**自己再渲染 props.actions —— ComponentRegistry 对外层组件
             // 已经统一包了一层动作行（renderActions），这里再加一遍就出现两个"改权限"按钮
             // （2026-11-14 真机复现：一张卡两行按钮）。本类只负责卡面。
