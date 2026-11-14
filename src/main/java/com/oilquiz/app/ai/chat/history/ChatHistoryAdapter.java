@@ -35,16 +35,33 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
     private static final int VIEW_TYPE_HEADER = 0;
     private static final int VIEW_TYPE_ITEM = 1;
+    /** 「电脑上的对话」组头（2026-11-14） */
+    private static final int VIEW_TYPE_REMOTE_HEADER = 2;
+    /** 「电脑上的对话」一行 */
+    private static final int VIEW_TYPE_REMOTE_ITEM = 3;
+
+    /** 组头占位（列表里排在最前面的那一组） */
+    private static final class RemoteHeader {
+        final String title;
+
+        RemoteHeader(String title) {
+            this.title = title;
+        }
+    }
 
     public interface OnHistoryItemClickListener {
         void onItemClick(ConversationSession session);
         void onItemLongClick(ConversationSession session);
         void onItemDelete(ConversationSession session);
         void onClearAllHistory();
+        /** 点了「电脑上的对话」里的某一条（切过去 + 强制同步） */
+        default void onRemoteItemClick(RemoteSessionRow row) {}
+        /** 点了「电脑上的对话（未连接）」组头（去连接页） */
+        default void onRemoteHeaderClick() {}
     }
 
     private final Context context;
-    private final List<Object> items; // Date headers + ConversationSession
+    private final List<Object> items; // Date headers + ConversationSession + RemoteHeader + RemoteSessionRow
     private final OnHistoryItemClickListener clickListener;
     private final SimpleDateFormat dateFormat;
     private final SimpleDateFormat timeFormat;
@@ -60,11 +77,30 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
     public ChatHistoryAdapter(Context context, List<ConversationSession> sessions,
                               OnHistoryItemClickListener listener) {
+        this(context, sessions, null, null, listener);
+    }
+
+    /**
+     * @param remoteRows   电脑上的会话（可空；空且 remoteHint 非空时只显示一行提示组头）
+     * @param remoteHint   组头文案（null = 用"电脑上的对话 · N 条"）
+     */
+    public ChatHistoryAdapter(Context context, List<ConversationSession> sessions,
+                              List<RemoteSessionRow> remoteRows, String remoteHint,
+                              OnHistoryItemClickListener listener) {
         this.context = context;
         this.clickListener = listener;
         this.dateFormat = new SimpleDateFormat("yyyy年MM月dd日", Locale.getDefault());
         this.timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
-        this.items = groupByDate(sessions);
+        this.items = new ArrayList<>();
+        // 2026-11-14：电脑会话放最前面 —— 用户要"在抽屉里就能切电脑对话"，
+        // 放最底下会被日期分组淹没。
+        if (remoteHint != null) {
+            this.items.add(new RemoteHeader(remoteHint));
+        } else if (remoteRows != null && !remoteRows.isEmpty()) {
+            this.items.add(new RemoteHeader("电脑上的对话 · " + remoteRows.size() + " 条"));
+            this.items.addAll(remoteRows);
+        }
+        this.items.addAll(groupByDate(sessions));
     }
 
     /** 设置当前会话 ID（列表刷新后高亮对应项） */
@@ -104,14 +140,18 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
     @Override
     public int getItemViewType(int position) {
-        return items.get(position) instanceof Date ? VIEW_TYPE_HEADER : VIEW_TYPE_ITEM;
+        Object item = items.get(position);
+        if (item instanceof Date) return VIEW_TYPE_HEADER;
+        if (item instanceof RemoteHeader) return VIEW_TYPE_REMOTE_HEADER;
+        if (item instanceof RemoteSessionRow) return VIEW_TYPE_REMOTE_ITEM;
+        return VIEW_TYPE_ITEM;
     }
 
     @NonNull
     @Override
     public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         LayoutInflater inflater = LayoutInflater.from(parent.getContext());
-        if (viewType == VIEW_TYPE_HEADER) {
+        if (viewType == VIEW_TYPE_HEADER || viewType == VIEW_TYPE_REMOTE_HEADER) {
             return new HeaderViewHolder(inflater.inflate(R.layout.item_history_header, parent, false));
         } else {
             return new HistoryViewHolder(inflater.inflate(R.layout.item_chat_history, parent, false));
@@ -121,11 +161,52 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
     @Override
     public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
         Object item = items.get(position);
-        if (item instanceof Date) {
+        if (item instanceof RemoteHeader) {
+            bindRemoteHeader((HeaderViewHolder) holder, (RemoteHeader) item);
+        } else if (item instanceof Date) {
             bindHeader((HeaderViewHolder) holder, (Date) item);
+        } else if (item instanceof RemoteSessionRow) {
+            bindRemoteItem((HistoryViewHolder) holder, (RemoteSessionRow) item);
         } else if (item instanceof ConversationSession) {
             bindSessionItem((HistoryViewHolder) holder, (ConversationSession) item);
         }
+    }
+
+    /** 「电脑上的对话」组头：列表为空（未连接）时它自己就是"去连接"的入口 */
+    private void bindRemoteHeader(HeaderViewHolder holder, RemoteHeader header) {
+        holder.headerText.setText(header.title);
+        boolean actionable = clickListener != null && header.title.contains("未连接");
+        holder.countText.setText(actionable ? "点这里连接 ›" : "🖥");
+        holder.itemView.setClickable(actionable);
+        holder.itemView.setOnClickListener(actionable ? v -> clickListener.onRemoteHeaderClick() : null);
+        if (holder.divider != null) holder.divider.setVisibility(View.VISIBLE);
+    }
+
+    /** 一条电脑会话：🖥 + 电脑标题 + 时间；副信息显示 电脑当前/正在跟随 */
+    private void bindRemoteItem(HistoryViewHolder holder, RemoteSessionRow row) {
+        holder.previewText.setText(row.displayTitle());
+        holder.timeText.setText(row.updatedAt > 0 ? formatItemTime(row.updatedAt) : "");
+        StringBuilder badge = new StringBuilder("电脑");
+        if (row.current) badge.append(" · 电脑当前");
+        if (row.following) badge.append(" · 正在跟随");
+        if (row.last != null && !row.last.isEmpty()) {
+            String snippet = row.last.replaceAll("\\s+", " ");
+            if (snippet.length() > 24) snippet = snippet.substring(0, 24) + "…";
+            badge.append(" · ").append(snippet);
+        }
+        holder.messageCountText.setText(badge.toString());
+        holder.iconText.setText("🖥");
+        if (holder.taskBadge != null) holder.taskBadge.setVisibility(View.GONE);
+        boolean highlight = row.following;
+        holder.cardView.setCardBackgroundColor(ThemeColors.get(context,
+                highlight ? R.color.primary_container : R.color.surface));
+        if (holder.currentTag != null) {
+            holder.currentTag.setVisibility(highlight ? View.VISIBLE : View.GONE);
+        }
+        holder.itemView.setOnClickListener(v -> {
+            if (clickListener != null) clickListener.onRemoteItemClick(row);
+        });
+        holder.itemView.setOnLongClickListener(null);
     }
 
     private void bindHeader(HeaderViewHolder holder, Date date) {

@@ -1370,10 +1370,16 @@ public class AIChatActivity extends BaseActivity {
     /** 打开对话历史抽屉：刷新列表 + 展开抽屉（工具抽屉里的历史入口与悬浮球共用） */
     private void openHistoryDrawer() {
         if (drawerLayout != null && historyController != null) {
-            refreshHistoryDrawer();
+            // 抽屉里的「电脑上的对话」要现拉（这一下会读电脑端会话头/尾，不能每次保存都拉）
+            refreshHistoryDrawer(true);
             drawerLayout.openDrawer(findViewById(R.id.history_drawer));
         }
     }
+
+    /** 抽屉里「电脑上的对话」的缓存：只有"要显示时"才去电脑拉一次 */
+    private List<com.oilquiz.app.ai.chat.history.RemoteSessionRow> cachedRemoteRows;
+    private String cachedRemoteHint;
+    private long remoteRowsFetchedAt;
 
 
     /**
@@ -1684,6 +1690,18 @@ public class AIChatActivity extends BaseActivity {
             @Override public void onSwitchToSession(ConversationSession session) { switchToSession(session); }
             @Override public void onDeleteSession(ConversationSession session) { deleteSession(session); }
             @Override public void onStartNewConversation() { startNewConversation(); }
+            // 2026-11-14：抽屉顶部那组「电脑上的对话」——点了就切过去（切完强制同步）
+            @Override public void onSwitchToRemoteSession(com.oilquiz.app.ai.chat.history.RemoteSessionRow row) {
+                switchToRemoteSessionFromDrawer(row);
+            }
+            @Override public void onOpenRemoteConnect() {
+                try {
+                    startActivity(new Intent(AIChatActivity.this,
+                            com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class));
+                } catch (Throwable t) {
+                    AppLogger.aiW(TAG, "打开远程连接页失败: " + t.getMessage());
+                }
+            }
         });
         if (drawerLayout != null && historyList != null) {
             historyController.init(drawerLayout, historyList);
@@ -9776,6 +9794,13 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void refreshHistoryDrawer() {
+        refreshHistoryDrawer(false);
+    }
+
+    /**
+     * @param withRemote 是否去电脑拉一次「电脑上的对话」（打开抽屉时 true；保存/切换等被动刷新用缓存）
+     */
+    private void refreshHistoryDrawer(boolean withRemote) {
         if (historyController == null || chatHistoryManager == null) return;
         updateRecycleBinLabel();
         new Thread(() -> {
@@ -9802,16 +9827,144 @@ public class AIChatActivity extends BaseActivity {
                 taskCounts = com.oilquiz.app.ai.tool.TaskStateTracker.getInstance(this).activeCountBySession();
             } catch (Throwable ignore) { }
             final java.util.Map<String, Integer> counts = taskCounts;
+            // 2026-11-14：抽屉顶部加一组「电脑上的对话」——不用再点顶栏进远程选择框。
+            // 只在连着电脑时拉（已配对但没连：给一行"未连接"的组头，点了去连接页）。
+            // 拉取会读电脑端 100 条会话的头/尾，比较重：只在"要显示抽屉"时拉（withRemote），
+            // 保存/切换这类被动刷新直接用上次的结果。
+            List<com.oilquiz.app.ai.chat.history.RemoteSessionRow> remoteRows = cachedRemoteRows;
+            String remoteHint = cachedRemoteHint;
+            if (withRemote) {
+                try {
+                    boolean active = com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isActive(this);
+                    boolean configured = com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isConfigured(this);
+                    if (active) {
+                        remoteRows = fetchRemoteRowsForDrawer();
+                        if (remoteRows.isEmpty()) remoteRows = null;
+                        remoteHint = null;
+                    } else if (configured) {
+                        remoteRows = null;
+                        remoteHint = "电脑上的对话（未连接）";
+                    } else {
+                        remoteRows = null;
+                        remoteHint = null;
+                    }
+                    cachedRemoteRows = remoteRows;
+                    cachedRemoteHint = remoteHint;
+                    remoteRowsFetchedAt = System.currentTimeMillis();
+                } catch (Throwable t) {
+                    AppLogger.aiW(TAG, "抽屉拉电脑会话失败: " + t.getMessage());
+                    // 失败时保留上次的结果；从没成功过才提示
+                    if (remoteRows == null && remoteHint == null) {
+                        remoteHint = com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isConfigured(this)
+                                ? "电脑上的对话（读取失败）" : null;
+                    }
+                }
+            }
+            final List<com.oilquiz.app.ai.chat.history.RemoteSessionRow> rowsFinal = remoteRows;
+            final String hintFinal = remoteHint;
             runOnUiThread(() -> {
                 historyController.setCurrentSessionId(currentSessionId);
                 historyController.setTaskCounts(counts);
-                historyController.refresh(sessions);
+                historyController.refresh(sessions, rowsFinal, hintFinal);
                 // v2 空状态的「最近」和顶栏标题复用同一份会话列表，不再额外读盘
                 if (chatV2EmptyState != null) chatV2EmptyState.showRecent(sessions);
                 com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateTitle(this,
                         titleForSession(sessions));
             });
         }).start();
+    }
+
+    /**
+     * 抽屉里那一组「电脑上的对话」：与选择框默认口径一致 —— 桌面账本里有的 + 正在跟随那条。
+     * 排序：正在跟随 → 电脑当前 → 其余按最近活动。
+     */
+    private List<com.oilquiz.app.ai.chat.history.RemoteSessionRow> fetchRemoteRowsForDrawer() throws Exception {
+        java.util.Map<String, Object> meta =
+                com.oilquiz.app.ai.tool.RemoteDshTool.fetchSessionsWithMeta(this, 100);
+        Object arr = meta.get("sessions");
+        if (!(arr instanceof java.util.List)) return new java.util.ArrayList<>();
+        String followId = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+        String currentId = meta.get("current_session_id") == null
+                ? "" : String.valueOf(meta.get("current_session_id"));
+        List<com.oilquiz.app.ai.chat.history.RemoteSessionRow> out = new java.util.ArrayList<>();
+        if (arr instanceof java.util.List) {
+            for (Object o : (java.util.List<?>) arr) {
+                if (!(o instanceof java.util.Map)) continue;
+                java.util.Map<?, ?> m = (java.util.Map<?, ?>) o;
+                String sid = m.get("session_id") == null ? "" : String.valueOf(m.get("session_id"));
+                if (sid.isEmpty()) continue;
+                boolean desktop = Boolean.TRUE.equals(m.get("desktop"));
+                boolean following = sid.equals(followId);
+                if (!desktop && !following) continue;          // 与选择框默认口径一致
+                long updated = 0L;
+                try {
+                    updated = (long) Double.parseDouble(String.valueOf(m.get("updated_at")));
+                } catch (Exception ignored) { /* 没时间就排后面 */ }
+                out.add(new com.oilquiz.app.ai.chat.history.RemoteSessionRow(
+                        sid,
+                        m.get("title") == null ? "" : String.valueOf(m.get("title")),
+                        m.get("cwd") == null ? "" : String.valueOf(m.get("cwd")),
+                        updated,
+                        m.get("last") == null ? "" : String.valueOf(m.get("last")),
+                        desktop,
+                        sid.equals(currentId),
+                        following));
+            }
+        }
+        out.sort((a, b) -> {
+            if (a.following != b.following) return a.following ? -1 : 1;
+            if (a.current != b.current) return a.current ? -1 : 1;
+            return Long.compare(b.updatedAt, a.updatedAt);
+        });
+        return out;
+    }
+
+    /**
+     * 抽屉里点了电脑会话：切跟随 → 强制同步整条历史 → 打开对应本地会话。
+     * 逻辑与「远程连接」页的选择框共用 {@link com.oilquiz.app.ai.tool.RemoteSessionSwitcher}。
+     */
+    private void switchToRemoteSessionFromDrawer(com.oilquiz.app.ai.chat.history.RemoteSessionRow row) {
+        if (row == null) return;
+        final androidx.appcompat.app.AlertDialog progress =
+                new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("切换电脑对话")
+                .setMessage("正在从电脑同步「" + row.displayTitle() + "」…")
+                .setCancelable(false)
+                .create();
+        try {
+            progress.show();
+        } catch (Throwable ignored) { /* 页面已不可见 */ }
+        com.oilquiz.app.ai.tool.RemoteSessionSwitcher.switchTo(this, row.sessionId, row.title,
+                new com.oilquiz.app.ai.tool.RemoteSessionSwitcher.Callback() {
+                    @Override public void onProgress(String text) {
+                        try {
+                            android.widget.TextView tv = progress.findViewById(android.R.id.message);
+                            if (tv != null) tv.setText(text);
+                        } catch (Throwable ignored) { /* 对话框已收起 */ }
+                    }
+
+                    @Override public void onDone(String localSessionId, int count, String title) {
+                        try { if (progress.isShowing()) progress.dismiss(); } catch (Throwable ignored) { }
+                        String t = title == null ? "" : title;
+                        if (localSessionId != null && !localSessionId.isEmpty() && chatHistoryManager != null) {
+                            com.oilquiz.app.ai.util.ConversationSession s =
+                                    chatHistoryManager.loadConversationSession(localSessionId);
+                            if (s != null) {
+                                switchToSession(s);
+                            }
+                        }
+                        showToast(count > 0
+                                ? "已切到电脑对话并同步 " + count + " 条消息：" + t
+                                : "已切换到电脑对话（那边还是空的）：" + t);
+                        refreshHistoryDrawer();
+                    }
+
+                    @Override public void onFailed(String message) {
+                        try { if (progress.isShowing()) progress.dismiss(); } catch (Throwable ignored) { }
+                        showToast("同步失败：" + message + "（已切换跟随，后台会继续补）");
+                        refreshHistoryDrawer();
+                    }
+                });
     }
 
     /**

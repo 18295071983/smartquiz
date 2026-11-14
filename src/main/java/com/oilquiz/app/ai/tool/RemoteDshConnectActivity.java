@@ -742,71 +742,32 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         stopPickerPolling();
         dismissDialogSafe(sessionDialog);
 
-        RemoteDshTool.setSyncTarget(this, sid);
-        RemoteDshTool.setSyncTitle(this, title);
-        // 把「跟随」写到电脑的 @code:follow，不碰 @direct（直连专属）
-        new Thread(() -> {
-            try {
-                new RemoteSdk(getApplicationContext()).attach(sid, "follow", true);
-            } catch (Exception ignored) {
-                // 本地已跟随；下次连接时 syncSessionIdentity 会再对齐
-            }
-            restartChannel();
-        }, "follow-attach").start();
-
         final android.app.AlertDialog progressDialog = buildImportProgressDialog();
         updateImportProgress(progressDialog, "正在从电脑同步「" + (title.isEmpty() ? shortId(sid) : title) + "」…");
         showDialogSafe(progressDialog);
 
-        new Thread(() -> {
-            try {
-                DshHistoryImporter.Result r = DshHistoryImporter.importSession(this, sid, title,
-                        new DshHistoryImporter.Progress() {
-                            private long lastAt = 0L;
-
-                            @Override public void onEvents(int count) {
-                                long now = System.currentTimeMillis();
-                                if (now - lastAt < 200) return;
-                                lastAt = now;
-                                runOnUiThread(() -> updateImportProgress(progressDialog,
-                                        "正在同步电脑历史… " + count + " 条事件"));
-                            }
-
-                            @Override public void onBuilding(int events) {
-                                runOnUiThread(() -> updateImportProgress(progressDialog,
-                                        "已收到 " + events + " 条事件，正在生成对话…"));
-                            }
-                        });
-                runOnUiThread(() -> {
-                    dismissDialogSafe(progressDialog);
-                    if (r != null && r.count > 0) {
-                        toast("已同步 " + r.count + " 条消息：" + (r.title == null ? "" : r.title));
-                    } else {
-                        toast("这条会话在电脑上还是空的，已切过去");
-                    }
-                    refresh();
-                    openChatAndFinish(r == null ? "" : r.sessionId);
-                });
-            } catch (Throwable e) {
-                runOnUiThread(() -> {
-                    dismissDialogSafe(progressDialog);
-                    toast("同步失败：" + e.getMessage() + "（已切换跟随，后台会继续补）");
-                    openChatAndFinish("");
-                });
+        // 与聊天页历史抽屉共用同一条执行路径（RemoteSessionSwitcher），
+        // 避免"选择框切法"和"抽屉切法"两套逻辑漂移
+        RemoteSessionSwitcher.switchTo(this, sid, title, new RemoteSessionSwitcher.Callback() {
+            @Override public void onProgress(String text) {
+                runOnUiThread(() -> updateImportProgress(progressDialog, text));
             }
-        }, "pick-session-sync").start();
-    }
 
-    /** 切了跟随会话就得换通道：老通道还挂在旧会话上，不重开会一直收旧会话的事件 */
-    private void restartChannel() {
-        runOnUiThread(() -> {
-            try {
-                com.oilquiz.app.ai.tool.RemoteConnection conn =
-                        com.oilquiz.app.ai.tool.RemoteConnection.get(this);
-                conn.stop();
-                conn.start();
-            } catch (Throwable ignored) {
-                // 连不上时状态条会提示
+            @Override public void onDone(String localSessionId, int count, String t) {
+                dismissDialogSafe(progressDialog);
+                if (count > 0) {
+                    toast("已同步 " + count + " 条消息：" + (t == null ? "" : t));
+                } else {
+                    toast("这条会话在电脑上还是空的，已切过去");
+                }
+                refresh();
+                openChatAndFinish(localSessionId == null ? "" : localSessionId);
+            }
+
+            @Override public void onFailed(String message) {
+                dismissDialogSafe(progressDialog);
+                toast("同步失败：" + message + "（已切换跟随，后台会继续补）");
+                openChatAndFinish("");
             }
         });
     }
