@@ -66,6 +66,28 @@ public final class RemoteChannel {
     private volatile okhttp3.WebSocket uiSocket;
     private Thread worker;
 
+    // ---- WS 周期重试（2026-11-15，§17 WS-RETRY）----
+    // 以前 run() 开头只试 3 次 WS，失败就永久退回 SSE，事后不再升级（插件重载后
+    // ws_clients=0，只有重启 App 才回到 WS）。现在 WS 与 SSE 并行：WS 按退避周期重试、
+    // 永不放弃；SSE 在 WS 未连上期间照常兜底，WS 一旦握手成功立刻让位。
+
+    /** 退避策略：1s→2s→4s→8s→16s→30s，±20% 抖动。 */
+    private final com.oilquiz.app.ai.remote.WsRetryPolicy wsRetry =
+            new com.oilquiz.app.ai.remote.WsRetryPolicy();
+    /** WS 已接管事件流：SSE 暂停（不双通道重复投递） */
+    private volatile boolean wsActive;
+    /** 本轮 WS 不可用的起始时刻（0 = 正常）；只用于 shouldRetry 的时间窗口护栏 */
+    private volatile long wsDownSince;
+    /** 重连调度走主线程 postDelayed；close() 时整体移除 */
+    private android.os.Handler wsRetryHandler;
+    /** 当前正在跑的 /ws/events socket：close() 要能立刻掐断，否则连接线程阻塞到读超时 */
+    private volatile okhttp3.WebSocket eventSocket;
+    /** 同一时刻只跑一个 WS 连接尝试（okhttp 回调异步，连接线程阻塞等 ready） */
+    private final java.util.concurrent.atomic.AtomicBoolean wsConnecting =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    /** WS 连上 → SSE 停；WS 断开 → SSE 立刻醒（wait/notify，最多 500ms 轮询一次防漏通知） */
+    private final Object wsLock = new Object();
+
     public RemoteChannel(Context c, String sessionId, int since, Listener listener) {
         this.app = c.getApplicationContext();
         this.sid = sessionId == null ? "" : sessionId;
@@ -119,6 +141,16 @@ public final class RemoteChannel {
     /** 关通道：置位 + 取消所有进行中的事件流（下一次订阅拿新代） */
     public void close() {
         closed = true;
+        wsActive = false;
+        wakeSse();
+        android.os.Handler h = wsRetryHandler;
+        if (h != null) h.removeCallbacksAndMessages(null);
+        // WS 连接线程可能阻塞在 closedLatch.await() 上：掐掉 socket 才有 onFailure。
+        try {
+            okhttp3.WebSocket es = eventSocket;
+            eventSocket = null;
+            if (es != null) es.cancel();
+        } catch (Throwable ignored) { /* 已断 */ }
         RemoteDshTool.cancelEventStreams();
         // 只翻代号不够：读线程可能还阻塞在 readLine 上（最多 35s 才超时）。
         // 主动掐掉连接，重连/硬重置才能立刻生效（§14C）。
@@ -134,30 +166,101 @@ public final class RemoteChannel {
     }
 
     private void run() {
-        // ① 先试 WebSocket（2026-11-14）：Tailscale / 局域网直连时它是最省事的实时通道。
-        //    连不上（隧道/旧版本插件）就退回下面的 SSE 主循环，行为不变。
-        int wsAttempts = 0;
-        while (!closed && wsAttempts < 3) {
-            wsAttempts += 1;
-            boolean established;
+        // WS 与 SSE 并行（2026-11-15，§17 WS-RETRY）：
+        // 以前这里先试 3 次 WS 才轮到 SSE，失败即永久放弃；现在 WS 由独立监管线程
+        // 按退避周期一直重试，SSE 主循环在 WS 未连上时照常兜底（事件不断），
+        // WS 一旦握手成功立刻停 SSE、由 WS 接管。
+        startWsSupervisor();
+        runSseLoop();
+    }
+
+    /**
+     * WS 连接监管（§17）：连接失败/断开都按 {@link com.oilquiz.app.ai.remote.WsRetryPolicy}
+     * 周期重试，**永不放弃**；每次失败后都确保 SSE 兜底已经恢复。
+     *
+     * <p>为什么用主线程 {@code postDelayed} 而不是在连接线程里 sleep：连接线程要阻塞等
+     * {@code ready}（最多 8s）并随后一直持有长连接，退避调度必须独立出来，页面销毁时
+     * {@link #close()} 也能一次性把待触发的重试全部移除。</p>
+     */
+    private void startWsSupervisor() {
+        if (wsRetryHandler == null) {
+            wsRetryHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        }
+        scheduleWsAttempt(0L);
+    }
+
+    private void scheduleWsAttempt(long delayMs) {
+        android.os.Handler h = wsRetryHandler;
+        if (closed || h == null) return;
+        h.removeCallbacks(wsAttempt);
+        h.postDelayed(wsAttempt, Math.max(0L, delayMs));
+    }
+
+    /** 一次 WS 连接尝试：成功则一直持有到断开，失败则排下一次退避重试。 */
+    private final Runnable wsAttempt = () -> {
+        if (closed || !wsConnecting.compareAndSet(false, true)) return;
+        Thread t = new Thread(() -> {
+            boolean established = false;
             try {
                 established = runSocketOnce();
-            } catch (Exception e) {
-                established = false;
+            } catch (Throwable e) {
+                Log.w(TAG, "WS 连接异常: " + e.getMessage());
+            } finally {
+                wsConnecting.set(false);
             }
             if (closed) return;
-            if (!established) break;                 // 这条链路不支持 WS → 退回 SSE
-            try {
-                Thread.sleep(800);
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
+            // 握手成功过又断：退避清零 —— 下一次重连仍从 1s 起（§17）。
+            if (established) wsRetry.reset();
+            // 断线期间 SSE 必须立刻恢复兜底；wsActive 置 false 后 runSseLoop 会被唤醒。
+            wsActive = false;
+            wakeSse();
+            if (wsDownSince == 0L) wsDownSince = System.currentTimeMillis();
+            if (established) {
+                Log.i("DshProbe", "[ws] 已断开，SSE 兜底恢复");
+            }
+            int attempt = wsRetry.noteFailure();
+            long delay = wsRetry.nextDelayMs();
+            Log.i("DshProbe", "[ws] 重试第 " + attempt + " 次，延迟 " + delay + "ms"
+                    + (established ? "（连接断开）" : "（握手失败）"));
+            if (!wsRetry.shouldRetry(System.currentTimeMillis() - wsDownSince)) {
+                Log.w("DshProbe", "[ws] 重试窗口用尽，停止重试（SSE 兜底继续）");
                 return;
             }
-        }
+            scheduleWsAttempt(delay);
+        }, "remote-ws-connect");
+        t.setDaemon(true);
+        t.start();
+    };
 
+    /** SSE 让位后等待 WS 断开（最多 500ms 轮询一次，防 notify 丢失）。 */
+    private void awaitWsDrop() {
+        synchronized (wsLock) {
+            while (!closed && wsActive) {
+                try {
+                    wsLock.wait(500L);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+    }
+
+    private void wakeSse() {
+        synchronized (wsLock) {
+            wsLock.notifyAll();
+        }
+    }
+
+    /** SSE 兜底主循环：WS 未接管时跑；WS 连上时被 stopSseFallback() 掐断并让位。 */
+    private void runSseLoop() {
         long backoff = 1000;
         int shortStreams = 0;
         while (!closed) {
+            if (wsActive) {
+                awaitWsDrop();
+                continue;
+            }
             if (pollMode) {
                 pollLoop();
                 continue;
@@ -234,7 +337,7 @@ public final class RemoteChannel {
 
                             @Override
                             public void onEnd() {
-                                if (closed) return;
+                                if (closed || wsActive) return;
                                 // 服务端到点（默认 600s）或 gone 之后正常收尾：这里只报状态，
                                 // 真正的重连接口在 subscribeEvents 内部（带 since 续传）。
                                 listener.onConnection(true, "等待重连");
@@ -242,14 +345,18 @@ public final class RemoteChannel {
 
                             @Override
                             public void onError(String message) {
-                                if (closed) return;
+                                if (closed || wsActive) return;
                                 listener.onConnection(false, message == null ? "连接失败" : message);
                             }
                         });
             } catch (Exception e) {
-                listener.onConnection(false, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+                if (!closed && !wsActive) {
+                    listener.onConnection(false,
+                            e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+                }
             }
             if (closed) break;
+            if (wsActive) continue;   // WS 已接管：这次 SSE 退出不算失败，别重开双通道
             // subscribeEvents 自己会重试 8 次；走到这里说明它整个返回了（30 分钟或彻底失败）。
             boolean shortLived = System.currentTimeMillis() - startedAt < 60_000L;
             if (!gotAnything[0]) {
@@ -283,7 +390,10 @@ public final class RemoteChannel {
      * 把本地游标追到服务端 seq，再靠 WS 增量 —— 这样 WS 只要保证"实时"，补历史仍然只有
      * 一条被测过的代码路径。</p>
      *
-     * @return true = 曾经握手成功（断了可以再连）；false = 这条链路不支持 WS，调用方退回 SSE
+     * <p>§17：握手成功即<b>接管</b>——置 {@link #wsActive} 并停掉 SSE 兜底（避免双通道
+     * 重复投递）；方法返回时把 event/ui 两条 socket 都关干净，由监管线程决定退避重连。</p>
+     *
+     * @return true = 曾经握手成功（断线后从 1s 起重连）；false = 这次没连上（继续按策略重试）
      */
     private boolean runSocketOnce() {
         final java.util.concurrent.CountDownLatch ready = new java.util.concurrent.CountDownLatch(1);
@@ -291,7 +401,7 @@ public final class RemoteChannel {
         final java.util.concurrent.atomic.AtomicBoolean gotReady = new java.util.concurrent.atomic.AtomicBoolean(false);
         final java.util.concurrent.atomic.AtomicInteger head = new java.util.concurrent.atomic.AtomicInteger(-1);
 
-        okhttp3.WebSocket socket;
+        okhttp3.WebSocket socket = null;
         try {
             socket = RemoteDshTool.openLiveSocket(app, sid, new RemoteDshTool.DshSocketListener() {
                 @Override
@@ -315,55 +425,86 @@ public final class RemoteChannel {
 
                 @Override
                 public void onClosed(String reason) {
+                    Log.i("DshProbe", "[ws] 连接结束：" + reason);
                     ready.countDown();
                     closedLatch.countDown();
                 }
             }, "/ws/events");
-        } catch (Throwable t) {
-            return false;
-        }
-        // UI 端点单独一条 socket（cmd / slot / 审批 / 提问）：文件传输或事件洪水不会堵住它。
-        // 开之前先把上一条关掉——否则每次重连都多堆一条，推送被重复投递。
-        try {
-            okhttp3.WebSocket oldUi = uiSocket;
-            uiSocket = null;
-            if (oldUi != null) oldUi.cancel();
-        } catch (Throwable ignored) { /* 已断 */ }
-        uiSocket = RemoteDshTool.openLiveSocket(app, sid, new RemoteDshTool.DshSocketListener() {
-            @Override public void onReady(int seq) { }
-            @Override public void onEvent(JSONObject event) {
-                if (!closed && event != null) listener.onEvent(event);
-            }
-            @Override public void onPulse(long serverTs, int seq) { }
-            @Override public void onClosed(String reason) { }
-        }, "/ws/ui");
+            if (closed) return false;
+            eventSocket = socket;
+            // UI 端点单独一条 socket（cmd / slot / 审批 / 提问）：文件传输或事件洪水不会堵住它。
+            // 开之前先把上一条关掉——否则每次重连都多堆一条，推送被重复投递。
+            closeUiSocket();
+            uiSocket = RemoteDshTool.openLiveSocket(app, sid, new RemoteDshTool.DshSocketListener() {
+                @Override public void onReady(int seq) { }
+                @Override public void onEvent(JSONObject event) {
+                    if (!closed && event != null) listener.onEvent(event);
+                }
+                @Override public void onPulse(long serverTs, int seq) { }
+                @Override public void onClosed(String reason) { }
+            }, "/ws/ui");
 
-        boolean established;
-        try {
-            established = ready.await(8, java.util.concurrent.TimeUnit.SECONDS) && gotReady.get();
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            try { socket.cancel(); } catch (Throwable ignored) { /* 已断 */ }
+            boolean established;
+            try {
+                established = ready.await(8, java.util.concurrent.TimeUnit.SECONDS) && gotReady.get();
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+            if (!established || closed) return false;
+
+            // 握手成功：WS 接管事件流，SSE 兜底立刻让位（§17 WS/SSE 互斥语义）。
+            wsActive = true;
+            wsDownSince = 0L;
+            Log.i("DshProbe", "[ws] 已连接，停 SSE");
+            listener.onConnection(true, "WS 已连接");
+            stopSseFallback();
+            scheduleSseSweep();
+            catchUpViaPull(head.get());
+            try {
+                closedLatch.await();
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "WS 连接失败: " + t.getMessage());
             return false;
+        } finally {
+            try {
+                if (socket != null) socket.cancel();
+            } catch (Throwable ignored) { /* 已断 */ }
+            eventSocket = null;
+            closeUiSocket();
         }
-        if (!established) {
-            try { socket.cancel(); } catch (Throwable ignored) { /* 已断 */ }
-            return false;
-        }
-        listener.onConnection(true, "WS 已连接");
-        catchUpViaPull(head.get());
-        try {
-            closedLatch.await();
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-        }
-        try { socket.cancel(); } catch (Throwable ignored) { /* 已断 */ }
+    }
+
+    /** 停掉 SSE 兜底：翻代 + 掐断正在读的 follow 流（readLine 不用等 35s 读超时）。 */
+    private void stopSseFallback() {
+        RemoteDshTool.cancelEventStreams();
+        RemoteDshTool.closeFollowStreams();
+        wakeSse();
+    }
+
+    /**
+     * 补一次清扫（§17）：WS 置位 {@code wsActive} 与 SSE 线程「检查完标志、正要开流」之间
+     * 有一个微秒级窗口，晚开的那条流不会看到旧的代。1.5s 后再扫一次，把竞态窗口关掉；
+     * 只动 follow 流，导入/补拉不受影响。
+     */
+    private void scheduleSseSweep() {
+        android.os.Handler h = wsRetryHandler;
+        if (h == null) return;
+        h.postDelayed(() -> {
+            if (!closed && wsActive) stopSseFallback();
+        }, 1500L);
+    }
+
+    private void closeUiSocket() {
         try {
             okhttp3.WebSocket ui = uiSocket;
             uiSocket = null;
             if (ui != null) ui.cancel();
         } catch (Throwable ignored) { /* 已断 */ }
-        return true;
     }
 
     /** 把本地游标追到服务端 head（WS 不管历史，只补这一段缺口） */
@@ -405,7 +546,7 @@ public final class RemoteChannel {
     private void pollLoop() {
         long until = System.currentTimeMillis() + 120_000L;
         int cursor = Math.max(0, lastSeq);
-        while (!closed && System.currentTimeMillis() < until) {
+        while (!closed && !wsActive && System.currentTimeMillis() < until) {
             try {
                 int next = RemoteDshTool.pullEvents(app, sid, cursor, 200,
                         new RemoteDshTool.DshEventListener() {
@@ -440,7 +581,7 @@ public final class RemoteChannel {
                 return;
             }
         }
-        // 2 分钟到：回 SSE 试一次（隧道恢复的话这里能自动回到长连接）
+        // 2 分钟到（或被 WS 接管）：回 SSE 试一次（隧道恢复的话这里能自动回到长连接）
         pollMode = false;
     }
 

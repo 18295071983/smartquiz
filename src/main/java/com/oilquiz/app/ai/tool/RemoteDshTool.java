@@ -1161,6 +1161,27 @@ public class RemoteDshTool implements AITool {
     private static final java.util.Set<HttpURLConnection> ACTIVE_STREAMS =
             java.util.concurrent.ConcurrentHashMap.newKeySet();
 
+    /**
+     * 只装 {@code follow=true} 的 SSE（通道主循环那一条）。
+     *
+     * <p>§17 WS 接管时只掐这一条 —— {@link #closeEventStreams()} 会把导入历史/一次性补拉的
+     * 短流也一起杀掉，那些流不该被 WS 连接事件误伤。</p>
+     */
+    private static final java.util.Set<HttpURLConnection> ACTIVE_FOLLOW_STREAMS =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** 掐掉当前 follow=true 的 SSE（WS 已接管事件流时用；下一次 subscribeEvents 会带游标重开）。 */
+    public static void closeFollowStreams() {
+        for (HttpURLConnection conn : ACTIVE_FOLLOW_STREAMS) {
+            try {
+                conn.disconnect();
+            } catch (Throwable ignored) {
+                // 已断
+            }
+        }
+        ACTIVE_FOLLOW_STREAMS.clear();
+    }
+
     /** 掐掉当前所有 SSE 连接（下一次 subscribeEvents 会带新游标重开）。 */
     public static void closeEventStreams() {
         for (HttpURLConnection conn : ACTIVE_STREAMS) {
@@ -1171,6 +1192,7 @@ public class RemoteDshTool implements AITool {
             }
         }
         ACTIVE_STREAMS.clear();
+        ACTIVE_FOLLOW_STREAMS.clear();
     }
 
     /** 连一次 SSE，返回本次收到的最大 seq（断线后作为 since 续传） */
@@ -1197,6 +1219,7 @@ public class RemoteDshTool implements AITool {
             int code = conn.getResponseCode();
             if (code >= 400) throw new Exception("HTTP " + code);
             ACTIVE_STREAMS.add(conn);
+            if (follow) ACTIVE_FOLLOW_STREAMS.add(conn);
             try (BufferedReader br = new BufferedReader(
                     new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
@@ -1227,6 +1250,7 @@ public class RemoteDshTool implements AITool {
         } finally {
             if (conn != null) {
                 ACTIVE_STREAMS.remove(conn);
+                ACTIVE_FOLLOW_STREAMS.remove(conn);
                 conn.disconnect();
             }
         }

@@ -623,3 +623,80 @@ node ws_frames.test.mjs
   非 live 会话的 WS 实时事件仍靠 `pull` 补（SSE 侧是轮询持久化日志，两条线仍有差异）。
 - `approval_gone` / `question_gone` 一并放行（否则对话框收不掉），属于既有帧、非新协议。
 - 未改 Android Java、未改 `/ws` 全功能端点、未改文件帧与 ack 语义。
+
+## 17. WS 连接周期重试（2026-11-15，§17 WS-RETRY）
+
+### 17.1 病历：WS 掉线后永远回不去
+
+`RemoteChannel.run()` 开头只试 **3 次** WS（每次之间 `sleep(800)`），任一失败就 `break` 进 SSE
+主循环，之后再也不会尝试 WS。插件重载 / 网络抖动把长连接踢掉后，手机就永久停在 SSE：
+
+- 重载前 `/status` 的 `ws_clients=2`（`/ws/events` + `/ws/ui`）；
+- 重载后变 `0`，手机只在 SSE 上收事件；只有杀进程重开 App 才回到 2。
+
+§16 已把插件侧 `/ws/events` 白名单补齐；本节处理的遗留问题在客户端重连策略。
+
+### 17.2 退避参数（`WsRetryPolicy`，纯 JVM）
+
+| 参数 | 值 |
+|---|---|
+| 首次重试 | 1000ms |
+| 增长 | ×2：1s → 2s → 4s → 8s → 16s |
+| 基准封顶 | 30000ms（第 6 次起恒为 30s） |
+| 抖动 | ±20%（`base × [0.8, 1.2]`，封顶那档实际最大约 36s） |
+| 放弃条件 | 无（`retryWindowMs=0` 周期重试永不放弃；非 0 仅作限流护栏） |
+| 重置 | 握手成功即 `reset()`，下一次断线仍从 1s 起 |
+
+`nextDelayMs(attempt)` 是纯函数（含抖动）；`noteFailure()` / `nextDelayMs()` / `reset()` /
+`shouldRetry(elapsedMs)` 供调度与单测使用。
+
+### 17.3 与 SSE 的切换语义
+
+两种通道**保持互斥**（不再双通道重复投递），只把「放弃 WS」改成「周期重试」：
+
+1. **启动**：WS 监管线程与 SSE 主循环并行启动；WS 没连上时 SSE 照常兜底，事件不断。
+2. **WS 握手成功**：置 `wsActive`、`onConnection(true, "WS 已连接")`、打
+   `[ws] 已连接，停 SSE`；`cancelEventStreams()` + `closeFollowStreams()` 立刻掐断 follow SSE
+   （只动主循环那条，导入历史/一次性补拉不受影响），1.5s 后再清扫一次，关掉
+   「SSE 线程检查完标志、正要开流」的竞态窗口。
+3. **WS 断开**（`onFailure` / `onClosed`）：`wsActive=false` 唤醒 SSE 主循环恢复兜底，
+   同时按策略排下一次重连；握手成功过的连接先 `reset()`，所以首次退避仍从 1s 起。
+4. **重试期间**：SSE 持续兜底；每次失败记录
+   `[ws] 重试第 N 次，延迟 Xms（握手失败|连接断开）`。
+5. **关闭通道**：`close()` 移除所有 `postDelayed`、取消 event/ui socket、翻代号掐流，
+   连接线程不再留下泄漏的 socket。
+
+不变的部分：`pull` 批、`ack`、`anchor`、文件帧（`file_begin/chunk/end`）、`ui/card` / `ui/slot`、
+`confirmApplied` 的落屏游标语义全部未改；`AIChatActivity` 的批处理/背压参数未改。
+
+### 17.4 验证
+
+- **单测**：`WsRetryPolicyTest` 8 项全绿（退避序列、30s 封顶、±20% 抖动范围、
+  `reset` 后从头开始、`noteFailure` 计数、默认永不放弃、可选窗口）。
+- **编译/装机**：`.\gradlew.bat --offline assembleDebug` → BUILD SUCCESSFUL；
+  `adb -s 192.168.1.10:41193 install -r` 成功（APK sha256 `81F9553D…9592F8`）。
+- **插件重载**：两次 `plugin_manager set_bundle @local/smartquiz-remote enabled=false`
+  均被 `HMR transactions cannot be nested` 挡住，**未能完成真机插件重载验证**。
+- **回退验证（杀进程重启）**：`ws_clients` 2 →（`force-stop`）0 →（重启 App）2；
+  日志 `[ws] 已连接，停 SSE`。
+- **补充：链路级断开/恢复（不重启 App、不重启 DSH）**：手机上把 `base_url` 临时指向
+  本机 TCP 代理（19000 → 8218），杀掉代理模拟插件不可达、再恢复代理：
+
+  | 时刻 | 证据 |
+  |---|---|
+  | 01:59:28.709 | `[ws] 连接结束：WS 失败: Connection reset`，`ws_clients` 2 → 0 |
+  | 01:59:28.713 起 | `[ws] 重试第 1/2/3/4/5 次，延迟 848 / 2258 / 4063 / 8872 / 16266ms` |
+  | 02:00:01.293 | `[ws] 已连接，停 SSE`，`ws_clients` 0 → 2（全程未重启 App） |
+  | 之后 | `session_streams=0`（无 SSE 双通道）；`[flow] 模式=推`、`[batch] n=8` 正常 |
+
+  代理关闭后已把 `base_url` 恢复为 `http://192.168.1.2:8218` 并重启 App 复核 `ws_clients=2`。
+
+### 17.5 没做到 / 降级
+
+- **插件重载场景未验证**：HMR 事务嵌套错误无法绕开，按要求改用「杀 App 进程再启动」验证；
+  另用 TCP 代理模拟链路中断，验证了「不重启 App 自动回到 WS」，但它走的是连接失败路径，
+  与「插件重载瞬间服务端主动关闭 socket」不完全等价。
+- 重试调度在主线程 `Handler.postDelayed` 上：主线程若被长时间阻塞，重连时机会顺延
+  （与既有 UI 线程模型一致，未另起调度器）。
+- WS 常连后 `/ws/ui` 仍未独立保活：event 通道断开时会一起重建，ui 单边断开不自愈
+  （与改动前一致，不在本次范围）。
