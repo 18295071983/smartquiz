@@ -87,7 +87,7 @@ public final class RemoteCommandExecutor {
                     com.oilquiz.app.ai.chat.status.DockSlotBus.remove(sid);
                     return "slot removed";
                 }
-                com.oilquiz.app.ai.chat.status.DockSlotBus.update(
+                com.oilquiz.app.ai.chat.status.DockSlotBus.updateLocal(
                         new com.oilquiz.app.ai.chat.status.DockSlotBus.Slot(
                                 sid, pri, title, text,
                                 str(args == null ? null : args.get("action")), false));

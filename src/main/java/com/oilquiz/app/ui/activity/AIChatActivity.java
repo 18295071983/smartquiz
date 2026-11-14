@@ -902,6 +902,8 @@ public class AIChatActivity extends BaseActivity {
             deckController.applyCatalog(deckCatalog);
             // 注册即回放当前插槽（后台跑着的任务回到前台也能看到）
             com.oilquiz.app.ai.chat.status.DockSlotBus.addListener(dockSlotListener);
+            // §20（2026-11-15）：插槽 TTL 清扫（1s 一次，主线程；onDestroy 摘掉）
+            com.oilquiz.app.ai.chat.status.DockSlotBus.attachSweeper();
             tvQueueInfo = findViewById(R.id.tv_queue_info);
             btnQueueCancel = findViewById(R.id.btn_queue_cancel);
             busySendMode = getSharedPreferences("ai_prefs", MODE_PRIVATE).getString(PREFS_BUSY_MODE, "block");
@@ -14477,8 +14479,10 @@ public class AIChatActivity extends BaseActivity {
             // JOB/GOAL 已由服务端派生并走 ui/slot 下发（2026-11-13），手机端不再重复产一条，
             // 否则同一件事会出现两行（真机截图：两条"后台任务"）。
             case "compaction/start":
-                // 压缩会卡好几秒：不说明的话用户以为死机了
-                com.oilquiz.app.ai.chat.status.DockSlotBus.update(
+                // 压缩会卡好几秒：不说明的话用户以为死机了。
+                // §20（2026-11-15）：这是**兜底**写入 —— 插件 3 秒内推过 compaction 就
+                // 让位给插件那条（同一事实只留一行）；旧插件不推时这里仍能显示。
+                com.oilquiz.app.ai.chat.status.DockSlotBus.updateLocal(
                         new com.oilquiz.app.ai.chat.status.DockSlotBus.Slot(
                                 "compaction", 10, "正在压缩上下文…", "", "", true));
                 break;
@@ -14537,8 +14541,14 @@ public class AIChatActivity extends BaseActivity {
             case "ui/slot": {
                 // 通用插槽（P4，2026-11-13）：电脑端声明 id/priority/title/detail/warn/action，
                 // 手机只做渲染——新增 DSH 能力不需要发新版 APK。title 与 detail 都为空 = 移除。
+                //
+                // §20（2026-11-15，单一写者）：插件帧统一走 RemoteSlotBridge —— 与 WS 通道
+                // （RemoteDshTool 的 case "ui/slot"）共用同一个解析器，rev/ttl/kind/board/pinned/count
+                // 只有一份口径；以前这里另建一个 6 参数 Slot，既丢了 deck 字段，也会拿 rev=0
+                // 把插件刚写的新版本盖掉。
                 org.json.JSONObject slot = ev.optJSONObject("data");
-                String id = slot == null ? "" : slot.optString("id", "").trim();
+                if (slot == null) break;
+                String id = slot.optString("id", "").trim();
                 if (id.isEmpty()) break;
                 // SCOPE（2026-11-13，B18）：带 session_id 的插槽只属于那个会话。
                 // 以前全局广播，别的会话压缩/建目标时这里也会亮一行，属于串台。
@@ -14546,20 +14556,7 @@ public class AIChatActivity extends BaseActivity {
                 if (!scoped.isEmpty() && !dshSyncTarget.isEmpty() && !scoped.equals(dshSyncTarget)) {
                     break;
                 }
-                String title = slot.optString("title", "");
-                String detail = slot.optString("detail", "");
-                if (title.isEmpty() && detail.isEmpty()) {
-                    com.oilquiz.app.ai.chat.status.DockSlotBus.remove(id);
-                    break;
-                }
-                com.oilquiz.app.ai.chat.status.DockSlotBus.update(
-                        new com.oilquiz.app.ai.chat.status.DockSlotBus.Slot(
-                                id,
-                                slot.optInt("priority", 70),
-                                title,
-                                detail,
-                                slot.optString("action", ""),
-                                slot.optBoolean("warn", false)));
+                com.oilquiz.app.ai.tool.RemoteSlotBridge.apply(slot);
                 break;
             }
             default:
@@ -17145,6 +17142,7 @@ public class AIChatActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
+        com.oilquiz.app.ai.chat.status.DockSlotBus.detachSweeper();
         com.oilquiz.app.ai.chat.status.DockSlotBus.removeListener(dockSlotListener);
         com.oilquiz.app.ai.tool.RemoteStatusSlots.clear();
         // 2026-11-14：卡片跳转能力绑在"当前前台聊天页"，退出必须摘掉，否则旧页会被点活

@@ -15,10 +15,17 @@ import org.json.JSONObject;
  * <pre>
  * { "type":"ui/slot", "data": { id, title, detail, action?, priority?, warn?,
  *                               kind?: toggle|action|display|list, board?: alert|task|asset|state,
- *                               pinned?, count?, remove? } }
+ *                               pinned?, count?, remove?, rev?, ttl_ms? } }
  * </pre>
+ *
+ * <p>§20（2026-11-15）：{@code rev} 是同一 id 单调递增的版本号，乱序旧帧由
+ * {@link DockSlotBus} 丢弃；{@code ttl_ms} 把相对存活时间换算成绝对 {@code expireAt}，
+ * 生产者失联后槽位会自己消失。</p>
  */
 public final class RemoteSlotBridge {
+
+    /** ttl 上限（24h）：防止异常帧把过期时间算到溢出/永久。 */
+    private static final long MAX_TTL_MS = 24L * 3600L * 1000L;
 
     private RemoteSlotBridge() {
     }
@@ -28,8 +35,9 @@ public final class RemoteSlotBridge {
         if (data == null) return false;
         String id = data.optString("id", "").trim();
         if (id.isEmpty()) return false;
+        long rev = Math.max(0L, data.optLong("rev", 0L));
         if (data.optBoolean("remove", false)) {
-            DockSlotBus.remove(id);
+            DockSlotBus.remove(id, rev);
             return true;
         }
         /**
@@ -43,9 +51,11 @@ public final class RemoteSlotBridge {
         String detail = data.optString("detail", "").trim();
         int count = data.optInt("count", 0);
         if (title.isEmpty() && detail.isEmpty() && count <= 0) {
-            DockSlotBus.remove(id);
+            DockSlotBus.remove(id, rev);
             return true;
         }
+        long ttlMs = Math.min(Math.max(0L, data.optLong("ttl_ms", 0L)), MAX_TTL_MS);
+        long expireAt = ttlMs > 0 ? System.currentTimeMillis() + ttlMs : 0L;
         DockSlotBus.update(new DockSlotBus.Slot(
                 id,
                 data.optInt("priority", 60),
@@ -56,7 +66,10 @@ public final class RemoteSlotBridge {
                 data.optString("kind", "display"),
                 data.optString("board", "state"),
                 data.optBoolean("pinned", false),
-                data.optInt("count", 0)));
+                data.optInt("count", 0),
+                rev,
+                expireAt,
+                "plugin"));
         return true;
     }
 }

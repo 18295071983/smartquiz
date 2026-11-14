@@ -109,13 +109,6 @@ const wsStatOf = (ch) => {
 };
 /** 每个端点的在线连接数（/status 观测用）：events / ui / file / ctl / all */
 const WS_CHANNEL_COUNT = new Map();
-/**
- * 客户端/工具推上来的自定义插槽（{@code ui/slot} / {@code phone_ui}）。
- *
- * <p>插槽是瞬态帧，没有事件源：App 重启/重连后服务端不会回放，于是自定义插槽全没了
- * （jobs/goal 这类有派生状态，连上会重推）。这里留一份内存表，连接建立时补发。</p>
- */
-const CUSTOM_SLOTS = new Map();
 
 /**
  * 一次性告警（避免热重载/轮询把同一错误刷满日志）：key 首次出现才打一行。
@@ -1657,16 +1650,16 @@ export function apply(ctx, config) {
       const items = Array.isArray(r?.items) ? r.items : (Array.isArray(r?.list) ? r.list : []);
       if (items.length === 0) {
         // 空 slot = 让手机端移除这一条
-        streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'schedule' } });
+        broadcastSlot('', { id: 'schedule' });
         return;
       }
-      streamBroadcast('', { v: 2, type: 'ui/slot', data: {
+      broadcastSlot('', {
         id: 'schedule',
         priority: 60,
         title: '定时任务',
         detail: items.length + ' 个启用中',
         action: 'schedule',
-      } });
+      });
     } catch {
       // 日程服务不可用：不发 slot，手机端保留上一次
     }
@@ -1734,10 +1727,89 @@ function presetSvcOf(ctx) {
   };
   loadPersistedState();
 
+  /* ==================== 插槽版本 + TTL + 补发（2026-11-15，§20） ====================
+   *
+   * 病历：`ui/slot` 以前是同 id 覆盖的裸状态帧 —— 断线补发 + 实时推送重叠时，一条晚到的
+   * 旧帧会把新状态盖回去（乱序覆盖）；生产者（job 扫描 / 压缩 / 重试）失联后帧不再来，
+   * 手机上那行状态却永远挂着（残留）。
+   *
+   * 现在每条帧多两个字段：
+   *   · rev    —— 按 id 单调递增；补发沿用最近一帧的 rev，绝不回退；
+   *   · ttl_ms —— 持续态（jobs/compaction/retry/inbox/subagents）默认 30s，
+   *               每次状态更新重新计时；goal/permission/schedule 这类稳定态不带 ttl，
+   *               靠显式 remove 消失。
+   * 并记住每个 id 的最近一帧（含 rev/ttl），新订阅（WS hello / SSE ready）时补发一次。
+   */
+  const SLOT_REV = new Map();          // id -> 最近 rev（只增不减）
+  const SLOT_LAST = new Map();         // id -> { sid, data, at }（最近一帧，含 rev/ttl）
+  const SLOT_TTL_MS = 30000;
+  const SLOT_TTL_IDS = new Set(['jobs', 'compaction', 'retry', 'inbox', 'subagents']);
+  const nextSlotRev = (id) => {
+    const r = (SLOT_REV.get(id) ?? 0) + 1;
+    SLOT_REV.set(id, r);
+    return r;
+  };
+  /** 空帧（只有 id）与 remove:true 同义 —— 手机端约定"title/detail 都空 = 移除"。 */
+  const slotIsRemoval = (d) => d.remove === true
+    || (!String(d.title ?? '').trim() && !String(d.detail ?? '').trim() && !(Number(d.count) > 0));
+  /**
+   * **唯一**插槽下发入口：补 rev / ttl_ms、记住最近帧、再广播。
+   * @param {string} sid 目标会话（'' = 全局；只影响订阅路由，不影响 rev 计数）
+   * @returns {object|null} 实际下发的 data
+   */
+  const broadcastSlot = (sid, data) => {
+    if (!data || typeof data !== 'object') return null;
+    const id = String(data.id ?? '').trim();
+    if (!id) return null;
+    const target = String(sid ?? '').trim();
+    const now = Date.now();
+    if (slotIsRemoval(data)) {
+      const rev = nextSlotRev(id);
+      const frame = { id, rev, remove: true };
+      const scoped = String(data.session_id ?? target ?? '').trim();
+      if (scoped) frame.session_id = scoped;
+      // 移除帧也记住：新订阅补发它只是幂等删除，不会把状态复活
+      SLOT_LAST.set(id, { sid: target, data: frame, at: now });
+      streamBroadcast(target, { v: 2, type: 'ui/slot', data: frame });
+      return frame;
+    }
+    const rev = nextSlotRev(id);
+    const ttl = data.ttl_ms !== undefined
+      ? Math.max(0, Number(data.ttl_ms) || 0)
+      : (SLOT_TTL_IDS.has(id) ? SLOT_TTL_MS : 0);
+    const frame = { ...data, rev };
+    if (ttl > 0) frame.ttl_ms = ttl;
+    else delete frame.ttl_ms;
+    SLOT_LAST.set(id, { sid: target, data: frame, at: now });
+    streamBroadcast(target, { v: 2, type: 'ui/slot', data: frame });
+    return frame;
+  };
+  /**
+   * 新订阅补发最近一帧（按 replayPushedCards 的同一套做法）。
+   * 过期的瞬时帧不再复活：生产者可能已经失联，补出去反而制造残留。
+   */
+  const replaySlots = (sid, send) => {
+    if (typeof send !== 'function') return 0;
+    const target = String(sid ?? '').trim();
+    const now = Date.now();
+    let n = 0;
+    for (const rec of SLOT_LAST.values()) {
+      if (!rec || !rec.data) continue;
+      if (rec.sid && rec.sid !== target) continue;      // 别的会话的槽不发（B18）
+      const ttl = Number(rec.data.ttl_ms ?? 0);
+      if (ttl > 0 && now - Number(rec.at || 0) > ttl) continue;
+      try {
+        send({ type: 'ui/slot', data: rec.data });
+        n += 1;
+      } catch { /* 单条失败不影响其它 */ }
+    }
+    return n;
+  };
+
   /** 清掉一条瞬时插槽（重试等）：remove:true，App 侧立即移除 */
   const clearTransientSlot = (id) => {
     if (!id) return;
-    streamBroadcast('', { v: 2, type: 'ui/slot', data: { id, remove: true } });
+    broadcastSlot('', { id, remove: true });
   };
 
   /**
@@ -1751,25 +1823,25 @@ function presetSvcOf(ctx) {
     if (!key) return;
     const q = SESSION_INBOX.get(key) ?? [];
     if (q.length === 0) {
-      streamBroadcast(key, { v: 2, type: 'ui/slot', data: { id: 'inbox', session_id: key, remove: true } });
+      broadcastSlot(key, { id: 'inbox', session_id: key, remove: true });
       return;
     }
-    streamBroadcast(key, { v: 2, type: 'ui/slot', data: {
+    broadcastSlot(key, {
       id: 'inbox', session_id: key, priority: 20, kind: 'list', board: 'task',
       title: '插话排队', detail: q.length + ' 条等待发送 · 点开可撤回/修改',
       action: 'queue', count: q.length,
-    } });
+    });
   };
   const broadcastJobsSlot = () => {
     const list = [...JOB_STATE.values()];
     if (list.length === 0) {
-      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'jobs', remove: true } });
+      broadcastSlot('', { id: 'jobs', remove: true });
       return;
     }
     const running = list.filter((j) => j.status === 'running').length;
     const failed = list.filter((j) => j.failed).length;
     // 文案收敛（2026-11-13）：一行读完，"N 在跑 · 共 M 条"；失败优先提示
-    streamBroadcast('', { v: 2, type: 'ui/slot', data: {
+    broadcastSlot('', {
       id: 'jobs',
       priority: 40,
       title: failed > 0 ? '任务（有失败）' : '任务',
@@ -1778,7 +1850,7 @@ function presetSvcOf(ctx) {
         : `共 ${list.length} 条 · 空闲`,
       action: 'jobs',
       warn: failed > 0,
-    } });
+    });
   };
 
   /**
@@ -1790,7 +1862,7 @@ function presetSvcOf(ctx) {
   const SUBAGENT_SLOT_TTL_MS = 90 * 1000;
   const broadcastSubagentsSlot = () => {
     if (childParent.size === 0) {
-      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'subagents', remove: true } });
+      broadcastSlot('', { id: 'subagents', remove: true });
       return;
     }
     const now = Date.now();
@@ -1810,10 +1882,10 @@ function presetSvcOf(ctx) {
     }
     if (active === 0) {
       // 全部结束且无近期活动 → 让槽消失（真机反馈："不活动/完成就让它消失"）
-      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'subagents', remove: true } });
+      broadcastSlot('', { id: 'subagents', remove: true });
       return;
     }
-    streamBroadcast('', { v: 2, type: 'ui/slot', data: {
+    broadcastSlot('', {
       id: 'subagents',
       priority: 50,
       title: '子代理',
@@ -1821,7 +1893,7 @@ function presetSvcOf(ctx) {
         ? `${live} 个在跑 · 共 ${active} 个`
         : `最近活动 ${active} 个 · 已结束`,
       action: 'subagents',
-    } });
+    });
   };
 
   const broadcastGoalSlot = (sid) => {
@@ -1829,24 +1901,24 @@ function presetSvcOf(ctx) {
     // B18：目标属于某个会话，只发给该会话的订阅者（目标切换时不会串到别的对话）
     const target = sid || '';
     if (!g || !g.active) {
-      streamBroadcast(target, { v: 2, type: 'ui/slot', data: { id: 'goal', session_id: sid || '', remove: true } });
+      broadcastSlot(target, { id: 'goal', session_id: sid || '', remove: true });
       return;
     }
-    streamBroadcast(target, { v: 2, type: 'ui/slot', data: {
+    broadcastSlot(target, {
       id: 'goal', session_id: sid || '', priority: 30, title: '目标', detail: g.title || '', action: 'goal',
-    } });
+    });
   };
 
   /** MCP：只统计本次会话真正调用过的服务（没连过的不编）。 */
   const broadcastMcpSlot = () => {
     const n = MCP_SERVERS.size;
     if (n === 0) {
-      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'mcp', remove: true } });
+      broadcastSlot('', { id: 'mcp', remove: true });
       return;
     }
-    streamBroadcast('', { v: 2, type: 'ui/slot', data: {
+    broadcastSlot('', {
       id: 'mcp', priority: 55, title: 'MCP 服务', detail: `${n} 个已用过`, action: 'mcp',
-    } });
+    });
   };
 
   /**
@@ -1913,17 +1985,17 @@ function presetSvcOf(ctx) {
     const policy = POLICY_LABEL[PERM_STATE.policy] ?? (PERM_STATE.policy ? '审批:未知' : '');
     const detail = [sandbox, policy].filter((s) => s && String(s).length).join(' · ');
     if (!detail) {
-      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'permission' } });
+      broadcastSlot('', { id: 'permission' });
       return;
     }
-    streamBroadcast('', { v: 2, type: 'ui/slot', data: {
+    broadcastSlot('', {
       id: 'permission',
       priority: 35,
       title: '权限',
       detail,
       action: 'permission',
       warn: PERM_STATE.sandbox === 'danger-full-access',
-    } });
+    });
   };
 
   /** 从 mcp__<server>__<tool> 取服务名 */
@@ -2113,6 +2185,7 @@ function presetSvcOf(ctx) {
       detail: { type: 'string', description: '正文或副标题' },
       priority: { type: 'number', description: 'slot 优先级，越小越靠上，默认 50' },
       id: { type: 'string', description: 'slot id，同 id 会覆盖；默认 phone_ui' },
+      ttl_ms: { type: 'number', description: 'slot 自动消失时间（毫秒）；不传按 id 默认（持续态 30s，稳定态不过期）' },
     },
     required: ['kind'],
     additionalProperties: false,
@@ -2140,7 +2213,8 @@ function presetSvcOf(ctx) {
           const detail = String(args?.detail ?? '').trim();
           if (!title && !detail) return '未推送：title/detail 至少给一个';
           if (kind === 'slot') {
-            const slot = pushUiSlot(args?.id, args?.priority, title, detail);
+            const extra = args?.ttl_ms === undefined ? {} : { ttl_ms: Number(args.ttl_ms) };
+            const slot = pushUiSlot(args?.id, args?.priority, title, detail, extra);
             return slot.removed
               ? '已移除手机插槽 ' + slot.id
               : '已推送到手机插槽 ' + slot.id;
@@ -2280,10 +2354,11 @@ function presetSvcOf(ctx) {
       if (t === 'llm/retry-started' || t === 'llm/retry') {
         const d = event.data ?? {};
         const n = Number(d.retry ?? d.attempt ?? 0) || 0;
-        streamBroadcast(sid, { v: 2, type: 'ui/slot', data: {
+        // ttl 默认 30s（SLOT_TTL_IDS），每次 retry 事件重新计时；turn/end 显式移除
+        broadcastSlot(sid, {
           id: 'retry', session_id: sid, priority: 15, kind: 'display', board: 'alert', warn: true,
           title: '模型重试', detail: n > 0 ? ('第 ' + n + ' 次重试中…') : '正在重试…',
-        } });
+        });
         return;
       }
       if (t === 'assistant/message' || t === 'step/end' || t === 'error') {
@@ -2304,9 +2379,9 @@ function presetSvcOf(ctx) {
       // 上下文压缩：开/关各发一次插槽（目录里登记过但一直没有发送实现，属 B8 同类缺口）
       if (t === 'compaction/start' || t === 'compaction/end') {
         // B18：压缩是会话内的事，只发给该会话（否则别的对话也会看到"正在压缩"）
-        streamBroadcast(sid, { v: 2, type: 'ui/slot', data: t === 'compaction/start'
+        broadcastSlot(sid, t === 'compaction/start'
           ? { id: 'compaction', session_id: sid, priority: 10, title: '正在压缩上下文…' }
-          : { id: 'compaction', session_id: sid, remove: true } });
+          : { id: 'compaction', session_id: sid, remove: true });
         return;
       }
       // 任务 / 目标的持续状态：在"只转子代理活动"的早退之前处理（主会话事件也要收）
@@ -2588,14 +2663,15 @@ function presetSvcOf(ctx) {
     // B18（2026-11-13）：带 session_id 的插槽只发给该会话的订阅者（以前一律全局广播）。
     const target = String(extra.session_id ?? '').trim();
     if (!t && !d) {
-      CUSTOM_SLOTS.delete(slotId);
-      streamBroadcast(target, { v: 2, type: 'ui/slot', data: { id: slotId, ...(target ? { session_id: target } : {}) } });
-      return { id: slotId, removed: true, ...(target ? { session_id: target } : {}) };
+      // 空帧 = 移除；broadcastSlot 会补 rev 并记住这条移除
+      const frame = broadcastSlot(target, { id: slotId, ...(target ? { session_id: target } : {}) });
+      return { ...frame, removed: true };
     }
-    const data = { id: slotId, priority: Number(priority) || 50, title: t, detail: d, ...extra };
-    CUSTOM_SLOTS.set(slotId, data);
-    streamBroadcast(target, { v: 2, type: 'ui/slot', data });
-    return { ...data, removed: false };
+    // §20：broadcastSlot 统一补 rev/ttl，并记住最近帧供新订阅补发
+    const frame = broadcastSlot(target, {
+      id: slotId, priority: Number(priority) || 50, title: t, detail: d, ...extra,
+    });
+    return { ...frame, removed: false };
   };
 
   /**
@@ -2661,6 +2737,9 @@ function presetSvcOf(ctx) {
         ...(body.warn === true ? { warn: true } : {}),
         ...(body.session_id && String(body.session_id).trim()
           ? { session_id: String(body.session_id).trim() }
+          : {}),
+        ...(body.ttl_ms !== undefined && body.ttl_ms !== null
+          ? { ttl_ms: Number(body.ttl_ms) }
           : {}),
       });
       return sendJson(res, 200, { ok: true, v: 2, action, slot });
@@ -5062,12 +5141,9 @@ function presetSvcOf(ctx) {
     broadcastPermissionSlot();
     // 日程概览（通用 ui/slot）
     pushScheduleSlot();
-    // 自定义插槽补发（2026-11-13）：ui.slot / phone_ui 推的东西没有事件源，
-    // 不在这里补的话，App 一重启就全消失了（真机复现：推完的「本会话插槽」重启后不见）。
-    for (const data of CUSTOM_SLOTS.values()) {
-      if (data.session_id && data.session_id !== sid) continue;   // 别的会话的不发（B18）
-      sse({ type: 'ui/slot', data });
-    }
+    // 最近一帧补发（§20，2026-11-15）：ui.slot / phone_ui 推的东西没有事件源，
+    // 不补的话 App 一重启就全消失；按 id 记住最近帧（含 rev/ttl），过期的瞬时帧不复活。
+    replaySlots(sid, (frame) => sse(frame));
     // 子代理最近活动补发（B15）：最多 10 个 child，避免重连瞬间灌爆
     let subagentReplay = 0;
     for (const frame of SUBAGENT_LAST.values()) {
@@ -7116,6 +7192,8 @@ function presetSvcOf(ctx) {
             limits: { file_max: FILE_MAX, file_chunk: FILE_CHUNK, pull_max: 500 },
           });
           try { replayPushedCards(sid, (frame) => sendWs(ws, frame)); } catch { /* 补发失败不影响连接 */ }
+          // §20（2026-11-15）：插槽最近帧补发（rev/ttl 一起带上；过期的瞬时帧不发）
+          try { replaySlots(sid, (frame) => sendWs(ws, frame)); } catch { /* 补发失败不影响连接 */ }
           sendWs(ws, { type: 'view_def', version: 1, views: VIEW_DEFS });
           const timer = setInterval(() => {
             try { touchConnection(sid, 'ws'); ws.ping(); } catch { /* 已断 */ }

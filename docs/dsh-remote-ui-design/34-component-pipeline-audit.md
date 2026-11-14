@@ -1129,3 +1129,117 @@ public static boolean isSealed(int segmentIndex, int lastSegmentIndex, boolean h
 - **未改**：`EventBatchQueue` / `EventFlowPolicy` 参数与语义、插件、卡片渲染。
 - **卡片跨段重复**：`DshProjection` 仍把全轮卡片/子代理写进每个段（旧拆分也这样），
   本次未改投影的卡片归属，避免动渲染口径。
+
+## 20. 插槽甲板：rev + TTL + 单一写者（2026-11-15，§20 DOCK-REV/TTL）
+
+### 20.1 病历：两条"后台任务"、状态被旧帧盖回、生产者失联后残留
+
+插槽总线是"同 id 覆盖"的裸状态帧，没有版本也没有生命周期：
+
+| 现象 | 机制 |
+|---|---|
+| 甲板两条"后台任务" | 插件 `ui/slot` 与 App `updateDockSlotsForEvent` 各写一次同一个 id（没有唯一写者） |
+| 重连后状态倒退 | 补发 + 实时推送重叠，晚到的旧帧覆盖新状态（`ui/slot` 无 rev） |
+| 压缩/任务/重试行永远挂着 | 生产者失联后不再有帧，也没有人清理（无 TTL） |
+
+本次只治这三件事，**不动** UI 渲染（最多 3 条、priority 排序）与事件分流/批处理/投影。
+
+### 20.2 协议字段（`ui/slot`）
+
+```json
+{ "type": "ui/slot", "data": {
+    "id": "jobs", "priority": 40, "title": "任务", "detail": "1 个在跑 · 共 20 条",
+    "action": "jobs", "kind": "display", "board": "task", "pinned": false, "count": 0,
+    "rev": 7, "ttl_ms": 30000, "remove": false, "session_id": "..."
+} }
+```
+
+| 字段 | 语义 |
+|---|---|
+| `rev` | **按 id 单调递增**，每条新帧 +1；补发沿用最近一帧的 rev，绝不回退。移除帧同样占一个新 rev |
+| `ttl_ms` | 可选，相对存活时间（毫秒）；App 收到时换算成绝对 `expireAt = now + ttl_ms`（上限 24h） |
+| `remove:true` / 空帧 | 与旧约定兼容：`remove:true` 或 title/detail 都空且 `count<=0` = 移除 |
+
+插件侧默认 TTL（`SLOT_TTL_IDS`，全部 30000ms）：`jobs` / `compaction` / `retry` / `inbox` /
+`subagents`；`goal` / `permission` / `schedule` / `mcp` 属稳定态，不带 ttl，靠显式 remove。
+每次状态更新（再次 `broadcastSlot`）都会换新 rev 并重新计时。
+
+App 侧 `DockSlotBus.Slot` 新增只读字段 `rev` / `expireAt` / `source`（`plugin` | `local`），
+旧构造签名语义不变（新增重载，6 参/10 参构造默认 `rev=0, expireAt=0, source=""`）。
+
+### 20.3 rev 丢弃规则（`SlotLedger`，纯 JVM）
+
+| 入站 | 条件 | 结果 |
+|---|---|---|
+| `rev > 0` | `rev < 已存最大 rev` | 丢弃（迟到帧；`[dock] 丢弃 回退 rev ...`） |
+| `rev > 0` | `rev == 已存最大 rev` 且槽位仍在 | 丢弃（重复帧；`[dock] 丢弃 重复 rev ...`） |
+| `rev > 0` | `rev == 已存最大 rev` 但槽位已被移除 | 接受（断连后按原 rev 补发要能恢复） |
+| `rev == 0` | 旧插件/本地写入 | 按旧"同 id 覆盖"语义接受，不建立水位 |
+| 移除帧 | `rev <` 水位 | 丢弃（乱序移除不生效）；水位跨移除保留，旧帧不能复活槽位 |
+
+**水位何时归零**：`DockSlotBus.clear()`（断连/切会话）会清非 pinned 并把 rev 水位一起清空。
+原因：插件进程重启后 `SLOT_REV` 从 1 重来，水位若留着，新世代的 rev=1 会被当成回退帧
+永久丢弃（重连后 jobs/compaction 再也不出现）。旧世代的迟到帧随连接断开 + 队列清空一起
+作废，所以这个归零不会把乱序保护真正打穿；显式 `remove(id, rev)` 仍保留水位防复活。
+**未做**：没有引入 epoch / 插件实例 id，插件重启与"旧世代迟到帧"目前靠断连信号区分。
+
+### 20.4 TTL 清理机制
+
+- App `DockSlotBus.attachSweeper()` 在主线程挂 1s 一次的 `Handler`（`AIChatActivity.onCreate`
+  调、`onDestroy` 摘）；每次 tick 调 `sweepExpired(now)`，`expireAt>0 && now>expireAt` 的槽位
+  移除并通知 UI（`[dock] TTL 过期移除 id=...`）。
+- 无 ttl（`expireAt==0`）的稳定态永不被清理。
+- `addListener` 回放前先 sweep 一次：页面晚打开时不会看到已经死掉的"正在压缩"。
+- 日志：`[dock] TTL 清扫已启动 间隔=1000ms` / `[dock] TTL 清扫已停止`。
+
+### 20.5 单一写者 + 本地兜底
+
+- App 侧 `ui/slot` 只剩**一个解析器**：`RemoteSlotBridge.apply(data)`。
+  WS 通道（`RemoteDshTool` 的 `case "ui/slot"`）与事件通道（`AIChatActivity.updateDockSlotsForEvent`
+  的 `case "ui/slot"`）都委托它；顺带修正了旧 SSE 路径丢 `kind/board/pinned/count` 的问题。
+- 插件帧写 `source=plugin`；App 自己派生的状态（compaction、`remote/attention`、`remote_cmd`）
+  改走 `DockSlotBus.updateLocal(slot)`：
+  - 插件最近 **3 秒**内写过同一 id → 本地写入让位（`[dock] 丢弃 兜底让位（插件 3s 内写过）`）；
+  - 旧插件不推时照常显示（兜底能力保留，不删）。
+- `job/goal/permission` 的本地派生写入在 2026-11-13 已经删掉（只留插件那条），本次没有再
+  恢复；`compaction/start` 是当前唯一保留的状态类兜底写入。
+- `clear()` 语义：断连只清非 pinned，`pinned` 槽位保留（它们是"连着就该一直看到"的状态）。
+
+### 20.6 测试与验证
+
+| 项 | 结果 |
+|---|---|
+| `SlotLedgerTest`（新增，纯 JVM） | 14/14 通过：rev 递增/回退丢弃/同 rev 重复丢弃/rev=0 兼容、移除水位、断连后同 rev 补发、插件重启 rev=1、TTL 边界、无 ttl 不清、到达即过期、pinned 保留、3s 兜底窗口（3999ms 让位 / 4000ms 生效） |
+| `DockSlotBusTest` | 11/11 通过（原 6 + 新增 5：rev、旧帧兼容、TTL sweep、pinned clear、本地兜底） |
+| 状态包其余用例 | 68 项中 4 项**既有失败**（`DshUiCatalogLoaderTest` 期望默认 1/2、代码是 2/5；`StatusDeckControllerTest` 同因），与本次改动无关（未触碰这两个类） |
+| 插件 `slot.test.mjs`（新增，真 WS + 真 HTTP） | 6/6 通过：rev 1→2、jobs 默认 ttl=30000、goal 无 ttl、显式 3000 透传、空帧移除 rev 递增、新订阅补发沿用 rev、过期瞬时帧不补发 |
+| 插件既有自测 | `ws_frames.test.mjs` 10/10、`caps.test.mjs` 11/11、`cardcheck.test.mjs` 23/23 通过；`node --check index.js` OK |
+| assets 同步 | `tools/.../index.js` 与 `src/main/assets/remote_dsh/plugin/index.js` 字节一致，SHA256 `03B4672AE594AEAA49AE2935ED67AF466AD288D7982CF5229AD686832C54783D` |
+| 编译 | `gradlew --offline assembleDebug` BUILD SUCCESSFUL |
+| 装机 APK | `答题宝-debug-2.2.apk`，SHA256 `B212C0174D93BCA37C7C9BE66030DD8C6664D4314A181F3DE6EA93CF48842BB7`，`adb -s 192.168.1.10:41193 install -r` Success |
+| 真机 | `25113PN0EC`：logcat `DockSlotBus: [dock] TTL 清扫已启动 间隔=1000ms`（新代码确实在跑）；同一 id `phone_ui` 推两条（"甲板验证 A"→"甲板验证 B"）后甲板只有一行且显示后一条，截图 `build/dock-verify.png` |
+
+**真机没验到的**：rev 丢弃与 TTL 过期两行日志。原因：当前 DSH 进程里跑的还是**旧插件**
+（`POST /v2/action {action:'ui.slot', ttl_ms:3000}` 的响应里没有 `rev`/`ttl_ms`，`phone_ui`
+schema 也没有 `ttl_ms`），旧插件不会发这两个字段；重载插件要重启 DSH（会中断本会话），
+按约束没做。这两条由 `SlotLedgerTest` + `slot.test.mjs` 覆盖，下次重启 DSH 后可直接在
+logcat 看 `[dock] 丢弃 重复 rev` / `[dock] TTL 过期移除`。
+
+### 20.7 TTL 续期覆盖（如实）
+
+| 槽位 | 续期触发 | 结论 |
+|---|---|---|
+| `jobs` | 每个 `job/registered` / `job/settled` 事件 | ✅ 有更新就续期；无事件 30s 后消失（符合预期） |
+| `inbox` | inject/撤回/修改事件 | ✅ |
+| `retry` | 每个 `llm/retry*` 事件 | ✅（另有 turn start/end 显式 remove） |
+| `subagents` | `subagent/catalog` 与子代理活动轮询 | ✅ |
+| `compaction` | **只有** `compaction/start` / `compaction/end`，没有周期心跳 | ⚠️ 压缩超过 30s 会提前消失（end 仍会 remove） |
+| `goal` / `permission` / `schedule` / `mcp` | 无 ttl（稳定态） | 靠显式 remove；`mcp` 目前只增不减，靠断连 clear/重启消失，未纳入 TTL |
+
+### 20.8 改动文件
+
+- App：`status/DockSlotBus.java`、`status/SlotLedger.java`（新）、`tool/RemoteSlotBridge.java`、
+  `ui/activity/AIChatActivity.java`、`tool/RemoteStatusSlots.java`、`tool/RemoteCommandExecutor.java`
+- 测试：`DockSlotBusTest.java`、`SlotLedgerTest.java`（新）
+- 插件：`tools/dsh-plugin-smartquiz-remote/index.js`（176 行增删）、`slot.test.mjs`（新）、
+  `src/main/assets/remote_dsh/plugin/index.js`（同步）

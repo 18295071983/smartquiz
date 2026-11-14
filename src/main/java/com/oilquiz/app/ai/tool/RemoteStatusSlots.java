@@ -77,10 +77,11 @@ public final class RemoteStatusSlots {
         }
         // U1 (2026-11-14): classify the slot for the multi-board chip deck.
         // Rendering still uses the legacy full-width row, so behaviour is unchanged.
+        // §20（2026-11-15）：这是本机派生的状态，走"本地兜底"写入；插件若推了同 id 以插件为准。
         String kind = warn ? "action" : "display";
         String board = warn ? "alert" : "state";
         boolean pinned = !warn;
-        DockSlotBus.update(new DockSlotBus.Slot(ID, 6, title, detail, action, warn,
+        DockSlotBus.updateLocal(new DockSlotBus.Slot(ID, 6, title, detail, action, warn,
                 kind, board, pinned, 0));
     }
 

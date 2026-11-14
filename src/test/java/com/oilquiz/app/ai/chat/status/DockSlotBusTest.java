@@ -26,11 +26,18 @@ public class DockSlotBusTest {
 
     @After
     public void tearDown() {
+        // clear() 现在保留 pinned（§20），测试要彻底清干净，避免静态总线状态串到别的用例
+        for (DockSlotBus.Slot s : DockSlotBus.list()) DockSlotBus.remove(s.id);
         DockSlotBus.clear();
     }
 
     private static DockSlotBus.Slot slot(String id, int prio, String title) {
         return new DockSlotBus.Slot(id, prio, title, "", "", false);
+    }
+
+    private static DockSlotBus.Slot versioned(String id, int prio, String title, long rev) {
+        return new DockSlotBus.Slot(id, prio, title, "", "", false,
+                "display", "state", false, 0, rev, 0L, "plugin");
     }
 
     @Test
@@ -98,5 +105,75 @@ public class DockSlotBusTest {
         DockSlotBus.clear();
         assertTrue(DockSlotBus.list().isEmpty());
         assertFalse(DockSlotBus.list().iterator().hasNext());
+    }
+
+    // ===== §20（2026-11-15）：rev / TTL / 单一写者 =====
+
+    @Test
+    public void revMustIncreaseWithinSameId() {
+        DockSlotBus.update(versioned("revjob", 40, "A", 1L));
+        DockSlotBus.update(versioned("revjob", 40, "B", 2L));
+        assertEquals(1, DockSlotBus.list().size());
+        assertEquals("B", DockSlotBus.list().get(0).title);
+        assertEquals(2L, DockSlotBus.list().get(0).rev);
+
+        DockSlotBus.update(versioned("revjob", 40, "迟到的 A", 1L));
+        assertEquals("回退 rev 直接丢弃", "B", DockSlotBus.list().get(0).title);
+
+        DockSlotBus.update(versioned("revjob", 40, "重复的 B", 2L));
+        assertEquals("同 rev 视为重复", "B", DockSlotBus.list().get(0).title);
+    }
+
+    @Test
+    public void legacySlotWithoutRevStillOverwrites() {
+        // 旧插件/本地写入 rev=0：保持"同 id 覆盖"的旧语义，升级不能把行为改坏
+        DockSlotBus.update(slot("legacyjob", 40, "A"));
+        DockSlotBus.update(slot("legacyjob", 40, "B"));
+        assertEquals("B", DockSlotBus.list().get(0).title);
+    }
+
+    @Test
+    public void sweepRemovesExpiredButKeepsStableAndPinned() {
+        long now = System.currentTimeMillis();
+        DockSlotBus.update(new DockSlotBus.Slot("expiring", 40, "任务", "", "", false,
+                "display", "state", false, 0, 1L, now + 10_000L, "plugin"));
+        DockSlotBus.update(new DockSlotBus.Slot("stable", 40, "目标", "", "", false,
+                "display", "state", false, 0, 1L, 0L, "plugin"));
+        DockSlotBus.update(new DockSlotBus.Slot("pinned", 6, "通道落后", "", "connect", false,
+                "display", "state", true, 0, 1L, 0L, "plugin"));
+
+        assertEquals(0, DockSlotBus.sweepExpired(now + 9_999L));
+        assertEquals(1, DockSlotBus.sweepExpired(now + 10_001L));
+
+        List<DockSlotBus.Slot> left = DockSlotBus.list();
+        assertEquals(2, left.size());
+        for (DockSlotBus.Slot s : left) {
+            assertFalse("expiring 应被清掉", "expiring".equals(s.id));
+        }
+        assertEquals("pinned", left.get(0).id);
+        assertEquals("stable", left.get(1).id);
+    }
+
+    @Test
+    public void clearKeepsPinnedSlotsForReconnect() {
+        long now = System.currentTimeMillis();
+        DockSlotBus.update(new DockSlotBus.Slot("pinned", 6, "通道落后", "", "connect", false,
+                "display", "state", true, 0, 1L, now + 60_000L, "plugin"));
+        DockSlotBus.update(slot("job", 40, "任务"));
+
+        DockSlotBus.clear();
+
+        assertEquals("断连只清瞬时态，pinned 留着", 1, DockSlotBus.list().size());
+        assertEquals("pinned", DockSlotBus.list().get(0).id);
+    }
+
+    @Test
+    public void localFallbackYieldsToPluginWithinThreeSeconds() {
+        DockSlotBus.update(versioned("compaction", 10, "插件压缩", 3L));
+        DockSlotBus.updateLocal(new DockSlotBus.Slot(
+                "compaction", 10, "本地压缩", "", "", true));
+
+        assertEquals("插件 3s 内写过，同一事实只能有一行（且是插件那行）",
+                "插件压缩", DockSlotBus.list().get(0).title);
     }
 }
