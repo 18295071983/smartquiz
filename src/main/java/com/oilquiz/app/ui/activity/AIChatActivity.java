@@ -15301,9 +15301,9 @@ public class AIChatActivity extends BaseActivity {
         try {
             org.json.JSONObject data = ev.optJSONObject("data");
             if (data == null) return;
-            org.json.JSONObject src = data.optJSONObject("source");
-            String kind = src == null ? "" : src.optString("kind", "");
-            if (!kind.isEmpty() && !"user".equals(kind)) return;
+            // 口径与历史导入共用一处（DshHistoryImporter.isHumanUserMessage）：
+            // source.kind 为空或 'user' 才是人说的话；后台任务通知/重试回执不进对话。
+            if (!com.oilquiz.app.ai.tool.DshHistoryImporter.isHumanUserMessage(data)) return;
             org.json.JSONArray parts = data.optJSONArray("content");
             StringBuilder sb = new StringBuilder();
             if (parts != null) {

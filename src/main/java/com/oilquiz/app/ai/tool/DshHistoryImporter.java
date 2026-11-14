@@ -276,14 +276,31 @@ public final class DshHistoryImporter {
             long ts = ev.ts > 0 ? ev.ts : System.currentTimeMillis();
 
             if ("user/message".equals(ev.type)) {
-                finishAssistant(out, assistant, timeline, ts, componentSeq);
                 String text = ev.data != null
                         ? DshCards.collectText(ev.data.optJSONArray("content")) : "";
-                if (!text.isEmpty()) {
-                    ChatMessage user = ChatMessage.createUserMessage(text);
-                    user.timestamp = ts;
-                    out.add(user);
+                /**
+                 * 2026-11-14：历史同步必须和**实时镜像**用同一把尺子。
+                 *
+                 * <p>实时路径走 {@code AIChatActivity.mirrorUserMessage}：只认
+                 * {@code source.kind} 为空或 {@code 'user'} 的消息，空文本跳过，同文本去重。
+                 * 这里以前是"见到 user/message 就加一条用户气泡"，于是 DSH 记成 user/message 的
+                 * 后台任务通知（{@code background job pwsh-…}）、重试回执、系统提示，历史一同步
+                 * 就全变成"用户提问"——真机上就是历史里冒出一堆莫名其妙的用户气泡。</p>
+                 */
+                if (!isHumanUserMessage(ev) || text.isEmpty()) {
+                    // 不是人说的话：不建气泡，也**不**当作轮次边界（避免把一轮回复切成两段）
+                    continue;
                 }
+                if (!out.isEmpty()) {
+                    ChatMessage last = out.get(out.size() - 1);
+                    if (last != null && last.isUserMessage() && text.equals(last.content)) {
+                        continue;   // 相邻重复（重试/补拉重放）
+                    }
+                }
+                finishAssistant(out, assistant, timeline, ts, componentSeq);
+                ChatMessage user = ChatMessage.createUserMessage(text);
+                user.timestamp = ts;
+                out.add(user);
                 timeline = new DshTimeline();
                 assistant = null;
                 continue;
@@ -304,6 +321,30 @@ public final class DshHistoryImporter {
         }
         finishAssistant(out, assistant, timeline, System.currentTimeMillis(), componentSeq);
         return out;
+    }
+
+    /**
+     * 这条 {@code user/message} 是不是"人说的话"。
+     *
+     * <p>口径与实时镜像 {@code AIChatActivity.mirrorUserMessage} 一致：没有 {@code source}
+     * 的旧日志照常显示；有 {@code source} 时 {@code kind} 必须为空或 {@code 'user'}。
+     * DSH 会把后台任务通知、重试回执、系统提示也记成 {@code user/message}，它们不该出现在对话里。</p>
+     */
+    static boolean isHumanUserMessage(DshEvent ev) {
+        if (ev == null) return true;
+        return isHumanUserMessage(ev.data);
+    }
+
+    /**
+     * 同上，直接吃原始事件 JSON —— 实时镜像（{@code AIChatActivity.mirrorUserMessage}）也用这个，
+     * 保证"历史同步"和"实时镜像"永远是同一把尺子，不会再各写一套。
+     */
+    public static boolean isHumanUserMessage(org.json.JSONObject data) {
+        if (data == null) return true;
+        org.json.JSONObject src = data.optJSONObject("source");
+        if (src == null) return true;
+        String kind = src.optString("kind", "");
+        return kind.isEmpty() || "user".equals(kind);
     }
 
     /** 审批事件也进历史：导入后的会话照样能看到"当时批了什么" */

@@ -127,6 +127,51 @@ public class DshHistoryImporterTest {
         assertEquals("摘要正文", messages.get(0).content);
     }
 
+    /**
+     * 2026-11-14 真机：历史同步出来的会话里冒出一堆"用户提问"，内容却是
+     * {@code background job pwsh-…}、重试回执这类系统消息。
+     *
+     * <p>原因是实时镜像（{@code mirrorUserMessage}）会按 {@code source.kind} 过滤，
+     * 而历史导入器以前见到 {@code user/message} 就当用户气泡。这里钉住同一把尺子。</p>
+     */
+    @Test
+    public void systemUserMessagesBecomeNoBubble() {
+        List<JSONObject> events = new ArrayList<>();
+        events.add(user(1, "真实提问"));
+        events.add(assistant(2, 1, 1, "回答", null));
+        events.add(systemUser(3, "background job pwsh-1 (pwsh: gradlew assembleDebug)", "job"));
+        events.add(systemUser(4, "重试回执", "retry"));
+        events.add(assistant(5, 2, 1, "第二条回答", null));
+
+        List<ChatMessage> messages = DshHistoryImporter.buildMessages(events);
+
+        // 两条用户气泡只剩真实那条；两条助手回复各成一条，没被系统消息吞掉
+        int users = 0;
+        for (ChatMessage m : messages) {
+            if (m.type == ChatMessage.MessageType.USER) {
+                users += 1;
+                assertEquals("真实提问", m.content);
+            }
+        }
+        assertEquals("用户气泡只应有一条", 1, users);
+        assertTrue("助手回复不应被系统消息合并掉", messages.size() >= 2);
+    }
+
+    /** 相邻重复的用户消息（补拉重放 / 重试）只留一条 */
+    @Test
+    public void duplicateUserMessagesCollapse() {
+        List<JSONObject> events = new ArrayList<>();
+        events.add(user(1, "同一句话"));
+        events.add(user(2, "同一句话"));
+        events.add(assistant(3, 1, 1, "回答", null));
+
+        List<ChatMessage> messages = DshHistoryImporter.buildMessages(events);
+
+        int users = 0;
+        for (ChatMessage m : messages) if (m.type == ChatMessage.MessageType.USER) users += 1;
+        assertEquals(1, users);
+    }
+
     // ===== 构造 =====
 
     private static JSONObject envelope(String type, int seq, JSONObject data) {
@@ -150,6 +195,12 @@ public class DshHistoryImporterTest {
         JSONArray content = new JSONArray().put(payload("type", "text", "text", text));
         return envelope("user/message", seq, payload("content", content));
     }
+
+    /** 带 {@code source.kind} 的 user/message（DSH 把后台任务通知/重试回执也记成这个类型） */
+    private static JSONObject systemUser(int seq, String text, String kind) {
+        JSONArray content = new JSONArray().put(payload("type", "text", "text", text));
+        return envelope("user/message", seq,
+                payload("content", content, "source", payload("kind", kind)));    }
 
     private static JSONObject assistant(int seq, int turn, int step, String text, String thinking) {
         JSONObject data = located(turn, step);
