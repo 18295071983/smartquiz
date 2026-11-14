@@ -4054,7 +4054,30 @@ public class AIChatActivity extends BaseActivity {
             final int liveIdx = chatHistory.size() - 1;
             new Thread(() -> {
                 try {
-                    com.oilquiz.app.ai.tool.RemoteDshTool.inject(AIChatActivity.this, target, text);
+                    // 2026-11-14 插话排队：电脑端这一轮正在跑时，插件不抢写锁，先把消息排进
+                    // 这条会话的插话队列（和 dsh 官方客户端把消息投进 Inbox 是同一个语义）。
+                    // 返回 queued=true 就把气泡改成"排队中（第 N 位）"，等跑完自动送达。
+                    java.util.Map<String, Object> r =
+                            com.oilquiz.app.ai.tool.RemoteDshTool.injectDetailed(AIChatActivity.this, target, text);
+                    Object queued = r == null ? null : r.get("queued");
+                    if (Boolean.TRUE.equals(queued)) {
+                        Object pos = r.get("position");
+                        Object kind = r.get("busy_kind");
+                        int position = pos instanceof Number ? ((Number) pos).intValue() : 0;
+                        runOnUiThread(() -> {
+                            String why = "cli".equals(String.valueOf(kind)) ? "电脑上这条对话正在跑"
+                                    : "in-process".equals(String.valueOf(kind)) ? "电脑正在处理这一轮"
+                                    : "电脑上正在执行";
+                            String hint = "已插话排队（第 " + Math.max(1, position) + " 位）· " + why + "，跑完自动发送";
+                            live.content = hint;
+                            live.inferenceProgress = new ChatMessage.InferenceProgress(
+                                    ChatMessage.InferencePhase.THINKING);
+                            if (chatAdapter != null && liveIdx >= 0 && liveIdx < chatHistory.size()) {
+                                chatAdapter.notifyItemChanged(liveIdx);
+                            }
+                            showToast(hint);
+                        });
+                    }
                     runOnUiThread(() -> com.oilquiz.app.ai.tool.RemoteConnection.get(AIChatActivity.this).start());
                 } catch (Exception e) {
                     runOnUiThread(() -> pushLiveSync(live, liveIdx, new long[]{0L},

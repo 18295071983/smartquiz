@@ -675,6 +675,19 @@ public class RemoteDshTool implements AITool {
      * 手机随后用 {@link #subscribeEvents} 订阅原始事件流，自己做渲染转换。
      */
     public static int inject(Context c, String target, String text) throws Exception {
+        Map<String, Object> resp = injectDetailed(c, target, text);
+        Object sb = resp.get("seq_before");
+        return sb instanceof Number ? ((Number) sb).intValue() : 0;
+    }
+
+    /**
+     * 注入并返回**完整响应**（2026-11-14，插话排队）。
+     *
+     * <p>电脑端这一轮正在跑（CLI 子进程 / 宿主内 turn）时，插件不会抢写锁，而是把消息放进
+     * 该会话的插话队列并回 {@code queued:true, position:N, busy_kind:cli|in-process|agent}。
+     * 调用方据此把"排队中"显示给用户（与 dsh 官方客户端把消息投进 Inbox 的语义一致）。</p>
+     */
+    public static Map<String, Object> injectDetailed(Context c, String target, String text) throws Exception {
         RemoteDshTool tool = new RemoteDshTool(c);
         Map<String, Object> body = new HashMap<>();
         body.put("action", "inject");
@@ -684,8 +697,7 @@ public class RemoteDshTool implements AITool {
         if (!Boolean.TRUE.equals(resp.get("ok"))) {
             throw new Exception(String.valueOf(resp.get("error")));
         }
-        Object sb = resp.get("seq_before");
-        return sb instanceof Number ? ((Number) sb).intValue() : 0;
+        return resp;
     }
 
     /**

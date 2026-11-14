@@ -153,9 +153,19 @@ const SUBAGENT_POLL_MAX_MS = 10 * 60 * 1000;
 
 function streamBroadcast(sid, obj) {
   if (!obj) return;
+  /**
+   * 2026-11-14：推送前**再取一次帧里的会话 id** 做校验。
+   *
+   * <p>原来只有"订阅者 sid ≠ 广播 sid 就跳过"这一道。但插槽类帧有调用方把 sid 传成 ''
+   * （本意"全局帧"），帧里却带着某条会话的数据（goal / compaction / 自定义 slot）——
+   * 于是同一台手机上的另一条对话也会收到，页面就把它画进了当前对话里。
+   * 这里对"全局帧但带 session_id"的情况再收一次口子：只发给订阅了那条会话的连接。</p>
+   */
+  const frameSid = String(obj?.data?.session_id ?? obj?.session_id ?? '').trim();
   for (const sub of STREAM_HUB) {
     if (!sub) continue;
     if (sid && sub.sid !== sid) continue;
+    if (!sid && frameSid && sub.sid !== frameSid) continue;
     try {
       sub.send(obj);
     } catch {
@@ -257,8 +267,44 @@ function messageIdOf(ev) {
 //   ④ 子进程降到 BelowNormal 优先级：跑任务时电脑仍然能正常响应。
 const CLI_SLOT = { running: 0, queued: 0, max: 1, maxQueued: 3 };
 const cliWaiters = [];
-/** 客户端断开后留给子进程收尾的时间；到点还没退出就连整棵树一起杀 */
-const CLI_ABORT_GRACE_MS = 3000;
+/**
+ * 手机端断开后"脱钩"的兜底上限（2026-11-14）：脱钩之后子进程继续跑，最多再跑这么久。
+ * 取 10 分钟或本轮预算中的较大者 —— 宁可让电脑把这一轮跑完，也不要因为手机抖一下就打断它。
+ * （以前这里是"3 秒收尾 + 杀进程树"，见 runCliTask 的 onAbort。）
+ */
+const DETACHED_MAX_MS = 10 * 60 * 1000;
+
+/* ==================== 会话忙碌表 + 手机插话队列（2026-11-14） ====================
+ *
+ * 用户口径：「我需要发消息，你进入插话模式。不要干扰电脑端的运行，电脑端容易故障。」
+ *
+ * 以前手机发消息（action=inject）是这样：拿到 live agent 就 followup；拿不到就 resume；
+ * resume 撞上"这条会话正被 CLI 子进程写着"就回 409，手机上显示发送失败。而如果这轮
+ * 正好在跑，followup 虽然会入队（DSH 的 next-turn inbox），但插件并不知道"在跑"，
+ * 于是队列里堆了几条也不告诉手机，用户只会觉得"发了没反应"。
+ *
+ * 现在：
+ *   · 插件自己记账（CLI 子进程 / 宿主内 turn 都会 mark/clear）；
+ *   · 目标会话正忙 → 消息进 SESSION_INBOX（按会话分队列），立刻回 {queued:true, position}；
+ *   · 这一轮结束时（finish）触发 onSessionIdle → 把队首投回会话（宿主内用 followup，
+ *     CLI 会话用一次新的 CLI 轮次），**从不打断正在跑的那一轮**。
+ * ================================================================== */
+const SESSION_BUSY = new Map();      // sid -> { since, kind }
+const SESSION_INBOX = new Map();     // sid -> [{ id, text, at }]
+const SESSION_INBOX_MAX = 20;        // 单个会话最多排多少条，防止无限堆积
+/** apply() 里赋值：一轮跑完之后把排队的插话投进去（模块级的 runCliTask 也能调到） */
+let onSessionIdle = null;
+
+const markSessionBusy = (sid, kind) => {
+  if (!sid) return;
+  SESSION_BUSY.set(sid, { since: Date.now(), kind: kind || 'turn' });
+};
+const clearSessionBusy = (sid) => {
+  if (!sid) return;
+  SESSION_BUSY.delete(sid);
+  try { onSessionIdle?.(sid); } catch { /* 投递失败不影响本次运行 */ }
+};
+const isSessionBusy = (sid) => Boolean(sid && SESSION_BUSY.has(sid));
 
 const abortError = () => { const e = new Error('aborted'); e.code = 'aborted'; return e; };
 
@@ -841,6 +887,8 @@ function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId, wor
     let out = '';
     let settled = false;
     let finalText = '';
+    /** 手机端断开后"脱钩"：我们不再等，但子进程继续跑（2026-11-14） */
+    let detached = false;
     let sessionId = dshSessionId || '';
     let childProc = null;
     let timer = null;
@@ -866,6 +914,8 @@ function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId, wor
     };
     /** 杀掉这一轮的进程树（子进程可能已经自己退出，killTree 会静默忽略） */
     const killChild = () => { try { if (childProc?.pid) killTree(childProc.pid); } catch { /* 忽略 */ } };
+    // 2026-11-14：这一轮跑着的时候把会话标成"忙"，手机那边的插话就知道要排队而不是硬塞
+    if (dshSessionId) markSessionBusy(dshSessionId, 'cli');
     const finish = (code, err) => {
       if (settled) return;
       settled = true;
@@ -873,17 +923,33 @@ function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId, wor
       if (abortTimer) clearTimeout(abortTimer);
       if (signal) { try { signal.removeEventListener('abort', onAbort); } catch { /* 忽略 */ } }
       try { release(); } catch { /* 忽略 */ }
+      // 忙标记按**最终**的会话 id 清（CLI 可能在中途才把 sessionId 报出来）
+      try { clearSessionBusy(sessionId || dshSessionId); } catch { /* 忽略 */ }
       const reply = (finalText || out).trim();
       resolve({ ok: code === 0, output: reply, sessionId, code, ms: Date.now() - started, spawn_ms: spawnAt ? spawnAt - started : null, err, aborted: code === -4 });
     };
     /**
-     * 客户端断开（手机 HTTP 超时 / 切后台 / 主动取消）：
-     * 先给 3 秒收尾，再把整棵进程树杀掉 —— 否则这个 250MB 的 DSH 宿主会一直
-     * 跑到自己的 5 分钟上限，连发几句就把电脑堆卡（本次要修的核心问题）。
+     * 客户端断开（手机 HTTP 超时 / 切后台 / 主动取消）——2026-11-14 改为「脱钩」。
+     *
+     * <p>以前是"给 3 秒收尾 → 杀整棵进程树"。后果：手机端一个 HTTP 超时（隧道抖动、切后台）
+     * 就把电脑上正在跑的这一轮打断，DSH 侧留下半截 turn —— 用户说的"电脑端容易故障"多是这么来的。</p>
+     *
+     * <p>现在：**只脱钩，不动进程**。我们不再等它，但子进程继续跑（结果照常写进会话日志，
+     * 手机重连后按游标补拉即可）；CLI 槽位仍由它占着，直到它自己退出才释放（不会并发跑两条）。
+     * 脱钩后的兜底上限放宽到 10 分钟（或本轮预算，取大者），到点还没退出才杀。</p>
      */
     const onAbort = () => {
-      if (settled || abortTimer) return;
-      abortTimer = setTimeout(() => { killChild(); finish(-4, 'aborted'); }, CLI_ABORT_GRACE_MS);
+      if (settled || detached) return;
+      detached = true;
+      if (timer) clearTimeout(timer);
+      const detachedCap = Math.max(budgetMs, DETACHED_MAX_MS);
+      timer = setTimeout(() => { killChild(); finish(-1, 'detached-timeout'); }, detachedCap);
+      // 先把"手机这一侧"结束掉：不释放槽位、不杀进程 —— 由子进程退出时的 finish() 收尾
+      resolve({
+        ok: false, output: (finalText || out).trim(), sessionId, code: -4,
+        ms: Date.now() - started, spawn_ms: spawnAt ? spawnAt - started : null,
+        err: 'detached', aborted: true, detached: true,
+      });
     };
     if (signal) {
       if (signal.aborted) { finish(-4, 'aborted'); return; }
@@ -2143,6 +2209,10 @@ function presetSvcOf(ctx) {
       // EVENT-CATALOG(2026-11-13)：所有事件类型都在下面这张表里登记；没登记的只记一次日志，
       // 但**照常转发**——"我可能不用，但你不能没有"。
       noteEventType(t);
+      // 2026-11-14 插话队列：先用 turn 事件把"这条会话正在跑"记下来 —— 手机 inject 时据此排队。
+      // 桌面端自己发起的轮次也会走这两个事件，所以电脑上正在跑的时候手机插话同样会排队。
+      if (t === 'turn/start') { markSessionBusy(sid, 'agent'); return; }
+      if (t === 'turn/end') { clearSessionBusy(sid); return; }
       if (t === 'subagent/catalog') {
         const d = event.data ?? {};
         const childId = String(d.childId ?? '');
@@ -2963,6 +3033,14 @@ function presetSvcOf(ctx) {
       timeout_ms: Number(cfg.cliTimeoutMs) || 300000,
     },
     devices: devices.devices.length,
+    // 2026-11-14 插话模式：哪些会话正在跑、各排了几条手机插话（排查"发了没反应"看这里）
+    interject: {
+      busy: [...SESSION_BUSY.entries()].map(([sid, v]) => ({
+        session_id: sid, kind: v.kind, since: v.since, ms: Date.now() - v.since,
+      })),
+      queues: [...SESSION_INBOX.entries()].map(([sid, q]) => ({ session_id: sid, queued: q.length })),
+      max: SESSION_INBOX_MAX,
+    },
     // WebSocket 实时通道当前客户端数（2026-11-14）：面板/自检据此判断"手机是不是走 WS"。
     // 0 不代表没连——可能是走了 SSE（隧道链路）或还没连。
     ws_clients: WS_CLIENTS.size,
@@ -3082,6 +3160,14 @@ function presetSvcOf(ctx) {
         plugin_sessions: handles.size, dsh_sessions_total: dshSessionsOnDisk(),
       },
       cli: { running: CLI_SLOT.running, queued: CLI_SLOT.queued, mode: cfg.cliMode === false ? 'in-process' : 'cli' },
+      // 2026-11-14 插话模式：哪些会话正在跑、各自排了几条手机插话（诊断"发了没反应"看这里）
+      interject: {
+        busy: [...SESSION_BUSY.entries()].map(([sid, v]) => ({
+          session_id: sid, kind: v.kind, since: v.since, ms: Date.now() - v.since,
+        })),
+        queues: [...SESSION_INBOX.entries()].map(([sid, q]) => ({ session_id: sid, queued: q.length })),
+        max: SESSION_INBOX_MAX,
+      },
       env: { preserved },
       checks,
       checked_at: Date.now(),
@@ -5569,7 +5655,7 @@ function presetSvcOf(ctx) {
     try { return (await readStoredHead(id)).agentPreset || ''; } catch { return ''; }
   };
 
-  const runInProcessTurn = async (target, text, turnOpts) => {
+  const runInProcessTurnInner = async (target, text, turnOpts) => {
     const deadline = Number.isFinite(turnOpts?.deadline) ? turnOpts.deadline : Date.now() + 120000;
     const signal = turnOpts?.signal;
     let agent = getLiveAgent(target);
@@ -5626,6 +5712,62 @@ function presetSvcOf(ctx) {
       via: resumed ? 'in-process:resume' : 'in-process:live',
     };
   };
+
+  /**
+   * 宿主内一轮：进出都记账（2026-11-14 插话队列）。
+   *
+   * <p>以前注入（inject）只看"agent 在不在"，不看"这条会话是不是正在跑一轮"——
+   * 忙时要么把消息塞进 DSH 的 next-turn inbox（没人告诉手机），要么在 CLI 会话上
+   * resume 撞写锁直接 409。现在统一用 SESSION_BUSY 记账，忙时手机消息进队列。</p>
+   */
+  const runInProcessTurn = async (target, text, turnOpts) => {
+    markSessionBusy(target, 'in-process');
+    try {
+      return await runInProcessTurnInner(target, text, turnOpts);
+    } finally {
+      clearSessionBusy(target);
+    }
+  };
+
+  /**
+   * 把排队的手机插话投进会话（一轮跑完后由 clearSessionBusy 触发；不打断任何人）。
+   *
+   * <p>宿主内 agent 在 → 用 followup 一次性把队列按顺序交给 DSH 的 next-turn inbox；
+   * 不在宿主内（CLI 会话）→ 起**一轮新的** CLI 把队首送进去，剩下的等这一轮结束再投。</p>
+   */
+  const drainSessionInbox = (sid) => {
+    const key = String(sid || '').trim();
+    if (!key || isSessionBusy(key)) return;
+    const q = SESSION_INBOX.get(key);
+    if (!q || !q.length) return;
+    const agent = (() => { try { return ctx.agents?.get?.(key); } catch { return undefined; } })();
+    if (agent && typeof agent.followup === 'function') {
+      const items = q.slice();
+      SESSION_INBOX.delete(key);
+      for (const it of items) {
+        try {
+          agent.followup({
+            id: it.id, role: 'user', content: [{ type: 'text', text: it.text }], source: { kind: 'user' },
+          });
+        } catch {
+          // 单条失败放回队列
+          const cur = SESSION_INBOX.get(key) ?? [];
+          cur.push(it);
+          SESSION_INBOX.set(key, cur);
+        }
+      }
+      return;
+    }
+    // CLI 会话：一次送一条，跑完（finish→clearSessionBusy）会再触发 drain
+    const item = q.shift();
+    if (q.length) SESSION_INBOX.set(key, q); else SESSION_INBOX.delete(key);
+    runTurn(ctx, undefined, key, item.text, cfg, { targetSessionId: key }).catch(() => {
+      const cur = SESSION_INBOX.get(key) ?? [];
+      cur.unshift(item);
+      SESSION_INBOX.set(key, cur);
+    });
+  };
+  onSessionIdle = drainSessionInbox;
 
   /** 一轮对话（非流式 / SSE 流式）
    *  runOpts.signal   —— 手机连接断开/超时 → 取消 CLI 子进程
@@ -6060,6 +6202,31 @@ function presetSvcOf(ctx) {
         const target = String(body.target_session_id ?? '').trim();
         const text = (typeof body.text === 'string' && body.text ? body.text : (typeof body.task === 'string' ? body.task : '')).trim();
         if (!target || !text) return sendJson(res, 400, { ok: false, action, error: '需要 target_session_id 和 text' });
+        /**
+         * 2026-11-14 插话模式：目标会话正在跑（CLI 子进程 / 宿主内 turn）→ **不抢、不打断**，
+         * 消息进这条会话的插话队列，立刻回 queued；跑完由 drainSessionInbox 投进去。
+         *
+         * 以前这里会去 resume 一个正被 CLI 写着的会话（撞写锁 → 409），或者在 DSH 的
+         * next-turn inbox 里排着却不告诉手机 —— 用户看到的就是"发了没反应 / 发送失败"。
+         */
+        if (isSessionBusy(target)) {
+          const q = SESSION_INBOX.get(target) ?? [];
+          if (q.length >= SESSION_INBOX_MAX) {
+            return sendJson(res, 429, {
+              ok: false, action, error: 'inbox_full', session_id: target,
+              hint: '这条对话的插话队列已满（' + SESSION_INBOX_MAX + ' 条），等电脑跑完再发',
+            });
+          }
+          const item = { id: randomBytes(16).toString('hex'), text, at: Date.now() };
+          q.push(item);
+          SESSION_INBOX.set(target, q);
+          const busy = SESSION_BUSY.get(target) ?? {};
+          return sendJson(res, 200, {
+            ok: true, action: 'inject', session_id: target, queued: true, position: q.length,
+            seq_before: Number(ctx.sessions.get(target)?.seq ?? 0),
+            busy_kind: busy.kind || '', busy_since: busy.since || 0,
+          });
+        }
         let agent = (() => { try { return ctx.agents?.get?.(target); } catch { return undefined; } })();
         let resumed = false;
         if (!agent) {
