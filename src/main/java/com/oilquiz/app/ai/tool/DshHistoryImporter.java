@@ -399,7 +399,7 @@ public final class DshHistoryImporter {
         int seg = 0;
         for (int from = 0; from < total; from += SEGMENT_STEPS, seg += 1) {
             ChatMessage m = seg == 0 ? assistant : ChatMessage.createAIMessage(
-                    assistant.id + "-s" + seg, "", assistant.timestamp, null, 0, 0);
+                    java.util.UUID.randomUUID().toString(), "", assistant.timestamp, null, 0, 0);
             m.turnId = assistant.turnId;
             m.timestamp = assistant.timestamp + seg;
             DshProjection.project(m, timeline, key -> "dsh-I" + (++componentSeq[0]), now,

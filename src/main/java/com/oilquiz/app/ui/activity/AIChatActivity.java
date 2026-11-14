@@ -8882,11 +8882,12 @@ public class AIChatActivity extends BaseActivity {
         int seg = 0;
         for (int from = 0; from < total; from += 6, seg += 1) {
             ChatMessage m = seg == 0 ? live : ChatMessage.createAIMessage(
-                    live.id + "-s" + seg, "", live.timestamp + seg, null, 0, 0);
+                    java.util.UUID.randomUUID().toString(), "", live.timestamp + seg, null, 0, 0);
             m.turnId = live.turnId;
             m.timestamp = live.timestamp + seg;
+            final String segKey = ":s" + seg;
             com.oilquiz.app.ai.remote.DshProjection.project(m, dshTimeline,
-                    key -> dshComponentId(key, m.turnId), System.currentTimeMillis(),
+                    key -> dshComponentId(key + segKey, m.turnId), System.currentTimeMillis(),
                     from, from + 6);
             boolean empty = (m.content == null || m.content.isEmpty())
                     && (m.thinkingContent == null || m.thinkingContent.isEmpty())
