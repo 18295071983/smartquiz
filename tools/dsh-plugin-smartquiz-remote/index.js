@@ -6092,9 +6092,13 @@ function presetSvcOf(ctx) {
           '/ws': { out: null, inbound: new Set(['pull', 'ack', 'file_get', 'cmd_ack', 'ping']) },
           '/ws/events': { out: new Set(['event', 'pulse']), inbound: new Set(['pull', 'ack', 'ping']) },
           '/ws/ui': {
-            out: new Set(['cmd', 'ui/slot', 'ui_component', 'approval', 'approval_gone',
-              'question', 'question_gone', 'view', 'state', 'pulse']),
+            out: new Set(['cmd', 'ui/slot', 'ui_component', 'view', 'state', 'pulse']),
             inbound: new Set(['cmd_ack', 'ping']),
+          },
+          // 告警单独一条：审批/提问**绝不能**被 slot 洪水或大包拖慢（用户正等着点）
+          '/ws/alert': {
+            out: new Set(['approval', 'approval_gone', 'question', 'question_gone']),
+            inbound: new Set(['ping']),
           },
           '/ws/file': {
             out: new Set(['file_begin', 'file_chunk', 'file_end', 'file_error']),
