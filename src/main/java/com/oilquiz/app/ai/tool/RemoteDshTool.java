@@ -966,6 +966,35 @@ public class RemoteDshTool implements AITool {
         java.util.Map<String, Object> resp = tool.httpJson(tool.getBaseUrl() + "/v2/invoke", "POST", body, 15);
         return new org.json.JSONObject(resp);
     }
+    /**
+     * 用 6 位配对码换设备令牌（2026-11-14）。
+     *
+     * <p>{@code /pair/claim} 不需要主令牌——配对码本身就是凭据（一次性、几分钟过期、
+     * 有频率限制），所以手机可以安全地直接调。返回的 {@code device_token} 就是之后
+     * 日常连接用的 32 位设备令牌。</p>
+     *
+     * @return 设备令牌；失败抛异常（消息可直接给用户看）
+     */
+    public static String claimPairingCode(Context c, String baseUrl, String code, String deviceName)
+            throws Exception {
+        String base = baseUrl == null ? "" : baseUrl.trim().replaceAll("/+$", "");
+        if (base.isEmpty()) throw new Exception("请先填电脑地址");
+        String cd = code == null ? "" : code.trim();
+        if (cd.isEmpty()) throw new Exception("请填配对码");
+        RemoteDshTool tool = new RemoteDshTool(c);
+        java.util.Map<String, Object> body = new java.util.HashMap<>();
+        body.put("code", cd);
+        body.put("name", deviceName == null || deviceName.isEmpty() ? "Android" : deviceName);
+        java.util.Map<String, Object> resp = tool.httpJson(base + "/pair/claim", "POST", body, 15);
+        Object ok = resp.get("ok");
+        if (!Boolean.TRUE.equals(ok)) {
+            Object err = resp.get("error");
+            throw new Exception(err == null ? "配对失败" : String.valueOf(err));
+        }
+        Object token = resp.get("device_token");
+        if (token == null || String.valueOf(token).isEmpty()) throw new Exception("电脑没返回设备令牌");
+        return String.valueOf(token);
+    }
     /** 连一次 SSE，返回本次收到的最大 seq（断线后作为 since 续传） */
     private static int streamOnce(RemoteDshTool tool, String sid, int since, int timeoutSec, boolean follow,
                                   int snapshotThreshold, String types, DshEventListener listener) throws Exception {

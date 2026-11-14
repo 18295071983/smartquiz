@@ -6081,7 +6081,7 @@ function presetSvcOf(ctx) {
     const device = {
       id: sameName ? sameName.id : `dev-${randomBytes(4).toString('hex')}`,
       name,
-      token: randomBytes(24).toString('hex'),
+      token: randomBytes(16).toString('hex'),
       created_at: sameName ? sameName.created_at : Date.now(),
       last_seen: Date.now(),
     };

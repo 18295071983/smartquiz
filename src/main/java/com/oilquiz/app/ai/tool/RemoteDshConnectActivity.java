@@ -714,6 +714,24 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             }
             probe(true, true);
         });
+        // 「输入配对码」按钮：扫码不方便时的备选（6 位数字，一次性）
+        try {
+            android.view.View scan = findViewById(R.id.btn_scan);
+            if (scan != null && scan.getParent() instanceof LinearLayout) {
+                LinearLayout bar = (LinearLayout) scan.getParent();
+                com.google.android.material.button.MaterialButton pairBtn =
+                        new com.google.android.material.button.MaterialButton(this);
+                pairBtn.setText("输入配对码");
+                pairBtn.setTextSize(13);
+                pairBtn.setAllCaps(false);
+                LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                plp.leftMargin = dp(8);
+                pairBtn.setLayoutParams(plp);
+                pairBtn.setOnClickListener(v -> promptPairingCode());
+                bar.addView(pairBtn);
+            }
+        } catch (Throwable ignored) { /* 加不上也不影响扫码 */ }
 
         disconnectBtn.setOnClickListener(v -> {
             if (!RemoteDshTool.isConfigured(this)) {
@@ -763,11 +781,31 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             // 配置列表：保存成功就落一条（同一地址覆盖，不重复）
             try {
                 RemoteProfiles.save(this, text(urlInput), text(tokenInput), "");
-                renderProfiles();
+        
+        renderProfiles();
             } catch (Throwable ignored) { /* 存不了不影响连接 */ }
             refresh();
             probe(true, true);
         });
+        // 「输入配对码」按钮：扫码不方便时的备选（6 位数字，一次性）
+        try {
+            android.view.View scan = findViewById(R.id.btn_scan);
+            if (scan != null && scan.getParent() instanceof LinearLayout) {
+                LinearLayout bar = (LinearLayout) scan.getParent();
+                com.google.android.material.button.MaterialButton pairBtn =
+                        new com.google.android.material.button.MaterialButton(this);
+                pairBtn.setText("输入配对码");
+                pairBtn.setTextSize(13);
+                pairBtn.setAllCaps(false);
+                LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                plp.leftMargin = dp(8);
+                pairBtn.setLayoutParams(plp);
+                pairBtn.setOnClickListener(v -> promptPairingCode());
+                bar.addView(pairBtn);
+            }
+        } catch (Throwable ignored) { /* 加不上也不影响扫码 */ }
+
         renderProfiles();
     }
 
@@ -812,7 +850,8 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 chip.setOnLongClickListener(v -> {
                     RemoteProfiles.remove(this, p.url);
                     toast("已删除 " + p.label());
-                    renderProfiles();
+            
+        renderProfiles();
                     return true;
                 });
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -828,6 +867,44 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         } catch (Throwable ignored) { /* 列表出问题不影响连接页本身 */ }
     }
 
+    /** 输入 6 位配对码 → 换设备令牌 → 保存并连接 */
+    private void promptPairingCode() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(16);
+        box.setPadding(pad, dp(8), pad, 0);
+        final android.widget.EditText urlEt = new android.widget.EditText(this);
+        urlEt.setHint("电脑地址，如 http://192.168.1.2:8218");
+        urlEt.setText(text(urlInput));
+        final android.widget.EditText codeEt = new android.widget.EditText(this);
+        codeEt.setHint("6 位配对码");
+        codeEt.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        box.addView(urlEt);
+        box.addView(codeEt);
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("输入配对码")
+                .setView(box)
+                .setPositiveButton("连接", (d, w) -> {
+                    final String url = urlEt.getText().toString().trim();
+                    final String code = codeEt.getText().toString().trim();
+                    new Thread(() -> {
+                        try {
+                            String token = RemoteDshTool.claimPairingCode(this, url, code, "Android");
+                            runOnUiThread(() -> {
+                                urlInput.setText(url);
+                                tokenInput.setText(token);
+                                RemoteProfiles.save(this, url, token, "");
+                                saveBtn.performClick();
+                                toast("配对成功");
+                            });
+                        } catch (Exception e) {
+                            runOnUiThread(() -> toast("配对失败：" + e.getMessage()));
+                        }
+                    }, "pair-claim").start();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
     private int dp(float v) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v,
                 getResources().getDisplayMetrics());
