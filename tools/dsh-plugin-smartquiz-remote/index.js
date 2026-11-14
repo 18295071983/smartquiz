@@ -267,8 +267,12 @@ function messageIdOf(ev) {
 //   ④ 子进程降到 BelowNormal 优先级：跑任务时电脑仍然能正常响应。
 const CLI_SLOT = { running: 0, queued: 0, max: 1, maxQueued: 3 };
 const cliWaiters = [];
-/** 客户端断开后留给子进程收尾的时间；到点还没退出就连整棵树一起杀 */
-const CLI_ABORT_GRACE_MS = 3000;
+/**
+ * 手机端断开后"脱钩"的兜底上限（2026-11-14）：脱钩之后子进程继续跑，最多再跑这么久。
+ * 取 10 分钟或本轮预算中的较大者 —— 宁可让电脑把这一轮跑完，也不要因为手机抖一下就打断它。
+ * （以前这里是"3 秒收尾 + 杀进程树"，见 runCliTask 的 onAbort。）
+ */
+const DETACHED_MAX_MS = 10 * 60 * 1000;
 
 /* ==================== 会话忙碌表 + 手机插话队列（2026-11-14） ====================
  *
@@ -883,6 +887,8 @@ function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId, wor
     let out = '';
     let settled = false;
     let finalText = '';
+    /** 手机端断开后"脱钩"：我们不再等，但子进程继续跑（2026-11-14） */
+    let detached = false;
     let sessionId = dshSessionId || '';
     let childProc = null;
     let timer = null;
@@ -923,13 +929,27 @@ function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId, wor
       resolve({ ok: code === 0, output: reply, sessionId, code, ms: Date.now() - started, spawn_ms: spawnAt ? spawnAt - started : null, err, aborted: code === -4 });
     };
     /**
-     * 客户端断开（手机 HTTP 超时 / 切后台 / 主动取消）：
-     * 先给 3 秒收尾，再把整棵进程树杀掉 —— 否则这个 250MB 的 DSH 宿主会一直
-     * 跑到自己的 5 分钟上限，连发几句就把电脑堆卡（本次要修的核心问题）。
+     * 客户端断开（手机 HTTP 超时 / 切后台 / 主动取消）——2026-11-14 改为「脱钩」。
+     *
+     * <p>以前是"给 3 秒收尾 → 杀整棵进程树"。后果：手机端一个 HTTP 超时（隧道抖动、切后台）
+     * 就把电脑上正在跑的这一轮打断，DSH 侧留下半截 turn —— 用户说的"电脑端容易故障"多是这么来的。</p>
+     *
+     * <p>现在：**只脱钩，不动进程**。我们不再等它，但子进程继续跑（结果照常写进会话日志，
+     * 手机重连后按游标补拉即可）；CLI 槽位仍由它占着，直到它自己退出才释放（不会并发跑两条）。
+     * 脱钩后的兜底上限放宽到 10 分钟（或本轮预算，取大者），到点还没退出才杀。</p>
      */
     const onAbort = () => {
-      if (settled || abortTimer) return;
-      abortTimer = setTimeout(() => { killChild(); finish(-4, 'aborted'); }, CLI_ABORT_GRACE_MS);
+      if (settled || detached) return;
+      detached = true;
+      if (timer) clearTimeout(timer);
+      const detachedCap = Math.max(budgetMs, DETACHED_MAX_MS);
+      timer = setTimeout(() => { killChild(); finish(-1, 'detached-timeout'); }, detachedCap);
+      // 先把"手机这一侧"结束掉：不释放槽位、不杀进程 —— 由子进程退出时的 finish() 收尾
+      resolve({
+        ok: false, output: (finalText || out).trim(), sessionId, code: -4,
+        ms: Date.now() - started, spawn_ms: spawnAt ? spawnAt - started : null,
+        err: 'detached', aborted: true, detached: true,
+      });
     };
     if (signal) {
       if (signal.aborted) { finish(-4, 'aborted'); return; }

@@ -112,8 +112,9 @@
 - **插话排队**：`SESSION_BUSY`（turn/start·end + CLI 起停）+ `SESSION_INBOX`（每会话 20 条），
   忙时 inject 直接回 `{queued:true, position}`，跑完由 `drainSessionInbox` 投递（宿主内 followup /
   CLI 起新一轮），从不抢写权、不杀正在跑的进程；`/status.interject` 可观测；
-- **未做**：CLI 子进程在手机端超时后仍会被杀（`onAbort` → 3s → killTree），要改成"脱钩"需要动
-  `acquireCliSlot` 的槽位释放时机，见 `31-plugin-channel-and-interject.md` §3；
+- **未做**：手机 UI 还没有"排队中（第 N 位）"提示（inject 已回 `queued/position`，App 只认 `ok`）；
+- **已改**：CLI 子进程在手机端断开后不再被杀，改为**脱钩**（子进程跑完、结果留日志、槽位到退出才释放，
+  兜底 10 分钟）—— 以前一次 HTTP 超时就会打断电脑上正在跑的一轮；
 - **已回退**：不再把手机新建会话写进桌面端 `storages/workspace.json`（插件只做转发，不写宿主账本）。
 
 ### C6 自更新
