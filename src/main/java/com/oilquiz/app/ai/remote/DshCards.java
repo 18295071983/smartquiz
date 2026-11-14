@@ -399,13 +399,16 @@ public final class DshCards {
             }
             case "tool/ptc-dispatch":
             case "tool/ptc-dispatch-start": {
-                // 程序化工具调用（PTC）：模型在代码里派的工具，手机上给一条工具样式的提示
+                /**
+                 * 程序化工具调用（PTC）本质就是一次工具调用 —— 复用内置的 `tool_call` 卡，
+                 * 不再单独做提示卡（2026-11-14 组件管线审计）。
+                 */
                 String name = data.optString("name", data.optString("toolName", "工具"));
                 String callId = data.optString("callId", data.optString("id", String.valueOf(turn)));
-                return new Card("ptc-" + callId, "alert_card",
-                        obj("title", "代码内调用 · " + name,
-                                "content", "程序化工具调用（PTC）",
-                                "level", "info"));
+                String args = data.optString("arguments", data.optString("args", ""));
+                return new Card("ptc-" + callId, "tool_call",
+                        obj("toolCallId", callId, "toolName", name,
+                                "args", args, "status", "running"));
             }
             case "hook/invoked":
             case "hook/result": {

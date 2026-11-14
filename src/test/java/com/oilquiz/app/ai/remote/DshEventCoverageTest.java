@@ -119,7 +119,9 @@ public class DshEventCoverageTest {
         }
         DshCards.Card card = cardOf("tool/ptc-dispatch", data);
         assertNotNull(card);
-        assertEquals("代码内调用 · pwsh", card.props.optString("title"));
+        // 2026-11-14：PTC 本质是一次工具调用，复用内置 tool_call 卡（不再单独做提示卡）
+        assertEquals("tool_call", card.type);
+        assertEquals("pwsh", card.props.optString("toolName"));
     }
 
     @Test

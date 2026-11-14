@@ -33,7 +33,7 @@ public class AlertCardView implements ChatComponent {
     @Override
     public boolean canRender(ComponentData data) {
         return data != null && data.props != null
-                && (data.props.has("title") || data.props.has("content"));
+                && (data.props.has("title") || data.props.has("content") || data.props.has("text"));
     }
 
     @Override
@@ -43,7 +43,9 @@ public class AlertCardView implements ChatComponent {
         // 之前只认 type → DSH 过来的 alert 全部退化成 info 紫色，四档级别形同虚设。
         String type = p.optString("type", p.optString("level", "info"));
         String title = p.optString("title", "");
-        String content = p.optString("content", "");
+        // 兼容两种字段：DSH 事件映射早先用 text，原生组件约定用 content。
+        // 只认 content 时，goal/team 这些卡会只剩标题、正文消失（2026-11-14 审计发现）。
+        String content = p.optString("content", p.optString("text", ""));
 
         // 按类型取色
         int accentColor;

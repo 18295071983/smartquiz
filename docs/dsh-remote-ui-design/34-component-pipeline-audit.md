@@ -53,7 +53,38 @@ DSH 的事件（job、command、todo、subagent、审批…）都是"AI 回合�
 2. 套不上但字段简单（title/content/items）→ 直接发 `dynamic`，无需改 App；
 3. 只有需要专门交互（如 `dsh_job` 的状态灯、`subagent_card` 的轨迹）才新增原生组件。
 
-## 5. 验证
+## 5. 内置工具专用卡 / 原生控件（第二轮审计）
+
+用户提醒："我还有内置工具专用卡也可以用，还有原生控件组件"。把 36 个 `*CardView` 按语义过了一遍：
+
+| 类别 | 组件（type） |
+|---|---|
+| **工具专用卡** | `tool_call`（工具执行）、`file_card`（单文件）、`file_list`（目录/产物）、`diff`（变更对比）、`code_card`（代码/命令）、`json_viewer`（JSON）、`markdown_doc`（整篇文档） |
+| **数据/结构卡** | `table_card`、`chart`（柱/折/面/饼/散点/雷达）、`metric_card`、`progress_card`、`info_card`（键值）、`steps_card`、`todo_card`、`list_card`、`grid_card` |
+| **媒体卡** | `image_grid`、`video`、`audio`、`playlist` |
+| **场景/工具卡** | `quiz_card`（答题宝核心：可作答+判题）、`weather_card`、`agenda`（日程）、`location`、`link_card`、`file_card`、`app_card`、`contact_card` |
+| **原生控件渲染** | `layout`（Layout 树 → 聊天流卡片）、`LayoutPrimitiveCardView`（`NativeLayoutRenderer` 单控件桥接）、`html`（WebView 富内容） |
+| **状态/提示** | `alert_card`、`note_card`、`agent_status`（气泡内状态徽章，可 spinning）、`feedback_bar`、`job`（主动轮询作业卡） |
+| **DSH 原生** | `dsh_job`、`subagent_card` |
+
+第二轮据此又接了两处：
+
+| DSH 事件 | 落点 | 说明 |
+|---|---|---|
+| `tool/ptc-dispatch`、`tool/ptc-dispatch-start` | **`tool_call`** | PTC 本质就是一次工具调用，复用内置工具卡（原来发的是提示卡） |
+| `goal/*`、`team/*` 等正文 | **`alert_card`** | 修了一个真 bug：`alert_card` 只读 `content`，而这些映射写的是 `text` → 正文整段丢失。现在 `content` 空时回退 `text`（`canRender` 也认 `text`） |
+
+仍然"接不上"的（有明确理由）：
+
+| 想接的 | 为什么不行 |
+|---|---|
+| `job`（主动轮询作业卡） | 需要 App 自己的作业目录（`job_id`+轮询日志），DSH job 是宿主侧被动状态灯 |
+| `diff` | `workspace/changes` 事件只有 `{turn}`，没有逐文件 diff 载荷；`deliverables/presented` 也只给路径 |
+| `image_grid` | `image/offload` 只有附件引用，插件没有取图端点 |
+| `steps_card` | 可用，但 `tool-workflow/*` 已用它；子代理轨迹需要 `childId` 累积语义，故保留 `subagent_card` |
+
+## 6. 验证
+
 
 - 单测：`DshEventCoverageTest` 6/6（把 63 种事件逐个 reduce，`unknownEventKinds()==0`，
   并断言插话卡落在 `alert_card`）；`DshHistoryImporterTest` 7/7；
