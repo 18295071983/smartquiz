@@ -824,24 +824,13 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
      */
     private void renderProfiles() {
         try {
-            // 插到页面滚动内容的**最顶部**（2026-11-14 真机反馈"没看到"：依赖
-            // url_input 的父容器结构不可靠，改成从 android.R.id.content 找 ScrollView）
-            ViewGroup box = null;
-            ViewGroup content = findViewById(android.R.id.content);
-            for (int i = 0; content != null && i < content.getChildCount(); i += 1) {
-                View child = content.getChildAt(i);
-                if (child instanceof android.widget.ScrollView) {
-                    android.widget.ScrollView sv = (android.widget.ScrollView) child;
-                    if (sv.getChildCount() > 0 && sv.getChildAt(0) instanceof ViewGroup) {
-                        box = (ViewGroup) sv.getChildAt(0);
-                        break;
-                    }
-                }
-            }
+            // 固定容器（布局里的 profiles_host）：不再猜父容器结构
+            ViewGroup box = findViewById(R.id.profiles_host);
             if (box == null) {
-                android.util.Log.w("RemoteDshConnect", "找不到滚动容器，配置列表不渲染");
+                android.util.Log.w("RemoteDshConnect", "布局里没有 profiles_host");
                 return;
             }
+            box.removeAllViews();
             View old = box.findViewWithTag("profiles_row");
             if (old != null) box.removeView(old);
 

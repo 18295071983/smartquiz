@@ -16,6 +16,22 @@
         android:orientation="vertical"
         android:padding="@dimen/space_16">
 
+        <!-- 连接配置列表（2026-11-14）：固定容器，代码只往里填 chips。
+             不再用"动态插到某个父容器"的做法——那条路依赖布局结构，真机上失配过三次。 -->
+        <HorizontalScrollView
+            android:id="@+id/profiles_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_8"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/profiles_host"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
         <!-- ===== 教程入口（新用户第一步） ===== -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_guide"
