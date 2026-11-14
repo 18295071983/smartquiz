@@ -719,8 +719,12 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             android.view.View scan = findViewById(R.id.btn_scan);
             if (scan != null && scan.getParent() instanceof LinearLayout) {
                 LinearLayout bar = (LinearLayout) scan.getParent();
+                // bindActions() 会被多次调用（刷新时重绑），必须先查重再添加，
+                // 否则每刷一次就多一个「输入配对码」按钮（真机复现过两个）。
+                if (bar.findViewWithTag("pair_btn") != null) return;
                 com.google.android.material.button.MaterialButton pairBtn =
                         new com.google.android.material.button.MaterialButton(this);
+                pairBtn.setTag("pair_btn");
                 pairBtn.setText("输入配对码");
                 pairBtn.setTextSize(13);
                 pairBtn.setAllCaps(false);
@@ -792,8 +796,12 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             android.view.View scan = findViewById(R.id.btn_scan);
             if (scan != null && scan.getParent() instanceof LinearLayout) {
                 LinearLayout bar = (LinearLayout) scan.getParent();
+                // bindActions() 会被多次调用（刷新时重绑），必须先查重再添加，
+                // 否则每刷一次就多一个「输入配对码」按钮（真机复现过两个）。
+                if (bar.findViewWithTag("pair_btn") != null) return;
                 com.google.android.material.button.MaterialButton pairBtn =
                         new com.google.android.material.button.MaterialButton(this);
+                pairBtn.setTag("pair_btn");
                 pairBtn.setText("输入配对码");
                 pairBtn.setTextSize(13);
                 pairBtn.setAllCaps(false);
