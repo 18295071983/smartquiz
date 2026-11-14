@@ -665,6 +665,14 @@ public class RemoteDshTool implements AITool {
          */
         default void onPulse(long serverTs, int seq) { }
 
+        /**
+         * 握手帧（SSE 的 {@code ready} / {@code snapshot}）原始内容。
+         *
+         * <p>§18（2026-11-15）：两种帧都带 {@code caps} 摘要，通道层据此打印
+         * {@code [caps]} 一行并留档。默认空实现，保持既有调用方兼容。</p>
+         */
+        default void onHello(org.json.JSONObject frame) { }
+
         void onEvent(org.json.JSONObject event);
         void onEnd();
         void onError(String message);
@@ -841,6 +849,14 @@ public class RemoteDshTool implements AITool {
     public interface DshSocketListener {
         void onReady(int seq);
 
+        /**
+         * 握手帧的完整内容（2026-11-15，§18 能力协商体检）。
+         *
+         * <p>WS 的 {@code hello} 与 SSE 的 {@code ready}/{@code snapshot} 都带
+         * {@code caps} 摘要；默认实现为空，旧调用方不受影响。</p>
+         */
+        default void onHello(org.json.JSONObject frame) { }
+
         void onEvent(org.json.JSONObject event);
 
         void onPulse(long serverTs, int seq);
@@ -898,6 +914,8 @@ public class RemoteDshTool implements AITool {
                             // 入账了，"建本地会话"才有地方按锚点**查或建**；
                             // 不入账就只能每次随机新建，历史一条变五条。
                             saveAnchorFromFrame(c, o);
+                            // §18：hello 里带服务端 caps 摘要（clientCaps），交给通道层解析/打印
+                            listener.onHello(o);
                             listener.onReady(o.optInt("seq", 0));
                             break;
                         case "batch": {    // WS 上直接回的补历史结果
@@ -1290,6 +1308,7 @@ public class RemoteDshTool implements AITool {
             String type = msg.optString("type", "");
             if ("ready".equals(type)) {
                 saveAnchorFromFrame(ctx, msg);
+                listener.onHello(msg);
                 listener.onReady(msg.optInt("seq", 0));
                 return cursor;
             }
@@ -1311,6 +1330,7 @@ public class RemoteDshTool implements AITool {
             }
             if ("snapshot".equals(type)) {
                 saveAnchorFromFrame(ctx, msg);
+                listener.onHello(msg);
                 int s = msg.optInt("seq", cursor);
                 if (s > cursor) cursor = s;
                 listener.onSnapshot(s, msg.optJSONArray("turns"));

@@ -86,6 +86,14 @@ public final class RemoteConnection {
     private volatile int appliedSeq = -1;
     private RemoteChannel channel;
     /**
+     * 最近一次握手回执的 caps 摘要（2026-11-15，§18）。
+     *
+     * <p>{@link RemoteChannel} 解析 WS hello / SSE ready|snapshot 的 {@code caps} 后回调；
+     * 服务端没带则用本端声明兜底（{@link CapsSummary#local()}）。只读暴露给设置页，
+     * 本轮不做 UI。</p>
+     */
+    private volatile CapsSummary lastCapsSummary;
+    /**
      * 本次进程内还没做过全量重放。首次连接时置 false 并用 since=0 重建时间线，
      * 之后的重连仍按传输游标续传（见 resolveAndOpen 的缺口修复注释）。
      */
@@ -122,6 +130,16 @@ public final class RemoteConnection {
 
     public Map<String, Object> state() {
         return lastState;
+    }
+
+    /**
+     * 最近一次能力协商的摘要（§18）；还没握手成功时为 {@code null}。
+     *
+     * <p>只读、线程安全（volatile）。设置页以后可直接展示
+     * {@link CapsSummary#line()}，本轮**不做 UI**。</p>
+     */
+    public CapsSummary lastCapsSummary() {
+        return lastCapsSummary;
     }
 
     /** 电脑端已产生到的 seq（心跳/状态下发时更新）；-1 = 未知。 */
@@ -553,6 +571,12 @@ public final class RemoteConnection {
                 online = true;
                 if (seq >= 0 && seq > serverSeq) serverSeq = seq;
                 deliver(l -> l.onPulse(serverTs, seq));
+            }
+
+            @Override
+            public void onCaps(CapsSummary summary) {
+                // §18：通道层已经打过 [caps] 一行，这里只留档给设置页（不做 UI）
+                if (summary != null) lastCapsSummary = summary;
             }
 
             @Override

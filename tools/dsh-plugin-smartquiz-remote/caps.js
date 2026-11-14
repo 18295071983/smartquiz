@@ -136,3 +136,26 @@ export function summarize(raw) {
     unknown: unknownCaps(client),
   };
 }
+
+/**
+ * 客户端视角的 caps 摘要（2026-11-15，§18 能力协商体检）。
+ *
+ * <p>与 {@link summarize} 的区别：这里 `declared` 是**能力数组**（不是布尔），
+ * 更适合 grep / 设置页展示。`/status` 的 `caps.clients[]` 与 WS `hello.caps`、
+ * SSE `ready.caps` / `snapshot.caps` 都用这一份形状：</p>
+ *
+ * <pre>
+ *   { version, legacy, declared: string[], declared_count, missing: string[], unknown: string[] }
+ * </pre>
+ */
+export function clientCaps(raw) {
+  const caps = normalizeCaps(raw);
+  return {
+    version: CAP_VERSION,
+    legacy: caps.length === 0,
+    declared: caps,
+    declared_count: caps.length,
+    missing: missingCaps(caps),
+    unknown: unknownCaps(caps),
+  };
+}

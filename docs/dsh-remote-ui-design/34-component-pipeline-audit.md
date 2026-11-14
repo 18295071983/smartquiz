@@ -700,3 +700,268 @@ node ws_frames.test.mjs
   （与既有 UI 线程模型一致，未另起调度器）。
 - WS 常连后 `/ws/ui` 仍未独立保活：event 通道断开时会一起重建，ui 单边断开不自愈
   （与改动前一致，不在本次范围）。
+
+## 18. 能力协商体检（2026-11-15，§18 CAPS-AUDIT）
+
+### 18.1 服务端契约（`caps.js`）
+
+`CAP_VERSION = 1`；`SERVER_CAPS` 共 **25** 项：
+
+```
+view.cards.status / checks / connections / session / approval / timeline / schedule / subagents / plan,
+parts.approval, parts.tool-cards, parts.data-cards, parts.stream, parts.questions,
+events.stream, events.replay, events.ack,
+schedule.read, schedule.write, plan.read, plan.write, questions.answer,
+subagents.panel, cmd.ui, cmd.shell
+```
+
+**解析规则**（`normalizeCaps` / `allows`）：
+
+| 规则 | 行为 |
+|---|---|
+| 输入形态 | 数组 / 逗号分隔字符串；`null`、空串、对象结构 → 空列表 |
+| 规范化 | 每项 `trim`、去空、按首次出现去重 |
+| 命名 | 点号命名，**大小写敏感**（`Parts.Approval` ≠ `parts.approval`） |
+| legacy | 列表为空 = 未声明 → `allows` **全部放行**，`missing=[]`（不裁剪） |
+| 不认识 | 不影响放行；单独进 `unknown`，供排障 |
+| 版本 | `version` 只是回执里的服务端常量，**不参与任何判定** |
+
+**帧 → cap 映射**（`eventAllowed`，在通道白名单之前执行）：
+
+| 帧类型 | 需要的 cap | 说明 |
+|---|---|---|
+| `approval` / `approval_gone` / `question` / `question_gone` | `parts.approval` | 四个共用一组；`parts.questions` 当前**不是**独立门禁 |
+| `stream/delta` / `stream/end` | `parts.stream` | 不声明就只等整段 `assistant/message` |
+| `subagent/activity` | `subagents.panel` | |
+| `plan/mode` | `plan.read` | |
+| `schedule/changed` | `schedule.read` | |
+| `__force_resync` | 无 | 控制帧，任何客户端都放行（设计如此，见 18.7） |
+| 其余（`event` 包装层、`ui/card`、`ui/slot`、`pulse`…） | 无 | 前向兼容：未登记类型不裁 |
+
+`VIEW_CARD_CAP` 把 10 种 `card.kind` 映射到 9 个 `view.cards.*`（`caps` 卡复用 `view.cards.status`）；
+`filterViewCards` 对未知 kind **不裁**。`/v2/schedule|plan|subagents|answer|action|card` 另有
+`caps_denied` 硬门禁（`schedule.read/write`、`plan.read/write`、`subagents.panel`、
+`questions.answer`、`cmd.ui`）。
+
+### 18.2 手机端实际声明（原文）
+
+`src/main/java/com/oilquiz/app/ai/tool/RemoteCaps.java`：
+
+```java
+public static final int VERSION = 1;
+
+public static final String[] ALL = {
+        "view.cards.status", ... "cmd.ui", "cmd.shell",
+};
+
+/** 逗号分隔（HTTP query / hello body 都用这一种表示） */
+public static String csv() {
+    return String.join(",", ALL);
+}
+```
+
+`RemoteDshTool.openLiveSocket`（WS，`/ws/events` 与 `/ws/ui` 都用它）：
+
+```java
+String url = wsBase + path + "?session_id="
+        + java.net.URLEncoder.encode(sid == null ? "" : sid)
+        + "&caps=" + java.net.URLEncoder.encode(RemoteCaps.csv())
+        + "&token=" + java.net.URLEncoder.encode(tool.getToken());
+```
+
+SSE（`RemoteDshTool.streamOnce`）：
+
+```java
+String url = tool.getBaseUrl() + "/events?session_id=" + ... + "&since=" + since
+        + "&follow=" + ... + "&timeout=" + ...
+        + "&snapshot_threshold=" + ...
+        + "&caps=" + java.net.URLEncoder.encode(RemoteCaps.csv(), "UTF-8")
+        + (types == null || types.isEmpty() ? "" : "&types=" + ...);
+```
+
+结论：
+
+- **声明链路是齐的**：WS/SSE 两条链路都带同一个 `caps=` query；`/v2/events/pull`、
+  `/v2/view`、`/v2/schedule`、`/v2/plan`、`/v2/subagents` 也带；`/v2/hello`、`/v2/answer`、
+  `/v2/action`、`schedule`/`plan` 写操作在 JSON body 里带 `caps`。**没有** `X-Dsh-Caps`
+  之类的 header。
+- **声明内容是全集**：`RemoteCaps.ALL` 与 `SERVER_CAPS` 25 项同名同量（`RemoteCapsTest`
+  与新增 `caps.test.mjs` 双向比对），**声明层零缺失**。
+- **版本号没有上行**：`RemoteCaps.VERSION = 1` 只存在于本地；请求里只有 CSV，
+  `client.ver="2.0"` 是 App 版本而不是 caps 协议版本。
+- **hello 回执从未消费**：`RemoteSdk.hello()` 实现了但**全仓库无调用点**；WS 的
+  `hello` 帧以前只取 `seq`/`anchor`，服务端 `caps` 块没人解析，也没有任何校验/日志。
+
+### 18.3 差距表
+
+**cap 层（25 项）**：手机端全部声明，故"缺失后果"一列描述的是**若未声明**会怎样，
+用来确认每一项都真的有用；不是当前缺陷。
+
+| cap 名 | 服务端是否需要 | 手机是否声明 | 缺失后果（若未声明） |
+|---|---|---|---|
+| `view.cards.status` | 是（卡片裁剪） | 是 | 状态卡被 `filterViewCards` 裁掉 |
+| `view.cards.checks` | 是 | 是 | 自检卡不显示 |
+| `view.cards.connections` | 是 | 是 | 连接呼吸卡不显示 |
+| `view.cards.session` | 是 | 是 | 会话卡不显示 |
+| `view.cards.approval` | 是 | 是 | 审批视图卡不显示（审批**帧**另由 `parts.approval` 管） |
+| `view.cards.timeline` | 是 | 是 | 时间线卡不显示；hello `features.view_timeline=false` |
+| `view.cards.schedule` | 是 | 是 | 日程卡不显示 |
+| `view.cards.subagents` | 是 | 是 | 子代理卡不显示 |
+| `view.cards.plan` | 是 | 是 | 计划卡不显示 |
+| `parts.approval` | 是（帧门禁） | 是 | `approval`/`question`/`*_gone` 全被挡，审批卡只能靠更早的弹窗 |
+| `parts.questions` | 声明（**无独立门禁**） | 是 | 当前不影响：反问实际由 `parts.approval` 放行 |
+| `parts.tool-cards` | 声明（无门禁） | 是 | 当前无过滤；预留给以后工具卡开关 |
+| `parts.data-cards` | 声明（无门禁） | 是 | 当前无过滤；预留 |
+| `parts.stream` | 是（帧门禁） | 是 | `stream/delta`/`stream/end` 不下发，正文只能等整段 |
+| `events.stream` | 声明（无门禁） | 是 | 当前无过滤；语义上表示"能消费事件流" |
+| `events.replay` | 声明（无门禁） | 是 | 当前无过滤；重放实际由 `seq/since` 决定 |
+| `events.ack` | 声明（无门禁） | 是 | ack 接口不校验，缺了也能 ack |
+| `schedule.read` | 是（403 门禁） | 是 | `/v2/schedule` 回 `caps_denied`，日程页空 |
+| `schedule.write` | 是（403） | 是 | 建/改/跑日程 403 |
+| `plan.read` | 是（403） | 是 | `/v2/plan` 403，计划卡不可用 |
+| `plan.write` | 是（403） | 是 | 切换计划模式 403 |
+| `questions.answer` | 是（403） | 是 | `/v2/answer` 403，反问点不了 |
+| `subagents.panel` | 是（403 + 帧门禁） | 是 | `/v2/subagents` 403；`subagent/activity` 不下发 |
+| `cmd.ui` | 是（403） | 是 | `/v2/action`、`/v2/card`、`phone_ui` 全部 403 |
+| `cmd.shell` | 声明（无门禁） | 是 | 当前无过滤；预留给 shell 类命令 |
+
+**协议/链路层（真正的缺口）**：
+
+| # | 缺口 | 体检结论 | 缺失后果 |
+|---|---|---|---|
+| ① | caps 版本不上行 | 手机只发 CSV，`VERSION` 留在本地；服务端 `version` 是常量 | 两端协议版本漂移在握手里不可见 |
+| ② | hello 回执不消费 | `RemoteSdk.hello()` 无调用点；WS hello 的 `caps` 从未解析 | 手机不知道 `missing`/`unknown`，插件也不知道手机缺什么 |
+| ③ | 握手帧无 caps 摘要 | 改前：WS hello 只有 `features/limits/anchor`；SSE `ready/snapshot` 没有 `caps` | 手机没有 `[caps]` 日志，排障只能猜 |
+| ④ | `/status` 无客户端视角 | 只有 `ws_clients`/`ws_channels`/`ws_stats` | 数得清连接数，看不出"哪条连接缺 `parts.approval`" |
+| ⑤ | 手机无只读 getter | `RemoteConnection` 没有 caps 摘要字段 | 设置页没有数据源 |
+| ⑥ | `/ws/alert` 从未打开 | 手机只开 `/ws/events` + `/ws/ui`；审批/反问已并入 `/ws/events` 白名单 | 不是 caps 缺失；极端 slot 洪水时审批与 slot 共用一条 TCP（本次不改） |
+| ⑦ | `parts.questions` 无独立门禁 | 反问与审批共用 `parts.approval` | 只声明 `parts.questions` 的客户端收不到反问（当前手机两者都声明） |
+| ⑧ | `__force_resync` 无 caps 门禁 | 控制帧，任何客户端都收 | 设计口径：旧客户端也靠它重建；加门禁会卡死旧端（本次不改） |
+
+### 18.4 改法（只加，不改既有语义）
+
+| 位置 | 改动 |
+|---|---|
+| `tools/.../caps.js` | 新增 `clientCaps(raw)`：`{version, legacy, declared[], declared_count, missing[], unknown[]}`。`summarize()`（`declared` 布尔 + `client[]`）**原样保留**，`/v2/hello` 兼容旧口径 |
+| `tools/.../index.js` | ① `/status` 增加 `caps`：`{version, server_count, clients:[{session_id, transport, channel, version, legacy, declared[], declared_count, missing[], unknown[]}]}`（数据源 `STREAM_HUB`，每条 SSE/WS 连接一条）；② WS `hello` 帧带 `caps: clientCaps(caps)`；③ SSE `ready`/`snapshot` 帧也带 `caps`（两条链路同口径）；④ SSE 订阅者补 `transport:'sse'`/`channel:'/events'` 元信息（此前只有 WS 有） |
+| `RemoteCaps.java` | **未改**：25 项本来就齐，不删不增 |
+| `CapsSummary.java`（新增） | 纯 JVM 解析/格式化：兼容新 `clientCaps` 与旧 `summarize` 两种形状；`line()` 输出 `[caps] 声明=25 缺失=0 未知=0 version=1 来源=ws:hello`；`local()` 兜底时 `缺失=?`，不假装零缺失 |
+| `RemoteDshTool.java` | `DshSocketListener` / `DshEventListener` 各加 `default onHello(JSONObject)`；WS `hello/ready`、SSE `ready/snapshot` 把原始帧交给上层 |
+| `RemoteChannel.java` | 收到握手帧 → `CapsSummary.parse(frame.caps)` → `Log.i("DshProbe", line)` + 回调 `Listener.onCaps`；服务端没带摘要（旧插件）时用本地声明兜底，每个通道生命周期只打一次；新增 `lastCapsSummary()` |
+| `RemoteConnection.java` | 存 `volatile CapsSummary lastCapsSummary`，新增只读 `lastCapsSummary()`（**不做 UI**） |
+
+### 18.5 声明格式与 `/status` 字段（契约）
+
+**客户端 → 服务端**：`caps=cap1,cap2,…`（URL-encoded CSV）
+
+- WS：`/ws/events?session_id=&caps=&token=`、`/ws/ui?…`（同一 URL 拼装函数）；
+- SSE：`/events?session_id=&since=&follow=&caps=`；
+- 其它：`/v2/events/pull`、`/v2/view`、`/v2/schedule`（GET catalog 与 POST 写）、`/v2/plan`、
+  `/v2/subagents` 用 query；`/v2/hello`、`/v2/answer`、`/v2/action`、`phone_ui` 用 JSON body
+  的 `caps` 字段。**无** `X-Dsh-Caps` header。
+
+**服务端 → 客户端**（`/status` 的 `caps.clients[]`、WS `hello.caps`、SSE `ready/snapshot.caps`）：
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `version` | int | caps 协议版本（当前 `CAP_VERSION=1`，服务端常量） |
+| `legacy` | bool | true = 客户端没带 caps，服务端不裁剪 |
+| `declared` | string[] | 客户端**已声明**的能力（不是布尔；旧 `summarize` 的布尔同名，已在新接口避开） |
+| `declared_count` | int | `declared.length` |
+| `missing` | string[] | 服务端有、客户端没声明的；legacy 恒为 `[]` |
+| `unknown` | string[] | 客户端声明了但服务端不认识 |
+
+`/status.caps.clients[]` 额外带 `session_id`、`transport`（`ws`/`sse`）、`channel`
+（`/ws/events` `/ws/ui` `/events`）。手机端 `RemoteConnection.lastCapsSummary()` 与
+`RemoteChannel.lastCapsSummary()` 返回同一份 `CapsSummary`。
+
+### 18.6 验证
+
+**A. 插件纯逻辑（新增 `caps.test.mjs`）**：11 项全过——解析/去重/大小写、legacy 全放行、
+`approval/question/*_gone` 要 `parts.approval`、缺 `parts.approval` 拒绝、
+`__force_resync` 不受 caps 门禁、`stream/plan/schedule/subagents` 按各自 cap、
+`clientCaps` 字段、`summarize` 旧形状不变、与 `RemoteCaps.ALL` 双向同名。
+
+**B. 插件真 WebSocket + 真 HTTP（`ws_frames.test.mjs`，随机端口，不碰 8218）**：10 项全过，
+新增两项断言：
+
+```text
+ok  握手：/ws/events 的 hello 声明了 event / __force_resync / approval / question
+    （含 hello.caps：version=1、legacy=false、declared_count=3、missing 不含 parts.approval）
+ok  /status 按连接列出 caps 摘要（declared/missing/unknown/version）
+```
+
+**C. 手机 JVM 单测**：
+
+```text
+CapsSummaryTest   tests=8 failures=0 errors=0
+RemoteCapsTest    tests=3 failures=0 errors=0
+BUILD SUCCESSFUL（exit 0；testDebugUnitTest UP-TO-DATE）
+```
+
+**D. 编译/装机**：`.\gradlew.bat --offline assembleDebug --console=plain` → `BUILD SUCCESSFUL`；
+`adb -s 192.168.1.10:41193 install -r` → `Success`；
+APK `答题宝-debug-2.2.apk`，901,561,190 字节，sha256
+`B4BFA2587ADAFF4D50BABBF59E7E924C85ED9A262F8FA521FA9FA73B537A5587`；
+设备 `versionName=2.2 versionCode=4 lastUpdateTime=2026-11-15 02:12:14`。
+
+**E. 真机（新 APK，force-stop 后冷启动）**：
+
+```text
+11-15 02:12:27.377 RemoteConnection: [DSH] open sid=session-cb82ea23-… since=15006
+11-15 02:12:27.391 DshProbe: [caps] 声明=25 缺失=? 未知=0 version=1 来源=local
+11-15 02:12:27.413 RemoteConnection: [DSH] connection=true WS 已连接
+11-15 02:12:27.413 DshProbe: [ws] 已连接，停 SSE
+```
+
+`缺失=?` 是因为**当前运行的仍是旧插件**（见 F）——手机端新代码正确走了"服务端没回摘要 →
+本地兜底"，声明数 25 = `RemoteCaps.ALL` 全集。审批链路仍通：`POST /v2/action
+{action:'debug.approval'}` 推 `test-df228e3ed6a4` 后，手机
+`DshSvc: [approval] 发独立审批通知 id=test-df228e3ed6a4`（随后 `decision=allow` 回收）。
+
+**F. `/status` 新字段**：真机 8218 上的插件**未重载**（见 18.7），所以它仍回旧结构
+（`ws_clients=2`，无 `caps`）。用新代码 + 手机同款 25 项 caps 的探针（假 ctx、随机端口、
+真 WS/HTTP）得到的等价 curl 片段：
+
+```json
+hello.caps = {"version":1,"legacy":false,"declared":[...25 项...],
+              "declared_count":25,"missing":[],"unknown":[]}
+/status.caps = {
+  "version": 1, "server_count": 25,
+  "clients": [{
+    "session_id": "caps-probe-session", "transport": "ws", "channel": "/ws/events",
+    "version": 1, "legacy": false,
+    "declared": [...25 项...], "declared_count": 25, "missing": [], "unknown": []
+  }]
+}
+```
+
+**G. 插件重载**：`plugin_manager set_plugin target=include:smartquiz-remote enabled=false`
+→ `application:"failed", error:"HMR transactions cannot be nested", changed:false`；
+插件仍在运行（`/status` 正常、`ws_clients=2`），按约束**不重启 DSH**，新 `/status`/hello
+要重启 DSH 后生效。
+
+### 18.7 边界与没做到
+
+- **声明层没有可补的 cap**：手机端 25/25 已声明，本次没有新增/删除任何能力名；
+  补的是"回执消费 + 可观测性"，不是声明。
+- **版本号仍不上行**：没有加 `caps_version` query / header，也没有在 `allows` 里校验版本；
+  `version` 字段目前只是服务端常量。真正的版本协商（不兼容时降级）未做。
+- **`parts.questions` 仍未独立门禁**：反问继续由 `parts.approval` 放行；拆开会让
+  "只声明 parts.questions" 的客户端行为变化，本次按"不改既有语义"不动。
+- **`__force_resync` 仍未门禁**：理由见 18.3 ⑧。
+- **`/ws/alert` 仍未打开**：审批/反问走 `/ws/events`，功能可用；审批与 slot 抢同一条 TCP
+  的风险仍在，属端点分工遗留，不在 caps 范围。
+- **`cmd.shell` / `parts.tool-cards` / `parts.data-cards` / `events.stream` / `events.replay` /
+  `events.ack` 是"声明但服务端未用作门禁"**：保留为前向契约，不删（删了会破坏两端同名约定）。
+- `/status` 的 `clients[]` 来自 `STREAM_HUB`，只覆盖**当前订阅中的** SSE/WS 连接；
+  `pull`、`/v2/view` 这类短请求不出现（它们没有长连接身份）。
+- 手机端设置页 UI 未做（按要求只暴露 getter）。
+- **插件未能在真机重载**：`HMR transactions cannot be nested` 挡住 `set_plugin`，真机 8218
+  仍是旧代码——`/status` 的 `caps` 字段与 WS hello 的 `caps` 只在 Node 自测/探针里验证过；
+  真机日志因此走的是 `缺失=? 来源=local` 兜底，不是服务端 `missing=[]`。重启 DSH 后即可看到
+  `缺失=0 来源=ws:hello`。
+- **审批真机只验到"帧到达手机"**（独立审批通知 + `test-*` id + 应答 `allowed-once`），
+  没有在手机 UI 上人工点"允许"（远程操作界面不做）；caps 放行逻辑由 `caps.test.mjs` /
+  `ws_frames.test.mjs` 的断言覆盖。
+- **caps 版本未上行**：见 18.7 前面的说明；本次没有真实版本不兼容样本可验。

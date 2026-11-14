@@ -47,6 +47,13 @@ public final class RemoteChannel {
 
         /** 连接状态变化；detail 用于界面提示 */
         void onConnection(boolean online, String detail);
+
+        /**
+         * 服务端 caps 摘要（2026-11-15，§18）：握手回执（WS hello / SSE ready|snapshot）
+         * 解析后回调；服务端没带摘要时用本地声明兜底（{@link CapsSummary#local()}）。
+         */
+        default void onCaps(CapsSummary summary) {
+        }
     }
 
     private final Context app;
@@ -65,6 +72,16 @@ public final class RemoteChannel {
      */
     private volatile okhttp3.WebSocket uiSocket;
     private Thread worker;
+
+    /**
+     * 最近一次握手回执里的 caps 摘要（2026-11-15，§18）。
+     *
+     * <p>WS hello / SSE ready|snapshot 带 {@code caps}；解析后立即打一行
+     * {@code [caps] 声明=… 缺失=…}，并回调 {@link Listener#onCaps}。服务端没带
+     * （旧插件）时用 {@link CapsSummary#local()} 兜底，只兜一次，避免每次重连刷屏。</p>
+     */
+    private volatile CapsSummary lastCapsSummary;
+    private volatile boolean localCapsLogged;
 
     // ---- WS 周期重试（2026-11-15，§17 WS-RETRY）----
     // 以前 run() 开头只试 3 次 WS，失败就永久退回 SSE，事后不再升级（插件重载后
@@ -107,6 +124,38 @@ public final class RemoteChannel {
 
     public boolean isClosed() {
         return closed;
+    }
+
+    /** 最近一次握手回执的 caps 摘要；还没握手成功时为 null（§18，设置页备用） */
+    public CapsSummary lastCapsSummary() {
+        return lastCapsSummary;
+    }
+
+    /** 解析握手帧里的 caps 块：成功则留档 + 打一行 + 回调上层 */
+    private void acceptCaps(org.json.JSONObject frame, String source) {
+        if (frame == null) return;
+        try {
+            CapsSummary s = CapsSummary.parse(frame.opt("caps"), source);
+            if (s == null) return;
+            lastCapsSummary = s;
+            Log.i("DshProbe", s.line());
+            listener.onCaps(s);
+        } catch (Throwable t) {
+            Log.w(TAG, "caps 解析失败: " + t.getMessage());
+        }
+    }
+
+    /**
+     * 服务端没回 caps 摘要（旧插件）时的兜底：用本端声明的名单打一行，缺失显示 {@code ?}。
+     * 每次通道生命周期只打一次，避免每条 SSE 重连都刷屏。
+     */
+    private void acceptLocalCaps() {
+        if (localCapsLogged) return;
+        localCapsLogged = true;
+        CapsSummary local = CapsSummary.local();
+        lastCapsSummary = local;
+        Log.i("DshProbe", local.line());
+        listener.onCaps(local);
     }
 
     /** 开一个后台线程持流；重复调用无副作用 */
@@ -280,8 +329,16 @@ public final class RemoteChannel {
                             @Override
                             public void onReady(int seq) {
                                 if (closed) return;
+                                // 旧插件不带 caps：兜底打一行本端声明（缺失=?）
+                                if (lastCapsSummary == null) acceptLocalCaps();
                                 // 不再用"服务器当前 seq"覆盖游标：那等于宣布"之前的事件都收过了"。
                                 listener.onConnection(true, "已连接");
+                            }
+
+                            @Override
+                            public void onHello(org.json.JSONObject frame) {
+                                // §18：SSE 的 ready / snapshot 带 caps 摘要
+                                acceptCaps(frame, CapsSummary.SOURCE_SSE);
                             }
 
                             @Override
@@ -408,7 +465,15 @@ public final class RemoteChannel {
                 public void onReady(int seq) {
                     gotReady.set(true);
                     head.set(seq);
+                    // §18：旧插件/极端情况下 hello 没带 caps，用本端声明兜底（只打一次）
+                    if (lastCapsSummary == null) acceptLocalCaps();
                     ready.countDown();
+                }
+
+                @Override
+                public void onHello(org.json.JSONObject frame) {
+                    // §18：WS hello 带服务端 caps 摘要
+                    acceptCaps(frame, CapsSummary.SOURCE_WS_HELLO);
                 }
 
                 @Override

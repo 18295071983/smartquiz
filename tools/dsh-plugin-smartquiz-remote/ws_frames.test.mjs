@@ -183,6 +183,18 @@ await test('握手：/ws/events 的 hello 声明了 event / __force_resync / app
   assert.equal(hello.features.__force_resync, true);
   assert.equal(hello.features.approval, true);
   assert.equal(hello.features.question, true);
+  // §18（2026-11-15）：hello 带回客户端 caps 摘要，手机端直接打印/落日志
+  assert.ok(hello.caps && typeof hello.caps === 'object', 'hello 应带 caps 摘要');
+  assert.equal(hello.caps.version, 1);
+  assert.equal(hello.caps.legacy, false);
+  assert.equal(hello.caps.declared_count, 3);
+  assert.deepEqual(
+    [...hello.caps.declared].sort(),
+    ['events.stream', 'parts.approval', 'parts.questions'],
+  );
+  assert.equal(hello.caps.missing.includes('parts.approval'), false);
+  assert.equal(hello.caps.missing.includes('view.cards.timeline'), true);
+  assert.deepEqual(hello.caps.unknown, []);
 });
 
 await test('合成帧保持现状：POST /v2/card → ui/card 仍到 /ws/events', async () => {
@@ -311,6 +323,37 @@ await test('pull 语义未动：/ws/events 发 pull 仍回 batch', async () => {
   );
   assert.ok(Array.isArray(batch.events), 'batch.events 应为数组');
   assert.equal(typeof batch.last_seq, 'number');
+});
+
+await test('/status 按连接列出 caps 摘要（declared/missing/unknown/version）', async () => {
+  const res = await fetch(`http://127.0.0.1:${PORT}/status`, {
+    headers: { authorization: 'Bearer ' + TOKEN },
+  });
+  const body = await res.json();
+  assert.equal(body.caps.version, 1);
+  assert.ok(Array.isArray(body.caps.clients), '/status.caps.clients 应为数组');
+  // 当前有 3 条连接：events（3 cap）、strict（events.stream）、ui（cmd.ui）
+  assert.ok(body.caps.clients.length >= 3, '应列出 3 条已连接客户端');
+  const full = body.caps.clients.find(
+    (c) => c.channel === '/ws/events' && c.declared_count === 3,
+  );
+  assert.ok(full, '应找到声明 3 条能力的 /ws/events 连接');
+  assert.equal(full.transport, 'ws');
+  assert.equal(full.legacy, false);
+  assert.deepEqual(
+    [...full.declared].sort(),
+    ['events.stream', 'parts.approval', 'parts.questions'],
+  );
+  assert.equal(full.missing.includes('parts.approval'), false);
+  assert.deepEqual(full.unknown, []);
+  const restricted = body.caps.clients.find(
+    (c) => c.channel === '/ws/events' && c.declared_count === 1,
+  );
+  assert.ok(restricted, '应找到只声明 events.stream 的受限连接');
+  assert.equal(restricted.missing.includes('parts.approval'), true);
+  const uiClient = body.caps.clients.find((c) => c.channel === '/ws/ui');
+  assert.ok(uiClient, '应列出 /ws/ui 连接');
+  assert.deepEqual(uiClient.declared, ['cmd.ui']);
 });
 
 // 收尾：关 socket，按结果退出（插件定时器不能让 node 挂着）

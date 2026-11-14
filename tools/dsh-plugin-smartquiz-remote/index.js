@@ -35,7 +35,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exec, execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { SERVER_CAPS, CAP_VERSION, filterViewCards, eventAllowed, normalizeCaps, summarize, allows } from './caps.js';
+import { SERVER_CAPS, CAP_VERSION, filterViewCards, eventAllowed, normalizeCaps, summarize, allows, clientCaps } from './caps.js';
 import { checkCard, describe } from './cardcheck.js';
 
 
@@ -3208,6 +3208,32 @@ function presetSvcOf(ctx) {
     // WebSocket 实时通道当前客户端数（2026-11-14）：面板/自检据此判断"手机是不是走 WS"。
     // 0 不代表没连——可能是走了 SSE（隧道链路）或还没连。
     ws_clients: WS_CLIENTS.size,
+    /**
+     * 每个已连接客户端的能力协商摘要（2026-11-15，§18 能力协商体检）。
+     *
+     * <p>字段口径（与 `caps.js` 的 `clientCaps()` 一致，文档见
+     * `docs/dsh-remote-ui-design/34-component-pipeline-audit.md` §18）：</p>
+     * <ul>
+     *   <li>{@code clients[].session_id}：连接订阅的电脑会话；</li>
+     *   <li>{@code clients[].transport}：{@code ws} / {@code sse}；{@code channel}：端点路径；</li>
+     *   <li>{@code clients[].declared}：客户端**已声明**的能力数组（legacy 为 []）；
+     *       {@code declared_count} 是它的长度；</li>
+     *   <li>{@code clients[].missing}：服务端有、该客户端没声明的（legacy 恒为 []，不裁剪）；</li>
+     *   <li>{@code clients[].unknown}：客户端声明了但服务端不认识（客户端比服务端新时出现）；</li>
+     *   <li>{@code clients[].legacy}：true = 没带 caps，服务端一切照发；</li>
+     *   <li>{@code clients[].version}：caps 协议版本（{@code CAP_VERSION}）。</li>
+     * </ul>
+     */
+    caps: {
+      version: CAP_VERSION,
+      server_count: SERVER_CAPS.length,
+      clients: [...STREAM_HUB].map((sub) => ({
+        session_id: String(sub.sid ?? ''),
+        transport: String(sub.transport ?? 'sse'),
+        channel: String(sub.channel ?? '/events'),
+        ...clientCaps(sub.caps),
+      })),
+    },
     // 各端点在线数：看"是不是一条通道堵住另一条"（2026-11-14 端点分工）
     ws_channels: Object.fromEntries(WS_CHANNEL_COUNT),
     ws_stats: Object.fromEntries(WS_STATS),
@@ -4949,6 +4975,8 @@ function presetSvcOf(ctx) {
     const sub = {
       sid,
       caps,
+      transport: 'sse',
+      channel: '/events',
       send: (o) => {
         if (!o || !eventAllowed(o.type, caps)) return;
         sse(o);
@@ -5063,9 +5091,9 @@ function presetSvcOf(ctx) {
         return;
       }
       if (replay.snapshot) {
-        sse({ type: 'snapshot', session_id: sid, seq: replay.seq, turns: replay.turns, source: 'log', anchor: sseAnchor() });
+        sse({ type: 'snapshot', session_id: sid, seq: replay.seq, turns: replay.turns, source: 'log', anchor: sseAnchor(), caps: clientCaps(caps) });
       } else {
-        sse({ type: 'ready', session_id: sid, seq: replay.seq, source: 'log', since, anchor: sseAnchor() });
+        sse({ type: 'ready', session_id: sid, seq: replay.seq, source: 'log', since, anchor: sseAnchor(), caps: clientCaps(caps) });
         for (const ev of replay.events) {
           if (passType(ev)) sendEventFrame(ev);
         }
@@ -5114,13 +5142,13 @@ function presetSvcOf(ctx) {
     // ★ 首次连接或缺口过大：给快照（历史批），随后继续增量
     if (since === -2) {
       // explicit "from now": ready only, no replay (first connect must not dump history)
-      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since, anchor: sseAnchor() });
+      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since, anchor: sseAnchor(), caps: clientCaps(caps) });
       if (!follow) return finish();
     } else if (since < 0 || seqNow - since > snapshotThreshold) {
-      sse({ type: 'snapshot', session_id: sid, seq: seqNow, turns: snapshotTurns(live0), source: 'live', anchor: sseAnchor() });
+      sse({ type: 'snapshot', session_id: sid, seq: seqNow, turns: snapshotTurns(live0), source: 'live', anchor: sseAnchor(), caps: clientCaps(caps) });
       if (!follow) return finish();
     } else {
-      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since, anchor: sseAnchor() });
+      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since, anchor: sseAnchor(), caps: clientCaps(caps) });
     }
     let cursor = since >= 0 ? Math.min(since, seqNow) : seqNow;
     const announced = new Set();
@@ -7079,6 +7107,9 @@ function presetSvcOf(ctx) {
           sendWs(ws, {
             type: 'hello', v: 2, session_id: sid, seq: head, server_time: Date.now(),
             transport: 'ws', channel: chName, anchor: helloAnchor,
+            // §18（2026-11-15）：握手帧回 caps 摘要，手机端直接打印/落日志，
+            // 不用再额外打 /v2/hello；legacy 客户端（没带 caps）也能看到自己 missing=[]。
+            caps: clientCaps(caps),
             features: ch.out
               ? Object.fromEntries([...ch.out].map((k) => [k, true]))
               : { event: true, slot: true, cmd: true, file: true, pull: true, ack: true },
