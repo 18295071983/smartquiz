@@ -3966,7 +3966,11 @@ function presetSvcOf(ctx) {
     try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
     const dev = String(body.device_id ?? q.searchParams.get('device_id') ?? '').trim();
     const sid = String(body.session_id ?? q.searchParams.get('session_id') ?? '').trim();
-    if (!dev || !sid) return sendJson(res, 400, { ok: false, error: 'device_id + session_id required' });
+    const actionEarly = String(body.action ?? '').trim();
+    // create 是"新建一条会话"，此时 session_id 还不存在，只要求 device_id
+    if (!dev || (!sid && actionEarly !== 'create')) {
+      return sendJson(res, 400, { ok: false, error: 'device_id + session_id required' });
+    }
     const a = ANCHORS.get(anchorKey(dev, sid));
     if (method === 'DELETE') {
       if (!a) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
@@ -3975,6 +3979,26 @@ function presetSvcOf(ctx) {
       return sendJson(res, 200, { ok: true, action: 'purged' });
     }
     const action = String(body.action ?? '').trim();
+    if (action === 'create') {
+      // 手机点「新建对话」→ 电脑端也建一条，并把这对新 id 记成锚点（2026-11-14）
+      const sid = `smartquiz-${randomBytes(6).toString('hex')}`;
+      try {
+        if (cfg.cliMode === false && ctx.agents && ctx.agents.create) {
+          const handle = await ctx.agents.create(await createInput(sid));
+          if (handle) handles.set(sid, handle);
+        }
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, action: 'create', error: String(e?.message ?? e).slice(0, 160) });
+      }
+      const a = anchorFor(dev, sid, true);
+      if (a) { a.acked_seq = 0; a.updated_at = Date.now(); saveAnchors(); }
+      return sendJson(res, 200, {
+        ok: true, action: 'create',
+        remote_session_id: sid,
+        local_session_id: a ? a.local_session_id : '',
+        anchor: a,
+      });
+    }
     if (action === 'clear') {           // 清历史：游标归零，下次按 snapshot 重放
       if (!a) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
       a.acked_seq = 0; a.updated_at = Date.now();
@@ -6390,9 +6414,16 @@ function presetSvcOf(ctx) {
           let head = 0;
           try { head = Number(ctx.sessions?.get?.(sid)?.seq ?? 0) || 0; } catch { head = 0; }
           // 问候帧：把能力摊开，客户端据此决定用哪些帧（以后加能力不用改版本号）
+          // A3（2026-11-14）：握手帧带上这条连接的锚点（设备 × 会话），
+          // 手机据此"查或建"本地会话，而不是每连一次新建一条历史。
+          let helloAnchor = null;
+          try {
+            const dev = deviceByToken(String(u.searchParams.get('token') ?? ''));
+            if (dev) helloAnchor = anchorFor(dev.id, sid, true);
+          } catch { /* 锚点拿不到不影响连接 */ }
           sendWs(ws, {
             type: 'hello', v: 2, session_id: sid, seq: head, server_time: Date.now(),
-            transport: 'ws', channel: chName,
+            transport: 'ws', channel: chName, anchor: helloAnchor,
             features: ch.out
               ? Object.fromEntries([...ch.out].map((k) => [k, true]))
               : { event: true, slot: true, cmd: true, file: true, pull: true, ack: true },
