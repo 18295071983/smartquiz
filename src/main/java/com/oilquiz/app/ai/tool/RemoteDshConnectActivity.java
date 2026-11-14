@@ -79,6 +79,8 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
      */
     public static final String EXTRA_PICK_SESSION = "pick_session";
     private boolean pickOnResume;
+    /** 本次是"从聊天页来选会话"：选完 finish() 回聊天页（设计稿 §9-3） */
+    private boolean finishAfterPick;
 
     private static final int COLOR_OK = 0xFF15803D;
     private static final int COLOR_WARN = 0xFFB45309;
@@ -93,6 +95,9 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         setContentView(R.layout.activity_remote_dsh_connect);
         pickOnResume = getIntent() != null
                 && getIntent().getBooleanExtra(EXTRA_PICK_SESSION, false);
+        finishAfterPick = pickOnResume;
+        // 消费掉这个 extra：旋转/重建时 onCreate 会再读一次 intent，不去掉就会又弹一遍列表
+        if (pickOnResume && getIntent() != null) getIntent().removeExtra(EXTRA_PICK_SESSION);
 
         statusDot = findViewById(R.id.status_dot);
         statusText = findViewById(R.id.status_text);
@@ -441,6 +446,9 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                     refresh();
                     toast("已跟随「" + (title.isEmpty() ? shortId(sid) : title) + "」（执行位置由电脑自动决定）");
                     d.dismiss();
+                    // 从聊天页顶栏点进来的：选完直接回聊天页，别把人留在这个配置页
+                    // （设计稿 §9-3 取"回聊天页"这一支）
+                    if (finishAfterPick) finish();
                 })
                 .setNeutralButton("刷新", (d, w) -> pickSession())
                 .setNegativeButton("取消", null)

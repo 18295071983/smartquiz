@@ -137,7 +137,15 @@ public final class ChatV2EmptyState {
                     remote ? R.string.chat_v2_remote_entry_insight : R.string.h_f0597ad8);
             setEntryText(R.id.chat_v2_download_row_sub,
                     remote ? R.string.chat_v2_remote_entry_insight_sub : R.string.chat_v2_download_sub);
-            if (recentGroup != null && remote) recentGroup.setVisibility(View.GONE);
+            // 「最近」：远程时收起（那是手机本地会话）；切回本地时若还有条目要放回来，
+            // 否则远程→本地走一趟，首屏会永远缺这块（2026-11-14 自查）。
+            if (recentGroup != null) {
+                if (remote) {
+                    recentGroup.setVisibility(View.GONE);
+                } else if (recentContainer != null && recentContainer.getChildCount() > 0) {
+                    recentGroup.setVisibility(View.VISIBLE);
+                }
+            }
         } catch (Throwable t) {
             Log.w(TAG, "setRemoteMode skipped: " + t.getMessage());
         }

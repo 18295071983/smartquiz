@@ -15379,6 +15379,9 @@ public class AIChatActivity extends BaseActivity {
      * （用户反馈 2026-09-27："AI 对话界面没有任何 UI 提示，只能在对话流中显示"）。
      * 三种状态：未配对（红）/ 已连接（绿）/ 已断开（黄），点一下进「远程连接（电脑）」。</p>
      */
+    /** 上一次应用的外壳模式（local / disconnected / remote）：只在变化时重绑监听与切 chip */
+    private String lastChromeKey = "";
+
     /** 顶栏「选电脑会话」：复用连接页现成的列表（M8-P0-3，不复制 pickSession） */
     private void openRemoteSessionPicker() {
         try {
@@ -15404,26 +15407,36 @@ public class AIChatActivity extends BaseActivity {
         try {
             boolean active = com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isActive(this);
             boolean disconnected = com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isDisconnected(this);
+            // 模式键：只有它在变的时候才重绑监听/切 chip/切空首屏；
+            // 副标题（含秒数）每秒都要刷，不能一起跳过。
+            // 2026-11-14：以前每秒重绑一次 OnClickListener，会打断按压态（点击像"没反应"）。
+            String key = active ? "remote" : disconnected ? "disconnected" : "local";
+            boolean modeChanged = !key.equals(lastChromeKey);
+            lastChromeKey = key;
             if (!active && !disconnected) {
-                com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenterDefault(this);
+                if (modeChanged) {
+                    com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenterDefault(this);
+                    setLocalChipsVisible(true);
+                    if (chatV2EmptyState != null) chatV2EmptyState.setRemoteMode(false);
+                }
                 com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.refreshSubtitleIfNeeded(this);
-                setLocalChipsVisible(true);
-                if (chatV2EmptyState != null) chatV2EmptyState.setRemoteMode(false);
                 return;
             }
             if (disconnected) {
                 com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.setRemoteSubtitle(this,
                         "电脑已断开 · 点这里重连", R.color.warning);
-                com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenter(this,
-                        v -> startActivity(new android.content.Intent(this,
-                                com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class)),
-                        v -> {
-                            startActivity(new android.content.Intent(this,
-                                    com.oilquiz.app.ai.tool.RemoteDshInsightActivity.class));
-                            return true;
-                        });
-                setLocalChipsVisible(true);
-                if (chatV2EmptyState != null) chatV2EmptyState.setRemoteMode(false);
+                if (modeChanged) {
+                    com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenter(this,
+                            v -> startActivity(new android.content.Intent(this,
+                                    com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class)),
+                            v -> {
+                                startActivity(new android.content.Intent(this,
+                                        com.oilquiz.app.ai.tool.RemoteDshInsightActivity.class));
+                                return true;
+                            });
+                    setLocalChipsVisible(true);
+                    if (chatV2EmptyState != null) chatV2EmptyState.setRemoteMode(false);
+                }
                 return;
             }
             com.oilquiz.app.ai.tool.RemoteLiveStatus.Snapshot live =
@@ -15441,15 +15454,17 @@ public class AIChatActivity extends BaseActivity {
             if (needsAttention) sub.append(" · 待处理 ").append(st.approvalsPending);
             int dot = needsAttention ? R.color.warning : R.color.success;
             com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.setRemoteSubtitle(this, sub.toString(), dot);
-            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenter(this,
-                    v -> openRemoteSessionPicker(),
-                    v -> {
-                        startActivity(new android.content.Intent(this,
-                                com.oilquiz.app.ai.tool.RemoteDshInsightActivity.class));
-                        return true;
-                    });
-            setLocalChipsVisible(false);
-            if (chatV2EmptyState != null) chatV2EmptyState.setRemoteMode(true);
+            if (modeChanged) {
+                com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenter(this,
+                        v -> openRemoteSessionPicker(),
+                        v -> {
+                            startActivity(new android.content.Intent(this,
+                                    com.oilquiz.app.ai.tool.RemoteDshInsightActivity.class));
+                            return true;
+                        });
+                setLocalChipsVisible(false);
+                if (chatV2EmptyState != null) chatV2EmptyState.setRemoteMode(true);
+            }
         } catch (Throwable t) {
             // 外壳改造失败只影响视觉，聊天页照旧
             AppLogger.aiW(TAG, "applyRemoteChrome: " + t.getMessage());
@@ -15485,6 +15500,10 @@ public class AIChatActivity extends BaseActivity {
         if (!com.oilquiz.app.ai.tool.RemoteDshTool.isBarEnabled(this)) {
             remoteDshBar.setVisibility(View.GONE);
             com.oilquiz.app.ai.tool.RemoteStatusSlots.clear();
+            // 2026-11-14：这里以前直接 return —— 于是"关掉状态条"会连带把顶栏副标题 /
+            // 本地 chip / 空首屏的远程化全部冻住（切电脑后外壳还停在原样）。
+            // 外壳与这条 bar 是两件事，必须照样应用。
+            applyRemoteChrome();
             return;
         }
         boolean configured = com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isConfigured(this);
