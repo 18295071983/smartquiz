@@ -6203,13 +6203,49 @@ function presetSvcOf(ctx) {
         const text = (typeof body.text === 'string' && body.text ? body.text : (typeof body.task === 'string' ? body.task : '')).trim();
         if (!target || !text) return sendJson(res, 400, { ok: false, action, error: '需要 target_session_id 和 text' });
         /**
-         * 2026-11-14 插话模式：目标会话正在跑（CLI 子进程 / 宿主内 turn）→ **不抢、不打断**，
-         * 消息进这条会话的插话队列，立刻回 queued；跑完由 drainSessionInbox 投进去。
+         * 插话档位（2026-11-14，对齐 dsh-Go / DSH 的 Inbox 语义）：
          *
-         * 以前这里会去 resume 一个正被 CLI 写着的会话（撞写锁 → 409），或者在 DSH 的
-         * next-turn inbox 里排着却不告诉手机 —— 用户看到的就是"发了没反应 / 发送失败"。
+         * <pre>
+         *   steer  → next-step 队列：**本轮的下一个 step** 就看得到（"插话"，不打断）
+         *   queue  → next-turn 队列：本轮结束后的新回合（"排队"）
+         *   auto（默认）→ 忙就 steer（桌面上有 live agent 时），否则普通注入
+         * </pre>
+         *
+         * DSH 的 Agent 接口本身就分了这两条（`followup` / `steer`），不是我们自造的概念。
          */
-        if (isSessionBusy(target)) {
+        const mode = String(body.mode ?? 'auto').trim().toLowerCase();
+        const busy = isSessionBusy(target);
+        const liveAgent = (() => { try { return ctx.agents?.get?.(target); } catch { return undefined; } })();
+        const wantSteer = (mode === 'steer' || mode === 'auto') && busy && liveAgent
+          && typeof liveAgent.steer === 'function';
+        if (wantSteer) {
+          const seqBeforeSteer = Number(ctx.sessions.get(target)?.seq ?? 0);
+          ORIGIN.record(target, text);
+          try {
+            liveAgent.steer({
+              id: randomBytes(16).toString('hex'),
+              role: 'user',
+              content: [{ type: 'text', text }],
+              source: { kind: 'user' },
+            });
+            promptCount += 1;
+            return sendJson(res, 200, {
+              ok: true, action: 'inject', session_id: target, mode: 'steer',
+              steer: true, seq_before: seqBeforeSteer,
+              busy_kind: (SESSION_BUSY.get(target) ?? {}).kind || '',
+            });
+          } catch (e) {
+            // steer 不被接受（这一轮已到收尾/模型请求已发出）→ 退回排队，别丢消息
+            try { console.warn('[smartquiz-remote] steer 失败，改排队: ' + String(e?.message ?? e)); } catch { /* 忽略 */ }
+          }
+        }
+        /**
+         * 忙（CLI 子进程在写 / 没有 live agent 可 steer）→ **不抢、不打断**：
+         * 消息进这条会话的插话队列，立刻回 queued；跑完由 drainSessionInbox 投进去。
+         * 以前这里会去 resume 一个正被 CLI 写着的会话（撞写锁 → 409），
+         * 或者在 DSH 的 next-turn inbox 里排着却不告诉手机 —— 用户看到的就是"发了没反应"。
+         */
+        if (busy) {
           const q = SESSION_INBOX.get(target) ?? [];
           if (q.length >= SESSION_INBOX_MAX) {
             return sendJson(res, 429, {
@@ -6220,11 +6256,11 @@ function presetSvcOf(ctx) {
           const item = { id: randomBytes(16).toString('hex'), text, at: Date.now() };
           q.push(item);
           SESSION_INBOX.set(target, q);
-          const busy = SESSION_BUSY.get(target) ?? {};
+          const busyInfo = SESSION_BUSY.get(target) ?? {};
           return sendJson(res, 200, {
-            ok: true, action: 'inject', session_id: target, queued: true, position: q.length,
+            ok: true, action: 'inject', session_id: target, mode: 'queue', queued: true, position: q.length,
             seq_before: Number(ctx.sessions.get(target)?.seq ?? 0),
-            busy_kind: busy.kind || '', busy_since: busy.since || 0,
+            busy_kind: busyInfo.kind || '', busy_since: busyInfo.since || 0,
           });
         }
         let agent = (() => { try { return ctx.agents?.get?.(target); } catch { return undefined; } })();

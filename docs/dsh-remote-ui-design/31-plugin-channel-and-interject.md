@@ -64,31 +64,61 @@
   **「已插话排队（第 N 位）· 电脑上这条对话正在跑 / 电脑正在处理这一轮，跑完自动发送」** 并 toast 一次；
 - 非排队（正常注入）路径完全不变；真机验证需要"电脑正忙时发消息"这个场景。
 
-## 5. 参考：dsh 官方客户端是怎么做的
+## 5. 参考：dsh 官方客户端 / dsh-Go 到底怎么做
 
-从 `app.asar` 里抽出 `@deepseek-ai/dsh-client-ui-chat/README.md`（`build/asar_tool.js` 可复现）：
+### 5.1 dsh-Go 的三种发送方式（用户看到的那层）
 
-> 「During uninterrupted following, local transcript and steering echoes remain mounted through
-> **Inbox acceptance and claim** until the durable message arrives… Pending steering follows
-> **Inbox order** across clients… Admitted local steering also suppresses matching stale Inbox rows
-> until the claim projection arrives.」
+来源：[dsh-Go 对话进阶技巧](https://blog.gitcode.com/4d7f8ac62d12311c1c7e4748802b8394.html)、
+[dsh-go 使用说明](https://raw.githubusercontent.com/ccch1mneyyy/dsh-go/master/docs/guide/README.md)。
 
-也就是说官方客户端：**先把消息投进 Host 的 Inbox（本地先放 echo）→ Host 受理（admit）→ 持久化消息（claim）
-到达后替换 echo**，排队顺序按 Inbox。我们这条链路对应关系：
+生成中**直接发送 = 插话**（不打断，AI 下一步就看到）。长按发送键给三个选项：
 
-| 官方 | 我们 |
-|---|---|
-| 投进 Inbox | 插件 `agent.followup({role:'user', source:{kind:'user'}})`（DSH 写 `agent/inbox/spliced` target=next-turn） |
-| 本地 echo | 手机上的占位气泡（"正在电脑上执行…"） |
-| 忙时排队 | 插件 `SESSION_INBOX` + `{queued:true, position}`；App 把气泡改成"已插话排队（第 N 位）" |
-| claim 后替换 echo | `user/message` 事件到达后 `ensureMirrorBubble` 复用同一气泡 |
+| 方式 | 效果 | 适用 |
+|---|---|---|
+| 💬 插话 | 不打断，AI **下一步**会看到 | 补充要求、纠偏方向 |
+| ⚡ 中断并发送 | 停下当前任务再发 | 方向彻底错了 |
+| ⏳ 排队 | 本轮结束后自动发送 | 不急、想等这条说完 |
 
-差异：CLI 子进程正在写这条会话时，Host 里没有 live agent（没法 followup），所以插件自己排队，
-等子进程退出再起一轮投递 —— 这是官方客户端没有的形态（桌面端永远是宿主内执行）。
+输入框为空时发送键变停止键；停止后**排队的消息会自动开始下一轮**。
+插话/排队的消息显示在对话底部，每条可「立即发送 / 改为插话 / 撤回」。
+
+### 5.2 底层对应：DSH 的 Inbox 是**两条**队列
+
+来源：DSH `dsh-session-guard` 的 README（npm）、以及从 `app.asar` 里抽出的
+Agent 接口声明：
+
+```
+send(message, target: InboxTarget, wakeup): void;
+followup(message): void;   // → next-turn
+steer(message): void;      // → next-step
+inject(message): void;
+```
+
+| 队列 | 含义 | 消费时机 |
+|---|---|---|
+| `next-step` | 「等下一个 step 边界的输入」 | 下一个 `agent/pre-step`：**同一次 turn 里再走一个 step** |
+| `next-turn` | 「等独立回合的提示」 | 当前回合结束后，作为**新的 turn** 开跑 |
+
+`Inbox.claim()` 永远先取光 `next-step`；开新回合时再额外取 1 条 `next-turn`。
+所以：**steer = 插话（同 turn 下一步）**，**followup = 排队（下一 turn）**，打断 = `cancel()` 之后再 steer。
+
+### 5.3 我们现在的对齐程度（2026-11-14）
+
+| dsh-Go / DSH | 我们 | 状态 |
+|---|---|---|
+| 插话（steer → next-step） | 插件 `agent.steer(...)`：忙且宿主内有 live agent 时走这条 | ✅ 本轮新增 |
+| 排队（followup → next-turn） | 没在跑时普通注入走 `followup`；CLI 子进程占着时进插件队列 | ✅ |
+| 中断并发送 | 手机上点停止（`cancelGeneration`）再发 | ⚠️ 两条链路没合到一个按钮里 |
+| 排队消息「立即发送 / 改为插话 / 撤回」 | 只有插件队列，没有单条操作 | ❌ 未做 |
+| 停止后排队消息自动开下一轮 | CLI 队列在 `drainSessionInbox` 里会自动投递 | ✅（CLI 侧） |
+| 手机端显示"已插话 / 排队中（第 N 位）" | 占位气泡改写 + toast | ✅ 本轮新增 |
+
+**手机端默认档位**：`mode=auto` —— 忙且能 steer 就插话，否则排队/注入。这就是 dsh-Go 的
+"生成中直接发送就是插话"那条默认行为，不需要手机自己判断忙不忙。
 
 ## 6. 还没做的（明确记下来）
 
-1. **`dsh-go` 的插话细节**还没逐项对齐（它是在 CLI 进程 stdin 上做 steer，我们这里是
-   DSH 的 `followup` inbox + 插件队列）。
-2. 插件**不改桌面端私有状态**：曾经试过把手机新建的会话登记进 `storages/workspace.json`
+1. **手机端长按发送键的三档菜单**（插话 / 中断并发送 / 排队）——现在是 auto + 停止键，没有菜单；
+2. **插话/排队消息的单条管理**（立即发送 / 改为插话 / 撤回）——插件队列有，UI 没入口；
+3. 插件**不改桌面端私有状态**：曾经试过把手机新建的会话登记进 `storages/workspace.json`
    （让电脑侧栏也能看到），已按用户要求回退 —— 插件只做转发，不写宿主的账本。

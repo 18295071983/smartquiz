@@ -4060,6 +4060,7 @@ public class AIChatActivity extends BaseActivity {
                     java.util.Map<String, Object> r =
                             com.oilquiz.app.ai.tool.RemoteDshTool.injectDetailed(AIChatActivity.this, target, text);
                     Object queued = r == null ? null : r.get("queued");
+                    Object respMode = r == null ? null : r.get("mode");
                     if (Boolean.TRUE.equals(queued)) {
                         Object pos = r.get("position");
                         Object kind = r.get("busy_kind");
@@ -4069,6 +4070,18 @@ public class AIChatActivity extends BaseActivity {
                                     : "in-process".equals(String.valueOf(kind)) ? "电脑正在处理这一轮"
                                     : "电脑上正在执行";
                             String hint = "已插话排队（第 " + Math.max(1, position) + " 位）· " + why + "，跑完自动发送";
+                            live.content = hint;
+                            live.inferenceProgress = new ChatMessage.InferenceProgress(
+                                    ChatMessage.InferencePhase.THINKING);
+                            if (chatAdapter != null && liveIdx >= 0 && liveIdx < chatHistory.size()) {
+                                chatAdapter.notifyItemChanged(liveIdx);
+                            }
+                            showToast(hint);
+                        });
+                    } else if ("steer".equals(String.valueOf(respMode))) {
+                        // dsh 的 steer：进 next-step 队列 —— 不打断当前这一轮，但下一个 step 就看得到
+                        runOnUiThread(() -> {
+                            String hint = "已插话：电脑会在下一步看到这条（不打断当前任务）";
                             live.content = hint;
                             live.inferenceProgress = new ChatMessage.InferenceProgress(
                                     ChatMessage.InferencePhase.THINKING);

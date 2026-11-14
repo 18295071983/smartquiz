@@ -681,11 +681,18 @@ public class RemoteDshTool implements AITool {
     }
 
     /**
-     * 注入并返回**完整响应**（2026-11-14，插话排队）。
+     * 注入并返回**完整响应**（2026-11-14，插话排队 / 插话档位）。
      *
-     * <p>电脑端这一轮正在跑（CLI 子进程 / 宿主内 turn）时，插件不会抢写锁，而是把消息放进
-     * 该会话的插话队列并回 {@code queued:true, position:N, busy_kind:cli|in-process|agent}。
-     * 调用方据此把"排队中"显示给用户（与 dsh 官方客户端把消息投进 Inbox 的语义一致）。</p>
+     * <p>电脑端这一轮正在跑时，插件按 DSH 的两条 Inbox 队列处理：</p>
+     * <ul>
+     *   <li>桌面端有 live agent → {@code steer}（next-step：<b>本轮下一个 step</b> 就看得到，不打断）；</li>
+     *   <li>只有 CLI 子进程在写（没有 agent 可 steer）→ 插件自己排队，回
+     *       {@code queued:true, position:N, busy_kind}；</li>
+     *   <li>没在跑 → 普通注入（followup，next-turn）。</li>
+     * </ul>
+     *
+     * <p>调用方据此把"已插话（下一步生效）/ 已插话排队（第 N 位）"显示给用户 ——
+     * 与 dsh 官方客户端把消息投进 Inbox 的语义一致。</p>
      */
     public static Map<String, Object> injectDetailed(Context c, String target, String text) throws Exception {
         RemoteDshTool tool = new RemoteDshTool(c);
@@ -693,6 +700,8 @@ public class RemoteDshTool implements AITool {
         body.put("action", "inject");
         body.put("target_session_id", target);
         body.put("text", text);
+        // auto = 忙且能 steer 就插话（next-step），否则排队/注入。dsh-Go 的默认发送行为也是插话。
+        body.put("mode", "auto");
         Map<String, Object> resp = tool.httpJson(tool.getBaseUrl() + "/session", "POST", body, 40);
         if (!Boolean.TRUE.equals(resp.get("ok"))) {
             throw new Exception(String.valueOf(resp.get("error")));
