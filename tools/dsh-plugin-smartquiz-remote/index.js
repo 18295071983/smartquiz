@@ -6857,10 +6857,17 @@ function presetSvcOf(ctx) {
             if (t === 'ping') { sendWs(ws, { type: 'pong', ts: Date.now() }); return; }
             if (t === 'pull') {
               const r = await collectEvents(sid, Number(m.since ?? 0), Number(m.max ?? 200), caps);
+              // 2026-11-14：WS 的 pull 批次也带锚点（SSE 侧已是逐帧带），两条通道口径一致
+              let pullAnchor = null;
+              try {
+                const dev = devFromWs(ws, u);
+                if (dev) pullAnchor = anchorFor(dev.id, sid, true);
+              } catch { /* 认不出设备就不带 */ }
               sendWs(ws, {
                 type: 'batch', since: Number(m.since ?? 0),
                 last_seq: r.last_seq, has_more: r.has_more,
                 events: r.events, error: r.error ?? null,
+                ...(pullAnchor ? { anchor: pullAnchor } : {}),
               });
               return;
             }
