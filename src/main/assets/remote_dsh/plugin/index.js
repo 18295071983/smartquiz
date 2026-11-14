@@ -1742,6 +1742,13 @@ function presetSvcOf(ctx) {
    */
   const SLOT_REV = new Map();          // id -> 最近 rev（只增不减）
   const SLOT_LAST = new Map();         // id -> { sid, data, at }（最近一帧，含 rev/ttl）
+  /**
+   * 插件世代（2026-11-15 修订）：插件进程重启/热重载后 SLOT_REV 会从 1 重来，而 App 还记着
+   * 上一世代的 rev 水位 —— 新帧会被当成"回退"永久丢弃（真机：插件重载后任务/权限槽更新不了，
+   * phone_ui 的移除也失效）。epoch 取毫秒时间戳，随每帧下发；App 看到 epoch 变大就清水位、
+   * 清掉上一世代留下的插件槽，较小的 epoch 帧直接丢弃。
+   */
+  const SLOT_EPOCH = Date.now();
   const SLOT_TTL_MS = 30000;
   const SLOT_TTL_IDS = new Set(['jobs', 'compaction', 'retry', 'inbox', 'subagents']);
   const nextSlotRev = (id) => {
@@ -1765,7 +1772,7 @@ function presetSvcOf(ctx) {
     const now = Date.now();
     if (slotIsRemoval(data)) {
       const rev = nextSlotRev(id);
-      const frame = { id, rev, remove: true };
+      const frame = { id, rev, epoch: SLOT_EPOCH, remove: true };
       const scoped = String(data.session_id ?? target ?? '').trim();
       if (scoped) frame.session_id = scoped;
       // 移除帧也记住：新订阅补发它只是幂等删除，不会把状态复活
@@ -1777,7 +1784,7 @@ function presetSvcOf(ctx) {
     const ttl = data.ttl_ms !== undefined
       ? Math.max(0, Number(data.ttl_ms) || 0)
       : (SLOT_TTL_IDS.has(id) ? SLOT_TTL_MS : 0);
-    const frame = { ...data, rev };
+    const frame = { ...data, rev, epoch: SLOT_EPOCH };
     if (ttl > 0) frame.ttl_ms = ttl;
     else delete frame.ttl_ms;
     SLOT_LAST.set(id, { sid: target, data: frame, at: now });
@@ -2181,10 +2188,10 @@ function presetSvcOf(ctx) {
         enum: ['slot', 'toast', 'notification'],
         description: '指令类型：slot=输入区上方插槽；toast/notification=手机提醒',
       },
-      title: { type: 'string', description: '标题（slot/notification 建议必填）' },
+      title: { type: 'string', description: '标题（slot/notification 建议必填；slot 且 title/detail 都空 = 移除该 id）' },
       detail: { type: 'string', description: '正文或副标题' },
       priority: { type: 'number', description: 'slot 优先级，越小越靠上，默认 50' },
-      id: { type: 'string', description: 'slot id，同 id 会覆盖；默认 phone_ui' },
+      id: { type: 'string', description: 'slot id，同 id 会覆盖；默认 phone_ui（移除时必须指定 id）' },
       ttl_ms: { type: 'number', description: 'slot 自动消失时间（毫秒）；不传按 id 默认（持续态 30s，稳定态不过期）' },
     },
     required: ['kind'],
@@ -2198,8 +2205,8 @@ function presetSvcOf(ctx) {
     } else {
       const phoneUiDef = {
         name: 'phone_ui',
-        description: '把一条 UI 指令推送到已配对的手机：slot（输入区上方的插槽）或 toast/notification（提醒）。'
-          + '只用于需要用户立刻看到的轻量提示，不要用于长文本。',
+        description: '把一条 UI 指令推送到已配对的手机：slot（输入区上方的插槽；title/detail 都空按 remove 处理）'
+          + '或 toast/notification（提醒）。只用于需要用户立刻看到的轻量提示，不要用于长文本。',
         // 字段 DSL 只声明一次；注册时优先交给官方 defineTool 编译（含运行时入参校验），
         // 拿不到时退回本地编译的等价 JSON Schema。
         parameters: PHONE_UI_PARAMS,
@@ -2211,14 +2218,26 @@ function presetSvcOf(ctx) {
           const kind = String(args?.kind ?? '');
           const title = String(args?.title ?? '').trim();
           const detail = String(args?.detail ?? '').trim();
-          if (!title && !detail) return '未推送：title/detail 至少给一个';
           if (kind === 'slot') {
+            /**
+             * §20（2026-11-15 修订）：title/detail 都空 = **移除**（与 RemoteSlotBridge 的空帧约定一致）。
+             *
+             * <p>以前这里先拦"title/detail 至少给一个"，于是 agent 没有任何手段手动清掉一条
+             * 无 TTL 的测试/临时插槽 —— 真机复验时那行只能等 App 重启。移除必须显式给 id：
+             * 不给 id 会清掉默认的 phone_ui 槽，容易误伤。</p>
+             */
+            const slotId = String(args?.id ?? '').trim();
+            if (!title && !detail && !slotId) {
+              return '未推送：移除插槽需要 id（title/detail 至少给一个，或给 id 清空）';
+            }
+            // 每次推送都走 pushUiSlot → broadcastSlot：rev 自增、ttl 默认/透传、最近帧可补发
             const extra = args?.ttl_ms === undefined ? {} : { ttl_ms: Number(args.ttl_ms) };
             const slot = pushUiSlot(args?.id, args?.priority, title, detail, extra);
             return slot.removed
               ? '已移除手机插槽 ' + slot.id
               : '已推送到手机插槽 ' + slot.id;
           }
+          if (!title && !detail) return '未推送：title/detail 至少给一个';
           const tool = kind === 'notification' ? 'notification' : 'toast';
           if (!CMD_ALLOW.has(tool)) return '未推送：' + tool + ' 不在白名单';
           pruneCommands();
@@ -3287,6 +3306,8 @@ function presetSvcOf(ctx) {
     // WebSocket 实时通道当前客户端数（2026-11-14）：面板/自检据此判断"手机是不是走 WS"。
     // 0 不代表没连——可能是走了 SSE（隧道链路）或还没连。
     ws_clients: WS_CLIENTS.size,
+    /** 插槽世代（§20 修订）：插件重载后变化；App 据此重置 rev 水位（诊断用）。 */
+    slot_epoch: SLOT_EPOCH,
     /**
      * 每个已连接客户端的能力协商摘要（2026-11-15，§18 能力协商体检）。
      *

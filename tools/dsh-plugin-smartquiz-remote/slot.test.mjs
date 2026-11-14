@@ -40,6 +40,7 @@ const PORT = await new Promise((resolve, reject) => {
 const routes = new Map();
 const handlers = new Map();
 const sessions = new Map([[SID, { id: SID, seq: 1, eventAt: () => undefined }]]);
+let phoneUiDef = null;
 
 const ctx = {
   effect(fn) {
@@ -74,7 +75,12 @@ const ctx = {
   },
   agents: { get() { return undefined; }, list() { return []; } },
   sessions: { get(id) { return sessions.get(id); } },
-  tools: { register() { return () => {}; } },
+  tools: {
+    register(def) {
+      if (def && def.name === 'phone_ui') phoneUiDef = def;
+      return () => {};
+    },
+  },
   logger: { info() {}, warn() {}, debug() {} },
 };
 
@@ -167,11 +173,14 @@ await test('同 id 连推：rev 严格递增，绝不复用', async () => {
   assert.equal(Number(b.rev), Number(a.rev) + 1, 'rev 应按 id 单调 +1');
   assert.equal(a.title, '第一条');
   assert.equal(b.title, '第二条');
+  assert.ok(Number(a.epoch) > 0, '帧应带插件世代 epoch');
+  assert.equal(b.epoch, a.epoch, '同一插件进程内 epoch 稳定');
 
   ui = await connect('/ws/ui', 'cmd.ui');
   const got = await waitFor(() => slotFrames(ui, 'rev-slot').at(-1), 'rev-slot 帧');
   assert.equal(got.data.title, '第二条');
   assert.equal(got.data.rev, b.rev, '实时帧与 HTTP 响应同一 rev');
+  assert.equal(got.data.epoch, b.epoch, '实时帧带同一 epoch');
 });
 
 await test('持续态默认 ttl_ms=30000，稳定态不带 ttl', async () => {
@@ -197,6 +206,7 @@ await test('空帧 = remove，移除帧 rev 继续递增且带 remove', async ()
     'gone-slot 的 remove 帧',
   );
   assert.equal(frame.data.rev, removed.rev);
+  assert.ok(Number(frame.data.epoch) > 0, '移除帧也要带 epoch');
 });
 
 await test('新订阅补发最近一帧：rev 沿用不回退', async () => {
@@ -209,6 +219,7 @@ await test('新订阅补发最近一帧：rev 沿用不回退', async () => {
     );
     assert.equal(replayed.data.title, '补发这条');
     assert.equal(replayed.data.rev, pushed.rev, '补发沿用最近 rev');
+    assert.equal(replayed.data.epoch, pushed.epoch, '补发沿用同一 epoch');
   } finally {
     try { second.ws.close(); } catch { /* ignore */ }
   }
@@ -228,6 +239,36 @@ await test('TTL 到点后补发跳过：生产者失联不复活残留', async (
   } finally {
     try { third.ws.close(); } catch { /* ignore */ }
   }
+});
+
+await test('phone_ui 工具：slot 推送带 rev/ttl', async () => {
+  assert.ok(phoneUiDef, '插件应注册 phone_ui 工具');
+  const text = await phoneUiDef.execute({ kind: 'slot', id: 'tool-slot', title: '工具推的', ttl_ms: 2000 });
+  assert.match(text, /已推送到手机插槽 tool-slot/);
+  const frame = await waitFor(() => slotFrames(ui, 'tool-slot').at(-1), 'tool-slot 帧');
+  assert.ok(Number(frame.data.rev) > 0, '工具推送也必须带 rev');
+  assert.equal(frame.data.title, '工具推的');
+  assert.equal(frame.data.ttl_ms, 2000);
+});
+
+await test('phone_ui 工具：空 title/detail = 移除（rev 继续递增）', async () => {
+  const add = await pushSlot('tool-rm', '待移除');
+  const addFrame = await waitFor(() => slotFrames(ui, 'tool-rm').at(-1), 'tool-rm 添加帧');
+
+  const text = await phoneUiDef.execute({ kind: 'slot', id: 'tool-rm' });
+  assert.match(text, /已移除手机插槽 tool-rm/);
+
+  const rmFrame = await waitFor(
+    () => slotFrames(ui, 'tool-rm').find((f) => f.data.remove === true),
+    'tool-rm 移除帧',
+  );
+  assert.ok(Number(rmFrame.data.rev) > Number(addFrame.data.rev), '移除要占一个新 rev');
+  assert.ok(Number(rmFrame.data.rev) > Number(add.rev));
+});
+
+await test('phone_ui 工具：空帧不给 id 直接拒绝，避免误清默认槽', async () => {
+  const text = await phoneUiDef.execute({ kind: 'slot' });
+  assert.match(text, /移除插槽需要 id/);
 });
 
 // 收尾：关 socket，按结果退出（插件定时器不能让 node 挂着）

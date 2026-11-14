@@ -15,12 +15,13 @@ import org.json.JSONObject;
  * <pre>
  * { "type":"ui/slot", "data": { id, title, detail, action?, priority?, warn?,
  *                               kind?: toggle|action|display|list, board?: alert|task|asset|state,
- *                               pinned?, count?, remove?, rev?, ttl_ms? } }
+ *                               pinned?, count?, remove?, rev?, epoch?, ttl_ms? } }
  * </pre>
  *
  * <p>§20（2026-11-15）：{@code rev} 是同一 id 单调递增的版本号，乱序旧帧由
- * {@link DockSlotBus} 丢弃；{@code ttl_ms} 把相对存活时间换算成绝对 {@code expireAt}，
- * 生产者失联后槽位会自己消失。</p>
+ * {@link DockSlotBus} 丢弃；{@code epoch} 是插件实例世代（毫秒时间戳），插件重载后
+ * rev 从 1 重来，App 靠它清水位/清旧插件槽；{@code ttl_ms} 把相对存活时间换算成绝对
+ * {@code expireAt}，生产者失联后槽位会自己消失。</p>
  */
 public final class RemoteSlotBridge {
 
@@ -36,6 +37,11 @@ public final class RemoteSlotBridge {
         String id = data.optString("id", "").trim();
         if (id.isEmpty()) return false;
         long rev = Math.max(0L, data.optLong("rev", 0L));
+        // §20 修订（2026-11-15）：插件重载后 rev 会从 1 重来，epoch 变大就清水位、清旧插件槽；
+        // epoch 更小的帧是上一世代迟到的，整帧丢弃（否则重载后移除/更新会永久失效）。
+        if (DockSlotBus.notePluginEpoch(Math.max(0L, data.optLong("epoch", 0L))) < 0) {
+            return true;
+        }
         if (data.optBoolean("remove", false)) {
             DockSlotBus.remove(id, rev);
             return true;

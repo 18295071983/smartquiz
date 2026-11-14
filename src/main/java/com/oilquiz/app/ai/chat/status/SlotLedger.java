@@ -25,6 +25,10 @@ import java.util.Map;
  * <p>版本语义（2026-11-15 约定）：{@code rev > 0} 的帧参与乱序校验；
  * {@code rev == 0} 表示旧插件/本地写入的"无版本帧"，按覆盖语义处理（不建立水位），
  * 保证升级前后行为不倒退。</p>
+ *
+ * <p>世代语义（2026-11-15 修订）：插件帧带 {@code epoch}（毫秒时间戳）。插件重载/重启后
+ * rev 从 1 重来，{@link #applyEpoch(long)} 会清掉上一世代留下的插件槽并重置水位，
+ * 避免新帧被旧水位当成回退帧永久丢弃；更旧的 epoch 帧整帧丢弃。</p>
  */
 public final class SlotLedger {
 
@@ -55,6 +59,8 @@ public final class SlotLedger {
     private final HashMap<String, Long> lastRev = new HashMap<>();
     /** id -> 插件最近一次写这个 id 的时刻（兜底窗口用）。 */
     private final HashMap<String, Long> pluginAt = new HashMap<>();
+    /** 插件实例世代（毫秒时间戳；0 = 旧插件帧不带 epoch）；只增不减。 */
+    private long pluginEpoch = 0L;
 
     /** 插件帧写入：rev 校验 + 记录插件活跃时间。 */
     public Result update(DockSlotBus.Slot slot, long now) {
@@ -143,6 +149,42 @@ public final class SlotLedger {
             if (now - pa.next().getValue() >= LOCAL_FALLBACK_MS * 2) pa.remove();
         }
         return expired;
+    }
+
+    /**
+     * 插件世代切换（§20 修订，2026-11-15）。
+     *
+     * <p>插件进程重启/热重载后 {@code SLOT_REV} 从 1 重来，而 App 还记着上一世代的 rev 水位，
+     * 新帧会被当成回退帧**永久丢弃**（真机表现：插件重载后任务/权限槽不再更新，phone_ui
+     * 的移除也无效）。帧里带 {@code epoch}（毫秒时间戳）后：</p>
+     * <ul>
+     *   <li>epoch 变大 → 清掉上一世代留下的插件槽 + 重置全部 rev 水位（本地派生的槽保留）；</li>
+     *   <li>epoch 相同 → 无事发生；</li>
+     *   <li>epoch 变小 → 迟到的旧世代帧，调用方应整帧丢弃。</li>
+     * </ul>
+     *
+     * @return -1 = 旧世代帧（丢弃）；0 = 无变化；&gt;0 = 清掉的旧插件槽条数
+     */
+    public int applyEpoch(long epoch) {
+        if (epoch <= 0L) return 0;          // 旧插件/本地帧不带 epoch：不参与世代判断
+        if (epoch < pluginEpoch) return -1; // 迟到的旧世代帧
+        if (epoch == pluginEpoch) return 0;
+        pluginEpoch = epoch;
+        lastRev.clear();
+        int cleared = 0;
+        Iterator<Map.Entry<String, DockSlotBus.Slot>> it = slots.entrySet().iterator();
+        while (it.hasNext()) {
+            if ("plugin".equals(it.next().getValue().source)) {
+                it.remove();
+                cleared += 1;
+            }
+        }
+        return cleared;
+    }
+
+    /** 当前插件世代（0 = 还没见过带 epoch 的帧；诊断/测试用）。 */
+    public long pluginEpoch() {
+        return pluginEpoch;
     }
 
     /** 按 priority 排序后的快照（与旧 {@code DockSlotBus.list()} 口径一致）。 */

@@ -61,6 +61,17 @@ public class SlotLedgerTest {
     }
 
     @Test
+    public void legacyRevZeroStillAppliesAfterVersionedFrames() {
+        SlotLedger ledger = new SlotLedger();
+        ledger.update(slot("job", "插件 v5", 5L, 0L, "plugin"), 1000L);
+        // 旧插件 / 不带 rev 的推送不能被"已存 rev"误杀：只有有版本帧才参与乱序校验
+        assertEquals(SlotLedger.Result.APPLIED,
+                ledger.update(slot("job", "无版本帧", 0L, 0L, ""), 1001L));
+        assertEquals("无版本帧", ledger.get("job").title);
+        assertEquals("rev=0 不推进水位", 5L, ledger.lastRev("job"));
+    }
+
+    @Test
     public void removeWithNewerRevWinsAndOldFrameCannotResurrect() {
         SlotLedger ledger = new SlotLedger();
         ledger.update(slot("job", "跑着", 3L, 0L, "plugin"), 1000L);
@@ -168,5 +179,39 @@ public class SlotLedgerTest {
                 ledger.update(slot("job", "插件 v6", 6L, 0L, "plugin"), 5001L));
         assertEquals("插件 v6", ledger.get("job").title);
         assertEquals(6L, ledger.lastRev("job"));
+    }
+
+    @Test
+    public void epochChangeClearsOldPluginSlotsAndResetsWatermarks() {
+        SlotLedger ledger = new SlotLedger();
+        ledger.update(slot("job", "旧世代 v9", 9L, 0L, "plugin"), 1000L);
+        ledger.updateLocal(slot("remote/attention", "本地状态", 0L, 0L, ""), 1000L);
+
+        // 插件重载：epoch 变大 → 旧插件槽清掉、rev 水位归零；本地派生的槽要保留
+        assertEquals(1, ledger.applyEpoch(2000L));
+        assertNull(ledger.get("job"));
+        assertNotNull("本地槽不能被插件世代切换清掉", ledger.get("remote/attention"));
+
+        // 新世代 rev 从 1 开始也必须能写入（重载后更新/移除不再永久失效）
+        assertEquals(SlotLedger.Result.APPLIED,
+                ledger.update(slot("job", "新世代 v1", 1L, 0L, "plugin"), 2001L));
+        assertEquals("新世代 v1", ledger.get("job").title);
+    }
+
+    @Test
+    public void olderEpochFramesAreRejected() {
+        SlotLedger ledger = new SlotLedger();
+        ledger.applyEpoch(2000L);
+        assertEquals(-1, ledger.applyEpoch(1999L));
+        assertEquals(2000L, ledger.pluginEpoch());
+    }
+
+    @Test
+    public void sameEpochIsNoOpAndKeepsSlots() {
+        SlotLedger ledger = new SlotLedger();
+        ledger.applyEpoch(2000L);
+        ledger.update(slot("job", "v1", 1L, 0L, "plugin"), 1000L);
+        assertEquals(0, ledger.applyEpoch(2000L));
+        assertNotNull(ledger.get("job"));
     }
 }

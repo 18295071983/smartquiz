@@ -1150,13 +1150,14 @@ public static boolean isSealed(int segmentIndex, int lastSegmentIndex, boolean h
 { "type": "ui/slot", "data": {
     "id": "jobs", "priority": 40, "title": "任务", "detail": "1 个在跑 · 共 20 条",
     "action": "jobs", "kind": "display", "board": "task", "pinned": false, "count": 0,
-    "rev": 7, "ttl_ms": 30000, "remove": false, "session_id": "..."
+    "rev": 7, "epoch": 1794684000123, "ttl_ms": 30000, "remove": false, "session_id": "..."
 } }
 ```
 
 | 字段 | 语义 |
 |---|---|
 | `rev` | **按 id 单调递增**，每条新帧 +1；补发沿用最近一帧的 rev，绝不回退。移除帧同样占一个新 rev |
+| `epoch` | 插件实例世代（启动毫秒时间戳）。插件进程重载/重启后 rev 从 1 重来，App 靠它识别新世代并重置水位 |
 | `ttl_ms` | 可选，相对存活时间（毫秒）；App 收到时换算成绝对 `expireAt = now + ttl_ms`（上限 24h） |
 | `remove:true` / 空帧 | 与旧约定兼容：`remove:true` 或 title/detail 都空且 `count<=0` = 移除 |
 
@@ -1177,11 +1178,23 @@ App 侧 `DockSlotBus.Slot` 新增只读字段 `rev` / `expireAt` / `source`（`p
 | `rev == 0` | 旧插件/本地写入 | 按旧"同 id 覆盖"语义接受，不建立水位 |
 | 移除帧 | `rev <` 水位 | 丢弃（乱序移除不生效）；水位跨移除保留，旧帧不能复活槽位 |
 
-**水位何时归零**：`DockSlotBus.clear()`（断连/切会话）会清非 pinned 并把 rev 水位一起清空。
-原因：插件进程重启后 `SLOT_REV` 从 1 重来，水位若留着，新世代的 rev=1 会被当成回退帧
-永久丢弃（重连后 jobs/compaction 再也不出现）。旧世代的迟到帧随连接断开 + 队列清空一起
-作废，所以这个归零不会把乱序保护真正打穿；显式 `remove(id, rev)` 仍保留水位防复活。
-**未做**：没有引入 epoch / 插件实例 id，插件重启与"旧世代迟到帧"目前靠断连信号区分。
+**插件世代（epoch）规则**（2026-11-15 修订，真机插件重载后暴露）：
+
+| 入站 | 条件 | 结果 |
+|---|---|---|
+| `epoch > 当前` | 插件重载/重启 | 清掉所有 `source=plugin` 的旧槽（本地槽保留）、清空全部 rev 水位；本帧继续按新水位处理 |
+| `epoch == 当前` | 同一插件实例 | 正常按 rev 规则 |
+| `epoch < 当前` | 上一世代迟到的帧 | **整帧丢弃**（`[dock] 丢弃旧世代帧 epoch=...`），防止旧移除/旧状态复活 |
+| `epoch == 0` | 旧插件（不带该字段） | 不参与世代判断，按 rev=0 兼容路径 |
+
+**为什么需要 epoch**：插件重载（`plugin_manager set_plugin`）或 DSH 重启后，插件的 `SLOT_REV`
+从 1 重来，但 App 的 rev 水位还停在上一世代的几十——新帧全被当成"回退"永久丢弃。真机现象：
+插件重载后任务/权限槽不再更新，`phone_ui` 的移除也失效（reload 前 rev=1 的槽 vs reload 后 rev=1
+的移除帧同号，被判重复）。旧方案靠"断连 clear() 清水位"，但快速重连时 App 可能观察不到
+`online=false`，于是水位一直留着。epoch 不依赖断连信号，是确定性的世代判据。
+
+**水位何时归零**：`DockSlotBus.clear()`（断连/切会话）仍清非 pinned + 清水位；epoch 变大时
+也清水位并清旧插件槽。显式 `remove(id, rev)` 保留水位防同一个世代内的旧帧复活。
 
 ### 20.4 TTL 清理机制
 
@@ -1209,21 +1222,24 @@ App 侧 `DockSlotBus.Slot` 新增只读字段 `rev` / `expireAt` / `source`（`p
 
 | 项 | 结果 |
 |---|---|
-| `SlotLedgerTest`（新增，纯 JVM） | 14/14 通过：rev 递增/回退丢弃/同 rev 重复丢弃/rev=0 兼容、移除水位、断连后同 rev 补发、插件重启 rev=1、TTL 边界、无 ttl 不清、到达即过期、pinned 保留、3s 兜底窗口（3999ms 让位 / 4000ms 生效） |
+| `SlotLedgerTest`（新增，纯 JVM） | 18/18 通过：rev 递增/回退丢弃/同 rev 重复丢弃/rev=0 兼容、移除水位、断连后同 rev 补发、插件重启 rev=1、epoch 变大清旧插件槽+清水位、旧 epoch 拒绝、同 epoch 无操作、TTL 边界、无 ttl 不清、到达即过期、pinned 保留、3s 兜底窗口（3999ms 让位 / 4000ms 生效） |
 | `DockSlotBusTest` | 11/11 通过（原 6 + 新增 5：rev、旧帧兼容、TTL sweep、pinned clear、本地兜底） |
+| `RemoteSlotBridgeTest`（新增） | 9/9 通过：空帧移除、乱序移除不杀新槽、ttl→expireAt、无 rev 旧帧照旧覆盖、remove+rev、**插件重载后 rev=1 覆盖 rev=99**、旧 epoch 丢弃、世代切换清旧插件槽、重载后空帧移除生效 |
 | 状态包其余用例 | 68 项中 4 项**既有失败**（`DshUiCatalogLoaderTest` 期望默认 1/2、代码是 2/5；`StatusDeckControllerTest` 同因），与本次改动无关（未触碰这两个类） |
-| 插件 `slot.test.mjs`（新增，真 WS + 真 HTTP） | 6/6 通过：rev 1→2、jobs 默认 ttl=30000、goal 无 ttl、显式 3000 透传、空帧移除 rev 递增、新订阅补发沿用 rev、过期瞬时帧不补发 |
+| 插件 `slot.test.mjs`（新增，真 WS + 真 HTTP） | 9/9 通过：rev 1→2、epoch 稳定、jobs 默认 ttl=30000、goal 无 ttl、显式 3000 透传、空帧移除 rev 递增+带 epoch、新订阅补发沿用 rev/epoch、过期瞬时帧不补发、phone_ui 工具带 rev/ttl、空帧移除、无 id 拒绝 |
 | 插件既有自测 | `ws_frames.test.mjs` 10/10、`caps.test.mjs` 11/11、`cardcheck.test.mjs` 23/23 通过；`node --check index.js` OK |
-| assets 同步 | `tools/.../index.js` 与 `src/main/assets/remote_dsh/plugin/index.js` 字节一致，SHA256 `03B4672AE594AEAA49AE2935ED67AF466AD288D7982CF5229AD686832C54783D` |
+| assets 同步 | `tools/.../index.js` 与 `src/main/assets/remote_dsh/plugin/index.js` 字节一致，SHA256 `FD3BDF0BC5DE412F762E245EACA73931C0638FC8A2190FD9E22197FF0B79EEDC` |
 | 编译 | `gradlew --offline assembleDebug` BUILD SUCCESSFUL |
-| 装机 APK | `答题宝-debug-2.2.apk`，SHA256 `B212C0174D93BCA37C7C9BE66030DD8C6664D4314A181F3DE6EA93CF48842BB7`，`adb -s 192.168.1.10:41193 install -r` Success |
-| 真机 | `25113PN0EC`：logcat `DockSlotBus: [dock] TTL 清扫已启动 间隔=1000ms`（新代码确实在跑）；同一 id `phone_ui` 推两条（"甲板验证 A"→"甲板验证 B"）后甲板只有一行且显示后一条，截图 `build/dock-verify.png` |
+| 装机 APK | `答题宝-debug-2.2.apk`，SHA256 `C6520E9A155E52EECCB48C30959435B0B64E41354C1DBCE2EEAE98F124FA922B`，`adb -s 192.168.1.10:41193 install -r` Success |
+| 真机 · 插件重载 | `plugin_manager set_plugin include:smartquiz-remote enabled:false→true`（不再需要重启 DSH）；`/status` 出现 `slot_epoch=1794684643532`；logcat `[dock] 插件世代切换 epoch=1794684643532 清掉 4 条旧插件槽`（旧方案这里会全部按"回退 rev"丢弃） |
+| 真机 · A/B 一行 | 最终 APK 上 `phone_ui` 同 id 推「甲板 rev 测试 A」→「甲板 rev 测试 B」：甲板只有一行且显示 B（截图 `build/dock-verify.png`） |
+| 真机 · 空帧移除 | `phone_ui(kind=slot, id=dock-rv)`（title/detail 都空）返回「已移除手机插槽 dock-rv」，同一屏甲板该行消失（截图 `build/dock-verify/final-removed2.png`） |
+| 真机 · TTL | 最终 APK 上 `phone_ui(..., ttl_ms:3000)` 后 logcat `[dock] TTL 过期移除 id=dk-ttl4`（03:37:45 推 → 03:37:49 清，3s TTL + 1s 清扫粒度）；早前 `dk-ttl2`（5000ms）、`dk-ttl3`、`probe-new` 同样按时消失 |
 
-**真机没验到的**：rev 丢弃与 TTL 过期两行日志。原因：当前 DSH 进程里跑的还是**旧插件**
-（`POST /v2/action {action:'ui.slot', ttl_ms:3000}` 的响应里没有 `rev`/`ttl_ms`，`phone_ui`
-schema 也没有 `ttl_ms`），旧插件不会发这两个字段；重载插件要重启 DSH（会中断本会话），
-按约束没做。这两条由 `SlotLedgerTest` + `slot.test.mjs` 覆盖，下次重启 DSH 后可直接在
-logcat 看 `[dock] 丢弃 重复 rev` / `[dock] TTL 过期移除`。
+**本轮真机为什么能验到**：上轮"插件未重载"的缺口这次用 `plugin_manager set_plugin` 补上了（不必重启 DSH）；
+重载后 App 走了 SSE 快速重连、没有观察到 `online=false`，正是旧方案"靠断连清 rev 水位"失效、
+新帧被当回退丢弃的场景 —— 加 epoch 后日志直接出现"世代切换/清旧插件槽"，phone_ui 的更新与移除
+也随之恢复。
 
 ### 20.7 TTL 续期覆盖（如实）
 
@@ -1240,6 +1256,28 @@ logcat 看 `[dock] 丢弃 重复 rev` / `[dock] TTL 过期移除`。
 
 - App：`status/DockSlotBus.java`、`status/SlotLedger.java`（新）、`tool/RemoteSlotBridge.java`、
   `ui/activity/AIChatActivity.java`、`tool/RemoteStatusSlots.java`、`tool/RemoteCommandExecutor.java`
-- 测试：`DockSlotBusTest.java`、`SlotLedgerTest.java`（新）
-- 插件：`tools/dsh-plugin-smartquiz-remote/index.js`（176 行增删）、`slot.test.mjs`（新）、
+- 测试：`DockSlotBusTest.java`、`SlotLedgerTest.java`（新）、`tool/RemoteSlotBridgeTest.java`（新）
+- 插件：`tools/dsh-plugin-smartquiz-remote/index.js`、`slot.test.mjs`（新）、
   `src/main/assets/remote_dsh/plugin/index.js`（同步）
+
+### 20.9 `phone_ui` 与 rev / 移除语义（2026-11-15 修订）
+
+真机复验暴露两条使用面缺口，本节补上：
+
+1. **phone_ui 的 slot 推送走同一套 rev 机制**：`phone_ui(kind=slot, ...)` 与
+   `POST /v2/action {action:'ui.slot'}` 共用 `pushUiSlot` → `broadcastSlot`，每帧都补
+   `rev`（按 id 自增）与 `epoch`，`ttl_ms` 显式传入时原样透传。所以 phone_ui 与
+   jobs/goal/permission 等插件产物是**同一个写者、同一套版本规则**，不存在"rev=0 被
+   同 rev 规则误杀"。
+2. **空帧移除**：以前 `phone_ui` 先拦 `title/detail 至少给一个`，agent 没有任何手段手动
+   清掉一条无 TTL 的测试/临时槽（只能等 App 重启）。现在 `kind=slot` 且 title/detail
+   都空 = `remove:true`（与 `RemoteSlotBridge` 的空帧约定一致），**必须显式给 `id`**：
+   不给 id 会清掉默认的 `phone_ui` 槽，按错误返回「移除插槽需要 id」。
+
+对应的工具 schema 文案（title 描述 + 工具 description）也写明"slot 且 title/detail 都空 =
+移除该 id"，模型不用猜。自测 `slot.test.mjs` 会捕获插件注册的 `phone_ui` 定义并直接调用
+`execute`：验证带 rev/ttl、空帧产生 `remove` 帧且 rev 递增、无 id 被拒绝。
+
+**真机证据**：`phone_ui(id=dock-rv)` 推 A/B 后甲板只有一行 B（`build/dock-verify.png`）；
+再 `phone_ui(id=dock-rv)`（空 title/detail）返回「已移除手机插槽 dock-rv」，同一屏甲板该行消失
+（`build/dock-verify/final-removed2.png`）。

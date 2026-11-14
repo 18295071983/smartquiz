@@ -186,6 +186,27 @@ public final class DockSlotBus {
     }
 
     /**
+     * §20 修订（2026-11-15）：插件世代（epoch）—— 插件重载后 rev 从 1 重来，必须重置水位。
+     *
+     * @return -1 = 旧世代帧（调用方应整帧丢弃）；0 = 无变化；&gt;0 = 清掉的旧插件槽条数
+     */
+    public static int notePluginEpoch(long epoch) {
+        int cleared;
+        long current;
+        synchronized (LOCK) {
+            cleared = LEDGER.applyEpoch(epoch);
+            current = LEDGER.pluginEpoch();
+        }
+        if (cleared < 0) {
+            logi("[dock] 丢弃旧世代帧 epoch=" + epoch + " 当前=" + current);
+        } else if (cleared > 0) {
+            logi("[dock] 插件世代切换 epoch=" + epoch + " 清掉 " + cleared + " 条旧插件槽");
+            notifyListeners();
+        }
+        return cleared;
+    }
+
+    /**
      * 全清（断连 / 切会话 / 页面销毁）。
      *
      * <p>§20：保留 {@code pinned} 的槽位 —— 它们是"连着就该一直看到"的状态；
