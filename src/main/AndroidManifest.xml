@@ -148,6 +148,11 @@
             android:label="扫描电脑配对二维码"
             android:screenOrientation="portrait" />
         <!-- 远程连接（电脑）：手动连接/断开/清除配置/扫码（工具集 → 设置与数据） -->
+        <!-- 甲板全屏列表（2026-11-14）：甲板保持精简，点一行进这里看全部 -->
+        <activity
+            android:name="com.oilquiz.app.ui.activity.RemoteDeckListActivity"
+            android:exported="false"
+            android:label="电脑状态" />
         <activity
             android:name=".ai.tool.RemoteDshConnectActivity"
             android:exported="false"

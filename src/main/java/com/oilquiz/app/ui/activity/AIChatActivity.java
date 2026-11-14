@@ -13163,7 +13163,11 @@ public class AIChatActivity extends BaseActivity {
                 row.addView(chevron, clp);
 
                 row.setClickable(true);
-                row.setOnClickListener(v -> onDockSlotClick(s.action));
+                // 2026-11-14 用户口径：「不点击精简，点击后有全屏列表」——
+                // 甲板保持精简（几行、不内联展开），点一行进全屏列表看全部；
+                // 行内动作在列表页点，回来由 onResume 消费 pendingAction 走同一套分发。
+                row.setOnClickListener(v ->
+                        com.oilquiz.app.ui.activity.RemoteDeckListActivity.open(this));
                 // 视觉 32dp，实际点击区 48dp：上下各扩 8dp（TouchDelegate，不占额外高度）
                 final int grow = (int) (8 * density);
                 final View rowRef = row;
@@ -15822,6 +15826,15 @@ public class AIChatActivity extends BaseActivity {
     protected void onResume() {
         sForegroundForAlerts = true;
         registerCardLocalActions();
+        // 甲板全屏列表点了某一行：它把动作记在 pendingAction 里再 finish，
+        // 这里用**同一套** onDockSlotClick 处理，避免两处分发逻辑漂移。
+        try {
+            String pending = com.oilquiz.app.ui.activity.RemoteDeckListActivity.pendingAction;
+            if (pending != null && !pending.isEmpty()) {
+                com.oilquiz.app.ui.activity.RemoteDeckListActivity.pendingAction = null;
+                onDockSlotClick(pending);
+            }
+        } catch (Throwable ignored) { /* 列表页没开过就算了 */ }
         try {
             android.content.Intent it = getIntent();
             String want = it == null ? null : it.getStringExtra("open_session_id");
