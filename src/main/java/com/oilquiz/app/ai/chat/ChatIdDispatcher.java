@@ -100,6 +100,50 @@ public class ChatIdDispatcher {
 
     private static final ChatIdDispatcher INSTANCE = new ChatIdDispatcher();
 
+    /**
+     * 还没被占用的类型码字库（2026-11-14）。
+     *
+     * <p>id 形态是 {@code Tn-<code><n>}，{@code adoptId()} 按"取 1 个字符当类型码"解析，
+     * 所以**只要是一个 UTF-16 字符**就能当类型码。已经用掉 31 个（见 {@link IdType}），
+     * 这里把剩下的可读字母按字母表排好，接新能力直接从这里取，别再临时借别人的桶。</p>
+     *
+     * <ul>
+     *   <li>小写拉丁 a–z：26</li>
+     *   <li>大写希腊 Α–Ω：24（小写希腊已被预留）</li>
+     *   <li>西里尔 а–я：32</li>
+     *   <li>天干地支 甲乙…亥：22（中文语境最好认）</li>
+     * </ul>
+     *
+     * <p>合计 {@link #codeCapacity()} 个。数字、符号、emoji 不要用：数字会和序号混，
+     * 符号在不同字体里宽度不一，日志里也难认。</p>
+     */
+    public static final String RESERVED_CODE_POOL =
+            "abcdefghijklmnopqrstuvwxyz"
+            + "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ"
+            + "абвгдежзийклмнопрстуфхцчшщэюя"
+            + "甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥";
+
+    /** 还剩多少个类型码可用（不含已占用的） */
+    public static int codeCapacity() {
+        java.util.Set<Character> used = new java.util.HashSet<>();
+        for (IdType t : IdType.values()) {
+            if (t.code != null && !t.code.isEmpty()) used.add(t.code.charAt(0));
+        }
+        int free = 0;
+        for (int i = 0; i < RESERVED_CODE_POOL.length(); i += 1) {
+            if (!used.contains(RESERVED_CODE_POOL.charAt(i))) free += 1;
+        }
+        return free;
+    }
+
+    /** 这个字符能不能当类型码（单字符、未被占用、在字库内） */
+    public static boolean isCodeAvailable(char code) {
+        if (RESERVED_CODE_POOL.indexOf(code) < 0) return false;
+        for (IdType t : IdType.values()) {
+            if (t.code != null && t.code.length() == 1 && t.code.charAt(0) == code) return false;
+        }
+        return true;
+    }
     public static ChatIdDispatcher getInstance() {
         return INSTANCE;
     }

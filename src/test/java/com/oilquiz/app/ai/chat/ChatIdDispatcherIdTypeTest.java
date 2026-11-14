@@ -48,6 +48,33 @@ public class ChatIdDispatcherIdTypeTest {
     }
 
     @Test
+    public void reservedPoolIsUsableAndCounting() {
+        assertTrue("字库要够用（>=90）", ChatIdDispatcher.codeCapacity() >= 90);
+        ChatIdDispatcher d = ChatIdDispatcher.getInstance();
+        String turn = "T" + System.nanoTime();
+        int checked = 0;
+        for (int i = 0; i < ChatIdDispatcher.RESERVED_CODE_POOL.length() && checked < 40; i += 3) {
+            char c = ChatIdDispatcher.RESERVED_CODE_POOL.charAt(i);
+            assertTrue("字库码不该已被占用: " + c, ChatIdDispatcher.isCodeAvailable(c));
+            String id = turn + "-" + c + "1";
+            assertTrue("adoptId 要能认领字库码 id: " + id, d.adoptId(id));
+            checked += 1;
+        }
+        assertEquals(ChatIdDispatcher.RESERVED_CODE_POOL.length(),
+                ChatIdDispatcher.codeCapacity() + countUsedPoolCodes());
+    }
+
+    /** 字库里已被枚举占用的个数（正常是 0） */
+    private static int countUsedPoolCodes() {
+        int used = 0;
+        for (int i = 0; i < ChatIdDispatcher.RESERVED_CODE_POOL.length(); i += 1) {
+            char c = ChatIdDispatcher.RESERVED_CODE_POOL.charAt(i);
+            if (!ChatIdDispatcher.isCodeAvailable(c)) used += 1;
+        }
+        return used;
+    }
+
+    @Test
     public void dshBucketsDoNotCollideWithLocalOnes() {
         Set<String> local = new HashSet<>();
         local.add(ChatIdDispatcher.IdType.USER.code);
