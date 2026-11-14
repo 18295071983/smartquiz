@@ -6340,6 +6340,7 @@ function presetSvcOf(ctx) {
           const busyInfo = SESSION_BUSY.get(target) ?? {};
           return sendJson(res, 200, {
             ok: true, action: 'inject', session_id: target, mode: 'queue', queued: true, position: q.length,
+            queue_id: item.id,
             seq_before: Number(ctx.sessions.get(target)?.seq ?? 0),
             busy_kind: busyInfo.kind || '', busy_since: busyInfo.since || 0,
           });
@@ -6367,6 +6368,49 @@ function presetSvcOf(ctx) {
         });
         promptCount += 1;
         return sendJson(res, 200, { ok: true, action: 'inject', session_id: target, resumed, seq_before: seqBefore });
+      }
+      /**
+       * 插话队列管理（2026-11-14）：手机要能撤回/修改自己排进去的消息。
+       *
+       * <p>只管理**插件自己排队**的那批（SESSION_INBOX：CLI 子进程正占着这条会话时）；
+       * 已经交给 DSH 的 steer（next-step）不在队列里，插进去就被消费了，没法撤回 ——
+       * 这与 dsh-Go 的语义一致（插话一旦被 admit 就属于那一轮）。</p>
+       */
+      if (action === 'queue') {
+        const target = String(body.session_id ?? body.target_session_id ?? '').trim();
+        if (!target) return sendJson(res, 400, { ok: false, action, error: 'session_id required' });
+        const op = String(body.op ?? 'list').trim().toLowerCase();
+        const q = SESSION_INBOX.get(target) ?? [];
+        const publicItem = (it, i) => ({ id: it.id, text: it.text, at: it.at, position: i + 1 });
+        if (op === 'list') {
+          return sendJson(res, 200, {
+            ok: true, action: 'queue', op, session_id: target,
+            busy: isSessionBusy(target),
+            bus_kind: (SESSION_BUSY.get(target) ?? {}).kind || '',
+            count: q.length,
+            items: q.map(publicItem),
+          });
+        }
+        const id = String(body.queue_id ?? body.id ?? '').trim();
+        if (!id) return sendJson(res, 400, { ok: false, action, error: 'queue_id required' });
+        const idx = q.findIndex((it) => it && it.id === id);
+        if (idx < 0) return sendJson(res, 404, { ok: false, action, error: 'queue_not_found', queue_id: id });
+        if (op === 'cancel') {
+          q.splice(idx, 1);
+          if (q.length) SESSION_INBOX.set(target, q); else SESSION_INBOX.delete(target);
+          return sendJson(res, 200, { ok: true, action: 'queue', op, session_id: target, removed: id, count: q.length,
+            items: q.map(publicItem) });
+        }
+        if (op === 'update') {
+          const text = String(body.text ?? '').trim();
+          if (!text) return sendJson(res, 400, { ok: false, action, error: 'text required' });
+          q[idx].text = text;
+          q[idx].at = Date.now();
+          SESSION_INBOX.set(target, q);
+          return sendJson(res, 200, { ok: true, action: 'queue', op, session_id: target, updated: id, count: q.length,
+            items: q.map(publicItem) });
+        }
+        return sendJson(res, 400, { ok: false, action, error: 'unknown op: ' + op, ops: ['list', 'cancel', 'update'] });
       }
       if (action === 'cmd_poll') {
         // 手机端轮询反向指令（2026-11-12 接线）：契约与 App 侧 RemoteDshTool.pollCommands 对齐。

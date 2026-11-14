@@ -206,6 +206,20 @@ public class AIChatActivity extends BaseActivity {
     private String busySendMode = "block";
     /** 排队中的待发送消息（忙时 queue 模式入队，生成结束后自动发送） */
     private final java.util.List<String> pendingQueue = new java.util.ArrayList<>();
+
+    /** 电脑端插话队列里"我们排进去的"条目（2026-11-14）：支持撤回/修改 */
+    private static final class RemoteQueued {
+        final String id;
+        String text;
+        final String sessionId;
+
+        RemoteQueued(String id, String text, String sessionId) {
+            this.id = id == null ? "" : id;
+            this.text = text == null ? "" : text;
+            this.sessionId = sessionId == null ? "" : sessionId;
+        }
+    }
+    private final java.util.List<RemoteQueued> remoteQueued = new java.util.ArrayList<>();
     /**
      * READY-GATE(2026-11-01)：模型初始化单飞标记。多个发送并发时只发起一次装载，
      * 其余消息进 pendingQueue——否则会并发下发多条 initModel，且失败时各回各的错误。
@@ -895,10 +909,10 @@ public class AIChatActivity extends BaseActivity {
             // 上下文仪表 pill 点击 → 上下文明细（2026-09-23：并入统计条）
             if (sessionStatsBar != null) sessionStatsBar.setOnContextPillClick(this::showContextMeterDialog);
             if (btnScrollBottom != null) btnScrollBottom.setOnClickListener(v -> { smoothScrollToBottom(); updateScrollBottomButton(); });
-            if (queueBar != null) queueBar.setOnClickListener(v -> cycleBusyMode());
-            if (btnQueueCancel != null) btnQueueCancel.setOnClickListener(v -> { pendingQueue.clear(); updateQueueBar(); persistPendingQueue(); });
-
-            messageList.setLayoutManager(new LinearLayoutManager(this));
+        if (queueBar != null) queueBar.setOnClickListener(v -> {
+            if (!remoteQueued.isEmpty()) showRemoteQueueDialog();
+            else cycleBusyMode();
+        });
             // 完全禁用 RecyclerView 动画：结构变化(insert/remove)不再被 postpone，
             // 从根上消除 pre-layout 失配窗口（RecyclerView Inconsistency "offset:-1" 崩溃的必要条件）。
             // 代价：消息插入/删除无动画，换取聊天列表在高频流式更新下的稳定。
@@ -4091,6 +4105,11 @@ public class AIChatActivity extends BaseActivity {
                                     : "in-process".equals(String.valueOf(kind)) ? "电脑正在处理这一轮"
                                     : "电脑上正在执行";
                             String hint = "已插话排队（第 " + Math.max(1, position) + " 位）· " + why + "，跑完自动发送";
+                            String qidRaw = r.get("queue_id") == null ? "" : String.valueOf(r.get("queue_id"));
+                            if (!qidRaw.isEmpty() && !"null".equals(qidRaw)) {
+                                remoteQueued.add(new RemoteQueued(qidRaw, text, target));
+                                updateQueueBar();
+                            }
                             live.content = hint;
                             live.inferenceProgress = new ChatMessage.InferenceProgress(
                                     ChatMessage.InferencePhase.THINKING);
@@ -11625,18 +11644,152 @@ public class AIChatActivity extends BaseActivity {
     /** 队列条刷新 */
     private void updateQueueBar() {
         if (queueBar == null || tvQueueInfo == null) return;
-        if (pendingQueue.isEmpty()) {
+        boolean hasLocal = !pendingQueue.isEmpty();
+        boolean hasRemote = !remoteQueued.isEmpty();
+        if (!hasLocal && !hasRemote) {
             queueBar.setVisibility(View.GONE);
             return;
         }
         queueBar.setVisibility(View.VISIBLE);
-        String modeHint;
-        if ("queue".equals(busySendMode)) modeHint = "排队模式";
-        else if ("steer".equals(busySendMode)) modeHint = "打断模式";
-        else modeHint = "点击切换模式";
-        tvQueueInfo.setText("⏳ " + pendingQueue.size() + " 条待发送 · " + modeHint);
+        StringBuilder sb = new StringBuilder("⏳ ");
+        if (hasRemote) {
+            // 2026-11-14：电脑端插话队列（插件排队的那批）—— 点开可撤回/修改
+            sb.append("电脑排队 ").append(remoteQueued.size()).append(" 条（点开可撤回/修改）");
+        }
+        if (hasLocal) {
+            if (hasRemote) sb.append(" · ");
+            String modeHint;
+            if ("queue".equals(busySendMode)) modeHint = "排队模式";
+            else if ("steer".equals(busySendMode)) modeHint = "打断模式";
+            else modeHint = "点击切换模式";
+            sb.append(pendingQueue.size()).append(" 条待发送 · ").append(modeHint);
+        }
+        tvQueueInfo.setText(sb.toString());
     }
 
+    // ===== 电脑端插话队列（2026-11-14）：撤回 / 修改 =====
+
+    /** 拉一次电脑端队列再弹管理框（本地列表只用于离线兜底） */
+    private void showRemoteQueueDialog() {
+        final String sid = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+        if (sid.isEmpty()) {
+            showToast("还没有跟随会话：先在「远程连接（电脑）」里选一条");
+            return;
+        }
+        new Thread(() -> {
+            org.json.JSONArray items = null;
+            String err = null;
+            try {
+                items = com.oilquiz.app.ai.tool.RemoteDshTool.remoteQueue(this, sid, "list", null, null)
+                        .optJSONArray("items");
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+            final org.json.JSONArray list = items;
+            final String error = err;
+            runOnUiThread(() -> {
+                if (error != null) {
+                    showToast("取电脑队列失败：" + error);
+                    return;
+                }
+                remoteQueued.clear();
+                if (list != null) {
+                    for (int i = 0; i < list.length(); i += 1) {
+                        org.json.JSONObject o = list.optJSONObject(i);
+                        if (o == null) continue;
+                        remoteQueued.add(new RemoteQueued(o.optString("id"), o.optString("text"), sid));
+                    }
+                }
+                updateQueueBar();
+                if (remoteQueued.isEmpty()) {
+                    showToast("电脑队列已空（可能已经发送）");
+                    return;
+                }
+                renderRemoteQueueDialog();
+            });
+        }, "remote-queue-list").start();
+    }
+
+    private void renderRemoteQueueDialog() {
+        final String[] labels = new String[remoteQueued.size()];
+        for (int i = 0; i < remoteQueued.size(); i += 1) {
+            String t = remoteQueued.get(i).text.replace('\n', ' ');
+            if (t.length() > 60) t = t.substring(0, 60) + "…";
+            labels[i] = (i + 1) + ". " + t;
+        }
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("电脑排队 " + remoteQueued.size() + " 条")
+                .setItems(labels, (d, which) -> showRemoteQueueItemDialog(remoteQueued.get(which)))
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    private void showRemoteQueueItemDialog(final RemoteQueued item) {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("这条插话")
+                .setMessage(item.text)
+                .setPositiveButton("修改", (d, w) -> showRemoteQueueEditDialog(item))
+                .setNegativeButton("撤回", (d, w) -> cancelRemoteQueued(item))
+                .setNeutralButton("关闭", null)
+                .show();
+    }
+
+    private void showRemoteQueueEditDialog(final RemoteQueued item) {
+        final android.widget.EditText et = new android.widget.EditText(this);
+        et.setText(item.text);
+        et.setSelection(et.getText().length());
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("修改插话（改完由电脑按排队顺序发送）")
+                .setView(et)
+                .setPositiveButton("保存", (d, w) -> updateRemoteQueued(item, et.getText().toString().trim()))
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void cancelRemoteQueued(final RemoteQueued item) {
+        new Thread(() -> {
+            String err = null;
+            try {
+                com.oilquiz.app.ai.tool.RemoteDshTool.remoteQueue(this, item.sessionId, "cancel", item.id, null);
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+            final String error = err;
+            runOnUiThread(() -> {
+                if (error != null) {
+                    showToast("撤回失败：" + error);
+                    return;
+                }
+                remoteQueued.remove(item);
+                updateQueueBar();
+                showToast("已撤回");
+            });
+        }, "remote-queue-cancel").start();
+    }
+
+    private void updateRemoteQueued(final RemoteQueued item, final String text) {
+        if (text == null || text.isEmpty()) {
+            showToast("内容不能为空");
+            return;
+        }
+        new Thread(() -> {
+            String err = null;
+            try {
+                com.oilquiz.app.ai.tool.RemoteDshTool.remoteQueue(this, item.sessionId, "update", item.id, text);
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+            final String error = err;
+            runOnUiThread(() -> {
+                if (error != null) {
+                    showToast("修改失败：" + error);
+                    return;
+                }
+                item.text = text;
+                showToast("已修改");
+            });
+        }, "remote-queue-update").start();
+    }
     /** 生成结束自动发送下一条排队消息 */
     private void drainQueueIfAny() {
         if (pendingQueue.isEmpty() || isGenerating) return;

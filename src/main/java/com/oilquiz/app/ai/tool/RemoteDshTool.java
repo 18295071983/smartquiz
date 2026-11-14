@@ -694,6 +694,30 @@ public class RemoteDshTool implements AITool {
      * <p>调用方据此把"已插话（下一步生效）/ 已插话排队（第 N 位）"显示给用户 ——
      * 与 dsh 官方客户端把消息投进 Inbox 的语义一致。</p>
      */
+    /**
+     * 插话队列管理（2026-11-14）：手机要能撤回/修改自己排进电脑的消息。
+     *
+     * <p>只管理插件自己排队的那批（CLI 子进程占着会话时）；已经交给 DSH 的 steer
+     * 属于当前那一轮，插进去就被消费了 —— 与 dsh-Go 语义一致。</p>
+     *
+     * @param op {@code list} / {@code cancel} / {@code update}
+     */
+    public static org.json.JSONObject remoteQueue(Context c, String sessionId, String op,
+                                                  String queueId, String text) throws Exception {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        org.json.JSONObject body = new org.json.JSONObject();
+        body.put("action", "queue");
+        body.put("session_id", sessionId);
+        body.put("op", op == null || op.isEmpty() ? "list" : op);
+        if (queueId != null && !queueId.isEmpty()) body.put("queue_id", queueId);
+        if (text != null) body.put("text", text);
+        org.json.JSONObject j = new org.json.JSONObject(tool.postSessionRaw(body, 20));
+        if (!j.optBoolean("ok", false)) {
+            throw new Exception(j.optString("error", "队列操作失败"));
+        }
+        return j;
+    }
+
     public static Map<String, Object> injectDetailed(Context c, String target, String text) throws Exception {
         return injectDetailed(c, target, text, "auto");
     }
