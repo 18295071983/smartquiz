@@ -343,6 +343,20 @@ public final class RemoteConnection {
         cmdPollerThread.start();
     }
 
+    /**
+     * WS 直推的命令帧（2026-11-14）：和 {@code /cmd/poll} 那条轮询走**同一个执行器**，
+     * 只是不用等下一轮 3 秒。
+     */
+    public void executePushedCommand(org.json.JSONObject cmdJson) {
+        if (cmdJson == null) return;
+        Map<String, Object> m = new java.util.HashMap<>();
+        m.put("id", cmdJson.optString("id", ""));
+        m.put("tool", cmdJson.optString("tool", ""));
+        org.json.JSONObject a = cmdJson.optJSONObject("args");
+        m.put("args", a == null ? new java.util.HashMap<String, Object>() : jsonToMap(a));
+        execCommand(m);
+    }
+
     /** 执行一条反向指令（都在主线程做 UI）。 */
     @SuppressWarnings("unchecked")
     private void execCommand(Map<String, Object> cmd) {

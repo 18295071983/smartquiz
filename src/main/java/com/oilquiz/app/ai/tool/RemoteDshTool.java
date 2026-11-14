@@ -781,6 +781,9 @@ public class RemoteDshTool implements AITool {
                 .pingInterval(20, java.util.concurrent.TimeUnit.SECONDS)
                 .build();
         okhttp3.Request req = new okhttp3.Request.Builder().url(url).build();
+        // 文件流的拼装缓冲：连接内共享（file_begin 建、chunk 追加、end 落盘）
+        final java.util.Map<String, java.io.ByteArrayOutputStream> javaFiles =
+                new java.util.concurrent.ConcurrentHashMap<>();
         return client.newWebSocket(req, new okhttp3.WebSocketListener() {
             @Override
             public void onMessage(okhttp3.WebSocket ws, String text) {
@@ -789,9 +792,20 @@ public class RemoteDshTool implements AITool {
                     org.json.JSONObject o = new org.json.JSONObject(text);
                     String type = o.optString("type", "");
                     switch (type) {
-                        case "ready":
+                        case "hello":      // 协议 v2 的问候帧（带 features/limits）
+                        case "ready":      // 旧帧名，保持兼容
                             listener.onReady(o.optInt("seq", 0));
                             break;
+                        case "batch": {    // WS 上直接回的补历史结果
+                            org.json.JSONArray evs = o.optJSONArray("events");
+                            if (evs != null) {
+                                for (int i = 0; i < evs.length(); i += 1) {
+                                    org.json.JSONObject ev = evs.optJSONObject(i);
+                                    if (ev != null) listener.onEvent(ev);
+                                }
+                            }
+                            break;
+                        }
                         case "event": {
                             org.json.JSONObject ev = o.optJSONObject("event");
                             if (ev != null) listener.onEvent(ev);
@@ -800,8 +814,57 @@ public class RemoteDshTool implements AITool {
                         case "pulse":
                             listener.onPulse(o.optLong("ts", 0L), o.optInt("seq", 0));
                             break;
+                        case "cmd":        // 插件直推的 UI 指令（toast/notification/slot）
+                            try {
+                                RemoteConnection rc = RemoteConnection.get(
+                                        c.getApplicationContext());
+                                if (rc != null) rc.executePushedCommand(o);
+                            } catch (Throwable t) {
+                                Log.w(TAG, "cmd 帧执行失败: " + t.getMessage());
+                            }
+                            break;
+                        case "file_begin":
+                            javaFiles.clear();
+                            javaFiles.put(o.optString("id", ""),
+                                    new java.io.ByteArrayOutputStream());
+                            break;
+                        case "file_chunk": {
+                            java.io.ByteArrayOutputStream buf = javaFiles.get(o.optString("id", ""));
+                            if (buf != null) {
+                                try {
+                                    buf.write(android.util.Base64.decode(
+                                            o.optString("b64", ""), android.util.Base64.DEFAULT));
+                                } catch (Throwable ignored) { /* 坏块跳过 */ }
+                            }
+                            break;
+                        }
+                        case "file_end": {
+                            String id = o.optString("id", "");
+                            java.io.ByteArrayOutputStream buf = javaFiles.remove(id);
+                            String name = o.optString("name", "file.bin");
+                            if (buf != null) {
+                                try {
+                                    java.io.File out = new java.io.File(
+                                            c.getCacheDir(), name.replaceAll("[\\\\/:*?\"<>|]", "_"));
+                                    java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
+                                    buf.writeTo(fos);
+                                    fos.close();
+                                    Log.i(TAG, "WS 收到文件 " + name + " → " + out
+                                            + " (" + out.length() + " 字节)");
+                                } catch (Throwable t) {
+                                    Log.w(TAG, "WS 文件落盘失败: " + t.getMessage());
+                                }
+                            }
+                            break;
+                        }
+                        case "file_error":
+                            Log.w(TAG, "WS 文件流失败: " + o.optString("error", ""));
+                            break;
                         default:
-                            break;   // 未知帧忽略（服务端将来加字段不会炸）
+                            // 其它推送帧（ui/slot、approval、question、view…）与 SSE 同构：
+                            // 交给页面那套解析，不在这里重复实现
+                            listener.onEvent(o);
+                            break;
                     }
                 } catch (Throwable t) {
                     Log.w(TAG, "WS 帧解析失败: " + t.getMessage());

@@ -54,6 +54,8 @@ const CLI_PERM = { mode: 'danger-full-access', approval: 'never' };
 const STREAM_HUB = new Set();
 /** 当前挂着的 WebSocket 实时通道客户端（2026-11-14）：只用于 /status 观测 */
 const WS_CLIENTS = new Set();
+/** WS 连接元信息（ws → {sid, caps}）：推插件命令/文件时要按会话路由 */
+const WS_META = new Map();
 /**
  * 客户端/工具推上来的自定义插槽（{@code ui/slot} / {@code phone_ui}）。
  *
@@ -3184,6 +3186,12 @@ function presetSvcOf(ctx) {
   route('exact', '/ack', ackHandler);
   route('exact', '/v2/ack', ackHandler);
 
+  /** WS `ack` 帧复用同一套水位线逻辑（HTTP 与 WS 两条通道口径一致） */
+  const applyAck = (sid, seq) => {
+    if (!sid || !(Number(seq) > 0)) return;
+    ACK_STORE.set(sid, { acked_seq: Number(seq), acked_ids: [] });
+  };
+
   // ==================== 协议 v2：握手 / 视图 / 消息 / 事件流 ====================
 
   /**
@@ -3714,6 +3722,56 @@ function presetSvcOf(ctx) {
    * @param since 起拉位置（缺省 0 = 从头；调用方一般传 SSE 的 lastSeq）
    * @param max   本次最多几条（默认 200，上限 500）
    */
+  /**
+   * 收集从 {@code since} 开始的事件（HTTP `/v2/events/pull` 与 WS `pull` 帧共用）。
+   *
+   * <p>返回 {@code {events, last_seq, has_more}}；非 live 会话读持久化日志。
+   * 口径：{@code last_seq} = "已经给到哪"，客户端下次原样带回。</p>
+   */
+  const collectEvents = async (sid, since, max, caps) => {
+    const out = [];
+    let lastSeq = Math.max(0, Number(since) || 0);
+    let hasMore = false;
+    const limit = Math.max(1, Math.min(500, Number(max) || 200));
+    const live = (() => { try { return ctx.sessions?.get?.(sid) ?? null; } catch { return null; } })();
+    if (live) {
+      const head = Number(live.seq ?? 0) || 0;
+      let cur = lastSeq;
+      while (cur < head) {
+        const ev = live.eventAt?.(cur);
+        if (!ev) { cur += 1; continue; }
+        if (eventAllowed(ev.type, caps)) {
+          if (out.length >= limit) { hasMore = true; break; }
+          out.push(ev);
+        }
+        cur += 1;
+        lastSeq = Math.max(lastSeq, Number(ev.seq ?? cur) || cur);
+      }
+      if (!hasMore) lastSeq = Math.max(lastSeq, head);
+      return { events: out, last_seq: lastSeq, has_more: hasMore };
+    }
+    const svc = persistence();
+    if (!svc || typeof svc.open !== 'function') {
+      return { events: out, last_seq: lastSeq, has_more: false, error: 'session_not_live_and_no_persistence' };
+    }
+    try {
+      const h = await svc.open(sid, 'read');
+      try {
+        const got = await h.read(lastSeq);
+        const arr = Array.isArray(got) ? got : (got?.events ?? []);
+        for (const ev of arr) {
+          if (!ev || !eventAllowed(ev.type, caps)) continue;
+          if (out.length >= limit) { hasMore = true; break; }
+          out.push(ev);
+          lastSeq = Math.max(lastSeq, Number(ev.seq ?? 0) || 0);
+        }
+      } finally { try { await h.close?.(); } catch { /* 已关 */ } }
+    } catch (e) {
+      return { events: out, last_seq: lastSeq, has_more: false, error: 'read_failed: ' + String(e?.message ?? e).slice(0, 160) };
+    }
+    return { events: out, last_seq: lastSeq, has_more: hasMore };
+  };
+
   route('exact', '/v2/events/pull', async (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     const q = new URL(req.url ?? '/', 'http://dsh.invalid');
@@ -3722,56 +3780,22 @@ function presetSvcOf(ctx) {
     const since = Math.max(0, Number(q.searchParams.get('since') || 0) || 0);
     const max = Math.max(1, Math.min(500, Number(q.searchParams.get('max') || 200) || 200));
     const caps = q.searchParams.get('caps') ?? '';
-    const out = [];
-    let lastSeq = since;
-    let hasMore = false;
-
-    const live = (() => { try { return ctx.sessions?.get?.(sid) ?? null; } catch { return null; } })();
-    if (live) {
-      const head = Number(live.seq ?? 0) || 0;
-      let cur = since;
-      while (cur < head) {
-        const ev = live.eventAt?.(cur);
-        if (!ev) { cur += 1; continue; }
-        if (eventAllowed(ev.type, caps)) {
-          if (out.length >= max) { hasMore = true; break; }
-          out.push(ev);
-        }
-        cur += 1;
-        lastSeq = Math.max(lastSeq, Number(ev.seq ?? cur) || cur);
-      }
-      if (!hasMore) lastSeq = Math.max(lastSeq, head);
-    } else {
-      const svc = persistence();
-      if (!svc || typeof svc.open !== 'function') {
-        return sendJson(res, 503, { ok: false, error: 'session_not_live_and_no_persistence', session_id: sid });
-      }
-      try {
-        const h = await svc.open(sid, 'read');
-        try {
-          const got = await h.read(since);
-          const arr = Array.isArray(got) ? got : (got?.events ?? []);
-          for (const ev of arr) {
-            if (!ev || !eventAllowed(ev.type, caps)) continue;
-            if (out.length >= max) { hasMore = true; break; }
-            out.push(ev);
-            lastSeq = Math.max(lastSeq, Number(ev.seq ?? 0) || 0);
-          }
-        } finally { try { await h.close?.(); } catch { /* 已关 */ } }
-      } catch (e) {
-        return sendJson(res, 500, { ok: false, error: 'read_failed', detail: String(e?.message ?? e).slice(0, 200) });
-      }
+    const r = await collectEvents(sid, since, max, caps);
+    if (r.error === 'session_not_live_and_no_persistence') {
+      return sendJson(res, 503, { ok: false, error: r.error, session_id: sid });
     }
-
+    if (r.error && r.error.startsWith('read_failed')) {
+      return sendJson(res, 500, { ok: false, error: 'read_failed', detail: r.error });
+    }
     touchConnection(sid, 'pull');
     return sendJson(res, 200, {
       ok: true, v: 2,
       session_id: sid,
       since,
-      last_seq: lastSeq,
-      has_more: hasMore,
-      count: out.length,
-      events: out,
+      last_seq: r.last_seq,
+      has_more: r.has_more,
+      count: r.events.length,
+      events: r.events,
     });
   });
 
@@ -4951,6 +4975,13 @@ function presetSvcOf(ctx) {
       error: null,
     };
     cmdQueue.set(id, cmd);
+    // WS 直推（2026-11-14）：手机连着 WS 时立刻收到，不必等 /cmd/poll 那一轮；
+    // 轮询保留给老客户端和 SSE 通道，两条路并存不冲突（手机按 cmd_id 去重）。
+    for (const w of WS_CLIENTS) {
+      try {
+        w.send(JSON.stringify({ type: 'cmd', id, tool: cmd.tool, args: cmd.args, created_at: cmd.createdAt }));
+      } catch { /* 已断 */ }
+    }
     return sendJson(res, 200, { ok: true, cmd_id: id, tool, state: cmd.state });
   });
 
@@ -5961,30 +5992,143 @@ function presetSvcOf(ctx) {
        * <p>认证：`?token=` 或 `Authorization` 头（WS 客户端常常设不了自定义头）。</p>
        */
       import('ws').then(({ WebSocketServer }) => {
-        const wss = new WebSocketServer({ noServer: true });
+        const wss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024 });
+        const sendWs = (ws, o) => { try { ws.send(JSON.stringify(o)); } catch { /* 已断 */ } };
+
+        /** 等 WS 发送缓冲降下来（大文件不能一把塞进内存） */
+        const drain = async (ws) => {
+          let guard = 0;
+          while (ws.readyState === 1 && ws.bufferedAmount > (1 << 20) && guard < 600) {
+            guard += 1;
+            await new Promise((r) => setTimeout(r, 20));
+          }
+        };
+
+        /**
+         * 文件流（WS `file_get` 帧触发）：`file_begin` → N 个 `file_chunk`（base64）→ `file_end`。
+         *
+         * <p>只允许读 **用户主目录 / 进程工作目录** 下的普通文件，且 ≤ 32MB —— 这条通道能推
+         * "电脑上的文件"（交付物、截图、日志），但它不该变成任意文件读取器。</p>
+         */
+        const FILE_MAX = 32 * 1024 * 1024;
+        const FILE_CHUNK = 48 * 1024;          // base64 后约 64KB/帧
+        /**
+         * 允许读的根目录：主目录、进程工作目录、插件所在项目（`<repo>/tools/plugin` 上两级），
+         * 外加可选的 `.file-roots`（每行一个，想放行别的盘就加一行）。
+         * 不做成"任意路径可读"：这条通道能推文件，就不该顺带变成任意文件读取器。
+         */
+        const FILE_ROOTS = (() => {
+          const list = [homedir(), process.cwd(), join(PLUGIN_DIR, '..', '..')];
+          try {
+            for (const line of readFileSync(join(PLUGIN_DIR, '.file-roots'), 'utf8').split('\n')) {
+              const v = line.trim();
+              if (v && !v.startsWith('#')) list.push(v);
+            }
+          } catch { /* 没配就用默认 */ }
+          return list.map((p) => { try { return resolve(p); } catch { return p; } });
+        })();
+        const pathAllowed = (abs) => FILE_ROOTS.some((root) => abs === root || abs.startsWith(root + '\\') || abs.startsWith(root + '/'));
+        const streamFileTo = async (ws, rawPath, reqId) => {
+          const id = String(reqId || randomBytes(6).toString('hex'));
+          try {
+            const p = String(rawPath || '').trim();
+            if (!p) return sendWs(ws, { type: 'file_error', id, error: 'path required' });
+            const abs = resolve(p);
+            if (!pathAllowed(abs)) {
+              return sendWs(ws, { type: 'file_error', id, error: 'path_not_allowed', roots: FILE_ROOTS });
+            }
+            const st = statSync(abs);
+            if (!st.isFile()) return sendWs(ws, { type: 'file_error', id, error: 'not_a_file' });
+            if (st.size > FILE_MAX) {
+              return sendWs(ws, { type: 'file_error', id, error: 'too_large', size: st.size, limit: FILE_MAX });
+            }
+            const buf = readFileSync(abs);
+            const sha = createHash('sha256').update(buf).digest('hex');
+            sendWs(ws, {
+              type: 'file_begin', id,
+              name: abs.split(/[\\/]/).pop(),
+              size: buf.length, sha256: sha, path: abs,
+            });
+            const total = Math.max(1, Math.ceil(buf.length / FILE_CHUNK));
+            for (let off = 0; off < buf.length; off += FILE_CHUNK) {
+              const slice = buf.subarray(off, Math.min(buf.length, off + FILE_CHUNK));
+              sendWs(ws, {
+                type: 'file_chunk', id,
+                seq: Math.floor(off / FILE_CHUNK), total,
+                b64: slice.toString('base64'),
+              });
+              // 每 8 块等一次缓冲，避免大文件把内存顶爆
+              if ((off / FILE_CHUNK) % 8 === 0) await drain(ws);
+            }
+            sendWs(ws, { type: 'file_end', id, size: buf.length, sha256: sha, chunks: total });
+          } catch (e) {
+            sendWs(ws, { type: 'file_error', id, error: String(e?.message ?? e).slice(0, 160) });
+          }
+        };
+
         const handleWsConn = (ws, u) => {
           const sid = String(u.searchParams.get('session_id') ?? '').trim();
           const caps = u.searchParams.get('caps') ?? '';
           if (!sid) { try { ws.close(1008, 'session_id required'); } catch { /* 已断 */ } return; }
           touchConnection(sid, 'ws');
-          const send = (o) => { try { ws.send(JSON.stringify(o)); } catch { /* 已断 */ } };
-          const sub = {
-            sid,
-            caps,
-            send: (o) => { if (o && eventAllowed(o.type, caps)) send(o); },
+          const send = (o) => {
+            if (!o) return;
+            // 推送帧与 SSE 完全同构（type/event/pulse/…），手机两条通道共用一套解析
+            if (o.type && o.type !== 'hello' && o.type !== 'pong' && !eventAllowed(o.type, caps)) return;
+            sendWs(ws, o);
           };
+          const sub = { sid, caps, send };
           STREAM_HUB.add(sub);
           WS_CLIENTS.add(ws);
+          WS_META.set(ws, { sid, caps });
           let head = 0;
           try { head = Number(ctx.sessions?.get?.(sid)?.seq ?? 0) || 0; } catch { head = 0; }
-          send({ type: 'ready', session_id: sid, seq: head, transport: 'ws' });
+          // 问候帧：把能力摊开，客户端据此决定用哪些帧（以后加能力不用改版本号）
+          sendWs(ws, {
+            type: 'hello', v: 2, session_id: sid, seq: head, server_time: Date.now(),
+            transport: 'ws',
+            features: { event: true, slot: true, cmd: true, file: true, pull: true, ack: true },
+            limits: { file_max: FILE_MAX, file_chunk: FILE_CHUNK, pull_max: 500 },
+          });
           const timer = setInterval(() => {
             try { touchConnection(sid, 'ws'); ws.ping(); } catch { /* 已断 */ }
           }, 15000);
+
+          // ---- 客户端 → 服务端 ----
+          ws.on('message', async (raw) => {
+            let m;
+            try { m = JSON.parse(String(raw)); } catch { return; }
+            const t = String(m.type ?? '');
+            if (t === 'ping') { sendWs(ws, { type: 'pong', ts: Date.now() }); return; }
+            if (t === 'pull') {
+              const r = await collectEvents(sid, Number(m.since ?? 0), Number(m.max ?? 200), caps);
+              sendWs(ws, {
+                type: 'batch', since: Number(m.since ?? 0),
+                last_seq: r.last_seq, has_more: r.has_more,
+                events: r.events, error: r.error ?? null,
+              });
+              return;
+            }
+            if (t === 'ack') {
+              try { applyAck(sid, Number(m.seq ?? 0)); } catch { /* 落盘失败不致命 */ }
+              return;
+            }
+            if (t === 'file_get') {
+              streamFileTo(ws, m.path, m.id);
+              return;
+            }
+            if (t === 'cmd_ack') {
+              const c = cmdQueue.get(String(m.id ?? ''));
+              if (c) { c.state = 'done'; c.result = m.result ?? null; c.error = m.error ?? null; }
+              return;
+            }
+          });
+
           const cleanup = () => {
             try { clearInterval(timer); } catch { /* 忽略 */ }
             STREAM_HUB.delete(sub);
             WS_CLIENTS.delete(ws);
+            WS_META.delete(ws);
           };
           ws.on('close', cleanup);
           ws.on('error', cleanup);
