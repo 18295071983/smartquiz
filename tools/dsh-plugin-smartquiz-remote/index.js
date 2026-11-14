@@ -1070,6 +1070,26 @@ export function apply(ctx, config) {
   const CMD_ALLOW = new Set(['ui_component', 'toast', 'dialog', 'notification', 'reminder']);
   const CMD_MAX = 50;
   const CMD_TTL_MS = 10 * 60 * 1000;
+  /**
+   * 失败推送到手机（2026-11-14）：一轮跑挂时手机上以前**什么都看不到**，错误只在电脑端。
+   * 走 /cmd 同一条队列 + WS 直推，手机端按 ui_component 渲染成输入区上方的警示插槽。
+   */
+  const pushPhoneFailureSlot = (title, detail) => {
+    try {
+      const id = randomBytes(8).toString('hex');
+      const cmd = {
+        id, tool: 'ui_component', state: 'queued', createdAt: Date.now(), result: null, error: null,
+        args: { id: 'remote/error', title: String(title || '这一轮失败了').slice(0, 40),
+          detail: String(detail || '').slice(0, 80), priority: 5, action: 'attention' },
+      };
+      cmdQueue.set(id, cmd);
+      for (const w of WS_CLIENTS) {
+        const meta = WS_META.get(w);
+        if (meta && meta.channel && meta.channel !== '/ws' && meta.channel !== '/ws/ui') continue;
+        try { w.send(JSON.stringify({ type: 'cmd', id, tool: cmd.tool, args: cmd.args, created_at: cmd.createdAt })); } catch { /* 已断 */ }
+      }
+    } catch { /* 推送失败不影响主流程 */ }
+  };
   const pruneCommands = () => {
     const now = Date.now();
     for (const [id, c] of cmdQueue) {
@@ -5197,7 +5217,7 @@ function presetSvcOf(ctx) {
     if (!agent) {
       try {
         let h = resumedHandles.get(target);
-        if (!h) { h = await ctx.agents.resume({ resumeSessionId: target }); if (h) rememberWarm(target, h); }
+        if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
         agent = h?.agent ?? h ?? null;
         resumed = Boolean(agent);
       } catch (e) { resumeError = String(e?.message ?? e).slice(0, 200); }
@@ -5273,7 +5293,7 @@ function presetSvcOf(ctx) {
          */
         const liveAgent = getLiveAgent(target) || warmAgentFor(target);
         const preset = liveAgent ? '' : await sessionAgentPreset(target);
-        if (liveAgent || preset) {
+        if (liveAgent || preset || true) {
           const ir = await runInProcessTurn(target, text, { signal: opts.signal, deadline: opts.deadline });
           if (ir?.reply) {
             r = { reply: ir.reply, via: ir.via, dshSession: target, debug: { via: ir.via, in_process: true, preset: preset || '(live)' } };
@@ -5315,6 +5335,7 @@ function presetSvcOf(ctx) {
       const dbg = { via: r.via, model: modelInfo(), selection: lastSelection, selectionInstaller, preset: lastPreset, ...r.debug };
       // 失败要说出来：以前 CLI 起不来时回 ok:true + 空 reply，手机端只显示「电脑没回话」
       if (!r.reply && r.error) {
+        pushPhoneFailureSlot('这一轮失败了', r.error);
         return sendJson(res, 200, { ok: false, action: 'prompt', session_id: sid, dsh_session_id: r.dshSession || '', reply: '', error: r.error, debug: dbg });
       }
       promptCount += 1;
@@ -5353,7 +5374,7 @@ function presetSvcOf(ctx) {
       let reply = rr.reply || lastText;
       if (s) for (const m of (s.deriveMessages?.() ?? [])) if (m?.role === 'assistant' && textOf(m)) reply = textOf(m);
       if (reply.length > cfg.maxReplyChars) reply = reply.slice(0, cfg.maxReplyChars);
-      if (!reply && rr.error) sse({ type: 'error', action: 'prompt', session_id: sid, error: rr.error });
+      if (!reply && rr.error) { pushPhoneFailureSlot('这一轮失败了', rr.error); sse({ type: 'error', action: 'prompt', session_id: sid, error: rr.error }); }
       else sse({ type: 'done', action: 'prompt', session_id: sid, dsh_session_id: rr.dshSession || '', reply, debug: { via: rr.via, ...rr.debug } });
     } catch (e) {
       sse({ type: 'error', action: 'prompt', session_id: sid, error: String(e?.message ?? e) });
@@ -5523,7 +5544,7 @@ function presetSvcOf(ctx) {
         if (!agent) {
           try {
             let h = resumedHandles.get(target);
-            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target }); if (h) rememberWarm(target, h); }
+            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
             agent = h?.agent ?? h ?? null;
             resumed = Boolean(agent);
           } catch (e) {
@@ -5683,7 +5704,7 @@ function presetSvcOf(ctx) {
         if (!agent) {
           try {
             let h = resumedHandles.get(target);
-            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target }); if (h) rememberWarm(target, h); }
+            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
             agent = h?.agent ?? h ?? null;
             resumed = Boolean(agent);
           } catch (e) {
@@ -5757,7 +5778,7 @@ function presetSvcOf(ctx) {
         if (!agent) {
           try {
             let h = resumedHandles.get(target);
-            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target }); if (h) rememberWarm(target, h); }
+            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
             agent = h?.agent ?? h ?? null;
             resumed = Boolean(agent);
           } catch (e) {
