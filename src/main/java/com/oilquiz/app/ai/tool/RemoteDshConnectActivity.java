@@ -3,6 +3,10 @@ package com.oilquiz.app.ai.tool;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
+import android.util.TypedValue;
+import android.view.ViewGroup;
+import android.widget.HorizontalScrollView;
+import android.widget.LinearLayout;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.view.View;
@@ -756,9 +760,77 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 toast(err);
                 return;
             }
+            // 配置列表：保存成功就落一条（同一地址覆盖，不重复）
+            try {
+                RemoteProfiles.save(this, text(urlInput), text(tokenInput), "");
+                renderProfiles();
+            } catch (Throwable ignored) { /* 存不了不影响连接 */ }
             refresh();
             probe(true, true);
         });
+        renderProfiles();
+    }
+
+    /**
+     * 连接配置列表（2026-11-14）：在「手动配置」上方插一行 chips，
+     * 点一下就切到那条（填地址+令牌并直接连接），长按删除。
+     * 解决"只保存一份配置、局域网与 Tailscale 互相覆盖"的问题。
+     */
+    private void renderProfiles() {
+        try {
+            View anchor = findViewById(R.id.url_input);
+            if (anchor == null) return;
+            ViewGroup tl = anchor.getParent() instanceof ViewGroup ? (ViewGroup) anchor.getParent() : null;
+            if (tl == null || !(tl.getParent() instanceof ViewGroup)) return;
+            ViewGroup box = (ViewGroup) tl.getParent();          // 手动配置的容器
+            View old = box.findViewWithTag("profiles_row");
+            if (old != null) box.removeView(old);
+
+            java.util.List<RemoteProfiles.Profile> list = RemoteProfiles.list(this);
+            if (list.isEmpty()) return;
+
+            HorizontalScrollView scroll = new HorizontalScrollView(this);
+            scroll.setTag("profiles_row");
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setPadding(0, 0, 0, dp(2));
+            String current = new RemoteDshTool(this).getBaseUrl();
+            for (final RemoteProfiles.Profile p : list) {
+                boolean isCurrent = current != null && current.equalsIgnoreCase(p.url);
+                com.google.android.material.chip.Chip chip = new com.google.android.material.chip.Chip(this);
+                chip.setText(isCurrent ? ("● " + p.label()) : p.label());
+                chip.setCheckable(false);
+                chip.setClickable(true);
+                chip.setTextSize(11);
+                chip.setEnsureMinTouchTargetSize(false);
+                chip.setOnClickListener(v -> {
+                    urlInput.setText(p.url);
+                    if (!p.token.isEmpty()) tokenInput.setText(p.token);
+                    toast("切到 " + p.label());
+                    saveBtn.performClick();
+                });
+                chip.setOnLongClickListener(v -> {
+                    RemoteProfiles.remove(this, p.url);
+                    toast("已删除 " + p.label());
+                    renderProfiles();
+                    return true;
+                });
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.rightMargin = dp(6);
+                row.addView(chip, lp);
+            }
+            scroll.addView(row);
+            int index = box.indexOfChild(tl);
+            box.addView(scroll, Math.max(0, index),
+                    new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT));
+        } catch (Throwable ignored) { /* 列表出问题不影响连接页本身 */ }
+    }
+
+    private int dp(float v) {
+        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v,
+                getResources().getDisplayMetrics());
     }
 
     /**
