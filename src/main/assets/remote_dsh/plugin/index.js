@@ -6922,7 +6922,7 @@ function presetSvcOf(ctx) {
          */
         const CHANNELS = {
           '/ws': { out: null, inbound: new Set(['pull', 'ack', 'file_get', 'cmd_ack', 'ping']) },
-          '/ws/events': { out: new Set(['event', 'pulse']), inbound: new Set(['pull', 'ack', 'ping']) },
+          '/ws/events': { out: new Set(['event', 'pulse', 'ui/card', 'ui/slot']), inbound: new Set(['pull', 'ack', 'ping']) },
           '/ws/ui': {
             out: new Set(['cmd', 'ui/slot', 'ui_component', 'view', 'state', 'pulse']),
             inbound: new Set(['cmd_ack', 'ping']),

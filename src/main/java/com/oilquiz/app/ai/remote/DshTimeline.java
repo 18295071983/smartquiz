@@ -532,12 +532,18 @@ public final class DshTimeline {
                 u.actions.add(new Action(ActionKind.QUESTION_GONE, ev.id, null));
                 break;
             default: {
-                DshCards.Card card = DshCards.handles(ev.type) ? cardMapper.map(ev, turn) : null;
+                /**
+                 * 2026-11-14：未知事件类型走**动态兜底** —— 只要事件带可读内容，就产一张
+                 * {@code dynamic} 卡（App 侧落到 DynamicCardView，新事件不用发版）；
+                 * 协议类事件没有可读内容，mapUnknown 返回 null，仍只计"未知类型"供诊断。
+                 */
+                boolean known = DshCards.handles(ev.type);
+                DshCards.Card card = known ? cardMapper.map(ev, turn) : cardMapper.mapUnknown(ev, turn);
                 if (card != null) {
                     cards.put(card.key, card); // 同 key 覆盖，保持首次出现的位置
                     cardRounds.put(card.key, roundIndexOf(turn, step));
                     u.cardsChanged = true;
-                } else if (!DshCards.handles(ev.type)) {
+                } else if (!known) {
                     // B14（2026-11-13）：纯内部事件（LLM 请求头、hook、PTC 分发等）不渲染、
                     // 也不该被算成"未识别类型"——否则监控里的 unknown 计数永远降不下来，
                     // 真正新增的类型反而被噪声埋掉。

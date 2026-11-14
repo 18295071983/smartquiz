@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.remote;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -124,6 +125,38 @@ public class DshEventCoverageTest {
         DshCards.Card model = cardOf("model/selection", payload("model", "deepseek-flash"));
         assertNotNull(model);
         assertEquals("deepseek-flash", model.props.optString("content"));
+    }
+
+    /**
+     * 2026-11-14：未知事件类型的动态兜底。
+     *
+     * <p>DSH 升级后新增的事件类型不该"什么都看不见"，也不该为此发版：只要事件带可读内容
+     * （text/content/description/summary/detail 或 message.content 或 items），就产一张
+     * {@code dynamic} 卡 —— App 侧落到 {@code DynamicCardView}（标题 + 正文 + items +
+     * 「查看原始 JSON」折叠）。协议类事件没有可读内容，返回 null，只计"未知类型"供诊断。</p>
+     *
+     * <p>同一类型每轮一张（key = 类型 + turn，原地覆盖），避免一个事件刷十几张卡。</p>
+     */
+    @Test
+    public void unknownEventFallsBackToDynamicCard() {
+        DshTimeline timeline = new DshTimeline();
+        timeline.reduce(DshEvent.from(event("future/event", 1, payload(
+                "text", "这是 DSH 新版本才有的事件"))));
+        List<DshCards.Card> cards = timeline.orderedCards();
+        assertEquals(1, cards.size());
+        assertEquals("dynamic", cards.get(0).type);
+        assertTrue(cards.get(0).props.optString("content").contains("新版本才有"));
+        // 仍记录"未知类型"，方便发版时发现它
+        // 有可读内容 → 出了卡，就不再计"未知类型"（否则同一事件既渲染又报警）
+        assertFalse(timeline.unknownTypes().containsKey("future/event"));
+    }
+
+    @Test
+    public void unknownProtocolEventDoesNotSpam() {
+        DshTimeline timeline = new DshTimeline();
+        timeline.reduce(DshEvent.from(event("future/internal", 1, new JSONObject())));
+        assertTrue("没有可读内容不应出卡", timeline.orderedCards().isEmpty());
+        assertTrue(timeline.unknownTypes().containsKey("future/internal"));
     }
 
     // ===== 构造 =====

@@ -429,6 +429,66 @@ public final class DshCards {
         }
     }
 
+    /**
+     * 未知事件类型的**动态兜底**（2026-11-14）。
+     *
+     * <p>DSH 升级后新增的事件类型，手机端不该"什么都看不到"，也不该为此发版：
+     * 只要事件里带可读内容（text/content/message/items），就产出一张 {@code dynamic} 卡 ——
+     * 由 {@code ComponentRegistry} 落到 {@code DynamicCardView}（标题 + 正文 + items +
+     * 「查看原始 JSON」折叠区）。协议类事件（request/header、retry 元数据等）没有可读内容，
+     * 自然被过滤，不会刷屏。</p>
+     *
+     * <p>同一类型每轮只出一张（key 含类型 + turn，原地覆盖），避免一个事件刷十几张卡。</p>
+     */
+    public Card mapUnknown(DshEvent ev, int turn) {
+        if (ev == null || ev.data == null) return null;
+        JSONObject data = ev.data;
+        String text = null;
+        for (String k : new String[]{"text", "content", "description", "summary", "detail"}) {
+            String v = data.optString(k, "").trim();
+            if (!v.isEmpty()) { text = v; break; }
+        }
+        JSONArray items = data.optJSONArray("items");
+        if (text == null || text.trim().isEmpty()) {
+            JSONObject msg = data.optJSONObject("message");
+            if (msg != null) {
+                String t = collectText(msg.optJSONArray("content"));
+                if (!t.trim().isEmpty()) text = t;
+            }
+        }
+        boolean hasItems = items != null && items.length() > 0;
+        if ((text == null || text.trim().isEmpty()) && !hasItems) return null;
+
+        String type = String.valueOf(ev.type);
+        JSONObject props = obj("title", chineseTypeName(type), "type", "unknown_event",
+                "event_type", type);
+        if (text != null && !text.trim().isEmpty()) put(props, "content", text.trim());
+        if (hasItems) put(props, "items", items);
+        put(props, "level", "info");
+        return new Card("unknown-" + type + "-" + turn, "dynamic", props);
+    }
+
+    /** 已知事件的中文名（未知的就原样给类型名，配"电脑事件"前缀，避免英文裸奔） */
+    private static String chineseTypeName(String type) {
+        switch (String.valueOf(type)) {
+            case "team/task": return "团队任务";
+            case "team/member": return "团队成员";
+            case "team/mode": return "团队模式";
+            case "team/message/queued": return "团队消息（排队）";
+            case "team/message/delivered": return "团队消息（送达）";
+            case "system/message": return "系统消息";
+            case "developer/message": return "开发者消息";
+            case "hook/invoked": return "钩子触发";
+            case "hook/result": return "钩子结果";
+            case "image/offload": return "图片移出上下文";
+            case "feedback/message-put": return "消息被编辑";
+            case "feedback/message-delete": return "消息被删除";
+            case "feedback/record": return "反馈记录";
+            case "workspace/changes": return "工作区变更";
+            case "working-directory/change": return "工作目录变更";
+            default: return "电脑事件 · " + type;
+        }
+    }
     /** 从 agent/inbox/spliced 的 inserted[].content 里拼出可读文本（截断，卡片只放一行） */
     private static String inboxText(JSONObject data) {
         JSONArray inserted = data.optJSONArray("inserted");

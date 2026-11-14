@@ -14308,17 +14308,8 @@ public class AIChatActivity extends BaseActivity {
                 com.oilquiz.app.ai.chat.status.DockSlotBus.remove("compaction");
                 break;
             case "ui/card": {
-                /**
-                 * 2026-11-14：插件推来的**动态组件**（data-driven UI）。
-                 *
-                 * <p>帧格式：{@code {type:'ui/card', data:{key, type, props, title?}}}。
-                 * 手机端不解释语义，只把 {@code type/props} 交给组件管线本地绘制：
-                 * 内置卡（alert_card/code_card/…）、{@code layout} 原生控件树、
-                 * 或未注册类型（DynamicCardView 兜底）都能画。同 {@code key} 覆盖更新。</p>
-                 *
-                 * <p>落成本地一条 {@code REMOTE_CARD} 消息，所以是 durable 的：切会话/重启后还在。</p>
-                 */
                 org.json.JSONObject card = ev.optJSONObject("data");
+                AppLogger.ai(TAG, "[ui/card] type=" + (card == null ? "" : card.optString("type", "")) + " key=" + (card == null ? "" : card.optString("key", "")));
                 if (card == null) break;
                 String ctype = card.optString("type", "").trim();
                 if (ctype.isEmpty()) break;
@@ -14351,16 +14342,18 @@ public class AIChatActivity extends BaseActivity {
                 if (existing >= 0) {
                     chatHistory.get(existing).remoteCardView = view;
                     if (chatAdapter != null) chatAdapter.notifyItemChanged(existing);
-                } else {
-                    ChatMessage msg = new ChatMessage.Builder(ChatMessage.MessageType.REMOTE_CARD)
+                } else if (chatHistory != null) {
+                    ChatMessage pushed = new ChatMessage.Builder(ChatMessage.MessageType.REMOTE_CARD)
                             .content("")
                             .build();
-                    msg.remoteCardView = view;
-                    chatHistory.add(msg);
+                    pushed.remoteCardView = view;
+                    chatHistory.add(pushed);
                     if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
                     scrollToBottom();
                 }
                 saveHistoryAsync();
+                AppLogger.ai(TAG, "[ui/card] saved key=" + key + " total="
+                        + (chatHistory == null ? -1 : chatHistory.size()) + " cur=" + currentSessionId);
                 break;
             }
             case "ui/slot": {
