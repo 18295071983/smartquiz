@@ -299,6 +299,39 @@ public final class RemoteConnection {
     }
 
     /**
+     * 主动重连（2026-11-15，§14 背压"断"这一档）：本地队列持续丢弃、已经追不上时，
+     * 与其让服务端继续往一条处理不过来的连接上灌，不如断开重连、只按快照水位续传。
+     *
+     * <p>实现上复用 {@link #resolveAndOpen()}：先关旧通道（会立刻掐断底层 SSE/WS），
+     * 再走一次"解析身份 → 带游标开流"。与后台服务/页面的并发启动由 {@link #opening} 闸门挡住。</p>
+     */
+    public void forceReconnect() {
+        if (!started) return;
+        if (!opening.compareAndSet(false, true)) return;
+        Log.i(TAG, "[DSH] 积压过线：主动重连（按快照水位续传）");
+        closeChannel();
+        new Thread(this::resolveAndOpen, "remote-connection-force").start();
+    }
+
+    /**
+     * 快照重建后对齐游标（2026-11-15，§14B）：水位之前的已由快照整体重建，
+     * 传输游标跳到水位，避免旧事件再补一遍。
+     */
+    public void resetCursorTo(int seq) {
+        if (seq < 0) return;
+        RemoteChannel ch = channel;
+        if (ch != null) ch.resetCursorTo(seq);
+        if (seq > appliedSeq) appliedSeq = seq;
+        if (sid != null && !sid.isEmpty()) {
+            try {
+                RemoteDshTool.setTransportSeq(app, sid, seq);
+            } catch (Throwable ignored) {
+                // 落盘失败不影响本次会话
+            }
+        }
+    }
+
+    /**
      * 反向指令轮询（电脑端 → 手机，2026-11-12）。
      *
      * <p>插件侧新增了 {@code /cmd}（入队）、{@code /cmd/poll}（取用）、{@code /cmd/ack}（回执）。

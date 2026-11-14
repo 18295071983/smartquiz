@@ -107,10 +107,22 @@ public final class RemoteChannel {
         if (seq > lastSeq) lastSeq = seq;
     }
 
+    /**
+     * 快照重建后对齐游标（2026-11-15，§14B）：快照水位之前的状态已经整体重建，
+     * 传输游标与拉取游标都直接跳到水位，避免把旧事件再拉一遍。
+     */
+    public void resetCursorTo(int seq) {
+        if (seq < 0) return;
+        lastSeq = seq;
+    }
+
     /** 关通道：置位 + 取消所有进行中的事件流（下一次订阅拿新代） */
     public void close() {
         closed = true;
         RemoteDshTool.cancelEventStreams();
+        // 只翻代号不够：读线程可能还阻塞在 readLine 上（最多 35s 才超时）。
+        // 主动掐掉连接，重连/硬重置才能立刻生效（§14C）。
+        RemoteDshTool.closeEventStreams();
         try {
             okhttp3.WebSocket ui = uiSocket;
             uiSocket = null;
@@ -158,6 +170,8 @@ public final class RemoteChannel {
                 // 用户看到的"SSE 流不稳定"）。跟随流本来就不该按时间断：
                 // 存活由服务端 10s 一条 pulse + 客户端 35s 读超时判定，所以这里放到
                 // 30 分钟（= subscribeEvents 自己的 deadline），只在真死链时才重连。
+                // 背压（§14C）：队列积压过线时页面会先请求快照、再调 close() 重连，
+                // 新连接从快照水位续传，不再把积压的推送灌进来。
                 RemoteDshTool.subscribeEvents(app, sid, lastSeq, 1800, true, 5000, (String) null,
                         new RemoteDshTool.DshEventListener() {
                             @Override

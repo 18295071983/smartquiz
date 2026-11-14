@@ -310,11 +310,22 @@ public final class ChatUiV2Chrome {
      * @param pending     待处理条数（含审批与反问），≤0 时不出现这一段
      */
     public static String remoteSubtitle(String phase, String followLabel, int pending) {
+        return remoteSubtitle(phase, followLabel, pending, "");
+    }
+
+    /**
+     * 带"事件流模式"的版本（2026-11-15，§14C 背压可观测）。
+     *
+     * <p>积压/重建时在末尾补一段 {@code · 推（积压 320）} / {@code · 重建中}；
+     * 空串表示正常（不加尾巴，副标题宽度有限）。</p>
+     */
+    public static String remoteSubtitle(String phase, String followLabel, int pending, String flowLabel) {
         // 只做字符串判断（不碰 TextUtils），好让纯 JVM 单测能直接覆盖
         String p = (phase == null || phase.isEmpty()) ? "空闲" : phase;
         String f = (followLabel == null || followLabel.isEmpty()) ? "未选会话" : followLabel;
         StringBuilder sb = new StringBuilder("电脑 · ").append(p).append("｜").append(f);
         if (pending > 0) sb.append(" · 待处理 ").append(pending);
+        if (flowLabel != null && !flowLabel.isEmpty()) sb.append(" · ").append(flowLabel);
         return sb.toString();
     }
 

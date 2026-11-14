@@ -14493,6 +14493,43 @@ public class AIChatActivity extends BaseActivity {
     private ChatMessage dshMirrorMessage;
     private ChatMessage dshLiveMessage;
 
+    // ===== 事件分流（2026-11-15，§14）：入队 → 每帧批量归约 → 帧末只投影一次 =====
+    /** 单帧最多处理条数：50 条/帧 × 60fps 的吞吐远高于 50–100 条/秒，又不会让一帧卡太久 */
+    private static final int DSH_EVENT_BATCH_MAX = 50;
+    /** 批处理帧间隔：对齐 16ms 一帧（Choreographer 口径）；队列空就停，不空转 */
+    private static final long DSH_EVENT_FRAME_MS = 16L;
+    /** 队列上限：超出丢最旧的（§14C 背压"丢弃"档），丢多少都有计数 */
+    private static final int DSH_EVENT_QUEUE_MAX = 2000;
+
+    /** 线程安全有界队列：网络回调只 offer，主线程按帧 drain（纯逻辑类，见单测） */
+    private final com.oilquiz.app.ai.remote.EventBatchQueue<org.json.JSONObject> dshEventQueue =
+            new com.oilquiz.app.ai.remote.EventBatchQueue<>(DSH_EVENT_QUEUE_MAX);
+    /** 断档判定 + 背压硬线（纯逻辑类，见单测） */
+    private final com.oilquiz.app.ai.remote.EventFlowPolicy dshFlowPolicy =
+            new com.oilquiz.app.ai.remote.EventFlowPolicy();
+    private final android.os.Handler dshBatchHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private boolean dshBatchScheduled;
+    /** 调度闸门的锁：offer 可能在网络线程调 {@link #scheduleDshDrain}，不能丢唤醒 */
+    private final Object dshDrainLock = new Object();
+    /** 快照重建进行中：暂停消费队列（旧事件会被水位过滤，重建后再继续） */
+    private volatile boolean dshResyncInFlight;
+    /** 背压硬线触发：快照成功后要再主动重连一次（只按水位续传） */
+    private volatile boolean dshReconnectAfterSnapshot;
+    /** 自上次重建/重连以来累计丢弃（背压硬线判据） */
+    private int dshDroppedSinceReset;
+    /** 守护计数（§14C 验收口径，一行日志输出）：批/事件/丢弃/快照/峰值 */
+    private int dshBatchFrames;
+    private int dshBatchEvents;
+    private int dshDroppedTotal;
+    private int dshSnapshotCount;
+    private int dshPeakDepth;
+    private long dshLastFlowLogMs;
+    private long dshLastEventLogMs;
+    private long dshLastBatchLogMs;
+    /** 最近一次算出的"落后条数"（顶部状态用；-1 = 未知） */
+    private int dshLastLag = -1;
+
     // 远程卡片（`/v2/view`）不再进对话流（2026-11-13，B12）：
     // 这条路径与"会话时间线 = 事件投影"重复且是死路（RemoteCardView 只做静态渲染、
     // 审批行没人接点击；签名只在进程内、重放会重复插卡；保存后变空条目）。
@@ -15148,16 +15185,37 @@ public class AIChatActivity extends BaseActivity {
         return id;
     }
 
+    // ===== 事件分流（2026-11-15，§14）：入队 → 每帧批量归约 → 帧末只投影一次 =====
+    //
+    // 问题：工具连续调用时电脑端 50–100 事件/秒，旧实现每条事件都 runOnUiThread → 归约 →
+    // 投影 → notifyItemChanged，主线程全花在重绑同一行上，队列越积越长（"比电脑慢半拍"）。
+    // 现在：网络回调只入队；主线程每 16ms 取 ≤50 条连续归约，帧末投影一次、notify 一次，
+    // ack 只报批里最后一条（逐条 ack 会在中途崩溃时丢事件）。
+
+    /** 一帧（≤50 条）的累计效果：只归约、不投影，帧末统一收口。 */
+    private static final class DshFrame {
+        boolean contentChanged;
+        boolean cardsChanged;
+        boolean ended;
+        boolean scheduleChanged;
+        boolean phaseChanged;
+        ChatMessage.InferencePhase phase;
+        String phaseText;
+        String sessionTitle;
+        int maxSeq = -1;
+        int events;
+        int reduced;
+        int skipped;
+        final java.util.LinkedHashSet<ChatMessage> endedMessages = new java.util.LinkedHashSet<>();
+    }
+
     /**
-     * 一条 DSH 原始事件 → 时间线 →（需要时）重投影消息。
+     * 一条事件 → 时间线归约（不做正文/卡片投影，那是 {@link #finishDshFrame} 的事）。
      *
-     * <p>落屏顺序有意如此：先归约（纯逻辑），再按 {@link com.oilquiz.app.ai.remote.DshTimeline.Update}
-     * 做 UI 副作用，最后才推进游标。旧实现在方法开头就把 {@code dshLastSeq} 推到当前事件、
-     * 随后 UI 异常被吞掉 —— 这条事件就再也不会被补拉回来。现在归约/投影抛异常时游标不动。</p>
+     * <p>保留的即时副作用只有审批/反问（要弹窗、要挂通知栏）与阶段文案入账；
+     * 正文/卡片一律推迟到帧末，避免同一行一帧内被重绑几十次。</p>
      */
-    private void applyDshEvent(org.json.JSONObject raw, ChatMessage live, int liveIdx, long[] lastNotify) {
-        android.util.Log.i("DshProbe", "[apply] type=" + raw.optString("type", "")
-                + " seq=" + raw.optInt("seq", -1) + " tlSeq=" + dshTimeline.lastSeq());
+    private void reduceDshEvent(org.json.JSONObject raw, DshFrame st) {
         final com.oilquiz.app.ai.remote.DshTimeline.Update up;
         try {
             up = dshTimeline.reduce(com.oilquiz.app.ai.remote.DshEvent.from(raw));
@@ -15165,6 +15223,8 @@ public class AIChatActivity extends BaseActivity {
             com.oilquiz.app.util.AILogger.w(TAG, "DSH 事件归约失败（游标不前进，等下次补拉）：" + t);
             return;
         }
+        st.reduced += 1;
+        ChatMessage live = dshLiveMessage;
         for (com.oilquiz.app.ai.remote.DshTimeline.Action action : up.actions) {
             switch (action.kind) {
                 case APPROVAL:
@@ -15176,7 +15236,7 @@ public class AIChatActivity extends BaseActivity {
                 case APPROVAL_GONE:
                     resolveDshApproval(live, action.id, action.outcome);
                     clearRelayApprovals(null);   // 中继 id 与审计 id 不同源，一并收掉
-                    refreshAttentionSlot();   // 电脑端答了 → 通知栏也要撤
+                    refreshAttentionSlot();       // 电脑端答了 → 通知栏也要撤
                     break;
                 case QUESTION_GONE:
                     resolveDshQuestions(live, action.id);
@@ -15186,57 +15246,388 @@ public class AIChatActivity extends BaseActivity {
             }
         }
         if (up.sessionTitle != null && !up.sessionTitle.trim().isEmpty()) {
-            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateTitle(this, up.sessionTitle.trim());
+            st.sessionTitle = up.sessionTitle.trim();
         }
         if (up.phaseText != null && up.phase != null) {
-            setDshPhaseText(live, liveIdx, up.phase, up.phaseText);
+            st.phase = up.phase;
+            st.phaseText = up.phaseText;
+            st.phaseChanged = true;
         } else if (up.phase != null) {
-            setLivePhase(live, liveIdx, up.phase);
+            st.phase = up.phase;
+            st.phaseChanged = true;
         }
-        if (up.contentChanged || up.cardsChanged || up.ended) {
-            long now = System.currentTimeMillis();
-            // token 增量可能每 20~50ms 一条：投影按 80ms 节流；卡片变化/收尾/换阶段立即投影。
-            boolean force = up.cardsChanged || up.ended || up.phaseText != null;
+        if (up.contentChanged) st.contentChanged = true;
+        if (up.cardsChanged) st.cardsChanged = true;
+        if (up.scheduleChanged) st.scheduleChanged = true;
+        if (up.ended) {
+            st.ended = true;
+            if (live != null) st.endedMessages.add(live);
+        }
+        if (up.seq > st.maxSeq) st.maxSeq = up.seq;
+    }
+
+    /**
+     * 帧末收口：投影一次 + notify 一次 + 推进游标 + ack 批里最后一条。
+     *
+     * <p>落屏顺序与旧实现一致：阶段 → 投影/正文 → 卡片 notify → 收尾（分段/落盘）。
+     * 游标在**整批处理完**之后才推进，归约/投影抛异常都不会把没落屏的事件"认账"掉。</p>
+     */
+    private boolean finishDshFrame(DshFrame st, int ackSeq) {
+        long now = System.currentTimeMillis();
+        ChatMessage live = dshLiveMessage;
+        int idx = (live != null && chatHistory != null) ? chatHistory.indexOf(live) : -1;
+        boolean projected = false;
+
+        if (st.sessionTitle != null) {
+            try {
+                com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateTitle(this, st.sessionTitle);
+            } catch (Throwable ignored) {
+                // 标题控件未就绪：下一帧标题事件还会来
+            }
+        }
+        if (st.phaseChanged && live != null && idx >= 0) {
+            if (st.phaseText != null) setDshPhaseText(live, idx, st.phase, st.phaseText);
+            else setLivePhase(live, idx, st.phase);
+        }
+        if (live != null && idx >= 0 && (st.contentChanged || st.cardsChanged || st.ended)) {
+            // token 增量按 80ms 节流；卡片/收尾/阶段文案变化立即投影（与旧口径一致）
+            boolean force = st.cardsChanged || st.ended || st.phaseText != null;
             if (force || now - dshLastProjectMs >= 80) {
                 dshLastProjectMs = now;
                 com.oilquiz.app.ai.remote.DshProjection.project(live, dshTimeline,
                         key -> dshComponentId(key, live.turnId), now);
-                pushLiveSync(live, liveIdx, up.ended ? new long[]{0L} : lastNotify,
-                        dshTimeline.answer(), dshTimeline.thinking(), up.ended);
+                pushLiveSync(live, idx, new long[]{0L},
+                        dshTimeline.answer(), dshTimeline.thinking(), st.ended);
+                projected = true;
             }
         }
-        if (up.cardsChanged) {
-            notifyLiveSyncMessage();
-        }
-        if (up.scheduleChanged) {
-            long now = System.currentTimeMillis();
+        if (st.cardsChanged) notifyLiveSyncMessage();
+        if (st.scheduleChanged) {
             if (now - dshLastScheduleNoticeMs > 5000) {
                 dshLastScheduleNoticeMs = now;
                 addSystemMessage("📅 电脑端日程有变化：在「远程连接 → 日程 · 计划 · 子代理」里查看",
                         ChatMessage.SystemMessageType.INFO);
             }
         }
-        if (up.ended) {
-            // 派发器改密（2026-11-14）：一轮结束把单条 mirror 气泡按步拆成多条小消息（与历史导入同粒度）
-            splitLiveIntoSegments(live);
-            com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncReply(AIChatActivity.this,
-                    dshTimeline.answer());
-            com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncThinking(AIChatActivity.this,
-                    dshTimeline.thinking());
-            // 同步的一轮结束就落盘：原来只有 onStop 才保存，App 被强杀时这一轮会丢
-            saveHistoryAsync();
-            resolveDshApproval(live, null);
-            // ★ 一轮结束：把阶段状态机一起收尾（2026-11-12）。
-            //   phase 是独立状态机，不跟通道收尾时，界面那行"正在运行 X"会永远挂着并逐轮堆叠。
-            //   这里和 DshTimeline 的 turn/end → COMPLETED 对齐，作为 UI 侧最后一道兜底。
-            runOnUiThread(() -> {
-                live.inferenceProgress = new ChatMessage.InferenceProgress(
-                        ChatMessage.InferencePhase.COMPLETED);
-                int endIdx = chatHistory != null ? chatHistory.indexOf(live) : -1;
-                if (endIdx >= 0) safeNotifyItemChanged(endIdx);
-            });
+        if (st.ended) {
+            for (ChatMessage endedMsg : st.endedMessages) {
+                if (endedMsg == null || chatHistory == null || !chatHistory.contains(endedMsg)) continue;
+                // 派发器改密：一轮结束把单条 mirror 气泡按步拆成多条小消息（与历史导入同粒度）
+                splitLiveIntoSegments(endedMsg);
+                com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncReply(AIChatActivity.this,
+                        dshTimeline.answer());
+                com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncThinking(AIChatActivity.this,
+                        dshTimeline.thinking());
+                // 同步的一轮结束就落盘：原来只有 onStop 才保存，App 被强杀时这一轮会丢
+                saveHistoryAsync();
+                resolveDshApproval(endedMsg, null);
+                runOnUiThread(() -> {
+                    endedMsg.inferenceProgress = new ChatMessage.InferenceProgress(
+                            ChatMessage.InferencePhase.COMPLETED);
+                    int endIdx = chatHistory != null ? chatHistory.indexOf(endedMsg) : -1;
+                    if (endIdx >= 0) safeNotifyItemChanged(endIdx);
+                });
+            }
         }
-        dshLastSeq = Math.max(dshLastSeq, up.seq);
+
+        // ---- 游标：整批处理完才推进；ack 只报批里最后一条 ----
+        int appliedSeq = Math.max(st.maxSeq, ackSeq);
+        if (appliedSeq > dshLastSeq) dshLastSeq = appliedSeq;
+        if (dshLastSeq > 0) {
+            String sid = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+            if (!sid.isEmpty()) com.oilquiz.app.ai.tool.RemoteDshTool.setLastSeq(this, sid, dshLastSeq);
+            confirmApplied(dshLastSeq);
+        }
+        dshLastEventAt = now;
+        int serverSeq = -1;
+        try {
+            serverSeq = com.oilquiz.app.ai.tool.RemoteConnection.get(this).serverSeq();
+        } catch (Throwable ignored) {
+            // 连接层不在：落后未知
+        }
+        dshLastLag = (serverSeq > 0 && dshLastSeq >= 0)
+                ? Math.max(0, serverSeq - dshLastSeq) : -1;
+        dshBatchFrames += 1;
+        dshBatchEvents += st.events;
+        dshPeakDepth = Math.max(dshPeakDepth, dshEventQueue.takePeakDepth());
+        logFlowStats(false);
+        return projected;
+    }
+
+    /**
+     * 守护计数（§14C 验收口径）：一行日志把"批/峰值/丢弃/快照/断档/落后"全打出来。
+     * 真机排查只看 {@code adb logcat -s DshProbe} 这一行就够；1 秒最多一条，不刷屏。
+     */
+    private void logFlowStats(boolean force) {
+        long now = System.currentTimeMillis();
+        if (!force && now - dshLastFlowLogMs < 1000) return;
+        if (dshBatchFrames == 0 && dshBatchEvents == 0 && dshEventQueue.depth() == 0) return;
+        dshLastFlowLogMs = now;
+        String mode = dshResyncInFlight
+                ? (dshReconnectAfterSnapshot ? "重连" : "快照")
+                : "推";
+        String line = "[flow] 模式=" + mode
+                + " 批=" + dshBatchFrames
+                + " 事件=" + dshBatchEvents
+                + " 队列=" + dshEventQueue.depth() + "/" + DSH_EVENT_QUEUE_MAX
+                + " 峰值=" + dshPeakDepth
+                + " 丢弃=" + dshDroppedTotal
+                + " 本段丢弃=" + dshDroppedSinceReset
+                + " 快照=" + dshSnapshotCount
+                + " 断档=" + dshFlowPolicy.gapCount()
+                + " 落后=" + dshLastLag;
+        android.util.Log.i("DshProbe", line);
+        AppLogger.ai(TAG, line);
+        // 峰值按窗口报：打完这行就从当前深度重新计，否则一个早期尖峰会挂一整天
+        dshPeakDepth = dshEventQueue.depth();
+    }
+
+    /**
+     * 入队 + 断档判定（§14B/C）。队列满丢最旧（{@link com.oilquiz.app.ai.remote.EventBatchQueue}），
+     * 断档由 {@link com.oilquiz.app.ai.remote.EventFlowPolicy} 按"seq 连续性"判定。
+     */
+    private void enqueueChannelEvent(org.json.JSONObject ev) {
+        if (ev == null) return;
+        try {
+            String type = ev.optString("type", "");
+            if ("__force_resync".equals(type)) {
+                AppLogger.aiW(TAG, "[DSH] 服务端要求重建（__force_resync）→ 快照");
+                requestSnapshotResync("服务端 __force_resync", false);
+                return;
+            }
+            int seq = ev.optInt("seq", -1);
+            if (seq > 0) {
+                com.oilquiz.app.ai.remote.EventFlowPolicy.Decision d = dshFlowPolicy.noteSeq(seq);
+                if (d == com.oilquiz.app.ai.remote.EventFlowPolicy.Decision.RESYNC) {
+                    AppLogger.aiW(TAG, "[DSH] 转快照：seq 断档（到 " + seq + "，阈值 "
+                            + dshFlowPolicy.snapshotGap() + "）");
+                    // 入队前就判定：不再让旧事件进入批处理（快照会整体重建这一段）
+                    requestSnapshotResync("seq 断档 → " + seq, false);
+                    return;
+                }
+            }
+            dshEventQueue.offer(ev, seq);
+            scheduleDshDrain(0);
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "[DSH] 事件入队失败: " + t);
+        }
+    }
+
+    private final Runnable dshBatchTick = new Runnable() {
+        @Override
+        public void run() {
+            synchronized (dshDrainLock) {
+                dshBatchScheduled = false;
+            }
+            try {
+                drainDshFrame();
+            } catch (Throwable t) {
+                AppLogger.aiW(TAG, "[DSH] 批处理异常: " + t);
+                if (dshEventQueue.depth() > 0) scheduleDshDrain(DSH_EVENT_FRAME_MS);
+            }
+        }
+    };
+
+    private void scheduleDshDrain(long delayMs) {
+        synchronized (dshDrainLock) {
+            if (dshBatchScheduled) return;
+            dshBatchScheduled = true;
+        }
+        dshBatchHandler.postDelayed(dshBatchTick, Math.max(0, delayMs));
+    }
+
+    /**
+     * 一帧：最多取 {@link #DSH_EVENT_BATCH_MAX} 条连续归约，帧末投影一次；队列空就停循环
+     * （不再空转），有剩就下一帧（16ms）继续。
+     */
+    private void drainDshFrame() {
+        if (isFinishing() || isDestroyed()) return;
+        if (dshResyncInFlight) {
+            // 快照在路上：暂停消费（旧事件会被水位过滤，重建后再继续）
+            scheduleDshDrain(50);
+            return;
+        }
+        com.oilquiz.app.ai.remote.EventBatchQueue.Batch<org.json.JSONObject> batch =
+                dshEventQueue.drain(DSH_EVENT_BATCH_MAX);
+        if (batch.isEmpty()) {
+            dshPeakDepth = Math.max(dshPeakDepth, dshEventQueue.takePeakDepth());
+            logFlowStats(true);
+            return;
+        }
+        DshFrame st = new DshFrame();
+        long frameStart = android.os.SystemClock.uptimeMillis();
+        for (com.oilquiz.app.ai.remote.EventBatchQueue.Entry<org.json.JSONObject> entry : batch.entries) {
+            st.events += 1;
+            try {
+                processChannelEvent(entry.item, st);
+            } catch (Throwable t) {
+                // 单条坏事件不拖垮整批（但要能看到是什么坏了，别静默）
+                AppLogger.aiW(TAG, "[DSH] 事件处理失败: " + t);
+            }
+        }
+        boolean projected = finishDshFrame(st, batch.ackSeq);
+        // 真机验收样本：一帧处理了多少条、归约/跳过多少、投了几次影、花了多久
+        // （≥5 条才打；合帧本身就是"把很多条压成一次处理"的证据，阈值得低到能看见日常突发）
+        if (st.events >= 5 && System.currentTimeMillis() - dshLastBatchLogMs > 300) {
+            dshLastBatchLogMs = System.currentTimeMillis();
+            android.util.Log.i("DshProbe", "[batch] n=" + st.events + " 归约=" + st.reduced
+                    + " 跳过=" + st.skipped + " 投影=" + (projected ? 1 : 0)
+                    + " 耗时=" + (android.os.SystemClock.uptimeMillis() - frameStart) + "ms"
+                    + " 队列剩=" + dshEventQueue.depth());
+        }
+
+        int dropped = batch.droppedBefore;
+        if (dropped > 0) {
+            dshDroppedTotal += dropped;
+            dshDroppedSinceReset += dropped;
+            android.util.Log.w("DshProbe", "[flow] 队列满丢弃最旧 " + dropped
+                    + " 条（上限 " + DSH_EVENT_QUEUE_MAX + "，本段累计 " + dshDroppedSinceReset + "）");
+        }
+        if (dshFlowPolicy.hardLine(dshDroppedSinceReset, dropped)) {
+            // 背压第 3 级"断"：已经追不上 → 清积压 + 请求快照 + 主动重连（只按水位续传）
+            int cleared = dshEventQueue.clear();
+            AppLogger.aiW(TAG, "[DSH] 背压过线：清空积压 " + cleared + " 条，转快照并重连（累计丢弃 "
+                    + dshDroppedSinceReset + " 条）");
+            dshDroppedSinceReset = 0;
+            requestSnapshotResync("背压硬线（累计丢弃 " + dshDroppedTotal + " 条）", true);
+            return;
+        }
+        if (dshEventQueue.depth() > 0) scheduleDshDrain(DSH_EVENT_FRAME_MS);
+    }
+
+    /**
+     * 请求快照并重建（§14B）：缺口/断档/背压硬线都走这里。
+     *
+     * <p>路径是服务端**已有**的 {@code GET /events?since=-1&follow=0 → snapshot{turns}}，
+     * 一次往返；拿到水位后丢掉队列里 ≤ 水位的旧事件，避免重复应用。
+     * 拿不到快照就退回"重置时间线继续重放"（旧行为），不能让通道卡死。</p>
+     *
+     * @param reconnectAfter 快照成功后是否再主动重连（背压硬线用）
+     */
+    private void requestSnapshotResync(String reason, boolean reconnectAfter) {
+        if (dshResyncInFlight) {
+            dshReconnectAfterSnapshot |= reconnectAfter;
+            return;
+        }
+        dshResyncInFlight = true;
+        dshReconnectAfterSnapshot = reconnectAfter;
+        dshSnapshotCount += 1;
+        AppLogger.aiW(TAG, "[DSH] 转快照：" + reason + "（队列 " + dshEventQueue.depth() + " 条）");
+        android.util.Log.i("DshProbe", "[flow] 转快照 reason=" + reason
+                + " queue=" + dshEventQueue.depth() + " dropped=" + dshEventQueue.droppedTotal());
+        final String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+        new Thread(() -> {
+            org.json.JSONObject snap = null;
+            String err = null;
+            try {
+                if (target.isEmpty()) err = "没有跟随会话";
+                else snap = com.oilquiz.app.ai.tool.RemoteDshTool.fetchSnapshot(this, target);
+                if (snap == null && err == null) err = "电脑没给快照";
+            } catch (Throwable t) {
+                err = String.valueOf(t);
+            }
+            final org.json.JSONObject fs = snap;
+            final String fe = err;
+            runOnUiThread(() -> applySnapshotResync(reason, fs, fe));
+        }, "dsh-snapshot").start();
+    }
+
+    /** 快照到手：整轮重建时间线、对齐水位、清掉 ≤ 水位的旧事件，然后按需重连。 */
+    private void applySnapshotResync(String reason, org.json.JSONObject snap, String err) {
+        boolean reconnect = false;
+        int headBefore = dshFlowPolicy.lastSeq();
+        try {
+            dshTimeline = new com.oilquiz.app.ai.remote.DshTimeline();
+            dshComponentIds.clear();
+            int watermark = snap == null ? -1 : snap.optInt("seq", -1);
+            if (watermark > 0) {
+                dshLastSeq = watermark;
+                dshFlowPolicy.resetAfterSnapshot(watermark);
+                int dropped = dshEventQueue.dropUpTo(watermark);
+                try {
+                    com.oilquiz.app.ai.tool.RemoteConnection.get(this).resetCursorTo(watermark);
+                } catch (Throwable ignored) {
+                    // 连接层不在：下次连接按旧游标重放，幂等
+                }
+                applySnapshotTurns(snap.optJSONArray("turns"));
+                AppLogger.ai(TAG, "[DSH] 快照重建完成 seq=" + watermark
+                        + "，丢弃水位内旧事件 " + dropped + " 条");
+                android.util.Log.i("DshProbe", "[flow] 快照重建 seq=" + watermark + " dropped=" + dropped);
+            } else {
+                // 兜底：拿不到快照 → 重置时间线，然后**主动重连**让服务端按已 ack 的游标
+                // 把这段重放回来（旧行为是静默缺一段，这里不能缺）。
+                dshLastSeq = -1;
+                // 连续性基准保持在"已收到的最大 seq"，否则重放的第一条又会被判成断档 → 死循环
+                dshFlowPolicy.resetAfterSnapshot(Math.max(0, headBefore));
+                dshEventQueue.clear();
+                reconnect = true;
+                AppLogger.aiW(TAG, "[DSH] 快照失败（" + (err == null ? "空" : err)
+                        + "）：重置时间线并重连重放");
+            }
+            dshDroppedSinceReset = 0;
+            ChatMessage live = dshLiveMessage;
+            if (live != null && chatHistory != null && chatHistory.contains(live)) {
+                int idx = chatHistory.indexOf(live);
+                try {
+                    com.oilquiz.app.ai.remote.DshProjection.project(live, dshTimeline,
+                            key -> dshComponentId(key, live.turnId), System.currentTimeMillis());
+                } catch (Throwable t) {
+                    AppLogger.aiW(TAG, "[DSH] 快照后重投影失败: " + t);
+                }
+                if (idx >= 0) safeNotifyItemChanged(idx);
+            }
+            reconnect = dshReconnectAfterSnapshot || reconnect;
+        } finally {
+            dshResyncInFlight = false;
+            dshReconnectAfterSnapshot = false;
+            if (reconnect) {
+                try {
+                    com.oilquiz.app.ai.tool.RemoteConnection.get(this).forceReconnect();
+                } catch (Throwable t) {
+                    AppLogger.aiW(TAG, "[DSH] 主动重连失败: " + t);
+                }
+            }
+            if (dshEventQueue.depth() > 0) scheduleDshDrain(0);
+        }
+    }
+
+    /**
+     * 快照只有 role/text（服务端 {@code snapshotTurns} 的最近 20 条），没有工具调用 ——
+     * 所以只拿它对齐**当前这一轮**的正文；历史消息与工具卡不重建
+     * （重建会把已有卡片全抹掉，代价远大于收益）。
+     */
+    private void applySnapshotTurns(org.json.JSONArray turns) {
+        if (turns == null || turns.length() == 0) return;
+        ChatMessage live = dshLiveMessage;
+        if (live == null) return;
+        String lastAssistant = "";
+        for (int i = turns.length() - 1; i >= 0; i -= 1) {
+            org.json.JSONObject t = turns.optJSONObject(i);
+            if (t == null) continue;
+            if ("user".equals(t.optString("role"))) break;   // 只看最后一条用户消息之后
+            String text = t.optString("text", "");
+            if (!text.isEmpty()) {
+                lastAssistant = text;
+                break;
+            }
+        }
+        if (lastAssistant.isEmpty()) return;
+        String shown = live.content == null ? "" : live.content;
+        if (!shown.startsWith(lastAssistant)) live.content = lastAssistant;
+    }
+
+    /**
+     * 把已落屏的 seq 报给连接层（推进传输游标 + 落盘）。
+     *
+     * <p>§14A：只在**整批处理完**之后调用一次 —— 逐条 ack 会在中途崩溃/异常时
+     * 把没落屏的事件"认账"掉，重连就再也补不回来。</p>
+     */
+    private void confirmApplied(int seq) {
+        try {
+            com.oilquiz.app.ai.tool.RemoteConnection.get(this).confirmApplied(seq);
+        } catch (Throwable ignored) {
+            // 连接层不在时忽略：下次连接会按旧游标重放，不会丢
+        }
     }
 
     // ===== 连接订阅（2026-11-12）：全 App 一条通道，由 RemoteConnection 持有 =====
@@ -15325,7 +15716,9 @@ public class AIChatActivity extends BaseActivity {
 
                 @Override
                 public void onEvent(org.json.JSONObject event) {
-                    runOnUiThread(() -> onChannelEvent(event));
+                    // §14A：这里**只入队**（线程安全），归约/投影/notify/ack 全由主线程按帧批量做，
+                    // 不再 runOnUiThread 逐条处理 —— 那就是"慢半拍、越用越延迟"的根源。
+                    enqueueChannelEvent(event);
                 }
 
                 @Override
@@ -15339,24 +15732,20 @@ public class AIChatActivity extends BaseActivity {
                         // 在生产代码里零调用）。
                         if (!online) {
                             com.oilquiz.app.ai.chat.status.DockSlotBus.clear();
+                            // §14C：断线时队列里的东西一律作废 —— 它们没被 ack，重连后
+                            // 服务端会按游标重放，留着只会和重放的那份重复。
+                            dshEventQueue.clear();
                         }
                         // ★ 重连后必须放开渲染游标（2026-11-12）：传输层会从它自己的
                         //   "已落屏"游标重放，但渲染层还持有上次启动落盘的 dshLastSeq，
-                        //   重放出来的 tool/result 会在 handleChannelEvent 开头被
-                        //   `evSeq <= dshLastSeq` 直接丢弃 —— 于是卡片永远停在进行态。
-                        //   这里把渲染游标归 -1，让重放的事件真正进入时间线；
-                        //   DshTimeline 按 assistant/message 覆盖式写入，重复应用是幂等的。
-                        // ★ 重连后放开渲染游标（2026-11-12）：传输层会从它自己的
-                        //   "已落屏"游标重放，但渲染层还持有上次启动落盘的 dshLastSeq，
-                        //   重放出来的 tool/result 会在 handleChannelEvent 开头被
-                        //   `evSeq <= dshLastSeq` 直接丢弃 —— 于是卡片永远停在进行态。
-                        //   这里把渲染游标归 -1，让重放的事件真正进入时间线；
+                        //   重放出来的 tool/result 会在处理入口被 `evSeq <= dshLastSeq` 丢弃 ——
+                        //   于是卡片永远停在进行态。这里把渲染游标归 -1，让重放的事件真正进入时间线；
                         //   DshTimeline 按 assistant/message 覆盖式写入，重复应用是幂等的。
                         if (online) {
                             dshLastSeq = -1;
                             // 注意：这里**不再**清空时间线。历史按"本地缓存 + 增量续传"
                             // （传输游标就是缓存水位）；只有服务端发 snapshot（缺口过大）
-                            // 时才由通道层触发重建。
+                            // 时才由快照重建流程触发。
                         }
                         refreshRemoteDshBar();
                     });
@@ -15394,7 +15783,8 @@ public class AIChatActivity extends BaseActivity {
                             @Override public void onReady(int seq) { }
                             @Override public void onSnapshot(int seq, org.json.JSONArray turns) { }
                             @Override public void onEvent(org.json.JSONObject ev) {
-                                runOnUiThread(() -> onChannelEvent(ev));
+                                // §14A：补拉回来的事件与推送走**同一条**批处理队列，顺序/ack 才一致
+                                enqueueChannelEvent(ev);
                             }
                             @Override public void onEnd() { }
                             @Override public void onError(String message) { }
@@ -15448,187 +15838,141 @@ public class AIChatActivity extends BaseActivity {
         AppLogger.ai(TAG, "[DSH] 回复补尾 " + shown.length() + " → " + full.length());
     }
 
-    /** 通道事件 → 时间线：复用 applyDshEvent（durable 事件 + stream/delta 等合成事件） */
-    private void onChannelEvent(org.json.JSONObject ev) {
+    /**
+     * 一条通道事件 → 时间线/UI 副作用（§14A：在批处理帧内调用，**不逐条投影**）。
+     *
+     * <p>这里保留"要立刻发生"的事：审批/反问弹窗、卡片插槽、用户消息镜像。正文/卡片投影、
+     * notify 与 ack 统一由 {@link #finishDshFrame} 在帧末收口；异常隔离由 {@link #drainDshFrame} 负责。</p>
+     */
+    private void processChannelEvent(org.json.JSONObject ev, DshFrame st) {
         if (ev == null) return;
-        final int evSeqOuter = ev.optInt("seq", -1);
-        try {
-            handleChannelEvent(ev);
-        } catch (Throwable t) {
-            // 单条坏事件不拖垮整条通道（但要能看到是什么坏了，别静默）
-            AppLogger.aiW(TAG, "[DSH] 事件处理失败: " + t);
-        } finally {
-            // ★ 落屏确认（2026-11-12）：事件真正处理完才推进传输游标。
-            //   以前游标在通道层"派发即推进"，页面不在前台/事件被丢弃时，这条事件
-            //   在传输层已经算送达，重连永远不会再补 —— 手机侧工具卡停在"运行中"、
-            //   正文缺段、历史与电脑端对不上就是这么来的。
-            if (evSeqOuter > 0) confirmApplied(evSeqOuter);
+        String type = ev.optString("type", "");
+        int evSeq = ev.optInt("seq", -1);
+        if (evSeq > st.maxSeq) st.maxSeq = evSeq;
+        // 服务端要求重建（缺口过大）：丢掉本地时间线，改走快照（不再逐条重放）
+        if ("__force_resync".equals(type)) {
+            org.json.JSONObject resyncData = ev.optJSONObject("data");
+            android.util.Log.i("DshProbe", "[resync] server_seq="
+                    + (resyncData == null ? -1 : resyncData.optInt("server_seq", -1)));
+            requestSnapshotResync("服务端 __force_resync", false);
+            return;
         }
-    }
-
-    /** 把已落屏的 seq 报给连接层（推进传输游标 + 落盘）。 */
-    private void confirmApplied(int seq) {
-        try {
-            com.oilquiz.app.ai.tool.RemoteConnection.get(this).confirmApplied(seq);
-        } catch (Throwable ignored) {
-            // 连接层不在时忽略：下次连接会按旧游标重放，不会丢
-        }
-    }
-
-    /** 通道事件处理体（异常隔离与落屏确认由 {@link #onChannelEvent} 负责）。 */
-    private void handleChannelEvent(org.json.JSONObject ev) {
-        {
-            // 服务端要求重建（缺口过大）：丢掉本地时间线，后续事件按新水位重新归约。
-            // 这是"本地缓存 + 增量"唯一的例外出口。
-            if ("__force_resync".equals(ev.optString("type", ""))) {
-                // 注意判空：内部事件不保证带 data（NPE 会直接崩在 UI 线程）
-                org.json.JSONObject resyncData = ev.optJSONObject("data");
-                android.util.Log.i("DshProbe", "[resync] server_seq="
-                        + (resyncData == null ? -1 : resyncData.optInt("server_seq", -1)));
-                dshTimeline = new com.oilquiz.app.ai.remote.DshTimeline();
-                dshComponentIds.clear();
-                dshLastSeq = -1;
-                return;
-            }
-            String type = ev.optString("type", "");
-            // 审批通道帧（2026-11-13 恢复昨天 c73c0434 的行为）：直接弹原生对话框，
-            // 不走时间线，也不进甲板卡（甲板是常驻状态区，审批是打断式交互）。
-            if ("approval".equals(type)) {
-                AppLogger.ai(TAG, "[DSH] 审批帧 id=" + ev.optString("id", ""));
-                // 状态也要落进消息：通知栏的"允许/拒绝"按钮、待处理计数都从 msg.approvals 读。
-                // 只弹对话框不落状态，通知栏就没卡可挂（用户反馈"通知没挂卡"）。
-                ChatMessage live = ensureMirrorBubble(turnOfEvent(ev));
-                if (live != null) {
-                    addDshApproval(live, ev.optString("id"), ev.optJSONObject("request"));
-                    refreshAttentionSlot();
-                }
-                showDshApprovalDialog(ev.optString("id"), ev.optJSONObject("request"));
-                return;
-            }
-            if ("approval_gone".equals(type)) {
-                String goneId = ev.optString("id", "");
-                if (chatHistory != null) {
-                    for (ChatMessage m : chatHistory) {
-                        if (m == null || m.approvals == null) continue;
-                        for (ChatMessage.ApprovalRequest a : m.approvals) {
-                            if (a != null && goneId.equals(a.id)) resolveDshApproval(m, goneId);
-                        }
-                    }
-                }
-                dismissDshApprovalDialog(goneId);
-                clearRelayApprovals(null);
-                refreshAttentionSlot();
-                return;
-            }
-            // 反问通道帧（2026-11-14，与审批同构）：帧到即弹回答对话框。
-            // 以前只有甲板卡这条路，而甲板卡的 args 缺 questions[]，等于没得答 ——
-            // 用户反馈的“问卡在，但提交点了没反应”就是这条缺口。
-            if ("question".equals(type)) {
-                org.json.JSONObject req = ev.optJSONObject("request");
-                // 诊断日志（2026-11-14）：这三类帧都在通用"通道事件"那行之前 return，
-                // 不打一行的话事后根本看不出"帧到没到手机"。
-                AppLogger.ai(TAG, "[DSH] 问卡帧 id=" + ev.optString("id", "")
-                        + " 题数=" + (req == null || req.optJSONArray("questions") == null
-                        ? 0 : req.optJSONArray("questions").length()));
-                ChatMessage live = ensureMirrorBubble(turnOfEvent(ev));
-                if (live != null) {
-                    // 状态照旧落进消息：待处理计数/甲板卡/通知栏都从 msg.questions 读
-                    addDshQuestions(live, ev.optString("id"), req);
-                    refreshAttentionSlot();
-                }
-                showDshQuestionDialog(ev.optString("id"), req);
-                return;
-            }
-            if ("question_gone".equals(type)) {
-                String goneId = ev.optString("id", "");
-                AppLogger.ai(TAG, "[DSH] 问卡撤销 id=" + goneId);
-                if (chatHistory != null) {
-                    for (ChatMessage m : chatHistory) {
-                        if (m == null || m.questions == null) continue;
-                        boolean hit = false;
-                        for (ChatMessage.QuestionRequest q : m.questions) {
-                            if (q != null && goneId.equals(q.batchId)) {
-                                hit = true;
-                                break;
-                            }
-                        }
-                        if (hit) resolveDshQuestions(m, goneId);
-                    }
-                }
-                dismissDshQuestionDialog(goneId);
-                refreshAttentionSlot();
-                return;
-            }
-            if (!"stream/delta".equals(type)) {
-                AppLogger.ai(TAG, "[DSH] 通道事件 " + type + " seq=" + ev.optInt("seq", -1));
-            }
-            // DOCK-SLOTS(2026-11-13)：有"持续状态"的事件同时更新输入区上方的插槽
-            updateDockSlotsForEvent(type, ev);
-            // 幂等：补缺口和实时通道可能重叠回放同一条（实测 turn/end 1765 来了两次，
-            // 第二次会 ensureMirrorBubble 出一个空气泡）
-            int evSeq = ev.optInt("seq", -1);
-            // 去重只认**时间线自己**的 lastSeq（进程内、与重放起点天然一致）。
-            // 以前比的是消息上持久化的 dshLastSeq —— 那是跨进程高水位，全量重放时
-            // 低序号事件会被它全部误杀，归约根本走不到，卡片永远停在进行态。
-            // 不再按 seq 丢弃"比高水位旧"的事件（2026-11-12）。
-            // 实测服务端会乱序/补发：job/settled、tool/result 的 seq 常常小于时间线高水位，
-            // 一丢就永远停在"运行中"。幂等由 DshTimeline 自己保证：卡片按 key 覆盖、
-            // 步骤按 (turn,step) 归并、正文由 assistant/message 覆盖式写入。
-            if (evSeq > 0 && evSeq == dshTimeline.lastSeq()) return;
-            // 电脑端手敲的消息：镜像成 USER 气泡（手机自己发的同文本会被去重跳过）
-            if ("user/message".equals(type)) {
-                mirrorUserMessage(ev);
-                advanceCursor(ev);
-                return;
-            }
-            // 这些事件不产生正文，不能拿去建镜像气泡；但游标要推进，避免补拉时反复重放
-            if (type.startsWith("session-log-")) {
-                advanceCursor(ev);
-                return;
-            }
-            // 通道控制帧（state/view/pulse）由连接管理器消费，不进时间线
-            if ("state".equals(type)) {
-                // GAP-FIX（2026-11-13，B16）：回执落后太多时不要指望"补丁式"续传 ——
-                // 服务端在 gap 超过阈值时只发 snapshot、不回放历史，于是本地时间线会缺一大段，
-                // 工具卡/正文停在旧状态。这里检测到落后就重建时间线，让后续事件从头归约；
-                // 重建代价远小于"静默缺一段"。
-                int server = ev.optInt("last_seq", -1);
-                int acked = ev.optInt("acked_seq", -1);
-                if (server > 0 && acked > 0) {
-                    int gap = server - acked;
-                    if (gap > 500) {
-                        AppLogger.aiW(TAG, "[DSH] 回执落后 " + gap + " 条（>" + 500
-                                + "），重建时间线以免缺段");
-                        dshTimeline = new com.oilquiz.app.ai.remote.DshTimeline();
-                        dshComponentIds.clear();
-                        dshLastSeq = -1;
-                    } else if (gap > 0 && gap % 100 == 0) {
-                        AppLogger.ai(TAG, "[DSH] 回执落后 " + gap + " 条");
-                    }
-                }
-                return;
-            }
-            if ("view".equals(type) || "pulse".equals(type) || "ready".equals(type)) {
-                return;
-            }
+        // 审批通道帧（2026-11-13 恢复昨天 c73c0434 的行为）：直接弹原生对话框，
+        // 不走时间线，也不进甲板卡（甲板是常驻状态区，审批是打断式交互）。
+        if ("approval".equals(type)) {
+            AppLogger.ai(TAG, "[DSH] 审批帧 id=" + ev.optString("id", ""));
+            // 状态也要落进消息：通知栏的"允许/拒绝"按钮、待处理计数都从 msg.approvals 读。
+            // 只弹对话框不落状态，通知栏就没卡可挂（用户反馈"通知没挂卡"）。
             ChatMessage live = ensureMirrorBubble(turnOfEvent(ev));
-            if (live == null) return;
-            int idx = chatHistory.indexOf(live);
-            if (idx < 0) return;
-            applyDshEvent(ev, live, idx, new long[]{0L});
-            advanceCursor(ev);
+            if (live != null) {
+                addDshApproval(live, ev.optString("id"), ev.optJSONObject("request"));
+                refreshAttentionSlot();
+            }
+            showDshApprovalDialog(ev.optString("id"), ev.optJSONObject("request"));
+            return;
         }
-    }
-
-    /** 只推进游标（跳过不渲染的事件时用），保证补拉不会反复重放 */
-    private void advanceCursor(org.json.JSONObject ev) {
-        int seq = ev.optInt("seq", -1);
-        String sid = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
-        if (seq > 0 && !sid.isEmpty()) {
-            if (seq > dshLastSeq) dshLastSeq = seq;
-            com.oilquiz.app.ai.tool.RemoteDshTool.setLastSeq(this, sid, seq);
+        if ("approval_gone".equals(type)) {
+            String goneId = ev.optString("id", "");
+            if (chatHistory != null) {
+                for (ChatMessage m : chatHistory) {
+                    if (m == null || m.approvals == null) continue;
+                    for (ChatMessage.ApprovalRequest a : m.approvals) {
+                        if (a != null && goneId.equals(a.id)) resolveDshApproval(m, goneId);
+                    }
+                }
+            }
+            dismissDshApprovalDialog(goneId);
+            clearRelayApprovals(null);
+            refreshAttentionSlot();
+            return;
         }
-        dshLastEventAt = System.currentTimeMillis();
+        // 反问通道帧（2026-11-14，与审批同构）：帧到即弹回答对话框。
+        // 以前只有甲板卡这条路，而甲板卡的 args 缺 questions[]，等于没得答 ——
+        // 用户反馈的"问卡在，但提交点了没反应"就是这条缺口。
+        if ("question".equals(type)) {
+            org.json.JSONObject req = ev.optJSONObject("request");
+            // 诊断日志（2026-11-14）：这三类帧都在通用"通道事件"那行之前 return，
+            // 不打一行的话事后根本看不出"帧到没到手机"。
+            AppLogger.ai(TAG, "[DSH] 问卡帧 id=" + ev.optString("id", "")
+                    + " 题数=" + (req == null || req.optJSONArray("questions") == null
+                    ? 0 : req.optJSONArray("questions").length()));
+            ChatMessage live = ensureMirrorBubble(turnOfEvent(ev));
+            if (live != null) {
+                // 状态照旧落进消息：待处理计数/甲板卡/通知栏都从 msg.questions 读
+                addDshQuestions(live, ev.optString("id"), req);
+                refreshAttentionSlot();
+            }
+            showDshQuestionDialog(ev.optString("id"), req);
+            return;
+        }
+        if ("question_gone".equals(type)) {
+            String goneId = ev.optString("id", "");
+            AppLogger.ai(TAG, "[DSH] 问卡撤销 id=" + goneId);
+            if (chatHistory != null) {
+                for (ChatMessage m : chatHistory) {
+                    if (m == null || m.questions == null) continue;
+                    boolean hit = false;
+                    for (ChatMessage.QuestionRequest q : m.questions) {
+                        if (q != null && goneId.equals(q.batchId)) {
+                            hit = true;
+                            break;
+                        }
+                    }
+                    if (hit) resolveDshQuestions(m, goneId);
+                }
+            }
+            dismissDshQuestionDialog(goneId);
+            refreshAttentionSlot();
+            return;
+        }
+        // 逐条日志：50–100 条/秒时不能每条写盘，按 500ms 采样（真机排障够用）
+        long nowLog = System.currentTimeMillis();
+        if (!"stream/delta".equals(type) && nowLog - dshLastEventLogMs > 500) {
+            dshLastEventLogMs = nowLog;
+            AppLogger.ai(TAG, "[DSH] 通道事件 " + type + " seq=" + evSeq);
+        }
+        // DOCK-SLOTS(2026-11-13)：有"持续状态"的事件同时更新输入区上方的插槽
+        updateDockSlotsForEvent(type, ev);
+        // 幂等：补缺口和实时通道可能重叠回放同一条（实测 turn/end 1765 来了两次，
+        // 第二次会 ensureMirrorBubble 出一个空气泡）
+        // 去重只认**时间线自己**的 lastSeq（进程内、与重放起点天然一致）；不按持久化高水位丢
+        // （低序号事件会被误杀，卡片永远停在进行态）。
+        if (evSeq > 0 && evSeq == dshTimeline.lastSeq()) {
+            st.skipped += 1;
+            return;
+        }
+        // 电脑端手敲的消息：镜像成 USER 气泡（手机自己发的同文本会被去重跳过）
+        if ("user/message".equals(type)) {
+            mirrorUserMessage(ev);
+            return;
+        }
+        // 这些事件不产生正文，不能拿去建镜像气泡；但游标要推进（批末统一），避免补拉时反复重放
+        if (type.startsWith("session-log-")) return;
+        // 通道控制帧（state/view/pulse）由连接管理器消费，不进时间线
+        if ("state".equals(type)) {
+            // GAP-FIX（2026-11-13，B16 / 2026-11-15 §14B）：回执落后太多时不要指望"补丁式"续传 ——
+            // 服务端在 gap 超过阈值时只发 snapshot、不回放历史，本地时间线会缺一大段。
+            // 判定阈值统一由 EventFlowPolicy 管（主判据仍是 seq 连续性，这里是辅助）。
+            int server = ev.optInt("last_seq", -1);
+            // 只认"本页已落屏"的水位；**不**拿持久化 ack 当已应用 —— 重连后它是旧值，
+            // 一上来就会把"待回放的一段"误判成断档（回放本身是顺序的，不需要快照）。
+            int applied = dshLastSeq;
+            if (applied > 0 && dshFlowPolicy.appliedBehind(server, applied)) {
+                AppLogger.aiW(TAG, "[DSH] 回执落后 " + (server - applied) + " 条（>"
+                        + dshFlowPolicy.snapshotGap() + "），转快照重建");
+                requestSnapshotResync("回执落后 " + (server - applied), false);
+            } else if (server > 0 && applied > 0 && server - applied > 0
+                    && (server - applied) % 100 == 0) {
+                AppLogger.ai(TAG, "[DSH] 回执落后 " + (server - applied) + " 条");
+            }
+            return;
+        }
+        if ("view".equals(type) || "pulse".equals(type) || "ready".equals(type)) {
+            return;
+        }
+        ChatMessage live = ensureMirrorBubble(turnOfEvent(ev));
+        if (live == null) return;
+        reduceDshEvent(ev, st);
     }
 
     /**
@@ -16086,9 +16430,11 @@ public class AIChatActivity extends BaseActivity {
             boolean needsAttention = st != null && st.ok && st.approvalsPending > 0;
             int dot = needsAttention ? R.color.warning : R.color.success;
             // 文案拼装统一走 ChatUiV2Chrome.remoteSubtitle（有单测钉格式）
+            // §14C：积压/重建时在副标题上标一下，用户能看出"为什么慢"（不弹 toast）
             com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.setRemoteSubtitle(this,
                     com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.remoteSubtitle(
-                            remotePhaseText(live), follow, needsAttention ? st.approvalsPending : 0),
+                            remotePhaseText(live), follow, needsAttention ? st.approvalsPending : 0,
+                            dshFlowModeLabel()),
                     dot);
             updateRemoteMetaLine(st);
             if (modeChanged) {
@@ -16180,6 +16526,18 @@ public class AIChatActivity extends BaseActivity {
         } catch (Throwable ignored) {
             // 取不到 chip 就不动，不影响其它外壳元素
         }
+    }
+
+    /**
+     * 顶部状态用的"事件流模式"文案（§14C）：{@code ""} / {@code 推（积压 N）} / {@code 重建中}。
+     *
+     * <p>只在有积压或正在重建时出现，正常状态不占副标题宽度；不弹 toast。</p>
+     */
+    private String dshFlowModeLabel() {
+        if (dshResyncInFlight) return "重建中";
+        int backlog = dshLastLag;
+        if (backlog > 0) return "推（积压 " + backlog + "）";
+        return "";
     }
 
     private void refreshRemoteDshBar() {
@@ -16669,6 +17027,11 @@ public class AIChatActivity extends BaseActivity {
             TokenStatsManager.getInstance().unregisterCallback(tokenStatsCallback);
             // 不再执行 stopGeneration：生成在桥/服务层继续（界面退出不中断模型工作）
             historyPollHandler.removeCallbacksAndMessages(null);
+            // §14A：停掉批处理循环，别让页面销毁后还有 handler 持有 Activity
+            dshBatchHandler.removeCallbacksAndMessages(null);
+            synchronized (dshDrainLock) {
+                dshBatchScheduled = false;
+            }
             // 标记 UI 已分离：此后生成回调只落盘、不再更新界面
             uiDetached = true;
             uiHandler.removeCallbacksAndMessages(null);

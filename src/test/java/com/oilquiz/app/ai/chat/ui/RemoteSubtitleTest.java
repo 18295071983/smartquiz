@@ -41,4 +41,17 @@ public class RemoteSubtitleTest {
         assertEquals("电脑 · 空闲｜未选会话 · 待处理 1",
                 ChatUiV2Chrome.remoteSubtitle("空闲", null, 1));
     }
+
+    @Test
+    public void flowLabelIsAppendedOnlyWhenPresent() {
+        // §14C：积压/重建时才多一段，正常状态不占副标题宽度
+        assertEquals("电脑 · 空闲｜跟随「会话」 · 推（积压 320）",
+                ChatUiV2Chrome.remoteSubtitle("空闲", "跟随「会话」", 0, "推（积压 320）"));
+        assertEquals("电脑 · 空闲｜跟随「会话」",
+                ChatUiV2Chrome.remoteSubtitle("空闲", "跟随「会话」", 0, ""));
+        assertEquals("电脑 · 空闲｜跟随「会话」",
+                ChatUiV2Chrome.remoteSubtitle("空闲", "跟随「会话」", 0, null));
+        assertEquals("电脑 · 空闲｜跟随「会话」 · 待处理 1 · 重建中",
+                ChatUiV2Chrome.remoteSubtitle("空闲", "跟随「会话」", 1, "重建中"));
+    }
 }

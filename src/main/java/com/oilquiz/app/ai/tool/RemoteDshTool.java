@@ -1037,6 +1037,75 @@ public class RemoteDshTool implements AITool {
     }
 
     /**
+     * 请求快照（2026-11-15，§14B 快照兜底）：缺口过大时不逐条重放，改用它整轮重建。
+     *
+     * <p>路径用服务端**已有**的语义：{@code GET /events?since=-1&follow=0} —— live 会话在
+     * {@code since < 0} 时直接回 {@code snapshot{turns}}（最近 20 条 role/text）；非 live 会话
+     * 走 log 分支同样回 snapshot。只读到第一帧就断开，一次往返、不等流。</p>
+     *
+     * @return {@code {seq, turns, source}}；会话不存在/拿不到返回 null
+     *         （调用方退回"重置时间线"的旧兜底，不能让快照失败把通道卡死）
+     */
+    public static org.json.JSONObject fetchSnapshot(Context c, String sid) throws Exception {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        String url = tool.getBaseUrl() + "/events?session_id="
+                + java.net.URLEncoder.encode(sid == null ? "" : sid, "UTF-8")
+                + "&since=-1&follow=0&timeout=8&snapshot_threshold=50"
+                + "&caps=" + java.net.URLEncoder.encode(RemoteCaps.csv(), "UTF-8");
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(12000);
+            conn.setRequestProperty("Accept", "text/event-stream");
+            String token = tool.getToken();
+            if (!token.isEmpty()) conn.setRequestProperty("Authorization", "Bearer " + token);
+            int code = conn.getResponseCode();
+            if (code >= 400) throw new Exception("HTTP " + code);
+            BufferedReader br = new BufferedReader(
+                    new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
+            StringBuilder data = new StringBuilder();
+            long deadline = System.currentTimeMillis() + 12_000L;
+            while (System.currentTimeMillis() < deadline) {
+                String line = br.readLine();
+                if (line == null) break;
+                if (!line.isEmpty()) {
+                    if (line.startsWith("data:")) data.append(line.substring(5).trim());
+                    continue;
+                }
+                if (data.length() == 0) continue;
+                String frame = data.toString();
+                data.setLength(0);
+                org.json.JSONObject msg = new org.json.JSONObject(frame);
+                String type = msg.optString("type", "");
+                if ("snapshot".equals(type)) {
+                    saveAnchorFromFrame(c, msg);
+                    org.json.JSONObject out = new org.json.JSONObject();
+                    out.put("seq", msg.optInt("seq", -1));
+                    out.put("turns", msg.optJSONArray("turns"));
+                    out.put("source", msg.optString("source", ""));
+                    Log.i(TAG, "[snapshot] seq=" + out.optInt("seq", -1)
+                            + " turns=" + (out.optJSONArray("turns") == null
+                            ? 0 : out.optJSONArray("turns").length()));
+                    return out;
+                }
+                if ("ready".equals(type)) {
+                    // 服务端认为不需要快照（游标够新）：报个水位就够了
+                    org.json.JSONObject out = new org.json.JSONObject();
+                    out.put("seq", msg.optInt("seq", -1));
+                    out.put("turns", new org.json.JSONArray());
+                    out.put("source", "ready");
+                    return out;
+                }
+                if ("gone".equals(type)) return null;
+            }
+            return null;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    /**
      * 通用动作调用（C3，2026-11-14）：把"插件推的视图里点了按钮"送回插件，拿回 effects。
      *
      * <p>走普通 POST 而不是 WS：一次点击一次往返，简单、可单测、不占通道；
@@ -1082,6 +1151,28 @@ public class RemoteDshTool implements AITool {
         if (token == null || String.valueOf(token).isEmpty()) throw new Exception("电脑没返回设备令牌");
         return String.valueOf(token);
     }
+    /**
+     * 正在跑的 SSE 连接（2026-11-15，§14 背压）：队列积压超过硬线时要把当前流**立刻**掐掉重连，
+     * 不能让服务端继续往一条已经处理不过来的连接上灌。
+     *
+     * <p>为什么不靠 {@link #cancelEventStreams()}：那个只翻代号，读线程还阻塞在
+     * {@code readLine} 上，最多要等 35s 读超时才生效 —— 积压时这 35 秒就是"完全不动"。</p>
+     */
+    private static final java.util.Set<HttpURLConnection> ACTIVE_STREAMS =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** 掐掉当前所有 SSE 连接（下一次 subscribeEvents 会带新游标重开）。 */
+    public static void closeEventStreams() {
+        for (HttpURLConnection conn : ACTIVE_STREAMS) {
+            try {
+                conn.disconnect();
+            } catch (Throwable ignored) {
+                // 已断
+            }
+        }
+        ACTIVE_STREAMS.clear();
+    }
+
     /** 连一次 SSE，返回本次收到的最大 seq（断线后作为 since 续传） */
     private static int streamOnce(RemoteDshTool tool, String sid, int since, int timeoutSec, boolean follow,
                                   int snapshotThreshold, String types, DshEventListener listener) throws Exception {
@@ -1105,6 +1196,7 @@ public class RemoteDshTool implements AITool {
             if (!token.isEmpty()) conn.setRequestProperty("Authorization", "Bearer " + token);
             int code = conn.getResponseCode();
             if (code >= 400) throw new Exception("HTTP " + code);
+            ACTIVE_STREAMS.add(conn);
             try (BufferedReader br = new BufferedReader(
                     new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
@@ -1133,7 +1225,10 @@ public class RemoteDshTool implements AITool {
             }
             return cursor;
         } finally {
-            if (conn != null) conn.disconnect();
+            if (conn != null) {
+                ACTIVE_STREAMS.remove(conn);
+                conn.disconnect();
+            }
         }
     }
 
@@ -1200,6 +1295,10 @@ public class RemoteDshTool implements AITool {
             if ("pulse".equals(type)) {
                 // 心跳：只用于判活/测 RTT，不推进游标；单独回调给上层（见 onPulse 注释）
                 listener.onPulse(msg.optLong("ts", 0L), msg.optInt("seq", cursor));
+                return cursor;
+            }
+            if ("wake".equals(type)) {
+                // 实验性水位帧（未采用拉模式，见文档 §14C）：忽略即可
                 return cursor;
             }
             if ("end".equals(type) || "gone".equals(type)) {
