@@ -832,6 +832,12 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             View old = box.findViewWithTag("profiles_row");
             if (old != null) box.removeView(old);
 
+            String cur0 = new RemoteDshTool(this).getBaseUrl();
+            if (cur0 != null && !cur0.trim().isEmpty()
+                    && RemoteProfiles.list(this).isEmpty()) {
+                // 首次升级：把当前正在用的这条配置补进列表，否则用户看不到任何可切换项
+                RemoteProfiles.save(this, cur0.trim(), new RemoteDshTool(this).getToken(), "当前连接");
+            }
             java.util.List<RemoteProfiles.Profile> list = RemoteProfiles.list(this);
             if (list.isEmpty()) return;
 
