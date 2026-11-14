@@ -913,6 +913,10 @@ public class AIChatActivity extends BaseActivity {
             if (!remoteQueued.isEmpty()) showRemoteQueueDialog();
             else cycleBusyMode();
         });
+        if (btnQueueCancel != null) btnQueueCancel.setOnClickListener(v -> { pendingQueue.clear(); updateQueueBar(); persistPendingQueue(); });
+        // 2026-11-14 修复：队列条那次编辑把这一行误删了 —— 没有 LayoutManager 的 RecyclerView
+        // 一条都不会布局（getItemCount 有值、getChildCount 恒为 0），真机表现就是"消息流空白"。
+        messageList.setLayoutManager(new androidx.recyclerview.widget.LinearLayoutManager(this));
             // 完全禁用 RecyclerView 动画：结构变化(insert/remove)不再被 postpone，
             // 从根上消除 pre-layout 失配窗口（RecyclerView Inconsistency "offset:-1" 崩溃的必要条件）。
             // 代价：消息插入/删除无动画，换取聊天列表在高频流式更新下的稳定。
