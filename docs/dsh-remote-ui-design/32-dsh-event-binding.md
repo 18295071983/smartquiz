@@ -71,16 +71,26 @@ app.asar/dsh/node_modules/@deepseek-ai/dsh-session/src/known-event-types.ts
 ## 6. 提示卡的点击交互（2026-11-14）
 
 `dsh_notice` 正文最多 3 行（`maxLines=3`），而这次新绑定的几类事件信息量恰恰在正文里
-（插话内容、子代理模式、钩子输出、图片移出说明）。所以给整张卡加了：
+（插话内容、子代理模式、钩子输出、图片移出说明）。现在的交互：
 
-- **点击 → 全文弹窗**：标题 + 可选中复制的正文 + 「复制」按钮；
-- 只对正文超过 40 字的卡启用（短提示点了没意义），不改变卡的视觉权重；
-- 纯本地实现（`DshCardViews.showNoticeDialog`），**不走动作总线** —— 这些卡在历史里
-  也要能看，弹窗无状态、不需要落盘。
+| 卡片 | 点击 | 长按 |
+|---|---|---|
+| `agent/inbox/spliced`（`jump=last`） | **滚到末尾那条**"正在电脑上执行 / 排队中"的气泡 | 查看全文 + 复制 |
+| `subagent/catalog`（`jump=subagent` + `childId`） | **滚到该子代理的轨迹卡**（`subagent_card`） | 查看全文 + 复制 |
+| 其他 `dsh_notice` | 查看全文弹窗（可选中 + 复制） | — |
 
-还没做的（要改页面才能做）：
+实现（"组件拿不到页面"这个老问题）：
+- 新增 `ComponentHosts`：`Host{scrollToMessage(id), scrollToLast(), openSubagent(childId)}`，
+  由聊天页在初始化时 `set(...)`、`onDestroy` 时 `clear()`；
+- 用静态挂载而不是改 `ChatComponent.createView(context, data)` 签名：组件是 `ComponentRegistry`
+  里的**单例**，给实例塞 host 会串消息；而改签名要动 40 个实现 + 6 处渲染工厂，收益不成比例。
+  语义与既有的 `ComponentActions` 静态回调一致；
+- 卡片通过 `props.jump`（`last` / `subagent`）声明自己的跳转目标，渲染器只认这两个值，
+  没有时就退化成"查看全文"。
 
-- "插话已入队" → **跳到那条排队中的气泡**：需要卡片能拿到当前会话的消息列表引用，
-  现在渲染器只有 `Context`；
-- "子代理已启动" → **展开子代理轨迹**：轨迹本身已经是另一张 `subagent_card`
-  （`DshProjection` 从 `subagent/activity` 累积），两张卡目前没有互相跳转。
+## 7. 还没做的
+
+- `openSubagent` 目前只能滚到**已经存在**的轨迹卡；子代理刚启动、还没有工具调用时没有轨迹卡，
+  会提示"还没有轨迹卡"。要真正展开，需要把 `DshTimeline.subagents()` 的实时步骤也做成一张可展开卡；
+- `scrollToMessage(id)` 已实现但还没有卡片在用（插话卡用的是 `scrollToLast`）——
+  等 DSH 的 `inserted[].id` 能在手机端映射到本地气泡 id 时再接。

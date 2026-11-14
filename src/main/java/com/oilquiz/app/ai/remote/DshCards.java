@@ -393,6 +393,8 @@ public final class DshCards {
                         : "next-turn".equals(target) ? "电脑本轮结束后发送"
                         : "已交给电脑";
                 put(props, "content", text.isEmpty() ? where : (where + "：" + text));
+                // 点击滚到末尾那条"正在电脑上执行/排队中"的气泡（ComponentHosts.Host.scrollToLast）
+                put(props, "jump", "last");
                 String key = "inbox-" + data.optString("messageId", String.valueOf(turn));
                 return new Card(key, "dsh_notice", props);
             }
@@ -401,10 +403,15 @@ public final class DshCards {
                 String label = data.optString("label", "子代理");
                 String mode = data.optString("mode", "");
                 String childId = data.optString("childId", "");
-                return new Card("subagent-cat-" + (childId.isEmpty() ? label : childId), "dsh_notice",
-                        obj("title", "子代理 · " + label,
-                                "content", mode.isEmpty() ? "已启动" : ("模式：" + mode),
-                                "level", "info"));
+                JSONObject props = obj("title", "子代理 · " + label,
+                        "content", mode.isEmpty() ? "已启动" : ("模式：" + mode),
+                        "level", "info");
+                // 点击滚到该子代理的轨迹卡（subagent_card 的 props.childId 与这里同源）
+                if (!childId.isEmpty()) {
+                    put(props, "jump", "subagent");
+                    put(props, "childId", childId);
+                }
+                return new Card("subagent-cat-" + (childId.isEmpty() ? label : childId), "dsh_notice", props);
             }
             case "tool/ptc-dispatch":
             case "tool/ptc-dispatch-start": {

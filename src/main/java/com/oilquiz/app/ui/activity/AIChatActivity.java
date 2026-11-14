@@ -681,6 +681,8 @@ public class AIChatActivity extends BaseActivity {
             btnStopGeneration = findViewById(R.id.btn_stop_generation);
         btnLogViewer = findViewById(R.id.btn_log_viewer);
                 messageList = findViewById(R.id.message_list);
+            // 2026-11-14：把"卡片能用的页面能力"挂上（dsh_notice 的点击跳转靠它）
+            com.oilquiz.app.ai.chat.component.ComponentHosts.set(chatComponentHost);
             sessionStatsBar = findViewById(R.id.session_stats_bar);
             attachmentList = findViewById(R.id.attachment_list);
             historyList = findViewById(R.id.history_list);
@@ -16209,10 +16211,63 @@ public class AIChatActivity extends BaseActivity {
     }
 
 
+    /**
+     * 2026-11-14：卡片可用的页面能力。
+     *
+     * <p>卡片渲染器只拿得到 {@code Context}，做不了"跳到那条消息"这类动作；这里把聊天页的
+     * 滚动能力挂到 {@link com.oilquiz.app.ai.chat.component.ComponentHosts} 上，
+     * 由 {@code dsh_notice} 的点击回调消费（带 {@code jump} 属性的卡）。</p>
+     */
+    private final com.oilquiz.app.ai.chat.component.ComponentHosts.Host chatComponentHost =
+            new com.oilquiz.app.ai.chat.component.ComponentHosts.Host() {
+                @Override
+                public void scrollToMessage(String messageId) {
+                    if (messageId == null || messageId.isEmpty() || chatHistory == null) return;
+                    for (int i = 0; i < chatHistory.size(); i += 1) {
+                        ChatMessage m = chatHistory.get(i);
+                        if (m != null && messageId.equals(m.id)) {
+                            scrollToIndex(i);
+                            return;
+                        }
+                    }
+                }
+
+                @Override
+                public void scrollToLast() {
+                    if (messageList == null || chatHistory == null || chatHistory.isEmpty()) return;
+                    messageList.smoothScrollToPosition(chatHistory.size() - 1);
+                }
+
+                @Override
+                public void openSubagent(String childId) {
+                    if (chatHistory == null) return;
+                    for (int i = chatHistory.size() - 1; i >= 0; i -= 1) {
+                        ChatMessage m = chatHistory.get(i);
+                        if (m == null || m.components == null) continue;
+                        for (com.oilquiz.app.ai.chat.component.ComponentData c : m.components) {
+                            if (c == null || !"subagent_card".equals(c.type) || c.props == null) continue;
+                            String cid = c.props.optString("childId", "");
+                            if (childId == null || childId.isEmpty() || cid.equals(childId)) {
+                                scrollToIndex(i);
+                                return;
+                            }
+                        }
+                    }
+                    showToast("这个子代理还没有轨迹卡（可能没调用工具，或已经结束）");
+                }
+
+                private void scrollToIndex(int index) {
+                    if (messageList == null) return;
+                    messageList.smoothScrollToPosition(Math.max(0, index));
+                }
+            };
+
     @Override
     protected void onDestroy() {
         com.oilquiz.app.ai.chat.status.DockSlotBus.removeListener(dockSlotListener);
         com.oilquiz.app.ai.tool.RemoteStatusSlots.clear();
+        // 2026-11-14：卡片跳转能力绑在"当前前台聊天页"，退出必须摘掉，否则旧页会被点活
+        com.oilquiz.app.ai.chat.component.ComponentHosts.clear();
         // 贴底控制器 / 滚动锚点都持有 messageList 的 preDraw/scroll 监听器，必须解绑，避免强引用泄漏。
         if (stickToBottom != null) {
             stickToBottom.release();

@@ -68,6 +68,8 @@ public class DshEventCoverageTest {
         assertTrue("next-step 应说明下一步生效",
                 card.props.optString("content").contains("下一步"));
         assertTrue("应带上插话内容", card.props.optString("content").contains("先看测试目录"));
+        // 点击行为：滚到末尾那条（正在排队/执行的气泡）
+        assertEquals("last", card.props.optString("jump"));
     }
 
     @Test
@@ -90,6 +92,9 @@ public class DshEventCoverageTest {
         DshCards.Card card = cardOf("subagent/catalog", data);
         assertNotNull("子代理目录应出卡", card);
         assertEquals("子代理 · 调研", card.props.optString("title"));
+        // 点击行为：滚到该子代理的轨迹卡
+        assertEquals("subagent", card.props.optString("jump"));
+        assertEquals("child-1", card.props.optString("childId"));
     }
 
     @Test

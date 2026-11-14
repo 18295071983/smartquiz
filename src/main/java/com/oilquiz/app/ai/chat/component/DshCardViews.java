@@ -416,18 +416,42 @@ final class DshCardViews {
             }
             card.addView(col);
             /**
-             * 2026-11-14：点一下展开全文。
+             * 2026-11-14：点击行为分两种。
              *
-             * <p>提示卡正文最多 3 行（{@code maxLines=3}），而这次新绑定的几类事件恰恰信息量在正文里：
-             * "插话已入队"带的是你插的那句话、`subagent/catalog` 带的是子代理模式、
-             * `hook/result` 带的是钩子输出、`image/offload` 带的是省了多少上下文。截断后看不到，
-             * 所以给整张卡加一个"点击查看全文 + 复制"的兜底交互（纯本地，不走动作总线）。</p>
+             * <ul>
+             *   <li>卡片带 {@code jump} 属性 → <b>跳转</b>：{@code last}=滚到末尾那条（排队中的气泡）、
+             *       {@code subagent}=滚到该子代理的轨迹卡（通过 {@link ComponentHosts} 找页面）；</li>
+             *   <li>否则 → <b>展开全文</b>：正文最多 3 行，新绑定的几类事件信息量恰在正文里
+             *       （插话内容、子代理模式、钩子输出、图片移出说明）。</li>
+             * </ul>
+             *
+             * <p>长按始终是"查看全文 + 复制"，这样带跳转的卡也不会丢掉看全文的能力。</p>
              */
-            if (!TextUtils.isEmpty(text) && text.length() > 40) {
-                final String fullTitle = title;
-                final String fullText = text;
-                card.setOnClickListener(v -> showNoticeDialog(context, fullTitle, fullText));
+            final String jump = p.optString("jump", "");
+            final String childId = p.optString("childId", "");
+            final String fullTitle = title;
+            final String fullText = text;
+            boolean hasText = !TextUtils.isEmpty(text);
+            if (!jump.isEmpty() || hasText) {
                 card.setClickable(true);
+                card.setOnClickListener(v -> {
+                    ComponentHosts.Host host = ComponentHosts.get();
+                    if ("last".equals(jump)) {
+                        host.scrollToLast();
+                        return;
+                    }
+                    if ("subagent".equals(jump)) {
+                        host.openSubagent(childId);
+                        return;
+                    }
+                    if (hasText) showNoticeDialog(context, fullTitle, fullText);
+                });
+                if ("last".equals(jump) || "subagent".equals(jump)) {
+                    card.setOnLongClickListener(v -> {
+                        if (hasText) showNoticeDialog(context, fullTitle, fullText);
+                        return true;
+                    });
+                }
             }
             // 注意：这里**不要**自己再渲染 props.actions —— ComponentRegistry 对外层组件
             // 已经统一包了一层动作行（renderActions），这里再加一遍就出现两个"改权限"按钮
