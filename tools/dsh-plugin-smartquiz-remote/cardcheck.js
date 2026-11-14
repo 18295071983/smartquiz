@@ -147,8 +147,19 @@ function walk(node, path, depth, counter, add) {
   if (node.root !== undefined && t === undefined) {
     walk(node.root, `${path}/root`, depth, counter, add);
   }
-  for (const key of ['children', 'items', 'tabs', 'defines']) {
-    if (node[key] !== undefined) walk(node[key], `${path}/${key}`, depth + 1, counter, add);
+  // 只递归「结构性」字段：children 是子节点；tabs/accordion 的 items 里 content 才是节点。
+  // items 对 key_value/compare/list 等是**数据**，当成节点走会把 ["k1","v1"] 判成坏 JSON（真机 422）。
+  if (node.children !== undefined) walk(node.children, `${path}/children`, depth + 1, counter, add);
+  const t2 = String(node.type ?? '');
+  if (t2 === 'tabs' || t2 === 'accordion') {
+    const items = node.items;
+    if (Array.isArray(items)) {
+      items.forEach((it, i) => {
+        if (it && typeof it === 'object' && it.content !== undefined) {
+          walk(it.content, `${path}/items/${i}/content`, depth + 1, counter, add);
+        }
+      });
+    }
   }
 }
 

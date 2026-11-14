@@ -13,6 +13,8 @@
  */
 
 const MAX_CHARS = 32 * 1024;
+/** data:image base64 总载荷上限（4 张 × 512 KiB）；结构体积与图片载荷分开算。 */
+const MAX_DATA_IMAGE_CHARS = 4 * 512 * 1024;
 const MAX_NODES = 400;
 const MAX_DEPTH = 8;
 
@@ -38,6 +40,15 @@ const REQUIRED = {
   quiz_card: [['question', 'title']],
   json_viewer: [['data', 'json']],
   diff: [['before', 'diff', 'patch']],
+  key_value: [['items']],
+  compare: [['items']],
+};
+
+/** 别名 → canonical（用于必填规则；App 侧 ComponentTypes.resolve 同口径）。 */
+const TYPE_ALIASES = {
+  keyvalue: 'key_value',
+  dsh_keyvalue: 'key_value',
+  compare_card: 'compare',
 };
 
 const hasAny = (obj, keys) => keys.some((k) => obj[k] !== undefined && obj[k] !== null && obj[k] !== '');
@@ -66,12 +77,18 @@ export function checkCard(card) {
   } catch {
     add('error', '/props', 'props 不能序列化（不要放循环引用/函数）');
   }
-  if (json.length > MAX_CHARS) {
-    add('error', '/props', `体积 ${json.length} 超过上限 ${MAX_CHARS} 字节，请拆分或精简`);
+  // data:image base64 不计入 32 KiB 结构预算（否则一张 512 KiB 的图永远推不出去），
+  // 但总载荷单独设上限，防止一张卡塞几百张图把手机内存打爆。
+  const dataImageChars = countDataImagePayload(json);
+  if (json.length - dataImageChars > MAX_CHARS) {
+    add('error', '/props', `结构体积 ${json.length - dataImageChars} 超过上限 ${MAX_CHARS}（data:image 载荷不计入），请拆分或精简`);
+  }
+  if (dataImageChars > MAX_DATA_IMAGE_CHARS) {
+    add('error', '/props', `data:image base64 总载荷 ${dataImageChars} 超过上限 ${MAX_DATA_IMAGE_CHARS}，请拆分到多张卡`);
   }
 
-  // 必填字段
-  const rule = REQUIRED[type];
+  // 必填字段（keyValue / dsh_keyvalue / compare_card 先归一到 canonical）
+  const rule = REQUIRED[TYPE_ALIASES[type.toLowerCase()] || type];
   if (rule) {
     for (const group of rule) {
       if (!hasAny(safeProps, group)) {
@@ -130,9 +147,32 @@ function walk(node, path, depth, counter, add) {
   if (node.root !== undefined && t === undefined) {
     walk(node.root, `${path}/root`, depth, counter, add);
   }
-  for (const key of ['children', 'items', 'tabs', 'defines']) {
-    if (node[key] !== undefined) walk(node[key], `${path}/${key}`, depth + 1, counter, add);
+  // 只递归「结构性」字段：children 是子节点；tabs/accordion 的 items 里 content 才是节点。
+  // items 对 key_value/compare/list 等是**数据**，当成节点走会把 ["k1","v1"] 判成坏 JSON（真机 422）。
+  if (node.children !== undefined) walk(node.children, `${path}/children`, depth + 1, counter, add);
+  const t2 = String(node.type ?? '');
+  if (t2 === 'tabs' || t2 === 'accordion') {
+    const items = node.items;
+    if (Array.isArray(items)) {
+      items.forEach((it, i) => {
+        if (it && typeof it === 'object' && it.content !== undefined) {
+          walk(it.content, `${path}/items/${i}/content`, depth + 1, counter, add);
+        }
+      });
+    }
   }
+}
+
+/** 统计 props JSON 里所有 data:image base64 的 payload 字符数（含所有嵌套层级）。 */
+function countDataImagePayload(json) {
+  if (!json) return 0;
+  const re = /data:image\/[^;,]*;base64,([A-Za-z0-9+/=]*)/g;
+  let total = 0;
+  let match;
+  while ((match = re.exec(json)) !== null) {
+    total += match[1].length;
+  }
+  return total;
 }
 
 /** 把诊断拼成一行给人看的文字（日志/响应都用它） */
