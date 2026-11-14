@@ -36,6 +36,7 @@ import { fileURLToPath } from 'node:url';
 import { exec, execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { SERVER_CAPS, CAP_VERSION, filterViewCards, eventAllowed, normalizeCaps, summarize, allows } from './caps.js';
+import { checkCard, describe } from './cardcheck.js';
 
 
 /** CLI 子进程的权限档位（apply 里由 cfg 覆盖；runCliTask 在模块作用域用） */
@@ -2416,11 +2417,25 @@ function presetSvcOf(ctx) {
     if (!type) return sendJson(res, 400, { ok: false, error: 'type required' });
     const key = String(body.key ?? '').trim() || ('card-' + randomBytes(4).toString('hex'));
     const props = (body.props && typeof body.props === 'object') ? body.props : {};
+    // 推卡前先校结构（抄 dsh-Go 的 view-check：带路径诊断，坏卡不进手机）
+    const checked = checkCard({ type, props });
+    if (!checked.ok && body.force !== true) {
+      return sendJson(res, 422, {
+        ok: false, error: 'card_invalid', key, type,
+        diagnostics: checked.diagnostics, hint: describe(checked.diagnostics),
+      });
+    }
+    if (checked.diagnostics.length > 0) {
+      console.warn('[smartquiz-remote] ui/card 诊断 ' + describe(checked.diagnostics));
+    }
     const data = { key, type, props };
     if (body.title) data.title = String(body.title);
     rememberPushedCard(sid, data);
     streamBroadcast(sid, { v: 2, type: 'ui/card', data });
-    return sendJson(res, 200, { ok: true, session_id: sid, key, type, pushed: true });
+    return sendJson(res, 200, {
+      ok: true, session_id: sid, key, type, pushed: true,
+      diagnostics: checked.diagnostics,
+    });
   });
 
   route('exact', '/v2/jobs', (req, res) => {

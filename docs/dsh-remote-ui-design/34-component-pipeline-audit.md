@@ -228,3 +228,44 @@ ChatHistoryManager.saveCurrentChatAsSession 只保留 USER/AI 消息 →
 
 ui/card 由聊天页处理；手机在首页/工具页时靠上面的暂存补发，但**必须回聊天页才会落屏**。
 "任何页面都能弹"要用 phone_ui 的 toast/notification，不是这条链路。
+## 11. 抄 dsh-Go 的渲染语言与校验器（2026-11-14）
+
+用户口径：「抄，然后他的渲染思路也值得。」
+
+### 11.1 渲染：语义令牌 + 降级（NativeLayoutRenderer）
+
+插件只给**语义**，像素/颜色/深浅色由 App 定：
+
+| 属性 | 取值 | 说明 |
+|---|---|---|
+| size | 数字 或 caption/footnote/body/subtitle/title/headline/display | 六档字号，token 名与 dsh-Go 一致；旧写法（数字、ontSize）不变 |
+| weight | egular/medium/semibold/bold | old:true 仍是等价写法 |
+| 	one | good/warn/bad/info/muted（别名 success/warning/danger/error/note/secondary） | 语义色，color 显式给了就以 color 为准 |
+| spans | [{text, color\|tone, bold, weight, mono, size}] | 富文本片断（SpannableString） |
+
+**降级口径**（抄 dsh-Go 的"单点坏不毁整块"）：
+
+| 情况 | 之前 | 现在 |
+|---|---|---|
+| 不认识的 	ype | ⚠ 未知控件: xxx（可用 register_type…） —— 把开发者提示塞给用户 | 灰色一行「这部分无法显示」，日志记详情，其余照常渲染 |
+| 节点 > 400 / 深度 > 9 / layout > 64 KiB | 直接渲染（大卡会把主线程拖住） | 降级成「内容过多，已省略」/「层级过深，已省略」 |
+
+### 11.2 校验：推卡前先校（cardcheck.js）
+
+/v2/card 现在先跑 checkCard()，**坏卡不进手机**：
+
+`json
+POST /v2/card {"type":"alert_card","props":{"title":"只有标题"}}
+→ 422 {"error":"card_invalid","diagnostics":[{"path":"/props","level":"error",
+     "message":"缺少必填字段：content 或 text 或 message"}],"hint":"✗ /props: 缺少必填字段…"}
+`
+
+规则（思路抄 sdk/plugin-kit 的 view-check / limits / effects）：
+
+- **error（拒收）**：缺 	ype、props 不是对象、体积 > 32 KiB、组件必填字段缺失、layout 节点 	ype 非法、layout 字符串不是 JSON；
+- **warn（照发）**：嵌套 > 8 层、节点 > 400、节点缺 	ype（App 按 column 兜底）；
+- **放行**：不认识的组件类型（App 有动态兜底卡）；
+- orce:true 可绕过拒收（排障用）。
+
+自测：
+ode tools/dsh-plugin-smartquiz-remote/cardcheck.test.mjs → **15 passed**。

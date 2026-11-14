@@ -250,6 +250,10 @@ public class NativeLayoutRenderer {
     public static View render(Context context, Object layoutObj, JSONObject props,
                               Map<String, Object> viewRefs) {
         try {
+            if (String.valueOf(layoutObj).length() > MAX_LAYOUT_CHARS) {
+                return placeholder(context, "内容过多，已省略");
+            }
+            NODE_BUDGET.get()[0] = 0;
             JSONObject root = layoutObj instanceof JSONObject
                     ? (JSONObject) layoutObj : new JSONObject(String.valueOf(layoutObj));
             JSONObject localDefines = root.optJSONObject("define");
@@ -305,6 +309,11 @@ public class NativeLayoutRenderer {
     private static View buildNode(Context context, JSONObject node, JSONObject props,
                                   Map<String, Object> viewRefs, int depth,
                                   JSONObject defines) {
+        // 渲染预算（2026-11-14，抄 dsh-Go 的 limits 思路）：节点数/深度超限只降级，不报错/不崩
+        int[] budget = NODE_BUDGET.get();
+        budget[0] += 1;
+        if (budget[0] > MAX_NODES) return placeholder(context, "内容过多，已省略");
+        if (depth > MAX_DEPTH) return placeholder(context, "层级过深，已省略");
         // UI-06 统一 style 对象：节点级 style={padding,radius,background,color,fontSize,...} 展开为顶层属性
         // （顶层同名属性优先，style 仅作兜底；展开后其余渲染逻辑按顶层属性读取）
         {
@@ -821,38 +830,8 @@ public class NativeLayoutRenderer {
                 return carWrap;
             }
             case "text": {
-                TextView tv = new TextView(context);
-                tv.setText(interpolate(node.optString("text", ""), props));
-                // UI-06：fontSize（style 对象别名）与 size 等效
-                if (node.has("fontSize")) {
-                    tv.setTextSize((float) node.optDouble("fontSize", 14));
-                } else {
-                    tv.setTextSize(node.has("size") ? (float) node.optDouble("size", 14) : 14);
-                }
-                tv.setTypeface(node.optBoolean("bold", false)
-                        ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
-                if (node.has("color")) tv.setTextColor(parseColor(context, node.optString("color", "")));
-                tv.setPadding(0, dp(2, density), 0, dp(2, density));
-                // 文本对齐 align: left/center/right
-                String tAlign = node.optString("align", "");
-                if (!tAlign.isEmpty()) {
-                    switch (tAlign.trim().toLowerCase()) {
-                        case "center":
-                            tv.setGravity(Gravity.CENTER_HORIZONTAL);
-                            break;
-                        case "right":
-                        case "end":
-                            tv.setGravity(Gravity.END);
-                            break;
-                        default:
-                            tv.setGravity(Gravity.START);
-                            break;
-                    }
-                }
-                if (node.has("key")) viewRefs.put("text_" + node.optString("key"), tv);
-                return tv;
-            }
-            case "marquee": {
+                return buildTextNode(context, node, props, viewRefs);
+            }            case "marquee": {
                 TextView tv = new TextView(context);
                 String raw = interpolate(node.optString("text", ""), props);
                 tv.setText(raw);
@@ -3201,11 +3180,11 @@ return attachLabel(context, node, props, srWrap, density);
                 // 已注册组件类型/插件作为节点 type 嵌套：展开其 render.layout 递归渲染
                 View expanded = tryExpandRegisteredType(context, node, props, viewRefs, depth, defines, type);
                 if (expanded != null) return expanded;
-                TextView tv = new TextView(context);
-                tv.setText("⚠ 未知控件: " + type
+                // 降级口径（抄 dsh-Go）：单个子节点画不出来只换成灰色占位，
+                // 其余照常渲染 —— 不让一个不认识的 type 毁掉整张卡。
+                android.util.Log.w(TAG, "未知控件 type=" + type
                         + "（可用 register_type 注册组件类型后嵌套，或用 use 引用 layout 模板）");
-                tv.setTextSize(12);
-                return tv;
+                return placeholder(context, "这部分无法显示");
             }
         }
     }
@@ -4008,6 +3987,203 @@ return attachLabel(context, node, props, srWrap, density);
         }
         // 兼容纯数字数组形态
         return (float) arr.optDouble(i, 0);
+    }
+
+    /** 文本节点：数字或语义档位字号、字重、色调、富文本 spans（都 optional，旧写法照旧） */
+    private static TextView buildTextNode(Context context, JSONObject node, JSONObject props,
+                                          Map<String, Object> viewRefs) {
+        TextView tv = new TextView(context);
+        float size = 14f;
+        if (node.has("size")) {
+            Object raw = node.opt("size");
+            if (raw instanceof String) {
+                float tok = sizeToken((String) raw, -1f);
+                size = tok > 0 ? tok : 14f;
+            } else {
+                size = (float) node.optDouble("size", 14);
+            }
+        }
+        if (node.has("sizeToken")) {
+            float tok = sizeToken(node.optString("sizeToken", ""), -1f);
+            if (tok > 0) size = tok;
+        }
+        // UI-06：fontSize（style 对象别名）与 size 等效，且优先（旧行为不变）
+        if (node.has("fontSize")) size = (float) node.optDouble("fontSize", size);
+        tv.setTextSize(size);
+
+        String rawText = node.optString("text", "");
+        CharSequence content = buildSpans(context, node.optJSONArray("spans"), size);
+        tv.setText(content != null ? content : interpolate(rawText, props));
+
+        tv.setTypeface(weightTypeface(node.optString("weight", ""),
+                node.optBoolean("bold", false)));
+        Integer tone = toneColor(context, node.optString("tone", ""));
+        if (tone != null && !node.has("color")) {
+            tv.setTextColor(tone);
+        } else if (node.has("color")) {
+            tv.setTextColor(parseColor(context, node.optString("color", "")));
+        }
+        tv.setPadding(0, dp(2, 2), 0, dp(2, 2));
+        String tAlign = node.optString("align", "");
+        if (!tAlign.isEmpty()) {
+            switch (tAlign.trim().toLowerCase()) {
+                case "center":
+                    tv.setGravity(Gravity.CENTER_HORIZONTAL);
+                    break;
+                case "right":
+                case "end":
+                    tv.setGravity(Gravity.END);
+                    break;
+                default:
+                    tv.setGravity(Gravity.START);
+                    break;
+            }
+        }
+        if (node.has("key")) viewRefs.put("text_" + node.optString("key"), tv);
+        return tv;
+    }
+    // ==================== 语义化样式令牌（抄 dsh-Go 的渲染思路，2026-11-14） ====================
+    //
+    // 插件/模型只给**语义**（字号档位、字重、色调、富文本片断），具体像素、颜色、
+    // 深浅色适配由 App 决定。这样同一份 layout 在浅色/深色、不同字号设置下都不会崩。
+    // 与 dsh-Go 的 v2 视图语言保持同名同义，方便以后互相对照。
+
+    /** 字号档位：六档，与 dsh-Go 同名（caption < footnote < body < subtitle < title < headline） */
+    private static float sizeToken(String token, float fallback) {
+        if (token == null) return fallback;
+        switch (token.trim().toLowerCase()) {
+            case "caption": return 12f;
+            case "footnote": return 13f;
+            case "body": return 15f;
+            case "subtitle": return 17f;
+            case "title": return 20f;
+            case "headline": return 24f;
+            case "display": return 28f;
+            default: return -1f; // 不是档位名，交给数字解析
+        }
+    }
+
+    /** 字重：regular/medium/semibold/bold（bold 旧字段继续有效） */
+    private static android.graphics.Typeface weightTypeface(String weight, boolean bold) {
+        String w = weight == null ? "" : weight.trim().toLowerCase();
+        switch (w) {
+            case "regular":
+            case "normal":
+                return android.graphics.Typeface.DEFAULT;
+            case "medium":
+                return android.graphics.Typeface.create("sans-serif-medium",
+                        android.graphics.Typeface.NORMAL);
+            case "semibold":
+                return android.graphics.Typeface.create("sans-serif-medium",
+                        android.graphics.Typeface.BOLD);
+            case "bold":
+                return android.graphics.Typeface.DEFAULT_BOLD;
+            default:
+                return bold ? android.graphics.Typeface.DEFAULT_BOLD
+                        : android.graphics.Typeface.DEFAULT;
+        }
+    }
+
+    /**
+     * 色调 → 主题色。good/warn/bad/info/muted 是语义名额，别名（success/warning/
+     * danger/error/note/secondary）也认 —— 插件作者不用知道我们的资源名。
+     */
+    private static Integer toneColor(Context context, String tone) {
+        if (tone == null || tone.trim().isEmpty()) return null;
+        switch (tone.trim().toLowerCase()) {
+            case "good":
+            case "success":
+            case "ok":
+                return ComponentColors.success(context);
+            case "warn":
+            case "warning":
+                return ComponentColors.warning(context);
+            case "bad":
+            case "danger":
+            case "error":
+            case "fail":
+                return ComponentColors.error(context);
+            case "info":
+            case "note":
+            case "accent":
+                return ComponentColors.accent(context);
+            case "muted":
+            case "secondary":
+                return ComponentColors.textSecondary(context);
+            case "primary":
+            case "text":
+                return ComponentColors.textPrimary(context);
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * spans：把一段文字切成带样式的片断。
+     * <pre>[{"text":"还剩 ","color":"gray"},{"text":"3","tone":"bad","mono":true,"weight":"bold"}]</pre>
+     * 每个片断支持 text / color / tone / bold / weight / mono / size。
+     */
+    private static CharSequence buildSpans(Context context, JSONArray spans, float baseSize) {
+        if (spans == null || spans.length() == 0) return null;
+        android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder();
+        for (int i = 0; i < spans.length(); i += 1) {
+            JSONObject span = spans.optJSONObject(i);
+            if (span == null) {
+                String raw = spans.optString(i, "");
+                if (raw != null) sb.append(raw);
+                continue;
+            }
+            String text = span.optString("text", "");
+            int start = sb.length();
+            sb.append(text);
+            int end = sb.length();
+            if (start == end) continue;
+            Integer color = null;
+            String tone = span.optString("tone", "");
+            if (!tone.isEmpty()) color = toneColor(context, tone);
+            if (color == null && span.has("color")) {
+                color = parseColor(context, span.optString("color", ""));
+            }
+            if (color != null) {
+                sb.setSpan(new android.text.style.ForegroundColorSpan(color), start, end,
+                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            boolean bold = span.optBoolean("bold", false)
+                    || "bold".equalsIgnoreCase(span.optString("weight", ""));
+            if (bold) {
+                sb.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                        start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            if (span.optBoolean("mono", false)) {
+                sb.setSpan(new android.text.style.TypefaceSpan("monospace"), start, end,
+                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            if (span.has("size")) {
+                float sz = span.optDouble("size", baseSize) > 0
+                        ? (float) span.optDouble("size", baseSize) : baseSize;
+                float tok = sizeToken(span.optString("sizeToken", ""), -1f);
+                if (tok > 0) sz = tok;
+                sb.setSpan(new android.text.style.RelativeSizeSpan(baseSize > 0 ? sz / baseSize : 1f),
+                        start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+        }
+        return sb;
+    }
+
+    /** 渲染预算：节点数/深度/JSON 体积（超限不崩，降级成一句说明） */
+    private static final int MAX_NODES = 400;
+    private static final int MAX_DEPTH = 9;
+    private static final int MAX_LAYOUT_CHARS = 64 * 1024;
+    private static final ThreadLocal<int[]> NODE_BUDGET = ThreadLocal.withInitial(() -> new int[]{0});
+
+    /** 灰色占位：某一块画不出来时用它，聊天流其余部分照常 */
+    private static TextView placeholder(Context context, String text) {
+        TextView tv = new TextView(context);
+        tv.setText(text == null ? "这部分无法显示" : text);
+        tv.setTextSize(12f);
+        tv.setTextColor(ComponentColors.textTertiary(context));
+        tv.setPadding(dp(8, 2), dp(6, 2), dp(8, 2), dp(6, 2));
+        return tv;
     }
 
     private static int dp(int base, int density) {
