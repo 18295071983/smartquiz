@@ -105,6 +105,17 @@
 插件 `sub.send` / `sse({type:'event'…})` 处附 `anchor`（按 device + session 取账本）。
 手机收到后按锚点找会话。（握手帧与 SSE `ready`/`snapshot` 已带，事件帧还没。）
 
+### 插件通道 ✅ 部分完成（2026-11-14 第四轮）
+
+- `streamBroadcast` 推送前**再校验一次帧里的 `session_id`**：全局帧带会话数据时只发给订阅该会话的连接
+  （以前会把 A 的插槽画进 B 的对话）；
+- **插话排队**：`SESSION_BUSY`（turn/start·end + CLI 起停）+ `SESSION_INBOX`（每会话 20 条），
+  忙时 inject 直接回 `{queued:true, position}`，跑完由 `drainSessionInbox` 投递（宿主内 followup /
+  CLI 起新一轮），从不抢写权、不杀正在跑的进程；`/status.interject` 可观测；
+- **未做**：CLI 子进程在手机端超时后仍会被杀（`onAbort` → 3s → killTree），要改成"脱钩"需要动
+  `acquireCliSlot` 的槽位释放时机，见 `31-plugin-channel-and-interject.md` §3；
+- **已回退**：不再把手机新建会话写进桌面端 `storages/workspace.json`（插件只做转发，不写宿主账本）。
+
 ### C6 自更新
 
 代码就位（插件 `app_release` + `/app/latest.apk`，手机 `RemoteAppUpdate`），**端到端未验**——
@@ -152,6 +163,7 @@
 | `27-plugin-update-guide.md` | **改插件不改 App 的指南**（推视图、接点按、返效果） |
 | `28-anchor-ledger.md` | 锚点对账（动态二维键、回收站/恢复/永久删除）；**第 7 节是 A3-接落地记录** |
 | `30-session-sync-and-picker.md` | **切换会话=强制同步、选择框按工作区分组、A4 细节** |
+| `31-plugin-channel-and-interject.md` | **推送前校验会话 id、插话排队（SESSION_BUSY/SESSION_INBOX）、CLI 未做的脱钩** |
 | 本文件 | 交接 |
 
 ---
