@@ -226,7 +226,16 @@ public final class DshTimeline {
                     "web/deepseek-search-llm-request",
                     // 2026-11-14 补：这两类以前没登记，一直算"未知类型"
                     "feedback/record",
-                    "session-log-deepseek/delivery-accepted"));
+                    "session-log-deepseek/delivery-accepted",
+                    // 2026-11-14 用户口径：瞬时状态放插槽（甲板），不进消息流 —— 这些类型不再出聊天卡，
+                    // 由插件 ui/slot 驱动（收到事件更新、完成即消失）。登记为已识别，避免污染未知计数：
+                    "job/registered", "job/settled",
+                    "compaction/start", "compaction/summary", "compaction/prune", "compaction/end",
+                    "llm/retry", "llm/retry-started",
+                    "goal/change",
+                    "permission/preset", "sandbox/mode", "approval/policy",
+                    "agent-preset/selected", "model/selection",
+                    "agent/inbox/spliced"));
 
     private int lastTurn = 1;
     private int lastStep = 1;

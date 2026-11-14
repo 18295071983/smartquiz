@@ -59,29 +59,21 @@ public class DshEventCoverageTest {
         assertEquals(0, timeline.unknownEventKinds());
     }
 
+    /**
+     * 2026-11-14 用户口径：瞬时状态放插槽，不进消息流。
+     * 插话入队现在由插件推 {@code ui/slot {id:"inbox"}} 驱动甲板，不再产出聊天卡；
+     * 这里断言"不出卡、但类型已被识别"（不算未知事件）。
+     */
     @Test
-    public void inboxSpliceBecomesQueueCard() {
-        DshCards.Card card = cardOf("agent/inbox/spliced", splice("next-step", "先看测试目录"));
-        assertNotNull("插话入队应出卡", card);
-        assertEquals("alert_card", card.type);
-        assertEquals("插话已入队", card.props.optString("title"));
-        assertTrue("next-step 应说明下一步生效",
-                card.props.optString("content").contains("下一步"));
-        assertTrue("应带上插话内容", card.props.optString("content").contains("先看测试目录"));
-        // 点击行为：滚到末尾那条（正在排队/执行的气泡）
-        assertEquals("last", card.props.optString("jump"));
-    }
-
-    @Test
-    public void inboxSpliceNextTurnSaysAfterThisRound() {
-        DshCards.Card card = cardOf("agent/inbox/spliced", splice("next-turn", "跑完再看"));
-        assertNotNull(card);
-        assertTrue(card.props.optString("content").contains("本轮结束后"));
+    public void inboxSpliceIsSlotOnly() {
+        DshTimeline timeline = new DshTimeline();
+        timeline.reduce(DshEvent.from(event("agent/inbox/spliced", 1, splice("next-step", "先看测试目录"))));
+        assertTrue("插话入队不应再出聊天卡", timeline.orderedCards().isEmpty());
+        assertTrue("但应被识别为已知类型", timeline.unknownTypes().isEmpty());
     }
 
     /**
-     * 2026-11-14：子代理**一创建**就要有轨迹卡 —— 以前只有 subagent/activity 才建条目，
-     * 刚启动还没跑工具时甲板卡槽是空的，"跳过去看轨迹"也无处可跳。
+     * 2026-11-14：子代理一创建就要有轨迹卡（否则甲板卡槽空一段时间）。
      * 同时 subagent/catalog 不再产出通用提示卡（同一件事不出两张卡）。
      */
     @Test

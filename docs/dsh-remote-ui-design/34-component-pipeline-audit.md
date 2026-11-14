@@ -111,3 +111,34 @@ DSH 的事件（job、command、todo、subagent、审批…）都是"AI 回合�
 
 至此 DSH 专用原生组件只剩 **subagent_card** 一个（子代理实时轨迹，childId 累积语义，
 现有 steps_card 是静态列表，接不上）。
+## 8. 第四轮：瞬时状态整体搬进插槽（2026-11-14）
+
+用户口径：「那就转成原生组件放到插槽里面。收到更新事件后更新，完成后消失。」
+
+DockSlotBus 的类注释本来就写着这个分工：
+
+> 进时间线的是"发生过什么"（消息 + 卡片，落定即快照、不可原地更新）；
+> 插槽放"现在是什么、我能做什么"（后台任务、目标、压缩中…），随状态实时改写、消失即恢复原状。
+
+所以这一轮把**瞬时状态**从消息流整体搬到甲板插槽：
+
+| 事件 | 以前 | 现在 |
+|---|---|---|
+| job/registered、job/settled | job 聊天卡 | 插槽 jobs（插件原有）+ 结束 emove:true |
+| compaction/start|summary|prune|end | 4 张 alert 卡 | 插槽 compaction（压缩中）→ 结束 emove:true |
+| llm/retry、llm/retry-started | alert 卡 | **新增插槽 etry**（"第 N 次重试中…"，warn）→ ssistant/message/step/end/	urn/end 自动移除 |
+| gent/inbox/spliced（插话排队） | "插话已入队" alert 卡 | **新增插槽 inbox**（kind=list、count=N、ction=queue）→ 队列空 emove:true |
+| goal/change | alert 卡 | 插槽 goal（原有）→ 非激活 emove:true |
+| permission/preset、sandbox/mode、pproval/policy | alert 卡 | 插槽 permission（原有） |
+| gent-preset/selected、model/selection | alert 卡 | 不再出卡（模型/预设信息在 permission 插槽 detail 里；后续可加独立槽） |
+| subagent/catalog + 活动 | subagent_card | 插槽 subagents（原有）+ 甲板轨迹卡（保留，durable） |
+
+**顺手修的关键 bug**：插件历史上有两种"移除"写法 —— {id} 空帧 和 emove:true，
+但 App 的 RemoteSlotBridge 只认后者，于是"压缩中/子代理/任务"结束后**槽位只变成空壳留在总线里**
+（甲板挂一条空白）。现在两种写法等价：	itle/detail 都为空且 count<=0 → DockSlotBus.remove(id)。
+
+保留在消息流的（durable，"发生过什么"）：	odo/write、deliverables/presented、command/run|done、
+	ool/call|result、	ool/ptc-dispatch*、workspace/changes、working-directory/change、
+developer/message、system/message、	eam/* 消息、eedback/*、hook/*、image/offload。
+
+单测：DshEventCoverageTest 5/5（62 种事件仍全部有归属；插话入队改为"不出卡但已识别"断言）。

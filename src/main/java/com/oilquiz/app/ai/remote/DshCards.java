@@ -43,14 +43,19 @@ public final class DshCards {
     }
 
     /** 事件类型是否由卡片映射消费（供 reducer 统计"未识别事件"，别把卡片事件算成没人管） */
-    public static boolean handles(String type) {
+    /**
+     * 事件类型是否由卡片映射消费（供 reducer 统计"未识别事件"，别把卡片事件算成没人管）。
+     *
+     * <p>2026-11-14 用户口径：**瞬时状态放插槽，不放消息流**。下面这些类型不再出聊天卡，
+     * 统一由插件 {@code ui/slot} 帧驱动甲板插槽（收到事件更新、完成即消失），
+     * 因此改由 {@code DshTimeline.IGNORED_TYPES} 登记、这里返回 false：
+     * {@code job/*}、{@code compaction/*}、{@code llm/retry*}、{@code goal/*}、
+     * {@code permission/preset}、{@code sandbox/mode}、{@code approval/policy}、
+     * {@code agent-preset/selected}、{@code model/selection}、{@code agent/inbox/spliced}。</p>
+     */    public static boolean handles(String type) {
         return "todo/write".equals(type)
                 || "deliverables/presented".equals(type)
-                || "goal/activation-changed".equals(type)
-                || "goal/change".equals(type)
                 || "workspace/changes".equals(type)
-                || "job/registered".equals(type)
-                || "job/settled".equals(type)
                 || "command/run".equals(type)
                 || "command/done".equals(type)
                 || "tool-workflow/run-start".equals(type)
@@ -59,18 +64,8 @@ public final class DshCards {
                 || "tool-workflow/run-end".equals(type)
                 // 2026-11-13：subagent/catalog 不再出提示卡（子代理改由甲板轨迹卡承载）
                 || "subagent/descriptor".equals(type)
-                || "llm/retry".equals(type)
-                || "llm/retry-started".equals(type)
                 || "assistant/attempt".equals(type)
-                || "compaction/start".equals(type)
-                || "compaction/summary".equals(type)
-                || "compaction/prune".equals(type)
-                || "compaction/end".equals(type)
                 || "working-directory/change".equals(type)
-                || "sandbox/mode".equals(type)
-                || "permission/preset".equals(type)
-                || "approval/policy".equals(type)
-                || "agent-preset/selected".equals(type)
                 // B14（2026-11-13）：这些类型此前只是"登记在目录里"，手机端完全不渲染。
                 || "system/message".equals(type)
                 || "developer/message".equals(type)
@@ -82,7 +77,6 @@ public final class DshCards {
                 || "team/message/queued".equals(type)
                 || "team/message/delivered".equals(type)
                 // 2026-11-14：按 DSH known-event-types 补齐的 7 类
-                || "agent/inbox/spliced".equals(type)
                 || "tool/ptc-dispatch".equals(type)
                 || "tool/ptc-dispatch-start".equals(type)
                 || "hook/invoked".equals(type)

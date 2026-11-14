@@ -1707,10 +1707,36 @@ function presetSvcOf(ctx) {
   };
   loadPersistedState();
 
+  /** 清掉一条瞬时插槽（重试等）：remove:true，App 侧立即移除 */
+  const clearTransientSlot = (id) => {
+    if (!id) return;
+    streamBroadcast('', { v: 2, type: 'ui/slot', data: { id, remove: true } });
+  };
+
+  /**
+   * 插话队列插槽（2026-11-14）：排队中显示「插话排队 N 条」，可点开管理；队列空即消失。
+   *
+   * <p>以前这是 chat 卡（"插话已入队"），排几条就留几张卡；按用户口径改成插槽：
+   * 收到 inject/撤回/修改事件就更新，全部发完就 remove。</p>
+   */
+  const broadcastInboxSlot = (sid) => {
+    const key = String(sid || '').trim();
+    if (!key) return;
+    const q = SESSION_INBOX.get(key) ?? [];
+    if (q.length === 0) {
+      streamBroadcast(key, { v: 2, type: 'ui/slot', data: { id: 'inbox', session_id: key, remove: true } });
+      return;
+    }
+    streamBroadcast(key, { v: 2, type: 'ui/slot', data: {
+      id: 'inbox', session_id: key, priority: 20, kind: 'list', board: 'task',
+      title: '插话排队', detail: q.length + ' 条等待发送 · 点开可撤回/修改',
+      action: 'queue', count: q.length,
+    } });
+  };
   const broadcastJobsSlot = () => {
     const list = [...JOB_STATE.values()];
     if (list.length === 0) {
-      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'jobs' } });
+      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'jobs', remove: true } });
       return;
     }
     const running = list.filter((j) => j.status === 'running').length;
@@ -1737,7 +1763,7 @@ function presetSvcOf(ctx) {
   const SUBAGENT_SLOT_TTL_MS = 90 * 1000;
   const broadcastSubagentsSlot = () => {
     if (childParent.size === 0) {
-      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'subagents' } });
+      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'subagents', remove: true } });
       return;
     }
     const now = Date.now();
@@ -1757,7 +1783,7 @@ function presetSvcOf(ctx) {
     }
     if (active === 0) {
       // 全部结束且无近期活动 → 让槽消失（真机反馈："不活动/完成就让它消失"）
-      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'subagents' } });
+      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'subagents', remove: true } });
       return;
     }
     streamBroadcast('', { v: 2, type: 'ui/slot', data: {
@@ -1776,7 +1802,7 @@ function presetSvcOf(ctx) {
     // B18：目标属于某个会话，只发给该会话的订阅者（目标切换时不会串到别的对话）
     const target = sid || '';
     if (!g || !g.active) {
-      streamBroadcast(target, { v: 2, type: 'ui/slot', data: { id: 'goal', session_id: sid || '' } });
+      streamBroadcast(target, { v: 2, type: 'ui/slot', data: { id: 'goal', session_id: sid || '', remove: true } });
       return;
     }
     streamBroadcast(target, { v: 2, type: 'ui/slot', data: {
@@ -1788,7 +1814,7 @@ function presetSvcOf(ctx) {
   const broadcastMcpSlot = () => {
     const n = MCP_SERVERS.size;
     if (n === 0) {
-      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'mcp' } });
+      streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'mcp', remove: true } });
       return;
     }
     streamBroadcast('', { v: 2, type: 'ui/slot', data: {
@@ -2211,8 +2237,24 @@ function presetSvcOf(ctx) {
       noteEventType(t);
       // 2026-11-14 插话队列：先用 turn 事件把"这条会话正在跑"记下来 —— 手机 inject 时据此排队。
       // 桌面端自己发起的轮次也会走这两个事件，所以电脑上正在跑的时候手机插话同样会排队。
-      if (t === 'turn/start') { markSessionBusy(sid, 'agent'); return; }
-      if (t === 'turn/end') { clearSessionBusy(sid); return; }
+      if (t === 'turn/start') { markSessionBusy(sid, 'agent'); clearTransientSlot('retry'); return; }
+      if (t === 'turn/end') { clearSessionBusy(sid); clearTransientSlot('retry'); return; }
+      /**
+       * 模型重试 → 插槽（2026-11-14 用户口径：瞬时状态放插槽，收到更新事件就更新，完成即消失）。
+       * 以前这是一张 chat 卡，重试几次就在消息流里留几张"模型重试"。
+       */
+      if (t === 'llm/retry-started' || t === 'llm/retry') {
+        const d = event.data ?? {};
+        const n = Number(d.retry ?? d.attempt ?? 0) || 0;
+        streamBroadcast(sid, { v: 2, type: 'ui/slot', data: {
+          id: 'retry', session_id: sid, priority: 15, kind: 'display', board: 'alert', warn: true,
+          title: '模型重试', detail: n > 0 ? ('第 ' + n + ' 次重试中…') : '正在重试…',
+        } });
+        return;
+      }
+      if (t === 'assistant/message' || t === 'step/end' || t === 'error') {
+        clearTransientSlot('retry');
+      }
       if (t === 'subagent/catalog') {
         const d = event.data ?? {};
         const childId = String(d.childId ?? '');
@@ -2230,7 +2272,7 @@ function presetSvcOf(ctx) {
         // B18：压缩是会话内的事，只发给该会话（否则别的对话也会看到"正在压缩"）
         streamBroadcast(sid, { v: 2, type: 'ui/slot', data: t === 'compaction/start'
           ? { id: 'compaction', session_id: sid, priority: 10, title: '正在压缩上下文…' }
-          : { id: 'compaction', session_id: sid } });
+          : { id: 'compaction', session_id: sid, remove: true } });
         return;
       }
       // 任务 / 目标的持续状态：在"只转子代理活动"的早退之前处理（主会话事件也要收）
@@ -5786,6 +5828,7 @@ function presetSvcOf(ctx) {
     if (agent && typeof agent.followup === 'function') {
       const items = q.slice();
       SESSION_INBOX.delete(key);
+      try { broadcastInboxSlot(key); } catch { /* 忽略 */ }
       for (const it of items) {
         try {
           agent.followup({
@@ -5803,6 +5846,7 @@ function presetSvcOf(ctx) {
     // CLI 会话：一次送一条，跑完（finish→clearSessionBusy）会再触发 drain
     const item = q.shift();
     if (q.length) SESSION_INBOX.set(key, q); else SESSION_INBOX.delete(key);
+    try { broadcastInboxSlot(key); } catch { /* 忽略 */ }
     runTurn(ctx, undefined, key, item.text, cfg, { targetSessionId: key }).catch(() => {
       const cur = SESSION_INBOX.get(key) ?? [];
       cur.unshift(item);
@@ -6337,6 +6381,7 @@ function presetSvcOf(ctx) {
           const item = { id: randomBytes(16).toString('hex'), text, at: Date.now() };
           q.push(item);
           SESSION_INBOX.set(target, q);
+          try { broadcastInboxSlot(target); } catch { /* 插槽失败不影响排队 */ }
           const busyInfo = SESSION_BUSY.get(target) ?? {};
           return sendJson(res, 200, {
             ok: true, action: 'inject', session_id: target, mode: 'queue', queued: true, position: q.length,
@@ -6398,6 +6443,7 @@ function presetSvcOf(ctx) {
         if (op === 'cancel') {
           q.splice(idx, 1);
           if (q.length) SESSION_INBOX.set(target, q); else SESSION_INBOX.delete(target);
+          try { broadcastInboxSlot(target); } catch { /* 忽略 */ }
           return sendJson(res, 200, { ok: true, action: 'queue', op, session_id: target, removed: id, count: q.length,
             items: q.map(publicItem) });
         }
@@ -6422,6 +6468,7 @@ function presetSvcOf(ctx) {
           }
           q.splice(idx, 1);
           if (q.length) SESSION_INBOX.set(target, q); else SESSION_INBOX.delete(target);
+          try { broadcastInboxSlot(target); } catch { /* 忽略 */ }
           return sendJson(res, 200, { ok: true, action: 'queue', op, session_id: target, sent: item.id,
             count: q.length, items: q.map(publicItem) });
         }
@@ -6431,6 +6478,7 @@ function presetSvcOf(ctx) {
           q[idx].text = text;
           q[idx].at = Date.now();
           SESSION_INBOX.set(target, q);
+          try { broadcastInboxSlot(target); } catch { /* 忽略 */ }
           return sendJson(res, 200, { ok: true, action: 'queue', op, session_id: target, updated: id, count: q.length,
             items: q.map(publicItem) });
         }
