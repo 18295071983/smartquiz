@@ -49,6 +49,44 @@ public final class ComponentColors {
         return ContextCompat.getColor(context, R.color.component_error);
     }
 
+    /**
+     * 语义色调（2026-11-15）：good/warn/bad/info/muted 及常见别名 → 主题色。
+     *
+     * <p>与 {@code NativeLayoutRenderer} 的 {@code tone} 令牌同义：卡片作者只写语义，
+     * 具体色值由 App 决定。未知/空 tone 返回 {@code null}，调用方保持默认文字色。</p>
+     */
+    public static Integer toneColor(Context context, String tone) {
+        if (tone == null) return null;
+        switch (tone.trim().toLowerCase(java.util.Locale.US)) {
+            case "good":
+            case "success":
+            case "ok":
+                return success(context);
+            case "warn":
+            case "warning":
+                return warning(context);
+            case "bad":
+            case "danger":
+            case "error":
+            case "fail":
+                return error(context);
+            case "info":
+            case "note":
+            case "accent":
+            case "brand":
+            case "primary":
+                return accent(context);
+            case "muted":
+            case "secondary":
+            case "tertiary":
+                return textSecondary(context);
+            case "text":
+                return textPrimary(context);
+            default:
+                return null;
+        }
+    }
+
     /** 卡片背景色 */
     public static int background(Context context) {
         return ContextCompat.getColor(context, R.color.component_bg);

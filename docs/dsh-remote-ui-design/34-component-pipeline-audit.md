@@ -349,3 +349,89 @@ DshProjection.mergeExtraRounds()：超过 6 步的部分合并进最后一轮 �
 
 效果：一条消息的 part 数从 150+ 降到 ≈ 13，回到在线 agent 的量级，
 RecyclerView 的回收重新有效；后续要更彻底可以按 step 拆成多条消息（数据模型改动更大）。
+## 14. 动态卡三块能力：keyValue / compare、image data:、绑定 + 有界公式（2026-11-15）
+
+用户口径：「补全动态卡（ui/card + layout）三块能力，并验证、提交。」本轮只加可选字段/新类型，
+既有卡片（alert/list/metric/progress/layout）行为不变。
+
+### 14.1 两张原生卡
+
+| type | 别名 | props 形状 | 上限/降级 |
+|---|---|---|---|
+| `key_value` | `keyValue`、`dsh_keyvalue`（`ComponentTypes.resolve` 归一） | `items` 三种形态：`[["名称","值"],…]`、`[{label,value,tone?}]`、`{"名称":"值"}`；可选 `title` | 最多 24 项，超出 footer 显示「还有 N 项」；0 条有效数据显示空态；点击整卡复制「名称：值」全文 |
+| `compare` | 无（`compare` 本身） | `items:[{title,badge?,rows}]`，`rows` 支持 `[["名称","值"]]` 或 `{"名称":"值"}`；可选顶层 `title` | 最多 4 项，超出显示「还有 N 项未显示」；0 项空态；不足 2 项也照常渲染（避免模型先给 1 项时掉原始 JSON 兜底） |
+
+实现：`KeyValueCardView` / `CompareCardView`（`CardShell` + `ComponentTheme`/`ComponentColors`），
+共用纯 JVM 解析 `CardKeyValues`（三形态归一、24 项截断、数字样值等宽字体、语义 tone）。
+已注册进 `ComponentRegistry`，目录补 `key_value` / `compare` 两条 schema；别名 `keyValue` 先走
+`normalize → keyvalue` 再命中 alias，旧 DSH 写法不用改。
+
+### 14.2 image 支持 `data:image/...;base64,...`
+
+新增 `DataImageDecoder`（单张硬限制：base64 payload ≤ 512 KiB、单边 ≤ 4096；先 bounds 再按
+2048 采样解码）。接入五处：
+
+- `NativeLayoutRenderer` 的 `image`、`avatar`、`avatar_group`、`carousel`（头像用圆形
+  `RoundedBitmapDrawable`）；
+- 内置 `image_grid` 的单图/网格项，以及 `ImagePreviewUtil` 的全屏预览（data URI 不进
+  Glide/文件/网络分支）。
+
+超限、格式坏、OOM 一律不抛异常：layout 侧显示浅底「图片无法显示」占位，`image_grid`
+显示同文案占位且不提供无意义的「点击重试」。
+
+**体积闸门配套调整**：`MAX_LAYOUT_CHARS=64 KiB` 仍然限制结构体积，但 data:image 的 base64
+载荷不计入该 64 KiB（否则一张 512 KiB 的图永远过不了入口检查）；总图片载荷另设 2 MiB
+上限（4 张 × 512 KiB）。`cardcheck.js` 同口径：结构体积与图片载荷分开算，并单独拦总载荷。
+
+### 14.3 layout 表单绑定 + 有界公式
+
+- **绑定**：任意节点属性可写 `{"$":"data.a.b"}`，渲染前从 `props.data` 取值；取不到按空值
+  处理。文本节点就是显示解析出来的值。
+- **公式**：只允许写在 `text` 的 `text` 与 `stat`/`metric` 的 `value` 位置
+  `{"=":"a * b"}`。求值器 `LayoutFormula` 只认：
+  - 数字（整数/小数）、`+ - * /`、一元正负号、括号；
+  - `data.` / 裸数据路径（`a`、`data.a.b`、`items[0].price`，数值字符串也接受）；
+  - `min / max / round / abs` 四个函数（round/abs 单参，min/max ≥1 参）。
+  其它字符、未知函数、未知路径、非数值、除零、>256 字符、>24 层、>128 token 全部返回
+  `null` 并降级成「—」；没有反射/脚本/字符串/赋值。
+- **输入变化重算**：`LayoutBindingScope` 在渲染同棵树时登记绑定/公式 TextView；渲染完
+  接线 EditText / Spinner / CompoundButton / RadioGroup / SeekBar，值变化写回 `props.data`
+  并只刷新登记的文本节点（不重建 View，不丢焦点）。初始值双向同步：`props.data` 有值
+  先灌控件，没有则把控件当前值写回 data，所以「input value=3 + 公式 a*2」首屏就是 6。
+- **限制（如实写）**：date/time/color/rating/toggle/stepper/slider_range/tag_input 这些
+  自定义 ref 控件没有统一监听接口，暂不参与「改动即重算」；提交按钮仍会经
+  `collectValues` 回传。公式写在非 text/metric 位置一律「—」，绑定写在哪里都生效。
+
+### 14.4 插件校验器
+
+`cardcheck.js` 增加 `key_value` / `compare` 必填 `items` 规则（`keyValue` /
+`dsh_keyvalue` / `compare_card` 先归一），以及 data:image 载荷预算。自测：
+`node tools/dsh-plugin-smartquiz-remote/cardcheck.test.mjs` → **23 passed, 0 failed**。
+
+### 14.5 验证
+
+- 新增单测全绿：`KeyValueCardViewTest` 9、`LayoutFormulaTest` 9、
+  `DataImageDecoderTest` 3、`LayoutBindingScopeTest`（Robolectric）1；
+- 受影响旧单测全绿：`ComponentTypesTest` 7、`ComponentFieldIntegrityTest` 5、
+  `ComponentDisplayTest` 14、`NewCardShapeTest` 3、`ComponentNameIntegrityTest` 6；
+- APK：`.\gradlew.bat --offline assembleDebug` BUILD SUCCESSFUL，约 901 MB，
+  `sha256 74AD5818DD6BA7148D0563246DED00FEB0A4C939FF64CE733BDCF0FA18B5AAD2`，
+  `adb -s 192.168.1.10:41193 install -r` Success；
+- 真机推卡（插件 `/v2/card`，令牌/会话见本轮任务）：
+  - `compare` 3 项：三张小卡 + badge + 键值行，数值等宽，截图 `build/verify.png` /
+    `build/verify5.png`；
+  - `layout` 含绑定/公式：`{"$":"data.name"}` 显示「答题宝」、`{"=":"price * qty"}` 与
+    `metric` 都显示 50，输入框 12.5/4，截图 `build/verify5.png`；
+  - 另推一张公式卡，首屏显示 6（`a=2,b=3`），截图 `build/verify12.png`；
+  - 真机手动改输入值触发重算这一步没有截到稳定画面（会话持续推进导致列表滚动），
+    该行为由 Robolectric `LayoutBindingScopeTest` 覆盖：`b` 3→5 后公式 6→10，
+    `props.data.b` 同步为 "5"。
+
+### 14.6 没做到/降级
+
+- 自定义选择类控件（日期/取色/评分等）不参与实时重算（见 14.3 限制）；
+- `compare` 少于 2 项不拒绝，按 1 项渲染（产品口径是 2~4，但拒绝会掉原始 JSON 兜底，
+  故选择可渲染 + 文档说明）；
+- data:image 按单张 512 KiB、总 2 MiB 硬限；更长的图需要拆卡或走文件 URL；
+- `cardcheck.js` 的结构体积现在显示「结构体积」而不是总体积，调用方若按旧日志文本做
+  正则匹配需要同步。

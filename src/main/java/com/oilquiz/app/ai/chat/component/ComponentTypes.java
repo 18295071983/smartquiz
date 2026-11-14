@@ -170,6 +170,9 @@ public final class ComponentTypes {
         target.put("metric", "metric_card");
         target.put("progress", "progress_card");
         target.put("json", "json_viewer");
+        // 2026-11-15：键值 / 对比（DSH 动态卡两种高频形状，原生实现）
+        target.put("key_value", "key_value");
+        target.put("compare", "compare");
         // 媒体
         target.put("image", "image_grid");
         target.put("video", "video");
@@ -204,6 +207,10 @@ public final class ComponentTypes {
         alias.put("stat", "metric");
         alias.put("progress_card", "progress");
         alias.put("progress_ring", "progress");
+        // 2026-11-15：keyValue / dsh_keyvalue 都是 DSH 侧常用的键值卡写法
+        alias.put("keyvalue", "key_value");
+        alias.put("dsh_keyvalue", "key_value");
+        alias.put("compare_card", "compare");
         alias.put("bar_chart", "chart");
         alias.put("pie_chart", "chart");
         alias.put("sparkline", "chart");
@@ -269,6 +276,14 @@ public final class ComponentTypes {
                 "scatter 可用 points 给数值坐标；stacked_bar 多系列按分类堆叠；radar 以 categories 为轴"});
         SCHEMA.put("metric", new String[]{CATEGORY_DATA, "指标 metrics[{label,value,color}]", "标题 title",
                 "单位 unit, trend"});
+        // 2026-11-15：键值卡 / 对比卡（DSH 动态卡两种高频形状）。
+        // 必填只写 items：三种 items 形态与截断规则放 optional 里，模型照条目填即可渲染。
+        SCHEMA.put("key_value", new String[]{CATEGORY_DATA, "条目 items[{label,value}]",
+                "标题 title, 值色 tone=good|warn|bad|info|muted",
+                "items 也认 [[名称,值]] 与 {\"名称\":\"值\"}；最多 24 项，超出显示「还有 N 项」；点击整卡复制全文"});
+        SCHEMA.put("compare", new String[]{CATEGORY_DATA, "对比项 items[{title,badge,rows}]",
+                "标题 title",
+                "2~4 项竖排对比；rows 支持 [[名称,值]] 或 {名称:值}；超过 4 项截断并提示"});
         // progress 的必填名必须是 progress：ProgressCardView.canRender 就是 props.has("progress")，
         // 目录此前教的是 percent（0 处读取）→ 模型照目录传就掉进 DynamicCardView 原始 JSON 兜底。
         SCHEMA.put("progress", new String[]{CATEGORY_DATA, "进度 progress(0-100)", "标题 title",

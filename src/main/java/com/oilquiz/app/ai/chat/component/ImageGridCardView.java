@@ -205,6 +205,25 @@ public class ImageGridCardView implements ChatComponent {
      * （避免 Glide 对本地 URI 不回调导致转圈）；网络 URL 走 Glide（15s 超时 + 失败提示）。
      */
     private void loadWithFeedback(FrameLayout root, ImageView iv, ProgressBar loading, String rawUrl, boolean single) {
+        loading.setVisibility(View.VISIBLE);
+        iv.setVisibility(View.GONE);
+        iv.setImageDrawable(null);
+
+        // data:image/...;base64,...：本机解码，先于工作区路径解析（512 KiB 的 data URI
+        // 不该被当成"裸文件名"拿去全工作区搜索）；失败画浅底占位。
+        if (DataImageDecoder.isDataImage(rawUrl)) {
+            android.graphics.Bitmap dataBmp = DataImageDecoder.decode(rawUrl);
+            loading.setVisibility(View.GONE);
+            if (dataBmp != null) {
+                iv.setImageBitmap(dataBmp);
+                iv.setVisibility(View.VISIBLE);
+                iv.setOnClickListener(v -> showFullImage(root.getContext(), rawUrl));
+            } else {
+                showInvalidDataImage(root, single);
+            }
+            return;
+        }
+
         // 地址归一（2026-10-13 修真机"图片加载失败"）：模型常把 image_gen 结果里的**裸文件名**
         // （如 gen_1791873835846.jpg）直接传进 ui_component(image_grid, images=[…])，
         // 而原先本地分支只认 file:// / "/" 开头 / content://，裸名直接掉进 Glide →
@@ -212,9 +231,6 @@ public class ImageGridCardView implements ChatComponent {
         // 同工程的 FileCardView.normalizePath / VideoCardView.resolveMediaPath 都会走工作区解析，
         // 这里补齐同一口径（复用 AgentWorkspace.resolveExistingFile，含按文件名兜底搜索）。
         final String url = resolveImageSrc(root.getContext(), rawUrl);
-        loading.setVisibility(View.VISIBLE);
-        iv.setVisibility(View.GONE);
-        iv.setImageDrawable(null);
 
         // 本地图片优先直接解码（file:// / / 开头 / content://）
         if (url != null && (url.startsWith("file://") || url.startsWith("/") || url.startsWith("content://"))) {
@@ -313,6 +329,24 @@ public class ImageGridCardView implements ChatComponent {
             root.removeView(failed);
             loadWithFeedback(root, iv, findLoading(root), url, single);
         });
+        root.addView(failed);
+    }
+
+    /** data: 图片超限/解码失败：浅底占位，不提供"点击重试"（同一串重试也不会变好）。 */
+    private void showInvalidDataImage(FrameLayout root, boolean single) {
+        for (int i = root.getChildCount() - 1; i >= 0; i--) {
+            View child = root.getChildAt(i);
+            if (child instanceof TextView) root.removeViewAt(i);
+        }
+        TextView failed = new TextView(root.getContext());
+        failed.setText("图片无法显示");
+        failed.setTextSize(11);
+        failed.setTextColor(ComponentColors.textTertiary(root.getContext()));
+        failed.setGravity(Gravity.CENTER);
+        failed.setBackgroundColor(ComponentColors.imageError(root.getContext()));
+        failed.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                single ? dp(root.getContext(), 120) : FrameLayout.LayoutParams.MATCH_PARENT));
         root.addView(failed);
     }
 

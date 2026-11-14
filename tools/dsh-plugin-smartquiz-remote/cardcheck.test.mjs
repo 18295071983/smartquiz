@@ -45,5 +45,34 @@ check('体积超限', big, false, 'error');
 // 未知类型不拦（App 有动态兜底）
 check('未知类型放行', { type: 'dsh_future_card', props: { title: 'x' } }, true);
 
+// 2026-11-15 新增卡：key_value / compare（含别名归一）
+check('合法 key_value（二元数组）', {
+  type: 'key_value',
+  props: { title: '账户', items: [['余额', '128.50'], ['状态', '正常']] },
+}, true);
+check('key_value 别名 keyValue 合法', {
+  type: 'keyValue',
+  props: { items: [{ label: '余额', value: '128.50' }] },
+}, true);
+check('key_value 缺 items', { type: 'key_value', props: { title: '账户' } }, false, 'error');
+check('dsh_keyvalue 别名缺 items 也拦', { type: 'dsh_keyvalue', props: {} }, false, 'error');
+check('合法 compare', {
+  type: 'compare',
+  props: { items: [{ title: 'A', rows: [['价格', '1']] }, { title: 'B', rows: { 价格: '2' } }] },
+}, true);
+check('compare 缺 items', { type: 'compare', props: { title: 'A' } }, false, 'error');
+
+// data:image base64 载荷不计入结构体积（但总载荷仍有上限）
+const dataImage = 'data:image/png;base64,' + 'A'.repeat(40 * 1024);
+check('40 KiB data:image 不占结构预算', {
+  type: 'layout',
+  props: { layout: { type: 'column', children: [{ type: 'image', src: dataImage }] } },
+}, true);
+const tooMuchImageData = 'data:image/png;base64,' + 'A'.repeat(2 * 1024 * 1024 + 1);
+check('data:image 总载荷超限', {
+  type: 'layout',
+  props: { layout: { type: 'column', children: [{ type: 'image', src: tooMuchImageData }] } },
+}, false, 'error');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

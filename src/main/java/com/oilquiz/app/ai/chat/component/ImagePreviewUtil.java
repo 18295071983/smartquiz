@@ -49,6 +49,20 @@ public final class ImagePreviewUtil {
                         new android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK));
             }
 
+            // data:image/...;base64,...：本机解码后直接进 PhotoView（不走网络/文件分支）
+            if (DataImageDecoder.isDataImage(url)) {
+                android.graphics.Bitmap dataBmp = DataImageDecoder.decode(url);
+                if (dataBmp != null) {
+                    photoView.setImageBitmap(dataBmp);
+                    loading.setVisibility(android.view.View.GONE);
+                } else {
+                    if (dialog.isShowing()) dialog.dismiss();
+                    android.widget.Toast.makeText(context, "图片无法显示（base64 超限或已损坏）",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                }
+                return;
+            }
+
             // 本地文件路径解析
             String localPath = null;
             if (url.startsWith("file://")) {

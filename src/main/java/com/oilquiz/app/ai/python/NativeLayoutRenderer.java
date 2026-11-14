@@ -52,7 +52,7 @@ import com.oilquiz.app.theme.ThemeColors;
  *         badge(徽章,text/color)/avatar(头像,url,size 圆形)/avatar_group(头像组,urls,size,overlap)/
  *         quote(引用块,text,author)/code(代码块,code,language)/icon(图标,emoji 或字体图标,size,color)
  * - 数据展示: table(headers/rows,striped)/steps(steps=[{title,status}]步骤条)/timeline(items=[{title,time,description}]时间线)/
- *         alert(type=success|warning|error|info,title,content提示条)/stat(label,value,unit,sub指标卡)/
+ *         alert(type=success|warning|error|info,title,content提示条)/stat|metric(label,value,unit,sub指标卡)/
  *         empty(icon,title,description空态)/notice(icon,text,action通知条)/progress_ring(progress环形进度)
  * - 图表: line_chart(categories/series折线)/bar_chart(categories/series柱状)/pie_chart(data=[{label,value}]饼图)/
  *         sparkline(data迷你趋势)
@@ -77,6 +77,12 @@ import com.oilquiz.app.theme.ThemeColors;
  * 值与回传：控件带 key 的值（input/number/password/multiline/otp/email/tel/url/search/file/select/switch/
  * checkbox/radio/slider/date/time/datetime/color/rating/progress）在按钮点击时收集为 JSON；
  * button 的 action 作为点击结果回传；link 的 action 同 button 回传。
+ * 数据绑定（2026-11-15）：任意节点属性可写 {"$":"data.a.b"}，渲染时从 props.data 取值；
+ * text 的 text 与 stat/metric 的 value 还可写 {"=":"a * b"}，由 {@link LayoutFormula} 有界求值
+ * （只认数字、+ - * /、括号、data 路径、min/max/round/abs；其它一律显示 "—"）。输入控件变化时
+ * 写回 props.data 并只刷新同一棵树内登记过的文本/公式节点（见 {@link LayoutBindingScope}）。
+ * 图片：image/avatar/avatar_group/carousel 的 url/src 支持 data:image/...;base64,...（单张
+ * payload ≤ 512 KiB base64、单边 ≤ 4096，超限/解码失败显示浅底"图片无法显示"占位）。
  * 后端组件：button 支持 {action, tool, tool_params} —— tool=后端工具名（如 dashscope_media），
  * 点击直接调用后端工具，tool_params 中 {key} 占位符替换为控件值，结果经组件 result 回传。
  * 尺寸自定义：任意节点支持 width/height 属性（"match"/"fill"=铺满, "wrap"=自适应, 数字=dp, "50%"=百分比仅wrap/grid内），
@@ -113,7 +119,7 @@ public class NativeLayoutRenderer {
             // 文件
             "file",
             // 数据展示
-            "table", "steps", "timeline", "alert", "stat", "empty", "notice",
+            "table", "steps", "timeline", "alert", "stat", "metric", "empty", "notice",
             // 图表（Canvas 自绘）
             "line_chart", "bar_chart", "pie_chart", "sparkline",
             // 工具
@@ -226,7 +232,7 @@ public class NativeLayoutRenderer {
         }
         if (!isLayout && !isControl) {
             return "未知控件类型: " + type
-                    + "（可选: 布局 column/row/scroll/card/wrap/grid/space/tabs/stack/accordion/carousel；展示 text/marquee/image/badge/avatar/avatar_group/quote/code/icon；媒体 video/audio/html；输入 input/number/password/multiline/otp/email/tel/url/search/search_bar/tag_input；选择 select/switch/checkbox/checkbox_group/radio/radio_group/date/time/datetime/color/rating/toggle/dropdown/stepper/slider_range；交互 button/link/slider/progress/spinner/progress_ring；数据 table/steps/timeline/alert/stat/empty/notice；图表 line_chart/bar_chart/pie_chart/sparkline；工具 qrcode/barcode/countdown/calendar/breadcrumb；文件 file；装饰 divider/divider_v/separator；自定义模板 use=名字；已注册组件类型名可直接作 type 嵌套）";
+                    + "（可选: 布局 column/row/scroll/card/wrap/grid/space/tabs/stack/accordion/carousel；展示 text/marquee/image/badge/avatar/avatar_group/quote/code/icon；媒体 video/audio/html；输入 input/number/password/multiline/otp/email/tel/url/search/search_bar/tag_input；选择 select/switch/checkbox/checkbox_group/radio/radio_group/date/time/datetime/color/rating/toggle/dropdown/stepper/slider_range；交互 button/link/slider/progress/spinner/progress_ring；数据 table/steps/timeline/alert/stat|metric/empty/notice；图表 line_chart/bar_chart/pie_chart/sparkline；工具 qrcode/barcode/countdown/calendar/breadcrumb；文件 file；装饰 divider/divider_v/separator；自定义模板 use=名字；已注册组件类型名可直接作 type 嵌套）";
         }
         JSONArray children = node.optJSONArray("children");
         if (children != null) {
@@ -250,7 +256,10 @@ public class NativeLayoutRenderer {
     public static View render(Context context, Object layoutObj, JSONObject props,
                               Map<String, Object> viewRefs) {
         try {
-            if (String.valueOf(layoutObj).length() > MAX_LAYOUT_CHARS) {
+            String layoutText = String.valueOf(layoutObj);
+            // data:image base64 载荷不计入 64 KiB 结构预算（单张上限由 DataImageDecoder 把关），
+            // 否则一张 512 KiB 的图永远过不了这道闸；结构本身仍然受 64 KiB 限制。
+            if (!withinLayoutBudget(layoutText)) {
                 return placeholder(context, "内容过多，已省略");
             }
             NODE_BUDGET.get()[0] = 0;
@@ -291,7 +300,13 @@ public class NativeLayoutRenderer {
                     }
                 }
             }
-            return buildNode(context, node, props, viewRefs, 0, defines);
+            // 绑定作用域：props.data 里的值供 {"$":"data.a"} / {"=":"a+1"} 读取；
+            // 输入控件变化时只刷新本棵树内登记的文本，不重建整张卡。
+            LayoutBindingScope bindingScope = LayoutBindingScope.create(props);
+            viewRefs.put(LayoutBindingScope.REF_KEY, bindingScope);
+            View rootView = buildNode(context, node, props, viewRefs, 0, defines);
+            bindingScope.attach(viewRefs);
+            return rootView;
         } catch (Exception e) {
             android.util.Log.w(TAG, "layout 渲染失败: " + e.getMessage());
             TextView tv = new TextView(context);
@@ -328,6 +343,12 @@ public class NativeLayoutRenderer {
                 }
                 node.remove("style");
             }
+        }
+        // 绑定/公式：{"$":"data.a"} 换成 props.data 的值；{"=":"a+1"} 只保留在
+        // text / stat|metric.value 的取值位置（等渲染到那里再登记，输入变化可重算）。
+        LayoutBindingScope bindingScope = LayoutBindingScope.from(viewRefs);
+        if (bindingScope != null) {
+            node = bindingScope.resolveNode(node);
         }
         // 自定义控件模板引用：use=模板名，模板内 {key} 由本节点 props 替换
         if (node.has("use")) {
@@ -751,7 +772,16 @@ public class NativeLayoutRenderer {
                 renderCar[0] = () -> {
                     String src = String.valueOf(carImages.opt(carIdx[0]));
                     try {
-                        if (src.startsWith("http://") || src.startsWith("https://")) {
+                        if (com.oilquiz.app.ai.chat.component.DataImageDecoder.isDataImage(src)) {
+                            // data: base64 轮播图：本机解码；失败画浅底占位
+                            android.graphics.Bitmap carBmp =
+                                    com.oilquiz.app.ai.chat.component.DataImageDecoder.decode(src);
+                            if (carBmp != null) {
+                                carView[0].setImageBitmap(carBmp);
+                            } else {
+                                carView[0].setImageDrawable(ph);
+                            }
+                        } else if (src.startsWith("http://") || src.startsWith("https://")) {
                             com.bumptech.glide.Glide.with(context).load(src)
                                     .placeholder(ph).error(ph).into(carView[0]);
                         } else {
@@ -877,6 +907,27 @@ public class NativeLayoutRenderer {
                 av.setLayoutParams(avLp);
                 String src = interpolate(node.optString("url", node.optString("src", "")), props);
                 int radius = size / 2;
+                if (com.oilquiz.app.ai.chat.component.DataImageDecoder.isDataImage(src)) {
+                    // data: base64 头像：本机解码成圆形图；失败用浅色圆底占位（不显示裂图）
+                    android.graphics.Bitmap avatarBmp =
+                            com.oilquiz.app.ai.chat.component.DataImageDecoder.decode(src);
+                    if (avatarBmp != null) {
+                        androidx.core.graphics.drawable.RoundedBitmapDrawable round =
+                                androidx.core.graphics.drawable.RoundedBitmapDrawableFactory
+                                        .create(context.getResources(), avatarBmp);
+                        round.setCircular(true);
+                        av.setImageDrawable(round);
+                    } else {
+                        android.graphics.drawable.GradientDrawable failBg =
+                                new android.graphics.drawable.GradientDrawable();
+                        failBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                        failBg.setColor(ComponentColors.imageError(context));
+                        av.setBackground(failBg);
+                    }
+                    String dataKey = node.optString("key", "");
+                    if (!dataKey.isEmpty()) viewRefs.put(dataKey, av);
+                    return av;
+                }
                 if (!src.isEmpty()) {
                     try {
                         com.bumptech.glide.request.RequestOptions avOpts =
@@ -939,7 +990,19 @@ public class NativeLayoutRenderer {
                         ringBg.setColor(ComponentColors.background(context));
                         ringBg.setStroke(dp(2, density), ComponentColors.background(context));
                         agImg.setBackground(ringBg);
-                        if (!url.isEmpty()) {
+                        if (com.oilquiz.app.ai.chat.component.DataImageDecoder.isDataImage(url)) {
+                            android.graphics.Bitmap agBmp =
+                                    com.oilquiz.app.ai.chat.component.DataImageDecoder.decode(url);
+                            if (agBmp != null) {
+                                androidx.core.graphics.drawable.RoundedBitmapDrawable agRound =
+                                        androidx.core.graphics.drawable.RoundedBitmapDrawableFactory
+                                                .create(context.getResources(), agBmp);
+                                agRound.setCircular(true);
+                                agImg.setImageDrawable(agRound);
+                            } else {
+                                agImg.setBackgroundColor(ComponentColors.imageError(context));
+                            }
+                        } else if (!url.isEmpty()) {
                             try {
                                 com.bumptech.glide.request.RequestOptions agOpts =
                                         new com.bumptech.glide.request.RequestOptions()
@@ -1637,6 +1700,20 @@ return attachLabel(context, node, props, row, density);
                 // 连占位图都不画（真机实测：画布里只出现空白，不是裂图）。
                 String src = interpolate(firstNonEmpty(node,
                         "url", "path", "src", "image", "uri"), props);
+                // data:image/...;base64,...：本机解码后直接显示，不走 Glide/文件解析。
+                // 单张 payload > 512 KiB 或单边 > 4096（含解码失败）→ 浅底"图片无法显示"占位。
+                if (com.oilquiz.app.ai.chat.component.DataImageDecoder.isDataImage(src)) {
+                    android.graphics.Bitmap dataBmp =
+                            com.oilquiz.app.ai.chat.component.DataImageDecoder.decode(src);
+                    if (dataBmp != null) {
+                        iv.setImageBitmap(dataBmp);
+                        String dataKey = node.optString("key", "");
+                        if (!dataKey.isEmpty()) viewRefs.put(dataKey, iv);
+                        return iv;
+                    }
+                    return imageUnavailable(context, wDp, hDp, density,
+                            node.optString("key", ""), viewRefs);
+                }
                 final android.graphics.drawable.Drawable ph =
                         new android.graphics.drawable.ColorDrawable(
                                 com.oilquiz.app.ai.chat.component.ComponentColors.imagePlaceholder(context));
@@ -2104,8 +2181,10 @@ return attachLabel(context, node, props, row, density);
                 }
                 return aWrap;
             }
-            case "stat": {
+            case "stat":
+            case "metric": {
                 // 指标卡：label + value(+unit) + 可选 sub（对比/说明），可设 color
+                // metric 是 stat 的别名（2026-11-15）：公式只在这两类的 value 位置生效。
                 LinearLayout statWrap = new LinearLayout(context);
                 statWrap.setOrientation(LinearLayout.VERTICAL);
                 android.graphics.drawable.GradientDrawable statBg = new android.graphics.drawable.GradientDrawable();
@@ -2124,11 +2203,22 @@ return attachLabel(context, node, props, row, density);
                 LinearLayout statValRow = new LinearLayout(context);
                 statValRow.setOrientation(LinearLayout.HORIZONTAL);
                 statValRow.setGravity(Gravity.BOTTOM);
-                String statValue = interpolate(node.optString("value", ""), props);
+                Object statValueRaw = node.opt("value");
                 int statColor = node.has("color") ? parseColor(context, node.optString("color", ""))
                         : ComponentColors.textPrimary(context);
                 TextView statValTv = new TextView(context);
-                statValTv.setText(statValue.isEmpty() ? "-" : statValue);
+                if (LayoutFormula.isBinding(statValueRaw) || LayoutFormula.isFormula(statValueRaw)) {
+                    // 绑定/公式：登记进作用域，输入变化时原地重算；非法公式显示 "—"
+                    LayoutBindingScope statScope = LayoutBindingScope.from(viewRefs);
+                    String statValue = statScope != null
+                            ? statScope.bind(statValTv, statValueRaw)
+                            : LayoutFormula.resolveDisplay(statValueRaw, null);
+                    statValTv.setText(statValue);
+                } else {
+                    String statValue = interpolate(
+                            statValueRaw != null ? String.valueOf(statValueRaw) : "", props);
+                    statValTv.setText(statValue.isEmpty() ? "-" : statValue);
+                }
                 statValTv.setTextSize(24);
                 statValTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
                 statValTv.setTextColor(statColor);
@@ -4011,9 +4101,21 @@ return attachLabel(context, node, props, srWrap, density);
         if (node.has("fontSize")) size = (float) node.optDouble("fontSize", size);
         tv.setTextSize(size);
 
-        String rawText = node.optString("text", "");
+        Object rawTextValue = node.opt("text");
         CharSequence content = buildSpans(context, node.optJSONArray("spans"), size);
-        tv.setText(content != null ? content : interpolate(rawText, props));
+        if (content != null) {
+            tv.setText(content);
+        } else if (LayoutFormula.isBinding(rawTextValue) || LayoutFormula.isFormula(rawTextValue)) {
+            // 绑定/公式取值：登记后输入变化时原地刷新（不必重建整棵树）
+            LayoutBindingScope textScope = LayoutBindingScope.from(viewRefs);
+            String text = textScope != null
+                    ? textScope.bind(tv, rawTextValue)
+                    : LayoutFormula.resolveDisplay(rawTextValue, null);
+            tv.setText(text);
+        } else {
+            String rawText = rawTextValue != null ? String.valueOf(rawTextValue) : "";
+            tv.setText(interpolate(rawText, props));
+        }
 
         tv.setTypeface(weightTypeface(node.optString("weight", ""),
                 node.optBoolean("bold", false)));
@@ -4174,7 +4276,65 @@ return attachLabel(context, node, props, srWrap, density);
     private static final int MAX_NODES = 400;
     private static final int MAX_DEPTH = 9;
     private static final int MAX_LAYOUT_CHARS = 64 * 1024;
+    /**
+     * data:image base64 总载荷上限（4 张 × 512 KiB）。单张上限由
+     * {@link com.oilquiz.app.ai.chat.component.DataImageDecoder} 把关；这里只防"一张卡塞几百张图"。
+     */
+    private static final int MAX_DATA_IMAGE_CHARS = 4 * 512 * 1024;
     private static final ThreadLocal<int[]> NODE_BUDGET = ThreadLocal.withInitial(() -> new int[]{0});
+
+    /**
+     * 结构体积闸门：data:image base64 载荷不计入 64 KiB，但总载荷仍受
+     * {@link #MAX_DATA_IMAGE_CHARS} 限制。否则一张 512 KiB 的图永远过不了 layout 体积检查。
+     */
+    private static boolean withinLayoutBudget(String text) {
+        if (text == null) return true;
+        long total = text.length();
+        long payload = 0;
+        int from = 0;
+        while (true) {
+            int mark = text.indexOf("data:image/", from);
+            if (mark < 0) break;
+            int base64 = text.indexOf(";base64,", mark);
+            if (base64 < 0) {
+                from = mark + "data:image/".length();
+                continue;
+            }
+            int start = base64 + ";base64,".length();
+            int end = start;
+            while (end < total) {
+                char c = text.charAt(end);
+                boolean base64Char = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+                        || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '=';
+                if (!base64Char) break;
+                end++;
+            }
+            payload += end - start;
+            if (payload > MAX_DATA_IMAGE_CHARS) return false;
+            from = Math.max(end, start + 1);
+        }
+        return total - payload <= MAX_LAYOUT_CHARS;
+    }
+
+    /** 图片占位：浅底 + 灰字，明确告诉用户"这张图显示不了"，不是空白/裂图。 */
+    private static TextView imageUnavailable(Context context, int wDp, int hDp, int density,
+                                             String key, Map<String, Object> viewRefs) {
+        TextView tv = new TextView(context);
+        tv.setText("图片无法显示");
+        tv.setTextSize(12f);
+        tv.setTextColor(ComponentColors.textTertiary(context));
+        tv.setGravity(Gravity.CENTER);
+        tv.setBackgroundColor(ComponentColors.imageError(context));
+        if (wDp > 0 && hDp > 0) {
+            tv.setLayoutParams(new LinearLayout.LayoutParams(dp(wDp, density), dp(hDp, density)));
+        } else {
+            tv.setMinHeight(dp(80, density));
+        }
+        if (key != null && !key.isEmpty() && viewRefs != null) {
+            viewRefs.put(key, tv);
+        }
+        return tv;
+    }
 
     /** 灰色占位：某一块画不出来时用它，聊天流其余部分照常 */
     private static TextView placeholder(Context context, String text) {

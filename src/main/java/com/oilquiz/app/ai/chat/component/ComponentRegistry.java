@@ -59,6 +59,9 @@ public class ComponentRegistry {
         register(new GridCardView());
         register(new AlertCardView());
         register(new MetricCardView());
+        // 键值卡 / 对比卡（2026-11-15）：DSH 动态卡的两种高频形状
+        register(new KeyValueCardView());
+        register(new CompareCardView());
         register(new JsonViewerCard());
         register(new StepsCardView());
         register(new FileListCardView());
