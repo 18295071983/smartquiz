@@ -77,6 +77,13 @@ public final class DshTimeline {
          * 这里原样保留，投影时塞进组件 props —— 手机端渲染不读也不影响，读的话无需重新解析。</p>
          */
         public Object meta;
+        /**
+         * {@link #meta} 的稳定摘要（投影指纹用，2026-11-15 §19C）。
+         *
+         * <p>meta 只在 {@code tool/result} 到达时写一次，这里当场算 hash；段指纹每帧只读这个
+         * long，不再重复遍历可能很大的 layout/元数据 JSON。</p>
+         */
+        public long metaDigest = 0L;
 
         Tool(String callId, String name, String args) {
             this.callId = callId != null ? callId : "";
@@ -379,6 +386,8 @@ public final class DshTimeline {
                 Object meta = ev.data.opt("meta");
                 if (meta != null && !(meta instanceof JSONObject && ((JSONObject) meta).length() == 0)) {
                     tool.meta = meta;
+                    // §19C：段指纹要认 layout/元数据变化；只在结果到达时算一次摘要
+                    tool.metaDigest = SegmentComponentDigest.jsonHash(meta);
                 }
                 android.util.Log.i("DshTimeline", "[probe] tool/result OK callId=" + callId
                         + " turn=" + turn + " step=" + step + " error=" + tool.error);
@@ -669,6 +678,25 @@ public final class DshTimeline {
     public int roundOfCard(String key) {
         Integer r = cardRounds.get(key);
         return r == null ? 0 : r;
+    }
+
+    /**
+     * 某次工具调用所在的全局步序号（1 基；0 = 没有这次调用）。
+     *
+     * <p>用途：审批/反问这类"消息级"状态要落到<b>它所属的那一段</b>，而不是永远写尾段。
+     * 审批请求自带 {@code callId}，用它在时间里找到批的那次调用，步号最精确；
+     * 找不到（中继帧缺 callId / 旧数据）调用方才退回 {@link #currentRound()}。</p>
+     */
+    public int roundOfTool(String callId) {
+        if (callId == null || callId.isEmpty()) return 0;
+        int n = 0;
+        for (Map.Entry<Integer, TreeMap<Integer, Step>> e : steps.entrySet()) {
+            for (Step box : e.getValue().values()) {
+                n += 1;
+                if (box.tools.containsKey(callId)) return n;
+            }
+        }
+        return 0;
     }
 
     /** 当前已归约到的轮次数（= 最后一步的全局序号）。审批落在哪一步就用它 */

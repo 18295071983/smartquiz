@@ -8939,6 +8939,88 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
+     * 保证第 {@code index} 段已经建出来（审批/反问可能比投影更早到达新段）。
+     *
+     * <p>事件是按帧批处理的：审批帧到达时时间线可能已经有第 7 步，但帧末才会投影、
+     * 才会 {@link #createDshSegment}。如果这时直接"回退尾段"，审批又会挂错段 ——
+     * 所以这里先按需建段（空段随后照常由投影填内容），语义与 {@code projectDshTail}
+     * 里新建段完全一致。</p>
+     */
+    private ChatMessage ensureDshSegment(int index) {
+        if (index < 0) return null;
+        ensureDshLiveSegmentRegistered();
+        boolean created = false;
+        while (dshLiveSegments.size() <= index) {
+            ChatMessage seg = createDshSegment(dshLiveSegments.size());
+            if (seg == null) return null;
+            dshLiveSegments.add(seg);
+            dshSegmentApprovals.add(0);
+            created = true;
+        }
+        if (created && !dshLiveSegments.isEmpty()) {
+            dshLiveMessage = dshLiveSegments.get(dshLiveSegments.size() - 1);
+        }
+        return dshLiveSegments.get(index);
+    }
+
+    /**
+     * 审批/反问该挂哪一段（2026-11-15，§19C 精确落段）。
+     *
+     * <p>规则：按事件所属的全局步序号算段号（{@link com.oilquiz.app.ai.remote.DshSegmentLocator}），
+     * 不再永远写"当前尾段"。段还没建出来就按需建；<b>步号未知 / 段坐标越界</b>
+     * （旧数据、中继帧缺 step/callId）才回退尾段，并打一行日志说明。</p>
+     *
+     * @param round    事件所属步（1 基；0 = 未知）
+     * @param what     日志用（审批/反问）
+     * @param id       审批 id / 反问批次 id（日志用）
+     * @param fallback 兜底消息（一般传 ensureMirrorBubble 返回的活动尾段）
+     */
+    private ChatMessage dshSegmentForRound(int round, String what, String id, ChatMessage fallback) {
+        ensureDshLiveSegmentRegistered();
+        int known = dshTimeline == null ? 0
+                : com.oilquiz.app.ai.remote.SegmentSealPolicy.segmentCount(dshTimeline.currentRound());
+        int index = com.oilquiz.app.ai.remote.DshSegmentLocator.segmentOfRound(round, known);
+        ChatMessage target = index >= 0 ? ensureDshSegment(index) : null;
+        if (target != null) {
+            // 只有"不是尾段"才打日志：正常审批都发生在当前步，不必每单都刷一行
+            if (index != dshLiveSegments.size() - 1) {
+                AppLogger.ai(TAG, "[DSH] " + what + " id=" + id + " 落段 " + index + "/"
+                        + dshLiveSegments.size() + "（step=" + round + "）");
+            }
+            return target;
+        }
+        ChatMessage tail = dshLiveMessage != null ? dshLiveMessage : fallback;
+        if (tail == null && !dshLiveSegments.isEmpty()) {
+            tail = dshLiveSegments.get(dshLiveSegments.size() - 1);
+        }
+        AppLogger.ai(TAG, "[DSH] " + what + " id=" + id + " 无法定位所属段（step=" + round
+                + "，已建 " + dshLiveSegments.size() + " 段）→ 回退尾段");
+        return tail;
+    }
+
+    /**
+     * 审批事件所属的全局步序号（1 基；0 = 未知）。
+     *
+     * <p>先按 {@code callId} 找"批的那次工具调用"在第几步（最精确），找不到才用时间线
+     * 当前步号（审批多半发生在当前步）。两者都没有（旧数据/中继帧）返回 0，由调用方回退尾段。</p>
+     */
+    private int dshApprovalRound(org.json.JSONObject request) {
+        if (dshTimeline == null) return 0;
+        String callId = request == null ? "" : request.optString("callId", "");
+        int round = dshTimeline.roundOfTool(callId);
+        return round > 0 ? round : dshTimeline.currentRound();
+    }
+
+    /** 反问事件所属的全局步序号：批的那次 ask 在 {@code request.wait.callId} 里。 */
+    private int dshQuestionRound(org.json.JSONObject request) {
+        if (dshTimeline == null) return 0;
+        org.json.JSONObject wait = request == null ? null : request.optJSONObject("wait");
+        String callId = wait == null ? "" : wait.optString("callId", "");
+        int round = dshTimeline.roundOfTool(callId);
+        return round > 0 ? round : dshTimeline.currentRound();
+    }
+
+    /**
      * 一段的投影指纹：只算"投影结果会变"的维度（§19B 失效条件）。
      *
      * <p>卡片 round 是 1 基的原始步序（{@code DshTimeline.roundOfCard}），减 1 就是段内
@@ -8977,9 +9059,18 @@ public class AIChatActivity extends BaseActivity {
         }
         int approvals = segmentIndex >= 0 && segmentIndex < dshSegmentApprovals.size()
                 ? dshSegmentApprovals.get(segmentIndex) : 0;
+        // §19C（2026-11-15）：卡片内容 / 子代理轨迹 / layout 元数据也参与指纹。
+        // 子代理只算尾段：投影把当前全部子代理写进每段，算进每段会让子代理一活跃就让
+        // 所有封口段失效；而甲板读的正是最新一段里的 deck_only 组件。
+        boolean tailSegment = !ordered.isEmpty()
+                && com.oilquiz.app.ai.remote.SegmentSealPolicy.segmentIndex(ordered.size() - 1)
+                == segmentIndex;
+        long componentsDigest = com.oilquiz.app.ai.remote.SegmentComponentDigest.digest(
+                dshTimeline, fromStep, toStep, tailSegment);
         return new com.oilquiz.app.ai.remote.SegmentProjectionCache.Progress(
                 stepsInRange, textChars, thinkingChars,
-                runningTools, finishedTools, toolResultChars, cardsInRange, approvals);
+                runningTools, finishedTools, toolResultChars, cardsInRange, approvals,
+                componentsDigest);
     }
 
     /**
@@ -14806,18 +14897,22 @@ public class AIChatActivity extends BaseActivity {
         if (live == null || request == null) return;
         org.json.JSONArray list = request.optJSONArray("questions");
         if (list == null || list.length() == 0) return;
-        if (live.questions == null) live.questions = new java.util.ArrayList<>();
+        // §19C（2026-11-15）：反问也是消息级状态，按 ask 所属的段挂（wait.callId → 那次调用的步），
+        // 不再永远写活动尾段；步号缺失时回退尾段并打日志。
+        int round = dshTimeline.currentRound();
+        ChatMessage target = dshSegmentForRound(dshQuestionRound(request), "反问", batchId, live);
+        if (target == null) return;
+        if (target.questions == null) target.questions = new java.util.ArrayList<>();
         String callId = "";
         org.json.JSONObject wait = request.optJSONObject("wait");
         if (wait != null) callId = wait.optString("callId", "");
-        int round = dshTimeline.currentRound();
         long now = System.currentTimeMillis();
         for (int i = 0; i < list.length(); i += 1) {
             org.json.JSONObject q = list.optJSONObject(i);
             if (q == null) continue;
             String qid = q.optString("id", "q" + i);
             boolean exists = false;
-            for (ChatMessage.QuestionRequest old : live.questions) {
+            for (ChatMessage.QuestionRequest old : target.questions) {
                 if (old != null && qid.equals(old.id)
                         && (batchId == null || batchId.equals(old.batchId))) {
                     exists = true;
@@ -14838,9 +14933,9 @@ public class AIChatActivity extends BaseActivity {
             req.status = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.APPROVAL_PENDING;
             req.round = round;
             req.timestamp = now;
-            live.questions.add(req);
+            target.questions.add(req);
         }
-        refreshDshQuestionMessage(live);
+        refreshDshQuestionMessage(target);
     }
 
     /** 电脑端已处理/撤回：把还挂着的问题标过期 */
@@ -15230,27 +15325,34 @@ public class AIChatActivity extends BaseActivity {
 
     private void addDshApproval(ChatMessage live, String id, org.json.JSONObject request) {
         if (live == null || id == null || id.isEmpty()) return;
-        if (live.approvals == null) live.approvals = new java.util.ArrayList<>();
-        for (ChatMessage.ApprovalRequest a : live.approvals) {
+        // §19C（2026-11-15）：审批挂到"批的那次调用"所在段，而不是永远挂尾段。
+        // 批的是 step2 的 pwsh，就落 G0；到第 7 步之后才收到也一样（时间线里能查到）。
+        int round = dshApprovalRound(request);
+        ChatMessage target = dshSegmentForRound(round, "审批", id, live);
+        if (target == null) return;
+        if (target.approvals == null) target.approvals = new java.util.ArrayList<>();
+        for (ChatMessage.ApprovalRequest a : target.approvals) {
             if (a != null && id.equals(a.id)) return; // 事件重放：只留一条
         }
         // callId 必须带上：PartRenderer 用它把审批钉到对应工具卡下面（以前写死空串，
         // 于是审批在时间线里是"漂着的一张卡"，跟 pwsh/read 那次调用对不上）。
         String callId = request == null ? "" : request.optString("callId", "");
-        live.approvals.add(new ChatMessage.ApprovalRequest(
+        target.approvals.add(new ChatMessage.ApprovalRequest(
                 id, callId == null ? "" : callId,
                 com.oilquiz.app.ai.remote.DshCards.approvalTool(request),
                 com.oilquiz.app.ai.remote.DshCards.approvalDetail(request),
                 com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.APPROVAL_PENDING,
-                dshTimeline.currentRound(), System.currentTimeMillis(), "dsh"));
+                round > 0 ? round : dshTimeline.currentRound(),
+                System.currentTimeMillis(), "dsh"));
         relayApprovalIds.add(id);
-        // §19B 失效口径：审批是消息级字段（不进 DshProjection），但"审批插入"必须让所在段
-        // 重新投影/重绑；这里给段记账，封口段收到审批也能被指纹命中（正常只落活动尾段）。
-        int seg = dshLiveSegments.indexOf(live);
-        if (seg >= 0 && seg < dshSegmentApprovals.size()) {
+        // §19B 失效口径：审批是消息级字段（不进 DshProjection），卡片重绑由 refresh 完成。
+        // 只有活动段才记审批计数：封口段事后收到审批时，投影也不会搬动审批 part
+        // （AssistantTurn 的 approval part 生产者已停用），记了反而会打破「封口重建=0」。
+        int seg = dshLiveSegments.indexOf(target);
+        if (seg >= 0 && seg < dshSegmentApprovals.size() && !dshSegmentCache.isSealed(seg)) {
             dshSegmentApprovals.set(seg, dshSegmentApprovals.get(seg) + 1);
         }
-        refreshDshApprovalMessage(live);
+        refreshDshApprovalMessage(target);
     }
 
     /**
@@ -15303,6 +15405,81 @@ public class AIChatActivity extends BaseActivity {
             changed = true;
         }
         if (changed) refreshDshApprovalMessage(live);
+    }
+
+    /**
+     * {@code approval_gone} / {@code approval/decided}：按 id 找它<b>所属的那一段</b>再清
+     * （2026-11-15，§19C）。
+     *
+     * <p>以前只对活动尾段调 {@link #resolveDshApproval}，于是审批挂在 G0、人却在 G1 时，
+     * 电脑端答完手机上的 pending 永远不掉（通知栏虚高）。现在先用
+     * {@link com.oilquiz.app.ai.remote.DshSegmentLocator} 定位段，再落到非段历史消息兜底。</p>
+     */
+    private boolean resolveDshApprovalById(String id, String outcome) {
+        if (id == null || id.isEmpty()) {
+            // 没有 id 的撤销（旧审计帧）只能全量兜底：仍是按消息定位，不再假设只有尾段
+            for (ChatMessage seg : dshLiveSegments) resolveDshApproval(seg, null, outcome);
+            return false;
+        }
+        int seg = com.oilquiz.app.ai.remote.DshSegmentLocator.segmentOfApproval(dshLiveSegments, id);
+        ChatMessage target = seg >= 0 ? dshLiveSegments.get(seg) : null;
+        if (target != null) {
+            if (seg != dshLiveSegments.size() - 1) {
+                AppLogger.ai(TAG, "[DSH] 审批撤销 id=" + id + " 清段 " + seg + "/"
+                        + dshLiveSegments.size());
+            }
+            resolveDshApproval(target, id, outcome);
+            return true;
+        }
+        // 段列表之外的历史消息（旧路径/已归档会话）按 id 扫一遍，别让 pending 永远挂着
+        if (chatHistory != null) {
+            for (ChatMessage m : chatHistory) {
+                if (m == null || m.approvals == null) continue;
+                for (ChatMessage.ApprovalRequest a : m.approvals) {
+                    if (a == null || !id.equals(a.id)) continue;
+                    AppLogger.ai(TAG, "[DSH] 审批撤销 id=" + id + " 命中非段消息 " + m.id);
+                    resolveDshApproval(m, id, outcome);
+                    return true;
+                }
+            }
+        }
+        AppLogger.ai(TAG, "[DSH] 审批撤销 id=" + id + " 未找到所属消息（可能已落盘/旧数据）");
+        return false;
+    }
+
+    /**
+     * {@code question_gone}：按批次 id 找所属段再清（2026-11-15，§19C）。
+     * 口径与审批一致：先段内定位，再扫非段历史消息，最后打一行日志说明。
+     */
+    private boolean resolveDshQuestionBatch(String batchId) {
+        if (batchId == null || batchId.isEmpty()) {
+            for (ChatMessage seg : dshLiveSegments) resolveDshQuestions(seg, null);
+            return false;
+        }
+        int seg = com.oilquiz.app.ai.remote.DshSegmentLocator.segmentOfQuestionBatch(
+                dshLiveSegments, batchId);
+        ChatMessage target = seg >= 0 ? dshLiveSegments.get(seg) : null;
+        if (target != null) {
+            if (seg != dshLiveSegments.size() - 1) {
+                AppLogger.ai(TAG, "[DSH] 问卡撤销 id=" + batchId + " 清段 " + seg + "/"
+                        + dshLiveSegments.size());
+            }
+            resolveDshQuestions(target, batchId);
+            return true;
+        }
+        if (chatHistory != null) {
+            for (ChatMessage m : chatHistory) {
+                if (m == null || m.questions == null) continue;
+                for (ChatMessage.QuestionRequest q : m.questions) {
+                    if (q == null || !batchId.equals(q.batchId)) continue;
+                    AppLogger.ai(TAG, "[DSH] 问卡撤销 id=" + batchId + " 命中非段消息 " + m.id);
+                    resolveDshQuestions(m, batchId);
+                    return true;
+                }
+            }
+        }
+        AppLogger.ai(TAG, "[DSH] 问卡撤销 id=" + batchId + " 未找到所属消息（可能已落盘/旧数据）");
+        return false;
     }
 
     /**
@@ -15458,12 +15635,13 @@ public class AIChatActivity extends BaseActivity {
                     addDshQuestions(live, action.id, action.request);
                     break;
                 case APPROVAL_GONE:
-                    resolveDshApproval(live, action.id, action.outcome);
+                    // §19C：按 id 定位到审批所属段再清，不再假设它一定在尾段
+                    resolveDshApprovalById(action.id, action.outcome);
                     clearRelayApprovals(null);   // 中继 id 与审计 id 不同源，一并收掉
                     refreshAttentionSlot();       // 电脑端答了 → 通知栏也要撤
                     break;
                 case QUESTION_GONE:
-                    resolveDshQuestions(live, action.id);
+                    resolveDshQuestionBatch(action.id);
                     break;
                 default:
                     break;
@@ -16119,14 +16297,8 @@ public class AIChatActivity extends BaseActivity {
         }
         if ("approval_gone".equals(type)) {
             String goneId = ev.optString("id", "");
-            if (chatHistory != null) {
-                for (ChatMessage m : chatHistory) {
-                    if (m == null || m.approvals == null) continue;
-                    for (ChatMessage.ApprovalRequest a : m.approvals) {
-                        if (a != null && goneId.equals(a.id)) resolveDshApproval(m, goneId);
-                    }
-                }
-            }
+            // §19C：按 id 定位到审批所属段再清（以前只清尾段，前面的 pending 永远不掉）
+            resolveDshApprovalById(goneId, "");
             dismissDshApprovalDialog(goneId);
             clearRelayApprovals(null);
             refreshAttentionSlot();
@@ -16154,19 +16326,8 @@ public class AIChatActivity extends BaseActivity {
         if ("question_gone".equals(type)) {
             String goneId = ev.optString("id", "");
             AppLogger.ai(TAG, "[DSH] 问卡撤销 id=" + goneId);
-            if (chatHistory != null) {
-                for (ChatMessage m : chatHistory) {
-                    if (m == null || m.questions == null) continue;
-                    boolean hit = false;
-                    for (ChatMessage.QuestionRequest q : m.questions) {
-                        if (q != null && goneId.equals(q.batchId)) {
-                            hit = true;
-                            break;
-                        }
-                    }
-                    if (hit) resolveDshQuestions(m, goneId);
-                }
-            }
+            // §19C：按批次 id 定位到反问所属段再清
+            resolveDshQuestionBatch(goneId);
             dismissDshQuestionDialog(goneId);
             refreshAttentionSlot();
             return;

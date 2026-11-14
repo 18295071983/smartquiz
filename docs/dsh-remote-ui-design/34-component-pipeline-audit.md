@@ -620,7 +620,7 @@ public static boolean isSealed(int segmentIndex, int lastSegmentIndex, boolean h
 
 - **缓存载体就是段消息本身**：封口段的 `ChatMessage` 不再调用 `project()`，实例、已绑定
   的 `roundSnapshots/components` 与 RecyclerView 视图都不动；只有活动段每帧重建。
-- **段内容指纹** `Progress`：`steps / textChars / thinkingChars / runningTools / finishedTools / toolResultChars / cards / approvals`。
+- **段内容指纹** `Progress`：`steps / textChars / thinkingChars / runningTools / finishedTools / toolResultChars / cards / approvals / componentsDigest`。
   `plan()` 每帧对每个封口段比一次指纹，相等就跳过（计入 `skippedSealed`）。
 - **失效条件**（每条都有单测）：
 
@@ -629,7 +629,8 @@ public static boolean isSealed(int segmentIndex, int lastSegmentIndex, boolean h
 | 新增段 | 段数增加 / 新槽位未投影 | 只投影新段；旧段仅内容变了才收口 |
 | 工具结果晚到 | 段内 `running/finished/resultChars` 变化 | 重建该封口段 |
 | 卡片增删 | `roundOfCard` 落在该段的卡片数变化 | 重建该封口段 |
-| 审批插入 | 该段审批计数变化（消息级字段） | 重建该段 |
+| 卡片内容/子代理/layout 变化 | `componentsDigest`（每张卡 `type,key,关键字段` 的 hash）变化 | 重建该封口段（一次） |
+| 审批插入 | 该段审批计数变化（消息级字段；只有活动段记账） | 活动段重建/重绑；封口段只重绑不投影 |
 | 权威正文晚到 | 段内 `textChars/thinkingChars` 变化 | 重建该段 |
 | 空步补内容 | 段内 `steps` 变化 | 重建该段 |
 | **纯尾部文本追加** | 只改最后一段 | **封口段不失效** |
@@ -637,8 +638,9 @@ public static boolean isSealed(int segmentIndex, int lastSegmentIndex, boolean h
 
 ### 3.7 Activity 接线（旧 §19.4）
 
-- `ensureMirrorBubble()` 同回合返回**活动尾段**（审批/反问消息级状态写尾段），
-  `dshMirrorMessage` 仍是本回合第 0 段（`mirrorUserMessage` 插用户消息的锚点要往前插）。
+- `ensureMirrorBubble()` 同回合返回**活动尾段**；审批/反问不再直接写尾段，而是按事件所属段落
+  挂到对应段（`callId`/step，见 §3.11），`dshMirrorMessage` 仍是本回合第 0 段
+  （`mirrorUserMessage` 插用户消息的锚点要往前插）。
 - 新回合/新会话/清空/快照：`resetDshSegments()` 清空段列表、段审批计数与守卫计数；
   第 0 段是 `ensureMirrorBubble` 建的原气泡，后续段在流式期按 6 步边界用
   `ChatIdDispatcher.nextDshSegmentId()`（`DSH_SEGMENT`，`T12-G1`）新建，组件 id 按
@@ -710,16 +712,56 @@ public static boolean isSealed(int segmentIndex, int lastSegmentIndex, boolean h
 `build/proj-verify/chat-now.png`：尾段只含 echo 7/echo 8 与总结，前 6 个 echo 在上一段。
 说明消息流/工具卡/正文仍正确，且相邻两段是独立消息（不再是一轮结束后重新拆）。
 
+**2026-11-15 本轮补丁真机复验**：最终装机 sha256 `8A0D5498B248E052EAA14EE9FBD3EC765ACC31141C21FB50E8E1788A710FE21B`
+（同逻辑的上一包 `F54F3DE2…D6ED` 重进聊天页回放 38 条事件时打出
+`[proj] 段=1/1/0 重建=封口0 活动1 耗时=1ms`，新指纹没有让封口段产生额外重建；
+最终包重进页面回放 32 条事件，`[proj] 段=0/0/0` —— 该窗口没有新 step，未产生投影）。
+串行 8 步多段场景本轮**未能**在真机上重做：本轮工作由 subagent 执行，
+手机跟随的是主会话，subagent 的 8 次 `pwsh` 只以 `subagent/activity`/插槽帧出现，不产生
+主会话 step（logcat 内没有新的 `[proj]`）；多段封口=0 由
+`SegmentProjectionCacheTest#guardsNeverReportSealedRebuildsForNormalGrowth`（20 步逐帧）与
+上一轮 turn 94 的真机记录兜底。
+
 单测：新增 `SegmentSealPolicyTest` 4 项 + `SegmentProjectionCacheTest` 13 项，全绿
 （封口判定 / 新增段 / 工具结果晚到 / 卡片增删 / 审批插入 / 纯尾部文本不失效 /
 收口一次 / 正常增长全程封口=0）。全量 `testDebugUnitTest` 仍有既有失败
 （如 `DshProjectionMetaTest` 期望 `props.meta` 是 JSONObject，HEAD 投影写入的是 String），
-与本次改动无关。
+与本次改动无关。本轮扩到：`DshSegmentLocatorTest` 5 项 + `SegmentComponentDigestTest` 10 项，
+`SegmentProjectionCacheTest` 15 项、`SegmentSealPolicyTest` 4 项，四类共 34 项全绿。
 
 ### 3.10 本章边界（见 §7.3）
 
-文本旁路未做、审批是消息级字段、子代理卡不在指纹里、同帧跨两轮、快照重建、卡片跨段重复
+文本旁路未做、审批是消息级字段、子代理卡只算尾段、同帧跨两轮、快照重建、卡片跨段重复
 —— 见 §7.3。
+
+### 3.11 审批精确落段与非工具组件指纹（2026-11-15，旧 §19C）
+
+**① 审批/反问落段**。消息级状态（`msg.approvals/questions`）不再一律写「当前尾段」：
+
+- `approval` / `approval/asked`：用请求里的 `callId` 走 `DshTimeline.roundOfTool()` 找到被批的
+  那次工具调用在第几步（本步 `ask` 用 `request.wait.callId`），`round - 1` 除以 6 得到段号，
+  挂到那一段消息上；段还没被投影出来就按需建（空段随后照常由投影填内容）。
+- `approval_gone` / `approval/decided` / `question_gone`：按 id 在段列表里定位**原段**再清，
+  不再假设它一定在尾段（否则审批挂在 G0、人滑到 G1 时，pending 永远不掉）。
+- 定位不到（旧数据、中继帧缺 step/callId、段号越界）→ 回退当前尾段，并打一行
+  `[DSH] … 无法定位所属段 → 回退尾段`；gone 找不到则扫一遍非段历史消息再打日志。
+- 审批仍不进 `DshProjection`（`AssistantTurn` 的 approval/question part 生产者已停用），
+  封口段事后收到审批只做该段重绑、**不重投影**——否则「封口重建=0」会被事后审批打破。
+- 回归单测：`DshSegmentLocatorTest`（round→段、缺 step/越界回退、gone 找原段、`roundOfTool`）。
+
+**② 非工具组件进指纹**。旧指纹只数落在段内的卡片**张数**，卡片内容变化（子代理轨迹更新、
+job/alert 状态、layout 换版）不触发重建。新增 `SegmentComponentDigest`：
+
+- 段内每张卡取 `(type, key, 关键字段摘要)` 拼 hash：`type/key` 定位，关键字段白名单见类注释，
+  `dynamic`（未知事件兜底卡）没有固定 schema 故全字段参与；`layout` 不在 cards 里，取
+  `tool/result.meta` 摘要（结果到达时算一次存进 `Tool.metaDigest`，指纹每帧只读 long）；
+  子代理轨迹按 `label/mode/lastText/steps` 参与。
+- **子代理只算尾段**：投影会把当前全部子代理写进每段，算进每段会让子代理一活跃就让所有
+  封口段失效；而甲板读的正是最新一段的 `deck_only` 组件。
+- 摘要存进 `Progress.componentsDigest`，变化时 `diff()` 报「组件」；封口段只重建一次。
+  无关字段（埋点 `noise`、JSON 键顺序不同）不算，避免每帧误判。
+- 回归单测：`SegmentComponentDigestTest`（10 条：状态变化/无关字段/键顺序/范围/layout/
+  子代理闭环重建）+ `SegmentProjectionCacheTest`（15 条：摘要变化重建、摘要不变跳过）。
 
 ## 4. 组件与卡片：37 张通用卡、动态兜底、校验器
 
@@ -1484,10 +1526,13 @@ ChatMessage ──AssistantTurn──▶ parts[]：reasoning / text / tool_call 
 | 维度 | 在线 agent | DSH 同步消息 |
 |---|---|---|
 | 一条消息的 part 数 | 1~5 | 150+（优化前）→ ≈13（轮次合并后）→ 流式期即时 2 段 |
-| 复用粒度 | part（按指纹） | 先按 part，2026-11-15 后封口段整段复用（§3.5） |
+| 复用粒度 | part（按指纹） | 先按 part，2026-11-15 后封口段整段复用 + 段内组件摘要（§3.6/§3.11） |
 | 回收单位 | 消息 | 消息（6 步一条，见 §3.7） |
 
 修法分两步：轮次合并把 part 数拉回在线量级（§3.3），尾段增量投影让封口段不再每帧重建（§3.5）。
+段内组件摘要（§3.11）是「整段复用」的补丁：封口段按 `(type,key,关键字段摘要)` 判断卡片/
+子代理/layout 是否真的变了 —— 没变继续复用视图，变了只重建那一段，不会因为子代理活跃而把
+每一段都重绑（消息流本身不画 `deck_only` 子代理卡，重建只为让甲板/落盘数据跟上最新值）。
 
 ## 7. 已知边界与未做项
 
@@ -1562,12 +1607,13 @@ ChatMessage ──AssistantTurn──▶ parts[]：reasoning / text / tool_call 
 - **文本旁路未做**：活动段的纯文本追加仍走区间 `project()`（0–1ms），没有改成
   `updateAIMessageContent` 之类的轻量更新。原因：投影同时要维护
   `roundSnapshots/contentRoundBounds/components`，只改 `content` 会让三份视图不一致。
-- **审批是消息级字段**：审批/反问落在段消息的 `msg.approvals/questions` 上，
-  不进 `DshProjection`。守卫里按段记了审批计数（失效口径），但审批实际只写当前尾段；
-  封口段事后收到审批时，投影重建不会搬动审批卡，只保证指纹口径可见。
-- **子代理卡不在指纹里**：`subagent_card` 是 `deck_only`，且投影会把当前全部子代理
-  写进每段；封口段里的子代理卡可能落后于甲板实时值（消息流不画它，落盘数据除外）。
-  本次未把子代理指纹纳入（纳入会让子代理活跃时所有封口段每帧失效）。
+- **审批/反问仍是消息级字段**（不进 `DshProjection`）：本轮已按 `callId`/step 把审批/反问
+  落到所属段（§3.11）；封口段事后收到审批只重绑该段、不重投影，避免破坏「封口重建=0」。
+  审批卡在消息流里仍不渲染（`AssistantTurn` 的 approval/question part 生产者已停用），
+  呈现走对话框/甲板/通知栏。
+- **子代理卡只算尾段指纹**：`subagent_card` 是 `deck_only`，且投影会把当前全部子代理写进
+  每段。摘要只算尾段（甲板读最新一段的副本），非尾段里的副本仍可能落后于甲板实时值
+  （消息流不画它，落盘数据除外）；把子代理算进每段会让子代理活跃时所有封口段每帧失效。
 - **同一帧里跨两轮**：`endedHere` 已避免把新回合第一段误封；但如果「上一轮结束」和
   「下一轮开始」在同一帧，上一轮的多段不会补最后收口投影（下一轮开始会 reset 段列表）。
   实际事件流里极少见，重连补拉时可能出现。

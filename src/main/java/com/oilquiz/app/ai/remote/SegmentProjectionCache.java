@@ -20,7 +20,8 @@ import java.util.List;
  * <ol>
  *   <li><b>新增段</b>：段数增加 → 新段首次投影，旧段只在内容确实变了时收口；</li>
  *   <li><b>工具结果晚到</b>：段内 {@code running/finished/resultChars} 变化 → 重建；</li>
- *   <li><b>卡片增删</b>：round 落在该段的卡片数量变化 → 重建；</li>
+ *   <li><b>卡片增删 / 内容变化</b>：round 落在该段的卡片数量或组件摘要变化 → 重建
+ *       （摘要见 {@link SegmentComponentDigest}：卡片关键字段 + 子代理轨迹 + layout 元数据）；</li>
  *   <li><b>审批插入</b>：该段审批计数变化 → 重建（审批是消息级字段，见 Activity 记账）；</li>
  *   <li><b>正文/思考追加</b>：段内字符数变化 → 重建（活动段天然满足；封口段只有
  *       权威 {@code assistant/message} 晚到才会命中，属于必须救回的内容）；</li>
@@ -60,10 +61,25 @@ public final class SegmentProjectionCache {
         public final int cards;
         /** 本段插入的审批数（审批是消息级字段；用于失效口径，不参与组件投影） */
         public final int approvals;
+        /**
+         * 段内非工具组件的稳定摘要（2026-11-15，§19C）。
+         *
+         * <p>卡片张数不变、但卡片<b>内容</b>变了（子代理轨迹更新、job/alert 状态变化、
+         * layout 元数据换版）时，仅靠 {@link #cards} 是发现不了的。这里存
+         * {@link SegmentComponentDigest} 的摘要：相同内容必同值，变化才失效（每帧只滚 hash）。</p>
+         */
+        public final long componentsDigest;
 
         public Progress(int steps, int textChars, int thinkingChars,
                         int runningTools, int finishedTools, int toolResultChars,
                         int cards, int approvals) {
+            this(steps, textChars, thinkingChars, runningTools, finishedTools, toolResultChars,
+                    cards, approvals, 0L);
+        }
+
+        public Progress(int steps, int textChars, int thinkingChars,
+                        int runningTools, int finishedTools, int toolResultChars,
+                        int cards, int approvals, long componentsDigest) {
             this.steps = steps;
             this.textChars = textChars;
             this.thinkingChars = thinkingChars;
@@ -72,10 +88,11 @@ public final class SegmentProjectionCache {
             this.toolResultChars = toolResultChars;
             this.cards = cards;
             this.approvals = approvals;
+            this.componentsDigest = componentsDigest;
         }
 
         public static Progress empty(int steps) {
-            return new Progress(steps, 0, 0, 0, 0, 0, 0, 0);
+            return new Progress(steps, 0, 0, 0, 0, 0, 0, 0, 0L);
         }
 
         @Override
@@ -90,7 +107,8 @@ public final class SegmentProjectionCache {
                     && finishedTools == p.finishedTools
                     && toolResultChars == p.toolResultChars
                     && cards == p.cards
-                    && approvals == p.approvals;
+                    && approvals == p.approvals
+                    && componentsDigest == p.componentsDigest;
         }
 
         @Override
@@ -103,6 +121,7 @@ public final class SegmentProjectionCache {
             h = h * 31 + toolResultChars;
             h = h * 31 + cards;
             h = h * 31 + approvals;
+            h = h * 31 + (int) (componentsDigest ^ (componentsDigest >>> 32));
             return h;
         }
 
@@ -110,7 +129,8 @@ public final class SegmentProjectionCache {
         public String toString() {
             return "Progress{steps=" + steps + " text=" + textChars + " think=" + thinkingChars
                     + " tools=" + runningTools + "/" + finishedTools + " res=" + toolResultChars
-                    + " cards=" + cards + " approvals=" + approvals + '}';
+                    + " cards=" + cards + " approvals=" + approvals
+                    + " digest=" + Long.toHexString(componentsDigest) + '}';
         }
     }
 
@@ -337,6 +357,7 @@ public final class SegmentProjectionCache {
             parts.add("工具结果");
         }
         if (before.cards != after.cards) parts.add("卡片");
+        else if (before.componentsDigest != after.componentsDigest) parts.add("组件");
         if (before.approvals != after.approvals) parts.add("审批");
         if (parts.isEmpty()) return "内容";
         StringBuilder sb = new StringBuilder();

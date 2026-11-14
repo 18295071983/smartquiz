@@ -20,6 +20,7 @@ import java.util.Map;
  *   <li>活动段重建：每帧只重建最后一段；</li>
  *   <li>新增段：只投影新段，旧段不重建；</li>
  *   <li>工具结果晚到 / 卡片增删 / 审批插入：封口段必须重建；</li>
+ *   <li>非工具组件（子代理轨迹/卡片内容/layout）摘要变化：封口段必须重建；摘要不变则不建；</li>
  *   <li>纯尾部文本追加：只动活动段，封口段不失效。</li>
  * </ul>
  */
@@ -55,6 +56,12 @@ public class SegmentProjectionCacheTest {
             SegmentProjectionCache.Progress p, int approvals) {
         return new SegmentProjectionCache.Progress(p.steps, p.textChars, p.thinkingChars,
                 p.runningTools, p.finishedTools, p.toolResultChars, p.cards, approvals);
+    }
+
+    private static SegmentProjectionCache.Progress withDigest(
+            SegmentProjectionCache.Progress p, long digest) {
+        return new SegmentProjectionCache.Progress(p.steps, p.textChars, p.thinkingChars,
+                p.runningTools, p.finishedTools, p.toolResultChars, p.cards, p.approvals, digest);
     }
 
     private static void projectAll(SegmentProjectionCache cache,
@@ -236,6 +243,38 @@ public class SegmentProjectionCacheTest {
         assertEquals(0, p.rebuilds().get(0).index);
         assertEquals(SegmentProjectionCache.Kind.SEALED_REBUILD, p.rebuilds().get(0).kind);
         assertTrue(p.rebuilds().get(0).reason.contains("步数"));
+    }
+
+    @Test
+    public void componentDigestChangeRebuildsSealedSegment() {
+        // §19C：卡片张数没变、内容变了（子代理/job/alert/layout）也要让封口段重建
+        SegmentProjectionCache cache = new SegmentProjectionCache();
+        SegmentProjectionCache.Progress base = withDigest(progress(6, 60, 1, 1, 100, 1), 111L);
+        Source src = new Source().put(0, base)
+                .put(1, withDigest(progress(2, 10, 0, 0, 0, 0), 222L));
+        projectAll(cache, cache.plan(8, false, src));
+
+        src.put(0, withDigest(progress(6, 60, 1, 1, 100, 1), 333L));
+        SegmentProjectionCache.Plan p = cache.plan(8, false, src);
+        assertEquals(0, p.rebuilds().get(0).index);
+        assertEquals(SegmentProjectionCache.Kind.SEALED_REBUILD, p.rebuilds().get(0).kind);
+        assertTrue("差异原因应标成组件：" + p.rebuilds().get(0).reason,
+                p.rebuilds().get(0).reason.contains("组件"));
+        projectAll(cache, p);
+        assertEquals(1, cache.sealedRebuilds());
+    }
+
+    @Test
+    public void componentDigestUnchangedKeepsSealedSegmentSkipped() {
+        // 摘要稳定（无关字段变化/同内容重算）→ 封口段继续跳过，验收口径 0 不破
+        SegmentProjectionCache cache = new SegmentProjectionCache();
+        Source src = new Source()
+                .put(0, withDigest(progress(6, 60, 0, 2, 200, 1), 111L))
+                .put(1, withDigest(progress(2, 10, 0, 0, 0, 0), 222L));
+        projectAll(cache, cache.plan(8, false, src));
+        SegmentProjectionCache.Plan p = cache.plan(8, false, src);
+        assertTrue(p.rebuilds().size() == 1 && p.rebuilds().get(0).index == 1);
+        assertEquals(0, cache.sealedRebuilds());
     }
 
     @Test
