@@ -113,7 +113,12 @@ public final class RemoteChannel {
         while (!closed) {
             final boolean[] gotAnything = {false};
             try {
-                RemoteDshTool.subscribeEvents(app, sid, lastSeq, 300, true, 5000, (String) null,
+                // STREAM-TTL(2026-11-14)：以前这里传 300 —— 服务端到点就"正常收尾"，
+                // 于是**每 5 分钟**必然断一次、重连一次（空窗 ~1s，隧道再抖一下就变成
+                // 用户看到的"SSE 流不稳定"）。跟随流本来就不该按时间断：
+                // 存活由服务端 10s 一条 pulse + 客户端 35s 读超时判定，所以这里放到
+                // 30 分钟（= subscribeEvents 自己的 deadline），只在真死链时才重连。
+                RemoteDshTool.subscribeEvents(app, sid, lastSeq, 1800, true, 5000, (String) null,
                         new RemoteDshTool.DshEventListener() {
                             @Override
                             public void onReady(int seq) {
