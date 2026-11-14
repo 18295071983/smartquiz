@@ -214,6 +214,14 @@ public final class ComponentTypes {
         alias.put("radar_chart", "chart");
         alias.put("code_card", "code");
         alias.put("json_viewer", "json");
+        // 2026-11-15：dsh_command / dsh_notice / dsh_job 三个 DSH 专用卡已合并进内置卡
+        // （code / alert / job），但**历史会话里还存着旧类型名** —— 不登记别名就会被
+        // 动态兜底接住，渲染成一张「原始 JSON」卡（真机反馈：dsh_command 变 JSON 卡）。
+        alias.put("dsh_command", "code");
+        alias.put("dsh_notice", "alert");
+        alias.put("dsh_job", "job");
+        alias.put("dsh_tool", "tool_call");
+        alias.put("dsh_subagent", "subagent_card");
         alias.put("markdown_card", "markdown");
         // 2026-10-25：整篇文档卡（.md 文件/全文）。短名 md 方便模型直接写 component_type=md
         alias.put("md", "markdown_doc");
