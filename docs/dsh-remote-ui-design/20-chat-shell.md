@@ -225,19 +225,28 @@ refreshRemoteDshBar()   ← 保留，只管状态条（仍被 hide）
 
 ### 5.1 现状差集
 
-`DshTimeline` 归约 21 类（`turn/*`、`step/*`、`assistant/message`、`tool/call|result`、`approval*`、`question*`、`stream/*`、`session/title`、`plan/mode`、`subagent/activity`、`schedule/changed`）。插件转发 40+ 类，差集里按价值分三档：
+`DshTimeline` 的显式 `case` 有 21 类（`turn/*`、`step/*`、`assistant/message`、`tool/call|result`、`approval*`、`question*`、`stream/*`、`session/title`、`plan/mode`、`subagent/activity`、`schedule/changed`）。插件转发 40+ 类。
 
-| 档 | 事件 | 现状 | 建议落点 |
+**修正（2026-11-14 核查）**：差集不等于"扔掉" —— `DshTimeline.reduce` 的 `default` 分支是
+`DshCards.handles(type) ? cardMapper.map(ev, turn) : null`，而 `DshCards.handles()` 已经覆盖
+下表 A 档全部类型，`DshCards.map()` 也早就有对应卡片（`todo_card` / `dsh_command` / `dsh_job` /
+`dsh_notice` / `file_list`）。也就是说 **A 档在代码上是通的**，之前只看了 `switch` 的 case 数。
+
+| 档 | 事件 | 现状（核查后） | 落点 |
 |---|---|---|---|
-| **A 高频、用户能感知** | `todo/write` | 丢 | 待办卡（`TodoCardView` 已有） |
-| | `command/run`、`command/done` | 丢 | 命令卡（带退出码/耗时） |
-| | `job/registered`、`job/settled` | 只进插槽 | 插槽 + 卡片角标（完成态留痕） |
-| | `goal/change` | 只进插槽 | 目标卡 |
-| | `deliverables/presented` | 丢 | 产物卡（`FileCardView`） |
-| | `workspace/changes` | 丢 | 变更卡（文件数 + 首个路径） |
+| **A 高频、用户能感知** | `todo/write` | ✅ 已有 `todo_card`（`default → DshCards.map`） | 待办卡 |
+| | `command/run`、`command/done` | ✅ 已有 `dsh_command`（同一 commandId 原地补 output/status） | 命令卡 |
+| | `job/registered`、`job/settled` | ✅ 已有 `dsh_job`（按 jobId 聚合，跨轮不重复） | 任务卡 + 插槽 |
+| | `goal/change`、`goal/activation-changed` | ✅ 已有 `dsh_notice`（标题「当前目标」） | 目标卡 |
+| | `deliverables/presented` | ✅ 已有 `file_list` | 产物卡 |
+| | `workspace/changes` | ✅ 已有 `dsh_notice`（如实说明"明细见电脑端"） | 变更卡 |
 | **B 状态类** | `permission/preset`、`sandbox/mode`、`approval/policy` | 只进插槽 | 权限行（抽屉五行已有位） |
 | | `agent-preset/selected`、`team/mode`、`plan/mode`(已有) | 部分丢 | 状态行 |
-| **C 暂不接** | `team/task`、`tool-workflow/*`、`tool/ptc-dispatch*`、`compaction/*` | 丢 | 先只记日志，不进时间线（噪声大） |
+| **C 暂不接** | `team/task`、`tool-workflow/*`、`tool/ptc-dispatch*`、`compaction/*` | 多数已有卡，仅按"噪声"保留现状 | 不进时间线的维持只记日志 |
+
+**已用 fixture 钉住**（`DshEventWiringTest`，7 条）：todo/write、command/run+done、job/registered+settled、
+goal/change、deliverables/presented、workspace/changes 各自出卡的类型与 props，外加一条"投影把卡带进
+`components`"。以后谁改了 `handles()` 或 `map()`，测试会先炸，而不是等真机看不见卡才发现。
 
 ### 5.2 约束（沿用 `00-overall.md` 硬约束）
 
@@ -342,10 +351,14 @@ refreshRemoteDshBar()   ← 保留，只管状态条（仍被 hide）
 5. **chip 显隐按 id 查**：`chipWebSearch` / `chipLocalAgent` 字段只在部分构造分支赋值，
    v2 外壳下是 null（真机漏了两个 chip），不能只靠字段。
 6. **顶栏默认点击目标改为 `ModelSelectorActivity`**（§4.2 的 P-2），与空首屏统一。
+7. **M9 A 档：核查后确认"本来就有"**，只补了 fixture 没重写。`DshTimeline.reduce` 的 `default`
+   分支会把 `DshCards.handles()` 认的类型交给 `DshCards.map()`，A 档六类全在其中；§5.1 已按此修正。
+   新增 `DshEventWiringTest`（7 条）钉住每类事件的卡片类型与 props，以及"投影带进 components"。
+   B 档（权限/团队/预设状态）与 C 档（team/task、workflow、compaction）维持现状，未动。
 
 验收情况：远程态真机确认（副标题「电脑 · 阶段｜跟随「会话」」+ 状态点 + 状态条收起 +
 三个本地 chip 隐藏）；断开态与未配对态走同一 `ChatRemoteMode` 分支，未单独造态验证。
-M9（事件接线）未开始。
+单测：`ChatRemoteModeTest` 7 条 + `RemoteSubtitleTest` 4 条 + `DshEventWiringTest` 7 条，全部真跑通过。
 
 ---
 
