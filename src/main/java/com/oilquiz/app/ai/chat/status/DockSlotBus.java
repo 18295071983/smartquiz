@@ -39,13 +39,35 @@ public final class DockSlotBus {
         public final boolean warn;
 
         public Slot(String id, int priority, String title, String detail, String action, boolean warn) {
+            this(id, priority, title, detail, action, warn, "display", "state", false, 0);
+        }
+
+        /**
+         * U1 (2026-11-14): full constructor with deck classification.
+         *
+         * @param kind   toggle | action | display | list
+         * @param board  alert | task | asset | state  (one board = one chip row)
+         * @param pinned true = always shown while connected (empty value renders as a dash)
+         * @param count  item count for list-kind slots (0 otherwise)
+         */
+        public Slot(String id, int priority, String title, String detail, String action, boolean warn,
+                    String kind, String board, boolean pinned, int count) {
             this.id = id == null ? "" : id;
             this.priority = priority;
             this.title = title == null ? "" : title;
             this.detail = detail == null ? "" : detail;
             this.action = action == null ? "" : action;
             this.warn = warn;
+            this.kind = (kind == null || kind.isEmpty()) ? "display" : kind;
+            this.board = (board == null || board.isEmpty()) ? "state" : board;
+            this.pinned = pinned;
+            this.count = Math.max(0, count);
         }
+
+        public final String kind;
+        public final String board;
+        public final boolean pinned;
+        public final int count;
     }
 
     public interface Listener {

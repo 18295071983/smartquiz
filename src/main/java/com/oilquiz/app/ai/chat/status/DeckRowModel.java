@@ -18,11 +18,27 @@ public final class DeckRowModel {
     public final boolean warn;
 
     private DeckRowModel(String title, String detail, boolean clickable, boolean warn) {
+        this(title, detail, clickable, warn, title, 0);
+    }
+
+    /**
+     * U1 (2026-11-14): chip form for the multi-board deck.
+     *
+     * @param chipText compact label for a chip (<= 12 chars)
+     * @param count    item count for list-kind slots
+     */
+    private DeckRowModel(String title, String detail, boolean clickable, boolean warn,
+                         String chipText, int count) {
         this.title = title == null ? "" : title;
         this.detail = detail == null ? "" : detail;
         this.clickable = clickable;
         this.warn = warn;
+        this.chipText = chipText == null ? "" : chipText;
+        this.count = Math.max(0, count);
     }
+
+    public final String chipText;
+    public final int count;
 
     public static DeckRowModel of(DockSlotBus.Slot slot) {
         if (slot == null) return new DeckRowModel("", "", false, false);
@@ -34,6 +50,11 @@ public final class DeckRowModel {
             detail = "";
         }
         if (detail.length() > 28) detail = detail.substring(0, 28) + "…";
-        return new DeckRowModel(title, detail, !slot.action.isEmpty(), slot.warn);
+        // U1 (2026-11-14): chip label = title (+ count for list-kind), capped at 12 chars
+        String chip = title;
+        int count = slot.count;
+        if (count > 0) chip = chip + " " + count;
+        if (chip.length() > 12) chip = chip.substring(0, 12) + "\u2026";
+        return new DeckRowModel(title, detail, !slot.action.isEmpty(), slot.warn, chip, count);
     }
 }

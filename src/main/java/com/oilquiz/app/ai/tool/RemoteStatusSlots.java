@@ -75,7 +75,13 @@ public final class RemoteStatusSlots {
             DockSlotBus.remove(ID);
             return;
         }
-        DockSlotBus.update(new DockSlotBus.Slot(ID, 6, title, detail, action, warn));
+        // U1 (2026-11-14): classify the slot for the multi-board chip deck.
+        // Rendering still uses the legacy full-width row, so behaviour is unchanged.
+        String kind = warn ? "action" : "display";
+        String board = warn ? "alert" : "state";
+        boolean pinned = !warn;
+        DockSlotBus.update(new DockSlotBus.Slot(ID, 6, title, detail, action, warn,
+                kind, board, pinned, 0));
     }
 
     /** 断连/关闭状态条/页面销毁时调用。 */
