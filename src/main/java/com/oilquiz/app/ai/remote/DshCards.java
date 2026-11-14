@@ -80,7 +80,16 @@ public final class DshCards {
                 || "team/task".equals(type)
                 || "team/member".equals(type)
                 || "team/message/queued".equals(type)
-                || "team/message/delivered".equals(type);
+                || "team/message/delivered".equals(type)
+                // 2026-11-14：按 DSH known-event-types 补齐的 7 类
+                || "agent/inbox/spliced".equals(type)
+                || "subagent/catalog".equals(type)
+                || "tool/ptc-dispatch".equals(type)
+                || "tool/ptc-dispatch-start".equals(type)
+                || "hook/invoked".equals(type)
+                || "hook/result".equals(type)
+                || "image/offload".equals(type)
+                || "model/selection".equals(type);
         // 2026-11-12：approval/asked 与 approval/decided 不再出"提示卡"。
         // 审批已经落成 approval part（带允许/拒绝按钮、绑定 toolCallId 钉在工具卡下面），
         // 再出一张同名 alert 卡就是同一件事画两遍，而且那张卡点不动（用户反馈"没绑定"）。
@@ -370,9 +379,83 @@ public final class DshCards {
                                 "content", "allowed".equals(outcome) || "allow".equals(outcome) ? "已允许" : "已拒绝",
                                 "level", "info"));
             }
+            // ===== 2026-11-14：按 DSH 官方 known-event-types 逐条补齐（原来这 7 类"不渲染也不报未知"）=====
+            case "agent/inbox/spliced": {
+                /**
+                 * 插话/排队入队。{@code target=next-step} 就是"插话：下一个 step 生效"，
+                 * {@code next-turn} 是"排队：本轮结束后发送"。内容在 {@code inserted[].content}。
+                 * 手机自己发的消息会先进这条队列再被 claim；这张卡让"我插的话去哪了"可见。
+                 */
+                JSONObject props = obj("title", "插话已入队", "level", "info");
+                String target = data.optString("target", "");
+                String text = inboxText(data);
+                String where = "next-step".equals(target) ? "电脑下一步就会看到"
+                        : "next-turn".equals(target) ? "电脑本轮结束后发送"
+                        : "已交给电脑";
+                put(props, "content", text.isEmpty() ? where : (where + "：" + text));
+                String key = "inbox-" + data.optString("messageId", String.valueOf(turn));
+                return new Card(key, "dsh_notice", props);
+            }
+            case "subagent/catalog": {
+                // 子代理创建目录：以前只在本类注释里提过，实际没人渲染（真机上新开子代理没提示）
+                String label = data.optString("label", "子代理");
+                String mode = data.optString("mode", "");
+                String childId = data.optString("childId", "");
+                return new Card("subagent-cat-" + (childId.isEmpty() ? label : childId), "dsh_notice",
+                        obj("title", "子代理 · " + label,
+                                "content", mode.isEmpty() ? "已启动" : ("模式：" + mode),
+                                "level", "info"));
+            }
+            case "tool/ptc-dispatch":
+            case "tool/ptc-dispatch-start": {
+                // 程序化工具调用（PTC）：模型在代码里派的工具，手机上给一条工具样式的提示
+                String name = data.optString("name", data.optString("toolName", "工具"));
+                String callId = data.optString("callId", data.optString("id", String.valueOf(turn)));
+                return new Card("ptc-" + callId, "dsh_notice",
+                        obj("title", "代码内调用 · " + name,
+                                "content", "程序化工具调用（PTC）",
+                                "level", "info"));
+            }
+            case "hook/invoked":
+            case "hook/result": {
+                String name = data.optString("name", data.optString("hook", "钩子"));
+                boolean done = "hook/result".equals(ev.type);
+                String detail = done ? data.optString("text", "") : data.optString("event", "");
+                return new Card("hook-" + name, "dsh_notice",
+                        obj("title", "钩子 · " + name,
+                                "content", done ? (detail.isEmpty() ? "已执行完" : detail) : "触发执行",
+                                "level", "info"));
+            }
+            case "image/offload":
+                return new Card("offload-" + turn, "dsh_notice",
+                        obj("title", "图片已移出上下文",
+                                "content", "为省 token 把历史图片挪到会话附件里，画面不受影响",
+                                "level", "info"));
+            case "model/selection": {
+                String model = data.optString("model", data.optString("modelId", ""));
+                return new Card("model-sel", "dsh_notice",
+                        obj("title", "模型", "content", model.isEmpty() ? "已切换" : model, "level", "info"));
+            }
             default:
                 return null;
         }
+    }
+
+    /** 从 agent/inbox/spliced 的 inserted[].content 里拼出可读文本（截断，卡片只放一行） */
+    private static String inboxText(JSONObject data) {
+        JSONArray inserted = data.optJSONArray("inserted");
+        if (inserted == null || inserted.length() == 0) return "";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < inserted.length() && i < 3; i += 1) {
+            JSONObject msg = inserted.optJSONObject(i);
+            if (msg == null) continue;
+            String t = collectText(msg.optJSONArray("content"));
+            if (t.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(" / ");
+            sb.append(t);
+        }
+        String out = sb.toString().trim();
+        return out.length() > 120 ? out.substring(0, 120) + "…" : out;
     }
 
     /** 一次模型尝试失败：只认 stream[].chunk = {type:finish, reason:{kind:error, failure.message}} */

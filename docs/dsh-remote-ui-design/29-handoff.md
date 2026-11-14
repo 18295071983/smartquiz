@@ -165,6 +165,7 @@
 | `28-anchor-ledger.md` | 锚点对账（动态二维键、回收站/恢复/永久删除）；**第 7 节是 A3-接落地记录** |
 | `30-session-sync-and-picker.md` | **切换会话=强制同步、选择框按工作区分组、A4 细节** |
 | `31-plugin-channel-and-interject.md` | **推送前校验会话 id、插话排队（SESSION_BUSY/SESSION_INBOX）、CLI 未做的脱钩** |
+| `32-dsh-event-binding.md` | **DSH 63 种会话事件的绑定矩阵（时间线 / 提示卡 / 内部），以及覆盖率单测** |
 | 本文件 | 交接 |
 
 ---

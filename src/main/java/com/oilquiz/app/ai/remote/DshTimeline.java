@@ -207,21 +207,24 @@ public final class DshTimeline {
      * 手机上没有任何可展示的语义；如果丢进 {@link #unknownTypes}，"未识别类型"
      * 这个监控数字就永远降不到 0，真正新增的类型反而被噪声埋掉。</p>
      */
+    /**
+     * 纯内部事件：手机端**不渲染**，也不计入"未知事件"（否则监控里 unknown 永远降不下来）。
+     *
+     * <p>2026-11-14 对照 DSH 官方 {@code known-event-types.ts}（63 种）逐条过了一遍：
+     * 能出内容的（插话入队、子代理目录、PTC、钩子、图片移出、模型切换）已经交给
+     * {@link DshCards#map} 出卡；剩下这些确实只是线上协议/记账，不产生用户可见内容。</p>
+     */
     private static final java.util.Set<String> IGNORED_TYPES =
             new java.util.HashSet<>(java.util.Arrays.asList(
-                    "agent/inbox/spliced",
-                    "hook/invoked",
-                    "hook/result",
-                    "image/offload",
-                    "model/selection",
                     "request/context",
                     "request/header",
                     "session/end-seed",
                     "session/title-llm-request",
                     "subagent/model-selection-policy",
-                    "tool/ptc-dispatch",
-                    "tool/ptc-dispatch-start",
-                    "web/deepseek-search-llm-request"));
+                    "web/deepseek-search-llm-request",
+                    // 2026-11-14 补：这两类以前没登记，一直算"未知类型"
+                    "feedback/record",
+                    "session-log-deepseek/delivery-accepted"));
 
     private int lastTurn = 1;
     private int lastStep = 1;
