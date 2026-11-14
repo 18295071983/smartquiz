@@ -3527,14 +3527,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
                 // 2026-11-12：approval 已接入生产者（ChatMessage.approvals → AssistantTurn 投影），
                 // 这里放行；其余未复刻类型仍回落 legacy。
-                boolean allowed = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TEXT.equals(p.type)
-                        || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_REASONING.equals(p.type)
-                        || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TOOL_CALL.equals(p.type)
-                        || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TOOL_RESULT.equals(p.type)
-                        || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TOOL_GROUP.equals(p.type)
-                        || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_APPROVAL.equals(p.type)
-                        || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_QUESTION.equals(p.type)
-                        || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_DATA.equals(p.type);
+                // 2026-11-14：不再维护"白名单字符串"，改成问渲染器注册表 —— 以后新增 part 类型
+                // 只要注册了 PartRenderer，这里自动接管，不会出现"注册表有渲染器、闸门却拦住"的静默回落。
+                boolean allowed = partsRegistry.resolve(p) != null;
                 if (!allowed) {
                     // 未复刻类型：显式记一笔再回落，避免"手机上突然变回旧渲染"却查不到原因
                     com.oilquiz.app.util.AILogger.w("ChatAdapter.parts",
@@ -5624,3 +5619,4 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
 }
+
