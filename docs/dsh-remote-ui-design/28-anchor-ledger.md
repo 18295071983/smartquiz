@@ -56,7 +56,36 @@
 | 清历史后连不上 | 手机清历史时**同时清自己那半账**并上报 `anchor: null`；服务端收到就重新签发锚点（不是拒绝连接） |
 | 反复重建 | 重建**复用锚点里的 local_session_id**（覆盖内容），不新建 |
 
-## 4. 落点
+## 3.5 锚点表是**动态的**（一设备多会话，绝不参合）
+
+电脑端同时可能有很多条会话，锚点不能做成"一台设备一条"，否则切会话就串了。改成**二维键**：
+
+```
+anchors[device_id][remote_session_id] = {
+  local_session_id, remote_session_id, acked_seq, created_at, updated_at, deleted_at?
+}
+```
+
+| 规则 | 说明 |
+|---|---|
+| 自动建账 | 第一次把某条电脑会话同步到手机时，按 (device, remote_session) 建一条，`local_session_id` 由服务端签发 |
+| 互不参合 | 每条 `remote_session_id` 一条锚点；A 会话的 seq 不会影响 B 会话 |
+| 动态回收 | 电脑端会话归档/删除时，对应锚点标 `deleted_at`（进回收站），不立即物理删 |
+| `acked_seq` 按会话 | 各算各的，切回来还是原来那个位置 |
+
+## 3.6 服务端：清除历史 / 回收站 / 恢复 / 删除
+
+| 操作 | 语义 | API |
+|---|---|---|
+| **清除历史** | 把当前会话的锚点游标清零（消息保留在电脑端，下次按 snapshot 重放） | `POST /v2/anchor/clear {session_id}` |
+| **回收站** | 删除的锚点进回收站（`deleted_at` 有值），保留 30 天 | 删除即软删 |
+| **恢复** | 从回收站恢复，原 `acked_seq` 还在 | `POST /v2/anchor/restore {session_id}` |
+| **永久删除** | 物理移除该锚点，手机端下次同步会当作全新会话重建 | `DELETE /v2/anchor {session_id}` |
+| **列出回收站** | `GET /v2/anchor?deleted=1` | 面板/诊断页展示 |
+
+**软删不碰电脑端的会话数据**——删的只是"这台手机与那条会话的同步关系"，不影响电脑上的对话本身。
+
+
 
 | 端 | 改哪里 |
 |---|---|
