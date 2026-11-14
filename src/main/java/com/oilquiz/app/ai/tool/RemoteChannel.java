@@ -58,6 +58,12 @@ public final class RemoteChannel {
     private volatile long lastAckAt;
     /** 长连接连续失败后进入拉取模式（2026-11-14）：免费隧道对长连接不友好 */
     private volatile boolean pollMode;
+    /**
+     * UI 通道的 socket（2026-11-14）。必须持有引用：以前每重连一次就新开一条
+     * 却不关旧的，`/ws/ui` 上会越堆越多（自检实测 2 条）——审批/slot 推送被重复投递，
+     * 手机端表现为重复弹窗。
+     */
+    private volatile okhttp3.WebSocket uiSocket;
     private Thread worker;
 
     public RemoteChannel(Context c, String sessionId, int since, Listener listener) {
@@ -105,6 +111,11 @@ public final class RemoteChannel {
     public void close() {
         closed = true;
         RemoteDshTool.cancelEventStreams();
+        try {
+            okhttp3.WebSocket ui = uiSocket;
+            uiSocket = null;
+            if (ui != null) ui.cancel();
+        } catch (Throwable ignored) { /* 已断 */ }
         Thread t = worker;
         worker = null;
         if (t != null) t.interrupt();
@@ -297,8 +308,14 @@ public final class RemoteChannel {
         } catch (Throwable t) {
             return false;
         }
-        // UI 端点单独一条 socket（cmd / slot / 审批 / 提问）：文件传输或事件洪水不会堵住它
-        RemoteDshTool.openLiveSocket(app, sid, new RemoteDshTool.DshSocketListener() {
+        // UI 端点单独一条 socket（cmd / slot / 审批 / 提问）：文件传输或事件洪水不会堵住它。
+        // 开之前先把上一条关掉——否则每次重连都多堆一条，推送被重复投递。
+        try {
+            okhttp3.WebSocket oldUi = uiSocket;
+            uiSocket = null;
+            if (oldUi != null) oldUi.cancel();
+        } catch (Throwable ignored) { /* 已断 */ }
+        uiSocket = RemoteDshTool.openLiveSocket(app, sid, new RemoteDshTool.DshSocketListener() {
             @Override public void onReady(int seq) { }
             @Override public void onEvent(JSONObject event) {
                 if (!closed && event != null) listener.onEvent(event);
@@ -327,6 +344,11 @@ public final class RemoteChannel {
             Thread.currentThread().interrupt();
         }
         try { socket.cancel(); } catch (Throwable ignored) { /* 已断 */ }
+        try {
+            okhttp3.WebSocket ui = uiSocket;
+            uiSocket = null;
+            if (ui != null) ui.cancel();
+        } catch (Throwable ignored) { /* 已断 */ }
         return true;
     }
 
