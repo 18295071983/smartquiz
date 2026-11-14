@@ -104,3 +104,56 @@ anchors[device_id][remote_session_id] = {
 - 进出对话页 5 次 → `files/conversations` 仍是 1 个文件；
 - 清历史 → 重新连接 → 自动出现一条重建的会话（不是连不上）；
 - `/status.anchors` 里 device_id 对应一条记录，`acked_seq` 随消息推进。
+
+---
+
+## 7. 落地记录：A3-接（2026-11-14）
+
+### 7.1 手机：三处（交接文档第 3 节那一组）
+
+| # | 改哪 | 做什么 |
+|---|---|---|
+| 1 | `RemoteDshTool.saveAnchorFromFrame` | WS `hello` / SSE `ready`、`snapshot` 帧里的 `anchor` 一律交给 `RemoteAnchorStore.save()` 入账（存不下只打日志，不影响连接） |
+| 2 | `RemoteAnchorStore.localSessionIdForRemote(c, remote)` + `AIChatActivity.sessionIdForSave()` | 建本地会话前先按（设备 × 电脑会话）**查**锚点：查得到就用它的 `local_session_id`（文件在=复用、不在=用同 id 建），查不到才 random 新建。四个保存点都走它：`saveCurrentHistory` / `saveHistoryAsync` / `onStop` / `startNewConversation` |
+| 3 | `ChatHistoryManager.saveConversationSession` | `messages` 为空直接 return（空壳不落盘） |
+
+`startNewConversation` 有个顺序坑：必须在 `startNewRemoteConversation()` **之前**取会话 id。
+那一步会把电脑端换成新会话、锚点跟着变；之后再查，旧对话就被写进新锚点的文件里了。
+
+### 7.2 插件：两处（不改插件，A3 在真机上跑不起来）
+
+| 改哪 | 为什么 |
+|---|---|
+| `/events` 的 `ready` / `snapshot` 帧补 `anchor` | WS 的 `hello` 本来就带；但隧道掐长连接时 App 会退回 SSE，这条路上原来拿不到锚点 → 又变成随机新建。按 `Authorization` 里的设备令牌认设备，两条通道口径一致 |
+| `loadAnchors()` 从文件前部挪到 `PLUGIN_DIR` 之后 | **这是真机实测到的坑**：`ANCHOR_FILE()` 依赖 `PLUGIN_DIR`，而 `PLUGIN_DIR` 定义在文件更后面。原来在顶层就调 `loadAnchors()` → `ReferenceError` 被 `catch` 吞掉 → 账本永远从空开始，下一次 `saveAnchors()` 把磁盘上整本覆盖。表现就是：**插件每重载一次，`local_session_id` 就换一个**，手机侧于是又多一条本地会话 |
+
+### 7.3 已验证（2026-11-14 17:14 真机）
+
+```
+I RemoteDshTool: [anchor] 入账 local=94a27de2e65bac63 remote=session-9c2075d0…
+I AIChatActivity: [anchor] 保存挂到锚点会话 94a27de2e65bac63（remote=session-9c2075d0…）
+```
+
+- `shared_prefs/remote_anchors.xml` 出现 `current` + `by_remote.<会话>` 两条；
+- 清空历史后（旧文件进 `conversations_trash/`），新对话落在 `conversations/94a27de2e65bac63.json`
+  —— **用锚点 id，不是随机 uuid**，即"重建复用锚点 id"；
+- 插件重载两次，`local_session_id` 保持 `94a27de2e65bac63` 不变（7.2 那条修好后）；
+- 单测：`RemoteAnchorStoreTest` 4 条、`ChatHistoryManagerSessionTest` 20 条、`RemoteDshStreamParseTest` 4 条全绿；
+- 进出 5 次（`am force-stop` → 冷启动 → 点「AI聊天」，5 轮）：`files/conversations` 一直是 2 个
+  （一条修复前的随机 id 遗留 + 一条锚点会话），**没有每进一次多一条**；
+  每轮的 `[anchor] 入账` 都是同一个 `local_session_id`。
+  注意这 5 轮页面是空的（没消息 → 不触发保存），所以"带消息进出"仍建议手点复核一次。
+
+### 7.4 还没验 / 遗留
+
+- 「带消息进出对话页 5 次 → 仍只有 1 个文件」还没人工复核：用 adb 连续点按会叠出第二个
+  `AIChatActivity` 实例（`ChatNavigation` 只管走应用内入口的那几条路），两个实例各存各的，
+  反而多出文件（本次已踩到，`7cc58af5-…` 那条就是这么来的）。人工点 5 次最可信。
+- 修复前留下的随机 id 会话不会自动并到锚点会话里：用户在历史里会看到"旧的那条 + 锚点那条"
+  两条。要么手删旧的那条（进了回收站还能恢复），要么以后做一次"迁移：把锚点指向的电脑会话
+  与旧的本地会话对齐"。
+- 同一现象还有个来源：`DshHistoryImporter`（"把电脑这条对话的历史导入本机"）用的是
+  `remote_dsh/import_sid_<电脑会话>` 这套自己的映射，跟锚点是两本账。A4 之后应统一（让导入也认锚点）。
+- 清历史（A4）：手机侧还没清锚点 / 还没上报 `anchor:null`，服务端也就没重签。
+- 事件帧带 `anchor`：还没做（现在只有握手帧 + SSE ready/snapshot）。
+

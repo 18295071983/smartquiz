@@ -1,6 +1,8 @@
-# 29 · 交接文档（2026-11-14 会话结束）
+# 29 · 交接文档（2026-11-14 会话结束；A3-接 已落地）
 
 > 下一轮从这里开始，不要重复已验通的结论，也不要重踩已记录的坑。
+> **A3-接**（锚点入账 + 按锚点建会话 + 空壳不落盘）已于 2026-11-14 17:20 落地并真机验到，
+> 细节见 `28-anchor-ledger.md` 第 7 节；下一步从 A4 开始。
 
 ---
 
@@ -35,30 +37,40 @@
 | 连接管理独立页（切换/删除/保存） | `ai/tool/RemoteProfilesActivity.java` | 真机列出并显示「当前」 |
 | 6 位配对码输入 | `RemoteDshTool.claimPairingCode` | 代码就位 |
 | 锚点账本 + `create`（手机新建→电脑新建） | 插件 `ANCHORS`、`/v2/anchor` | curl 实测 `create` 返回一对 id 并入账 |
+| 锚点**入账**（hello / SSE ready·snapshot） | `RemoteDshTool.saveAnchorFromFrame` → `RemoteAnchorStore` | 真机 logcat `[anchor] 入账 local=94a27de2e65bac63`；`shared_prefs/remote_anchors.xml` 有 `current` + `by_remote.*` |
+| 建本地会话**按锚点查或建** | `AIChatActivity.sessionIdForSave()`（4 个保存点） | 真机 logcat `[anchor] 保存挂到锚点会话 94a27…`；清历史后新对话落在 `conversations/94a27….json` |
+| 空会话不落盘 | `ChatHistoryManager.saveConversationSession` | 单测 2 条（`emptySessionIsNotPersisted` 等） |
 
 ---
 
 ## 3. 下一轮要做的（按顺序）
 
-### A3-接（最要紧，直接决定"多出历史"）
+### A3-接 ✅ 已完成（2026-11-14）
 
-1. `RemoteDshTool` 的 WS `hello` 分支里，把 `o.optJSONObject("anchor")` 交给
-   `RemoteAnchorStore.save(app, anchor)`；
-2. 建本地会话的地方改成**按锚点查或建**：
-   已经有 `local_session_id` → 复用；没有才 `new`；
-3. `ChatHistoryManager.saveConversationSession`：**`messages` 为空直接 return**（不写文件）。
+三处都落了，细节与验证证据见 `28-anchor-ledger.md` 第 7 节：
 
-验收：进出对话页 5 次，`files/conversations` 仍只有 1 个文件。
+1. `hello`（以及 SSE 的 `ready`/`snapshot`）里的 `anchor` → `RemoteAnchorStore.save()`；
+2. 建本地会话按锚点**查或建**（`AIChatActivity.sessionIdForSave()`，4 个保存点）；
+3. `saveConversationSession` 空 `messages` 直接 return。
+
+**仍需人工复核的唯一一条**：干净状态下"进出对话页 5 次 → `files/conversations` 仍只有 1 个文件"。
+自动化跑过一轮（`am force-stop` → 冷启动 → 点「AI聊天」×5），**文件数没变**、
+`[anchor] 入账` 每次都是同一个 `local_session_id`；但那几轮页面是空的（没有消息 → 不触发保存），
+所以严格版"带消息进出 5 次"还是手点一次最稳。
+注意别用 adb 连续点按代替：那会叠出第二个 `AIChatActivity` 实例，两个实例各存一条，
+反而多出文件（本次已踩过）。
 
 ### A4：清历史 → 上报 `anchor:null` → 服务端重签
 
 - 手机清历史时调 `RemoteAnchorStore.clear()` + `RemoteDshTool.resetSyncState()`；
 - 上报走 `/ws/ctl` 的 `anchor` 帧（插件侧接收还没写）。
+- 顺带：`DshHistoryImporter` 的 `import_sid_<电脑会话>` 映射应改成认锚点，否则同一条电脑会话
+  会有"导入副本"和"锚点会话"两条本地文件。
 
 ### 事件帧带 anchor
 
 插件 `sub.send` / `sse({type:'event'…})` 处附 `anchor`（按 device + session 取账本）。
-手机收到后按锚点找会话。
+手机收到后按锚点找会话。（握手帧与 SSE `ready`/`snapshot` 已带，事件帧还没。）
 
 ### C6 自更新
 
@@ -78,6 +90,10 @@
 | 模块顶层早引用 `PLUGIN_DIR` | `const X = join(PLUGIN_DIR,…)` 放在定义之前 → 插件加载失败。改成 `() => join(PLUGIN_DIR,…)` |
 | `create` 走 session_id 校验 | 新建时没有 id，会被 400 挡掉。只校验 `device_id` |
 | 只改布局没改页面 | 曾怀疑过，其实两边都改了；真正的问题是那段代码包在 `catch (Throwable ignored)` 里静默失败。**catch 要打日志** |
+| 插件顶层就调 `loadAnchors()` | 同上一条的变体，但更阴：`ANCHOR_FILE()` 依赖 `PLUGIN_DIR`，而它在文件更后面才定义 → `ReferenceError` 被 `catch` 吞掉 → **账本每次重载都从空开始，下一次 `saveAnchors()` 覆盖磁盘**。表现：插件重载一次，`local_session_id` 换一个，手机上就多一条历史。读取已挪到 `PLUGIN_DIR` 之后 |
+| 只给 WS `hello` 带 anchor | 隧道掐长连接时 App 走 **SSE**，这条路上拿不到锚点 → 又变成随机新建。SSE 的 `ready`/`snapshot` 已补 `anchor`（按 `Authorization` 设备令牌认设备） |
+| "新建对话"保存旧对话用 `currentSessionId` | 清历史/页面重进后它是 null → 又随机开一条。已统一走 `sessionIdForSave()`；且必须在 `startNewRemoteConversation()` **之前**取 id（那步会把锚点换成新会话的） |
+| 用 adb 自动点按验"进出 5 次" | 会叠出第二个 `AIChatActivity` 实例（`ChatNavigation` 只管应用内入口），两个实例各存各的 → 反而多出文件。这条验收只能手点 |
 
 ---
 
@@ -93,15 +109,17 @@
 | `25-channel-lights-and-selfheal.md` | 通道健康灯、对码、熔断、dry-run |
 | `26-client-infra-plugin-driven.md` | 客户端基础设施 C1–C6 |
 | `27-plugin-update-guide.md` | **改插件不改 App 的指南**（推视图、接点按、返效果） |
-| `28-anchor-ledger.md` | 锚点对账（动态二维键、回收站/恢复/永久删除） |
+| `28-anchor-ledger.md` | 锚点对账（动态二维键、回收站/恢复/永久删除）；**第 7 节是 A3-接落地记录** |
 | 本文件 | 交接 |
 
 ---
 
 ## 6. 已知未解决
 
-1. **进出对话页多出本地历史**（A3 未接完，见第 3 节）；
-2. **清历史后对账**：已加"失败清游标重试"，但"上报 anchor:null 让服务端重签"没做；
+1. **进出对话页多出本地历史**：A3-接已完成（见第 3 节、`28-anchor-ledger.md` 第 7 节），
+   剩"手点 5 次仍 1 个文件"这一条人工复核；
+2. **清历史后对账**：已加"失败清游标重试"，但"清锚点 + 上报 anchor:null 让服务端重签"没做（A4）；
 3. **C6 自更新端到端未验**（792MB 下载）；
 4. 甲板 chips（多板）只做了数据模型（U1），渲染仍是旧整行样式；
-5. `resetSyncState` 只在 `syncSessionIdentity` 失败时触发，正常路径不重置。
+5. `resetSyncState` 只在 `syncSessionIdentity` 失败时触发，正常路径不重置；
+6. `DshHistoryImporter` 的 `import_sid_` 映射与锚点是两本账，同一条电脑会话会出现两条本地文件（A4 时一并统一）。
