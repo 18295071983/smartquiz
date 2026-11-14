@@ -152,6 +152,32 @@ const SUBAGENT_POLL_MS = 1500;
 const SUBAGENT_POLL_IDLE_TICKS = 40;      // 60s 无新事件即停
 const SUBAGENT_POLL_MAX_MS = 10 * 60 * 1000;
 
+/**
+ * 只投给 **WS** 订阅者的帧（2026-11-15，WS/SSE 帧对齐）。
+ *
+ * <p>为什么不能直接用 {@link streamBroadcast}：真实会话事件（`event`）在 SSE 侧是由
+ * `/events` 的轮询循环**直接写响应**的（`sendEventFrame`），`__force_resync` 也是
+ * `sse(...)` 直接写。若把它们塞进 STREAM_HUB 的通用广播，SSE 订阅者会收到两份
+ * （轮询一份 + 广播一份）。所以这里按 `transport === 'ws'` 只投 WS；
+ * caps 过滤与端点白名单仍由每条连接自己的 `sub.send` 统一执行，不在这里重复判断。</p>
+ *
+ * @param sid   只投给订阅了这条会话的连接；空串 = 所有 WS 连接（与 streamBroadcast 同口径）
+ * @param frame 与 SSE 同构的帧（`{type:'event', event}` 等）
+ */
+function wsBroadcast(sid, frame) {
+  if (!frame) return;
+  const want = String(sid ?? '');
+  for (const sub of STREAM_HUB) {
+    if (!sub || sub.transport !== 'ws') continue;
+    if (want && String(sub.sid ?? '') !== want) continue;
+    try {
+      sub.send(frame);
+    } catch {
+      // 断连/背压：由连接自己的 close 回调移除
+    }
+  }
+}
+
 function streamBroadcast(sid, obj) {
   if (!obj) return;
   /**
@@ -2236,6 +2262,13 @@ function presetSvcOf(ctx) {
       // EVENT-CATALOG(2026-11-13)：所有事件类型都在下面这张表里登记；没登记的只记一次日志，
       // 但**照常转发**——"我可能不用，但你不能没有"。
       noteEventType(t);
+      /**
+       * WS-FRAMES(2026-11-15)：真实事件帧以前只走 SSE（`sendEventFrame` 直接写响应），
+       * 从不进 STREAM_HUB，于是 `/ws/events` 只收得到 ui/slot 之类的合成帧。
+       * 这里在**所有早退之前**把原始事件按与 SSE 同构的 `{type:'event', event}` 投给
+       * WS 订阅者（caps/端点白名单由 sub.send 过滤）；早退只影响插件自己的副产物，不影响转发。
+       */
+      try { wsBroadcast(sid, { type: 'event', event }); } catch { /* 推送失败不能影响插件事件处理 */ }
       // 2026-11-14 插话队列：先用 turn 事件把"这条会话正在跑"记下来 —— 手机 inject 时据此排队。
       // 桌面端自己发起的轮次也会走这两个事件，所以电脑上正在跑的时候手机插话同样会排队。
       if (t === 'turn/start') { markSessionBusy(sid, 'agent'); clearTransientSlot('retry'); return; }
@@ -6969,18 +7002,24 @@ function presetSvcOf(ctx) {
          *
          * <pre>
          *   /ws         全功能（旧客户端兼容）
-         *   /ws/events  只推 DSH 事件 + pulse；可 pull/ack     ← 高频、要低延迟
-         *   /ws/ui      只推插件 UI（cmd / slot / 审批 / 提问 / view）  ← 小包、要立刻到
+         *   /ws/events  真实事件 + 审批/反问 + 重建信号 + pulse；可 pull/ack  ← 高频、要低延迟
+         *   /ws/ui      只推插件 UI（cmd / slot / view）  ← 小包、要立刻到
          *   /ws/file    只跑文件流（file_begin/chunk/end）      ← 大头、允许慢
          *   /ws/ctl     只做 pull/ack/ping，回 batch/pong       ← 控制面
          * </pre>
+         *
+         * <p>2026-11-15（WS-FRAMES）：`/ws/events` 以前只放行 `event/pulse/ui/card/ui/slot`，
+         * 但真实 `event` 帧根本没被广播进 STREAM_HUB（只有 SSE 直写），而 `__force_resync` /
+         * `approval` / `question` / `*_gone` 又被这里的白名单挡掉。现在真实事件从
+         * `session/event` 直接投 WS，这五类也进白名单（手机端 `/ws/alert` 并未打开，
+         * 审批/反问只有走 `/ws/events` 才收得到）。
          *
          * <p>`out` 为 null 表示全放行；`inbound` 是该端点允许的客户端帧 ——
          * 文件端点不接受 `pull`，事件端点不接受 `file_get`，免得一个端点被另一类流量带偏。</p>
          */
         const CHANNELS = {
           '/ws': { out: null, inbound: new Set(['pull', 'ack', 'file_get', 'cmd_ack', 'ping']) },
-          '/ws/events': { out: new Set(['event', 'pulse', 'ui/card', 'ui/slot']), inbound: new Set(['pull', 'ack', 'ping']) },
+          '/ws/events': { out: new Set(['event', 'pulse', 'ui/card', 'ui/slot', '__force_resync', 'approval', 'approval_gone', 'question', 'question_gone']), inbound: new Set(['pull', 'ack', 'ping']) },
           '/ws/ui': {
             out: new Set(['cmd', 'ui/slot', 'ui_component', 'view', 'state', 'pulse']),
             inbound: new Set(['cmd_ack', 'ping']),
@@ -7021,7 +7060,7 @@ function presetSvcOf(ctx) {
             if (ch.out && o.type && !ch.out.has(o.type)) return;
             sendWs(ws, o);
           };
-          const sub = { sid, caps, send };
+          const sub = { sid, caps, transport: 'ws', channel: chName, send };
           STREAM_HUB.add(sub);
           WS_CLIENTS.add(ws);
           WS_META.set(ws, { sid, caps, channel: chName });

@@ -545,3 +545,81 @@ RecyclerView 的回收重新有效；后续要更彻底可以按 step 拆成多�
 - 快照请求并发收敛为「同一时刻只有一个在飞」（`dshResyncInFlight`），后续请求合并；
 - 「断」这一档只做主动重连（`forceReconnect`），没有像 dsh-Go 那样发 1013 让服务端断连
   —— 我们的服务端没有对应帧，客户端主动断更直接。
+
+## 16. WS 通道帧对齐（2026-11-15，WS-FRAMES）
+
+### 16.1 病历：为什么 WS 上只有合成帧
+
+真机日志（01:36:30 / 01:37:12，`adb logcat -s DshProbe`）里，`RemoteConnection` 报
+「WS 已连接」，但手机只收到 `ui/card`、`ui/slot` 这类合成帧，**一条真实 `event` 都没有**。
+对照代码，是三处缺口叠加：
+
+| # | 位置（改动前） | 问题 |
+|---|---|---|
+| ① | `sendEventFrame()`（SSE `GET /events`） | 只 `sse(out)` 直写响应，**从不进 `STREAM_HUB`** → WS 订阅者根本收不到事件 |
+| ② | `CHANNELS['/ws/events'].out` | 只有 `event/pulse/ui/card/ui/slot`；`__force_resync`、`approval`、`question` 及 `*_gone` 到 `handleWsConn` 的 `ch.out.has(o.type)` 全被丢 |
+| ③ | 手机 `RemoteChannel.runSocketOnce()` | 只开 `/ws/events` + `/ws/ui`，**从未打开 `/ws/alert`**；审批/反问在 WS 链路上 100% 收不到 |
+
+所以「WS 只下发合成帧」不是某一条过滤写错，而是**事件生产者只接了 SSE 一条线**，
+WS 白名单又把仅剩的控制帧挡掉。`/ws/events` 的 `event` 和 `/ws/alert` 的审批帧
+都只是「声明了、没人发/没人订」。
+
+### 16.2 改了什么（只改插件）
+
+| 改动 | 说明 |
+|---|---|
+| 新增 `wsBroadcast(sid, frame)` | 只投 `transport === 'ws'` 的 `STREAM_HUB` 订阅者；SSE 仍由各自 handler 直写响应，**不会双份** |
+| `ctx.on('session/event')` 最前处 | 所有早退之前发 `wsBroadcast(sid, { type:'event', event })`，与 SSE `sendEventFrame` 完全同构；caps 与端点白名单仍由 `sub.send` 过滤 |
+| WS 订阅者加标记 | `sub = { sid, caps, transport:'ws', channel, send }`，供 `wsBroadcast` 区分 |
+| `/ws/events` 白名单 | 追加 `__force_resync`、`approval`、`approval_gone`、`question`、`question_gone`（都是**既有帧类型**，未新增类型） |
+| 不动的部分 | `since/head`、`anchor`、`pull/batch`、`ack`、`ui/card`/`ui/slot` 合成帧、`/ws` 全功能、`/ws/ui`、`/ws/file`、`file_*` 全部保持原样 |
+
+### 16.3 验证方式
+
+**A. Node 自测（真 WebSocket + 真 HTTP，假 ctx，随机端口，不碰运行中的 8218）**
+
+`tools/dsh-plugin-smartquiz-remote/ws_frames.test.mjs`，9 项全过：
+
+```text
+node ws_frames.test.mjs
+  ok  握手：/ws/events 的 hello 声明了 event / __force_resync / approval / question
+  ok  合成帧保持现状：POST /v2/card → ui/card 仍到 /ws/events
+  ok  真实事件：session/event → {type:event, event} 到 /ws/events
+  ok  __force_resync：POST /v2/action action=resync → 帧到 /ws/events
+  ok  approval / approval_gone：debug.approval 推帧，应答后收回
+  ok  question：user-questions/request 回调 → 帧到 /ws/events
+  ok  caps 过滤仍生效：只声明 events.stream 的连接收 event、不收 approval
+  ok  端点白名单没被打穿：/ws/ui 收不到 event
+  ok  pull 语义未动：/ws/events 发 pull 仍回 batch
+```
+
+**B. 真实宿主链路（本机 8218，插件重载后）**
+
+- 另起真 WS 客户端订阅当前会话 `561ebba7-…`，实测收到**真实事件帧**：
+  `job/settled(708) → tool/result(709) → step/end(710) → step/start(711) →
+  delivery-accepted(712) → assistant/message(713) → tool/call(714)`，
+  全部带 `seq`（客户端断档检测可用）；同一条连接也收到 `__force_resync`、
+  `approval`、`ui/card`、`ui/slot`。
+- 手机（`192.168.1.10:41193`，插件重载后重启 App 回到 WS）：
+
+| 证据 | 内容 |
+|---|---|
+| `/status` | `ws_clients=2`，`/ws/events=1`、`/ws/ui=1` |
+| 连接日志 | `RemoteConnection: [DSH] connection=true WS 已连接`，`sid=session-cb82ea23-…` |
+| approval | `[DSH] 审批帧 id=test-d74556b9057a`；`[flow] 模式=推 批=2 事件=6` |
+| 批处理 | 12 条并发 `ui/slot` → `[batch] n=5 归约=5 跳过=0 投影=0 耗时=1ms` |
+| `__force_resync` | `[DSH] 服务端要求重建（__force_resync）→ 快照` → `快照重建完成 seq=14841` |
+
+### 16.4 边界与没做到
+
+- 手机端这次取到的 WS 新样本是 **approval / `__force_resync` / ui-slot**；真实 `event`
+  帧的手机侧样本没取到——手机跟随的 `session-cb82ea23` 在验证窗口内处于「等子代理」
+  状态，没有新事件。真实 `event` 帧由 **真 WS 客户端 + 真 `session/event` 总线**验证，
+  帧格式与手机 `case "event"` 的解析口径一致（`o.optJSONObject("event")`）。
+- 插件重载会断一次 WS；手机客户端只在 `run()` 开头试 3 次 WS，失败后进 SSE 循环，
+  **不会事后重新升级**。本次重载后手机先退回 SSE（`ws_clients=0`），重启 App 才回到 WS。
+  这是客户端重连策略，不在本次插件改动范围。
+- `pulse` 仍未由 WS 主动发（只有协议级 ping；白名单里的 `pulse` 保持原状）；
+  非 live 会话的 WS 实时事件仍靠 `pull` 补（SSE 侧是轮询持久化日志，两条线仍有差异）。
+- `approval_gone` / `question_gone` 一并放行（否则对话框收不掉），属于既有帧、非新协议。
+- 未改 Android Java、未改 `/ws` 全功能端点、未改文件帧与 ack 语义。
