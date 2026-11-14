@@ -824,11 +824,24 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
      */
     private void renderProfiles() {
         try {
-            View anchor = findViewById(R.id.url_input);
-            if (anchor == null) return;
-            ViewGroup tl = anchor.getParent() instanceof ViewGroup ? (ViewGroup) anchor.getParent() : null;
-            if (tl == null || !(tl.getParent() instanceof ViewGroup)) return;
-            ViewGroup box = (ViewGroup) tl.getParent();          // 手动配置的容器
+            // 插到页面滚动内容的**最顶部**（2026-11-14 真机反馈"没看到"：依赖
+            // url_input 的父容器结构不可靠，改成从 android.R.id.content 找 ScrollView）
+            ViewGroup box = null;
+            ViewGroup content = findViewById(android.R.id.content);
+            for (int i = 0; content != null && i < content.getChildCount(); i += 1) {
+                View child = content.getChildAt(i);
+                if (child instanceof android.widget.ScrollView) {
+                    android.widget.ScrollView sv = (android.widget.ScrollView) child;
+                    if (sv.getChildCount() > 0 && sv.getChildAt(0) instanceof ViewGroup) {
+                        box = (ViewGroup) sv.getChildAt(0);
+                        break;
+                    }
+                }
+            }
+            if (box == null) {
+                android.util.Log.w("RemoteDshConnect", "找不到滚动容器，配置列表不渲染");
+                return;
+            }
             View old = box.findViewWithTag("profiles_row");
             if (old != null) box.removeView(old);
 
@@ -874,7 +887,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 row.addView(chip, lp);
             }
             scroll.addView(row);
-            int index = box.indexOfChild(tl);
+            int index = 0;   // 顶部
             box.addView(scroll, Math.max(0, index),
                     new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.WRAP_CONTENT));
