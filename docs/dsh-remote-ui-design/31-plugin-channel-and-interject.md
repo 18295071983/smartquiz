@@ -122,3 +122,32 @@ inject(message): void;
 2. **插话/排队消息的单条管理**（立即发送 / 改为插话 / 撤回）——插件队列有，UI 没入口；
 3. 插件**不改桌面端私有状态**：曾经试过把手机新建的会话登记进 `storages/workspace.json`
    （让电脑侧栏也能看到），已按用户要求回退 —— 插件只做转发，不写宿主的账本。
+
+## 7. 自检记录（2026-11-14，四个脚本 + 端到端）
+
+| 项目 | 结果 |
+|---|---|
+| `node caps_selftest.js` | **7/7 通过**（能力协商：旧 APK 不被裁、未知能力不静默、审批事件门禁） |
+| `node guard_selftest.js` | **全部通过**，并复现了"修复前 3 个隧道场景会被放行"的漏洞对照 |
+| `node route_selftest.js` | **25/25 通过**（v2 路由形状、caps 403、SSE 首帧、对账 verdict/gap、中文往返） |
+| `verify_plugin.ps1`（端到端） | 1/2/6/7/8/9/10/10.5/11 全过；3 的"本机发码"受 DSH 鉴权限制（见下） |
+
+### 自检发现并修掉的三个问题
+
+1. **`verify_plugin.ps1` 没有 UTF-8 BOM** → Windows PowerShell 5.1 按 ANSI 解码，中文注释变乱码，
+   脚本直接语法错误跑不起来。已补 BOM（文件头注释本来就说"带 BOM"，是仓库里丢了）。
+2. **流式 prompt 没有"写权冲突"兜底** → 同一会话刚跑完一轮（`warmReuse` 会在宿主内 resume 预热，
+   写租约留在宿主），紧接着再来一次 SSE 就撞 `session "…" is already owned by an active write`。
+   非流式分支早就有这个判断，流式分支漏了。已补：live/warm agent → 直接宿主内；
+   否则 CLI 失败且错误命中 `already owned|write owner|agent preset|compose` → 宿主内重试一次。
+3. **兜底用的会话 id 取错来源** → 手机/脚本常只带 `session_code`（跟随），不带 `target_session_id`，
+   于是兜底条件里 `target` 为空被跳过。改成用 `runTurn` 实际解析出来的 `dshSession` 兜底。
+
+修完再跑：第 7 步 CLI 一轮正常；第 9 步 SSE 返回 `via:"in-process:live"` + 正文，
+不再报写权冲突。
+
+### 一个设计限制（不是 bug）
+
+`/pair/code` 是「仅本机」路由：判定 = 回环源地址 + Host 必须是 **DSH 主端口**。
+因此它会 **403**（从 8218 局域网口进，隧道防绕过）或 **401**（从 DSH 端口进，先被 DSH 自己的鉴权挡）。
+脚本拿不到码时跳过第 4/5 步（配码 → 设备令牌），其余照常；真机配对走桌面端 UI 或 App 的配对码页。

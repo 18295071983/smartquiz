@@ -1,4 +1,4 @@
-# verify_plugin.ps1 —— SmartQuiz Remote 插件一键端到端验证
+﻿# verify_plugin.ps1 —— SmartQuiz Remote 插件一键端到端验证
 # 用法：pwsh -File verify_plugin.ps1    （powershell.exe 5.1 也能跑：文件带 UTF-8 BOM，
 #        且请求体已显式按 UTF-8 编码，不会出现中文乱码）
 # 可选参数 -PublicUrl：隧道域名（不给则读插件目录 .public-url），用于第 10.5 步的加固回归
@@ -87,9 +87,21 @@ $before = DeviceIds $tok
 Write-Host "当前已配对设备数: $($before.Count)"
 
 Show '3) /pair/code（本机生成一次性码）'
-$c = Req "$base/pair/code" 'POST' '{}' $null 30
+# 2026-11-14：发码是「仅本机」路由 —— 只认「回环 Host + DSH 主端口」。
+# 8218 是局域网口，Host 是 127.0.0.1:8218，按设计会被 403；这里改走 /status 报出来的 DSH 端口。
+$dshPort = JsonField (Req "$base/status" 'GET' $null $tok 20).body 'port'
+$codeUrl = if ($dshPort) { "http://127.0.0.1:$dshPort/pair/code" } else { "$base/pair/code" }
+Write-Host "（发码地址：$codeUrl）"
+$c = Req $codeUrl 'POST' '{}' $null 30
 Write-Host "HTTP $($c.code) : $($c.body)"
 $code = JsonField $c.body 'code'
+if (-not $code) {
+  # 2026-11-14 自检记录：发码是「仅本机」路由，而本机判定 = 回环源地址 + Host 必须是 DSH 主端口。
+  #   · 打到 8218（局域网口）→ 403（设计如此，隧道防绕过）
+  #   · 打到 DSH 主端口 → 先被 DSH 自己的鉴权挡成 401（没有 Web UI 的会话令牌）
+  # 所以脚本拿不到码时跳过 4/5，其余步骤照常；真机配对走桌面端 UI 或 App「配对码」页。
+  Write-Host "（拿不到本机发码：需要 DSH 鉴权会话或桌面端 UI；跳过 4/5）" -ForegroundColor Yellow
+}
 
 if ($code) {
   Show '4) /pair/claim（码 → 设备令牌）'

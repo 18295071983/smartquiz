@@ -5811,12 +5811,18 @@ function presetSvcOf(ctx) {
       if (!r) {
         r = await runTurn(ctx, handle, sid, text, cfg, { signal: opts.signal, deadline: opts.deadline,
           targetSessionId: opts.targetSessionId, sessionCode: opts.sessionCode });
-        // CLI 续不上（预设不兼容 / 被别的进程占着）→ 再试一次宿主内接管
-        if (!r.reply && cliMode && target && !r.aborted
+        /**
+         * 2026-11-14 自检发现：兜底的会话 id 以前只看 `opts.targetSessionId`，
+         * 而手机/脚本经常只带 `session_code`（跟随）——于是 target 为空 → 兜底被跳过，
+         * 手机只看到 "session … is already owned by an active write"。
+         * runTurn 解析出来的 dshSession 才是真正的目标，用它兜底。
+         */
+        const fallbackSid = String(opts.targetSessionId || '').trim() || String(r?.dshSession || '').trim();
+        if (!r.reply && cliMode && fallbackSid && !r.aborted
             && /agent preset|one-shot runner|write owner|already owned|compose/i.test(String(r.error || ''))) {
-          const ir = await runInProcessTurn(target, text, { signal: opts.signal, deadline: opts.deadline });
+          const ir = await runInProcessTurn(fallbackSid, text, { signal: opts.signal, deadline: opts.deadline });
           if (ir?.reply) {
-            r = { reply: ir.reply, via: ir.via, dshSession: target, debug: { via: ir.via, fallback: 'after-cli' } };
+            r = { reply: ir.reply, via: ir.via, dshSession: fallbackSid, debug: { via: ir.via, fallback: 'after-cli' } };
           } else if (ir?.turnError) {
             r = { ...r, error: '电脑端这一轮报错：' + ir.turnError };
           }
@@ -5869,8 +5875,41 @@ function presetSvcOf(ctx) {
       } catch (e) { sse({ type: 'warn', error: String(e?.message ?? e) }); }
     }, 150);
     try {
-      const rr = await runTurn(ctx, handle, sid, text, { ...cfg, __onData: (s) => sse({ type: 'text', text: s }) },
-        { signal: opts.signal, deadline: opts.deadline, targetSessionId: opts.targetSessionId, sessionCode: opts.sessionCode });
+      /**
+       * 2026-11-14 自检发现（verify_plugin 第 9 步）：
+       * 非流式分支早就有"桌面端开着这条会话 → 走宿主内、别让 CLI 抢写权"的判断，
+       * **流式分支没有** —— 同一会话刚跑完一轮（warm 预热把写租约留在宿主里）后，
+       * 再来一次 SSE 就会撞上 `session "…" is already owned by an active write`。
+       * 这里补齐：先看 live/warm agent，有就走宿主内；CLI 报写权冲突时再兜底重试一次。
+       */
+      const target = String(opts.targetSessionId || '').trim();
+      // 手机有时只带 session_code（跟随/直连），不带 target_session_id —— 这里按同一套绑定补出来，
+      // 否则"写权冲突兜底"会因为 target 为空而跳过
+      const effTarget = target || (() => { try { return sessionBinding.get(opts.sessionCode) || ''; } catch { return ''; } })();
+      const liveAgent = effTarget ? (getLiveAgent(effTarget) || warmAgentFor(effTarget)) : null;
+      let rr;
+      if (cliMode && effTarget && liveAgent) {
+        const ir = await runInProcessTurn(effTarget, text, { signal: opts.signal, deadline: opts.deadline });
+        rr = {
+          reply: ir?.reply || '',
+          via: ir?.via || 'in-process',
+          dshSession: effTarget,
+          error: ir?.reply ? '' : (ir?.turnError || ir?.resumeError || '电脑端这一轮没有产出'),
+          debug: { in_process: true },
+        };
+      } else {
+        rr = await runTurn(ctx, handle, sid, text, { ...cfg, __onData: (s) => sse({ type: 'text', text: s }) },
+          { signal: opts.signal, deadline: opts.deadline, targetSessionId: opts.targetSessionId, sessionCode: opts.sessionCode });
+        // CLI 续不上（预设不兼容 / 被别的进程占着写权）→ 宿主内再试一次，别让手机只看到报错
+        const fallbackSid = effTarget || String(rr?.dshSession || '').trim();
+        if (!rr.reply && cliMode && fallbackSid && !rr.aborted
+            && /agent preset|one-shot runner|write owner|already owned|compose/i.test(String(rr.error || ''))) {
+          const ir = await runInProcessTurn(fallbackSid, text, { signal: opts.signal, deadline: opts.deadline });
+          if (ir?.reply) {
+            rr = { ...rr, reply: ir.reply, error: '', via: ir.via, dshSession: fallbackSid, debug: { via: ir.via, fallback: 'after-cli' } };
+          }
+        }
+      }
 
       promptCount += 1;
       const s = ctx.sessions.get(sid);
