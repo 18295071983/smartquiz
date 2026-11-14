@@ -260,8 +260,8 @@ public final class DshCards {
                         data.optString("subject", data.optString("taskId", "团队任务")));
                 String status = data.optString("status", "");
                 return new Card("team-task-" + data.optString("taskId", title), "alert_card",
-                        obj("title", "团队任务",
-                                "text", status.isEmpty() ? title : (title + " · " + status),
+                        obj("title", status.isEmpty() ? "团队任务" : ("团队任务 · " + status),
+                                "text", title,
                                 "level", "info"));
             }
             case "team/member": {
