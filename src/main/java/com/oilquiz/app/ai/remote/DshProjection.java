@@ -50,7 +50,22 @@ public final class DshProjection {
      *
      * @param now 无事件时间戳时的兜底时间（一般传消息时间或当前时间）
      */
+    /** 一个 turn 有多少步（派发器按步切段用） */
+    public static int stepCount(DshTimeline timeline) {
+        return timeline == null ? 0 : timeline.orderedSteps().size();
+    }
+
     public static void project(ChatMessage msg, DshTimeline timeline, IdSource ids, long now) {
+        project(msg, timeline, ids, now, 0, Integer.MAX_VALUE);
+    }
+
+    /**
+     * 按步区间投影（2026-11-14，消息派发器改密）：只吃 [fromStep, toStep) 这几步。
+     * 消息派发器据此把一个 turn 拆成多条小消息 —— 在线 agent 一条消息只有 1~5 个 part，
+     * DSH 一个 turn 几十步压成一条就是 150+ 个 part，RecyclerView 按消息回收时救不回来。
+     */
+    public static void project(ChatMessage msg, DshTimeline timeline, IdSource ids, long now,
+                               int fromStep, int toStep) {
         if (msg == null || timeline == null) return;
         IdSource source = ids != null ? ids : IdSource.NONE;
         long base = now > 0 ? now : (msg.timestamp > 0 ? msg.timestamp : System.currentTimeMillis());
@@ -63,7 +78,12 @@ public final class DshProjection {
         StringBuilder thinking = new StringBuilder();
         int round = 0;
 
-        for (DshTimeline.Step step : timeline.orderedSteps()) {
+        java.util.List<DshTimeline.Step> allSteps = timeline.orderedSteps();
+        int stepIdx = 0;
+        for (DshTimeline.Step step : allSteps) {
+            int thisStep = stepIdx;
+            stepIdx += 1;
+            if (thisStep < fromStep || thisStep >= toStep) continue;
             String text = trim(step.text);
             String reason = trim(step.reasoning);
             if (text.isEmpty() && reason.isEmpty() && step.tools.isEmpty()) continue;

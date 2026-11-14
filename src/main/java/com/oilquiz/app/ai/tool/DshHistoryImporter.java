@@ -381,16 +381,45 @@ public final class DshHistoryImporter {
     }
 
     /** 把攒在时间线里的助手回合投影成消息；只有一条空壳（无正文/思考/卡片）时摘掉 */
+    /** 历史派发粒度：每个 turn 按 6 步切一条消息（与投影的 MAX_ROUNDS_PER_MESSAGE 同口径） */
+    private static final int SEGMENT_STEPS = 6;
+
     private static void finishAssistant(List<ChatMessage> out, ChatMessage assistant,
                                         DshTimeline timeline, long now, int[] componentSeq) {
         if (assistant == null) return;
-        DshProjection.project(assistant, timeline, key -> "dsh-I" + (++componentSeq[0]), now);
-        boolean hasText = assistant.content != null && !assistant.content.isEmpty();
-        boolean hasThinking = assistant.thinkingContent != null && !assistant.thinkingContent.isEmpty();
-        boolean hasCards = assistant.components != null && !assistant.components.isEmpty();
-        boolean hasApprovals = assistant.approvals != null && !assistant.approvals.isEmpty();
-        if (!hasText && !hasThinking && !hasCards && !hasApprovals) {
-            out.remove(assistant);
+        int total = DshProjection.stepCount(timeline);
+        if (total <= SEGMENT_STEPS) {
+            DshProjection.project(assistant, timeline, key -> "dsh-I" + (++componentSeq[0]), now);
+            if (isEmptyAssistant(assistant)) out.remove(assistant);
+            return;
         }
+        // 消息派发器改密（2026-11-14）：一个 turn 几十步 → 每 6 步一条消息。
+        // 历史里就变成一堆小 item，RecyclerView 按消息回收才有意义（在线 agent 同款粒度）。
+        List<ChatMessage> segments = new ArrayList<>();
+        int seg = 0;
+        for (int from = 0; from < total; from += SEGMENT_STEPS, seg += 1) {
+            ChatMessage m = seg == 0 ? assistant : ChatMessage.createAIMessage(
+                    assistant.id + "-s" + seg, "", assistant.timestamp, null, 0, 0);
+            m.turnId = assistant.turnId;
+            m.timestamp = assistant.timestamp + seg;
+            DshProjection.project(m, timeline, key -> "dsh-I" + (++componentSeq[0]), now,
+                    from, from + SEGMENT_STEPS);
+            if (isEmptyAssistant(m)) continue;
+            segments.add(m);
+        }
+        if (segments.isEmpty()) {
+            out.remove(assistant);
+            return;
+        }
+        out.remove(assistant);
+        out.addAll(segments);
+    }
+
+    private static boolean isEmptyAssistant(ChatMessage m) {
+        boolean hasText = m.content != null && !m.content.isEmpty();
+        boolean hasThinking = m.thinkingContent != null && !m.thinkingContent.isEmpty();
+        boolean hasCards = m.components != null && !m.components.isEmpty();
+        boolean hasApprovals = m.approvals != null && !m.approvals.isEmpty();
+        return !hasText && !hasThinking && !hasCards && !hasApprovals;
     }
 }
