@@ -55,6 +55,13 @@ public final class RemoteStatusMonitor {
                 Map<String, Object> m = new RemoteSdk(app).status();
                 long rtt = System.currentTimeMillis() - t0;
                 RemoteStatusSnapshot snap = RemoteStatusSnapshot.parse(m, System.currentTimeMillis(), rtt);
+                // C6：插件在 /status 里报了 app_release 就比对一次（只提示，不自动装）
+                try {
+                    Object rel = (m instanceof java.util.Map) ? ((java.util.Map<?, ?>) m).get("app_release") : null;
+                    if (rel instanceof java.util.Map) {
+                        RemoteAppUpdate.checkAndPrompt(c, new org.json.JSONObject((java.util.Map<?, ?>) rel));
+                    }
+                } catch (Throwable ignored) { /* 更新检查失败不影响状态刷新 */ }
                 if (!sid.isEmpty()) {
                     try {
                         // 插件 v8.1+ 才有 /v2/usage；旧插件 404 时抛异常，保持 snap 原样

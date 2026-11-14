@@ -2923,6 +2923,15 @@ function presetSvcOf(ctx) {
     // 各端点在线数：看"是不是一条通道堵住另一条"（2026-11-14 端点分工）
     ws_channels: Object.fromEntries(WS_CHANNEL_COUNT),
     ws_stats: Object.fromEntries(WS_STATS),
+    // C6：客户端自更新（保守版）。配置里填了才下发；手机只提示、下载、校验 sha256，
+    // 最后由系统安装器让用户确认——插件从不静默安装。
+    // cfg.appRelease = { version, url, sha256, notes? }
+    app_release: (cfg.appRelease && typeof cfg.appRelease === 'object') ? {
+      version: Number(cfg.appRelease.version) || 0,
+      url: String(cfg.appRelease.url || ''),
+      sha256: String(cfg.appRelease.sha256 || ''),
+      notes: String(cfg.appRelease.notes || ''),
+    } : null,
     // 主令牌最近一次被使用的时间：手机端只有在"还没换成设备令牌"或"用设备令牌失败退回主令牌"时才走主令牌，
     // 有值就说明当前有连接在用主令牌（面板据此提示，避免把"设备数 0"误读成"没人连着"）
     main_token_last_seen: mainTokenLastSeen,
