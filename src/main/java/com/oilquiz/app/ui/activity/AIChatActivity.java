@@ -256,6 +256,13 @@ public class AIChatActivity extends BaseActivity {
     private android.widget.TextView remoteDshAction;
     /** 状态条上的 ✕（隐藏；偏好可在「远程连接（电脑）」里重新打开） */
     private android.widget.ImageButton remoteDshHide;
+    /**
+     * 远程态输入框下方那一行（2026-11-14，参考 dsh-Go）：{@code 电脑 · 模型 · 思考:深}。
+     *
+     * <p>dsh-Go 在手机上不把模型胶囊放顶栏，而是放进"输入框下方"——只在要发消息时才关心
+     * 用哪个模型。我们顶栏已经让给"电脑 · 阶段｜跟随会话"了，模型/思考深度就落这一行。</p>
+     */
+    private android.widget.TextView remoteMetaText;
     private MaterialButton btnModelDownload;
     private MaterialButton btnAiInit;
     /** 工具抽屉里的「使用说明」重入口（引导弹框改为每引擎只自动弹一次后的补充入口） */
@@ -1052,6 +1059,7 @@ public class AIChatActivity extends BaseActivity {
             // （引擎内 isFcEnabled 分流），不再改变路由——本地/在线都已统一进 Agent 引擎。
             chipLocalAgent = findViewById(R.id.chip_local_agent);
             chipResumeInterrupted = findViewById(R.id.chip_resume_interrupted);
+            remoteMetaText = findViewById(R.id.chat_v2_remote_meta);
             if (chipResumeInterrupted != null) {
                 // 一键续跑：只把"继续"这句话填进输入框走正常发送路径——不自动执行。
                 // 自动执行会不经用户同意就发请求（可能重跑已产生副作用的工具）。
@@ -13107,7 +13115,7 @@ public class AIChatActivity extends BaseActivity {
             row.setPadding(padH, padV, padH, padV);
             android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
             bg.setCornerRadius(8 * density);
-            bg.setColor(model.warn ? 0x1AE65100 : 0x14000000);
+            bg.setColor(model.warn ? 0x2EE65100 : 0x14000000);
             row.setBackground(bg);
             android.widget.LinearLayout.LayoutParams rowLp =
                     new android.widget.LinearLayout.LayoutParams(
@@ -13136,6 +13144,8 @@ public class AIChatActivity extends BaseActivity {
             tv.setMaxLines(1);
             tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
             tv.setTextColor(model.warn ? 0xFFB23C00 : 0xFF3C3C3C);
+            // 警示行（权限/待处理）加粗：dsh-Go 的 pill 就是"色块 + 重字"，一眼能从灰行里挑出来
+            if (model.warn) tv.setTypeface(null, android.graphics.Typeface.BOLD);
             tv.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
                     0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
             row.addView(tv);
@@ -15418,6 +15428,7 @@ public class AIChatActivity extends BaseActivity {
                     com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenterDefault(this);
                     setLocalChipsVisible(true);
                     if (chatV2EmptyState != null) chatV2EmptyState.setRemoteMode(false);
+                    setRemoteMetaLineVisibility(false);
                     // 状态点也要还原成引擎色：只改副标题的话，圆点还停在远程的绿/黄上
                     com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateStatusDot(this,
                             com.oilquiz.app.ai.chat.status.ServiceStatusManager.lastDotColorRes());
@@ -15439,6 +15450,7 @@ public class AIChatActivity extends BaseActivity {
                             });
                     setLocalChipsVisible(true);
                     if (chatV2EmptyState != null) chatV2EmptyState.setRemoteMode(false);
+                    setRemoteMetaLineVisibility(false);
                 }
                 return;
             }
@@ -15458,6 +15470,7 @@ public class AIChatActivity extends BaseActivity {
                     com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.remoteSubtitle(
                             remotePhaseText(live), follow, needsAttention ? st.approvalsPending : 0),
                     dot);
+            updateRemoteMetaLine(st);
             if (modeChanged) {
                 com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenter(this,
                         v -> openRemoteSessionPicker(),
@@ -15472,6 +15485,54 @@ public class AIChatActivity extends BaseActivity {
         } catch (Throwable t) {
             // 外壳改造失败只影响视觉，聊天页照旧
             AppLogger.aiW(TAG, "applyRemoteChrome: " + t.getMessage());
+        }
+    }
+
+    /**
+     * 远程态输入框下方那一行（2026-11-14，参考 dsh-Go）：{@code 电脑 · 模型 · 思考:深}。
+     *
+     * <p>dsh-Go 的手机布局把"用哪个模型/多深的思考"放在输入框下方，而不是顶栏胶囊 ——
+     * 顶栏留给状态（我们这里是"电脑 · 阶段｜跟随会话"）。数据取 {@code /v2/usage}
+     * 合并进 {@link com.oilquiz.app.ai.tool.RemoteStatusSnapshot} 的 model/effort。</p>
+     */
+    private void updateRemoteMetaLine(com.oilquiz.app.ai.tool.RemoteStatusSnapshot st) {
+        if (remoteMetaText == null) return;
+        StringBuilder sb = new StringBuilder("电脑");
+        String model = st == null ? "" : st.model;
+        if (model != null && !model.isEmpty()) sb.append(" · ").append(model);
+        String effort = effortLabel(st == null ? "" : st.effort);
+        if (!effort.isEmpty()) sb.append(" · 思考:").append(effort);
+        // 什么都不知道时别挂一句光秃秃的"电脑"（看起来像没加载完）
+        if (sb.length() <= "电脑".length()) {
+            remoteMetaText.setVisibility(View.GONE);
+            return;
+        }
+        remoteMetaText.setText(sb.toString());
+        remoteMetaText.setVisibility(View.VISIBLE);
+    }
+
+    private void setRemoteMetaLineVisibility(boolean visible) {
+        if (remoteMetaText == null) return;
+        remoteMetaText.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    /** 思考深度档位 → 一个字（认不出就原样显示，别吞掉新档位） */
+    private static String effortLabel(String effort) {
+        String e = effort == null ? "" : effort.trim().toLowerCase(java.util.Locale.ROOT);
+        switch (e) {
+            case "low":
+                return "浅";
+            case "medium":
+            case "mid":
+                return "中";
+            case "high":
+                return "深";
+            case "max":
+                return "最深";
+            case "":
+                return "";
+            default:
+                return effort.trim();
         }
     }
 

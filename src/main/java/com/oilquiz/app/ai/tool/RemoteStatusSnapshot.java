@@ -82,8 +82,9 @@ public final class RemoteStatusSnapshot {
                 intOf(child(usage, "pressure_tokens"), 0),
                 intOf(child(usage, "context_window"), 0),
                 intOf(child(usage, "total_tokens"), 0),
-                strOf(child(usage, "model")),
-                strOf(child(usage, "effort")),
+                // usage 没带就保留 /status 那份（模型名），别把已有值清空
+                strOf(child(usage, "model")).isEmpty() ? model : strOf(child(usage, "model")),
+                strOf(child(usage, "effort")).isEmpty() ? effort : strOf(child(usage, "effort")),
                 intOf(child(usage, "cache_hit_pct"), 0),
                 rtt,
                 version);
@@ -156,7 +157,11 @@ public final class RemoteStatusSnapshot {
                 intOf(child(root, "sessions_count"), 0),
                 intOf(child(root, "active_jobs"), 0),
                 fetchedAt,
-                false, 0, 0, 0, "", "", 0, rttMs, "");
+                // 模型名先从 /status 的 acp_agent 拿（2026-11-14：/v2/usage 目前不带 model，
+                // 但"输入框下方那行"要显示电脑在用什么模型）
+                false, 0, 0, 0,
+                strOf(child(child(root, "acp_agent"), "model")),
+                "", 0, rttMs, "");
     }
 
     // ---- 容错取值：httpJson 可能给 Map，也可能是 JSONObject ----

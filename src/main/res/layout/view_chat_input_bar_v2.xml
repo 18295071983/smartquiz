@@ -174,4 +174,18 @@
             app:iconSize="16dp"
             app:iconTint="@color/chat_v2_on_brand"/>
     </LinearLayout>
+
+    <!-- 远程态元信息（2026-11-14，参考 dsh-Go：手机上顶栏不放模型胶囊，
+         模型与思考深度放在**输入框下方**）。只在连着电脑时显示；本地路径不占这一行。 -->
+    <TextView
+        android:id="@+id/chat_v2_remote_meta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_4"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:maxLines="1"
+        android:textColor="@color/chat_v2_text_3"
+        android:textSize="@dimen/chat_v2_status_text"
+        android:visibility="gone" />
 </LinearLayout>
