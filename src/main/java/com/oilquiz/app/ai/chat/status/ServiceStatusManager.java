@@ -404,6 +404,7 @@ public class ServiceStatusManager {
                 ? R.color.chat_v2_text_3
                 : R.color.chat_v2_brand;
         try {
+            lastDotColorRes = dotColor;
             com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateStatusDot(activity, dotColor);
         } catch (Throwable stepFailed) {
             com.oilquiz.app.util.AILogger.w("ServiceStatusManager", "这一步失败，结果可能被当成正常 · updateStatusDisplay: " + stepFailed);
@@ -418,9 +419,25 @@ public class ServiceStatusManager {
     private void publishStatusText(String text) {
         if (serviceStatusText != null) serviceStatusText.setText(text);
         try {
-            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateSubtitle(activity, text);
+            // 2026-11-14（M8）：远程态顶栏副标题归 ChatRemoteMode 那套写，别被本地引擎状态抢回去
+            // （否则电脑连着时服务一有动静，顶栏就闪一下"本地模型 …"）
+            if (!com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isActive(activity)) {
+                com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateSubtitle(activity, text);
+            }
         } catch (Throwable ignored) {
         }
+    }
+
+    /**
+     * 最近一次写到顶栏状态点的颜色（2026-11-14）。
+     *
+     * <p>远程外壳切回本地时要把状态点还原成引擎色 —— 不还原的话，顶栏副标题回到本地文案、
+     * 小圆点却还是远程的绿/黄，看着像"还连着电脑"。</p>
+     */
+    private static int lastDotColorRes = R.color.chat_v2_text_3;
+
+    public static int lastDotColorRes() {
+        return lastDotColorRes;
     }
 
     /**
@@ -546,6 +563,7 @@ public class ServiceStatusManager {
         // 不能再把模型名塞进 state（会变成 "deepseek-flash · deepseek-flash 就绪"）。
         publishStatusText(engineStatusLine("就绪"));
         try {
+            lastDotColorRes = R.color.chat_v2_success;
             com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateStatusDot(
                     activity, R.color.chat_v2_success);
         } catch (Throwable stepFailed) {

@@ -130,7 +130,9 @@ public final class ChatUiV2Chrome {
             ((View) statusBar.getParent()).setVisibility(View.GONE);
         }
         hide(activity, R.id.btn_back);
-        hide(activity, R.id.remote_dsh_bar);
+        // 2026-11-14：这里原本还 hide(remote_dsh_bar) —— 但那条 bar 的可见性现在由
+        // refreshRemoteDshBar() 按"是否配对 + 状态条开关"接管（配对后收起、信息进顶栏），
+        // 在这里先藏一次只会让下一个读代码的人以为它被永久藏掉了。删掉。
         // demo 没有左下角历史悬浮球：v2 的历史入口就是顶栏汉堡键，悬浮球会盖住正文
         hide(activity, R.id.btn_history_fab);
         // v1 的"思考中"金色渐变细线（3dp）：生成状态已挪到输入区上方那一行，
@@ -281,6 +283,25 @@ public final class ChatUiV2Chrome {
         if (activity == null || TextUtils.isEmpty(text)) return;
         updateSubtitle(activity, text);
         updateStatusDot(activity, dotColorRes);
+    }
+
+    /**
+     * 远程顶栏副标题的唯一拼装口径（2026-11-14，M8-P0-2）。
+     *
+     * <p>格式：{@code 电脑 · <阶段>｜跟随「<会话>」 · 待处理 N}。抽成纯函数是为了能单测 ——
+     * 这段文案是"连了电脑"最直接的证据，格式漂了没人会发现。</p>
+     *
+     * @param phase       阶段文案（{@code remotePhaseText} 的输出，空则"空闲"）
+     * @param followLabel 跟随段（如 {@code 跟随「xxx」}，空则"未选会话"）
+     * @param pending     待处理条数（含审批与反问），≤0 时不出现这一段
+     */
+    public static String remoteSubtitle(String phase, String followLabel, int pending) {
+        // 只做字符串判断（不碰 TextUtils），好让纯 JVM 单测能直接覆盖
+        String p = (phase == null || phase.isEmpty()) ? "空闲" : phase;
+        String f = (followLabel == null || followLabel.isEmpty()) ? "未选会话" : followLabel;
+        StringBuilder sb = new StringBuilder("电脑 · ").append(p).append("｜").append(f);
+        if (pending > 0) sb.append(" · 待处理 ").append(pending);
+        return sb.toString();
     }
 
     /**

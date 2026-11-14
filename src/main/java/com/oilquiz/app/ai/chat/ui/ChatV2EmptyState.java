@@ -113,7 +113,11 @@ public final class ChatV2EmptyState {
             if (remoteMode) listener.onOpenRemoteInsight();
             else listener.onDownloadModels();
         });
-        bindEntry(R.id.chat_v2_entry_guide, () -> listener.onShowGuide());
+        bindEntry(R.id.chat_v2_entry_guide, () -> {
+            // 远程态第三行改成"切换电脑会话"：引导弹框讲的是手机本地引擎能力，与电脑无关
+            if (remoteMode) listener.onPickRemoteSession();
+            else listener.onShowGuide();
+        });
     }
 
     /**
@@ -137,6 +141,10 @@ public final class ChatV2EmptyState {
                     remote ? R.string.chat_v2_remote_entry_insight : R.string.h_f0597ad8);
             setEntryText(R.id.chat_v2_download_row_sub,
                     remote ? R.string.chat_v2_remote_entry_insight_sub : R.string.chat_v2_download_sub);
+            setEntryText(R.id.chat_v2_entry_guide_title,
+                    remote ? R.string.chat_v2_remote_entry_switch : R.string.chat_v2_entry_guide);
+            setEntryText(R.id.chat_v2_entry_guide_sub,
+                    remote ? R.string.chat_v2_remote_entry_switch_sub : R.string.chat_v2_entry_guide_sub);
             // 「最近」：远程时收起（那是手机本地会话）；切回本地时若还有条目要放回来，
             // 否则远程→本地走一趟，首屏会永远缺这块（2026-11-14 自查）。
             if (recentGroup != null) {

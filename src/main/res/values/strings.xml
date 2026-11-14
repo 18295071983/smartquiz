@@ -797,6 +797,8 @@
     <string name="chat_v2_remote_entry_pick_sub">先挑一条电脑上的对话接着聊，之后手机发的消息都进那条</string>
     <string name="chat_v2_remote_entry_insight">🖥️ 看电脑在跑什么</string>
     <string name="chat_v2_remote_entry_insight_sub">后台任务 / 目标 / 子代理 / 日程 / 权限，都在这一页</string>
+    <string name="chat_v2_remote_entry_switch">🔁 切换电脑会话</string>
+    <string name="chat_v2_remote_entry_switch_sub">换一条电脑上的对话接着聊（当前这条会留在电脑上）</string>
     <string name="chat_v2_recent">最近</string>
     <string name="chat_v2_untitled">新对话</string>
     <!-- ===== 聊天页「使用说明」引导弹框（2026-11-02 GUIDE-DYNAMIC-TOOLS）=====

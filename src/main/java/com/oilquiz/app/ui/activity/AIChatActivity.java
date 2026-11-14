@@ -15418,6 +15418,9 @@ public class AIChatActivity extends BaseActivity {
                     com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenterDefault(this);
                     setLocalChipsVisible(true);
                     if (chatV2EmptyState != null) chatV2EmptyState.setRemoteMode(false);
+                    // 状态点也要还原成引擎色：只改副标题的话，圆点还停在远程的绿/黄上
+                    com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateStatusDot(this,
+                            com.oilquiz.app.ai.chat.status.ServiceStatusManager.lastDotColorRes());
                 }
                 com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.refreshSubtitleIfNeeded(this);
                 return;
@@ -15446,14 +15449,15 @@ public class AIChatActivity extends BaseActivity {
             String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
             String syncTitle = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTitle(this);
             String follow = target.isEmpty()
-                    ? "未选会话"
+                    ? ""
                     : "跟随「" + (syncTitle.isEmpty() ? shortId(target) : syncTitle) + "」";
-            StringBuilder sub = new StringBuilder("电脑 · ").append(remotePhaseText(live))
-                    .append("｜").append(follow);
             boolean needsAttention = st != null && st.ok && st.approvalsPending > 0;
-            if (needsAttention) sub.append(" · 待处理 ").append(st.approvalsPending);
             int dot = needsAttention ? R.color.warning : R.color.success;
-            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.setRemoteSubtitle(this, sub.toString(), dot);
+            // 文案拼装统一走 ChatUiV2Chrome.remoteSubtitle（有单测钉格式）
+            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.setRemoteSubtitle(this,
+                    com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.remoteSubtitle(
+                            remotePhaseText(live), follow, needsAttention ? st.approvalsPending : 0),
+                    dot);
             if (modeChanged) {
                 com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenter(this,
                         v -> openRemoteSessionPicker(),

@@ -197,6 +197,7 @@
                 android:orientation="vertical">
 
                 <TextView
+                    android:id="@+id/chat_v2_entry_guide_title"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="@dimen/space_3"
@@ -206,6 +207,7 @@
                     android:textStyle="bold"/>
 
                 <TextView
+                    android:id="@+id/chat_v2_entry_guide_sub"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/chat_v2_entry_guide_sub"
