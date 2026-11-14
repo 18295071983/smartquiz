@@ -206,6 +206,10 @@ public class SmartQuizApplication extends Application {
         new Thread(() -> boot("DSH 系统通知气泡一次性清理",
                 () -> new com.oilquiz.app.ai.util.ChatHistoryManager(SmartQuizApplication.this)
                         .cleanDshNoticeRowsOnce()), "dsh-notice-row-cleanup").start();
+        // 一次性清理"纯状态事件被画成卡"的历史（job/settled、compaction/*、ui/slot 等）
+        new Thread(() -> boot("假事件卡一次性清理",
+                () -> new com.oilquiz.app.ai.util.ChatHistoryManager(SmartQuizApplication.this)
+                        .cleanDshUnknownCardsOnce()), "dsh-unknown-card-cleanup").start();
         // ① 代码生成的三份 —— 工具创建指南.md / 使用速查表.md / 核心工具速查.md；
         // ② assets/apk_shell/guides/ 下自动发现的全部文件（LINUX_TOOLKIT_GUIDE.md、
         //    MEDIA_TOOLKIT_GUIDE.md、HTML_DESIGN_RULES.md、APK_SOURCE_GUIDE.md 等，

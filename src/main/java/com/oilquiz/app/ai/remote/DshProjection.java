@@ -117,7 +117,9 @@ public final class DshProjection {
         }
 
         msg.content = content.toString();
-        msg.thinkingContent = thinking.length() > 0 ? thinking.toString() : null;
+        // 思考：截断到预算内（真机一条消息 215 KB 思考会把解析/渲染拖死）
+        msg.thinkingContent = thinking.length() > 0
+                ? clip(thinking.toString(), MAX_THINKING_CHARS, "思考") : null;
         msg.roundSnapshots = snapshots;
         msg.components = components;
         // 与 roundSnapshots 同源的顺序信息：流式/未完成那一档渲染器读的就是它。
@@ -134,11 +136,16 @@ public final class DshProjection {
                 "toolName", tool.name,
                 "args", tool.args,
                 "status", tool.error ? "failed" : (tool.finished ? "success" : "running"));
-        if (!tool.result.isEmpty()) DshCards.put(props, "result", tool.result);
+        // 输出/参数都按预算截断：245 张工具卡各带完整输出时，单会话能到 10 MB
+        String argsClip = clip(tool.args, MAX_TOOL_ARGS_CHARS, "参数");
+        if (argsClip != null && !argsClip.equals(tool.args)) DshCards.put(props, "args", argsClip);
+        if (!tool.result.isEmpty()) {
+            DshCards.put(props, "result", clip(tool.result, MAX_TOOL_RESULT_CHARS, "输出"));
+        }
         // META(2026-11-13)：把官方 tool/result.meta 一起投影进组件 props。
         // 现在手机端卡片还没消费它，但落盘/恢复/后续做 diff/read/search 卡都靠它，
         // 丢了就只能回电脑端重取 —— 所以宁可先带上。
-        if (tool.meta != null) DshCards.put(props, "meta", tool.meta);
+        if (tool.meta != null) DshCards.put(props, "meta", clip(String.valueOf(tool.meta), MAX_TOOL_META_CHARS, "元数据"));
         ComponentData data = ComponentData.of("tool_call", props);
         data.source = "dsh";
         data.id = ids.idFor("tool:" + tool.callId);
@@ -199,6 +206,32 @@ public final class DshProjection {
         return data;
     }
 
+    // ==================== 转换器预算（2026-11-14） ====================
+    //
+    // 真机病历：一条 AI 消息 = 215 KB 思考 + 245 张工具卡（每张带完整命令/输出）
+    // → 单会话 10 MB，加载/渲染把主线程拖住 9 秒（MainThreadWatchdog 抓到）。
+    //
+    // DSH 自己的界面也不把整段思考/完整输出铺出来：思考折叠、工具行只显示摘要、
+    // 详情按需展开。这里按同一口径在**投影时**截断 —— 不是渲染时再省，
+    // 因为落盘、恢复、搜索都读这份数据。
+
+    /** 单条消息保留的思考上限：超过就截断并标注（详情仍在电脑端会话日志里） */
+    private static final int MAX_THINKING_CHARS = 8000;
+    /** 工具参数/输出单卡上限 */
+    private static final int MAX_TOOL_ARGS_CHARS = 400;
+    private static final int MAX_TOOL_RESULT_CHARS = 800;
+    /** 官方 presentationMeta 上限（diff/read 等卡要用，留得比结果宽） */
+    private static final int MAX_TOOL_META_CHARS = 4000;
+
+    /**
+     * 截断并标注。返回 null 表示原样保留（没超限）。
+     * 标注里带原始长度，用户/排查都能看出"这里被省了"，不是数据丢了。
+     */
+    private static String clip(String value, int max, String what) {
+        if (value == null) return null;
+        if (value.length() <= max) return value;
+        return value.substring(0, max) + "\n…（" + what + "已截断，原文 " + value.length() + " 字）";
+    }
     private static String trim(String s) {
         return s == null ? "" : s.trim();
     }

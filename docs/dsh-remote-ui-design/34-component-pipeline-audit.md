@@ -269,3 +269,37 @@ POST /v2/card {"type":"alert_card","props":{"title":"只有标题"}}
 
 自测：
 ode tools/dsh-plugin-smartquiz-remote/cardcheck.test.mjs → **15 passed**。
+## 12. 转换器瘦身 + 假事件卡清理（2026-11-14）
+
+用户口径：「还是要排查一下卡，再看看客户端的插件，消息转换器不行。」
+
+### 12.1 病历（真机会话实测）
+
+`
+messages=93  file=10.4 MB
+一条 AI 消息：content 2.6 KB + thinking 215 KB + 245 个 tool_call 组件
+`
+
+结论：**不是卡片画得不对，是转换器把一整个 turn 的原始数据全塞进一条消息**——
+思考 215 KB 一条、245 张工具卡各带完整命令/输出，落盘 10 MB，加载解析把主线程拖住
+（watchdog 抓到 8.9 秒）。DSH 自己的界面也不这么做：思考折叠、工具行只留摘要、详情按需展开。
+
+### 12.2 投影预算（DshProjection）
+
+| 字段 | 上限 | 超限写法 |
+|---|---|---|
+| 思考 	hinkingContent | 8000 字 | …（思考已截断，原文 N 字） |
+| 工具参数 rgs | 400 字 | …（参数已截断，原文 N 字） |
+| 工具输出 esult | 800 字 | …（输出已截断，原文 N 字） |
+| 官方 meta（diff/read 卡要用） | 4000 字 | 同上 |
+
+截断标注带原始长度：用户能看出"这里被省了"，不是数据丢了；完整内容仍在电脑端会话日志。
+
+### 12.3 假事件卡一次性清理
+
+修掉兜底逻辑之前落盘的 31 张「电脑事件 · job/settled|ui/slot|compaction/*」卡，
+用 ChatHistoryManager.cleanDshUnknownCardsOnce() 从会话文件里删掉（幂等，开机后台跑）。
+实测：清理假事件卡: 31 张（会话文件 2 个）。
+
+判据只删 	ype=dynamic && props.type=unknown_event && event_type ∈ 纯状态/合成帧，
+真人可见的未知事件卡不动。

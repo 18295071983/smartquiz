@@ -482,6 +482,109 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         }
     }
 
+    /** 兜底卡清理的 prefs key（一次性） */
+    private static final String KEY_DSH_UNKNOWN_CARDS_CLEANED = "dsh_unknown_cards_cleaned_v1";
+
+    /**
+     * 一次性清理历史里的**假事件卡**（2026-11-14）。
+     *
+     * <p>背景：动态兜底曾经漏了"忽略表"判断，把 job/settled、compaction/*、ui/slot 这些
+     * 纯状态事件也画成了 {@code dynamic} 卡（标题「电脑事件 · xxx」+ 原始 JSON）。
+     * 修好之后新事件不会再出卡，但**已经落盘**的那些还躺在会话文件里。</p>
+     *
+     * <p>只删这种卡：{@code type=dynamic} 且 {@code props.type=unknown_event}，
+     * 且 {@code event_type} 属于已知的纯状态/合成帧；真人可见的未知事件卡不动。</p>
+     */
+    public void cleanDshUnknownCardsOnce() {
+        try {
+            android.content.SharedPreferences sp =
+                    context.getSharedPreferences(MAINTENANCE_PREFS, Context.MODE_PRIVATE);
+            if (sp.getBoolean(KEY_DSH_UNKNOWN_CARDS_CLEANED, false)) return;
+            int total = 0;
+            int changedFiles = 0;
+            File[] sessionFiles = getConversationsDir().listFiles((d, n) -> n.endsWith(".json"));
+            if (sessionFiles != null) {
+                for (File f : sessionFiles) {
+                    try {
+                        ConversationSession session = gson.fromJson(
+                                new java.io.InputStreamReader(new java.io.FileInputStream(f),
+                                        java.nio.charset.StandardCharsets.UTF_8),
+                                ConversationSession.class);
+                        if (session == null || session.messages == null) continue;
+                        int removed = stripDshUnknownCards(session.messages);
+                        if (removed <= 0) continue;
+                        writeFileAtomic(f, gson.toJson(session));
+                        total += removed;
+                        changedFiles++;
+                    } catch (Throwable t) {
+                        Log.w(TAG, "清理假事件卡失败: " + f.getName(), t);
+                    }
+                }
+            }
+            sp.edit().putBoolean(KEY_DSH_UNKNOWN_CARDS_CLEANED, true).apply();
+            if (total > 0) {
+                com.oilquiz.app.util.AILogger.audit(TAG,
+                        "清理假事件卡: " + total + " 张（会话文件 " + changedFiles + " 个）");
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "cleanDshUnknownCardsOnce failed", t);
+        }
+    }
+
+    /** 删掉"纯状态事件被画成卡"的历史组件，返回删除数量（可单独测试） */
+    public static int stripDshUnknownCards(List<ChatMessage> messages) {
+        if (messages == null || messages.isEmpty()) return 0;
+        int removed = 0;
+        for (ChatMessage m : messages) {
+            if (m == null || m.components == null || m.components.isEmpty()) continue;
+            java.util.Iterator<com.oilquiz.app.ai.chat.component.ComponentData> it =
+                    m.components.iterator();
+            while (it.hasNext()) {
+                com.oilquiz.app.ai.chat.component.ComponentData c = it.next();
+                if (c == null || c.props == null) continue;
+                if (!"dynamic".equals(c.type)) continue;
+                if (!"unknown_event".equals(c.props.optString("type", ""))) continue;
+                String ev = c.props.optString("event_type", "");
+                if (isNoiseEventType(ev)) {
+                    it.remove();
+                    removed += 1;
+                }
+            }
+        }
+        return removed;
+    }
+
+    /** 纯状态/合成帧：它们有专门的插槽或根本不该出卡 */
+    private static boolean isNoiseEventType(String ev) {
+        if (ev == null || ev.isEmpty()) return false;
+        if (ev.startsWith("job/") || ev.startsWith("compaction/") || ev.startsWith("llm/retry")) {
+            return true;
+        }
+        switch (ev) {
+            case "ui/slot":
+            case "ui/card":
+            case "state":
+            case "view":
+            case "pulse":
+            case "hello":
+            case "cmd":
+            case "view_def":
+            case "__force_resync":
+            case "approval":
+            case "approval_gone":
+            case "question":
+            case "question_gone":
+            case "goal/change":
+            case "permission/preset":
+            case "sandbox/mode":
+            case "agent-preset/selected":
+            case "model/selection":
+            case "agent/inbox/spliced":
+                return true;
+            default:
+                return false;
+        }
+    }
     private int cleanDshNoticeListFile(File file) {
         if (file == null || !file.exists()) return 0;
         try {
