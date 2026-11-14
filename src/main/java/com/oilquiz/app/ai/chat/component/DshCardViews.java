@@ -20,7 +20,6 @@ import org.json.JSONObject;
  * 全是同一个长相，用户反馈“挂卡感觉不好”。这里给三类真正有语义的卡片各做一个原生 View：</p>
  *
  * <ul>
- *   <li>{@link DshJobCard}（{@code dsh_job}）：后台任务 —— 状态点 + 标题 + 备注，一行一条；</li>
  * </ul>
  *
  * <p>三者都不带 emoji（沿用项目“状态去 emoji”约定），颜色走 {@link ComponentColors} 语义资源。
@@ -139,85 +138,6 @@ final class DshCardViews {
     // 2) 后台任务卡
     // ======================================================================
 
-    /**
-     * 后台任务（{@code dsh_job}）。
-     *
-     * <p>props：{@code {label, status, detail?}}。原来这类事件画成“后台任务”标题 + 命令原文的
-     * 提示卡，占一整块；现在压成一行：状态点 + 任务名 + 状态文案，多任务堆在同一张卡里。</p>
-     */
-    static final class DshJobCard implements ChatComponent {
-
-        @Override
-        public String getType() {
-            return "dsh_job";
-        }
-
-        @Override
-        public boolean canRender(ComponentData data) {
-            return data != null && data.props != null
-                    && !TextUtils.isEmpty(data.props.optString("label", ""));
-        }
-
-        @Override
-        public View createView(Context context, ComponentData data) {
-            JSONObject p = data.props != null ? data.props : new JSONObject();
-            String label = p.optString("label", "");
-            String status = p.optString("status", "running");
-            String detail = p.optString("detail", "");
-            int color = statusColor(context, status);
-
-            LinearLayout card = new LinearLayout(context);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setPadding(dp(context, 12), dp(context, 9), dp(context, 12), dp(context, 9));
-            card.setBackground(surface(context));
-
-            LinearLayout row = new LinearLayout(context);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-
-            View dot = new View(context);
-            GradientDrawable dotBg = new GradientDrawable();
-            dotBg.setShape(GradientDrawable.OVAL);
-            dotBg.setColor(color);
-            dot.setBackground(dotBg);
-            LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(context, 7), dp(context, 7));
-            dotLp.setMargins(0, 0, dp(context, 8), 0);
-            row.addView(dot, dotLp);
-
-            TextView name = new TextView(context);
-            name.setText(label);
-            name.setTextSize(12.5f);
-            name.setTextColor(ComponentColors.textPrimary(context));
-            name.setMaxLines(1);
-            name.setEllipsize(TextUtils.TruncateAt.END);
-            name.setLayoutParams(new LinearLayout.LayoutParams(0,
-                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-            row.addView(name);
-
-            String statusText = statusLabel(status);
-            if (!statusText.isEmpty()) {
-                TextView st = new TextView(context);
-                st.setText(statusText);
-                st.setTextSize(11);
-                st.setTextColor(color);
-                st.setPadding(dp(context, 6), 0, 0, 0);
-                row.addView(st);
-            }
-            card.addView(row);
-
-            if (!TextUtils.isEmpty(detail)) {
-                TextView det = new TextView(context);
-                det.setText(detail);
-                det.setTextSize(11);
-                det.setTextColor(ComponentColors.textSecondary(context));
-                det.setMaxLines(2);
-                det.setEllipsize(TextUtils.TruncateAt.END);
-                det.setPadding(dp(context, 15), dp(context, 3), 0, 0);
-                card.addView(det);
-            }
-            return card;
-        }
-    }
 
     // ======================================================================
     // 4) 子代理轨迹卡（B15 durable）

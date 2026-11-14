@@ -93,8 +93,7 @@ public class ComponentRegistry {
         register(new FeedbackBarCardView());
         register(new AgentStatusChipCardView());
         // DSH（电脑端）专用原生卡：终端命令 / 后台任务 / 生命周期提示。
-        // 这三个类型不面向模型目录，只由 DshCards 的事件映射产出（dsh_command / dsh_job / dsh_notice）。
-        register(new DshCardViews.DshJobCard());
+        // 2026-11-14：dsh_command/dsh_job/dsh_notice 已合并（code_card / job / alert），
         // 子代理轨迹卡（B15 durable）：从子会话合成活动累积，投影后随消息落盘
         register(new DshCardViews.DshSubagentCard());
         // Layout 原语桥接：把 NativeLayoutRenderer 的单控件渲染暴露为聊天流卡片

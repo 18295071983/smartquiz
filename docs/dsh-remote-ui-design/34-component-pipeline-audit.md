@@ -91,3 +91,23 @@ DSH 的事件（job、command、todo、subagent、审批…）都是"AI 回合�
 - APK：860MB，`sha256 8b1e9fca…`，21:32 装机成功；
 - 组件类型集合（DSH 侧）：`alert_card`、`code_card`、`todo_card`、`file_list`、`steps`、
   `tool_call`、`layout`、`markdown_doc`、`dsh_job`、`subagent_card` —— 除最后两个全部是现有组件。
+## 7. 第三轮：改原生组件（2026-11-14，用户问"可以改原生组件吗"）
+
+**可以，而且优先改原生组件、不新增。** 本轮把最后一对重复的 dsh_job 也接进了内置 job：
+
+- JobCardView **扩展静态模式**：job_id 为空但有 status 时，不轮询、直接画
+  「状态点 + 任务名 + 运行中/完成/失败」；canRender 同时接受两种用法；
+  原来那种带 job_id 的主动轮询作业卡行为**完全不变**；
+- DshCards 的 job/registered、job/settled 改发 job（props：	itle/job_label/status）；
+- 删除 DshCardViews.DshJobCard 与注册项；DshCardViews 现在只剩 DshSubagentCard；
+- ComponentTypes 目录里删掉 dsh_command/dsh_job/dsh_notice 三条 schema，
+  补上 code_card（模型要终端/提示/任务卡时用通用类型，同样能拿到原生渲染）。
+
+改原生组件的三条规矩（这轮都遵守）：
+
+1. **只加可选字段，不动老字段语义**（job_id 仍是轮询模式；content 仍优先于 	ext）；
+2. **老生产者的渲染结果不变**（job 的轮询分支零改动；lert 只在正文为空时回退）；
+3. **每改一个都跑单测 + 装机验证**（DshEventCoverageTest 6/6，APK 装机成功）。
+
+至此 DSH 专用原生组件只剩 **subagent_card** 一个（子代理实时轨迹，childId 累积语义，
+现有 steps_card 是静态列表，接不上）。

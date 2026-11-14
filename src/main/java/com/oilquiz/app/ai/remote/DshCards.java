@@ -157,8 +157,8 @@ public final class DshCards {
                 String jobId = data.optString("jobId",
                         data.optString("id", data.optString("job_id", ""))).trim();
                 String key = jobId.isEmpty() ? ("jobs-" + turn) : ("job-" + jobId);
-                return new Card(key, "dsh_job",
-                        obj("label", label, "status", "running"));
+                return new Card(key, "job",
+                        obj("job_label", label, "title", label, "status", "running"));
             }
             case "command/run":
                 // 命令执行 = 终端命令卡（等宽 + 状态灯），而不是“执行命令”提示卡
@@ -303,8 +303,8 @@ public final class DshCards {
                 String jobId = data.optString("jobId",
                         data.optString("id", data.optString("job_id", ""))).trim();
                 String key = jobId.isEmpty() ? ("jobs-" + turn) : ("job-" + jobId);
-                return new Card(key, "dsh_job",
-                        obj("label", label,
+                return new Card(key, "job",
+                        obj("job_label", label, "title", label,
                                 "status", status.isEmpty() ? (bad ? "failed" : "success") : status));
             }
             case "command/done": {

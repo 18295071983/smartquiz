@@ -6,6 +6,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -43,17 +44,81 @@ public class JobCardView implements ChatComponent {
 
     @Override
     public boolean canRender(ComponentData data) {
-        return data != null && data.props != null
-                && !data.props.optString("job_id", "").trim().isEmpty();
+        if (data == null || data.props == null) return false;
+        // 2026-11-14：新增"静态状态"用法（DSH 的 job 事件）——没有 job_id、只有 status 也能画；
+        // 有 job_id 才是原来那种主动轮询的作业卡。
+        return !data.props.optString("job_id", "").trim().isEmpty()
+                || !data.props.optString("status", "").trim().isEmpty();
     }
 
     @Override
     public View createView(Context context, ComponentData data) {
         JSONObject p = data.props != null ? data.props : new JSONObject();
+        String jid = p.optString("job_id", "").trim();
+        String status = p.optString("status", "").trim();
+        if (jid.isEmpty() && !status.isEmpty()) {
+            return staticStatusView(context, p.optString("title", "后台任务"), status);
+        }
         return new JobCardRoot(context,
-                p.optString("job_id", "").trim(),
+                jid,
                 p.optString("title", ""),
                 p.optString("cmd", ""));
+    }
+
+    /**
+     * 静态状态卡（2026-11-14）：给 DSH 的 {@code job/registered|settled} 用。
+     *
+     * <p>DSH 的后台任务在宿主侧跑，手机拿不到日志、也不该去轮询本地作业目录；
+     * 只需要"运行中 / 完成 / 失败"一眼可见。这样原来的 {@code dsh_job} 原生卡就可以删掉，
+     * 任务状态统一走内置的 {@code job} 组件。</p>
+     */
+    private static View staticStatusView(Context context, String title, String status) {
+        boolean failed = "failed".equals(status) || "error".equals(status) || "cancelled".equals(status);
+        boolean running = "running".equals(status) || "queued".equals(status) || "pending".equals(status);
+
+        LinearLayout card = new LinearLayout(context);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = px(context, 12);
+        card.setPadding(pad, px(context, 9), pad, px(context, 9));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(px(context, 10));
+        bg.setColor(ComponentColors.background(context));
+        bg.setStroke(px(context, 1), ComponentColors.border(context));
+        card.setBackground(bg);
+
+        View dot = new View(context);
+        GradientDrawable dotBg = new GradientDrawable();
+        dotBg.setShape(GradientDrawable.OVAL);
+        dotBg.setColor(failed ? ComponentColors.error(context)
+                : running ? ComponentColors.warning(context) : ComponentColors.success(context));
+        dot.setBackground(dotBg);
+        LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(px(context, 8), px(context, 8));
+        dotLp.setMargins(0, 0, px(context, 8), 0);
+        card.addView(dot, dotLp);
+
+        TextView tv = new TextView(context);
+        tv.setText(title == null || title.isEmpty() ? "后台任务" : title);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        tv.setTextColor(ComponentColors.textPrimary(context));
+        tv.setMaxLines(1);
+        tv.setEllipsize(TextUtils.TruncateAt.END);
+        tv.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        card.addView(tv);
+
+        TextView state = new TextView(context);
+        state.setText(running ? "运行中" : failed ? "失败" : "完成");
+        state.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
+        state.setTextColor(failed ? ComponentColors.error(context)
+                : running ? ComponentColors.warning(context) : ComponentColors.textSecondary(context));
+        state.setPadding(px(context, 8), 0, 0, 0);
+        card.addView(state);
+        return card;
+    }
+    /** dp→px（外层静态方法用；内层的 dp 在 JobCardRoot 里） */
+    private static int px(Context c, float v) {
+        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v,
+                c.getResources().getDisplayMetrics());
     }
 
     /** 卡片根视图：持有 attach 作用域的轮询器。 */

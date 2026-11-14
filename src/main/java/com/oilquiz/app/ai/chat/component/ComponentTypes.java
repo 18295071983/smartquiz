@@ -309,20 +309,11 @@ public final class ComponentTypes {
                         + "文件真实改动不要手写这张卡：用 file_generator(action=diff) 出预览卡"
                         + "（按文件实际内容算），手写 hunks 只是示意图、会和真实内容不一致"});
         SCHEMA.put("todo", new String[]{CATEGORY_SCENE, "待办 items[{text,done}]", "标题 title", ""});
-        // 2026-11-12：DSH（电脑端）原生卡也进目录 —— 以前这三张卡只由电脑端事件映射产出，
-        // 模型/本机引擎的 ui_component 看不到、也创建不出来。现在 create 时直接给
-        // component_type=dsh_command / dsh_job / dsh_notice 就能用同一套原生渲染。
-        SCHEMA.put("dsh_command", new String[]{CATEGORY_TASK,
-                "命令 command", "状态 status=running|success|failed, 输出 output, 工作目录 cwd",
-                "终端命令卡：等宽字体 + 状态灯，shell 类结果优先用它而不是 alert"});
-        SCHEMA.put("dsh_job", new String[]{CATEGORY_TASK,
-                "任务名 label", "状态 status=running|success|failed|cancelled, 备注 detail",
-                "后台任务卡：一行一条，状态点 + 任务名 + 状态"});
-        SCHEMA.put("dsh_notice", new String[]{CATEGORY_CONTENT,
-                "标题 title 或正文 text", "级别 level=info|success|warning|error",
-                "生命周期提示卡：低权重单条提示（重试/压缩/子代理/目标变更等）"});
-        // 注意：长任务活动卡 type=job 不在"面向模型的目录"里——它是 linux_shell(termux_submit) 经
-        // withComponent 直接挂载的工具产物卡，不由模型 create_component 生成；渲染只在 ComponentRegistry。
+        // 2026-11-14：DSH 专用卡已合并到通用组件（dsh_command→code_card、dsh_notice→alert、
+        // dsh_job→job），不再单独登记 dsh_* 类型；模型要终端/提示/任务卡就用下面这些通用类型。
+        SCHEMA.put("code_card", new String[]{CATEGORY_TASK,
+                "代码 code（命令也行）", "语言 language, 标题 title, 状态 status=running|success|failed",
+                "代码/终端卡：等宽 + 复制 + 状态标签，shell 类结果优先用它而不是 alert"});
     }
 
     private ComponentTypes() {
