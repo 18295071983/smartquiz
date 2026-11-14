@@ -29,7 +29,7 @@
  */
 
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
-import { chmodSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync, appendFileSync } from 'node:fs';
+import { chmodSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync, appendFileSync, createReadStream } from 'node:fs';
 import { networkInterfaces, homedir, constants as osConstants, setPriority } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -2926,12 +2926,16 @@ function presetSvcOf(ctx) {
     // C6：客户端自更新（保守版）。配置里填了才下发；手机只提示、下载、校验 sha256，
     // 最后由系统安装器让用户确认——插件从不静默安装。
     // cfg.appRelease = { version, url, sha256, notes? }
-    app_release: (cfg.appRelease && typeof cfg.appRelease === 'object') ? {
-      version: Number(cfg.appRelease.version) || 0,
-      url: String(cfg.appRelease.url || ''),
-      sha256: String(cfg.appRelease.sha256 || ''),
-      notes: String(cfg.appRelease.notes || ''),
-    } : null,
+    app_release: (() => {
+      // C6 自测模式：没配 cfg.appRelease 时，用构建出来的 APK 自动组装一份
+      const c = (cfg.appRelease && typeof cfg.appRelease === 'object') ? cfg.appRelease : null;
+      const version = Number(c && c.version) || 0;
+      const url = String((c && c.url) || '');
+      const sha256 = String((c && c.sha256) || '');
+      const notes = String((c && c.notes) || '');
+      if (version && url && sha256) return { version, url, sha256, notes };
+      return appReleaseAuto;
+    })(),
     // 主令牌最近一次被使用的时间：手机端只有在"还没换成设备令牌"或"用设备令牌失败退回主令牌"时才走主令牌，
     // 有值就说明当前有连接在用主令牌（面板据此提示，避免把"设备数 0"误读成"没人连着"）
     main_token_last_seen: mainTokenLastSeen,
@@ -3825,6 +3829,85 @@ function presetSvcOf(ctx) {
   onInvoke('copy_session_id', async (_v, ctx0) => ([{ type: 'copy', text: String(ctx0?.sid ?? '') }]));
   onInvoke('open_insight', async () => ([{ type: 'open', page: 'insight' }]));
 
+  /**
+   * 本地更新包分发（C6 自测用，2026-11-14）：把构建出来的 APK 直接从插件发给手机。
+   * 不上商店也能试：地址是 http://<本机或 Tailscale IP>:<port>/app/latest.apk。
+   */
+  const APP_APK_PATH = () => {
+    if (cfg.appRelease && cfg.appRelease.file) return cfg.appRelease.file;
+    // 自动挑最新构建产物（版本号变了文件名也会变，不能写死）
+    try {
+      const dir = join(PLUGIN_DIR, '..', '..', 'build', 'outputs', 'apk', 'debug');
+      const apks = readdirSync(dir)
+        .filter((f) => f.endsWith('.apk'))
+        .map((f) => ({ f, p: join(dir, f), t: statSync(join(dir, f)).mtimeMs }))
+        .sort((a, b) => b.t - a.t);
+      if (apks.length > 0) return apks[0].p;
+    } catch { /* 没有构建产物 */ }
+    return join(PLUGIN_DIR, '..', '..', 'build', 'outputs', 'apk', 'debug', 'app.apk');
+  };
+  /** 从仓库 build.gradle 读 versionCode，保证 app_release.version 与实际包一致 */
+  const appVersionCode = () => {
+    try {
+      const g = readFileSync(join(PLUGIN_DIR, '..', '..', 'build.gradle'), 'utf8');
+      const mm = g.match(/versionCode\s+(\d+)/);
+      if (mm) return Number(mm[1]) || 0;
+    } catch { /* 读不到就退回配置 */ }
+    return Number((cfg.appRelease || {}).version) || 0;
+  };
+  let appApkMeta = null;   // {size, sha256, mtime}
+  /** C6 自测：用构建出的 APK 自动组装 app_release（只在启动时算一次 sha256） */
+  let appReleaseAuto = null;
+  try {
+    const st0 = statSync(APP_APK_PATH());
+    appApkMeta = {
+      size: st0.size,
+      mtime: st0.mtimeMs,
+      sha256: createHash('sha256').update(readFileSync(APP_APK_PATH())).digest('hex'),
+    };
+    const base = String(cfg.publicUrl || '').trim().replace(/\/+$/, '');
+    if (base) {
+      appReleaseAuto = {
+        version: appVersionCode(),
+        url: base + '/app/latest.apk',
+        sha256: appApkMeta.sha256,
+        notes: '本地更新包 ' + Math.round(appApkMeta.size / 1048576) + 'MB',
+      };
+      ctx.logger?.info?.('[smartquiz-remote] app_release 就绪: ' + appReleaseAuto.version + ' ' + appReleaseAuto.url);
+    }
+  } catch { /* 没有构建产物就跳过 */ }
+  const appApkInfo = async () => {
+    try {
+      const file = APP_APK_PATH();
+      const st = statSync(file);
+      if (!appApkMeta || appApkMeta.mtime !== st.mtimeMs || appApkMeta.size !== st.size) {
+        const buf = readFileSync(file);
+        appApkMeta = {
+          size: st.size,
+          mtime: st.mtimeMs,
+          sha256: createHash('sha256').update(buf).digest('hex'),
+        };
+      }
+      return { path: file, ...appApkMeta };
+    } catch { return null; }
+  };
+
+  route('exact', '/app/latest.apk', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const info = await appApkInfo();
+    if (!info) return sendJson(res, 404, { ok: false, error: 'no_apk' });
+    try {
+      const st = statSync(info.path);
+      res.writeHead(200, {
+        'content-type': 'application/vnd.android.package-archive',
+        'content-length': st.size,
+        'content-disposition': 'attachment; filename="update.apk"',
+      });
+      createReadStream(info.path).pipe(res);
+    } catch (e) {
+      try { sendJson(res, 500, { ok: false, error: String(e?.message ?? e) }); } catch { /* 已发头 */ }
+    }
+  });
   route('exact', '/v2/invoke', async (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use POST' });

@@ -42,6 +42,33 @@ public final class RemoteAppUpdate {
     private RemoteAppUpdate() {
     }
 
+    /**
+     * 更新地址白名单：https 一律放行；http 只允许**内网/Tailscale** 地址
+     * （局域网自测、不上商店的场景）。公网 http 拒绝，避免中间人换包。
+     */
+    static boolean isAllowedUrl(String url) {
+        if (url == null) return false;
+        String u = url.trim();
+        if (u.startsWith("https://")) return true;
+        if (!u.startsWith("http://")) return false;
+        try {
+            String host = java.net.URI.create(u).getHost();
+            if (host == null) return false;
+            if (host.equals("localhost") || host.equals("127.0.0.1")) return true;
+            if (host.startsWith("192.168.") || host.startsWith("10.")) return true;
+            if (host.startsWith("172.")) {
+                int second = Integer.parseInt(host.split("\\.")[1]);
+                return second >= 16 && second <= 31;
+            }
+            if (host.startsWith("100.")) {          // Tailscale CGNAT 段
+                int second = Integer.parseInt(host.split("\\.")[1]);
+                return second >= 64 && second <= 127;
+            }
+            return false;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
     /** 当前安装包的 versionCode（拿不到返回 0） */
     public static int currentVersionCode(Context c) {
         try {
@@ -63,7 +90,7 @@ public final class RemoteAppUpdate {
         final int remote = release.optInt("version", 0);
         final String url = release.optString("url", "").trim();
         final String sha = release.optString("sha256", "").trim();
-        if (remote <= 0 || url.isEmpty() || !url.startsWith("https://")) return false;
+        if (remote <= 0 || url.isEmpty() || !isAllowedUrl(url)) return false;
         if (remote <= currentVersionCode(c)) return false;
         final String notes = release.optString("notes", "");
         // 用插槽通知：不打断，点一下才下载
@@ -90,7 +117,7 @@ public final class RemoteAppUpdate {
      */
     public static void downloadAndInstall(final Context c, final String url, final String sha256) {
         if (c == null) return;
-        if (url == null || !url.startsWith("https://")) {
+        if (url == null || !isAllowedUrl(url)) {
             toast(c, "更新地址必须是 https");
             return;
         }
