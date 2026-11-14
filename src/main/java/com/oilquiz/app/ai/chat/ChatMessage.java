@@ -1634,6 +1634,24 @@ public class ChatMessage {
                 || c.contains("正在思考中，请稍候");
     }
 
+    /**
+     * DSH 的**系统通知**被旧历史导入器当成了用户气泡（2026-11-14）。
+     *
+     * <p>DSH 把后台任务通知、重试回执也记成 {@code user/message}；旧的
+     * {@code DshHistoryImporter.buildMessages} 不区分来源，于是同步过来的历史里
+     * 出现一堆内容为 {@code background job pwsh-… finished [status: completed…]} 的"用户提问"。</p>
+     *
+     * <p>导入器已经按 {@code source.kind} 修掉了；这个方法用来**清理已经落盘的旧数据**
+     * （{@code ChatHistoryManager#cleanDshNoticeRowsOnce} 与加载时过滤共用）。</p>
+     */
+    public static boolean isDshSystemNotice(ChatMessage m) {
+        if (m == null || m.type != MessageType.USER || m.content == null) return false;
+        String c = m.content.trim();
+        return c.startsWith("background job ")
+                || c.startsWith("[background job")
+                || c.startsWith("<task-notification");
+    }
+
 
 
 

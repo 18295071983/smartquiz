@@ -151,7 +151,39 @@ profiles/desktop（1） · 正在跟随
 - 性能：拉这一组会读电脑端 100 条会话的头/尾，比较重 —— **只在打开抽屉时拉一次**，
   保存/切换这类被动刷新直接用上次结果（`refreshHistoryDrawer(withRemote)`）。
 
-## 10. 遗留
+## 10. 历史里的 DSH 系统通知气泡（2026-11-14）
+
+用户口径：「拉取消息同步消息时没有经过我的消息转换器。有些历史消息显示有问题。」
+
+现状：历史导入其实**已经**走 `DshTimeline + DshProjection`（和实时同一套转换器），
+但**入口过滤**不一致，导致"系统消息"被当成了"用户提问"：
+
+| 路径 | 代码 | 规则 |
+|---|---|---|
+| 实时镜像 | `AIChatActivity.mirrorUserMessage` | `source.kind` 为空或 `user`；空文本跳过；10 分钟内同文本去重 |
+| 历史导入（旧） | `DshHistoryImporter.buildMessages` | 见到 `user/message` 就当用户气泡 |
+
+DSH 把后台任务通知（`background job pwsh-… finished [status: completed…]`）、重试回执、
+系统提示都记成 `user/message`，所以同步出来的历史里全是这种"用户提问"，标题也会被取成任务名
+（和之前那条 `background job pwsh-d4ad4c1b2b…` 是同一个根因）。
+
+改动：
+
+1. `DshHistoryImporter.isHumanUserMessage(JSONObject)`：历史与实时**共用一处判定**；
+2. `buildMessages`：非人类消息不建气泡，也不当轮次边界；相邻重复用户消息只留一条；
+3. `mirrorUserMessage` 改为调用同一个判定；
+4. 落盘旧数据的清理：
+   - `ChatMessage.isDshSystemNotice()`（`USER` + 以 `background job ` / `[background job` /
+     `<task-notification` 开头）；
+   - `ChatHistoryManager.stripDshNoticeRows()`：**加载会话时**就过滤（加载即正确）；
+   - `ChatHistoryManager.cleanDshNoticeRowsOnce()`：启动时一次性删掉落盘的那批
+     （prefs `dsh_notice_rows_cleaned_v1`，幂等）。
+
+真机实测（修复前各会话里的这类气泡）：`1e0cf6e1` 14 条、`66106cac` 31 条、
+`1fef1ee1` 12 条、`4872c3db` 0 条。
+
+## 11. 遗留
+
 
 1. **旧的随机 id 本地会话不会自动合并**：修复前产生的 `conversations/<uuid>.json` 仍在历史里，
    与锚点那条并存。要么手删（进回收站可恢复），要么以后再做一个"孤儿会话清理"。

@@ -68,6 +68,8 @@ public class ChatHistoryManager {
     /** 维护性清理的 prefs（一次性标记，避免每次启动重扫所有会话） */
     private static final String MAINTENANCE_PREFS = "chat_maintenance";
     private static final String KEY_LEGACY_ROWS_CLEANED = "legacy_process_rows_cleaned_v1";
+    /** 2026-11-14：DSH 系统通知气泡（background job …）的一次性清理标记 */
+    private static final String KEY_DSH_NOTICE_ROWS_CLEANED = "dsh_notice_rows_cleaned_v1";
     // 大历史防护（2026-09-25）：分段加载 + 保存保留未加载头部，历史完整保留；
     // 字节上限仅作极端超大文件兜底（正常不触发）
     private static final int MIN_SESSION_MESSAGES = 30;       // 裁剪时至少保留的消息数
@@ -426,6 +428,76 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         return before - messages.size();
     }
 
+    /** 去掉被旧导入器误当用户气泡的 DSH 系统通知（background job …）；返回删除条数。 */
+    public static int stripDshNoticeRows(List<ChatMessage> messages) {
+        if (messages == null || messages.isEmpty()) return 0;
+        int before = messages.size();
+        messages.removeIf(ChatMessage::isDshSystemNotice);
+        return before - messages.size();
+    }
+
+    /**
+     * 一次性清理（2026-11-14）：把已经落盘的 DSH 系统通知气泡（{@code background job pwsh-…}）
+     * 从所有会话文件里删掉。幂等（prefs 标记）。
+     *
+     * <p>为什么需要：导入器按 {@code source.kind} 过滤是**新**行为，之前同步过的会话文件里
+     * 已经躺着一堆这种"用户提问"；光靠重新同步解决不了本地会话（uuid 那些没有电脑端来源）。</p>
+     */
+    public void cleanDshNoticeRowsOnce() {
+        try {
+            android.content.SharedPreferences sp =
+                    context.getSharedPreferences(MAINTENANCE_PREFS, Context.MODE_PRIVATE);
+            if (sp.getBoolean(KEY_DSH_NOTICE_ROWS_CLEANED, false)) return;
+            int total = 0;
+            int changedFiles = 0;
+            total += cleanDshNoticeListFile(new File(context.getFilesDir(), AI_CHAT_HISTORY_FILE));
+            total += cleanDshNoticeListFile(new File(context.getFilesDir(), AGENT_CHAT_HISTORY_FILE));
+            File[] sessionFiles = getConversationsDir().listFiles((d, n) -> n.endsWith(".json"));
+            if (sessionFiles != null) {
+                for (File f : sessionFiles) {
+                    try {
+                        ConversationSession session = gson.fromJson(
+                                new java.io.InputStreamReader(new java.io.FileInputStream(f),
+                                        java.nio.charset.StandardCharsets.UTF_8),
+                                ConversationSession.class);
+                        if (session == null) continue;
+                        int removed = stripDshNoticeRows(session.messages);
+                        if (removed <= 0) continue;
+                        session.messageCount = session.messages != null ? session.messages.size() : 0;
+                        writeFileAtomic(f, gson.toJson(session));
+                        total += removed;
+                        changedFiles++;
+                    } catch (Throwable t) {
+                        Log.w(TAG, "清理 DSH 通知气泡失败: " + f.getName(), t);
+                    }
+                }
+            }
+            sp.edit().putBoolean(KEY_DSH_NOTICE_ROWS_CLEANED, true).apply();
+            if (total > 0) {
+                com.oilquiz.app.util.AILogger.audit(TAG,
+                        "清理 DSH 系统通知气泡: " + total + " 条（会话文件 " + changedFiles + " 个）");
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "cleanDshNoticeRowsOnce failed", t);
+        }
+    }
+
+    private int cleanDshNoticeListFile(File file) {
+        if (file == null || !file.exists()) return 0;
+        try {
+            Type type = new TypeToken<List<ChatMessage>>() {}.getType();
+            List<ChatMessage> list = gson.fromJson(
+                    new java.io.InputStreamReader(new java.io.FileInputStream(file),
+                            java.nio.charset.StandardCharsets.UTF_8), type);
+            int removed = stripDshNoticeRows(list);
+            if (removed > 0) writeFileAtomic(file, gson.toJson(list));
+            return removed;
+        } catch (Throwable t) {
+            Log.w(TAG, "清理 DSH 通知气泡失败: " + file.getName(), t);
+            return 0;
+        }
+    }
+
     /**
      * 一次性清理（2026-10-30）：把旧版本产出的伪过程行从主历史、Agent 历史、全部会话文件里真正删除。
      * 幂等（prefs 标记），供应用启动的后台线程调用；最近 60 秒内写过的会话跳过（交给加载时过滤）。
@@ -736,6 +808,11 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             reader.close();
             if (session != null) {
                 if (stripLegacyProcessRows(session.messages) > 0 && session.messages != null) {
+                    session.messageCount = session.messages.size();
+                }
+                // 2026-11-14：被旧导入器写进历史的 DSH 系统通知（background job …）不再显示。
+                // 落盘的那份由 cleanDshNoticeRowsOnce() 删；这里保证"加载即正确"。
+                if (stripDshNoticeRows(session.messages) > 0 && session.messages != null) {
                     session.messageCount = session.messages.size();
                 }
                 RoundBounds.normalizeAll(session.messages);

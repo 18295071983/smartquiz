@@ -201,6 +201,11 @@ public class SmartQuizApplication extends Application {
         new Thread(() -> boot("旧会话伪过程行一次性清理",
                 () -> new com.oilquiz.app.ai.util.ChatHistoryManager(SmartQuizApplication.this)
                         .cleanLegacyProcessRowsOnce()), "legacy-process-row-cleanup").start();
+        // 一次性清理被旧导入器写进历史的 DSH 系统通知气泡（"background job pwsh-…"）：
+        // 导入器已按 source.kind 修掉，这里删掉落盘的那批旧数据（幂等，后台线程）
+        new Thread(() -> boot("DSH 系统通知气泡一次性清理",
+                () -> new com.oilquiz.app.ai.util.ChatHistoryManager(SmartQuizApplication.this)
+                        .cleanDshNoticeRowsOnce()), "dsh-notice-row-cleanup").start();
         // ① 代码生成的三份 —— 工具创建指南.md / 使用速查表.md / 核心工具速查.md；
         // ② assets/apk_shell/guides/ 下自动发现的全部文件（LINUX_TOOLKIT_GUIDE.md、
         //    MEDIA_TOOLKIT_GUIDE.md、HTML_DESIGN_RULES.md、APK_SOURCE_GUIDE.md 等，
