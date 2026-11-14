@@ -53,6 +53,14 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private android.widget.LinearLayout sessionListBox;
     /** 是否展开"其他工作区"：默认只看当前工作区，和电脑上看到的条数一致 */
     private boolean showAllWorkspaces;
+    /**
+     * 是否显示"电脑账本之外"的历史会话（2026-11-14）。
+     *
+     * <p>默认 false：只列 {@code /sessions.json} 里 {@code desktop=true} 的那些 ——
+     * 即桌面端侧栏真的有的会话，条数跟电脑一致。磁盘上还躺着历史项目/CLI 遗留的几十条，
+     * 收进"显示全部会话"，免得用户以为手机在乱造会话。</p>
+     */
+    private boolean showAllSessions;
     /** 电脑当前工作区（/sessions.json 的 current_workspace = 最近活动会话所在的 cwd） */
     private String currentWorkspace = "";
     /** 电脑上"正在聊的那条"会话 id（/sessions.json 的 current_session_id） */
@@ -434,8 +442,8 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         }, "pick-remote-session").start();
     }
 
-    /** 一次拉多少条：分组要够用，但每条都要读会话头/尾，60 条在局域网约 1 秒内 */
-    private static final int PICKER_LIMIT = 60;
+    /** 一次拉多少条：分组要够用，但每条都要读会话头/尾，100 条在局域网约 1~2 秒 */
+    private static final int PICKER_LIMIT = 100;
 
     private static java.util.List<java.util.Map<String, Object>> extractSessions(java.util.Map<String, Object> meta) {
         java.util.List<java.util.Map<String, Object>> out = new java.util.ArrayList<>();
@@ -508,8 +516,30 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private void renderSessionGroups() {
         if (sessionListBox == null) return;
         sessionListBox.removeAllViews();
+        // 2026-11-14（第三版）：默认只显示**桌面端账本里有的**会话（/sessions.json 的 desktop 标记）。
+        // 电脑上侧栏看到的就那么几条，磁盘上却躺着几十条历史项目/CLI 遗留 —— 以前全列出来，
+        // 用户自然觉得"手机上怎么一堆"。其余收进"显示全部会话"。
+        java.util.List<java.util.Map<String, Object>> rows = sessionRows;
+        int hiddenByDesktop = 0;
+        if (!showAllSessions) {
+            // "电脑上有的" + "我正在跟随的那条"（跟随的可能不在桌面账本里，但它必须可见，
+            // 否则用户看不到自己在跟哪条 —— 那条会带「正在跟随」标记，不会认错）
+            final String followId = RemoteDshTool.getSyncTarget(this);
+            java.util.List<java.util.Map<String, Object>> kept = new java.util.ArrayList<>();
+            for (java.util.Map<String, Object> m : sessionRows) {
+                String sid = str(m.get("session_id"));
+                if (Boolean.TRUE.equals(m.get("desktop")) || (!followId.isEmpty() && followId.equals(sid))) {
+                    kept.add(m);
+                }
+            }
+            if (!kept.isEmpty()) {
+                hiddenByDesktop = sessionRows.size() - kept.size();
+                rows = kept;
+            }
+            // 桌面一条都没登记（新电脑/账本还没写）：退回显示全部，别给空框
+        }
         java.util.LinkedHashMap<String, java.util.List<java.util.Map<String, Object>>> groups =
-                RemoteSessionGroups.group(sessionRows);
+                RemoteSessionGroups.group(rows);
         if (groups.isEmpty()) return;
         final String cur = currentWorkspace;
         // 正在跟随的会话可能不在当前工作区：它那组必须可见，否则用户看不到"我在跟哪条"
@@ -527,6 +557,15 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         };
         android.view.View.OnClickListener collapse = v -> {
             showAllWorkspaces = false;
+            renderSessionGroups();
+        };
+        android.view.View.OnClickListener showEverything = v -> {
+            showAllSessions = true;
+            renderSessionGroups();
+        };
+        android.view.View.OnClickListener showDesktopOnly = v -> {
+            showAllSessions = false;
+            showAllWorkspaces = true;   // 回到"只看电脑有的"时，按工作区分组的折叠也一并复位
             renderSessionGroups();
         };
 
@@ -567,6 +606,12 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                     showAllWorkspaces ? collapse : expandAll));
         } else if (showAllWorkspaces) {
             sessionListBox.addView(buildToggleRow("只看当前工作区", collapse));
+        }
+        if (!showAllSessions && hiddenByDesktop > 0) {
+            sessionListBox.addView(buildToggleRow(
+                    "显示全部会话 · 还有 " + hiddenByDesktop + " 条（电脑上没打开的）", showEverything));
+        } else if (showAllSessions) {
+            sessionListBox.addView(buildToggleRow("只看电脑上有的会话", showDesktopOnly));
         }
     }
 

@@ -4255,8 +4255,49 @@ function presetSvcOf(ctx) {
     }
   };
 
-  const persistence = () => { try { return ctx.get('sessionPersistence'); } catch { return undefined; } };
-  /** 电脑上是否真有这条会话（直连协商/恢复时先验一下，避免拿一个死 id 去续写） */
+  /**
+   * 桌面端"会话列表里到底有哪几条"（2026-11-14，查"电脑 6 条、手机一堆"）。
+   *
+   * <p>桌面侧栏不是"磁盘上所有会话"，而是它自己的 workspace 账本：
+   * {@code storages/workspace.json → tables.workspaces[*].sessionIds}（减掉
+   * {@code global.archivedSessionIds}）。插件以前把 {@code sessions/--*--/} 下所有目录都列出来
+   * ——那里面还躺着历史项目、CLI 遗留、几十条早就没在桌面出现过的会话，于是两边条数对不上。</p>
+   *
+   * <p>按 mtime 缓存：workspace.json 每开一条会话就会被写一次，读得太频繁没必要。</p>
+   */
+  let desktopCache = { at: 0, ids: new Set(), path: '', pinned: new Set() };
+  const desktopWorkspace = () => {
+    try {
+      const home = process.env.DSH_HOME || '';
+      if (!home) return desktopCache;
+      const p = join(home, 'storages', 'workspace.json');
+      const st = statSync(p);
+      if (st.mtimeMs === desktopCache.at) return desktopCache;
+      const j = JSON.parse(readFileSync(p, 'utf8'));
+      const g = j?.global ?? {};
+      const tables = j?.tables?.workspaces ?? {};
+      const activeIds = Array.isArray(g.workspaceIds) && g.workspaceIds.length
+        ? g.workspaceIds : Object.keys(tables);
+      const ids = new Set();
+      let activePath = '';
+      for (const wid of activeIds) {
+        const w = tables[wid];
+        if (!w) continue;
+        if (!activePath) activePath = String(w.path ?? '');
+        for (const sid of (Array.isArray(w.sessionIds) ? w.sessionIds : [])) ids.add(String(sid));
+      }
+      for (const sid of (g.archivedSessionIds ?? [])) ids.delete(String(sid));
+      desktopCache = {
+        at: st.mtimeMs, ids, path: activePath,
+        pinned: new Set((g.pinnedSessionIds ?? []).map(String)),
+      };
+      return desktopCache;
+    } catch {
+      return desktopCache;
+    }
+  };
+
+  const persistence = () => { try { return ctx.get('sessionPersistence'); } catch { return undefined; } };  /** 电脑上是否真有这条会话（直连协商/恢复时先验一下，避免拿一个死 id 去续写） */
   const sessionExists = async (id) => {
     if (!id) return false;
     try {
@@ -4371,7 +4412,14 @@ function presetSvcOf(ctx) {
     for (const row of desktopRows) row.updated_at = idx.get(row.session_id) ?? null;
     desktopRows.sort((a, b) => (b.updated_at ?? b.created_at ?? 0) - (a.updated_at ?? a.created_at ?? 0));
     const lim = Math.max(1, Math.min(200, limit));
-    const picked = desktopRows.slice(0, lim);
+    // keepIds：无论多旧都要带上的（桌面账本里登记过的），否则"电脑上有的那条"可能被 limit 截掉
+    const keep = opts.keepIds instanceof Set ? opts.keepIds : null;
+    let picked = desktopRows.slice(0, lim);
+    if (keep && keep.size) {
+      const have = new Set(picked.map((r) => r.session_id));
+      const missing = desktopRows.filter((r) => keep.has(r.session_id) && !have.has(r.session_id));
+      if (missing.length) picked = picked.concat(missing);
+    }
     for (const row of picked) {
       try {
         const head = await readStoredHead(row.session_id);
@@ -4440,21 +4488,27 @@ function presetSvcOf(ctx) {
           .slice(0, lim);
         return sendJson(res, 200, { ok: true, light: true, count: rows.length, sessions: rows });
       }
-      const sessions = await listStoredSessions(lim);
-      // 分组用（2026-11-14，第二版）：手机的选择框要"电脑上正在聊的那条"排第一。
-      // 第一版拿宿主进程 cwd 当当前工作区 —— 但桌面端的当前会话可能开在别的工作区
-      // （手机实测：当前会话在 D:\qzq\smartquiz，宿主 cwd 是 profiles\desktop，
-      // 于是它被折进"其他工作区"，用户以为"当前会话不在列表里"）。
-      // 现在以**最近活动的那条会话**为准：它所在的 cwd 就是当前工作区，它自己就是 current_session_id。
-      const newest = sessions[0] ?? null;
+      const desktop = desktopWorkspace();
+      const sessions = (await listStoredSessions(lim, { keepIds: desktop.ids })).map((r) => ({
+        ...r,
+        // desktop=true 表示"桌面端侧栏里真的有这条"（workspace 账本登记过、没归档）。
+        // 手机默认只显示这一批，条数才和电脑上一致；其余可以点"显示全部"展开。
+        desktop: desktop.ids.has(r.session_id),
+      }));
+      // 当前会话/当前工作区：优先取**桌面列表里**最近活动的那条（数组合集里第一条就是它），
+      // 拿不到再退回"磁盘上最近活动的一条"。
+      const newest = sessions.find((r) => r.desktop) ?? sessions[0] ?? null;
       const currentSessionId = String(newest?.session_id ?? '');
-      const currentWorkspace = String(newest?.cwd ?? '')
+      const currentWorkspace = desktop.path
+        || String(newest?.cwd ?? '')
         || (() => { try { return process.cwd(); } catch { return ''; } })();
       const workingDir = String(cfg.workingDir || '');
       sendJson(res, 200, {
         ok: true, count: sessions.length, sessions,
         current_session_id: currentSessionId,
         current_workspace: currentWorkspace,
+        // 桌面账本里的会话 id 全集（手机可据此做"只看电脑上有的"过滤/计数）
+        desktop_session_ids: [...desktop.ids],
         working_dir: workingDir,
       });
     } catch (e) {

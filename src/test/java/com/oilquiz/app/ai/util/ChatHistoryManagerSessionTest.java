@@ -616,6 +616,40 @@ public class ChatHistoryManagerSessionTest {
                 manager.loadConversationSessionMessages(created.id, 0, 1).get(0).id);
     }
 
+    /**
+     * 2026-11-14 真机第二次踩到：页面里的"未加载头部"是**旧值**（以为只差 3 条），
+     * 而文件已经被外部写成 322 条 → 一次保存把 11MB 写成 955KB。
+     *
+     * <p>护栏改成按消息 id 对齐：文件里不在本次窗口里的消息全保留、且不与窗口重复。</p>
+     */
+    @Test
+    public void staleHeadCountNeitherDropsNorDuplicatesMessages() {
+        List<ChatMessage> all = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            all.add(user("u-t" + i, "问" + i));
+            all.add(ai("a-t" + i, "答" + i));
+        }
+        ConversationSession created = manager.saveCurrentChatAsSession(all, null);
+        assertNotNull(created);
+        int before = manager.countConversationMessages(created.id);
+        assertEquals(40, before);
+
+        // 窗口=最后 20 条；调用方却传"未加载头部=3"（线上就是这种旧计数）
+        List<ChatMessage> window = new ArrayList<>(all.subList(20, 40));
+        manager.saveCurrentChatAsSession(window, created.id, 3, false);
+
+        assertEquals("条数不能被旧的头部计数影响", 40,
+                manager.countConversationMessages(created.id));
+        List<ChatMessage> stored = manager.loadConversationSession(created.id).messages;
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        for (ChatMessage m : stored) {
+            if (m != null && m.id != null) ids.add(m.id);
+        }
+        assertEquals("不能重复写入窗口里已有的消息", 40, ids.size());
+        assertEquals("第一条仍在", "u-t0", stored.get(0).id);
+        assertEquals("最后一条仍是最新的", "a-t19", stored.get(stored.size() - 1).id);
+    }
+
     private int conversationFileCount() {
         File[] files = conversationsDir.listFiles((d, name) -> name.endsWith(".json"));
         return files == null ? 0 : files.length;

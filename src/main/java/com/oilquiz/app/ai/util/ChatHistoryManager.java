@@ -1609,18 +1609,29 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             if (session.id == null || session.id.isEmpty()) {
                 session.id = UUID.randomUUID().toString();
             }
-            // ★ 2026-11-14：不许把会话文件"改小"（真机实测 919KB → 11KB）。
-            // 页面只加载最后一页（50 条）时，调用方偶尔会传"未加载头部=0"（例如从单文件历史恢复后
-            // 按锚点 id 落盘、或 onStop 走了 2 参数重载），一写就把整条会话覆盖成内存窗口。
-            // 这里兜底：文件里比窗口多出来的那些，一律当"未加载头部"保留。
-            if (sessionFile != null && sessionFile.exists() && headCount <= 0) {
-                int fileCount = countMessagesInFile(sessionFile);
-                int tailSize = session.messages == null ? 0 : session.messages.size();
-                if (fileCount > tailSize) {
-                    headCount = fileCount - tailSize;
-                    headSource = sessionFile;
-                    Log.i(TAG, "会话[" + session.id + "]保存时窗口(" + tailSize + "条)小于文件("
-                            + fileCount + "条)，保留头部 " + headCount + " 条防止截断");
+            // ★ 2026-11-14：保存时按**消息 id** 对齐文件里已有的消息，绝不让会话变短。
+            //
+            // 起因（真机两次实测）：页面只加载最后一页，而 `sessionFrontSkipped` 可能是**旧的**
+            // ——会话被外部（切换/强制同步/另一个实例）重写过以后，页面还按老数字算"未加载头部"，
+            // 一次保存就把 322 条写成 54 条、把 11MB 写成 955KB。
+            //
+            // 现在的规则：文件里"不在本次窗口里"的消息（按 id 认）全部保留，而且：
+            //   · 不会丢：窗口里没有的文件消息一律当头部带上；
+            //   · 不会重：窗口里已有的 id 从头部截断处停住，不会写两遍。
+            // 只在算出来的值比调用方传的更大时才覆盖（调用方更清楚自己传的头部语义）。
+            if (sessionFile != null && sessionFile.exists()) {
+                try {
+                    java.util.Set<String> windowIds = messageIdsOf(session.messages);
+                    int safeHead = countHeadMessagesNotIn(sessionFile, windowIds);
+                    if (safeHead > headCount) {
+                        Log.i(TAG, "会话[" + session.id + "]保存:调用方头部=" + headCount
+                                + "，按文件对齐后=" + safeHead + "（防止截断/重复）");
+                        headCount = safeHead;
+                        headSource = sessionFile;
+                    }
+                } catch (Exception e) {
+                    // 对齐失败不阻断保存：退化成调用方传的值（最坏是旧行为）
+                    Log.w(TAG, "会话[" + session.id + "]保存前对齐失败: " + e.getMessage());
                 }
             }
             if (sessionFile != null || headSource != null) {
@@ -1639,9 +1650,60 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         }
     }
     
-    /** 流式统计文件中的消息总数（数组或会话对象两种形态都支持；不构建对象） */
-    private int countMessagesInFile(File file) {
+    /** 这批消息的 id 集合（空 id 忽略） */
+    private static java.util.Set<String> messageIdsOf(List<ChatMessage> messages) {
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        if (messages == null) return ids;
+        for (ChatMessage m : messages) {
+            if (m != null && m.id != null && !m.id.isEmpty()) ids.add(m.id);
+        }
+        return ids;
+    }
+
+    /**
+     * 文件里从头开始、"不在本次窗口里"的消息条数（遇到窗口里已有的 id 就停）。
+     *
+     * <p>保存时用它决定"文件头部要保留多少条"：既不会丢未加载的旧消息，
+     * 也不会把窗口里已有的消息再写一遍（真机踩过：页面里的未加载计数是旧的，
+     * 一次保存把 322 条写成 54 条）。</p>
+     */
+    private int countHeadMessagesNotIn(File file, java.util.Set<String> windowIds) {
         if (file == null || !file.exists()) return 0;
+        int count = 0;
+        try (com.google.gson.stream.JsonReader reader = new com.google.gson.stream.JsonReader(
+                new java.io.InputStreamReader(new java.io.FileInputStream(file),
+                        java.nio.charset.StandardCharsets.UTF_8))) {
+            if (reader.peek() == com.google.gson.stream.JsonToken.BEGIN_ARRAY) {
+                reader.beginArray();
+            } else {
+                boolean found = false;
+                reader.beginObject();
+                while (reader.hasNext()) {
+                    if ("messages".equals(reader.nextName())) {
+                        found = true;
+                        break;
+                    }
+                    reader.skipValue();
+                }
+                if (!found) return 0;
+                reader.beginArray();
+            }
+            while (reader.hasNext()) {
+                ChatMessage m = gson.fromJson(reader, ChatMessage.class);
+                if (m != null && m.id != null && !m.id.isEmpty()
+                        && windowIds != null && windowIds.contains(m.id)) {
+                    break;   // 从这里开始就是内存窗口的内容了，停
+                }
+                count++;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "读取会话头部 id 失败(" + file.getName() + "): " + e.getMessage());
+        }
+        return count;
+    }
+
+    /** 流式统计文件中的消息总数（数组或会话对象两种形态都支持；不构建对象） */
+    private int countMessagesInFile(File file) {        if (file == null || !file.exists()) return 0;
         int count = 0;
         try (com.google.gson.stream.JsonReader reader = new com.google.gson.stream.JsonReader(
                 new java.io.InputStreamReader(new java.io.FileInputStream(file), java.nio.charset.StandardCharsets.UTF_8))) {
