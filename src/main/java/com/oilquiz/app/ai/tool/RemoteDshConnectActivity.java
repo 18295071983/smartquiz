@@ -53,8 +53,10 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private android.widget.LinearLayout sessionListBox;
     /** 是否展开"其他工作区"：默认只看当前工作区，和电脑上看到的条数一致 */
     private boolean showAllWorkspaces;
-    /** 电脑当前工作区（/sessions.json 的 current_workspace） */
+    /** 电脑当前工作区（/sessions.json 的 current_workspace = 最近活动会话所在的 cwd） */
     private String currentWorkspace = "";
+    /** 电脑上"正在聊的那条"会话 id（/sessions.json 的 current_session_id） */
+    private String currentPcSessionId = "";
     private final java.util.List<java.util.Map<String, Object>> sessionRows = new java.util.ArrayList<>();
     private final android.os.Handler pickerHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable pickerTick;
@@ -414,13 +416,14 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 java.util.Map<String, Object> meta = RemoteDshTool.fetchSessionsWithMeta(this, PICKER_LIMIT);
                 java.util.List<java.util.Map<String, Object>> list = extractSessions(meta);
                 final String ws = str(meta.get("current_workspace"));
+                final String curSid = str(meta.get("current_session_id"));
                 runOnUiThread(() -> {
                     if (pickSessionBtn != null) pickSessionBtn.setEnabled(true);
                     if (list.isEmpty()) {
                         toast("电脑上没有可选的对话（先在电脑上聊一句，或检查插件版本）");
                         return;
                     }
-                    showSessionDialog(list, ws);
+                    showSessionDialog(list, ws, curSid);
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
@@ -456,10 +459,12 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
      * 用户当然觉得"不一致"。现在按 {@code cwd} 分组：默认只展开"当前工作区"（和电脑上看到的一致），
      * 其余收成一行「其他工作区 · N 条」，点开才展开。刷新走 3 秒轮询，签名不变就不重绘。</p>
      */
-    private void showSessionDialog(java.util.List<java.util.Map<String, Object>> list, String workspace) {
+    private void showSessionDialog(java.util.List<java.util.Map<String, Object>> list, String workspace,
+                                   String pcCurrentSessionId) {
         stopPickerPolling();
         sessionRows.clear();
         sessionRows.addAll(list);
+        if (pcCurrentSessionId != null && !pcCurrentSessionId.isEmpty()) currentPcSessionId = pcCurrentSessionId;
         if (workspace != null && !workspace.isEmpty()) currentWorkspace = workspace;
         if (currentWorkspace.isEmpty()) currentWorkspace = workspaceOfCurrentFollow();
 
@@ -596,6 +601,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         final String sid = str(m.get("session_id"));
         final String title = str(m.get("title"));
         final boolean following = sid.equals(RemoteDshTool.getSyncTarget(this));
+        final boolean pcCurrent = !currentPcSessionId.isEmpty() && currentPcSessionId.equals(sid);
 
         android.widget.LinearLayout row = new android.widget.LinearLayout(this);
         row.setOrientation(android.widget.LinearLayout.VERTICAL);
@@ -618,11 +624,21 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         android.widget.LinearLayout.LayoutParams nameLp = new android.widget.LinearLayout.LayoutParams(
                 0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         titleLine.addView(name, nameLp);
+        if (pcCurrent) {
+            // 电脑上正在聊的就是这条：手机上以前根本看不出来（还被折进"其他工作区"）
+            android.widget.TextView badge = new android.widget.TextView(this);
+            badge.setText("电脑当前");
+            badge.setTextSize(10f);
+            badge.setTextColor(0xFF2563EB);
+            badge.setPadding(dp(6), 0, 0, 0);
+            titleLine.addView(badge);
+        }
         if (following) {
             android.widget.TextView badge = new android.widget.TextView(this);
             badge.setText("正在跟随");
             badge.setTextSize(10f);
             badge.setTextColor(COLOR_OK);
+            badge.setPadding(dp(6), 0, 0, 0);
             titleLine.addView(badge);
         }
         row.addView(titleLine);
@@ -785,12 +801,14 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                         java.util.Map<String, Object> meta = RemoteDshTool.fetchSessionsWithMeta(RemoteDshConnectActivity.this, PICKER_LIMIT);
                         java.util.List<java.util.Map<String, Object>> full = extractSessions(meta);
                         String ws = str(meta.get("current_workspace"));
+                        String curSid = str(meta.get("current_session_id"));
                         runOnUiThread(() -> {
                             if (sessionDialog == null || !sessionDialog.isShowing()) return;
                             if (full.isEmpty()) return;
                             sessionRows.clear();
                             sessionRows.addAll(full);
                             if (!ws.isEmpty()) currentWorkspace = ws;
+                            if (!curSid.isEmpty()) currentPcSessionId = curSid;
                             renderSessionGroups();
                         });
                     } catch (Exception ignored) {

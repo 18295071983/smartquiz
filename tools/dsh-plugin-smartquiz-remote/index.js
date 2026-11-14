@@ -4441,14 +4441,21 @@ function presetSvcOf(ctx) {
         return sendJson(res, 200, { ok: true, light: true, count: rows.length, sessions: rows });
       }
       const sessions = await listStoredSessions(lim);
-      // 分组用（2026-11-14）：手机的选择框要和电脑上一致的"按工作区看"，
-      // 就得知道电脑当前在哪个工作区。current_workspace = 宿主进程 cwd（桌面端就在这），
-      // working_dir = 用户在插件配置里指定的建会话目录（空=继承 cwd）。
-      const currentWorkspace = (() => { try { return process.cwd(); } catch { return ''; } })();
+      // 分组用（2026-11-14，第二版）：手机的选择框要"电脑上正在聊的那条"排第一。
+      // 第一版拿宿主进程 cwd 当当前工作区 —— 但桌面端的当前会话可能开在别的工作区
+      // （手机实测：当前会话在 D:\qzq\smartquiz，宿主 cwd 是 profiles\desktop，
+      // 于是它被折进"其他工作区"，用户以为"当前会话不在列表里"）。
+      // 现在以**最近活动的那条会话**为准：它所在的 cwd 就是当前工作区，它自己就是 current_session_id。
+      const newest = sessions[0] ?? null;
+      const currentSessionId = String(newest?.session_id ?? '');
+      const currentWorkspace = String(newest?.cwd ?? '')
+        || (() => { try { return process.cwd(); } catch { return ''; } })();
+      const workingDir = String(cfg.workingDir || '');
       sendJson(res, 200, {
         ok: true, count: sessions.length, sessions,
+        current_session_id: currentSessionId,
         current_workspace: currentWorkspace,
-        working_dir: String(cfg.workingDir || ''),
+        working_dir: workingDir,
       });
     } catch (e) {
       sendJson(res, 500, { ok: false, error: String(e?.message ?? e) });
