@@ -4087,6 +4087,8 @@ public class AIChatActivity extends BaseActivity {
             dshMirrorTurn = "";
             dshMirrorMessage = live;
             dshLiveMessage = live;
+            // 这条占位气泡就是本回合第 0 段（§19）；后续帧按 6 步切尾段
+            resetDshSegments(live);
             dshSyncTarget = target;
             dshLastSeq = -1;
             live.components = new java.util.ArrayList<>();
@@ -8867,41 +8869,176 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 把"一个 turn 一条气泡"的实时镜像拆成多条小消息（2026-11-14，派发器改密）。
+     * 重置本回合的分段缓存（2026-11-15，§19 尾段增量投影）。
      *
-     * <p>流式期间仍用单条气泡（增量更新最省事），一轮结束再拆：每 6 步一条，
-     * id = 原 id + "-s{段号}"，turnId 不变。拆不开（步数少/索引丢了）就保持原样。</p>
+     * <p>换回合/清空/快照重建时调用：段消息列表与封口指纹都从头来，守卫计数也归零
+     * （真机验收按回合看"封口重建"）。{@code first} 非空表示这一回合已经有第一条气泡
+     * （ensureMirrorBubble / sendToFollowSession 建的），它天然是第 0 段。</p>
      */
-    private void splitLiveIntoSegments(ChatMessage live) {
-        if (live == null || dshTimeline == null || chatHistory == null) return;
-        int total = com.oilquiz.app.ai.remote.DshProjection.stepCount(dshTimeline);
-        if (total <= 6) return;
-        int idx = chatHistory.indexOf(live);
-        if (idx < 0) return;
-        java.util.List<ChatMessage> segs = new java.util.ArrayList<>();
-        int seg = 0;
-        for (int from = 0; from < total; from += 6, seg += 1) {
-            ChatMessage m = seg == 0 ? live : ChatMessage.createAIMessage(
-                    com.oilquiz.app.ai.chat.ChatIdDispatcher.getInstance().nextDshSegmentId(live.turnId), "", live.timestamp + seg, null, 0, 0);
-            m.turnId = live.turnId;
-            m.timestamp = live.timestamp + seg;
-            final String segKey = ":s" + seg;
-            com.oilquiz.app.ai.remote.DshProjection.project(m, dshTimeline,
-                    key -> dshComponentId(key + segKey, m.turnId), System.currentTimeMillis(),
-                    from, from + 6);
-            boolean empty = (m.content == null || m.content.isEmpty())
-                    && (m.thinkingContent == null || m.thinkingContent.isEmpty())
-                    && (m.components == null || m.components.isEmpty());
-            if (!empty) segs.add(m);
+    private void resetDshSegments(ChatMessage first) {
+        dshLiveSegments.clear();
+        dshSegmentApprovals.clear();
+        dshSegmentCache.reset();
+        if (first != null) {
+            dshLiveSegments.add(first);
+            dshSegmentApprovals.add(0);
         }
-        if (segs.size() <= 1) return;
-        chatHistory.remove(idx);
-        chatHistory.addAll(Math.min(idx, chatHistory.size()), segs);
-        if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
-        AppLogger.ai(TAG, "[dsh] 一轮拆成 " + segs.size() + " 条消息（原 " + total + " 步）");
-        dshLiveMessage = null;
-        dshMirrorMessage = null;
     }
+
+    /** 旧路径只设了 dshLiveMessage（没走分段）：把它登记成第 0 段，后续帧就能继续切段。 */
+    private void ensureDshLiveSegmentRegistered() {
+        if (!dshLiveSegments.isEmpty() || dshLiveMessage == null) return;
+        dshLiveSegments.add(dshLiveMessage);
+        dshSegmentApprovals.add(0);
+    }
+
+    /**
+     * 新建第 {@code index} 段消息并插到当前尾段之后。
+     *
+     * <p>id 走 {@link com.oilquiz.app.ai.chat.ChatIdDispatcher.IdType#DSH_SEGMENT}
+     * （{@code T12-G2}）；turnId 沿用第 0 段，组件 id 由调用方按 {@code :s{段号}} 分桶。
+     * 只有步数真的跨过 6 的边界才会建新消息，所以一轮的段数与历史导入/旧拆分口径一致。</p>
+     */
+    private ChatMessage createDshSegment(int index) {
+        ChatMessage first = dshLiveSegments.isEmpty() ? null : dshLiveSegments.get(0);
+        if (first == null) first = dshMirrorMessage;
+        String turnId = first != null ? first.turnId : null;
+        long baseTs = first != null && first.timestamp > 0 ? first.timestamp : System.currentTimeMillis();
+        String id;
+        try {
+            id = com.oilquiz.app.ai.chat.ChatIdDispatcher.getInstance().nextDshSegmentId(turnId);
+        } catch (Throwable t) {
+            id = java.util.UUID.randomUUID().toString();
+        }
+        ChatMessage m = ChatMessage.createAIMessage(id, "", baseTs + index, null, 0, 0);
+        m.turnId = turnId;
+        m.subId = m.id;
+        m.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.THINKING);
+        m.components = new java.util.ArrayList<>();
+        int at = chatHistory.size();
+        if (!dshLiveSegments.isEmpty()) {
+            int prev = chatHistory.indexOf(dshLiveSegments.get(dshLiveSegments.size() - 1));
+            if (prev >= 0) at = prev + 1;
+        }
+        chatHistory.add(at, m);
+        if (chatAdapter != null) chatAdapter.notifyItemInserted(at);
+        scrollToBottom(true);
+        return m;
+    }
+
+    /**
+     * 一段的投影指纹：只算"投影结果会变"的维度（§19B 失效条件）。
+     *
+     * <p>卡片 round 是 1 基的原始步序（{@code DshTimeline.roundOfCard}），减 1 就是段内
+     * 步序；round=0 的全局卡（计划模式）不算进任何段，避免它一变就让所有封口段失效。</p>
+     */
+    private com.oilquiz.app.ai.remote.SegmentProjectionCache.Progress dshSegmentProgress(
+            java.util.List<com.oilquiz.app.ai.remote.DshTimeline.Step> ordered,
+            java.util.List<com.oilquiz.app.ai.remote.DshCards.Card> cards,
+            int segmentIndex, int fromStep, int toStep, int stepsInRange) {
+        int textChars = 0;
+        int thinkingChars = 0;
+        int runningTools = 0;
+        int finishedTools = 0;
+        int toolResultChars = 0;
+        int end = Math.min(toStep, ordered.size());
+        for (int i = Math.max(0, fromStep); i < end; i += 1) {
+            com.oilquiz.app.ai.remote.DshTimeline.Step s = ordered.get(i);
+            if (s == null) continue;
+            if (s.text != null) textChars += s.text.length();
+            if (s.reasoning != null) thinkingChars += s.reasoning.length();
+            for (com.oilquiz.app.ai.remote.DshTimeline.Tool t : s.tools.values()) {
+                if (t == null) continue;
+                if (t.finished) finishedTools += 1;
+                else runningTools += 1;
+                if (t.result != null) toolResultChars += t.result.length();
+            }
+        }
+        int cardsInRange = 0;
+        if (cards != null) {
+            for (com.oilquiz.app.ai.remote.DshCards.Card card : cards) {
+                if (card == null) continue;
+                int round = dshTimeline.roundOfCard(card.key);   // 1 基原始步序
+                int stepOrdinal = round - 1;
+                if (round > 0 && stepOrdinal >= fromStep && stepOrdinal < toStep) cardsInRange += 1;
+            }
+        }
+        int approvals = segmentIndex >= 0 && segmentIndex < dshSegmentApprovals.size()
+                ? dshSegmentApprovals.get(segmentIndex) : 0;
+        return new com.oilquiz.app.ai.remote.SegmentProjectionCache.Progress(
+                stepsInRange, textChars, thinkingChars,
+                runningTools, finishedTools, toolResultChars, cardsInRange, approvals);
+    }
+
+    /**
+     * 尾段增量投影（§19B）：只投影活动段；封口段只在内容失效时重建。
+     *
+     * <p>投影范围是 {@code [fromStep, toStep)}，所以一条消息只装 6 步的内容，不再
+     * 每批都重建整轮。段消息本身就是缓存载体：封口段没有失效就直接跳过，实例和已绑定的
+     * 视图都不动；新增段只投影新段。</p>
+     *
+     * @param ended 本帧是否收到 turn/end（最后一段随之封口）
+     * @return 是否真的执行了投影
+     */
+    private boolean projectDshTail(long now, boolean ended) {
+        if (dshTimeline == null || chatHistory == null) return false;
+        ensureDshLiveSegmentRegistered();
+        if (dshLiveSegments.isEmpty()) return false;
+
+        final java.util.List<com.oilquiz.app.ai.remote.DshTimeline.Step> ordered = dshTimeline.orderedSteps();
+        final java.util.List<com.oilquiz.app.ai.remote.DshCards.Card> cards = dshTimeline.orderedCards();
+        long started = android.os.SystemClock.uptimeMillis();
+        com.oilquiz.app.ai.remote.SegmentProjectionCache.Plan plan =
+                dshSegmentCache.plan(ordered.size(), ended,
+                        (index, fromStep, toStep, stepsInRange) -> dshSegmentProgress(
+                                ordered, cards, index, fromStep, toStep, stepsInRange));
+        if (plan.isEmpty()) {
+            // turn/end 时若最后一段内容没变（不用收口投影），也把累计守卫打出来收尾
+            if (ended) logProjStats(plan, 0);
+            return false;
+        }
+
+        for (com.oilquiz.app.ai.remote.SegmentProjectionCache.Rebuild r : plan.rebuilds()) {
+            ChatMessage seg;
+            if (r.index < dshLiveSegments.size()) {
+                seg = dshLiveSegments.get(r.index);
+            } else {
+                seg = createDshSegment(r.index);
+                dshLiveSegments.add(seg);
+                dshSegmentApprovals.add(0);
+            }
+            if (seg == null) continue;
+            final int segIndex = r.index;
+            com.oilquiz.app.ai.remote.DshProjection.project(seg, dshTimeline,
+                    key -> dshComponentId(key + ":s" + segIndex, seg.turnId),
+                    now, r.fromStep, r.toStep);
+            dshSegmentCache.markProjected(r);
+            // 封口段被失效重建时不会再走 pushLiveSync（那只刷尾段），这里按对象定位补一次 notify
+            int segIdx = chatHistory.indexOf(seg);
+            if (segIdx >= 0) safeNotifyItemChanged(segIdx);
+        }
+        if (!dshLiveSegments.isEmpty()) {
+            dshLiveMessage = dshLiveSegments.get(dshLiveSegments.size() - 1);
+        }
+        logProjStats(plan, android.os.SystemClock.uptimeMillis() - started);
+        return true;
+    }
+
+    /**
+     * §19A 守卫日志：把"段数 / 封口重建 / 活动重建 / 本帧投影耗时"打一行到 DshProbe。
+     *
+     * <p>验收口径：<b>正常回合的「封口N」必须为 0</b>。封口瞬间的收口投影与新建段都算
+     * 在"活动"里（见 {@link com.oilquiz.app.ai.remote.SegmentProjectionCache} 注释）。</p>
+     */
+    private void logProjStats(com.oilquiz.app.ai.remote.SegmentProjectionCache.Plan plan, long costMs) {
+        String line = "[proj] 段=" + plan.totalSegments + "/" + plan.sealedSegments + "/" + plan.activeSegments
+                + " 重建=封口" + dshSegmentCache.sealedRebuilds()
+                + " 活动" + dshSegmentCache.activeProjections()
+                + " 耗时=" + costMs + "ms";
+        android.util.Log.i("DshProbe", line);
+        AppLogger.ai(TAG, line);
+    }
+
     private void saveHistoryAsync() {
         if (chatHistoryManager != null && chatHistory != null) {
             final List<ChatMessage> copy = new ArrayList<>(chatHistory);
@@ -9729,6 +9866,7 @@ public class AIChatActivity extends BaseActivity {
                 runOnUiThread(() -> {
                     dshMirrorMessage = null;
                     dshLiveMessage = null;
+                    resetDshSegments(null);
                     dshMirrorTurn = "";
                     dshLastSeq = -1;
                     dshSyncTarget = id;
@@ -14493,6 +14631,18 @@ public class AIChatActivity extends BaseActivity {
     private ChatMessage dshMirrorMessage;
     private ChatMessage dshLiveMessage;
 
+    // ===== 尾段增量投影（2026-11-15，§19）：只重建活动段，封口段复用 =====
+    /**
+     * 本回合已经落屏的分段消息，下标 = 段号（与 {@link #dshSegmentCache} 的槽位一一对应）。
+     * 第 0 段是 ensureMirrorBubble 建的原气泡，后续段按 6 步一条追加。
+     */
+    private final java.util.ArrayList<ChatMessage> dshLiveSegments = new java.util.ArrayList<>();
+    /** 每段插入的审批数（审批是消息级字段，只落当前尾段；用于失效指纹口径） */
+    private final java.util.ArrayList<Integer> dshSegmentApprovals = new java.util.ArrayList<>();
+    /** 封口判定 + 失效指纹 + 守卫计数（纯 JVM，见 SegmentSealPolicyTest / SegmentProjectionCacheTest） */
+    private final com.oilquiz.app.ai.remote.SegmentProjectionCache dshSegmentCache =
+            new com.oilquiz.app.ai.remote.SegmentProjectionCache();
+
     // ===== 事件分流（2026-11-15，§14）：入队 → 每帧批量归约 → 帧末只投影一次 =====
     /** 单帧最多处理条数：50 条/帧 × 60fps 的吞吐远高于 50–100 条/秒，又不会让一帧卡太久 */
     private static final int DSH_EVENT_BATCH_MAX = 50;
@@ -15026,6 +15176,12 @@ public class AIChatActivity extends BaseActivity {
                 com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.APPROVAL_PENDING,
                 dshTimeline.currentRound(), System.currentTimeMillis(), "dsh"));
         relayApprovalIds.add(id);
+        // §19B 失效口径：审批是消息级字段（不进 DshProjection），但"审批插入"必须让所在段
+        // 重新投影/重绑；这里给段记账，封口段收到审批也能被指纹命中（正常只落活动尾段）。
+        int seg = dshLiveSegments.indexOf(live);
+        if (seg >= 0 && seg < dshSegmentApprovals.size()) {
+            dshSegmentApprovals.set(seg, dshSegmentApprovals.get(seg) + 1);
+        }
         refreshDshApprovalMessage(live);
     }
 
@@ -15277,6 +15433,10 @@ public class AIChatActivity extends BaseActivity {
         ChatMessage live = dshLiveMessage;
         int idx = (live != null && chatHistory != null) ? chatHistory.indexOf(live) : -1;
         boolean projected = false;
+        // 一帧里可能同时有"上一轮 turn/end"和"下一轮 step/start"（重连补拉会这样）。
+        // ended 是整批标志，不能直接拿来封当前时间线的口 —— 只有"这次 ended 的就是当前尾段"
+        // 才算本回合结束，否则会把新回合的第一段误封成已完成段（真机 turn92→93 复现：封口=1）。
+        boolean endedHere = st.ended && live != null && st.endedMessages.contains(live);
 
         if (st.sessionTitle != null) {
             try {
@@ -15294,11 +15454,15 @@ public class AIChatActivity extends BaseActivity {
             boolean force = st.cardsChanged || st.ended || st.phaseText != null;
             if (force || now - dshLastProjectMs >= 80) {
                 dshLastProjectMs = now;
-                com.oilquiz.app.ai.remote.DshProjection.project(live, dshTimeline,
-                        key -> dshComponentId(key, live.turnId), now);
-                pushLiveSync(live, idx, new long[]{0L},
-                        dshTimeline.answer(), dshTimeline.thinking(), st.ended);
-                projected = true;
+                // §19B：只投影活动段；封口段没有失效就跳过（不再每批重建整条消息）
+                projected = projectDshTail(now, endedHere);
+                // 尾段可能刚跨段/新建：阶段与完成态写到**当前尾段**上；正文/思考由投影写，
+                // 这里不能再拿 dshTimeline.answer() 覆盖（那是整轮文本，会把段切成全文）。
+                ChatMessage tail = dshLiveMessage != null ? dshLiveMessage : live;
+                int tailIdx = chatHistory != null ? chatHistory.indexOf(tail) : -1;
+                if (tailIdx >= 0) {
+                    pushLiveSync(tail, tailIdx, new long[]{0L}, null, null, endedHere);
+                }
             }
         }
         if (st.cardsChanged) notifyLiveSyncMessage();
@@ -15312,19 +15476,27 @@ public class AIChatActivity extends BaseActivity {
         if (st.ended) {
             for (ChatMessage endedMsg : st.endedMessages) {
                 if (endedMsg == null || chatHistory == null || !chatHistory.contains(endedMsg)) continue;
-                // 派发器改密：一轮结束把单条 mirror 气泡按步拆成多条小消息（与历史导入同粒度）
-                splitLiveIntoSegments(endedMsg);
+                // §19：分段在流式期已按 6 步落屏，turn/end 不再重拆（旧的 splitLiveIntoSegments 已移除）。
+                // 审批/完成态落**当前尾段**（审批插入时也写尾段；收尾晚于跨段时不能再写旧段）。
+                ChatMessage completed = dshLiveSegments.contains(endedMsg) && dshLiveMessage != null
+                        ? dshLiveMessage : endedMsg;
                 com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncReply(AIChatActivity.this,
                         dshTimeline.answer());
                 com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncThinking(AIChatActivity.this,
                         dshTimeline.thinking());
                 // 同步的一轮结束就落盘：原来只有 onStop 才保存，App 被强杀时这一轮会丢
                 saveHistoryAsync();
-                resolveDshApproval(endedMsg, null);
+                if (dshLiveSegments.contains(endedMsg)) {
+                    // 审批可能挂在任意一段（跨段后审批通常落在创建时的尾段）
+                    for (ChatMessage seg : dshLiveSegments) resolveDshApproval(seg, null);
+                } else {
+                    resolveDshApproval(completed, null);
+                }
+                final ChatMessage doneMsg = completed;
                 runOnUiThread(() -> {
-                    endedMsg.inferenceProgress = new ChatMessage.InferenceProgress(
+                    doneMsg.inferenceProgress = new ChatMessage.InferenceProgress(
                             ChatMessage.InferencePhase.COMPLETED);
-                    int endIdx = chatHistory != null ? chatHistory.indexOf(endedMsg) : -1;
+                    int endIdx = chatHistory != null ? chatHistory.indexOf(doneMsg) : -1;
                     if (endIdx >= 0) safeNotifyItemChanged(endIdx);
                 });
             }
@@ -15565,16 +15737,21 @@ public class AIChatActivity extends BaseActivity {
                         + "）：重置时间线并重连重放");
             }
             dshDroppedSinceReset = 0;
-            ChatMessage live = dshLiveMessage;
-            if (live != null && chatHistory != null && chatHistory.contains(live)) {
-                int idx = chatHistory.indexOf(live);
+            // §19：快照是"数据源整体换掉"，所有已落屏段都要按新时间线重投影一次
+            // （包括封口段 —— 这不是日常失效，守卫计数随 reset 归零，不会被算成"封口重建"）。
+            ensureDshLiveSegmentRegistered();
+            if (!dshLiveSegments.isEmpty() && chatHistory != null) {
+                dshSegmentCache.reset();
+                for (int i = 0; i < dshSegmentApprovals.size(); i += 1) dshSegmentApprovals.set(i, 0);
                 try {
-                    com.oilquiz.app.ai.remote.DshProjection.project(live, dshTimeline,
-                            key -> dshComponentId(key, live.turnId), System.currentTimeMillis());
+                    projectDshTail(System.currentTimeMillis(), false);
                 } catch (Throwable t) {
                     AppLogger.aiW(TAG, "[DSH] 快照后重投影失败: " + t);
                 }
-                if (idx >= 0) safeNotifyItemChanged(idx);
+                for (ChatMessage seg : dshLiveSegments) {
+                    int idx = chatHistory.indexOf(seg);
+                    if (idx >= 0) safeNotifyItemChanged(idx);
+                }
             }
             reconnect = dshReconnectAfterSnapshot || reconnect;
         } finally {
@@ -15668,6 +15845,7 @@ public class AIChatActivity extends BaseActivity {
             chatHistory.addAll(keep);
             dshMirrorMessage = null;
             dshLiveMessage = null;
+            resetDshSegments(null);
             dshTimeline = new com.oilquiz.app.ai.remote.DshTimeline();
             dshComponentIds.clear();
             dshLastSeq = -1;
@@ -16009,11 +16187,13 @@ public class AIChatActivity extends BaseActivity {
             // 它的 timestamp 停留在第一轮，永远早于新消息，条件恒为 false。
             // 判据改成"它是不是当前最后一条"，与时间戳无关。
             ChatMessage anchor = null;
-            if (dshMirrorMessage != null && chatHistory != null
+            // §19：一轮现在可能是多条段消息，末尾那条才是"当前气泡"；用户消息要插在
+            // **第 0 段**前面（dshMirrorMessage），否则会落到整轮回复的中间/末尾。
+            if (dshLiveMessage != null && chatHistory != null
                     && !chatHistory.isEmpty()
-                    && chatHistory.contains(dshMirrorMessage)
-                    && chatHistory.get(chatHistory.size() - 1) == dshMirrorMessage) {
-                anchor = dshMirrorMessage;
+                    && chatHistory.contains(dshLiveMessage)
+                    && chatHistory.get(chatHistory.size() - 1) == dshLiveMessage) {
+                anchor = dshMirrorMessage != null ? dshMirrorMessage : dshLiveMessage;
             }
             insertUserMessageBefore(text, anchor);
             saveHistoryAsync();
@@ -16059,7 +16239,10 @@ public class AIChatActivity extends BaseActivity {
                 && (turn == null || turn.isEmpty() || dshMirrorTurn == null
                     || dshMirrorTurn.isEmpty() || turn.equals(dshMirrorTurn))) {
             if (turn != null && !turn.isEmpty()) dshMirrorTurn = turn;
-            return dshMirrorMessage;
+            ensureDshLiveSegmentRegistered();
+            // §19：同一回合可能已经按 6 步拆成多段；调用方要的是**活动尾段**
+            // （审批/反问等消息级状态都写尾段），dshMirrorMessage 仍是本回合一号段（插用户消息的锚点）。
+            return dshLiveMessage != null ? dshLiveMessage : dshMirrorMessage;
         }
         // 转换层也走派发器（不只是下游补）：先拿主 id，再按它申请子 id 当消息 id。
         // 于是 T{n}-A{k} 既是有序锚点（渲染/恢复归位），又由持久化主计数器保证唯一。
@@ -16084,6 +16267,8 @@ public class AIChatActivity extends BaseActivity {
         dshLiveMessage = live;
         dshMirrorMessage = live;
         dshMirrorTurn = turn;
+        // 新回合：段缓存/守卫计数从头来，第 0 段就是这条新气泡
+        resetDshSegments(live);
         chatHistory.add(live);
         final int idx = chatHistory.size() - 1;
         if (chatAdapter != null) chatAdapter.notifyItemInserted(idx);

@@ -965,3 +965,167 @@ hello.caps = {"version":1,"legacy":false,"declared":[...25 项...],
   没有在手机 UI 上人工点"允许"（远程操作界面不做）；caps 放行逻辑由 `caps.test.mjs` /
   `ws_frames.test.mjs` 的断言覆盖。
 - **caps 版本未上行**：见 18.7 前面的说明；本次没有真实版本不兼容样本可验。
+
+## 19. 尾段增量投影（2026-11-15，§19 TAIL-PROJECTION）
+
+### 19.1 病历：批很小，投影却是全量
+
+事件分流（§15）落地后，`AIChatActivity` 每 16ms 一批（≤50 条）连续 `DshTimeline.reduce`，
+帧末只调一次投影。但投影入口仍是：
+
+```java
+DshProjection.project(live, dshTimeline, key -> dshComponentId(key, live.turnId), now);
+// 等价于 project(..., 0, Integer.MAX_VALUE)
+```
+
+一段 DSH 回合在手机上按 6 步一条消息派发（`T12-G2`），可**流式期间只有一条气泡**：
+每批事件（真机 1–10 条）都重建整条消息的 `roundSnapshots / components / content`，
+已经写完的段（例如 8 步回合的 G1）被反复重建。dsh-Go 的做法是「只重排尾段」：
+行主键带起点、已完成行缓存不重建。本次把同一口径搬到手机端。
+
+验收口径：**优化后「已完成段重建」必须为 0**。
+
+### 19.2 封口判据（`SegmentSealPolicy`，纯 JVM）
+
+一条回合按 6 步切段（与历史导入/旧 `splitLiveIntoSegments` 同粒度）：
+
+| 概念 | 规则 |
+|---|---|
+| 段数 | `ceil(总步数 / 6)`，0 步 = 0 段 |
+| 第 k 段范围 | `[6k, 6k+6)`（最后一段由总步数截断） |
+| 封口 | `段号 < 最后一段`，**或**该回合已经 `turn/end` |
+| 活动段 | 流式期间**永远是最后一段** |
+
+```java
+public static boolean isSealed(int segmentIndex, int lastSegmentIndex, boolean hasActiveWork) {
+    if (segmentIndex < 0) return true;
+    if (segmentIndex < lastSegmentIndex) return true;
+    return !hasActiveWork;
+}
+```
+
+**为什么不用“同段但已无活动工具/流式标志”作为流式期的封口依据**：一步结束到下一步
+开始之间工具确实都停了，但正文/思考随时可能再追加；按“无活动工具”封口会把最后一段
+提前锁死，尾部文本再也进不去。所以流式期最后一段一律算活动段，只有“不再是最后一段”
+或“回合结束”才封口 —— 这也让**纯尾部文本追加**天然不触发任何封口段失效。
+
+### 19.3 缓存与失效条件（`SegmentProjectionCache`，纯 JVM）
+
+- **缓存载体就是段消息本身**：封口段的 `ChatMessage` 不再调用 `project()`，实例、已绑定
+  的 `roundSnapshots/components` 与 RecyclerView 视图都不动；只有活动段每帧重建。
+- **段内容指纹** `Progress`：`steps / textChars / thinkingChars / runningTools /
+  finishedTools / toolResultChars / cards / approvals`。`plan()` 每帧对每个封口段比一次
+  指纹，相等就跳过（计入 `skippedSealed`）。
+- **失效条件**（每条都有单测）：
+
+| 条件 | 判定 | 结果 |
+|---|---|---|
+| 新增段 | 段数增加 / 新槽位未投影 | 只投影新段；旧段仅内容变了才收口 |
+| 工具结果晚到 | 段内 `running/finished/resultChars` 变化 | 重建该封口段 |
+| 卡片增删 | `roundOfCard` 落在该段的卡片数变化 | 重建该封口段 |
+| 审批插入 | 该段审批计数变化（消息级字段） | 重建该段 |
+| 权威正文晚到 | 段内 `textChars/thinkingChars` 变化 | 重建该段 |
+| 空步补内容 | 段内 `steps` 变化 | 重建该段 |
+| **纯尾部文本追加** | 只改最后一段 | **封口段不失效** |
+| 跨段瞬间 | 段从活动变封口且内容有变 | 一次“收口”投影（单列，不算封口重建） |
+
+### 19.4 Activity 接线
+
+- `ensureMirrorBubble()` 同回合返回**活动尾段**（审批/反问消息级状态写尾段），
+  `dshMirrorMessage` 仍是本回合第 0 段（`mirrorUserMessage` 插用户消息的锚点要往前插）。
+- 新回合/新会话/清空/快照：`resetDshSegments()` 清空段列表、段审批计数与守卫计数；
+  第 0 段是 `ensureMirrorBubble` 建的原气泡，后续段在流式期按 6 步边界用
+  `ChatIdDispatcher.nextDshSegmentId()`（`DSH_SEGMENT`，`T12-G1`）新建，组件 id 按
+  `:s{段号}` 分桶（与旧拆分一致）。
+- 删除了 `splitLiveIntoSegments()`：原来一轮结束才拆，现在流式期已经按同一粒度落屏，
+  `turn/end` 再拆会重复插段。
+- `projectDshTail()` 只对 `plan.rebuilds()` 调 `project(seg, timeline, ids, now, from, to)`；
+  投影后按对象定位 `safeNotifyItemChanged()`（封口段重建不会走 `pushLiveSync`，那只刷尾段）。
+- `pushLiveSync()` 不再用 `dshTimeline.answer()/thinking()` 覆盖正文：那是**整轮**文本，
+  会把段消息写成全文；正文/思考只由按区间的投影写。
+- **真机抓到的坑（turn 92 → 93）**：一帧里同时有上一轮 `turn/end` 和下一轮 `step/start`
+  （重连补拉会这样），`ended` 是整批标志，直接拿来封当前时间线的口，会把新回合第一段
+  误封成已完成段 → 下一帧 `重建=封口1`。修法：只有 `endedMessages` 包含当前尾段时
+  才算本回合结束（`endedHere`），并把它用于投影与 `pushLiveSync`。
+
+### 19.5 守卫计数口径
+
+投影入口（`projectDshTail` 的 `markProjected`）记账，一行到 `DshProbe`：
+
+```
+[proj] 段=总/封口/活动 重建=封口N 活动M 耗时=Xms
+```
+
+| 字段 | 口径 |
+|---|---|
+| `段=总/封口/活动` | 当前时间线切出的段数 / 已封口段数 / 活动段数 |
+| `重建=封口N` | **上一次投影决策时已封口**、本帧又调 `project()` 的次数；验收目标 = 0 |
+| `活动M` | 活动段 + 新建段 + 封口瞬间“收口”投影（允许且必要） |
+| `耗时=Xms` | 本帧所有 `project()` 调用的总耗时（单帧只 1–2 次） |
+| 归零 | 新回合 / 快照重建时 `reset()`；按回合看验收 |
+
+口径刻意把“封口瞬间的收口投影”排除在 `封口N` 之外：那是一次段内内容的最终落屏，
+不是“已完成段被反复重建”；否则每跨一段都会误报 1。
+
+### 19.6 真机数据
+
+设备 `25113PN0EC` / `192.168.1.10:41193`；装机 APK sha256
+`A03850C7DB0D7379FA34C19BC5DAF21A4DBA0821490A2E06414AAEB1F75C7D9D`。
+
+**优化前（HEAD 真机基线，8 分钟）**：`[batch]` 14 行全部 `投影=1`，每行都是一次
+`project(msg, timeline, ids, now)` 全量投影（示例 `[batch] n=10 归约=9 跳过=1 投影=1
+耗时=3ms`）。窗口内跟随会话的轮次都 ≤6 步，所以这批基线没直接打出“封口段”数字；
+按旧实现口径折算：同一个 8 步 / 2 段回合，旧实现每帧全量投影都会重建已完成段 G1
+（本轮的 9 个投影帧 → 9 次）。
+
+**优化后（真机串行 8 步回合）**：turn 94 有 step1..step8，`[proj]` 共 22 行，其中
+9 行进入两段态，**封口重建始终为 0**：
+
+```
+[proj] 段=1/0/1 重建=封口0 活动12 耗时=1ms
+[proj] 段=2/1/1 重建=封口0 活动13 耗时=1ms   ← 第 7 步跨进 G1，只新建/投影 G1
+[proj] 段=2/1/1 重建=封口0 活动14 耗时=1ms
+[proj] 段=2/1/1 重建=封口0 活动15 耗时=0ms
+[proj] 段=2/1/1 重建=封口0 活动16 耗时=0ms
+[proj] 段=2/1/1 重建=封口0 活动17 耗时=0ms
+[proj] 段=2/2/0 重建=封口0 活动17 耗时=0ms   ← turn/end 收口，封口段不再重建
+```
+
+| 指标 | 优化前（同 8 步 / 2 段口径） | 优化后（真机 turn 94） |
+|---|---|---|
+| 每次投影覆盖 | 整条消息（0..MAX） | 活动段 `[6k,6k+6)` |
+| 已完成段重建 | 9 次（9 个投影帧 × G1） | **0 次**（0/22 行） |
+| 段数 | 流式期 1 条（结束才拆） | 流式期即时 2 条（A1 + G1） |
+| 单次投影耗时 | 未单独打点（`[batch]` 3–8ms 含归约） | **0–1ms**（22 帧平均 0.18ms） |
+
+落盘核对（`files/ai_chat_history.json`）：串行 8 步回合保存为两条消息 ——
+`T1013-A1`（6 rounds / 10 components，前 6 步）+ `T1013-G1`（3 rounds / 6 components，
+尾部工具与总结正文）；第二轮 `T1016-A1` + `T1016-G1` 同构。截图
+`build/proj-verify/chat-now.png`：尾段只含 echo 7/echo 8 与总结，前 6 个 echo 在上一段。
+说明消息流/工具卡/正文仍正确，且相邻两段是独立消息（不再是一轮结束后重新拆）。
+
+单测：新增 `SegmentSealPolicyTest` 4 项 + `SegmentProjectionCacheTest` 13 项，全绿
+（封口判定 / 新增段 / 工具结果晚到 / 卡片增删 / 审批插入 / 纯尾部文本不失效 /
+收口一次 / 正常增长全程封口=0）。全量 `testDebugUnitTest` 仍有既有失败
+（如 `DshProjectionMetaTest` 期望 `props.meta` 是 JSONObject，HEAD 投影写入的是 String），
+与本次改动无关。
+
+### 19.7 边界 / 没做到
+
+- **文本旁路未做**：活动段的纯文本追加仍走区间 `project()`（0–1ms），没有改成
+  `updateAIMessageContent` 之类的轻量更新。原因：投影同时要维护
+  `roundSnapshots/contentRoundBounds/components`，只改 `content` 会让三份视图不一致。
+- **审批是消息级字段**：审批/反问落在段消息的 `msg.approvals/questions` 上，
+  不进 `DshProjection`。守卫里按段记了审批计数（失效口径），但审批实际只写当前尾段；
+  封口段事后收到审批时，投影重建不会搬动审批卡，只保证指纹口径可见。
+- **子代理卡不在指纹里**：`subagent_card` 是 `deck_only`，且投影会把当前全部子代理
+  写进每段；封口段里的子代理卡可能落后于甲板实时值（消息流不画它，落盘数据除外）。
+  本次未把子代理指纹纳入（纳入会让子代理活跃时所有封口段每帧失效）。
+- **同一帧里跨两轮**：`endedHere` 已避免把新回合第一段误封；但如果“上一轮结束”和
+  “下一轮开始”在同一帧，上一轮的多段不会补最后收口投影（下一轮开始会 reset 段列表）。
+  实际事件流里极少见，重连补拉时可能出现。
+- **快照重建**：`applySnapshotResync` 会 reset 段缓存并对所有已落屏段重投影一遍；
+  这是数据源整体换掉，守卫计数随 reset 归零，不计入“封口重建”。
+- **未改**：`EventBatchQueue` / `EventFlowPolicy` 参数与语义、插件、卡片渲染。
+- **卡片跨段重复**：`DshProjection` 仍把全轮卡片/子代理写进每个段（旧拆分也这样），
+  本次未改投影的卡片归属，避免动渲染口径。
