@@ -56,6 +56,45 @@ const STREAM_HUB = new Set();
 const WS_CLIENTS = new Set();
 /** WS 连接元信息（ws → {sid, caps, channel}）：推插件命令/文件时要按会话和端点路由 */
 const WS_META = new Map();
+/**
+ * 锚点账本（A1，2026-11-14）：anchors[deviceId|sessionId] = {local, remote, acked, ...}
+ *
+ * <p>二维键（设备 × 电脑会话），互相不参合——一台设备有十条会话就是十条锚点。
+ * 落盘到插件目录 `anchors.json`，重启不丢。</p>
+ */
+const ANCHORS = new Map();
+const ANCHOR_FILE = () => join(PLUGIN_DIR, 'anchors.json');   // 延后求值：PLUGIN_DIR 在下面才定义
+const anchorKey = (dev, sid) => String(dev || '') + '|' + String(sid || '');
+const loadAnchors = () => {
+  try {
+    const arr = JSON.parse(readFileSync(ANCHOR_FILE(), 'utf8'));
+    for (const a of arr || []) {
+      if (a && a.device_id && a.remote_session_id) ANCHORS.set(anchorKey(a.device_id, a.remote_session_id), a);
+    }
+  } catch { /* 没有就是空账本 */ }
+};
+const saveAnchors = () => {
+  try {
+    writeFileSync(ANCHOR_FILE(), JSON.stringify([...ANCHORS.values()], null, 0));
+  } catch { /* 落盘失败不影响运行 */ }
+};
+loadAnchors();
+/** 按（设备, 会话）取或建锚点；deleted 的返回 null（进回收站了） */
+const anchorFor = (dev, sid, create) => {
+  const k = anchorKey(dev, sid);
+  let a = ANCHORS.get(k);
+  if (a && a.deleted_at) return null;
+  if (!a && create) {
+    a = {
+      device_id: String(dev || ''), remote_session_id: String(sid || ''),
+      local_session_id: randomBytes(8).toString('hex'),
+      acked_seq: 0, created_at: Date.now(), updated_at: Date.now(), deleted_at: null,
+    };
+    ANCHORS.set(k, a);
+    saveAnchors();
+  }
+  return a || null;
+};
 /** 每个端点的运行统计（L1，2026-11-14）：连接次数 / 收帧数 / 最近收帧时间 / 关闭次数 */
 const WS_STATS = new Map();
 const wsStatOf = (ch) => {
@@ -2923,6 +2962,8 @@ function presetSvcOf(ctx) {
     // 各端点在线数：看"是不是一条通道堵住另一条"（2026-11-14 端点分工）
     ws_channels: Object.fromEntries(WS_CHANNEL_COUNT),
     ws_stats: Object.fromEntries(WS_STATS),
+    // A1：锚点账本（设备 × 会话，二维键）
+    anchors: [...ANCHORS.values()],
     // C6：客户端自更新（保守版）。配置里填了才下发；手机只提示、下载、校验 sha256，
     // 最后由系统安装器让用户确认——插件从不静默安装。
     // cfg.appRelease = { version, url, sha256, notes? }
@@ -3907,6 +3948,52 @@ function presetSvcOf(ctx) {
     } catch (e) {
       try { sendJson(res, 500, { ok: false, error: String(e?.message ?? e) }); } catch { /* 已发头 */ }
     }
+  });
+  /**
+   * 锚点管理（A2，2026-11-14）：清游标 / 回收站 / 恢复 / 永久删除。
+   * 只动"这台手机与那条会话的同步关系"，**不碰电脑上的对话本身**。
+   */
+  route('exact', '/v2/anchor', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const q = new URL(req.url ?? '/', 'http://x');
+    const method = req.method ?? 'GET';
+    if (method === 'GET') {
+      const deleted = q.searchParams.get('deleted') === '1';
+      const all = [...ANCHORS.values()].filter((a) => (deleted ? !!a.deleted_at : !a.deleted_at));
+      return sendJson(res, 200, { ok: true, count: all.length, anchors: all });
+    }
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
+    const dev = String(body.device_id ?? q.searchParams.get('device_id') ?? '').trim();
+    const sid = String(body.session_id ?? q.searchParams.get('session_id') ?? '').trim();
+    if (!dev || !sid) return sendJson(res, 400, { ok: false, error: 'device_id + session_id required' });
+    const a = ANCHORS.get(anchorKey(dev, sid));
+    if (method === 'DELETE') {
+      if (!a) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
+      ANCHORS.delete(anchorKey(dev, sid));
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'purged' });
+    }
+    const action = String(body.action ?? '').trim();
+    if (action === 'clear') {           // 清历史：游标归零，下次按 snapshot 重放
+      if (!a) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
+      a.acked_seq = 0; a.updated_at = Date.now();
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'cleared', anchor: a });
+    }
+    if (action === 'restore') {         // 回收站恢复
+      if (!a) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
+      a.deleted_at = null; a.updated_at = Date.now();
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'restored', anchor: a });
+    }
+    if (action === 'delete') {          // 软删进回收站
+      if (!a) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
+      a.deleted_at = Date.now(); a.updated_at = a.deleted_at;
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'soft_deleted', anchor: a });
+    }
+    return sendJson(res, 400, { ok: false, error: 'unknown action', allowed: ['clear', 'restore', 'delete'] });
   });
   route('exact', '/v2/invoke', async (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
