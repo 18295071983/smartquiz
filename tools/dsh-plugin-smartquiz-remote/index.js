@@ -78,7 +78,11 @@ const saveAnchors = () => {
     writeFileSync(ANCHOR_FILE(), JSON.stringify([...ANCHORS.values()], null, 0));
   } catch { /* 落盘失败不影响运行 */ }
 };
-loadAnchors();
+// 注意：账本**不能**在这里 split read。`ANCHOR_FILE()` 依赖 PLUGIN_DIR，而 PLUGIN_DIR
+// 在本文件更靠后的位置才定义；在这里调 loadAnchors() 会抛 ReferenceError，又被下面的
+// catch 吞掉 → 账本永远是空的，下一次 saveAnchors() 会把磁盘上的历史锚点整本覆盖。
+// 真机 2026-11-14 实测过：插件重载一次，local_session_id 就换一个 → 手机侧又多一条本地会话。
+// 所以读取放在 PLUGIN_DIR 定义之后（见下方 loadAnchors() 调用）。
 /** 按（设备, 会话）取或建锚点；deleted 的返回 null（进回收站了） */
 const anchorFor = (dev, sid, create) => {
   const k = anchorKey(dev, sid);
@@ -324,6 +328,9 @@ export const name = 'smartquiz-remote';
 
 /** 插件目录（配对页/二维码库随包分发；.token 持久化于此） */
 const PLUGIN_DIR = dirname(fileURLToPath(import.meta.url));
+// 锚点账本落盘读取：必须等 PLUGIN_DIR 有值（见文件前部 ANCHORS 处的说明）。
+// 放在这里 = 模块初始化完成前读一次，之后所有路由都能拿到重启前的账。
+loadAnchors();
 const readAsset = (file) => { try { return readFileSync(join(PLUGIN_DIR, file), 'utf8'); } catch { return ''; } };
 
 // ==================== 直连会话协商：两端认同一个电脑会话 id ====================
@@ -4523,6 +4530,19 @@ function presetSvcOf(ctx) {
         .filter(Boolean),
     );
     const caps = q.searchParams.get('caps') ?? '';
+    // A3-接（2026-11-14）：SSE 这条通道也要下发锚点。
+    // WS 的 hello 已经带 anchor，但隧道掐长连接时 App 会退回 SSE（手机侧实测就是这个形态），
+    // 那时拿不到锚点 → 又只能随机新建本地会话 → 历史越用越多。这里按请求令牌认设备，
+    // 每次 ready/snapshot 都把（设备 × 会话）的锚点带上，两条通道口径一致。
+    const reqDevice = (() => {
+      try {
+        const m = /^Bearer\s+(.+)$/i.exec((req.headers?.authorization ?? '').trim());
+        return m ? deviceByToken(m[1]) : undefined;
+      } catch { return undefined; }
+    })();
+    const sseAnchor = () => {
+      try { return reqDevice ? anchorFor(reqDevice.id, sid, true) : null; } catch { return null; }
+    };
     const passType = (ev) => {
       const t = String(ev?.type ?? '');
       if (typesFilter.size > 0 && !typesFilter.has(t)) return false;
@@ -4655,9 +4675,9 @@ function presetSvcOf(ctx) {
         return;
       }
       if (replay.snapshot) {
-        sse({ type: 'snapshot', session_id: sid, seq: replay.seq, turns: replay.turns, source: 'log' });
+        sse({ type: 'snapshot', session_id: sid, seq: replay.seq, turns: replay.turns, source: 'log', anchor: sseAnchor() });
       } else {
-        sse({ type: 'ready', session_id: sid, seq: replay.seq, source: 'log', since });
+        sse({ type: 'ready', session_id: sid, seq: replay.seq, source: 'log', since, anchor: sseAnchor() });
         for (const ev of replay.events) {
           if (passType(ev)) sse({ type: 'event', event: ev });
         }
@@ -4704,13 +4724,13 @@ function presetSvcOf(ctx) {
     // ★ 首次连接或缺口过大：给快照（历史批），随后继续增量
     if (since === -2) {
       // explicit "from now": ready only, no replay (first connect must not dump history)
-      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since });
+      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since, anchor: sseAnchor() });
       if (!follow) return finish();
     } else if (since < 0 || seqNow - since > snapshotThreshold) {
-      sse({ type: 'snapshot', session_id: sid, seq: seqNow, turns: snapshotTurns(live0), source: 'live' });
+      sse({ type: 'snapshot', session_id: sid, seq: seqNow, turns: snapshotTurns(live0), source: 'live', anchor: sseAnchor() });
       if (!follow) return finish();
     } else {
-      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since });
+      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since, anchor: sseAnchor() });
     }
     let cursor = since >= 0 ? Math.min(since, seqNow) : seqNow;
     const announced = new Set();

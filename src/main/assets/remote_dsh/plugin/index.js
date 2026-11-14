@@ -56,6 +56,49 @@ const STREAM_HUB = new Set();
 const WS_CLIENTS = new Set();
 /** WS 连接元信息（ws → {sid, caps, channel}）：推插件命令/文件时要按会话和端点路由 */
 const WS_META = new Map();
+/**
+ * 锚点账本（A1，2026-11-14）：anchors[deviceId|sessionId] = {local, remote, acked, ...}
+ *
+ * <p>二维键（设备 × 电脑会话），互相不参合——一台设备有十条会话就是十条锚点。
+ * 落盘到插件目录 `anchors.json`，重启不丢。</p>
+ */
+const ANCHORS = new Map();
+const ANCHOR_FILE = () => join(PLUGIN_DIR, 'anchors.json');   // 延后求值：PLUGIN_DIR 在下面才定义
+const anchorKey = (dev, sid) => String(dev || '') + '|' + String(sid || '');
+const loadAnchors = () => {
+  try {
+    const arr = JSON.parse(readFileSync(ANCHOR_FILE(), 'utf8'));
+    for (const a of arr || []) {
+      if (a && a.device_id && a.remote_session_id) ANCHORS.set(anchorKey(a.device_id, a.remote_session_id), a);
+    }
+  } catch { /* 没有就是空账本 */ }
+};
+const saveAnchors = () => {
+  try {
+    writeFileSync(ANCHOR_FILE(), JSON.stringify([...ANCHORS.values()], null, 0));
+  } catch { /* 落盘失败不影响运行 */ }
+};
+// 注意：账本**不能**在这里 split read。`ANCHOR_FILE()` 依赖 PLUGIN_DIR，而 PLUGIN_DIR
+// 在本文件更靠后的位置才定义；在这里调 loadAnchors() 会抛 ReferenceError，又被下面的
+// catch 吞掉 → 账本永远是空的，下一次 saveAnchors() 会把磁盘上的历史锚点整本覆盖。
+// 真机 2026-11-14 实测过：插件重载一次，local_session_id 就换一个 → 手机侧又多一条本地会话。
+// 所以读取放在 PLUGIN_DIR 定义之后（见下方 loadAnchors() 调用）。
+/** 按（设备, 会话）取或建锚点；deleted 的返回 null（进回收站了） */
+const anchorFor = (dev, sid, create) => {
+  const k = anchorKey(dev, sid);
+  let a = ANCHORS.get(k);
+  if (a && a.deleted_at) return null;
+  if (!a && create) {
+    a = {
+      device_id: String(dev || ''), remote_session_id: String(sid || ''),
+      local_session_id: randomBytes(8).toString('hex'),
+      acked_seq: 0, created_at: Date.now(), updated_at: Date.now(), deleted_at: null,
+    };
+    ANCHORS.set(k, a);
+    saveAnchors();
+  }
+  return a || null;
+};
 /** 每个端点的运行统计（L1，2026-11-14）：连接次数 / 收帧数 / 最近收帧时间 / 关闭次数 */
 const WS_STATS = new Map();
 const wsStatOf = (ch) => {
@@ -285,6 +328,9 @@ export const name = 'smartquiz-remote';
 
 /** 插件目录（配对页/二维码库随包分发；.token 持久化于此） */
 const PLUGIN_DIR = dirname(fileURLToPath(import.meta.url));
+// 锚点账本落盘读取：必须等 PLUGIN_DIR 有值（见文件前部 ANCHORS 处的说明）。
+// 放在这里 = 模块初始化完成前读一次，之后所有路由都能拿到重启前的账。
+loadAnchors();
 const readAsset = (file) => { try { return readFileSync(join(PLUGIN_DIR, file), 'utf8'); } catch { return ''; } };
 
 // ==================== 直连会话协商：两端认同一个电脑会话 id ====================
@@ -2923,6 +2969,8 @@ function presetSvcOf(ctx) {
     // 各端点在线数：看"是不是一条通道堵住另一条"（2026-11-14 端点分工）
     ws_channels: Object.fromEntries(WS_CHANNEL_COUNT),
     ws_stats: Object.fromEntries(WS_STATS),
+    // A1：锚点账本（设备 × 会话，二维键）
+    anchors: [...ANCHORS.values()],
     // C6：客户端自更新（保守版）。配置里填了才下发；手机只提示、下载、校验 sha256，
     // 最后由系统安装器让用户确认——插件从不静默安装。
     // cfg.appRelease = { version, url, sha256, notes? }
@@ -3908,6 +3956,76 @@ function presetSvcOf(ctx) {
       try { sendJson(res, 500, { ok: false, error: String(e?.message ?? e) }); } catch { /* 已发头 */ }
     }
   });
+  /**
+   * 锚点管理（A2，2026-11-14）：清游标 / 回收站 / 恢复 / 永久删除。
+   * 只动"这台手机与那条会话的同步关系"，**不碰电脑上的对话本身**。
+   */
+  route('exact', '/v2/anchor', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const q = new URL(req.url ?? '/', 'http://x');
+    const method = req.method ?? 'GET';
+    if (method === 'GET') {
+      const deleted = q.searchParams.get('deleted') === '1';
+      const all = [...ANCHORS.values()].filter((a) => (deleted ? !!a.deleted_at : !a.deleted_at));
+      return sendJson(res, 200, { ok: true, count: all.length, anchors: all });
+    }
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
+    const dev = String(body.device_id ?? q.searchParams.get('device_id') ?? '').trim();
+    const sid = String(body.session_id ?? q.searchParams.get('session_id') ?? '').trim();
+    const actionEarly = String(body.action ?? '').trim();
+    // create 是"新建一条会话"，此时 session_id 还不存在，只要求 device_id
+    if (!dev || (!sid && actionEarly !== 'create')) {
+      return sendJson(res, 400, { ok: false, error: 'device_id + session_id required' });
+    }
+    const a = ANCHORS.get(anchorKey(dev, sid));
+    if (method === 'DELETE') {
+      if (!a) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
+      ANCHORS.delete(anchorKey(dev, sid));
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'purged' });
+    }
+    const action = String(body.action ?? '').trim();
+    if (action === 'create') {
+      // 手机点「新建对话」→ 电脑端也建一条，并把这对新 id 记成锚点（2026-11-14）
+      const sid = `smartquiz-${randomBytes(6).toString('hex')}`;
+      try {
+        if (cfg.cliMode === false && ctx.agents && ctx.agents.create) {
+          const handle = await ctx.agents.create(await createInput(sid));
+          if (handle) handles.set(sid, handle);
+        }
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, action: 'create', error: String(e?.message ?? e).slice(0, 160) });
+      }
+      const a = anchorFor(dev, sid, true);
+      if (a) { a.acked_seq = 0; a.updated_at = Date.now(); saveAnchors(); }
+      return sendJson(res, 200, {
+        ok: true, action: 'create',
+        remote_session_id: sid,
+        local_session_id: a ? a.local_session_id : '',
+        anchor: a,
+      });
+    }
+    if (action === 'clear') {           // 清历史：游标归零，下次按 snapshot 重放
+      if (!a) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
+      a.acked_seq = 0; a.updated_at = Date.now();
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'cleared', anchor: a });
+    }
+    if (action === 'restore') {         // 回收站恢复
+      if (!a) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
+      a.deleted_at = null; a.updated_at = Date.now();
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'restored', anchor: a });
+    }
+    if (action === 'delete') {          // 软删进回收站
+      if (!a) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
+      a.deleted_at = Date.now(); a.updated_at = a.deleted_at;
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'soft_deleted', anchor: a });
+    }
+    return sendJson(res, 400, { ok: false, error: 'unknown action', allowed: ['clear', 'restore', 'delete'] });
+  });
   route('exact', '/v2/invoke', async (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use POST' });
@@ -4412,6 +4530,19 @@ function presetSvcOf(ctx) {
         .filter(Boolean),
     );
     const caps = q.searchParams.get('caps') ?? '';
+    // A3-接（2026-11-14）：SSE 这条通道也要下发锚点。
+    // WS 的 hello 已经带 anchor，但隧道掐长连接时 App 会退回 SSE（手机侧实测就是这个形态），
+    // 那时拿不到锚点 → 又只能随机新建本地会话 → 历史越用越多。这里按请求令牌认设备，
+    // 每次 ready/snapshot 都把（设备 × 会话）的锚点带上，两条通道口径一致。
+    const reqDevice = (() => {
+      try {
+        const m = /^Bearer\s+(.+)$/i.exec((req.headers?.authorization ?? '').trim());
+        return m ? deviceByToken(m[1]) : undefined;
+      } catch { return undefined; }
+    })();
+    const sseAnchor = () => {
+      try { return reqDevice ? anchorFor(reqDevice.id, sid, true) : null; } catch { return null; }
+    };
     const passType = (ev) => {
       const t = String(ev?.type ?? '');
       if (typesFilter.size > 0 && !typesFilter.has(t)) return false;
@@ -4544,9 +4675,9 @@ function presetSvcOf(ctx) {
         return;
       }
       if (replay.snapshot) {
-        sse({ type: 'snapshot', session_id: sid, seq: replay.seq, turns: replay.turns, source: 'log' });
+        sse({ type: 'snapshot', session_id: sid, seq: replay.seq, turns: replay.turns, source: 'log', anchor: sseAnchor() });
       } else {
-        sse({ type: 'ready', session_id: sid, seq: replay.seq, source: 'log', since });
+        sse({ type: 'ready', session_id: sid, seq: replay.seq, source: 'log', since, anchor: sseAnchor() });
         for (const ev of replay.events) {
           if (passType(ev)) sse({ type: 'event', event: ev });
         }
@@ -4593,13 +4724,13 @@ function presetSvcOf(ctx) {
     // ★ 首次连接或缺口过大：给快照（历史批），随后继续增量
     if (since === -2) {
       // explicit "from now": ready only, no replay (first connect must not dump history)
-      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since });
+      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since, anchor: sseAnchor() });
       if (!follow) return finish();
     } else if (since < 0 || seqNow - since > snapshotThreshold) {
-      sse({ type: 'snapshot', session_id: sid, seq: seqNow, turns: snapshotTurns(live0), source: 'live' });
+      sse({ type: 'snapshot', session_id: sid, seq: seqNow, turns: snapshotTurns(live0), source: 'live', anchor: sseAnchor() });
       if (!follow) return finish();
     } else {
-      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since });
+      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since, anchor: sseAnchor() });
     }
     let cursor = since >= 0 ? Math.min(since, seqNow) : seqNow;
     const announced = new Set();
@@ -6303,9 +6434,16 @@ function presetSvcOf(ctx) {
           let head = 0;
           try { head = Number(ctx.sessions?.get?.(sid)?.seq ?? 0) || 0; } catch { head = 0; }
           // 问候帧：把能力摊开，客户端据此决定用哪些帧（以后加能力不用改版本号）
+          // A3（2026-11-14）：握手帧带上这条连接的锚点（设备 × 会话），
+          // 手机据此"查或建"本地会话，而不是每连一次新建一条历史。
+          let helloAnchor = null;
+          try {
+            const dev = deviceByToken(String(u.searchParams.get('token') ?? ''));
+            if (dev) helloAnchor = anchorFor(dev.id, sid, true);
+          } catch { /* 锚点拿不到不影响连接 */ }
           sendWs(ws, {
             type: 'hello', v: 2, session_id: sid, seq: head, server_time: Date.now(),
-            transport: 'ws', channel: chName,
+            transport: 'ws', channel: chName, anchor: helloAnchor,
             features: ch.out
               ? Object.fromEntries([...ch.out].map((k) => [k, true]))
               : { event: true, slot: true, cmd: true, file: true, pull: true, ack: true },
