@@ -56,6 +56,13 @@ const STREAM_HUB = new Set();
 const WS_CLIENTS = new Set();
 /** WS 连接元信息（ws → {sid, caps, channel}）：推插件命令/文件时要按会话和端点路由 */
 const WS_META = new Map();
+/** 每个端点的运行统计（L1，2026-11-14）：连接次数 / 收帧数 / 最近收帧时间 / 关闭次数 */
+const WS_STATS = new Map();
+const wsStatOf = (ch) => {
+  let s = WS_STATS.get(ch);
+  if (!s) { s = { connects: 0, frames: 0, last_frame_at: 0, closes: 0 }; WS_STATS.set(ch, s); }
+  return s;
+};
 /** 每个端点的在线连接数（/status 观测用）：events / ui / file / ctl / all */
 const WS_CHANNEL_COUNT = new Map();
 /**
@@ -2915,6 +2922,7 @@ function presetSvcOf(ctx) {
     ws_clients: WS_CLIENTS.size,
     // 各端点在线数：看"是不是一条通道堵住另一条"（2026-11-14 端点分工）
     ws_channels: Object.fromEntries(WS_CHANNEL_COUNT),
+    ws_stats: Object.fromEntries(WS_STATS),
     // 主令牌最近一次被使用的时间：手机端只有在"还没换成设备令牌"或"用设备令牌失败退回主令牌"时才走主令牌，
     // 有值就说明当前有连接在用主令牌（面板据此提示，避免把"设备数 0"误读成"没人连着"）
     main_token_last_seen: mainTokenLastSeen,
@@ -6148,6 +6156,7 @@ function presetSvcOf(ctx) {
           WS_CLIENTS.add(ws);
           WS_META.set(ws, { sid, caps, channel: chName });
           WS_CHANNEL_COUNT.set(chName, (WS_CHANNEL_COUNT.get(chName) ?? 0) + 1);
+          wsStatOf(chName).connects += 1;
           let head = 0;
           try { head = Number(ctx.sessions?.get?.(sid)?.seq ?? 0) || 0; } catch { head = 0; }
           // 问候帧：把能力摊开，客户端据此决定用哪些帧（以后加能力不用改版本号）
@@ -6168,6 +6177,7 @@ function presetSvcOf(ctx) {
             let m;
             try { m = JSON.parse(String(raw)); } catch { return; }
             const t = String(m.type ?? '');
+            { const s = wsStatOf(chName); s.frames += 1; s.last_frame_at = Date.now(); }
             if (!ch.inbound.has(t)) {
               // 该端点不接受这类请求：明确回错，别让客户端干等
               sendWs(ws, { type: 'error', code: 'frame_not_allowed', frame: t, channel: chName });
@@ -6203,6 +6213,7 @@ function presetSvcOf(ctx) {
             STREAM_HUB.delete(sub);
             WS_CLIENTS.delete(ws);
             WS_META.delete(ws);
+            wsStatOf(chName).closes += 1;
             const n = (WS_CHANNEL_COUNT.get(chName) ?? 1) - 1;
             if (n > 0) WS_CHANNEL_COUNT.set(chName, n); else WS_CHANNEL_COUNT.delete(chName);
           };
