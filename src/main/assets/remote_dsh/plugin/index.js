@@ -5941,6 +5941,75 @@ function presetSvcOf(ctx) {
       });
       lanServer.on('error', (e) => ctx.logger?.warn?.(`[smartquiz-remote] LAN 服务器错误: ${String(e?.message ?? e)}`));
       lanServer.listen(lanPort, '0.0.0.0', () => ctx.logger?.info?.(`[smartquiz-remote] LAN 服务器监听 0.0.0.0:${lanPort}（手机可连 ✓）`));
+
+      /**
+       * WebSocket 实时通道（2026-11-14）。
+       *
+       * <p>为什么现在才做：花生壳（免费隧道）会把 `Upgrade: websocket` 吃掉，实测只能当普通
+       * HTTP 转；换成 Tailscale 之后手机是**直连**电脑，升级请求能到，WS 才有意义。</p>
+       *
+       * <p>协议刻意做得很薄：<b>只负责实时推送</b>，不负责补历史 ——
+       * 连上先发 `{type:'ready', seq}`，客户端拿 ready 里的 seq 和本地游标比，
+       * 缺口用已有的 `GET /v2/events/pull` 补齐（那条路径已经测过、逻辑只有一份）。
+       * 帧格式与 SSE 同构（`event` / `pulse`），客户端两条通道可以共用一套解析。</p>
+       *
+       * <p>认证：`?token=` 或 `Authorization` 头（WS 客户端常常设不了自定义头）。</p>
+       */
+      import('ws').then(({ WebSocketServer }) => {
+        const wss = new WebSocketServer({ noServer: true });
+        const handleWsConn = (ws, u) => {
+          const sid = String(u.searchParams.get('session_id') ?? '').trim();
+          const caps = u.searchParams.get('caps') ?? '';
+          if (!sid) { try { ws.close(1008, 'session_id required'); } catch { /* 已断 */ } return; }
+          touchConnection(sid, 'ws');
+          const send = (o) => { try { ws.send(JSON.stringify(o)); } catch { /* 已断 */ } };
+          const sub = {
+            sid,
+            caps,
+            send: (o) => { if (o && eventAllowed(o.type, caps)) send(o); },
+          };
+          STREAM_HUB.add(sub);
+          let head = 0;
+          try { head = Number(ctx.sessions?.get?.(sid)?.seq ?? 0) || 0; } catch { head = 0; }
+          send({ type: 'ready', session_id: sid, seq: head, transport: 'ws' });
+          const timer = setInterval(() => {
+            try { touchConnection(sid, 'ws'); ws.ping(); } catch { /* 已断 */ }
+          }, 15000);
+          const cleanup = () => {
+            try { clearInterval(timer); } catch { /* 忽略 */ }
+            STREAM_HUB.delete(sub);
+          };
+          ws.on('close', cleanup);
+          ws.on('error', cleanup);
+        };
+        const onUpgrade = (req, socket, head) => {
+          let u;
+          try { u = new URL(req.url ?? '/', 'http://x'); } catch { try { socket.destroy(); } catch { /* 忽略 */ } return; }
+          if (u.pathname !== '/ws') {
+            // 不是我们的路径：不抢别人的连接，交回（没人处理就关掉）
+            try { socket.destroy(); } catch { /* 忽略 */ }
+            return;
+          }
+          const qToken = String(u.searchParams.get('token') ?? '');
+          const authed = qToken ? qToken === mainToken() : authOk(req);
+          if (!authed) {
+            try {
+              socket.write('HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nconnection: close\r\n\r\n');
+              socket.end();
+            } catch { /* 忽略 */ }
+            return;
+          }
+          wss.handleUpgrade(req, socket, head, (ws) => handleWsConn(ws, u));
+        };
+        lanServer.on('upgrade', onUpgrade);
+        ctx.effect(() => () => {
+          try { lanServer.off('upgrade', onUpgrade); } catch { /* 忽略 */ }
+          try { wss.close(); } catch { /* 忽略 */ }
+        });
+        ctx.logger?.info?.('[smartquiz-remote] WebSocket 通道已就绪：/ws');
+      }).catch((e) => {
+        ctx.logger?.warn?.(`[smartquiz-remote] WS 通道不可用（缺 ws 依赖？）: ${String(e?.message ?? e)}`);
+      });
       // 附加端口（花生壳默认转发到本机 80 → 一并监听，尽力而为 ✓）
       const handler0 = lanServer.listeners('request')[0];
       for (const extra of String(cfg.extraLanPorts || '80').split(',').map((x) => Number(String(x).trim())).filter((n) => n > 0 && n !== lanPort)) {

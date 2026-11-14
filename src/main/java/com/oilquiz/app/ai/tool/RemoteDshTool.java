@@ -739,6 +739,88 @@ public class RemoteDshTool implements AITool {
     }
 
     /**
+     * WebSocket 实时通道（2026-11-14）：Tailscale / 局域网直连时的首选推送方式。
+     *
+     * <p>为什么现在才有：免费隧道会吃掉 {@code Upgrade: websocket}，WS 只能在直连链路用；
+     * 换成 Tailscale 之后手机和电脑是直连的，升级请求能到达插件（实测 {@code /ws} 回
+     * {@code {"type":"ready"}}）。</p>
+     *
+     * <p>职责刻意做薄：<b>只推实时事件</b>，不补历史。连上先来一帧 {@code ready{seq}}，
+     * 客户端拿它和本地游标比、缺口用 {@code /v2/events/pull} 补（那条路径已经验证过）。</p>
+     *
+     * <p>认证走 `?token=`（WS 握手设自定义头在部分客户端上不方便）。</p>
+     */
+    public interface DshSocketListener {
+        void onReady(int seq);
+
+        void onEvent(org.json.JSONObject event);
+
+        void onPulse(long serverTs, int seq);
+
+        /** 连接结束（正常关闭或失败），调用方据此决定重连/回退 */
+        void onClosed(String reason);
+    }
+
+    /**
+     * 打开实时 WebSocket 通道（{@code /ws}）。返回的 socket 由调用方负责 cancel/close。
+     *
+     * @return 已发起的 WebSocket；失败会在 {@link DshSocketListener#onClosed} 里报
+     */
+    public static okhttp3.WebSocket openLiveSocket(Context c, String sid, DshSocketListener listener) {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        String base = tool.getBaseUrl();
+        String wsBase = base.replaceFirst("^http://", "ws://").replaceFirst("^https://", "wss://");
+        String url = wsBase + "/ws?session_id="
+                + java.net.URLEncoder.encode(sid == null ? "" : sid)
+                + "&caps=" + java.net.URLEncoder.encode(RemoteCaps.csv())
+                + "&token=" + java.net.URLEncoder.encode(tool.getToken());
+        okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
+                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                // WS 是长连接：读超时关掉，靠 pingInterval 判活
+                .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .pingInterval(20, java.util.concurrent.TimeUnit.SECONDS)
+                .build();
+        okhttp3.Request req = new okhttp3.Request.Builder().url(url).build();
+        return client.newWebSocket(req, new okhttp3.WebSocketListener() {
+            @Override
+            public void onMessage(okhttp3.WebSocket ws, String text) {
+                if (text == null) return;
+                try {
+                    org.json.JSONObject o = new org.json.JSONObject(text);
+                    String type = o.optString("type", "");
+                    switch (type) {
+                        case "ready":
+                            listener.onReady(o.optInt("seq", 0));
+                            break;
+                        case "event": {
+                            org.json.JSONObject ev = o.optJSONObject("event");
+                            if (ev != null) listener.onEvent(ev);
+                            break;
+                        }
+                        case "pulse":
+                            listener.onPulse(o.optLong("ts", 0L), o.optInt("seq", 0));
+                            break;
+                        default:
+                            break;   // 未知帧忽略（服务端将来加字段不会炸）
+                    }
+                } catch (Throwable t) {
+                    Log.w(TAG, "WS 帧解析失败: " + t.getMessage());
+                }
+            }
+
+            @Override
+            public void onFailure(okhttp3.WebSocket ws, Throwable t, okhttp3.Response response) {
+                listener.onClosed("WS 失败: " + (t == null ? "unknown" : t.getMessage()));
+            }
+
+            @Override
+            public void onClosed(okhttp3.WebSocket ws, int code, String reason) {
+                listener.onClosed("WS 关闭(" + code + ")");
+            }
+        });
+    }
+
+    /**
      * 批量拉取事件（2026-11-14）：SSE 被隧道掐死时的兜底通道。
      *
      * <p>插件 {@code /v2/events/pull} 是普通短请求：一次给一小批、立刻返回，

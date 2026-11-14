@@ -111,6 +111,27 @@ public final class RemoteChannel {
     }
 
     private void run() {
+        // ① 先试 WebSocket（2026-11-14）：Tailscale / 局域网直连时它是最省事的实时通道。
+        //    连不上（隧道/旧版本插件）就退回下面的 SSE 主循环，行为不变。
+        int wsAttempts = 0;
+        while (!closed && wsAttempts < 3) {
+            wsAttempts += 1;
+            boolean established;
+            try {
+                established = runSocketOnce();
+            } catch (Exception e) {
+                established = false;
+            }
+            if (closed) return;
+            if (!established) break;                 // 这条链路不支持 WS → 退回 SSE
+            try {
+                Thread.sleep(800);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+
         long backoff = 1000;
         int shortStreams = 0;
         while (!closed) {
@@ -226,6 +247,105 @@ public final class RemoteChannel {
             } else {
                 backoff = 1000;
                 shortStreams = 0;
+            }
+        }
+    }
+
+    /**
+     * 跑一次 WebSocket 通道，直到断线。
+     *
+     * <p>WS 只推"连上之后"的事件，所以拿到 {@code ready{seq}} 后先用 {@code /v2/events/pull}
+     * 把本地游标追到服务端 seq，再靠 WS 增量 —— 这样 WS 只要保证"实时"，补历史仍然只有
+     * 一条被测过的代码路径。</p>
+     *
+     * @return true = 曾经握手成功（断了可以再连）；false = 这条链路不支持 WS，调用方退回 SSE
+     */
+    private boolean runSocketOnce() {
+        final java.util.concurrent.CountDownLatch ready = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch closedLatch = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.atomic.AtomicBoolean gotReady = new java.util.concurrent.atomic.AtomicBoolean(false);
+        final java.util.concurrent.atomic.AtomicInteger head = new java.util.concurrent.atomic.AtomicInteger(-1);
+
+        okhttp3.WebSocket socket;
+        try {
+            socket = RemoteDshTool.openLiveSocket(app, sid, new RemoteDshTool.DshSocketListener() {
+                @Override
+                public void onReady(int seq) {
+                    gotReady.set(true);
+                    head.set(seq);
+                    ready.countDown();
+                }
+
+                @Override
+                public void onEvent(JSONObject event) {
+                    if (closed || event == null) return;
+                    listener.onEvent(event);
+                    maybeAck();
+                }
+
+                @Override
+                public void onPulse(long serverTs, int seq) {
+                    if (!closed) listener.onPulse(serverTs, seq);
+                }
+
+                @Override
+                public void onClosed(String reason) {
+                    ready.countDown();
+                    closedLatch.countDown();
+                }
+            });
+        } catch (Throwable t) {
+            return false;
+        }
+
+        boolean established;
+        try {
+            established = ready.await(8, java.util.concurrent.TimeUnit.SECONDS) && gotReady.get();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            try { socket.cancel(); } catch (Throwable ignored) { /* 已断 */ }
+            return false;
+        }
+        if (!established) {
+            try { socket.cancel(); } catch (Throwable ignored) { /* 已断 */ }
+            return false;
+        }
+        listener.onConnection(true, "WS 已连接");
+        catchUpViaPull(head.get());
+        try {
+            closedLatch.await();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+        try { socket.cancel(); } catch (Throwable ignored) { /* 已断 */ }
+        return true;
+    }
+
+    /** 把本地游标追到服务端 head（WS 不管历史，只补这一段缺口） */
+    private void catchUpViaPull(int head) {
+        if (head < 0) return;
+        if (lastSeq < 0) {          // -2 = "从现在开始"，不补历史
+            lastSeq = head;
+            return;
+        }
+        int guard = 0;
+        while (!closed && lastSeq < head && guard < 20) {
+            guard += 1;
+            try {
+                int next = RemoteDshTool.pullEvents(app, sid, Math.max(0, lastSeq), 200,
+                        new RemoteDshTool.DshEventListener() {
+                            @Override public void onReady(int seq) { }
+                            @Override public void onEvent(JSONObject event) {
+                                if (!closed && event != null) listener.onEvent(event);
+                            }
+                            @Override public void onEnd() { }
+                            @Override public void onError(String message) { }
+                        });
+                if (next <= lastSeq) break;
+                lastSeq = next;
+                maybeAck();
+            } catch (Exception e) {
+                break;   // 追不上也无妨：事件幂等，后续 WS 增量会补
             }
         }
     }
