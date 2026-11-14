@@ -6401,6 +6401,30 @@ function presetSvcOf(ctx) {
           return sendJson(res, 200, { ok: true, action: 'queue', op, session_id: target, removed: id, count: q.length,
             items: q.map(publicItem) });
         }
+        /**
+         * 立即发送（对齐 dsh-Go 的「立即发送」）：把这条从插件队列里拿出来，直接按插话
+         * 送进当前这一轮（next-step）。没有 live agent / 这一轮已收尾 → 失败且**保留在队列**，
+         * 调用方据此提示，不静默丢消息。
+         */
+        if (op === 'send_now' || op === 'steer') {
+          const agent = (() => { try { return ctx.agents?.get?.(target); } catch { return undefined; } })();
+          if (!agent || typeof agent.steer !== 'function') {
+            return sendJson(res, 409, { ok: false, action: 'queue', op, session_id: target,
+              error: 'steer_unavailable', kept: true,
+              hint: '这条对话现在没有可插话的宿主 agent（CLI 子进程占着），只能等它跑完' });
+          }
+          const item = q[idx];
+          try {
+            agent.steer({ id: item.id, role: 'user', content: [{ type: 'text', text: item.text }], source: { kind: 'user' } });
+          } catch (e) {
+            return sendJson(res, 409, { ok: false, action: 'queue', op, session_id: target,
+              error: 'steer_failed', kept: true, detail: String(e?.message ?? e) });
+          }
+          q.splice(idx, 1);
+          if (q.length) SESSION_INBOX.set(target, q); else SESSION_INBOX.delete(target);
+          return sendJson(res, 200, { ok: true, action: 'queue', op, session_id: target, sent: item.id,
+            count: q.length, items: q.map(publicItem) });
+        }
         if (op === 'update') {
           const text = String(body.text ?? '').trim();
           if (!text) return sendJson(res, 400, { ok: false, action, error: 'text required' });

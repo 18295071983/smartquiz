@@ -11728,10 +11728,36 @@ public class AIChatActivity extends BaseActivity {
         new android.app.AlertDialog.Builder(this)
                 .setTitle("这条插话")
                 .setMessage(item.text)
-                .setPositiveButton("修改", (d, w) -> showRemoteQueueEditDialog(item))
-                .setNegativeButton("撤回", (d, w) -> cancelRemoteQueued(item))
-                .setNeutralButton("关闭", null)
+                .setItems(new String[]{"立即发送（不等了，插进当前这一轮）", "修改", "撤回（内容回到输入框）"},
+                        (d, which) -> {
+                            if (which == 0) sendRemoteQueuedNow(item);
+                            else if (which == 1) showRemoteQueueEditDialog(item);
+                            else cancelRemoteQueued(item);
+                        })
+                .setNegativeButton("关闭", null)
                 .show();
+    }
+
+    /** 立即发送：从插件队列取出并按插话送进当前轮；失败会保留在队列（不丢） */
+    private void sendRemoteQueuedNow(final RemoteQueued item) {
+        new Thread(() -> {
+            String err = null;
+            try {
+                com.oilquiz.app.ai.tool.RemoteDshTool.remoteQueue(this, item.sessionId, "send_now", item.id, null);
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+            final String error = err;
+            runOnUiThread(() -> {
+                if (error != null) {
+                    showToast("立即发送失败：" + error);
+                    return;
+                }
+                remoteQueued.remove(item);
+                updateQueueBar();
+                showToast("已插进当前这一轮");
+            });
+        }, "remote-queue-sendnow").start();
     }
 
     private void showRemoteQueueEditDialog(final RemoteQueued item) {
@@ -11762,7 +11788,14 @@ public class AIChatActivity extends BaseActivity {
                 }
                 remoteQueued.remove(item);
                 updateQueueBar();
-                showToast("已撤回");
+                // 对齐 dsh-Go：撤回的内容回到输入框，改完再发
+                if (inputMessage != null && inputMessage.getText().toString().trim().isEmpty()) {
+                    inputMessage.setText(item.text);
+                    inputMessage.setSelection(inputMessage.getText().length());
+                    showToast("已撤回，内容回到输入框");
+                } else {
+                    showToast("已撤回");
+                }
             });
         }, "remote-queue-cancel").start();
     }
