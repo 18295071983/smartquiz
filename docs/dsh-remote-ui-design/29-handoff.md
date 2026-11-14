@@ -83,6 +83,14 @@
   **整条覆盖**本地会话（标题用电脑的）→ 两条游标推到末尾 → 重开通道 → 回聊天页打开它；
 - **选择框按工作区分组**：当前工作区置顶、正在跟随的那组也展开，其余收成
   「其他工作区 · 还有 N 条」；标题直接用电脑的 session title；
+- **「电脑当前」标记**（2026-11-14 第二轮）：`current_session_id` / `current_workspace` 改成以
+  **最近活动的那条会话**为准（原来用宿主进程 cwd，桌面当前会话开在别的工作区就会被折进"其他工作区"，
+  用户以为"当前会话不在列表里"）；条目上打「电脑当前」；
+- **修了"本地会话越用越短"**：`onStop` / 「新建对话」原来用 2 参数重载保存（未加载头部=0），
+  每退一次聊天页就把会话文件截成内存里的 50 条（真机实测：电脑端 1 万+ 事件，本地只剩 51 条）。
+  现在两处都带上 `sessionFrontSkipped`/`aiHistoryFrontSkipped`，单测
+  `savingWithUnloadedHeadKeepsTheWholeSession` 钉住。64MB 的单文件上限只是兜底，从没触发过；
+  会话**不拆文件**（"多个文件"是单文件历史 / 引擎侧历史 / 回收站快照那几套）。
 - `import_sid_` 映射降级成兜底，锚点优先。
 
 ### 事件帧带 anchor（下一步）
@@ -115,6 +123,9 @@
 | 顶栏中间块"看着是远程、点开却是模型选择" | `ChatUiV2Chrome.bindCenter` 在顶栏还没挂出来时静默失败，而 `lastChromeKey` 已被置成 remote → 永不重绑。现在 `bindCenter/bindCenterDefault` 返回是否绑上，没绑上就清 `lastChromeKey` 让下个 tick 重试 |
 | 切到没有锚点的会话会裂成两条 | 本地先随机 uuid、随后握手又签发另一个 `local_session_id`。已加 `/v2/anchor action=ensure`：同步之前先把"设备 × 会话"的账建好（幂等） |
 | 强制同步超大会话被本地截断 | 18k 事件写出来 19MB，`MAX_SESSION_FILE_BYTES` 下次保存会裁掉最早消息（→1.6MB）。要完整历史得给"强制同步"开旁路，暂未做 |
+| `onStop` 用 2 参数重载保存会话 | `saveCurrentChatAsSession(copy, id)` 的"未加载头部"是 0 → 只写内存窗口（50 条）→ **每退一次聊天页历史就被截成 50 条**（真机 51 条即此）。`startNewConversation` 同病。两处已改成带 `sessionFrontSkipped`/`aiHistoryFrontSkipped`。教训：看到"会话文件只有一页"先查保存点传的头部条数，别怀疑是"自动裁剪" |
+| 锚点绑定 + 窗口保存会覆盖整条会话 | 页面手里只有 1~2 条（从单文件历史恢复）时按锚点 id 落盘，会把 919KB 的会话写成 11KB。已在 `saveCurrentChatAsSession` 加护栏：窗口比文件小时，多出来的当未加载头部保留（不会截断）。单测 `savingSmallerWindowDoesNotShrinkSession` |
+| 把"宿主进程 cwd"当电脑当前工作区 | 桌面当前会话可能开在别的工作区（本次：当前会话在 `D:\qzq\smartquiz`，宿主 cwd 是 `profiles\desktop`）→ 当前会话被折进"其他工作区"，用户以为列表里没有。现在 `current_session_id`/`current_workspace` 都取"最近活动的那条会话" |
 
 ---
 
