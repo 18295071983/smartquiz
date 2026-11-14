@@ -1,2 +1,8 @@
+# 运行时数据
 .jobs.json
 .goals.json
+
+# 依赖（ws 只有插件侧用；仓库里只提交 package.json 的声明，
+# 装包由 npm install 完成，别把 150KB 的 node_modules 灌进 git）
+node_modules/
+package-lock.json

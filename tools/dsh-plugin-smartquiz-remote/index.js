@@ -4051,6 +4051,80 @@ function presetSvcOf(ctx) {
    * 手机端拿到后自己把事件映射成 ChatMessage / parts（正文、思考、工具卡片）。
    * 这样 DSH 侧新增事件类型时，插件不需要跟着改。
    */
+  /**
+   * WebSocket 可行性探针（2026-11-14）。
+   *
+   * <p>目的只有一个：**在写 WS 服务端之前**，确认这条链路（尤其是公网隧道）会不会把
+   * `Upgrade: websocket` 吃掉。做法是把收到的请求头原样回显，调用方看两件事：</p>
+   * <ul>
+   *   <li>{@code headers.upgrade} 是否还是 {@code websocket}（隧道没剥）；</li>
+   *   <li>{@code headers.connection} 是否含 {@code upgrade}（反向代理常把它改成 keep-alive）。</li>
+   * </ul>
+   * <p>两个都在 → WS 值得做；任一被剥 → 直接转长轮询兜底，别浪费 200 行协议代码。</p>
+   */
+  route('exact', '/ws-probe', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const h = req.headers ?? {};
+    const upgrade = String(h.upgrade ?? '');
+    const connection = String(h.connection ?? '');
+    const looksWs = /\bwebsocket\b/i.test(upgrade) && /\bupgrade\b/i.test(connection);
+    return sendJson(res, 200, {
+      ok: true,
+      // 直接给结论，别让调用方自己拼判断
+      websocket_ok: looksWs,
+      verdict: looksWs
+        ? '这条链路透传 Upgrade，可以做 WebSocket'
+        : 'Upgrade 被剥掉了（隧道/反代），WebSocket 不可用，建议改长轮询兜底',
+      headers: h,
+    });
+  });
+
+  /**
+   * 升级版探针（2026-11-14 第二版）。
+   *
+   * <p>第一版写成普通 GET 路由，结果带 {@code Upgrade: websocket} 的请求**根本到不了**
+   * 普通 handler —— Node 的 http server 把 upgrade 请求单独派发，没人认领就直接毁 socket
+   * （实测 curl 拿 http=000）。所以真正的探针必须注册升级路由：DSH 的 webServer 暴露
+   * {@code registerUpgrade({path, handler(req, socket, head)})}，这里用它原样回显收到的
+   * 请求头再关掉 socket。</p>
+   *
+   * <p>判定口径与 GET 版一致：{@code upgrade: websocket} + {@code connection: upgrade}
+   * 两个都在，才算这条链路（含隧道）放行 WebSocket。</p>
+   */
+  try {
+    ctx.effect(() => ctx.webServer.registerUpgrade({
+      path: '/ws-probe',
+      handler: (req, socket) => {
+        const h = req.headers ?? {};
+        const upgrade = String(h.upgrade ?? '');
+        const connection = String(h.connection ?? '');
+        const looksWs = /\bwebsocket\b/i.test(upgrade) && /\bupgrade\b/i.test(connection);
+        const body = JSON.stringify({
+          ok: true,
+          via: 'upgrade',
+          websocket_ok: looksWs,
+          verdict: looksWs
+            ? '升级请求到达了插件：这条链路透传 Upgrade，可以做 WebSocket'
+            : '升级请求到了，但 Upgrade/Connection 头被改写，WebSocket 不可用',
+          upgrade,
+          connection,
+          headers: h,
+        });
+        try {
+          socket.write('HTTP/1.1 200 OK\r\n'
+            + 'content-type: application/json\r\n'
+            + 'content-length: ' + Buffer.byteLength(body) + '\r\n'
+            + 'connection: close\r\n\r\n');
+          socket.write(body);
+        } catch { /* 对端已断 */ }
+        try { socket.end(); } catch { try { socket.destroy(); } catch { /* ignore */ } }
+      },
+    }));
+  } catch (e) {
+    // 老版本 DSH 没有 registerUpgrade：不影响插件其余功能
+    try { console.warn('[smartquiz-remote] registerUpgrade 不可用: ' + String(e?.message ?? e)); } catch { /* ignore */ }
+  }
+
   route('exact', '/events', async (req, res) => {
     if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     const q = new URL(req.url ?? '/', 'http://dsh.invalid');
