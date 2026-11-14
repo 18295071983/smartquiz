@@ -114,6 +114,46 @@ public class AlertCardView implements ChatComponent {
         // 动作行：actions 按钮（打开链接/复制等），点击真实响应
         ComponentActions.renderActions(textCol, context, p.optJSONArray("actions"));
         card.addView(textCol);
+        /**
+         * 2026-11-14：承接原来 dsh_notice 的两种交互，避免为同一件事维护两套卡。
+         *
+         * <ul>
+         *   <li>{@code jump=last} → 滚到末尾那条（"正在执行/排队中"的气泡）；</li>
+         *   <li>{@code jump=subagent} + {@code childId} → 滚到该子代理的轨迹卡；</li>
+         *   <li>其它情况点开 → 全文弹窗（正文最长 3 行，长文本会被截断）。</li>
+         * </ul>
+         *
+         * <p>只有带 {@code jump} 或正文较长的卡才可点，普通 alert 行为不变。</p>
+         */
+        final String jump = p.optString("jump", "");
+        final String childId = p.optString("childId", "");
+        final String fullTitle = title;
+        final String fullContent = content;
+        if (!jump.isEmpty() || content.length() > 60) {
+            card.setClickable(true);
+            card.setOnClickListener(v -> {
+                ComponentHosts.Host host = ComponentHosts.get();
+                if ("last".equals(jump)) {
+                    host.scrollToLast();
+                    return;
+                }
+                if ("subagent".equals(jump)) {
+                    host.openSubagent(childId);
+                    return;
+                }
+                if (!TextUtils.isEmpty(fullContent)) {
+                    DshCardViews.showNoticeDialog(context, fullTitle, fullContent);
+                }
+            });
+            if (!jump.isEmpty()) {
+                card.setOnLongClickListener(v -> {
+                    if (!TextUtils.isEmpty(fullContent)) {
+                        DshCardViews.showNoticeDialog(context, fullTitle, fullContent);
+                    }
+                    return true;
+                });
+            }
+        }
         return card;
     }
 

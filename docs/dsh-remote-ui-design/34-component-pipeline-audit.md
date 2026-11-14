@@ -1,0 +1,62 @@
+# 34 · 组件管线审计与合并（2026-11-14）
+
+> 用户口径：「看看还缺哪些消息类型，哪些没覆盖就新增消息类型、视图类型和组件管线。
+> 我 app 还设计了内置组件、动态组件、工具组件 ui，你要调查好，把那些你自定义的组件管线能接的都接上。
+> 不要造轮子，重复的 dsh 组件管线删了接到现有的组件上来，可以扩展功能；
+> 有些事件是 dsh 独有的就单个依次创建原生组件，实在不好创建的用动态组件。」
+
+## 1. 现有分层（先摸清，再动手）
+
+| 层 | 实现 | 数量 |
+|---|---|---|
+| 消息类型 | `ChatMessage.MessageType`：USER / AI / SYSTEM / THINKING / TOOL_CALL / TOOL_RESULT / AGENT_SUMMARY / ERROR / **REMOTE_CARD** | 9 |
+| 视图类型 | `ChatAdapter.VIEW_TYPE_*`：USER / AI / SYSTEM / THINKING / TOOL_CALL / ERROR / CONTEXT_INJECTION / SYSTEM_PROMPT / **REMOTE_CARD** | 9 |
+| 内置组件 | `ComponentRegistry` 注册的 `ChatComponent` | 39 |
+| 动态组件 | `DynamicCardView`（`getType()="*dynamic*"`，通配兜底）：标题 + content/items/actions，其余字段收进「查看原始 JSON」折叠区 | 1（兜底） |
+| 工具组件 UI | `ToolCallCardView`（`tool_call`）+ `ToolActivityRowView` / `ToolGroupPartRenderer`（工具组折叠行） | 2 |
+| 别名归一 | `ComponentTypes.resolve`：`alert`→`alert_card`、`steps`→`steps_card`、`timeline`→`steps`、`markdown`→`markdown_card`… | — |
+
+**结论一：事件不需要新增消息/视图类型。** 消息类型表达的是"这条是用户/AI/系统/工具/远程卡"，
+DSH 的事件（job、command、todo、subagent、审批…）都是"AI 回合内部的卡片"，
+正确落点是**组件管线**（`ComponentData` + `ComponentRegistry`），不是新 MessageType。
+唯一例外是 `REMOTE_CARD` —— 它本来就是给"远程 view 片段"准备的，我们暂未用到。
+
+## 2. 合并：DSH 专用渲染 → 现有组件
+
+| 原 DSH 卡 | 现在的落点 | 做法 |
+|---|---|---|
+| `dsh_notice`（生命周期提示：目标/压缩/重试/子代理/钩子/插话/模型切换…） | **`alert_card`** | `DshCards` 里 30 处 `"dsh_notice"` → `"alert_card"`（level 字段本来就兼容）；`AlertCardView` **扩展**：`jump=last` 滚到末尾气泡、`jump=subagent`+`childId` 滚到子代理轨迹、长按看全文（复用 `DshCardViews.showNoticeDialog`） |
+| `dsh_command`（终端命令卡） | **`code_card`** | `command/run`、`command/done` 两处映射改 `code_card`；`CodeCardView` **扩展**：接受 `command` 作为 `code` 的别名（语言默认 shell），并把 `status`（running/success/failed）并入头部标签 |
+| `todo/write` | `todo_card` | 本来就是现有组件（items 用 `text`/`done`，字段已对齐） |
+| `deliverables/presented` | `file_list` | 现有组件 |
+| `tool-workflow/*` | `steps`（= `steps_card`） | 现有组件（别名归一） |
+| `developer/message`、`system/message`、`team/*` | `markdown_doc` / `alert_card` | 现有组件 |
+| 工具调用 | `tool_call` | 现有组件（`DshProjection` 生成，和本地工具同一条渲染管线） |
+
+删掉的重复实现：`DshCardViews.DshNoticeCard`、`DshCardViews.DshCommandCard`（含注册表登记与文档注释）。
+`ComponentRegistry` 从 39 → 37 个组件。
+
+## 3. 保留的 DSH 原生组件（确实独有）
+
+| 组件 | 为什么不能接现有组件 |
+|---|---|
+| `dsh_job`（`DshJobCard`） | 现有 `job` 是**主动轮询的作业卡**（`job_id`+`title`+`cmd`，2s 轮询日志、带进度圈），语义是"App 自己跑的作业"。DSH 的 job 是宿主侧的**被动状态灯**（label + running/done/failed，key 按 jobId 原地更新），硬接会导致它去轮询一个不存在的作业 |
+| `subagent_card`（`DshSubagentCard`） | 子代理的**实时轨迹**（label + 最近 6 步工具/结果，`deck_only` 投到甲板卡槽），现有 `steps_card` 是静态步骤列表，没有 childId/轨迹累积语义 |
+
+这两个属于用户说的"dsh 独有 → 单个依次创建原生组件"。
+
+## 4. 动态组件的位置
+
+`DynamicCardView` 作为**兜底**：`ComponentRegistry.render` 里未注册类型 → 走它；
+已注册但 `canRender=false` 时也回退到它。DSH 以后新增事件类型时：
+1. 若形状能套现有组件 → 在 `DshCards` 里一行映射即可；
+2. 套不上但字段简单（title/content/items）→ 直接发 `dynamic`，无需改 App；
+3. 只有需要专门交互（如 `dsh_job` 的状态灯、`subagent_card` 的轨迹）才新增原生组件。
+
+## 5. 验证
+
+- 单测：`DshEventCoverageTest` 6/6（把 63 种事件逐个 reduce，`unknownEventKinds()==0`，
+  并断言插话卡落在 `alert_card`）；`DshHistoryImporterTest` 7/7；
+- APK：860MB，`sha256 8b1e9fca…`，21:32 装机成功；
+- 组件类型集合（DSH 侧）：`alert_card`、`code_card`、`todo_card`、`file_list`、`steps`、
+  `tool_call`、`layout`、`markdown_doc`、`dsh_job`、`subagent_card` —— 除最后两个全部是现有组件。

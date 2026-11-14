@@ -36,14 +36,16 @@ public class CodeCardView implements ChatComponent {
 
     @Override
     public boolean canRender(ComponentData data) {
-        return data != null && data.props != null && !TextUtils.isEmpty(data.props.optString("code", ""));
+        return data != null && data.props != null
+                && (!TextUtils.isEmpty(data.props.optString("code", "")) || !TextUtils.isEmpty(data.props.optString("command", "")));
     }
 
     @Override
     public View createView(Context context, ComponentData data) {
         JSONObject p = data.props != null ? data.props : new JSONObject();
-        String language = p.optString("language", "");
-        String code = p.optString("code", "");
+        String language = p.optString("language", p.optString("command", "").isEmpty() ? "" : "shell");
+        // DSH 的命令卡（command/run）复用本组件：命令体走 command 字段，等同 code
+        String code = p.optString("code", p.optString("command", ""));
         String title = p.optString("title", "");
 
         LinearLayout card = new LinearLayout(context);
@@ -61,6 +63,15 @@ public class CodeCardView implements ChatComponent {
         String langLabel = TextUtils.isEmpty(language) ? "代码" : language.toUpperCase();
         if (!TextUtils.isEmpty(title)) {
             langLabel = title + " · " + langLabel;
+        }
+        /**
+         * 2026-11-14：承接原来 dsh_command 的状态（running/success/failed）。
+         * 命令结果不再单独维护一套原生卡 —— 统一用 code_card，状态并入头部标签。
+         */
+        String status = p.optString("status", "");
+        if (!TextUtils.isEmpty(status)) {
+            langLabel += " · " + ("running".equals(status) ? "运行中"
+                    : "failed".equals(status) ? "失败" : "完成");
         }
         TextView langTv = new TextView(context);
         langTv.setText(langLabel);

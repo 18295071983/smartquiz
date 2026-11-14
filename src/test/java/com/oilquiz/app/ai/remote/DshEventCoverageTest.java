@@ -63,7 +63,7 @@ public class DshEventCoverageTest {
     public void inboxSpliceBecomesQueueCard() {
         DshCards.Card card = cardOf("agent/inbox/spliced", splice("next-step", "先看测试目录"));
         assertNotNull("插话入队应出卡", card);
-        assertEquals("dsh_notice", card.type);
+        assertEquals("alert_card", card.type);
         assertEquals("插话已入队", card.props.optString("title"));
         assertTrue("next-step 应说明下一步生效",
                 card.props.optString("content").contains("下一步"));
@@ -91,7 +91,7 @@ public class DshEventCoverageTest {
                 "childId", "child-1", "label", "调研", "mode", "continuable"))));
         assertEquals("catalog 应立刻登记子代理", 1, timeline.subagents().size());
         for (DshCards.Card c : timeline.orderedCards()) {
-            assertTrue("不应再产出 dsh_notice：" + c.type, !"dsh_notice".equals(c.type));
+            assertTrue("不应再产出 alert_card：" + c.type, !"alert_card".equals(c.type));
         }
 
         com.oilquiz.app.ai.chat.ChatMessage msg =
