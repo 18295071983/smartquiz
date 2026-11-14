@@ -840,6 +840,13 @@ public class RemoteDshTool implements AITool {
                                 Log.w(TAG, "cmd 帧执行失败: " + t.getMessage());
                             }
                             break;
+                        case "view_def":   // C5：插件下发视图定义（按名字取用）
+                            try {
+                                RemoteViewDefs.apply(c.getApplicationContext(), o);
+                            } catch (Throwable t) {
+                                Log.w(TAG, "view_def 处理失败: " + t.getMessage());
+                            }
+                            break;
                         case "ui/slot":    // C4：插件直接推甲板槽位，手机只校验+渲染
                             try {
                                 RemoteSlotBridge.apply(o.optJSONObject("data"));

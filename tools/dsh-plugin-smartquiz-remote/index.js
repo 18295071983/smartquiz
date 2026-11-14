@@ -6062,7 +6062,24 @@ function presetSvcOf(ctx) {
        * <p>认证：`?token=` 或 `Authorization` 头（WS 客户端常常设不了自定义头）。</p>
        */
       import('ws').then(({ WebSocketServer }) => {
-        const wss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024 });
+        /**
+         * 插件下发的视图定义（C5，2026-11-14）：改这里就等于改手机上的界面，不用发版。
+         * 手机收到后用 {tool:'ui_component', args:{view:'名称'}} 即可打开。
+         * 组件语法见 docs/dsh-remote-ui-design/27-plugin-update-guide.md
+         */
+        const VIEW_DEFS = {
+          demo: {
+            type: 'stack',
+            children: [
+              { type: 'callout', text: '这份界面定义来自插件（C5）', tone: 'good' },
+              { type: 'keyValue', items: [
+                { label: '来源', value: 'view_def 帧' },
+                { label: '版本', value: 'v1' }] },
+              { type: 'actions', items: [
+                { label: '测一下动作', action: { id: 'ping' }, style: 'primary' }] },
+            ],
+          },
+        };        const wss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024 });
         const sendWs = (ws, o) => { try { ws.send(JSON.stringify(o)); } catch { /* 已断 */ } };
 
         /** 等 WS 发送缓冲降下来（大文件不能一把塞进内存） */
@@ -6202,6 +6219,7 @@ function presetSvcOf(ctx) {
               : { event: true, slot: true, cmd: true, file: true, pull: true, ack: true },
             limits: { file_max: FILE_MAX, file_chunk: FILE_CHUNK, pull_max: 500 },
           });
+          sendWs(ws, { type: 'view_def', version: 1, views: VIEW_DEFS });
           const timer = setInterval(() => {
             try { touchConnection(sid, 'ws'); ws.ping(); } catch { /* 已断 */ }
           }, 15000);

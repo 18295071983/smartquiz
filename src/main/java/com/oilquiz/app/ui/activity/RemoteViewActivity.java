@@ -41,6 +41,17 @@ public class RemoteViewActivity extends Activity {
         ctx.startActivity(it);
     }
 
+    /**
+     * 按名字打开插件下发的视图（C5）：定义由 view_def 帧缓存，命令里只传名字即可。
+     */
+    public static void openNamed(Context ctx, String name) {
+        JSONObject view = com.oilquiz.app.ai.tool.RemoteViewDefs.get(ctx, name);
+        if (view == null) {
+            Toast.makeText(ctx, "插件还没下发视图：" + name, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        open(ctx, view);
+    }
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);

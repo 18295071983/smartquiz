@@ -50,6 +50,12 @@ public final class RemoteCommandExecutor {
             case "ui_component": {
                 // C3 (2026-11-14): 带组件树的推送（args.props 里有 type）→ 交给通用渲染器开一屏；
                 // 否则仍按旧的"插槽"语义渲染。这样插件推新界面不需要手机发版。
+                // C5: {"view":"demo"} -> 用插件下发的视图定义打开
+                Object viewName = args == null ? null : args.get("view");
+                if (viewName instanceof String && !((String) viewName).trim().isEmpty()) {
+                    com.oilquiz.app.ui.activity.RemoteViewActivity.openNamed(ctx, ((String) viewName).trim());
+                    return "view opened by name";
+                }
                 Object viewRaw = args == null ? null : args.get("props");
                 org.json.JSONObject view = null;
                 try {
