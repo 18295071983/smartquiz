@@ -23,6 +23,10 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * <p>§20（2026-11-15）：新增 {@code rev} 乱序保护、{@code expireAt} TTL 清理、以及
  * "插件优先、本地兜底"的单一写者规则，判定逻辑全在纯 JVM 的 {@link SlotLedger} 里。</p>
  *
+ * <p>§22（2026-11-15）：优先级收敛为命名档位 {@link SlotPriorities}（p0..p5，两侧同名同值）；
+ * 总线加容量上限 {@link #MAX_SLOTS}（默认 16 条，超出按「priority 最大、同档最旧」淘汰
+ * 非 pinned，见 {@link SlotLedger#enforceLimit(int)}）。</p>
+ *
  * <p>线程：可从任意线程调用；监听回调在调用线程执行，UI 自己切主线程。
  * 1 秒一次的 TTL 清扫由 {@link #attachSweeper()} 在主线程挂上，{@link #detachSweeper()} 摘掉。</p>
  */
@@ -32,10 +36,20 @@ public final class DockSlotBus {
     /** TTL 清扫间隔：与需求约定一致（1s 粒度足够，槽位 ttl 都是秒级）。 */
     private static final long SWEEP_INTERVAL_MS = 1000L;
 
+    /**
+     * §22：总线容量上限（默认 16 条）。
+     *
+     * <p>为什么要有上限：插件每多一种持续状态就多一条槽位，且断线重连/快照拉取会把所有
+     * 历史状态一次性塞回来；没有上限时甲板全屏列表会无界增长，`list()` 也会被反复全量排序。
+     * 正常同时活跃的状态不超过 10 条，16 留了余量；溢出部分仍可从插件
+     * {@code /v2/slots} 快照（最多 32 条）里看到。</p>
+     */
+    public static final int MAX_SLOTS = 16;
+
     /** 一条插槽；不可变。 */
     public static final class Slot {
         public final String id;
-        /** 排序键：小的在前。约定 —— 10 瞬时过程 / 30 目标 / 40 任务 / 70 提示 */
+        /** 排序键：小的在前。取值统一走 {@link SlotPriorities}（p0=0 … p5=50）；旧帧的任意 int 照旧兼容。 */
         public final int priority;
         public final String title;
         public final String detail;
@@ -134,9 +148,14 @@ public final class DockSlotBus {
         if (slot == null || slot.id.isEmpty()) return;
         long now = System.currentTimeMillis();
         SlotLedger.Result result;
+        List<String> evicted;
         synchronized (LOCK) {
             result = LEDGER.update(slot, now);
+            evicted = result == SlotLedger.Result.APPLIED
+                    ? LEDGER.enforceLimit(MAX_SLOTS)
+                    : java.util.Collections.<String>emptyList();
         }
+        logEvicted(evicted);
         if (result == SlotLedger.Result.APPLIED) {
             notifyListeners();
         } else {
@@ -154,9 +173,14 @@ public final class DockSlotBus {
         if (slot == null || slot.id.isEmpty()) return;
         long now = System.currentTimeMillis();
         SlotLedger.Result result;
+        List<String> evicted;
         synchronized (LOCK) {
             result = LEDGER.updateLocal(slot, now);
+            evicted = result == SlotLedger.Result.APPLIED
+                    ? LEDGER.enforceLimit(MAX_SLOTS)
+                    : java.util.Collections.<String>emptyList();
         }
+        logEvicted(evicted);
         if (result == SlotLedger.Result.APPLIED) {
             notifyListeners();
         } else {
@@ -216,10 +240,24 @@ public final class DockSlotBus {
         int removed;
         synchronized (LOCK) {
             removed = LEDGER.clearNonPinned();
+            LEDGER.resetCounters();
         }
         if (removed > 0) {
             logi("[dock] clear 保留 pinned，清掉 " + removed + " 条");
             notifyListeners();
+        }
+    }
+
+    /**
+     * §22：累计淘汰条数（自上次 {@link #clear()} 起）。
+     *
+     * <p>只用于诊断/单测：真机 logcat 里每条淘汰都会打
+     * `[dock] 上限 16，淘汰 id=…（规则：priority 最大、同档最旧；累计淘汰 N 条）`，
+     * 这个计数只是方便一次看总数。</p>
+     */
+    public static int evictedCount() {
+        synchronized (LOCK) {
+            return LEDGER.evictedTotal();
         }
     }
 
@@ -301,6 +339,19 @@ public final class DockSlotBus {
             } catch (Throwable ignored) {
                 // 单个监听失败不影响其他
             }
+        }
+    }
+
+    /** §22：容量淘汰日志（一条一行，真机 logcat 能直接看出谁被挤掉了）。 */
+    private static void logEvicted(List<String> evicted) {
+        if (evicted == null || evicted.isEmpty()) return;
+        int total;
+        synchronized (LOCK) {
+            total = LEDGER.evictedTotal();
+        }
+        for (String id : evicted) {
+            logi("[dock] 上限 " + MAX_SLOTS + "，淘汰 id=" + id
+                    + "（规则：priority 最大、同档最旧；累计淘汰 " + total + " 条）");
         }
     }
 

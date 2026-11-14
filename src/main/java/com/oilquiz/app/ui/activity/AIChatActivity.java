@@ -174,6 +174,16 @@ public class AIChatActivity extends BaseActivity {
     private android.widget.LinearLayout agentProgressSlot;
     /** DSH 实时状态 dock 插槽宿主（后台任务/目标/压缩中…；由 DockSlotBus 驱动） */
     private android.widget.LinearLayout dockSlotHost;
+    /**
+     * §22（2026-11-15）：甲板最多渲染的插槽行数。
+     *
+     * <p>与旧口径一致（"最多 3 条，其余进全屏列表"），但现在写成常量而不是复用
+     * {@code DshUiCatalogLoader.HARD_MAX}（那是配置表的安全阀，值可能被调到 6）。
+     * 被截断的条数渲染成可点的「还有 N 条」行。</p>
+     */
+    private static final int DECK_MAX_SLOTS = 3;
+    /** §22：本轮总线里的插槽总数（renderDeckRows 只拿到截断后的行，用它算「还有 N 条」）。 */
+    private int deckTotalSlots = 0;
     /** 状态甲板容器（M1）：进度条 + 插槽的父容器，A1 验收就是量它的高度 */
     private android.widget.LinearLayout statusDeck;
     /** 待处理卡槽：审批/反问的可交互卡片（与消息流同一套 part 渲染器） */
@@ -13774,6 +13784,9 @@ public class AIChatActivity extends BaseActivity {
      */
     private void renderDockSlots(java.util.List<com.oilquiz.app.ai.chat.status.DockSlotBus.Slot> slots) {
         if (dockSlotHost == null) return;
+        // §22（2026-11-15）：这里先记下总线里的总条数 —— renderDeckRows 只拿到"控制器截断后的行"，
+        // 而「还有 N 条」必须按总数算（N = 总数 - 实际渲染行数），否则永远算不出隐藏了几条。
+        deckTotalSlots = slots == null ? 0 : slots.size();
         // 行选择交给 StatusDeckController（M1）：上限来自配置表，进度条可见 1 条 / 否则 2 条。
         // 控制器缺失时退回旧默认值，绝不因为配置问题把甲板搞没。
         boolean progressVisible = agentProgressSlot != null
@@ -13803,7 +13816,7 @@ public class AIChatActivity extends BaseActivity {
         int minH = (int) (28 * density);       // 视觉高度；点击区再向外扩 10dp
         int shown = 0;
         for (final com.oilquiz.app.ai.chat.status.DockSlotBus.Slot s : rows) {
-            if (shown >= com.oilquiz.app.ai.chat.status.DshUiCatalogLoader.HARD_MAX) break;   // 兜底护栏
+            if (shown >= DECK_MAX_SLOTS) break;   // §22：甲板固定最多 3 条，其余进「还有 N 条」
             com.oilquiz.app.ai.chat.status.DeckRowModel model =
                     com.oilquiz.app.ai.chat.status.DeckRowModel.of(s);
 
@@ -13883,10 +13896,67 @@ public class AIChatActivity extends BaseActivity {
             dockSlotHost.addView(row);
             shown++;
         }
+        // §22：被截断的条数做成**可点的一行**（以前连"还有几条"都不显示，用户不知道
+        // 甲板是"就这些"还是"还有更多"）。点击进全屏甲板列表（RemoteDeckListActivity）。
+        int hidden = Math.max(0, deckTotalSlots - shown);
+        if (shown > 0 && hidden > 0) {
+            dockSlotHost.addView(buildDeckOverflowRow(hidden, density, padH, padV, minH));
+        }
         dockSlotHost.setVisibility(shown > 0 ? View.VISIBLE : View.GONE);
         notifyViewportAfterHeightChange(pinnedBefore, wasVisible, shown > 0);
         updateDeckVisibility();
         logDeckMetrics();
+    }
+
+    /**
+     * §22：「还有 N 条 · 点开看全部」行。
+     *
+     * <p>形态刻意比插槽行弱（无状态点、字号小一档、灰色），一眼能分清
+     * "这是一条状态"和"这是列表入口"。点击与插槽行同一个目的地。</p>
+     */
+    private View buildDeckOverflowRow(int hidden, float density, int padH, int padV, int minH) {
+        android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+        row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(minH);
+        row.setPadding(padH, padV, padH, padV);
+        android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(8 * density);
+        bg.setColor(0x0D000000);
+        row.setBackground(bg);
+        android.widget.LinearLayout.LayoutParams rowLp =
+                new android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        row.setLayoutParams(rowLp);
+
+        android.widget.TextView tv = new android.widget.TextView(this);
+        String text = hidden == 1 ? "还有 1 条 · 点开看" : "还有 " + hidden + " 条 · 点开看全部";
+        tv.setText(text);
+        tv.setTextSize(12f);
+        tv.setMaxLines(1);
+        tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        tv.setTextColor(0xFF6B6B6B);
+        tv.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(tv);
+
+        android.widget.TextView chevron = new android.widget.TextView(this);
+        chevron.setText("›");
+        chevron.setTextSize(15f);
+        chevron.setTextColor(0xFF9E9E9E);
+        android.widget.LinearLayout.LayoutParams clp =
+                new android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        clp.leftMargin = (int) (6 * density);
+        row.addView(chevron, clp);
+
+        row.setClickable(true);
+        row.setOnClickListener(v ->
+                com.oilquiz.app.ui.activity.RemoteDeckListActivity.open(this));
+        return row;
     }
 
     /** 甲板容器可见性：两块都隐藏时整块收起（避免残留 margin 占高度） */
@@ -14484,7 +14554,8 @@ public class AIChatActivity extends BaseActivity {
                 // 让位给插件那条（同一事实只留一行）；旧插件不推时这里仍能显示。
                 com.oilquiz.app.ai.chat.status.DockSlotBus.updateLocal(
                         new com.oilquiz.app.ai.chat.status.DockSlotBus.Slot(
-                                "compaction", 10, "正在压缩上下文…", "", "", true));
+                                "compaction", com.oilquiz.app.ai.chat.status.SlotPriorities.P3,
+                                "正在压缩上下文…", "", "", true));
                 break;
             case "compaction/end":
                 com.oilquiz.app.ai.chat.status.DockSlotBus.remove("compaction");

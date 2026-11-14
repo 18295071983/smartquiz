@@ -391,6 +391,50 @@ function acquireCliSlot(signal) {
 
 export const name = 'smartquiz-remote';
 
+/**
+ * 插槽优先级命名档位（§22，2026-11-15）—— 与手机端 `SlotPriorities` **同名同值**。
+ *
+ * 病历：priority 是裸数字，散落在插件十几处（审批 5、压缩 10、重试 15、权限 35、任务 40、
+ * 子代理 50、MCP 55、日程 60…），"谁该压在谁上面"只存在于注释里；两侧各改一遍必然漂移。
+ * 现在收敛成 6 档：
+ *
+ * | 档位 | 数值 | 语义 |
+ * |---|---|---|
+ * | p0 | 0  | 打断式：审批 / 等待用户 |
+ * | p1 | 5  | 失败 / 重试 / 断线 |
+ * | p2 | 10 | 权限 / 沙箱 |
+ * | p3 | 20 | 插话队列 / 上下文压缩 |
+ * | p4 | 30 | 目标 / 计划（默认档） |
+ * | p5 | 50 | 后台任务 / 子代理 / 统计 |
+ *
+ * 帧里可只给 {@code level:'p2'}（手机端按同一张表换算）；旧客户端/旧帧只给
+ * {@code priority} 时语义不变（数字小的在上）。
+ */
+const SLOT_PRIORITY = Object.freeze({ p0: 0, p1: 5, p2: 10, p3: 20, p4: 30, p5: 50 });
+
+/** 档位名 → 数值；未知/空返回 null（调用方自己决定回退，不在这里吞掉旧 priority）。 */
+const slotPriorityOfLevel = (level) => {
+  const key = String(level ?? '').trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(SLOT_PRIORITY, key) ? SLOT_PRIORITY[key] : null;
+};
+
+/** 数值 → 档位名；不在表里返回 ''（历史中间值不硬凑"最近档位"，免得日志误导）。 */
+const slotLevelOfPriority = (priority) => {
+  const p = Number(priority);
+  for (const [k, v] of Object.entries(SLOT_PRIORITY)) {
+    if (v === p) return k;
+  }
+  return '';
+};
+
+/** 一帧插槽的优先级：已知 level → 表；否则旧 priority；都没有 → p4（与手机端默认一致）。 */
+const slotPriorityValue = (data) => {
+  const byLevel = slotPriorityOfLevel(data?.level);
+  if (byLevel !== null) return byLevel;
+  const n = Number(data?.priority);
+  return Number.isFinite(n) ? n : SLOT_PRIORITY.p4;
+};
+
 
 /** 插件目录（配对页/二维码库随包分发；.token 持久化于此） */
 const PLUGIN_DIR = dirname(fileURLToPath(import.meta.url));
@@ -1219,7 +1263,7 @@ export function apply(ctx, config) {
       const cmd = {
         id, tool: 'ui_component', state: 'queued', createdAt: Date.now(), result: null, error: null,
         args: { id: 'remote/error', title: String(title || '这一轮失败了').slice(0, 40),
-          detail: String(detail || '').slice(0, 80), priority: 5, action: 'attention' },
+          detail: String(detail || '').slice(0, 80), priority: SLOT_PRIORITY.p1, action: 'attention' },
       };
       cmdQueue.set(id, cmd);
       for (const w of WS_CLIENTS) {
@@ -1655,7 +1699,7 @@ export function apply(ctx, config) {
       }
       broadcastSlot('', {
         id: 'schedule',
-        priority: 60,
+        priority: SLOT_PRIORITY.p5,
         title: '定时任务',
         detail: items.length + ' 个启用中',
         action: 'schedule',
@@ -1784,7 +1828,16 @@ function presetSvcOf(ctx) {
     const ttl = data.ttl_ms !== undefined
       ? Math.max(0, Number(data.ttl_ms) || 0)
       : (SLOT_TTL_IDS.has(id) ? SLOT_TTL_MS : 0);
-    const frame = { ...data, rev, epoch: SLOT_EPOCH };
+    /**
+     * §22：优先级在这里统一归一化 —— 帧里可只给 {@code level:'p2'}，
+     * 也可以只给旧式 {@code priority:10}，两者都给时 **level 优先**（命名档位是新的唯一来源）。
+     * 归一化后帧里同时带 priority（旧 App 排序用）与 level（新 App / 快照 / 诊断用）。
+     */
+    const levelValue = slotPriorityOfLevel(data.level);
+    const priority = slotPriorityValue(data);
+    const levelName = (levelValue === null ? '' : String(data.level).trim().toLowerCase())
+      || slotLevelOfPriority(priority);
+    const frame = { ...data, priority, ...(levelName ? { level: levelName } : {}), rev, epoch: SLOT_EPOCH };
     if (ttl > 0) frame.ttl_ms = ttl;
     else delete frame.ttl_ms;
     SLOT_LAST.set(id, { sid: target, data: frame, at: now });
@@ -1834,7 +1887,7 @@ function presetSvcOf(ctx) {
       return;
     }
     broadcastSlot(key, {
-      id: 'inbox', session_id: key, priority: 20, kind: 'list', board: 'task',
+      id: 'inbox', session_id: key, priority: SLOT_PRIORITY.p3, kind: 'list', board: 'task',
       title: '插话排队', detail: q.length + ' 条等待发送 · 点开可撤回/修改',
       action: 'queue', count: q.length,
     });
@@ -1850,7 +1903,7 @@ function presetSvcOf(ctx) {
     // 文案收敛（2026-11-13）：一行读完，"N 在跑 · 共 M 条"；失败优先提示
     broadcastSlot('', {
       id: 'jobs',
-      priority: 40,
+      priority: SLOT_PRIORITY.p5,
       title: failed > 0 ? '任务（有失败）' : '任务',
       detail: running > 0
         ? `${running} 个在跑 · 共 ${list.length} 条`
@@ -1894,7 +1947,7 @@ function presetSvcOf(ctx) {
     }
     broadcastSlot('', {
       id: 'subagents',
-      priority: 50,
+      priority: SLOT_PRIORITY.p5,
       title: '子代理',
       detail: live > 0
         ? `${live} 个在跑 · 共 ${active} 个`
@@ -1912,7 +1965,7 @@ function presetSvcOf(ctx) {
       return;
     }
     broadcastSlot(target, {
-      id: 'goal', session_id: sid || '', priority: 30, title: '目标', detail: g.title || '', action: 'goal',
+      id: 'goal', session_id: sid || '', priority: SLOT_PRIORITY.p4, title: '目标', detail: g.title || '', action: 'goal',
     });
   };
 
@@ -1924,7 +1977,7 @@ function presetSvcOf(ctx) {
       return;
     }
     broadcastSlot('', {
-      id: 'mcp', priority: 55, title: 'MCP 服务', detail: `${n} 个已用过`, action: 'mcp',
+      id: 'mcp', priority: SLOT_PRIORITY.p5, title: 'MCP 服务', detail: `${n} 个已用过`, action: 'mcp',
     });
   };
 
@@ -1997,7 +2050,7 @@ function presetSvcOf(ctx) {
     }
     broadcastSlot('', {
       id: 'permission',
-      priority: 35,
+      priority: SLOT_PRIORITY.p2,
       title: '权限',
       detail,
       action: 'permission',
@@ -2190,7 +2243,13 @@ function presetSvcOf(ctx) {
       },
       title: { type: 'string', description: '标题（slot/notification 建议必填；slot 且 title/detail 都空 = 移除该 id）' },
       detail: { type: 'string', description: '正文或副标题' },
-      priority: { type: 'number', description: 'slot 优先级，越小越靠上，默认 50' },
+      priority: { type: 'number', description: 'slot 优先级数值，越小越靠上；优先用 level（档位表），两者都给时 level 优先' },
+      level: {
+        type: 'string',
+        enum: ['p0', 'p1', 'p2', 'p3', 'p4', 'p5'],
+        description: 'slot 优先级档位：p0=审批/等用户(0) p1=失败/重试(5) p2=权限/沙箱(10) '
+          + 'p3=插话/压缩(20) p4=目标/计划(30，默认) p5=后台任务/子代理/统计(50)',
+      },
       id: { type: 'string', description: 'slot id，同 id 会覆盖；默认 phone_ui（移除时必须指定 id）' },
       ttl_ms: { type: 'number', description: 'slot 自动消失时间（毫秒）；不传按 id 默认（持续态 30s，稳定态不过期）' },
     },
@@ -2231,7 +2290,11 @@ function presetSvcOf(ctx) {
               return '未推送：移除插槽需要 id（title/detail 至少给一个，或给 id 清空）';
             }
             // 每次推送都走 pushUiSlot → broadcastSlot：rev 自增、ttl 默认/透传、最近帧可补发
-            const extra = args?.ttl_ms === undefined ? {} : { ttl_ms: Number(args.ttl_ms) };
+            const extra = {
+              // §22：可只给档位（p0..p5），priority 缺省由档位表补；显式 priority 仍透传
+              ...(args?.level ? { level: String(args.level).trim() } : {}),
+              ...(args?.ttl_ms === undefined ? {} : { ttl_ms: Number(args.ttl_ms) }),
+            };
             const slot = pushUiSlot(args?.id, args?.priority, title, detail, extra);
             return slot.removed
               ? '已移除手机插槽 ' + slot.id
@@ -2375,7 +2438,7 @@ function presetSvcOf(ctx) {
         const n = Number(d.retry ?? d.attempt ?? 0) || 0;
         // ttl 默认 30s（SLOT_TTL_IDS），每次 retry 事件重新计时；turn/end 显式移除
         broadcastSlot(sid, {
-          id: 'retry', session_id: sid, priority: 15, kind: 'display', board: 'alert', warn: true,
+          id: 'retry', session_id: sid, priority: SLOT_PRIORITY.p1, kind: 'display', board: 'alert', warn: true,
           title: '模型重试', detail: n > 0 ? ('第 ' + n + ' 次重试中…') : '正在重试…',
         });
         return;
@@ -2399,7 +2462,7 @@ function presetSvcOf(ctx) {
       if (t === 'compaction/start' || t === 'compaction/end') {
         // B18：压缩是会话内的事，只发给该会话（否则别的对话也会看到"正在压缩"）
         broadcastSlot(sid, t === 'compaction/start'
-          ? { id: 'compaction', session_id: sid, priority: 10, title: '正在压缩上下文…' }
+          ? { id: 'compaction', session_id: sid, priority: SLOT_PRIORITY.p3, title: '正在压缩上下文…' }
           : { id: 'compaction', session_id: sid, remove: true });
         return;
       }
@@ -2575,6 +2638,72 @@ function presetSvcOf(ctx) {
     });
   });
 
+  /** 快照条数上限（§22）：正常同时活跃的状态不超过 16 条，32 给足余量。 */
+  const SLOT_SNAPSHOT_MAX = 32;
+
+  /**
+   * GET /v2/slots?session_id= —— 插槽快照（§22，2026-11-15）。
+   *
+   * <p>病历：断线重连后甲板要等生产者**下一次推帧**才有内容，`/v2/slots` 让新连接直接
+   * 拿一份全量。数据源就是插件内存里的 `SLOT_LAST`（`broadcastSlot` 每帧都记），
+   * 所以和推帧是同一份事实、同一个 rev/epoch/TTL 口径：</p>
+   * <ul>
+   *   <li>别的会话的槽不发（B18，`rec.sid` 不匹配就跳过）；</li>
+   *   <li>移除帧不进快照（它只是"这条被删了"的记忆）；</li>
+   *   <li>已过 TTL 的瞬时帧不复活（与 `replaySlots` 同一判据）；</li>
+   *   <li>ttl_ms 返回**剩余**存活时间（不是原始值），App 收到后照常换算成 expireAt；</li>
+   *   <li>按 priority 升序（同档按 id 稳定），最多 32 条。</li>
+   * </ul>
+   */
+  route('exact', '/v2/slots', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let sid = '';
+    try {
+      const q = new URL(req.url ?? '/v2/slots', 'http://dsh.invalid');
+      sid = String(q.searchParams.get('session_id') ?? '').trim();
+    } catch { /* 无 query 视为全局会话 */ }
+    const now = Date.now();
+    const all = [];
+    for (const [id, rec] of SLOT_LAST.entries()) {
+      if (!rec || !rec.data) continue;
+      if (rec.sid && rec.sid !== sid) continue;          // 别的会话的槽不发
+      const d = rec.data;
+      if (d.remove === true) continue;                   // 移除帧不进快照
+      const ttl = Math.max(0, Number(d.ttl_ms ?? 0) || 0);
+      const age = Math.max(0, now - Number(rec.at || 0));
+      if (ttl > 0 && age > ttl) continue;                // 过期瞬时态不复活
+      const priority = slotPriorityValue(d);
+      all.push({
+        id,
+        rev: Number(d.rev ?? 0),
+        epoch: Number(d.epoch ?? SLOT_EPOCH),
+        ttl_ms: ttl > 0 ? Math.max(1, ttl - age) : 0,    // 剩余存活时间
+        priority,
+        level: d.level ?? slotLevelOfPriority(priority),
+        title: String(d.title ?? ''),
+        detail: String(d.detail ?? ''),
+        action: String(d.action ?? ''),
+        warn: d.warn === true,
+        kind: String(d.kind ?? 'display'),
+        board: String(d.board ?? 'state'),
+        pinned: d.pinned === true,
+        count: Math.max(0, Number(d.count) || 0),
+        session_id: String(d.session_id ?? rec.sid ?? ''),
+      });
+    }
+    all.sort((a, b) => (a.priority - b.priority) || String(a.id).localeCompare(String(b.id)));
+    const slots = all.slice(0, SLOT_SNAPSHOT_MAX);
+    return sendJson(res, 200, {
+      ok: true, v: 2,
+      session_id: sid,
+      count: slots.length,
+      total: all.length,
+      truncated: all.length > slots.length,
+      slot_epoch: SLOT_EPOCH,
+      slots,
+    });
+  });
+
   /** 目标状态（事件派生）；带 session_id 查单条，不带则列全部。 */
   route('exact', '/v2/goal', (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
@@ -2686,9 +2815,22 @@ function presetSvcOf(ctx) {
       const frame = broadcastSlot(target, { id: slotId, ...(target ? { session_id: target } : {}) });
       return { ...frame, removed: true };
     }
+    /**
+     * §22：priority 只在**显式给出**时才写进帧 —— 0 是合法档位（p0 审批），
+     * 以前 `Number(priority) || 50` 会把 p0 吞成 50，把"打断式"排到最后。
+     * 只给 level 时由 broadcastSlot 按档位表补 priority（旧 App 也能排对）。
+     */
+    const hasPriority = priority !== undefined && priority !== null && priority !== ''
+      && Number.isFinite(Number(priority));
+    const level = String(extra.level ?? '').trim();
     // §20：broadcastSlot 统一补 rev/ttl，并记住最近帧供新订阅补发
     const frame = broadcastSlot(target, {
-      id: slotId, priority: Number(priority) || 50, title: t, detail: d, ...extra,
+      ...extra,
+      id: slotId,
+      ...(hasPriority ? { priority: Number(priority) } : {}),
+      ...(level ? { level } : {}),
+      title: t,
+      detail: d,
     });
     return { ...frame, removed: false };
   };
@@ -2752,6 +2894,10 @@ function presetSvcOf(ctx) {
         // 插槽的点击动作由 slot_action（或别名 link）单独指定，例如 'jobs' / 'schedule'。
         ...(body.slot_action && String(body.slot_action).trim()
           ? { action: String(body.slot_action).trim() }
+          : {}),
+        // §22：脚本/面板也可以只给档位（p0..p5），App 与插件按同一张表换算
+        ...(body.level && String(body.level).trim()
+          ? { level: String(body.level).trim() }
           : {}),
         ...(body.warn === true ? { warn: true } : {}),
         ...(body.session_id && String(body.session_id).trim()

@@ -98,6 +98,14 @@ public final class RemoteConnection {
      * 之后的重连仍按传输游标续传（见 resolveAndOpen 的缺口修复注释）。
      */
     private boolean firstConnectSinceLaunch = true;
+    /**
+     * §22（2026-11-15）：**本次连接**是否已经拉过插槽快照。
+     *
+     * <p>为什么挂在连接层：断线重连后甲板以前要等生产者下一次推帧才有内容。
+     * 插件现在有 {@code GET /v2/slots}（从内存状态重建），连上（WS hello / SSE ready）
+     * 后拉一次即可恢复；一次连接只拉一次，断连时复位。</p>
+     */
+    private volatile boolean slotSnapshotPulled = false;
 
     private RemoteConnection(Context app) {
         this.app = app;
@@ -583,6 +591,17 @@ public final class RemoteConnection {
             public void onConnection(boolean up, String detail) {
                 online = up;
                 Log.i(TAG, "[DSH] connection=" + up + " " + detail);
+                if (!up) {
+                    slotSnapshotPulled = false;      // 断连复位：下次连上再拉一次
+                } else if (!slotSnapshotPulled) {
+                    slotSnapshotPulled = true;
+                    // §22：连上后拉一次插槽快照（后台线程；失败静默重试一次）
+                    try {
+                        RemoteSlotBridge.pullSnapshotAsync(app, sessionId);
+                    } catch (Throwable t) {
+                        Log.w(TAG, "[dock] 快照拉取启动失败: " + t.getMessage());
+                    }
+                }
                 deliver(l -> l.onConnection(up, detail));
             }
         });

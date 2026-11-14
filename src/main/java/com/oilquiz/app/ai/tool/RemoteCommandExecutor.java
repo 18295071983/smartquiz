@@ -80,7 +80,8 @@ public final class RemoteCommandExecutor {
                 // id/title/detail 为空时仍退化成通知，避免静默丢失。
                 String sid = str(args == null ? null : args.get("id"));
                 if (sid == null || sid.trim().isEmpty()) sid = "remote_cmd";
-                int pri = 70;
+                // §22：默认落 p5（后台/统计档），电脑端显式给 priority 时仍以数值为准（旧帧兼容）
+                int pri = com.oilquiz.app.ai.chat.status.SlotPriorities.P5;
                 Object rawPri = args == null ? null : args.get("priority");
                 if (rawPri instanceof Number) pri = ((Number) rawPri).intValue();
                 if (title.isEmpty() && text.isEmpty()) {

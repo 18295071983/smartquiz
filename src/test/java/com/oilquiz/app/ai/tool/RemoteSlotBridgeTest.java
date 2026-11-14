@@ -4,7 +4,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.oilquiz.app.ai.chat.status.DockSlotBus;
+import com.oilquiz.app.ai.chat.status.SlotPriorities;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.After;
 import org.junit.Before;
@@ -151,5 +153,123 @@ public class RemoteSlotBridgeTest {
         RemoteSlotBridge.apply(withEpoch(frame("dock-rm", "", "", 1L, 0L), 2000L));
 
         assertTrue(DockSlotBus.list().isEmpty());
+    }
+
+    // ===== §22（2026-11-15）：level 档位 + 批量 apply（快照） =====
+
+    private static JSONObject levelFrame(String id, String level) throws Exception {
+        JSONObject o = new JSONObject();
+        o.put("id", id);
+        o.put("title", id);
+        o.put("detail", "");
+        o.put("level", level);
+        return o;
+    }
+
+    @Test
+    public void levelOnlyFrameUsesTierTable() throws Exception {
+        RemoteSlotBridge.apply(levelFrame("dock-p2", "p2"));
+        assertEquals("只给 level 也要排对", SlotPriorities.P2, DockSlotBus.list().get(0).priority);
+    }
+
+    @Test
+    public void levelWinsOverPriorityWhenBothGiven() throws Exception {
+        JSONObject o = levelFrame("dock-p0", "p0");
+        o.put("priority", 50);
+        RemoteSlotBridge.apply(o);
+        assertEquals("level 优先（p0 不能因为旧 priority=50 被排到最后）",
+                SlotPriorities.P0, DockSlotBus.list().get(0).priority);
+    }
+
+    @Test
+    public void unknownLevelFallsBackToP4WithoutPriority() throws Exception {
+        RemoteSlotBridge.apply(levelFrame("dock-unknown", "p9"));
+        assertEquals(SlotPriorities.DEFAULT, DockSlotBus.list().get(0).priority);
+    }
+
+    @Test
+    public void unknownLevelKeepsLegacyPriority() throws Exception {
+        JSONObject o = levelFrame("dock-legacy-pri", "p9");
+        o.put("priority", 55);
+        RemoteSlotBridge.apply(o);
+        assertEquals("未知档位但有旧数值 → 按数值排（向后兼容）",
+                55, DockSlotBus.list().get(0).priority);
+    }
+
+    @Test
+    public void neitherLevelNorPriorityDefaultsToP4() throws Exception {
+        RemoteSlotBridge.apply(frame("dock-default", "无档位", "", 1L, 0L));
+        assertEquals(SlotPriorities.DEFAULT, DockSlotBus.list().get(0).priority);
+    }
+
+    @Test
+    public void batchApplyAppliesEveryFrameInOrder() throws Exception {
+        JSONArray batch = new JSONArray();
+        batch.put(withEpoch(frame("dock-batch", "第一版", "", 1L, 0L), 1000L));
+        batch.put(withEpoch(frame("dock-batch", "第二版", "", 2L, 0L), 1000L));
+        batch.put(withEpoch(frame("dock-batch", "第三版", "", 3L, 0L), 1000L));
+
+        assertEquals(3, RemoteSlotBridge.applyAll(batch));
+        assertEquals(1, DockSlotBus.list().size());
+        assertEquals("第三版", DockSlotBus.list().get(0).title);
+        assertEquals(3L, DockSlotBus.list().get(0).rev);
+    }
+
+    @Test
+    public void batchApplyHonorsRevOrderAndRemove() throws Exception {
+        JSONArray batch = new JSONArray();
+        batch.put(frame("dock-b", "新", "", 5L, 0L));
+        batch.put(frame("dock-b", "迟到的旧帧", "", 4L, 0L));
+        batch.put(frame("dock-c", "待移除", "", 1L, 0L));
+
+        assertEquals(3, RemoteSlotBridge.applyAll(batch));
+        assertEquals("回退 rev 在批量里同样丢弃", "新", DockSlotBus.list().get(0).title);
+
+        JSONArray removals = new JSONArray();
+        JSONObject remove = new JSONObject();
+        remove.put("id", "dock-b");
+        remove.put("remove", true);
+        remove.put("rev", 6L);
+        removals.put(remove);
+        assertEquals(1, RemoteSlotBridge.applyAll(removals));
+        assertEquals(1, DockSlotBus.list().size());
+        assertEquals("dock-c", DockSlotBus.list().get(0).id);
+    }
+
+    @Test
+    public void batchApplyHandlesEpochChangeInsideBatch() throws Exception {
+        JSONArray batch = new JSONArray();
+        batch.put(withEpoch(frame("dock-gen", "旧世代", "", 99L, 0L), 1000L));
+        batch.put(withEpoch(frame("dock-gen", "新世代", "", 1L, 0L), 2000L));
+
+        assertEquals(2, RemoteSlotBridge.applyAll(batch));
+        assertEquals(1, DockSlotBus.list().size());
+        assertEquals("新世代", DockSlotBus.list().get(0).title);
+        assertEquals(1L, DockSlotBus.list().get(0).rev);
+    }
+
+    @Test
+    public void batchApplySkipsInvalidFrames() throws Exception {
+        JSONArray batch = new JSONArray();
+        batch.put(frame("dock-ok", "有效", "", 1L, 0L));
+        JSONObject noId = new JSONObject();
+        noId.put("title", "没有 id");
+        batch.put(noId);
+        batch.put(JSONObject.NULL);
+
+        assertEquals("坏帧/无 id 帧跳过", 1, RemoteSlotBridge.applyAll(batch));
+        assertEquals(1, DockSlotBus.list().size());
+        assertEquals(0, RemoteSlotBridge.applyAll(null));
+    }
+
+    @Test
+    public void batchTtlIsRelativeToArrival() throws Exception {
+        JSONArray batch = new JSONArray();
+        batch.put(frame("dock-ttl-batch", "快照来的", "", 1L, 4000L));
+        long before = System.currentTimeMillis();
+        assertEquals(1, RemoteSlotBridge.applyAll(batch));
+
+        DockSlotBus.Slot slot = DockSlotBus.list().get(0);
+        assertTrue("ttl_ms 仍按到达时刻换算 expireAt", slot.expireAt >= before + 3000L);
     }
 }

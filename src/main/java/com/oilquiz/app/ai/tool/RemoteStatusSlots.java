@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.tool;
 import android.content.Context;
 
 import com.oilquiz.app.ai.chat.status.DockSlotBus;
+import com.oilquiz.app.ai.chat.status.SlotPriorities;
 
 /**
  * 远程连接的**唯一插槽**（2026-11-14 第三版）。
@@ -49,11 +50,15 @@ public final class RemoteStatusSlots {
         // 待审批/待回答是**原地处理**（弹出那条审/问），不是跳远程连接页；
         // 只有断线那条才该走 connect。
         String action = "attention";
+        // §22（2026-11-15）：优先级统一走命名档位，不再写字面量 6：
+        // 待审批/待处理 = p0（打断式）、断线 = p1（失败/重试）、通道落后 = p3（过程态）。
+        int priority = SlotPriorities.P0;
 
         if (!connected || !conn.isOnline()) {
             title = "电脑断线";
             detail = "点这里重连";
             action = "connect";
+            priority = SlotPriorities.P1;
         } else if (live.phase == RemoteLiveStatus.Phase.WAITING_APPROVAL) {
             title = "电脑待审批";
             detail = "点这里处理";
@@ -65,6 +70,7 @@ public final class RemoteStatusSlots {
             detail = "正在补";
             warn = false;
             action = "connect";
+            priority = SlotPriorities.P3;
         }
 
         String sig = title + '|' + detail + '|' + action;
@@ -81,7 +87,7 @@ public final class RemoteStatusSlots {
         String kind = warn ? "action" : "display";
         String board = warn ? "alert" : "state";
         boolean pinned = !warn;
-        DockSlotBus.updateLocal(new DockSlotBus.Slot(ID, 6, title, detail, action, warn,
+        DockSlotBus.updateLocal(new DockSlotBus.Slot(ID, priority, title, detail, action, warn,
                 kind, board, pinned, 0));
     }
 

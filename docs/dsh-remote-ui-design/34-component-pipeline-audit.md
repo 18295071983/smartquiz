@@ -1174,7 +1174,7 @@ App 侧 `DockSlotBus.Slot` 新增只读字段 `rev` / `expireAt` / `source`（`p
 |---|---|---|
 | `rev > 0` | `rev < 已存最大 rev` | 丢弃（迟到帧；`[dock] 丢弃 回退 rev ...`） |
 | `rev > 0` | `rev == 已存最大 rev` 且槽位仍在 | 丢弃（重复帧；`[dock] 丢弃 重复 rev ...`） |
-| `rev > 0` | `rev == 已存最大 rev` 但槽位已被移除 | 接受（断连后按原 rev 补发要能恢复） |
+| `rev > 0` | `rev == 已存最大 rev` 但槽位已被移除 | ~~接受（断连后按原 rev 补发要能恢复）~~ → **§22.3 起改为丢弃**：`clear()` 已清空水位，"按原 rev 补发恢复"只走 `prev==null`；剩下的只有显式移除与容量淘汰，同 rev 复活会让淘汰与补发互相打架 |
 | `rev == 0` | 旧插件/本地写入 | 按旧"同 id 覆盖"语义接受，不建立水位 |
 | 移除帧 | `rev <` 水位 | 丢弃（乱序移除不生效）；水位跨移除保留，旧帧不能复活槽位 |
 
@@ -1378,3 +1378,148 @@ App 侧 `DockSlotBus.Slot` 新增只读字段 `rev` / `expireAt` / `source`（`p
 - 嵌套卡片不吃节点级 `style` 的容器覆盖：`buildNode` 已把节点 `style` 展开成顶层属性，
   而 `ComponentRegistry` 只认 `props.style`，所以嵌套卡片的 padding/圆角/底色由卡片自身决定；
 - 卡片节点上的 `children` 不做渲染（卡片类型没有子节点语义），只有 `items` 等数据字段进 props。
+
+## 22. 插槽甲板：档位表 / 上限 / 快照拉取（2026-11-15，§22 DECK-POLISH）
+
+### 22.1 病历：数字散落、条数不封顶、重连要等生产者
+
+| 现象 | 机制 |
+|---|---|
+| 排序靠"谁记得那串数字" | priority 字面量散落在插件 10 处 + App 5 处（6/10/15/35/40/50/55/60/70…），改一处要在两边各读一遍代码；`p0=0` 这种 0 值还会被 `Number(priority) \|\| 50` 吞成 50，把"打断式"排到最后 |
+| 甲板/全屏列表可能无界增长 | `DockSlotBus` 没有容量上限：插件状态越多、补发/快照越多，列表越长（`list()` 还要反复全量排序） |
+| 断线重连后甲板空着 | `ui/slot` 只有推帧语义，连上后没有"当前状态"拉取口；生产者不推，甲板就一直没有内容 |
+
+本轮只做这三件：**不动**事件分流（`EventBatchQueue`/`EventFlowPolicy`）、投影
+（`SegmentProjectionCache`/`SegmentSealPolicy`）与卡片渲染。
+
+### 22.2 档位表（Java 与插件同名同值）
+
+| 档位 | 数值 | 语义 |
+|---|---|---|
+| `p0` | 0 | 打断式：审批 / 等待用户 |
+| `p1` | 5 | 失败 / 重试 / 断线 |
+| `p2` | 10 | 权限 / 沙箱 |
+| `p3` | 20 | 插话队列 / 上下文压缩 |
+| `p4` | 30 | 目标 / 计划（**默认档**） |
+| `p5` | 50 | 后台任务 / 子代理 / 统计 |
+
+- **App**：`status/SlotPriorities.java`（`P0..P5`、`DEFAULT=P4`、`of(level)` / `isKnown` /
+  `levelOf`）。`Slot.priority` 仍是 `int`（构造签名不变），档位只是"取值的唯一来源"。
+- **插件**：`index.js` 顶层 `SLOT_PRIORITY = {p0:0,p1:5,p2:10,p3:20,p4:30,p5:50}`；
+  `broadcastSlot` 统一归一化 —— 已知 `level` → 表换算；否则旧 `priority` 数值；都没有 → p4。
+  归一化后帧里**同时**带 `priority`（旧 App 排序）与 `level`（新 App/快照/诊断）。
+- **App 解析**：`RemoteSlotBridge.resolvePriority`：已知 level → 表；未知 level 且有旧
+  `priority` → 用旧数值（向后兼容）；都没有 → p4（与插件默认一致）。
+- `phone_ui` 新增 `level` 参数（enum p0..p5），`POST /v2/action {action:'ui.slot'}` 也收
+  `body.level`。`pushUiSlot` 的 `Number(priority) || 50` 一并修掉（p0=0 不再被吞）。
+
+旧数值 → 新档位的落点（本轮全部改完，插件里已无裸数字）：
+
+| 槽位 | 旧值 | 新档位 |
+|---|---|---|
+| 等待用户 / 审批（`pushPhoneFailureSlot` 的 ui_component、`remote/attention` 待审批） | 5 / 6 | p0 |
+| `retry`、断线（`remote/attention`） | 15 / 6 | p1 |
+| `permission`、权限沙箱 | 35 | p2 |
+| `compaction`（插件 + App 兜底）、`inbox`、通道落后 | 10 / 20 / 6 | p3 |
+| `goal`、`remote/attention` 之外的稳定目标 | 30 | p4 |
+| `jobs` 40、`subagents` 50、`mcp` 55、`schedule` 60、`remote_cmd` 70 | 40–70 | p5 |
+
+### 22.3 上限与溢出淘汰（粘性）
+
+- `DockSlotBus.MAX_SLOTS = 16`；每次**成功写入**（插件 `update` 与本地兜底 `updateLocal` 都算）
+  后在 `SlotLedger.enforceLimit(16)` 里压回上限。
+- 淘汰规则：候选 = **非 pinned**；先淘汰 `priority` 数值**最大**的；同档淘汰
+  **最旧**（按最后一次写入时间 `updatedAt`，同 id 覆盖会刷新时间 —— 持续更新的槽更该留下）。
+  `pinned` 永远不参与；全是 pinned 且超限时放弃淘汰（宁可多几条，也不挤掉固定状态）。
+- **淘汰是粘性的**（§22 修订）：`lastRev` 保留，同 rev 的补发/快照帧不能再把它塞回来。
+  旧规则"槽位已被移除时接受同 rev 帧"在本轮收紧为 `DUPLICATE_REV` —— `clear()` 已经清空
+  水位，"按原 rev 补发恢复"只走 `prev == null`；剩下的只有显式 remove 与容量淘汰，复活都是错的。
+  真机曾因此空转：快照 18 条 + 补发帧反复重塞，一秒内淘汰日志打 29 行。
+- 诊断：`DockSlotBus.evictedCount()`（自上次 `clear()` 起的累计数）；每条淘汰一行
+  `[dock] 上限 16，淘汰 id=…（规则：priority 最大、同档最旧；累计淘汰 N 条）`。
+
+### 22.4 「还有 N 条」行
+
+甲板仍最多渲染 **3 条**（`AIChatActivity.DECK_MAX_SLOTS`；不再复用配置表安全阀
+`DshUiCatalogLoader.HARD_MAX=6`，避免配置把甲板撑高）。第 4 行是**可点的溢出入口**：
+
+- 文案：`还有 N 条 · 点开看全部`（N = 总线总数 − 实际渲染行数，所以它是"隐藏条数"而不是总数）；
+- 样式比插槽行弱（无状态点、12sp、灰色、右侧 `›`），一眼区分"状态"与"列表入口"；
+- 点击进 `RemoteDeckListActivity`（全屏列表，按 priority 升序，标题栏显示总条数）。
+
+### 22.5 快照拉取：`GET /v2/slots`
+
+插件新增（`AIChatActivity`/`RemoteSlotBridge` 只调一次）：
+
+```json
+{ "ok": true, "v": 2, "session_id": "…", "count": 3, "total": 18, "truncated": true,
+  "slot_epoch": 1794686153763,
+  "slots": [ { "id": "tier-p0", "rev": 1, "epoch": 1794686153763, "ttl_ms": 0,
+               "priority": 0, "level": "p0", "title": "审批等待", "detail": "p0 · 审批等待",
+               "action": "", "warn": false, "kind": "display", "board": "state",
+               "pinned": false, "count": 0, "session_id": "" } ] }
+```
+
+重建口径（从插件内存 `SLOT_LAST`，与推帧**同一份事实**）：
+
+| 规则 | 说明 |
+|---|---|
+| 会话隔离 | `rec.sid` 非空且 ≠ `session_id` → 跳过（B18）；全局槽（`sid=''`）任何会话都给 |
+| 移除帧 | 不进快照（`SLOT_LAST` 里的 `remove:true` 只是"删过"的记忆） |
+| TTL | 已过期（`age > ttl`）跳过；返回 `ttl_ms` 是**剩余**存活时间，App 收到后照常换算 `expireAt` |
+| 排序/上限 | `priority` 升序（同档按 id），最多 **32** 条；`total`/`truncated` 说明被截断 |
+| 权威字段 | `id/rev/epoch/priority/level/title/detail/kind/count` 全部带上，App 逐条走同一条 `apply()` |
+
+App 侧：
+
+- 触发：`RemoteConnection` 的通道 `onConnection(true)`（WS hello / SSE ready 之后）→
+  `RemoteSlotBridge.pullSnapshotAsync`，**一次连接只拉一次**，断连复位；后台线程，失败静默重试一次。
+- 落点：`pullSnapshotOnce` → `RemoteSlotBridge.apply`（与推帧同路径，rev/epoch/TTL/空帧语义一致），
+  另提供 `applyAll(JSONArray)` 批量入口供单测与未来复用。
+- 前提：`DockSlotBus.clear()` 现在连**插件世代水位**一起重置。否则重连后快照第一帧会因
+  "epoch 比记录的旧"被整帧丢弃 —— 快照就白拉了（这也是本轮顺手补的一条）。
+
+### 22.6 测试与验证
+
+| 项 | 结果 |
+|---|---|
+| `SlotPrioritiesTest`（新增，纯 JVM） | 7/7：档位数值 0/5/10/20/30/50、表恰好 6 档、大小写/空白不敏感、未知 level → p4、`levelOf` 不硬凑历史中间值（6/15/35/60 → 空）、`Slot.priority` 仍是 int 且排序向后兼容 |
+| `DockSlotBusTest` | 16/16（原 11 + §22 新增 5：上限 16、priority 最大先淘汰、同档最旧、pinned 永不淘汰、全 pinned 超限放过、淘汰粘性） |
+| `SlotLedgerTest` | 18/18（断言未改；`clear()` 归零世代水位后仍全绿） |
+| `RemoteSlotBridgeTest` | 19/19（原 9 + 新增 10：只给 level、level 优先于 priority、未知 level → p4 / 保留旧 priority、两者都无 → p4、批量 3 帧按序、批量乱序 rev + remove、批内换世代清旧槽、坏帧/无 id 跳过、批量 TTL 换算） |
+| 插件 `slot.test.mjs`（真 WS + 真 HTTP） | 15/15（原 9 + 新增 6：level 补同名 priority、`phone_ui` 支持 level、`/v2/slots` 结构与 priority 升序、会话隔离、移除/过期不复活、最多 32 条） |
+| 插件既有自测 | `ws_frames.test.mjs` 10/10、`caps.test.mjs` 11/11、`cardcheck.test.mjs` 23/23；`node --check index.js` OK |
+| assets 同步 | `tools/dsh-plugin-smartquiz-remote/index.js` 与 `src/main/assets/remote_dsh/plugin/index.js` 字节一致，SHA256 `B7F5BE5B65CBF08137B7BCC798C4487F5A2AE107ABC0A9A58D96A8E8A1360751` |
+| 编译 | `.\gradlew.bat --offline assembleDebug --console=plain` BUILD SUCCESSFUL（先删了 stale 的 `build/intermediates/{classes,javac}/debugUnitTest`） |
+| 装机 | `答题宝-debug-2.2.apk` SHA256 `1ADB7955EB2E861AF8B14D1C0E1E3AA9A0AD894C5584D754CAFB382E673D8DD5`，`adb -s 192.168.1.10:41193 install -r` Success（装机后 `am force-stop` + `monkey` 冷启验证） |
+| 真机 · 档位顺序 | `phone_ui` 用 `level` 逆序推 p5→p4→p2→p1→p0 五条，甲板/全屏列表按 **p0 → p1 → p2 → p4 → p5** 排列（截图 `build/deck-polish-list.png`，列表里 p2/p4/p5 的并列项按 id 稳定排序） |
+| 真机 · 上限 + 溢出聚合 | 总线里共 20 条（5 个档位槽 + 12 个 p5 + 插件自带 jobs/goal/permission）：甲板显示 3 条 + **「还有 13 条 · 点开看全部」**（截图 `build/deck-polish.png`）；点该行进入 `RemoteDeckListActivity`，标题「16 项」（截图 `build/deck-polish-list.png`）；logcat `[dock] 上限 16，淘汰 id=cap-01…cap-04（累计淘汰 1…4 条）`，修复粘性淘汰后**不再空转** |
+| 真机 · 快照恢复 | `adb shell am force-stop` + `monkey` 重开（全程没有再推帧）：logcat `[dock] 快照拉取完成 session=session-cb82ea23… 条数=20`，甲板直接恢复成同样的 3 条 + 还有 13 条（截图 `build/deck-polish.png`，最终 APK 上 04:07 拍摄） |
+
+**真机为什么能验到快照**：`force-stop` 后插件内存里仍有 20 条槽（tier-*/cap-*/jobs/goal/permission），
+新进程连接建立时 `RemoteConnection.onConnection(true)` → `GET /v2/slots` 拿到 20 条并逐条
+`RemoteSlotBridge.apply`（日志里的「条数=20」），再被总线按 16 条上限淘汰 4 条 p5 ——
+与推帧同一条路径、同一套 rev/epoch/TTL 规则。
+
+### 22.7 改动文件
+
+- App：`status/SlotPriorities.java`（新）、`status/SlotLedger.java`、`status/DockSlotBus.java`、
+  `tool/RemoteSlotBridge.java`、`tool/RemoteConnection.java`、`tool/RemoteStatusSlots.java`、
+  `tool/RemoteCommandExecutor.java`、`ui/activity/AIChatActivity.java`
+- 测试：`SlotPrioritiesTest.java`（新）、`DockSlotBusTest.java`、`RemoteSlotBridgeTest.java`
+- 插件：`tools/dsh-plugin-smartquiz-remote/index.js`、`slot.test.mjs`、
+  `src/main/assets/remote_dsh/plugin/index.js`（同步）
+
+### 22.8 边界 / 没做到
+
+- **溢出聚合只做了"可点的一行"**：没有做按 `board`/`kind` 归组或"前 3 条 + 分组计数"的形态；
+  全屏列表仍是平铺（按 priority 排序），未做分组标题。
+- **上限是总线级、非会话级**：16 条是全局容量，多个会话的槽位共用；pinned 超限时允许超过 16。
+- **快照只覆盖"插件内存里还在的槽"**：插件重启后 `SLOT_LAST` 为空（job/goal 等另有落盘，
+  但通用 `phone_ui` 槽不落盘），此时 `/v2/slots` 只能返回空数组 —— 这是"内存状态"的边界，
+  不是漏拉。
+- **拉取只在连接建立时**：没有做"App 从后台回前台再拉一次"（回前台走的是事件补拉 + 推帧）；
+  也没有做客户端定时对账（避免和推帧打架）。
+- **level 未参与排序权重之外的任何逻辑**（例如没有按档位做颜色/分组）。
+- 未改：事件分流、投影、卡片渲染；`phone_ui` 的历史 `priority` 参数仍保留（数值语义不变）。
+

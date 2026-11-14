@@ -11,6 +11,11 @@
 //     4) 空帧/remove:true 下发的移除帧 rev 比上一条大，且标记 remove；
 //     5) 新订阅（新连一条 /ws/ui）能收到最近一帧，rev 沿用不回退；
 //     6) 已过期（ttl 到点）的瞬时帧不再补发，避免生产者失联后复活残留。
+//   2026-11-15（§22 DECK-POLISH）追加：
+//     7) 命名档位：只给 level（p0..p5）也补出同名数值 priority，p0=0 不被默认值吞掉，
+//        两者都没给 → p4(30)，旧 priority 数值原样保留；
+//     8) `GET /v2/slots`：快照结构（id/rev/ttl 剩余/priority/level/title/detail/kind/count）、
+//        按 priority 升序、按会话隔离、移除帧与过期帧不复活、最多 32 条。
 //
 // 【边界】
 //   - DSH 宿主没跑：pushUiSlot 是**直接调用插件生产函数**，帧格式真实；App 侧 reb 丢弃/
@@ -269,6 +274,113 @@ await test('phone_ui 工具：空 title/detail = 移除（rev 继续递增）', 
 await test('phone_ui 工具：空帧不给 id 直接拒绝，避免误清默认槽', async () => {
   const text = await phoneUiDef.execute({ kind: 'slot' });
   assert.match(text, /移除插槽需要 id/);
+});
+
+// ===== §22（2026-11-15）：命名优先级档位 + /v2/slots 快照 =====
+
+/** GET /v2/slots（快照路由） */
+async function getSlots(sid) {
+  const res = await fetch(
+    `http://127.0.0.1:${PORT}/v2/slots?session_id=${encodeURIComponent(sid)}`,
+    { headers: { authorization: 'Bearer ' + TOKEN } },
+  );
+  let json = null;
+  try { json = await res.json(); } catch { /* 非 JSON */ }
+  return { status: res.status, json };
+}
+
+await test('档位表：只给 level 也补出同名数值 priority', async () => {
+  const p2 = await pushSlot('tier-p2', '权限档', { level: 'p2' });
+  assert.equal(p2.priority, 10, 'level=p2 应换算成 priority=10');
+  assert.equal(p2.level, 'p2');
+
+  const p0 = await pushSlot('tier-p0', '打断式', { level: 'p0' });
+  assert.equal(p0.priority, 0, 'p0=0 不能被默认值吞成 50');
+
+  const dflt = await pushSlot('tier-default', '默认档');
+  assert.equal(dflt.priority, 30, '两者都没给 → p4(30)');
+  assert.equal(dflt.level, 'p4', '归一化后帧里带 level');
+
+  const legacy = await pushSlot('tier-legacy', '旧数值', { priority: 55 });
+  assert.equal(legacy.priority, 55, '旧帧的 priority 数值原样保留');
+  assert.equal(legacy.level, undefined, '非档位数值不硬凑 level');
+
+  const unknown = await pushSlot('tier-unknown', '写错档位', { level: 'p9' });
+  assert.equal(unknown.priority, 30, '未知 level 回退 p4');
+});
+
+await test('phone_ui 工具支持 level（p0..p5）', async () => {
+  const text = await phoneUiDef.execute({ kind: 'slot', id: 'tier-tool', title: '工具推档位', level: 'p1' });
+  assert.match(text, /已推送到手机插槽 tier-tool/);
+  const frame = await waitFor(() => slotFrames(ui, 'tier-tool').at(-1), 'tier-tool 帧');
+  assert.equal(frame.data.priority, 5, 'p1 = 5');
+  assert.equal(frame.data.level, 'p1');
+});
+
+await test('/v2/slots 快照：结构 / 排序 / ttl 剩余', async () => {
+  const pushed = await pushSlot('snap-a', '快照这条', { level: 'p3', ttl_ms: 8000 });
+  const { status, json } = await getSlots(SID);
+  assert.equal(status, 200);
+  assert.equal(json.ok, true);
+  assert.equal(json.session_id, SID);
+  assert.ok(Array.isArray(json.slots), 'slots 必须是数组');
+  assert.ok(Number(json.slot_epoch) > 0, '快照带插件世代');
+
+  const got = json.slots.find((s) => s.id === 'snap-a');
+  assert.ok(got, '快照里应有刚推的槽');
+  for (const k of ['id', 'rev', 'ttl_ms', 'priority', 'level', 'title', 'detail', 'kind', 'count']) {
+    assert.ok(Object.prototype.hasOwnProperty.call(got, k), '快照槽必须含 ' + k);
+  }
+  assert.equal(got.rev, pushed.rev, '快照沿用最近 rev');
+  assert.equal(got.priority, 20);
+  assert.equal(got.level, 'p3');
+  assert.equal(got.title, '快照这条');
+  assert.equal(got.kind, 'display');
+  assert.equal(got.count, 0);
+  assert.ok(got.ttl_ms > 0 && got.ttl_ms <= 8000, 'ttl_ms 应是剩余存活时间：' + got.ttl_ms);
+  assert.equal(got.epoch, pushed.epoch);
+
+  for (let i = 1; i < json.slots.length; i += 1) {
+    assert.ok(
+      json.slots[i - 1].priority <= json.slots[i].priority,
+      '快照必须按 priority 升序',
+    );
+  }
+});
+
+await test('/v2/slots 快照：按会话隔离（B18）', async () => {
+  await pushSlot('snap-scoped', 'root 专用', { session_id: SID });
+  await pushSlot('snap-other', '别的会话', { session_id: 'other-session' });
+
+  const mine = await getSlots(SID);
+  assert.equal(mine.json.slots.some((s) => s.id === 'snap-scoped'), true);
+  assert.equal(mine.json.slots.some((s) => s.id === 'snap-other'), false);
+
+  const other = await getSlots('other-session');
+  assert.equal(other.json.slots.some((s) => s.id === 'snap-other'), true);
+  assert.equal(other.json.slots.some((s) => s.id === 'snap-scoped'), false, '别的会话的槽不能串过来');
+});
+
+await test('/v2/slots 快照：移除帧与过期帧不复活', async () => {
+  await pushSlot('snap-gone', '待移除');
+  await pushSlot('snap-gone', '', { detail: '' });      // 空帧 = 移除
+  await pushSlot('snap-short', '只活 60ms', { ttl_ms: 60 });
+  await sleep(150);
+
+  const { json } = await getSlots(SID);
+  assert.equal(json.slots.some((s) => s.id === 'snap-gone'), false, '移除帧不该进快照');
+  assert.equal(json.slots.some((s) => s.id === 'snap-short'), false, '过期瞬时帧不该进快照');
+});
+
+await test('/v2/slots 快照：最多 32 条', async () => {
+  for (let i = 0; i < 40; i += 1) {
+    await pushSlot('snap-many-' + i, '第 ' + i + ' 条');
+  }
+  const { json } = await getSlots(SID);
+  assert.equal(json.slots.length, 32, '快照最多 32 条');
+  assert.equal(json.count, 32);
+  assert.ok(json.total >= 40, 'total 应报真实条数：' + json.total);
+  assert.equal(json.truncated, true);
 });
 
 // 收尾：关 socket，按结果退出（插件定时器不能让 node 挂着）
