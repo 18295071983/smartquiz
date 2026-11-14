@@ -340,6 +340,7 @@ public class AssistantTurn {
         expandInline(base, dark);
         attachOwnedProducts(base);
         groupTools(base);
+        appendFailureErrorPart(base);
         return base;
     }
 
@@ -631,6 +632,44 @@ public class AssistantTurn {
      *    阈值取 1 是为了对齐 legacy：每个工具轮都走活动卡，单工具也显示"已运行 1 个工具"。
      * 只作用于传入的可安全修改 turn（fromMessageForParts 新建的），勿传 live turn。
      */
+    /**
+     * 失败工具 → 一条 {@code error} part（2026-11-15，用户要求"生产者加上"）。
+     *
+     * <p>以前没人生产 error part：本地引擎把失败塞进 tool_call 的 status，DSH 把失败画成
+     * {@code alert_card}（data part），于是 {@code ErrorPartRenderer} 一直是死代码。
+     * 这里在 parts 定稿后补一条错误块：取第一个失败的工具体，文字是"工具名 + 失败输出摘要"，
+     * 已有 error part 就不重复加（幂等）。</p>
+     */
+    public static void appendFailureErrorPart(AssistantTurn base) {
+        if (base == null || base.parts == null || base.parts.isEmpty()) return;
+        for (Part p : base.parts) {
+            if (p != null && Part.TYPE_ERROR.equals(p.type)) return;   // 已有错误块
+        }
+        Part failed = null;
+        for (Part p : base.parts) {
+            if (p == null) continue;
+            boolean bad = "failed".equals(p.status) || "error".equals(p.status);
+            if (!bad) continue;
+            boolean hasBody = (p.result != null && !p.result.isEmpty())
+                    || (p.text != null && !p.text.isEmpty());
+            if (!hasBody) continue;
+            failed = p;
+            break;
+        }
+        if (failed == null) return;
+        String body = failed.result != null && !failed.result.isEmpty() ? failed.result : failed.text;
+        if (body != null && body.length() > 400) body = body.substring(0, 400) + "…";
+        Part err = new Part();
+        err.id = (base.turnId != null && !base.turnId.isEmpty() ? base.turnId : "turn") + "-ERR";
+        err.type = Part.TYPE_ERROR;
+        err.toolCallId = failed.toolCallId;
+        err.toolName = failed.toolName;
+        err.status = "failed";
+        err.text = (failed.toolName != null && !failed.toolName.isEmpty()
+                ? failed.toolName + " 执行失败：" : "执行失败：") + (body == null ? "" : body);
+        err.timestamp = failed.timestamp;
+        base.parts.add(err);
+    }
     public static void groupTools(AssistantTurn base) {
         if (base == null || base.parts == null) {
             return;
