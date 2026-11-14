@@ -2,6 +2,9 @@
 .jobs.json
 .goals.json
 
+# 机器相关的部署地址（隧道域名 / Tailscale IP），每台电脑不同，别进仓库
+.public-url
+
 # 依赖（ws 只有插件侧用；仓库里只提交 package.json 的声明，
 # 装包由 npm install 完成，别把 150KB 的 node_modules 灌进 git）
 node_modules/
