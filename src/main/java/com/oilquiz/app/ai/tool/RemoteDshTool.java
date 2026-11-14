@@ -413,7 +413,36 @@ public class RemoteDshTool implements AITool {
      *
      * @return 对齐后的跟随会话 id（空 = 还没有）
      */
+    /**
+     * 清掉同步游标（2026-11-14）。
+     *
+     * <p>用户在手机上"清除历史"后，消息没了但 {@code transport_seq_*} / {@code attached_session}
+     * 还留在配置里，于是电脑端说"我到 9774 了"、本地一条都没有 → 对账判 diverged → 永远连不上。
+     * 这里把游标和锚点一并清掉，下次按"从现在开始"重新挂。</p>
+     */
+    public static void resetSyncState(Context c) {
+        try {
+            SharedPreferences p = prefsOf(c);
+            SharedPreferences.Editor e = p.edit();
+            for (String k : p.getAll().keySet()) {
+                if (k != null && k.startsWith("transport_seq_")) e.remove(k);
+            }
+            e.remove("attached_session").remove("sync_target").apply();
+        } catch (Throwable ignored) { /* 清不掉也不该挡住连接 */ }
+    }
+
     public static String syncSessionIdentity(Context c) throws Exception {
+        try {
+            return syncSessionIdentityOnce(c);
+        } catch (Exception e) {
+            // 本地历史被清空 / 换了设备：旧游标或旧锚点会让对账失败。
+            // 清一次游标再来一遍，避免"清了历史就永远连不上"。
+            resetSyncState(c);
+            return syncSessionIdentityOnce(c);
+        }
+    }
+
+    static String syncSessionIdentityOnce(Context c) throws Exception {
         RemoteSdk sdk = new RemoteSdk(c);
         String local = canonicalSessionId(c);
         Map<String, Object> resp = sdk.sessionState("follow");
