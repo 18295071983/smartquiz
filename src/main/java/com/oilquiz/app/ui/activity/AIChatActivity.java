@@ -8866,6 +8866,41 @@ public class AIChatActivity extends BaseActivity {
                 + "，滚动顶部可加载更早");
     }
 
+    /**
+     * 把"一个 turn 一条气泡"的实时镜像拆成多条小消息（2026-11-14，派发器改密）。
+     *
+     * <p>流式期间仍用单条气泡（增量更新最省事），一轮结束再拆：每 6 步一条，
+     * id = 原 id + "-s{段号}"，turnId 不变。拆不开（步数少/索引丢了）就保持原样。</p>
+     */
+    private void splitLiveIntoSegments(ChatMessage live) {
+        if (live == null || dshTimeline == null || chatHistory == null) return;
+        int total = com.oilquiz.app.ai.remote.DshProjection.stepCount(dshTimeline);
+        if (total <= 6) return;
+        int idx = chatHistory.indexOf(live);
+        if (idx < 0) return;
+        java.util.List<ChatMessage> segs = new java.util.ArrayList<>();
+        int seg = 0;
+        for (int from = 0; from < total; from += 6, seg += 1) {
+            ChatMessage m = seg == 0 ? live : ChatMessage.createAIMessage(
+                    live.id + "-s" + seg, "", live.timestamp + seg, null, 0, 0);
+            m.turnId = live.turnId;
+            m.timestamp = live.timestamp + seg;
+            com.oilquiz.app.ai.remote.DshProjection.project(m, dshTimeline,
+                    key -> dshComponentId(key, m.turnId), System.currentTimeMillis(),
+                    from, from + 6);
+            boolean empty = (m.content == null || m.content.isEmpty())
+                    && (m.thinkingContent == null || m.thinkingContent.isEmpty())
+                    && (m.components == null || m.components.isEmpty());
+            if (!empty) segs.add(m);
+        }
+        if (segs.size() <= 1) return;
+        chatHistory.remove(idx);
+        chatHistory.addAll(Math.min(idx, chatHistory.size()), segs);
+        if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
+        AppLogger.ai(TAG, "[dsh] 一轮拆成 " + segs.size() + " 条消息（原 " + total + " 步）");
+        dshLiveMessage = null;
+        dshMirrorMessage = null;
+    }
     private void saveHistoryAsync() {
         if (chatHistoryManager != null && chatHistory != null) {
             final List<ChatMessage> copy = new ArrayList<>(chatHistory);
@@ -15181,6 +15216,8 @@ public class AIChatActivity extends BaseActivity {
             }
         }
         if (up.ended) {
+            // 派发器改密（2026-11-14）：一轮结束把单条 mirror 气泡按步拆成多条小消息（与历史导入同粒度）
+            splitLiveIntoSegments(live);
             com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncReply(AIChatActivity.this,
                     dshTimeline.answer());
             com.oilquiz.app.ai.tool.RemoteDshTool.setLastSyncThinking(AIChatActivity.this,
