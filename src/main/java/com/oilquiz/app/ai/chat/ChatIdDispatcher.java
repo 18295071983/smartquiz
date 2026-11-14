@@ -72,7 +72,24 @@ public class ChatIdDispatcher {
         DSH_ATTACHMENT("H"), // 附件 / 文件产物
         DSH_DIFF("I"),       // 代码差异卡
         DSH_SEARCH("W"),     // 搜索 / 检索结果
-        DSH_TERMINAL("N");   // 终端输出
+        DSH_TERMINAL("N"),   // 终端输出
+
+        // ---- 希腊字母预留（2026-11-14）----
+        // 为什么可以用：adoptId() 解析 Tn-<code><n> 时按"取 1 个字符当类型码"处理，
+        // 希腊小写字母在 UTF-16 里正好是一个 char，所以编号、认领、补发都不用改。
+        // 必须仍然是**单字符**编码（多字符会让 Tn-G10 之类解析歧义）。
+        DSH_MODEL("α"),      // 模型选择 / 模型信息
+        DSH_CONTEXT("β"),    // 上下文窗口 / 压缩详情
+        DSH_MEMORY("γ"),     // 记忆 / recall
+        DSH_SKILL("δ"),      // 技能
+        DSH_PLUGIN("ε"),     // 插件 / 市场
+        DSH_VOICE("ζ"),      // 语音输入 / TTS
+        DSH_IMAGE("η"),      // 图片 / 看图
+        DSH_VIDEO("θ"),      // 视频 / 播放
+        DSH_KNOWLEDGE("ι"),  // 知识库 / 检索
+        DSH_SCHEDULE("κ"),   // 日程 / 计划
+        DSH_NOTIFY("λ"),     // 通知 / 提醒
+        DSH_STATS("μ");      // 统计 / 用量
 
         public final String code;
 

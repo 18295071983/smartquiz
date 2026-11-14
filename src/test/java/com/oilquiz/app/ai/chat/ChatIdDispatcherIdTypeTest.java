@@ -29,6 +29,25 @@ public class ChatIdDispatcherIdTypeTest {
     }
 
     @Test
+    public void greekCodesAreSingleCharAndWorkWithAdoptId() {
+        java.util.List<ChatIdDispatcher.IdType> greek = new java.util.ArrayList<>();
+        for (ChatIdDispatcher.IdType t : ChatIdDispatcher.IdType.values()) {
+            if (t.code != null && t.code.length() == 1 && t.code.charAt(0) >= 0x03B1
+                    && t.code.charAt(0) <= 0x03C9) {
+                greek.add(t);
+            }
+        }
+        assertTrue("应该有一批希腊字母预留类型", greek.size() >= 10);
+        ChatIdDispatcher d = ChatIdDispatcher.getInstance();
+        String turn = "T" + System.nanoTime();
+        for (ChatIdDispatcher.IdType t : greek) {
+            String id = d.applySubId(t, turn);
+            assertTrue("希腊码 id 形态: " + id, id.startsWith(turn + "-" + t.code));
+            assertTrue("adoptId 要能认领希腊码 id: " + id, d.adoptId(id));
+        }
+    }
+
+    @Test
     public void dshBucketsDoNotCollideWithLocalOnes() {
         Set<String> local = new HashSet<>();
         local.add(ChatIdDispatcher.IdType.USER.code);
