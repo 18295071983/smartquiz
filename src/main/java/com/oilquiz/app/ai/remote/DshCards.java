@@ -83,7 +83,6 @@ public final class DshCards {
                 || "team/message/delivered".equals(type)
                 // 2026-11-14：按 DSH known-event-types 补齐的 7 类
                 || "agent/inbox/spliced".equals(type)
-                || "subagent/catalog".equals(type)
                 || "tool/ptc-dispatch".equals(type)
                 || "tool/ptc-dispatch-start".equals(type)
                 || "hook/invoked".equals(type)
@@ -397,21 +396,6 @@ public final class DshCards {
                 put(props, "jump", "last");
                 String key = "inbox-" + data.optString("messageId", String.valueOf(turn));
                 return new Card(key, "dsh_notice", props);
-            }
-            case "subagent/catalog": {
-                // 子代理创建目录：以前只在本类注释里提过，实际没人渲染（真机上新开子代理没提示）
-                String label = data.optString("label", "子代理");
-                String mode = data.optString("mode", "");
-                String childId = data.optString("childId", "");
-                JSONObject props = obj("title", "子代理 · " + label,
-                        "content", mode.isEmpty() ? "已启动" : ("模式：" + mode),
-                        "level", "info");
-                // 点击滚到该子代理的轨迹卡（subagent_card 的 props.childId 与这里同源）
-                if (!childId.isEmpty()) {
-                    put(props, "jump", "subagent");
-                    put(props, "childId", childId);
-                }
-                return new Card("subagent-cat-" + (childId.isEmpty() ? label : childId), "dsh_notice", props);
             }
             case "tool/ptc-dispatch":
             case "tool/ptc-dispatch-start": {

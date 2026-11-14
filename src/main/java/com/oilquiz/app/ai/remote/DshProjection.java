@@ -175,6 +175,10 @@ public final class DshProjection {
         JSONObject props = DshCards.obj(
                 "childId", sa.childId,
                 "label", sa.label == null || sa.label.isEmpty() ? "子代理" : sa.label);
+        // 2026-11-14：刚创建、还没跑工具时也有内容可显示（"已启动 · 模式：…"）
+        if (sa.mode != null && !sa.mode.isEmpty()) {
+            DshCards.put(props, "mode", sa.mode);
+        }
         if (sa.lastText != null && !sa.lastText.isEmpty()) {
             DshCards.put(props, "lastText", sa.lastText);
         }

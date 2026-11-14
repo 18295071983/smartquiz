@@ -1839,6 +1839,11 @@ public class AIChatActivity extends BaseActivity {
         }
         if (btnStopGeneration != null) btnStopGeneration.setOnClickListener(v -> stopGeneration());
         if (btnSend != null) btnSend.setOnClickListener(v -> sendMessage());
+        // 2026-11-14 对齐 dsh-Go：长按发送键 = 选"发送方式"（插话 / 中断并发送 / 排队）
+        if (btnSend != null) btnSend.setOnLongClickListener(v -> {
+            showSendModeDialog();
+            return true;
+        });
         if (btnAttach != null) {
             btnAttach.setOnClickListener(v -> showAttachmentOptionsDialog());
         }
@@ -4009,9 +4014,18 @@ public class AIChatActivity extends BaseActivity {
      * 保证所有聊天都落在同一条电脑对话里，历史不分散。</p>
      */
     private void sendToComputer(final String text) {
+        sendToComputer(text, "auto");
+    }
+
+    /**
+     * 按指定发送方式发给电脑（2026-11-14，对齐 dsh-Go 三档）。
+     *
+     * @param mode auto=忙就插话；steer=插话（next-step）；queue=排队（next-turn）
+     */
+    private void sendToComputer(final String text, final String mode) {
         final String localTarget = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
         if (!localTarget.isEmpty()) {
-            sendToFollowSession(text, localTarget);
+            sendToFollowSession(text, localTarget, mode);
             return;
         }
         // 本地没记住跟随会话：先向电脑对齐一次（重装/清配置后靠它接回 @code:follow）
@@ -4028,7 +4042,7 @@ public class AIChatActivity extends BaseActivity {
                 });
                 return;
             }
-            sendToFollowSession(text, target);
+            sendToFollowSession(text, target, mode);
         }, "remote-dsh-align").start();
     }
 
@@ -4040,6 +4054,11 @@ public class AIChatActivity extends BaseActivity {
      * 两边都渲染就会出现「一条同步、一条直连」的重复回复。</p>
      */
     private void sendToFollowSession(final String text, final String target) {
+        sendToFollowSession(text, target, "auto");
+    }
+
+    /** @param mode auto / steer / queue（见 RemoteDshTool.injectDetailed） */
+    private void sendToFollowSession(final String text, final String target, final String mode) {
         runOnUiThread(() -> {
             addUserMessage(text);
             inputMessage.setText("");
@@ -4060,7 +4079,7 @@ public class AIChatActivity extends BaseActivity {
                     // 这条会话的插话队列（和 dsh 官方客户端把消息投进 Inbox 是同一个语义）。
                     // 返回 queued=true 就把气泡改成"排队中（第 N 位）"，等跑完自动送达。
                     java.util.Map<String, Object> r =
-                            com.oilquiz.app.ai.tool.RemoteDshTool.injectDetailed(AIChatActivity.this, target, text);
+                            com.oilquiz.app.ai.tool.RemoteDshTool.injectDetailed(AIChatActivity.this, target, text, mode);
                     Object queued = r == null ? null : r.get("queued");
                     Object respMode = r == null ? null : r.get("mode");
                     if (Boolean.TRUE.equals(queued)) {
@@ -4100,6 +4119,48 @@ public class AIChatActivity extends BaseActivity {
                 }
             }, "remote-dsh-inject").start();
         });
+    }
+
+    /**
+     * 长按发送键 → 选"发送方式"（2026-11-14，对齐 dsh-Go 的三档）。
+     *
+     * <p>dsh-Go 的口径：生成中直接发送 = 插话（不打断，AI 下一步看到）；长按可选
+     * 「插话 / 中断并发送 / 排队」。我们这边三档落到宿主的两条 Inbox 队列：
+     * steer→{@code next-step}、排队→{@code next-turn}、中断并发送=先停再按插话发。</p>
+     *
+     * <p>选择会记进 {@code busy_send_mode}，下次忙时（本地模型）沿用。</p>
+     */
+    private void showSendModeDialog() {
+        final String text = inputMessage != null ? inputMessage.getText().toString().trim() : "";
+        if (text.isEmpty()) {
+            showToast("先在输入框里写内容，再长按发送键选发送方式");
+            return;
+        }
+        final String[] items = {
+                "插话 · 不打断电脑，下一步就看到",
+                "中断并发送 · 先停下电脑当前任务",
+                "排队 · 电脑本轮结束后发送",
+        };
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("发送方式")
+                .setItems(items, (d, which) -> {
+                    final String mode = which == 2 ? "queue" : "steer";
+                    busySendMode = which == 2 ? "queue" : "steer";
+                    getSharedPreferences("ai_prefs", MODE_PRIVATE).edit()
+                            .putString(PREFS_BUSY_MODE, busySendMode).apply();
+                    if (which == 1) {
+                        // 中断并发送：先停（本地/在线生成），再按插话发过去
+                        try {
+                            cancelGeneration();
+                        } catch (Throwable t) {
+                            AppLogger.aiW(TAG, "[sendMode] 中断失败: " + t);
+                        }
+                    }
+                    AppLogger.ai(TAG, "[sendMode] 选择=" + items[which] + " mode=" + mode);
+                    sendToComputer(text, mode);
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private void sendMessage() {

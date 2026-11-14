@@ -555,6 +555,16 @@ final class DshCardViews {
                 sub.setEllipsize(TextUtils.TruncateAt.END);
                 sub.setPadding(dp(context, 15), dp(context, 3), 0, 0);
                 card.addView(sub);
+            } else {
+                // 2026-11-14：刚创建、还没跑工具 —— 也给出"它存在且在跑"的可见信号，
+                // 否则甲板卡槽里会空一块，用户以为子代理没起来
+                TextView idle = new TextView(context);
+                String mode = p.optString("mode", "");
+                idle.setText(mode.isEmpty() ? "已启动，等待第一步…" : ("已启动 · 模式：" + mode));
+                idle.setTextSize(11);
+                idle.setTextColor(ComponentColors.textSecondary(context));
+                idle.setPadding(dp(context, 15), dp(context, 3), 0, 0);
+                card.addView(idle);
             }
             return card;
         }

@@ -168,6 +168,8 @@ public final class DshTimeline {
         public String label = "";
         /** 最近一次输出摘要（可选，卡片里作副标题） */
         public String lastText = "";
+        /** 创建模式（continuable / one-shot …，来自 subagent/catalog；只在"刚启动"时显示） */
+        public String mode = "";
         public final LinkedHashMap<String, SubagentStep> steps = new LinkedHashMap<>();
 
         Subagent(String childId) {
@@ -407,6 +409,29 @@ public final class DshTimeline {
                 planActive = ev.data != null && ev.data.optBoolean("active", false);
                 cards.put("plan", cardMapper.planCard(planActive));
                 cardRounds.put("plan", 0);
+                u.cardsChanged = true;
+                break;
+            }
+            case "subagent/catalog": {
+                /**
+                 * 2026-11-14：子代理**一创建就登记**，别等第一次工具调用。
+                 *
+                 * <p>以前只有 {@code subagent/activity} 会建 {@link Subagent}，于是"子代理刚启动、
+                 * 还没跑工具"这段时间里甲板卡槽是空的，提示卡上的"跳过去看轨迹"也无处可跳。
+                 * 这里在 catalog 事件就建好条目（label/mode），投影立刻能出一张空卡，
+                 * 后续 activity 再往里填步骤。</p>
+                 */
+                if (ev.data == null) break;
+                String childId = ev.data.optString("childId", ev.data.optString("child_id", "")).trim();
+                if (childId.isEmpty()) break;
+                Subagent sa = subagents.get(childId);
+                if (sa == null) {
+                    sa = new Subagent(childId);
+                    subagents.put(childId, sa);
+                }
+                String label = ev.data.optString("label", "").trim();
+                if (!label.isEmpty()) sa.label = label;
+                sa.mode = ev.data.optString("mode", sa.mode == null ? "" : sa.mode);
                 u.cardsChanged = true;
                 break;
             }

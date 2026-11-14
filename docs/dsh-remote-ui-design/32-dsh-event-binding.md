@@ -88,9 +88,48 @@ app.asar/dsh/node_modules/@deepseek-ai/dsh-session/src/known-event-types.ts
 - 卡片通过 `props.jump`（`last` / `subagent`）声明自己的跳转目标，渲染器只认这两个值，
   没有时就退化成"查看全文"。
 
-## 7. 还没做的
+## 7. 子代理：一创建就有卡（2026-11-14）
 
-- `openSubagent` 目前只能滚到**已经存在**的轨迹卡；子代理刚启动、还没有工具调用时没有轨迹卡，
-  会提示"还没有轨迹卡"。要真正展开，需要把 `DshTimeline.subagents()` 的实时步骤也做成一张可展开卡；
-- `scrollToMessage(id)` 已实现但还没有卡片在用（插话卡用的是 `scrollToLast`）——
-  等 DSH 的 `inserted[].id` 能在手机端映射到本地气泡 id 时再接。
+以前只有 `subagent/activity` 会建轨迹条目，于是"子代理刚启动、还没跑工具"这段时间甲板卡槽是空的，
+`subagent/catalog` 的提示卡点了也没地方跳。
+
+- `DshTimeline` 新增 `case "subagent/catalog"`：按 `childId` 立刻登记 `Subagent`（label + mode），
+  后续 `subagent/activity` 往同一个条目里填步骤；
+- `DshProjection` 把 `mode` 也投影进 `subagent_card.props`；没有步骤时卡片显示
+  **「已启动 · 模式：continuable」**（而不是空白）；
+- `subagent/catalog` 不再产出通用 `dsh_notice`（同一件事不出两张卡），
+  `DshCards` 里对应的分支与 `handles()` 条目已删；
+- 测试：`subagentCatalogRegistersTraceCardImmediately` —— 只喂一条 catalog 事件，
+  断言 `subagents()` 有 1 条、投影后有 `subagent_card`（含 childId/mode）、没有 `dsh_notice`。
+
+## 8. 发送方式三档（2026-11-14，对齐 dsh-Go）
+
+**长按发送键** → 「发送方式」对话框：
+
+| 选项 | 落点 | 说明 |
+|---|---|---|
+| 插话 · 不打断电脑，下一步就看到 | `inject mode=steer` → DSH `next-step` | 补充要求、纠偏 |
+| 中断并发送 · 先停下电脑当前任务 | `cancelGeneration()` 后按 `steer` 发 | 方向错了要立刻转向 |
+| 排队 · 电脑本轮结束后发送 | `inject mode=queue` → `next-turn` | 不急，等当前回复说完 |
+
+- 选择会写进 `busy_send_mode`（下次忙时沿用），与 dsh-Go 的"生成中直接发送=插话"一致；
+- `RemoteDshTool.injectDetailed(ctx, target, text, mode)` 新增 mode 参数（默认 `auto`）；
+- `sendToComputer(text)` 保留（=auto），新增 `sendToComputer(text, mode)`。
+
+## 9. dsh-Go 桥接的鉴权（结论）
+
+`dsh-go-bridge` 的所有路由（含 `/dsh-go/v1/*` 与 WS）都先走 DSH 自己的
+`connection.requestRejection(req)`：
+
+```
+admit(request):
+  1) isTrusted(request)            —— Host/Origin 围栏（防 DNS rebinding / 跨站）
+  2) browserAuth.isAuthenticated   —— 浏览器登录令牌 cookie
+  3) browserAuth.authenticateApi   —— API 凭据（x-dsh-auth-token / Bearer）
+```
+
+也就是说：**它不额外发配对码**，用的是 DSH Web 同一把锁。所以手机上的 dsh-Go App 要连这台电脑，
+需要填 `http://<电脑局域网IP>:61294` 并带上 DSH 的登录令牌/API 凭据，而不是我们在
+`smartquiz-remote` 里做的那套设备令牌（`/pair/code` → `/pair/claim`，走 8218）。
+
+两条路互不干扰：我们的 App 走 8218 + 设备令牌；dsh-Go App 走 61294 + DSH 凭据。

@@ -695,13 +695,22 @@ public class RemoteDshTool implements AITool {
      * 与 dsh 官方客户端把消息投进 Inbox 的语义一致。</p>
      */
     public static Map<String, Object> injectDetailed(Context c, String target, String text) throws Exception {
+        return injectDetailed(c, target, text, "auto");
+    }
+
+    /**
+     * 同上，但指定发送方式（对齐 dsh-Go 的三档）：
+     * {@code auto} / {@code steer}（插话，next-step）/ {@code queue}（排队，next-turn）。
+     */
+    public static Map<String, Object> injectDetailed(Context c, String target, String text, String mode)
+            throws Exception {
         RemoteDshTool tool = new RemoteDshTool(c);
         Map<String, Object> body = new HashMap<>();
         body.put("action", "inject");
         body.put("target_session_id", target);
         body.put("text", text);
         // auto = 忙且能 steer 就插话（next-step），否则排队/注入。dsh-Go 的默认发送行为也是插话。
-        body.put("mode", "auto");
+        body.put("mode", mode == null || mode.isEmpty() ? "auto" : mode);
         Map<String, Object> resp = tool.httpJson(tool.getBaseUrl() + "/session", "POST", body, 40);
         if (!Boolean.TRUE.equals(resp.get("ok"))) {
             throw new Exception(String.valueOf(resp.get("error")));

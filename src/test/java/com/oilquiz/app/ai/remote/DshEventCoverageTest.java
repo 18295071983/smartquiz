@@ -79,22 +79,33 @@ public class DshEventCoverageTest {
         assertTrue(card.props.optString("content").contains("本轮结束后"));
     }
 
+    /**
+     * 2026-11-14：子代理**一创建**就要有轨迹卡 —— 以前只有 subagent/activity 才建条目，
+     * 刚启动还没跑工具时甲板卡槽是空的，"跳过去看轨迹"也无处可跳。
+     * 同时 subagent/catalog 不再产出通用提示卡（同一件事不出两张卡）。
+     */
     @Test
-    public void subagentCatalogBecomesNoticeCard() {
-        JSONObject data = new JSONObject();
-        try {
-            data.put("childId", "child-1");
-            data.put("label", "调研");
-            data.put("mode", "continuable");
-        } catch (Exception e) {
-            throw new AssertionError(e);
+    public void subagentCatalogRegistersTraceCardImmediately() {
+        DshTimeline timeline = new DshTimeline();
+        timeline.reduce(DshEvent.from(event("subagent/catalog", 1, payload(
+                "childId", "child-1", "label", "调研", "mode", "continuable"))));
+        assertEquals("catalog 应立刻登记子代理", 1, timeline.subagents().size());
+        for (DshCards.Card c : timeline.orderedCards()) {
+            assertTrue("不应再产出 dsh_notice：" + c.type, !"dsh_notice".equals(c.type));
         }
-        DshCards.Card card = cardOf("subagent/catalog", data);
-        assertNotNull("子代理目录应出卡", card);
-        assertEquals("子代理 · 调研", card.props.optString("title"));
-        // 点击行为：滚到该子代理的轨迹卡
-        assertEquals("subagent", card.props.optString("jump"));
-        assertEquals("child-1", card.props.optString("childId"));
+
+        com.oilquiz.app.ai.chat.ChatMessage msg =
+                com.oilquiz.app.ai.chat.ChatMessage.createAIMessage("m1", "", 1000L, null, 0, 0);
+        DshProjection.project(msg, timeline, key -> "id-" + key, 1000L);
+        boolean found = false;
+        for (com.oilquiz.app.ai.chat.component.ComponentData c : msg.components) {
+            if (c != null && "subagent_card".equals(c.type)) {
+                found = true;
+                assertEquals("child-1", c.props.optString("childId"));
+                assertEquals("continuable", c.props.optString("mode"));
+            }
+        }
+        assertTrue("刚创建的子代理也应有 subagent_card", found);
     }
 
     @Test
