@@ -48,6 +48,26 @@ public class ChatIdDispatcherIdTypeTest {
     }
 
     @Test
+    public void dshIdsAdoptedAfterRestartKeepCounting() {
+        // 模拟"杀进程重进"：子桶计数器从 1 起，先认领落盘里出现过的 DSH id，
+        // 再发号就必须接着往后走 —— 否则新段 T12-G1 会和历史里的 T12-G1 撞车。
+        ChatIdDispatcher d = ChatIdDispatcher.getInstance();
+        String turn = "T" + System.nanoTime();
+        assertTrue(d.adoptId(turn + "-" + ChatIdDispatcher.IdType.DSH_SEGMENT.code + "3"));
+        assertTrue(d.adoptId(turn + "-" + ChatIdDispatcher.IdType.DSH_CARD.code + "2"));
+        assertTrue(d.adoptId(turn + "-" + ChatIdDispatcher.IdType.DSH_TOOLCALL.code + "5"));
+        String seg = d.nextDshSegmentId(turn);
+        assertTrue("认领后分段号要接着走: " + seg,
+                seg.equals(turn + "-" + ChatIdDispatcher.IdType.DSH_SEGMENT.code + "4"));
+        String card = d.applySubId(ChatIdDispatcher.IdType.DSH_CARD, turn);
+        assertTrue("认领后卡片号要接着走: " + card,
+                card.equals(turn + "-" + ChatIdDispatcher.IdType.DSH_CARD.code + "3"));
+        String tool = d.applySubId(ChatIdDispatcher.IdType.DSH_TOOLCALL, turn);
+        assertTrue("认领后工具号要接着走: " + tool,
+                tool.equals(turn + "-" + ChatIdDispatcher.IdType.DSH_TOOLCALL.code + "6"));
+    }
+
+    @Test
     public void reservedPoolIsUsableAndCounting() {
         assertTrue("字库要够用（>=90）", ChatIdDispatcher.codeCapacity() >= 90);
         ChatIdDispatcher d = ChatIdDispatcher.getInstance();
