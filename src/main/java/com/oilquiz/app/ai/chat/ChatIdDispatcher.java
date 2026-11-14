@@ -43,7 +43,18 @@ public class ChatIdDispatcher {
         THINKING("K"),    // AI 思考（轮次/思考块）
         TOOL("F"),        // 工具消息（工具卡片/执行步骤）
         COMPONENT("C"),   // 工具生成的 UI 显示组件
-        SYSTEM("S");      // 系统消息
+        SYSTEM("S"),      // 系统消息
+
+        // ---- DSH 转换器专用桶（2026-11-14）----
+        // 电脑端事件转出来的消息/分段/卡片/工具各有独立编号，不与本地 agent 的
+        // U/A/K/F/C/S 混桶：混桶时"电脑第 3 张卡"和"本地第 3 张卡"会撞成同一个 id。
+        // 编码都取本地未占用的字母。
+        DSH_TURN("D"),      // 电脑端回合（turn/start..turn/end 的聚合单位）
+        DSH_SEGMENT("G"),   // 分段消息（一个 turn 按步切出来的每条消息）
+        DSH_CARD("P"),      // 电脑端卡片组件（tool_call/subagent/alert…）
+        DSH_TOOLCALL("X"),  // 电脑端工具调用卡
+        DSH_THINK("R"),     // 电脑端思考段
+        DSH_EVENT("E");     // 电脑端事件派生项（插槽/子代理轨迹/审批）
 
         public final String code;
 
@@ -141,6 +152,15 @@ public class ChatIdDispatcher {
         long n = subCounters.computeIfAbsent(base + "|" + t.code, k -> new AtomicLong(1))
                 .getAndIncrement();
         return base + "-" + t.code + n;
+    }
+
+    /**
+     * DSH 分段消息 id（2026-11-14）：走 {@link IdType#DSH_SEGMENT} 桶，同一 turn 内 G1/G2…
+     * 单调递增且不重号；turnId 缺失（历史还没补 id）时退回 UUID，保证至少唯一。
+     */
+    public String nextDshSegmentId(String turnId) {
+        String id = applySubId(IdType.DSH_SEGMENT, turnId);
+        return (id != null && !id.isEmpty()) ? id : java.util.UUID.randomUUID().toString();
     }
 
     /** 查看当前主 id（不推进序号；无则返回 null） */

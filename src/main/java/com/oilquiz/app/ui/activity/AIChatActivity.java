@@ -8882,7 +8882,7 @@ public class AIChatActivity extends BaseActivity {
         int seg = 0;
         for (int from = 0; from < total; from += 6, seg += 1) {
             ChatMessage m = seg == 0 ? live : ChatMessage.createAIMessage(
-                    java.util.UUID.randomUUID().toString(), "", live.timestamp + seg, null, 0, 0);
+                    com.oilquiz.app.ai.chat.ChatIdDispatcher.getInstance().nextDshSegmentId(live.turnId), "", live.timestamp + seg, null, 0, 0);
             m.turnId = live.turnId;
             m.timestamp = live.timestamp + seg;
             final String segKey = ":s" + seg;
@@ -15133,7 +15133,7 @@ public class AIChatActivity extends BaseActivity {
         String turn = turnId != null && !turnId.isEmpty() ? turnId : currentTurnId;
         try {
             id = ChatIdDispatcher.getInstance().applySubId(
-                    tool ? ChatIdDispatcher.IdType.TOOL : ChatIdDispatcher.IdType.COMPONENT,
+                    tool ? ChatIdDispatcher.IdType.DSH_TOOLCALL : ChatIdDispatcher.IdType.DSH_CARD,
                     turn);
         } catch (Throwable ignored) {
             id = null;
