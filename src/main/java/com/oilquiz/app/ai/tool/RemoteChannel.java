@@ -56,6 +56,8 @@ public final class RemoteChannel {
     private volatile boolean closed;
     private volatile int lastSeq;
     private volatile long lastAckAt;
+    /** 长连接连续失败后进入拉取模式（2026-11-14）：免费隧道对长连接不友好 */
+    private volatile boolean pollMode;
     private Thread worker;
 
     public RemoteChannel(Context c, String sessionId, int since, Listener listener) {
@@ -110,7 +112,13 @@ public final class RemoteChannel {
 
     private void run() {
         long backoff = 1000;
+        int shortStreams = 0;
         while (!closed) {
+            if (pollMode) {
+                pollLoop();
+                continue;
+            }
+            final long startedAt = System.currentTimeMillis();
             final boolean[] gotAnything = {false};
             try {
                 // STREAM-TTL(2026-11-14)：以前这里传 300 —— 服务端到点就"正常收尾"，
@@ -197,7 +205,17 @@ public final class RemoteChannel {
             }
             if (closed) break;
             // subscribeEvents 自己会重试 8 次；走到这里说明它整个返回了（30 分钟或彻底失败）。
+            boolean shortLived = System.currentTimeMillis() - startedAt < 60_000L;
             if (!gotAnything[0]) {
+                // 短命且一条都没收到 = 这条路（多半是隧道）在掐长连接。
+                // 连续 3 次就切到"拉取模式"：普通短请求 + 游标，免费隧道也扛得住。
+                if (shortLived) shortStreams += 1; else shortStreams = 0;
+                if (shortStreams >= 3) {
+                    shortStreams = 0;
+                    pollMode = true;
+                    listener.onConnection(true, "长连接不稳，已切到拉取模式");
+                    continue;
+                }
                 try {
                     Thread.sleep(backoff);
                 } catch (InterruptedException ie) {
@@ -207,8 +225,58 @@ public final class RemoteChannel {
                 backoff = Math.min(30000, backoff * 2);
             } else {
                 backoff = 1000;
+                shortStreams = 0;
             }
         }
+    }
+
+    /**
+     * 拉取模式（2026-11-14）：每 1.5s 一次 {@code /v2/events/pull}，游标续传。
+     *
+     * <p>为什么要有：免费隧道会掐长连接、还可能缓冲 SSE 帧；WebSocket 在公网侧连升级都过不去
+     * （实测探针）。"普通短请求 + 游标"是这类链路唯一稳定的形态。跑满 2 分钟后回到 SSE 重试，
+     * 隧道恢复了好处（省请求）就能自动回去。</p>
+     */
+    private void pollLoop() {
+        long until = System.currentTimeMillis() + 120_000L;
+        int cursor = Math.max(0, lastSeq);
+        while (!closed && System.currentTimeMillis() < until) {
+            try {
+                int next = RemoteDshTool.pullEvents(app, sid, cursor, 200,
+                        new RemoteDshTool.DshEventListener() {
+                            @Override public void onReady(int seq) { }
+                            @Override public void onEvent(JSONObject event) {
+                                if (closed || event == null) return;
+                                listener.onEvent(event);
+                            }
+                            @Override public void onEnd() { }
+                            @Override public void onError(String message) { }
+                        });
+                if (next > cursor) {
+                    cursor = next;
+                    if (cursor > lastSeq) lastSeq = cursor;
+                    maybeAck();
+                }
+            } catch (Exception e) {
+                if (closed) break;
+                listener.onConnection(false, e.getMessage() == null ? "拉取失败" : e.getMessage());
+                try {
+                    Thread.sleep(3000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                continue;
+            }
+            try {
+                Thread.sleep(1500);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        // 2 分钟到：回 SSE 试一次（隧道恢复的话这里能自动回到长连接）
+        pollMode = false;
     }
 
     /** 定期回执：服务端按 acked_seq 维护水位线，断线重连时两边口径一致 */

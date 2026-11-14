@@ -3695,6 +3695,81 @@ function presetSvcOf(ctx) {
    * 空闲时发注释行保活。客户端断开即停（不泄漏定时器）。
    * 事件信封：{ v, seq, id, ts, type, data }
    */
+  /**
+   * 批量拉取事件（2026-11-14）：给"隧道扛不住 SSE"时的兜底通道。
+   *
+   * <p>为什么需要：免费隧道（花生壳等）会掐长连接、甚至缓冲 SSE 帧；而 WebSocket 升级
+   * 在公网侧根本过不来（本轮 /ws-probe 实测：本地能到插件，隧道只能当普通 HTTP 转）。
+   * 所以最稳的兜底不是换协议，而是**普通短请求 + 游标**：一次拿一小批、立刻返回，
+   * 客户端每 1–2 秒问一次，断一次只丢一次往返，不丢事件（靠 since 续）。</p>
+   *
+   * <p>游标语义与 SSE 一致：返回的 {@code last_seq} 是"已经给到哪"，下次原样带回；
+   * {@code has_more} 表示还有积压（客户端应立刻再拉一次，别等下一轮）。</p>
+   *
+   * @param since 起拉位置（缺省 0 = 从头；调用方一般传 SSE 的 lastSeq）
+   * @param max   本次最多几条（默认 200，上限 500）
+   */
+  route('exact', '/v2/events/pull', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+    const sid = String(q.searchParams.get('session_id') || '').trim();
+    if (!sid) return sendJson(res, 400, { ok: false, error: 'session_id required' });
+    const since = Math.max(0, Number(q.searchParams.get('since') || 0) || 0);
+    const max = Math.max(1, Math.min(500, Number(q.searchParams.get('max') || 200) || 200));
+    const caps = q.searchParams.get('caps') ?? '';
+    const out = [];
+    let lastSeq = since;
+    let hasMore = false;
+
+    const live = (() => { try { return ctx.sessions?.get?.(sid) ?? null; } catch { return null; } })();
+    if (live) {
+      const head = Number(live.seq ?? 0) || 0;
+      let cur = since;
+      while (cur < head) {
+        const ev = live.eventAt?.(cur);
+        if (!ev) { cur += 1; continue; }
+        if (eventAllowed(ev.type, caps)) {
+          if (out.length >= max) { hasMore = true; break; }
+          out.push(ev);
+        }
+        cur += 1;
+        lastSeq = Math.max(lastSeq, Number(ev.seq ?? cur) || cur);
+      }
+      if (!hasMore) lastSeq = Math.max(lastSeq, head);
+    } else {
+      const svc = persistence();
+      if (!svc || typeof svc.open !== 'function') {
+        return sendJson(res, 503, { ok: false, error: 'session_not_live_and_no_persistence', session_id: sid });
+      }
+      try {
+        const h = await svc.open(sid, 'read');
+        try {
+          const got = await h.read(since);
+          const arr = Array.isArray(got) ? got : (got?.events ?? []);
+          for (const ev of arr) {
+            if (!ev || !eventAllowed(ev.type, caps)) continue;
+            if (out.length >= max) { hasMore = true; break; }
+            out.push(ev);
+            lastSeq = Math.max(lastSeq, Number(ev.seq ?? 0) || 0);
+          }
+        } finally { try { await h.close?.(); } catch { /* 已关 */ } }
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, error: 'read_failed', detail: String(e?.message ?? e).slice(0, 200) });
+      }
+    }
+
+    touchConnection(sid, 'pull');
+    return sendJson(res, 200, {
+      ok: true, v: 2,
+      session_id: sid,
+      since,
+      last_seq: lastSeq,
+      has_more: hasMore,
+      count: out.length,
+      events: out,
+    });
+  });
+
   route('exact', '/v2/stream', async (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     const q = new URL(req.url ?? '/', 'http://dsh.invalid');

@@ -738,6 +738,41 @@ public class RemoteDshTool implements AITool {
         listener.onEnd();
     }
 
+    /**
+     * 批量拉取事件（2026-11-14）：SSE 被隧道掐死时的兜底通道。
+     *
+     * <p>插件 {@code /v2/events/pull} 是普通短请求：一次给一小批、立刻返回，
+     * 断一次只丢一次往返（游标续上即可）。免费隧道对长连接不友好，但对这种"一问一答"
+     * 很友好 —— 实测公网隧道一次往返约 0.5s。</p>
+     *
+     * @param since 起拉游标（一般传当前 lastSeq）
+     * @return 已经给到的 seq（下次原样带回）
+     */
+    public static int pullEvents(Context c, String sid, int since, int max, DshEventListener listener)
+            throws Exception {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        String url = tool.getBaseUrl() + "/v2/events/pull?session_id="
+                + java.net.URLEncoder.encode(sid == null ? "" : sid, "UTF-8")
+                + "&since=" + Math.max(0, since)
+                + "&max=" + Math.max(1, Math.min(500, max))
+                + "&caps=" + java.net.URLEncoder.encode(RemoteCaps.csv(), "UTF-8");
+        Map<String, Object> resp = tool.httpJson(url, "GET", null, 25);
+        if (!Boolean.TRUE.equals(resp.get("ok"))) {
+            throw new Exception(String.valueOf(resp.get("error")));
+        }
+        Object evs = resp.get("events");
+        if (evs instanceof java.util.List) {
+            for (Object o : (java.util.List<?>) evs) {
+                if (!(o instanceof java.util.Map)) continue;
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, Object> m = (java.util.Map<String, Object>) o;
+                listener.onEvent(new org.json.JSONObject(m));
+            }
+        }
+        Object last = resp.get("last_seq");
+        return last instanceof Number ? ((Number) last).intValue() : since;
+    }
+
     /** 连一次 SSE，返回本次收到的最大 seq（断线后作为 since 续传） */
     private static int streamOnce(RemoteDshTool tool, String sid, int since, int timeoutSec, boolean follow,
                                   int snapshotThreshold, String types, DshEventListener listener) throws Exception {

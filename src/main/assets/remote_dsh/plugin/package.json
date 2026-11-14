@@ -24,5 +24,8 @@
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
     }
+  },
+  "dependencies": {
+    "ws": "^8.23.0"
   }
 }

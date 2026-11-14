@@ -3695,6 +3695,81 @@ function presetSvcOf(ctx) {
    * 空闲时发注释行保活。客户端断开即停（不泄漏定时器）。
    * 事件信封：{ v, seq, id, ts, type, data }
    */
+  /**
+   * 批量拉取事件（2026-11-14）：给"隧道扛不住 SSE"时的兜底通道。
+   *
+   * <p>为什么需要：免费隧道（花生壳等）会掐长连接、甚至缓冲 SSE 帧；而 WebSocket 升级
+   * 在公网侧根本过不来（本轮 /ws-probe 实测：本地能到插件，隧道只能当普通 HTTP 转）。
+   * 所以最稳的兜底不是换协议，而是**普通短请求 + 游标**：一次拿一小批、立刻返回，
+   * 客户端每 1–2 秒问一次，断一次只丢一次往返，不丢事件（靠 since 续）。</p>
+   *
+   * <p>游标语义与 SSE 一致：返回的 {@code last_seq} 是"已经给到哪"，下次原样带回；
+   * {@code has_more} 表示还有积压（客户端应立刻再拉一次，别等下一轮）。</p>
+   *
+   * @param since 起拉位置（缺省 0 = 从头；调用方一般传 SSE 的 lastSeq）
+   * @param max   本次最多几条（默认 200，上限 500）
+   */
+  route('exact', '/v2/events/pull', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+    const sid = String(q.searchParams.get('session_id') || '').trim();
+    if (!sid) return sendJson(res, 400, { ok: false, error: 'session_id required' });
+    const since = Math.max(0, Number(q.searchParams.get('since') || 0) || 0);
+    const max = Math.max(1, Math.min(500, Number(q.searchParams.get('max') || 200) || 200));
+    const caps = q.searchParams.get('caps') ?? '';
+    const out = [];
+    let lastSeq = since;
+    let hasMore = false;
+
+    const live = (() => { try { return ctx.sessions?.get?.(sid) ?? null; } catch { return null; } })();
+    if (live) {
+      const head = Number(live.seq ?? 0) || 0;
+      let cur = since;
+      while (cur < head) {
+        const ev = live.eventAt?.(cur);
+        if (!ev) { cur += 1; continue; }
+        if (eventAllowed(ev.type, caps)) {
+          if (out.length >= max) { hasMore = true; break; }
+          out.push(ev);
+        }
+        cur += 1;
+        lastSeq = Math.max(lastSeq, Number(ev.seq ?? cur) || cur);
+      }
+      if (!hasMore) lastSeq = Math.max(lastSeq, head);
+    } else {
+      const svc = persistence();
+      if (!svc || typeof svc.open !== 'function') {
+        return sendJson(res, 503, { ok: false, error: 'session_not_live_and_no_persistence', session_id: sid });
+      }
+      try {
+        const h = await svc.open(sid, 'read');
+        try {
+          const got = await h.read(since);
+          const arr = Array.isArray(got) ? got : (got?.events ?? []);
+          for (const ev of arr) {
+            if (!ev || !eventAllowed(ev.type, caps)) continue;
+            if (out.length >= max) { hasMore = true; break; }
+            out.push(ev);
+            lastSeq = Math.max(lastSeq, Number(ev.seq ?? 0) || 0);
+          }
+        } finally { try { await h.close?.(); } catch { /* 已关 */ } }
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, error: 'read_failed', detail: String(e?.message ?? e).slice(0, 200) });
+      }
+    }
+
+    touchConnection(sid, 'pull');
+    return sendJson(res, 200, {
+      ok: true, v: 2,
+      session_id: sid,
+      since,
+      last_seq: lastSeq,
+      has_more: hasMore,
+      count: out.length,
+      events: out,
+    });
+  });
+
   route('exact', '/v2/stream', async (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     const q = new URL(req.url ?? '/', 'http://dsh.invalid');
@@ -4051,6 +4126,80 @@ function presetSvcOf(ctx) {
    * 手机端拿到后自己把事件映射成 ChatMessage / parts（正文、思考、工具卡片）。
    * 这样 DSH 侧新增事件类型时，插件不需要跟着改。
    */
+  /**
+   * WebSocket 可行性探针（2026-11-14）。
+   *
+   * <p>目的只有一个：**在写 WS 服务端之前**，确认这条链路（尤其是公网隧道）会不会把
+   * `Upgrade: websocket` 吃掉。做法是把收到的请求头原样回显，调用方看两件事：</p>
+   * <ul>
+   *   <li>{@code headers.upgrade} 是否还是 {@code websocket}（隧道没剥）；</li>
+   *   <li>{@code headers.connection} 是否含 {@code upgrade}（反向代理常把它改成 keep-alive）。</li>
+   * </ul>
+   * <p>两个都在 → WS 值得做；任一被剥 → 直接转长轮询兜底，别浪费 200 行协议代码。</p>
+   */
+  route('exact', '/ws-probe', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const h = req.headers ?? {};
+    const upgrade = String(h.upgrade ?? '');
+    const connection = String(h.connection ?? '');
+    const looksWs = /\bwebsocket\b/i.test(upgrade) && /\bupgrade\b/i.test(connection);
+    return sendJson(res, 200, {
+      ok: true,
+      // 直接给结论，别让调用方自己拼判断
+      websocket_ok: looksWs,
+      verdict: looksWs
+        ? '这条链路透传 Upgrade，可以做 WebSocket'
+        : 'Upgrade 被剥掉了（隧道/反代），WebSocket 不可用，建议改长轮询兜底',
+      headers: h,
+    });
+  });
+
+  /**
+   * 升级版探针（2026-11-14 第二版）。
+   *
+   * <p>第一版写成普通 GET 路由，结果带 {@code Upgrade: websocket} 的请求**根本到不了**
+   * 普通 handler —— Node 的 http server 把 upgrade 请求单独派发，没人认领就直接毁 socket
+   * （实测 curl 拿 http=000）。所以真正的探针必须注册升级路由：DSH 的 webServer 暴露
+   * {@code registerUpgrade({path, handler(req, socket, head)})}，这里用它原样回显收到的
+   * 请求头再关掉 socket。</p>
+   *
+   * <p>判定口径与 GET 版一致：{@code upgrade: websocket} + {@code connection: upgrade}
+   * 两个都在，才算这条链路（含隧道）放行 WebSocket。</p>
+   */
+  try {
+    ctx.effect(() => ctx.webServer.registerUpgrade({
+      path: '/ws-probe',
+      handler: (req, socket) => {
+        const h = req.headers ?? {};
+        const upgrade = String(h.upgrade ?? '');
+        const connection = String(h.connection ?? '');
+        const looksWs = /\bwebsocket\b/i.test(upgrade) && /\bupgrade\b/i.test(connection);
+        const body = JSON.stringify({
+          ok: true,
+          via: 'upgrade',
+          websocket_ok: looksWs,
+          verdict: looksWs
+            ? '升级请求到达了插件：这条链路透传 Upgrade，可以做 WebSocket'
+            : '升级请求到了，但 Upgrade/Connection 头被改写，WebSocket 不可用',
+          upgrade,
+          connection,
+          headers: h,
+        });
+        try {
+          socket.write('HTTP/1.1 200 OK\r\n'
+            + 'content-type: application/json\r\n'
+            + 'content-length: ' + Buffer.byteLength(body) + '\r\n'
+            + 'connection: close\r\n\r\n');
+          socket.write(body);
+        } catch { /* 对端已断 */ }
+        try { socket.end(); } catch { try { socket.destroy(); } catch { /* ignore */ } }
+      },
+    }));
+  } catch (e) {
+    // 老版本 DSH 没有 registerUpgrade：不影响插件其余功能
+    try { console.warn('[smartquiz-remote] registerUpgrade 不可用: ' + String(e?.message ?? e)); } catch { /* ignore */ }
+  }
+
   route('exact', '/events', async (req, res) => {
     if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     const q = new URL(req.url ?? '/', 'http://dsh.invalid');
