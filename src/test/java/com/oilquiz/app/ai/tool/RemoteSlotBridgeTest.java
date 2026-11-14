@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.tool;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.oilquiz.app.ai.chat.status.DockSlotBus;
@@ -271,5 +272,125 @@ public class RemoteSlotBridgeTest {
 
         DockSlotBus.Slot slot = DockSlotBus.list().get(0);
         assertTrue("ttl_ms 仍按到达时刻换算 expireAt", slot.expireAt >= before + 3000L);
+    }
+
+    // ===== ④（2026-11-15）：kind 契约 + 内联 actions =====
+
+    @Test
+    public void unknownKindIsNormalizedToState() throws Exception {
+        JSONObject o = frame("dock-kind-unknown", "未知形态", "", 1L, 0L);
+        o.put("kind", "sparkline");
+        RemoteSlotBridge.apply(o);
+
+        DockSlotBus.Slot slot = DockSlotBus.list().get(0);
+        assertEquals("未知 kind 不丢帧，降级 state", "state", slot.kind);
+        assertFalse("降级不改 warn 视觉", slot.warn);
+    }
+
+    @Test
+    public void legacyDisplayKindBecomesState() throws Exception {
+        JSONObject o = frame("dock-kind-display", "旧帧", "", 1L, 0L);
+        o.put("kind", "display");
+        RemoteSlotBridge.apply(o);
+        assertEquals("旧 display 不再落地成非契约 kind", "state", DockSlotBus.list().get(0).kind);
+    }
+
+    @Test
+    public void progressFrameCarriesClampedProgress() throws Exception {
+        JSONObject o = frame("dock-progress", "压缩中", "42%", 1L, 0L);
+        o.put("kind", "progress");
+        o.put("progress", 42.6);
+        RemoteSlotBridge.apply(o);
+
+        DockSlotBus.Slot slot = DockSlotBus.list().get(0);
+        assertEquals("progress", slot.kind);
+        assertEquals(43, slot.progress);
+        assertEquals(0, slot.count);
+
+        JSONObject over = frame("dock-progress-over", "超界", "", 1L, 0L);
+        over.put("kind", "progress");
+        over.put("progress", 180);
+        RemoteSlotBridge.apply(over);
+        DockSlotBus.Slot overSlot = null;
+        for (DockSlotBus.Slot s : DockSlotBus.list()) {
+            if ("dock-progress-over".equals(s.id)) overSlot = s;
+        }
+        assertTrue(overSlot != null);
+        assertEquals(100, overSlot.progress);
+    }
+
+    @Test
+    public void incompleteProgressDegradesToState() throws Exception {
+        JSONObject o = frame("dock-progress-bad", "缺进度", "", 1L, 0L);
+        o.put("kind", "progress");
+        RemoteSlotBridge.apply(o);
+        assertEquals("state", DockSlotBus.list().get(0).kind);
+        assertEquals(0, DockSlotBus.list().get(0).progress);
+    }
+
+    @Test
+    public void listFrameKeepsCountOnlyWhenValid() throws Exception {
+        JSONObject o = frame("dock-list", "插话排队", "3 条等待", 1L, 0L);
+        o.put("kind", "list");
+        o.put("count", 3);
+        RemoteSlotBridge.apply(o);
+        assertEquals("list", DockSlotBus.list().get(0).kind);
+        assertEquals(3, DockSlotBus.list().get(0).count);
+
+        JSONObject noCount = frame("dock-list-bad", "清单", "", 1L, 0L);
+        noCount.put("kind", "list");
+        RemoteSlotBridge.apply(noCount);
+        DockSlotBus.Slot bad = null;
+        for (DockSlotBus.Slot s : DockSlotBus.list()) {
+            if ("dock-list-bad".equals(s.id)) bad = s;
+        }
+        assertTrue(bad != null);
+        assertEquals("state", bad.kind);
+        assertEquals(0, bad.count);
+    }
+
+    @Test
+    public void actionFrameParsesInlineActions() throws Exception {
+        JSONObject o = frame("dock-action", "权限", "", 1L, 0L);
+        o.put("kind", "action");
+        JSONArray actions = new JSONArray();
+        actions.put(new JSONObject().put("id", "permission").put("label", "调整")
+                .put("style", "primary"));
+        actions.put(new JSONObject().put("id", "jobs").put("label", "任务"));
+        actions.put(new JSONObject().put("id", "extra").put("label", "多余"));
+        o.put("actions", actions);
+        RemoteSlotBridge.apply(o);
+
+        DockSlotBus.Slot slot = DockSlotBus.list().get(0);
+        assertEquals("action", slot.kind);
+        assertEquals("最多保留 2 个", 2, slot.actions.size());
+        assertEquals("permission", slot.actions.get(0).id);
+        assertEquals("调整", slot.actions.get(0).label);
+        assertEquals("primary", slot.actions.get(0).style);
+        assertEquals("plain", slot.actions.get(1).style);
+    }
+
+    @Test
+    public void actionWithoutActionsDegradesToState() throws Exception {
+        JSONObject o = frame("dock-action-bad", "动作", "", 1L, 0L);
+        o.put("kind", "action");
+        RemoteSlotBridge.apply(o);
+        DockSlotBus.Slot slot = DockSlotBus.list().get(0);
+        assertEquals("state", slot.kind);
+        assertTrue("降级后不保留 actions", slot.actions.isEmpty());
+    }
+
+    @Test
+    public void snapshotBatchCarriesActions() throws Exception {
+        JSONObject o = frame("dock-action-batch", "权限", "", 1L, 0L);
+        o.put("kind", "action");
+        o.put("actions", new JSONArray().put(new JSONObject()
+                .put("id", "permission").put("label", "调整").put("style", "primary")));
+        assertEquals(1, RemoteSlotBridge.applyAll(new JSONArray().put(o)));
+
+        DockSlotBus.Slot slot = DockSlotBus.list().get(0);
+        assertEquals("action", slot.kind);
+        assertEquals(1, slot.actions.size());
+        assertEquals("permission", slot.actions.get(0).id);
     }
 }

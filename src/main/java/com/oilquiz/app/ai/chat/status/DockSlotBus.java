@@ -27,6 +27,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * 总线加容量上限 {@link #MAX_SLOTS}（默认 16 条，超出按「priority 最大、同档最旧」淘汰
  * 非 pinned，见 {@link SlotLedger#enforceLimit(int)}）。</p>
  *
+ * <p>④（2026-11-15）：{@code kind} 收敛为 state/progress/list/action 四种契约
+ * （见 {@link SlotKind}），Slot 增加 {@code progress} 与 {@code actions}（{@link SlotAction}）；
+ * 解析时的归一化/降级在 {@code RemoteSlotBridge}，渲染在甲板行与全屏列表。旧帧
+ * （无 kind/actions）行为不变。</p>
+ *
  * <p>线程：可从任意线程调用；监听回调在调用线程执行，UI 自己切主线程。
  * 1 秒一次的 TTL 清扫由 {@link #attachSweeper()} 在主线程挂上，{@link #detachSweeper()} 摘掉。</p>
  */
@@ -59,13 +64,14 @@ public final class DockSlotBus {
         public final boolean warn;
 
         public Slot(String id, int priority, String title, String detail, String action, boolean warn) {
-            this(id, priority, title, detail, action, warn, "display", "state", false, 0);
+            this(id, priority, title, detail, action, warn, SlotKind.STATE, "state", false, 0);
         }
 
         /**
          * U1 (2026-11-14): full constructor with deck classification.
          *
-         * @param kind   toggle | action | display | list
+         * @param kind   ④（2026-11-15）：state（默认）| progress | list | action；
+         *               旧的 display/toggle 静默归一成 state
          * @param board  alert | task | asset | state  (one board = one chip row)
          * @param pinned true = always shown while connected (empty value renders as a dash)
          * @param count  item count for list-kind slots (0 otherwise)
@@ -73,6 +79,16 @@ public final class DockSlotBus {
         public Slot(String id, int priority, String title, String detail, String action, boolean warn,
                     String kind, String board, boolean pinned, int count) {
             this(id, priority, title, detail, action, warn, kind, board, pinned, count, 0L, 0L, "");
+        }
+
+        /**
+         * ④（2026-11-15）：便于本地/测试构造 progress &amp; actions，rev/expireAt/source 取默认。
+         */
+        public Slot(String id, int priority, String title, String detail, String action, boolean warn,
+                    String kind, String board, boolean pinned, int count,
+                    int progress, List<SlotAction> actions) {
+            this(id, priority, title, detail, action, warn, kind, board, pinned, count,
+                    0L, 0L, "", progress, actions);
         }
 
         /**
@@ -85,25 +101,59 @@ public final class DockSlotBus {
         public Slot(String id, int priority, String title, String detail, String action, boolean warn,
                     String kind, String board, boolean pinned, int count,
                     long rev, long expireAt, String source) {
+            this(id, priority, title, detail, action, warn, kind, board, pinned, count,
+                    rev, expireAt, source, 0, null);
+        }
+
+        /**
+         * ④（2026-11-15）：完整构造（插件帧解析后的落点）。
+         *
+         * @param progress 仅 progress kind 有意义；越界夹到 0–100
+         * @param actions  仅 action kind 有意义；最多 2 个，null = 无
+         */
+        public Slot(String id, int priority, String title, String detail, String action, boolean warn,
+                    String kind, String board, boolean pinned, int count,
+                    long rev, long expireAt, String source,
+                    int progress, List<SlotAction> actions) {
             this.id = id == null ? "" : id;
             this.priority = priority;
             this.title = title == null ? "" : title;
             this.detail = detail == null ? "" : detail;
             this.action = action == null ? "" : action;
             this.warn = warn;
-            this.kind = (kind == null || kind.isEmpty()) ? "display" : kind;
+            this.kind = SlotKind.canonical(kind);
             this.board = (board == null || board.isEmpty()) ? "state" : board;
             this.pinned = pinned;
-            this.count = Math.max(0, count);
+            this.count = SlotKind.LIST.equals(this.kind) ? Math.max(0, count) : 0;
+            this.progress = SlotKind.PROGRESS.equals(this.kind)
+                    ? Math.max(0, Math.min(100, progress)) : 0;
+            this.actions = SlotKind.ACTION.equals(this.kind)
+                    ? copyActions(actions) : java.util.Collections.<SlotAction>emptyList();
             this.rev = Math.max(0L, rev);
             this.expireAt = Math.max(0L, expireAt);
             this.source = source == null ? "" : source;
+        }
+
+        /** 防御性复制：最多 2 个、丢空项（解析层已做完整校验，这里只保证渲染不 NPE）。 */
+        private static List<SlotAction> copyActions(List<SlotAction> actions) {
+            if (actions == null || actions.isEmpty()) return java.util.Collections.emptyList();
+            List<SlotAction> out = new ArrayList<>();
+            for (SlotAction a : actions) {
+                if (a == null || !a.isValid()) continue;
+                out.add(a);
+                if (out.size() >= SlotAction.MAX_ACTIONS) break;
+            }
+            return java.util.Collections.unmodifiableList(out);
         }
 
         public final String kind;
         public final String board;
         public final boolean pinned;
         public final int count;
+        /** ④：progress kind 的 0–100 百分比；其它 kind 恒为 0。 */
+        public final int progress;
+        /** ④：action kind 的行内按钮（≤2）；其它 kind 恒为空。 */
+        public final List<SlotAction> actions;
         /** §20：版本号（同 id 单调递增；0 = 无版本帧） */
         public final long rev;
         /** §20：绝对过期时间（epoch ms；0 = 不过期） */
@@ -114,7 +164,7 @@ public final class DockSlotBus {
         /** 复制一份并换写者来源（本地兜底写入时标 source=local）。 */
         public Slot withSource(String newSource) {
             return new Slot(id, priority, title, detail, action, warn,
-                    kind, board, pinned, count, rev, expireAt, newSource);
+                    kind, board, pinned, count, rev, expireAt, newSource, progress, actions);
         }
     }
 

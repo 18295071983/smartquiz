@@ -13928,17 +13928,19 @@ public class AIChatActivity extends BaseActivity {
             rowLp.bottomMargin = (int) (2 * density);
             row.setLayoutParams(rowLp);
 
-            // 状态点（警示色/常规色）
-            View dot = new View(this);
-            android.graphics.drawable.GradientDrawable dotBg = new android.graphics.drawable.GradientDrawable();
-            dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-            dotBg.setColor(model.warn ? 0xFFE65100 : 0xFF9E9E9E);
-            dot.setBackground(dotBg);
-            android.widget.LinearLayout.LayoutParams dotLp =
-                    new android.widget.LinearLayout.LayoutParams(
-                            (int) (6 * density), (int) (6 * density));
-            dotLp.rightMargin = (int) (8 * density);
-            row.addView(dot, dotLp);
+            // 状态点（警示色/常规色）；progress 行用进度条本身当视觉锚点，省掉圆点留宽度
+            if (!com.oilquiz.app.ai.chat.status.SlotKind.PROGRESS.equals(model.kind)) {
+                View dot = new View(this);
+                android.graphics.drawable.GradientDrawable dotBg = new android.graphics.drawable.GradientDrawable();
+                dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                dotBg.setColor(model.warn ? 0xFFE65100 : 0xFF9E9E9E);
+                dot.setBackground(dotBg);
+                android.widget.LinearLayout.LayoutParams dotLp =
+                        new android.widget.LinearLayout.LayoutParams(
+                                (int) (6 * density), (int) (6 * density));
+                dotLp.rightMargin = (int) (8 * density);
+                row.addView(dot, dotLp);
+            }
 
             android.widget.TextView tv = new android.widget.TextView(this);
             String text = model.title;
@@ -13953,6 +13955,27 @@ public class AIChatActivity extends BaseActivity {
             tv.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
                     0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
             row.addView(tv);
+
+            // ④（2026-11-15）：kind 专属的右侧视觉
+            if (com.oilquiz.app.ai.chat.status.SlotKind.PROGRESS.equals(model.kind)) {
+                row.addView(buildDeckProgressBar(model.progress, model.warn, density));
+                android.widget.TextView pct = new android.widget.TextView(this);
+                pct.setText(model.progress + "%");
+                pct.setTextSize(11f);
+                pct.setMaxLines(1);
+                pct.setTextColor(model.warn ? 0xFFB23C00 : 0xFF6B6B6B);
+                pct.setGravity(android.view.Gravity.END);
+                android.widget.LinearLayout.LayoutParams pctLp =
+                        new android.widget.LinearLayout.LayoutParams(
+                                (int) (34 * density), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+                pctLp.leftMargin = (int) (5 * density);
+                row.addView(pct, pctLp);
+            } else if (com.oilquiz.app.ai.chat.status.SlotKind.LIST.equals(model.kind)) {
+                row.addView(buildDeckCountBadge(model.count, density));
+            } else if (com.oilquiz.app.ai.chat.status.SlotKind.ACTION.equals(model.kind)) {
+                android.widget.LinearLayout buttons = buildDeckInlineActions(s, density);
+                if (buttons != null) row.addView(buttons);
+            }
 
             if (model.clickable) {
                 android.widget.TextView chevron = new android.widget.TextView(this);
@@ -13997,6 +14020,119 @@ public class AIChatActivity extends BaseActivity {
         notifyViewportAfterHeightChange(pinnedBefore, wasVisible, shown > 0);
         updateDeckVisibility();
         logDeckMetrics();
+    }
+
+    /**
+     * ④（2026-11-15）：progress kind 的细进度条（高 3dp；轨道 + 按百分比截断的填充）。
+     *
+     * <p>用两个 View 而不是 ProgressBar：代码构建的 ProgressBar 在部分 ROM 上带内边距，
+     * 3dp 高度会被裁成一条虚线；固定宽度的轨道在甲板 3 行高度里更可控。</p>
+     */
+    private View buildDeckProgressBar(int progress, boolean warn, float density) {
+        int width = (int) (54 * density);
+        int height = Math.max(2, (int) (3 * density));
+        android.widget.FrameLayout box = new android.widget.FrameLayout(this);
+        View track = new View(this);
+        android.graphics.drawable.GradientDrawable trackBg = new android.graphics.drawable.GradientDrawable();
+        trackBg.setCornerRadius(height / 2f);
+        trackBg.setColor(0x1F000000);
+        track.setBackground(trackBg);
+        box.addView(track, new android.widget.FrameLayout.LayoutParams(
+                width, height));
+        int fillWidth = Math.round(width * (Math.max(0, Math.min(100, progress)) / 100f));
+        if (fillWidth > 0) {
+            View fill = new View(this);
+            android.graphics.drawable.GradientDrawable fillBg = new android.graphics.drawable.GradientDrawable();
+            fillBg.setCornerRadius(height / 2f);
+            fillBg.setColor(warn ? 0xFFE65100 : 0xFF2F5BD6);
+            fill.setBackground(fillBg);
+            box.addView(fill, new android.widget.FrameLayout.LayoutParams(fillWidth, height));
+        }
+        android.widget.LinearLayout.LayoutParams lp =
+                new android.widget.LinearLayout.LayoutParams(width, height);
+        lp.leftMargin = (int) (6 * density);
+        box.setLayoutParams(lp);
+        return box;
+    }
+
+    /** ④：list kind 的右侧「N 条」徽标。 */
+    private View buildDeckCountBadge(int count, float density) {
+        android.widget.TextView badge = new android.widget.TextView(this);
+        badge.setText(Math.max(0, count) + " 条");
+        badge.setTextSize(11f);
+        badge.setMaxLines(1);
+        badge.setTextColor(0xFF2F5BD6);
+        badge.setGravity(android.view.Gravity.CENTER);
+        badge.setPadding((int) (8 * density), (int) (2 * density),
+                (int) (8 * density), (int) (2 * density));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(10 * density);
+        bg.setColor(0x142F5BD6);
+        badge.setBackground(bg);
+        android.widget.LinearLayout.LayoutParams lp =
+                new android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = (int) (6 * density);
+        badge.setLayoutParams(lp);
+        return badge;
+    }
+
+    /**
+     * ④：action kind 的右侧内联胶囊按钮（1–2 个）。
+     *
+     * <p>按钮自己消费点击：走 {@link #onDockSlotInlineAction(String, String)}，
+     * **不打开全屏列表**；父行原有"点整行进列表"的行为不变。</p>
+     */
+    private android.widget.LinearLayout buildDeckInlineActions(
+            final com.oilquiz.app.ai.chat.status.DockSlotBus.Slot slot, float density) {
+        if (slot == null || slot.actions == null || slot.actions.isEmpty()) return null;
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        box.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        int shown = 0;
+        for (final com.oilquiz.app.ai.chat.status.SlotAction a : slot.actions) {
+            if (a == null || !a.isValid() || shown >= com.oilquiz.app.ai.chat.status.SlotAction.MAX_ACTIONS) {
+                continue;
+            }
+            android.widget.TextView btn = new android.widget.TextView(this);
+            btn.setText(a.label);
+            btn.setTextSize(11.5f);
+            btn.setMaxLines(1);
+            btn.setGravity(android.view.Gravity.CENTER);
+            btn.setPadding((int) (9 * density), (int) (3 * density),
+                    (int) (9 * density), (int) (3 * density));
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setCornerRadius(11 * density);
+            bg.setColor(a.isPrimary() ? 0xFF2F5BD6 : 0x142F5BD6);
+            btn.setBackground(bg);
+            btn.setTextColor(a.isPrimary() ? 0xFFFFFFFF : 0xFF2F5BD6);
+            btn.setClickable(true);
+            btn.setOnClickListener(v -> onDockSlotInlineAction(slot.id, a.id));
+            android.widget.LinearLayout.LayoutParams lp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.leftMargin = (int) ((shown == 0 ? 6 : 4) * density);
+            box.addView(btn, lp);
+            shown++;
+        }
+        return shown == 0 ? null : box;
+    }
+
+    /**
+     * ④：行内动作点击 → 既有动作分发。
+     *
+     * <p>参数固定为 {@code {slotId, actionId}}：actionId 仍按 {@link #onDockSlotClick(String)}
+     * 的既有语义解释（jobs/permission/queue…），slotId 只用于日志与后续扩展，不参与分支。
+     * 这样"甲板行内按钮"和"全屏列表行"最终落到同一套分发，不产生第二条动作通道。</p>
+     */
+    private void onDockSlotInlineAction(String slotId, String actionId) {
+        String aid = actionId == null ? "" : actionId.trim();
+        if (aid.isEmpty()) return;
+        android.util.Log.i("AIChatActivity", "[dock] 行内动作 slot=" + (slotId == null ? "" : slotId)
+                + " action=" + aid);
+        onDockSlotClick(slotId == null ? "" : slotId, aid);
     }
 
     /**
@@ -14084,15 +14220,29 @@ public class AIChatActivity extends BaseActivity {
 
     /** 插槽点击：任务/目标/子代理/MCP/日程 → 扩展面板；待处理 → 原地弹那条；其余 → 远程连接页。 */
     private void onDockSlotClick(String action) {
-        if ("attention".equals(action)) {
+        onDockSlotClick("", action);
+    }
+
+    /**
+     * ④（2026-11-15）：带 slotId 的同一套分发（行内 actions 点击用）。
+     *
+     * <p>只有 action 参与分支；slotId 只进日志，保证「甲板行内按钮 / 全屏列表 / 旧入口」
+     * 三条路不会长出第二套动作语义。</p>
+     */
+    private void onDockSlotClick(String slotId, String action) {
+        String act = action == null ? "" : action;
+        if (slotId != null && !slotId.isEmpty()) {
+            android.util.Log.i("AIChatActivity", "[dock] 分发 slot=" + slotId + " action=" + act);
+        }
+        if ("attention".equals(act)) {
             showPendingAttention();
             return;
         }
-        if ("permission".equals(action)) {
+        if ("permission".equals(act)) {
             showPermissionChange();
             return;
         }
-        openDockSlotPanel(action);
+        openDockSlotPanel(act);
     }
 
     /**
@@ -17219,13 +17369,21 @@ public class AIChatActivity extends BaseActivity {
     protected void onResume() {
         sForegroundForAlerts = true;
         registerCardLocalActions();
-        // 甲板全屏列表点了某一行：它把动作记在 pendingAction 里再 finish，
+        // 甲板全屏列表点了某一行/某个行内按钮：它把动作记在 pending* 里再 finish，
         // 这里用**同一套** onDockSlotClick 处理，避免两处分发逻辑漂移。
         try {
-            String pending = com.oilquiz.app.ui.activity.RemoteDeckListActivity.pendingAction;
-            if (pending != null && !pending.isEmpty()) {
-                com.oilquiz.app.ui.activity.RemoteDeckListActivity.pendingAction = null;
-                onDockSlotClick(pending);
+            String inlineSlot = com.oilquiz.app.ui.activity.RemoteDeckListActivity.pendingInlineSlotId;
+            String inlineAction = com.oilquiz.app.ui.activity.RemoteDeckListActivity.pendingInlineActionId;
+            com.oilquiz.app.ui.activity.RemoteDeckListActivity.pendingInlineSlotId = null;
+            com.oilquiz.app.ui.activity.RemoteDeckListActivity.pendingInlineActionId = null;
+            if (inlineAction != null && !inlineAction.isEmpty()) {
+                onDockSlotInlineAction(inlineSlot, inlineAction);
+            } else {
+                String pending = com.oilquiz.app.ui.activity.RemoteDeckListActivity.pendingAction;
+                if (pending != null && !pending.isEmpty()) {
+                    com.oilquiz.app.ui.activity.RemoteDeckListActivity.pendingAction = null;
+                    onDockSlotClick(pending);
+                }
             }
         } catch (Throwable ignored) { /* 列表页没开过就算了 */ }
         try {

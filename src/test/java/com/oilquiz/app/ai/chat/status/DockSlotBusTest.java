@@ -8,6 +8,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -271,5 +272,40 @@ public class DockSlotBusTest {
         assertEquals("淘汰是粘性的：同 rev 补发不重占名额",
                 DockSlotBus.MAX_SLOTS, DockSlotBus.list().size());
         assertFalse(hasSlot(DockSlotBus.list(), "cap0"));
+    }
+
+    // ===== ④（2026-11-15）：kind/progress/actions 存取 =====
+
+    @Test
+    public void actionsAndProgressSurviveUpdateAndWithSource() {
+        List<SlotAction> actions = Arrays.asList(
+                new SlotAction("permission", "调整", SlotAction.STYLE_PRIMARY),
+                new SlotAction("jobs", "任务", null));
+        DockSlotBus.update(new DockSlotBus.Slot("permission", SlotPriorities.P2,
+                "权限", "完全访问", "permission", true,
+                SlotKind.ACTION, "state", false, 0, 0, actions));
+
+        DockSlotBus.Slot action = DockSlotBus.list().get(0);
+        assertEquals(SlotKind.ACTION, action.kind);
+        assertEquals(2, action.actions.size());
+        assertEquals("permission", action.actions.get(0).id);
+        assertEquals(SlotAction.STYLE_PRIMARY, action.actions.get(0).style);
+        assertEquals(SlotAction.STYLE_PLAIN, action.actions.get(1).style);
+        assertEquals("progress 只在 progress kind 有意义", 0, action.progress);
+
+        DockSlotBus.Slot local = action.withSource("local");
+        assertEquals("withSource 不能丢 actions", actions, local.actions);
+        assertEquals("local", local.source);
+
+        DockSlotBus.update(new DockSlotBus.Slot("compaction", SlotPriorities.P3,
+                "压缩中", "", "", false, SlotKind.PROGRESS, "task", false, 0, 37, null));
+        DockSlotBus.Slot progress = null;
+        for (DockSlotBus.Slot s : DockSlotBus.list()) {
+            if ("compaction".equals(s.id)) progress = s;
+        }
+        assertTrue("应能查到 progress 槽", progress != null);
+        assertEquals(SlotKind.PROGRESS, progress.kind);
+        assertEquals(37, progress.progress);
+        assertTrue(progress.actions.isEmpty());
     }
 }

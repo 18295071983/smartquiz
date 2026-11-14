@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.tool;
 import android.content.Context;
 
 import com.oilquiz.app.ai.chat.status.DockSlotBus;
+import com.oilquiz.app.ai.chat.status.SlotKind;
 import com.oilquiz.app.ai.chat.status.SlotPriorities;
 
 import org.json.JSONArray;
@@ -22,9 +23,16 @@ import java.util.Map;
  * <p>帧格式（见 27 号《远程插件更新指南》）：</p>
  * <pre>
  * { "type":"ui/slot", "data": { id, title, detail, action?, priority?, level?,
- *                               warn?, kind?: toggle|action|display|list, board?: alert|task|asset|state,
- *                               pinned?, count?, remove?, rev?, epoch?, ttl_ms? } }
+ *                               warn?, kind?: state|progress|list|action,
+ *                               progress?: 0-100, count?: N,
+ *                               actions?: [{id,label,style?: primary|plain}],
+ *                               board?: alert|task|asset|state,
+ *                               pinned?, remove?, rev?, epoch?, ttl_ms? } }
  * </pre>
+ *
+ * <p>④（2026-11-15）：{@code kind} 有契约（见 {@link SlotKind}）：state（默认）/progress/list/action。
+ * 未知 kind、必填不匹配都在这里归一化/降级成 state，与插件侧 {@code normalizeSlotFields}
+ * 同规则同输出；旧帧（无 kind/actions）按 state 渲染，行为不变。</p>
  *
  * <p>§20（2026-11-15）：{@code rev} 是同一 id 单调递增的版本号，乱序旧帧由
  * {@link DockSlotBus} 丢弃；{@code epoch} 是插件实例世代（毫秒时间戳），插件重载后
@@ -77,10 +85,16 @@ public final class RemoteSlotBridge {
          */
         String title = data.optString("title", "").trim();
         String detail = data.optString("detail", "").trim();
-        int count = data.optInt("count", 0);
-        if (title.isEmpty() && detail.isEmpty() && count <= 0) {
+        int rawCount = data.optInt("count", 0);
+        if (title.isEmpty() && detail.isEmpty() && rawCount <= 0) {
             DockSlotBus.remove(id, rev);
             return true;
+        }
+        // ④：kind/progress/actions 与插件 normalizeSlotFields 同口径；坏帧降级 state 不丢帧
+        SlotKind.Normalized normalized = SlotKind.normalize(data);
+        if (normalized.hasWarnings()) {
+            logi("[dock] kind 归一化 id=" + id + " → " + normalized.kind
+                    + "：" + String.join("；", normalized.warnings));
         }
         long ttlMs = Math.min(Math.max(0L, data.optLong("ttl_ms", 0L)), MAX_TTL_MS);
         long expireAt = ttlMs > 0 ? System.currentTimeMillis() + ttlMs : 0L;
@@ -91,13 +105,15 @@ public final class RemoteSlotBridge {
                 data.optString("detail", ""),
                 data.optString("action", ""),
                 data.optBoolean("warn", false),
-                data.optString("kind", "display"),
+                normalized.kind,
                 data.optString("board", "state"),
                 data.optBoolean("pinned", false),
-                data.optInt("count", 0),
+                normalized.count,
                 rev,
                 expireAt,
-                "plugin"));
+                "plugin",
+                normalized.progress,
+                normalized.actions));
         return true;
     }
 

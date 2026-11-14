@@ -20,10 +20,12 @@ public class DeckSlotModelTest {
     @Test
     public void legacyConstructorKeepsOldDefaults() {
         DockSlotBus.Slot s = new DockSlotBus.Slot("x", 40, "任务", "1 个在跑", "jobs", false);
-        assertEquals("display", s.kind);
+        assertEquals("state", s.kind);
         assertEquals("state", s.board);
         assertFalse(s.pinned);
         assertEquals(0, s.count);
+        assertEquals(0, s.progress);
+        assertTrue(s.actions.isEmpty());
     }
 
     @Test
@@ -39,7 +41,7 @@ public class DeckSlotModelTest {
     @Test
     public void blankKindAndBoardFallBack() {
         DockSlotBus.Slot s = new DockSlotBus.Slot("t", 30, "任务", "", "", false, "", "", false, -5);
-        assertEquals("display", s.kind);
+        assertEquals("state", s.kind);
         assertEquals("state", s.board);
         assertEquals("count never negative", 0, s.count);
     }

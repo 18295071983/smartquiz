@@ -14,7 +14,10 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.oilquiz.app.ai.chat.status.DeckRowModel;
 import com.oilquiz.app.ai.chat.status.DockSlotBus;
+import com.oilquiz.app.ai.chat.status.SlotAction;
+import com.oilquiz.app.ai.chat.status.SlotKind;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -35,6 +38,9 @@ public class RemoteDeckListActivity extends Activity {
 
     /** 待执行动作：聊天页 onResume 消费一次 */
     public static volatile String pendingAction = null;
+    /** ④（2026-11-15）：行内按钮点击的 {slotId, actionId}，同样由聊天页 onResume 消费一次 */
+    public static volatile String pendingInlineSlotId = null;
+    public static volatile String pendingInlineActionId = null;
 
     public static void open(Context ctx) {
         Intent it = new Intent(ctx, RemoteDeckListActivity.class);
@@ -110,8 +116,15 @@ public class RemoteDeckListActivity extends Activity {
         setTitle("电脑状态");
     }
 
-    /** 一行：圆角底 + 标题/细节 + 箭头（有动作才可点） */
-    private View row(DockSlotBus.Slot s) {
+    /**
+     * 一行：圆角底 + 标题/细节 + 箭头（有动作才可点）。
+     *
+     * <p>④（2026-11-15）：同一份 {@link DeckRowModel} 决定 kind 形态 —— progress 在副标题下
+     * 补细进度条 + 百分比，list 右侧「N 条」徽标，action 右侧 1–2 个胶囊按钮。按钮点击记
+     * {@code {slotId, actionId}} 后关页，聊天页用既有分发执行；**不会**再打开一层列表。</p>
+     */
+    private View row(final DockSlotBus.Slot s) {
+        DeckRowModel model = DeckRowModel.of(s);
         boolean clickable = s.action != null && !s.action.isEmpty();
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -119,29 +132,31 @@ public class RemoteDeckListActivity extends Activity {
         row.setPadding(dp(14), dp(12), dp(14), dp(12));
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(12));
-        bg.setColor(s.warn ? 0x2EE65100 : 0x14000000);
+        bg.setColor(model.warn ? 0x2EE65100 : 0x14000000);
         row.setBackground(bg);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.bottomMargin = dp(8);
         row.setLayoutParams(lp);
 
-        View dot = new View(this);
-        GradientDrawable dotBg = new GradientDrawable();
-        dotBg.setShape(GradientDrawable.OVAL);
-        dotBg.setColor(s.warn ? 0xFFE65100 : 0xFF9E9E9E);
-        dot.setBackground(dotBg);
-        LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(6), dp(6));
-        dotLp.rightMargin = dp(10);
-        row.addView(dot, dotLp);
+        if (!SlotKind.PROGRESS.equals(model.kind)) {
+            View dot = new View(this);
+            GradientDrawable dotBg = new GradientDrawable();
+            dotBg.setShape(GradientDrawable.OVAL);
+            dotBg.setColor(model.warn ? 0xFFE65100 : 0xFF9E9E9E);
+            dot.setBackground(dotBg);
+            LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(6), dp(6));
+            dotLp.rightMargin = dp(10);
+            row.addView(dot, dotLp);
+        }
 
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         TextView t = new TextView(this);
         t.setText(s.title);
         t.setTextSize(15);
-        t.setTextColor(s.warn ? 0xFFB23C00 : 0xFF1F1F1F);
-        if (s.warn) t.setTypeface(null, Typeface.BOLD);
+        t.setTextColor(model.warn ? 0xFFB23C00 : 0xFF1F1F1F);
+        if (model.warn) t.setTypeface(null, Typeface.BOLD);
         col.addView(t);
         if (s.detail != null && !s.detail.isEmpty()) {
             TextView d = new TextView(this);
@@ -151,8 +166,31 @@ public class RemoteDeckListActivity extends Activity {
             d.setPadding(0, dp(3), 0, 0);
             col.addView(d);
         }
+        if (SlotKind.PROGRESS.equals(model.kind)) {
+            LinearLayout line = new LinearLayout(this);
+            line.setOrientation(LinearLayout.HORIZONTAL);
+            line.setGravity(Gravity.CENTER_VERTICAL);
+            line.setPadding(0, dp(4), 0, 0);
+            line.addView(deckProgressBar(model.progress, model.warn));
+            TextView pct = new TextView(this);
+            pct.setText(model.progress + "%");
+            pct.setTextSize(12f);
+            pct.setTextColor(model.warn ? 0xFFB23C00 : 0xFF6B6B6B);
+            LinearLayout.LayoutParams pctLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            pctLp.leftMargin = dp(6);
+            line.addView(pct, pctLp);
+            col.addView(line);
+        }
         row.addView(col, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        if (SlotKind.LIST.equals(model.kind)) {
+            row.addView(deckCountBadge(model.count));
+        } else if (SlotKind.ACTION.equals(model.kind)) {
+            LinearLayout buttons = deckInlineActions(s);
+            if (buttons != null) row.addView(buttons);
+        }
 
         if (clickable) {
             TextView arrow = new TextView(this);
@@ -161,11 +199,92 @@ public class RemoteDeckListActivity extends Activity {
             arrow.setTextColor(0xFF8A8A8A);
             row.addView(arrow);
             row.setOnClickListener(v -> {
+                pendingInlineSlotId = null;
+                pendingInlineActionId = null;
                 pendingAction = s.action;
                 finish();
             });
         }
         return row;
+    }
+
+    /** ④：全屏列表里的细进度条（高 4dp；与甲板同一套"轨道 + 截断填充"）。 */
+    private View deckProgressBar(int progress, boolean warn) {
+        int width = dp(150);
+        int height = Math.max(2, dp(4));
+        android.widget.FrameLayout box = new android.widget.FrameLayout(this);
+        View track = new View(this);
+        GradientDrawable trackBg = new GradientDrawable();
+        trackBg.setCornerRadius(height / 2f);
+        trackBg.setColor(0x1F000000);
+        track.setBackground(trackBg);
+        box.addView(track, new android.widget.FrameLayout.LayoutParams(width, height));
+        int fillWidth = Math.round(width * (Math.max(0, Math.min(100, progress)) / 100f));
+        if (fillWidth > 0) {
+            View fill = new View(this);
+            GradientDrawable fillBg = new GradientDrawable();
+            fillBg.setCornerRadius(height / 2f);
+            fillBg.setColor(warn ? 0xFFE65100 : 0xFF2F5BD6);
+            fill.setBackground(fillBg);
+            box.addView(fill, new android.widget.FrameLayout.LayoutParams(fillWidth, height));
+        }
+        box.setLayoutParams(new LinearLayout.LayoutParams(width, height));
+        return box;
+    }
+
+    /** ④：全屏列表里的「N 条」徽标。 */
+    private View deckCountBadge(int count) {
+        TextView badge = new TextView(this);
+        badge.setText(Math.max(0, count) + " 条");
+        badge.setTextSize(12f);
+        badge.setTextColor(0xFF2F5BD6);
+        badge.setGravity(Gravity.CENTER);
+        badge.setPadding(dp(9), dp(3), dp(9), dp(3));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(11));
+        bg.setColor(0x142F5BD6);
+        badge.setBackground(bg);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = dp(8);
+        badge.setLayoutParams(lp);
+        return badge;
+    }
+
+    /** ④：全屏列表里的 1–2 个行内胶囊按钮；每个按钮自己消费点击。 */
+    private LinearLayout deckInlineActions(final DockSlotBus.Slot s) {
+        if (s == null || s.actions == null || s.actions.isEmpty()) return null;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        int shown = 0;
+        for (final SlotAction a : s.actions) {
+            if (a == null || !a.isValid() || shown >= SlotAction.MAX_ACTIONS) continue;
+            TextView btn = new TextView(this);
+            btn.setText(a.label);
+            btn.setTextSize(12f);
+            btn.setMaxLines(1);
+            btn.setGravity(Gravity.CENTER);
+            btn.setPadding(dp(10), dp(4), dp(10), dp(4));
+            GradientDrawable bg = new GradientDrawable();
+            bg.setCornerRadius(dp(12));
+            bg.setColor(a.isPrimary() ? 0xFF2F5BD6 : 0x142F5BD6);
+            btn.setBackground(bg);
+            btn.setTextColor(a.isPrimary() ? 0xFFFFFFFF : 0xFF2F5BD6);
+            btn.setClickable(true);
+            btn.setOnClickListener(v -> {
+                pendingAction = null;
+                pendingInlineSlotId = s.id;
+                pendingInlineActionId = a.id;
+                finish();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.leftMargin = dp(shown == 0 ? 8 : 5);
+            box.addView(btn, lp);
+            shown++;
+        }
+        return shown == 0 ? null : box;
     }
 
     private int dp(float v) {

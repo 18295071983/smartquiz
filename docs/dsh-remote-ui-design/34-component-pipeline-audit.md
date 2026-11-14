@@ -1167,11 +1167,12 @@ base64 payload ≤ 512 KiB、单边 ≤ 4096；先 bounds 再按 2048 采样解�
 data:image 硬限、校验器日志文本变化、嵌套卡绑定只求值一次、卡片内部输入不回写外层、
 style 不覆盖、`items` 不做 children 等 —— 见 §7.4。
 
-## 5. 插槽甲板：语义、rev/TTL/epoch、档位、上限、快照
+## 5. 插槽甲板：语义、rev/TTL/epoch、档位、上限、快照、kind/actions
 
 > 本章解决什么问题：瞬时状态（后台任务、目标、压缩、重试、插话队列、权限…）不该留在
 > 消息流里变成一张张「已完成但还在」的卡。本章定义甲板的职责边界，并用 rev/TTL/epoch、
-> 命名档位、容量上限与快照拉取，治「同状态两行、旧帧覆盖、生产者失联残留、重连空板」。
+> 命名档位、容量上限与快照拉取，治「同状态两行、旧帧覆盖、生产者失联残留、重连空板」；
+> §5.13 再补上 kind 渲染契约与行内 actions。
 
 ### 5.1 语义与职责（旧 §8 引 + §9.3）
 
@@ -1468,18 +1469,108 @@ App 侧：
 `RemoteSlotBridge.apply`（日志里的「条数=20」），再被总线按 16 条上限淘汰 4 条 p5 ——
 与推帧同一条路径、同一套 rev/epoch/TTL 规则。
 
+**第 4 轮：kind 契约 + 内联 actions（④，2026-11-15 04:42–04:56）**
+
+| 项 | 结果 |
+|---|---|
+| `SlotKindTest`（新增，纯 JVM） | 17/17：默认 state、display/toggle 旧别名、未知 kind→state+警告、state 忽略 progress/count/actions、progress 取整/夹到 0–100/缺字段降级、list count 取整/&gt;0/缺字段降级、action 最多 2 个/坏项丢弃/重复 id 丢弃/style 归一、Slot 存取与 withSource、effectiveKind 兜底、toJson |
+| `DockSlotBusTest` | 17/17（原 16 + 新增 actions/progress 存取与 withSource 保留） |
+| `RemoteSlotBridgeTest` | 27/27（原 19 + 新增 8：未知 kind→state、display→state、progress 夹值/缺值降级、list count、action 解析/截断/缺 actions 降级、批量快照带 actions） |
+| `DeckSlotModelTest` | 6/6（默认 kind 断言随契约改为 state；旧用例语义不变） |
+| 插件 `slot.test.mjs`（真 WS + 真 HTTP） | 21/21（原 15 + 新增 6：progress 夹值、未知 kind warn、必填不匹配降级、list count、action 透传/截断/style、旧 display/无 kind→state） |
+| 插件既有自测 | `ws_frames.test.mjs` 10/10、`caps.test.mjs` 11/11、`cardcheck.test.mjs` 23/23；`node --check index.js` OK |
+| assets 同步 | `tools/.../index.js` 与 `src/main/assets/remote_dsh/plugin/index.js` SHA256 `ACF37897BBF6383D0EC08A325C7B3C76A00D2C39746AD0F2627EBD024EB682F2`（字节一致） |
+| 编译 | `gradlew --offline assembleDebug` BUILD SUCCESSFUL |
+| 装机 APK | `答题宝-debug-2.2.apk` SHA256 `2678D777B66F648F0A87D4D47C7070DBEAAB3FD41541A20EEB816050A82E4822`，`adb -s 192.168.1.10:41193 install -r` Success，冷启进入 AIChatActivity |
+| 真机 · 四种 kind 渲染 | 用现有 `POST /v2/action {action:'ui.slot'}`（新增 kind/progress/count/actions 透传，不新开端点）推 list/progress/state/action 四条。甲板截图 `build/deck-kind.png`：list 行右侧「3 条」、progress 行细进度条 + `42%`、action 行「调整/任务」两个胶囊；全屏列表截图 `build/deck-kind-list.png`：四种 kind + 权限槽（action，按钮「调整」）同屏。uiautomator dump `build/deck-kind-ui.xml` / `build/deck-kind-list.xml` 含对应文本与 `42%` |
+| 真机 · 行内分发 | 甲板 action 行点「任务」：logcat `[dock] 行内动作 slot=kind-action-demo action=jobs` → `RemoteDshInsightActivity`（**不是**甲板全屏列表）；全屏列表点「任务」同样进 Insight；点权限槽/演示动作的「调整」→ 权限变更对话框「变更权限（当前：完全访问 · 审批:从不询问）」 |
+| 全量单测 | 2303 项中 18 项**既有失败**（`DshUiCatalogLoaderTest` 默认 1/2、`StatusDeckControllerTest` 同因、`DshEventWiringTest`/`DshTimelineTest`/`DshProjection*`/`DshCardsB14Test` 等卡片投影类，均不引用插槽代码）；本轮定向 67 项全绿 |
+
+
 ### 5.12 改动文件（旧 §20.8 + §22.7）
 
 - App：`status/SlotPriorities.java`（新，第 2 轮）、`status/SlotLedger.java`（新，第 1 轮）、
   `status/DockSlotBus.java`、`tool/RemoteSlotBridge.java`、`ui/activity/AIChatActivity.java`、
   `tool/RemoteStatusSlots.java`、`tool/RemoteCommandExecutor.java`、
   `tool/RemoteConnection.java`（第 2 轮加快照触发）
+- 第 4 轮（④）：`status/SlotKind.java`（新）、`status/SlotAction.java`（新）、
+  `status/DeckRowModel.java`（携带 kind/progress/actions）、`status/DockSlotBus.java`
+  （Slot 增 `progress`/`actions` 与完整构造）、`tool/RemoteSlotBridge.java`（归一化/降级）、
+  `ui/activity/AIChatActivity.java`（甲板行内按钮/进度条/徽标 + 分发重载）、
+  `ui/activity/RemoteDeckListActivity.java`（列表同样渲染 + pending {slotId,actionId}）
 - 测试：`SlotPrioritiesTest.java`（新）、`DockSlotBusTest.java`、`SlotLedgerTest.java`（新）、
-  `tool/RemoteSlotBridgeTest.java`（新）
+  `tool/RemoteSlotBridgeTest.java`（新）、`status/SlotKindTest.java`（新，第 4 轮）
 - 插件：`tools/dsh-plugin-smartquiz-remote/index.js`、`slot.test.mjs`（新）、
   `src/main/assets/remote_dsh/plugin/index.js`（同步）
 
-### 5.13 本章边界（见 §7.5）
+### 5.13 kind 契约与内联 actions（④，2026-11-15）
+
+病历：`kind` 此前只有零散取值（`display` / `list`…），没有「这种 kind 哪些字段有意义」的表；
+插件和 App 各猜一套，同一帧在甲板、全屏列表、快照里可能被画成不同形态。本轮收敛成 4 种，
+并让「我能做什么」从「点整行进列表再点」缩短为甲板行内按钮。
+
+**四种 kind（每种只有表中字段有意义，其余忽略）**
+
+| kind | 必填 | 可选 | 渲染 |
+|---|---|---|---|
+| `state`（默认） | `title` | `detail`、`warn`、`level` | 圆点 + 标题 + 副标题一行 |
+| `progress` | `title`、`progress`(0–100) | `detail` | 标题 + 细进度条 + 百分比 |
+| `list` | `title`、`count`(>0) | `detail` | 标题 + 右侧「N 条」徽标 |
+| `action` | `title`、`actions[]`(1–2) | `detail` | 标题 + 右侧内联胶囊按钮 |
+
+- **默认与旧值**：没给 `kind` = `state`；2026-11-14 U1 留下的 `display` / `toggle` 是旧别名，
+  静默归一成 `state`，不回 warn。旧帧（无 `kind` / `actions`）的展示行为不变。
+- **字段归零**：`Slot` 只保留当前 kind 有意义的字段 —— 非 progress 的 `progress=0`，非 list 的
+  `count=0`，非 action 的 `actions=[]`；避免「状态行里混进进度条/按钮」。
+- **state 的 title**：文档口径是必填；只有 `detail` 的 2026-11-13 前老帧仍允许（App 把 detail
+  当标题），不为了校验把老帧打掉。
+
+**降级与 warn（插件、App 同规则，均不 422）**
+
+| 入站 | 处理 |
+|---|---|
+| 未知 `kind`（如 `sparkline`） | 按 `state` 渲染 + 回 warn |
+| `progress` 缺 `progress` / 非数字 / 越界 | 缺/非数字 → warn + 降级 `state`；越界夹到 0–100 |
+| `list` 缺 `count` 或 `count<=0` | warn + 降级 `state` |
+| `action` 的 `actions` 清洗后为空 | warn + 降级 `state` |
+| 非 `state` 缺 `title` | warn + 降级 `state`（state 本身允许 detail-only 老帧） |
+| 降级后 | `progress/count/actions` 一并归零，只按 state 画 |
+
+- 插件：`broadcastSlot` 内调 `normalizeSlotFields`，**每一帧**落 `kind/progress/count/actions` 后再
+  `streamBroadcast` + 记入 `SLOT_LAST`；warnings 进 `SLOT_LAST.warnings`，`pushUiSlot` 返回给
+  `phone_ui` / `POST /v2/action {action:'ui.slot'}`（工具文本/响应 `warnings`），日志用
+  `warnOnce('slot-kind-<id>')` 只提醒一次。
+- App：`RemoteSlotBridge.apply` 调 `SlotKind.normalize(data)`，同规则降级并打
+  `[dock] kind 归一化 id=… → state：…`；`Slot` 构造再按 kind 归零字段，渲染前
+  `DeckRowModel.of` 用 `SlotKind.effectiveKind` 再兜一层（直接 new 出「action 但没有 actions」
+  的槽也画成 state，不出空按钮）。
+
+**actions 帧与点击分发**
+
+```json
+"actions": [ { "id": "permission", "label": "调整", "style": "primary" },
+             { "id": "jobs", "label": "任务" } ]
+```
+
+- 规则：最多 2 个；`id`/`label` 必填，空项/非对象丢弃；同 `id` 只留第一个；`style` 只有
+  `primary`/`plain`，缺省或写错按 plain。截断/丢弃都回 warn，不拒帧。
+- 渲染：甲板行与 `RemoteDeckListActivity` 行右侧都画胶囊按钮；按钮自己消费点击，**不会**
+  触发父行的「打开全屏列表」。
+- 分发：`onDockSlotInlineAction(slotId, actionId)` → `onDockSlotClick(slotId, action)`；`slotId`
+  只进日志，`actionId` 仍按既有动作语义解释（`jobs`/`permission`/`queue`…）——不新增第二条
+  动作通道。全屏列表点按钮时把 `{slotId, actionId}` 暂存到
+  `RemoteDeckListActivity.pendingInlineSlotId/pendingInlineActionId`，聊天页 `onResume` 消费。
+- 无 `actions` 时：行点击、箭头、`action` 分发与改动前完全一致。
+
+**插件接线**：`inbox` 用 `kind:list` + `count`（排队 N 条）；`permission` 用 `kind:action` +
+`actions:[{id:'permission', label:'调整', style:'primary'}]`（没有"允许/拒绝"这种待审批动作 ——
+审批走独立 `approval` 帧/对话框，不硬造）；`jobs`/`subagents`/`goal`/`mcp`/`schedule`/`retry`/
+`compaction` 及 `phone_ui` 通用帧显式/default 为 `state`。`GET /v2/slots` 每条增加 `progress`
+与 `actions`（与推帧同一份 `SLOT_LAST`，App 逐条走同一个 `apply`）。
+
+验证与真机见 §5.11 第 4 轮；本章边界见 §7.5。
+
+### 5.14 本章边界（见 §7.5）
 
 溢出聚合只做可点一行、上限是总线级、快照只覆盖插件内存、拉取只在连接建立时、level 未参与
 排序之外的逻辑、compaction 无周期心跳、mcp 只增不减 —— 见 §7.5。
@@ -1667,6 +1758,13 @@ ChatMessage ──AssistantTurn──▶ parts[]：reasoning / text / tool_call 
   `mcp` 只增不减，靠断连 clear/重启消失（见 §5.5）。
 - **同 rev 复活收紧的边界**：`clear()` 已清水位，「断连后按原 rev 补发恢复」只走 `prev==null`；
   如果未来需要跨 `clear()` 的补发恢复，要重新设计水位（见 §5.4）。
+- **kind 只覆盖展示形态，不新增动作语义**：`action` 行的 `actionId` 仍必须命中既有动作名
+  （`jobs`/`permission`/`queue`…），没有自定义 RPC；按钮最多 2 个、`style` 只有 primary/plain；
+  按钮点击不打开全屏列表，行本身无 actions 时行为不变（见 §5.13）。
+- **progress 不会自己动**：没有轮询/动画/ETA，生产者每次更新都要重新推帧（与 TTL 续期同一套）；
+  `list` 的 count 只是徽标，点它不会就地展开列表（仍进全屏列表）。
+- **未知 kind 的 warn 只回给生产者**：插件日志 + `/v2/action` 响应 `warnings`（`phone_ui` 文本），
+  App 侧只打 `[dock] kind 归一化` 日志；用户界面不会额外标「这条降级了」，避免瞬态槽变吵。
 - 未改：事件分流、投影、卡片渲染；`phone_ui` 的历史 `priority` 参数仍保留（数值语义不变）。
 
 第 6 章（消息流渲染与回收）没有独立未做项；相关限制分别归入 §7.3（投影）与 §7.4（卡片）。

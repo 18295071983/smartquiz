@@ -328,14 +328,17 @@ await test('/v2/slots 快照：结构 / 排序 / ttl 剩余', async () => {
 
   const got = json.slots.find((s) => s.id === 'snap-a');
   assert.ok(got, '快照里应有刚推的槽');
-  for (const k of ['id', 'rev', 'ttl_ms', 'priority', 'level', 'title', 'detail', 'kind', 'count']) {
+  for (const k of ['id', 'rev', 'ttl_ms', 'priority', 'level', 'title', 'detail',
+    'kind', 'progress', 'actions', 'count']) {
     assert.ok(Object.prototype.hasOwnProperty.call(got, k), '快照槽必须含 ' + k);
   }
   assert.equal(got.rev, pushed.rev, '快照沿用最近 rev');
   assert.equal(got.priority, 20);
   assert.equal(got.level, 'p3');
   assert.equal(got.title, '快照这条');
-  assert.equal(got.kind, 'display');
+  assert.equal(got.kind, 'state');
+  assert.equal(got.progress, 0);
+  assert.deepEqual(got.actions, []);
   assert.equal(got.count, 0);
   assert.ok(got.ttl_ms > 0 && got.ttl_ms <= 8000, 'ttl_ms 应是剩余存活时间：' + got.ttl_ms);
   assert.equal(got.epoch, pushed.epoch);
@@ -381,6 +384,96 @@ await test('/v2/slots 快照：最多 32 条', async () => {
   assert.equal(json.count, 32);
   assert.ok(json.total >= 40, 'total 应报真实条数：' + json.total);
   assert.equal(json.truncated, true);
+});
+
+// ===== ④（2026-11-15）：kind 契约 + 内联 actions =====
+
+await test('kind=progress：progress 夹到 0-100，帧与快照都带', async () => {
+  const p = await pushSlot('kind-progress', '压缩中', { kind: 'progress', progress: 42.6 });
+  assert.equal(p.kind, 'progress');
+  assert.equal(p.progress, 43);
+  assert.equal(p.count, 0);
+  assert.deepEqual(p.actions, []);
+  assert.deepEqual(p.warnings, []);
+  const frame = await waitFor(() => slotFrames(ui, 'kind-progress').at(-1), 'kind-progress 帧');
+  assert.equal(frame.data.kind, 'progress');
+  assert.equal(frame.data.progress, 43);
+  const { json } = await getSlots(SID);
+  const got = json.slots.find((s) => s.id === 'kind-progress');
+  assert.equal(got.kind, 'progress');
+  assert.equal(got.progress, 43);
+
+  const over = await pushSlot('kind-progress-over', '超界', { kind: 'progress', progress: 180 });
+  assert.equal(over.progress, 100, '越界应夹到 100');
+});
+
+await test('未知 kind → state + warn，不 422', async () => {
+  const s = await pushSlot('kind-unknown', '未知形态', { kind: 'sparkline' });
+  assert.equal(s.kind, 'state');
+  assert.ok(
+    s.warnings.some((w) => /未知 kind=sparkline/.test(w)),
+    '应回 warn：' + JSON.stringify(s.warnings),
+  );
+});
+
+await test('必填不匹配 → warn + 降级 state', async () => {
+  const noProgress = await pushSlot('kind-progress-missing', '缺进度', { kind: 'progress' });
+  assert.equal(noProgress.kind, 'state');
+  assert.ok(noProgress.warnings.length > 0, '应回 warn');
+
+  const noCount = await pushSlot('kind-list-nocount', '清单', { kind: 'list' });
+  assert.equal(noCount.kind, 'state');
+
+  const noActions = await pushSlot('kind-action-empty', '动作', { kind: 'action' });
+  assert.equal(noActions.kind, 'state');
+
+  const noTitle = await pushSlot('kind-progress-notitle', '', {
+    kind: 'progress', progress: 20, detail: '只有副标题',
+  });
+  assert.equal(noTitle.kind, 'state', '非 state 缺 title 也要降级');
+});
+
+await test('kind=list：count 保留并出快照', async () => {
+  const s = await pushSlot('kind-list', '插话排队', { kind: 'list', count: 3, detail: '3 条等待' });
+  assert.equal(s.kind, 'list');
+  assert.equal(s.count, 3);
+  const { json } = await getSlots(SID);
+  const got = json.slots.find((x) => x.id === 'kind-list');
+  assert.equal(got.kind, 'list');
+  assert.equal(got.count, 3);
+});
+
+await test('kind=action：actions 透传、最多 2 个、style 归一化', async () => {
+  const s = await pushSlot('kind-action', '权限', {
+    kind: 'action',
+    actions: [
+      { id: 'permission', label: '调整', style: 'primary' },
+      { id: 'jobs', label: '任务' },
+      { id: 'extra', label: '多余' },
+    ],
+  });
+  assert.equal(s.kind, 'action');
+  assert.equal(s.actions.length, 2, 'actions 最多 2 个');
+  assert.deepEqual(s.actions[0], { id: 'permission', label: '调整', style: 'primary' });
+  assert.deepEqual(s.actions[1], { id: 'jobs', label: '任务', style: 'plain' });
+  assert.ok(s.warnings.some((w) => /超过 2 个/.test(w)), '截断要回 warn');
+
+  const frame = await waitFor(() => slotFrames(ui, 'kind-action').at(-1), 'kind-action 帧');
+  assert.equal(frame.data.kind, 'action');
+  assert.equal(frame.data.actions.length, 2);
+  const { json } = await getSlots(SID);
+  const got = json.slots.find((x) => x.id === 'kind-action');
+  assert.equal(got.kind, 'action');
+  assert.equal(got.actions[0].id, 'permission');
+  assert.equal(got.actions[0].style, 'primary');
+});
+
+await test('旧 kind=display → state；无 kind 默认 state', async () => {
+  const legacy = await pushSlot('kind-display', '旧帧', { kind: 'display' });
+  assert.equal(legacy.kind, 'state');
+  assert.equal(legacy.warnings.length, 0, '旧别名不该回 warn');
+  const plain = await pushSlot('kind-plain', '普通帧');
+  assert.equal(plain.kind, 'state');
 });
 
 // 收尾：关 socket，按结果退出（插件定时器不能让 node 挂着）

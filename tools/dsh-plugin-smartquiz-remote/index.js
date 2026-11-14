@@ -1700,6 +1700,7 @@ export function apply(ctx, config) {
       broadcastSlot('', {
         id: 'schedule',
         priority: SLOT_PRIORITY.p5,
+        kind: 'state',
         title: '定时任务',
         detail: items.length + ' 个启用中',
         action: 'schedule',
@@ -1803,6 +1804,132 @@ function presetSvcOf(ctx) {
   /** 空帧（只有 id）与 remove:true 同义 —— 手机端约定"title/detail 都空 = 移除"。 */
   const slotIsRemoval = (d) => d.remove === true
     || (!String(d.title ?? '').trim() && !String(d.detail ?? '').trim() && !(Number(d.count) > 0));
+
+  /**
+   * ④ kind 契约（2026-11-15）：state（默认）/ progress / list / action。
+   *
+   * <p>与 App 侧 {@code SlotKind.normalize} 同规则同输出：未知 kind 不 422，按 state 并回 warn；
+   * 必填不匹配（progress 无进度、list 无 count、action 无有效 actions、非 state 缺 title）
+   * 同样 warn + 降级 state。插槽是瞬态，坏帧降级比拒收更符合"现在是什么"的语义。</p>
+   *
+   * <p>每种 kind **只有**这些字段有意义，降级/其它 kind 会清零对应字段：
+   * state: title（detail/warn/level 可选）；progress: title + progress(0-100)；
+   * list: title + count(&gt;0)；action: title + actions[1-2]（{id,label,style?}）。</p>
+   */
+  const SLOT_KINDS = new Set(['state', 'progress', 'list', 'action']);
+  const SLOT_KIND_ALIAS = new Map([['display', 'state'], ['toggle', 'state']]);
+  const SLOT_ACTION_MAX = 2;
+
+  /** 清洗 actions[]：丢坏项、去重、≤2；警告不阻断（与 App SlotAction.parse 同口径）。 */
+  const normalizeSlotActions = (raw, warnings) => {
+    if (raw === undefined || raw === null) return [];
+    if (!Array.isArray(raw)) {
+      warnings.push('actions 必须是数组，已忽略');
+      return [];
+    }
+    const out = [];
+    const ids = new Set();
+    for (let i = 0; i < raw.length; i += 1) {
+      if (out.length >= SLOT_ACTION_MAX) {
+        warnings.push(`actions 超过 ${SLOT_ACTION_MAX} 个，只保留前 ${SLOT_ACTION_MAX} 个`);
+        break;
+      }
+      const item = raw[i];
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        warnings.push(`actions[${i}] 不是对象，已丢弃`);
+        continue;
+      }
+      const id = String(item.id ?? '').trim();
+      const label = String(item.label ?? '').trim();
+      if (!id || !label) {
+        warnings.push(`actions[${i}] 缺 id/label，已丢弃`);
+        continue;
+      }
+      if (ids.has(id)) {
+        warnings.push(`actions[${i}] id=${id} 重复，已丢弃`);
+        continue;
+      }
+      ids.add(id);
+      let style = String(item.style ?? '').trim().toLowerCase();
+      if (style && style !== 'primary' && style !== 'plain') {
+        warnings.push(`actions[${i}] style=${style} 未知，按 plain`);
+        style = 'plain';
+      }
+      out.push({ id, label, style: style || 'plain' });
+    }
+    return out;
+  };
+
+  const slotNumber = (raw) => {
+    if (raw === undefined || raw === null || raw === '') return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  /**
+   * 帧归一化：返回最终 kind + 该 kind 有意义的字段 + warnings。
+   * @param {object} data 原始帧
+   * @returns {{kind:string, progress:number, count:number, actions:Array, warnings:string[]}}
+   */
+  const normalizeSlotFields = (data) => {
+    const warnings = [];
+    const rawKind = String(data?.kind ?? '').trim().toLowerCase();
+    let kind;
+    if (!rawKind) {
+      kind = 'state';
+    } else if (SLOT_KINDS.has(rawKind)) {
+      kind = rawKind;
+    } else if (SLOT_KIND_ALIAS.has(rawKind)) {
+      kind = SLOT_KIND_ALIAS.get(rawKind);
+    } else {
+      warnings.push(`未知 kind=${rawKind}，按 state 渲染`);
+      kind = 'state';
+    }
+
+    const title = String(data?.title ?? '').trim();
+    let progress = 0;
+    let count = 0;
+    let actions = kind === 'action' ? normalizeSlotActions(data?.actions, warnings) : [];
+
+    if (kind === 'progress') {
+      const p = slotNumber(data?.progress);
+      const missing = [];
+      if (!title) missing.push('title');
+      if (p === null) missing.push('progress(0-100)');
+      if (missing.length) {
+        warnings.push(`kind=progress 缺必填 ${missing.join('/')}，降级 state`);
+        kind = 'state';
+      } else {
+        progress = Math.max(0, Math.min(100, Math.round(p)));
+      }
+    } else if (kind === 'list') {
+      const c = slotNumber(data?.count);
+      if (!title) {
+        warnings.push('kind=list 缺必填 title，降级 state');
+        kind = 'state';
+      } else if (c === null || Math.floor(c) <= 0) {
+        warnings.push('kind=list 缺有效 count(>0)，降级 state');
+        kind = 'state';
+      } else {
+        count = Math.floor(c);
+      }
+    } else if (kind === 'action') {
+      if (!title) {
+        warnings.push('kind=action 缺必填 title，降级 state');
+        kind = 'state';
+      } else if (actions.length === 0) {
+        warnings.push('kind=action 缺有效 actions(1-2 个 {id,label})，降级 state');
+        kind = 'state';
+      }
+    }
+
+    if (kind === 'state') {
+      progress = 0;
+      count = 0;
+      actions = [];
+    }
+    return { kind, progress, count, actions, warnings };
+  };
   /**
    * **唯一**插槽下发入口：补 rev / ttl_ms、记住最近帧、再广播。
    * @param {string} sid 目标会话（'' = 全局；只影响订阅路由，不影响 rev 计数）
@@ -1829,6 +1956,15 @@ function presetSvcOf(ctx) {
       ? Math.max(0, Number(data.ttl_ms) || 0)
       : (SLOT_TTL_IDS.has(id) ? SLOT_TTL_MS : 0);
     /**
+     * ④：kind/progress/count/actions 先归一化再进帧 —— 甲板、全屏列表、快照三处看到的是
+     * **同一个** kind，不靠接收端各猜一套。坏帧只回 warn + 降级，不 422（插槽是瞬态）。
+     */
+    const normalized = normalizeSlotFields(data);
+    if (normalized.warnings.length > 0) {
+      warnOnce('slot-kind-' + id, '[smartquiz-remote] 插槽 kind 校验 id=' + id
+        + '：' + normalized.warnings.join('；'));
+    }
+    /**
      * §22：优先级在这里统一归一化 —— 帧里可只给 {@code level:'p2'}，
      * 也可以只给旧式 {@code priority:10}，两者都给时 **level 优先**（命名档位是新的唯一来源）。
      * 归一化后帧里同时带 priority（旧 App 排序用）与 level（新 App / 快照 / 诊断用）。
@@ -1837,10 +1973,22 @@ function presetSvcOf(ctx) {
     const priority = slotPriorityValue(data);
     const levelName = (levelValue === null ? '' : String(data.level).trim().toLowerCase())
       || slotLevelOfPriority(priority);
-    const frame = { ...data, priority, ...(levelName ? { level: levelName } : {}), rev, epoch: SLOT_EPOCH };
+    const frame = {
+      ...data,
+      kind: normalized.kind,
+      progress: normalized.progress,
+      count: normalized.count,
+      actions: normalized.actions,
+      priority,
+      ...(levelName ? { level: levelName } : {}),
+      rev,
+      epoch: SLOT_EPOCH,
+    };
     if (ttl > 0) frame.ttl_ms = ttl;
     else delete frame.ttl_ms;
-    SLOT_LAST.set(id, { sid: target, data: frame, at: now });
+    SLOT_LAST.set(id, {
+      sid: target, data: frame, at: now, warnings: normalized.warnings,
+    });
     streamBroadcast(target, { v: 2, type: 'ui/slot', data: frame });
     return frame;
   };
@@ -1905,6 +2053,7 @@ function presetSvcOf(ctx) {
       id: 'jobs',
       priority: SLOT_PRIORITY.p5,
       title: failed > 0 ? '任务（有失败）' : '任务',
+      kind: 'state',
       detail: running > 0
         ? `${running} 个在跑 · 共 ${list.length} 条`
         : `共 ${list.length} 条 · 空闲`,
@@ -1948,6 +2097,7 @@ function presetSvcOf(ctx) {
     broadcastSlot('', {
       id: 'subagents',
       priority: SLOT_PRIORITY.p5,
+      kind: 'state',
       title: '子代理',
       detail: live > 0
         ? `${live} 个在跑 · 共 ${active} 个`
@@ -1965,7 +2115,8 @@ function presetSvcOf(ctx) {
       return;
     }
     broadcastSlot(target, {
-      id: 'goal', session_id: sid || '', priority: SLOT_PRIORITY.p4, title: '目标', detail: g.title || '', action: 'goal',
+      id: 'goal', session_id: sid || '', priority: SLOT_PRIORITY.p4, kind: 'state',
+      title: '目标', detail: g.title || '', action: 'goal',
     });
   };
 
@@ -1977,7 +2128,8 @@ function presetSvcOf(ctx) {
       return;
     }
     broadcastSlot('', {
-      id: 'mcp', priority: SLOT_PRIORITY.p5, title: 'MCP 服务', detail: `${n} 个已用过`, action: 'mcp',
+      id: 'mcp', priority: SLOT_PRIORITY.p5, kind: 'state',
+      title: 'MCP 服务', detail: `${n} 个已用过`, action: 'mcp',
     });
   };
 
@@ -2051,9 +2203,13 @@ function presetSvcOf(ctx) {
     broadcastSlot('', {
       id: 'permission',
       priority: SLOT_PRIORITY.p2,
+      kind: 'action',
       title: '权限',
       detail,
       action: 'permission',
+      // ④：没有"允许/拒绝"这种待审批动作（审批走独立 approval 帧/对话框），
+      // 这里给权限槽真正能做的事：打开变更卡调整沙箱/审批策略。
+      actions: [{ id: 'permission', label: '调整', style: 'primary' }],
       warn: PERM_STATE.sandbox === 'danger-full-access',
     });
   };
@@ -2296,9 +2452,11 @@ function presetSvcOf(ctx) {
               ...(args?.ttl_ms === undefined ? {} : { ttl_ms: Number(args.ttl_ms) }),
             };
             const slot = pushUiSlot(args?.id, args?.priority, title, detail, extra);
+            const warning = Array.isArray(slot.warnings) && slot.warnings.length > 0
+              ? '（校验警告：' + slot.warnings.join('；') + '）' : '';
             return slot.removed
               ? '已移除手机插槽 ' + slot.id
-              : '已推送到手机插槽 ' + slot.id;
+              : '已推送到手机插槽 ' + slot.id + warning;
           }
           if (!title && !detail) return '未推送：title/detail 至少给一个';
           const tool = kind === 'notification' ? 'notification' : 'toast';
@@ -2438,7 +2596,7 @@ function presetSvcOf(ctx) {
         const n = Number(d.retry ?? d.attempt ?? 0) || 0;
         // ttl 默认 30s（SLOT_TTL_IDS），每次 retry 事件重新计时；turn/end 显式移除
         broadcastSlot(sid, {
-          id: 'retry', session_id: sid, priority: SLOT_PRIORITY.p1, kind: 'display', board: 'alert', warn: true,
+          id: 'retry', session_id: sid, priority: SLOT_PRIORITY.p1, kind: 'state', board: 'alert', warn: true,
           title: '模型重试', detail: n > 0 ? ('第 ' + n + ' 次重试中…') : '正在重试…',
         });
         return;
@@ -2462,7 +2620,7 @@ function presetSvcOf(ctx) {
       if (t === 'compaction/start' || t === 'compaction/end') {
         // B18：压缩是会话内的事，只发给该会话（否则别的对话也会看到"正在压缩"）
         broadcastSlot(sid, t === 'compaction/start'
-          ? { id: 'compaction', session_id: sid, priority: SLOT_PRIORITY.p3, title: '正在压缩上下文…' }
+          ? { id: 'compaction', session_id: sid, priority: SLOT_PRIORITY.p3, kind: 'state', title: '正在压缩上下文…' }
           : { id: 'compaction', session_id: sid, remove: true });
         return;
       }
@@ -2684,7 +2842,15 @@ function presetSvcOf(ctx) {
         detail: String(d.detail ?? ''),
         action: String(d.action ?? ''),
         warn: d.warn === true,
-        kind: String(d.kind ?? 'display'),
+        kind: String(d.kind ?? 'state'),
+        progress: Math.max(0, Math.min(100, Number(d.progress) || 0)),
+        actions: Array.isArray(d.actions)
+          ? d.actions.slice(0, SLOT_ACTION_MAX).map((a) => ({
+            id: String(a?.id ?? ''),
+            label: String(a?.label ?? ''),
+            style: String(a?.style ?? 'plain'),
+          }))
+          : [],
         board: String(d.board ?? 'state'),
         pinned: d.pinned === true,
         count: Math.max(0, Number(d.count) || 0),
@@ -2813,7 +2979,7 @@ function presetSvcOf(ctx) {
     if (!t && !d) {
       // 空帧 = 移除；broadcastSlot 会补 rev 并记住这条移除
       const frame = broadcastSlot(target, { id: slotId, ...(target ? { session_id: target } : {}) });
-      return { ...frame, removed: true };
+      return { ...frame, warnings: [], removed: true };
     }
     /**
      * §22：priority 只在**显式给出**时才写进帧 —— 0 是合法档位（p0 审批），
@@ -2832,7 +2998,8 @@ function presetSvcOf(ctx) {
       title: t,
       detail: d,
     });
-    return { ...frame, removed: false };
+    const rec = SLOT_LAST.get(slotId);
+    return { ...frame, warnings: rec?.warnings ?? [], removed: false };
   };
 
   /**
@@ -2906,8 +3073,19 @@ function presetSvcOf(ctx) {
         ...(body.ttl_ms !== undefined && body.ttl_ms !== null
           ? { ttl_ms: Number(body.ttl_ms) }
           : {}),
+        // ④：kind/progress/count/actions 走同一条 pushUiSlot → broadcastSlot，不新开端点。
+        // 未知 kind/必填缺失只在响应 warnings 里回，不 422（帧会被降级成 state）。
+        ...(body.kind !== undefined ? { kind: String(body.kind) } : {}),
+        ...(body.progress !== undefined ? { progress: body.progress } : {}),
+        ...(body.count !== undefined ? { count: body.count } : {}),
+        ...(body.actions !== undefined ? { actions: body.actions } : {}),
+        ...(body.board && String(body.board).trim() ? { board: String(body.board).trim() } : {}),
+        ...(body.pinned === true ? { pinned: true } : {}),
       });
-      return sendJson(res, 200, { ok: true, v: 2, action, slot });
+      return sendJson(res, 200, {
+        ok: true, v: 2, action, slot,
+        warnings: Array.isArray(slot?.warnings) ? slot.warnings : [],
+      });
     }
     if (action === 'permission.set') {
       // 权限槽的"变更卡"（2026-11-13）：手机选一个沙箱模式/审批策略，这里尽力落到宿主服务。
