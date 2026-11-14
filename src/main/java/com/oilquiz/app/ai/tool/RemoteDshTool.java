@@ -767,10 +767,21 @@ public class RemoteDshTool implements AITool {
      * @return 已发起的 WebSocket；失败会在 {@link DshSocketListener#onClosed} 里报
      */
     public static okhttp3.WebSocket openLiveSocket(Context c, String sid, DshSocketListener listener) {
+        return openLiveSocket(c, sid, listener, "/ws");
+    }
+
+    /**
+     * 按**端点**打开 WS（2026-11-14 端点分工）：
+     * {@code /ws/events} 只收事件、{@code /ws/ui} 只收插件 UI、{@code /ws/file} 只跑文件流。
+     * 拆开是为了"文件传输不堵审批/事件"——WS 没有消息优先级，混在一条 TCP 上必然后到后传。
+     */
+    public static okhttp3.WebSocket openLiveSocket(Context c, String sid, DshSocketListener listener,
+                                                   String channel) {
         RemoteDshTool tool = new RemoteDshTool(c);
         String base = tool.getBaseUrl();
         String wsBase = base.replaceFirst("^http://", "ws://").replaceFirst("^https://", "wss://");
-        String url = wsBase + "/ws?session_id="
+        String path = (channel == null || channel.isEmpty()) ? "/ws" : channel;
+        String url = wsBase + path + "?session_id="
                 + java.net.URLEncoder.encode(sid == null ? "" : sid)
                 + "&caps=" + java.net.URLEncoder.encode(RemoteCaps.csv())
                 + "&token=" + java.net.URLEncoder.encode(tool.getToken());

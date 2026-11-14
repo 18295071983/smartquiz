@@ -293,10 +293,19 @@ public final class RemoteChannel {
                     ready.countDown();
                     closedLatch.countDown();
                 }
-            });
+            }, "/ws/events");
         } catch (Throwable t) {
             return false;
         }
+        // UI 端点单独一条 socket（cmd / slot / 审批 / 提问）：文件传输或事件洪水不会堵住它
+        RemoteDshTool.openLiveSocket(app, sid, new RemoteDshTool.DshSocketListener() {
+            @Override public void onReady(int seq) { }
+            @Override public void onEvent(JSONObject event) {
+                if (!closed && event != null) listener.onEvent(event);
+            }
+            @Override public void onPulse(long serverTs, int seq) { }
+            @Override public void onClosed(String reason) { }
+        }, "/ws/ui");
 
         boolean established;
         try {

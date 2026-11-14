@@ -54,8 +54,10 @@ const CLI_PERM = { mode: 'danger-full-access', approval: 'never' };
 const STREAM_HUB = new Set();
 /** 当前挂着的 WebSocket 实时通道客户端（2026-11-14）：只用于 /status 观测 */
 const WS_CLIENTS = new Set();
-/** WS 连接元信息（ws → {sid, caps}）：推插件命令/文件时要按会话路由 */
+/** WS 连接元信息（ws → {sid, caps, channel}）：推插件命令/文件时要按会话和端点路由 */
 const WS_META = new Map();
+/** 每个端点的在线连接数（/status 观测用）：events / ui / file / ctl / all */
+const WS_CHANNEL_COUNT = new Map();
 /**
  * 客户端/工具推上来的自定义插槽（{@code ui/slot} / {@code phone_ui}）。
  *
@@ -2891,6 +2893,8 @@ function presetSvcOf(ctx) {
     // WebSocket 实时通道当前客户端数（2026-11-14）：面板/自检据此判断"手机是不是走 WS"。
     // 0 不代表没连——可能是走了 SSE（隧道链路）或还没连。
     ws_clients: WS_CLIENTS.size,
+    // 各端点在线数：看"是不是一条通道堵住另一条"（2026-11-14 端点分工）
+    ws_channels: Object.fromEntries(WS_CHANNEL_COUNT),
     // 主令牌最近一次被使用的时间：手机端只有在"还没换成设备令牌"或"用设备令牌失败退回主令牌"时才走主令牌，
     // 有值就说明当前有连接在用主令牌（面板据此提示，避免把"设备数 0"误读成"没人连着"）
     main_token_last_seen: mainTokenLastSeen,
@@ -4978,6 +4982,9 @@ function presetSvcOf(ctx) {
     // WS 直推（2026-11-14）：手机连着 WS 时立刻收到，不必等 /cmd/poll 那一轮；
     // 轮询保留给老客户端和 SSE 通道，两条路并存不冲突（手机按 cmd_id 去重）。
     for (const w of WS_CLIENTS) {
+      const meta = WS_META.get(w);
+      // 只推给"管 UI 的"端点：/ws（全功能）和 /ws/ui；事件/文件端点不该收 cmd
+      if (meta && meta.channel && meta.channel !== '/ws' && meta.channel !== '/ws/ui') continue;
       try {
         w.send(JSON.stringify({ type: 'cmd', id, tool: cmd.tool, args: cmd.args, created_at: cmd.createdAt }));
       } catch { /* 已断 */ }
@@ -6066,39 +6073,81 @@ function presetSvcOf(ctx) {
           }
         };
 
-        const handleWsConn = (ws, u) => {
+        /**
+         * 端点分工（2026-11-14）：一条 WS 混跑事件 + UI 指令 + 32MB 文件时，文件会把事件堵在后面
+         * （WS 没有消息优先级，TCP 上就是后到后传）。拆成独立 socket，各施其职：
+         *
+         * <pre>
+         *   /ws         全功能（旧客户端兼容）
+         *   /ws/events  只推 DSH 事件 + pulse；可 pull/ack     ← 高频、要低延迟
+         *   /ws/ui      只推插件 UI（cmd / slot / 审批 / 提问 / view）  ← 小包、要立刻到
+         *   /ws/file    只跑文件流（file_begin/chunk/end）      ← 大头、允许慢
+         *   /ws/ctl     只做 pull/ack/ping，回 batch/pong       ← 控制面
+         * </pre>
+         *
+         * <p>`out` 为 null 表示全放行；`inbound` 是该端点允许的客户端帧 ——
+         * 文件端点不接受 `pull`，事件端点不接受 `file_get`，免得一个端点被另一类流量带偏。</p>
+         */
+        const CHANNELS = {
+          '/ws': { out: null, inbound: new Set(['pull', 'ack', 'file_get', 'cmd_ack', 'ping']) },
+          '/ws/events': { out: new Set(['event', 'pulse']), inbound: new Set(['pull', 'ack', 'ping']) },
+          '/ws/ui': {
+            out: new Set(['cmd', 'ui/slot', 'ui_component', 'approval', 'approval_gone',
+              'question', 'question_gone', 'view', 'state', 'pulse']),
+            inbound: new Set(['cmd_ack', 'ping']),
+          },
+          '/ws/file': {
+            out: new Set(['file_begin', 'file_chunk', 'file_end', 'file_error']),
+            inbound: new Set(['file_get', 'ping']),
+          },
+          '/ws/ctl': { out: new Set(['batch', 'pong', 'hello']), inbound: new Set(['pull', 'ack', 'ping']) },
+        };
+
+        const handleWsConn = (ws, u, channel) => {
           const sid = String(u.searchParams.get('session_id') ?? '').trim();
           const caps = u.searchParams.get('caps') ?? '';
+          const chName = channel || '/ws';
+          const ch = CHANNELS[chName] ?? CHANNELS['/ws'];
           if (!sid) { try { ws.close(1008, 'session_id required'); } catch { /* 已断 */ } return; }
           touchConnection(sid, 'ws');
           const send = (o) => {
             if (!o) return;
             // 推送帧与 SSE 完全同构（type/event/pulse/…），手机两条通道共用一套解析
             if (o.type && o.type !== 'hello' && o.type !== 'pong' && !eventAllowed(o.type, caps)) return;
+            // 端点分工：文件帧只走 /ws/file，事件只走 /ws/events（/ws 全放行）
+            if (ch.out && o.type && !ch.out.has(o.type)) return;
             sendWs(ws, o);
           };
           const sub = { sid, caps, send };
           STREAM_HUB.add(sub);
           WS_CLIENTS.add(ws);
-          WS_META.set(ws, { sid, caps });
+          WS_META.set(ws, { sid, caps, channel: chName });
+          WS_CHANNEL_COUNT.set(chName, (WS_CHANNEL_COUNT.get(chName) ?? 0) + 1);
           let head = 0;
           try { head = Number(ctx.sessions?.get?.(sid)?.seq ?? 0) || 0; } catch { head = 0; }
           // 问候帧：把能力摊开，客户端据此决定用哪些帧（以后加能力不用改版本号）
           sendWs(ws, {
             type: 'hello', v: 2, session_id: sid, seq: head, server_time: Date.now(),
-            transport: 'ws',
-            features: { event: true, slot: true, cmd: true, file: true, pull: true, ack: true },
+            transport: 'ws', channel: chName,
+            features: ch.out
+              ? Object.fromEntries([...ch.out].map((k) => [k, true]))
+              : { event: true, slot: true, cmd: true, file: true, pull: true, ack: true },
             limits: { file_max: FILE_MAX, file_chunk: FILE_CHUNK, pull_max: 500 },
           });
           const timer = setInterval(() => {
             try { touchConnection(sid, 'ws'); ws.ping(); } catch { /* 已断 */ }
           }, 15000);
 
-          // ---- 客户端 → 服务端 ----
+          // ---- 客户端 → 服务端（按端点白名单）----
           ws.on('message', async (raw) => {
             let m;
             try { m = JSON.parse(String(raw)); } catch { return; }
             const t = String(m.type ?? '');
+            if (!ch.inbound.has(t)) {
+              // 该端点不接受这类请求：明确回错，别让客户端干等
+              sendWs(ws, { type: 'error', code: 'frame_not_allowed', frame: t, channel: chName });
+              return;
+            }
             if (t === 'ping') { sendWs(ws, { type: 'pong', ts: Date.now() }); return; }
             if (t === 'pull') {
               const r = await collectEvents(sid, Number(m.since ?? 0), Number(m.max ?? 200), caps);
@@ -6129,6 +6178,8 @@ function presetSvcOf(ctx) {
             STREAM_HUB.delete(sub);
             WS_CLIENTS.delete(ws);
             WS_META.delete(ws);
+            const n = (WS_CHANNEL_COUNT.get(chName) ?? 1) - 1;
+            if (n > 0) WS_CHANNEL_COUNT.set(chName, n); else WS_CHANNEL_COUNT.delete(chName);
           };
           ws.on('close', cleanup);
           ws.on('error', cleanup);
@@ -6136,7 +6187,7 @@ function presetSvcOf(ctx) {
         const onUpgrade = (req, socket, head) => {
           let u;
           try { u = new URL(req.url ?? '/', 'http://x'); } catch { try { socket.destroy(); } catch { /* 忽略 */ } return; }
-          if (u.pathname !== '/ws') {
+          if (!CHANNELS[u.pathname]) {
             // 不是我们的路径：不抢别人的连接，交回（没人处理就关掉）
             try { socket.destroy(); } catch { /* 忽略 */ }
             return;
@@ -6155,7 +6206,7 @@ function presetSvcOf(ctx) {
             } catch { /* 忽略 */ }
             return;
           }
-          wss.handleUpgrade(req, socket, head, (ws) => handleWsConn(ws, u));
+          wss.handleUpgrade(req, socket, head, (ws) => handleWsConn(ws, u, u.pathname));
         };
         lanServer.on('upgrade', onUpgrade);
         ctx.effect(() => () => {
