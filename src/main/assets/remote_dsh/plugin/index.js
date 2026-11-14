@@ -56,6 +56,13 @@ const STREAM_HUB = new Set();
 const WS_CLIENTS = new Set();
 /** WS 连接元信息（ws → {sid, caps, channel}）：推插件命令/文件时要按会话和端点路由 */
 const WS_META = new Map();
+/** 每个端点的运行统计（L1，2026-11-14）：连接次数 / 收帧数 / 最近收帧时间 / 关闭次数 */
+const WS_STATS = new Map();
+const wsStatOf = (ch) => {
+  let s = WS_STATS.get(ch);
+  if (!s) { s = { connects: 0, frames: 0, last_frame_at: 0, closes: 0 }; WS_STATS.set(ch, s); }
+  return s;
+};
 /** 每个端点的在线连接数（/status 观测用）：events / ui / file / ctl / all */
 const WS_CHANNEL_COUNT = new Map();
 /**
@@ -1070,6 +1077,26 @@ export function apply(ctx, config) {
   const CMD_ALLOW = new Set(['ui_component', 'toast', 'dialog', 'notification', 'reminder']);
   const CMD_MAX = 50;
   const CMD_TTL_MS = 10 * 60 * 1000;
+  /**
+   * 失败推送到手机（2026-11-14）：一轮跑挂时手机上以前**什么都看不到**，错误只在电脑端。
+   * 走 /cmd 同一条队列 + WS 直推，手机端按 ui_component 渲染成输入区上方的警示插槽。
+   */
+  const pushPhoneFailureSlot = (title, detail) => {
+    try {
+      const id = randomBytes(8).toString('hex');
+      const cmd = {
+        id, tool: 'ui_component', state: 'queued', createdAt: Date.now(), result: null, error: null,
+        args: { id: 'remote/error', title: String(title || '这一轮失败了').slice(0, 40),
+          detail: String(detail || '').slice(0, 80), priority: 5, action: 'attention' },
+      };
+      cmdQueue.set(id, cmd);
+      for (const w of WS_CLIENTS) {
+        const meta = WS_META.get(w);
+        if (meta && meta.channel && meta.channel !== '/ws' && meta.channel !== '/ws/ui') continue;
+        try { w.send(JSON.stringify({ type: 'cmd', id, tool: cmd.tool, args: cmd.args, created_at: cmd.createdAt })); } catch { /* 已断 */ }
+      }
+    } catch { /* 推送失败不影响主流程 */ }
+  };
   const pruneCommands = () => {
     const now = Date.now();
     for (const [id, c] of cmdQueue) {
@@ -2895,6 +2922,7 @@ function presetSvcOf(ctx) {
     ws_clients: WS_CLIENTS.size,
     // 各端点在线数：看"是不是一条通道堵住另一条"（2026-11-14 端点分工）
     ws_channels: Object.fromEntries(WS_CHANNEL_COUNT),
+    ws_stats: Object.fromEntries(WS_STATS),
     // 主令牌最近一次被使用的时间：手机端只有在"还没换成设备令牌"或"用设备令牌失败退回主令牌"时才走主令牌，
     // 有值就说明当前有连接在用主令牌（面板据此提示，避免把"设备数 0"误读成"没人连着"）
     main_token_last_seen: mainTokenLastSeen,
@@ -5197,7 +5225,7 @@ function presetSvcOf(ctx) {
     if (!agent) {
       try {
         let h = resumedHandles.get(target);
-        if (!h) { h = await ctx.agents.resume({ resumeSessionId: target }); if (h) rememberWarm(target, h); }
+        if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
         agent = h?.agent ?? h ?? null;
         resumed = Boolean(agent);
       } catch (e) { resumeError = String(e?.message ?? e).slice(0, 200); }
@@ -5273,7 +5301,7 @@ function presetSvcOf(ctx) {
          */
         const liveAgent = getLiveAgent(target) || warmAgentFor(target);
         const preset = liveAgent ? '' : await sessionAgentPreset(target);
-        if (liveAgent || preset) {
+        if (liveAgent || preset || true) {
           const ir = await runInProcessTurn(target, text, { signal: opts.signal, deadline: opts.deadline });
           if (ir?.reply) {
             r = { reply: ir.reply, via: ir.via, dshSession: target, debug: { via: ir.via, in_process: true, preset: preset || '(live)' } };
@@ -5315,6 +5343,7 @@ function presetSvcOf(ctx) {
       const dbg = { via: r.via, model: modelInfo(), selection: lastSelection, selectionInstaller, preset: lastPreset, ...r.debug };
       // 失败要说出来：以前 CLI 起不来时回 ok:true + 空 reply，手机端只显示「电脑没回话」
       if (!r.reply && r.error) {
+        pushPhoneFailureSlot('这一轮失败了', r.error);
         return sendJson(res, 200, { ok: false, action: 'prompt', session_id: sid, dsh_session_id: r.dshSession || '', reply: '', error: r.error, debug: dbg });
       }
       promptCount += 1;
@@ -5353,7 +5382,7 @@ function presetSvcOf(ctx) {
       let reply = rr.reply || lastText;
       if (s) for (const m of (s.deriveMessages?.() ?? [])) if (m?.role === 'assistant' && textOf(m)) reply = textOf(m);
       if (reply.length > cfg.maxReplyChars) reply = reply.slice(0, cfg.maxReplyChars);
-      if (!reply && rr.error) sse({ type: 'error', action: 'prompt', session_id: sid, error: rr.error });
+      if (!reply && rr.error) { pushPhoneFailureSlot('这一轮失败了', rr.error); sse({ type: 'error', action: 'prompt', session_id: sid, error: rr.error }); }
       else sse({ type: 'done', action: 'prompt', session_id: sid, dsh_session_id: rr.dshSession || '', reply, debug: { via: rr.via, ...rr.debug } });
     } catch (e) {
       sse({ type: 'error', action: 'prompt', session_id: sid, error: String(e?.message ?? e) });
@@ -5523,7 +5552,7 @@ function presetSvcOf(ctx) {
         if (!agent) {
           try {
             let h = resumedHandles.get(target);
-            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target }); if (h) rememberWarm(target, h); }
+            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
             agent = h?.agent ?? h ?? null;
             resumed = Boolean(agent);
           } catch (e) {
@@ -5683,7 +5712,7 @@ function presetSvcOf(ctx) {
         if (!agent) {
           try {
             let h = resumedHandles.get(target);
-            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target }); if (h) rememberWarm(target, h); }
+            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
             agent = h?.agent ?? h ?? null;
             resumed = Boolean(agent);
           } catch (e) {
@@ -5757,7 +5786,7 @@ function presetSvcOf(ctx) {
         if (!agent) {
           try {
             let h = resumedHandles.get(target);
-            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target }); if (h) rememberWarm(target, h); }
+            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
             agent = h?.agent ?? h ?? null;
             resumed = Boolean(agent);
           } catch (e) {
@@ -6127,6 +6156,7 @@ function presetSvcOf(ctx) {
           WS_CLIENTS.add(ws);
           WS_META.set(ws, { sid, caps, channel: chName });
           WS_CHANNEL_COUNT.set(chName, (WS_CHANNEL_COUNT.get(chName) ?? 0) + 1);
+          wsStatOf(chName).connects += 1;
           let head = 0;
           try { head = Number(ctx.sessions?.get?.(sid)?.seq ?? 0) || 0; } catch { head = 0; }
           // 问候帧：把能力摊开，客户端据此决定用哪些帧（以后加能力不用改版本号）
@@ -6147,6 +6177,7 @@ function presetSvcOf(ctx) {
             let m;
             try { m = JSON.parse(String(raw)); } catch { return; }
             const t = String(m.type ?? '');
+            { const s = wsStatOf(chName); s.frames += 1; s.last_frame_at = Date.now(); }
             if (!ch.inbound.has(t)) {
               // 该端点不接受这类请求：明确回错，别让客户端干等
               sendWs(ws, { type: 'error', code: 'frame_not_allowed', frame: t, channel: chName });
@@ -6182,6 +6213,7 @@ function presetSvcOf(ctx) {
             STREAM_HUB.delete(sub);
             WS_CLIENTS.delete(ws);
             WS_META.delete(ws);
+            wsStatOf(chName).closes += 1;
             const n = (WS_CHANNEL_COUNT.get(chName) ?? 1) - 1;
             if (n > 0) WS_CHANNEL_COUNT.set(chName, n); else WS_CHANNEL_COUNT.delete(chName);
           };
