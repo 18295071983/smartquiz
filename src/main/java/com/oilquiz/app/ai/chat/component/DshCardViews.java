@@ -371,6 +371,9 @@ final class DshCardViews {
                 col.addView(tv);
             }
             card.addView(col);
+            // 注意：这里**不要**自己再渲染 props.actions —— ComponentRegistry 对外层组件
+            // 已经统一包了一层动作行（renderActions），这里再加一遍就出现两个"改权限"按钮
+            // （2026-11-14 真机复现：一张卡两行按钮）。本类只负责卡面。
             return card;
         }
     }

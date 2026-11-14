@@ -217,6 +217,51 @@ public class DshEventWiringTest {
         assertTrue("投影必须把 todo_card 带进 components（否则界面上根本看不到）", found);
     }
 
+    // ---------------------------------------------------------------- B 档：状态卡 + 原生按钮
+
+    @Test
+    public void permissionEventsMergeIntoOneActionableCard() {
+        DshTimeline t = feedAll(
+                envelope("permission/preset", merge(located(1, 0), obj("preset", "workspace-write"))),
+                envelope("sandbox/mode", merge(located(1, 0), obj("mode", "workspace-write"))),
+                envelope("approval/policy", merge(located(1, 0), obj("policy", "ask"))));
+
+        assertEquals("三件套必须合成一张卡，别一次切换冒三张", 1, t.orderedCards().size());
+        DshCards.Card card = t.orderedCards().get(0);
+        assertEquals("dsh_notice", card.type);
+        assertEquals("permission-state", card.key);
+        assertEquals("可写工作区 · 审批:每次询问", card.props.optString("content"));
+        JSONArray actions = card.props.optJSONArray("actions");
+        assertNotNull("状态卡必须带原生按钮", actions);
+        assertEquals("改权限", actions.optJSONObject(0).optString("label"));
+        assertEquals("permission", actions.optJSONObject(0).optString("action"));
+    }
+
+    @Test
+    public void permissionCardUpdatesInPlaceWhenKnobChanges() {
+        DshTimeline t = feedAll(
+                envelope("sandbox/mode", merge(located(1, 0), obj("mode", "read-only"))),
+                envelope("approval/policy", merge(located(1, 0), obj("policy", "ask"))),
+                envelope("sandbox/mode", merge(located(1, 1), obj("mode", "danger-full-access"))),
+                envelope("approval/policy", merge(located(1, 1), obj("policy", "never"))));
+        assertEquals("同一 key 原地更新", 1, t.orderedCards().size());
+        assertEquals("完全访问 · 审批:从不询问",
+                t.orderedCards().get(0).props.optString("content"));
+    }
+
+    @Test
+    public void teamModeAndAgentPresetCarryPanelButton() {
+        DshTimeline t = feedAll(
+                envelope("team/mode", merge(located(1, 0), obj("mode", "协作"))),
+                envelope("agent-preset/selected", merge(located(1, 0), obj("agentPreset", "standard"))));
+        assertEquals(2, t.orderedCards().size());
+        for (DshCards.Card c : t.orderedCards()) {
+            JSONArray actions = c.props.optJSONArray("actions");
+            assertNotNull(c.key + " 应带按钮", actions);
+            assertEquals("insight", actions.optJSONObject(0).optString("action"));
+        }
+    }
+
     // ---------------------------------------------------------------- 工具
 
     private static JSONObject obj(Object... kv) {

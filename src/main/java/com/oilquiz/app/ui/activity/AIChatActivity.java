@@ -15712,12 +15712,55 @@ public class AIChatActivity extends BaseActivity {
         // 离开页面后，审批/任务失败才需要弹通知（页内已有审批卡，重复提醒是打扰）
         sForegroundForAlerts = false;
         stopRemoteBarTick();
+        // M9 B 档：卡片按钮的本地动作只在页面活着时有意义，摘掉免得静态表拿着 Activity
+        unregisterCardLocalActions();
         super.onPause();
+    }
+
+    /**
+     * M9 B 档（2026-11-14）：卡片上的原生按钮交回页面执行。
+     *
+     * <p>{@code DshCards} 给权限/团队/预设这类状态卡挂了 {@code actions}（改权限 / 看电脑面板），
+     * 点在 {@code ComponentActions.execute} 的 default 分支被这里注册的三个动作接住。
+     * 不这么做的话，点了只会弹"未知动作: permission"。</p>
+     */
+    private void registerCardLocalActions() {
+        try {
+            com.oilquiz.app.ai.chat.component.ComponentActions.registerLocalAction("permission",
+                    (c, v) -> {
+                        showPermissionChange();
+                        return true;
+                    });
+            com.oilquiz.app.ai.chat.component.ComponentActions.registerLocalAction("insight",
+                    (c, v) -> {
+                        startActivity(new android.content.Intent(this,
+                                com.oilquiz.app.ai.tool.RemoteDshInsightActivity.class));
+                        return true;
+                    });
+            com.oilquiz.app.ai.chat.component.ComponentActions.registerLocalAction("session_pick",
+                    (c, v) -> {
+                        openRemoteSessionPicker();
+                        return true;
+                    });
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "注册卡片本地动作失败: " + t.getMessage());
+        }
+    }
+
+    private void unregisterCardLocalActions() {
+        try {
+            com.oilquiz.app.ai.chat.component.ComponentActions.unregisterLocalAction("permission");
+            com.oilquiz.app.ai.chat.component.ComponentActions.unregisterLocalAction("insight");
+            com.oilquiz.app.ai.chat.component.ComponentActions.unregisterLocalAction("session_pick");
+        } catch (Throwable ignored) {
+            // 摘不掉也不影响（页面已不可见）
+        }
     }
 
     @Override
     protected void onResume() {
         sForegroundForAlerts = true;
+        registerCardLocalActions();
         try {
             android.content.Intent it = getIntent();
             String want = it == null ? null : it.getStringExtra("open_session_id");

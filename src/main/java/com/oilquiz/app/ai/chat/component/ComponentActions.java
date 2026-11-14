@@ -137,6 +137,38 @@ public final class ComponentActions {
     }
 
     /**
+     * 宿主页面注册的"本地动作"（2026-11-14，M9 B 档）。
+     *
+     * <p>有些按钮点击必须由**当前页面**执行，而不是发 Intent 或回传给电脑：
+     * 「改权限」要弹页面里的变更卡、「看面板」「选会话」要带页面状态。
+     * 这类动作按名字注册进来，{@link #execute} 的 default 分支优先试它；
+     * 页面 onPause 时要摘掉，否则静态表会一直拿着 Activity。</p>
+     */
+    public interface LocalAction {
+        /**
+         * @param context 触发点击的上下文
+         * @param value   动作自带的 value（可空）
+         * @return 是否已处理（false 时继续走"未知动作"兜底）
+         */
+        boolean run(Context context, String value);
+    }
+
+    private static final java.util.concurrent.ConcurrentHashMap<String, LocalAction> localActions =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 注册/覆盖一个本地动作（页面 onResume 调）。 */
+    public static void registerLocalAction(String name, LocalAction action) {
+        if (name != null && !name.isEmpty() && action != null) {
+            localActions.put(name, action);
+        }
+    }
+
+    /** 摘掉本地动作（页面 onPause/onDestroy 调，避免静态表持有 Activity）。 */
+    public static void unregisterLocalAction(String name) {
+        if (name != null) localActions.remove(name);
+    }
+
+    /**
      * 创建交互卡片时**统一归一 actions**（SystemUIComponentTool / PythonToolManager 两条生产者共用）：
      * 每个 action 注入 {@code component_id}（get_result 的地址），只有按钮自己没有任何可执行内容
      * 才默认 {@code action:"callback"}。
@@ -565,6 +597,16 @@ public final class ComponentActions {
                         openLink(context, firstNonEmpty(link, value));
                         return;
                     default: {
+                        // 2026-11-14（M9 B 档）：先看页面注册的本地动作（改权限/看面板/选会话），
+                        // 这些只能由当前 Activity 执行，发 Intent 或回传电脑都不对。
+                        LocalAction local = localActions.get(action);
+                        if (local != null) {
+                            try {
+                                if (local.run(context, value)) return;
+                            } catch (Throwable t) {
+                                android.util.Log.w("ComponentActions", "本地动作失败: " + action + " · " + t);
+                            }
+                        }
                         // 未知动作名不等于死路：动作自己带的 link/value 能办事就照它办
                         String target = firstNonEmpty(link, value);
                         if (isUsableTarget(target)) {

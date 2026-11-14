@@ -248,8 +248,10 @@ public final class DshCards {
                         obj("title", "消息已删除", "text", "电脑端删除了历史消息（以电脑端为准）", "level", "warning"));
             case "team/mode": {
                 String mode = data.optString("mode", data.optString("value", ""));
-                return new Card("team-mode", "dsh_notice",
-                        obj("title", "团队模式", "text", mode.isEmpty() ? "已切换" : mode, "level", "info"));
+                JSONObject props = obj("title", "团队模式",
+                        "text", mode.isEmpty() ? "已切换" : mode, "level", "info");
+                put(props, "actions", actions("看电脑面板", "insight"));
+                return new Card("team-mode", "dsh_notice", props);
             }
             case "team/task": {
                 String title = data.optString("title",
@@ -322,17 +324,22 @@ public final class DshCards {
                         obj("title", "工作目录", "content", cwd.isEmpty() ? "已切换" : cwd, "level", "info"));
             }
             case "sandbox/mode":
-                return new Card("sandbox", "dsh_notice",
-                        obj("title", "沙箱模式", "content", data.optString("mode", ""), "level", "info"));
+                permSandbox = data.optString("mode", "");
+                return permissionStateCard();
             case "permission/preset":
-                return new Card("permission", "dsh_notice",
-                        obj("title", "权限档位", "content", data.optString("preset", ""), "level", "info"));
+                permPreset = data.optString("preset", "");
+                if (permSandbox.isEmpty()) permSandbox = permPreset;
+                return permissionStateCard();
             case "approval/policy":
-                return new Card("approval-policy", "dsh_notice",
-                        obj("title", "审批策略", "content", data.optString("policy", ""), "level", "info"));
-            case "agent-preset/selected":
-                return new Card("agent-preset", "dsh_notice",
-                        obj("title", "智能体预设", "content", data.optString("agentPreset", ""), "level", "info"));
+                permPolicy = data.optString("policy", "");
+                return permissionStateCard();
+            case "agent-preset/selected": {
+                String name = data.optString("agentPreset", data.optString("preset", ""));
+                JSONObject props = obj("title", "智能体预设",
+                        "content", name.isEmpty() ? "已切换" : name, "level", "info");
+                put(props, "actions", actions("看电脑面板", "insight"));
+                return new Card("agent-preset", "dsh_notice", props);
+            }
             case "subagent/descriptor": {
                 String label = data.optString("label", "子代理");
                 String mode = data.optString("mode", "");
@@ -439,6 +446,71 @@ public final class DshCards {
                 request.optString("command", request.optString("reason", "")));
         if (detail.isEmpty()) detail = request.toString();
         return detail.length() > 400 ? (detail.substring(0, 400) + "…") : detail;
+    }
+
+    // ---- M9 B 档（2026-11-14）：权限三件套合成一张"能点"的状态卡 ----
+
+    /** 最近一次 sandbox/mode 的取值（三件套共用一张卡，所以状态挂在 mapper 上） */
+    private String permSandbox = "";
+    private String permPreset = "";
+    private String permPolicy = "";
+
+    /**
+     * 权限状态卡：{@code 只读 / 可写工作区 / 完全访问} + {@code 审批:每次询问}，
+     * 带一个「改权限」原生按钮（点了走 {@code ComponentActions} 的本地动作 → 页面弹变更卡）。
+     *
+     * <p>为什么合并：一次预设切换会连发 {@code permission/preset} + {@code sandbox/mode} +
+     * {@code approval/policy} 三条事件 —— 以前每出一条就冒一张卡，用户看到三张同义卡。
+     * 现在固定 key {@code permission-state}，后到的就地更新前一张。</p>
+     */
+    private Card permissionStateCard() {
+        String sandbox = chineseSandbox(permSandbox);
+        String policy = chinesePolicy(permPolicy);
+        StringBuilder sb = new StringBuilder();
+        if (!sandbox.isEmpty()) sb.append(sandbox);
+        if (!policy.isEmpty()) sb.append(sb.length() > 0 ? " · " : "").append(policy);
+        JSONObject props = obj("title", "权限",
+                "content", sb.length() > 0 ? sb.toString() : "已更新", "level", "info");
+        put(props, "actions", actions("改权限", "permission"));
+        return new Card("permission-state", "dsh_notice", props);
+    }
+
+    /** 内部枚举 → 人话（与插件槽位文案同一套说法，别让英文枚举漏到界面上） */
+    private static String chineseSandbox(String mode) {
+        String m = mode == null ? "" : mode.trim();
+        switch (m) {
+            case "read-only":
+                return "只读";
+            case "workspace-write":
+                return "可写工作区";
+            case "danger-full-access":
+                return "完全访问";
+            default:
+                return m;
+        }
+    }
+
+    private static String chinesePolicy(String policy) {
+        String p = policy == null ? "" : policy.trim();
+        switch (p) {
+            case "never":
+                return "审批:从不询问";
+            case "ask":
+                return "审批:每次询问";
+            case "always":
+                return "审批:总是询问";
+            case "auto":
+                return "审批:自动判断";
+            default:
+                return p;
+        }
+    }
+
+    /** 一条原生按钮：{@code {label, action}}（action 由 ComponentActions 执行） */
+    static JSONArray actions(String label, String act) {
+        JSONArray arr = new JSONArray();
+        add(arr, obj("label", label, "action", act));
+        return arr;
     }
 
     static String baseName(String path) {
