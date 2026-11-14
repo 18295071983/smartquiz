@@ -120,6 +120,8 @@ public final class DshProjection {
         // 思考：截断到预算内（真机一条消息 215 KB 思考会把解析/渲染拖死）
         msg.thinkingContent = thinking.length() > 0
                 ? clip(thinking.toString(), MAX_THINKING_CHARS, "思考") : null;
+        // 一个 turn 几十步 → 一条消息 150+ 个 part，RecyclerView 回收不了（见 mergeExtraRounds）
+        mergeExtraRounds(snapshots, bounds, roundToolIds, content, MAX_ROUNDS_PER_MESSAGE);
         msg.roundSnapshots = snapshots;
         msg.components = components;
         // 与 roundSnapshots 同源的顺序信息：流式/未完成那一档渲染器读的就是它。
@@ -231,6 +233,64 @@ public final class DshProjection {
         if (value == null) return null;
         if (value.length() <= max) return value;
         return value.substring(0, max) + "\n…（" + what + "已截断，原文 " + value.length() + " 字）";
+    }
+    /**
+     * 轮次合并上限（2026-11-14）。
+     *
+     * <p>真机病历：DSH 一个 turn 有 51 步（每步一次模型生成）→ 一条消息里 51 段思考 +
+     * 51 段正文 + 245 张工具卡 ≈ 150+ 个 part 视图。RecyclerView 是按**消息**回收的，
+     * 一条消息内部再多视图也回收不了 —— 滚动时每次重绑一个巨型 item 就卡。
+     * 在线 agent 的消息一条只有 1–5 个 part，所以同样的列表、同样的回收配置下它不卡。</p>
+     *
+     * <p>这里把超出的轮次合并成最后一轮：正文按原顺序拼、思考拼起来再截断、工具 id 归到这一轮。
+     * 顺序与内容不变（正文仍完整），只是"折叠成更少的块"，和 DSH 自己的界面一致。</p>
+     */
+    private static final int MAX_ROUNDS_PER_MESSAGE = 6;
+
+    /** 把超过上限的轮次并进最后一轮；同时修正 contentRoundBounds / contentRoundToolIds。 */
+    private static void mergeExtraRounds(List<ChatMessage.RoundSnapshot> snapshots,
+                                         List<Integer> bounds,
+                                         List<String> roundToolIds,
+                                         StringBuilder content,
+                                         int maxRounds) {
+        if (snapshots == null || snapshots.size() <= maxRounds) return;
+        int keep = Math.max(1, maxRounds - 1);
+        ChatMessage.RoundSnapshot merged = snapshots.get(keep - 1);
+        StringBuilder text = new StringBuilder(merged.content == null ? "" : merged.content);
+        StringBuilder think = new StringBuilder(merged.thinking == null ? "" : merged.thinking);
+        List<String> toolIds = new ArrayList<>();
+        if (merged.toolCallIds != null) toolIds.addAll(merged.toolCallIds);
+        for (int i = keep; i < snapshots.size(); i += 1) {
+            ChatMessage.RoundSnapshot s = snapshots.get(i);
+            if (s == null) continue;
+            if (s.content != null && !s.content.trim().isEmpty()) {
+                if (text.length() > 0) text.append("\n\n");
+                text.append(s.content);
+            }
+            if (s.thinking != null && !s.thinking.trim().isEmpty()) {
+                if (think.length() > 0) think.append("\n\n");
+                think.append(s.thinking);
+            }
+            if (s.toolCallIds != null) toolIds.addAll(s.toolCallIds);
+        }
+        merged.content = text.toString();
+        merged.thinking = clip(think.toString(), MAX_THINKING_CHARS, "思考");
+        merged.toolCallIds = toolIds;
+        // 截掉被合并掉的快照
+        snapshots.subList(keep, snapshots.size()).clear();
+        // 边界/工具 id 跟着合并：最后一轮的边界就是全部正文长度
+        if (bounds != null && bounds.size() > keep) {
+            bounds.subList(keep, bounds.size()).clear();
+        }
+        if (bounds != null) {
+            bounds.add(content.length());
+        }
+        if (roundToolIds != null && roundToolIds.size() > keep) {
+            roundToolIds.subList(keep, roundToolIds.size()).clear();
+        }
+        if (roundToolIds != null) {
+            roundToolIds.add(toolIds.isEmpty() ? "" : toolIds.get(0));
+        }
     }
     private static String trim(String s) {
         return s == null ? "" : s.trim();

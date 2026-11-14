@@ -303,3 +303,49 @@ messages=93  file=10.4 MB
 
 判据只删 	ype=dynamic && props.type=unknown_event && event_type ∈ 纯状态/合成帧，
 真人可见的未知事件卡不动。
+## 13. 历史显示：为什么在线 agent 不卡、DSH 卡（2026-11-14）
+
+用户口径：「是历史显示没处理好……看看在线 agent 的消息怎么渲染的，消息流怎么回收性能的。」
+
+### 13.1 在线 agent 的渲染（parts 管线）
+
+`
+ChatMessage ──AssistantTurn──▶ parts[]：reasoning / text / tool_call / tool_group / data
+                                  │
+                          TurnPartsHost：按 part id 复用视图，按内容指纹只重绑变化的那段
+`
+
+- **一条消息 = 一次模型生成 = 1~5 个 part**（思考折叠成一行、正文一段、连续工具折叠成「已运行 N 个工具」一张组卡、产物卡一张）；
+- PartsRendererFlag 出厂开（2026-10-24），DSH 同步过来的消息**也走这条**；
+- 复用粒度是 **part**：重绑时只重建指纹变了的 part，WebView/图表/卡片不白建。
+
+### 13.2 消息流怎么回收性能
+
+| 机制 | 位置 | 值 |
+|---|---|---|
+| 分页加载 | HISTORY_PAGE_SIZE | 50 条一页 |
+| 内存窗口 | HISTORY_ARCHIVE_KEEP / CHUNK | 保留 150，超出每次移出 50 |
+| 视图缓存 | setItemViewCacheSize | 4 |
+| 固定尺寸 / 关动画 | setHasFixedSize(true) / setItemAnimator(null) | — |
+| 稳定 id | setHasStableIds(true) | — |
+| 重组件释放 | eleaseAndClearComponents | 滚出屏幕即放 WebView/播放器 |
+
+### 13.3 DSH 为什么还是卡
+
+回收是按**消息**做的。DSH 一个 turn 有 51 步，转换器把它压成**一条消息**：
+
+`
+1 条消息 = 51 段思考 + 51 段正文 + 245 张工具卡 ≈ 150+ 个 part 视图
+`
+
+150 个视图在一个 item 里，RecyclerView 无从回收；每次滚动重绑都是"重建一个巨型 item"。
+在线 agent 一条 1~5 个 part，同样的列表、同样的回收配置就不卡 —— 差异在**消息粒度**，不在数据量。
+
+### 13.4 修法：轮次合并（MAX_ROUNDS_PER_MESSAGE = 6）
+
+DshProjection.mergeExtraRounds()：超过 6 步的部分合并进最后一轮 ——
+正文按原顺序拼接（内容不丢）、思考拼起来后按 8K 截断、工具 id 归到这一轮，
+同时修正 contentRoundBounds / contentRoundToolIds。
+
+效果：一条消息的 part 数从 150+ 降到 ≈ 13，回到在线 agent 的量级，
+RecyclerView 的回收重新有效；后续要更彻底可以按 step 拆成多条消息（数据模型改动更大）。
