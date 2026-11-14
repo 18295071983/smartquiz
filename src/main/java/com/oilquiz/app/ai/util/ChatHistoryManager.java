@@ -671,6 +671,13 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
      * @return 保存后的会话（含 id 和时间戳）
      */
     public ConversationSession saveConversationSession(ConversationSession session) {
+        // A3-接（2026-11-14）：空会话不落盘。
+        // 进出对话页时页面常会"保存一次空壳"（刚建还没消息、或恢复流程只拿到会话对象），
+        // 落下去就是 conversations/ 里一条 0 消息的文件——用户看到的是"历史里多出一条空白对话"，
+        // 而且它还会参与"最新会话"排序，把真正那条挤下去。空壳没有保存价值，直接不写。
+        if (session == null || session.messages == null || session.messages.isEmpty()) {
+            return session;
+        }
         try {
             if (session.id == null || session.id.isEmpty()) {
                 session.id = UUID.randomUUID().toString();

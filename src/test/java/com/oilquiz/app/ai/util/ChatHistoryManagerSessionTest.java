@@ -562,4 +562,73 @@ public class ChatHistoryManagerSessionTest {
         File[] files = conversationsDir.listFiles((d, name) -> name.endsWith(".json"));
         return files == null ? 0 : files.length;
     }
+
+    // ==================== A3（2026-11-14）：空壳不落盘 + 按锚点 id 查或建 ====================
+
+    /**
+     * 空会话（一条 USER/AI 消息都没有）不许写文件。
+     *
+     * <p>进出对话页时页面会保存一次"空壳"（刚建还没消息 / 恢复流程只拿到会话对象），
+     * 落下去就是 conversations/ 里一条 0 消息的文件——用户看到的是"历史里多出一条空白对话"，
+     * 它还会参与"最新会话"排序，把真正那条挤下去。</p>
+     */
+    @Test
+    public void emptySessionIsNotPersisted() {
+        int before = conversationFileCount();
+        ConversationSession shell = new ConversationSession();
+        shell.id = "empty-shell-0001";
+        shell.title = "新对话";
+
+        ConversationSession out = manager.saveConversationSession(shell);
+
+        assertNotNull("空会话也要把对象还回去（调用方不该 NPE）", out);
+        assertEquals("空会话不该多出一条历史文件", before, conversationFileCount());
+        assertFalse("空会话不该落成文件",
+                new File(conversationsDir, "empty-shell-0001.json").exists());
+    }
+
+    /** 消息列表为 null 的空壳同样不落盘（旧数据/反序列化失败时会走到这里）。 */
+    @Test
+    public void sessionWithNullMessagesIsNotPersisted() {
+        int before = conversationFileCount();
+        ConversationSession shell = new ConversationSession();
+        shell.id = "empty-shell-0002";
+        shell.messages = null;
+
+        manager.saveConversationSession(shell);
+
+        assertEquals(before, conversationFileCount());
+        assertFalse(new File(conversationsDir, "empty-shell-0002.json").exists());
+    }
+
+    /**
+     * 按锚点建会话（A3-接）：电脑在 hello 里下发的 {@code local_session_id} 就是这条对话
+     * 在本机的身份——第一次用它建，之后按同 id 保存是**更新同一个文件**。
+     *
+     * <p>钉住"查或建"的两半：文件不在 → 用锚点 id 建（不是随机 uuid）；
+     * 文件在 → 复用，不多出一条。这样页面重进多少次，{@code files/conversations} 都只有 1 个文件。</p>
+     */
+    @Test
+    public void anchorLocalSessionIdCreatesThenReusesSameFile() {
+        // 插件锚点 id 的形态：randomBytes(8).toString('hex')
+        String anchorId = "3ae6d7fa9c1b2d4e";
+        int before = conversationFileCount();
+
+        ConversationSession first = manager.saveCurrentChatAsSession(
+                new ArrayList<>(Arrays.asList(user("u-anchor-1", "第一句"))), anchorId, 0, false);
+        assertNotNull(first);
+        assertEquals("会话 id 必须用锚点给的那个", anchorId, first.id);
+        assertTrue("按锚点 id 落在同名文件里",
+                new File(conversationsDir, anchorId + ".json").exists());
+        assertEquals("只多这一个文件", before + 1, conversationFileCount());
+
+        ConversationSession second = manager.saveCurrentChatAsSession(
+                new ArrayList<>(Arrays.asList(user("u-anchor-1", "第一句"), ai("a-anchor-1", "回答"))),
+                anchorId, 0, false);
+        assertNotNull(second);
+        assertEquals(anchorId, second.id);
+        assertEquals("同一锚点第二次保存不能再多文件", before + 1, conversationFileCount());
+        assertEquals("内容应更新到同一个会话里", 2,
+                manager.countConversationMessages(anchorId));
+    }
 }

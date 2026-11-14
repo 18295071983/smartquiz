@@ -8504,6 +8504,36 @@ public class AIChatActivity extends BaseActivity {
         return historySourceSessionId != null ? sessionFrontSkipped : aiHistoryFrontSkipped;
     }
 
+    /**
+     * A3-接（2026-11-14）：这次保存该挂到哪条本地会话上。
+     *
+     * <p>有 {@code currentSessionId} 就用它；没有则按电脑下发的**锚点**查一次——
+     * 锚点（设备 × 电脑会话）里的 {@code local_session_id} 就是这条对话在本机的身份：
+     * 文件在就复用，不在就用同一个 id 建，<b>不再随机新开一条</b>。
+     * 查不到锚点（还没配对 / 电脑还没在 hello 里下发）才返回 null，交给下层按老逻辑新建。</p>
+     *
+     * <p>这是"进出对话页多出历史"的正面解法：页面每次重进 {@code currentSessionId} 都是空的，
+     * 老逻辑就每次 <code>UUID.randomUUID()</code> 一条新会话文件；现在页面重进多少次都落回
+     * 锚点指定的那一个文件。</p>
+     *
+     * @return 该用的会话 id；null = 没有可复用的，让下层新建
+     */
+    private String sessionIdForSave() {
+        if (currentSessionId != null && !currentSessionId.isEmpty()) return currentSessionId;
+        try {
+            String remote = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+            if (remote.isEmpty()) return null;
+            String anchored = com.oilquiz.app.ai.tool.RemoteAnchorStore.localSessionIdForRemote(this, remote);
+            if (anchored.isEmpty()) return null;
+            AppLogger.i(TAG, "[anchor] 保存挂到锚点会话 " + anchored + "（remote=" + remote + "）");
+            return anchored;
+        } catch (Throwable t) {
+            // 查不到锚点不是错误路径：退回"新建"即可，别把保存整条链断掉
+            AppLogger.aiW(TAG, "[anchor] 查锚点失败，按新建处理: " + t.getMessage());
+            return null;
+        }
+    }
+
     /** 保存当前历史窗口（保留文件未加载头部；新会话时按需合并单文件头部） */
     private void saveCurrentHistory(boolean mergeSingleFileHead) {
         if (chatHistoryManager == null || chatHistory == null || chatHistory.isEmpty()) return;
@@ -8511,7 +8541,9 @@ public class AIChatActivity extends BaseActivity {
         final boolean hadSession = currentSessionId != null && !currentSessionId.isEmpty();
         ConversationSession saved = hadSession
                 ? chatHistoryManager.saveCurrentChatAsSession(copy, currentSessionId, sessionFrontSkipped, false)
-                : chatHistoryManager.saveCurrentChatAsSession(copy, null, aiHistoryFrontSkipped, mergeSingleFileHead);
+                // 没有 currentSessionId 时先按锚点查（查不到才 null → 新建），
+                // 头部条数仍按单文件口径传，避免把会话头部截掉
+                : chatHistoryManager.saveCurrentChatAsSession(copy, sessionIdForSave(), aiHistoryFrontSkipped, mergeSingleFileHead);
         // 没有会话时这次调用会新建一条：必须把它的 id 认领下来，否则下一次调用又新建一条
         //（与 saveHistoryAsync 里已有的认领逻辑同口径）
         if (!hadSession && saved != null && saved.id != null
@@ -8695,7 +8727,9 @@ public class AIChatActivity extends BaseActivity {
                         if (currentSessionId != null && !currentSessionId.isEmpty()) {
                             session = chatHistoryManager.saveCurrentChatAsSession(copy, currentSessionId, sessSkipped, false);
                         } else {
-                            session = chatHistoryManager.saveCurrentChatAsSession(copy, null, aiSkipped, true);
+                            // 按锚点查（A3-接）：页面重进后 currentSessionId 还是空，
+                            // 这里不查锚点就会每保存一次新建一条会话文件
+                            session = chatHistoryManager.saveCurrentChatAsSession(copy, sessionIdForSave(), aiSkipped, true);
                         }
                         // 保存后更新 currentSessionId，下次更新同一文件而非重复创建
                         if (session != null && session.id != null) {
@@ -9506,6 +9540,12 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void startNewConversation() {
+        // A3-接（2026-11-14）：先把"旧对话该落回哪条本地会话"定下来，再动电脑端。
+        // 必须**先**取：紧接着的 startNewRemoteConversation() 会在后台把电脑端会话换成新的，
+        // 锚点随之变成新会话的锚点；那时候再去查，旧对话就会被写进新锚点的那条文件里。
+        // currentSessionId 为空时按锚点查（清历史/页面重进后就是这种状态），
+        // 查不到才 null → 随机新建（老行为）。
+        final String existingId = sessionIdForSave();
         // 连着电脑时，"新建对话" = 让电脑端真建一条新会话，后续消息自动跟随它
         if (com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isActive(this)) {
             startNewRemoteConversation();
@@ -9520,7 +9560,6 @@ public class AIChatActivity extends BaseActivity {
             // 自动保存当前会话到历史（拷贝 + 更新当前会话，避免重复创建与清空竞态）
             if (chatHistoryManager != null && !chatHistory.isEmpty()) {
                 final List<ChatMessage> copy = new ArrayList<>(chatHistory);
-                final String existingId = currentSessionId;
                 new Thread(() -> {
                     chatHistoryManager.saveCurrentChatAsSession(copy, existingId);
                     runOnUiThread(this::refreshHistoryDrawer);
@@ -16020,7 +16059,9 @@ public class AIChatActivity extends BaseActivity {
             // 每次 onStop 都走 saveCurrentChatAsSession(copy, null) **新建一条会话文件**，
             // 用户看到的就是"每退出重进一次，历史里多一条几乎一样的对话"。
             final boolean hadSession = currentSessionId != null && !currentSessionId.isEmpty();
-            final String sidAtStop = currentSessionId;
+            // A3-接（2026-11-14）：页面重进时 currentSessionId 是空的，先按锚点查一轮，
+            // 查到就写回同一条会话文件（查不到才 null → 新建）。
+            final String sidAtStop = sessionIdForSave();
             new Thread(() -> {
                 ConversationSession saved;
                 synchronized (HISTORY_IO_LOCK) {

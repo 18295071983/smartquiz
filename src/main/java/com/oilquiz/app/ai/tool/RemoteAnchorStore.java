@@ -60,6 +60,17 @@ public final class RemoteAnchorStore {
         } catch (Throwable ignored) { /* 存不下不影响本次使用 */ }
     }
 
+    /**
+     * A3-接（2026-11-14）：某条电脑会话在**本机**对应的会话 id。
+     *
+     * <p>这是"查"那一步：有锚点就用锚点里的 {@code local_session_id}（文件在就复用、
+     * 不在就用同一个 id 建），没有才让调用方随机新建。没有锚点时返回空串。</p>
+     */
+    public static String localSessionIdForRemote(Context c, String remoteSessionId) {
+        JSONObject a = byRemote(c, remoteSessionId);
+        return a == null ? "" : a.optString("local_session_id", "");
+    }
+
     /** 按电脑会话 id 取锚点 */
     public static JSONObject byRemote(Context c, String remoteSessionId) {
         if (remoteSessionId == null || remoteSessionId.isEmpty()) return null;

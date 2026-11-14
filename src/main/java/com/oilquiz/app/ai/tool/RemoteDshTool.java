@@ -838,8 +838,12 @@ public class RemoteDshTool implements AITool {
                     org.json.JSONObject o = new org.json.JSONObject(text);
                     String type = o.optString("type", "");
                     switch (type) {
-                        case "hello":      // 协议 v2 的问候帧（带 features/limits）
+                        case "hello":      // 协议 v2 的问候帧（带 features/limits/anchor）
                         case "ready":      // 旧帧名，保持兼容
+                            // A3-接（2026-11-14）：握手帧带锚点（设备 × 电脑会话），先入账。
+                            // 入账了，"建本地会话"才有地方按锚点**查或建**；
+                            // 不入账就只能每次随机新建，历史一条变五条。
+                            saveAnchorFromFrame(c, o);
                             listener.onReady(o.optInt("seq", 0));
                             break;
                         case "batch": {    // WS 上直接回的补历史结果
@@ -1062,14 +1066,16 @@ public class RemoteDshTool implements AITool {
                             if (frame.contains("\"type\":\"gone\"")) {
                                 throw new java.io.IOException("会话在电脑端已不存在（gone）");
                             }
-                            cursor = handleStreamMessage(frame, cursor, follow, listener);
+                            cursor = handleStreamMessage(frame, cursor, follow, listener, tool.context);
                             data.setLength(0);
                         }
                         continue;
                     }
                     if (line.startsWith("data:")) data.append(line.substring(5).trim());
                 }
-                if (data.length() > 0) cursor = handleStreamMessage(data.toString(), cursor, follow, listener);
+                if (data.length() > 0) {
+                    cursor = handleStreamMessage(data.toString(), cursor, follow, listener, tool.context);
+                }
             }
             return cursor;
         } finally {
@@ -1079,10 +1085,38 @@ public class RemoteDshTool implements AITool {
 
     /** 解析一条 SSE 消息并更新游标；返回新的 seq 游标 */
     static int handleStreamMessage(String raw, int cursor, boolean follow, DshEventListener listener) {
+        return handleStreamMessage(raw, cursor, follow, listener, null);
+    }
+
+    /**
+     * 锚点入账（A3-接，2026-11-14）：WS 的 {@code hello} 与 SSE 的 {@code ready}/{@code snapshot}
+     * 都会带 anchor（设备 × 电脑会话）。存不下/字段缺失都不该挡住连接——
+     * 最坏退回"每次新建一条本地会话"的老行为，连接本身必须照常建立。
+     */
+    private static void saveAnchorFromFrame(Context c, org.json.JSONObject frame) {
+        if (c == null || frame == null) return;
+        try {
+            org.json.JSONObject anchor = frame.optJSONObject("anchor");
+            if (anchor == null) return;
+            RemoteAnchorStore.save(c.getApplicationContext(), anchor);
+            Log.i(TAG, "[anchor] 入账 local=" + anchor.optString("local_session_id", "")
+                    + " remote=" + anchor.optString("remote_session_id", ""));
+        } catch (Throwable t) {
+            Log.w(TAG, "锚点入账失败: " + t.getMessage());
+        }
+    }
+
+    /**
+     * 带上下文的版本（A3-接，2026-11-14）：SSE 的 {@code ready}/{@code snapshot} 帧也会带 anchor，
+     * 拿到就入账。没有上下文时（老调用点/单测）行为与原来完全一致。
+     */
+    static int handleStreamMessage(String raw, int cursor, boolean follow, DshEventListener listener,
+                                   Context ctx) {
         try {
             org.json.JSONObject msg = new org.json.JSONObject(raw);
             String type = msg.optString("type", "");
             if ("ready".equals(type)) {
+                saveAnchorFromFrame(ctx, msg);
                 listener.onReady(msg.optInt("seq", 0));
                 return cursor;
             }
@@ -1103,6 +1137,7 @@ public class RemoteDshTool implements AITool {
                 return cursor;
             }
             if ("snapshot".equals(type)) {
+                saveAnchorFromFrame(ctx, msg);
                 int s = msg.optInt("seq", cursor);
                 if (s > cursor) cursor = s;
                 listener.onSnapshot(s, msg.optJSONArray("turns"));
