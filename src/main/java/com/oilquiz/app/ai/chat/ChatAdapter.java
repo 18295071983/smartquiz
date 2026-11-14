@@ -866,8 +866,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 bindErrorMessage((ErrorMessageViewHolder) holder, message);
                 break;
             case VIEW_TYPE_REMOTE_CARD:
-                com.oilquiz.app.ai.tool.RemoteCardView.render(
-                        ((RemoteCardViewHolder) holder).container, message.remoteCardView);
+                bindRemoteCard((RemoteCardViewHolder) holder, message);
                 break;
         }
         if (holder instanceof AIMessageViewHolder) {
@@ -5581,4 +5580,47 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.container = container;
         }
     }
+    /**
+     * 远程卡片：两种来源。
+     *
+     * <ul>
+     *   <li>插件推来的**动态组件**（{@code ui/card} 帧）→ {@code remoteCardView} 里带
+     *       {@code component:{type,props}}，交给组件管线本地绘制（内置/layout/动态兜底都行）——
+     *       DSH 新增卡片不用发版；</li>
+     *   <li>旧的 v2 view 片段 → 仍走 {@link com.oilquiz.app.ai.tool.RemoteCardView}。</li>
+     * </ul>
+     */
+    private void bindRemoteCard(RemoteCardViewHolder holder, ChatMessage message) {
+        java.util.Map<String, Object> rcView = message.remoteCardView;
+        Object componentSpec = rcView == null ? null : rcView.get("component");
+        if (!(componentSpec instanceof java.util.Map)) {
+            com.oilquiz.app.ai.tool.RemoteCardView.render(holder.container, rcView);
+            return;
+        }
+        java.util.Map<?, ?> spec = (java.util.Map<?, ?>) componentSpec;
+        String ctype = spec.get("type") == null ? "" : String.valueOf(spec.get("type"));
+        org.json.JSONObject cprops = new org.json.JSONObject();
+        Object rawProps = spec.get("props");
+        if (rawProps instanceof java.util.Map) {
+            try { cprops = new org.json.JSONObject((java.util.Map<?, ?>) rawProps); }
+            catch (Throwable ignored) { /* props 非法就用空对象 */ }
+        }
+        holder.container.removeAllViews();
+        View drawn = null;
+        try {
+            drawn = ComponentRegistry.getInstance().render(holder.container.getContext(),
+                    ComponentData.of(ctype, cprops));
+        } catch (Throwable t) {
+            android.util.Log.w("ChatAdapter", "ui/card 绘制失败: " + t);
+        }
+        if (drawn != null) {
+            holder.container.addView(drawn);
+        } else {
+            TextView tv = new TextView(holder.container.getContext());
+            tv.setText("（这张卡片无法显示：" + ctype + "）");
+            tv.setTextSize(12);
+            holder.container.addView(tv);
+        }
+    }
+
 }

@@ -2349,6 +2349,39 @@ function presetSvcOf(ctx) {
   const capsAllowed = (caps, cap) => allows(caps, cap);
 
   /** 后台任务列表（事件派生状态，见 JOB_STATE）。 */
+  /**
+   * 动态组件推送（2026-11-14）：插件决定"画什么"，手机用本地组件管线画。
+   *
+   * <p>为什么需要：以前 DSH 的每种新卡片都得在 App 里写一个 Java 渲染器 + 发版。
+   * 现在插件推 {@code ui/card} 帧，{@code type/props} 交给 ComponentRegistry：
+   * 内置卡、{@code layout} 原生控件树、未注册类型（DynamicCardView 兜底）都能画。
+   * App 只落一条 durable 的 REMOTE_CARD 消息，同 {@code key} 覆盖更新。</p>
+   *
+   * <pre>
+   * POST /v2/card  { session_id?, key, type, props, title? }
+   *   type: 内置组件类型（alert_card / code_card / list_card / …）
+   *         | "layout"（props.layout = 原生控件树）
+   *         | 任意类型名（App 不认识 → 动态兜底卡）
+   * </pre>
+   */
+  route('exact', '/v2/card', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use POST' });
+    let body;
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch (e) {
+      return sendJson(res, 400, { ok: false, error: 'bad json: ' + String(e?.message ?? e) });
+    }
+    const sid = String(body.session_id ?? '').trim();
+    const type = String(body.type ?? '').trim();
+    if (!type) return sendJson(res, 400, { ok: false, error: 'type required' });
+    const key = String(body.key ?? '').trim() || ('card-' + randomBytes(4).toString('hex'));
+    const props = (body.props && typeof body.props === 'object') ? body.props : {};
+    const data = { key, type, props };
+    if (body.title) data.title = String(body.title);
+    streamBroadcast(sid, { v: 2, type: 'ui/card', data });
+    return sendJson(res, 200, { ok: true, session_id: sid, key, type, pushed: true });
+  });
+
   route('exact', '/v2/jobs', (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     const items = [...JOB_STATE.values()].sort((a, b) => b.ts - a.ts).slice(0, 50);

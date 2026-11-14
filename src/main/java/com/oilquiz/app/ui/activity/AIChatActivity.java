@@ -14307,6 +14307,62 @@ public class AIChatActivity extends BaseActivity {
             case "compaction/end":
                 com.oilquiz.app.ai.chat.status.DockSlotBus.remove("compaction");
                 break;
+            case "ui/card": {
+                /**
+                 * 2026-11-14：插件推来的**动态组件**（data-driven UI）。
+                 *
+                 * <p>帧格式：{@code {type:'ui/card', data:{key, type, props, title?}}}。
+                 * 手机端不解释语义，只把 {@code type/props} 交给组件管线本地绘制：
+                 * 内置卡（alert_card/code_card/…）、{@code layout} 原生控件树、
+                 * 或未注册类型（DynamicCardView 兜底）都能画。同 {@code key} 覆盖更新。</p>
+                 *
+                 * <p>落成本地一条 {@code REMOTE_CARD} 消息，所以是 durable 的：切会话/重启后还在。</p>
+                 */
+                org.json.JSONObject card = ev.optJSONObject("data");
+                if (card == null) break;
+                String ctype = card.optString("type", "").trim();
+                if (ctype.isEmpty()) break;
+                String key = card.optString("key", "").trim();
+                org.json.JSONObject cprops = card.optJSONObject("props");
+                java.util.Map<String, Object> spec = new java.util.HashMap<>();
+                spec.put("type", ctype);
+                if (cprops != null) {
+                    try {
+                        spec.put("props", new com.google.gson.Gson().fromJson(cprops.toString(),
+                                java.util.Map.class));
+                    } catch (Throwable ignored) {
+                        spec.put("props", new java.util.HashMap<String, Object>());
+                    }
+                }
+                java.util.Map<String, Object> view = new java.util.HashMap<>();
+                view.put("component", spec);
+                view.put("__key", key);
+                int existing = -1;
+                if (!key.isEmpty() && chatHistory != null) {
+                    for (int i = 0; i < chatHistory.size(); i += 1) {
+                        ChatMessage m = chatHistory.get(i);
+                        if (m == null || m.remoteCardView == null) continue;
+                        if (key.equals(String.valueOf(m.remoteCardView.get("__key")))) {
+                            existing = i;
+                            break;
+                        }
+                    }
+                }
+                if (existing >= 0) {
+                    chatHistory.get(existing).remoteCardView = view;
+                    if (chatAdapter != null) chatAdapter.notifyItemChanged(existing);
+                } else {
+                    ChatMessage msg = new ChatMessage.Builder(ChatMessage.MessageType.REMOTE_CARD)
+                            .content("")
+                            .build();
+                    msg.remoteCardView = view;
+                    chatHistory.add(msg);
+                    if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+                    scrollToBottom();
+                }
+                saveHistoryAsync();
+                break;
+            }
             case "ui/slot": {
                 // 通用插槽（P4，2026-11-13）：电脑端声明 id/priority/title/detail/warn/action，
                 // 手机只做渲染——新增 DSH 能力不需要发新版 APK。title 与 detail 都为空 = 移除。

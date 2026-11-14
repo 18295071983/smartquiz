@@ -142,3 +142,66 @@ DockSlotBus 的类注释本来就写着这个分工：
 developer/message、system/message、	eam/* 消息、eedback/*、hook/*、image/offload。
 
 单测：DshEventCoverageTest 5/5（62 种事件仍全部有归属；插话入队改为"不出卡但已识别"断言）。
+
+## 9. DSH 专用动态组件 + 动态 layout（2026-11-14，插件推送 → 手机本地绘制）
+
+用户口径：「可以创建 dsh 专用的动态原组件及动态 layout 功能了，你使用推送然后本地绘制。」
+
+### 9.1 链路
+
+```
+插件 POST /v2/card { session_id?, key, type, props }
+        │
+        ├─ streamBroadcast → WS/SSE 帧 { type:'ui/card', data:{key,type,props} }
+        ▼
+手机 AIChatActivity.onChannelEvent → case "ui/card"
+        │  同 key 覆盖更新；没有就追加一条 durable 的 REMOTE_CARD 消息
+        ▼
+ChatAdapter.bindRemoteCard
+        │  remoteCardView.component = {type, props}
+        ▼
+ComponentRegistry.render(ComponentData.of(type, props))
+        ├─ 内置卡：alert_card / code_card / list_card / file_list / …
+        ├─ "layout" + props.layout：NativeLayoutRenderer 原生控件树
+        └─ 未注册类型：DynamicCardView 兜底（标题 + content/items + 原始 JSON 折叠）
+```
+
+**关键点**：App 不解释语义，只按 `type/props` 走既有组件管线 —— 所以 DSH 以后新增卡片
+可以完全不发版；需要复杂排版时插件直接给 `layout` 树。
+
+### 9.2 用法
+
+```bash
+curl -X POST http://<电脑IP>:8218/v2/card \
+  -H "Authorization: Bearer <令牌>" -H "Content-Type: application/json" -d '{
+    "session_id": "session-...",
+    "key": "demo-layout",
+    "type": "layout",
+    "props": {
+      "title": "DSH 动态卡",
+      "layout": { "type": "column", "children": [
+        { "type": "text", "text": "这张卡是插件推送、手机本地绘制的", "bold": true }
+      ]}
+    }
+  }'
+```
+
+三种 `type` 的取法：
+
+| type | props | 用途 |
+|---|---|---|
+| 内置类型（`alert_card` / `code_card` / `list_card` / `file_list` / `steps` / `todo_card` …） | 各自字段 | 最常见，一行映射搞定 |
+| `layout` | `{layout: <控件树>, title?}` | 复杂排版，原生控件树（column/row/scroll/card/wrap/grid/tabs/stack/accordion/carousel + text/image/input/button…） |
+| 任意新名字（如 `dsh_future_card`） | 任意 | App 不认识 → 动态兜底卡，**不用发版** |
+
+### 9.3 落点与边界
+
+- 卡片进**消息流**（`MessageType.REMOTE_CARD`，durable，随会话落盘）——"发生过什么"；
+- 会变的瞬时状态仍走**插槽**（`ui/slot`）——"现在是什么"（见 §8）；
+- 同 `key` 重复推送 = 原地更新（改一张卡不用追加）。
+
+### 9.4 验证
+
+- 插件：`POST /v2/card` → `{"ok":true,"key":"demo-layout","type":"layout","pushed":true}`；
+- App：`ChatAdapter.bindRemoteCard` 新增，编译通过（`BUILD SUCCESSFUL`）；
+- APK：860MB，`sha256 2847571d…`（本轮构建；adb 掉线未装机，USB 恢复后 `adb install -r` 即可）。
