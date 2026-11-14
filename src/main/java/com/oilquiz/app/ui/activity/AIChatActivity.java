@@ -700,6 +700,19 @@ public class AIChatActivity extends BaseActivity {
                 }
                 // 抽屉里的「本次会话状态」区块（原「⋯」信息面板搬过来的 5 行值 + 运行日志入口）
                 com.oilquiz.app.ai.chat.ui.ChatDrawerStatusBinder.bind(this);
+                // 2026-11-14：抽屉可能是"边缘滑入/返回键/按钮"任一方式打开的，统一在这里刷一次
+                // （带电脑会话：那一组要现拉）。只在打开瞬间拉，避免每次保存都去打电脑。
+                drawerLayout.addDrawerListener(new DrawerLayout.SimpleDrawerListener() {
+                    @Override public void onDrawerOpened(View drawerView) {
+                        try {
+                            if (drawerView != null && drawerView.getId() == R.id.history_drawer) {
+                                refreshHistoryDrawer(true);
+                            }
+                        } catch (Throwable t) {
+                            AppLogger.aiW(TAG, "抽屉打开后刷新失败: " + t.getMessage());
+                        }
+                    }
+                });
             }
             inputMessage = findViewById(R.id.input_message);
             chatV2CharCount = findViewById(R.id.chat_v2_char_count);
@@ -9895,7 +9908,10 @@ public class AIChatActivity extends BaseActivity {
                 if (sid.isEmpty()) continue;
                 boolean desktop = Boolean.TRUE.equals(m.get("desktop"));
                 boolean following = sid.equals(followId);
-                if (!desktop && !following) continue;          // 与选择框默认口径一致
+                // 选择框与抽屉同一个口径（规则在 RemoteSessionGroups.defaultVisible）
+                if (!com.oilquiz.app.ai.tool.RemoteSessionGroups.defaultVisible(desktop, following)) {
+                    continue;
+                }
                 long updated = 0L;
                 try {
                     updated = (long) Double.parseDouble(String.valueOf(m.get("updated_at")));

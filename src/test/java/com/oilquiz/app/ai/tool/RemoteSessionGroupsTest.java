@@ -103,6 +103,16 @@ public class RemoteSessionGroupsTest {
     }
 
     @Test
+    public void defaultVisibleKeepsDesktopAndFollowingOnly() {
+        assertTrue("桌面账本里的要看得到", RemoteSessionGroups.defaultVisible(true, false));
+        assertTrue("正在跟随的必须看得到（哪怕不在账本里）",
+                RemoteSessionGroups.defaultVisible(false, true));
+        assertTrue(RemoteSessionGroups.defaultVisible(true, true));
+        assertTrue("磁盘上的历史遗留默认不显示 —— 这是\"手机上一堆\"的来源",
+                !RemoteSessionGroups.defaultVisible(false, false));
+    }
+
+    @Test
     public void emptySessionListGroupsToNothing() {
         assertTrue(RemoteSessionGroups.group(null).isEmpty());
         assertTrue(RemoteSessionGroups.group(new ArrayList<>()).isEmpty());

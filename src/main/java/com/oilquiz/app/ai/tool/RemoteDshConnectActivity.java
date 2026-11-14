@@ -528,7 +528,10 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             java.util.List<java.util.Map<String, Object>> kept = new java.util.ArrayList<>();
             for (java.util.Map<String, Object> m : sessionRows) {
                 String sid = str(m.get("session_id"));
-                if (Boolean.TRUE.equals(m.get("desktop")) || (!followId.isEmpty() && followId.equals(sid))) {
+                boolean desktop = Boolean.TRUE.equals(m.get("desktop"));
+                boolean following = !followId.isEmpty() && followId.equals(sid);
+                // 口径收敛在一处：桌面账本里的 + 正在跟随那条（规则见 RemoteSessionGroups）
+                if (RemoteSessionGroups.defaultVisible(desktop, following)) {
                     kept.add(m);
                 }
             }

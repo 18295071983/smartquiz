@@ -99,7 +99,12 @@ public final class DshHistoryImporter {
 
         ChatHistoryManager mgr = new ChatHistoryManager(ctx);
         String localId = resolveLocalSessionId(ctx, mgr, target);
-        ConversationSession session = new ConversationSession(localId, title, messages);
+        // 2026-11-14 真机：电脑端偶尔读不到标题（会话正在写），传进来是空的，
+        // 于是 `generateTitle` 拿第一条 USER 消息当标题 —— 而 DSH 会把「background job …」这类
+        // 后台任务通知也记成 USER 消息，结果本机会话被命名成 "background job pwsh-…"。
+        // 顺序：电脑给的 > 本地文件原有的 > 从"像人说的话"里生成。
+        String finalTitle = resolveTitle(mgr, localId, title, messages);
+        ConversationSession session = new ConversationSession(localId, finalTitle, messages);
         if (messages.get(0).timestamp > 0) session.createdAt = messages.get(0).timestamp;
         // saveConversationSession 是"整文件重写"，天然就是覆盖：不需要先删旧文件
         session = mgr.saveConversationSession(session);
@@ -112,6 +117,45 @@ public final class DshHistoryImporter {
             RemoteDshTool.setLastSeq(ctx, target, maxSeq);
         }
         return new Result(messages.size(), session.id, session.title);
+    }
+
+    /**
+     * 本地会话标题：电脑给的 > 本地文件原有的 > 从消息里生成（跳过"后台任务通知"这类伪用户消息）。
+     *
+     * <p>为什么要挑：DSH 把 {@code background job xxx (pwsh: …)} 之类也记成 {@code user/message}，
+     * 直接按"第一条用户消息"生成标题会把会话命名成一串任务 id（真机踩到过）。</p>
+     */
+    private static String resolveTitle(ChatHistoryManager mgr, String localId, String title,
+                                       List<ChatMessage> messages) {
+        if (title != null && !title.trim().isEmpty()) return title.trim();
+        try {
+            ConversationSession old = mgr.loadConversationSession(localId);
+            if (old != null && old.title != null && !old.title.trim().isEmpty()) return old.title.trim();
+        } catch (Throwable ignored) {
+            // 读不到就继续往下挑
+        }
+        List<ChatMessage> human = new ArrayList<>();
+        for (ChatMessage m : messages) {
+            if (m == null || !m.isUserMessage() || m.content == null) continue;
+            if (looksLikeSystemNotice(m.content)) continue;
+            human.add(m);
+        }
+        String generated = ConversationSession.generateTitle(human);
+        if (generated != null && !generated.isEmpty() && !"新对话".equals(generated)) return generated;
+        return "电脑对话";
+    }
+
+    /** 这些不是人说的话：后台任务通知 / 任务回执 / 工具输出摘要 */
+    private static boolean looksLikeSystemNotice(String text) {
+        String s = text.trim();
+        if (s.isEmpty()) return true;
+        String lower = s.toLowerCase(java.util.Locale.ROOT);
+        return lower.startsWith("background job ")
+                || lower.startsWith("[background job")
+                || lower.startsWith("后台任务")
+                || lower.contains("(pwsh:")
+                || lower.contains("(powershell:")
+                || lower.startsWith("<task-notification");
     }
 
     /**

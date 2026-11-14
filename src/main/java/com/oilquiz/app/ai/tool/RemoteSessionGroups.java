@@ -21,6 +21,16 @@ public final class RemoteSessionGroups {
     private RemoteSessionGroups() {
     }
 
+    /**
+     * 手机默认展示口径（2026-11-14，选择框与历史抽屉共用）：**桌面账本里有的 + 正在跟随那条**。
+     *
+     * <p>正在跟随的那条即使不在桌面账本里也必须显示，否则用户看不到自己在跟哪条。
+     * 其余磁盘上的历史会话（历史项目 / CLI 遗留 / 手机新建的空会话）要显式"显示全部"才出来。</p>
+     */
+    public static boolean defaultVisible(boolean desktop, boolean following) {
+        return desktop || following;
+    }
+
     /** 一条会话属于哪个工作区（空 cwd 归到空串这组，界面上叫"未知工作区"） */
     public static String keyOf(Map<String, Object> row) {
         String cwd = str(row == null ? null : row.get("cwd"));
