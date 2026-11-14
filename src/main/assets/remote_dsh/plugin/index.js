@@ -2364,6 +2364,46 @@ function presetSvcOf(ctx) {
    *         | 任意类型名（App 不认识 → 动态兜底卡）
    * </pre>
    */
+  /* ==================== 推送卡片暂存（2026-11-14） ====================
+   *
+   * ui/card 是**瞬态推送**：手机不在聊天页时没有订阅者，帧就丢了。
+   * 用户口径：「推送暂存 + 进页面补发」——所以这里按（会话 × key）留一份，
+   * 等这条会话的新订阅（WS hello / SSE ready）接上时补发一遍。
+   * App 侧同 key 覆盖，重连重复补发也不会叠卡。
+   */
+  const PUSHED_CARDS = new Map();          // `${sid}|${key}` -> { sid, key, type, props, title, at }
+  const PUSHED_CARD_MAX = 50;
+  const PUSHED_CARD_TTL_MS = 6 * 3600 * 1000;
+  const pushedKey = (sid, key) => String(sid || '') + '|' + String(key || '');
+
+  const rememberPushedCard = (sid, data) => {
+    if (!sid || !data || !data.key) return;
+    const now = Date.now();
+    PUSHED_CARDS.set(pushedKey(sid, data.key), { sid, ...data, at: now });
+    // TTL + 上限清理（先清过期，再按时间砍最旧）
+    for (const [k, v] of PUSHED_CARDS) {
+      if (now - Number(v.at || 0) > PUSHED_CARD_TTL_MS) PUSHED_CARDS.delete(k);
+    }
+    if (PUSHED_CARDS.size > PUSHED_CARD_MAX) {
+      const old = [...PUSHED_CARDS.entries()].sort((a, b) => Number(a[1].at) - Number(b[1].at));
+      for (let i = 0; i < old.length - PUSHED_CARD_MAX; i += 1) PUSHED_CARDS.delete(old[i][0]);
+    }
+  };
+
+  /** 给某条会话补发暂存卡（WS hello / SSE ready 后调用） */
+  const replayPushedCards = (sid, send) => {
+    if (!sid || typeof send !== 'function') return 0;
+    let n = 0;
+    for (const v of PUSHED_CARDS.values()) {
+      if (v.sid !== sid) continue;
+      try {
+        send({ type: 'ui/card', data: { key: v.key, type: v.type, props: v.props, title: v.title } });
+        n += 1;
+      } catch { /* 单条失败不影响其它 */ }
+    }
+    return n;
+  };
+
   route('exact', '/v2/card', async (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use POST' });
@@ -2378,6 +2418,7 @@ function presetSvcOf(ctx) {
     const props = (body.props && typeof body.props === 'object') ? body.props : {};
     const data = { key, type, props };
     if (body.title) data.title = String(body.title);
+    rememberPushedCard(sid, data);
     streamBroadcast(sid, { v: 2, type: 'ui/card', data });
     return sendJson(res, 200, { ok: true, session_id: sid, key, type, pushed: true });
   });
@@ -4981,6 +5022,8 @@ function presetSvcOf(ctx) {
           if (passType(ev)) sendEventFrame(ev);
         }
       }
+      // 2026-11-14：SSE 链路上也补发暂存的推送卡（进页面/重连都能拿到）
+      try { replayPushedCards(sid, (frame) => sse(frame)); } catch { /* 忽略 */ }
       /**
        * ★ 2026-11-12 修复：以前这里直接 finish()，会话只要没在桌面端打开（非 live），
        *   手机订阅完历史就"断流"，之后电脑写的回复再也推不过去 —— 用户看到的就是
@@ -6987,6 +7030,7 @@ function presetSvcOf(ctx) {
               : { event: true, slot: true, cmd: true, file: true, pull: true, ack: true },
             limits: { file_max: FILE_MAX, file_chunk: FILE_CHUNK, pull_max: 500 },
           });
+          try { replayPushedCards(sid, (frame) => sendWs(ws, frame)); } catch { /* 补发失败不影响连接 */ }
           sendWs(ws, { type: 'view_def', version: 1, views: VIEW_DEFS });
           const timer = setInterval(() => {
             try { touchConnection(sid, 'ws'); ws.ping(); } catch { /* 已断 */ }

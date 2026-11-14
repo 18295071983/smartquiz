@@ -1610,6 +1610,21 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
      * @param existingSessionId 已有的会话 ID（为空则创建新会话）
      * @return 保存的会话，如果 chatHistory 为空则返回 null
      */
+    /**
+     * 会话文件该保留哪些消息（2026-11-14）。
+     *
+     * <p>原来只留 USER/AI —— 插件推来的动态卡（{@code REMOTE_CARD} + {@code component}）没有正文，
+     * 落盘时被静默丢掉，于是"推送的卡片一重进会话就没了"。这里把带组件规格的远程卡也算 durable。
+     * 旧的 v2 view 片段（没有 component）保持原状，不改变历史行为。</p>
+     */
+    private static boolean isDurableForSession(ChatMessage msg) {
+        if (msg == null) return false;
+        if (msg.isUserMessage() || msg.isAIMessage()) return true;
+        if (msg.type == ChatMessage.MessageType.REMOTE_CARD && msg.remoteCardView != null) {
+            return msg.remoteCardView.get("component") != null;
+        }
+        return false;
+    }
     public ConversationSession saveCurrentChatAsSession(List<ChatMessage> chatHistory, String existingSessionId) {
         if (chatHistory == null || chatHistory.isEmpty()) return null;
     
@@ -1618,7 +1633,7 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         // 过滤掉系统消息，只保留用户和AI消息
         List<ChatMessage> filtered = new ArrayList<>();
         for (ChatMessage msg : safeHistory) {
-            if (msg.isUserMessage() || msg.isAIMessage()) {
+            if (isDurableForSession(msg)) {
                 filtered.add(msg);
             }
         }
@@ -1644,7 +1659,7 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         List<ChatMessage> safeHistory = deepCopyForSave(chatHistory);
         List<ChatMessage> filtered = new ArrayList<>();
         for (ChatMessage msg : safeHistory) {
-            if (msg.isUserMessage() || msg.isAIMessage()) filtered.add(msg);
+            if (isDurableForSession(msg)) filtered.add(msg);
         }
         if (filtered.isEmpty()) return null;
         String title = ConversationSession.generateTitle(filtered);

@@ -205,3 +205,26 @@ curl -X POST http://<电脑IP>:8218/v2/card \
 - 插件：`POST /v2/card` → `{"ok":true,"key":"demo-layout","type":"layout","pushed":true}`；
 - App：`ChatAdapter.bindRemoteCard` 新增，编译通过（`BUILD SUCCESSFUL`）；
 - APK：860MB，`sha256 2847571d…`（本轮构建；adb 掉线未装机，USB 恢复后 `adb install -r` 即可）。
+## 10. 推送暂存 + 进页面补发（2026-11-14）
+
+ui/card 是瞬态推送：手机不在聊天页时没有订阅者，帧会丢。按用户口径补上暂存：
+
+- 插件：PUSHED_CARDS（按 会话 × key，上限 50 条 / TTL 6 小时）；
+  POST /v2/card 先 ememberPushedCard 再广播；
+  新订阅接入时 eplayPushedCards 补发 —— **WS hello 与 SSE ready 两条链路都挂**；
+- App：同 key 覆盖，重复补发不会叠卡（indRemoteCard 幂等）；
+- 真机验证：App 被 force-stop 时推 stash-demo → 启动进聊天页后日志出现
+  [ui/card] type=alert_card key=stash-demo 并落盘。
+
+### 10.1 顺带修的落盘 bug
+
+ChatHistoryManager.saveCurrentChatAsSession 只保留 USER/AI 消息 →
+**没有正文的 REMOTE_CARD 被静默丢掉**（"推送的卡片一重进会话就没了"）。
+新增 isDurableForSession(msg)：带 emoteCardView.component 的 REMOTE_CARD 也算 durable；
+旧 v2 view 片段保持原状。验证：会话文件里出现
+"remoteCardView":{"component":{"type":"alert_card","props":{...}},"__key":"persist-demo"}。
+
+### 10.2 使用约束
+
+ui/card 由聊天页处理；手机在首页/工具页时靠上面的暂存补发，但**必须回聊天页才会落屏**。
+"任何页面都能弹"要用 phone_ui 的 toast/notification，不是这条链路。
