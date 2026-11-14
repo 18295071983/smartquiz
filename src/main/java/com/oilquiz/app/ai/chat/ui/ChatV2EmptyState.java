@@ -52,6 +52,12 @@ public final class ChatV2EmptyState {
 
         /** 点「最近」条目：切到该会话 */
         void onOpenSession(ConversationSession session);
+
+        /** 远程态点第一行：选一条电脑端会话（2026-11-14，M8-P0-4） */
+        void onPickRemoteSession();
+
+        /** 远程态点第二行：打开电脑面板（后台任务/目标/子代理/日程/权限） */
+        void onOpenRemoteInsight();
     }
 
     private final View root;
@@ -59,6 +65,9 @@ public final class ChatV2EmptyState {
     private final TextView greeting;
     private final LinearLayout recentGroup;
     private final LinearLayout recentContainer;
+
+    /** true = 远程态（2026-11-14，M8-P0-4）：三个入口换成电脑语义，「最近」暂时收起 */
+    private boolean remoteMode;
 
     private ChatV2EmptyState(View root, Listener listener) {
         this.root = root;
@@ -94,9 +103,49 @@ public final class ChatV2EmptyState {
      * 本类不认识 Activity，只认识"该跳哪儿"这件事由外面决定。
      */
     private void bindEntries() {
-        bindEntry(R.id.chat_v2_entry_select_model, () -> listener.onSelectModel());
-        bindEntry(R.id.chat_v2_download_row, () -> listener.onDownloadModels());
+        // 同一组视图、两套语义：远程态点第一行进"选电脑会话"、第二行进"电脑面板"。
+        // 不新增三行视图，避免本地路径的回归面（M8-P0-4 的取法）。
+        bindEntry(R.id.chat_v2_entry_select_model, () -> {
+            if (remoteMode) listener.onPickRemoteSession();
+            else listener.onSelectModel();
+        });
+        bindEntry(R.id.chat_v2_download_row, () -> {
+            if (remoteMode) listener.onOpenRemoteInsight();
+            else listener.onDownloadModels();
+        });
         bindEntry(R.id.chat_v2_entry_guide, () -> listener.onShowGuide());
+    }
+
+    /**
+     * 切远程/本地语义（2026-11-14，M8-P0-4）。
+     *
+     * <p>只换文案与「最近」的可见性，不重建视图、不动本地那三行的可见性 ——
+     * 本地路径零改动是这条改造的前提。</p>
+     *
+     * <p>「最近」在远程态先收起：那份列表是**手机本地会话**，摆在被电脑接管的页面上会误导。
+     * 电脑端最近会话要不要替换进来，留给评审（见设计稿 §9 决策 1）。</p>
+     */
+    public void setRemoteMode(boolean remote) {
+        if (remoteMode == remote) return;
+        remoteMode = remote;
+        try {
+            setEntryText(R.id.chat_v2_entry_select_model_title,
+                    remote ? R.string.chat_v2_remote_entry_pick : R.string.chat_v2_entry_select_model);
+            setEntryText(R.id.chat_v2_entry_select_model_sub,
+                    remote ? R.string.chat_v2_remote_entry_pick_sub : R.string.chat_v2_entry_select_model_sub);
+            setEntryText(R.id.chat_v2_download_row_title,
+                    remote ? R.string.chat_v2_remote_entry_insight : R.string.h_f0597ad8);
+            setEntryText(R.id.chat_v2_download_row_sub,
+                    remote ? R.string.chat_v2_remote_entry_insight_sub : R.string.chat_v2_download_sub);
+            if (recentGroup != null && remote) recentGroup.setVisibility(View.GONE);
+        } catch (Throwable t) {
+            Log.w(TAG, "setRemoteMode skipped: " + t.getMessage());
+        }
+    }
+
+    private void setEntryText(int viewId, int stringRes) {
+        View v = root.findViewById(viewId);
+        if (v instanceof TextView) ((TextView) v).setText(stringRes);
     }
 
     private void bindEntry(int viewId, Runnable action) {

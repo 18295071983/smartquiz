@@ -792,6 +792,11 @@
     <string name="chat_v2_download_sub">本地模型预设清单，下载回来直接聊</string>
     <string name="chat_v2_entry_guide">❓ 看使用说明</string>
     <string name="chat_v2_entry_guide_sub">当前引擎是什么、能调用哪些工具、可以怎么问</string>
+    <!-- 远程态空首屏（2026-11-14，M8-P0-4）：同一组视图换语义，不新增三行 -->
+    <string name="chat_v2_remote_entry_pick">💻 选择电脑会话</string>
+    <string name="chat_v2_remote_entry_pick_sub">先挑一条电脑上的对话接着聊，之后手机发的消息都进那条</string>
+    <string name="chat_v2_remote_entry_insight">🖥️ 看电脑在跑什么</string>
+    <string name="chat_v2_remote_entry_insight_sub">后台任务 / 目标 / 子代理 / 日程 / 权限，都在这一页</string>
     <string name="chat_v2_recent">最近</string>
     <string name="chat_v2_untitled">新对话</string>
     <!-- ===== 聊天页「使用说明」引导弹框（2026-11-02 GUIDE-DYNAMIC-TOOLS）=====

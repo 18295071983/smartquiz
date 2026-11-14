@@ -780,6 +780,12 @@ public class AIChatActivity extends BaseActivity {
                 }
                 @Override public void onOpenSession(
                         com.oilquiz.app.ai.util.ConversationSession session) { switchToSession(session); }
+                // 远程态（M8-P0-4）：同一组入口换成电脑语义
+                @Override public void onPickRemoteSession() { openRemoteSessionPicker(); }
+                @Override public void onOpenRemoteInsight() {
+                    startActivity(new Intent(AIChatActivity.this,
+                            com.oilquiz.app.ai.tool.RemoteDshInsightActivity.class));
+                }
             });
             if (chatV2EmptyState != null) {
                 chatV2EmptyState.refreshGreeting();
@@ -4025,8 +4031,7 @@ public class AIChatActivity extends BaseActivity {
         // 还没选跟随会话 → 提示去「远程连接（电脑）」选一条，不偷偷新建会话。
         // 手机本地模型只在未连接、或带附件（远程协议暂不支持附件）时使用。
         // 这样不再依赖已失效的「直连/同步/自动」模式开关（getMode 恒为 auto）。
-        if (com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
-                && com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)
+        if (com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isActive(this)
                 && !hasChatAttachments()) {
             String remoteText = inputMessage.getText().toString().trim();
             if (!remoteText.isEmpty()) {
@@ -9358,8 +9363,7 @@ public class AIChatActivity extends BaseActivity {
         if (messageList == null) return;
         // 连着电脑时回复走 /events 通道，可能比本地"孤儿判定"晚到；
         // 这时补「未生成回复」会凭空多一条假占位（实测 14:41 那条）。
-        if (com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
-                && com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)
+        if (com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isActive(this)
                 && !com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this).isEmpty()) {
             return;
         }
@@ -9373,8 +9377,7 @@ public class AIChatActivity extends BaseActivity {
         // 连着电脑时回复走 /events 通道，可能比本地"孤儿判定"晚到；
         // 这时补「未生成回复」会凭空多一条假占位（实测 14:41 / 14:55 各一条）。
         // 注意有 3 处直接调用本方法，所以判断必须放在这里，而不只是 scheduleOrphanRepair。
-        if (com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
-                && com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)
+        if (com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isActive(this)
                 && !com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this).isEmpty()) {
             return 0;
         }
@@ -9496,8 +9499,7 @@ public class AIChatActivity extends BaseActivity {
 
     private void startNewConversation() {
         // 连着电脑时，"新建对话" = 让电脑端真建一条新会话，后续消息自动跟随它
-        if (com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
-                && com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)) {
+        if (com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isActive(this)) {
             startNewRemoteConversation();
         }
         try {
@@ -15162,8 +15164,7 @@ public class AIChatActivity extends BaseActivity {
     /** 进入聊天页/连接就绪后启动；重复调用无副作用 */
     private void startDshCommandPolling() {
         if (dshCmdPolling) return;
-        if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
-                || !com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)) return;
+        if (!com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isActive(this)) return;
         dshCmdPolling = true;
         dshCmdHandler.postDelayed(dshCmdTick, 1500);
     }
@@ -15378,6 +15379,104 @@ public class AIChatActivity extends BaseActivity {
      * （用户反馈 2026-09-27："AI 对话界面没有任何 UI 提示，只能在对话流中显示"）。
      * 三种状态：未配对（红）/ 已连接（绿）/ 已断开（黄），点一下进「远程连接（电脑）」。</p>
      */
+    /** 顶栏「选电脑会话」：复用连接页现成的列表（M8-P0-3，不复制 pickSession） */
+    private void openRemoteSessionPicker() {
+        try {
+            android.content.Intent i = new android.content.Intent(this,
+                    com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class);
+            i.putExtra(com.oilquiz.app.ai.tool.RemoteDshConnectActivity.EXTRA_PICK_SESSION, true);
+            startActivity(i);
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "打开选会话失败: " + t.getMessage());
+        }
+    }
+
+    /**
+     * 远程外壳（2026-11-14，M8-P0-2/P0-4/P0-5）。
+     *
+     * <p>一次读状态、三处写入（顶栏 / 输入区 / 空首屏），由 {@link #refreshRemoteDshBar()}
+     * 每秒 tick 调一次 —— 纯内存文本，不新增网络请求、不新增刷新源。</p>
+     *
+     * <p>三态与 {@code ChatRemoteMode} 对齐：本地=完全现状；已配对未连=顶栏提示重连、其余本地；
+     * 已连接=顶栏换成「电脑 · 阶段｜跟随「会话」· 待处理 N」，本地 chip 收起，空首屏换电脑语义。</p>
+     */
+    private void applyRemoteChrome() {
+        try {
+            boolean active = com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isActive(this);
+            boolean disconnected = com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isDisconnected(this);
+            if (!active && !disconnected) {
+                com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenterDefault(this);
+                com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.refreshSubtitleIfNeeded(this);
+                setLocalChipsVisible(true);
+                if (chatV2EmptyState != null) chatV2EmptyState.setRemoteMode(false);
+                return;
+            }
+            if (disconnected) {
+                com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.setRemoteSubtitle(this,
+                        "电脑已断开 · 点这里重连", R.color.warning);
+                com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenter(this,
+                        v -> startActivity(new android.content.Intent(this,
+                                com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class)),
+                        v -> {
+                            startActivity(new android.content.Intent(this,
+                                    com.oilquiz.app.ai.tool.RemoteDshInsightActivity.class));
+                            return true;
+                        });
+                setLocalChipsVisible(true);
+                if (chatV2EmptyState != null) chatV2EmptyState.setRemoteMode(false);
+                return;
+            }
+            com.oilquiz.app.ai.tool.RemoteLiveStatus.Snapshot live =
+                    com.oilquiz.app.ai.tool.RemoteLiveStatus.snapshot();
+            com.oilquiz.app.ai.tool.RemoteStatusSnapshot st =
+                    com.oilquiz.app.ai.tool.RemoteStatusMonitor.get();
+            String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+            String syncTitle = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTitle(this);
+            String follow = target.isEmpty()
+                    ? "未选会话"
+                    : "跟随「" + (syncTitle.isEmpty() ? shortId(target) : syncTitle) + "」";
+            StringBuilder sub = new StringBuilder("电脑 · ").append(remotePhaseText(live))
+                    .append("｜").append(follow);
+            boolean needsAttention = st != null && st.ok && st.approvalsPending > 0;
+            if (needsAttention) sub.append(" · 待处理 ").append(st.approvalsPending);
+            int dot = needsAttention ? R.color.warning : R.color.success;
+            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.setRemoteSubtitle(this, sub.toString(), dot);
+            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenter(this,
+                    v -> openRemoteSessionPicker(),
+                    v -> {
+                        startActivity(new android.content.Intent(this,
+                                com.oilquiz.app.ai.tool.RemoteDshInsightActivity.class));
+                        return true;
+                    });
+            setLocalChipsVisible(false);
+            if (chatV2EmptyState != null) chatV2EmptyState.setRemoteMode(true);
+        } catch (Throwable t) {
+            // 外壳改造失败只影响视觉，聊天页照旧
+            AppLogger.aiW(TAG, "applyRemoteChrome: " + t.getMessage());
+        }
+    }
+
+    /** 本地引擎 chip（深度思考/联网/本地智能体）显隐：远程时它们是无效开关 */
+    private void setLocalChipsVisible(boolean visible) {
+        try {
+            // 按 id 一个个查，不依赖 chipWebSearch/chipLocalAgent 字段 ——
+            // 那两个字段只在部分构造分支里赋值，v2 外壳下可能是 null（真机实测漏了两个）。
+            int[] ids = {R.id.chip_deep_think, R.id.chip_web_search, R.id.chip_local_agent};
+            View first = findViewById(ids[0]);
+            boolean before = first != null && first.getVisibility() == View.VISIBLE;
+            if (before == visible) return;
+            boolean pinned = stickToBottom != null && stickToBottom.isPinned();
+            int v = visible ? View.VISIBLE : View.GONE;
+            for (int id : ids) {
+                View chip = findViewById(id);
+                if (chip != null) chip.setVisibility(v);
+            }
+            notifyViewportAfterHeightChange(pinned, before, visible);
+        } catch (Throwable ignored) {
+            // 取不到 chip 就不动，不影响其它外壳元素
+        }
+    }
+
     private void refreshRemoteDshBar() {
         if (remoteDshBar == null) {
             return;
@@ -15388,8 +15487,8 @@ public class AIChatActivity extends BaseActivity {
             com.oilquiz.app.ai.tool.RemoteStatusSlots.clear();
             return;
         }
-        boolean configured = com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this);
-        boolean connected = com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this);
+        boolean configured = com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isConfigured(this);
+        boolean connected = com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isConnected(this);
         int dotRes;
         String title;
         String sub;
@@ -15464,7 +15563,11 @@ public class AIChatActivity extends BaseActivity {
             remoteDshBadge.setVisibility(configured ? View.VISIBLE : View.GONE);
         }
         remoteDshAction.setText(action);
-        remoteDshBar.setVisibility(View.VISIBLE);
+        // 远程态（配对过）把这条状态条收起来：信息已并进顶栏副标题，不再同屏两处；
+        // 未配对时它仍是"扫码配对"的入口，保持可见。
+        boolean chromeOwns = com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isConfigured(this);
+        remoteDshBar.setVisibility(chromeOwns ? View.GONE : View.VISIBLE);
+        applyRemoteChrome();
     }
 
     // ===== 远程状态条：动态信息（2026-11-13）=====

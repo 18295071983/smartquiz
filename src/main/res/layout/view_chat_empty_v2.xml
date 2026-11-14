@@ -99,6 +99,7 @@
                 android:orientation="vertical">
 
                 <TextView
+                    android:id="@+id/chat_v2_entry_select_model_title"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="@dimen/space_3"
@@ -108,6 +109,7 @@
                     android:textStyle="bold"/>
 
                 <TextView
+                    android:id="@+id/chat_v2_entry_select_model_sub"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/chat_v2_entry_select_model_sub"
@@ -146,6 +148,7 @@
                 android:orientation="vertical">
 
                 <TextView
+                    android:id="@+id/chat_v2_download_row_title"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="@dimen/space_3"
@@ -155,6 +158,7 @@
                     android:textStyle="bold"/>
 
                 <TextView
+                    android:id="@+id/chat_v2_download_row_sub"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/chat_v2_download_sub"

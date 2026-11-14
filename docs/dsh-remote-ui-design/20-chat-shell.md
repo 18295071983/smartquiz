@@ -324,6 +324,31 @@ refreshRemoteDshBar()   ← 保留，只管状态条（仍被 hide）
 
 ---
 
+## 11. 落地记录（2026-11-14，M8 已实施）
+
+与本文设计的差异，按实际落地的写法记在这里：
+
+1. **P-3 前提不成立，未按本文改**。`ChatUiV2Chrome` 藏了 `remote_dsh_bar`，但
+   `refreshRemoteDshBar()` 末尾每秒 `setVisibility(VISIBLE)` 把它显回来 —— 那条一直在。
+   真正的缺口是顶栏副标题（P-1），M8 只改副标题，不动 hide。
+2. **远程态改为主动收起状态条**：信息已并进顶栏副标题，不再同屏两处。收起条件 =
+   `ChatRemoteMode.isConfigured()`（配对过就收），未配对时它仍是扫码配对的入口。
+3. **`ChatRemoteMode` 只保留三态判定**，没做本文 §4.1 的 snapshot 打包：
+   调用点本来就能各自 `RemoteStatusMonitor.get()` / `RemoteLiveStatus.snapshot()`，
+   多一层打包没有收益。
+4. **空首屏没新增 `chat_v2_remote_entry_*` 一组视图**，改成同一组入口换文案+换回调
+   （`ChatV2EmptyState.setRemoteMode`）。本地那三行零改动，回归面最小。
+   「最近」在远程态收起 —— 它是手机本地会话，摆在被接管的页面上会误导（§9-1 仍待评审）。
+5. **chip 显隐按 id 查**：`chipWebSearch` / `chipLocalAgent` 字段只在部分构造分支赋值，
+   v2 外壳下是 null（真机漏了两个 chip），不能只靠字段。
+6. **顶栏默认点击目标改为 `ModelSelectorActivity`**（§4.2 的 P-2），与空首屏统一。
+
+验收情况：远程态真机确认（副标题「电脑 · 阶段｜跟随「会话」」+ 状态点 + 状态条收起 +
+三个本地 chip 隐藏）；断开态与未配对态走同一 `ChatRemoteMode` 分支，未单独造态验证。
+M9（事件接线）未开始。
+
+---
+
 ## 附：与既有文档的关系
 
 - `00-overall.md` §7 的 14 条硬约束继续生效，本文新增两条：**"远程判定只允许一个入口"**、**"外壳三处写入只允许一个出口"**。

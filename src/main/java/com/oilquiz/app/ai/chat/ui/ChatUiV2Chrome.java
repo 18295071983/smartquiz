@@ -216,14 +216,71 @@ public final class ChatUiV2Chrome {
         // 「⋯」不再弹自制的信息面板（已删）：状态与运行日志都搬进了工具中心，
         // 这里复用旧汉堡键的点击逻辑打开工具抽屉，不另写一套打开流程。
         click(header, R.id.chat_v2_btn_more, v -> perform(activity, R.id.btn_back));
-        // 模型入口直跳「模型选择」页（2026-10-25）：原先这里弹的是聊天页内的 ModelSheet 面板，
-        // 但它本地 tab 的行根本没挂点击、"应用"也只写温度不切模型，却照样弹"已应用"——
-        // 是个会骗人的半成品。切换模型/下载/删除的统一入口本来就在 ModelCenterActivity，
-        // 不再在聊天页复制一份"看着能切、其实不接线"的 UI。
-        click(header, R.id.chat_v2_btn_model, v ->
-                activity.startActivity(new Intent(activity,
-                        com.oilquiz.app.ui.activity.ModelCenterActivity.class)));
+        // 顶栏中间块（标题+副标题）的默认去向：模型选择页（2026-11-14，与空首屏统一，修 P-2）。
+        // 远程态由 {@link #bindCenter} 改向会话选择，断开/本地再改回来。
+        bindDefaultCenterClick(activity, header);
         return header;
+    }
+
+    /**
+     * 中间块的默认点击：进「模型选择」页（本地与在线都在那一页能切）。
+     *
+     * <p>2026-11-14（M8-P0-3）收敛：原先顶栏点进去是 {@code ModelCenterActivity}
+     * （只有在线注册+用量，选不了本地模型），与空首屏第一行的去处不一致；
+     * 两处统一到 {@code ModelSelectorActivity}。</p>
+     */
+    private static void bindDefaultCenterClick(Activity activity, View header) {
+        View center = header == null ? null : header.findViewById(R.id.chat_v2_btn_model);
+        if (center == null) return;
+        center.setOnClickListener(v -> {
+            try {
+                activity.startActivity(new Intent(activity,
+                        com.oilquiz.app.ui.activity.ModelSelectorActivity.class));
+            } catch (Throwable ignored) {
+                // 页面起不来不影响聊天页
+            }
+        });
+        center.setOnLongClickListener(null);
+    }
+
+    /** 把顶栏中间块恢复成默认（本地态/断开态用）。 */
+    public static void bindCenterDefault(Activity activity) {
+        try {
+            ViewGroup root = activity.findViewById(R.id.main_content);
+            View header = root == null ? null : root.findViewWithTag(TAG_HEADER);
+            bindDefaultCenterClick(activity, header);
+        } catch (Throwable ignored) {
+            // 顶栏没挂上就什么都不用做
+        }
+    }
+
+    /** 顶栏中间块改向（远程态：点=会话选择，长按=电脑面板）。 */
+    public static void bindCenter(Activity activity, View.OnClickListener click,
+                                  View.OnLongClickListener longClick) {
+        try {
+            ViewGroup root = activity.findViewById(R.id.main_content);
+            View header = root == null ? null : root.findViewWithTag(TAG_HEADER);
+            View center = header == null ? null : header.findViewById(R.id.chat_v2_btn_model);
+            if (center == null) return;
+            center.setOnClickListener(click);
+            center.setOnLongClickListener(longClick);
+        } catch (Throwable ignored) {
+            // 顶栏没挂上就什么都不用做
+        }
+    }
+
+    /**
+     * 远程态副标题 + 状态点（M8-P0-2）。
+     *
+     * <p>副标题写「电脑 · 阶段｜跟随「会话」· 待处理 N」，与本地模型文案彻底分开；
+     * 状态点复用同一判据：待处理/排队 → 黄、在线 → 绿、断开 → 灰。</p>
+     *
+     * @param dotColorRes 状态点颜色（{@code R.color.success/warning/chat_v2_text_3}）
+     */
+    public static void setRemoteSubtitle(Activity activity, String text, int dotColorRes) {
+        if (activity == null || TextUtils.isEmpty(text)) return;
+        updateSubtitle(activity, text);
+        updateStatusDot(activity, dotColorRes);
     }
 
     /**

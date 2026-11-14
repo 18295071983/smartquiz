@@ -1658,25 +1658,63 @@ function presetSvcOf(ctx) {
    * 数据来自 DSH 自己的事件（sandbox/mode、permission/preset、approval/policy），
    * 不猜服务 API；`danger-full-access` 标黄——那是真的高风险。</p>
    */
+  /**
+   * 从宿主补读一次"当前权限"（2026-11-14）。
+   *
+   * <p>{@code PERM_STATE} 是**事件驱动**的：桌面端一重启、或换个新会话，那些
+   * `sandbox/mode` / `approval/policy` 事件不会重放，插槽就空了 —— 真机表现是
+   * "手机上的权限那一行没了"。这里按需向宿主问一次真值：</p>
+   * <ul>
+   *   <li>sandbox：{@code sandboxPolicy.overrideOf(session) ?? defaultMode}</li>
+   *   <li>approval：{@code approval.overrideOf(session) ?? config.policy}</li>
+   *   <li>preset：{@code permissionPresets.current(session)}（档位名，事件里才有，
+   *       重启后不重放 → 插槽会缺这一段）</li>
+   * </ul>
+   * <p>读不到就保持事件里的旧值（事件路径照旧有效），不抛。</p>
+   */
+  const refreshPermissionFromHost = (sid) => {
+    const session = (() => {
+      try { return sid ? (ctx.sessions?.get?.(sid) ?? null) : null; } catch { return null; }
+    })();
+    if (!session) return;
+    try {
+      const pp = ctx.get?.('permissionPresets');
+      const name = typeof pp?.current === 'function' ? pp.current(session) : undefined;
+      if (name) PERM_STATE.preset = String(name);
+    } catch { /* 预设服务不在就是空的 */ }
+    try {
+      const sp = ctx.get?.('sandboxPolicy');
+      const mode = (typeof sp?.overrideOf === 'function' ? sp.overrideOf(session) : undefined)
+        ?? sp?.defaultMode;
+      if (mode) PERM_STATE.sandbox = String(mode);
+    } catch { /* 服务结构变了就退回事件值 */ }
+    try {
+      const ap = ctx.get?.('approval');
+      const policy = (typeof ap?.overrideOf === 'function' ? ap.overrideOf(session) : undefined)
+        ?? ap?.config?.policy;
+      if (policy) PERM_STATE.policy = String(policy);
+    } catch { /* 同上 */ }
+  };
+
   const broadcastPermissionSlot = () => {
-    // 文案中文化（2026-11-13）：sandbox/policy 是内部枚举，直接显示 workspace-write 看着累
+    // 文案（2026-11-14 改版）：只显示人能读的中文，不再夹带内部枚举/档位 id。
+    // 以前一行是「可写 · workspace-write · 审批:每次」—— 中间那段英文是档位 id，
+    // 和左边的沙箱标签重复，纯噪音，去掉；措辞也统一成"能干什么"的口吻。
     const SANDBOX_LABEL = {
       'read-only': '只读',
-      'workspace-write': '可写',
+      'workspace-write': '可写工作区',
       'danger-full-access': '完全访问',
     };
     const POLICY_LABEL = {
-      never: '审批:从不',
-      ask: '审批:每次',
-      always: '审批:总是',
-      auto: '审批:自动',
+      never: '审批:从不询问',
+      ask: '审批:每次询问',
+      always: '审批:总是询问',
+      auto: '审批:自动判断',
     };
-    const parts = [
-      SANDBOX_LABEL[PERM_STATE.sandbox] ?? PERM_STATE.sandbox,
-      PERM_STATE.preset,
-      POLICY_LABEL[PERM_STATE.policy] ?? PERM_STATE.policy,
-    ].filter((s) => s && String(s).length);
-    if (parts.length === 0) {
+    const sandbox = SANDBOX_LABEL[PERM_STATE.sandbox] ?? (PERM_STATE.sandbox ? '未知模式' : '');
+    const policy = POLICY_LABEL[PERM_STATE.policy] ?? (PERM_STATE.policy ? '审批:未知' : '');
+    const detail = [sandbox, policy].filter((s) => s && String(s).length).join(' · ');
+    if (!detail) {
       streamBroadcast('', { v: 2, type: 'ui/slot', data: { id: 'permission' } });
       return;
     }
@@ -1684,7 +1722,7 @@ function presetSvcOf(ctx) {
       id: 'permission',
       priority: 35,
       title: '权限',
-      detail: parts.join(' · '),
+      detail,
       action: 'permission',
       warn: PERM_STATE.sandbox === 'danger-full-access',
     } });
@@ -2198,6 +2236,14 @@ function presetSvcOf(ctx) {
   /** 权限状态（沙箱 / 档位 / 审批策略的最近取值）。 */
   route('exact', '/v2/permission', (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    // 带 session_id 就先向宿主补读一次：事件驱动的 PERM_STATE 在重启/新会话后是空的，
+    // 只靠它会显示"权限未知"，手机变更卡也就没有当前值可看。
+    let sid = '';
+    try {
+      const q = new URL(req.url ?? '/v2/permission', 'http://dsh.invalid');
+      sid = String(q.searchParams.get('session_id') || '').trim();
+    } catch { /* 无 query 就算了 */ }
+    if (sid) refreshPermissionFromHost(sid);
     // 在线改权限要用宿主真实服务（2026-11-13）：dsh-permission-presets 的 permissionPresets.set(session, name)
     // 才是"整套预设"的正规入口；sandbox 单独改没有公开 setter，所以只暴露预设列表。
     const svc = presetSvcOf(ctx);
@@ -2343,6 +2389,7 @@ function presetSvcOf(ctx) {
         }
         try {
           await svc.set(session, preset);
+          refreshPermissionFromHost(sid);   // 事件可能还没回环，先从宿主读真值
           broadcastPermissionSlot();
           return sendJson(res, 200, { ok: true, v: 2, action, applied: ['preset'], preset });
         } catch (e) {
@@ -2385,6 +2432,7 @@ function presetSvcOf(ctx) {
       if (!sandbox && !policy && !preset) {
         return sendJson(res, 400, { ok: false, error: 'need_preset_or_sandbox_or_policy' });
       }
+      refreshPermissionFromHost(String(body.session_id ?? '').trim());
       broadcastPermissionSlot();
       const ok = applied.length > 0;
       return sendJson(res, ok ? 200 : 409, {
@@ -4126,6 +4174,8 @@ function presetSvcOf(ctx) {
     broadcastGoalSlot(sid);
     broadcastSubagentsSlot();
     broadcastMcpSlot();
+    // 权限插槽：先向宿主补读一次（重启/新会话时事件不会重放，否则这一行是空的）
+    refreshPermissionFromHost(sid);
     broadcastPermissionSlot();
     // 日程概览（通用 ui/slot）
     pushScheduleSlot();

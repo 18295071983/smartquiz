@@ -70,6 +70,16 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     /** 是否做过首次自动探测（onResume 会被重复调用，避免每次返回都打网络） */
     private boolean probedOnce;
 
+    /**
+     * 进来就弹「选电脑会话」（2026-11-14，M8-P0-3）。
+     *
+     * <p>聊天页顶栏点标题需要"挑一条电脑会话"，这里复用本页现成的
+     * {@code pickSession()}（拉 /v2/sessions → 列表 → attach），不再复制一份列表逻辑。
+     * 启动时带 {@code EXTRA_PICK_SESSION=true} 即可。</p>
+     */
+    public static final String EXTRA_PICK_SESSION = "pick_session";
+    private boolean pickOnResume;
+
     private static final int COLOR_OK = 0xFF15803D;
     private static final int COLOR_WARN = 0xFFB45309;
     private static final int COLOR_ERR = 0xFFB91C1C;
@@ -81,6 +91,8 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             getSupportActionBar().setTitle("远程连接（电脑）");
         }
         setContentView(R.layout.activity_remote_dsh_connect);
+        pickOnResume = getIntent() != null
+                && getIntent().getBooleanExtra(EXTRA_PICK_SESSION, false);
 
         statusDot = findViewById(R.id.status_dot);
         statusText = findViewById(R.id.status_text);
@@ -547,6 +559,17 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         // 首次进入时地址/令牌显示停留在布局默认的"(未配置)"（实测 2026-11-13）
         refresh();
         attachConnection();
+        // 从聊天页顶栏「选电脑会话」进来的：稍等布局稳一下直接弹列表（M8-P0-3）
+        if (pickOnResume) {
+            pickOnResume = false;
+            getWindow().getDecorView().postDelayed(() -> {
+                try {
+                    pickSession();
+                } catch (Throwable t) {
+                    android.util.Log.w("RemoteDshConnect", "pickSession on enter: " + t.getMessage());
+                }
+            }, 300L);
+        }
     }
 
     @Override
