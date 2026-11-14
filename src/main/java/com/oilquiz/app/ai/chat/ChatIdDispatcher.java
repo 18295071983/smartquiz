@@ -54,7 +54,25 @@ public class ChatIdDispatcher {
         DSH_CARD("P"),      // 电脑端卡片组件（tool_call/subagent/alert…）
         DSH_TOOLCALL("X"),  // 电脑端工具调用卡
         DSH_THINK("R"),     // 电脑端思考段
-        DSH_EVENT("E");     // 电脑端事件派生项（插槽/子代理轨迹/审批）
+        DSH_EVENT("E"),     // 电脑端事件派生项
+
+        // ---- 预留桶（2026-11-14 预分配，编码一旦发布就不再复用）----
+        // 说明：这些类型现在未必有生产者，先占号是为了"以后接事件时不必再动枚举"，
+        // 避免新能力随手借用 U/A/C 把编号撞到本地 agent 的桶里。
+        // 编码都是本地与 DSH 桶里还没用过的字母；字母表用完之前不要回收。
+        DSH_SUBAGENT("Z"),   // 子代理卡 / 轨迹
+        DSH_JOB("J"),        // 后台任务
+        DSH_GOAL("O"),       // 目标
+        DSH_APPROVAL("V"),   // 审批（允许/拒绝）
+        DSH_QUESTION("Q"),   // 反问 / 人工问答
+        DSH_SLOT("L"),       // 甲板插槽
+        DSH_COMPACT("M"),    // 上下文压缩
+        DSH_RETRY("Y"),      // 模型重试
+        DSH_SESSION("B"),    // 会话 / 锚点
+        DSH_ATTACHMENT("H"), // 附件 / 文件产物
+        DSH_DIFF("I"),       // 代码差异卡
+        DSH_SEARCH("W"),     // 搜索 / 检索结果
+        DSH_TERMINAL("N");   // 终端输出
 
         public final String code;
 
