@@ -320,4 +320,52 @@ final class LayoutBindingScope {
             this.rawValue = rawValue;
         }
     }
+
+    /**
+     * 嵌套卡片 props 的一次性求值（2026-11-15）。
+     *
+     * <p>卡片由 {@code ComponentRegistry} 渲染，没有"输入变化 → 重算"的通道，所以
+     * {@code {"$":"data.x"}} / {@code {"=":"…"}} 在这里就地换成静态值再交给卡片：
+     * 绑定取 {@code props.data} 的值（取不到给空串），公式用
+     * {@link LayoutFormula#evaluateText} 求值（算不出来给 {@code "—"}）。对象/数组递归处理，
+     * 深度上限 8 层，超深原样返回（不把整棵 props 拖坏）。</p>
+     *
+     * <p><b>限制</b>：只求一次值；卡片内部若再嵌 layout（layout 卡），其输入控件变化不会
+     * 回改这里已经算好的值。</p>
+     */
+    Object resolveCardValue(Object value, int depth) {
+        if (value == null || value == JSONObject.NULL || depth > 8) return value;
+        try {
+            if (LayoutFormula.isBinding(value)) {
+                Object resolved = LayoutFormula.resolvePath(data, LayoutFormula.bindingPath(value));
+                return resolved != null ? resolved : "";
+            }
+            if (LayoutFormula.isFormula(value)) {
+                return LayoutFormula.evaluateText(LayoutFormula.expression(value), data);
+            }
+            if (value instanceof JSONObject) {
+                JSONObject src = (JSONObject) value;
+                JSONObject out = new JSONObject();
+                Iterator<String> keys = src.keys();
+                while (keys.hasNext()) {
+                    String k = keys.next();
+                    Object v = resolveCardValue(src.opt(k), depth + 1);
+                    out.put(k, v != null ? v : JSONObject.NULL);
+                }
+                return out;
+            }
+            if (value instanceof org.json.JSONArray) {
+                org.json.JSONArray src = (org.json.JSONArray) value;
+                org.json.JSONArray out = new org.json.JSONArray();
+                for (int i = 0; i < src.length(); i++) {
+                    Object v = resolveCardValue(src.opt(i), depth + 1);
+                    out.put(v != null ? v : JSONObject.NULL);
+                }
+                return out;
+            }
+        } catch (Throwable ignored) {
+            // 求值出问题就按原值交给卡片，不让绑定把卡片整个干掉
+        }
+        return value;
+    }
 }

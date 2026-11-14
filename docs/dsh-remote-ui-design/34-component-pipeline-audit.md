@@ -1281,3 +1281,100 @@ App 侧 `DockSlotBus.Slot` 新增只读字段 `rev` / `expireAt` / `source`（`p
 **真机证据**：`phone_ui(id=dock-rv)` 推 A/B 后甲板只有一行 B（`build/dock-verify.png`）；
 再 `phone_ui(id=dock-rv)`（空 title/detail）返回「已移除手机插槽 dock-rv」，同一屏甲板该行消失
 （`build/dock-verify/final-removed2.png`）。
+
+## 21. layout 嵌套卡片类型（2026-11-15）
+
+### 21.1 问题：卡片类型进不了 layout
+
+`NativeLayoutRenderer.buildNode` 的 `default:` 分支此前只认三条展开路径：① `UIComponentTypeRegistry`
+（`register_type` 的 layout 模板）② `UIComponentPluginManager`（插件 `render.layout`）③ 节点自带
+`layout` 字段。`key_value`/`compare`/`alert_card` 这类卡注册在 `ComponentRegistry`，三条都不匹配
+→ 返回 null → 灰字「这部分无法显示」。真机实测：layout 子节点
+`{"type":"key_value","items":[["k1","v1"]]}` 服务端 200（校验器已放行），卡上却没有 k1。
+
+### 21.2 支持范围（第四条判定）
+
+在 `tryExpandRegisteredType` 之后补第四条 `tryRenderRegisteredCard(...)`：
+
+- **判定**：`ComponentTypes.resolve(type)` 归一后 `ComponentRegistry.hasType(...)` 为真 ——
+  `keyValue`/`keyvalue`、`compare_card`、`dsh_command`→`code` 等别名一并认；
+- **props**：节点 `props` 对象打底、节点顶层属性覆盖；`type`/`children`/`key`/`props` 与父容器
+  排版键（width/height/margin/weight/flex/align/alignItems/spacing）不进 props；
+  **`items`/`rows`/`series` 是卡片数据，原样带过去，不会被当 `children` 递归**
+  （渲染器只遍历 `children`，`addChildren` 也一样）；
+- **外壳**：直接返回卡片自己的 View（CardShell 已带圆角/描边/标题/内边距），**不再额外套一层
+  卡片外壳**；宽高交给父容器 `addChildren` 的 LayoutParams（列里铺满、行里自适应），
+  没有额外包装层，嵌套时是"卡片里嵌一张紧凑小卡"；
+- **key**：节点有 `key` 就登记 `viewRefs[key]`（卡片是 ViewGroup，`collectValues` 只收输入控件，
+  不会把整张卡塞进回传值）；
+- **绑定/公式**：props 里的 `{"$":"data.x"}` / `{"=":"…"}` 由
+  `LayoutBindingScope.resolveCardValue` 递归求**一次**静态值再交给卡片；
+- **交互**：props 带 `actions` 时仍由 `ComponentRegistry` 统一附加动作（卡片 footer），
+  与聊天流卡片同一条路。
+
+覆盖面 = `ComponentRegistry` 里所有已注册类型：`key_value`/`compare`/`alert_card`/`info_card`/
+`list_card`/`table_card`/`metric_card`/`steps_card`/`json_viewer`/`code_card`/`layout`/场景卡……
+（`text`/`input`/`chart` 这类**内置 layout 控件**仍由 `buildNode` 的 switch 先接住，行为不变。）
+
+### 21.3 嵌套深度上限
+
+卡片可能自己再走 layout 渲染（`layout` 卡 → `LayoutCardView` → `NativeLayoutRenderer.render`），
+不设限会递归。用线程内 `CARD_NEST_DEPTH` 计数（进卡片前 +1、`finally` −1，不跨请求残留）：
+
+- layout 直接子卡片深度 **0**；
+- 卡片内部再出现的卡片深度 +1；
+- **上限 2**：深度 0/1/2 正常渲染，`>2` 的那一张返回灰字「嵌套太深」并记日志
+  （即连续 4 张卡片时第 4 张降级；"layout 卡里再套 layout 卡再放 key_value" 这种两层嵌套仍可用）。
+
+预算沿用既有口径：卡片节点本身在 `buildNode` 入口计 **1 个节点**（`MAX_NODES=400`），
+节点层级仍由 `MAX_DEPTH=9` 把关。注意 `LayoutCardView` 内层 render 会按既有实现重置节点预算
+（本次不动这条），所以嵌套卡片深度是"卡片里再套卡片"这道环的唯一闸门。
+
+### 21.4 失败兜底
+
+- `hasType` 为真但 `render` 返回 null → 灰字「这部分无法显示」，日志
+  `嵌套卡片渲染返回 null type=…（归一后 …）`；
+- `render` 抛异常 → 灰字「这部分无法显示」，日志 `嵌套卡片渲染异常 type=…（归一后 …）` 带堆栈；
+- type 不在卡片注册表 → 返回 null，调用方继续走原有「未知控件」灰字（行为不变）；
+- props 组装失败、绑定求值失败只记日志并按原值渲染，不把整张卡干掉。
+
+### 21.5 测试
+
+`NestedCardNodeTest`（Robolectric，新增 6 条，全绿）：
+
+| 用例 | 断言 |
+|---|---|
+| `nestedCardTypesRenderInlineInsteadOfGrayPlaceholder` | layout=[text NEST-KV, key_value(k1/v1), compare(基础版)] → k1/v1/基础版 出现在 View 树，无「这部分无法显示」 |
+| `unknownTypeStillFallsBackToGrayPlaceholder` | 未知 type 仍是灰字「这部分无法显示」 |
+| `twoLevelsOfNestedCardsStillRenderContent` | layout 卡→layout 卡→key_value（深度 0/1/2）→ k1 渲染，无「嵌套太深」 |
+| `nestedCardBeyondDepthLimitShowsTooDeep` | 深度 3 → 灰字「嵌套太深」，深层内容不渲染 |
+| `cardItemsAreDataNotChildren` | items 里塞"像节点的对象"→ 其 text 不出现（没被当 children） |
+| `cardPropsBindingsResolveOnceAgainstPropsData` | items 里 `{"$":"data.name"}` → 求值出「答题宝」 |
+
+回归：`testDebugUnitTest --tests "com.oilquiz.app.ai.python.*" --tests "com.oilquiz.app.ai.chat.component.*"`
+共 **46 个测试类 / 269 条用例，0 失败**（其中 `NestedCardNodeTest` 6/6）。
+
+### 21.6 真机结论（2026-11-15）
+
+`POST /v2/card`（令牌/会话见本轮任务）推 `type=layout`：
+
+- 卡 A（`key=nested-kv-1`）：children = [text "NEST-KV", key_value(items `[[k1,v1],[k2,v2]]`),
+  compare(套餐对比 / 基础版 19 / 专业版 49)] → `/v2/card` **200** `pushed:true diagnostics:[]`；
+  截图 **`build/nested/nested.png`**：NEST-KV、k1/v1、k2/v2、套餐对比两张小卡都画出来了，
+  嵌套的 `key_value`/`compare` 是各自的**内嵌卡片视图**（圆角+标题），**没有**灰字占位；
+  `uiautomator dump`：`k1=True v1=True k2=True v2=True NEST-KV=True 这部分无法显示=False`。
+- 卡 B（`key=nested-deep-1`）：layout 卡×4 层后才放 key_value → 截图
+  **`build/nested/nested_deep2.png`** 显示灰字「嵌套太深」；`dump`：
+  `嵌套太深=True too-deep=False`，深层数据没有被渲染。
+- 装机：`adb -s 192.168.1.10:41193 install -r "build\outputs\apk\debug\答题宝-debug-2.2.apk"`
+  → `Success`；APK SHA256 `22B84F195D5EE1BAE192F9298BA6E12F51A6C185153D69A5DD6277236930AFC3`；
+  `.\gradlew.bat --offline assembleDebug --console=plain` → BUILD SUCCESSFUL。
+
+### 21.7 没做到/边界
+
+- 嵌套卡片的绑定/公式只求值**一次**（卡片没有"输入变化 → 重算"的通道），之后不会随输入刷新；
+- 卡片内部输入控件的变化不会回写外层 layout 的 `props.data`（`LayoutCardView` 会另开自己的
+  `viewRefs`，回传走它自己的 input collector，与节点级绑定互不干扰）；
+- 嵌套卡片不吃节点级 `style` 的容器覆盖：`buildNode` 已把节点 `style` 展开成顶层属性，
+  而 `ComponentRegistry` 只认 `props.style`，所以嵌套卡片的 padding/圆角/底色由卡片自身决定；
+- 卡片节点上的 `children` 不做渲染（卡片类型没有子节点语义），只有 `items` 等数据字段进 props。

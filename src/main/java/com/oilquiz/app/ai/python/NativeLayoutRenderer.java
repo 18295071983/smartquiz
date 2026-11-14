@@ -3270,6 +3270,10 @@ return attachLabel(context, node, props, srWrap, density);
                 // 已注册组件类型/插件作为节点 type 嵌套：展开其 render.layout 递归渲染
                 View expanded = tryExpandRegisteredType(context, node, props, viewRefs, depth, defines, type);
                 if (expanded != null) return expanded;
+                // 第四条（2026-11-15）：ComponentRegistry 里注册的卡片类型（key_value/compare/alert_card…）
+                // 作为 layout 子节点时内嵌渲染成卡片视图，不再落到「这部分无法显示」。
+                View nestedCard = tryRenderRegisteredCard(context, node, viewRefs, type);
+                if (nestedCard != null) return nestedCard;
                 // 降级口径（抄 dsh-Go）：单个子节点画不出来只换成灰色占位，
                 // 其余照常渲染 —— 不让一个不认识的 type 毁掉整张卡。
                 android.util.Log.w(TAG, "未知控件 type=" + type
@@ -3415,6 +3419,132 @@ return attachLabel(context, node, props, srWrap, density);
         } catch (Throwable t) {
             android.util.Log.w("NativeLayoutRenderer", "展开注册类型失败 " + type + ": " + t.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * 已注册卡片类型（{@code ComponentRegistry}）作为 layout 子节点时的内嵌渲染（2026-11-15）。
+     *
+     * <p>为什么需要第四条：{@code key_value}/{@code compare}/{@code alert_card} 这类卡在
+     * {@code ComponentRegistry} 里注册，但既不是 register_type 的 layout 模板、也不是插件
+     * render.layout，节点又不自带 layout —— 此前直接落进「这部分无法显示」（真机
+     * {@code {"type":"key_value","items":[["k1","v1"]]}} 的 k1 不出现）。</p>
+     *
+     * <p>口径：</p>
+     * <ul>
+     *   <li>判定：{@code ComponentTypes.resolve(type)} 归一后 {@code hasType} 为真（别名
+     *       keyValue/dsh_command 一并认）；</li>
+     *   <li>props：节点 props 对象打底、节点顶层属性覆盖；结构键 type/children/key 与父容器排版键
+     *       （width/height/margin/weight/flex/align/alignItems/spacing）不进 props。卡片数据字段
+     *       items 原样带过去，<b>不会被当 children 递归</b>（本渲染器只认 children）；</li>
+     *   <li>绑定/公式：卡片只渲染一次、没有输入重算通道，props 里的 {"$":"data.x"} /
+     *       {"=":"…"} 先按当前 props.data 求一次静态值；</li>
+     *   <li>外壳：直接返回卡片自己的 View（CardShell 自带圆角/标题），不再额外套一层卡片外壳；
+     *       宽高交给父容器 addChildren 的 LayoutParams（列里铺满、行里自适应）；</li>
+     *   <li>深度：嵌套卡片深度超过 {@link #MAX_NESTED_CARD_DEPTH} → 灰字「嵌套太深」（卡片自己
+     *       可能再走 layout 渲染，如 layout 卡，不设限会递归）；卡片节点本身只计 1 个节点预算；</li>
+     *   <li>失败：render 返回 null 或抛异常 → 灰字「这部分无法显示」，日志带 type + 异常。</li>
+     * </ul>
+     *
+     * @return 卡片 View；该 type 不在卡片注册表里返回 null（调用方继续走未知控件灰字）
+     */
+    private static View tryRenderRegisteredCard(Context context, JSONObject node,
+                                                Map<String, Object> viewRefs, String type) {
+        String resolvedType = com.oilquiz.app.ai.chat.component.ComponentTypes.resolve(type);
+        com.oilquiz.app.ai.chat.component.ComponentRegistry registry =
+                com.oilquiz.app.ai.chat.component.ComponentRegistry.getInstance();
+        if (resolvedType == null || resolvedType.isEmpty() || !registry.hasType(resolvedType)) {
+            return null;
+        }
+        // 深度闸：先判再进卡片（卡片内部可能回调本渲染器，例如 layout 卡）
+        int[] nest = CARD_NEST_DEPTH.get();
+        if (nest[0] > MAX_NESTED_CARD_DEPTH) {
+            android.util.Log.w(TAG, "嵌套卡片过深 type=" + type + " 深度=" + nest[0]
+                    + "（上限 " + MAX_NESTED_CARD_DEPTH + "），降级灰字");
+            return placeholder(context, "嵌套太深");
+        }
+        JSONObject cardProps = collectCardProps(node);
+        // 绑定/公式求一次值（卡片没有"输入变化重算"的通道，只能给静态值）
+        LayoutBindingScope scope = LayoutBindingScope.from(viewRefs);
+        if (scope != null) {
+            try {
+                Object resolvedProps = scope.resolveCardValue(cardProps, 0);
+                if (resolvedProps instanceof JSONObject) cardProps = (JSONObject) resolvedProps;
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "嵌套卡片 props 绑定求值失败，按原值渲染 type=" + type
+                        + ": " + t.getMessage());
+            }
+        }
+        nest[0] += 1;
+        View cardView;
+        try {
+            cardView = registry.render(context,
+                    com.oilquiz.app.ai.chat.component.ComponentData.of(resolvedType, cardProps));
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "嵌套卡片渲染异常 type=" + type + "（归一后 " + resolvedType + "）",
+                    t);
+            return placeholder(context, "这部分无法显示");
+        } finally {
+            nest[0] -= 1;
+        }
+        if (cardView == null) {
+            android.util.Log.w(TAG, "嵌套卡片渲染返回 null type=" + type
+                    + "（归一后 " + resolvedType + "）");
+            return placeholder(context, "这部分无法显示");
+        }
+        // key 语义与其它节点一致：有 key 就登记 viewRefs（卡片是 ViewGroup，collectValues 会跳过它）
+        String key = node.optString("key", "");
+        if (!key.isEmpty() && viewRefs != null) viewRefs.put(key, cardView);
+        return cardView;
+    }
+
+    /**
+     * 卡片节点的 props：节点 props 对象打底、节点顶层属性覆盖（节点顶层优先）。
+     * 数据字段（items/rows/series…）原样带过去，只有 type/children/key 与父容器排版键被排除。
+     */
+    private static JSONObject collectCardProps(JSONObject node) {
+        JSONObject props = new JSONObject();
+        if (node == null) return props;
+        try {
+            JSONObject nodeProps = node.optJSONObject("props");
+            if (nodeProps != null) {
+                java.util.Iterator<String> it = nodeProps.keys();
+                while (it.hasNext()) {
+                    String k = it.next();
+                    props.put(k, nodeProps.get(k));
+                }
+            }
+            java.util.Iterator<String> nk = node.keys();
+            while (nk.hasNext()) {
+                String k = nk.next();
+                if (isCardNodeOnlyKey(k)) continue;
+                props.put(k, node.get(k));
+            }
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "嵌套卡片 props 组装失败: " + t.getMessage());
+        }
+        return props;
+    }
+
+    /** 卡片节点上不属于卡片 props 的键：结构键 + 父容器排版键（数据字段 items 不在此列） */
+    private static boolean isCardNodeOnlyKey(String k) {
+        if (k == null) return true;
+        switch (k) {
+            case "type":
+            case "children":
+            case "key":
+            case "props":
+            case "width":
+            case "height":
+            case "margin":
+            case "weight":
+            case "flex":
+            case "align":
+            case "alignItems":
+            case "spacing":
+                return true;
+            default:
+                return false;
         }
     }
 
@@ -4282,6 +4412,15 @@ return attachLabel(context, node, props, srWrap, density);
      */
     private static final int MAX_DATA_IMAGE_CHARS = 4 * 512 * 1024;
     private static final ThreadLocal<int[]> NODE_BUDGET = ThreadLocal.withInitial(() -> new int[]{0});
+    /**
+     * 嵌套卡片深度上限（2026-11-15）：layout 直接子卡片的深度记 0，卡片内部（卡片自己再走
+     * layout 渲染，如 layout 卡）再出现的卡片深度 +1。计数 &gt; 本值的那一张换成灰字「嵌套太深」。
+     * 只拦"卡片里再套卡片"这条环（ComponentRegistry 卡片可能回调本渲染器），普通节点层级仍由
+     * {@link #MAX_DEPTH} 把关；两层嵌套（4 张连续卡片）已远超实际卡片树的形状。
+     */
+    private static final int MAX_NESTED_CARD_DEPTH = 2;
+    /** 线程内嵌套卡片深度（渲染同步进行；进卡片前 +1、出卡片 finally -1，不跨请求残留） */
+    private static final ThreadLocal<int[]> CARD_NEST_DEPTH = ThreadLocal.withInitial(() -> new int[]{0});
 
     /**
      * 结构体积闸门：data:image base64 载荷不计入 64 KiB，但总载荷仍受
