@@ -906,10 +906,31 @@ public class RemoteDshTool implements AITool {
     }
 
     /**
+     * 电脑端可切换的权限预设（2026-11-14）。
+     *
+     * <p>为什么改成"拉"：这台 DSH 只有 {@code permissionPresets.set(session, name)} 一条写路径，
+     * 可选项由宿主配置决定（read-only / workspace-write / danger-full-access），
+     * 手机写死 5 个 sandbox/policy 选项只会和电脑端对不上，点了必然 409。</p>
+     *
+     * @return {@code {ok, presets:[{value,name}], can_change, sandbox, policy, hint}}
+     */
+    public static org.json.JSONObject fetchPermissionPresets(Context c, String sid) throws Exception {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        String q = "?caps=" + java.net.URLEncoder.encode(RemoteCaps.csv(), "UTF-8")
+                + (sid == null || sid.isEmpty() ? ""
+                : "&session_id=" + java.net.URLEncoder.encode(sid, "UTF-8"));
+        Map<String, Object> resp = tool.httpJson(tool.getBaseUrl() + "/v2/permission" + q, "GET", null, 15);
+        return resp == null ? null : new org.json.JSONObject(resp);
+    }
+
+    /**
      * 在线改权限（2026-11-13）：权限槽点开变更卡后，把选择发回电脑端插件。
      *
      * <p>走 {@code /v2/action permission.set}（与 ui.slot 同一个入口）；
      * 插件做特性探测，改不了会回 {@code not_supported}，调用方据此提示"去电脑端改"。</p>
+     *
+     * <p>2026-11-14：请求里补 {@code session_id} —— 预设是**会话级**开关
+     * （插件的 preset 分支要拿 live session 才能落到宿主 permissionPresets.set）。</p>
      *
      * @return 电脑端返回的 JSON（ok / applied / failed / hint），失败返回 null
      */
@@ -918,6 +939,8 @@ public class RemoteDshTool implements AITool {
         RemoteDshTool tool = new RemoteDshTool(c);
         org.json.JSONObject body = new org.json.JSONObject(request.toString());
         body.put("caps", "cmd.ui");   // /v2/action 的 caps 门禁
+        String sid = getSyncTarget(c);
+        if (!sid.isEmpty() && !body.has("session_id")) body.put("session_id", sid);
         Map<String, Object> resp = tool.httpJsonBody(
                 tool.getBaseUrl() + "/v2/action", "POST", body.toString(), 15);
         return resp == null ? null : new org.json.JSONObject(resp);
@@ -1147,6 +1170,37 @@ public class RemoteDshTool implements AITool {
         RemoteDshTool t = new RemoteDshTool(c);
         Map<String, Object> r = t.httpJson(t.getBaseUrl() + "/v2/answer", "POST", b, 25);
         return Boolean.TRUE.equals(r.get("ok"));
+    }
+
+    /**
+     * 电脑端当前挂着的待处理项（审批 / 反问，2026-11-14）。
+     *
+     * <p>为什么需要拉一次：审/问帧是实时帧、不重放；App 重启或页面不在前台时就错过了，
+     * 于是甲板还写着"待处理 1"、点进去却查不到 —— 用户看到的就是"点了没反应/乱跳"。
+     * 这个 action 直接读电脑端网关的 pending 表，回来的是真东西。</p>
+     *
+     * @param sid 目标会话（空 = 全部会话）
+     * @return 每项 {@code {id, kind: approval|question, request, agent_id}}；拉不到返回空表
+     */
+    public static java.util.List<Map<String, Object>> fetchPendingActions(Context c, String sid)
+            throws Exception {
+        RemoteDshTool t = new RemoteDshTool(c);
+        Map<String, Object> b = new HashMap<>();
+        b.put("action", "approval_state");
+        b.put("target_session_id", sid == null ? "" : sid);
+        b.put("caps", RemoteCaps.csv());
+        Map<String, Object> r = t.httpJson(t.getBaseUrl() + "/session", "POST", b, 15);
+        java.util.List<Map<String, Object>> out = new java.util.ArrayList<>();
+        Object pending = r.get("pending");
+        if (pending instanceof java.util.List) {
+            for (Object o : (java.util.List<?>) pending) {
+                if (!(o instanceof Map)) continue;
+                @SuppressWarnings("unchecked")
+                Map<String, Object> m = (Map<String, Object>) o;
+                out.add(m);
+            }
+        }
+        return out;
     }
 
     /** 日程目录（宿主级任务，与电脑端面板同一份数据） */

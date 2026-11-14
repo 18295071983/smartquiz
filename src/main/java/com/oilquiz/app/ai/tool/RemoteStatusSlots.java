@@ -45,23 +45,29 @@ public final class RemoteStatusSlots {
         String title = "";
         String detail = "";
         boolean warn = true;
+        // 动作要和"用户此刻要做什么"对齐（2026-11-14 用户反馈"点第一个为什么跳转"）：
+        // 待审批/待回答是**原地处理**（弹出那条审/问），不是跳远程连接页；
+        // 只有断线那条才该走 connect。
+        String action = "attention";
 
         if (!connected || !conn.isOnline()) {
             title = "电脑断线";
             detail = "点这里重连";
+            action = "connect";
         } else if (live.phase == RemoteLiveStatus.Phase.WAITING_APPROVAL) {
             title = "电脑待审批";
             detail = "点这里处理";
         } else if (st != null && st.ok && st.approvalsPending > 0) {
-            title = "电脑待审批 " + st.approvalsPending;
+            title = "电脑待处理 " + st.approvalsPending;
             detail = "点这里处理";
         } else if (conn.behindCount() > 8) {
             title = "通道落后 " + conn.behindCount() + " 条";
             detail = "正在补";
             warn = false;
+            action = "connect";
         }
 
-        String sig = title + '|' + detail;
+        String sig = title + '|' + detail + '|' + action;
         if (sig.equals(lastSignature)) return;
         lastSignature = sig;
 
@@ -69,7 +75,7 @@ public final class RemoteStatusSlots {
             DockSlotBus.remove(ID);
             return;
         }
-        DockSlotBus.update(new DockSlotBus.Slot(ID, 6, title, detail, "connect", warn));
+        DockSlotBus.update(new DockSlotBus.Slot(ID, 6, title, detail, action, warn));
     }
 
     /** 断连/关闭状态条/页面销毁时调用。 */

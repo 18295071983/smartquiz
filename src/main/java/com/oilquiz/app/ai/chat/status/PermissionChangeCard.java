@@ -41,6 +41,15 @@ public final class PermissionChangeCard {
         return out;
     }
 
+    /** 预设值 → 中文标签（认不出就用原值，别把新预设藏掉） */
+    public static String labelFor(String preset) {
+        if (preset == null || preset.isEmpty()) return "";
+        for (int i = 0; i < SANDBOX_MODES.length; i += 1) {
+            if (SANDBOX_MODES[i].equals(preset)) return SANDBOX_LABELS[i];
+        }
+        return preset;
+    }
+
     /** 点第 index 项时发什么请求（null = 越界） */
     public static JSONObject requestFor(int index) {
         JSONObject body = new JSONObject();

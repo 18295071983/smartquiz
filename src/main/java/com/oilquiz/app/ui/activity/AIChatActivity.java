@@ -13205,10 +13205,10 @@ public class AIChatActivity extends BaseActivity {
         else runOnUiThread(r);
     }
 
-    /** 插槽点击：任务/目标/子代理/MCP/日程 → 扩展面板；其余 → 远程连接页。 */
+    /** 插槽点击：任务/目标/子代理/MCP/日程 → 扩展面板；待处理 → 原地弹那条；其余 → 远程连接页。 */
     private void onDockSlotClick(String action) {
         if ("attention".equals(action)) {
-            scrollToPendingAttention();
+            showPendingAttention();
             return;
         }
         if ("permission".equals(action)) {
@@ -13216,6 +13216,106 @@ public class AIChatActivity extends BaseActivity {
             return;
         }
         openDockSlotPanel(action);
+    }
+
+    /**
+     * 「电脑待处理 N · 点这里处理」→ 原地把那条待处理弹出来（2026-11-14）。
+     *
+     * <p>用户反馈："第一个为什么点了跳转"。根因是这条插槽的 action 一律写成 {@code connect}，
+     * 于是落到"未知动作 → 远程连接页"。现在：有反问就重弹问卡对话框，有审批就重弹审批框，
+     * 都没有才滚到那条消息并提示。对话框没弹出来通常是因为帧到达时页面不在前台（帧不重放），
+     * 这里正好补上手工入口。</p>
+     */
+    private void showPendingAttention() {
+        if (chatHistory == null) return;
+        for (int i = chatHistory.size() - 1; i >= 0; i -= 1) {
+            ChatMessage m = chatHistory.get(i);
+            if (m == null) continue;
+            // 反问优先：与帧到达时的处理顺序保持一致
+            if (m.questions != null) {
+                ChatMessage.QuestionRequest first = null;
+                java.util.List<ChatMessage.QuestionRequest> batch = new java.util.ArrayList<>();
+                for (ChatMessage.QuestionRequest q : m.questions) {
+                    if (q == null || !q.isPending()) continue;
+                    if (first == null) first = q;
+                    if (first.partId().equals(q.partId())) batch.add(q);
+                }
+                String batchId = first == null || first.batchId == null ? "" : first.batchId;
+                if (!batch.isEmpty() && !batchId.isEmpty()) {
+                    try {
+                        showDshQuestionDialog(batchId, new org.json.JSONObject(questionArgs(batch)));
+                        return;
+                    } catch (Exception ignored) {
+                        // 参数坏了就退回"滚到那条"
+                    }
+                }
+            }
+            if (m.approvals != null) {
+                for (ChatMessage.ApprovalRequest a : m.approvals) {
+                    if (a == null || !a.isPending()) continue;
+                    org.json.JSONObject req = new org.json.JSONObject();
+                    try {
+                        req.put("toolName", a.permission == null ? "" : a.permission);
+                        req.put("summary", a.prompt == null ? "" : a.prompt);
+                    } catch (Exception ignored) {
+                        // 摘要拼不出来也能弹（对话框自己兜底成"工具"）
+                    }
+                    showDshApprovalDialog(a.id, req);
+                    return;
+                }
+            }
+        }
+        // 本地没有不代表电脑上没有：帧不重放（App 重启/页面不在前台就错过），
+        // 所以这里直接问电脑端要一次，拿到谁就弹谁。
+        final String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+        new Thread(() -> {
+            java.util.List<java.util.Map<String, Object>> pending = null;
+            try {
+                pending = com.oilquiz.app.ai.tool.RemoteDshTool.fetchPendingActions(this, target);
+            } catch (Exception ignored) {
+                // 拉不到就按"没有"处理
+            }
+            final java.util.List<java.util.Map<String, Object>> fPending = pending;
+            runOnUiThread(() -> showRemotePending(fPending));
+        }, "dsh-attention").start();
+    }
+
+    /** 电脑端回的待处理项 → 对应的审/问对话框（2026-11-14） */
+    private void showRemotePending(java.util.List<java.util.Map<String, Object>> pending) {
+        if (pending == null || pending.isEmpty()) {
+            showToast("现在没有待处理的事项");
+            return;
+        }
+        java.util.Map<String, Object> first = pending.get(0);
+        String id = first.get("id") == null ? "" : String.valueOf(first.get("id"));
+        String kind = first.get("kind") == null ? "" : String.valueOf(first.get("kind"));
+        org.json.JSONObject req = null;
+        Object rawReq = first.get("request");
+        if (rawReq instanceof java.util.Map) {
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, Object> reqMap = (java.util.Map<String, Object>) rawReq;
+            try {
+                req = new org.json.JSONObject(reqMap);
+            } catch (Exception ignored) {
+                // 参数坏了就当没有
+            }
+        }
+        if (id.isEmpty() || req == null) return;
+        // 状态顺手落进当前气泡：甲板/通知栏的计数才和对话框一致
+        ChatMessage live = ensureMirrorBubble(null);
+        if ("question".equals(kind)) {
+            if (live != null) {
+                addDshQuestions(live, id, req);
+                refreshAttentionSlot();
+            }
+            showDshQuestionDialog(id, req);
+            return;
+        }
+        if (live != null) {
+            addDshApproval(live, id, req);
+            refreshAttentionSlot();
+        }
+        showDshApprovalDialog(id, req);
     }
 
     /** 其余插槽：任务/目标/日程/子代理/MCP 进面板，未知动作进远程连接页 */
@@ -13295,6 +13395,219 @@ public class AIChatActivity extends BaseActivity {
         });
     }
 
+    /** 反问对话框（2026-11-14，与审批同一套打断式交互）：同一时间只挂一批，question_gone 收掉 */
+    private android.app.AlertDialog dshQuestionDialog;
+    private String dshQuestionId;
+
+    /** 一批反问里单个问题的临时控件组（只在对话框内存活，不落盘） */
+    private static final class AskQuestionUi {
+        String id;
+        boolean multiSelect;
+        final java.util.List<String> labels = new java.util.ArrayList<>();
+        final java.util.List<android.widget.CheckBox> boxes = new java.util.ArrayList<>();
+        android.widget.EditText freeText;
+    }
+
+    /**
+     * DSH 反问事件 → 手机上的回答对话框（2026-11-14）。
+     *
+     * <p>为什么照审批的做法：审批用原生对话框，帧到即弹、点完就回传，一条 id 走到底；
+     * 反问此前只有甲板卡这条路，而甲板卡的 {@code questionArgs} 只带了 callId/options、
+     * 漏了 {@code questions[]}，渲染器读不到数组就退化成“一个问题 + 自由文本”，
+     * 提交时还把 partId 当问题 id，电脑端判 BAD_ANSWER —— 用户侧表现就是
+     * “问卡在，但点提交没反应”。这里与审批同构：弹窗 → 一次交齐整批答案 → /v2/answer。</p>
+     *
+     * @param id      反问帧的批次 id（pumpApprovals 的网关 id，或插件 relay 的 q-… id）
+     * @param request 帧里的 {@code {questions:[…], wait?}}
+     */
+    private void showDshQuestionDialog(String id, org.json.JSONObject request) {
+        if (id == null || id.isEmpty() || request == null) return;
+        final org.json.JSONArray list = request.optJSONArray("questions");
+        if (list == null || list.length() == 0) return;
+        org.json.JSONObject wait = request.optJSONObject("wait");
+        final String callId = wait == null ? "" : wait.optString("callId", "");
+        final String fId = id;
+
+        final java.util.List<AskQuestionUi> uis = new java.util.ArrayList<>();
+        final android.widget.LinearLayout body = new android.widget.LinearLayout(this);
+        body.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = dp(16);
+        body.setPadding(pad, pad, pad, pad);
+        for (int i = 0; i < list.length(); i += 1) {
+            org.json.JSONObject q = list.optJSONObject(i);
+            if (q == null) continue;
+            AskQuestionUi ui = new AskQuestionUi();
+            ui.id = q.optString("id", "");
+            ui.multiSelect = q.optBoolean("multiSelect", false);
+            String header = q.optString("header", "");
+            if (!header.isEmpty()) body.addView(dshDialogText(header, 12f, true));
+            android.widget.TextView qv = dshDialogText(q.optString("question", ""), 15f, false);
+            qv.setPadding(0, dp(8), 0, dp(2));
+            body.addView(qv);
+            String detail = q.optString("detail", "");
+            if (!detail.isEmpty()) body.addView(dshDialogText(detail, 12f, true));
+            org.json.JSONArray options = q.optJSONArray("options");
+            if (options != null) {
+                for (int j = 0; j < options.length(); j += 1) {
+                    org.json.JSONObject o = options.optJSONObject(j);
+                    if (o == null) continue;
+                    String label = o.optString("label", "");
+                    if (label.isEmpty()) continue;
+                    ui.labels.add(label);
+                    final android.widget.CheckBox cb = new android.widget.CheckBox(this);
+                    cb.setText(label);
+                    cb.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f);
+                    String desc = o.optString("description", "");
+                    if (!desc.isEmpty()) cb.setContentDescription(label + "：" + desc);
+                    final AskQuestionUi owner = ui;
+                    cb.setOnCheckedChangeListener((b, checked) -> {
+                        if (!checked || owner.multiSelect) return;
+                        // 单选：勾一个就取消同组其它勾选（与 QuestionPartRenderer 同口径）
+                        for (android.widget.CheckBox other : owner.boxes) {
+                            if (other != b && other.isChecked()) other.setChecked(false);
+                        }
+                    });
+                    ui.boxes.add(cb);
+                    body.addView(cb);
+                }
+            }
+            android.widget.EditText et = new android.widget.EditText(this);
+            et.setHint("其他回答（可选）");
+            et.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f);
+            et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                    | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+            body.addView(et);
+            ui.freeText = et;
+            uis.add(ui);
+        }
+        if (uis.isEmpty()) return;
+
+        final android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(body);
+        runOnUiThread(() -> {
+            dismissDshQuestionDialog(null);
+            dshQuestionId = fId;
+            android.app.AlertDialog dlg = new android.app.AlertDialog.Builder(this)
+                    .setTitle("电脑端在等你回答")
+                    .setView(scroll)
+                    .setPositiveButton("提交回答", null)
+                    .setNegativeButton("交给电脑", (d, w) -> { /* 不答，留给桌面端 */ })
+                    .create();
+            // 自己接管"提交"：校验不过/回传失败时对话框不能先被系统关掉
+            dlg.setOnShowListener(d -> {
+                try {
+                    dlg.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
+                            .setOnClickListener(v -> submitDshQuestions(fId, callId, uis, dlg));
+                } catch (Exception ignored) {
+                    // 取不到按钮就退回系统默认行为
+                }
+            });
+            dshQuestionDialog = dlg;
+            dlg.show();
+        });
+    }
+
+    private android.widget.TextView dshDialogText(String text, float sp, boolean secondary) {
+        android.widget.TextView v = new android.widget.TextView(this);
+        v.setText(text == null ? "" : text);
+        v.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp);
+        if (secondary) {
+            try {
+                v.setTextColor(com.oilquiz.app.theme.ThemeColors.get(this, R.color.text_secondary));
+            } catch (Throwable ignored) {
+                // 取色失败用默认
+            }
+        }
+        return v;
+    }
+
+    private void dismissDshQuestionDialog(String id) {
+        runOnUiThread(() -> {
+            if (id != null && !id.equals(dshQuestionId)) return;
+            if (dshQuestionDialog != null) {
+                try { dshQuestionDialog.dismiss(); } catch (Exception ignored) { }
+                dshQuestionDialog = null;
+                dshQuestionId = null;
+            }
+        });
+    }
+
+    /** 攒整批答案 → /v2/answer（id 是批次 id，answers 里是真实问题 id） */
+    private void submitDshQuestions(String id, String callId, java.util.List<AskQuestionUi> uis,
+                                    android.app.AlertDialog dlg) {
+        org.json.JSONArray answers = new org.json.JSONArray();
+        for (AskQuestionUi ui : uis) {
+            org.json.JSONArray selected = new org.json.JSONArray();
+            for (int i = 0; i < ui.boxes.size(); i += 1) {
+                if (ui.boxes.get(i).isChecked() && i < ui.labels.size()) {
+                    selected.put(ui.labels.get(i));
+                }
+            }
+            String custom = ui.freeText == null ? "" : ui.freeText.getText().toString().trim();
+            org.json.JSONObject a = new org.json.JSONObject();
+            try {
+                a.put("id", ui.id);
+                a.put("selected", selected);
+                if (!custom.isEmpty()) a.put("custom", custom);
+            } catch (Exception ignored) {
+                // 坏字段跳过
+            }
+            answers.put(a);
+        }
+        org.json.JSONObject root = new org.json.JSONObject();
+        try {
+            root.put("answers", answers);
+        } catch (Exception ignored) {
+            // ignore
+        }
+        final String fId = id;
+        final String fCallId = callId;
+        final String payload = root.toString();
+        final android.widget.Button submit = dlg == null ? null
+                : dlg.getButton(android.app.AlertDialog.BUTTON_POSITIVE);
+        if (submit != null) submit.setEnabled(false);
+        final String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+        new Thread(() -> {
+            boolean ok = false;
+            String err = null;
+            try {
+                ok = com.oilquiz.app.ai.tool.RemoteDshTool.answerQuestion(
+                        AIChatActivity.this, target, fId, fCallId, payload);
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+            final boolean fOk = ok;
+            final String fErr = err;
+            runOnUiThread(() -> {
+                if (fOk) {
+                    // 本地先落终态：甲板卡/待处理计数立刻更新，不用等 question_gone 帧
+                    markQuestionsAnswered(fId, payload);
+                    dismissDshQuestionDialog(fId);
+                    return;
+                }
+                if (submit != null) submit.setEnabled(true);
+                showToast("回答没送达：" + (fErr == null ? "问题可能已结束" : fErr));
+            });
+        }, "dsh-answer-dialog").start();
+    }
+
+    /** 本机答完：把这批问题标 answered（真值仍在 msg.questions，通知栏/甲板随之收敛） */
+    private void markQuestionsAnswered(String batchId, String answerJson) {
+        if (chatHistory == null || batchId == null || batchId.isEmpty()) return;
+        for (ChatMessage m : chatHistory) {
+            if (m == null || m.questions == null) continue;
+            boolean changed = false;
+            for (ChatMessage.QuestionRequest q : m.questions) {
+                if (q == null || !batchId.equals(q.batchId) || !q.isPending()) continue;
+                q.status = "answered";
+                q.answer = answerJson;
+                changed = true;
+            }
+            if (changed) refreshDshQuestionMessage(m);
+        }
+        refreshAttentionSlot();
+    }
+
     private void replyApproval(String id, boolean allow) {
         new Thread(() -> {
             try {
@@ -13335,46 +13648,108 @@ public class AIChatActivity extends BaseActivity {
         refreshAttentionSlot();
     }
 
+    /**
+     * 权限槽 → 变更卡（2026-11-14 改版）。
+     *
+     * <p>以前这里列死 5 个选项（3 个沙箱模式 + 2 个审批策略），发的是 {@code sandbox}/{@code policy}；
+     * 但这台 DSH 只有 {@code permissionPresets.set(session, name)} 一条写路径 —— 发 sandbox/policy
+     * 必然 409（用户反馈"这条路说没接上"）。现在先 {@code GET /v2/permission} 拉真实预设，
+     * 选完发 {@code permission.set {preset, session_id}}；电脑端没有可改入口时明说原因，不假装能改。</p>
+     */
     private void showPermissionChange() {
+        final String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+        new Thread(() -> {
+            org.json.JSONObject st = null;
+            String err = null;
+            try {
+                st = com.oilquiz.app.ai.tool.RemoteDshTool.fetchPermissionPresets(this, target);
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+            final org.json.JSONObject fSt = st;
+            final String fErr = err;
+            runOnUiThread(() -> showPermissionChangeDialog(fSt, fErr));
+        }, "dsh-permission").start();
+    }
+
+    /** 按电脑端返回的预设表弹变更卡（拉不到就明说改不了） */
+    private void showPermissionChangeDialog(org.json.JSONObject st, String err) {
         String current = "";
         for (com.oilquiz.app.ai.chat.status.DockSlotBus.Slot s
                 : com.oilquiz.app.ai.chat.status.DockSlotBus.list()) {
             if (s != null && "permission".equals(s.id)) current = s.detail;
         }
-        final String currentDetail = current;
+        final String title = com.oilquiz.app.ai.chat.status.PermissionChangeCard.title(current);
+        org.json.JSONArray presets = st == null ? null : st.optJSONArray("presets");
+        boolean canChange = st != null && st.optBoolean("can_change", false)
+                && presets != null && presets.length() > 0;
+        if (!canChange) {
+            String why = st == null
+                    ? (err == null ? "电脑端不可达" : err)
+                    : st.optString("hint", "");
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle(title)
+                    .setMessage("电脑端这个 DSH 版本没有开放“在线改权限”的接口。\n"
+                            + "请到电脑端 DSH 的权限选择器里改。"
+                            + (why == null || why.isEmpty() ? "" : "\n\n" + why))
+                    .setPositiveButton("知道了", null)
+                    .show();
+            return;
+        }
+        final java.util.List<String> values = new java.util.ArrayList<>();
+        final java.util.List<String> labels = new java.util.ArrayList<>();
+        for (int i = 0; i < presets.length(); i += 1) {
+            org.json.JSONObject p = presets.optJSONObject(i);
+            if (p == null) continue;
+            String value = p.optString("value", p.optString("name", ""));
+            if (value.isEmpty()) continue;
+            values.add(value);
+            labels.add(com.oilquiz.app.ai.chat.status.PermissionChangeCard.labelFor(value));
+        }
+        if (values.isEmpty()) {
+            showToast("电脑端没有可切换的权限预设");
+            return;
+        }
         new android.app.AlertDialog.Builder(this)
-                .setTitle(com.oilquiz.app.ai.chat.status.PermissionChangeCard.title(currentDetail))
-                .setItems(com.oilquiz.app.ai.chat.status.PermissionChangeCard.items(),
-                        (dialog, which) -> {
-                            final org.json.JSONObject body =
-                                    com.oilquiz.app.ai.chat.status.PermissionChangeCard.requestFor(which);
-                            if (body == null) return;
-                            new Thread(() -> {
-                                org.json.JSONObject resp = null;
-                                String err = null;
-                                try {
-                                    resp = com.oilquiz.app.ai.tool.RemoteDshTool
-                                            .setPermission(AIChatActivity.this, body);
-                                } catch (Exception e) {
-                                    err = e.getMessage();
-                                }
-                                final org.json.JSONObject fResp = resp;
-                                final String fErr = err;
-                                runOnUiThread(() -> {
-                                    boolean ok = fResp != null && fResp.optBoolean("ok", false);
-                                    if (ok) {
-                                        showToast("权限已提交");
-                                    } else {
-                                        String hint = fResp == null ? (fErr == null ? "电脑端不可达" : fErr)
-                                                : fResp.optString("hint",
-                                                fResp.optString("error", "电脑端没有应用这次变更"));
-                                        showToast("没改成：" + hint);
-                                    }
-                                });
-                            }, "dsh-permission-set").start();
-                        })
+                .setTitle(title)
+                .setItems(labels.toArray(new CharSequence[0]), (dialog, which) -> {
+                    org.json.JSONObject body = new org.json.JSONObject();
+                    try {
+                        body.put("action", "permission.set");
+                        body.put("preset", values.get(which));
+                    } catch (Exception ignored) {
+                        return;
+                    }
+                    submitPermissionChange(body);
+                })
                 .setNegativeButton("取消", null)
                 .show();
+    }
+
+    /** 发送一次权限变更（后台线程 + 结果提示） */
+    private void submitPermissionChange(final org.json.JSONObject body) {
+        new Thread(() -> {
+            org.json.JSONObject resp = null;
+            String err = null;
+            try {
+                resp = com.oilquiz.app.ai.tool.RemoteDshTool.setPermission(AIChatActivity.this, body);
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+            final org.json.JSONObject fResp = resp;
+            final String fErr = err;
+            runOnUiThread(() -> {
+                boolean ok = fResp != null && fResp.optBoolean("ok", false);
+                if (ok) {
+                    showToast("权限已提交");
+                } else {
+                    String hint = fResp == null ? (fErr == null ? "电脑端不可达" : fErr)
+                            : fResp.optString("hint",
+                            fResp.optString("error", "电脑端没有应用这次变更"));
+                    showToast("没改成：" + hint);
+                }
+            });
+        }, "dsh-permission-set").start();
     }
 
     /**
@@ -13675,15 +14050,22 @@ public class AIChatActivity extends BaseActivity {
                 // 这里只看 questions/子代理，避免"对话框 + 卡片"两套交互
                 if (part != null) break;
                 if (m.questions != null) {
+                    // 一次 ask 的全部问题合成一张卡（DSH 要求整批答案一次交齐），
+                    // 不能再"取第一个 pending 就收工"——那样多问题批次只剩一题可答。
+                    ChatMessage.QuestionRequest firstQ = null;
+                    java.util.List<ChatMessage.QuestionRequest> batch = new java.util.ArrayList<>();
                     for (ChatMessage.QuestionRequest q : m.questions) {
                         if (q == null || !q.isPending()) continue;
+                        if (firstQ == null) firstQ = q;
+                        if (firstQ.partId().equals(q.partId())) batch.add(q);
+                    }
+                    if (firstQ != null && !batch.isEmpty()) {
                         part = com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.question(
-                                q.partId(), q.callId,
-                                q.question == null ? "" : q.question,
-                                questionArgs(q),
-                                "pending", q.timestamp);
+                                firstQ.partId(), firstQ.callId,
+                                firstQ.question == null ? "" : firstQ.question,
+                                questionArgs(batch),
+                                "pending", firstQ.timestamp);
                         owner = m;
-                        break;
                     }
                 }
             }
@@ -13760,16 +14142,38 @@ public class AIChatActivity extends BaseActivity {
         return false;
     }
 
-    /** question part 需要的参数 JSON（callId/detail/options/multiSelect） */
-    private static String questionArgs(ChatMessage.QuestionRequest q) {
+    /**
+     * question part 需要的参数 JSON。
+     *
+     * <p>契约（docs/remote_dsh-message-stream.md）：{@code {callId, batchId,
+     * questions:[{id,question,detail?,header?,multiSelect,options?}]}}。</p>
+     *
+     * <p>2026-11-13 甲板卡重构时这里只带了 callId/options，把 {@code questions} 数组漏了 ——
+     * {@link com.oilquiz.app.ai.chat.parts.QuestionPartRenderer} 读不到数组就退化成
+     * “一个问题 + 自由文本框”，提交时还拿 partId 当问题 id，电脑端直接判 BAD_ANSWER。
+     * 手机侧看到的就是“问卡在，但点提交没反应”。</p>
+     */
+    private static String questionArgs(java.util.List<ChatMessage.QuestionRequest> group) {
         org.json.JSONObject args = new org.json.JSONObject();
         try {
-            if (q.callId != null && !q.callId.isEmpty()) args.put("callId", q.callId);
-            if (q.detail != null && !q.detail.isEmpty()) args.put("detail", q.detail);
-            if (q.options != null && !q.options.isEmpty()) {
-                args.put("options", new org.json.JSONArray(q.options));
+            ChatMessage.QuestionRequest first = group.get(0);
+            if (first.callId != null && !first.callId.isEmpty()) args.put("callId", first.callId);
+            if (first.batchId != null && !first.batchId.isEmpty()) args.put("batchId", first.batchId);
+            org.json.JSONArray questions = new org.json.JSONArray();
+            for (ChatMessage.QuestionRequest q : group) {
+                if (q == null) continue;
+                org.json.JSONObject item = new org.json.JSONObject();
+                item.put("id", q.id == null ? "" : q.id);
+                item.put("question", q.question == null ? "" : q.question);
+                if (q.detail != null && !q.detail.isEmpty()) item.put("detail", q.detail);
+                if (q.header != null && !q.header.isEmpty()) item.put("header", q.header);
+                item.put("multiSelect", q.multiSelect);
+                if (q.options != null && !q.options.trim().isEmpty()) {
+                    item.put("options", new org.json.JSONArray(q.options));
+                }
+                questions.put(item);
             }
-            args.put("multiSelect", q.multiSelect);
+            args.put("questions", questions);
         } catch (Exception ignored) {
             // 参数拼装失败就让问题卡退化成纯文本
         }
@@ -13878,9 +14282,16 @@ public class AIChatActivity extends BaseActivity {
     /** 问答卡提交：先标记已回答，再回传电脑端；失败回滚 pending */
     private void onQuestionPartAnswer(ChatMessage msg, String partId, String answerJson) {
         if (msg == null || msg.questions == null) return;
+        // 归组口径：partId 就是 "question:" + (callId 或 batchId)；再按 batchId 兜一层，
+        // 避免 callId 空缺（中继帧没有 wait.callId）时 partId 对不上而静默吞掉点击。
+        final String batchKey = partId != null && partId.startsWith("question:")
+                ? partId.substring("question:".length()) : "";
         final java.util.List<ChatMessage.QuestionRequest> group = new java.util.ArrayList<>();
         for (ChatMessage.QuestionRequest q : msg.questions) {
-            if (q != null && partId.equals(q.partId())) group.add(q);
+            if (q == null) continue;
+            boolean hit = partId != null && partId.equals(q.partId());
+            if (!hit && !batchKey.isEmpty()) hit = batchKey.equals(q.batchId);
+            if (hit) group.add(q);
         }
         if (group.isEmpty()) return;
         boolean anyPending = false;
@@ -14456,6 +14867,7 @@ public class AIChatActivity extends BaseActivity {
             // 审批通道帧（2026-11-13 恢复昨天 c73c0434 的行为）：直接弹原生对话框，
             // 不走时间线，也不进甲板卡（甲板是常驻状态区，审批是打断式交互）。
             if ("approval".equals(type)) {
+                AppLogger.ai(TAG, "[DSH] 审批帧 id=" + ev.optString("id", ""));
                 // 状态也要落进消息：通知栏的"允许/拒绝"按钮、待处理计数都从 msg.approvals 读。
                 // 只弹对话框不落状态，通知栏就没卡可挂（用户反馈"通知没挂卡"）。
                 ChatMessage live = ensureMirrorBubble(turnOfEvent(ev));
@@ -14478,6 +14890,45 @@ public class AIChatActivity extends BaseActivity {
                 }
                 dismissDshApprovalDialog(goneId);
                 clearRelayApprovals(null);
+                refreshAttentionSlot();
+                return;
+            }
+            // 反问通道帧（2026-11-14，与审批同构）：帧到即弹回答对话框。
+            // 以前只有甲板卡这条路，而甲板卡的 args 缺 questions[]，等于没得答 ——
+            // 用户反馈的“问卡在，但提交点了没反应”就是这条缺口。
+            if ("question".equals(type)) {
+                org.json.JSONObject req = ev.optJSONObject("request");
+                // 诊断日志（2026-11-14）：这三类帧都在通用"通道事件"那行之前 return，
+                // 不打一行的话事后根本看不出"帧到没到手机"。
+                AppLogger.ai(TAG, "[DSH] 问卡帧 id=" + ev.optString("id", "")
+                        + " 题数=" + (req == null || req.optJSONArray("questions") == null
+                        ? 0 : req.optJSONArray("questions").length()));
+                ChatMessage live = ensureMirrorBubble(turnOfEvent(ev));
+                if (live != null) {
+                    // 状态照旧落进消息：待处理计数/甲板卡/通知栏都从 msg.questions 读
+                    addDshQuestions(live, ev.optString("id"), req);
+                    refreshAttentionSlot();
+                }
+                showDshQuestionDialog(ev.optString("id"), req);
+                return;
+            }
+            if ("question_gone".equals(type)) {
+                String goneId = ev.optString("id", "");
+                AppLogger.ai(TAG, "[DSH] 问卡撤销 id=" + goneId);
+                if (chatHistory != null) {
+                    for (ChatMessage m : chatHistory) {
+                        if (m == null || m.questions == null) continue;
+                        boolean hit = false;
+                        for (ChatMessage.QuestionRequest q : m.questions) {
+                            if (q != null && goneId.equals(q.batchId)) {
+                                hit = true;
+                                break;
+                            }
+                        }
+                        if (hit) resolveDshQuestions(m, goneId);
+                    }
+                }
+                dismissDshQuestionDialog(goneId);
                 refreshAttentionSlot();
                 return;
             }
@@ -15049,7 +15500,7 @@ public class AIChatActivity extends BaseActivity {
         StringBuilder sb = new StringBuilder(follow);
         if (live.turn > 0) sb.append(" · ").append(live.turn).append(" 轮");
         if (st != null && st.ok && st.approvalsPending > 0) {
-            sb.append(" · 待审批 ").append(st.approvalsPending);
+            sb.append(" · 待处理 ").append(st.approvalsPending);
         }
         int behind = conn.behindCount();
         if (behind > 3) sb.append(" · 落后 ").append(behind);

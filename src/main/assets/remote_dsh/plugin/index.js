@@ -1518,8 +1518,12 @@ export function apply(ctx, config) {
  * {@code ctx.permissionPresets} 或 {@code ctx.get('permissionPresets')}，统一探测。</p>
  */
 function presetSvcOf(ctx) {
+  // 2026-11-14：`ctx.xxx` 在读**未 inject** 的服务时会抛（不是返回 undefined），
+  // 以前把它和 ctx.get() 写在同一个 try 里 —— 一抛就整段放弃，ctx.get() 永远没机会跑，
+  // 于是明明 active 的 permissionPresets 被当成"这个版本没有"，手机改权限必然 409。
+  // 统一走 ctx.get()（与 serviceOf 同口径）。
   try {
-    return ctx.permissionPresets ?? ctx.get?.('permissionPresets') ?? null;
+    return ctx.get?.('permissionPresets') ?? null;
   } catch {
     return null;
   }
@@ -2313,8 +2317,9 @@ function presetSvcOf(ctx) {
       const policy = String(body.policy ?? body.preset_policy ?? '').trim();
       const preset = String(body.preset ?? '').trim();
       const svcOf = (name) => {
+        // 同 presetSvcOf：属性访问对未 inject 的服务会抛，必须单独 try，否则 ctx.get 跑不到。
         try {
-          return ctx[name] ?? ctx.get?.(name) ?? null;
+          return ctx.get?.(name) ?? null;
         } catch {
           return null;
         }

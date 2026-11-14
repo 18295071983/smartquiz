@@ -1,5 +1,60 @@
 # 变更日志
 
+## [2026-11-14] fix(remote_dsh)：反问卡改成和审批同构（帧到弹窗 + 整批回传）
+
+用户口径：「这个ask坏了，你看看审批怎么做的您弄成类似的」「提交不了点没反应」。
+
+**根因**
+- `handleChannelEvent` 只接了 `approval` / `approval_gone`，**没有** `question` / `question_gone` 分支：
+  审批帧到就弹原生对话框，反问帧只能落到甲板卡。
+- 甲板卡的 `questionArgs()` 只带了 `callId/options`，漏了契约要求的 `questions[]`；
+  `QuestionPartRenderer` 读不到数组就退化成"一个问题 + 自由文本框"，提交时还把 `partId`
+  当问题 id → 电脑端判 BAD_ANSWER。用户侧表现即"问卡在，但点提交没反应"。
+
+**手机端**
+- 新增 `showDshQuestionDialog` / `submitDshQuestions` / `markQuestionsAnswered`：
+  与 `showDshApprovalDialog` 同构 —— 帧到即弹窗，一屏列多题（标题/说明/选项/多选/自由文本），
+  「提交回答」一次交齐整批 `{answers:[{id,selected,custom?}]}` 走 `/v2/answer`（id = 批次 id）；
+  回传失败不关窗（可重试）并 toast，`question_gone` 自动收窗。
+- `questionArgs` 补全 `{callId,batchId,questions[]}`；甲板卡按批次合并成一张卡（不再只取第一题）。
+- `onQuestionPartAnswer` 归组加按 `batchId` 兜底，`callId` 空缺时不会静默吞掉点击。
+
+**同日追加 fix(remote_dsh)：手机端“变更权限”接上（原来必然 409）**
+
+用户口径：「还有手机端手动变更权限这一路说没接上」。
+
+- 根因（插件侧）：`presetSvcOf` / `svcOf` 把 `ctx.xxx ?? ctx.get(name)` 写在**同一个 try** 里。
+  读未 inject 的服务时 `ctx.xxx` 会**抛**，异常直接跳出 catch，`ctx.get()` 永远没机会执行 ——
+  于是明明 `fiberPhase: active` 的 `permissionPresets` 被当成“这个版本没有”，
+  手机点“只读/可写/完全访问”必然 `/v2/action permission.set` → 409 `preset:unavailable`。
+  改成统一走 `ctx.get()`（与 `serviceOf` 同口径）。
+- 验证：`/v2/permission` 现在返回 `presets=[read-only, workspace-write, danger-full-access]`、
+  `can_change=true`；`permission.set {preset:'workspace-write', session_id}` → `200 applied:["preset"]`。
+- 手机端：变更卡不再写死 5 个 sandbox/policy 选项，改为先 `GET /v2/permission` 拉真实预设
+  （标签复用 `PermissionChangeCard.labelFor`），提交 `{action:'permission.set', preset, session_id}`；
+  电脑端确实没有改权限入口时才提示“去电脑端改”。`setPermission` 统一补 `session_id`。
+- 说明：沙箱模式没有独立 setter（`ctx.sandbox` 只有 `confine`），宿主的写路径就是
+  `permissionPresets.set(session, name)` 一次改完 sandbox+approval —— 走预设正好对齐。
+- 补（同日）：`refreshPermissionFromHost(sid)` —— 手机连上、改完权限、查 `/v2/permission`
+  时都从宿主补读一次真值（`sandboxPolicy.overrideOf` / `approval.overrideOf` /
+  `permissionPresets.current`）。以前 `PERM_STATE` 纯事件驱动，桌面端一重启那些事件不重放，
+  手机上「权限」那一行就整行消失；现在重启后也能补回来。
+
+**同日追加 fix(remote_dsh)：甲板第一条「待处理」点了跳连接页**
+
+用户口径：「第一个为何点击跳转」。
+
+- 根因：`RemoteStatusSlots` 把三种状态的动作**一律写成 `connect`**，而 `onDockSlotClick`
+  只认 `attention` / `permission`，其余都落到"未知动作 → 远程连接页"；`attention`（滚动定位）
+  因此成了没人发的死代码。
+- 现在：待审批/待回答的行发 `attention`，只有「电脑断线」「通道落后」才发 `connect`；
+  标题从「电脑待审批 N」改成「电脑待处理 N」（待办里可能是反问，不是审批）。
+- `onDockSlotClick("attention")` → `showPendingAttention()`：本地有 pending 就弹对应审/问对话框；
+  本地没有（帧不重放，App 重启必然没有）就调新增的 `RemoteDshTool.fetchPendingActions`
+  （`/session action=approval_state`）向电脑端要一次，拿到谁弹谁；都没有才 toast，**不再跳页**。
+- 实测：装包后点该行，前台仍是 `AIChatActivity`，`ActivityTaskManager` 日志里没有
+  `RemoteDshConnectActivity` 的 START（修复前 10:40:48 有一次）。
+
 ## [2026-11-12] feat(remote_dsh)：打通电脑端 → 手机的反向指令通道
 
 用户口径：「你可以使用手机客户端的工具吗」「接了以后你会用吗」——要求一次性做好。
