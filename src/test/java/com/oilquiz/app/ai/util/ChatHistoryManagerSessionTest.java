@@ -558,6 +558,64 @@ public class ChatHistoryManagerSessionTest {
         return m;
     }
 
+    /**
+     * 2026-11-14 真机查"本地会话只剩 51 条"：页面只加载最后一页（50 条）时保存，
+     * 必须把**没加载的头部条数**一起带上，否则文件被截成内存窗口。
+     *
+     * <p>线上就是 {@code onStop} 调了 2 参数重载（头部条数=0），每退一次聊天页就把会话
+     * 截成 50 条 —— 看起来像"本地会话会自动裁剪"，其实是在丢历史。</p>
+     */
+    @Test
+    public void savingWithUnloadedHeadKeepsTheWholeSession() {
+        List<ChatMessage> all = new ArrayList<>();
+        for (int i = 0; i < 60; i++) {
+            all.add(user("u-h" + i, "问" + i));
+            all.add(ai("a-h" + i, "答" + i));
+        }
+        ConversationSession created = manager.saveCurrentChatAsSession(all, null);
+        assertNotNull(created);
+        assertEquals(120, manager.countConversationMessages(created.id));
+
+        // 模拟页面上只有最后 50 条（头部 70 条未加载），且又追加了一条
+        List<ChatMessage> window = new ArrayList<>(all.subList(70, 120));
+        window.add(ai("a-h-new", "新回复"));
+        manager.saveCurrentChatAsSession(window, created.id, 70, false);
+
+        assertEquals("未加载的头部必须保留，不能被截成内存窗口",
+                121, manager.countConversationMessages(created.id));
+        assertEquals("头部第一条仍在", "u-h0",
+                manager.loadConversationSessionMessages(created.id, 0, 1).get(0).id);
+        assertEquals("新回复落在末尾", "a-h-new",
+                manager.loadConversationSessionMessages(created.id, 120, 1).get(0).id);
+    }
+
+    /**
+     * 2026-11-14 真机：一次保存把 919KB 的会话写成 11KB（页面手里只有 1~2 条，却按 0 头部覆盖）。
+     *
+     * <p>护栏：窗口比文件小时，多出来的那些一律当"未加载头部"保留 —— 本地会话只能变长，
+     * 不能因为某个调用点传了 0 就被截断。</p>
+     */
+    @Test
+    public void savingSmallerWindowDoesNotShrinkSession() {
+        List<ChatMessage> all = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            all.add(user("u-s" + i, "问" + i));
+            all.add(ai("a-s" + i, "答" + i));
+        }
+        ConversationSession created = manager.saveCurrentChatAsSession(all, null);
+        assertNotNull(created);
+        assertEquals(40, manager.countConversationMessages(created.id));
+
+        // 页面只拿到最后 2 条，而且"未加载头部"传了 0（线上就是这么把文件覆盖小的）
+        List<ChatMessage> tiny = new ArrayList<>(all.subList(38, 40));
+        manager.saveCurrentChatAsSession(tiny, created.id, 0, false);
+
+        assertEquals("会话不能被窗口覆盖变短",
+                40, manager.countConversationMessages(created.id));
+        assertEquals("第一条仍在", "u-s0",
+                manager.loadConversationSessionMessages(created.id, 0, 1).get(0).id);
+    }
+
     private int conversationFileCount() {
         File[] files = conversationsDir.listFiles((d, name) -> name.endsWith(".json"));
         return files == null ? 0 : files.length;

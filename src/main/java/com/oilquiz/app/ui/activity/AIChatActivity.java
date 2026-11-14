@@ -9569,6 +9569,10 @@ public class AIChatActivity extends BaseActivity {
         // currentSessionId 为空时按锚点查（清历史/页面重进后就是这种状态），
         // 查不到才 null → 随机新建（老行为）。
         final String existingId = sessionIdForSave();
+        // 同上（onStop 那条注释）：保存旧对话时也要带上"文件里未加载的头部条数"，
+        // 否则点一次「新建对话」就把上一段会话截成内存里的 50 条。
+        final boolean hadSessionAtNew = currentSessionId != null && !currentSessionId.isEmpty();
+        final int headAtNew = hadSessionAtNew ? sessionFrontSkipped : aiHistoryFrontSkipped;
         // 连着电脑时，"新建对话" = 让电脑端真建一条新会话，后续消息自动跟随它
         if (com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isActive(this)) {
             startNewRemoteConversation();
@@ -9584,7 +9588,7 @@ public class AIChatActivity extends BaseActivity {
             if (chatHistoryManager != null && !chatHistory.isEmpty()) {
                 final List<ChatMessage> copy = new ArrayList<>(chatHistory);
                 new Thread(() -> {
-                    chatHistoryManager.saveCurrentChatAsSession(copy, existingId);
+                    chatHistoryManager.saveCurrentChatAsSession(copy, existingId, headAtNew, !hadSessionAtNew);
                     runOnUiThread(this::refreshHistoryDrawer);
                 }).start();
             }
@@ -16095,10 +16099,22 @@ public class AIChatActivity extends BaseActivity {
             // A3-接（2026-11-14）：页面重进时 currentSessionId 是空的，先按锚点查一轮，
             // 查到就写回同一条会话文件（查不到才 null → 新建）。
             final String sidAtStop = sessionIdForSave();
+            // 2026-11-14（真机查"本地会话只有 51 条"）：onStop 以前走的是 2 参数重载 =
+            // 头部未加载条数传 0 → writeSessionWithHead 只写内存窗口（50 条），
+            // **每退一次聊天页就把这条会话截成 50 条**。这里必须把"文件里还有多少条没加载"
+            // 一起带上（与 saveCurrentHistory / saveHistoryAsync 同口径）。
+            // 有会话 id 时用的是**该会话文件**的未加载条数；没有 id（目标可能是单文件历史
+            // 或锚点会话）时用单文件口径，和 saveCurrentHistory 保持一致。
+            final int headAtStop = hadSession ? sessionFrontSkipped : aiHistoryFrontSkipped;
+            final boolean mergeHeadAtStop = !hadSession;
+            if (headAtStop > 0) {
+                AppLogger.i(TAG, "onStop 保存保留未加载头部 " + headAtStop + " 条（会话=" + sidAtStop + "）");
+            }
             new Thread(() -> {
                 ConversationSession saved;
                 synchronized (HISTORY_IO_LOCK) {
-                    saved = chatHistoryManager.saveCurrentChatAsSession(copy, sidAtStop);
+                    saved = chatHistoryManager.saveCurrentChatAsSession(
+                            copy, sidAtStop, headAtStop, mergeHeadAtStop);
                 }
                 if (!hadSession && saved != null && saved.id != null
                         && (currentSessionId == null || currentSessionId.isEmpty())) {

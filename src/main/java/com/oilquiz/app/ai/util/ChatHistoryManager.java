@@ -1609,6 +1609,20 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             if (session.id == null || session.id.isEmpty()) {
                 session.id = UUID.randomUUID().toString();
             }
+            // ★ 2026-11-14：不许把会话文件"改小"（真机实测 919KB → 11KB）。
+            // 页面只加载最后一页（50 条）时，调用方偶尔会传"未加载头部=0"（例如从单文件历史恢复后
+            // 按锚点 id 落盘、或 onStop 走了 2 参数重载），一写就把整条会话覆盖成内存窗口。
+            // 这里兜底：文件里比窗口多出来的那些，一律当"未加载头部"保留。
+            if (sessionFile != null && sessionFile.exists() && headCount <= 0) {
+                int fileCount = countMessagesInFile(sessionFile);
+                int tailSize = session.messages == null ? 0 : session.messages.size();
+                if (fileCount > tailSize) {
+                    headCount = fileCount - tailSize;
+                    headSource = sessionFile;
+                    Log.i(TAG, "会话[" + session.id + "]保存时窗口(" + tailSize + "条)小于文件("
+                            + fileCount + "条)，保留头部 " + headCount + " 条防止截断");
+                }
+            }
             if (sessionFile != null || headSource != null) {
                 // 保留未加载头部 + 新尾部（流式合并，内存有界）
                 File target = sessionFile != null
