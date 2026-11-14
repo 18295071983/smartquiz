@@ -8,6 +8,7 @@ import com.oilquiz.app.ai.remote.DshEvent;
 import com.oilquiz.app.ai.remote.DshProjection;
 import com.oilquiz.app.ai.remote.DshTimeline;
 import com.oilquiz.app.ai.util.ChatHistoryManager;
+import com.oilquiz.app.ai.util.ConversationSession;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -72,10 +73,18 @@ public final class DshHistoryImporter {
     }
 
     /**
-     * 拉取电脑端整条会话并写成本机历史。
+     * 拉取电脑端整条会话并**强行同步**成本机的一条对话历史（2026-11-14 改）。
+     *
+     * <p>"强行同步"= 用电脑上的内容**整条覆盖**本地那条会话，不合并旧头部、不另开一条：
+     * 用户在手机上切到哪条电脑会话，本地看到的就该和电脑上完全一致（标题也用电脑的）。
+     * 本地身份取<b>锚点</b>里的 {@code local_session_id}（设备 × 电脑会话的唯一映射）；
+     * 没有锚点才退回旧的 {@code import_sid_} 映射 / 随机 id，保证老数据不会丢。</p>
+     *
+     * <p>同步完把传输游标和渲染游标都推到这段历史的末尾：不推的话通道会从旧游标重放一遍，
+     * 页面上就会把同一段对话再显示一次。</p>
      *
      * @param target 电脑端会话 id
-     * @param title  电脑端会话标题（仅用于提示，历史标题仍由首条用户消息生成）
+     * @param title  电脑端会话标题（直接用作本地会话标题，保证两端一致）
      */
     public static Result importSession(Context ctx, String target, String title) throws Exception {
         return importSession(ctx, target, title, null);
@@ -89,14 +98,49 @@ public final class DshHistoryImporter {
         if (messages.isEmpty()) return new Result(0, null, title);
 
         ChatHistoryManager mgr = new ChatHistoryManager(ctx);
-        // 同一条电脑会话重复导入 → 覆盖原来那一条，而不是每次都新建
-        String existing = mappedLocalSession(ctx, target);
-        if (existing != null && mgr.loadConversationSession(existing) == null) existing = null;
-        com.oilquiz.app.ai.util.ConversationSession session =
-                mgr.saveCurrentChatAsSession(messages, existing);
-        if (session == null) return new Result(0, null, title);
+        String localId = resolveLocalSessionId(ctx, mgr, target);
+        ConversationSession session = new ConversationSession(localId, title, messages);
+        if (messages.get(0).timestamp > 0) session.createdAt = messages.get(0).timestamp;
+        // saveConversationSession 是"整文件重写"，天然就是覆盖：不需要先删旧文件
+        session = mgr.saveConversationSession(session);
+        if (session == null || session.id == null) return new Result(0, null, title);
         rememberMapping(ctx, target, session.id);
+
+        int maxSeq = maxSeqOf(events);
+        if (maxSeq > 0) {
+            RemoteDshTool.setTransportSeq(ctx, target, maxSeq);
+            RemoteDshTool.setLastSeq(ctx, target, maxSeq);
+        }
         return new Result(messages.size(), session.id, session.title);
+    }
+
+    /**
+     * 这条电脑会话在本机该用哪个会话 id：
+     * 锚点优先（A3/A4 的单一账本）→ 没有就让电脑签发一条（ensure，不新建电脑会话）
+     * → 再退回旧的 import_sid_ 映射（升级前数据）→ 最后才随机新建。
+     *
+     * <p>{@code ensure} 这一步是必须的：切到一条从没同步过的电脑会话时，本地还没有锚点；
+     * 先随机一个 uuid、随后握手又签发另一个 local_session_id，同一条会话就会裂成两条历史。</p>
+     */
+    private static String resolveLocalSessionId(Context ctx, ChatHistoryManager mgr, String target) {
+        String anchored = RemoteAnchorStore.ensureLocalSessionId(ctx, RemoteDshTool.deviceId(ctx), target);
+        if (anchored != null && !anchored.isEmpty()) return anchored;
+        String mapped = mappedLocalSession(ctx, target);
+        if (mapped != null && !mapped.isEmpty() && mgr.loadConversationSession(mapped) != null) {
+            return mapped;
+        }
+        return java.util.UUID.randomUUID().toString();
+    }
+
+    /** 这批事件里最大的 seq（用来把两套游标推到末尾） */
+    private static int maxSeqOf(List<JSONObject> events) {
+        int max = 0;
+        for (JSONObject ev : events) {
+            if (ev == null) continue;
+            int s = ev.optInt("seq", 0);
+            if (s > max) max = s;
+        }
+        return max;
     }
 
     /** 电脑会话 id → 本机历史会话 id（保证重复导入是"更新"而不是"新增"） */

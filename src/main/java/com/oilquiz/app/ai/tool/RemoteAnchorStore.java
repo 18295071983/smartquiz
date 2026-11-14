@@ -61,6 +61,38 @@ public final class RemoteAnchorStore {
     }
 
     /**
+     * 确保（设备 × 电脑会话）有一条锚点，并返回它给的本机会话 id。
+     *
+     * <p>用在"切换电脑会话 → 强制同步"这种<b>必须先有本地身份</b>的地方：本地没有锚点时
+     * 让电脑签发一条（{@code action:'ensure'}，不新建电脑会话）。否则本地先随机一个 uuid、
+     * 随后握手又签发另一个 local_session_id，同一条电脑会话就会在手机上裂成两条历史。</p>
+     *
+     * @return 本机会话 id；电脑不可达/拒答时返回空串（调用方退回随机新建）
+     */
+    public static String ensureLocalSessionId(Context c, String deviceId, String remoteSessionId) {
+        String have = localSessionIdForRemote(c, remoteSessionId);
+        if (!have.isEmpty()) return have;
+        if (c == null || remoteSessionId == null || remoteSessionId.isEmpty()) return "";
+        try {
+            RemoteDshTool tool = new RemoteDshTool(c);
+            java.util.Map<String, Object> body = new java.util.HashMap<>();
+            body.put("action", "ensure");
+            body.put("device_id", deviceId == null ? "" : deviceId);
+            body.put("session_id", remoteSessionId);
+            java.util.Map<String, Object> resp =
+                    tool.httpJson(tool.getBaseUrl() + "/v2/anchor", "POST", body, 15);
+            if (!Boolean.TRUE.equals(resp.get("ok"))) return "";
+            Object anchor = resp.get("anchor");
+            if (!(anchor instanceof java.util.Map)) return "";
+            JSONObject a = new JSONObject((java.util.Map<?, ?>) anchor);
+            save(c, a);
+            return a.optString("local_session_id", "");
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    /**
      * A3-接（2026-11-14）：某条电脑会话在**本机**对应的会话 id。
      *
      * <p>这是"查"那一步：有锚点就用锚点里的 {@code local_session_id}（文件在就复用、

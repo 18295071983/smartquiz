@@ -49,7 +49,12 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private TextView valueSyncTarget;
     private TextView valueDirect;
     private android.app.AlertDialog sessionDialog;
-    private android.widget.ArrayAdapter<String> sessionAdapter;
+    /** 分组列表容器（2026-11-14 重做：按工作区分组，见 {@link #showSessionDialog}） */
+    private android.widget.LinearLayout sessionListBox;
+    /** 是否展开"其他工作区"：默认只看当前工作区，和电脑上看到的条数一致 */
+    private boolean showAllWorkspaces;
+    /** 电脑当前工作区（/sessions.json 的 current_workspace） */
+    private String currentWorkspace = "";
     private final java.util.List<java.util.Map<String, Object>> sessionRows = new java.util.ArrayList<>();
     private final android.os.Handler pickerHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable pickerTick;
@@ -381,18 +386,12 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                     if (r.count <= 0) {
                         toast("没有可导入的消息（会话可能为空）");
                     } else {
-                        toast("已导入 " + r.count + " 条消息到本机历史：" + (r.title == null ? "" : r.title));
+                        toast("已同步 " + r.count + " 条消息（覆盖本机那条历史）："
+                                + (r.title == null ? "" : r.title));
                         refresh();
-                        if (r.sessionId != null && !r.sessionId.isEmpty()) {
-                            try {
-                                android.content.Intent open = new android.content.Intent(
-                                        RemoteDshConnectActivity.this,
-                                        com.oilquiz.app.ui.activity.AIChatActivity.class);
-                                open.putExtra("open_session_id", r.sessionId);
-                                startActivity(open);
-                            } catch (Throwable ignored) { /* 打不开就让用户从历史里点 */ }
-                        }
                     }
+                    // 导入=强制同步到锚点那条会话，直接回聊天页打开它（别叠一个新实例）
+                    openChatAndFinish(r.sessionId);
                 });
             } catch (Throwable e) {
                 runOnUiThread(() -> {
@@ -411,14 +410,17 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         if (pickSessionBtn != null) pickSessionBtn.setEnabled(false);
         new Thread(() -> {
             try {
-                java.util.List<java.util.Map<String, Object>> list = RemoteDshTool.fetchSessions(RemoteDshConnectActivity.this, 20);
+                // 2026-11-14：要分组就得知道"电脑当前在哪个工作区"，所以拿带元信息的整包
+                java.util.Map<String, Object> meta = RemoteDshTool.fetchSessionsWithMeta(this, PICKER_LIMIT);
+                java.util.List<java.util.Map<String, Object>> list = extractSessions(meta);
+                final String ws = str(meta.get("current_workspace"));
                 runOnUiThread(() -> {
                     if (pickSessionBtn != null) pickSessionBtn.setEnabled(true);
                     if (list.isEmpty()) {
                         toast("电脑上没有可选的对话（先在电脑上聊一句，或检查插件版本）");
                         return;
                     }
-                    showSessionDialog(list);
+                    showSessionDialog(list, ws);
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
@@ -429,69 +431,340 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         }, "pick-remote-session").start();
     }
 
+    /** 一次拉多少条：分组要够用，但每条都要读会话头/尾，60 条在局域网约 1 秒内 */
+    private static final int PICKER_LIMIT = 60;
+
+    private static java.util.List<java.util.Map<String, Object>> extractSessions(java.util.Map<String, Object> meta) {
+        java.util.List<java.util.Map<String, Object>> out = new java.util.ArrayList<>();
+        Object arr = meta == null ? null : meta.get("sessions");
+        if (arr instanceof java.util.List) {
+            for (Object o : (java.util.List<?>) arr) {
+                if (o instanceof java.util.Map) {
+                    //noinspection unchecked
+                    out.add((java.util.Map<String, Object>) o);
+                }
+            }
+        }
+        return out;
+    }
+
     /**
-     * 会话选择框：**每 3 秒自动对齐一次电脑端**。
+     * 会话选择框（2026-11-14 重做）：**按工作区分组**，当前工作区置顶。
      *
-     * 先用轻量接口（只 stat 目录拿 mtime）判断"有没有变化"，变了才拉完整列表，
-     * 所以既可以实时更新，又不会每 3 秒读一遍 120 条会话日志。
+     * <p>旧版是一行一条的 {@code simple_list_item_1}：标题、时间、目录、最后一句全挤在一行，
+     * 而且把电脑上所有工作区的会话平铺出来 —— 电脑上只看到 6 条，手机上却有三十多条，
+     * 用户当然觉得"不一致"。现在按 {@code cwd} 分组：默认只展开"当前工作区"（和电脑上看到的一致），
+     * 其余收成一行「其他工作区 · N 条」，点开才展开。刷新走 3 秒轮询，签名不变就不重绘。</p>
      */
-    private void showSessionDialog(java.util.List<java.util.Map<String, Object>> list) {
+    private void showSessionDialog(java.util.List<java.util.Map<String, Object>> list, String workspace) {
         stopPickerPolling();
         sessionRows.clear();
         sessionRows.addAll(list);
-        sessionAdapter = new android.widget.ArrayAdapter<>(this,
-                android.R.layout.simple_list_item_1,
-                new java.util.ArrayList<>(java.util.Arrays.asList(labelsFor(sessionRows))));
+        if (workspace != null && !workspace.isEmpty()) currentWorkspace = workspace;
+        if (currentWorkspace.isEmpty()) currentWorkspace = workspaceOfCurrentFollow();
+
+        sessionListBox = new android.widget.LinearLayout(this);
+        sessionListBox.setOrientation(android.widget.LinearLayout.VERTICAL);
+        renderSessionGroups();
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(sessionListBox, new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT));
+        int maxH = (int) (getResources().getDisplayMetrics().heightPixels * 0.62f);
+        scroll.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, maxH));
+
         sessionDialog = new AlertDialog.Builder(this)
-                .setTitle("选择要跟随的电脑对话")
-                .setAdapter(sessionAdapter, (d, which) -> {
-                    if (which < 0 || which >= sessionRows.size()) return;
-                    java.util.Map<String, Object> m = sessionRows.get(which);
-                    String sid = str(m.get("session_id"));
-                    String title = str(m.get("title"));
-                    RemoteDshTool.setSyncTarget(this, sid);
-                    RemoteDshTool.setSyncTitle(this, title);
-                    // 把「跟随」写到电脑的 @code:follow，不碰 @direct（直连专属）
-                    new Thread(() -> {
-                        try {
-                            new RemoteSdk(getApplicationContext()).attach(sid, "follow", true);
-                        } catch (Exception ignored) {
-                            // 本地已跟随；下次连接时 syncSessionIdentity 会再对齐
-                        }
-                    }, "follow-attach").start();
-                    refresh();
-                    toast("已跟随「" + (title.isEmpty() ? shortId(sid) : title) + "」（执行位置由电脑自动决定）");
-                    d.dismiss();
-                    // 从聊天页顶栏点进来的：选完直接回聊天页，别把人留在这个配置页
-                    // （设计稿 §9-3 取"回聊天页"这一支）
-                    if (finishAfterPick) finish();
-                })
-                .setNeutralButton("刷新", (d, w) -> pickSession())
-                .setNegativeButton("取消", null)
+                .setTitle("选择电脑对话")
+                .setView(scroll)
+                .setNegativeButton("关闭", null)
                 .create();
         sessionDialog.setOnDismissListener(d -> stopPickerPolling());
         showDialogSafe(sessionDialog);
         startPickerPolling();
     }
 
-    private String[] labelsFor(java.util.List<java.util.Map<String, Object>> rows) {
-        String[] labels = new String[rows.size()];
-        for (int i = 0; i < rows.size(); i++) {
-            java.util.Map<String, Object> m = rows.get(i);
-            String sid = str(m.get("session_id"));
-            String title = str(m.get("title"));
-            String cwd = str(m.get("cwd"));
-            String last = str(m.get("last"));
-            if (last.length() > 36) last = last.substring(0, 36) + "…";
-            String when = ago(m.get("updated_at"));
-            // 单行：标题 · 时间 @目录（之前把"最后一句"也拼进来，每条占两行、看着很乱）
-            String tail = last.length() > 0 ? "  · " + last : "";
-            labels[i] = (title.isEmpty() ? shortId(sid) : title)
-                    + (when.isEmpty() ? "" : "  · " + when)
-                    + (cwd.isEmpty() ? "" : "  @" + baseName(cwd))
-                    + tail;
+    /** 当前"正在跟随"的电脑会话所在工作区（列表里查不到就用电脑上报的 cwd） */
+    private String workspaceOfCurrentFollow() {
+        String follow = RemoteDshTool.getSyncTarget(this);
+        if (!follow.isEmpty()) {
+            for (java.util.Map<String, Object> m : sessionRows) {
+                if (follow.equals(str(m.get("session_id")))) {
+                    String cwd = str(m.get("cwd"));
+                    if (!cwd.isEmpty()) return cwd;
+                }
+            }
         }
-        return labels;
+        return "";
+    }
+
+    /** 按工作区分组重绘列表：当前工作区第一，其余按最近活动排序（排序规则在 RemoteSessionGroups，有单测） */
+    private void renderSessionGroups() {
+        if (sessionListBox == null) return;
+        sessionListBox.removeAllViews();
+        java.util.LinkedHashMap<String, java.util.List<java.util.Map<String, Object>>> groups =
+                RemoteSessionGroups.group(sessionRows);
+        if (groups.isEmpty()) return;
+        final String cur = currentWorkspace;
+        // 正在跟随的会话可能不在当前工作区：它那组必须可见，否则用户看不到"我在跟哪条"
+        final String followGroup = workspaceOfCurrentFollow();
+        java.util.List<String> order = RemoteSessionGroups.orderedKeys(groups, cur);
+        if (!followGroup.isEmpty() && !followGroup.equals(cur)) {
+            order.remove(followGroup);
+            int at = (!cur.isEmpty() && order.contains(cur)) ? order.indexOf(cur) + 1 : 0;
+            order.add(at, followGroup);
+        }
+
+        android.view.View.OnClickListener expandAll = v -> {
+            showAllWorkspaces = true;
+            renderSessionGroups();
+        };
+        android.view.View.OnClickListener collapse = v -> {
+            showAllWorkspaces = false;
+            renderSessionGroups();
+        };
+
+        java.util.Set<String> visible = new java.util.HashSet<>();
+        for (String key : order) {
+            boolean isCur = !cur.isEmpty() && cur.equals(key);
+            boolean isFollow = !followGroup.isEmpty() && followGroup.equals(key);
+            boolean show = showAllWorkspaces || isCur || isFollow;
+            if (show) visible.add(key);
+            if (!show) continue;                                  // 默认只展开当前工作区 + 正在跟随的那组
+            java.util.List<java.util.Map<String, Object>> bucket = groups.get(key);
+            if (bucket == null || bucket.isEmpty()) continue;
+            sessionListBox.addView(buildGroupHeader(isCur, isFollow, key, bucket.size()));
+            for (java.util.Map<String, Object> m : bucket) {
+                sessionListBox.addView(buildSessionRow(m, isCur));
+            }
+        }
+        // 两个可见组都为空（比如刚换电脑）：至少把全部列出来，别给空框
+        if (visible.isEmpty()) {
+            for (String key : order) {
+                java.util.List<java.util.Map<String, Object>> bucket = groups.get(key);
+                if (bucket == null || bucket.isEmpty()) continue;
+                sessionListBox.addView(buildGroupHeader(false, false, key, bucket.size()));
+                for (java.util.Map<String, Object> m : bucket) {
+                    sessionListBox.addView(buildSessionRow(m, false));
+                }
+            }
+        }
+        int others = 0;
+        for (String key : order) {
+            if (visible.contains(key)) continue;
+            others += groups.get(key) == null ? 0 : groups.get(key).size();
+        }
+        if (others > 0) {
+            sessionListBox.addView(buildToggleRow(showAllWorkspaces
+                    ? "只看当前工作区"
+                    : "其他工作区 · 还有 " + others + " 条",
+                    showAllWorkspaces ? collapse : expandAll));
+        } else if (showAllWorkspaces) {
+            sessionListBox.addView(buildToggleRow("只看当前工作区", collapse));
+        }
+    }
+
+    /** 分组标题：当前工作区高亮；路径太长时保留末两级（看得出是哪个项目） */
+    private View buildGroupHeader(boolean isCurrent, boolean isFollowing, String cwd, int count) {
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int padH = dp(16);
+        box.setPadding(padH, dp(12), padH, dp(4));
+
+        android.widget.TextView title = new android.widget.TextView(this);
+        title.setText((isCurrent ? "当前工作区 · " : "")
+                + RemoteSessionGroups.label(cwd) + "（" + count + "）"
+                + (isFollowing ? " · 正在跟随" : ""));
+        title.setTextSize(13f);
+        title.setTextColor(isCurrent || isFollowing ? COLOR_OK : 0xFF6B7280);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        box.addView(title);
+
+        android.widget.TextView path = new android.widget.TextView(this);
+        path.setText(cwd.isEmpty() ? "（电脑没上报目录）" : cwd);
+        path.setTextSize(10f);
+        path.setTextColor(0xFF9CA3AF);
+        path.setMaxLines(1);
+        path.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        box.addView(path);
+        return box;
+    }
+
+    /** 一条会话：第一行标题（与电脑一致），第二行「时间 · 最后一句」 */
+    private View buildSessionRow(java.util.Map<String, Object> m, boolean inCurrentGroup) {
+        final String sid = str(m.get("session_id"));
+        final String title = str(m.get("title"));
+        final boolean following = sid.equals(RemoteDshTool.getSyncTarget(this));
+
+        android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+        row.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int padH = dp(16);
+        row.setPadding(padH, dp(10), padH, dp(10));
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true)) {
+            row.setBackgroundResource(tv.resourceId);
+        }
+        row.setClickable(true);
+
+        android.widget.LinearLayout titleLine = new android.widget.LinearLayout(this);
+        titleLine.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        android.widget.TextView name = new android.widget.TextView(this);
+        name.setText(title.isEmpty() ? shortId(sid) : title);
+        name.setTextSize(15f);
+        name.setTextColor(0xFF111827);
+        name.setMaxLines(2);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        android.widget.LinearLayout.LayoutParams nameLp = new android.widget.LinearLayout.LayoutParams(
+                0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        titleLine.addView(name, nameLp);
+        if (following) {
+            android.widget.TextView badge = new android.widget.TextView(this);
+            badge.setText("正在跟随");
+            badge.setTextSize(10f);
+            badge.setTextColor(COLOR_OK);
+            titleLine.addView(badge);
+        }
+        row.addView(titleLine);
+
+        StringBuilder meta = new StringBuilder();
+        String when = ago(m.get("updated_at"));
+        if (!when.isEmpty()) meta.append(when);
+        String last = str(m.get("last")).replaceAll("\\s+", " ");
+        if (last.length() > 60) last = last.substring(0, 60) + "…";
+        if (!last.isEmpty()) {
+            if (meta.length() > 0) meta.append(" · ");
+            meta.append(last);
+        }
+        if (meta.length() > 0) {
+            android.widget.TextView sub = new android.widget.TextView(this);
+            sub.setText(meta.toString());
+            sub.setTextSize(12f);
+            sub.setTextColor(inCurrentGroup ? 0xFF4B5563 : 0xFF9CA3AF);
+            sub.setMaxLines(1);
+            sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            row.addView(sub);
+        }
+
+        android.view.View divider = new android.view.View(this);
+        divider.setBackgroundColor(0xFFF3F4F6);
+        row.addView(divider, new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, dp(0.5f))));
+
+        row.setOnClickListener(v -> pickSessionRow(m));
+        return row;
+    }
+
+    private View buildToggleRow(String text, android.view.View.OnClickListener onClick) {
+        android.widget.TextView tv = new android.widget.TextView(this);
+        tv.setText(text);
+        tv.setTextSize(13f);
+        tv.setTextColor(0xFF2563EB);
+        tv.setPadding(dp(16), dp(12), dp(16), dp(12));
+        tv.setClickable(true);
+        tv.setOnClickListener(onClick);
+        return tv;
+    }
+
+    /**
+     * 选中一条电脑会话（2026-11-14：**切换即强制同步**）。
+     *
+     * <p>用户问的"切换会话时怎么落盘"——答案是：切过去就向电脑要一次整条历史，
+     * 用锚点 id 覆盖本地那条会话（标题也用电脑的），然后把传输/渲染游标推到末尾，
+     * 最后把聊天页拉回前台显示它。这样手机上看到的就是电脑上那条，不会出现
+     * "切了会话但页面还是空的/旧的"。</p>
+     */
+    private void pickSessionRow(java.util.Map<String, Object> m) {
+        final String sid = str(m.get("session_id"));
+        if (sid.isEmpty()) return;
+        final String title = str(m.get("title"));
+        stopPickerPolling();
+        dismissDialogSafe(sessionDialog);
+
+        RemoteDshTool.setSyncTarget(this, sid);
+        RemoteDshTool.setSyncTitle(this, title);
+        // 把「跟随」写到电脑的 @code:follow，不碰 @direct（直连专属）
+        new Thread(() -> {
+            try {
+                new RemoteSdk(getApplicationContext()).attach(sid, "follow", true);
+            } catch (Exception ignored) {
+                // 本地已跟随；下次连接时 syncSessionIdentity 会再对齐
+            }
+            restartChannel();
+        }, "follow-attach").start();
+
+        final android.app.AlertDialog progressDialog = buildImportProgressDialog();
+        updateImportProgress(progressDialog, "正在从电脑同步「" + (title.isEmpty() ? shortId(sid) : title) + "」…");
+        showDialogSafe(progressDialog);
+
+        new Thread(() -> {
+            try {
+                DshHistoryImporter.Result r = DshHistoryImporter.importSession(this, sid, title,
+                        new DshHistoryImporter.Progress() {
+                            private long lastAt = 0L;
+
+                            @Override public void onEvents(int count) {
+                                long now = System.currentTimeMillis();
+                                if (now - lastAt < 200) return;
+                                lastAt = now;
+                                runOnUiThread(() -> updateImportProgress(progressDialog,
+                                        "正在同步电脑历史… " + count + " 条事件"));
+                            }
+
+                            @Override public void onBuilding(int events) {
+                                runOnUiThread(() -> updateImportProgress(progressDialog,
+                                        "已收到 " + events + " 条事件，正在生成对话…"));
+                            }
+                        });
+                runOnUiThread(() -> {
+                    dismissDialogSafe(progressDialog);
+                    if (r != null && r.count > 0) {
+                        toast("已同步 " + r.count + " 条消息：" + (r.title == null ? "" : r.title));
+                    } else {
+                        toast("这条会话在电脑上还是空的，已切过去");
+                    }
+                    refresh();
+                    openChatAndFinish(r == null ? "" : r.sessionId);
+                });
+            } catch (Throwable e) {
+                runOnUiThread(() -> {
+                    dismissDialogSafe(progressDialog);
+                    toast("同步失败：" + e.getMessage() + "（已切换跟随，后台会继续补）");
+                    openChatAndFinish("");
+                });
+            }
+        }, "pick-session-sync").start();
+    }
+
+    /** 切了跟随会话就得换通道：老通道还挂在旧会话上，不重开会一直收旧会话的事件 */
+    private void restartChannel() {
+        runOnUiThread(() -> {
+            try {
+                com.oilquiz.app.ai.tool.RemoteConnection conn =
+                        com.oilquiz.app.ai.tool.RemoteConnection.get(this);
+                conn.stop();
+                conn.start();
+            } catch (Throwable ignored) {
+                // 连不上时状态条会提示
+            }
+        });
+    }
+
+    /** 回到聊天页并指定要打开的会话（走 REORDER_TO_FRONT，不叠新实例） */
+    private void openChatAndFinish(String localSessionId) {
+        try {
+            android.content.Intent i = new android.content.Intent(this,
+                    com.oilquiz.app.ui.activity.AIChatActivity.class);
+            if (localSessionId != null && !localSessionId.isEmpty()) {
+                i.putExtra("open_session_id", localSessionId);
+            }
+            i.addFlags(android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                    | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(i);
+        } catch (Throwable t) {
+            android.util.Log.w("RemoteDshConnect", "打开聊天页失败: " + t.getMessage());
+        }
+        finish();
     }
 
     private void startPickerPolling() {
@@ -501,7 +774,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 if (sessionDialog == null || !sessionDialog.isShowing()) return;
                 new Thread(() -> {
                     try {
-                        java.util.List<java.util.Map<String, Object>> light = RemoteDshTool.fetchSessionsLight(RemoteDshConnectActivity.this, 20);
+                        java.util.List<java.util.Map<String, Object>> light = RemoteDshTool.fetchSessionsLight(RemoteDshConnectActivity.this, PICKER_LIMIT);
                         StringBuilder sb = new StringBuilder();
                         for (java.util.Map<String, Object> m : light) {
                             sb.append(str(m.get("session_id"))).append(':').append(str(m.get("updated_at"))).append(';');
@@ -509,17 +782,16 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                         String sig = sb.toString();
                         if (sig.equals(lastLightSig)) return;
                         lastLightSig = sig;
-                        java.util.List<java.util.Map<String, Object>> full = RemoteDshTool.fetchSessions(RemoteDshConnectActivity.this, 20);
+                        java.util.Map<String, Object> meta = RemoteDshTool.fetchSessionsWithMeta(RemoteDshConnectActivity.this, PICKER_LIMIT);
+                        java.util.List<java.util.Map<String, Object>> full = extractSessions(meta);
+                        String ws = str(meta.get("current_workspace"));
                         runOnUiThread(() -> {
                             if (sessionDialog == null || !sessionDialog.isShowing()) return;
                             if (full.isEmpty()) return;
                             sessionRows.clear();
                             sessionRows.addAll(full);
-                            if (sessionAdapter != null) {
-                                sessionAdapter.clear();
-                                sessionAdapter.addAll(labelsFor(sessionRows));
-                                sessionAdapter.notifyDataSetChanged();
-                            }
+                            if (!ws.isEmpty()) currentWorkspace = ws;
+                            renderSessionGroups();
                         });
                     } catch (Exception ignored) {
                         // 轮询失败不打扰用户，下个周期再试

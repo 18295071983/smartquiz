@@ -9451,6 +9451,11 @@ public class AIChatActivity extends BaseActivity {
                 if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
                 if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
             }
+            // A4（2026-11-14）：清历史要**连服务端那半账一起清**。先把"当前跟随的电脑会话"记下来，
+            // 清完本地再让电脑忘掉锚点（reset），最后重开通道让 hello 重签一个新锚点。
+            // 只清本地的话，电脑端还记着"这台手机 = 老 local_session_id"，重连后按老 id 记账，
+            // 手机上要么对不上（diverged）、要么又冒出一条历史。
+            final String remoteSidAtClear = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
             // 同步清理所有数据源
             // 用户主动清空：作废异步历史加载结果，防止旧会话回灌顶掉新对话
             historyLoadStale = true;
@@ -9497,6 +9502,24 @@ public class AIChatActivity extends BaseActivity {
             // 重置 Token 统计
             TokenStatsManager.getInstance().resetSession();
             updateTokenStatsUI(TokenStatsManager.getInstance().getCurrentSnapshot());
+            // A4：本地账 + 服务端账一起清（见上面 remoteSidAtClear 的说明）。
+            // 顺序要紧：先 reset（HTTP 同步完成）再重开通道，否则新 hello 会拿到还没删掉的旧锚点。
+            if (!remoteSidAtClear.isEmpty()) {
+                com.oilquiz.app.ai.tool.RemoteAnchorStore.clear(this);
+                com.oilquiz.app.ai.tool.RemoteDshTool.resetSyncState(this);
+                new Thread(() -> {
+                    com.oilquiz.app.ai.tool.RemoteDshTool.resetAnchor(
+                            getApplicationContext(), remoteSidAtClear, true);
+                    runOnUiThread(() -> {
+                        try {
+                            com.oilquiz.app.ai.tool.RemoteConnection conn =
+                                    com.oilquiz.app.ai.tool.RemoteConnection.get(this);
+                            conn.stop();
+                            conn.start();
+                        } catch (Throwable ignored) { /* 连不上时状态条会提示 */ }
+                    });
+                }, "anchor-reset-all").start();
+            }
         } catch (Exception e) { AppLogger.aiE(TAG, "Error clearing chat: " + e.getMessage()); }
     }
 
@@ -15468,7 +15491,11 @@ public class AIChatActivity extends BaseActivity {
             lastChromeKey = key;
             if (!active && !disconnected) {
                 if (modeChanged) {
-                    com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenterDefault(this);
+                    if (!com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenterDefault(this)) {
+                        // 顶栏还没挂出来（首帧顺序不保证）：别把"模式已切"吃掉，下个 tick 重试
+                        lastChromeKey = "";
+                        return;
+                    }
                     setLocalChipsVisible(true);
                     if (chatV2EmptyState != null) chatV2EmptyState.setRemoteMode(false);
                     setRemoteMetaLineVisibility(false);
@@ -15483,7 +15510,7 @@ public class AIChatActivity extends BaseActivity {
                 com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.setRemoteSubtitle(this,
                         "电脑已断开 · 点这里重连", R.color.warning);
                 if (modeChanged) {
-                    com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenter(this,
+                    boolean bound = com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenter(this,
                             v -> startActivity(new android.content.Intent(this,
                                     com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class)),
                             v -> {
@@ -15491,6 +15518,7 @@ public class AIChatActivity extends BaseActivity {
                                         com.oilquiz.app.ai.tool.RemoteDshInsightActivity.class));
                                 return true;
                             });
+                    if (!bound) lastChromeKey = "";   // 顶栏没挂上：下个 tick 重绑
                     setLocalChipsVisible(true);
                     if (chatV2EmptyState != null) chatV2EmptyState.setRemoteMode(false);
                     setRemoteMetaLineVisibility(false);
@@ -15515,13 +15543,18 @@ public class AIChatActivity extends BaseActivity {
                     dot);
             updateRemoteMetaLine(st);
             if (modeChanged) {
-                com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenter(this,
+                boolean bound = com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenter(this,
                         v -> openRemoteSessionPicker(),
                         v -> {
                             startActivity(new android.content.Intent(this,
                                     com.oilquiz.app.ai.tool.RemoteDshInsightActivity.class));
                             return true;
                         });
+                if (!bound) {
+                    // 顶栏还没挂出来：把模式键清掉，下个 tick 再绑（否则会永远停在"默认点击=模型选择"）
+                    lastChromeKey = "";
+                    return;
+                }
                 setLocalChipsVisible(false);
                 if (chatV2EmptyState != null) chatV2EmptyState.setRemoteMode(true);
             }

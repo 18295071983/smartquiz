@@ -1412,11 +1412,8 @@ public class RemoteDshTool implements AITool {
      * 返回 [{session_id, cwd, last}]，失败抛异常由调用方提示。
      */
     public static List<Map<String, Object>> fetchSessions(Context c, int limit) throws Exception {
-        RemoteDshTool tool = new RemoteDshTool(c);
-        Map<String, Object> resp = tool.httpJson(tool.getBaseUrl() + "/sessions.json?limit=" + Math.max(1, limit),
-                "GET", null, 20);
+        Object arr = fetchSessionsWithMeta(c, limit).get("sessions");
         List<Map<String, Object>> out = new java.util.ArrayList<>();
-        Object arr = resp.get("sessions");
         if (arr instanceof List) {
             for (Object o : (List<?>) arr) {
                 if (o instanceof Map) {
@@ -1426,6 +1423,54 @@ public class RemoteDshTool implements AITool {
             }
         }
         return out;
+    }
+
+    /**
+     * 会话列表 + 分组需要的元信息（2026-11-14，会话选择框按工作区分组）。
+     *
+     * <p>返回体：{@code {sessions:[...], current_workspace, working_dir}}。
+     * {@code current_workspace} 是电脑宿主进程的 cwd —— 桌面端"当前工作区"就在那儿，
+     * 手机拿它把同一工作区的会话排在前面，跟电脑上看到的条数一致。</p>
+     */
+    public static Map<String, Object> fetchSessionsWithMeta(Context c, int limit) throws Exception {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        return tool.httpJson(tool.getBaseUrl() + "/sessions.json?limit=" + Math.max(1, limit),
+                "GET", null, 20);
+    }
+
+    /** 设备 id（dev-xxxx；吊销、锚点入账都按它认设备） */
+    public static String deviceId(Context c) {
+        return prefsOf(c).getString(KEY_DEVICE_ID, "");
+    }
+
+    /**
+     * A4（2026-11-14）：让电脑端"忘掉"锚点，下次握手重签一个新的 {@code local_session_id}。
+     *
+     * <p>手机清历史时调：本地账清了、服务端账也清了，重连后 hello 会 create 一条新锚点，
+     * 手机按新 id 从零重建一条会话 —— 而不是继续往旧 id 里写、也不是又开一条随机 uuid。</p>
+     *
+     * @param sessionId 只清这一条电脑会话；空 = 配合 all 用
+     * @param all       true = 清这台设备的全部锚点（"清空全部历史"）
+     * @return 电脑端是否受理（网络失败返回 false，不抛）
+     */
+    public static boolean resetAnchor(Context c, String sessionId, boolean all) {
+        try {
+            RemoteDshTool tool = new RemoteDshTool(c);
+            Map<String, Object> body = new HashMap<>();
+            body.put("action", "reset");
+            body.put("device_id", prefsOf(c).getString(KEY_DEVICE_ID, ""));
+            if (sessionId != null && !sessionId.isEmpty()) body.put("session_id", sessionId);
+            if (all) body.put("all", true);
+            Map<String, Object> resp = tool.httpJson(tool.getBaseUrl() + "/v2/anchor", "POST", body, 15);
+            boolean ok = Boolean.TRUE.equals(resp.get("ok"));
+            Log.i(TAG, "[anchor] reset all=" + all + " session=" + sessionId
+                    + " → ok=" + ok + " removed=" + resp.get("removed"));
+            return ok;
+        } catch (Throwable t) {
+            // 清历史不该因为电脑不可达而失败：本地账已经清了，下次连上再重签
+            Log.w(TAG, "[anchor] reset 失败: " + t.getMessage());
+            return false;
+        }
     }
 
     /**

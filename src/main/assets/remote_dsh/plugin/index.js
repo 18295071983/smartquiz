@@ -3975,7 +3975,8 @@ function presetSvcOf(ctx) {
     const sid = String(body.session_id ?? q.searchParams.get('session_id') ?? '').trim();
     const actionEarly = String(body.action ?? '').trim();
     // create 是"新建一条会话"，此时 session_id 还不存在，只要求 device_id
-    if (!dev || (!sid && actionEarly !== 'create')) {
+    // reset + all 是"整台设备的锚点全清"（手机清空全部历史），同样允许没有 session_id
+    if (!dev || (!sid && actionEarly !== 'create' && actionEarly !== 'reset')) {
       return sendJson(res, 400, { ok: false, error: 'device_id + session_id required' });
     }
     const a = ANCHORS.get(anchorKey(dev, sid));
@@ -4012,6 +4013,32 @@ function presetSvcOf(ctx) {
       saveAnchors();
       return sendJson(res, 200, { ok: true, action: 'cleared', anchor: a });
     }
+    if (action === 'ensure') {
+      // 2026-11-14：只保证（设备 × 会话）有一条锚点，**不新建电脑会话**。
+      // 手机"切换会话 → 强制同步"时先调它拿 local_session_id：否则本地先随机一个 id，
+      // 随后握手又签发另一个锚点 id，同一条电脑会话就会在手机上裂成两条历史。
+      const a2 = anchorFor(dev, sid, true);
+      if (!a2) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'ensure', anchor: a2 });
+    }
+    if (action === 'reset') {
+      // A4（2026-11-14）：手机清历史 → 让服务端"忘掉"这条锚点，下次握手重签一条。
+      // 与 delete（软删进回收站、留墓碑）不同：reset 是**硬删**，紧接着的 hello 会重新 create，
+      // 签发一个新的 local_session_id —— 手机侧于是按新 id 从零重建一条会话，
+      // 而不是"又开一条随机 uuid 的本地历史"。
+      if (body.all === true) {
+        let removed = 0;
+        for (const k of [...ANCHORS.keys()]) {
+          if (k.startsWith(String(dev) + '|')) { ANCHORS.delete(k); removed += 1; }
+        }
+        saveAnchors();
+        return sendJson(res, 200, { ok: true, action: 'reset', scope: 'device', removed });
+      }
+      ANCHORS.delete(anchorKey(dev, sid));
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'reset', scope: 'session', removed: a ? 1 : 0 });
+    }
     if (action === 'restore') {         // 回收站恢复
       if (!a) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
       a.deleted_at = null; a.updated_at = Date.now();
@@ -4024,7 +4051,7 @@ function presetSvcOf(ctx) {
       saveAnchors();
       return sendJson(res, 200, { ok: true, action: 'soft_deleted', anchor: a });
     }
-    return sendJson(res, 400, { ok: false, error: 'unknown action', allowed: ['clear', 'restore', 'delete'] });
+    return sendJson(res, 400, { ok: false, error: 'unknown action', allowed: ['create', 'ensure', 'reset', 'clear', 'restore', 'delete'] });
   });
   route('exact', '/v2/invoke', async (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
@@ -4414,7 +4441,15 @@ function presetSvcOf(ctx) {
         return sendJson(res, 200, { ok: true, light: true, count: rows.length, sessions: rows });
       }
       const sessions = await listStoredSessions(lim);
-      sendJson(res, 200, { ok: true, count: sessions.length, sessions });
+      // 分组用（2026-11-14）：手机的选择框要和电脑上一致的"按工作区看"，
+      // 就得知道电脑当前在哪个工作区。current_workspace = 宿主进程 cwd（桌面端就在这），
+      // working_dir = 用户在插件配置里指定的建会话目录（空=继承 cwd）。
+      const currentWorkspace = (() => { try { return process.cwd(); } catch { return ''; } })();
+      sendJson(res, 200, {
+        ok: true, count: sessions.length, sessions,
+        current_workspace: currentWorkspace,
+        working_dir: String(cfg.workingDir || ''),
+      });
     } catch (e) {
       sendJson(res, 500, { ok: false, error: String(e?.message ?? e) });
     }

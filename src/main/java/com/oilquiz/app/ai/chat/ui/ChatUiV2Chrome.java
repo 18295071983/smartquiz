@@ -230,10 +230,12 @@ public final class ChatUiV2Chrome {
      * <p>2026-11-14（M8-P0-3）收敛：原先顶栏点进去是 {@code ModelCenterActivity}
      * （只有在线注册+用量，选不了本地模型），与空首屏第一行的去处不一致；
      * 两处统一到 {@code ModelSelectorActivity}。</p>
+     *
+     * @return true = 真的绑上了；false = 顶栏还没挂出来（调用方别把"模式已切"吃掉）
      */
-    private static void bindDefaultCenterClick(Activity activity, View header) {
+    private static boolean bindDefaultCenterClick(Activity activity, View header) {
         View center = header == null ? null : header.findViewById(R.id.chat_v2_btn_model);
-        if (center == null) return;
+        if (center == null) return false;
         center.setOnClickListener(v -> {
             try {
                 activity.startActivity(new Intent(activity,
@@ -243,31 +245,43 @@ public final class ChatUiV2Chrome {
             }
         });
         center.setOnLongClickListener(null);
+        return true;
     }
 
-    /** 把顶栏中间块恢复成默认（本地态/断开态用）。 */
-    public static void bindCenterDefault(Activity activity) {
+    /**
+     * 把顶栏中间块恢复成默认（本地态/断开态用）。
+     *
+     * @return true = 绑上了；false = 顶栏还没挂出来
+     */
+    public static boolean bindCenterDefault(Activity activity) {
         try {
             ViewGroup root = activity.findViewById(R.id.main_content);
             View header = root == null ? null : root.findViewWithTag(TAG_HEADER);
-            bindDefaultCenterClick(activity, header);
+            return bindDefaultCenterClick(activity, header);
         } catch (Throwable ignored) {
             // 顶栏没挂上就什么都不用做
+            return false;
         }
     }
 
-    /** 顶栏中间块改向（远程态：点=会话选择，长按=电脑面板）。 */
-    public static void bindCenter(Activity activity, View.OnClickListener click,
-                                  View.OnLongClickListener longClick) {
+    /**
+     * 顶栏中间块改向（远程态：点=会话选择，长按=电脑面板）。
+     *
+     * @return true = 绑上了；false = 顶栏还没挂出来（调用方下个 tick 要重试）
+     */
+    public static boolean bindCenter(Activity activity, View.OnClickListener click,
+                                     View.OnLongClickListener longClick) {
         try {
             ViewGroup root = activity.findViewById(R.id.main_content);
             View header = root == null ? null : root.findViewWithTag(TAG_HEADER);
             View center = header == null ? null : header.findViewById(R.id.chat_v2_btn_model);
-            if (center == null) return;
+            if (center == null) return false;
             center.setOnClickListener(click);
             center.setOnLongClickListener(longClick);
+            return true;
         } catch (Throwable ignored) {
             // 顶栏没挂上就什么都不用做
+            return false;
         }
     }
 
