@@ -3344,6 +3344,32 @@ function presetSvcOf(ctx) {
    * 语义：手机确认"seq 及之前的消息我都完整收到了"，和/或"这些 id 收到了"。
    * 水位线单调只增，落盘到 .acks.json，重启不丢；断线重连后只补水位线之后的部分。
    */
+  /**
+   * 请求 → 设备（2026-11-14）：SSE 与 /ack 都要按令牌认设备，才能把回执水位线写回锚点账本。
+   * 认不出（本机调用/主令牌）就返回 undefined，账本那侧跳过。
+   */
+  const deviceOfRequest = (req) => {
+    try {
+      const m = /^Bearer\s+(.+)$/i.exec((String(req?.headers?.authorization ?? '')).trim());
+      return m ? deviceByToken(m[1]) : undefined;
+    } catch { return undefined; }
+  };
+
+  /** 把手机的回执水位线写回（设备 × 会话）的锚点：以后 A5 的"已读到哪"两端同一份账 */
+  const rememberAnchorAck = (dev, sid, seq) => {
+    try {
+      const n = Number(seq) || 0;
+      if (!dev || !sid || n <= 0) return;
+      const a = anchorFor(dev.id, sid, false);
+      if (!a) return;
+      if (n > (Number(a.acked_seq) || 0)) {
+        a.acked_seq = n;
+        a.updated_at = Date.now();
+        saveAnchors();
+      }
+    } catch { /* 账本写失败不影响回执本身 */ }
+  };
+
   const ackHandler = async (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     let body = {};
@@ -3355,6 +3381,7 @@ function presetSvcOf(ctx) {
     const seq = Number(body.seq) || 0;
     if (!seq && ids.length === 0) return sendJson(res, 400, { ok: false, error: 'seq 或 ids 至少给一个' });
     const next = ACK_STORE.set(sid, { acked_seq: seq, acked_ids: ids });
+    rememberAnchorAck(deviceOfRequest(req), sid, next.acked_seq);
     sendJson(res, 200, {
       ok: true, session_id: sid,
       ack: { acked_seq: next.acked_seq, acked_count: next.acked_ids.length, updated_at: next.updated_at },
@@ -3366,9 +3393,10 @@ function presetSvcOf(ctx) {
   route('exact', '/v2/ack', ackHandler);
 
   /** WS `ack` 帧复用同一套水位线逻辑（HTTP 与 WS 两条通道口径一致） */
-  const applyAck = (sid, seq) => {
+  const applyAck = (sid, seq, dev) => {
     if (!sid || !(Number(seq) > 0)) return;
     ACK_STORE.set(sid, { acked_seq: Number(seq), acked_ids: [] });
+    rememberAnchorAck(dev, sid, seq);
   };
 
   // ==================== 协议 v2：握手 / 视图 / 消息 / 事件流 ====================
@@ -4725,7 +4753,21 @@ function presetSvcOf(ctx) {
     const sseAnchor = () => {
       try { return reqDevice ? anchorFor(reqDevice.id, sid, true) : null; } catch { return null; }
     };
-    const passType = (ev) => {
+    /**
+     * 事件帧 + 锚点（2026-11-14，A3 收尾）。
+     *
+     * <p>以前只有握手/ready/snapshot 带 anchor，**逐条事件帧不带** —— 手机在中途切会话、
+     * 或者补拉时只拿到事件，就没法把"这条事件属于哪台电脑会话/哪个本地会话"确认下来。
+     * 这里统一在每帧附上（device × session）的锚点，App 可据此校验/纠偏。</p>
+     */
+    const sendEventFrame = (ev) => {
+      const out = { type: 'event', event: ev };
+      try {
+        const a = sseAnchor();
+        if (a) out.anchor = a;
+      } catch { /* 锚点拿不到就不带 */ }
+      sse(out);
+    };    const passType = (ev) => {
       const t = String(ev?.type ?? '');
       if (typesFilter.size > 0 && !typesFilter.has(t)) return false;
       // 能力协商：客户端声明不支持 approval 块时，审批事件不下发（legacy 不裁）
@@ -4861,7 +4903,7 @@ function presetSvcOf(ctx) {
       } else {
         sse({ type: 'ready', session_id: sid, seq: replay.seq, source: 'log', since, anchor: sseAnchor() });
         for (const ev of replay.events) {
-          if (passType(ev)) sse({ type: 'event', event: ev });
+          if (passType(ev)) sendEventFrame(ev);
         }
       }
       /**
@@ -4891,7 +4933,7 @@ function presetSvcOf(ctx) {
               const got = await h.read(sentCount);
               fresh = Array.isArray(got) ? got : (got?.events ?? []);
             } finally { try { await h.close?.(); } catch { /* 已关 */ } }
-            for (const ev of fresh) { if (passType(ev)) sse({ type: 'event', event: ev }); }
+            for (const ev of fresh) { if (passType(ev)) sendEventFrame(ev); }
             sentCount += fresh.length;
           }
           if (Date.now() - lastPing2 > 10000) { lastPing2 = Date.now(); ping(); }
@@ -4924,7 +4966,7 @@ function presetSvcOf(ctx) {
       const seq = Number(live.seq ?? 0);
       for (; cursor < seq; cursor += 1) {
         const ev = live.eventAt?.(cursor);
-        if (ev && passType(ev)) sse({ type: 'event', event: ev });
+        if (ev && passType(ev)) sendEventFrame(ev);
       }
       for (const a of [...pendingRemoteOf(sid, 'approval'), ...pendingRemoteOf(sid, 'question')]) {
         if (announced.has(a.id)) continue;
@@ -6748,6 +6790,15 @@ function presetSvcOf(ctx) {
           '/ws/ctl': { out: new Set(['batch', 'pong', 'hello']), inbound: new Set(['pull', 'ack', 'ping']) },
         };
 
+        /** WS 侧认设备：优先 ?token=，退回升级请求的 Authorization 头（两条通道口径一致） */
+        const devFromWs = (ws, u) => {
+          try {
+            const t = String(u?.searchParams?.get('token') ?? '').trim();
+            if (t) return deviceByToken(t);
+            const m = /^Bearer\s+(.+)$/i.exec(String(ws?.upgradeReq?.headers?.authorization ?? '').trim());
+            return m ? deviceByToken(m[1]) : undefined;
+          } catch { return undefined; }
+        };
         const handleWsConn = (ws, u, channel) => {
           const sid = String(u.searchParams.get('session_id') ?? '').trim();
           const caps = u.searchParams.get('caps') ?? '';
@@ -6814,7 +6865,7 @@ function presetSvcOf(ctx) {
               return;
             }
             if (t === 'ack') {
-              try { applyAck(sid, Number(m.seq ?? 0)); } catch { /* 落盘失败不致命 */ }
+              try { applyAck(sid, Number(m.seq ?? 0), devFromWs(ws, u)); } catch { /* 落盘失败不致命 */ }
               return;
             }
             if (t === 'file_get') {

@@ -100,10 +100,17 @@
   64MB 的单文件上限只是兜底，从没触发过；会话**不拆文件**。
 - `import_sid_` 映射降级成兜底，锚点优先。
 
-### 事件帧带 anchor（下一步）
+### 事件帧带 anchor（2026-11-14 完成）
 
-插件 `sub.send` / `sse({type:'event'…})` 处附 `anchor`（按 device + session 取账本）。
-手机收到后按锚点找会话。（握手帧与 SSE `ready`/`snapshot` 已带，事件帧还没。）
+插件 SSE 的逐条事件帧现在带锚点（`sendEventFrame`）：`{type:'event', event, anchor}`，
+`anchor` 是（设备 × 会话）的账本条目（`local_session_id` / `acked_seq`）。设备按请求令牌认出来，
+认不出就不带。App 可据此校验"这条事件属于哪条电脑会话/哪个本地会话"。
+
+### acked_seq 回传（2026-11-14 完成）
+
+手机的回执水位线以前只落 `.acks.json`，锚点账本里的 `acked_seq` 一直是 0。
+现在 `/ack`、`/v2/ack` 与 WS `ack` 帧都会把 `acked_seq` 写回（设备 × 会话）的锚点
+（`rememberAnchorAck`，只增不减），两端"已读到哪"是同一份账。
 
 ### 插件通道 ✅ 部分完成（2026-11-14 第四轮）
 
