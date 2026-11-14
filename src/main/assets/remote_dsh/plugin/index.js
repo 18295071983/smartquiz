@@ -3804,6 +3804,40 @@ function presetSvcOf(ctx) {
     return { events: out, last_seq: lastSeq, has_more: hasMore };
   };
 
+  /**
+   * 通用动作入口（C3，2026-11-14）：手机点插件推的视图里的按钮 → 这里 → 返回 effects。
+   * 插件侧只登记"动作 id → handler"，手机端按白名单执行效果（见 27 号指南）。
+   */
+  const INVOKE_HANDLERS = new Map();
+  const onInvoke = (id, fn) => { if (id && typeof fn === 'function') INVOKE_HANDLERS.set(id, fn); };
+
+  // 内置几个安全的示例动作（可在插件里随时增删）
+  onInvoke('ping', async () => [{ type: 'toast', text: 'pong' }]);
+  onInvoke('copy_session_id', async (_v, ctx0) => ([{ type: 'copy', text: String(ctx0?.sid ?? '') }]));
+  onInvoke('open_insight', async () => ([{ type: 'open', page: 'insight' }]));
+
+  route('exact', '/v2/invoke', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use POST' });
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch {
+      return sendJson(res, 400, { ok: false, error: 'bad json' });
+    }
+    const action = String(body.action ?? '').trim();
+    const value = body.value && typeof body.value === 'object' ? body.value : {};
+    const sid = String(body.session_id ?? '').trim();
+    if (!action) return sendJson(res, 400, { ok: false, error: 'action required' });
+    const fn = INVOKE_HANDLERS.get(action);
+    if (!fn) return sendJson(res, 404, { ok: false, error: 'unknown_action', action, known: [...INVOKE_HANDLERS.keys()] });
+    const started = Date.now();
+    try {
+      const out = await fn(value, { sid, value });
+      const effects = Array.isArray(out) ? out : (out ? [out] : []);
+      return sendJson(res, 200, { ok: true, action, effects: effects.slice(0, 4), invoke_ms: Date.now() - started });
+    } catch (e) {
+      return sendJson(res, 500, { ok: false, error: String(e?.message ?? e).slice(0, 200) });
+    }
+  });
   route('exact', '/v2/events/pull', async (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     const q = new URL(req.url ?? '/', 'http://dsh.invalid');

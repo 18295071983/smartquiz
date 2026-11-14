@@ -750,6 +750,11 @@ public class RemoteDshTool implements AITool {
      *
      * <p>认证走 `?token=`（WS 握手设自定义头在部分客户端上不方便）。</p>
      */
+    /** 最近一次 WS 所属会话：invoke / 文件流复用，免得调用方到处传 sid */
+    private static volatile String lastLiveSessionId = "";
+
+    public static String lastLiveSessionId() { return lastLiveSessionId; }
+
     public interface DshSocketListener {
         void onReady(int seq);
 
@@ -779,6 +784,7 @@ public class RemoteDshTool implements AITool {
                                                    String channel) {
         RemoteDshTool tool = new RemoteDshTool(c);
         String base = tool.getBaseUrl();
+        lastLiveSessionId = sid == null ? "" : sid;
         String wsBase = base.replaceFirst("^http://", "ws://").replaceFirst("^https://", "wss://");
         String path = (channel == null || channel.isEmpty()) ? "/ws" : channel;
         String url = wsBase + path + "?session_id="
@@ -929,6 +935,23 @@ public class RemoteDshTool implements AITool {
         return last instanceof Number ? ((Number) last).intValue() : since;
     }
 
+    /**
+     * 通用动作调用（C3，2026-11-14）：把"插件推的视图里点了按钮"送回插件，拿回 effects。
+     *
+     * <p>走普通 POST 而不是 WS：一次点击一次往返，简单、可单测、不占通道；
+     * 效果的白名单校验在 {@code EffectExecutor} 里做，插件只负责"建议"。</p>
+     */
+    public static org.json.JSONObject invokeAction(Context c, String action, org.json.JSONObject args)
+            throws Exception {
+        RemoteDshTool tool = new RemoteDshTool(c);
+        java.util.Map<String, Object> body = new java.util.HashMap<>();
+        body.put("action", action == null ? "" : action);
+        body.put("value", args == null ? new java.util.HashMap<String, Object>() : args);
+        String sid = lastLiveSessionId();
+        if (sid != null && !sid.isEmpty()) body.put("session_id", sid);
+        java.util.Map<String, Object> resp = tool.httpJson(tool.getBaseUrl() + "/v2/invoke", "POST", body, 15);
+        return new org.json.JSONObject(resp);
+    }
     /** 连一次 SSE，返回本次收到的最大 seq（断线后作为 since 续传） */
     private static int streamOnce(RemoteDshTool tool, String sid, int since, int timeoutSec, boolean follow,
                                   int snapshotThreshold, String types, DshEventListener listener) throws Exception {

@@ -149,6 +149,11 @@
             android:screenOrientation="portrait" />
         <!-- 远程连接（电脑）：手动连接/断开/清除配置/扫码（工具集 → 设置与数据） -->
         <!-- 甲板全屏列表（2026-11-14）：甲板保持精简，点一行进这里看全部 -->
+        <!-- 插件视图页（C3，2026-11-14）：渲染插件推来的 JSON 组件树 -->
+        <activity
+            android:name="com.oilquiz.app.ui.activity.RemoteViewActivity"
+            android:exported="false"
+            android:label="插件界面" />
         <activity
             android:name="com.oilquiz.app.ui.activity.RemoteDeckListActivity"
             android:exported="false"

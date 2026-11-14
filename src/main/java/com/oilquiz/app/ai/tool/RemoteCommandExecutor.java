@@ -48,6 +48,19 @@ public final class RemoteCommandExecutor {
                         android.widget.Toast.LENGTH_LONG).show());
                 return "toast shown";
             case "ui_component": {
+                // C3 (2026-11-14): 带组件树的推送（args.props 里有 type）→ 交给通用渲染器开一屏；
+                // 否则仍按旧的"插槽"语义渲染。这样插件推新界面不需要手机发版。
+                Object viewRaw = args == null ? null : args.get("props");
+                if (viewRaw instanceof java.util.Map) {
+                    try {
+                        org.json.JSONObject view = new org.json.JSONObject(
+                                (java.util.Map<?, ?>) viewRaw);
+                        if (view.optString("type", "").length() > 0) {
+                            com.oilquiz.app.ui.activity.RemoteViewActivity.open(ctx, view);
+                            return "view opened";
+                        }
+                    } catch (Throwable ignored) { /* 退回插槽语义 */ }
+                }
                 // 语义对齐（2026-11-13）：这个名字以前直接退化成通知，名不副实。
                 // 现在真的渲染成"输入区上方插槽"（与插件 ui/slot 同一套 DockSlotBus）；
                 // id/title/detail 为空时仍退化成通知，避免静默丢失。
