@@ -201,6 +201,11 @@
              只从 App 内调试入口启动，不对外导出；release 由 Activity 内 FLAG_DEBUGGABLE 兜底。
              主题走 Theme.OilQuizApp → 深浅色/换肤由全局 ThemeOverlay 跟随。 -->
         <activity
+            android:name=".infra.UiKitGalleryActivity"
+            android:exported="false"
+            android:label="UI 工具包"
+            android:theme="@style/Theme.OilQuizApp" />
+        <activity
             android:name=".infra.ComposeGalleryActivity"
             android:exported="false"
             android:label="组件画廊"

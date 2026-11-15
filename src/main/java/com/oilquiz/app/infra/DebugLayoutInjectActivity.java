@@ -51,6 +51,14 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // UI 工具包画廊（交互/动画/下拉刷新/圆形头像/Coil）：--es mode ui_kit
+        if ("ui_kit".equals(getIntent().getStringExtra("mode"))) {
+            startActivity(new android.content.Intent(this,
+                    com.oilquiz.app.infra.UiKitGalleryActivity.class));
+            finish();
+            return;
+        }
+
         // 组件画廊（Compose + Lottie 试点）：--es mode compose_gallery
         if ("compose_gallery".equals(getIntent().getStringExtra("mode"))) {
             startActivity(new android.content.Intent(this,
