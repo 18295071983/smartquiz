@@ -41,6 +41,7 @@ import java.io.File;
 import java.util.List;
 
 import com.oilquiz.app.theme.ThemeColors;
+import com.oilquiz.app.theme.Tokens;
 /**
  * 主题设置页（重构版）：
  * <ul>
@@ -86,6 +87,11 @@ public class ThemeActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_theme);
+        // 2026-11-16：窗口背景显式铺成主题底色。全局壁纸模式下窗口背景是壁纸，
+        // 页面之间会露出壁纸（OLED 纯黑档尤其明显：卡片是黑的、缝隙是壁纸，看着像没做）。
+        // 本页是"设置"类页面，不跟壁纸，固定用主题背景色。
+        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(
+                ThemeColors.get(this, R.color.background)));
 
         radioLight = findViewById(R.id.radio_light);
         radioDark = findViewById(R.id.radio_dark);
@@ -588,22 +594,29 @@ public class ThemeActivity extends AppCompatActivity {
      */
     private void renderThemePreview(ThemePalette p) {
         linearLayoutThemePreview.removeAllViews();
+        // 2026-11-16：预览区自己裁圆角，否则顶条/高亮块的直角会顶破外层卡片（截图里的"破角"）。
+        GradientDrawable previewBg = new GradientDrawable();
+        previewBg.setCornerRadius(Tokens.radius(this, Tokens.RADIUS_LG));
+        // 纯黑档下卡片和预览区都是黑的，加一圈 1dp 描边才看得出边界
+        previewBg.setStroke(Tokens.space(this, Tokens.SPACE_HAIRLINE) > 0 ? dp(1) : 1, p.outline);
+        previewBg.setColor(p.surface);
+        linearLayoutThemePreview.setClipToOutline(true);
 
         // 模拟顶条（Toolbar）：primary 底 + onPrimary 字
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setPadding(dp(16), dp(14), dp(16), dp(14));
+        topBar.setPadding(Tokens.space(this, Tokens.SPACE_XL), dp(14), Tokens.space(this, Tokens.SPACE_XL), dp(14));
         topBar.setBackgroundColor(p.primary);
         TextView backArrow = new TextView(this);
         backArrow.setText("‹");
         backArrow.setTextSize(26);
         backArrow.setTextColor(p.onPrimary);
-        backArrow.setPadding(0, 0, dp(12), 0);
+        backArrow.setPadding(0, 0, Tokens.space(this, Tokens.SPACE_LG), 0);
         topBar.addView(backArrow);
         TextView barTitle = new TextView(this);
         barTitle.setText(getString(R.string.h_57b7276a));
-        barTitle.setTextSize(16);
+        barTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_BODY_LG));
         barTitle.setTextColor(p.onPrimary);
         topBar.addView(barTitle);
         linearLayoutThemePreview.addView(topBar);
@@ -618,25 +631,25 @@ public class ThemeActivity extends AppCompatActivity {
         // 标题 + 次要文本
         TextView title = new TextView(this);
         title.setText(getString(R.string.h_841bfb11));
-        title.setTextSize(16);
+        title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_BODY_LG));
         title.setTextColor(p.onSurface);
         body.addView(title);
         TextView subtitle = new TextView(this);
         subtitle.setText(getString(R.string.h_ead71ec7));
-        subtitle.setTextSize(13);
+        subtitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_LABEL));
         subtitle.setTextColor(p.onSurfaceVariant);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        subLp.setMargins(0, dp(2), 0, dp(12));
+        subLp.setMargins(0, Tokens.space(this, Tokens.SPACE_HAIRLINE), 0, Tokens.space(this, Tokens.SPACE_LG));
         subtitle.setLayoutParams(subLp);
         body.addView(subtitle);
 
         // 高亮块：primaryContainer
         TextView highlight = new TextView(this);
         highlight.setText(getString(R.string.h_5464581f));
-        highlight.setTextSize(14);
+        highlight.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_BODY));
         highlight.setGravity(Gravity.CENTER_VERTICAL);
-        highlight.setPadding(dp(12), dp(12), dp(12), dp(12));
+        highlight.setPadding(Tokens.space(this, Tokens.SPACE_LG), Tokens.space(this, Tokens.SPACE_LG), Tokens.space(this, Tokens.SPACE_LG), Tokens.space(this, Tokens.SPACE_LG));
         highlight.setBackgroundColor(p.primaryContainer);
         highlight.setTextColor(p.onPrimaryContainer);
         body.addView(highlight);
@@ -644,31 +657,31 @@ public class ThemeActivity extends AppCompatActivity {
         // 按钮行：实心 primary + 描边 primary
         LinearLayout buttonRow = new LinearLayout(this);
         buttonRow.setOrientation(LinearLayout.HORIZONTAL);
-        buttonRow.setPadding(0, dp(12), 0, dp(12));
+        buttonRow.setPadding(0, Tokens.space(this, Tokens.SPACE_LG), 0, Tokens.space(this, Tokens.SPACE_LG));
         body.addView(buttonRow);
 
         TextView solidBtn = new TextView(this);
         solidBtn.setText(getString(R.string.h_d9113e34));
-        solidBtn.setTextSize(14);
+        solidBtn.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_BODY));
         solidBtn.setGravity(Gravity.CENTER);
         solidBtn.setPadding(dp(20), dp(10), dp(20), dp(10));
         solidBtn.setBackgroundColor(p.primary);
         solidBtn.setTextColor(p.onPrimary);
         LinearLayout.LayoutParams solidLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        solidLp.setMargins(0, 0, dp(12), 0);
+        solidLp.setMargins(0, 0, Tokens.space(this, Tokens.SPACE_LG), 0);
         solidBtn.setLayoutParams(solidLp);
         buttonRow.addView(solidBtn);
 
         TextView outlineBtn = new TextView(this);
         outlineBtn.setText(getString(R.string.h_21e2f1a9));
-        outlineBtn.setTextSize(14);
+        outlineBtn.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_BODY));
         outlineBtn.setGravity(Gravity.CENTER);
         outlineBtn.setPadding(dp(20), dp(10), dp(20), dp(10));
         outlineBtn.setTextColor(p.primary);
         GradientDrawable outlineBg = new GradientDrawable();
         outlineBg.setStroke(dp(1), p.primary);
-        outlineBg.setCornerRadius(dp(4));
+        outlineBg.setCornerRadius(Tokens.space(this, Tokens.SPACE_XS));
         outlineBtn.setBackground(outlineBg);
         buttonRow.addView(outlineBtn);
 
@@ -676,12 +689,12 @@ public class ThemeActivity extends AppCompatActivity {
         LinearLayout selectedRow = new LinearLayout(this);
         selectedRow.setOrientation(LinearLayout.HORIZONTAL);
         selectedRow.setGravity(Gravity.CENTER_VERTICAL);
-        selectedRow.setPadding(0, dp(4), 0, dp(4));
+        selectedRow.setPadding(0, Tokens.space(this, Tokens.SPACE_XS), 0, Tokens.space(this, Tokens.SPACE_XS));
         body.addView(selectedRow);
 
         View dot = new View(this);
         LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(14), dp(14));
-        dotLp.setMargins(0, 0, dp(8), 0);
+        dotLp.setMargins(0, 0, Tokens.space(this, Tokens.SPACE_MD), 0);
         dot.setLayoutParams(dotLp);
         GradientDrawable dotBg = new GradientDrawable();
         dotBg.setShape(GradientDrawable.OVAL);
@@ -691,23 +704,23 @@ public class ThemeActivity extends AppCompatActivity {
 
         TextView selectedText = new TextView(this);
         selectedText.setText(getString(R.string.h_2f9d9bdd));
-        selectedText.setTextSize(14);
+        selectedText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_BODY));
         selectedText.setTextColor(p.onSurface);
         selectedRow.addView(selectedText);
 
         // 输入框占位：outline 描边
         TextView inputPlaceholder = new TextView(this);
         inputPlaceholder.setText(getString(R.string.h_55d569d2));
-        inputPlaceholder.setTextSize(14);
-        inputPlaceholder.setPadding(dp(12), dp(10), dp(12), dp(10));
+        inputPlaceholder.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_BODY));
+        inputPlaceholder.setPadding(Tokens.space(this, Tokens.SPACE_LG), dp(10), Tokens.space(this, Tokens.SPACE_LG), dp(10));
         GradientDrawable inputBg = new GradientDrawable();
         inputBg.setStroke(dp(1), p.outline);
-        inputBg.setCornerRadius(dp(6));
+        inputBg.setCornerRadius(Tokens.space(this, Tokens.SPACE_SM));
         inputPlaceholder.setBackground(inputBg);
         inputPlaceholder.setTextColor(p.onSurfaceVariant);
         LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        inputLp.setMargins(0, dp(12), 0, 0);
+        inputLp.setMargins(0, Tokens.space(this, Tokens.SPACE_LG), 0, 0);
         inputPlaceholder.setLayoutParams(inputLp);
         body.addView(inputPlaceholder);
 
@@ -717,23 +730,23 @@ public class ThemeActivity extends AppCompatActivity {
         LinearLayout switchRow = new LinearLayout(this);
         switchRow.setOrientation(LinearLayout.HORIZONTAL);
         switchRow.setGravity(Gravity.CENTER_VERTICAL);
-        switchRow.setPadding(0, dp(12), 0, dp(4));
+        switchRow.setPadding(0, Tokens.space(this, Tokens.SPACE_LG), 0, Tokens.space(this, Tokens.SPACE_XS));
         body.addView(switchRow);
         TextView switchLabel = new TextView(this);
         switchLabel.setText(getString(R.string.h_d38b7fc2));
-        switchLabel.setTextSize(13);
+        switchLabel.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_LABEL));
         switchLabel.setTextColor(p.onSurface);
         switchLabel.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         switchRow.addView(switchLabel);
         android.widget.FrameLayout swTrack = new android.widget.FrameLayout(this);
         swTrack.setLayoutParams(new LinearLayout.LayoutParams(dp(44), dp(24)));
         GradientDrawable swTrackBg = new GradientDrawable();
-        swTrackBg.setCornerRadius(dp(12));
+        swTrackBg.setCornerRadius(Tokens.space(this, Tokens.SPACE_LG));
         swTrackBg.setColor(p.primary);
         swTrack.setBackground(swTrackBg);
         View swThumb = new View(this);
         android.widget.FrameLayout.LayoutParams swThumbLp = new android.widget.FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER_VERTICAL | Gravity.END);
-        swThumbLp.setMargins(0, 0, dp(2), 0);
+        swThumbLp.setMargins(0, 0, Tokens.space(this, Tokens.SPACE_HAIRLINE), 0);
         swThumb.setLayoutParams(swThumbLp);
         GradientDrawable swThumbBg = new GradientDrawable();
         swThumbBg.setShape(GradientDrawable.OVAL);
@@ -746,15 +759,15 @@ public class ThemeActivity extends AppCompatActivity {
         LinearLayout radioRow = new LinearLayout(this);
         radioRow.setOrientation(LinearLayout.HORIZONTAL);
         radioRow.setGravity(Gravity.CENTER_VERTICAL);
-        radioRow.setPadding(0, dp(8), 0, dp(4));
+        radioRow.setPadding(0, Tokens.space(this, Tokens.SPACE_MD), 0, Tokens.space(this, Tokens.SPACE_XS));
         body.addView(radioRow);
         android.widget.FrameLayout radioOn = new android.widget.FrameLayout(this);
         LinearLayout.LayoutParams radioOnLp = new LinearLayout.LayoutParams(dp(20), dp(20));
-        radioOnLp.setMargins(0, 0, dp(8), 0);
+        radioOnLp.setMargins(0, 0, Tokens.space(this, Tokens.SPACE_MD), 0);
         radioOn.setLayoutParams(radioOnLp);
         GradientDrawable radioOuter = new GradientDrawable();
         radioOuter.setShape(GradientDrawable.OVAL);
-        radioOuter.setStroke(dp(2), p.primary);
+        radioOuter.setStroke(Tokens.space(this, Tokens.SPACE_HAIRLINE), p.primary);
         radioOuter.setColor(p.surface);
         radioOn.setBackground(radioOuter);
         View radioDot = new View(this);
@@ -768,7 +781,7 @@ public class ThemeActivity extends AppCompatActivity {
         radioRow.addView(radioOn);
         TextView radioLabel = new TextView(this);
         radioLabel.setText(getString(R.string.h_f96dabbc));
-        radioLabel.setTextSize(13);
+        radioLabel.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_LABEL));
         radioLabel.setTextColor(p.onSurface);
         radioRow.addView(radioLabel);
 
@@ -776,51 +789,51 @@ public class ThemeActivity extends AppCompatActivity {
         LinearLayout checkRow = new LinearLayout(this);
         checkRow.setOrientation(LinearLayout.HORIZONTAL);
         checkRow.setGravity(Gravity.CENTER_VERTICAL);
-        checkRow.setPadding(0, dp(8), 0, dp(4));
+        checkRow.setPadding(0, Tokens.space(this, Tokens.SPACE_MD), 0, Tokens.space(this, Tokens.SPACE_XS));
         body.addView(checkRow);
         TextView checkBox = new TextView(this);
         checkBox.setText("✓");
-        checkBox.setTextSize(12);
+        checkBox.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_FOOTNOTE));
         checkBox.setGravity(Gravity.CENTER);
         checkBox.setTextColor(p.onPrimary);
         LinearLayout.LayoutParams checkBoxLp = new LinearLayout.LayoutParams(dp(20), dp(20));
-        checkBoxLp.setMargins(0, 0, dp(8), 0);
+        checkBoxLp.setMargins(0, 0, Tokens.space(this, Tokens.SPACE_MD), 0);
         checkBox.setLayoutParams(checkBoxLp);
         GradientDrawable checkBg = new GradientDrawable();
-        checkBg.setCornerRadius(dp(4));
+        checkBg.setCornerRadius(Tokens.space(this, Tokens.SPACE_XS));
         checkBg.setColor(p.primary);
         checkBox.setBackground(checkBg);
         checkRow.addView(checkBox);
         TextView checkLabel = new TextView(this);
         checkLabel.setText(getString(R.string.h_db98f889));
-        checkLabel.setTextSize(13);
+        checkLabel.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_LABEL));
         checkLabel.setTextColor(p.onSurface);
         checkRow.addView(checkLabel);
 
         // Chip（选中：primary 底 + onPrimary 字）
         LinearLayout chipRow = new LinearLayout(this);
         chipRow.setOrientation(LinearLayout.HORIZONTAL);
-        chipRow.setPadding(0, dp(8), 0, dp(4));
+        chipRow.setPadding(0, Tokens.space(this, Tokens.SPACE_MD), 0, Tokens.space(this, Tokens.SPACE_XS));
         body.addView(chipRow);
         TextView chipOn = new TextView(this);
         chipOn.setText(getString(R.string.h_c1dc4db2));
-        chipOn.setTextSize(12);
-        chipOn.setPadding(dp(12), dp(6), dp(12), dp(6));
+        chipOn.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_FOOTNOTE));
+        chipOn.setPadding(Tokens.space(this, Tokens.SPACE_LG), Tokens.space(this, Tokens.SPACE_SM), Tokens.space(this, Tokens.SPACE_LG), Tokens.space(this, Tokens.SPACE_SM));
         LinearLayout.LayoutParams chipOnLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        chipOnLp.setMargins(0, 0, dp(8), 0);
+        chipOnLp.setMargins(0, 0, Tokens.space(this, Tokens.SPACE_MD), 0);
         chipOn.setLayoutParams(chipOnLp);
         GradientDrawable chipOnBg = new GradientDrawable();
-        chipOnBg.setCornerRadius(dp(16));
+        chipOnBg.setCornerRadius(Tokens.space(this, Tokens.SPACE_XL));
         chipOnBg.setColor(p.primary);
         chipOn.setBackground(chipOnBg);
         chipOn.setTextColor(p.onPrimary);
         chipRow.addView(chipOn);
         TextView chipOff = new TextView(this);
         chipOff.setText(getString(R.string.h_8f119321));
-        chipOff.setTextSize(12);
-        chipOff.setPadding(dp(12), dp(6), dp(12), dp(6));
+        chipOff.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_FOOTNOTE));
+        chipOff.setPadding(Tokens.space(this, Tokens.SPACE_LG), Tokens.space(this, Tokens.SPACE_SM), Tokens.space(this, Tokens.SPACE_LG), Tokens.space(this, Tokens.SPACE_SM));
         GradientDrawable chipOffBg = new GradientDrawable();
-        chipOffBg.setCornerRadius(dp(16));
+        chipOffBg.setCornerRadius(Tokens.space(this, Tokens.SPACE_XL));
         chipOffBg.setColor(p.surfaceVariant);
         chipOff.setBackground(chipOffBg);
         chipOff.setTextColor(p.onSurfaceVariant);
@@ -828,8 +841,8 @@ public class ThemeActivity extends AppCompatActivity {
 
         // 进度条（track=surfaceVariant + 填充=primary 60%）
         android.widget.FrameLayout progressTrack = new android.widget.FrameLayout(this);
-        LinearLayout.LayoutParams progressLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(6));
-        progressLp.setMargins(0, dp(10), 0, dp(4));
+        LinearLayout.LayoutParams progressLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, Tokens.space(this, Tokens.SPACE_SM));
+        progressLp.setMargins(0, dp(10), 0, Tokens.space(this, Tokens.SPACE_XS));
         progressTrack.setLayoutParams(progressLp);
         GradientDrawable progressTrackBg = new GradientDrawable();
         progressTrackBg.setCornerRadius(dp(3));
@@ -855,21 +868,21 @@ public class ThemeActivity extends AppCompatActivity {
         // Tab（选中项 primary 字 + 底部指示条）
         LinearLayout tabRow = new LinearLayout(this);
         tabRow.setOrientation(LinearLayout.HORIZONTAL);
-        tabRow.setPadding(0, dp(8), 0, 0);
+        tabRow.setPadding(0, Tokens.space(this, Tokens.SPACE_MD), 0, 0);
         body.addView(tabRow);
         LinearLayout tabOne = new LinearLayout(this);
         tabOne.setOrientation(LinearLayout.VERTICAL);
         tabOne.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         TextView tabOneText = new TextView(this);
         tabOneText.setText(getString(R.string.h_3c34792e));
-        tabOneText.setTextSize(13);
+        tabOneText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_LABEL));
         tabOneText.setGravity(Gravity.CENTER);
         tabOneText.setTextColor(p.primary);
         tabOne.addView(tabOneText);
         View tabOneBar = new View(this);
         tabOneBar.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(3)));
         GradientDrawable tabOneBarBg = new GradientDrawable();
-        tabOneBarBg.setCornerRadius(dp(2));
+        tabOneBarBg.setCornerRadius(Tokens.space(this, Tokens.SPACE_HAIRLINE));
         tabOneBarBg.setColor(p.primary);
         tabOneBar.setBackground(tabOneBarBg);
         tabOne.addView(tabOneBar);
@@ -879,14 +892,14 @@ public class ThemeActivity extends AppCompatActivity {
         tabTwo.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         TextView tabTwoText = new TextView(this);
         tabTwoText.setText(getString(R.string.h_b7abee9d));
-        tabTwoText.setTextSize(13);
+        tabTwoText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_LABEL));
         tabTwoText.setGravity(Gravity.CENTER);
         tabTwoText.setTextColor(p.onSurfaceVariant);
         tabTwo.addView(tabTwoText);
         View tabTwoBar = new View(this);
         tabTwoBar.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(3)));
         GradientDrawable tabTwoBarBg = new GradientDrawable();
-        tabTwoBarBg.setCornerRadius(dp(2));
+        tabTwoBarBg.setCornerRadius(Tokens.space(this, Tokens.SPACE_HAIRLINE));
         tabTwoBarBg.setColor(p.surfaceVariant);
         tabTwoBar.setBackground(tabTwoBarBg);
         tabTwo.addView(tabTwoBar);

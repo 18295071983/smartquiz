@@ -42,6 +42,14 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 主题设置页（2026-11-16）：exported=false，adb 只能从本调试入口进。
+        if ("theme_settings".equals(getIntent().getStringExtra("mode"))) {
+            startActivity(new android.content.Intent(this,
+                    com.oilquiz.app.ui.activity.ThemeActivity.class));
+            finish();
+            return;
+        }
+
         // 主题档位切换（2026-11-16）：--es mode set_theme --es theme light|dark|system|oled
         // 纯黑档没法用 adb 点 UI 验证，用它当开关。
         if ("set_theme".equals(getIntent().getStringExtra("mode"))) {
