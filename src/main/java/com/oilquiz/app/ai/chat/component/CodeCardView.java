@@ -34,18 +34,45 @@ public class CodeCardView implements ChatComponent {
         return "code_card";
     }
 
+    /**
+     * 是否由本卡渲染。
+     *
+     * <p><b>2026-11-16 放宽</b>：以前要求 {@code code} 或 {@code command} 必填，字段名一换
+     * （content/text/script/source…）就判"数据不匹配"，整卡退回通用兜底卡（用户看到原始 JSON）。
+     * 代码卡的关键是"这段文本用等宽块展示"，不该因字段命名拒渲染 —— 这里只要求 props 非空，
+     * 正文在 createView 里按别名取，取不到就展示格式化后的 props 本身（比裸 JSON 兜底卡可读）。</p>
+     */
     @Override
     public boolean canRender(ComponentData data) {
-        return data != null && data.props != null
-                && (!TextUtils.isEmpty(data.props.optString("code", "")) || !TextUtils.isEmpty(data.props.optString("command", "")));
+        return data != null && data.props != null && data.props.length() > 0;
+    }
+
+    /** 代码正文的字段别名：DSH 侧历史上用过多种命名，按优先级取第一个非空。 */
+    private static final String[] CODE_KEYS = {
+            "code", "command", "cmd", "source", "script", "snippet", "content", "text", "body"
+    };
+
+    /** 取代码正文；全都为空时退回格式化 props（保证永远有内容可显示）。 */
+    private static String resolveCodeBody(JSONObject p) {
+        for (String k : CODE_KEYS) {
+            String v = p.optString(k, "");
+            if (!TextUtils.isEmpty(v)) {
+                return v;
+            }
+        }
+        try {
+            return p.toString(2);
+        } catch (Throwable t) {
+            return String.valueOf(p);
+        }
     }
 
     @Override
     public View createView(Context context, ComponentData data) {
         JSONObject p = data.props != null ? data.props : new JSONObject();
-        String language = p.optString("language", p.optString("command", "").isEmpty() ? "" : "shell");
+        String language = p.optString("language", TextUtils.isEmpty(p.optString("command", "")) ? "" : "shell");
         // DSH 的命令卡（command/run）复用本组件：命令体走 command 字段，等同 code
-        String code = p.optString("code", p.optString("command", ""));
+        String code = resolveCodeBody(p);
         String title = p.optString("title", "");
 
         LinearLayout card = new LinearLayout(context);
