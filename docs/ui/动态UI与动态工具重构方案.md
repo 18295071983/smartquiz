@@ -26,7 +26,7 @@
 | # | 目标 | 收益 | 风险 |
 |---|---|---|---|
 | **R1** | **动态 UI 走唯一渲染器**：`UIComponentPluginTool` 注册的组件类型，渲染时统一交给 `NativeLayoutRenderer`（layout 树），不再各自拼 View | 一套渲染逻辑；新增节点自动可用；主题/token 自动生效 | 中（要保证旧 props 语义兼容） |
-| **R2** | **参数校验统一**：`DynamicToolParams` 合并到 `ParamDefinition` + 现有 schema 生成，删除并行体系 | 模型看到的 schema 只有一份真值 | 中 |
+| **R2** ✅ | **参数校验统一**：`DynamicToolParams` 合并到 `ParamDefinition` + 现有 schema 生成，删除并行体系（**核查后确认早已实现**，本轮补测试钉住） | 模型看到的 schema 只有一份真值 | 中 |
 | **R3** | **动态工具注册走 AIToolManager**：`DynamicToolManagerTool` 不再自建注册表，改为 `registerToolFactory(name, DynamicAITool.class, factory)`，懒加载/超时/活动总线自动继承 | 权限分级、审计、预算天然覆盖动态工具 | 中高（要处理热更新/卸载） |
 | **R4** | **表达式统一**：动态工具的参数表达式、条件模板一律走 `ExpressionEngine`（已带缓存 + 安全边界） | 安全边界一致（禁 new/赋值） | 低 |
 | **R5** | **校验统一**：动态 layout 用 `cardcheck` 的校验器（422 + 路径诊断），不再自己写检查 | 错误信息一致、可预览 | 低 |
@@ -41,13 +41,13 @@
 
 验收：新增单测——坏的 layout 被 cardcheck 拦下（返回路径级错误）；含 `new File()` 的表达式被拒。
 
-### 第 2 步（R2，中风险）
+### 第 2 步（R2，中风险）✅ 已完成（2026-11-16）
 
 1. 给 `DynamicToolParams` 加一个转换器：`toParamDefinitions()`；
 2. `DynamicAITool.getParameterDefinitions()` 直接返回它；
 3. 确认线上 schema 与旧版**逐字段等价**（用现有 `ToolSchemaVisibilityTest` 兜底），再删旧分支。
 
-验收：schema 对比测试（旧 JSON 快照 vs 新），全部一致。
+验收：schema 对比测试（旧 JSON 快照 vs 新），全部一致。\n\n**结果**：核查发现 `DynamicToolParams` 内部本来就用 `List<ParamDefinition>` 承载类型，\n`DynamicAITool.getParameterDefinitions()` 也优先返回它、旧数据才回退全 string —— R2 实质已完成。\n本轮补 `DynamicToolParamsTest`（4 例：类型/必填保留、枚举保留、JSON 往返、旧 map 回退）钉住行为。
 
 ### 第 3 步（R1，中风险，收益最大）
 
