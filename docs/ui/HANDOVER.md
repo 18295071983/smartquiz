@@ -2961,7 +2961,7 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 | # | 坑 | 修法 | 代码位置 | 状态（2026-11-16 核对） |
 |---|---|---|---|---|
 | 1 | 复用中的 WebView 被 detach 销毁 → 卡片空白 | 取消 detach 销毁，改组件树遍历释放 | `ComponentLifecycle.release()` / `releaseAndClearComponents` | 已验 |
-| 2 | 文档就绪状态错乱 → 首屏偶发空白 | 三代号状态机（`pageReady` + `docGeneration` + `readyGeneration`）+ `LOAD_SETTLE_MS = 1200` + `retryLoadIfNeeded` | `ai/chat/ui/MarkdownWebView.java`（L231/314/355/460/478/609/615） | 待验（机制齐全，无专门单测） |
+| 2 | 文档就绪状态错乱 → 首屏偶发空白 | 三代号状态机（`pageReady` + `docGeneration` + `readyGeneration`）+ `LOAD_SETTLE_MS = 1200` + `retryLoadIfNeeded`；判定抽成 `documentReadyFor(...)` | `ai/chat/ui/MarkdownWebView.java`（`documentReadyFor` L100，三处调用 L370/L475/L624） | 已验（单测 `MarkdownDocReadinessTest`） |
 | 3 | JS 开关一刀切 → 流程图/公式空白 | 按内容来源分四档信任（`HtmlSandbox.Trust`），模型伪造 `internalTemplate` 无效 | `HtmlSandbox` + `HtmlSandboxTest` | 已验（单测） |
 | 4 | 净化器自身崩 → 模型 HTML 卡整片空白 | 先收集 `attributes()` 再删；失败 fail-closed | `HtmlSandbox`（Jsoup `removeAttr`） | 已验（单测 `HtmlSandboxTest`） |
 | 5 | 卡片高度比内容高一点 | 接受近似值 + 封顶内部滚动 | `HtmlCardView.maxHeightPx` | 设计取舍 |
@@ -2991,6 +2991,11 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 - 坑 14：`ProductCards.releaseAll` 深度遍历两层嵌套组件各释放一次并清空容器；普通 ViewGroup 中间层也会继续下钻；null/空容器安全。
 
 > 因此文档里这两条不再标「待验」；再改产物挂载或释放路径时，先跑这条测试。
+
+坑 2 同样已钉住（2026-11-16）：`MarkdownWebView` 里三处重复的就绪判定已抽成
+`documentReadyFor(pageReady, docGeneration, readyGeneration)`，
+`src/test/java/com/oilquiz/app/ai/chat/ui/MarkdownDocReadinessTest.java`（4 条）覆盖：
+同代就绪、**上一代迟到回调不得当就绪**、未开始加载、页面未回调。
 
 ### 16.2 如果要把对话页换成整页 WebView（Vue 3）
 

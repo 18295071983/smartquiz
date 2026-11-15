@@ -86,6 +86,21 @@ public class MarkdownWebView extends FrameLayout {
      * 只在首次 {@link #setContent} 前设置（思考正文视图创建时就定死），不参与运行时切换。
      */
     private boolean reasoningStyle;
+    /**
+      * 文档就绪判定（2026-11-16 抽出，原三处重复表达式）。
+      *
+      * <p>坑 2 的教训：「页面加载完成」不是布尔值 —— 必须是**同一代文档**的
+      * onPageFinished 才作数，否则上一次加载的迟到回调会把新文档当成已就绪
+      * （真机表现：首屏偶发空白，滚一下才出现）。</p>
+      *
+      * @param pageReady 当前文档是否被 WebView 回调过 onPageFinished
+      * @param docGeneration 当前在途文档的代号（每次 setContent/loadDocument 递增）
+      * @param readyGeneration 最近一次 onPageFinished 回调所属的文档代号
+      */
+     static boolean documentReadyFor(boolean pageReady, int docGeneration, int readyGeneration) {
+         return pageReady && docGeneration > 0 && readyGeneration == docGeneration;
+     }
+
     private boolean pageReady;
     /**
      * 文档代号。每次真正发起整篇加载都 +1，用于回答两个布尔值答不出的问题：
@@ -352,7 +367,7 @@ public class MarkdownWebView extends FrameLayout {
             // 无缓存且未测量 → 先给占位高，避免 WebView 首帧塌陷为 0 高（随后 JS 实测再撑开）
             applyHeightPx(placeholderPx);
         }
-        boolean documentReady = pageReady && docGeneration > 0 && readyGeneration == docGeneration;
+        boolean documentReady = documentReadyFor(pageReady, docGeneration, readyGeneration);
         // 轮内流式（P7）：页面就绪、当前是流式、开关打开且切分器允许时走块级尾巴。
         // 这条快路径只做 split(md) 的块结构 + 增量 JS，不整篇重载，保持逐字不变。
         // （finalTableNeedsReload 需要 !streaming 才为真，故流式快路径无需判表格。）
@@ -457,7 +472,7 @@ public class MarkdownWebView extends FrameLayout {
     private void applyBuiltDoc(String bodyHtml, String doc, boolean wasStreaming, boolean streaming, int seq) {
         if (seq != buildSeq) return; // 已被更新内容/回收取代：丢弃
         pendingHtml = doc;
-        boolean documentReady = pageReady && docGeneration > 0 && readyGeneration == docGeneration;
+        boolean documentReady = documentReadyFor(pageReady, docGeneration, readyGeneration);
         // 表格在流式页面里按旧的 body/宽度算过列宽；完成时 swapBody 不一定重算表格布局，
         // 表现为“表格列宽挤在一起，退出重进才正常”。流式→定稿且含表格时整篇重载一次，
         // 让浏览器按最终气泡宽度重新排版。只发生一次，不会逐 token 重载。
@@ -606,7 +621,7 @@ public class MarkdownWebView extends FrameLayout {
 
     /** 看门狗：在途加载超时未就绪时补发一次（每份文档最多一次），保证不会永久空白。 */
     private void retryLoadIfNeeded() {
-        if (pageReady && readyGeneration == docGeneration && docGeneration > 0) return;
+        if (documentReadyFor(pageReady, docGeneration, readyGeneration)) return;
         if (pendingHtml == null) return;
         issuedDocHash = null;
         loadDocument(pendingHtml);
