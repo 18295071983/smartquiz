@@ -1148,7 +1148,18 @@ function readDeepseekApiKey() {
   return m ? m[1] : '';
 }
 
+/** 启动阶段落盘（2026-11-16）：DSH 桌面版没有可读日志，插件"没起"时至少能看它走到哪一步。 */
+function markStartup(stage, extra) {
+  try {
+    const payload = Object.assign({ stage, at: new Date().toISOString(), pid: process.pid }, extra || {});
+    writeFileSync(join(PLUGIN_DIR, '.startup.json'), JSON.stringify(payload, null, 2), 'utf8');
+  } catch {
+    // 落盘失败不影响启动
+  }
+}
+
 export function apply(ctx, config) {
+  markStartup('apply-begin');
   const DEFAULTS = {
     token: '', provider: 'deepseek-account', model: 'deepseek-flash', pathPrefix: '',   // 显式：插件创建的 agent 需要明确模型路由
     maxReplyChars: 4000, allowExec: true, execTimeoutMs: 120000,
@@ -8179,4 +8190,5 @@ function presetSvcOf(ctx) {
 
   ctx.logger?.info?.(`[smartquiz-remote] 挂载: /health /reconcile /pair /pair.json /status /config /session /run /exec /reset `
     + `(port=${ctx.webServer.port}, model=${cfg.provider}/${cfg.model}, exec=${allowExec === true})`);
+  markStartup('apply-ok', { port: ctx.webServer.port });
 }
