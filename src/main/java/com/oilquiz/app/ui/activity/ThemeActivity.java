@@ -988,56 +988,65 @@ public class ThemeActivity extends AppCompatActivity {
     private void setupThemeColors() {
         final int currentColor = ThemeManager.getThemeColor(this);
 
-        // 遍历当前皮肤预设色注册表：新增预设色只需改 ThemeManager，本页自动渲染
+        // 遍历当前皮肤预设色注册表：新增预设色只需改 ThemeManager，本页自动渲染。
+        // 2026-11-16 接 token：行距/内边距/圆角/字号全部走 Tokens，行底色用 colorCardBackground
+        // 与卡片本体区分（以前同色，看起来连成一片）。
         for (final ThemePreset preset : ThemeManager.getSkin(this).presets) {
             final int colorArgb = preset.argb;
 
-            CardView cardView = new CardView(this);
+            com.google.android.material.card.MaterialCardView cardView =
+                    new com.google.android.material.card.MaterialCardView(this);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
             );
-            params.setMargins(0, 0, 0, 8);
+            params.setMargins(0, 0, 0, Tokens.space(this, Tokens.SPACE_MD));
             cardView.setLayoutParams(params);
-            cardView.setCardElevation(1);
-            cardView.setRadius(8);
-            cardView.setCardBackgroundColor(ThemeColors.attr(this, R.attr.colorSurfaceVariant));
+            cardView.setCardElevation(0);
+            cardView.setRadius(Tokens.radius(this, Tokens.RADIUS_MD));
+            cardView.setCardBackgroundColor(ThemeColors.get(this, R.color.card_background));
+            cardView.setStrokeWidth(dp(1));
+            cardView.setStrokeColor(ThemeColors.get(this, R.color.border));
 
             LinearLayout cardLayout = new LinearLayout(this);
-            LinearLayout.LayoutParams cardLayoutParams = new LinearLayout.LayoutParams(
+            cardLayout.setLayoutParams(new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-            );
-            cardLayout.setLayoutParams(cardLayoutParams);
+            ));
             cardLayout.setOrientation(LinearLayout.HORIZONTAL);
-            cardLayout.setPadding(12, 12, 12, 12);
+            cardLayout.setGravity(Gravity.CENTER_VERTICAL);
+            int pad = Tokens.space(this, Tokens.SPACE_LG);
+            cardLayout.setPadding(pad, pad, pad, pad);
 
             View colorView = new View(this);
-            LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(40, 40);
-            colorParams.setMargins(0, 0, 12, 0);
+            LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(dp(40), dp(40));
+            colorParams.setMargins(0, 0, Tokens.space(this, Tokens.SPACE_LG), 0);
             colorView.setLayoutParams(colorParams);
-            colorView.setBackgroundColor(colorArgb);
-            colorView.setClipToOutline(true);
+            GradientDrawable swatch = new GradientDrawable();
+            swatch.setColor(colorArgb);
+            swatch.setCornerRadius(Tokens.radius(this, Tokens.RADIUS_SM));
+            swatch.setStroke(dp(1), ThemeColors.get(this, R.color.border));
+            colorView.setBackground(swatch);
 
             final RadioButton radioButton = new RadioButton(this);
             LinearLayout.LayoutParams radioParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
             );
-            radioParams.setMargins(0, 0, 12, 0);
+            radioParams.setMargins(0, 0, Tokens.space(this, Tokens.SPACE_SM), 0);
             radioButton.setLayoutParams(radioParams);
             radioButton.setChecked(colorArgb == currentColor);
 
             TextView textView = new TextView(this);
             LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    0,
                     LinearLayout.LayoutParams.WRAP_CONTENT
             );
             textParams.weight = 1;
             textView.setLayoutParams(textParams);
             textView.setText(preset.displayName);
-            textView.setTextSize(16);
-            textView.setTextColor(ThemeColors.attr(this, R.attr.colorOnSurface));
+            Tokens.applyText(textView, Tokens.TEXT_BODY_LG, Tokens.Weight.MEDIUM,
+                    ThemeColors.get(this, R.color.text_primary));
 
             cardLayout.addView(colorView);
             cardLayout.addView(radioButton);
@@ -1064,44 +1073,51 @@ public class ThemeActivity extends AppCompatActivity {
 
     /** 追加"自定义颜色"入口：点击弹出 R/G/B 取色对话框 */
     private void addCustomColorEntry(final int currentColor) {
-        CardView cardView = new CardView(this);
+        // 2026-11-16：与上面 7 个预设行保持同一套 token（以前是 surfaceVariant 平底条，
+        // 和卡片本体同色，看起来像"断掉的一行"）。
+        com.google.android.material.card.MaterialCardView cardView =
+                new com.google.android.material.card.MaterialCardView(this);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
         );
-        params.setMargins(0, 0, 0, 8);
+        params.setMargins(0, 0, 0, Tokens.space(this, Tokens.SPACE_MD));
         cardView.setLayoutParams(params);
-        cardView.setCardElevation(1);
-        cardView.setRadius(8);
-        cardView.setCardBackgroundColor(ThemeColors.attr(this, R.attr.colorSurfaceVariant));
+        cardView.setCardElevation(0);
+        cardView.setRadius(Tokens.radius(this, Tokens.RADIUS_MD));
+        cardView.setCardBackgroundColor(ThemeColors.get(this, R.color.card_background));
+        cardView.setStrokeWidth(dp(1));
+        cardView.setStrokeColor(ThemeColors.get(this, R.color.border));
 
         LinearLayout cardLayout = new LinearLayout(this);
-        LinearLayout.LayoutParams cardLayoutParams = new LinearLayout.LayoutParams(
+        cardLayout.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        cardLayout.setLayoutParams(cardLayoutParams);
+        ));
         cardLayout.setOrientation(LinearLayout.HORIZONTAL);
-        cardLayout.setPadding(12, 12, 12, 12);
+        cardLayout.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = Tokens.space(this, Tokens.SPACE_LG);
+        cardLayout.setPadding(pad, pad, pad, pad);
 
         View colorView = new View(this);
-        LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(40, 40);
-        colorParams.setMargins(0, 0, 12, 0);
+        LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(dp(40), dp(40));
+        colorParams.setMargins(0, 0, Tokens.space(this, Tokens.SPACE_LG), 0);
         colorView.setLayoutParams(colorParams);
-        colorView.setBackgroundColor(ThemeManager.isCustomColor(this)
-                ? currentColor : ThemeColors.attr(this, R.attr.colorSurfaceVariant));
-        colorView.setClipToOutline(true);
+        GradientDrawable swatch = new GradientDrawable();
+        swatch.setColor(ThemeManager.isCustomColor(this)
+                ? currentColor : ThemeColors.get(this, R.color.surface_variant));
+        swatch.setCornerRadius(Tokens.radius(this, Tokens.RADIUS_SM));
+        swatch.setStroke(dp(1), ThemeColors.get(this, R.color.border));
+        colorView.setBackground(swatch);
 
         TextView textView = new TextView(this);
-        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        );
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
         textParams.weight = 1;
         textView.setLayoutParams(textParams);
         textView.setText(getString(R.string.h_255f442c));
-        textView.setTextSize(16);
-        textView.setTextColor(ThemeColors.attr(this, R.attr.colorOnSurface));
+        Tokens.applyText(textView, Tokens.TEXT_BODY_LG, Tokens.Weight.MEDIUM,
+                ThemeColors.get(this, R.color.text_primary));
 
         cardLayout.addView(colorView);
         cardLayout.addView(textView);
