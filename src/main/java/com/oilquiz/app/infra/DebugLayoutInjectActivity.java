@@ -51,6 +51,55 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 交互回传自检（2026-11-16）：--es mode input_feedback
+        // 创建一个 slider_range 交互组件 → 等 2s → get_result，验证 input collector 是否生效
+        if ("input_feedback".equals(getIntent().getStringExtra("mode"))) {
+            try {
+                com.oilquiz.app.ai.tool.AIToolManager tm =
+                        com.oilquiz.app.ai.tool.AIToolManager.getInstance(this);
+                java.util.Map<String, Object> create = new java.util.HashMap<>();
+                create.put("action", "create");
+                // primitive_* 是"聊天流只读卡"（无 component_id、不支持 get_result），
+                // 官方可交互容器是 layout_canvas：输入控件由 LayoutCardView 自动注册 collector。
+                create.put("component_type", "layout_canvas");
+                create.put("title", "交互回传自检");
+                org.json.JSONObject props = new org.json.JSONObject();
+                props.put("layout", "{\"root\":{\"type\":\"column\",\"children\":[{\"type\":\"text\",\"text\":\"交互回传自检\"},{\"type\":\"slider_range\",\"key\":\"amount\",\"label\":\"金额\",\"min\":0,\"max\":100,\"values\":[20,80]},{\"type\":\"toggle\",\"key\":\"auto\",\"label\":\"自动\"}]}}");
+                props.put("min", 0);
+                props.put("max", 100);
+                props.put("values", new org.json.JSONArray().put(20).put(80));
+                create.put("props", props.toString());
+                com.oilquiz.app.ai.tool.AIToolResult r1 = tm.executeTool("ui_component", create);
+                Log.i(TAG, "INPUT_CREATE=" + (r1 == null ? "null" : r1.getResult()));
+                String cid = null;
+                try {
+                    java.util.Map<String, Object> m = (java.util.Map<String, Object>) r1.getResult();
+                    if (m != null) cid = String.valueOf(m.get("component_id"));
+                } catch (Throwable ignored) {
+                }
+                final String fcid = cid;
+                new Thread(() -> {
+                    try {
+                        Thread.sleep(2500);
+                        java.util.Map<String, Object> gr = new java.util.HashMap<>();
+                        gr.put("action", "get_result");
+                        gr.put("component_id", fcid);
+                        gr.put("wait_seconds", 2);
+                        com.oilquiz.app.ai.tool.AIToolResult r2 = tm.executeTool("ui_component", gr);
+                        Log.i(TAG, "INPUT_FEEDBACK=" + (r2 == null ? "null" : r2.getResult()));
+                    } catch (Throwable t) {
+                        Log.e(TAG, "input_feedback 失败: " + t.getMessage(), t);
+                    }
+                }).start();
+            } catch (Throwable t) {
+                Log.e(TAG, "input_feedback 注入失败: " + t.getMessage(), t);
+            }
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                if (!isFinishing()) finish();
+            }, 20000);
+            return;
+        }
+
         // 渲染反馈回传自检：--es mode render_feedback
         // 1) 用错误 props 渲染一张 table_card（必然走兜底并记诊断）
         // 2) 紧接着调一次 time_date（工具结果里应带上 render_warnings）
