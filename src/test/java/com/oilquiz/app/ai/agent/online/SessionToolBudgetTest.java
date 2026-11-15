@@ -42,7 +42,7 @@ public class SessionToolBudgetTest {
 
     private static final Set<String> CORE = new LinkedHashSet<>(
             Arrays.asList("ui_component", "workspace", "network_search", "time_date",
-                    "tool_registry", "knowledge_base", "douyin_downloader", "mcp_toolbox"));
+                    "tool_registry", "knowledge_base", "location", "mcp_toolbox"));
 
     // ==================== 取向：能力优先 ====================
 

@@ -116,6 +116,10 @@ public final class ToolMetaRegistry {
         m.put("ui_component_plugin", "UI 组件插件");
         m.put("layout_editor", "布局编辑器");
         m.put("tool_registry", "工具列表");
+        // 动态工具的创建/生成入口此前不在表里，聊天卡与「使用说明」只能落到兜底英文名
+        // （Create Dynamic Tool / Ai Create Tool）——模型造工具的场景用户看不懂。
+        m.put("create_dynamic_tool", "动态工具");
+        m.put("ai_create_tool", "AI 生成工具");
         m.put("mcp_toolbox", "MCP 外部工具");
         m.put("get_models_profile", "模型配置");
         m.put("update_models_profile", "更新模型配置");

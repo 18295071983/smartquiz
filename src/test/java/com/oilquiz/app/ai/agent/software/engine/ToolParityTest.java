@@ -56,6 +56,28 @@ public class ToolParityTest {
         }
     }
 
+    /**
+     * 2026-11-16 核心集调整：douyin_downloader 移出在线核心、location 补进在线核心。
+     *
+     * <p>核心集只决定"每轮稳定注入谁"，两个工具都还在注册表里。移出核心最容易出的事故是
+     * "顺手把 registerToolFactory 也删了"——那样才是真丢能力（连 tool_registry 都 call 不到）。
+     * 这条同时钉住"换的是注入位置，不是能力"。</p>
+     */
+    @Test
+    public void onlineCoreSwapsDouyinForLocationButKeepsBothRegistered() throws Exception {
+        Set<String> online = com.oilquiz.app.ai.agent.online.OnlineAgentEngine.coreTools();
+        assertTrue("在线核心应含 location（我在哪/当前位置是高频问答）", online.contains("location"));
+        assertFalse("douyin_downloader 已移出在线核心（低频、描述长，改走 tool_registry 发现）",
+                online.contains("douyin_downloader"));
+
+        String registry = new String(Files.readAllBytes(Paths.get(TOOL_MANAGER_PATH)),
+                StandardCharsets.UTF_8);
+        for (String tool : new String[]{"douyin_downloader", "location"}) {
+            assertTrue(tool + " 必须仍注册在 AIToolManager（移出核心 ≠ 删能力）",
+                    registry.contains("registerToolFactory(\"" + tool + "\""));
+        }
+    }
+
     @Test
     public void localCoreKeepsHighFrequencyLocalTools() throws Exception {
         String[] core = (String[]) readStatic("DEFAULT_CORE_TOOLS");

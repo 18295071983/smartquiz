@@ -215,10 +215,15 @@ public class OnlineAgentEngine {
     private boolean toolsCacheInitialized = false;
     /** 常驻核心工具集（2026-09-23 v6：ui/workspace/搜索/时间日期/发现/知识库）——LRU 永不淘汰。
      *  calculator 移出核心（模型内置数学能力足够，要精确计算可 tool_registry 发现拿回）；
-     *  time_date 加入核心（今天几号/现在几点/日期推算，问答与提醒场景高实用）。 */
+     *  time_date 加入核心（今天几号/现在几点/日期推算，问答与提醒场景高实用）。
+     *  2026-11-16：douyin_downloader 移出核心 —— 只在"分享链接下载"这一个场景用到，
+     *  却带一段很长的描述（双通道/UIFID/自动解包），低频能力不该占每轮的稳定前缀，
+     *  改由 tool_registry 发现（工具本身仍注册在 AIToolManager，能力不减）；
+     *  location 补进核心 —— "我在哪/当前位置/这是哪"是高频问答，此前只能靠发现，
+     *  真机多次出现模型拿 ai_weather/network_search 代查、最后答"不知道你在哪"。 */
     private static final java.util.Set<String> CORE_TOOLS = new java.util.LinkedHashSet<>(java.util.Arrays.asList(
             "ui_component", "workspace", "network_search", "time_date", "tool_registry", "knowledge_base",
-            "douyin_downloader", "mcp_toolbox"
+            "location", "mcp_toolbox"
     ));
 
     /** 常驻核心工具集（LinkedHashSet，顺序稳定）。供提示词「核心工具」段动态取数，

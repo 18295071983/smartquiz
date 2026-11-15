@@ -147,7 +147,8 @@ v1.1 建议的最小改动是"写入侧加引擎闸门"。本次先按这个格�
 ### 4.3 计数注释已互相矛盾（仍成立，且更明显）
 
 `CORE_TOOLS` 实际是 **8 个**（`ui_component`、`workspace`、`network_search`、`time_date`、
-`tool_registry`、`knowledge_base`、`douyin_downloader`、`mcp_toolbox`），
+`tool_registry`、`knowledge_base`、`location`、`mcp_toolbox`）——
+2026-11-16 起 `douyin_downloader` 移出（低频、描述长，改走 `tool_registry` 发现）、`location` 补进；
 但同一文件里还留着 `核心 6`（3 处）、`精简 12→8`、`核心 5 个（v3）` 等历史注释。
 
 另外 v1.1 说的"扩展预算实际 2 而非 3"**已过时**：`MAX_SESSION_TOOLS=9` 的条数上限已被
