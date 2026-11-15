@@ -104,6 +104,11 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private static final int COLOR_OK = 0xFF15803D;
     private static final int COLOR_WARN = 0xFFB45309;
     private static final int COLOR_ERR = 0xFFB91C1C;
+    // 2026-11-16：颜色改为跟随主题（预设/动态色/夜间/OLED 自动联动），
+    // 不再用写死的浅色值 —— 之前深色模式下这几个标签仍是浅色底上的深灰，几乎看不见。
+    private int okColor() { return com.oilquiz.app.ai.chat.component.ComponentColors.success(this); }
+    private int warnColor() { return com.oilquiz.app.ai.chat.component.ComponentColors.warning(this); }
+    private int errColor() { return com.oilquiz.app.ai.chat.component.ComponentColors.error(this); }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -630,14 +635,14 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 + RemoteSessionGroups.label(cwd) + "（" + count + "）"
                 + (isFollowing ? " · 正在跟随" : ""));
         title.setTextSize(13f);
-        title.setTextColor(isCurrent || isFollowing ? COLOR_OK : 0xFF6B7280);
+        title.setTextColor(isCurrent || isFollowing ? okColor() : com.oilquiz.app.ai.chat.component.ComponentColors.textTertiary(this));
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         box.addView(title);
 
         android.widget.TextView path = new android.widget.TextView(this);
         path.setText(cwd.isEmpty() ? "（电脑没上报目录）" : cwd);
         path.setTextSize(10f);
-        path.setTextColor(0xFF9CA3AF);
+        path.setTextColor(com.oilquiz.app.ai.chat.component.ComponentColors.textTertiary(this));
         path.setMaxLines(1);
         path.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         box.addView(path);
@@ -666,7 +671,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         android.widget.TextView name = new android.widget.TextView(this);
         name.setText(title.isEmpty() ? shortId(sid) : title);
         name.setTextSize(15f);
-        name.setTextColor(0xFF111827);
+        name.setTextColor(com.oilquiz.app.ai.chat.component.ComponentColors.textPrimary(this));
         name.setMaxLines(2);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         android.widget.LinearLayout.LayoutParams nameLp = new android.widget.LinearLayout.LayoutParams(
@@ -677,7 +682,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             android.widget.TextView badge = new android.widget.TextView(this);
             badge.setText("电脑当前");
             badge.setTextSize(10f);
-            badge.setTextColor(0xFF2563EB);
+            badge.setTextColor(com.oilquiz.app.ai.chat.component.ComponentColors.accent(this));
             badge.setPadding(dp(6), 0, 0, 0);
             titleLine.addView(badge);
         }
@@ -685,7 +690,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             android.widget.TextView badge = new android.widget.TextView(this);
             badge.setText("正在跟随");
             badge.setTextSize(10f);
-            badge.setTextColor(COLOR_OK);
+            badge.setTextColor(okColor());
             badge.setPadding(dp(6), 0, 0, 0);
             titleLine.addView(badge);
         }
@@ -704,14 +709,14 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             android.widget.TextView sub = new android.widget.TextView(this);
             sub.setText(meta.toString());
             sub.setTextSize(12f);
-            sub.setTextColor(inCurrentGroup ? 0xFF4B5563 : 0xFF9CA3AF);
+            sub.setTextColor(inCurrentGroup ? com.oilquiz.app.ai.chat.component.ComponentColors.textSecondary(this) : com.oilquiz.app.ai.chat.component.ComponentColors.textTertiary(this));
             sub.setMaxLines(1);
             sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
             row.addView(sub);
         }
 
         android.view.View divider = new android.view.View(this);
-        divider.setBackgroundColor(0xFFF3F4F6);
+        divider.setBackgroundColor(com.oilquiz.app.ai.chat.component.ComponentColors.border(this));
         row.addView(divider, new android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, dp(0.5f))));
 
@@ -723,7 +728,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         android.widget.TextView tv = new android.widget.TextView(this);
         tv.setText(text);
         tv.setTextSize(13f);
-        tv.setTextColor(0xFF2563EB);
+        tv.setTextColor(com.oilquiz.app.ai.chat.component.ComponentColors.accent(this));
         tv.setPadding(dp(16), dp(12), dp(16), dp(12));
         tv.setClickable(true);
         tv.setOnClickListener(onClick);
@@ -942,7 +947,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                         if (online) {
                             dot(R.drawable.circle_green);
                             statusText.setText("已连接");
-                            statusText.setTextColor(COLOR_OK);
+                            statusText.setTextColor(okColor());
                             if (statusHint != null) {
                                 statusHint.setText("电脑端推送已连接"
                                         + (detail == null || detail.isEmpty() ? "" : " · " + detail));
@@ -951,7 +956,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                             boolean noSession = detail != null && detail.contains("还没有绑定会话");
                             dot(noSession ? R.drawable.circle_yellow : R.drawable.circle_yellow);
                             statusText.setText(noSession ? "待建立会话" : "连接中断");
-                            statusText.setTextColor(noSession ? COLOR_WARN : COLOR_WARN);
+                            statusText.setTextColor(warnColor());
                             if (statusHint != null) {
                                 statusHint.setText(noSession
                                         ? "电脑端还没有绑定会话：发第一条消息时由电脑创建并下发 id"
@@ -1294,7 +1299,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         if (!configured) {
             dot(R.drawable.circle_red);
             statusText.setText("未配置");
-            statusText.setTextColor(COLOR_ERR);
+            statusText.setTextColor(errColor());
             statusHint.setText("还没有电脑地址与令牌：扫电脑配对页二维码，或在下面手动填写。");
             valueUrl.setText("(未配置)");
             valueToken.setText("(未配置)");
@@ -1306,12 +1311,12 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             if (connected) {
                 dot(R.drawable.circle_green);
                 statusText.setText("已连接");
-                statusText.setTextColor(COLOR_OK);
+                statusText.setTextColor(okColor());
                 statusHint.setText("AI 可以在电脑上执行任务；点「断开」可临时停用（配置保留）。");
             } else {
                 dot(R.drawable.circle_yellow);
                 statusText.setText("已断开");
-                statusText.setTextColor(COLOR_WARN);
+                statusText.setTextColor(warnColor());
                 statusHint.setText("已停用：AI 会被拒绝执行。点「连接」重新接上。");
             }
         }

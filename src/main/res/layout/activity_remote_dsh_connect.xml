@@ -53,8 +53,8 @@
             android:text="❓ 怎么用 / 电脑端怎么配（含导出电脑端程序）"
             android:textSize="@dimen/text_13"
             android:textAllCaps="false"
-            android:textColor="?attr/colorOnTertiaryContainer"
-            app:backgroundTint="?attr/colorTertiaryContainer"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            app:backgroundTint="?attr/colorSurfaceVariant"
             app:cornerRadius="@dimen/radius_22"/>
 
         <!-- ===== 扩展面板：日程 / 计划 / 子代理（这三类不在会话日志里或需要额外查询） ===== -->
@@ -66,8 +66,8 @@
             android:text="📅 日程 · 计划 · 子代理"
             android:textSize="@dimen/text_13"
             android:textAllCaps="false"
-            android:textColor="?attr/colorOnSecondaryContainer"
-            app:backgroundTint="?attr/colorSecondaryContainer"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            app:backgroundTint="?attr/colorSurfaceVariant"
             app:cornerRadius="@dimen/radius_22"/>
 
         <!-- ===== 状态卡 ===== -->
@@ -251,8 +251,8 @@
                     android:text="切换当前电脑会话"
                     android:textSize="@dimen/text_14"
                     android:textAllCaps="false"
-                    android:textColor="?attr/colorOnSecondaryContainer"
-                    app:backgroundTint="?attr/colorSecondaryContainer"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    app:backgroundTint="?attr/colorSurfaceVariant"
                     app:cornerRadius="@dimen/radius_22"/>
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_import_history"
@@ -262,8 +262,8 @@
                     android:text="把电脑这条对话的历史导入本机"
                     android:textSize="@dimen/text_14"
                     android:textAllCaps="false"
-                    android:textColor="?attr/colorOnTertiaryContainer"
-                    app:backgroundTint="?attr/colorTertiaryContainer"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    app:backgroundTint="?attr/colorSurfaceVariant"
                     app:cornerRadius="@dimen/radius_22"/>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -418,8 +418,8 @@
                         android:text="扫码配对"
                         android:textSize="@dimen/text_14"
                         android:textAllCaps="false"
-                        android:textColor="?attr/colorOnSecondaryContainer"
-                        app:backgroundTint="?attr/colorSecondaryContainer"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        app:backgroundTint="?attr/colorSurfaceVariant"
                         app:cornerRadius="@dimen/radius_22"/>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_clear"
@@ -430,8 +430,8 @@
                         android:text="清除配置"
                         android:textSize="@dimen/text_14"
                         android:textAllCaps="false"
-                        android:textColor="@color/on_error_container"
-                        app:backgroundTint="@color/error_container"
+                        android:textColor="?attr/colorOnDanger"
+                        app:backgroundTint="?attr/colorDanger"
                         app:cornerRadius="@dimen/radius_22"/>
                 </LinearLayout>
 

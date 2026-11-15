@@ -472,7 +472,13 @@ public class SmartQuizApplication extends Application {
                             || activity instanceof com.oilquiz.app.infra.ComposeGalleryActivity
                             || activity instanceof com.oilquiz.app.infra.UiKitGalleryActivity
                             || activity instanceof com.oilquiz.app.infra.ListKitGalleryActivity
-                            || activity instanceof com.oilquiz.app.infra.AgentSettingsActivity;
+                            || activity instanceof com.oilquiz.app.infra.AgentSettingsActivity
+            // 2026-11-16：远程连接相关页跳过壁纸 —— 它们是"配置/诊断"界面，
+            // 卡片之间透出壁纸会让文字与花纹叠在一起（真机已见：连接卡片浮在猫图背景上）。
+            || activity instanceof com.oilquiz.app.ai.tool.RemoteDshConnectActivity
+            || activity instanceof com.oilquiz.app.ai.tool.RemoteDshInsightActivity
+            || activity instanceof com.oilquiz.app.ai.tool.RemoteDshGuideActivity
+            || activity instanceof com.oilquiz.app.ai.tool.RemoteDshPairScanActivity;
                     if (!debugConsole) {
                         com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, root);
                     }

@@ -51,6 +51,24 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 打开任意本 App 的 Activity（2026-11-16）：--es mode open_activity --es target <全类名>
+        // 用途：远程连接/扩展面板这些 exported=false 的页面，adb am start 起不来，用它截图验收。
+        if ("open_activity".equals(getIntent().getStringExtra("mode"))) {
+            String target = getIntent().getStringExtra("target");
+            if (target != null && !target.isEmpty()) {
+                try {
+                    android.content.Intent i = new android.content.Intent();
+                    i.setClassName(this, target);
+                    i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(i);
+                } catch (Throwable t) {
+                    Log.e(TAG, "open_activity 失败: " + t.getMessage(), t);
+                }
+            }
+            finish();
+            return;
+        }
+
         // 交互回传自检（2026-11-16）：--es mode input_feedback
         // 创建一个 slider_range 交互组件 → 等 2s → get_result，验证 input collector 是否生效
         if ("input_feedback".equals(getIntent().getStringExtra("mode"))) {

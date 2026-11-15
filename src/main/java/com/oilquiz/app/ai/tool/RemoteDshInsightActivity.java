@@ -73,10 +73,13 @@ public class RemoteDshInsightActivity extends AppCompatActivity {
         // 深色照片上压深色文字整屏读不清。改用 AppWallpaperManager 的"壁纸 + 35% 黑遮罩"
         // （与主页/聊天页同一套）；接了壁纸时前景色切成浅色，没有壁纸时退回确定性色板。
         View root = findViewById(R.id.insight_root);
-        onWallpaper = com.oilquiz.app.theme.AppWallpaperManager.applyTo(this, root);
-        if (!onWallpaper && root != null) root.setBackgroundColor(bgColor());
+        // 2026-11-16：本页改为"配置/诊断页不铺壁纸"（与全局 skip 列表一致）。
+        // 之前这里自己调 applyTo，壁纸花纹会透到文字下面，浅色前景 + 花纹几乎读不清
+        // （真机实测：猫图背景上灰字成片不可辨）；现在统一用主题背景，前景色由 ComponentColors 决定。
+        onWallpaper = false;
+        if (root != null) root.setBackgroundColor(bgColor());
         View content = findViewById(android.R.id.content);
-        if (content != null && !onWallpaper) content.setBackgroundColor(bgColor());
+        if (content != null) content.setBackgroundColor(bgColor());
         TextView title = findViewById(R.id.insight_title);
         if (title != null) title.setTextColor(textColor());
         if (status != null) status.setTextColor(hintColor());
@@ -839,18 +842,20 @@ public class RemoteDshInsightActivity extends AppCompatActivity {
     }
 
     private int accentColor() {
-        return onWallpaper ? 0xFFC9BEFF : (night() ? 0xFFA79BFF : 0xFF5B4BDB);
+        // 2026-11-16：非壁纸态改为跟随主题（预设/动态色/夜间/OLED 都会正确联动）
+        return onWallpaper ? 0xFFC9BEFF
+                : com.oilquiz.app.ai.chat.component.ComponentColors.accent(this);
     }
 
     /** 页面背景：确定性色板，深/浅各一套（有壁纸时不用它）。 */
     private int bgColor() {
-        return night() ? 0xFF121016 : 0xFFF5F7FB;
+        return com.oilquiz.app.ai.chat.component.ComponentColors.background(this);
     }
 
     /** 卡片底色：有壁纸时用半透明深色，让壁纸透一点但文字仍然清楚。 */
     private int surfaceColor() {
         if (onWallpaper) return 0xB3121016;
-        return night() ? 0xFF1E1B26 : 0xFFFFFFFF;
+        return com.oilquiz.app.ai.chat.component.ComponentColors.fieldBg(this);
     }
 
     private int outlineColor() {
@@ -878,12 +883,12 @@ public class RemoteDshInsightActivity extends AppCompatActivity {
 
     private int textColor() {
         if (onWallpaper) return 0xFFF4F2FA;
-        return night() ? 0xFFE8E6EF : 0xFF1F2937;
+        return com.oilquiz.app.ai.chat.component.ComponentColors.textPrimary(this);
     }
 
     private int hintColor() {
         if (onWallpaper) return 0xFFCFCBDB;
-        return night() ? 0xFFA5A1B3 : 0xFF6B7280;
+        return com.oilquiz.app.ai.chat.component.ComponentColors.textTertiary(this);
     }
 
     private int dp(int v) {
