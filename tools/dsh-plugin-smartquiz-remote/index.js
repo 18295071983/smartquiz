@@ -741,7 +741,7 @@ function carryPreamble(carried, text) {
 async function runTurn(ctx, handle, sid, text, cfg, runOpts) {
   const opts = runOpts ?? {};
   // CLI-MODE（默认）：走 `dsh --profile headless "<任务>"`，不依赖 DSH 内部模块 ✓
-  if (cfg.cliMode !== false) {
+  if (cliModeEnabled) {
     const mem = readSessionMap();
     /**
      * 绑定优先级：
@@ -1207,7 +1207,7 @@ export function apply(ctx, config) {
   const DEFAULTS = {
     token: '', provider: 'deepseek-account', model: 'deepseek-flash', pathPrefix: '',   // 显式：插件创建的 agent 需要明确模型路由
     maxReplyChars: 4000, allowExec: true, execTimeoutMs: 120000,
-    cliMode: true, cliProfile: 'headless', cliTimeoutMs: 300000, dshPath: '', publicUrl: '',
+    cliMode: 'auto', cliProfile: 'headless', cliTimeoutMs: 300000, dshPath: '', publicUrl: '',
     workingDir: '',   // CLI 任务的 cwd：决定手机会话归到哪个工作区（空=继承宿主 cwd）
     // 直连模式最多同时跑几个 `dsh` 子进程 / 队列里最多排几条。
     // 默认 1 + 3：实测每个子进程 ~256MB，串行执行才不会把电脑堆卡。
@@ -1216,6 +1216,32 @@ export function apply(ctx, config) {
     warmReuse: false,
   };
   const cfg = { ...DEFAULTS, ...(config ?? {}) };
+
+  /**
+   * 直连检测（2026-11-16）：以前只看静态开关 cfg.cliMode（默认 true），
+   * 于是"桌面端宿主明明在跑、agent 能力也在"的机器也被判成 CLI 通道，
+   * 手机面板一直显示「执行位置：CLI 子进程」，被当成对账错误。
+   *
+   * 现在：
+   *   cliMode === false → 强制宿主内（in-process）
+   *   cliMode === true  → 强制 CLI 子进程（保留给"宿主里不能装 agent"的用户）
+   *   其它（默认 'auto'）→ 宿主具备 agent 能力就走 in-process，否则退回 CLI
+   */
+  const hostAgentCapable = (() => {
+    try {
+      const a = ctx && ctx.agents;
+      if (!a) return false;
+      const usable = (fn) => typeof fn === 'function';
+      return usable(a.create) || usable(a.createAgent) || usable(a.resume);
+    } catch {
+      return false;
+    }
+  })();
+  const cliModeEnabled = cfg.cliMode === true
+    ? true
+    : cfg.cliMode === false
+      ? false
+      : !hostAgentCapable;
   const prefix = cfg.pathPrefix ?? '';
   // publicUrl 兜底：花生壳隧道已实测可达 ✓（配置为空也能用 ✓）
 // publicUrl（隧道/公网域名）三级取值，**不含任何硬编码域名**（每个用户填自己的）：
@@ -3900,7 +3926,7 @@ function presetSvcOf(ctx) {
    */
   const executionInfo = (sid) => {
     const live = (() => { try { return Boolean(sid) && Boolean(ctx.agents?.get?.(sid)); } catch { return false; } })();
-    const hostOnly = cfg.cliMode === false;
+    const hostOnly = !cliModeEnabled;
     const preferred = hostOnly || live ? 'host' : 'cli';
     return {
       mode: hostOnly ? 'host-only' : 'auto',
@@ -4053,13 +4079,15 @@ function presetSvcOf(ctx) {
       return [
         `插件 v8 · ${allowExec === true ? '可执行' : '只读'}`,
         `电脑端会话 ${disk} 条（插件在管 ${handles.size} 条）`,
-        `执行位置：${cfg.cliMode === false ? '宿主进程内' : 'CLI 子进程'}`,
+        `执行位置：${!cliModeEnabled ? '宿主进程内' : 'CLI 子进程'}`,
         `在跑任务：${activeJobs}${activeJobs ? '' : '（空闲）'}`,
       ];
     })(),
     // 直连模式的 CLI 子进程池：running/queued 是面板与手机端判断"电脑忙不忙"的依据
     cli: {
-      mode: cfg.cliMode === false ? 'in-process' : 'cli',
+      mode: !cliModeEnabled ? 'in-process' : 'cli',
+    host_agent_available: hostAgentCapable,
+    cli_mode_config: cfg.cliMode,
       running: CLI_SLOT.running,
       queued: CLI_SLOT.queued,
       max: CLI_SLOT.max,
@@ -4223,7 +4251,7 @@ function presetSvcOf(ctx) {
         preset: String(lastPreset), selection: String(lastSelection),
         plugin_sessions: handles.size, dsh_sessions_total: dshSessionsOnDisk(),
       },
-      cli: { running: CLI_SLOT.running, queued: CLI_SLOT.queued, mode: cfg.cliMode === false ? 'in-process' : 'cli' },
+      cli: { running: CLI_SLOT.running, queued: CLI_SLOT.queued, mode: !cliModeEnabled ? 'in-process' : 'cli', host_agent_available: hostAgentCapable, cli_mode_config: cfg.cliMode },
       // 2026-11-14 插话模式：哪些会话正在跑、各自排了几条手机插话（诊断"发了没反应"看这里）
       interject: {
         busy: [...SESSION_BUSY.entries()].map(([sid, v]) => ({
@@ -5183,7 +5211,7 @@ function presetSvcOf(ctx) {
       // 手机点「新建对话」→ 电脑端也建一条，并把这对新 id 记成锚点（2026-11-14）
       const sid = `smartquiz-${randomBytes(6).toString('hex')}`;
       try {
-        if (cfg.cliMode === false && ctx.agents && ctx.agents.create) {
+        if (!cliModeEnabled && ctx.agents && ctx.agents.create) {
           const handle = await ctx.agents.create(await createInput(sid));
           if (handle) handles.set(sid, handle);
         }
@@ -6904,7 +6932,7 @@ function presetSvcOf(ctx) {
     // CLI 模式下不需要（也不该）在宿主里建 agent：任务由 `dsh --profile headless`
     // 子进程执行。之前无论哪种模式都先 create 一次，attach 到电脑端已有会话后
     // 会撞上 "session already exists"（那条 id 在宿主里已经存在）。
-    const cliMode = cfg.cliMode !== false;
+    const cliMode = cliModeEnabled;
     let handle = handles.get(sid);
     if (!cliMode && handle === undefined) {
       if (!ctx.agents || !ctx.sessions) throw new Error('agents/sessions 服务不可用');
@@ -7090,7 +7118,7 @@ function presetSvcOf(ctx) {
         // ★ CLI 模式下**不要**在宿主里建 agent：那会落一条空的 `smartquiz-*` 会话，
         //   正是电脑侧栏里"一堆会话"的来源。真正的电脑会话由 CLI 建，建好后通过
         //   `dsh_session_id` 回给手机（两端认同同一个 id）。
-        if (cfg.cliMode === false) {
+        if (!cliModeEnabled) {
           if (!ctx.agents || !ctx.sessions) throw new Error('agents/sessions 服务不可用');
           const handle = await ctx.agents.create(await createInput(sid));
           handles.set(sid, handle);
