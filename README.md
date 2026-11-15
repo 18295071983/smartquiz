@@ -264,6 +264,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-asr-model.ps1
 - [DSH 远程 UI · 手机端审批/通知使用说明](docs/dsh-remote-ui-design/96-usage-notifications.md)
 - [DSH 远程 UI · 交叉审查与缺陷清单](docs/dsh-remote-ui-design/99-review-findings.md)
 - [DSH 远程 UI · 架构 v2（参考）](docs/dsh-remote-ui-architecture-v2-2026-11-13.md)
+- **[UI 基础设施与使用方法（HANDOVER · 第十八章）](docs/ui/HANDOVER.md#十八ui-基础设施与使用方法2026-11-16)** ★
+  —— 新页面照抄这里：token 档位、交互/动效（UiFx）、列表与加载态（UiDecor）、
+  菜单/滑动/拖拽/IME（UiActions）、控件工厂（UiWidgets）、多选、主题能力、调试入口
 - [UI 设计资料](docs/ui/)
 - [历史设计归档](docs/legacy/)
 - [路线图](ROADMAP.md)
