@@ -37,6 +37,10 @@ import { exec, execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { SERVER_CAPS, CAP_VERSION, filterViewCards, eventAllowed, normalizeCaps, summarize, allows, clientCaps } from './caps.js';
 import { checkCard, describe } from './cardcheck.js';
+// 模块化第一批（2026-11-16）：把"零依赖工具"和"甲板优先级档位"从 8000 行主文件里拆出来。
+// 目标不是数字好看，而是让高频改动点各有唯一落点（见 docs/dsh-remote-plugin/模块化改造方案.md）。
+import { warnOnce, clientMsgDuplicated, abortError, originHash } from './lib/util.js';
+import { SLOT_PRIORITY, slotPriorityOfLevel, slotLevelOfPriority, slotPriorityValue } from './lib/slots.js';
 
 
 /** CLI 子进程的权限档位（apply 里由 cfg 覆盖；runCliTask 在模块作用域用） */
@@ -113,20 +117,7 @@ const WS_CHANNEL_COUNT = new Map();
 /**
  * 一次性告警（避免热重载/轮询把同一错误刷满日志）：key 首次出现才打一行。
  */
-const WARNED_ONCE = new Set();
-function warnOnce(key, message) {
-  if (!key || WARNED_ONCE.has(key)) return;
-  WARNED_ONCE.add(key);
-  try {
-    console.warn(message);
-  } catch {
-    // console 不可用时忽略
-  }
-}
-
-/**
- * 子代理最近一条活动（childId → 合成帧）。合成帧没有事件源，重连后靠它补发（B15）。
- */
+/** 子代理最近一条活动（childId → 合成帧）。合成帧没有事件源，重连后靠它补发（B15）。 */
 const SUBAGENT_LAST = new Map();
 
 /**
@@ -208,20 +199,7 @@ const CWD_GUARD = { lastWarning: null };
  * 发送幂等：客户端带 client_msg_id，同一 (会话, id) 10 分钟内只受理一次。
  * 覆盖"网络抖了、手机重试，但电脑其实已经执行完"这种最恼人的重复执行。
  */
-const CLIENT_MSG_SEEN = new Map();
-function clientMsgDuplicated(sid, id) {
-  if (!id) return false;
-  const key = String(sid) + '|' + String(id);
-  const now = Date.now();
-  const prev = CLIENT_MSG_SEEN.get(key);
-  if (prev && now - prev < 10 * 60 * 1000) return true;
-  CLIENT_MSG_SEEN.set(key, now);
-  if (CLIENT_MSG_SEEN.size > 500) {
-    const oldest = CLIENT_MSG_SEEN.keys().next().value;
-    if (oldest !== undefined) CLIENT_MSG_SEEN.delete(oldest);
-  }
-  return false;
-}
+const CLIENT_MSG_SEEN_REMOVED = null; // 已迁至 lib/util.js（clientMsgDuplicated）
 
 /**
  * 双端对账的"回执水位线"：sessionId → { acked_seq, acked_ids[], updated_at }。
@@ -326,7 +304,7 @@ const clearSessionBusy = (sid) => {
 };
 const isSessionBusy = (sid) => Boolean(sid && SESSION_BUSY.has(sid));
 
-const abortError = () => { const e = new Error('aborted'); e.code = 'aborted'; return e; };
+// abortError 已迁至 lib/util.js（2026-11-16）
 
 /** 杀整棵进程树：Windows 用 taskkill /T，POSIX 用进程组（spawn 时 detached） */
 function killTree(pid) {
@@ -410,30 +388,8 @@ export const name = 'smartquiz-remote';
  * 帧里可只给 {@code level:'p2'}（手机端按同一张表换算）；旧客户端/旧帧只给
  * {@code priority} 时语义不变（数字小的在上）。
  */
-const SLOT_PRIORITY = Object.freeze({ p0: 0, p1: 5, p2: 10, p3: 20, p4: 30, p5: 50 });
-
-/** 档位名 → 数值；未知/空返回 null（调用方自己决定回退，不在这里吞掉旧 priority）。 */
-const slotPriorityOfLevel = (level) => {
-  const key = String(level ?? '').trim().toLowerCase();
-  return Object.prototype.hasOwnProperty.call(SLOT_PRIORITY, key) ? SLOT_PRIORITY[key] : null;
-};
-
-/** 数值 → 档位名；不在表里返回 ''（历史中间值不硬凑"最近档位"，免得日志误导）。 */
-const slotLevelOfPriority = (priority) => {
-  const p = Number(priority);
-  for (const [k, v] of Object.entries(SLOT_PRIORITY)) {
-    if (v === p) return k;
-  }
-  return '';
-};
-
-/** 一帧插槽的优先级：已知 level → 表；否则旧 priority；都没有 → p4（与手机端默认一致）。 */
-const slotPriorityValue = (data) => {
-  const byLevel = slotPriorityOfLevel(data?.level);
-  if (byLevel !== null) return byLevel;
-  const n = Number(data?.priority);
-  return Number.isFinite(n) ? n : SLOT_PRIORITY.p4;
-};
+// SLOT_PRIORITY / slotPriorityOfLevel / slotLevelOfPriority / slotPriorityValue
+// 已迁至 lib/slots.js（2026-11-16）
 
 
 /** 插件目录（配对页/二维码库随包分发；.token 持久化于此） */
@@ -478,9 +434,7 @@ function bindingKeyOf(code) {
  * 这是"尽力而为"的匹配：同一句话在 10 分钟内被电脑端也打了一遍，会归到手机 —— 可接受。
  */
 const ORIGIN_FILE = join(PLUGIN_DIR, '.origins.jsonl');
-function originHash(text) {
-  return createHash('sha1').update(String(text ?? '').trim()).digest('hex').slice(0, 16);
-}
+// originHash 已迁至 lib/util.js（2026-11-16）
 const ORIGIN = (() => {
   let cache = null;
   const load = () => {
