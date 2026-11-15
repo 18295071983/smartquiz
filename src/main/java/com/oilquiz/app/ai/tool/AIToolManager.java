@@ -229,6 +229,8 @@ public class AIToolManager {
         registerToolFactory("database", DatabaseTool.class, DatabaseTool::new);
         // Git 版本管理（2026-11-16）：Agent 改文件后可自行 init/commit/log，实现"可回滚"
         registerToolFactory("git", GitTool.class, GitTool::new);
+        // 规则引擎（2026-11-16）：Agent 可用 JSON 描述规则并求值（easy-rules 接成工具）
+        registerToolFactory("rule_engine", RuleEngineTool.class, ctx -> new RuleEngineTool());
         registerToolFactory("network_search", NetworkSearchTool.class, NetworkSearchTool::new);
         registerToolFactory("webpage_reader", WebPageReaderTool.class, WebPageReaderTool::new);
         registerToolFactory("smart_research", SmartResearchTool.class, SmartResearchTool::new);
