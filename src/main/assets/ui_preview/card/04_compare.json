@@ -1,0 +1,26 @@
+{
+  "type": "compare",
+  "props": {
+    "title": "两条渲染入口对比",
+    "items": [
+      {
+        "title": "layout 树",
+        "badge": "NativeLayoutRenderer",
+        "rows": [
+          ["入口", "render(context, layoutObj, props, viewRefs)"],
+          ["适用", "组合排版 / 输入控件"],
+          ["语义令牌", "size / weight / tone / spans"]
+        ]
+      },
+      {
+        "title": "卡片",
+        "badge": "ComponentRegistry",
+        "rows": [
+          ["入口", "render(context, ComponentData.of(type, props))"],
+          ["适用", "37+ 张通用卡"],
+          ["语义令牌", "ComponentTheme"]
+        ]
+      }
+    ]
+  }
+}

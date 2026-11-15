@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  UI 预览台：布局 / 卡片样例列表 + JSON 编辑区 + 即时渲染区。
+  入口：工具集 → AI服务状态 → 开发者调试通道 → UI 预览台；
+  adb：am start -n com.oilquiz.app/.infra.DebugLayoutInjectActivity，extra mode=preview
+  （可加 extra sample=样例 id，或 json_b64=base64 预填 JSON）。
+  颜色全部取 App 主题 attr（深浅色 / 换肤跟随），渲染内容走 NativeLayoutRenderer 与
+  ComponentRegistry → ComponentTheme，本布局不定义任何新色值。
+  外层 FrameLayout 交给全局 EdgeToEdgeHelper 加系统栏 inset；内层 preview_content
+  由 Activity 补 IME inset（键盘弹出时按钮/渲染区不被挡住）。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface">
+
+    <LinearLayout
+        android:id="@+id/preview_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="@dimen/space_12"
+        android:paddingBottom="@dimen/space_8">
+
+        <!-- 标题栏 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/ui_preview_console_title"
+                    android:textSize="@dimen/text_20"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorControlText" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="布局 / 卡片样例 · 改 JSON → 点渲染即时出图"
+                    android:textSize="@dimen/text_11"
+                    android:textColor="?attr/colorControlTextSecondary" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tv_sample_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="@dimen/text_11"
+                android:textColor="?attr/colorControlTextSecondary" />
+        </LinearLayout>
+
+        <!-- 样例下拉 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_8"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="样例"
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorControlTextSecondary" />
+
+            <Spinner
+                android:id="@+id/spinner_samples"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp" />
+        </LinearLayout>
+
+        <!-- JSON 编辑区（等宽字体） -->
+        <EditText
+            android:id="@+id/et_json"
+            android:layout_width="match_parent"
+            android:layout_height="160dp"
+            android:layout_marginTop="@dimen/space_8"
+            android:background="@drawable/bg_ui_preview_editor"
+            android:gravity="top|start"
+            android:fontFamily="monospace"
+            android:lineSpacingExtra="2dp"
+            android:padding="@dimen/space_12"
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorControlText"
+            android:textColorHint="?attr/colorControlTextHint"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:imeOptions="flagNoExtractUi"
+            android:scrollbars="vertical"
+            android:importantForAutofill="no"
+            android:hint="在此编辑 layout 树或卡片 JSON…" />
+
+        <!-- 解析失败：常驻显示 行号 + 错误，不再 toast 一闪而过 -->
+        <TextView
+            android:id="@+id/tv_error"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:padding="@dimen/space_8"
+            android:textSize="@dimen/text_12"
+            android:fontFamily="monospace"
+            android:textIsSelectable="true"
+            android:visibility="gone" />
+
+        <!-- 操作行 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_8"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_render"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:paddingStart="@dimen/space_8"
+                android:paddingEnd="@dimen/space_8"
+                android:text="渲染"
+                android:textSize="@dimen/text_13" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_copy"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:paddingStart="@dimen/space_8"
+                android:paddingEnd="@dimen/space_8"
+                android:text="复制 JSON"
+                android:textSize="@dimen/text_12" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_share"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:paddingStart="@dimen/space_8"
+                android:paddingEnd="@dimen/space_8"
+                android:text="分享 / 导出"
+                android:textSize="@dimen/text_12" />
+        </LinearLayout>
+
+        <!-- 渲染状态 -->
+        <TextView
+            android:id="@+id/tv_render_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="尚未渲染"
+            android:textSize="@dimen/text_11"
+            android:textColor="?attr/colorControlTextSecondary" />
+
+        <!-- 渲染区（滚动容器；真实渲染 view 加进 render_container） -->
+        <ScrollView
+            android:id="@+id/sv_render"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_ui_preview_panel"
+            android:fillViewport="true"
+            android:scrollbars="vertical"
+            android:clipToPadding="false">
+
+            <LinearLayout
+                android:id="@+id/render_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/space_8" />
+        </ScrollView>
+    </LinearLayout>
+</FrameLayout>

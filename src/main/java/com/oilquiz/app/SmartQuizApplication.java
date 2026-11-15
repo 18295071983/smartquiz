@@ -462,8 +462,10 @@ public class SmartQuizApplication extends Application {
                     // DEBUG-CONSOLE(2026-11-08)：调试台是纯深色控制台，壁纸（尤其猫和老鼠兜底图）
                     // 会把日志压得不可读，也会让探针面板与气泡混在一起。调试页跳过壁纸，
                     // 只保留 edge-to-edge/状态栏同步，根布局自己给 #0b1020。
+                    // 2026-11-16：UI 预览台同理——预览区要按 App 主题 surface 对照，不能垫壁纸。
                     final boolean debugConsole =
-                            activity instanceof com.oilquiz.app.ui.activity.AgentDebugActivity;
+                            activity instanceof com.oilquiz.app.ui.activity.AgentDebugActivity
+                                    || activity instanceof com.oilquiz.app.infra.UiPreviewConsoleActivity;
                     if (!debugConsole) {
                         com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, root);
                     }

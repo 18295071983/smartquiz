@@ -1,0 +1,35 @@
+{
+  "root": {
+    "type": "column",
+    "spacing": 8,
+    "padding": 14,
+    "children": [
+      { "type": "text", "text": "语义令牌 · 字号档位", "size": "title", "weight": "semibold" },
+      { "type": "text", "text": "headline 24sp → 一屏主标题", "size": "headline", "weight": "bold" },
+      { "type": "text", "text": "title 20sp → 区块标题", "size": "title" },
+      { "type": "text", "text": "subtitle 17sp → 小节标题", "size": "subtitle" },
+      { "type": "text", "text": "body 15sp → 正文内容", "size": "body" },
+      { "type": "text", "text": "footnote 13sp → 辅助说明", "size": "footnote", "tone": "muted" },
+      { "type": "text", "text": "caption 12sp → 最小注脚", "size": "caption", "tone": "muted" },
+      { "type": "divider" },
+      { "type": "text", "text": "语义色调：good / warn / bad / info / muted", "size": "subtitle", "weight": "medium" },
+      { "type": "text", "text": "good：任务已完成", "tone": "good", "weight": "medium" },
+      { "type": "text", "text": "warn：还有 2 项待确认", "tone": "warn" },
+      { "type": "text", "text": "bad：连接已断开", "tone": "bad" },
+      { "type": "text", "text": "info：本次改动只影响预览台", "tone": "info" },
+      { "type": "text", "text": "muted：次要说明文字", "tone": "muted" },
+      { "type": "divider" },
+      {
+        "type": "text",
+        "spans": [
+          { "text": "spans 富文本：原价 " },
+          { "text": "¥59.9", "tone": "muted" },
+          { "text": " → 现价 " },
+          { "text": "¥39.9", "tone": "bad", "weight": "bold" },
+          { "text": "  " },
+          { "text": "adb-2026", "mono": true }
+        ]
+      }
+    ]
+  }
+}

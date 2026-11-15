@@ -1,0 +1,12 @@
+{
+  "type": "steps_card",
+  "props": {
+    "title": "发布步骤",
+    "steps": [
+      { "title": "改 JSON", "description": "在预览台里直接编辑样例", "status": "done" },
+      { "title": "点渲染", "description": "复用两个渲染入口即时出图", "status": "current" },
+      { "title": "截图复核", "description": "浅色 / 深色各看一遍", "status": "todo" },
+      { "title": "异常分支", "description": "JSON 解析失败显示行号", "status": "failed" }
+    ]
+  }
+}

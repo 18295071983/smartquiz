@@ -1,0 +1,12 @@
+{
+  "type": "alert_card",
+  "props": {
+    "title": "额度提醒",
+    "content": "本月 AI 调用额度即将用完，剩余 12%。请及时在「API 配置」里更换 Key 或充值。",
+    "level": "warning",
+    "actions": [
+      { "label": "知道了", "action": "ack" },
+      { "label": "去配置", "action": "open_config" }
+    ]
+  }
+}

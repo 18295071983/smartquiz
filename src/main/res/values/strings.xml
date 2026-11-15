@@ -231,6 +231,8 @@
     
     <!-- 设置 -->
     <string name="settings_title">设置</string>
+    <!-- 调试用 UI 预览台（layout / 卡片样例即时渲染，debug 包入口） -->
+    <string name="ui_preview_console_title">UI 预览台</string>
     <string name="language">语言</string>
     <string name="dark_mode">深色模式</string>
     <string name="notifications">通知</string>

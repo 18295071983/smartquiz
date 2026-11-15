@@ -197,6 +197,15 @@
             android:name=".infra.DebugLayoutInjectActivity"
             android:exported="${debugExported}"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <!-- UI 预览台（梯队 1.1）：DebugLayoutInjectActivity 无注入参数时转入本页；
+             只从 App 内调试入口启动，不对外导出；release 由 Activity 内 FLAG_DEBUGGABLE 兜底。
+             主题走 Theme.OilQuizApp → 深浅色/换肤由全局 ThemeOverlay 跟随。 -->
+        <activity
+            android:name=".infra.UiPreviewConsoleActivity"
+            android:exported="false"
+            android:label="@string/ui_preview_console_title"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.OilQuizApp" />
         <!-- Termux RUN_COMMAND 运行时授权弹窗（HyperOS/MIUI 禁用了 adb 的 pm grant，只能 App 内请求） -->
         <activity
             android:name=".ai.tool.TermuxPermissionActivity"

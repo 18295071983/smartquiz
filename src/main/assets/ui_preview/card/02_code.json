@@ -1,0 +1,9 @@
+{
+  "type": "code_card",
+  "props": {
+    "title": "adb 连接真机",
+    "language": "bash",
+    "status": "success",
+    "code": "adb mdns services\nadb connect 192.168.1.9:46489\nadb devices"
+  }
+}

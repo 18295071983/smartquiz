@@ -1,0 +1,60 @@
+{
+  "root": {
+    "type": "column",
+    "spacing": 12,
+    "padding": 14,
+    "children": [
+      { "type": "text", "text": "嵌套卡片 · layout 里的 key_value", "size": "title", "weight": "bold" },
+      {
+        "type": "text",
+        "text": "节点 type=key_value 会交给 ComponentRegistry 渲染成卡片，用来验证 layout 树与卡片两条入口能互相嵌套。",
+        "size": "footnote",
+        "tone": "muted"
+      },
+      {
+        "type": "card",
+        "title": "layout 容器（card 节点）",
+        "children": [
+          { "type": "text", "text": "下面是嵌套的 key_value 卡片：", "size": "footnote", "tone": "muted" },
+          {
+            "type": "key_value",
+            "title": "设备信息",
+            "items": [
+              { "label": "型号", "value": "25113PN0EC" },
+              { "label": "系统", "value": "Android 16" },
+              { "label": "渲染入口", "value": "ComponentRegistry" },
+              { "label": "连接状态", "value": "已连接", "tone": "good" }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "card",
+        "title": "嵌套 compare 卡片",
+        "children": [
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "layout 树",
+                "badge": "NativeLayoutRenderer",
+                "rows": [
+                  ["入口", "render(layoutObj)"],
+                  ["控件", "95 type"]
+                ]
+              },
+              {
+                "title": "卡片",
+                "badge": "ComponentRegistry",
+                "rows": [
+                  ["入口", "render(ComponentData)"],
+                  ["卡片", "37 张"]
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

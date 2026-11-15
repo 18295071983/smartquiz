@@ -1,0 +1,21 @@
+{
+  "root": {
+    "type": "column",
+    "spacing": 10,
+    "padding": 14,
+    "children": [
+      { "type": "text", "text": "未知节点 · 灰字降级", "size": "title", "weight": "bold" },
+      {
+        "type": "text",
+        "text": "下面故意放了两个不存在的 type。预期：各显示一条灰色占位，后面的节点照常渲染（单节点降级，不毁整页）。",
+        "size": "footnote",
+        "tone": "muted"
+      },
+      { "type": "divider" },
+      { "type": "__mystery_widget__", "text": "这条内容永远不该出现" },
+      { "type": "future_card_x", "props": { "title": "未来卡片" } },
+      { "type": "text", "text": "↑ 上面的灰字就是未知节点的降级结果。", "size": "body", "tone": "warn" },
+      { "type": "text", "text": "后续节点仍正常显示，说明降级只影响单个节点。", "size": "body", "tone": "good" }
+    ]
+  }
+}

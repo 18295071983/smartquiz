@@ -1,0 +1,51 @@
+{
+  "root": {
+    "type": "column",
+    "spacing": 12,
+    "padding": 14,
+    "children": [
+      {
+        "type": "text",
+        "text": "基础排版 · column / row / card",
+        "size": "title",
+        "weight": "bold"
+      },
+      {
+        "type": "text",
+        "text": "column 纵向排列，row 横向排列，card 带标题与圆角边框。",
+        "size": "footnote",
+        "tone": "muted"
+      },
+      {
+        "type": "card",
+        "title": "今日学习",
+        "children": [
+          {
+            "type": "row",
+            "children": [
+              { "type": "text", "text": "已答 12 题", "size": "body", "weight": "medium" },
+              { "type": "text", "text": "   ·   ", "size": "body", "tone": "muted" },
+              { "type": "text", "text": "正确率 92%", "size": "body", "tone": "good", "weight": "bold" }
+            ]
+          },
+          { "type": "divider" },
+          {
+            "type": "row",
+            "children": [
+              { "type": "button", "text": "开始练习" },
+              { "type": "button", "text": "查看解析" }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "row",
+        "spacing": 10,
+        "children": [
+          { "type": "stat", "label": "连续天数", "value": "7", "unit": "天" },
+          { "type": "stat", "label": "今日用时", "value": "25", "unit": "分钟" }
+        ]
+      }
+    ]
+  }
+}

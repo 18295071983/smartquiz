@@ -1,0 +1,11 @@
+{
+  "type": "chart",
+  "props": {
+    "chartType": "bar",
+    "title": "预览台样例覆盖",
+    "categories": ["layout", "输入", "卡片", "图表"],
+    "series": [
+      { "name": "样例数", "data": [5, 1, 9, 1] }
+    ]
+  }
+}

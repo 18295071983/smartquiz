@@ -1,0 +1,12 @@
+{
+  "type": "table_card",
+  "props": {
+    "title": "两条渲染入口",
+    "align": "left",
+    "headers": ["入口", "调用方式", "适用"],
+    "rows": [
+      ["layout 树", "NativeLayoutRenderer.render(context, layout, props, viewRefs)", "组合排版"],
+      ["卡片", "ComponentRegistry.render(context, ComponentData.of(type, props))", "37+ 张通用卡"]
+    ]
+  }
+}

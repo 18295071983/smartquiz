@@ -769,6 +769,12 @@ job/alert 状态、layout 换版）不触发重建。新增 `SegmentComponentDig
 > 「DSH 专用卡 → 现有卡」的合并、最终保留的一张原生卡、动态兜底、推送链路、语义令牌、
 > 校验器，以及 2026-11-15 补的 keyValue/compare、data:image、公式绑定与 layout 嵌套卡片。
 
+> **预览台入口（2026-11-16）**：本章两条渲染入口已有可视化调试台——`infra/UiPreviewConsoleActivity`
+> （标题「UI 预览台」）。入口：工具集 → AI服务状态 → 开发者调试通道 → UI 预览台；adb 空参启动
+> `com.oilquiz.app/.infra.DebugLayoutInjectActivity` 同效。内置 15 个 assets 样例（5 个 layout +
+> alert_card/code_card/key_value/compare/list_card/table_card/chart/steps_card/todo_card/file_list 10 张卡），
+> 改 JSON 即时重渲、解析失败显示行号，可直接核对本章各卡的 props 口径、嵌套卡片与未知节点降级。
+
 ### 4.1 分层与结论（旧 §1）
 
 | 层 | 实现 | 数量 |

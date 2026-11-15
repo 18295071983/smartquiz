@@ -1,0 +1,20 @@
+{
+  "root": {
+    "type": "column",
+    "spacing": 12,
+    "padding": 14,
+    "children": [
+      { "type": "text", "text": "输入控件 · input / slider / switch", "size": "title", "weight": "bold" },
+      { "type": "text", "text": "input：单行输入框，点击可聚焦并唤出输入法", "size": "footnote", "tone": "muted" },
+      { "type": "input", "label": "昵称", "hint": "请输入昵称", "key": "nickname", "value": "答题宝用户" },
+      { "type": "multiline", "label": "备注", "hint": "多行输入", "key": "memo", "value": "这两行是预填内容。\n用于验证多行输入。" },
+      { "type": "text", "text": "slider：拖动查看实时数值", "size": "footnote", "tone": "muted" },
+      { "type": "slider", "label": "每日目标", "key": "daily", "min": 0, "max": 50, "value": 20, "show_value": true },
+      { "type": "text", "text": "switch：布尔开关", "size": "footnote", "tone": "muted" },
+      { "type": "switch", "text": "开启每日提醒", "key": "remind", "checked": true },
+      { "type": "switch", "text": "仅在 Wi-Fi 下同步", "key": "wifi_only", "checked": false },
+      { "type": "divider" },
+      { "type": "button", "text": "收集当前控件值（需宿主回调）" }
+    ]
+  }
+}

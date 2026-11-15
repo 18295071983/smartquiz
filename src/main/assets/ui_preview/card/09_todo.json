@@ -1,0 +1,12 @@
+{
+  "type": "todo_card",
+  "props": {
+    "title": "预览台待办",
+    "items": [
+      { "text": "样例列表（15 个 assets JSON）", "done": true },
+      { "text": "编辑区 + 行号报错", "done": true },
+      { "text": "深浅色跟随 App 主题", "done": true },
+      { "text": "把调好的 JSON 分享回电脑", "done": false }
+    ]
+  }
+}

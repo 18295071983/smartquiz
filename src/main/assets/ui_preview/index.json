@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "samples": [
+    { "id": "layout_basic", "kind": "layout", "title": "基础排版 · column / row / card", "file": "layout/01_basic.json" },
+    { "id": "layout_tokens", "kind": "layout", "title": "语义令牌 · size / weight / tone / spans", "file": "layout/02_tokens.json" },
+    { "id": "layout_inputs", "kind": "layout", "title": "输入控件 · input / slider / switch", "file": "layout/03_inputs.json" },
+    { "id": "layout_unknown", "kind": "layout", "title": "未知节点 · 灰字降级", "file": "layout/04_unknown.json" },
+    { "id": "layout_nested_card", "kind": "layout", "title": "嵌套卡片 · layout 内的 key_value", "file": "layout/05_nested_card.json" },
+    { "id": "card_alert", "kind": "card", "title": "alert_card · 额度提醒", "file": "card/01_alert.json" },
+    { "id": "card_code", "kind": "card", "title": "code_card · 终端命令", "file": "card/02_code.json" },
+    { "id": "card_key_value", "kind": "card", "title": "key_value · 真机信息", "file": "card/03_key_value.json" },
+    { "id": "card_compare", "kind": "card", "title": "compare · 两条渲染入口", "file": "card/04_compare.json" },
+    { "id": "card_list", "kind": "card", "title": "list_card · 样例清单", "file": "card/05_list.json" },
+    { "id": "card_table", "kind": "card", "title": "table_card · 入口对照", "file": "card/06_table.json" },
+    { "id": "card_chart", "kind": "card", "title": "chart · 样例覆盖柱状图", "file": "card/07_chart.json" },
+    { "id": "card_steps", "kind": "card", "title": "steps_card · 发布步骤", "file": "card/08_steps.json" },
+    { "id": "card_todo", "kind": "card", "title": "todo_card · 预览台待办", "file": "card/09_todo.json" },
+    { "id": "card_file_list", "kind": "card", "title": "file_list · 工作区文件", "file": "card/10_file_list.json" }
+  ]
+}

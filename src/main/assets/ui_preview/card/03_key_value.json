@@ -1,0 +1,12 @@
+{
+  "type": "key_value",
+  "props": {
+    "title": "真机信息",
+    "items": [
+      { "label": "ADB 序列号", "value": "192.168.1.9:46489" },
+      { "label": "型号", "value": "25113PN0EC" },
+      { "label": "渲染器", "value": "ComponentRegistry" },
+      { "label": "预览台", "value": "UI 预览台", "tone": "good" }
+    ]
+  }
+}

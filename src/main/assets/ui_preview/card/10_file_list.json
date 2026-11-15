@@ -1,0 +1,12 @@
+{
+  "type": "file_list",
+  "props": {
+    "title": "工作区文件",
+    "path": "/sdcard/Download",
+    "files": [
+      { "name": "preview-layout.json", "path": "/sdcard/Download/preview-layout.json", "size": "1.2 KB", "type": "file" },
+      { "name": "preview-card.json", "path": "/sdcard/Download/preview-card.json", "size": "860 B", "type": "file" },
+      { "name": "samples", "path": "/sdcard/Download/samples", "size": "—", "type": "dir" }
+    ]
+  }
+}

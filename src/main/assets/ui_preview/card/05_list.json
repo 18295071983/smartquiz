@@ -1,0 +1,26 @@
+{
+  "type": "list_card",
+  "props": {
+    "title": "预览台样例",
+    "items": [
+      {
+        "icon": "🧩",
+        "title": "layout 树",
+        "description": "5 个样例：排版 / 令牌 / 输入 / 未知 / 嵌套",
+        "value": "5"
+      },
+      {
+        "icon": "🗂",
+        "title": "卡片",
+        "description": "10 张卡对照 ComponentRegistry 的 props 口径",
+        "value": "10"
+      },
+      {
+        "icon": "👁",
+        "title": "即时渲染",
+        "description": "改 JSON → 点渲染，无需重装 App",
+        "value": "< 1s"
+      }
+    ]
+  }
+}

@@ -18,6 +18,11 @@ import android.widget.TextView;
  * 可选 extra：
  *  --es mode dialog|chat  渲染模式（默认 dialog 弹窗；chat 进聊天流）
  *  --es title 弹窗标题
+ *
+ * 2026-11-16（梯队 1.1）：不带 layout/card/url 等注入参数直接打开时，本入口升级为
+ * 可视化「UI 预览台」（{@link UiPreviewConsoleActivity}：样例列表 + JSON 编辑 + 即时渲染）；
+ * 也可显式 --es mode preview 进入，并支持 --es sample <id> / --es json_b64 <base64> 定位样例。
+ * 带 layout 等参数的旧 adb 注入模式全部保持原行为。
  */
 public class DebugLayoutInjectActivity extends Activity {
 
@@ -34,6 +39,12 @@ public class DebugLayoutInjectActivity extends Activity {
         if (!debuggable) {
             android.util.Log.w(TAG, "release 构建不允许使用调试注入入口，finish()");
             finish();
+            return;
+        }
+
+        // 无注入参数直接打开 = 可视化预览台；带 layout/card/url 等参数时保持原 adb 注入行为。
+        if (isPreviewRequest()) {
+            openPreviewConsole();
             return;
         }
 
@@ -115,6 +126,33 @@ public class DebugLayoutInjectActivity extends Activity {
             err.addView(tv);
             setContentView(err);
         }
+    }
+
+    /** 无注入参数 / mode=preview 时进入可视化 UI 预览台；带 layout/card/url 等参数时返回 false。 */
+    private boolean isPreviewRequest() {
+        android.content.Intent intent = getIntent();
+        String mode = intent.getStringExtra("mode");
+        if ("preview".equals(mode)) return true;
+        if (mode != null && !mode.isEmpty()) return false;
+        return !intent.hasExtra("layout") && !intent.hasExtra("layout_b64")
+                && !intent.hasExtra("card_type") && !intent.hasExtra("props")
+                && !intent.hasExtra("props_b64") && !intent.hasExtra("url");
+    }
+
+    /** 转发 sample/json/json_b64（旧 layout 参数兼容成 json），进入预览台后结束本页。 */
+    private void openPreviewConsole() {
+        android.content.Intent source = getIntent();
+        android.content.Intent preview = new android.content.Intent(
+                this, UiPreviewConsoleActivity.class);
+        preview.putExtra("sample", source.getStringExtra("sample"));
+        String json = source.getStringExtra("json");
+        if (json == null || json.isEmpty()) {
+            json = source.getStringExtra("layout");
+        }
+        if (json != null && !json.isEmpty()) preview.putExtra("json", json);
+        preview.putExtra("json_b64", source.getStringExtra("json_b64"));
+        startActivity(preview);
+        finish();
     }
 
     /** 插件流验证：注册类型 → 创建（弹窗渲染 layout）→ 后台 get_result（10s 等待用户操作后回传） */
