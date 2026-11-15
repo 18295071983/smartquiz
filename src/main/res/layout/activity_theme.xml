@@ -366,6 +366,7 @@
             
             <!-- 皮肤主题（多品牌） -->
             <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_theme_skin"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
@@ -427,7 +428,7 @@
                         android:textSize="@dimen/font_body_lg"
                         android:textStyle="bold"
                         android:textColor="?attr/colorOnSurface"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_md" />
 
                     <TextView
                         android:layout_width="match_parent"
@@ -435,7 +436,7 @@
                         android:text="把系统壁纸应用到 App 背景；系统换壁纸后自动跟随"
                         android:textSize="@dimen/font_body"
                         android:textColor="?attr/colorOnSurfaceVariant"
-                        android:layout_marginBottom="12dp" />
+                        android:layout_marginBottom="@dimen/space_lg" />
 
                     <RadioButton
                         android:id="@+id/rb_wallpaper_system"
@@ -444,7 +445,7 @@
                         android:text="跟随系统壁纸"
                         android:textSize="@dimen/font_body_lg"
                         android:textColor="?attr/colorOnSurface"
-                        android:minHeight="48dp" />
+                        android:minHeight="@dimen/space_3xl" />
 
                     <RadioButton
                         android:id="@+id/rb_wallpaper_library"
@@ -453,7 +454,7 @@
                         android:text="使用壁纸库图片"
                         android:textSize="@dimen/font_body_lg"
                         android:textColor="?attr/colorOnSurface"
-                        android:minHeight="48dp" />
+                        android:minHeight="@dimen/space_3xl" />
 
                     <RadioButton
                         android:id="@+id/rb_wallpaper_off"
@@ -462,7 +463,7 @@
                         android:text="关闭壁纸"
                         android:textSize="@dimen/font_body_lg"
                         android:textColor="?attr/colorOnSurface"
-                        android:minHeight="48dp" />
+                        android:minHeight="@dimen/space_3xl" />
 
                     <LinearLayout
                         android:id="@+id/row_wallpaper_library"
@@ -537,7 +538,7 @@
                         android:textSize="@dimen/font_body_lg"
                         android:textStyle="bold"
                         android:textColor="?attr/colorOnSurface"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_md" />
 
                     <TextView
                         android:layout_width="match_parent"
@@ -545,7 +546,7 @@
                         android:text="使用系统原生控件主题（Material You）：控件配色直接跟随系统壁纸动态色，与系统设置、系统控件一致；开启后自定义颜色与预设色暂不生效"
                         android:textSize="@dimen/font_body"
                         android:textColor="?attr/colorOnSurfaceVariant"
-                        android:layout_marginBottom="12dp" />
+                        android:layout_marginBottom="@dimen/space_lg" />
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -566,7 +567,7 @@
                             android:id="@+id/switchSystemDynamic"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:minHeight="48dp"
+                            android:minHeight="@dimen/space_3xl"
                             android:minWidth="56dp"
                             android:showText="false"
                             android:textOn="开"

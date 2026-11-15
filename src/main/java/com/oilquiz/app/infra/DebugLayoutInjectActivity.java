@@ -42,6 +42,15 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 系统动态色开关（2026-11-16）：--es mode set_dynamic --ez on true|false
+        if ("set_dynamic".equals(getIntent().getStringExtra("mode"))) {
+            boolean on = getIntent().getBooleanExtra("on", true);
+            com.oilquiz.app.manager.ThemeManager.setSystemDynamicColor(this, on);
+            recreate();
+            finish();
+            return;
+        }
+
         // 主题设置页（2026-11-16）：exported=false，adb 只能从本调试入口进。
         if ("theme_settings".equals(getIntent().getStringExtra("mode"))) {
             startActivity(new android.content.Intent(this,

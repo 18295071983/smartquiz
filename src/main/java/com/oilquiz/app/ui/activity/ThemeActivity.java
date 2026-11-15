@@ -92,6 +92,12 @@ public class ThemeActivity extends AppCompatActivity {
         // 本页是"设置"类页面，不跟壁纸，固定用主题背景色。
         getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(
                 ThemeColors.get(this, R.color.background)));
+        // 窗口背景会被全局「壁纸同步」覆盖（EdgeToEdgeHelper.syncWindowBackground 把窗口底设成壁纸），
+        // 只设 window 背景不够 —— 内容根容器也必须是不透明的，否则卡片之间透出壁纸。
+        View contentRoot = findViewById(android.R.id.content);
+        if (contentRoot != null) {
+            contentRoot.setBackgroundColor(ThemeColors.get(this, R.color.background));
+        }
 
         radioLight = findViewById(R.id.radio_light);
         radioDark = findViewById(R.id.radio_dark);
@@ -144,6 +150,11 @@ public class ThemeActivity extends AppCompatActivity {
         });
         boolean dyn = ThemeManager.isSystemDynamicColor(this);
         View colorCard = findViewById(R.id.card_theme_color);
+        View skinsCard = findViewById(R.id.card_theme_skin);
+        if (skinsCard != null) {
+            skinsCard.setEnabled(!dyn);
+            skinsCard.setAlpha(dyn ? 0.4f : 1f);
+        }
         if (colorCard != null) {
             colorCard.setEnabled(!dyn);
             colorCard.setAlpha(dyn ? 0.4f : 1f);
@@ -193,7 +204,7 @@ public class ThemeActivity extends AppCompatActivity {
         if (android.os.Build.VERSION.SDK_INT < 30 || android.os.Environment.isExternalStorageManager()) {
             return true;
         }
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        new AlertDialog.Builder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_SmartQuiz_Dialog))
                 .setTitle(getString(R.string.h_a543ed9a))
                 .setMessage(getString(R.string.h_9e455d55))
                 .setPositiveButton(getString(R.string.h_5e213ddb), (d, w) -> {
@@ -542,7 +553,7 @@ public class ThemeActivity extends AppCompatActivity {
         ScrollView scrollView = new ScrollView(this);
         scrollView.addView(grid);
 
-        new AlertDialog.Builder(this)
+        new AlertDialog.Builder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_SmartQuiz_Dialog))
                 .setTitle(getString(R.string.h_502eb6f3))
                 .setView(scrollView)
                 .setPositiveButton(getString(R.string.h_155a119b), (d, which) -> pickWallpaperLauncher.launch(
@@ -1093,16 +1104,21 @@ View.OnClickListener skinClick = v -> {
 
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(48, 24, 48, 8);
+        // 2026-11-16 接 token：对话框内边距统一走档位（原 48/24/48/8 是硬编码）
+        int dlgPadX = Tokens.space(this, Tokens.SPACE_2XL);
+        int dlgPadY = Tokens.space(this, Tokens.SPACE_LG);
+        layout.setPadding(dlgPadX, dlgPadY, dlgPadX, Tokens.space(this, Tokens.SPACE_SM));
 
         final View preview = new View(this);
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 64
+                LinearLayout.LayoutParams.MATCH_PARENT, Tokens.space(this, Tokens.SPACE_3XL) * 2
         );
-        previewParams.setMargins(0, 0, 0, 16);
+        previewParams.setMargins(0, 0, 0, Tokens.space(this, Tokens.SPACE_XL));
         preview.setLayoutParams(previewParams);
-        preview.setBackgroundColor(initial);
-        preview.setClipToOutline(true);
+        GradientDrawable previewBg = new GradientDrawable();
+        previewBg.setCornerRadius(Tokens.radius(this, Tokens.RADIUS_MD));
+        previewBg.setColor(initial);
+        preview.setBackground(previewBg);
         layout.addView(preview);
 
         final int[] rgb = {
@@ -1113,7 +1129,7 @@ View.OnClickListener skinClick = v -> {
             final int channel = c;
             TextView label = new TextView(this);
             label.setText(labels[c] + " " + rgb[channel]);
-            label.setTextSize(14);
+            label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_BODY));
             layout.addView(label);
 
             SeekBar seekBar = new SeekBar(this);
@@ -1135,7 +1151,7 @@ View.OnClickListener skinClick = v -> {
             layout.addView(seekBar);
         }
 
-        new AlertDialog.Builder(this)
+        new AlertDialog.Builder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_SmartQuiz_Dialog))
                 .setTitle(getString(R.string.h_edb9ba13))
                 .setView(layout)
                 .setNegativeButton(getString(R.string.h_625fb26b), (dialog, which) -> {

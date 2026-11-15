@@ -463,9 +463,12 @@ public class SmartQuizApplication extends Application {
                     // 会把日志压得不可读，也会让探针面板与气泡混在一起。调试页跳过壁纸，
                     // 只保留 edge-to-edge/状态栏同步，根布局自己给 #0b1020。
                     // 2026-11-16：UI 预览台同理——预览区要按 App 主题 surface 对照，不能垫壁纸。
+                    // 2026-11-16：主题设置页也跳过 —— 它是"配置界面"，卡片之间透出壁纸会让人
+                    // 以为主题/纯黑档没生效（尤其 OLED：黑卡片 + 壁纸缝隙）。
                     final boolean debugConsole =
                             activity instanceof com.oilquiz.app.ui.activity.AgentDebugActivity
-                                    || activity instanceof com.oilquiz.app.infra.UiPreviewConsoleActivity;
+                                    || activity instanceof com.oilquiz.app.infra.UiPreviewConsoleActivity
+                                    || activity instanceof com.oilquiz.app.ui.activity.ThemeActivity;
                     if (!debugConsole) {
                         com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, root);
                     }
