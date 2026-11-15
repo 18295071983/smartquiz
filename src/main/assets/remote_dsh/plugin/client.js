@@ -117,7 +117,7 @@ window.__ModuleLoader__.load({
         fetch('/pair/code', { cache: 'no-store' })
           .then((r) => (r.ok ? r.json() : null))
           // 现有端点契约：{ ok, code, expires_in_ms }（5 分钟一次性码，CSPRNG 生成）
-          .then((j) => { if (j && j.ok) setCode({ code: j.code, expires_at: Date.now() + Number(j.expires_in_ms || 0) }); })
+          .then((j) => { if (j && j.ok) setCode({ code: j.code, expires_at: Date.now() + (Number(j.expires_in_ms) || 300000) }); })
           .catch(() => setCode(null));
       }, []);
 
@@ -130,18 +130,21 @@ window.__ModuleLoader__.load({
         fetch('/status', { cache: 'no-store' })
           .then((r) => (r.ok ? r.json() : null)).then((j) => setSt(j)).catch(() => setSt(null));
         loadBalance();
-        loadCode();
-      }, [loadBalance, loadCode]);
+      }, [loadBalance]);
 
-      React.useEffect(() => { if (open) load(); }, [open, load]);
+      React.useEffect(() => { if (open) { load(); loadCode(); } }, [open, load, loadCode]);
       React.useEffect(() => {
         if (!open) return undefined;
         const timer = setInterval(load, 5000);
         return () => clearInterval(timer);
       }, [open, load]);
+      // 2026-11-16 修：以前 load() 每 5 秒调一次 loadCode()，等于**每次轮询都签发新码** ——
+      // 用户看到"配对码 2 秒就过期"，而且后端最多只保留 5 个待用码，频繁签发会把旧码挤掉。
+      // 现在：打开时取一次；只在剩余 ≤3 秒或已过期时自动续期；也可手动点「刷新」。
       React.useEffect(() => {
-        if (!open || !code) return undefined;
-        if (code.expires_at && now > code.expires_at) loadCode();
+        if (!open || !code || !code.expires_at) return undefined;
+        const left = Math.ceil((code.expires_at - Date.now()) / 1000);
+        if (left <= 3) loadCode();
         return undefined;
       }, [open, code, now, loadCode]);
       React.useEffect(() => { if (info) setPubUrl(info.public_url || ''); }, [info]);
