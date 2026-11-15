@@ -48,7 +48,8 @@ public class GitTool implements AITool {
     @Override
     public String getDescription() {
         return "Git 版本管理：init(初始化)|status(工作区状态)|add(暂存)|commit(提交)|"
-                + "log(提交历史)|diff(改动对比)|branch(分支列表/新建)|checkout(切换)|clone(克隆)";
+                + "log(提交历史)|diff(改动对比)|branch(分支列表/新建)|checkout(切换)|clone(克隆)|"
+                + "remote(远端列表)|push(推送)|pull(拉取)";
     }
 
     @Override
@@ -61,6 +62,8 @@ public class GitTool implements AITool {
         params.put("limit", "log 用：返回条数，默认 10");
         params.put("name", "branch/checkout 用：分支名");
         params.put("url", "clone 用：仓库地址");
+        params.put("remote", "push/pull 用：远端名（默认 origin）");
+        params.put("credential", "push/pull 用：凭据别名（如 github；token 本身不传给模型）");
         return params;
     }
 
@@ -87,9 +90,15 @@ public class GitTool implements AITool {
                     return doDiff(dir);
                 case "clone":
                     return doClone(dir, str(parameters, "url", null));
+                case "remote":
+                    return doRemote(dir);
+                case "push":
+                    return doPush(dir, parameters);
+                case "pull":
+                    return doPull(dir, parameters);
                 default:
                     return AIToolResult.fail("未知 action: " + action
-                            + "（可用：init|status|add|commit|log|diff|branch|clone）");
+                            + "（可用：init|status|add|commit|log|diff|branch|clone|remote|push|pull）");
             }
         } catch (Exception e) {
             return AIToolResult.fail("git " + action + " 失败：" + e.getMessage());
@@ -234,6 +243,92 @@ public class GitTool implements AITool {
             info.put("branch", git.getRepository().getBranch());
             return AIToolResult.success("克隆完成：" + url + " → " + dir.getAbsolutePath(), info);
         }
+    }
+
+    /** 远端列表：显示 fetch/push URL，便于模型判断有没有配远端。 */
+    private AIToolResult doRemote(File dir) throws Exception {
+        try (org.eclipse.jgit.api.Git git = open(dir)) {
+            org.eclipse.jgit.lib.StoredConfig cfg = git.getRepository().getConfig();
+            StringBuilder sb = new StringBuilder();
+            java.util.List<String> names = new ArrayList<>();
+            for (String remote : cfg.getSubsections("remote")) {
+                names.add(remote);
+                sb.append(remote)
+                        .append("  fetch=").append(cfg.getString("remote", remote, "url"))
+                        .append("\n");
+            }
+            if (names.isEmpty()) {
+                return AIToolResult.success("还没有配置远端（可用 clone 建立）");
+            }
+            return AIToolResult.success(sb.toString().trim());
+        }
+    }
+
+    /**
+     * 推送。凭据只从加密存储按别名取 —— 模型传的是 credential:"github"，不是明文 token。
+     */
+    private AIToolResult doPush(File dir, Map<String, Object> parameters) throws Exception {
+        String remote = str(parameters, "remote", "origin");
+        String branch = str(parameters, "name", null);
+        try (org.eclipse.jgit.api.Git git = open(dir)) {
+            org.eclipse.jgit.lib.Repository repo = git.getRepository();
+            if (!hasRemote(repo, remote)) {
+                return AIToolResult.fail("没有名为 " + remote + " 的远端（先用 clone 建立远端）");
+            }
+            if (branch == null || branch.trim().isEmpty()) {
+                branch = repo.getBranch();
+            }
+            org.eclipse.jgit.api.PushCommand push = git.push().setRemote(remote);
+            applyCredentials(push, parameters);
+            push.add(branch);
+            Iterable<org.eclipse.jgit.transport.PushResult> results = push.call();
+            StringBuilder sb = new StringBuilder();
+            for (org.eclipse.jgit.transport.PushResult r : results) {
+                for (org.eclipse.jgit.transport.RemoteRefUpdate u : r.getRemoteUpdates()) {
+                    sb.append(u.getRemoteName()).append(" → ").append(u.getStatus()).append("\n");
+                }
+            }
+            return AIToolResult.success("推送完成（" + remote + "/" + branch + "）：\n"
+                    + sb.toString().trim());
+        }
+    }
+
+    /** 拉取。FF_ONLY：手机上只做快进，避免产生难收拾的合并冲突。 */
+    private AIToolResult doPull(File dir, Map<String, Object> parameters) throws Exception {
+        String remote = str(parameters, "remote", "origin");
+        try (org.eclipse.jgit.api.Git git = open(dir)) {
+            org.eclipse.jgit.lib.Repository repo = git.getRepository();
+            if (!hasRemote(repo, remote)) {
+                return AIToolResult.fail("没有名为 " + remote + " 的远端");
+            }
+            org.eclipse.jgit.api.PullCommand pull = git.pull()
+                    .setRemote(remote)
+                    .setFastForward(org.eclipse.jgit.api.MergeCommand.FastForwardMode.FF_ONLY);
+            applyCredentials(pull, parameters);
+            org.eclipse.jgit.api.PullResult result = pull.call();
+            return AIToolResult.success("拉取完成：success=" + result.isSuccessful()
+                    + (result.getMergeResult() != null
+                    ? " merge=" + result.getMergeResult().getMergeStatus() : ""));
+        }
+    }
+
+    /** 按别名套用凭据（不明文传 token）。 */
+    private void applyCredentials(org.eclipse.jgit.api.TransportCommand<?, ?> command,
+                                  Map<String, Object> parameters) {
+        String alias = str(parameters, "credential", null);
+        if (alias == null || alias.trim().isEmpty()) {
+            return;
+        }
+        GitCredentials.Credential cred = GitCredentials.load(context, alias);
+        if (cred == null) {
+            throw new IllegalStateException("凭据别名不存在: " + alias + "（先在设置里保存）");
+        }
+        command.setCredentialsProvider(cred.toProvider());
+    }
+
+    private static boolean hasRemote(org.eclipse.jgit.lib.Repository repo, String remote) {
+        java.util.Set<String> subs = repo.getConfig().getSubsections("remote");
+        return subs != null && subs.contains(remote);
     }
 
     // ------------------------------------------------------------------
