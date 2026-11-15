@@ -219,10 +219,14 @@
 
     <!-- 字号：caption=11 极小辅助 / footnote=12 辅助 / label=13 标签 / body=14 正文（最常用）/
          bodyLg=16 大正文 / subtitle=18 小标题 / title=20 区块标题 / headline=24 页面标题 -->
+    <!-- micro=10 最小说明（42 处在用）/ caption=11 / footnote=12 / label=13 / body=14（主用，694 处）/ bodySm=15（72 处）/
+         bodyLg=16（361 处）/ subtitle=18 / title=20 / headline=24 -->
+    <dimen name="font_micro">10sp</dimen>
     <dimen name="font_caption">11sp</dimen>
     <dimen name="font_footnote">12sp</dimen>
     <dimen name="font_label">13sp</dimen>
     <dimen name="font_body">14sp</dimen>
+    <dimen name="font_body_sm">15sp</dimen>
     <dimen name="font_body_lg">16sp</dimen>
     <dimen name="font_subtitle">18sp</dimen>
     <dimen name="font_title">20sp</dimen>

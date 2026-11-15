@@ -61,14 +61,16 @@ public final class Tokens {
     public static final int RADIUS_PILL = 4;
 
     /** 字号档位 */
-    public static final int TEXT_CAPTION = 0;
-    public static final int TEXT_FOOTNOTE = 1;
-    public static final int TEXT_LABEL = 2;
-    public static final int TEXT_BODY = 3;
-    public static final int TEXT_BODY_LG = 4;
-    public static final int TEXT_SUBTITLE = 5;
-    public static final int TEXT_TITLE = 6;
-    public static final int TEXT_HEADLINE = 7;
+    public static final int TEXT_MICRO = 0;
+    public static final int TEXT_CAPTION = 1;
+    public static final int TEXT_FOOTNOTE = 2;
+    public static final int TEXT_LABEL = 3;
+    public static final int TEXT_BODY = 4;
+    public static final int TEXT_BODY_SM = 5;
+    public static final int TEXT_BODY_LG = 6;
+    public static final int TEXT_SUBTITLE = 7;
+    public static final int TEXT_TITLE = 8;
+    public static final int TEXT_HEADLINE = 9;
 
     /** 字重（与字号正交：同一档字号可以配不同字重） */
     public enum Weight {
@@ -177,10 +179,12 @@ public final class Tokens {
 
     private static int fontRes(int tier) {
         switch (tier) {
+            case TEXT_MICRO: return com.oilquiz.app.R.dimen.font_micro;
             case TEXT_CAPTION: return com.oilquiz.app.R.dimen.font_caption;
             case TEXT_FOOTNOTE: return com.oilquiz.app.R.dimen.font_footnote;
             case TEXT_LABEL: return com.oilquiz.app.R.dimen.font_label;
             case TEXT_BODY: return com.oilquiz.app.R.dimen.font_body;
+            case TEXT_BODY_SM: return com.oilquiz.app.R.dimen.font_body_sm;
             case TEXT_BODY_LG: return com.oilquiz.app.R.dimen.font_body_lg;
             case TEXT_SUBTITLE: return com.oilquiz.app.R.dimen.font_subtitle;
             case TEXT_TITLE: return com.oilquiz.app.R.dimen.font_title;
