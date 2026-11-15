@@ -135,3 +135,40 @@
 | `ui/slot` 的 kind 与实际行为是否一致 | 实测样本 |
 
 > 结论：**先不要改代码**。以 32 号文档为权威，本文件仅作"待实测清单"。
+
+## 7. 三项实测的代码层核对结果（2026-11-16，未改代码）
+
+### 7.1 `approval/policy` 会不会和甲板 `permission` 槽重复？
+
+**不重复，是"各自一个载体"：**
+
+| 来源 | 产出 | 形态 |
+|---|---|---|
+| 事件 `approval/policy` | `DshCards` L335 → `permissionStateCard()` → card id `permission-state`，`alert_card` | **消息流里一张提示卡**（标题"权限"，带「改权限」action） |
+| 甲板槽 | `ui/slot` 帧（`slot=permission`） | **甲板一行 chip** |
+
+两者用途不同（一个留痕在对话里、一个常驻甲板），**不构成重复展示**。
+若要"只留甲板"，那属于产品取舍，不是 bug。
+
+### 7.2 宿主层（`layer: host`）审批是否被 `fetchPendingActions` 覆盖？
+
+代码层：`RemoteDshTool.fetchPendingActions()` 调 `POST action=approval_state`，返回
+`{id, kind: approval|question, request, agent_id}` —— 它读的是**电脑端网关 pending 表**，
+与事件 `layer` 无关（session/host 都进同一张 pending 表）。
+❓仍需实测一次 host 层审批确认（手机侧无法单方面造出 host 审批）。
+
+### 7.3 `ui/slot` kind 一致性（插件 vs 客户端）
+
+| 侧 | 支持的 kind | 归一化 |
+|---|---|---|
+| 插件 `normalizeSlotFields`（index.js L1936） | `state / progress / list / action`（`SLOT_KINDS`） | 空 → state；未知 → 降级 + 记 warning |
+| 客户端 `SlotKind.normalize` | 同上四种；`display`/`toggle` 是**旧别名**，静默按 state | 必填不匹配 → warn + 降级 state |
+
+**两边规则一致（同规则同输出）**，且插件实际发的是 `list ×9`、`action ×2`（无未知 kind）。
+结论：**kind 这一层没有错配**，之前担心的"标错导致点了没反应"不成立 ——
+`action` 必须带 `actions`，否则客户端会 warn 并降级成 state（这属于防御已到位）。
+
+### 7.4 结论
+
+三项核对里 **7.1 / 7.3 已用代码证明没问题**；7.2 只差一次真机 host 审批实测。
+因此**不需要为这三项改代码**，文档保持为"事实记录 + 待实测一项"。
