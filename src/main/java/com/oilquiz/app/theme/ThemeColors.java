@@ -60,6 +60,41 @@ public final class ThemeColors {
         ATTR_BY_RES.put(R.color.text_hint, R.attr.colorControlTextHint);
         ATTR_BY_RES.put(R.color.background, R.attr.colorBackground);
         ATTR_BY_RES.put(R.color.on_background, R.attr.colorOnBackground);
+        // 2026-11-16 补全：状态色 / 边框 / 分隔线 / 遮罩 / 图表色统一走 attr
+        //（以前这些是"固定色"，换肤和深色都只能靠 @color 的 values-night，不能按主题覆盖）
+        ATTR_BY_RES.put(R.color.success, R.attr.colorSuccess);
+        ATTR_BY_RES.put(R.color.success_color, R.attr.colorSuccess);
+        ATTR_BY_RES.put(R.color.success_light, R.attr.colorSuccessContainer);
+        ATTR_BY_RES.put(R.color.success_container, R.attr.colorSuccessContainer);
+        ATTR_BY_RES.put(R.color.on_success, R.attr.colorOnSuccess);
+        ATTR_BY_RES.put(R.color.warning, R.attr.colorWarning);
+        ATTR_BY_RES.put(R.color.warning_color, R.attr.colorWarning);
+        ATTR_BY_RES.put(R.color.warning_light, R.attr.colorWarningContainer);
+        ATTR_BY_RES.put(R.color.warning_container, R.attr.colorWarningContainer);
+        ATTR_BY_RES.put(R.color.on_warning, R.attr.colorOnWarning);
+        ATTR_BY_RES.put(R.color.error, R.attr.colorDanger);
+        ATTR_BY_RES.put(R.color.error_color, R.attr.colorDanger);
+        ATTR_BY_RES.put(R.color.error_light, R.attr.colorErrorContainer);
+        ATTR_BY_RES.put(R.color.error_container, R.attr.colorErrorContainer);
+        ATTR_BY_RES.put(R.color.on_error, R.attr.colorOnDanger);
+        ATTR_BY_RES.put(R.color.on_error_container, R.attr.colorOnErrorContainer);
+        ATTR_BY_RES.put(R.color.info_color, R.attr.colorInfo);
+        ATTR_BY_RES.put(R.color.border, R.attr.colorBorder);
+        ATTR_BY_RES.put(R.color.border_light, R.attr.colorBorder);
+        ATTR_BY_RES.put(R.color.component_border, R.attr.colorBorder);
+        ATTR_BY_RES.put(R.color.chat_v2_border, R.attr.colorBorder);
+        ATTR_BY_RES.put(R.color.chat_v2_border_strong, R.attr.colorBorderStrong);
+        ATTR_BY_RES.put(R.color.divider, R.attr.colorDivider);
+        ATTR_BY_RES.put(R.color.agent_summary_divider, R.attr.colorDivider);
+        ATTR_BY_RES.put(R.color.card_scrim, R.attr.colorScrim);
+        ATTR_BY_RES.put(R.color.chart_1, R.attr.colorChart1);
+        ATTR_BY_RES.put(R.color.chart_2, R.attr.colorChart2);
+        ATTR_BY_RES.put(R.color.chart_3, R.attr.colorChart3);
+        ATTR_BY_RES.put(R.color.chart_4, R.attr.colorChart4);
+        ATTR_BY_RES.put(R.color.chart_5, R.attr.colorChart5);
+        ATTR_BY_RES.put(R.color.chart_6, R.attr.colorChart6);
+        ATTR_BY_RES.put(R.color.chart_7, R.attr.colorChart7);
+        ATTR_BY_RES.put(R.color.chart_8, R.attr.colorChart8);
     }
 
     private ThemeColors() {

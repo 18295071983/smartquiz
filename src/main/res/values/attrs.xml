@@ -103,4 +103,29 @@
         <attr name="dtb_global_min" format="integer"/>
         <attr name="dtb_global_max" format="integer"/>
     </declare-styleable>
+    <!-- 2026-11-16 主题基础设施补全：状态色/边框/分隔线/遮罩/图表色也走 attr，
+         这样它们与主色同一条通路（换肤可覆盖、自检页可统计、缺失可告警）。 -->
+    <attr name="colorSuccess" format="color"/>
+    <attr name="colorOnSuccess" format="color"/>
+    <attr name="colorSuccessContainer" format="color"/>
+    <attr name="colorWarning" format="color"/>
+    <attr name="colorOnWarning" format="color"/>
+    <attr name="colorWarningContainer" format="color"/>
+    <attr name="colorDanger" format="color"/>
+    <attr name="colorOnDanger" format="color"/>
+    <attr name="colorErrorContainer" format="color"/>
+    <attr name="colorOnErrorContainer" format="color"/>
+    <attr name="colorInfo" format="color"/>
+    <attr name="colorOnInfo" format="color"/>
+    <attr name="colorBorder" format="color"/>
+    <attr name="colorBorderStrong" format="color"/>
+    <attr name="colorScrim" format="color"/>
+    <attr name="colorChart1" format="color"/>
+    <attr name="colorChart2" format="color"/>
+    <attr name="colorChart3" format="color"/>
+    <attr name="colorChart4" format="color"/>
+    <attr name="colorChart5" format="color"/>
+    <attr name="colorChart6" format="color"/>
+    <attr name="colorChart7" format="color"/>
+    <attr name="colorChart8" format="color"/>
 </resources>

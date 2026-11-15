@@ -3003,3 +3003,32 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 - **换形态保留**：坑 11（贴底判据要自己实现）、坑 13（键盘与 insets 仍要逐机型验）；
 - **会放大**：性能（高频 token 仍要节流）、安全（整页 WebView 攻击面更大，CSP 必须一开始就配）。
 - 迁移前三个最小验证：① 50ms/批 token 连推 60 秒不卡；② pinned 弹键盘贴底、unpinned 位置不动；③ 200 条消息 + 20 个表格滚动稳定。任一条不过就别投入。
+
+
+---
+
+## 十七、主题基础设施（2026-11-16）
+
+### 17.1 颜色取用链路（现状与已修）
+
+`ThemeColors.get(Context, resId)` 原来是 17 条手写 if 白名单，**622 个 `R.color` 里只有 20 个跟随换肤（3.2%）**，其余静默取固定色。已改为：
+
+| 机制 | 说明 |
+|---|---|
+| 映射表 `ATTR_BY_RES` | resId → attrId，与旧白名单逐条等价；`attrForResId()` 供单测核对 |
+| Debug 告警 | 未接主题的颜色打一行「颜色未接主题: <资源名> → 固定值」，同 resId 只打一次 |
+| 安全取色 `safeColor` | 资源在当前配置下不存在时退回透明 + 告警，**不再抛 Resources$NotFoundException 打崩页面**（真机踩过：values-night 专属色） |
+| 可观测 API | `isThemeAware(resId)` / `themeAwareResIds()` 供自检页统计 |
+
+### 17.2 语义色补全（2026-11-16）
+
+新增 21 个语义 attr 并接进 `Theme.OilQuizApp.Base`：状态色（`colorSuccess/colorWarning/colorDanger/colorInfo` 及其 on- 与 container 变体）、`colorBorder/colorBorderStrong/colorScrim`、`colorChart1..8`。映射表扩到 **53 个 resId**。
+
+> 注意：`colorError/colorOnError` 是 Material 库属性，不在 app 的 `R.attr` 里，所以错误色用自定义名 `colorDanger/colorOnDanger`，值指向 `@color/error`。
+
+**真机自检页实测：跟随率 3.2% → 8.5%（20 → 53 个）**，其余 569 个为业务色/图表旧色，待分类。
+
+### 17.3 主题自检页
+
+入口：`am start -n com.oilquiz.app/.infra.DebugLayoutInjectActivity --es mode theme_audit`（或 App 内调试入口）。
+反射遍历 `R.color` 全部字段，色块 + 资源名 + 跟随/固定，顶部 `总计 · 跟随 · 固定 · 跟随率`，搜索支持名字与 `#RRGGBB`，点行复制 `名称 = #RRGGBB`。它是后续「颜色分类」那步的工作清单。
