@@ -2966,14 +2966,14 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 | 4 | 净化器自身崩 → 模型 HTML 卡整片空白 | 先收集 `attributes()` 再删；失败 fail-closed | `HtmlSandbox`（Jsoup `removeAttr`） | 已验（单测 `HtmlSandboxTest`） |
 | 5 | 卡片高度比内容高一点 | 接受近似值 + 封顶内部滚动 | `HtmlCardView.maxHeightPx` | 设计取舍 |
 | 6 | 量高把焦点弹掉 | 页面内有输入框编辑时**不改容器高度**，推迟 `DEFERRED_MEASURE_MS = 800` 重试，超 `MAX_DEFERRED_MEASURES` 放弃本次 | `ai/chat/component/HtmlCardView.java`（L441–537） | 已验（代码 + 注释给出真机证据） |
-| 7 | 重绑重建产物 → 焦点/滚动/播放进度丢失 | 产物摘要（id+type+props）记 tag，摘要未变不重建 | `ai/chat/parts/ProductCards.java` | 待验 |
+| 7 | 重绑重建产物 → 焦点/滚动/播放进度丢失 | 产物摘要（id+type+props）记 tag，摘要未变不重建 | `ai/chat/parts/ProductCards.java` | 已验（单测 `WebViewPitfallsTest`） |
 | 8 | 键盘监听抢焦点 → 卡片输入框打不进字 | **2026-10-25 起已不是"焦点归属放行"**：旧 `setupKeyboardListener`（`getWindowVisibleDisplayFrame` + 15% 阈值 + 100ms 补滚）**整段删除**，改由 `main_content` 的 `OnApplyWindowInsetsListener` 驱动 `StickToBottom.onViewportChanged()`；焦点抢占问题随删除消失 | `AIChatActivity`（L12220 注释）、`StickToBottom` | 已验（代码删除即修复） |
 | 9 | 流式整篇重载 → 打字机卡顿/闪 | AST 块切分 + 只换尾巴 + `__qzStream` + `prefixHash` 指纹，闭块才高亮 | `MarkdownStreamSplitter` / `MarkdownStreamTailFlag` / `MarkdownWebView` | 已验（单测 `MarkdownStreamSplitterTest`） |
 | 10 | 表格列宽不重排 | 完成态且含 `<table>` 时整篇 `loadDocument()` 一次 | `MarkdownWebView` | 已验 |
 | 11 | 超高 WebView 让滚动判据失真 | 末项不可见返回 `FAR_FROM_BOTTOM`，不用估算值冒充精确值 | `StickToBottom` | 已验（真机截图） |
 | 12 | 程序化收缩被当成"用户回底" | 区分用户主动回底与程序化收缩，后者不解除 `userOptedOut` | `StickToBottom` | 已验（真机截图） |
 | 13 | insets 判键盘太晚 | `OnApplyWindowInsetsListener` 逐帧回调 | `AIChatActivity` `main_content` | 已验（真机截图） |
-| 14 | 裸 `removeAllViews` 泄漏 | 走 `releaseAndClearComponents` 树遍历释放 | `ChatAdapter` | 待验 |
+| 14 | 裸 `removeAllViews` 泄漏 | 走 `releaseAndClearComponents` 树遍历释放 | `ChatAdapter` / `ProductCards.releaseAll` | 已验（单测 `WebViewPitfallsTest`） |
 | 15 | 自动化滑动滚不动 | 从左侧边距/折叠头起手（WebView 内部吃掉手势） | 测试口径 | 测试口径 |
 | 16 | 沙箱收紧后卡片按钮失效 | 交互走 `props.actions` 原生 footer，或落 HTML 文件走 `LOCAL_FILE` 档 | `ComponentData.props.actions` / `HtmlSandbox.Trust.LOCAL_FILE` | 设计取舍 |
 
@@ -2983,6 +2983,14 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    实际是**整段删除旧键盘监听**、改 insets 驱动 —— 再改 WebView 时不要去找那个 `findFocus` 判断，它不存在。
 2. **坑 2 的兜底名字**：文档叫「1.2s 看门狗」，代码里是 `LOAD_SETTLE_MS = 1200L` + `retryLoadIfNeeded()`。
 3. **坑 9 的状态偏保守**：已有 `MarkdownStreamSplitterTest`，从「待验」改「已验（单测）」。
+
+### 16.1.1 两条「待验」已用单测钉住（2026-11-16）
+`src/test/java/com/oilquiz/app/ai/chat/parts/WebViewPitfallsTest.java`（Robolectric，8 条）：
+
+- 坑 7：`digestOf` 同输入稳定、props 变化/顺序变化必变；`unchanged` 要求"有子视图 + 记过摘要"，`markMounted` 后同摘要判未变化、异摘要判需重建；
+- 坑 14：`ProductCards.releaseAll` 深度遍历两层嵌套组件各释放一次并清空容器；普通 ViewGroup 中间层也会继续下钻；null/空容器安全。
+
+> 因此文档里这两条不再标「待验」；再改产物挂载或释放路径时，先跑这条测试。
 
 ### 16.2 如果要把对话页换成整页 WebView（Vue 3）
 
