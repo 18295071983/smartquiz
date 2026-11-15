@@ -73,6 +73,9 @@ public class LayoutPrimitiveCardView implements ChatComponent {
             View v = com.oilquiz.app.ai.python.NativeLayoutRenderer.render(
                     context, new org.json.JSONObject().put("root", node), null, new java.util.HashMap<>());
             if (v != null) {
+                // 交互回传（2026-11-16，第 3 项）：把控件当前值注册成该组件的 input collector，
+                // 否则 ui_component get_result 拿不到 slider/toggle 的值（"能看不能用"）。
+                PrimitiveInputCollector.registerIfPossible(data, v);
                 return v;
             }
         } catch (Throwable t) {
