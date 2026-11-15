@@ -186,8 +186,30 @@ public final class UiFx {
         play(view, R.anim.cursor_blink);
     }
 
-    /** 天气图标微动效。 */
+    /**
+     * 天气图标微动效。
+     *
+     * <p>注意：{@code res/anim/weather_icon_anim.xml} 是 <b>&lt;animation-list&gt;</b>（逐帧动画，
+     * 由 3 张 weather_sunny_1/2/3 组成），不是 tween 动画 —— 用 {@link AnimationUtils#loadAnimation}
+     * 加载会失败（返回 null），表现就是"天气图标不动"。正确做法是当 Drawable 取出后 start()。
+     * 这里的实现两种情况都兼容：AnimationDrawable 走帧动画，其它走 tween。</p>
+     */
     public static void weatherIcon(View view) {
+        if (view == null) {
+            return;
+        }
+        try {
+            android.graphics.drawable.Drawable d = androidx.core.content.res.ResourcesCompat.getDrawable(
+                    view.getContext().getResources(), R.anim.weather_icon_anim,
+                    view.getContext().getTheme());
+            if (d instanceof android.graphics.drawable.AnimationDrawable) {
+                view.setBackground(d);
+                ((android.graphics.drawable.AnimationDrawable) d).start();
+                return;
+            }
+        } catch (Throwable ignored) {
+            // 帧动画加载失败则退回 tween
+        }
         play(view, R.anim.weather_icon_anim);
     }
 

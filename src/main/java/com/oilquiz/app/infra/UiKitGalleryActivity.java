@@ -176,7 +176,13 @@ public class UiKitGalleryActivity extends AppCompatActivity {
         addAnimRow(content, "welcome_card_enter（欢迎卡入场）", () -> UiFx.welcomeIn(stage));
         addAnimRow(content, "thinking_dot_bounce（思考中）", () -> UiFx.thinking(stage));
         addAnimRow(content, "cursor_blink（光标闪烁）", () -> UiFx.cursorBlink(stage));
-        addAnimRow(content, "weather_icon_anim（天气图标）", () -> UiFx.weatherIcon(stage));
+        // 天气是逐帧动画（animation-list，3 张 weather_sunny），必须给一个固定尺寸的 ImageView 才看得见
+        final ImageView weatherIcon = new ImageView(this);
+        weatherIcon.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        final LinearLayout.LayoutParams wiLp = new LinearLayout.LayoutParams(dp(56), dp(56));
+        weatherIcon.setLayoutParams(wiLp);
+        content.addView(weatherIcon);
+        addAnimRow(content, "weather_icon_anim（天气图标 · 逐帧）", () -> UiFx.weatherIcon(weatherIcon));
         addAnimRow(content, "slide_in_left（左滑入）", () -> UiFx.slideInLeft(stage));
         addAnimRow(content, "slide_in_right（右滑入）", () -> UiFx.slideInRight(stage));
         addAnimRow(content, "button_state_list_animator（按钮状态）", () -> UiFx.buttonState(stage));
