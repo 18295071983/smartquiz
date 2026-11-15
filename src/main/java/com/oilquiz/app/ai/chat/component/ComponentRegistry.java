@@ -145,6 +145,11 @@ public class ComponentRegistry {
         Log.i(TAG, "registered component: " + component.getType());
     }
 
+    /** 全部已注册类型（目录展示/批量冒烟测试用；2026-11-16 新增） */
+    public java.util.Set<String> allTypes() {
+        return new java.util.TreeSet<>(components.keySet());
+    }
+
     /** 是否注册了指定类型组件（旧名/别名按 canonical 解析后再判断） */
     public boolean hasType(String type) {
         if (type == null) return false;

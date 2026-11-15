@@ -51,23 +51,44 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 列出全部已注册卡片类型（批量冒烟时先拿名单）：--es mode list_cards
+        if ("list_cards".equals(getIntent().getStringExtra("mode"))) {
+            java.util.Set<String> types = com.oilquiz.app.ai.chat.component.ComponentRegistry
+                    .getInstance().allTypes();
+            Log.i(TAG, "CARD_TYPES(" + types.size() + ")=" + String.join(",", types));
+            finish();
+            return;
+        }
+
         // render.card 插件验证（2026-11-16）：注册一个「借内置卡片」的动态组件并弹窗渲染
         if ("card_plugin".equals(getIntent().getStringExtra("mode"))) {
             try {
                 com.oilquiz.app.ai.tool.AIToolManager tm =
                         com.oilquiz.app.ai.tool.AIToolManager.getInstance(this);
                 org.json.JSONObject render = new org.json.JSONObject();
-                render.put("card", "progress_card");           // ← 复用内置进度卡
+                String cardType = getIntent().getStringExtra("card");
+                if (cardType == null || cardType.trim().isEmpty()) {
+                    cardType = "progress_card";
+                }
+                render.put("card", cardType);                  // ← 复用内置卡片（--es card 可指定）
                 render.put("title", "动态组件 · render.card 验证");
                 org.json.JSONObject props = new org.json.JSONObject();
-                props.put("progress", 66);
-                props.put("description", "这个组件没有自己拼 View，而是借了 progress_card");
-                props.put("status", "running");
+                String propsB64 = getIntent().getStringExtra("props_b64");
+                if (propsB64 != null && !propsB64.isEmpty()) {
+                    // 批量冒烟：每个卡片类型可以带自己的最小 props（base64 避免 shell 转义地狱）
+                    props = new org.json.JSONObject(new String(
+                            android.util.Base64.decode(propsB64, android.util.Base64.DEFAULT), "UTF-8"));
+                } else {
+                    props.put("progress", 66);
+                    props.put("title", "进度");
+                    props.put("description", "动态组件借内置卡片渲染");
+                    props.put("status", "running");
+                }
                 render.put("props", props);
 
                 java.util.Map<String, Object> reg = new java.util.HashMap<>();
                 reg.put("action", "register_type");
-                reg.put("name", "debug_card_plugin");
+                reg.put("name", "debug_card_plugin");   // 同名覆盖注册，循环试卡不会堆积
                 reg.put("description", "render.card 验证插件");
                 reg.put("persist", false);
                 reg.put("render", render.toString());
