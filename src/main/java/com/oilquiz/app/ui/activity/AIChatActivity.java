@@ -14242,6 +14242,16 @@ public class AIChatActivity extends BaseActivity {
             showPermissionChange();
             return;
         }
+        // 2026-11-15 体检：inbox 的 action 是 queue，但以前没有分支，落到远程连接页。
+        if ("queue".equals(act) || "inbox".equals(act)) {
+            showRemoteQueueDialog();
+            return;
+        }
+        // 目标槽内联动作：goal.pause / goal.resume / goal.clear → POST /v2/action
+        if (act.startsWith("goal.")) {
+            submitGoalAction(act);
+            return;
+        }
         openDockSlotPanel(act);
     }
 
@@ -14348,7 +14358,8 @@ public class AIChatActivity extends BaseActivity {
     /** 其余插槽：任务/目标/日程/子代理/MCP 进面板，未知动作进远程连接页 */
     private void openDockSlotPanel(String action) {
         if ("jobs".equals(action) || "goal".equals(action) || "schedule".equals(action)
-                || "subagents".equals(action) || "mcp".equals(action) || "permission".equals(action)) {
+                || "plan".equals(action) || "subagents".equals(action) || "mcp".equals(action)
+                || "permission".equals(action)) {
             // 后台任务 / 目标 / 日程 / 计划 / 子代理 / MCP 都在这个面板里（P3 复用，不再新开页面）
             startActivity(new android.content.Intent(this,
                     com.oilquiz.app.ai.tool.RemoteDshInsightActivity.class));
@@ -14777,6 +14788,58 @@ public class AIChatActivity extends BaseActivity {
                 }
             });
         }, "dsh-permission-set").start();
+    }
+
+    /**
+     * 目标槽内联动作（2026-11-15）。
+     *
+     * <p>{@code goal.pause} / {@code goal.resume} / {@code goal.clear} 由插件转成 DSH
+     * GoalService 的 pause/resume/clear（需要 live agent + exact revision）。这里只负责
+     * 发请求和提示；成功与否以电脑端返回为准，**不在手机上假装状态已变**，槽位等插件
+     * 下一帧（或 remove）刷新。</p>
+     */
+    private void submitGoalAction(final String action) {
+        final String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
+        String sid = target;
+        if (sid == null || sid.isEmpty()) {
+            sid = com.oilquiz.app.ai.tool.RemoteDshTool.getDirectSessionId(this);
+        }
+        final String fSid = sid == null ? "" : sid;
+        if (fSid.isEmpty()) {
+            showToast("还没有跟随的会话，无法操作目标");
+            return;
+        }
+        new Thread(() -> {
+            org.json.JSONObject resp = null;
+            String err = null;
+            try {
+                java.util.Map<String, Object> extra = new java.util.HashMap<>();
+                extra.put("session_id", fSid);
+                extra.put("caps", "cmd.ui");
+                java.util.Map<String, Object> r =
+                        new com.oilquiz.app.ai.tool.RemoteSdk(AIChatActivity.this)
+                                .action(action, extra);
+                if (r != null) resp = new org.json.JSONObject(r);
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+            final org.json.JSONObject fResp = resp;
+            final String fErr = err;
+            runOnUiThread(() -> {
+                boolean ok = fResp != null && fResp.optBoolean("ok", false);
+                if (ok) {
+                    String done = "goal.pause".equals(action) ? "目标已暂停"
+                            : ("goal.resume".equals(action) ? "目标已恢复" : "目标已清除");
+                    showToast(done);
+                    return;
+                }
+                String hint = fResp == null
+                        ? (fErr == null ? "电脑端不可达" : fErr)
+                        : fResp.optString("hint",
+                        fResp.optString("detail", fResp.optString("error", "电脑端没有执行这次目标操作")));
+                showToast("没改成：" + hint);
+            });
+        }, "dsh-goal-action").start();
     }
 
     /**

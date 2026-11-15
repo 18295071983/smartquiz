@@ -393,4 +393,68 @@ public class RemoteSlotBridgeTest {
         assertEquals(1, slot.actions.size());
         assertEquals("permission", slot.actions.get(0).id);
     }
+
+    // ===== 2026-11-15 插槽体检：脏值清洗 =====
+
+    @Test
+    public void dirtyTitleAndDetailAreSanitizedToRemoval() throws Exception {
+        // 真机「目标 · [object Object]」同款脏帧；清洗后 title/detail 都空 → 按空帧移除
+        JSONObject o = frame("dock-dirty", "[object Object]", "undefined NaN", 1L, 0L);
+        RemoteSlotBridge.apply(o);
+
+        assertTrue("[object Object]/undefined/NaN 不能落成一条空白槽", DockSlotBus.list().isEmpty());
+    }
+
+    @Test
+    public void objectTitleIsShallowExtractedInsteadOfJsonDump() throws Exception {
+        JSONObject o = new JSONObject();
+        o.put("id", "dock-obj-title");
+        o.put("rev", 1L);
+        JSONObject title = new JSONObject();
+        title.put("id", "goal-1");
+        title.put("objective", "把插槽体检做完");
+        o.put("title", title);
+        o.put("detail", "");
+        RemoteSlotBridge.apply(o);
+
+        assertEquals(1, DockSlotBus.list().size());
+        assertEquals("对象 title 要取 objective，不能显示 JSON/[object Object]",
+                "把插槽体检做完", DockSlotBus.list().get(0).title);
+    }
+
+    @Test
+    public void mixedDirtyTokenIsStrippedFromReadableText() throws Exception {
+        JSONObject o = frame("dock-mixed", "目标 [object Object]", "undefined 正在跑 NaN", 1L, 0L);
+        RemoteSlotBridge.apply(o);
+
+        DockSlotBus.Slot slot = DockSlotBus.list().get(0);
+        assertEquals("目标", slot.title);
+        assertEquals("正在跑", slot.detail);
+    }
+
+    @Test
+    public void overlongTextIsTruncatedTo80WithEllipsis() throws Exception {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 120; i += 1) sb.append('x');
+        JSONObject o = frame("dock-long", sb.toString(), sb.toString(), 1L, 0L);
+        RemoteSlotBridge.apply(o);
+
+        DockSlotBus.Slot slot = DockSlotBus.list().get(0);
+        assertEquals("超长 title 截断到 80 字（含 …）", 80, slot.title.length());
+        assertTrue("截断必须带 …", slot.title.endsWith("…"));
+        assertEquals(80, slot.detail.length());
+    }
+
+    @Test
+    public void dirtyActionLabelDroppedAndActionDegrades() throws Exception {
+        JSONObject o = frame("dock-act-dirty", "权限", "", 1L, 0L);
+        o.put("kind", "action");
+        o.put("actions", new JSONArray().put(new JSONObject()
+                .put("id", "permission").put("label", "[object Object]")));
+        RemoteSlotBridge.apply(o);
+
+        DockSlotBus.Slot slot = DockSlotBus.list().get(0);
+        assertEquals("只剩脏 label → actions 为空 → 降级 state", "state", slot.kind);
+        assertTrue(slot.actions.isEmpty());
+    }
 }

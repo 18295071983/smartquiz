@@ -1567,13 +1567,68 @@ App 侧：
 审批走独立 `approval` 帧/对话框，不硬造）；`jobs`/`subagents`/`goal`/`mcp`/`schedule`/`retry`/
 `compaction` 及 `phone_ui` 通用帧显式/default 为 `state`。`GET /v2/slots` 每条增加 `progress`
 与 `actions`（与推帧同一份 `SLOT_LAST`，App 逐条走同一个 `apply`）。
+> 2026-11-15 全量体检后，`goal` 改 `action`，`jobs`/`subagents`/`mcp`/`schedule` 改
+> `list`/`progress`，见 §5.15；本段保留的是 5.13 当时的接线记录。
 
 验证与真机见 §5.11 第 4 轮；本章边界见 §7.5。
 
 ### 5.14 本章边界（见 §7.5）
 
 溢出聚合只做可点一行、上限是总线级、快照只覆盖插件内存、拉取只在连接建立时、level 未参与
-排序之外的逻辑、compaction 无周期心跳、mcp 只增不减 —— 见 §7.5。
+排序之外的逻辑；本轮已修 goal/jobs/subagents/mcp/schedule/plan/inbox 的接线与文本，
+剩余边界见 §5.15 与 §7.5。
+
+### 5.15 全量插槽体检表与修复（2026-11-15）
+
+> 用户口径：所有甲板插槽逐条体检，有缺陷的、没做的功能一起修掉。
+> 检项：文本脏值（`[object Object]`/`undefined`/`NaN`/空串/超长）、状态泄漏（结束是否 remove、
+> TTL）、点击动作是否有 App 分支、kind 语义、count 与真实条目、会话过滤（串台）。
+
+| 插槽 | 生产者 | 触发/清除条件 | title/detail 来源 | kind | actions | 点击行为 | 缺陷（体检结论） |
+|---|---|---|---|---|---|---|---|
+| `goal` | `session/event goal/change`；host `goal/activation-changed`；连接时 `ctx.goals.get` | 有目标→显示；`goal/change` 的 pause/resume/complete/block 改按钮；clear/无目标→remove | 固定 `目标` + `goal.objective`（`slotText` 递归取 `objective`） | `action` | `暂停`/`恢复` + `清除`（≤2） | 整行→Insight 目标面板（本轮补了暂停/恢复/清除按钮）；行内→`goal.pause/resume/clear`→`POST /v2/action`→DSH `ctx.goals` | 已修：`[object Object]`；`state` 无按钮；激活事件挂在 `session/event` 永远收不到；面板只读 |
+| `jobs` | `job/registered`/`job/settled`（按 `owner` 归属） | 有任务历史→显示；全部结束仍显示"空闲"；`jobs.clear`→remove | 固定 `任务`/`任务（有失败）` + `N 个在跑 · 共 M 条`（与 `/v2/jobs?session_id=` 同源） | 有百分比→`progress`；有活跃→`list(count=活跃数)`；空闲→`state` | 无 | 整行→Insight 任务区 | 已修：全局帧串台；kind 恒 `state`；30s TTL 会清掉仍在跑的长任务；detail/count 与接口不同源 |
+| `permission` | `sandbox/mode`、`permission/preset`、`approval/policy`、`agent-preset/selected`；连接时向宿主补读 | 有沙箱/审批值→显示；都空→remove | `权限` + `完全访问/可写/只读 · 审批:…` | `action` | `调整（完全访问/可写/只读）` | 整行/按钮→权限变更卡（三个沙箱档位都在卡里） | 已修：按钮恒为「调整」看不出当前档位；3 档走变更卡，不需要为了 2 个上限硬砍 |
+| `schedule` | `schedule/changed`；连接时 `schedule.list` | 有启用任务→显示；空→remove | `定时任务` + `N 个启用中` | `list(count=N)` | 无 | 整行→Insight 日程区 | 已修：`state` 不显示 count；空帧改为显式 remove |
+| `mcp` | `tool/call` 的 `mcp__<server>__<tool>`，按会话统计；连接时补发 | 本会话用过 MCP→显示；空→remove | `MCP 服务` + `N 个已用过` | `list(count=N)` | 无 | 整行→Insight MCP 区 | 已修：全局 Set 串台；`state` 不显示 count；仍无 TTL（见 §7.5） |
+| `subagents` | `subagent/catalog`、子代理轮询活动/结束、连接时按根会话补发 | 有存活或 90s 内活动→显示；全部结束→remove | `子代理` + `N 个在跑 · 共 M 个` | `list(count=活跃数)` | 无 | 整行→Insight 子代理区 | 已修：全局帧串台；`state` 不显示 count；30s TTL 会清掉长跑子代理 |
+| `inbox` | 插件 `SESSION_INBOX`（inject 排队、撤回/修改、drain） | 队列非空→显示；空→remove | `插话排队` + `N 条等待发送 · 点开可撤回/修改` | `list(count=N)` | 无 | 整行→手机端插话队列对话框 | 已修：App 没有 `queue` 分支，点了落到远程连接页；30s TTL 会清掉仍在排队的队列 |
+| `compaction` | `compaction/start/summary/prune/end` | start/summary/prune→显示并续 TTL；end→remove | `正在压缩上下文…` | `state` | 无 | 不可点 | 已修：summary/prune 不续 TTL，长压缩会提前消失；end remove 原本已有 |
+| `retry` | `llm/retry-started`/`llm/retry` | 重试→显示；turn/start/end、assistant/message、step/end、error→remove；30s TTL 兜底 | `模型重试` + `第 N 次重试中…` | `state`（warn） | 无 | 不可点 | 已修：帧按会话下发，remove 却是全局帧，可能留下 scoped 快照；结束 remove 原本已有 |
+| `plan` | `plan/mode`；连接时 `ctx.planMode.get` | active→显示；inactive→remove | `计划模式` + `已开启 · 点开可关闭` | `state` | 无 | 整行→Insight 计划区（可开关） | 新做：此前只有事件目录，没有生产者；App 也不认 `plan`，会落连接页 |
+| `phone_ui` | `phone_ui` 工具 / `POST /v2/action {action:'ui.slot'}` | 推帧→显示；空 title/detail 或 `remove:true`→remove | 调用方给的 title/detail → `slotText` | 契约内任意 | 调用方给（≤2） | 调用方给 `slot_action`；未知动作仍落连接页（设计如此） | 已修：`String(title)` 先把对象变成 `[object Object]`，嵌套 objective 永远取不到；文本未清洗/未截断 |
+| `remote/attention` | 手机本地 `RemoteStatusSlots.publish` | 断线/待审批/落后>8→显示；否则 remove | 本地状态文案 | `state`（原来 `action`/`display`） | 无 | 断线→连接页；待审批→原地弹窗 | 已修：`action` 却没有 actions、或旧别名 `display`，都会被 SlotKind 静默降级 |
+| `remote_cmd` | 旧 `/cmd` 的 `ui_component slot` | 有 title/text→显示；空→remove | 电脑端命令的 title/text | `state` | 无 | 命令给的 action；未知→连接页 | **未修**：旧通道，无 TTL；`phone_ui` 已取代（见 §7.5） |
+
+**统一修复（跨槽）**：
+
+- **文本清洗单一入口**：插件 `broadcastSlot` 对 title/detail/actions[].label 统一过
+  `slotText()`；App 侧 `SlotText.clean/cleanField` 再兜一层（`DockSlotBus.Slot`、
+  `SlotKind.normalize`、`SlotAction.parse` 都走它）。规则：对象浅提取
+  （title/text/goal/objective/name/label/summary/description）、数组取前 3 项、剔除
+  `[object Object]/undefined/NaN`、压缩空白、>80 字截断加 `…`。
+- **会话隔离**：`goal/jobs/subagents/mcp/plan` 帧都带 `session_id`；`SLOT_LAST` 改为
+  `id+session_id` 存储，`/v2/slots`、`replaySlots`、`job`/`mcp` 查询按会话过滤；
+  `broadcastSlot()` 对"入参空但帧里带 session_id"的调用也按会话路由。
+- **TTL 纠偏**：只保留 `compaction`/`retry` 的 30s 兜底；`jobs/inbox/subagents` 可能持续
+  几分钟，改为显式 remove，避免状态仍有效时被 TTL 清掉。`inbox` 队列空、`jobs` 清空、
+  子代理全部结束都已有 remove 路径。
+- **空帧统一**：清洗/归一化后仍为空（含 `list` 缺 title、`action` 脏 label 降级）一律按
+  remove 下发，不再留空白槽；`title/detail 都空 + count>0` 的坏帧也不会误删。
+- **点击分支补齐**：App `onDockSlotClick` 新增 `queue`/`inbox`（打开插话队列对话框）与
+  `goal.*`（POST `/v2/action`）；`openDockSlotPanel` 新增 `plan`。未知动作仍落
+  `RemoteDshConnectActivity`（兜底页面，不是 404）。
+
+**验证（2026-11-15）**：
+
+- 插件：`node --check` 通过；`slot.test.mjs` **31/31**（新增脏值清洗、goal 按钮切换与
+  `goal.pause/resume/clear` 路由、jobs list/progress/clear、compaction/retry remove、
+  plan、schedule、permission label、inbox、subagents remove）。
+- App：`assembleDebug`/`compileDebugJavaWithJavac` 通过；定向单测
+  `SlotKindTest` 20、`RemoteSlotBridgeTest` 32、`DockSlotBusTest` 17、`SlotLedgerTest` 18
+  全绿（其余见 §5.11）。**真机未验证：设备离线**；待验清单见交付报告。
+- 插件热重载：`plugin_manager` 若报 `HMR transactions cannot be nested`，需重启 DSH 生效
+  （本轮未重启）。
 
 ## 6. 消息流渲染与回收：parts 管线、分页窗口、在线对照
 
@@ -1754,17 +1809,31 @@ ChatMessage ──AssistantTurn──▶ parts[]：reasoning / text / tool_call 
 - **level 未参与排序权重之外的任何逻辑**（例如没有按档位做颜色/分组）。
 - **模型/预设独立槽未做**：`agent-preset/selected`、`model/selection` 不再出卡，信息暂时塞在
   permission 插槽的 detail 里，「后续可加独立槽」尚未落地（见 §5.2）。
-- **TTL 续期不均**：`compaction` 只有 start/end、没有周期心跳，压缩超过 30s 会提前消失；
-  `mcp` 只增不减，靠断连 clear/重启消失（见 §5.5）。
+- **TTL 仍有边界**：`compaction` 靠 start/summary/prune 续 30s，若整整 30s 没有任何压缩事件
+  仍会提前消失（没有周期心跳）；`retry` 同类。`mcp` 按会话统计后仍只增不减，没有 TTL/清空入口，
+  靠断连 clear 或进程重启消失。旧 `/cmd` 的 `remote_cmd` 本地槽仍未配 TTL（`phone_ui` 已取代）。
+- **permission 仍是进程级最后取值**：`PERM_STATE` 没有按会话分表，最后一个 `sandbox/mode` /
+  `approval/policy` 事件会覆盖全局；手机同一时间只跟一条会话时够用，切换会话后以连接时的
+  宿主补读为准（见 §5.15 的已知边界）。
+- **jobs 的 progress 依赖生产者给数字**：DSH 的 `JobView.progress` 是字符串且不随
+  `job/registered`/`job/settled` 事件下发，所以实际大多数时候 jobs 走 `list`；只有事件里带
+  可解析的 `progress`（数字/`N/M`/`N%`）才用 `progress`。
+- **plan 只有状态行 + 整行点击**：没有行内「关闭」按钮；开关在 Insight 计划区，避免 action
+  按钮和面板里的开关出现两套语义。
 - **同 rev 复活收紧的边界**：`clear()` 已清水位，「断连后按原 rev 补发恢复」只走 `prev==null`；
   如果未来需要跨 `clear()` 的补发恢复，要重新设计水位（见 §5.4）。
-- **kind 只覆盖展示形态，不新增动作语义**：`action` 行的 `actionId` 仍必须命中既有动作名
-  （`jobs`/`permission`/`queue`…），没有自定义 RPC；按钮最多 2 个、`style` 只有 primary/plain；
-  按钮点击不打开全屏列表，行本身无 actions 时行为不变（见 §5.13）。
+- **kind 只覆盖展示形态，不新增通用 RPC**：`action` 行的 `actionId` 仍必须命中 App 已有分支
+  （`jobs`/`permission`/`queue`/`goal.*`…），没有自定义 RPC；按钮最多 2 个、`style` 只有
+  primary/plain；按钮点击不打开全屏列表，行本身无 actions 时行为不变（见 §5.13/§5.15）。
+- **未知 action 仍落连接页**：`openDockSlotPanel` 只认 jobs/goal/schedule/plan/subagents/mcp/
+  permission，其余（含用户自定义 `phone_ui` 的未知动作）走 `RemoteDshConnectActivity`
+  兜底；这是设计，不是 404。
 - **progress 不会自己动**：没有轮询/动画/ETA，生产者每次更新都要重新推帧（与 TTL 续期同一套）；
   `list` 的 count 只是徽标，点它不会就地展开列表（仍进全屏列表）。
 - **未知 kind 的 warn 只回给生产者**：插件日志 + `/v2/action` 响应 `warnings`（`phone_ui` 文本），
   App 侧只打 `[dock] kind 归一化` 日志；用户界面不会额外标「这条降级了」，避免瞬态槽变吵。
+- **真机未验证（设备离线）**：2026-11-15 本轮只做到编译 + 单测 + 插件自测；逐槽真机现象见
+  交付报告的「待真机验证清单」，不把代码级验证写成真机验证。
 - 未改：事件分流、投影、卡片渲染；`phone_ui` 的历史 `priority` 参数仍保留（数值语义不变）。
 
 第 6 章（消息流渲染与回收）没有独立未做项；相关限制分别归入 §7.3（投影）与 §7.4（卡片）。

@@ -36,7 +36,8 @@ public final class SlotAction {
 
     public SlotAction(String id, String label, String style) {
         this.id = id == null ? "" : id.trim();
-        this.label = label == null ? "" : label.trim();
+        // 2026-11-15：按钮文字与 title/detail 同一套清洗（对象/undefined/超长）
+        this.label = SlotText.clean(label);
         String s = style == null ? "" : style.trim().toLowerCase(Locale.ROOT);
         this.style = STYLE_PRIMARY.equals(s) ? STYLE_PRIMARY : STYLE_PLAIN;
     }
@@ -68,8 +69,8 @@ public final class SlotAction {
                 addWarning(warnings, "actions[" + i + "] 不是对象，已丢弃");
                 continue;
             }
-            String id = o.optString("id", "").trim();
-            String label = o.optString("label", "").trim();
+            String id = SlotText.cleanField(o, "id");
+            String label = SlotText.cleanField(o, "label");
             if (id.isEmpty() || label.isEmpty()) {
                 addWarning(warnings, "actions[" + i + "] 缺 id/label，已丢弃");
                 continue;

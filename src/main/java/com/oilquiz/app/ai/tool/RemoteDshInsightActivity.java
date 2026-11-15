@@ -133,7 +133,7 @@ public class RemoteDshInsightActivity extends AppCompatActivity {
             // P3(2026-11-13)：后台任务 / 目标由插件从会话事件派生（/v2/jobs、/v2/goal）
             RemoteSdk sdk = new RemoteSdk(this);
             try {
-                jobs = sdk.jobs();
+                jobs = sdk.jobs(sid);
             } catch (Exception e) {
                 if (error == null) error = "后台任务：" + e.getMessage();
             }
@@ -143,7 +143,7 @@ public class RemoteDshInsightActivity extends AppCompatActivity {
                 if (error == null) error = "目标：" + e.getMessage();
             }
             try {
-                mcp = sdk.mcp();
+                mcp = sdk.mcp(sid);
             } catch (Exception e) {
                 if (error == null) error = "MCP：" + e.getMessage();
             }
@@ -416,7 +416,12 @@ public class RemoteDshInsightActivity extends AppCompatActivity {
         render(lastSchedule, lastPlan, lastSubs, lastJobs, lastGoal, lastMcp, lastPerm, null);
     }
 
-    /** 目标（/v2/goal）：只读展示，暂停/取消仍回电脑端或对话里操作。 */
+    /**
+     * 目标（/v2/goal）：2026-11-15 体检后不再是只读。
+     *
+     * <p>暂停/恢复/清除都走 {@code /v2/action}，插件转 DSH GoalService 的
+     * pause/resume/clear（live agent + exact revision）；失败会明确显示原因。</p>
+     */
     private void appendGoalSection(Map<String, Object> resp, StringBuilder st) {
         Object g = resp != null && Boolean.TRUE.equals(resp.get("ok")) ? resp.get("goal") : null;
         host.addView(sectionTitle("目标（电脑端）", null));
@@ -431,6 +436,8 @@ public class RemoteDshInsightActivity extends AppCompatActivity {
         @SuppressWarnings("unchecked")
         Map<String, Object> goal = (Map<String, Object>) g;
         boolean active = Boolean.TRUE.equals(goal.get("active"));
+        boolean disarmed = "disarmed".equals(str(goal.get("activation")));
+        String phase = str(goal.get("phase"));
         LinearLayout box = card();
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
@@ -443,7 +450,49 @@ public class RemoteDshInsightActivity extends AppCompatActivity {
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         head.addView(chip(active ? "进行中" : "已结束", active ? TONE_OK : TONE_NEUTRAL));
         box.addView(head);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        if (!"complete".equals(phase)) {
+            boolean paused = !active || disarmed;
+            actions.addView(compactButton(paused ? "恢复" : "暂停", false,
+                    v -> goalWrite(paused ? "goal.resume" : "goal.pause")));
+        }
+        actions.addView(compactButton("清除", true, v -> goalWrite("goal.clear")));
+        box.addView(actions);
         host.addView(box);
+    }
+
+    /** 目标操作：POST /v2/action（goal.pause|resume|clear），完成后重拉一次面板。 */
+    private void goalWrite(final String action) {
+        final String sid = targetSession();
+        if (sid.isEmpty()) {
+            setStatus("还没有跟随的会话，无法操作目标");
+            return;
+        }
+        new Thread(() -> {
+            String err = null;
+            Map<String, Object> r = null;
+            try {
+                java.util.Map<String, Object> extra = new java.util.HashMap<>();
+                extra.put("session_id", sid);
+                extra.put("caps", "cmd.ui");
+                r = new RemoteSdk(this).action(action, extra);
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+            final Map<String, Object> fR = r;
+            final String fErr = err;
+            ui.post(() -> {
+                boolean ok = fR != null && Boolean.TRUE.equals(fR.get("ok"));
+                if (!ok) {
+                    String why = fR == null ? (fErr == null ? "电脑端不可达" : fErr)
+                            : str(fR.get("hint")) + " " + str(fR.get("error"));
+                    setStatus("目标操作失败：" + why.trim());
+                }
+                load();
+            });
+        }, "dsh-goal-write").start();
     }
 
     private static String jobStatusLabel(String status) {

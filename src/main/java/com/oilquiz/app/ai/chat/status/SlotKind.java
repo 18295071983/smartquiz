@@ -98,8 +98,8 @@ public final class SlotKind {
         if (data == null) return normalize("", "", "", null, null, null);
         return normalize(
                 data.optString("kind", ""),
-                data.optString("title", ""),
-                data.optString("detail", ""),
+                SlotText.cleanField(data, "title"),
+                SlotText.cleanField(data, "detail"),
                 number(data, "progress"),
                 integer(data, "count"),
                 data.optJSONArray("actions"));

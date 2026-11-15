@@ -275,4 +275,52 @@ public class SlotKindTest {
         assertEquals(1, o.optJSONArray("actions").length());
         assertEquals("permission", o.optJSONArray("actions").optJSONObject(0).optString("id"));
     }
+
+    // ===== 2026-11-15 插槽体检：goal 的 action 形态与按钮切换 =====
+
+    @Test
+    public void goalActionFrameCarriesPauseAndClearButtons() throws Exception {
+        JSONObject f = frame("action", "目标", "整理所有插槽");
+        JSONArray actions = new JSONArray();
+        actions.put(new JSONObject().put("id", "goal.pause").put("label", "暂停"));
+        actions.put(new JSONObject().put("id", "goal.clear").put("label", "清除"));
+        f.put("actions", actions);
+
+        SlotKind.Normalized n = SlotKind.normalize(f);
+        assertEquals("目标进行中应是 action kind", SlotKind.ACTION, n.kind);
+        assertEquals(2, n.actions.size());
+        assertEquals("goal.pause", n.actions.get(0).id);
+        assertEquals("暂停", n.actions.get(0).label);
+        assertEquals("goal.clear", n.actions.get(1).id);
+        assertEquals("清除", n.actions.get(1).label);
+        assertFalse(n.hasWarnings());
+    }
+
+    @Test
+    public void goalActionLabelSwitchesWhenGoalIsPaused() throws Exception {
+        JSONObject f = frame("action", "目标", "整理所有插槽");
+        JSONArray actions = new JSONArray();
+        actions.put(new JSONObject().put("id", "goal.resume").put("label", "恢复")
+                .put("style", "primary"));
+        actions.put(new JSONObject().put("id", "goal.clear").put("label", "清除"));
+        f.put("actions", actions);
+
+        SlotKind.Normalized n = SlotKind.normalize(f);
+        assertEquals(SlotKind.ACTION, n.kind);
+        assertEquals("goal.resume", n.actions.get(0).id);
+        assertEquals("恢复", n.actions.get(0).label);
+        assertEquals(SlotAction.STYLE_PRIMARY, n.actions.get(0).style);
+        assertEquals("goal.clear", n.actions.get(1).id);
+    }
+
+    @Test
+    public void goalActionWithDirtyTitleDegradesToState() throws Exception {
+        JSONObject f = frame("action", "[object Object]", "只有脏标题");
+        f.put("actions", new JSONArray().put(new JSONObject()
+                .put("id", "goal.pause").put("label", "暂停")));
+        SlotKind.Normalized n = SlotKind.normalize(f);
+        // 清洗后 title 为空 → action 缺必填 title，降级 state（与插件同规则）
+        assertEquals(SlotKind.STATE, n.kind);
+        assertTrue(n.hasWarnings());
+    }
 }

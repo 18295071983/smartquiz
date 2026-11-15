@@ -1694,13 +1694,14 @@ export function apply(ctx, config) {
       const items = Array.isArray(r?.items) ? r.items : (Array.isArray(r?.list) ? r.list : []);
       if (items.length === 0) {
         // 空 slot = 让手机端移除这一条
-        broadcastSlot('', { id: 'schedule' });
+        broadcastSlot('', { id: 'schedule', remove: true });
         return;
       }
       broadcastSlot('', {
         id: 'schedule',
         priority: SLOT_PRIORITY.p5,
-        kind: 'state',
+        kind: 'list',
+        count: items.length,
         title: '定时任务',
         detail: items.length + ' 个启用中',
         action: 'schedule',
@@ -1714,10 +1715,10 @@ export function apply(ctx, config) {
   // 不从 DSH 内部服务猜 API（版本间不稳），而是用插件**已经在转发**的会话事件自建状态：
   // 这样跨版本稳定，而且和手机时间线看到的是同一份事实。
   // 对外： GET /v2/jobs、/v2/goal（供手机列表页）+ ui/slot（供输入区上方的插槽）。
-  const JOB_STATE = new Map();     // jobId -> { id, label, status, failed, ts }
-  const GOAL_STATE = new Map();    // sid   -> { title, active, ts }
-  /** 本次 DSH 进程里用过的 MCP 服务（从 tool/call 的 mcp__<server>__<tool> 名字派生） */
-  const MCP_SERVERS = new Set();
+  const JOB_STATE = new Map();     // jobId -> { id, sid, label, status, failed, ts, progress? }
+  const GOAL_STATE = new Map();    // sid   -> { id, revision, title, phase, activation, active, ts }
+  /** 本次 DSH 进程里各会话用过的 MCP 服务（从 tool/call 的 mcp__<server>__<tool> 名字派生） */
+  const MCP_SERVERS = new Map();   // sid -> Set<server>
   /** 权限/沙箱/审批策略的最近一次取值（由会话事件更新，见 broadcastPermissionSlot） */
   const PERM_STATE = { sandbox: '', preset: '', policy: '', agentPreset: '', ts: 0 };
 
@@ -1760,17 +1761,32 @@ function presetSvcOf(ctx) {
       const j = JSON.parse(readFileSync(JOBS_FILE, 'utf8'));
       for (const it of (Array.isArray(j?.jobs) ? j.jobs : [])) {
         if (!it || !it.id) continue;
-        JOB_STATE.set(String(it.id), { ...it, status: it.status === 'running' ? 'done' : it.status });
+        JOB_STATE.set(String(it.id), {
+          ...it,
+          sid: String(it.sid ?? ''),
+          label: slotText(it.label),
+          status: it.status === 'running' ? 'done' : it.status,
+        });
       }
     } catch { /* 首次没有文件 */ }
     try {
       const g = JSON.parse(readFileSync(GOALS_FILE, 'utf8'));
       for (const [sid, it] of Object.entries(g?.goals ?? {})) {
-        if (sid && it) GOAL_STATE.set(String(sid), it);
+        if (!sid || !it) continue;
+        // 旧文件可能存着 "[object Object]"：这里洗掉；连接时还会从宿主 goals 服务补真值。
+        // 清洗后仍没有可读标题的条目直接丢弃，别让 /v2/goal 列出一条空目标。
+        const title = slotText(it.title);
+        if (!title) continue;
+        GOAL_STATE.set(String(sid), {
+          ...it,
+          title,
+          phase: String(it.phase ?? (it.active === false ? 'paused' : 'active')),
+          activation: String(it.activation ?? ''),
+          active: it.active !== false,
+        });
       }
     } catch { /* 首次没有文件 */ }
   };
-  loadPersistedState();
 
   /* ==================== 插槽版本 + TTL + 补发（2026-11-15，§20） ====================
    *
@@ -1780,13 +1796,14 @@ function presetSvcOf(ctx) {
    *
    * 现在每条帧多两个字段：
    *   · rev    —— 按 id 单调递增；补发沿用最近一帧的 rev，绝不回退；
-   *   · ttl_ms —— 持续态（jobs/compaction/retry/inbox/subagents）默认 30s，
-   *               每次状态更新重新计时；goal/permission/schedule 这类稳定态不带 ttl，
-   *               靠显式 remove 消失。
-   * 并记住每个 id 的最近一帧（含 rev/ttl），新订阅（WS hello / SSE ready）时补发一次。
+   *   · ttl_ms —— 只给真正"短命"的 compaction/retry 默认 30s，每次更新重新计时。
+   *               jobs/inbox/subagents 可能持续几分钟（长任务、排队未发、子代理长跑），
+   *               给它们 30s TTL 会让状态在仍有效时消失（2026-11-15 体检修复），
+   *               因此改为显式 remove；goal/permission/schedule 本来就是稳定态。
+   * 并记住每个 id+会话 的最近一帧（含 rev/ttl），新订阅（WS hello / SSE ready）时补发一次。
    */
   const SLOT_REV = new Map();          // id -> 最近 rev（只增不减）
-  const SLOT_LAST = new Map();         // id -> { sid, data, at }（最近一帧，含 rev/ttl）
+  const SLOT_LAST = new Map();         // `${id}|${sid}` -> { id, sid, data, at }（最近一帧）
   /**
    * 插件世代（2026-11-15 修订）：插件进程重启/热重载后 SLOT_REV 会从 1 重来，而 App 还记着
    * 上一世代的 rev 水位 —— 新帧会被当成"回退"永久丢弃（真机：插件重载后任务/权限槽更新不了，
@@ -1795,7 +1812,52 @@ function presetSvcOf(ctx) {
    */
   const SLOT_EPOCH = Date.now();
   const SLOT_TTL_MS = 30000;
-  const SLOT_TTL_IDS = new Set(['jobs', 'compaction', 'retry', 'inbox', 'subagents']);
+  const SLOT_TTL_IDS = new Set(['compaction', 'retry']);
+  /**
+   * 插槽文本统一清洗（2026-11-15 体检）。
+   *
+   * 病历：真机甲板出现「目标 · [object Object]」；phone_ui/POST ui.slot 也能把
+   * `undefined`、`NaN`、空串或几百字的调试串原样推进甲板。所有 title/detail 现在都
+   * 必须过这里：对象浅提取（title/text/goal/objective/name/label/summary/description），
+   * 数组拼前 3 项，去掉脏 token，压缩空白，超过 80 字截断加 `…`。
+   *
+   * 与 App 侧 `status/SlotText.java` 同规则；`goalText` 只是它的 goal 专用别名。
+   */
+  const SLOT_TEXT_MAX = 80;
+  const SLOT_TEXT_KEYS = ['title', 'text', 'goal', 'objective', 'name', 'label', 'summary', 'description'];
+  const SLOT_BAD_TEXT = new Set(['undefined', 'null', 'nan', '[object object]']);
+  const slotText = (raw, max = SLOT_TEXT_MAX) => {
+    const limit = Math.max(1, Number(max) || SLOT_TEXT_MAX);
+    const pick = (v, depth = 0) => {
+      if (typeof v === 'string') return v;
+      if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '';
+      if (!v || typeof v !== 'object' || depth > 2) return '';
+      if (Array.isArray(v)) {
+        return v.slice(0, 3).map((x) => pick(x, depth + 1)).filter(Boolean).join(' / ');
+      }
+      for (const k of SLOT_TEXT_KEYS) {
+        const got = pick(v[k], depth + 1);
+        if (got) return got;
+      }
+      return '';
+    };
+    let s = pick(raw);
+    // 字符串里夹带的脏 token（例如 "目标 [object Object]"）先剔除，再判空。
+    s = String(s)
+      .replace(/\[object Object\]/gi, ' ')
+      .replace(/\bundefined\b/gi, ' ')
+      .replace(/\bNaN\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!s || SLOT_BAD_TEXT.has(s.toLowerCase())) return '';
+    if (s.length > limit) s = s.slice(0, limit - 1) + '…';
+    return s;
+  };
+  /** SLOT_LAST 的键：同一 id 在不同会话各存一份，避免 A 会话的帧盖掉 B 会话的快照。 */
+  const slotKey = (id, sid) => String(id ?? '') + '\u0000' + String(sid ?? '');
+  // 落盘状态要等 slotText 定义好再读（旧文件里可能有 "[object Object]" 需要清洗）
+  loadPersistedState();
+
   const nextSlotRev = (id) => {
     const r = (SLOT_REV.get(id) ?? 0) + 1;
     SLOT_REV.set(id, r);
@@ -1931,7 +1993,7 @@ function presetSvcOf(ctx) {
     return { kind, progress, count, actions, warnings };
   };
   /**
-   * **唯一**插槽下发入口：补 rev / ttl_ms、记住最近帧、再广播。
+   * **唯一**插槽下发入口：清洗文本、补 rev / ttl_ms、记住最近帧、再广播。
    * @param {string} sid 目标会话（'' = 全局；只影响订阅路由，不影响 rev 计数）
    * @returns {object|null} 实际下发的 data
    */
@@ -1939,27 +2001,39 @@ function presetSvcOf(ctx) {
     if (!data || typeof data !== 'object') return null;
     const id = String(data.id ?? '').trim();
     if (!id) return null;
-    const target = String(sid ?? '').trim();
+    // B18：帧里显式带 session_id 时以它为准（以前只认函数入参，调用方漏传就串到全局）。
+    const target = String(sid || data.session_id || '').trim();
     const now = Date.now();
-    if (slotIsRemoval(data)) {
+    /**
+     * 文本统一清洗（2026-11-15）：title/detail/actions[].label 都先过 slotText。
+     * 移除判定也用清洗后的值 —— 否则 "[object Object]" 会被当成非空，留下一条空白槽。
+     */
+    const clean = { ...data };
+    clean.title = slotText(data.title);
+    clean.detail = slotText(data.detail);
+    if (Array.isArray(data.actions)) {
+      clean.actions = data.actions.map((a) => (a && typeof a === 'object' && !Array.isArray(a)
+        ? { ...a, label: slotText(a.label, 40) }
+        : a));
+    }
+    if (slotIsRemoval(clean)) {
       const rev = nextSlotRev(id);
       const frame = { id, rev, epoch: SLOT_EPOCH, remove: true };
-      const scoped = String(data.session_id ?? target ?? '').trim();
-      if (scoped) frame.session_id = scoped;
+      if (target) frame.session_id = target;
       // 移除帧也记住：新订阅补发它只是幂等删除，不会把状态复活
-      SLOT_LAST.set(id, { sid: target, data: frame, at: now });
+      SLOT_LAST.set(slotKey(id, target), { sid: target, data: frame, at: now });
       streamBroadcast(target, { v: 2, type: 'ui/slot', data: frame });
       return frame;
     }
     const rev = nextSlotRev(id);
-    const ttl = data.ttl_ms !== undefined
-      ? Math.max(0, Number(data.ttl_ms) || 0)
+    const ttl = clean.ttl_ms !== undefined
+      ? Math.max(0, Number(clean.ttl_ms) || 0)
       : (SLOT_TTL_IDS.has(id) ? SLOT_TTL_MS : 0);
     /**
      * ④：kind/progress/count/actions 先归一化再进帧 —— 甲板、全屏列表、快照三处看到的是
      * **同一个** kind，不靠接收端各猜一套。坏帧只回 warn + 降级，不 422（插槽是瞬态）。
      */
-    const normalized = normalizeSlotFields(data);
+    const normalized = normalizeSlotFields(clean);
     if (normalized.warnings.length > 0) {
       warnOnce('slot-kind-' + id, '[smartquiz-remote] 插槽 kind 校验 id=' + id
         + '：' + normalized.warnings.join('；'));
@@ -1969,12 +2043,12 @@ function presetSvcOf(ctx) {
      * 也可以只给旧式 {@code priority:10}，两者都给时 **level 优先**（命名档位是新的唯一来源）。
      * 归一化后帧里同时带 priority（旧 App 排序用）与 level（新 App / 快照 / 诊断用）。
      */
-    const levelValue = slotPriorityOfLevel(data.level);
-    const priority = slotPriorityValue(data);
-    const levelName = (levelValue === null ? '' : String(data.level).trim().toLowerCase())
+    const levelValue = slotPriorityOfLevel(clean.level);
+    const priority = slotPriorityValue(clean);
+    const levelName = (levelValue === null ? '' : String(clean.level).trim().toLowerCase())
       || slotLevelOfPriority(priority);
     const frame = {
-      ...data,
+      ...clean,
       kind: normalized.kind,
       progress: normalized.progress,
       count: normalized.count,
@@ -1984,9 +2058,17 @@ function presetSvcOf(ctx) {
       rev,
       epoch: SLOT_EPOCH,
     };
+    // 归一化后可能退化成"空 state"（例如非 state 缺 title）：这类帧按移除处理，别留空白槽。
+    if (frame.kind === 'state' && !frame.title && !frame.detail && !(Number(frame.count) > 0)) {
+      const rm = { id, rev, epoch: SLOT_EPOCH, remove: true };
+      if (target) rm.session_id = target;
+      SLOT_LAST.set(slotKey(id, target), { sid: target, data: rm, at: now, warnings: normalized.warnings });
+      streamBroadcast(target, { v: 2, type: 'ui/slot', data: rm });
+      return { ...rm, warnings: normalized.warnings };
+    }
     if (ttl > 0) frame.ttl_ms = ttl;
     else delete frame.ttl_ms;
-    SLOT_LAST.set(id, {
+    SLOT_LAST.set(slotKey(id, target), {
       sid: target, data: frame, at: now, warnings: normalized.warnings,
     });
     streamBroadcast(target, { v: 2, type: 'ui/slot', data: frame });
@@ -2014,10 +2096,11 @@ function presetSvcOf(ctx) {
     return n;
   };
 
-  /** 清掉一条瞬时插槽（重试等）：remove:true，App 侧立即移除 */
-  const clearTransientSlot = (id) => {
+  /** 清掉一条瞬时插槽（重试等）：带会话则只清该会话的 remove 帧 */
+  const clearTransientSlot = (id, sid = '') => {
     if (!id) return;
-    broadcastSlot('', { id, remove: true });
+    const key = String(sid || '').trim();
+    broadcastSlot(key, { id, ...(key ? { session_id: key } : {}), remove: true });
   };
 
   /**
@@ -2040,20 +2123,64 @@ function presetSvcOf(ctx) {
       action: 'queue', count: q.length,
     });
   };
-  const broadcastJobsSlot = () => {
-    const list = [...JOB_STATE.values()];
+  /**
+   * 任务插槽（2026-11-15 体检修复）。
+   *
+   * <p>三个旧问题一起修：① jobs 以前是全局帧，A 会话的任务会串到 B 会话的甲板；
+   * ② kind 固定 state，明明有"N 个在跑"的条目数却不显示徽标；③ 长任务超过 30s
+   * 没有新事件时会被默认 TTL 清掉。现在按会话过滤、活跃数进 count（有进度则 progress），
+   * 不再给 TTL，结束由 job/settled → 空列表 remove 收口。</p>
+   *
+   * <p>count 口径与 {@code GET /v2/jobs?session_id=} 的 {@code running} 完全同源；
+   * detail 的"共 M 条"就是同一会话在 JOB_STATE 里的条数，不再出现两个数字对不上。</p>
+   */
+  const jobProgressPct = (job) => {
+    const raw = job?.progress;
+    if (raw === undefined || raw === null || raw === '') return null;
+    if (typeof raw === 'number' || typeof raw === 'string') {
+      const s = String(raw).trim();
+      const frac = /^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/.exec(s);
+      if (frac) {
+        const done = Number(frac[1]);
+        const total = Number(frac[2]);
+        if (Number.isFinite(done) && Number.isFinite(total) && total > 0) {
+          return Math.max(0, Math.min(100, Math.round((done * 100) / total)));
+        }
+        return null;
+      }
+      const pct = /^(\d+(?:\.\d+)?)\s*%$/.exec(s);
+      const n = Number(pct ? pct[1] : s);
+      if (Number.isFinite(n)) return Math.max(0, Math.min(100, Math.round(n)));
+    }
+    return null;
+  };
+  const broadcastJobsSlot = (sid = '') => {
+    const key = String(sid || '').trim();
+    const all = [...JOB_STATE.values()];
+    const list = key ? all.filter((j) => String(j.sid ?? '') === key) : all;
     if (list.length === 0) {
-      broadcastSlot('', { id: 'jobs', remove: true });
+      broadcastSlot(key, { id: 'jobs', ...(key ? { session_id: key } : {}), remove: true });
       return;
     }
-    const running = list.filter((j) => j.status === 'running').length;
+    const runningList = list.filter((j) => j.status === 'running');
+    const running = runningList.length;
     const failed = list.filter((j) => j.failed).length;
+    const pcts = runningList.map(jobProgressPct);
+    const withProgress = running > 0 && pcts.every((p) => p !== null);
+    const avg = withProgress
+      ? Math.max(0, Math.min(100, Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length)))
+      : 0;
     // 文案收敛（2026-11-13）：一行读完，"N 在跑 · 共 M 条"；失败优先提示
-    broadcastSlot('', {
+    broadcastSlot(key, {
       id: 'jobs',
+      ...(key ? { session_id: key } : {}),
       priority: SLOT_PRIORITY.p5,
       title: failed > 0 ? '任务（有失败）' : '任务',
-      kind: 'state',
+      ...(withProgress
+        ? { kind: 'progress', progress: avg }
+        : running > 0
+          ? { kind: 'list', count: running }
+          : { kind: 'state' }),
       detail: running > 0
         ? `${running} 个在跑 · 共 ${list.length} 条`
         : `共 ${list.length} 条 · 空闲`,
@@ -2069,15 +2196,23 @@ function presetSvcOf(ctx) {
    * 现在按活着的 agent + 最近活动时间判断，没有就发空帧移除。</p>
    */
   const SUBAGENT_SLOT_TTL_MS = 90 * 1000;
-  const broadcastSubagentsSlot = () => {
-    if (childParent.size === 0) {
-      broadcastSlot('', { id: 'subagents', remove: true });
+  /**
+   * @param {string} rootSid 根会话 id：子代理属于某个根会话，只发给该根会话的订阅者。
+   *   以前全局广播，A 会话的子代理会出现在 B 会话甲板上（2026-11-15 体检修复）。
+   */
+  const broadcastSubagentsSlot = (rootSid = '') => {
+    const root = String(rootSid || '').trim();
+    const children = [...childParent.entries()]
+      .filter(([, parent]) => (root ? parent === root : true))
+      .map(([childId]) => childId);
+    if (children.length === 0) {
+      broadcastSlot(root, { id: 'subagents', ...(root ? { session_id: root } : {}), remove: true });
       return;
     }
     const now = Date.now();
     let live = 0;
     let active = 0;
-    for (const childId of childParent.keys()) {
+    for (const childId of children) {
       let isLive = false;
       try {
         isLive = Boolean(ctx.agents?.get?.(childId));
@@ -2091,13 +2226,15 @@ function presetSvcOf(ctx) {
     }
     if (active === 0) {
       // 全部结束且无近期活动 → 让槽消失（真机反馈："不活动/完成就让它消失"）
-      broadcastSlot('', { id: 'subagents', remove: true });
+      broadcastSlot(root, { id: 'subagents', ...(root ? { session_id: root } : {}), remove: true });
       return;
     }
-    broadcastSlot('', {
+    broadcastSlot(root, {
       id: 'subagents',
+      ...(root ? { session_id: root } : {}),
       priority: SLOT_PRIORITY.p5,
-      kind: 'state',
+      kind: 'list',
+      count: active,
       title: '子代理',
       detail: live > 0
         ? `${live} 个在跑 · 共 ${active} 个`
@@ -2106,30 +2243,169 @@ function presetSvcOf(ctx) {
     });
   };
 
+  /**
+   * 目标文本：与 slotText 同一套清洗（2026-11-15）。
+   *
+   * real DSH 的 `goal/change` 载荷是 `{ goal: { objective, phase, ... } }`，
+   * 旧实现只认 title/text，于是：(a) 对象被 String() 成「[object Object]」；
+   * (b) 真正的 objective 字段根本没读到。slotText 现在会递归取 objective。
+   */
+  const goalText = (d) => slotText(d, 200);
+  const goalSvc = () => serviceOf('goals');
+  /** GoalView（DSH）→ GOAL_STATE（插件） */
+  const goalViewToState = (g) => {
+    const phase = String(g?.phase ?? '');
+    return {
+      id: String(g?.id ?? ''),
+      revision: Number(g?.revision) || 0,
+      title: goalText(g?.objective ?? g?.title ?? ''),
+      phase,
+      activation: String(g?.activation ?? ''),
+      active: phase ? phase === 'active' : true,
+      roundsStarted: Number(g?.roundsStarted) || 0,
+      maxGoalRounds: Number(g?.maxGoalRounds) || 0,
+      ts: Date.now(),
+    };
+  };
+  /**
+   * 从宿主 GoalService 补读一次当前目标（2026-11-15）。
+   *
+   * 事件驱动状态在插件重载/新会话后是空的；这里按需问宿主要真值，顺便拿到
+   * 暂停/恢复/清除需要的 compare-and-set `{id, revision}`。
+   * @returns {boolean} 是否成功读了一次（服务/会话不在都算失败，调用方保留事件值）
+   */
+  const refreshGoalFromHost = (sid) => {
+    const key = String(sid || '').trim();
+    const svc = goalSvc();
+    const agent = liveAgentOf(key);
+    if (!key || !svc || typeof svc.get !== 'function' || !agent) return false;
+    try {
+      const g = svc.get(agent);
+      if (!g) {
+        GOAL_STATE.delete(key);
+        return true;
+      }
+      GOAL_STATE.set(key, goalViewToState(g));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const broadcastGoalSlot = (sid) => {
-    const g = GOAL_STATE.get(sid);
+    const key = String(sid || '').trim();
+    const g = GOAL_STATE.get(key);
     // B18：目标属于某个会话，只发给该会话的订阅者（目标切换时不会串到别的对话）
-    const target = sid || '';
-    if (!g || !g.active) {
-      broadcastSlot(target, { id: 'goal', session_id: sid || '', remove: true });
+    if (!g) {
+      broadcastSlot(key, { id: 'goal', ...(key ? { session_id: key } : {}), remove: true });
       return;
     }
-    broadcastSlot(target, {
-      id: 'goal', session_id: sid || '', priority: SLOT_PRIORITY.p4, kind: 'state',
-      title: '目标', detail: g.title || '', action: 'goal',
+    const title = slotText(g.title);
+    if (!title) {
+      // 旧落盘数据里 title 可能是 "[object Object]"：清洗后为空就别挂一条无内容的目标行。
+      broadcastSlot(key, { id: 'goal', ...(key ? { session_id: key } : {}), remove: true });
+      return;
+    }
+    const phase = String(g.phase || '');
+    const activation = String(g.activation || '');
+    const active = phase ? phase === 'active' : g.active !== false;
+    const disarmed = activation === 'disarmed';
+    /**
+     * 目标槽的内联按钮（2026-11-15）：最多两个。
+     *   · 进行中且 armed → 暂停 + 清除
+     *   · 已暂停/阻塞/armed 丢失 → 恢复 + 清除
+     *   · 已完成 → 只清除（恢复会被 DSH 拒绝，别摆一个点了必失败的按钮）
+     */
+    const actions = [];
+    if (phase === 'complete') {
+      actions.push({ id: 'goal.clear', label: '清除', style: 'plain' });
+    } else if (active && !disarmed) {
+      actions.push({ id: 'goal.pause', label: '暂停', style: 'plain' });
+      actions.push({ id: 'goal.clear', label: '清除', style: 'plain' });
+    } else {
+      actions.push({ id: 'goal.resume', label: '恢复', style: 'primary' });
+      actions.push({ id: 'goal.clear', label: '清除', style: 'plain' });
+    }
+    broadcastSlot(key, {
+      id: 'goal',
+      ...(key ? { session_id: key } : {}),
+      priority: SLOT_PRIORITY.p4,
+      kind: 'action',
+      title: '目标',
+      detail: title,
+      action: 'goal',
+      warn: phase === 'blocked',
+      actions,
     });
   };
 
-  /** MCP：只统计本次会话真正调用过的服务（没连过的不编）。 */
-  const broadcastMcpSlot = () => {
-    const n = MCP_SERVERS.size;
-    if (n === 0) {
-      broadcastSlot('', { id: 'mcp', remove: true });
+  /**
+   * 计划模式插槽（2026-11-15 补做）。
+   *
+   * 事件目录里一直登记着 plan/mode→slot plan，但插件从未发送过它（B8 同类缺口）。
+   * 现在 plan/mode 开启时出现、关闭时 remove；状态优先从宿主 PlanModeController 补读，
+   * 事件路径兜底。点击行仍走 Insight 面板里的计划开关。
+   */
+  const PLAN_STATE = new Map();   // sid -> { active, pending }
+  const planRef = () => serviceOf('planMode');
+  const refreshPlanFromHost = (sid) => {
+    const key = String(sid || '').trim();
+    const svc = planRef();
+    const agent = liveAgentOf(key);
+    if (!key || !svc || typeof svc.get !== 'function' || !agent) return false;
+    try {
+      const st = svc.get(agent) ?? {};
+      PLAN_STATE.set(key, { active: Boolean(st.active), pending: Boolean(st.pending) });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const broadcastPlanSlot = (sid) => {
+    const key = String(sid || '').trim();
+    const st = PLAN_STATE.get(key);
+    if (!st || !st.active) {
+      broadcastSlot(key, { id: 'plan', ...(key ? { session_id: key } : {}), remove: true });
       return;
     }
-    broadcastSlot('', {
-      id: 'mcp', priority: SLOT_PRIORITY.p5, kind: 'state',
-      title: 'MCP 服务', detail: `${n} 个已用过`, action: 'mcp',
+    broadcastSlot(key, {
+      id: 'plan',
+      ...(key ? { session_id: key } : {}),
+      priority: SLOT_PRIORITY.p4,
+      kind: 'state',
+      title: '计划模式',
+      detail: st.pending ? '切换中… · 点开可查看' : '已开启 · 点开可关闭',
+      action: 'plan',
+    });
+  };
+
+  /** MCP：只统计本会话真正调用过的服务（没连过的不编；按会话隔离，避免串台）。 */
+  const mcpSetOf = (sid) => {
+    const key = String(sid || '').trim();
+    let set = MCP_SERVERS.get(key);
+    if (!set) {
+      set = new Set();
+      MCP_SERVERS.set(key, set);
+    }
+    return set;
+  };
+  const broadcastMcpSlot = (sid = '') => {
+    const key = String(sid || '').trim();
+    const set = MCP_SERVERS.get(key) ?? new Set();
+    const n = set.size;
+    if (n === 0) {
+      broadcastSlot(key, { id: 'mcp', ...(key ? { session_id: key } : {}), remove: true });
+      return;
+    }
+    broadcastSlot(key, {
+      id: 'mcp',
+      ...(key ? { session_id: key } : {}),
+      priority: SLOT_PRIORITY.p5,
+      kind: 'list',
+      count: n,
+      title: 'MCP 服务',
+      detail: `${n} 个已用过`,
+      action: 'mcp',
     });
   };
 
@@ -2184,7 +2460,7 @@ function presetSvcOf(ctx) {
     // 和左边的沙箱标签重复，纯噪音，去掉；措辞也统一成"能干什么"的口吻。
     const SANDBOX_LABEL = {
       'read-only': '只读',
-      'workspace-write': '可写工作区',
+      'workspace-write': '可写',
       'danger-full-access': '完全访问',
     };
     const POLICY_LABEL = {
@@ -2200,6 +2476,12 @@ function presetSvcOf(ctx) {
       broadcastSlot('', { id: 'permission' });
       return;
     }
+    /**
+     * 权限槽按钮（2026-11-15 体检修复）：label 必须让人一眼看出当前档位，
+     * 而不是所有状态都写「调整」。三个沙箱档位都在变更卡里，行内按钮只做入口，
+     * 所以不需要为了 3 个选项硬塞 2 个按钮、也不用猜该丢哪个。
+     */
+    const adjustLabel = sandbox ? '调整（' + sandbox + '）' : '调整';
     broadcastSlot('', {
       id: 'permission',
       priority: SLOT_PRIORITY.p2,
@@ -2209,7 +2491,7 @@ function presetSvcOf(ctx) {
       action: 'permission',
       // ④：没有"允许/拒绝"这种待审批动作（审批走独立 approval 帧/对话框），
       // 这里给权限槽真正能做的事：打开变更卡调整沙箱/审批策略。
-      actions: [{ id: 'permission', label: '调整', style: 'primary' }],
+      actions: [{ id: 'permission', label: adjustLabel, style: 'primary' }],
       warn: PERM_STATE.sandbox === 'danger-full-access',
     });
   };
@@ -2275,7 +2557,7 @@ function presetSvcOf(ctx) {
     'goal/change': { layer: 'session', forward: true, slot: 'goal', desc: '目标内容变更' },
     'team/mode': { layer: 'session', forward: true, desc: '团队模式开关' },
     'team/task': { layer: 'session', forward: true, desc: '团队任务' },
-    'plan/mode': { layer: 'session', forward: true, desc: '计划模式开关' },
+    'plan/mode': { layer: 'session', forward: true, slot: 'plan', desc: '计划模式开关' },
     'permission/preset': { layer: 'session', forward: true, slot: 'permission', desc: '权限档位' },
     'sandbox/mode': { layer: 'session', forward: true, slot: 'permission', desc: '沙箱模式' },
     'agent-preset/selected': { layer: 'session', forward: true, desc: '智能体预设' },
@@ -2349,7 +2631,7 @@ function presetSvcOf(ctx) {
    * UI 目录版本：表结构或槽位变化时手改。客户端按它判断要不要重新拉表。
    * 2026-11-13-v1：事件目录改为 session/host/synth 三层；补 compaction 插槽。
    */
-  const UI_CATALOG_VERSION = '2026-11-13-v1';
+  const UI_CATALOG_VERSION = '2026-11-15-v2';
 
   /** 预留给手机的槽位（与手机端 10-modules M1 的三档模型对应） */
   const RESERVED_SLOTS = [
@@ -2357,8 +2639,11 @@ function presetSvcOf(ctx) {
     { id: 'dock.summary', kind: 'single', scope: 'session', desc: 'D2 摘要/计数' },
     { id: 'dock.1', kind: 'list', scope: 'session', max_rows: 2, desc: 'D3 插槽（D1 可见时 1 条）' },
     { id: 'compaction', kind: 'single', scope: 'session', desc: '上下文压缩中' },
+    { id: 'retry', kind: 'single', scope: 'session', desc: '模型重试中' },
+    { id: 'inbox', kind: 'single', scope: 'session', desc: '插话队列' },
     { id: 'jobs', kind: 'list', scope: 'session', desc: '后台任务' },
     { id: 'goal', kind: 'single', scope: 'session', desc: '目标' },
+    { id: 'plan', kind: 'single', scope: 'session', desc: '计划模式' },
     { id: 'permission', kind: 'list', scope: 'session', desc: '沙箱/档位/审批策略' },
     { id: 'subagents', kind: 'single', scope: 'session', desc: '子代理数量' },
     { id: 'mcp', kind: 'list', scope: 'session', desc: 'MCP 服务' },
@@ -2407,7 +2692,7 @@ function presetSvcOf(ctx) {
           + 'p3=插话/压缩(20) p4=目标/计划(30，默认) p5=后台任务/子代理/统计(50)',
       },
       id: { type: 'string', description: 'slot id，同 id 会覆盖；默认 phone_ui（移除时必须指定 id）' },
-      ttl_ms: { type: 'number', description: 'slot 自动消失时间（毫秒）；不传按 id 默认（持续态 30s，稳定态不过期）' },
+      ttl_ms: { type: 'number', description: 'slot 自动消失时间（毫秒）；不传按 id 默认（compaction/retry 短命态 30s，其余稳定态不过期）' },
     },
     required: ['kind'],
     additionalProperties: false,
@@ -2496,7 +2781,7 @@ function presetSvcOf(ctx) {
       SUBAGENT_POLLERS.delete(childId);
       // 子代理结束时让"子代理"插槽重新算一次（不活动/完成就该消失）
       try {
-        broadcastSubagentsSlot();
+        broadcastSubagentsSlot(root);
       } catch { /* 插槽刷新失败不影响主流程 */ }
     };
     state.timer = setInterval(() => {
@@ -2540,7 +2825,7 @@ function presetSvcOf(ctx) {
             if (fresh > 0) {
               // 有动静就刷新插槽（"1 个在跑 · 共 2 个"这类文案要跟着变）
               try {
-                broadcastSubagentsSlot();
+                broadcastSubagentsSlot(root);
               } catch { /* 忽略 */ }
             }
             let live = false;
@@ -2585,8 +2870,8 @@ function presetSvcOf(ctx) {
       try { wsBroadcast(sid, { type: 'event', event }); } catch { /* 推送失败不能影响插件事件处理 */ }
       // 2026-11-14 插话队列：先用 turn 事件把"这条会话正在跑"记下来 —— 手机 inject 时据此排队。
       // 桌面端自己发起的轮次也会走这两个事件，所以电脑上正在跑的时候手机插话同样会排队。
-      if (t === 'turn/start') { markSessionBusy(sid, 'agent'); clearTransientSlot('retry'); return; }
-      if (t === 'turn/end') { clearSessionBusy(sid); clearTransientSlot('retry'); return; }
+      if (t === 'turn/start') { markSessionBusy(sid, 'agent'); clearTransientSlot('retry', sid); return; }
+      if (t === 'turn/end') { clearSessionBusy(sid); clearTransientSlot('retry', sid); return; }
       /**
        * 模型重试 → 插槽（2026-11-14 用户口径：瞬时状态放插槽，收到更新事件就更新，完成即消失）。
        * 以前这是一张 chat 卡，重试几次就在消息流里留几张"模型重试"。
@@ -2602,7 +2887,7 @@ function presetSvcOf(ctx) {
         return;
       }
       if (t === 'assistant/message' || t === 'step/end' || t === 'error') {
-        clearTransientSlot('retry');
+        clearTransientSlot('retry', sid);
       }
       if (t === 'subagent/catalog') {
         const d = event.data ?? {};
@@ -2610,18 +2895,19 @@ function presetSvcOf(ctx) {
         if (childId) {
           childParent.set(childId, sid);
           if (d.label) childLabel.set(childId, String(d.label));
-          broadcastSubagentsSlot();
+          broadcastSubagentsSlot(sid);
           startChildPolling(childId, sid);
         }
         return;
       }
       const root = childParent.get(sid);
-      // 上下文压缩：开/关各发一次插槽（目录里登记过但一直没有发送实现，属 B8 同类缺口）
-      if (t === 'compaction/start' || t === 'compaction/end') {
+      // 上下文压缩：start/summary/prune 保持插槽存活（30s TTL 期间续期），end 立即移除
+      if (t === 'compaction/start' || t === 'compaction/summary'
+          || t === 'compaction/prune' || t === 'compaction/end') {
         // B18：压缩是会话内的事，只发给该会话（否则别的对话也会看到"正在压缩"）
-        broadcastSlot(sid, t === 'compaction/start'
-          ? { id: 'compaction', session_id: sid, priority: SLOT_PRIORITY.p3, kind: 'state', title: '正在压缩上下文…' }
-          : { id: 'compaction', session_id: sid, remove: true });
+        broadcastSlot(sid, t === 'compaction/end'
+          ? { id: 'compaction', session_id: sid, remove: true }
+          : { id: 'compaction', session_id: sid, priority: SLOT_PRIORITY.p3, kind: 'state', title: '正在压缩上下文…' });
         return;
       }
       // 任务 / 目标的持续状态：在"只转子代理活动"的早退之前处理（主会话事件也要收）
@@ -2631,33 +2917,51 @@ function presetSvcOf(ctx) {
         if (id) {
           const prev = JOB_STATE.get(id) ?? {};
           const failed = Boolean(d.failed) || String(d.status ?? '') === 'failed';
+          const owner = String(d.owner ?? prev.sid ?? sid);
           JOB_STATE.set(id, {
             id,
+            // 任务归属：手机甲板按会话过滤，A 会话的任务不再串到 B 会话
+            sid: owner,
             // 标签只留 60 字：手机插槽最多两行，命令原文太长会把别的插槽挤下去
             label: String(d.label ?? d.kind ?? prev.label ?? '后台任务').slice(0, 60),
             status: t === 'job/registered' ? 'running' : (failed ? 'failed' : 'done'),
             failed,
+            // 有生产者给百分比就存下来，jobs 槽据此用 progress kind；没有就 list
+            ...(d.progress !== undefined ? { progress: d.progress }
+              : (prev.progress !== undefined ? { progress: prev.progress } : {})),
             ts: Number(event.time) || Date.now(),
           });
-          // 只留最近 N 条，避免长时间会话无限增长
-          if (JOB_STATE.size > JOB_STATE_MAX) {
-            const oldest = [...JOB_STATE.values()].sort((a, b) => a.ts - b.ts)[0];
-            if (oldest) JOB_STATE.delete(oldest.id);
-          }
-          broadcastJobsSlot();
+          // 每个会话只留最近 N 条，避免长时间会话无限增长（也避免互删别的会话）
+          const mine = [...JOB_STATE.values()]
+            .filter((j) => String(j.sid ?? '') === owner)
+            .sort((a, b) => a.ts - b.ts);
+          for (let i = 0; i < mine.length - JOB_STATE_MAX; i += 1) JOB_STATE.delete(mine[i].id);
+          broadcastJobsSlot(sid);
           scheduleStateSave();
         }
         return;
       }
-      if (t === 'goal/change' || t === 'goal/activation-changed') {
+      if (t === 'goal/change') {
         const d = event.data ?? {};
-        GOAL_STATE.set(sid, {
-          title: String(d.title ?? d.goal ?? d.text ?? ''),
-          active: d.active !== false,
-          ts: Number(event.time) || Date.now(),
-        });
+        if (d.operation === 'clear' || !d.goal) {
+          // clear 直接收槽；没有 goal 载荷的旧帧交给宿主补读兜底
+          if (!refreshGoalFromHost(sid)) GOAL_STATE.delete(sid);
+        } else {
+          GOAL_STATE.set(sid, {
+            ...goalViewToState(d.goal),
+            ts: Number(event.time) || Date.now(),
+          });
+        }
+        // goal/change 不带 activation；从宿主补一次能拿到 armed/disarmed 与最新 revision
+        refreshGoalFromHost(sid);
         broadcastGoalSlot(sid);
         scheduleStateSave();
+        return;
+      }
+      if (t === 'plan/mode') {
+        const active = Boolean(event.data?.active);
+        PLAN_STATE.set(sid, { active, pending: false });
+        broadcastPlanSlot(sid);
         return;
       }
       // 权限/沙箱/审批策略：只在变化时更新一次，用作状态插槽
@@ -2672,12 +2976,15 @@ function presetSvcOf(ctx) {
         broadcastPermissionSlot();
         return;
       }
-      // MCP：只从真实工具调用里认服务名（mcp__<server>__<tool>），不猜"连了几个"
+      // MCP：只从真实工具调用里认服务名（mcp__<server>__<tool>），按会话各自统计
       if (t === 'tool/call') {
         const srv = mcpServerOf(event.data?.name);
-        if (srv && !MCP_SERVERS.has(srv)) {
-          MCP_SERVERS.add(srv);
-          broadcastMcpSlot();
+        if (srv) {
+          const set = mcpSetOf(sid);
+          if (!set.has(srv)) {
+            set.add(srv);
+            broadcastMcpSlot(sid);
+          }
         }
       }
       if (!root) return;
@@ -2693,6 +3000,27 @@ function presetSvcOf(ctx) {
       streamBroadcast(root, { v: 2, type: 'subagent/activity', data: frame });
     });
   } catch { /* 旧版没有 session/event 监听 */ }
+
+  /**
+   * 目标激活态（host 事件，不是 session 事件）：暂停/恢复/会话启动会改变
+   * armed/disarmed，但不一定带完整 objective。以前挂在 session/event 里永远收不到；
+   * 现在单独订阅，收到就从宿主补读并重发目标槽（按钮 label 随之切换）。
+   */
+  try {
+    ctx.on('goal/activation-changed', (payload) => {
+      const sid = String(payload?.sessionId ?? payload?.session_id ?? '').trim();
+      if (!sid) return;
+      if (!refreshGoalFromHost(sid)) {
+        const prev = GOAL_STATE.get(sid);
+        if (prev) {
+          const activation = String(payload?.goal?.activation ?? '');
+          GOAL_STATE.set(sid, { ...prev, activation, active: prev.phase === 'active' });
+        }
+      }
+      broadcastGoalSlot(sid);
+      scheduleStateSave();
+    });
+  } catch { /* 旧版没有 goals */ }
 
   /** 能力校验：不声明 caps 的旧客户端一律放行（与 caps.js 同一口径） */
   const capsAllowed = (caps, cap) => allows(caps, cap);
@@ -2786,11 +3114,21 @@ function presetSvcOf(ctx) {
     });
   });
 
+  /**
+   * 后台任务列表。`?session_id=` 只返回该会话的任务（与 jobs 插槽同口径）；
+   * 不带 session_id 时保留旧的"全进程"行为（诊断/旧客户端）。
+   */
   route('exact', '/v2/jobs', (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
-    const items = [...JOB_STATE.values()].sort((a, b) => b.ts - a.ts).slice(0, 50);
+    let sid = '';
+    try {
+      const q = new URL(req.url ?? '/v2/jobs', 'http://dsh.invalid');
+      sid = String(q.searchParams.get('session_id') ?? '').trim();
+    } catch { /* 无 query 视为全局 */ }
+    const all = [...JOB_STATE.values()].filter((j) => !sid || String(j.sid ?? '') === sid);
+    const items = all.sort((a, b) => b.ts - a.ts).slice(0, 50);
     return sendJson(res, 200, {
-      ok: true, v: 2, count: items.length,
+      ok: true, v: 2, session_id: sid, count: items.length,
       running: items.filter((j) => j.status === 'running').length,
       items,
     });
@@ -2822,10 +3160,12 @@ function presetSvcOf(ctx) {
     } catch { /* 无 query 视为全局会话 */ }
     const now = Date.now();
     const all = [];
-    for (const [id, rec] of SLOT_LAST.entries()) {
+    for (const rec of SLOT_LAST.values()) {
       if (!rec || !rec.data) continue;
-      if (rec.sid && rec.sid !== sid) continue;          // 别的会话的槽不发
       const d = rec.data;
+      const id = String(d.id ?? '').trim();
+      if (!id) continue;
+      if (rec.sid && rec.sid !== sid) continue;          // 别的会话的槽不发
       if (d.remove === true) continue;                   // 移除帧不进快照
       const ttl = Math.max(0, Number(d.ttl_ms ?? 0) || 0);
       const age = Math.max(0, now - Number(rec.at || 0));
@@ -2870,13 +3210,16 @@ function presetSvcOf(ctx) {
     });
   });
 
-  /** 目标状态（事件派生）；带 session_id 查单条，不带则列全部。 */
+  /** 目标状态（事件派生，可按需向宿主补读）；带 session_id 查单条，不带则列全部。 */
   route('exact', '/v2/goal', (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     const q = new URL(req.url ?? '/', 'http://dsh.invalid');
     const sid = String(q.searchParams.get('session_id') ?? '').trim();
     if (sid) {
-      return sendJson(res, 200, { ok: true, v: 2, session_id: sid, goal: GOAL_STATE.get(sid) ?? null });
+      // 事件不会重放：先问宿主一次，避免面板/手机看到重载前的旧标题（甚至 [object Object]）
+      refreshGoalFromHost(sid);
+      const g = GOAL_STATE.get(sid) ?? null;
+      return sendJson(res, 200, { ok: true, v: 2, session_id: sid, goal: g });
     }
     return sendJson(res, 200, {
       ok: true, v: 2,
@@ -2884,11 +3227,18 @@ function presetSvcOf(ctx) {
     });
   });
 
-  /** 本进程用过的 MCP 服务（从工具名派生，不猜"连了几个"）。 */
+  /** 本进程用过的 MCP 服务（从工具名派生，不猜"连了几个"；可按会话过滤）。 */
   route('exact', '/v2/mcp', (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
-    const servers = [...MCP_SERVERS].sort();
-    return sendJson(res, 200, { ok: true, v: 2, count: servers.length, servers });
+    let sid = '';
+    try {
+      const q = new URL(req.url ?? '/v2/mcp', 'http://dsh.invalid');
+      sid = String(q.searchParams.get('session_id') ?? '').trim();
+    } catch { /* 无 query 视为全局 */ }
+    const servers = sid
+      ? [...(MCP_SERVERS.get(sid) ?? new Set())].sort()
+      : [...new Set([...MCP_SERVERS.values()].flatMap((set) => [...set]))].sort();
+    return sendJson(res, 200, { ok: true, v: 2, session_id: sid, count: servers.length, servers });
   });
 
   /**
@@ -2972,8 +3322,10 @@ function presetSvcOf(ctx) {
    */
   const pushUiSlot = (id, priority, title, detail, extra = {}) => {
     const slotId = String(id ?? '').trim() || 'phone_ui';
-    const t = String(title ?? '').trim();
-    const d = String(detail ?? '').trim();
+    // 2026-11-15：这里以前先 String() 再交给 broadcastSlot，对象 title 会先变成
+    // "[object Object]"、嵌套的 objective 就永远取不到了；现在直接过 slotText 浅提取。
+    const t = slotText(title);
+    const d = slotText(detail);
     // B18（2026-11-13）：带 session_id 的插槽只发给该会话的订阅者（以前一律全局广播）。
     const target = String(extra.session_id ?? '').trim();
     if (!t && !d) {
@@ -2998,7 +3350,7 @@ function presetSvcOf(ctx) {
       title: t,
       detail: d,
     });
-    const rec = SLOT_LAST.get(slotId);
+    const rec = SLOT_LAST.get(slotKey(slotId, target));
     return { ...frame, warnings: rec?.warnings ?? [], removed: false };
   };
 
@@ -3085,6 +3437,96 @@ function presetSvcOf(ctx) {
       return sendJson(res, 200, {
         ok: true, v: 2, action, slot,
         warnings: Array.isArray(slot?.warnings) ? slot.warnings : [],
+      });
+    }
+    /**
+     * 目标槽动作（2026-11-15 新增）：暂停 / 恢复 / 清除。
+     *
+     * <p>调用 DSH 自己的 `ctx.goals`（GoalService）—— pause/resume/clear 都要求
+     * 一个 **live agent** 与 exact `{id, revision}`（compare-and-set）。服务不存在、
+     * 会话不在宿主内、或 revision 已过期时明确回错误，**不假装成功**。</p>
+     */
+    if (action === 'goal.pause' || action === 'goal.resume' || action === 'goal.clear') {
+      if (!allows(normalizeCaps(body.caps ?? ''), 'cmd.ui')) {
+        return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'cmd.ui' });
+      }
+      const sid = String(body.session_id ?? '').trim();
+      if (!sid) return sendJson(res, 400, { ok: false, v: 2, action, error: 'session_id_required' });
+      const svc = goalSvc();
+      if (!svc) {
+        return sendJson(res, 409, {
+          ok: false, v: 2, action, error: 'not_supported',
+          hint: '这个 DSH 版本没有 goals 服务（目标只能在电脑端对话里操作）',
+        });
+      }
+      const method = action === 'goal.pause' ? 'pause' : (action === 'goal.resume' ? 'resume' : 'clear');
+      if (typeof svc[method] !== 'function' || typeof svc.get !== 'function') {
+        return sendJson(res, 409, {
+          ok: false, v: 2, action, error: 'not_supported',
+          hint: 'goals 服务缺少 ' + method + '/get 方法，无法在线操作目标',
+        });
+      }
+      const agent = liveAgentOf(sid);
+      if (!agent) {
+        return sendJson(res, 409, {
+          ok: false, v: 2, action, error: 'agent_not_live',
+          hint: '这条会话当前不在电脑端运行；目标操作需要 live agent',
+        });
+      }
+      let current;
+      try {
+        current = svc.get(agent);
+      } catch (e) {
+        return sendJson(res, 409, {
+          ok: false, v: 2, action, error: 'goal_read_failed',
+          detail: String(e?.message ?? e).slice(0, 200),
+        });
+      }
+      if (!current) {
+        if (action === 'goal.clear') {
+          GOAL_STATE.delete(sid);
+          broadcastGoalSlot(sid);
+          scheduleStateSave();
+          return sendJson(res, 200, {
+            ok: true, v: 2, action, cleared: true, goal: null,
+          });
+        }
+        return sendJson(res, 409, {
+          ok: false, v: 2, action, error: 'goal_not_found',
+          hint: '这条会话当前没有目标',
+        });
+      }
+      const ref = { id: current.id, revision: current.revision };
+      try {
+        if (action === 'goal.pause') await svc.pause(agent, ref);
+        else if (action === 'goal.resume') await svc.resume(agent, ref);
+        else await svc.clear(agent, ref);
+      } catch (e) {
+        // GoalError.code 例如 GOAL_STALE_REVISION / GOAL_INVALID_TRANSITION
+        return sendJson(res, 409, {
+          ok: false, v: 2, action,
+          error: String(e?.code ?? 'goal_failed'),
+          detail: String(e?.message ?? e).slice(0, 200),
+          hint: '目标状态已变化或该操作对当前阶段无效；请等下一帧刷新后重试',
+        });
+      }
+      if (!refreshGoalFromHost(sid)) {
+        if (action === 'goal.clear') GOAL_STATE.delete(sid);
+        else {
+          const prev = GOAL_STATE.get(sid);
+          if (prev) {
+            GOAL_STATE.set(sid, {
+              ...prev,
+              phase: action === 'goal.pause' ? 'paused' : 'active',
+              active: action !== 'goal.pause',
+            });
+          }
+        }
+      }
+      broadcastGoalSlot(sid);
+      scheduleStateSave();
+      return sendJson(res, 200, {
+        ok: true, v: 2, action, goal: GOAL_STATE.get(sid) ?? null,
       });
     }
     if (action === 'permission.set') {
@@ -3176,10 +3618,17 @@ function presetSvcOf(ctx) {
       });
     }
     if (action === 'jobs.clear') {
-      JOB_STATE.clear();
+      const sid = String(body.session_id ?? '').trim();
+      if (sid) {
+        for (const [id, j] of JOB_STATE) {
+          if (String(j.sid ?? '') === sid) JOB_STATE.delete(id);
+        }
+      } else {
+        JOB_STATE.clear();
+      }
       scheduleStateSave();
-      broadcastJobsSlot();
-      return sendJson(res, 200, { ok: true, v: 2, action, jobs: 0 });
+      broadcastJobsSlot(sid);
+      return sendJson(res, 200, { ok: true, v: 2, action, session_id: sid, jobs: 0 });
     }
     if (action === 'resync') {
       // 手机时间线乱了的出口：广播一条"重建"信号（手机侧 handleChannelEvent 已实现）
@@ -3188,7 +3637,8 @@ function presetSvcOf(ctx) {
     }
     return sendJson(res, 400, {
       ok: false, v: 2, error: 'unknown_action', action,
-      allowed: ['ui.slot', 'permission.set', 'jobs.clear', 'resync', 'debug.approval'],
+      allowed: ['ui.slot', 'permission.set', 'goal.pause', 'goal.resume', 'goal.clear',
+        'jobs.clear', 'resync', 'debug.approval'],
     });
   });
 
@@ -5476,11 +5926,15 @@ function presetSvcOf(ctx) {
     };
     pushState();
     pushView();
-    // 连上就把四类持续状态各推一次（jobs / goal / subagents / mcp）；之后按事件增量刷新
-    broadcastJobsSlot();
+    // 连上就把持续状态各推一次（jobs / goal / plan / subagents / mcp）；之后按事件增量刷新
+    // 2026-11-15：全部按 sid 过滤，别的会话的任务/目标/子代理不会串到这条连接上。
+    refreshGoalFromHost(sid);
+    refreshPlanFromHost(sid);
+    broadcastJobsSlot(sid);
     broadcastGoalSlot(sid);
-    broadcastSubagentsSlot();
-    broadcastMcpSlot();
+    broadcastPlanSlot(sid);
+    broadcastSubagentsSlot(sid);
+    broadcastMcpSlot(sid);
     // 权限插槽：先向宿主补读一次（重启/新会话时事件不会重放，否则这一行是空的）
     refreshPermissionFromHost(sid);
     broadcastPermissionSlot();

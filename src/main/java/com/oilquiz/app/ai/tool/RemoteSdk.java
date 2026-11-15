@@ -105,7 +105,17 @@ public final class RemoteSdk {
 
     /** 电脑端后台任务列表（插件按会话事件派生的状态，见 /v2/jobs）。 */
     public Map<String, Object> jobs() throws Exception {
-        return call("/v2/jobs", "GET", null, 15);
+        return jobs("");
+    }
+
+    /**
+     * 按会话取后台任务（2026-11-15）：与甲板 jobs 插槽同口径，避免"1 个在跑 ·
+     * 共 20 条"里的数字和面板看到的对不上。
+     */
+    public Map<String, Object> jobs(String sessionId) throws Exception {
+        String s = sessionId == null ? "" : sessionId.trim();
+        String q = s.isEmpty() ? "" : "?session_id=" + URLEncoder.encode(s, "UTF-8");
+        return call("/v2/jobs" + q, "GET", null, 15);
     }
 
     /** 电脑端目标状态（事件派生）；sessionId 为空则列全部。 */
@@ -117,7 +127,14 @@ public final class RemoteSdk {
 
     /** 本进程用过的 MCP 服务（插件从 mcp__<server>__<tool> 工具名派生）。 */
     public Map<String, Object> mcp() throws Exception {
-        return call("/v2/mcp", "GET", null, 15);
+        return mcp("");
+    }
+
+    /** 按会话取 MCP 服务（2026-11-15）：与 mcp 插槽同口径，避免 A 会话的统计串到 B。 */
+    public Map<String, Object> mcp(String sessionId) throws Exception {
+        String s = sessionId == null ? "" : sessionId.trim();
+        String q = s.isEmpty() ? "" : "?session_id=" + URLEncoder.encode(s, "UTF-8");
+        return call("/v2/mcp" + q, "GET", null, 15);
     }
 
     /** 权限状态（沙箱 / 档位 / 审批策略的最近取值）。 */

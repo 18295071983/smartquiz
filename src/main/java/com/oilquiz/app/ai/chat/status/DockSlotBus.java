@@ -117,8 +117,10 @@ public final class DockSlotBus {
                     int progress, List<SlotAction> actions) {
             this.id = id == null ? "" : id;
             this.priority = priority;
-            this.title = title == null ? "" : title;
-            this.detail = detail == null ? "" : detail;
+            // 2026-11-15 体检：所有写者（插件/本地兜底）落总线前统一清洗文本，
+            // 甲板、全屏列表、诊断都读同一份干净值。
+            this.title = SlotText.clean(title);
+            this.detail = SlotText.clean(detail);
             this.action = action == null ? "" : action;
             this.warn = warn;
             this.kind = SlotKind.canonical(kind);

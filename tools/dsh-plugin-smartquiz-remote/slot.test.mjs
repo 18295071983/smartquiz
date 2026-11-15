@@ -6,7 +6,7 @@
 //     · `POST /v2/action {action:'ui.slot'}` → 真实 `ui/slot` 帧（与 phone_ui 同一条 pushUiSlot）
 //   断言：
 //     1) 同一 id 连推两次：rev 严格递增（1 → 2），响应里带 rev；
-//     2) 持续态 id（jobs）默认带 ttl_ms=30000，稳定态 id（goal）不带；
+//     2) 短命态 id（compaction/retry）默认带 ttl_ms=30000；jobs/goal 不带（长任务/稳定态）；
 //     3) 显式 ttl_ms=3000 原样透传；
 //     4) 空帧/remove:true 下发的移除帧 rev 比上一条大，且标记 remove；
 //     5) 新订阅（新连一条 /ws/ui）能收到最近一帧，rev 沿用不回退；
@@ -25,12 +25,29 @@
 // 跑法：cd tools/dsh-plugin-smartquiz-remote && node slot.test.mjs
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { WebSocket } from 'ws';
 import { apply } from './index.js';
 
 const TOKEN = 'slot-test-token';
 const SID = 'root-1';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 状态文件指纹：测试会通过真实的 job/goal 事件触发 scheduleStateSave，
+ * 把 `.jobs.json` / `.goals.json` 写到插件目录（与正在跑的插件共用）。收尾时恢复，
+ * 避免测试污染电脑端正在用的状态。
+ */
+const STATE_FILES = ['.jobs.json', '.goals.json'];
+const originalState = new Map();
+for (const f of STATE_FILES) {
+  try { originalState.set(f, readFileSync(new URL(f, import.meta.url))); } catch { /* 首次没有 */ }
+}
+const restoreStateFiles = () => {
+  for (const [f, buf] of originalState) {
+    try { writeFileSync(new URL(f, import.meta.url), buf); } catch { /* 忽略 */ }
+  }
+};
 
 const PORT = await new Promise((resolve, reject) => {
   const s = createServer();
@@ -47,6 +64,69 @@ const handlers = new Map();
 const sessions = new Map([[SID, { id: SID, seq: 1, eventAt: () => undefined }]]);
 let phoneUiDef = null;
 
+// 2026-11-15：给插件一个可控的 GoalService / ScheduleService / PlanModeController，
+// 这样 goal.pause/resume/clear 的 /v2/action 路由可以在**不碰真 DSH** 的情况下测到。
+let goalAvailable = true;
+const fakeGoal = { current: null };
+const fakeGoals = {
+  get() { return fakeGoal.current ?? undefined; },
+  pause(agent, ref) { return fakeGoalTransition(ref, 'paused', 'disarmed'); },
+  resume(agent, ref) {
+    if (!fakeGoal.current) throw new Error('no current goal');
+    return fakeGoalTransition(ref, 'active', 'armed');
+  },
+  clear(agent, ref) {
+    const cur = fakeGoal.current;
+    if (!cur) return { id: ref.id, revision: ref.revision + 1 };
+    if (cur.id !== ref.id || cur.revision !== ref.revision) {
+      const e = new Error('stale goal ref');
+      e.code = 'GOAL_STALE_REVISION';
+      throw e;
+    }
+    const tombstone = { id: cur.id, revision: cur.revision + 1 };
+    fakeGoal.current = null;
+    return tombstone;
+  },
+};
+function fakeGoalTransition(ref, phase, activation) {
+  const cur = fakeGoal.current;
+  if (!cur) throw new Error('no current goal');
+  if (cur.id !== ref.id || cur.revision !== ref.revision) {
+    const e = new Error('stale goal ref');
+    e.code = 'GOAL_STALE_REVISION';
+    throw e;
+  }
+  if (phase === 'paused' && cur.phase !== 'active') {
+    const e = new Error('cannot pause from phase ' + cur.phase);
+    e.code = 'GOAL_INVALID_TRANSITION';
+    throw e;
+  }
+  fakeGoal.current = {
+    ...cur,
+    phase,
+    activation,
+    revision: cur.revision + 1,
+    updatedAt: Date.now(),
+  };
+  return fakeGoal.current;
+}
+let planActive = false;
+const fakePlan = {
+  get() { return { active: planActive }; },
+};
+const scheduleItems = [];
+const fakeSchedule = {
+  async list() { return { items: scheduleItems.slice() }; },
+};
+const liveAgents = new Set([SID]);
+const fakeDelivered = [];
+const fakeAgent = {
+  id: SID,
+  session: sessions.get(SID),
+  status: 'running',
+  followup(message) { fakeDelivered.push(message); },
+};
+
 const ctx = {
   effect(fn) {
     try {
@@ -56,7 +136,10 @@ const ctx = {
       return () => {};
     }
   },
-  get() {
+  get(name) {
+    if (name === 'goals') return goalAvailable ? fakeGoals : null;
+    if (name === 'planMode') return fakePlan;
+    if (name === 'schedule') return fakeSchedule;
     return undefined;
   },
   webServer: {
@@ -78,7 +161,14 @@ const ctx = {
       if (i >= 0) arr.splice(i, 1);
     };
   },
-  agents: { get() { return undefined; }, list() { return []; } },
+  agents: {
+    get(id) {
+      const key = String(id ?? '');
+      if (!liveAgents.has(key)) return undefined;
+      return key === SID ? fakeAgent : { id: key, status: 'running' };
+    },
+    list() { return []; },
+  },
   sessions: { get(id) { return sessions.get(id); } },
   tools: {
     register(def) {
@@ -110,7 +200,7 @@ const test = async (name, fn) => {
   }
 };
 
-async function post(path, body) {
+async function postJson(path, body) {
   const res = await fetch(`http://127.0.0.1:${PORT}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: 'Bearer ' + TOKEN },
@@ -119,6 +209,10 @@ async function post(path, body) {
   let json = null;
   try { json = await res.json(); } catch { /* 非 JSON */ }
   return { status: res.status, json };
+}
+
+async function post(path, body) {
+  return postJson('/v2/action', body);
 }
 
 async function pushSlot(id, title, extra = {}) {
@@ -168,6 +262,35 @@ async function connect(channel, caps) {
 
 const slotFrames = (conn, id) => conn.frames.filter((f) => f.type === 'ui/slot' && f.data?.id === id);
 
+/**
+ * 从**真实生产入口**注入会话事件：直接调用插件注册的 session/event handler。
+ * 这样 job/compaction/retry/goal/plan 的产出逻辑与真机走的是同一段代码。
+ */
+function emitSession(type, data = {}, sid = SID) {
+  const arr = handlers.get('session/event') ?? [];
+  for (const fn of arr) {
+    fn(
+      { id: sid, seq: 1, eventAt: () => undefined },
+      { type, data, time: Date.now() },
+    );
+  }
+}
+
+/** 注入 host 事件（goal/activation-changed / schedule/changed 等）。 */
+function emitHost(type, payload = {}) {
+  const arr = handlers.get(type) ?? [];
+  for (const fn of arr) fn(payload);
+}
+
+async function getJson(path) {
+  const res = await fetch(`http://127.0.0.1:${PORT}${path}`, {
+    headers: { authorization: 'Bearer ' + TOKEN },
+  });
+  let json = null;
+  try { json = await res.json(); } catch { /* 非 JSON */ }
+  return { status: res.status, json };
+}
+
 // ---------- 自测 ----------
 let ui = null;
 
@@ -188,9 +311,14 @@ await test('同 id 连推：rev 严格递增，绝不复用', async () => {
   assert.equal(got.data.epoch, b.epoch, '实时帧带同一 epoch');
 });
 
-await test('持续态默认 ttl_ms=30000，稳定态不带 ttl', async () => {
+await test('TTL 只给短命态：compaction/retry 默认 30s，jobs/goal 不带', async () => {
+  const compaction = await pushSlot('compaction', '压缩');
+  assert.equal(compaction.ttl_ms, 30000, 'compaction 属于短命态，应默认 30s');
+  const retry = await pushSlot('retry', '重试');
+  assert.equal(retry.ttl_ms, 30000, 'retry 属于短命态，应默认 30s');
+  // 2026-11-15 体检：jobs/inbox/subagents 可能持续几分钟，30s TTL 会让仍有效的状态消失
   const jobs = await pushSlot('jobs', '任务');
-  assert.equal(jobs.ttl_ms, 30000, 'jobs 属于持续态，应默认 30s');
+  assert.equal(jobs.ttl_ms, undefined, 'jobs 长任务不能被 30s TTL 提前清掉');
   const goal = await pushSlot('goal', '目标');
   assert.equal(goal.ttl_ms, undefined, 'goal 是稳定态，靠显式 remove');
 });
@@ -476,8 +604,280 @@ await test('旧 kind=display → state；无 kind 默认 state', async () => {
   assert.equal(plain.kind, 'state');
 });
 
-// 收尾：关 socket，按结果退出（插件定时器不能让 node 挂着）
+// ===== 2026-11-15 全量体检：脏值清洗 / 各槽 remove / actions 路由 =====
+
+await test('文本清洗：对象浅提取、脏 token 去除、超长截断 80 字', async () => {
+  const obj = await pushSlot('dirty-obj', { objective: '真实目标' }, { detail: 'undefined NaN' });
+  assert.equal(obj.title, '真实目标', '对象 title 要取 objective');
+  assert.equal(obj.detail, '', 'undefined/NaN 清洗后为空');
+
+  const mixed = await pushSlot('dirty-token', '[object Object] 目标', {
+    detail: 'undefined 正在跑 NaN',
+  });
+  assert.equal(mixed.title, '目标');
+  assert.equal(mixed.detail, '正在跑');
+
+  const long = await pushSlot('dirty-long', 'x'.repeat(120), { detail: 'y'.repeat(120) });
+  assert.equal(long.title.length, 80, 'title 截断到 80 字');
+  assert.ok(long.title.endsWith('…'), '截断要加 …');
+  assert.equal(long.detail.length, 80);
+
+  const dirtyAction = await pushSlot('dirty-action', '权限', {
+    kind: 'action',
+    actions: [{ id: 'permission', label: '[object Object]' }],
+  });
+  assert.equal(dirtyAction.kind, 'state', '脏 label 被丢弃后 action 降级 state');
+  assert.deepEqual(dirtyAction.actions, []);
+
+  // 清掉这几条，别影响后面的快照断言
+  for (const id of ['dirty-obj', 'dirty-token', 'dirty-long', 'dirty-action']) {
+    await pushSlot(id, '', { detail: '' });
+  }
+});
+
+await test('goal 槽：action kind + 暂停/清除，暂停后切恢复，清除后 remove', async () => {
+  fakeGoal.current = {
+    id: 'goal-test-1', revision: 1, objective: '把插槽体检做完',
+    phase: 'active', activation: 'armed', roundsStarted: 0, maxGoalRounds: 10,
+    createdAt: Date.now(), updatedAt: Date.now(),
+  };
+  emitSession('goal/change', { operation: 'create', goal: fakeGoal.current });
+
+  const activeFrame = await waitFor(() => {
+    const f = slotFrames(ui, 'goal').at(-1);
+    return f && f.data.kind === 'action' ? f : null;
+  }, 'goal action 帧');
+  assert.equal(activeFrame.data.detail, '把插槽体检做完');
+  assert.deepEqual(activeFrame.data.actions.map((a) => a.id), ['goal.pause', 'goal.clear']);
+  assert.equal(activeFrame.data.actions[0].label, '暂停');
+
+  const pause = await post('/v2/action', {
+    action: 'goal.pause', session_id: SID, caps: 'cmd.ui',
+  });
+  assert.equal(pause.status, 200, 'goal.pause 应 200：' + JSON.stringify(pause.json));
+  assert.equal(pause.json.ok, true);
+  const pausedFrame = await waitFor(() => {
+    const f = slotFrames(ui, 'goal').at(-1);
+    return f && f.data.actions?.[0]?.label === '恢复' ? f : null;
+  }, '暂停后的恢复按钮');
+  assert.equal(pausedFrame.data.actions[0].id, 'goal.resume');
+  assert.equal(fakeGoal.current.phase, 'paused', '必须真的调了 GoalService.pause');
+
+  const resume = await post('/v2/action', {
+    action: 'goal.resume', session_id: SID, caps: 'cmd.ui',
+  });
+  assert.equal(resume.status, 200, 'goal.resume 应 200：' + JSON.stringify(resume.json));
+  const resumedFrame = await waitFor(() => {
+    const f = slotFrames(ui, 'goal').at(-1);
+    return f && f.data.actions?.[0]?.label === '暂停' ? f : null;
+  }, '恢复后的暂停按钮');
+  assert.equal(fakeGoal.current.phase, 'active');
+
+  const clear = await post('/v2/action', {
+    action: 'goal.clear', session_id: SID, caps: 'cmd.ui',
+  });
+  assert.equal(clear.status, 200, 'goal.clear 应 200：' + JSON.stringify(clear.json));
+  assert.equal(fakeGoal.current, null, '必须真的调了 GoalService.clear');
+  await waitFor(() => {
+    const f = slotFrames(ui, 'goal').at(-1);
+    return f && f.data.remove === true ? f : null;
+  }, 'goal 清除后的 remove 帧');
+  const goal = await getJson('/v2/goal?session_id=' + encodeURIComponent(SID));
+  assert.equal(goal.json.goal, null, '清除后 /v2/goal 应为 null');
+});
+
+await test('goal 动作：DSH 没有 goals 服务时返回 not_supported，不假装成功', async () => {
+  goalAvailable = false;
+  try {
+    const r = await post('/v2/action', {
+      action: 'goal.pause', session_id: SID, caps: 'cmd.ui',
+    });
+    assert.equal(r.status, 409);
+    assert.equal(r.json.ok, false);
+    assert.equal(r.json.error, 'not_supported');
+    assert.match(String(r.json.hint), /goals/);
+  } finally {
+    goalAvailable = true;
+  }
+});
+
+await test('jobs 槽：活跃数进 count、有进度用 progress、清空 remove', async () => {
+  emitSession('job/registered', { jobId: 'job-test-1', owner: SID, label: '任务A', kind: 'bash' });
+  const listFrame = await waitFor(() => {
+    const f = slotFrames(ui, 'jobs').at(-1);
+    return f && f.data.kind === 'list' ? f : null;
+  }, 'jobs list 帧');
+  assert.equal(listFrame.data.count, 1, 'count=活跃任务数');
+  assert.match(listFrame.data.detail, /1 个在跑 · 共 1 条/);
+
+  let jobs = await getJson('/v2/jobs?session_id=' + encodeURIComponent(SID));
+  assert.equal(jobs.json.count, 1);
+  assert.equal(jobs.json.running, 1);
+  assert.equal(jobs.json.items[0].sid, SID, '任务必须带会话归属');
+
+  emitSession('job/settled', {
+    jobId: 'job-test-1', owner: SID, label: '任务A', status: 'completed', failed: false,
+  });
+  await waitFor(() => {
+    const f = slotFrames(ui, 'jobs').at(-1);
+    return f && f.data.kind === 'state' && /空闲/.test(f.data.detail) ? f : null;
+  }, 'jobs 全部结束后的空闲帧');
+
+  emitSession('job/registered', {
+    jobId: 'job-test-2', owner: SID, label: '任务B', kind: 'bash', progress: 50,
+  });
+  const progressFrame = await waitFor(() => {
+    const f = slotFrames(ui, 'jobs').at(-1);
+    return f && f.data.kind === 'progress' ? f : null;
+  }, 'jobs progress 帧');
+  assert.equal(progressFrame.data.progress, 50);
+  assert.match(progressFrame.data.detail, /1 个在跑 · 共 2 条/);
+
+  emitSession('job/settled', {
+    jobId: 'job-test-2', owner: SID, label: '任务B', status: 'failed', failed: true,
+  });
+  const failedFrame = await waitFor(() => {
+    const f = slotFrames(ui, 'jobs').at(-1);
+    return f && f.data.warn === true && f.data.kind === 'state' ? f : null;
+  }, 'jobs 失败帧');
+  assert.match(failedFrame.data.title, /有失败/);
+
+  const cleared = await post('/v2/action', { action: 'jobs.clear', session_id: SID });
+  assert.equal(cleared.status, 200);
+  await waitFor(() => {
+    const f = slotFrames(ui, 'jobs').at(-1);
+    return f && f.data.remove === true ? f : null;
+  }, 'jobs.clear 后的 remove 帧');
+});
+
+await test('compaction / retry：start 带 TTL，end/success 立即 remove', async () => {
+  const compactionRev = slotFrames(ui, 'compaction').at(-1)?.data?.rev ?? 0;
+  emitSession('compaction/start', { reason: 'manual' });
+  const compaction = await waitFor(() => {
+    const f = slotFrames(ui, 'compaction').at(-1);
+    return f && f.data.rev > compactionRev && !f.data.remove ? f : null;
+  }, 'compaction start 帧');
+  assert.equal(compaction.data.ttl_ms, 30000);
+  assert.match(compaction.data.title, /压缩/);
+  emitSession('compaction/end', {});
+  await waitFor(() => {
+    const f = slotFrames(ui, 'compaction').at(-1);
+    return f && f.data.remove === true && f.data.rev > compaction.data.rev ? f : null;
+  }, 'compaction remove 帧');
+
+  const retryRev = slotFrames(ui, 'retry').at(-1)?.data?.rev ?? 0;
+  emitSession('llm/retry-started', { retry: 2 });
+  const retry = await waitFor(() => {
+    const f = slotFrames(ui, 'retry').at(-1);
+    return f && f.data.rev > retryRev && !f.data.remove ? f : null;
+  }, 'retry 帧');
+  assert.equal(retry.data.ttl_ms, 30000);
+  assert.match(retry.data.detail, /第 2 次重试/);
+  emitSession('assistant/message', { message: { content: [{ type: 'text', text: 'ok' }] } });
+  await waitFor(() => {
+    const f = slotFrames(ui, 'retry').at(-1);
+    return f && f.data.remove === true && f.data.rev > retry.data.rev ? f : null;
+  }, 'retry remove 帧');
+});
+
+await test('plan/mode：开启出现、关闭 remove，点击动作指向 plan 面板', async () => {
+  emitSession('plan/mode', { active: true });
+  const on = await waitFor(() => {
+    const f = slotFrames(ui, 'plan').at(-1);
+    return f && !f.data.remove ? f : null;
+  }, 'plan 开启帧');
+  assert.equal(on.data.action, 'plan');
+  assert.equal(on.data.title, '计划模式');
+
+  emitSession('plan/mode', { active: false });
+  await waitFor(() => {
+    const f = slotFrames(ui, 'plan').at(-1);
+    return f && f.data.remove === true && f.data.rev > on.data.rev ? f : null;
+  }, 'plan 关闭 remove 帧');
+});
+
+await test('schedule 槽：list + count 与条目一致，空则 remove', async () => {
+  scheduleItems.push({ id: 'sch-1', title: '早报' }, { id: 'sch-2', title: '晚报' });
+  emitHost('schedule/changed', {});
+  const on = await waitFor(() => {
+    const f = slotFrames(ui, 'schedule').at(-1);
+    return f && f.data.kind === 'list' && f.data.count === 2 ? f : null;
+  }, 'schedule list 帧');
+  assert.match(on.data.detail, /2 个启用中/);
+
+  scheduleItems.length = 0;
+  emitHost('schedule/changed', {});
+  await waitFor(() => {
+    const f = slotFrames(ui, 'schedule').at(-1);
+    return f && f.data.remove === true && f.data.rev > on.data.rev ? f : null;
+  }, 'schedule remove 帧');
+});
+
+await test('permission 槽：内联 label 与当前沙箱档位一致', async () => {
+  emitSession('sandbox/mode', { mode: 'danger-full-access' });
+  const danger = await waitFor(() => {
+    const f = slotFrames(ui, 'permission').at(-1);
+    return f && f.data.detail?.includes('完全访问') ? f : null;
+  }, 'permission 完全访问帧');
+  assert.equal(danger.data.actions[0].label, '调整（完全访问）');
+  assert.equal(danger.data.warn, true);
+
+  emitSession('approval/policy', { policy: 'never' });
+  const withPolicy = await waitFor(() => {
+    const f = slotFrames(ui, 'permission').at(-1);
+    return f && /审批:从不询问/.test(f.data.detail) ? f : null;
+  }, 'permission 审批策略帧');
+
+  emitSession('sandbox/mode', { mode: 'read-only' });
+  const readOnly = await waitFor(() => {
+    const f = slotFrames(ui, 'permission').at(-1);
+    return f && f.data.actions?.[0]?.label === '调整（只读）' ? f : null;
+  }, 'permission 只读帧');
+  assert.equal(readOnly.data.warn, false);
+  assert.ok(withPolicy.data.actions.length >= 1);
+});
+
+await test('inbox 槽：kind=list + count，队列清空 remove', async () => {
+  emitSession('turn/start', {});
+  const queued = await postJson('/session', {
+    action: 'inject', target_session_id: SID, text: '排队消息一', mode: 'auto',
+  });
+  assert.equal(queued.status, 200, 'inject 应 200：' + JSON.stringify(queued.json));
+  assert.equal(queued.json.queued, true, '忙时 inject 应排队');
+
+  const on = await waitFor(() => {
+    const f = slotFrames(ui, 'inbox').at(-1);
+    return f && f.data.kind === 'list' && f.data.count === 1 ? f : null;
+  }, 'inbox list 帧');
+  assert.equal(on.data.action, 'queue');
+
+  emitSession('turn/end', {});
+  await waitFor(() => {
+    const f = slotFrames(ui, 'inbox').at(-1);
+    return f && f.data.remove === true && f.data.rev > on.data.rev ? f : null;
+  }, 'inbox remove 帧');
+  assert.equal(fakeDelivered.length, 1, '队列里的插话应投回 agent.followup');
+});
+
+await test('subagents 槽：kind=list + count，全部结束 remove', async () => {
+  liveAgents.add('child-test-1');
+  emitSession('subagent/catalog', { childId: 'child-test-1', label: '子任务' });
+  const on = await waitFor(() => {
+    const f = slotFrames(ui, 'subagents').at(-1);
+    return f && f.data.kind === 'list' && f.data.count === 1 ? f : null;
+  }, 'subagents list 帧');
+
+  liveAgents.delete('child-test-1');
+  emitSession('subagent/catalog', { childId: 'child-test-1', label: '子任务' });
+  await waitFor(() => {
+    const f = slotFrames(ui, 'subagents').at(-1);
+    return f && f.data.remove === true && f.data.rev > on.data.rev ? f : null;
+  }, 'subagents remove 帧');
+});
+
+// 收尾：关 socket，等落盘定时器跑完并恢复状态文件，再按结果退出（插件定时器不能让 node 挂着）
 try { ui?.ws.close(); } catch { /* ignore */ }
-await sleep(50);
+await sleep(700);
+restoreStateFiles();
 console.log(`\n${passed} passed${process.exitCode ? '（有失败）' : ''}`);
 process.exit(process.exitCode ?? 0);

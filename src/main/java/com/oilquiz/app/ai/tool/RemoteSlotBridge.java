@@ -5,6 +5,7 @@ import android.content.Context;
 import com.oilquiz.app.ai.chat.status.DockSlotBus;
 import com.oilquiz.app.ai.chat.status.SlotKind;
 import com.oilquiz.app.ai.chat.status.SlotPriorities;
+import com.oilquiz.app.ai.chat.status.SlotText;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -83,8 +84,8 @@ public final class RemoteSlotBridge {
          * 但这里以前只有 {@code remove:true} 才真的删 —— 于是"压缩中/子代理/任务"
          * 结束后槽位只是变成空壳留在总线里，甲板会挂一条空白。现在两种写法等价。</p>
          */
-        String title = data.optString("title", "").trim();
-        String detail = data.optString("detail", "").trim();
+        String title = SlotText.cleanField(data, "title");
+        String detail = SlotText.cleanField(data, "detail");
         int rawCount = data.optInt("count", 0);
         if (title.isEmpty() && detail.isEmpty() && rawCount <= 0) {
             DockSlotBus.remove(id, rev);
@@ -96,13 +97,19 @@ public final class RemoteSlotBridge {
             logi("[dock] kind 归一化 id=" + id + " → " + normalized.kind
                     + "：" + String.join("；", normalized.warnings));
         }
+        // 降级后可能只剩脏文本（例如 kind=action 的 title 是 [object Object]）：按空帧移除。
+        if (SlotKind.STATE.equals(normalized.kind)
+                && title.isEmpty() && detail.isEmpty() && normalized.count <= 0) {
+            DockSlotBus.remove(id, rev);
+            return true;
+        }
         long ttlMs = Math.min(Math.max(0L, data.optLong("ttl_ms", 0L)), MAX_TTL_MS);
         long expireAt = ttlMs > 0 ? System.currentTimeMillis() + ttlMs : 0L;
         DockSlotBus.update(new DockSlotBus.Slot(
                 id,
                 resolvePriority(data),
-                data.optString("title", ""),
-                data.optString("detail", ""),
+                title,
+                detail,
                 data.optString("action", ""),
                 data.optBoolean("warn", false),
                 normalized.kind,
