@@ -58,7 +58,6 @@ window.__ModuleLoader__.load({
     function Panel(props) {
       const t = (props && typeof props.t === 'function') ? props.t : ((key, fallback) => fallback);
 
-      const [open, setOpen] = React.useState(false);
       const [info, setInfo] = React.useState(null);
       const [st, setSt] = React.useState(null);
       const [bal, setBal] = React.useState(null);
@@ -174,23 +173,96 @@ window.__ModuleLoader__.load({
       // 2026-11-16：弹出层改为**屏幕正中的固定浮层**。
       // 之前是 absolute + bottom:100% 挂在输入区工具条里 —— 会被输入区容器裁掉/盖住
       // （用户："弹出就被遮挡了"）。fixed 定位 + 极高 z-index + 半透明遮罩，保证不被遮挡。
-      const panelBox = {
-        // 2026-11-16 第三次调：用户反馈"往上点，触底了" —— 垂直居中时面板一长就贴住底边。
-        // 改为"顶部对齐 + 左右居中"：距顶 6vh，最高 86vh，底部永远留出空间。
-        // 2026-11-16：用 vw 而不是 % —— 输入区容器若有 transform，fixed 的百分比会相对它算，
-        // 真机截图里左侧被裁掉（标签只剩「域网」「网（VPN）」）就是这原因；vw 始终相对视口。
-        position: 'fixed', left: '50vw', top: '6vh', transform: 'translateX(-50%)',
-        zIndex: 2147483000,
-        width: 460, maxWidth: '92vw', maxHeight: '86vh', overflowY: 'auto',
-        padding: '14px 16px', borderRadius: 12, fontSize: 12, lineHeight: 1.6,
-        background: 'Canvas', color: 'CanvasText',
-        border: '1px solid currentColor',
-        boxShadow: '0 10px 40px color-mix(in srgb, CanvasText 30%, transparent)',
-      };
-      const backdrop = {
-        position: 'fixed', inset: 0, zIndex: 2147482999,
-        background: 'color-mix(in srgb, CanvasText 26%, transparent)',
-      };
+      // 2026-11-16：改为**贴着按钮锚定**的浮层（popover）。
+      // 前两版分别居中/靠上，用户反馈"锚点不对"——它应该从按钮旁边弹出来。
+      // 做法：open 时测量按钮的 getBoundingClientRect，用视口坐标算位置：
+      //   · 按钮在上半屏 → 面板向下弹；在下半屏 → 向上弹（优先空间大的一侧）；
+      //   · 水平对齐按钮左缘，并夹紧在视口内（左右各留 8px）；
+      //   · 高度不超过可用空间，内容内部滚动 —— 既贴着按钮，又不会被裁/触底。
+      const btnRef = React.useRef(null);
+      const [anchor, setAnchor] = React.useState(null);
+      const [open, setOpen] = React.useState(false);
+      const measure = React.useCallback(() => {
+        const el = btnRef.current;
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        setAnchor({
+          left: r.left, top: r.top, bottom: r.bottom, right: r.right,
+          vw: window.innerWidth || document.documentElement.clientWidth || 1920,
+          vh: window.innerHeight || document.documentElement.clientHeight || 1080,
+        });
+      }, []);
+
+      React.useEffect(() => {
+        if (!open) return undefined;
+        measure();
+        const onWin = () => measure();
+        window.addEventListener('resize', onWin);
+        window.addEventListener('scroll', onWin, true);
+        return () => {
+          window.removeEventListener('resize', onWin);
+          window.removeEventListener('scroll', onWin, true);
+        };
+      }, [open, measure]);
+
+      // 点击浮层/按钮之外关闭
+      React.useEffect(() => {
+        if (!open) return undefined;
+        const onDoc = (e) => {
+          const t = e && e.target;
+          if (!t) return;
+          if (btnRef.current && btnRef.current.contains(t)) return;
+          const panel = document.getElementById('smartquiz-remote-panel');
+          if (panel && panel.contains(t)) return;
+          setOpen(false);
+        };
+        document.addEventListener('mousedown', onDoc, true);
+        return () => document.removeEventListener('mousedown', onDoc, true);
+      }, [open]);
+
+      const WIDTH = 460;
+      const panelRef = React.useRef(null);
+      // 自适应校正：DSH 输入区容器可能带 transform，此时 position:fixed 的包含块变成该容器，
+      // 用视口坐标(left/top)会整体偏移（用户说的"锚点不对"）。这里渲染后量一次实际位置，
+      // 把差值作为 transform 补上 —— 无论包含块是谁，最终都落在按钮旁边。
+      const [fix, setFix] = React.useState({ dx: 0, dy: 0 });
+      // 2026-11-16（用户明确要求）：面板**贴视口顶部、水平居中、永远在最上层**。
+      // 不再相对按钮锚定 —— 输入区容器带 transform 时定位会被带偏（就是"锚点不对"）。
+      // 位置用视口坐标给出，渲染后再用 transform 自校正一次，保证无论包含块是谁都贴在顶部。
+      const layout = (() => {
+        const a = anchor || { vw: (typeof window !== 'undefined' ? window.innerWidth : 1920),
+          vh: (typeof window !== 'undefined' ? window.innerHeight : 1080) };
+        const margin = 10;
+        const width = Math.min(WIDTH, a.vw - margin * 2);
+        const left = Math.max(margin, Math.round((a.vw - width) / 2));
+        const top = margin;
+        return {
+          style: {
+            position: 'fixed', left, top, width,
+            maxHeight: Math.max(200, a.vh - margin * 2), overflowY: 'auto',
+            zIndex: 2147483647,
+            padding: '14px 16px', borderRadius: 12, fontSize: 12, lineHeight: 1.6,
+            background: 'Canvas', color: 'CanvasText', border: '1px solid currentColor',
+            boxShadow: '0 10px 40px color-mix(in srgb, CanvasText 30%, transparent)',
+            transform: 'translate(' + fix.dx + 'px,' + fix.dy + 'px)',
+          },
+          target: { left, top },
+        };
+      })();
+      const panelBox = layout.style;
+      // 渲染后校正一次（只在偏差 >1px 时 setState，避免循环）
+      React.useLayoutEffect(() => {
+        if (!open || !layout.target) return;
+        const el = panelRef.current;
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        const dx = layout.target.left - r.left;
+        const dy = ('top' in layout.target) ? (layout.target.top - r.top) : (layout.target.bottom - r.bottom);
+        if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+          setFix({ dx: fix.dx + dx, dy: fix.dy + dy });
+        }
+      }, [open, anchor, layout.target && layout.target.left, layout.target && layout.target.top,
+        layout.target && layout.target.bottom, fix.dx, fix.dy]);
 
       const kindLabel = (it) => {
         if (!it) return '';
@@ -216,12 +288,11 @@ window.__ModuleLoader__.load({
       return h('span', { style: { position: 'relative', display: 'inline-flex' } },
         // 呼吸用的 keyframes（随组件挂载/卸载，不会污染全局）
         h('style', null, PULSE_STYLE),
-        h('button', { style: chipStyle, onClick: () => setOpen((v) => !v), title: t('panel.title', '手机远程接入（答题宝）') },
+        h('button', { ref: btnRef, style: chipStyle, onClick: () => setOpen((v) => !v), title: t('panel.title', '手机远程接入（答题宝）') },
           statusDot, ' 📱 ' + t('panel.title', '手机远程') + (open ? ' ▲' : ' ▼')),
 
         // 遮罩 + 居中浮层（点遮罩或按 Esc 关闭）
-        open && h('div', { style: backdrop, onClick: () => setOpen(false) }),
-        open && h('div', { style: panelBox },
+        open && h('div', { id: 'smartquiz-remote-panel', ref: panelRef, style: panelBox },
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 } },
             h('b', { style: { fontSize: 13 } }, '📱 ' + t('panel.title', '手机远程')),
             h('span', { style: Object.assign({}, label, { flex: 1 }) },
