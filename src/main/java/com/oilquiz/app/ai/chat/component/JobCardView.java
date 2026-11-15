@@ -56,16 +56,58 @@ public class JobCardView implements ChatComponent {
         JSONObject p = data.props != null ? data.props : new JSONObject();
         String jid = p.optString("job_id", "").trim();
         String status = p.optString("status", "").trim();
+        View base;
         if (jid.isEmpty() && !status.isEmpty()) {
-            return staticStatusView(context, p.optString("title", "后台任务"), status);
+            base = staticStatusView(context, p.optString("title", "后台任务"), status);
+        } else {
+            base = new JobCardRoot(context,
+                    jid,
+                    p.optString("title", ""),
+                    p.optString("cmd", ""));
         }
-        return new JobCardRoot(context,
-                jid,
-                p.optString("title", ""),
-                p.optString("cmd", ""));
+        // 作业输出/错误/退出码（2026-11-16）：job 工具已返回这些字段，卡片此前不显示。
+        // 用"外面包一层"而不是改两个内部类：staticStatusView 与 JobCardRoot 都能受益，
+        // 且字段全缺时直接返回原视图，老数据零影响。
+        String detail = jobDetail(p);
+        if (detail.isEmpty()) {
+            return base;
+        }
+        LinearLayout wrap = new LinearLayout(context);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.addView(base, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        TextView detailTv = new TextView(context);
+        detailTv.setText(detail);
+        detailTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f);
+        boolean hasError = !p.optString("error", p.optString("stderr", "")).isEmpty();
+        detailTv.setTextColor(hasError ? ComponentColors.error(context) : ComponentColors.textTertiary(context));
+        detailTv.setPadding(px(context, 14), px(context, 2), px(context, 14), 0);
+        detailTv.setMaxLines(3);
+        detailTv.setEllipsize(TextUtils.TruncateAt.END);
+        wrap.addView(detailTv);
+        return wrap;
+    }
+
+    /** 作业详情行：退出码 + 错误或输出（各字段可选，全空返回空串）。 */
+    private static String jobDetail(JSONObject p) {
+        String exit = p.optString("exitCode", p.optString("exit_code", ""));
+        String err = p.optString("error", p.optString("stderr", ""));
+        String out = p.optString("output", p.optString("stdout", ""));
+        String body = !err.isEmpty() ? err : out;
+        StringBuilder sb = new StringBuilder();
+        if (!exit.isEmpty()) {
+            sb.append("退出码 ").append(exit);
+        }
+        if (!body.isEmpty()) {
+            if (sb.length() > 0) sb.append(" · ");
+            String one = body.replaceAll("\\s+", " ").trim();
+            sb.append(one.length() > 160 ? one.substring(0, 160) + "..." : one);
+        }
+        return sb.toString();
     }
 
     /**
+
      * 静态状态卡（2026-11-14）：给 DSH 的 {@code job/registered|settled} 用。
      *
      * <p>DSH 的后台任务在宿主侧跑，手机拿不到日志、也不该去轮询本地作业目录；
