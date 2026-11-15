@@ -64,7 +64,7 @@ public class DebugLayoutInjectActivity extends Activity {
                 create.put("component_type", "layout_canvas");
                 create.put("title", "交互回传自检");
                 org.json.JSONObject props = new org.json.JSONObject();
-                props.put("layout", "{\"root\":{\"type\":\"column\",\"children\":[{\"type\":\"text\",\"text\":\"交互回传自检\"},{\"type\":\"slider_range\",\"key\":\"amount\",\"label\":\"金额\",\"min\":0,\"max\":100,\"values\":[20,80]},{\"type\":\"toggle\",\"key\":\"auto\",\"label\":\"自动\"}]}}");
+                props.put("layout", "{\"root\":{\"type\":\"column\",\"children\":[{\"type\":\"text\",\"text\":\"交互回传自检\"},{\"type\":\"slider_range\",\"key\":\"amount\",\"label\":\"金额\",\"min\":0,\"max\":100,\"values\":[20,80]},{\"type\":\"toggle\",\"key\":\"auto\",\"label\":\"自动\"},{\"type\":\"button\",\"text\":\"提交\",\"action\":\"submit\"}]}}");
                 props.put("min", 0);
                 props.put("max", 100);
                 props.put("values", new org.json.JSONArray().put(20).put(80));
@@ -87,6 +87,11 @@ public class DebugLayoutInjectActivity extends Activity {
                         gr.put("wait_seconds", 2);
                         com.oilquiz.app.ai.tool.AIToolResult r2 = tm.executeTool("ui_component", gr);
                         Log.i(TAG, "INPUT_FEEDBACK=" + (r2 == null ? "null" : r2.getResult()));
+                        // 再等 12 秒取一次：主机侧会在这段时间里 adb swipe 拖动滑块，
+                        // 第二次 get_result 应拿到 {value/values} 而不是 pending
+                        Thread.sleep(12000);
+                        com.oilquiz.app.ai.tool.AIToolResult r3 = tm.executeTool("ui_component", gr);
+                        Log.i(TAG, "INPUT_VALUE=" + (r3 == null ? "null" : r3.getResult()));
                     } catch (Throwable t) {
                         Log.e(TAG, "input_feedback 失败: " + t.getMessage(), t);
                     }
