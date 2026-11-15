@@ -54,6 +54,15 @@ public class ToolPermissionsTest {
     }
 
     @Test
+    public void dynamicToolCreationIsDangerous() {
+        assertEquals("造新工具等于给 Agent 加能力，必须按危险归类",
+                ToolPermissions.Level.DANGEROUS, ToolPermissions.levelOf("create_dynamic_tool"));
+        assertTrue(ToolPermissions.requiresAudit("create_dynamic_tool"));
+        // 造出来的动态工具名不在分级表里 → 保守 EXEC
+        assertEquals(ToolPermissions.Level.EXEC, ToolPermissions.levelOf("my_runtime_tool"));
+    }
+
+    @Test
     public void allLevelsArePopulated() {
         Map<String, ToolPermissions.Level> all = ToolPermissions.allLevels();
         assertTrue("分级表不应为空", all.size() >= 40);

@@ -90,6 +90,12 @@ public final class ToolPermissions {
             m.put(t, Level.NETWORK);
         }
 
+        // ---- 动态工具（2026-11-16 重构 R3）：创建/更新/删除动态工具本身是高危动作 ——
+        // 它等于"给 Agent 造新能力"，绕过审阅就能定义一个能执行/联网的工具，所以按 DANGEROUS 归类；
+        // 造出来的动态工具在 loadDynamicTools 时进入 AIToolManager.dynamicTools，
+        // 由 levelOf() 未命中 → 保守 EXEC（见 unknownToolDefaultsToExec 测试）。
+        m.put("create_dynamic_tool", Level.DANGEROUS);
+
         // ---- 危险 ----
         for (String t : new String[]{
                 "git",                 // 含 push/pull，会把代码发到远端

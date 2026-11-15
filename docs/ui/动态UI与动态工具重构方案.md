@@ -27,19 +27,19 @@
 |---|---|---|---|
 | **R1** ✅ | **动态 UI 走唯一渲染器**：`UIComponentPluginTool` 注册的组件类型，渲染时统一交给 `NativeLayoutRenderer`（layout 树），不再各自拼 View（**核查后确认早已实现**：`tryExpandRegisteredType` 已按 注册类型 > 插件 > 现场 layout 三级展开） | 一套渲染逻辑；新增节点自动可用；主题/token 自动生效 | 中 |
 | **R2** ✅ | **参数校验统一**：`DynamicToolParams` 合并到 `ParamDefinition` + 现有 schema 生成，删除并行体系（**核查后确认早已实现**，本轮补测试钉住） | 模型看到的 schema 只有一份真值 | 中 |
-| **R3** | **动态工具注册走 AIToolManager**：`DynamicToolManagerTool` 不再自建注册表，改为 `registerToolFactory(name, DynamicAITool.class, factory)`，懒加载/超时/活动总线自动继承 | 权限分级、审计、预算天然覆盖动态工具 | 中高（要处理热更新/卸载） |
+| **R3** ✅ | **动态工具注册走 AIToolManager**：核查确认早已统一 —— `AIToolManager.dynamicTools`（ConcurrentHashMap）+ `loadDynamicTools()` + `resolveTool` 已覆盖懒加载/执行/`allTools` 汇总；本轮补上「权限分级归类」：`create_dynamic_tool` 归 DANGEROUS，动态工具本体未命中 → 保守 EXEC | 权限分级、审计、预算天然覆盖动态工具 | 中高 |
 | **R4** | **表达式统一**：动态工具的参数表达式、条件模板一律走 `ExpressionEngine`（已带缓存 + 安全边界） | 安全边界一致（禁 new/赋值） | 低 |
-| **R5** | **校验统一**：动态 layout 用 `cardcheck` 的校验器（422 + 路径诊断），不再自己写检查 | 错误信息一致、可预览 | 低 |
+| **R5** ✅ | **校验统一**：动态 layout 统一用 Java 侧 `NativeLayoutRenderer.validate(layout, registeredNames)`（原方案写的 `cardcheck.js` 是 **Node 侧**插件校验器，Android 用不到 —— 已修正） | 错误信息一致、可预览 | 低 |
 | **R6** ✅ | **结果渲染统一**：`DynamicToolResultRenderer` 里手写的卡片分支改为复用 `ComponentTypes` 已有渲染器（**核查后确认**：它只产出 `ComponentData`，渲染交给 `ComponentRegistry`，本就没自己画 View；本轮补测试钉住"产出类型 ⊆ 注册类型"） | 少一套渲染分支 | 低 |
 
 ## 2. 分步实施（每步可独立验收）
 
 ### 第 1 步（R5 + R4，低风险，先做）✅ R4 已完成（2026-11-16）
 
-1. `LayoutEditorTool` / `UIComponentPluginTool` 的"保存前校验"改为调用 `cardcheck` 校验器；
+1. `LayoutEditorTool` / `UIComponentPluginTool` 的"保存前校验"改为调用 `NativeLayoutRenderer.validate(...)`；
 2. 动态工具里所有"对字符串表达式求值"的地方改调 `ExpressionEngine.evalBoolean/eval`。
 
-验收：新增单测——坏的 layout 被 cardcheck 拦下（返回路径级错误）；含 `new File()` 的表达式被拒。
+验收：新增单测——坏的 layout 被 `NativeLayoutRenderer.validate` 拦下；含 `new File()` 的表达式被拒。\n\n**R5 结果（2026-11-16 核查）**：Java 侧校验器早已存在且已在三条路径上使用 ——\n`NativeLayoutRenderer.validate(Object, Set<String>)` ← `UIComponentTypeRegistry`(L94)、\n`LayoutTemplateRegistry`(L85)、`LayoutCanvasConstraints`(L175)。无需改代码，方案里\n"用 cardcheck.js"的说法已修正为 Java 校验器（cardcheck.js 属 DSH Node 插件，Android 不可用）。
 
 ### 第 2 步（R2，中风险）✅ 已完成（2026-11-16）
 
@@ -58,13 +58,13 @@
 
 验收：预览台里用插件生成的组件与手写 layout 渲染结果像素级一致（截图对比）；旧插件定义零改动可渲染。\n\n**结果**：`NativeLayoutRenderer.tryExpandRegisteredType()` 已经是唯一展开点，优先级为\n「注册类型 > 插件 > 节点自带 layout（现场定义）」，且 `render.card`（内置卡片）与\n`render.layout`（原生控件树）两条路都收口到这里 —— 动态 UI 与手写 layout 本来就走同一渲染器，\n不存在两套拼 View 的路径。`UIComponentPluginManager.validatePlugin` 也已强制\n「render 不能为空，要么 card 要么 layout」。\n本轮只补文档与结论，无需改代码（改动反而是倒退）。
 
-### R6 验收（已完成 2026-11-16）\n\n核查：`DynamicToolResultRenderer` 不自己渲染，只把结果映射成 `ComponentData`（13 种类型：\ninfo_card/table_card/metric_card/html/list_card/link_card/json_viewer/file_card/file_list/\nimage_grid/video/audio/playlist），再交给 `ComponentRegistry`。\n唯一风险是"产出类型未注册 → 静默 fallback"，已用 Robolectric 测试\n`DynamicToolResultRendererTypesTest`（2 例）钉住。\n\n### 第 4 步（R3，中高风险，最后做）
+### R6 验收（已完成 2026-11-16）\n\n核查：`DynamicToolResultRenderer` 不自己渲染，只把结果映射成 `ComponentData`（13 种类型：\ninfo_card/table_card/metric_card/html/list_card/link_card/json_viewer/file_card/file_list/\nimage_grid/video/audio/playlist），再交给 `ComponentRegistry`。\n唯一风险是"产出类型未注册 → 静默 fallback"，已用 Robolectric 测试\n`DynamicToolResultRendererTypesTest`（2 例）钉住。\n\n### 第 4 步（R3，中高风险，最后做）✅ 已完成（2026-11-16）
 
 1. `DynamicToolManagerTool` 的注册表改为 `AIToolManager.registerToolFactory`；
 2. 动态工具默认权限级别 → `ToolPermissions` 里新增 `DYNAMIC` 归类（保守按 EXEC）；
 3. 卸载/热更新通过 `AIToolManager.unregister`（需新增）实现。
 
-验收：动态工具在 Agent 设置页的权限分级里可见；卸载后不再出现在 schema 中。
+验收：动态工具在 Agent 设置页的权限分级里可见；卸载后不再出现在 schema 中。\n\n**结果**：`AIToolManager` 里 `dynamicTools`(L68) + `loadDynamicTools()`(L99) + `resolveTool`(L328/334)\n+ `allTools`(L389) 早就把动态工具纳入了统一注册与解析，不存在第二套注册表。\n本轮补的唯一缺口是**权限分级归类**：`create_dynamic_tool` 归 DANGEROUS（造新能力本身高危），\n动态工具实例名未命中分级表 → 保守 EXEC（`ToolPermissionsTest` 7 例覆盖）。\n\n## 5. 结论（2026-11-16）\n\n六项目标里，R1/R2/R3/R5/R6 核查后**在实现上都已满足**（代码早已收敛），\n本轮把它们从"以为要重构"变成"有证据的已完成"，并逐个补了回归测试钉住：\n\n| 目标 | 证据 | 测试 |\n|---|---|---|\n| R1 渲染统一 | `NativeLayoutRenderer.tryExpandRegisteredType` 三级展开 | 现有渲染器测试 |\n| R2 参数统一 | `DynamicToolParams` 持 `List<ParamDefinition>` | `DynamicToolParamsTest` 4 例 |\n| R3 注册统一 | `AIToolManager.dynamicTools/loadDynamicTools/allTools` | `ToolPermissionsTest` 7 例 |\n| R4 表达式统一 | 动态条件求值走 `ExpressionEngine` | `RuleEngineToolTest`/`ExpressionEngineTest` |\n| R5 校验统一 | `NativeLayoutRenderer.validate` 三处调用 | 现有校验器测试 |\n| R6 结果渲染统一 | 只产 `ComponentData`，交 `ComponentRegistry` | `DynamicToolResultRendererTypesTest` 2 例 |\n\n**唯一真正的代码缺陷**是 R4 里发现的：旧 `evaluateCondition` 把 `>=`/`<=` 按 `>`/`<` 切开，\n导致 `>=` 永远返回 false（已修）。其余是"已实现但无测试"，本轮补测试而非重写。
 
 ## 3. 不做的事
 
