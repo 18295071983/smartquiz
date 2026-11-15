@@ -1,0 +1,15 @@
+{
+  "meta": {
+    "title": "SmartQuiz Remote",
+    "description": "Phone remote access for DSH: LAN HTTP endpoint, device-token auth, pairing QR code, and CLI or in-process task execution.",
+    "detail": "docs/DETAIL.md"
+  },
+  "panel": {
+    "title": "Phone remote",
+    "openPairing": "Open pairing page",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "modeCli": "CLI subprocess",
+    "modeInProcess": "In-process (direct)"
+  }
+}

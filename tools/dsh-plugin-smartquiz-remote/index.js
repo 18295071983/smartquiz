@@ -41,6 +41,10 @@ import { checkCard, describe } from './cardcheck.js';
 // 目标不是数字好看，而是让高频改动点各有唯一落点（见 docs/dsh-remote-plugin/模块化改造方案.md）。
 import { warnOnce, clientMsgDuplicated, abortError, originHash } from './lib/util.js';
 import { SLOT_PRIORITY, slotPriorityOfLevel, slotLevelOfPriority, slotPriorityValue } from './lib/slots.js';
+// 配置 schema（DSH 规范）：激活时校验，写错的键/类型会直接报出来。
+// 解析不到 schemastery 时自动降级为"不声明"，不影响插件启动 —— 见 config.js 注释。
+import { Config } from './config.js';
+export { Config };
 
 
 /** CLI 子进程的权限档位（apply 里由 cfg 覆盖；runCliTask 在模块作用域用） */

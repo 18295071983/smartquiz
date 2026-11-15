@@ -1,0 +1,15 @@
+{
+  "meta": {
+    "title": "答题宝手机远程",
+    "description": "电脑端 DSH 的手机远程接入：局域网 HTTP 端点、设备令牌鉴权、配对二维码，以及 CLI 子进程或宿主内直连执行任务。",
+    "detail": "docs/DETAIL.md"
+  },
+  "panel": {
+    "title": "手机远程",
+    "openPairing": "打开配对页",
+    "connected": "已连接",
+    "disconnected": "未连接",
+    "modeCli": "CLI 子进程",
+    "modeInProcess": "宿主进程内（直连）"
+  }
+}
