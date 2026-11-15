@@ -189,4 +189,30 @@
     <dimen name="chat_v2_block_gap">10dp</dimen>
     <dimen name="chat_v2_line_gap">7dp</dimen>
     <dimen name="chat_v2_line_pad">10dp</dimen>
+    <!-- ==================== 语义档位（token，2026-11-16） ====================
+         为什么要这三组：dimens.xml 里原本只有绝对值（space_4/space_8/radius_12/text_14），
+         全项目 1153 处直接写 dp()/sp() 字面量，所以每个页面的间距、圆角、字号都是"各写各的"，
+         换主题/适配大字号时改不动。这三组是**语义档位**：写"md"而不是"12dp"，
+         以后统一调比例只改这里。 -->
+    <!-- 间距：xs 紧凑内边距 / sm 行内间距 / md 常规 / lg 区块 / xl 大区块 / xxl 页面留白 -->
+    <dimen name="space_xs">4dp</dimen>
+    <dimen name="space_sm">8dp</dimen>
+    <dimen name="space_md">12dp</dimen>
+    <dimen name="space_lg">16dp</dimen>
+    <dimen name="space_xl">24dp</dimen>
+    <dimen name="space_xxl">32dp</dimen>
+
+    <!-- 圆角：sm 标签/徽章 / md 卡片 / lg 面板 / xl 大卡 / pill 胶囊按钮 -->
+    <dimen name="radius_sm">8dp</dimen>
+    <dimen name="radius_md">12dp</dimen>
+    <dimen name="radius_lg">16dp</dimen>
+    <dimen name="radius_xl">24dp</dimen>
+    <dimen name="radius_pill">999dp</dimen>
+
+    <!-- 字号：caption 辅助 / body 正文 / subtitle 小标题 / title 标题 / headline 大标题 -->
+    <dimen name="font_caption">12sp</dimen>
+    <dimen name="font_body">15sp</dimen>
+    <dimen name="font_subtitle">17sp</dimen>
+    <dimen name="font_title">20sp</dimen>
+    <dimen name="font_headline">24sp</dimen>
 </resources>
