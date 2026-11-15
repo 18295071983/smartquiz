@@ -148,6 +148,56 @@ public final class UiActions {
         return helper;
     }
 
+    /**
+     * 拖拽排序（长按拖动重排）。
+     *
+     * <p>审计里 {@code startDragAndDrop}/DragEvent 0 处，但 ItemTouchHelper 已在用 8 处；
+     * 拖拽排序直接用 ItemTouchHelper 的上下拖拽即可，不需要自己处理 DragEvent。</p>
+     */
+    public static ItemTouchHelper dragSort(final RecyclerView recyclerView, final OnMoved onMoved) {
+        ItemTouchHelper.SimpleCallback callback = new ItemTouchHelper.SimpleCallback(
+                ItemTouchHelper.UP | ItemTouchHelper.DOWN, 0) {
+            @Override
+            public boolean onMove(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh,
+                                  @NonNull RecyclerView.ViewHolder target) {
+                int from = vh.getBindingAdapterPosition();
+                int to = target.getBindingAdapterPosition();
+                if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) {
+                    return false;
+                }
+                if (onMoved != null) {
+                    onMoved.onMoved(from, to);
+                }
+                return true;
+            }
+
+            @Override
+            public void onSwiped(@NonNull RecyclerView.ViewHolder vh, int direction) {
+            }
+
+            @Override
+            public void clearView(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh) {
+                super.clearView(rv, vh);
+                vh.itemView.setAlpha(1f);
+            }
+
+            @Override
+            public void onSelectedChanged(RecyclerView.ViewHolder vh, int actionState) {
+                super.onSelectedChanged(vh, actionState);
+                if (vh != null && actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                    vh.itemView.setAlpha(0.85f);
+                }
+            }
+        };
+        ItemTouchHelper helper = new ItemTouchHelper(callback);
+        helper.attachToRecyclerView(recyclerView);
+        return helper;
+    }
+
+    /** 拖拽排序回调 */
+    public interface OnMoved {
+        void onMoved(int from, int to);
+    }
     /** 统一列表项动画（增删淡入淡出），避免各页各写。 */
     public static void defaultItemAnimator(RecyclerView recyclerView) {
         if (recyclerView == null) {
