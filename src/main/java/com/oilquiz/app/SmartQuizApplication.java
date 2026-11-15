@@ -468,7 +468,8 @@ public class SmartQuizApplication extends Application {
                     final boolean debugConsole =
                             activity instanceof com.oilquiz.app.ui.activity.AgentDebugActivity
                                     || activity instanceof com.oilquiz.app.infra.UiPreviewConsoleActivity
-                                    || activity instanceof com.oilquiz.app.ui.activity.ThemeActivity;
+                                    || activity instanceof com.oilquiz.app.ui.activity.ThemeActivity
+                            || activity instanceof com.oilquiz.app.infra.ComposeGalleryActivity;
                     if (!debugConsole) {
                         com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, root);
                     }
