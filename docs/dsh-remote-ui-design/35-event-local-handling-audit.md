@@ -101,3 +101,37 @@
 2. 补 `approval/policy` → 甲板 `permission` 槽位（`display`，不需要回传）；
 3. 核对 `user-questions/request` 的反问是否已由 `/v2/answer` 覆盖；
 4. 其余"本地不处理"的事件按 2.3 的白名单显式声明，避免以后误当 bug。
+
+## 6. 更正（2026-11-16，以 32-dsh-event-binding.md 为准）
+
+**上一版盘点的方法有误**：我只 grep 了 `DshTimeline` 的事件分支名，漏掉了两条既有通道：
+
+1. **主动拉取通道**：审批/反问走 `RemoteDshTool.fetchPendingActions()`（`action=approval_state`
+   直接读电脑端网关 pending 表）+ `answerApproval()`（先答先赢），**不依赖事件分支**；
+2. **事件绑定表**：`docs/dsh-remote-ui-design/32-dsh-event-binding.md` 记录 2026-11-14 已经做到
+   **63/63 事件有明确归属** —— 19 条进 timeline、37 条由 `DshCards.handles` 出卡、
+   13 条进 `IGNORED_TYPES`（不渲染但登记为已识别）。
+
+按权威表更正本文件第 2.3 节的判断：
+
+| 我原判 | 实际归属（32 号文档） |
+|---|---|
+| `approval/request` 静默 | 由 `fetchPendingActions` 拉取覆盖；`approval/policy` → **`dsh_notice` 提示卡** |
+| `todo/write` 缺失 | → **`todo_card`** 专用卡 |
+| `deliverables/presented` 缺失 | → **`file_list`** 专用卡 |
+| `command/run` `command/done` 缺失 | → **`dsh_command`** 专用卡 |
+| `job/registered` `job/settled` | → 专用卡（已确认） |
+| `model/selection` `sandbox/mode` 等 | 属"提示卡/内部事件"登记范畴，**不是未处理** |
+
+也即：**"本地能不能处理"这个问题昨天已经有答案（63/63 有归属）**，本文件第 2.3 节的
+"未见处理点"清单属于我 grep 方式造成的误判，**不要据此改代码**。
+
+### 仍然值得做的（真正未验证的部分）
+
+| 项 | 需要什么 |
+|---|---|
+| 甲板 `permission` 槽是否与 `approval/policy` 的 `dsh_notice` 同时出现（重复展示？） | 实测一次策略变更 |
+| `fetchPendingActions` 是否覆盖宿主网关（`layer: host`）的审批 | 电脑端造一次 host 层审批，看手机 pending 表 |
+| `ui/slot` 的 kind 与实际行为是否一致 | 实测样本 |
+
+> 结论：**先不要改代码**。以 32 号文档为权威，本文件仅作"待实测清单"。
