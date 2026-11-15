@@ -48,6 +48,7 @@ public class UiKitGalleryActivity extends AppCompatActivity {
 
     private final List<TextView> selectionChips = new ArrayList<>();
     private int refreshCount = 0;
+    private TextView refreshLabel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -99,27 +100,13 @@ public class UiKitGalleryActivity extends AppCompatActivity {
 
         // ---------- 2. 下拉刷新 ----------
         content.addView(section("2. SwipeRefreshLayout（此前 0 引用）"));
-        final TextView refreshLabel = subtitle("下拉刷新试试（当前 0 次）");
+        // 注意：下拉刷新必须包在**可滚动内容的最外层**（SwipeRefreshLayout > ScrollView > 内容）。
+        // 之前把 SwipeRefreshLayout 塞进 ScrollView 里面，手势被外层 ScrollView 吃掉，所以怎么拉都
+        // 没反应 —— 这是 SwipeRefreshLayout 最常见的误用（真机踩到）。刷新逻辑挂在整页上。
+        refreshLabel = subtitle("整页下拉刷新（当前 0 次）");
         content.addView(refreshLabel);
-        final SwipeRefreshLayout swipe = new SwipeRefreshLayout(this);
-        LinearLayout swipeBody = new LinearLayout(this);
-        swipeBody.setOrientation(LinearLayout.VERTICAL);
-        for (int i = 1; i <= 3; i++) {
-            TextView row = new TextView(this);
-            row.setText("列表项 " + i + "（下拉刷新会重新计数）");
-            Tokens.applyText(row, Tokens.TEXT_BODY, Tokens.Weight.REGULAR,
-                    ThemeColors.get(this, R.color.text_primary));
-            int p = Tokens.space(this, Tokens.SPACE_MD);
-            row.setPadding(p, p, p, p);
-            swipeBody.addView(row);
-        }
-        swipe.addView(swipeBody);
-        swipe.setOnRefreshListener(() -> {
-            refreshCount++;
-            refreshLabel.setText("下拉刷新试试（当前 " + refreshCount + " 次）");
-            swipe.postDelayed(() -> swipe.setRefreshing(false), 800);
-        });
-        content.addView(swipe);
+        TextView refreshHint = subtitle("SwipeRefreshLayout 已包在整个页面的最外层，滚到顶部再下拉即可触发");
+        content.addView(refreshHint);
 
         // ---------- 3. 图片：CircleImageView + Coil ----------
         content.addView(section("3. 图片（CircleImageView / Coil）"));
@@ -196,11 +183,19 @@ public class UiKitGalleryActivity extends AppCompatActivity {
 
         scroll.addView(content);
 
-        FrameLayout holder = new FrameLayout(this);
-        holder.setBackgroundColor(ThemeColors.get(this, R.color.background));
-        holder.addView(scroll, new FrameLayout.LayoutParams(
+        // 根容器 = SwipeRefreshLayout > ScrollView > 内容：这是下拉刷新的正确层级
+        final SwipeRefreshLayout refreshRoot = new SwipeRefreshLayout(this);
+        refreshRoot.setBackgroundColor(ThemeColors.get(this, R.color.background));
+        refreshRoot.setOnRefreshListener(() -> {
+            refreshCount++;
+            if (refreshLabel != null) {
+                refreshLabel.setText("整页下拉刷新（当前 " + refreshCount + " 次）");
+            }
+            refreshRoot.postDelayed(() -> refreshRoot.setRefreshing(false), 900);
+        });
+        refreshRoot.addView(scroll, new SwipeRefreshLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        setContentView(holder);
+        setContentView(refreshRoot);
     }
 
     // ---------------- 构建辅助 ----------------
