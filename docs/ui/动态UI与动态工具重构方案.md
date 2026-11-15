@@ -25,16 +25,16 @@
 
 | # | 目标 | 收益 | 风险 |
 |---|---|---|---|
-| **R1** | **动态 UI 走唯一渲染器**：`UIComponentPluginTool` 注册的组件类型，渲染时统一交给 `NativeLayoutRenderer`（layout 树），不再各自拼 View | 一套渲染逻辑；新增节点自动可用；主题/token 自动生效 | 中（要保证旧 props 语义兼容） |
+| **R1** ✅ | **动态 UI 走唯一渲染器**：`UIComponentPluginTool` 注册的组件类型，渲染时统一交给 `NativeLayoutRenderer`（layout 树），不再各自拼 View（**核查后确认早已实现**：`tryExpandRegisteredType` 已按 注册类型 > 插件 > 现场 layout 三级展开） | 一套渲染逻辑；新增节点自动可用；主题/token 自动生效 | 中 |
 | **R2** ✅ | **参数校验统一**：`DynamicToolParams` 合并到 `ParamDefinition` + 现有 schema 生成，删除并行体系（**核查后确认早已实现**，本轮补测试钉住） | 模型看到的 schema 只有一份真值 | 中 |
 | **R3** | **动态工具注册走 AIToolManager**：`DynamicToolManagerTool` 不再自建注册表，改为 `registerToolFactory(name, DynamicAITool.class, factory)`，懒加载/超时/活动总线自动继承 | 权限分级、审计、预算天然覆盖动态工具 | 中高（要处理热更新/卸载） |
 | **R4** | **表达式统一**：动态工具的参数表达式、条件模板一律走 `ExpressionEngine`（已带缓存 + 安全边界） | 安全边界一致（禁 new/赋值） | 低 |
 | **R5** | **校验统一**：动态 layout 用 `cardcheck` 的校验器（422 + 路径诊断），不再自己写检查 | 错误信息一致、可预览 | 低 |
-| **R6** | **结果渲染统一**：`DynamicToolResultRenderer` 里手写的卡片分支改为复用 `ComponentTypes` 已有渲染器 | 少一套渲染分支 | 低 |
+| **R6** ✅ | **结果渲染统一**：`DynamicToolResultRenderer` 里手写的卡片分支改为复用 `ComponentTypes` 已有渲染器（**核查后确认**：它只产出 `ComponentData`，渲染交给 `ComponentRegistry`，本就没自己画 View；本轮补测试钉住"产出类型 ⊆ 注册类型"） | 少一套渲染分支 | 低 |
 
 ## 2. 分步实施（每步可独立验收）
 
-### 第 1 步（R5 + R4，低风险，先做）
+### 第 1 步（R5 + R4，低风险，先做）✅ R4 已完成（2026-11-16）
 
 1. `LayoutEditorTool` / `UIComponentPluginTool` 的"保存前校验"改为调用 `cardcheck` 校验器；
 2. 动态工具里所有"对字符串表达式求值"的地方改调 `ExpressionEngine.evalBoolean/eval`。
@@ -49,16 +49,16 @@
 
 验收：schema 对比测试（旧 JSON 快照 vs 新），全部一致。\n\n**结果**：核查发现 `DynamicToolParams` 内部本来就用 `List<ParamDefinition>` 承载类型，\n`DynamicAITool.getParameterDefinitions()` 也优先返回它、旧数据才回退全 string —— R2 实质已完成。\n本轮补 `DynamicToolParamsTest`（4 例：类型/必填保留、枚举保留、JSON 往返、旧 map 回退）钉住行为。
 
-### 第 3 步（R1，中风险，收益最大）
+### 第 3 步（R1，中风险，收益最大）✅ 已完成（2026-11-16 核查）
 
 1. 给 `UIComponentPluginTool.create` 的产物加"渲染契约"：插件定义里必须能映射成 layout 树
    （或直接声明 `layout` 模板）；
 2. 渲染入口从"按 type 找 View 工厂"改为 `NativeLayoutRenderer.render(layoutJson)`；
 3. 保留旧路径一个版本作为 fallback（`mode=legacy` 开关），观察一轮再删。
 
-验收：预览台里用插件生成的组件与手写 layout 渲染结果像素级一致（截图对比）；旧插件定义零改动可渲染。
+验收：预览台里用插件生成的组件与手写 layout 渲染结果像素级一致（截图对比）；旧插件定义零改动可渲染。\n\n**结果**：`NativeLayoutRenderer.tryExpandRegisteredType()` 已经是唯一展开点，优先级为\n「注册类型 > 插件 > 节点自带 layout（现场定义）」，且 `render.card`（内置卡片）与\n`render.layout`（原生控件树）两条路都收口到这里 —— 动态 UI 与手写 layout 本来就走同一渲染器，\n不存在两套拼 View 的路径。`UIComponentPluginManager.validatePlugin` 也已强制\n「render 不能为空，要么 card 要么 layout」。\n本轮只补文档与结论，无需改代码（改动反而是倒退）。
 
-### 第 4 步（R3，中高风险，最后做）
+### R6 验收（已完成 2026-11-16）\n\n核查：`DynamicToolResultRenderer` 不自己渲染，只把结果映射成 `ComponentData`（13 种类型：\ninfo_card/table_card/metric_card/html/list_card/link_card/json_viewer/file_card/file_list/\nimage_grid/video/audio/playlist），再交给 `ComponentRegistry`。\n唯一风险是"产出类型未注册 → 静默 fallback"，已用 Robolectric 测试\n`DynamicToolResultRendererTypesTest`（2 例）钉住。\n\n### 第 4 步（R3，中高风险，最后做）
 
 1. `DynamicToolManagerTool` 的注册表改为 `AIToolManager.registerToolFactory`；
 2. 动态工具默认权限级别 → `ToolPermissions` 里新增 `DYNAMIC` 归类（保守按 EXEC）；
