@@ -4477,13 +4477,27 @@ function presetSvcOf(ctx) {
     CONNECTIONS.set(sid, { ...prev, kind, last_seen: Date.now() });
   };
   const dropConnection = (sid) => { CONNECTIONS.delete(sid); };
-  const connectionSnapshot = () => [...CONNECTIONS.entries()].map(([sid, v]) => ({
-    session_id: sid,
-    kind: v.kind || 'sse',
-    last_seen: v.last_seen || 0,
-    age_ms: Date.now() - (v.last_seen || 0),
-    online: Date.now() - (v.last_seen || 0) < CONNECTION_TTL_MS,
-  }));
+        // 2026-11-16：超过 TTL 的连接直接清理（以前只映射不过滤，/v2/pulse 会一直显示
+        // age=165s、online:false 的僵尸条目，既占内存也误导排查）
+        const connectionSnapshot = () => {
+          const now = Date.now();
+          const rows = [];
+          for (const [sid, v] of [...CONNECTIONS.entries()]) {
+            const age = now - (v.last_seen || 0);
+            if (age >= CONNECTION_TTL_MS) {
+              CONNECTIONS.delete(sid);
+              continue;
+            }
+            rows.push({
+              session_id: sid,
+              kind: v.kind || 'sse',
+              last_seen: v.last_seen || 0,
+              age_ms: age,
+              online: true,
+            });
+          }
+          return rows;
+        };
 
   /**
    * 字段字典：两端 UI 只准用这里定义的名字。
@@ -7940,12 +7954,34 @@ function presetSvcOf(ctx) {
         };
 
         /** WS 侧认设备：优先 ?token=，退回升级请求的 Authorization 头（两条通道口径一致） */
+        /**
+         * 设备令牌 → 设备，并顺手刷新 last_seen（2026-11-16 修）。
+         *
+         * <p>踩过的坑：手机走 WebSocket，令牌放在 ?token= 查询参数里，而 last_seen
+         * 以前只在 authOk()（HTTP Authorization 头）里更新 —— 于是手机一直连着、
+         * .devices.json 的 last_seen 却停在几十小时前，排查时被误判成"设备离线"。
+         * 现在两条鉴权通道共用这一处刷新。</p>
+         */
+        let deviceSeenPersistAt = 0;
+        const markDeviceSeen = (dev) => {
+          if (!dev) return dev;
+          try {
+            dev.last_seen = Date.now();
+            // 落盘节流：ack 路径会高频调用，60s 内最多写一次盘；
+            // 进程重启后 last_seen 由下一次鉴权补齐，不会丢状态语义。
+            if (dev.last_seen - deviceSeenPersistAt > 60000) {
+              deviceSeenPersistAt = dev.last_seen;
+              saveDevices(DEVICE_FILE, devices);
+            }
+          } catch { /* 落盘失败不影响鉴权 */ }
+          return dev;
+        };
         const devFromWs = (ws, u) => {
           try {
             const t = String(u?.searchParams?.get('token') ?? '').trim();
-            if (t) return deviceByToken(t);
+            if (t) return markDeviceSeen(deviceByToken(t));
             const m = /^Bearer\s+(.+)$/i.exec(String(ws?.upgradeReq?.headers?.authorization ?? '').trim());
-            return m ? deviceByToken(m[1]) : undefined;
+            return m ? markDeviceSeen(deviceByToken(m[1])) : undefined;
           } catch { return undefined; }
         };
         const handleWsConn = (ws, u, channel) => {
@@ -7976,7 +8012,7 @@ function presetSvcOf(ctx) {
           // 手机据此"查或建"本地会话，而不是每连一次新建一条历史。
           let helloAnchor = null;
           try {
-            const dev = deviceByToken(String(u.searchParams.get('token') ?? ''));
+            const dev = devFromWs(ws, u);   // 复用同一条鉴权路径（顺手刷新 last_seen）
             if (dev) helloAnchor = anchorFor(dev.id, sid, true);
           } catch { /* 锚点拿不到不影响连接 */ }
           sendWs(ws, {

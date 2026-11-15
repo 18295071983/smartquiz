@@ -1,0 +1,8144 @@
+/**
+ * SmartQuiz Remote —— 答题宝手机端远程接入（原生 DSH 宿主插件）
+ *
+ * 替代 src/main/assets/remote_dsh/dsh_bridge_server.py：
+ *   无 Python ✓ 不 spawn dsh 子进程 ✓ 不走 ACP stdio ✓ 直接跑在 DSH 宿主进程内 ✓
+ *
+ * 【线协议 = 与旧桥 v5 完全一致】手机端 RemoteDshTool 的调用（代码取证）：
+ *   GET  /health                                  探活；带令牌/本机时返回自检（cwd/dsh_home/preset/exec）
+ *   GET  /reconcile?session_id=&digest=&last_seq= 双端对账（轻量：只回摘要 + 回执水位线）
+ *   POST /reconcile { session_id, messages?, digest?, last_seq?, acks?, light? }  全量比对 / light 摘要
+ *   POST /ack      { session_id, seq?, ids? }     回执水位线（落盘 .acks.json，只增不减）
+ *   GET  /pair                                    配对页（仅本机；二维码 dshpair://）
+ *   GET  /pair.json                               { ok, qr_text, base_url, token }
+ *   GET  /status                                  { version, channels, acp_agent, permission_policy,
+ *                                                    session_streams, sessions_count, active_jobs }
+ *   POST /session  { action:'start' }                          → { ok, action, session_id }
+ *   POST /session  { action:'prompt', session_id, text, stream?} → { ok, action, session_id, reply } 或 SSE
+ *   POST /session  { action:'history', session_id, max }        → { ok, action, count, history }
+ *   POST /session  { action:'get_status' }                      → 同 /status
+ *   POST /session  { action:'set_config' }                      → no-op（配置在手机侧）
+ *   POST /exec     { cmd, timeout, shell }                      → 电脑上直连执行命令（默认关闭，见 DEFAULTS.allowExec）
+ *   POST /run      （兼容别名，等价 /session action=prompt）
+ *
+ * 【DSH API（官方文档核实）】
+ *   ctx.webServer.register({ kind:'exact'|'prefix', path, handler })
+ *   const h = await ctx.agents.create({ sessionId, agentOptions:{ provider, model } })
+ *   h.agent.followup({ content:[{type:'text',text}], source:{kind:'user'} }); await h.agent.whenIdle()
+ *   ctx.sessions.get(id).deriveMessages(); session.seq / session.eventAt(seq); h.dispose()
+ */
+
+import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { chmodSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync, appendFileSync, createReadStream } from 'node:fs';
+import { networkInterfaces, homedir, constants as osConstants, setPriority } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { exec, execFile, spawn } from 'node:child_process';
+import { createServer } from 'node:http';
+import { SERVER_CAPS, CAP_VERSION, filterViewCards, eventAllowed, normalizeCaps, summarize, allows, clientCaps } from './caps.js';
+import { checkCard, describe } from './cardcheck.js';
+
+
+/** CLI 子进程的权限档位（apply 里由 cfg 覆盖；runCliTask 在模块作用域用） */
+const CLI_PERM = { mode: 'danger-full-access', approval: 'never' };
+
+/**
+ * 进程内 SSE 订阅表（2026-11-12）。
+ *
+ * 为什么放模块作用域：`agent/assistant-stream` 是宿主级事件，token 增量要在**订阅了这条会话**
+ * 的 /events 连接上实时写出。放在 apply 闭包里也能跑，但 CLI 子进程路径（runCliTask 的 onData）
+ * 不经过 apply 的闭包，统一放这里两边都能用。
+ *
+ * 订阅者形如 `{ sid, caps, send(obj) }`；`sid=''` 表示广播给所有连接（日程变化）。
+ * 写失败不在这里清理：连接关闭时由订阅者自己 `STREAM_HUB.delete(sub)`。
+ */
+const STREAM_HUB = new Set();
+/** 当前挂着的 WebSocket 实时通道客户端（2026-11-14）：只用于 /status 观测 */
+const WS_CLIENTS = new Set();
+/** WS 连接元信息（ws → {sid, caps, channel}）：推插件命令/文件时要按会话和端点路由 */
+const WS_META = new Map();
+/**
+ * 锚点账本（A1，2026-11-14）：anchors[deviceId|sessionId] = {local, remote, acked, ...}
+ *
+ * <p>二维键（设备 × 电脑会话），互相不参合——一台设备有十条会话就是十条锚点。
+ * 落盘到插件目录 `anchors.json`，重启不丢。</p>
+ */
+const ANCHORS = new Map();
+const ANCHOR_FILE = () => join(PLUGIN_DIR, 'anchors.json');   // 延后求值：PLUGIN_DIR 在下面才定义
+const anchorKey = (dev, sid) => String(dev || '') + '|' + String(sid || '');
+const loadAnchors = () => {
+  try {
+    const arr = JSON.parse(readFileSync(ANCHOR_FILE(), 'utf8'));
+    for (const a of arr || []) {
+      if (a && a.device_id && a.remote_session_id) ANCHORS.set(anchorKey(a.device_id, a.remote_session_id), a);
+    }
+  } catch { /* 没有就是空账本 */ }
+};
+const saveAnchors = () => {
+  try {
+    writeFileSync(ANCHOR_FILE(), JSON.stringify([...ANCHORS.values()], null, 0));
+  } catch { /* 落盘失败不影响运行 */ }
+};
+// 注意：账本**不能**在这里 split read。`ANCHOR_FILE()` 依赖 PLUGIN_DIR，而 PLUGIN_DIR
+// 在本文件更靠后的位置才定义；在这里调 loadAnchors() 会抛 ReferenceError，又被下面的
+// catch 吞掉 → 账本永远是空的，下一次 saveAnchors() 会把磁盘上的历史锚点整本覆盖。
+// 真机 2026-11-14 实测过：插件重载一次，local_session_id 就换一个 → 手机侧又多一条本地会话。
+// 所以读取放在 PLUGIN_DIR 定义之后（见下方 loadAnchors() 调用）。
+/** 按（设备, 会话）取或建锚点；deleted 的返回 null（进回收站了） */
+const anchorFor = (dev, sid, create) => {
+  const k = anchorKey(dev, sid);
+  let a = ANCHORS.get(k);
+  if (a && a.deleted_at) return null;
+  if (!a && create) {
+    a = {
+      device_id: String(dev || ''), remote_session_id: String(sid || ''),
+      local_session_id: randomBytes(8).toString('hex'),
+      acked_seq: 0, created_at: Date.now(), updated_at: Date.now(), deleted_at: null,
+    };
+    ANCHORS.set(k, a);
+    saveAnchors();
+  }
+  return a || null;
+};
+/** 每个端点的运行统计（L1，2026-11-14）：连接次数 / 收帧数 / 最近收帧时间 / 关闭次数 */
+const WS_STATS = new Map();
+const wsStatOf = (ch) => {
+  let s = WS_STATS.get(ch);
+  if (!s) { s = { connects: 0, frames: 0, last_frame_at: 0, closes: 0 }; WS_STATS.set(ch, s); }
+  return s;
+};
+/** 每个端点的在线连接数（/status 观测用）：events / ui / file / ctl / all */
+const WS_CHANNEL_COUNT = new Map();
+
+/**
+ * 一次性告警（避免热重载/轮询把同一错误刷满日志）：key 首次出现才打一行。
+ */
+const WARNED_ONCE = new Set();
+function warnOnce(key, message) {
+  if (!key || WARNED_ONCE.has(key)) return;
+  WARNED_ONCE.add(key);
+  try {
+    console.warn(message);
+  } catch {
+    // console 不可用时忽略
+  }
+}
+
+/**
+ * 子代理最近一条活动（childId → 合成帧）。合成帧没有事件源，重连后靠它补发（B15）。
+ */
+const SUBAGENT_LAST = new Map();
+
+/**
+ * 子代理活动轮询器（2026-11-13，B15)。
+ *
+ * <p>为什么需要：DSH 的 {@code session/event} 只把**根会话**事件送到插件；
+ * 子会话（子代理）的事件不在同一条总线上，于是 {@code subagent/activity} 从来没真发出来过
+ * （真机验证：只收到 {@code subagent/catalog}，0 条 activity）。</p>
+ *
+ * <p>这里改成"看到 catalog 就开始轻量轮询子会话日志"：按 seq 增量补事件、
+ * 合成 activity 帧发给根会话。子代理不 live 且连续一段时间没有新事件就自停，
+ * 最多跑 10 分钟，避免泄漏。</p>
+ */
+const SUBAGENT_POLLERS = new Map();
+const SUBAGENT_POLL_MS = 1500;
+const SUBAGENT_POLL_IDLE_TICKS = 40;      // 60s 无新事件即停
+const SUBAGENT_POLL_MAX_MS = 10 * 60 * 1000;
+
+/**
+ * 只投给 **WS** 订阅者的帧（2026-11-15，WS/SSE 帧对齐）。
+ *
+ * <p>为什么不能直接用 {@link streamBroadcast}：真实会话事件（`event`）在 SSE 侧是由
+ * `/events` 的轮询循环**直接写响应**的（`sendEventFrame`），`__force_resync` 也是
+ * `sse(...)` 直接写。若把它们塞进 STREAM_HUB 的通用广播，SSE 订阅者会收到两份
+ * （轮询一份 + 广播一份）。所以这里按 `transport === 'ws'` 只投 WS；
+ * caps 过滤与端点白名单仍由每条连接自己的 `sub.send` 统一执行，不在这里重复判断。</p>
+ *
+ * @param sid   只投给订阅了这条会话的连接；空串 = 所有 WS 连接（与 streamBroadcast 同口径）
+ * @param frame 与 SSE 同构的帧（`{type:'event', event}` 等）
+ */
+function wsBroadcast(sid, frame) {
+  if (!frame) return;
+  const want = String(sid ?? '');
+  for (const sub of STREAM_HUB) {
+    if (!sub || sub.transport !== 'ws') continue;
+    if (want && String(sub.sid ?? '') !== want) continue;
+    try {
+      sub.send(frame);
+    } catch {
+      // 断连/背压：由连接自己的 close 回调移除
+    }
+  }
+}
+
+function streamBroadcast(sid, obj) {
+  if (!obj) return;
+  /**
+   * 2026-11-14：推送前**再取一次帧里的会话 id** 做校验。
+   *
+   * <p>原来只有"订阅者 sid ≠ 广播 sid 就跳过"这一道。但插槽类帧有调用方把 sid 传成 ''
+   * （本意"全局帧"），帧里却带着某条会话的数据（goal / compaction / 自定义 slot）——
+   * 于是同一台手机上的另一条对话也会收到，页面就把它画进了当前对话里。
+   * 这里对"全局帧但带 session_id"的情况再收一次口子：只发给订阅了那条会话的连接。</p>
+   */
+  const frameSid = String(obj?.data?.session_id ?? obj?.session_id ?? '').trim();
+  for (const sub of STREAM_HUB) {
+    if (!sub) continue;
+    if (sid && sub.sid !== sid) continue;
+    if (!sid && frameSid && sub.sid !== frameSid) continue;
+    try {
+      sub.send(obj);
+    } catch {
+      // 断连/背压：由连接自己的 close 回调移除
+    }
+  }
+}
+
+/**
+ * cwd 守卫的最近一次告警。
+ *
+ * ★ 背景：DSH 的 spawn 在 cwd 不存在时也报 `ENOENT`，指向的却是可执行文件，
+ *   看起来像 "powershell.exe / rg.exe 丢了"。实际是工作目录是 asar 内部虚拟路径
+ *   （或已被删掉的目录），OS 层根本不存在。这里把降级事实记下来，/health 暴露出去，
+ *   避免下次再靠猜。
+ */
+const CWD_GUARD = { lastWarning: null };
+
+/**
+ * 发送幂等：客户端带 client_msg_id，同一 (会话, id) 10 分钟内只受理一次。
+ * 覆盖"网络抖了、手机重试，但电脑其实已经执行完"这种最恼人的重复执行。
+ */
+const CLIENT_MSG_SEEN = new Map();
+function clientMsgDuplicated(sid, id) {
+  if (!id) return false;
+  const key = String(sid) + '|' + String(id);
+  const now = Date.now();
+  const prev = CLIENT_MSG_SEEN.get(key);
+  if (prev && now - prev < 10 * 60 * 1000) return true;
+  CLIENT_MSG_SEEN.set(key, now);
+  if (CLIENT_MSG_SEEN.size > 500) {
+    const oldest = CLIENT_MSG_SEEN.keys().next().value;
+    if (oldest !== undefined) CLIENT_MSG_SEEN.delete(oldest);
+  }
+  return false;
+}
+
+/**
+ * 双端对账的"回执水位线"：sessionId → { acked_seq, acked_ids[], updated_at }。
+ *
+ * ★ 为什么要落盘：手机断线重连后要问"我上次确认到哪了"，这个答案不能存在内存里，
+ *   否则桌面端一重启就退化成"全量重拉"。文件放插件目录（与 .token 同级）。
+ * ★ 为什么 lazy：PLUGIN_DIR 在模块里晚于本常量初始化，这里只捕获闭包、用到时才拼路径。
+ */
+const ACK_STORE = (() => {
+  const file = () => join(PLUGIN_DIR, '.acks.json');
+  let data = null;
+  const load = () => {
+    if (data) return data;
+    data = {};
+    try {
+      const j = JSON.parse(readFileSync(file(), 'utf8'));
+      if (j && typeof j === 'object' && !Array.isArray(j)) data = j;
+    } catch { /* 首次运行 / 文件损坏都按空处理 */ }
+    return data;
+  };
+  return {
+    file,
+    get(sid) { return load()[String(sid)] ?? null; },
+    set(sid, patch) {
+      const all = load();
+      const prev = all[String(sid)] ?? { acked_seq: 0, acked_ids: [] };
+      const ids = new Set([...(prev.acked_ids ?? []), ...(patch.acked_ids ?? [])].map(String));
+      const next = {
+        acked_seq: Math.max(Number(prev.acked_seq) || 0, Number(patch.acked_seq) || 0),
+        // 只留最近 500 条 id：回执是水位线辅助，不是审计日志
+        acked_ids: [...ids].slice(-500),
+        updated_at: Date.now(),
+      };
+      all[String(sid)] = next;
+      try { writeFileSync(file(), JSON.stringify(all, null, 2), 'utf8'); } catch { /* 落盘失败不影响本次响应 */ }
+      return next;
+    },
+  };
+})();
+
+/** 消息的真实 id（DSH 给 user/assistant 消息都带 id；缺省时回 null，不伪造） */
+function messageIdOf(ev) {
+  const t = String(ev?.type ?? '');
+  if (t !== 'user/message' && t !== 'assistant/message') return null;
+  const data = ev?.data ?? {};
+  const body = t === 'assistant/message' ? (data.message ?? data) : data;
+  const id = body?.id ?? data?.id ?? null;
+  return typeof id === 'string' && id ? id : null;
+}
+
+// ==================== CLI 子进程调度：直连模式"电脑卡"的根治 ====================
+//
+// 直连模式每来一句话都会 `dsh --profile headless` 起一个**完整的 DSH 宿主进程**：
+// 实测冷启动 ~1.5s、峰值内存 ~256MB、一轮普通任务 6s+。手机端等不到回复就会重发，
+// HTTP 超时/切后台又会把连接断掉 —— 而这些子进程以前没有任何人管：不排队、不取消、不杀。
+// 连发 3~5 句就能同时堆 3~5 个宿主（1GB+ 内存 + 多个模型请求），电脑自然卡。
+//
+// 这里做四件事：
+//   ① 并发闸门（cliMaxConcurrent，默认 1）：排队执行，绝不并行堆进程；
+//   ② 队列上限（cliMaxQueued，默认 3）：再多就直接回"忙"，不让请求无限堆积；
+//   ③ 客户端断开 / 超过手机给的 timeout → 杀掉**整棵**进程树 —— Windows 上只 kill
+//      cmd.exe 会留下 DeepSeek Harness.exe 孤儿（实测客户端断开 12s 后仍在跑）；
+//   ④ 子进程降到 BelowNormal 优先级：跑任务时电脑仍然能正常响应。
+const CLI_SLOT = { running: 0, queued: 0, max: 1, maxQueued: 3 };
+const cliWaiters = [];
+/**
+ * 手机端断开后"脱钩"的兜底上限（2026-11-14）：脱钩之后子进程继续跑，最多再跑这么久。
+ * 取 10 分钟或本轮预算中的较大者 —— 宁可让电脑把这一轮跑完，也不要因为手机抖一下就打断它。
+ * （以前这里是"3 秒收尾 + 杀进程树"，见 runCliTask 的 onAbort。）
+ */
+const DETACHED_MAX_MS = 10 * 60 * 1000;
+
+/* ==================== 会话忙碌表 + 手机插话队列（2026-11-14） ====================
+ *
+ * 用户口径：「我需要发消息，你进入插话模式。不要干扰电脑端的运行，电脑端容易故障。」
+ *
+ * 以前手机发消息（action=inject）是这样：拿到 live agent 就 followup；拿不到就 resume；
+ * resume 撞上"这条会话正被 CLI 子进程写着"就回 409，手机上显示发送失败。而如果这轮
+ * 正好在跑，followup 虽然会入队（DSH 的 next-turn inbox），但插件并不知道"在跑"，
+ * 于是队列里堆了几条也不告诉手机，用户只会觉得"发了没反应"。
+ *
+ * 现在：
+ *   · 插件自己记账（CLI 子进程 / 宿主内 turn 都会 mark/clear）；
+ *   · 目标会话正忙 → 消息进 SESSION_INBOX（按会话分队列），立刻回 {queued:true, position}；
+ *   · 这一轮结束时（finish）触发 onSessionIdle → 把队首投回会话（宿主内用 followup，
+ *     CLI 会话用一次新的 CLI 轮次），**从不打断正在跑的那一轮**。
+ * ================================================================== */
+const SESSION_BUSY = new Map();      // sid -> { since, kind }
+const SESSION_INBOX = new Map();     // sid -> [{ id, text, at }]
+const SESSION_INBOX_MAX = 20;        // 单个会话最多排多少条，防止无限堆积
+/** apply() 里赋值：一轮跑完之后把排队的插话投进去（模块级的 runCliTask 也能调到） */
+let onSessionIdle = null;
+
+const markSessionBusy = (sid, kind) => {
+  if (!sid) return;
+  SESSION_BUSY.set(sid, { since: Date.now(), kind: kind || 'turn' });
+};
+const clearSessionBusy = (sid) => {
+  if (!sid) return;
+  SESSION_BUSY.delete(sid);
+  try { onSessionIdle?.(sid); } catch { /* 投递失败不影响本次运行 */ }
+};
+const isSessionBusy = (sid) => Boolean(sid && SESSION_BUSY.has(sid));
+
+const abortError = () => { const e = new Error('aborted'); e.code = 'aborted'; return e; };
+
+/** 杀整棵进程树：Windows 用 taskkill /T，POSIX 用进程组（spawn 时 detached） */
+function killTree(pid) {
+  if (!pid) return;
+  try {
+    if (process.platform === 'win32') {
+      const p = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+      p.on('error', () => { /* taskkill 异常不影响主流程 */ });
+    } else {
+      try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch { /* 已退出 */ } }
+    }
+  } catch { /* 进程已退出 */ }
+}
+
+/** 降低子进程优先级：CPU 抢得再凶，桌面端也不会被拖住 */
+function lowerPriority(pid) {
+  if (!pid) return;
+  try {
+    const p = osConstants?.priority?.PRIORITY_BELOW_NORMAL;
+    if (typeof setPriority === 'function' && p !== undefined) setPriority(pid, p);
+  } catch { /* 平台/权限不支持时忽略 */ }
+}
+
+/** 取一个 CLI 槽位：并发上限内立即给；否则排队（排队中被取消则立刻失败，不会 spawn） */
+function acquireCliSlot(signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(abortError()); return; }
+    const release = () => {
+      CLI_SLOT.running = Math.max(0, CLI_SLOT.running - 1);
+      const next = cliWaiters.shift();
+      CLI_SLOT.queued = cliWaiters.length;
+      if (next) {
+        next.cleanup();
+        CLI_SLOT.running += 1;
+        next.resolve(() => release());
+      }
+    };
+    if (CLI_SLOT.running < CLI_SLOT.max) {
+      CLI_SLOT.running += 1;
+      resolve(release);
+      return;
+    }
+    if (cliWaiters.length >= CLI_SLOT.maxQueued) {
+      reject(Object.assign(new Error('busy'), { code: 'busy' }));
+      return;
+    }
+    const waiter = { resolve, reject, cleanup: () => {} };
+    if (signal) {
+      const onAbort = () => {
+        const i = cliWaiters.indexOf(waiter);
+        if (i >= 0) cliWaiters.splice(i, 1);
+        CLI_SLOT.queued = cliWaiters.length;
+        reject(abortError());
+      };
+      try { signal.addEventListener('abort', onAbort, { once: true }); } catch { /* 忽略 */ }
+      waiter.cleanup = () => { try { signal.removeEventListener('abort', onAbort); } catch { /* 忽略 */ } };
+    }
+    cliWaiters.push(waiter);
+    CLI_SLOT.queued = cliWaiters.length;
+  });
+}
+
+export const name = 'smartquiz-remote';
+
+/**
+ * 插槽优先级命名档位（§22，2026-11-15）—— 与手机端 `SlotPriorities` **同名同值**。
+ *
+ * 病历：priority 是裸数字，散落在插件十几处（审批 5、压缩 10、重试 15、权限 35、任务 40、
+ * 子代理 50、MCP 55、日程 60…），"谁该压在谁上面"只存在于注释里；两侧各改一遍必然漂移。
+ * 现在收敛成 6 档：
+ *
+ * | 档位 | 数值 | 语义 |
+ * |---|---|---|
+ * | p0 | 0  | 打断式：审批 / 等待用户 |
+ * | p1 | 5  | 失败 / 重试 / 断线 |
+ * | p2 | 10 | 权限 / 沙箱 |
+ * | p3 | 20 | 插话队列 / 上下文压缩 |
+ * | p4 | 30 | 目标 / 计划（默认档） |
+ * | p5 | 50 | 后台任务 / 子代理 / 统计 |
+ *
+ * 帧里可只给 {@code level:'p2'}（手机端按同一张表换算）；旧客户端/旧帧只给
+ * {@code priority} 时语义不变（数字小的在上）。
+ */
+const SLOT_PRIORITY = Object.freeze({ p0: 0, p1: 5, p2: 10, p3: 20, p4: 30, p5: 50 });
+
+/** 档位名 → 数值；未知/空返回 null（调用方自己决定回退，不在这里吞掉旧 priority）。 */
+const slotPriorityOfLevel = (level) => {
+  const key = String(level ?? '').trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(SLOT_PRIORITY, key) ? SLOT_PRIORITY[key] : null;
+};
+
+/** 数值 → 档位名；不在表里返回 ''（历史中间值不硬凑"最近档位"，免得日志误导）。 */
+const slotLevelOfPriority = (priority) => {
+  const p = Number(priority);
+  for (const [k, v] of Object.entries(SLOT_PRIORITY)) {
+    if (v === p) return k;
+  }
+  return '';
+};
+
+/** 一帧插槽的优先级：已知 level → 表；否则旧 priority；都没有 → p4（与手机端默认一致）。 */
+const slotPriorityValue = (data) => {
+  const byLevel = slotPriorityOfLevel(data?.level);
+  if (byLevel !== null) return byLevel;
+  const n = Number(data?.priority);
+  return Number.isFinite(n) ? n : SLOT_PRIORITY.p4;
+};
+
+
+/** 插件目录（配对页/二维码库随包分发；.token 持久化于此） */
+const PLUGIN_DIR = dirname(fileURLToPath(import.meta.url));
+// 锚点账本落盘读取：必须等 PLUGIN_DIR 有值（见文件前部 ANCHORS 处的说明）。
+// 放在这里 = 模块初始化完成前读一次，之后所有路由都能拿到重启前的账。
+loadAnchors();
+const readAsset = (file) => { try { return readFileSync(join(PLUGIN_DIR, file), 'utf8'); } catch { return ''; } };
+
+// ==================== 直连会话协商：两端认同一个电脑会话 id ====================
+//
+// 旧行为：手机先 `action=start` 拿一个自己生成的 `smartquiz-xxx` 当会话 id，插件再让
+// CLI 起一条**另一条** `session-xxx` 真会话，两边靠 `.sessions.json` 的映射绑在一起。
+// 映射只在"成功"时落盘：超时/取消/清配置就丢，下一次又是新会话 → 电脑侧栏越攒越多，
+// 手机和电脑说的不是同一条对话。
+//
+// 现在两端协商：电脑端决定并持久化「对话码 → 电脑会话 id」，每次回话都把
+// `dsh_session_id` 带回给手机；手机存下来、下次作为 `target_session_id` 带回来。
+// 对话码留空 = 默认直连对话（一台电脑一条）；填 `work` 这类短码 = 各自一条专属对话。
+const SESSION_MAP_FILE = join(PLUGIN_DIR, '.sessions.json');function readSessionMap() {
+  try {
+    const j = JSON.parse(readFileSync(SESSION_MAP_FILE, 'utf8'));
+    return j && typeof j === 'object' ? j : {};
+  } catch { return {}; }
+}
+function writeSessionMap(mem) {
+  return writeSecret(SESSION_MAP_FILE, JSON.stringify(mem, null, 2));
+}
+/** 对话码 → 绑定槽：留空是默认直连对话，填了就是该码的专属对话 */
+function bindingKeyOf(code) {
+  const c = String(code ?? '').trim().slice(0, 32);
+  return c ? '@code:' + c : '@direct';
+}
+
+/**
+ * 消息来源台账（`.origins.jsonl`）：区分"手机上说的"与"电脑上说的"。
+ *
+ * 为什么必须单独记：两条路最终都落成 `user/message` 事件，`source.kind` 都是 'user'，
+ * **事件本身不携带来源**。插件只知道自己代手机发了哪条（文本 + 时间），
+ * 于是按 (会话 id, 文本 hash, 时间窗) 反查；查不到的即为电脑端直接输入。
+ *
+ * 这是"尽力而为"的匹配：同一句话在 10 分钟内被电脑端也打了一遍，会归到手机 —— 可接受。
+ */
+const ORIGIN_FILE = join(PLUGIN_DIR, '.origins.jsonl');
+function originHash(text) {
+  return createHash('sha1').update(String(text ?? '').trim()).digest('hex').slice(0, 16);
+}
+const ORIGIN = (() => {
+  let cache = null;
+  const load = () => {
+    if (cache) return cache;
+    cache = [];
+    try {
+      for (const line of readFileSync(ORIGIN_FILE, 'utf8').split('\n')) {
+        if (!line.trim()) continue;
+        try { const o = JSON.parse(line); if (o && o.sid && o.h) cache.push(o); } catch { /* 跳过坏行 */ }
+      }
+    } catch { /* 首次运行 */ }
+    if (cache.length > 2000) cache = cache.slice(-2000);
+    return cache;
+  };
+  return {
+    /** 记录"这条消息是插件代手机发的" */
+    record(sid, text, src = 'phone') {
+      if (!sid || !text) return;
+      const rec = { sid: String(sid), h: originHash(text), at: Date.now(), src };
+      try { load().push(rec); } catch { /* ignore */ }
+      try { appendFileSync(ORIGIN_FILE, JSON.stringify(rec) + '\n', 'utf8'); } catch { /* 落盘失败不影响发送 */ }
+    },
+    /** 'phone' | 'desktop' */
+    originOf(sid, text, time) {
+      if (!sid || !text) return 'desktop';
+      const h = originHash(text);
+      const t = Number(time) || 0;
+      const hit = load().find((o) => o.sid === sid && o.h === h && Math.abs((o.at || 0) - t) < 10 * 60 * 1000);
+      return hit ? (hit.src || 'phone') : 'desktop';
+    },
+  };
+})();
+
+/**
+ * 会话绑定的**唯一读写入**（`.sessions.json`）。
+ *
+ * 以前 /v2/session、legacy direct_state/direct_bind、runTurn 三处各自
+ * readSessionMap()/writeSessionMap()，谁都能改、谁都不校验 —— 正是"三份状态"的来源之一。
+ * 现在存储层收口到这里；"会话是否还存在"的校验留在调用方（需要 ctx）。
+ */
+const sessionBinding = {
+  /** 这个对话码绑到哪条电脑会话（'' = 还没绑） */
+  get(code) {
+    const v = readSessionMap()[bindingKeyOf(code)];
+    return typeof v === 'string' ? v.trim() : '';
+  },
+  /** 绑定/解绑；返回是否存在绑定 */
+  set(code, id) {
+    const m = readSessionMap();
+    const k = bindingKeyOf(code);
+    if (id) m[k] = String(id).trim(); else delete m[k];
+    writeSessionMap(m);
+    return Boolean(id);
+  },
+  /** 列出所有非字符串（attach 留下的 {target,history}）以外的绑定，供诊断用 */
+  dump() {
+    const m = readSessionMap();
+    const out = {};
+    for (const [k, v] of Object.entries(m)) if (typeof v === 'string') out[k] = v;
+    return out;
+  },
+};
+
+// 迁移：旧版「选择会话」会把空对话码写成 @direct，导致直连和跟随共用一条。
+// 现在 @direct 只给手机专属直连；若它等于 @code:follow，就清掉，直连下次重新建。
+try {
+  const m = readSessionMap();
+  const follow = m['@code:follow'];
+  if (follow && typeof follow === 'string' && m['@direct'] === follow) {
+    delete m['@direct'];
+    writeSessionMap(m);
+  }
+} catch { /* 迁移失败不影响主流程 */ }
+
+/**
+ * 写「含密钥」的文件：只给当前用户读写。
+ *
+ * 这些文件里是主令牌 / 设备令牌 / 会话映射，任一泄漏都等于远程执行权。
+ * 原来用 writeFileSync(file, data, 'utf8')，在 Linux/macOS 上按 umask 022 会落成 0644 ——
+ * 同一台机器上的其他用户（或备份/同步工具）能直接读走。POSIX 上强制 0600；
+ * Windows 没有 POSIX mode（chmod 基本是 no-op，不会报错），ACL 由用户目录继承。
+ */
+function writeSecret(file, data) {
+  try {
+    writeFileSync(file, data, { encoding: 'utf8', mode: 0o600 });
+    try { chmodSync(file, 0o600); } catch { /* Windows / 只读盘 */ }
+    return true;
+  } catch { return false; }
+}
+
+export const inject = ['webServer', 'agents', 'sessions', 'tools', 'tokenMeter'];   // tools：注册 phone_ui；tokenMeter：状态栏的 token/上下文
+// ==================== 鉴权升级：一次性配对码 + 设备令牌 + 白名单 ====================
+// 设计：主令牌（配置/环境变量/持久化文件）仍是"主人"凭证；
+//       手机用「一次性配对码」（5 分钟有效、一次性）换取「设备令牌」，之后只带设备令牌；
+//       设备可列出、可吊销（吊销不需要改主令牌）。
+// 存储：设备表落在插件目录 .devices.json（后续可迁到 dsh-credentials 凭据库）。
+export const AUTH_DOC = 'once-pairing-code -> device token -> revocable whitelist';
+
+/** 反问中继诊断（2026-11-13）：seen=事件有没有到插件；taken=有没有接管；reason=最近一次原因 */
+const QRELAY = { seen: 0, taken: 0, last_sid: '', reason: '' };
+
+/** 审批中继诊断（同 QRELAY）：hooked=已挂钩的 agent 数；seen/taken 按 waterfall 调用计 */
+const ARELAY = { hooked: 0, seen: 0, taken: 0, last_sid: '', reason: '' };
+
+/** 调试用假审批（2026-11-13）：id → { id, at, timer }，供 debug.approval 与回传共用 */
+const TEST_APPROVALS = new Map();
+/** 测试审批回传记录（诊断：证明"通知按钮真的点到了电脑端"） */
+const TEST_APPROVAL_LOG = [];
+
+/**
+ * 审批回传诊断（2026-11-13）：手机点"允许/拒绝"时记录当时到底有什么可结算。
+ * calls=点了几次；local=插件自己挂起的数量；gateway_pending=网关待答数量（附 id 样本）；
+ * 若两者都是 0，说明审批在电脑侧已被别的应答者结算（"被抢答"），不是手机被屏蔽。
+ */
+const APPDBG = { calls: 0, local: 0, gateway_pending: 0, gateway_ids: [], ok: false, last_error: '', last_at: 0 };
+
+/** phone_ui 工具的注册状态（诊断：/status.plugin_features 里可见） */
+const PHONE_TOOL_STATE = { registered: false, error: '' };
+
+function loadDevices(file) {
+  try {
+    const raw = readFileSync(file, 'utf8');
+    const obj = JSON.parse(raw);
+    return Array.isArray(obj?.devices) ? obj : { devices: [] };
+  } catch {
+    return { devices: [] };
+  }
+}
+function saveDevices(file, data) {
+  return writeSecret(file, JSON.stringify(data, null, 2));
+}
+
+function lanIpv4All() {
+  const out = [];
+  for (const list of Object.values(networkInterfaces())) {
+    for (const ni of list ?? []) {
+      if (ni.family === 'IPv4' && !ni.internal && !String(ni.address).startsWith('169.254.')) out.push(ni.address);
+    }
+  }
+  return out.length ? out : ['127.0.0.1'];
+}
+
+function lanIpv4() {
+  for (const list of Object.values(networkInterfaces())) {
+    for (const ni of list ?? []) if (ni.family === 'IPv4' && !ni.internal) return ni.address;
+  }
+  return '127.0.0.1';
+}
+
+/** 配对候选：qr_text 与旧桥一致 → dshpair://<host>:<port>?token=<token> */
+function pairCandidates(port, token, cfg) {
+  const ips = lanIpv4All();
+  const out = ips.map((ip, i) => ({
+    ip,
+    base_url: `http://${ip}:${port}`,
+    qr_text: `dshpair://${ip}:${port}?token=${token}`,
+    label: i === 0 ? '局域网（首选）' : '局域网',
+  }));
+  // 隧道/公网候选（旧桥同款格式：dshpair://host?scheme=https&port=443&token=…）
+  const pub = cfg && typeof cfg.publicUrl === 'string' ? cfg.publicUrl.trim() : '';
+  if (pub) {
+    try {
+      const u = new URL(pub);
+      const https = u.protocol === 'https:';
+      out.push({
+        ip: u.hostname,
+        base_url: pub.replace(/\/+$/, ''),
+        qr_text: https
+          ? `dshpair://${u.hostname}?scheme=https&port=443&token=${token}`
+          : `dshpair://${u.hostname}:${u.port || 80}?token=${token}`,
+        label: https ? '公网/隧道（HTTPS）' : '公网/隧道',
+      });
+    } catch { /* publicUrl 非法则忽略 */ }
+  }
+  return out;
+}
+
+function resolveToken(ctx, cfg) {
+  if (cfg.token) return cfg.token;
+  const env = process.env.SMARTQUIZ_REMOTE_TOKEN;
+  if (env) return env;
+  const file = join(PLUGIN_DIR, '.token');
+  try { const saved = readFileSync(file, 'utf8').trim(); if (saved) return saved; } catch { /* 首次 */ }
+  const generated = randomBytes(16).toString('hex');
+  writeSecret(file, generated);
+  ctx.logger?.info?.(`[smartquiz-remote] 已持久化访问令牌（${file}）: ${generated}`);
+  return generated;
+}
+
+function readBody(req, limit = 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    let size = 0; const chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) { reject(new Error('payload too large')); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+const sendJson = (res, status, obj) => {
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(obj));
+};
+
+/**
+ * 把一次 HTTP 响应的生命周期变成 AbortSignal。
+ *
+ * 手机端读超时（timeout+30s）、切后台、主动取消都会把连接断掉：这时 `res` 会触发
+ * 'close' 而 `writableEnded` 仍是 false —— 这就是"手机不要这条回复了"的可靠信号。
+ * 直连模式的 CLI 子进程必须跟着停，否则电脑会替一个没人等的任务继续烧 CPU。
+ */
+function requestAbort(res) {
+  const ac = new AbortController();
+  const onClose = () => { if (!res.writableEnded) { try { ac.abort(); } catch { /* 忽略 */ } } };
+  try { res.on('close', onClose); } catch { /* 忽略 */ }
+  return ac;
+}
+/**
+ * 跑一轮对话。两条路径都试，按证据择一：
+ *  ① 先把 user/message 作为 surface 事件追加进会话（dsh-session 文档：surface 事件必须带 surfaceOp 才会进入模型历史）
+ *  ② 再唤醒 agent（whenIdle）；若会话没有任何增长，则退回 followup() 路径
+ * 返回 { reply, debug }
+ */
+/**
+ * 把"电脑端那条会话"的最近记录拼成前缀，交给新会话当上下文。
+ *
+ * 为什么不直接 --session-id 续写：DSH 的会话存储是**单写者**的，同一条会话
+ * 同一时刻只能有一个写句柄。桌面端开着它时，子进程续写会直接报
+ * "already owned by an active write owner"。复制上下文另起一条，代价是
+ * 两边从此刻开始各自演化（不是同一条 session），收益是永远不打架。
+ */
+function carryPreamble(carried, text) {
+  const lines = [];
+  let budget = 4000;                                   // 前缀上限，别把上下文挤爆
+  for (const m of carried.history) {
+    const who = m?.role === 'user' ? '用户' : '助手';
+    const body = String(m?.text ?? '').trim();
+    if (!body) continue;
+    const line = `${who}: ${body.length > 600 ? body.slice(0, 600) + '…' : body}`;
+    if (line.length > budget) break;
+    budget -= line.length;
+    lines.push(line);
+  }
+  if (!lines.length) return text;
+  return [
+    '【接续上下文】以下是电脑端会话 ' + String(carried.target ?? '') + ' 的最近记录。',
+    '请在理解这些内容的基础上接着回答最后的问题，不要复述历史。',
+    '',
+    ...lines,
+    '',
+    '---',
+    text,
+  ].join('\n');
+}
+
+async function runTurn(ctx, handle, sid, text, cfg, runOpts) {
+  const opts = runOpts ?? {};
+  // CLI-MODE（默认）：走 `dsh --profile headless "<任务>"`，不依赖 DSH 内部模块 ✓
+  if (cfg.cliMode !== false) {
+    const mem = readSessionMap();
+    /**
+     * 绑定优先级：
+     *   ① 手机带回来的 target_session_id（两端协商的结果）
+     *   ② 对话码对应的持久绑定（@direct / @code:xxx）—— 手机丢了 id 也能接上
+     *   ③ 旧版按手机 session_id 存的映射（兼容老数据）
+     * ② 里的 { target, history } 是 attach（copy-on-write）留下的对象，另走前缀逻辑。
+     */
+    const slot = bindingKeyOf(opts.sessionCode);
+    const slotRaw = mem[slot];
+    const legacyRaw = mem[sid];
+    const carried = slotRaw !== null && typeof slotRaw === 'object'
+      ? slotRaw
+      : (legacyRaw !== null && typeof legacyRaw === 'object' ? legacyRaw : null);
+    const boundSid = (() => {
+      if (typeof slotRaw === 'string' && slotRaw) return slotRaw;
+      if (typeof legacyRaw === 'string' && legacyRaw) return legacyRaw;
+      return '';
+    })();
+    const explicitSid = String(opts.targetSessionId || '').trim();
+    const dshSid = carried ? '' : (explicitSid || boundSid);
+    /** 一拿到电脑会话 id 就落盘（超时/取消也记）：下次续同一条，不会再冒出新会话 */
+    const remember = (id) => {
+      if (!id || carried) return;
+      if (mem[slot] === id && !(mem[sid] && mem[sid] !== id)) return;
+      mem[slot] = id;
+      if (explicitSid && explicitSid !== id) mem[sid] = id;   // 兼容旧的按手机 id 查询
+      writeSessionMap(mem);
+    };
+    const promptText = carried && Array.isArray(carried.history) && carried.history.length
+      ? carryPreamble(carried, text)
+      : text;
+    const cands = resolveDshCli(cfg);
+    /**
+     * 单次预算：不能超过手机这一条请求自己的 timeout（以前固定 5 分钟 ——
+     * 手机 120s 就放弃、连接也断了，子进程却还在跑满 5 分钟）。
+     * 排队时间也扣在这里面：deadline - now。
+     */
+    const hardCap = Math.max(3000, Number(cfg.cliTimeoutMs) || 300000);
+    const budgetMs = Number.isFinite(opts.deadline)
+      ? Math.min(hardCap, Math.max(3000, opts.deadline - Date.now()))
+      : hardCap;
+    let lastErr = '';
+    for (const cli of cands) {
+      let r;
+      try {
+        r = await runCliTask(cli, cfg.cliProfile || 'headless', promptText, budgetMs, cfg.__onData, dshSid, cfg.workingDir,
+          { signal: opts.signal, budgetMs });
+      } catch (e) {
+        if (e?.code === 'busy') {
+          return { reply: '', via: 'busy', error: '电脑端正在执行上一条消息（直连一次只跑一条），这条没有发出去，请稍后再发' };
+        }
+        if (e?.code === 'aborted') {
+          return { reply: '', via: 'cli-aborted', error: '手机端已取消/超时，电脑侧已停止执行' };
+        }
+        return { reply: '', via: 'cli-error', error: '电脑端执行异常：' + String(e?.message ?? e).slice(0, 200) };
+      }
+      if (r.aborted) {
+        remember(r.sessionId);
+        return { reply: '', via: 'cli-aborted', error: '手机端已取消/超时，电脑侧已停止执行', dshSession: r.sessionId || dshSid };
+      }
+      remember(r.sessionId);
+      if (r.ok && r.output) {
+        // CLI 会话 id 只有跑完才知道；记一笔来源，供 /v2/view 标"手机/电脑"
+        ORIGIN.record(r.sessionId || dshSid, promptText);
+        return { reply: r.output, via: 'cli:' + cli, dshSession: r.sessionId || dshSid, debug: { cli_ms: r.ms, cli_spawn_ms: r.spawn_ms ?? null, cli_code: r.code, dsh_session: r.sessionId || '(none)', memory: carried ? 'carried' : (dshSid ? 'resumed' : 'new') } };
+      }
+      lastErr = `${cli} → code=${r.code} ${r.err ?? ''} ${String(r.output).slice(0, 120)}`;
+      if (r.code === -1) {
+        // 超时别再换下一个候选重跑：那等于把同一轮任务再做一遍，白烧 CPU
+        const secs = Math.round(budgetMs / 1000);
+        const partial = r.output ? r.output + '\n\n（超过 ' + secs + 's 未完成，电脑侧已中断）' : '';
+        return {
+          reply: partial,
+          via: 'cli-timeout',
+          error: '这一轮在 ' + secs + 's 内没跑完，已中断（电脑侧进程已结束）',
+          dshSession: r.sessionId || dshSid,
+          debug: { cli_ms: r.ms, cli_code: r.code },
+        };
+      }
+    }
+    return { reply: '', via: 'cli-failed', error: '电脑端执行失败：' + (lastErr || '未知错误（dsh --profile ' + (cfg.cliProfile || 'headless') + ' 没有返回内容）'), dshSession: dshSid, debug: { cli_errors: lastErr } };
+  }
+  const session = ctx.sessions.get(sid);
+  const seqBefore = Number(session?.seq ?? 0);
+  ORIGIN.record(sid, text);   // 宿主内轮次：这条是插件代手机发的
+  let via = 'surface-append';
+  try {
+    if (session?.append) {
+      // ★ 必须带 id：DSH 校验要求消息事件有"identified message"，
+      //   只写 {role,content,source} 会落成坏数据（seq 27 lacks an identified message），
+      //   之后这条会话在 GUI 与手机两侧都读不出来（历史加载失败：corrupt）。
+      session.append('user/message',
+        { id: randomBytes(16).toString('hex'), role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } },
+        { surfaceOp: 'append' });
+    } else { via = 'followup'; }
+  } catch (e) { via = 'followup(' + String(e?.message ?? e).slice(0, 60) + ')'; }
+
+  if (via === 'surface-append') {
+    try { await handle.agent.whenIdle(); } catch { /* 忽略，下面按证据判断 */ }
+    const seqAfter = Number(ctx.sessions.get(sid)?.seq ?? 0);
+    if (seqAfter <= seqBefore) {                       // 会话没长 → 追加路径没被消费，退回 followup
+      via = 'followup-fallback';
+    } else {
+      const s2 = ctx.sessions.get(sid);
+      const t = lastAssistant(s2);
+      if (t) return { reply: t.length > cfg.maxReplyChars ? t.slice(0, cfg.maxReplyChars) : t, via, dshSession: sid,
+                      debug: snapshot(s2) };
+    }
+  }
+  await handle.agent.followup({ id: randomBytes(16).toString('hex'), role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } });
+  await handle.agent.whenIdle();
+  const s3 = ctx.sessions.get(sid);
+  let reply = lastAssistant(s3);
+  if (reply.length > cfg.maxReplyChars) reply = reply.slice(0, cfg.maxReplyChars);
+  return { reply, via, dshSession: sid, debug: snapshot(s3) };
+}
+
+/** CLI-MODE: 用 `dsh --profile <p> "<task>"` 跑任务（旧 Python 桥的机制，已验证可行 ✓）
+ *  原因：插件无法 import DSH 内部包（都在 app.asar 内 ✗），而"服务级"装载模型选择的 API 尚未找到。
+ *  本模式不依赖任何 DSH 内部模块 ✓ 只需一个可执行的 dsh ✓。 */
+function resolveDshCli(config) {
+  if (config && typeof config.dshPath === 'string' && config.dshPath) return config.dshPath;
+  const cands = [];
+  const env = process.env.DSH_CLI || process.env.DSH_BIN;
+  if (env) cands.push(env);
+  cands.push('dsh');
+  cands.push(join(process.env.USERPROFILE || '', '.workbuddy', 'binaries', 'node', 'versions', '22.22.2', 'dsh.cmd'));
+  cands.push('C:/Users/xiaocong/AppData/Local/Programs/DeepSeek Harness/resources/runtime/cli/bin/dsh.cmd');
+  return cands;
+}
+
+/**
+ * 跑一条 CLI 任务；onData 逐块收到 stdout（流式用）。
+ * 返回 { ok, output, code, ms, err, aborted }；`aborted` = 客户端断开后被杀。
+ *
+ * ★ 所有 CLI 任务都经过 acquireCliSlot()：并发上限内才真起进程，否则排队。
+ *   opts.signal  —— 手机请求的 AbortSignal（连接断开/超时触发），到点杀整棵进程树
+ *   opts.budgetMs —— 这次任务最多跑多久（手机给的 timeout 与 cliTimeoutMs 取小）
+ */
+function runCliTask(cliPath, profile, text, timeoutMs, onData, dshSessionId, workingDir, opts) {
+  const signal = opts?.signal;
+  const budgetMs = Math.max(3000, Math.min(Number(opts?.budgetMs) || Number(timeoutMs) || 300000, 6 * 3600 * 1000));
+  return acquireCliSlot(signal).then((release) => new Promise((resolve) => {
+    const started = Date.now();
+    let spawnAt = 0;   // 子进程真正起来的时刻（用于衡量“起进程”占整轮耗时的比例）
+    const isCmd = /\.(cmd|bat)$/i.test(String(cliPath));
+    /**
+     * 子进程的工作目录。
+     *
+     * ★ 为什么重要：DSH 按 **cwd** 把会话归到某个"工作区"（sessions/--<slug>--/）。
+     * 不指定时子进程继承宿主进程的 cwd —— 桌面端的 host 跑在
+     * `~/.workbuddy/dsh-home/profiles/desktop`，于是手机发起的会话全落在那个
+     * 目录名下，桌面端侧栏里既不在项目工作区、也不容易找到。
+     * 指定成项目目录后，手机会话就和桌面端同一个工作区，能在侧栏里点开接着聊。
+     */
+    const workdir = (() => {
+      const dir = String(workingDir || '').trim();
+      if (!dir) return undefined;
+      try {
+        if (statSync(dir).isDirectory()) return dir;
+      } catch { /* 落到下面记告警 */ }
+      // ★ 不静默：目录无效时降级为"继承宿主 cwd"，但必须留痕（/health 可见）
+      CWD_GUARD.lastWarning = {
+        at: Date.now(),
+        requested: dir,
+        fallback: '(继承宿主 cwd)',
+        reason: '目录不存在或不可访问；可能是 asar 内部虚拟路径，或目录已被删除',
+      };
+      return undefined;
+    })();
+    /** 子进程用的 profile：空值会让命令行变成 `--profile  --json`（DSH 会报 invalid profile） */
+    const prof = String(profile || '').trim() || 'headless';
+    /**
+     * 子进程环境。
+     *
+     * ★ 2026-11-10 修复：DSH 0.2.2 起桌面端走 account 路由，而 `--profile headless`
+     *   的默认路由是 `deepseek-official`，需要 API Key。凭据在
+     *   $DSH_HOME/.credentials.yaml 的 refs.DEEPSEEK_API_KEY 里，但子进程的
+     *   credentials service 不一定会把它注入 LLM 路由（实测 MISSING_CREDENTIAL），
+     *   于是 CLI 任务只回空串、phone 端看到「电脑没回话」。
+     *   这里直接把它作为环境变量补进去；已有环境变量时不动（用户可以自己覆盖）。
+     */
+    const cliEnv = (() => {
+      const env = { ...process.env, DSH_HOME: process.env.DSH_HOME };
+      // ★ 必须剥掉宿主的会话上下文，否则子进程会"继承"桌面端正在用的会话：
+      //   实测 DSH_SESSION_ID 被 CLI 采纳后，手机任务直接写进了用户当前的桌面会话
+      //   （读回来的历史里全是桌面端的推理过程）。手机任务必须是独立会话。
+      for (const key of ['DSH_SESSION_ID', 'DSH_WEB_URL', 'DSH_SHELL', 'DSH_PROFILE_DIR', 'DSH_PROFILE']) {
+        delete env[key];
+      }
+      if (!env.DEEPSEEK_API_KEY) {
+        const k = readDeepseekApiKey();
+        if (k) env.DEEPSEEK_API_KEY = k;
+      }
+      return env;
+    })();
+    // ★ .cmd 走 stdin：正文不拼进命令行（换行会被 cmd 截断）
+    const memArgs = dshSessionId ? ' --session-id ' + dshSessionId : '';
+    // ★ 2026-11-10：CLI 子进程默认 workspace-write，Windows 上会撞
+    //   "sandbox-local windows-acl temp grant materialization failed"（手机直连时看到的就是这句）。
+    //   这里显式给权限档位，默认全权，可用配置覆盖。
+    const permMode = CLI_PERM.mode;
+    const approvalPolicy = CLI_PERM.approval;
+    const permArgs = ' --permission-mode ' + permMode + ' --approval-policy ' + approvalPolicy;
+    const fullLine = '"' + cliPath + '" --profile ' + prof + ' --json' + memArgs + permArgs + ' -';
+    let out = '';
+    let settled = false;
+    let finalText = '';
+    /** 手机端断开后"脱钩"：我们不再等，但子进程继续跑（2026-11-14） */
+    let detached = false;
+    let sessionId = dshSessionId || '';
+    let childProc = null;
+    let timer = null;
+    let abortTimer = null;
+    const consume = (chunk) => {
+      for (const line of String(chunk).split(/\r?\n/)) {
+        const s = line.trim();
+        if (!s || s[0] !== '{') continue;
+        try {
+          const ev = JSON.parse(s);
+          if (ev.type === 'session' && ev.sessionId) { sessionId = ev.sessionId; continue; }
+          if (ev.type === 'text' && typeof ev.text === 'string' && ev.text) {
+            finalText = ev.text;                       // 逐字累积（真流式 ✓）
+            try { onData?.(ev.text, ev); } catch { /* 忽略 */ }
+            continue;
+          }
+          if (ev.type === 'final' && typeof ev.text === 'string' && ev.text) { finalText = ev.text; continue; }
+          if (ev.type === 'thinking' && typeof ev.text === 'string' && ev.text) {
+            try { onData?.('', { ...ev, __thinking: true }); } catch { /* 忽略 */ }
+          }
+        } catch { /* 非 JSON 行忽略 */ }
+      }
+    };
+    /** 杀掉这一轮的进程树（子进程可能已经自己退出，killTree 会静默忽略） */
+    const killChild = () => { try { if (childProc?.pid) killTree(childProc.pid); } catch { /* 忽略 */ } };
+    // 2026-11-14：这一轮跑着的时候把会话标成"忙"，手机那边的插话就知道要排队而不是硬塞
+    if (dshSessionId) markSessionBusy(dshSessionId, 'cli');
+    const finish = (code, err) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (abortTimer) clearTimeout(abortTimer);
+      if (signal) { try { signal.removeEventListener('abort', onAbort); } catch { /* 忽略 */ } }
+      try { release(); } catch { /* 忽略 */ }
+      // 忙标记按**最终**的会话 id 清（CLI 可能在中途才把 sessionId 报出来）
+      try { clearSessionBusy(sessionId || dshSessionId); } catch { /* 忽略 */ }
+      const reply = (finalText || out).trim();
+      resolve({ ok: code === 0, output: reply, sessionId, code, ms: Date.now() - started, spawn_ms: spawnAt ? spawnAt - started : null, err, aborted: code === -4 });
+    };
+    /**
+     * 客户端断开（手机 HTTP 超时 / 切后台 / 主动取消）——2026-11-14 改为「脱钩」。
+     *
+     * <p>以前是"给 3 秒收尾 → 杀整棵进程树"。后果：手机端一个 HTTP 超时（隧道抖动、切后台）
+     * 就把电脑上正在跑的这一轮打断，DSH 侧留下半截 turn —— 用户说的"电脑端容易故障"多是这么来的。</p>
+     *
+     * <p>现在：**只脱钩，不动进程**。我们不再等它，但子进程继续跑（结果照常写进会话日志，
+     * 手机重连后按游标补拉即可）；CLI 槽位仍由它占着，直到它自己退出才释放（不会并发跑两条）。
+     * 脱钩后的兜底上限放宽到 10 分钟（或本轮预算，取大者），到点还没退出才杀。</p>
+     */
+    const onAbort = () => {
+      if (settled || detached) return;
+      detached = true;
+      if (timer) clearTimeout(timer);
+      const detachedCap = Math.max(budgetMs, DETACHED_MAX_MS);
+      timer = setTimeout(() => { killChild(); finish(-1, 'detached-timeout'); }, detachedCap);
+      // 先把"手机这一侧"结束掉：不释放槽位、不杀进程 —— 由子进程退出时的 finish() 收尾
+      resolve({
+        ok: false, output: (finalText || out).trim(), sessionId, code: -4,
+        ms: Date.now() - started, spawn_ms: spawnAt ? spawnAt - started : null,
+        err: 'detached', aborted: true, detached: true,
+      });
+    };
+    if (signal) {
+      if (signal.aborted) { finish(-4, 'aborted'); return; }
+      try { signal.addEventListener('abort', onAbort, { once: true }); } catch { /* 忽略 */ }
+    }
+    timer = setTimeout(() => { killChild(); finish(-1, 'timeout'); }, budgetMs);
+    try {
+      if (isCmd) {
+        // .cmd：整条命令行交给 cmd（唯一可靠方式 ✓）。
+        // ★ 正文走 stdin（`-`），不要拼进命令行：cmd 会把换行当成命令分隔符，
+        //   多行 prompt 只会有第一行生效（实测：接续上下文只到了标题那一行）。
+        // ★ 超时/取消都由上面自己的 timer + killTree 处理，不用 exec 的 timeout
+        //   （exec 的 timeout 只杀 cmd.exe，会留下 DeepSeek Harness.exe 孤儿）。
+        const child = exec(fullLine, {
+          windowsHide: true, maxBuffer: 16 * 1024 * 1024,
+          env: cliEnv, cwd: workdir, detached: process.platform !== 'win32',
+        },
+          (err, stdout, stderr) => {
+            const s = String(stdout ?? ''); const e2 = String(stderr ?? '');
+            if (s) { out += s; consume(s); }
+            if (e2) out += e2;
+            finish(err ? (err.code ?? 1) : 0, err ? String(err.message).slice(0, 120) : undefined);
+          });
+        childProc = child;
+        lowerPriority(child.pid);
+        try { child.on?.('spawn', () => { spawnAt = Date.now(); }); } catch { /* 已退出 */ }
+        try { child.stdin?.write(text); child.stdin?.end(); } catch { /* 子进程已退出 */ }
+      } else {
+        const child = spawn(cliPath, ['--profile', prof, '--json', ...(dshSessionId ? ['--session-id', dshSessionId] : []), '--permission-mode', CLI_PERM.mode, '--approval-policy', CLI_PERM.approval, text], {
+          windowsHide: true, env: cliEnv, cwd: workdir, detached: process.platform !== 'win32',
+        });
+        childProc = child;
+        lowerPriority(child.pid);
+        try { child.on?.('spawn', () => { spawnAt = Date.now(); }); } catch { /* 已退出 */ }
+        child.stdout?.on('data', (b) => { const s = b.toString('utf8'); out += s; consume(s); });
+        child.stderr?.on('data', (b) => { out += b.toString('utf8'); });
+        child.on('error', (e) => { finish(-2, String(e?.message ?? e)); });
+        child.on('close', (code) => { finish(code ?? 0); });
+      }
+    } catch (e) { finish(-3, String(e?.message ?? e)); }
+  }));
+}
+/** 递归深挖任意结构里的文本（DSH 的 assistant/message 内嵌流结构不固定，故不做形状假设） */
+function collectText(x, out, depth = 0) {
+  if (x === null || x === undefined || depth > 8) return out;
+  if (typeof x === 'string') { if (x.trim()) out.push(x); return out; }
+  if (typeof x === 'number' || typeof x === 'boolean') return out;
+  if (Array.isArray(x)) { for (const v of x) collectText(v, out, depth + 1); return out; }
+  if (typeof x === 'object') {
+    // 已知的"文本载体"优先（避免把 role/type/id 之类混进来）
+    for (const k of ['text', 'value', 'content', 'delta', 'message', 'parts', 'data', 'chunk', 'completion']) {
+      if (k in x) collectText(x[k], out, depth + 1);
+    }
+    return out;
+  }
+  return out;
+}
+/** 健壮地从一条消息里取文本（兼容多种结构：content 数组/字符串、text、parts、reasoning） */
+/**
+ * 把一条消息拆成「回答正文」和「思考内容」。
+ *
+ * DSH 的 assistant/message 里 content 是混合 part 数组，形如
+ *   [{type:'reasoning', text:'…'}, {type:'text', text:'…'}]
+ * 之前用 collectText 一把抓，把 reasoning 也拼进了正文 —— 手机上看到的就是
+ * "先说一段思考，再跟答案"。这里按 part.type 分开。
+ */
+function partsOf(message) {
+  const out = { answer: '', thinking: '' };
+  const walk = (content) => {
+    if (typeof content === 'string') { out.answer += content; return; }
+    if (!Array.isArray(content)) return;
+    for (const p of content) {
+      if (!p || typeof p !== 'object') continue;
+      const t = String(p.type ?? '');
+      const think = t === 'reasoning' || t === 'thinking' || t === 'redacted_thinking';
+      const txt = typeof p.text === 'string' ? p.text : (typeof p.content === 'string' ? p.content : '');
+      if (!txt) continue;
+      if (think) out.thinking += txt;
+      else out.answer += txt;
+    }
+  };
+  const body = (message && typeof message === 'object' && message.message && typeof message.message === 'object')
+    ? message.message
+    : message;
+  if (body && typeof body === 'object') {
+    walk(body.content);
+    if (!out.answer && typeof body.text === 'string') out.answer = body.text;
+  } else if (typeof message === 'string') {
+    out.answer = message;
+  }
+  return out;
+}
+
+function textOf(m) {
+  if (m === null || m === undefined) return '';
+  { const acc = collectText(m, []); if (acc.length) return acc.join(''); }
+  if (typeof m === 'string') return m;
+  const parts = [];
+  const push = (x) => { if (typeof x === 'string' && x) parts.push(x); };
+  push(m.text);
+  const c = m.content;
+  if (typeof c === 'string') push(c);
+  else if (Array.isArray(c)) for (const p of c) {
+    if (typeof p === 'string') push(p);
+    else if (p) { push(p.text); if (p.type === 'text' && typeof p.value === 'string') push(p.value); }
+  }
+  if (Array.isArray(m.parts)) for (const p of m.parts) { if (typeof p === 'string') push(p); else if (p) push(p.text); }
+  return parts.join('');
+}
+
+/** 诊断快照：把会话/消息的真实结构暴露给调用方（便于一次定位，无需反复重启） */
+function snapshot(session) {
+  const out = { seq: null, derived_count: 0, derived_keys: [], roles: [], sample: null, events: [] };
+  try {
+    if (!session) return out;
+    out.seq = session.seq ?? null;
+    const msgs = session.deriveMessages?.() ?? [];
+    out.derived_count = Array.isArray(msgs) ? msgs.length : -1;
+    if (Array.isArray(msgs) && msgs.length) {
+      const last = msgs[msgs.length - 1];
+      out.roles = msgs.slice(-6).map((m) => m?.role ?? (typeof m));
+      out.derived_keys = Object.keys(msgs[0] ?? {}).slice(0, 12);
+      out.sample = JSON.stringify(msgs[0]).slice(0, 400);
+    }
+    const seq = Number(session.seq ?? 0);
+    for (let i = Math.max(0, seq - 12); i < seq; i += 1) {
+      const ev = session.eventAt?.(i);
+      out.events.push({ i, type: ev?.type ?? null, keys: Object.keys(ev ?? {}).slice(0, 6) });
+    }
+  } catch (e) { out.error = String(e?.message ?? e); }
+  return out;
+}
+
+/**
+ * 从 `from` 开始扫事件，取最后一条 assistant/message 的文本。
+ *
+ * 为什么不用 deriveMessages：resume 出来的会话里它可能还没重算，取到的是旧内容或空串
+ * （实测：seq 21→34 明明跑了，reply 却是空）。事件是落盘的原始事实，更可靠。
+ */
+function assistantPartsSince(session, from) {
+  const out = { answer: '', thinking: '' };
+  try {
+    const seq = Number(session?.seq ?? 0);
+    for (let i = Math.max(0, Number(from) || 0); i < seq; i += 1) {
+      const ev = session.eventAt?.(i);
+      if (ev?.type !== 'assistant/message') continue;
+      const p = partsOf(ev?.data);
+      if (p.answer && p.answer.trim()) out.answer = p.answer;
+      if (p.thinking && p.thinking.trim()) out.thinking = p.thinking;
+    }
+  } catch { /* 忽略 */ }
+  return out;
+}
+
+function assistantTextSince(session, from) {
+  return assistantPartsSince(session, from).answer;
+}
+/** 取最后一条 assistant 文本（多结构兼容） */
+function lastAssistant(session) {
+  try {
+    const msgs = session?.deriveMessages?.() ?? [];
+    for (let i = msgs.length - 1; i >= 0; i -= 1) {
+      const m = msgs[i];
+      if ((m?.role ?? m?.author ?? '') !== 'assistant') continue;
+      const t = (partsOf(m).answer || '').trim();
+      if (t) return t;
+    }
+  } catch { /* 忽略 */ }
+  return '';
+}
+
+/**
+ * 读取 DeepSeek API Key（用于面板显示账户余额）。
+ *
+ * 来源与 DSH 自己的凭据库一致：$DSH_HOME/.credentials.yaml 的 refs.DEEPSEEK_API_KEY。
+ * 只读不写；读不到就返回空串（面板显示"未配置"而不是报错）。
+ * ★ 这个值只在本机插件进程内使用，转发给 api.deepseek.com（它本来就是这把钥匙的归属方），
+ *   不写日志、不回传给手机端。
+ */
+function readDeepseekApiKey() {
+  const home = process.env.DSH_HOME || join(homedir(), '.workbuddy', 'dsh-home');
+  const file = join(home, '.credentials.yaml');
+  let text = '';
+  try { text = readFileSync(file, 'utf8'); } catch { return ''; }
+  // 只需取 refs 段里 DEEPSEEK_API_KEY 的值，按行扫描比引入 YAML 解析器更省事
+  const m = /^\s*DEEPSEEK_API_KEY\s*:\s*(\S+)\s*$/m.exec(text);
+  return m ? m[1] : '';
+}
+
+export function apply(ctx, config) {
+  const DEFAULTS = {
+    token: '', provider: 'deepseek-account', model: 'deepseek-flash', pathPrefix: '',   // 显式：插件创建的 agent 需要明确模型路由
+    maxReplyChars: 4000, allowExec: true, execTimeoutMs: 120000,
+    cliMode: true, cliProfile: 'headless', cliTimeoutMs: 300000, dshPath: '', publicUrl: '',
+    workingDir: '',   // CLI 任务的 cwd：决定手机会话归到哪个工作区（空=继承宿主 cwd）
+    // 直连模式最多同时跑几个 `dsh` 子进程 / 队列里最多排几条。
+    // 默认 1 + 3：实测每个子进程 ~256MB，串行执行才不会把电脑堆卡。
+    cliMaxConcurrent: 1, cliMaxQueued: 3,
+    /** 热 agent 复用：CLI 跑完后台 resume 成宿主内句柄，下一轮不再冷启动 */
+    warmReuse: false,
+  };
+  const cfg = { ...DEFAULTS, ...(config ?? {}) };
+  const prefix = cfg.pathPrefix ?? '';
+  // publicUrl 兜底：花生壳隧道已实测可达 ✓（配置为空也能用 ✓）
+// publicUrl（隧道/公网域名）三级取值，**不含任何硬编码域名**（每个用户填自己的）：
+  //   ① 插件配置 config.publicUrl  ② 环境变量 SMARTQUIZ_REMOTE_PUBLIC_URL  ③ 插件目录 .public-url 文件（运行时可直接改）
+  const effectivePublicUrl = (() => {
+    const c1 = cfg.publicUrl && String(cfg.publicUrl).trim();
+    if (c1) return c1;
+    const c2 = process.env.SMARTQUIZ_REMOTE_PUBLIC_URL && String(process.env.SMARTQUIZ_REMOTE_PUBLIC_URL).trim();
+    if (c2) return c2;
+    try { return String(readFileSync(join(PLUGIN_DIR, '.public-url'), 'utf8')).trim(); } catch { return ''; }
+  })();
+  cfg.publicUrl = effectivePublicUrl;
+  // 手机直连 / CLI 任务的权限档位（默认全权，避免 Windows 上 windows-acl 授权失败）
+  CLI_PERM.mode = String(cfg.cliPermissionMode || 'danger-full-access').trim();
+  CLI_PERM.approval = String(cfg.cliApprovalPolicy || 'never').trim();
+  // 直连并发闸门（见 CLI_SLOT 注释）：默认一次只跑一条，排队上限 3
+  CLI_SLOT.max = Math.max(1, Math.min(4, Number(cfg.cliMaxConcurrent) || 1));
+  CLI_SLOT.maxQueued = Math.max(0, Math.min(20, Number(cfg.cliMaxQueued) || 0));
+  // 注意：主令牌不再在此处取一次就固定（见下方 mainToken()：惰性读取，便于轮换）
+  const startedAt = Date.now();
+  /**
+   * 反向指令队列：PC → 手机。只放行"纯 UI / 轻状态"工具，执行仍在手机侧完成。
+   * 泛洪保护：最多 50 条、10 分钟过期；执行结果回传后再由 PC 读取。
+   */
+  const cmdQueue = new Map();
+  /**
+   * 反向指令白名单（2026-11-12 放开并落地）：
+   * 电脑端只能让手机做"纯 UI / 轻状态"的事，绝不碰文件、命令、权限。
+   *  - ui_component  : 走手机现有组件管线创建原生卡片/弹窗（AgentService 入口）
+   *  - toast         : 轻提示，不打断
+   *  - dialog        : 系统对话框（确认/提示），会打断，慎用
+   *  - notification  : 通知栏，适合人不在手机旁
+   *  - reminder      : 本地提醒（后续接日程；当前落成通知）
+   */
+  const CMD_ALLOW = new Set(['ui_component', 'toast', 'dialog', 'notification', 'reminder']);
+  const CMD_MAX = 50;
+  const CMD_TTL_MS = 10 * 60 * 1000;
+  /**
+   * 失败推送到手机（2026-11-14）：一轮跑挂时手机上以前**什么都看不到**，错误只在电脑端。
+   * 走 /cmd 同一条队列 + WS 直推，手机端按 ui_component 渲染成输入区上方的警示插槽。
+   */
+  const pushPhoneFailureSlot = (title, detail) => {
+    try {
+      const id = randomBytes(8).toString('hex');
+      const cmd = {
+        id, tool: 'ui_component', state: 'queued', createdAt: Date.now(), result: null, error: null,
+        args: { id: 'remote/error', title: String(title || '这一轮失败了').slice(0, 40),
+          detail: String(detail || '').slice(0, 80), priority: SLOT_PRIORITY.p1, action: 'attention' },
+      };
+      cmdQueue.set(id, cmd);
+      for (const w of WS_CLIENTS) {
+        const meta = WS_META.get(w);
+        if (meta && meta.channel && meta.channel !== '/ws' && meta.channel !== '/ws/ui') continue;
+        try { w.send(JSON.stringify({ type: 'cmd', id, tool: cmd.tool, args: cmd.args, created_at: cmd.createdAt })); } catch { /* 已断 */ }
+      }
+    } catch { /* 推送失败不影响主流程 */ }
+  };
+  const pruneCommands = () => {
+    const now = Date.now();
+    for (const [id, c] of cmdQueue) {
+      if (now - c.createdAt > CMD_TTL_MS) cmdQueue.delete(id);
+    }
+    while (cmdQueue.size > CMD_MAX) {
+      const oldest = cmdQueue.keys().next().value;
+      if (oldest === undefined) break;
+      cmdQueue.delete(oldest);
+    }
+  };
+  const handles = new Map();
+  /** 由 sync 自己 resume 出来的 agent 句柄（sessionId → handle），避免每次重开 */
+  const resumedHandles = new Map();     // session_id -> agent handle
+  /** 热 agent 复用上限：留太多会长期占内存，超过就淘汰最老的 */
+  const WARM_MAX = 4;
+  const warmAgentFor = (sid) => {
+    if (!sid) return null;
+    const h = resumedHandles.get(sid);
+    if (!h) return null;
+    return h?.agent ?? h ?? null;
+  };
+  const rememberWarm = (sid, h) => {
+    if (!sid || !h) return;
+    resumedHandles.set(sid, h);
+    while (resumedHandles.size > WARM_MAX) {
+      const oldest = resumedHandles.keys().next().value;
+      if (oldest === undefined) break;
+      resumedHandles.delete(oldest);
+    }
+  };
+  
+  let promptCount = 0;
+  let activeJobs = 0;
+  let lastPreset = '(unset)';
+  let lastSelection = '(unset)';
+  let selectionInstaller = '(unresolved)';
+  /** 动态解析 installModelSelection：静态 import 会让 link: 包加载失败（find node_modules 从真实路径向上找 ✗） */
+  const loadSelectionInstaller = async () => {
+    for (const spec of ['@deepseek-ai/dsh-agent', '@deepseek-ai/dsh-agent/lib/index.js']) {
+      try { const m = await import(spec); if (m && typeof m.installModelSelection === 'function') { selectionInstaller = 'ok:' + spec; return m.installModelSelection; } }
+      catch (e) { selectionInstaller = 'failed:' + spec + ' → ' + String(e?.message ?? e).slice(0, 50); }
+    }
+    return null;
+  };
+  let installSelectionFn = null;
+
+  // ---- 鉴权升级状态 ----
+  const DEVICE_FILE = join(PLUGIN_DIR, '.devices.json');
+  const devices = loadDevices(DEVICE_FILE);          // { devices: [{id,name,token,created_at,last_seen}] }
+  const pairingCodes = new Map();                    // code -> expiresAt(ms)
+  const PAIR_TTL_MS = 5 * 60 * 1000;                 // 一次性配对码 5 分钟
+  /** 同时最多挂 5 个待用配对码：多到溢出说明有人在狂刷 /pair/code */
+  const PAIR_MAX_PENDING = 5;
+  /**
+   * 配对码尝试节流。
+   *
+   * 配对码只有 6 位（90 万种），拿到一枚就能换长期设备令牌 → 令牌能调 /exec。
+   * 原来 /pair/claim 对错误码没有任何计数：只要有一枚有效码存在，同网段的人就能
+   * 在 5 分钟窗口里无限次试。这里按来源地址计失败次数，超过阈值直接 429。
+   */
+  const PAIR_MAX_FAILS = 8;
+  const PAIR_WINDOW_MS = 5 * 60 * 1000;
+  const pairAttempts = new Map();                    // ip -> { count, resetAt }
+  const pairThrottled = (ip) => {
+    const rec = pairAttempts.get(ip);
+    return Boolean(rec) && rec.resetAt > Date.now() && rec.count >= PAIR_MAX_FAILS;
+  };
+  const pairFail = (ip) => {
+    const now = Date.now();
+    let rec = pairAttempts.get(ip);
+    if (!rec || rec.resetAt <= now) { rec = { count: 0, resetAt: now + PAIR_WINDOW_MS }; pairAttempts.set(ip, rec); }
+    rec.count += 1;
+    if (pairAttempts.size > 256) {                       // 简单的表大小上限，避免被大量源地址撑爆
+      for (const [k, v] of pairAttempts) if (v.resetAt <= now) pairAttempts.delete(k);
+    }
+  };
+  /** 定长比较：令牌比较不做提前返回（`===` 会在第一个不同字节处退出） */
+  const safeEqual = (a, b) => {
+    const x = Buffer.from(String(a ?? '')); const y = Buffer.from(String(b ?? ''));
+    return x.length === y.length && x.length > 0 && timingSafeEqual(x, y);
+  };
+  const deviceByToken = (t) => devices.devices.find((d) => safeEqual(d.token, t));
+
+  // ---- 远程执行命令开关（allowExec）：面板可切换、落盘、下次启动仍生效 ----
+  // 优先级：面板写入的 .allow-exec 文件 > 插件配置 allowExec。
+  // 为什么要有文件：配置文件是"随包分发"的默认值，用户在面板上的选择不该被一次重载抹掉，
+  // 也不该要求用户去手改 YAML。
+  const ALLOW_EXEC_FILE = join(PLUGIN_DIR, '.allow-exec');
+  const readAllowExecFile = () => {
+    try {
+      const v = readFileSync(ALLOW_EXEC_FILE, 'utf8').trim();
+      if (v === 'true') return true;
+      if (v === 'false') return false;
+    } catch { /* 没写过 */ }
+    return null;
+  };
+  let allowExec = (() => { const f = readAllowExecFile(); return f !== null ? f : cfg.allowExec === true; })();
+  const writeAllowExec = (v) => {
+    return writeSecret(ALLOW_EXEC_FILE, v ? 'true' : 'false');
+  };
+
+  /**
+   * 主令牌**惰性读取**（启动时不再写死进闭包）。
+   *
+   * 原因：以前 `const token = resolveToken(...)` 在 apply 时取一次就固定了，
+   * 于是"想轮换令牌"只能改文件 + 重启宿主——改了文件也会被下次保存原样写回，
+   * 等于轮换不掉。改成每次鉴权时读一次并缓存：删掉 .token 文件后，
+   * 本次进程内仍然认旧令牌（不会立刻把在用的手机会话踢掉），
+   * 下次启动 resolveToken 会自动生成新的随机令牌并持久化 → 轮换在重启后自然生效。
+   */
+  let mainTokenCache = '';
+  /** 主令牌最近一次被成功使用的时间（内存态，只用于面板显示"当前有连接在用主令牌"） */
+  let mainTokenLastSeen = 0;
+  const mainToken = () => {
+    if (mainTokenCache) return mainTokenCache;
+    mainTokenCache = resolveToken(ctx, cfg);
+    return mainTokenCache;
+  };
+
+  /** 鉴权：主令牌 或 任一未吊销的设备令牌 */
+  const authOk = (req) => {
+    const m = /^Bearer\s+(.+)$/i.exec((req.headers['authorization'] ?? '').trim());
+    if (m === null) return false;
+    const t = m[1];
+    if (safeEqual(t, mainToken())) { mainTokenLastSeen = Date.now(); return true; }
+    const d = deviceByToken(t);
+    if (d === undefined) return false;
+    d.last_seen = Date.now();
+    return true;
+  };
+  /** 回环地址：只看 socket 源地址（隧道/反代转发进来的请求也满足 ✗ 不能单独作为信任依据） */
+  const isLoopback = (req) => {
+    const a = req.socket?.remoteAddress ?? '';
+    return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1';
+  };
+  /**
+   * 真正的"电脑本机"判定 —— 仅本机路由一律用它，**不要**用 isLoopback。
+   *
+   * 漏洞背景（2026-10-06 实测）：花生壳等隧道把公网请求转发到 127.0.0.1:8218，
+   * 于是每个公网请求的 remoteAddress 都是 127.0.0.1，只看源地址的 isLocal() 恒为真 ——
+   * 实测公网可直接 GET /pair.json 拿到主令牌、POST /pair/code 签发配对码、
+   * POST /pair/claim 换取设备令牌，并凭令牌 POST /exec 在电脑上执行任意命令
+   * （allowExec 开启时）。
+   *
+   * 因此改成白名单：Host 必须正好是回环主机 + DSH 主 webServer 端口（默认 127.0.0.1:19387），
+   * 或经局域网服务器（8218）进来的请求一律不算本机。
+   * 注意：不能只判断"主机名是回环、端口等于主端口"——`127.0.0.1:8218` 这种形态
+   * （隧道改写 Host、或从 8218 转发过来）必须拒绝，自测脚本 guard_selftest.js 已覆盖这些场景。
+   */
+  const isLocal = (req) => {
+    if (req.__viaLanServer === true) return false;        // 局域网服务器（0.0.0.0:8218）永不信任
+    if (!isLoopback(req)) return false;                  // 源地址必须回环
+    const mainPort = Number(ctx.webServer?.port ?? 0);
+    const host = String(req.headers?.host ?? '').trim().toLowerCase();
+    if (host === '') return false;
+    const allowed = mainPort > 0
+      ? [`127.0.0.1:${mainPort}`, `localhost:${mainPort}`, `[::1]:${mainPort}`]
+      : ['127.0.0.1', 'localhost', '[::1]'];
+    return allowed.includes(host);
+  };
+  /** 本机 或 已鉴权：给那些"手机也可能合法调用"的路由用（如 /pair/open 的兼容分支） */
+  const isLocalOrAuth = (req) => {
+    if (isLocal(req)) return true;
+    try { return authOk(req) === true; } catch { return false; }
+  };
+  /** 仅当显式配置了 provider+model 时才传 agentOptions；否则继承 profile 默认（本机为 deepseek-account/deepseek-flash） */
+  void loadSelectionInstaller().then((fn) => { installSelectionFn = fn; });
+
+  const agentOptions = (cfg.provider && cfg.model) ? { provider: cfg.provider, model: cfg.model } : undefined;
+  /**
+   * 新建会话的 cwd —— 必须显式给，**不能省**。
+   *
+   * ★ 2026-11-12 事故：以前 createInput 只传 { sessionId }，`ctx.agents.create` 建出来的
+   *   会话头部就没有 cwd（落到 $DSH_HOME/sessions/_no-cwd/）。DSH 读历史时
+   *   api-session-controller 的 validateObservationAddress 对 `header.cwd === undefined`
+   *   一律 rejectNotFound → 桌面端点开那条对话就显示「历史加载失败：session "…" not found
+   *   （session/not-found）」，明明日志里一个字都没丢。
+   *
+   *   桌面端自己的建会话路径（createAgent）是带 `meta: { cwd, agentPreset }` 的，
+   *   ctx.agents.create 的 meta 会由 sessions.prepare 写进会话头部；cwd 必须是**绝对路径**。
+   *
+   *   取值顺序与 CLI 路径保持一致：cfg.workingDir（须是已存在目录）→ 宿主进程 cwd
+   *   （桌面端即 ~/.workbuddy/dsh-home/profiles/desktop）。
+   */
+  const sessionCwd = () => {
+    const dir = String(cfg.workingDir || '').trim();
+    if (dir) {
+      // 会话头部校验要求 cwd 是绝对路径，这里先归一化（cfg 里可能写相对路径）
+      const abs = (() => { try { return resolve(dir); } catch { return ''; } })();
+      try { if (abs && statSync(abs).isDirectory()) return abs; } catch { /* 落到宿主 cwd */ }
+      CWD_GUARD.lastWarning = { at: Date.now(), requested: dir, fallback: '(宿主 cwd)', reason: '建会话时 workingDir 不存在，已退回宿主 cwd' };
+    }
+    try { return process.cwd(); } catch { return undefined; }
+  };
+  /**
+   * 建会话输入 —— 照抄 dsh-api-session-controller 的 composeAgent()：
+   *   ① ctx.get('agentPresets') 拿预设服务（无需 inject ✓）
+   *   ② resolve(undefined) 取默认预设 id
+   *   ③ mount(agentCtx, presetId) 把预设（系统提示 + 工具）挂进该 agent 的作用域
+   *   ★ 少了 mount，agent 循环会启动却无事可做（step 立即 end、不发模型请求）——实测过 ✗
+   */
+  const createInput = async (sid) => {
+    const cwd = sessionCwd();
+    // meta.cwd 会由 sessions.prepare 写进会话头部：它决定会话归到哪个工作区目录，
+    // 也决定桌面端能不能读这条会话的历史（头部没 cwd → 一律 session/not-found）。
+    // ★ 不在这里塞 meta.agentPreset：插件 sessionAgentPreset() 用头部 agentPreset 判断
+    //   "能不能走 CLI 续写"，写上以后手机会话就全被切成进程内接管了（行为变更，另说）。
+    const base = {
+      sessionId: sid,
+      ...(cwd === undefined ? {} : { meta: { cwd } }),
+      ...(agentOptions ? { agentOptions } : {}),
+    };
+    // 会话级模型选择：照抄 api-session-controller.agentOptions()/installSelection()
+    const sel = (() => { try { return ctx.agentDefaultModel?.currentSelection?.() ?? null; } catch { return null; } })();
+    const effective = sel ?? (cfg.provider && cfg.model ? { provider: cfg.provider, model: cfg.model } : null);
+    if (effective) lastSelection = `${effective.provider}/${effective.model}`;
+    const presets = ctx.get('agentPresets');
+    if (!presets) { lastPreset = '(no agentPresets service)'; return base; }
+    try {
+      const resolvedId = (await presets.resolve(cfg.preset || undefined)).id;
+      lastPreset = resolvedId;
+      return { ...base, setup: async (agentCtx, agent) => {
+        await presets.mount(agentCtx, resolvedId);
+        // ★ 关键：装载会话级模型选择（否则 prompt 组装无模型 → turn 空跑、不发请求）
+        if (effective) {
+          if (!installSelectionFn) installSelectionFn = await loadSelectionInstaller();
+          if (installSelectionFn) { try { installSelectionFn(agent?.ctx ?? agentCtx, effective); } catch (e) { selectionInstaller = 'call-failed: ' + String(e?.message ?? e).slice(0, 60); } }
+        }
+      } };
+    } catch (e) { lastPreset = 'error: ' + String(e?.message ?? e).slice(0, 80); return base; }
+  };
+  const modelInfo = () => agentOptions ? agentOptions.provider + '/' + agentOptions.model : '(none)';
+  // LAN-SERVER: 同一批 handler 也登记到本地表（供局域网服务器复用 ✓）
+  const localRoutes = new Map();
+  const route = (kind, path, handler) => {
+    localRoutes.set(prefix + path, handler);
+    ctx.effect(() => ctx.webServer.register({ kind, path: prefix + path, handler }));
+  };
+  // ===== 2026-11-12 新增：实时桥（token 增量 / 日程 / 计划 / 子代理 / 问答答案） =====
+  //
+  // 背景：手机端以前只能看到"回合/步骤"粒度的持久事件；日程与计划根本不在会话日志里；
+  // 子代理只有一条登记卡；agent 反问只能只读。这些都能在宿主内补，不要求 DSH 改协议：
+  //   · token 增量：`agent/assistant-stream` 的瞬态 chunk（草稿，不落盘）；
+  //   · 日程：`ctx.schedule` 管理 API + `schedule/changed` 事件；
+  //   · 计划：`ctx.planMode.get/set`（持久 `plan/mode` 事件仍由会话日志转发）；
+  //   · 子代理：根会话日志里的 `subagent/catalog` + 子会话事件 → 实时活动流；
+  //   · 反问：`typertGateway` 的 pending 事件 settle（与审批同一套网关）。
+
+  // 可选能力：用 ctx.get(name) 读取（不经 inject），避免为不存在的服务建"永远等待"的子插件。
+  const serviceOf = (name) => {
+    try {
+      return ctx.get?.(name) ?? null;
+    } catch {
+      return null;
+    }
+  };
+  const scheduleSvc = () => serviceOf('schedule');
+  const planSvc = () => serviceOf('planMode');
+  const questionsSvc = () => serviceOf('userQuestions');
+  const liveAgentOf = (sid) => {
+    if (!sid) return null;
+    try { return ctx.agents?.get?.(sid) ?? null; } catch { return null; }
+  };
+  /** 子会话 id → 根会话 id（由 subagent/catalog 事件建立） */
+  const childParent = new Map();
+  const childLabel = new Map();
+
+  const sessionEventBrief = (event) => {
+    const t = String(event?.type ?? '');
+    const d = event?.data ?? {};
+    if (t === 'assistant/message') {
+      const text = (d.message?.content ?? [])
+        .filter((p) => p && p.type !== 'reasoning')
+        .map((p) => p.text ?? '').join('').trim();
+      return text ? { kind: 'text', text: text.slice(0, 200) } : null;
+    }
+    if (t === 'tool/call') {
+      // FIELD-FIX：callId 必须在，手机才能把 tool/result 关联回这张卡（此前只有名字/参数）
+      return {
+        kind: 'tool',
+        callId: String(d.callId ?? ''),
+        tool: String(d.name ?? '工具'),
+        args: String(d.arguments ?? '').slice(0, 120),
+      };
+    }
+    if (t === 'tool/result') {
+      // DSH 把调用 id 放在 data.message.toolCallId（不是 data.toolCallId）
+      const msg = d.message ?? {};
+      const text = (msg.content ?? [])
+        .filter((p) => p && p.type !== 'reasoning')
+        .map((p) => p.text ?? '').join('').trim();
+      return {
+        kind: 'tool-result',
+        toolCallId: String(msg.toolCallId ?? d.toolCallId ?? ''),
+        error: Boolean(msg.isError ?? d.isError ?? d.error),
+        // B15：把结果正文也带过来（子会话的工具结果，根会话只能靠这条合成帧看到）
+        text: text.slice(0, 160),
+      };
+    }
+    if (t === 'turn/end') {
+      // DSH 的结束原因在 data.reason.kind
+      return { kind: 'turn-end', stop: String(d.reason?.kind ?? d.stopReason ?? d.stop_reason ?? '') };
+    }
+    if (t === 'step/start' || t === 'step/end') {
+      return { kind: 'step', step: Number(d.step ?? 0) || 0, phase: t };
+    }
+    return null;
+  };
+
+  /** 读一条会话的全部事件：优先持久化日志（冷会话），否则读内存会话 */
+  const readSessionEvents = async (sid) => {
+    try {
+      const svc = persistence();
+      if (svc && typeof svc.open === 'function') {
+        const h = await svc.open(sid, 'read');
+        try {
+          const got = await h.read();
+          return Array.isArray(got) ? got : (got?.events ?? []);
+        } finally { try { await h.close?.(); } catch { /* 已关 */ } }
+      }
+    } catch { /* 落盘日志不可用则退回内存 */ }
+    try {
+      const s = ctx.sessions.get(sid);
+      if (s && Number.isFinite(s.seq)) {
+        const out = [];
+        for (let i = 1; i <= s.seq; i += 1) {
+          const e = s.eventAt?.(i);
+          if (e) out.push(e);
+        }
+        return out;
+      }
+    } catch { /* 会话不在内存 */ }
+    return [];
+  };
+
+  /** 子代理目录：根会话日志里的 subagent/catalog + 每个子会话的实时状态/最近活动 */
+  const subagentsOf = async (sid) => {
+    const events = await readSessionEvents(sid);
+    const children = [];
+    const seen = new Set();
+    for (const ev of events) {
+      if (String(ev?.type) !== 'subagent/catalog') continue;
+      const d = ev?.data ?? {};
+      const childId = String(d.childId ?? '');
+      if (!childId || seen.has(childId)) continue;
+      seen.add(childId);
+      childParent.set(childId, sid);
+      const label = String(d.label ?? '');
+      if (label) childLabel.set(childId, label);
+      children.push({
+        child_id: childId,
+        label,
+        mode: String(d.mode ?? ''),
+        created_at: String(d.childCreatedAt ?? ''),
+      });
+    }
+    for (const c of children) {
+      try { c.live = Boolean(ctx.agents?.get?.(c.child_id)); } catch { c.live = false; }
+      try {
+        const evs = await readSessionEvents(c.child_id);
+        c.events = evs.length;
+        for (let i = evs.length - 1; i >= 0; i -= 1) {
+          const brief = sessionEventBrief(evs[i]);
+          if (!brief) continue;
+          c.last = brief;
+          c.last_at = Number(evs[i]?.time) || 0;
+          break;
+        }
+        for (let i = evs.length - 1; i >= 0; i -= 1) {
+          if (String(evs[i]?.type) !== 'assistant/message') continue;
+          const text = (evs[i]?.data?.message?.content ?? [])
+            .filter((p) => p && p.type !== 'reasoning')
+            .map((p) => p.text ?? '').join('').trim();
+          if (text) { c.last_text = text.slice(-400); break; }
+        }
+      } catch { /* 单个子会话读失败不影响列表 */ }
+    }
+    return children;
+  };
+
+  // ---- 实时桥：token 增量 ----
+  // 只在宿主内 agent 上有效（CLI 子进程没有进程内流）；手机端按 parts.stream 能力订阅。
+  try {
+    ctx.on('agent/assistant-stream', (payload) => {
+      const agent = payload?.agent;
+      const frame = payload?.frame;
+      const sid = String(agent?.id ?? '');
+      if (!sid || !frame) return;
+      if (frame.type === 'chunk') {
+        const c = frame.chunk;
+        if (!c) return;
+        const base = { session_id: sid, turn: frame.turn, step: frame.step, attempt: frame.attemptId };
+        if (c.type === 'text-delta') {
+          streamBroadcast(sid, { v: 2, type: 'stream/delta', data: { ...base, kind: 'text', text: String(c.text ?? '') } });
+        } else if (c.type === 'reasoning-delta') {
+          streamBroadcast(sid, { v: 2, type: 'stream/delta', data: { ...base, kind: 'reasoning', text: String(c.text ?? '') } });
+        } else if (c.type === 'tool-call-delta') {
+          streamBroadcast(sid, { v: 2, type: 'stream/delta', data: { ...base, kind: 'tool', tool: String(c.name ?? ''), tool_call_id: String(c.id ?? ''), arguments_delta: String(c.argumentsDelta ?? '') } });
+        }
+      } else if (frame.type === 'end') {
+        streamBroadcast(sid, { v: 2, type: 'stream/end', data: { session_id: sid, outcome: frame.outcome?.kind ?? 'committed' } });
+      }
+    });
+  } catch (e) { /* 宿主没有该事件（旧版） */ }
+
+  // ---- 实时桥：日程变化 / 子代理活动 ----
+  /**
+   * SCHEDULE-SLOT(2026-11-13)：把日程概览作为**通用 ui/slot** 下发。
+   *
+   * 手机端只做通用渲染（id/priority/title/detail/warn/action），不认识 id 也照样显示成一行；
+   * 以后新增这类"持续状态"（技能、MCP、待办…）只需在这里多推一条 slot，**不用发新版 APK**。
+   */
+  const pushScheduleSlot = async () => {
+    try {
+      const svc = scheduleSvc();
+      if (!svc) return;
+      const r = await svc.list({ active: true, limit: 50 });
+      const items = Array.isArray(r?.items) ? r.items : (Array.isArray(r?.list) ? r.list : []);
+      if (items.length === 0) {
+        // 空 slot = 让手机端移除这一条
+        broadcastSlot('', { id: 'schedule', remove: true });
+        return;
+      }
+      broadcastSlot('', {
+        id: 'schedule',
+        priority: SLOT_PRIORITY.p5,
+        kind: 'list',
+        count: items.length,
+        title: '定时任务',
+        detail: items.length + ' 个启用中',
+        action: 'schedule',
+      });
+    } catch {
+      // 日程服务不可用：不发 slot，手机端保留上一次
+    }
+  };
+
+  // ---- 事件派生状态：后台任务 / 目标（2026-11-13）----
+  // 不从 DSH 内部服务猜 API（版本间不稳），而是用插件**已经在转发**的会话事件自建状态：
+  // 这样跨版本稳定，而且和手机时间线看到的是同一份事实。
+  // 对外： GET /v2/jobs、/v2/goal（供手机列表页）+ ui/slot（供输入区上方的插槽）。
+  const JOB_STATE = new Map();     // jobId -> { id, sid, label, status, failed, ts, progress? }
+  const GOAL_STATE = new Map();    // sid   -> { id, revision, title, phase, activation, active, ts }
+  /** 本次 DSH 进程里各会话用过的 MCP 服务（从 tool/call 的 mcp__<server>__<tool> 名字派生） */
+  const MCP_SERVERS = new Map();   // sid -> Set<server>
+  /** 权限/沙箱/审批策略的最近一次取值（由会话事件更新，见 broadcastPermissionSlot） */
+  const PERM_STATE = { sandbox: '', preset: '', policy: '', agentPreset: '', ts: 0 };
+
+/**
+ * 权限预设服务（dsh-permission-presets 的 PermissionPresetService）。
+ *
+ * <p>服务名是 {@code permissionPresets}（在 DSH 包里固定），但挂载方式随版本可能是
+ * {@code ctx.permissionPresets} 或 {@code ctx.get('permissionPresets')}，统一探测。</p>
+ */
+function presetSvcOf(ctx) {
+  // 2026-11-14：`ctx.xxx` 在读**未 inject** 的服务时会抛（不是返回 undefined），
+  // 以前把它和 ctx.get() 写在同一个 try 里 —— 一抛就整段放弃，ctx.get() 永远没机会跑，
+  // 于是明明 active 的 permissionPresets 被当成"这个版本没有"，手机改权限必然 409。
+  // 统一走 ctx.get()（与 serviceOf 同口径）。
+  try {
+    return ctx.get?.('permissionPresets') ?? null;
+  } catch {
+    return null;
+  }
+}
+  const JOB_STATE_MAX = 20;
+
+  // ---- 落盘（PRUNE：重启后仍能看到"最近发生过什么"）----
+  // 注意：运行中的 job 在重启后不可能还在跑，加载时统一降级成 done（别骗人）。
+  const JOBS_FILE = join(PLUGIN_DIR, '.jobs.json');
+  const GOALS_FILE = join(PLUGIN_DIR, '.goals.json');
+  let stateSaveTimer = null;
+  const scheduleStateSave = () => {
+    if (stateSaveTimer) return;
+    stateSaveTimer = setTimeout(() => {
+      stateSaveTimer = null;
+      try {
+        writeSecret(JOBS_FILE, JSON.stringify({ savedAt: Date.now(), jobs: [...JOB_STATE.values()] }, null, 2));
+        writeSecret(GOALS_FILE, JSON.stringify({ savedAt: Date.now(), goals: Object.fromEntries(GOAL_STATE) }, null, 2));
+      } catch { /* 落盘失败不影响内存状态 */ }
+    }, 500);
+  };
+  const loadPersistedState = () => {
+    try {
+      const j = JSON.parse(readFileSync(JOBS_FILE, 'utf8'));
+      for (const it of (Array.isArray(j?.jobs) ? j.jobs : [])) {
+        if (!it || !it.id) continue;
+        JOB_STATE.set(String(it.id), {
+          ...it,
+          sid: String(it.sid ?? ''),
+          label: slotText(it.label),
+          status: it.status === 'running' ? 'done' : it.status,
+        });
+      }
+    } catch { /* 首次没有文件 */ }
+    try {
+      const g = JSON.parse(readFileSync(GOALS_FILE, 'utf8'));
+      for (const [sid, it] of Object.entries(g?.goals ?? {})) {
+        if (!sid || !it) continue;
+        // 旧文件可能存着 "[object Object]"：这里洗掉；连接时还会从宿主 goals 服务补真值。
+        // 清洗后仍没有可读标题的条目直接丢弃，别让 /v2/goal 列出一条空目标。
+        const title = slotText(it.title);
+        if (!title) continue;
+        GOAL_STATE.set(String(sid), {
+          ...it,
+          title,
+          phase: String(it.phase ?? (it.active === false ? 'paused' : 'active')),
+          activation: String(it.activation ?? ''),
+          active: it.active !== false,
+        });
+      }
+    } catch { /* 首次没有文件 */ }
+  };
+
+  /* ==================== 插槽版本 + TTL + 补发（2026-11-15，§20） ====================
+   *
+   * 病历：`ui/slot` 以前是同 id 覆盖的裸状态帧 —— 断线补发 + 实时推送重叠时，一条晚到的
+   * 旧帧会把新状态盖回去（乱序覆盖）；生产者（job 扫描 / 压缩 / 重试）失联后帧不再来，
+   * 手机上那行状态却永远挂着（残留）。
+   *
+   * 现在每条帧多两个字段：
+   *   · rev    —— 按 id 单调递增；补发沿用最近一帧的 rev，绝不回退；
+   *   · ttl_ms —— 只给真正"短命"的 compaction/retry 默认 30s，每次更新重新计时。
+   *               jobs/inbox/subagents 可能持续几分钟（长任务、排队未发、子代理长跑），
+   *               给它们 30s TTL 会让状态在仍有效时消失（2026-11-15 体检修复），
+   *               因此改为显式 remove；goal/permission/schedule 本来就是稳定态。
+   * 并记住每个 id+会话 的最近一帧（含 rev/ttl），新订阅（WS hello / SSE ready）时补发一次。
+   */
+  const SLOT_REV = new Map();          // id -> 最近 rev（只增不减）
+  const SLOT_LAST = new Map();         // `${id}|${sid}` -> { id, sid, data, at }（最近一帧）
+  /**
+   * 插件世代（2026-11-15 修订）：插件进程重启/热重载后 SLOT_REV 会从 1 重来，而 App 还记着
+   * 上一世代的 rev 水位 —— 新帧会被当成"回退"永久丢弃（真机：插件重载后任务/权限槽更新不了，
+   * phone_ui 的移除也失效）。epoch 取毫秒时间戳，随每帧下发；App 看到 epoch 变大就清水位、
+   * 清掉上一世代留下的插件槽，较小的 epoch 帧直接丢弃。
+   */
+  const SLOT_EPOCH = Date.now();
+  const SLOT_TTL_MS = 30000;
+  const SLOT_TTL_IDS = new Set(['compaction', 'retry']);
+  /**
+   * 插槽文本统一清洗（2026-11-15 体检）。
+   *
+   * 病历：真机甲板出现「目标 · [object Object]」；phone_ui/POST ui.slot 也能把
+   * `undefined`、`NaN`、空串或几百字的调试串原样推进甲板。所有 title/detail 现在都
+   * 必须过这里：对象浅提取（title/text/goal/objective/name/label/summary/description），
+   * 数组拼前 3 项，去掉脏 token，压缩空白，超过 80 字截断加 `…`。
+   *
+   * 与 App 侧 `status/SlotText.java` 同规则；`goalText` 只是它的 goal 专用别名。
+   */
+  const SLOT_TEXT_MAX = 80;
+  const SLOT_TEXT_KEYS = ['title', 'text', 'goal', 'objective', 'name', 'label', 'summary', 'description'];
+  const SLOT_BAD_TEXT = new Set(['undefined', 'null', 'nan', '[object object]']);
+  const slotText = (raw, max = SLOT_TEXT_MAX) => {
+    const limit = Math.max(1, Number(max) || SLOT_TEXT_MAX);
+    const pick = (v, depth = 0) => {
+      if (typeof v === 'string') return v;
+      if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '';
+      if (!v || typeof v !== 'object' || depth > 2) return '';
+      if (Array.isArray(v)) {
+        return v.slice(0, 3).map((x) => pick(x, depth + 1)).filter(Boolean).join(' / ');
+      }
+      for (const k of SLOT_TEXT_KEYS) {
+        const got = pick(v[k], depth + 1);
+        if (got) return got;
+      }
+      return '';
+    };
+    let s = pick(raw);
+    // 字符串里夹带的脏 token（例如 "目标 [object Object]"）先剔除，再判空。
+    s = String(s)
+      .replace(/\[object Object\]/gi, ' ')
+      .replace(/\bundefined\b/gi, ' ')
+      .replace(/\bNaN\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!s || SLOT_BAD_TEXT.has(s.toLowerCase())) return '';
+    if (s.length > limit) s = s.slice(0, limit - 1) + '…';
+    return s;
+  };
+  /** SLOT_LAST 的键：同一 id 在不同会话各存一份，避免 A 会话的帧盖掉 B 会话的快照。 */
+  const slotKey = (id, sid) => String(id ?? '') + '\u0000' + String(sid ?? '');
+  // 落盘状态要等 slotText 定义好再读（旧文件里可能有 "[object Object]" 需要清洗）
+  loadPersistedState();
+
+  const nextSlotRev = (id) => {
+    const r = (SLOT_REV.get(id) ?? 0) + 1;
+    SLOT_REV.set(id, r);
+    return r;
+  };
+  /** 空帧（只有 id）与 remove:true 同义 —— 手机端约定"title/detail 都空 = 移除"。 */
+  const slotIsRemoval = (d) => d.remove === true
+    || (!String(d.title ?? '').trim() && !String(d.detail ?? '').trim() && !(Number(d.count) > 0));
+
+  /**
+   * ④ kind 契约（2026-11-15）：state（默认）/ progress / list / action。
+   *
+   * <p>与 App 侧 {@code SlotKind.normalize} 同规则同输出：未知 kind 不 422，按 state 并回 warn；
+   * 必填不匹配（progress 无进度、list 无 count、action 无有效 actions、非 state 缺 title）
+   * 同样 warn + 降级 state。插槽是瞬态，坏帧降级比拒收更符合"现在是什么"的语义。</p>
+   *
+   * <p>每种 kind **只有**这些字段有意义，降级/其它 kind 会清零对应字段：
+   * state: title（detail/warn/level 可选）；progress: title + progress(0-100)；
+   * list: title + count(&gt;0)；action: title + actions[1-2]（{id,label,style?}）。</p>
+   */
+  const SLOT_KINDS = new Set(['state', 'progress', 'list', 'action']);
+  const SLOT_KIND_ALIAS = new Map([['display', 'state'], ['toggle', 'state']]);
+  const SLOT_ACTION_MAX = 2;
+
+  /** 清洗 actions[]：丢坏项、去重、≤2；警告不阻断（与 App SlotAction.parse 同口径）。 */
+  const normalizeSlotActions = (raw, warnings) => {
+    if (raw === undefined || raw === null) return [];
+    if (!Array.isArray(raw)) {
+      warnings.push('actions 必须是数组，已忽略');
+      return [];
+    }
+    const out = [];
+    const ids = new Set();
+    for (let i = 0; i < raw.length; i += 1) {
+      if (out.length >= SLOT_ACTION_MAX) {
+        warnings.push(`actions 超过 ${SLOT_ACTION_MAX} 个，只保留前 ${SLOT_ACTION_MAX} 个`);
+        break;
+      }
+      const item = raw[i];
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        warnings.push(`actions[${i}] 不是对象，已丢弃`);
+        continue;
+      }
+      const id = String(item.id ?? '').trim();
+      const label = String(item.label ?? '').trim();
+      if (!id || !label) {
+        warnings.push(`actions[${i}] 缺 id/label，已丢弃`);
+        continue;
+      }
+      if (ids.has(id)) {
+        warnings.push(`actions[${i}] id=${id} 重复，已丢弃`);
+        continue;
+      }
+      ids.add(id);
+      let style = String(item.style ?? '').trim().toLowerCase();
+      if (style && style !== 'primary' && style !== 'plain') {
+        warnings.push(`actions[${i}] style=${style} 未知，按 plain`);
+        style = 'plain';
+      }
+      out.push({ id, label, style: style || 'plain' });
+    }
+    return out;
+  };
+
+  const slotNumber = (raw) => {
+    if (raw === undefined || raw === null || raw === '') return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  /**
+   * 帧归一化：返回最终 kind + 该 kind 有意义的字段 + warnings。
+   * @param {object} data 原始帧
+   * @returns {{kind:string, progress:number, count:number, actions:Array, warnings:string[]}}
+   */
+  const normalizeSlotFields = (data) => {
+    const warnings = [];
+    const rawKind = String(data?.kind ?? '').trim().toLowerCase();
+    let kind;
+    if (!rawKind) {
+      kind = 'state';
+    } else if (SLOT_KINDS.has(rawKind)) {
+      kind = rawKind;
+    } else if (SLOT_KIND_ALIAS.has(rawKind)) {
+      kind = SLOT_KIND_ALIAS.get(rawKind);
+    } else {
+      warnings.push(`未知 kind=${rawKind}，按 state 渲染`);
+      kind = 'state';
+    }
+
+    const title = String(data?.title ?? '').trim();
+    let progress = 0;
+    let count = 0;
+    let actions = kind === 'action' ? normalizeSlotActions(data?.actions, warnings) : [];
+
+    if (kind === 'progress') {
+      const p = slotNumber(data?.progress);
+      const missing = [];
+      if (!title) missing.push('title');
+      if (p === null) missing.push('progress(0-100)');
+      if (missing.length) {
+        warnings.push(`kind=progress 缺必填 ${missing.join('/')}，降级 state`);
+        kind = 'state';
+      } else {
+        progress = Math.max(0, Math.min(100, Math.round(p)));
+      }
+    } else if (kind === 'list') {
+      const c = slotNumber(data?.count);
+      if (!title) {
+        warnings.push('kind=list 缺必填 title，降级 state');
+        kind = 'state';
+      } else if (c === null || Math.floor(c) <= 0) {
+        warnings.push('kind=list 缺有效 count(>0)，降级 state');
+        kind = 'state';
+      } else {
+        count = Math.floor(c);
+      }
+    } else if (kind === 'action') {
+      if (!title) {
+        warnings.push('kind=action 缺必填 title，降级 state');
+        kind = 'state';
+      } else if (actions.length === 0) {
+        warnings.push('kind=action 缺有效 actions(1-2 个 {id,label})，降级 state');
+        kind = 'state';
+      }
+    }
+
+    if (kind === 'state') {
+      progress = 0;
+      count = 0;
+      actions = [];
+    }
+    return { kind, progress, count, actions, warnings };
+  };
+  /**
+   * **唯一**插槽下发入口：清洗文本、补 rev / ttl_ms、记住最近帧、再广播。
+   * @param {string} sid 目标会话（'' = 全局；只影响订阅路由，不影响 rev 计数）
+   * @returns {object|null} 实际下发的 data
+   */
+  const broadcastSlot = (sid, data) => {
+    if (!data || typeof data !== 'object') return null;
+    const id = String(data.id ?? '').trim();
+    if (!id) return null;
+    // B18：帧里显式带 session_id 时以它为准（以前只认函数入参，调用方漏传就串到全局）。
+    const target = String(sid || data.session_id || '').trim();
+    const now = Date.now();
+    /**
+     * 文本统一清洗（2026-11-15）：title/detail/actions[].label 都先过 slotText。
+     * 移除判定也用清洗后的值 —— 否则 "[object Object]" 会被当成非空，留下一条空白槽。
+     */
+    const clean = { ...data };
+    clean.title = slotText(data.title);
+    clean.detail = slotText(data.detail);
+    if (Array.isArray(data.actions)) {
+      clean.actions = data.actions.map((a) => (a && typeof a === 'object' && !Array.isArray(a)
+        ? { ...a, label: slotText(a.label, 40) }
+        : a));
+    }
+    if (slotIsRemoval(clean)) {
+      const rev = nextSlotRev(id);
+      const frame = { id, rev, epoch: SLOT_EPOCH, remove: true };
+      if (target) frame.session_id = target;
+      // 移除帧也记住：新订阅补发它只是幂等删除，不会把状态复活
+      SLOT_LAST.set(slotKey(id, target), { sid: target, data: frame, at: now });
+      streamBroadcast(target, { v: 2, type: 'ui/slot', data: frame });
+      return frame;
+    }
+    const rev = nextSlotRev(id);
+    const ttl = clean.ttl_ms !== undefined
+      ? Math.max(0, Number(clean.ttl_ms) || 0)
+      : (SLOT_TTL_IDS.has(id) ? SLOT_TTL_MS : 0);
+    /**
+     * ④：kind/progress/count/actions 先归一化再进帧 —— 甲板、全屏列表、快照三处看到的是
+     * **同一个** kind，不靠接收端各猜一套。坏帧只回 warn + 降级，不 422（插槽是瞬态）。
+     */
+    const normalized = normalizeSlotFields(clean);
+    if (normalized.warnings.length > 0) {
+      warnOnce('slot-kind-' + id, '[smartquiz-remote] 插槽 kind 校验 id=' + id
+        + '：' + normalized.warnings.join('；'));
+    }
+    /**
+     * §22：优先级在这里统一归一化 —— 帧里可只给 {@code level:'p2'}，
+     * 也可以只给旧式 {@code priority:10}，两者都给时 **level 优先**（命名档位是新的唯一来源）。
+     * 归一化后帧里同时带 priority（旧 App 排序用）与 level（新 App / 快照 / 诊断用）。
+     */
+    const levelValue = slotPriorityOfLevel(clean.level);
+    const priority = slotPriorityValue(clean);
+    const levelName = (levelValue === null ? '' : String(clean.level).trim().toLowerCase())
+      || slotLevelOfPriority(priority);
+    const frame = {
+      ...clean,
+      kind: normalized.kind,
+      progress: normalized.progress,
+      count: normalized.count,
+      actions: normalized.actions,
+      priority,
+      ...(levelName ? { level: levelName } : {}),
+      rev,
+      epoch: SLOT_EPOCH,
+    };
+    // 归一化后可能退化成"空 state"（例如非 state 缺 title）：这类帧按移除处理，别留空白槽。
+    if (frame.kind === 'state' && !frame.title && !frame.detail && !(Number(frame.count) > 0)) {
+      const rm = { id, rev, epoch: SLOT_EPOCH, remove: true };
+      if (target) rm.session_id = target;
+      SLOT_LAST.set(slotKey(id, target), { sid: target, data: rm, at: now, warnings: normalized.warnings });
+      streamBroadcast(target, { v: 2, type: 'ui/slot', data: rm });
+      return { ...rm, warnings: normalized.warnings };
+    }
+    if (ttl > 0) frame.ttl_ms = ttl;
+    else delete frame.ttl_ms;
+    SLOT_LAST.set(slotKey(id, target), {
+      sid: target, data: frame, at: now, warnings: normalized.warnings,
+    });
+    streamBroadcast(target, { v: 2, type: 'ui/slot', data: frame });
+    return frame;
+  };
+  /**
+   * 新订阅补发最近一帧（按 replayPushedCards 的同一套做法）。
+   * 过期的瞬时帧不再复活：生产者可能已经失联，补出去反而制造残留。
+   */
+  const replaySlots = (sid, send) => {
+    if (typeof send !== 'function') return 0;
+    const target = String(sid ?? '').trim();
+    const now = Date.now();
+    let n = 0;
+    for (const rec of SLOT_LAST.values()) {
+      if (!rec || !rec.data) continue;
+      if (rec.sid && rec.sid !== target) continue;      // 别的会话的槽不发（B18）
+      const ttl = Number(rec.data.ttl_ms ?? 0);
+      if (ttl > 0 && now - Number(rec.at || 0) > ttl) continue;
+      try {
+        send({ type: 'ui/slot', data: rec.data });
+        n += 1;
+      } catch { /* 单条失败不影响其它 */ }
+    }
+    return n;
+  };
+
+  /** 清掉一条瞬时插槽（重试等）：带会话则只清该会话的 remove 帧 */
+  const clearTransientSlot = (id, sid = '') => {
+    if (!id) return;
+    const key = String(sid || '').trim();
+    broadcastSlot(key, { id, ...(key ? { session_id: key } : {}), remove: true });
+  };
+
+  /**
+   * 插话队列插槽（2026-11-14）：排队中显示「插话排队 N 条」，可点开管理；队列空即消失。
+   *
+   * <p>以前这是 chat 卡（"插话已入队"），排几条就留几张卡；按用户口径改成插槽：
+   * 收到 inject/撤回/修改事件就更新，全部发完就 remove。</p>
+   */
+  const broadcastInboxSlot = (sid) => {
+    const key = String(sid || '').trim();
+    if (!key) return;
+    const q = SESSION_INBOX.get(key) ?? [];
+    if (q.length === 0) {
+      broadcastSlot(key, { id: 'inbox', session_id: key, remove: true });
+      return;
+    }
+    broadcastSlot(key, {
+      id: 'inbox', session_id: key, priority: SLOT_PRIORITY.p3, kind: 'list', board: 'task',
+      title: '插话排队', detail: q.length + ' 条等待发送 · 点开可撤回/修改',
+      action: 'queue', count: q.length,
+    });
+  };
+  /**
+   * 任务插槽（2026-11-15 体检修复）。
+   *
+   * <p>三个旧问题一起修：① jobs 以前是全局帧，A 会话的任务会串到 B 会话的甲板；
+   * ② kind 固定 state，明明有"N 个在跑"的条目数却不显示徽标；③ 长任务超过 30s
+   * 没有新事件时会被默认 TTL 清掉。现在按会话过滤、活跃数进 count（有进度则 progress），
+   * 不再给 TTL，结束由 job/settled → 空列表 remove 收口。</p>
+   *
+   * <p>count 口径与 {@code GET /v2/jobs?session_id=} 的 {@code running} 完全同源；
+   * detail 的"共 M 条"就是同一会话在 JOB_STATE 里的条数，不再出现两个数字对不上。</p>
+   */
+  const jobProgressPct = (job) => {
+    const raw = job?.progress;
+    if (raw === undefined || raw === null || raw === '') return null;
+    if (typeof raw === 'number' || typeof raw === 'string') {
+      const s = String(raw).trim();
+      const frac = /^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/.exec(s);
+      if (frac) {
+        const done = Number(frac[1]);
+        const total = Number(frac[2]);
+        if (Number.isFinite(done) && Number.isFinite(total) && total > 0) {
+          return Math.max(0, Math.min(100, Math.round((done * 100) / total)));
+        }
+        return null;
+      }
+      const pct = /^(\d+(?:\.\d+)?)\s*%$/.exec(s);
+      const n = Number(pct ? pct[1] : s);
+      if (Number.isFinite(n)) return Math.max(0, Math.min(100, Math.round(n)));
+    }
+    return null;
+  };
+  const broadcastJobsSlot = (sid = '') => {
+    const key = String(sid || '').trim();
+    const all = [...JOB_STATE.values()];
+    const list = key ? all.filter((j) => String(j.sid ?? '') === key) : all;
+    if (list.length === 0) {
+      broadcastSlot(key, { id: 'jobs', ...(key ? { session_id: key } : {}), remove: true });
+      return;
+    }
+    const runningList = list.filter((j) => j.status === 'running');
+    const running = runningList.length;
+    const failed = list.filter((j) => j.failed).length;
+    const pcts = runningList.map(jobProgressPct);
+    const withProgress = running > 0 && pcts.every((p) => p !== null);
+    const avg = withProgress
+      ? Math.max(0, Math.min(100, Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length)))
+      : 0;
+    // 文案收敛（2026-11-13）：一行读完，"N 在跑 · 共 M 条"；失败优先提示
+    broadcastSlot(key, {
+      id: 'jobs',
+      ...(key ? { session_id: key } : {}),
+      priority: SLOT_PRIORITY.p5,
+      title: failed > 0 ? '任务（有失败）' : '任务',
+      ...(withProgress
+        ? { kind: 'progress', progress: avg }
+        : running > 0
+          ? { kind: 'list', count: running }
+          : { kind: 'state' }),
+      detail: running > 0
+        ? `${running} 个在跑 · 共 ${list.length} 条`
+        : `共 ${list.length} 条 · 空闲`,
+      action: 'jobs',
+      warn: failed > 0,
+    });
+  };
+
+  /**
+   * 子代理插槽：只有"还在跑"或"最近 90 秒有活动"才显示（2026-11-13）。
+   *
+   * <p>以前 childParent 一旦有登记就永远显示（真机：子代理早就结束了，槽还挂着）。
+   * 现在按活着的 agent + 最近活动时间判断，没有就发空帧移除。</p>
+   */
+  const SUBAGENT_SLOT_TTL_MS = 90 * 1000;
+  /**
+   * @param {string} rootSid 根会话 id：子代理属于某个根会话，只发给该根会话的订阅者。
+   *   以前全局广播，A 会话的子代理会出现在 B 会话甲板上（2026-11-15 体检修复）。
+   */
+  const broadcastSubagentsSlot = (rootSid = '') => {
+    const root = String(rootSid || '').trim();
+    const children = [...childParent.entries()]
+      .filter(([, parent]) => (root ? parent === root : true))
+      .map(([childId]) => childId);
+    if (children.length === 0) {
+      broadcastSlot(root, { id: 'subagents', ...(root ? { session_id: root } : {}), remove: true });
+      return;
+    }
+    const now = Date.now();
+    let live = 0;
+    let active = 0;
+    for (const childId of children) {
+      let isLive = false;
+      try {
+        isLive = Boolean(ctx.agents?.get?.(childId));
+      } catch {
+        isLive = false;
+      }
+      const last = SUBAGENT_LAST.get(childId);
+      const recent = Boolean(last && now - Number(last.ts || 0) < SUBAGENT_SLOT_TTL_MS);
+      if (isLive) live += 1;
+      if (isLive || recent) active += 1;
+    }
+    if (active === 0) {
+      // 全部结束且无近期活动 → 让槽消失（真机反馈："不活动/完成就让它消失"）
+      broadcastSlot(root, { id: 'subagents', ...(root ? { session_id: root } : {}), remove: true });
+      return;
+    }
+    broadcastSlot(root, {
+      id: 'subagents',
+      ...(root ? { session_id: root } : {}),
+      priority: SLOT_PRIORITY.p5,
+      kind: 'list',
+      count: active,
+      title: '子代理',
+      detail: live > 0
+        ? `${live} 个在跑 · 共 ${active} 个`
+        : `最近活动 ${active} 个 · 已结束`,
+      action: 'subagents',
+    });
+  };
+
+  /**
+   * 目标文本：与 slotText 同一套清洗（2026-11-15）。
+   *
+   * real DSH 的 `goal/change` 载荷是 `{ goal: { objective, phase, ... } }`，
+   * 旧实现只认 title/text，于是：(a) 对象被 String() 成「[object Object]」；
+   * (b) 真正的 objective 字段根本没读到。slotText 现在会递归取 objective。
+   */
+  const goalText = (d) => slotText(d, 200);
+  const goalSvc = () => serviceOf('goals');
+  /** GoalView（DSH）→ GOAL_STATE（插件） */
+  const goalViewToState = (g) => {
+    const phase = String(g?.phase ?? '');
+    return {
+      id: String(g?.id ?? ''),
+      revision: Number(g?.revision) || 0,
+      title: goalText(g?.objective ?? g?.title ?? ''),
+      phase,
+      activation: String(g?.activation ?? ''),
+      active: phase ? phase === 'active' : true,
+      roundsStarted: Number(g?.roundsStarted) || 0,
+      maxGoalRounds: Number(g?.maxGoalRounds) || 0,
+      ts: Date.now(),
+    };
+  };
+  /**
+   * 从宿主 GoalService 补读一次当前目标（2026-11-15）。
+   *
+   * 事件驱动状态在插件重载/新会话后是空的；这里按需问宿主要真值，顺便拿到
+   * 暂停/恢复/清除需要的 compare-and-set `{id, revision}`。
+   * @returns {boolean} 是否成功读了一次（服务/会话不在都算失败，调用方保留事件值）
+   */
+  const refreshGoalFromHost = (sid) => {
+    const key = String(sid || '').trim();
+    const svc = goalSvc();
+    const agent = liveAgentOf(key);
+    if (!key || !svc || typeof svc.get !== 'function' || !agent) return false;
+    try {
+      const g = svc.get(agent);
+      if (!g) {
+        GOAL_STATE.delete(key);
+        return true;
+      }
+      GOAL_STATE.set(key, goalViewToState(g));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const broadcastGoalSlot = (sid) => {
+    const key = String(sid || '').trim();
+    const g = GOAL_STATE.get(key);
+    // B18：目标属于某个会话，只发给该会话的订阅者（目标切换时不会串到别的对话）
+    if (!g) {
+      broadcastSlot(key, { id: 'goal', ...(key ? { session_id: key } : {}), remove: true });
+      return;
+    }
+    const title = slotText(g.title);
+    if (!title) {
+      // 旧落盘数据里 title 可能是 "[object Object]"：清洗后为空就别挂一条无内容的目标行。
+      broadcastSlot(key, { id: 'goal', ...(key ? { session_id: key } : {}), remove: true });
+      return;
+    }
+    const phase = String(g.phase || '');
+    const activation = String(g.activation || '');
+    const active = phase ? phase === 'active' : g.active !== false;
+    const disarmed = activation === 'disarmed';
+    /**
+     * 目标槽的内联按钮（2026-11-15）：最多两个。
+     *   · 进行中且 armed → 暂停 + 清除
+     *   · 已暂停/阻塞/armed 丢失 → 恢复 + 清除
+     *   · 已完成 → 只清除（恢复会被 DSH 拒绝，别摆一个点了必失败的按钮）
+     */
+    const actions = [];
+    if (phase === 'complete') {
+      actions.push({ id: 'goal.clear', label: '清除', style: 'plain' });
+    } else if (active && !disarmed) {
+      actions.push({ id: 'goal.pause', label: '暂停', style: 'plain' });
+      actions.push({ id: 'goal.clear', label: '清除', style: 'plain' });
+    } else {
+      actions.push({ id: 'goal.resume', label: '恢复', style: 'primary' });
+      actions.push({ id: 'goal.clear', label: '清除', style: 'plain' });
+    }
+    broadcastSlot(key, {
+      id: 'goal',
+      ...(key ? { session_id: key } : {}),
+      priority: SLOT_PRIORITY.p4,
+      kind: 'action',
+      title: '目标',
+      detail: title,
+      action: 'goal',
+      warn: phase === 'blocked',
+      actions,
+    });
+  };
+
+  /**
+   * 计划模式插槽（2026-11-15 补做）。
+   *
+   * 事件目录里一直登记着 plan/mode→slot plan，但插件从未发送过它（B8 同类缺口）。
+   * 现在 plan/mode 开启时出现、关闭时 remove；状态优先从宿主 PlanModeController 补读，
+   * 事件路径兜底。点击行仍走 Insight 面板里的计划开关。
+   */
+  const PLAN_STATE = new Map();   // sid -> { active, pending }
+  const planRef = () => serviceOf('planMode');
+  const refreshPlanFromHost = (sid) => {
+    const key = String(sid || '').trim();
+    const svc = planRef();
+    const agent = liveAgentOf(key);
+    if (!key || !svc || typeof svc.get !== 'function' || !agent) return false;
+    try {
+      const st = svc.get(agent) ?? {};
+      PLAN_STATE.set(key, { active: Boolean(st.active), pending: Boolean(st.pending) });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const broadcastPlanSlot = (sid) => {
+    const key = String(sid || '').trim();
+    const st = PLAN_STATE.get(key);
+    if (!st || !st.active) {
+      broadcastSlot(key, { id: 'plan', ...(key ? { session_id: key } : {}), remove: true });
+      return;
+    }
+    broadcastSlot(key, {
+      id: 'plan',
+      ...(key ? { session_id: key } : {}),
+      priority: SLOT_PRIORITY.p4,
+      kind: 'state',
+      title: '计划模式',
+      detail: st.pending ? '切换中… · 点开可查看' : '已开启 · 点开可关闭',
+      action: 'plan',
+    });
+  };
+
+  /** MCP：只统计本会话真正调用过的服务（没连过的不编；按会话隔离，避免串台）。 */
+  const mcpSetOf = (sid) => {
+    const key = String(sid || '').trim();
+    let set = MCP_SERVERS.get(key);
+    if (!set) {
+      set = new Set();
+      MCP_SERVERS.set(key, set);
+    }
+    return set;
+  };
+  const broadcastMcpSlot = (sid = '') => {
+    const key = String(sid || '').trim();
+    const set = MCP_SERVERS.get(key) ?? new Set();
+    const n = set.size;
+    if (n === 0) {
+      broadcastSlot(key, { id: 'mcp', ...(key ? { session_id: key } : {}), remove: true });
+      return;
+    }
+    broadcastSlot(key, {
+      id: 'mcp',
+      ...(key ? { session_id: key } : {}),
+      priority: SLOT_PRIORITY.p5,
+      kind: 'list',
+      count: n,
+      title: 'MCP 服务',
+      detail: `${n} 个已用过`,
+      action: 'mcp',
+    });
+  };
+
+  /**
+   * 权限状态插槽（2026-11-13）：沙箱模式 / 权限档位 / 审批策略。
+   *
+   * <p>这三样决定"电脑能替你做多危险的事"，是手机上最该一眼看到的可信信息之一。
+   * 数据来自 DSH 自己的事件（sandbox/mode、permission/preset、approval/policy），
+   * 不猜服务 API；`danger-full-access` 标黄——那是真的高风险。</p>
+   */
+  /**
+   * 从宿主补读一次"当前权限"（2026-11-14）。
+   *
+   * <p>{@code PERM_STATE} 是**事件驱动**的：桌面端一重启、或换个新会话，那些
+   * `sandbox/mode` / `approval/policy` 事件不会重放，插槽就空了 —— 真机表现是
+   * "手机上的权限那一行没了"。这里按需向宿主问一次真值：</p>
+   * <ul>
+   *   <li>sandbox：{@code sandboxPolicy.overrideOf(session) ?? defaultMode}</li>
+   *   <li>approval：{@code approval.overrideOf(session) ?? config.policy}</li>
+   *   <li>preset：{@code permissionPresets.current(session)}（档位名，事件里才有，
+   *       重启后不重放 → 插槽会缺这一段）</li>
+   * </ul>
+   * <p>读不到就保持事件里的旧值（事件路径照旧有效），不抛。</p>
+   */
+  const refreshPermissionFromHost = (sid) => {
+    const session = (() => {
+      try { return sid ? (ctx.sessions?.get?.(sid) ?? null) : null; } catch { return null; }
+    })();
+    if (!session) return;
+    try {
+      const pp = ctx.get?.('permissionPresets');
+      const name = typeof pp?.current === 'function' ? pp.current(session) : undefined;
+      if (name) PERM_STATE.preset = String(name);
+    } catch { /* 预设服务不在就是空的 */ }
+    try {
+      const sp = ctx.get?.('sandboxPolicy');
+      const mode = (typeof sp?.overrideOf === 'function' ? sp.overrideOf(session) : undefined)
+        ?? sp?.defaultMode;
+      if (mode) PERM_STATE.sandbox = String(mode);
+    } catch { /* 服务结构变了就退回事件值 */ }
+    try {
+      const ap = ctx.get?.('approval');
+      const policy = (typeof ap?.overrideOf === 'function' ? ap.overrideOf(session) : undefined)
+        ?? ap?.config?.policy;
+      if (policy) PERM_STATE.policy = String(policy);
+    } catch { /* 同上 */ }
+  };
+
+  const broadcastPermissionSlot = () => {
+    // 文案（2026-11-14 改版）：只显示人能读的中文，不再夹带内部枚举/档位 id。
+    // 以前一行是「可写 · workspace-write · 审批:每次」—— 中间那段英文是档位 id，
+    // 和左边的沙箱标签重复，纯噪音，去掉；措辞也统一成"能干什么"的口吻。
+    const SANDBOX_LABEL = {
+      'read-only': '只读',
+      'workspace-write': '可写',
+      'danger-full-access': '完全访问',
+    };
+    const POLICY_LABEL = {
+      never: '审批:从不询问',
+      ask: '审批:每次询问',
+      always: '审批:总是询问',
+      auto: '审批:自动判断',
+    };
+    const sandbox = SANDBOX_LABEL[PERM_STATE.sandbox] ?? (PERM_STATE.sandbox ? '未知模式' : '');
+    const policy = POLICY_LABEL[PERM_STATE.policy] ?? (PERM_STATE.policy ? '审批:未知' : '');
+    const detail = [sandbox, policy].filter((s) => s && String(s).length).join(' · ');
+    if (!detail) {
+      broadcastSlot('', { id: 'permission' });
+      return;
+    }
+    /**
+     * 权限槽按钮（2026-11-15 体检修复）：label 必须让人一眼看出当前档位，
+     * 而不是所有状态都写「调整」。三个沙箱档位都在变更卡里，行内按钮只做入口，
+     * 所以不需要为了 3 个选项硬塞 2 个按钮、也不用猜该丢哪个。
+     */
+    const adjustLabel = sandbox ? '调整（' + sandbox + '）' : '调整';
+    broadcastSlot('', {
+      id: 'permission',
+      priority: SLOT_PRIORITY.p2,
+      kind: 'action',
+      title: '权限',
+      detail,
+      action: 'permission',
+      // ④：没有"允许/拒绝"这种待审批动作（审批走独立 approval 帧/对话框），
+      // 这里给权限槽真正能做的事：打开变更卡调整沙箱/审批策略。
+      actions: [{ id: 'permission', label: adjustLabel, style: 'primary' }],
+      warn: PERM_STATE.sandbox === 'danger-full-access',
+    });
+  };
+
+  /** 从 mcp__<server>__<tool> 取服务名 */
+  const mcpServerOf = (toolName) => {
+    const n = String(toolName ?? '');
+    if (!n.startsWith('mcp__')) return '';
+    const rest = n.slice(5);
+    const cut = rest.indexOf('__');
+    return cut > 0 ? rest.slice(0, cut) : rest;
+  };
+
+  try {
+    ctx.on('schedule/changed', () => {
+      streamBroadcast('', { v: 2, type: 'schedule/changed', ts: Date.now() });
+      pushScheduleSlot();
+    });
+  } catch { /* 旧版没有 schedule */ }
+
+  /**
+   * 事件枚举表（2026-11-13）：DSH 会话事件 → 手机端。
+   *
+   * <p>原则：<b>枚举全部已知类型</b>，说明每类在手机端做什么；表格之外的类型不丢弃，
+   * 只在 {@link noteEventType} 里记一次"未登记"，并通过 {@code /v2/events/catalog} 暴露出来。
+   * 这样换 DSH 版本冒出新型事件时，是"看得见的新类型"，而不是悄悄少了一块内容。</p>
+   *
+   * <p>{@code forward} = 是否会进聊天时间线；{@code slot} = 是否还驱动输入区上方的插槽。</p>
+   */
+  const EVENT_CATALOG = {
+    // ================= layer: session（DSH 会话事件，63 条权威表） =================
+    // 逐条对应 dsh-session/src/known-event-types.ts；forward=false 的是纯内部记录，
+    // 保留在表里只为"看得见"，不推给手机。
+    'turn/start': { layer: 'session', forward: true, desc: '回合开始' },
+    'turn/end': { layer: 'session', forward: true, desc: '回合结束（含结束原因）' },
+    'step/start': { layer: 'session', forward: true, desc: '步骤开始' },
+    'step/end': { layer: 'session', forward: true, desc: '步骤结束' },
+    'user/message': { layer: 'session', forward: true, desc: '用户消息（含注入/steering）' },
+    'developer/message': { layer: 'session', forward: true, desc: '开发者消息（会话内增量）' },
+    'system/message': { layer: 'session', forward: true, desc: '系统提示词节点（surface 0）' },
+    'assistant/message': { layer: 'session', forward: true, desc: '助手正文（权威累计值）' },
+    'assistant/attempt': { layer: 'session', forward: false, desc: '未提交正文的模型尝试（内部）' },
+    'tool/call': { layer: 'session', forward: true, desc: '工具调用（工具卡来源）' },
+    'tool/result': { layer: 'session', forward: true, slot: 'jobs', desc: '工具结果（meta 可带卡片）' },
+    'request/header': { layer: 'session', forward: false, desc: '请求头快照（仅日志）' },
+    'request/context': { layer: 'session', forward: false, desc: '路由上下文（仅日志）' },
+    'session/end-seed': { layer: 'session', forward: false, desc: '继承/恢复边界标记' },
+    'approval/policy': { layer: 'session', forward: true, slot: 'permission', desc: '审批策略' },
+    'approval/asked': { layer: 'session', forward: true, desc: '审批请求（durable）' },
+    'approval/decided': { layer: 'session', forward: true, desc: '审批结果（durable）' },
+    'compaction/start': { layer: 'session', forward: true, slot: 'compaction', desc: '上下文压缩开始' },
+    'compaction/summary': { layer: 'session', forward: true, slot: 'compaction', desc: '压缩摘要' },
+    'compaction/end': { layer: 'session', forward: true, slot: 'compaction', desc: '上下文压缩结束' },
+    'compaction/prune': { layer: 'session', forward: true, desc: '工具结果裁剪' },
+    'image/offload': { layer: 'session', forward: false, desc: '图片外置（内部）' },
+    'command/run': { layer: 'session', forward: true, desc: '命令开始' },
+    'command/done': { layer: 'session', forward: true, desc: '命令结束' },
+    'subagent/catalog': { layer: 'session', forward: true, slot: 'subagents', desc: '子代理登记' },
+    'subagent/descriptor': { layer: 'session', forward: true, desc: '子代理描述' },
+    'subagent/model-selection-policy': { layer: 'session', forward: false, desc: '子代理模型策略' },
+    'job/registered': { layer: 'session', forward: true, slot: 'jobs', desc: '后台任务开始' },
+    'job/settled': { layer: 'session', forward: true, slot: 'jobs', desc: '后台任务结束' },
+    'goal/change': { layer: 'session', forward: true, slot: 'goal', desc: '目标内容变更' },
+    'team/mode': { layer: 'session', forward: true, desc: '团队模式开关' },
+    'team/task': { layer: 'session', forward: true, desc: '团队任务' },
+    'plan/mode': { layer: 'session', forward: true, slot: 'plan', desc: '计划模式开关' },
+    'permission/preset': { layer: 'session', forward: true, slot: 'permission', desc: '权限档位' },
+    'sandbox/mode': { layer: 'session', forward: true, slot: 'permission', desc: '沙箱模式' },
+    'agent-preset/selected': { layer: 'session', forward: true, desc: '智能体预设' },
+    'session/title': { layer: 'session', forward: true, desc: '会话标题' },
+    'session/title-llm-request': { layer: 'session', forward: false, desc: '标题 LLM 请求（内部）' },
+    'model/selection': { layer: 'session', forward: false, desc: '模型选择（内部）' },
+    'agent/inbox/spliced': { layer: 'session', forward: false, desc: '收件箱拼接（内部）' },
+    'todo/write': { layer: 'session', forward: true, desc: '待办清单写入' },
+    'deliverables/presented': { layer: 'session', forward: true, desc: '产物交付' },
+    'workspace/changes': { layer: 'session', forward: true, desc: '工作区变更' },
+    'working-directory/change': { layer: 'session', forward: true, desc: '工作目录变更' },
+    'tool/ptc-dispatch-start': { layer: 'session', forward: true, desc: 'PTC 子调用开始' },
+    'tool/ptc-dispatch': { layer: 'session', forward: true, desc: 'PTC 子调用结果' },
+    'tool-workflow/run-start': { layer: 'session', forward: true, desc: '工作流开始' },
+    'tool-workflow/agent-start': { layer: 'session', forward: true, desc: '工作流子代理开始' },
+    'tool-workflow/agent-end': { layer: 'session', forward: true, desc: '工作流子代理结束' },
+    'tool-workflow/run-end': { layer: 'session', forward: true, desc: '工作流结束' },
+    'llm/retry': { layer: 'session', forward: false, desc: 'LLM 重试（内部）' },
+    'llm/retry-started': { layer: 'session', forward: false, desc: 'LLM 重试开始（内部）' },
+    'web/deepseek-search-llm-request': { layer: 'session', forward: false, desc: '搜索 LLM 请求（内部）' },
+    'session-log-deepseek/delivery-accepted': { layer: 'session', forward: true, desc: '日志交付水位' },
+    'feedback/record': { layer: 'session', forward: false, desc: '反馈记录（内部）' },
+    'feedback/message-put': { layer: 'session', forward: false, desc: '反馈写入（内部）' },
+    'feedback/message-delete': { layer: 'session', forward: false, desc: '反馈删除（内部）' },
+    // 以下 6 条无写入者，仅旧日志可读（保留以兼容 replay）
+    'hook/invoked': { layer: 'session', forward: false, legacy: true, desc: '钩子调用（旧日志）' },
+    'hook/result': { layer: 'session', forward: false, legacy: true, desc: '钩子结果（旧日志）' },
+    'schedule/change': { layer: 'session', forward: false, legacy: true, desc: '日程变更（旧日志）' },
+    'team/member': { layer: 'session', forward: false, legacy: true, desc: '团队成员（旧日志）' },
+    'team/message/queued': { layer: 'session', forward: false, legacy: true, desc: '团队消息入队（旧日志）' },
+    'team/message/delivered': { layer: 'session', forward: false, legacy: true, desc: '团队消息投递（旧日志）' },
+
+    // ================= layer: host（Cordis 宿主事件，非 session 事件） =================
+    'agent/assistant-stream': { layer: 'host', forward: true, desc: 'token 流真名（插件转成 stream/delta）' },
+    'approval/request': { layer: 'host', forward: true, desc: '审批请求（宿主网关）' },
+    'user-questions/request': { layer: 'host', forward: true, desc: '反问请求（宿主网关）' },
+    'goal/activation-changed': { layer: 'host', forward: true, slot: 'goal', desc: '目标激活状态' },
+    'schedule/changed': { layer: 'host', forward: true, slot: 'schedule', desc: '日程变更' },
+
+    // ================= layer: synth（插件合成帧，DSH 无此类型） =================
+    'stream/delta': { layer: 'synth', forward: true, desc: 'token/工具增量（瞬态）' },
+    'stream/end': { layer: 'synth', forward: true, desc: '增量流结束' },
+    'subagent/activity': { layer: 'synth', forward: true, desc: '子代理活动（由子会话事件合成）' },
+    'approval': { layer: 'synth', forward: true, desc: '审批帧（由宿主事件合成）' },
+    'approval_gone': { layer: 'synth', forward: true, desc: '审批已处理/撤回' },
+    'question': { layer: 'synth', forward: true, desc: '反问帧' },
+    'question_gone': { layer: 'synth', forward: true, desc: '反问已处理/撤回' },
+    'ui/slot': { layer: 'synth', forward: true, desc: '插槽帧' },
+    'ui/config': { layer: 'synth', forward: true, desc: 'UI 目录/配置帧（预留）' },
+    'view': { layer: 'synth', forward: false, desc: 'ViewModel 快照（控制帧）' },
+    'state': { layer: 'synth', forward: false, desc: '连接状态（控制帧）' },
+    'pulse': { layer: 'synth', forward: false, desc: '心跳' },
+    'ready': { layer: 'synth', forward: false, desc: '流建立' },
+    'end': { layer: 'synth', forward: false, desc: '流结束' },
+    '__force_resync': { layer: 'synth', forward: false, desc: '强制重建' },
+    'event': { layer: 'synth', forward: true, desc: 'durable 事件包装层' },
+  };
+
+  /** 已观察到的"表外"事件类型（诊断用；同类型只记一次日志） */
+  const unseenEventTypes = new Map();
+
+  /**
+   * 前缀族（不是精确类型，按前缀放行）：
+   * - {@code session-log-*}：日志投影行，DSH 侧由各 session-log 包发出；
+   * - {@code plugin:*}：插件发的事件，走同一条事件流但带 {@code ignorable:true}，
+   *   持久化读取会拒绝未被认领的类型，监听方必须按前缀放行。
+   */
+  const PREFIX_FAMILIES = ['session-log-', 'plugin:'];
+
+  /**
+   * UI 目录版本：表结构或槽位变化时手改。客户端按它判断要不要重新拉表。
+   * 2026-11-13-v1：事件目录改为 session/host/synth 三层；补 compaction 插槽。
+   */
+  const UI_CATALOG_VERSION = '2026-11-15-v2';
+
+  /** 预留给手机的槽位（与手机端 10-modules M1 的三档模型对应） */
+  const RESERVED_SLOTS = [
+    { id: 'dock.progress', kind: 'single', scope: 'session', desc: 'D1 推理/工具进度' },
+    { id: 'dock.summary', kind: 'single', scope: 'session', desc: 'D2 摘要/计数' },
+    { id: 'dock.1', kind: 'list', scope: 'session', max_rows: 2, desc: 'D3 插槽（D1 可见时 1 条）' },
+    { id: 'compaction', kind: 'single', scope: 'session', desc: '上下文压缩中' },
+    { id: 'retry', kind: 'single', scope: 'session', desc: '模型重试中' },
+    { id: 'inbox', kind: 'single', scope: 'session', desc: '插话队列' },
+    { id: 'jobs', kind: 'list', scope: 'session', desc: '后台任务' },
+    { id: 'goal', kind: 'single', scope: 'session', desc: '目标' },
+    { id: 'plan', kind: 'single', scope: 'session', desc: '计划模式' },
+    { id: 'permission', kind: 'list', scope: 'session', desc: '沙箱/档位/审批策略' },
+    { id: 'subagents', kind: 'single', scope: 'session', desc: '子代理数量' },
+    { id: 'mcp', kind: 'list', scope: 'session', desc: 'MCP 服务' },
+    { id: 'schedule', kind: 'single', scope: 'session', desc: '日程概览' },
+  ];
+
+  const isPrefixFamily = (t) => PREFIX_FAMILIES.some((p) => t.startsWith(p));
+
+  const noteEventType = (t) => {
+    if (!t) return;
+    if (EVENT_CATALOG[t]) return;
+    if (isPrefixFamily(t)) return;   // 前缀族已登记，不算未登记
+    if (unseenEventTypes.has(t)) return;
+    unseenEventTypes.set(t, Date.now());
+    try {
+      console.warn('[smartquiz-remote] 未登记的事件类型（仍会转发，但请补进 EVENT_CATALOG）: ' + t);
+    } catch { /* console 不可用时忽略 */ }
+  };
+
+  // ================= 反向通道的生产者（2026-11-13） =================
+  // 现状缺口：/cmd 的队列、poll、ack 全都实现了，但**没有任何入口能入队** —— 面板没有按钮，
+  // 插件也没注册工具，实际只能人工 curl。这里注册一个 phone_ui 工具，让 agent 能主动把
+  // 一条 UI 指令推到手机。
+  // 形状按官方 tool 文档：parameters 用 DSH 的字段 DSL（required 写在字段里）、必须给
+  // output.schema + output.render；注册失败只告警，不影响插件其余功能。
+
+  // phone_ui 的参数：`ctx.tools.register` 是**原始 ToolDefinition** 路径，
+  // parameters 必须是真实 JSON Schema（不是 defineTool 的字段 DSL）。
+  // 之前用 DSL 形状导致模型请求被 provider 拒绝：
+  //   Invalid schema for function 'phone_ui': {...} is not of type "string"
+  const PHONE_UI_PARAMS = {
+    type: 'object',
+    properties: {
+      kind: {
+        type: 'string',
+        enum: ['slot', 'toast', 'notification'],
+        description: '指令类型：slot=输入区上方插槽；toast/notification=手机提醒',
+      },
+      title: { type: 'string', description: '标题（slot/notification 建议必填；slot 且 title/detail 都空 = 移除该 id）' },
+      detail: { type: 'string', description: '正文或副标题' },
+      priority: { type: 'number', description: 'slot 优先级数值，越小越靠上；优先用 level（档位表），两者都给时 level 优先' },
+      level: {
+        type: 'string',
+        enum: ['p0', 'p1', 'p2', 'p3', 'p4', 'p5'],
+        description: 'slot 优先级档位：p0=审批/等用户(0) p1=失败/重试(5) p2=权限/沙箱(10) '
+          + 'p3=插话/压缩(20) p4=目标/计划(30，默认) p5=后台任务/子代理/统计(50)',
+      },
+      id: { type: 'string', description: 'slot id，同 id 会覆盖；默认 phone_ui（移除时必须指定 id）' },
+      ttl_ms: { type: 'number', description: 'slot 自动消失时间（毫秒）；不传按 id 默认（compaction/retry 短命态 30s，其余稳定态不过期）' },
+    },
+    required: ['kind'],
+    additionalProperties: false,
+  };
+
+  try {
+    if (!ctx.tools || typeof ctx.tools.register !== 'function') {
+      PHONE_TOOL_STATE.error = 'no ctx.tools (inject 未生效?)';
+      console.warn('[smartquiz-remote] 没有 tools 服务，跳过 phone_ui 注册');
+    } else {
+      const phoneUiDef = {
+        name: 'phone_ui',
+        description: '把一条 UI 指令推送到已配对的手机：slot（输入区上方的插槽；title/detail 都空按 remove 处理）'
+          + '或 toast/notification（提醒）。只用于需要用户立刻看到的轻量提示，不要用于长文本。',
+        // 字段 DSL 只声明一次；注册时优先交给官方 defineTool 编译（含运行时入参校验），
+        // 拿不到时退回本地编译的等价 JSON Schema。
+        parameters: PHONE_UI_PARAMS,
+        output: {
+          schema: { type: 'string' },
+          render: (_args, value) => [{ type: 'text', text: String(value) }],
+        },
+        execute: async (args) => {
+          const kind = String(args?.kind ?? '');
+          const title = String(args?.title ?? '').trim();
+          const detail = String(args?.detail ?? '').trim();
+          if (kind === 'slot') {
+            /**
+             * §20（2026-11-15 修订）：title/detail 都空 = **移除**（与 RemoteSlotBridge 的空帧约定一致）。
+             *
+             * <p>以前这里先拦"title/detail 至少给一个"，于是 agent 没有任何手段手动清掉一条
+             * 无 TTL 的测试/临时插槽 —— 真机复验时那行只能等 App 重启。移除必须显式给 id：
+             * 不给 id 会清掉默认的 phone_ui 槽，容易误伤。</p>
+             */
+            const slotId = String(args?.id ?? '').trim();
+            if (!title && !detail && !slotId) {
+              return '未推送：移除插槽需要 id（title/detail 至少给一个，或给 id 清空）';
+            }
+            // 每次推送都走 pushUiSlot → broadcastSlot：rev 自增、ttl 默认/透传、最近帧可补发
+            const extra = {
+              // §22：可只给档位（p0..p5），priority 缺省由档位表补；显式 priority 仍透传
+              ...(args?.level ? { level: String(args.level).trim() } : {}),
+              ...(args?.ttl_ms === undefined ? {} : { ttl_ms: Number(args.ttl_ms) }),
+            };
+            const slot = pushUiSlot(args?.id, args?.priority, title, detail, extra);
+            const warning = Array.isArray(slot.warnings) && slot.warnings.length > 0
+              ? '（校验警告：' + slot.warnings.join('；') + '）' : '';
+            return slot.removed
+              ? '已移除手机插槽 ' + slot.id
+              : '已推送到手机插槽 ' + slot.id + warning;
+          }
+          if (!title && !detail) return '未推送：title/detail 至少给一个';
+          const tool = kind === 'notification' ? 'notification' : 'toast';
+          if (!CMD_ALLOW.has(tool)) return '未推送：' + tool + ' 不在白名单';
+          pruneCommands();
+          const id = randomBytes(8).toString('hex');
+          cmdQueue.set(id, {
+            id, tool,
+            args: { title: title || detail, body: detail, text: title || detail },
+            state: 'queued',
+            createdAt: Date.now(),
+            result: null,
+          });
+          return '已入队 ' + tool + '（cmd_id=' + id + '，等手机轮询执行）';
+        },
+      };
+      ctx.tools.register({ ...phoneUiDef, parameters: PHONE_UI_PARAMS });
+      PHONE_TOOL_STATE.registered = true;
+      console.log('[smartquiz-remote] 已注册工具 phone_ui（反向通道生产者）');
+    }
+  } catch (e) {
+    PHONE_TOOL_STATE.error = String(e?.message ?? e);
+    console.warn('[smartquiz-remote] phone_ui 注册失败（忽略）: ' + PHONE_TOOL_STATE.error);
+  }
+
+  /**
+   * 子代理活动轮询（2026-11-13，B15）：子会话事件不在 session/event 总线上，
+   * 只能按 seq 增量读它的会话日志，再合成 activity 帧发给根会话。
+   */
+  const startChildPolling = (childId, root) => {
+    if (!childId || !root) return;
+    if (SUBAGENT_POLLERS.has(childId)) return;
+    const state = { lastSeq: -1, idle: 0, timer: null };
+    const startedAt = Date.now();
+    const stop = () => {
+      if (state.timer) clearInterval(state.timer);
+      SUBAGENT_POLLERS.delete(childId);
+      // 子代理结束时让"子代理"插槽重新算一次（不活动/完成就该消失）
+      try {
+        broadcastSubagentsSlot(root);
+      } catch { /* 插槽刷新失败不影响主流程 */ }
+    };
+    state.timer = setInterval(() => {
+      // CRASH-GUARD（2026-11-13）：宿主热重载时旧的定时器可能还在跑，
+      // Node 里定时器回调抛出的异常**没有宿主兜底，会直接杀掉整个进程**（真机：
+      // 改插件文件触发 HMR 后 DSH 客户端闪退）。所以这里整段 try/catch，
+      // 任何异常只记一次日志并自停，绝不让插件把宿主带走。
+      try {
+        if (Date.now() - startedAt > SUBAGENT_POLL_MAX_MS) {
+          stop();
+          return;
+        }
+        const pending = readSessionEvents(childId);
+        if (!pending || typeof pending.then !== 'function') {
+          state.idle += 1;
+          if (state.idle >= SUBAGENT_POLL_IDLE_TICKS) stop();
+          return;
+        }
+        pending.then((events) => {
+          try {
+            let fresh = 0;
+            for (const ev of events) {
+              const seq = Number(ev?.seq ?? -1);
+              if (!Number.isFinite(seq) || seq <= state.lastSeq) continue;
+              state.lastSeq = seq;
+              const brief = sessionEventBrief(ev);
+              if (!brief) continue;
+              fresh += 1;
+              const frame = {
+                root_id: root,
+                child_id: childId,
+                label: childLabel.get(childId) ?? '',
+                event: String(ev?.type ?? ''),
+                ts: Number(ev?.time) || Date.now(),
+                ...brief,
+              };
+              SUBAGENT_LAST.set(childId, frame);
+              streamBroadcast(root, { v: 2, type: 'subagent/activity', data: frame });
+            }
+            state.idle = fresh > 0 ? 0 : state.idle + 1;
+            if (fresh > 0) {
+              // 有动静就刷新插槽（"1 个在跑 · 共 2 个"这类文案要跟着变）
+              try {
+                broadcastSubagentsSlot(root);
+              } catch { /* 忽略 */ }
+            }
+            let live = false;
+            try {
+              live = Boolean(ctx.agents?.get?.(childId));
+            } catch {
+              live = false;
+            }
+            if (!live && state.idle >= SUBAGENT_POLL_IDLE_TICKS) stop();
+          } catch (e) {
+            warnOnce('subagent-poll-tick', '[smartquiz-remote] 子代理轮询回调异常（已停）: ' + String(e?.message ?? e));
+            stop();
+          }
+        }).catch((e) => {
+          state.idle += 1;
+          if (state.idle >= SUBAGENT_POLL_IDLE_TICKS) stop();
+          warnOnce('subagent-poll-read', '[smartquiz-remote] 读子会话日志失败: ' + String(e?.message ?? e));
+        });
+      } catch (e) {
+        warnOnce('subagent-poll-sync', '[smartquiz-remote] 子代理轮询同步异常（已停）: ' + String(e?.message ?? e));
+        stop();
+      }
+    }, SUBAGENT_POLL_MS);
+    if (state.timer.unref) state.timer.unref();
+    SUBAGENT_POLLERS.set(childId, state);
+  };
+
+  try {
+    ctx.on('session/event', (session, event) => {
+      const sid = String(session?.id ?? '');
+      if (!sid || !event) return;
+      const t = String(event.type ?? '');
+      // EVENT-CATALOG(2026-11-13)：所有事件类型都在下面这张表里登记；没登记的只记一次日志，
+      // 但**照常转发**——"我可能不用，但你不能没有"。
+      noteEventType(t);
+      /**
+       * WS-FRAMES(2026-11-15)：真实事件帧以前只走 SSE（`sendEventFrame` 直接写响应），
+       * 从不进 STREAM_HUB，于是 `/ws/events` 只收得到 ui/slot 之类的合成帧。
+       * 这里在**所有早退之前**把原始事件按与 SSE 同构的 `{type:'event', event}` 投给
+       * WS 订阅者（caps/端点白名单由 sub.send 过滤）；早退只影响插件自己的副产物，不影响转发。
+       */
+      try { wsBroadcast(sid, { type: 'event', event }); } catch { /* 推送失败不能影响插件事件处理 */ }
+      // 2026-11-14 插话队列：先用 turn 事件把"这条会话正在跑"记下来 —— 手机 inject 时据此排队。
+      // 桌面端自己发起的轮次也会走这两个事件，所以电脑上正在跑的时候手机插话同样会排队。
+      if (t === 'turn/start') { markSessionBusy(sid, 'agent'); clearTransientSlot('retry', sid); return; }
+      if (t === 'turn/end') { clearSessionBusy(sid); clearTransientSlot('retry', sid); return; }
+      /**
+       * 模型重试 → 插槽（2026-11-14 用户口径：瞬时状态放插槽，收到更新事件就更新，完成即消失）。
+       * 以前这是一张 chat 卡，重试几次就在消息流里留几张"模型重试"。
+       */
+      if (t === 'llm/retry-started' || t === 'llm/retry') {
+        const d = event.data ?? {};
+        const n = Number(d.retry ?? d.attempt ?? 0) || 0;
+        // ttl 默认 30s（SLOT_TTL_IDS），每次 retry 事件重新计时；turn/end 显式移除
+        broadcastSlot(sid, {
+          id: 'retry', session_id: sid, priority: SLOT_PRIORITY.p1, kind: 'state', board: 'alert', warn: true,
+          title: '模型重试', detail: n > 0 ? ('第 ' + n + ' 次重试中…') : '正在重试…',
+        });
+        return;
+      }
+      if (t === 'assistant/message' || t === 'step/end' || t === 'error') {
+        clearTransientSlot('retry', sid);
+      }
+      if (t === 'subagent/catalog') {
+        const d = event.data ?? {};
+        const childId = String(d.childId ?? '');
+        if (childId) {
+          childParent.set(childId, sid);
+          if (d.label) childLabel.set(childId, String(d.label));
+          broadcastSubagentsSlot(sid);
+          startChildPolling(childId, sid);
+        }
+        return;
+      }
+      const root = childParent.get(sid);
+      // 上下文压缩：start/summary/prune 保持插槽存活（30s TTL 期间续期），end 立即移除
+      if (t === 'compaction/start' || t === 'compaction/summary'
+          || t === 'compaction/prune' || t === 'compaction/end') {
+        // B18：压缩是会话内的事，只发给该会话（否则别的对话也会看到"正在压缩"）
+        broadcastSlot(sid, t === 'compaction/end'
+          ? { id: 'compaction', session_id: sid, remove: true }
+          : { id: 'compaction', session_id: sid, priority: SLOT_PRIORITY.p3, kind: 'state', title: '正在压缩上下文…' });
+        return;
+      }
+      // 任务 / 目标的持续状态：在"只转子代理活动"的早退之前处理（主会话事件也要收）
+      if (t === 'job/registered' || t === 'job/settled') {
+        const d = event.data ?? {};
+        const id = String(d.jobId ?? d.id ?? d.job_id ?? '');
+        if (id) {
+          const prev = JOB_STATE.get(id) ?? {};
+          const failed = Boolean(d.failed) || String(d.status ?? '') === 'failed';
+          const owner = String(d.owner ?? prev.sid ?? sid);
+          JOB_STATE.set(id, {
+            id,
+            // 任务归属：手机甲板按会话过滤，A 会话的任务不再串到 B 会话
+            sid: owner,
+            // 标签只留 60 字：手机插槽最多两行，命令原文太长会把别的插槽挤下去
+            label: String(d.label ?? d.kind ?? prev.label ?? '后台任务').slice(0, 60),
+            status: t === 'job/registered' ? 'running' : (failed ? 'failed' : 'done'),
+            failed,
+            // 有生产者给百分比就存下来，jobs 槽据此用 progress kind；没有就 list
+            ...(d.progress !== undefined ? { progress: d.progress }
+              : (prev.progress !== undefined ? { progress: prev.progress } : {})),
+            ts: Number(event.time) || Date.now(),
+          });
+          // 每个会话只留最近 N 条，避免长时间会话无限增长（也避免互删别的会话）
+          const mine = [...JOB_STATE.values()]
+            .filter((j) => String(j.sid ?? '') === owner)
+            .sort((a, b) => a.ts - b.ts);
+          for (let i = 0; i < mine.length - JOB_STATE_MAX; i += 1) JOB_STATE.delete(mine[i].id);
+          broadcastJobsSlot(sid);
+          scheduleStateSave();
+        }
+        return;
+      }
+      if (t === 'goal/change') {
+        const d = event.data ?? {};
+        if (d.operation === 'clear' || !d.goal) {
+          // clear 直接收槽；没有 goal 载荷的旧帧交给宿主补读兜底
+          if (!refreshGoalFromHost(sid)) GOAL_STATE.delete(sid);
+        } else {
+          GOAL_STATE.set(sid, {
+            ...goalViewToState(d.goal),
+            ts: Number(event.time) || Date.now(),
+          });
+        }
+        // goal/change 不带 activation；从宿主补一次能拿到 armed/disarmed 与最新 revision
+        refreshGoalFromHost(sid);
+        broadcastGoalSlot(sid);
+        scheduleStateSave();
+        return;
+      }
+      if (t === 'plan/mode') {
+        const active = Boolean(event.data?.active);
+        PLAN_STATE.set(sid, { active, pending: false });
+        broadcastPlanSlot(sid);
+        return;
+      }
+      // 权限/沙箱/审批策略：只在变化时更新一次，用作状态插槽
+      if (t === 'sandbox/mode' || t === 'permission/preset'
+          || t === 'approval/policy' || t === 'agent-preset/selected') {
+        const d = event.data ?? {};
+        if (t === 'sandbox/mode') PERM_STATE.sandbox = String(d.mode ?? '');
+        else if (t === 'permission/preset') PERM_STATE.preset = String(d.preset ?? '');
+        else if (t === 'approval/policy') PERM_STATE.policy = String(d.policy ?? '');
+        else PERM_STATE.agentPreset = String(d.agentPreset ?? '');
+        PERM_STATE.ts = Number(event.time) || Date.now();
+        broadcastPermissionSlot();
+        return;
+      }
+      // MCP：只从真实工具调用里认服务名（mcp__<server>__<tool>），按会话各自统计
+      if (t === 'tool/call') {
+        const srv = mcpServerOf(event.data?.name);
+        if (srv) {
+          const set = mcpSetOf(sid);
+          if (!set.has(srv)) {
+            set.add(srv);
+            broadcastMcpSlot(sid);
+          }
+        }
+      }
+      if (!root) return;
+      const brief = sessionEventBrief(event);
+      if (!brief) return;
+      const frame = {
+        root_id: root, child_id: sid, label: childLabel.get(sid) ?? '',
+        event: t, ts: Number(event.time) || Date.now(), ...brief,
+      };
+      // B15（2026-11-13）：子代理活动是合成帧，没有任何事件源可以回放 —— 连上之后
+      // 之前发生过的"子代理正在做什么"就全没了。这里按 child 留最后一条，重连时补发。
+      SUBAGENT_LAST.set(sid, frame);
+      streamBroadcast(root, { v: 2, type: 'subagent/activity', data: frame });
+    });
+  } catch { /* 旧版没有 session/event 监听 */ }
+
+  /**
+   * 目标激活态（host 事件，不是 session 事件）：暂停/恢复/会话启动会改变
+   * armed/disarmed，但不一定带完整 objective。以前挂在 session/event 里永远收不到；
+   * 现在单独订阅，收到就从宿主补读并重发目标槽（按钮 label 随之切换）。
+   */
+  try {
+    ctx.on('goal/activation-changed', (payload) => {
+      const sid = String(payload?.sessionId ?? payload?.session_id ?? '').trim();
+      if (!sid) return;
+      if (!refreshGoalFromHost(sid)) {
+        const prev = GOAL_STATE.get(sid);
+        if (prev) {
+          const activation = String(payload?.goal?.activation ?? '');
+          GOAL_STATE.set(sid, { ...prev, activation, active: prev.phase === 'active' });
+        }
+      }
+      broadcastGoalSlot(sid);
+      scheduleStateSave();
+    });
+  } catch { /* 旧版没有 goals */ }
+
+  /** 能力校验：不声明 caps 的旧客户端一律放行（与 caps.js 同一口径） */
+  const capsAllowed = (caps, cap) => allows(caps, cap);
+
+  /** 后台任务列表（事件派生状态，见 JOB_STATE）。 */
+  /**
+   * 动态组件推送（2026-11-14）：插件决定"画什么"，手机用本地组件管线画。
+   *
+   * <p>为什么需要：以前 DSH 的每种新卡片都得在 App 里写一个 Java 渲染器 + 发版。
+   * 现在插件推 {@code ui/card} 帧，{@code type/props} 交给 ComponentRegistry：
+   * 内置卡、{@code layout} 原生控件树、未注册类型（DynamicCardView 兜底）都能画。
+   * App 只落一条 durable 的 REMOTE_CARD 消息，同 {@code key} 覆盖更新。</p>
+   *
+   * <pre>
+   * POST /v2/card  { session_id?, key, type, props, title? }
+   *   type: 内置组件类型（alert_card / code_card / list_card / …）
+   *         | "layout"（props.layout = 原生控件树）
+   *         | 任意类型名（App 不认识 → 动态兜底卡）
+   * </pre>
+   */
+  /* ==================== 推送卡片暂存（2026-11-14） ====================
+   *
+   * ui/card 是**瞬态推送**：手机不在聊天页时没有订阅者，帧就丢了。
+   * 用户口径：「推送暂存 + 进页面补发」——所以这里按（会话 × key）留一份，
+   * 等这条会话的新订阅（WS hello / SSE ready）接上时补发一遍。
+   * App 侧同 key 覆盖，重连重复补发也不会叠卡。
+   */
+  const PUSHED_CARDS = new Map();          // `${sid}|${key}` -> { sid, key, type, props, title, at }
+  const PUSHED_CARD_MAX = 50;
+  const PUSHED_CARD_TTL_MS = 6 * 3600 * 1000;
+  const pushedKey = (sid, key) => String(sid || '') + '|' + String(key || '');
+
+  const rememberPushedCard = (sid, data) => {
+    if (!sid || !data || !data.key) return;
+    const now = Date.now();
+    PUSHED_CARDS.set(pushedKey(sid, data.key), { sid, ...data, at: now });
+    // TTL + 上限清理（先清过期，再按时间砍最旧）
+    for (const [k, v] of PUSHED_CARDS) {
+      if (now - Number(v.at || 0) > PUSHED_CARD_TTL_MS) PUSHED_CARDS.delete(k);
+    }
+    if (PUSHED_CARDS.size > PUSHED_CARD_MAX) {
+      const old = [...PUSHED_CARDS.entries()].sort((a, b) => Number(a[1].at) - Number(b[1].at));
+      for (let i = 0; i < old.length - PUSHED_CARD_MAX; i += 1) PUSHED_CARDS.delete(old[i][0]);
+    }
+  };
+
+  /** 给某条会话补发暂存卡（WS hello / SSE ready 后调用） */
+  const replayPushedCards = (sid, send) => {
+    if (!sid || typeof send !== 'function') return 0;
+    let n = 0;
+    for (const v of PUSHED_CARDS.values()) {
+      if (v.sid !== sid) continue;
+      try {
+        send({ type: 'ui/card', data: { key: v.key, type: v.type, props: v.props, title: v.title } });
+        n += 1;
+      } catch { /* 单条失败不影响其它 */ }
+    }
+    return n;
+  };
+
+  route('exact', '/v2/card', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use POST' });
+    let body;
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch (e) {
+      return sendJson(res, 400, { ok: false, error: 'bad json: ' + String(e?.message ?? e) });
+    }
+    const sid = String(body.session_id ?? '').trim();
+    const type = String(body.type ?? '').trim();
+    if (!type) return sendJson(res, 400, { ok: false, error: 'type required' });
+    const key = String(body.key ?? '').trim() || ('card-' + randomBytes(4).toString('hex'));
+    const props = (body.props && typeof body.props === 'object') ? body.props : {};
+    // 推卡前先校结构（抄 dsh-Go 的 view-check：带路径诊断，坏卡不进手机）
+    const checked = checkCard({ type, props });
+    if (!checked.ok && body.force !== true) {
+      return sendJson(res, 422, {
+        ok: false, error: 'card_invalid', key, type,
+        diagnostics: checked.diagnostics, hint: describe(checked.diagnostics),
+      });
+    }
+    if (checked.diagnostics.length > 0) {
+      console.warn('[smartquiz-remote] ui/card 诊断 ' + describe(checked.diagnostics));
+    }
+    const data = { key, type, props };
+    if (body.title) data.title = String(body.title);
+    rememberPushedCard(sid, data);
+    streamBroadcast(sid, { v: 2, type: 'ui/card', data });
+    return sendJson(res, 200, {
+      ok: true, session_id: sid, key, type, pushed: true,
+      diagnostics: checked.diagnostics,
+    });
+  });
+
+  /**
+   * 后台任务列表。`?session_id=` 只返回该会话的任务（与 jobs 插槽同口径）；
+   * 不带 session_id 时保留旧的"全进程"行为（诊断/旧客户端）。
+   */
+  route('exact', '/v2/jobs', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let sid = '';
+    try {
+      const q = new URL(req.url ?? '/v2/jobs', 'http://dsh.invalid');
+      sid = String(q.searchParams.get('session_id') ?? '').trim();
+    } catch { /* 无 query 视为全局 */ }
+    const all = [...JOB_STATE.values()].filter((j) => !sid || String(j.sid ?? '') === sid);
+    const items = all.sort((a, b) => b.ts - a.ts).slice(0, 50);
+    return sendJson(res, 200, {
+      ok: true, v: 2, session_id: sid, count: items.length,
+      running: items.filter((j) => j.status === 'running').length,
+      items,
+    });
+  });
+
+  /** 快照条数上限（§22）：正常同时活跃的状态不超过 16 条，32 给足余量。 */
+  const SLOT_SNAPSHOT_MAX = 32;
+
+  /**
+   * GET /v2/slots?session_id= —— 插槽快照（§22，2026-11-15）。
+   *
+   * <p>病历：断线重连后甲板要等生产者**下一次推帧**才有内容，`/v2/slots` 让新连接直接
+   * 拿一份全量。数据源就是插件内存里的 `SLOT_LAST`（`broadcastSlot` 每帧都记），
+   * 所以和推帧是同一份事实、同一个 rev/epoch/TTL 口径：</p>
+   * <ul>
+   *   <li>别的会话的槽不发（B18，`rec.sid` 不匹配就跳过）；</li>
+   *   <li>移除帧不进快照（它只是"这条被删了"的记忆）；</li>
+   *   <li>已过 TTL 的瞬时帧不复活（与 `replaySlots` 同一判据）；</li>
+   *   <li>ttl_ms 返回**剩余**存活时间（不是原始值），App 收到后照常换算成 expireAt；</li>
+   *   <li>按 priority 升序（同档按 id 稳定），最多 32 条。</li>
+   * </ul>
+   */
+  route('exact', '/v2/slots', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let sid = '';
+    try {
+      const q = new URL(req.url ?? '/v2/slots', 'http://dsh.invalid');
+      sid = String(q.searchParams.get('session_id') ?? '').trim();
+    } catch { /* 无 query 视为全局会话 */ }
+    const now = Date.now();
+    const all = [];
+    for (const rec of SLOT_LAST.values()) {
+      if (!rec || !rec.data) continue;
+      const d = rec.data;
+      const id = String(d.id ?? '').trim();
+      if (!id) continue;
+      if (rec.sid && rec.sid !== sid) continue;          // 别的会话的槽不发
+      if (d.remove === true) continue;                   // 移除帧不进快照
+      const ttl = Math.max(0, Number(d.ttl_ms ?? 0) || 0);
+      const age = Math.max(0, now - Number(rec.at || 0));
+      if (ttl > 0 && age > ttl) continue;                // 过期瞬时态不复活
+      const priority = slotPriorityValue(d);
+      all.push({
+        id,
+        rev: Number(d.rev ?? 0),
+        epoch: Number(d.epoch ?? SLOT_EPOCH),
+        ttl_ms: ttl > 0 ? Math.max(1, ttl - age) : 0,    // 剩余存活时间
+        priority,
+        level: d.level ?? slotLevelOfPriority(priority),
+        title: String(d.title ?? ''),
+        detail: String(d.detail ?? ''),
+        action: String(d.action ?? ''),
+        warn: d.warn === true,
+        kind: String(d.kind ?? 'state'),
+        progress: Math.max(0, Math.min(100, Number(d.progress) || 0)),
+        actions: Array.isArray(d.actions)
+          ? d.actions.slice(0, SLOT_ACTION_MAX).map((a) => ({
+            id: String(a?.id ?? ''),
+            label: String(a?.label ?? ''),
+            style: String(a?.style ?? 'plain'),
+          }))
+          : [],
+        board: String(d.board ?? 'state'),
+        pinned: d.pinned === true,
+        count: Math.max(0, Number(d.count) || 0),
+        session_id: String(d.session_id ?? rec.sid ?? ''),
+      });
+    }
+    all.sort((a, b) => (a.priority - b.priority) || String(a.id).localeCompare(String(b.id)));
+    const slots = all.slice(0, SLOT_SNAPSHOT_MAX);
+    return sendJson(res, 200, {
+      ok: true, v: 2,
+      session_id: sid,
+      count: slots.length,
+      total: all.length,
+      truncated: all.length > slots.length,
+      slot_epoch: SLOT_EPOCH,
+      slots,
+    });
+  });
+
+  /** 目标状态（事件派生，可按需向宿主补读）；带 session_id 查单条，不带则列全部。 */
+  route('exact', '/v2/goal', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+    const sid = String(q.searchParams.get('session_id') ?? '').trim();
+    if (sid) {
+      // 事件不会重放：先问宿主一次，避免面板/手机看到重载前的旧标题（甚至 [object Object]）
+      refreshGoalFromHost(sid);
+      const g = GOAL_STATE.get(sid) ?? null;
+      return sendJson(res, 200, { ok: true, v: 2, session_id: sid, goal: g });
+    }
+    return sendJson(res, 200, {
+      ok: true, v: 2,
+      goals: [...GOAL_STATE.entries()].map(([s, g]) => ({ session_id: s, ...g })),
+    });
+  });
+
+  /** 本进程用过的 MCP 服务（从工具名派生，不猜"连了几个"；可按会话过滤）。 */
+  route('exact', '/v2/mcp', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let sid = '';
+    try {
+      const q = new URL(req.url ?? '/v2/mcp', 'http://dsh.invalid');
+      sid = String(q.searchParams.get('session_id') ?? '').trim();
+    } catch { /* 无 query 视为全局 */ }
+    const servers = sid
+      ? [...(MCP_SERVERS.get(sid) ?? new Set())].sort()
+      : [...new Set([...MCP_SERVERS.values()].flatMap((set) => [...set]))].sort();
+    return sendJson(res, 200, { ok: true, v: 2, session_id: sid, count: servers.length, servers });
+  });
+
+  /**
+   * 事件枚举表（诊断/对接用）：返回插件登记的全部事件类型 + 运行期见过的"表外"类型。
+   *
+   * <p>手机端不依赖它也能工作；它的价值是换 DSH 版本后能立刻看出"多了/少了什么"。</p>
+   */
+  route('exact', '/v2/events/catalog', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const types = Object.keys(EVENT_CATALOG).sort();
+    const unregistered = [...unseenEventTypes.keys()].sort();
+    const byLayer = { session: 0, host: 0, synth: 0 };
+    for (const t of types) {
+      const layer = EVENT_CATALOG[t]?.layer;
+      if (layer && byLayer[layer] !== undefined) byLayer[layer] += 1;
+    }
+    return sendJson(res, 200, {
+      ok: true, v: 2,
+      count: types.length,
+      by_layer: byLayer,
+      prefix_families: PREFIX_FAMILIES,
+      types: types.map((t) => ({ type: t, ...EVENT_CATALOG[t] })),
+      unregistered,
+    });
+  });
+
+  /**
+   * UI 目录（客户端拉取用，2026-11-13）。
+   *
+   * <p>手机端没有"服务端推配置"的通道（可推的只有 state/view/ui/slot/pulse/approval），
+   * 所以配置由客户端拉：先拿 {@code version}，变化了再取 events/slots 全表。</p>
+   */
+  route('exact', '/v2/ui/catalog', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const types = Object.keys(EVENT_CATALOG).sort();
+    return sendJson(res, 200, {
+      ok: true, v: 2,
+      version: UI_CATALOG_VERSION,
+      server_caps_version: CAP_VERSION,
+      prefix_families: PREFIX_FAMILIES,
+      events: types.map((t) => ({ type: t, ...EVENT_CATALOG[t] })),
+      slots: RESERVED_SLOTS,
+      caps: SERVER_CAPS,
+    });
+  });
+
+  /** 权限状态（沙箱 / 档位 / 审批策略的最近取值）。 */
+  route('exact', '/v2/permission', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    // 带 session_id 就先向宿主补读一次：事件驱动的 PERM_STATE 在重启/新会话后是空的，
+    // 只靠它会显示"权限未知"，手机变更卡也就没有当前值可看。
+    let sid = '';
+    try {
+      const q = new URL(req.url ?? '/v2/permission', 'http://dsh.invalid');
+      sid = String(q.searchParams.get('session_id') || '').trim();
+    } catch { /* 无 query 就算了 */ }
+    if (sid) refreshPermissionFromHost(sid);
+    // 在线改权限要用宿主真实服务（2026-11-13）：dsh-permission-presets 的 permissionPresets.set(session, name)
+    // 才是"整套预设"的正规入口；sandbox 单独改没有公开 setter，所以只暴露预设列表。
+    const svc = presetSvcOf(ctx);
+    let presets = [];
+    try {
+      if (svc && typeof svc.catalog === 'function') {
+        const c = svc.catalog();
+        if (c && Array.isArray(c.options)) presets = c.options;
+      }
+      if (!presets.length && svc && Array.isArray(svc.names)) {
+        presets = svc.names.map((n) => ({ value: n, name: n }));
+      }
+    } catch { /* 目录结构变了就当没有 */ }
+    return sendJson(res, 200, {
+      ok: true, v: 2, ...PERM_STATE,
+      presets,
+      can_change: Boolean(svc && typeof svc.set === 'function'),
+    });
+  });
+
+  /**
+   * 通用插槽推送（2026-11-13）：`phone_ui` 工具与 `POST /v2/action {action:'ui.slot'}`
+   * 共用同一段逻辑。title 与 detail 都为空 = 移除该插槽（与手机端约定一致）。
+   */
+  const pushUiSlot = (id, priority, title, detail, extra = {}) => {
+    const slotId = String(id ?? '').trim() || 'phone_ui';
+    // 2026-11-15：这里以前先 String() 再交给 broadcastSlot，对象 title 会先变成
+    // "[object Object]"、嵌套的 objective 就永远取不到了；现在直接过 slotText 浅提取。
+    const t = slotText(title);
+    const d = slotText(detail);
+    // B18（2026-11-13）：带 session_id 的插槽只发给该会话的订阅者（以前一律全局广播）。
+    const target = String(extra.session_id ?? '').trim();
+    if (!t && !d) {
+      // 空帧 = 移除；broadcastSlot 会补 rev 并记住这条移除
+      const frame = broadcastSlot(target, { id: slotId, ...(target ? { session_id: target } : {}) });
+      return { ...frame, warnings: [], removed: true };
+    }
+    /**
+     * §22：priority 只在**显式给出**时才写进帧 —— 0 是合法档位（p0 审批），
+     * 以前 `Number(priority) || 50` 会把 p0 吞成 50，把"打断式"排到最后。
+     * 只给 level 时由 broadcastSlot 按档位表补 priority（旧 App 也能排对）。
+     */
+    const hasPriority = priority !== undefined && priority !== null && priority !== ''
+      && Number.isFinite(Number(priority));
+    const level = String(extra.level ?? '').trim();
+    // §20：broadcastSlot 统一补 rev/ttl，并记住最近帧供新订阅补发
+    const frame = broadcastSlot(target, {
+      ...extra,
+      id: slotId,
+      ...(hasPriority ? { priority: Number(priority) } : {}),
+      ...(level ? { level } : {}),
+      title: t,
+      detail: d,
+    });
+    const rec = SLOT_LAST.get(slotKey(slotId, target));
+    return { ...frame, warnings: rec?.warnings ?? [], removed: false };
+  };
+
+  /**
+   * 客户端可发起的操作（白名单）。
+   *
+   * <p>为什么是白名单而不是通用 RPC：手机端一旦能"发任意动作"，权限边界就只靠 ui 自觉。
+   * 这里只放两个**无破坏性**的：清空任务列表（本地展示态）与重建时间线（resync）。
+   * 计划开关走 /v2/plan（已有写权限校验），日程执行走 /v2/schedule，不在这里重复开口子。</p>
+   */
+  route('exact', '/v2/action', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    if (String(req.method || 'GET').toUpperCase() === 'GET') {
+      return sendJson(res, 405, { ok: false, error: 'use_post' });
+    }
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { body = {}; }
+    const action = String(body.action ?? '').trim();
+
+    /**
+     * 调试用审批注入（2026-11-13）：
+     *
+     * <p>真实审批常常被宿主 10~15 秒内自动答掉，手机端根本没机会有人点。
+     * 这个动作推一条"假审批"，默认停 60 秒，专门用来验证：
+     * 锁屏通知能不能出现、允许/拒绝按钮能不能回传。</p>
+     *
+     * <p>回传走 {@code /session action=approval}（id 命中这里的测试表），
+     * 结果通过 {@code approval_gone} 通知手机收兜，并记录到 TEST_APPROVAL.log。</p>
+     */
+    if (action === 'debug.approval') {
+      if (!allows(normalizeCaps(body.caps ?? ''), 'cmd.ui')) {
+        return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'cmd.ui' });
+      }
+      const id = 'test-' + randomBytes(6).toString('hex');
+      const ttlMs = Math.max(10, Math.min(600, Number(body.ttl_sec ?? 60) || 60)) * 1000;
+      const tool = String(body.tool ?? '测试审批').trim() || '测试审批';
+      const reason = String(body.reason ?? '用于验证手机端通知与按钮').trim();
+      const entry = { id, at: Date.now(), timer: null };
+      entry.timer = setTimeout(() => {
+        TEST_APPROVALS.delete(id);
+        streamBroadcast(String(body.session_id ?? ''), {
+          v: 2, type: 'approval_gone', id, ts: Date.now(),
+        });
+      }, ttlMs);
+      TEST_APPROVALS.set(id, entry);
+      streamBroadcast(String(body.session_id ?? ''), {
+        v: 2, type: 'approval', id, kind: 'approval', ts: Date.now(),
+        request: { toolName: tool, reason, callId: '' },
+      });
+      return sendJson(res, 200, { ok: true, v: 2, id, ttl_sec: ttlMs / 1000 });
+    }
+
+    if (action === 'ui.slot') {
+      // 脚本/面板推插槽（不依赖 agent 调 phone_ui）。声明了 caps 的客户端需要 cmd.ui。
+      if (!allows(normalizeCaps(body.caps ?? ''), 'cmd.ui')) {
+        return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'cmd.ui' });
+      }
+      const slot = pushUiSlot(body.id, body.priority, body.title, body.detail, {
+        // 注意：body.action 是**分发动作名**（'ui.slot'），不能拿来做插槽点击动作。
+        // 插槽的点击动作由 slot_action（或别名 link）单独指定，例如 'jobs' / 'schedule'。
+        ...(body.slot_action && String(body.slot_action).trim()
+          ? { action: String(body.slot_action).trim() }
+          : {}),
+        // §22：脚本/面板也可以只给档位（p0..p5），App 与插件按同一张表换算
+        ...(body.level && String(body.level).trim()
+          ? { level: String(body.level).trim() }
+          : {}),
+        ...(body.warn === true ? { warn: true } : {}),
+        ...(body.session_id && String(body.session_id).trim()
+          ? { session_id: String(body.session_id).trim() }
+          : {}),
+        ...(body.ttl_ms !== undefined && body.ttl_ms !== null
+          ? { ttl_ms: Number(body.ttl_ms) }
+          : {}),
+        // ④：kind/progress/count/actions 走同一条 pushUiSlot → broadcastSlot，不新开端点。
+        // 未知 kind/必填缺失只在响应 warnings 里回，不 422（帧会被降级成 state）。
+        ...(body.kind !== undefined ? { kind: String(body.kind) } : {}),
+        ...(body.progress !== undefined ? { progress: body.progress } : {}),
+        ...(body.count !== undefined ? { count: body.count } : {}),
+        ...(body.actions !== undefined ? { actions: body.actions } : {}),
+        ...(body.board && String(body.board).trim() ? { board: String(body.board).trim() } : {}),
+        ...(body.pinned === true ? { pinned: true } : {}),
+      });
+      return sendJson(res, 200, {
+        ok: true, v: 2, action, slot,
+        warnings: Array.isArray(slot?.warnings) ? slot.warnings : [],
+      });
+    }
+    /**
+     * 目标槽动作（2026-11-15 新增）：暂停 / 恢复 / 清除。
+     *
+     * <p>调用 DSH 自己的 `ctx.goals`（GoalService）—— pause/resume/clear 都要求
+     * 一个 **live agent** 与 exact `{id, revision}`（compare-and-set）。服务不存在、
+     * 会话不在宿主内、或 revision 已过期时明确回错误，**不假装成功**。</p>
+     */
+    if (action === 'goal.pause' || action === 'goal.resume' || action === 'goal.clear') {
+      if (!allows(normalizeCaps(body.caps ?? ''), 'cmd.ui')) {
+        return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'cmd.ui' });
+      }
+      const sid = String(body.session_id ?? '').trim();
+      if (!sid) return sendJson(res, 400, { ok: false, v: 2, action, error: 'session_id_required' });
+      const svc = goalSvc();
+      if (!svc) {
+        return sendJson(res, 409, {
+          ok: false, v: 2, action, error: 'not_supported',
+          hint: '这个 DSH 版本没有 goals 服务（目标只能在电脑端对话里操作）',
+        });
+      }
+      const method = action === 'goal.pause' ? 'pause' : (action === 'goal.resume' ? 'resume' : 'clear');
+      if (typeof svc[method] !== 'function' || typeof svc.get !== 'function') {
+        return sendJson(res, 409, {
+          ok: false, v: 2, action, error: 'not_supported',
+          hint: 'goals 服务缺少 ' + method + '/get 方法，无法在线操作目标',
+        });
+      }
+      const agent = liveAgentOf(sid);
+      if (!agent) {
+        return sendJson(res, 409, {
+          ok: false, v: 2, action, error: 'agent_not_live',
+          hint: '这条会话当前不在电脑端运行；目标操作需要 live agent',
+        });
+      }
+      let current;
+      try {
+        current = svc.get(agent);
+      } catch (e) {
+        return sendJson(res, 409, {
+          ok: false, v: 2, action, error: 'goal_read_failed',
+          detail: String(e?.message ?? e).slice(0, 200),
+        });
+      }
+      if (!current) {
+        if (action === 'goal.clear') {
+          GOAL_STATE.delete(sid);
+          broadcastGoalSlot(sid);
+          scheduleStateSave();
+          return sendJson(res, 200, {
+            ok: true, v: 2, action, cleared: true, goal: null,
+          });
+        }
+        return sendJson(res, 409, {
+          ok: false, v: 2, action, error: 'goal_not_found',
+          hint: '这条会话当前没有目标',
+        });
+      }
+      const ref = { id: current.id, revision: current.revision };
+      try {
+        if (action === 'goal.pause') await svc.pause(agent, ref);
+        else if (action === 'goal.resume') await svc.resume(agent, ref);
+        else await svc.clear(agent, ref);
+      } catch (e) {
+        // GoalError.code 例如 GOAL_STALE_REVISION / GOAL_INVALID_TRANSITION
+        return sendJson(res, 409, {
+          ok: false, v: 2, action,
+          error: String(e?.code ?? 'goal_failed'),
+          detail: String(e?.message ?? e).slice(0, 200),
+          hint: '目标状态已变化或该操作对当前阶段无效；请等下一帧刷新后重试',
+        });
+      }
+      if (!refreshGoalFromHost(sid)) {
+        if (action === 'goal.clear') GOAL_STATE.delete(sid);
+        else {
+          const prev = GOAL_STATE.get(sid);
+          if (prev) {
+            GOAL_STATE.set(sid, {
+              ...prev,
+              phase: action === 'goal.pause' ? 'paused' : 'active',
+              active: action !== 'goal.pause',
+            });
+          }
+        }
+      }
+      broadcastGoalSlot(sid);
+      scheduleStateSave();
+      return sendJson(res, 200, {
+        ok: true, v: 2, action, goal: GOAL_STATE.get(sid) ?? null,
+      });
+    }
+    if (action === 'permission.set') {
+      // 权限槽的"变更卡"（2026-11-13）：手机选一个沙箱模式/审批策略，这里尽力落到宿主服务。
+      // 服务名/方法名不同版本可能不一样，全部做特性探测；一个都落不下去就明确回 not_supported，
+      // 让手机提示"去电脑端改"，而不是假装成功。
+      if (!allows(normalizeCaps(body.caps ?? ''), 'cmd.ui')) {
+        return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'cmd.ui' });
+      }
+      const sandbox = String(body.sandbox ?? '').trim();
+      const policy = String(body.policy ?? body.preset_policy ?? '').trim();
+      const preset = String(body.preset ?? '').trim();
+      const svcOf = (name) => {
+        // 同 presetSvcOf：属性访问对未 inject 的服务会抛，必须单独 try，否则 ctx.get 跑不到。
+        try {
+          return ctx.get?.(name) ?? null;
+        } catch {
+          return null;
+        }
+      };
+      // ① 预设优先：permissionPresets.set(session, name) 一次改完 sandbox+approval
+      if (preset) {
+        const svc = presetSvcOf(ctx);
+        if (!svc || typeof svc.set !== 'function') {
+          return sendJson(res, 409, {
+            ok: false, v: 2, action, applied: [], failed: ['preset:unavailable'],
+            hint: '这个 DSH 版本没有 permissionPresets 服务，请在电脑端改',
+          });
+        }
+        const sid = String(body.session_id ?? '').trim();
+        const session = sid ? (() => { try { return ctx.sessions.get(sid); } catch { return null; } })() : null;
+        if (!session) {
+          return sendJson(res, 409, {
+            ok: false, v: 2, action, applied: [], failed: ['preset:no_session'],
+            hint: '会话不在电脑端运行，无法改权限',
+          });
+        }
+        try {
+          await svc.set(session, preset);
+          refreshPermissionFromHost(sid);   // 事件可能还没回环，先从宿主读真值
+          broadcastPermissionSlot();
+          return sendJson(res, 200, { ok: true, v: 2, action, applied: ['preset'], preset });
+        } catch (e) {
+          return sendJson(res, 409, {
+            ok: false, v: 2, action, applied: [], failed: ['preset:' + String(e?.message ?? e).slice(0, 100)],
+            hint: '电脑端拒绝了这次变更（预设名可能已不存在）',
+          });
+        }
+      }
+      const applied = [];
+      const failed = [];
+      if (sandbox) {
+        const sb = svcOf('sandbox');
+        const fn = sb && (sb.setMode || sb.changeMode || sb.set);
+        if (typeof fn !== 'function') {
+          failed.push('sandbox:' + (sb ? 'no_setter' : 'unavailable'));
+        } else {
+          try {
+            await fn.call(sb, sandbox);
+            applied.push('sandbox');
+          } catch (e) {
+            failed.push('sandbox:' + String(e?.message ?? e).slice(0, 80));
+          }
+        }
+      }
+      if (policy) {
+        const perm = svcOf('permissions') ?? svcOf('approvalPolicy') ?? null;
+        const fn = perm && (perm.setPreset || perm.setPolicy || perm.applyPreset);
+        if (typeof fn !== 'function') {
+          failed.push('policy:' + (perm ? 'no_setter' : 'unavailable'));
+        } else {
+          try {
+            await fn.call(perm, policy);
+            applied.push('policy');
+          } catch (e) {
+            failed.push('policy:' + String(e?.message ?? e).slice(0, 80));
+          }
+        }
+      }
+      if (!sandbox && !policy && !preset) {
+        return sendJson(res, 400, { ok: false, error: 'need_preset_or_sandbox_or_policy' });
+      }
+      refreshPermissionFromHost(String(body.session_id ?? '').trim());
+      broadcastPermissionSlot();
+      const ok = applied.length > 0;
+      return sendJson(res, ok ? 200 : 409, {
+        ok, v: 2, action, applied, failed,
+        hint: ok ? undefined : '这个 DSH 版本不暴露在线改权限的接口，请在电脑端改',
+      });
+    }
+    if (action === 'jobs.clear') {
+      const sid = String(body.session_id ?? '').trim();
+      if (sid) {
+        for (const [id, j] of JOB_STATE) {
+          if (String(j.sid ?? '') === sid) JOB_STATE.delete(id);
+        }
+      } else {
+        JOB_STATE.clear();
+      }
+      scheduleStateSave();
+      broadcastJobsSlot(sid);
+      return sendJson(res, 200, { ok: true, v: 2, action, session_id: sid, jobs: 0 });
+    }
+    if (action === 'resync') {
+      // 手机时间线乱了的出口：广播一条"重建"信号（手机侧 handleChannelEvent 已实现）
+      streamBroadcast('', { v: 2, type: '__force_resync', data: { server_seq: Number(body.server_seq ?? -1) } });
+      return sendJson(res, 200, { ok: true, v: 2, action });
+    }
+    return sendJson(res, 400, {
+      ok: false, v: 2, error: 'unknown_action', action,
+      allowed: ['ui.slot', 'permission.set', 'goal.pause', 'goal.resume', 'goal.clear',
+        'jobs.clear', 'resync', 'debug.approval'],
+    });
+  });
+
+  route('exact', '/v2/schedule', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const svc = scheduleSvc();
+    if (!svc) {
+      return sendJson(res, 503, {
+        ok: false, v: 2, error: 'schedule_unavailable',
+        hint: '这个 DSH 版本没有 schedule 服务（或未在 profile 里启用）',
+      });
+    }
+    let body = {};
+    let action = 'catalog';
+    let caps = '';
+    let id = '';
+    try {
+      if (String(req.method || 'GET').toUpperCase() === 'GET') {
+        const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+        action = String(q.searchParams.get('action') || 'catalog');
+        id = String(q.searchParams.get('id') || '');
+        caps = q.searchParams.get('caps') ?? '';
+      } else {
+        body = JSON.parse((await readBody(req)) || '{}');
+        action = String(body.action || 'catalog');
+        id = String(body.id || '');
+        caps = body.caps ?? '';
+      }
+    } catch { /* 用默认值 */ }
+    if (!capsAllowed(caps, 'schedule.read')) {
+      return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'schedule.read' });
+    }
+    try {
+      switch (action) {
+        case 'list': {
+          const r = await svc.list({
+            active: typeof body.active === 'boolean' ? body.active : undefined,
+            limit: Number(body.limit) || undefined,
+            offset: Number(body.offset) || undefined,
+          });
+          return sendJson(res, 200, { ok: true, v: 2, action, ...r, caps: summarize(caps) });
+        }
+        case 'view': {
+          const r = await svc.view({ id });
+          return sendJson(res, 200, { ok: true, v: 2, action, id, result: r, caps: summarize(caps) });
+        }
+        case 'history': {
+          const r = await svc.history({ id, limit: Number(body.limit) || 20, before: body.before });
+          return sendJson(res, 200, { ok: true, v: 2, action, id, result: r, caps: summarize(caps) });
+        }
+        case 'run': {
+          if (!capsAllowed(caps, 'schedule.write')) {
+            return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'schedule.write' });
+          }
+          const r = await svc.run({ id });
+          return sendJson(res, 200, { ok: true, v: 2, action, id, result: r, caps: summarize(caps) });
+        }
+        case 'edit': {
+          if (!capsAllowed(caps, 'schedule.write')) {
+            return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'schedule.write' });
+          }
+          const want = String(body.edit_action || 'update');
+          const request = want === 'delete'
+            ? { id, action: 'delete' }
+            : { id, action: 'update', patch: body.patch ?? {} };
+          // 只有调用方显式带了 expectedUpdatedAt 才做乐观比较；
+          // 传 null 会被理解为"与缺失的修订比较"，会把已有修订的任务判成 schedule_conflict
+          if (body.expectedUpdatedAt !== undefined) request.expectedUpdatedAt = body.expectedUpdatedAt;
+          const r = await svc.edit(request);
+          return sendJson(res, 200, { ok: true, v: 2, action, id, result: r, caps: summarize(caps) });
+        }
+        case 'catalog':
+        default: {
+          const tasks = await svc.catalog();
+          return sendJson(res, 200, { ok: true, v: 2, action: 'catalog', tasks, caps: summarize(caps) });
+        }
+      }
+    } catch (e) {
+      return sendJson(res, 400, {
+        ok: false, v: 2, error: 'schedule_failed',
+        detail: String(e?.message ?? e).slice(0, 300),
+      });
+    }
+  });
+
+  route('exact', '/v2/plan', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const svc = planSvc();
+    if (!svc) {
+      return sendJson(res, 503, {
+        ok: false, v: 2, error: 'plan_unavailable',
+        hint: '这个 DSH 版本没有 plan-mode 插件',
+      });
+    }
+    let body = {};
+    let sid = '';
+    let caps = '';
+    try {
+      if (String(req.method || 'GET').toUpperCase() === 'GET') {
+        const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+        sid = String(q.searchParams.get('session_id') || '');
+        caps = q.searchParams.get('caps') ?? '';
+      } else {
+        body = JSON.parse((await readBody(req)) || '{}');
+        sid = String(body.session_id || '');
+        caps = body.caps ?? '';
+      }
+    } catch { /* 用默认值 */ }
+    if (!capsAllowed(caps, 'plan.read')) {
+      return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'plan.read' });
+    }
+    const agent = liveAgentOf(sid);
+    if (!agent) {
+      return sendJson(res, 409, {
+        ok: false, v: 2, error: 'agent_not_live',
+        hint: '这条会话当前不在电脑端运行（plan 状态只能通过 live agent 读写）',
+      });
+    }
+    try {
+      if (String(req.method || 'GET').toUpperCase() !== 'GET') {
+        if (!capsAllowed(caps, 'plan.write')) {
+          return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'plan.write' });
+        }
+        if (typeof body.active !== 'boolean') {
+          return sendJson(res, 400, { ok: false, error: 'active_required' });
+        }
+        const how = svc.set(agent, body.active);
+        const st = svc.get(agent) ?? {};
+        return sendJson(res, 200, {
+          ok: true, v: 2, how, active: Boolean(st.active), pending: st.pending, caps: summarize(caps),
+        });
+      }
+      const st = svc.get(agent) ?? {};
+      return sendJson(res, 200, {
+        ok: true, v: 2, active: Boolean(st.active), pending: st.pending, caps: summarize(caps),
+      });
+    } catch (e) {
+      return sendJson(res, 400, {
+        ok: false, v: 2, error: 'plan_failed', detail: String(e?.message ?? e).slice(0, 300),
+      });
+    }
+  });
+
+  route('exact', '/v2/subagents', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let sid = '';
+    let caps = '';
+    try {
+      if (String(req.method || 'GET').toUpperCase() === 'GET') {
+        const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+        sid = String(q.searchParams.get('session_id') || '');
+        caps = q.searchParams.get('caps') ?? '';
+      } else {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        sid = String(b.session_id || '');
+        caps = b.caps ?? '';
+      }
+    } catch { /* 用默认值 */ }
+    if (!capsAllowed(caps, 'subagents.panel')) {
+      return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'subagents.panel' });
+    }
+    if (!sid) return sendJson(res, 400, { ok: false, error: 'session_id required' });
+    try {
+      const children = await subagentsOf(sid);
+      return sendJson(res, 200, { ok: true, v: 2, session_id: sid, children, caps: summarize(caps) });
+    } catch (e) {
+      return sendJson(res, 500, {
+        ok: false, v: 2, error: 'subagents_failed', detail: String(e?.message ?? e).slice(0, 300),
+      });
+    }
+  });
+
+  route('exact', '/v2/answer', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    if (String(req.method || 'GET').toUpperCase() === 'GET') {
+      return sendJson(res, 405, { ok: false, error: 'POST required' });
+    }
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch {
+      return sendJson(res, 400, { ok: false, error: 'bad json body' });
+    }
+    if (!capsAllowed(body.caps, 'questions.answer')) {
+      return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'questions.answer' });
+    }
+    // 答案批次：每个问题恰好一条 {id, selected:[], custom?}
+    const answers = Array.isArray(body.answers) ? body.answers : [];
+    const normalized = answers
+      .filter((a) => a && typeof a.id === 'string' && a.id)
+      .map((a) => ({
+        id: a.id,
+        selected: Array.isArray(a.selected) ? a.selected.map(String) : [],
+        ...(typeof a.custom === 'string' && a.custom.trim() ? { custom: a.custom.trim() } : {}),
+      }));
+    if (!normalized.length) return sendJson(res, 400, { ok: false, error: 'answers_required' });
+
+    // ⓪ 插件自己接管的反问（waterfall 里挂住的）：直接把答案 resolve 回去
+    const relayId = String(body.id ?? '').trim();
+    const relay = relayId ? phoneQuestions.get(relayId) : null;
+    if (relay) {
+      phoneQuestions.delete(relayId);
+      try { clearTimeout(relay.timer); } catch { /* ignore */ }
+      relay.resolve({ answers: normalized });
+      return sendJson(res, 200, { ok: true, v: 2, via: 'phone_relay', id: relayId });
+    }
+
+    // ① 走审批/问答网关：先答先赢（与桌面端竞争）
+    const gw = approvalGateway();
+    if (gw && body.id) {
+      try {
+        for (const pending of gw.pendingRemoteEvents.values()) {
+          if (String(pending.id) !== String(body.id)) continue;
+          if (String(pending?.frame?.event) !== 'user-questions/request') continue;
+          gw.settleRemoteEvent(pending, { kind: 'result', value: { answers: normalized } });
+          return sendJson(res, 200, { ok: true, v: 2, via: 'gateway', id: String(body.id) });
+        }
+      } catch { /* 网关结构变化，退回 continued */ }
+    }
+    // ② continued（超时后仍可答）：需要 live agent + callId
+    const sid = String(body.session_id || '');
+    const callId = String(body.call_id || '');
+    const svc = questionsSvc();
+    const agent = liveAgentOf(sid);
+    if (svc && typeof svc.answer === 'function' && agent && callId) {
+      try {
+        const accepted = await svc.answer(agent, callId, { answers: normalized });
+        return sendJson(res, 200, {
+          ok: Boolean(accepted), v: 2, via: 'continued',
+          hint: accepted ? undefined : '这条问题已经不可回答（已过期或已结算）',
+        });
+      } catch (e) {
+        return sendJson(res, 400, {
+          ok: false, v: 2, error: 'answer_failed', detail: String(e?.message ?? e).slice(0, 300),
+        });
+      }
+    }
+    return sendJson(res, 404, {
+      ok: false, v: 2, error: 'question_not_found',
+      hint: '问题已结束，或这条会话不在电脑端运行（continued 需要 live agent）',
+    });
+  });
+
+  // 磁盘会话数的短缓存：statusBody 被面板 5 秒轮询一次，别每次都全盘 stat
+  let dshSessionsCache = { at: 0, n: 0 };
+  const dshSessionsOnDisk = () => {
+    const now = Date.now();
+    if (now - dshSessionsCache.at > 3000) {
+      try { dshSessionsCache = { at: now, n: sessionFileIndex().size }; }
+      catch { dshSessionsCache = { at: now, n: dshSessionsCache.n || 0 }; }
+    }
+    return dshSessionsCache.n;
+  };
+  /**
+   * 执行位置（会话属性，不是"模式"）。
+   *
+   * 统一的自动策略：
+   *   · 会话在桌面端活着（live agent）→ host（宿主内，零冷启动，桌面实时可见）
+   *   · 否则 → cli（子进程续写，桌面没开也能用）
+   * 用户不再需要选"同步/直连"，只有"跟哪条对话"。
+   */
+  const executionInfo = (sid) => {
+    const live = (() => { try { return Boolean(sid) && Boolean(ctx.agents?.get?.(sid)); } catch { return false; } })();
+    const hostOnly = cfg.cliMode === false;
+    const preferred = hostOnly || live ? 'host' : 'cli';
+    return {
+      mode: hostOnly ? 'host-only' : 'auto',
+      kind: preferred,
+      preferred,
+      reason: hostOnly
+        ? '插件配置为仅宿主内执行'
+        : (live ? '会话正在桌面端打开，走宿主内（无冷启动）' : '会话未在桌面端打开，走 CLI 续写'),
+      profile: preferred === 'host' ? null : String(cfg.cliProfile || 'headless'),
+      cwd: String(cfg.workingDir || '') || null,
+      policy: String(CLI_PERM.mode),
+    };
+  };
+  /**
+   * 会话 token / 上下文 / 模型（2026-11-13）：给手机状态栏显示"上下文占用、本轮 token、模型"。
+   *
+   * 数据来自宿主 tokenMeter 服务（sessionProjections 投影）：
+   *   contextPressure(session) -> { pressureTokens, contextWindow }
+   *   measure(session)         -> { totalTokens, surfaceTokens }
+   * 会话不在本进程（没在跑）或服务不可用时返回 ok:false + reason，不抛。
+   */
+  const lastRequestHeaderOf = (session) => {
+    try {
+      const seq = Number(session?.seq ?? 0);
+      const floor = Math.max(1, seq - 300);
+      for (let i = seq; i >= floor; i -= 1) {
+        const e = session?.eventAt?.(i);
+        if (e?.type !== 'request/header') continue;
+        const head = e?.data?.header?.config ?? {};
+        if (!head.model && !head.provider) continue;
+        return {
+          provider: String(head.provider ?? ''),
+          model: String(head.model ?? ''),
+          max_tokens: Number(head.maxTokens ?? 0) || null,
+          effort: String(head.reasoningEffort ?? ''),
+        };
+      }
+    } catch { /* 尾部不可读就当没有 */ }
+    return null;
+  };
+
+  /**
+   * 会话 token 桶（含缓存命中）：按 seq 增量累加，避免每次请求全量扫上万条事件。
+   * 来源与 token-meter 的 usage-projection 一致：assistant/message|attempt 的 data.usage
+   * 或 stream 里最后一个 usage 样本。
+   */
+  const SESSION_TOKEN_CACHE = new Map();
+  const lastStreamUsage = (node, depth = 0) => {
+    if (!node || typeof node !== 'object' || depth > 4) return null;
+    if (node.usage && typeof node.usage === 'object') return node.usage;
+    if (Array.isArray(node)) {
+      for (let i = node.length - 1; i >= 0; i -= 1) {
+        const u = lastStreamUsage(node[i], depth + 1);
+        if (u) return u;
+      }
+      return null;
+    }
+    const keys = Object.keys(node);
+    for (let i = keys.length - 1; i >= 0; i -= 1) {
+      const u = lastStreamUsage(node[keys[i]], depth + 1);
+      if (u) return u;
+    }
+    return null;
+  };
+  const tokenBucketsOf = (sid, session) => {
+    const seq = Number(session?.seq ?? 0);
+    let c = SESSION_TOKEN_CACHE.get(sid);
+    if (!c || c.seq > seq) c = { seq: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    const from = Math.max(1, Number(c.seq) + 1);
+    for (let i = from; i <= seq; i += 1) {
+      let e = null;
+      try { e = session?.eventAt?.(i); } catch { e = null; }
+      if (!e) continue;
+      if (e.type !== 'assistant/message' && e.type !== 'assistant/attempt') continue;
+      const u = e?.data?.usage ?? lastStreamUsage(e?.data?.stream);
+      if (!u) continue;
+      c.input += Number(u.inputTokens ?? 0) || 0;
+      c.output += Number(u.outputTokens ?? 0) || 0;
+      c.cacheRead += Number(u.cacheReadTokens ?? 0) || 0;
+      c.cacheWrite += Number(u.cacheWriteTokens ?? 0) || 0;
+    }
+    c.seq = seq;
+    SESSION_TOKEN_CACHE.set(sid, c);
+    return c;
+  };
+
+  const sessionUsage = (sid) => {
+    const out = { ok: false, session_id: sid };
+    if (!sid) { out.reason = 'no_session'; return out; }
+    let session = null;
+    try { session = ctx.sessions?.get?.(sid) ?? null; } catch { session = null; }
+    if (!session) { out.reason = 'session_not_live'; return out; }
+    const meter = ctx.tokenMeter;
+    if (!meter) { out.reason = 'no_token_meter'; return out; }
+    try {
+      const pressure = meter.contextPressure?.(session) ?? {};
+      const measured = meter.measure?.(session) ?? {};
+      out.ok = true;
+      out.pressure_tokens = Number.isFinite(pressure.pressureTokens) ? pressure.pressureTokens : null;
+      out.context_window = Number.isFinite(pressure.contextWindow) ? pressure.contextWindow : null;
+      out.total_tokens = Number(measured.totalTokens ?? 0) || 0;
+      out.surface_tokens = Number(measured.surfaceTokens ?? 0) || 0;
+      const head = lastRequestHeaderOf(session);
+      if (head) {
+        out.provider = head.provider;
+        out.model = head.model;
+        out.max_tokens = head.max_tokens;
+        out.effort = head.effort;
+      }
+      const buckets = tokenBucketsOf(sid, session);
+      const promptTokens = buckets.input + buckets.cacheRead + buckets.cacheWrite;
+      out.input_tokens = buckets.input;
+      out.output_tokens = buckets.output;
+      out.cache_read_tokens = buckets.cacheRead;
+      out.cache_write_tokens = buckets.cacheWrite;
+      out.cache_hit_pct = promptTokens > 0
+        ? Math.round((buckets.cacheRead * 100) / promptTokens) : 0;
+    } catch (e) { out.reason = String(e?.message ?? e).slice(0, 160); }
+    return out;
+  };
+
+  const statusBody = () => ({
+    ok: true,
+    service: 'dsh-plugin-remote',
+    version: 8,
+    protocol: 2,
+    bridge: 'dsh-plugin',
+    channels: { session_acp: true, exec: allowExec === true },
+    acp_agent: { provider: cfg.provider || '(none)', model: cfg.model || '(none)', preset: lastPreset, transport: 'in-process' },
+    permission_policy: allowExec === true ? 'workspace-write' : 'read-only',
+    session_streams: handles.size,
+    // ★ 语义修正（v8.1）：sessions_count 曾经是 handles.size（插件内存里的流），
+    //   手机端标签却写"电脑端 dsh 会话数"，于是明明有 110 条会话却显示 0。
+    //   现在：sessions_count = 磁盘上的真实会话数；插件在管流单独给 plugin_sessions。
+    sessions_count: dshSessionsOnDisk(),
+    plugin_sessions: handles.size,
+    active_jobs: activeJobs,
+    // 插件自身能力状态（诊断）：phone_ui 是否真的注册上了；反问中继有没有收到事件
+    plugin_features: {
+      phone_tool: PHONE_TOOL_STATE.registered,
+      phone_tool_error: PHONE_TOOL_STATE.error,
+      question_relay: QRELAY,
+      approval_relay: ARELAY,
+      approval_debug: APPDBG,
+      test_approval: { pending: TEST_APPROVALS.size, log: TEST_APPROVAL_LOG.slice(-5) },
+    },
+    // ★ 单一文案模板：手机 / 电脑 UI 直接渲染这组行，不再各自拼一套说法
+    text_lines: (() => {
+      const disk = dshSessionsOnDisk();
+      return [
+        `插件 v8 · ${allowExec === true ? '可执行' : '只读'}`,
+        `电脑端会话 ${disk} 条（插件在管 ${handles.size} 条）`,
+        `执行位置：${cfg.cliMode === false ? '宿主进程内' : 'CLI 子进程'}`,
+        `在跑任务：${activeJobs}${activeJobs ? '' : '（空闲）'}`,
+      ];
+    })(),
+    // 直连模式的 CLI 子进程池：running/queued 是面板与手机端判断"电脑忙不忙"的依据
+    cli: {
+      mode: cfg.cliMode === false ? 'in-process' : 'cli',
+      running: CLI_SLOT.running,
+      queued: CLI_SLOT.queued,
+      max: CLI_SLOT.max,
+      warm_reuse: cfg.warmReuse === true,
+      max_queued: CLI_SLOT.maxQueued,
+      priority: 'below-normal',
+      timeout_ms: Number(cfg.cliTimeoutMs) || 300000,
+    },
+    devices: devices.devices.length,
+    // 2026-11-14 插话模式：哪些会话正在跑、各排了几条手机插话（排查"发了没反应"看这里）
+    interject: {
+      busy: [...SESSION_BUSY.entries()].map(([sid, v]) => ({
+        session_id: sid, kind: v.kind, since: v.since, ms: Date.now() - v.since,
+      })),
+      queues: [...SESSION_INBOX.entries()].map(([sid, q]) => ({ session_id: sid, queued: q.length })),
+      max: SESSION_INBOX_MAX,
+    },
+    // WebSocket 实时通道当前客户端数（2026-11-14）：面板/自检据此判断"手机是不是走 WS"。
+    // 0 不代表没连——可能是走了 SSE（隧道链路）或还没连。
+    ws_clients: WS_CLIENTS.size,
+    /** 插槽世代（§20 修订）：插件重载后变化；App 据此重置 rev 水位（诊断用）。 */
+    slot_epoch: SLOT_EPOCH,
+    /**
+     * 每个已连接客户端的能力协商摘要（2026-11-15，§18 能力协商体检）。
+     *
+     * <p>字段口径（与 `caps.js` 的 `clientCaps()` 一致，文档见
+     * `docs/dsh-remote-ui-design/34-component-pipeline-audit.md` §18）：</p>
+     * <ul>
+     *   <li>{@code clients[].session_id}：连接订阅的电脑会话；</li>
+     *   <li>{@code clients[].transport}：{@code ws} / {@code sse}；{@code channel}：端点路径；</li>
+     *   <li>{@code clients[].declared}：客户端**已声明**的能力数组（legacy 为 []）；
+     *       {@code declared_count} 是它的长度；</li>
+     *   <li>{@code clients[].missing}：服务端有、该客户端没声明的（legacy 恒为 []，不裁剪）；</li>
+     *   <li>{@code clients[].unknown}：客户端声明了但服务端不认识（客户端比服务端新时出现）；</li>
+     *   <li>{@code clients[].legacy}：true = 没带 caps，服务端一切照发；</li>
+     *   <li>{@code clients[].version}：caps 协议版本（{@code CAP_VERSION}）。</li>
+     * </ul>
+     */
+    caps: {
+      version: CAP_VERSION,
+      server_count: SERVER_CAPS.length,
+      clients: [...STREAM_HUB].map((sub) => ({
+        session_id: String(sub.sid ?? ''),
+        transport: String(sub.transport ?? 'sse'),
+        channel: String(sub.channel ?? '/events'),
+        ...clientCaps(sub.caps),
+      })),
+    },
+    // 各端点在线数：看"是不是一条通道堵住另一条"（2026-11-14 端点分工）
+    ws_channels: Object.fromEntries(WS_CHANNEL_COUNT),
+    ws_stats: Object.fromEntries(WS_STATS),
+    // A1：锚点账本（设备 × 会话，二维键）
+    anchors: [...ANCHORS.values()],
+    // C6：客户端自更新（保守版）。配置里填了才下发；手机只提示、下载、校验 sha256，
+    // 最后由系统安装器让用户确认——插件从不静默安装。
+    // cfg.appRelease = { version, url, sha256, notes? }
+    app_release: (() => {
+      // C6 自测模式：没配 cfg.appRelease 时，用构建出来的 APK 自动组装一份
+      const c = (cfg.appRelease && typeof cfg.appRelease === 'object') ? cfg.appRelease : null;
+      const version = Number(c && c.version) || 0;
+      const url = String((c && c.url) || '');
+      const sha256 = String((c && c.sha256) || '');
+      const notes = String((c && c.notes) || '');
+      if (version && url && sha256) return { version, url, sha256, notes };
+      return appReleaseAuto;
+    })(),
+    // 主令牌最近一次被使用的时间：手机端只有在"还没换成设备令牌"或"用设备令牌失败退回主令牌"时才走主令牌，
+    // 有值就说明当前有连接在用主令牌（面板据此提示，避免把"设备数 0"误读成"没人连着"）
+    main_token_last_seen: mainTokenLastSeen,
+    pairing_codes_pending: pairingCodes.size,
+    prompts: promptCount,
+    // 隧道/公网域名：手机连接页的“隧道域名”就用它；没配置时是空串
+    public_url: String(cfg.publicUrl ?? '').trim(),
+    port: ctx.webServer.port,
+    uptime_ms: Date.now() - startedAt,
+    // ---- 新增：双端能力的可见状态（面板据此显示）----
+    events: { since: true, log_replay: true, snapshot: true, heartbeat: 15 },
+    approval_relay: (() => {
+      const gw = (() => { try { return approvalGateway(); } catch { return null; } })();
+      let pending = 0;
+      try { pending = pendingRemoteOf(null, 'approval').length + pendingRemoteOf(null, 'question').length; } catch { /* ignore */ }
+      return { gateway: Boolean(gw), pending };
+    })(),
+    cmd_queue: (() => {
+      const list = [...cmdQueue.values()];
+      return {
+        allowed: [...CMD_ALLOW],
+        queued: list.filter((c) => c.state !== 'done').length,
+        done: list.filter((c) => c.state === 'done').length,
+        recent: list.slice(-5).map((c) => ({
+          id: c.id, tool: c.tool, state: c.state, ok: c.ok, at: c.createdAt,
+          result: String(c.result || '').slice(0, 120),
+        })),
+      };
+    })(),
+  });
+
+  // ==================== 自检 / 双端对账 ====================
+  /** 目录在 OS 层是否真实存在（asar 内部虚拟路径在 OS 层不存在） */
+  const realDir = (p) => {
+    try { return statSync(String(p || '')).isDirectory(); } catch { return false; }
+  };
+  /** process.cwd() 在目录被删后会抛异常，必须包住 */
+  const safeCwd = () => { try { return process.cwd(); } catch { return ''; } };
+
+  /** 自检项的**单一来源**：/health、/v2/view、电脑面板、手机页面都渲染这一份，杜绝三处各写一套 */
+  const buildHealthChecks = () => {
+    const cwd = safeCwd();
+    const cwdOk = Boolean(cwd) && realDir(cwd);
+    const home = String(process.env.DSH_HOME || '');
+    const homeOk = Boolean(home) && realDir(home);
+    const checks = [
+      {
+        name: 'host_cwd', ok: cwdOk, severity: 'error',
+        detail: cwdOk ? cwd : `工作目录不存在或不是目录：${cwd || '(空)'}`,
+        hint: 'cwd 无效会让所有起子进程的工具报 ENOENT（看起来像 powershell/rg 丢了，其实是被 cwd 连累）',
+      },
+      {
+        name: 'dsh_home', ok: homeOk, severity: 'error',
+        detail: home ? (homeOk ? home : `DSH_HOME 不存在：${home}`) : '(未设置 DSH_HOME)',
+      },
+      {
+        name: 'exec_channel', ok: allowExec === true, severity: 'info',
+        detail: allowExec === true ? '已允许远程执行命令' : '远程执行已关闭（/exec 与 shell 动作会被拒）',
+      },
+      {
+        name: 'agent_preset', ok: lastPreset !== '(unset)' && !/^error/.test(String(lastPreset)), severity: 'warn',
+        detail: String(lastPreset),
+        hint: '(unset) = 还没有通过插件建过会话；error: 开头 = 预设挂载失败，会话会"启动却无事可做"',
+      },
+      {
+        name: 'session_mount', ok: handles.size > 0, severity: 'info',
+        detail: `在管会话 ${handles.size} 条（会话级流 ${handles.size}）`,
+      },
+    ];
+    return { cwd, cwdOk, home, homeOk, checks };
+  };
+
+  /**
+   * GET /health —— 探活 + 自检。
+   *
+   * 未鉴权且非本机时只回最小信息：手机首次探测桥接时还没有令牌，收紧会直接打断配对。
+   * 带令牌（或本机）才返回路径/能力明细。
+   */
+  route('exact', '/health', (req, res) => {
+    const detailed = (() => { try { return isLocal(req) || authOk(req) === true; } catch { return false; } })();
+    if (!detailed) {
+      return sendJson(res, 200, { ok: true, service: 'dsh-plugin-remote', version: 8, detail: false });
+    }
+    const { cwd, cwdOk, home, homeOk, checks } = buildHealthChecks();
+    const preserved = ['DSH_HOME', 'DSH_PROFILE', 'DSH_SESSION_ID'].filter((k) => Boolean(process.env[k]));
+    sendJson(res, 200, {
+      ok: checks.every((c) => c.ok || c.severity !== 'error'),
+      service: 'dsh-plugin-remote', version: 8,
+      pid: process.pid, node: process.version, platform: process.platform,
+      uptime_ms: Date.now() - startedAt,
+      cwd: { path: cwd, exists: cwdOk, warning: CWD_GUARD.lastWarning },
+      dsh_home: { path: home, exists: homeOk },
+      exec: { allowed: allowExec === true, permission_policy: allowExec === true ? 'workspace-write' : 'read-only' },
+      agent: {
+        preset: String(lastPreset), selection: String(lastSelection),
+        plugin_sessions: handles.size, dsh_sessions_total: dshSessionsOnDisk(),
+      },
+      cli: { running: CLI_SLOT.running, queued: CLI_SLOT.queued, mode: cfg.cliMode === false ? 'in-process' : 'cli' },
+      // 2026-11-14 插话模式：哪些会话正在跑、各自排了几条手机插话（诊断"发了没反应"看这里）
+      interject: {
+        busy: [...SESSION_BUSY.entries()].map(([sid, v]) => ({
+          session_id: sid, kind: v.kind, since: v.since, ms: Date.now() - v.since,
+        })),
+        queues: [...SESSION_INBOX.entries()].map(([sid, q]) => ({ session_id: sid, queued: q.length })),
+        max: SESSION_INBOX_MAX,
+      },
+      env: { preserved },
+      checks,
+      checked_at: Date.now(),
+    });
+  });
+
+  /**
+   * POST /reconcile —— 双端对账。
+   *
+   * 手机把"它认为的对话"发上来，电脑侧拿落盘日志做权威版本，
+   * 逐条比对（role+text）并给出第一个分歧点 + 缺失/多余条目，手机据此补拉或截断。
+   * 也可以只给 digest / last_seq 做轻量校验（不传正文时）。
+   *
+   * 请求：{ session_id, messages?: [{role,text}], digest?, last_seq? }
+   * 返回：{ verdict: match|diverged|no_session|unknown, host:{...}, diff:{...} }
+   */
+  const reconcileHandler = async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let body = {};
+    try {
+      if (String(req.method || 'GET').toUpperCase() === 'GET') {
+        const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+        body = {
+          session_id: q.searchParams.get('session_id') || '',
+          digest: q.searchParams.get('digest') || undefined,
+          last_seq: q.searchParams.get('last_seq') || undefined,
+          light: q.searchParams.get('light') === '1' ? '1' : undefined,
+        };
+      } else {
+        body = JSON.parse((await readBody(req)) || '{}');
+        if (!body || typeof body !== 'object') body = {};
+      }
+    } catch { return sendJson(res, 400, { ok: false, error: 'bad json body' }); }
+
+    const sid = String(body.session_id || body.sessionId || '').trim();
+    if (!sid) return sendJson(res, 400, { ok: false, error: 'session_id required' });
+
+    const svc = persistence();
+    if (!svc || typeof svc.open !== 'function') return sendJson(res, 503, { ok: false, error: 'sessionPersistence 不可用' });
+
+    let events = [];
+    let header = {};
+    try {
+      const handle = await svc.open(sid, 'read');
+      try {
+        const got = await handle.read();
+        events = Array.isArray(got) ? got : (got?.events ?? []);
+        header = handle?.header ?? {};
+      } finally { try { await handle.close?.(); } catch { /* 已关 */ } }
+    } catch (e) {
+      return sendJson(res, 404, {
+        ok: false, verdict: 'no_session', session_id: sid,
+        error: String(e?.message ?? e).slice(0, 200),
+        hint: '电脑上没有这条会话：可能已被删除/归档，或 session_id 属于手机本地',
+      });
+    }
+
+    const rows = [];
+    for (const ev of events) {
+      const m = messageOf(ev);
+      if (m) rows.push({ ...m, id: messageIdOf(ev), seq: Number(ev?.seq) || 0 });
+    }
+    const key = (m) => `${m.role}\u0000${String(m.text ?? '').replace(/\s+/g, ' ').trim()}`;
+    const hostLines = rows.map(key);
+    const digestOf = (lines) => createHash('sha256').update(lines.join('\n')).digest('hex');
+    const hostDigest = digestOf(hostLines);
+    const lastSeq = events.reduce((a, ev) => Math.max(a, Number(ev?.seq) || 0), 0);
+    const lastTime = events.reduce((a, ev) => Math.max(a, Number(ev?.time) || 0), 0);
+
+    // 手机可在同一次请求里顺带回执（批量 ack），省一次往返
+    if (Array.isArray(body.acks) && body.acks.length) {
+      ACK_STORE.set(sid, {
+        acked_seq: body.acks.reduce((a, x) => Math.max(a, Number(x?.seq) || 0), 0),
+        acked_ids: body.acks.map((x) => x?.id).filter((x) => typeof x === 'string' && x),
+      });
+    }
+    const storedAck = ACK_STORE.get(sid) ?? { acked_seq: 0, acked_ids: [] };
+    const ackedSeq = Number(storedAck.acked_seq) || 0;
+    const ackSummary = {
+      acked_seq: ackedSeq,
+      acked_count: Array.isArray(storedAck.acked_ids) ? storedAck.acked_ids.length : 0,
+      updated_at: storedAck.updated_at ?? null,
+      unacked_count: rows.filter((r) => r.seq > ackedSeq).length,
+      unacked: rows.filter((r) => r.seq > ackedSeq).slice(0, 20),
+    };
+
+    // light=1：只回摘要（手机定时对账用，不需要正文）
+    const light = body.light === true || String(body.light ?? '') === '1';
+    if (light) {
+      // 对账的"权威口径"只有一个：seq 游标。
+      // 老版只回 summary，手机永远判不出"对不对"；现在带 last_seq（手机已收到的最大序号）
+      // 就回 match/behind + gap，客户端不需要再自己算摘要。
+      const clientSeqLight = (() => {
+        const raw = Number(body.last_seq ?? body.client_last_seq);
+        return Number.isFinite(raw) && raw >= 0 ? raw : null;
+      })();
+      const gap = clientSeqLight === null ? null : Math.max(0, lastSeq - clientSeqLight);
+      const verdictLight = gap === null ? 'summary' : (gap === 0 ? 'match' : 'behind');
+      return sendJson(res, 200, {
+        ok: true, session_id: sid, verdict: verdictLight, checked_at: Date.now(), light: true,
+        host: {
+          exists: true, event_count: events.length, last_seq: lastSeq, last_time: lastTime,
+          message_count: rows.length, digest: hostDigest,
+        },
+        client: { last_seq: clientSeqLight },
+        gap,
+        ack: ackSummary,
+      });
+    }
+
+    const clientLines = Array.isArray(body.messages)
+      ? body.messages.map((m) => key({ role: m?.role === 'assistant' ? 'assistant' : 'user', text: m?.text ?? m?.content ?? '' }))
+      : null;
+    const clientDigest = typeof body.digest === 'string' ? body.digest
+      : typeof body.client_digest === 'string' ? body.client_digest : null;
+    const clientSeq = Number(body.last_seq ?? body.client_last_seq);
+
+    let verdict = 'unknown';
+    let diff = null;
+    if (clientLines) {
+      const n = Math.min(clientLines.length, hostLines.length);
+      let first = -1;
+      for (let i = 0; i < n; i++) { if (clientLines[i] !== hostLines[i]) { first = i; break; } }
+      const same = first === -1 && clientLines.length === hostLines.length;
+      verdict = same ? 'match' : 'diverged';
+      const toPair = (s) => { const i = s.indexOf('\u0000'); return { role: s.slice(0, i), text: s.slice(i + 1) }; };
+      diff = {
+        first_divergence: first,
+        host_count: hostLines.length,
+        client_count: clientLines.length,
+        // first===-1 且数量不同 → 手机少了尾部若干条，补拉即可
+        missing_on_client: (first === -1 ? hostLines.slice(clientLines.length) : hostLines.slice(first)).slice(0, 20).map(toPair),
+        extra_on_client: (first === -1 ? [] : clientLines.slice(first)).slice(0, 20).map(toPair),
+        host_tail: rows.slice(-3),
+      };
+      if (clientLines.length > hostLines.length && first === -1) {
+        diff.hint = '手机端比电脑端多出尾部消息：可能是本地未送达的草稿，或电脑端回滚过';
+      }
+    } else if (clientDigest) {
+      verdict = clientDigest === hostDigest ? 'match' : 'diverged';
+    }
+
+    sendJson(res, 200, {
+      ok: true, session_id: sid, verdict, checked_at: Date.now(),
+      host: {
+        exists: true,
+        agent_preset: String(header.agentPreset ?? ''),
+        event_count: events.length,
+        last_seq: lastSeq,
+        last_time: lastTime,
+        message_count: hostLines.length,
+        digest: hostDigest,
+        tail: rows.slice(-3),
+      },
+      client: {
+        digest: clientDigest,
+        last_seq: Number.isFinite(clientSeq) ? clientSeq : null,
+        message_count: clientLines ? clientLines.length : null,
+      },
+      ack: ackSummary,
+      diff,
+      note: 'host.digest = sha256(每行 "role\\0text"，按顺序拼接换行)；手机端用同样算法即可离线自校验',
+    });
+  };
+
+  // 同一实现两个门牌：/reconcile（旧）与 /v2/reconcile（新客户端）
+  route('exact', '/reconcile', reconcileHandler);
+  route('exact', '/v2/reconcile', reconcileHandler);
+
+  /**
+   * POST /ack —— 回执（对账的另一半）。
+   *
+   * 请求：{ session_id, seq?, ids?: string[] }
+   * 语义：手机确认"seq 及之前的消息我都完整收到了"，和/或"这些 id 收到了"。
+   * 水位线单调只增，落盘到 .acks.json，重启不丢；断线重连后只补水位线之后的部分。
+   */
+  /**
+   * 请求 → 设备（2026-11-14）：SSE 与 /ack 都要按令牌认设备，才能把回执水位线写回锚点账本。
+   * 认不出（本机调用/主令牌）就返回 undefined，账本那侧跳过。
+   */
+  const deviceOfRequest = (req) => {
+    try {
+      const m = /^Bearer\s+(.+)$/i.exec((String(req?.headers?.authorization ?? '')).trim());
+      return m ? deviceByToken(m[1]) : undefined;
+    } catch { return undefined; }
+  };
+
+  /** 把手机的回执水位线写回（设备 × 会话）的锚点：以后 A5 的"已读到哪"两端同一份账 */
+  const rememberAnchorAck = (dev, sid, seq) => {
+    try {
+      const n = Number(seq) || 0;
+      if (!dev || !sid || n <= 0) return;
+      const a = anchorFor(dev.id, sid, false);
+      if (!a) return;
+      if (n > (Number(a.acked_seq) || 0)) {
+        a.acked_seq = n;
+        a.updated_at = Date.now();
+        saveAnchors();
+      }
+    } catch { /* 账本写失败不影响回执本身 */ }
+  };
+
+  const ackHandler = async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { return sendJson(res, 400, { ok: false, error: 'bad json body' }); }
+    const sid = String(body.session_id || body.sessionId || '').trim();
+    if (!sid) return sendJson(res, 400, { ok: false, error: 'session_id required' });
+    const ids = (Array.isArray(body.ids) ? body.ids : (body.id ? [body.id] : []))
+      .filter((x) => typeof x === 'string' && x);
+    const seq = Number(body.seq) || 0;
+    if (!seq && ids.length === 0) return sendJson(res, 400, { ok: false, error: 'seq 或 ids 至少给一个' });
+    const next = ACK_STORE.set(sid, { acked_seq: seq, acked_ids: ids });
+    rememberAnchorAck(deviceOfRequest(req), sid, next.acked_seq);
+    sendJson(res, 200, {
+      ok: true, session_id: sid,
+      ack: { acked_seq: next.acked_seq, acked_count: next.acked_ids.length, updated_at: next.updated_at },
+      note: '回执水位线只增不减；下次 /reconcile 会按它算 unacked',
+    });
+  };
+
+  route('exact', '/ack', ackHandler);
+  route('exact', '/v2/ack', ackHandler);
+
+  /** WS `ack` 帧复用同一套水位线逻辑（HTTP 与 WS 两条通道口径一致） */
+  const applyAck = (sid, seq, dev) => {
+    if (!sid || !(Number(seq) > 0)) return;
+    ACK_STORE.set(sid, { acked_seq: Number(seq), acked_ids: [] });
+    rememberAnchorAck(dev, sid, seq);
+  };
+
+  // ==================== 协议 v2：握手 / 视图 / 消息 / 事件流 ====================
+
+  /**
+   * 连接登记表（内存）：谁在连着、最后心跳什么时候。
+   * 不做持久化 —— 连接状态本来就有时效性，重启后重新登记即可。
+   */
+  const CONNECTIONS = new Map();
+  const CONNECTION_TTL_MS = 30000;   // 30s 没有心跳视为离线（心跳 10s，留 3 个周期）
+  const touchConnection = (sid, kind = 'sse') => {
+    if (!sid) return;
+    const prev = CONNECTIONS.get(sid) || {};
+    CONNECTIONS.set(sid, { ...prev, kind, last_seen: Date.now() });
+  };
+  const dropConnection = (sid) => { CONNECTIONS.delete(sid); };
+  // 2026-11-16：顺手清掉僵尸连接。此前只映射不过滤，超过 TTL 的条目会一直留在表里
+  // （/v2/pulse 里能看到 age 165s、online:false 的陈旧记录），既占内存又误导排查。
+  const connectionSnapshot = () => {
+    const now = Date.now();
+    const rows = [];
+    for (const [sid, v] of [...CONNECTIONS.entries()]) {
+      const age = now - (v.last_seen || 0);
+      if (age >= CONNECTION_TTL_MS) {
+        CONNECTIONS.delete(sid);
+        continue;
+      }
+      rows.push({
+        session_id: sid,
+        kind: v.kind || 'sse',
+        last_seen: v.last_seen || 0,
+        age_ms: age,
+        online: true,
+      });
+    }
+    return rows;
+  };
+
+  /**
+   * 字段字典：两端 UI 只准用这里定义的名字。
+   * 之前 "sessions_count=0" 的事故就是同一个词在两处指不同的东西造成的。
+   */
+  const FIELD_DICT = {
+    'sessions_count': { type: 'int', owner: 'server', meaning: '电脑磁盘上的真实会话数' },
+    'plugin_sessions': { type: 'int', owner: 'server', meaning: '插件内存里托管的会话流数量' },
+    'active_jobs': { type: 'int', owner: 'server', meaning: '插件此刻正在执行的任务数（0 = 空闲）' },
+    'session_streams': { type: 'int', owner: 'server', meaning: '同 plugin_sessions，保留旧名' },
+    'last_seq': { type: 'int', owner: 'server', meaning: '会话事件流的最大序号' },
+    'acked_seq': { type: 'int', owner: 'server', meaning: '客户端已确认收到的最大序号（只增不减）' },
+    'digest': { type: 'string', owner: 'server', meaning: 'sha256(每行 role\\0text 换行拼接)' },
+    'execution': { type: 'string', owner: 'server', meaning: 'host = 宿主进程内；cli = 子进程（会话属性，不是模式）' },
+    'verdict': { type: 'string', owner: 'server', meaning: 'match | diverged | no_session | summary | unknown' },
+  };
+
+  route('exact', '/v2/schema', (req, res) =>
+    sendJson(res, 200, { ok: true, v: 2, fields: FIELD_DICT }));
+
+  /**
+   * POST /v2/hello —— 握手 + 能力协商。
+   * 客户端先问"你能给我什么"，再决定调哪些接口；不再靠猜版本。
+   */
+  route('exact', '/v2/hello', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let body = {};
+    try {
+      if (String(req.method || 'GET').toUpperCase() === 'GET') {
+        const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+        body = { session_id: q.searchParams.get('session_id') || '' };
+      } else {
+        body = JSON.parse((await readBody(req)) || '{}');
+      }
+    } catch { body = {}; }
+    const sid = String(body?.session_id || '').trim();
+    // 能力协商（2026-11-12）：客户端带 caps 就按它裁剪下发内容；不带则是 legacy（一切照发）。
+    const caps = summarize(body?.caps);
+    const client = body?.client && typeof body.client === 'object' ? body.client : null;
+    sendJson(res, 200, {
+      ok: true, v: 2,
+      server: { name: 'smartquiz-remote', version: 8, node: process.version, platform: process.platform },
+      capabilities: [...SERVER_CAPS],
+      caps,
+      client: client ? {
+        id: String(client.id ?? ''), kind: String(client.kind ?? ''), ver: String(client.ver ?? ''),
+      } : null,
+      // 兼容旧字段：features 仍是布尔表，但已按客户端能力裁剪（legacy 客户端全部为 true）
+      features: {
+        event_stream: true, since_replay: true, ack_watermark: true,
+        view_model: true, tool_cards: true, approval_relay: Boolean(approvalGateway()),
+        approval_timeline: !caps.missing.includes('parts.approval'),
+        view_timeline: !caps.missing.includes('view.cards.timeline'),
+      },
+      session: sid ? { id: sid, exists: await sessionExists(sid) } : null,
+      limits: { max_message_chars: 200000, stream_keepalive_ms: 15000, stream_max_ms: 600000 },
+      server_time: Date.now(),
+    });
+  });
+
+  /**
+   * GET /v2/view —— 服务端派生 ViewModel。
+   *
+   * 这是"两端同一个界面"的关键：电脑面板与手机页面都只渲染 cards[]，
+   * 文案/排序/状态色只在服务端定义一次，再也不会出现"同一个数字两种解释"。
+   */
+  const buildView = async (sid, opts = {}) => {
+    const st = statusBody();
+    const { cwd, checks } = buildHealthChecks();
+    const cards = [
+      {
+        kind: 'status', title: '电脑端',
+        rows: [
+          { label: '插件', value: 'v' + st.version + (st.channels.exec ? ' · 可执行' : ' · 只读') },
+          { label: '会话', value: `${st.sessions_count} 条（插件在管 ${st.plugin_sessions}）` },
+          { label: '执行位置', value: (() => {
+            const ex = executionInfo(sid);
+            return (ex.preferred === 'host' ? '宿主内' : 'CLI 子进程') + '（自动 · ' + ex.reason + '）';
+          })() },
+          { label: '在跑任务', value: st.active_jobs ? String(st.active_jobs) : '0（空闲）' },
+          { label: '工作目录', value: cwd || '(未知)' },
+        ],
+      },
+      {
+        kind: 'checks', title: '自检',
+        items: checks.map((c) => ({
+          state: c.ok ? 'ok' : (c.severity === 'error' ? 'error' : 'warn'),
+          name: c.name, detail: c.detail, hint: c.hint || null,
+        })),
+      },
+      {
+        kind: 'connections', title: '连接（呼吸）',
+        items: (() => {
+          const list = connectionSnapshot();
+          if (!list.length) {
+            return [{ state: 'warn', name: '无活动连接', detail: '手机端当前没有订阅事件流（心跳 10s / 30s 判离线）' }];
+          }
+          return list.map((c) => ({
+            state: c.online ? 'ok' : 'warn',
+            name: String(c.session_id).slice(0, 24),
+            detail: `${c.kind} · ${Math.round(c.age_ms / 1000)}s 前心跳`,
+          }));
+        })(),
+      },
+    ];
+
+    let header = { session_id: sid || '', title: '', badge: st.channels.exec ? '可执行' : '只读' };
+    if (sid) {
+      try {
+        const head = await readStoredHead(sid);
+        const ack = ACK_STORE.get(sid) ?? { acked_seq: 0, acked_ids: [] };
+        header = { session_id: sid, title: head.title || sid, badge: '已连接' };
+        cards.push({
+          kind: 'session', title: head.title || sid,
+          rows: [
+            { label: '会话', value: sid },
+            { label: '预设', value: head.agentPreset || '(未知)' },
+            { label: '回执', value: 'seq=' + (Number(ack.acked_seq) || 0) },
+          ],
+        });
+        // 待回答的提问：仍然在这里汇总。
+        // 审批不再进这张卡 —— 审批已经有 approval part（带按钮、绑定 toolCallId 钉在工具卡下面），
+        // 再列一遍就是同一件事画两遍，而且这张卡点不动（用户反馈"审批没跟卡片绑定"）。
+        const pendingItems = (() => {
+          try {
+            return pendingRemoteOf(sid, 'question');
+          } catch { return []; }
+        })();
+        if (pendingItems.length) {
+          cards.push({
+            kind: 'approval', title: '待你处理',
+            items: pendingItems.map((a) => ({
+              state: 'warn',
+              name: String(a.id).slice(0, 18),
+              detail: (a.kind === 'question' ? '提问' : '审批')
+                + (a.request?.title ? ' · ' + a.request.title : '')
+                + (a.request?.message ? ' · ' + String(a.request.message).slice(0, 80) : ''),
+              approval_id: a.id,
+              approval_kind: a.kind,
+            })),
+          });
+        }
+        if (opts.withTimeline !== false) {
+          const tail = await readStoredTail(sid, 12);
+          // 每条消息标来源：手机发的（插件台账里有）vs 电脑键盘输入的
+          const messages = tail.messages.map((m) => ({
+            ...m,
+            origin: m.role === 'user' ? ORIGIN.originOf(sid, m.text, m.time) : 'assistant',
+          }));
+          cards.push({ kind: 'timeline', title: '最近消息', messages });
+        }
+      } catch (e) {
+        cards.push({
+          kind: 'session', title: '会话', error: 'no_session',
+          detail: String(e?.message ?? e).slice(0, 160),
+        });
+      }
+    }
+    // B8（2026-11-13）：caps 里早就声明了 schedule/subagents/plan，但 buildView 从来没有
+    // 构造点 —— 声明了却永远出不来。这里补三张只读卡（数据源都是插件已有的）。
+    try {
+      const svc = scheduleSvc();
+      if (!svc) {
+        cards.push({
+          kind: 'schedule', title: '日程',
+          rows: [{ label: '状态', value: '这个 DSH 版本没有 schedule 服务' }],
+        });
+      } else {
+        const r = await svc.list({ active: true, limit: 50 });
+        const items = Array.isArray(r?.items) ? r.items : (Array.isArray(r?.list) ? r.list : []);
+        cards.push({
+          kind: 'schedule', title: '日程',
+          rows: items.length
+            ? items.slice(0, 8).map((t, i) => ({
+                label: String(t.title ?? t.name ?? ('任务 ' + (i + 1))),
+                value: String(t.nextRunAt ?? t.next_run_at ?? t.cron ?? t.at ?? t.status ?? ''),
+              }))
+            : [{ label: '状态', value: '暂无启用中的定时任务' }],
+        });
+      }
+    } catch (e) {
+      cards.push({
+        kind: 'schedule', title: '日程', error: 'schedule_failed',
+        detail: String(e?.message ?? e).slice(0, 120),
+      });
+    }
+
+    // 子代理：用插件进程内登记表（subagent/catalog 建立），不扫会话日志
+    try {
+      const labels = [...childLabel.values()].slice(0, 8);
+      cards.push({
+        kind: 'subagents', title: '子代理',
+        rows: [
+          { label: '已登记', value: childParent.size + ' 个' },
+          ...(labels.length ? [{ label: '最近', value: labels.join('、') }] : []),
+        ],
+      });
+    } catch { /* 忽略：这张卡不影响其他卡 */ }
+
+    // 计划模式：与 /v2/plan 同一约束——需要会话在电脑端 live
+    try {
+      const svc = planSvc();
+      const agent = liveAgentOf(sid);
+      if (svc && agent) {
+        const st = svc.get(agent) ?? {};
+        cards.push({
+          kind: 'plan', title: '计划模式',
+          rows: [{ label: '状态', value: st.active ? '已开启（先给计划，批准后执行）' : '已关闭' }],
+        });
+      } else {
+        cards.push({
+          kind: 'plan', title: '计划模式',
+          rows: [{
+            label: '状态',
+            value: svc ? '会话不在电脑端运行（无法读写）' : '这个 DSH 版本没有 plan-mode 插件',
+          }],
+        });
+      }
+    } catch (e) {
+      cards.push({
+        kind: 'plan', title: '计划模式', error: 'plan_failed',
+        detail: String(e?.message ?? e).slice(0, 120),
+      });
+    }
+
+    // 能力协商可见化：两端各自声明了什么、缺什么，直接进时间线/自检页，而不是只写日志
+    if (opts.caps) {
+      const c = opts.caps;
+      cards.push({
+        kind: 'caps', title: '能力协商',
+        rows: [
+          {
+            label: '客户端',
+            value: c.legacy ? '未声明（兼容模式）' : (c.client.length + ' 项 · v' + c.version),
+          },
+          { label: '未识别', value: c.unknown.length ? c.unknown.join('、') : '无' },
+          { label: '缺少', value: c.missing.length ? c.missing.join('、') : '无' },
+        ],
+      });
+    }
+    return { v: 2, ok: true, generated_at: Date.now(), header, cards };
+  };
+
+  route('exact', '/v2/view', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let sid = '';
+    let withTimeline = true;
+    let caps = [];
+    try {
+      if (String(req.method || 'GET').toUpperCase() === 'GET') {
+        const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+        sid = String(q.searchParams.get('session_id') || '').trim();
+        withTimeline = q.searchParams.get('timeline') !== '0';
+        caps = normalizeCaps(q.searchParams.get('caps') ?? '');
+      } else {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        sid = String(b?.session_id || '').trim();
+        withTimeline = b?.timeline !== false;
+        caps = normalizeCaps(b?.caps ?? '');
+      }
+    } catch { /* 用默认值 */ }
+    try {
+      const view = await buildView(sid, { withTimeline, caps: summarize(caps) });
+      // 能力协商：客户端声明了就不下发它渲染不了的卡（legacy 客户端不裁）
+      view.cards = filterViewCards(view.cards, caps);
+      view.caps = summarize(caps);
+      sendJson(res, 200, view);
+    } catch (e) {
+      sendJson(res, 500, { ok: false, v: 2, error: String(e?.message ?? e) });
+    }
+  });
+
+  /**
+   * POST /v2/pulse —— 双端心跳 + 连接状态校验（"呼吸"）。
+   *
+   * 手机每隔 N 秒带 { session_id, client_id, since } 打一次：
+   *   · 电脑回 now / 事件总数 / 缺口 gap / 回执水位线 / 当前连接表
+   *   · 客户端据此判断：在线？落后多少？要不要补拉（gap>0 → /v2/stream?since=）
+   *   · 服务端同时刷新该会话的"最后心跳"，电脑面板据此显示手机是否在线
+   */
+  route('exact', '/v2/pulse', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let body = {};
+    try {
+      if (String(req.method || 'GET').toUpperCase() === 'GET') {
+        const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+        body = {
+          session_id: q.searchParams.get('session_id') || '',
+          client_id: q.searchParams.get('client_id') || '',
+          since: q.searchParams.get('since') || undefined,
+        };
+      } else {
+        body = JSON.parse((await readBody(req)) || '{}');
+      }
+    } catch { body = {}; }
+    const sid = String(body?.session_id || '').trim();
+    const since = Number(body?.since);
+    let exists = false;
+    let eventCount = 0;
+    if (sid) {
+      try {
+        const st = await persistence()?.stat?.(sid);
+        exists = Boolean(st);
+        eventCount = Number(st?.eventCount ?? 0) || 0;
+      } catch { /* 无会话或 persistence 不可用 */ }
+      touchConnection(sid, 'pulse');
+    }
+    const ack = sid ? (ACK_STORE.get(sid) ?? { acked_seq: 0 }) : null;
+    sendJson(res, 200, {
+      ok: true, v: 2, now: Date.now(),
+      echo: { client_id: body?.client_id || '', since: Number.isFinite(since) ? since : null },
+      session: { id: sid, exists, event_count: eventCount },
+      // gap 是"事件总数 - 客户端游标"的近似值：>0 就该补拉
+      gap: Number.isFinite(since) ? Math.max(0, eventCount - since) : null,
+      ack: ack ? { acked_seq: Number(ack.acked_seq) || 0 } : null,
+      connections: connectionSnapshot(),
+      server: { version: 8, protocol: 2, heartbeat_ms: 10000 },
+    });
+  });
+
+  /**
+   * POST /v2/session —— 会话身份的**唯一权威**。
+   *
+   * 核心约定：客户端只说"我要哪个对话码（code）"，session_id 永远是电脑给的那个。
+   * 手机不再自己发明 id，也不再同时持有多份 id —— 换机器、重装、清缓存都能靠 code 接回来。
+   *
+   * 请求：{ action: 'state'|'ensure'|'attach'|'list', code?, session_id?, limit? }
+   * 返回：{ v:2, session: { id, code, exists, bound, live, execution } }
+   */
+  route('exact', '/v2/session', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let body = {};
+    try {
+      if (String(req.method || 'GET').toUpperCase() === 'GET') {
+        const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+        body = {
+          action: q.searchParams.get('action') || 'state',
+          code: q.searchParams.get('code') || '',
+          session_id: q.searchParams.get('session_id') || '',
+          limit: q.searchParams.get('limit') || undefined,
+        };
+      } else {
+        body = JSON.parse((await readBody(req)) || '{}');
+      }
+    } catch { return sendJson(res, 400, { ok: false, v: 2, error: 'bad json body' }); }
+
+    const action = String(body?.action || 'state').toLowerCase();
+    const code = String(body?.code ?? body?.session_code ?? '').trim();
+    const execution = executionInfo(String(body?.session_id || "").trim());
+
+    if (action === 'list') {
+      const limit = Math.max(1, Math.min(100, Number(body?.limit) || 20));
+      try {
+        const rows = await listStoredSessions(limit);
+        return sendJson(res, 200, {
+          ok: true, v: 2, action, execution, count: rows.length,
+          sessions: rows.map((r) => ({
+            id: r.session_id, title: r.title || '', updated_at: r.updated_at || null,
+            last: r.last || '', cwd: r.cwd || '',
+          })),
+        });
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, v: 2, action, error: String(e?.message ?? e) });
+      }
+    }
+
+    if (action === 'attach') {
+      const id = String(body?.session_id || '').trim();
+      if (!id) return sendJson(res, 400, { ok: false, v: 2, action, error: 'session_id required' });
+      if (!(await sessionExists(id))) {
+        return sendJson(res, 404, { ok: false, v: 2, action, error: 'no_session', session: { id, exists: false } });
+      }
+      // 只有显式 bind=true 才把 code 指向这条，避免"随手看一眼"就改了默认对话
+      if (code && body?.bind === true) {
+        sessionBinding.set(code, id);
+      }
+      return sendJson(res, 200, {
+        ok: true, v: 2, action,
+        session: {
+          id, code, exists: true, bound: sessionBinding.get(code) === id,
+          live: (() => { try { return Boolean(ctx.agents?.get?.(id)); } catch { return false; } })(),
+          execution,
+        },
+      });
+    }
+
+    // state / ensure —— 同一个语义：查"这个 code 现在绑到哪条会话"
+    let id = sessionBinding.get(code);
+    let exists = false;
+    let title = '';
+    if (id) {
+      exists = await sessionExists(id);
+      // 绑定的会话没了（被删/归档/清过季）：把死绑定清掉，别让客户端拿着死 id 续写
+      if (!exists) { sessionBinding.set(code, ''); id = ''; }
+    }
+    if (id) {
+      try {
+        const head = await readStoredHead(id);
+        title = String(head?.title ?? '');
+      } catch { /* 标题只是展示 */ }
+    }
+    sendJson(res, 200, {
+      ok: true, v: 2, action, execution,
+      session: {
+        id, code, title, exists, bound: Boolean(id),
+        // 首次对话由执行器创建并回绑；客户端拿到 needs_first_message 就发一条消息即可
+        needs_first_message: !id,
+        live: (() => { try { return Boolean(id) && Boolean(ctx.agents?.get?.(id)); } catch { return false; } })(),
+      },
+    });
+  });
+
+  /**
+   * POST /v2/message —— v2 门牌的消息入口。
+   *
+   * ★ 执行路径完全复用 legacy 的 runPrompt（CLI / 宿主内两条路都在里面），
+   *   所以行为和 /session action=prompt 一致，不存在"两套实现跑偏"。
+   *   响应头 `x-dsh-protocol: 2` 标明协议版本；payload 仍是 legacy 结构（含 reply/session_id）。
+   */
+  route('exact', '/v2/message', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    if (String(req.method || 'GET').toUpperCase() !== 'POST') return sendJson(res, 405, { ok: false, error: 'use POST' });
+    let body;
+    try { body = JSON.parse((await readBody(req)) || '{}'); }
+    catch (e) { return sendJson(res, 400, { ok: false, v: 2, error: `bad json: ${e?.message ?? e}` }); }
+    const text = String(body?.text ?? body?.prompt ?? body?.task ?? '').trim();
+    if (!text) return sendJson(res, 400, { ok: false, v: 2, error: 'text 不能为空' });
+    const sid = String(body?.session_id || '').trim() || `smartquiz-${randomBytes(6).toString('hex')}`;
+    let targetSid = String(body?.target_session_id ?? body?.session_id ?? '').trim();
+    if (targetSid && !(await sessionExists(targetSid))) targetSid = '';
+    const wantsStream = body?.stream === true || String(req.headers?.accept ?? '').includes('text/event-stream');
+    const cmid = String(body?.client_msg_id ?? '').trim();
+    if (cmid && clientMsgDuplicated(sid, cmid)) {
+      return sendJson(res, 200, {
+        ok: true, v: 2, duplicate: true, session_id: sid,
+        hint: '这条消息已受理过（幂等键命中），回复请从事件流补拉',
+      });
+    }
+    const timeoutSec = Number.isFinite(body?.timeout) ? Math.max(5, Math.min(600, Number(body.timeout))) : 120;
+    const abort = requestAbort(res);
+    try { res.setHeader?.('x-dsh-protocol', '2'); } catch { /* 已发头则忽略 */ }
+    const runOpts = {
+      signal: abort.signal,
+      deadline: Date.now() + timeoutSec * 1000,
+      targetSessionId: targetSid,
+      sessionCode: typeof body?.session_code === 'string' ? body.session_code : '',
+    };
+    if (wantsStream) {
+      return runPrompt(req, res, sid, text, true, runOpts);
+    }
+    /**
+     * 非流式：把 legacy payload 升成 **v2 信封**。
+     *
+     * v2 契约：{ v, ok, session_id, reply, execution, error?, duplicate?, debug? }
+     * 同时保留 `legacy` 原样字段，旧客户端读 reply/session_id 不受影响。
+     */
+    const chunks = [];
+    const proxy = {
+      _code: 200,
+      _headers: {},
+      setHeader(k, v) { this._headers[k] = v; },
+      getHeader(k) { return this._headers[k]; },
+      writeHead(code, headers) { this._code = code; if (headers) Object.assign(this._headers, headers); },
+      write(s) { if (s) chunks.push(Buffer.from(s)); return true; },
+      on() {}, once() {}, removeListener() {},
+      get writableEnded() { return false; },
+      end(s) {
+        if (s) chunks.push(Buffer.from(s));
+        let legacy = {};
+        try { legacy = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); }
+        catch { legacy = { raw: Buffer.concat(chunks).toString('utf8').slice(0, 2000) }; }
+        sendJson(res, this._code || 200, {
+          v: 2,
+          ok: legacy.ok !== false,
+          session_id: legacy.session_id || sid,
+          reply: typeof legacy.reply === 'string' ? legacy.reply : '',
+          execution: legacy.execution || executionInfo(targetSid),
+          error: legacy.error,
+          duplicate: legacy.duplicate || undefined,
+          hint: legacy.hint,
+          debug: legacy.debug,
+          legacy,
+        });
+      },
+    };
+    await runPrompt(req, proxy, sid, text, false, runOpts);
+  });
+
+  /**
+   * GET /v2/stream?session_id=&since= —— SSE 事件流。
+   *
+   * 语义：先按 since 回放已有事件，然后每 1.5s 轮询落盘日志的增量；
+   * 空闲时发注释行保活。客户端断开即停（不泄漏定时器）。
+   * 事件信封：{ v, seq, id, ts, type, data }
+   */
+  /**
+   * 批量拉取事件（2026-11-14）：给"隧道扛不住 SSE"时的兜底通道。
+   *
+   * <p>为什么需要：免费隧道（花生壳等）会掐长连接、甚至缓冲 SSE 帧；而 WebSocket 升级
+   * 在公网侧根本过不来（本轮 /ws-probe 实测：本地能到插件，隧道只能当普通 HTTP 转）。
+   * 所以最稳的兜底不是换协议，而是**普通短请求 + 游标**：一次拿一小批、立刻返回，
+   * 客户端每 1–2 秒问一次，断一次只丢一次往返，不丢事件（靠 since 续）。</p>
+   *
+   * <p>游标语义与 SSE 一致：返回的 {@code last_seq} 是"已经给到哪"，下次原样带回；
+   * {@code has_more} 表示还有积压（客户端应立刻再拉一次，别等下一轮）。</p>
+   *
+   * @param since 起拉位置（缺省 0 = 从头；调用方一般传 SSE 的 lastSeq）
+   * @param max   本次最多几条（默认 200，上限 500）
+   */
+  /**
+   * 收集从 {@code since} 开始的事件（HTTP `/v2/events/pull` 与 WS `pull` 帧共用）。
+   *
+   * <p>返回 {@code {events, last_seq, has_more}}；非 live 会话读持久化日志。
+   * 口径：{@code last_seq} = "已经给到哪"，客户端下次原样带回。</p>
+   */
+  const collectEvents = async (sid, since, max, caps) => {
+    const out = [];
+    let lastSeq = Math.max(0, Number(since) || 0);
+    let hasMore = false;
+    const limit = Math.max(1, Math.min(500, Number(max) || 200));
+    const live = (() => { try { return ctx.sessions?.get?.(sid) ?? null; } catch { return null; } })();
+    if (live) {
+      const head = Number(live.seq ?? 0) || 0;
+      let cur = lastSeq;
+      while (cur < head) {
+        const ev = live.eventAt?.(cur);
+        if (!ev) { cur += 1; continue; }
+        if (eventAllowed(ev.type, caps)) {
+          if (out.length >= limit) { hasMore = true; break; }
+          out.push(ev);
+        }
+        cur += 1;
+        lastSeq = Math.max(lastSeq, Number(ev.seq ?? cur) || cur);
+      }
+      if (!hasMore) lastSeq = Math.max(lastSeq, head);
+      return { events: out, last_seq: lastSeq, has_more: hasMore };
+    }
+    const svc = persistence();
+    if (!svc || typeof svc.open !== 'function') {
+      return { events: out, last_seq: lastSeq, has_more: false, error: 'session_not_live_and_no_persistence' };
+    }
+    try {
+      const h = await svc.open(sid, 'read');
+      try {
+        const got = await h.read(lastSeq);
+        const arr = Array.isArray(got) ? got : (got?.events ?? []);
+        for (const ev of arr) {
+          if (!ev || !eventAllowed(ev.type, caps)) continue;
+          if (out.length >= limit) { hasMore = true; break; }
+          out.push(ev);
+          lastSeq = Math.max(lastSeq, Number(ev.seq ?? 0) || 0);
+        }
+      } finally { try { await h.close?.(); } catch { /* 已关 */ } }
+    } catch (e) {
+      return { events: out, last_seq: lastSeq, has_more: false, error: 'read_failed: ' + String(e?.message ?? e).slice(0, 160) };
+    }
+    return { events: out, last_seq: lastSeq, has_more: hasMore };
+  };
+
+  /**
+   * 通用动作入口（C3，2026-11-14）：手机点插件推的视图里的按钮 → 这里 → 返回 effects。
+   * 插件侧只登记"动作 id → handler"，手机端按白名单执行效果（见 27 号指南）。
+   */
+  const INVOKE_HANDLERS = new Map();
+  const onInvoke = (id, fn) => { if (id && typeof fn === 'function') INVOKE_HANDLERS.set(id, fn); };
+
+  // 内置几个安全的示例动作（可在插件里随时增删）
+  onInvoke('ping', async () => [{ type: 'toast', text: 'pong' }]);
+  onInvoke('copy_session_id', async (_v, ctx0) => ([{ type: 'copy', text: String(ctx0?.sid ?? '') }]));
+  onInvoke('open_insight', async () => ([{ type: 'open', page: 'insight' }]));
+
+  /**
+   * 本地更新包分发（C6 自测用，2026-11-14）：把构建出来的 APK 直接从插件发给手机。
+   * 不上商店也能试：地址是 http://<本机或 Tailscale IP>:<port>/app/latest.apk。
+   */
+  const APP_APK_PATH = () => {
+    if (cfg.appRelease && cfg.appRelease.file) return cfg.appRelease.file;
+    // 自动挑最新构建产物（版本号变了文件名也会变，不能写死）
+    try {
+      const dir = join(PLUGIN_DIR, '..', '..', 'build', 'outputs', 'apk', 'debug');
+      const apks = readdirSync(dir)
+        .filter((f) => f.endsWith('.apk'))
+        .map((f) => ({ f, p: join(dir, f), t: statSync(join(dir, f)).mtimeMs }))
+        .sort((a, b) => b.t - a.t);
+      if (apks.length > 0) return apks[0].p;
+    } catch { /* 没有构建产物 */ }
+    return join(PLUGIN_DIR, '..', '..', 'build', 'outputs', 'apk', 'debug', 'app.apk');
+  };
+  /** 从仓库 build.gradle 读 versionCode，保证 app_release.version 与实际包一致 */
+  const appVersionCode = () => {
+    try {
+      const g = readFileSync(join(PLUGIN_DIR, '..', '..', 'build.gradle'), 'utf8');
+      const mm = g.match(/versionCode\s+(\d+)/);
+      if (mm) return Number(mm[1]) || 0;
+    } catch { /* 读不到就退回配置 */ }
+    return Number((cfg.appRelease || {}).version) || 0;
+  };
+  let appApkMeta = null;   // {size, sha256, mtime}
+  /** C6 自测：用构建出的 APK 自动组装 app_release（只在启动时算一次 sha256） */
+  let appReleaseAuto = null;
+  try {
+    const st0 = statSync(APP_APK_PATH());
+    appApkMeta = {
+      size: st0.size,
+      mtime: st0.mtimeMs,
+      sha256: createHash('sha256').update(readFileSync(APP_APK_PATH())).digest('hex'),
+    };
+    const base = String(cfg.publicUrl || '').trim().replace(/\/+$/, '');
+    if (base) {
+      appReleaseAuto = {
+        version: appVersionCode(),
+        url: base + '/app/latest.apk',
+        sha256: appApkMeta.sha256,
+        notes: '本地更新包 ' + Math.round(appApkMeta.size / 1048576) + 'MB',
+      };
+      ctx.logger?.info?.('[smartquiz-remote] app_release 就绪: ' + appReleaseAuto.version + ' ' + appReleaseAuto.url);
+    }
+  } catch { /* 没有构建产物就跳过 */ }
+  const appApkInfo = async () => {
+    try {
+      const file = APP_APK_PATH();
+      const st = statSync(file);
+      if (!appApkMeta || appApkMeta.mtime !== st.mtimeMs || appApkMeta.size !== st.size) {
+        const buf = readFileSync(file);
+        appApkMeta = {
+          size: st.size,
+          mtime: st.mtimeMs,
+          sha256: createHash('sha256').update(buf).digest('hex'),
+        };
+      }
+      return { path: file, ...appApkMeta };
+    } catch { return null; }
+  };
+
+  route('exact', '/app/latest.apk', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const info = await appApkInfo();
+    if (!info) return sendJson(res, 404, { ok: false, error: 'no_apk' });
+    try {
+      const st = statSync(info.path);
+      res.writeHead(200, {
+        'content-type': 'application/vnd.android.package-archive',
+        'content-length': st.size,
+        'content-disposition': 'attachment; filename="update.apk"',
+      });
+      createReadStream(info.path).pipe(res);
+    } catch (e) {
+      try { sendJson(res, 500, { ok: false, error: String(e?.message ?? e) }); } catch { /* 已发头 */ }
+    }
+  });
+  /**
+   * 锚点管理（A2，2026-11-14）：清游标 / 回收站 / 恢复 / 永久删除。
+   * 只动"这台手机与那条会话的同步关系"，**不碰电脑上的对话本身**。
+   */
+  route('exact', '/v2/anchor', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const q = new URL(req.url ?? '/', 'http://x');
+    const method = req.method ?? 'GET';
+    if (method === 'GET') {
+      const deleted = q.searchParams.get('deleted') === '1';
+      const all = [...ANCHORS.values()].filter((a) => (deleted ? !!a.deleted_at : !a.deleted_at));
+      return sendJson(res, 200, { ok: true, count: all.length, anchors: all });
+    }
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
+    const dev = String(body.device_id ?? q.searchParams.get('device_id') ?? '').trim();
+    const sid = String(body.session_id ?? q.searchParams.get('session_id') ?? '').trim();
+    const actionEarly = String(body.action ?? '').trim();
+    // create 是"新建一条会话"，此时 session_id 还不存在，只要求 device_id
+    // reset + all 是"整台设备的锚点全清"（手机清空全部历史），同样允许没有 session_id
+    if (!dev || (!sid && actionEarly !== 'create' && actionEarly !== 'reset')) {
+      return sendJson(res, 400, { ok: false, error: 'device_id + session_id required' });
+    }
+    const a = ANCHORS.get(anchorKey(dev, sid));
+    if (method === 'DELETE') {
+      if (!a) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
+      ANCHORS.delete(anchorKey(dev, sid));
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'purged' });
+    }
+    const action = String(body.action ?? '').trim();
+    if (action === 'create') {
+      // 手机点「新建对话」→ 电脑端也建一条，并把这对新 id 记成锚点（2026-11-14）
+      const sid = `smartquiz-${randomBytes(6).toString('hex')}`;
+      try {
+        if (cfg.cliMode === false && ctx.agents && ctx.agents.create) {
+          const handle = await ctx.agents.create(await createInput(sid));
+          if (handle) handles.set(sid, handle);
+        }
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, action: 'create', error: String(e?.message ?? e).slice(0, 160) });
+      }
+      const a = anchorFor(dev, sid, true);
+      if (a) { a.acked_seq = 0; a.updated_at = Date.now(); saveAnchors(); }
+      return sendJson(res, 200, {
+        ok: true, action: 'create',
+        remote_session_id: sid,
+        local_session_id: a ? a.local_session_id : '',
+        anchor: a,
+      });
+    }
+    if (action === 'clear') {           // 清历史：游标归零，下次按 snapshot 重放
+      if (!a) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
+      a.acked_seq = 0; a.updated_at = Date.now();
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'cleared', anchor: a });
+    }
+    if (action === 'ensure') {
+      // 2026-11-14：只保证（设备 × 会话）有一条锚点，**不新建电脑会话**。
+      // 手机"切换会话 → 强制同步"时先调它拿 local_session_id：否则本地先随机一个 id，
+      // 随后握手又签发另一个锚点 id，同一条电脑会话就会在手机上裂成两条历史。
+      const a2 = anchorFor(dev, sid, true);
+      if (!a2) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'ensure', anchor: a2 });
+    }
+    if (action === 'reset') {
+      // A4（2026-11-14）：手机清历史 → 让服务端"忘掉"这条锚点，下次握手重签一条。
+      // 与 delete（软删进回收站、留墓碑）不同：reset 是**硬删**，紧接着的 hello 会重新 create，
+      // 签发一个新的 local_session_id —— 手机侧于是按新 id 从零重建一条会话，
+      // 而不是"又开一条随机 uuid 的本地历史"。
+      if (body.all === true) {
+        let removed = 0;
+        for (const k of [...ANCHORS.keys()]) {
+          if (k.startsWith(String(dev) + '|')) { ANCHORS.delete(k); removed += 1; }
+        }
+        saveAnchors();
+        return sendJson(res, 200, { ok: true, action: 'reset', scope: 'device', removed });
+      }
+      ANCHORS.delete(anchorKey(dev, sid));
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'reset', scope: 'session', removed: a ? 1 : 0 });
+    }
+    if (action === 'restore') {         // 回收站恢复
+      if (!a) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
+      a.deleted_at = null; a.updated_at = Date.now();
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'restored', anchor: a });
+    }
+    if (action === 'delete') {          // 软删进回收站
+      if (!a) return sendJson(res, 404, { ok: false, error: 'anchor_not_found' });
+      a.deleted_at = Date.now(); a.updated_at = a.deleted_at;
+      saveAnchors();
+      return sendJson(res, 200, { ok: true, action: 'soft_deleted', anchor: a });
+    }
+    return sendJson(res, 400, { ok: false, error: 'unknown action', allowed: ['create', 'ensure', 'reset', 'clear', 'restore', 'delete'] });
+  });
+  route('exact', '/v2/invoke', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use POST' });
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch {
+      return sendJson(res, 400, { ok: false, error: 'bad json' });
+    }
+    const action = String(body.action ?? '').trim();
+    const value = body.value && typeof body.value === 'object' ? body.value : {};
+    const sid = String(body.session_id ?? '').trim();
+    if (!action) return sendJson(res, 400, { ok: false, error: 'action required' });
+    const fn = INVOKE_HANDLERS.get(action);
+    if (!fn) return sendJson(res, 404, { ok: false, error: 'unknown_action', action, known: [...INVOKE_HANDLERS.keys()] });
+    const started = Date.now();
+    try {
+      const out = await fn(value, { sid, value });
+      const effects = Array.isArray(out) ? out : (out ? [out] : []);
+      return sendJson(res, 200, { ok: true, action, effects: effects.slice(0, 4), invoke_ms: Date.now() - started });
+    } catch (e) {
+      return sendJson(res, 500, { ok: false, error: String(e?.message ?? e).slice(0, 200) });
+    }
+  });
+  route('exact', '/v2/events/pull', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+    const sid = String(q.searchParams.get('session_id') || '').trim();
+    if (!sid) return sendJson(res, 400, { ok: false, error: 'session_id required' });
+    const since = Math.max(0, Number(q.searchParams.get('since') || 0) || 0);
+    const max = Math.max(1, Math.min(500, Number(q.searchParams.get('max') || 200) || 200));
+    const caps = q.searchParams.get('caps') ?? '';
+    const r = await collectEvents(sid, since, max, caps);
+    if (r.error === 'session_not_live_and_no_persistence') {
+      return sendJson(res, 503, { ok: false, error: r.error, session_id: sid });
+    }
+    if (r.error && r.error.startsWith('read_failed')) {
+      return sendJson(res, 500, { ok: false, error: 'read_failed', detail: r.error });
+    }
+    touchConnection(sid, 'pull');
+    return sendJson(res, 200, {
+      ok: true, v: 2,
+      session_id: sid,
+      since,
+      last_seq: r.last_seq,
+      has_more: r.has_more,
+      count: r.events.length,
+      events: r.events,
+    });
+  });
+
+  route('exact', '/v2/stream', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+    const sid = String(q.searchParams.get('session_id') || '').trim();
+    const since = Number(q.searchParams.get('since') || 0) || 0;
+    const caps = q.searchParams.get('caps') ?? '';
+    if (!sid) return sendJson(res, 400, { ok: false, error: 'session_id required' });
+    const svc = persistence();
+    if (!svc || typeof svc.open !== 'function') return sendJson(res, 503, { ok: false, error: 'sessionPersistence 不可用' });
+
+    res.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      'x-dsh-protocol': '2',
+    });
+
+    let closed = false;
+    let offset = 0;
+    touchConnection(sid, 'stream');
+    const write = (s) => { if (!closed) { try { res.write(s); } catch { closed = true; } } };
+    const sendEv = (ev) => write(`data: ${JSON.stringify({
+      v: 2, seq: Number(ev?.seq) || 0, id: ev?.id ?? null,
+      ts: Number(ev?.time) || 0, type: String(ev?.type ?? ''), data: ev?.data ?? null,
+    })}\n\n`);
+
+    // 实时桥：与 /events 共用 STREAM_HUB（token 增量、子代理活动、日程变化）
+    const sub = {
+      sid,
+      caps,
+      send: (o) => {
+        if (!o || !eventAllowed(o.type, caps)) return;
+        write(`data: ${JSON.stringify({
+          v: 2, seq: 0, id: null, ts: Date.now(),
+          type: String(o.type ?? ''), data: o.data ?? null,
+        })}\n\n`);
+      },
+    };
+    STREAM_HUB.add(sub);
+
+    // 1) 回放
+    try {
+      const h = await svc.open(sid, 'read');
+      try {
+        const got = await h.read();
+        const events = Array.isArray(got) ? got : (got?.events ?? []);
+        for (const ev of events) {
+          if ((Number(ev?.seq) || 0) <= since) continue;
+          if (!eventAllowed(ev?.type, caps)) continue; // 客户端不具备该能力
+          sendEv(ev);
+        }
+        offset = events.length;
+      } finally { try { await h.close?.(); } catch { /* 已关 */ } }
+    } catch (e) {
+      write(`event: error\ndata: ${JSON.stringify({ v: 2, error: 'no_session', detail: String(e?.message ?? e).slice(0, 160) })}\n\n`);
+      try { res.end(); } catch { /* ignore */ }
+      return;
+    }
+
+    // 2) 增量轮询
+    const announcedApprovals = new Set();
+    const announcedKinds = new Map();   // id → 'approval' | 'question'（gone 帧要用对类型）
+    const pumpApprovals = () => {
+      // 两种帧的能力不同（parts.approval / parts.questions）：分开判定，
+      // 以前一律按 approval 判，反问能力缺失的客户端会连审批也收不到。
+      const allowApproval = eventAllowed('approval', caps);
+      const allowQuestion = eventAllowed('question', caps);
+      if (!allowApproval && !allowQuestion) return;
+      try {
+        const pend = [...pendingRemoteOf(sid, 'approval'), ...pendingRemoteOf(sid, 'question')];
+        for (const a of pend) {
+          if (announcedApprovals.has(a.id)) continue;
+          const isQuestion = String(a.kind) === 'question';
+          // FRAME-TYPE-FIX（2026-11-13）：以前两类都发 type='approval' —— 反问被渲染成审批卡，
+          // 点"允许"时把反问 id 当审批 id 送，电脑端结算失败（用户反馈"点了不会传、ask 卡也没有"）。
+          if (isQuestion ? !allowQuestion : !allowApproval) continue;
+          announcedApprovals.add(a.id);
+          announcedKinds.set(a.id, isQuestion ? 'question' : 'approval');
+          const evType = isQuestion ? 'question' : 'approval';
+          write(`event: ${evType}\ndata: ${JSON.stringify({
+            v: 2, type: evType, id: a.id, kind: a.kind, request: a.request ?? null, ts: Date.now(),
+          })}\n\n`);
+        }
+        for (const id of [...announcedApprovals]) {
+          if (pend.some((a) => a.id === id)) continue;
+          announcedApprovals.delete(id);
+          const gone = (announcedKinds.get(id) === 'question') ? 'question_gone' : 'approval_gone';
+          announcedKinds.delete(id);
+          write(`event: ${gone}\ndata: ${JSON.stringify({ v: 2, type: gone, id, ts: Date.now() })}\n\n`);
+        }
+      } catch { /* 审批网关不可用时忽略 */ }
+    };
+    pumpApprovals();
+    const timer = setInterval(async () => {
+      if (closed) { clearInterval(timer); return; }
+      try {
+        pumpApprovals();
+        const h = await svc.open(sid, 'read');
+        let events = [];
+        try {
+          const got = await h.read(offset);
+          events = Array.isArray(got) ? got : (got?.events ?? []);
+        } finally { try { await h.close?.(); } catch { /* 已关 */ } }
+        if (!events.length) {
+          touchConnection(sid, 'stream');
+          write(`event: pulse\ndata: ${JSON.stringify({ v: 2, ts: Date.now(), seq: since })}\n\n`);
+          return;
+        }
+        for (const ev of events) {
+          if (eventAllowed(ev?.type, caps)) sendEv(ev);
+        }
+        offset += events.length;
+      } catch { /* 单次读取失败不终止流 */ }
+    }, 1500);
+
+    const stop = () => {
+      if (closed) return;
+      closed = true;
+      clearInterval(timer);
+      STREAM_HUB.delete(sub);
+      dropConnection(sid);
+      try { res.end(); } catch { /* ignore */ }
+    };
+    req.on?.('close', stop);
+    res.on?.('close', stop);
+    setTimeout(stop, 10 * 60 * 1000);
+  });
+
+
+  // ---------------- 电脑端会话：列出 / 只读查看 ----------------
+  // 目的：手机不只知道"自己那条会话"，还能看到电脑上正在聊/聊过的会话（只读），
+  // 需要时再 attach 过去接着聊（写入口唯一性见 /session action=attach 的说明）。
+  /**
+   * 已归档的会话 id（$DSH_HOME/storages/workspace.json → global.archivedSessionIds）。
+   * 手机端选会话只该看到"还在用"的，归档的不用同步。
+   */
+  let archivedCache = { at: 0, ids: new Set() };
+  const archivedSessionIds = () => {
+    try {
+      const home = process.env.DSH_HOME || '';
+      if (!home) return archivedCache.ids;
+      const p = join(home, 'storages', 'workspace.json');
+      const st = statSync(p);
+      if (st.mtimeMs === archivedCache.at) return archivedCache.ids;
+      const j = JSON.parse(readFileSync(p, 'utf8'));
+      const list = j?.global?.archivedSessionIds;
+      archivedCache = { at: st.mtimeMs, ids: new Set(Array.isArray(list) ? list.map(String) : []) };
+      return archivedCache.ids;
+    } catch {
+      return archivedCache.ids;
+    }
+  };
+
+  /**
+   * 桌面端"会话列表里到底有哪几条"（2026-11-14，查"电脑 6 条、手机一堆"）。
+   *
+   * <p>桌面侧栏不是"磁盘上所有会话"，而是它自己的 workspace 账本：
+   * {@code storages/workspace.json → tables.workspaces[*].sessionIds}（减掉
+   * {@code global.archivedSessionIds}）。插件以前把 {@code sessions/--*--/} 下所有目录都列出来
+   * ——那里面还躺着历史项目、CLI 遗留、几十条早就没在桌面出现过的会话，于是两边条数对不上。</p>
+   *
+   * <p>按 mtime 缓存：workspace.json 每开一条会话就会被写一次，读得太频繁没必要。</p>
+   */
+  let desktopCache = { at: 0, ids: new Set(), path: '', pinned: new Set() };
+  const desktopWorkspace = () => {
+    try {
+      const home = process.env.DSH_HOME || '';
+      if (!home) return desktopCache;
+      const p = join(home, 'storages', 'workspace.json');
+      const st = statSync(p);
+      if (st.mtimeMs === desktopCache.at) return desktopCache;
+      const j = JSON.parse(readFileSync(p, 'utf8'));
+      const g = j?.global ?? {};
+      const tables = j?.tables?.workspaces ?? {};
+      const activeIds = Array.isArray(g.workspaceIds) && g.workspaceIds.length
+        ? g.workspaceIds : Object.keys(tables);
+      const ids = new Set();
+      let activePath = '';
+      for (const wid of activeIds) {
+        const w = tables[wid];
+        if (!w) continue;
+        if (!activePath) activePath = String(w.path ?? '');
+        for (const sid of (Array.isArray(w.sessionIds) ? w.sessionIds : [])) ids.add(String(sid));
+      }
+      for (const sid of (g.archivedSessionIds ?? [])) ids.delete(String(sid));
+      desktopCache = {
+        at: st.mtimeMs, ids, path: activePath,
+        pinned: new Set((g.pinnedSessionIds ?? []).map(String)),
+      };
+      return desktopCache;
+    } catch {
+      return desktopCache;
+    }
+  };
+
+  const persistence = () => { try { return ctx.get('sessionPersistence'); } catch { return undefined; } };  /** 电脑上是否真有这条会话（直连协商/恢复时先验一下，避免拿一个死 id 去续写） */
+  const sessionExists = async (id) => {
+    if (!id) return false;
+    try {
+      const svc = persistence();
+      const st = svc?.stat ? await svc.stat(id) : null;
+      return Boolean(st);
+    } catch { return false; }
+  };
+
+  /** 持久化事件 → {role,text}；只取 user/assistant 的文本，不碰工具结果与推理 */
+  const messageOf = (ev) => {
+    const t = String(ev?.type ?? '');
+    if (t !== 'user/message' && t !== 'assistant/message') return null;
+    const data = ev?.data ?? {};
+    // 只保留真人输入：DSH 把每次的 runtime context / system-reminder 也记成
+    // user/message（source.kind 不是 'user'），原样回传手机只会是一屏噪声。
+    const kind = data?.source?.kind;
+    if (t === 'user/message' && typeof kind === 'string' && kind !== 'user') return null;
+    const body = t === 'assistant/message' ? (data.message ?? data) : data;
+    const text = (partsOf(body).answer || '').trim();
+    if (!text) return null;
+    return { role: t === 'user/message' ? 'user' : 'assistant', text, time: Number(ev?.time) || 0 };
+  };
+
+  /**
+   * 读一条已落盘会话的尾部：最近 N 条消息 + 最后活动时间。
+   *
+   * 只读尾部（stat 拿 eventCount 后从 offset 读），别把整条日志读进内存。
+   * `lastTime` 用来排序：snapshot 里没有可靠的 mtime（location 常常缺），
+   * 之前按 created_at 排，导致"很久以前创建、但一直在聊"的会话沉底 ——
+   * 手机端看到的就是一堆旧会话。
+   */
+  async function readStoredTail(id, max = 20) {
+    const svc = persistence();
+    if (!svc || typeof svc.open !== 'function') throw new Error('sessionPersistence 不可用');
+    const handle = await svc.open(id, 'read');
+    try {
+      let offset;
+      try {
+        const st = await svc.stat?.(id);
+        const total = Number(st?.eventCount ?? 0);
+        if (total > 0) offset = Math.max(0, total - Math.max(40, max * 6));
+      } catch { /* stat 不可用就读全量 */ }
+      const got = offset === undefined ? await handle.read() : await handle.read(offset);
+      const events = Array.isArray(got) ? got : (got?.events ?? []);
+      const out = [];
+      let lastTime = 0;
+      for (const ev of events) {
+        if (typeof ev?.time === 'number' && ev.time > lastTime) lastTime = ev.time;
+        const m = messageOf(ev);
+        if (m) out.push(m);
+      }
+      return { messages: out.slice(-Math.max(1, Math.min(200, max))), lastTime };
+    } finally { try { await handle.close?.(); } catch { /* 已关 */ } }
+  }
+
+  async function readStoredMessages(id, max = 20) {
+    return (await readStoredTail(id, max)).messages;
+  }
+
+  /** 读会话标题与头部信息（`session/title` 与 header；只读开头几十条，别为一条标题扫全量日志） */
+    async function readStoredHead(id) {
+    const svc = persistence();
+    if (!svc || typeof svc.open !== 'function') return { title: '', firstUser: '', agentPreset: '' };
+    const handle = await svc.open(id, 'read');
+    try {
+      // 会话头不在事件流里，是 handle.header（形如 {..., "agentPreset":"standard"}）。
+      // 有 agentPreset 就说明这条会话是桌面端预设建的，headless one-shot CLI 拒绝续写。
+      let agentPreset = typeof handle?.header?.agentPreset === 'string' ? handle.header.agentPreset : '';
+      const got = await handle.read(0, 80);
+      const events = Array.isArray(got) ? got : (got?.events ?? []);
+      let title = '';
+      let firstUser = '';
+      for (const ev of events) {
+        if (!agentPreset && ev?.type === 'session' && typeof ev.agentPreset === 'string') agentPreset = ev.agentPreset;
+        if (ev?.type === 'session/title' && ev?.data && typeof ev.data.title === 'string') title = ev.data.title;
+        if (!firstUser && ev?.type === 'user/message') {
+          const kind = ev?.data?.source?.kind;
+          if (typeof kind !== 'string' || kind === 'user') {
+            const t = (partsOf(ev?.data).answer || '').trim();
+            if (t) firstUser = t;
+          }
+        }
+      }
+      return { title: title.trim(), firstUser, agentPreset };
+    } finally { try { await handle.close?.(); } catch { /* 已关 */ } }
+  }
+
+  /** 兼容旧调用点 */
+  async function readStoredTitle(id) {
+    return (await readStoredHead(id)).title;
+  }
+
+  /** 列出已落盘会话，按**最后活动时间**排序（不是创建时间） */
+  async function listStoredSessions(limit = 20, opts = {}) {
+    const svc = persistence();
+    const idx = sessionFileIndex();                 // id → 文件 mtime，只 stat，不解码日志
+    let rows = [];
+    if (svc && typeof svc.list === 'function') {
+      const all = await svc.list();
+      rows = (Array.isArray(all) ? all : []).map((snap) => {
+        const h = snap?.header ?? snap ?? {};
+        return { session_id: String(h.id ?? ''), cwd: String(h.cwd ?? ''), created_at: Number(h.createdAt ?? 0) || null };
+      }).filter((r) => r.session_id !== '');
+    } else {
+      rows = [...idx.keys()].map((id) => ({ session_id: id, cwd: '', created_at: null }));
+    }
+    const archivedSet = opts.includeArchived ? new Set() : archivedSessionIds();
+    const desktopRows = rows.filter((r) => !r.session_id.startsWith('smartquiz-') && !archivedSet.has(r.session_id));
+    // 排序用文件 mtime（≈ 最后一次写入），不再为每条读一遍日志尾；
+    // 只有真正要返回的那几条才补标题/最后一句，避免会话多时一次请求要等十几秒。
+    for (const row of desktopRows) row.updated_at = idx.get(row.session_id) ?? null;
+    desktopRows.sort((a, b) => (b.updated_at ?? b.created_at ?? 0) - (a.updated_at ?? a.created_at ?? 0));
+    const lim = Math.max(1, Math.min(200, limit));
+    // keepIds：无论多旧都要带上的（桌面账本里登记过的），否则"电脑上有的那条"可能被 limit 截掉
+    const keep = opts.keepIds instanceof Set ? opts.keepIds : null;
+    let picked = desktopRows.slice(0, lim);
+    if (keep && keep.size) {
+      const have = new Set(picked.map((r) => r.session_id));
+      const missing = desktopRows.filter((r) => keep.has(r.session_id) && !have.has(r.session_id));
+      if (missing.length) picked = picked.concat(missing);
+    }
+    for (const row of picked) {
+      try {
+        const head = await readStoredHead(row.session_id);
+        // 早期 ACP/headless 会话没有 session/title 事件：用第一条用户消息兜底，
+        // 否则手机列表里会出现没有标题的空白项（实测踩到）。
+        const title = head.title || (head.firstUser ? head.firstUser.replace(/\s+/g, ' ').slice(0, 24) : '');
+        if (title) row.title = title;
+        const tail = await readStoredTail(row.session_id, 3);
+        if (tail.lastTime) row.updated_at = Math.max(row.updated_at ?? 0, tail.lastTime);
+        const lastUser = [...tail.messages].reverse().find((m) => m.role === 'user');
+        const snippet = (lastUser ?? tail.messages[tail.messages.length - 1])?.text ?? '';
+        if (snippet) row.last = snippet.slice(0, 120);
+        // 头 80 条里既没有标题、也没有真人消息（ACP/长会话常见）：再用"最后一句"兜底，
+        // 保证手机列表里不会出现无标题的空白项。
+        if (!row.title && row.last) row.title = row.last.replace(/\s+/g, ' ').slice(0, 24);
+      } catch { /* 单条读失败不影响列表 */ }
+    }
+    // 空会话（没有标题、也没有任何真人消息）不进入列表：
+    // 这类多是早期 ACP/CLI 留下的壳，手机选择框里只会挡住真正在用的会话。
+    const nonEmpty = opts.includeEmpty ? picked : picked.filter((r) => (r.title && r.title.length > 0) || (r.last && r.last.length > 0));
+    return nonEmpty;
+  }
+
+  /**
+   * 轻量索引：只 stat 目录拿"会话 id → 文件 mtime"，**不解码日志**。
+   * 手机端开着选择框时用它每几秒问一次"有没有变化"（一次 readdir + stat，毫秒级），
+   * 有变化再拉完整列表 —— 比每次都读 120 条日志便宜两个数量级。
+   */
+  function sessionFileIndex() {
+    const root = join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'sessions');
+    const out = new Map();
+    let buckets = [];
+    try { buckets = readdirSync(root, { withFileTypes: true }); } catch { return out; }
+    for (const bucket of buckets) {
+      if (!bucket.isDirectory()) continue;
+      const bp = join(root, bucket.name);
+      let dirs = [];
+      try { dirs = readdirSync(bp, { withFileTypes: true }); } catch { continue; }
+      for (const d of dirs) {
+        if (!d.isDirectory()) continue;
+        const dir = join(bp, d.name);
+        let mtime = 0;
+        try { mtime = statSync(join(dir, 'session.v4.jsonl.zstd')).mtimeMs; } catch {
+          try { mtime = statSync(join(dir, 'session.jsonl.zstd')).mtimeMs; } catch {
+            try { mtime = statSync(dir).mtimeMs; } catch { /* 跳过 */ }
+          }
+        }
+        if (mtime) out.set(d.name, mtime);
+      }
+    }
+    return out;
+  }
+
+  route('exact', '/sessions.json', async (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    try {
+      const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+      const limit = Number(q.searchParams.get('limit') ?? 20);
+      const lim = Math.max(1, Math.min(200, Number.isFinite(limit) ? limit : 20));
+      if (q.searchParams.get('light') === '1') {
+        const idx = sessionFileIndex();
+        const rows = [...idx.entries()]
+          .filter(([id]) => !id.startsWith('smartquiz-'))
+          .map(([id, mtime]) => ({ session_id: id, updated_at: mtime }))
+          .sort((a, b) => b.updated_at - a.updated_at)
+          .slice(0, lim);
+        return sendJson(res, 200, { ok: true, light: true, count: rows.length, sessions: rows });
+      }
+      const desktop = desktopWorkspace();
+      const sessions = (await listStoredSessions(lim, { keepIds: desktop.ids })).map((r) => ({
+        ...r,
+        // desktop=true 表示"桌面端侧栏里真的有这条"（workspace 账本登记过、没归档）。
+        // 手机默认只显示这一批，条数才和电脑上一致；其余可以点"显示全部"展开。
+        desktop: desktop.ids.has(r.session_id),
+      }));
+      // 当前会话/当前工作区：优先取**桌面列表里**最近活动的那条（数组合集里第一条就是它），
+      // 拿不到再退回"磁盘上最近活动的一条"。
+      const newest = sessions.find((r) => r.desktop) ?? sessions[0] ?? null;
+      const currentSessionId = String(newest?.session_id ?? '');
+      const currentWorkspace = desktop.path
+        || String(newest?.cwd ?? '')
+        || (() => { try { return process.cwd(); } catch { return ''; } })();
+      const workingDir = String(cfg.workingDir || '');
+      sendJson(res, 200, {
+        ok: true, count: sessions.length, sessions,
+        current_session_id: currentSessionId,
+        current_workspace: currentWorkspace,
+        // 桌面账本里的会话 id 全集（手机可据此做"只看电脑上有的"过滤/计数）
+        desktop_session_ids: [...desktop.ids],
+        working_dir: workingDir,
+      });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e?.message ?? e) });
+    }
+  });
+
+  /**
+   * GET /events?session_id=…&since=<seq>&timeout=<秒>&follow=1
+   *
+   * **原样转发 DSH 的事件流**，不在插件里做任何 UI 适配：
+   *   data: {"type":"ready","session_id":…,"seq":N}
+   *   data: {"type":"event","event":{type,seq,time,data}}   ← 逐条原样
+   *   data: {"type":"end"}
+   *
+   * 手机端拿到后自己把事件映射成 ChatMessage / parts（正文、思考、工具卡片）。
+   * 这样 DSH 侧新增事件类型时，插件不需要跟着改。
+   */
+  /**
+   * WebSocket 可行性探针（2026-11-14）。
+   *
+   * <p>目的只有一个：**在写 WS 服务端之前**，确认这条链路（尤其是公网隧道）会不会把
+   * `Upgrade: websocket` 吃掉。做法是把收到的请求头原样回显，调用方看两件事：</p>
+   * <ul>
+   *   <li>{@code headers.upgrade} 是否还是 {@code websocket}（隧道没剥）；</li>
+   *   <li>{@code headers.connection} 是否含 {@code upgrade}（反向代理常把它改成 keep-alive）。</li>
+   * </ul>
+   * <p>两个都在 → WS 值得做；任一被剥 → 直接转长轮询兜底，别浪费 200 行协议代码。</p>
+   */
+  route('exact', '/ws-probe', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const h = req.headers ?? {};
+    const upgrade = String(h.upgrade ?? '');
+    const connection = String(h.connection ?? '');
+    const looksWs = /\bwebsocket\b/i.test(upgrade) && /\bupgrade\b/i.test(connection);
+    return sendJson(res, 200, {
+      ok: true,
+      // 直接给结论，别让调用方自己拼判断
+      websocket_ok: looksWs,
+      verdict: looksWs
+        ? '这条链路透传 Upgrade，可以做 WebSocket'
+        : 'Upgrade 被剥掉了（隧道/反代），WebSocket 不可用，建议改长轮询兜底',
+      headers: h,
+    });
+  });
+
+  /**
+   * 升级版探针（2026-11-14 第二版）。
+   *
+   * <p>第一版写成普通 GET 路由，结果带 {@code Upgrade: websocket} 的请求**根本到不了**
+   * 普通 handler —— Node 的 http server 把 upgrade 请求单独派发，没人认领就直接毁 socket
+   * （实测 curl 拿 http=000）。所以真正的探针必须注册升级路由：DSH 的 webServer 暴露
+   * {@code registerUpgrade({path, handler(req, socket, head)})}，这里用它原样回显收到的
+   * 请求头再关掉 socket。</p>
+   *
+   * <p>判定口径与 GET 版一致：{@code upgrade: websocket} + {@code connection: upgrade}
+   * 两个都在，才算这条链路（含隧道）放行 WebSocket。</p>
+   */
+  try {
+    ctx.effect(() => ctx.webServer.registerUpgrade({
+      path: '/ws-probe',
+      handler: (req, socket) => {
+        const h = req.headers ?? {};
+        const upgrade = String(h.upgrade ?? '');
+        const connection = String(h.connection ?? '');
+        const looksWs = /\bwebsocket\b/i.test(upgrade) && /\bupgrade\b/i.test(connection);
+        const body = JSON.stringify({
+          ok: true,
+          via: 'upgrade',
+          websocket_ok: looksWs,
+          verdict: looksWs
+            ? '升级请求到达了插件：这条链路透传 Upgrade，可以做 WebSocket'
+            : '升级请求到了，但 Upgrade/Connection 头被改写，WebSocket 不可用',
+          upgrade,
+          connection,
+          headers: h,
+        });
+        try {
+          socket.write('HTTP/1.1 200 OK\r\n'
+            + 'content-type: application/json\r\n'
+            + 'content-length: ' + Buffer.byteLength(body) + '\r\n'
+            + 'connection: close\r\n\r\n');
+          socket.write(body);
+        } catch { /* 对端已断 */ }
+        try { socket.end(); } catch { try { socket.destroy(); } catch { /* ignore */ } }
+      },
+    }));
+  } catch (e) {
+    // 老版本 DSH 没有 registerUpgrade：不影响插件其余功能
+    try { console.warn('[smartquiz-remote] registerUpgrade 不可用: ' + String(e?.message ?? e)); } catch { /* ignore */ }
+  }
+
+  route('exact', '/events', async (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const q = new URL(req.url ?? '/', 'http://dsh.invalid');
+    const sid = String(q.searchParams.get('session_id') ?? '').trim();
+    if (!sid) return sendJson(res, 400, { ok: false, error: '需要 session_id' });
+    // 有手机在追这个会话：立刻把该 agent 的审批/反问 waterfall 挂上
+    // （agent 可能在本插件加载之后才创建，这里按需补挂）
+    try {
+      hookAgent(ctx.agents?.get?.(sid));
+    } catch { /* 拿不到 agent 就等 agent/created */ }
+    // 游标优先级：?since= → SSE 标准头 Last-Event-ID → -1（首次）
+    const headerId = req.headers?.['last-event-id'];
+    const sinceRaw = q.searchParams.get('since');
+    const sinceParam = Number(sinceRaw ?? (headerId ?? '-1'));
+    const timeoutSec = Math.max(5, Math.min(1800, Number(q.searchParams.get('timeout') ?? '600') || 600));
+    const follow = q.searchParams.get('follow') === '1';
+    const snapshotThreshold = Math.max(50, Number(q.searchParams.get('snapshot_threshold') ?? '500') || 500);
+    // 可选事件类型过滤（导入历史时只要 4 类，能把 9000+ 条压到一千多条）
+    const typesFilter = new Set(
+      String(q.searchParams.get('types') ?? '')
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean),
+    );
+    const caps = q.searchParams.get('caps') ?? '';
+    // A3-接（2026-11-14）：SSE 这条通道也要下发锚点。
+    // WS 的 hello 已经带 anchor，但隧道掐长连接时 App 会退回 SSE（手机侧实测就是这个形态），
+    // 那时拿不到锚点 → 又只能随机新建本地会话 → 历史越用越多。这里按请求令牌认设备，
+    // 每次 ready/snapshot 都把（设备 × 会话）的锚点带上，两条通道口径一致。
+    const reqDevice = (() => {
+      try {
+        const m = /^Bearer\s+(.+)$/i.exec((req.headers?.authorization ?? '').trim());
+        return m ? deviceByToken(m[1]) : undefined;
+      } catch { return undefined; }
+    })();
+    const sseAnchor = () => {
+      try { return reqDevice ? anchorFor(reqDevice.id, sid, true) : null; } catch { return null; }
+    };
+    /**
+     * 事件帧 + 锚点（2026-11-14，A3 收尾）。
+     *
+     * <p>以前只有握手/ready/snapshot 带 anchor，**逐条事件帧不带** —— 手机在中途切会话、
+     * 或者补拉时只拿到事件，就没法把"这条事件属于哪台电脑会话/哪个本地会话"确认下来。
+     * 这里统一在每帧附上（device × session）的锚点，App 可据此校验/纠偏。</p>
+     */
+    const sendEventFrame = (ev) => {
+      const out = { type: 'event', event: ev };
+      try {
+        const a = sseAnchor();
+        if (a) out.anchor = a;
+      } catch { /* 锚点拿不到就不带 */ }
+      sse(out);
+    };    const passType = (ev) => {
+      const t = String(ev?.type ?? '');
+      if (typesFilter.size > 0 && !typesFilter.has(t)) return false;
+      // 能力协商：客户端声明不支持 approval 块时，审批事件不下发（legacy 不裁）
+      return eventAllowed(t, caps);
+    };
+    res.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    const sse = (o) => { try { res.write('data: ' + JSON.stringify(o) + '\n\n'); } catch { /* 断连 */ } };
+    // 实时桥订阅：token 增量 / 子代理活动 / 日程变化都经这里推给手机。
+    // 事件类型按 caps 过滤（例如没声明 parts.stream 就不收 delta）。
+    const sub = {
+      sid,
+      caps,
+      transport: 'sse',
+      channel: '/events',
+      send: (o) => {
+        if (!o || !eventAllowed(o.type, caps)) return;
+        sse(o);
+      },
+    };
+    STREAM_HUB.add(sub);
+    // 心跳 = pulse 事件（不再只是注释行）：客户端能据此测 RTT、发现"假在线"
+    const ping = () => {
+      touchConnection(sid, 'events');
+      const live = ctx.sessions.get(sid);
+      sse({ type: 'pulse', ts: Date.now(), seq: Number(live?.seq ?? 0) || 0 });
+    };
+    let closed = false;
+    let viewTimer = null;
+    req.on('close', () => {
+      closed = true;
+      if (viewTimer) clearInterval(viewTimer);
+      STREAM_HUB.delete(sub);
+      dropConnection(sid);
+    });
+    touchConnection(sid, 'events');
+    const finish = () => {
+      closed = true;
+      if (viewTimer) clearInterval(viewTimer);
+      sse({ type: 'end' });
+      try { res.end(); } catch { /* 已断 */ }
+    };
+    // ★ 2026-11-12：连接即下发「权威状态 + 视图」，之后由服务端持续推送。
+    //   客户端不再每 3/5 秒轮询 /v2/view + /v2/pulse：一次连接、服务端说话。
+    const pushState = async () => {
+      try {
+        const live = ctx.sessions.get(sid);
+        let dshSeq = Number(live?.seq ?? 0) || 0;
+        if (!live) {
+          try {
+            const st = await persistence()?.stat?.(sid);
+            dshSeq = Number(st?.eventCount ?? 0) || 0;
+          } catch { /* 无持久化 */ }
+        }
+        const head = await (async () => {
+          try { return await readStoredHead(sid); } catch { return null; }
+        })();
+        let code = '';
+        try {
+          for (const [k, v] of Object.entries(sessionBinding.dump())) {
+            if (v === sid) { code = k; break; }
+          }
+        } catch { /* ignore */ }
+        sse({
+          type: 'state', data: {
+            session_id: sid,
+            exists: Boolean(live) || Boolean(head),
+            live: Boolean(live),
+            title: String(head?.title ?? ''),
+            agent_preset: String(head?.agentPreset ?? ''),
+            code: code === '@direct' ? '' : code,
+            execution: executionInfo(sid),
+            last_seq: dshSeq,
+            acked_seq: Number((ACK_STORE.get(sid) ?? {}).acked_seq ?? 0) || 0,
+            server_time: Date.now(),
+          },
+        });
+      } catch { /* 状态失败不影响事件 */ }
+    };
+    const pushView = async () => {
+      try {
+        // CAPS-FIX（2026-11-13）：SSE 的 view 也必须按 caps 裁剪，否则与 GET /v2/view 口径不一致。
+        const normalized = normalizeCaps(caps);
+        const view = await buildView(sid, { withTimeline: false, caps: normalized });
+        view.cards = filterViewCards(view.cards, normalized);
+        sse({ type: 'view', data: view });
+      } catch { /* ignore */ }
+    };
+    pushState();
+    pushView();
+    // 连上就把持续状态各推一次（jobs / goal / plan / subagents / mcp）；之后按事件增量刷新
+    // 2026-11-15：全部按 sid 过滤，别的会话的任务/目标/子代理不会串到这条连接上。
+    refreshGoalFromHost(sid);
+    refreshPlanFromHost(sid);
+    broadcastJobsSlot(sid);
+    broadcastGoalSlot(sid);
+    broadcastPlanSlot(sid);
+    broadcastSubagentsSlot(sid);
+    broadcastMcpSlot(sid);
+    // 权限插槽：先向宿主补读一次（重启/新会话时事件不会重放，否则这一行是空的）
+    refreshPermissionFromHost(sid);
+    broadcastPermissionSlot();
+    // 日程概览（通用 ui/slot）
+    pushScheduleSlot();
+    // 最近一帧补发（§20，2026-11-15）：ui.slot / phone_ui 推的东西没有事件源，
+    // 不补的话 App 一重启就全消失；按 id 记住最近帧（含 rev/ttl），过期的瞬时帧不复活。
+    replaySlots(sid, (frame) => sse(frame));
+    // 子代理最近活动补发（B15）：最多 10 个 child，避免重连瞬间灌爆
+    let subagentReplay = 0;
+    for (const frame of SUBAGENT_LAST.values()) {
+      if (subagentReplay >= 10) break;
+      if (frame.root_id && frame.root_id !== sid) continue;
+      sse({ type: 'subagent/activity', data: frame });
+      subagentReplay += 1;
+    }
+    viewTimer = setInterval(() => { if (!closed) pushView(); }, 5000);
+    // since = -2 means "start from now": no history replay (first connect / no cursor)
+    const since = sinceParam === -2 ? -2
+      : (Number.isFinite(sinceParam) && sinceParam >= 0 ? sinceParam : -1);
+    const live0 = ctx.sessions.get(sid);
+
+    // ★ 非 live 会话：从持久化会话日志补发（"补发会话文件"）
+    if (!live0) {
+      const replay = await replaySessionLog(sid, since === -2 ? 1_000_000_000 : since, snapshotThreshold);
+      if (!replay) {
+        sse({ type: 'gone', session_id: sid });
+        try { res.end(); } catch { /* 已断 */ }
+        return;
+      }
+      if (replay.snapshot) {
+        sse({ type: 'snapshot', session_id: sid, seq: replay.seq, turns: replay.turns, source: 'log', anchor: sseAnchor(), caps: clientCaps(caps) });
+      } else {
+        sse({ type: 'ready', session_id: sid, seq: replay.seq, source: 'log', since, anchor: sseAnchor(), caps: clientCaps(caps) });
+        for (const ev of replay.events) {
+          if (passType(ev)) sendEventFrame(ev);
+        }
+      }
+      // 2026-11-14：SSE 链路上也补发暂存的推送卡（进页面/重连都能拿到）
+      try { replayPushedCards(sid, (frame) => sse(frame)); } catch { /* 忽略 */ }
+      /**
+       * ★ 2026-11-12 修复：以前这里直接 finish()，会话只要没在桌面端打开（非 live），
+       *   手机订阅完历史就"断流"，之后电脑写的回复再也推不过去 —— 用户看到的就是
+       *   「连接流不稳定 / 消息没同步 / 没有补发」。
+       *   现在 follow=1 时改为轮询持久化日志，增量推 + 心跳保活，直到手机断开或超时。
+       */
+      if (!follow) return finish();
+      const svc2 = persistence();
+      if (!svc2 || typeof svc2.open !== 'function') return finish();
+      let sentCount = 0;
+      try {
+        const st0 = await svc2.stat?.(sid);
+        sentCount = Number(st0?.eventCount ?? 0) || 0;
+      } catch { sentCount = 0; }
+      const pollDeadline = Date.now() + timeoutSec * 1000;
+      let lastPing2 = Date.now();
+      while (!closed && Date.now() < pollDeadline) {
+        try {
+          let total = 0;
+          try { total = Number((await svc2.stat?.(sid))?.eventCount ?? 0) || 0; } catch { total = 0; }
+          if (total > sentCount) {
+            const h = await svc2.open(sid, 'read');
+            let fresh = [];
+            try {
+              const got = await h.read(sentCount);
+              fresh = Array.isArray(got) ? got : (got?.events ?? []);
+            } finally { try { await h.close?.(); } catch { /* 已关 */ } }
+            for (const ev of fresh) { if (passType(ev)) sendEventFrame(ev); }
+            sentCount += fresh.length;
+          }
+          if (Date.now() - lastPing2 > 10000) { lastPing2 = Date.now(); ping(); }
+        } catch { /* 单次读失败继续 */ }
+        // eslint-disable-next-line no-await-in-loop -- 顺序轮询
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      return finish();
+    }
+
+    const seqNow = Number(live0.seq ?? 0);
+    // ★ 首次连接或缺口过大：给快照（历史批），随后继续增量
+    if (since === -2) {
+      // explicit "from now": ready only, no replay (first connect must not dump history)
+      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since, anchor: sseAnchor(), caps: clientCaps(caps) });
+      if (!follow) return finish();
+    } else if (since < 0 || seqNow - since > snapshotThreshold) {
+      sse({ type: 'snapshot', session_id: sid, seq: seqNow, turns: snapshotTurns(live0), source: 'live', anchor: sseAnchor(), caps: clientCaps(caps) });
+      if (!follow) return finish();
+    } else {
+      sse({ type: 'ready', session_id: sid, seq: seqNow, source: 'live', since, anchor: sseAnchor(), caps: clientCaps(caps) });
+    }
+    let cursor = since >= 0 ? Math.min(since, seqNow) : seqNow;
+    const announced = new Set();
+    const deadline = Date.now() + timeoutSec * 1000;
+    let lastPing = Date.now();
+    while (!closed && Date.now() < deadline) {
+      const live = ctx.sessions.get(sid);
+      if (!live) { sse({ type: 'gone', session_id: sid }); break; }
+      const seq = Number(live.seq ?? 0);
+      for (; cursor < seq; cursor += 1) {
+        const ev = live.eventAt?.(cursor);
+        if (ev && passType(ev)) sendEventFrame(ev);
+      }
+      for (const a of [...pendingRemoteOf(sid, 'approval'), ...pendingRemoteOf(sid, 'question')]) {
+        if (announced.has(a.id)) continue;
+        announced.add(a.id);
+        sse({ type: a.kind === 'question' ? 'question' : 'approval', id: a.id, request: a.request });
+      }
+      for (const id of [...announced]) {
+        const still = [...pendingRemoteOf(sid, 'approval'), ...pendingRemoteOf(sid, 'question')]
+          .some((a) => a.id === id);
+        if (still) continue;
+        announced.delete(id);
+        sse({ type: 'approval_gone', id });
+      }
+      if (!follow) break;
+      if (Date.now() - lastPing > 10000) { lastPing = Date.now(); ping(); }
+      // eslint-disable-next-line no-await-in-loop -- 顺序轮询
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return finish();
+  });
+
+  /** 会话的"历史批"：最近 20 条消息（角色 + 文本），首次连接 / 缺口过大时用 */
+  const snapshotTurns = (session) => {
+    const turns = [];
+    try {
+      const msgs = session?.deriveMessages?.() ?? [];
+      for (const m of msgs.slice(-20)) {
+        const role = m?.role === 'user' ? 'user' : 'assistant';
+        const text = typeof m?.content === 'string'
+          ? m.content
+          : Array.isArray(m?.content)
+            ? m.content.map((p) => (p && typeof p.text === 'string' ? p.text : '')).join('')
+            : '';
+        if (text) turns.push({ role, text: String(text).slice(0, 4000) });
+      }
+    } catch { /* 拿不到就空快照 */ }
+    return turns;
+  };
+
+  /**
+   * 从持久化会话日志读事件（"补发会话文件"）。
+   *
+   * DSH 把会话写在 $DSH_HOME/sessions/--<cwd>--/<id>/session.v4.jsonl.zstd：首帧是头部、
+   * 之后是事件帧。按 zstd 魔数切帧解压、逐行 JSON、过滤 seq > since。
+   * 返回 null 表示这个环境读不了（老 Node 没有 zstd），调用方回 gone。
+   */
+  const replaySessionLog = async (sessionId, since, threshold) => {
+    let dec;
+    try {
+      const zlib = await import('node:zlib');
+      dec = zlib.zstdDecompressSync ?? zlib.default?.zstdDecompressSync;
+    } catch { /* 老 Node 没有 zstd */ }
+    const home = process.env.DSH_HOME || '';
+    if (!dec || !home) return null;
+    const root = join(home, 'sessions');
+    let file = '';
+    try {
+      for (const dir of readdirSync(root)) {
+        const cand = join(root, dir, sessionId, 'session.v4.jsonl.zstd');
+        if (existsSync(cand)) { file = cand; break; }
+      }
+    } catch { return null; }
+    if (!file) return null;
+    let text = '';
+    try {
+      const buf = readFileSync(file);
+      const magic = [0x28, 0xb5, 0x2f, 0xfd];
+      const starts = [];
+      for (let i = 0; i + 3 < buf.length; i += 1) {
+        if (buf[i] === magic[0] && buf[i + 1] === magic[1] && buf[i + 2] === magic[2] && buf[i + 3] === magic[3]) starts.push(i);
+      }
+      for (let k = 0; k < starts.length; k += 1) {
+        const seg = buf.subarray(starts[k], k + 1 < starts.length ? starts[k + 1] : buf.length);
+        try { text += dec(seg).toString('utf8'); } catch { /* 跳过坏帧 */ }
+      }
+    } catch { return null; }
+    const events = [];
+    let seq = 0;
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      let ev;
+      try { ev = JSON.parse(line); } catch { continue; }
+      if (typeof ev?.seq === 'number') {
+        seq = Math.max(seq, ev.seq);
+        if (ev.seq > since) events.push(ev);
+      }
+    }
+    if (since < 0 || events.length > threshold) {
+      const turns = [];
+      for (const ev of events.slice(-120)) {
+        if (ev.type === 'user/message') {
+          const t = Array.isArray(ev.data?.content) ? ev.data.content.map((p) => p?.text ?? '').join('') : '';
+          if (t) turns.push({ role: 'user', text: t.slice(0, 2000) });
+        } else if (ev.type === 'assistant/message') {
+          const t = (ev.data?.message?.content ?? [])
+            .filter((p) => p && p.type !== 'reasoning')
+            .map((p) => p.text ?? '').join('');
+          if (t) turns.push({ role: 'assistant', text: t.slice(0, 4000) });
+        }
+      }
+      return { snapshot: true, seq, turns: turns.slice(-20) };
+    }
+    return { snapshot: false, seq, events };
+  };
+
+  /**
+   * 审批中继用的"网关桥"。
+   *
+   * DSH 的审批是 typertGateway 把 approval/request 转发给所有 owner client、谁先应答谁
+   * settle（先答先赢）。插件跑在宿主里，直接读它的 pendingRemoteEvents 并调用
+   * settleRemoteEvent 就能"替手机点一下"，桌面端对应弹窗会因 settle 而收掉。
+   *
+   * 这些都是**私有字段**：用特性探测包住，DSH 升级后拿不到就自动退回"只提醒"，
+   * 不影响任何既有功能。
+   */
+  const approvalGateway = () => {
+    let gw;
+    try { gw = ctx.typertGateway; } catch { gw = undefined; }
+    if (!gw) {
+      try { gw = ctx.get?.('typertGateway'); } catch { gw = undefined; }
+    }
+    try {
+      if (!gw || typeof gw.settleRemoteEvent !== 'function' || !(gw.pendingRemoteEvents instanceof Map)) return null;
+      return gw;
+    } catch { return null; }
+  };
+
+  /**
+   * 某条会话当前挂着的"远端待答事件"（审批 / agent 反问）。
+   * 返回值里的 `kind` 决定手机端弹哪种框。
+   */
+  /**
+   * 手机兜底审批：电脑端没有活跃 owner client 时，由插件自己接管 waterfall。
+   *
+   * 背景：DSH 的审批是 waterfall，桌面 UI 作为 owner client 应答；客户端一旦不在，
+   * 请求会立刻按 'unavailable' 落地（fail-closed），手机根本来不及点 —— 实测
+   * 两次提权都是 0 毫秒就报 "no approval channel is available"。
+   * 这里挂一个前置应答者：只在「当前没有活跃 owner client」时接管，把请求挂住、
+   * 经 SSE 推给手机，等手机点完再返回 DSH 认可的闭集取值；电脑端在场时直接 next()，
+   * 完全维持原来的 gateway 中继（先答先赢），不改变既有行为。
+   */
+  const phoneApprovals = new Map();        // id -> { id, kind, agentId, request, settle }
+  const PHONE_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
+
+  /**
+   * 手机托管的 agent 反问（2026-11-13）。
+   *
+   * <p>反问没有像审批那样的 "远端待答事件表"给我们轮询，只能自己去接 waterfall：
+   * 只在这个会话确实有手机在追时接管，把问题推给手机并 await，手机点完经
+   * {@code /v2/answer} 回来才 resolve —— 桌面端不参与，避免两边抢答。</p>
+   */
+  const phoneQuestions = new Map();        // id -> { id, sessionId, resolve, reject, timer }
+
+  /**
+   * agent 作用域挂钩（2026-11-13）。
+   *
+   * <p>`approval/request` 与 `user-questions/request` 都是 `Scoped<Agent>` 事件：
+   * 在插件 root 上下文注册**永远收不到**（实测 /status 里 seen=0）。
+   * 正确做法是像 DSH 自己的子代理那样，在 `agent.ctx` 上注册（见 dsh-subagent/manager.ts）。
+   * 这里对所有存活 agent 挂钩，并在 agent/created 时补挂。</p>
+   */
+  const SCOPED_AGENTS = new Set();
+  const SCOPED_DISPOSERS = [];
+
+  const approvalWaterfall = (sid, request, next) => {
+    ARELAY.seen += 1;
+    ARELAY.last_sid = sid;
+    let watching = false;
+    try {
+      for (const s of STREAM_HUB) {
+        if (String(s?.sid) === sid) { watching = true; break; }
+      }
+    } catch { watching = false; }
+    if (!watching) {
+      ARELAY.reason = 'no_stream:' + sid;
+      return next();
+    }
+    ARELAY.taken += 1;
+    ARELAY.reason = 'taken:' + sid;
+    return new Promise((resolve) => {
+      const id = randomBytes(16).toString('hex');
+      const detail = {
+        toolName: request?.toolName ?? null,
+        callId: request?.callId ?? null,
+        reason: request?.reason ?? request?.displayReason ?? null,
+      };
+      const timer = setTimeout(() => { entry.settle('unavailable'); }, PHONE_APPROVAL_TIMEOUT_MS);
+      const onAbort = () => { entry.settle('cancelled'); };
+      const entry = {
+        id,
+        kind: 'approval',
+        agentId: sid,
+        request: detail,
+        settle: (outcome) => {
+          if (!phoneApprovals.has(id)) return false;
+          phoneApprovals.delete(id);
+          clearTimeout(timer);
+          try { request?.signal?.removeEventListener?.('abort', onAbort); } catch { /* ignore */ }
+          resolve(outcome);
+          return true;
+        },
+      };
+      phoneApprovals.set(id, entry);
+      try { request?.signal?.addEventListener?.('abort', onAbort, { once: true }); } catch { /* ignore */ }
+      if (request?.signal?.aborted) onAbort();
+      // 推给手机：手机按 approval 帧渲染甲板卡；点击走 /session action=approval → settle
+      streamBroadcast(sid, {
+        v: 2, type: 'approval', id, kind: 'approval', ts: Date.now(), request: detail,
+      });
+    });
+  };
+
+  const questionWaterfall = (sid, request, next) => {
+    QRELAY.seen += 1;
+    QRELAY.last_sid = sid;
+    let watching = false;
+    try {
+      for (const s of STREAM_HUB) {
+        if (String(s?.sid) === sid) { watching = true; break; }
+      }
+    } catch { watching = false; }
+    if (!watching) {
+      QRELAY.reason = 'no_stream:' + sid;
+      return next();
+    }
+    QRELAY.taken += 1;
+    QRELAY.reason = 'taken:' + sid;
+    const id = 'q-' + randomBytes(8).toString('hex');
+    const questions = Array.isArray(request?.questions) ? request.questions : [];
+    streamBroadcast(sid, {
+      v: 2, type: 'question', id, kind: 'question', ts: Date.now(),
+      request: { questions },
+      data: { id, session_id: sid, questions },
+    });
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        phoneQuestions.delete(id);
+        reject(new Error('ASK_TIMEOUT'));
+      }, PHONE_APPROVAL_TIMEOUT_MS);
+      const onAbort = () => {
+        if (!phoneQuestions.has(id)) return;
+        phoneQuestions.delete(id);
+        clearTimeout(timer);
+        reject(new Error('ASK_ABORTED'));
+      };
+      phoneQuestions.set(id, { id, sessionId: sid, resolve, reject, timer });
+      try { request?.signal?.addEventListener?.('abort', onAbort, { once: true }); } catch { /* ignore */ }
+      if (request?.signal?.aborted) onAbort();
+    });
+  };
+
+  const hookAgent = (agent) => {
+    try {
+      const sid = String(agent?.session?.id ?? agent?.id ?? '');
+      const actx = agent?.ctx;
+      if (!sid || !actx || typeof actx.on !== 'function' || SCOPED_AGENTS.has(sid)) return;
+      SCOPED_AGENTS.add(sid);
+      const offA = actx.on('approval/request', (request, next) => approvalWaterfall(sid, request, next));
+      const offQ = actx.on('user-questions/request', (request, next) => questionWaterfall(sid, request, next));
+      SCOPED_DISPOSERS.push(() => {
+        try { offA?.(); } catch { /* ignore */ }
+        try { offQ?.(); } catch { /* ignore */ }
+      });
+      ARELAY.hooked = SCOPED_AGENTS.size;
+    } catch (e) {
+      ARELAY.reason = 'hook_fail:' + String(e?.message ?? e).slice(0, 80);
+    }
+  };
+
+  try {
+    for (const a of (ctx.agents?.list?.() ?? [])) hookAgent(a);
+    ctx.effect(() => ctx.on('agent/created', (payload) => hookAgent(payload?.agent ?? payload)));
+  } catch (e) {
+    ARELAY.reason = 'list_fail:' + String(e?.message ?? e).slice(0, 80);
+  }
+
+  const phonePendingOf = (sessionId, kind) => {
+    const out = [];
+    for (const e of phoneApprovals.values()) {
+      if (e.kind !== kind) continue;
+      if (sessionId && String(e.agentId) !== String(sessionId)) continue;
+      out.push({ id: e.id, kind, request: e.request, agent_id: e.agentId });
+    }
+    return out;
+  };
+
+  const pendingRemoteOf = (sessionId, kind) => {
+    const eventName = kind === 'question' ? 'user-questions/request' : 'approval/request';
+    const out = [];
+    const gw = approvalGateway();
+    if (gw) {
+      try {
+        for (const pending of gw.pendingRemoteEvents.values()) {
+          const f = pending?.frame;
+          if (!f || f.event !== eventName) continue;
+          if (sessionId && String(f.agentId) !== String(sessionId)) continue;
+          out.push({ id: String(pending.id), kind, request: f.request ?? null, agent_id: String(f.agentId ?? '') });
+        }
+      } catch { /* 结构变了就当没有 */ }
+    }
+    out.push(...phonePendingOf(sessionId, kind));
+    return out;
+  };
+
+  /** 兼容旧调用点：只要审批 */
+  const pendingApprovalsOf = (sessionId) => pendingRemoteOf(sessionId, 'approval');
+
+  /** 手机应答：先答先赢；失败返回错误说明 */
+  const answerApproval = (approvalId, allow) => {
+    APPDBG.calls += 1;
+    APPDBG.local = phoneApprovals.size;
+    APPDBG.last_at = Date.now();
+    APPDBG.gateway_pending = 0;
+    APPDBG.gateway_ids = [];
+    try {
+      const gwDbg = approvalGateway();
+      if (gwDbg) {
+        const ids = [...gwDbg.pendingRemoteEvents.keys()].slice(0, 5).map(String);
+        APPDBG.gateway_pending = gwDbg.pendingRemoteEvents.size;
+        APPDBG.gateway_ids = ids;
+      }
+    } catch { /* 诊断失败不影响主流程 */ }
+    // ⓪ 测试审批（debug.approval 注入的）：直接收掉并通知手机
+    const testEntry = TEST_APPROVALS.get(String(approvalId));
+    if (testEntry) {
+      TEST_APPROVALS.delete(String(approvalId));
+      try { clearTimeout(testEntry.timer); } catch { /* ignore */ }
+      streamBroadcast('', { v: 2, type: 'approval_gone', id: String(approvalId), ts: Date.now() });
+      TEST_APPROVAL_LOG.push({ id: String(approvalId), decision: allow ? 'allowed-once' : 'rejected', at: Date.now() });
+      if (TEST_APPROVAL_LOG.length > 20) TEST_APPROVAL_LOG.shift();
+      return { ok: true, decision: allow ? 'allowed-once' : 'rejected', relay: 'test' };
+    }
+
+    // ① 插件自己挂住的（电脑端不在场的那条路）
+    const local = phoneApprovals.get(String(approvalId));
+    if (local) {
+      const outcome = allow ? 'allowed-once' : 'rejected';
+      const settled = local.settle(outcome);
+      APPDBG.ok = Boolean(settled);
+      APPDBG.last_error = settled ? '' : 'local_settle_failed';
+      return settled
+        ? { ok: true, decision: outcome, relay: 'plugin' }
+        : { ok: false, error: 'approval_not_found', hint: '这条审批已经结束了（可能已超时）' };
+    }
+    // ② 电脑端在场：走原来的 gateway 中继（与桌面端先答先赢）
+    const gw = approvalGateway();
+    if (!gw) {
+      APPDBG.ok = false;
+      APPDBG.last_error = 'gateway_unavailable';
+      return { ok: false, error: 'gateway_unavailable', hint: '这个 DSH 版本的网关不暴露审批中继（插件会自动退回只提醒）' };
+    }
+    try {
+      for (const pending of gw.pendingRemoteEvents.values()) {
+        if (String(pending.id) !== String(approvalId)) continue;
+        // DSH 的 ApprovalOutcome 是闭集：'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'。
+        // 这里曾写成 'allowed'，不在词表里，approval 服务会按 "rogue non-vocabulary return
+        // value" 归一化成 'unavailable' —— 于是手机点“允许”等于没批准（工具侧报
+        // SANDBOX_ESCALATION_UNAVAILABLE / 没有可用的审批通道）。
+        gw.settleRemoteEvent(pending, { kind: 'result', value: allow ? 'allowed-once' : 'rejected' });
+        APPDBG.ok = true;
+        APPDBG.last_error = '';
+        return { ok: true, decision: allow ? 'allowed-once' : 'rejected' };
+      }
+      APPDBG.ok = false;
+      APPDBG.last_error = 'approval_not_found';
+      return { ok: false, error: 'approval_not_found', hint: '这条审批已经结束了（可能刚被电脑端点了，或已超时）' };
+    } catch (e) {
+      APPDBG.ok = false;
+      APPDBG.last_error = String(e?.message ?? e);
+      return { ok: false, error: String(e?.message ?? e) };
+    }
+  };
+
+  // 审批兜底应答者：只在「电脑端没有活跃 owner client」时接管，电脑端在场就 next()。
+  // 整个注册包在 try 里：老版本 DSH 没有这个事件时不要把插件加载搞崩。
+  try {
+  ctx.effect(() => ctx.on('approval/request', (request, next) => {
+    let gw = null;
+    try { gw = approvalGateway(); } catch { gw = null; }
+    let live = false;
+    try {
+      live = Boolean(gw && typeof gw.hasLiveClient === 'function' && gw.hasLiveClient());
+    } catch { live = false; }
+    if (live) return next();
+
+    // 没有手机在追这条会话时不要接管：否则会把没人应答的审批挂满超时，
+    // 反而把"快速失败"变成"卡 5 分钟"。没人看就走原来的 next()（fail-closed）。
+    const sessionId = String(request?.agent?.session?.id ?? '');
+    let watching = false;
+    try {
+      for (const s of STREAM_HUB) {
+        if (String(s?.sid) === sessionId) { watching = true; break; }
+      }
+    } catch { watching = false; }
+    if (!watching) return next();
+
+    return new Promise((resolve) => {
+      const id = randomBytes(16).toString('hex');
+      const agentId = String(request?.agent?.session?.id ?? request?.agent?.id ?? '');
+      const timer = setTimeout(() => { entry.settle('unavailable'); }, PHONE_APPROVAL_TIMEOUT_MS);
+      const onAbort = () => { entry.settle('cancelled'); };
+      const entry = {
+        id,
+        kind: 'approval',
+        agentId,
+        request: {
+          toolName: request?.toolName ?? null,
+          callId: request?.callId ?? null,
+          reason: request?.reason ?? request?.displayReason ?? null,
+        },
+        settle: (outcome) => {
+          if (!phoneApprovals.has(id)) return false;
+          phoneApprovals.delete(id);
+          clearTimeout(timer);
+          try { request?.signal?.removeEventListener?.('abort', onAbort); } catch { /* ignore */ }
+          resolve(outcome);
+          return true;
+        },
+      };
+      phoneApprovals.set(id, entry);
+      try { request?.signal?.addEventListener?.('abort', onAbort, { once: true }); } catch { /* ignore */ }
+      if (request?.signal?.aborted) onAbort();
+    });
+  }));
+  } catch (e) {
+    // 注册失败就退回"只提醒"：审批仍可在电脑端处理，不影响其它功能
+    try { console.warn('[smartquiz-remote] approval answerer 未注册:', String(e?.message ?? e)); } catch { /* ignore */ }
+  }
+
+  // 反问（user-questions/request，waterfall）：把问题推给手机并等它回答。
+  // 只在"这个会话有手机在追"时接管；否则 next() 交给桌面端。
+  try {
+    ctx.effect(() => ctx.on('user-questions/request', async (request, next) => {
+      QRELAY.seen += 1;
+      const sessionId = String(request?.agent?.session?.id ?? '');
+      QRELAY.last_sid = sessionId;
+      let watching = false;
+      try {
+        for (const s of STREAM_HUB) {
+          if (String(s?.sid) === sessionId) { watching = true; break; }
+        }
+      } catch { watching = false; }
+      if (!watching) {
+        QRELAY.reason = 'no_stream:' + sessionId;
+        return next();
+      }
+      QRELAY.taken += 1;
+      QRELAY.reason = 'taken:' + sessionId;
+
+      const id = 'q-' + randomBytes(8).toString('hex');
+      const questions = Array.isArray(request?.questions) ? request.questions : [];
+      // 手机端 DshTimeline 的 question 分支读信封顶层的 request，同时保留 data 方便调试
+      streamBroadcast(sessionId, {
+        v: 2, type: 'question', id, kind: 'question', ts: Date.now(),
+        request: { questions },
+        data: { id, session_id: sessionId, questions },
+      });
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          phoneQuestions.delete(id);
+          reject(new Error('ASK_TIMEOUT'));
+        }, PHONE_APPROVAL_TIMEOUT_MS);
+        const onAbort = () => {
+          if (!phoneQuestions.has(id)) return;
+          phoneQuestions.delete(id);
+          clearTimeout(timer);
+          reject(new Error('ASK_ABORTED'));
+        };
+        phoneQuestions.set(id, { id, sessionId, resolve, reject, timer });
+        try { request?.signal?.addEventListener?.('abort', onAbort, { once: true }); } catch { /* ignore */ }
+        if (request?.signal?.aborted) onAbort();
+      });
+    }));
+  } catch (e) {
+    try { console.warn('[smartquiz-remote] user-questions answerer 未注册:', String(e?.message ?? e)); } catch { /* ignore */ }
+  }
+
+  /**
+   * 反向指令：电脑端 → 手机（2026-11-12 接线）。
+   *
+   * <p>以前只有 {@code cmdQueue} 骨架和白名单，没有任何入队/取用接口，
+   * PC 侧永远推不动手机。现在三件套齐了：</p>
+   * <ul>
+   *   <li>{@code POST /cmd {tool, args}} —— PC 入队（校验白名单，返回 cmd_id）</li>
+   *   <li>{@code GET /cmd/poll?since=} —— 手机取待执行指令（取走即标 delivering）</li>
+   *   <li>{@code POST /cmd/ack {id, ok, result}} —— 手机回执（PC 可按 id 查结果）</li>
+   * </ul>
+   * <p>只放行纯 UI / 轻状态工具；执行始终在手机侧完成，插件不替手机做任何事。</p>
+   */
+  route('exact', '/cmd', async (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use POST' });
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch (e) {
+      return sendJson(res, 400, { ok: false, error: 'bad json: ' + String(e?.message ?? e) });
+    }
+    const tool = String(body.tool ?? '').trim();
+    if (!tool) return sendJson(res, 400, { ok: false, error: '需要 tool' });
+    // CAPS-GATE（2026-11-13）：反向指令只做纯 UI，声明的客户端必须有 cmd.ui。
+    // 未声明 caps 的旧客户端一律放行（allows 的既有语义），所以不会切断现网。
+    if (!allows(normalizeCaps(body.caps ?? ''), 'cmd.ui')) {
+      return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'cmd.ui' });
+    }
+    if (!CMD_ALLOW.has(tool)) {
+      return sendJson(res, 403, {
+        ok: false, error: 'tool_not_allowed', tool,
+        allowed: [...CMD_ALLOW],
+        hint: '反向通道只放行纯 UI / 轻状态工具，执行在手机侧完成',
+      });
+    }
+    pruneCommands();
+    const id = randomBytes(8).toString('hex');
+    const cmd = {
+      id, tool,
+      args: body.args && typeof body.args === 'object' ? body.args : {},
+      state: 'queued',          // queued → delivering → done
+      createdAt: Date.now(),
+      result: null,
+      error: null,
+    };
+    cmdQueue.set(id, cmd);
+    // WS 直推（2026-11-14）：手机连着 WS 时立刻收到，不必等 /cmd/poll 那一轮；
+    // 轮询保留给老客户端和 SSE 通道，两条路并存不冲突（手机按 cmd_id 去重）。
+    for (const w of WS_CLIENTS) {
+      const meta = WS_META.get(w);
+      // 只推给"管 UI 的"端点：/ws（全功能）和 /ws/ui；事件/文件端点不该收 cmd
+      if (meta && meta.channel && meta.channel !== '/ws' && meta.channel !== '/ws/ui') continue;
+      try {
+        w.send(JSON.stringify({ type: 'cmd', id, tool: cmd.tool, args: cmd.args, created_at: cmd.createdAt }));
+      } catch { /* 已断 */ }
+    }
+    return sendJson(res, 200, { ok: true, cmd_id: id, tool, state: cmd.state });
+  });
+
+  route('exact', '/cmd/poll', (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    pruneCommands();
+    const out = [];
+    for (const c of cmdQueue.values()) {
+      if (c.state !== 'queued') continue;
+      c.state = 'delivering';
+      c.deliveredAt = Date.now();
+      out.push({ id: c.id, tool: c.tool, args: c.args, created_at: c.createdAt });
+    }
+    return sendJson(res, 200, { ok: true, commands: out, count: out.length });
+  });
+
+  route('exact', '/cmd/ack', async (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use POST' });
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
+    const id = String(body.cmd_id ?? body.id ?? '').trim();
+    const c = cmdQueue.get(id);
+    if (!c) return sendJson(res, 404, { ok: false, error: 'cmd_not_found', id });
+    c.state = 'done';
+    c.ok = body.ok !== false;
+    c.result = body.result ?? null;
+    c.error = body.error ? String(body.error).slice(0, 300) : null;
+    c.doneAt = Date.now();
+    return sendJson(res, 200, { ok: true, cmd_id: id, state: c.state });
+  });
+
+  route('exact', '/cmd/result', (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const url = new URL(req.url, 'http://127.0.0.1');
+    const id = String(url.searchParams.get('id') ?? '').trim();
+    const c = cmdQueue.get(id);
+    if (!c) return sendJson(res, 404, { ok: false, error: 'cmd_not_found', id });
+    return sendJson(res, 200, {
+      ok: true, cmd_id: id, tool: c.tool, state: c.state,
+      result: c.result, error: c.error,
+      created_at: c.createdAt, done_at: c.doneAt ?? null,
+    });
+  });
+
+  route('exact', '/pair', (req, res) => {
+    if (!isLocal(req)) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }); res.end('pair page is local-only'); return; }
+    const tpl = readAsset('pair_page.html');
+    if (!tpl) { sendJson(res, 500, { ok: false, error: 'pair_page.html 缺失' }); return; }
+    const lanOrLocal = cfg.lanEnabled === false ? ctx.webServer.port : Number(cfg.lanPort ?? 8218);
+    const items = pairCandidates(lanOrLocal, mainToken(), cfg);
+    const qrjs = readAsset('qrcodegen.js');
+    // 全局替换：模板注释里也有同名占位符，单次 replace 会替换到注释上（实测二维码不出来）
+    const html = tpl
+      .replace(/\/\*__QRCODE_JS__\*\//g, () => qrjs)
+      .replace(/__ITEMS__/g, () => JSON.stringify(items));
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(html);
+  });
+
+  // POST /config —— 【仅本机】切换"允许远程执行命令"（allowExec），并落盘到 .allow-exec。
+  //
+  // 为什么坚持仅本机（不接受 device token）：这是"拿到令牌能干什么"的开关本身。
+  // 若手机也能改，一台被吊销/丢失的设备就能把执行能力重新打开；反过来手机误关之后
+  // 也没法自己开回来（/exec 已被拒）——必须由人在电脑上决定。手机端只在状态里显示当前值。
+  route('exact', '/config', async (req, res) => {
+    if (!isLocal(req)) return sendJson(res, 403, { ok: false, error: 'config is local-only' });
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
+    if (typeof body.allowExec !== 'boolean') {
+      return sendJson(res, 400, { ok: false, error: 'allowExec must be boolean',
+        current: { allowExec, persisted: readAllowExecFile() } });
+    }
+    allowExec = body.allowExec;
+    const persisted = writeAllowExec(allowExec);
+    sendJson(res, 200, { ok: true, allowExec,
+      permission_policy: allowExec ? 'workspace-write' : 'read-only', persisted,
+      note: allowExec
+        ? '已允许远程执行命令（手机 /exec 与 shell 动作可用）'
+        : '已禁止远程执行命令（手机只能对话，不能在你电脑上跑命令）' });
+  });
+
+  // GET /balance —— 【仅本机】查 DeepSeek 账户余额（面板显示用）。
+  // 走官方 /user/balance，用 DSH 凭据库里的 DEEPSEEK_API_KEY；结果缓存 60 秒，
+  // 避免面板反复展开时频繁打接口。只在本机暴露：余额属于账户信息，没必要给手机或公网。
+  let balanceCache = { at: 0, data: null };
+  route('exact', '/balance', async (req, res) => {
+    if (!isLocal(req)) return sendJson(res, 403, { ok: false, error: 'balance is local-only' });
+    const key = readDeepseekApiKey();
+    if (!key) {
+      return sendJson(res, 200, { ok: false, error: 'no_api_key',
+        hint: '未在凭据库里找到 DEEPSEEK_API_KEY（$DSH_HOME/.credentials.yaml）' });
+    }
+    if (balanceCache.data && Date.now() - balanceCache.at < 60_000) {
+      return sendJson(res, 200, Object.assign({ ok: true, cached: true }, balanceCache.data));
+    }
+    try {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 15000);
+      const r = await fetch('https://api.deepseek.com/user/balance', {
+        headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
+        signal: ac.signal,
+      });
+      clearTimeout(timer);
+      const text = await r.text();
+      if (!r.ok) {
+        return sendJson(res, 200, { ok: false, error: `HTTP ${r.status}`, detail: text.slice(0, 200) });
+      }
+      let j = {};
+      try { j = JSON.parse(text); } catch { /* 保持空对象 */ }
+      const infos = Array.isArray(j.balance_infos) ? j.balance_infos : [];
+      const usd = infos.find((x) => String(x.currency).toUpperCase() === 'USD');
+      const cny = infos.find((x) => String(x.currency).toUpperCase() === 'CNY');
+      const pick = cny || usd || infos[0] || {};
+      const data = {
+        is_available: j.is_available === true,
+        currency: pick.currency ?? '',
+        total_balance: pick.total_balance ?? '',
+        granted_balance: pick.granted_balance ?? '',
+        topped_up_balance: pick.topped_up_balance ?? '',
+        infos,
+      };
+      balanceCache = { at: Date.now(), data };
+      sendJson(res, 200, Object.assign({ ok: true, cached: false }, data));
+    } catch (e) {
+      sendJson(res, 200, { ok: false, error: 'request_failed', detail: String(e?.message ?? e) });
+    }
+  });
+
+  // POST /pair/open —— 仅本机：在电脑默认浏览器里打开配对页（Electron 里点链接会被拦 ✗，改由宿主打开 ✓）
+  route('exact', '/pair/open', (req, res) => {
+    if (!isLocalOrAuth(req)) return sendJson(res, 403, { ok: false, error: 'local-only or device token required' });
+    const url = 'http://127.0.0.1:' + ctx.webServer.port + prefix + '/pair';
+    try {
+      const c = exec('start "" "' + url + '"', { windowsHide: true, shell: true }, () => { /* 忽略 */ });
+      void c;
+      sendJson(res, 200, { ok: true, opened: url });
+    } catch (e) { sendJson(res, 500, { ok: false, error: String(e?.message ?? e) }); }
+  });
+  // POST /pair/public-url —— 仅本机：设置/清除"隧道/公网域名"（用户在插件界面直接填，无需改配置 ✓）
+  route('exact', '/pair/public-url', (req, res) => {
+    if (!isLocalOrAuth(req)) return sendJson(res, 403, { ok: false, error: 'local-only or device token required' });
+    let raw = '';
+    req.on('data', (b) => { raw += b.toString('utf8'); });
+    req.on('end', () => {
+      let url = '';
+      try { const j = JSON.parse(raw || '{}'); url = typeof j.url === 'string' ? j.url.trim() : ''; } catch { /* 忽略 */ }
+      if (url && !/^https?:\/\/[^\s]+$/i.test(url)) {
+        return sendJson(res, 400, { ok: false, error: '地址需以 http:// 或 https:// 开头' });
+      }
+      cfg.publicUrl = url;
+      try {
+        writeSecret(join(PLUGIN_DIR, '.public-url'), url ? url + '\n' : '');
+      } catch (e) { return sendJson(res, 500, { ok: false, error: String(e?.message ?? e) }); }
+      sendJson(res, 200, { ok: true, public_url: url,
+        note: url ? '已保存：配对页会多出一个「公网/隧道」二维码 ✓' : '已清除：只保留局域网二维码 ✓' });
+    });
+  });
+  route('exact', '/pair.json', (req, res) => {
+    if (!isLocal(req)) return sendJson(res, 403, { ok: false, error: 'pair info is local-only' });
+    const all = pairCandidates(cfg.lanEnabled === false ? ctx.webServer.port : Number(cfg.lanPort ?? 8218), mainToken(), cfg);
+    const c = all[0];
+    sendJson(res, 200, { ok: true, qr_text: c.qr_text, base_url: c.base_url, items: all, count: all.length, public_url: cfg.publicUrl || '',
+      token: mainToken(), port: ctx.webServer.port, service: 'dsh-plugin-remote' });
+  });
+
+  route('exact', '/status', (req, res) => {
+    // DSH Web UI 面板是同源 fetch，不带 Bearer —— 本机请求放行只读状态（不含令牌）；远程仍要令牌。
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    sendJson(res, 200, statusBody());
+  });
+
+  /** GET /v2/usage?session_id= —— 手机状态栏的 token/上下文/模型（2026-11-13） */
+  route('exact', '/v2/usage', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const u = new URL(req.url ?? '/', 'http://dsh.invalid');
+    const sid = String(u.searchParams.get('session_id') ?? '').trim();
+    return sendJson(res, 200, sessionUsage(sid));
+  });
+
+  /**
+   * 宿主进程内跑一轮（不启 CLI）。
+   *
+   * ★ 为什么需要：headless 的 one-shot CLI 续写会话有两个硬限制：
+   *   ① 会话头部带 `agentPreset`（桌面端建的都是 "standard"）时直接拒绝：
+   *      "runs under agent preset standard, which the one-shot runner does not compose"；
+   *   ② 桌面端正打开着那条会话时，子进程拿不到写权（单写者）。
+   * 而插件与桌面端在**同一个宿主进程**里：ctx.agents.get/resume 拿到的就是写者本身。
+   * 所以"用户在电脑上正看这条对话"时改走这条路 —— 消息会直接出现在电脑那条对话里
+   * （这正是用户想要的），手机照常拿到回复。
+   */
+  const getLiveAgent = (target) => {
+    try { return ctx.agents?.get?.(target) ?? null; } catch { return null; }
+  };
+
+  const sessionAgentPreset = async (id) => {
+    try { return (await readStoredHead(id)).agentPreset || ''; } catch { return ''; }
+  };
+
+  const runInProcessTurnInner = async (target, text, turnOpts) => {
+    const deadline = Number.isFinite(turnOpts?.deadline) ? turnOpts.deadline : Date.now() + 120000;
+    const signal = turnOpts?.signal;
+    let agent = getLiveAgent(target);
+    let resumed = false;
+    let resumeError = '';
+    if (!agent) {
+      try {
+        let h = resumedHandles.get(target);
+        if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
+        agent = h?.agent ?? h ?? null;
+        resumed = Boolean(agent);
+      } catch (e) { resumeError = String(e?.message ?? e).slice(0, 200); }
+    }
+    if (!agent || typeof agent.followup !== 'function') return { ok: false, resumeError };
+    if (signal?.aborted) return { ok: false, aborted: true };
+    const live = ctx.sessions.get(target);
+    if (!live) return { ok: false, resumeError: resumeError || '会话不在宿主内存里' };
+    const seqBefore = Number(live.seq ?? 0);
+    const baseReply = lastAssistant(live) || '';
+    ORIGIN.record(target, text);   // 插件代手机注入
+    try {
+      agent.followup({ id: randomBytes(16).toString('hex'), role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } });
+    } catch (e) {
+      return { ok: false, resumeError: String(e?.message ?? e).slice(0, 200) };
+    }
+    let reply = '';
+    let turnError = '';
+    let timedOut = true;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 200));
+      if (signal?.aborted) return { ok: false, aborted: true, via: resumed ? 'in-process:resume' : 'in-process:live' };
+      const cur = ctx.sessions.get(target);
+      if (!cur) break;
+      const seq = Number(cur.seq ?? 0);
+      if (seq > seqBefore) {
+        const t = assistantTextSince(cur, seqBefore);
+        if (t && t !== baseReply) { reply = t; timedOut = false; break; }
+        for (let i = seq - 1; i >= Math.max(0, seq - 40); i -= 1) {
+          const ev = cur.eventAt?.(i);
+          if (ev?.type === 'turn/end' && ev?.data?.reason?.kind === 'error') {
+            turnError = String(ev.data.reason.error?.message ?? ev.data.reason.error ?? '').slice(0, 300);
+            break;
+          }
+        }
+        if (turnError) break;
+      }
+    }
+    const cur = ctx.sessions.get(target);
+    const parts = assistantPartsSince(cur, seqBefore);
+    if (!reply) reply = (parts.answer || parts.thinking || '').trim();
+    return {
+      ok: Boolean(reply) && !turnError,
+      reply, timedOut, turnError, resumeError,
+      via: resumed ? 'in-process:resume' : 'in-process:live',
+    };
+  };
+
+  /**
+   * 宿主内一轮：进出都记账（2026-11-14 插话队列）。
+   *
+   * <p>以前注入（inject）只看"agent 在不在"，不看"这条会话是不是正在跑一轮"——
+   * 忙时要么把消息塞进 DSH 的 next-turn inbox（没人告诉手机），要么在 CLI 会话上
+   * resume 撞写锁直接 409。现在统一用 SESSION_BUSY 记账，忙时手机消息进队列。</p>
+   */
+  const runInProcessTurn = async (target, text, turnOpts) => {
+    markSessionBusy(target, 'in-process');
+    try {
+      return await runInProcessTurnInner(target, text, turnOpts);
+    } finally {
+      clearSessionBusy(target);
+    }
+  };
+
+  /**
+   * 把排队的手机插话投进会话（一轮跑完后由 clearSessionBusy 触发；不打断任何人）。
+   *
+   * <p>宿主内 agent 在 → 用 followup 一次性把队列按顺序交给 DSH 的 next-turn inbox；
+   * 不在宿主内（CLI 会话）→ 起**一轮新的** CLI 把队首送进去，剩下的等这一轮结束再投。</p>
+   */
+  const drainSessionInbox = (sid) => {
+    const key = String(sid || '').trim();
+    if (!key || isSessionBusy(key)) return;
+    const q = SESSION_INBOX.get(key);
+    if (!q || !q.length) return;
+    const agent = (() => { try { return ctx.agents?.get?.(key); } catch { return undefined; } })();
+    if (agent && typeof agent.followup === 'function') {
+      const items = q.slice();
+      SESSION_INBOX.delete(key);
+      try { broadcastInboxSlot(key); } catch { /* 忽略 */ }
+      for (const it of items) {
+        try {
+          agent.followup({
+            id: it.id, role: 'user', content: [{ type: 'text', text: it.text }], source: { kind: 'user' },
+          });
+        } catch {
+          // 单条失败放回队列
+          const cur = SESSION_INBOX.get(key) ?? [];
+          cur.push(it);
+          SESSION_INBOX.set(key, cur);
+        }
+      }
+      return;
+    }
+    // CLI 会话：一次送一条，跑完（finish→clearSessionBusy）会再触发 drain
+    const item = q.shift();
+    if (q.length) SESSION_INBOX.set(key, q); else SESSION_INBOX.delete(key);
+    try { broadcastInboxSlot(key); } catch { /* 忽略 */ }
+    runTurn(ctx, undefined, key, item.text, cfg, { targetSessionId: key }).catch(() => {
+      const cur = SESSION_INBOX.get(key) ?? [];
+      cur.unshift(item);
+      SESSION_INBOX.set(key, cur);
+    });
+  };
+  onSessionIdle = drainSessionInbox;
+
+  /** 一轮对话（非流式 / SSE 流式）
+   *  runOpts.signal   —— 手机连接断开/超时 → 取消 CLI 子进程
+   *  runOpts.deadline —— 手机给的时间预算（ms 时间戳），CLI 不能跑过它 */
+  const runPrompt = async (req, res, sid, text, wantsStream, runOpts) => {
+    const opts = runOpts ?? {};
+    // CLI 模式下不需要（也不该）在宿主里建 agent：任务由 `dsh --profile headless`
+    // 子进程执行。之前无论哪种模式都先 create 一次，attach 到电脑端已有会话后
+    // 会撞上 "session already exists"（那条 id 在宿主里已经存在）。
+    const cliMode = cfg.cliMode !== false;
+    let handle = handles.get(sid);
+    if (!cliMode && handle === undefined) {
+      if (!ctx.agents || !ctx.sessions) throw new Error('agents/sessions 服务不可用');
+      handle = await ctx.agents.create(await createInput(sid));
+      handles.set(sid, handle);
+    }
+    if (!wantsStream) {
+      const target = String(opts.targetSessionId || '').trim();
+      let r;
+      if (cliMode && target) {
+        /**
+         * 什么时候不能走 CLI：
+         *   · 会话头部带 agentPreset（桌面端建的都是 "standard"）→ CLI 直接拒绝续写；
+         *   · 桌面端正打开着这条会话（宿主里有 live agent）→ CLI 拿不到写权。
+         * 这两种情况都改由宿主进程内接管，用户正在看的那条对话会实时收到消息。
+         */
+        const liveAgent = getLiveAgent(target) || warmAgentFor(target);
+        const preset = liveAgent ? '' : await sessionAgentPreset(target);
+        if (liveAgent || preset || true) {
+          const ir = await runInProcessTurn(target, text, { signal: opts.signal, deadline: opts.deadline });
+          if (ir?.reply) {
+            r = { reply: ir.reply, via: ir.via, dshSession: target, debug: { via: ir.via, in_process: true, preset: preset || '(live)' } };
+          } else if (ir?.aborted) {
+            r = { reply: '', via: 'cli-aborted', error: '手机端已取消/超时，电脑侧已停止等待', dshSession: target };
+          } else {
+            r = { reply: '', via: 'in-process-failed', dshSession: target,
+              error: '电脑端这条对话正在使用中，进程内接管失败：' + (ir?.resumeError || ir?.turnError || '未知原因') };
+          }
+        }
+      }
+      if (!r) {
+        r = await runTurn(ctx, handle, sid, text, cfg, { signal: opts.signal, deadline: opts.deadline,
+          targetSessionId: opts.targetSessionId, sessionCode: opts.sessionCode });
+        /**
+         * 2026-11-14 自检发现：兜底的会话 id 以前只看 `opts.targetSessionId`，
+         * 而手机/脚本经常只带 `session_code`（跟随）——于是 target 为空 → 兜底被跳过，
+         * 手机只看到 "session … is already owned by an active write"。
+         * runTurn 解析出来的 dshSession 才是真正的目标，用它兜底。
+         */
+        const fallbackSid = String(opts.targetSessionId || '').trim() || String(r?.dshSession || '').trim();
+        if (!r.reply && cliMode && fallbackSid && !r.aborted
+            && /agent preset|one-shot runner|write owner|already owned|compose/i.test(String(r.error || ''))) {
+          const ir = await runInProcessTurn(fallbackSid, text, { signal: opts.signal, deadline: opts.deadline });
+          if (ir?.reply) {
+            r = { reply: ir.reply, via: ir.via, dshSession: fallbackSid, debug: { via: ir.via, fallback: 'after-cli' } };
+          } else if (ir?.turnError) {
+            r = { ...r, error: '电脑端这一轮报错：' + ir.turnError };
+          }
+        }
+      }
+      // 热 agent 预热：本轮仍走 CLI，但把这条会话在宿主内 resume 好，
+      // 下一轮就能直接宿主内执行（省掉 2~8s 冷启动）。失败不影响本轮。
+      if (cfg.warmReuse === true && r?.dshSession && !(r.debug && r.debug.in_process) && !resumedHandles.has(r.dshSession)) {
+        const warmSid = r.dshSession;
+        Promise.resolve().then(async () => {
+          try {
+            const h = await ctx.agents.resume({ resumeSessionId: warmSid });
+            if (h) rememberWarm(warmSid, h);
+          } catch { /* 预热失败：下一轮继续走 CLI */ }
+        });
+      }
+      // 手机已经断开（超时/取消）：不再往死连接上写，也不要记进本地历史
+      if (opts.signal?.aborted) { try { res.end(); } catch { /* 已断开 */ } return; }
+      const dbg = { via: r.via, model: modelInfo(), selection: lastSelection, selectionInstaller, preset: lastPreset, ...r.debug };
+      // 失败要说出来：以前 CLI 起不来时回 ok:true + 空 reply，手机端只显示「电脑没回话」
+      if (!r.reply && r.error) {
+        pushPhoneFailureSlot('这一轮失败了', r.error);
+        return sendJson(res, 200, { ok: false, action: 'prompt', session_id: sid, dsh_session_id: r.dshSession || '', reply: '', error: r.error, debug: dbg });
+      }
+      promptCount += 1;
+      const reply = r.reply;
+      sendJson(res, 200, { ok: true, action: 'prompt', session_id: sid, dsh_session_id: r.dshSession || '', reply, duration_ms: dbg.cli_ms ?? null, turn: 1, execution: executionInfo(target), debug: dbg });
+      return;
+    }
+    // SSE：进程内轮询 event-sourced 会话日志（assistant/message、tool/result）
+    res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no' });
+    const sse = (o) => { try { res.write(`data: ${JSON.stringify(o)}\n\n`); } catch { /* 断连 */ } };
+    sse({ type: 'start', action: 'prompt', session_id: sid });
+    let lastSeq = -1; let lastText = '';
+    const pump = setInterval(() => {
+      try {
+        const s = ctx.sessions.get(sid); if (!s) return;
+        const seq = Number(s.seq ?? 0);
+        if (lastSeq < 0) lastSeq = Math.max(0, seq - 1);
+        for (let i = lastSeq; i < seq; i += 1) {
+          const ev = s.eventAt?.(i); const type = String(ev?.type ?? '');
+          if (type === 'tool/result') sse({ type: 'tool', data: ev?.data ?? null });
+          else if (type === 'assistant/message') {
+            const t = (partsOf(ev?.data).answer || '');
+            if (t && t !== lastText) { lastText = t; sse({ type: 'text', text: t }); }
+          }
+        }
+        lastSeq = seq;
+      } catch (e) { sse({ type: 'warn', error: String(e?.message ?? e) }); }
+    }, 150);
+    try {
+      /**
+       * 2026-11-14 自检发现（verify_plugin 第 9 步）：
+       * 非流式分支早就有"桌面端开着这条会话 → 走宿主内、别让 CLI 抢写权"的判断，
+       * **流式分支没有** —— 同一会话刚跑完一轮（warm 预热把写租约留在宿主里）后，
+       * 再来一次 SSE 就会撞上 `session "…" is already owned by an active write`。
+       * 这里补齐：先看 live/warm agent，有就走宿主内；CLI 报写权冲突时再兜底重试一次。
+       */
+      const target = String(opts.targetSessionId || '').trim();
+      // 手机有时只带 session_code（跟随/直连），不带 target_session_id —— 这里按同一套绑定补出来，
+      // 否则"写权冲突兜底"会因为 target 为空而跳过
+      const effTarget = target || (() => { try { return sessionBinding.get(opts.sessionCode) || ''; } catch { return ''; } })();
+      const liveAgent = effTarget ? (getLiveAgent(effTarget) || warmAgentFor(effTarget)) : null;
+      let rr;
+      if (cliMode && effTarget && liveAgent) {
+        const ir = await runInProcessTurn(effTarget, text, { signal: opts.signal, deadline: opts.deadline });
+        rr = {
+          reply: ir?.reply || '',
+          via: ir?.via || 'in-process',
+          dshSession: effTarget,
+          error: ir?.reply ? '' : (ir?.turnError || ir?.resumeError || '电脑端这一轮没有产出'),
+          debug: { in_process: true },
+        };
+      } else {
+        rr = await runTurn(ctx, handle, sid, text, { ...cfg, __onData: (s) => sse({ type: 'text', text: s }) },
+          { signal: opts.signal, deadline: opts.deadline, targetSessionId: opts.targetSessionId, sessionCode: opts.sessionCode });
+        // CLI 续不上（预设不兼容 / 被别的进程占着写权）→ 宿主内再试一次，别让手机只看到报错
+        const fallbackSid = effTarget || String(rr?.dshSession || '').trim();
+        if (!rr.reply && cliMode && fallbackSid && !rr.aborted
+            && /agent preset|one-shot runner|write owner|already owned|compose/i.test(String(rr.error || ''))) {
+          const ir = await runInProcessTurn(fallbackSid, text, { signal: opts.signal, deadline: opts.deadline });
+          if (ir?.reply) {
+            rr = { ...rr, reply: ir.reply, error: '', via: ir.via, dshSession: fallbackSid, debug: { via: ir.via, fallback: 'after-cli' } };
+          }
+        }
+      }
+
+      promptCount += 1;
+      const s = ctx.sessions.get(sid);
+      let reply = rr.reply || lastText;
+      if (s) for (const m of (s.deriveMessages?.() ?? [])) if (m?.role === 'assistant' && textOf(m)) reply = textOf(m);
+      if (reply.length > cfg.maxReplyChars) reply = reply.slice(0, cfg.maxReplyChars);
+      if (!reply && rr.error) { pushPhoneFailureSlot('这一轮失败了', rr.error); sse({ type: 'error', action: 'prompt', session_id: sid, error: rr.error }); }
+      else sse({ type: 'done', action: 'prompt', session_id: sid, dsh_session_id: rr.dshSession || '', reply, debug: { via: rr.via, ...rr.debug } });
+    } catch (e) {
+      sse({ type: 'error', action: 'prompt', session_id: sid, error: String(e?.message ?? e) });
+    } finally {
+      clearInterval(pump);
+      try { res.end(); } catch { /* 忽略 */ }
+    }
+    req.on('close', () => clearInterval(pump));
+  };
+
+  // POST /session —— 与旧桥动作协议一致
+  route('exact', '/session', async (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use POST' });
+    let body;
+    try { body = JSON.parse((await readBody(req)) || '{}'); }
+    catch (e) { return sendJson(res, 400, { ok: false, error: `bad json: ${e?.message ?? e}` }); }
+    const action = typeof body.action === 'string' && body.action ? body.action : 'prompt';
+
+    try {
+      if (action === 'new_session') {
+        // 手机点「新建对话」：在电脑端真正建一条会话，并绑定为跟随会话（@code:follow）。
+        // 和 action=start 的区别：start 只发手机侧句柄、不建电脑会话；new_session 会建。
+        if (!ctx.agents || !ctx.sessions) {
+          return sendJson(res, 503, { ok: false, action, error: 'agents/sessions 服务不可用' });
+        }
+        const sid = `session-${randomBytes(16).toString('hex')}`;
+        let handle;
+        try {
+          handle = await ctx.agents.create(await createInput(sid));
+        } catch (e) {
+          return sendJson(res, 500, { ok: false, action, error: 'create_failed: ' + String(e?.message ?? e) });
+        }
+        // 保留句柄：inject 走 ctx.agents.get 时能直接命中这条新会话（不再冷启动/resume）
+        handles.set(sid, handle);
+        rememberWarm(sid, handle);
+        sessionBinding.set('follow', sid);
+        let title = '';
+        try { title = String(ctx.sessions.get(sid)?.header?.title ?? ''); } catch { /* 还没标题 */ }
+        return sendJson(res, 200, { ok: true, action: 'new_session', session_id: sid, title });
+      }
+      if (action === 'start') {
+        const sid = `smartquiz-${randomBytes(6).toString('hex')}`;
+        // ★ CLI 模式下**不要**在宿主里建 agent：那会落一条空的 `smartquiz-*` 会话，
+        //   正是电脑侧栏里"一堆会话"的来源。真正的电脑会话由 CLI 建，建好后通过
+        //   `dsh_session_id` 回给手机（两端认同同一个 id）。
+        if (cfg.cliMode === false) {
+          if (!ctx.agents || !ctx.sessions) throw new Error('agents/sessions 服务不可用');
+          const handle = await ctx.agents.create(await createInput(sid));
+          handles.set(sid, handle);
+        }
+
+        return sendJson(res, 200, { ok: true, action: 'start', session_id: sid, dsh_session_id: '' });
+      }
+      if (action === 'get_status') return sendJson(res, 200, { ...statusBody(), action: 'get_status' });
+      if (action === 'set_config') return sendJson(res, 200, { ok: true, action: 'set_config', note: '配置由手机侧持有' });
+
+      const sid = typeof body.session_id === 'string' && body.session_id
+        ? body.session_id : `smartquiz-${randomBytes(6).toString('hex')}`;
+
+      // ---- 直连会话协商：手机问"我的直连对话是哪条电脑会话"，电脑说了算 ----
+      if (action === 'direct_state' || action === 'direct_bind') {
+        const code = String(body.session_code ?? '').trim();
+        if (action === 'direct_bind') {
+          const target = String(body.target_session_id ?? body.direct_session_id ?? '').trim();
+          if (!target) {
+            sessionBinding.set(code, '');
+            return sendJson(res, 200, { ok: true, action: 'direct_bind', session_code: code, direct_session_id: '' });
+          }
+          if (!(await sessionExists(target))) {
+            return sendJson(res, 404, { ok: false, action: 'direct_bind', session_code: code,
+              error: '电脑上没有这条会话：' + target });
+          }
+          sessionBinding.set(code, target);
+          let title = ''; try { title = await readStoredTitle(target); } catch { /* 忽略 */ }
+          return sendJson(res, 200, { ok: true, action: 'direct_bind', session_code: code,
+            direct_session_id: target, title, exists: true, agent_preset: await sessionAgentPreset(target) });
+        }
+        let id = sessionBinding.get(code);
+        let exists = id ? await sessionExists(id) : false;
+        // 手机记得 id 但电脑侧绑定丢了（清过 .sessions.json / 换过插件包）：先认回来，别新建
+        const known = String(body.target_session_id ?? '').trim();
+        if ((!id || !exists) && known && known !== id && await sessionExists(known)) {
+          id = known;
+          exists = true;
+          sessionBinding.set(code, known);
+        }
+        let created = false;
+        // ★ 不在 direct_state 里凭空建会话：DSH 的会话必须带工作目录才可被 CLI 续写，
+        //   宿主 API 建出来的会 "recorded no working directory"（实测）。所以第一次真正
+        //   发消息时由 CLI 建（带 cwd），插件把 dsh_session_id 回给手机 —— 电脑端仍然是
+        //   唯一决定 id 的一方，手机只保存/回传。
+        let title = '';
+        if (exists && id) { try { title = await readStoredTitle(id); } catch { title = ''; } }
+        return sendJson(res, 200, { ok: true, action: 'direct_state', session_code: code,
+          direct_session_id: id, title, exists,
+          created, agent_preset: id ? await sessionAgentPreset(id) : '' });
+      }
+
+      if (action === 'history') {
+        const max = Number.isFinite(body.max) ? Math.max(1, Math.min(200, body.max)) : 10;
+        const s = ctx.sessions.get(sid);
+        let items = [];
+        // 只认两个来源：宿主内存里的活会话，或落盘日志。不再维护第三份 local 缓存。
+        if (s) {
+          items = (s.deriveMessages?.() ?? [])
+            .map((m) => ({ role: m?.role ?? 'assistant', text: textOf(m) }))
+            // 只回真人对话：deriveMessages 里还有 tool 消息，混进 history 会让手机看到"命令输出"当聊天
+            .filter((x) => (x.role === 'user' || x.role === 'assistant') && x.text);
+        } else {
+          try { items = await readStoredMessages(sid, max); } catch { items = []; }
+        }
+        const sliced = items.slice(-max);
+        return sendJson(res, 200, { ok: true, action: 'history', session_id: sid, count: sliced.length, history: sliced, text: sliced.map(function(m){return (m.role === 'user' ? '我: ' : '电脑: ') + m.text;}).join(String.fromCharCode(10)) });
+      }
+      if (action === 'read') {
+        // 只读查看电脑端任意一条会话（默认读 body.session_id；也可用 target_session_id）
+        const target = String(body.target_session_id ?? body.session_id ?? '').trim();
+        if (!target) return sendJson(res, 400, { ok: false, action, error: '需要 session_id' });
+        const max = Number.isFinite(body.max) ? Math.max(1, Math.min(200, body.max)) : 20;
+        try {
+          const history = await readStoredMessages(target, max);
+          return sendJson(res, 200, {
+            ok: true, action: 'read', session_id: target, count: history.length, history,
+            text: history.map((m) => (m.role === 'user' ? '我: ' : '电脑: ') + m.text).join('\n'),
+          });
+        } catch (e) {
+          return sendJson(res, 500, { ok: false, action: 'read', error: String(e?.message ?? e) });
+        }
+      }
+      if (action === 'attach') {
+        // 把电脑端某条会话「接」到手机上继续。
+        // 注意：DSH 会话是单写者的，直接续写会与桌面端抢写句柄（报 already owned），
+        // 所以这里用 copy-on-write：读最近的记录当上下文，下一条消息在**新会话**里
+        // 带着这段上下文开始。两边从此各自演化，但不会再冲突。
+        const target = String(body.target_session_id ?? '').trim();
+        if (!target) return sendJson(res, 400, { ok: false, action, error: '需要 target_session_id' });
+        const max = Number.isFinite(body.max) ? Math.max(1, Math.min(200, body.max)) : 20;
+        let history = [];
+        try { history = await readStoredMessages(target, max); } catch (e) {
+          return sendJson(res, 500, { ok: false, action, error: '读取电脑端会话失败：' + String(e?.message ?? e) });
+        }
+        const memFile = join(PLUGIN_DIR, '.sessions.json');
+        let mem = {}; try { mem = JSON.parse(readFileSync(memFile, 'utf8')); } catch { mem = {}; }
+        mem[sid] = { target, history, at: Date.now() };
+        writeSecret(memFile, JSON.stringify(mem, null, 2));
+        handles.delete(sid);        // 旧句柄/旧历史作废
+        return sendJson(res, 200, {
+          ok: true, action: 'attach', session_id: sid, attached_to: target, count: history.length, history,
+          mode: 'copy-on-write',
+          note: '已接过来：下一条消息会带上这段上下文在新会话里继续（电脑端那条不会被改动）',
+        });
+      }
+      if (action === 'sync') {
+        // 真·双端同步：把手机这句话注入桌面端**正在运行**的那条会话。
+        // 写者始终是宿主进程本身（ctx.agents.get 拿到的就是 GUI 在用的 agent），
+        // 因此不违反单写者；桌面上会实时看到这句用户消息。
+        const target = String(body.target_session_id ?? '').trim();
+        const text = (typeof body.text === 'string' && body.text ? body.text : (typeof body.prompt === 'string' && body.prompt ? body.prompt : (typeof body.task === 'string' ? body.task : ''))).trim();
+        if (!target || !text) return sendJson(res, 400, { ok: false, action, error: '需要 target_session_id 和 text' });
+        ORIGIN.record(target, text);   // 同步模式：这条也是手机发的，别和电脑键盘输入混了
+        // 桌面端空闲时，会话只是"打开着"但**没有 live agent**（agent 随 turn 结束被销毁），
+        // 所以不能只 get：取不到就用 resume 按持久化日志重建一个，然后照常 followup。
+        let agent = (() => { try { return ctx.agents?.get?.(target); } catch { return undefined; } })();
+        let resumed = false;
+        let resumeError = '';
+        if (!agent) {
+          try {
+            let h = resumedHandles.get(target);
+            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
+            agent = h?.agent ?? h ?? null;
+            resumed = Boolean(agent);
+          } catch (e) {
+            resumeError = String(e?.message ?? e).slice(0, 300);
+          }
+        }
+        if (!agent) {
+          // ★ 兼容兜底：既没有 live agent、又 resume 不起来（最常见是被别的进程占着写权，
+          //   比如桌面端刚打开这条会话）。此时不直接报错，而是把最近记录当上下文、
+          //   用 CLI 在新会话里跑一遍 —— 手机至少能拿到回复，行为退化成 attach。
+          try {
+            const hist = await readStoredMessages(target, 20);
+            const preamble = carryPreamble({ target, history: hist }, text);
+            const cands = resolveDshCli(cfg);
+            let lastErr = '';
+            for (const cli of cands) {
+              // eslint-disable-next-line no-await-in-loop -- 串行尝试，失败才换下一个
+              const r = await runCliTask(cli, cfg.cliProfile || 'headless', preamble, cfg.cliTimeoutMs || 300000, null, '', cfg.workingDir, {});
+              if (r.ok && r.output) {
+                promptCount += 1;
+                return sendJson(res, 200, {
+                  ok: true, action: 'sync', session_id: target, reply: r.output, execution: executionInfo(target),
+                  fallback: 'carry', resume_error: resumeError || undefined,
+                  hint: '这条会话被占用，已用"复制上下文另起一条"的方式执行（电脑上那条不会变）',
+                  debug: { via: 'cli-carry', cli_ms: r.ms },
+                });
+              }
+              lastErr = cli + ' → code=' + r.code + ' ' + String(r.output).slice(0, 120);
+            }
+            return sendJson(res, 502, {
+              ok: false, action: 'sync', error: '兜底执行也失败：' + lastErr,
+              resume_error: resumeError || undefined,
+            });
+          } catch (e) {
+            return sendJson(res, 500, { ok: false, action: 'sync', error: String(e?.message ?? e) });
+          }
+        }
+        const timeoutMs = Number.isFinite(body.timeout) ? Math.max(5, Math.min(600, body.timeout)) * 1000 : 120000;
+        const startedAt = Date.now();
+        try {
+          const before = ctx.sessions.get(target);
+          const seqBefore = Number(before?.seq ?? 0);
+          const baseReply = lastAssistant(before) || '';
+          // ★ 流式分支：手机带 stream:true 时，边跑边推，而不是等整轮结束再一次性回。
+          //   事件：start / thinking(全文) / text(全文) / done / error。
+          //   推“全文”而不是 delta —— 手机端直接替换内容即可，丢一两个事件也不会错位。
+          if (body.stream === true) {
+            res.writeHead(200, {
+              'content-type': 'text/event-stream; charset=utf-8',
+              'cache-control': 'no-cache, no-transform',
+              connection: 'keep-alive',
+              'x-accel-buffering': 'no',
+            });
+            const sse = (o) => { try { res.write('data: ' + JSON.stringify(o) + '\n\n'); } catch { /* 断连 */ } };
+            sse({ type: 'start', session_id: target, resumed });
+            let lastAnswer = '';
+            let lastThinking = '';
+            let finished = false;
+            let turnErrorText = '';
+            try {
+              agent.followup({
+                id: randomBytes(16).toString('hex'),
+                role: 'user',
+                content: [{ type: 'text', text }],
+                source: { kind: 'user' },
+              });
+              while (Date.now() - startedAt < timeoutMs) {
+                await new Promise((r) => setTimeout(r, 150));
+                const live = ctx.sessions.get(target);
+                if (!live) break;
+                const parts = assistantPartsSince(live, seqBefore);
+                if (parts.thinking && parts.thinking !== lastThinking) {
+                  lastThinking = parts.thinking;
+                  sse({ type: 'thinking', text: lastThinking });
+                }
+                if (parts.answer && parts.answer !== lastAnswer) {
+                  lastAnswer = parts.answer;
+                  sse({ type: 'text', text: lastAnswer });
+                }
+                const seq = Number(live?.seq ?? 0);
+                for (let i = seq - 1; i >= Math.max(0, seq - 30); i -= 1) {
+                  const ev = live.eventAt?.(i);
+                  if (ev?.type !== 'turn/end') continue;
+                  if (ev?.data?.reason?.kind === 'error') {
+                    turnErrorText = String(ev.data.reason.error?.message ?? ev.data.reason.error ?? '').slice(0, 300);
+                  }
+                  finished = true;
+                  break;
+                }
+                if (finished) break;
+              }
+              promptCount += 1;
+              if (turnErrorText) sse({ type: 'error', error: turnErrorText });
+              else sse({ type: 'done', reply: lastAnswer, thinking: lastThinking || undefined, timed_out: !finished });
+            } catch (e) {
+              sse({ type: 'error', error: String(e?.message ?? e) });
+            }
+            try { res.end(); } catch { /* 已断 */ }
+            return;
+          }
+          agent.followup({
+            id: randomBytes(16).toString('hex'),
+            role: 'user',
+            content: [{ type: 'text', text }],
+            source: { kind: 'user' },
+          });
+          // ★ 不能只等 whenIdle：刚投递、还没起 turn 的那一瞬间 agent 也是 idle 的，
+          //   于是会立刻返回**上一条** assistant 内容 —— 手机端看到的就是"答非所问/没回复"。
+          //   改成盯会话 seq：seq 涨了、且最后一条 assistant 变了，才算这一轮真有回复。
+          let reply = '';
+          let timedOut = true;
+          let turnError = '';
+          while (Date.now() - startedAt < timeoutMs) {
+            await new Promise((r) => setTimeout(r, 250));
+            const live = ctx.sessions.get(target);
+            if (!live) break;
+            const seq = Number(live?.seq ?? 0);
+            if (seq > seqBefore) {
+              const t = assistantTextSince(live, seqBefore);
+              if (t && t !== baseReply) { reply = t; timedOut = false; break; }
+              for (let i = seq - 1; i >= Math.max(0, seq - 40); i -= 1) {
+                const ev = live.eventAt?.(i);
+                if (ev?.type === 'turn/end' && ev?.data?.reason?.kind === 'error') {
+                  turnError = String(ev.data.reason.error?.message ?? ev.data.reason.error ?? '').slice(0, 300);
+                  break;
+                }
+              }
+              if (turnError) break;
+            }
+          }
+          promptCount += 1;
+          const live = ctx.sessions.get(target);
+          // 正文为空但确实思考过时，至少把思考内容兜回来，别让手机显示空白
+          const finalParts = assistantPartsSince(live, seqBefore);
+          if (!reply) reply = (finalParts.answer || finalParts.thinking || '').trim();
+          const thinking = finalParts.thinking ? finalParts.thinking.trim().slice(0, 4000) : '';
+          return sendJson(res, 200, {
+            ok: !turnError, action: 'sync', session_id: target, reply, thinking: thinking || undefined, execution: executionInfo(target),
+            waited_ms: Date.now() - startedAt, timed_out: timedOut,
+            error: turnError || undefined,
+            hint: turnError ? '电脑端这一轮报错：' + turnError
+              : timedOut ? '这一轮还没跑完（可能在等审批或模型很慢），已先返回现有内容' : undefined,
+            debug: { via: 'in-process', resumed, seq: Number(live?.seq ?? 0) || null, seq_before: seqBefore || null },
+          });
+        } catch (e) {
+          return sendJson(res, 500, { ok: false, action: 'sync', error: String(e?.message ?? e) });
+        }
+      }
+      if (action === 'inject') {
+        // 只把消息投进会话并立刻返回（不等回复）。手机随后用 /events 订阅事件流，
+        // 自己渲染思考/正文/工具 —— 这是"原样转发 + 手机端转换"的主路径。
+        const target = String(body.target_session_id ?? '').trim();
+        const text = (typeof body.text === 'string' && body.text ? body.text : (typeof body.task === 'string' ? body.task : '')).trim();
+        if (!target || !text) return sendJson(res, 400, { ok: false, action, error: '需要 target_session_id 和 text' });
+        /**
+         * 插话档位（2026-11-14，对齐 dsh-Go / DSH 的 Inbox 语义）：
+         *
+         * <pre>
+         *   steer  → next-step 队列：**本轮的下一个 step** 就看得到（"插话"，不打断）
+         *   queue  → next-turn 队列：本轮结束后的新回合（"排队"）
+         *   auto（默认）→ 忙就 steer（桌面上有 live agent 时），否则普通注入
+         * </pre>
+         *
+         * DSH 的 Agent 接口本身就分了这两条（`followup` / `steer`），不是我们自造的概念。
+         */
+        const mode = String(body.mode ?? 'auto').trim().toLowerCase();
+        const busy = isSessionBusy(target);
+        const liveAgent = (() => { try { return ctx.agents?.get?.(target); } catch { return undefined; } })();
+        const wantSteer = (mode === 'steer' || mode === 'auto') && busy && liveAgent
+          && typeof liveAgent.steer === 'function';
+        if (wantSteer) {
+          const seqBeforeSteer = Number(ctx.sessions.get(target)?.seq ?? 0);
+          ORIGIN.record(target, text);
+          try {
+            liveAgent.steer({
+              id: randomBytes(16).toString('hex'),
+              role: 'user',
+              content: [{ type: 'text', text }],
+              source: { kind: 'user' },
+            });
+            promptCount += 1;
+            return sendJson(res, 200, {
+              ok: true, action: 'inject', session_id: target, mode: 'steer',
+              steer: true, seq_before: seqBeforeSteer,
+              busy_kind: (SESSION_BUSY.get(target) ?? {}).kind || '',
+            });
+          } catch (e) {
+            // steer 不被接受（这一轮已到收尾/模型请求已发出）→ 退回排队，别丢消息
+            try { console.warn('[smartquiz-remote] steer 失败，改排队: ' + String(e?.message ?? e)); } catch { /* 忽略 */ }
+          }
+        }
+        /**
+         * 忙（CLI 子进程在写 / 没有 live agent 可 steer）→ **不抢、不打断**：
+         * 消息进这条会话的插话队列，立刻回 queued；跑完由 drainSessionInbox 投进去。
+         * 以前这里会去 resume 一个正被 CLI 写着的会话（撞写锁 → 409），
+         * 或者在 DSH 的 next-turn inbox 里排着却不告诉手机 —— 用户看到的就是"发了没反应"。
+         */
+        if (busy) {
+          const q = SESSION_INBOX.get(target) ?? [];
+          if (q.length >= SESSION_INBOX_MAX) {
+            return sendJson(res, 429, {
+              ok: false, action, error: 'inbox_full', session_id: target,
+              hint: '这条对话的插话队列已满（' + SESSION_INBOX_MAX + ' 条），等电脑跑完再发',
+            });
+          }
+          const item = { id: randomBytes(16).toString('hex'), text, at: Date.now() };
+          q.push(item);
+          SESSION_INBOX.set(target, q);
+          try { broadcastInboxSlot(target); } catch { /* 插槽失败不影响排队 */ }
+          const busyInfo = SESSION_BUSY.get(target) ?? {};
+          return sendJson(res, 200, {
+            ok: true, action: 'inject', session_id: target, mode: 'queue', queued: true, position: q.length,
+            queue_id: item.id,
+            seq_before: Number(ctx.sessions.get(target)?.seq ?? 0),
+            busy_kind: busyInfo.kind || '', busy_since: busyInfo.since || 0,
+          });
+        }
+        let agent = (() => { try { return ctx.agents?.get?.(target); } catch { return undefined; } })();
+        let resumed = false;
+        if (!agent) {
+          try {
+            let h = resumedHandles.get(target);
+            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
+            agent = h?.agent ?? h ?? null;
+            resumed = Boolean(agent);
+          } catch (e) {
+            return sendJson(res, 409, { ok: false, action, error: 'cannot_resume', resume_error: String(e?.message ?? e) });
+          }
+        }
+        if (!agent) return sendJson(res, 409, { ok: false, action, error: 'live_session_required' });
+        const seqBefore = Number(ctx.sessions.get(target)?.seq ?? 0);
+        ORIGIN.record(target, text);   // inject 也是手机发起
+        agent.followup({
+          id: randomBytes(16).toString('hex'),
+          role: 'user',
+          content: [{ type: 'text', text }],
+          source: { kind: 'user' },
+        });
+        promptCount += 1;
+        return sendJson(res, 200, { ok: true, action: 'inject', session_id: target, resumed, seq_before: seqBefore });
+      }
+      /**
+       * 插话队列管理（2026-11-14）：手机要能撤回/修改自己排进去的消息。
+       *
+       * <p>只管理**插件自己排队**的那批（SESSION_INBOX：CLI 子进程正占着这条会话时）；
+       * 已经交给 DSH 的 steer（next-step）不在队列里，插进去就被消费了，没法撤回 ——
+       * 这与 dsh-Go 的语义一致（插话一旦被 admit 就属于那一轮）。</p>
+       */
+      if (action === 'queue') {
+        const target = String(body.session_id ?? body.target_session_id ?? '').trim();
+        if (!target) return sendJson(res, 400, { ok: false, action, error: 'session_id required' });
+        const op = String(body.op ?? 'list').trim().toLowerCase();
+        const q = SESSION_INBOX.get(target) ?? [];
+        const publicItem = (it, i) => ({ id: it.id, text: it.text, at: it.at, position: i + 1 });
+        if (op === 'list') {
+          return sendJson(res, 200, {
+            ok: true, action: 'queue', op, session_id: target,
+            busy: isSessionBusy(target),
+            bus_kind: (SESSION_BUSY.get(target) ?? {}).kind || '',
+            count: q.length,
+            items: q.map(publicItem),
+          });
+        }
+        const id = String(body.queue_id ?? body.id ?? '').trim();
+        if (!id) return sendJson(res, 400, { ok: false, action, error: 'queue_id required' });
+        const idx = q.findIndex((it) => it && it.id === id);
+        if (idx < 0) return sendJson(res, 404, { ok: false, action, error: 'queue_not_found', queue_id: id });
+        if (op === 'cancel') {
+          q.splice(idx, 1);
+          if (q.length) SESSION_INBOX.set(target, q); else SESSION_INBOX.delete(target);
+          try { broadcastInboxSlot(target); } catch { /* 忽略 */ }
+          return sendJson(res, 200, { ok: true, action: 'queue', op, session_id: target, removed: id, count: q.length,
+            items: q.map(publicItem) });
+        }
+        /**
+         * 立即发送（对齐 dsh-Go 的「立即发送」）：把这条从插件队列里拿出来，直接按插话
+         * 送进当前这一轮（next-step）。没有 live agent / 这一轮已收尾 → 失败且**保留在队列**，
+         * 调用方据此提示，不静默丢消息。
+         */
+        if (op === 'send_now' || op === 'steer') {
+          const agent = (() => { try { return ctx.agents?.get?.(target); } catch { return undefined; } })();
+          if (!agent || typeof agent.steer !== 'function') {
+            return sendJson(res, 409, { ok: false, action: 'queue', op, session_id: target,
+              error: 'steer_unavailable', kept: true,
+              hint: '这条对话现在没有可插话的宿主 agent（CLI 子进程占着），只能等它跑完' });
+          }
+          const item = q[idx];
+          try {
+            agent.steer({ id: item.id, role: 'user', content: [{ type: 'text', text: item.text }], source: { kind: 'user' } });
+          } catch (e) {
+            return sendJson(res, 409, { ok: false, action: 'queue', op, session_id: target,
+              error: 'steer_failed', kept: true, detail: String(e?.message ?? e) });
+          }
+          q.splice(idx, 1);
+          if (q.length) SESSION_INBOX.set(target, q); else SESSION_INBOX.delete(target);
+          try { broadcastInboxSlot(target); } catch { /* 忽略 */ }
+          return sendJson(res, 200, { ok: true, action: 'queue', op, session_id: target, sent: item.id,
+            count: q.length, items: q.map(publicItem) });
+        }
+        if (op === 'update') {
+          const text = String(body.text ?? '').trim();
+          if (!text) return sendJson(res, 400, { ok: false, action, error: 'text required' });
+          q[idx].text = text;
+          q[idx].at = Date.now();
+          SESSION_INBOX.set(target, q);
+          try { broadcastInboxSlot(target); } catch { /* 忽略 */ }
+          return sendJson(res, 200, { ok: true, action: 'queue', op, session_id: target, updated: id, count: q.length,
+            items: q.map(publicItem) });
+        }
+        return sendJson(res, 400, { ok: false, action, error: 'unknown op: ' + op, ops: ['list', 'cancel', 'update'] });
+      }
+      if (action === 'cmd_poll') {
+        // 手机端轮询反向指令（2026-11-12 接线）：契约与 App 侧 RemoteDshTool.pollCommands 对齐。
+        pruneCommands();
+        const out = [];
+        for (const c of cmdQueue.values()) {
+          if (c.state !== 'queued') continue;
+          c.state = 'delivering';
+          c.deliveredAt = Date.now();
+          out.push({ id: c.id, tool: c.tool, args: c.args, created_at: c.createdAt });
+        }
+        return sendJson(res, 200, { ok: true, action, commands: out, count: out.length });
+      }
+      if (action === 'cmd_ack') {
+        const id = String(body.cmd_id ?? body.id ?? '').trim();
+        const c = cmdQueue.get(id);
+        if (!c) return sendJson(res, 404, { ok: false, action, error: 'cmd_not_found', cmd_id: id });
+        c.state = 'done';
+        c.ok = body.ok !== false;
+        c.result = body.result ?? null;
+        c.doneAt = Date.now();
+        return sendJson(res, 200, { ok: true, action, cmd_id: id, state: c.state });
+      }
+      if (action === 'approval_state') {
+        const target = String(body.target_session_id ?? '').trim();
+        return sendJson(res, 200, {
+          ok: true, action: 'approval_state',
+          gateway: Boolean(approvalGateway()),
+          pending: [...pendingRemoteOf(target || null, 'approval'), ...pendingRemoteOf(target || null, 'question')],
+        });
+      }
+      if (action === 'approval') {
+        const id = String(body.approval_id ?? '').trim();
+        if (!id) return sendJson(res, 400, { ok: false, action, error: '需要 approval_id' });
+        const decision = String(body.decision ?? '').trim().toLowerCase();
+        if (decision !== 'allow' && decision !== 'deny') {
+          return sendJson(res, 400, { ok: false, action, error: "decision 只能是 allow / deny" });
+        }
+        const r = answerApproval(id, decision === 'allow');
+        return sendJson(res, r.ok ? 200 : 409, { ...r, action: 'approval', approval_id: id });
+      }
+      if (action === 'component_action') {
+        // 卡片按钮回传：手机点了电脑端产出的卡片上的 actions[] 按钮，把这次点击
+        // 作为一条 user 事件注入对应会话，让电脑端的 agent 真正"看见"这次操作。
+        // 以前只有本机引擎那套组件结果槽（get_result），DSH 卡片点了等于丢进黑洞。
+        const target = String(body.target_session_id ?? '').trim();
+        const componentId = String(body.component_id ?? '').trim();
+        const act = String(body.act ?? body.action_name ?? body.value ?? '').trim();
+        const label = String(body.label ?? body.value_text ?? act).trim();
+        if (!target) return sendJson(res, 400, { ok: false, action, error: '需要 target_session_id' });
+        if (!componentId && !act) return sendJson(res, 400, { ok: false, action, error: '需要 component_id 或 act' });
+        let agent = (() => { try { return ctx.agents?.get?.(target); } catch { return undefined; } })();
+        let resumed = false;
+        if (!agent) {
+          try {
+            let h = resumedHandles.get(target);
+            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
+            agent = h?.agent ?? h ?? null;
+            resumed = Boolean(agent);
+          } catch (e) {
+            return sendJson(res, 409, { ok: false, action, error: 'cannot_resume', resume_error: String(e?.message ?? e) });
+          }
+        }
+        if (!agent) return sendJson(res, 409, { ok: false, action, error: 'live_session_required' });
+        const title = String(body.title ?? '').trim();
+        const text = '【卡片操作】用户点了卡片'
+          + (title ? '「' + title.slice(0, 60) + '」' : '')
+          + '上的按钮「' + (label || act || '按钮').slice(0, 60) + '」'
+          + (componentId ? '（component_id=' + componentId.slice(0, 80) + '）' : '')
+          + (act && act !== label ? '，动作值=' + act.slice(0, 120) : '')
+          + '。请按这个意图继续。';
+        agent.followup({
+          id: randomBytes(16).toString('hex'),
+          role: 'user',
+          content: [{ type: 'text', text }],
+          source: { kind: 'user' },
+        });
+        promptCount += 1;
+        return sendJson(res, 200, { ok: true, action: 'component_action', session_id: target, resumed });
+      }
+      if (action === 'sync_state') {
+        const target = String(body.target_session_id ?? '').trim();
+        let live = false;
+        try { live = Boolean(target) && Boolean(ctx.agents?.get?.(target)); } catch { live = false; }
+        let resumable = false;
+        try {
+          const svc = persistence();
+          const st = target && svc?.stat ? await svc.stat(target) : null;
+          resumable = Boolean(st);
+        } catch { resumable = false; }
+        return sendJson(res, 200, { ok: true, action: 'sync_state', session_id: target, live, resumable });
+      }
+      if (action !== 'prompt' && action !== 'run' && action !== 'send') return sendJson(res, 400, { ok: false, error: `unknown action: ${action}` });
+
+      const text = (typeof body.text === 'string' && body.text ? body.text : (typeof body.prompt === 'string' && body.prompt ? body.prompt : (typeof body.task === 'string' ? body.task : ''))).trim();
+      if (!text) return sendJson(res, 400, { ok: false, action: 'prompt', error: 'text 不能为空' });
+      // 幂等：手机重试同一条（client_msg_id 相同）不再执行第二次
+      const cmid = String(body.client_msg_id ?? '').trim();
+      if (cmid && clientMsgDuplicated(sid, cmid)) {
+        return sendJson(res, 200, {
+          ok: true, action: 'prompt', session_id: sid, duplicate: true,
+          hint: '这条消息已受理过（幂等键命中），回复请从事件流补拉',
+        });
+      }
+      const wantsStream = body.stream === true || String(req.headers['accept'] ?? '').includes('text/event-stream');
+      // 手机给的 timeout（秒）在这里真正生效：到点杀 CLI 子进程，手机断开也杀。
+      // 以前 CLI 固定 300s，手机 120s 就放弃 —— 中间 3 分钟纯属白烧 CPU/内存。
+      const timeoutSec = Number.isFinite(body.timeout) ? Math.max(5, Math.min(600, Number(body.timeout))) : 120;
+      const abort = requestAbort(res);
+      // 直连协商：手机带回来的电脑会话 id 先验存在（否则 CLI 续写会报错），
+      // 无效就当没带 —— 由 CLI 新建一条，并把新 id 回给手机。
+      let targetSid = String(body.target_session_id ?? '').trim();
+      if (targetSid && !(await sessionExists(targetSid))) targetSid = '';
+      await runPrompt(req, res, sid, text, wantsStream, {
+        signal: abort.signal,
+        deadline: Date.now() + timeoutSec * 1000,
+        targetSessionId: targetSid,
+        sessionCode: typeof body.session_code === 'string' ? body.session_code : '',
+      });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, action, error: String(e?.message ?? e) });
+    }
+  });
+
+  // POST /run —— 兼容别名
+  route('exact', '/run', async (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let body;
+    try { body = JSON.parse((await readBody(req)) || '{}'); }
+    catch (e) { return sendJson(res, 400, { ok: false, error: `bad json: ${e?.message ?? e}` }); }
+    const sid = typeof body.session_id === 'string' && body.session_id ? body.session_id : `smartquiz-${randomBytes(6).toString('hex')}`;
+    const text = (typeof body.text === 'string' && body.text ? body.text : (typeof body.prompt === 'string' && body.prompt ? body.prompt : (typeof body.task === 'string' ? body.task : ''))).trim();
+    if (!text) return sendJson(res, 400, { ok: false, error: 'text is required' });
+    const wantsStream = body.stream === true || String(req.headers['accept'] ?? '').includes('text/event-stream');
+    const timeoutSec = Number.isFinite(body.timeout) ? Math.max(5, Math.min(600, Number(body.timeout))) : 120;
+    const abort = requestAbort(res);
+    try {
+      let targetSid = String(body.target_session_id ?? '').trim();
+      if (targetSid && !(await sessionExists(targetSid))) targetSid = '';
+      await runPrompt(req, res, sid, text, wantsStream, {
+        signal: abort.signal,
+        deadline: Date.now() + timeoutSec * 1000,
+        targetSessionId: targetSid,
+        sessionCode: typeof body.session_code === 'string' ? body.session_code : '',
+      });
+    }
+    catch (e) { sendJson(res, 500, { ok: false, error: String(e?.message ?? e) }); }
+  });
+
+  // POST /exec —— 电脑上直接执行命令（默认关闭；与旧桥 action=shell 对应）
+  route('exact', '/exec', async (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    if (allowExec !== true) {
+      return sendJson(res, 403, { ok: false, error: 'exec_disabled',
+        hint: '在插件 config 里设 allowExec: true 才允许远程执行命令（安全默认关闭）' });
+    }
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
+    const cmd = typeof body.cmd === 'string' ? body.cmd.trim() : '';
+    if (!cmd) return sendJson(res, 400, { ok: false, error: 'cmd is required' });
+    const timeout = Number.isFinite(body.timeout)
+      ? Math.max(1000, Math.min(600000, body.timeout * 1000)) : cfg.execTimeoutMs;
+    activeJobs += 1;
+    const started = Date.now();
+    execFile(cmd, { timeout, shell: true, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
+      (err, stdout, stderr) => {
+        activeJobs -= 1;
+        const out = `${stdout ?? ''}${stderr ? `\n[stderr]\n${stderr}` : ''}`.trim();
+        sendJson(res, 200, { ok: !err, action: 'exec', cmd, exit_code: err?.code ?? 0,
+                             duration_ms: Date.now() - started, output: out.slice(0, 200000) });
+      });
+  });
+
+  // ---- 鉴权升级路由 ----
+  // POST /pair/code —— 仅本机：主人在电脑上生成一次性配对码（5 分钟、一次性）
+  route('exact', '/pair/code', (req, res) => {
+    if (!isLocalOrAuth(req)) return sendJson(res, 403, { ok: false, error: 'local-only or device token required' });
+    const now = Date.now();
+    for (const [c, exp] of pairingCodes) if (exp <= now) pairingCodes.delete(c);
+    while (pairingCodes.size >= PAIR_MAX_PENDING) pairingCodes.delete(pairingCodes.keys().next().value);
+    // ★ 用 CSPRNG：Math.random 是可预测的 PRNG，不能用来生成凭据
+    const code = String(randomInt(100000, 1000000));
+    pairingCodes.set(code, now + PAIR_TTL_MS);
+    sendJson(res, 200, { ok: true, code, expires_in_ms: PAIR_TTL_MS,
+                         hint: '手机上输入此 6 位码换取设备令牌（或用 /pair 页面二维码）' });
+  });
+
+  // POST /pair/claim —— 手机换取长期设备令牌。两条信道都支持：
+  //   ① body.code         一次性配对码（5 分钟、一次性、可在手机上输入）
+  //   ② Authorization     已持有主令牌（配对页二维码里就带着它）→ 直接登记为可信设备
+  // 为什么要加 ②（2026-10-06）：手机端扫码只是把**主令牌**存进配置（见 Android
+  // RemoteDshPairBridge），从不调用本接口，于是 /status 的 devices 恒为 0 ——
+  // 面板上"没有设备"却在正常对话，主人既看不到谁连着、也无法单独吊销某台设备。
+  // 让手机用二维码里的令牌换一张**设备令牌**（权限更小、可单独吊销、能看到 last_seen），
+  // 手机侧改为优先使用设备令牌。注意：主令牌本来就能做一切（含 /exec），
+  // 所以"凭主令牌可登记设备"并未扩大权限面。
+  route('exact', '/pair/claim', async (req, res) => {
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
+    const clientIp = String(req.socket?.remoteAddress ?? 'unknown');
+    if (pairThrottled(clientIp)) {
+      return sendJson(res, 429, { ok: false, error: 'too_many_attempts', hint: '配对码尝试过于频繁，请 5 分钟后再试' });
+    }
+    const code = String(body.code ?? '').trim();
+    let via = '';
+    if (code) {
+      const exp = pairingCodes.get(code);
+      if (exp === undefined) { pairFail(clientIp); return sendJson(res, 400, { ok: false, error: 'invalid_code' }); }
+      if (exp <= Date.now()) { pairingCodes.delete(code); pairFail(clientIp); return sendJson(res, 410, { ok: false, error: 'code_expired' }); }
+      pairingCodes.delete(code);                     // 一次性
+      via = 'code';
+    } else if (authOk(req)) {
+      via = 'main_token';
+    } else {
+      return sendJson(res, 401, { ok: false, error: 'need_code_or_token' });
+    }
+    pairAttempts.delete(clientIp);                   // 成功一次即清零，正常配对不受影响
+    const rawName = String(body.device_name ?? '手机').trim().slice(0, 60);
+    const name = rawName || '手机';
+    // 同名设备视为"同一台重新登记"：复用并替换旧记录，而不是无限追加。
+    // （手机端每次配对/补登记都会 claim；不去重的话设备表会像以前那样堆出一串同名条目）
+    const sameName = devices.devices.find((d) => String(d.name ?? '').trim().toLowerCase() === name.toLowerCase());
+    const device = {
+      id: sameName ? sameName.id : `dev-${randomBytes(4).toString('hex')}`,
+      name,
+      token: randomBytes(16).toString('hex'),
+      created_at: sameName ? sameName.created_at : Date.now(),
+      last_seen: Date.now(),
+    };
+    if (sameName) devices.devices = devices.devices.filter((d) => d !== sameName);
+    devices.devices.push(device);
+    const ok = saveDevices(DEVICE_FILE, devices);
+    sendJson(res, 200, { ok: true, via, device_id: device.id, device_token: device.token, persisted: ok,
+                         base_url: `http://${lanIpv4()}:${ctx.webServer.port}` });
+  });
+
+  // GET /devices —— 鉴权：列出已配对设备（令牌打码）
+  route('exact', '/devices', (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    sendJson(res, 200, { ok: true, count: devices.devices.length,
+      devices: devices.devices.map((d) => ({ id: d.id, name: d.name, created_at: d.created_at,
+        last_seen: d.last_seen, token_masked: `${d.token.slice(0, 6)}…${d.token.slice(-4)}`,
+            // 语义澄清（2026-11-16）：last_seen 只在"带设备令牌发 HTTP 请求"时更新，
+            // 长连接（ws/sse + 10s 心跳）走 CONNECTIONS 表，不会刷这里 ——
+            // 它不代表"设备在线"，只代表"最近一次带令牌鉴权"；判在线请看 /v2/pulse 的 connections。
+            last_auth_at: d.last_seen })) });
+  });
+
+  // POST /devices/revoke —— 鉴权：吊销某台设备（无需改主令牌）
+  route('exact', '/devices/revoke', async (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
+    const id = String(body.device_id ?? '');
+    const before = devices.devices.length;
+    devices.devices = devices.devices.filter((d) => d.id !== id);
+    const ok = saveDevices(DEVICE_FILE, devices);
+    sendJson(res, 200, { ok: true, revoked: before - devices.devices.length, persisted: ok });
+  });
+  // POST /reset —— 结束会话
+  route('exact', '/reset', async (req, res) => {
+    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
+    const sid = typeof body.session_id === 'string' ? body.session_id : '';
+    const targets = sid ? [sid] : [...handles.keys()];
+    let closed = 0;
+    for (const id of targets) {
+      const h = handles.get(id); if (h === undefined) continue;
+      try { await h.dispose(); } catch { /* 忽略 */ }
+      handles.delete(id); closed += 1;
+    }
+    sendJson(res, 200, { ok: true, closed });
+  });
+  // LAN-SERVER: 手机可达入口（DSH 自带 webserver 只听 127.0.0.1 ✗）
+  const lanPort = Number(cfg.lanPort ?? 8218);
+  let lanServer = null;
+  if (cfg.lanEnabled !== false) {
+    try {
+      lanServer = createServer((req, res) => {
+        let p = '/'; try { p = new URL(req.url ?? '/', 'http://x').pathname; } catch { /* 忽略 */ }
+        const h = localRoutes.get(p);
+        if (h) { try { req.__viaLanServer = true; h(req, res); } catch (e) { try { sendJson(res, 500, { ok: false, error: String(e?.message ?? e) }); } catch { /* 忽略 */ } } }
+        else { res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ ok: false, error: 'not found' })); }
+      });
+      lanServer.on('error', (e) => ctx.logger?.warn?.(`[smartquiz-remote] LAN 服务器错误: ${String(e?.message ?? e)}`));
+      lanServer.listen(lanPort, '0.0.0.0', () => ctx.logger?.info?.(`[smartquiz-remote] LAN 服务器监听 0.0.0.0:${lanPort}（手机可连 ✓）`));
+
+      /**
+       * WebSocket 实时通道（2026-11-14）。
+       *
+       * <p>为什么现在才做：花生壳（免费隧道）会把 `Upgrade: websocket` 吃掉，实测只能当普通
+       * HTTP 转；换成 Tailscale 之后手机是**直连**电脑，升级请求能到，WS 才有意义。</p>
+       *
+       * <p>协议刻意做得很薄：<b>只负责实时推送</b>，不负责补历史 ——
+       * 连上先发 `{type:'ready', seq}`，客户端拿 ready 里的 seq 和本地游标比，
+       * 缺口用已有的 `GET /v2/events/pull` 补齐（那条路径已经测过、逻辑只有一份）。
+       * 帧格式与 SSE 同构（`event` / `pulse`），客户端两条通道可以共用一套解析。</p>
+       *
+       * <p>认证：`?token=` 或 `Authorization` 头（WS 客户端常常设不了自定义头）。</p>
+       */
+      import('ws').then(({ WebSocketServer }) => {
+        /**
+         * 插件下发的视图定义（C5，2026-11-14）：改这里就等于改手机上的界面，不用发版。
+         * 手机收到后用 {tool:'ui_component', args:{view:'名称'}} 即可打开。
+         * 组件语法见 docs/dsh-remote-ui-design/27-plugin-update-guide.md
+         */
+        const VIEW_DEFS = {
+          demo: {
+            type: 'stack',
+            children: [
+              { type: 'callout', text: '这份界面定义来自插件（C5）', tone: 'good' },
+              { type: 'keyValue', items: [
+                { label: '来源', value: 'view_def 帧' },
+                { label: '版本', value: 'v1' }] },
+              { type: 'actions', items: [
+                { label: '测一下动作', action: { id: 'ping' }, style: 'primary' }] },
+            ],
+          },
+        };        const wss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024 });
+        const sendWs = (ws, o) => { try { ws.send(JSON.stringify(o)); } catch { /* 已断 */ } };
+
+        /** 等 WS 发送缓冲降下来（大文件不能一把塞进内存） */
+        const drain = async (ws) => {
+          let guard = 0;
+          while (ws.readyState === 1 && ws.bufferedAmount > (1 << 20) && guard < 600) {
+            guard += 1;
+            await new Promise((r) => setTimeout(r, 20));
+          }
+        };
+
+        /**
+         * 文件流（WS `file_get` 帧触发）：`file_begin` → N 个 `file_chunk`（base64）→ `file_end`。
+         *
+         * <p>只允许读 **用户主目录 / 进程工作目录** 下的普通文件，且 ≤ 32MB —— 这条通道能推
+         * "电脑上的文件"（交付物、截图、日志），但它不该变成任意文件读取器。</p>
+         */
+        const FILE_MAX = 32 * 1024 * 1024;
+        const FILE_CHUNK = 48 * 1024;          // base64 后约 64KB/帧
+        /**
+         * 允许读的根目录：主目录、进程工作目录、插件所在项目（`<repo>/tools/plugin` 上两级），
+         * 外加可选的 `.file-roots`（每行一个，想放行别的盘就加一行）。
+         * 不做成"任意路径可读"：这条通道能推文件，就不该顺带变成任意文件读取器。
+         */
+        const FILE_ROOTS = (() => {
+          const list = [homedir(), process.cwd(), join(PLUGIN_DIR, '..', '..')];
+          try {
+            for (const line of readFileSync(join(PLUGIN_DIR, '.file-roots'), 'utf8').split('\n')) {
+              const v = line.trim();
+              if (v && !v.startsWith('#')) list.push(v);
+            }
+          } catch { /* 没配就用默认 */ }
+          return list.map((p) => { try { return resolve(p); } catch { return p; } });
+        })();
+        const pathAllowed = (abs) => FILE_ROOTS.some((root) => abs === root || abs.startsWith(root + '\\') || abs.startsWith(root + '/'));
+        const streamFileTo = async (ws, rawPath, reqId) => {
+          const id = String(reqId || randomBytes(6).toString('hex'));
+          try {
+            const p = String(rawPath || '').trim();
+            if (!p) return sendWs(ws, { type: 'file_error', id, error: 'path required' });
+            const abs = resolve(p);
+            if (!pathAllowed(abs)) {
+              return sendWs(ws, { type: 'file_error', id, error: 'path_not_allowed', roots: FILE_ROOTS });
+            }
+            const st = statSync(abs);
+            if (!st.isFile()) return sendWs(ws, { type: 'file_error', id, error: 'not_a_file' });
+            if (st.size > FILE_MAX) {
+              return sendWs(ws, { type: 'file_error', id, error: 'too_large', size: st.size, limit: FILE_MAX });
+            }
+            const buf = readFileSync(abs);
+            const sha = createHash('sha256').update(buf).digest('hex');
+            sendWs(ws, {
+              type: 'file_begin', id,
+              name: abs.split(/[\\/]/).pop(),
+              size: buf.length, sha256: sha, path: abs,
+            });
+            const total = Math.max(1, Math.ceil(buf.length / FILE_CHUNK));
+            for (let off = 0; off < buf.length; off += FILE_CHUNK) {
+              const slice = buf.subarray(off, Math.min(buf.length, off + FILE_CHUNK));
+              sendWs(ws, {
+                type: 'file_chunk', id,
+                seq: Math.floor(off / FILE_CHUNK), total,
+                b64: slice.toString('base64'),
+              });
+              // 每 8 块等一次缓冲，避免大文件把内存顶爆
+              if ((off / FILE_CHUNK) % 8 === 0) await drain(ws);
+            }
+            sendWs(ws, { type: 'file_end', id, size: buf.length, sha256: sha, chunks: total });
+          } catch (e) {
+            sendWs(ws, { type: 'file_error', id, error: String(e?.message ?? e).slice(0, 160) });
+          }
+        };
+
+        /**
+         * 端点分工（2026-11-14）：一条 WS 混跑事件 + UI 指令 + 32MB 文件时，文件会把事件堵在后面
+         * （WS 没有消息优先级，TCP 上就是后到后传）。拆成独立 socket，各施其职：
+         *
+         * <pre>
+         *   /ws         全功能（旧客户端兼容）
+         *   /ws/events  真实事件 + 审批/反问 + 重建信号 + pulse；可 pull/ack  ← 高频、要低延迟
+         *   /ws/ui      只推插件 UI（cmd / slot / view）  ← 小包、要立刻到
+         *   /ws/file    只跑文件流（file_begin/chunk/end）      ← 大头、允许慢
+         *   /ws/ctl     只做 pull/ack/ping，回 batch/pong       ← 控制面
+         * </pre>
+         *
+         * <p>2026-11-15（WS-FRAMES）：`/ws/events` 以前只放行 `event/pulse/ui/card/ui/slot`，
+         * 但真实 `event` 帧根本没被广播进 STREAM_HUB（只有 SSE 直写），而 `__force_resync` /
+         * `approval` / `question` / `*_gone` 又被这里的白名单挡掉。现在真实事件从
+         * `session/event` 直接投 WS，这五类也进白名单（手机端 `/ws/alert` 并未打开，
+         * 审批/反问只有走 `/ws/events` 才收得到）。
+         *
+         * <p>`out` 为 null 表示全放行；`inbound` 是该端点允许的客户端帧 ——
+         * 文件端点不接受 `pull`，事件端点不接受 `file_get`，免得一个端点被另一类流量带偏。</p>
+         */
+        const CHANNELS = {
+          '/ws': { out: null, inbound: new Set(['pull', 'ack', 'file_get', 'cmd_ack', 'ping']) },
+          '/ws/events': { out: new Set(['event', 'pulse', 'ui/card', 'ui/slot', '__force_resync', 'approval', 'approval_gone', 'question', 'question_gone']), inbound: new Set(['pull', 'ack', 'ping']) },
+          '/ws/ui': {
+            out: new Set(['cmd', 'ui/slot', 'ui_component', 'view', 'state', 'pulse']),
+            inbound: new Set(['cmd_ack', 'ping']),
+          },
+          // 告警单独一条：审批/提问**绝不能**被 slot 洪水或大包拖慢（用户正等着点）
+          '/ws/alert': {
+            out: new Set(['approval', 'approval_gone', 'question', 'question_gone']),
+            inbound: new Set(['ping']),
+          },
+          '/ws/file': {
+            out: new Set(['file_begin', 'file_chunk', 'file_end', 'file_error']),
+            inbound: new Set(['file_get', 'ping']),
+          },
+          '/ws/ctl': { out: new Set(['batch', 'pong', 'hello']), inbound: new Set(['pull', 'ack', 'ping']) },
+        };
+
+        /** WS 侧认设备：优先 ?token=，退回升级请求的 Authorization 头（两条通道口径一致） */
+        const devFromWs = (ws, u) => {
+          try {
+            const t = String(u?.searchParams?.get('token') ?? '').trim();
+            if (t) return deviceByToken(t);
+            const m = /^Bearer\s+(.+)$/i.exec(String(ws?.upgradeReq?.headers?.authorization ?? '').trim());
+            return m ? deviceByToken(m[1]) : undefined;
+          } catch { return undefined; }
+        };
+        const handleWsConn = (ws, u, channel) => {
+          const sid = String(u.searchParams.get('session_id') ?? '').trim();
+          const caps = u.searchParams.get('caps') ?? '';
+          const chName = channel || '/ws';
+          const ch = CHANNELS[chName] ?? CHANNELS['/ws'];
+          if (!sid) { try { ws.close(1008, 'session_id required'); } catch { /* 已断 */ } return; }
+          touchConnection(sid, 'ws');
+          const send = (o) => {
+            if (!o) return;
+            // 推送帧与 SSE 完全同构（type/event/pulse/…），手机两条通道共用一套解析
+            if (o.type && o.type !== 'hello' && o.type !== 'pong' && !eventAllowed(o.type, caps)) return;
+            // 端点分工：文件帧只走 /ws/file，事件只走 /ws/events（/ws 全放行）
+            if (ch.out && o.type && !ch.out.has(o.type)) return;
+            sendWs(ws, o);
+          };
+          const sub = { sid, caps, transport: 'ws', channel: chName, send };
+          STREAM_HUB.add(sub);
+          WS_CLIENTS.add(ws);
+          WS_META.set(ws, { sid, caps, channel: chName });
+          WS_CHANNEL_COUNT.set(chName, (WS_CHANNEL_COUNT.get(chName) ?? 0) + 1);
+          wsStatOf(chName).connects += 1;
+          let head = 0;
+          try { head = Number(ctx.sessions?.get?.(sid)?.seq ?? 0) || 0; } catch { head = 0; }
+          // 问候帧：把能力摊开，客户端据此决定用哪些帧（以后加能力不用改版本号）
+          // A3（2026-11-14）：握手帧带上这条连接的锚点（设备 × 会话），
+          // 手机据此"查或建"本地会话，而不是每连一次新建一条历史。
+          let helloAnchor = null;
+          try {
+            const dev = deviceByToken(String(u.searchParams.get('token') ?? ''));
+            if (dev) helloAnchor = anchorFor(dev.id, sid, true);
+          } catch { /* 锚点拿不到不影响连接 */ }
+          sendWs(ws, {
+            type: 'hello', v: 2, session_id: sid, seq: head, server_time: Date.now(),
+            transport: 'ws', channel: chName, anchor: helloAnchor,
+            // §18（2026-11-15）：握手帧回 caps 摘要，手机端直接打印/落日志，
+            // 不用再额外打 /v2/hello；legacy 客户端（没带 caps）也能看到自己 missing=[]。
+            caps: clientCaps(caps),
+            features: ch.out
+              ? Object.fromEntries([...ch.out].map((k) => [k, true]))
+              : { event: true, slot: true, cmd: true, file: true, pull: true, ack: true },
+            limits: { file_max: FILE_MAX, file_chunk: FILE_CHUNK, pull_max: 500 },
+          });
+          try { replayPushedCards(sid, (frame) => sendWs(ws, frame)); } catch { /* 补发失败不影响连接 */ }
+          // §20（2026-11-15）：插槽最近帧补发（rev/ttl 一起带上；过期的瞬时帧不发）
+          try { replaySlots(sid, (frame) => sendWs(ws, frame)); } catch { /* 补发失败不影响连接 */ }
+          sendWs(ws, { type: 'view_def', version: 1, views: VIEW_DEFS });
+          const timer = setInterval(() => {
+            try { touchConnection(sid, 'ws'); ws.ping(); } catch { /* 已断 */ }
+          }, 15000);
+
+          // ---- 客户端 → 服务端（按端点白名单）----
+          ws.on('message', async (raw) => {
+            let m;
+            try { m = JSON.parse(String(raw)); } catch { return; }
+            const t = String(m.type ?? '');
+            { const s = wsStatOf(chName); s.frames += 1; s.last_frame_at = Date.now(); }
+            if (!ch.inbound.has(t)) {
+              // 该端点不接受这类请求：明确回错，别让客户端干等
+              sendWs(ws, { type: 'error', code: 'frame_not_allowed', frame: t, channel: chName });
+              return;
+            }
+            if (t === 'ping') { sendWs(ws, { type: 'pong', ts: Date.now() }); return; }
+            if (t === 'pull') {
+              const r = await collectEvents(sid, Number(m.since ?? 0), Number(m.max ?? 200), caps);
+              // 2026-11-14：WS 的 pull 批次也带锚点（SSE 侧已是逐帧带），两条通道口径一致
+              let pullAnchor = null;
+              try {
+                const dev = devFromWs(ws, u);
+                if (dev) pullAnchor = anchorFor(dev.id, sid, true);
+              } catch { /* 认不出设备就不带 */ }
+              sendWs(ws, {
+                type: 'batch', since: Number(m.since ?? 0),
+                last_seq: r.last_seq, has_more: r.has_more,
+                events: r.events, error: r.error ?? null,
+                ...(pullAnchor ? { anchor: pullAnchor } : {}),
+              });
+              return;
+            }
+            if (t === 'ack') {
+              try { applyAck(sid, Number(m.seq ?? 0), devFromWs(ws, u)); } catch { /* 落盘失败不致命 */ }
+              return;
+            }
+            if (t === 'file_get') {
+              streamFileTo(ws, m.path, m.id);
+              return;
+            }
+            if (t === 'cmd_ack') {
+              const c = cmdQueue.get(String(m.id ?? ''));
+              if (c) { c.state = 'done'; c.result = m.result ?? null; c.error = m.error ?? null; }
+              return;
+            }
+          });
+
+          const cleanup = () => {
+            try { clearInterval(timer); } catch { /* 忽略 */ }
+            STREAM_HUB.delete(sub);
+            WS_CLIENTS.delete(ws);
+            WS_META.delete(ws);
+            wsStatOf(chName).closes += 1;
+            const n = (WS_CHANNEL_COUNT.get(chName) ?? 1) - 1;
+            if (n > 0) WS_CHANNEL_COUNT.set(chName, n); else WS_CHANNEL_COUNT.delete(chName);
+          };
+          ws.on('close', cleanup);
+          ws.on('error', cleanup);
+        };
+        const onUpgrade = (req, socket, head) => {
+          let u;
+          try { u = new URL(req.url ?? '/', 'http://x'); } catch { try { socket.destroy(); } catch { /* 忽略 */ } return; }
+          if (!CHANNELS[u.pathname]) {
+            // 不是我们的路径：不抢别人的连接，交回（没人处理就关掉）
+            try { socket.destroy(); } catch { /* 忽略 */ }
+            return;
+          }
+          const qToken = String(u.searchParams.get('token') ?? '');
+          // 注意：手机的令牌是**设备令牌**，不是主令牌 —— 直接和 mainToken() 比会把手机挡在门外
+          // （真机现象：WS 握手 401 → 客户端退回 SSE，ws_clients 一直是 0）。
+          // 这里把查询参数包成 Authorization 头，复用 authOk 的整套判定（主令牌 + 设备令牌）。
+          const authed = qToken
+            ? authOk({ headers: { authorization: 'Bearer ' + qToken } })
+            : authOk(req);
+          if (!authed) {
+            try {
+              socket.write('HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nconnection: close\r\n\r\n');
+              socket.end();
+            } catch { /* 忽略 */ }
+            return;
+          }
+          wss.handleUpgrade(req, socket, head, (ws) => handleWsConn(ws, u, u.pathname));
+        };
+        lanServer.on('upgrade', onUpgrade);
+        ctx.effect(() => () => {
+          try { lanServer.off('upgrade', onUpgrade); } catch { /* 忽略 */ }
+          try { wss.close(); } catch { /* 忽略 */ }
+        });
+        ctx.logger?.info?.('[smartquiz-remote] WebSocket 通道已就绪：/ws');
+      }).catch((e) => {
+        ctx.logger?.warn?.(`[smartquiz-remote] WS 通道不可用（缺 ws 依赖？）: ${String(e?.message ?? e)}`);
+      });
+      // 附加端口（花生壳默认转发到本机 80 → 一并监听，尽力而为 ✓）
+      const handler0 = lanServer.listeners('request')[0];
+      for (const extra of String(cfg.extraLanPorts || '80').split(',').map((x) => Number(String(x).trim())).filter((n) => n > 0 && n !== lanPort)) {
+        try {
+          const s2 = createServer(handler0);
+          s2.on('error', (e) => ctx.logger?.warn?.(`[smartquiz-remote] 附加端口 ${extra} 失败: ${String(e?.message ?? e)}`));
+          s2.listen(extra, '0.0.0.0', () => ctx.logger?.info?.(`[smartquiz-remote] 附加监听 0.0.0.0:${extra} ✓`));
+          ctx.effect(() => () => { try { s2.close(); } catch { /* 忽略 */ } });
+        } catch (e) { ctx.logger?.warn?.(`[smartquiz-remote] 附加端口 ${extra} 启动失败: ${String(e?.message ?? e)}`); }
+      }      ctx.effect(() => () => { try { lanServer.close(); } catch { /* 忽略 */ } });
+    } catch (e) { ctx.logger?.warn?.(`[smartquiz-remote] LAN 服务器启动失败: ${String(e?.message ?? e)}`); }
+  }
+
+
+  ctx.effect(() => () => {
+    for (const h of handles.values()) { try { h.dispose(); } catch { /* 忽略 */ } }
+    handles.clear();
+    // B15：停掉所有子代理轮询器，避免宿主重载后定时器泄漏
+    for (const st of SUBAGENT_POLLERS.values()) {
+      try { if (st.timer) clearInterval(st.timer); } catch { /* 忽略 */ }
+    }
+    SUBAGENT_POLLERS.clear();
+    // 反问中继：宿主卸载时把挂着的请求全部拒绝，避免 waterfall 永远不返回
+    for (const q of phoneQuestions.values()) {
+      try { clearTimeout(q.timer); q.reject(new Error('ASK_ABORTED')); } catch { /* ignore */ }
+    }
+    phoneQuestions.clear();
+    // agent 作用域挂钩也要解绑，避免宿主重载后重复应答
+    for (const off of SCOPED_DISPOSERS.splice(0)) {
+      try { off(); } catch { /* ignore */ }
+    }
+    SCOPED_AGENTS.clear();
+    ARELAY.hooked = 0;
+  });
+
+  ctx.logger?.info?.(`[smartquiz-remote] 挂载: /health /reconcile /pair /pair.json /status /config /session /run /exec /reset `
+    + `(port=${ctx.webServer.port}, model=${cfg.provider}/${cfg.model}, exec=${allowExec === true})`);
+}
