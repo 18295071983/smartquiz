@@ -51,6 +51,14 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // Agent 设置（Git 凭据 + 工具权限分级展示）：--es mode agent_settings
+        if ("agent_settings".equals(getIntent().getStringExtra("mode"))) {
+            startActivity(new android.content.Intent(this,
+                    com.oilquiz.app.infra.AgentSettingsActivity.class));
+            finish();
+            return;
+        }
+
         // 规则引擎自检（真机验证 MVEL 表达式在 Android 运行时可用）：--es mode rule_selftest
         if ("rule_selftest".equals(getIntent().getStringExtra("mode"))) {
             java.util.Map<String, Object> args = new java.util.HashMap<>();

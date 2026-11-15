@@ -471,7 +471,8 @@ public class SmartQuizApplication extends Application {
                                     || activity instanceof com.oilquiz.app.ui.activity.ThemeActivity
                             || activity instanceof com.oilquiz.app.infra.ComposeGalleryActivity
                             || activity instanceof com.oilquiz.app.infra.UiKitGalleryActivity
-                            || activity instanceof com.oilquiz.app.infra.ListKitGalleryActivity;
+                            || activity instanceof com.oilquiz.app.infra.ListKitGalleryActivity
+                            || activity instanceof com.oilquiz.app.infra.AgentSettingsActivity;
                     if (!debugConsole) {
                         com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, root);
                     }
