@@ -107,6 +107,37 @@ public class CodeCardView implements ChatComponent {
         card.addView(codeTv, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        // 执行输出（2026-11-16）：python/js/shell 的 stdout/stderr/exitCode。
+        // 这四个都是可选字段：缺了整段不显示（老数据零影响），有了才占位。
+        String stdout = p.optString("stdout", "");
+        String stderr = p.optString("stderr", "");
+        String exitCode = p.optString("exitCode", p.optString("exit_code", ""));
+        String duration = p.optString("duration", "");
+        if (!TextUtils.isEmpty(stdout) || !TextUtils.isEmpty(stderr) || !TextUtils.isEmpty(exitCode)) {
+            StringBuilder head = new StringBuilder("输出");
+            if (!TextUtils.isEmpty(exitCode)) head.append(" · 退出码 ").append(exitCode);
+            if (!TextUtils.isEmpty(duration)) head.append(" · ").append(duration);
+            TextView outHead = new TextView(context);
+            outHead.setText(head.toString());
+            outHead.setTextSize(10);
+            outHead.setTextColor(ThemeColors.get(R.color.hc_ff94a3b8));
+            outHead.setPadding(dp(context, 10), dp(context, 6), dp(context, 10), dp(context, 2));
+            card.addView(outHead);
+
+            String shown = TextUtils.isEmpty(stderr) ? stdout : stderr;
+            TextView outTv = new TextView(context);
+            outTv.setText(shown);
+            outTv.setTextSize(11);
+            outTv.setTextColor(stderr.isEmpty()
+                    ? ThemeColors.get(R.color.hc_ffe2e8f0)
+                    : ThemeColors.get(R.color.hc_ffe11d48));
+            outTv.setTypeface(android.graphics.Typeface.MONOSPACE);
+            outTv.setPadding(dp(context, 10), 0, dp(context, 10), dp(context, 10));
+            outTv.setTextIsSelectable(true);
+            card.addView(outTv, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+
         return card;
     }
 
