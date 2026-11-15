@@ -9,7 +9,17 @@ window.__ModuleLoader__.load({
     const React = require('react');
     const h = React.createElement;
 
-    function Panel() {
+    function Panel(props) {
+      /**
+       * 文案适配器（DSH 规范：可见文案走 Client locale 服务）。
+       *
+       * <p>为什么用"探测 + 兜底"而不是硬绑 API：不同 DSH 版本的 locale 服务形状不同，
+       * 硬写一个不存在的方法会让整个 slot 组件崩掉（面板直接消失）。这里按
+       * {@code t(key)} / {@code key 直查} / {@code translate(key)} 三种常见形状依次尝试，
+       * 全都取不到就用内置中文兜底 —— 有服务时自动多语言，没有服务时行为与之前完全一致。</p>
+       */
+      const t = (props && typeof props.t === 'function') ? props.t : ((key, fallback) => fallback);
+
       const [open, setOpen] = React.useState(false);
       const [info, setInfo] = React.useState(null);
       const [st, setSt] = React.useState(null);
@@ -99,13 +109,13 @@ window.__ModuleLoader__.load({
         c.kind === 'checks' && (c.items || []).some((i) => i.state === 'error')));
 
       return h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0' } },
-        h('button', { style: chip, onClick: () => setOpen((v) => !v), title: '手机远程接入（答题宝）' },
-          '📱 手机远程' + (open ? ' ▲' : ' ▼')),
+        h('button', { style: chip, onClick: () => setOpen((v) => !v), title: t('panel.title', '手机远程接入（答题宝）') },
+          '📱 ' + t('panel.title', '手机远程') + (open ? ' ▲' : ' ▼')),
         open && h('div', {
           style: { fontSize: 12, lineHeight: 1.6, padding: '6px 10px', borderRadius: 8,
                    border: '1px solid currentColor', minWidth: 260 },
         },
-          h('div', null, '状态：', h('b', null, err ? '读取失败' : (info ? '已启用 ✓' : '读取中…'))),
+          h('div', null, t('panel.status', '状态：'), h('b', null, err ? t('panel.loadFailed', '读取失败') : (info ? t('panel.enabled', '已启用 ✓') : t('panel.loading', '读取中…')))),
           // DeepSeek 账户余额（仅本机可查；走插件 /balance → api.deepseek.com/user/balance，缓存 60 秒）
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } },
             h('span', null, 'DeepSeek 余额：'),
@@ -151,9 +161,9 @@ window.__ModuleLoader__.load({
             // 直连模式（手机每句话在电脑上起一个 dsh 子进程）：单并发 + 低优先级，电脑才不卡
             st.cli && h('div', null, '直连执行：', h('b', null,
               st.cli.mode === 'in-process'
-                ? '进程内（轻量）'
-                : (st.cli.running > 0 ? '运行中' : '空闲')
-                  + (st.cli.queued > 0 ? ' · 排队 ' + st.cli.queued : '')),
+                ? t('panel.modeInProcess', '进程内（轻量）')
+                : (st.cli.running > 0 ? t('panel.running', '运行中') : t('panel.idle', '空闲'))
+                  + (st.cli.queued > 0 ? t('panel.queued', ' · 排队 ') + st.cli.queued : '')),
               st.cli.mode === 'in-process'
                 ? ' · 不起子进程'
                 : ' · 单并发（上限 ' + st.cli.max + '，低优先级）'),
@@ -183,7 +193,7 @@ window.__ModuleLoader__.load({
 info && h('div', null, '二维码：', h('button', {
             style: { ...chip, padding: '2px 8px', fontSize: 12 },
             onClick: () => { fetch('/pair/open', { method: 'POST' }).then((r) => r.json()).then((j) => setErr(j && j.ok ? '' : '打开失败')).catch(() => setErr('打开失败')); },
-          }, '在电脑上打开配对页（扫码用）')),
+          }, t('panel.openPairing', '在电脑上打开配对页（扫码用）'))),
           info && h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 } },
             h('span', null, '隧道域名：'),
             h('input', { value: pubUrl, placeholder: 'https://xxxx.vicp.fun（留空=只用局域网）',
@@ -192,7 +202,7 @@ info && h('div', null, '二维码：', h('button', {
             h('button', { style: { padding: '2px 8px', fontSize: 12, cursor: 'pointer' }, onClick: savePubUrl }, '保存')),
           info && h('div', { style: { opacity: 0.9, wordBreak: 'break-all' } }, '配对串：', h('code', null, info.qr_text)),
           h('div', { style: { opacity: 0.75, marginTop: 4 } },
-            '手机：答题宝 → 工具集 → 远程连接（电脑）→ 扫码配对'),
+            t('panel.hint', '手机：答题宝 → 工具集 → 远程连接（电脑）→ 扫码配对')),
           note && h('div', { style: { opacity: 0.85, marginTop: 4 } }, '✓ ' + note),
           err && h('div', { style: { opacity: 0.75 } }, '（需在电脑本机打开此页面才能读取配对信息）'),
         ));
@@ -201,11 +211,36 @@ info && h('div', null, '二维码：', h('button', {
     return {
       inject: ['slots'],
       apply(ctx) {
+        // 文案解析器（可选依赖：有 locale 服务就用，没有就用内置中文；不进 inject，避免无此服务的版本不激活）
+        const localeSvc = (() => {
+          try {
+            return ctx.locale ?? (typeof ctx.get === 'function' ? ctx.get('locale') : null) ?? null;
+          } catch { return null; }
+        })();
+        const t = (key, fallback) => {
+          if (!localeSvc) return fallback;
+          const candidates = [key, 'smartquiz-remote.' + key, '@local/smartquiz-remote.' + key];
+          for (const k of candidates) {
+            try {
+              if (typeof localeSvc.t === 'function') {
+                const v = localeSvc.t(k);
+                if (typeof v === 'string' && v && v !== k) return v;
+              }
+              if (typeof localeSvc.translate === 'function') {
+                const v = localeSvc.translate(k);
+                if (typeof v === 'string' && v && v !== k) return v;
+              }
+              const direct = localeSvc[k];
+              if (typeof direct === 'string' && direct) return direct;
+            } catch { /* 单个形状失败不影响其它形状 */ }
+          }
+          return fallback;
+        };
         ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
           name: 'conversation.composer.dock',
           id: 'smartquiz-remote',
           order: 6,
-        }, Panel));
+        }, (slotProps) => h(Panel, Object.assign({}, slotProps, { t }))));
       },
     };
   },

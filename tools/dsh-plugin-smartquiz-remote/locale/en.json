@@ -6,10 +6,18 @@
   },
   "panel": {
     "title": "Phone remote",
-    "openPairing": "Open pairing page",
+    "openPairing": "Open pairing page on this computer",
+    "status": "Status:",
+    "loadFailed": "Failed to read",
+    "enabled": "Enabled ✓",
+    "loading": "Loading…",
+    "hint": "Phone: SmartQuiz → Tools → Remote connection (computer) → scan the code",
     "connected": "Connected",
     "disconnected": "Disconnected",
     "modeCli": "CLI subprocess",
-    "modeInProcess": "In-process (direct)"
+    "modeInProcess": "In-process (light)",
+    "running": "Running",
+    "idle": "Idle",
+    "queued": " · queued "
   }
 }

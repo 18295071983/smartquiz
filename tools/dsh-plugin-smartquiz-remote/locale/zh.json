@@ -6,10 +6,18 @@
   },
   "panel": {
     "title": "手机远程",
-    "openPairing": "打开配对页",
+    "openPairing": "在电脑上打开配对页（扫码用）",
+    "status": "状态：",
+    "loadFailed": "读取失败",
+    "enabled": "已启用 ✓",
+    "loading": "读取中…",
+    "hint": "手机：答题宝 → 工具集 → 远程连接（电脑）→ 扫码配对",
     "connected": "已连接",
     "disconnected": "未连接",
     "modeCli": "CLI 子进程",
-    "modeInProcess": "宿主进程内（直连）"
+    "modeInProcess": "进程内（轻量）",
+    "running": "运行中",
+    "idle": "空闲",
+    "queued": " · 排队 "
   }
 }
