@@ -41,6 +41,13 @@ public class DynamicCardView implements ChatComponent {
         return "*dynamic*"; // 通配兜底，不参与注册表匹配
     }
 
+    /** 兜底原因（哪张卡、缺哪些字段），用于在兜底卡上显示诊断行；null=无 */
+    private String fallbackHint;
+
+    public void setFallbackHint(String hint) {
+        this.fallbackHint = hint;
+    }
+
     @Override
     public boolean canRender(ComponentData data) {
         return data != null;
@@ -56,6 +63,13 @@ public class DynamicCardView implements ChatComponent {
                 .setTitle(TextUtils.isEmpty(title) ? data.type : title);
 
         boolean hasBody = false;
+        // 诊断行：这张兜底卡是"被顶替"来的（原卡片数据不匹配），把原因和需要的字段写出来，
+        // 否则用户只看到"查看原始 JSON"，Agent 也拿不到线索（2026-11-16）
+        if (fallbackHint != null && !fallbackHint.isEmpty()) {
+            shell.addBodyText("⚠ " + fallbackHint, ComponentTheme.bodyTextSize(),
+                    ComponentTheme.warning(context), false);
+            hasBody = true;
+        }
         String text = firstNonEmpty(p, "content", "message", "text", "description", "summary");
         if (text != null) {
             shell.addBodyText(text, ComponentTheme.bodyTextSize(),

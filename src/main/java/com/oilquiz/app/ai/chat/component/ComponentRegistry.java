@@ -150,6 +150,17 @@ public class ComponentRegistry {
         return new java.util.TreeSet<>(components.keySet());
     }
 
+    /** 兜底卡诊断：把「这张卡需要哪些字段」写到卡上（2026-11-16） */
+    private void applyFallbackHint(String type) {
+        try {
+            String hint = CardContracts.hint(type);
+            if (dynamicFallback instanceof DynamicCardView) {
+                ((DynamicCardView) dynamicFallback).setFallbackHint(hint);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     /** 是否注册了指定类型组件（旧名/别名按 canonical 解析后再判断） */
     public boolean hasType(String type) {
         if (type == null) return false;
@@ -191,6 +202,7 @@ public class ComponentRegistry {
         ChatComponent component = components.get(ComponentTypes.resolve(data.type));
         if (component == null) component = components.get(data.type);
         if (component == null) {
+            applyFallbackHint(data.type);
             Log.i(TAG, "unregistered type, using dynamic fallback: " + data.type);
             component = dynamicFallback;
         }
@@ -200,6 +212,7 @@ public class ComponentRegistry {
             if (component.canRender(data)) {
                 view = component.createView(context, data);
             } else if (component != dynamicFallback && dynamicFallback.canRender(data)) {
+                applyFallbackHint(data.type);
                 Log.w(TAG, "registered type data mismatch, using dynamic fallback: " + data.type);
                 view = dynamicFallback.createView(context, data);
                 renderedBy = dynamicFallback;
