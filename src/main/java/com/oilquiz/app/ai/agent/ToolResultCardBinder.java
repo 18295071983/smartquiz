@@ -308,6 +308,13 @@ public final class ToolResultCardBinder {
      * 逐日/逐小时/预警在工具侧已被压成换行 String，这里按既有行格式还原成卡片子结构，
      * 不改工具输出。
      */
+    /** 只在非空时写入 props（卡片按"缺字段=不显示"处理，不写空串更干净） */
+    private static void putIfPresent(JSONObject p, String key, String value) throws Exception {
+        if (value != null && !value.isEmpty()) {
+            p.put(key, value);
+        }
+    }
+
     private static ComponentData weatherCard(AIToolResult result) throws Exception {
         Map<String, Object> m = asMap(result.getResult());
         if (m == null || "error".equalsIgnoreCase(str(m.get("status")))) {
@@ -331,7 +338,22 @@ public final class ToolResultCardBinder {
             String windDir = str(m.get("wind_direction"));
             String windSpeed = str(m.get("wind_speed"));
             p.put("windDir", windDir);
-            p.put("windScale", windSpeed.isEmpty() ? "" : " " + windSpeed);
+            // windScale 语义是"风力等级"（3级），原来把 wind_speed（km/h）直接塞进来，
+        // 卡片会显示成"西北风 23"（2026-11-16 修）：优先用工具给的等级，否则带单位标注
+        String windScale = str(m.get("wind_scale"));
+        if (windScale.isEmpty()) {
+            String speedUnit = str(m.get("wind_speed_unit"));
+            if (speedUnit.isEmpty()) speedUnit = "km/h";
+            windScale = windSpeed.isEmpty() ? "" : (" " + windSpeed + speedUnit);
+        }
+        p.put("windScale", windScale);
+        // 工具已返回、但以前没传给卡片的字段（卡片已支持，有则显示、无则跳过）
+        putIfPresent(p, "feelsLike", str(m.get("feels_like")));
+        putIfPresent(p, "pressure", str(m.get("pressure")));
+        putIfPresent(p, "visibility", str(m.get("visibility")));
+        putIfPresent(p, "tempMin", str(m.get("temp_min")));
+        putIfPresent(p, "tempMax", str(m.get("temp_max")));
+        putIfPresent(p, "date", str(m.get("date")));
             JSONArray forecast = parseForecastLines(str(m.get("forecast")));
             if (forecast.length() > 0) {
                 p.put("forecast", forecast);

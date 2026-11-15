@@ -59,6 +59,12 @@ public class WeatherCardView implements ChatComponent {
         String humidity = p.optString("humidity", "");
         String windDir = p.optString("windDir", "");
         String windScale = p.optString("windScale", "");
+        // 以下为可选字段（2026-11-16 补）：缺了就整行/整段不显示，属于正常情况，不报错
+        String feelsLike = p.optString("feelsLike", "");
+        String pressure = p.optString("pressure", "");
+        String visibility = p.optString("visibility", "");
+        String tempMin = p.optString("tempMin", "");
+        String tempMax = p.optString("tempMax", "");
         JSONArray forecast = p.optJSONArray("forecast");
 
         LinearLayout card = new LinearLayout(context);
@@ -110,12 +116,30 @@ public class WeatherCardView implements ChatComponent {
         card.addView(topRow, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        // 第二行：湿度 / 风
+        // 第二行：湿度 / 风 / 体感 / 气压 / 能见度（有则显示，无则跳过）
         StringBuilder sub = new StringBuilder();
         if (!TextUtils.isEmpty(humidity)) sub.append("💧 湿度 ").append(humidity);
         if (!TextUtils.isEmpty(windDir) || !TextUtils.isEmpty(windScale)) {
             if (sub.length() > 0) sub.append("    ");
             sub.append("🍃 ").append(windDir).append(windScale);
+        }
+        if (!TextUtils.isEmpty(feelsLike)) {
+            if (sub.length() > 0) sub.append("    ");
+            sub.append("🌡 体感 ").append(feelsLike);
+        }
+        if (!TextUtils.isEmpty(pressure)) {
+            if (sub.length() > 0) sub.append("    ");
+            sub.append("📊 气压 ").append(pressure);
+        }
+        if (!TextUtils.isEmpty(visibility)) {
+            if (sub.length() > 0) sub.append("    ");
+            sub.append("👁 能见度 ").append(visibility);
+        }
+        if (!TextUtils.isEmpty(tempMin) || !TextUtils.isEmpty(tempMax)) {
+            if (sub.length() > 0) sub.append("    ");
+            sub.append("🌗 ").append(tempMin);
+            if (!TextUtils.isEmpty(tempMin) && !TextUtils.isEmpty(tempMax)) sub.append("~");
+            sub.append(tempMax);
         }
         if (sub.length() > 0) {
             TextView subTv = new TextView(context);
