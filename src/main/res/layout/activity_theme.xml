@@ -299,7 +299,56 @@
                                     <TextView
                                         android:layout_width="wrap_content"
                                         android:layout_height="wrap_content"
-                                        android:text="与系统主题保持一致"
+                                        android:text="纯黑底色，OLED 屏更省电"
+                                        android:textSize="14sp"
+                                        android:textColor="?attr/colorOnSurfaceVariant" />
+                                        
+                                </LinearLayout>
+                                
+                            </LinearLayout>
+                            
+                        </com.google.android.material.card.MaterialCardView>
+<com.google.android.material.card.MaterialCardView
+                            android:id="@+id/card_mode_oled"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            app:cardElevation="1dp"
+                            app:cardBackgroundColor="?attr/colorSurfaceVariant"
+                            app:cardCornerRadius="8dp"
+                            android:clickable="true"
+                            android:focusable="true">
+                            
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal"
+                                android:gravity="center_vertical"
+                                android:padding="@dimen/space_12">
+                                
+                                <RadioButton
+                                    android:id="@+id/radio_oled"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginEnd="@dimen/space_12" />
+                                
+                                <LinearLayout
+                                    android:layout_width="@dimen/size_0"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:orientation="vertical">
+                                    
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text="纯黑模式（OLED）"
+                                        android:textSize="16sp"
+                                        android:textStyle="bold"
+                                        android:textColor="?attr/colorOnSurface" />
+                                    
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text="纯黑底色，OLED 屏更省电"
                                         android:textSize="14sp"
                                         android:textColor="?attr/colorOnSurfaceVariant" />
                                         

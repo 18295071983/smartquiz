@@ -59,6 +59,7 @@ public class ThemeActivity extends AppCompatActivity {
     private RadioButton radioLight;
     private RadioButton radioDark;
     private RadioButton radioSystem;
+    private RadioButton radioOled;
 
     /** 壁纸添加：PhotoPicker（系统相册/文件选择，免存储权限） */
     private final ActivityResultLauncher<PickVisualMediaRequest> pickWallpaperLauncher =
@@ -89,6 +90,7 @@ public class ThemeActivity extends AppCompatActivity {
         radioLight = findViewById(R.id.radio_light);
         radioDark = findViewById(R.id.radio_dark);
         radioSystem = findViewById(R.id.radio_system);
+        radioOled = findViewById(R.id.radio_oled);
         linearLayoutThemeColors = findViewById(R.id.linearLayoutThemeColors);
         linearLayoutThemeSkins = findViewById(R.id.linearLayoutThemeSkins);
         linearLayoutThemePreview = findViewById(R.id.linearLayoutThemePreview);
@@ -108,12 +110,15 @@ public class ThemeActivity extends AppCompatActivity {
         View.OnClickListener lightClick = v -> selectModeCard(radioLight, ThemeManager.THEME_LIGHT);
         View.OnClickListener darkClick = v -> selectModeCard(radioDark, ThemeManager.THEME_DARK);
         View.OnClickListener systemClick = v -> selectModeCard(radioSystem, ThemeManager.THEME_SYSTEM);
+        View.OnClickListener oledClick = v -> selectModeCard(radioOled, ThemeManager.THEME_OLED);
         findViewById(R.id.card_mode_light).setOnClickListener(lightClick);
         findViewById(R.id.card_mode_dark).setOnClickListener(darkClick);
         findViewById(R.id.card_mode_system).setOnClickListener(systemClick);
+        findViewById(R.id.card_mode_oled).setOnClickListener(oledClick);
         radioLight.setOnClickListener(lightClick);
         radioDark.setOnClickListener(darkClick);
         radioSystem.setOnClickListener(systemClick);
+        radioOled.setOnClickListener(oledClick);
 
         findViewById(R.id.btn_save_theme).setOnClickListener(v -> finish());
         setupWallpaperModeEntry();
@@ -550,10 +555,12 @@ public class ThemeActivity extends AppCompatActivity {
         radioLight.setChecked(target == radioLight);
         radioDark.setChecked(target == radioDark);
         radioSystem.setChecked(target == radioSystem);
+        if (radioOled != null) radioOled.setChecked(target == radioOled);
         if (mode != ThemeManager.getMode(this)) {
             ThemeManager.setMode(this, mode);
             Toast.makeText(this,
-                    mode == ThemeManager.THEME_DARK ? "已切换到深色模式"
+                    mode == ThemeManager.THEME_OLED ? "已切换到纯黑模式（OLED）"
+                            : mode == ThemeManager.THEME_DARK ? "已切换到深色模式"
                             : mode == ThemeManager.THEME_LIGHT ? "已切换到浅色模式"
                             : "已跟随系统主题",
                     Toast.LENGTH_SHORT).show();
@@ -563,7 +570,9 @@ public class ThemeActivity extends AppCompatActivity {
     private void loadCurrentThemeMode() {
         SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
         int themeMode = prefs.getInt(KEY_THEME, ThemeManager.THEME_SYSTEM);
-        if (themeMode == ThemeManager.THEME_DARK) {
+        if (themeMode == ThemeManager.THEME_OLED) {
+            radioOled.setChecked(true);
+        } else if (themeMode == ThemeManager.THEME_DARK) {
             radioDark.setChecked(true);
         } else if (themeMode == ThemeManager.THEME_SYSTEM) {
             radioSystem.setChecked(true);

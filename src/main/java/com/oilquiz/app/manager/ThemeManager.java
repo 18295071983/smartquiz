@@ -58,6 +58,8 @@ public class ThemeManager {
     public static final int THEME_LIGHT = 0;
     public static final int THEME_DARK = 1;
     public static final int THEME_SYSTEM = 2;
+    /** 纯黑（OLED）：深色 + 背景/卡片压到 #000000，省电且不烧屏。 */
+    public static final int THEME_OLED = 3;
 
     /** 预设主题色（ARGB，与 res/values/theme_overlays.xml 生成脚本一致） */
     public static final int COLOR_BLUE = 0xFF3B82F6;
@@ -273,6 +275,10 @@ public class ThemeManager {
             case THEME_DARK:
                 AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES);
                 break;
+            case THEME_OLED:
+                // OLED 属于深色的一种，只是底色更黑：夜间模式照常打开，再叠加纯黑 overlay
+                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES);
+                break;
             case THEME_SYSTEM:
             default:
                 AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
@@ -281,12 +287,17 @@ public class ThemeManager {
     }
 
     /** 当前是否处于深色显示（含跟随系统时的实际 uiMode） */
+    /** 是否处于纯黑（OLED）档 */
+    public static boolean isOled(Context context) {
+        return context != null && getMode(context) == THEME_OLED;
+    }
+
     public static boolean isDarkTheme(Context context) {
         int mode = getMode(context);
         if (mode == THEME_LIGHT) {
             return false;
         }
-        if (mode == THEME_DARK) {
+        if (mode == THEME_DARK || mode == THEME_OLED) {
             return true;
         }
         int uiMode = context.getResources().getConfiguration().uiMode
@@ -440,6 +451,11 @@ public class ThemeManager {
             int overlayResId = getOverlayResId(activity);
             if (overlayResId != 0) {
                 activity.getTheme().applyStyle(overlayResId, true);
+            }
+            // OLED 纯黑档：在预设色 overlay 之后再叠一层，只改底色/卡片/边框，
+            // 不动主色 —— 所以"紫色 + 纯黑"这种组合也成立。
+            if (isOled(activity)) {
+                activity.getTheme().applyStyle(R.style.ThemeOverlay_SmartQuiz_Oled, true);
             }
         } catch (Throwable t) {
             // 注入失败不阻断页面打开，回退默认紫色主题

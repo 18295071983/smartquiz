@@ -42,6 +42,21 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 主题档位切换（2026-11-16）：--es mode set_theme --es theme light|dark|system|oled
+        // 纯黑档没法用 adb 点 UI 验证，用它当开关。
+        if ("set_theme".equals(getIntent().getStringExtra("mode"))) {
+            String which = getIntent().getStringExtra("theme");
+            int m = com.oilquiz.app.manager.ThemeManager.THEME_SYSTEM;
+            if ("light".equals(which)) m = com.oilquiz.app.manager.ThemeManager.THEME_LIGHT;
+            else if ("dark".equals(which)) m = com.oilquiz.app.manager.ThemeManager.THEME_DARK;
+            else if ("oled".equals(which)) m = com.oilquiz.app.manager.ThemeManager.THEME_OLED;
+            com.oilquiz.app.manager.ThemeManager.setMode(this, m);
+            android.widget.Toast.makeText(this, "主题档位=" + which + "（" + m + "）",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            finish();
+            return;
+        }
+
         // 主题自检页（2026-11-16）：本 Activity 是 debugExported，用它当 adb 入口。
         if ("theme_audit".equals(getIntent().getStringExtra("mode"))) {
             startActivity(new android.content.Intent(this,
