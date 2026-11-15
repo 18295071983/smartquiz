@@ -75,11 +75,18 @@ public final class EdgeToEdgeHelper {
             // MIUI 滚动时的动态对比遮罩闪烁。但那条色带与「壁纸扩展」打架：底部永远露一条白条，
             // 壁纸铺不到底。2026-10-04 按需求删除色带；防闪烁改由
             // navigationBarContrastEnforced=false 承担（系统不再叠加对比 scrim）。
-            activity.getWindow().setStatusBarColor(Color.TRANSPARENT);
-            activity.getWindow().setNavigationBarColor(Color.TRANSPARENT);
+            // Android 15（API 35）起 edge-to-edge 强制生效，setStatusBarColor/setNavigationBarColor
+            // 已是废弃 API 且被系统忽略；只在 35 以下显式设透明色（否则 31~34 会残留系统默认色带）。
+            if (android.os.Build.VERSION.SDK_INT < 35) {
+                activity.getWindow().setStatusBarColor(Color.TRANSPARENT);
+                activity.getWindow().setNavigationBarColor(Color.TRANSPARENT);
+            }
             // MIUI 等系统会给导航栏区域强加对比 scrim（白色遮罩），滚动时与内容交替导致闪烁
             // 官方文档：edge-to-edge 后应关闭 navigationBarContrastEnforced 去除该遮罩
-            activity.getWindow().setNavigationBarContrastEnforced(false);
+            if (android.os.Build.VERSION.SDK_INT < 35) {
+                // 35 起该属性同样废弃（系统不再叠加对比 scrim）
+                activity.getWindow().setNavigationBarContrastEnforced(false);
+            }
 
             ViewGroup content = activity.findViewById(android.R.id.content);
             if (content == null) {
@@ -151,7 +158,10 @@ public final class EdgeToEdgeHelper {
                 return;
             }
             activity.getWindow().setNavigationBarColor(Color.TRANSPARENT);
-            activity.getWindow().setNavigationBarContrastEnforced(false);
+            if (android.os.Build.VERSION.SDK_INT < 35) {
+                // 35 起该属性同样废弃（系统不再叠加对比 scrim）
+                activity.getWindow().setNavigationBarContrastEnforced(false);
+            }
             WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(
                     activity.getWindow(), activity.getWindow().getDecorView());
             boolean light = (root != null) ? isLightStatusArea(root, activity) : true;
@@ -449,7 +459,15 @@ public final class EdgeToEdgeHelper {
                     c = tv.data;
                 }
             }
-            boolean light = c == 0 || ColorUtils.calculateLuminance(c) > 0.5;
+            // 2026-11-16：不再一律靠"采样根布局背景色"猜深浅（那是补丁做法，动态色/渐变下会猜错）。
+            // 规则：页面不跟壁纸时，直接按主题深浅决定图标；跟壁纸时才看壁纸亮度。
+            boolean light;
+            if (com.oilquiz.app.theme.AppWallpaperManager.getMode(activity)
+                    == com.oilquiz.app.theme.AppWallpaperManager.MODE_OFF) {
+                light = !com.oilquiz.app.manager.ThemeManager.isDarkTheme(activity);
+            } else {
+                light = c == 0 || ColorUtils.calculateLuminance(c) > 0.5;
+            }
             WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(
                     activity.getWindow(), activity.getWindow().getDecorView());
             controller.setAppearanceLightStatusBars(light);

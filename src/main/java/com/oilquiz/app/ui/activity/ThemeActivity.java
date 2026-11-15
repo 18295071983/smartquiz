@@ -137,7 +137,10 @@ public class ThemeActivity extends AppCompatActivity {
         setupSystemDynamicEntry();
         // 调试入口：直接弹自定义色板（adb 用 --ez open_custom_color true），
         // 省得为了点一个按钮先滚动+坐标点击。
+        // 消费一次即清空 extra：对话框「应用」会 recreate()，不清掉的话新实例又弹一次，
+        // 表现就是"关不掉、一直自动弹出"。getIntent() 在 recreate 时是同一个对象。
         if (getIntent() != null && getIntent().getBooleanExtra("open_custom_color", false)) {
+            getIntent().removeExtra("open_custom_color");
             linearLayoutThemeColors.post(this::showCustomColorDialog);
         }
     }

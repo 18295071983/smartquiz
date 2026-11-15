@@ -71,8 +71,41 @@ public class GenOverlays {
         sb.append("        <item name=\"colorOutline\">").append(hex(s.outline)).append("</item>\n");
         sb.append("        <item name=\"colorBackground\">").append(hex(s.background)).append("</item>\n");
         sb.append("        <item name=\"colorOnBackground\">").append(hex(s.onBackground)).append("</item>\n");
-        sb.append("        <item name=\"android:statusBarColor\">").append(hex(s.primary)).append("</item>\n");
-        sb.append("        <item name=\"android:navigationBarColor\">").append(hex(s.surface)).append("</item>\n");
+        // 2026-11-16 补全：换肤时这些颜色以前"纹丝不动"（overlay 没定义 → 落回基础主题的静态色），
+        // 于是出现"主色变了、卡片/输入框/分隔线没变"的割裂感。现在按色板派生补齐。
+        sb.append("        <item name=\"colorControlBackground\">").append(hex(s.surfaceVariant)).append("</item>\n");
+        sb.append("        <item name=\"colorControlText\">").append(hex(s.onSurface)).append("</item>\n");
+        sb.append("        <item name=\"colorControlTextSecondary\">").append(hex(s.onSurfaceVariant)).append("</item>\n");
+        sb.append("        <item name=\"colorControlTextHint\">").append(hex(s.onSurfaceVariant)).append("</item>\n");
+        sb.append("        <item name=\"colorControlTextDisabled\">").append(hex(s.outline)).append("</item>\n");
+        sb.append("        <item name=\"colorCardBackground\">").append(hex(s.surface)).append("</item>\n");
+        sb.append("        <item name=\"colorOnCard\">").append(hex(s.onSurface)).append("</item>\n");
+        sb.append("        <item name=\"colorInputBackground\">").append(hex(s.surfaceVariant)).append("</item>\n");
+        sb.append("        <item name=\"colorOnInput\">").append(hex(s.onSurface)).append("</item>\n");
+        sb.append("        <item name=\"colorDivider\">").append(hex(s.outlineVariant)).append("</item>\n");
+        sb.append("        <item name=\"colorAppBarBackground\">").append(hex(s.surface)).append("</item>\n");
+        sb.append("        <item name=\"colorOnAppBar\">").append(hex(s.onSurface)).append("</item>\n");
+        // 语义色：状态色 + 边框 + 遮罩 + 图表（图表色直接取三主色的容器/主色，保证同族）
+        sb.append("        <item name=\"colorDanger\">").append(hex(s.error)).append("</item>\n");
+        sb.append("        <item name=\"colorOnDanger\">").append(hex(s.onError)).append("</item>\n");
+        sb.append("        <item name=\"colorErrorContainer\">").append(hex(s.errorContainer)).append("</item>\n");
+        sb.append("        <item name=\"colorOnErrorContainer\">").append(hex(s.onErrorContainer)).append("</item>\n");
+        sb.append("        <item name=\"colorBorder\">").append(hex(s.outlineVariant)).append("</item>\n");
+        sb.append("        <item name=\"colorBorderStrong\">").append(hex(s.outline)).append("</item>\n");
+        sb.append("        <item name=\"colorScrim\">").append(hex(s.scrim)).append("</item>\n");
+        sb.append("        <item name=\"colorChart1\">").append(hex(s.primary)).append("</item>\n");
+        sb.append("        <item name=\"colorChart2\">").append(hex(s.secondary)).append("</item>\n");
+        sb.append("        <item name=\"colorChart3\">").append(hex(s.tertiary)).append("</item>\n");
+        sb.append("        <item name=\"colorChart4\">").append(hex(s.primaryContainer)).append("</item>\n");
+        sb.append("        <item name=\"colorChart5\">").append(hex(s.secondaryContainer)).append("</item>\n");
+        sb.append("        <item name=\"colorChart6\">").append(hex(s.tertiaryContainer)).append("</item>\n");
+        sb.append("        <item name=\"colorChart7\">").append(hex(s.inversePrimary)).append("</item>\n");
+        sb.append("        <item name=\"colorChart8\">").append(hex(s.outline)).append("</item>\n");
+        // 系统栏一律透明：edge-to-edge 由 WindowCompat 接管（以前这里写 statusBarColor=primary，
+        // 正是"状态栏打补丁"的来源之一，且 API 35 起该属性已失效）。
+        sb.append("        <item name=\"android:statusBarColor\">#00000000</item>\n");
+        sb.append("        <item name=\"android:navigationBarColor\">#00000000</item>\n");
+        sb.append("        <item name=\"android:windowBackground\">").append(hex(s.background)).append("</item>\n");
         sb.append("    </style>\n");
     }
 
