@@ -99,18 +99,25 @@ public final class CardContracts {
         w.put("card", cardType);
         w.put("given", new java.util.ArrayList<>(givenProps));
         w.put("expected", java.util.Arrays.asList(expected));
-        w.put("message", cardType + " 期望字段（"
+        w.put("message", cardType + " 常用字段（仅供参考："
                 + String.join("/", java.util.Arrays.asList(expected))
-                + "）与你给的字段没有交集，可能渲染成兜底卡；若确属有意（或数据由解释器回传）可忽略");
+                + "）与你给的字段没有交集，可能渲染成兜底卡；这只是提示不是校验 ——"
+                + "字段名可用别名，或数据由解释器回传，可忽略");
         out.add(w);
         return out;
     }
 
-    /** 一句话提示：	able_card 需要 headers/rows/align */
+    /**
+     * 一句话提示：`table_card 常用字段 headers/rows/align`（仅供参考，不是必填）。
+     *
+     * <p>2026-11-16 改口径：这份清单是"该卡源码里 optXxx 读过的字段名"，属于<b>可选</b>语义，
+     * 之前写成"需要 …"被当成校验规则，导致 code_card 这类字段名一换就整卡退回兜底。
+     * 现在统一说"常用字段（仅供参考）"。</p>
+     */
     public static String hint(String type) {
         String[] keys = keysOf(type);
-        if (keys.length == 0) return type + " 需要更多字段";
-        StringBuilder sb = new StringBuilder(type).append(" 需要 ");
+        if (keys.length == 0) return type + " 无已知字段（可自由传 props）";
+        StringBuilder sb = new StringBuilder(type).append(" 常用字段 ");
         for (int i = 0; i < Math.min(keys.length, 6); i++) {
             if (i > 0) sb.append('/');
             sb.append(keys[i]);
