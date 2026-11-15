@@ -25,6 +25,11 @@ import java.util.Set;
  * <p><b>设计取舍</b>：分级表放在代码里（而非配置），因为这是安全默认值 —— 不能被模型或
  * 普通设置轻易改掉；需要放宽时改这里、走一次发版审核。未知工具按 {@link Level#EXEC} 处理
  * （保守：宁可多问一次）。</p>
+ *
+ * <p><b>⚠ 当前尚未接入执行链路（2026-11-16）</b>：本类只提供"判断能力"，没有强制拦截 ——
+ * {@code AIToolManager.executeTool} 目前对所有工具一律放行。接入点与三步走方案写在
+ * {@code AIToolManager#executeTool} 的 TODO(权限分级接入点) 注释里，做的时候照那里改即可。
+ * 在那之前，本类可用于：设置页展示分级、审计日志分级、以及测试钉住安全默认值。</p>
  */
 public final class ToolPermissions {
 

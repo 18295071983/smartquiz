@@ -418,6 +418,25 @@ public class AIToolManager {
      * @return 执行结果
      */
     public AIToolResult executeTool(String toolName, Map<String, Object> parameters) {
+        // TODO(权限分级接入点 · 2026-11-16)：这里就是统一拦截的位置，目前**故意不拦截**。
+        //  分级表已就绪（{@link ToolPermissions}），但接入会动到 Agent 主调用链路，
+        //  先留点不接，等决定做的时候按下面三步走：
+        //
+        //   1) 只观察不阻断：在下方 try 之前调用
+        //        AuditLog.record(toolName, ToolPermissions.levelOf(toolName), parameters);
+        //      跑一轮线上/自测，确认分级归类没有误判（尤其 git / export_apk / 一切 shell）。
+        //
+        //   2) 打开"每次询问"拦截：在 executeToolInner 返回前判断
+        //        if (ToolPermissions.requiresEveryTime(resolvedTool)) {
+        //            return AIToolResult.failNeedApproval(resolvedTool, 级别);   // 需新增该工厂方法
+        //        }
+        //      并在 UI 侧接一个审批面板（复用 McpApprovalManager 的交互范式）。
+        //
+        //   3) 打开审计：对 ToolPermissions.requiresAudit(...) 为 true 的工具，
+        //      执行前后各写一条（谁、什么参数摘要、结果成败）。
+        //
+        //  另外注意：{@link #resolveToolNameFuzzy} 会把工具名归一化，分级判断必须用
+        //  归一化后的名字（resolved），否则别名工具会全部落到未知工具的保守默认值。
         // 引擎侧基础设施（2026-10-25）：把"正在执行哪个工具"发布到活动总线，
         // 聊天页据此显示多样化状态文案（正在联网搜索/正在生成文件/正在读取文件…），
         // 不再靠 UI 每 tick 猜工具名。异常/提前返回也保证清干净。
