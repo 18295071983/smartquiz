@@ -43,12 +43,15 @@ public final class Tokens {
     // ---------------- 档位常量 ----------------
 
     /** 间距档位（顺序与 {@link #space(Context, int)} 对应） */
-    public static final int SPACE_XS = 0;
-    public static final int SPACE_SM = 1;
-    public static final int SPACE_MD = 2;
-    public static final int SPACE_LG = 3;
-    public static final int SPACE_XL = 4;
-    public static final int SPACE_XXL = 5;
+    public static final int SPACE_HAIRLINE = 0;
+    public static final int SPACE_XS = 1;
+    public static final int SPACE_SM = 2;
+    public static final int SPACE_MD = 3;
+    public static final int SPACE_LG = 4;
+    public static final int SPACE_XL = 5;
+    public static final int SPACE_XXL = 6;
+    public static final int SPACE_2XL = 7;
+    public static final int SPACE_3XL = 8;
 
     /** 圆角档位 */
     public static final int RADIUS_SM = 0;
@@ -59,10 +62,13 @@ public final class Tokens {
 
     /** 字号档位 */
     public static final int TEXT_CAPTION = 0;
-    public static final int TEXT_BODY = 1;
-    public static final int TEXT_SUBTITLE = 2;
-    public static final int TEXT_TITLE = 3;
-    public static final int TEXT_HEADLINE = 4;
+    public static final int TEXT_FOOTNOTE = 1;
+    public static final int TEXT_LABEL = 2;
+    public static final int TEXT_BODY = 3;
+    public static final int TEXT_BODY_LG = 4;
+    public static final int TEXT_SUBTITLE = 5;
+    public static final int TEXT_TITLE = 6;
+    public static final int TEXT_HEADLINE = 7;
 
     /** 字重（与字号正交：同一档字号可以配不同字重） */
     public enum Weight {
@@ -76,12 +82,15 @@ public final class Tokens {
         return context.getResources().getDimensionPixelSize(dimenRes(spaceRes(tier)));
     }
 
+    public static int spaceHairline(Context c) { return space(c, SPACE_HAIRLINE); }
     public static int spaceXs(Context c) { return space(c, SPACE_XS); }
     public static int spaceSm(Context c) { return space(c, SPACE_SM); }
     public static int spaceMd(Context c) { return space(c, SPACE_MD); }
     public static int spaceLg(Context c) { return space(c, SPACE_LG); }
     public static int spaceXl(Context c) { return space(c, SPACE_XL); }
     public static int spaceXxl(Context c) { return space(c, SPACE_XXL); }
+    public static int space2xl(Context c) { return space(c, SPACE_2XL); }
+    public static int space3xl(Context c) { return space(c, SPACE_3XL); }
 
     /** 圆角（dp → px）。 */
     public static int radius(Context context, int tier) {
@@ -142,13 +151,16 @@ public final class Tokens {
 
     private static int spaceRes(int tier) {
         switch (tier) {
+            case SPACE_HAIRLINE: return com.oilquiz.app.R.dimen.space_hairline;
             case SPACE_XS: return com.oilquiz.app.R.dimen.space_xs;
             case SPACE_SM: return com.oilquiz.app.R.dimen.space_sm;
             case SPACE_MD: return com.oilquiz.app.R.dimen.space_md;
             case SPACE_LG: return com.oilquiz.app.R.dimen.space_lg;
             case SPACE_XL: return com.oilquiz.app.R.dimen.space_xl;
-            case SPACE_XXL:
-            default: return com.oilquiz.app.R.dimen.space_xxl;
+            case SPACE_XXL: return com.oilquiz.app.R.dimen.space_xxl;
+            case SPACE_2XL: return com.oilquiz.app.R.dimen.space_2xl;
+            case SPACE_3XL:
+            default: return com.oilquiz.app.R.dimen.space_3xl;
         }
     }
 
@@ -166,7 +178,10 @@ public final class Tokens {
     private static int fontRes(int tier) {
         switch (tier) {
             case TEXT_CAPTION: return com.oilquiz.app.R.dimen.font_caption;
+            case TEXT_FOOTNOTE: return com.oilquiz.app.R.dimen.font_footnote;
+            case TEXT_LABEL: return com.oilquiz.app.R.dimen.font_label;
             case TEXT_BODY: return com.oilquiz.app.R.dimen.font_body;
+            case TEXT_BODY_LG: return com.oilquiz.app.R.dimen.font_body_lg;
             case TEXT_SUBTITLE: return com.oilquiz.app.R.dimen.font_subtitle;
             case TEXT_TITLE: return com.oilquiz.app.R.dimen.font_title;
             case TEXT_HEADLINE:

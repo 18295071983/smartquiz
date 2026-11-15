@@ -189,30 +189,41 @@
     <dimen name="chat_v2_block_gap">10dp</dimen>
     <dimen name="chat_v2_line_gap">7dp</dimen>
     <dimen name="chat_v2_line_pad">10dp</dimen>
-    <!-- ==================== 语义档位（token，2026-11-16） ====================
-         为什么要这三组：dimens.xml 里原本只有绝对值（space_4/space_8/radius_12/text_14），
-         全项目 1153 处直接写 dp()/sp() 字面量，所以每个页面的间距、圆角、字号都是"各写各的"，
-         换主题/适配大字号时改不动。这三组是**语义档位**：写"md"而不是"12dp"，
-         以后统一调比例只改这里。 -->
-    <!-- 间距：xs 紧凑内边距 / sm 行内间距 / md 常规 / lg 区块 / xl 大区块 / xxl 页面留白 -->
-    <dimen name="space_xs">4dp</dimen>
-    <dimen name="space_sm">8dp</dimen>
-    <dimen name="space_md">12dp</dimen>
-    <dimen name="space_lg">16dp</dimen>
-    <dimen name="space_xl">24dp</dimen>
-    <dimen name="space_xxl">32dp</dimen>
+    <!-- ==================== 语义档位（token v2，2026-11-16） ====================
+         为什么是这些值：按真实使用频次定的（布局里 @dimen/space_* 2647 处 + 内联 201 处，
+         text_* 1674 处 + 内联 98 处）。每一个 token 都**等于一个已经存在的档位值**，
+         所以以后把调用点换成 token 是零像素变化 —— 这是"接线不会把界面搞坏"的前提。
 
-    <!-- 圆角：sm 标签/徽章 / md 卡片 / lg 面板 / xl 大卡 / pill 胶囊按钮 -->
+         覆盖（累计占比）：
+         - 间距 9 档（2/4/6/8/12/16/20/24/32）≈ 95%
+         - 字号 8 档（11/12/13/14/16/18/20/24）≈ 98%
+         - 圆角 5 档（8/12/16/24/pill）
+         剩下的零散值（1/3/5/10/14/28/30/36/40/48/100 等）保持用原生 dimen，不算进 token。 -->
+    <!-- 间距：xs=4（行内最小）/ sm=6 / md=8（最常用）/ lg=12 / xl=16（最常用）/ xxl=20 / 2xl=24 / 3xl=32（页面留白）/ hairline=2（描边间隙） -->
+    <dimen name="space_hairline">2dp</dimen>
+    <dimen name="space_xs">4dp</dimen>
+    <dimen name="space_sm">6dp</dimen>
+    <dimen name="space_md">8dp</dimen>
+    <dimen name="space_lg">12dp</dimen>
+    <dimen name="space_xl">16dp</dimen>
+    <dimen name="space_xxl">20dp</dimen>
+    <dimen name="space_2xl">24dp</dimen>
+    <dimen name="space_3xl">32dp</dimen>
+
+    <!-- 圆角：sm=8 标签/徽章 / md=12 卡片 / lg=16 面板 / xl=24 大卡 / pill=胶囊 -->
     <dimen name="radius_sm">8dp</dimen>
     <dimen name="radius_md">12dp</dimen>
     <dimen name="radius_lg">16dp</dimen>
     <dimen name="radius_xl">24dp</dimen>
     <dimen name="radius_pill">999dp</dimen>
 
-    <!-- 字号：caption 辅助 / body 正文 / subtitle 小标题 / title 标题 / headline 大标题 -->
-    <dimen name="font_caption">12sp</dimen>
-    <dimen name="font_body">15sp</dimen>
-    <dimen name="font_subtitle">17sp</dimen>
+    <!-- 字号：caption=11 极小辅助 / footnote=12 辅助 / label=13 标签 / body=14 正文（最常用）/
+         bodyLg=16 大正文 / subtitle=18 小标题 / title=20 区块标题 / headline=24 页面标题 -->
+    <dimen name="font_caption">11sp</dimen>
+    <dimen name="font_footnote">12sp</dimen>
+    <dimen name="font_label">13sp</dimen>
+    <dimen name="font_body">14sp</dimen>
+    <dimen name="font_body_lg">16sp</dimen>
+    <dimen name="font_subtitle">18sp</dimen>
     <dimen name="font_title">20sp</dimen>
-    <dimen name="font_headline">24sp</dimen>
-</resources>
+    <dimen name="font_headline">24sp</dimen></resources>
