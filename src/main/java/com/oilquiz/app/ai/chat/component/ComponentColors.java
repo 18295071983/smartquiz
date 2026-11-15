@@ -5,55 +5,112 @@ import android.content.Context;
 import androidx.core.content.ContextCompat;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 
 /**
- * 组件色板：统一从 colors.xml 读取，避免代码中硬编码颜色。
+ * 组件色板（动作类 / 展示类组件统一取色）。
+ *
+ * <p><b>2026-11-16 改造</b>：原来每个方法都直接读 {@code @color/component_*} 固定资源，
+ * 所以换肤、系统动态色、纯黑（OLED）都不影响组件层 —— 全项目 270 处引用，
+ * 表现就是"主色换了、按钮/开关/输入框还是原来的颜色"。</p>
+ *
+ * <p>现在统一走「主题属性优先，资源兜底」：
+ * <ol>
+ *   <li>先读主题 attr（{@code colorControlText}、{@code colorPrimary}、{@code colorSuccess}…），
+ *       这样 7 个预设色 + 24 色相网格 + 系统动态色 + OLED 都能生效；</li>
+ *   <li>主题里没定义该 attr（老页面/自定义主题）时，退回原来的 {@code @color/component_*}，
+ *       行为与改造前完全一致，不会因为缺属性变黑块。</li>
+ * </ol>
+ * 也就是说：这是一次"加了一层主题通路"的改造，默认外观零变化。</p>
  */
 public final class ComponentColors {
 
     private ComponentColors() {
     }
 
+    /** 主题属性优先，取不到再用资源兜底。 */
+    private static int themed(Context context, int attrResId, int fallbackColorRes) {
+        int c = ThemeColors.attr(context, attrResId);
+        if (c != 0) {
+            return c;
+        }
+        return ContextCompat.getColor(context, fallbackColorRes);
+    }
+
     /** 主文字色 */
     public static int textPrimary(Context context) {
-        return ContextCompat.getColor(context, R.color.component_text_primary);
+        return themed(context, R.attr.colorControlText, R.color.component_text_primary);
     }
 
     /** 次要文字色 */
     public static int textSecondary(Context context) {
-        return ContextCompat.getColor(context, R.color.component_text_secondary);
+        return themed(context, R.attr.colorControlTextSecondary, R.color.component_text_secondary);
     }
 
     /** 弱化文字色 */
     public static int textTertiary(Context context) {
-        return ContextCompat.getColor(context, R.color.component_text_tertiary);
+        return themed(context, R.attr.colorControlTextHint, R.color.component_text_tertiary);
     }
 
     /** 强调色（按钮/链接） */
     public static int accent(Context context) {
-        return ContextCompat.getColor(context, R.color.component_accent);
+        return themed(context, R.attr.colorPrimary, R.color.component_accent);
     }
 
     /** 成功色 */
     public static int success(Context context) {
-        return ContextCompat.getColor(context, R.color.component_success);
+        return themed(context, R.attr.colorSuccess, R.color.component_success);
     }
 
     /** 警告色 */
     public static int warning(Context context) {
-        return ContextCompat.getColor(context, R.color.component_warning);
+        return themed(context, R.attr.colorWarning, R.color.component_warning);
     }
 
-    /** 错误色 */
+    /** 错误/危险色 */
     public static int error(Context context) {
-        return ContextCompat.getColor(context, R.color.component_error);
+        return themed(context, R.attr.colorDanger, R.color.component_error);
+    }
+
+    /** 组件底色（卡片/面板） */
+    public static int background(Context context) {
+        return themed(context, R.attr.colorBackground, R.color.component_bg);
+    }
+
+    /** 边框/描边色 */
+    public static int border(Context context) {
+        return themed(context, R.attr.colorBorder, R.color.component_border);
+    }
+
+    /** 输入框/控件底色 */
+    public static int fieldBg(Context context) {
+        return themed(context, R.attr.colorControlBackground, R.color.component_field_bg);
+    }
+
+    /** 评分空星色 */
+    public static int ratingEmpty(Context context) {
+        return themed(context, R.attr.colorOutline, R.color.component_rating_empty);
+    }
+
+    /** 图片占位底色 */
+    public static int imagePlaceholder(Context context) {
+        return themed(context, R.attr.colorSurfaceVariant, R.color.component_image_placeholder);
+    }
+
+    /** 图片加载失败底色 */
+    public static int imageError(Context context) {
+        return themed(context, R.attr.colorErrorContainer, R.color.component_image_error);
+    }
+
+    /** 强调色叠加底色（如按钮/表头高亮，10% 透明度） */
+    public static int accentOverlay(Context context) {
+        int accent = accent(context);
+        return (accent & 0x00FFFFFF) | 0x1A000000;
     }
 
     /**
-     * 语义色调（2026-11-15）：good/warn/bad/info/muted 及常见别名 → 主题色。
-     *
-     * <p>与 {@code NativeLayoutRenderer} 的 {@code tone} 令牌同义：卡片作者只写语义，
-     * 具体色值由 App 决定。未知/空 tone 返回 {@code null}，调用方保持默认文字色。</p>
+     * 语义化色：good/success/ok → 成功色，warn/warning → 警告色，bad/danger/error → 危险色，
+     * 其它/空 → null（调用方保持默认文字色）。
      */
     public static Integer toneColor(Context context, String tone) {
         if (tone == null) return null;
@@ -87,48 +144,17 @@ public final class ComponentColors {
         }
     }
 
-    /** 卡片背景色 */
-    public static int background(Context context) {
-        return ContextCompat.getColor(context, R.color.component_bg);
-    }
-
-    /** 卡片边框色 */
-    public static int border(Context context) {
-        return ContextCompat.getColor(context, R.color.component_border);
-    }
-
-    /** 表单字段背景（日期/时间选择器输入底） */
-    public static int fieldBg(Context context) {
-        return ContextCompat.getColor(context, R.color.component_field_bg);
-    }
-
-    /** 评分未选中星色 */
-    public static int ratingEmpty(Context context) {
-        return ContextCompat.getColor(context, R.color.component_rating_empty);
-    }
-
-    /** 图片加载占位色 */
-    public static int imagePlaceholder(Context context) {
-        return ContextCompat.getColor(context, R.color.component_image_placeholder);
-    }
-
-    /** 图片加载失败底色 */
-    public static int imageError(Context context) {
-        return ContextCompat.getColor(context, R.color.component_image_error);
-    }
-
-    /** 强调色叠加底色（如按钮/表头高亮，10% 透明度） */
-    public static int accentOverlay(Context context) {
-        int accent = accent(context);
-        return (accent & 0x00FFFFFF) | 0x1A000000;
-    }
-
-    /** 图表系列色（循环取色） */
+    /** 图表配色：8 个主题图表色，取不到时回落到旧 chart_* 资源。 */
     public static int chartColor(Context context, int index) {
-        int[] chartColors = {
+        int[] chartAttrs = {
+                R.attr.colorChart1, R.attr.colorChart2, R.attr.colorChart3, R.attr.colorChart4,
+                R.attr.colorChart5, R.attr.colorChart6, R.attr.colorChart7, R.attr.colorChart8
+        };
+        int[] fallback = {
                 R.color.chart_1, R.color.chart_2, R.color.chart_3, R.color.chart_4,
                 R.color.chart_5, R.color.chart_6, R.color.chart_7, R.color.chart_8
         };
-        return ContextCompat.getColor(context, chartColors[index % chartColors.length]);
+        int i = Math.abs(index) % chartAttrs.length;
+        return themed(context, chartAttrs[i], fallback[i]);
     }
 }
