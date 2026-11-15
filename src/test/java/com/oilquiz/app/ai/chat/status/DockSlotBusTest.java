@@ -41,9 +41,50 @@ public class DockSlotBusTest {
                 "display", "state", false, 0, rev, 0L, "plugin");
     }
 
+    /**
+     * 切会话只清插件槽位（2026-11-16）：上个会话的插件槽位必须走，
+     * 本机写入的 local 与跨会话都该看到的 pinned 必须留。
+     */
     @Test
-    public void ordersByPriorityAscending() {
-        DockSlotBus.update(slot("job", 40, "任务"));
+    public void clearPluginSlotsKeepsLocalAndPinned() {
+        DockSlotBus.update(new DockSlotBus.Slot("job", 40, "上个会话的任务", "", "", false,
+                "display", "state", false, 0, 1L, 0L, "plugin"));
+        DockSlotBus.updateLocal(new DockSlotBus.Slot("local-progress", 10, "本机进度", "", "", false,
+                "progress", "state", false, 0, 1L, 0L, "local"));
+        DockSlotBus.update(new DockSlotBus.Slot("goal", 30, "目标", "", "", false,
+                "display", "state", true, 0, 1L, 0L, "plugin"));
+
+        DockSlotBus.clearPluginSlots();
+
+        List<DockSlotBus.Slot> left = DockSlotBus.list();
+        assertEquals("只该剩下 local + pinned", 2, left.size());
+        boolean hasJob = false;
+        boolean hasLocal = false;
+        boolean hasGoal = false;
+        for (DockSlotBus.Slot s : left) {
+            if ("job".equals(s.id)) hasJob = true;
+            if ("local-progress".equals(s.id)) hasLocal = true;
+            if ("goal".equals(s.id)) hasGoal = true;
+        }
+        assertFalse("上个会话的插件槽位应被清掉", hasJob);
+        assertTrue("local 槽位不该被清", hasLocal);
+        assertTrue("pinned 槽位不该被清", hasGoal);
+    }
+
+    /** 清槽位不能把版本水位一起清掉：旧会话的迟到帧不能复活。 */
+    @Test
+    public void clearPluginSlotsKeepsRevWatermark() {
+        DockSlotBus.update(new DockSlotBus.Slot("job", 40, "v5", "", "", false,
+                "display", "state", false, 0, 5L, 0L, "plugin"));
+        DockSlotBus.clearPluginSlots();
+        // 旧帧（rev 比清掉的那条小）应被水位挡住
+        DockSlotBus.update(new DockSlotBus.Slot("job", 40, "stale", "", "", false,
+                "display", "state", false, 0, 3L, 0L, "plugin"));
+        assertTrue("迟到帧不该复活旧槽位", DockSlotBus.list().isEmpty());
+    }
+
+    @Test
+    public void ordersByPriorityAscending() {        DockSlotBus.update(slot("job", 40, "任务"));
         DockSlotBus.update(slot("compaction", 10, "压缩"));
 
         List<DockSlotBus.Slot> list = DockSlotBus.list();

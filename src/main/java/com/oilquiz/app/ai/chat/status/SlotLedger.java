@@ -180,9 +180,35 @@ public final class SlotLedger {
         evictedTotal = 0;
     }
 
-    /** 断连/切会话：清非 pinned，pinned 留着（连上后仍然有意义的状态）。 */
-    public int clearNonPinned() {
+    /**
+     * 按写者来源清理（切会话用，2026-11-16）。
+     *
+     * <p>只删 {@code source} 匹配且非 {@code pinned} 的槽位；版本水位（{@code lastRev}）
+     * **保留** —— 切会话不是插件重启，旧会话的迟到帧仍应被水位挡住，不能让它们复活。</p>
+     *
+     * @param source 写者来源（plugin / local / 空）
+     * @return 实际清掉的条数
+     */
+    public int clearBySource(String source) {
+        String want = source == null ? "" : source;
         int removed = 0;
+        Iterator<Map.Entry<String, DockSlotBus.Slot>> it = slots.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, DockSlotBus.Slot> e = it.next();
+            DockSlotBus.Slot s = e.getValue();
+            if (s == null || s.pinned) continue;
+            String src = s.source == null ? "" : s.source;
+            if (src.equals(want)) {
+                it.remove();
+                removed += 1;
+            }
+        }
+        updatedAt.keySet().retainAll(slots.keySet());
+        return removed;
+    }
+
+    /** 断连/切会话：清非 pinned，pinned 留着（连上后仍然有意义的状态）。 */
+    public int clearNonPinned() {        int removed = 0;
         Iterator<Map.Entry<String, DockSlotBus.Slot>> it = slots.entrySet().iterator();
         while (it.hasNext()) {
             if (!it.next().getValue().pinned) {

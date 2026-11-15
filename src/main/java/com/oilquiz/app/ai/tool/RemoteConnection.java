@@ -526,6 +526,15 @@ public final class RemoteConnection {
 
     private void open(String sessionId, int since) {
         closeChannel();
+        // 切会话（2026-11-16）：换个 sid 就是换一条电脑会话，上一个会话的插件槽位必须清掉，
+        // 否则新会话的快照是"合并"上来的，旧槽位会一直挂着（表现：切回来状态还是旧的）。
+        if (sid != null && !sid.isEmpty() && !sid.equals(sessionId)) {
+            try {
+                com.oilquiz.app.ai.chat.status.DockSlotBus.clearPluginSlots();
+            } catch (Throwable t) {
+                Log.w(TAG, "[dock] 切会话清槽位失败: " + t.getMessage());
+            }
+        }
         sid = sessionId;
         // 反向指令统一由 AIChatActivity 的 executeRemoteCommand 处理（它走完整 AIToolManager
         // 管线，ui_component 等能真正生效）。这里不再起第二套轮询，避免两边抢指令。

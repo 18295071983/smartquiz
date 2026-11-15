@@ -283,6 +283,25 @@ public final class DockSlotBus {
     }
 
     /**
+     * 只清插件推送的槽位（切会话用，2026-11-16）。
+     *
+     * <p>为什么需要单独一个：切到另一条电脑会话时，插件会为**新会话**推快照，
+     * 而 {@code apply} 是"合并"语义 —— 旧会话的槽位没人删，就会一直挂在新会话的甲板上
+     * （用户看到"切回来了状态还是旧的"）。这里按 {@code source=plugin} 精确清掉，
+     * 保留 {@code pinned}（跨会话都该看到的状态）与本机写入的 {@code local} 槽位。</p>
+     */
+    public static void clearPluginSlots() {
+        int removed;
+        synchronized (LOCK) {
+            removed = LEDGER.clearBySource("plugin");
+        }
+        if (removed > 0) {
+            logi("[dock] 切会话：清掉上一个会话的插件槽位 " + removed + " 条（保留 pinned/local）");
+            notifyListeners();
+        }
+    }
+
+    /**
      * 全清（断连 / 切会话 / 页面销毁）。
      *
      * <p>§20：保留 {@code pinned} 的槽位 —— 它们是"连着就该一直看到"的状态；
