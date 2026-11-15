@@ -2948,3 +2948,45 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 - Demo：`demo/ai-chat-redesign.html`（`start` 直接打开）
 - Demo 参数：`demo/README.md`
 - 设计基线截图：`demo/screenshots/`
+
+---
+
+## 十六、WebView 坑位总表（2026-11-16 核对）
+
+> 本节由 2026-11-16 的代码核对补入（来源：手机上流传的《WebView 坑位档案》整理稿，
+> 已按要求**不单独建档**，全部并入本文件，避免文档债）。
+> 核对方式：对每条坑 grep 仓库现有实现，确认修法与位置。
+> 状态列：**已验** = 有单测或真机证据；**待验** = 修法在代码里、缺验证。
+
+| # | 坑 | 修法 | 代码位置 | 状态（2026-11-16 核对） |
+|---|---|---|---|---|
+| 1 | 复用中的 WebView 被 detach 销毁 → 卡片空白 | 取消 detach 销毁，改组件树遍历释放 | `ComponentLifecycle.release()` / `releaseAndClearComponents` | 已验 |
+| 2 | 文档就绪状态错乱 → 首屏偶发空白 | 三代号状态机（`pageReady` + `docGeneration` + `readyGeneration`）+ `LOAD_SETTLE_MS = 1200` + `retryLoadIfNeeded` | `ai/chat/ui/MarkdownWebView.java`（L231/314/355/460/478/609/615） | 待验（机制齐全，无专门单测） |
+| 3 | JS 开关一刀切 → 流程图/公式空白 | 按内容来源分四档信任（`HtmlSandbox.Trust`），模型伪造 `internalTemplate` 无效 | `HtmlSandbox` + `HtmlSandboxTest` | 已验（单测） |
+| 4 | 净化器自身崩 → 模型 HTML 卡整片空白 | 先收集 `attributes()` 再删；失败 fail-closed | `HtmlSandbox`（Jsoup `removeAttr`） | 已验（单测 `HtmlSandboxTest`） |
+| 5 | 卡片高度比内容高一点 | 接受近似值 + 封顶内部滚动 | `HtmlCardView.maxHeightPx` | 设计取舍 |
+| 6 | 量高把焦点弹掉 | 页面内有输入框编辑时**不改容器高度**，推迟 `DEFERRED_MEASURE_MS = 800` 重试，超 `MAX_DEFERRED_MEASURES` 放弃本次 | `ai/chat/component/HtmlCardView.java`（L441–537） | 已验（代码 + 注释给出真机证据） |
+| 7 | 重绑重建产物 → 焦点/滚动/播放进度丢失 | 产物摘要（id+type+props）记 tag，摘要未变不重建 | `ai/chat/parts/ProductCards.java` | 待验 |
+| 8 | 键盘监听抢焦点 → 卡片输入框打不进字 | **2026-10-25 起已不是"焦点归属放行"**：旧 `setupKeyboardListener`（`getWindowVisibleDisplayFrame` + 15% 阈值 + 100ms 补滚）**整段删除**，改由 `main_content` 的 `OnApplyWindowInsetsListener` 驱动 `StickToBottom.onViewportChanged()`；焦点抢占问题随删除消失 | `AIChatActivity`（L12220 注释）、`StickToBottom` | 已验（代码删除即修复） |
+| 9 | 流式整篇重载 → 打字机卡顿/闪 | AST 块切分 + 只换尾巴 + `__qzStream` + `prefixHash` 指纹，闭块才高亮 | `MarkdownStreamSplitter` / `MarkdownStreamTailFlag` / `MarkdownWebView` | 已验（单测 `MarkdownStreamSplitterTest`） |
+| 10 | 表格列宽不重排 | 完成态且含 `<table>` 时整篇 `loadDocument()` 一次 | `MarkdownWebView` | 已验 |
+| 11 | 超高 WebView 让滚动判据失真 | 末项不可见返回 `FAR_FROM_BOTTOM`，不用估算值冒充精确值 | `StickToBottom` | 已验（真机截图） |
+| 12 | 程序化收缩被当成"用户回底" | 区分用户主动回底与程序化收缩，后者不解除 `userOptedOut` | `StickToBottom` | 已验（真机截图） |
+| 13 | insets 判键盘太晚 | `OnApplyWindowInsetsListener` 逐帧回调 | `AIChatActivity` `main_content` | 已验（真机截图） |
+| 14 | 裸 `removeAllViews` 泄漏 | 走 `releaseAndClearComponents` 树遍历释放 | `ChatAdapter` | 待验 |
+| 15 | 自动化滑动滚不动 | 从左侧边距/折叠头起手（WebView 内部吃掉手势） | 测试口径 | 测试口径 |
+| 16 | 沙箱收紧后卡片按钮失效 | 交互走 `props.actions` 原生 footer，或落 HTML 文件走 `LOCAL_FILE` 档 | `ComponentData.props.actions` / `HtmlSandbox.Trust.LOCAL_FILE` | 设计取舍 |
+
+### 16.1 本次核对修正的三处文档口径
+
+1. **坑 8 的修法已变**：原记录是「按焦点归属放行（`findFocus()` 不在输入框就不抢）」，
+   实际是**整段删除旧键盘监听**、改 insets 驱动 —— 再改 WebView 时不要去找那个 `findFocus` 判断，它不存在。
+2. **坑 2 的兜底名字**：文档叫「1.2s 看门狗」，代码里是 `LOAD_SETTLE_MS = 1200L` + `retryLoadIfNeeded()`。
+3. **坑 9 的状态偏保守**：已有 `MarkdownStreamSplitterTest`，从「待验」改「已验（单测）」。
+
+### 16.2 如果要把对话页换成整页 WebView（Vue 3）
+
+- **会消失**：坑 1、2、7、14（列表复用/多文档相关）；
+- **换形态保留**：坑 11（贴底判据要自己实现）、坑 13（键盘与 insets 仍要逐机型验）；
+- **会放大**：性能（高频 token 仍要节流）、安全（整页 WebView 攻击面更大，CSP 必须一开始就配）。
+- 迁移前三个最小验证：① 50ms/批 token 连推 60 秒不卡；② pinned 弹键盘贴底、unpinned 位置不动；③ 200 条消息 + 20 个表格滚动稳定。任一条不过就别投入。
