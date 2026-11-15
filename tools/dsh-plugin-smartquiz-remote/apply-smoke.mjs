@@ -12,6 +12,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
+// 让插件的启动探针写到 .startup-smoke.json，别覆盖真实探针
+globalThis.__SMARTQUIZ_SMOKE__ = true;
 
 const routes = [];
 function dummyFn() {

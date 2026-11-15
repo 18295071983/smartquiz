@@ -1152,7 +1152,9 @@ function readDeepseekApiKey() {
 function markStartup(stage, extra) {
   try {
     const payload = Object.assign({ stage, at: new Date().toISOString(), pid: process.pid }, extra || {});
-    writeFileSync(join(PLUGIN_DIR, '.startup.json'), JSON.stringify(payload, null, 2), 'utf8');
+    // 冒烟脚本会调用 apply()，不能污染真实探针文件（曾用它写过 port=18218 误导排查）
+    const file = globalThis.__SMARTQUIZ_SMOKE__ ? '.startup-smoke.json' : '.startup.json';
+    writeFileSync(join(PLUGIN_DIR, file), JSON.stringify(payload, null, 2), 'utf8');
   } catch {
     // 落盘失败不影响启动
   }

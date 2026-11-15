@@ -12,3 +12,7 @@ anchors.json
 # è£…åŒ…ç”± npm install å®Œæˆï¼Œåˆ«æŠŠ 150KB çš„ node_modules çŒè¿› gitï¼‰
 node_modules/
 package-lock.json
+
+# Æô¶¯Ì½Õë£¨2026-11-16£©£ºÔËĞĞÊ±²úÎï£¬²»½ø°æ±¾¿â
+.startup.json
+.startup-smoke.json

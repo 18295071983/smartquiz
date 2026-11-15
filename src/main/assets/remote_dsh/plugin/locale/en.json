@@ -52,6 +52,7 @@
     "codeTitle": "Dynamic pairing code",
     "codeValid": "valid",
     "codeExpired": "expired",
-    "codeHint": "Issued by the computer, valid once for 5 minutes; enter it in the phone's pairing screen (generated with a CSPRNG)."
+    "codeHint": "Issued by the computer, valid once for 5 minutes; enter it in the phone's pairing screen (generated with a CSPRNG).",
+    "close": "Close"
   }
 }

@@ -101,6 +101,14 @@ window.__ModuleLoader__.load({
         loadCode();
       }, [loadBalance, loadCode]);
 
+      // Esc 关闭浮层（居中弹出后常用的关闭方式）
+      React.useEffect(() => {
+        if (!open) return undefined;
+        const onKey = (e) => { if (e && (e.key === 'Escape' || e.keyCode === 27)) setOpen(false); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, [open]);
+
       React.useEffect(() => { if (open) load(); }, [open, load]);
       React.useEffect(() => {
         if (!open) return undefined;
@@ -163,13 +171,23 @@ window.__ModuleLoader__.load({
         marginTop: 8, padding: '8px 10px', borderRadius: 8,
         border: '1px solid currentColor', borderColor: 'color-mix(in srgb, currentColor 22%, transparent)',
       };
+      // 2026-11-16：弹出层改为**屏幕正中的固定浮层**。
+      // 之前是 absolute + bottom:100% 挂在输入区工具条里 —— 会被输入区容器裁掉/盖住
+      // （用户："弹出就被遮挡了"）。fixed 定位 + 极高 z-index + 半透明遮罩，保证不被遮挡。
       const panelBox = {
-        position: 'absolute', bottom: '100%', left: 0, zIndex: 2000, marginBottom: 6,
-        width: 420, maxWidth: '92vw', maxHeight: '60vh', overflowY: 'auto',
-        padding: '10px 12px', borderRadius: 10, fontSize: 12, lineHeight: 1.6,
+        // 2026-11-16 第三次调：用户反馈"往上点，触底了" —— 垂直居中时面板一长就贴住底边。
+        // 改为"顶部对齐 + 左右居中"：距顶 6vh，最高 86vh，底部永远留出空间。
+        position: 'fixed', left: '50%', top: '6vh', transform: 'translateX(-50%)',
+        zIndex: 2147483000,
+        width: 460, maxWidth: '92vw', maxHeight: '86vh', overflowY: 'auto',
+        padding: '14px 16px', borderRadius: 12, fontSize: 12, lineHeight: 1.6,
         background: 'Canvas', color: 'CanvasText',
         border: '1px solid currentColor',
-        boxShadow: '0 6px 24px color-mix(in srgb, CanvasText 18%, transparent)',
+        boxShadow: '0 10px 40px color-mix(in srgb, CanvasText 30%, transparent)',
+      };
+      const backdrop = {
+        position: 'fixed', inset: 0, zIndex: 2147482999,
+        background: 'color-mix(in srgb, CanvasText 26%, transparent)',
       };
 
       const kindLabel = (it) => {
@@ -199,7 +217,18 @@ window.__ModuleLoader__.load({
         h('button', { style: chipStyle, onClick: () => setOpen((v) => !v), title: t('panel.title', '手机远程接入（答题宝）') },
           statusDot, ' 📱 ' + t('panel.title', '手机远程') + (open ? ' ▲' : ' ▼')),
 
+        // 遮罩 + 居中浮层（点遮罩或按 Esc 关闭）
+        open && h('div', { style: backdrop, onClick: () => setOpen(false) }),
         open && h('div', { style: panelBox },
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 } },
+            h('b', { style: { fontSize: 13 } }, '📱 ' + t('panel.title', '手机远程')),
+            h('span', { style: Object.assign({}, label, { flex: 1 }) },
+              online ? t('panel.connected', '在线') : t('panel.disconnected', '未连接')),
+            h('button', {
+              style: smallBtn,
+              title: t('panel.close', '关闭'),
+              onClick: () => setOpen(false),
+            }, '✕')),
           // ---------- 服务端（这台电脑） ----------
           h('div', { style: section },
             h('div', { style: { fontWeight: 600 } },
