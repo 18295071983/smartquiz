@@ -443,7 +443,12 @@ public class AIToolManager {
         long activitySession = com.oilquiz.app.ai.chat.status.AgentActivityBus
                 .started(toolName, parameters);
         try {
-            return executeToolInner(toolName, parameters);
+            AIToolResult result = executeToolInner(toolName, parameters);
+            // 渲染反馈回传（2026-11-16）：卡片在上一次工具调用之后才渲染，
+            // 失败信息（类型/原因/缺哪些字段）在 RenderDiagnostics 里攒着，
+            // 这里把"未送达"的条目挂到本次工具结果上 —— 模型下一轮就能看到
+            // "你上次渲染 xxx 卡片失败了"，不再默认卡片正常显示。
+            return annotateRenderWarnings(result);
         } finally {
             // 用会话号配对：用户停止后立刻重试同一工具时，旧会话迟到的结束不会清掉新会话
             com.oilquiz.app.ai.chat.status.AgentActivityBus.finished(toolName, activitySession);
@@ -451,6 +456,30 @@ public class AIToolManager {
     }
 
     /** {@link #executeTool(String, Map)} 的真实实现（活动总线只包一层）。 */
+    /** 把渲染失败诊断挂到工具结果上（送完即清空，模型不会重复收到同一条）。 */
+    private AIToolResult annotateRenderWarnings(AIToolResult result) {
+        try {
+            java.util.List<com.oilquiz.app.ai.chat.component.RenderDiagnostics.Entry> pending =
+                    com.oilquiz.app.ai.chat.component.RenderDiagnostics.drain();
+            if (pending.isEmpty() || result == null) {
+                return result;
+            }
+            java.util.List<java.util.Map<String, Object>> list = new java.util.ArrayList<>();
+            StringBuilder sb = new StringBuilder();
+            for (com.oilquiz.app.ai.chat.component.RenderDiagnostics.Entry e : pending) {
+                list.add(e.toMap());
+                if (sb.length() > 0) sb.append("；");
+                sb.append(e.text());
+            }
+            java.util.Map<String, Object> extra = new java.util.LinkedHashMap<>();
+            extra.put("render_warnings", list);
+            extra.put("render_warning_text", "上一步卡片渲染异常：" + sb);
+            return result.withAdditionalInfo(extra);
+        } catch (Throwable t) {
+            return result;
+        }
+    }
+
     private AIToolResult executeToolInner(String toolName, Map<String, Object> parameters) {
         // 模糊解析：模型可能把工具名猜错（weather→ai_weather 等），先归一化再执行
         String resolved = resolveToolNameFuzzy(toolName);

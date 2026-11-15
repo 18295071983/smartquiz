@@ -110,6 +110,20 @@ public class AIToolResult {
     /**
      * 设置结构化 UI 组件数据（工具侧桥接）。
      */
+    /** 追加/合并 additionalInfo（不覆盖已有键；2026-11-16 供渲染诊断回传使用）。 */
+    public AIToolResult withAdditionalInfo(Map<String, Object> extra) {
+        if (extra == null || extra.isEmpty()) {
+            return this;
+        }
+        if (this.additionalInfo == null) {
+            return new AIToolResult(this.result, extra, this.success);
+        }
+        for (Map.Entry<String, Object> e : extra.entrySet()) {
+            this.additionalInfo.putIfAbsent(e.getKey(), e.getValue());
+        }
+        return this;
+    }
+
     public AIToolResult withComponent(ComponentData component) {
         this.component = component;
         return this;

@@ -203,6 +203,7 @@ public class ComponentRegistry {
         if (component == null) component = components.get(data.type);
         if (component == null) {
             applyFallbackHint(data.type);
+            RenderDiagnostics.record(data.type, "类型未注册", CardContracts.hint(data.type));
             Log.i(TAG, "unregistered type, using dynamic fallback: " + data.type);
             component = dynamicFallback;
         }
@@ -213,6 +214,7 @@ public class ComponentRegistry {
                 view = component.createView(context, data);
             } else if (component != dynamicFallback && dynamicFallback.canRender(data)) {
                 applyFallbackHint(data.type);
+                RenderDiagnostics.record(data.type, "数据与卡片契约不匹配", CardContracts.hint(data.type));
                 Log.w(TAG, "registered type data mismatch, using dynamic fallback: " + data.type);
                 view = dynamicFallback.createView(context, data);
                 renderedBy = dynamicFallback;
@@ -220,7 +222,10 @@ public class ComponentRegistry {
         } catch (Exception e) {
             Log.e(TAG, "component render failed: " + data.type, e);
         }
-        if (view == null) return null;
+        if (view == null) {
+            RenderDiagnostics.record(data.type, "渲染返回空视图", CardContracts.hint(data.type));
+            return null;
+        }
         // UI-06 统一 style 对象（容器级）：padding/radius/background/border 应用到组件根 View。
         // 覆盖全部渲染路径（聊天流卡片/弹窗/插件卡片）——此前 style 只对 layout 树节点生效，
         // 内置卡片(info_card/chart/table_card等)传 style 会被忽略（"样式都没生效"根因）。
@@ -308,7 +313,9 @@ public class ComponentRegistry {
 
     /** 在渲染结果里找 CardShell（组件可能把外壳包在包装容器下） */
     private static CardShell findShell(View view) {
-        if (view == null) return null;
+        if (view == null) {
+            return null;
+        }
         if (view instanceof CardShell) return (CardShell) view;
         if (view instanceof android.view.ViewGroup) {
             android.view.ViewGroup vg = (android.view.ViewGroup) view;

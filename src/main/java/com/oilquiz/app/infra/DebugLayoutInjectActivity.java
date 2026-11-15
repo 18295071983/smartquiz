@@ -51,6 +51,31 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 渲染反馈回传自检：--es mode render_feedback
+        // 1) 用错误 props 渲染一张 table_card（必然走兜底并记诊断）
+        // 2) 紧接着调一次 time_date（工具结果里应带上 render_warnings）
+        if ("render_feedback".equals(getIntent().getStringExtra("mode"))) {
+            try {
+                com.oilquiz.app.ai.chat.component.ComponentData bad =
+                        com.oilquiz.app.ai.chat.component.ComponentData.of("table_card",
+                                new org.json.JSONObject().put("title", "坏数据"));
+                com.oilquiz.app.ai.chat.component.ComponentRegistry.getInstance()
+                        .render(this, bad);   // 触发兜底 + 记录诊断
+                com.oilquiz.app.ai.tool.AIToolManager tm =
+                        com.oilquiz.app.ai.tool.AIToolManager.getInstance(this);
+                java.util.Map<String, Object> args = new java.util.HashMap<>();
+                args.put("action", "now");
+                com.oilquiz.app.ai.tool.AIToolResult r = tm.executeTool("time_date", args);
+                Object warn = r.getAdditionalInfo() == null ? null
+                        : r.getAdditionalInfo().get("render_warning_text");
+                Log.i(TAG, "RENDER_FEEDBACK=" + (warn == null ? "缺失" : warn));
+            } catch (Throwable t) {
+                Log.e(TAG, "render_feedback 自检失败: " + t.getMessage(), t);
+            }
+            finish();
+            return;
+        }
+
         // 列出全部已注册卡片类型（批量冒烟时先拿名单）：--es mode list_cards
         if ("list_cards".equals(getIntent().getStringExtra("mode"))) {
             java.util.Set<String> types = com.oilquiz.app.ai.chat.component.ComponentRegistry
