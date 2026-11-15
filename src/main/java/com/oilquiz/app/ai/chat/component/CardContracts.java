@@ -69,6 +69,43 @@ public final class CardContracts {
         return k == null ? new String[0] : k;
     }
 
+    /**
+     * 注册期契约检查（2026-11-16，非阻断）：卡片有契约、props 非空、且**交集为空**时才提示。
+     *
+     * <p>为什么只查"交集为空"：源码里的 optXxx 全是可选语义，扫不出必填；部分卡片还有条件分支
+     * （python 解释器回传、weather 无温度时改渲染表格卡），硬校验会误杀。所以只提示"看起来完全对不上"，
+     * 由 AI 自己判断是否忽略。</p>
+     *
+     * @return 提示条目（空 list = 没问题）
+     */
+    public static java.util.List<java.util.Map<String, Object>> contractWarnings(
+            String cardType, java.util.Collection<String> givenProps) {
+        java.util.List<java.util.Map<String, Object>> out = new java.util.ArrayList<>();
+        String[] expected = keysOf(cardType);
+        if (expected.length == 0 || givenProps == null || givenProps.isEmpty()) {
+            return out;
+        }
+        boolean overlap = false;
+        for (String e : expected) {
+            if (givenProps.contains(e)) {
+                overlap = true;
+                break;
+            }
+        }
+        if (overlap) {
+            return out;
+        }
+        java.util.Map<String, Object> w = new java.util.LinkedHashMap<>();
+        w.put("card", cardType);
+        w.put("given", new java.util.ArrayList<>(givenProps));
+        w.put("expected", java.util.Arrays.asList(expected));
+        w.put("message", cardType + " 期望字段（"
+                + String.join("/", java.util.Arrays.asList(expected))
+                + "）与你给的字段没有交集，可能渲染成兜底卡；若确属有意（或数据由解释器回传）可忽略");
+        out.add(w);
+        return out;
+    }
+
     /** 一句话提示：	able_card 需要 headers/rows/align */
     public static String hint(String type) {
         String[] keys = keysOf(type);

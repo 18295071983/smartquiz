@@ -444,6 +444,10 @@ public class AIToolManager {
                 .started(toolName, parameters);
         try {
             AIToolResult result = executeToolInner(toolName, parameters);
+            // 注册期契约提示（2026-11-16，非阻断）：ui_component_plugin 声明 render.card 时，
+            // 若 render.props 与该卡契约零交集，把"可能渲染成兜底卡"的提示附到结果里，
+            // 由模型自行判断是否忽略（不阻止注册，避免误杀解释器回传/条件渲染的卡）。
+            result = annotateContractWarnings(toolName, parameters, result);
             // 渲染反馈回传（2026-11-16）：卡片在上一次工具调用之后才渲染，
             // 失败信息（类型/原因/缺哪些字段）在 RenderDiagnostics 里攒着，
             // 这里把"未送达"的条目挂到本次工具结果上 —— 模型下一轮就能看到
@@ -456,6 +460,37 @@ public class AIToolManager {
     }
 
     /** {@link #executeTool(String, Map)} 的真实实现（活动总线只包一层）。 */
+    /** ui_component_plugin 的契约提示（非阻断）。 */
+    private AIToolResult annotateContractWarnings(String toolName, Map<String, Object> parameters,
+                                                  AIToolResult result) {
+        try {
+            if (result == null || parameters == null) return result;
+            String resolved = resolveToolNameFuzzy(toolName);
+            if (!"ui_component_plugin".equals(resolved)) return result;
+            Object renderRaw = parameters.get("render");
+            if (renderRaw == null) return result;
+            org.json.JSONObject render = renderRaw instanceof org.json.JSONObject
+                    ? (org.json.JSONObject) renderRaw : new org.json.JSONObject(String.valueOf(renderRaw));
+            String card = render.optString("card", "");
+            if (card.isEmpty()) return result;
+            org.json.JSONObject props = render.optJSONObject("props");
+            if (props == null) return result;
+            java.util.List<String> given = new java.util.ArrayList<>();
+            for (java.util.Iterator<String> it = props.keys(); it.hasNext(); ) {
+                given.add(it.next());
+            }
+            java.util.List<java.util.Map<String, Object>> warns =
+                    com.oilquiz.app.ai.chat.component.CardContracts.contractWarnings(card, given);
+            if (warns.isEmpty()) return result;
+            java.util.Map<String, Object> extra = new java.util.LinkedHashMap<>();
+            extra.put("contract_warnings", warns);
+            extra.put("contract_warning_text", String.valueOf(warns.get(0).get("message")));
+            return result.withAdditionalInfo(extra);
+        } catch (Throwable t) {
+            return result;
+        }
+    }
+
     /** 把渲染失败诊断挂到工具结果上（送完即清空，模型不会重复收到同一条）。 */
     private AIToolResult annotateRenderWarnings(AIToolResult result) {
         try {
