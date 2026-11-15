@@ -505,43 +505,62 @@ public class DynamicToolExecutor {
         throw new DslLineError("语法错误: if (条件) then 命令");
     }
 
+    /**
+     * 条件求值（2026-11-16 重构为 ExpressionEngine）。
+     *
+     * <p>旧实现是手写的字符串比较链，问题不少：只支持 {@code == != > <}；
+     * {@code >=} 会被 {@code ">"} 分支按 ">" 切开（右边剩 "= 5" 解析失败直接 false）；
+     * 不支持 {@code && ||}；字符串与数字比较靠 {@code Double.parseDouble} 兜底。
+     * 现在走 {@link ExpressionEngine}（MVEL，带编译缓存与安全边界）：
+     * 支持 {@code && || >= <=}、字符串方法、算术；解析失败时**回退旧逻辑**，
+     * 保证历史上能跑通的写法不回归。</p>
+     */
     private boolean evaluateCondition(String condition, Map<String, Object> parameters,
                                       Map<String, Object> variables) {
+        String substituted = substituteVariables(condition, parameters, variables);
         try {
-            condition = substituteVariables(condition, parameters, variables);
+            java.util.Map<String, Object> vars = new java.util.HashMap<>();
+            if (parameters != null) {
+                vars.putAll(parameters);
+            }
+            if (variables != null) {
+                vars.putAll(variables);
+            }
+            return ExpressionEngine.evalBoolean(substituted, vars);
+        } catch (Throwable t) {
+            // 表达式超集解析失败（比如含中文说明、裸标识符）→ 回退旧逻辑，保持兼容
+            Log.d(TAG, "expression fallback: " + substituted + " (" + t.getMessage() + ")");
+            return legacyEvaluateCondition(substituted);
+        }
+    }
 
+    /** 旧的条件比较逻辑，仅作 {@link #evaluateCondition} 的回退路径保留。 */
+    private boolean legacyEvaluateCondition(String condition) {
+        try {
             if (condition.contains("==")) {
                 String[] parts = condition.split("==", 2);
                 return parts[0].trim().equals(parts[1].trim());
             }
-            
             if (condition.contains("!=")) {
                 String[] parts = condition.split("!=", 2);
                 return !parts[0].trim().equals(parts[1].trim());
             }
-            
             if (condition.contains(">")) {
                 String[] parts = condition.split(">", 2);
                 try {
-                    double left = Double.parseDouble(parts[0].trim());
-                    double right = Double.parseDouble(parts[1].trim());
-                    return left > right;
+                    return Double.parseDouble(parts[0].trim()) > Double.parseDouble(parts[1].trim());
                 } catch (Exception e) {
                     return false;
                 }
             }
-            
             if (condition.contains("<")) {
                 String[] parts = condition.split("<", 2);
                 try {
-                    double left = Double.parseDouble(parts[0].trim());
-                    double right = Double.parseDouble(parts[1].trim());
-                    return left < right;
+                    return Double.parseDouble(parts[0].trim()) < Double.parseDouble(parts[1].trim());
                 } catch (Exception e) {
                     return false;
                 }
             }
-            
             return Boolean.parseBoolean(condition);
         } catch (Exception e) {
             Log.e(TAG, "Error evaluating condition: " + e.getMessage());
