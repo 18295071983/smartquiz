@@ -113,11 +113,41 @@ window.__ModuleLoader__.load({
           .then((j) => setBal(j)).catch(() => setBal(null));
       }, []);
 
-      const loadCode = React.useCallback(() => {
+      // 2026-11-16：配对码本地缓存 —— 关闭面板再打开、甚至刷新页面，
+      // 只要原码还没过期就继续显示同一个码（倒计时接着走），不再"每次点开都是 5:00"。
+      // 服务端也改成复用未过期的码（/pair/code 返回 reused:true + 真实剩余毫秒），两边一致。
+      const CODE_CACHE_KEY = 'smartquiz.pairCode';
+      const readCodeCache = () => {
+        try {
+          const raw = window.localStorage.getItem(CODE_CACHE_KEY);
+          if (!raw) return null;
+          const v = JSON.parse(raw);
+          if (!v || !v.code || !v.expires_at) return null;
+          if (v.expires_at - Date.now() <= 3000) return null;   // 快过期就别用了
+          return v;
+        } catch { return null; }
+      };
+      const writeCodeCache = (v) => {
+        try { window.localStorage.setItem(CODE_CACHE_KEY, JSON.stringify(v)); } catch { /* 隐私模式忽略 */ }
+      };
+      const loadCode = React.useCallback((force) => {
+        if (!force) {
+          const cached = readCodeCache();
+          if (cached) {
+            setCode({ code: cached.code, ttl_ms: cached.ttl_ms || (cached.expires_at - Date.now()), expires_at: cached.expires_at, reused: true });
+            return;
+          }
+        }
         fetch('/pair/code', { cache: 'no-store' })
           .then((r) => (r.ok ? r.json() : null))
-          // 现有端点契约：{ ok, code, expires_in_ms }（5 分钟一次性码，CSPRNG 生成）
-          .then((j) => { if (j && j.ok) { const ttl = Number(j.expires_in_ms) || 300000; setCode({ code: j.code, ttl_ms: ttl, expires_at: Date.now() + ttl }); } })
+          // 现有端点契约：{ ok, code, expires_in_ms, reused }（5 分钟一次性码，CSPRNG 生成）
+          .then((j) => {
+            if (!j || !j.ok) return;
+            const ttl = Number(j.expires_in_ms) || 300000;
+            const v = { code: j.code, ttl_ms: ttl, expires_at: Date.now() + ttl, reused: j.reused === true };
+            setCode(v);
+            writeCodeCache(v);
+          })
           .catch(() => setCode(null));
       }, []);
 
@@ -132,7 +162,7 @@ window.__ModuleLoader__.load({
         loadBalance();
       }, [loadBalance]);
 
-      React.useEffect(() => { if (open) { load(); loadCode(); } }, [open, load, loadCode]);
+      React.useEffect(() => { if (open) { load(); loadCode(false); } }, [open, load, loadCode]);
       React.useEffect(() => {
         if (!open) return undefined;
         const timer = setInterval(load, 5000);
@@ -144,7 +174,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (!open || !code || !code.expires_at) return undefined;
         const left = Math.ceil((code.expires_at - Date.now()) / 1000);
-        if (left <= 3) loadCode();
+        if (left <= 3) loadCode(true);   // 真过期才换新（并覆盖缓存）
         return undefined;
       }, [open, code, now, loadCode]);
       React.useEffect(() => { if (info) setPubUrl(info.public_url || ''); }, [info]);
@@ -351,7 +381,7 @@ window.__ModuleLoader__.load({
               code ? h('span', { style: label }, ' · ' + (codeLeft > 0
                 ? t('panel.codeValid', '有效') + ' ' + fmtLeft(codeLeft) + (codeExpireClock ? ('，至 ' + codeExpireClock) : '')
                 : t('panel.codeExpired', '已过期') + (codeExpireClock ? ('（' + codeExpireClock + '）') : ''))) : null,
-              h('button', { style: smallBtn, onClick: loadCode }, t('panel.refresh', '刷新'))),
+              h('button', { style: smallBtn, onClick: () => loadCode(true) }, t('panel.refresh', '刷新'))),
             h('div', { style: Object.assign({}, label, { marginTop: 4 }) },
               t('panel.codeHint', '配对码由电脑签发，5 分钟内一次性有效；在手机「扫码 / 口令配对」里输入即可（后端用 CSPRNG 生成）。'))),
 

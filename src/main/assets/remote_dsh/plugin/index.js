@@ -7739,12 +7739,22 @@ function presetSvcOf(ctx) {
     if (!isLocalOrAuth(req)) return sendJson(res, 403, { ok: false, error: 'local-only or device token required' });
     const now = Date.now();
     for (const [c, exp] of pairingCodes) if (exp <= now) pairingCodes.delete(c);
+    // 2026-11-16：**复用仍然有效的码**，不要每次请求都换新。
+    // 用户反馈"每次点开面板都从 5:00 开始" —— 旧实现每次调用都签发新码，
+    // 面板一开就是新码、倒计时重置，刚显示出来的码还可能被挤掉。
+    // 现在：有未过期的码就返回它（附真实剩余毫秒），没有了才签发。
+    for (const [c, exp] of pairingCodes) {
+      if (exp > now) {
+        return sendJson(res, 200, { ok: true, code: c, expires_in_ms: Math.max(0, exp - now), reused: true,
+          hint: '手机上输入此 6 位码换取设备令牌（或用 /pair 页面二维码）' });
+      }
+    }
     while (pairingCodes.size >= PAIR_MAX_PENDING) pairingCodes.delete(pairingCodes.keys().next().value);
     // ★ 用 CSPRNG：Math.random 是可预测的 PRNG，不能用来生成凭据
     const code = String(randomInt(100000, 1000000));
     pairingCodes.set(code, now + PAIR_TTL_MS);
-    sendJson(res, 200, { ok: true, code, expires_in_ms: PAIR_TTL_MS,
-                         hint: '手机上输入此 6 位码换取设备令牌（或用 /pair 页面二维码）' });
+    sendJson(res, 200, { ok: true, code, expires_in_ms: PAIR_TTL_MS, reused: false,
+      hint: '手机上输入此 6 位码换取设备令牌（或用 /pair 页面二维码）' });
   });
 
   // POST /pair/claim —— 手机换取长期设备令牌。两条信道都支持：
