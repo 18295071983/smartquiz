@@ -51,6 +51,48 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // render.card 插件验证（2026-11-16）：注册一个「借内置卡片」的动态组件并弹窗渲染
+        if ("card_plugin".equals(getIntent().getStringExtra("mode"))) {
+            try {
+                com.oilquiz.app.ai.tool.AIToolManager tm =
+                        com.oilquiz.app.ai.tool.AIToolManager.getInstance(this);
+                org.json.JSONObject render = new org.json.JSONObject();
+                render.put("card", "progress_card");           // ← 复用内置进度卡
+                render.put("title", "动态组件 · render.card 验证");
+                org.json.JSONObject props = new org.json.JSONObject();
+                props.put("progress", 66);
+                props.put("description", "这个组件没有自己拼 View，而是借了 progress_card");
+                props.put("status", "running");
+                render.put("props", props);
+
+                java.util.Map<String, Object> reg = new java.util.HashMap<>();
+                reg.put("action", "register_type");
+                reg.put("name", "debug_card_plugin");
+                reg.put("description", "render.card 验证插件");
+                reg.put("persist", false);
+                reg.put("render", render.toString());
+                com.oilquiz.app.ai.tool.AIToolResult r1 = tm.executeTool("ui_component", reg);
+                Log.i(TAG, "register_type(render.card): " + (r1 != null ? r1.getResult() : "null"));
+
+                java.util.Map<String, Object> create = new java.util.HashMap<>();
+                create.put("action", "create");
+                create.put("component_type", "debug_card_plugin");
+                create.put("title", "render.card 验证");
+                com.oilquiz.app.ai.tool.AIToolResult r2 = tm.executeTool("ui_component", create);
+                Log.i(TAG, "create(render.card): " + (r2 != null ? r2.getResult() : "null"));
+            } catch (Throwable t) {
+                Log.e(TAG, "card_plugin 注入失败: " + t.getMessage(), t);
+            }
+            // 不立刻 finish：create 需要前台 Activity 才能弹窗渲染组件（否则降级成 Toast，看不到卡片）。
+            // 留 60s 给截图，然后自动收尾避免窗口泄漏。
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                if (!isFinishing()) {
+                    finish();
+                }
+            }, 60000);
+            return;
+        }
+
         // Agent 设置（Git 凭据 + 工具权限分级展示）：--es mode agent_settings
         if ("agent_settings".equals(getIntent().getStringExtra("mode"))) {
             startActivity(new android.content.Intent(this,
