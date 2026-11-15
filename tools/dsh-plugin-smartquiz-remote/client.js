@@ -117,7 +117,7 @@ window.__ModuleLoader__.load({
         fetch('/pair/code', { cache: 'no-store' })
           .then((r) => (r.ok ? r.json() : null))
           // 现有端点契约：{ ok, code, expires_in_ms }（5 分钟一次性码，CSPRNG 生成）
-          .then((j) => { if (j && j.ok) setCode({ code: j.code, expires_at: Date.now() + (Number(j.expires_in_ms) || 300000) }); })
+          .then((j) => { if (j && j.ok) { const ttl = Number(j.expires_in_ms) || 300000; setCode({ code: j.code, ttl_ms: ttl, expires_at: Date.now() + ttl }); } })
           .catch(() => setCode(null));
       }, []);
 
@@ -149,6 +149,19 @@ window.__ModuleLoader__.load({
       }, [open, code, now, loadCode]);
       React.useEffect(() => { if (info) setPubUrl(info.public_url || ''); }, [info]);
 
+      // 可见性处理（2026-11-16）：面板/窗口在后台时定时器被节流，now 会落后真实时间。
+      // 回到前台立刻把 now 对齐真实时钟，并（若已过期）续期一次 —— 避免"后台跑出 7 分钟"的错觉。
+      React.useEffect(() => {
+        if (!open) return undefined;
+        const onVis = () => {
+          if (document.visibilityState === 'visible') {
+            setNow(Date.now());
+            if (code && code.expires_at && Date.now() > code.expires_at) loadCode();
+          }
+        };
+        document.addEventListener('visibilitychange', onVis);
+        return () => document.removeEventListener('visibilitychange', onVis);
+      }, [open, code, loadCode]);
       // 打开时 showModal()：进入 top layer，不受祖先 transform / overflow / z-index 影响
       React.useEffect(() => {
         const dlg = dlgRef.current;
@@ -214,7 +227,17 @@ window.__ModuleLoader__.load({
       const modeText = st && st.cli
         ? (st.cli.mode === 'in-process' ? t('panel.modeInProcess', '进程内（直连）') : t('panel.modeCli', 'CLI 子进程'))
         : '';
-      const codeLeft = code && code.expires_at ? Math.max(0, Math.ceil((code.expires_at - now) / 1000)) : 0;
+      // 2026-11-16 修：倒计时会"跑过 TTL"（用户看到 7 分钟）。
+      // 原因：now 是定时器驱动，窗口在后台时 Chromium 会把 setInterval 节流到 1 次/分钟，
+      // now 落后于真实时间；若此期间又续签了新码，就会算出 (expires_at - 过期的 now) > TTL。
+      // 现在：剩余时间夹紧到 [0, TTL]，并额外显示绝对到期时刻，后台漂移一眼可见。
+      const codeTtlSec = code && code.ttl_ms ? Math.round(code.ttl_ms / 1000) : 300;
+      const codeLeft = code && code.expires_at
+        ? Math.min(codeTtlSec, Math.max(0, Math.ceil((code.expires_at - now) / 1000)))
+        : 0;
+      const codeExpireClock = code && code.expires_at
+        ? new Date(code.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        : '';
 
       const chipStyle = {
         display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12,
@@ -326,8 +349,8 @@ window.__ModuleLoader__.load({
                 ? h('b', { style: Object.assign({}, mono, { fontSize: 15, letterSpacing: 2 }) }, code.code)
                 : h('span', { style: label }, '—'),
               code ? h('span', { style: label }, ' · ' + (codeLeft > 0
-                ? t('panel.codeValid', '有效') + ' ' + fmtLeft(codeLeft)
-                : t('panel.codeExpired', '已过期'))) : null,
+                ? t('panel.codeValid', '有效') + ' ' + fmtLeft(codeLeft) + (codeExpireClock ? ('，至 ' + codeExpireClock) : '')
+                : t('panel.codeExpired', '已过期') + (codeExpireClock ? ('（' + codeExpireClock + '）') : ''))) : null,
               h('button', { style: smallBtn, onClick: loadCode }, t('panel.refresh', '刷新'))),
             h('div', { style: Object.assign({}, label, { marginTop: 4 }) },
               t('panel.codeHint', '配对码由电脑签发，5 分钟内一次性有效；在手机「扫码 / 口令配对」里输入即可（后端用 CSPRNG 生成）。'))),

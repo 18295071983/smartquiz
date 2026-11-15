@@ -1212,24 +1212,54 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
 
     /** 输入 6 位配对码 → 换设备令牌 → 保存并连接 */
     private void promptPairingCode() {
+        // 2026-11-16：只让用户输 6 位码 —— 地址自动带入。
+        // 之前弹框里同时要求「电脑地址 + 配对码」，但地址本来就已经配置过（页面上的地址栏/
+        // 上次配对保存的 profile 里都有），让用户再抄一遍纯属多余，也容易抄错端口。
+        // 现在：能确定地址时只显示「将连接到 …」一行只读提示；只有首次配对（完全没有地址）才让填地址。
+        String known = text(urlInput);
+        if (known.isEmpty()) {
+            known = com.oilquiz.app.ai.tool.RemoteDshTool.configValue(this, "base_url");
+        }
+        if (known == null) known = "";
+        known = known.trim();
+
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         int pad = dp(16);
         box.setPadding(pad, dp(8), pad, 0);
-        final android.widget.EditText urlEt = new android.widget.EditText(this);
-        urlEt.setHint("电脑地址，如 http://192.168.1.2:8218");
-        urlEt.setText(text(urlInput));
+
+        final android.widget.EditText urlEt;
+        if (known.isEmpty()) {
+            urlEt = new android.widget.EditText(this);
+            urlEt.setHint("电脑地址，如 http://192.168.1.2:8218");
+            box.addView(urlEt);
+        } else {
+            urlEt = null;
+            android.widget.TextView target = new android.widget.TextView(this);
+            target.setText("将连接到：" + known);
+            target.setTextSize(12f);
+            target.setPadding(0, 0, 0, dp(6));
+            int hint = com.oilquiz.app.ai.chat.component.ComponentColors.textTertiary(this);
+            target.setTextColor(hint);
+            box.addView(target);
+        }
+
         final android.widget.EditText codeEt = new android.widget.EditText(this);
         codeEt.setHint("6 位配对码");
         codeEt.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        box.addView(urlEt);
         box.addView(codeEt);
+
+        final String targetUrl = known;
         new android.app.AlertDialog.Builder(this)
                 .setTitle("输入配对码")
                 .setView(box)
                 .setPositiveButton("连接", (d, w) -> {
-                    final String url = urlEt.getText().toString().trim();
+                    final String url = (urlEt == null ? targetUrl : urlEt.getText().toString().trim());
                     final String code = codeEt.getText().toString().trim();
+                    if (url.isEmpty()) {
+                        toast("先填电脑地址（首次配对需要一次，之后只需配对码）");
+                        return;
+                    }
                     new Thread(() -> {
                         try {
                             String token = RemoteDshTool.claimPairingCode(this, url, code, "Android");
