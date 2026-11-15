@@ -54,7 +54,8 @@ public class DebugLayoutInjectActivity extends Activity {
         // 主题设置页（2026-11-16）：exported=false，adb 只能从本调试入口进。
         if ("theme_settings".equals(getIntent().getStringExtra("mode"))) {
             startActivity(new android.content.Intent(this,
-                    com.oilquiz.app.ui.activity.ThemeActivity.class));
+                    com.oilquiz.app.ui.activity.ThemeActivity.class)
+                    .putExtra("open_custom_color", getIntent().getBooleanExtra("open_custom_color", false)));
             finish();
             return;
         }

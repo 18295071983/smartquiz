@@ -280,7 +280,8 @@
                                     android:id="@+id/radio_system"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:layout_marginEnd="@dimen/space_lg" />
+                                    android:layout_marginEnd="@dimen/space_lg" 
+                            android:layout_marginBottom="@dimen/space_xl"/>
                                 
                                 <LinearLayout
                                     android:layout_width="@dimen/size_0"
@@ -500,15 +501,17 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
-                        android:scrollbars="none">
+                        android:scrollbars="none"
+                        android:clipToPadding="false">
 
                         <LinearLayout
                             android:id="@+id/wallpaper_picker_container"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:orientation="horizontal"
-                            android:paddingTop="4dp"
-                            android:paddingBottom="4dp" />
+                            android:paddingTop="@dimen/space_xs"
+                            android:paddingBottom="@dimen/space_xs"
+                            android:paddingEnd="@dimen/space_lg" />
 
                     </HorizontalScrollView>
 
@@ -563,15 +566,13 @@
                             android:textColor="?attr/colorOnSurface" />
 
                         <!-- 注意：MaterialSwitch 必须显式设置 textOn/textOff（非空），否则 SwitchCompat.onMeasure 拿 null 文本崩溃 -->
-                        <com.google.android.material.materialswitch.MaterialSwitch
-                            android:id="@+id/switchSystemDynamic"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:minHeight="@dimen/space_3xl"
-                            android:minWidth="56dp"
-                            android:showText="false"
-                            android:textOn="开"
-                            android:textOff="关" />
+                        <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/switchSystemDynamic"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minHeight="@dimen/space_3xl"
+                        android:minWidth="@dimen/space_3xl"
+                        android:showText="false" />
 
                     </LinearLayout>
 

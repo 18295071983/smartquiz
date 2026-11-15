@@ -78,7 +78,7 @@ public class ThemeActivity extends AppCompatActivity {
     private RadioButton rbWallpaperSystem;
     private RadioButton rbWallpaperLibrary;
     private RadioButton rbWallpaperOff;
-    private MaterialSwitch switchSystemDynamic;
+    private androidx.appcompat.widget.SwitchCompat switchSystemDynamic;
     private LinearLayout linearLayoutThemeColors;
     private LinearLayout linearLayoutThemeSkins;
     private LinearLayout linearLayoutThemePreview;
@@ -135,6 +135,11 @@ public class ThemeActivity extends AppCompatActivity {
         findViewById(R.id.btn_save_theme).setOnClickListener(v -> finish());
         setupWallpaperModeEntry();
         setupSystemDynamicEntry();
+        // 调试入口：直接弹自定义色板（adb 用 --ez open_custom_color true），
+        // 省得为了点一个按钮先滚动+坐标点击。
+        if (getIntent() != null && getIntent().getBooleanExtra("open_custom_color", false)) {
+            linearLayoutThemeColors.post(this::showCustomColorDialog);
+        }
     }
 
     /** 系统动态色开关：开启后控件配色由系统 Material You 接管（跟随系统壁纸），自定义色/预设色置灰 */
@@ -204,7 +209,7 @@ public class ThemeActivity extends AppCompatActivity {
         if (android.os.Build.VERSION.SDK_INT < 30 || android.os.Environment.isExternalStorageManager()) {
             return true;
         }
-        new AlertDialog.Builder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_SmartQuiz_Dialog))
+        new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle(getString(R.string.h_a543ed9a))
                 .setMessage(getString(R.string.h_9e455d55))
                 .setPositiveButton(getString(R.string.h_5e213ddb), (d, w) -> {
@@ -553,7 +558,7 @@ public class ThemeActivity extends AppCompatActivity {
         ScrollView scrollView = new ScrollView(this);
         scrollView.addView(grid);
 
-        new AlertDialog.Builder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_SmartQuiz_Dialog))
+        new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle(getString(R.string.h_502eb6f3))
                 .setView(scrollView)
                 .setPositiveButton(getString(R.string.h_155a119b), (d, which) -> pickWallpaperLauncher.launch(
@@ -1042,7 +1047,6 @@ View.OnClickListener skinClick = v -> {
         addCustomColorEntry(currentColor);
     }
 
-    /** 追加"自定义颜色"入口：点击弹出 R/G/B 取色对话框 */
     private void addCustomColorEntry(final int currentColor) {
         // 2026-11-16：与上面 7 个预设行保持同一套 token（以前是 surfaceVariant 平底条，
         // 和卡片本体同色，看起来像"断掉的一行"）。
@@ -1098,81 +1102,175 @@ View.OnClickListener skinClick = v -> {
         cardView.setOnClickListener(v -> showCustomColorDialog());
     }
 
+    /**
+     * 自定义颜色对话框（2026-11-16 重写）。
+     *
+     * <p><b>为什么会崩</b>：原来用的是 {@code MaterialAlertDialogBuilder}（Material3 对话框），
+     * 但 App 主题是 {@code Theme.MaterialComponents.*}（Material2）。M3 对话框布局
+     * {@code m3_alert_dialog} 里的属性（colorSurfaceContainerHigh、shapeAppearance…）在 M2
+     * 主题下解析不到，直接 {@code UnsupportedOperationException: Failed to resolve attribute}
+     * 把整页打崩 —— 不是色板控件的问题，是"对话框壳"和主题版本不匹配。</p>
+     *
+     * <p><b>现在怎么做</b>：AppCompat 的 AlertDialog（M2 原生支持）+ 自绘内容：
+     * 12 个常用色块（点一下即选）+ 十六进制值 + RGB 三条滑条 + 实时预览。
+     * 圆角与底色由自己设 window 背景，不依赖任何 M3 属性。</p>
+     */
     private void showCustomColorDialog() {
-        // 初始值取当前实际主题色（自定义色 / 壁纸取色 / 预设色均适用），从当前色开始调整
-        int initial = ThemeManager.getThemeColor(this);
+        final int initial = ThemeManager.getThemeColor(this);
+        final int[] rgb = {Color.red(initial), Color.green(initial), Color.blue(initial)};
 
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        // 2026-11-16 接 token：对话框内边距统一走档位（原 48/24/48/8 是硬编码）
-        int dlgPadX = Tokens.space(this, Tokens.SPACE_2XL);
-        int dlgPadY = Tokens.space(this, Tokens.SPACE_LG);
-        layout.setPadding(dlgPadX, dlgPadY, dlgPadX, Tokens.space(this, Tokens.SPACE_SM));
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        int padX = Tokens.space(this, Tokens.SPACE_2XL);
+        int padY = Tokens.space(this, Tokens.SPACE_XL);
+        content.setPadding(padX, padY, padX, Tokens.space(this, Tokens.SPACE_SM));
 
+        // ---- 十六进制值 ----
+        final TextView hexLabel = new TextView(this);
+        Tokens.applyText(hexLabel, Tokens.TEXT_BODY, Tokens.Weight.MEDIUM,
+                ThemeColors.get(this, R.color.text_primary));
+        LinearLayout.LayoutParams hexLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        hexLp.setMargins(0, 0, 0, Tokens.space(this, Tokens.SPACE_SM));
+        hexLabel.setLayoutParams(hexLp);
+        content.addView(hexLabel);
+
+        // ---- 实时预览条 ----
         final View preview = new View(this);
-        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, Tokens.space(this, Tokens.SPACE_3XL) * 2
-        );
-        previewParams.setMargins(0, 0, 0, Tokens.space(this, Tokens.SPACE_XL));
-        preview.setLayoutParams(previewParams);
-        GradientDrawable previewBg = new GradientDrawable();
-        previewBg.setCornerRadius(Tokens.radius(this, Tokens.RADIUS_MD));
-        previewBg.setColor(initial);
-        preview.setBackground(previewBg);
-        layout.addView(preview);
+        LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, Tokens.space(this, Tokens.SPACE_3XL) * 2);
+        previewLp.setMargins(0, 0, 0, Tokens.space(this, Tokens.SPACE_XL));
+        preview.setLayoutParams(previewLp);
+        content.addView(preview);
 
-        final int[] rgb = {
-                Color.red(initial), Color.green(initial), Color.blue(initial)
+        // ---- 三条 RGB 滑条（先建，色块点击要能反向刷新它们）----
+        final String[] names = {"红", "绿", "蓝"};
+        final TextView[] labels = new TextView[3];
+        final SeekBar[] bars = new SeekBar[3];
+
+        final Runnable refresh = new Runnable() {
+            @Override public void run() {
+                int argb = 0xFF000000 | (rgb[0] << 16) | (rgb[1] << 8) | rgb[2];
+                GradientDrawable bg = new GradientDrawable();
+                bg.setCornerRadius(Tokens.radius(ThemeActivity.this, Tokens.RADIUS_MD));
+                bg.setColor(argb);
+                preview.setBackground(bg);
+                hexLabel.setText(String.format(java.util.Locale.US, "#%02X%02X%02X",
+                        rgb[0], rgb[1], rgb[2]));
+                for (int i = 0; i < 3; i++) {
+                    if (labels[i] != null) {
+                        labels[i].setText(names[i] + " " + rgb[i]);
+                    }
+                    if (bars[i] != null && bars[i].getProgress() != rgb[i]) {
+                        bars[i].setProgress(rgb[i]);
+                    }
+                }
+                boolean dark = ThemeManager.isDarkTheme(ThemeActivity.this);
+                renderThemePreview(ThemePaletteProvider.generate(argb, dark));
+            }
         };
-        final String[] labels = {"红", "绿", "蓝"};
+
+        // ---- 常用色块网格：点一下直接选中 ----
+        final int[] swatches = {
+                0xFF1E88E5, 0xFF43A047, 0xFF8E24AA, 0xFFFB8C00, 0xFFE53935, 0xFF00ACC1,
+                0xFF3949AB, 0xFF6D4C41, 0xFF546E7A, 0xFF00897B, 0xFFD81B60, 0xFF5E35B1
+        };
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams gridLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        gridLp.setMargins(0, 0, 0, Tokens.space(this, Tokens.SPACE_XL));
+        grid.setLayoutParams(gridLp);
+        int swatchSize = Tokens.space(this, Tokens.SPACE_2XL) + Tokens.space(this, Tokens.SPACE_MD);
+        int gap = Tokens.space(this, Tokens.SPACE_SM);
+        LinearLayout swatchRow = null;
+        for (int i = 0; i < swatches.length; i++) {
+            if (i % 6 == 0) {
+                swatchRow = new LinearLayout(this);
+                swatchRow.setOrientation(LinearLayout.HORIZONTAL);
+                grid.addView(swatchRow);
+            }
+            final int color = swatches[i];
+            View sw = new View(this);
+            LinearLayout.LayoutParams swLp = new LinearLayout.LayoutParams(swatchSize, swatchSize);
+            swLp.setMargins(0, 0, gap, gap);
+            sw.setLayoutParams(swLp);
+            GradientDrawable swBg = new GradientDrawable();
+            swBg.setColor(color);
+            swBg.setCornerRadius(Tokens.radius(this, Tokens.RADIUS_SM));
+            swBg.setStroke(dp(1), ThemeColors.get(this, R.color.border));
+            sw.setBackground(swBg);
+            sw.setOnClickListener(v -> {
+                rgb[0] = Color.red(color);
+                rgb[1] = Color.green(color);
+                rgb[2] = Color.blue(color);
+                refresh.run();
+            });
+            if (swatchRow != null) {
+                swatchRow.addView(sw);
+            }
+        }
+        content.addView(grid);
+
+        // ---- RGB 滑条 ----
         for (int c = 0; c < 3; c++) {
             final int channel = c;
-            TextView label = new TextView(this);
-            label.setText(labels[c] + " " + rgb[channel]);
-            label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Tokens.textSizePx(this, Tokens.TEXT_BODY));
-            layout.addView(label);
+            labels[c] = new TextView(this);
+            Tokens.applyText(labels[c], Tokens.TEXT_LABEL, Tokens.Weight.REGULAR,
+                    ThemeColors.get(this, R.color.text_secondary));
+            content.addView(labels[c]);
 
-            SeekBar seekBar = new SeekBar(this);
-            seekBar.setMax(255);
-            seekBar.setProgress(rgb[channel]);
-            seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            bars[c] = new SeekBar(this);
+            bars[c].setMax(255);
+            bars[c].setProgress(rgb[c]);
+            final int idx = c;
+            bars[c].setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                 @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
-                    rgb[channel] = progress;
-                    label.setText(labels[channel] + " " + progress);
-                    preview.setBackgroundColor(Color.rgb(rgb[0], rgb[1], rgb[2]));
-                    // 编辑预览：拖动滑条时用当前 RGB 实时生成 HCT 色板，刷新上方预览区
-                    int argb = 0xFF000000 | (rgb[0] << 16) | (rgb[1] << 8) | rgb[2];
-                    boolean dark = ThemeManager.isDarkTheme(ThemeActivity.this);
-                    renderThemePreview(ThemePaletteProvider.generate(argb, dark));
+                    rgb[idx] = progress;
+                    refresh.run();
                 }
                 @Override public void onStartTrackingTouch(SeekBar sb) { }
                 @Override public void onStopTrackingTouch(SeekBar sb) { }
             });
-            layout.addView(seekBar);
+            content.addView(bars[c]);
         }
+        refresh.run();
 
-        new AlertDialog.Builder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_SmartQuiz_Dialog))
+        final androidx.appcompat.app.AlertDialog dialog = new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle(getString(R.string.h_edb9ba13))
-                .setView(layout)
-                .setNegativeButton(getString(R.string.h_625fb26b), (dialog, which) -> {
-                    // 取消：预览区恢复当前实际主题色板
-                    boolean dark = ThemeManager.isDarkTheme(ThemeActivity.this);
-                    renderThemePreview(ThemeManager.getPalette(ThemeActivity.this, dark));
-                })
-                .setPositiveButton(getString(R.string.h_5b0520a9), (dialog, which) -> {
-                    int argb = 0xFF000000 | (rgb[0] << 16) | (rgb[1] << 8) | rgb[2];
-                    ThemeManager.setCustomThemeColor(ThemeActivity.this, argb);
-                    ThemeManager.clearPaletteCache();
-                    Toast.makeText(ThemeActivity.this, getString(R.string.h_e4c42812), Toast.LENGTH_SHORT).show();
-                    recreate();
-                })
-                .setOnDismissListener(dialog -> {
-                    // 无论应用/取消/点外部关闭，都恢复预览为实际主题（应用场景 recreate 会重建，无需处理）
-                    if (!isFinishing()) {
-                        boolean dark = ThemeManager.isDarkTheme(ThemeActivity.this);
-                        renderThemePreview(ThemeManager.getPalette(ThemeActivity.this, dark));
-                    }
-                })
-                .show();
+                .setView(content)
+                .setNegativeButton(getString(R.string.h_625fb26b), (d, w) -> restorePreviewAfterDialog())
+                .setPositiveButton(getString(R.string.h_5b0520a9), (d, w) -> applyCustomColor(rgb))
+                .setOnDismissListener(d -> restorePreviewAfterDialog())
+                .create();
+        dialog.setOnShowListener(d -> {
+            GradientDrawable bg = new GradientDrawable();
+            bg.setCornerRadius(Tokens.radius(this, Tokens.RADIUS_LG));
+            bg.setColor(ThemeColors.get(this, R.color.card_background));
+            bg.setStroke(dp(1), ThemeColors.get(this, R.color.border));
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawable(bg);
+            }
+        });
+        dialog.show();
     }
+
+    /** 应用自定义色：写偏好 → 清色板缓存 → 重建页面。 */
+    private void applyCustomColor(int[] rgb) {
+        int argb = 0xFF000000 | (rgb[0] << 16) | (rgb[1] << 8) | rgb[2];
+        ThemeManager.setCustomThemeColor(this, argb);
+        ThemeManager.clearPaletteCache();
+        Toast.makeText(this, getString(R.string.h_e4c42812), Toast.LENGTH_SHORT).show();
+        recreate();
+    }
+
+    /** 取消/关闭对话框后把主题预览恢复成当前实际主题色板。 */
+    private void restorePreviewAfterDialog() {
+        if (isFinishing()) {
+            return;
+        }
+        boolean dark = ThemeManager.isDarkTheme(this);
+        renderThemePreview(ThemeManager.getPalette(this, dark));
+    }
+
 }
