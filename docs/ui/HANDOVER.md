@@ -3032,3 +3032,185 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 
 入口：`am start -n com.oilquiz.app/.infra.DebugLayoutInjectActivity --es mode theme_audit`（或 App 内调试入口）。
 反射遍历 `R.color` 全部字段，色块 + 资源名 + 跟随/固定，顶部 `总计 · 跟随 · 固定 · 跟随率`，搜索支持名字与 `#RRGGBB`，点行复制 `名称 = #RRGGBB`。它是后续「颜色分类」那步的工作清单。
+
+---
+
+## 十八、UI 基础设施与使用方法（2026-11-16）
+
+> 目的：以后写新页面直接照这一节抄，不要再各写各的。所有类都在
+> `com.oilquiz.app.ui` / `com.oilquiz.app.theme` 下，全部走主题色与 token。
+
+### 18.1 五个工具类一览
+
+| 类 | 负责 | 关键 API |
+|---|---|---|
+| `theme/Tokens` | 尺寸/字号/圆角档位 | `space/spaceLg/…`、`radius/radiusMd/…`、`textSizePx`、`applyText` |
+| `theme/ThemeColors` | 资源色 → 主题色（53 条映射 + 兜底） | `get(ctx,resId)`、`attr(ctx,attrId)`、`isThemeAware` |
+| `ai/chat/component/ComponentColors` | 渲染器/组件取色（270 处引用） | `textPrimary/accent/success/border/fieldBg/chartColor` |
+| `ui/UiFx` | 交互与动效 | `click`、`longPress`、`toggleSelection`、`pressFeedback`、10 个动画封装 |
+| `ui/UiDecor` | 列表与加载态 | `divider`、`gridSpacing`、`skeleton`、`startSkeleton`、`inflateOnce` |
+| `ui/UiActions` | 菜单/滑动/拖拽/IME/无障碍 | `longPressMenu`、`swipeToDelete`、`dragSort`、`defaultItemAnimator`、`bindImePadding`、`describe`、`haptic` |
+| `ui/UiWidgets` | 控件工厂 | `spinner`、`input`、`chip`、`chipGroup`、`selectableText`、`tooltip`、`emptyState` |
+| `ui/MultiSelectController` | 多选状态机 | `enter/exit/toggle/isSelected/selectedPositions/selectedAll` |
+
+### 18.2 token 档位（唯一真值）
+
+| 组 | 档位 | 覆盖 |
+|---|---|---|
+| 间距 | `hairline 2` / `xs 4` / `sm 6` / `md 8` / `lg 12` / `xl 16` / `xxl 20` / `2xl 24` / `3xl 32` | ≈95% |
+| 字号 | `caption 11` / `footnote 12` / `label 13` / `body 14` / `bodySm 15` / `bodyLg 16` / `subtitle 18` / `title 20` / `headline 24` / `micro 10` | ≈96% |
+| 圆角 | `sm 8` / `md 12` / `lg 16` / `xl 24` / `pill 999` | — |
+| 字重 | `REGULAR / MEDIUM / SEMIBOLD / BOLD` | — |
+
+**接线规则**：只做等值替换（`space_16` → `space_xl`），不改数值；内联字面量最后统一换。
+
+```java
+int pad = Tokens.spaceLg(ctx);                       // 12dp
+GradientDrawable bg = new GradientDrawable();
+bg.setCornerRadius(Tokens.radiusMd(ctx));            // 12dp
+Tokens.applyText(title, Tokens.TEXT_TITLE, Tokens.Weight.SEMIBOLD, color);
+```
+
+### 18.3 新页面最小样板
+
+```java
+LinearLayout root = new LinearLayout(this);
+root.setOrientation(LinearLayout.VERTICAL);
+root.setPadding(Tokens.spaceXl(this), Tokens.spaceXl(this), Tokens.spaceXl(this), 0);
+root.setBackgroundColor(ThemeColors.get(this, R.color.background));
+
+TextView title = new TextView(this);
+title.setText("标题");
+Tokens.applyText(title, Tokens.TEXT_TITLE, Tokens.Weight.SEMIBOLD,
+        ThemeColors.get(this, R.color.text_primary));
+
+TextView btn = new TextView(this);
+btn.setText("主要操作");
+UiFx.click(btn, () -> doSomething());     // 自动涟漪 + 400ms 防抖
+root.addView(title); root.addView(btn);
+
+ScrollView scroll = new ScrollView(this);
+scroll.setBackgroundColor(ThemeColors.get(this, R.color.background));
+scroll.addView(root);
+FrameLayout holder = new FrameLayout(this);   // 保证整页不透明（否则会透出壁纸）
+holder.setBackgroundColor(ThemeColors.get(this, R.color.background));
+holder.addView(scroll, new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+setContentView(holder);
+```
+
+### 18.4 交互动效（UiFx）
+
+```java
+UiFx.click(view, action);                     // 点击：涟漪 + 防抖
+UiFx.longPress(view, action);                 // 长按：涟漪 + 回调
+UiFx.toggleSelection(view, selected);         // 选中/取消的统一样式
+UiFx.pressFeedback(view);                     // 按压缩放反馈
+```
+
+动画（`res/anim` 里 10 个资源已全部封装）：
+
+```java
+UiFx.messageIn(v);            // message_enter_bottom   消息入场（对方）
+UiFx.messageInFromRight(v);   // message_enter_right    消息入场（自己）
+UiFx.streamingTyping(v);      // message_streaming_typing 流式打字
+UiFx.welcomeIn(v);            // welcome_card_enter     欢迎卡入场
+UiFx.thinking(v);             // thinking_dot_bounce    思考中三点
+UiFx.cursorBlink(v);          // cursor_blink           光标闪烁
+UiFx.weatherIcon(v);          // weather_icon_anim      天气逐帧动画（内部走 AnimationDrawable）
+UiFx.slideInLeft/Right(v);    // 转场滑入
+UiFx.buttonState(v);          // res/animator 的 stateListAnimator（注意走 AnimatorInflater）
+```
+
+> 三类资源的正确加载方式（踩过的坑）：
+> tween（`<set>/<alpha>/…`）→ `AnimationUtils.loadAnimation`；
+> 逐帧（`<animation-list>`）→ `ResourcesCompat.getDrawable` 后 `AnimationDrawable.start()`；
+> `res/animator` 的 stateListAnimator → `AnimatorInflater.loadStateListAnimator`。
+
+### 18.5 列表与加载态（UiDecor / UiActions）
+
+```java
+recyclerView.addItemDecoration(UiDecor.divider(ctx, Tokens.spaceLg(ctx)));   // 分隔线
+recyclerView.addItemDecoration(UiDecor.gridSpacing(ctx, 2));                // 网格间隙
+UiActions.defaultItemAnimator(recyclerView);                                // 统一增删动画
+UiActions.swipeToDelete(recyclerView, pos -> remove(pos));                  // 左滑删除
+UiActions.dragSort(recyclerView, (from, to) -> move(from, to));             // 长按拖拽排序
+UiActions.longPressMenu(view, "操作", new String[]{"复制","引用","删除"},
+        index -> handle(index));                                            // 长按 → BottomSheet 菜单
+
+View skeleton = UiDecor.skeleton(ctx, Tokens.space(this, Tokens.SPACE_3XL));
+UiDecor.startSkeleton(skeleton);   // 呼吸动画
+UiDecor.stopSkeleton(skeleton);    // 数据就绪后移除
+```
+
+**下拉刷新必须包在最外层**（这是最常踩的坑）：
+
+```java
+SwipeRefreshLayout root = new SwipeRefreshLayout(ctx);
+root.setOnRefreshListener(() -> { reload(); root.postDelayed(() -> root.setRefreshing(false), 800); });
+root.addView(scrollView);   // 里面放 ScrollView / RecyclerView
+setContentView(root);
+```
+
+### 18.6 多选模式（MultiSelectController）
+
+```java
+MultiSelectController sel = new MultiSelectController()
+        .setOnCountChanged(n -> title.setText("已选 " + n))
+        .setOnModeChanged(active -> toolbar.setVisibility(active ? VISIBLE : GONE));
+
+UiFx.longPress(itemView, () -> { sel.toggle(pos); notifyItemChanged(pos); });  // 长按进入
+UiFx.click(itemView, () -> {
+    if (sel.isActive()) { sel.toggle(pos); notifyItemChanged(pos); }          // 多选中：切换
+    else open(pos);                                                           // 否则：正常打开
+});
+UiFx.toggleSelection(itemView, sel.isSelected(pos));                          // 还原选中态
+```
+
+> 坑：回调里要用 `holder.getBindingAdapterPosition()` 并判 `NO_POSITION`，
+> 否则复用后 `notifyItemChanged(旧位置)` 会抛 `Inconsistency detected`。
+
+### 18.7 控件工厂（UiWidgets）
+
+```java
+Spinner sp = UiWidgets.spinner(ctx, items, index -> onSelect(index));   // 统一下拉
+TextInputLayout input = UiWidgets.input(ctx, "提示", "初始值");          // 统一输入框
+Chip chip = UiWidgets.chip(ctx, "标签", true, false);                   // 统一 Chip
+ChipGroup group = UiWidgets.chipGroup(ctx, true);                       // 单选 ChipGroup
+TextView text = UiWidgets.selectableText(ctx, content);                 // 可长按选择/复制
+UiWidgets.tooltip(view, "长按提示 + 无障碍描述");
+View empty = UiWidgets.emptyState(ctx, "暂无数据");
+```
+
+### 18.8 主题能力（ThemeManager / ThemeColors）
+
+| 能力 | API |
+|---|---|
+| 深浅/OLED | `ThemeManager.getMode/setMode(ctx, THEME_LIGHT|DARK|SYSTEM|OLED)` |
+| 预设色（7 套） | `ThemeManager.PRESETS`，切换用 `setSkin` |
+| 自定义色 | `setCustomThemeColor(ctx, argb)`（色板对话框已内置） |
+| 系统动态色 | `setSystemDynamicColor(ctx, on)`（日/夜两档 overlay 全覆盖） |
+| 取主题色 | `ThemeColors.get(ctx, R.color.x)`（未接主题会在 debug 打日志，且不会崩） |
+| 组件取色 | `ComponentColors.accent(ctx)` 等（内部优先 attr，回落资源） |
+
+### 18.9 实验/演示页入口（都走 debug 入口，不导出）
+
+```bash
+adb shell am start -n com.oilquiz.app/.infra.DebugLayoutInjectActivity --es mode theme_settings    # 主题设置
+adb shell am start -n com.oilquiz.app/.infra.DebugLayoutInjectActivity --es mode theme_audit       # 主题自检（跟随率统计）
+adb shell am start -n com.oilquiz.app/.infra.DebugLayoutInjectActivity --es mode ui_kit            # 交互/动画/刷新/圆形头像/Coil
+adb shell am start -n com.oilquiz.app/.infra.DebugLayoutInjectActivity --es mode list_kit          # 装饰器/多段列表/多选/骨架屏/FAB
+adb shell am start -n com.oilquiz.app/.infra.DebugLayoutInjectActivity --es mode compose_gallery   # Compose + Lottie 试点
+adb shell am start -n com.oilquiz.app/.infra.DebugLayoutInjectActivity --es mode agent_settings    # Git 凭据 + 工具权限分级
+adb shell am start -n com.oilquiz.app/.infra.DebugLayoutInjectActivity --es mode rule_selftest     # 规则引擎 MVEL 真机自检
+adb shell am start -n com.oilquiz.app/.infra.DebugLayoutInjectActivity --es mode set_theme --es theme oled   # 切 OLED
+```
+
+### 18.10 待办（明确没做的）
+
+| 项 | 状态 |
+|---|---|
+| 老页面迁移到 canonical 按钮 / 统一 Spinner | ⏳ 入口已备，调用点未迁 |
+| 工具权限**拦截** | ⏸ 分级表就绪，接入点 TODO 在 `AIToolManager.executeTool` |
+| Git SSH 方式 push | ⏳ 仅 HTTPS token |
+| EmojiCompat | ⏳ 需联网加依赖 |
+| jgit 之外的 jgit 场景（历史浏览 UI 等） | ⏳ 工具已有，UI 未做 |
