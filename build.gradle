@@ -616,6 +616,8 @@ dependencies {
     
     // Easy Rules 规则引擎
     implementation "org.jeasy:easy-rules-core:4.1.0"
+// MVEL 表达式引擎（2026-11-16）：规则条件可以用表达式写，如 "balance < 10 && calls > 50"
+implementation "org.mvel:mvel2:2.5.4.Final"
     implementation "org.jeasy:easy-rules-support:4.1.0"
     
     // Hilt 依赖注入框架

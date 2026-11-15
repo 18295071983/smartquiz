@@ -51,6 +51,19 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 规则引擎自检（真机验证 MVEL 表达式在 Android 运行时可用）：--es mode rule_selftest
+        if ("rule_selftest".equals(getIntent().getStringExtra("mode"))) {
+            java.util.Map<String, Object> args = new java.util.HashMap<>();
+            args.put("rules", "[{\"name\":\"真机表达式\",\"when\":{\"expr\":\"balance < 10 && calls > 50\"},\"then\":\"MVEL-on-Android-OK\"}]");
+            args.put("facts", "{\"balance\":5,\"calls\":80}");
+            com.oilquiz.app.ai.tool.AIToolResult r =
+                    new com.oilquiz.app.ai.tool.RuleEngineTool().execute(args);
+            android.util.Log.i("RuleSelfTest", "ok=" + r.isSuccess() + " result=" + r.getResult()
+                    + " err=" + r.getErrorMessage());
+            finish();
+            return;
+        }
+
         // 列表工具包（ItemDecoration/ConcatAdapter/多选/骨架屏/FAB/ViewStub）：--es mode list_kit
         if ("list_kit".equals(getIntent().getStringExtra("mode"))) {
             startActivity(new android.content.Intent(this,

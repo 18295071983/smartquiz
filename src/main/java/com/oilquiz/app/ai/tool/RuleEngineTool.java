@@ -171,6 +171,17 @@ public class RuleEngineTool implements AITool {
             }
             return false;
         }
+        // 表达式条件（MVEL）：{"expr":"balance < 10 && calls > 50"}
+        // 比结构化 DSL 强的地方：支持字符串方法、算术、三元、正则匹配等
+        String expr = cond.optString("expr", null);
+        if (expr != null && !expr.trim().isEmpty()) {
+            try {
+                Object v = org.mvel2.MVEL.eval(expr, facts.asMap());
+                return v instanceof Boolean ? (Boolean) v : v != null;
+            } catch (Throwable t) {
+                throw new IllegalArgumentException("表达式求值失败: " + expr + " → " + t.getMessage());
+            }
+        }
         String fact = cond.optString("fact", null);
         String op = cond.optString("op", "exists");
         Object expected = cond.opt("value");

@@ -61,6 +61,34 @@ public class RuleEngineToolTest {
     }
 
     @Test
+    public void mvelExpression_fires() {
+        RuleEngineTool tool = new RuleEngineTool();
+        Map<String, Object> args = new HashMap<>();
+        // 表达式条件：MVEL 求值，支持算术/逻辑/方法调用
+        args.put("rules", "[{\"name\":\"组合条件\",\"when\":"
+                + "{\"expr\":\"balance < 10 && calls > 50 && status.contains('error')\"},"
+                + "\"then\":\"三重条件全中\"}]");
+        args.put("facts", "{\"balance\":5,\"calls\":80,\"status\":\"error-500\"}");
+        AIToolResult r = tool.execute(args);
+        assertTrue("应成功: " + r.getResult(), r.isSuccess());
+        assertTrue("表达式应命中: " + r.getResult(),
+                String.valueOf(r.getResult()).contains("三重条件全中"));
+    }
+
+    @Test
+    public void mvelExpression_notFiredWhenFalse() {
+        RuleEngineTool tool = new RuleEngineTool();
+        Map<String, Object> args = new HashMap<>();
+        args.put("rules", "[{\"name\":\"组合条件\",\"when\":"
+                + "{\"expr\":\"balance < 10 && calls > 50\"},\"then\":\"命中\"}]");
+        args.put("facts", "{\"balance\":5,\"calls\":10}");
+        AIToolResult r = tool.execute(args);
+        assertTrue(r.isSuccess());
+        assertTrue("条件不满足不应命中: " + r.getResult(),
+                String.valueOf(r.getResult()).contains("没有规则命中"));
+    }
+
+    @Test
     public void badRules_fails() {
         RuleEngineTool tool = new RuleEngineTool();
         Map<String, Object> args = new HashMap<>();
