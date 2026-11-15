@@ -914,64 +914,13 @@ public class ThemeActivity extends AppCompatActivity {
     private void setupSkins() {
         final String currentSkinId = ThemeManager.getSkin(this).id;
 
+        // 2026-11-16：与预设色行共用 buildPresetRow（token 化，去掉重复构建代码）。
         for (final ThemeSkin skin : ThemeManager.getSkins()) {
-            CardView cardView = new CardView(this);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-            );
-            params.setMargins(0, 0, 0, 8);
-            cardView.setLayoutParams(params);
-            cardView.setCardElevation(1);
-            cardView.setRadius(8);
-            cardView.setCardBackgroundColor(ThemeColors.attr(this, R.attr.colorSurfaceVariant));
-
-            LinearLayout cardLayout = new LinearLayout(this);
-            LinearLayout.LayoutParams cardLayoutParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-            );
-            cardLayout.setLayoutParams(cardLayoutParams);
-            cardLayout.setOrientation(LinearLayout.HORIZONTAL);
-            cardLayout.setPadding(12, 12, 12, 12);
-
-            // 皮肤默认主色圆点
-            View colorView = new View(this);
-            LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(40, 40);
-            colorParams.setMargins(0, 0, 12, 0);
-            colorView.setLayoutParams(colorParams);
-            colorView.setBackgroundColor(skin.defaultArgb);
-            colorView.setClipToOutline(true);
-
-            final RadioButton radioButton = new RadioButton(this);
-            LinearLayout.LayoutParams radioParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-            );
-            radioParams.setMargins(0, 0, 12, 0);
-            radioButton.setLayoutParams(radioParams);
-            radioButton.setChecked(skin.id.equals(currentSkinId));
-
-            TextView textView = new TextView(this);
-            LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-            );
-            textParams.weight = 1;
-            textView.setLayoutParams(textParams);
-            textView.setText(skin.displayName);
-            textView.setTextSize(16);
-            textView.setTextColor(ThemeColors.attr(this, R.attr.colorOnSurface));
-
-            cardLayout.addView(colorView);
-            cardLayout.addView(radioButton);
-            cardLayout.addView(textView);
-            cardView.addView(cardLayout);
+            com.google.android.material.card.MaterialCardView cardView =
+                    buildPresetRow(skin.defaultArgb, skin.displayName,
+                            skin.id.equals(currentSkinId));
             linearLayoutThemeSkins.addView(cardView);
-
-            // 整卡点击 + 圆圈点击都走同一切换逻辑（RadioButton 嵌套在卡片内，
-            // 点圆圈会消费事件、不触发卡片监听，必须单独绑定）
-            View.OnClickListener skinClick = v -> {
+View.OnClickListener skinClick = v -> {
                 if (!skin.id.equals(ThemeManager.getSkin(ThemeActivity.this).id)) {
                     ThemeManager.setSkin(ThemeActivity.this, skin.id);
                     Toast.makeText(ThemeActivity.this, getString(R.string.h_ae4833a1) + skin.displayName + getString(R.string.h_c6fe31dc),
@@ -981,10 +930,79 @@ public class ThemeActivity extends AppCompatActivity {
                 }
             };
             cardView.setOnClickListener(skinClick);
-            radioButton.setOnClickListener(skinClick);
         }
     }
 
+    /**
+     * 预设色/皮肤通用行（2026-11-16）：色块 + 单选 + 名称，全部走 token。
+     *
+     * <p>原来 {@code setupThemeColors} 和 {@code setupSkins} 各写一份几乎一样的构建代码
+     * （圆角 8、内边距 12、色块 40、字号 16 全是字面量），改一处忘另一处。
+     * 抽成一个方法后两处共用，样式只有一份真值。</p>
+     */
+    private com.google.android.material.card.MaterialCardView buildPresetRow(
+            int argb, String label, boolean checked) {
+        com.google.android.material.card.MaterialCardView cardView =
+                new com.google.android.material.card.MaterialCardView(this);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        params.setMargins(0, 0, 0, Tokens.space(this, Tokens.SPACE_MD));
+        cardView.setLayoutParams(params);
+        cardView.setCardElevation(0);
+        cardView.setRadius(Tokens.radius(this, Tokens.RADIUS_MD));
+        cardView.setCardBackgroundColor(ThemeColors.get(this, R.color.card_background));
+        cardView.setStrokeWidth(dp(1));
+        cardView.setStrokeColor(ThemeColors.get(this, R.color.border));
+
+        LinearLayout row = new LinearLayout(this);
+        row.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = Tokens.space(this, Tokens.SPACE_LG);
+        row.setPadding(pad, pad, pad, pad);
+
+        View swatchView = new View(this);
+        LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(dp(40), dp(40));
+        colorParams.setMargins(0, 0, Tokens.space(this, Tokens.SPACE_LG), 0);
+        swatchView.setLayoutParams(colorParams);
+        GradientDrawable swatch = new GradientDrawable();
+        swatch.setColor(argb);
+        swatch.setCornerRadius(Tokens.radius(this, Tokens.RADIUS_SM));
+        swatch.setStroke(dp(1), ThemeColors.get(this, R.color.border));
+        swatchView.setBackground(swatch);
+
+        RadioButton radio = new RadioButton(this);
+        LinearLayout.LayoutParams radioParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        radioParams.setMargins(0, 0, Tokens.space(this, Tokens.SPACE_SM), 0);
+        radio.setLayoutParams(radioParams);
+        radio.setChecked(checked);
+        // 点击交给整行（卡片）处理：RadioButton 默认会吃掉点击，导致点在圆圈上没反应。
+        radio.setClickable(false);
+        radio.setFocusable(false);
+
+        TextView text = new TextView(this);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        textParams.weight = 1;
+        text.setLayoutParams(textParams);
+        text.setText(label);
+        Tokens.applyText(text, Tokens.TEXT_BODY_LG, Tokens.Weight.MEDIUM,
+                ThemeColors.get(this, R.color.text_primary));
+
+        row.addView(swatchView);
+        row.addView(radio);
+        row.addView(text);
+        cardView.addView(row);
+        return cardView;
+    }
     private void setupThemeColors() {
         final int currentColor = ThemeManager.getThemeColor(this);
 
@@ -994,67 +1012,9 @@ public class ThemeActivity extends AppCompatActivity {
         for (final ThemePreset preset : ThemeManager.getSkin(this).presets) {
             final int colorArgb = preset.argb;
 
-            com.google.android.material.card.MaterialCardView cardView =
-                    new com.google.android.material.card.MaterialCardView(this);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-            );
-            params.setMargins(0, 0, 0, Tokens.space(this, Tokens.SPACE_MD));
-            cardView.setLayoutParams(params);
-            cardView.setCardElevation(0);
-            cardView.setRadius(Tokens.radius(this, Tokens.RADIUS_MD));
-            cardView.setCardBackgroundColor(ThemeColors.get(this, R.color.card_background));
-            cardView.setStrokeWidth(dp(1));
-            cardView.setStrokeColor(ThemeColors.get(this, R.color.border));
-
-            LinearLayout cardLayout = new LinearLayout(this);
-            cardLayout.setLayoutParams(new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-            ));
-            cardLayout.setOrientation(LinearLayout.HORIZONTAL);
-            cardLayout.setGravity(Gravity.CENTER_VERTICAL);
-            int pad = Tokens.space(this, Tokens.SPACE_LG);
-            cardLayout.setPadding(pad, pad, pad, pad);
-
-            View colorView = new View(this);
-            LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(dp(40), dp(40));
-            colorParams.setMargins(0, 0, Tokens.space(this, Tokens.SPACE_LG), 0);
-            colorView.setLayoutParams(colorParams);
-            GradientDrawable swatch = new GradientDrawable();
-            swatch.setColor(colorArgb);
-            swatch.setCornerRadius(Tokens.radius(this, Tokens.RADIUS_SM));
-            swatch.setStroke(dp(1), ThemeColors.get(this, R.color.border));
-            colorView.setBackground(swatch);
-
-            final RadioButton radioButton = new RadioButton(this);
-            LinearLayout.LayoutParams radioParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-            );
-            radioParams.setMargins(0, 0, Tokens.space(this, Tokens.SPACE_SM), 0);
-            radioButton.setLayoutParams(radioParams);
-            radioButton.setChecked(colorArgb == currentColor);
-
-            TextView textView = new TextView(this);
-            LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(
-                    0,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-            );
-            textParams.weight = 1;
-            textView.setLayoutParams(textParams);
-            textView.setText(preset.displayName);
-            Tokens.applyText(textView, Tokens.TEXT_BODY_LG, Tokens.Weight.MEDIUM,
-                    ThemeColors.get(this, R.color.text_primary));
-
-            cardLayout.addView(colorView);
-            cardLayout.addView(radioButton);
-            cardLayout.addView(textView);
-            cardView.addView(cardLayout);
+            final com.google.android.material.card.MaterialCardView cardView =
+                    buildPresetRow(colorArgb, preset.displayName, colorArgb == currentColor);
             linearLayoutThemeColors.addView(cardView);
-
-            // 整卡点击 + 圆圈点击都走同一换色逻辑（同皮肤卡：圆圈点击不触发卡片监听）
             View.OnClickListener colorClick = v -> {
                 ThemeManager.setThemeColor(ThemeActivity.this, colorArgb);
                 ThemeManager.clearPaletteCache();
@@ -1064,7 +1024,7 @@ public class ThemeActivity extends AppCompatActivity {
                 recreate();
             };
             cardView.setOnClickListener(colorClick);
-            radioButton.setOnClickListener(colorClick);
+            // 整行点击已覆盖圆圈（radio 在 buildPresetRow 里设成不可点）
         }
 
         // 自定义颜色入口
