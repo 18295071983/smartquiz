@@ -4,16 +4,63 @@ import com.oilquiz.app.R;
 
 import android.content.Context;
 import android.content.res.Resources;
+import android.util.SparseIntArray;
 import android.util.TypedValue;
 
 import com.oilquiz.app.SmartQuizApplication;
+
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 硬编码色资源化取色工具：读取 hc_* 颜色资源（values + values-night 双套）。
  * 历史硬编码色（Java 中 0xFFxxxxxx / Color.parseColor）统一迁移为资源引用后，
  * 通过本工具获取，使深色模式自动适配。
+ *
+ * <p><b>2026-11-16 主题基础设施（第一层）</b>：以前 {@link #get(Context, int)} 是 17 条手写
+ * {@code if} 白名单 + 末尾静默 {@code getColor}，导致 313 个颜色资源里只有 17 个跟随换肤，
+ * 其余换主题不变且**没有任何提示**（真机表现：换肤后个别位置颜色不对，查不到原因）。
+ * 现在改成：</p>
+ * <ul>
+ *   <li><b>映射表</b> {@link #ATTR_BY_RES}：resId → attrId，映射关系与旧白名单**逐条等价**；</li>
+ *   <li><b>debug 未命中告警</b>：未接主题的颜色在 DEBUG 包打一行
+ *       {@code 颜色未接主题: <资源名> → 固定值}（同 resId 只打一次，不刷屏）；</li>
+ *   <li><b>可观测 API</b>：{@link #isThemeAware(int)} / {@link #themeAwareResIds()} 供「主题自检页」统计跟随率。</li>
+ * </ul>
  */
 public final class ThemeColors {
+
+    private static final String TAG = "ThemeColors";
+
+    /** resId → attrId。NULL 语义：0 表示"这个颜色不跟随主题"（固定色）。 */
+    private static final SparseIntArray ATTR_BY_RES = new SparseIntArray();
+
+    /** DEBUG 下已告警过的 resId（避免流式/滚动时刷屏）。 */
+    private static final Set<Integer> WARNED = ConcurrentHashMap.newKeySet();
+
+    static {
+        // 与旧实现的 17 条 if 一一对应（改这里之前先想清楚：动一条就是改一次外观语义）
+        ATTR_BY_RES.put(R.color.primary, R.attr.colorPrimary);
+        ATTR_BY_RES.put(R.color.primary_color, R.attr.colorPrimary);
+        ATTR_BY_RES.put(R.color.primary_dark, R.attr.colorPrimaryDark);
+        ATTR_BY_RES.put(R.color.primary_light, R.attr.colorPrimaryContainer);
+        ATTR_BY_RES.put(R.color.primary_container, R.attr.colorPrimaryContainer);
+        ATTR_BY_RES.put(R.color.on_primary, R.attr.colorOnPrimary);
+        ATTR_BY_RES.put(R.color.on_primary_container, R.attr.colorOnPrimaryContainer);
+        ATTR_BY_RES.put(R.color.secondary, R.attr.colorSecondary);
+        ATTR_BY_RES.put(R.color.secondary_container, R.attr.colorSecondaryContainer);
+        ATTR_BY_RES.put(R.color.surface, R.attr.colorSurface);
+        ATTR_BY_RES.put(R.color.surface_variant, R.attr.colorSurfaceVariant);
+        ATTR_BY_RES.put(R.color.on_surface, R.attr.colorOnSurface);
+        ATTR_BY_RES.put(R.color.outline, R.attr.colorOutline);
+        ATTR_BY_RES.put(R.color.card_background, R.attr.colorCardBackground);
+        ATTR_BY_RES.put(R.color.text_primary, R.attr.colorControlText);
+        ATTR_BY_RES.put(R.color.text_secondary, R.attr.colorControlTextSecondary);
+        ATTR_BY_RES.put(R.color.text_tertiary, R.attr.colorControlTextHint);
+        ATTR_BY_RES.put(R.color.text_hint, R.attr.colorControlTextHint);
+        ATTR_BY_RES.put(R.color.background, R.attr.colorBackground);
+        ATTR_BY_RES.put(R.color.on_background, R.attr.colorOnBackground);
+    }
 
     private ThemeColors() {
     }
@@ -52,65 +99,92 @@ public final class ThemeColors {
 
     /**
      * 语义色取色总入口：传入 colors.xml 的语义色资源 id，
-     * 主题语义色（primary/on_surface/text_* 等）自动改从当前主题 attr 解析
-     * （跟随换肤/深浅/动态色），其余颜色（语义状态色、图表色等）原样返回。
+     * 命中映射表的颜色自动改从当前主题 attr 解析（跟随换肤/深浅/动态色），
+     * 其余颜色（图表色、状态色等固定色）原样返回。
      * 供 Java 动态创建控件统一使用，替代 context.getColor()。
      */
     public static int get(Context context, int resId) {
         if (context == null) {
             return 0;
         }
-        if (resId == R.color.primary || resId == R.color.primary_color) {
-            return attr(context, R.attr.colorPrimary);
+        int attrId = ATTR_BY_RES.get(resId, 0);
+        if (attrId == 0) {
+            warnUnmapped(context, resId);
+            return context.getColor(resId);
         }
-        if (resId == R.color.primary_dark) {
-            return attr(context, R.attr.colorPrimaryDark);
+        int themed = attr(context, attrId);
+        if (themed != 0) {
+            return themed;
         }
-        if (resId == R.color.primary_light || resId == R.color.primary_container) {
-            return attr(context, R.attr.colorPrimaryContainer);
-        }
-        if (resId == R.color.on_primary) {
-            return attr(context, R.attr.colorOnPrimary);
-        }
-        if (resId == R.color.on_primary_container) {
-            return attr(context, R.attr.colorOnPrimaryContainer);
-        }
-        if (resId == R.color.secondary) {
-            return attr(context, R.attr.colorSecondary);
-        }
-        if (resId == R.color.secondary_container) {
-            return attr(context, R.attr.colorSecondaryContainer);
-        }
-        if (resId == R.color.surface) {
-            return attr(context, R.attr.colorSurface);
-        }
-        if (resId == R.color.surface_variant) {
-            return attr(context, R.attr.colorSurfaceVariant);
-        }
-        if (resId == R.color.on_surface) {
-            return attr(context, R.attr.colorOnSurface);
-        }
-        if (resId == R.color.outline) {
-            return attr(context, R.attr.colorOutline);
-        }
-        if (resId == R.color.card_background) {
-            return attr(context, R.attr.colorCardBackground);
-        }
-        if (resId == R.color.text_primary) {
-            return attr(context, R.attr.colorControlText);
-        }
-        if (resId == R.color.text_secondary) {
-            return attr(context, R.attr.colorControlTextSecondary);
-        }
-        if (resId == R.color.text_tertiary || resId == R.color.text_hint) {
-            return attr(context, R.attr.colorControlTextHint);
-        }
-        if (resId == R.color.background) {
-            return attr(context, R.attr.colorBackground);
-        }
-        if (resId == R.color.on_background) {
-            return attr(context, R.attr.colorOnBackground);
-        }
+        // 映射到了 attr 但当前主题没解析出来（换肤 overlay 缺项/自定义主题漏配）。
+        // 以前这里直接返回 0（控件变透明），现在退回资源值并在 debug 报出来。
+        warnMissingAttr(context, resId, attrId);
         return context.getColor(resId);
+    }
+
+    /** 这个颜色资源是否接了主题（跟随换肤）。供主题自检页统计跟随率。 */
+    public static boolean isThemeAware(int resId) {
+        return ATTR_BY_RES.get(resId, 0) != 0;
+    }
+
+    /** 已接主题的颜色资源 id 快照（主题自检页用）。 */
+    public static int[] themeAwareResIds() {
+        int n = ATTR_BY_RES.size();
+        int[] out = new int[n];
+        for (int i = 0; i < n; i++) {
+            out[i] = ATTR_BY_RES.keyAt(i);
+        }
+        return out;
+    }
+
+    /** 资源 → attr 的映射关系（0 = 不跟随主题）。供单测核对与旧白名单等价。 */
+    static int attrForResId(int resId) {
+        return ATTR_BY_RES.get(resId, 0);
+    }
+
+    /** 已接主题的颜色资源个数（映射表大小）。 */
+    static int themeAwareCount() {
+        return ATTR_BY_RES.size();
+    }
+
+    private static void warnUnmapped(Context context, int resId) {
+        if (!isDebuggable(context)) return;
+        if (!WARNED.add(resId)) return;
+        android.util.Log.w(TAG, "颜色未接主题: " + nameOf(context, resId) + " → 固定值"
+                + "（需要跟随换肤就把它加进 ThemeColors.ATTR_BY_RES）");
+    }
+
+    private static void warnMissingAttr(Context context, int resId, int attrId) {
+        if (!isDebuggable(context)) return;
+        // 用 resId 的去重键，避免同一颜色在缺 attr 时刷屏
+        if (!WARNED.add(resId ^ 0x5F5F)) return;
+        android.util.Log.w(TAG, "主题缺少属性: " + nameOf(context, resId)
+                + " 映射到 attr " + nameOfAttr(context, attrId) + " 解析为 0，已退回资源值");
+    }
+
+    /** 是否可调试包（本项目未开 buildConfig 特性，用 ApplicationInfo 标志位判断）。 */
+    private static boolean isDebuggable(Context context) {
+        try {
+            return (context.getApplicationInfo().flags
+                    & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static String nameOf(Context context, int resId) {
+        try {
+            return context.getResources().getResourceName(resId);
+        } catch (Throwable t) {
+            return "#" + Integer.toHexString(resId);
+        }
+    }
+
+    private static String nameOfAttr(Context context, int attrId) {
+        try {
+            return context.getResources().getResourceName(attrId);
+        } catch (Throwable t) {
+            return "#" + Integer.toHexString(attrId);
+        }
     }
 }
