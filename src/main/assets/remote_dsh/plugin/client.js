@@ -1,15 +1,17 @@
 /**
  * SmartQuiz Remote · 界面部分（DSH Web UI 插件）
  *
- * 槽位：conversation.input.activity（输入框工具条，与 progress 插件同一槽位 —— 该槽位在本机 DSH 确认可用）
+ * 槽位：conversation.input.activity（输入框工具条，与 progress 插件同一槽位）
  *
- * 2026-11-16 重做要点：
- * 1) **不再弹外部浏览器**：二维码由服务端 /pair/qr.svg 渲染，面板内联 <img> 显示；
- * 2) **动态配对码**：服务端 /pair/code 签发 30 秒轮换码，面板显示倒计时并自动续期；
- * 3) **服务端 / 客户端分开呈现**：服务端=这台电脑（监听地址、端口、执行位置、在线连接），
- *    客户端=手机（已配对设备数、配对入口）；
- * 4) **呼吸点**：连接正常时状态点做 1.1s 呼吸，旁边的"n 秒前"每秒重算 —— 不再像卡死；
- * 5) 颜色全部继承宿主（无字面色值）；文案走 t()（locale 可用时多语言，否则中文兜底）。
+ * 2026-11-16 定稿要点：
+ * 1) 弹层用原生 <dialog> + showModal()：**top layer** 渲染，天然不受祖先 transform/overflow/
+ *    z-index 影响 —— 之前用 position:fixed 会因为输入区容器带 transform 而整体偏移（"锚点不对"），
+ *    也会被其它浮层盖住（"显示在最上层"）。
+ * 2) 位置：贴视口顶部 + 水平居中（top: 12px），高度不超过视口，内容内部滚动。
+ * 3) ErrorBoundary 兜底：组件抛错时仍保留一个可点的入口，不会连按钮一起消失。
+ * 4) 二维码由服务端 /pair/qr.svg 生成并内联显示；配对码走 /pair/code（5 分钟一次性）。
+ * 5) 面板分「服务端 · 这台电脑」与「客户端 · 手机」两块，明确两边职责。
+ * 6) 颜色全部继承宿主（无字面色值）；文案走 t()（有 locale 服务则多语言，否则中文兜底）。
  */
 window.__ModuleLoader__.load({
   id: '@local/smartquiz-remote',
@@ -42,33 +44,64 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** 秒 → mm:ss（配对码 5 分钟有效，用分秒比纯秒数好读）。 */
-    function fmtLeft(sec) {
-      const s = Math.max(0, Math.floor(sec));
-      const m = Math.floor(s / 60);
-      const r = s % 60;
-      return m > 0 ? (m + ':' + String(r).padStart(2, '0')) : (r + 's');
-    }
     function ago(sec) {
       const s = Math.max(0, Math.floor(sec));
       if (s < 60) return s + ' 秒前';
       return Math.floor(s / 60) + ' 分钟前';
     }
 
+    function fmtLeft(sec) {
+      const s = Math.max(0, Math.floor(sec));
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      return m > 0 ? (m + ':' + String(r).padStart(2, '0')) : (r + 's');
+    }
+
+    /** 错误兜底：slot 组件抛错时宿主会整条抹掉，这里保证入口还在。 */
+    class Boom extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { error: null, open: false };
+      }
+
+      static getDerivedStateFromError(error) {
+        return { error };
+      }
+
+      componentDidCatch(error, info) {
+        try { console.error('[smartquiz-remote] panel crashed', error, info); } catch { /* ignore */ }
+      }
+
+      render() {
+        if (!this.state.error) return this.props.children;
+        const msg = String((this.state.error && this.state.error.message) || this.state.error);
+        return h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 } },
+          h('button', {
+            style: { border: '1px solid currentColor', borderRadius: 999, padding: '2px 10px',
+              background: 'transparent', color: 'inherit', cursor: 'pointer' },
+            onClick: () => this.setState({ open: !this.state.open }),
+          }, '📱 手机远程 ⚠'),
+          this.state.open && h('span', { style: { maxWidth: 360, whiteSpace: 'normal', opacity: 0.8, fontSize: 11 } },
+            '面板出错：' + msg));
+      }
+    }
+
     function Panel(props) {
       const t = (props && typeof props.t === 'function') ? props.t : ((key, fallback) => fallback);
 
+      const [open, setOpen] = React.useState(false);
       const [info, setInfo] = React.useState(null);
       const [st, setSt] = React.useState(null);
       const [bal, setBal] = React.useState(null);
       const [err, setErr] = React.useState('');
       const [note, setNote] = React.useState('');
       const [pubUrl, setPubUrl] = React.useState('');
-      const [code, setCode] = React.useState(null);       // { code, expires_at }
+      const [code, setCode] = React.useState(null);   // { code, expires_at }
       const [now, setNow] = React.useState(Date.now());
       const [updatedAt, setUpdatedAt] = React.useState(0);
+      const dlgRef = React.useRef(null);
 
-      // 每秒 tick：驱动"n 秒前"与配对码倒计时（呼吸由 CSS 动画负责）
+      // 每秒 tick：驱动「n 秒前」与配对码倒计时
       React.useEffect(() => {
         if (!open) return undefined;
         const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -100,27 +133,30 @@ window.__ModuleLoader__.load({
         loadCode();
       }, [loadBalance, loadCode]);
 
-      // Esc 关闭浮层（居中弹出后常用的关闭方式）
-      React.useEffect(() => {
-        if (!open) return undefined;
-        const onKey = (e) => { if (e && (e.key === 'Escape' || e.keyCode === 27)) setOpen(false); };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-      }, [open]);
-
       React.useEffect(() => { if (open) load(); }, [open, load]);
       React.useEffect(() => {
         if (!open) return undefined;
         const timer = setInterval(load, 5000);
         return () => clearInterval(timer);
       }, [open, load]);
-      // 配对码过期就地续期（服务端签发，客户端只显示）
       React.useEffect(() => {
         if (!open || !code) return undefined;
         if (code.expires_at && now > code.expires_at) loadCode();
         return undefined;
       }, [open, code, now, loadCode]);
       React.useEffect(() => { if (info) setPubUrl(info.public_url || ''); }, [info]);
+
+      // 打开时 showModal()：进入 top layer，不受祖先 transform / overflow / z-index 影响
+      React.useEffect(() => {
+        const dlg = dlgRef.current;
+        if (!dlg) return;
+        try {
+          if (open && !dlg.open) dlg.showModal();
+          if (!open && dlg.open) dlg.close();
+        } catch {
+          // 老浏览器没有 showModal 就退化为普通元素显示
+        }
+      }, [open]);
 
       const setAllowExec = (v) => {
         setNote('');
@@ -149,7 +185,7 @@ window.__ModuleLoader__.load({
       const items = (info && Array.isArray(info.items)) ? info.items : [];
       const recommended = items.find((i) => i.recommended) || items[0] || null;
       const others = items.filter((i) => i !== recommended);
-      const online = !!(st && st.connections && st.connections.some && st.connections.some((c) => c.online));
+      const online = !!(st && st.connections && Array.isArray(st.connections) && st.connections.some((c) => c.online));
       const devices = (st && Number(st.devices)) || 0;
       const execAllowed = !!(st && st.exec && st.exec.allowed);
       const modeText = st && st.cli
@@ -170,99 +206,16 @@ window.__ModuleLoader__.load({
         marginTop: 8, padding: '8px 10px', borderRadius: 8,
         border: '1px solid currentColor', borderColor: 'color-mix(in srgb, currentColor 22%, transparent)',
       };
-      // 2026-11-16：弹出层改为**屏幕正中的固定浮层**。
-      // 之前是 absolute + bottom:100% 挂在输入区工具条里 —— 会被输入区容器裁掉/盖住
-      // （用户："弹出就被遮挡了"）。fixed 定位 + 极高 z-index + 半透明遮罩，保证不被遮挡。
-      // 2026-11-16：改为**贴着按钮锚定**的浮层（popover）。
-      // 前两版分别居中/靠上，用户反馈"锚点不对"——它应该从按钮旁边弹出来。
-      // 做法：open 时测量按钮的 getBoundingClientRect，用视口坐标算位置：
-      //   · 按钮在上半屏 → 面板向下弹；在下半屏 → 向上弹（优先空间大的一侧）；
-      //   · 水平对齐按钮左缘，并夹紧在视口内（左右各留 8px）；
-      //   · 高度不超过可用空间，内容内部滚动 —— 既贴着按钮，又不会被裁/触底。
-      const btnRef = React.useRef(null);
-      const [anchor, setAnchor] = React.useState(null);
-      const [open, setOpen] = React.useState(false);
-      const measure = React.useCallback(() => {
-        const el = btnRef.current;
-        if (!el) return;
-        const r = el.getBoundingClientRect();
-        setAnchor({
-          left: r.left, top: r.top, bottom: r.bottom, right: r.right,
-          vw: window.innerWidth || document.documentElement.clientWidth || 1920,
-          vh: window.innerHeight || document.documentElement.clientHeight || 1080,
-        });
-      }, []);
-
-      React.useEffect(() => {
-        if (!open) return undefined;
-        measure();
-        const onWin = () => measure();
-        window.addEventListener('resize', onWin);
-        window.addEventListener('scroll', onWin, true);
-        return () => {
-          window.removeEventListener('resize', onWin);
-          window.removeEventListener('scroll', onWin, true);
-        };
-      }, [open, measure]);
-
-      // 点击浮层/按钮之外关闭
-      React.useEffect(() => {
-        if (!open) return undefined;
-        const onDoc = (e) => {
-          const t = e && e.target;
-          if (!t) return;
-          if (btnRef.current && btnRef.current.contains(t)) return;
-          const panel = document.getElementById('smartquiz-remote-panel');
-          if (panel && panel.contains(t)) return;
-          setOpen(false);
-        };
-        document.addEventListener('mousedown', onDoc, true);
-        return () => document.removeEventListener('mousedown', onDoc, true);
-      }, [open]);
-
-      const WIDTH = 460;
-      const panelRef = React.useRef(null);
-      // 自适应校正：DSH 输入区容器可能带 transform，此时 position:fixed 的包含块变成该容器，
-      // 用视口坐标(left/top)会整体偏移（用户说的"锚点不对"）。这里渲染后量一次实际位置，
-      // 把差值作为 transform 补上 —— 无论包含块是谁，最终都落在按钮旁边。
-      const [fix, setFix] = React.useState({ dx: 0, dy: 0 });
-      // 2026-11-16（用户明确要求）：面板**贴视口顶部、水平居中、永远在最上层**。
-      // 不再相对按钮锚定 —— 输入区容器带 transform 时定位会被带偏（就是"锚点不对"）。
-      // 位置用视口坐标给出，渲染后再用 transform 自校正一次，保证无论包含块是谁都贴在顶部。
-      const layout = (() => {
-        const a = anchor || { vw: (typeof window !== 'undefined' ? window.innerWidth : 1920),
-          vh: (typeof window !== 'undefined' ? window.innerHeight : 1080) };
-        const margin = 10;
-        const width = Math.min(WIDTH, a.vw - margin * 2);
-        const left = Math.max(margin, Math.round((a.vw - width) / 2));
-        const top = margin;
-        return {
-          style: {
-            position: 'fixed', left, top, width,
-            maxHeight: Math.max(200, a.vh - margin * 2), overflowY: 'auto',
-            zIndex: 2147483647,
-            padding: '14px 16px', borderRadius: 12, fontSize: 12, lineHeight: 1.6,
-            background: 'Canvas', color: 'CanvasText', border: '1px solid currentColor',
-            boxShadow: '0 10px 40px color-mix(in srgb, CanvasText 30%, transparent)',
-            transform: 'translate(' + fix.dx + 'px,' + fix.dy + 'px)',
-          },
-          target: { left, top },
-        };
-      })();
-      const panelBox = layout.style;
-      // 渲染后校正一次（只在偏差 >1px 时 setState，避免循环）
-      React.useLayoutEffect(() => {
-        if (!open || !layout.target) return;
-        const el = panelRef.current;
-        if (!el) return;
-        const r = el.getBoundingClientRect();
-        const dx = layout.target.left - r.left;
-        const dy = ('top' in layout.target) ? (layout.target.top - r.top) : (layout.target.bottom - r.bottom);
-        if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
-          setFix({ dx: fix.dx + dx, dy: fix.dy + dy });
-        }
-      }, [open, anchor, layout.target && layout.target.left, layout.target && layout.target.top,
-        layout.target && layout.target.bottom, fix.dx, fix.dy]);
+      // <dialog> 自带居中与边框；这里改成"贴顶 + 水平居中"，并让它继承宿主配色
+      const dialogStyle = {
+        position: 'fixed', top: '12px', left: '50%', transform: 'translateX(-50%)',
+        margin: 0, padding: '14px 16px', width: 460, maxWidth: '92vw',
+        maxHeight: 'calc(100vh - 24px)', overflowY: 'auto',
+        borderRadius: 12, fontSize: 12, lineHeight: 1.6,
+        background: 'Canvas', color: 'CanvasText',
+        border: '1px solid currentColor',
+        boxShadow: '0 10px 40px color-mix(in srgb, CanvasText 30%, transparent)',
+      };
 
       const kindLabel = (it) => {
         if (!it) return '';
@@ -286,22 +239,23 @@ window.__ModuleLoader__.load({
       });
 
       return h('span', { style: { position: 'relative', display: 'inline-flex' } },
-        // 呼吸用的 keyframes（随组件挂载/卸载，不会污染全局）
         h('style', null, PULSE_STYLE),
-        h('button', { ref: btnRef, style: chipStyle, onClick: () => setOpen((v) => !v), title: t('panel.title', '手机远程接入（答题宝）') },
-          statusDot, ' 📱 ' + t('panel.title', '手机远程') + (open ? ' ▲' : ' ▼')),
+        h('button', { style: chipStyle, onClick: () => setOpen(true), title: t('panel.title', '手机远程接入（答题宝）') },
+          statusDot, ' 📱 ' + t('panel.title', '手机远程')),
 
-        // 遮罩 + 居中浮层（点遮罩或按 Esc 关闭）
-        open && h('div', { id: 'smartquiz-remote-panel', ref: panelRef, style: panelBox },
+        h('dialog', {
+          ref: dlgRef,
+          id: 'smartquiz-remote-panel',
+          style: dialogStyle,
+          onCancel: (e) => { e.preventDefault(); setOpen(false); },
+          onClick: (e) => { if (e.target === dlgRef.current) setOpen(false); },
+        },
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 } },
             h('b', { style: { fontSize: 13 } }, '📱 ' + t('panel.title', '手机远程')),
             h('span', { style: Object.assign({}, label, { flex: 1 }) },
               online ? t('panel.connected', '在线') : t('panel.disconnected', '未连接')),
-            h('button', {
-              style: smallBtn,
-              title: t('panel.close', '关闭'),
-              onClick: () => setOpen(false),
-            }, '✕')),
+            h('button', { style: smallBtn, title: t('panel.close', '关闭'), onClick: () => setOpen(false) }, '✕')),
+
           // ---------- 服务端（这台电脑） ----------
           h('div', { style: section },
             h('div', { style: { fontWeight: 600 } },
@@ -320,15 +274,14 @@ window.__ModuleLoader__.load({
               h('span', { style: label }, '  ·  ' + t('panel.port', '端口') + ' ' + ((info && info.port) || '—'))),
             h('label', { style: Object.assign({}, row, { cursor: 'pointer' }) },
               h('input', { type: 'checkbox', checked: execAllowed, onChange: (e) => setAllowExec(e.target.checked) }),
-              h('span', null, t('panel.execAllowed', '允许手机在电脑上执行命令'))),
-          ),
+              h('span', null, t('panel.execAllowed', '允许手机在电脑上执行命令')))),
 
           // ---------- 客户端（手机） ----------
           h('div', { style: section },
             h('div', { style: { fontWeight: 600 } }, '📱 ' + t('panel.clientTitle', '客户端 · 手机'),
               h('span', { style: label }, '  ' + (online ? t('panel.connected', '在线') : t('panel.disconnected', '未连接'))
                 + ' · ' + t('panel.devices', '已配对') + ' ' + devices + ' 台')),
-            recommended && h('div', { style: Object.assign({}, row, { marginTop: 8 }) },
+            recommended && h('div', { style: Object.assign({}, row, { marginTop: 8, alignItems: 'flex-start' }) },
               h('img', {
                 src: '/pair/qr.svg?text=' + encodeURIComponent(recommended.qr_text || '') + '&cell=4',
                 alt: 'pairing qr',
@@ -336,7 +289,7 @@ window.__ModuleLoader__.load({
                 style: { imageRendering: 'pixelated', borderRadius: 6, background: '#fff' },
               }),
               h('div', { style: { flex: 1 } },
-                h('div', { style: label }, t('panel.qrHint', '手机扫码即可配对（二维码由服务端生成）')),
+                h('div', { style: label }, t('panel.qrHint', '手机扫码即可配对（二维码由服务端生成，不用打开浏览器）')),
                 h('div', { style: Object.assign({}, mono, { marginTop: 6 }) },
                   String(recommended.qr_text || '').replace(/token=.*/, 'token=***')),
                 h('div', { style: row },
@@ -344,7 +297,6 @@ window.__ModuleLoader__.load({
                     t('panel.copyPair', '复制配对串')),
                   h('button', { style: smallBtn, onClick: () => { if (!copyText(recommended.base_url || '')) setNote(t('panel.copyFailed', '复制失败')); } },
                     t('panel.copy', '复制'))))),
-            // 动态配对码（30s 轮换，服务端签发）
             h('div', { style: row },
               h('span', { style: label }, t('panel.codeTitle', '动态配对码')),
               code
@@ -355,8 +307,7 @@ window.__ModuleLoader__.load({
                 : t('panel.codeExpired', '已过期'))) : null,
               h('button', { style: smallBtn, onClick: loadCode }, t('panel.refresh', '刷新'))),
             h('div', { style: Object.assign({}, label, { marginTop: 4 }) },
-              t('panel.codeHint', '配对码由电脑签发，5 分钟内一次性有效；在手机「扫码 / 口令配对」里输入即可（后端用 CSPRNG 生成）。')),
-          ),
+              t('panel.codeHint', '配对码由电脑签发，5 分钟内一次性有效；在手机「扫码 / 口令配对」里输入即可（后端用 CSPRNG 生成）。'))),
 
           // ---------- 对外地址（可选） ----------
           h('div', { style: section },
@@ -371,16 +322,14 @@ window.__ModuleLoader__.load({
               }),
               h('button', { style: smallBtn, onClick: savePubUrl }, t('panel.save', '保存'))),
             h('div', { style: Object.assign({}, label, { marginTop: 4 }) },
-              t('panel.tunnelHint', '只有真正的公网/隧道地址才填这里；Tailscale 这类组网地址会被自动识别成「组网（VPN）」，不用填。')),
-          ),
+              t('panel.tunnelHint', '只有真正的公网/隧道地址才填这里；Tailscale 这类组网地址会被自动识别成「组网（VPN）」，不用填。'))),
 
           // ---------- 余额 / 提示 ----------
           bal && h('div', { style: Object.assign({}, row, { marginTop: 8 }) },
             h('span', { style: label }, t('panel.balance', 'DeepSeek 余额：')),
             bal.ok ? h('b', null, (bal.total_balance || '?') + ' ' + (bal.currency || '')) : h('span', { style: label }, '—')),
           note && h('div', { style: label }, '✓ ' + note),
-          err && h('div', { style: label }, '✗ ' + err),
-        ),
+          err && h('div', { style: label }, '✗ ' + err)),
       );
     }
 
@@ -411,13 +360,11 @@ window.__ModuleLoader__.load({
           }
           return fallback;
         };
-        // 2026-11-16：换到 conversation.input.activity —— 用户反馈"电脑上没看到"，
-        // 根因是 composer.dock 在本机 DSH 不存在（同目录 progress 插件用 input.activity 可见）。
         ctx.slots.inject('conversation.input.activity', () => ctx.slots.register({
           name: 'conversation.input.activity',
           id: 'smartquiz-remote',
           order: 6,
-        }, (slotProps) => h(Panel, Object.assign({}, slotProps, { t }))));
+        }, (slotProps) => h(Boom, null, h(Panel, Object.assign({}, slotProps, { t })))));
       },
     };
   },
