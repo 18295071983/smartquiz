@@ -79,7 +79,9 @@ public class ToolCallCardView implements ChatComponent {
                 statusColor = ComponentColors.success(context);
                 break;
             case "failed":
-                statusText = " ❌ " + (TextUtils.isEmpty(summary) ? "失败" : summary);
+                // 失败：把错误细节（stderr / 退出码 / 原始结果尾部）拼进摘要，
+                // 否则用户只看到"❌ 失败"，不知道哪行报错（2026-11-16）
+                statusText = " ❌ " + describeFailure(p, summary);
                 statusColor = ComponentColors.error(context);
                 break;
             default:
@@ -101,6 +103,45 @@ public class ToolCallCardView implements ChatComponent {
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
         return row;
+    }
+
+    /** 失败详情：优先结构化字段（stderr/exit_code），否则取原始结果；附耗时。 */
+    static String describeFailure(JSONObject p, String summary) {
+        String detail = p.optString("stderr", "");
+        String exit = p.optString("exitCode", "");
+        if (TextUtils.isEmpty(detail)) {
+            String raw = p.optString("result", "");
+            JSONObject obj = null;
+            try {
+                if (raw.startsWith("{")) obj = new JSONObject(raw);
+            } catch (Throwable ignored) {
+            }
+            if (obj != null) {
+                detail = obj.optString("stderr", "");
+                if (TextUtils.isEmpty(detail)) detail = obj.optString("error", "");
+                if (exit.isEmpty()) exit = obj.optString("exit_code", obj.optString("exitCode", ""));
+            } else {
+                detail = raw;
+            }
+        }
+        // 结构化字段优先：summary 是把整段 result 压平来的，里面混着 stdout/stderr，再拼一次会重复
+        boolean structured = !TextUtils.isEmpty(detail) && !detail.equals(p.optString("result", ""));
+        String head = structured ? "失败" : (TextUtils.isEmpty(summary) ? "失败" : summary);
+        if (!exit.isEmpty()) head = head + "（退出码 " + exit + "）";
+        if (!TextUtils.isEmpty(detail)) {
+            detail = detail.replaceAll("\\\\s+", " ").trim();
+            if (detail.length() > 120) detail = detail.substring(0, 120) + "...";
+            head = head + "｜" + detail;
+        }
+        String dur = formatDuration(p.optLong("durationMs", 0L));
+        return TextUtils.isEmpty(dur) ? head : head + "（" + dur + "）";
+    }
+
+    /** 1234ms → 1.2s；0 → 空 */
+    static String formatDuration(long ms) {
+        if (ms <= 0L) return "";
+        if (ms < 1000L) return ms + "ms";
+        return String.format(java.util.Locale.US, "%.1fs", ms / 1000.0);
     }
 
     /** 简略摘要：清理 JSON 标记、压缩空白、截断 */
