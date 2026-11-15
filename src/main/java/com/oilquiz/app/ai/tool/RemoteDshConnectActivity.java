@@ -903,6 +903,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        stopProbeTicker();
         detachConnection();
     }
 
@@ -1396,11 +1397,13 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 }
                 String stamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
                 if (fOk) {
-                    showProbe(COLOR_OK, "电脑端在线 ✓\n" + fText, "最近探测 " + stamp + "（" + ms + "ms）");
+                    lastProbeDurationMs = ms;
+            showProbe(COLOR_OK, "电脑端在线 ✓\n" + fText, null);
                     // 探测成功 = 可以开唯一通道（服务端推送 state/view/事件）
                     com.oilquiz.app.ai.tool.RemoteConnection.get(this).start();
                 } else {
-                    showProbe(COLOR_ERR, "连接失败 ✗\n" + fText, "最近探测 " + stamp + "（" + ms + "ms）");
+                    lastProbeDurationMs = ms;
+            showProbe(COLOR_ERR, "连接失败 ✗\n" + fText, null);
                 }
                 refresh();
                 if (fOk) syncDirectState(false);
@@ -1468,12 +1471,58 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private void showProbe(int color, String text, String timeText) {
         probeText.setTextColor(color);
         probeText.setText(text);
-        probeTime.setText(timeText == null ? "" : timeText);
+        // 2026-11-16：探测时间改成"每秒重算的相对时间"。
+        // 旧实现写死 HH:mm:ss，页面静止时看着像时间卡死（用户原话）。
+        lastProbeMs = System.currentTimeMillis();
+        probeTime.setText(relativeProbeText());
+        startProbeTicker();
+    }
+
+    /** 最近一次探测距今多少秒（0 = 还没探测过）。 */
+    private long lastProbeMs = 0L;
+    private long lastProbeDurationMs = 0L;
+    private final android.os.Handler probeTicker = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable probeTickTask = new Runnable() {
+        @Override
+        public void run() {
+            if (probeTime != null) {
+                probeTime.setText(relativeProbeText());
+            }
+            probeTicker.postDelayed(this, 1000);
+        }
+    };
+
+    private String relativeProbeText() {
+        if (lastProbeMs <= 0) {
+            return "";
+        }
+        // 文案抽到 RemoteTimeText（可单测）：连接页与扩展面板共用同一套"n 秒前/分钟前"。
+        return RemoteTimeText.probeLine(System.currentTimeMillis() - lastProbeMs, lastProbeDurationMs);
+    }
+
+    private void startProbeTicker() {
+        probeTicker.removeCallbacks(probeTickTask);
+        probeTicker.postDelayed(probeTickTask, 1000);
+    }
+
+    private void stopProbeTicker() {
+        probeTicker.removeCallbacks(probeTickTask);
     }
 
     private void dot(int drawableId) {
         Drawable d = ContextCompat.getDrawable(this, drawableId);
         statusDot.setBackground(d);
+        // 2026-11-16：在线时让状态点"呼吸"，离线/异常时常亮。
+        // 之前圆点完全静止，旁边的耗时/状态文字又只在刷新时变，看着像时间卡死。
+        try {
+            if (drawableId == R.drawable.circle_green) {
+                com.oilquiz.app.ui.UiFx.breathing(statusDot);
+            } else {
+                com.oilquiz.app.ui.UiFx.stopBreathing(statusDot);
+            }
+        } catch (Throwable ignored) {
+            // 动画失败不影响状态显示
+        }
     }
 
     private void setEnabled(MaterialButton b, boolean enabled) {

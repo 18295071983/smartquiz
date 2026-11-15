@@ -181,6 +181,53 @@ public final class UiFx {
         play(view, R.anim.thinking_dot_bounce);
     }
 
+    /**
+     * 状态点"呼吸"（2026-11-16）。
+     *
+     * <p>用途：连接状态圆点、心跳指示这类"还活着"的信号。不动的圆点看起来像卡死，
+     * 尤其与旁边不断刷新的耗时/时间对比时更明显（用户原话："看着像时间卡死"）。</p>
+     *
+     * <p>实现沿用桌面端 demo 的 {@code .pulse}：1.1s 一次，alpha 1 → 0.3 → 1 循环。
+     * 用 tag 防重复启动；{@link #stopBreathing(View)} 负责停（页面 pause / 离线时调）。</p>
+     */
+    public static void breathing(View view) {
+        if (view == null) {
+            return;
+        }
+        Object running = view.getTag(R.id.tag_breathing);
+        if (running instanceof android.animation.Animator) {
+            return;
+        }
+        try {
+            android.animation.ObjectAnimator a =
+                    android.animation.ObjectAnimator.ofFloat(view, "alpha", 1f, 0.3f, 1f);
+            a.setDuration(1100L);
+            a.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+            a.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+            view.setTag(R.id.tag_breathing, a);
+            a.start();
+        } catch (Throwable t) {
+            // 动画失败不至于影响界面
+        }
+    }
+
+    /** 停止呼吸（离线 / 页面不可见时用，避免后台白耗电）。 */
+    public static void stopBreathing(View view) {
+        if (view == null) {
+            return;
+        }
+        Object running = view.getTag(R.id.tag_breathing);
+        if (running instanceof android.animation.Animator) {
+            try {
+                ((android.animation.Animator) running).cancel();
+            } catch (Throwable ignored) {
+                // 已结束
+            }
+            view.setTag(R.id.tag_breathing, null);
+        }
+        view.setAlpha(1f);
+    }
+
     /** 输入光标闪烁。 */
     public static void cursorBlink(View view) {
         play(view, R.anim.cursor_blink);

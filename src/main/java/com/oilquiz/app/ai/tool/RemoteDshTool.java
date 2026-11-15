@@ -2742,12 +2742,16 @@ public class RemoteDshTool implements AITool {
             Object jobs = resp.get("active_jobs");
             if (jobs != null) sb.append("插件在跑任务: ").append(jobs).append(" 个（0 = 空闲）\n");
         }
-        // 插件（smartquiz-remote）信息：隧道域名 / 服务端口 / 已配对设备数（来自 /status ✓）
+        // 插件（smartquiz-remote）信息：对外地址 / 服务端口 / 已配对设备数（来自 /status ✓）
+        // 2026-11-16：不再一律叫"隧道域名" —— Tailscale 这类组网地址（100.64/10）根本不需要公网，
+        // 旧文案会让人以为"我没开隧道怎么显示隧道"，属于显示错乱。现在按地址类型给标签+说明。
         Object pubUrl = resp.get("public_url");
         if (pubUrl != null && !String.valueOf(pubUrl).trim().isEmpty()) {
-            sb.append("隧道域名: ").append(pubUrl).append("（配对页会多出一张公网二维码）\n");
+            String addr = String.valueOf(pubUrl).trim();
+            sb.append(RemoteAddressKind.label(addr)).append("地址: ").append(addr)
+                    .append("（").append(RemoteAddressKind.usageHint(addr)).append("）\n");
         } else {
-            sb.append("隧道域名: 未设置（只有局域网二维码；可在电脑 DSH 的「手机远程」面板里填写）\n");
+            sb.append("对外地址: 未配置（只有局域网二维码；可在电脑 DSH 的「手机远程」面板里填写）\n");
         }
         Object lanPort = resp.get("lan_port");
         if (lanPort != null) sb.append("插件服务端口: ").append(lanPort).append("\n");

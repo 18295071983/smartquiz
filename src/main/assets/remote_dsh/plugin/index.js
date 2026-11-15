@@ -41,6 +41,7 @@ import { checkCard, describe } from './cardcheck.js';
 // 目标不是数字好看，而是让高频改动点各有唯一落点（见 docs/dsh-remote-plugin/模块化改造方案.md）。
 import { warnOnce, clientMsgDuplicated, abortError, originHash } from './lib/util.js';
 import { SLOT_PRIORITY, slotPriorityOfLevel, slotLevelOfPriority, slotPriorityValue } from './lib/slots.js';
+import { buildCandidates } from './lib/address.js';
 // 配置 schema（DSH 规范）：激活时校验，写错的键/类型会直接报出来。
 // 解析不到 schemastery 时自动降级为"不声明"，不影响插件启动 —— 见 config.js 注释。
 import { Config } from './config.js';
@@ -590,30 +591,15 @@ function lanIpv4() {
 
 /** 配对候选：qr_text 与旧桥一致 → dshpair://<host>:<port>?token=<token> */
 function pairCandidates(port, token, cfg) {
-  const ips = lanIpv4All();
-  const out = ips.map((ip, i) => ({
-    ip,
-    base_url: `http://${ip}:${port}`,
-    qr_text: `dshpair://${ip}:${port}?token=${token}`,
-    label: i === 0 ? '局域网（首选）' : '局域网',
-  }));
-  // 隧道/公网候选（旧桥同款格式：dshpair://host?scheme=https&port=443&token=…）
-  const pub = cfg && typeof cfg.publicUrl === 'string' ? cfg.publicUrl.trim() : '';
-  if (pub) {
-    try {
-      const u = new URL(pub);
-      const https = u.protocol === 'https:';
-      out.push({
-        ip: u.hostname,
-        base_url: pub.replace(/\/+$/, ''),
-        qr_text: https
-          ? `dshpair://${u.hostname}?scheme=https&port=443&token=${token}`
-          : `dshpair://${u.hostname}:${u.port || 80}?token=${token}`,
-        label: https ? '公网/隧道（HTTPS）' : '公网/隧道',
-      });
-    } catch { /* publicUrl 非法则忽略 */ }
-  }
-  return out;
+  // 2026-11-16：分类/排序下沉到 lib/address.js ——
+  // 旧实现只分"局域网/公网"，把 Tailscale 组网地址（100.64/10）也标成"公网隧道"，
+  // 面板上看就是"我用的是局域网，怎么显示成公网"。现在按 lan/mesh/public 三类判。
+  return buildCandidates(
+    lanIpv4All(),
+    port,
+    token,
+    cfg && typeof cfg.publicUrl === 'string' ? cfg.publicUrl : '',
+  );
 }
 
 function resolveToken(ctx, cfg) {

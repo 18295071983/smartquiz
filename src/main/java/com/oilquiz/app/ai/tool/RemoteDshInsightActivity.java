@@ -42,6 +42,11 @@ public class RemoteDshInsightActivity extends AppCompatActivity {
     private static final String TAG = "RemoteDshInsight";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
+
+    /** 状态行原始文案（不含"n 秒前"后缀，ticker 每秒重算，见 renderStatusTicker）。 */
+    private String lastStatusText = "";
+    /** 最近一次拿到数据的时间戳（0=还没有数据）。 */
+    private long lastUpdatedAt = 0L;
     private LinearLayout host;
     private TextView status;
 
@@ -171,8 +176,46 @@ public class RemoteDshInsightActivity extends AppCompatActivity {
     }
 
     private void setStatus(String text) {
-        if (status != null) status.setText(text == null ? "" : text);
+        lastStatusText = text == null ? "" : text;
+        lastUpdatedAt = System.currentTimeMillis();
+        renderStatusTicker();
+        startStatusTicker();
     }
+
+    /**
+     * 状态行的"活着"指示（2026-11-16）。
+     *
+     * <p>问题：页面只在 onResume/刷新时更新一次，状态行末尾是写死的 {@code 已更新 06:10:25}，
+     * 站着看 10 秒也不会变 —— 用户原话"看着像时间卡死"。现在末尾接一个每秒重算的
+     * {@code · 3 秒前}，并在超过 60 秒时改成 {@code · 1 分钟前}，一眼能看出是不是没刷新。</p>
+     */
+    private void renderStatusTicker() {
+        if (status == null) {
+            return;
+        }
+        if (lastUpdatedAt <= 0) {
+            status.setText(lastStatusText);
+            return;
+        }
+        String ago = RemoteTimeText.statusSuffix(System.currentTimeMillis() - lastUpdatedAt);
+        status.setText(lastStatusText.isEmpty() ? ago : (lastStatusText + " · " + ago));
+    }
+
+    private void startStatusTicker() {
+        ui.removeCallbacks(statusTicker);
+        ui.postDelayed(statusTicker, 1000);
+    }
+
+    private final Runnable statusTicker = new Runnable() {
+        @Override
+        public void run() {
+            renderStatusTicker();
+            // 页面可见才续期；不可见时停掉，避免后台白耗电
+            if (!isFinishing()) {
+                ui.postDelayed(this, 1000);
+            }
+        }
+    };
 
     // ================= 渲染 =================
 
@@ -201,8 +244,9 @@ public class RemoteDshInsightActivity extends AppCompatActivity {
         appendSubagentSection(subs, st);
         appendMcpSection(mcp, st);
         appendClientActions(st);
-        String stamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
-        setStatus(st.length() == 0 ? ("已更新 · " + stamp) : (st + " · " + stamp));
+        // 2026-11-16：不再把时间戳写死在文案里 —— setStatus 记录时间并每秒重算「n 秒前」，
+        // 页面静止时也能看出是刚更新还是已经 30 秒没刷新（旧实现看着像时间卡死）。
+        setStatus(st.length() == 0 ? "已更新" : st.toString());
     }
 
     /**
