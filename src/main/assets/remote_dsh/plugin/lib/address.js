@@ -95,7 +95,16 @@ export function buildCandidates(ips, port, token, publicUrl) {
     }
   }
   // 稳定排序：kind 权重 → 原始顺序；第一条标 recommended（手机扫码默认用它）
-  const withIndex = out.map((c, i) => ({ c, i }));
+  // 去重（2026-11-16）：本机可能同时有多张网卡/组网接口指向同一地址
+  // （真机见过 100.113.188.52 出现两次），按 base_url 去重后再排序。
+  const seen = new Set();
+  const unique = out.filter((c) => {
+    const key = String(c.base_url || c.ip || '');
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const withIndex = unique.map((c, i) => ({ c, i }));
   withIndex.sort((x, y) => kindRank(x.c.kind) - kindRank(y.c.kind) || x.i - y.i);
   return withIndex.map(({ c }, idx) => ({ ...c, recommended: idx === 0 }));
 }

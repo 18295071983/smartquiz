@@ -177,7 +177,9 @@ window.__ModuleLoader__.load({
       const panelBox = {
         // 2026-11-16 第三次调：用户反馈"往上点，触底了" —— 垂直居中时面板一长就贴住底边。
         // 改为"顶部对齐 + 左右居中"：距顶 6vh，最高 86vh，底部永远留出空间。
-        position: 'fixed', left: '50%', top: '6vh', transform: 'translateX(-50%)',
+        // 2026-11-16：用 vw 而不是 % —— 输入区容器若有 transform，fixed 的百分比会相对它算，
+        // 真机截图里左侧被裁掉（标签只剩「域网」「网（VPN）」）就是这原因；vw 始终相对视口。
+        position: 'fixed', left: '50vw', top: '6vh', transform: 'translateX(-50%)',
         zIndex: 2147483000,
         width: 460, maxWidth: '92vw', maxHeight: '86vh', overflowY: 'auto',
         padding: '14px 16px', borderRadius: 12, fontSize: 12, lineHeight: 1.6,
@@ -282,7 +284,7 @@ window.__ModuleLoader__.load({
                 : t('panel.codeExpired', '已过期'))) : null,
               h('button', { style: smallBtn, onClick: loadCode }, t('panel.refresh', '刷新'))),
             h('div', { style: Object.assign({}, label, { marginTop: 4 }) },
-              t('panel.codeHint', '配对码由电脑签发，30 秒自动轮换；在手机「扫码/口令配对」里输入即可。')),
+              t('panel.codeHint', '配对码由电脑签发，5 分钟内一次性有效；在手机「扫码 / 口令配对」里输入即可（后端用 CSPRNG 生成）。')),
           ),
 
           // ---------- 对外地址（可选） ----------
