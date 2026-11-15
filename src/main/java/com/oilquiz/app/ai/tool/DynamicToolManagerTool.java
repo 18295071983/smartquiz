@@ -14,7 +14,7 @@ import java.util.Map;
 
 @Tool(
     value = "create_dynamic_tool",
-    description = "动态创建和管理AI工具：把重复性任务封装成可复用工具。action=create时填tool_name+description+parameters+logic(Python脚本/JavaScript脚本或DSL)，创建后可被后续对话直接调用；update/delete修改或移除已有工具；list列出全部动态工具；show查看单个工具完整定义(含执行逻辑)；test用给定参数试运行不落库",
+    description = DynamicToolManagerTool.DESCRIPTION,
     category = "tool_management",
     aliases = {"dynamic_tool", "create_tool", "动态工具"},
     actions = {
@@ -37,7 +37,31 @@ import java.util.Map;
 public class DynamicToolManagerTool implements AITool {
     private static final String TAG = "DynamicToolManagerTool";
     private static final String TOOL_NAME = "create_dynamic_tool";
-    
+
+    /**
+     * 工具定义正文（<b>单一来源</b>）：类上 {@code @Tool.description} 与
+     * {@link #getDescription()} 都引用它，避免"注解一份、方法一份"漂开
+     * （本类原先就是两份手抄的长文案；改一处忘另一处时，在线引擎与本地引擎看到的定义不同）。
+     *
+     * <p><b>2026-11-16 为什么要重写这段</b>：动态工具重构（R4）把 DSL 的 {@code if} 条件求值
+     * 从手写字符串比较换成了 {@link ExpressionEngine}，这才真正支持 {@code >= <= && || !}
+     * 与字符串方法。但能力只落在实现里、定义里还写"if (条件)"，模型就不知道能这么写 ——
+     * 等于加了能力也没人用。所以这里把三类执行体的差异、{@code ${参数名}} 取参、
+     * 表达式能力与边界一次写清。</p>
+     */
+    static final String DESCRIPTION =
+            "动态工具管理：把重复性任务封装成可复用工具。创建后立即注册、后续对话可直接调用（落盘，重启仍在）。"
+            + "action: create(创建)/update(更新，只改传入字段)/delete(删除)/list(列出)/show(查看完整定义)/"
+            + "test(用参数试运行，不落库)。"
+            + "create 需 tool_name(字母开头，仅字母/数字/下划线，≤64)+description+parameters+logic；logic 支持三类执行体并自动识别："
+            + "①Python：script_args['参数名'] 取参，print/顶层 return 为结果；"
+            + "②JavaScript：script_args.参数名 取参，console.log/末尾表达式/顶层 return 为结果；"
+            + "③DSL：echo/set/if/call_tool 等，${参数名} 取参。"
+            + "DSL 的 if 条件支持表达式：== != > < >= <=、&& || !、算术与字符串方法，可直接写参数名或 ${参数名}，"
+            + "如 if (${score} >= 60 && level == \"A\") then echo 通过；"
+            + "表达式上限 2000 字符，禁赋值/new/import，解析失败自动回退旧的字符串比较。"
+            + "create/update/delete 属高危动作，delete 不可撤销（重建不会恢复原逻辑）。";
+
     private final Context context;
     private final AIToolManager toolManager;
     
@@ -53,15 +77,15 @@ public class DynamicToolManagerTool implements AITool {
     
     @Override
     public String getDescription() {
-        return "动态创建和管理AI工具：把重复性任务封装成可复用工具。action=create时填tool_name+description+parameters+logic(Python脚本/JavaScript脚本或DSL)，创建后可被后续对话直接调用；update/delete修改或移除已有工具；list列出全部动态工具；show查看单个工具完整定义(含执行逻辑)；test用给定参数试运行不落库";
+        return DESCRIPTION;
     }
     
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("action", "操作类型：create(创建工具)、delete(删除工具)、list(列出工具)、update(更新工具)、show(查看单个工具定义)、test(试运行)");
-        params.put("tool_name", "工具名称(必填，仅英文、数字和下划线)");
-        params.put("description", "工具描述");
+        params.put("action", "操作类型：create(创建)/update(更新，只改传入字段)/delete(删除)/list(列出)/show(查看单个工具完整定义)/test(用给定参数试运行，不落库)");
+        params.put("tool_name", "工具名称：字母开头，只含字母/数字/下划线，最长64，不能用 mcp__ 前缀（例：my_weather）；create 必填且不能与已有工具重名（重名请改用 update），update/delete/show/test 也要给");
+        params.put("description", "工具描述：模型靠它决定什么时候调用这个工具，写清用途与输入输出");
         params.put("parameters", "工具参数定义，支持三种格式：\n" +
                 "  1. 简单：{\"参数名\":\"参数描述\"}\n" +
                 "  2. 属性级：{\"参数名\":{\"type\":\"string\",\"description\":\"...\",\"required\":true,\"default\":...,\"enum\":[...]}}\n" +
@@ -81,7 +105,11 @@ public class DynamicToolManagerTool implements AITool {
                 "  - split 文本,分隔符：分割文本\n" +
                 "  - join 分隔符,列表：连接列表\n" +
                 "  - call_tool 工具名,{\"参数名\":\"参数值\"}：调用其他工具\n" +
-                "  - 变量替换：${参数名} 或 ${变量名}");
+                "  - 变量替换：${参数名} 或 ${变量名}\n" +
+                "  - if 条件支持表达式（2026-11-16 起）：== != > < >= <=、&& || !、算术与字符串方法；" +
+                "可直接写参数名或 ${参数名}。例：if (${score} >= 60 && level == \"A\") then echo 通过。" +
+                "表达式上限 2000 字符、禁赋值/new/import；解析失败会自动回退旧的字符串比较（历史写法不回归）。" +
+                "一次调用最多跑 60 秒，超时按失败返回");
         params.put("test_params", "试运行参数JSON(action=test时使用，格式{\"参数名\":值})");
         return params;
     }

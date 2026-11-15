@@ -1,6 +1,8 @@
 package com.oilquiz.app.ai.tool;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
@@ -12,6 +14,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
+
+import java.util.Arrays;
 
 /**
  * 模型可见性守卫（2026-10-23）。
@@ -281,7 +285,10 @@ public class ToolSchemaVisibilityTest {
         String types = read("src/main/java/com/oilquiz/app/ai/chat/component/ComponentTypes.java");
         // job 是工具挂载卡（withComponent），不进"面向模型的目录"（有 29 条上限），只在 ComponentRegistry 渲染
         assertTrue("ComponentTypes 不该把 job 列为模型可创建类型", !types.contains("SCHEMA.put(\"job\""));
-        assertTrue("ComponentTypes 该注明 job 是工具挂载", types.contains("type=job"));
+        // 2026-11-15（e70cafc6）dsh_job 已合并进内置 job 卡：目录里仍不登记 job，
+        // 但历史会话里的旧类型名必须留别名映射，否则旧卡会掉进 JSON 兜底。
+        // 旧断言要的是"注明 job 是工具挂载"（当时写作注释 type=job），注释随合并改了，这里跟着改成别名口径。
+        assertTrue("ComponentTypes 缺 dsh_job→job 的别名映射", types.contains("alias.put(\"dsh_job\", \"job\")"));
 
         String registry = read("src/main/java/com/oilquiz/app/ai/chat/component/ComponentRegistry.java");
         assertTrue("ComponentRegistry 没注册 JobCardView", registry.contains("new JobCardView()"));
@@ -320,6 +327,67 @@ public class ToolSchemaVisibilityTest {
         String prompt = read("src/main/java/com/oilquiz/app/ai/agent/online/OnlinePromptBuilder.java");
         assertTrue("在线系统提示词没教进度插槽", prompt.contains("进度插槽"));
         assertTrue("在线系统提示词没教 action=progress", prompt.contains("action=progress"));
+    }
+
+    /**
+     * 动态工具定义的收口（2026-11-16，重构 R4 之后）。
+     *
+     * <p>R4 把 DSL 的 {@code if} 条件从手写字符串比较换成 {@link ExpressionEngine}（MVEL），
+     * 这才真正支持 {@code >= <= && ||} 与字符串方法；但能力只落在实现里、工具定义里还写
+     * "if (条件)"，模型就不知道能这么写 —— 等于加了能力也没人用（本类开头记的就是这类教训）。</p>
+     *
+     * <p>另外 action 一直是"无枚举的 string"：`show`/`test` 这些动作模型看不见，只会用 create。
+     * 这条用例把同源的几份定义钉住：①在线 schema（模型真正拿到的那份）；②注解/构造抄本；
+     * ③本地 AgentService 的轻量 schema；④工作区《工具创建指南》；
+     * ⑤KB 工具定义版本（定义内容变了不抬版本，已装机永远不会重灌）。</p>
+     */
+    @Test
+    public void dynamicToolDefinitionTeachesExpressionConditionsAndActions() throws Exception {
+        ToolDefinition def = AIToolManager.getInstance(context).getToolDefinition("create_dynamic_tool");
+        assertNotNull("在线定义取不到 create_dynamic_tool", def);
+        String online = dump(def);
+        for (String kw : new String[]{">=", "<=", "&&", "||", "${参数名}"}) {
+            assertTrue("在线 create_dynamic_tool 定义没教表达式 " + kw, online.contains(kw));
+        }
+
+        // action 枚举：execute() 的 switch 就是这 6 个动作；没有枚举时模型只敢用第一个
+        ParamDefinition action = null;
+        for (ParamDefinition p : def.getParameters()) {
+            if ("action".equals(p.getName())) action = p;
+        }
+        assertNotNull("在线定义缺 action 参数", action);
+        assertEquals("action 枚举必须与 execute() 的 switch 逐字一致",
+                Arrays.asList("create", "update", "delete", "list", "show", "test"),
+                action.getEnumValues());
+
+        // 注解与 getDescription 必须同一份文案（一份给在线引擎、一份给本地/反射引擎）
+        String annotationDesc = DynamicToolManagerTool.class
+                .getAnnotation(com.oilquiz.app.ai.tool.annotation.Tool.class).description();
+        assertEquals("注解 description 与 getDescription 漂开了", DynamicToolManagerTool.DESCRIPTION,
+                annotationDesc);
+        assertTrue("注解/构造抄本没教 >=", annotationDesc.contains(">="));
+        assertTrue("注解/构造抄本没教 &&", annotationDesc.contains("&&"));
+        assertTrue("注解/构造抄本没教 ${参数名} 取参", annotationDesc.contains("${参数名}"));
+
+        // 本地 AgentService 那份轻量 schema：端侧编排读它，同样不能再写"默认 list"、不能漏表达式
+        String agentService = read("src/main/java/com/oilquiz/app/ai/service/AgentService.java");
+        assertTrue("AgentService 本地 schema 没教 DSL 条件表达式",
+                agentService.contains("if (${score} >= 60"));
+        assertFalse("AgentService 本地 schema 还把缺省动作写成 list（实现是 create）",
+                agentService.contains("create_dynamic_tool\", \"动态创建和管理AI工具\", \"action(操作类型: create/update/delete/list/show/test,默认list)"));
+
+        // 工作区《工具创建指南》：执行体早已是 Python/JS/DSL，不能再写"Java 动态工具"；
+        // 条件表达式也要教（这份指南是 Agent 自己读的能力说明）
+        String guideSource = read(
+                "src/main/java/com/oilquiz/app/ai/agent/online/AgentWorkspace.java");
+        assertTrue("工作区指南没教 DSL 条件表达式", guideSource.contains("if (${score} >= 60"));
+        assertFalse("工作区指南还把动态工具写成 Java（执行体是 Python/JS/DSL）",
+                guideSource.contains("（Java 动态工具"));
+
+        // 知识库工具定义是版本门控的：内容变了必须抬版本才会重灌
+        String kbHost = read("src/main/java/com/oilquiz/app/ai/agent/online/OnlineToolManager.java");
+        assertTrue("工具定义内容变了却没抬 TOOL_DEFS_VERSION（已装机 KB 不会重灌）",
+                kbHost.contains("20261116-v7"));
     }
 
     private static String read(String path) throws Exception {

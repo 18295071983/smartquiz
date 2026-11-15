@@ -781,7 +781,10 @@ public class OnlineToolManager {
     // 语义检索召不回"改台标/换频道表"这类需求。
     // 2026-10-28 v6：知识库检索换 bigram（DB v4）；用户要求"全清重来"，清库后必须靠抬版本
     // 触发工具定义重灌（否则 prefs 里还是 v5，清完就再也不会入库）。
-    private static final String TOOL_DEFS_VERSION = "20261026-v6";
+    // 2026-11-16 v7：动态工具定义更新 —— create_dynamic_tool 补上 6 个 action 与 DSL 条件表达式
+    //（>=/<=/&&/||、${参数名}）。定义内容变了不抬版本，已装机的 KB 里仍是旧文案，
+    // "动态工具里条件怎么写"这类检索照样召不回旧定义。
+    private static final String TOOL_DEFS_VERSION = "20261116-v7";
 
     /**
      * 工具定义入库（幂等 + 版本控制）：把全部启用工具的定义（描述/适用场景/参数）写入知识库

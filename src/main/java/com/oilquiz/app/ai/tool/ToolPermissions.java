@@ -147,4 +147,30 @@ public final class ToolPermissions {
         }
         return out;
     }
+
+    /**
+     * 某一级别下的工具名 + <b>动态工具</b>（{@code create_dynamic_tool} 创建的，不在静态表里）。
+     *
+     * <p>动态工具没有静态分级，{@link #levelOf} 对它们兜底按 {@link Level#EXEC}；而设置页若只遍历
+     * 静态表，用户就永远看不到模型自建的工具 —— R3 的验收点恰恰是"动态工具在 Agent 设置页的
+     * 权限分级里可见"。合并逻辑放这里（纯 Java、可单测），设置页只负责渲染。</p>
+     *
+     * @param dynamicToolNames 动态工具名，可为 null；<b>只在 EXEC 档并入</b>，避免把"未分级"
+     *                         伪装成"已分级到只读/危险"；已在静态表里的同名工具按静态表那一档，
+     *                         不在这里重复归类
+     */
+    public static Set<String> toolsOf(Level level, java.util.Collection<String> dynamicToolNames) {
+        Set<String> out = toolsOf(level);
+        if (level != Level.EXEC || dynamicToolNames == null) {
+            return out;
+        }
+        for (String name : dynamicToolNames) {
+            if (name == null) continue;
+            String trimmed = name.trim();
+            if (trimmed.isEmpty()) continue;
+            if (LEVELS.containsKey(trimmed.toLowerCase(Locale.US))) continue;   // 已分级：按静态表
+            out.add(trimmed);
+        }
+        return out;
+    }
 }

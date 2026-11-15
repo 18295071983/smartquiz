@@ -15,6 +15,7 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.tool.GitCredentials;
 import com.oilquiz.app.ai.tool.ToolPermissions;
 import com.oilquiz.app.theme.ThemeColors;
@@ -207,10 +208,22 @@ public class AgentSettingsActivity extends AppCompatActivity {
         ToolPermissions.Level[] levels = {ToolPermissions.Level.READ_ONLY,
                 ToolPermissions.Level.WRITE_LOCAL, ToolPermissions.Level.EXEC,
                 ToolPermissions.Level.NETWORK, ToolPermissions.Level.DANGEROUS};
+        // 动态工具（create_dynamic_tool 创建）不进静态分级表，ToolPermissions.levelOf 对它们兜底按 EXEC；
+        // 而设置页只遍历 LEVELS 这张静态表，于是模型自建的工具在这一页永远看不到 ——
+        // R3 的验收点恰恰是"动态工具在 Agent 设置页的权限分级里可见"。这里交给
+        // ToolPermissions.toolsOf(level, dynamic) 合并（纯 Java，可单测）。
+        java.util.List<String> dynamicTools = java.util.Collections.emptyList();
+        try {
+            dynamicTools = AIToolManager.getInstance(this).getDynamicTools();
+        } catch (Throwable ignored) {
+            // 设置页不该因为注册表还没初始化就崩：拿不到就只显示静态分级
+        }
         for (int i = 0; i < levels.length; i++) {
-            Set<String> tools = ToolPermissions.toolsOf(levels[i]);
+            Set<String> tools = ToolPermissions.toolsOf(levels[i], dynamicTools);
+            String extra = (levels[i] == ToolPermissions.Level.EXEC && !dynamicTools.isEmpty())
+                    ? "（含动态工具 " + dynamicTools.size() + " 个，未单独分级）" : "";
             TextView head = new TextView(this);
-            head.setText(labels[i] + " · " + tools.size() + " 个");
+            head.setText(labels[i] + " · " + tools.size() + " 个" + extra);
             Tokens.applyText(head, Tokens.TEXT_BODY_LG, Tokens.Weight.SEMIBOLD,
                     ThemeColors.get(this, R.color.text_primary));
             LinearLayout.LayoutParams hlLp = new LinearLayout.LayoutParams(

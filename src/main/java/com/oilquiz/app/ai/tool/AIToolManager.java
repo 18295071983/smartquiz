@@ -1897,18 +1897,27 @@ public class AIToolManager {
                     .category("app")
                     .build();
             case "create_dynamic_tool":
-                return ToolDefinition.builder("create_dynamic_tool", "动态创建和管理AI工具：把重复性任务封装成可复用工具。action=create时填tool_name+description+parameters+logic(Python脚本/JavaScript脚本或DSL)，创建后可被后续对话直接调用；update/delete修改或移除已有工具；list列出全部动态工具；show查看单个工具完整定义(参数schema+执行逻辑全文)；test用test_params试运行不落库")
-                    .addParameter("action", "string", "操作类型: create/update/delete/list/show/test", false, "list")
-                    // 命名规则写进参数描述：这条以前只写"工具名称"，模型按中文起名→被拒→
-                    // 再猜一次，白花一轮。规则的唯一权威是 AIToolManager.toolNameError，
-                    // 文案与它保持一致（改了校验要同步这里和 ai_create_tool 的报错话术）
-                    .addParameter("tool_name", "string", "工具名称：字母开头，只含字母/数字/下划线，最长64，不能用 mcp__ 前缀（例：my_weather）", false)
-                    .addParameter("description", "string", "工具描述", false)
-                    .addParameter("parameters", "string", "参数定义，支持三种格式：1.简单{\"参数名\":\"参数描述\"}；2.属性级{\"参数名\":{\"type\":\"string\",\"description\":\"...\",\"required\":true,\"default\":...,\"enum\":[...]}}；3.完整JSON Schema{\"type\":\"object\",\"properties\":{...},\"required\":[...]}。类型支持string/number/integer/boolean/array/object", false)
-                    .addParameter("logic", "string", "执行逻辑脚本：支持Python脚本(自动识别，脚本内用script_args['参数名']读取工具参数，支持顶层return，print输出/返回值作为结果)、JavaScript脚本(自动识别，用 script_args.参数名 读取，console.log 或返回值作为结果)或DSL命令(echo/set/if/call_tool等)。一次调用最多跑60秒，超时按失败返回", false)
-                    .addParameter("test_params", "string", "试运行参数JSON(action=test时使用，格式{\"参数名\":值}，也可直接传参)", false)
-                    .category("tool")
-                    .build();
+                // 2026-11-16：描述正文改为引用 DynamicToolManagerTool.DESCRIPTION —— 这里原有一份
+                // 手抄硬编码文案，与工具类里的 getDescription() 是两份权威；R4 把条件求值换成
+                // ExpressionEngine 后，能力只落进实现、两份定义都没教，模型等于用不上。
+                // 参数表仍显式列出（硬编码路径能把"命名规则/枚举"写在最前面），
+                // 与 DynamicToolManagerTool.getParameterDescriptions() 保持一致；
+                // 有 ToolSchemaVisibilityTest 同时钉住这两份。
+                return ToolDefinition.builder("create_dynamic_tool", DynamicToolManagerTool.DESCRIPTION)
+                        .addParameter("action", "string",
+                                "操作类型: create(创建)/update(更新，只改传入字段)/delete(删除)/list(列出)/"
+                                        + "show(查看单个工具完整定义)/test(用给定参数试运行，不落库)（缺省 create）",
+                                false, null, DYNAMIC_TOOL_ACTIONS)
+                        // 命名规则写进参数描述：这条以前只写"工具名称"，模型按中文起名→被拒→
+                        // 再猜一次，白花一轮。规则的唯一权威是 AIToolManager.toolNameError，
+                        // 文案与它保持一致（改了校验要同步这里和 ai_create_tool 的报错话术）
+                        .addParameter("tool_name", "string", "工具名称：字母开头，只含字母/数字/下划线，最长64，不能用 mcp__ 前缀（例：my_weather）；create 必填且不能与已有工具重名（重名请改用 update），update/delete/show/test 也要给", false)
+                        .addParameter("description", "string", "工具描述：模型靠它决定什么时候调用这个工具，写清用途与输入输出", false)
+                        .addParameter("parameters", "string", "参数定义，支持三种格式：1.简单{\"参数名\":\"参数描述\"}；2.属性级{\"参数名\":{\"type\":\"string\",\"description\":\"...\",\"required\":true,\"default\":...,\"enum\":[...]}}；3.完整JSON Schema{\"type\":\"object\",\"properties\":{...},\"required\":[...]}。类型支持string/number/integer/boolean/array/object", false)
+                        .addParameter("logic", "string", "执行逻辑脚本：支持Python脚本(自动识别，脚本内用script_args['参数名']读取工具参数，支持顶层return，print输出/返回值作为结果)、JavaScript脚本(自动识别，用 script_args.参数名 读取，console.log 或返回值作为结果)或DSL命令(echo/set/if/call_tool等，用 ${参数名} 取参)。DSL 的 if 条件支持表达式：== != > < >= <=、&& || !、算术与字符串方法，可直接写参数名或 ${参数名}，如 if (${score} >= 60 && level == \"A\") then echo 通过（表达式上限2000字符，禁赋值/new/import，解析失败回退旧的字符串比较）。一次调用最多跑60秒，超时按失败返回", false)
+                        .addParameter("test_params", "string", "试运行参数JSON(action=test时使用，格式{\"参数名\":值}，也可直接传参)", false)
+                        .category("tool")
+                        .build();
             case "dashscope_media":
                 return ToolDefinition.builder("dashscope_media", "百炼DashScope文生图/文生视频（通义万相）：image=文生图(wan2.2-t2i-flash/plus)；video=文生视频(wan2.2-t2v-plus,异步提交返回task_id)；query=按task_id查询进度并下载结果；models=列出可用模型。视频尺寸仅限白名单:1080*1920/1920*1080/1440*1440/1632*1248/1248*1632/480*832/832*480/624*624(其他报错)。生成结果保存到工作区files/，返回文件卡片/图片卡片")
                     .addParameter("action", "string", "操作: image(文生图)/video(文生视频)/query(按task_id查询并下载)/models(列出可用模型)", false, "image")
@@ -2450,6 +2459,18 @@ public class AIToolManager {
         }
     }
 
+    /**
+     * create_dynamic_tool 的 6 个动作（<b>唯一权威</b>）：`getToolDefinition` 的硬编码定义与
+     * {@link #PARAM_ENUM_OVERRIDES} 都引用它，避免枚举与 `DynamicToolManagerTool.execute()` 的
+     * switch 各写一份、改一处漏一处。别名（delete/remove、show/info/debug、test/run）故意不列，
+     * 模型只该学到规范写法。
+     *
+     * <p>注意声明顺序：它必须排在 {@link #PARAM_ENUM_OVERRIDES} 之前，后者是静态字段、
+     * 在类初始化时就会调 buildParamEnumOverrides() 读它。</p>
+     */
+    private static final List<String> DYNAMIC_TOOL_ACTIONS = java.util.Collections.unmodifiableList(
+            Arrays.asList("create", "update", "delete", "list", "show", "test"));
+
     /** 已知工具的枚举参数覆盖表（工具名 → 参数名 → 枚举值列表）。
      *  仅用于普通 AITool（getParameterDescriptions 无结构化枚举）的常见枚举参数，补充模型可见性。 */
     private static final Map<String, Map<String, List<String>>> PARAM_ENUM_OVERRIDES = buildParamEnumOverrides();
@@ -2489,6 +2510,12 @@ public class AIToolManager {
         Map<String, List<String>> memory = new HashMap<>();
         memory.put("action", Arrays.asList("save", "recall", "delete", "list", "clear"));
         map.put("memory", memory);
+        // 动态工具管理（2026-11-16）：走 createToolDefinitionFromAITool 兜底路径的工具只有
+        // "参数名 + 文本描述"、没有枚举，action 会退化成无约束 string —— 模型看不到 show/test
+        // 这些动作，只会用 create。枚举与上面的硬编码定义同源（DYNAMIC_TOOL_ACTIONS）。
+        Map<String, List<String>> dynamicToolManager = new HashMap<>();
+        dynamicToolManager.put("action", DYNAMIC_TOOL_ACTIONS);
+        map.put("create_dynamic_tool", dynamicToolManager);
         // MCP 外部工具入口：模型要看到三个动作，否则 4B 容易只敢用第一个/自创动作
         Map<String, List<String>> mcpToolbox = new HashMap<>();
         mcpToolbox.put("action", Arrays.asList("search", "get", "call",
