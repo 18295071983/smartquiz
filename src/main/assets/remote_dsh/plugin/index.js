@@ -1160,6 +1160,19 @@ function markStartup(stage, extra) {
 
 export function apply(ctx, config) {
   markStartup('apply-begin');
+  try {
+    return applyInner(ctx, config);
+  } catch (e) {
+    // 把真实错误落盘：DSH 桌面版没有可读日志，.startup.json 是唯一线索。
+    markStartup('apply-error', {
+      error: String(e && e.message ? e.message : e),
+      stack: String(e && e.stack ? e.stack : '').slice(0, 4000),
+    });
+    throw e;
+  }
+}
+
+function applyInner(ctx, config) {
   const DEFAULTS = {
     token: '', provider: 'deepseek-account', model: 'deepseek-flash', pathPrefix: '',   // 显式：插件创建的 agent 需要明确模型路由
     maxReplyChars: 4000, allowExec: true, execTimeoutMs: 120000,
@@ -1492,7 +1505,16 @@ export function apply(ctx, config) {
   const localRoutes = new Map();
   const route = (kind, path, handler) => {
     localRoutes.set(prefix + path, handler);
-    ctx.effect(() => ctx.webServer.register({ kind, path: prefix + path, handler }));
+    // 逐条记进度：万一某条路由注册失败，.startup.json 会停在 route-error 并带 path/error
+    try {
+      ctx.effect(() => ctx.webServer.register({ kind, path: prefix + path, handler }));
+    } catch (e) {
+      markStartup('route-error', {
+        kind, path: prefix + path,
+        error: String(e && e.message ? e.message : e),
+      });
+      throw e;
+    }
   };
   // ===== 2026-11-12 新增：实时桥（token 增量 / 日程 / 计划 / 子代理 / 问答答案） =====
   //
@@ -6735,24 +6757,6 @@ function presetSvcOf(ctx) {
   // 用户质问"扫码 UI 就能做，为何弹到外部浏览器生成？" —— 旧实现必须打开 /pair 页面用浏览器画 QR。
   // 现在 QR 由服务端渲染成 SVG 直接返回，电脑面板 <img> 内联显示；配对码由服务端签发、30 秒轮换，
   // 客户端只负责显示与倒计时（服务端负责状态，客户端负责呈现）。
-  const PAIR_CODES = new Map();          // code -> { expiresAt, used }
-  const PAIR_CODE_TTL_MS = 30_000;
-  const PAIR_CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';  // 去掉 0/O/1/I 等易混字符
-  const issuePairCode = () => {
-    const now = Date.now();
-    for (const [code, v] of PAIR_CODES) {
-      if (v.expiresAt <= now) PAIR_CODES.delete(code);
-    }
-    let code = '';
-    do {
-      code = '';
-      for (let i = 0; i < 6; i += 1) {
-        code += PAIR_CODE_ALPHABET[randomInt(PAIR_CODE_ALPHABET.length)];
-      }
-    } while (PAIR_CODES.has(code));
-    PAIR_CODES.set(code, { expiresAt: now + PAIR_CODE_TTL_MS, used: false });
-    return { code, ttl: PAIR_CODE_TTL_MS / 1000 };
-  };
 
   route('exact', '/pair/qr.svg', (req, res) => {
     if (!authOk(req) && !isLocal(req)) {
@@ -6770,13 +6774,9 @@ function presetSvcOf(ctx) {
     }
   });
 
-  route('exact', '/pair/code', (req, res) => {
-    if (!authOk(req) && !isLocal(req)) {
-      return sendJson(res, 403, { ok: false, error: 'unauthorized' });
-    }
-    const { code, ttl } = issuePairCode();
-    sendJson(res, 200, { ok: true, code, ttl, expires_at: Date.now() + ttl * 1000 });
-  });
+  // 说明（2026-11-16）：动态配对码**早就有** —— 见后面 `/pair/code` + `/pair/claim`（6 位数字、
+  // 5 分钟一次性、CSPRNG）。这里曾被我重复注册过一次，DSH 的 webServer 对同一路径二次注册会抛错，
+  // 表现就是"插件没起"（.startup.json 停在 apply-begin）。以后新增路由前先 grep 路径。
 
   route('exact', '/status', (req, res) => {
     // DSH Web UI 面板是同源 fetch，不带 Bearer —— 本机请求放行只读状态（不含令牌）；远程仍要令牌。

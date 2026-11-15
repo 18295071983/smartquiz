@@ -42,6 +42,13 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** 秒 → mm:ss（配对码 5 分钟有效，用分秒比纯秒数好读）。 */
+    function fmtLeft(sec) {
+      const s = Math.max(0, Math.floor(sec));
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      return m > 0 ? (m + ':' + String(r).padStart(2, '0')) : (r + 's');
+    }
     function ago(sec) {
       const s = Math.max(0, Math.floor(sec));
       if (s < 60) return s + ' 秒前';
@@ -77,7 +84,8 @@ window.__ModuleLoader__.load({
       const loadCode = React.useCallback(() => {
         fetch('/pair/code', { cache: 'no-store' })
           .then((r) => (r.ok ? r.json() : null))
-          .then((j) => { if (j && j.ok) setCode({ code: j.code, expires_at: j.expires_at }); })
+          // 现有端点契约：{ ok, code, expires_in_ms }（5 分钟一次性码，CSPRNG 生成）
+          .then((j) => { if (j && j.ok) setCode({ code: j.code, expires_at: Date.now() + Number(j.expires_in_ms || 0) }); })
           .catch(() => setCode(null));
       }, []);
 
@@ -241,7 +249,7 @@ window.__ModuleLoader__.load({
                 ? h('b', { style: Object.assign({}, mono, { fontSize: 15, letterSpacing: 2 }) }, code.code)
                 : h('span', { style: label }, '—'),
               code ? h('span', { style: label }, ' · ' + (codeLeft > 0
-                ? t('panel.codeValid', '有效') + ' ' + codeLeft + 's'
+                ? t('panel.codeValid', '有效') + ' ' + fmtLeft(codeLeft)
                 : t('panel.codeExpired', '已过期'))) : null,
               h('button', { style: smallBtn, onClick: loadCode }, t('panel.refresh', '刷新'))),
             h('div', { style: Object.assign({}, label, { marginTop: 4 }) },
