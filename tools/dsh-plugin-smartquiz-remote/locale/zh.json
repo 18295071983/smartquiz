@@ -41,6 +41,17 @@
     "selfCheckErr": "有错误",
     "kindLan": "局域网",
     "kindMesh": "组网（VPN）",
-    "kindPublic": "公网"
+    "kindPublic": "公网",
+    "serverTitle": "服务端 · 这台电脑",
+    "clientTitle": "客户端 · 手机",
+    "devices": "已配对",
+    "port": "端口",
+    "modeLabel": "执行位置",
+    "qrHint": "手机扫码即可配对（二维码由服务端生成，不用打开浏览器）",
+    "copyPair": "复制配对串",
+    "codeTitle": "动态配对码",
+    "codeValid": "有效",
+    "codeExpired": "已过期",
+    "codeHint": "配对码由电脑签发，30 秒自动轮换；在手机「扫码/口令配对」里输入即可。"
   }
 }

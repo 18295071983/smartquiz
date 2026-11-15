@@ -42,6 +42,7 @@ import { checkCard, describe } from './cardcheck.js';
 import { warnOnce, clientMsgDuplicated, abortError, originHash } from './lib/util.js';
 import { SLOT_PRIORITY, slotPriorityOfLevel, slotLevelOfPriority, slotPriorityValue } from './lib/slots.js';
 import { buildCandidates } from './lib/address.js';
+import { svgFor } from './lib/qr.js';
 // 配置 schema（DSH 规范）：激活时校验，写错的键/类型会直接报出来。
 // 解析不到 schemastery 时自动降级为"不声明"，不影响插件启动 —— 见 config.js 注释。
 import { Config } from './config.js';
@@ -6717,6 +6718,53 @@ function presetSvcOf(ctx) {
     const c = all[0];
     sendJson(res, 200, { ok: true, qr_text: c.qr_text, base_url: c.base_url, items: all, count: all.length, public_url: cfg.publicUrl || '',
       token: mainToken(), port: ctx.webServer.port, service: 'dsh-plugin-remote' });
+  });
+
+  // ===== 面板内联二维码 + 动态配对码（2026-11-16）=====
+  // 用户质问"扫码 UI 就能做，为何弹到外部浏览器生成？" —— 旧实现必须打开 /pair 页面用浏览器画 QR。
+  // 现在 QR 由服务端渲染成 SVG 直接返回，电脑面板 <img> 内联显示；配对码由服务端签发、30 秒轮换，
+  // 客户端只负责显示与倒计时（服务端负责状态，客户端负责呈现）。
+  const PAIR_CODES = new Map();          // code -> { expiresAt, used }
+  const PAIR_CODE_TTL_MS = 30_000;
+  const PAIR_CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';  // 去掉 0/O/1/I 等易混字符
+  const issuePairCode = () => {
+    const now = Date.now();
+    for (const [code, v] of PAIR_CODES) {
+      if (v.expiresAt <= now) PAIR_CODES.delete(code);
+    }
+    let code = '';
+    do {
+      code = '';
+      for (let i = 0; i < 6; i += 1) {
+        code += PAIR_CODE_ALPHABET[randomInt(PAIR_CODE_ALPHABET.length)];
+      }
+    } while (PAIR_CODES.has(code));
+    PAIR_CODES.set(code, { expiresAt: now + PAIR_CODE_TTL_MS, used: false });
+    return { code, ttl: PAIR_CODE_TTL_MS / 1000 };
+  };
+
+  route('exact', '/pair/qr.svg', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) {
+      return sendJson(res, 403, { ok: false, error: 'unauthorized' });
+    }
+    const q = new URL(req.url ?? '/pair/qr.svg', 'http://dsh.invalid');
+    const text = String(q.searchParams.get('text') ?? '');
+    const cell = Number(q.searchParams.get('cell') || 4);
+    try {
+      const svg = svgFor(text, { cell, margin: 2 });
+      res.writeHead(200, { 'content-type': 'image/svg+xml; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(svg);
+    } catch (e) {
+      sendJson(res, 400, { ok: false, error: String(e?.message ?? e) });
+    }
+  });
+
+  route('exact', '/pair/code', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) {
+      return sendJson(res, 403, { ok: false, error: 'unauthorized' });
+    }
+    const { code, ttl } = issuePairCode();
+    sendJson(res, 200, { ok: true, code, ttl, expires_at: Date.now() + ttl * 1000 });
   });
 
   route('exact', '/status', (req, res) => {

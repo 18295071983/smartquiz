@@ -80,6 +80,14 @@ public final class ChatUiV2Chrome {
         try {
             dot.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     ContextCompat.getColor(activity, colorRes)));
+            // 2026-11-16：在线状态点"呼吸" —— 聊天页顶栏那个点在远程连接时也要有生命感，
+            // 与连接页保持一致（用户："手机端也没有连接呼吸，就像卡死一样"）。
+            // 只有"在线绿"才呼吸：黄（待处理）/灰（断开）/红（失败）常亮，避免状态含义被动画掩盖
+            if (colorRes == R.color.chat_v2_success) {
+                com.oilquiz.app.ui.UiFx.breathing(dot);
+            } else {
+                com.oilquiz.app.ui.UiFx.stopBreathing(dot);
+            }
         } catch (Throwable stepFailed) {
             com.oilquiz.app.util.AILogger.w("ChatUiV2Chrome", "这一步失败，结果可能被当成正常 · updateStatusDot: " + stepFailed);
         }
