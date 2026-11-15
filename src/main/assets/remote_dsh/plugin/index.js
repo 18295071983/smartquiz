@@ -4077,6 +4077,9 @@ function presetSvcOf(ctx) {
       timeout_ms: Number(cfg.cliTimeoutMs) || 300000,
     },
     devices: devices.devices.length,
+    // 2026-11-16：面板要判断"手机在线吗"，之前只能猜 ws_clients/session_streams。
+    // 这里直接给连接快照（与 /v2/pulse 同源），含 kind/last_seen/age_ms/online。
+    connections: connectionSnapshot(),
     // 2026-11-14 插话模式：哪些会话正在跑、各排了几条手机插话（排查"发了没反应"看这里）
     interject: {
       busy: [...SESSION_BUSY.entries()].map(([sid, v]) => ({

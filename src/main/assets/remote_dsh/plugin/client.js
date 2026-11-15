@@ -185,7 +185,27 @@ window.__ModuleLoader__.load({
       const items = (info && Array.isArray(info.items)) ? info.items : [];
       const recommended = items.find((i) => i.recommended) || items[0] || null;
       const others = items.filter((i) => i !== recommended);
-      const online = !!(st && st.connections && Array.isArray(st.connections) && st.connections.some((c) => c.online));
+      // 2026-11-16 修：客户端实际连着却显示"未连接"。
+      // 旧逻辑只认 /status.connections，而旧版 /status 根本没有该字段 → 永远 false。
+      // 现在按优先级取信号：连接快照 > ws_clients/session_streams > clients 列表。
+      const connList = (st && Array.isArray(st.connections)) ? st.connections : [];
+      const wsClients = Number(st && st.ws_clients) || 0;
+      const streams = Number(st && st.session_streams) || 0;
+      const clientRows = (st && Array.isArray(st.clients)) ? st.clients.length : 0;
+      const online = connList.length > 0
+        ? connList.some((c) => c && c.online !== false)
+        : (wsClients > 0 || streams > 0 || clientRows > 0);
+      // 传输方式（仅用于文案：WS / SSE），没有连接时为空
+      const transport = (() => {
+        if (connList.length > 0) {
+          const kinds = connList.map((c) => String((c && c.kind) || '')).filter(Boolean);
+          if (kinds.includes('ws')) return 'WS';
+          if (kinds.length > 0) return kinds[0].toUpperCase();
+        }
+        if (wsClients > 0) return 'WS';
+        if (streams > 0) return 'SSE';
+        return '';
+      })();
       const devices = (st && Number(st.devices)) || 0;
       const execAllowed = !!(st && st.exec && st.exec.allowed);
       const modeText = st && st.cli
@@ -253,7 +273,7 @@ window.__ModuleLoader__.load({
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 } },
             h('b', { style: { fontSize: 13 } }, '📱 ' + t('panel.title', '手机远程')),
             h('span', { style: Object.assign({}, label, { flex: 1 }) },
-              online ? t('panel.connected', '在线') : t('panel.disconnected', '未连接')),
+              online ? (t('panel.connected', '在线') + (transport ? '（' + transport + '）' : '')) : t('panel.disconnected', '未连接')),
             h('button', { style: smallBtn, title: t('panel.close', '关闭'), onClick: () => setOpen(false) }, '✕')),
 
           // ---------- 服务端（这台电脑） ----------
@@ -279,7 +299,7 @@ window.__ModuleLoader__.load({
           // ---------- 客户端（手机） ----------
           h('div', { style: section },
             h('div', { style: { fontWeight: 600 } }, '📱 ' + t('panel.clientTitle', '客户端 · 手机'),
-              h('span', { style: label }, '  ' + (online ? t('panel.connected', '在线') : t('panel.disconnected', '未连接'))
+              h('span', { style: label }, '  ' + (online ? (t('panel.connected', '在线') + (transport ? '（' + transport + '）' : '')) : t('panel.disconnected', '未连接'))
                 + ' · ' + t('panel.devices', '已配对') + ' ' + devices + ' 台')),
             recommended && h('div', { style: Object.assign({}, row, { marginTop: 8, alignItems: 'flex-start' }) },
               h('img', {
