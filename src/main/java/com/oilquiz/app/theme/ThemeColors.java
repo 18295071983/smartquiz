@@ -110,7 +110,7 @@ public final class ThemeColors {
         int attrId = ATTR_BY_RES.get(resId, 0);
         if (attrId == 0) {
             warnUnmapped(context, resId);
-            return context.getColor(resId);
+            return safeColor(context, resId);
         }
         int themed = attr(context, attrId);
         if (themed != 0) {
@@ -119,7 +119,7 @@ public final class ThemeColors {
         // 映射到了 attr 但当前主题没解析出来（换肤 overlay 缺项/自定义主题漏配）。
         // 以前这里直接返回 0（控件变透明），现在退回资源值并在 debug 报出来。
         warnMissingAttr(context, resId, attrId);
-        return context.getColor(resId);
+        return safeColor(context, resId);
     }
 
     /** 这个颜色资源是否接了主题（跟随换肤）。供主题自检页统计跟随率。 */
@@ -145,6 +145,25 @@ public final class ThemeColors {
     /** 已接主题的颜色资源个数（映射表大小）。 */
     static int themeAwareCount() {
         return ATTR_BY_RES.size();
+    }
+
+    /**
+     * 取资源色，但**不因为资源缺失而崩**（2026-11-16）。
+     *
+     * <p>真机踩过：{@code ThemeAuditActivity} 反射遍历 R.color 时，遇到只存在于
+     * values-night 的同名色（白天模式下没有该资源），{@code context.getColor} 直接抛
+     * {@code Resources$NotFoundException} 把整个页面干掉。颜色取不到应当是"显示不出来"，
+     * 不该是"崩溃"——这里兜成透明并在 debug 记一笔。</p>
+     */
+    private static int safeColor(Context context, int resId) {
+        try {
+            return context.getColor(resId);
+        } catch (Throwable t) {
+            if (isDebuggable(context)) {
+                android.util.Log.w(TAG, "颜色资源取不到（该配置下不存在）: " + nameOf(context, resId));
+            }
+            return 0;
+        }
     }
 
     private static void warnUnmapped(Context context, int resId) {

@@ -206,6 +206,11 @@
             android:label="@string/ui_preview_console_title"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.OilQuizApp" />
+        <activity
+            android:name=".infra.ThemeAuditActivity"
+            android:exported="false"
+            android:label="@string/theme_audit_title"
+            android:theme="@style/Theme.OilQuizApp" />
         <!-- Termux RUN_COMMAND 运行时授权弹窗（HyperOS/MIUI 禁用了 adb 的 pm grant，只能 App 内请求） -->
         <activity
             android:name=".ai.tool.TermuxPermissionActivity"

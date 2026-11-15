@@ -42,6 +42,14 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 主题自检页（2026-11-16）：本 Activity 是 debugExported，用它当 adb 入口。
+        if ("theme_audit".equals(getIntent().getStringExtra("mode"))) {
+            startActivity(new android.content.Intent(this,
+                    com.oilquiz.app.infra.ThemeAuditActivity.class));
+            finish();
+            return;
+        }
+
         // 无注入参数直接打开 = 可视化预览台；带 layout/card/url 等参数时保持原 adb 注入行为。
         if (isPreviewRequest()) {
             openPreviewConsole();
