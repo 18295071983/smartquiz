@@ -1275,7 +1275,7 @@
                     android:text="性能监控（实时检测 &amp; 优化建议）"
                     android:textAllCaps="false"
                     android:textColor="?attr/colorOnPrimary"
-                    app:backgroundTint="@color/teal_600"
+                    app:backgroundTint="?attr/colorPrimary"
                     app:cornerRadius="@dimen/radius_12"/>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

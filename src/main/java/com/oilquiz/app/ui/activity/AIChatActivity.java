@@ -1,6 +1,6 @@
 package com.oilquiz.app.ui.activity;
 
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -4174,7 +4174,7 @@ public class AIChatActivity extends BaseActivity {
                 "中断并发送 · 先停下电脑当前任务",
                 "排队 · 电脑本轮结束后发送",
         };
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("发送方式")
                 .setItems(items, (d, which) -> {
                     final String mode = which == 2 ? "queue" : "steer";
@@ -5772,7 +5772,7 @@ public class AIChatActivity extends BaseActivity {
                 + getString(R.string.chat_guide_none_local, defaultModelLabel)
                 + getString(R.string.chat_guide_none_online)
                 + getString(R.string.chat_guide_none_hint);
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_c1d12ffc))
                 .setMessage(message)
                 .setPositiveButton(getString(R.string.chat_guide_btn_init), (d, w) ->
@@ -5837,7 +5837,7 @@ public class AIChatActivity extends BaseActivity {
             msg.append(getString(R.string.chat_guide_examples_local));
         }
 
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_9e1bb02b))
                 .setMessage(msg.toString())
                 .setPositiveButton(getString(R.string.h_ce26955a), null)
@@ -9579,7 +9579,7 @@ public class AIChatActivity extends BaseActivity {
             showToast(getString(R.string.h_7100aac1));
             return;
         }
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
             .setTitle(getString(R.string.h_246bc2af))
             .setMessage(getString(R.string.h_c0728fc0))
             .setPositiveButton(getString(R.string.h_6612548a), (dialog, which) -> {
@@ -9709,7 +9709,7 @@ public class AIChatActivity extends BaseActivity {
                 });
 
                 com.google.android.material.button.MaterialButton delete = recycleRowButton("彻底删除");
-                delete.setOnClickListener(v -> new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                delete.setOnClickListener(v -> com.oilquiz.app.ui.modal.AppDialog.builder(this)
                         .setTitle("彻底删除")
                         .setMessage("「" + e.title + "」删除后无法恢复，确定吗？")
                         .setPositiveButton("删除", (d, w) -> {
@@ -9746,7 +9746,7 @@ public class AIChatActivity extends BaseActivity {
                     LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
             clearLp.topMargin = dp(6);
             clear.setLayoutParams(clearLp);
-            clear.setOnClickListener(v -> new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            clear.setOnClickListener(v -> com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle("清空回收站")
                     .setMessage("回收站里的 " + entries.size() + " 个会话将被永久删除，无法恢复。")
                     .setPositiveButton("清空", (d, w) -> {
@@ -9772,7 +9772,7 @@ public class AIChatActivity extends BaseActivity {
      * 这里与历史抽屉入口共用同一个确认框。
      */
     private void confirmClearChat() {
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_2e5be76a))
                 .setMessage(getString(R.string.h_fadd8853))
                 .setPositiveButton(getString(R.string.h_288f0c40), (dialog, which) -> {
@@ -10337,7 +10337,7 @@ public class AIChatActivity extends BaseActivity {
     private void switchToRemoteSessionFromDrawer(com.oilquiz.app.ai.chat.history.RemoteSessionRow row) {
         if (row == null) return;
         final androidx.appcompat.app.AlertDialog progress =
-                new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("切换电脑对话")
                 .setMessage("正在从电脑同步「" + row.displayTitle() + "」…")
                 .setCancelable(false)
@@ -10680,7 +10680,7 @@ public class AIChatActivity extends BaseActivity {
                             + "（" + values[i] + "）";
             if (values[i].equalsIgnoreCase(currentWire)) checked = i;
         }
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("思考强度")
                 .setSingleChoiceItems(labels, checked, (dialog, which) -> {
                     String target = values[which];
@@ -11865,7 +11865,7 @@ public class AIChatActivity extends BaseActivity {
             l2.setPadding((int)(8 * getResources().getDisplayMetrics().density), 0, 0, 0);
             legend.addView(l2);
             panel.addView(legend);
-            new android.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle("上下文占用")
                     .setView(panel)
                     .setPositiveButton("关闭", null)
@@ -11994,7 +11994,7 @@ public class AIChatActivity extends BaseActivity {
             if (t.length() > 60) t = t.substring(0, 60) + "…";
             labels[i] = (i + 1) + ". " + t;
         }
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("电脑排队 " + remoteQueued.size() + " 条")
                 .setItems(labels, (d, which) -> showRemoteQueueItemDialog(remoteQueued.get(which)))
                 .setNegativeButton("关闭", null)
@@ -12002,7 +12002,7 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void showRemoteQueueItemDialog(final RemoteQueued item) {
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("这条插话")
                 .setMessage(item.text)
                 .setItems(new String[]{"立即发送（不等了，插进当前这一轮）", "修改", "撤回（内容回到输入框）"},
@@ -12041,7 +12041,7 @@ public class AIChatActivity extends BaseActivity {
         final android.widget.EditText et = new android.widget.EditText(this);
         et.setText(item.text);
         et.setSelection(et.getText().length());
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("修改插话（改完由电脑按排队顺序发送）")
                 .setView(et)
                 .setPositiveButton("保存", (d, w) -> updateRemoteQueued(item, et.getText().toString().trim()))
@@ -12281,7 +12281,7 @@ public class AIChatActivity extends BaseActivity {
 
     /** 本地推理失败卡：确认后回退 model/ai/ui 默认配置并清缓存。 */
     private void confirmRestoreDefaultConfig() {
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("回退默认配置")
                 .setMessage("将把模型 / AI / 界面配置恢复为出厂默认，并清除模型缓存。确定继续？")
                 .setPositiveButton("恢复", (d, w) -> new Thread(() -> {
@@ -13015,7 +13015,7 @@ public class AIChatActivity extends BaseActivity {
         boolean canSpeak = message.isAIMessage() && content != null && !content.trim().isEmpty();
         if (!canSpeak) return;
 
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
             .setTitle(getString(R.string.h_87b4d00f))
             .setItems(new String[]{getString(R.string.h_5511e113), getString(R.string.h_c79f16c4)}, (dialog, which) -> {
                 if (which == 0) {
@@ -13420,7 +13420,7 @@ public class AIChatActivity extends BaseActivity {
     /** 释放 MediaRecorder 资源 */
     /** 显示权限设置对话框，引导用户去系统设置页面 */
     private void showPermissionSettingsDialog() {
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
             .setTitle(getString(R.string.h_de440817))
             .setMessage(getString(R.string.h_372868fa))
             .setPositiveButton(getString(R.string.h_24114160), (dialog, which) -> {
@@ -13596,7 +13596,7 @@ public class AIChatActivity extends BaseActivity {
         String title = step.type == ToolGuideFlow.GuideStep.StepType.IMAGE_PICKER ? getString(R.string.h_e1e280eb)
                 : step.type == ToolGuideFlow.GuideStep.StepType.DIRECTORY_PICKER ? "手动输入目录路径"
                 : "手动输入文件路径";
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(title)
                 .setMessage(step.description)
                 .setView(et)
@@ -13853,7 +13853,7 @@ public class AIChatActivity extends BaseActivity {
                 }
                 sb.append(br).append("状态: todo=待办 / in_progress=进行中 / completed=完成 / failed=失败");
             }
-            new androidx.appcompat.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle("任务监控")
                     .setMessage(sb.toString())
                     .setPositiveButton("关闭", null)
@@ -14395,7 +14395,7 @@ public class AIChatActivity extends BaseActivity {
             java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
 
     /** 昨天的审批对话框（2026-11-13 恢复）：同一时间只挂一条，approval_gone 收掉 */
-    private android.app.AlertDialog dshApprovalDialog;
+    private androidx.appcompat.app.AlertDialog dshApprovalDialog;
     private String dshApprovalId;
 
     /**
@@ -14431,7 +14431,7 @@ public class AIChatActivity extends BaseActivity {
         runOnUiThread(() -> {
             dismissDshApprovalDialog(null);
             dshApprovalId = fId;
-            dshApprovalDialog = new android.app.AlertDialog.Builder(AIChatActivity.this)
+            dshApprovalDialog = com.oilquiz.app.ui.modal.AppDialog.builder(AIChatActivity.this)
                     .setTitle("电脑端请求审批：" + fTool)
                     .setMessage(fDetail)
                     .setPositiveButton("允许", (d, w) -> replyApproval(fId, true))
@@ -14455,7 +14455,7 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /** 反问对话框（2026-11-14，与审批同一套打断式交互）：同一时间只挂一批，question_gone 收掉 */
-    private android.app.AlertDialog dshQuestionDialog;
+    private androidx.appcompat.app.AlertDialog dshQuestionDialog;
     private String dshQuestionId;
 
     /** 一批反问里单个问题的临时控件组（只在对话框内存活，不落盘） */
@@ -14546,7 +14546,7 @@ public class AIChatActivity extends BaseActivity {
         runOnUiThread(() -> {
             dismissDshQuestionDialog(null);
             dshQuestionId = fId;
-            android.app.AlertDialog dlg = new android.app.AlertDialog.Builder(this)
+            androidx.appcompat.app.AlertDialog dlg = com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle("电脑端在等你回答")
                     .setView(scroll)
                     .setPositiveButton("提交回答", null)
@@ -14555,7 +14555,7 @@ public class AIChatActivity extends BaseActivity {
             // 自己接管"提交"：校验不过/回传失败时对话框不能先被系统关掉
             dlg.setOnShowListener(d -> {
                 try {
-                    dlg.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
+                    dlg.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
                             .setOnClickListener(v -> submitDshQuestions(fId, callId, uis, dlg));
                 } catch (Exception ignored) {
                     // 取不到按钮就退回系统默认行为
@@ -14593,7 +14593,7 @@ public class AIChatActivity extends BaseActivity {
 
     /** 攒整批答案 → /v2/answer（id 是批次 id，answers 里是真实问题 id） */
     private void submitDshQuestions(String id, String callId, java.util.List<AskQuestionUi> uis,
-                                    android.app.AlertDialog dlg) {
+                                    androidx.appcompat.app.AlertDialog dlg) {
         org.json.JSONArray answers = new org.json.JSONArray();
         for (AskQuestionUi ui : uis) {
             org.json.JSONArray selected = new org.json.JSONArray();
@@ -14623,7 +14623,7 @@ public class AIChatActivity extends BaseActivity {
         final String fCallId = callId;
         final String payload = root.toString();
         final android.widget.Button submit = dlg == null ? null
-                : dlg.getButton(android.app.AlertDialog.BUTTON_POSITIVE);
+                : dlg.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE);
         if (submit != null) submit.setEnabled(false);
         final String target = com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this);
         new Thread(() -> {
@@ -14746,7 +14746,7 @@ public class AIChatActivity extends BaseActivity {
             String why = st == null
                     ? (err == null ? "电脑端不可达" : err)
                     : st.optString("hint", "");
-            new android.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle(title)
                     .setMessage("电脑端这个 DSH 版本没有开放“在线改权限”的接口。\n"
                             + "请到电脑端 DSH 的权限选择器里改。"
@@ -14769,7 +14769,7 @@ public class AIChatActivity extends BaseActivity {
             showToast("电脑端没有可切换的权限预设");
             return;
         }
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(title)
                 .setItems(labels.toArray(new CharSequence[0]), (dialog, which) -> {
                     org.json.JSONObject body = new org.json.JSONObject();
@@ -15097,7 +15097,7 @@ public class AIChatActivity extends BaseActivity {
                 + "· 提示「被挡住」→ 在电脑上双击 tools\\fix-remote-lan.cmd，弹窗点「是」，跑完再重试\n"
                 + "· 提示「DSH 没在运行」→ 在电脑上打开 DSH，等 10 秒\n"
                 + "· 手机 IP 是 192.168.101.x → 无线路由器要改成桥接（找人帮你改一次）";
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("远程连接怎么用")
                 .setMessage(msg)
                 .setPositiveButton("打开配对页", (d, w) -> startActivity(
@@ -16860,7 +16860,7 @@ public class AIChatActivity extends BaseActivity {
                 if ("toast".equals(fTool)) {
                     showToast(fBody.isEmpty() ? fTitle : fBody);
                 } else if ("dialog".equals(fTool)) {
-                    new android.app.AlertDialog.Builder(AIChatActivity.this)
+                    com.oilquiz.app.ui.modal.AppDialog.builder(AIChatActivity.this)
                             .setTitle(fTitle)
                             .setMessage(fBody)
                             .setPositiveButton("知道了", null)

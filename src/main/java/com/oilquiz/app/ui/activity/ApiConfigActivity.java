@@ -1,7 +1,7 @@
 package com.oilquiz.app.ui.activity;
 
 import android.Manifest;
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -584,7 +584,7 @@ public class ApiConfigActivity extends BaseActivity {
         content.addView(kidInput, pad);
         content.addView(hostInput, pad);
 
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("和风天气 JWT 凭证")
                 .setMessage("填自己的凭证后天气工具不再用内置共享 key（未填才兜底）。"
                         + "获取：和风天气控制台 → 项目凭证（Ed25519）。")
@@ -778,7 +778,7 @@ public class ApiConfigActivity extends BaseActivity {
     }
 
     private void showEditDialog(@Nullable APIConfig existingConfig) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         builder.setTitle(existingConfig == null ? getString(R.string.h_bff4d8eb) : getString(R.string.h_df1aee77));
 
         View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_api_config_edit, null);
@@ -1188,7 +1188,7 @@ public class ApiConfigActivity extends BaseActivity {
     }
 
     private void confirmDelete(APIConfig config) {
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
             .setTitle(getString(R.string.h_631cd220))
             .setMessage(getString(R.string.h_46d31be4) + config.getName() + getString(R.string.h_ee0b8b94))
             .setPositiveButton(getString(R.string.h_2f4aaddd), (dialog, which) -> {
@@ -1317,7 +1317,7 @@ public class ApiConfigActivity extends BaseActivity {
             
             runOnUiThread(() -> {
                 if (foundConfigs.isEmpty()) {
-                    new AlertDialog.Builder(this)
+                    com.oilquiz.app.ui.modal.AppDialog.builder(this)
                         .setTitle(getString(R.string.h_59115b55))
                         .setMessage(getString(R.string.h_4ce90060) + archivePath)
                         .setPositiveButton(getString(R.string.h_38cf16f2), null)
@@ -1328,7 +1328,7 @@ public class ApiConfigActivity extends BaseActivity {
                     return;
                 }
 
-                new AlertDialog.Builder(this)
+                com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle(getString(R.string.h_739cdfd3))
                     .setMessage(getString(R.string.h_ed3ee7c5) + foundConfigs.size() + getString(R.string.h_15ee0ae6) + archivePath)
                     .setPositiveButton(getString(R.string.h_8d9a071e), (dialog, which) -> {
@@ -1355,7 +1355,7 @@ public class ApiConfigActivity extends BaseActivity {
         String defaultPath = apiKeyManager.getDefaultArchivePath();
         boolean isUsingDefault = apiKeyManager.isUsingDefaultArchivePath();
         
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         builder.setTitle(getString(R.string.h_ef12580c));
 
         LinearLayout layout = new LinearLayout(this);
@@ -1639,7 +1639,7 @@ public class ApiConfigActivity extends BaseActivity {
     }
 
     private void showImportPreviewDialog(APIConfigParser.ParseResult parseResult) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         builder.setTitle(getString(R.string.h_9dec4140));
 
         View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_import_preview, null);

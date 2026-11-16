@@ -2265,7 +2265,7 @@ public class QuizActivity extends BaseActivity {
         String modeMessage = getModeResultMessage(score, correctCount, totalQuestions);
         
         // 创建结果对话框
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         builder.setTitle(getString(R.string.h_8c4144de));
         builder.setMessage(
             modeMessage + "\n"

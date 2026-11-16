@@ -10,7 +10,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="@dimen/size_60"
-        android:background="@color/purple_600"
+        android:background="?attr/colorPrimary"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingHorizontal="16dp">
@@ -28,7 +28,7 @@
             android:layout_height="wrap_content"
             android:text="选择导出格式"
             android:textSize="@dimen/text_20"
-            android:textColor="@color/white"
+            android:textColor="?attr/colorOnPrimary"
             android:textStyle="bold" />
 
     </LinearLayout>
@@ -50,7 +50,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@color/white"
+            android:background="?attr/colorBackground"
             android:padding="@dimen/space_16">
 
             <TextView
@@ -59,7 +59,7 @@
                 android:layout_height="wrap_content"
                 android:text="请选择导出格式"
                 android:textSize="@dimen/text_16"
-                android:textColor="@color/black" />
+                android:textColor="?attr/colorControlText" />
 
         </LinearLayout>
 
@@ -82,7 +82,7 @@
                 android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="@dimen/radius_12"
                 app:cardElevation="@dimen/elev_4"
-                app:cardBackgroundColor="@color/white">
+                app:cardBackgroundColor="?attr/colorSurface">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -103,7 +103,7 @@
                         android:text="Excel"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/black" />
+                        android:textColor="?attr/colorControlText" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -127,7 +127,7 @@
                 android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="@dimen/radius_12"
                 app:cardElevation="@dimen/elev_4"
-                app:cardBackgroundColor="@color/white">
+                app:cardBackgroundColor="?attr/colorSurface">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -148,7 +148,7 @@
                         android:text="CSV"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/black" />
+                        android:textColor="?attr/colorControlText" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -172,7 +172,7 @@
                 android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="@dimen/radius_12"
                 app:cardElevation="@dimen/elev_4"
-                app:cardBackgroundColor="@color/white">
+                app:cardBackgroundColor="?attr/colorSurface">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -193,7 +193,7 @@
                         android:text="Markdown"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/black" />
+                        android:textColor="?attr/colorControlText" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -217,7 +217,7 @@
                 android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="@dimen/radius_12"
                 app:cardElevation="@dimen/elev_4"
-                app:cardBackgroundColor="@color/white">
+                app:cardBackgroundColor="?attr/colorSurface">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -238,7 +238,7 @@
                         android:text="HTML"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/black" />
+                        android:textColor="?attr/colorControlText" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -262,7 +262,7 @@
                 android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="@dimen/radius_12"
                 app:cardElevation="@dimen/elev_4"
-                app:cardBackgroundColor="@color/white">
+                app:cardBackgroundColor="?attr/colorSurface">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -283,7 +283,7 @@
                         android:text="PDF"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/black" />
+                        android:textColor="?attr/colorControlText" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -307,7 +307,7 @@
                 android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="@dimen/radius_12"
                 app:cardElevation="@dimen/elev_4"
-                app:cardBackgroundColor="@color/white">
+                app:cardBackgroundColor="?attr/colorSurface">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -328,7 +328,7 @@
                         android:text="Word"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/black" />
+                        android:textColor="?attr/colorControlText" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -352,7 +352,7 @@
                 android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="@dimen/radius_12"
                 app:cardElevation="@dimen/elev_4"
-                app:cardBackgroundColor="@color/white">
+                app:cardBackgroundColor="?attr/colorSurface">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -373,7 +373,7 @@
                         android:text="JSON"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/black" />
+                        android:textColor="?attr/colorControlText" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -397,7 +397,7 @@
                 android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="@dimen/radius_12"
                 app:cardElevation="@dimen/elev_4"
-                app:cardBackgroundColor="@color/white">
+                app:cardBackgroundColor="?attr/colorSurface">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -418,7 +418,7 @@
                         android:text="长图片"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/black" />
+                        android:textColor="?attr/colorControlText" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -441,7 +441,7 @@
             android:layout_height="@dimen/size_56"
             android:text="下一步"
             android:textSize="@dimen/text_16"
-            android:textColor="@color/white"
+            android:textColor="?attr/colorOnPrimary"
             app:backgroundTint="?attr/colorPrimary"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"

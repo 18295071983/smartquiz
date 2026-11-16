@@ -1,6 +1,6 @@
 package com.oilquiz.app.ai.chat.ui;
 
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import android.content.Context;
 import android.graphics.Typeface;
 import android.util.AttributeSet;
@@ -258,7 +258,7 @@ public class ChatStatsBar extends LinearLayout {
             sb.append(String.format(Locale.US, "平均速度：%.1f token/s\n", tokensPerSec / tpsCount));
         }
         if (cost > 0) sb.append("估算费用：").append(formatCost(cost)).append("\n");
-        new AlertDialog.Builder(getContext())
+        com.oilquiz.app.ui.modal.AppDialog.builder(getContext())
                 .setTitle("会话统计")
                 .setMessage(sb.toString().trim())
                 .setPositiveButton("好的", null)

@@ -152,7 +152,7 @@ public class MainActivity extends BaseActivity {
         return !com.oilquiz.app.util.PrivacyConsent.isAccepted(this);
     }
 
-    private android.app.AlertDialog privacyConsentDialog;
+    private androidx.appcompat.app.AlertDialog privacyConsentDialog;
 
     /**
      * 首次启动（或政策版本更新后）的同意弹窗：不可取消，必须明确选择。
@@ -160,7 +160,7 @@ public class MainActivity extends BaseActivity {
      */
     private void showPrivacyConsentDialog() {
         if (isFinishing() || isDestroyed() || privacyConsentDialog != null) return;
-        privacyConsentDialog = new android.app.AlertDialog.Builder(this)
+        privacyConsentDialog = com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("隐私政策")
                 .setMessage("使用前请阅读并同意《隐私政策》。\n\n"
                         + "答题宝不运营收集用户数据的服务器：题库、答题记录、聊天与文件默认只保存在本机；"
@@ -452,7 +452,7 @@ public class MainActivity extends BaseActivity {
                 @Override
                 public void onClick(View v) {
                     // 弹出选择对话框
-                    new android.app.AlertDialog.Builder(MainActivity.this)
+                    com.oilquiz.app.ui.modal.AppDialog.builder(MainActivity.this)
                             .setTitle(getString(R.string.select_operation))
                             .setItems(new String[]{getString(R.string.button_import),
                                     getString(R.string.button_export)}, (dialog, which) -> {

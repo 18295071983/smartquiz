@@ -182,7 +182,7 @@ public class TBSFilePreviewActivity extends com.oilquiz.app.ui.base.LegacyResult
      * 显示错误并关闭
      */
     private void showErrorAndFinish(String error) {
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_f03e8739))
                 .setMessage(error)
                 .setPositiveButton(getString(R.string.h_d353fd7e), (dialog, which) -> useAlternativePreview())
@@ -198,7 +198,7 @@ public class TBSFilePreviewActivity extends com.oilquiz.app.ui.base.LegacyResult
         AppLogger.d(TAG, "使用备用预览方式");
         
         // 显示预览方式选择对话框
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_406e088d))
                 .setItems(new String[]{getString(R.string.h_bfbf0f9a), getString(R.string.h_85016097), getString(R.string.h_bce2e6d3)}, (dialog, which) -> {
                     switch (which) {
@@ -389,7 +389,7 @@ public class TBSFilePreviewActivity extends com.oilquiz.app.ui.base.LegacyResult
             startActivityForResultCompat(Intent.createChooser(intent, "选择要预览的文件"), REQUEST_CODE_FILE_PICKER);
         } catch (android.content.ActivityNotFoundException ex) {
             AppLogger.e(TAG, "没有找到文件选择器应用", ex);
-            new android.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle(getString(R.string.h_7030ff64))
                     .setMessage(getString(R.string.h_b5ea0a10))
                     .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())

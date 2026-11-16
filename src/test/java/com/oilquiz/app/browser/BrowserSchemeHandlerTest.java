@@ -23,6 +23,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.shadows.ShadowAlertDialog;
+import org.robolectric.shadows.ShadowDialog;
 import org.robolectric.shadows.ShadowWebView;
 
 import java.lang.reflect.Field;
@@ -90,7 +91,7 @@ public class BrowserSchemeHandlerTest {
         BrowserSchemeHandler.handleNavigation(new WebView(activity), link, true);
         // 默认「每次询问」：网页不能凭空把人送出浏览器（tel/mailto 这类除外，见下面那条）
         assertNull(shadowOf(activity).getNextStartedActivity());
-        assertNotNull("该弹一个给出路的框", ShadowAlertDialog.getLatestAlertDialog());
+        assertNotNull("该弹一个给出路的框", ShadowDialog.getLatestDialog());
     }
 
     @Test
@@ -131,7 +132,7 @@ public class BrowserSchemeHandlerTest {
         assertNotNull("没有应用时也必须有一条能继续的出路", started);
         assertEquals("com.android.chrome", started.getPackage());
         assertEquals(link, started.getDataString());
-        assertNull("没有应用可开时不该再弹询问框", ShadowAlertDialog.getLatestAlertDialog());
+        assertNull("没有应用可开时不该再弹询问框", ShadowDialog.getLatestDialog());
     }
 
     @Test
@@ -168,7 +169,29 @@ public class BrowserSchemeHandlerTest {
         assertNotNull("卡片点击应直接交给能处理该协议的应用，不再弹确认框", started);
         assertEquals("com.autonavi.minimap", started.getPackage());
         assertEquals("amapuri", started.getData().getScheme());
-        assertNull("用户主动点的不该再弹询问框", ShadowAlertDialog.getLatestAlertDialog());
+        assertNull("用户主动点的不该再弹询问框", ShadowDialog.getLatestDialog());
+    }
+
+    /** 在对话框视图树里找"选项列表"：含 ≥2 个有文字 TextView 的最内层纵向容器。 */
+    private static android.view.ViewGroup findOptionsBox(android.view.View root) {
+        if (root == null || root instanceof android.widget.TextView) return null;
+        if (root instanceof android.view.ViewGroup) {
+            android.view.ViewGroup g = (android.view.ViewGroup) root;
+            int textCount = 0;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                android.view.View child = g.getChildAt(i);
+                if (child instanceof android.widget.TextView
+                        && ((android.widget.TextView) child).getText().length() > 0) {
+                    textCount++;
+                }
+            }
+            if (textCount >= 2) return g;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                android.view.ViewGroup found = findOptionsBox(g.getChildAt(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     @Test
@@ -177,18 +200,14 @@ public class BrowserSchemeHandlerTest {
         String link = "weixin://dl/business/?t=x";
         registerHandler(activity, link, "com.tencent.mm", ".LaunchUI");
         BrowserSchemeHandler.handleNavigation(new WebView(activity), link, true);
-        android.app.AlertDialog dialog = ShadowAlertDialog.getLatestAlertDialog();
+        android.app.Dialog dialog = ShadowDialog.getLatestDialog();
         assertNotNull(dialog);
-        // 2026-11-06 真机：setItems 的列表整块渲染成空白，只剩"取消"。
-        // 现在改为自定义纵向选项，这里钉住"每一行真的有文字"。
-        android.view.View custom = dialog.findViewById(android.R.id.custom);
-        assertNotNull("应挂上自定义出路列表", custom);
-        assertTrue(custom instanceof android.view.ViewGroup);
-        android.view.ViewGroup frame = (android.view.ViewGroup) custom;
-        android.view.ViewGroup box = frame;
-        if (frame.getChildCount() == 1 && frame.getChildAt(0) instanceof android.view.ViewGroup) {
-            box = (android.view.ViewGroup) frame.getChildAt(0);
-        }
+        // 2026-11-16：对话框统一走 AppDialog（Material 对话框），ShadowAlertDialog 不再追踪；
+        // 这里改成在 decorView 里找"自定义纵向选项列表"（≥2 个有文字的 TextView），
+        // 同样钉住"每一行真的有文字"这个 2026-11-06 真机回归点。
+        android.view.ViewGroup box = findOptionsBox(dialog.getWindow() != null
+                ? dialog.getWindow().getDecorView() : null);
+        assertNotNull("应挂上自定义出路列表", box);
         assertTrue("至少要列出可选的出路", box.getChildCount() >= 2);
         boolean hasText = false;
         for (int i = 0; i < box.getChildCount(); i++) {

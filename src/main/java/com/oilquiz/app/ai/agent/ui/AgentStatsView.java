@@ -262,7 +262,7 @@ public class AgentStatsView {
     // ---------- 存储清理工具 ----------
 
     private void confirmClear(String title, String message, Runnable action) {
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
+        com.oilquiz.app.ui.modal.AppDialog.builder(context)
             .setTitle(title)
             .setMessage(message)
             .setPositiveButton("清理", (dialog, which) -> action.run())

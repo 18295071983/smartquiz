@@ -70,7 +70,7 @@ public class AboutLicensesActivity extends AppCompatActivity {
 
     /** 撤回同意：清掉同意状态并回到首页（首页门禁会再次弹出政策确认） */
     private void showWithdrawConsentDialog() {
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("撤回隐私授权")
                 .setMessage("撤回后，需要联网/权限的功能将停止使用；下次启动会重新要求你阅读并同意《隐私政策》。\n\n确定撤回吗？")
                 .setPositiveButton("撤回", (d, w) -> {

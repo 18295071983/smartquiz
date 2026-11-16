@@ -397,7 +397,7 @@ public class WebViewFilePreviewActivity extends com.oilquiz.app.ui.base.LegacyRe
     
     private void clearAllMappings() {
         // 清除所有映射
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
             .setTitle(getString(R.string.h_d8ac4681))
             .setMessage(getString(R.string.h_10a06fbf))
             .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {
@@ -714,7 +714,7 @@ public class WebViewFilePreviewActivity extends com.oilquiz.app.ui.base.LegacyRe
                     colNames[c] = (name != null && !name.trim().isEmpty()) ? name.trim() : ("列" + (c + 1));
                 }
                 runOnUiThread(() -> {
-                    new androidx.appcompat.app.AlertDialog.Builder(this)
+                    com.oilquiz.app.ui.modal.AppDialog.builder(this)
                         .setTitle(getString(R.string.h_9381dda8))
                         .setItems(colNames, (dialog, which) -> {
                             // 记录独立拆分列索引（不写入 fieldMapping）
@@ -803,7 +803,7 @@ public class WebViewFilePreviewActivity extends com.oilquiz.app.ui.base.LegacyRe
         customInput.setLayoutParams(lp);
         container.addView(customInput);
 
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
             .setTitle(getString(R.string.h_e53e248e))
             .setMessage(msg.toString())
             .setView(container)
@@ -893,7 +893,7 @@ public class WebViewFilePreviewActivity extends com.oilquiz.app.ui.base.LegacyRe
             
             message.append(getString(R.string.h_d965ca37));
             
-            new androidx.appcompat.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_0751de62))
                 .setMessage(message.toString())
                 .setPositiveButton(getString(R.string.h_ce26955a), null)
@@ -915,7 +915,7 @@ public class WebViewFilePreviewActivity extends com.oilquiz.app.ui.base.LegacyRe
         }
         
         // 显示映射结果对话框
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
             .setTitle(getString(R.string.h_35a72186))
             .setMessage(mappingResult.toString())
             .setPositiveButton(getString(R.string.h_eca060fa), (dialog, which) -> {
@@ -959,7 +959,7 @@ public class WebViewFilePreviewActivity extends com.oilquiz.app.ui.base.LegacyRe
      */
     private void showSettingsDialog() {
         // 创建设置对话框
-        androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         builder.setTitle(getString(R.string.h_25b1ba83));
         
         // 自定义设置布局
@@ -1092,7 +1092,7 @@ public class WebViewFilePreviewActivity extends com.oilquiz.app.ui.base.LegacyRe
             startActivityForResultCompat(Intent.createChooser(intent, "选择要预览的文件"), REQUEST_CODE_FILE_PICKER);
         } catch (android.content.ActivityNotFoundException ex) {
             AppLogger.e("WebViewFilePreviewActivity", "没有找到文件选择器应用", ex);
-            new android.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle(getString(R.string.h_7030ff64))
                     .setMessage(getString(R.string.h_b5ea0a10))
                     .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())

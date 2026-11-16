@@ -127,7 +127,7 @@ public class AgentWorkspaceView {
                 reclaimLp.setMargins(0, 0, 0, dp(8));
                 page.addView(reclaimBtn, reclaimLp);
                 reclaimBtn.setOnClickListener(v -> {
-                    new com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
+                    com.oilquiz.app.ui.modal.AppDialog.builder(context)
                         .setTitle("回收私有残留")
                         .setMessage("将删除应用私有目录中的旧工作区（含历史遗留文件，通常不到 1MB）。当前工作在公共目录，切回私有模式时 App 会自动重建内置指南，不影响使用。确定继续吗？")
                         .setPositiveButton("回收", (dialog, which) -> {
@@ -170,7 +170,7 @@ public class AgentWorkspaceView {
         clearRow.addView(clearBtn, clearLp);
 
         clearBtn.setOnClickListener(v -> {
-            new com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
+            com.oilquiz.app.ui.modal.AppDialog.builder(context)
                 .setTitle("清空长期文件")
                 .setMessage("将删除 files/ 下用户/Agent 产生的长期文件（内置指南/许可文档受保护，自动保留；它们删掉也会在下次启动自动恢复）。确定继续吗？")
                 .setPositiveButton("清空", (dialog, which) -> {

@@ -169,7 +169,7 @@ public class NoteActivity extends AppCompatActivity implements NoteAdapter.OnNot
     @Override
     public void onNoteClick(Note note) {
         // 点击笔记项，显示笔记详情
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(note.getTitle())
                 .setMessage(note.getContent())
                 .setPositiveButton(getString(R.string.h_38cf16f2), null)
@@ -193,7 +193,7 @@ public class NoteActivity extends AppCompatActivity implements NoteAdapter.OnNot
                 return;
             }
             // 显示删除确认对话框
-            new AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle(getString(R.string.h_d8b87379))
                     .setMessage(getString(R.string.h_92d8c70b))
                     .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {

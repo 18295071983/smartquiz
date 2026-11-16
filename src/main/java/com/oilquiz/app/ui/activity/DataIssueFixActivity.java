@@ -249,7 +249,7 @@ public class DataIssueFixActivity extends BaseActivity {
                 "统一设置题型为'多选题'",
                 "统一设置题型为'判断题'"};
 
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_54df148f))
                 .setItems(options, (dialog, which) -> {
                     String value = "";

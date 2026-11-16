@@ -178,7 +178,7 @@ public class ModelRegistrationController implements OnlineModelAdapter.OnOnlineM
     public void onDeleteClick(String modelName) {
         final OnlineModelManager.OnlineModelConfig config = findByName(modelName);
         if (config == null) return;
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
+        com.oilquiz.app.ui.modal.AppDialog.builder(context)
                 .setTitle("删除模型配置")
                 .setMessage("确定删除「" + modelName + "」？历史用量记录会保留，"
                         + "但其模型名此后显示为「已移除的模型」。")

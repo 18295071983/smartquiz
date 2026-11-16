@@ -459,7 +459,7 @@ public class CardShell extends LinearLayout {
         for (int i = 0; i < labels.length; i++) {
             labels[i] = overflowActions.get(i).label;
         }
-        new androidx.appcompat.app.AlertDialog.Builder(shellContext)
+        com.oilquiz.app.ui.modal.AppDialog.builder(shellContext)
                 .setTitle(getContext().getString(R.string.card_shell_actions_more,
                         overflowActions.size()))
                 .setItems(labels, (dialog, which) -> {

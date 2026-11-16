@@ -622,7 +622,7 @@ public class LogsActivity extends BaseActivity {
     // ==================== 操作：清空/复制/导出/分享 ====================
 
     private void confirmClearLogs() {
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_a15a9ef1))
                 .setMessage(getString(R.string.h_8cff227d) + currentTabName() + getString(R.string.h_2513de9f))
                 .setPositiveButton(getString(R.string.h_288f0c40), (dialog, which) -> clearLogs())
@@ -983,7 +983,7 @@ public class LogsActivity extends BaseActivity {
 
         textView.setText(header + "\n\n" + body);
 
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_e0d9b6f4))
                 .setView(scrollView)
                 .setPositiveButton(getString(R.string.h_b15d9127), null)

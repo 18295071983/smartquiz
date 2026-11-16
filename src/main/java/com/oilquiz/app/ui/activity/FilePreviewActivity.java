@@ -248,7 +248,7 @@ public class FilePreviewActivity extends com.oilquiz.app.ui.base.LegacyResultAct
             startActivityForResultCompat(Intent.createChooser(intent, "选择要预览的文件"), REQUEST_CODE_FILE_PICKER);
         } catch (android.content.ActivityNotFoundException ex) {
             AppLogger.e("FilePreviewActivity", "没有找到文件选择器应用", ex);
-            new android.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle(getString(R.string.h_7030ff64))
                     .setMessage(getString(R.string.h_b5ea0a10))
                     .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())

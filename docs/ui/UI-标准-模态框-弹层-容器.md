@@ -74,8 +74,8 @@ MaterialCardView card = AppCard.create(this);        // 空卡，自己 addView
 
 | 项 | 值 |
 |---|---|
-| `new AlertDialog.Builder(` | 62（基线，只减不增；92 → 62：McpManagerActivity 21 + DatabaseManagementActivity 9 + ChatDialogHelper 5 等已迁移） |
-| `MaterialAlertDialogBuilder(` | 15 |
+| `new AlertDialog.Builder(` | **0**（全站已迁移到 AppDialog；护栏钉 0，新增即红） |
+| `MaterialAlertDialogBuilder(` | **0**（已全部迁移） |
 | `new BottomSheetDialog(` | 2 |
 | `new Dialog(` | 6 |
 | 已迁移 | `ChatV2ActionSheet` → `AppSheet`；`ChatDialogHelper` 5 处 → `AppDialog`；`McpManagerActivity` 21 处、`DatabaseManagementActivity` 9 处 → `AppDialog`；删除空壳 `ChatBottomSheet` |

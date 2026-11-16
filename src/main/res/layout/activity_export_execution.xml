@@ -13,7 +13,7 @@
         android:background="?attr/colorPrimary"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingHorizontal="16dp">
+        android:paddingHorizontal="@dimen/space_16">
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/buttonBack"
@@ -29,7 +29,7 @@
             android:layout_height="wrap_content"
             android:text="导出进度"
             android:textSize="@dimen/text_20"
-            android:textColor="@color/white"
+            android:textColor="?attr/colorOnPrimary"
             android:textStyle="bold" />
 
     </LinearLayout>
@@ -85,7 +85,7 @@
                 android:layout_height="@dimen/size_48"
                 android:text="暂停"
                 android:textSize="@dimen/text_16"
-                android:textColor="@color/white"
+                android:textColor="?attr/colorOnPrimary"
                 app:backgroundTint="?attr/colorPrimary"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
@@ -97,8 +97,8 @@
                 android:layout_height="@dimen/size_48"
                 android:text="取消"
                 android:textSize="@dimen/text_16"
-                android:textColor="@color/white"
-                app:backgroundTint="@color/error"
+                android:textColor="?attr/colorOnPrimary"
+                app:backgroundTint="?attr/colorDanger"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false" />
 

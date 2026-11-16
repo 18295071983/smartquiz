@@ -83,7 +83,7 @@ public final class ToolResultDisplaySetting {
                     + description(modes[i]);
             if (modes[i] == now) checked = i;
         }
-        new androidx.appcompat.app.AlertDialog.Builder(activity)
+        com.oilquiz.app.ui.modal.AppDialog.builder(activity)
                 .setTitle("工具结果显示")
                 .setSingleChoiceItems(labels, checked, (dialog, which) -> {
                     ComponentDisplay.Mode target = modes[which];

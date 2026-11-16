@@ -136,7 +136,7 @@ public class InteractiveImportDecisionHandler implements ImportMain.InteractionH
             mainHandler.post(() -> {
                 try {
                     // 两按钮 → 正/负；三按钮 → 正/中/负；其余 → 仅确认
-                    android.app.AlertDialog.Builder b2 = new android.app.AlertDialog.Builder(activity);
+                    com.oilquiz.app.ui.modal.AppDialog.Builder b2 = com.oilquiz.app.ui.modal.AppDialog.builder(activity);
                     b2.setTitle(title);
                     b2.setMessage(message);
                     b2.setCancelable(false);

@@ -262,7 +262,7 @@ public final class McpApprovalManager {
                 options.add("拒绝");
                 decisions.add(Decision.DENY);
 
-                AlertDialog.Builder b = new AlertDialog.Builder(activity)
+                com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(activity)
                         .setTitle("允许执行 MCP 工具？")
                         .setMessage(msg.toString())
                         .setItems(toArray(options), (d, which) -> finish(done, latch, out,

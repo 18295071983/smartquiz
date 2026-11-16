@@ -1,6 +1,6 @@
 package com.oilquiz.app.ai.tool;
 
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.util.TypedValue;
@@ -48,7 +48,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private TextView valueSession;
     private TextView valueSyncTarget;
     private TextView valueDirect;
-    private android.app.AlertDialog sessionDialog;
+    private androidx.appcompat.app.AlertDialog sessionDialog;
     /** 分组列表容器（2026-11-14 重做：按工作区分组，见 {@link #showSessionDialog}） */
     private android.widget.LinearLayout sessionListBox;
     /** 是否展开"其他工作区"：默认只看当前工作区，和电脑上看到的条数一致 */
@@ -289,7 +289,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
      * 安全弹窗：activity 已 finish/destroyed 时 show() 会抛 BadTokenException，
      * 这里统一挡掉（回页面加载会话列表是异步的，很容易晚到）。
      */
-    private void showDialogSafe(android.app.AlertDialog dialog) {
+    private void showDialogSafe(androidx.appcompat.app.AlertDialog dialog) {
         if (dialog == null) return;
         if (isFinishing() || isDestroyed()) return;
         try {
@@ -306,7 +306,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
      * 不再依赖补拉把内容重新拼出来。
      */
     /** 导入进度对话框（不确定进度条 + 文案） */
-    private android.app.AlertDialog buildImportProgressDialog() {
+    private androidx.appcompat.app.AlertDialog buildImportProgressDialog() {
         android.widget.LinearLayout box = new android.widget.LinearLayout(this);
         box.setOrientation(android.widget.LinearLayout.VERTICAL);
         int pad = (int) (16 * getResources().getDisplayMetrics().density);
@@ -325,14 +325,14 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         lp.topMargin = pad / 2;
         box.addView(bar, lp);
 
-        return new android.app.AlertDialog.Builder(this)
+        return com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("导入电脑对话历史")
                 .setView(box)
                 .setCancelable(false)
                 .create();
     }
 
-    private void updateImportProgress(android.app.AlertDialog dialog, String text) {
+    private void updateImportProgress(androidx.appcompat.app.AlertDialog dialog, String text) {
         if (dialog == null || !dialog.isShowing()) return;
         try {
             android.view.View root = dialog.getWindow() == null ? null : dialog.getWindow().getDecorView();
@@ -353,7 +353,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         return null;
     }
 
-    private void dismissDialogSafe(android.app.AlertDialog dialog) {
+    private void dismissDialogSafe(androidx.appcompat.app.AlertDialog dialog) {
         if (dialog == null) return;
         try {
             if (dialog.isShowing() && !isFinishing() && !isDestroyed()) dialog.dismiss();
@@ -374,7 +374,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
 
         // 进度对话框：导入是"取事件 → 逐条转消息 → 写历史"，长会话要几秒，
         // 没有反馈用户会以为没点到。
-        final android.app.AlertDialog progressDialog = buildImportProgressDialog();
+        final androidx.appcompat.app.AlertDialog progressDialog = buildImportProgressDialog();
         showDialogSafe(progressDialog);
 
         new Thread(() -> {
@@ -493,7 +493,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         scroll.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT, maxH));
 
-        sessionDialog = new AlertDialog.Builder(this)
+        sessionDialog = com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("选择电脑对话")
                 .setView(scroll)
                 .setNegativeButton("关闭", null)
@@ -750,7 +750,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         stopPickerPolling();
         dismissDialogSafe(sessionDialog);
 
-        final android.app.AlertDialog progressDialog = buildImportProgressDialog();
+        final androidx.appcompat.app.AlertDialog progressDialog = buildImportProgressDialog();
         updateImportProgress(progressDialog, "正在从电脑同步「" + (title.isEmpty() ? shortId(sid) : title) + "」…");
         showDialogSafe(progressDialog);
 
@@ -1077,7 +1077,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             }
         });
 
-        clearBtn.setOnClickListener(v -> showDialogSafe(new AlertDialog.Builder(this)
+        clearBtn.setOnClickListener(v -> showDialogSafe(com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("清除配置")
                 .setMessage("将删除保存的电脑地址、访问令牌、会话记录与连接状态。\n"
                         + "电脑端不受影响；清除后要重新扫码或手动填写才能再用。")
@@ -1250,7 +1250,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         box.addView(codeEt);
 
         final String targetUrl = known;
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("输入配对码")
                 .setView(box)
                 .setPositiveButton("连接", (d, w) -> {
@@ -1462,7 +1462,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 showProbe(report.allOk() ? COLOR_OK : COLOR_ERR,
                         report.allOk() ? "快捷自测：全链路通过 ✅" : "快捷自测发现问题：\n" + report.firstFailureHint(),
                         "自测耗时 " + report.elapsedMs + "ms");
-                new androidx.appcompat.app.AlertDialog.Builder(this)
+                com.oilquiz.app.ui.modal.AppDialog.builder(this)
                         .setTitle("快捷自测")
                         .setMessage(report.text())
                         .setPositiveButton("复制诊断", (d, w) -> {
@@ -1484,7 +1484,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     /** 使用说明入口：本页有 guide 就复用，没有就弹一段文本。 */
     /** 连不上时的说明：只给用户能做的动作，不甩命令。 */
     private void showHelpOrHint() {
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("连不上？按这两步做")
                 .setMessage("第 1 步（最常见的原因）\n"
                         + "在电脑上双击 tools\\fix-remote-lan.cmd，弹窗里点「是」，等它自己跑完。\n"

@@ -173,7 +173,7 @@ public class DiffCardView implements ChatComponent {
             android.widget.ScrollView sv = new android.widget.ScrollView(context);
             sv.addView(tv);
 
-            new androidx.appcompat.app.AlertDialog.Builder(context)
+            com.oilquiz.app.ui.modal.AppDialog.builder(context)
                     .setTitle(detailTitle(context, p, stats))
                     .setView(sv)
                     .setNegativeButton(R.string.close, null)

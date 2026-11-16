@@ -210,7 +210,7 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
     }
 
     private void showPlanDetails(StudyPlan plan) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         double progress = plan.getTargetQuestions() > 0 ? (double) plan.getCompletedQuestions() / plan.getTargetQuestions() : 0;
         builder.setTitle(plan.getPlanName())
                 .setMessage(String.format(
@@ -235,7 +235,7 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
     }
 
     private void editStudyPlan(StudyPlan plan) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         builder.setTitle(getString(R.string.h_1b0b4a97));
         
         // 创建线性布局
@@ -317,7 +317,7 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
     }
 
     private void deleteStudyPlan(StudyPlan plan) {
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_fcf344c7))
                 .setMessage(getString(R.string.h_2495d104))
                 .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {
@@ -349,7 +349,7 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
     }
 
     private void resetPlanProgress(StudyPlan plan) {
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_3e9665bd))
                 .setMessage(getString(R.string.h_05137007))
                 .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {

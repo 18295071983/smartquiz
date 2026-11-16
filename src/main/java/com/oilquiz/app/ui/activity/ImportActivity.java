@@ -529,7 +529,7 @@ public class ImportActivity extends BaseActivity {
         // 切主线程 + 生命周期保护
         runOnUiThread(() -> {
             if (isFinishing() || isDestroyed()) return;
-            new androidx.appcompat.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(title)
                 .setMessage("❌ " + message)
                 .setPositiveButton(getString(R.string.h_4a975967), null)
@@ -573,7 +573,7 @@ public class ImportActivity extends BaseActivity {
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
+                                com.oilquiz.app.ui.modal.AppDialog.builder(ImportActivity.this)
                                     .setTitle(getString(R.string.h_d3c72e4b))
                                     .setMessage(getString(R.string.h_e8f94d57))
                                     .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
@@ -609,7 +609,7 @@ public class ImportActivity extends BaseActivity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
+                        com.oilquiz.app.ui.modal.AppDialog.builder(ImportActivity.this)
                             .setTitle(getString(R.string.h_1012e098))
                             .setMessage(getString(R.string.h_d1bd7acb) + e.getMessage())
                             .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
@@ -644,7 +644,7 @@ public class ImportActivity extends BaseActivity {
                     ? bp.sourceName : "（未知文件）";
             String detail = bp.ingestOffset > 0
                     ? "已入库 " + bp.ingestOffset + " 行" : "解析到第 " + bp.parseRowIndex + " 行";
-            new androidx.appcompat.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle(getString(R.string.h_345e81b6))
                     .setMessage(getString(R.string.h_ff1b1e28) + srcName + getString(R.string.h_be4af239) + detail + "）。\n\n"
                             + "「继续续导」：从上次进度继续，已导入题目不会重复；\n"
@@ -754,7 +754,7 @@ public class ImportActivity extends BaseActivity {
                     sheetNames[i] = sheets.get(i).sheetName + " (" + sheets.get(i).rowCount + "行)";
                 }
                 
-                new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
+                com.oilquiz.app.ui.modal.AppDialog.builder(ImportActivity.this)
                         .setTitle(getString(R.string.h_9601ff4e))
                         .setItems(sheetNames, (dialog, which) -> {
                             // 选择工作表后，跳转到文件预览界面
@@ -806,7 +806,7 @@ public class ImportActivity extends BaseActivity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
+                        com.oilquiz.app.ui.modal.AppDialog.builder(ImportActivity.this)
                             .setTitle(getString(R.string.h_6aee2d39))
                             .setMessage(getString(R.string.h_d911b36f) + message)
                             .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
@@ -852,7 +852,7 @@ public class ImportActivity extends BaseActivity {
                     message.append("\n" + field + getString(R.string.h_7d4ccfd2) + (confirmation.fieldMapping.get(field) + 1));
                 }
                 
-                new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
+                com.oilquiz.app.ui.modal.AppDialog.builder(ImportActivity.this)
                         .setTitle(getString(R.string.h_81eea51a))
                         .setMessage(message.toString())
                         .setPositiveButton(getString(R.string.h_7d2ff42c), (dialog, which) -> {
@@ -1155,7 +1155,7 @@ public class ImportActivity extends BaseActivity {
             for (String m : sqlResult.messages) {
                 msg.append("\n").append(m);
             }
-            runOnUiThread(() -> new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
+            runOnUiThread(() -> com.oilquiz.app.ui.modal.AppDialog.builder(ImportActivity.this)
                     .setTitle(getString(R.string.h_f0a0d8d4))
                     .setMessage("❌ " + msg.toString())
                     .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
@@ -1193,7 +1193,7 @@ public class ImportActivity extends BaseActivity {
                     @Override
                     public void run() {
                         // 显示详细的错误信息
-                        new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
+                        com.oilquiz.app.ui.modal.AppDialog.builder(ImportActivity.this)
                             .setTitle(getString(R.string.h_fddcd7c6))
                             .setMessage(getString(R.string.h_8589d0f5) + message)
                             .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
@@ -1250,7 +1250,7 @@ public class ImportActivity extends BaseActivity {
                             @Override
                             public void onError(String error) {
                                 runOnUiThread(() -> {
-                                    new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
+                                    com.oilquiz.app.ui.modal.AppDialog.builder(ImportActivity.this)
                                         .setTitle(getString(R.string.h_6de920b4))
                                         .setMessage(getString(R.string.h_f12e5b08) + error)
                                         .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
@@ -1273,7 +1273,7 @@ public class ImportActivity extends BaseActivity {
                         @Override
                         public void onError(String error) {
                             runOnUiThread(() -> {
-                                new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
+                                com.oilquiz.app.ui.modal.AppDialog.builder(ImportActivity.this)
                                     .setTitle(getString(R.string.h_6de920b4))
                                     .setMessage(getString(R.string.h_f12e5b08) + error)
                                     .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())

@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModelProvider;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import java.io.Serializable;
 import android.widget.Button;
 import androidx.appcompat.widget.SearchView;
@@ -281,7 +281,7 @@ public class QuestionActivity extends BaseActivity {
             @Override
             public void onDeleteClick(Question question) {
                 // 实现删除逻辑
-                new AlertDialog.Builder(QuestionActivity.this)
+                com.oilquiz.app.ui.modal.AppDialog.builder(QuestionActivity.this)
                         .setTitle(getString(R.string.h_631cd220))
                         .setMessage(getString(R.string.h_1453c708))
                         .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {
@@ -449,7 +449,7 @@ public class QuestionActivity extends BaseActivity {
     }
     
     private void showClearAllConfirmationDialog() {
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_8199ac9a))
                 .setMessage(getString(R.string.h_17fd4110))
                 .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> clearAllQuestions())

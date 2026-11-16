@@ -811,7 +811,7 @@ public class FileRenderActivity extends BaseActivity {
     }
 
     private void showImportFileDialog() {
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
             .setTitle(getString(R.string.h_7499f450))
             .setMessage(getString(R.string.h_e509c03c))
             .setPositiveButton(getString(R.string.h_fd7e0c99), (dialog, which) -> {

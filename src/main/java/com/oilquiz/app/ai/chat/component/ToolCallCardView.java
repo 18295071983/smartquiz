@@ -93,7 +93,8 @@ public class ToolCallCardView implements ChatComponent {
 
         TextView nameTv = new TextView(context);
         nameTv.setText(displayLabel);
-        nameTv.setTextSize(Tokens.textSizeSp(nameTv.getContext(), Tokens.TEXT_LABEL));
+        nameTv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                context.getResources().getDimension(R.dimen.chat_v2_think_text));
         nameTv.setTextColor(ComponentColors.textPrimary(context));
         nameTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         nameTv.setSingleLine(true);
@@ -118,7 +119,8 @@ public class ToolCallCardView implements ChatComponent {
         TextView detailTv = new TextView(context);
         detailTv.setTag("tool_detail");
         detailTv.setText(detail);
-        detailTv.setTextSize(Tokens.textSizeSp(detailTv.getContext(), Tokens.TEXT_CAPTION));
+        detailTv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                context.getResources().getDimension(R.dimen.chat_v2_status_text));
         detailTv.setTextColor(detailColor);
         detailTv.setMaxLines(2);
         detailTv.setEllipsize(TextUtils.TruncateAt.END);

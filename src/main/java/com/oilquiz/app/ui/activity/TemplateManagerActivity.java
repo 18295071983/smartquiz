@@ -155,7 +155,7 @@ public class TemplateManagerActivity extends AppCompatActivity {
             return;
         }
         
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         builder.setTitle(getString(R.string.h_631cd220));
         builder.setMessage(getString(R.string.h_dcbbdbb9) + selectedTemplates.size() + getString(R.string.h_2786d9b7));
         builder.setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {

@@ -145,7 +145,7 @@ public class QuestionDetailActivity extends AppCompatActivity {
 
     private void deleteQuestion() {
         if (currentQuestion == null) return;
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_a8eb20bc))
                 .setMessage(getString(R.string.h_ce7e90c3))
                 .setPositiveButton(getString(R.string.h_2f4aaddd), (dialog, which) -> {

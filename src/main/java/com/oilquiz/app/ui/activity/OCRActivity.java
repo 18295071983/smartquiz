@@ -568,7 +568,7 @@ public class OCRActivity extends com.oilquiz.app.ui.base.LegacyResultActivity {
         }
         
         // 创建一个对话框让用户输入笔记标题
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         builder.setTitle(getString(R.string.h_83b0bc7b));
         
         // 设置输入框

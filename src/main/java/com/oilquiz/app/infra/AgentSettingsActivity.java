@@ -149,7 +149,7 @@ public class AgentSettingsActivity extends AppCompatActivity {
             final String user = e.getValue();
             TextView row = cardRow(alias + "  ·  " + (user.isEmpty() ? "(无用户名)" : user));
             UiFx.longPress(row, () -> {
-                new AlertDialog.Builder(this)
+                com.oilquiz.app.ui.modal.AppDialog.builder(this)
                         .setTitle("删除凭据")
                         .setMessage("确定删除别名「" + alias + "」吗？")
                         .setNegativeButton("取消", null)
@@ -178,7 +178,7 @@ public class AgentSettingsActivity extends AppCompatActivity {
         box.addView(userInput);
         box.addView(tokenInput);
 
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("添加 Git 凭据")
                 .setView(box)
                 .setNegativeButton("取消", null)

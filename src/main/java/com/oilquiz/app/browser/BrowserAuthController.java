@@ -103,7 +103,7 @@ public final class BrowserAuthController {
                 ? activity.getString(R.string.browser_auth_host_unknown) : host;
         final String shownRealm = realm == null || realm.isEmpty()
                 ? activity.getString(R.string.browser_auth_host_unknown) : realm;
-        new android.app.AlertDialog.Builder(activity)
+        com.oilquiz.app.ui.modal.AppDialog.builder(activity)
                 .setTitle(R.string.browser_auth_title)
                 .setMessage(activity.getString(R.string.browser_auth_message, shownHost, shownRealm))
                 .setView(form)
@@ -145,7 +145,7 @@ public final class BrowserAuthController {
         String url = error != null ? error.getUrl() : null;
         String host = BrowserUrlNormalizer.hostOf(url == null ? "" : url);
         if (host.isEmpty()) host = activity.getString(R.string.browser_auth_host_unknown);
-        new android.app.AlertDialog.Builder(activity)
+        com.oilquiz.app.ui.modal.AppDialog.builder(activity)
                 .setTitle(R.string.browser_ssl_title)
                 .setMessage(activity.getString(R.string.browser_ssl_message,
                         host, code, certificateFacts(error, System.currentTimeMillis())))
@@ -339,7 +339,7 @@ public final class BrowserAuthController {
             return;
         }
         final String[] items = sites.toArray(new String[0]);
-        new android.app.AlertDialog.Builder(activity)
+        com.oilquiz.app.ui.modal.AppDialog.builder(activity)
                 .setTitle(activity.getString(R.string.browser_auth_manage_title, items.length))
                 .setItems(items, (dialog, which) -> {
                     forgetSite(activity, items[which]);

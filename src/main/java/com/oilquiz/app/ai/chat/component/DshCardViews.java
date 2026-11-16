@@ -56,7 +56,7 @@ final class DshCardViews {
             body.setTextColor(ComponentColors.textPrimary(context));
             body.setTextIsSelectable(true);   // 长按可直接选中复制
             box.addView(body);
-            new android.app.AlertDialog.Builder(context)
+            com.oilquiz.app.ui.modal.AppDialog.builder(context)
                     .setTitle(TextUtils.isEmpty(title) ? "详情" : title)
                     .setView(box)
                     .setPositiveButton("复制", (d, w) -> copyText(context, text))

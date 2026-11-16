@@ -695,7 +695,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             if (context == null) return;
 
             String[] options = {"查看详情", "编辑配置", "测试连接", "复制API地址"};
-            new android.app.AlertDialog.Builder(context)
+            com.oilquiz.app.ui.modal.AppDialog.builder(context)
                 .setTitle(item.modelName)
                 .setItems(options, (dialog, which) -> {
                     switch (which) {
@@ -737,7 +737,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                            "延迟: " + latencyText + "\n" +
                            "是否启用: " + (item.isEnabled ? "是" : "否");
 
-            new android.app.AlertDialog.Builder(context)
+            com.oilquiz.app.ui.modal.AppDialog.builder(context)
                 .setTitle(context.getString(R.string.h_3388316f))
                 .setMessage(details)
                 .setPositiveButton(context.getString(R.string.h_38cf16f2), null)

@@ -463,12 +463,12 @@ public class DebugLayoutInjectActivity extends Activity {
     private void showDialog(org.json.JSONObject layout, String title) {
         android.view.View view = com.oilquiz.app.ai.python.NativeLayoutRenderer.render(
                 this, layout.toString(), null, new java.util.HashMap<>());
-        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         if (title != null && !title.isEmpty()) b.setTitle(title);
         b.setView(view);
         b.setPositiveButton(getString(R.string.h_b15d9127), (d, w) -> d.dismiss());
         b.setCancelable(true);
-        android.app.AlertDialog dialog = b.create();
+        androidx.appcompat.app.AlertDialog dialog = b.create();
         // 输入法配置：ADJUST_RESIZE + show 后注入 EditText 触摸弹键盘
         dialog.getWindow().setSoftInputMode(
                 android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);

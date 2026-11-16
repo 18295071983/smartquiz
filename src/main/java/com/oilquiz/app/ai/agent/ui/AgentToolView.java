@@ -361,7 +361,7 @@ public class AgentToolView {
         delBtn.setTextColor(color(R.color.error));
         delBtn.setPadding(dp(8), dp(4), dp(8), dp(4));
         delBtn.setOnClickListener(v -> {
-            new com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
+            com.oilquiz.app.ui.modal.AppDialog.builder(context)
                 .setTitle("删除注册")
                 .setMessage("确定删除「" + name + "」吗？（" + (isPersistent ? "持久化注册，删除后不再保留" : "临时注册") + "）")
                 .setPositiveButton("删除", (dialog, which) -> {
@@ -441,7 +441,7 @@ public class AgentToolView {
         delBtn.setTextColor(color(R.color.error));
         delBtn.setPadding(dp(8), dp(4), dp(8), dp(4));
         delBtn.setOnClickListener(v -> {
-            new com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
+            com.oilquiz.app.ui.modal.AppDialog.builder(context)
                 .setTitle("删除工具")
                 .setMessage("确定删除动态工具「" + toolName + "」吗？（持久化，删除后不再保留）")
                 .setPositiveButton("删除", (dialog, which) -> {

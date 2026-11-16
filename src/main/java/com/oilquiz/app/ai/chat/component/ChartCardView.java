@@ -258,8 +258,8 @@ public class ChartCardView implements ChatComponent {
             props.put("rows", rowsArr);
             View table = ComponentRegistry.getInstance().render(context,
                     new ComponentData("table_card", props));
-            androidx.appcompat.app.AlertDialog.Builder b =
-                    new androidx.appcompat.app.AlertDialog.Builder(context)
+            com.oilquiz.app.ui.modal.AppDialog.Builder b =
+                    com.oilquiz.app.ui.modal.AppDialog.builder(context)
                             .setTitle(context.getString(R.string.component_chart_data_title, chartLabel));
             if (table != null) b.setView(table);
             b.setNegativeButton(R.string.close, null).show();

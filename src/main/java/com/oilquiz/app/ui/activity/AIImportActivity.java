@@ -989,7 +989,7 @@ public class AIImportActivity extends BaseActivity {
             com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile p = profiles.get(i);
             names[i] = p.sheetName + "（" + p.rowCount + "行，表头第" + (p.headerRowIndex + 1) + "行）";
         }
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_5386c11e))
                 .setMultiChoiceItems(names, checked, (dialog, which, isChecked) ->
                         checked[which] = isChecked)
@@ -1284,7 +1284,7 @@ public class AIImportActivity extends BaseActivity {
                                 + "规则无法自动补充，是否用 AI 辅助推断缺失字段？\n"
                                 + "· AI 辅助填充：更完整，但会调用本地/在线模型（耗时较长）\n"
                                 + "· 不填充：缺失字段留空直接入库（更快，入库默认值兜底）";
-                        new AlertDialog.Builder(AIImportActivity.this)
+                        com.oilquiz.app.ui.modal.AppDialog.builder(AIImportActivity.this)
                                 .setTitle(getString(R.string.h_89a9ad30))
                                 .setMessage(msg)
                                 .setPositiveButton(getString(R.string.h_72278bd2), (dialog, which) -> {
@@ -1372,7 +1372,7 @@ public class AIImportActivity extends BaseActivity {
                             msg.append(getString(R.string.h_eeeda977)).append(summary.totalRows).append(getString(R.string.h_5c5e3bed));
                         }
                         msg.append(getString(R.string.h_e49edbf3));
-                        new AlertDialog.Builder(AIImportActivity.this)
+                        com.oilquiz.app.ui.modal.AppDialog.builder(AIImportActivity.this)
                                 .setTitle(getString(R.string.h_3e36a94f))
                                 .setMessage(msg.toString())
                                 .setPositiveButton(getString(R.string.h_7d2ff42c), (dialog, which) -> {

@@ -520,7 +520,7 @@ public class AIServiceStatusActivity extends com.oilquiz.app.ui.base.LegacyResul
         String msg = modelLoaded
                 ? "GPU 层数将从 " + current + " 改为 " + target + "，需重新加载模型（数十秒）。继续？"
                 : "GPU 层数将设为 " + target + "（模型未加载，下次加载时生效）。";
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_38673981))
                 .setMessage(msg)
                 .setPositiveButton(modelLoaded ? getString(R.string.h_bb00d535) : getString(R.string.h_38cf16f2), (d, w) -> {
@@ -1013,10 +1013,10 @@ public class AIServiceStatusActivity extends com.oilquiz.app.ui.base.LegacyResul
         }
 
         // 创建模态框
-        android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         View dialogView = getLayoutInflater().inflate(R.layout.dialog_test_ai, null);
         builder.setView(dialogView);
-        android.app.AlertDialog dialog = builder.create();
+        androidx.appcompat.app.AlertDialog dialog = builder.create();
 
         // 初始化UI组件
         android.widget.EditText etTestInput = dialogView.findViewById(R.id.et_test_input);

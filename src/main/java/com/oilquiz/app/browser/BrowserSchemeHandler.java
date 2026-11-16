@@ -440,7 +440,7 @@ public final class BrowserSchemeHandler {
         LinearLayout box = new LinearLayout(context);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(context, 8), 0, dp(context, 8), 0);
-        final android.app.AlertDialog[] dialogRef = new android.app.AlertDialog[1];
+        final androidx.appcompat.app.AlertDialog[] dialogRef = new androidx.appcompat.app.AlertDialog[1];
         for (int i = 0; i < keys.size(); i++) {
             final String key = keys.get(i);
             TextView row = new TextView(context);
@@ -458,7 +458,7 @@ public final class BrowserSchemeHandler {
             });
             box.addView(row);
         }
-        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(context)
+        androidx.appcompat.app.AlertDialog dialog = com.oilquiz.app.ui.modal.AppDialog.builder(context)
                 .setTitle(R.string.browser_scheme_title)
                 .setMessage(appCtx.getString(R.string.browser_scheme_message, scheme, url))
                 .setView(box)

@@ -582,7 +582,7 @@ public class PythonExportBridge {
             final String type = dialogType != null ? dialogType : "info";
             
             // 创建对话框
-            android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(ctx);
+            com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(ctx);
             builder.setTitle(title);
             builder.setMessage(message);
             

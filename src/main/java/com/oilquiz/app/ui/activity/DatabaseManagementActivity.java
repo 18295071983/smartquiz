@@ -1,6 +1,6 @@
 package com.oilquiz.app.ui.activity;
 
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import com.oilquiz.app.ai.python.ProgressDialogCompat;
 import android.content.Context;
 import android.os.Bundle;

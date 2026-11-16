@@ -723,7 +723,7 @@ public class RemoteDshInsightActivity extends AppCompatActivity {
     }
 
     private void confirmDeleteSchedule(String id, String title) {
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("删除日程")
                 .setMessage("删除「" + (title.isEmpty() ? id : title) + "」？此操作会同时删除它的投递历史。")
                 .setPositiveButton("删除", (d, w) -> scheduleWrite("edit", id,

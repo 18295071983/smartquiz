@@ -1,7 +1,7 @@
 package com.oilquiz.app.ai.chat.status;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import android.os.Handler;
 import android.util.Log;
 import android.view.View;
@@ -238,7 +238,7 @@ public class ServiceStatusManager {
 
         String fullDetails = buildFullDetailsText();
 
-        new AlertDialog.Builder(activity)
+        com.oilquiz.app.ui.modal.AppDialog.builder(activity)
             .setTitle("AI服务状态详情（本地）")
             .setView(dialogView)
             .setPositiveButton("复制详情", (dialog, which) -> {
@@ -711,7 +711,7 @@ public class ServiceStatusManager {
             "推理类型: 在线/云端\n" +
             "优势: 强大的模型能力、无需本地资源\n";
 
-        new AlertDialog.Builder(activity)
+        com.oilquiz.app.ui.modal.AppDialog.builder(activity)
             .setTitle("AI服务状态详情（云端）")
             .setView(dialogView)
             .setPositiveButton("复制详情", (dialog, which) -> {

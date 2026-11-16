@@ -2,7 +2,7 @@ package com.oilquiz.app.resource;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.pm.PackageManager;
@@ -814,7 +814,7 @@ public class PermissionResourceProvider {
 
         String message = String.format(activity.getString(com.oilquiz.app.R.string.permission_request_message), permissionNames.toString());
 
-        new AlertDialog.Builder(activity)
+        com.oilquiz.app.ui.modal.AppDialog.builder(activity)
                 .setTitle(activity.getString(com.oilquiz.app.R.string.permission_request_title))
                 .setMessage(message)
                 .setPositiveButton(activity.getString(android.R.string.ok), new DialogInterface.OnClickListener() {

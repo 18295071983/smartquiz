@@ -167,7 +167,7 @@ public class ExportActivity extends AppCompatActivity {
             String desc = t.getDescription();
             names[i] = t.getName() + (desc != null && !desc.isEmpty() ? "：" + desc : "");
         }
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_f3a4498d))
                 .setItems(names, (dialog, which) -> {
                     Template t = sceneTemplates.get(which);
@@ -406,7 +406,7 @@ public class ExportActivity extends AppCompatActivity {
      * 外层 ScrollView 保证字段多时全部可见可滚动。
      */
     private void showFieldSelectionDialog() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         builder.setTitle(getString(R.string.h_fa93dc83));
 
         // 获取所有字段（与模板/导出器共用同一来源）
@@ -651,7 +651,7 @@ public class ExportActivity extends AppCompatActivity {
                 ", explanations=" + config.isIncludeExplanations());
 
         // 根据导出格式选择对话框布局
-        AlertDialog.Builder progressBuilder = new AlertDialog.Builder(ExportActivity.this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder progressBuilder = com.oilquiz.app.ui.modal.AppDialog.builder(ExportActivity.this);
         final ProgressBar[] progressBarRef = new ProgressBar[1];
 
         progressBuilder.setTitle(getString(R.string.h_6b148f7f));
@@ -771,7 +771,7 @@ public class ExportActivity extends AppCompatActivity {
      * 显示导出完成对话框
      */
     private void showExportCompleteDialog(File file, String savedPath, boolean isWebViewAPK) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         builder.setTitle(getString(R.string.h_446e67b3));
 
         String message;
@@ -825,7 +825,7 @@ public class ExportActivity extends AppCompatActivity {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                AlertDialog.Builder builder = new AlertDialog.Builder(ExportActivity.this);
+                com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(ExportActivity.this);
                 builder.setTitle(getString(R.string.h_446e67b3));
                 String message = getString(R.string.h_fffcca4c);
                 if (savedPath != null) {

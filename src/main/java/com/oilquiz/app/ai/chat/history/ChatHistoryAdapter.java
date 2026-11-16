@@ -305,7 +305,7 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
     }
 
     private void showDeleteConfirmDialog(ConversationSession session) {
-        new MaterialAlertDialogBuilder(context)
+        com.oilquiz.app.ui.modal.AppDialog.builder(context)
             .setTitle(context.getString(R.string.h_aa40b2cc))
             .setMessage(context.getString(R.string.h_6b3e0657) +
                        context.getString(R.string.h_243e4ec1) + session.title + "\n" +

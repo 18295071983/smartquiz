@@ -10,7 +10,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
@@ -289,7 +289,7 @@ public class MappingEditorActivity extends AppCompatActivity {
             columnOptions.add("列 " + (i + 1) + ": " + columnHeaders.get(i));
         }
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         builder.setTitle(getString(R.string.h_1d75e445));
         builder.setItems(columnOptions.toArray(new String[0]), (dialog, which) -> {
             if (which == 0) {

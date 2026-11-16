@@ -30,8 +30,8 @@ import java.util.stream.Stream;
 public class DialogStandardRatchetTest {
 
     /** 当前手写数量（2026-11-16 基线）。迁移后请下调，禁止上调。 */
-    private static final int MAX_RAW_ALERT_DIALOG = 62;      // new AlertDialog.Builder(
-    private static final int MAX_RAW_MATERIAL_DIALOG = 15;   // MaterialAlertDialogBuilder(
+    private static final int MAX_RAW_ALERT_DIALOG = 0;       // new AlertDialog.Builder( 已全站迁移
+    private static final int MAX_RAW_MATERIAL_DIALOG = 0;    // MaterialAlertDialogBuilder( 已全站迁移
     private static final int MAX_RAW_BOTTOM_SHEET = 2;       // new BottomSheetDialog(
     private static final int MAX_RAW_DIALOG = 6;             // new Dialog(
 
@@ -43,6 +43,10 @@ public class DialogStandardRatchetTest {
         }
         List<String> all = new ArrayList<>();
         for (Path p : sources) {
+            // 标准层自身的实现当然会 new MaterialAlertDialogBuilder —— 只统计业务代码
+            if (p.toString().replace('\\', '/').endsWith("ui/modal/AppDialog.java")) {
+                continue;
+            }
             all.add(new String(Files.readAllBytes(p), StandardCharsets.UTF_8));
         }
         String joined = String.join("\n", all);

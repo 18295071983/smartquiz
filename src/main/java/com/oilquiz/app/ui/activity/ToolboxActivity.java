@@ -92,7 +92,7 @@ public class ToolboxActivity extends com.oilquiz.app.ui.base.LegacyResultActivit
     private void showFilePreviewTools() {
         // Office文档：选文件用官方查看器；Office界面：官方查看器原始浏览器界面；Pdfium：PDF；文件渲染：通用渲染
         String[] toolNames = {"Office文档", "Office界面", "Pdfium文件预览", "文件渲染"};
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_74e7f8c2))
                 .setItems(toolNames, (dialog, which) -> {
                     switch (which) {
@@ -223,7 +223,7 @@ public class ToolboxActivity extends com.oilquiz.app.ui.base.LegacyResultActivit
 
     private void showOtherTools() {
         String[] names = {"API配置", "环境检查", "系统日志", "天气详情"};
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_77d7cc1c))
                 .setItems(names, (dialog, which) -> {
                     switch (which) {
@@ -250,7 +250,7 @@ public class ToolboxActivity extends com.oilquiz.app.ui.base.LegacyResultActivit
     }
 
     private void showToolDialog(String title, String[] toolNames, Class<?>[] activities) {
-        android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         builder.setTitle(title);
         builder.setItems(toolNames, (dialog, which) -> {
             if (which < activities.length) {

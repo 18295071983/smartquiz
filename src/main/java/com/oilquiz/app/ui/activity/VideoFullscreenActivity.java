@@ -1,7 +1,7 @@
 package com.oilquiz.app.ui.activity;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import android.app.PictureInPictureParams;
 import android.content.Context;
 import android.content.Intent;
@@ -230,7 +230,7 @@ public class VideoFullscreenActivity extends Activity {
             }
             labels.add(label);
         }
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(type == C.TRACK_TYPE_TEXT ? "选择字幕" : "选择音轨")
                 .setItems(labels.toArray(new String[0]), (dialog, which) -> {
                     TrackSelectionParameters.Builder b =

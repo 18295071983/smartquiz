@@ -437,8 +437,8 @@ public final class RemoteConnection {
                         break;
                     case "dialog":
                     case "ui_component": {
-                        android.app.AlertDialog.Builder b =
-                                new android.app.AlertDialog.Builder(app, android.R.style.Theme_Material_Light_Dialog_Alert);
+                        com.oilquiz.app.ui.modal.AppDialog.Builder b =
+                                com.oilquiz.app.ui.modal.AppDialog.builder(app, android.R.style.Theme_Material_Light_Dialog_Alert);
                         if (!title.isEmpty()) b.setTitle(title);
                         if (!text.isEmpty()) b.setMessage(text);
                         b.setPositiveButton("知道了", null);

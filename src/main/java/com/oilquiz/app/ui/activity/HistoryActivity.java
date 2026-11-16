@@ -133,7 +133,7 @@ public class HistoryActivity extends BaseActivity implements ImportHistoryAdapte
     }
 
     private void clearHistory() {
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_86e97bbe))
                 .setMessage(getString(R.string.h_dc9c12fd))
                 .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {
@@ -160,7 +160,7 @@ public class HistoryActivity extends BaseActivity implements ImportHistoryAdapte
 
     @Override
     public void onHistoryItemDelete(ImportHistory importHistory, int position) {
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_a790208c))
                 .setMessage(getString(R.string.h_6229afd6))
                 .setPositiveButton(getString(R.string.h_2f4aaddd), (dialog, which) -> {

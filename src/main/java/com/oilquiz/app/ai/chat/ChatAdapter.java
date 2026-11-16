@@ -1716,7 +1716,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             props.put("maxHeight", 480);
             ComponentData data = new ComponentData("html", props);
             View card = ComponentRegistry.getInstance().render(ctx, data);
-            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(ctx)
+            com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(ctx)
                     .setTitle("消息详情");
             if (card != null) {
                 b.setView(card);
@@ -3982,7 +3982,7 @@ private int dpToPx(int dp, Context context) {
             final String body = full;
             holder.itemView.setOnClickListener(v -> {
                 try {
-                    new android.app.AlertDialog.Builder(v.getContext())
+                    com.oilquiz.app.ui.modal.AppDialog.builder(v.getContext())
                             .setTitle(isInjection ? "已注入上下文" : "系统提示词")
                             .setMessage(body)
                             .setPositiveButton("关闭", null)
@@ -4451,7 +4451,7 @@ private int dpToPx(int dp, Context context) {
             input.setTextSize(Tokens.textSizeSp(input.getContext(), Tokens.TEXT_FOOTNOTE));
             android.widget.ScrollView sv = new android.widget.ScrollView(v.getContext());
             sv.addView(input);
-            new android.app.AlertDialog.Builder(v.getContext())
+            com.oilquiz.app.ui.modal.AppDialog.builder(v.getContext())
                     .setTitle("编辑工具参数 (JSON)")
                     .setView(sv)
                     .setPositiveButton("重跑", (d, w) -> {
@@ -4628,7 +4628,7 @@ private int dpToPx(int dp, Context context) {
             android.widget.ScrollView scroll = new android.widget.ScrollView(context);
             scroll.addView(tv);
             final Context uiContext = context;
-            new androidx.appcompat.app.AlertDialog.Builder(context)
+            com.oilquiz.app.ui.modal.AppDialog.builder(context)
                     .setTitle(context.getString(R.string.tool_result_full_title,
                             title == null ? "" : title))
                     .setView(scroll)

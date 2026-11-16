@@ -1,6 +1,6 @@
 package com.oilquiz.app.ui.activity;
 
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.TextUtils;
@@ -326,7 +326,7 @@ public class ModelDownloadActivity extends BaseActivity {
             }
         }
         
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
             .setTitle(getString(R.string.h_df27233d))
             .setSingleChoiceItems(MIRROR_NAMES, currentIndex, (dialog, which) -> {
                 ModelDownloadManager.MirrorSource selected = MIRROR_SOURCES[which];
@@ -373,7 +373,7 @@ public class ModelDownloadActivity extends BaseActivity {
             }
         }
         
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
             .setTitle(getString(R.string.h_7e1eb179))
             .setSingleChoiceItems(DOWNLOAD_METHOD_NAMES, currentIndex, (dialog, which) -> {
                 ModelDownloadManager.DownloadMethod selected = DOWNLOAD_METHODS[which];
@@ -601,7 +601,7 @@ public class ModelDownloadActivity extends BaseActivity {
         etFileName.setText(guess);
         etFileName.setSelection(etFileName.getText().length());
 
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
             .setTitle(getString(R.string.h_7bc30b7a))
             .setMessage("Repo: " + repoId + getString(R.string.h_cc8d5a31))
             .setView(etFileName)
@@ -718,7 +718,7 @@ public class ModelDownloadActivity extends BaseActivity {
                         String[] f = ggufFiles.get(i);
                         items[i] = f[0] + (f[1].isEmpty() ? "" : "  (" + f[1] + ")");
                     }
-                    new androidx.appcompat.app.AlertDialog.Builder(this)
+                    com.oilquiz.app.ui.modal.AppDialog.builder(this)
                         .setTitle(getString(R.string.h_539be262) + ggufFiles.size() + getString(R.string.h_450500c4))
                         .setItems(items, (d, w) -> {
                             String fileName = ggufFiles.get(w)[0];
@@ -811,7 +811,7 @@ public class ModelDownloadActivity extends BaseActivity {
             etName.setText(fileName);
         }
         
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         builder.setTitle(getString(R.string.h_8f9a06d1))
                .setView(dialogView)
                .setPositiveButton(getString(R.string.h_f26ef914), (dialog, which) -> {
@@ -835,7 +835,7 @@ public class ModelDownloadActivity extends BaseActivity {
                     final String fName = name;   // lambda 需要 effectively final（原代码给 name 重新赋过值）
                     final String fUrl = url;
                     if (quant != null && !quant.startsWith("Q4")) {
-                        new AlertDialog.Builder(ModelDownloadActivity.this)
+                        com.oilquiz.app.ui.modal.AppDialog.builder(ModelDownloadActivity.this)
                                 .setTitle("该量化不支持 NPU 加速")
                                 .setMessage("检测到量化：" + quant
                                         + "\n\nNPU（Hexagon HTP）只原生加速 Q4_0 / Q4_1 / Q8_0 / IQ4_NL / MXFP4 / F16。"
@@ -1553,7 +1553,7 @@ public class ModelDownloadActivity extends BaseActivity {
         String title = "模型文件管理（" + files.length + " 个 / 共 " + humanSize(total)
                 + "，可用 " + humanSize(free) + "）";
         if (files.length == 0) {
-            new androidx.appcompat.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle(title)
                     .setMessage("目录为空：" + dir.getAbsolutePath())
                     .setPositiveButton("知道了", null)
@@ -1561,7 +1561,7 @@ public class ModelDownloadActivity extends BaseActivity {
             return;
         }
 
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(title)
                 .setMultiChoiceItems(names, checked, (d, which, isChecked) -> checked[which] = isChecked)
                 .setPositiveButton("删除所选", (d, w) -> {

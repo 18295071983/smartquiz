@@ -263,7 +263,7 @@ public class AICenterActivity extends AppCompatActivity {
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.addView(box);
 
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("本地引擎参数")
                 .setView(scroll)
                 .setMessage("默认：温度 0.7 / top_p 0.9 / top_k 40。温度越低越稳（工具调用更可靠），"

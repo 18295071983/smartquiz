@@ -891,7 +891,7 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
         for (int i = 0; i < items.length; i++) {
             items[i] = describeTraceFile(list.get(i));
         }
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("历史 trace（最近 " + items.length + " 条）")
                 .setItems(items, (d, w) -> loadTrace(list.get(w)))
                 .setNegativeButton("关闭", null)

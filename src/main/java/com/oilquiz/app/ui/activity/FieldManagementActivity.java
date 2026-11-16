@@ -1,7 +1,7 @@
 package com.oilquiz.app.ui.activity;
 
 import com.oilquiz.app.SmartQuizApplication;
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import com.oilquiz.app.ai.python.ProgressDialogCompat;
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -249,7 +249,7 @@ public class FieldManagementActivity extends AppCompatActivity {
      * 显示添加字段对话框
      */
     private void showAddFieldDialog(String tableName) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this);
         builder.setTitle(getString(R.string.h_4484fa04));
 
         // 创建对话框布局

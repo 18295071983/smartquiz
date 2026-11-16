@@ -1396,7 +1396,7 @@ public class PythonToolManager {
                             view = registry.renderFallback(fAct, data);
                         }
                         // 组件放进 Dialog：标题栏 + 组件内容 + 关闭按钮
-                        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(fAct);
+                        com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(fAct);
                         android.widget.LinearLayout root = new android.widget.LinearLayout(fAct);
                         root.setOrientation(android.widget.LinearLayout.VERTICAL);
                         root.setPadding(
@@ -1421,7 +1421,7 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "closed");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
-                        android.app.AlertDialog dialog = b.create();
+                        androidx.appcompat.app.AlertDialog dialog = b.create();
                         dialog.setOnDismissListener(d -> {
                             rt.result.compareAndSet("pending", "closed");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
@@ -1467,7 +1467,7 @@ public class PythonToolManager {
                         if (!fDefault.isEmpty()) input.setText(fDefault);
                         input.setSingleLine(true);
                         input.setSelection(input.getText().length());
-                        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(fAct);
+                        com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(fAct);
                         if (title != null && !title.isEmpty()) b.setTitle(title);
                         if (message != null && !message.isEmpty()) b.setMessage(message);
                         b.setView(input);
@@ -1486,7 +1486,7 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "cancelled");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
-                        android.app.AlertDialog dialog = b.create();
+                        androidx.appcompat.app.AlertDialog dialog = b.create();
                         dialog.setOnDismissListener(d -> {
                             rt.result.compareAndSet("pending", "cancelled");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
@@ -1516,7 +1516,7 @@ public class PythonToolManager {
                         } catch (Exception ignored) {
                         }
                         final int[] selectedIndex = {-1};
-                        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(fAct);
+                        com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(fAct);
                         // 注意：不能同时 setMessage + setItems（AlertDialog 中 message 会占据内容区，
                         // 导致选项列表不显示，实测 choice 只显示确认/取消）——message 并入 title 展示
                         StringBuilder titleText = new StringBuilder();
@@ -1552,7 +1552,7 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "cancelled");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
-                        android.app.AlertDialog dialog = b.create();
+                        androidx.appcompat.app.AlertDialog dialog = b.create();
                         dialog.setOnDismissListener(d -> {
                             rt.result.compareAndSet("pending", "cancelled");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
@@ -1598,7 +1598,7 @@ public class PythonToolManager {
                                 }
                             }
                         }
-                        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(fAct);
+                        com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(fAct);
                         if (title != null && !title.isEmpty()) b.setTitle(title);
                         b.setMultiChoiceItems(choices.toArray(new String[0]), checked, (d, which, isChecked) -> {
                             if (which >= 0 && which < checked.length) checked[which] = isChecked;
@@ -1626,7 +1626,7 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "cancelled");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
-                        android.app.AlertDialog dialog = b.create();
+                        androidx.appcompat.app.AlertDialog dialog = b.create();
                         dialog.setOnDismissListener(d -> {
                             rt.result.compareAndSet("pending", "cancelled");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
@@ -1736,7 +1736,7 @@ public class PythonToolManager {
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                             return;
                         }
-                        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(fAct);
+                        com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(fAct);
                         if (title != null && !title.isEmpty()) b.setTitle(title);
                         b.setView(iv);
                         b.setPositiveButton("关闭", (d, w) -> {
@@ -1749,7 +1749,7 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "closed");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
-                        android.app.AlertDialog dialog = b.create();
+                        androidx.appcompat.app.AlertDialog dialog = b.create();
                         dialog.setOnDismissListener(d -> {
                             rt.result.compareAndSet("pending", "closed");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
@@ -1829,7 +1829,7 @@ public class PythonToolManager {
                         if (listLines.isEmpty()) {
                             listLines.add(title != null && !title.isEmpty() ? title : "列表为空");
                         }
-                        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(fAct);
+                        com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(fAct);
                         if (title != null && !title.isEmpty()) b.setTitle(title);
                         b.setItems(listLines.toArray(new String[0]), (d, which) -> {
                             if (which >= 0 && which < listLines.size()) {
@@ -1848,7 +1848,7 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "closed");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
-                        android.app.AlertDialog dialog = b.create();
+                        androidx.appcompat.app.AlertDialog dialog = b.create();
                         dialog.setOnDismissListener(d -> {
                             rt.result.compareAndSet("pending", "closed");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
@@ -1934,7 +1934,7 @@ public class PythonToolManager {
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                             return;
                         }
-                        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(fAct);
+                        com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(fAct);
                         if (title != null && !title.isEmpty()) b.setTitle(title);
                         b.setView(wv);
                         b.setPositiveButton("关闭", (d, w) -> {
@@ -1948,7 +1948,7 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "closed");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
-                        android.app.AlertDialog dialog = b.create();
+                        androidx.appcompat.app.AlertDialog dialog = b.create();
                         dialog.setOnDismissListener(d -> {
                             rt.result.compareAndSet("pending", "closed");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
@@ -1960,7 +1960,7 @@ public class PythonToolManager {
                         Log.i(TAG, "[Python component] web created: " + id);
                     } else {
                         // 系统对话框（info/confirm/warning）
-                        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(fAct);
+                        com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(fAct);
                         if (title != null && !title.isEmpty()) b.setTitle(title);
                         if (message != null && !message.isEmpty()) b.setMessage(message);
                         android.content.DialogInterface.OnClickListener onPositive =
@@ -1981,7 +1981,7 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "cancelled");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
-                        android.app.AlertDialog dialog = b.create();
+                        androidx.appcompat.app.AlertDialog dialog = b.create();
                         dialog.setOnDismissListener(d -> {
                             rt.result.compareAndSet("pending", "cancelled");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
@@ -2133,7 +2133,7 @@ public class PythonToolManager {
                 score[0] = defScore;
                 for (int k = 0; k < defScore; k++) stars[k].setTextColor(filledStar);
             }
-            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(act);
+            com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(act);
             if (title != null && !title.isEmpty()) b.setTitle(title);
             if (message != null && !message.isEmpty()) b.setMessage(message);
             b.setView(starRow);
@@ -2152,7 +2152,7 @@ public class PythonToolManager {
                 rt.result.compareAndSet("pending", "cancelled");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
             });
-            android.app.AlertDialog dialog = b.create();
+            androidx.appcompat.app.AlertDialog dialog = b.create();
             dialog.setOnDismissListener(d -> {
                 rt.result.compareAndSet("pending", "cancelled");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
@@ -2202,7 +2202,7 @@ public class PythonToolManager {
                 }
                 grid.addView(rowL);
             }
-            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(act);
+            com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(act);
             if (title != null && !title.isEmpty()) b.setTitle(title);
             if (message != null && !message.isEmpty()) b.setMessage(message);
             b.setView(grid);
@@ -2221,7 +2221,7 @@ public class PythonToolManager {
                 rt.result.compareAndSet("pending", "cancelled");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
             });
-            android.app.AlertDialog dialog = b.create();
+            androidx.appcompat.app.AlertDialog dialog = b.create();
             dialog.setOnDismissListener(d -> {
                 rt.result.compareAndSet("pending", "cancelled");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
@@ -2271,7 +2271,7 @@ public class PythonToolManager {
             final int fLen = Math.max(1, Math.min(12, len));
             final double fMin = rangeMin, fMax = rangeMax;
             final boolean fRange = hasRange;
-            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(act);
+            com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(act);
             if (title != null && !title.isEmpty()) b.setTitle(title);
             if (message != null && !message.isEmpty()) b.setMessage(message);
             b.setView(input);
@@ -2286,12 +2286,12 @@ public class PythonToolManager {
                 rt.result.compareAndSet("pending", "cancelled");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
             });
-            android.app.AlertDialog dialog = b.create();
+            androidx.appcompat.app.AlertDialog dialog = b.create();
             dialog.setOnDismissListener(d -> {
                 rt.result.compareAndSet("pending", "cancelled");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
             });
-            dialog.setOnShowListener(d -> dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
+            dialog.setOnShowListener(d -> dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
                     .setOnClickListener(v -> {
                         String val = input.getText() != null ? input.getText().toString().trim() : "";
                         if (isOtp) {
@@ -2367,7 +2367,7 @@ public class PythonToolManager {
             sub.setTextColor(com.oilquiz.app.ai.chat.component.ComponentColors.textTertiary(act));
             sub.setPadding(0, (int) (6 * density), 0, 0);
             box.addView(sub);
-            final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(act)
+            final androidx.appcompat.app.AlertDialog dialog = com.oilquiz.app.ui.modal.AppDialog.builder(act)
                     .setTitle(title != null && !title.isEmpty() ? title : "📢 滚动公告")
                     .setView(box)
                     .setPositiveButton("关闭", (d, w) -> {
@@ -2460,7 +2460,7 @@ public class PythonToolManager {
 
             final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
             final boolean[] done = {false};
-            final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(act)
+            final androidx.appcompat.app.AlertDialog dialog = com.oilquiz.app.ui.modal.AppDialog.builder(act)
                     .setTitle(title != null && !title.isEmpty() ? title
                             : ("image".equals(fType) ? "🖼️ 文生图任务" : "🎬 文生视频任务"))
                     .setMessage(message != null && !message.isEmpty() ? message : "任务ID: " + taskIdRef[0])
@@ -2779,7 +2779,7 @@ public class PythonToolManager {
             // 是否有可交互按钮（提交/工具按钮）：有则等待用户操作，不立即完成组件
             final boolean[] hasInteractiveButtons = {false};
             final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
-            final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(act)
+            final androidx.appcompat.app.AlertDialog dialog = com.oilquiz.app.ui.modal.AppDialog.builder(act)
                     .setTitle(fTitle)
                     .setMessage(message != null && !message.isEmpty() ? message : null)
                     .setView(scrollWrap)
@@ -3262,7 +3262,7 @@ public class PythonToolManager {
             } catch (Exception ignored) {
             }
             if (fieldDefs.length() == 0) {
-                android.app.AlertDialog.Builder b0 = new android.app.AlertDialog.Builder(act);
+                com.oilquiz.app.ui.modal.AppDialog.Builder b0 = com.oilquiz.app.ui.modal.AppDialog.builder(act);
                 if (title != null && !title.isEmpty()) b0.setTitle(title);
                 if (message != null && !message.isEmpty()) b0.setMessage(message);
                 b0.setPositiveButton("确定", (d, w) -> {
@@ -3280,7 +3280,7 @@ public class PythonToolManager {
                     rt.result.compareAndSet("pending", "cancelled");
                     synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                 });
-                android.app.AlertDialog d0 = b0.create();
+                androidx.appcompat.app.AlertDialog d0 = b0.create();
                 d0.setOnDismissListener(d -> {
                     rt.result.compareAndSet("pending", "cancelled");
                     synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
@@ -3454,7 +3454,7 @@ public class PythonToolManager {
                 return out;
             };
 
-            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(act);
+            com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(act);
             if (title != null && !title.isEmpty()) b.setTitle(title);
             if (message != null && !message.isEmpty()) b.setMessage(message);
             b.setView(formHolder);
@@ -3492,13 +3492,13 @@ public class PythonToolManager {
                 rt.result.compareAndSet("pending", "cancelled");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
             });
-            android.app.AlertDialog dialog = b.create();
+            androidx.appcompat.app.AlertDialog dialog = b.create();
             dialog.setOnDismissListener(d -> {
                 rt.result.compareAndSet("pending", "cancelled");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
             });
             dialog.setOnShowListener(d -> {
-                android.widget.Button positive = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE);
+                android.widget.Button positive = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE);
                 if (multiMode) {
                     positive.setOnClickListener(v -> {
                         org.json.JSONObject round = collectRound.get();
@@ -3769,7 +3769,7 @@ public class PythonToolManager {
                             .resolveCanvasSize(propsObj, act);
             session.size = defaultSize;
 
-            android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(act)
+            androidx.appcompat.app.AlertDialog dialog = com.oilquiz.app.ui.modal.AppDialog.builder(act)
                     .setTitle(title != null && !title.isEmpty() ? title : "布局画布")
                     .setView(canvasScroll)
                     .setCancelable(true)
@@ -3889,7 +3889,7 @@ public class PythonToolManager {
          * 无输入控件时仅设 ADJUST_UNSPECIFIED（不弹输入法，不影响纯展示）。
          */
         @SuppressWarnings("deprecation") // 弹窗窗口仍靠 ADJUST_RESIZE 跟输入法收缩，暂无等价替代
-        private void configureDialogInput(android.app.AlertDialog dialog) {
+        private void configureDialogInput(androidx.appcompat.app.AlertDialog dialog) {
             if (dialog == null || dialog.getWindow() == null) return;
             try {
                 // 统一 ADJUST_RESIZE：弹窗内容随输入法收缩，避免遮挡（无输入控件也无害）。
@@ -4098,7 +4098,7 @@ public class PythonToolManager {
             layout.addView(statusView);
             layout.addView(doneBtn);
 
-            final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(act)
+            final androidx.appcompat.app.AlertDialog dialog = com.oilquiz.app.ui.modal.AppDialog.builder(act)
                     .setTitle(title != null && !title.isEmpty() ? title : "🎤 请说话")
                     .setMessage(message != null && !message.isEmpty() ? message : "正在录音，说完请点「完成」")
                     .setView(layout)
@@ -4260,7 +4260,7 @@ public class PythonToolManager {
                 }
             };
 
-            final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(act)
+            final androidx.appcompat.app.AlertDialog dialog = com.oilquiz.app.ui.modal.AppDialog.builder(act)
                     .setTitle(title != null && !title.isEmpty() ? title : "🔊 正在朗读")
                     .setView(layout)
                     .setCancelable(true)
@@ -4539,8 +4539,8 @@ public class PythonToolManager {
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                             Log.i(TAG, "[Python component] progress auto closed at max: " + componentId);
                         }
-                    } else if (d instanceof android.app.AlertDialog) {
-                        android.app.AlertDialog ad = (android.app.AlertDialog) d;
+                    } else if (d instanceof androidx.appcompat.app.AlertDialog) {
+                        androidx.appcompat.app.AlertDialog ad = (androidx.appcompat.app.AlertDialog) d;
                         if (fTitle != null && !fTitle.isEmpty()) ad.setTitle(fTitle);
                         if (fMessage != null && !fMessage.isEmpty()) ad.setMessage(fMessage);
                     }
@@ -4919,7 +4919,7 @@ public class PythonToolManager {
                         latch.countDown();
                         return;
                     }
-                    android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(fAct);
+                    com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(fAct);
                     if (title != null && !title.isEmpty()) b.setTitle(title);
                     if (message != null && !message.isEmpty()) b.setMessage(message);
                     android.content.DialogInterface.OnClickListener onPositive =

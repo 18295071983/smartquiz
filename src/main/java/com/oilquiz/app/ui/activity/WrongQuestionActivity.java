@@ -149,7 +149,7 @@ public class WrongQuestionActivity extends AppCompatActivity implements WrongQue
     }
 
     private void showClearAllConfirmationDialog() {
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_3225c25f))
                 .setMessage(getString(R.string.h_3d7b8851))
                 .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> clearAllWrongQuestions())
@@ -194,7 +194,7 @@ public class WrongQuestionActivity extends AppCompatActivity implements WrongQue
 
     @Override
     public void onDeleteClick(WrongQuestion wrongQuestion) {
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_4d4dafc3))
                 .setMessage(getString(R.string.h_ca0b9d55))
                 .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {

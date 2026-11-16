@@ -75,7 +75,7 @@ public class WebViewActivity extends BaseActivity {
     // 页内查找
     private android.os.Handler findHandler;
     private Runnable findRunnable;
-    private android.app.AlertDialog findDialog;
+    private androidx.appcompat.app.AlertDialog findDialog;
 
     // HTML5 视频全屏 / blob 下载 / 通知权限
     private com.oilquiz.app.browser.BrowserFullscreenController fullscreenController;
@@ -692,7 +692,7 @@ public class WebViewActivity extends BaseActivity {
                         com.oilquiz.app.browser.BrowserAuthController.listSavedSites(this).size()),
                 getString(R.string.browser_clear_data)
         };
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(R.string.browser_menu)
                 .setItems(items, (dialog, which) -> {
                     switch (which) {
@@ -765,7 +765,7 @@ public class WebViewActivity extends BaseActivity {
         for (int i = 0; i < policies.length; i++) {
             if (policies[i].equals(current)) checked = i;
         }
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(R.string.browser_scheme_policy_title)
                 .setSingleChoiceItems(labels, checked, (dialog, which) -> {
                     browserSettings.setUnknownSchemePolicy(policies[which]);
@@ -790,7 +790,7 @@ public class WebViewActivity extends BaseActivity {
             if (host.isEmpty()) host = subscription.endpoint;
             labels[i] = getString(R.string.webpush_manage_entry, host, subscription.intervalMinutes);
         }
-        final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+        final androidx.appcompat.app.AlertDialog dialog = com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(R.string.browser_background_push)
                 .setMessage(R.string.webpush_manage_hint)
                 .setItems(labels, (d, which) -> { })
@@ -799,7 +799,7 @@ public class WebViewActivity extends BaseActivity {
         dialog.show();
         dialog.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
             WebPushSubscription subscription = subscriptions.get(position);
-            new android.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setMessage(R.string.webpush_manage_remove)
                     .setPositiveButton(R.string.browser_delete, (d, which) -> {
                         WebPushManager.get(this).unregister(subscription.id);
@@ -898,7 +898,7 @@ public class WebViewActivity extends BaseActivity {
     }
 
     private void clearBrowsingData() {
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(R.string.browser_clear_data)
                 .setMessage(R.string.browser_clear_data_message)
                 .setPositiveButton(R.string.browser_clear, (dialog, which) -> {
@@ -945,7 +945,7 @@ public class WebViewActivity extends BaseActivity {
         for (int i = 0; i < entries.size(); i++) {
             labels[i] = historyLabel(entries.get(i));
         }
-        final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+        final androidx.appcompat.app.AlertDialog dialog = com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(R.string.browser_history)
                 .setItems(labels, (d, which) -> loadUrl(entries.get(which).url))
                 .setNeutralButton(R.string.browser_clear_history, (d, which) -> confirmClearHistory())
@@ -954,7 +954,7 @@ public class WebViewActivity extends BaseActivity {
         dialog.show();
         dialog.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
             BrowserStore.Entry entry = entries.get(position);
-            new android.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setMessage(R.string.browser_remove_history)
                     .setPositiveButton(R.string.browser_delete, (d, which) -> {
                         browserStore.removeHistory(entry.url);
@@ -967,7 +967,7 @@ public class WebViewActivity extends BaseActivity {
     }
 
     private void confirmClearHistory() {
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setMessage(R.string.browser_clear_history_message)
                 .setPositiveButton(R.string.browser_clear, (d, which) -> {
                     browserStore.clearHistory();
@@ -987,7 +987,7 @@ public class WebViewActivity extends BaseActivity {
         for (int i = 0; i < entries.size(); i++) {
             labels[i] = historyLabel(entries.get(i));
         }
-        final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+        final androidx.appcompat.app.AlertDialog dialog = com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(R.string.browser_bookmarks)
                 .setItems(labels, (d, which) -> loadUrl(entries.get(which).url))
                 .setNegativeButton(R.string.browser_close, null)
@@ -995,7 +995,7 @@ public class WebViewActivity extends BaseActivity {
         dialog.show();
         dialog.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
             BrowserStore.Entry entry = entries.get(position);
-            new android.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setMessage(R.string.browser_remove_bookmark)
                     .setPositiveButton(R.string.browser_delete, (d, which) -> {
                         browserStore.removeBookmark(entry.url);
@@ -1058,7 +1058,7 @@ public class WebViewActivity extends BaseActivity {
         row.addView(next, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         box.addView(row);
 
-        findDialog = new android.app.AlertDialog.Builder(this)
+        findDialog = com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(R.string.browser_find_title)
                 .setView(box)
                 .setNegativeButton(R.string.browser_close, null)
@@ -1148,7 +1148,7 @@ public class WebViewActivity extends BaseActivity {
                 getString(R.string.browser_share_link),
                 getString(R.string.browser_open_external)
         };
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setItems(items, (dialog, which) -> {
                     switch (which) {
                         case 0: createNewTab(link); break;
@@ -1171,7 +1171,7 @@ public class WebViewActivity extends BaseActivity {
                 getString(R.string.browser_copy_image_url),
                 getString(R.string.browser_download_image)
         };
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setItems(items, (dialog, which) -> {
                     switch (which) {
                         case 0: createNewTab(imageUrl); break;
@@ -1294,7 +1294,7 @@ public class WebViewActivity extends BaseActivity {
             startActivityForResultCompat(android.content.Intent.createChooser(intent, "选择文件"), 100);
         } catch (android.content.ActivityNotFoundException ex) {
             // 如果没有文件管理器，显示提示
-            new android.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle(getString(R.string.h_02d9819d))
                     .setMessage(getString(R.string.h_756d4a53))
                     .setPositiveButton(getString(R.string.h_38cf16f2), null)
@@ -1591,7 +1591,7 @@ public class WebViewActivity extends BaseActivity {
      */
     private void showFileErrorDialog(String message) {
         runOnUiThread(() -> {
-            new android.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle(getString(R.string.h_ce0c7e18))
                     .setMessage(message)
                     .setPositiveButton(getString(R.string.h_38cf16f2), null)
@@ -3294,7 +3294,7 @@ public class WebViewActivity extends BaseActivity {
         }
         String host = BrowserUrlNormalizer.hostOf(subscription.endpoint);
         if (host.isEmpty()) host = subscription.endpoint;
-        new android.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(R.string.webpush_consent_title)
                 .setMessage(getString(R.string.webpush_consent_message,
                         host, subscription.intervalMinutes))

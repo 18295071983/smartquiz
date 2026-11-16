@@ -136,7 +136,7 @@ public class AgentMemoryView {
         });
 
         clearBtn.setOnClickListener(v -> {
-            new com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
+            com.oilquiz.app.ui.modal.AppDialog.builder(context)
                 .setTitle("清空所有记忆")
                 .setMessage("将删除全部记忆，Agent 将忘记这些信息。确定继续吗？")
                 .setPositiveButton("清空", (dialog, which) -> {

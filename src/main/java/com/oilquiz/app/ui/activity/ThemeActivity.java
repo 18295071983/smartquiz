@@ -212,7 +212,7 @@ public class ThemeActivity extends AppCompatActivity {
         if (android.os.Build.VERSION.SDK_INT < 30 || android.os.Environment.isExternalStorageManager()) {
             return true;
         }
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_a543ed9a))
                 .setMessage(getString(R.string.h_9e455d55))
                 .setPositiveButton(getString(R.string.h_5e213ddb), (d, w) -> {
@@ -561,7 +561,7 @@ public class ThemeActivity extends AppCompatActivity {
         ScrollView scrollView = new ScrollView(this);
         scrollView.addView(grid);
 
-        new androidx.appcompat.app.AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_502eb6f3))
                 .setView(scrollView)
                 .setPositiveButton(getString(R.string.h_155a119b), (d, which) -> pickWallpaperLauncher.launch(
@@ -1239,7 +1239,7 @@ View.OnClickListener skinClick = v -> {
         }
         refresh.run();
 
-        final androidx.appcompat.app.AlertDialog dialog = new androidx.appcompat.app.AlertDialog.Builder(this)
+        final androidx.appcompat.app.AlertDialog dialog = com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(getString(R.string.h_edb9ba13))
                 .setView(content)
                 .setNegativeButton(getString(R.string.h_625fb26b), (d, w) -> restorePreviewAfterDialog())

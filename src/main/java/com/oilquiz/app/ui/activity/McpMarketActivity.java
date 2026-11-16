@@ -475,7 +475,7 @@ public class McpMarketActivity extends AppCompatActivity {
         status.setText(String.join("\n", tips));
         form.addView(status);
 
-        final AlertDialog dialog = new AlertDialog.Builder(this)
+        final AlertDialog dialog = com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("安装 " + e.title)
                 .setView(form)
                 .setNegativeButton("取消", null)
@@ -541,7 +541,7 @@ public class McpMarketActivity extends AppCompatActivity {
         if (matches.isEmpty()) {
             labels.set(0, "（不引用密钥）· 没识别出该服务商的已有密钥，下面是全部");
         }
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("选择要引用的密钥")
                 .setItems(labels.toArray(new String[0]), (d, which) -> {
                     String[] picked = items.get(which);
@@ -627,7 +627,7 @@ public class McpMarketActivity extends AppCompatActivity {
         if (result.authRequired) {
             // 授权必须先有 serverId 才能存令牌，所以这一步会把这条落盘成停用项——
             // 说清楚，否则用户会以为"还没点启用怎么就多了条配置"
-            new AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle("要走一次浏览器授权")
                     .setMessage(msg + "\n\n点「去授权」会先把这条存成停用项，再打开浏览器；"
                             + "你在浏览器里同意后会回到这里自动复测并启用。")
@@ -643,7 +643,7 @@ public class McpMarketActivity extends AppCompatActivity {
             return;
         }
         if (result.ok) {
-            new AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle("可以启用")
                     .setMessage(msg)
                     .setPositiveButton("启用并保存", (d, w) ->
@@ -653,7 +653,7 @@ public class McpMarketActivity extends AppCompatActivity {
             return;
         }
         // 失败时的三档都是显式动作：默认不写"启用"，停用保存与强行启用各点一次
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("没连上")
                 .setMessage(msg.toString() + "\n\n默认不启用。可以先存成停用项，改好再到管理页开。")
                 .setPositiveButton("存为停用", (d, w) ->
@@ -699,7 +699,7 @@ public class McpMarketActivity extends AppCompatActivity {
                 runProbe(e, draft);
                 return;
             }
-            new AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle("授权没完成")
                     .setMessage(outcome.message
                             + "\n\n这条已存成停用项，可以到管理页再点「🔐 授权」重试。")
@@ -750,7 +750,7 @@ public class McpMarketActivity extends AppCompatActivity {
             sb.append("\n标签：").append(String.join(" / ", e.tags));
         }
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle(e.title + " · 接入指引")
                 .setMessage(sb.toString());
         if (ep != null) {

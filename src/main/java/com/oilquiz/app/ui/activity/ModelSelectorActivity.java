@@ -1,6 +1,6 @@
 package com.oilquiz.app.ui.activity;
 
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Looper;
@@ -497,7 +497,7 @@ public class ModelSelectorActivity extends com.oilquiz.app.ui.base.LegacyResultA
         if (config == null) return;
 
         final String configId = config.id; // 提取为 final 变量以用于 lambda
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
             .setTitle(getString(R.string.h_50eaf94d))
             .setMessage(getString(R.string.h_bf14db74) + config.name + getString(R.string.h_2957e496))
             .setPositiveButton(getString(R.string.h_2f4aaddd), (dialog, which) -> {
@@ -852,7 +852,7 @@ public class ModelSelectorActivity extends com.oilquiz.app.ui.base.LegacyResultA
     /** 弹出语音功能介绍对话框 */
     private void showVoiceFeatureInfoDialog() {
         View dialogView = getLayoutInflater().inflate(R.layout.dialog_voice_feature_info, null);
-        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+        androidx.appcompat.app.AlertDialog dialog = com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setView(dialogView)
                 .setCancelable(true)
                 .create();

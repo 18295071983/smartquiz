@@ -380,7 +380,7 @@ public class TotpVaultActivity extends AppCompatActivity {
             Toast.makeText(this, "系统 Keystore 不可用，不能安全保存", Toast.LENGTH_LONG).show();
             return;
         }
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("添加 TOTP 账号")
                 .setItems(new String[]{"扫码添加（推荐）", "手动输入密钥"}, (d, which) -> {
                     if (which == 0) startScan();
@@ -439,7 +439,7 @@ public class TotpVaultActivity extends AppCompatActivity {
         period.setText("30");
         form.addView(period);
 
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("手动输入 TOTP")
                 .setView(form)
                 .setPositiveButton("保存", (d, w) -> {
@@ -485,7 +485,7 @@ public class TotpVaultActivity extends AppCompatActivity {
     }
 
     private void confirmDelete(final TotpAccount account) {
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("删除 " + account.displayLabel() + "？")
                 .setMessage("删除后该账号的 TOTP 密钥会从本机保险库移除，无法恢复。")
                 .setPositiveButton("删除", (d, w) -> {
@@ -501,7 +501,7 @@ public class TotpVaultActivity extends AppCompatActivity {
     }
 
     private void confirmReset() {
-        new AlertDialog.Builder(this)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
                 .setTitle("重置 TOTP 保险库？")
                 .setMessage("会清空本机全部 TOTP 密钥，不能撤销。"
                         + "只有在确认无法解密、且已有外部备份时才继续。")

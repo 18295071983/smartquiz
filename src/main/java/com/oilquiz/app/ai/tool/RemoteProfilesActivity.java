@@ -173,7 +173,7 @@ public class RemoteProfilesActivity extends Activity {
         row.addView(use);
         // 长按删除（2026-11-14）：当前正在用的那条也允许删，删完列表为空会重新播种
         row.setOnLongClickListener(v -> {
-            new android.app.AlertDialog.Builder(this)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle("删除这条连接？")
                     .setMessage(p.url)
                     .setPositiveButton("删除", (d, w) -> {

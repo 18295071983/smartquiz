@@ -463,7 +463,7 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
     }
 
     private void showRemoveDialog(Attachment attachment, int position) {
-        new MaterialAlertDialogBuilder(context)
+        com.oilquiz.app.ui.modal.AppDialog.builder(context)
             .setTitle(context.getString(R.string.h_ba32db0a))
             .setMessage(context.getString(R.string.h_6d4b209b) +
                        (attachment.name != null ? attachment.name : ""))
@@ -743,7 +743,7 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         }
         
         // 创建对话框
-        androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(context);
+        com.oilquiz.app.ui.modal.AppDialog.Builder builder = com.oilquiz.app.ui.modal.AppDialog.builder(context);
         builder.setTitle(context.getString(R.string.h_8667899b))
             .setMessage(content.toString())
             .setPositiveButton(context.getString(R.string.h_290b624a), (dialog, which) -> {
