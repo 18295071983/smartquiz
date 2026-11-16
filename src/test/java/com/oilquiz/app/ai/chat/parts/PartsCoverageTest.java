@@ -41,7 +41,10 @@ public class PartsCoverageTest {
 
     @Before
     public void setUp() {
-        ctx = ApplicationProvider.getApplicationContext();
+        // 布局里已改走 ?attr/colorXxx（2026-11-16 主题接线）：没有应用主题的裸 app context
+        // 解析不到这些 attr，inflate 会抛 "Failed to resolve attribute"。
+        // 真机上所有 inflate 都发生在带主题的 Activity 上，这里用同一个应用主题对齐。
+        ctx = com.oilquiz.app.testsupport.ThemedAppContext.get();
         container = new LinearLayout(ctx);
     }
 

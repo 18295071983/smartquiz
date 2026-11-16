@@ -10,6 +10,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.turn.AssistantTurn;
 import com.oilquiz.app.ai.chat.ui.MarkdownWebView;
@@ -199,7 +200,7 @@ public final class ReasoningPartRenderer implements PartRenderer {
     /** 原生回退路的次级文字色（与 Web 态 {@code --muted} 同一个主题 token：chat_v2_text_2）。 */
     private static int secondaryTextColor(Context ctx) {
         try {
-            return androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_2);
+            return ThemeColors.get(ctx, R.color.chat_v2_text_2);
         } catch (Throwable t) {
             return 0xFF8A8F98;
         }

@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.chat.ui;
 import android.content.Context;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 
 /**
  * 工具活动行的状态文案与状态色（2026-10-21 抽出）。
@@ -34,11 +35,11 @@ public final class ToolRowStyle {
     /** 状态 → 行尾文字色。 */
     public static int statusColor(Context ctx, String status) {
         if ("completed".equals(status) || "success".equals(status)) {
-            return androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_success);
+            return ThemeColors.get(ctx, R.color.chat_v2_success);
         }
         if ("failed".equals(status) || "error".equals(status)) {
-            return androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_danger);
+            return ThemeColors.get(ctx, R.color.chat_v2_danger);
         }
-        return androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3);
+        return ThemeColors.get(ctx, R.color.chat_v2_text_3);
     }
 }

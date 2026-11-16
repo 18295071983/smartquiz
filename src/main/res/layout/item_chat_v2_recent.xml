@@ -21,7 +21,7 @@
         android:layout_height="@dimen/chat_v2_line_icon"
         android:contentDescription="@string/chat_v2_history_desc"
         android:src="@drawable/ic_history"
-        app:tint="@color/chat_v2_text_3"/>
+        app:tint="?attr/colorControlTextHint"/>
 
     <TextView
         android:id="@+id/chat_v2_recent_name"
@@ -31,7 +31,7 @@
         android:layout_weight="1"
         android:ellipsize="end"
         android:singleLine="true"
-        android:textColor="@color/chat_v2_text"
+        android:textColor="?attr/colorControlText"
         android:textSize="@dimen/chat_v2_recent_text"/>
 
     <TextView
@@ -39,6 +39,6 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="@dimen/space_10"
-        android:textColor="@color/chat_v2_text_3"
+        android:textColor="?attr/colorControlTextHint"
         android:textSize="@dimen/chat_v2_subline_text"/>
 </LinearLayout>

@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat;
 
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -73,7 +74,7 @@ public final class ChatV2ActionSheet {
             TextView title = new TextView(ctx);
             title.setText(titleRes);
             title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f);
-            title.setTextColor(ContextCompat.getColor(ctx, R.color.chat_v2_text));
+            title.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text));
             title.setPadding(0, 0, 0, dp(ctx, 8));
             box.addView(title);
 
@@ -106,7 +107,7 @@ public final class ChatV2ActionSheet {
         iconLp.setMarginEnd(dp(ctx, 12));
         icon.setLayoutParams(iconLp);
         icon.setImageResource(item.iconRes);
-        icon.setColorFilter(ContextCompat.getColor(ctx, R.color.chat_v2_text_2));
+        icon.setColorFilter(ThemeColors.get(ctx, R.color.chat_v2_text_2));
         row.addView(icon);
 
         TextView label = new TextView(ctx);
@@ -115,7 +116,7 @@ public final class ChatV2ActionSheet {
                 : (item.titleRes != 0 ? ctx.getString(item.titleRes) : null);
         if (!TextUtils.isEmpty(text)) label.setText(text);
         label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
-        label.setTextColor(ContextCompat.getColor(ctx, R.color.chat_v2_text));
+        label.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text));
         row.addView(label);
 
         row.setOnClickListener(v -> {

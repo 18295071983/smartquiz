@@ -19,7 +19,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="@string/chat_attach_title"
-            android:textColor="@color/chat_v2_text"
+            android:textColor="?attr/colorControlText"
             android:textSize="@dimen/text_18"
             android:textStyle="bold"/>
 
@@ -31,7 +31,7 @@
             android:contentDescription="@string/close"
             android:padding="@dimen/space_4"
             android:src="@drawable/ic_clear"
-            app:tint="@color/chat_v2_text_2"/>
+            app:tint="?attr/colorControlTextSecondary"/>
     </LinearLayout>
 
     <LinearLayout
@@ -52,7 +52,7 @@
                 android:contentDescription="@string/chat_attach_camera"
                 android:padding="@dimen/space_4"
                 android:src="@drawable/ic_chat_v2_camera"
-                app:tint="@color/chat_v2_brand_ink"/>
+                app:tint="?attr/colorPrimaryVariant"/>
 
             <TextView
                 style="@style/ChatV2AttachLabel"
@@ -71,7 +71,7 @@
                 android:contentDescription="@string/chat_attach_gallery"
                 android:padding="@dimen/space_4"
                 android:src="@drawable/ic_chat_v2_gallery"
-                app:tint="@color/chat_v2_brand_ink"/>
+                app:tint="?attr/colorPrimaryVariant"/>
 
             <TextView
                 style="@style/ChatV2AttachLabel"
@@ -89,7 +89,7 @@
                 android:contentDescription="@string/chat_attach_file"
                 android:padding="@dimen/space_4"
                 android:src="@drawable/ic_file"
-                app:tint="@color/chat_v2_brand_ink"/>
+                app:tint="?attr/colorPrimaryVariant"/>
 
             <TextView
                 style="@style/ChatV2AttachLabel"
@@ -115,7 +115,7 @@
                 android:contentDescription="@string/chat_attach_voice"
                 android:padding="@dimen/space_4"
                 android:src="@drawable/ic_mic"
-                app:tint="@color/chat_v2_brand_ink"/>
+                app:tint="?attr/colorPrimaryVariant"/>
 
             <TextView
                 style="@style/ChatV2AttachLabel"
@@ -134,7 +134,7 @@
                 android:contentDescription="@string/chat_attach_tool"
                 android:padding="@dimen/space_4"
                 android:src="@drawable/ic_ai_tool"
-                app:tint="@color/chat_v2_brand_ink"/>
+                app:tint="?attr/colorPrimaryVariant"/>
 
             <TextView
                 style="@style/ChatV2AttachLabel"
@@ -152,7 +152,7 @@
                 android:contentDescription="@string/chat_attach_screen"
                 android:padding="@dimen/space_4"
                 android:src="@drawable/ic_chat_v2_screenshot"
-                app:tint="@color/chat_v2_brand_ink"/>
+                app:tint="?attr/colorPrimaryVariant"/>
 
             <TextView
                 style="@style/ChatV2AttachLabel"

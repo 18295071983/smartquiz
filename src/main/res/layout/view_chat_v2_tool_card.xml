@@ -31,7 +31,7 @@
             android:layout_height="@dimen/size_14"
             android:contentDescription="@string/chat_v2_tool_desc"
             android:src="@drawable/ic_ai_tool"
-            app:tint="@color/chat_v2_brand"/>
+            app:tint="?attr/colorPrimary"/>
 
         <TextView
             android:id="@+id/chat_v2_tool_card_text"
@@ -41,7 +41,7 @@
             android:layout_weight="1"
             android:ellipsize="end"
             android:singleLine="true"
-            android:textColor="@color/chat_v2_text_2"
+            android:textColor="?attr/colorControlTextSecondary"
             android:textSize="@dimen/chat_v2_think_text"/>
 
         <TextView
@@ -49,7 +49,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/space_6"
-            android:textColor="@color/chat_v2_text_3"
+            android:textColor="?attr/colorControlTextHint"
             android:textSize="@dimen/chat_v2_status_text"/>
 
         <ImageView
@@ -59,7 +59,7 @@
             android:layout_marginStart="@dimen/chat_v2_line_gap"
             android:contentDescription="@string/chat_v2_tool_ok_desc"
             android:src="@drawable/ic_check"
-            app:tint="@color/chat_v2_success"/>
+            app:tint="?attr/colorSuccess"/>
 
         <ImageView
             android:id="@+id/chat_v2_tool_card_chev"
@@ -69,7 +69,7 @@
             android:alpha="0.55"
             android:contentDescription="@null"
             android:src="@drawable/ic_chevron_right"
-            app:tint="@color/chat_v2_text_3"/>
+            app:tint="?attr/colorControlTextHint"/>
     </LinearLayout>
 
     <LinearLayout

@@ -2123,7 +2123,7 @@ public class AIChatActivity extends BaseActivity {
         int len = inputMessage != null && inputMessage.getText() != null
                 ? inputMessage.getText().length() : 0;
         chatV2CharCount.setText(getString(R.string.chat_v2_char_count, len, CHAT_INPUT_MAX_CHARS));
-        chatV2CharCount.setTextColor(getColor(len > CHAT_INPUT_MAX_CHARS
+        chatV2CharCount.setTextColor(ThemeColors.get(this, len > CHAT_INPUT_MAX_CHARS
                 ? R.color.error : R.color.chat_v2_text_3));
         // 空输入不显示字数，让模式行保持干净
         chatV2CharCount.setVisibility(len > 0 ? View.VISIBLE : View.GONE);

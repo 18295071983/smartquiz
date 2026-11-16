@@ -27,7 +27,7 @@
             android:layout_marginStart="@dimen/chat_v2_line_gap"
             android:contentDescription="@string/chat_v2_phase"
             android:src="@drawable/ic_chat_v2_sparkle"
-            app:tint="@color/chat_v2_brand"/>
+            app:tint="?attr/colorPrimary"/>
 
         <com.oilquiz.app.ai.chat.ui.ThinkLineLabel
             android:id="@+id/chat_v2_think_text"
@@ -36,7 +36,7 @@
             android:layout_marginStart="@dimen/chat_v2_line_gap"
             android:ellipsize="end"
             android:singleLine="true"
-            android:textColor="@color/chat_v2_text_2"
+            android:textColor="?attr/colorControlTextSecondary"
             android:textSize="@dimen/chat_v2_think_text"/>
 
         <ImageView
@@ -47,7 +47,7 @@
             android:alpha="0.55"
             android:contentDescription="@null"
             android:src="@drawable/ic_chevron_right"
-            app:tint="@color/chat_v2_text_3"/>
+            app:tint="?attr/colorControlTextHint"/>
     </LinearLayout>
 
     <!-- 已完成步骤列表（2026-10-20 重做思考段）：整段只有一个入口 = 上面那行 header，
@@ -78,7 +78,7 @@
         android:lineSpacingMultiplier="1.7"
         android:paddingStart="@dimen/space_12"
         android:paddingEnd="@dimen/space_2"
-        android:textColor="@color/chat_v2_text_2"
+        android:textColor="?attr/colorControlTextSecondary"
         android:textSize="@dimen/chat_v2_scene_text"
         android:visibility="gone"/>
 </LinearLayout>

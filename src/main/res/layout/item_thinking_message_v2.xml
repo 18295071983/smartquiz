@@ -17,7 +17,7 @@
         android:focusable="true"
         android:foreground="?attr/selectableItemBackground"
         android:text="@string/chat_thinking_process"
-        android:textColor="@color/chat_v2_text_3"
+        android:textColor="?attr/colorControlTextHint"
         android:textSize="@dimen/text_11" />
 
     <TextView
@@ -28,7 +28,7 @@
         android:lineSpacingMultiplier="1.7"
         android:paddingStart="@dimen/space_12"
         android:paddingEnd="@dimen/space_2"
-        android:textColor="@color/chat_v2_text_2"
+        android:textColor="?attr/colorControlTextSecondary"
         android:textIsSelectable="true"
         android:textSize="@dimen/chat_v2_scene_text" />
 

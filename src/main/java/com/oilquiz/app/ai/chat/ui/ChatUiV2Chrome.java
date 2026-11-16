@@ -14,6 +14,7 @@ import android.widget.TextView;
 import androidx.core.content.ContextCompat;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 
 /**
  * 聊天页 v2 外壳（Track A0）：一屏只留 顶栏 / 对话流 / 输入胶囊 三层。
@@ -79,7 +80,7 @@ public final class ChatUiV2Chrome {
         if (dot == null) return;
         try {
             dot.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                    ContextCompat.getColor(activity, colorRes)));
+                    ThemeColors.get(activity, colorRes)));
             // 2026-11-16：在线状态点"呼吸" —— 聊天页顶栏那个点在远程连接时也要有生命感，
             // 与连接页保持一致（用户："手机端也没有连接呼吸，就像卡死一样"）。
             // 只有"在线绿"才呼吸：黄（待处理）/灰（断开）/红（失败）常亮，避免状态含义被动画掩盖
@@ -174,7 +175,7 @@ public final class ChatUiV2Chrome {
         // 页面底色：demo 的整套 token（surface/border/text）都是按"浅底/深底纯色"设计的，
         // 坐在首页那张深蓝壁纸上会全部失配（深色字压深底）。v2 用 chat_v2_bg 把内容层铺成纯色，
         // 壁纸留给抽屉本身（history_drawer / tool drawer 仍按原样）。
-        root.setBackgroundColor(ContextCompat.getColor(activity, R.color.chat_v2_bg));
+        root.setBackgroundColor(ThemeColors.get(activity, R.color.chat_v2_bg));
         if (root.findViewWithTag(TAG_HEADER) != null) return;
 
         View header = buildHeader(activity, root);
@@ -435,10 +436,10 @@ public final class ChatUiV2Chrome {
         if (!(chip instanceof com.google.android.material.chip.Chip)) return;
         com.google.android.material.chip.Chip c = (com.google.android.material.chip.Chip) chip;
         Context ctx = c.getContext();
-        int soft = ContextCompat.getColor(ctx, R.color.chat_v2_brand_soft);
-        int ink = ContextCompat.getColor(ctx, R.color.chat_v2_brand_ink);
-        int idleText = ContextCompat.getColor(ctx, R.color.chat_v2_text_2);
-        int idleIcon = ContextCompat.getColor(ctx, R.color.chat_v2_text_3);
+        int soft = ThemeColors.get(ctx, R.color.chat_v2_brand_soft);
+        int ink = ThemeColors.get(ctx, R.color.chat_v2_brand_ink);
+        int idleText = ThemeColors.get(ctx, R.color.chat_v2_text_2);
+        int idleIcon = ThemeColors.get(ctx, R.color.chat_v2_text_3);
         int transparent = android.graphics.Color.TRANSPARENT;
         int[][] states = new int[][]{
                 new int[]{android.R.attr.state_checked},

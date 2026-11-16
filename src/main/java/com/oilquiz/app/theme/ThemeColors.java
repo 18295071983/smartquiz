@@ -96,6 +96,12 @@ public final class ThemeColors {
         ATTR_BY_RES.put(R.color.chat_v2_brand, R.attr.colorPrimary);
         ATTR_BY_RES.put(R.color.chat_v2_success, R.attr.colorSuccess);
         ATTR_BY_RES.put(R.color.chat_v2_danger, R.attr.colorDanger);
+        // 2026-11-16（第二轮）：聊天页其余品牌/表面 token 也接主题 —— 布局与 drawable 已改走
+        // ?attr/...，Java 侧这些名字同样要能通过 ThemeColors.get 解析（否则会退回固定色）。
+        ATTR_BY_RES.put(R.color.chat_v2_surface, R.attr.colorSurface);
+        ATTR_BY_RES.put(R.color.chat_v2_brand_ink, com.google.android.material.R.attr.colorPrimaryVariant);
+        ATTR_BY_RES.put(R.color.chat_v2_brand_soft, R.attr.colorPrimaryContainer);
+        ATTR_BY_RES.put(R.color.chat_v2_on_brand, R.attr.colorOnPrimary);
         ATTR_BY_RES.put(R.color.divider, R.attr.colorDivider);
         ATTR_BY_RES.put(R.color.agent_summary_divider, R.attr.colorDivider);
         ATTR_BY_RES.put(R.color.card_scrim, R.attr.colorScrim);

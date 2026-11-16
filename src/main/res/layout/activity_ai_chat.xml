@@ -613,7 +613,7 @@
                         android:id="@+id/chat_v2_char_count"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="@color/chat_v2_text_3"
+                        android:textColor="?attr/colorControlTextHint"
                         android:textSize="@dimen/text_11"/>
                 </LinearLayout>
         </LinearLayout>

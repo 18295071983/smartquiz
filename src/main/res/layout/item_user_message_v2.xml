@@ -22,7 +22,7 @@
         android:layout_marginBottom="@dimen/space_6"
         android:gravity="center"
         android:letterSpacing="0.02"
-        android:textColor="@color/chat_v2_text_3"
+        android:textColor="?attr/colorControlTextHint"
         android:textSize="@dimen/chat_v2_status_text"
         android:visibility="gone"/>
 
@@ -32,7 +32,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="end"
         android:layout_marginBottom="@dimen/space_2"
-        android:textColor="@color/chat_v2_text_3"
+        android:textColor="?attr/colorControlTextHint"
         android:textSize="@dimen/chat_v2_status_text"
         android:visibility="gone"/>
 
@@ -67,7 +67,7 @@
                 android:lineSpacingMultiplier="1.55"
                 android:paddingHorizontal="@dimen/chat_v2_bubble_padding"
                 android:paddingVertical="@dimen/space_10"
-                android:textColor="@color/chat_v2_on_brand"
+                android:textColor="?attr/colorOnPrimary"
                 android:textIsSelectable="true"
                 android:textSize="@dimen/chat_v2_bubble_text"/>
 
@@ -89,7 +89,7 @@
                     android:id="@+id/status_text"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="@color/chat_v2_text_3"
+                    android:textColor="?attr/colorControlTextHint"
                     android:textSize="@dimen/chat_v2_status_text"
                     android:visibility="gone"/>
 
@@ -98,7 +98,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="@dimen/space_4"
-                    android:textColor="@color/chat_v2_text_3"
+                    android:textColor="?attr/colorControlTextHint"
                     android:textSize="@dimen/chat_v2_status_text"/>
             </LinearLayout>
         </LinearLayout>

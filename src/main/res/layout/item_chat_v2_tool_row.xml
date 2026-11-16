@@ -12,7 +12,7 @@
         android:id="@+id/chat_v2_tool_row_divider"
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:background="@color/chat_v2_border"/>
+        android:background="?attr/colorBorder"/>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -29,7 +29,7 @@
             android:layout_height="@dimen/chat_v2_line_icon"
             android:contentDescription="@string/chat_v2_tool_desc"
             android:src="@drawable/ic_ai_tool"
-            app:tint="@color/chat_v2_text_3"/>
+            app:tint="?attr/colorControlTextHint"/>
 
         <LinearLayout
             android:layout_width="@dimen/size_0"
@@ -44,7 +44,7 @@
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
                 android:singleLine="true"
-                android:textColor="@color/chat_v2_text"
+                android:textColor="?attr/colorControlText"
                 android:textSize="@dimen/chat_v2_think_text"
                 android:textStyle="bold"/>
 
@@ -55,7 +55,7 @@
                 android:layout_marginTop="1dp"
                 android:ellipsize="end"
                 android:singleLine="true"
-                android:textColor="@color/chat_v2_text_3"
+                android:textColor="?attr/colorControlTextHint"
                 android:textSize="@dimen/chat_v2_status_text"/>
         </LinearLayout>
 
@@ -64,7 +64,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/chat_v2_line_pad"
-            android:textColor="@color/chat_v2_text_3"
+            android:textColor="?attr/colorControlTextHint"
             android:textSize="@dimen/chat_v2_status_text"/>
     </LinearLayout>
 </LinearLayout>

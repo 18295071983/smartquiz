@@ -622,7 +622,7 @@
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">@dimen/space_6</item>
-        <item name="android:textColor">@color/chat_v2_text_2</item>
+        <item name="android:textColor">?attr/colorControlTextSecondary</item>
         <item name="android:textSize">@dimen/chat_v2_status_text</item>
     </style>
 
