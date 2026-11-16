@@ -69,10 +69,32 @@ public class StatusDeckControllerTest {
         assertTrue(StatusDeckController.select(Arrays.asList(slot("x", 1)), false, 0, 0).isEmpty());
     }
 
+    /**
+     * 默认值口径（2026-11-16 订正）：{@code e7a0560b} 把甲板默认行数提到 2/5（配合 5 个 dock 插槽），
+     * 控制器字段直接吃 {@link DshUiCatalogLoader#DEFAULT_MAX_*}。这条钉住"没配置时到底几行"，
+     * 避免再出现"测试按 1 行、代码按 2 行"的漂移（旧断言就是这么红的）。
+     */
+    @Test
+    public void defaultsFollowCatalogDefaults() {
+        StatusDeckController c = new StatusDeckController(new FakeHost());
+        assertEquals(DshUiCatalogLoader.DEFAULT_MAX_WITH_PROGRESS, c.maxWithProgress());
+        assertEquals(DshUiCatalogLoader.DEFAULT_MAX_WITHOUT_PROGRESS, c.maxWithoutProgress());
+        assertEquals("有进度条时的默认行数（产品口径 2 行）", 2, c.maxWithProgress());
+        assertEquals("无进度条时的默认行数（产品口径 5 行）", 5, c.maxWithoutProgress());
+    }
+
+    /**
+     * 调度路径：进度条可见/不可见时的取舍、断连清空。
+     *
+     * <p>显式 {@code applyCatalog(1/2)}：这条测的是控制器逻辑，不该随产品默认行数变化而红
+     * ——"默认几行"由 {@link #defaultsFollowCatalogDefaults()} 单独钉。</p>
+     */
     @Test
     public void controllerRendersOnSlotsChangedAndClears() {
         FakeHost host = new FakeHost();
         StatusDeckController c = new StatusDeckController(host);
+        c.applyCatalog(DshUiCatalogLoader.parse(
+                "{\"version\":1,\"deck\":{\"max_rows_with_progress\":1,\"max_rows_without_progress\":2}}"));
 
         c.onSlotsChanged(Arrays.asList(slot("jobs", 50), slot("goal", 30)), false);
         assertEquals(Arrays.asList("goal", "jobs"), ids(host.last()));

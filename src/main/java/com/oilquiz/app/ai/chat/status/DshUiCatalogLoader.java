@@ -13,10 +13,10 @@ import java.nio.charset.StandardCharsets;
  * 可覆盖的 JSON（{@code filesDir/dsh_ui_catalog.json}），解析失败/字段缺失一律回退默认值
  * ——配置坏掉绝不能把甲板搞没。</p>
  *
- * <p>格式：</p>
+ * <p>格式（默认值见 {@link #DEFAULT_MAX_WITH_PROGRESS} / {@link #DEFAULT_MAX_WITHOUT_PROGRESS}）：</p>
  * <pre>{@code
  * { "version": 1,
- *   "deck": { "max_rows_with_progress": 1, "max_rows_without_progress": 2 } }
+ *   "deck": { "max_rows_with_progress": 2, "max_rows_without_progress": 5 } }
  * }</pre>
  */
 public final class DshUiCatalogLoader {
