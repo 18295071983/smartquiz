@@ -52,7 +52,7 @@ final class DshCardViews {
             box.setPadding(pad, dp(context, 8), pad, 0);
             TextView body = new TextView(context);
             body.setText(text == null ? "" : text);
-            body.setTextSize(13.5f);
+            body.setTextSize(Tokens.textSizeSp(body.getContext(), Tokens.TEXT_LABEL_LG));
             body.setTextColor(ComponentColors.textPrimary(context));
             body.setTextIsSelectable(true);   // 长按可直接选中复制
             box.addView(body);
@@ -195,7 +195,7 @@ final class DshCardViews {
 
             TextView title = new TextView(context);
             title.setText("子代理 · " + label);
-            title.setTextSize(12.5f);
+            title.setTextSize(Tokens.textSizeSp(title.getContext(), Tokens.TEXT_FOOTNOTE_LG));
             title.setTextColor(ComponentColors.textPrimary(context));
             title.setMaxLines(1);
             title.setEllipsize(TextUtils.TruncateAt.END);
@@ -263,7 +263,7 @@ final class DshCardViews {
             TextView line = new TextView(context);
             String text = "• " + tool + (TextUtils.isEmpty(args) ? "" : "（" + args + "）");
             line.setText(text);
-            line.setTextSize(11.5f);
+            line.setTextSize(Tokens.textSizeSp(line.getContext(), Tokens.TEXT_CAPTION_SM));
             line.setTextColor("failed".equals(status)
                     ? ComponentColors.error(context) : ComponentColors.textPrimary(context));
             line.setMaxLines(1);

@@ -96,7 +96,7 @@ public class GridCardView implements ChatComponent {
                 String icon = item.optString("icon", "•");
                 TextView iconTv = new TextView(context);
                 iconTv.setText(icon);
-                iconTv.setTextSize(22);
+                iconTv.setTextSize(Tokens.textSizeSp(iconTv.getContext(), Tokens.TEXT_METRIC));
                 iconTv.setGravity(Gravity.CENTER);
                 cell.addView(iconTv);
 

@@ -123,7 +123,7 @@ public class AudioCardView implements ChatComponent {
 
         TextView icon = new TextView(context);
         icon.setText("🎵");
-        icon.setTextSize(22);
+        icon.setTextSize(Tokens.textSizeSp(icon.getContext(), Tokens.TEXT_METRIC));
         icon.setPadding(0, 0, dp(context, 10), 0);
         header.addView(icon);
 
@@ -162,7 +162,7 @@ public class AudioCardView implements ChatComponent {
 
         final TextView btnPlay = new TextView(context);
         btnPlay.setText("▶");
-        btnPlay.setTextSize(22);
+        btnPlay.setTextSize(Tokens.textSizeSp(btnPlay.getContext(), Tokens.TEXT_METRIC));
         btnPlay.setTextColor(ComponentColors.accent(context));
         btnPlay.setPadding(0, 0, dp(context, 12), 0);
         btnPlay.setClickable(true);

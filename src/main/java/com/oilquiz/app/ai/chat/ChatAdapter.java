@@ -407,8 +407,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             case VIEW_TYPE_REMOTE_CARD: {
                 LinearLayout box = new LinearLayout(parent.getContext());
                 box.setOrientation(LinearLayout.VERTICAL);
-                int padH = dpToPx(12, parent.getContext());
-                int padV = dpToPx(4, parent.getContext());
+                int padH = dimPx(R.dimen.space_12, parent.getContext());
+                int padV = dimPx(R.dimen.space_4, parent.getContext());
                 box.setPadding(padH, padV, padH, padV);
                 box.setLayoutParams(new RecyclerView.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -424,10 +424,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * 结构：根容器 → 日期分隔 → 活动区（思考 + 工具，一个入口）→ 正文/产物 → 状态 → 操作段。
      */
     private AIMessageViewHolder createAiMessageItem(Context ctx) {
-        int dp4 = dpToPx(4, ctx);
-        int dp6 = dpToPx(6, ctx);
-        int dp10 = dpToPx(10, ctx);
-        int dp14 = dpToPx(14, ctx);
+        int dp4 = dimPx(R.dimen.space_4, ctx);
+        int dp6 = dimPx(R.dimen.space_6, ctx);
+        int dp10 = dimPx(R.dimen.space_10, ctx);
+        int dp14 = dimPx(R.dimen.space_14, ctx);
 
         // 主题色解析（AI 消息树只保留 v2 token；正文/元信息色已全部走 chat_v2_*）
         int colorOnSurfaceVariant = resolveAttrColor(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant);
@@ -454,8 +454,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         dayLabel.setGravity(android.view.Gravity.CENTER);
         LinearLayout.LayoutParams dayLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        dayLp.topMargin = dpToPx(10, ctx);
-        dayLp.bottomMargin = dpToPx(6, ctx);
+        dayLp.topMargin = dimPx(R.dimen.space_10, ctx);
+        dayLp.bottomMargin = dimPx(R.dimen.space_6, ctx);
         dayLabel.setLayoutParams(dayLp);
         dayLabel.setVisibility(View.GONE);
         root.addView(dayLabel);
@@ -480,7 +480,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // demo 的 AI 侧本来就没有气泡底色，页面底由 ChatUiV2Chrome 铺 chat_v2_bg。
         LinearLayout activitySection = new LinearLayout(ctx);
         activitySection.setOrientation(LinearLayout.VERTICAL);
-        activitySection.setPadding(0, dpToPx(2, ctx), 0, 0);
+        activitySection.setPadding(0, dimPx(R.dimen.space_2, ctx), 0, 0);
         activitySection.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         vCol.addView(activitySection);
@@ -492,7 +492,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         agentStatus.setVisibility(View.GONE);
         LinearLayout.LayoutParams asLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        asLp.bottomMargin = dpToPx(4, ctx);
+        asLp.bottomMargin = dimPx(R.dimen.space_4, ctx);
         agentStatus.setLayoutParams(asLp);
         activitySection.addView(agentStatus);
 
@@ -503,7 +503,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         agentControlBar.setVisibility(View.GONE);
         LinearLayout.LayoutParams acbLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        acbLp.bottomMargin = dpToPx(4, ctx);
+        acbLp.bottomMargin = dimPx(R.dimen.space_4, ctx);
         agentControlBar.setLayoutParams(acbLp);
         TextView btnPause = createActionButton(ctx, ctx.getString(R.string.button_pause),
                 colorOnSurfaceVariant, true);
@@ -571,7 +571,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         attachmentsRecycler.setVisibility(View.GONE);
         LinearLayout.LayoutParams arLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        arLp.bottomMargin = dpToPx(3, ctx);
+        arLp.bottomMargin = dimPx(R.dimen.space_3, ctx);
         attachmentsRecycler.setLayoutParams(arLp);
 
         // --- 内容宿主（正文 + 产物卡；含组件标记时动态追加段落） ---
@@ -608,11 +608,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         v2Actions.setVisibility(View.GONE);
         LinearLayout.LayoutParams v2Lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        v2Lp.topMargin = dpToPx(8, ctx);
+        v2Lp.topMargin = dimPx(R.dimen.space_8, ctx);
         v2Actions.setLayoutParams(v2Lp);
         int iconColor = ThemeColors.get(ctx, R.color.chat_v2_text_3);
         // demo .ai-actions 的图标间距只有 2px：30dp 的点击区紧挨着排，不要拉开
-        int iconGap = dpToPx(2, ctx);
+        int iconGap = dimPx(R.dimen.space_2, ctx);
         ImageView v2BtnCopy = createIconAction(ctx, R.drawable.ic_copy,
                 R.string.chat_copy, 0, iconColor);
         ImageView v2BtnRegenerate = createIconAction(ctx, R.drawable.ic_refresh,
@@ -657,7 +657,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         statusRow.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams srLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        srLp.topMargin = dpToPx(1, ctx);
+        srLp.topMargin = dimPx(R.dimen.space_1, ctx);
         statusRow.setLayoutParams(srLp);
         root.addView(statusRow);
 
@@ -745,7 +745,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      */
     private ImageView createIconAction(Context ctx, int iconRes, int descRes, int marginEndDp, int tintColor) {
         ImageView iv = new ImageView(ctx);
-        int size = dpToPx(30, ctx);
+        int size = dimPx(R.dimen.space_30, ctx);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
         if (marginEndDp > 0) {
             lp.setMarginEnd(dpToPx(marginEndDp, ctx));
@@ -754,7 +754,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         iv.setImageResource(iconRes);
         iv.setColorFilter(tintColor);
         iv.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        int pad = dpToPx(6, ctx);
+        int pad = dimPx(R.dimen.space_6, ctx);
         iv.setPadding(pad, pad, pad, pad);
         // 无边框水波纹：demo .act 就是透明底 + hover 才出浅底，不额外造 shape drawable
         iv.setBackground(getSelectableItemBackground(ctx));
@@ -784,18 +784,18 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 原来的半透明白描边是给深蓝壁纸用的，浅底上等于隐形（报告 §3②），改读 chat_v2_* token。
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
         gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-        gd.setCornerRadius(dpToPx(10, ctx));
-        gd.setStroke(dpToPx(1, ctx), ThemeColors.get(ctx, R.color.chat_v2_border_strong));
+        gd.setCornerRadius(dimPx(R.dimen.space_10, ctx));
+        gd.setStroke(dimPx(R.dimen.space_1, ctx), ThemeColors.get(ctx, R.color.chat_v2_border_strong));
         gd.setColor(ThemeColors.get(ctx, R.color.chat_v2_surface_2));
         tv.setBackground(gd);
-        tv.setPadding(dpToPx(8, ctx), dpToPx(3, ctx), dpToPx(8, ctx), dpToPx(3, ctx));
+        tv.setPadding(dimPx(R.dimen.space_8, ctx), dimPx(R.dimen.space_3, ctx), dimPx(R.dimen.space_8, ctx), dimPx(R.dimen.space_3, ctx));
         tv.setClickable(true);
         tv.setFocusable(true);
         tv.setForeground(getSelectableItemBackground(ctx));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         if (marginEnd) {
-            lp.setMarginEnd(dpToPx(10, ctx));
+            lp.setMarginEnd(dimPx(R.dimen.space_10, ctx));
         }
         tv.setLayoutParams(lp);
         return tv;
@@ -989,7 +989,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             int availableWidth = aiHolder.itemView.getWidth()
                 - aiHolder.itemView.getPaddingLeft()
                 - aiHolder.itemView.getPaddingRight()
-                - dpToPx(2, aiHolder.itemView.getContext());
+                - dimPx(R.dimen.space_2, aiHolder.itemView.getContext());
             if (availableWidth <= 0) {
                 // 未布局完成（新建/重建 holder 首帧）：等布局后按真实宽度渲染，
                 // 避免表格按全屏宽兜底导致列宽错位（重进页面正常、生成完成错位即此根因）
@@ -1876,7 +1876,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dpToPx(8, ctx);
+        lp.topMargin = dimPx(R.dimen.space_8, ctx);
         holder.contentHost.addView(v, lp);
     }
 
@@ -1903,7 +1903,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView row = new TextView(ctx);
         row.setTextSize(Tokens.textSizeSp(row.getContext(), Tokens.TEXT_FOOTNOTE));
         row.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
-        row.setPadding(dpToPx(4, ctx), dpToPx(6, ctx), dpToPx(4, ctx), dpToPx(6, ctx));
+        row.setPadding(dimPx(R.dimen.space_4, ctx), dimPx(R.dimen.space_6, ctx), dimPx(R.dimen.space_4, ctx), dimPx(R.dimen.space_6, ctx));
         row.setClickable(true);
         row.setFocusable(true);
         row.setBackground(getSelectableItemBackground(ctx));
@@ -1980,7 +1980,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         col.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams colLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        colLp.topMargin = dpToPx(6, ctx);
+        colLp.topMargin = dimPx(R.dimen.space_6, ctx);
         col.setLayoutParams(colLp);
 
         // ---- 思考行 ----
@@ -2134,7 +2134,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.WRAP_CONTENT);
-                    plp.topMargin = dpToPx(6, ctx);
+                    plp.topMargin = dimPx(R.dimen.space_6, ctx);
                     productHost.addView(pv, plp);
                     shown++;
                 }
@@ -2434,7 +2434,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 } else if (thinkExpanded) {
                     int w = holder.itemView.getWidth()
                             - holder.itemView.getPaddingLeft() - holder.itemView.getPaddingRight()
-                            - dpToPx(2, ctx);
+                            - dimPx(R.dimen.space_2, ctx);
                     setRenderedText(holder.thinkingContent, live, w);
                 }
             }
@@ -2522,7 +2522,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 holder.toolCardBody.removeAllViews();
                 int width = holder.itemView.getWidth()
                         - holder.itemView.getPaddingLeft() - holder.itemView.getPaddingRight()
-                        - dpToPx(2, ctx);
+                        - dimPx(R.dimen.space_2, ctx);
                 if (width <= 0) width = getScreenWidth(ctx);
                 LayoutInflater inflater = LayoutInflater.from(ctx);
                 for (int i = 0; i < toolItems.size(); i++) {
@@ -2662,10 +2662,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 && ((ViewGroup) line).getChildAt(1) instanceof ViewGroup) {
             // 行尾箭头：没有结果时不给"可点"的暗示
             android.widget.ImageView chev = new android.widget.ImageView(ctx);
-            int sz = dpToPx(13, ctx);
+            int sz = dimPx(R.dimen.space_13, ctx);
             android.widget.LinearLayout.LayoutParams clp =
                     new android.widget.LinearLayout.LayoutParams(sz, sz);
-            clp.setMarginStart(dpToPx(4, ctx));
+            clp.setMarginStart(dimPx(R.dimen.space_4, ctx));
             chev.setLayoutParams(clp);
             chev.setImageResource(R.drawable.ic_chevron_right);
             chev.setImageTintList(android.content.res.ColorStateList.valueOf(
@@ -2765,16 +2765,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             android.widget.TextView dur = new android.widget.TextView(ctx);
             dur.setTextSize(Tokens.textSizeSp(dur.getContext(), Tokens.TEXT_CAPTION));
             dur.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text_3));
-            dur.setPadding(dpToPx(6, ctx), 0, 0, 0);
+            dur.setPadding(dimPx(R.dimen.space_6, ctx), 0, 0, 0);
             dur.setText(formatThinkingDuration(durationMs));
             head.addView(dur, new android.widget.LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
 
         android.widget.ImageView chev = new android.widget.ImageView(ctx);
-        int sz = dpToPx(13, ctx);
+        int sz = dimPx(R.dimen.space_13, ctx);
         android.widget.LinearLayout.LayoutParams clp = new android.widget.LinearLayout.LayoutParams(sz, sz);
-        clp.setMarginStart(dpToPx(4, ctx));
+        clp.setMarginStart(dimPx(R.dimen.space_4, ctx));
         chev.setLayoutParams(clp);
         chev.setImageResource(R.drawable.ic_chevron_right);
         chev.setImageTintList(android.content.res.ColorStateList.valueOf(
@@ -3028,7 +3028,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                lp.topMargin = dpToPx(8, ctx);
+                lp.topMargin = dimPx(R.dimen.space_8, ctx);
                 holder.contentHost.addView(view, lp);
                 newCache.add(view);
                 compIdx++;
@@ -3058,7 +3058,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             int availableWidth = holder.itemView.getWidth()
                 - holder.itemView.getPaddingLeft()
                 - holder.itemView.getPaddingRight()
-                - dpToPx(2, holder.itemView.getContext());
+                - dimPx(R.dimen.space_2, holder.itemView.getContext());
             if (availableWidth <= 0) availableWidth = getScreenWidth(holder.itemView.getContext());
             bindMessageContent(holder, message, availableWidth);
             return;
@@ -3085,7 +3085,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     if (holder.holderMessage != message) return;
                     int w = holder.itemView.getWidth();
                     int availableWidth = w - holder.itemView.getPaddingLeft()
-                        - holder.itemView.getPaddingRight() - dpToPx(2, holder.itemView.getContext());
+                        - holder.itemView.getPaddingRight() - dimPx(R.dimen.space_2, holder.itemView.getContext());
                     if (availableWidth <= 0) availableWidth = getScreenWidth(holder.itemView.getContext());
                     bindMessageContent(holder, message, availableWidth);
                 }
@@ -3287,7 +3287,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 if (v != null) {
                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                    lp.topMargin = dpToPx(8, ctx);
+                    lp.topMargin = dimPx(R.dimen.space_8, ctx);
                     holder.contentHost.addView(v, lp);
                 }
             } else {
@@ -3454,7 +3454,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                lp.topMargin = first ? dpToPx(6, ctx) : dpToPx(8, ctx);
+                lp.topMargin = first ? dimPx(R.dimen.space_6, ctx) : dimPx(R.dimen.space_8, ctx);
                 holder.componentContainer.addView(mounted, lp);
                 first = false;
                 rendered++;
@@ -3750,7 +3750,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                         LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
                                 LinearLayout.LayoutParams.MATCH_PARENT,
                                 LinearLayout.LayoutParams.WRAP_CONTENT);
-                        flp.topMargin = dpToPx(8, ctx);
+                        flp.topMargin = dimPx(R.dimen.space_8, ctx);
                         holder.contentHost.addView(fallback, flp);
                         newCache.add(fallback);
                         compIdx++;
@@ -3758,7 +3758,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     }
                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                    lp.topMargin = dpToPx(8, ctx);
+                    lp.topMargin = dimPx(R.dimen.space_8, ctx);
                     holder.contentHost.addView(view, lp);
                     newCache.add(view);
                     compIdx++;
@@ -3826,7 +3826,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return tv;
     }
 
-    private int dpToPx(int dp, Context context) {
+        /** 尺寸令牌取 px（2026-11-16：dpToPx 字面量收编成 dimen 令牌；等值替换，不改视觉）。 */
+    private static int dimPx(int dimenRes, Context context) {
+        return context.getResources().getDimensionPixelSize(dimenRes);
+    }
+private int dpToPx(int dp, Context context) {
         if (context == null) return dp;
         return (int) (dp * context.getResources().getDisplayMetrics().density + 0.5f);
     }
@@ -3911,15 +3915,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      */
     private void applySystemRowStyle(SystemMessageViewHolder holder, boolean timeline, int dotColor) {
         Context ctx = holder.itemView.getContext();
-        int hPad = dpToPx(20, ctx);
+        int hPad = dimPx(R.dimen.space_20, ctx);
         if (holder.systemContainer != null) {
             holder.systemContainer.setBackground(timeline
                     ? null : ctx.getDrawable(R.drawable.system_message_background));
             holder.systemContainer.setPadding(
-                    timeline ? 0 : dpToPx(12, ctx),
-                    timeline ? 0 : dpToPx(8, ctx),
-                    timeline ? 0 : dpToPx(12, ctx),
-                    timeline ? 0 : dpToPx(8, ctx));
+                    timeline ? 0 : dimPx(R.dimen.space_12, ctx),
+                    timeline ? 0 : dimPx(R.dimen.space_8, ctx),
+                    timeline ? 0 : dimPx(R.dimen.space_12, ctx),
+                    timeline ? 0 : dimPx(R.dimen.space_8, ctx));
         }
         holder.itemView.setPadding(hPad, dpToPx(timeline ? 2 : 6, ctx), hPad, dpToPx(timeline ? 2 : 6, ctx));
         holder.systemIcon.setTextSize(Tokens.textSizeSp(holder.systemIcon.getContext(), Tokens.TEXT_BODY));
@@ -4321,7 +4325,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             v.setTag("tool_params_slot");
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.topMargin = dpToPx(4, v.getContext());
+            lp.topMargin = dimPx(R.dimen.space_4, v.getContext());
             container.addView(v, lp);
             if (holder.toolParams != null) holder.toolParams.setVisibility(View.GONE);
             return true;
@@ -4353,17 +4357,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         int danger = ThemeColors.get(ctx, R.color.error);
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-        bg.setCornerRadius(dpToPx(10, ctx));
-        bg.setStroke(dpToPx(1, ctx), (danger & 0x00FFFFFF) | 0x66000000);
+        bg.setCornerRadius(dimPx(R.dimen.space_10, ctx));
+        bg.setStroke(dimPx(R.dimen.space_1, ctx), (danger & 0x00FFFFFF) | 0x66000000);
         bg.setColor((danger & 0x00FFFFFF) | 0x1A000000);
         btn.setBackground(bg);
-        btn.setPadding(dpToPx(10, ctx), dpToPx(4, ctx), dpToPx(10, ctx), dpToPx(4, ctx));
+        btn.setPadding(dimPx(R.dimen.space_10, ctx), dimPx(R.dimen.space_4, ctx), dimPx(R.dimen.space_10, ctx), dimPx(R.dimen.space_4, ctx));
         btn.setClickable(true);
         btn.setFocusable(true);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dpToPx(6, ctx);
-        lp.bottomMargin = dpToPx(4, ctx);
+        lp.topMargin = dimPx(R.dimen.space_6, ctx);
+        lp.bottomMargin = dimPx(R.dimen.space_4, ctx);
         btn.setLayoutParams(lp);
         btn.setTag("tool_retry_slot");
         final String msgId = message.id;
@@ -4398,16 +4402,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         int accent = ThemeColors.get(ctx, R.color.primary);
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-        bg.setCornerRadius(dpToPx(10, ctx));
-        bg.setStroke(dpToPx(1, ctx), (accent & 0x00FFFFFF) | 0x66000000);
+        bg.setCornerRadius(dimPx(R.dimen.space_10, ctx));
+        bg.setStroke(dimPx(R.dimen.space_1, ctx), (accent & 0x00FFFFFF) | 0x66000000);
         bg.setColor((accent & 0x00FFFFFF) | 0x1A000000);
         btn.setBackground(bg);
-        btn.setPadding(dpToPx(10, ctx), dpToPx(4, ctx), dpToPx(10, ctx), dpToPx(4, ctx));
+        btn.setPadding(dimPx(R.dimen.space_10, ctx), dimPx(R.dimen.space_4, ctx), dimPx(R.dimen.space_10, ctx), dimPx(R.dimen.space_4, ctx));
         btn.setClickable(true);
         btn.setFocusable(true);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dpToPx(6, ctx);
+        lp.topMargin = dimPx(R.dimen.space_6, ctx);
         btn.setLayoutParams(lp);
         btn.setTag("tool_edit_slot");
         final String msgId = message.id;
@@ -4593,8 +4597,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             tv.setText(fullText);
             tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
             tv.setTextIsSelectable(true);
-            tv.setPadding(dpToPx(16, context), dpToPx(12, context),
-                    dpToPx(16, context), dpToPx(12, context));
+            tv.setPadding(dimPx(R.dimen.space_16, context), dimPx(R.dimen.space_12, context),
+                    dimPx(R.dimen.space_16, context), dimPx(R.dimen.space_12, context));
             android.widget.ScrollView scroll = new android.widget.ScrollView(context);
             scroll.addView(tv);
             final Context uiContext = context;
@@ -4737,7 +4741,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             v.setTag("image_grid_slot");
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.bottomMargin = dpToPx(3, v.getContext());
+            lp.bottomMargin = dimPx(R.dimen.space_3, v.getContext());
             int idx = parent.indexOfChild(holder.attachmentsRecycler);
             parent.addView(v, idx + 1, lp);
             return v;
@@ -5509,7 +5513,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 if (!revealedContentMessageIds.add(message.id)) return;
             }
             if (!android.animation.ValueAnimator.areAnimatorsEnabled()) return;
-            int dp6 = dpToPx(6, revealHost.getContext());
+            int dp6 = dimPx(R.dimen.space_6, revealHost.getContext());
             int i = 0;
             for (int c = 0; c < count; c++) {
                 View child = revealHost.getChildAt(c);
@@ -5547,7 +5551,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         boolean isUser = message.isUserMessage();
         // 固定位移替代 getWidth()*0.15f：首帧未布局时 getWidth()==0。
         // 2026-10-20 S4：30dp/200ms → 8dp/180ms（demo 的 motion 口径，短、轻、不抢阅读）。
-        int offsetPx = dpToPx(8, viewToAnimate.getContext());
+        int offsetPx = dimPx(R.dimen.space_8, viewToAnimate.getContext());
         float fromX = isUser ? offsetPx : -offsetPx;
         android.view.animation.AnimationSet set = new android.view.animation.AnimationSet(true);
         android.view.animation.TranslateAnimation translate = new android.view.animation.TranslateAnimation(

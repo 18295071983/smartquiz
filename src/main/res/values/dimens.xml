@@ -231,4 +231,11 @@
     <dimen name="font_body_lg">16sp</dimen>
     <dimen name="font_subtitle">18sp</dimen>
     <dimen name="font_title">20sp</dimen>
-    <dimen name="font_headline">24sp</dimen></resources>
+    <dimen name="font_headline">24sp</dimen>    <dimen name="space_13">13dp</dimen>
+    <dimen name="font_caption_sm">11.5sp</dimen>
+    <dimen name="font_footnote_lg">12.5sp</dimen>
+    <dimen name="font_label_lg">13.5sp</dimen>
+    <dimen name="font_metric">22sp</dimen>
+    <dimen name="font_display">30sp</dimen>
+    <dimen name="font_display_lg">32sp</dimen>
+</resources>

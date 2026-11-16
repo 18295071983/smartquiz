@@ -71,6 +71,14 @@ public final class Tokens {
     public static final int TEXT_SUBTITLE = 7;
     public static final int TEXT_TITLE = 8;
     public static final int TEXT_HEADLINE = 9;
+    /** 2026-11-16：对话页收尾时补的几档"细调字号"——原来在半像素上写死，这里给语义名，
+     *  保证等值替换（11.5/12.5/13.5/22/30/32sp）而不是硬塞到最近档位改视觉。 */
+    public static final int TEXT_CAPTION_SM = 10;   // 11.5sp：甲板警示行/工具明细行
+    public static final int TEXT_FOOTNOTE_LG = 11;  // 12.5sp：甲板标题/卡片标题
+    public static final int TEXT_LABEL_LG = 12;     // 13.5sp：Dsh 卡片正文
+    public static final int TEXT_METRIC = 13;       // 22sp：图标/大数字（音频卡、宫格卡）
+    public static final int TEXT_DISPLAY = 14;      // 30sp：视频播放浮标
+    public static final int TEXT_DISPLAY_LG = 15;   // 32sp：天气温度
 
     /** 字重（与字号正交：同一档字号可以配不同字重） */
     public enum Weight {
@@ -188,8 +196,14 @@ public final class Tokens {
             case TEXT_BODY_LG: return com.oilquiz.app.R.dimen.font_body_lg;
             case TEXT_SUBTITLE: return com.oilquiz.app.R.dimen.font_subtitle;
             case TEXT_TITLE: return com.oilquiz.app.R.dimen.font_title;
-            case TEXT_HEADLINE:
-            default: return com.oilquiz.app.R.dimen.font_headline;
+            case TEXT_HEADLINE: return com.oilquiz.app.R.dimen.font_headline;
+            case TEXT_CAPTION_SM: return com.oilquiz.app.R.dimen.font_caption_sm;
+            case TEXT_FOOTNOTE_LG: return com.oilquiz.app.R.dimen.font_footnote_lg;
+            case TEXT_LABEL_LG: return com.oilquiz.app.R.dimen.font_label_lg;
+            case TEXT_METRIC: return com.oilquiz.app.R.dimen.font_metric;
+            case TEXT_DISPLAY: return com.oilquiz.app.R.dimen.font_display;
+            case TEXT_DISPLAY_LG:
+            default: return com.oilquiz.app.R.dimen.font_display_lg;
         }
     }
 }

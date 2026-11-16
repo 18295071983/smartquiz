@@ -170,7 +170,7 @@ public class VideoCardView implements ChatComponent {
         // 非当前曲目时盖在画面上的播放入口（点它才把播放器切到本卡并挂 Surface）
         final TextView playOverlay = new TextView(context);
         playOverlay.setText("▶");
-        playOverlay.setTextSize(30);
+        playOverlay.setTextSize(Tokens.textSizeSp(playOverlay.getContext(), Tokens.TEXT_DISPLAY));
         playOverlay.setTextColor(android.graphics.Color.WHITE);
         playOverlay.setGravity(Gravity.CENTER);
         android.graphics.drawable.GradientDrawable circle =

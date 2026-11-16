@@ -13954,7 +13954,7 @@ public class AIChatActivity extends BaseActivity {
             String text = model.title;
             if (!model.detail.isEmpty()) text = text.isEmpty() ? model.detail : text + " · " + model.detail;
             tv.setText(text);
-            tv.setTextSize(12.5f);
+            tv.setTextSize(Tokens.textSizeSp(tv.getContext(), Tokens.TEXT_FOOTNOTE_LG));
             tv.setMaxLines(1);
             tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
             tv.setTextColor(model.warn ? colorWarning : textPrimary);
@@ -14111,7 +14111,7 @@ public class AIChatActivity extends BaseActivity {
             }
             android.widget.TextView btn = new android.widget.TextView(this);
             btn.setText(a.label);
-            btn.setTextSize(11.5f);
+            btn.setTextSize(Tokens.textSizeSp(btn.getContext(), Tokens.TEXT_CAPTION_SM));
             btn.setMaxLines(1);
             btn.setGravity(android.view.Gravity.CENTER);
             btn.setPadding((int) (9 * density), (int) (3 * density),

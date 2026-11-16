@@ -99,7 +99,7 @@ public class WeatherCardView implements ChatComponent {
         if (!TextUtils.isEmpty(temp)) {
             TextView tempTv = new TextView(context);
             tempTv.setText(temp);
-            tempTv.setTextSize(32);
+            tempTv.setTextSize(Tokens.textSizeSp(tempTv.getContext(), Tokens.TEXT_DISPLAY_LG));
             tempTv.setTextColor(ComponentColors.textPrimary(context));
             tempTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             tempTv.setPadding(dp(context, 10), 0, 0, 0);
