@@ -128,4 +128,9 @@
     <attr name="colorChart6" format="color"/>
     <attr name="colorChart7" format="color"/>
     <attr name="colorChart8" format="color"/>
+    <!-- 2026-11-16：首页壁纸自适应语义（浅色壁纸 ThemeOverlay 覆盖） -->
+    <attr name="homeTextPrimary" format="color" />
+    <attr name="homeTextSecondary" format="color" />
+    <attr name="homeTextTertiary" format="color" />
+    <attr name="homeCardBackground" format="reference" />
 </resources>

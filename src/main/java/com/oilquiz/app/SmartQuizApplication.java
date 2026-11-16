@@ -437,6 +437,19 @@ public class SmartQuizApplication extends Application {
                 } else {
                     com.oilquiz.app.manager.ThemeManager.applyThemeOverlay(activity);
                 }
+                // 2026-11-16：首页壁纸自适应——壁纸偏亮时把首页文字/玻璃卡切成深字+强白卡
+                // （默认值仍是白字+半透明卡，保持深色壁纸/壁纸关闭时的原观感）
+                if (activity instanceof MainActivity) {
+                    try {
+                        boolean wallpaperOn = com.oilquiz.app.theme.AppWallpaperManager.getMode(activity)
+                                != com.oilquiz.app.theme.AppWallpaperManager.MODE_OFF;
+                        if (wallpaperOn && com.oilquiz.app.theme.AppWallpaperManager.isLightWallpaper(activity)) {
+                            activity.getTheme().applyStyle(R.style.ThemeOverlay_Home_LightWallpaper, true);
+                        }
+                    } catch (Throwable ignored) {
+                        // 自适应失败退回默认（白字）不至于崩
+                    }
+                }
             }
 
             @Override

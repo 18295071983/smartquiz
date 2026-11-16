@@ -74,6 +74,11 @@
         <item name="colorDivider">?attr/colorOutline</item>
         <item name="colorAppBarBackground">?attr/colorSurface</item>
         <item name="colorOnAppBar">?attr/colorOnSurface</item>
+    <!-- 2026-11-16：首页壁纸自适应默认值（深色壁纸/关闭壁纸 = 白字 + 半透明白玻璃卡） -->
+    <item name="homeTextPrimary">@color/future_text_primary</item>
+    <item name="homeTextSecondary">@color/future_text_secondary</item>
+    <item name="homeTextTertiary">@color/future_text_tertiary</item>
+    <item name="homeCardBackground">@drawable/weather_card_glass</item>
         <!-- 弹窗/对话框统一走应用 Dialog 主题：系统栏透明跟随窗口背景，避免 e2e 下底部黑色块 -->
         <item name="materialAlertDialogTheme">@style/ThemeOverlay.App.Dialog</item>
         <item name="alertDialogTheme">@style/ThemeOverlay.App.Dialog</item>
@@ -473,6 +478,11 @@
         <item name="colorDivider">?attr/colorOutline</item>
         <item name="colorAppBarBackground">?attr/colorSurface</item>
         <item name="colorOnAppBar">?attr/colorOnSurface</item>
+    <!-- 2026-11-16：首页壁纸自适应默认值（深色壁纸/关闭壁纸 = 白字 + 半透明白玻璃卡） -->
+    <item name="homeTextPrimary">@color/future_text_primary</item>
+    <item name="homeTextSecondary">@color/future_text_secondary</item>
+    <item name="homeTextTertiary">@color/future_text_tertiary</item>
+    <item name="homeCardBackground">@drawable/weather_card_glass</item>
 </style>
 
     <style name="ShapeAppearance.App.Dialog" parent="">

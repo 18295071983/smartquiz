@@ -409,4 +409,10 @@
     <color name="notification_on_accent">#FFFFFFFF</color>
     <color name="notification_panel">#FFE8EAED</color>
     <color name="notification_text">#FF3C4043</color>
+    <!-- 2026-11-16：首页壁纸自适应（浅色壁纸 → 深字 + 强白玻璃卡；深色壁纸/关闭壁纸 → 现有白字玻璃卡） -->
+    <color name="home_text_primary_on_light">#1E293B</color>
+    <color name="home_text_secondary_on_light">#475569</color>
+    <color name="home_text_tertiary_on_light">#64748B</color>
+    <color name="home_card_light_fill">#B3FFFFFF</color>
+    <color name="home_card_light_stroke">#33000000</color>
 </resources>

@@ -472,6 +472,66 @@ public final class AppWallpaperManager {
         return new LayerDrawable(new Drawable[]{base, new ColorDrawable(SCRIM_ALPHA << 24)});
     }
 
+    /** 浅色壁纸判定阈值：按"叠加 scrim 后的显示亮度"算（0~1）。 */
+    private static final float LIGHT_WALLPAPER_DISPLAY_LUMINANCE = 0.45f;
+
+    /**
+     * 当前壁纸是否"偏亮"（2026-11-16：首页壁纸自适应用）。
+     *
+     * <p>首页文字/玻璃卡此前是写死给深色壁纸（白字 + 半透明白卡），换成浅色壁纸后
+     * 白字在白底上几乎不可读。这里取壁纸位图缩样求平均感知亮度，并按实际显示口径
+     * （叠加 {@link #SCRIM_ALPHA} 的黑色 scrim）判亮/暗；无壁纸时按亮处理（调用方
+     * 只在壁纸模式开启时才用它）。</p>
+     */
+    public static boolean isLightWallpaper(Context context) {
+        try {
+            return isLightWallpaperBitmap(loadBaseBitmap(context));
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 纯判定：壁纸位图是否偏亮（null 视为"无壁纸"，按亮处理；调用方只在壁纸开启时用）。 */
+    static boolean isLightWallpaperBitmap(Bitmap bmp) {
+        if (bmp == null) {
+            return true;
+        }
+        float display = averageLuminance(bmp) * (1f - SCRIM_ALPHA / 255f);
+        return display >= LIGHT_WALLPAPER_DISPLAY_LUMINANCE;
+    }
+
+    /** 位图平均感知亮度（0=黑，1=白）；缩到 32×32 取样，开销可忽略。 */
+    static float averageLuminance(Bitmap bmp) {
+        if (bmp == null || bmp.isRecycled()) {
+            return 0f;
+        }
+        Bitmap small = bmp;
+        boolean scaled = false;
+        try {
+            if (bmp.getWidth() > 32 || bmp.getHeight() > 32) {
+                small = Bitmap.createScaledBitmap(bmp, 32, 32, false);
+                scaled = true;
+            }
+            int w = small.getWidth();
+            int h = small.getHeight();
+            int[] px = new int[w * h];
+            small.getPixels(px, 0, w, 0, 0, w, h);
+            double sum = 0;
+            for (int c : px) {
+                int r = (c >> 16) & 0xFF;
+                int g = (c >> 8) & 0xFF;
+                int b = c & 0xFF;
+                sum += 0.299 * r + 0.587 * g + 0.114 * b;
+            }
+            return (float) (sum / (px.length * 255.0));
+        } catch (Throwable t) {
+            return 0f;
+        } finally {
+            if (scaled && small != null && !small.isRecycled()) {
+                small.recycle();
+            }
+        }
+    }
     /** 供 Window 使用：独立实例（与根布局共享位图，但绝不共享 Drawable 状态） */
     public static Drawable getWallpaperDrawableForWindow(Context context) {
         return getWallpaperDrawable(context);

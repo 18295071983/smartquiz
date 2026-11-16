@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2026-11-16：首页在浅色壁纸下的主题覆盖（深字 + 强白玻璃卡）。
+     由 SmartQuizApplication.onActivityPreCreated 按壁纸亮度、在 setContentView 之前 applyStyle。 -->
+<resources>
+    <style name="ThemeOverlay.Home.LightWallpaper" parent="">
+        <item name="homeTextPrimary">@color/home_text_primary_on_light</item>
+        <item name="homeTextSecondary">@color/home_text_secondary_on_light</item>
+        <item name="homeTextTertiary">@color/home_text_tertiary_on_light</item>
+        <item name="homeCardBackground">@drawable/home_card_glass_light</item>
+    </style>
+</resources>

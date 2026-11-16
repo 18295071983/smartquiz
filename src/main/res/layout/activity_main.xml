@@ -38,7 +38,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/space_4"
                 android:text="@string/welcome_back"
-                android:textColor="@color/future_text_primary"
+                android:textColor="?attr/homeTextPrimary"
                 android:textSize="@dimen/text_30"
                 android:textStyle="bold" />
 
@@ -47,7 +47,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/space_4"
                 android:text="@string/start_learning_today"
-                android:textColor="@color/future_text_tertiary"
+                android:textColor="?attr/homeTextTertiary"
                 android:textSize="@dimen/text_14" />
 
             <!-- 统计卡行（玻璃拟态） -->
@@ -62,7 +62,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="@dimen/space_6"
                     android:layout_weight="1"
-                    android:background="@drawable/weather_card_glass"
+                    android:background="?attr/homeCardBackground"
                     android:gravity="center"
                     android:orientation="vertical"
                     android:padding="@dimen/space_16">
@@ -72,7 +72,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/default_question_count"
-                        android:textColor="@color/future_text_primary"
+                        android:textColor="?attr/homeTextPrimary"
                         android:textSize="@dimen/text_28"
                         android:textStyle="bold" />
 
@@ -81,7 +81,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/space_2"
                         android:text="@string/question_bank_info"
-                        android:textColor="@color/future_text_tertiary"
+                        android:textColor="?attr/homeTextTertiary"
                         android:textSize="@dimen/text_12" />
 
                 </LinearLayout>
@@ -91,7 +91,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="@dimen/space_6"
                     android:layout_weight="1"
-                    android:background="@drawable/weather_card_glass"
+                    android:background="?attr/homeCardBackground"
                     android:gravity="center"
                     android:orientation="vertical"
                     android:padding="@dimen/space_16">
@@ -103,7 +103,7 @@
                         android:gravity="center"
                         android:maxLines="2"
                         android:text="@string/default_ai_status"
-                        android:textColor="@color/future_text_primary"
+                        android:textColor="?attr/homeTextPrimary"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold" />
 
@@ -112,7 +112,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/space_2"
                         android:text="@string/status"
-                        android:textColor="@color/future_text_tertiary"
+                        android:textColor="?attr/homeTextTertiary"
                         android:textSize="@dimen/text_12" />
 
                 </LinearLayout>
@@ -147,11 +147,11 @@
         <!-- ==================== 学习区 ==================== -->
         <!--
             【卡片背景规范 · 重要】
-            主界面所有功能卡统一使用 @drawable/weather_card_glass：
+            主界面所有功能卡统一使用 ?attr/homeCardBackground：
             - 半透明玻璃底（#4DFFFFFF）+ 白色描边（#66FFFFFF）+ 圆角 20dp
             - 效果：边框内透明，与页面背景融合，风格统一
             禁止使用渐变实心背景（如 bg_home_header）做卡片底，会与其他卡片风格不一致。
-            新增功能卡时：background 一律填 @drawable/weather_card_glass。
+            新增功能卡时：background 一律填 ?attr/homeCardBackground。
         -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -172,7 +172,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="@string/core_features"
-                    android:textColor="@color/future_text_primary"
+                    android:textColor="?attr/homeTextPrimary"
                     android:textSize="@dimen/text_15"
                     android:textStyle="bold"
                     android:alpha="0.9" />
@@ -197,7 +197,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="@dimen/space_5"
                     android:layout_weight="1"
-                    android:background="@drawable/weather_card_glass"
+                    android:background="?attr/homeCardBackground"
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground"
@@ -215,7 +215,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/space_8"
                         android:text="@string/question_management"
-                        android:textColor="@color/future_text_primary"
+                        android:textColor="?attr/homeTextPrimary"
                         android:textSize="@dimen/text_13"
                         android:textStyle="bold" />
 
@@ -227,7 +227,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="@dimen/space_5"
                     android:layout_weight="1"
-                    android:background="@drawable/weather_card_glass"
+                    android:background="?attr/homeCardBackground"
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground"
@@ -245,7 +245,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/space_8"
                         android:text="@string/start_quiz"
-                        android:textColor="@color/future_text_primary"
+                        android:textColor="?attr/homeTextPrimary"
                         android:textSize="@dimen/text_13"
                         android:textStyle="bold" />
 
@@ -276,7 +276,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="@string/smart_features"
-                    android:textColor="@color/future_text_primary"
+                    android:textColor="?attr/homeTextPrimary"
                     android:textSize="@dimen/text_15"
                     android:textStyle="bold"
                     android:alpha="0.9" />
@@ -294,7 +294,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="@dimen/space_10"
-                android:background="@drawable/weather_card_glass"
+                android:background="?attr/homeCardBackground"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?attr/selectableItemBackground"
@@ -318,7 +318,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/ai_chat"
-                        android:textColor="@color/future_text_primary"
+                        android:textColor="?attr/homeTextPrimary"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold" />
 
@@ -336,7 +336,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/chevron_arrow"
-                    android:textColor="@color/future_text_primary"
+                    android:textColor="?attr/homeTextPrimary"
                     android:textSize="@dimen/text_28" />
 
             </LinearLayout>
@@ -364,7 +364,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="@string/more_features"
-                    android:textColor="@color/future_text_primary"
+                    android:textColor="?attr/homeTextPrimary"
                     android:textSize="@dimen/text_15"
                     android:textStyle="bold"
                     android:alpha="0.9" />
@@ -382,7 +382,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="@dimen/space_10"
-                android:background="@drawable/weather_card_glass"
+                android:background="?attr/homeCardBackground"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?attr/selectableItemBackground"
@@ -395,7 +395,7 @@
                     android:layout_height="@dimen/size_44"
                     android:contentDescription="@string/browser"
                     android:src="@drawable/ic_browser_window"
-                    android:tint="@color/future_text_primary" />
+                    android:tint="?attr/homeTextPrimary" />
 
                 <LinearLayout
                     android:layout_width="@dimen/size_0"
@@ -408,7 +408,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/browser"
-                        android:textColor="@color/future_text_primary"
+                        android:textColor="?attr/homeTextPrimary"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold" />
 
@@ -426,7 +426,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/chevron_arrow"
-                    android:textColor="@color/future_text_primary"
+                    android:textColor="?attr/homeTextPrimary"
                     android:textSize="@dimen/text_28" />
 
             </LinearLayout>
@@ -443,7 +443,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="@dimen/space_5"
                     android:layout_weight="1"
-                    android:background="@drawable/weather_card_glass"
+                    android:background="?attr/homeCardBackground"
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground"
@@ -462,7 +462,7 @@
                         android:layout_marginStart="@dimen/space_10"
                         android:layout_weight="1"
                         android:text="@string/import_export"
-                        android:textColor="@color/future_text_primary"
+                        android:textColor="?attr/homeTextPrimary"
                         android:textSize="@dimen/text_13"
                         android:textStyle="bold" />
 
@@ -474,7 +474,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="@dimen/space_5"
                     android:layout_weight="1"
-                    android:background="@drawable/weather_card_glass"
+                    android:background="?attr/homeCardBackground"
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground"
@@ -493,7 +493,7 @@
                         android:layout_marginStart="@dimen/space_10"
                         android:layout_weight="1"
                         android:text="@string/toolkit"
-                        android:textColor="@color/future_text_primary"
+                        android:textColor="?attr/homeTextPrimary"
                         android:textSize="@dimen/text_13"
                         android:textStyle="bold" />
 
