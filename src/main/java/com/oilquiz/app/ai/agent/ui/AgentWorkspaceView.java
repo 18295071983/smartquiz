@@ -70,12 +70,9 @@ public class AgentWorkspaceView {
         titleRow.addView(title, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView refreshBtn = new TextView(context);
-        refreshBtn.setText("🔄 刷新");
-        refreshBtn.setTextSize(12);
-        refreshBtn.setGravity(Gravity.CENTER);
-        refreshBtn.setTextColor(color(R.color.text_secondary));
-        refreshBtn.setPadding(dp(8), dp(4), dp(8), dp(4));
+        // 2026-11-16：动作按钮换成 MaterialButton（图标+文字）
+        com.google.android.material.button.MaterialButton refreshBtn = AgentButtons.text(
+                context, "刷新", R.drawable.ic_refresh, R.color.text_secondary);
         refreshBtn.setOnClickListener(v -> refresh());
         titleRow.addView(refreshBtn);
         page.addView(titleRow);
@@ -157,12 +154,8 @@ public class AgentWorkspaceView {
         clearRowLp.setMargins(0, 0, 0, dp(10));
         clearRow.setLayoutParams(clearRowLp);
 
-        TextView clearBtn = new TextView(context);
-        clearBtn.setText("🗑 清空长期文件");
-        clearBtn.setTextSize(12);
-        clearBtn.setGravity(Gravity.CENTER);
-        clearBtn.setTextColor(color(R.color.error));
-        clearBtn.setBackground(buttonBackground(R.color.error_container));
+        com.google.android.material.button.MaterialButton clearBtn = AgentButtons.filled(
+                context, "清空长期文件", R.drawable.ic_delete, R.color.error, R.color.error_container);
         LinearLayout.LayoutParams clearLp = new LinearLayout.LayoutParams(
                 0, dp(40));
         clearLp.weight = 1;
@@ -192,12 +185,8 @@ public class AgentWorkspaceView {
                 .show();
         });
 
-        TextView clearTmpBtn = new TextView(context);
-        clearTmpBtn.setText("🧹 清理临时缓存");
-        clearTmpBtn.setTextSize(12);
-        clearTmpBtn.setGravity(Gravity.CENTER);
-        clearTmpBtn.setTextColor(color(R.color.text_secondary));
-        clearTmpBtn.setBackground(buttonBackground(R.color.secondary_container));
+        com.google.android.material.button.MaterialButton clearTmpBtn = AgentButtons.filled(
+                context, "清理临时缓存", R.drawable.ic_delete, R.color.text_secondary, R.color.secondary_container);
         LinearLayout.LayoutParams clearTmpLp = new LinearLayout.LayoutParams(
                 0, dp(40));
         clearTmpLp.weight = 1;

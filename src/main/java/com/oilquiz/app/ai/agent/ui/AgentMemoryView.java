@@ -52,12 +52,9 @@ public class AgentMemoryView {
         titleRow.addView(title, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView refreshBtn = new TextView(context);
-        refreshBtn.setText("🔄 刷新");
-        refreshBtn.setTextSize(12);
-        refreshBtn.setGravity(Gravity.CENTER);
-        refreshBtn.setTextColor(color(R.color.text_secondary));
-        refreshBtn.setPadding(dp(8), dp(4), dp(8), dp(4));
+        // 2026-11-16：真正的按钮元素（图标+文字），不再是 emoji 文本按钮
+        com.google.android.material.button.MaterialButton refreshBtn = AgentButtons.text(
+                context, "刷新", R.drawable.ic_refresh, R.color.text_secondary);
         refreshBtn.setOnClickListener(v -> refresh());
         titleRow.addView(refreshBtn);
         page.addView(titleRow);
@@ -107,13 +104,8 @@ public class AgentMemoryView {
         page.addView(listContainer);
 
         // 底部操作：清空
-        TextView clearBtn = new TextView(context);
-        clearBtn.setText("🗑 清空所有记忆");
-        clearBtn.setTextSize(13);
-        clearBtn.setGravity(Gravity.CENTER);
-        clearBtn.setTextColor(color(R.color.error));
-        clearBtn.setPadding(0, dp(12), 0, dp(12));
-        clearBtn.setBackground(buttonBackground(R.color.error_container));
+        com.google.android.material.button.MaterialButton clearBtn = AgentButtons.filled(
+                context, "清空所有记忆", R.drawable.ic_delete, R.color.error, R.color.error_container);
         LinearLayout.LayoutParams clearLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
         clearLp.setMargins(0, dp(12), 0, 0);

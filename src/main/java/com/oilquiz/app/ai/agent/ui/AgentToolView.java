@@ -93,8 +93,10 @@ public class AgentToolView {
         });
 
         // 清空临时按钮：一键清除所有临时注册（任务残留），长久注册不受影响
-        TextView clearTmpBtn = new TextView(context);
-        clearTmpBtn.setText("🧹 清除全部临时注册（任务残留）");
+        com.google.android.material.button.MaterialButton clearTmpBtn = AgentButtons.filled(
+                context, "清除全部临时注册（任务残留）", R.drawable.ic_delete,
+                R.color.text_secondary, R.color.secondary_container);
+        // 旧代码的 TextView 样式已由 AgentButtons 统一（字号/内边距/主题色）
         clearTmpBtn.setTextSize(12);
         clearTmpBtn.setGravity(Gravity.CENTER);
         clearTmpBtn.setTextColor(color(R.color.text_secondary));

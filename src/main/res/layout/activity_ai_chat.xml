@@ -328,19 +328,25 @@
 
                 <!-- 历史抽屉悬浮球：可拖拽，点击直接打开对话历史抽屉（历史入口原本埋在工具抽屉里，操作不便）。
                      初始位于左下，避开右下角"回到底部"；位置由代码持久化并支持来回拖动 -->
-                <TextView
+                <!-- 2026-11-16：文本按钮 → 图标按钮（MaterialButton + ic_schedule） -->
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_history_fab"
                     android:layout_width="@dimen/size_44"
                     android:layout_height="@dimen/size_44"
                     android:layout_gravity="bottom|start"
                     android:layout_marginStart="@dimen/chat_v2_composer_pad"
                     android:layout_marginBottom="@dimen/size_80"
-                    android:background="@drawable/system_message_background"
                     android:elevation="@dimen/size_6"
-                    android:gravity="center"
-                    android:text="🕘"
-                    android:textSize="@dimen/font_title"
-                    android:contentDescription="对话历史"/>
+                    android:contentDescription="对话历史"
+                    android:text=""
+                    app:icon="@drawable/ic_schedule"
+                    app:iconTint="?attr/colorOnSurfaceVariant"
+                    app:iconGravity="textStart"
+                    app:iconSize="@dimen/size_20"
+                    app:backgroundTint="?attr/colorSurface"
+                    app:cornerRadius="@dimen/radius_pill"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"/>
 
                 <!-- 空状态视图已删（2026-11-02，EMPTY-STATE-REAL-ENTRY）：这块居中的 🤖 + 三个
                      示例 chip + 「清空」chip 早在 v2 首屏接管后就被永久隐藏，里面「填一句再发送」
@@ -531,15 +537,24 @@
                         android:text="⏳ 排队中…"
                         android:textSize="@dimen/font_footnote"
                         android:textColor="?attr/colorControlTextSecondary"/>
-                    <TextView
+                    <!-- 2026-11-16：文本按钮 → 真正的按钮元素（图标+文字，MaterialButton） -->
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_queue_cancel"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:paddingHorizontal="@dimen/radius_sm"
-                        android:paddingVertical="@dimen/space_hairline"
-                        android:text="✕ 取消排队"
+                        android:minWidth="0dp"
+                        android:text="取消排队"
                         android:textSize="@dimen/font_footnote"
-                        android:textColor="?attr/colorPrimary"/>
+                        android:textColor="?attr/colorPrimary"
+                        app:icon="@drawable/ic_close"
+                        app:iconTint="?attr/colorPrimary"
+                        app:iconGravity="textStart"
+                        app:iconPadding="@dimen/space_xs"
+                        app:backgroundTint="@android:color/transparent"
+                        app:cornerRadius="@dimen/radius_sm"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:textAllCaps="false"/>
                 </LinearLayout>
 
                 <!-- 上次执行被中断时的"继续"入口：默认隐藏，由 Activity 在检测到待续跑时显示。
