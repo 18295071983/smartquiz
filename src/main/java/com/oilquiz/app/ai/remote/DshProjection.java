@@ -167,7 +167,14 @@ public final class DshProjection {
         // META(2026-11-13)：把官方 tool/result.meta 一起投影进组件 props。
         // 现在手机端卡片还没消费它，但落盘/恢复/后续做 diff/read/search 卡都靠它，
         // 丢了就只能回电脑端重取 —— 所以宁可先带上。
-        if (tool.meta != null) DshCards.put(props, "meta", clip(String.valueOf(tool.meta), MAX_TOOL_META_CHARS, "元数据"));
+        //
+        // BUDGET(2026-11-16 订正)：ead5cf05 为了控体积把 meta 用
+        // {@code clip(String.valueOf(...))} 截成字符串 —— 结构没了（渲染层只能拿到文本），
+        // 而且截断后不是合法 JSON。这里改回**保留结构**：正常大小原样放 JSONObject，
+        // 超预算换成 {truncated:true, chars:N} 标记（体积仍可控、类型不失真）。
+        if (tool.meta != null) {
+            DshCards.put(props, "meta", boundedMeta(tool.meta));
+        }
         ComponentData data = ComponentData.of("tool_call", props);
         data.source = "dsh";
         data.id = ids.idFor("tool:" + tool.callId);
@@ -253,6 +260,24 @@ public final class DshProjection {
         if (value == null) return null;
         if (value.length() <= max) return value;
         return value.substring(0, max) + "\n…（" + what + "已截断，原文 " + value.length() + " 字）";
+    }
+
+    /**
+     * meta 的体积口径（2026-11-16）：正常大小原样保留（JSONObject，渲染层可直接读键）；
+     * 超出预算时换成截断标记，而不是把 JSON 文本硬切一半（那既丢结构又不是合法 JSON）。
+     *
+     * <p>为什么不能直接丢：{@code meta} 是官方 {@code tool/result.meta} 的投影，
+     * 承载 diff/read/search 卡的"可回放数据"，丢了只能回电脑端重取。</p>
+     */
+    private static Object boundedMeta(Object meta) {
+        String json = String.valueOf(meta);
+        if (json.length() <= MAX_TOOL_META_CHARS) {
+            return meta;
+        }
+        JSONObject marker = new JSONObject();
+        DshCards.put(marker, "truncated", true);
+        DshCards.put(marker, "chars", json.length());
+        return marker;
     }
     /**
      * 轮次合并上限（2026-11-14）。

@@ -304,11 +304,15 @@ public final class DshCards {
             case "command/done": {
                 String text = data.optString("text", "");
                 // 同一 commandId 的卡：命令卡原地补上输出，不再另起一张“命令完成”提示卡
-                return new Card("cmd-" + data.optString("commandId", String.valueOf(turn)), "code_card",
-                        obj("command", data.optString("command",
-                                        (data.optString("name") + " " + data.optString("args")).trim()),
-                                "status", data.optBoolean("failed", false) ? "failed" : "success",
-                                "output", text));
+                String command = data.optString("command",
+                        (data.optString("name") + " " + data.optString("args"))).trim();
+                JSONObject props = obj("status", data.optBoolean("failed", false) ? "failed" : "success",
+                        "output", text);
+                // done 的事件常常只带增量字段（output/status），没有命令文本。
+                // 这里不能写空串 —— 那会把 run 阶段那条命令覆盖成空白；不写键，
+                // 由 DshTimeline 的"同 key 就地更新（mergeInPlace）"沿用旧值。
+                if (!command.isEmpty()) put(props, "command", command);
+                return new Card("cmd-" + data.optString("commandId", String.valueOf(turn)), "code_card", props);
             }
             case "compaction/prune": {
                 int tokens = data.optInt("shadowedTokenCount", 0);
@@ -668,6 +672,31 @@ public final class DshCards {
             // 坏字段跳过，整卡照渲染
         }
         return o;
+    }
+
+    /**
+     * 同 key 的卡片是<b>就地更新</b>，不是"整张重画"：事件往往只带增量字段 ——
+     * {@code command/done} 只补 output/status（不重发命令文本）、{@code job/settled} 只补状态。
+     * 直接换 props 会把旧字段抹成空（真机表现：命令卡完成后命令行消失）。
+     *
+     * <p>合并口径：以旧卡为底、新卡覆盖；新卡没带的字段沿用旧值。新卡显式带的空串仍会生效
+     * （org.json 的 {@code put(name, null)} 是删键，不会出现在 {@code keys()} 里）。</p>
+     */
+    static Card mergeInPlace(Card oldCard, Card newCard) {
+        if (oldCard == null || newCard == null) return newCard;
+        JSONObject merged = new JSONObject();
+        copyInto(merged, oldCard.props);
+        copyInto(merged, newCard.props);
+        return new Card(newCard.key, newCard.type, merged);
+    }
+
+    private static void copyInto(JSONObject target, JSONObject src) {
+        if (src == null) return;
+        java.util.Iterator<String> it = src.keys();
+        while (it.hasNext()) {
+            String k = it.next();
+            put(target, k, src.opt(k));
+        }
     }
 
     static JSONArray add(JSONArray arr, Object value) {

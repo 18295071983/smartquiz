@@ -108,33 +108,35 @@ public class DshEventWiringTest {
                         obj("commandId", "c1", "text", "2026-11-14", "failed", false))));
         assertEquals("同一 commandId 只能有一张卡", 1, t.orderedCards().size());
         DshCards.Card card = t.orderedCards().get(0);
-        assertEquals("dsh_command", card.type);
+        // 2026-11-14 组件管线合并：命令不再有专属 dsh_command 卡，复用 code_card
+        //（等宽 + 复制 + 状态灯，见 DshCards.map 的 command 分支）
+        assertEquals("code_card", card.type);
         assertEquals("success", card.props.optString("status"));
         assertEquals("2026-11-14", card.props.optString("output"));
+        assertEquals("pwsh Get-Date", card.props.optString("command"));
     }
 
     // ---------------------------------------------------------------- 后台任务
 
+    /**
+     * 后台任务改由甲板 jobs 插槽承载（2026-11-14，73c695d9）：不再进消息流。
+     * 这里钉住"不出卡、也不被算成未识别"；生命周期展示在插槽那边（收到更新即改、完成即消失）。
+     */
     @Test
-    public void jobRegisteredThenSettledKeepsIdentity() {
+    public void jobEventsGoToSlotsNotChat() {
         DshTimeline t = feedAll(
                 envelope("job/registered", merge(located(1, 0), obj("jobId", "j1", "label", "跑测试"))),
                 envelope("job/settled", merge(located(2, 0),
                         obj("jobId", "j1", "label", "跑测试", "status", "completed"))));
-        assertEquals("任务卡按 jobId 聚合，跨轮也只能一张", 1, t.orderedCards().size());
-        DshCards.Card card = t.orderedCards().get(0);
-        assertEquals("dsh_job", card.type);
-        assertEquals("跑测试", card.props.optString("label"));
-        // 事件里的 status 原样透传（这里是 "completed"）；渲染层把
-        // success / completed / done 一律画成"已完成"（DshCardViews.statusLabel），
-        // 所以这里钉的是"不许被映射器改写成别的词"，不是钉某个具体词。
-        assertEquals("completed", card.props.optString("status"));
+        assertEquals("后台任务不再出聊天卡（改由甲板插槽承载）", 0, t.orderedCards().size());
+        assertEquals("已登记为已识别类型，不能污染 unknown 计数", 0, t.unknownEventKinds());
     }
 
     // ---------------------------------------------------------------- 目标
 
+    /** 目标状态同样搬进甲板 goal 插槽（73c695d9），消息流里不再出卡。 */
     @Test
-    public void goalChangeBecomesNotice() {
+    public void goalChangeGoesToSlotNotChat() {
         JSONObject data = located(1, 0);
         try {
             data.put("goal", obj("text", "把问答页接完"));
@@ -144,10 +146,8 @@ public class DshEventWiringTest {
             throw new AssertionError(e);
         }
         DshTimeline t = feed("goal/change", data);
-        DshCards.Card card = cardOfType(t, "dsh_notice");
-        assertNotNull(card);
-        assertEquals("当前目标", card.props.optString("title"));
-        assertTrue("正文要带目标文本", card.props.optString("content").contains("把问答页接完"));
+        assertEquals("目标状态不再出聊天卡（改由甲板插槽承载）", 0, t.orderedCards().size());
+        assertEquals(0, t.unknownEventKinds());
     }
 
     // ---------------------------------------------------------------- 产物
@@ -175,9 +175,12 @@ public class DshEventWiringTest {
     @Test
     public void workspaceChangesBecomesNotice() {
         DshTimeline t = feed("workspace/changes", located(1, 0));
-        DshCards.Card card = cardOfType(t, "dsh_notice");
+        // 2026-11-14 组件管线合并：dsh_notice 并入内置 alert_card
+        DshCards.Card card = cardOfType(t, "alert_card");
         assertNotNull(card);
         assertEquals("文件变更", card.props.optString("title"));
+        assertTrue("正文要说明明细在电脑端",
+                card.props.optString("text").contains("电脑"));
     }
 
     // ---------------------------------------------------------------- 投影
@@ -219,47 +222,44 @@ public class DshEventWiringTest {
 
     // ---------------------------------------------------------------- B 档：状态卡 + 原生按钮
 
+    /**
+     * 权限三件套改由甲板 permission 插槽承载（2026-11-14，73c695d9）：
+     * 消息流不再合成"可写工作区 · 审批…"卡，旋钮变化的"原地更新"语义也移到插槽那边
+     * （插件 ui/slot + RemoteSlotBridge）。这里钉住"不再出卡、且仍算已识别"。
+     */
     @Test
-    public void permissionEventsMergeIntoOneActionableCard() {
+    public void permissionStateLivesInSlotNotChat() {
         DshTimeline t = feedAll(
                 envelope("permission/preset", merge(located(1, 0), obj("preset", "workspace-write"))),
                 envelope("sandbox/mode", merge(located(1, 0), obj("mode", "workspace-write"))),
                 envelope("approval/policy", merge(located(1, 0), obj("policy", "ask"))));
+        assertEquals("权限三件套不再出聊天卡（改由甲板插槽承载）", 0, t.orderedCards().size());
+        assertEquals("三类都应已识别，不能污染 unknown", 0, t.unknownEventKinds());
 
-        assertEquals("三件套必须合成一张卡，别一次切换冒三张", 1, t.orderedCards().size());
-        DshCards.Card card = t.orderedCards().get(0);
-        assertEquals("dsh_notice", card.type);
-        assertEquals("permission-state", card.key);
-        assertEquals("可写工作区 · 审批:每次询问", card.props.optString("content"));
-        JSONArray actions = card.props.optJSONArray("actions");
-        assertNotNull("状态卡必须带原生按钮", actions);
-        assertEquals("改权限", actions.optJSONObject(0).optString("label"));
-        assertEquals("permission", actions.optJSONObject(0).optString("action"));
-    }
-
-    @Test
-    public void permissionCardUpdatesInPlaceWhenKnobChanges() {
-        DshTimeline t = feedAll(
+        DshTimeline u = feedAll(
                 envelope("sandbox/mode", merge(located(1, 0), obj("mode", "read-only"))),
                 envelope("approval/policy", merge(located(1, 0), obj("policy", "ask"))),
                 envelope("sandbox/mode", merge(located(1, 1), obj("mode", "danger-full-access"))),
                 envelope("approval/policy", merge(located(1, 1), obj("policy", "never"))));
-        assertEquals("同一 key 原地更新", 1, t.orderedCards().size());
-        assertEquals("完全访问 · 审批:从不询问",
-                t.orderedCards().get(0).props.optString("content"));
+        assertEquals("旋钮变化也不该冒卡", 0, u.orderedCards().size());
+        assertEquals(0, u.unknownEventKinds());
     }
 
+    /**
+     * 团队模式仍是聊天卡（带"看电脑面板"按钮）；agent-preset 已改由插槽承载（73c695d9）。
+     */
     @Test
-    public void teamModeAndAgentPresetCarryPanelButton() {
+    public void teamModeCarriesPanelButtonAgentPresetLivesInSlot() {
         DshTimeline t = feedAll(
                 envelope("team/mode", merge(located(1, 0), obj("mode", "协作"))),
                 envelope("agent-preset/selected", merge(located(1, 0), obj("agentPreset", "standard"))));
-        assertEquals(2, t.orderedCards().size());
-        for (DshCards.Card c : t.orderedCards()) {
-            JSONArray actions = c.props.optJSONArray("actions");
-            assertNotNull(c.key + " 应带按钮", actions);
-            assertEquals("insight", actions.optJSONObject(0).optString("action"));
-        }
+        assertEquals("只有 team/mode 出卡；agent-preset 已搬进插槽", 1, t.orderedCards().size());
+        DshCards.Card card = t.orderedCards().get(0);
+        assertEquals("alert_card", card.type);
+        JSONArray actions = card.props.optJSONArray("actions");
+        assertNotNull("团队模式卡应带按钮", actions);
+        assertEquals("insight", actions.optJSONObject(0).optString("action"));
+        assertEquals(0, t.unknownEventKinds());
     }
 
     // ---------------------------------------------------------------- 工具

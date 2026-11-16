@@ -558,7 +558,9 @@ public final class DshTimeline {
                         ? cardMapper.map(ev, turn)
                         : (ignoredType ? null : cardMapper.mapUnknown(ev, turn));
                 if (card != null) {
-                    cards.put(card.key, card); // 同 key 覆盖，保持首次出现的位置
+                    // 同 key = 就地更新（保持首次出现的位置）。合并而非整体替换：
+                    // command/done 只带 output/status、不重发命令文本，替换会把命令行抹空。
+                    cards.put(card.key, DshCards.mergeInPlace(cards.get(card.key), card));
                     cardRounds.put(card.key, roundIndexOf(turn, step));
                     u.cardsChanged = true;
                 } else if (!known) {

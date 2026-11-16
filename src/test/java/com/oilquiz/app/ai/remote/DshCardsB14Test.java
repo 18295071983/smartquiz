@@ -82,6 +82,15 @@ public class DshCardsB14Test {
                 cardContent(t).contains("整理依赖"));
     }
 
+    /**
+     * 内部事件的处理口径（2026-11-16 订正）。
+     *
+     * <p>2026-11-14 起 {@code hook/invoked} 与 {@code tool/ptc-dispatch} 已<b>不是</b>
+     * "纯内部事件"：前者出 alert 卡、后者复用 tool_call 卡（见 {@code DshCards.handles}
+     * 里"按 DSH known-event-types 补齐"那段注释）。旧断言"0 张卡"因此过期。
+     * 本轮保留原意——它们不能被记成"未识别类型"——同时按类型钉住现在各自渲染成什么；
+     * 真正纯内部的例子仍是 {@code request/header}（不渲染、不计数）。</p>
+     */
     @Test
     public void internalTypesAreNotCountedAsUnknown() {
         DshTimeline t = new DshTimeline();
@@ -89,8 +98,14 @@ public class DshCardsB14Test {
         t.reduce(event("hook/invoked", 2, null));
         t.reduce(event("tool/ptc-dispatch", 3, null));
 
-        assertEquals("内部事件不应污染未识别计数", 0, t.unknownEventKinds());
-        assertEquals("内部事件不应产生卡片", 0, t.orderedCards().size());
+        assertEquals("内部/新登记事件不应污染未识别计数", 0, t.unknownEventKinds());
+
+        // request/header 不渲染；hook/PTC 已按组件管线渲染（hook→alert_card、PTC→tool_call）
+        assertEquals("hook 与 PTC 各出一张卡", 2, t.orderedCards().size());
+        java.util.Set<String> types = new java.util.HashSet<>();
+        for (DshCards.Card c : t.orderedCards()) types.add(c.type);
+        assertTrue("hook/invoked 应出 alert_card: " + types, types.contains("alert_card"));
+        assertTrue("tool/ptc-dispatch 应复用 tool_call 卡: " + types, types.contains("tool_call"));
     }
 
     @Test

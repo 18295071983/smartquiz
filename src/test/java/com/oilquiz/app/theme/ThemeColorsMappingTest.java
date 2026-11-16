@@ -51,12 +51,28 @@ public class ThemeColorsMappingTest {
         assertEquals(R.attr.colorOnBackground, ThemeColors.attrForResId(R.color.on_background));
     }
 
+    /**
+     * 映射表规模（2026-11-16 订正）。
+     *
+     * <p>最初是旧白名单的 **20 条**（17 个 resId + 3 个同 attr 别名）。2026-11-16 的
+     * "语义色补齐"把状态色/边框/分隔线/遮罩/图表色也接上主题（见 {@code ThemeColors}
+     * 静态块里 2026-11-16 那段注释），表扩到 **53 条** —— 这是有意的评审结果，
+     * 不是"顺手接上"。所以这里钉当前规模，并要求两个可观测 API 一致：
+     * 改表必须同步改这条（多一条少一条都要显式解释）。</p>
+     */
     @Test
-    public void mappingTableCoversTwentyEntriesButNeitherMoreNorLess() {
-        // 旧白名单 20 个 resId（其中 4 组共用 attr）→ 表大小必须是 20：
-        // 少一条 = 某个语义色偷偷退回固定值；多一条 = 有颜色被"顺手"接上主题（要显式评审）
-        assertEquals(20, ThemeColors.themeAwareCount());
-        assertEquals(20, ThemeColors.themeAwareResIds().length);
+    public void mappingTableSizeIsPinned() {
+        assertEquals("映射表规模变了：要么补了语义色、要么误接了固定色（见 ThemeColors 注释）",
+                53, ThemeColors.themeAwareCount());
+        assertEquals("两个可观测 API 口径必须一致",
+                ThemeColors.themeAwareCount(), ThemeColors.themeAwareResIds().length);
+        // 扩表时新增的几类必须真的在表里（防"数量对了但接错对象"）
+        int[] added = {R.color.success, R.color.error_container, R.color.border,
+                R.color.divider, R.color.card_scrim, R.color.chart_1};
+        for (int resId : added) {
+            assertTrue(resId + " 应跟随主题（2026-11-16 语义色补齐）",
+                    ThemeColors.isThemeAware(resId));
+        }
     }
 
     @Test

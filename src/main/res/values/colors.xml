@@ -376,4 +376,14 @@
     <color name="indigo_pale">#D0D5FF</color>
     <color name="orange_material">#FF9800</color>
     <color name="dark_slate">#2A3A4F</color>
+
+    <!-- 难度/判对四色（2026-11-16 补默认档）。
+         此前只在 values-night 定义（#6EE7B7/#FBBF24/#F87171 这些 pastel 是给深色底用的），
+         浅色配置下 R.color.colorEasy 等**取不到值**：ColorResourceProvider 返回 0、
+         QuestionDetailActivity 里 ContextCompat.getColor 会抛 NotFoundException。
+         浅色用 600 档保证白底对比度；深色仍走 values-night 的 pastel。 -->
+    <color name="colorEasy">#059669</color>
+    <color name="colorMedium">#D97706</color>
+    <color name="colorHard">#DC2626</color>
+    <color name="colorCorrect">#059669</color>
 </resources>
