@@ -386,4 +386,22 @@
     <color name="colorMedium">#D97706</color>
     <color name="colorHard">#DC2626</color>
     <color name="colorCorrect">#059669</color>
+    <!-- 调试控制台固定深色调（2026-11-16 收敛：原先散落在 layout 里的 12 个魔法值，统一命名；不跟换肤） -->
+    <color name="debug_bg">#0b1020</color>
+    <color name="debug_bg_alt">#0f1424</color>
+    <color name="debug_surface">#10152a</color>
+    <color name="debug_card">#171d31</color>
+    <color name="debug_border">#5b6478</color>
+    <color name="debug_text">#e2e8f0</color>
+    <color name="debug_text_strong">#ffffff</color>
+    <color name="debug_text_soft">#cbd5e1</color>
+    <color name="debug_text_muted">#94a3b8</color>
+    <color name="debug_text_dim">#8b93a7</color>
+    <color name="debug_text_dim2">#64748b</color>
+    <color name="debug_text_soft2">#a7b0c8</color>
+    <color name="debug_text_hi">#f1f5f9</color>
+    <color name="debug_green">#6ee7b7</color>
+    <color name="debug_cyan">#7dd3fc</color>
+    <color name="debug_blue">#60a5fa</color>
+    <color name="debug_purple">#a78bfa</color>
 </resources>

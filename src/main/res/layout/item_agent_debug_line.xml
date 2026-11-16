@@ -19,7 +19,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:fontFamily="monospace"
-            android:textColor="#64748b"
+            android:textColor="@color/debug_text_dim2"
             android:textSize="10sp"
             android:text="00:00:00.000"/>
 
@@ -30,7 +30,7 @@
             android:layout_marginStart="8dp"
             android:fontFamily="monospace"
             android:textStyle="bold"
-            android:textColor="#60a5fa"
+            android:textColor="@color/debug_blue"
             android:textSize="10sp"
             android:text="AI"/>
     </LinearLayout>
@@ -41,7 +41,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="3dp"
         android:fontFamily="monospace"
-        android:textColor="#a78bfa"
+        android:textColor="@color/debug_purple"
         android:textSize="11sp"
         android:lineSpacingExtra="1dp"
         android:visibility="gone"/>
@@ -52,7 +52,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="2dp"
         android:fontFamily="monospace"
-        android:textColor="#cbd5e1"
+        android:textColor="@color/debug_text_soft"
         android:textSize="12sp"
         android:lineSpacingExtra="2dp"
         android:textIsSelectable="true"/>

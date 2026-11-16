@@ -6,7 +6,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="#10152a"
+    android:background="@color/debug_surface"
     android:paddingStart="20dp"
     android:paddingEnd="20dp"
     android:paddingTop="18dp"
@@ -18,7 +18,7 @@
         android:layout_height="wrap_content"
         android:textSize="16sp"
         android:textStyle="bold"
-        android:textColor="#f1f5f9"/>
+        android:textColor="@color/debug_text_hi"/>
 
     <TextView
         android:id="@+id/detail_sub"
@@ -26,7 +26,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="2dp"
         android:textSize="11sp"
-        android:textColor="#8b93a7"/>
+        android:textColor="@color/debug_text_dim"/>
 
     <TextView
         android:id="@+id/detail_meta"
@@ -35,7 +35,7 @@
         android:layout_marginTop="10dp"
         android:fontFamily="monospace"
         android:textSize="12sp"
-        android:textColor="#6ee7b7"/>
+        android:textColor="@color/debug_green"/>
 
     <TextView
         android:layout_width="match_parent"
@@ -44,7 +44,7 @@
         android:text="详情"
         android:textSize="12sp"
         android:textStyle="bold"
-        android:textColor="#e2e8f0"/>
+        android:textColor="@color/debug_text"/>
 
     <TextView
         android:id="@+id/detail_body"
@@ -55,7 +55,7 @@
         android:scrollbars="vertical"
         android:textIsSelectable="true"
         android:textSize="12sp"
-        android:textColor="#cbd5e1"/>
+        android:textColor="@color/debug_text_soft"/>
 
     <LinearLayout
         android:layout_width="match_parent"

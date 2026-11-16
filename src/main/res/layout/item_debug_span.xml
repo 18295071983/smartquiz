@@ -45,14 +45,14 @@
                 android:maxLines="1"
                 android:textSize="13sp"
                 android:textStyle="bold"
-                android:textColor="#e2e8f0"/>
+                android:textColor="@color/debug_text"/>
             <TextView
                 android:id="@+id/span_status"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:textSize="10sp"
-                android:textColor="#94a3b8"/>
+                android:textColor="@color/debug_text_muted"/>
         </LinearLayout>
 
         <LinearLayout
@@ -69,7 +69,7 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textSize="11sp"
-                android:textColor="#8b93a7"/>
+                android:textColor="@color/debug_text_dim"/>
             <TextView
                 android:id="@+id/span_time"
                 android:layout_width="wrap_content"
@@ -77,7 +77,7 @@
                 android:layout_marginStart="8dp"
                 android:fontFamily="monospace"
                 android:textSize="11sp"
-                android:textColor="#6ee7b7"/>
+                android:textColor="@color/debug_green"/>
         </LinearLayout>
 
         <!-- 相对时长条（占 run 总时长的比例） -->

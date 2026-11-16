@@ -9,7 +9,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#0b1020">
+    android:background="@color/debug_bg">
 
     <!-- ===== 顶栏：标题 + 状态胶囊 + 历史 ===== -->
     <LinearLayout
@@ -21,7 +21,7 @@
         android:paddingEnd="16dp"
         android:paddingTop="14dp"
         android:paddingBottom="12dp"
-        android:background="#0f1424">
+        android:background="@color/debug_bg_alt">
 
         <LinearLayout
             android:layout_width="0dp"
@@ -34,14 +34,14 @@
                 android:text="Agent 调试控制台"
                 android:textSize="17sp"
                 android:textStyle="bold"
-                android:textColor="#ffffff"/>
+                android:textColor="@color/debug_text_strong"/>
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
                 android:text="追踪瀑布 · 实时执行观测 · 可回放"
                 android:textSize="11sp"
-                android:textColor="#8b93a7"/>
+                android:textColor="@color/debug_text_dim"/>
         </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
@@ -63,7 +63,7 @@
             android:text="● 待触发"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:textColor="#94a3b8"
+            android:textColor="@color/debug_text_muted"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
             android:paddingTop="6dp"
@@ -80,7 +80,7 @@
         android:layout_marginTop="12dp"
         app:cardElevation="0dp"
         app:cardCornerRadius="14dp"
-        app:cardBackgroundColor="#171d31">
+        app:cardBackgroundColor="@color/debug_card">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -103,7 +103,7 @@
                         android:layout_height="wrap_content"
                         android:text="外部注入通道"
                         android:textSize="14sp"
-                        android:textColor="#e2e8f0"/>
+                        android:textColor="@color/debug_text"/>
                     <TextView
                         android:id="@+id/tv_bridge_state"
                         android:layout_width="wrap_content"
@@ -111,7 +111,7 @@
                         android:layout_marginTop="2dp"
                         android:text="已关闭"
                         android:textSize="11sp"
-                        android:textColor="#94a3b8"/>
+                        android:textColor="@color/debug_text_muted"/>
                 </LinearLayout>
                 <com.google.android.material.switchmaterial.SwitchMaterial
                     android:id="@+id/switch_bridge"
@@ -131,7 +131,7 @@
                     android:layout_height="wrap_content"
                     android:text="Token"
                     android:textSize="12sp"
-                    android:textColor="#8b93a7"/>
+                    android:textColor="@color/debug_text_dim"/>
                 <TextView
                     android:id="@+id/tv_token"
                     android:layout_width="0dp"
@@ -142,7 +142,7 @@
                     android:fontFamily="monospace"
                     android:gravity="end"
                     android:textSize="12sp"
-                    android:textColor="#e2e8f0"
+                    android:textColor="@color/debug_text"
                     android:textIsSelectable="true"/>
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_copy_token"
@@ -166,7 +166,7 @@
                     android:layout_height="wrap_content"
                     android:text="连通状态"
                     android:textSize="12sp"
-                    android:textColor="#8b93a7"/>
+                    android:textColor="@color/debug_text_dim"/>
                 <TextView
                     android:id="@+id/tv_conn_state"
                     android:layout_width="0dp"
@@ -176,7 +176,7 @@
                     android:gravity="end"
                     android:text="待外部注入"
                     android:textSize="12sp"
-                    android:textColor="#94a3b8"/>
+                    android:textColor="@color/debug_text_muted"/>
             </LinearLayout>
 
             <!-- TokenStatsBar 统计条 -->
@@ -189,8 +189,8 @@
                 android:paddingTop="8dp"
                 android:paddingBottom="8dp"
                 android:textSize="12sp"
-                android:textColor="#6ee7b7"
-                android:background="#10152a"
+                android:textColor="@color/debug_green"
+                android:background="@color/debug_surface"
                 android:visibility="gone"/>
 
             <!-- DEBUG-PROBE：与调试桥 debug_*.json 同源的实时快照 -->
@@ -199,13 +199,13 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:background="#0b1020"
+                android:background="@color/debug_bg"
                 android:fontFamily="monospace"
                 android:maxLines="7"
                 android:ellipsize="end"
                 android:padding="8dp"
                 android:text="探针加载中…"
-                android:textColor="#a7b0c8"
+                android:textColor="@color/debug_text_soft2"
                 android:textSize="10sp"/>
 
             <com.google.android.material.button.MaterialButton
@@ -336,7 +336,7 @@
                         android:text="外部注入 + 本地执行 · 统一事件行（JSON 协议）"
                         android:textSize="11sp"
                         android:textStyle="bold"
-                        android:textColor="#7dd3fc"/>
+                        android:textColor="@color/debug_cyan"/>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_clear_raw"
                         style="@style/Widget.Material3.Button.TextButton"
@@ -386,8 +386,8 @@
             android:paddingEnd="12dp"
             android:paddingTop="8dp"
             android:paddingBottom="8dp"
-            android:textColor="#e2e8f0"
-            android:textColorHint="#5b6478"
+            android:textColor="@color/debug_text"
+            android:textColorHint="@color/debug_border"
             android:maxLines="1"/>
 
         <com.google.android.material.button.MaterialButton
@@ -424,5 +424,5 @@
         android:paddingBottom="12dp"
         android:text="运行按钮走 AgentSession（在线模型）；本地模型请用 adb AGENT_EXEC（engine=local 或 auto），执行过程同样实时显示在本页。调试桥每次任务都会落 result_*.txt + debug_*.json（完整模型/KV/RSS/探针/工具耗时），status.json 只做轮询入口。"
         android:textSize="11sp"
-        android:textColor="#8b93a7"/>
+        android:textColor="@color/debug_text_dim"/>
 </LinearLayout>
