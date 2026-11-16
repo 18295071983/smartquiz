@@ -178,7 +178,7 @@ public final class ComponentFocusHost {
             }
         } catch (Throwable ignored) {
         }
-        return 0xFFFFFFFF;
+        return ComponentColors.background(ctx);
     }
 
     private static void dismissExisting() {

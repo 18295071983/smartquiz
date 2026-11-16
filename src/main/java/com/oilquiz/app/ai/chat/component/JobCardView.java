@@ -186,8 +186,8 @@ public class JobCardView implements ChatComponent {
             setPadding(pad, pad, pad, pad);
             GradientDrawable bg = new GradientDrawable();
             bg.setCornerRadius(dp(context, 10));
-            bg.setColor(Color.parseColor("#F5F5F5"));
-            bg.setStroke(dp(context, 1), Color.parseColor("#E0E0E0"));
+            bg.setColor(ComponentColors.fieldBg(context));
+            bg.setStroke(dp(context, 1), ComponentColors.border(context));
             setBackground(bg);
 
             LinearLayout header = new LinearLayout(context);
@@ -200,7 +200,7 @@ public class JobCardView implements ChatComponent {
             statusView = new TextView(context);
             statusView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
             statusView.setTypeface(null, Typeface.BOLD);
-            statusView.setTextColor(Color.parseColor("#333333"));
+            statusView.setTextColor(ComponentColors.textPrimary(context));
             LinearLayout.LayoutParams stLp = new LinearLayout.LayoutParams(
                     0, LayoutParams.WRAP_CONTENT, 1f);
             stLp.leftMargin = dp(context, 8);
@@ -212,7 +212,7 @@ public class JobCardView implements ChatComponent {
             if (cmd != null && !cmd.isEmpty()) {
                 TextView cmdView = new TextView(context);
                 cmdView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-                cmdView.setTextColor(Color.parseColor("#888888"));
+                cmdView.setTextColor(ComponentColors.textTertiary(context));
                 cmdView.setSingleLine(true);
                 cmdView.setText("$ " + cmd);
                 LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
@@ -225,7 +225,7 @@ public class JobCardView implements ChatComponent {
             logView = new TextView(context);
             logView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
             logView.setTypeface(Typeface.MONOSPACE);
-            logView.setTextColor(Color.parseColor("#444444"));
+            logView.setTextColor(ComponentColors.textSecondary(context));
             ScrollView scroll = new ScrollView(context);
             LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                     LayoutParams.MATCH_PARENT, dp(context, 140));
@@ -300,8 +300,8 @@ public class JobCardView implements ChatComponent {
                 finished = true;
                 stopPolling();
                 spinner.setVisibility(View.GONE);
-                statusView.setTextColor(exit == 0 ? Color.parseColor("#2E7D32")
-                        : Color.parseColor("#C62828"));
+                statusView.setTextColor(exit == 0 ? ComponentColors.success(getContext())
+                        : ComponentColors.error(getContext()));
                 statusView.setText(baseTitle + (exit == 0 ? " · ✅ 完成" : " · ❌ 结束，退出码 " + exit));
             } else {
                 statusView.setText(baseTitle + " · 运行中…");
