@@ -12,6 +12,7 @@ import com.oilquiz.app.R;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.annotation.Config;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -26,9 +27,12 @@ import java.util.List;
  * 资源名拼错 → 编译过但运行崩。JVM 里没有真机页面巡检，就用这个测试把
  * <b>所有 layout 都按应用主题 inflate 一遍</b>，任何异常都算失败——成本几秒，能挡住绝大多数低级事故。</p>
  *
+ * <p>覆盖两种环境：<b>浅色</b>与<b>夜间</b>（{@code values-night} 资源），因为 attrs 在夜间主题里
+ * 也要能解析；夜间只跑一遍即可发现"只在 values 定义、night 缺失"的坑。</p>
+ *
  * <p>口径：应用主题 {@code Theme_OilQuizApp} + {@code FrameLayout} 作父容器（不 attach），
  * 逐个 inflate {@code R.layout} 里的每个布局。已知不可在纯 JVM 环境 inflate 的布局
- * （依赖真实 Activity/Window/WebView 容器）列在 {@link #ALLOWED_FAILURES}，新增要写理由。</p>
+ * （依赖真实 Activity/Window/Application 静态上下文）列在 {@link #ALLOWED_FAILURES}，新增要写理由。</p>
  */
 @RunWith(RobolectricTestRunner.class)
 public class AllLayoutsInflateTest {
@@ -45,21 +49,28 @@ public class AllLayoutsInflateTest {
             "view_download_progress: GradientRingProgress 同上"
     );
 
-    /** 取最内层 cause，方便定位真实原因（缺 attr / 缺资源 / 自定义 View 构造抛错）。 */
-    private static String rootCause(Throwable t) {
-        Throwable cur = t;
-        while (cur.getCause() != null && cur.getCause() != cur) {
-            cur = cur.getCause();
-        }
-        return cur.getClass().getSimpleName() + ": " + cur.getMessage();
-    }
-
     @Test
     public void everyLayoutInflatesWithAppTheme() {
-        Context ctx = com.oilquiz.app.testsupport.ThemedAppContext.get();
+        assertNoFailures(inflateAll(ThemedContext.get()), "浅色");
+    }
+
+    /** 夜间（values-night）同样要把每个布局 inflate 通；缺 night 资源的坑在这里暴露。 */
+    @Test
+    @Config(qualifiers = "night")
+    public void everyLayoutInflatesWithAppThemeAtNight() {
+        assertNoFailures(inflateAll(ThemedContext.get()), "夜间");
+    }
+
+    // ---------------- 工具 ----------------
+
+    private static void assertNoFailures(List<String> failures, String mode) {
+        assertTrue("有布局在应用主题（" + mode + "）下 inflate 失败（多半是 ?attr 未定义 / drawable 引用错误 / "
+                + "主题里缺资源）：\n  " + String.join("\n  ", failures), failures.isEmpty());
+    }
+
+    private static List<String> inflateAll(Context ctx) {
         LayoutInflater inflater = LayoutInflater.from(ctx);
         FrameLayout root = new FrameLayout(ctx);
-
         List<String> failures = new ArrayList<>();
         for (Field field : R.layout.class.getFields()) {
             if (!java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
@@ -71,21 +82,36 @@ public class AllLayoutsInflateTest {
             } catch (Exception e) {
                 continue;
             }
+            String name = field.getName();
+            if (ALLOWED_FAILURES.stream().anyMatch(s -> s.startsWith(name + ":"))) {
+                continue;
+            }
             try {
                 View v = inflater.inflate(layoutId, root, false);
                 if (v == null) {
-                    failures.add(field.getName() + " → inflate 返回 null");
+                    failures.add(name + " → inflate 返回 null");
                 }
             } catch (Throwable t) {
-                String name = field.getName();
-                if (ALLOWED_FAILURES.stream().anyMatch(s -> s.startsWith(name + ":"))) {
-                    continue;
-                }
                 failures.add(name + " → " + t.getClass().getSimpleName() + ": " + t.getMessage()
                         + " | cause: " + rootCause(t));
             }
         }
-        assertTrue("有布局在应用主题下 inflate 失败（多半是 ?attr 未定义 / drawable 引用错误 / "
-                + "主题里缺资源）：\n  " + String.join("\n  ", failures), failures.isEmpty());
+        return failures;
+    }
+
+    /** 取最内层 cause，方便定位真实原因（缺 attr / 缺资源 / 自定义 View 构造抛错）。 */
+    private static String rootCause(Throwable t) {
+        Throwable cur = t;
+        while (cur.getCause() != null && cur.getCause() != cur) {
+            cur = cur.getCause();
+        }
+        return cur.getClass().getSimpleName() + ": " + cur.getMessage();
+    }
+
+    /** 已套应用主题的应用上下文（见 ThemedAppContext 的说明）。 */
+    private static final class ThemedContext {
+        static Context get() {
+            return com.oilquiz.app.testsupport.ThemedAppContext.get();
+        }
     }
 }
