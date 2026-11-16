@@ -84,6 +84,18 @@ public final class ThemeColors {
         ATTR_BY_RES.put(R.color.component_border, R.attr.colorBorder);
         ATTR_BY_RES.put(R.color.chat_v2_border, R.attr.colorBorder);
         ATTR_BY_RES.put(R.color.chat_v2_border_strong, R.attr.colorBorderStrong);
+        // 2026-11-16：聊天 v2 token 接主题。此前 chat_v2_* 只有 values-night 变体，
+        // 换肤档位对聊天页的正文/次要文字/气泡底/品牌色一律不生效；这里把它们按语义
+        // 对齐到已有 attr（正文→colorControlText、次要→…Secondary、提示→…Hint、
+        // 气泡底→colorSurfaceVariant、品牌→colorPrimary、成功/危险→colorSuccess/colorDanger）。
+        ATTR_BY_RES.put(R.color.chat_v2_bg, R.attr.colorBackground);
+        ATTR_BY_RES.put(R.color.chat_v2_text, R.attr.colorControlText);
+        ATTR_BY_RES.put(R.color.chat_v2_text_2, R.attr.colorControlTextSecondary);
+        ATTR_BY_RES.put(R.color.chat_v2_text_3, R.attr.colorControlTextHint);
+        ATTR_BY_RES.put(R.color.chat_v2_surface_2, R.attr.colorSurfaceVariant);
+        ATTR_BY_RES.put(R.color.chat_v2_brand, R.attr.colorPrimary);
+        ATTR_BY_RES.put(R.color.chat_v2_success, R.attr.colorSuccess);
+        ATTR_BY_RES.put(R.color.chat_v2_danger, R.attr.colorDanger);
         ATTR_BY_RES.put(R.color.divider, R.attr.colorDivider);
         ATTR_BY_RES.put(R.color.agent_summary_divider, R.attr.colorDivider);
         ATTR_BY_RES.put(R.color.card_scrim, R.attr.colorScrim);

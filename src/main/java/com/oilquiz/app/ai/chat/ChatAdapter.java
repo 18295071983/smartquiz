@@ -449,7 +449,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView dayLabel = new TextView(ctx);
         dayLabel.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
                 ctx.getResources().getDimension(R.dimen.chat_v2_status_text));
-        dayLabel.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3));
+        dayLabel.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text_3));
         dayLabel.setGravity(android.view.Gravity.CENTER);
         LinearLayout.LayoutParams dayLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -589,8 +589,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView messageText = new TextView(ctx);
         messageText.setLayoutDirection(View.LAYOUT_DIRECTION_LOCALE);
         // demo .ai-text：15px / 行高 1.68 / 主文本色（页面已是纯色底，不再靠气泡底色撑对比）
-        messageText.setTextColor(androidx.core.content.ContextCompat.getColor(ctx,
-                R.color.chat_v2_text));
+        messageText.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text));
         messageText.setTextSize(15f);
         messageText.setLineSpacing(0f, 1.68f);
         messageText.setTextIsSelectable(true);
@@ -610,7 +609,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         v2Lp.topMargin = dpToPx(8, ctx);
         v2Actions.setLayoutParams(v2Lp);
-        int iconColor = androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3);
+        int iconColor = ThemeColors.get(ctx, R.color.chat_v2_text_3);
         // demo .ai-actions 的图标间距只有 2px：30dp 的点击区紧挨着排，不要拉开
         int iconGap = dpToPx(2, ctx);
         ImageView v2BtnCopy = createIconAction(ctx, R.drawable.ic_copy,
@@ -666,7 +665,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         statusIcon.setLayoutParams(new LinearLayout.LayoutParams(dp14, dp14));
         statusRow.addView(statusIcon);
 
-        int metaTextColor = androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3);
+        int metaTextColor = ThemeColors.get(ctx, R.color.chat_v2_text_3);
         TextView statusText = new TextView(ctx);
         statusText.setTextSize(10f);
         statusText.setTextColor(metaTextColor);
@@ -785,9 +784,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
         gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
         gd.setCornerRadius(dpToPx(10, ctx));
-        gd.setStroke(dpToPx(1, ctx), androidx.core.content.ContextCompat.getColor(
-                ctx, R.color.chat_v2_border_strong));
-        gd.setColor(androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_surface_2));
+        gd.setStroke(dpToPx(1, ctx), ThemeColors.get(ctx, R.color.chat_v2_border_strong));
+        gd.setColor(ThemeColors.get(ctx, R.color.chat_v2_surface_2));
         tv.setBackground(gd);
         tv.setPadding(dpToPx(8, ctx), dpToPx(3, ctx), dpToPx(8, ctx), dpToPx(3, ctx));
         tv.setClickable(true);
@@ -1235,7 +1233,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         if (message.hasError()) {
             holder.statusIcon.setImageResource(R.drawable.ic_error);
-            holder.statusIcon.setColorFilter(holder.itemView.getContext().getColor(R.color.error));
+            holder.statusIcon.setColorFilter(ThemeColors.get(holder.itemView.getContext(), R.color.error));
         }
 
         // 渲染用户消息中的附件（图片等）
@@ -1695,7 +1693,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private void applyFeedbackVisual(AIMessageViewHolder holder, ChatMessage message) {
         if (holder.v2BtnMore == null) return;
         android.content.Context ctx = holder.itemView.getContext();
-        int color = androidx.core.content.ContextCompat.getColor(ctx,
+        int color = ThemeColors.get(ctx,
                 message.feedbackState != 0 ? R.color.chat_v2_brand : R.color.chat_v2_text_3);
         holder.v2BtnMore.setImageTintList(
                 android.content.res.ColorStateList.valueOf(color));
@@ -2019,8 +2017,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     header = ctx.getString(R.string.chat_v2_thought_steps_only, count);
                 }
                 label.setText(withStopReason(header, message));
-                label.setTextColor(androidx.core.content.ContextCompat.getColor(ctx,
-                        R.color.chat_v2_text_2));
+                label.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text_2));
                 label.setClickable(true);
                 label.setOnClickListener(v -> {
                     message.thinkingExpanded = !message.thinkingExpanded;
@@ -2080,7 +2077,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             } else {
                 text.setText(ctx.getString(R.string.chat_v2_tools_ran, tools.size()));
             }
-            text.setTextColor(androidx.core.content.ContextCompat.getColor(ctx,
+            text.setTextColor(ThemeColors.get(ctx,
                     failed > 0 ? R.color.chat_v2_danger : R.color.chat_v2_text_2));
         }
         TextView time = card.findViewById(R.id.chat_v2_tool_card_time);
@@ -2423,7 +2420,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (holder.thinkingDivider != null) holder.thinkingDivider.setVisibility(View.GONE);
         } else {
             holder.thinkingLabel.setText(thinkingHeaderText(ctx, message, model, isStreaming, live));
-            holder.thinkingLabel.setTextColor(androidx.core.content.ContextCompat.getColor(ctx,
+            holder.thinkingLabel.setTextColor(ThemeColors.get(ctx,
                     model.anyFailed && !isStreaming ? R.color.chat_v2_danger : R.color.chat_v2_text_2));
 
             if (live.isEmpty()) {
@@ -2502,7 +2499,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 // 时间单独放在右侧 timeView（demo 的 .tool-time），标题只报数量，避免写两遍
                 text.setText(ctx.getString(R.string.chat_v2_tools_ran, toolItems.size()));
             }
-            text.setTextColor(androidx.core.content.ContextCompat.getColor(ctx,
+            text.setTextColor(ThemeColors.get(ctx,
                     failed > 0 ? R.color.chat_v2_danger : R.color.chat_v2_text_2));
         }
         TextView timeView = holder.toolCard.findViewById(R.id.chat_v2_tool_card_time);
@@ -2671,7 +2668,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             chev.setLayoutParams(clp);
             chev.setImageResource(R.drawable.ic_chevron_right);
             chev.setImageTintList(android.content.res.ColorStateList.valueOf(
-                    androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3)));
+                    ThemeColors.get(ctx, R.color.chat_v2_text_3)));
             chev.setAlpha(0.55f);
             chev.setRotation(expanded ? 90f : 0f);
             ((ViewGroup) ((ViewGroup) line).getChildAt(1)).addView(chev);
@@ -2682,8 +2679,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             TextView body = new TextView(ctx);
             body.setTextSize(12f);
             body.setLineSpacing(0f, 1.6f);
-            body.setTextColor(androidx.core.content.ContextCompat.getColor(ctx,
-                    R.color.chat_v2_text_2));
+            body.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text_2));
             body.setVisibility(expanded ? View.VISIBLE : View.GONE);
             if (expanded) {
                 com.oilquiz.app.ai.chat.util.ToolResultText.Preview preview =
@@ -2756,7 +2752,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         android.widget.TextView summary = new android.widget.TextView(ctx);
         summary.setTextSize(12f);
-        summary.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_2));
+        summary.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text_2));
         summary.setSingleLine(true);
         summary.setEllipsize(android.text.TextUtils.TruncateAt.END);
         String preview = thinkingPreview(stripThinkingTagMarkers(text), false);
@@ -2767,7 +2763,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (durationMs > 0L) {
             android.widget.TextView dur = new android.widget.TextView(ctx);
             dur.setTextSize(11f);
-            dur.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3));
+            dur.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text_3));
             dur.setPadding(dpToPx(6, ctx), 0, 0, 0);
             dur.setText(formatThinkingDuration(durationMs));
             head.addView(dur, new android.widget.LinearLayout.LayoutParams(
@@ -2781,7 +2777,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         chev.setLayoutParams(clp);
         chev.setImageResource(R.drawable.ic_chevron_right);
         chev.setImageTintList(android.content.res.ColorStateList.valueOf(
-                androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3)));
+                ThemeColors.get(ctx, R.color.chat_v2_text_3)));
         chev.setAlpha(0.55f);
         chev.setRotation(expanded ? 90f : 0f);
         head.addView(chev);
@@ -2789,7 +2785,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         android.widget.TextView body = new android.widget.TextView(ctx);
         body.setTextSize(12f);
         body.setLineSpacing(0f, 1.6f);
-        body.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_2));
+        body.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text_2));
         body.setVisibility(expanded ? View.VISIBLE : View.GONE);
         row.setTag(anchorId);
         body.setTag("round_body_" + anchorId);
@@ -2880,14 +2876,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
             holder.statusIcon.setVisibility(View.VISIBLE);
             holder.statusIcon.setImageResource(R.drawable.ic_error);
-            holder.statusIcon.setColorFilter(context.getColor(R.color.error));
+            holder.statusIcon.setColorFilter(ThemeColors.get(context, R.color.error));
             String failText = context.getString(R.string.h_1f21bef7);
             if (message.errorDetail != null && !message.errorDetail.trim().isEmpty()) {
                 failText += " · " + message.errorDetail.trim();
             }
             holder.statusText.setText(failText);
             holder.statusText.setVisibility(View.VISIBLE);
-            holder.statusText.setTextColor(context.getColor(R.color.error));
+            holder.statusText.setTextColor(ThemeColors.get(context, R.color.error));
             return;
         }
 
