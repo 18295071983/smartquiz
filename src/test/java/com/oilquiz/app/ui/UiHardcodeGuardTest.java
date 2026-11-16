@@ -65,7 +65,7 @@ public class UiHardcodeGuardTest {
     private static final Pattern JAVA_PARSE_COLOR = Pattern.compile("Color\\.parseColor");
     /** 手写动画原语（应统一走 UiFx，见 {@link com.oilquiz.app.ui.UiFx}）。 */
     private static final Pattern JAVA_RAW_ANIMATION = Pattern.compile(
-            "new (AlphaAnimation|TranslateAnimation|AnimationSet)\\(|ObjectAnimator\\.of|ValueAnimator\\.of");
+            "new (AlphaAnimation|TranslateAnimation|AnimationSet)\\(|ObjectAnimator\\.of|ValueAnimator\\.of|\\.animate\\(\\)");
 
     /** Java 字号/间距字面量。 */
     private static final Pattern JAVA_TEXT_SIZE_LITERAL = Pattern.compile("setTextSize\\(\\s*[0-9]");

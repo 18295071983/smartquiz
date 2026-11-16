@@ -50,10 +50,6 @@ public class ThinkLineBody extends AppCompatTextView {
             chevron = section == null ? null : section.findViewById(R.id.chat_v2_think_chev);
         }
         if (chevron == null) return;
-        chevron.animate()
-                .rotation(expanded ? 90f : 0f)
-                .setDuration(180)
-                .setInterpolator(new DecelerateInterpolator())
-                .start();
+        com.oilquiz.app.ui.UiFx.rotateChevron(chevron, expanded);
     }
 }

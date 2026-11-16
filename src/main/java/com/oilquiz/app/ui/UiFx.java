@@ -353,6 +353,42 @@ public final class UiFx {
         }
     }
 
+    /** 折叠指示器旋转（展开 90° / 收起 0°，180ms）：思考区/工具区 chevron 统一口径。 */
+    public static void rotateChevron(View chevron, boolean expanded) {
+        if (chevron == null) {
+            return;
+        }
+        chevron.animate()
+                .rotation(expanded ? 90f : 0f)
+                .setDuration(180L)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                .start();
+    }
+
+    /** 内容淡入（先 VISIBLE 再从 0 → 1）。 */
+    public static void fadeIn(View view, long durationMs) {
+        if (view == null) {
+            return;
+        }
+        view.setVisibility(View.VISIBLE);
+        view.setAlpha(0f);
+        view.animate().alpha(1f).setDuration(durationMs).start();
+    }
+
+    /** 内容淡出（从 1 → 0 后置 GONE），避免"瞬间消失"的突兀。 */
+    public static void fadeOutGone(View view, long durationMs) {
+        if (view == null) {
+            return;
+        }
+        if (view.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        view.animate()
+                .alpha(0f)
+                .setDuration(durationMs)
+                .withEndAction(() -> view.setVisibility(View.GONE))
+                .start();
+    }
     /** 从左侧滑入转场。 */
     public static void slideInLeft(View view) {
         play(view, R.anim.slide_in_left);

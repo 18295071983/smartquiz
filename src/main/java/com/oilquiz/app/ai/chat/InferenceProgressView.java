@@ -281,11 +281,8 @@ public class InferenceProgressView extends FrameLayout {
     public void show() {
         if (getVisibility() != View.VISIBLE) {
             setVisibility(View.VISIBLE);
-            contentContainer.setAlpha(0f);
-            contentContainer.animate()
-                .alpha(1f)
-                .setDuration(200)
-                .start();
+            // 2026-11-16 归一：淡入统一走 UiFx
+            com.oilquiz.app.ui.UiFx.fadeIn(contentContainer, 200L);
         }
     }
     
@@ -295,11 +292,8 @@ public class InferenceProgressView extends FrameLayout {
     public void hide() {
         stopPulseAnimation();
         if (getVisibility() == View.VISIBLE) {
-            contentContainer.animate()
-                .alpha(0f)
-                .setDuration(150)
-                .withEndAction(() -> setVisibility(View.GONE))
-                .start();
+            // 2026-11-16 归一：淡出统一走 UiFx
+            com.oilquiz.app.ui.UiFx.fadeOutGone(contentContainer, 150L);
         }
     }
     
