@@ -48,6 +48,21 @@ public final class EdgeToEdgeHelper {
     };
 
 
+    /**
+     * 根容器底部 inset（2026-11-16 IME 标准）：系统栏、手势条、**键盘**取最大值。
+     *
+     * <p>之前只算 systemBars/systemGestures —— 但本应用全部页面都开了
+     * {@code setDecorFitsSystemWindows(false)}（真 edge-to-edge），该模式下系统不会自动
+     * 给键盘让位，IME insets 不参与就会"键盘盖住输入框"。把 IME 并入底部 inset 后，
+     * 所有非 AI 对话页（AI 对话页自己处理）在键盘弹出时内容整体上推。</p>
+     */
+    static int bottomInset(WindowInsetsCompat insets) {
+        androidx.core.graphics.Insets bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+        int gestures = insets.getInsets(WindowInsetsCompat.Type.systemGestures()).bottom;
+        int ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
+        return Math.max(Math.max(bars.bottom, gestures), ime);
+    }
     /** 记录各 View 的原始 padding（insets 回调会重复触发，需绝对增量而非累积）。 */
     private static final java.util.WeakHashMap<View, int[]> ORIG_PADDING = new java.util.WeakHashMap<>();
 
@@ -210,8 +225,7 @@ public final class EdgeToEdgeHelper {
 
         // 底部兜底：部分系统（如个别 MIUI 版本）手势导航模式下 navigationBars 的底部 inset 可能为 0，
         // 但 systemGestures 底部始终会报手势条区域 → 取两者最大值，确保小白条不遮挡内容
-        int bottom = Math.max(bars.bottom,
-                insets.getInsets(WindowInsetsCompat.Type.systemGestures()).bottom);
+        int bottom = bottomInset(insets);
 
         // 底部/左右：根容器（背景全屏延伸不受 padding 影响）
         int[] o = orig(root);
@@ -228,6 +242,8 @@ public final class EdgeToEdgeHelper {
             if (dialog == null || dialog.getWindow() == null) return;
             android.view.Window window = dialog.getWindow();
             WindowCompat.setDecorFitsSystemWindows(window, false);
+            // 2026-11-16：贴边弹窗（含输入框）在键盘弹出时整体上推
+            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
             window.setStatusBarColor(Color.TRANSPARENT);
             // 导航条固定主题 surface 色（同 Activity 方案 A），避免贴边弹窗底部遮罩闪烁
             int navColor = resolveSurfaceColor(dialog.getContext());
@@ -240,8 +256,7 @@ public final class EdgeToEdgeHelper {
             ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
                 androidx.core.graphics.Insets bars = insets.getInsets(
                         WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
-                int bottom = Math.max(bars.bottom,
-                        insets.getInsets(WindowInsetsCompat.Type.systemGestures()).bottom);
+                int bottom = bottomInset(insets);
                 int[] o = orig(root);
                 root.setPadding(o[0] + bars.left, o[1] + bars.top, o[2] + bars.right, o[3] + bottom);
                 return insets;

@@ -159,6 +159,39 @@ public class UiHardcodeGuardTest {
                 violations.isEmpty());
     }
 
+    /**
+     * 列表项（一级 item）及其子布局只允许用"表面深度"语义色：
+     * L1 项底 {@code colorSurface/colorCardBackground}，L2 项内分区
+     * {@code colorSurfaceVariant/colorControlBackground}，L3 标签 {@code colorControlBackground + colorBorder}。
+     * 白/黑/灰等固定 chrome 色在深色/换肤下不可用。
+     *
+     * <p>允许清单：图片/媒体浮层（黑半透明遮罩、白字压在图上）、天气色块（白字压在等级色上）——
+     * 它们颜色由内容本身决定，不是主题面。</p>
+     */
+    @Test
+    public void itemLayoutsUseSurfaceDepthAttrs() throws IOException {
+        List<String> allowed = Arrays.asList(
+                "item_attachment_image.xml",
+                "item_message_attachment_image.xml",
+                "item_weather_alert.xml",
+                "item_weather_hourly.xml");
+        Pattern chrome = Pattern.compile("@color/(white|black|gray_[0-9]+|purple_[0-9]+|teal_[0-9]+)\"");
+        List<String> violations = new ArrayList<>();
+        try (Stream<Path> walk = Files.walk(Paths.get("src/main/res/layout"))) {
+            for (Path path : walk.filter(p -> p.getFileName().toString().startsWith("item_")
+                    && p.toString().endsWith(".xml")).collect(Collectors.toList())) {
+                String name = path.getFileName().toString();
+                if (allowed.contains(name)) {
+                    continue;
+                }
+                String xml = stripXmlComments(read(path.toString()));
+                collect(violations, name, "固定 chrome 色（应用表面深度语义色）", chrome, xml);
+            }
+        }
+        assertTrue("列表项布局出现固定 chrome 色：\n  " + String.join("\n  ", violations),
+                violations.isEmpty());
+    }
+
     @Test
     public void chatJavaHasNoHardcodedColorSizeOrSpacing() throws IOException {
         List<String> violations = new ArrayList<>();

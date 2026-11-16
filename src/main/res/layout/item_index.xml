@@ -21,7 +21,7 @@
         android:layout_height="wrap_content"
         android:text="适宜"
         android:textSize="@dimen/text_14"
-        android:textColor="@color/gray_700"
+        android:textColor="?attr/colorControlText"
         android:textStyle="bold"
         android:layout_marginTop="@dimen/space_6"/>
 

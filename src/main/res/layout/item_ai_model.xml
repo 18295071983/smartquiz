@@ -59,7 +59,7 @@
                         android:layout_height="wrap_content"
                         android:text="性能评分: 8.5"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/teal_600" />
+                        android:textColor="?attr/colorSecondary" />
 
                 </LinearLayout>
 
@@ -75,8 +75,8 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="选择"
-                        android:backgroundTint="@color/purple_600"
-                        android:textColor="@color/white"
+                        android:backgroundTint="?attr/colorPrimary"
+                        android:textColor="?attr/colorOnPrimary"
                         android:layout_marginBottom="@dimen/space_8" />
 
                     <com.google.android.material.button.MaterialButton
@@ -84,8 +84,8 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="展开"
-                        android:backgroundTint="@color/teal_600"
-                        android:textColor="@color/white" />
+                        android:backgroundTint="?attr/colorSecondary"
+                        android:textColor="?attr/colorOnSecondary" />
 
                 </LinearLayout>
 
@@ -98,7 +98,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:padding="@dimen/space_16"
-                android:background="@color/gray_50"
+                android:background="?attr/colorSurfaceVariant"
                 android:visibility="gone">
 
                 <!-- 质量评分 -->
@@ -232,8 +232,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="下载模型"
-                    android:backgroundTint="@color/teal_600"
-                    android:textColor="@color/white" />
+                    android:backgroundTint="?attr/colorSecondary"
+                    android:textColor="?attr/colorOnSecondary" />
 
             </LinearLayout>
 

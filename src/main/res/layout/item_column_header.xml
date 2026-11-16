@@ -19,6 +19,6 @@
         android:id="@+id/fieldSpinner"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:backgroundTint="@color/teal_500"/>
+        android:backgroundTint="?attr/colorPrimary"/>
 
 </LinearLayout>

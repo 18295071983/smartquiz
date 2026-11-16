@@ -101,3 +101,36 @@ MaterialCardView card = AppCard.create(this);        // 空卡，自己 addView
 1. 新动效一律走 `UiFx`；对话页 Java 已由 `UiHardcodeGuardTest` 禁止 `new AlphaAnimation/TranslateAnimation/AnimationSet`、`ObjectAnimator.of`、`ValueAnimator.of`、`.animate()`；
 2. **动效原语只管形状、不管配色**：颜色由被动画的 View 按 `?attr` 取（`SegmentScraper` 的位移/时长是冻结口径，其配色完全来自 `tv_gen_phase` 等视图的 `?attr/colorControlTextSecondary`）；`motionPrimitivesAreColorAgnostic` 钉住这一点；
 3. `SegmentScraper`（刮刀滑入）是唯一实现、形状冻结；要改观感必须单独评审，不允许顺手优化。
+
+## 6. 附：IME（软键盘）标准（2026-11-16）
+
+审计发现：`EdgeToEdgeHelper` 对所有非 AI 对话页开启 `setDecorFitsSystemWindows(false)`，
+但底部 inset 只算了 `systemBars + systemGestures`，**没算 `Type.ime()`**；而 edge-to-edge 后
+系统不再自动给键盘让位，manifest 里也只有 2 个 Activity 写了 `adjustResize` ——
+等于**大部分表单页键盘会盖住输入框**。只有 `AIChatActivity` 自己处理了 IME（它被 helper 跳过）。
+
+标准：
+
+1. 主题统一 `android:windowSoftInputMode=adjustResize`（IME insets 的分发前提）；
+2. `EdgeToEdgeHelper.bottomInset()`：底部 inset 取 `systemBars / systemGestures / ime` 最大值，
+   所有 Activity 根容器自动上推；
+3. 贴边 `Dialog`（`applyDialog`）同样并入 IME，并设 `SOFT_INPUT_ADJUST_RESIZE`；
+4. `AppDialog.show()` 统一设 `ADJUST_RESIZE`，自定义 `content` 里的 `EditText` 不被键盘盖住；
+5. `AIChatActivity` 自管（mainContent 监听已含 `Type.ime()`），不在全局 helper 里重复处理；
+6. 护栏：`EdgeToEdgeImeTest` 钉住"键盘最大 / 键盘收起 / 无 inset / 主题 adjustResize"四种口径。
+
+## 7. 附：列表项与子布局颜色深度标准（2026-11-16）
+
+| 层级 | 用途 | 语义色 |
+|---|---|---|
+| L0 | 页面底 | `colorBackground` |
+| L1 | 列表项 / 卡片 | `colorSurface`（或 `colorCardBackground`） |
+| L2 | 项内分区（展开区/工具栏/次级块） | `colorSurfaceVariant`（或 `colorControlBackground`） |
+| L3 | 标签/芯片 | `colorControlBackground` + `colorBorder` |
+
+禁止在 `item_*` 布局里出现 `@color/white|black|gray_*|purple_*|teal_*` 这类固定 chrome 色
+（白字压在主题面上，深色/换肤后不可读）；图片浮层/天气等级色等"颜色由内容决定"的除外。
+护栏：`UiHardcodeGuardTest.itemLayoutsUseSurfaceDepthAttrs`（允许清单含 4 个媒体/天气布局）。
+本批已修：`item_ai_model`（按钮语义色 + 展开区 L2）、`item_backup`、`item_index`、
+`item_column_header`、`item_optimization_suggestion`、`item_mapping_field`，并把
+`rounded_corners_gray` 接主题。

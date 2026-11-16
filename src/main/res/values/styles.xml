@@ -14,6 +14,9 @@
              全部界面由 EdgeToEdgeHelper 真适配接管（decorFits=false +
              根容器 insets padding + 深浅图标）。 -->
         <item name="android:windowBackground">?attr/colorBackground</item>
+        <!-- 2026-11-16：edge-to-edge 下 IME insets 需要 adjustResize 才会分发；
+             全局统一，键盘弹出时由 EdgeToEdgeHelper 把内容整体上推 -->
+        <item name="android:windowSoftInputMode">adjustResize</item>
         <item name="colorSurface">@color/surface</item>
         <item name="colorOnSurface">@color/on_surface</item>
         <item name="colorError">@color/error</item>
@@ -550,6 +553,9 @@
     <!-- 通用 Activity 样式 -->
     <style name="Theme.App.Activity" parent="AppTheme.NoActionBar">
         <item name="android:windowBackground">?attr/colorBackground</item>
+        <!-- 2026-11-16：edge-to-edge 下 IME insets 需要 adjustResize 才会分发；
+             全局统一，键盘弹出时由 EdgeToEdgeHelper 把内容整体上推 -->
+        <item name="android:windowSoftInputMode">adjustResize</item>
         <!-- edge-to-edge(targetSdk 36): 系统栏由应用绘制, 不设旧式着色层 -->
         <!-- edge-to-edge(targetSdk 36): 系统栏由应用绘制, 不设旧式着色层 -->
     </style>

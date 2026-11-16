@@ -135,6 +135,15 @@ public final class AppDialog {
         public AlertDialog show() {
             inner.setCancelable(cancelable);
             AlertDialog dialog = inner.show();
+            // 2026-11-16：标准对话框也保证键盘不盖住输入内容（自定义 content 里常有 EditText）
+            try {
+                if (dialog.getWindow() != null) {
+                    dialog.getWindow().setSoftInputMode(
+                            android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+                }
+            } catch (Throwable ignored) {
+                // 失败不影响显示
+            }
             return dialog;
         }
 
