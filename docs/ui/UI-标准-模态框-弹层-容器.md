@@ -74,11 +74,11 @@ MaterialCardView card = AppCard.create(this);        // 空卡，自己 addView
 
 | 项 | 值 |
 |---|---|
-| `new AlertDialog.Builder(` | 92（基线，只减不增） |
+| `new AlertDialog.Builder(` | 62（基线，只减不增；92 → 62：McpManagerActivity 21 + DatabaseManagementActivity 9 + ChatDialogHelper 5 等已迁移） |
 | `MaterialAlertDialogBuilder(` | 15 |
 | `new BottomSheetDialog(` | 2 |
 | `new Dialog(` | 6 |
-| 已迁移 | `ChatV2ActionSheet` → `AppSheet`；`ChatDialogHelper` 5 处 → `AppDialog`；删除空壳 `ChatBottomSheet` |
+| 已迁移 | `ChatV2ActionSheet` → `AppSheet`；`ChatDialogHelper` 5 处 → `AppDialog`；`McpManagerActivity` 21 处、`DatabaseManagementActivity` 9 处 → `AppDialog`；删除空壳 `ChatBottomSheet` |
 
 - 测试：`src/test/java/com/oilquiz/app/ui/modal/AppModalStandardTest.java`（标准层行为）、
   `DialogStandardRatchetTest.java`（棘轮：手写数量不增长 + 标准层确实被使用）。
