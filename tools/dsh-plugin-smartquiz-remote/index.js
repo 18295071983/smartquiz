@@ -2552,7 +2552,7 @@ function presetSvcOf(ctx) {
     'compaction/summary': { layer: 'session', forward: true, slot: 'compaction', desc: '压缩摘要' },
     'compaction/end': { layer: 'session', forward: true, slot: 'compaction', desc: '上下文压缩结束' },
     'compaction/prune': { layer: 'session', forward: true, desc: '工具结果裁剪' },
-    'image/offload': { layer: 'session', forward: false, desc: '图片外置（内部）' },
+    'image/offload': { layer: 'session', forward: true, desc: '图片外置（2026-11-16 起转发：手机出一张提示卡）' },
     'command/run': { layer: 'session', forward: true, desc: '命令开始' },
     'command/done': { layer: 'session', forward: true, desc: '命令结束' },
     'subagent/catalog': { layer: 'session', forward: true, slot: 'subagents', desc: '子代理登记' },

@@ -43,11 +43,15 @@ public final class DshHistoryImporter {
     static final String EVENT_TYPES = String.join(",",
             "user/message", "assistant/message", "tool/call", "tool/result",
             "approval", "approval_gone", "question", "question_gone",
-            "todo/write", "deliverables/presented", "goal/activation-changed", "workspace/changes",
-            "job/registered", "command/run",
+            "todo/write", "deliverables/presented", "workspace/changes",
+            // 2026-11-16：任务开始不再需要（插槽专用）；失败/取消的收尾要导入——它会在聊天里
+            // 留一张耐久卡，导入的会话也应当与实时看到的一致。
+            "job/settled",
+            "image/offload",
+            "command/run", "command/done",
             "tool-workflow/run-start", "tool-workflow/agent-start",
             "tool-workflow/agent-end", "tool-workflow/run-end",
-            "subagent/catalog", "llm/retry", "assistant/attempt",
+            "subagent/catalog",
             "compaction/start", "compaction/summary");
 
     /** 进度回调（在后台线程触发；调用方自行 post 到 UI） */

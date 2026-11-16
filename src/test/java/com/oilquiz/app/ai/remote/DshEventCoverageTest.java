@@ -117,14 +117,49 @@ public class DshEventCoverageTest {
         assertEquals("pwsh", card.props.optString("toolName"));
     }
 
+    /**
+     * 内部事件 vs 可见事件的边界（2026-11-16 订正）。
+     *
+     * <p>插件 {@code EVENT_CATALOG} 里 {@code hook/*}、{@code feedback/*}、
+     * {@code model/selection}、{@code assistant/attempt} 都是 {@code forward:false}
+     * —— 手机根本收不到，app 却给它们留了出卡分支，属于"假能力"。现在严格按桥的口径：
+     * 不出卡、但登记为已识别（不污染 unknown 计数）。</p>
+     *
+     * <p>反过来 {@code image/offload} 之前也被标成内部，但它是低频且用户该知道的事
+     * （图片被移出上下文会影响后续提问），本轮把插件改成 {@code forward:true}，
+     * 手机上确实出一张提示卡。</p>
+     */
     @Test
-    public void hookAndImageAndModelAreVisible() {
-        assertNotNull(cardOf("hook/invoked", payload("name", "pre-step")));
-        assertNotNull(cardOf("hook/result", payload("name", "pre-step")));
-        assertNotNull(cardOf("image/offload", payload("imageId", "img-1")));
-        DshCards.Card model = cardOf("model/selection", payload("model", "deepseek-flash"));
-        assertNotNull(model);
-        assertEquals("deepseek-flash", model.props.optString("content"));
+    public void internalEventsAreNotCardsButImageOffloadIsVisible() {
+        for (String t : new String[]{"hook/invoked", "hook/result",
+                "feedback/message-put", "feedback/message-delete",
+                "model/selection", "assistant/attempt"}) {
+            DshTimeline tl = new DshTimeline();
+            tl.reduce(DshEvent.from(event(t, 1, dataFor(t))));
+            assertTrue(t + " 是内部事件（桥 forward:false），不该出卡", tl.orderedCards().isEmpty());
+            assertTrue(t + " 仍应被识别，不污染未知计数", tl.unknownTypes().isEmpty());
+        }
+        DshCards.Card image = cardOf("image/offload", payload("imageId", "img-1"));
+        assertNotNull("image/offload 现由桥转发，应有提示卡", image);
+        assertEquals("alert_card", image.type);
+    }
+
+    /**
+     * 后台任务的耐久卡口径（2026-11-16）：成功只走插槽（完成即消失），
+     * 失败/取消才在聊天里留一张 —— 否则任务挂了用户永远看不到。
+     */
+    @Test
+    public void jobSettledOnlyLeavesCardOnFailure() {
+        DshTimeline ok = new DshTimeline();
+        ok.reduce(DshEvent.from(event("job/settled", 1,
+                payload("jobId", "j1", "label", "构建", "status", "success"))));
+        assertTrue("成功的任务只进插槽，不进消息流", ok.orderedCards().isEmpty());
+
+        DshTimeline bad = new DshTimeline();
+        bad.reduce(DshEvent.from(event("job/settled", 1,
+                payload("jobId", "j1", "label", "构建", "status", "failed"))));
+        assertEquals("失败的任务要留一张耐久卡", 1, bad.orderedCards().size());
+        assertEquals("job", bad.orderedCards().get(0).type);
     }
 
     /**
@@ -157,8 +192,8 @@ public class DshEventCoverageTest {
      */
     @Test
     public void ignoredTypesNeverBecomeDynamicCards() {
-        String[] types = {"job/settled", "compaction/summary", "ui/slot", "permission/preset",
-                "agent/inbox/spliced", "view", "state"};
+        String[] types = {"job/registered", "compaction/summary", "ui/slot", "permission/preset",
+                "agent/inbox/spliced", "view", "state", "hook/invoked", "feedback/message-put"};
         for (String t : types) {
             DshTimeline tl = new DshTimeline();
             tl.reduce(DshEvent.from(event(t, 1, payload("title", "x", "content", "y"))));

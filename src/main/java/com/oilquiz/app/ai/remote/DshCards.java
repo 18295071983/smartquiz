@@ -42,17 +42,26 @@ public final class DshCards {
         final LinkedHashMap<Integer, JSONObject> steps = new LinkedHashMap<>();
     }
 
-    /** 事件类型是否由卡片映射消费（供 reducer 统计"未识别事件"，别把卡片事件算成没人管） */
     /**
      * 事件类型是否由卡片映射消费（供 reducer 统计"未识别事件"，别把卡片事件算成没人管）。
      *
-     * <p>2026-11-14 用户口径：**瞬时状态放插槽，不放消息流**。下面这些类型不再出聊天卡，
-     * 统一由插件 {@code ui/slot} 帧驱动甲板插槽（收到事件更新、完成即消失），
-     * 因此改由 {@code DshTimeline.IGNORED_TYPES} 登记、这里返回 false：
-     * {@code job/*}、{@code compaction/*}、{@code llm/retry*}、{@code goal/*}、
-     * {@code permission/preset}、{@code sandbox/mode}、{@code approval/policy}、
-     * {@code agent-preset/selected}、{@code model/selection}、{@code agent/inbox/spliced}。</p>
-     */    public static boolean handles(String type) {
+     * <p><b>2026-11-16 口径：这里的名单 = "桥会转发到手机、且应该在聊天里出卡"的类型。</b>
+     * 判据来自插件 {@code EVENT_CATALOG} 的 {@code forward} 标记（桥是唯一传输权威）：
+     * 标了 {@code forward:false} 的事件手机根本收不到，app 里再留出卡分支就是假能力
+     * （{@code hook/*}、{@code feedback/*}、{@code model/selection}、{@code assistant/attempt}
+     * 曾长期是这种状态）。</p>
+     *
+     * <p>以下类型<b>不出卡</b>，改由插件 {@code ui/slot} 帧驱动甲板插槽（收到更新、完成即消失），
+     * 在 {@code DshTimeline.IGNORED_TYPES} 登记：job/registered、compaction/*、llm/retry*、
+     * goal/*、permission/preset、sandbox/mode、approval/policy、agent-preset/selected、
+     * agent/inbox/spliced；以下类型是<b>内部事件</b>（桥不转发），同样登记为忽略：
+     * hook/invoked、hook/result、feedback/message-put、feedback/message-delete、
+     * model/selection、assistant/attempt。</p>
+     *
+     * <p>唯一例外：{@code job/settled} 只在<b>失败/取消</b>时出卡（见 map 里的说明），
+     * 成功仍是插槽内"完成即消失"——否则任务挂了用户永远看不到。</p>
+     */
+    public static boolean handles(String type) {
         return "todo/write".equals(type)
                 || "deliverables/presented".equals(type)
                 || "workspace/changes".equals(type)
@@ -64,25 +73,22 @@ public final class DshCards {
                 || "tool-workflow/run-end".equals(type)
                 // 2026-11-13：subagent/catalog 不再出提示卡（子代理改由甲板轨迹卡承载）
                 || "subagent/descriptor".equals(type)
-                || "assistant/attempt".equals(type)
                 || "working-directory/change".equals(type)
-                // B14（2026-11-13）：这些类型此前只是"登记在目录里"，手机端完全不渲染。
+                // B14（2026-11-13）：桥会转发的会话内消息
                 || "system/message".equals(type)
                 || "developer/message".equals(type)
-                || "feedback/message-put".equals(type)
-                || "feedback/message-delete".equals(type)
                 || "team/mode".equals(type)
                 || "team/task".equals(type)
                 || "team/member".equals(type)
                 || "team/message/queued".equals(type)
                 || "team/message/delivered".equals(type)
-                // 2026-11-14：按 DSH known-event-types 补齐的 7 类
+                // 2026-11-14：PTC 本质是一次工具调用（复用 tool_call 卡）
                 || "tool/ptc-dispatch".equals(type)
                 || "tool/ptc-dispatch-start".equals(type)
-                || "hook/invoked".equals(type)
-                || "hook/result".equals(type)
+                // 2026-11-16：图片移出上下文的提示有用且低频，插件已改为转发
                 || "image/offload".equals(type)
-                || "model/selection".equals(type);
+                // 2026-11-16：后台任务失败/取消要留一张耐久卡（成功仍只走插槽）
+                || "job/settled".equals(type);
         // 2026-11-12：approval/asked 与 approval/decided 不再出"提示卡"。
         // 审批已经落成 approval part（带允许/拒绝按钮、绑定 toolCallId 钉在工具卡下面），
         // 再出一张同名 alert 卡就是同一件事画两遍，而且那张卡点不动（用户反馈"没绑定"）。
@@ -129,15 +135,6 @@ public final class DshCards {
                 }
                 put(props, "files", files);
                 return new Card("files-" + turn, "file_list", props);
-            }
-            case "goal/activation-changed": {
-                JSONObject goal = data.optJSONObject("goal");
-                String text = goal != null
-                        ? goal.optString("text", goal.optString("title", ""))
-                        : data.optString("text", "");
-                if (text.isEmpty()) return null;
-                return new Card("goal-" + turn, "alert_card",
-                        obj("title", "当前目标", "text", text, "level", "info"));
             }
             case "workspace/changes":
                 // 事件只有 {turn}，明细在电脑端 —— 如实说明，不假装手机上有内容
@@ -214,7 +211,8 @@ public final class DshCards {
                         obj("title", "模型重试", "text", content, "level", "warning"));
             }
             case "assistant/attempt":
-                return attemptFailureCard(data, turn);
+                // 2026-11-16：桥标 forward:false（重试过程由甲板 retry 插槽承载），不出卡。
+                return null;
             case "compaction/start":
                 return new Card("compact-" + data.optString("compactionId", String.valueOf(turn)),
                         "alert_card", obj("title", "上下文压缩", "text", "上下文压缩中…", "level", "info"));
@@ -243,11 +241,10 @@ public final class DshCards {
                         obj("title", "开发者指令", "content", text, "level", "info"));
             }
             case "feedback/message-put":
-                return new Card("feedback-put-" + turn, "alert_card",
-                        obj("title", "消息已更新", "text", "电脑端改动了历史消息（以电脑端为准）", "level", "info"));
             case "feedback/message-delete":
-                return new Card("feedback-del-" + turn, "alert_card",
-                        obj("title", "消息已删除", "text", "电脑端删除了历史消息（以电脑端为准）", "level", "warning"));
+                // 2026-11-16：桥标了 forward:false（内部），手机收不到，不再假装出"消息已更新/删除"。
+                // 历史变更以整条会话同步为准（DshHistoryImporter 覆盖式重建）。
+                return null;
             case "team/mode": {
                 String mode = data.optString("mode", data.optString("value", ""));
                 JSONObject props = obj("title", "团队模式",
@@ -292,14 +289,18 @@ public final class DshCards {
                 String label = data.optString("label", data.optString("kind", "后台任务"));
                 String status = data.optString("status", "");
                 boolean bad = "failed".equals(status) || "error".equals(status) || "cancelled".equals(status);
+                if (!bad) {
+                    // 2026-11-16 产品口径：成功/正常的收尾仍是"插槽里完成即消失"（73c695d9），
+                    // 不进消息流；只有失败/取消才留一张耐久卡 —— 否则任务挂了用户永远看不到。
+                    return null;
+                }
                 // 与 job/registered 用同一个 key（任务身份，不是 turn）：
-                // 任务卡从"运行中"原地变成"已完成/失败"，跨轮也能对上。
+                // 任务卡从"运行中"原地变成"失败/取消"，跨轮也能对上。
                 String jobId = data.optString("jobId",
                         data.optString("id", data.optString("job_id", ""))).trim();
                 String key = jobId.isEmpty() ? ("jobs-" + turn) : ("job-" + jobId);
                 return new Card(key, "job",
-                        obj("job_label", label, "title", label,
-                                "status", status.isEmpty() ? (bad ? "failed" : "success") : status));
+                        obj("job_label", label, "title", label, "status", status));
             }
             case "command/done": {
                 String text = data.optString("text", "");
@@ -409,25 +410,17 @@ public final class DshCards {
                                 "args", args, "status", "running"));
             }
             case "hook/invoked":
-            case "hook/result": {
-                String name = data.optString("name", data.optString("hook", "钩子"));
-                boolean done = "hook/result".equals(ev.type);
-                String detail = done ? data.optString("text", "") : data.optString("event", "");
-                return new Card("hook-" + name, "alert_card",
-                        obj("title", "钩子 · " + name,
-                                "content", done ? (detail.isEmpty() ? "已执行完" : detail) : "触发执行",
-                                "level", "info"));
-            }
+            case "hook/result":
+                // 2026-11-16：协议层内部事件（桥 forward:false），不出卡；否则一次 hook 一条提示。
+                return null;
             case "image/offload":
                 return new Card("offload-" + turn, "alert_card",
                         obj("title", "图片已移出上下文",
                                 "content", "为省 token 把历史图片挪到会话附件里，画面不受影响",
                                 "level", "info"));
-            case "model/selection": {
-                String model = data.optString("model", data.optString("modelId", ""));
-                return new Card("model-sel", "alert_card",
-                        obj("title", "模型", "content", model.isEmpty() ? "已切换" : model, "level", "info"));
-            }
+            case "model/selection":
+                // 2026-11-16：桥标 forward:false（模型切换走甲板状态条），不出卡。
+                return null;
             default:
                 return null;
         }
@@ -508,25 +501,6 @@ public final class DshCards {
         }
         String out = sb.toString().trim();
         return out.length() > 120 ? out.substring(0, 120) + "…" : out;
-    }
-
-    /** 一次模型尝试失败：只认 stream[].chunk = {type:finish, reason:{kind:error, failure.message}} */
-    private static Card attemptFailureCard(JSONObject data, int turn) {
-        JSONArray stream = data.optJSONArray("stream");
-        if (stream == null) return null;
-        for (int i = 0; i < stream.length(); i += 1) {
-            JSONObject item = stream.optJSONObject(i);
-            JSONObject chunk = item == null ? null : item.optJSONObject("chunk");
-            if (chunk == null || !"finish".equals(chunk.optString("type"))) continue;
-            JSONObject reason = chunk.optJSONObject("reason");
-            if (reason == null || !"error".equals(reason.optString("kind"))) continue;
-            JSONObject failure = reason.optJSONObject("failure");
-            String message = failure == null ? "" : failure.optString("message", "");
-            if (message.isEmpty()) message = "模型调用失败";
-            return new Card("fail-" + turn, "alert_card",
-                    obj("title", "模型报错", "content", message, "level", "error"));
-        }
-        return null;
     }
 
     private static Card workflowCard(String runId, WfRun run) {

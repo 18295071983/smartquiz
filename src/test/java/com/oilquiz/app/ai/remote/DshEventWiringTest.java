@@ -132,6 +132,26 @@ public class DshEventWiringTest {
         assertEquals("已登记为已识别类型，不能污染 unknown 计数", 0, t.unknownEventKinds());
     }
 
+    /**
+     * 失败/取消的后台任务要留一张耐久卡（2026-11-16）。
+     *
+     * <p>插槽是"完成即消失"的，任务失败时用户会什么都看不到；所以失败收尾额外投影一张
+     * {@code job} 卡（成功仍只走插槽，见上一条用例）。</p>
+     */
+    @Test
+    public void jobFailureLeavesDurableCard() {
+        DshTimeline t = feedAll(
+                envelope("job/registered", merge(located(1, 0), obj("jobId", "j1", "label", "跑测试"))),
+                envelope("job/settled", merge(located(2, 0),
+                        obj("jobId", "j1", "label", "跑测试", "status", "failed"))));
+        assertEquals("失败任务必须留一张卡", 1, t.orderedCards().size());
+        DshCards.Card card = t.orderedCards().get(0);
+        assertEquals("job", card.type);
+        assertEquals("job-j1", card.key);
+        assertEquals("跑测试", card.props.optString("job_label"));
+        assertEquals("failed", card.props.optString("status"));
+    }
+
     // ---------------------------------------------------------------- 目标
 
     /** 目标状态同样搬进甲板 goal 插槽（73c695d9），消息流里不再出卡。 */

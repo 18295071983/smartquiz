@@ -236,13 +236,20 @@ public final class DshTimeline {
                     "session-log-deepseek/delivery-accepted",
                     // 2026-11-14 用户口径：瞬时状态放插槽（甲板），不进消息流 —— 这些类型不再出聊天卡，
                     // 由插件 ui/slot 驱动（收到事件更新、完成即消失）。登记为已识别，避免污染未知计数：
-                    "job/registered", "job/settled",
+                    "job/registered",
                     "compaction/start", "compaction/summary", "compaction/prune", "compaction/end",
                     "llm/retry", "llm/retry-started",
-                    "goal/change",
+                    "goal/change", "goal/activation-changed",
                     "permission/preset", "sandbox/mode", "approval/policy",
                     "agent-preset/selected", "model/selection",
                     "agent/inbox/spliced",
+                    // 2026-11-16：协议层内部事件 —— 桥标了 forward:false，手机收不到；
+                    // app 里也不出卡（hook 每步都可能触发、feedback 改动由整条会话同步覆盖、
+                    // 模型切换/重试走甲板状态条与 retry 插槽），只登记为已识别。
+                    "hook/invoked", "hook/result",
+                    "feedback/message-put", "feedback/message-delete",
+                    "assistant/attempt",
+                    // 注意：job/settled 不在这里 —— 它按"失败/取消才出耐久卡"处理（见 DshCards.map）。
                     // 2026-11-14：合成帧/通道帧不是会话事件，绝不能进时间线渲染（否则会变成 JSON 卡）
                     "ui/slot", "ui/card", "state", "view", "pulse", "hello", "cmd", "view_def",
                     "__force_resync", "approval", "approval_gone", "question", "question_gone"));

@@ -133,3 +133,22 @@ admit(request):
 `smartquiz-remote` 里做的那套设备令牌（`/pair/code` → `/pair/claim`，走 8218）。
 
 两条路互不干扰：我们的 App 走 8218 + 设备令牌；dsh-Go App 走 61294 + DSH 凭据。
+
+## 10. 手机端"出不出卡"的口径（2026-11-16 订正）
+
+判据只有一条：**插件 `EVENT_CATALOG` 的 `forward` 标记**（桥是唯一传输权威）。
+app 侧只给"桥真的会转发、且用户该在聊天里看到"的类型保留出卡分支；其余一律不出卡。
+
+| 类别 | 事件 | 手机侧处理 |
+|---|---|---|
+| durable 内容 | `todo/write`、`deliverables/presented`、`workspace/changes`、`command/*`、`tool-workflow/*`、`subagent/descriptor`、`working-directory/change`、`system/message`、`developer/message`、`team/*`、`tool/ptc-dispatch*` | 出卡（`code_card`/`alert_card`/`tool_call`/`todo_card`/`file_list`/`steps`） |
+| 临时状态（插槽） | `job/registered`、`compaction/*`、`llm/retry*`、`goal/*`、`permission/preset`、`sandbox/mode`、`approval/policy`、`agent-preset/selected`、`agent/inbox/spliced` | 不出卡，登记 `IGNORED_TYPES`；由插件 `ui/slot` 驱动甲板 |
+| 任务收尾 | `job/settled` | **仅失败/取消**出 `job` 耐久卡；成功只走插槽（完成即消失） |
+| 内部事件（桥不转发） | `hook/invoked`、`hook/result`、`feedback/message-put`、`feedback/message-delete`、`model/selection`、`assistant/attempt` | 不出卡，登记 `IGNORED_TYPES`（也不计未识别） |
+| 提示类 | `image/offload` | 2026-11-16 起插件改 `forward:true`，手机出一张 `alert_card` |
+
+为什么这样定：此前 app 给 `hook/*`、`feedback/*`、`model/selection`、`assistant/attempt`
+留了出卡分支，但桥标的是 `forward:false` —— 手机永远收不到，属于"假能力"；
+`DshEventCoverageTest` 当时还反过来要求它们可见。另一头，`job` 的"完成即消失"把
+**失败**也一起吞了，任务挂了用户看不到。两处都按上表收口，回归用例在
+`DshEventCoverageTest` / `DshEventWiringTest` / `DshTimelineTest`。

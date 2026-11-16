@@ -255,6 +255,30 @@ public class DshTimelineTest {
                 tl.orderedCards().get(0).props.optString("title").contains("done"));
     }
 
+    /**
+     * 失败的后台任务卡按任务身份聚合（2026-11-16 产品口径）：成功只走插槽、不出卡；
+     * 失败/取消才留耐久卡，同一 jobId 跨轮仍只能一张，后到的收尾原地更新。
+     */
+    @Test
+    public void failedJobCardKeyedByIdentity() {
+        DshTimeline tl = new DshTimeline();
+        feed(tl, jobSettled(1, 1, "j-1", "下载 A", "failed"));
+        feed(tl, jobSettled(2, 2, "j-1", "下载 A", "cancelled"));
+
+        assertEquals("同一任务跨轮只占一张卡", 1, tl.orderedCards().size());
+        assertEquals("job-j-1", tl.orderedCards().get(0).key);
+        assertEquals("job", tl.orderedCards().get(0).type);
+        assertEquals("后到的收尾应原地更新状态", "cancelled",
+                tl.orderedCards().get(0).props.optString("status"));
+    }
+
+    @Test
+    public void successfulJobLeavesNoChatCard() {
+        DshTimeline tl = new DshTimeline();
+        feed(tl, jobSettled(1, 1, "j-2", "导出", "success"));
+        assertTrue("成功的任务只进插槽（完成即消失），不进消息流", tl.orderedCards().isEmpty());
+    }
+
     @Test
     public void replayingSameSeq_doesNotDoubleCount() {
         DshTimeline tl = new DshTimeline();
@@ -388,6 +412,18 @@ public class DshTimelineTest {
             throw new AssertionError(e);
         }
         return envelope("todo/write", 20 + step, d);
+    }
+
+    private static JSONObject jobSettled(int turn, int step, String jobId, String label, String status) {
+        JSONObject d = located(turn, step);
+        try {
+            d.put("jobId", jobId);
+            d.put("label", label);
+            d.put("status", status);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+        return envelope("job/settled", 30 + step, d);
     }
 
     private static JSONObject teamTask(int turn, int step, String taskId, String title, String status) {
