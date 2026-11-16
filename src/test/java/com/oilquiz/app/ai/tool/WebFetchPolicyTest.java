@@ -66,12 +66,19 @@ public class WebFetchPolicyTest {
         assertTrue("其它路径放行", rules.isAllowed("/public/page"));
     }
 
-    /** 同一域名两次抓取之间要有间隔（默认 1s，测试里临时调小以免拖慢用例）。 */
+    /**
+     * 同一域名两次抓取之间要有间隔（默认 1s，测试里临时调小以免拖慢用例）。
+     *
+     * <p>robots 用桩（返回空＝无规则）：这条只测限速，不该去连 example.com ——
+     * 真连会踩"同 JVM 里 Robolectric 把 Conscrypt 装成第一 JCA provider、JDK 的 TLS 初始化失败"
+     * 的坑，见 {@link WebFetchPolicy.RobotsFetcher} 的注释。</p>
+     */
     @Test
     public void sameHostRequestsAreSpacedOut() throws Exception {
         WebFetchPolicy.resetForTest();
         long original = WebFetchPolicy.MIN_INTERVAL_MS;
         WebFetchPolicy.MIN_INTERVAL_MS = 120;
+        WebFetchPolicy.setRobotsFetcherForTest(url -> "");
         try {
             String url = "https://example.com/a";
             long start = System.currentTimeMillis();
@@ -83,6 +90,37 @@ public class WebFetchPolicyTest {
             assertTrue("两次请求间隔不足，实际 " + elapsed + "ms", elapsed >= 90);
         } finally {
             WebFetchPolicy.MIN_INTERVAL_MS = original;
+            WebFetchPolicy.setRobotsFetcherForTest(null);
+            WebFetchPolicy.resetForTest();
+        }
+    }
+
+    /**
+     * robots 拦截要真的落在抓取闸门上（不只是解析函数的单测）。
+     *
+     * <p>桩返回一条 Disallow：{@code beforeFetch} 必须拒绝并说明是合规拦截；
+     * 同一份规则下放行路径不该被拦。全程不联网，所以不依赖测试 JVM 的 TLS/JCA 状态。</p>
+     */
+    @Test
+    public void robotsDisallowBlocksTheFetch() {
+        WebFetchPolicy.resetForTest();
+        WebFetchPolicy.setRobotsFetcherForTest(url -> "User-agent: *\nDisallow: /private\n");
+        try {
+            try {
+                WebFetchPolicy.beforeFetch("https://example.com/private/x");
+                org.junit.Assert.fail("robots 明确 Disallow 时 beforeFetch 必须拒绝");
+            } catch (Exception expected) {
+                assertTrue("错误文案要说明是 robots 合规拦截，不是网络错误: " + expected.getMessage(),
+                        expected.getMessage().contains("robots"));
+                assertTrue("错误文案要带上被拒路径: " + expected.getMessage(),
+                        expected.getMessage().contains("/private"));
+            }
+            WebFetchPolicy.beforeFetch("https://example.com/public/x");
+            WebFetchPolicy.afterFetch("https://example.com/public/x");
+        } catch (Exception e) {
+            org.junit.Assert.fail("放行路径不该抛异常: " + e);
+        } finally {
+            WebFetchPolicy.setRobotsFetcherForTest(null);
             WebFetchPolicy.resetForTest();
         }
     }

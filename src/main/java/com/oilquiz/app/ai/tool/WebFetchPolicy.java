@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.tool;
 
+import android.util.Log;
+
 import com.oilquiz.app.ai.util.NetworkUtil;
 
 import java.util.ArrayList;
@@ -30,6 +32,8 @@ import okhttp3.Response;
  * </ul>
  */
 final class WebFetchPolicy {
+
+    private static final String TAG = "WebFetchPolicy";
 
     private WebFetchPolicy() {
     }
@@ -126,11 +130,35 @@ final class WebFetchPolicy {
     /** 抓 robots.txt：失败一律当"无限制"，但成功解析到的 Disallow 会被严格执行。 */
     private static RobotsRules fetchRobots(String host) {
         RobotsRules rules = new RobotsRules();
-        String text = get("https://" + host + "/robots.txt");
-        if (text == null) text = get("http://" + host + "/robots.txt");
+        RobotsFetcher fetcher = robotsFetcher;
+        String text = fetcher.fetch("https://" + host + "/robots.txt");
+        if (text == null) text = fetcher.fetch("http://" + host + "/robots.txt");
         if (text == null) return rules;
         parseInto(text, rules);
         return rules;
+    }
+
+    /**
+     * robots.txt 的抓取通道（<b>可替换</b>）。
+     *
+     * <p>WHY：单测里"限速 / robots 拦截"这些规则不该真的去连公网 —— 既慢又不稳。
+     * 实测踩过的坑：同一测试 JVM 里只要先跑过任意一个 Robolectric 类，它会把 Conscrypt
+     * 装成第一 JCA provider（{@code AndroidTestEnvironment} 里 {@code Security.insertProviderAt(…, 1)}），
+     * 之后任何<b>真实 TLS</b> 连接都会在 JDK 21 的 {@code sun.security.ssl.NamedGroup}
+     * 初始化上炸（Conscrypt 的 EC 参数不支持二进制域 {@code ECFieldF2m}）。
+     * 有了这层接口，用例用桩返回规则文本，测判定逻辑而不是网络。</p>
+     */
+    interface RobotsFetcher {
+        /** 抓取给定 URL 的正文；失败返回 null（调用方按"无限制"处理）。 */
+        String fetch(String url);
+    }
+
+    /** 默认实现＝真实 HTTP；测试可替换（见 {@link #setRobotsFetcherForTest(RobotsFetcher)}）。 */
+    private static volatile RobotsFetcher robotsFetcher = WebFetchPolicy::get;
+
+    /** 仅供单测：替换抓取通道（传 null 恢复真实实现）。 */
+    static void setRobotsFetcherForTest(RobotsFetcher fetcher) {
+        robotsFetcher = fetcher != null ? fetcher : WebFetchPolicy::get;
     }
 
     private static String get(String url) {
@@ -144,7 +172,11 @@ final class WebFetchPolicy {
                 String body = response.body().string();
                 return body.length() > 512 * 1024 ? body.substring(0, 512 * 1024) : body;
             }
-        } catch (Exception e) {
+        } catch (Throwable t) {
+            // robots 是 best-effort：连 Error（类初始化失败/缺类，如测试环境 TLS provider 被顶掉）
+            // 也不该让整次抓取失败 —— 按"无限制"继续，留一条日志便于排查。
+            // 之前只 catch Exception，ExceptionInInitializerError 会一路穿到工具调用。
+            Log.w(TAG, "robots.txt 抓取失败，按无限制处理: " + url + " — " + t);
             return null;
         }
     }
@@ -237,9 +269,10 @@ final class WebFetchPolicy {
         }
     }
 
-    /** 测试用：清空缓存（避免用例之间互相污染）。 */
+    /** 测试用：清空缓存 + 恢复真实抓取通道（避免用例之间互相污染）。 */
     static void resetForTest() {
         HOSTS.clear();
         HOSTS_RULES.clear();
+        robotsFetcher = WebFetchPolicy::get;
     }
 }
