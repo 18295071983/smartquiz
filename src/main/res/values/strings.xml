@@ -898,4 +898,7 @@
     <!-- 卡片 url 是应用协议（weixin:/alipays:/market:…）时渲染的可点入口 -->
     <string name="card_html_open_scheme">打开应用链接</string>
 
+    <!-- 2026-11-16：工具卡状态符号无障碍描述 -->
+    <string name="chat_v2_tool_failed_desc">工具执行失败</string>
+    <string name="chat_v2_tool_running_desc">工具执行中</string>
 </resources>

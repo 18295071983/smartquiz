@@ -2089,10 +2089,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 time.setVisibility(View.GONE);
             }
         }
-        View ok = card.findViewById(R.id.chat_v2_tool_card_ok);
-        if (ok != null) ok.setVisibility(running == 0 && failed == 0 ? View.VISIBLE : View.GONE);
-        View chev = card.findViewById(R.id.chat_v2_tool_card_chev);
-        if (chev != null) chev.setRotation(expanded ? 90f : 0f);
+        bindToolCardState(ctx, card, running, failed, expanded);
 
         LinearLayout body = card.findViewById(R.id.chat_v2_tool_card_body);
         if (body != null) {
@@ -2507,12 +2504,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             timeView.setText(time != null ? time : "");
             timeView.setVisibility(time == null || time.isEmpty() ? View.GONE : View.VISIBLE);
         }
-        View ok = holder.toolCard.findViewById(R.id.chat_v2_tool_card_ok);
-        if (ok != null) {
-            ok.setVisibility(running == 0 && failed == 0 ? View.VISIBLE : View.GONE);
-        }
-        View chev = holder.toolCard.findViewById(R.id.chat_v2_tool_card_chev);
-        if (chev != null) chev.setRotation(toolExpanded ? 90f : 0f);
+        bindToolCardState(ctx, holder.toolCard, running, failed, toolExpanded);
 
         if (holder.toolCardBody != null) {
             String fp = toolCardFingerprint(toolItems, toolExpanded);
@@ -2542,6 +2534,41 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
+    /**
+     * 工具卡三种状态的统一绑定（2026-11-16）：
+     * <ul>
+     *   <li>进行中：标题走状态短语 + 一个脉冲点（UiFx.pulse），不显示对勾/错误；</li>
+     *   <li>失败：红色错误图标 + 标题红色（颜色由调用方设），不显示对勾；</li>
+     *   <li>全部成功：绿色对勾。</li>
+     * </ul>
+     * 同时把展开/收起状态写进 stateDescription（TalkBack 可读）。
+     */
+    private static void bindToolCardState(android.content.Context ctx, View card,
+                                          int running, int failed, boolean expanded) {
+        View ok = card.findViewById(R.id.chat_v2_tool_card_ok);
+        if (ok != null) ok.setVisibility(running == 0 && failed == 0 ? View.VISIBLE : View.GONE);
+        View err = card.findViewById(R.id.chat_v2_tool_card_err);
+        if (err != null) err.setVisibility(failed > 0 ? View.VISIBLE : View.GONE);
+        View pulse = card.findViewById(R.id.chat_v2_tool_card_pulse);
+        if (pulse != null) {
+            if (running > 0) {
+                pulse.setVisibility(View.VISIBLE);
+                com.oilquiz.app.ui.UiFx.pulse(pulse);
+            } else {
+                com.oilquiz.app.ui.UiFx.stopPulse(pulse);
+                pulse.setVisibility(View.GONE);
+            }
+        }
+        View chev = card.findViewById(R.id.chat_v2_tool_card_chev);
+        if (chev != null) chev.setRotation(expanded ? 90f : 0f);
+        View header = card.findViewById(R.id.chat_v2_tool_card_header);
+        if (header != null) {
+            androidx.core.view.ViewCompat.setStateDescription(header,
+                    running > 0 ? ctx.getString(R.string.chat_v2_tool_running_desc)
+                            : failed > 0 ? ctx.getString(R.string.chat_v2_tool_failed_desc)
+                            : ctx.getString(R.string.chat_v2_tool_ok_desc));
+        }
+    }
     /** 完成态后缀：非自然结束时把原因接到"已深度思考 X 秒"后面（达到输出上限/上下文已满/已手动停止） */
     private static String withStopReason(String base, ChatMessage message) {
         if (base == null) return null;

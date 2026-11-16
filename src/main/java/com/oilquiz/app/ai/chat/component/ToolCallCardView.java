@@ -4,6 +4,7 @@ import com.oilquiz.app.theme.Tokens;
 
 import android.content.Context;
 import android.text.TextUtils;
+import com.oilquiz.app.R;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -50,13 +51,18 @@ public class ToolCallCardView implements ChatComponent {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(context, 4), dp(context, 2), dp(context, 4), dp(context, 2));
+        row.setPadding(Tokens.spaceXs(context), Tokens.spaceHairline(context), Tokens.spaceXs(context), Tokens.spaceHairline(context));
 
-        TextView iconTv = new TextView(context);
-        iconTv.setText("🔧");
-        iconTv.setTextSize(Tokens.textSizeSp(iconTv.getContext(), Tokens.TEXT_FOOTNOTE));
-        iconTv.setPadding(0, 0, dp(context, 5), 0);
-        row.addView(iconTv);
+        // 2026-11-16：emoji 改矢量图标（emoji 跨 ROM 字形不一致、不能跟主题着色）
+        android.widget.ImageView iconIv = new android.widget.ImageView(context);
+        iconIv.setImageResource(R.drawable.ic_ai_tool);
+        androidx.core.widget.ImageViewCompat.setImageTintList(iconIv,
+                android.content.res.ColorStateList.valueOf(ComponentColors.accent(context)));
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(
+                Tokens.spaceLg(context), Tokens.spaceLg(context));
+        iconLp.rightMargin = Tokens.spaceXs(context);
+        iconIv.setLayoutParams(iconLp);
+        row.addView(iconIv);
 
         TextView nameTv = new TextView(context);
         // 工具名 → 展示别名（ToolMetaRegistry：表内中文名；表外轻度英文润色）。
@@ -67,6 +73,7 @@ public class ToolCallCardView implements ChatComponent {
         nameTv.setTextSize(Tokens.textSizeSp(nameTv.getContext(), Tokens.TEXT_FOOTNOTE));
         nameTv.setTextColor(ComponentColors.textSecondary(context));
         nameTv.setSingleLine(true);
+        nameTv.setMaxWidth(context.getResources().getDimensionPixelSize(R.dimen.size_140));
         nameTv.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         row.addView(nameTv, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -77,13 +84,13 @@ public class ToolCallCardView implements ChatComponent {
         int statusColor;
         switch (status) {
             case "success":
-                statusText = " ✅ " + summary;
+                statusText = TextUtils.isEmpty(summary) ? "完成" : summary;
                 statusColor = ComponentColors.success(context);
                 break;
             case "failed":
                 // 失败：把错误细节（stderr / 退出码 / 原始结果尾部）拼进摘要，
-                // 否则用户只看到"❌ 失败"，不知道哪行报错（2026-11-16）
-                statusText = " ❌ " + describeFailure(p, summary);
+                // 否则用户只看到"失败"，不知道哪行报错（2026-11-16）
+                statusText = describeFailure(p, summary);
                 statusColor = ComponentColors.error(context);
                 break;
             default:
@@ -91,7 +98,7 @@ public class ToolCallCardView implements ChatComponent {
                 // 没有该字段（旧数据/非 parts 路径）时退回"执行中"。
                 String runningHint = p.optString("statusText", "");
                 statusText = TextUtils.isEmpty(runningHint)
-                        ? " ⏳ 执行中" : " ⏳ " + runningHint;
+                        ? "执行中" : runningHint;
                 statusColor = ComponentColors.accent(context);
                 break;
         }
@@ -131,7 +138,7 @@ public class ToolCallCardView implements ChatComponent {
         String head = structured ? "失败" : (TextUtils.isEmpty(summary) ? "失败" : summary);
         if (!exit.isEmpty()) head = head + "（退出码 " + exit + "）";
         if (!TextUtils.isEmpty(detail)) {
-            detail = detail.replaceAll("\\\\s+", " ").trim();
+            detail = detail.replaceAll("\\s+", " ").trim();
             if (detail.length() > 120) detail = detail.substring(0, 120) + "...";
             head = head + "｜" + detail;
         }

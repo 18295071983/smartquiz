@@ -15,7 +15,8 @@
     <LinearLayout
         android:id="@+id/chat_v2_tool_card_header"
         android:layout_width="match_parent"
-        android:layout_height="@dimen/chat_v2_tool_height"
+        android:layout_height="wrap_content"
+                android:minHeight="@dimen/chat_v2_tool_height"
         android:background="@drawable/chat_v2_tool_line_bg"
         android:clickable="true"
         android:focusable="true"
@@ -40,7 +41,7 @@
             android:layout_marginStart="@dimen/chat_v2_line_gap"
             android:layout_weight="1"
             android:ellipsize="end"
-            android:singleLine="true"
+            android:maxLines="2"
             android:textColor="?attr/colorControlTextSecondary"
             android:textSize="@dimen/chat_v2_think_text"/>
 
@@ -51,6 +52,26 @@
             android:layout_marginStart="@dimen/space_6"
             android:textColor="?attr/colorControlTextHint"
             android:textSize="@dimen/chat_v2_status_text"/>
+
+        <!-- 2026-11-16：运行中给一个脉冲点（原来运行态只有文字变化，看不出“还在跑”） -->
+        <View
+            android:id="@+id/chat_v2_tool_card_pulse"
+            android:layout_width="@dimen/size_6"
+            android:layout_height="@dimen/size_6"
+            android:layout_marginStart="@dimen/space_6"
+            android:background="@drawable/chat_v2_dot_brand"
+            android:visibility="gone" />
+
+        <!-- 2026-11-16：失败态给错误图标（原来失败只把标题变红，没有状态符号） -->
+        <ImageView
+            android:id="@+id/chat_v2_tool_card_err"
+            android:layout_width="@dimen/size_13"
+            android:layout_height="@dimen/size_13"
+            android:layout_marginStart="@dimen/chat_v2_line_gap"
+            android:contentDescription="@string/chat_v2_tool_failed_desc"
+            android:src="@drawable/ic_error"
+            android:visibility="gone"
+            app:tint="?attr/colorDanger" />
 
         <ImageView
             android:id="@+id/chat_v2_tool_card_ok"
