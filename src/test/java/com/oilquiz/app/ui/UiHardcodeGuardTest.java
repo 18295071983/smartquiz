@@ -63,9 +63,16 @@ public class UiHardcodeGuardTest {
     /** Java 字面色：0xAARRGGBB 与 parseColor。 */
     private static final Pattern JAVA_HEX_COLOR = Pattern.compile("0x[Ff][Ff][0-9A-Fa-f]{6}");
     private static final Pattern JAVA_PARSE_COLOR = Pattern.compile("Color\\.parseColor");
+    /** 手写动画原语（应统一走 UiFx，见 {@link com.oilquiz.app.ui.UiFx}）。 */
+    private static final Pattern JAVA_RAW_ANIMATION = Pattern.compile(
+            "new (AlphaAnimation|TranslateAnimation|AnimationSet)\\(|ObjectAnimator\\.of|ValueAnimator\\.of");
+
     /** Java 字号/间距字面量。 */
     private static final Pattern JAVA_TEXT_SIZE_LITERAL = Pattern.compile("setTextSize\\(\\s*[0-9]");
     private static final Pattern JAVA_DP_LITERAL = Pattern.compile("dpToPx\\(\\s*[0-9]");
+
+    /** 手写动画的允许清单：SegmentScraper 是"刮刀滑入"的唯一实现（历史注释要求保持原形状），不算重复。 */
+    private static final String ALLOW_RAW_ANIM_FILE = "SegmentScraper.java";
 
     /** 清单解释：哪些文件允许 0xFF 兜底（只允许这一个，且必须有主题回退逻辑）。 */
     private static final String ALLOW_0XFF_FILE = "GuideStepFlowView.java";
@@ -148,6 +155,9 @@ public class UiHardcodeGuardTest {
             }
             collect(violations, path, "setTextSize 字面量", JAVA_TEXT_SIZE_LITERAL, src);
             collect(violations, path, "dpToPx 字面量", JAVA_DP_LITERAL, src);
+            if (!path.endsWith(ALLOW_RAW_ANIM_FILE)) {
+                collect(violations, path, "手写动画（应走 UiFx）", JAVA_RAW_ANIMATION, src);
+            }
         }
         assertTrue("对话页 Java 出现硬编码颜色/字号/间距（颜色走 ThemeColors/ComponentColors，"
                 + "字号走 Tokens.textSizeSp，间距走 dimen 令牌或 dimPx）：\n"

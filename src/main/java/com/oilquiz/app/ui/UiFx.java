@@ -2,6 +2,7 @@ package com.oilquiz.app.ui;
 
 import android.content.Context;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
 
@@ -231,6 +232,79 @@ public final class UiFx {
     /** 输入光标闪烁。 */
     public static void cursorBlink(View view) {
         play(view, R.anim.cursor_blink);
+    }
+
+    /**
+     * 通用"脉冲/呼吸"（语义化命名，等价 {@link #breathing}）。
+     *
+     * <p>2026-11-16 归一：生成中圆点、推理进度 emoji、连接状态点此前各自手写
+     * {@code ObjectAnimator}（550ms/0.25、1000ms/0.5、1100ms/0.3 三套参数），
+     * 现在统一走这里——同一套节奏、同一套停法（{@link #stopPulse} 会复位 alpha）。</p>
+     */
+    public static void pulse(View view) {
+        breathing(view);
+    }
+
+    /** 停止脉冲并复位 alpha（页面不可见/生成结束时调）。 */
+    public static void stopPulse(View view) {
+        stopBreathing(view);
+    }
+
+    /**
+     * 内容块错峰入场：给"一条消息里多个 part 卡"用（每个 part 一张卡时，
+     * 一起淡入会显得整条消息一起蹦出来）。淡入 + 上移 6dp，逐个延迟 {@code stepMs}（最多 6 档）。
+     */
+    public static void staggerIn(ViewGroup host, int stepMs, long durationMs) {
+        if (host == null) {
+            return;
+        }
+        if (!android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            return;
+        }
+        int count = host.getChildCount();
+        if (count <= 0) {
+            return;
+        }
+        float dy = Tokens.spaceSm(host.getContext());
+        int i = 0;
+        for (int c = 0; c < count; c++) {
+            View child = host.getChildAt(c);
+            if (child == null || child.getVisibility() != View.VISIBLE) {
+                continue;
+            }
+            child.setAlpha(0f);
+            child.setTranslationY(dy);
+            child.animate()
+                    .alpha(1f)
+                    .translationY(0f)
+                    .setStartDelay(Math.min(i, 6) * stepMs)
+                    .setDuration(durationMs)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                    .start();
+            i++;
+        }
+    }
+
+    /**
+     * 消息方向性入场：用户消息从右、AI/系统消息从左，8dp 位移 + 淡入，180ms。
+     *
+     * <p>2026-11-16 归一：{@code ChatAdapter} 里手写的 {@code AnimationSet
+     * (TranslateAnimation + AlphaAnimation)} 收到这里，参数与 demo motion 口径一致
+     * （短、轻、不抢阅读）；同时按"动画关闭"（开发者选项/省电）直接跳过。</p>
+     */
+    public static void slideInMessage(View view, boolean fromRight) {
+        if (view == null || !android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            return;
+        }
+        float offset = Tokens.spaceMd(view.getContext());
+        view.setTranslationX(fromRight ? offset : -offset);
+        view.setAlpha(0f);
+        view.animate()
+                .translationX(0f)
+                .alpha(1f)
+                .setDuration(180L)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                .start();
     }
 
     /**

@@ -31,7 +31,6 @@ import android.text.style.ForegroundColorSpan;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
 import android.animation.ValueAnimator;
 import android.widget.ImageView;
@@ -5507,28 +5506,12 @@ private int dpToPx(int dp, Context context) {
                     && holder.partsContainer != null
                     && holder.partsContainer.getChildCount() > 0
                     ? holder.partsContainer : host;
-            int count = revealHost.getChildCount();
-            if (count <= 0) return;
+            if (revealHost.getChildCount() <= 0) return;
             synchronized (revealedContentMessageIds) {
                 if (!revealedContentMessageIds.add(message.id)) return;
             }
-            if (!android.animation.ValueAnimator.areAnimatorsEnabled()) return;
-            int dp6 = dimPx(R.dimen.space_6, revealHost.getContext());
-            int i = 0;
-            for (int c = 0; c < count; c++) {
-                View child = revealHost.getChildAt(c);
-                if (child == null || child.getVisibility() != View.VISIBLE) continue;
-                child.setAlpha(0f);
-                child.setTranslationY(dp6);
-                child.animate()
-                        .alpha(1f)
-                        .translationY(0f)
-                        .setStartDelay(Math.min(i, 6) * 35L)
-                        .setDuration(220L)
-                        .setInterpolator(new android.view.animation.DecelerateInterpolator())
-                        .start();
-                i++;
-            }
+            // 2026-11-16 归一：错峰入场统一走 UiFx.staggerIn（淡入 + 上移 6dp，逐个延迟）
+            com.oilquiz.app.ui.UiFx.staggerIn(revealHost, 35, 220L);
         });
     }
 
@@ -5549,20 +5532,8 @@ private int dpToPx(int dp, Context context) {
         animatedMessageIds.add(message.id);
 
         boolean isUser = message.isUserMessage();
-        // 固定位移替代 getWidth()*0.15f：首帧未布局时 getWidth()==0。
-        // 2026-10-20 S4：30dp/200ms → 8dp/180ms（demo 的 motion 口径，短、轻、不抢阅读）。
-        int offsetPx = dimPx(R.dimen.space_8, viewToAnimate.getContext());
-        float fromX = isUser ? offsetPx : -offsetPx;
-        android.view.animation.AnimationSet set = new android.view.animation.AnimationSet(true);
-        android.view.animation.TranslateAnimation translate = new android.view.animation.TranslateAnimation(
-                fromX, 0f, 0f, 0f);
-        translate.setDuration(ANIMATION_DURATION);
-        translate.setInterpolator(new android.view.animation.DecelerateInterpolator());
-        AlphaAnimation alpha = new AlphaAnimation(0f, 1f);
-        alpha.setDuration(ANIMATION_DURATION);
-        set.addAnimation(translate);
-        set.addAnimation(alpha);
-        viewToAnimate.startAnimation(set);
+        // 2026-11-16 归一：方向性入场统一走 UiFx.slideInMessage（8dp/180ms，用户从右、AI/系统从左）
+        com.oilquiz.app.ui.UiFx.slideInMessage(viewToAnimate, isUser);
     }
 
     // ===================== Search & Filter =====================

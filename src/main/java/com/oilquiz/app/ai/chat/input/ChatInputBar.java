@@ -44,7 +44,6 @@ public class ChatInputBar extends LinearLayout {
     private android.widget.TextView genModel;
     private android.widget.TextView genSpeed;
     private android.widget.TextView genBalance;
-    private android.animation.ObjectAnimator genPulse;
 
     public ChatInputBar(Context context) {
         super(context);
@@ -112,21 +111,10 @@ public class ChatInputBar extends LinearLayout {
         }
         if (genDot != null) {
             if (show) {
-                if (genPulse == null) {
-                    // demo 的 .pulse：1.1s 一次呼吸；这里用 REVERSE 的 alpha 动画等价实现
-                    genPulse = android.animation.ObjectAnimator.ofFloat(genDot, "alpha", 1f, 0.25f);
-                    genPulse.setDuration(550);
-                    genPulse.setRepeatMode(android.animation.ValueAnimator.REVERSE);
-                    genPulse.setRepeatCount(android.animation.ValueAnimator.INFINITE);
-                    genPulse.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
-                }
-                if (!genPulse.isRunning()) genPulse.start();
+                // 2026-11-16 归一：生成中圆点呼吸统一走 UiFx（1.1s / alpha 1→0.3，tag 防重复）
+                com.oilquiz.app.ui.UiFx.pulse(genDot);
             } else {
-                if (genPulse != null) {
-                    genPulse.cancel();
-                    genPulse = null;
-                }
-                genDot.setAlpha(1f);
+                com.oilquiz.app.ui.UiFx.stopPulse(genDot);
             }
         }
     }

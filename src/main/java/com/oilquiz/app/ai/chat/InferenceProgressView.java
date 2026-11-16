@@ -1,12 +1,9 @@
 package com.oilquiz.app.ai.chat;
 
-import android.animation.ObjectAnimator;
-import android.animation.ValueAnimator;
 import android.content.Context;
 import android.util.AttributeSet;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.view.animation.LinearInterpolator;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -40,7 +37,6 @@ public class InferenceProgressView extends FrameLayout {
     private View contentContainer;
     
     private List<StepIndicator> stepIndicators = new ArrayList<>();
-    private ObjectAnimator pulseAnimator;
     
     private InferenceStateManager.InferenceState currentState = InferenceStateManager.InferenceState.IDLE;
     
@@ -221,24 +217,15 @@ public class InferenceProgressView extends FrameLayout {
      * 开始脉冲动画
      */
     private void startPulseAnimation() {
-        if (pulseAnimator != null && pulseAnimator.isRunning()) return;
-        
-        pulseAnimator = ObjectAnimator.ofFloat(tvPhaseEmoji, "alpha", 1f, 0.5f, 1f);
-        pulseAnimator.setDuration(1000);
-        pulseAnimator.setRepeatCount(ValueAnimator.INFINITE);
-        pulseAnimator.setInterpolator(new LinearInterpolator());
-        pulseAnimator.start();
+        // 2026-11-16 归一：emoji 脉冲统一走 UiFx（与状态点/生成点同一节奏），不再单独维护 ObjectAnimator
+        com.oilquiz.app.ui.UiFx.pulse(tvPhaseEmoji);
     }
     
     /**
      * 停止脉冲动画
      */
     private void stopPulseAnimation() {
-        if (pulseAnimator != null) {
-            pulseAnimator.cancel();
-            pulseAnimator = null;
-        }
-        tvPhaseEmoji.setAlpha(1f);
+        com.oilquiz.app.ui.UiFx.stopPulse(tvPhaseEmoji);
     }
     
     /**
