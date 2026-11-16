@@ -15,6 +15,7 @@ import org.json.JSONObject;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.theme.ThemeColors;
+import com.oilquiz.app.ai.chat.component.ComponentColors;
 import com.oilquiz.app.theme.Tokens;
 /**
  * 代码卡片组件：深色代码块 + 语言标签 + 一键复制。
@@ -85,8 +86,9 @@ public class CodeCardView implements ChatComponent {
         LinearLayout header = new LinearLayout(context);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(context, 10), dp(context, 6), dp(context, 6), dp(context, 6));
-        header.setBackgroundColor(ThemeColors.get(R.color.hc_ff1e293b));
+        header.setPadding(Tokens.spaceMd(context) + Tokens.spaceHairline(context), Tokens.spaceSm(context),
+                Tokens.spaceSm(context), Tokens.spaceSm(context));
+        header.setBackgroundColor(ComponentColors.background(context));
 
         String langLabel = TextUtils.isEmpty(language) ? "代码" : language.toUpperCase();
         if (!TextUtils.isEmpty(title)) {
@@ -97,6 +99,8 @@ public class CodeCardView implements ChatComponent {
          * 命令结果不再单独维护一套原生卡 —— 统一用 code_card，状态并入头部标签。
          */
         String status = p.optString("status", "");
+        final boolean statusFailed = "failed".equals(status) || "error".equals(status);
+        final boolean statusRunning = "running".equals(status);
         if (!TextUtils.isEmpty(status)) {
             langLabel += " · " + ("running".equals(status) ? "运行中"
                     : "failed".equals(status) ? "失败" : "完成");
@@ -104,15 +108,16 @@ public class CodeCardView implements ChatComponent {
         TextView langTv = new TextView(context);
         langTv.setText(langLabel);
         langTv.setTextSize(Tokens.textSizeSp(langTv.getContext(), Tokens.TEXT_MICRO));
-        langTv.setTextColor(ThemeColors.get(R.color.hc_ff94a3b8));
+        langTv.setTextColor(statusFailed ? ComponentColors.error(context) : (statusRunning ? ComponentColors.accent(context) : ComponentColors.textTertiary(context)));
         header.addView(langTv, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView copyBtn = new TextView(context);
         copyBtn.setText("复制");
         copyBtn.setTextSize(Tokens.textSizeSp(copyBtn.getContext(), Tokens.TEXT_CAPTION));
-        copyBtn.setTextColor(ThemeColors.get(R.color.hc_ff60a5fa));
-        copyBtn.setPadding(dp(context, 8), dp(context, 3), dp(context, 8), dp(context, 3));
+        copyBtn.setTextColor(ComponentColors.accent(context));
+        copyBtn.setPadding(Tokens.spaceMd(context), Tokens.spaceHairline(context),
+                Tokens.spaceMd(context), Tokens.spaceHairline(context));
         copyBtn.setBackground(copyButtonBackground(context));
         copyBtn.setGravity(Gravity.CENTER);
         copyBtn.setOnClickListener(v -> {
@@ -127,10 +132,11 @@ public class CodeCardView implements ChatComponent {
         TextView codeTv = new TextView(context);
         codeTv.setText(code);
         codeTv.setTextSize(Tokens.textSizeSp(codeTv.getContext(), Tokens.TEXT_FOOTNOTE));
-        codeTv.setTextColor(ThemeColors.get(R.color.hc_ffe2e8f0));
+        codeTv.setTextColor(ComponentColors.textPrimary(context));
         codeTv.setTypeface(android.graphics.Typeface.MONOSPACE);
         codeTv.setLineSpacing(0, 1.3f);
-        codeTv.setPadding(dp(context, 10), dp(context, 8), dp(context, 10), dp(context, 10));
+        codeTv.setPadding(Tokens.spaceMd(context) + Tokens.spaceHairline(context), Tokens.spaceMd(context),
+                Tokens.spaceMd(context) + Tokens.spaceHairline(context), Tokens.spaceMd(context) + Tokens.spaceHairline(context));
         codeTv.setTextIsSelectable(true);
         card.addView(codeTv, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -148,7 +154,7 @@ public class CodeCardView implements ChatComponent {
             TextView outHead = new TextView(context);
             outHead.setText(head.toString());
             outHead.setTextSize(Tokens.textSizeSp(outHead.getContext(), Tokens.TEXT_MICRO));
-            outHead.setTextColor(ThemeColors.get(R.color.hc_ff94a3b8));
+            outHead.setTextColor(ComponentColors.textTertiary(context));
             outHead.setPadding(dp(context, 10), dp(context, 6), dp(context, 10), dp(context, 2));
             card.addView(outHead);
 
@@ -157,8 +163,8 @@ public class CodeCardView implements ChatComponent {
             outTv.setText(shown);
             outTv.setTextSize(Tokens.textSizeSp(outTv.getContext(), Tokens.TEXT_CAPTION));
             outTv.setTextColor(stderr.isEmpty()
-                    ? ThemeColors.get(R.color.hc_ffe2e8f0)
-                    : ThemeColors.get(R.color.hc_ffe11d48));
+                    ? ComponentColors.textSecondary(context)
+                    : ComponentColors.error(context));
             outTv.setTypeface(android.graphics.Typeface.MONOSPACE);
             outTv.setPadding(dp(context, 10), 0, dp(context, 10), dp(context, 10));
             outTv.setTextIsSelectable(true);
@@ -171,16 +177,23 @@ public class CodeCardView implements ChatComponent {
 
     private static android.graphics.drawable.Drawable codeBackground(Context context) {
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(ThemeColors.get(R.color.hc_ff0f172a));
-        gd.setCornerRadius(dp(context, 10));
+        gd.setColor(ComponentColors.fieldBg(context));
+        gd.setCornerRadius(Tokens.radiusLg(context));
+        gd.setStroke(Math.max(1, Tokens.spaceHairline(context) / 2), ComponentColors.border(context));
         return gd;
     }
 
     private static android.graphics.drawable.Drawable copyButtonBackground(Context context) {
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(ThemeColors.get(R.color.hc_1a60a5fa));
-        gd.setCornerRadius(dp(context, 5));
+        gd.setColor(withAlpha(ComponentColors.accent(context), 0.14f));
+        gd.setCornerRadius(Tokens.radiusSm(context));
         return gd;
+    }
+
+    /** 给主题色叠透明度（复制按钮底色等）。 */
+    private static int withAlpha(int color, float alpha) {
+        int a = Math.max(0, Math.min(255, Math.round(alpha * 255f)));
+        return (color & 0x00FFFFFF) | (a << 24);
     }
 
     private static int dp(Context context, float value) {

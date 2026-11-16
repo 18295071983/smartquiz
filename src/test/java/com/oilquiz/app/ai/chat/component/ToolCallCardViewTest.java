@@ -2,6 +2,7 @@ package com.oilquiz.app.ai.chat.component;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
@@ -18,15 +19,11 @@ import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 
 /**
- * 工具卡（DSH 远程/组件路径 {@code tool_call}）的显示契约（2026-11-16 重设计）。
+ * 组件工具卡（DSH 远程 {@code tool_call}）的显示契约（2026-11-16 重设计）。
  *
- * <p>原实现用 emoji 当状态符号（🔧/✅/❌/⏳）：跨 ROM 字形不一致、不能跟主题着色，
- * 且失败摘要里的空白压缩正则写错（{@code "\\\\s+"}）导致不生效。重设计后钉住：</p>
- * <ul>
- *   <li>不再出现 emoji，状态用语义色文字表达；</li>
- *   <li>成功/失败/运行中分别用 success/error/accent 语义色；</li>
- *   <li>失败时带出退出码/错误细节，且空白被压缩成单空格。</li>
- * </ul>
+ * <p>重设计要点：两行结构（图标 + 工具名 + 状态标签 / 参数或结果摘要）；状态用语义色文字，
+ * 不再用 emoji（跨 ROM 字形不一致、不能跟主题着色）；长摘要可点击展开；
+ * 失败摘要带退出码/错误细节，且连续空白被压缩。</p>
  */
 @RunWith(RobolectricTestRunner.class)
 public class ToolCallCardViewTest {
@@ -41,80 +38,109 @@ public class ToolCallCardViewTest {
     }
 
     @Test
-    public void successShowsSummaryInSuccessColorWithoutEmoji() {
-        TextView status = statusOf(render("weather", "success", "{}", ""));
-        String text = status.getText().toString();
-        assertFalse("状态文本不应再出现 emoji", containsEmoji(text));
-        assertEquals("成功状态应为 success 语义色",
-                ComponentColors.success(ctx), status.getCurrentTextColor());
+    public void successShowsNameStatusAndSummary() {
+        View root = render("weather", "success", "", "晴 3.6°");
+        assertEquals("完成", textOf(root, "tool_status").getText().toString());
+        assertEquals("状态标签应为 success 语义色",
+                ComponentColors.success(ctx), textOf(root, "tool_status").getCurrentTextColor());
+        assertTrue("摘要应显示在第二行，实际=" + textOf(root, "tool_detail").getText(),
+                textOf(root, "tool_detail").getText().toString().contains("晴 3.6°"));
+        assertNoEmoji(root);
     }
 
     @Test
-    public void failedShowsExitCodeAndTrimmedDetailInErrorColor() {
-        JSONObject p = new JSONObject();
-        TextView status = statusOf(render("shell", "failed",
-                "{\"exit_code\":2,\"stderr\":\"line1\\n\\nline2   line3\"}", ""));
-        String text = status.getText().toString();
-        assertFalse("失败文本不应出现 emoji", containsEmoji(text));
-        assertTrue("失败摘要应包含退出码，实际=" + text, text.contains("2"));
-        assertTrue("失败摘要应包含错误细节，实际=" + text, text.contains("line1"));
-        assertFalse("错误细节里的连续空白应被压缩（正则 bug 回归）", text.contains("\n\n"));
-        assertEquals("失败状态应为 error 语义色",
-                ComponentColors.error(ctx), status.getCurrentTextColor());
+    public void failedShowsExitCodeAndTrimmedDetail() {
+        View root = render("shell", "failed",
+                "{\"exit_code\":2,\"stderr\":\"line1\\n\\nline2   line3\"}", "");
+        assertEquals("失败", textOf(root, "tool_status").getText().toString());
+        assertEquals("失败标签应为 error 语义色",
+                ComponentColors.error(ctx), textOf(root, "tool_status").getCurrentTextColor());
+        String detail = textOf(root, "tool_detail").getText().toString();
+        assertTrue("失败详情应包含退出码，实际=" + detail, detail.contains("2"));
+        assertTrue("失败详情应包含错误细节，实际=" + detail, detail.contains("line1"));
+        assertFalse("连续空白应被压缩（正则 bug 回归）", detail.contains("\n\n"));
+        assertNoEmoji(root);
     }
 
     @Test
-    public void runningUsesAccentColorAndHint() {
-        TextView status = statusOf(render("search", "running", "{}", "正在联网搜索"));
-        String text = status.getText().toString();
-        assertFalse("运行中文本不应出现 emoji", containsEmoji(text));
-        assertTrue("运行中应显示引擎给的 hint，实际=" + text, text.contains("正在联网搜索"));
-        assertEquals("运行中状态应为 accent 语义色",
-                ComponentColors.accent(ctx), status.getCurrentTextColor());
+    public void runningShowsHintInAccentColorAndArgsWhenNoHint() {
+        View root = render("search", "running", "{}", "");
+        assertEquals("运行中", textOf(root, "tool_status").getText().toString());
+        assertEquals("运行中标签应为 accent 语义色",
+                ComponentColors.accent(ctx), textOf(root, "tool_status").getCurrentTextColor());
+        assertNoEmoji(root);
+
+        // 没有 statusText 时，第二行退回参数摘要
+        View withArgs = renderWithArgs("search", "running", "{\"query\":\"成都天气\"}");
+        assertTrue("无 hint 时应显示参数摘要，实际=" + textOf(withArgs, "tool_detail").getText(),
+                textOf(withArgs, "tool_detail").getText().toString().contains("query=成都天气"));
     }
 
     // ---------------- 工具 ----------------
 
-    private View render(String toolName, String status, String result, String statusText) {
+    private View render(String toolName, String status, String result, String summary) {
         JSONObject props = new JSONObject();
         try {
             props.put("toolName", toolName);
             props.put("status", status);
             props.put("result", result);
-            if (!statusText.isEmpty()) {
-                props.put("statusText", statusText);
+            if (!summary.isEmpty()) {
+                props.put("summary", summary);
             }
         } catch (Exception ignored) {
         }
-        ComponentData data = ComponentData.of("tool_call", props);
-        return view.createView(ctx, data);
+        return view.createView(ctx, ComponentData.of("tool_call", props));
     }
 
-    /** 结构：横向行，最后一个带权重的 TextView 是状态文本。 */
-    private TextView statusOf(View root) {
-        assertTrue("工具卡根应是 ViewGroup", root instanceof ViewGroup);
-        ViewGroup row = (ViewGroup) root;
-        TextView last = null;
-        for (int i = 0; i < row.getChildCount(); i++) {
-            View child = row.getChildAt(i);
-            if (child instanceof TextView && child.getId() == View.NO_ID) {
-                last = (TextView) child;
-            }
+    private View renderWithArgs(String toolName, String status, String args) {
+        JSONObject props = new JSONObject();
+        try {
+            props.put("toolName", toolName);
+            props.put("status", status);
+            props.put("args", args);
+        } catch (Exception ignored) {
         }
-        assertTrue("应存在状态文本 TextView", last != null);
-        return last;
+        return view.createView(ctx, ComponentData.of("tool_call", props));
     }
 
-    private static boolean containsEmoji(String text) {
-        if (text == null) {
-            return false;
+    private TextView textOf(View root, String tag) {
+        TextView tv = find(root, tag);
+        assertNotNull("应存在 tag=" + tag + " 的 TextView", tv);
+        return tv;
+    }
+
+    private TextView find(View v, String tag) {
+        if (v instanceof TextView && tag.equals(v.getTag())) {
+            return (TextView) v;
         }
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (c >= 0x2600 && c <= 0x27BF) {
-                return true;
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                TextView found = find(g.getChildAt(i), tag);
+                if (found != null) return found;
             }
         }
-        return text.contains("🔧") || text.contains("✅") || text.contains("❌") || text.contains("⏳");
+        return null;
+    }
+
+    private void assertNoEmoji(View root) {
+        String all = collectText(root);
+        assertFalse("工具卡不应再出现 emoji，实际=" + all,
+                all.contains("🔧") || all.contains("✅") || all.contains("❌") || all.contains("⏳"));
+    }
+
+    private String collectText(View v) {
+        StringBuilder sb = new StringBuilder();
+        if (v instanceof TextView) {
+            CharSequence t = ((TextView) v).getText();
+            if (t != null) sb.append(t).append(' ');
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                sb.append(collectText(g.getChildAt(i)));
+            }
+        }
+        return sb.toString();
     }
 }
