@@ -162,8 +162,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="退出登录"
-        app:backgroundTint="@color/error"
-        android:textColor="@android:color/white"
+        app:backgroundTint="?attr/colorDanger"
+        android:textColor="?attr/colorOnDanger"
         app:cornerRadius="@dimen/radius_12"
         android:textAllCaps="false" />
 

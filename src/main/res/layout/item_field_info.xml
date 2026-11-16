@@ -26,8 +26,8 @@
             android:layout_width="wrap_content"
             android:layout_height="@dimen/size_32"
             android:text="删除"
-            app:backgroundTint="@color/error"
-            android:textColor="@android:color/white"
+            app:backgroundTint="?attr/colorDanger"
+            android:textColor="?attr/colorOnDanger"
             app:cornerRadius="@dimen/radius_8"
             android:textAllCaps="false"
             xmlns:app="http://schemas.android.com/apk/res-auto"/>

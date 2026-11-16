@@ -27,8 +27,8 @@
             android:layout_weight="1"
             android:text="批量删除"
             android:layout_marginEnd="@dimen/space_8"
-            app:backgroundTint="@color/error"
-            android:textColor="@android:color/white"
+            app:backgroundTint="?attr/colorDanger"
+            android:textColor="?attr/colorOnDanger"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>
 

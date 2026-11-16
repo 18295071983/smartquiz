@@ -81,7 +81,7 @@
             android:layout_height="wrap_content"
             android:text="HTTP下载"
             android:backgroundTint="?attr/colorPrimary"
-            android:textColor="@android:color/white"
+            android:textColor="?attr/colorOnPrimary"
             android:layout_marginTop="@dimen/space_16"/>
     </LinearLayout>
 
@@ -137,7 +137,7 @@
             android:layout_height="wrap_content"
             android:text="Git拉取"
             android:backgroundTint="?attr/colorPrimary"
-            android:textColor="@android:color/white"
+            android:textColor="?attr/colorOnPrimary"
             android:layout_marginTop="@dimen/space_16"/>
     </LinearLayout>
 

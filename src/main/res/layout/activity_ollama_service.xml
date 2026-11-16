@@ -113,7 +113,7 @@
             android:textSize="@dimen/text_16"
             android:padding="@dimen/space_16"
             android:background="@drawable/rounded_corners_blue"
-            android:textColor="@android:color/white"
+            android:textColor="?attr/colorOnPrimaryContainer"
             android:layout_marginBottom="@dimen/space_12"
             android:elevation="@dimen/elev_3"
             android:translationZ="3dp" />
@@ -152,7 +152,7 @@
             android:textSize="@dimen/text_16"
             android:padding="@dimen/space_16"
             android:background="@drawable/rounded_corners_teal"
-            android:textColor="@android:color/white"
+            android:textColor="?attr/colorOnPrimary"
             android:layout_marginBottom="@dimen/space_12"
             android:elevation="@dimen/elev_3"
             android:translationZ="3dp" />
@@ -241,7 +241,7 @@
             android:textSize="@dimen/text_16"
             android:padding="@dimen/space_16"
             android:background="@drawable/rounded_corners_teal"
-            android:textColor="@android:color/white"
+            android:textColor="?attr/colorOnPrimary"
             android:elevation="@dimen/elev_3"
             android:translationZ="3dp" />
     </LinearLayout>

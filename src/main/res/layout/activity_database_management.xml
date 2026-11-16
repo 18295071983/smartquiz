@@ -254,8 +254,8 @@
                             android:layout_width="wrap_content"
                             android:layout_height="@dimen/size_40"
                             android:text="重置"
-                            app:backgroundTint="@color/error"
-                            android:textColor="@android:color/white"
+                            app:backgroundTint="?attr/colorDanger"
+                            android:textColor="?attr/colorOnDanger"
                             android:layout_marginEnd="@dimen/space_8"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
@@ -264,8 +264,8 @@
                             android:layout_width="wrap_content"
                             android:layout_height="@dimen/size_40"
                             android:text="清除备份"
-                            app:backgroundTint="@color/error"
-                            android:textColor="@android:color/white"
+                            app:backgroundTint="?attr/colorDanger"
+                            android:textColor="?attr/colorOnDanger"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
                     </LinearLayout>

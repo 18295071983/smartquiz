@@ -13,7 +13,7 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:text="题型"
-        android:textColor="@android:color/white"
+        android:textColor="?attr/colorOnPrimary"
         android:textStyle="bold" />
 
     <TextView
@@ -22,7 +22,7 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:text="难度"
-        android:textColor="@android:color/white"
+        android:textColor="?attr/colorOnPrimary"
         android:textStyle="bold" />
 
     <TextView
@@ -31,7 +31,7 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:text="分类"
-        android:textColor="@android:color/white"
+        android:textColor="?attr/colorOnPrimary"
         android:textStyle="bold" />
 
 </LinearLayout>

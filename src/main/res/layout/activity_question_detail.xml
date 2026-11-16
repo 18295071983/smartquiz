@@ -157,8 +157,8 @@
                 android:layout_height="@dimen/size_48"
                 android:layout_weight="1"
                 android:text="删除"
-                app:backgroundTint="@color/error"
-                android:textColor="@android:color/white"
+                app:backgroundTint="?attr/colorDanger"
+                android:textColor="?attr/colorOnDanger"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
         </LinearLayout>

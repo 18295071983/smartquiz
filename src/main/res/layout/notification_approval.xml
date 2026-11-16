@@ -37,8 +37,8 @@
         android:layout_width="64dp"
         android:layout_height="34dp"
         android:gravity="center"
-        android:background="#FF1A73E8"
-        android:textColor="#FFFFFFFF"
+        android:background="@color/notification_accent"
+        android:textColor="@color/notification_on_accent"
         android:textStyle="bold"
         android:textSize="13sp"
         android:text="允许" />
@@ -49,8 +49,8 @@
         android:layout_height="34dp"
         android:layout_marginLeft="6dp"
         android:gravity="center"
-        android:background="#FFE8EAED"
-        android:textColor="#FF3C4043"
+        android:background="@color/notification_panel"
+        android:textColor="@color/notification_text"
         android:textSize="13sp"
         android:text="拒绝" />
 </LinearLayout>

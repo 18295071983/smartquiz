@@ -12,7 +12,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:background="@color/purple_700"
+        android:background="?attr/colorPrimary"
         android:padding="@dimen/space_16">
 
         <com.google.android.material.button.MaterialButton
@@ -20,7 +20,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="返回"
-            android:textColor="@android:color/white"
+            android:textColor="?attr/colorOnPrimary"
             android:background="@android:color/transparent"
             app:backgroundTint="@android:color/transparent"/>
 
@@ -31,7 +31,7 @@
             android:text="PDF编辑器"
             android:textSize="@dimen/text_18"
             android:textStyle="bold"
-            android:textColor="@android:color/white"
+            android:textColor="?attr/colorOnPrimary"
             android:gravity="center"/>
 
         <com.google.android.material.button.MaterialButton
@@ -39,7 +39,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="保存"
-            android:textColor="@android:color/white"
+            android:textColor="?attr/colorOnPrimary"
             android:background="@android:color/transparent"
             app:backgroundTint="@android:color/transparent"/>
     </LinearLayout>
@@ -108,8 +108,8 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="添加文本注释"
-                app:backgroundTint="@color/teal_600"
-                android:textColor="@android:color/white"
+                app:backgroundTint="?attr/colorPrimary"
+                android:textColor="?attr/colorOnPrimary"
                 android:layout_marginEnd="@dimen/space_8"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
@@ -120,8 +120,8 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="手绘注释"
-                app:backgroundTint="@color/teal_600"
-                android:textColor="@android:color/white"
+                app:backgroundTint="?attr/colorPrimary"
+                android:textColor="?attr/colorOnPrimary"
                 android:layout_marginStart="@dimen/space_8"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
@@ -132,8 +132,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="编辑文本"
-            app:backgroundTint="@color/teal_600"
-            android:textColor="@android:color/white"
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>
             android:layout_marginTop="@dimen/space_16"/>

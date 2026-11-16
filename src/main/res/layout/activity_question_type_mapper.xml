@@ -108,7 +108,7 @@
             android:layout_weight="1"
             android:text="取消"
             android:backgroundTint="?attr/colorSecondary"
-            android:textColor="@android:color/white"
+            android:textColor="?attr/colorOnSecondary"
             android:layout_marginEnd="@dimen/space_8"/>
         <Button
             android:id="@+id/btn_confirm"
@@ -117,7 +117,7 @@
             android:layout_weight="1"
             android:text="确认"
             android:backgroundTint="?attr/colorPrimary"
-            android:textColor="@android:color/white"/>
+            android:textColor="?attr/colorOnPrimary"/>
     </LinearLayout>
 
 </LinearLayout>

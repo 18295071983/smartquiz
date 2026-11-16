@@ -106,8 +106,8 @@
                 android:layout_weight="1"
                 android:text="拆分选项"
                 android:layout_marginEnd="@dimen/space_4"
-                app:backgroundTint="@color/orange_material"
-                android:textColor="@android:color/white"
+                app:backgroundTint="?attr/colorWarning"
+                android:textColor="?attr/colorOnWarning"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
 
