@@ -18,7 +18,7 @@
         android:layout_height="@dimen/size_48"
         android:gravity="center"
         android:textSize="@dimen/text_40"
-        android:textColor="@color/weather_banner_text" />
+        android:textColor="?attr/homeTextPrimary" />
 
     <LinearLayout
         android:layout_width="@dimen/size_0"
@@ -42,7 +42,7 @@
                 android:lineSpacingExtra="1dp"
                 android:ellipsize="end"
                 android:text="定位中..."
-                android:textColor="@color/weather_banner_text"
+                android:textColor="?attr/homeTextPrimary"
                 android:textSize="@dimen/text_14"
                 android:textStyle="bold" />
 
@@ -52,7 +52,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="@dimen/space_8"
                 android:text="--°"
-                android:textColor="@color/weather_banner_text"
+                android:textColor="?attr/homeTextPrimary"
                 android:textSize="@dimen/text_22"
                 android:textStyle="bold" />
         </LinearLayout>
@@ -64,7 +64,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_3"
             android:text="加载中..."
-            android:textColor="@color/weather_banner_text_secondary"
+            android:textColor="?attr/homeTextSecondary"
             android:textSize="@dimen/text_12"
             android:maxLines="1"
             android:ellipsize="end" />
@@ -76,7 +76,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_4"
             android:text="加载中..."
-            android:textColor="@color/weather_banner_text_secondary"
+            android:textColor="?attr/homeTextSecondary"
             android:textSize="@dimen/text_11"
             android:singleLine="true"
             android:ellipsize="marquee"
@@ -91,7 +91,7 @@
         android:layout_width="@dimen/size_24"
         android:layout_height="@dimen/size_24"
         android:src="@drawable/ic_location"
-        android:tint="@color/weather_banner_text_secondary"
+        android:tint="?attr/homeTextSecondary"
         android:contentDescription="获取定位"
         android:padding="@dimen/space_3"
         android:layout_marginStart="@dimen/space_8"
@@ -102,6 +102,6 @@
         android:layout_width="@dimen/size_20"
         android:layout_height="@dimen/size_20"
         android:src="@drawable/ic_chevron_right"
-        android:tint="@color/weather_banner_text_secondary"
+        android:tint="?attr/homeTextSecondary"
         android:layout_marginStart="@dimen/space_8" />
 </LinearLayout>

@@ -29,7 +29,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/app_name"
-                android:textColor="@color/white_alpha_80"
+                android:textColor="?attr/homeTextSecondary"
                 android:textSize="@dimen/text_13"
                 android:alpha="0.9" />
 
@@ -138,7 +138,7 @@
                 android:id="@+id/weather_banner"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@drawable/weather_banner_background"
+                android:background="?attr/homeCardBackground"
                 app:autoLoad="true"
                 app:defaultCity="银川" />
 
@@ -327,7 +327,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/space_3"
                         android:text="@string/start_learning_today"
-                        android:textColor="@color/indigo_pale"
+                        android:textColor="?attr/homeTextTertiary"
                         android:textSize="@dimen/text_12" />
 
                 </LinearLayout>
@@ -417,7 +417,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/space_3"
                         android:text="@string/browser_entry_desc"
-                        android:textColor="@color/indigo_pale"
+                        android:textColor="?attr/homeTextTertiary"
                         android:textSize="@dimen/text_12" />
 
                 </LinearLayout>
