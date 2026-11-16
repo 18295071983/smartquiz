@@ -25,6 +25,9 @@
         <item name="colorSecondaryContainer">@color/secondary_container</item>
         <item name="colorOnSecondaryContainer">@color/on_secondary_container</item>
         <item name="colorTertiary">@color/tertiary</item>
+        <!-- 2026-11-16：基础主题补 colorOnTertiary（之前只有 theme_overlays 里有，
+             未注入 overlay 时 ?attr/colorOnTertiary 会解析不到 → 文字透明） -->
+        <item name="colorOnTertiary">@color/on_tertiary</item>
         <item name="colorTertiaryContainer">@color/tertiary_container</item>
         <item name="colorOnTertiaryContainer">@color/on_tertiary_container</item>
         <item name="colorSurfaceVariant">@color/surface_variant</item>

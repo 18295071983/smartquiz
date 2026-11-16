@@ -108,6 +108,29 @@ public class UiHardcodeGuardTest {
     }
 
     @Test
+    public void chatLayoutsUseDimenTokensForSizes() throws IOException {
+        List<String> violations = new ArrayList<>();
+        java.util.regex.Pattern dimLiteral = java.util.regex.Pattern.compile(
+                "android:([a-zA-Z_]+)=\"([0-9.]+)(dp|sp|dip)\"");
+        List<String> files = new ArrayList<>(CHAT_LAYOUTS);
+        for (Path p : listFiles("src/main/res/drawable", "chat_v2_.*\\.xml")) {
+            files.add(p.toString());
+        }
+        for (String path : files) {
+            Matcher m = dimLiteral.matcher(stripXmlComments(read(path)));
+            while (m.find()) {
+                double value = Double.parseDouble(m.group(2));
+                // 结构性 0dp（layout_width=0 / edge-to-edge inset=0）放行；其余必须走 dimen 令牌
+                if (value != 0d) {
+                    violations.add(path + " → " + m.group(1) + "=" + m.group(2) + m.group(3));
+                }
+            }
+        }
+        assertTrue("对话页布局出现写死的 dp/sp（应改用 @dimen/space_*|size_*|font_* 令牌）：\n"
+                + String.join("\n", violations), violations.isEmpty());
+    }
+
+    @Test
     public void chatJavaHasNoHardcodedColorSizeOrSpacing() throws IOException {
         List<String> violations = new ArrayList<>();
         List<String> javaFiles = new ArrayList<>();
