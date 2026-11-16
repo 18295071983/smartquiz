@@ -39,7 +39,7 @@ public class AgentStatsView {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(context);
-        title.setText("Agent 统计");
+        title.setText("📊 Agent 统计");
         title.setTextSize(16);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setTextColor(color(R.color.text_primary));
@@ -104,7 +104,7 @@ public class AgentStatsView {
             List<OnlineToolUsageTracker.ToolPattern> patterns = tracker.discoverPatterns();
             if (!patterns.isEmpty()) {
                 TextView patternTitle = new TextView(context);
-                patternTitle.setText("已学习的工具组合");
+                patternTitle.setText("🤖 已学习的工具组合");
                 patternTitle.setTextSize(14);
                 patternTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
                 patternTitle.setTextColor(color(R.color.text_primary));

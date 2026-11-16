@@ -181,7 +181,7 @@ public final class McpMarketInstaller {
         if ((entry.auth == McpMarketEntry.Auth.OAUTH
                 || entry.auth == McpMarketEntry.Auth.MIXED)
                 && entry.capability.isConnectable()) {
-            tips.add("这条服务走浏览器授权：测试连接被 401 挡下后点「去授权」，"
+            tips.add("这条服务走浏览器授权：测试连接被 401 挡下后点「🔐 去授权」，"
                     + "在浏览器里登录同意即可，之后令牌自动续期");
         }
         if (url.startsWith("http://")) {
@@ -291,7 +291,7 @@ public final class McpMarketInstaller {
             hints.add("鉴权没过：确认密钥已存进密钥库并在管理页引用，或把 URL 里的 key= 换成真实 Key");
             if (entry.auth == McpMarketEntry.Auth.OAUTH
                     || entry.auth == McpMarketEntry.Auth.MIXED) {
-                hints.add("这条服务还能走浏览器授权：点「去授权」登录同意即可，不用手填密钥");
+                hints.add("这条服务还能走浏览器授权：点「🔐 去授权」登录同意即可，不用手填密钥");
             }
         }
         if (err.contains("404") || err.contains("not found")) {

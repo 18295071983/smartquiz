@@ -51,9 +51,9 @@ public class McpAuthRequiredException extends Exception {
         McpOAuthEndpoints.Challenge challenge = McpOAuthEndpoints.parseChallenge(code, wwwAuthenticate);
         if (challenge.hasResourceMetadata()) {
             return new McpAuthRequiredException(challenge,
-                    "需要浏览器授权（HTTP 401）：" + masked + " —— 服务商给了授权文档地址，点「授权」走一次");
+                    "需要浏览器授权（HTTP 401）：" + masked + " —— 服务商给了授权文档地址，点「🔐 授权」走一次");
         }
         return new McpAuthRequiredException(challenge,
-                "鉴权被拒（HTTP 401）：" + masked + " —— 先确认密钥引用；若该服务要求浏览器授权，用「授权」");
+                "鉴权被拒（HTTP 401）：" + masked + " —— 先确认密钥引用；若该服务要求浏览器授权，用「🔐 授权」");
     }
 }

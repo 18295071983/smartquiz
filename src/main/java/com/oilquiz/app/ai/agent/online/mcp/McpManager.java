@@ -264,7 +264,7 @@ public class McpManager {
                 client.initialize();
                 tools = client.listTools();
             } catch (McpAuthRequiredException auth) {
-                // 401 分两种：令牌只是过期（能静续就静续），和从没授权过（要用户去点「授权」）
+                // 401 分两种：令牌只是过期（能静续就静续），和从没授权过（要用户去点「🔐 授权」）
                 if (!recoverFromAuthRequired(cfg.id, cfg, auth)) return;
                 client = obtainClient(cfg);   // 令牌已更新，重建连接再试一次
                 client.initialize();
@@ -934,7 +934,7 @@ public class McpManager {
             String message = e.getMessage() != null ? e.getMessage() : e.toString();
             if (message.contains("HTTP 401") || message.contains("HTTP 403")) {
                 message += "（鉴权失败：到 MCP 管理页检查该服务的 🔑 令牌引用，"
-                        + "或点「授权」完成浏览器登录）";
+                        + "或点「🔐 授权」完成浏览器登录）";
             } else if (message.contains("HTTP 404")) {
                 message += "（端点不存在：检查 URL 与传输类型是否匹配）";
             }
@@ -949,7 +949,7 @@ public class McpManager {
      * 只说"鉴权失败"会让模型回头又叫一次工具、或让用户去翻密钥框，而真正该做的是点授权。</p>
      */
     private String authToolMessage(String serverId, McpAuthRequiredException auth) {
-        return "该 MCP 服务需要先在「MCP 管理」页点「授权」完成浏览器授权，才能调用它的工具。"
+        return "该 MCP 服务需要先在「MCP 管理」页点「🔐 授权」完成浏览器授权，才能调用它的工具。"
                 + "原始信息：" + (auth.getMessage() == null ? "HTTP 401" : auth.getMessage());
     }
 
@@ -1802,7 +1802,7 @@ public class McpManager {
         return record.describe(System.currentTimeMillis());
     }
 
-    /** 是否已有 access_token（决定按钮写「授权」还是「重新授权」）。 */
+    /** 是否已有 access_token（决定按钮写「🔐 授权」还是「🔁 重新授权」）。 */
     public boolean hasAuthorization(String serverId) {
         McpOAuthRecord record = tokenStore.get(serverId);
         return record != null && record.hasAccessToken();
@@ -1968,7 +1968,7 @@ public class McpManager {
     /** {@link #probe} 的结果。 */
     public static final class ProbeResult {
         public final boolean ok;
-        /** 服务商明确要授权（401 + WWW-Authenticate）：UI 该给「授权」而不是让用户找密钥 */
+        /** 服务商明确要授权（401 + WWW-Authenticate）：UI 该给「🔐 授权」而不是让用户找密钥 */
         public final boolean authRequired;
         public final int toolCount;
         public final List<String> toolNames;

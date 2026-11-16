@@ -77,7 +77,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
-                    android:text=""
+                    android:text="⚡"
                     android:textSize="22sp" />
             </FrameLayout>
 
@@ -144,7 +144,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="选择要下载的模型"
+                    android:text="🎯 选择要下载的模型"
                     android:textSize="15sp"
                     android:textColor="@color/hc_ffffffff"
                     android:textStyle="bold" />
@@ -201,7 +201,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="下载完成 · 选择要启用的模型"
+                    android:text="✅ 下载完成 · 选择要启用的模型"
                     android:textSize="15sp"
                     android:textColor="@color/hc_ffffffff"
                     android:textStyle="bold" />
@@ -249,7 +249,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="完成"
+                    android:text="✅"
                     android:textSize="52sp" />
 
                 <TextView

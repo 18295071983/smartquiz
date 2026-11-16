@@ -57,7 +57,7 @@ public class AgentToolView {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(context);
-        title.setText("动态工具 \u0026 组件注册");
+        title.setText("🔧 动态工具 & 组件注册");
         title.setTextSize(16);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setTextColor(color(R.color.text_primary));

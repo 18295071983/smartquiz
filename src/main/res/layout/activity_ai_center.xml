@@ -35,7 +35,7 @@
                 <TextView
                     android:layout_width="@dimen/size_32"
                     android:layout_height="@dimen/size_32"
-                    android:text="在线"
+                    android:text="☁️"
                     android:textSize="@dimen/text_24"
                     android:gravity="center"/>
                 <LinearLayout
@@ -99,7 +99,7 @@
                     <TextView
                         android:layout_width="@dimen/size_32"
                         android:layout_height="@dimen/size_32"
-                        android:text="AI"
+                        android:text="🧠"
                         android:textSize="@dimen/text_24"
                         android:gravity="center"/>
                     <TextView
@@ -152,7 +152,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:layout_marginEnd="@dimen/space_4"
-                        android:text="切换模型"
+                        android:text="🔀 切换模型"
                         android:textSize="@dimen/text_12"
                         app:cornerRadius="@dimen/radius_8"/>
 
@@ -163,7 +163,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:layout_marginStart="@dimen/space_4"
-                        android:text="下载"
+                        android:text="⬇️ 下载"
                         android:textSize="@dimen/text_12"
                         app:cornerRadius="@dimen/radius_8"/>
                 </LinearLayout>
@@ -181,7 +181,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:layout_marginEnd="@dimen/space_4"
-                        android:text="管理本地文件"
+                        android:text="📁 管理本地文件"
                         android:textSize="@dimen/text_12"
                         app:cornerRadius="@dimen/radius_8"/>
 
@@ -193,7 +193,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:layout_marginStart="@dimen/space_4"
-                        android:text="参数"
+                        android:text="🎛️ 参数"
                         android:textSize="@dimen/text_12"
                         app:cornerRadius="@dimen/radius_8"/>
                 </LinearLayout>
@@ -224,7 +224,7 @@
                         android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="本次会话 Token 消耗"
+                        android:text="📊 本次会话 Token 消耗"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="?attr/colorControlText"/>
@@ -361,7 +361,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="AI 功能"
+                    android:text="🤖 AI功能"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
                     android:textColor="?attr/colorControlText"
@@ -380,7 +380,7 @@
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
                         android:layout_margin="@dimen/space_4"
-                        android:text="题目生成"
+                        android:text="📝\n题目生成"
                         android:textSize="@dimen/text_11"
                         android:minLines="2"
                         app:cornerRadius="@dimen/radius_12"/>
@@ -392,7 +392,7 @@
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
                         android:layout_margin="@dimen/space_4"
-                        android:text="题目分析"
+                        android:text="🔍\n题目分析"
                         android:textSize="@dimen/text_11"
                         android:minLines="2"
                         app:cornerRadius="@dimen/radius_12"/>
@@ -404,7 +404,7 @@
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
                         android:layout_margin="@dimen/space_4"
-                        android:text="学习助手"
+                        android:text="👤\n学习助手"
                         android:textSize="@dimen/text_11"
                         android:minLines="2"
                         app:cornerRadius="@dimen/radius_12"/>
@@ -416,7 +416,7 @@
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
                         android:layout_margin="@dimen/space_4"
-                        android:text="翻译工具"
+                        android:text="🌐\n翻译工具"
                         android:textSize="@dimen/text_11"
                         android:minLines="2"
                         app:cornerRadius="@dimen/radius_12"/>
@@ -428,7 +428,7 @@
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
                         android:layout_margin="@dimen/space_4"
-                        android:text="AI 聊天"
+                        android:text="💬\nAI聊天"
                         android:textSize="@dimen/text_11"
                         android:minLines="2"
                         app:cornerRadius="@dimen/radius_12"/>
@@ -440,7 +440,7 @@
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
                         android:layout_margin="@dimen/space_4"
-                        android:text="图标演示"
+                        android:text="🎨\n图标演示"
                         android:textSize="@dimen/text_11"
                         android:minLines="2"
                         app:cornerRadius="@dimen/radius_12"/>
@@ -452,7 +452,7 @@
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
                         android:layout_margin="@dimen/space_4"
-                        android:text="AI 生图"
+                        android:text="🖼️\nAI生图"
                         android:textSize="@dimen/text_11"
                         android:minLines="2"
                         app:cornerRadius="@dimen/radius_12"/>
@@ -464,7 +464,7 @@
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
                         android:layout_margin="@dimen/space_4"
-                        android:text="AI 生视频"
+                        android:text="🎬\nAI生视频"
                         android:textSize="@dimen/text_11"
                         android:minLines="2"
                         app:cornerRadius="@dimen/radius_12"/>

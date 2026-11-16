@@ -618,7 +618,7 @@ public class ServiceStatusManager {
             ChatMessage msg = chatHistory.get(i);
             if (msg.type == ChatMessage.MessageType.SYSTEM &&
                 msg.content != null &&
-                msg.content.contains("正在重新加载模型")) {
+                msg.content.contains("\uD83D\uDD04 正在重新加载模型")) {
                 String newContent = msg.content.replaceAll("\\[\\d+%\\]", "[" + progress + "%]");
                 if (!newContent.contains("[")) {
                     newContent = msg.content + " [" + progress + "%]";

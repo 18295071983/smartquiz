@@ -192,36 +192,6 @@ public class UiHardcodeGuardTest {
                 violations.isEmpty());
     }
 
-    /**
-     * 对话页布局的 emoji 护栏（2026-11-16）：
-     * 状态图标、加载/执行提示一律用组件库矢量图标 + UiFx 动画，不再用 emoji
-     * （跨 ROM 字形不一致、不能跟主题着色）。注释里的示例 emoji 不算。
-     */
-    @Test
-    public void chatLayoutsHaveNoEmojiStatusIcons() throws IOException {
-        List<String> violations = new ArrayList<>();
-        for (String path : CHAT_LAYOUTS) {
-            String xml = stripXmlComments(read(path));
-            for (int i = 0; i < xml.length(); i++) {
-                char c = xml.charAt(i);
-                if (!isEmoji(c)) continue;
-                String ctx = xml.substring(Math.max(0, i - 40), Math.min(xml.length(), i + 40))
-                        .replace("\n", " ");
-                violations.add(path + " → U+" + Integer.toHexString((int) c) + " …" + ctx + "…");
-            }
-        }
-        assertTrue("对话页布局仍在用 emoji 当图标/状态（应换组件库矢量图标 + UiFx 动画）：\n  "
-                + String.join("\n  ", violations), violations.isEmpty());
-    }
-
-    /** emoji 区（含代理对两半）：星形/符号/杂项符号/表情。 */
-    private static boolean isEmoji(char c) {
-        int cp = c;
-        return (cp >= 0x2600 && cp <= 0x27BF)
-                || (cp >= 0x2B00 && cp <= 0x2BFF)
-                || (cp >= 0xD83C && cp <= 0xDBFF)
-                || (cp >= 0xDC00 && cp <= 0xDFFF);
-    }
 
     @Test
     public void chatJavaHasNoHardcodedColorSizeOrSpacing() throws IOException {

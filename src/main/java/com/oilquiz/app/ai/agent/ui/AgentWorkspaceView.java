@@ -71,7 +71,7 @@ public class AgentWorkspaceView {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView refreshBtn = new TextView(context);
-        refreshBtn.setText("刷新");
+        refreshBtn.setText("🔄 刷新");
         refreshBtn.setTextSize(12);
         refreshBtn.setGravity(Gravity.CENTER);
         refreshBtn.setTextColor(color(R.color.text_secondary));
