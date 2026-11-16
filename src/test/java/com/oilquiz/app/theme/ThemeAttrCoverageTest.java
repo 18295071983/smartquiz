@@ -61,6 +61,45 @@ public class ThemeAttrCoverageTest {
             // AppCompat 控件色（AppCompat 主题自带）：矢量图 tint 常用
             "colorControlNormal"));
 
+    /**
+     * app 在 attrs.xml 里声明的 attr，一旦被 {@code ?attr/xxx} 当"主题值"引用，就必须在主题里定义。
+     *
+     * <p>本次（2026-11-16）就是靠这条口径发现 {@code selectableItemBorderless}：attrs.xml 有声明、
+     * 三个布局拿 {@code android:background="?attr/selectableItemBorderless"} 当涟漪底，但主题从未定义
+     * → inflate 直接抛 "Failed to resolve attribute"。与 color* 那条互补：那条管颜色，这条管
+     * "app 自己声明、当主题引用"的所有 attr。</p>
+     */
+    @Test
+    public void everyAppDeclaredAttrUsedAsThemeReferenceIsDefined() throws IOException {
+        Set<String> declared = parse(Paths.get("src/main/res/values/attrs.xml"),
+                Pattern.compile("<attr name=\"([A-Za-z0-9_]+)\""));
+        // 注意：这里要**所有** item，不只是 color*（ATTR_DEF 是颜色专用的）
+        Pattern anyItemDef = Pattern.compile("<item name=\"([A-Za-z0-9_]+)\">");
+        Set<String> defined = parse(Paths.get("src/main/res/values/styles.xml"), anyItemDef);
+        Path nightStyles = Paths.get("src/main/res/values-night/styles.xml");
+        if (Files.exists(nightStyles)) {
+            defined.addAll(parse(nightStyles, anyItemDef));
+        }
+
+        Pattern anyAttrRef = Pattern.compile("\\?attr/([A-Za-z0-9_]+)");
+        Set<String> used = new TreeSet<>();
+        try (Stream<Path> walk = Files.walk(Paths.get("src/main/res"))) {
+            for (Path p : walk.filter(x -> x.toString().endsWith(".xml")).collect(Collectors.toList())) {
+                used.addAll(parse(p, anyAttrRef));
+            }
+        }
+
+        List<String> missing = new ArrayList<>();
+        for (String attr : used) {
+            if (declared.contains(attr) && !defined.contains(attr)) {
+                missing.add(attr);
+            }
+        }
+        assertTrue("app 在 attrs.xml 声明、布局又以 ?attr/ 引用的 attr 没有在主题里定义"
+                        + "（运行期 inflate 会抛 Failed to resolve attribute）：\n  " + missing,
+                missing.isEmpty());
+    }
+
     @Test
     public void everyColorAttrUsedInResourcesIsDefinedInTheme() throws IOException {
         Set<String> defined = new TreeSet<>();

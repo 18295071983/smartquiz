@@ -48,6 +48,9 @@
     <item name="colorBorder">@color/border</item>
     <item name="colorBorderStrong">@color/chat_v2_border_strong</item>
     <item name="colorScrim">@color/card_scrim</item>
+    <!-- 2026-11-16：app 在 attrs.xml 声明了 selectableItemBorderless 但从未在任何主题定义，
+         dialog_model_selector / item_code_block / item_online_model_selector 拿它当背景，inflate 会解析失败。给标准无界涟漪。 -->
+    <item name="selectableItemBorderless">?android:attr/selectableItemBackgroundBorderless</item>
     <item name="colorChart1">@color/chart_1</item>
     <item name="colorChart2">@color/chart_2</item>
     <item name="colorChart3">@color/chart_3</item>
@@ -152,6 +155,9 @@
     <item name="colorBorder">@color/border</item>
     <item name="colorBorderStrong">@color/chat_v2_border_strong</item>
     <item name="colorScrim">@color/card_scrim</item>
+    <!-- 2026-11-16：app 在 attrs.xml 声明了 selectableItemBorderless 但从未在任何主题定义，
+         dialog_model_selector / item_code_block / item_online_model_selector 拿它当背景，inflate 会解析失败。给标准无界涟漪。 -->
+    <item name="selectableItemBorderless">?android:attr/selectableItemBackgroundBorderless</item>
     <item name="colorChart1">@color/chart_1</item>
     <item name="colorChart2">@color/chart_2</item>
     <item name="colorChart3">@color/chart_3</item>

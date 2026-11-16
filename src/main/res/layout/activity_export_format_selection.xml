@@ -39,6 +39,13 @@
         android:layout_height="match_parent"
         android:padding="@dimen/space_16">
 
+        <!-- 2026-11-16：ScrollView 只能有一个直接子 View（原布局直接挂了多个 LinearLayout，
+             inflate 会抛 "ScrollView can host only one direct child"）；这里补一层垂直容器。 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
         <!-- 选中格式显示 -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -440,6 +447,7 @@
             android:textAllCaps="false"
             android:layout_marginTop="@dimen/space_24" />
 
+        </LinearLayout>
     </ScrollView>
 
 </LinearLayout>
