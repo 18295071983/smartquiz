@@ -10,6 +10,8 @@ import android.widget.LinearLayout;
 
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 
 /**
  * 通用底部弹窗壳（全局可复用 View 组件，新建通用设计）。
@@ -46,7 +48,7 @@ public class ChatBottomSheet {
         root = new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xFFFFFFFF);
+        bg.setColor(ThemeColors.attr(context, com.oilquiz.app.R.attr.colorSurface));
         bg.setCornerRadii(new float[]{dp(20), dp(20), 0, 0, 0, 0, 0, 0});
         root.setBackground(bg);
         int pad = dp(20);

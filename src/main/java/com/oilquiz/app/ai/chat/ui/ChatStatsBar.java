@@ -10,6 +10,7 @@ import android.widget.TextView;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.theme.ThemeColors;
 
 import java.util.List;
 import java.util.Locale;
@@ -90,7 +91,7 @@ public class ChatStatsBar extends LinearLayout {
         tv.setText(text);
         tv.setTextSize(11f);
         tv.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        tv.setTextColor(0xFFE5E7EB); // 深蓝渐变背景上用浅灰白
+        tv.setTextColor(ThemeColors.attr(getContext(), R.attr.colorControlText)); // 2026-11-16：跟随主题（原先在渐变底上用写死的浅灰白）
         tv.setGravity(Gravity.CENTER);
         tv.setPadding(dp(10), dp(3), dp(10), dp(3));
         tv.setBackground(makePillBackground());
@@ -104,7 +105,7 @@ public class ChatStatsBar extends LinearLayout {
     private android.graphics.drawable.Drawable makePillBackground() {
         // 浅灰圆角胶囊：与顶部状态条 status_bar_background 视觉一致
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(0x26FFFFFF); // 15% 白底，深蓝渐变背景上胶囊可见
+        gd.setColor(ThemeColors.attr(getContext(), R.attr.colorControlBackground)); // 2026-11-16：胶囊底走主题控件底色
         gd.setCornerRadius(dp(14));
         return gd;
     }

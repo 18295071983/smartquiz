@@ -8,6 +8,9 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -132,7 +135,7 @@ public class GuideStepFlowView extends ScrollView {
             b.setCornerRadius(dp(12));
             b.setColor(badgeColor(s));
             badge.setBackground(b);
-            badge.setTextColor(0xFFFFFFFF);
+            badge.setTextColor(themeColor(R.attr.colorOnPrimary, 0xFFFFFFFF));
             row.addView(badge, new LinearLayout.LayoutParams(dp(24), dp(24)));
 
             // 标题 + 可选详情（RUNNING/DONE/ERROR 均显示状态机阶段说明，PENDING 无详情）
@@ -141,14 +144,13 @@ public class GuideStepFlowView extends ScrollView {
             TextView title = new TextView(getContext());
             title.setText(s.title);
             title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-            title.setTextColor(0xFF374151);
+            title.setTextColor(themeColor(R.attr.colorControlText, 0xFF374151));
             textWrap.addView(title);
             if (s.detail != null && !s.detail.isEmpty() && s.state != StepState.PENDING) {
                 TextView detail = new TextView(getContext());
                 detail.setText(s.detail);
                 detail.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-                int c = s.state == StepState.ERROR ? 0xFFEF4444
-                        : s.state == StepState.RUNNING ? 0xFF2563EB : 0xFF16A34A;
+                int c = stateColor(s.state);
                 detail.setTextColor(c);
                 textWrap.addView(detail);
             }
@@ -159,8 +161,7 @@ public class GuideStepFlowView extends ScrollView {
                         : p.state == StepState.DONE ? "✓ " : "✕ ";
                 pv.setText(mark + p.text);
                 pv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-                int pc = p.state == StepState.ERROR ? 0xFFEF4444
-                        : p.state == StepState.RUNNING ? 0xFF2563EB : 0xFF16A34A;
+                int pc = stateColor(p.state);
                 pv.setTextColor(pc);
                 LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -186,11 +187,26 @@ public class GuideStepFlowView extends ScrollView {
 
     private int badgeColor(Step s) {
         switch (s.state) {
-            case RUNNING: return 0xFF2563EB;
-            case DONE: return 0xFF16A34A;
-            case ERROR: return 0xFFEF4444;
-            default: return 0xFF9CA3AF;
+            case RUNNING: return themeColor(R.attr.colorPrimary, 0xFF2563EB);
+            case DONE: return themeColor(R.attr.colorSuccess, 0xFF16A34A);
+            case ERROR: return themeColor(R.attr.colorDanger, 0xFFEF4444);
+            default: return themeColor(R.attr.colorControlTextHint, 0xFF9CA3AF);
         }
+    }
+
+    /** 步骤/子步骤文字色：跟随主题的成功/进行中/失败语义色。 */
+    private int stateColor(StepState state) {
+        switch (state) {
+            case ERROR: return themeColor(R.attr.colorDanger, 0xFFEF4444);
+            case RUNNING: return themeColor(R.attr.colorPrimary, 0xFF2563EB);
+            default: return themeColor(R.attr.colorSuccess, 0xFF16A34A);
+        }
+    }
+
+    /** 主题 attr 取色（缺 attr 时退回旧固定值，保证任何主题下都可读）。 */
+    private int themeColor(int attr, int fallback) {
+        int c = ThemeColors.attr(getContext(), attr);
+        return c != 0 ? c : fallback;
     }
 
     private int dp(float v) { return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics()); }

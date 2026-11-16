@@ -11832,7 +11832,7 @@ public class AIChatActivity extends BaseActivity {
                         + " tokens（命中率 " + hitRate + "%）");
                 cacheLine.setTextSize(12f);
                 cacheLine.setPadding(0, (int)(4 * getResources().getDisplayMetrics().density), 0, (int)(4 * getResources().getDisplayMetrics().density));
-                cacheLine.setTextColor(0xFF059669);
+                cacheLine.setTextColor(ThemeColors.attr(this, R.attr.colorSuccess));
                 panel.addView(cacheLine);
             }
             // 分段条：system（本次组装注入）/ messages（历史）（估算口径，仅作构成示意）
@@ -11844,10 +11844,10 @@ public class AIChatActivity extends BaseActivity {
             if (msgTokens < 0) msgTokens = 0;
             int sysW = percent > 0 && used > 0 ? (int) (percent * sysTokens / used) : 0;
             android.view.View sysSeg = new android.view.View(this);
-            sysSeg.setBackgroundColor(0xFF4F46E5);
+            sysSeg.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
             bar.addView(sysSeg, new android.widget.LinearLayout.LayoutParams(sysW > 0 ? sysW : 0, h, 0));
             android.view.View msgSeg = new android.view.View(this);
-            msgSeg.setBackgroundColor(0xFF10B981);
+            msgSeg.setBackgroundColor(ThemeColors.attr(this, R.attr.colorSuccess));
             int msgW = percent - sysW;
             bar.addView(msgSeg, new android.widget.LinearLayout.LayoutParams(msgW > 0 ? msgW : 0, h, 0));
             android.widget.LinearLayout.LayoutParams barLp = new android.widget.LinearLayout.LayoutParams(
@@ -11860,12 +11860,12 @@ public class AIChatActivity extends BaseActivity {
             android.widget.TextView l1 = new android.widget.TextView(this);
             l1.setText("■ 系统注入 " + sysTokens);
             l1.setTextSize(11f);
-            l1.setTextColor(0xFF4F46E5);
+            l1.setTextColor(ThemeColors.attr(this, R.attr.colorPrimary));
             legend.addView(l1);
             android.widget.TextView l2 = new android.widget.TextView(this);
             l2.setText("  ■ 对话历史 " + msgTokens);
             l2.setTextSize(11f);
-            l2.setTextColor(0xFF10B981);
+            l2.setTextColor(ThemeColors.attr(this, R.attr.colorSuccess));
             l2.setPadding((int)(8 * getResources().getDisplayMetrics().density), 0, 0, 0);
             legend.addView(l2);
             panel.addView(legend);
@@ -13902,6 +13902,13 @@ public class AIChatActivity extends BaseActivity {
             return;
         }
         float density = getResources().getDisplayMetrics().density;
+        // 2026-11-16：甲板是代码构建的 UI，颜色必须走主题（此前这里是蓝/橙/灰写死，
+        // 换肤、深色都不跟，浅色主题下橙色警示字直接糊在浅底上）。
+        final int colorPrimary = ThemeColors.attr(this, R.attr.colorPrimary);
+        final int colorWarning = ThemeColors.attr(this, R.attr.colorWarning);
+        final int textPrimary = ThemeColors.attr(this, R.attr.colorControlText);
+        final int textSecondary = ThemeColors.attr(this, R.attr.colorControlTextSecondary);
+        final int textHint = ThemeColors.attr(this, R.attr.colorControlTextHint);
         int padH = (int) (10 * density);
         int padV = (int) (4 * density);
         int minH = (int) (28 * density);       // 视觉高度；点击区再向外扩 10dp
@@ -13919,7 +13926,7 @@ public class AIChatActivity extends BaseActivity {
             row.setPadding(padH, padV, padH, padV);
             android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
             bg.setCornerRadius(8 * density);
-            bg.setColor(model.warn ? 0x2EE65100 : 0x14000000);
+            bg.setColor(model.warn ? withAlpha(colorWarning, 0.12f) : withAlpha(textPrimary, 0.05f));
             row.setBackground(bg);
             android.widget.LinearLayout.LayoutParams rowLp =
                     new android.widget.LinearLayout.LayoutParams(
@@ -13933,7 +13940,7 @@ public class AIChatActivity extends BaseActivity {
                 View dot = new View(this);
                 android.graphics.drawable.GradientDrawable dotBg = new android.graphics.drawable.GradientDrawable();
                 dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-                dotBg.setColor(model.warn ? 0xFFE65100 : 0xFF9E9E9E);
+                dotBg.setColor(model.warn ? colorWarning : textHint);
                 dot.setBackground(dotBg);
                 android.widget.LinearLayout.LayoutParams dotLp =
                         new android.widget.LinearLayout.LayoutParams(
@@ -13949,7 +13956,7 @@ public class AIChatActivity extends BaseActivity {
             tv.setTextSize(12.5f);
             tv.setMaxLines(1);
             tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            tv.setTextColor(model.warn ? 0xFFB23C00 : 0xFF3C3C3C);
+            tv.setTextColor(model.warn ? colorWarning : textPrimary);
             // 警示行（权限/待处理）加粗：dsh-Go 的 pill 就是"色块 + 重字"，一眼能从灰行里挑出来
             if (model.warn) tv.setTypeface(null, android.graphics.Typeface.BOLD);
             tv.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
@@ -13963,7 +13970,7 @@ public class AIChatActivity extends BaseActivity {
                 pct.setText(model.progress + "%");
                 pct.setTextSize(11f);
                 pct.setMaxLines(1);
-                pct.setTextColor(model.warn ? 0xFFB23C00 : 0xFF6B6B6B);
+                pct.setTextColor(model.warn ? colorWarning : textSecondary);
                 pct.setGravity(android.view.Gravity.END);
                 android.widget.LinearLayout.LayoutParams pctLp =
                         new android.widget.LinearLayout.LayoutParams(
@@ -13981,7 +13988,7 @@ public class AIChatActivity extends BaseActivity {
                 android.widget.TextView chevron = new android.widget.TextView(this);
                 chevron.setText("›");
                 chevron.setTextSize(16f);
-                chevron.setTextColor(0xFF9E9E9E);
+                chevron.setTextColor(textHint);
                 android.widget.LinearLayout.LayoutParams clp =
                         new android.widget.LinearLayout.LayoutParams(
                                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -14029,13 +14036,16 @@ public class AIChatActivity extends BaseActivity {
      * 3dp 高度会被裁成一条虚线；固定宽度的轨道在甲板 3 行高度里更可控。</p>
      */
     private View buildDeckProgressBar(int progress, boolean warn, float density) {
+        final int colorPrimary = ThemeColors.attr(this, R.attr.colorPrimary);
+        final int colorWarning = ThemeColors.attr(this, R.attr.colorWarning);
+        final int textPrimary = ThemeColors.attr(this, R.attr.colorControlText);
         int width = (int) (54 * density);
         int height = Math.max(2, (int) (3 * density));
         android.widget.FrameLayout box = new android.widget.FrameLayout(this);
         View track = new View(this);
         android.graphics.drawable.GradientDrawable trackBg = new android.graphics.drawable.GradientDrawable();
         trackBg.setCornerRadius(height / 2f);
-        trackBg.setColor(0x1F000000);
+        trackBg.setColor(withAlpha(textPrimary, 0.10f));
         track.setBackground(trackBg);
         box.addView(track, new android.widget.FrameLayout.LayoutParams(
                 width, height));
@@ -14044,7 +14054,7 @@ public class AIChatActivity extends BaseActivity {
             View fill = new View(this);
             android.graphics.drawable.GradientDrawable fillBg = new android.graphics.drawable.GradientDrawable();
             fillBg.setCornerRadius(height / 2f);
-            fillBg.setColor(warn ? 0xFFE65100 : 0xFF2F5BD6);
+            fillBg.setColor(warn ? colorWarning : colorPrimary);
             fill.setBackground(fillBg);
             box.addView(fill, new android.widget.FrameLayout.LayoutParams(fillWidth, height));
         }
@@ -14057,17 +14067,18 @@ public class AIChatActivity extends BaseActivity {
 
     /** ④：list kind 的右侧「N 条」徽标。 */
     private View buildDeckCountBadge(int count, float density) {
+        final int colorPrimary = ThemeColors.attr(this, R.attr.colorPrimary);
         android.widget.TextView badge = new android.widget.TextView(this);
         badge.setText(Math.max(0, count) + " 条");
         badge.setTextSize(11f);
         badge.setMaxLines(1);
-        badge.setTextColor(0xFF2F5BD6);
+        badge.setTextColor(colorPrimary);
         badge.setGravity(android.view.Gravity.CENTER);
         badge.setPadding((int) (8 * density), (int) (2 * density),
                 (int) (8 * density), (int) (2 * density));
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setCornerRadius(10 * density);
-        bg.setColor(0x142F5BD6);
+        bg.setColor(withAlpha(colorPrimary, 0.08f));
         badge.setBackground(bg);
         android.widget.LinearLayout.LayoutParams lp =
                 new android.widget.LinearLayout.LayoutParams(
@@ -14087,6 +14098,8 @@ public class AIChatActivity extends BaseActivity {
     private android.widget.LinearLayout buildDeckInlineActions(
             final com.oilquiz.app.ai.chat.status.DockSlotBus.Slot slot, float density) {
         if (slot == null || slot.actions == null || slot.actions.isEmpty()) return null;
+        final int colorPrimary = ThemeColors.attr(this, R.attr.colorPrimary);
+        final int colorOnPrimary = ThemeColors.attr(this, R.attr.colorOnPrimary);
         android.widget.LinearLayout box = new android.widget.LinearLayout(this);
         box.setOrientation(android.widget.LinearLayout.HORIZONTAL);
         box.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -14104,9 +14117,9 @@ public class AIChatActivity extends BaseActivity {
                     (int) (9 * density), (int) (3 * density));
             android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
             bg.setCornerRadius(11 * density);
-            bg.setColor(a.isPrimary() ? 0xFF2F5BD6 : 0x142F5BD6);
+            bg.setColor(a.isPrimary() ? colorPrimary : withAlpha(colorPrimary, 0.08f));
             btn.setBackground(bg);
-            btn.setTextColor(a.isPrimary() ? 0xFFFFFFFF : 0xFF2F5BD6);
+            btn.setTextColor(a.isPrimary() ? colorOnPrimary : colorPrimary);
             btn.setClickable(true);
             btn.setOnClickListener(v -> onDockSlotInlineAction(slot.id, a.id));
             android.widget.LinearLayout.LayoutParams lp =
@@ -14136,12 +14149,24 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
+     * 给"已解析成 ARGB 的主题色"叠一层透明度（甲板底色/描边都靠它，
+     * 避免再出现 0x14000000 这种"黑色蒙版"——深色主题下黑上加黑等于没画）。
+     */
+    private static int withAlpha(int color, float alpha) {
+        int a = Math.max(0, Math.min(255, Math.round(alpha * 255f)));
+        return (color & 0x00FFFFFF) | (a << 24);
+    }
+
+    /**
      * §22：「还有 N 条 · 点开看全部」行。
      *
      * <p>形态刻意比插槽行弱（无状态点、字号小一档、灰色），一眼能分清
      * "这是一条状态"和"这是列表入口"。点击与插槽行同一个目的地。</p>
      */
     private View buildDeckOverflowRow(int hidden, float density, int padH, int padV, int minH) {
+        final int textPrimary = ThemeColors.attr(this, R.attr.colorControlText);
+        final int textSecondary = ThemeColors.attr(this, R.attr.colorControlTextSecondary);
+        final int textHint = ThemeColors.attr(this, R.attr.colorControlTextHint);
         android.widget.LinearLayout row = new android.widget.LinearLayout(this);
         row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -14150,7 +14175,7 @@ public class AIChatActivity extends BaseActivity {
         android.graphics.drawable.GradientDrawable bg =
                 new android.graphics.drawable.GradientDrawable();
         bg.setCornerRadius(8 * density);
-        bg.setColor(0x0D000000);
+        bg.setColor(withAlpha(textPrimary, 0.04f));
         row.setBackground(bg);
         android.widget.LinearLayout.LayoutParams rowLp =
                 new android.widget.LinearLayout.LayoutParams(
@@ -14164,7 +14189,7 @@ public class AIChatActivity extends BaseActivity {
         tv.setTextSize(12f);
         tv.setMaxLines(1);
         tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        tv.setTextColor(0xFF6B6B6B);
+        tv.setTextColor(textSecondary);
         tv.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
                 0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         row.addView(tv);
@@ -14172,7 +14197,7 @@ public class AIChatActivity extends BaseActivity {
         android.widget.TextView chevron = new android.widget.TextView(this);
         chevron.setText("›");
         chevron.setTextSize(15f);
-        chevron.setTextColor(0xFF9E9E9E);
+        chevron.setTextColor(textHint);
         android.widget.LinearLayout.LayoutParams clp =
                 new android.widget.LinearLayout.LayoutParams(
                         android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
