@@ -56,7 +56,7 @@ public final class EdgeToEdgeHelper {
      * 给键盘让位，IME insets 不参与就会"键盘盖住输入框"。把 IME 并入底部 inset 后，
      * 所有非 AI 对话页（AI 对话页自己处理）在键盘弹出时内容整体上推。</p>
      */
-    static int bottomInset(WindowInsetsCompat insets) {
+    public static int bottomInset(WindowInsetsCompat insets) {
         androidx.core.graphics.Insets bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
         int gestures = insets.getInsets(WindowInsetsCompat.Type.systemGestures()).bottom;
@@ -126,6 +126,11 @@ public final class EdgeToEdgeHelper {
                 androidx.core.graphics.Insets bars = insets.getInsets(
                         WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
                 applyInsets(root, bars, insets, activity);
+                // 2026-11-16：键盘弹出时把焦点视图滚进可视区（长表单里 resize 只保证"不被盖"，
+                // 焦点可能在屏幕外；这里统一补一次 scroll-into-view）
+                if (insets.getInsets(WindowInsetsCompat.Type.ime()).bottom > 0) {
+                    revealFocusedView(activity);
+                }
                 return insets;
             });
             // 主动请求一次 insets 分发（部分设备首次不自动回调，避免内容漏到状态栏下）
@@ -142,6 +147,25 @@ public final class EdgeToEdgeHelper {
         }
     }
 
+    /** 键盘弹出时把当前焦点视图滚到可视区（post 一帧，等 IME inset 真正生效）。 */
+    private static void revealFocusedView(Activity activity) {
+        try {
+            View focus = activity.getCurrentFocus();
+            if (focus == null) return;
+            focus.post(() -> {
+                try {
+                    // requestRectangleOnScreen 会沿父链找可滚动容器，无需自己换算坐标
+                    android.graphics.Rect r = new android.graphics.Rect(
+                            0, 0, focus.getWidth(), focus.getHeight());
+                    focus.requestRectangleOnScreen(r, true);
+                } catch (Throwable ignored) {
+                    // 滚动失败不影响输入
+                }
+            });
+        } catch (Throwable ignored) {
+            // 忽略
+        }
+    }
     /** 主题 surface 色（浅色/深色模式自动切换），导航条固定色带用。 */
     private static int resolveSurfaceColor(android.content.Context context) {
         try {

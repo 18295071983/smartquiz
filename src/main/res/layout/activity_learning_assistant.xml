@@ -33,8 +33,8 @@
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardElevation="4dp"
-                app:cardCornerRadius="8dp"
+                app:cardElevation="@dimen/elev_4"
+                app:cardCornerRadius="@dimen/radius_8"
                 android:layout_marginBottom="@dimen/space_16">
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -78,8 +78,8 @@
                 android:id="@+id/plan_mode_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardElevation="4dp"
-                app:cardCornerRadius="8dp"
+                app:cardElevation="@dimen/elev_4"
+                app:cardCornerRadius="@dimen/radius_8"
                 android:layout_marginBottom="@dimen/space_16">
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -144,8 +144,8 @@
                 android:id="@+id/concept_mode_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardElevation="4dp"
-                app:cardCornerRadius="8dp"
+                app:cardElevation="@dimen/elev_4"
+                app:cardCornerRadius="@dimen/radius_8"
                 android:layout_marginBottom="@dimen/space_16"
                 android:visibility="gone">
                 <LinearLayout
@@ -198,8 +198,8 @@
                 android:id="@+id/exam_mode_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardElevation="4dp"
-                app:cardCornerRadius="8dp"
+                app:cardElevation="@dimen/elev_4"
+                app:cardCornerRadius="@dimen/radius_8"
                 android:layout_marginBottom="@dimen/space_16"
                 android:visibility="gone">
                 <LinearLayout
@@ -258,8 +258,8 @@
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardElevation="4dp"
-                app:cardCornerRadius="8dp"
+                app:cardElevation="@dimen/elev_4"
+                app:cardCornerRadius="@dimen/radius_8"
                 android:layout_marginBottom="@dimen/space_16">
                 <LinearLayout
                     android:layout_width="match_parent"

@@ -426,21 +426,10 @@ public class MainActivity extends BaseActivity {
     }
 
     private void setupButtons() {
-        View cardWeatherBanner = findViewById(R.id.card_weather_banner);
+        // 2026-11-16：天气横幅外层的透明 card_weather_banner 容器已移除（布局整改），
+        // 点击/焦点直接落在横幅自身，避免两层容器各绑一次监听。
         WeatherBannerView weatherBanner = findViewById(R.id.weather_banner);
-        
-        if (cardWeatherBanner != null) {
-            cardWeatherBanner.setClickable(true);
-            cardWeatherBanner.setFocusable(true);
-            cardWeatherBanner.setFocusableInTouchMode(true);
-            cardWeatherBanner.setOnClickListener(v -> {
-                android.util.Log.d("MainActivity", "card_weather_banner clicked");
-                if (weatherBanner != null) {
-                    weatherBanner.onBannerClicked();
-                }
-            });
-        }
-        
+
         if (weatherBanner != null) {
             weatherBanner.setClickable(true);
             weatherBanner.setFocusable(true);

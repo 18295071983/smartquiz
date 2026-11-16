@@ -5,8 +5,8 @@
     android:layout_width="@dimen/size_80"
     android:layout_height="@dimen/size_80"
     android:layout_margin="@dimen/space_4"
-    app:cardCornerRadius="8dp"
-    app:cardElevation="2dp">
+    app:cardCornerRadius="@dimen/radius_8"
+    app:cardElevation="@dimen/elev_2">
 
     <FrameLayout
         android:layout_width="match_parent"

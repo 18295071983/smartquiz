@@ -24,8 +24,8 @@
                 android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                app:cardCornerRadius="8dp"
-                app:cardElevation="2dp"
+                app:cardCornerRadius="@dimen/radius_8"
+                app:cardElevation="@dimen/elev_2"
                 android:layout_marginEnd="@dimen/space_8">
 
                 <LinearLayout
@@ -59,8 +59,8 @@
                 android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                app:cardCornerRadius="8dp"
-                app:cardElevation="2dp"
+                app:cardCornerRadius="@dimen/radius_8"
+                app:cardElevation="@dimen/elev_2"
                 android:layout_marginStart="@dimen/space_8">
 
                 <LinearLayout
@@ -103,8 +103,8 @@
                 android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                app:cardCornerRadius="8dp"
-                app:cardElevation="2dp"
+                app:cardCornerRadius="@dimen/radius_8"
+                app:cardElevation="@dimen/elev_2"
                 android:layout_marginEnd="@dimen/space_8">
 
                 <LinearLayout
@@ -138,8 +138,8 @@
                 android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                app:cardCornerRadius="8dp"
-                app:cardElevation="2dp"
+                app:cardCornerRadius="@dimen/radius_8"
+                app:cardElevation="@dimen/elev_2"
                 android:layout_marginStart="@dimen/space_8">
 
                 <LinearLayout
@@ -181,8 +181,8 @@
                 android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                app:cardCornerRadius="8dp"
-                app:cardElevation="2dp"
+                app:cardCornerRadius="@dimen/radius_8"
+                app:cardElevation="@dimen/elev_2"
                 android:layout_marginEnd="@dimen/space_8">
 
                 <LinearLayout
@@ -216,8 +216,8 @@
                 android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                app:cardCornerRadius="8dp"
-                app:cardElevation="2dp"
+                app:cardCornerRadius="@dimen/radius_8"
+                app:cardElevation="@dimen/elev_2"
                 android:layout_marginStart="@dimen/space_8">
 
                 <LinearLayout
@@ -254,8 +254,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_12"
-            app:cardCornerRadius="8dp"
-            app:cardElevation="2dp">
+            app:cardCornerRadius="@dimen/radius_8"
+            app:cardElevation="@dimen/elev_2">
 
             <LinearLayout
                 android:layout_width="match_parent"

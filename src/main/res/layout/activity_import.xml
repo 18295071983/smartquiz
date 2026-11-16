@@ -68,9 +68,9 @@
                 android:id="@+id/statsCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardElevation="2dp"
+                app:cardElevation="@dimen/elev_2"
                 app:cardBackgroundColor="?attr/colorSurface"
-                app:cardCornerRadius="12dp"
+                app:cardCornerRadius="@dimen/radius_12"
                 android:layout_marginBottom="@dimen/space_20">
                 
                 <LinearLayout
@@ -215,9 +215,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:visibility="gone"
-                app:cardElevation="2dp"
+                app:cardElevation="@dimen/elev_2"
                 app:cardBackgroundColor="?attr/colorSurface"
-                app:cardCornerRadius="12dp"
+                app:cardCornerRadius="@dimen/radius_12"
                 android:layout_marginBottom="@dimen/space_20">
 
                 <LinearLayout
@@ -252,9 +252,9 @@
                 android:id="@+id/logCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardElevation="2dp"
+                app:cardElevation="@dimen/elev_2"
                 app:cardBackgroundColor="?attr/colorSurface"
-                app:cardCornerRadius="12dp"
+                app:cardCornerRadius="@dimen/radius_12"
                 android:layout_marginBottom="@dimen/space_20">
 
                 <LinearLayout
@@ -299,9 +299,9 @@
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardElevation="2dp"
+                app:cardElevation="@dimen/elev_2"
                 app:cardBackgroundColor="?attr/colorSurfaceVariant"
-                app:cardCornerRadius="12dp"
+                app:cardCornerRadius="@dimen/radius_12"
                 android:layout_marginBottom="@dimen/space_20">
                 
                 <LinearLayout

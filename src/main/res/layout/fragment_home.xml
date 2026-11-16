@@ -45,8 +45,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="@dimen/space_24"
-        app:cardElevation="4dp"
-        app:cardCornerRadius="12dp"
+        app:cardElevation="@dimen/elev_4"
+        app:cardCornerRadius="@dimen/radius_12"
         app:layout_constraintTop_toBottomOf="@id/linearLayoutWelcome"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
@@ -165,8 +165,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="@dimen/space_16"
-        app:cardElevation="4dp"
-        app:cardCornerRadius="12dp"
+        app:cardElevation="@dimen/elev_4"
+        app:cardCornerRadius="@dimen/radius_12"
         app:layout_constraintTop_toBottomOf="@id/cardViewQuickActions"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">

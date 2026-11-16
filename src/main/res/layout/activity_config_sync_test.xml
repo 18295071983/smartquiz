@@ -46,8 +46,8 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="4dp"
+            app:cardCornerRadius="@dimen/radius_16"
+            app:cardElevation="@dimen/elev_4"
             app:cardBackgroundColor="@color/primary_alpha_10">
 
             <LinearLayout
@@ -89,8 +89,8 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp"
+            app:cardCornerRadius="@dimen/radius_12"
+            app:cardElevation="@dimen/elev_2"
             app:cardBackgroundColor="?attr/colorCardBackground"
             android:layout_marginBottom="@dimen/space_12">
 
@@ -149,8 +149,8 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp"
+            app:cardCornerRadius="@dimen/radius_12"
+            app:cardElevation="@dimen/elev_2"
             app:cardBackgroundColor="?attr/colorCardBackground"
             android:layout_marginBottom="@dimen/space_12">
 
@@ -219,8 +219,8 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp"
+            app:cardCornerRadius="@dimen/radius_12"
+            app:cardElevation="@dimen/elev_2"
             app:cardBackgroundColor="?attr/colorCardBackground"
             android:layout_marginBottom="@dimen/space_12">
 
@@ -279,8 +279,8 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp"
+            app:cardCornerRadius="@dimen/radius_12"
+            app:cardElevation="@dimen/elev_2"
             app:cardBackgroundColor="?attr/colorCardBackground"
             android:layout_marginBottom="@dimen/space_12">
 

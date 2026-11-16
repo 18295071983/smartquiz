@@ -4,8 +4,8 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="@dimen/space_8"
-    app:cardCornerRadius="12dp"
-    app:cardElevation="1dp"
+    app:cardCornerRadius="@dimen/radius_12"
+    app:cardElevation="@dimen/elev_1"
     app:strokeWidth="@dimen/stroke_1"
     app:strokeColor="?attr/colorOutline"
     app:cardBackgroundColor="?attr/colorCardBackground">

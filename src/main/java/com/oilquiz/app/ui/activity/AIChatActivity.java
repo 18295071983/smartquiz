@@ -1045,14 +1045,9 @@ public class AIChatActivity extends BaseActivity {
                     // 2026-09-23：targetSdk 35+ 强制 edge-to-edge，windowSoftInputMode=adjustResize 被忽略
                     // （Android 15+ 弃用）。必须手动消费 ime insets 把输入栏撑到键盘上方：
                     // 键盘弹出时 bottom=键盘高度；收起时回退到导航栏高度（手势条区域）
-                    int bottom = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime()).bottom;
-                    if (bottom == 0) {
-                        bottom = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom;
-                    }
-                    if (bottom == 0) {
-                        // MIUI 个别版本手势条 inset 报 0：systemGestures 底部始终报手势区高度
-                        bottom = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemGestures()).bottom;
-                    }
+                    // 2026-11-16 归一：底部 inset（键盘/导航栏/手势条取最大）统一走 EdgeToEdgeHelper，
+                    // 与其它页面的 IME 口径保持同一份实现，避免两处各写一套 fallback。
+                    int bottom = com.oilquiz.app.theme.EdgeToEdgeHelper.bottomInset(insets);
                     // pinned 必须在改 padding 之前取（改完布局会触发 pinned 状态变化）
                     boolean pinnedBefore = stickToBottom != null && stickToBottom.isPinned();
                     v.setPadding(left, top, right, bottom);

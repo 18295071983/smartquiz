@@ -5,8 +5,8 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_margin="@dimen/space_8"
-    app:cardElevation="4dp"
-    app:cardCornerRadius="16dp"
+    app:cardElevation="@dimen/elev_4"
+    app:cardCornerRadius="@dimen/radius_16"
     app:cardBackgroundColor="?attr/colorCardBackground">
 
     <LinearLayout

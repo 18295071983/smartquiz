@@ -23,8 +23,8 @@
             android:clickable="true"
             android:focusable="true"
             app:cardBackgroundColor="?attr/colorCardBackground"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="2dp"
+            app:cardCornerRadius="@dimen/radius_16"
+            app:cardElevation="@dimen/elev_2"
             app:rippleColor="@color/primary_alpha_20">
             <LinearLayout
                 android:layout_width="match_parent"
@@ -83,8 +83,8 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/space_12"
             app:cardBackgroundColor="?attr/colorCardBackground"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="2dp">
+            app:cardCornerRadius="@dimen/radius_16"
+            app:cardElevation="@dimen/elev_2">
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -207,8 +207,8 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/space_12"
             app:cardBackgroundColor="?attr/colorCardBackground"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="2dp">
+            app:cardCornerRadius="@dimen/radius_16"
+            app:cardElevation="@dimen/elev_2">
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -350,8 +350,8 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/space_12"
             app:cardBackgroundColor="?attr/colorCardBackground"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="2dp">
+            app:cardCornerRadius="@dimen/radius_16"
+            app:cardElevation="@dimen/elev_2">
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

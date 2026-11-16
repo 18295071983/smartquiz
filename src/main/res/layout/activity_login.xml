@@ -26,8 +26,8 @@
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="@dimen/size_80"
                 android:layout_height="@dimen/size_80"
-                app:cardCornerRadius="24dp"
-                app:cardElevation="8dp"
+                app:cardCornerRadius="@dimen/radius_24"
+                app:cardElevation="@dimen/elev_8"
                 app:cardBackgroundColor="?attr/colorPrimary"
                 android:layout_marginBottom="@dimen/space_24">
 
@@ -64,8 +64,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginHorizontal="@dimen/space_16"
-            app:cardCornerRadius="24dp"
-            app:cardElevation="4dp"
+            app:cardCornerRadius="@dimen/radius_24"
+            app:cardElevation="@dimen/elev_4"
             app:cardBackgroundColor="?attr/colorCardBackground">
 
             <LinearLayout

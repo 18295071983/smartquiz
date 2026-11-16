@@ -179,6 +179,29 @@ public final class AppSheet {
             dialog.setCancelable(cancelable);
             dialog.setCanceledOnTouchOutside(cancelable);
             dialog.show();
+            // 2026-11-16 IME 标准：弹层内容里可能有输入框（重命名/搜索等），
+            // 键盘弹出时给根容器补 ime 底部内边距（BottomSheetDialog 默认不一定 resize）。
+            try {
+                if (dialog.getWindow() != null) {
+                    dialog.getWindow().setSoftInputMode(
+                            android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+                }
+                final int padBottomBase = root.getPaddingBottom();
+                androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+                    int ime = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime()).bottom;
+                    if (ime > 0) {
+                        v.setPadding(v.getPaddingLeft(), v.getPaddingTop(),
+                                v.getPaddingRight(), padBottomBase + ime);
+                    } else {
+                        v.setPadding(v.getPaddingLeft(), v.getPaddingTop(),
+                                v.getPaddingRight(), padBottomBase);
+                    }
+                    return insets;
+                });
+                androidx.core.view.ViewCompat.requestApplyInsets(root);
+            } catch (Throwable ignored) {
+                // IME 适配失败不影响弹层使用
+            }
             return new AppSheet(dialog);
         }
 

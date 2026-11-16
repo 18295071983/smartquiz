@@ -37,9 +37,9 @@
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardElevation="4dp"
+                app:cardElevation="@dimen/elev_4"
                 app:cardBackgroundColor="?attr/colorSecondaryContainer"
-                app:cardCornerRadius="16dp"
+                app:cardCornerRadius="@dimen/radius_16"
                 android:layout_marginBottom="@dimen/space_20">
                 
                 <LinearLayout
@@ -97,9 +97,9 @@
                     android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    app:cardElevation="2dp"
+                    app:cardElevation="@dimen/elev_2"
                     app:cardBackgroundColor="?attr/colorSurface"
-                    app:cardCornerRadius="12dp"
+                    app:cardCornerRadius="@dimen/radius_12"
                     android:layout_marginEnd="@dimen/space_8"
                     android:clickable="true"
                     android:focusable="true">
@@ -135,9 +135,9 @@
                     android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    app:cardElevation="2dp"
+                    app:cardElevation="@dimen/elev_2"
                     app:cardBackgroundColor="?attr/colorSurface"
-                    app:cardCornerRadius="12dp"
+                    app:cardCornerRadius="@dimen/radius_12"
                     android:layout_marginStart="@dimen/space_8"
                     android:clickable="true"
                     android:focusable="true">

@@ -41,9 +41,9 @@
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardElevation="2dp"
+                app:cardElevation="@dimen/elev_2"
                 app:cardBackgroundColor="?attr/colorSurface"
-                app:cardCornerRadius="12dp"
+                app:cardCornerRadius="@dimen/radius_12"
                 android:layout_marginBottom="@dimen/space_12">
 
                 <LinearLayout
@@ -131,9 +131,9 @@
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardElevation="1dp"
+                app:cardElevation="@dimen/elev_1"
                 app:cardBackgroundColor="?attr/colorSurface"
-                app:cardCornerRadius="12dp"
+                app:cardCornerRadius="@dimen/radius_12"
                 android:layout_marginBottom="@dimen/space_12">
 
                 <LinearLayout
@@ -347,9 +347,9 @@
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardElevation="2dp"
+                app:cardElevation="@dimen/elev_2"
                 app:cardBackgroundColor="?attr/colorSurface"
-                app:cardCornerRadius="12dp"
+                app:cardCornerRadius="@dimen/radius_12"
                 android:layout_marginBottom="@dimen/space_12">
 
                 <com.oilquiz.app.ai.chat.AgentExecutionView
@@ -362,9 +362,9 @@
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardElevation="2dp"
+                app:cardElevation="@dimen/elev_2"
                 app:cardBackgroundColor="?attr/colorSurface"
-                app:cardCornerRadius="12dp"
+                app:cardCornerRadius="@dimen/radius_12"
                 android:layout_marginBottom="@dimen/space_12">
 
                 <LinearLayout
@@ -465,9 +465,9 @@
                 android:id="@+id/agentSessionCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardElevation="2dp"
+                app:cardElevation="@dimen/elev_2"
                 app:cardBackgroundColor="?attr/colorSurface"
-                app:cardCornerRadius="12dp"
+                app:cardCornerRadius="@dimen/radius_12"
                 android:visibility="gone"
                 android:layout_marginBottom="@dimen/space_12">
 
@@ -482,9 +482,9 @@
                 android:id="@+id/statsCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardElevation="2dp"
+                app:cardElevation="@dimen/elev_2"
                 app:cardBackgroundColor="?attr/colorSurface"
-                app:cardCornerRadius="12dp"
+                app:cardCornerRadius="@dimen/radius_12"
                 android:visibility="gone">
 
                 <LinearLayout

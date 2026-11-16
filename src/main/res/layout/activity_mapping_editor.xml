@@ -48,8 +48,8 @@
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    app:cardCornerRadius="16dp"
-                    app:cardElevation="2dp"
+                    app:cardCornerRadius="@dimen/radius_16"
+                    app:cardElevation="@dimen/elev_2"
                     app:cardBackgroundColor="?attr/colorPrimaryContainer"
                     android:layout_marginBottom="@dimen/space_16">
 

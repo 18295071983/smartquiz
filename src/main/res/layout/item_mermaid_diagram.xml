@@ -4,8 +4,8 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginVertical="@dimen/space_8"
-    app:cardCornerRadius="8dp"
-    app:cardElevation="0dp"
+    app:cardCornerRadius="@dimen/radius_8"
+    app:cardElevation="@dimen/elev_0"
     app:cardBackgroundColor="?attr/colorSecondaryContainer">
 
     <LinearLayout
