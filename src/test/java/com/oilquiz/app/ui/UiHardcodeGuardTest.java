@@ -88,6 +88,25 @@ public class UiHardcodeGuardTest {
                 + String.join("\n", violations), violations.isEmpty());
     }
 
+    /** 调试控制台（固定深色工具界面，不跟换肤，但必须只用 debug_* 命名色）。 */
+    private static final List<String> DEBUG_CONSOLE_FILES = Arrays.asList(
+            "src/main/res/layout/activity_agent_debug.xml",
+            "src/main/res/layout/item_agent_debug_line.xml",
+            "src/main/res/layout/item_debug_span.xml",
+            "src/main/res/layout/dialog_span_detail.xml");
+
+    @Test
+    public void debugConsoleUsesNamedPaletteOnly() throws IOException {
+        List<String> violations = new ArrayList<>();
+        for (String path : DEBUG_CONSOLE_FILES) {
+            String xml = stripXmlComments(read(path));
+            collect(violations, path, "字面色（应使用 @color/debug_*）", XML_HEX_COLOR, xml);
+            collect(violations, path, "系统固定色（应使用 @color/debug_*）", XML_SYSTEM_COLOR, xml);
+        }
+        assertTrue("调试控制台出现新的魔法色值（统一收敛在 res/values/colors.xml 的 debug_* 里）：\n"
+                + String.join("\n", violations), violations.isEmpty());
+    }
+
     @Test
     public void chatJavaHasNoHardcodedColorSizeOrSpacing() throws IOException {
         List<String> violations = new ArrayList<>();
