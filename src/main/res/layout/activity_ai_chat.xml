@@ -24,8 +24,8 @@
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:background="@drawable/status_bar_background"
-            android:paddingHorizontal="10dp"
-            android:paddingVertical="8dp">
+            android:paddingHorizontal="@dimen/chat_v2_line_pad"
+            android:paddingVertical="@dimen/radius_sm">
 
             <!-- 模型状态信息（可点击弹出详情） -->
             <LinearLayout
@@ -197,8 +197,8 @@
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:background="@drawable/status_bar_background"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="6dp"
+            android:paddingHorizontal="@dimen/radius_md"
+            android:paddingVertical="@dimen/space_sm"
             android:clickable="true"
             android:focusable="true"
             android:foreground="?attr/selectableItemBackground">
@@ -231,9 +231,9 @@
                     android:id="@+id/remote_dsh_sub"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
+                    android:layout_marginTop="@dimen/space_hairline"
                     android:text="配对后可在手机上远程操作电脑"
-                    android:textSize="10sp"
+                    android:textSize="@dimen/font_micro"
                     android:textColor="?attr/colorControlTextSecondary"
                     android:maxLines="2"
                     android:ellipsize="end"/>
@@ -246,11 +246,11 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="@dimen/space_6"
                 android:text="智能"
-                android:textSize="10sp"
+                android:textSize="@dimen/font_micro"
                 android:textStyle="bold"
                 android:textColor="?attr/colorPrimary"
-                android:paddingHorizontal="6dp"
-                android:paddingVertical="2dp"/>
+                android:paddingHorizontal="@dimen/space_sm"
+                android:paddingVertical="@dimen/space_hairline"/>
 
             <TextView
                 android:id="@+id/remote_dsh_action"
@@ -296,15 +296,15 @@
                 <!-- 回到底部按钮：用户回读离开底部时显示，点击回到最新消息 -->
                 <TextView
                     android:id="@+id/btn_scroll_bottom"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
+                    android:layout_width="@dimen/chat_v2_icon_button"
+                    android:layout_height="@dimen/chat_v2_icon_button"
                     android:layout_gravity="bottom|end"
-                    android:layout_marginEnd="14dp"
-                    android:layout_marginBottom="14dp"
+                    android:layout_marginEnd="@dimen/chat_v2_composer_pad"
+                    android:layout_marginBottom="@dimen/chat_v2_composer_pad"
                     android:background="@drawable/system_message_background"
                     android:gravity="center"
                     android:text="↓"
-                    android:textSize="20sp"
+                    android:textSize="@dimen/font_title"
                     android:textColor="?attr/colorOnPrimaryContainer"
                     android:visibility="gone"/>
 
@@ -314,15 +314,15 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="top|center_horizontal"
-                    android:layout_marginTop="8dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:paddingTop="6dp"
-                    android:paddingBottom="6dp"
+                    android:layout_marginTop="@dimen/radius_sm"
+                    android:paddingStart="@dimen/radius_lg"
+                    android:paddingEnd="@dimen/radius_lg"
+                    android:paddingTop="@dimen/space_sm"
+                    android:paddingBottom="@dimen/space_sm"
                     android:background="@drawable/system_message_background"
                     android:gravity="center"
                     android:text="加载更早消息"
-                    android:textSize="13sp"
+                    android:textSize="@dimen/font_label"
                     android:textColor="?attr/colorOnPrimaryContainer"
                     android:visibility="gone"/>
 
@@ -330,16 +330,16 @@
                      初始位于左下，避开右下角"回到底部"；位置由代码持久化并支持来回拖动 -->
                 <TextView
                     android:id="@+id/btn_history_fab"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
+                    android:layout_width="@dimen/size_44"
+                    android:layout_height="@dimen/size_44"
                     android:layout_gravity="bottom|start"
-                    android:layout_marginStart="14dp"
-                    android:layout_marginBottom="80dp"
+                    android:layout_marginStart="@dimen/chat_v2_composer_pad"
+                    android:layout_marginBottom="@dimen/size_80"
                     android:background="@drawable/system_message_background"
-                    android:elevation="6dp"
+                    android:elevation="@dimen/size_6"
                     android:gravity="center"
                     android:text="🕘"
-                    android:textSize="20sp"
+                    android:textSize="@dimen/font_title"
                     android:contentDescription="对话历史"/>
 
                 <!-- 空状态视图已删（2026-11-02，EMPTY-STATE-REAL-ENTRY）：这块居中的 🤖 + 三个
@@ -374,8 +374,8 @@
                 android:layout_height="wrap_content"
                 android:maxHeight="@dimen/max_120"
                 android:orientation="horizontal"
-                android:paddingHorizontal="12dp"
-                android:paddingVertical="4dp"
+                android:paddingHorizontal="@dimen/radius_md"
+                android:paddingVertical="@dimen/space_xs"
                 android:visibility="gone"/>
 
             <!-- 会话统计胶囊条（dsh StatsPills 风格）：输入框上方常驻，点击弹出明细 -->
@@ -383,7 +383,7 @@
                 android:id="@+id/session_stats_bar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:paddingHorizontal="8dp"
+                android:paddingHorizontal="@dimen/radius_sm"
                 android:visibility="visible"/>
 
             <View
@@ -415,8 +415,8 @@
                     android:id="@+id/dock_card_host"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginHorizontal="16dp"
-                    android:layout_marginBottom="4dp"
+                    android:layout_marginHorizontal="@dimen/radius_lg"
+                    android:layout_marginBottom="@dimen/space_xs"
                     android:orientation="vertical"
                     android:visibility="gone"/>
 
@@ -426,8 +426,8 @@
                     android:id="@+id/dock_slot_host"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginHorizontal="16dp"
-                    android:layout_marginBottom="4dp"
+                    android:layout_marginHorizontal="@dimen/radius_lg"
+                    android:layout_marginBottom="@dimen/space_xs"
                     android:orientation="vertical"
                     android:visibility="gone"/>
 
@@ -438,12 +438,12 @@
                     android:id="@+id/agent_progress_slot"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginHorizontal="16dp"
-                    android:layout_marginBottom="4dp"
+                    android:layout_marginHorizontal="@dimen/radius_lg"
+                    android:layout_marginBottom="@dimen/space_xs"
                     android:orientation="vertical"
                     android:background="@drawable/system_message_background"
-                    android:paddingHorizontal="12dp"
-                    android:paddingVertical="6dp"
+                    android:paddingHorizontal="@dimen/radius_md"
+                    android:paddingVertical="@dimen/space_sm"
                     android:visibility="gone">
 
                     <LinearLayout
@@ -457,7 +457,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:textSize="12sp"
+                            android:textSize="@dimen/font_footnote"
                             android:maxLines="1"
                             android:ellipsize="end"
                             android:textColor="?attr/colorControlText"/>
@@ -466,7 +466,7 @@
                             android:id="@+id/tv_agent_progress_pct"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:textSize="12sp"
+                            android:textSize="@dimen/font_footnote"
                             android:textColor="?attr/colorPrimary"/>
                     </LinearLayout>
 
@@ -474,7 +474,7 @@
                         android:id="@+id/pb_agent_progress"
                         style="?android:attr/progressBarStyleHorizontal"
                         android:layout_width="match_parent"
-                        android:layout_height="6dp"
+                        android:layout_height="@dimen/space_sm"
                         android:max="100"
                         android:progress="0"/>
 
@@ -482,7 +482,7 @@
                         android:id="@+id/tv_agent_progress_msg"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:textSize="11sp"
+                        android:textSize="@dimen/font_caption"
                         android:maxLines="2"
                         android:ellipsize="end"
                         android:textColor="?attr/colorControlTextSecondary"/>
@@ -491,8 +491,8 @@
                         android:id="@+id/tv_agent_progress_meta"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:textSize="10sp"
+                        android:layout_marginTop="@dimen/space_hairline"
+                        android:textSize="@dimen/font_micro"
                         android:maxLines="2"
                         android:ellipsize="end"
                         android:visibility="gone"
@@ -506,13 +506,13 @@
                     android:id="@+id/queue_bar"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginHorizontal="16dp"
-                    android:layout_marginBottom="4dp"
+                    android:layout_marginHorizontal="@dimen/radius_lg"
+                    android:layout_marginBottom="@dimen/space_xs"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
                     android:background="@drawable/system_message_background"
-                    android:paddingHorizontal="12dp"
-                    android:paddingVertical="6dp"
+                    android:paddingHorizontal="@dimen/radius_md"
+                    android:paddingVertical="@dimen/space_sm"
                     android:visibility="gone">
                     <TextView
                         android:id="@+id/tv_queue_info"
@@ -520,16 +520,16 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="⏳ 排队中…"
-                        android:textSize="12sp"
+                        android:textSize="@dimen/font_footnote"
                         android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/btn_queue_cancel"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:paddingHorizontal="8dp"
-                        android:paddingVertical="2dp"
+                        android:paddingHorizontal="@dimen/radius_sm"
+                        android:paddingVertical="@dimen/space_hairline"
                         android:text="✕ 取消排队"
-                        android:textSize="12sp"
+                        android:textSize="@dimen/font_footnote"
                         android:textColor="?attr/colorPrimary"/>
                 </LinearLayout>
 
@@ -539,7 +539,7 @@
                     android:id="@+id/chip_resume_interrupted"
                     android:layout_width="wrap_content"
                     android:layout_height="@dimen/size_28"
-                    android:layout_marginHorizontal="4dp"
+                    android:layout_marginHorizontal="@dimen/space_xs"
                     android:layout_marginBottom="@dimen/space_4"
                     android:checkable="false"
                     android:minHeight="@dimen/size_28"
@@ -563,7 +563,7 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:paddingHorizontal="4dp"
+                    android:paddingHorizontal="@dimen/space_xs"
                     android:paddingTop="@dimen/space_8">
 
                     <com.google.android.material.chip.Chip
@@ -672,7 +672,7 @@
                     app:cornerRadius="@dimen/radius_16"
                     android:textAllCaps="false"
                     android:layout_marginEnd="@dimen/space_8"
-                    android:paddingHorizontal="10dp"
+                    android:paddingHorizontal="@dimen/chat_v2_line_pad"
                     android:minWidth="@dimen/min_0"
                     android:contentDescription="新建对话"/>
                 <com.google.android.material.button.MaterialButton

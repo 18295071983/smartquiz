@@ -11,7 +11,7 @@
     <View
         android:id="@+id/chat_v2_tool_row_divider"
         android:layout_width="match_parent"
-        android:layout_height="1dp"
+        android:layout_height="@dimen/card_shell_border"
         android:background="?attr/colorBorder"/>
 
     <LinearLayout
@@ -52,7 +52,7 @@
                 android:id="@+id/chat_v2_tool_row_desc"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="1dp"
+                android:layout_marginTop="@dimen/card_shell_border"
                 android:ellipsize="end"
                 android:singleLine="true"
                 android:textColor="?attr/colorControlTextHint"

@@ -70,8 +70,8 @@
 
             <ImageView
                 android:id="@+id/chat_v2_title_chev"
-                android:layout_width="14dp"
-                android:layout_height="14dp"
+                android:layout_width="@dimen/chat_v2_composer_pad"
+                android:layout_height="@dimen/chat_v2_composer_pad"
                 android:layout_marginStart="@dimen/space_2"
                 android:contentDescription="@string/chat_v2_switch_model"
                 android:src="@drawable/ic_chevron_down"
@@ -81,7 +81,7 @@
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="1dp"
+            android:layout_marginTop="@dimen/card_shell_border"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 

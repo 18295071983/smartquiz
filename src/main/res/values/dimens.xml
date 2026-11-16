@@ -33,6 +33,7 @@
     <dimen name="min_180">180dp</dimen>
     <dimen name="min_200">200dp</dimen>
     <dimen name="min_300">300dp</dimen>
+    <dimen name="radius_6">6dp</dimen>
     <dimen name="radius_8">8dp</dimen>
     <dimen name="radius_10">10dp</dimen>
     <dimen name="radius_12">12dp</dimen>
