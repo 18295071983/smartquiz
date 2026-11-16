@@ -669,7 +669,7 @@ public class AgentLoopEngine {
         logEffectiveTemperature(); // USER-PARAMS：进入循环前打一次生效温度与来源，便于核对用户参数
         if (aiConfig != null && aiConfig.isFcEnabled()) {
             // 就绪弹窗：只列核心能力名（全量 20+ 工具太长，能力明细模型可从 schema 读取）
-            StringBuilder readySb = new StringBuilder("🤖 本地Agent就绪：");
+            StringBuilder readySb = new StringBuilder("本地Agent就绪：");
             boolean first = true;
             for (String t : activeTools) {
                 if (!first) readySb.append("、");
@@ -744,7 +744,7 @@ public class AgentLoopEngine {
         // 它必须是第一个追加项：appendTailBlock 的返回值一定非 null，后面的【已存记忆】/
         // 【当前任务】因此不会在 userMessage==null 时把字面量 "null" 拼进 prompt。
         effectiveUserMessage = appendTailBlock(effectiveUserMessage, buildCurrentTimeLine(modelFcMode));
-        // CHIP-ASK(2026-11-02)：用户点了工具抽屉里的「🔍 搜索」（一键发问）→ 本轮强制先联网。
+        // CHIP-ASK(2026-11-02)：用户点了工具抽屉里的「搜索」（一键发问）→ 本轮强制先联网。
         // 与在线侧共用同一个一次性信号（LiveSearchHint）：谁先跑谁消费，不会两边都生效。
         // MODE-GATE(2026-11-02)：d730ca1b 之后本地「普通模式」和「agent 模式」共用本引擎，差别只在
         // 是否注入工具（modelFcMode）。普通模式没有 network_search，却照样追加"请先用它查"，
@@ -1307,7 +1307,7 @@ public class AgentLoopEngine {
                 ToolCall tc = freshCalls.get(i);
                 toolCallCount++;
                 String tLabel = toolLabel(tc.toolName);
-                showToast("🔧 调用: " + tLabel);
+                showToast("调用: " + tLabel);
                 // dsh 对齐：工具声明化 pending 卡片（presentCall，纯函数可重放，2026-09-23）
                 Map<String, Object> callCard = null;
                 AITool presentTool = null;
@@ -1354,7 +1354,7 @@ public class AgentLoopEngine {
                         AILogger.i(TAG, "Tool " + tc.toolName + " failed, suggesting alternative: " + alt);
                     }
                 }
-                showToast(success ? "✅ " + tLabel + " 完成" : "❌ " + tLabel + " 失败: " + truncate(resultStr, 40));
+                showToast(success ? "" + tLabel + " 完成" : "" + tLabel + " 失败: " + truncate(resultStr, 40));
                 // dsh 对齐：工具声明化完成卡片（presentResult，纯函数可重放，2026-09-23）
                 Map<String, Object> resultCard = null;
                 if (presentTool != null) {

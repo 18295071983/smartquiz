@@ -175,7 +175,7 @@ public class McpManagerActivity extends AppCompatActivity {
         actionRow.setOrientation(LinearLayout.HORIZONTAL);
 
         TextView refreshBtn = new TextView(this);
-        refreshBtn.setText("🔄 刷新");
+        refreshBtn.setText("刷新");
         refreshBtn.setTextSize(13);
         refreshBtn.setGravity(Gravity.CENTER);
         refreshBtn.setTextColor(color(R.color.text_primary));
@@ -562,7 +562,7 @@ public class McpManagerActivity extends AppCompatActivity {
         boolean hasTokenRef = cfg.tokenRef != null && !cfg.tokenRef.isEmpty();
         // 只在"卡住了、需要用户动手"时多挤一个按钮出来；平时不占位
         if (McpManager.getInstance(this).needsAuthorization(cfg.id)) {
-            opsRow.addView(createOpButton("🔐 授权", R.color.primary_container,
+            opsRow.addView(createOpButton("授权", R.color.primary_container,
                     v -> startAuthorization(cfg)));
         }
         opsRow.addView(createOpButton("🔗 密钥",
@@ -648,7 +648,7 @@ public class McpManagerActivity extends AppCompatActivity {
             sb.append("正在连接服务并拉取 tools/list…");
         } else if ("auth_required".equals(status)) {
             sb.append("服务商要求先完成一次浏览器授权（401 里给了授权文档地址）。\n\n下一步：\n")
-                    .append("• 点「🔐 去授权」，在浏览器里登录并同意，回到本页会自动同步工具\n")
+                    .append("• 点「去授权」，在浏览器里登录并同意，回到本页会自动同步工具\n")
                     .append("• 最多等 5 分钟；中途关掉浏览器这次就不算完成，可以重来\n")
                     .append("• 令牌快到期时会自动续期，不用反复登录\n");
         } else if (status.startsWith("ok:")) {
@@ -702,7 +702,7 @@ public class McpManagerActivity extends AppCompatActivity {
         boolean authNeeded = "auth_required".equals(status);
         if (authNeeded) {
             // 需要授权时首位按钮就给授权；"立即刷新"退到次要位——刷一百次也不会变成已授权
-            b.positive("🔐 去授权", (d, w) -> startAuthorization(cfg));
+            b.positive("去授权", (d, w) -> startAuthorization(cfg));
             if (cfg.enabled) {
                 b.neutral("立即刷新", (d, w) -> {
                     McpManager.getInstance(this).refreshServer(cfg.id);

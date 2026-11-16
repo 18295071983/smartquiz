@@ -114,7 +114,9 @@
                             android:layout_height="@dimen/size_48"
                             android:layout_weight="1"
                             android:layout_marginStart="@dimen/space_8"
-                            android:text="🤖智能体"
+                            android:text="智能体"
+                            app:icon="@drawable/ic_ai_robot"
+                            app:iconTint="?attr/colorOnTertiary"
                             android:singleLine="true"
                             app:backgroundTint="?attr/colorTertiary"
                             android:textColor="?attr/colorOnTertiary"
@@ -145,7 +147,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="📝 题库说明（可选）"
+                        android:text="题库说明（可选）"
                         android:textSize="@dimen/text_14"
                         android:textStyle="bold"
                         android:textColor="?attr/colorOnSurface" />

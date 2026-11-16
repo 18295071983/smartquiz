@@ -45,7 +45,7 @@ public class AgentMemoryView {
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView title = new TextView(context);
-        title.setText("🧠 长期记忆");
+        title.setText("长期记忆");
         title.setTextSize(16);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setTextColor(color(R.color.text_primary));
@@ -53,7 +53,7 @@ public class AgentMemoryView {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView refreshBtn = new TextView(context);
-        refreshBtn.setText("🔄 刷新");
+        refreshBtn.setText("刷新");
         refreshBtn.setTextSize(12);
         refreshBtn.setGravity(Gravity.CENTER);
         refreshBtn.setTextColor(color(R.color.text_secondary));
@@ -108,7 +108,7 @@ public class AgentMemoryView {
 
         // 底部操作：清空
         TextView clearBtn = new TextView(context);
-        clearBtn.setText("🗑 清空所有记忆");
+        clearBtn.setText("清空所有记忆");
         clearBtn.setTextSize(13);
         clearBtn.setGravity(Gravity.CENTER);
         clearBtn.setTextColor(color(R.color.error));

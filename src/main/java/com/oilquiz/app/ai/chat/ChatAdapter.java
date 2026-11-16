@@ -2089,7 +2089,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 time.setVisibility(View.GONE);
             }
         }
-        bindToolCardState(ctx, card, running, failed, expanded);
+        bindToolCardState(ctx, card, running, failed, expanded, tools);
 
         LinearLayout body = card.findViewById(R.id.chat_v2_tool_card_body);
         if (body != null) {
@@ -2504,7 +2504,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             timeView.setText(time != null ? time : "");
             timeView.setVisibility(time == null || time.isEmpty() ? View.GONE : View.VISIBLE);
         }
-        bindToolCardState(ctx, holder.toolCard, running, failed, toolExpanded);
+        bindToolCardState(ctx, holder.toolCard, running, failed, toolExpanded, toolItems);
 
         if (holder.toolCardBody != null) {
             String fp = toolCardFingerprint(toolItems, toolExpanded);
@@ -2543,8 +2543,33 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * </ul>
      * 同时把展开/收起状态写进 stateDescription（TalkBack 可读）。
      */
+    /** 工具卡"完整详情"文本（独立弹层用）：每个工具一条标题 + 摘要 + 正文（截断保护）。 */
+    private static String buildToolCardDetail(java.util.List<ActivityTimeline.Item> tools) {
+        if (tools == null || tools.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (ActivityTimeline.Item it : tools) {
+            if (it == null) continue;
+            sb.append("• ").append(it.title == null ? "" : it.title);
+            String status = it.status == null ? "" : it.status.name().toLowerCase(java.util.Locale.ROOT);
+            if (!status.isEmpty()) sb.append(" · ").append(status);
+            if (it.durationMs > 0) sb.append(" · ").append(formatThinkingDuration(it.durationMs));
+            sb.append('\n');
+            if (it.summary != null && !it.summary.isEmpty()) {
+                sb.append("  ").append(it.summary).append('\n');
+            }
+            if (it.body != null && !it.body.isEmpty()) {
+                String body = it.body.trim();
+                if (body.length() > 1500) body = body.substring(0, 1500) + "…";
+                sb.append("  ").append(body.replace("\n", "\n  ")).append('\n');
+            }
+            sb.append('\n');
+        }
+        return sb.toString().trim();
+    }
+
     private static void bindToolCardState(android.content.Context ctx, View card,
-                                          int running, int failed, boolean expanded) {
+                                          int running, int failed, boolean expanded,
+                                          java.util.List<ActivityTimeline.Item> tools) {
         View ok = card.findViewById(R.id.chat_v2_tool_card_ok);
         if (ok != null) ok.setVisibility(running == 0 && failed == 0 ? View.VISIBLE : View.GONE);
         View err = card.findViewById(R.id.chat_v2_tool_card_err);
@@ -2563,6 +2588,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (chev != null) chev.setRotation(expanded ? 90f : 0f);
         View header = card.findViewById(R.id.chat_v2_tool_card_header);
         if (header != null) {
+            // 2026-11-16：长按工具卡头 → 独立弹层看完整参数/结果（内联只有 2 行摘要）
+            header.setOnLongClickListener(v -> {
+                com.oilquiz.app.ai.chat.component.ToolDetailSheet.show(ctx,
+                        "工具详情", buildToolCardDetail(tools));
+                return true;
+            });
             androidx.core.view.ViewCompat.setStateDescription(header,
                     running > 0 ? ctx.getString(R.string.chat_v2_tool_running_desc)
                             : failed > 0 ? ctx.getString(R.string.chat_v2_tool_failed_desc)

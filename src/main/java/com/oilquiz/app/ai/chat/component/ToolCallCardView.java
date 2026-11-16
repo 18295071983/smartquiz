@@ -129,19 +129,28 @@ public class ToolCallCardView implements ChatComponent {
         detailLp.topMargin = Tokens.spaceHairline(context);
         root.addView(detailTv, detailLp);
 
-        // 长摘要可点击展开/收起（默认 2 行；展开 10 行），不额外加按钮占高度
-        boolean longDetail = detail != null && detail.length() > 80;
-        if (longDetail) {
-            root.setClickable(true);
-            root.setFocusable(true);
-            root.setOnClickListener(v -> {
-                boolean expanded = detailTv.getMaxLines() != 2;
-                detailTv.setMaxLines(expanded ? 2 : 10);
-                detailTv.setEllipsize(expanded ? TextUtils.TruncateAt.END : null);
-            });
-            androidx.core.view.ViewCompat.setStateDescription(root, "点击展开或收起工具详情");
-        }
+        // 2026-11-16：点击整行走"独立弹层"看完整参数/结果（内联只保留 2 行摘要），
+        // 弹层用 AppSheet（可滚动/等宽/一键复制），长日志不再被截断。
+        String fullBody = ToolDetailSheet.buildBody(args,
+                TextUtils.isEmpty(rawResult) ? summary : rawResult,
+                (running ? "运行中" : failed ? "失败" : "完成") + statusNote(p));
+        root.setClickable(true);
+        root.setFocusable(true);
+        final String titleText = displayLabel;
+        final String bodyText = fullBody;
+        root.setOnClickListener(v -> ToolDetailSheet.show(context, titleText, bodyText));
+        androidx.core.view.ViewCompat.setStateDescription(root, "点击查看完整工具参数与结果");
         return root;
+    }
+
+    /** 状态补充：失败带退出码/耗时；完成带耗时（没有就空串）。 */
+    private static String statusNote(JSONObject p) {
+        String exit = p.optString("exitCode", p.optString("exit_code", ""));
+        String dur = formatDuration(p.optLong("durationMs", 0L));
+        StringBuilder sb = new StringBuilder();
+        if (!TextUtils.isEmpty(exit)) sb.append("（退出码 ").append(exit).append("）");
+        if (!TextUtils.isEmpty(dur)) sb.append("（").append(dur).append("）");
+        return sb.toString();
     }
 
     /** 参数摘要：args 可能是 JSON/空；压成 key=value, … 一行（最多 80 字）。 */

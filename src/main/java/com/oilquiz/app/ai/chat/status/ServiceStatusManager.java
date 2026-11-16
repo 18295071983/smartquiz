@@ -345,7 +345,7 @@ public class ServiceStatusManager {
             return;
         }
 
-        String stageIcon = getStageIcon(stage);
+        applyStageIcon(stage);
         String stageName = getStageDisplayName(stage);
         // 文案统一走"短句 + 秒数"（与状态机同一套）：原实现优先用 stageMessage，
         // 而那是各调用点手写的中文长句（如"加载模型到内存中..."），与状态机风格不一致。
@@ -394,7 +394,7 @@ public class ServiceStatusManager {
             displayMessage = engineStatusLine("就绪");
         }
 
-        serviceStatusIcon.setText(stageIcon);
+        applyStageIcon(stage);
         publishStatusText(withEngine(displayMessage));
         int dotColor = stage == AIServiceState.ServiceStage.INITIALIZED
                 ? R.color.chat_v2_success
@@ -558,7 +558,7 @@ public class ServiceStatusManager {
             serviceStatusProgress.setVisibility(View.GONE);
         }
 
-        if (serviceStatusIcon != null) serviceStatusIcon.setText("\u2601\uFE0F");
+        applyOnlineIcon();
         // 统一文案：engineStatusLine 自己会拼「在线模型 · 模型名 · 状态」，
         // 不能再把模型名塞进 state（会变成 "deepseek-flash · deepseek-flash 就绪"）。
         publishStatusText(engineStatusLine("就绪"));
@@ -575,7 +575,6 @@ public class ServiceStatusManager {
         if (uiHandler == null) return;
         stopLoadingTimer();
 
-        final String stageIcon = getStageIcon(stage);
 
         loadingTimerRunnable = new Runnable() {
             @Override
@@ -594,7 +593,7 @@ public class ServiceStatusManager {
                     displayMessage = message != null ? message : getStageDisplayName(stage);
                 }
 
-                if (serviceStatusIcon != null) serviceStatusIcon.setText(stageIcon);
+                applyStageIcon(stage);
                 publishStatusText(withEngine(displayMessage));
 
                 if (aiService.getServiceState().isLoading()) {
@@ -619,7 +618,7 @@ public class ServiceStatusManager {
             ChatMessage msg = chatHistory.get(i);
             if (msg.type == ChatMessage.MessageType.SYSTEM &&
                 msg.content != null &&
-                msg.content.contains("\uD83D\uDD04 正在重新加载模型")) {
+                msg.content.contains("正在重新加载模型")) {
                 String newContent = msg.content.replaceAll("\\[\\d+%\\]", "[" + progress + "%]");
                 if (!newContent.contains("[")) {
                     newContent = msg.content + " [" + progress + "%]";
@@ -776,20 +775,51 @@ public class ServiceStatusManager {
         return details.toString();
     }
 
-    private String getStageIcon(AIServiceState.ServiceStage stage) {
-        if (stage == null) return "\u2699\uFE0F";
-        switch (stage) {
-            case UNINITIALIZED: return "\u23F3";
-            case NATIVE_LIBRARY_LOADING: return "\uD83D\uDCE6";
-            case MODEL_FILE_PREPARING: return "\uD83D\uDCC1";
-            case MODEL_LOADING: return "\uD83D\uDCE5";
-            case GPU_INITIALIZATION: return "\uD83C\uDFAE";
-            case CPU_FALLBACK: return "\uD83D\uDCBB";
-            case CHAT_CONTEXT_CREATING: return "\uD83D\uDD27";
-            case INITIALIZED: return "\u2713";
-            case ERROR: return "\u2717";
-            default: return "\u2699\uFE0F";
+    /**
+     * 状态图标（2026-11-16）：用组件库矢量图标 + 语义色替换 emoji。
+     * 加载/准备类阶段带 {@link com.oilquiz.app.ui.UiFx#breathing} 呼吸动画（"还在跑"的视觉信号），
+     * 就绪/错误用 success/error 静态图标。
+     */
+    private void applyStageIcon(AIServiceState.ServiceStage stage) {
+        if (serviceStatusIcon == null) return;
+        serviceStatusIcon.setText("");
+        int iconRes;
+        int colorRes;
+        boolean running;
+        if (stage == AIServiceState.ServiceStage.ERROR) {
+            iconRes = R.drawable.ic_ai_error;
+            colorRes = R.color.error;
+            running = false;
+        } else if (stage == AIServiceState.ServiceStage.INITIALIZED) {
+            iconRes = R.drawable.ic_ai_success;
+            colorRes = R.color.success;
+            running = false;
+        } else {
+            iconRes = R.drawable.ic_ai_loading;
+            colorRes = R.color.primary;
+            running = true;
         }
+        android.content.Context ctx = serviceStatusIcon.getContext();
+        androidx.core.widget.TextViewCompat.setCompoundDrawableTintList(serviceStatusIcon,
+                android.content.res.ColorStateList.valueOf(ThemeColors.get(ctx, colorRes)));
+        serviceStatusIcon.setCompoundDrawablesRelativeWithIntrinsicBounds(iconRes, 0, 0, 0);
+        if (running) {
+            com.oilquiz.app.ui.UiFx.pulse(serviceStatusIcon);
+        } else {
+            com.oilquiz.app.ui.UiFx.stopPulse(serviceStatusIcon);
+        }
+    }
+
+    /** 在线模型：云图标 + accent 色（替代 ☁️ emoji）。 */
+    private void applyOnlineIcon() {
+        if (serviceStatusIcon == null) return;
+        serviceStatusIcon.setText("");
+        androidx.core.widget.TextViewCompat.setCompoundDrawableTintList(serviceStatusIcon,
+                android.content.res.ColorStateList.valueOf(
+                        ThemeColors.get(serviceStatusIcon.getContext(), R.color.primary)));
+        serviceStatusIcon.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                R.drawable.ic_online_ai, 0, 0, 0);
+        com.oilquiz.app.ui.UiFx.stopPulse(serviceStatusIcon);
     }
 
     private String getStageDisplayName(AIServiceState.ServiceStage stage) {

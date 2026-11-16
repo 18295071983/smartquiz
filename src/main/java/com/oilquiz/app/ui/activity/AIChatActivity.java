@@ -2013,7 +2013,7 @@ public class AIChatActivity extends BaseActivity {
 
             @Override
             public void onSearchAsk() {
-                // CHIP-ASK(2026-11-02)：点「🔍 搜索」= 把输入框里的问题直接交给模型并"本轮联网"。
+                // CHIP-ASK(2026-11-02)：点「搜索」= 把输入框里的问题直接交给模型并"本轮联网"。
                 // 空输入时退化成参数表单，不让这一下点击变成死路（长按也随时能开表单）。
                 String q = inputMessage != null ? inputMessage.getText().toString().trim() : "";
                 if (q.isEmpty()) {

@@ -147,7 +147,7 @@ public class McpMarketActivity extends AppCompatActivity {
         // 搜索框
         EditText searchInput = new EditText(this);
         searchInput.setSingleLine(true);
-        searchInput.setHint("🔍 搜索服务（名称 / 描述 / 服务商 / 标签）");
+        searchInput.setHint("搜索服务（名称 / 描述 / 服务商 / 标签）");
         searchInput.setTextSize(13);
         searchInput.setPadding(dp(10), dp(4), dp(10), dp(4));
         searchInput.setBackground(buttonBackground(R.color.surface_variant));
@@ -631,7 +631,7 @@ public class McpMarketActivity extends AppCompatActivity {
                     .setTitle("要走一次浏览器授权")
                     .setMessage(msg + "\n\n点「去授权」会先把这条存成停用项，再打开浏览器；"
                             + "你在浏览器里同意后会回到这里自动复测并启用。")
-                    .setPositiveButton("🔐 去授权", (d, w) -> {
+                    .setPositiveButton("去授权", (d, w) -> {
                         McpManager.getInstance(this).upsertServer(probed.withEnabled(false));
                         renderList();
                         startAuthorization(e, draft, probed);
@@ -702,7 +702,7 @@ public class McpMarketActivity extends AppCompatActivity {
             com.oilquiz.app.ui.modal.AppDialog.builder(this)
                     .setTitle("授权没完成")
                     .setMessage(outcome.message
-                            + "\n\n这条已存成停用项，可以到管理页再点「🔐 授权」重试。")
+                            + "\n\n这条已存成停用项，可以到管理页再点「授权」重试。")
                     .setPositiveButton("知道了", (d, w) -> renderList())
                     .show();
         }));
