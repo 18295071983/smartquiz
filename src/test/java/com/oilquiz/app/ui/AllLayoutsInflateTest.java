@@ -61,6 +61,64 @@ public class AllLayoutsInflateTest {
         assertNoFailures(inflateAll(ThemedContext.get()), "夜间");
     }
 
+    /**
+     * 换预设色（ThemeOverlay）后，所有布局仍必须能 inflate。
+     *
+     * <p>主题换肤在运行时是 {@code theme.applyStyle(ThemeOverlay.SmartQuiz.Xxx, true)}，
+     * overlay 只覆盖一部分 attr；如果某个布局用到的 attr 在所有 overlay 里都缺、又没在基础主题里兜底，
+     * 换肤后打开该页面就会崩。这里抽 5 个档位（蓝/绿/Hue00/Hue15/Hue23）做代表，
+     * 覆盖冷/暖/中性色相。</p>
+     */
+    @Test
+    public void everyLayoutInflatesUnderPresetOverlays() {
+        int[] overlays = {
+                R.style.ThemeOverlay_SmartQuiz_Blue,
+                R.style.ThemeOverlay_SmartQuiz_Green,
+                R.style.ThemeOverlay_SmartQuiz_Hue00,
+                R.style.ThemeOverlay_SmartQuiz_Hue15,
+                R.style.ThemeOverlay_SmartQuiz_Hue23
+        };
+        List<String> failures = new ArrayList<>();
+        for (int overlay : overlays) {
+            android.view.ContextThemeWrapper ctx = new android.view.ContextThemeWrapper(
+                    ThemedContext.get(), R.style.Theme_OilQuizApp);
+            ctx.getTheme().applyStyle(overlay, true);
+            try {
+                for (String f : inflateAll(ctx)) {
+                    failures.add(ctx.getResources().getResourceEntryName(overlay) + " → " + f);
+                }
+            } catch (Throwable t) {
+                failures.add("overlay " + overlay + " 应用失败: " + t);
+            }
+        }
+        assertNoFailures(failures, "换肤");
+    }
+
+    /** 夜间 + 换肤（values-night/theme_overlays.xml）同样要能 inflate 全部布局。 */
+    @Test
+    @Config(qualifiers = "night")
+    public void everyLayoutInflatesUnderPresetOverlaysAtNight() {
+        int[] overlays = {
+                R.style.ThemeOverlay_SmartQuiz_Blue,
+                R.style.ThemeOverlay_SmartQuiz_Hue00,
+                R.style.ThemeOverlay_SmartQuiz_Hue23
+        };
+        List<String> failures = new ArrayList<>();
+        for (int overlay : overlays) {
+            android.view.ContextThemeWrapper ctx = new android.view.ContextThemeWrapper(
+                    ThemedContext.get(), R.style.Theme_OilQuizApp);
+            ctx.getTheme().applyStyle(overlay, true);
+            try {
+                for (String f : inflateAll(ctx)) {
+                    failures.add(ctx.getResources().getResourceEntryName(overlay) + " → " + f);
+                }
+            } catch (Throwable t) {
+                failures.add("overlay " + overlay + " 应用失败: " + t);
+            }
+        }
+        assertNoFailures(failures, "夜间换肤");
+    }
+
     // ---------------- 工具 ----------------
 
     private static void assertNoFailures(List<String> failures, String mode) {
