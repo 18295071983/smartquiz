@@ -127,20 +127,20 @@ public class ChatDialogHelper {
             details.append("\n\uD83D\uDCCA **执行结果**:\n").append(resultPreview).append("\n");
         }
 
-        new AlertDialog.Builder(activity)
-            .setTitle("工具详情: " + (info.toolDisplayName != null ? info.toolDisplayName : info.toolName))
-            .setMessage(details.toString())
-            .setPositiveButton("复制结果", (dialog, which) -> {
+        com.oilquiz.app.ui.modal.AppDialog.builder(activity)
+            .title("工具详情: " + (info.toolDisplayName != null ? info.toolDisplayName : info.toolName))
+            .message(details.toString())
+            .positive("复制结果", (dialog, which) -> {
                 if (info.result != null) {
                     copyToClipboard("Tool Result", info.result);
                     callback.onShowToast("已复制结果");
                 }
             })
-            .setNeutralButton("复制全部", (dialog, which) -> {
+            .neutral("复制全部", (dialog, which) -> {
                 copyToClipboard("Tool Details", details.toString());
                 callback.onShowToast("已复制全部信息");
             })
-            .setNegativeButton("关闭", null)
+            .negative("关闭", null)
             .show();
     }
 
@@ -174,24 +174,24 @@ public class ChatDialogHelper {
 
         final String finalContent = exportContent.toString();
 
-        new AlertDialog.Builder(activity)
-            .setTitle("导出总结")
-            .setMessage("选择导出方式：\n\n" +
+        com.oilquiz.app.ui.modal.AppDialog.builder(activity)
+            .title("导出总结")
+            .message("选择导出方式：\n\n" +
                 "\uD83D\uDCCB 复制到剪贴板\n" +
                 "\uD83D\uDCE4 分享到其他应用\n" +
                 "\uD83D\uDCDD 预览内容")
-            .setPositiveButton("复制", (dialog, which) -> {
+            .positive("复制", (dialog, which) -> {
                 copyToClipboard("AI Summary", finalContent);
                 callback.onShowToast("已复制到剪贴板");
             })
-            .setNeutralButton("分享", (dialog, which) -> {
+            .neutral("分享", (dialog, which) -> {
                 Intent shareIntent = new Intent(Intent.ACTION_SEND);
                 shareIntent.setType("text/plain");
                 shareIntent.putExtra(Intent.EXTRA_TITLE, "AI对话总结");
                 shareIntent.putExtra(Intent.EXTRA_TEXT, finalContent);
                 activity.startActivity(Intent.createChooser(shareIntent, "分享总结"));
             })
-            .setNegativeButton("预览", (dialog, which) -> {
+            .negative("预览", (dialog, which) -> {
                 showPreviewDialog("总结预览", finalContent);
             })
             .show();
@@ -222,11 +222,11 @@ public class ChatDialogHelper {
         guide.append("• 可以让AI总结之前的对话\n");
         guide.append("• 使用工具帮助完成复杂任务\n");
 
-        new AlertDialog.Builder(activity)
-            .setTitle("AI助手使用指南")
-            .setMessage(guide.toString())
-            .setPositiveButton("我知道了", null)
-            .setNeutralButton("复制指南", (dialog, which) -> {
+        com.oilquiz.app.ui.modal.AppDialog.builder(activity)
+            .title("AI助手使用指南")
+            .message(guide.toString())
+            .positive("我知道了", null)
+            .neutral("复制指南", (dialog, which) -> {
                 copyToClipboard("AI Guide", guide.toString());
                 callback.onShowToast("已复制使用指南");
             })
@@ -237,14 +237,14 @@ public class ChatDialogHelper {
      * 显示预览对话框
      */
     public void showPreviewDialog(String title, String content) {
-        new AlertDialog.Builder(activity)
-            .setTitle(title)
-            .setMessage(content)
-            .setPositiveButton("复制", (dialog, which) -> {
+        com.oilquiz.app.ui.modal.AppDialog.builder(activity)
+            .title(title)
+            .message(content)
+            .positive("复制", (dialog, which) -> {
                 copyToClipboard(title, content);
                 callback.onShowToast("已复制");
             })
-            .setNegativeButton("关闭", null)
+            .negative("关闭", null)
             .show();
     }
 
@@ -253,9 +253,9 @@ public class ChatDialogHelper {
      */
     public void showInputOptions(EditText inputMessage) {
         String[] options = {"粘贴", "清空输入", "导出对话"};
-        new AlertDialog.Builder(activity)
-            .setTitle("选项")
-            .setItems(options, (dialog, which) -> {
+        com.oilquiz.app.ui.modal.AppDialog.builder(activity)
+            .title("选项")
+            .items(options, (dialog, which) -> {
                 switch (which) {
                     case 0:
                         ClipboardManager clipboard = (ClipboardManager) activity.getSystemService(Activity.CLIPBOARD_SERVICE);

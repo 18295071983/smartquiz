@@ -65,35 +65,32 @@ public final class ChatV2ActionSheet {
     public static void show(Context ctx, @StringRes int titleRes, List<Item> items) {
         if (ctx == null || items == null || items.isEmpty()) return;
         try {
-            BottomSheetDialog sheet = new BottomSheetDialog(ctx);
+            // 2026-11-16：弹层外壳统一走 AppSheet（圆角/拖拽条/标题排版/底色都由标准壳决定），
+            // 这里只负责"一行一个动作"的内容。
             LinearLayout box = new LinearLayout(ctx);
             box.setOrientation(LinearLayout.VERTICAL);
-            int padH = dp(ctx, 18);
-            box.setPadding(padH, dp(ctx, 10), padH, dp(ctx, 14));
-
-            TextView title = new TextView(ctx);
-            title.setText(titleRes);
-            title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f);
-            title.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text));
-            title.setPadding(0, 0, 0, dp(ctx, 8));
-            box.addView(title);
 
             List<Item> usable = new ArrayList<>();
             for (Item item : items) {
                 if (item != null && item.onClick != null) usable.add(item);
             }
+            final com.oilquiz.app.ui.modal.AppSheet[] holder = new com.oilquiz.app.ui.modal.AppSheet[1];
             for (Item item : usable) {
-                box.addView(createRow(ctx, item, sheet));
+                box.addView(createRow(ctx, item, () -> {
+                    if (holder[0] != null) holder[0].dismiss();
+                }));
             }
-            sheet.setContentView(box);
-            sheet.show();
+            holder[0] = com.oilquiz.app.ui.modal.AppSheet.builder(ctx)
+                    .title(ctx.getString(titleRes))
+                    .content(box)
+                    .show();
         } catch (Throwable t) {
             // 面板是入口不是功能本体：起不来就退回提示，不能把消息渲染带崩
             Toast.makeText(ctx, R.string.chat_v2_no_data, Toast.LENGTH_SHORT).show();
         }
     }
 
-    private static View createRow(Context ctx, Item item, BottomSheetDialog sheet) {
+    private static View createRow(Context ctx, Item item, Runnable dismiss) {
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -120,7 +117,7 @@ public final class ChatV2ActionSheet {
         row.addView(label);
 
         row.setOnClickListener(v -> {
-            sheet.dismiss();
+
             item.onClick.onClick(v);
         });
         return row;

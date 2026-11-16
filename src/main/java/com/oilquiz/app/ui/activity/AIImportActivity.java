@@ -17,7 +17,6 @@ import com.google.android.material.card.MaterialCardView;
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.agent.AgentSession;
 import com.oilquiz.app.ai.chat.AgentExecutionView;
-import com.oilquiz.app.ai.chat.ui.ChatBottomSheet;
 import com.oilquiz.app.ai.chat.ui.GuideStepFlowView;
 import com.oilquiz.app.ai.importing.AgentImportStateMachine;
 import com.oilquiz.app.ai.importing.AIImportOrchestrator;
