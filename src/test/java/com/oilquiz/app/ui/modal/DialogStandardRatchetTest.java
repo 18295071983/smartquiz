@@ -30,7 +30,7 @@ import java.util.stream.Stream;
 public class DialogStandardRatchetTest {
 
     /** 当前手写数量（2026-11-16 基线）。迁移后请下调，禁止上调。 */
-    private static final int MAX_RAW_ALERT_DIALOG = 92;      // new AlertDialog.Builder(
+    private static final int MAX_RAW_ALERT_DIALOG = 62;      // new AlertDialog.Builder(
     private static final int MAX_RAW_MATERIAL_DIALOG = 15;   // MaterialAlertDialogBuilder(
     private static final int MAX_RAW_BOTTOM_SHEET = 2;       // new BottomSheetDialog(
     private static final int MAX_RAW_DIALOG = 6;             // new Dialog(

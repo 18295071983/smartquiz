@@ -105,6 +105,17 @@ public final class AppDialog {
             return this;
         }
 
+        public Builder singleChoiceItems(CharSequence[] items, int checkedItem,
+                                          DialogInterface.OnClickListener listener) {
+            inner.setSingleChoiceItems(items, checkedItem, listener);
+            return this;
+        }
+
+        public Builder multiChoiceItems(CharSequence[] items, boolean[] checkedItems,
+                                        DialogInterface.OnMultiChoiceClickListener listener) {
+            inner.setMultiChoiceItems(items, checkedItems, listener);
+            return this;
+        }
         public Builder neutral(CharSequence text, DialogInterface.OnClickListener listener) {
             inner.setNeutralButton(text, listener);
             return this;

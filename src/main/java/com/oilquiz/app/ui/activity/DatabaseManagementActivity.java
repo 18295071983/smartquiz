@@ -288,11 +288,11 @@ public class DatabaseManagementActivity extends AppCompatActivity {
             message += "• " + change + "\n";
         }
 
-        new AlertDialog.Builder(this)
-            .setTitle(getString(R.string.h_e1255531))
-            .setMessage(message)
-            .setPositiveButton(getString(R.string.h_6b4a7fd3), (dialog, which) -> performUpgrade())
-            .setNegativeButton(getString(R.string.h_87e4d9ef), null)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+            .title(getString(R.string.h_e1255531))
+            .message(message)
+            .positive(getString(R.string.h_6b4a7fd3), (dialog, which) -> performUpgrade())
+            .negative(getString(R.string.h_87e4d9ef), null)
             .show();
     }
 
@@ -354,11 +354,11 @@ public class DatabaseManagementActivity extends AppCompatActivity {
                     isUpgrading.set(false);
                     btnUpgrade.setEnabled(true);
 
-                    new AlertDialog.Builder(DatabaseManagementActivity.this)
-                        .setTitle(getString(R.string.h_4ae2f0a2))
-                        .setMessage(getString(R.string.h_7449367f) + error + getString(R.string.h_0402c89c))
-                        .setPositiveButton(getString(R.string.h_d00b485b), (d, w) -> performRestore())
-                        .setNegativeButton(getString(R.string.h_625fb26b), null)
+                    com.oilquiz.app.ui.modal.AppDialog.builder(DatabaseManagementActivity.this)
+                        .title(getString(R.string.h_4ae2f0a2))
+                        .message(getString(R.string.h_7449367f) + error + getString(R.string.h_0402c89c))
+                        .positive(getString(R.string.h_d00b485b), (d, w) -> performRestore())
+                        .negative(getString(R.string.h_625fb26b), null)
                         .show();
                 });
             }
@@ -405,17 +405,17 @@ public class DatabaseManagementActivity extends AppCompatActivity {
 
         String[] backupNames = backups.toArray(new String[0]);
 
-        new AlertDialog.Builder(this)
-            .setTitle(getString(R.string.h_3b5af6de))
-            .setItems(backupNames, (dialog, which) -> {
-                new AlertDialog.Builder(this)
-                    .setTitle(getString(R.string.h_841e5e89))
-                    .setMessage(getString(R.string.h_df56fb63))
-                    .setPositiveButton(getString(R.string.h_c7db6d4f), (d, w) -> performRestore())
-                    .setNegativeButton(getString(R.string.h_625fb26b), null)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+            .title(getString(R.string.h_3b5af6de))
+            .items(backupNames, (dialog, which) -> {
+                com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                    .title(getString(R.string.h_841e5e89))
+                    .message(getString(R.string.h_df56fb63))
+                    .positive(getString(R.string.h_c7db6d4f), (d, w) -> performRestore())
+                    .negative(getString(R.string.h_625fb26b), null)
                     .show();
             })
-            .setNegativeButton(getString(R.string.h_625fb26b), null)
+            .negative(getString(R.string.h_625fb26b), null)
             .show();
     }
 
@@ -460,11 +460,11 @@ public class DatabaseManagementActivity extends AppCompatActivity {
                         Toast.makeText(this, getString(R.string.h_7439efc2),
                             Toast.LENGTH_SHORT).show();
                     } else {
-                        new AlertDialog.Builder(this)
-                            .setTitle(getString(R.string.h_e441b11e))
-                            .setMessage(getString(R.string.h_283b00a6))
-                            .setPositiveButton(getString(R.string.h_664b37da), (d, w) -> performBackup())
-                            .setNegativeButton(getString(R.string.h_bb86dd5c), null)
+                        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                            .title(getString(R.string.h_e441b11e))
+                            .message(getString(R.string.h_283b00a6))
+                            .positive(getString(R.string.h_664b37da), (d, w) -> performBackup())
+                            .negative(getString(R.string.h_bb86dd5c), null)
                             .show();
                     }
                 });
@@ -479,18 +479,18 @@ public class DatabaseManagementActivity extends AppCompatActivity {
     }
 
     private void showResetConfirmDialog() {
-        new AlertDialog.Builder(this)
-            .setTitle(getString(R.string.h_019ff44b))
-            .setMessage(getString(R.string.h_f08e9aaf))
-            .setPositiveButton(getString(R.string.h_4ae53e6e), (dialog, which) -> {
-                new AlertDialog.Builder(this)
-                    .setTitle(getString(R.string.h_b44aad55))
-                    .setMessage(getString(R.string.h_069893f5))
-                    .setPositiveButton(getString(R.string.h_bcaeb727), (d, w) -> performReset())
-                    .setNegativeButton(getString(R.string.h_625fb26b), null)
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+            .title(getString(R.string.h_019ff44b))
+            .message(getString(R.string.h_f08e9aaf))
+            .positive(getString(R.string.h_4ae53e6e), (dialog, which) -> {
+                com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                    .title(getString(R.string.h_b44aad55))
+                    .message(getString(R.string.h_069893f5))
+                    .positive(getString(R.string.h_bcaeb727), (d, w) -> performReset())
+                    .negative(getString(R.string.h_625fb26b), null)
                     .show();
             })
-            .setNegativeButton(getString(R.string.h_625fb26b), null)
+            .negative(getString(R.string.h_625fb26b), null)
             .show();
     }
 
@@ -522,22 +522,22 @@ public class DatabaseManagementActivity extends AppCompatActivity {
     }
 
     private void clearOldBackups() {
-        new AlertDialog.Builder(this)
-            .setTitle(getString(R.string.h_fc336172))
-            .setMessage(getString(R.string.h_fe2a6a6e))
-            .setPositiveButton(getString(R.string.h_e47bb1cd), (d, w) -> {
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+            .title(getString(R.string.h_fc336172))
+            .message(getString(R.string.h_fe2a6a6e))
+            .positive(getString(R.string.h_e47bb1cd), (d, w) -> {
                 Toast.makeText(this, getString(R.string.h_f6b61a3a), Toast.LENGTH_SHORT).show();
                 loadBackupList();
             })
-            .setNegativeButton(getString(R.string.h_625fb26b), null)
+            .negative(getString(R.string.h_625fb26b), null)
             .show();
     }
 
     private void initializeDatabase() {
-        new AlertDialog.Builder(this)
-            .setTitle(getString(R.string.h_063127ae))
-            .setMessage(getString(R.string.h_df4ec7d3))
-            .setPositiveButton(getString(R.string.h_2cb472ff), (d, w) -> {
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+            .title(getString(R.string.h_063127ae))
+            .message(getString(R.string.h_df4ec7d3))
+            .positive(getString(R.string.h_2cb472ff), (d, w) -> {
                 ProgressDialogCompat progressDialog = ProgressDialogCompat.show(
                     this, "初始化数据库", "正在初始化...", true, false);
 
@@ -562,7 +562,7 @@ public class DatabaseManagementActivity extends AppCompatActivity {
                     }
                 }).start();
             })
-            .setNegativeButton(getString(R.string.h_625fb26b), null)
+            .negative(getString(R.string.h_625fb26b), null)
             .show();
     }
 

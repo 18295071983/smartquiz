@@ -417,12 +417,12 @@ public class McpManagerActivity extends AppCompatActivity {
         valueInput.setPadding(0, dp(10), 0, 0);
         content.addView(valueInput);
 
-        new AlertDialog.Builder(this)
-                .setTitle("添加密钥")
-                .setMessage("命名建议带上服务商（aliyun / tencent / dashscope …），"
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("添加密钥")
+                .message("命名建议带上服务商（aliyun / tencent / dashscope …），"
                         + "「引用」时会按服务商自动匹配。")
-                .setView(content)
-                .setPositiveButton("保存", (d, w) -> {
+                .content(content)
+                .positive("保存", (d, w) -> {
                     String name = nameInput.getText().toString().trim();
                     String value = valueInput.getText().toString().trim();
                     if (name.isEmpty() || value.isEmpty()) {
@@ -435,22 +435,22 @@ public class McpManagerActivity extends AppCompatActivity {
                             Toast.LENGTH_SHORT).show();
                     renderKeyList();
                 })
-                .setNegativeButton("取消", null)
+                .negative("取消", null)
                 .show();
     }
 
     private void confirmRemoveKey(final String service) {
-        new AlertDialog.Builder(this)
-                .setTitle("删除密钥")
-                .setMessage("确定删除密钥「" + service + "」？引用它的 MCP 服务将失去令牌，"
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("删除密钥")
+                .message("确定删除密钥「" + service + "」？引用它的 MCP 服务将失去令牌，"
                         + "其他使用同名密钥的功能也会受影响。")
-                .setPositiveButton("删除", (d, w) -> {
+                .positive("删除", (d, w) -> {
                     APIKeyManager.getInstance(this).removeAPIKey(service);
                     McpManager.getInstance(this).refreshTokenRef(service);
                     Toast.makeText(this, "密钥已删除，引用它的服务正在重新同步", Toast.LENGTH_SHORT).show();
                     renderKeyList();
                 })
-                .setNegativeButton("取消", null)
+                .negative("取消", null)
                 .show();
     }
 
@@ -586,14 +586,14 @@ public class McpManagerActivity extends AppCompatActivity {
      * 行为与迁移前完全一致——只有存储形态变了。</p>
      */
     private void confirmSecretMigration(final McpServerConfig cfg, final String[] secretParts) {
-        new AlertDialog.Builder(this)
-                .setTitle("把 Key 收进密钥库")
-                .setMessage("端点将改成：" + secretParts[0]
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("把 Key 收进密钥库")
+                .message("端点将改成：" + secretParts[0]
                         + "\n\nKey 会从 URL 里挪到令牌字段，落盘时经 Keystore 加密；"
                         + "发请求前自动拼回去，功能不变。\n\n"
                         + "注意：这个 Key 之前是明文存在配置文件里的，"
                         + "如果你怀疑它已经泄露（备份外流、别人看过手机），请到服务商控制台换一个新的。")
-                .setPositiveButton("收进去", (d, w) -> {
+                .positive("收进去", (d, w) -> {
                     McpManager.getInstance(this).upsertServer(
                             cfg.withUrlAndToken(secretParts[0], secretParts[1]));
                     com.oilquiz.app.util.AILogger.audit("McpManager",
@@ -602,7 +602,7 @@ public class McpManagerActivity extends AppCompatActivity {
                     Toast.makeText(this, "已改为加密存储", Toast.LENGTH_SHORT).show();
                     refreshList();
                 })
-                .setNegativeButton("保持原样", null)
+                .negative("保持原样", null)
                 .show();
     }
 
@@ -695,29 +695,29 @@ public class McpManagerActivity extends AppCompatActivity {
             sb.append("\n\n浏览器授权：").append(oauthState);
         }
 
-        AlertDialog.Builder b = new AlertDialog.Builder(this)
-                .setTitle("同步状态 · " + cfg.name)
-                .setMessage(sb.toString())
-                .setNegativeButton("关闭", null);
+        com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("同步状态 · " + cfg.name)
+                .message(sb.toString())
+                .negative("关闭", null);
         boolean authNeeded = "auth_required".equals(status);
         if (authNeeded) {
             // 需要授权时首位按钮就给授权；"立即刷新"退到次要位——刷一百次也不会变成已授权
-            b.setPositiveButton("🔐 去授权", (d, w) -> startAuthorization(cfg));
+            b.positive("🔐 去授权", (d, w) -> startAuthorization(cfg));
             if (cfg.enabled) {
-                b.setNeutralButton("立即刷新", (d, w) -> {
+                b.neutral("立即刷新", (d, w) -> {
                     McpManager.getInstance(this).refreshServer(cfg.id);
                     refreshList();
                 });
             }
         } else {
             if (cfg.enabled) {
-                b.setPositiveButton("立即刷新", (d, w) -> {
+                b.positive("立即刷新", (d, w) -> {
                     McpManager.getInstance(this).refreshServer(cfg.id);
                     refreshList();
                 });
             }
             if (status != null && status.startsWith("ok:")) {
-                b.setNeutralButton("查看工具", (d, w) -> showToolsDialog(cfg));
+                b.neutral("查看工具", (d, w) -> showToolsDialog(cfg));
             }
         }
         b.show();
@@ -824,12 +824,12 @@ public class McpManagerActivity extends AppCompatActivity {
             negativeLabel = "取消";
         }
         final boolean revokeOAuth = hasRef || hasDirect ? false : !oauthState.isEmpty();
-        new AlertDialog.Builder(this)
-                .setTitle("密钥 · " + cfg.name)
-                .setMessage(stateMsg)
-                .setPositiveButton("🔗 引用匹配密钥", (d, w) -> showKeyRefDialog(cfg))
-                .setNeutralButton("📋 全部密钥", (d, w) -> showAllKeysDialog(cfg))
-                .setNegativeButton(negativeLabel, (d, w) -> {
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("密钥 · " + cfg.name)
+                .message(stateMsg)
+                .positive("🔗 引用匹配密钥", (d, w) -> showKeyRefDialog(cfg))
+                .neutral("📋 全部密钥", (d, w) -> showAllKeysDialog(cfg))
+                .negative(negativeLabel, (d, w) -> {
                     if (hasRef) {
                         McpManager.getInstance(this).updateTokenRef(cfg.id, "");
                         Toast.makeText(this, "已清除密钥引用", Toast.LENGTH_SHORT).show();
@@ -839,16 +839,16 @@ public class McpManagerActivity extends AppCompatActivity {
                         Toast.makeText(this, "已清除直接令牌", Toast.LENGTH_SHORT).show();
                         refreshList();
                     } else if (revokeOAuth) {
-                        new AlertDialog.Builder(this)
-                                .setTitle("撤销浏览器授权")
-                                .setMessage("撤销后这个服务会回到「需授权」，模型拿不到它的工具。\n"
+                        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                                .title("撤销浏览器授权")
+                                .message("撤销后这个服务会回到「需授权」，模型拿不到它的工具。\n"
                                         + "能撤销的会通知服务商吊销令牌，本地记录同时清掉。")
-                                .setPositiveButton("撤销", (sd, sw) -> {
+                                .positive("撤销", (sd, sw) -> {
                                     McpManager.getInstance(this).revokeAuthorization(cfg.id);
                                     Toast.makeText(this, "已撤销授权", Toast.LENGTH_SHORT).show();
                                     refreshList();
                                 })
-                                .setNegativeButton("返回", null)
+                                .negative("返回", null)
                                 .show();
                     }
                 })
@@ -862,16 +862,16 @@ public class McpManagerActivity extends AppCompatActivity {
         List<String[]> matches = manager.findMatchingKeyRefs(cfg);
 
         if (matches.isEmpty()) {
-            new AlertDialog.Builder(this)
-                    .setTitle("引用已存密钥 · " + cfg.name)
-                    .setMessage("未找到与「" + McpManager.providerLabel(provider) + "」匹配的密钥。\n\n"
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                    .title("引用已存密钥 · " + cfg.name)
+                    .message("未找到与「" + McpManager.providerLabel(provider) + "」匹配的密钥。\n\n"
                             + "该 MCP 服务需要「" + McpManager.providerLabel(provider) + "」的专用密钥"
                             + (provider == McpManager.McpProvider.UNKNOWN
                                 ? "（未能自动判断服务商，请确认该服务需要什么密钥）" : "")
                             + "，不同平台的 key 互不通用，引用错误的密钥会导致鉴权失败（401/403）。\n\n"
                             + "请先在「API 配置 / 密钥管理」填写对应密钥，或点下方「查看全部密钥」确认是否有可用的。")
-                    .setPositiveButton("知道了", null)
-                    .setNeutralButton("查看全部密钥", (d, w) -> showAllKeysDialog(cfg))
+                    .positive("知道了", null)
+                    .neutral("查看全部密钥", (d, w) -> showAllKeysDialog(cfg))
                     .show();
             return;
         }
@@ -880,17 +880,17 @@ public class McpManagerActivity extends AppCompatActivity {
         for (int i = 0; i < matches.size(); i++) {
             labels[i] = "✅ " + matches.get(i)[0];
         }
-        new AlertDialog.Builder(this)
-                .setTitle("引用密钥 · " + cfg.name + "\n（匹配" + McpManager.providerLabel(provider) + "）")
-                .setMessage("仅列出与服务商匹配的密钥；其他密钥不适用，请勿引用。")
-                .setItems(labels, (d, which) -> {
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("引用密钥 · " + cfg.name + "\n（匹配" + McpManager.providerLabel(provider) + "）")
+                .message("仅列出与服务商匹配的密钥；其他密钥不适用，请勿引用。")
+                .items(labels, (d, which) -> {
                     String ref = matches.get(which)[1];
                     McpManager.getInstance(this).updateTokenRef(cfg.id, ref);
                     Toast.makeText(this, "已引用密钥「" + ref + "」，正在重新同步…", Toast.LENGTH_SHORT).show();
                     refreshList();
                 })
-                .setNeutralButton("查看全部密钥", (d, w) -> showAllKeysDialog(cfg))
-                .setNegativeButton("取消", null)
+                .neutral("查看全部密钥", (d, w) -> showAllKeysDialog(cfg))
+                .negative("取消", null)
                 .show();
     }
 
@@ -899,10 +899,10 @@ public class McpManagerActivity extends AppCompatActivity {
         McpManager manager = McpManager.getInstance(this);
         List<String[]> all = manager.findAllKeyRefs();
         if (all.isEmpty()) {
-            new AlertDialog.Builder(this)
-                    .setTitle("查看全部密钥")
-                    .setMessage("密钥库里没有已存密钥。请先到「API 配置 / 密钥管理」填写。")
-                    .setPositiveButton("知道了", null)
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                    .title("查看全部密钥")
+                    .message("密钥库里没有已存密钥。请先到「API 配置 / 密钥管理」填写。")
+                    .positive("知道了", null)
                     .show();
             return;
         }
@@ -910,16 +910,16 @@ public class McpManagerActivity extends AppCompatActivity {
         for (int i = 0; i < all.size(); i++) {
             labels[i] = all.get(i)[0];
         }
-        new AlertDialog.Builder(this)
-                .setTitle("全部密钥（⚠ 仅当与服务匹配时才可引用）")
-                .setMessage("请确认密钥平台与该 MCP 服务一致，否则鉴权会失败。")
-                .setItems(labels, (d, which) -> {
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("全部密钥（⚠ 仅当与服务匹配时才可引用）")
+                .message("请确认密钥平台与该 MCP 服务一致，否则鉴权会失败。")
+                .items(labels, (d, which) -> {
                     String ref = all.get(which)[1];
                     McpManager.getInstance(this).updateTokenRef(cfg.id, ref);
                     Toast.makeText(this, "已引用密钥「" + ref + "」，正在重新同步…", Toast.LENGTH_SHORT).show();
                     refreshList();
                 })
-                .setNegativeButton("取消", null)
+                .negative("取消", null)
                 .show();
     }
 
@@ -966,12 +966,12 @@ public class McpManagerActivity extends AppCompatActivity {
             sb.append(line);
         }
         if (lines.isEmpty()) sb.append("暂无工具（启用并同步后显示；模型命中时才按需注册）");
-        AlertDialog.Builder b = new AlertDialog.Builder(this)
-                .setTitle("工具 · " + cfg.name)
-                .setMessage(sb.toString())
-                .setPositiveButton("关闭", null);
+        com.oilquiz.app.ui.modal.AppDialog.Builder b = com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("工具 · " + cfg.name)
+                .message(sb.toString())
+                .positive("关闭", null);
         if (total > 0) {
-            b.setNeutralButton("审批策略", (d, w) -> showPolicyList(cfg));
+            b.neutral("审批策略", (d, w) -> showPolicyList(cfg));
         }
         b.show();
     }
@@ -997,14 +997,14 @@ public class McpManagerActivity extends AppCompatActivity {
         if (catalog.size() > n) {
             labels[n - 1] = labels[n - 1] + " …共 " + catalog.size() + " 个工具";
         }
-        new AlertDialog.Builder(this)
-                .setTitle("审批策略 · " + cfg.name)
-                .setItems(labels, (d, which) ->
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("审批策略 · " + cfg.name)
+                .items(labels, (d, which) ->
                         showPolicyDialog(cfg, catalog.get(which).name))
-                .setNegativeButton("关闭", null)
+                .negative("关闭", null)
                 // 批量：服务商整批不发 annotations，判定全靠名称/描述启发式；
                 // 一次装完一个大服务想"把像写操作的钉成询问"得点十几下——点得越快越会改成最宽档止损
-                .setPositiveButton("批量设置", (d, w) -> showBatchPolicyStep(cfg, catalog))
+                .positive("批量设置", (d, w) -> showBatchPolicyStep(cfg, catalog))
                 .show();
     }
 
@@ -1012,9 +1012,9 @@ public class McpManagerActivity extends AppCompatActivity {
     private void showBatchPolicyStep(final McpServerConfig cfg,
                                      final List<McpClient.McpToolInfo> catalog) {
         final String[] targets = {"每次询问", "自动允许", "禁止", "恢复跟随默认"};
-        new AlertDialog.Builder(this)
-                .setTitle("批量设置审批 · " + cfg.name)
-                .setItems(targets, (d, which) -> {
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("批量设置审批 · " + cfg.name)
+                .items(targets, (d, which) -> {
                     String policy;
                     if (which == 0) policy = McpConstants.APPROVAL_ASK;
                     else if (which == 1) policy = McpConstants.APPROVAL_AUTO;
@@ -1022,7 +1022,7 @@ public class McpManagerActivity extends AppCompatActivity {
                     else policy = "";   // 空＝清掉显式设定
                     showBatchScopeStep(cfg, catalog, policy, which);
                 })
-                .setNegativeButton("取消", null)
+                .negative("取消", null)
                 .show();
     }
 
@@ -1056,11 +1056,11 @@ public class McpManagerActivity extends AppCompatActivity {
             if (checked[i]) pre++;
         }
         final boolean[] selection = checked;
-        new AlertDialog.Builder(this)
-                .setTitle("选范围 · 已预选 " + pre + "/" + items.size() + "（" + preset.label + "）")
-                .setMultiChoiceItems(labels, checked, (d, which, isChecked) -> selection[which] = isChecked)
-                .setNegativeButton("返回", null)
-                .setPositiveButton("看改动清单", (d, w) ->
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("选范围 · 已预选 " + pre + "/" + items.size() + "（" + preset.label + "）")
+                .multiChoiceItems(labels, checked, (d, which, isChecked) -> selection[which] = isChecked)
+                .negative("返回", null)
+                .positive("看改动清单", (d, w) ->
                         showBatchPreview(cfg, items, selection, policy, targetIndex))
                 .show();
     }
@@ -1091,11 +1091,11 @@ public class McpManagerActivity extends AppCompatActivity {
         }
         if (plan.size() > shown) sb.append("… 其余 ").append(plan.size() - shown).append(" 个\n");
         sb.append("\n只改显式设定，不改服务商注解也不重建连接；会写进配置并记一条审计。");
-        new AlertDialog.Builder(this)
-                .setTitle("将修改 " + plan.size() + " 个工具")
-                .setMessage(sb.toString())
-                .setNegativeButton("返回", null)
-                .setPositiveButton("应用", (d, w) -> {
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("将修改 " + plan.size() + " 个工具")
+                .message(sb.toString())
+                .negative("返回", null)
+                .positive("应用", (d, w) -> {
                     int applied = McpManager.getInstance(this).applyApprovalBatch(cfg.id, plan);
                     Toast.makeText(this, applied > 0
                                     ? "已批量设置 " + applied + " 个工具的审批策略"
@@ -1122,9 +1122,9 @@ public class McpManagerActivity extends AppCompatActivity {
         else if (McpConstants.APPROVAL_ASK.equals(explicit)) checked = 2;
         else if (McpConstants.APPROVAL_DENY.equals(explicit)) checked = 3;
         else checked = 0;
-        new AlertDialog.Builder(this)
-                .setTitle(toolName)
-                .setSingleChoiceItems(labels, checked, (d, which) -> {
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title(toolName)
+                .singleChoiceItems(labels, checked, (d, which) -> {
                     String policy;
                     if (which == 0) policy = "";
                     else if (which == 1) policy = McpConstants.APPROVAL_AUTO;
@@ -1134,7 +1134,7 @@ public class McpManagerActivity extends AppCompatActivity {
                     Toast.makeText(this, "已设为 " + labels[which], Toast.LENGTH_SHORT).show();
                     d.dismiss();
                 })
-                .setNegativeButton("取消", null)
+                .negative("取消", null)
                 .show();
     }
 
@@ -1191,20 +1191,20 @@ public class McpManagerActivity extends AppCompatActivity {
         transportTv.setTextColor(color(R.color.text_primary));
         transportTv.setPadding(0, dp(10), 0, dp(2));
         form.addView(transportTv);
-        transportTv.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setTitle("传输类型")
-                .setSingleChoiceItems(transports, transportIndex[0], (d, which) -> {
+        transportTv.setOnClickListener(v -> com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("传输类型")
+                .singleChoiceItems(transports, transportIndex[0], (d, which) -> {
                     transportIndex[0] = which;
                     transportTv.setText("传输: " + transports[which]);
                     d.dismiss();
                 })
-                .setPositiveButton("确定", null)
+                .positive("确定", null)
                 .show());
 
-        new AlertDialog.Builder(this)
-                .setTitle("编辑 MCP 服务")
-                .setView(form)
-                .setPositiveButton("保存", (d, w) -> {
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("编辑 MCP 服务")
+                .content(form)
+                .positive("保存", (d, w) -> {
                     String name = nameInput.getText().toString().trim();
                     String url = urlInput.getText().toString().trim();
                     if (name.isEmpty() || url.isEmpty()) {
@@ -1225,7 +1225,7 @@ public class McpManagerActivity extends AppCompatActivity {
                     Toast.makeText(this, "已保存，正在重新同步 " + name, Toast.LENGTH_SHORT).show();
                     refreshList();
                 })
-                .setNegativeButton("取消", null)
+                .negative("取消", null)
                 .show();
     }
 
@@ -1264,20 +1264,20 @@ public class McpManagerActivity extends AppCompatActivity {
         transportTv.setTextColor(color(R.color.text_primary));
         transportTv.setPadding(0, dp(10), 0, dp(2));
         form.addView(transportTv);
-        transportTv.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setTitle("传输类型")
-                .setSingleChoiceItems(transports, transportIndex[0], (d, which) -> {
+        transportTv.setOnClickListener(v -> com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("传输类型")
+                .singleChoiceItems(transports, transportIndex[0], (d, which) -> {
                     transportIndex[0] = which;
                     transportTv.setText("传输: " + transports[which]);
                     d.dismiss();
                 })
-                .setPositiveButton("确定", null)
+                .positive("确定", null)
                 .show());
 
-        new AlertDialog.Builder(this)
-                .setTitle("添加 MCP 服务")
-                .setView(form)
-                .setPositiveButton("添加并启用", (d, w) -> {
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("添加 MCP 服务")
+                .content(form)
+                .positive("添加并启用", (d, w) -> {
                     String name = nameInput.getText().toString().trim();
                     String url = urlInput.getText().toString().trim();
                     if (name.isEmpty() || url.isEmpty()) {
@@ -1299,21 +1299,21 @@ public class McpManagerActivity extends AppCompatActivity {
                             + "，密钥可到卡片「🔗 密钥」引用", Toast.LENGTH_LONG).show();
                     refreshList();
                 })
-                .setNegativeButton("取消", null)
+                .negative("取消", null)
                 .show();
     }
 
     /** 删除确认。 */
     private void confirmRemove(final McpServerConfig cfg) {
-        new AlertDialog.Builder(this)
-                .setTitle("删除 " + cfg.name + "？")
-                .setMessage("将同时注销该服务注册的全部工具。")
-                .setPositiveButton("删除", (d, w) -> {
+        com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                .title("删除 " + cfg.name + "？")
+                .message("将同时注销该服务注册的全部工具。")
+                .positive("删除", (d, w) -> {
                     McpManager.getInstance(this).removeServer(cfg.id);
                     Toast.makeText(this, "已删除 " + cfg.name, Toast.LENGTH_SHORT).show();
                     refreshList();
                 })
-                .setNegativeButton("取消", null)
+                .negative("取消", null)
                 .show();
     }
 
