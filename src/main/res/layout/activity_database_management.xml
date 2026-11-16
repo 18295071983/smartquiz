@@ -199,7 +199,7 @@
                             android:layout_height="@dimen/size_40"
                             android:text="检查更新"
                             app:backgroundTint="?attr/colorPrimary"
-                            android:textColor="@android:color/white"
+                            android:textColor="?attr/colorOnPrimary"
                             android:layout_marginEnd="@dimen/space_8"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
@@ -209,7 +209,7 @@
                             android:layout_height="@dimen/size_40"
                             android:text="备份"
                             app:backgroundTint="?attr/colorSecondary"
-                            android:textColor="@android:color/white"
+                            android:textColor="?attr/colorOnSecondary"
                             android:layout_marginEnd="@dimen/space_8"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
@@ -219,7 +219,7 @@
                             android:layout_height="@dimen/size_40"
                             android:text="恢复"
                             app:backgroundTint="?attr/colorSecondary"
-                            android:textColor="@android:color/white"
+                            android:textColor="?attr/colorOnSecondary"
                             android:layout_marginEnd="@dimen/space_8"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
@@ -229,7 +229,7 @@
                             android:layout_height="@dimen/size_40"
                             android:text="数据备份"
                             app:backgroundTint="?attr/colorPrimary"
-                            android:textColor="@android:color/white"
+                            android:textColor="?attr/colorOnPrimary"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
                     </LinearLayout>
@@ -245,7 +245,7 @@
                             android:layout_height="@dimen/size_40"
                             android:text="验证"
                             app:backgroundTint="?attr/colorPrimary"
-                            android:textColor="@android:color/white"
+                            android:textColor="?attr/colorOnPrimary"
                             android:layout_marginEnd="@dimen/space_8"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
@@ -281,7 +281,7 @@
                             android:layout_height="@dimen/size_40"
                             android:text="字段管理"
                             app:backgroundTint="?attr/colorPrimary"
-                            android:textColor="@android:color/white"
+                            android:textColor="?attr/colorOnPrimary"
                             android:layout_marginEnd="@dimen/space_8"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
@@ -291,7 +291,7 @@
                             android:layout_height="@dimen/size_40"
                             android:text="初始化数据库"
                             app:backgroundTint="?attr/colorSecondary"
-                            android:textColor="@android:color/white"
+                            android:textColor="?attr/colorOnSecondary"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
                     </LinearLayout>

@@ -83,7 +83,7 @@
                 android:text="设置"
                 android:layout_marginEnd="@dimen/space_4"
                 app:backgroundTint="?attr/colorPrimary"
-                android:textColor="@android:color/white"
+                android:textColor="?attr/colorOnPrimary"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
 
@@ -95,7 +95,7 @@
                 android:text="自动映射"
                 android:layout_marginEnd="@dimen/space_4"
                 app:backgroundTint="?attr/colorSecondary"
-                android:textColor="@android:color/white"
+                android:textColor="?attr/colorOnSecondary"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
 
@@ -118,7 +118,7 @@
                 android:layout_weight="1"
                 android:text="清除映射"
                 app:backgroundTint="?attr/colorSecondary"
-                android:textColor="@android:color/white"
+                android:textColor="?attr/colorOnSecondary"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
 
@@ -148,7 +148,7 @@
                 android:layout_weight="1"
                 android:text="下一步"
                 app:backgroundTint="?attr/colorPrimary"
-                android:textColor="@android:color/white"
+                android:textColor="?attr/colorOnPrimary"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
 

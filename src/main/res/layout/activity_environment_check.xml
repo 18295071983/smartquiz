@@ -724,7 +724,7 @@
                 android:layout_weight="1"
                 android:text="复制信息"
                 app:backgroundTint="?attr/colorPrimary"
-                android:textColor="@android:color/white"
+                android:textColor="?attr/colorOnPrimary"
                 android:layout_marginEnd="@dimen/space_8"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
@@ -736,7 +736,7 @@
                 android:layout_weight="1"
                 android:text="分享报告"
                 app:backgroundTint="?attr/colorSecondary"
-                android:textColor="@android:color/white"
+                android:textColor="?attr/colorOnSecondary"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
             

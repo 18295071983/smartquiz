@@ -24,7 +24,7 @@
         android:layout_height="wrap_content"
         android:text="编辑个人信息"
         app:backgroundTint="?attr/colorPrimary"
-        android:textColor="@android:color/white"
+        android:textColor="?attr/colorOnPrimary"
         app:cornerRadius="@dimen/radius_12"
         android:textAllCaps="false"
         android:layout_marginBottom="@dimen/space_16" />

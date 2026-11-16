@@ -28,7 +28,7 @@
             android:layout_height="wrap_content"
             android:text="导入了10道题目"
             android:textSize="@dimen/text_16"
-            android:textColor="@android:color/black" />
+            android:textColor="?attr/colorControlText" />
 
         <TextView
             android:id="@+id/tv_time"
@@ -37,7 +37,7 @@
             android:layout_marginTop="@dimen/space_4"
             android:text="今天 14:30"
             android:textSize="@dimen/text_14"
-            android:textColor="@android:color/darker_gray" />
+            android:textColor="?attr/colorControlTextHint" />
 
     </LinearLayout>
 

@@ -42,7 +42,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="@android:color/background_light"
+        android:background="?attr/colorBackground"
         android:padding="@dimen/space_16"
         android:elevation="@dimen/elev_2"
         android:layout_marginBottom="@dimen/space_24">
@@ -80,7 +80,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="HTTP下载"
-            android:backgroundTint="@android:color/holo_blue_dark"
+            android:backgroundTint="?attr/colorPrimary"
             android:textColor="@android:color/white"
             android:layout_marginTop="@dimen/space_16"/>
     </LinearLayout>
@@ -98,7 +98,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="@android:color/background_light"
+        android:background="?attr/colorBackground"
         android:padding="@dimen/space_16"
         android:elevation="@dimen/elev_2"
         android:layout_marginBottom="@dimen/space_24">
@@ -136,7 +136,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Git拉取"
-            android:backgroundTint="@android:color/holo_blue_dark"
+            android:backgroundTint="?attr/colorPrimary"
             android:textColor="@android:color/white"
             android:layout_marginTop="@dimen/space_16"/>
     </LinearLayout>
@@ -146,7 +146,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="@android:color/background_light"
+        android:background="?attr/colorBackground"
         android:padding="@dimen/space_16"
         android:elevation="@dimen/elev_2">
 

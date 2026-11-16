@@ -126,7 +126,7 @@
             android:textSize="@dimen/text_16"
             android:padding="@dimen/space_16"
             android:background="@drawable/rounded_corners_gray"
-            android:textColor="@android:color/black"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_12"
             android:elevation="@dimen/elev_3"
             android:translationZ="3dp" />
@@ -139,7 +139,7 @@
             android:textSize="@dimen/text_16"
             android:padding="@dimen/space_16"
             android:background="@drawable/rounded_corners_gray"
-            android:textColor="@android:color/black"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_12"
             android:elevation="@dimen/elev_3"
             android:translationZ="3dp" />

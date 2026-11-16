@@ -49,7 +49,7 @@
                 android:layout_width="@dimen/size_120"
                 android:layout_height="wrap_content"
                 android:text="全选"
-                android:textColor="@android:color/white"
+                android:textColor="?attr/colorOnPrimary"
                 android:textSize="@dimen/text_16"
                 android:layout_marginEnd="@dimen/space_8"
                 app:backgroundTint="?attr/colorPrimary"

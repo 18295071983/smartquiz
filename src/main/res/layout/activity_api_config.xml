@@ -84,7 +84,7 @@
             android:text="添加"
             android:textAllCaps="false"
             app:backgroundTint="?attr/colorPrimary"
-            android:textColor="@android:color/white"
+            android:textColor="?attr/colorOnPrimary"
             app:cornerRadius="@dimen/radius_12"
             android:insetTop="0dp"
             android:insetBottom="0dp" />
@@ -193,7 +193,7 @@
                 android:text="批量测试全部连接"
                 android:textAllCaps="false"
                 app:backgroundTint="?attr/colorPrimary"
-                android:textColor="@android:color/white"
+                android:textColor="?attr/colorOnPrimary"
                 app:cornerRadius="@dimen/radius_12"
                 android:insetTop="0dp"
                 android:insetBottom="0dp" />

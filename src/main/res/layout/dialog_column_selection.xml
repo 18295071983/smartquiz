@@ -25,7 +25,7 @@
             android:id="@+id/lvColumnOptions"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:divider="@android:color/darker_gray"
+            android:divider="?attr/colorDivider"
             android:dividerHeight="1dp" />
 
     </ScrollView>

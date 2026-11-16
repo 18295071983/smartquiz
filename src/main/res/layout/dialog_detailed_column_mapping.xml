@@ -251,7 +251,7 @@
             android:layout_height="wrap_content"
             android:text="提示：带 * 的字段为必选项"
             android:textSize="@dimen/text_12"
-            android:textColor="@android:color/holo_blue_dark"
+            android:textColor="?attr/colorPrimary"
             android:layout_marginTop="@dimen/space_16" />
 
     </LinearLayout>

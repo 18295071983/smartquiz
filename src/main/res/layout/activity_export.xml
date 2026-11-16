@@ -337,7 +337,7 @@
                             android:textSize="@dimen/text_14"
                             android:textStyle="bold"
                             app:backgroundTint="?attr/colorPrimary"
-                            android:textColor="@android:color/white"
+                            android:textColor="?attr/colorOnPrimary"
                             android:layout_marginEnd="@dimen/space_8"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false" />
@@ -351,7 +351,7 @@
                             android:textSize="@dimen/text_14"
                             android:textStyle="bold"
                             app:backgroundTint="?attr/colorSecondary"
-                            android:textColor="@android:color/white"
+                            android:textColor="?attr/colorOnSecondary"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false" />
 
@@ -418,7 +418,7 @@
             android:text="开始导出"
             android:textSize="@dimen/text_16"
             android:textStyle="bold"
-            android:textColor="@android:color/white"
+            android:textColor="?attr/colorOnPrimary"
             app:backgroundTint="?attr/colorPrimary"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />

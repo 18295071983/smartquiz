@@ -101,7 +101,7 @@
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
                     app:backgroundTint="?attr/colorPrimary"
-                    android:textColor="@android:color/white"
+                    android:textColor="?attr/colorOnPrimary"
                     android:layout_marginEnd="@dimen/space_8"
                     app:cornerRadius="@dimen/radius_12"
                     android:textAllCaps="false" />
@@ -115,7 +115,7 @@
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
                     app:backgroundTint="?attr/colorSecondary"
-                    android:textColor="@android:color/white"
+                    android:textColor="?attr/colorOnSecondary"
                     android:layout_marginStart="@dimen/space_8"
                     app:cornerRadius="@dimen/radius_12"
                     android:textAllCaps="false" />
@@ -252,7 +252,7 @@
                     android:text="创建备份"
                     android:textSize="@dimen/text_14"
                     app:backgroundTint="?attr/colorPrimary"
-                    android:textColor="@android:color/white"
+                    android:textColor="?attr/colorOnPrimary"
                     android:paddingHorizontal="24dp"
                     app:cornerRadius="@dimen/radius_12"
                     android:textAllCaps="false" />

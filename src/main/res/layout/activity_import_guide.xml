@@ -75,7 +75,7 @@
                         android:layout_height="@dimen/size_48"
                         android:text="开始 AI 导入"
                         app:backgroundTint="?attr/colorSecondary"
-                        android:textColor="@android:color/white"
+                        android:textColor="?attr/colorOnSecondary"
                         app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false"/>
                 </LinearLayout>
@@ -114,7 +114,7 @@
                         android:layout_height="@dimen/size_48"
                         android:text="开始导入"
                         app:backgroundTint="?attr/colorPrimary"
-                        android:textColor="@android:color/white"
+                        android:textColor="?attr/colorOnPrimary"
                         app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false"/>
                 </LinearLayout>
@@ -153,7 +153,7 @@
                         android:layout_height="@dimen/size_48"
                         android:text="选择模板"
                         app:backgroundTint="?attr/colorPrimary"
-                        android:textColor="@android:color/white"
+                        android:textColor="?attr/colorOnPrimary"
                         app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false"/>
                 </LinearLayout>
@@ -192,7 +192,7 @@
                         android:layout_height="@dimen/size_48"
                         android:text="查看历史"
                         app:backgroundTint="?attr/colorPrimary"
-                        android:textColor="@android:color/white"
+                        android:textColor="?attr/colorOnPrimary"
                         app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false"/>
                 </LinearLayout>

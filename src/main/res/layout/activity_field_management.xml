@@ -69,7 +69,7 @@
                             android:layout_marginEnd="@dimen/space_8"
                             android:text="加载字段"
                             app:backgroundTint="?attr/colorPrimary"
-                            android:textColor="@android:color/white"
+                            android:textColor="?attr/colorOnPrimary"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
                         <com.google.android.material.button.MaterialButton
@@ -80,7 +80,7 @@
                             android:layout_marginStart="@dimen/space_8"
                             android:text="添加字段"
                             app:backgroundTint="?attr/colorSecondary"
-                            android:textColor="@android:color/white"
+                            android:textColor="?attr/colorOnSecondary"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
                     </LinearLayout>

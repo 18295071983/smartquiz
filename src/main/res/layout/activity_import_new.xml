@@ -202,7 +202,7 @@
                         android:layout_height="@dimen/size_48"
                         android:text="AI解析"
                         app:backgroundTint="?attr/colorPrimary"
-                        android:textColor="@android:color/white"
+                        android:textColor="?attr/colorOnPrimary"
                         app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false"/>
                         
@@ -266,7 +266,7 @@
             android:layout_weight="1"
             android:text="取消"
             app:backgroundTint="?attr/colorSecondary"
-            android:textColor="@android:color/white"
+            android:textColor="?attr/colorOnSecondary"
             android:layout_marginEnd="@dimen/space_8"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>
@@ -278,7 +278,7 @@
             android:layout_weight="1"
             android:text="开始导入"
             app:backgroundTint="?attr/colorPrimary"
-            android:textColor="@android:color/white"
+            android:textColor="?attr/colorOnPrimary"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>
             

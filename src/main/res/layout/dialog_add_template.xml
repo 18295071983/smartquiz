@@ -53,7 +53,7 @@
             android:layout_height="wrap_content"
             android:text="保存"
             app:backgroundTint="?attr/colorPrimary"
-            android:textColor="@android:color/white"
+            android:textColor="?attr/colorOnPrimary"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />
 
