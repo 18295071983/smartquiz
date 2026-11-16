@@ -20,7 +20,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.oilquiz.app.R;
@@ -962,7 +961,8 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
 
     // ---------- Span 详情 ----------
     private void showSpanDetail(DebugSpan s) {
-        BottomSheetDialog dlg = new BottomSheetDialog(this);
+        // 2026-11-16：弹层外壳统一走 AppSheet（圆角/拖拽条/底色/关闭行为标准层），内容仍用 dialog_span_detail
+        final com.oilquiz.app.ui.modal.AppSheet[] sheetRef = new com.oilquiz.app.ui.modal.AppSheet[1];
         View v = getLayoutInflater().inflate(R.layout.dialog_span_detail, null);
         TextView title = v.findViewById(R.id.detail_title);
         TextView sub = v.findViewById(R.id.detail_sub);
@@ -993,9 +993,10 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
             if (runId != null && !runId.isEmpty()) exportTrace(runId);
             else Toast.makeText(this, "当前无 run 上下文可导出", Toast.LENGTH_SHORT).show();
         });
-        v.findViewById(R.id.btn_close_detail).setOnClickListener(ev -> dlg.dismiss());
-        dlg.setContentView(v);
-        dlg.show();
+        v.findViewById(R.id.btn_close_detail).setOnClickListener(ev -> {
+            if (sheetRef[0] != null) sheetRef[0].dismiss();
+        });
+        sheetRef[0] = com.oilquiz.app.ui.modal.AppSheet.builder(this).content(v).show();
     }
 
     // =====================================================================

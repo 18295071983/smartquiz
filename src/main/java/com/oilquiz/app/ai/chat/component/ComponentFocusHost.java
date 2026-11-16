@@ -143,6 +143,8 @@ public final class ComponentFocusHost {
                 w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
             }
             dialog.show();
+        // 2026-11-16：弹窗型全屏卡统一走 edge-to-edge 标准（系统栏/IME insets 由标准层处理）
+        com.oilquiz.app.theme.EdgeToEdgeHelper.applyDialog(dialog);
             sOpen = new WeakReference<>(dialog);
         } catch (Throwable t) {
             sOpen = null;
