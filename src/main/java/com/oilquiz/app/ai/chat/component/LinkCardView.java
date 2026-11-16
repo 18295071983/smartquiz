@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.net.Uri;
 import android.text.TextUtils;
@@ -59,7 +61,7 @@ public class LinkCardView implements ChatComponent {
         if (!TextUtils.isEmpty(title)) {
             TextView titleTv = new TextView(context);
             titleTv.setText(title);
-            titleTv.setTextSize(14);
+            titleTv.setTextSize(Tokens.textSizeSp(titleTv.getContext(), Tokens.TEXT_BODY));
             titleTv.setTextColor(ComponentColors.textPrimary(context));
             titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             titleTv.setMaxLines(2);
@@ -72,7 +74,7 @@ public class LinkCardView implements ChatComponent {
         if (!TextUtils.isEmpty(description)) {
             TextView descTv = new TextView(context);
             descTv.setText(description);
-            descTv.setTextSize(12);
+            descTv.setTextSize(Tokens.textSizeSp(descTv.getContext(), Tokens.TEXT_FOOTNOTE));
             descTv.setTextColor(ComponentColors.textSecondary(context));
             descTv.setMaxLines(3);
             descTv.setEllipsize(TextUtils.TruncateAt.END);
@@ -88,14 +90,14 @@ public class LinkCardView implements ChatComponent {
 
         TextView domainTv = new TextView(context);
         domainTv.setText(TextUtils.isEmpty(domain) ? "打开链接" : domain);
-        domainTv.setTextSize(11);
+        domainTv.setTextSize(Tokens.textSizeSp(domainTv.getContext(), Tokens.TEXT_CAPTION));
         domainTv.setTextColor(ComponentColors.accent(context));
         footer.addView(domainTv, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView arrowTv = new TextView(context);
         arrowTv.setText("↗");
-        arrowTv.setTextSize(14);
+        arrowTv.setTextSize(Tokens.textSizeSp(arrowTv.getContext(), Tokens.TEXT_BODY));
         arrowTv.setTextColor(ComponentColors.textTertiary(context));
         footer.addView(arrowTv);
         card.addView(footer, new LinearLayout.LayoutParams(

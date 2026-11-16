@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.text.TextUtils;
 import android.util.TypedValue;
@@ -52,7 +54,7 @@ public class ToolCallCardView implements ChatComponent {
 
         TextView iconTv = new TextView(context);
         iconTv.setText("🔧");
-        iconTv.setTextSize(12);
+        iconTv.setTextSize(Tokens.textSizeSp(iconTv.getContext(), Tokens.TEXT_FOOTNOTE));
         iconTv.setPadding(0, 0, dp(context, 5), 0);
         row.addView(iconTv);
 
@@ -62,7 +64,7 @@ public class ToolCallCardView implements ChatComponent {
         String displayLabel = com.oilquiz.app.ai.chat.ToolMetaRegistry.displayName(toolName,
                 com.oilquiz.app.ai.chat.ToolMetaRegistry.actionOf(p.optString("args", "")));
         nameTv.setText(TextUtils.isEmpty(displayLabel) ? "工具" : displayLabel);
-        nameTv.setTextSize(12);
+        nameTv.setTextSize(Tokens.textSizeSp(nameTv.getContext(), Tokens.TEXT_FOOTNOTE));
         nameTv.setTextColor(ComponentColors.textSecondary(context));
         nameTv.setSingleLine(true);
         nameTv.setEllipsize(TextUtils.TruncateAt.MIDDLE);
@@ -94,7 +96,7 @@ public class ToolCallCardView implements ChatComponent {
                 break;
         }
         statusTv.setText(statusText);
-        statusTv.setTextSize(11);
+        statusTv.setTextSize(Tokens.textSizeSp(statusTv.getContext(), Tokens.TEXT_CAPTION));
         statusTv.setTextColor(statusColor);
         statusTv.setSingleLine(true);
         statusTv.setEllipsize(TextUtils.TruncateAt.END);

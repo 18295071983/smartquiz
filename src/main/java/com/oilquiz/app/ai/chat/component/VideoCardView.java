@@ -22,6 +22,7 @@ import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.theme.Tokens;
 import com.oilquiz.app.ai.chat.media.AudioPlaybackManager;
 import com.oilquiz.app.ui.activity.VideoFullscreenActivity;
 
@@ -138,7 +139,7 @@ public class VideoCardView implements ChatComponent {
         if (title != null && !title.isEmpty()) {
             TextView titleTv = new TextView(context);
             titleTv.setText(title);
-            titleTv.setTextSize(14);
+            titleTv.setTextSize(Tokens.textSizeSp(titleTv.getContext(), Tokens.TEXT_BODY));
             titleTv.setTextColor(ComponentColors.textPrimary(context));
             titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             titleTv.setPadding(0, 0, 0, dp(context, 6));
@@ -185,7 +186,7 @@ public class VideoCardView implements ChatComponent {
 
         final TextView errorTv = new TextView(context);
         errorTv.setTextColor(ComponentColors.error(context));
-        errorTv.setTextSize(12);
+        errorTv.setTextSize(Tokens.textSizeSp(errorTv.getContext(), Tokens.TEXT_FOOTNOTE));
         errorTv.setGravity(Gravity.CENTER);
         FrameLayout.LayoutParams lpErr = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -220,7 +221,7 @@ public class VideoCardView implements ChatComponent {
 
         final TextView hint = new TextView(context);
         hint.setText("▶ 点击播放（划走不中断，回来接着播）");
-        hint.setTextSize(11);
+        hint.setTextSize(Tokens.textSizeSp(hint.getContext(), Tokens.TEXT_CAPTION));
         hint.setTextColor(ComponentColors.textTertiary(context));
         hint.setPadding(0, dp(context, 6), 0, 0);
         card.addView(hint);
@@ -492,7 +493,7 @@ public class VideoCardView implements ChatComponent {
         card.setBackground(cardBackground(context));
         TextView tv = new TextView(context);
         tv.setText("⚠ " + msg);
-        tv.setTextSize(12);
+        tv.setTextSize(Tokens.textSizeSp(tv.getContext(), Tokens.TEXT_FOOTNOTE));
         tv.setTextColor(ComponentColors.error(context));
         card.addView(tv);
         return card;

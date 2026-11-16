@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.view.View;
 import android.widget.LinearLayout;
@@ -87,7 +89,7 @@ public class LayoutPrimitiveCardView implements ChatComponent {
         card.setPadding(dp(context, 12), dp(context, 10), dp(context, 12), dp(context, 10));
         TextView tv = new TextView(context);
         tv.setText("⚠ " + type + " 渲染失败");
-        tv.setTextSize(12);
+        tv.setTextSize(Tokens.textSizeSp(tv.getContext(), Tokens.TEXT_FOOTNOTE));
         tv.setTextColor(ComponentColors.textTertiary(context));
         card.addView(tv);
         return card;

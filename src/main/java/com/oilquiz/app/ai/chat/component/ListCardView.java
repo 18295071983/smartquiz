@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.text.TextUtils;
 import android.util.TypedValue;
@@ -51,7 +53,7 @@ public class ListCardView implements ChatComponent {
         if (!TextUtils.isEmpty(title)) {
             TextView titleTv = new TextView(context);
             titleTv.setText(title);
-            titleTv.setTextSize(14);
+            titleTv.setTextSize(Tokens.textSizeSp(titleTv.getContext(), Tokens.TEXT_BODY));
             titleTv.setTextColor(ComponentColors.textPrimary(context));
             titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             titleTv.setPadding(0, 0, 0, dp(context, 6));
@@ -73,7 +75,7 @@ public class ListCardView implements ChatComponent {
                 if (!TextUtils.isEmpty(icon)) {
                     TextView iconTv = new TextView(context);
                     iconTv.setText(icon);
-                    iconTv.setTextSize(16);
+                    iconTv.setTextSize(Tokens.textSizeSp(iconTv.getContext(), Tokens.TEXT_BODY_LG));
                     iconTv.setPadding(0, 0, dp(context, 8), 0);
                     row.addView(iconTv);
                 }
@@ -88,7 +90,7 @@ public class ListCardView implements ChatComponent {
                 if (!TextUtils.isEmpty(itemTitle)) {
                     TextView titleTv = new TextView(context);
                     titleTv.setText(itemTitle);
-                    titleTv.setTextSize(13);
+                    titleTv.setTextSize(Tokens.textSizeSp(titleTv.getContext(), Tokens.TEXT_LABEL));
                     titleTv.setTextColor(ComponentColors.textPrimary(context));
                     textCol.addView(titleTv);
                 }
@@ -97,7 +99,7 @@ public class ListCardView implements ChatComponent {
                 if (!TextUtils.isEmpty(description)) {
                     TextView descTv = new TextView(context);
                     descTv.setText(description);
-                    descTv.setTextSize(11);
+                    descTv.setTextSize(Tokens.textSizeSp(descTv.getContext(), Tokens.TEXT_CAPTION));
                     descTv.setTextColor(ComponentColors.textSecondary(context));
                     descTv.setMaxLines(2);
                     descTv.setEllipsize(TextUtils.TruncateAt.END);
@@ -111,7 +113,7 @@ public class ListCardView implements ChatComponent {
                 if (!TextUtils.isEmpty(value)) {
                     TextView valueTv = new TextView(context);
                     valueTv.setText(value);
-                    valueTv.setTextSize(12);
+                    valueTv.setTextSize(Tokens.textSizeSp(valueTv.getContext(), Tokens.TEXT_FOOTNOTE));
                     valueTv.setTextColor(ComponentColors.accent(context));
                     valueTv.setPadding(dp(context, 8), 0, 0, 0);
                     row.addView(valueTv);

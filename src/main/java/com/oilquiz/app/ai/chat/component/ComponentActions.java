@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
@@ -420,7 +422,7 @@ public final class ComponentActions {
             if (runner == null) continue;
             TextView btn = new TextView(context);
             btn.setText(a.optString("label", "打开"));
-            btn.setTextSize(12);
+            btn.setTextSize(Tokens.textSizeSp(btn.getContext(), Tokens.TEXT_FOOTNOTE));
             btn.setTextColor(ComponentColors.accent(context));
             btn.setPadding(0, 0, dp(context, 16), 0);
             btn.setGravity(Gravity.CENTER_VERTICAL);

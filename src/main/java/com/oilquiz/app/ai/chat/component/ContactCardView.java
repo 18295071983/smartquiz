@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
@@ -56,7 +58,7 @@ public class ContactCardView implements ChatComponent {
         if (!TextUtils.isEmpty(title)) {
             TextView titleTv = new TextView(context);
             titleTv.setText(title);
-            titleTv.setTextSize(13);
+            titleTv.setTextSize(Tokens.textSizeSp(titleTv.getContext(), Tokens.TEXT_LABEL));
             titleTv.setTextColor(ComponentColors.textPrimary(context));
             titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             card.addView(titleTv);
@@ -65,7 +67,7 @@ public class ContactCardView implements ChatComponent {
         // 值（大号展示）
         TextView valueTv = new TextView(context);
         valueTv.setText(value);
-        valueTv.setTextSize(18);
+        valueTv.setTextSize(Tokens.textSizeSp(valueTv.getContext(), Tokens.TEXT_SUBTITLE));
         valueTv.setTextColor(ComponentColors.accent(context));
         valueTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         valueTv.setPadding(0, dp(context, 4), 0, 0);
@@ -74,7 +76,7 @@ public class ContactCardView implements ChatComponent {
         if (!TextUtils.isEmpty(description)) {
             TextView descTv = new TextView(context);
             descTv.setText(description);
-            descTv.setTextSize(11);
+            descTv.setTextSize(Tokens.textSizeSp(descTv.getContext(), Tokens.TEXT_CAPTION));
             descTv.setTextColor(ComponentColors.textSecondary(context));
             descTv.setPadding(0, dp(context, 2), 0, 0);
             card.addView(descTv);
@@ -146,7 +148,7 @@ public class ContactCardView implements ChatComponent {
     private TextView actionButton(Context context, String text, View.OnClickListener listener) {
         TextView btn = new TextView(context);
         btn.setText(text);
-        btn.setTextSize(12);
+        btn.setTextSize(Tokens.textSizeSp(btn.getContext(), Tokens.TEXT_FOOTNOTE));
         btn.setTextColor(ComponentColors.accent(context));
         btn.setPadding(0, 0, dp(context, 16), 0);
         btn.setOnClickListener(listener);

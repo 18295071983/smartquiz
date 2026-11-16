@@ -60,6 +60,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 
 import com.oilquiz.app.theme.ThemeColors;
+import com.oilquiz.app.theme.Tokens;
 public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private static final int VIEW_TYPE_USER = 0;
@@ -486,7 +487,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         // --- Agent 执行状态行（思考中/调用工具/完成），实时步骤可视化 ---
         TextView agentStatus = new TextView(ctx);
-        agentStatus.setTextSize(11f);
+        agentStatus.setTextSize(Tokens.textSizeSp(agentStatus.getContext(), Tokens.TEXT_CAPTION));
         agentStatus.setTextColor(colorOnSurfaceVariant);
         agentStatus.setVisibility(View.GONE);
         LinearLayout.LayoutParams asLp = new LinearLayout.LayoutParams(
@@ -535,7 +536,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 藏标签会连带藏整行（ThinkLineLabel 把可见性转发给行容器），
         // 否则会剩下一行孤零零的图标和箭头
         thinkingLabel.setVisibility(View.GONE);
-        thinkingContent.setTextSize(13f);
+        thinkingContent.setTextSize(Tokens.textSizeSp(thinkingContent.getContext(), Tokens.TEXT_LABEL));
         thinkingContent.setLineSpacing(0f, 1.7f);
         activitySection.addView(thinkSection);
         // v2 的正文自带左侧竖线，不需要"思考与正文之间的分隔线"：
@@ -590,7 +591,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         messageText.setLayoutDirection(View.LAYOUT_DIRECTION_LOCALE);
         // demo .ai-text：15px / 行高 1.68 / 主文本色（页面已是纯色底，不再靠气泡底色撑对比）
         messageText.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text));
-        messageText.setTextSize(15f);
+        messageText.setTextSize(Tokens.textSizeSp(messageText.getContext(), Tokens.TEXT_BODY_SM));
         messageText.setLineSpacing(0f, 1.68f);
         messageText.setTextIsSelectable(true);
         if (android.os.Build.VERSION.SDK_INT >= 23) {
@@ -667,14 +668,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         int metaTextColor = ThemeColors.get(ctx, R.color.chat_v2_text_3);
         TextView statusText = new TextView(ctx);
-        statusText.setTextSize(10f);
+        statusText.setTextSize(Tokens.textSizeSp(statusText.getContext(), Tokens.TEXT_MICRO));
         statusText.setTextColor(metaTextColor);
         statusText.setVisibility(View.GONE);
         statusRow.addView(statusText);
 
         // ===== 时间戳 =====
         TextView timestampText = new TextView(ctx);
-        timestampText.setTextSize(10f);
+        timestampText.setTextSize(Tokens.textSizeSp(timestampText.getContext(), Tokens.TEXT_MICRO));
         timestampText.setTextColor(metaTextColor);
         LinearLayout.LayoutParams tsLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -777,7 +778,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     private TextView finalizeActionButton(Context ctx, TextView tv, int color, boolean marginEnd) {
-        tv.setTextSize(11f);
+        tv.setTextSize(Tokens.textSizeSp(tv.getContext(), Tokens.TEXT_CAPTION));
         tv.setTextColor(color);
         // 2026-10-20 S5：这套胶囊现在只服务 Agent 控制条（暂停/单步/回退）。
         // 原来的半透明白描边是给深蓝壁纸用的，浅底上等于隐形（报告 §3②），改读 chat_v2_* token。
@@ -1900,7 +1901,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         box.setOrientation(LinearLayout.VERTICAL);
 
         TextView row = new TextView(ctx);
-        row.setTextSize(12f);
+        row.setTextSize(Tokens.textSizeSp(row.getContext(), Tokens.TEXT_FOOTNOTE));
         row.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
         row.setPadding(dpToPx(4, ctx), dpToPx(6, ctx), dpToPx(4, ctx), dpToPx(6, ctx));
         row.setClickable(true);
@@ -2677,7 +2678,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         if (hasBody) {
             TextView body = new TextView(ctx);
-            body.setTextSize(12f);
+            body.setTextSize(Tokens.textSizeSp(body.getContext(), Tokens.TEXT_FOOTNOTE));
             body.setLineSpacing(0f, 1.6f);
             body.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text_2));
             body.setVisibility(expanded ? View.VISIBLE : View.GONE);
@@ -2751,7 +2752,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         android.widget.TextView summary = new android.widget.TextView(ctx);
-        summary.setTextSize(12f);
+        summary.setTextSize(Tokens.textSizeSp(summary.getContext(), Tokens.TEXT_FOOTNOTE));
         summary.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text_2));
         summary.setSingleLine(true);
         summary.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -2762,7 +2763,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         if (durationMs > 0L) {
             android.widget.TextView dur = new android.widget.TextView(ctx);
-            dur.setTextSize(11f);
+            dur.setTextSize(Tokens.textSizeSp(dur.getContext(), Tokens.TEXT_CAPTION));
             dur.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text_3));
             dur.setPadding(dpToPx(6, ctx), 0, 0, 0);
             dur.setText(formatThinkingDuration(durationMs));
@@ -2783,7 +2784,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         head.addView(chev);
 
         android.widget.TextView body = new android.widget.TextView(ctx);
-        body.setTextSize(12f);
+        body.setTextSize(Tokens.textSizeSp(body.getContext(), Tokens.TEXT_FOOTNOTE));
         body.setLineSpacing(0f, 1.6f);
         body.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text_2));
         body.setVisibility(expanded ? View.VISIBLE : View.GONE);
@@ -3921,8 +3922,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     timeline ? 0 : dpToPx(8, ctx));
         }
         holder.itemView.setPadding(hPad, dpToPx(timeline ? 2 : 6, ctx), hPad, dpToPx(timeline ? 2 : 6, ctx));
-        holder.systemIcon.setTextSize(14f);
-        holder.messageText.setTextSize(12f);
+        holder.systemIcon.setTextSize(Tokens.textSizeSp(holder.systemIcon.getContext(), Tokens.TEXT_BODY));
+        holder.messageText.setTextSize(Tokens.textSizeSp(holder.messageText.getContext(), Tokens.TEXT_FOOTNOTE));
         holder.messageText.setTypeface(null, android.graphics.Typeface.NORMAL);
         if (timeline) {
             holder.systemIcon.setText("•");
@@ -4348,7 +4349,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         android.content.Context ctx = container.getContext();
         TextView btn = new TextView(ctx);
         btn.setText("🔄 重试该工具");
-        btn.setTextSize(11f);
+        btn.setTextSize(Tokens.textSizeSp(btn.getContext(), Tokens.TEXT_CAPTION));
         int danger = ThemeColors.get(ctx, R.color.error);
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
@@ -4393,7 +4394,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         android.content.Context ctx = container.getContext();
         TextView btn = new TextView(ctx);
         btn.setText("✏️ 编辑参数并重跑");
-        btn.setTextSize(11f);
+        btn.setTextSize(Tokens.textSizeSp(btn.getContext(), Tokens.TEXT_CAPTION));
         int accent = ThemeColors.get(ctx, R.color.primary);
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
@@ -4417,7 +4418,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             input.setText(currentArgs);
             input.setMinLines(3);
             input.setTypeface(android.graphics.Typeface.MONOSPACE);
-            input.setTextSize(12f);
+            input.setTextSize(Tokens.textSizeSp(input.getContext(), Tokens.TEXT_FOOTNOTE));
             android.widget.ScrollView sv = new android.widget.ScrollView(v.getContext());
             sv.addView(input);
             new android.app.AlertDialog.Builder(v.getContext())
@@ -5609,7 +5610,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         } else {
             TextView tv = new TextView(holder.container.getContext());
             tv.setText("（这张卡片无法显示：" + ctype + "）");
-            tv.setTextSize(12);
+            tv.setTextSize(Tokens.textSizeSp(tv.getContext(), Tokens.TEXT_FOOTNOTE));
             holder.container.addView(tv);
         }
     }

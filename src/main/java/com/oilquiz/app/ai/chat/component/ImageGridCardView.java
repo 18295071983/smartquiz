@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Color;
@@ -316,7 +318,7 @@ public class ImageGridCardView implements ChatComponent {
             android.util.Log.w("ImageGridCardView", "local image missing: " + url);
         }
         failed.setText(message);
-        failed.setTextSize(11);
+        failed.setTextSize(Tokens.textSizeSp(failed.getContext(), Tokens.TEXT_CAPTION));
         failed.setTextColor(ComponentColors.textTertiary(root.getContext()));
         failed.setGravity(Gravity.CENTER);
         failed.setBackgroundColor(ComponentColors.imageError(root.getContext()));
@@ -340,7 +342,7 @@ public class ImageGridCardView implements ChatComponent {
         }
         TextView failed = new TextView(root.getContext());
         failed.setText("图片无法显示");
-        failed.setTextSize(11);
+        failed.setTextSize(Tokens.textSizeSp(failed.getContext(), Tokens.TEXT_CAPTION));
         failed.setTextColor(ComponentColors.textTertiary(root.getContext()));
         failed.setGravity(Gravity.CENTER);
         failed.setBackgroundColor(ComponentColors.imageError(root.getContext()));

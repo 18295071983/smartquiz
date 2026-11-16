@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.text.TextUtils;
 import android.util.TypedValue;
@@ -84,7 +86,7 @@ public class AlertCardView implements ChatComponent {
         // 图标
         TextView iconTv = new TextView(context);
         iconTv.setText(icon);
-        iconTv.setTextSize(18);
+        iconTv.setTextSize(Tokens.textSizeSp(iconTv.getContext(), Tokens.TEXT_SUBTITLE));
         iconTv.setPadding(dp(context, 10), 0, dp(context, 8), 0);
         iconTv.setGravity(Gravity.TOP);
         card.addView(iconTv);
@@ -98,7 +100,7 @@ public class AlertCardView implements ChatComponent {
         if (!TextUtils.isEmpty(title)) {
             TextView titleTv = new TextView(context);
             titleTv.setText(title);
-            titleTv.setTextSize(13);
+            titleTv.setTextSize(Tokens.textSizeSp(titleTv.getContext(), Tokens.TEXT_LABEL));
             titleTv.setTextColor(ComponentColors.textPrimary(context));
             titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             textCol.addView(titleTv);
@@ -107,7 +109,7 @@ public class AlertCardView implements ChatComponent {
         if (!TextUtils.isEmpty(content)) {
             TextView contentTv = new TextView(context);
             contentTv.setText(content);
-            contentTv.setTextSize(12);
+            contentTv.setTextSize(Tokens.textSizeSp(contentTv.getContext(), Tokens.TEXT_FOOTNOTE));
             contentTv.setTextColor(ComponentColors.textSecondary(context));
             contentTv.setPadding(0, dp(context, 2), 0, 0);
             textCol.addView(contentTv);

@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.net.Uri;
 import android.util.TypedValue;
@@ -130,7 +132,7 @@ public class AudioCardView implements ChatComponent {
         if (title != null && !title.isEmpty()) {
             TextView titleTv = new TextView(context);
             titleTv.setText(title);
-            titleTv.setTextSize(14);
+            titleTv.setTextSize(Tokens.textSizeSp(titleTv.getContext(), Tokens.TEXT_BODY));
             titleTv.setTextColor(ComponentColors.textPrimary(context));
             titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             titleBox.addView(titleTv);
@@ -138,14 +140,14 @@ public class AudioCardView implements ChatComponent {
         if (artist != null && !artist.isEmpty()) {
             TextView artistTv = new TextView(context);
             artistTv.setText(artist);
-            artistTv.setTextSize(11);
+            artistTv.setTextSize(Tokens.textSizeSp(artistTv.getContext(), Tokens.TEXT_CAPTION));
             artistTv.setTextColor(ComponentColors.textSecondary(context));
             titleBox.addView(artistTv);
         }
         if (titleBox.getChildCount() == 0) {
             TextView t = new TextView(context);
             t.setText("音频播放");
-            t.setTextSize(14);
+            t.setTextSize(Tokens.textSizeSp(t.getContext(), Tokens.TEXT_BODY));
             t.setTextColor(ComponentColors.textPrimary(context));
             titleBox.addView(t);
         }
@@ -168,7 +170,7 @@ public class AudioCardView implements ChatComponent {
 
         final TextView btnPrev = new TextView(context);
         btnPrev.setText("上一首");
-        btnPrev.setTextSize(10);
+        btnPrev.setTextSize(Tokens.textSizeSp(btnPrev.getContext(), Tokens.TEXT_MICRO));
         btnPrev.setTextColor(ComponentColors.textSecondary(context));
         btnPrev.setPadding(0, 0, dp(context, 8), 0);
         btnPrev.setClickable(true);
@@ -177,7 +179,7 @@ public class AudioCardView implements ChatComponent {
 
         final TextView btnNext = new TextView(context);
         btnNext.setText("下一首");
-        btnNext.setTextSize(10);
+        btnNext.setTextSize(Tokens.textSizeSp(btnNext.getContext(), Tokens.TEXT_MICRO));
         btnNext.setTextColor(ComponentColors.textSecondary(context));
         btnNext.setPadding(0, 0, dp(context, 8), 0);
         btnNext.setClickable(true);
@@ -195,7 +197,7 @@ public class AudioCardView implements ChatComponent {
 
         final TextView timeTv = new TextView(context);
         timeTv.setText(formatProgressText(0, 0));
-        timeTv.setTextSize(10);
+        timeTv.setTextSize(Tokens.textSizeSp(timeTv.getContext(), Tokens.TEXT_MICRO));
         timeTv.setTextColor(ComponentColors.textTertiary(context));
         timeTv.setPadding(dp(context, 8), 0, 0, 0);
         controls.addView(timeTv);
@@ -211,7 +213,7 @@ public class AudioCardView implements ChatComponent {
 
         final TextView speedTv = new TextView(context);
         speedTv.setText(formatSpeed(speed));
-        speedTv.setTextSize(10);
+        speedTv.setTextSize(Tokens.textSizeSp(speedTv.getContext(), Tokens.TEXT_MICRO));
         speedTv.setTextColor(ComponentColors.textSecondary(context));
         speedTv.setPadding(0, 0, dp(context, 14), 0);
         speedTv.setClickable(true);
@@ -220,7 +222,7 @@ public class AudioCardView implements ChatComponent {
 
         final TextView loopTv = new TextView(context);
         loopTv.setText(loop ? "单曲循环" : "循环关");
-        loopTv.setTextSize(10);
+        loopTv.setTextSize(Tokens.textSizeSp(loopTv.getContext(), Tokens.TEXT_MICRO));
         loopTv.setTextColor(ComponentColors.textSecondary(context));
         loopTv.setPadding(0, 0, dp(context, 14), 0);
         loopTv.setClickable(true);
@@ -228,14 +230,14 @@ public class AudioCardView implements ChatComponent {
         tools.addView(loopTv);
 
         final TextView queueTv = new TextView(context);
-        queueTv.setTextSize(10);
+        queueTv.setTextSize(Tokens.textSizeSp(queueTv.getContext(), Tokens.TEXT_MICRO));
         queueTv.setTextColor(ComponentColors.textTertiary(context));
         queueTv.setPadding(0, 0, dp(context, 10), 0);
         tools.addView(queueTv);
 
         final TextView timerTv = new TextView(context);
         timerTv.setText("定时关");
-        timerTv.setTextSize(10);
+        timerTv.setTextSize(Tokens.textSizeSp(timerTv.getContext(), Tokens.TEXT_MICRO));
         timerTv.setTextColor(ComponentColors.textSecondary(context));
         timerTv.setPadding(0, 0, dp(context, 10), 0);
         timerTv.setClickable(true);
@@ -420,7 +422,7 @@ public class AudioCardView implements ChatComponent {
         card.setBackground(cardBackground(context));
         TextView tv = new TextView(context);
         tv.setText("⚠ " + msg);
-        tv.setTextSize(12);
+        tv.setTextSize(Tokens.textSizeSp(tv.getContext(), Tokens.TEXT_FOOTNOTE));
         tv.setTextColor(ComponentColors.error(context));
         card.addView(tv);
         return card;

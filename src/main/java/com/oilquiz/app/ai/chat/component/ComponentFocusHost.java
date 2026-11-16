@@ -15,6 +15,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.theme.Tokens;
 
 import org.json.JSONObject;
 
@@ -157,7 +158,7 @@ public final class ComponentFocusHost {
         close.setText(R.string.card_html_expand_close);
         close.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         close.setPadding(dp(act, 16), dp(act, 10), dp(act, 16), dp(act, 10));
-        close.setTextSize(14f);
+        close.setTextSize(Tokens.textSizeSp(close.getContext(), Tokens.TEXT_BODY));
         close.setOnClickListener(v -> {
             // 走 dismiss：清理统一在 onDismiss 里，别在这里再写一份
             try {

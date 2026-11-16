@@ -15,6 +15,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.theme.Tokens;
 
 import org.json.JSONObject;
 
@@ -163,7 +164,7 @@ public class HtmlCardView implements ChatComponent {
         // 返回浮标：右上角小圆钮，canGoBack 时显示
         final android.widget.TextView backBtn = new android.widget.TextView(context);
         backBtn.setText("←");
-        backBtn.setTextSize(16);
+        backBtn.setTextSize(Tokens.textSizeSp(backBtn.getContext(), Tokens.TEXT_BODY_LG));
         backBtn.setTextColor(androidx.core.content.ContextCompat.getColor(context,
                 R.color.card_scrim_text));
         backBtn.setGravity(android.view.Gravity.CENTER);

@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.text.TextUtils;
 import android.util.TypedValue;
@@ -56,7 +58,7 @@ public class ProgressCardView implements ChatComponent {
 
         TextView titleTv = new TextView(context);
         titleTv.setText(TextUtils.isEmpty(title) ? "进度" : title);
-        titleTv.setTextSize(13);
+        titleTv.setTextSize(Tokens.textSizeSp(titleTv.getContext(), Tokens.TEXT_LABEL));
         titleTv.setTextColor(ComponentColors.textPrimary(context));
         titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         titleRow.addView(titleTv, new LinearLayout.LayoutParams(0,
@@ -65,14 +67,14 @@ public class ProgressCardView implements ChatComponent {
         if (!TextUtils.isEmpty(status)) {
             TextView statusTv = new TextView(context);
             statusTv.setText(status);
-            statusTv.setTextSize(10);
+            statusTv.setTextSize(Tokens.textSizeSp(statusTv.getContext(), Tokens.TEXT_MICRO));
             statusTv.setTextColor(ComponentColors.textTertiary(context));
             titleRow.addView(statusTv);
         }
 
         TextView pctTv = new TextView(context);
         pctTv.setText(progress + "%");
-        pctTv.setTextSize(16);
+        pctTv.setTextSize(Tokens.textSizeSp(pctTv.getContext(), Tokens.TEXT_BODY_LG));
         pctTv.setTextColor(ComponentColors.accent(context));
         pctTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         pctTv.setPadding(dp(context, 8), 0, 0, 0);
@@ -92,7 +94,7 @@ public class ProgressCardView implements ChatComponent {
         if (!TextUtils.isEmpty(description)) {
             TextView descTv = new TextView(context);
             descTv.setText(description);
-            descTv.setTextSize(11);
+            descTv.setTextSize(Tokens.textSizeSp(descTv.getContext(), Tokens.TEXT_CAPTION));
             descTv.setTextColor(ComponentColors.textSecondary(context));
             descTv.setPadding(0, dp(context, 4), 0, 0);
             card.addView(descTv, new LinearLayout.LayoutParams(

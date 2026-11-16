@@ -11,6 +11,7 @@ import android.widget.TextView;
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.theme.ThemeColors;
+import com.oilquiz.app.theme.Tokens;
 
 import java.util.List;
 import java.util.Locale;
@@ -89,7 +90,7 @@ public class ChatStatsBar extends LinearLayout {
     private TextView makePill(String text) {
         TextView tv = new TextView(getContext());
         tv.setText(text);
-        tv.setTextSize(11f);
+        tv.setTextSize(Tokens.textSizeSp(tv.getContext(), Tokens.TEXT_CAPTION));
         tv.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         tv.setTextColor(ThemeColors.attr(getContext(), R.attr.colorControlText)); // 2026-11-16：跟随主题（原先在渐变底上用写死的浅灰白）
         tv.setGravity(Gravity.CENTER);

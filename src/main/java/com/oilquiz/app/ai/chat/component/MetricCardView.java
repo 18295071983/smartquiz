@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.text.TextUtils;
 import android.util.TypedValue;
@@ -86,7 +88,7 @@ public class MetricCardView implements ChatComponent {
         if (!TextUtils.isEmpty(title)) {
             TextView titleTv = new TextView(context);
             titleTv.setText(title);
-            titleTv.setTextSize(13);
+            titleTv.setTextSize(Tokens.textSizeSp(titleTv.getContext(), Tokens.TEXT_LABEL));
             titleTv.setTextColor(ComponentColors.textPrimary(context));
             titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             titleTv.setPadding(0, 0, 0, dp(context, 6));
@@ -111,7 +113,7 @@ public class MetricCardView implements ChatComponent {
                 String value = m.optString("value", "");
                 TextView valueTv = new TextView(context);
                 valueTv.setText(TextUtils.isEmpty(value) ? "-" : value);
-                valueTv.setTextSize(20);
+                valueTv.setTextSize(Tokens.textSizeSp(valueTv.getContext(), Tokens.TEXT_TITLE));
                 valueTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
                 valueTv.setTextColor(resolveColor(context, m.optString("color", "")));
                 col.addView(valueTv);
@@ -120,7 +122,7 @@ public class MetricCardView implements ChatComponent {
                 if (!TextUtils.isEmpty(label)) {
                     TextView labelTv = new TextView(context);
                     labelTv.setText(label);
-                    labelTv.setTextSize(10);
+                    labelTv.setTextSize(Tokens.textSizeSp(labelTv.getContext(), Tokens.TEXT_MICRO));
                     labelTv.setTextColor(ComponentColors.textSecondary(context));
                     col.addView(labelTv);
                 }

@@ -7,6 +7,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.theme.Tokens;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.component.ComponentData;
 import com.oilquiz.app.ai.chat.component.ComponentDisplay;
@@ -128,7 +129,7 @@ final class ProductCards {
         box.setOrientation(LinearLayout.VERTICAL);
 
         final TextView row = new TextView(ctx);
-        row.setTextSize(12f);
+        row.setTextSize(Tokens.textSizeSp(row.getContext(), Tokens.TEXT_FOOTNOTE));
         row.setClickable(true);
         row.setFocusable(true);
         row.setText(label(comp, startExpanded));

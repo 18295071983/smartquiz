@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -204,7 +206,7 @@ final class DshCardViews {
             if (steps != null && steps.length() > 0) {
                 TextView count = new TextView(context);
                 count.setText(steps.length() + " 步");
-                count.setTextSize(11);
+                count.setTextSize(Tokens.textSizeSp(count.getContext(), Tokens.TEXT_CAPTION));
                 count.setTextColor(ComponentColors.textSecondary(context));
                 head.addView(count);
             }
@@ -220,7 +222,7 @@ final class DshCardViews {
                 if (steps.length() > shown) {
                     TextView more = new TextView(context);
                     more.setText("+" + (steps.length() - shown) + " 步");
-                    more.setTextSize(11);
+                    more.setTextSize(Tokens.textSizeSp(more.getContext(), Tokens.TEXT_CAPTION));
                     more.setTextColor(ComponentColors.textSecondary(context));
                     more.setPadding(dp(context, 15), dp(context, 2), 0, 0);
                     card.addView(more);
@@ -228,7 +230,7 @@ final class DshCardViews {
             } else if (!TextUtils.isEmpty(lastText)) {
                 TextView sub = new TextView(context);
                 sub.setText(lastText);
-                sub.setTextSize(11);
+                sub.setTextSize(Tokens.textSizeSp(sub.getContext(), Tokens.TEXT_CAPTION));
                 sub.setTextColor(ComponentColors.textSecondary(context));
                 sub.setMaxLines(2);
                 sub.setEllipsize(TextUtils.TruncateAt.END);
@@ -240,7 +242,7 @@ final class DshCardViews {
                 TextView idle = new TextView(context);
                 String mode = p.optString("mode", "");
                 idle.setText(mode.isEmpty() ? "已启动，等待第一步…" : ("已启动 · 模式：" + mode));
-                idle.setTextSize(11);
+                idle.setTextSize(Tokens.textSizeSp(idle.getContext(), Tokens.TEXT_CAPTION));
                 idle.setTextColor(ComponentColors.textSecondary(context));
                 idle.setPadding(dp(context, 15), dp(context, 3), 0, 0);
                 card.addView(idle);
@@ -271,7 +273,7 @@ final class DshCardViews {
             if (!TextUtils.isEmpty(result)) {
                 TextView res = new TextView(context);
                 res.setText(result);
-                res.setTextSize(11);
+                res.setTextSize(Tokens.textSizeSp(res.getContext(), Tokens.TEXT_CAPTION));
                 res.setTextColor(ComponentColors.textSecondary(context));
                 res.setMaxLines(2);
                 res.setEllipsize(TextUtils.TruncateAt.END);

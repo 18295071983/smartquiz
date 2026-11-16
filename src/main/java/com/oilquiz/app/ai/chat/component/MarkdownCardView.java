@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.text.Spanned;
 import android.text.TextUtils;
@@ -53,7 +55,7 @@ public class MarkdownCardView implements ChatComponent {
         if (!TextUtils.isEmpty(title)) {
             TextView titleTv = new TextView(context);
             titleTv.setText(title);
-            titleTv.setTextSize(14);
+            titleTv.setTextSize(Tokens.textSizeSp(titleTv.getContext(), Tokens.TEXT_BODY));
             titleTv.setTextColor(ComponentColors.textPrimary(context));
             titleTv.setTypeface(null, android.graphics.Typeface.BOLD);
             titleTv.setPadding(0, 0, 0, dp(context, 6));
@@ -62,7 +64,7 @@ public class MarkdownCardView implements ChatComponent {
 
         if (!content.trim().isEmpty()) {
             TextView contentTv = new TextView(context);
-            contentTv.setTextSize(13);
+            contentTv.setTextSize(Tokens.textSizeSp(contentTv.getContext(), Tokens.TEXT_LABEL));
             contentTv.setTextColor(ComponentColors.textPrimary(context));
             contentTv.setLineSpacing(0f, 1.3f);
             contentTv.setMovementMethod(LinkMovementMethod.getInstance());

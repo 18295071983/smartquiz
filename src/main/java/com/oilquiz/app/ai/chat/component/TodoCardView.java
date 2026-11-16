@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.text.TextUtils;
 import android.util.TypedValue;
@@ -51,7 +53,7 @@ public class TodoCardView implements ChatComponent {
         if (!TextUtils.isEmpty(title)) {
             TextView titleTv = new TextView(context);
             titleTv.setText(title);
-            titleTv.setTextSize(13);
+            titleTv.setTextSize(Tokens.textSizeSp(titleTv.getContext(), Tokens.TEXT_LABEL));
             titleTv.setTextColor(ComponentColors.textPrimary(context));
             titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             titleTv.setPadding(0, 0, 0, dp(context, 6));
@@ -73,14 +75,14 @@ public class TodoCardView implements ChatComponent {
 
                 TextView checkTv = new TextView(context);
                 checkTv.setText(done ? "✅" : "⬜");
-                checkTv.setTextSize(13);
+                checkTv.setTextSize(Tokens.textSizeSp(checkTv.getContext(), Tokens.TEXT_LABEL));
                 checkTv.setPadding(0, 0, dp(context, 8), 0);
                 row.addView(checkTv);
 
                 String text = item.optString("text", "");
                 TextView textTv = new TextView(context);
                 textTv.setText(TextUtils.isEmpty(text) ? "任务" : text);
-                textTv.setTextSize(13);
+                textTv.setTextSize(Tokens.textSizeSp(textTv.getContext(), Tokens.TEXT_LABEL));
                 textTv.setTextColor(done
                         ? ComponentColors.textTertiary(context)
                         : ComponentColors.textPrimary(context));
@@ -98,7 +100,7 @@ public class TodoCardView implements ChatComponent {
             if (items.length() > 0) {
                 TextView summaryTv = new TextView(context);
                 summaryTv.setText("完成 " + doneCount + " / " + items.length());
-                summaryTv.setTextSize(10);
+                summaryTv.setTextSize(Tokens.textSizeSp(summaryTv.getContext(), Tokens.TEXT_MICRO));
                 summaryTv.setTextColor(ComponentColors.textTertiary(context));
                 summaryTv.setPadding(0, dp(context, 4), 0, 0);
                 card.addView(summaryTv);

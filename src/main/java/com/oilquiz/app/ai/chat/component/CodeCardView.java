@@ -15,6 +15,7 @@ import org.json.JSONObject;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.theme.ThemeColors;
+import com.oilquiz.app.theme.Tokens;
 /**
  * 代码卡片组件：深色代码块 + 语言标签 + 一键复制。
  *
@@ -102,14 +103,14 @@ public class CodeCardView implements ChatComponent {
         }
         TextView langTv = new TextView(context);
         langTv.setText(langLabel);
-        langTv.setTextSize(10);
+        langTv.setTextSize(Tokens.textSizeSp(langTv.getContext(), Tokens.TEXT_MICRO));
         langTv.setTextColor(ThemeColors.get(R.color.hc_ff94a3b8));
         header.addView(langTv, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView copyBtn = new TextView(context);
         copyBtn.setText("复制");
-        copyBtn.setTextSize(11);
+        copyBtn.setTextSize(Tokens.textSizeSp(copyBtn.getContext(), Tokens.TEXT_CAPTION));
         copyBtn.setTextColor(ThemeColors.get(R.color.hc_ff60a5fa));
         copyBtn.setPadding(dp(context, 8), dp(context, 3), dp(context, 8), dp(context, 3));
         copyBtn.setBackground(copyButtonBackground(context));
@@ -125,7 +126,7 @@ public class CodeCardView implements ChatComponent {
         // 代码内容
         TextView codeTv = new TextView(context);
         codeTv.setText(code);
-        codeTv.setTextSize(12);
+        codeTv.setTextSize(Tokens.textSizeSp(codeTv.getContext(), Tokens.TEXT_FOOTNOTE));
         codeTv.setTextColor(ThemeColors.get(R.color.hc_ffe2e8f0));
         codeTv.setTypeface(android.graphics.Typeface.MONOSPACE);
         codeTv.setLineSpacing(0, 1.3f);
@@ -146,7 +147,7 @@ public class CodeCardView implements ChatComponent {
             if (!TextUtils.isEmpty(duration)) head.append(" · ").append(duration);
             TextView outHead = new TextView(context);
             outHead.setText(head.toString());
-            outHead.setTextSize(10);
+            outHead.setTextSize(Tokens.textSizeSp(outHead.getContext(), Tokens.TEXT_MICRO));
             outHead.setTextColor(ThemeColors.get(R.color.hc_ff94a3b8));
             outHead.setPadding(dp(context, 10), dp(context, 6), dp(context, 10), dp(context, 2));
             card.addView(outHead);
@@ -154,7 +155,7 @@ public class CodeCardView implements ChatComponent {
             String shown = TextUtils.isEmpty(stderr) ? stdout : stderr;
             TextView outTv = new TextView(context);
             outTv.setText(shown);
-            outTv.setTextSize(11);
+            outTv.setTextSize(Tokens.textSizeSp(outTv.getContext(), Tokens.TEXT_CAPTION));
             outTv.setTextColor(stderr.isEmpty()
                     ? ThemeColors.get(R.color.hc_ffe2e8f0)
                     : ThemeColors.get(R.color.hc_ffe11d48));

@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.text.TextUtils;
 import android.util.TypedValue;
@@ -80,7 +82,7 @@ public class WeatherCardView implements ChatComponent {
         if (!TextUtils.isEmpty(city)) {
             TextView cityTv = new TextView(context);
             cityTv.setText(city);
-            cityTv.setTextSize(15);
+            cityTv.setTextSize(Tokens.textSizeSp(cityTv.getContext(), Tokens.TEXT_BODY_SM));
             cityTv.setTextColor(ComponentColors.textPrimary(context));
             cityTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             topRow.addView(cityTv, new LinearLayout.LayoutParams(
@@ -107,7 +109,7 @@ public class WeatherCardView implements ChatComponent {
         if (!TextUtils.isEmpty(text)) {
             TextView textTv = new TextView(context);
             textTv.setText(text);
-            textTv.setTextSize(14);
+            textTv.setTextSize(Tokens.textSizeSp(textTv.getContext(), Tokens.TEXT_BODY));
             textTv.setTextColor(ComponentColors.textSecondary(context));
             textTv.setPadding(dp(context, 10), 0, 0, 0);
             topRow.addView(textTv);
@@ -144,7 +146,7 @@ public class WeatherCardView implements ChatComponent {
         if (sub.length() > 0) {
             TextView subTv = new TextView(context);
             subTv.setText(sub.toString());
-            subTv.setTextSize(12);
+            subTv.setTextSize(Tokens.textSizeSp(subTv.getContext(), Tokens.TEXT_FOOTNOTE));
             subTv.setTextColor(ComponentColors.textTertiary(context));
             subTv.setPadding(0, dp(context, 2), 0, dp(context, 6));
             card.addView(subTv);
@@ -165,7 +167,7 @@ public class WeatherCardView implements ChatComponent {
 
                 TextView dateTv = new TextView(context);
                 dateTv.setText(day.optString("date", ""));
-                dateTv.setTextSize(11);
+                dateTv.setTextSize(Tokens.textSizeSp(dateTv.getContext(), Tokens.TEXT_CAPTION));
                 dateTv.setTextColor(ComponentColors.textTertiary(context));
                 dayCol.addView(dateTv);
 
@@ -179,14 +181,14 @@ public class WeatherCardView implements ChatComponent {
 
                 TextView textTv = new TextView(context);
                 textTv.setText(dayText);
-                textTv.setTextSize(10);
+                textTv.setTextSize(Tokens.textSizeSp(textTv.getContext(), Tokens.TEXT_MICRO));
                 textTv.setTextColor(ComponentColors.textSecondary(context));
                 textTv.setSingleLine(true);
                 dayCol.addView(textTv);
 
                 TextView tempTv = new TextView(context);
                 tempTv.setText(day.optString("tempMin", "") + "~" + day.optString("tempMax", ""));
-                tempTv.setTextSize(10);
+                tempTv.setTextSize(Tokens.textSizeSp(tempTv.getContext(), Tokens.TEXT_MICRO));
                 tempTv.setTextColor(ComponentColors.textPrimary(context));
                 tempTv.setSingleLine(true);
                 dayCol.addView(tempTv);

@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.text.TextUtils;
 import android.util.TypedValue;
@@ -53,7 +55,7 @@ public class GridCardView implements ChatComponent {
         if (!TextUtils.isEmpty(title)) {
             TextView titleTv = new TextView(context);
             titleTv.setText(title);
-            titleTv.setTextSize(13);
+            titleTv.setTextSize(Tokens.textSizeSp(titleTv.getContext(), Tokens.TEXT_LABEL));
             titleTv.setTextColor(ComponentColors.textPrimary(context));
             titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             titleTv.setPadding(0, 0, 0, dp(context, 6));
@@ -102,7 +104,7 @@ public class GridCardView implements ChatComponent {
                 if (!TextUtils.isEmpty(label)) {
                     TextView labelTv = new TextView(context);
                     labelTv.setText(label);
-                    labelTv.setTextSize(10);
+                    labelTv.setTextSize(Tokens.textSizeSp(labelTv.getContext(), Tokens.TEXT_MICRO));
                     labelTv.setTextColor(ComponentColors.textSecondary(context));
                     labelTv.setGravity(Gravity.CENTER);
                     labelTv.setMaxLines(1);

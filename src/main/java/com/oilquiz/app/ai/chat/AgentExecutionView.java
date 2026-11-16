@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.chat;
 
 import com.oilquiz.app.theme.ThemeColors;
+import com.oilquiz.app.theme.Tokens;
 
 import android.content.Context;
 import android.util.AttributeSet;
@@ -106,7 +107,7 @@ public class AgentExecutionView extends LinearLayout {
         }
 
         TextView logView = new TextView(getContext());
-        logView.setTextSize(12f);
+        logView.setTextSize(Tokens.textSizeSp(logView.getContext(), Tokens.TEXT_FOOTNOTE));
         logView.setLineSpacing(0, 1.2f);
 
         // 日志标签颜色：使用主题色资源（浅色/夜间自动适配），替代硬编码十六进制，

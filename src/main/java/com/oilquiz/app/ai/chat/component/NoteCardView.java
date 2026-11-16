@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.component;
 
+import com.oilquiz.app.theme.Tokens;
+
 import android.content.Context;
 import android.text.TextUtils;
 import android.util.TypedValue;
@@ -69,7 +71,7 @@ public class NoteCardView implements ChatComponent {
         if (!TextUtils.isEmpty(content)) {
             TextView contentTv = new TextView(context);
             contentTv.setText(content);
-            contentTv.setTextSize(13);
+            contentTv.setTextSize(Tokens.textSizeSp(contentTv.getContext(), Tokens.TEXT_LABEL));
             contentTv.setTextColor(ComponentColors.textPrimary(context));
             if ("quote".equals(type)) {
                 contentTv.setTypeface(null, android.graphics.Typeface.ITALIC);
@@ -80,7 +82,7 @@ public class NoteCardView implements ChatComponent {
         if (!TextUtils.isEmpty(author)) {
             TextView authorTv = new TextView(context);
             authorTv.setText("— " + author);
-            authorTv.setTextSize(11);
+            authorTv.setTextSize(Tokens.textSizeSp(authorTv.getContext(), Tokens.TEXT_CAPTION));
             authorTv.setTextColor(ComponentColors.textTertiary(context));
             authorTv.setGravity(Gravity.END);
             authorTv.setPadding(0, dp(context, 4), 0, 0);

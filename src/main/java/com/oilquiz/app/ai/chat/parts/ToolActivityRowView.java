@@ -11,6 +11,7 @@ import android.widget.TextView;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.theme.ThemeColors;
+import com.oilquiz.app.theme.Tokens;
 import com.oilquiz.app.ai.chat.ui.ToolRowStyle;
 import com.oilquiz.app.ai.chat.turn.AssistantTurn;
 import com.oilquiz.app.ai.chat.util.ToolResultText;
@@ -168,7 +169,7 @@ final class ToolActivityRowView {
 
         if (hasBody) {
             final TextView bodyTv = new TextView(ctx);
-            bodyTv.setTextSize(12f);
+            bodyTv.setTextSize(Tokens.textSizeSp(bodyTv.getContext(), Tokens.TEXT_FOOTNOTE));
             bodyTv.setLineSpacing(0f, 1.6f);
             bodyTv.setTextColor(ThemeColors.get(ctx, R.color.chat_v2_text_2));
             bodyTv.setVisibility(expanded ? View.VISIBLE : View.GONE);
