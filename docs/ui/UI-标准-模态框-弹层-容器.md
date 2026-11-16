@@ -83,3 +83,21 @@ MaterialCardView card = AppCard.create(this);        // 空卡，自己 addView
 - 测试：`src/test/java/com/oilquiz/app/ui/modal/AppModalStandardTest.java`（标准层行为）、
   `DialogStandardRatchetTest.java`（棘轮：手写数量不增长 + 标准层确实被使用）。
 - 每批提交前跑：`.\gradlew.bat assembleDebug testDebugUnitTest --rerun`。
+
+## 4. 附：动效标准（2026-11-16 归一）
+
+对话页三处手写动画已收进 `UiFx`：
+
+| 场景 | 标准 API | 口径 |
+|---|---|---|
+| 状态点/生成点脉冲 | `UiFx.pulse / stopPulse` | 1.1s、alpha 1→0.3→1、tag 防重复、stop 复位 |
+| 消息方向性入场 | `UiFx.slideInMessage(view, fromRight)` | 8dp / 180ms，用户从右、AI 从左 |
+| 多 part 错峰入场 | `UiFx.staggerIn(host, 35, 220)` | 淡入 + 上移 6dp，最多 6 档 |
+| 折叠箭头 | `UiFx.rotateChevron(view, expanded)` | 90°/0°、180ms |
+| 内容淡入/淡出 | `UiFx.fadeIn / fadeOutGone` | 200 / 150ms |
+
+规则：
+
+1. 新动效一律走 `UiFx`；对话页 Java 已由 `UiHardcodeGuardTest` 禁止 `new AlphaAnimation/TranslateAnimation/AnimationSet`、`ObjectAnimator.of`、`ValueAnimator.of`、`.animate()`；
+2. **动效原语只管形状、不管配色**：颜色由被动画的 View 按 `?attr` 取（`SegmentScraper` 的位移/时长是冻结口径，其配色完全来自 `tv_gen_phase` 等视图的 `?attr/colorControlTextSecondary`）；`motionPrimitivesAreColorAgnostic` 钉住这一点；
+3. `SegmentScraper`（刮刀滑入）是唯一实现、形状冻结；要改观感必须单独评审，不允许顺手优化。

@@ -137,6 +137,28 @@ public class UiHardcodeGuardTest {
                 + String.join("\n", violations), violations.isEmpty());
     }
 
+    /**
+     * 动效原语必须"只管形状、不管配色"：颜色由被动画的 View 自己按主题取，
+     * 原语里出现取色/写色就把主题耦合进了动效层（换肤时动效层得跟着改）。
+     *
+     * <p>以 {@code SegmentScraper}（刮刀滑入）为例：它的位移/透明度/时长是冻结口径，
+     * 但配色完全来自 {@code tv_gen_phase} 等调用方视图的 {@code ?attr/...} —— 这里钉住这一点，
+     * 防止以后为了"动效好看一点"在动画类里加颜色。</p>
+     */
+    @Test
+    public void motionPrimitivesAreColorAgnostic() throws IOException {
+        List<String> violations = new ArrayList<>();
+        String scraper = "src/main/java/com/oilquiz/app/ai/chat/ui/SegmentScraper.java";
+        if (java.nio.file.Files.exists(java.nio.file.Paths.get(scraper))) {
+            String src = read(scraper);
+            collect(violations, scraper, "取色/写色（应由调用方 View 按主题决定）",
+                    Pattern.compile("ThemeColors|ComponentColors|setTextColor|setBackgroundColor|Color\\."),
+                    src);
+        }
+        assertTrue("动效原语里出现了配色逻辑：\n  " + String.join("\n  ", violations),
+                violations.isEmpty());
+    }
+
     @Test
     public void chatJavaHasNoHardcodedColorSizeOrSpacing() throws IOException {
         List<String> violations = new ArrayList<>();
