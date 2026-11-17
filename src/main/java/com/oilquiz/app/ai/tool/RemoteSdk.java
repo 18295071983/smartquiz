@@ -109,6 +109,39 @@ public final class RemoteSdk {
     }
 
     /**
+     * 协议自描述（插件 2026-11-17+，GET /v2/manifest）：
+     * 路由表 / 服务端 caps / 限额表 / 允许的反向指令白名单。
+     *
+     * <p>客户端不再靠猜：例如 limits.viewBytes 决定视图截断，commands 决定 phone_ui 能发什么。</p>
+     */
+    public Map<String, Object> manifest() throws Exception {
+        return call("/v2/manifest", "GET", null, 10);
+    }
+
+    /**
+     * 护栏自检（GET /v2/guard）：healthy=true 表示 Host/Origin 判定符合预期
+     * （伪造 Host、跨站 Origin、Origin:null 均被拒；IP Host 与同源放行）。
+     */
+    public Map<String, Object> guard() throws Exception {
+        return call("/v2/guard", "GET", null, 10);
+    }
+
+    /**
+     * 会话归档 / 取消归档（2026-11-17，POST /v2/session）。
+     *
+     * <p>只走电脑端 workspace 服务，不删日志文件。返回 ok + archived；
+     * 活跃会话 409（session-active）、未知会话 404、宿主不支持 503。</p>
+     *
+     * @param archived true=归档（从手机/桌面列表消失），false=取消归档
+     */
+    public Map<String, Object> archive(String sessionId, boolean archived) throws Exception {
+        Map<String, Object> b = new HashMap<>();
+        b.put("action", archived ? "archive" : "unarchive");
+        b.put("session_id", sessionId == null ? "" : sessionId.trim());
+        return call("/v2/session", "POST", b, 20);
+    }
+
+    /**
      * 按会话取后台任务（2026-11-15）：与甲板 jobs 插槽同口径，避免"1 个在跑 ·
      * 共 20 条"里的数字和面板看到的对不上。
      */

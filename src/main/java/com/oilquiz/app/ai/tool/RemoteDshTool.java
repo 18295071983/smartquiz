@@ -93,6 +93,7 @@ import java.util.Map;
                 @Action(name = "health", description = "电脑端自检：工作目录/DSH_HOME/预设挂载/执行通道 五项检查（插件 v8）"),
                 @Action(name = "view", description = "协议 v2 统一视图：状态卡 + 自检卡 + 会话卡 + 时间线（双端同源）"),
                 @Action(name = "session", description = "查/管理电脑端会话身份（session_action: state 默认 / list / attach），id 由电脑签发"),
+                @Action(name = "archive_session", description = "归档/取消归档一条电脑会话（archived 默认 true）：不删日志，只从两端列表隐藏，可恢复"),
                 @Action(name = "events", description = "拉电脑端事件流（/v2/stream，按 since 增量），看刚才发生了什么；结果可直接 ack"),
                 @Action(name = "reconcile", description = "双端对账：拿电脑侧权威摘要（digest/last_seq/未回执条数），和本机状态比"),
                 @Action(name = "ack", description = "回执：告诉电脑本机已收到 seq 之前的全部消息（对账水位线，只增不减）"),
@@ -2095,6 +2096,8 @@ public class RemoteDshTool implements AITool {
                     return handleView(parameters);
                 case "session":
                     return handleSession(parameters);
+                case "archive_session":
+                    return handleArchiveSession(parameters);
                 case "events":
                     return handleEvents(parameters);
                 case "reconcile":
@@ -2455,6 +2458,37 @@ public class RemoteDshTool implements AITool {
             }
         }
         return sb.toString().trim();
+    }
+
+    /**
+     * 归档 / 取消归档一条电脑会话（2026-11-17，插件 /v2/session action=archive|unarchive）。
+     *
+     * <p>只走电脑端 workspace 服务：不删日志文件；归档后该会话从手机抽屉与电脑侧栏同时消失，
+     * 取消归档即恢复。活跃会话电脑端会回 409。</p>
+     */
+    private AIToolResult handleArchiveSession(Map<String, Object> parameters) {
+        String sid = str(parameters.get("session_id")).trim();
+        if (sid.isEmpty()) sid = getSyncTarget(context);
+        if (sid.isEmpty()) {
+            return AIToolResult.fail("缺少 session_id：先用 list_sessions 查一条，或先跟随/新建一条会话再归档");
+        }
+        boolean archived = true;
+        Object flag = parameters.get("archived");
+        if (flag != null) archived = Boolean.parseBoolean(String.valueOf(flag).trim());
+        try {
+            Map<String, Object> resp = new RemoteSdk(context).archive(sid, archived);
+            if (resp == null) return AIToolResult.fail("无法连接电脑端桥接服务");
+            if (!Boolean.TRUE.equals(resp.get("ok"))) {
+                Object err = resp.get("error");
+                Object hint = resp.get("hint");
+                return AIToolResult.fail("操作失败：" + (err == null ? "unknown" : String.valueOf(err))
+                        + (hint == null ? "" : "\n" + hint));
+            }
+            return AIToolResult.success((archived ? "已归档（从两端列表隐藏，可恢复）" : "已取消归档")
+                    + "\n会话: " + sid);
+        } catch (Exception e) {
+            return AIToolResult.fail("归档失败：" + e.getMessage());
+        }
     }
 
     /**
