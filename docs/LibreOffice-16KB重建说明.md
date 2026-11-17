@@ -89,3 +89,39 @@ adb logcat -s LibreOfficeKit LibreOfficeMainActivity
 - `assets/program|share|unpack` 的目录结构/文件清单按新版本重新导出（并 +1 `UNPACK_VERSION`）；
 - `org.libreoffice.kit` 的 JNI 方法签名/包名用新源码对一遍；
 - 新 APK 的 `lib/arm64-v8a` 里 13 个库逐个用第 1 节命令确认是 `4000`。
+
+## 7. 已落地：从官方 APK 提取（2026-11-18）
+
+不用自己编 —— 直接取 **F-Droid 官方构建的 LibreOffice Viewer 26.2.7.3（arm64）** 里的文件：
+
+```powershell
+# 1) 下载（国内可用清华镜像；APK 87.5 MB）
+#    https://mirrors.tuna.tsinghua.edu.cn/fdroid/repo/org.documentfoundation.libreoffice_135.apk
+#    SHA256 = e921bfb14170824572eb1e33643538803681226427948c245084f5e6356c3775
+
+# 2) 解压 lib/arm64-v8a/*.so 与 assets/{program,share,unpack} 到临时目录
+
+# 3) 替换
+#    viewer/src/main/jniLibs/arm64-v8a/*.so        （12 个入库 + liblo 本地）
+#    viewer/src/main/assets/{program,share,unpack}  （86 个文件）
+#    viewer/build.gradle 里 UNPACK_VERSION +1
+
+# 4) 验证对齐（期望 4000）
+llvm-readelf -l viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so | findstr LOAD
+```
+
+### 本次替换结果
+
+| 项 | 值 |
+|---|---|
+| 来源 | F-Droid `org.documentfoundation.libreoffice_135.apk`（26.2.7.3，arm64，targetSdk 35） |
+| APK SHA256 | `e921bfb14170824572eb1e33643538803681226427948c245084f5e6356c3775` |
+| `liblo-native-code.so` | 196,067,888 字节，SHA256 `96a80640c82d36c867c213844ec39e764a168129a669223991640fbd37ae5917` |
+| 对齐 | 14 个 `.so` 全部 `LOAD 0x4000`（含 libc++_shared） |
+| JNI 兼容 | `liblo` 导出 `Java_org_libreoffice_*` 符号 **42 个，与旧 25.2 完全一致**（无新增/缺失），现有 Java 源码可直接用 |
+| 资源 | `program` 6 / `share` 42 / `unpack` 38，与旧版文件名一一对应（内容按 26.2 更新） |
+| `UNPACK_VERSION` | 2 → 3（强制老用户重新解压字体/rdb） |
+| 真机验证 | 安装后 `am start` 打开测试 docx：标题/正文/表格/中文渲染全部正常（截图见 `.tmp-verify/lo_render.png`） |
+
+> 许可：LibreOffice 为 MPL-2.0；F-Droid 构建对应其公开源码 tarball，提取再分发时按 MPL 要求保留声明
+> （项目 `THIRD_PARTY_NOTICES` 已列 LibreOffice）。

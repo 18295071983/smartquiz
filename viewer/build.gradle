@@ -18,7 +18,7 @@ android {
         buildConfigField "int", "VERSION_CODE", "1"
         // assets/unpack 的解压版本号（2026-11-18）：每次改 viewer/src/main/assets/unpack（字体/rdb）必须 +1，
         // 否则已安装用户不会重新解压（LibreOfficeMainActivity 用这个值判断 ASSETS_EXTRACTED）
-        buildConfigField "int", "UNPACK_VERSION", "2"
+        buildConfigField "int", "UNPACK_VERSION", "3"
     }
 
     buildFeatures {

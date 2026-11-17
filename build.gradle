@@ -20,8 +20,8 @@ def checkBinaryAssets = {
     // name / path / 说明 / 获取方式
     def required = [
         [ name: 'liblo-native-code.so', path: 'viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so',
-          sizeMB: 171, why: 'LibreOffice 引擎（Office 文档高保真预览）',
-          how: 'LibreOffice Android Viewer 源码构建（LibreOffice 25.2，MPL-2.0）。见 BINARY_ASSETS.md' ],
+          sizeMB: 187, why: 'LibreOffice 引擎（Office 文档高保真预览）',
+          how: 'F-Droid 官方 LibreOffice Viewer 26.2.7.3（arm64）APK 提取，16KB 对齐，MPL-2.0。见 BINARY_ASSETS.md / docs/LibreOffice-16KB重建说明.md' ],
         [ name: 'asr/model.int8.onnx', path: 'src/main/assets/asr/model.int8.onnx',
           sizeMB: 228, why: 'SenseVoice-Small 本地离线语音识别',
           how: 'scripts/fetch-asr-model.ps1 可自动下载（sherpa-onnx 官方 release）' ],

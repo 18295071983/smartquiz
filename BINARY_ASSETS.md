@@ -47,14 +47,28 @@ GitHub 远端**，而 GitHub Release 附件单文件上限 **2 GB** —— 足�
 
 做法：
 
-**当前状态：已发布并通过往返校验** —— tag `binary-assets-v1`，内含
-`liblo-native-code.so`（179,584,144 字节，SHA256 见下节）。上传后重新下载比对，
-与本地产物逐字节一致。
+**当前状态（2026-11-18 更新）：改用 16KB 对齐版本。** 旧的 `binary-assets-v1`（LibreOffice 25.2，
+4KB 对齐，179,584,144 字节）在 16KB 页设备上会加载失败，已不再使用。
+
+现用 `liblo-native-code.so` 来自 **F-Droid 官方 LibreOffice Viewer 26.2.7.3（arm64，versionCode 135）** 的 APK：
+
+| 项 | 值 |
+| --- | --- |
+| 大小 | 196,067,888 字节（187.0 MB） |
+| SHA256 | `96a80640c82d36c867c213844ec39e764a168129a669223991640fbd37ae5917` |
+| 来源 APK | `org.documentfoundation.libreoffice_135.apk`（SHA256 `e921bfb14170824572eb1e33643538803681226427948c245084f5e6356c3775`） |
+| 对齐 | `LOAD 0x4000`（16 KB） |
+| 许可 | MPL-2.0（F-Droid 构建，源码 tarball 可获取） |
+
+> ⚠️ 该文件只在本地产出（`viewer/src/main/jniLibs/arm64-v8a/`，已被 .gitignore 忽略）。
+> 因为旧 tag 的附件不能覆盖，新的分发需要**另建一个 tag（建议 `binary-assets-v2`）上传新附件**，
+> 并把上面的直链表更新；在完成之前，新克隆的仓库需要按 docs/LibreOffice-16KB重建说明.md 第 7 节自行获取。
 
 | 项 | 内容 |
 | --- | --- |
-| Release 页 | <https://github.com/18295071983/smartquiz/releases/tag/binary-assets-v1> |
-| 附件直链 | <https://github.com/18295071983/smartquiz/releases/download/binary-assets-v1/liblo-native-code.so> |
+| 当前 Release | **尚未上传**（需新建 inary-assets-v2，见下方步骤） |
+| 本机路径 | iewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so |
+| 获取方式（过渡期） | 按 docs/LibreOffice-16KB重建说明.md 第 7 节从 F-Droid APK 提取 |
 
 > **上传时的坑（供维护者参考）**：用 PowerShell 上传附件**不要用
 > `WebClient.UploadFile()`** —— 它会把文件包成 `multipart/form-data` 体（即使显式设了
@@ -122,15 +136,15 @@ LibreOffice 官方**不发布**该 `.so` 的预编译包（Android Viewer 的 na
 
    | 项 | 内容 |
    | --- | --- |
-   | 直链 | <https://github.com/18295071983/smartquiz/releases/download/binary-assets-v1/liblo-native-code.so> |
-   | Release 页 | <https://github.com/18295071983/smartquiz/releases/tag/binary-assets-v1> |
-   | 精确大小 | **179,584,144 字节**（约 171.3 MiB） |
+   | 直链 | （待上传 binary-assets-v2） |
+   | Release 页 | （待上传 binary-assets-v2） |
+   | 精确大小 | **196,067,888 字节**（约 187.0 MiB，26.2.7.3 / 16KB 对齐） |
    | SHA256 | `30D82A43595A76101AC86B66FE09EC8F2D115CF83587A7CA857E4243F55E42AC` |
    | 落位 | `viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so` |
 
    ```powershell
    # 下载 + 校验（PowerShell）
-   $u = 'https://github.com/18295071983/smartquiz/releases/download/binary-assets-v1/liblo-native-code.so'
+   $u = '<binary-assets-v2 上传后的直链>'
    $o = 'viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so'
    Invoke-WebRequest -Uri $u -OutFile $o
    # 必须与上面 SHA256 一致，否则是残缺/被篡改的文件

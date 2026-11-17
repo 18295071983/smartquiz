@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+ * This file is part of the LibreOffice project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ *
+-->
 <office:styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0">
     <style:style style:name="default" style:family="table-cell">
         <style:table-cell-properties fo:background-color="#ffffff" fo:border="0.28pt solid #ffffff" fo:padding="0.1cm" style:vertical-align="top"/>
@@ -186,4 +194,3 @@
         <table:odd-columns table:style-name="gray-with-border"/>
     </table:table-template>
 </office:styles>
-
