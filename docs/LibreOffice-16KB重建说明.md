@@ -1,0 +1,65 @@
+# LibreOffice 16KB 页对齐重建说明（2026-11-18）
+
+> 现状：`viewer/src/main/jniLibs/arm64-v8a/` 下 **13 个 LibreOffice 相关 .so 的 ELF LOAD 段对齐都是 0x1000（4KB）**。
+> 4KB 页设备（当前测试机 `PAGE_SIZE=4096`）可正常加载；**16KB 页设备会 `System.loadLibrary` 失败**，表现为 Office 预览打不开。
+> Google Play 已对 targetSdk 35+ 要求 16KB 兼容，项目 targetSdk 36，必须处理。
+
+## 1. 怎么确认（命令）
+
+```powershell
+$re = "$env:ANDROID_HOME\ndk\28.2.13676358\toolchains\llvm\prebuilt\windows-x86_64\bin\llvm-readelf.exe"
+Get-ChildItem viewer\src\main\jniLibs\arm64-v8a\*.so | ForEach-Object {
+  $a = & $re -l $_.FullName | Select-String '^\s*LOAD' |
+       ForEach-Object { [regex]::Match($_.Line.Trim(), '0x([0-9a-f]+)\s*$').Groups[1].Value } |
+       Select-Object -Unique
+  "{0,-28} {1}" -f $_.Name, ($a -join ',')
+}
+```
+
+- 期望（16KB 兼容）：`4000`（0x4000 = 16384）
+- 当前：`1000`（4KB）→ 不兼容
+
+## 2. 要重建哪些库
+
+`viewer/src/main/jniLibs/arm64-v8a/` 下全部 13 个：
+
+```
+liblo-native-code.so   （171 MB，LibreOffice 引擎本体）
+libfreebl3.so  libnspr4.so  libnss3.so  libnssckbi.so  libnssdbm3.so
+libnssutil3.so  libplc4.so  libplds4.so  libsmime3.so  libsoftokn3.so
+libssl3.so  libsqlite3.so
+```
+
+> 这些库来自 LibreOffice Android 构建产物（不是本项目 CMake 编的）；本项目 `src/main/cpp/CMakeLists.txt`
+> 里那句 `add_link_options(-Wl,-z,max-page-size=16384)` 只覆盖 llama-jni / ggml-probe，不覆盖它们。
+
+## 3. 重建要点
+
+1. 在 LibreOffice 源码树里做 Android 构建（官方 `android/` 目录，`LibreOfficeViewer` 工程）。
+2. 给**所有** LO 原生库的链接参数加：
+   ```
+   -Wl,-z,max-page-size=16384
+   ```
+   （在 LO 的 `configure.ac` / Android.mk 的 ldflags 里加；nss/sqlite3 是 LO 一起编出来的，也要加）
+3. 或者升级到已原生支持 16KB 对齐的 LibreOffice 版本（先查对应 release notes 的 Android/16KB 条目，别只看桌面版）。
+4. 重新产出 13 个 `.so`，按上面的命令逐个确认是 `4000`。
+5. 替换 `viewer/src/main/jniLibs/arm64-v8a/` 下的文件（`liblo-native-code.so` 被 `.gitignore` 忽略，走 BINARY_ASSETS.md 的 Release 分发流程；其余 12 个入库）。
+6. `gradlew assembleDebug` 后真机/模拟器（16KB 页）验证：能打开 docx/xlsx/pptx 且不崩。
+
+## 4. 在 16KB 设备上验证
+
+```powershell
+adb shell getconf PAGE_SIZE        # 期望 16384
+# 打开一个 docx 触发预览，logcat 里不应出现：
+#   dlopen failed: ... not aligned to 16384
+adb logcat -s LibreOfficeKit LibreOfficeMainActivity
+```
+
+模拟器可用 16KB 页镜像（Android 15+ 的 `-page-size 16384` 配置）验证。
+
+## 5. 相关约定
+
+- **改动 `viewer/src/main/assets/unpack`（字体/rdb）后，必须把 `viewer/build.gradle` 里的
+  `UNPACK_VERSION` +1**——`LibreOfficeMainActivity` 用它判断是否需要重新解压到 `dataDir`；
+  以前用 `VERSION_CODE`（硬编码 1），升级资源后老用户不会刷新。
+- 资源与原生库只保留在 `viewer` 模块一份；app 模块不再重复放 `assets/program|share|unpack` 与 `liblo-native-code.so`。

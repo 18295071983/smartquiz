@@ -315,9 +315,11 @@ public class LibreOfficeMainActivity extends AppCompatActivity implements Shared
                 && sPrefs.getBoolean(ENABLE_EXPERIMENTAL_PREFS_KEY, false);
         mIsDeveloperMode = mIsExperimentalMode
                 && sPrefs.getBoolean(ENABLE_DEVELOPER_PREFS_KEY, false);
-        if (sPrefs.getInt(ASSETS_EXTRACTED_PREFS_KEY, 0) != BuildConfig.VERSION_CODE) {
+        // 2026-11-18: 用 UNPACK_VERSION 而不是 VERSION_CODE —— 改 assets/unpack 时只需 +1，
+        // 不必因为 App 版本号变化而重解压全部字体（原先 VERSION_CODE 硬编码 1，更新资源后老用户不会刷新）
+        if (sPrefs.getInt(ASSETS_EXTRACTED_PREFS_KEY, 0) != BuildConfig.UNPACK_VERSION) {
             if(copyFromAssets(getAssets(), "unpack", getApplicationInfo().dataDir)) {
-                sPrefs.edit().putInt(ASSETS_EXTRACTED_PREFS_KEY, BuildConfig.VERSION_CODE).apply();
+                sPrefs.edit().putInt(ASSETS_EXTRACTED_PREFS_KEY, BuildConfig.UNPACK_VERSION).apply();
             }
         }
     }
