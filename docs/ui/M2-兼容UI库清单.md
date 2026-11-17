@@ -27,23 +27,27 @@
 | `com.journeyapps:zxing-android-embedded` | 扫码 | 配对二维码用 |
 | `io.coil-kt:coil` / `de.hdodenhof:circleimageview` | 图片 / 圆头像 | 目前只在 `UiKitGalleryActivity` 展示，产品代码零引用 |
 
-## 已引入（2026-11-18）
+## 已引入（2026-11-18，精简后）
 
-以下库已加进 `build.gradle`（`assembleDebug` 与 `:dependencies` 均验证通过）：
+只保留两个有长期价值的（`assembleDebug` 与 `:dependencies` 均验证通过）：
 
-| 库 | 版本 |
+| 库 | 版本 | 理由 |
+|---|---|---|
+| `com.github.PhilJay:MPAndroidChart` | v3.1.0 | 图表事实标准，冻结但稳定；颜色代码传入，接 `ThemeColors` |
+| `androidx.core:core-splashscreen` | 1.2.0 | AndroidX 官方、仍在维护；启动页规范 |
+
+## 已移除（2026-11-18）
+
+| 库 | 原因 |
 |---|---|
-| `com.mikepenz:materialdrawer` | 9.0.1 |
-| `com.wdullaer:materialdatetimepicker` | 4.2.3 |
-| `com.facebook.shimmer:shimmer` | 0.5.0 |
-| `com.github.PhilJay:MPAndroidChart` | v3.1.0 |
-| `com.tapadoo.android:alerter` | 7.0.1 |
-| `androidx.core:core-splashscreen` | 1.2.0 |
+| `com.mikepenz:materialdrawer` 9.0.1 | 项目已有自定义抽屉；`DrawerLayout + NavigationView` 足够；且只发布在 jcenter 镜像 |
+| `com.wdullaer:materialdatetimepicker` 4.2.3 | 最后发布 2019-08、2022 后无提交；MDC 自带 `MaterialDatePicker` / `MaterialTimePicker`（M2 样式、官方维护） |
+| `com.facebook.shimmer:shimmer` 0.5.0 | 2019 后未更新；骨架屏用 20 行 alpha 动画即可 |
+| `com.tapadoo.android:alerter` 7.0.1 | 半冻结、只在 jcenter；MDC 的 `Snackbar` 已覆盖同类需求，且项目有 `UiFx` |
 
-> 注意：`materialdrawer` 与 `alerter` 目前只在 jcenter 镜像（aliyun）里有，仓库配置已包含；
-> MPAndroidChart 走 JitPack（也已配置）。引入时 APK 约 +16 MB（主要来自 MaterialDrawer 的 iconics 字体）。
+> 背景：M2 **设计规范**停止演进（新组件形态走 M3），但 `com.google.android.material` **库仍维护并继续提供 `Theme.MaterialComponents.*`**；真正冻结的是上面这批第三方库。
 
-## 推荐可引入（M2 主题驱动）
+## 参考清单（按需再引入）
 
 | 库 | 用途 | M2 兼容性 |
 |---|---|---|

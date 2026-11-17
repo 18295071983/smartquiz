@@ -455,16 +455,8 @@ dependencies {
     // 弹性布局
     implementation "com.google.android.flexbox:flexbox:3.0.0"
     // ===== M2 兼容 UI 库（2026-11-18 按 docs/ui/M2-兼容UI库清单.md 引入）=====
-    // 侧边抽屉：M2 主题属性（material_drawer_*），v6.1+ 按 Material 2 调整
-    implementation "com.mikepenz:materialdrawer:9.0.1"
-    // 日期/时间选择：M2 风格（MDC 主题下按钮底色问题见其 README，用 bridge/覆写解决）
-    implementation "com.wdullaer:materialdatetimepicker:4.2.3"
-    // 骨架屏：与主题无关，颜色用 ?attr/colorSurfaceVariant
-    implementation "com.facebook.shimmer:shimmer:0.5.0"
-    // 图表：颜色代码传入，接 ThemeColors
+    // 图表：事实标准、冻结但稳定；颜色代码传入，接 ThemeColors
     implementation "com.github.PhilJay:MPAndroidChart:v3.1.0"
-    // 轻提示条：M2 风格
-    implementation "com.tapadoo.android:alerter:7.0.1"
     // 启动页：官方库，兼容 M2
     implementation "androidx.core:core-splashscreen:1.2.0"
     
