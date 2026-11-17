@@ -17082,7 +17082,24 @@ public class AIChatActivity extends BaseActivity {
                     ? ""
                     : "跟随「" + (syncTitle.isEmpty() ? shortId(target) : syncTitle) + "」";
             boolean needsAttention = st != null && st.ok && st.approvalsPending > 0;
-            int dot = needsAttention ? R.color.warning : R.color.success;
+            // 连接状态机（2026-11-17）：把"心跳是否按时到达"翻译成 正常/等待/延迟/异常/断开，
+            // 状态点颜色、呼吸、底部文案都从它来 —— 到 0 没有新心跳就明确报异常，不再干巴巴。
+            com.oilquiz.app.ai.tool.RemoteLinkState link =
+                    com.oilquiz.app.ai.tool.RemoteLinkState.evaluate(
+                            com.oilquiz.app.ai.tool.RemoteConnection.get(this).isOnline(),
+                            st != null && st.ok ? st.fetchedAt : 0L,
+                            REMOTE_STATUS_HEARTBEAT_MS,
+                            System.currentTimeMillis(),
+                            com.oilquiz.app.ai.tool.RemoteConnection.get(this).reconnectCount());
+            int dot;
+            if (link.state == com.oilquiz.app.ai.tool.RemoteLinkState.State.ABNORMAL
+                    || link.state == com.oilquiz.app.ai.tool.RemoteLinkState.State.DISCONNECTED) {
+                dot = R.color.chat_v2_danger;
+            } else if (needsAttention || link.warn) {
+                dot = R.color.warning;
+            } else {
+                dot = R.color.chat_v2_success;
+            }
             // 文案拼装统一走 ChatUiV2Chrome.remoteSubtitle（有单测钉格式）
             // §14C：积压/重建时在副标题上标一下，用户能看出"为什么慢"（不弹 toast）
             com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.setRemoteSubtitle(this,
@@ -17090,16 +17107,21 @@ public class AIChatActivity extends BaseActivity {
                             remotePhaseText(live), follow, needsAttention ? st.approvalsPending : 0,
                             dshFlowModeLabel()),
                     dot);
-            // 连接灯（2026-11-17）：呼吸由"心跳是否新鲜"驱动 —— 每 5s 拉一次 /status，
-            // 成功就保持 1.1s 呼吸；连续 20s 没有新数据就停（灯不骗人）。
-            boolean beatFresh = st != null && st.ok && st.fetchedAt > 0
-                    && (System.currentTimeMillis() - st.fetchedAt) < 20000L;
-            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.setDotBreathing(this, beatFresh);
-            // 远程状态条上的圆点同样按心跳新鲜度呼吸（用户实际盯着的是这条）
+            // 连接灯：只有"还活着"的状态才呼吸；异常/断开时停（灯不骗人）
+            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.setDotBreathing(this, link.breathing);
             try {
-                if (beatFresh) com.oilquiz.app.ui.UiFx.breathing(remoteDshDot);
+                if (link.breathing) com.oilquiz.app.ui.UiFx.breathing(remoteDshDot);
                 else com.oilquiz.app.ui.UiFx.stopBreathing(remoteDshDot);
             } catch (Throwable ignored) { /* 动画失败不影响状态 */ }
+            // 远程状态条小圆点按状态换色（绿/黄/红）
+            try {
+                int dRes = (link.state == com.oilquiz.app.ai.tool.RemoteLinkState.State.ABNORMAL
+                        || link.state == com.oilquiz.app.ai.tool.RemoteLinkState.State.DISCONNECTED)
+                        ? R.drawable.circle_red
+                        : (link.state == com.oilquiz.app.ai.tool.RemoteLinkState.State.HEALTHY
+                            ? R.drawable.circle_green : R.drawable.circle_yellow);
+                remoteDshDot.setBackground(androidx.core.content.ContextCompat.getDrawable(this, dRes));
+            } catch (Throwable ignored) { /* 资源缺失不影响状态 */ }
             // 每次真的拿到新心跳，再补一次更明显的单脉冲，让节奏看得见
             if (st != null && st.ok && st.fetchedAt > 0 && st.fetchedAt != lastRemoteBeatAt) {
                 lastRemoteBeatAt = st.fetchedAt;
@@ -17148,16 +17170,16 @@ public class AIChatActivity extends BaseActivity {
         if (model != null && !model.isEmpty()) sb.append(" · ").append(model);
         String effort = effortLabel(st == null ? "" : st.effort);
         if (!effort.isEmpty()) sb.append(" · 思考:").append(effort);
-        // 电脑状态（2026-11-17）：顶栏副标题宽度不够，把设备数与心跳倒计时放到底部 meta 行。
-        // 心跳显示**递减**（下次心跳还剩几秒），比"已经过了几秒"好理解：数字往下走到 0，
-        // 下一次刷新就把它顶回 5。
+        // 电脑状态（2026-11-17）：顶栏副标题宽度不够，设备数与"连接状态"放到底部 meta 行。
+        // 状态来自 RemoteLinkState：连接正常 · 下次心跳 Ns / 心跳延迟 / 连接异常 / 已断开。
         if (st != null && st.ok && st.devices > 0) sb.append(" · 设备 ").append(st.devices);
-        if (st != null && st.ok && st.fetchedAt > 0) {
-            long sinceMs = Math.max(0L, System.currentTimeMillis() - st.fetchedAt);
-            long remainMs = Math.max(0L, REMOTE_STATUS_HEARTBEAT_MS - sinceMs);
-            long remainSec = (remainMs + 999L) / 1000L;   // 向上取整：5 → 0
-            sb.append(" · 下次心跳 ").append(remainSec).append("s");
-        }
+        com.oilquiz.app.ai.tool.RemoteLinkState link = com.oilquiz.app.ai.tool.RemoteLinkState.evaluate(
+                com.oilquiz.app.ai.tool.RemoteConnection.get(this).isOnline(),
+                st != null && st.ok ? st.fetchedAt : 0L,
+                REMOTE_STATUS_HEARTBEAT_MS,
+                System.currentTimeMillis(),
+                com.oilquiz.app.ai.tool.RemoteConnection.get(this).reconnectCount());
+        sb.append(" · ").append(link.text);
         // 什么都不知道时别挂一句光秃秃的"电脑"（看起来像没加载完）
         if (sb.length() <= "电脑".length()) {
             remoteMetaText.setVisibility(View.GONE);
