@@ -1607,6 +1607,40 @@ function applyInner(ctx, config) {
       return null;
     }
   };
+  /**
+   * 恢复已有会话时必须自带 setup（2026-11-17）。
+   *
+   * <p>`ctx.agents.resume` 只负责把会话读回来；createInput 里挂 preset 的那段 setup 不会自动
+   * 重放。少了这一步，resume 出来的 agent 只有基础三件套（phone_ui / working_directory /
+   * load_workspace_dependencies），于是"手机让电脑跑个命令"永远回"本会话没有命令执行类工具"
+   * —— 这就是远程操作接口的实际缺陷。热复用（warm agent）同样要走这里。</p>
+   */
+  const resumeAgentOptions = async () => {
+    const out = {};
+    if (agentOptions) out.agentOptions = agentOptions;
+    const presets = serviceOf('agentPresets');
+    if (!presets || typeof presets.mount !== 'function') return out;
+    try {
+      const resolvedId = (await presets.resolve(cfg.preset || undefined)).id;
+      lastPreset = resolvedId;
+      out.setup = async (agentCtx, agent) => {
+        await presets.mount(agentCtx, resolvedId);
+        const sel = (() => { try { return ctx.agentDefaultModel?.currentSelection?.() ?? null; } catch { return null; } })();
+        const effective = sel ?? (cfg.provider && cfg.model ? { provider: cfg.provider, model: cfg.model } : null);
+        if (effective) {
+          if (!installSelectionFn) installSelectionFn = await loadSelectionInstaller();
+          if (installSelectionFn) {
+            try {
+              installSelectionFn(agent?.ctx ?? agentCtx, effective);
+            } catch (e) {
+              selectionInstaller = 'call-failed: ' + String(e?.message ?? e).slice(0, 60);
+            }
+          }
+        }
+      };
+    } catch { /* 拿不到 preset 就按默认恢复 */ }
+    return out;
+  };
   const scheduleSvc = () => serviceOf('schedule');
   const planSvc = () => serviceOf('planMode');
   const questionsSvc = () => serviceOf('userQuestions');
@@ -7050,7 +7084,7 @@ function presetSvcOf(ctx) {
     if (!agent) {
       try {
         let h = resumedHandles.get(target);
-        if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
+        if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(await resumeAgentOptions()) }); if (h) rememberWarm(target, h); }
         agent = h?.agent ?? h ?? null;
         resumed = Boolean(agent);
       } catch (e) { resumeError = String(e?.message ?? e).slice(0, 200); }
@@ -7230,7 +7264,7 @@ function presetSvcOf(ctx) {
         const warmSid = r.dshSession;
         Promise.resolve().then(async () => {
           try {
-            const h = await ctx.agents.resume({ resumeSessionId: warmSid });
+            const h = await ctx.agents.resume({ resumeSessionId: warmSid, ...(await resumeAgentOptions()) });
             if (h) rememberWarm(warmSid, h);
           } catch { /* 预热失败：下一轮继续走 CLI */ }
         });
@@ -7486,7 +7520,7 @@ function presetSvcOf(ctx) {
         if (!agent) {
           try {
             let h = resumedHandles.get(target);
-            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
+            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(await resumeAgentOptions()) }); if (h) rememberWarm(target, h); }
             agent = h?.agent ?? h ?? null;
             resumed = Boolean(agent);
           } catch (e) {
@@ -7709,7 +7743,7 @@ function presetSvcOf(ctx) {
         if (!agent) {
           try {
             let h = resumedHandles.get(target);
-            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
+            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(await resumeAgentOptions()) }); if (h) rememberWarm(target, h); }
             agent = h?.agent ?? h ?? null;
             resumed = Boolean(agent);
           } catch (e) {
@@ -7853,7 +7887,7 @@ function presetSvcOf(ctx) {
         if (!agent) {
           try {
             let h = resumedHandles.get(target);
-            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(agentOptions ? { agentOptions } : {}) }); if (h) rememberWarm(target, h); }
+            if (!h) { h = await ctx.agents.resume({ resumeSessionId: target, ...(await resumeAgentOptions()) }); if (h) rememberWarm(target, h); }
             agent = h?.agent ?? h ?? null;
             resumed = Boolean(agent);
           } catch (e) {
