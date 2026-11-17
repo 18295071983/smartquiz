@@ -437,13 +437,6 @@ public class AIServiceStatusActivity extends com.oilquiz.app.ui.base.LegacyResul
                     startActivity(i);
                 });
             }
-            // UI 预览台（梯队 1.1）：样例列表 + 改 JSON 即时渲染；layout 树与卡片共用调试入口
-            MaterialButton btnUiPreview = findViewById(R.id.btn_ui_preview);
-            if (btnUiPreview != null) {
-                btnUiPreview.setOnClickListener(v -> startActivity(
-                        new Intent(AIServiceStatusActivity.this,
-                                com.oilquiz.app.infra.UiPreviewConsoleActivity.class)));
-            }
         }
 
         if (btnTestAi != null) {

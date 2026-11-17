@@ -485,7 +485,6 @@ public class SmartQuizApplication extends Application {
                     // 以为主题/纯黑档没生效（尤其 OLED：黑卡片 + 壁纸缝隙）。
                     final boolean debugConsole =
                             activity instanceof com.oilquiz.app.ui.activity.AgentDebugActivity
-                                    || activity instanceof com.oilquiz.app.infra.UiPreviewConsoleActivity
                                     || activity instanceof com.oilquiz.app.ui.activity.ThemeActivity
                                     || activity instanceof com.oilquiz.app.infra.UiKitGalleryActivity
                             || activity instanceof com.oilquiz.app.infra.ListKitGalleryActivity
