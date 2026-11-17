@@ -60,15 +60,14 @@
 
 引入前先看 APK 体积（当前 debug ~800 MB，图片/模型是大头，UI 库影响小但要克制）。
 
-## 不兼容 / 已移除
+## 不兼容 / 处理说明
 
-| 依赖 | 原因 | 处理 |
+| 依赖 | 原因 | 当前处理 |
 |---|---|---|
-| **Compose 全家桶**（`compose-bom`、`ui`、`ui-graphics`、`ui-tooling`、`material3`、`material-icons-extended`、`activity-compose`、`lifecycle-*-compose`、`navigation-compose`） | Material3 是另一套设计语言（颜色角色/形状/组件规范都不同），和 M2 主题混用会“一半 M2 一半 M3”；项目里只有组件画廊一个入口 | **已移除**：删 `ComposeGalleryActivity` / `ComposeHostView.kt`、调试入口、manifest 条目、`buildFeatures.compose`、`composeOptions` |
-| `androidx.legacy:legacy-support-v4` | 0 引用，AndroidX 迁移遗留 | **已移除** |
+| **Compose 全家桶**（`compose-bom 2024.02.02`、`ui`、`ui-graphics`、`ui-tooling`、`material3`、`material-icons-extended`、`activity-compose`、`lifecycle-*-compose`、`navigation-compose`） | Material3 是另一套设计语言（颜色角色/形状/组件规范都不同），和 M2 主题混用会“一半 M2 一半 M3” | **保留**（2026-11-18 决定：以后可能用得上）。现有入口：`ComposeGalleryActivity` / `ComposeHostView.kt`；M2 → Compose 的 token 桥在 `ComposeTheme.kt`。写 Compose 页面时优先用 `ComposeTheme` 提供的 M2 token；纯 M3 组件只放在 Compose 页面内部，别混进 XML 页面 |
 | `com.afollestad.material-dialogs` | 最后更新 2020，已归档；且项目已有标准弹层 | 不引入，用 `AppDialog` |
-| `Theme.Material3.*` XML 主题 | 与项目 M2 overlay 不兼容 | 不引入 |
-| glide / flexbox 的重复声明 | build.gradle 里各写了两遍 | **已去重** |
+| `Theme.Material3.*` XML 主题 | 与项目 M2 overlay 不兼容 | 不引入（Compose 内的 Material3 不受影响） |
+| `androidx.legacy:legacy-support-v4` / glide、flexbox 重复声明 | 历史遗留 | 保持现状（未清理，避免无关改动） |
 
 ## 新 UI 代码约定（与 docs/ui/UI-标准-模态框-弹层-容器.md 配套）
 
