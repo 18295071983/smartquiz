@@ -16,3 +16,4 @@ package-lock.json
 # 启动探针（2026-11-16）：运行时产物，不进版本库
 .startup.json
 .startup-smoke.json
+.session-rows.json

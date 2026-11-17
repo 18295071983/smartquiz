@@ -631,6 +631,29 @@ const sendJson = (res, status, obj) => {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(obj));
 };
+/**
+ * 有并发上限的 map（2026-11-17）。
+ *
+ * <p>会话列表要对每条会话 open 一次日志读头/尾；串行跑 100 条实测 7 秒，手机抽屉
+ * 直接超时（日志里 `抽屉拉电脑会话失败: timeout`）。日志读是 IO 密集，放开到 8 路
+ * 就能把这段压到 1 秒级，同时不至于把宿主/磁盘打满。</p>
+ */
+async function mapLimit(items, limit, fn) {
+  const arr = Array.isArray(items) ? items : [];
+  const out = new Array(arr.length);
+  let next = 0;
+  const width = Math.max(1, Math.min(Number(limit) || 1, arr.length || 1));
+  const workers = Array.from({ length: width }, async () => {
+    for (;;) {
+      const i = next;
+      next += 1;
+      if (i >= arr.length) return;
+      out[i] = await fn(arr[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
 
 /**
  * 把一次 HTTP 响应的生命周期变成 AbortSignal。
@@ -686,7 +709,11 @@ function carryPreamble(carried, text) {
 async function runTurn(ctx, handle, sid, text, cfg, runOpts) {
   const opts = runOpts ?? {};
   // CLI-MODE（默认）：走 `dsh --profile headless "<任务>"`，不依赖 DSH 内部模块 ✓
-  if (cliModeEnabled) {
+  // 2026-11-17 修：本函数在模块作用域，读不到 applyInner 里的 cliModeEnabled —— 那是
+  // ReferenceError，且没人接，会把宿主进程直接顶掉（桌面端崩溃）。生效值由 applyInner
+  // 写进 cfg.__cliModeEnabled，这里只做兜底。
+  const cliEnabled = typeof cfg.__cliModeEnabled === 'boolean' ? cfg.__cliModeEnabled : cfg.cliMode !== false;
+  if (cliEnabled) {
     const mem = readSessionMap();
     /**
      * 绑定优先级：
@@ -775,7 +802,20 @@ async function runTurn(ctx, handle, sid, text, cfg, runOpts) {
   ORIGIN.record(sid, text);   // 宿主内轮次：这条是插件代手机发的
   let via = 'surface-append';
   try {
-    if (session?.append) {
+    // 2026-11-17：不能对"还没有系统头"的会话 append user/message —— DSH 要求会话的第一条
+    // surface 是受保护的 system/message，否则落盘日志损坏：resume 时报
+    // "system/message requires a protected first surface head"（手机新建的会话再也接不回去）。
+    // 判定不能只看 seq（新建出来的会话 seq 可能已含头事件但还没落 system/message），
+    // 直接扫一遍事件里有没有 system/message；没有就交给 agent.followup，
+    // 由 agent 循环自己写系统头。
+    let hasSystemHead = false;
+    try {
+      const n = Number(session?.seq ?? 0);
+      for (let i = 0; i < n; i += 1) {
+        if (session?.eventAt?.(i)?.type === 'system/message') { hasSystemHead = true; break; }
+      }
+    } catch { hasSystemHead = false; }
+    if (session?.append && hasSystemHead) {
       // ★ 必须带 id：DSH 校验要求消息事件有"identified message"，
       //   只写 {role,content,source} 会落成坏数据（seq 27 lacks an identified message），
       //   之后这条会话在 GUI 与手机两侧都读不出来（历史加载失败：corrupt）。
@@ -1213,6 +1253,9 @@ function applyInner(ctx, config) {
     : cfg.cliMode === false
       ? false
       : !hostAgentCapable;
+  // runTurn 是模块级函数，拿不到上面的闭包变量：把生效值挂到 cfg 传给调用链
+  // （缺了它 /session、/run、/v2/message 的 prompt 路径会抛 ReferenceError 并崩宿主）
+  cfg.__cliModeEnabled = cliModeEnabled;
   const prefix = cfg.pathPrefix ?? '';
   // publicUrl 兜底：花生壳隧道已实测可达 ✓（配置为空也能用 ✓）
 // publicUrl（隧道/公网域名）三级取值，**不含任何硬编码域名**（每个用户填自己的）：
@@ -1260,7 +1303,10 @@ function applyInner(ctx, config) {
       const cmd = {
         id, tool: 'ui_component', state: 'queued', createdAt: Date.now(), result: null, error: null,
         args: { id: 'remote/error', title: String(title || '这一轮失败了').slice(0, 40),
-          detail: String(detail || '').slice(0, 80), priority: SLOT_PRIORITY.p1, action: 'attention' },
+          // 手机端 RemoteCommandExecutor 只把 text/content 当正文（不认 detail），
+          // 以前失败原因写了也不显示 —— 改用 text，红条上才看得到原因
+          text: String(detail || '').slice(0, 120),
+          priority: SLOT_PRIORITY.p1, action: 'attention' },
       };
       cmdQueue.set(id, cmd);
       for (const w of WS_CLIENTS) {
@@ -1269,6 +1315,31 @@ function applyInner(ctx, config) {
         try { w.send(JSON.stringify({ type: 'cmd', id, tool: cmd.tool, args: cmd.args, created_at: cmd.createdAt })); } catch { /* 已断 */ }
       }
     } catch { /* 推送失败不影响主流程 */ }
+  };
+  /**
+   * 撤掉失败红条（2026-11-17）。
+   *
+   * <p>以前只推不清：某轮失败留下的「这一轮失败了」会**一直挂在手机上**，之后连发十条
+   * 成功消息它也还在，用户看到的就是"又失败了"。现在只要有一轮成功就撤掉这条槽。</p>
+   *
+   * <p>必须走 /cmd 同一条通道：手机端只对「title/text 都空」的 ui_component 执行
+   * `DockSlotBus.remove('remote/error')`；这条槽是手机本地写的（updateLocal），
+   * 用 ui/slot 的 remove 帧撤不掉。移除本身幂等，没有这条槽时也不会有副作用。</p>
+   */
+  const clearPhoneFailureSlot = () => {
+    try {
+      const id = randomBytes(8).toString('hex');
+      const cmd = {
+        id, tool: 'ui_component', state: 'queued', createdAt: Date.now(), result: null, error: null,
+        args: { id: 'remote/error', title: '', text: '' },
+      };
+      cmdQueue.set(id, cmd);
+      for (const w of WS_CLIENTS) {
+        const meta = WS_META.get(w);
+        if (meta && meta.channel && meta.channel !== '/ws' && meta.channel !== '/ws/ui') continue;
+        try { w.send(JSON.stringify({ type: 'cmd', id, tool: cmd.tool, args: cmd.args, created_at: cmd.createdAt })); } catch { /* 已断 */ }
+      }
+    } catch { /* 不影响主流程 */ }
   };
   const pruneCommands = () => {
     const now = Date.now();
@@ -4957,7 +5028,16 @@ function presetSvcOf(ctx) {
       sessionCode: typeof body?.session_code === 'string' ? body.session_code : '',
     };
     if (wantsStream) {
-      return runPrompt(req, res, sid, text, true, runOpts);
+      // 2026-11-17：prompt 路径里任何未捕获异常都会变成宿主的未处理拒绝 → 桌面端进程退出。
+      // 流式这一支兜住：已经开流就写一帧 error 再收尾，绝不再把异常抛回宿主。
+      try {
+        return await runPrompt(req, res, sid, text, true, runOpts);
+      } catch (e) {
+        const msg = '电脑端这一轮失败：' + String(e?.message ?? e).slice(0, 200);
+        try { res.write(`data: ${JSON.stringify({ type: 'error', action: 'prompt', session_id: sid, error: msg })}\n\n`); } catch { /* 已断开 */ }
+        try { res.end(); } catch { /* 已断开 */ }
+        return undefined;
+      }
     }
     /**
      * 非流式：把 legacy payload 升成 **v2 信封**。
@@ -4994,7 +5074,18 @@ function presetSvcOf(ctx) {
         });
       },
     };
-    await runPrompt(req, proxy, sid, text, false, runOpts);
+    // 同上：非流式也不能让异常冒到宿主（ReferenceError / SessionAlreadyExistsError
+    // 都曾在这里把桌面端顶掉），失败就回一帧 v2 错误。
+    try {
+      await runPrompt(req, proxy, sid, text, false, runOpts);
+    } catch (e) {
+      const msg = '电脑端这一轮失败：' + String(e?.message ?? e).slice(0, 200);
+      try {
+        if (!res.writableEnded) {
+          sendJson(res, 500, { v: 2, ok: false, session_id: sid, reply: '', execution: executionInfo(targetSid), error: msg });
+        }
+      } catch { /* 头已发/连接已断 */ }
+    }
   });
 
   /**
@@ -5589,10 +5680,121 @@ function presetSvcOf(ctx) {
     } finally { try { await handle.close?.(); } catch { /* 已关 */ } }
   }
 
+  /**
+   * 一次 open 同时取"头"和"尾"（2026-11-17）。
+   *
+   * <p>列表以前对每条会话调 readStoredHead + readStoredTail，等于把同一条日志
+   * 解压两遍；100 条串行就是首屏 7 秒。这里只 open 一次，先读开头 80 条拿标题/首条用户消息，
+   * 再按 stat 的 eventCount 从尾部读最近几条。</p>
+   */
+  async function readStoredHeadTail(id, tailMax = 3) {
+    const empty = { title: '', firstUser: '', agentPreset: '', messages: [], lastTime: 0 };
+    const svc = persistence();
+    if (!svc || typeof svc.open !== 'function') return empty;
+    const handle = await svc.open(id, 'read');
+    try {
+      let agentPreset = typeof handle?.header?.agentPreset === 'string' ? handle.header.agentPreset : '';
+      const headGot = await handle.read(0, 80);
+      const headEvents = Array.isArray(headGot) ? headGot : (headGot?.events ?? []);
+      let title = '';
+      let firstUser = '';
+      for (const ev of headEvents) {
+        if (!agentPreset && ev?.type === 'session' && typeof ev.agentPreset === 'string') agentPreset = ev.agentPreset;
+        if (ev?.type === 'session/title' && ev?.data && typeof ev.data.title === 'string') title = ev.data.title;
+        if (!firstUser && ev?.type === 'user/message') {
+          const kind = ev?.data?.source?.kind;
+          if (typeof kind !== 'string' || kind === 'user') {
+            const t = (partsOf(ev?.data).answer || '').trim();
+            if (t) firstUser = t;
+          }
+        }
+      }
+      let offset;
+      try {
+        const st = await svc.stat?.(id);
+        const total = Number(st?.eventCount ?? 0);
+        if (total > 0) offset = Math.max(0, total - Math.max(40, tailMax * 6));
+      } catch { /* stat 不可用：尾部退化为整条读，下面兜住 */ }
+      let messages = [];
+      let lastTime = 0;
+      try {
+        const tailGot = offset === undefined ? await handle.read() : await handle.read(offset);
+        const tailEvents = Array.isArray(tailGot) ? tailGot : (tailGot?.events ?? []);
+        for (const ev of tailEvents) {
+          if (typeof ev?.time === 'number' && ev.time > lastTime) lastTime = ev.time;
+          const m = messageOf(ev);
+          if (m) messages.push(m);
+        }
+        messages = messages.slice(-Math.max(1, Math.min(200, tailMax)));
+      } catch { messages = []; }
+      return { title: title.trim(), firstUser, agentPreset, messages, lastTime };
+    } finally { try { await handle.close?.(); } catch { /* 已关 */ } }
+  }
+
   /** 兼容旧调用点 */
   async function readStoredTitle(id) {
     return (await readStoredHead(id)).title;
   }
+
+  /**
+   * 列表补标题/最后一句的缓存（2026-11-17）。
+   *
+   * <p>手机打开抽屉后每几秒就会重拉一次列表；以前每次都为 100 条会话各 open 两次
+   * （读头 + 读尾），首屏 7 秒、后续每次也照样 7 秒。会话没变（mtime 相同）时结果
+   * 必然一样，所以按 `${id}|${mtime}` 缓存整条派生结果：首屏读完，之后直接命中。
+   * 会话一有写入 mtime 就变，缓存自然失效，不会把旧标题一直挂在那儿。</p>
+   *
+   * <p>必须放在 apply 这一层（作用域活在插件实例里），不能放进 listStoredSessions ——
+   * 放进去就变成每次请求都新建一个空 Map，命中率永远是 0（第一版就是这么写的）。</p>
+   */
+  const SESSION_ROW_CACHE = new Map();
+  const ROW_CACHE_MAX = 400;
+  const rowCacheGet = (key) => {
+    const hit = SESSION_ROW_CACHE.get(key);
+    if (hit === undefined) return undefined;
+    SESSION_ROW_CACHE.delete(key);       // 命中后挪到队尾，淘汰最久未用的
+    SESSION_ROW_CACHE.set(key, hit);
+    return hit;
+  };
+  const rowCacheSet = (key, value) => {
+    SESSION_ROW_CACHE.set(key, value);
+    while (SESSION_ROW_CACHE.size > ROW_CACHE_MAX) {
+      SESSION_ROW_CACHE.delete(SESSION_ROW_CACHE.keys().next().value);
+    }
+  };
+  /**
+   * 把这份缓存也落盘（2026-11-17）。
+   *
+   * <p>只放内存的话，插件每次重载/DSH 每次重启，手机第一次拉开抽屉又要等 6~7 秒
+   * （100 条会话逐条 open 解压）。缓存键本来就带 mtime，落盘不会读到旧标题；
+   * 重载后直接命中，只补真正变过的那几条。</p>
+   */
+  const SESSION_ROWS_FILE = join(PLUGIN_DIR, '.session-rows.json');
+  let rowsSaveTimer = null;
+  const loadRowCacheFromDisk = () => {
+    try {
+      const raw = JSON.parse(readFileSync(SESSION_ROWS_FILE, 'utf8'));
+      const entries = raw && typeof raw === 'object' ? raw.entries : null;
+      if (!entries || typeof entries !== 'object') return;
+      for (const [k, v] of Object.entries(entries)) {
+        if (!v || typeof v !== 'object' || !v.head) continue;
+        SESSION_ROW_CACHE.set(k, v);
+      }
+    } catch { /* 首次运行没有这个文件 */ }
+  };
+  const saveRowCacheSoon = () => {
+    if (rowsSaveTimer) return;
+    rowsSaveTimer = setTimeout(() => {
+      rowsSaveTimer = null;
+      try {
+        const entries = {};
+        for (const [k, v] of SESSION_ROW_CACHE) entries[k] = v;
+        writeFileSync(SESSION_ROWS_FILE, JSON.stringify({ at: Date.now(), entries }), 'utf8');
+      } catch { /* 写失败不影响列表 */ }
+    }, 2000);
+    try { rowsSaveTimer.unref?.(); } catch { /* 老 Node 没有 unref */ }
+  };
+  loadRowCacheFromDisk();
 
   /** 列出已落盘会话，按**最后活动时间**排序（不是创建时间） */
   async function listStoredSessions(limit = 20, opts = {}) {
@@ -5623,14 +5825,37 @@ function presetSvcOf(ctx) {
       const missing = desktopRows.filter((r) => keep.has(r.session_id) && !have.has(r.session_id));
       if (missing.length) picked = picked.concat(missing);
     }
-    for (const row of picked) {
+    // 并发别开大：persistence.open 是"单写者/带锁"的实现，8 路并发实测反而把一次
+    // 列表拖到 57s（互相排队），串行 100 条约 7s。真正的省法是按 mtime 缓存：
+    // 首屏慢一次，之后手机每几秒的轮询全部命中。
+    const heads = await mapLimit(picked, 1, async (row) => {
+      const key = row.session_id + '|' + (row.updated_at ?? 0);
+      const hit = rowCacheGet(key);
+      if (hit !== undefined) return hit;
       try {
-        const head = await readStoredHead(row.session_id);
+        const both = await readStoredHeadTail(row.session_id, 3);
+        const out = {
+          head: { title: both.title, firstUser: both.firstUser, agentPreset: both.agentPreset },
+          lastTime: both.lastTime || 0,
+          messages: both.messages || [],
+        };
+        rowCacheSet(key, out);
+        saveRowCacheSoon();   // 有新结果就落盘（2s 防抖），下次重载不用再扫 100 条
+        return out;
+      } catch {
+        return null;   // 单条读失败不影响整个列表
+      }
+    });
+    picked.forEach((row, i) => {
+      const got = heads[i];
+      if (!got) return;
+      try {
+        const head = got.head;
         // 早期 ACP/headless 会话没有 session/title 事件：用第一条用户消息兜底，
         // 否则手机列表里会出现没有标题的空白项（实测踩到）。
         const title = head.title || (head.firstUser ? head.firstUser.replace(/\s+/g, ' ').slice(0, 24) : '');
         if (title) row.title = title;
-        const tail = await readStoredTail(row.session_id, 3);
+        const tail = { lastTime: got.lastTime, messages: got.messages };
         if (tail.lastTime) row.updated_at = Math.max(row.updated_at ?? 0, tail.lastTime);
         const lastUser = [...tail.messages].reverse().find((m) => m.role === 'user');
         const snippet = (lastUser ?? tail.messages[tail.messages.length - 1])?.text ?? '';
@@ -5639,7 +5864,7 @@ function presetSvcOf(ctx) {
         // 保证手机列表里不会出现无标题的空白项。
         if (!row.title && row.last) row.title = row.last.replace(/\s+/g, ' ').slice(0, 24);
       } catch { /* 单条读失败不影响列表 */ }
-    }
+    });
     // 空会话（没有标题、也没有任何真人消息）不进入列表：
     // 这类多是早期 ACP/CLI 留下的壳，手机选择框里只会挡住真正在用的会话。
     const nonEmpty = opts.includeEmpty ? picked : picked.filter((r) => (r.title && r.title.length > 0) || (r.last && r.last.length > 0));
@@ -6942,15 +7167,17 @@ function presetSvcOf(ctx) {
     // 会撞上 "session already exists"（那条 id 在宿主里已经存在）。
     const cliMode = cliModeEnabled;
     let handle = handles.get(sid);
-    if (!cliMode && handle === undefined) {
-      if (!ctx.agents || !ctx.sessions) throw new Error('agents/sessions 服务不可用');
-      handle = await ctx.agents.create(await createInput(sid));
-      handles.set(sid, handle);
-    }
+    /**
+     * 2026-11-17：宿主内模式下也必须认「手机选中的那条电脑会话」。
+     * 以前 target 分支挂在 cliMode 上，auto 判定改成宿主内之后 target 永远进不去 ——
+     * 手机每发一条都在宿主里新建一条隐藏会话（smartquiz-*），电脑端那条对话收不到任何消息，
+     * 两端各说各话（表现就是"通讯异常"）。这里把 target 提到入口解析，两种模式都走。
+     */
+    const target = String(opts.targetSessionId || '').trim()
+      || (() => { try { return String(sessionBinding.get(opts.sessionCode) || ''); } catch { return ''; } })();
     if (!wantsStream) {
-      const target = String(opts.targetSessionId || '').trim();
       let r;
-      if (cliMode && target) {
+      if (target) {
         /**
          * 什么时候不能走 CLI：
          *   · 会话头部带 agentPreset（桌面端建的都是 "standard"）→ CLI 直接拒绝续写；
@@ -6972,6 +7199,12 @@ function presetSvcOf(ctx) {
         }
       }
       if (!r) {
+        // 只有真要"新建对话/无 target"时才在宿主里建 agent，别为每条消息多落一条空会话
+        if (!cliMode && handle === undefined) {
+          if (!ctx.agents || !ctx.sessions) throw new Error('agents/sessions 服务不可用');
+          handle = await ctx.agents.create(await createInput(sid));
+          handles.set(sid, handle);
+        }
         r = await runTurn(ctx, handle, sid, text, cfg, { signal: opts.signal, deadline: opts.deadline,
           targetSessionId: opts.targetSessionId, sessionCode: opts.sessionCode });
         /**
@@ -7011,6 +7244,7 @@ function presetSvcOf(ctx) {
         return sendJson(res, 200, { ok: false, action: 'prompt', session_id: sid, dsh_session_id: r.dshSession || '', reply: '', error: r.error, debug: dbg });
       }
       promptCount += 1;
+      clearPhoneFailureSlot();   // 这一轮成功：撤掉之前失败留下的红条（否则会一直挂着）
       const reply = r.reply;
       sendJson(res, 200, { ok: true, action: 'prompt', session_id: sid, dsh_session_id: r.dshSession || '', reply, duration_ms: dbg.cli_ms ?? null, turn: 1, execution: executionInfo(target), debug: dbg });
       return;
@@ -7020,10 +7254,12 @@ function presetSvcOf(ctx) {
       'cache-control': 'no-cache, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no' });
     const sse = (o) => { try { res.write(`data: ${JSON.stringify(o)}\n\n`); } catch { /* 断连 */ } };
     sse({ type: 'start', action: 'prompt', session_id: sid });
+    // 同步模式（有 target）时真正在增长的是那条电脑会话，流式要从它上面读帧
+    const watchSid = target || sid;
     let lastSeq = -1; let lastText = '';
     const pump = setInterval(() => {
       try {
-        const s = ctx.sessions.get(sid); if (!s) return;
+        const s = ctx.sessions.get(watchSid); if (!s) return;
         const seq = Number(s.seq ?? 0);
         if (lastSeq < 0) lastSeq = Math.max(0, seq - 1);
         for (let i = lastSeq; i < seq; i += 1) {
@@ -7045,13 +7281,9 @@ function presetSvcOf(ctx) {
        * 再来一次 SSE 就会撞上 `session "…" is already owned by an active write`。
        * 这里补齐：先看 live/warm agent，有就走宿主内；CLI 报写权冲突时再兜底重试一次。
        */
-      const target = String(opts.targetSessionId || '').trim();
-      // 手机有时只带 session_code（跟随/直连），不带 target_session_id —— 这里按同一套绑定补出来，
-      // 否则"写权冲突兜底"会因为 target 为空而跳过
-      const effTarget = target || (() => { try { return sessionBinding.get(opts.sessionCode) || ''; } catch { return ''; } })();
-      const liveAgent = effTarget ? (getLiveAgent(effTarget) || warmAgentFor(effTarget)) : null;
+      const effTarget = target;   // 已在 runPrompt 入口解析（target_session_id 或 session_code 绑定）
       let rr;
-      if (cliMode && effTarget && liveAgent) {
+      if (effTarget) {
         const ir = await runInProcessTurn(effTarget, text, { signal: opts.signal, deadline: opts.deadline });
         rr = {
           reply: ir?.reply || '',
@@ -7061,6 +7293,11 @@ function presetSvcOf(ctx) {
           debug: { in_process: true },
         };
       } else {
+        if (!cliMode && handle === undefined) {
+          if (!ctx.agents || !ctx.sessions) throw new Error('agents/sessions 服务不可用');
+          handle = await ctx.agents.create(await createInput(sid));
+          handles.set(sid, handle);
+        }
         rr = await runTurn(ctx, handle, sid, text, { ...cfg, __onData: (s) => sse({ type: 'text', text: s }) },
           { signal: opts.signal, deadline: opts.deadline, targetSessionId: opts.targetSessionId, sessionCode: opts.sessionCode });
         // CLI 续不上（预设不兼容 / 被别的进程占着写权）→ 宿主内再试一次，别让手机只看到报错
@@ -7075,12 +7312,12 @@ function presetSvcOf(ctx) {
       }
 
       promptCount += 1;
-      const s = ctx.sessions.get(sid);
+      const s = ctx.sessions.get(watchSid);
       let reply = rr.reply || lastText;
       if (s) for (const m of (s.deriveMessages?.() ?? [])) if (m?.role === 'assistant' && textOf(m)) reply = textOf(m);
       if (reply.length > cfg.maxReplyChars) reply = reply.slice(0, cfg.maxReplyChars);
       if (!reply && rr.error) { pushPhoneFailureSlot('这一轮失败了', rr.error); sse({ type: 'error', action: 'prompt', session_id: sid, error: rr.error }); }
-      else sse({ type: 'done', action: 'prompt', session_id: sid, dsh_session_id: rr.dshSession || '', reply, debug: { via: rr.via, ...rr.debug } });
+      else { clearPhoneFailureSlot(); sse({ type: 'done', action: 'prompt', session_id: sid, dsh_session_id: rr.dshSession || '', reply, debug: { via: rr.via, ...rr.debug } }); }
     } catch (e) {
       sse({ type: 'error', action: 'prompt', session_id: sid, error: String(e?.message ?? e) });
     } finally {
