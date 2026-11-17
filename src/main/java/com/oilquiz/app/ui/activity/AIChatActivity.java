@@ -17045,6 +17045,8 @@ public class AIChatActivity extends BaseActivity {
                     // 状态点也要还原成引擎色：只改副标题的话，圆点还停在远程的绿/黄上
                     com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateStatusDot(this,
                             com.oilquiz.app.ai.chat.status.ServiceStatusManager.lastDotColorRes());
+                    // 回本地态：停掉远程呼吸（2026-11-17）
+                    com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.setDotBreathing(this, false);
                 }
                 com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.refreshSubtitleIfNeeded(this);
                 return;
@@ -17086,12 +17088,25 @@ public class AIChatActivity extends BaseActivity {
                             remotePhaseText(live), follow, needsAttention ? st.approvalsPending : 0,
                             dshFlowModeLabel()),
                     dot);
-            // 连接灯呼吸 = 真实心跳（2026-11-17）：每次 /status 刷新成功才跳一次。
-            // 不再用无限循环动画，否则服务断了灯还在呼吸，看着像活着。
+            // 连接灯（2026-11-17）：呼吸由"心跳是否新鲜"驱动 —— 每 5s 拉一次 /status，
+            // 成功就保持 1.1s 呼吸；连续 20s 没有新数据就停（灯不骗人）。
+            boolean beatFresh = st != null && st.ok && st.fetchedAt > 0
+                    && (System.currentTimeMillis() - st.fetchedAt) < 20000L;
+            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.setDotBreathing(this, beatFresh);
+            // 远程状态条上的圆点同样按心跳新鲜度呼吸（用户实际盯着的是这条）
+            try {
+                if (beatFresh) com.oilquiz.app.ui.UiFx.breathing(remoteDshDot);
+                else com.oilquiz.app.ui.UiFx.stopBreathing(remoteDshDot);
+            } catch (Throwable ignored) { /* 动画失败不影响状态 */ }
+            // 每次真的拿到新心跳，再补一次更明显的单脉冲，让节奏看得见
             if (st != null && st.ok && st.fetchedAt > 0 && st.fetchedAt != lastRemoteBeatAt) {
                 lastRemoteBeatAt = st.fetchedAt;
                 try {
                     com.oilquiz.app.ui.UiFx.pulseOnce(findViewById(R.id.chat_v2_status_dot));
+                } catch (Throwable ignored) { /* 动画失败不影响状态 */ }
+                try {
+                    // 远程状态条上的小圆点也跳一下（用户实际盯着的是这条）
+                    com.oilquiz.app.ui.UiFx.pulseOnce(remoteDshDot);
                 } catch (Throwable ignored) { /* 动画失败不影响状态 */ }
             }
             updateRemoteMetaLine(st);
@@ -17131,10 +17146,13 @@ public class AIChatActivity extends BaseActivity {
         if (model != null && !model.isEmpty()) sb.append(" · ").append(model);
         String effort = effortLabel(st == null ? "" : st.effort);
         if (!effort.isEmpty()) sb.append(" · 思考:").append(effort);
-        // 电脑状态（2026-11-17）：顶栏副标题宽度不够，把"设备 N 台"放到底部 meta 行，
-        // 与电脑面板「已配对设备」是同一个数（/status.devices）
+        // 电脑状态（2026-11-17）：顶栏副标题宽度不够，把设备数与心跳年龄放到底部 meta 行，
+        // 与电脑面板「已配对设备」是同一个数；"心跳 Ns" 每秒递增、每次刷新归零 —— 节奏可见。
         if (st != null && st.ok && st.devices > 0) sb.append(" · 设备 ").append(st.devices);
-        if (st != null && st.ok && st.sessionsCount > 0) sb.append(" · 会话 ").append(st.sessionsCount);
+        if (st != null && st.ok && st.fetchedAt > 0) {
+            long ageSec = Math.max(0L, (System.currentTimeMillis() - st.fetchedAt) / 1000L);
+            sb.append(" · 心跳 ").append(ageSec).append("s");
+        }
         // 什么都不知道时别挂一句光秃秃的"电脑"（看起来像没加载完）
         if (sb.length() <= "电脑".length()) {
             remoteMetaText.setVisibility(View.GONE);
@@ -17272,9 +17290,10 @@ public class AIChatActivity extends BaseActivity {
             }
             action = "管理 ›";
 
-            // 后台拉一次 /status + /v2/usage（节流 15s，单飞）；回来后重刷这条状态条
+            // 后台拉一次 /status + /v2/usage（节流 5s，单飞）；回来后重刷这条状态条。
+            // 2026-11-17：15s 太慢 —— 呼吸节奏看不出来（用户："跳动的频率无法观测"）。
             com.oilquiz.app.ai.tool.RemoteStatusMonitor.refreshAsync(this,
-                    com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this), 15000L,
+                    com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this), 5000L,
                     () -> runOnUiThread(this::refreshRemoteDshBar));
             // 数据插槽：阶段/会话/链路/用量/模型 各占一行（甲板按优先级选行）
             com.oilquiz.app.ai.tool.RemoteStatusSlots.publish(this);

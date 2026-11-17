@@ -81,13 +81,28 @@ public final class ChatUiV2Chrome {
         try {
             dot.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     ThemeColors.get(activity, colorRes)));
-            // 2026-11-17：呼吸不再由「颜色是绿的」驱动，而是由**真实心跳**驱动 ——
-            // 每次 /status 刷新成功由调用方调 UiFx.pulseOnce()。这里只负责颜色与停止旧动画；
-            // 否则服务没响应时绿灯仍无限呼吸，等于用动画掩盖断连。
-            com.oilquiz.app.ui.UiFx.stopBreathing(dot);
+            // 呼吸由 {@link #setDotBreathing} 统一管理（远程态由心跳新鲜度驱动），
+            // 这里只负责颜色 —— 以前在这里 stopBreathing 会把每秒的呼吸打断。
         } catch (Throwable stepFailed) {
             com.oilquiz.app.util.AILogger.w("ChatUiV2Chrome", "这一步失败，结果可能被当成正常 · updateStatusDot: " + stepFailed);
         }
+    }
+
+    /**
+     * 连接灯呼吸开关（2026-11-17）。
+     *
+     * <p>只由"心跳是否新鲜"决定：远程态每 5 秒拉一次 /status，成功就 `on=true`，
+     * 连续 20 秒没新数据就 `on=false`（灯静止/变灰）。这样频率是稳定可观测的 1.1s 呼吸，
+     * 同时服务一停就停 —— 不是纯装饰动画。</p>
+     */
+    public static void setDotBreathing(Activity activity, boolean on) {
+        if (activity == null) return;
+        View dot = activity.findViewById(R.id.chat_v2_status_dot);
+        if (dot == null) return;
+        try {
+            if (on) com.oilquiz.app.ui.UiFx.breathing(dot);
+            else com.oilquiz.app.ui.UiFx.stopBreathing(dot);
+        } catch (Throwable ignored) { /* 动画失败不影响状态 */ }
     }
 
     /**
