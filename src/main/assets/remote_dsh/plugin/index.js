@@ -4905,6 +4905,10 @@ function presetSvcOf(ctx) {
   const buildView = async (sid, opts = {}) => {
     const st = statusBody();
     const { cwd, checks } = buildHealthChecks();
+    // 手机端要和电脑面板"对得上"：把面板上那几个数原样下发（设备/连接/护栏/协议/公网）
+    const devCount = devices.devices.length;
+    const pendingDevices = devices.devices.filter((d) => d.approved === false).length;
+    const onlineConns = (() => { try { return connectionSnapshot().filter((c) => c.online).length; } catch { return 0; } })();
     const cards = [
       {
         kind: 'status', title: '电脑端',
@@ -4917,6 +4921,12 @@ function presetSvcOf(ctx) {
           })() },
           { label: '在跑任务', value: st.active_jobs ? String(st.active_jobs) : '0（空闲）' },
           { label: '工作目录', value: cwd || '(未知)' },
+          // —— 与电脑面板同一口径 ——
+          { label: '设备', value: `${devCount} 台已配对` + (pendingDevices > 0 ? `（${pendingDevices} 台待批准）` : '') },
+          { label: '连接', value: `${onlineConns} 个在线` + (pairApprovalRequired ? ' · 新设备需批准' : '') },
+          { label: '护栏', value: GUARD.enabled ? `Host/Origin 已开 · 已拦截 ${GUARD.rejected} 次` : '已关闭' },
+          { label: '协议', value: `v2 · ${localRoutes.size} 条路由 · ${SERVER_CAPS.length} 项能力` },
+          { label: '公网', value: cfg.publicUrl || '(未配置)' },
         ],
       },
       {
@@ -4957,7 +4967,18 @@ function presetSvcOf(ctx) {
           }));
         })(),
       },
-    ];
+      // 已配对设备（2026-11-17）：与电脑面板「已配对设备」同一份数据，手机上也看得到谁连着
+      devices.devices.length > 0 && {
+        kind: 'devices', title: `已配对设备（${devices.devices.length}）`,
+        rows: devices.devices.slice(0, 6).map((d) => ({
+          label: (d.name || d.id) + (d.approved === false ? ' · 待批准' : ''),
+          value: d.last_seen
+            ? (Math.max(0, Math.round((Date.now() - d.last_seen) / 60000)) + ' 分钟前')
+            : '—',
+        })),
+        detail: devices.devices.length > 6 ? `还有 ${devices.devices.length - 6} 台未显示` : '',
+      },
+    ].filter(Boolean);
 
     let header = { session_id: sid || '', title: '', badge: st.channels.exec ? '可执行' : '只读' };
     if (sid) {
