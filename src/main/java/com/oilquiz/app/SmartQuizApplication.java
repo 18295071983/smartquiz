@@ -426,10 +426,24 @@ public class SmartQuizApplication extends Application {
     }
 
     
+    /**
+     * LibreOffice 查看器（org.libreoffice.*）是否独立主题（2026-11-18）。
+     *
+     * <p>它自带 LibreOfficeTheme + 独立资源目录，不接入 App 的主题 overlay / 壁纸 /
+     * edge-to-edge，否则两套主题会互相覆盖（尤其换肤与动态色时）。</p>
+     */
+    private static boolean isLibreOfficeViewer(Activity activity) {
+        if (activity == null) return false;
+        String name = activity.getClass().getName();
+        return name != null && name.startsWith("org.libreoffice.");
+    }
+
     private void registerActivityLifecycle() {
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override
             public void onActivityPreCreated(Activity activity, Bundle savedInstanceState) {
+                // LibreOffice 查看器：用自己的主题，不注入 App overlay / 状态栏样式
+                if (isLibreOfficeViewer(activity)) return;
                 // 在 setContentView 之前注入主题 overlay：系统动态色开启时用原生 Material You 配色，
                 // 否则用自定义（7 预设色 + 24 色相网格）overlay
                 if (com.oilquiz.app.manager.ThemeManager.isSystemDynamicColor(activity)) {
@@ -457,6 +471,8 @@ public class SmartQuizApplication extends Application {
             @Override
             public void onActivityCreated(Activity activity, Bundle savedInstanceState) {
                 currentActivity = activity;
+                // LibreOffice 查看器：不接管 insets / 状态栏图标（它自己的主题负责）
+                if (isLibreOfficeViewer(activity)) return;
                 // 真 edge-to-edge 全局适配（Android 16 强制 edge-to-edge 前的统一方案）：
                 // 开启内容延伸到系统栏 + 根容器 insets padding + 深浅图标；AI 对话/透明悬浮窗自动跳过
                 com.oilquiz.app.theme.EdgeToEdgeHelper.apply(activity);
@@ -473,6 +489,8 @@ public class SmartQuizApplication extends Application {
             @Override
             public void onActivityResumed(Activity activity) {
                 currentActivity = activity;
+                // LibreOffice 查看器：不铺 App 壁纸、不同步状态栏/导航条（主题隔离）
+                if (isLibreOfficeViewer(activity)) return;
                 // 应用壁纸到页面根布局（跟随系统壁纸 / 壁纸库 / 关闭，全局统一）
                 try {
                     android.view.ViewGroup wc = (android.view.ViewGroup) activity.findViewById(android.R.id.content);
