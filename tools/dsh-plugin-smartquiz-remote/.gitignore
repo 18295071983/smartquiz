@@ -17,3 +17,4 @@ package-lock.json
 .startup.json
 .startup-smoke.json
 .session-rows.json
+.pair-approval.json

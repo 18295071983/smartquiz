@@ -1425,7 +1425,29 @@ function applyInner(ctx, config) {
 
   // ---- 鉴权升级状态 ----
   const DEVICE_FILE = join(PLUGIN_DIR, '.devices.json');
-  const devices = loadDevices(DEVICE_FILE);          // { devices: [{id,name,token,created_at,last_seen}] }
+  const devices = loadDevices(DEVICE_FILE);          // { devices: [{id,name,token,created_at,last_seen,approved}] }
+  // 旧记录没有 approved 字段：一律视为已批准（不能因为升级把在用手机踢下线）
+  for (const d of devices.devices) {
+    if (typeof d.approved !== 'boolean') d.approved = true;
+  }
+  /**
+   * 新设备连接审批（2026-11-17）。
+   *
+   * <p>配对码/主令牌换取设备令牌后，设备先处于「待批准」：能保存令牌，但所有带该令牌的
+   * 请求会被 401 拒绝，直到电脑面板点「批准」。开关持久化在 .pair-approval.json，
+   * 面板可随时切换；关掉时行为与以前一致（配对即生效）。</p>
+   */
+  const PAIR_APPROVAL_FILE = join(PLUGIN_DIR, '.pair-approval.json');
+  let pairApprovalRequired = (() => {
+    try {
+      const v = JSON.parse(readFileSync(PAIR_APPROVAL_FILE, 'utf8'));
+      if (v && typeof v.required === 'boolean') return v.required;
+    } catch { /* 首次 */ }
+    return cfg.pairApproval === true;
+  })();
+  const savePairApproval = () => {
+    try { writeFileSync(PAIR_APPROVAL_FILE, JSON.stringify({ required: pairApprovalRequired, at: Date.now() }), 'utf8'); } catch { /* 忽略 */ }
+  };
   const pairingCodes = new Map();                    // code -> expiresAt(ms)
   const PAIR_TTL_MS = 5 * 60 * 1000;                 // 一次性配对码 5 分钟
   /** 同时最多挂 5 个待用配对码：多到溢出说明有人在狂刷 /pair/code */
@@ -1505,6 +1527,8 @@ function applyInner(ctx, config) {
     const d = deviceByToken(t);
     if (d === undefined) return false;
     d.last_seen = Date.now();
+    // 待批准设备：令牌能保存，但连接一律拒绝（面板「批准」后才放行）
+    if (d.approved === false) return false;
     return true;
   };
   /** 回环地址：只看 socket 源地址（隧道/反代转发进来的请求也满足 ✗ 不能单独作为信任依据） */
@@ -8333,25 +8357,65 @@ function presetSvcOf(ctx) {
       token: randomBytes(16).toString('hex'),
       created_at: sameName ? sameName.created_at : Date.now(),
       last_seen: Date.now(),
+      // 审批开启时先「待批准」：令牌照发（手机先存起来），但连接要等电脑端点批准
+      approved: !pairApprovalRequired,
     };
     if (sameName) devices.devices = devices.devices.filter((d) => d !== sameName);
     devices.devices.push(device);
     const ok = saveDevices(DEVICE_FILE, devices);
     sendJson(res, 200, { ok: true, via, device_id: device.id, device_token: device.token, persisted: ok,
+                         pending: device.approved === false,
+                         ...(device.approved === false
+                           ? { hint: '配对请求已提交：请让主人在电脑端「手机远程」面板批准这台设备后再连接' }
+                           : {}),
                          base_url: `http://${lanIpv4()}:${ctx.webServer.port}` });
   });
 
   // GET /devices —— 鉴权：列出已配对设备（令牌打码）
   route('exact', '/devices', (req, res) => {
-    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
-    sendJson(res, 200, { ok: true, count: devices.devices.length,
-      devices: devices.devices.map((d) => ({ id: d.id, name: d.name, created_at: d.created_at,
-        last_seen: d.last_seen, token_masked: `${d.token.slice(0, 6)}…${d.token.slice(-4)}` })) });
+    // 本机面板也要看设备列表（批准/吊销），局域网/公网仍要令牌
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    sendJson(res, 200, {
+      ok: true, count: devices.devices.length,
+      approval_required: pairApprovalRequired,
+      pending: devices.devices.filter((d) => d.approved === false).length,
+      devices: devices.devices.map((d) => ({
+        id: d.id, name: d.name, created_at: d.created_at, last_seen: d.last_seen,
+        approved: d.approved !== false,
+        token_masked: `${d.token.slice(0, 6)}…${d.token.slice(-4)}`,
+      })),
+    });
+  });
+
+  // POST /devices/approve —— 本机批准一台待批准设备（面板）
+  route('exact', '/devices/approve', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
+    const id = String(body.device_id ?? '').trim();
+    const target = devices.devices.find((d) => d.id === id);
+    if (!target) return sendJson(res, 404, { ok: false, error: 'device_not_found' });
+    target.approved = true;
+    const ok = saveDevices(DEVICE_FILE, devices);
+    sendJson(res, 200, { ok: true, approved: target.id, persisted: ok });
+  });
+
+  // POST /devices/approval —— 本机切换「新设备需审批」开关（面板）
+  route('exact', '/devices/approval', async (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
+    if (typeof body.required === 'boolean') {
+      pairApprovalRequired = body.required;
+      savePairApproval();
+    }
+    sendJson(res, 200, { ok: true, required: pairApprovalRequired });
   });
 
   // POST /devices/revoke —— 鉴权：吊销某台设备（无需改主令牌）
   route('exact', '/devices/revoke', async (req, res) => {
-    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    // 本机面板可直接吊销（局域网/公网仍要令牌）
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     let body = {};
     try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
     const id = String(body.device_id ?? '');

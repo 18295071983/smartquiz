@@ -93,6 +93,8 @@ window.__ModuleLoader__.load({
       const [info, setInfo] = React.useState(null);
       const [st, setSt] = React.useState(null);
       const [sessions, setSessions] = React.useState([]);
+      const [devList, setDevList] = React.useState([]);
+      const [approvalRequired, setApprovalRequired] = React.useState(false);
       const [bal, setBal] = React.useState(null);
       const [err, setErr] = React.useState('');
       const [note, setNote] = React.useState('');
@@ -121,6 +123,47 @@ window.__ModuleLoader__.load({
           .then((j) => setSessions(j && Array.isArray(j.sessions) ? j.sessions : []))
           .catch(() => setSessions([]));
       }, []);
+
+      // 已配对设备 / 审批（2026-11-17）：面板里批准、吊销、切换"新设备需审批"
+      const loadDevices = React.useCallback(() => {
+        fetch('/devices', { cache: 'no-store' })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((j) => {
+            if (!j) return;
+            setDevList(Array.isArray(j.devices) ? j.devices : []);
+            setApprovalRequired(j.approval_required === true);
+          })
+          .catch(() => setDevList([]));
+      }, []);
+      const approveDevice = (id) => {
+        fetch('/devices/approve', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ device_id: id }),
+        }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+          setNote(j && j.ok ? t('panel.approved', '已批准：这台手机现在可以连接') : t('panel.approveFailed', '批准失败'));
+          loadDevices();
+        }).catch(() => setNote(t('panel.approveFailed', '批准失败')));
+      };
+      const revokeDevice = (id) => {
+        fetch('/devices/revoke', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ device_id: id }),
+        }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+          setNote(j && j.ok ? t('panel.revoked', '已吊销该设备令牌') : t('panel.revokeFailed', '吊销失败'));
+          loadDevices();
+        }).catch(() => setNote(t('panel.revokeFailed', '吊销失败')));
+      };
+      const toggleApproval = (required) => {
+        fetch('/devices/approval', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ required }),
+        }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+          setApprovalRequired(Boolean(j && j.required));
+          setNote(j && j.ok
+            ? (j.required ? t('panel.approvalOn', '已开启：新设备配对后需在此批准') : t('panel.approvalOff', '已关闭：配对后直接可用'))
+            : t('panel.saveFailed', '设置失败'));
+        }).catch(() => setNote(t('panel.saveFailed', '设置失败')));
+      };
 
       // 2026-11-16：配对码本地缓存 —— 关闭面板再打开、甚至刷新页面，
       // 只要原码还没过期就继续显示同一个码（倒计时接着走），不再"每次点开都是 5:00"。
@@ -170,7 +213,8 @@ window.__ModuleLoader__.load({
           .then((r) => (r.ok ? r.json() : null)).then((j) => setSt(j)).catch(() => setSt(null));
         loadBalance();
         loadSessions();
-      }, [loadBalance, loadSessions]);
+        loadDevices();
+      }, [loadBalance, loadSessions, loadDevices]);
 
       /** 归档一条电脑会话：不删记录，只从两端列表隐藏（电脑端可恢复） */
       const archiveSession = (sid) => {
@@ -409,22 +453,40 @@ window.__ModuleLoader__.load({
             h('div', { style: { fontWeight: 600 } }, '📱 ' + t('panel.clientTitle', '客户端 · 手机'),
               h('span', { style: label }, '  ' + (online ? (t('panel.connected', '在线') + (transport ? '（' + transport + '）' : '')) : t('panel.disconnected', '未连接'))
                 + ' · ' + t('panel.devices', '已配对') + ' ' + devices + ' 台')),
-            recommended && h('div', { style: Object.assign({}, row, { marginTop: 8, alignItems: 'flex-start' }) },
-              h('img', {
-                src: '/pair/qr.svg?text=' + encodeURIComponent(recommended.qr_text || '') + '&cell=4',
-                alt: 'pairing qr',
-                width: 132, height: 132,
-                style: { imageRendering: 'pixelated', borderRadius: 6, background: '#fff' },
-              }),
-              h('div', { style: { flex: 1 } },
-                h('div', { style: label }, t('panel.qrHint', '手机扫码即可配对（二维码由服务端生成，不用打开浏览器）')),
-                h('div', { style: Object.assign({}, mono, { marginTop: 6 }) },
-                  String(recommended.qr_text || '').replace(/token=.*/, 'token=***')),
-                h('div', { style: row },
-                  h('button', { style: smallBtn, onClick: () => { if (!copyText(recommended.qr_text || '')) setNote(t('panel.copyFailed', '复制失败')); } },
-                    t('panel.copyPair', '复制配对串')),
-                  h('button', { style: smallBtn, onClick: () => { if (!copyText(recommended.base_url || '')) setNote(t('panel.copyFailed', '复制失败')); } },
-                    t('panel.copy', '复制'))))),
+            // 多张二维码（2026-11-17）：每个可达地址一张，手机挑能通的那张扫
+            (() => {
+              const items = (info && Array.isArray(info.items) && info.items.length)
+                ? info.items
+                : (recommended ? [recommended] : []);
+              if (!items.length) return null;
+              const kindLabel = (k) => (k === 'lan' ? t('panel.kindLan', '局域网')
+                : (k === 'mesh' ? t('panel.kindMesh', '组网（VPN）') : t('panel.kindPublic', '公网')));
+              return h('div', { style: { marginTop: 8 } },
+                h('div', { style: label }, t('panel.qrHint', '手机扫码即可配对（每个可达地址一张码，挑能通的那张）')),
+                items.slice(0, 4).map((it, i) => h('div', {
+                  key: String(it.base_url || i),
+                  style: Object.assign({}, row, { marginTop: 8, alignItems: 'flex-start' }),
+                },
+                  h('img', {
+                    src: '/pair/qr.svg?text=' + encodeURIComponent(it.qr_text || '') + '&cell=4',
+                    alt: 'pairing qr',
+                    width: 120, height: 120,
+                    style: { imageRendering: 'pixelated', borderRadius: 6, background: '#fff' },
+                  }),
+                  h('div', { style: { flex: 1, minWidth: 0 } },
+                    h('div', { style: label }, kindLabel(it.kind) + ' · ' + String(it.base_url || '')),
+                    h('div', { style: Object.assign({}, mono, { marginTop: 4, fontSize: 10, wordBreak: 'break-all' }) },
+                      String(it.qr_text || '').replace(/token=.*/, 'token=***')),
+                    h('div', { style: row },
+                      h('button', {
+                        style: smallBtn,
+                        onClick: () => { if (!copyText(it.qr_text || '')) setNote(t('panel.copyFailed', '复制失败')); },
+                      }, t('panel.copyPair', '复制配对串')),
+                      h('button', {
+                        style: smallBtn,
+                        onClick: () => { if (!copyText(it.base_url || '')) setNote(t('panel.copyFailed', '复制失败')); },
+                      }, t('panel.copy', '复制')))))));
+            })(),
             h('div', { style: row },
               h('span', { style: label }, t('panel.codeTitle', '动态配对码')),
               code
@@ -436,6 +498,28 @@ window.__ModuleLoader__.load({
               h('button', { style: smallBtn, onClick: () => loadCode(true) }, t('panel.refresh', '刷新'))),
             h('div', { style: Object.assign({}, label, { marginTop: 4 }) },
               t('panel.codeHint', '配对码由电脑签发，5 分钟内一次性有效；在手机「扫码 / 口令配对」里输入即可（后端用 CSPRNG 生成）。'))),
+            // 连接审批 + 设备令牌吊销（2026-11-17）
+            h('div', { style: Object.assign({}, row, { marginTop: 8, cursor: 'pointer' }) },
+              h('input', { type: 'checkbox', checked: approvalRequired, onChange: (e) => toggleApproval(e.target.checked) }),
+              h('span', null, t('panel.approvalLabel', '新设备配对后需在电脑端批准'))),
+            devList.length > 0 && h('div', { style: { marginTop: 6 } },
+              h('div', { style: label }, t('panel.devicesTitle', '已配对设备') + '（' + devList.length + '）'),
+              devList.slice(0, 6).map((d) => h('div', {
+                key: String(d.id),
+                style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 },
+              },
+                h('span', {
+                  style: {
+                    flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap', fontSize: 12,
+                    color: d.approved === false ? '#d9534f' : undefined,
+                  },
+                  title: String(d.id || ''),
+                }, (d.name || d.id) + (d.approved === false ? ' · ' + t('panel.pending', '待批准') : '')),
+                (d.approved === false) && h('button', { style: smallBtn, onClick: () => approveDevice(d.id) },
+                  t('panel.approve', '批准')),
+                h('button', { style: smallBtn, onClick: () => revokeDevice(d.id) },
+                  t('panel.revoke', '吊销'))))),
 
           // ---------- 对外地址（可选） ----------
           h('div', { style: section },
