@@ -1609,13 +1609,94 @@ function applyInner(ctx, config) {
     } catch (e) { lastPreset = 'error: ' + String(e?.message ?? e).slice(0, 80); return base; }
   };
   const modelInfo = () => agentOptions ? agentOptions.provider + '/' + agentOptions.model : '(none)';
+  /**
+   * 请求护栏（2026-11-17，补 dsh-go-bridge 的 guard 纵深）。
+   *
+   * <p>8218 是 0.0.0.0 监听的，光有 Bearer 令牌还不够：浏览器里的恶意页面可以
+   * DNS rebinding 到内网 IP，或用跨站表单/脚本打本地端口。这里在**每条路由**入口做
+   * Host/Origin 判定：</p>
+   *   · Host 只认 IP 字面量 / localhost / publicUrl 域名 / config.guardHosts；
+   *   · 带 Origin 的请求必须是同源（或 localhost / 白名单），`Origin: null` 直接拒；
+   * 原生 App（手机）不带 Origin、Host 是 IP，天然放行；桌面网页是 same-origin，也放行。
+   */
+  const GUARD = { enabled: cfg.guardEnabled !== false, rejected: 0, last: '' };
+  const hostnameOf = (hostHeader) => {
+    const raw = String(hostHeader ?? '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('[')) {                       // [::1]:8218
+      const end = raw.indexOf(']');
+      return (end > 0 ? raw.slice(1, end) : raw).toLowerCase();
+    }
+    const first = raw.indexOf(':');
+    if (first > -1 && first === raw.lastIndexOf(':')) return raw.slice(0, first).toLowerCase();
+    return raw.toLowerCase();                        // 裸 IPv6 或普通主机名
+  };
+  const isIpLiteral = (h) => /^\d{1,3}(\.\d{1,3}){3}$/.test(h)
+    || (h.includes(':') && /^[0-9a-f:.]+$/i.test(h));
+  const guardHosts = () => {
+    const set = new Set();
+    const add = (v) => {
+      const s = String(v ?? '').trim();
+      if (!s) return;
+      try { set.add(new URL(s).hostname.toLowerCase()); } catch { set.add(s.toLowerCase()); }
+    };
+    add(cfg.publicUrl);
+    for (const part of String(cfg.guardHosts || '').split(',')) add(part);
+    return set;
+  };
+  const guardOrigins = () => new Set(
+    String(cfg.guardOrigins || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+  const guardRequest = (req) => {
+    if (!GUARD.enabled) return { ok: true };
+    const host = hostnameOf(req?.headers?.host);
+    if (!host) {
+      // 本机进程（脚本/测试）偶尔不带 Host：回环来源豁免，外部来源一律 400
+      const remote = String(req?.socket?.remoteAddress ?? '');
+      const loopback = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
+      return loopback ? { ok: true } : { ok: false, status: 400, code: 'host_missing' };
+    }
+    const allowHosts = guardHosts();
+    if (!(host === 'localhost' || isIpLiteral(host) || allowHosts.has(host))) {
+      return { ok: false, status: 403, code: 'host_not_allowed', reason: host };
+    }
+    const originRaw = String(req?.headers?.origin ?? '').trim();
+    if (!originRaw) return { ok: true };             // 原生客户端/服务端调用：无 Origin
+    if (originRaw === 'null') return { ok: false, status: 403, code: 'origin_null' };
+    let originHost = '';
+    try {
+      originHost = new URL(originRaw).hostname.toLowerCase();
+    } catch {
+      return { ok: false, status: 403, code: 'origin_invalid' };
+    }
+    const allowOrigins = guardOrigins();
+    if (originHost === host || originHost === 'localhost'
+      || allowOrigins.has(originHost) || allowHosts.has(originHost)) return { ok: true };
+    return { ok: false, status: 403, code: 'origin_not_allowed', reason: originHost };
+  };
   // LAN-SERVER: 同一批 handler 也登记到本地表（供局域网服务器复用 ✓）
   const localRoutes = new Map();
   const route = (kind, path, handler) => {
-    localRoutes.set(prefix + path, handler);
+    const guarded = (req, res) => {
+      const g = guardRequest(req);
+      if (!g.ok) {
+        GUARD.rejected += 1;
+        GUARD.last = g.code;
+        try {
+          res.writeHead(g.status, {
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'no-store',
+            'x-smartquiz-guard': 'reject',
+          });
+          res.end(JSON.stringify({ ok: false, error: g.code, ...(g.reason ? { reason: g.reason } : {}) }));
+        } catch { /* 已断开 */ }
+        return undefined;
+      }
+      return handler(req, res);
+    };
+    localRoutes.set(prefix + path, guarded);
     // 逐条记进度：万一某条路由注册失败，.startup.json 会停在 route-error 并带 path/error
     try {
-      ctx.effect(() => ctx.webServer.register({ kind, path: prefix + path, handler }));
+      ctx.effect(() => ctx.webServer.register({ kind, path: prefix + path, handler: guarded }));
     } catch (e) {
       markStartup('route-error', {
         kind, path: prefix + path,
@@ -4193,6 +4274,8 @@ function presetSvcOf(ctx) {
       approval_debug: APPDBG,
       test_approval: { pending: TEST_APPROVALS.size, log: TEST_APPROVAL_LOG.slice(-5) },
     },
+    // Host/Origin 护栏（2026-11-17）：被拦次数与最后一次原因，排障先看这里
+    guard: { enabled: GUARD.enabled, rejected: GUARD.rejected, last: GUARD.last },
     // ★ 单一文案模板：手机 / 电脑 UI 直接渲染这组行，不再各自拼一套说法
     text_lines: (() => {
       const disk = dshSessionsOnDisk();
@@ -4355,6 +4438,20 @@ function presetSvcOf(ctx) {
    * 未鉴权且非本机时只回最小信息：手机首次探测桥接时还没有令牌，收紧会直接打断配对。
    * 带令牌（或本机）才返回路径/能力明细。
    */
+  /**
+   * 护栏金丝雀（2026-11-17）：这条路由**故意不做鉴权**。
+   *
+   * <p>它的意义是"可以被外部验证"：正常请求应得 200；带伪造 Host（如 `Host: evil.example`）
+   * 或跨站 Origin 时必须被 route() 的护栏拦成 403。谁要确认护栏没被绕过，打它就行。</p>
+   */
+  route('exact', '/guard-canary', (req, res) => {
+    const origin = String(req?.headers?.origin ?? '');
+    sendJson(res, 200, {
+      ok: true, canary: 'open', guard: GUARD.enabled ? 'on' : 'off',
+      host: String(req?.headers?.host ?? ''), origin,
+    });
+  });
+
   route('exact', '/health', (req, res) => {
     const detailed = (() => { try { return isLocal(req) || authOk(req) === true; } catch { return false; } })();
     if (!detailed) {
@@ -4670,7 +4767,44 @@ function presetSvcOf(ctx) {
     sendJson(res, 200, { ok: true, v: 2, fields: FIELD_DICT }));
 
   /**
-   * GET /v2/manifest —— 协议自描述（2026-11-17，补 dsh-go-bridge 那种"协议即数据"的差距）。
+   * GET /v2/guard —— 护栏自检（2026-11-17）。
+   *
+   * <p>用合成请求把 guardRequest 跑一遍并回报结论（不需要真的发网络请求）：
+   * 伪造 Host、跨站 Origin、`Origin: null` 必须被拒，正常 IP Host 必须放行。
+   * 任何一条不符合预期，`healthy:false`，附带上一次真实拦截结果与累计次数。</p>
+   */
+  route('exact', '/v2/guard', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const mk = (headers) => ({ headers });
+    const probes = [
+      { name: 'bad-host', expect: false, got: guardRequest(mk({ host: 'evil.example:8218' })) },
+      { name: 'bad-origin', expect: false, got: guardRequest(mk({ host: '127.0.0.1:8218', origin: 'http://evil.example' })) },
+      { name: 'null-origin', expect: false, got: guardRequest(mk({ host: '127.0.0.1:8218', origin: 'null' })) },
+      { name: 'good-ip', expect: true, got: guardRequest(mk({ host: '192.168.1.2:8218' })) },
+      { name: 'good-same-origin', expect: true, got: guardRequest(mk({ host: '127.0.0.1:8218', origin: 'http://127.0.0.1:8218' })) },
+    ].map((p) => ({
+      name: p.name,
+      ok: Boolean(p.got.ok) === p.expect,
+      expect: p.expect ? 'allow' : 'reject',
+      got: p.got.ok ? 'allow' : (p.got.code + (p.got.status ? ':' + p.got.status : '')),
+    }));
+    sendJson(res, 200, {
+      ok: true, v: 2,
+      healthy: probes.every((p) => p.ok),
+      enabled: GUARD.enabled,
+      rejected: GUARD.rejected,
+      last: GUARD.last,
+      allow_hosts: [...guardHosts()],
+      allow_origins: [...guardOrigins()],
+      canary: '/guard-canary',
+      probes,
+      server_time: Date.now(),
+    });
+  });
+
+
+  /**
+   * GET /v2/manifest —— 协议自描述（2026-11-17）。
    *
    * <p>客户端与排障脚本不必再猜：有哪些路由、服务端 caps、限额表、允许的反向指令。
    * 路由表在注册完成后按需读取（localRoutes 由 route() 逐条登记）。</p>
