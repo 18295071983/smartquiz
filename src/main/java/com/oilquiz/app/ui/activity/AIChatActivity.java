@@ -1421,6 +1421,8 @@ public class AIChatActivity extends BaseActivity {
     private List<com.oilquiz.app.ai.chat.history.RemoteSessionRow> cachedRemoteRows;
     /** 上一次"真实心跳"的 /status 抓取时间（2026-11-17）：只有它变化才让连接灯跳一次 */
     private long lastRemoteBeatAt = 0L;
+    /** 远程态 /status 心跳间隔（2026-11-17）：呼吸节奏与底部"下次心跳 Ns"倒计时共用这一个数 */
+    private static final long REMOTE_STATUS_HEARTBEAT_MS = 5000L;
     private String cachedRemoteHint;
     private long remoteRowsFetchedAt;
 
@@ -17146,12 +17148,15 @@ public class AIChatActivity extends BaseActivity {
         if (model != null && !model.isEmpty()) sb.append(" · ").append(model);
         String effort = effortLabel(st == null ? "" : st.effort);
         if (!effort.isEmpty()) sb.append(" · 思考:").append(effort);
-        // 电脑状态（2026-11-17）：顶栏副标题宽度不够，把设备数与心跳年龄放到底部 meta 行，
-        // 与电脑面板「已配对设备」是同一个数；"心跳 Ns" 每秒递增、每次刷新归零 —— 节奏可见。
+        // 电脑状态（2026-11-17）：顶栏副标题宽度不够，把设备数与心跳倒计时放到底部 meta 行。
+        // 心跳显示**递减**（下次心跳还剩几秒），比"已经过了几秒"好理解：数字往下走到 0，
+        // 下一次刷新就把它顶回 5。
         if (st != null && st.ok && st.devices > 0) sb.append(" · 设备 ").append(st.devices);
         if (st != null && st.ok && st.fetchedAt > 0) {
-            long ageSec = Math.max(0L, (System.currentTimeMillis() - st.fetchedAt) / 1000L);
-            sb.append(" · 心跳 ").append(ageSec).append("s");
+            long sinceMs = Math.max(0L, System.currentTimeMillis() - st.fetchedAt);
+            long remainMs = Math.max(0L, REMOTE_STATUS_HEARTBEAT_MS - sinceMs);
+            long remainSec = (remainMs + 999L) / 1000L;   // 向上取整：5 → 0
+            sb.append(" · 下次心跳 ").append(remainSec).append("s");
         }
         // 什么都不知道时别挂一句光秃秃的"电脑"（看起来像没加载完）
         if (sb.length() <= "电脑".length()) {
@@ -17293,7 +17298,7 @@ public class AIChatActivity extends BaseActivity {
             // 后台拉一次 /status + /v2/usage（节流 5s，单飞）；回来后重刷这条状态条。
             // 2026-11-17：15s 太慢 —— 呼吸节奏看不出来（用户："跳动的频率无法观测"）。
             com.oilquiz.app.ai.tool.RemoteStatusMonitor.refreshAsync(this,
-                    com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this), 5000L,
+                    com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this), REMOTE_STATUS_HEARTBEAT_MS,
                     () -> runOnUiThread(this::refreshRemoteDshBar));
             // 数据插槽：阶段/会话/链路/用量/模型 各占一行（甲板按优先级选行）
             com.oilquiz.app.ai.tool.RemoteStatusSlots.publish(this);
