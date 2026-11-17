@@ -63,3 +63,29 @@ adb logcat -s LibreOfficeKit LibreOfficeMainActivity
   `UNPACK_VERSION` +1**——`LibreOfficeMainActivity` 用它判断是否需要重新解压到 `dataDir`；
   以前用 `VERSION_CODE`（硬编码 1），升级资源后老用户不会刷新。
 - 资源与原生库只保留在 `viewer` 模块一份；app 模块不再重复放 `assets/program|share|unpack` 与 `liblo-native-code.so`。
+
+## 6. 官方进展（2026-11-18 查证）
+
+**有人做过，而且官方已经发版**，所以不必自己打补丁：
+
+- **LibreOffice Viewer 25.8.3.2**（2025-11-13 发布）更新说明明确写了
+  “support for 16 KB memory page sizes”：
+  <https://www.apkmirror.com/apk/the-document-foundation/libreoffice-viewer/libreoffice-viewer-25-8-3-2-release/libreoffice-viewer-25-8-3-2-android-apk-download/>
+  （版本列表：<https://apkpure.net/tw/libreoffice-viewer/org.documentfoundation.libreoffice/versions>）
+- **Collabora Office 25.04.6-mobile**（2025-11-06）：“Bump the android ndk version, enabling support for 16kb memory pages”：
+  <https://newreleases.io/project/github/CollaboraOnline/online/release/25.04.6-mobile>
+- 社区踩坑记录（CollaboraOnline issue #13019）确认：**必须链接期加
+  `-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384`**，
+  事后用 objcopy 改 `p_align` 无效（Program Headers 不会变）：
+  <https://github.com/CollaboraOnline/online/issues/13019>
+
+### 结论
+
+本项目当前基于 LibreOffice **25.2**（见 `BINARY_ASSETS.md`）。最省事的路径是：
+把 Android viewer 源码升级到 **25.8.3+**（或 Collabora 对应 tag）后重编，
+天然得到 16KB 对齐的 `liblo-native-code.so` 与 NSS/SQLite 库，不需要逐库 patch 链接参数。
+
+升级时注意连带变化：
+- `assets/program|share|unpack` 的目录结构/文件清单按新版本重新导出（并 +1 `UNPACK_VERSION`）；
+- `org.libreoffice.kit` 的 JNI 方法签名/包名用新源码对一遍；
+- 新 APK 的 `lib/arm64-v8a` 里 13 个库逐个用第 1 节命令确认是 `4000`。
