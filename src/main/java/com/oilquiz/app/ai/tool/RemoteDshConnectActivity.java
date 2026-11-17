@@ -721,7 +721,53 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, dp(0.5f))));
 
         row.setOnClickListener(v -> pickSessionRow(m));
+        // 长按 = 归档（2026-11-17）：只从两端列表隐藏，不删记录；可恢复
+        row.setOnLongClickListener(v -> { confirmArchiveSession(m); return true; });
         return row;
+    }
+
+    /**
+     * 长按一条电脑会话 → 归档（插件 /v2/session action=archive）。
+     *
+     * <p>归档不影响记录本身：只从手机抽屉与电脑侧栏隐藏，电脑端可恢复。
+     * 当前正在跟随的会话不允许直接归档 —— 否则手机会跟着一条列表里不存在的会话。</p>
+     */
+    private void confirmArchiveSession(java.util.Map<String, Object> m) {
+        final String sid = str(m.get("session_id"));
+        if (sid.isEmpty()) return;
+        if (sid.equals(RemoteDshTool.getSyncTarget(this))) {
+            toast("这是当前跟随的会话：先切到别的会话再归档");
+            return;
+        }
+        String title = str(m.get("title"));
+        if (title.isEmpty()) title = sid;
+        new AlertDialog.Builder(this)
+                .setTitle("归档这条电脑会话？")
+                .setMessage(title + "\n\n归档后它会从手机与电脑的列表里隐藏；不删记录，可在电脑端恢复。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("归档", (d, w) -> doArchive(sid))
+                .show();
+    }
+
+    private void doArchive(final String sid) {
+        new Thread(() -> {
+            boolean ok = false;
+            String msg;
+            try {
+                java.util.Map<String, Object> r = new RemoteSdk(getApplicationContext()).archive(sid, true);
+                ok = r != null && Boolean.TRUE.equals(r.get("ok"));
+                msg = ok ? "已归档（可在电脑端恢复）"
+                        : "归档失败：" + (r == null ? "电脑端无响应" : str(r.get("error")));
+            } catch (Exception e) {
+                msg = "归档失败：" + e.getMessage();
+            }
+            final String fmsg = msg;
+            final boolean fok = ok;
+            runOnUiThread(() -> {
+                toast(fmsg);
+                if (fok) lastLightSig = "";   // 让选择框下一轮轮询立刻刷新
+            });
+        }, "archive-session").start();
     }
 
     private View buildToggleRow(String text, android.view.View.OnClickListener onClick) {

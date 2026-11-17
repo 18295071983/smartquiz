@@ -6198,7 +6198,9 @@ function presetSvcOf(ctx) {
   }
 
   route('exact', '/sessions.json', async (req, res) => {
-    if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    // 本机（电脑端插件面板）免令牌读取：面板要用它渲染"最近会话（归档）"；
+    // 局域网/公网仍必须带令牌，Host/Origin 护栏在 route() 入口先过一遍。
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     try {
       const q = new URL(req.url ?? '/', 'http://dsh.invalid');
       const limit = Number(q.searchParams.get('limit') ?? 20);

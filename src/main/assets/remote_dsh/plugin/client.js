@@ -92,6 +92,7 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = React.useState(false);
       const [info, setInfo] = React.useState(null);
       const [st, setSt] = React.useState(null);
+      const [sessions, setSessions] = React.useState([]);
       const [bal, setBal] = React.useState(null);
       const [err, setErr] = React.useState('');
       const [note, setNote] = React.useState('');
@@ -111,6 +112,14 @@ window.__ModuleLoader__.load({
       const loadBalance = React.useCallback(() => {
         fetch('/balance').then((r) => (r.ok ? r.json() : null))
           .then((j) => setBal(j)).catch(() => setBal(null));
+      }, []);
+
+      // 最近会话（2026-11-17）：电脑面板也能归档会话（/v2/session action=archive）
+      const loadSessions = React.useCallback(() => {
+        fetch('/sessions.json?limit=6', { cache: 'no-store' })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((j) => setSessions(j && Array.isArray(j.sessions) ? j.sessions : []))
+          .catch(() => setSessions([]));
       }, []);
 
       // 2026-11-16：配对码本地缓存 —— 关闭面板再打开、甚至刷新页面，
@@ -160,7 +169,25 @@ window.__ModuleLoader__.load({
         fetch('/status', { cache: 'no-store' })
           .then((r) => (r.ok ? r.json() : null)).then((j) => setSt(j)).catch(() => setSt(null));
         loadBalance();
-      }, [loadBalance]);
+        loadSessions();
+      }, [loadBalance, loadSessions]);
+
+      /** 归档一条电脑会话：不删记录，只从两端列表隐藏（电脑端可恢复） */
+      const archiveSession = (sid) => {
+        fetch('/v2/session', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'archive', session_id: sid }),
+        }).then((r) => (r.ok ? r.json() : null))
+          .then((j) => {
+            setNote(j && j.ok
+              ? t('panel.archived', '已归档（可在电脑端恢复）')
+              : t('panel.archiveFailed', '归档失败') + (j && j.error ? ': ' + j.error : ''));
+            loadSessions();
+            load();
+          })
+          .catch((e) => setNote(t('panel.archiveFailed', '归档失败') + ': ' + String(e && e.message ? e.message : e)));
+      };
 
       React.useEffect(() => { if (open) { load(); loadCode(false); } }, [open, load, loadCode]);
       React.useEffect(() => {
@@ -364,6 +391,18 @@ window.__ModuleLoader__.load({
                 h('span', { style: label }, '  ·  ' + t('panel.protocol', '协议') + ' v2 · '
                   + t('panel.caps', '能力') + ' ' + ((st && st.caps && st.caps.server_count) || '—')));
             })(),
+            sessions.length > 0 && h('div', { style: { marginTop: 8 } },
+              h('div', { style: label }, t('panel.sessions', '最近会话（点右侧归档）')),
+              sessions.slice(0, 5).map((s) => h('div', {
+                key: String(s.session_id),
+                style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 },
+              },
+                h('span', {
+                  style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 },
+                  title: String(s.session_id || ''),
+                }, (s.title || s.session_id || '')),
+                h('button', { style: smallBtn, onClick: () => archiveSession(s.session_id) },
+                  t('panel.archive', '归档'))))),
 
           // ---------- 客户端（手机） ----------
           h('div', { style: section },
