@@ -741,12 +741,12 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         }
         String title = str(m.get("title"));
         if (title.isEmpty()) title = sid;
-        new AlertDialog.Builder(this)
-                .setTitle("归档这条电脑会话？")
-                .setMessage(title + "\n\n归档后它会从手机与电脑的列表里隐藏；不删记录，可在电脑端恢复。")
-                .setNegativeButton("取消", null)
-                .setPositiveButton("归档", (d, w) -> doArchive(sid))
-                .show();
+        // 走标准弹层（2026-11-17 对齐 docs/ui/UI-标准-模态框-弹层-容器.md）：
+        // 以前这里自己 new AlertDialog.Builder，内边距/按钮色/圆角都跟别处不一致
+        com.oilquiz.app.ui.modal.AppDialog.confirm(this,
+                "归档这条电脑会话？",
+                title + "\n\n归档后它会从手机与电脑的列表里隐藏；不删记录，可在电脑端恢复。",
+                "归档", (d, w) -> doArchive(sid));
     }
 
     private void doArchive(final String sid) {

@@ -437,6 +437,8 @@ public class SmartQuizApplication extends Application {
                 } else {
                     com.oilquiz.app.manager.ThemeManager.applyThemeOverlay(activity);
                 }
+                // 状态栏/导航栏图标明暗随主题（浅色深图标 / 深色浅图标）；壁纸开启时由 EdgeToEdgeHelper 再覆盖
+                com.oilquiz.app.manager.ThemeManager.applySystemBarAppearance(activity);
                 // 2026-11-16：首页壁纸自适应——壁纸偏亮时把首页文字/玻璃卡切成深字+强白卡
                 // （默认值仍是白字+半透明卡，保持深色壁纸/壁纸关闭时的原观感）
                 if (activity instanceof MainActivity) {
@@ -458,6 +460,9 @@ public class SmartQuizApplication extends Application {
                 // 真 edge-to-edge 全局适配（Android 16 强制 edge-to-edge 前的统一方案）：
                 // 开启内容延伸到系统栏 + 根容器 insets padding + 深浅图标；AI 对话/透明悬浮窗自动跳过
                 com.oilquiz.app.theme.EdgeToEdgeHelper.apply(activity);
+                // 白名单页（AIChatActivity 等）不做 insets 接管，但状态栏图标仍按主题设一次，
+                // 否则浅色主题下是白图标（2026-11-17）
+                com.oilquiz.app.theme.EdgeToEdgeHelper.applySystemBarIcons(activity);
             }
             
             @Override
@@ -482,8 +487,7 @@ public class SmartQuizApplication extends Application {
                             activity instanceof com.oilquiz.app.ui.activity.AgentDebugActivity
                                     || activity instanceof com.oilquiz.app.infra.UiPreviewConsoleActivity
                                     || activity instanceof com.oilquiz.app.ui.activity.ThemeActivity
-                            || activity instanceof com.oilquiz.app.infra.ComposeGalleryActivity
-                            || activity instanceof com.oilquiz.app.infra.UiKitGalleryActivity
+                                    || activity instanceof com.oilquiz.app.infra.UiKitGalleryActivity
                             || activity instanceof com.oilquiz.app.infra.ListKitGalleryActivity
                             || activity instanceof com.oilquiz.app.infra.AgentSettingsActivity
             // 2026-11-16：远程连接相关页跳过壁纸 —— 它们是"配置/诊断"界面，

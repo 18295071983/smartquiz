@@ -372,12 +372,8 @@ android {
 
     buildFeatures {
         viewBinding = true
-        compose = true
     }
     
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.8"
-    }
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
@@ -418,29 +414,16 @@ dependencies {
     implementation "androidx.gridlayout:gridlayout:1.0.0"
     
     // Jetpack Compose
-    def composeBom = platform("androidx.compose:compose-bom:2024.02.02")
-    implementation composeBom
-    androidTestImplementation composeBom
     
     // Compose UI
-    implementation "androidx.compose.ui:ui"
-    implementation "androidx.compose.ui:ui-graphics"
-    implementation "androidx.compose.ui:ui-tooling-preview"
-    debugImplementation "androidx.compose.ui:ui-tooling"
     
     // Compose Material 3
-    implementation "androidx.compose.material3:material3"
-    implementation "androidx.compose.material:material-icons-extended"
     
     // Compose Activity
-    implementation "androidx.activity:activity-compose:1.8.2"
     
     // Compose ViewModel
-    implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0"
-    implementation "androidx.lifecycle:lifecycle-runtime-compose:2.7.0"
     
     // Compose Navigation
-    implementation "androidx.navigation:navigation-compose:2.7.7"
     
     // 图片加载库
     implementation "com.github.bumptech.glide:glide:4.16.0"
@@ -522,8 +505,6 @@ dependencies {
     implementation 'com.alibaba:dashscope-sdk-java:2.22.28'
     implementation "com.karumi:dexter:6.2.3"
     implementation "org.eclipse.jgit:org.eclipse.jgit:6.7.0.202309050840-r"
-    implementation "com.github.bumptech.glide:glide:4.16.0"
-    annotationProcessor "com.github.bumptech.glide:compiler:4.16.0"
     implementation "com.github.chrisbanes:PhotoView:2.3.0"
     implementation "com.journeyapps:zxing-android-embedded:4.3.0"
     implementation "io.coil-kt:coil:2.6.0"
@@ -532,7 +513,6 @@ dependencies {
     implementation "androidx.collection:collection:1.2.0"
     
     // 兼容旧的android.support.v4库，解决ArrayMap类找不到的问题
-    implementation "androidx.legacy:legacy-support-v4:1.0.0"
     
     // Guava 库，提供工具类
     implementation 'com.google.guava:guava:32.1.2-android'
@@ -548,7 +528,6 @@ dependencies {
     }
     implementation "io.noties.markwon:linkify:4.6.2"
     annotationProcessor "io.noties:prism4j-bundler:2.0.0"
-    implementation "com.google.android.flexbox:flexbox:3.0.0"
     implementation "org.apache.commons:commons-collections4:4.4"
     implementation "commons-io:commons-io:2.11.0"
     implementation "org.apache.commons:commons-compress:1.23.0"

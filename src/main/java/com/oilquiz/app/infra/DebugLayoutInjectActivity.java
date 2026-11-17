@@ -248,14 +248,6 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
-        // 组件画廊（Compose + Lottie 试点）：--es mode compose_gallery
-        if ("compose_gallery".equals(getIntent().getStringExtra("mode"))) {
-            startActivity(new android.content.Intent(this,
-                    com.oilquiz.app.infra.ComposeGalleryActivity.class));
-            finish();
-            return;
-        }
-
         // 主题设置页（2026-11-16）：exported=false，adb 只能从本调试入口进。
         if ("theme_settings".equals(getIntent().getStringExtra("mode"))) {
             startActivity(new android.content.Intent(this,
