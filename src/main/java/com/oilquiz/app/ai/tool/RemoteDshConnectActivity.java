@@ -933,6 +933,17 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         // 首次进入时地址/令牌显示停留在布局默认的"(未配置)"（实测 2026-11-13）
         refresh();
         attachConnection();
+        // 电脑状态卡自动加载（2026-11-17）：进页面就能看到电脑状态，不必先点「自检 / 对账」。
+        // 只在"已连接"时自动跑，避免离线时页面一进来就挂一条红色失败文案。
+        if (RemoteDshTool.isConfigured(this) && RemoteDshTool.isConnected(this)) {
+            getWindow().getDecorView().postDelayed(() -> {
+                try {
+                    runSelfCheck();
+                } catch (Throwable t) {
+                    android.util.Log.w("RemoteDshConnect", "auto self-check: " + t.getMessage());
+                }
+            }, 250L);
+        }
         // 从聊天页顶栏「选电脑会话」进来的：稍等布局稳一下直接弹列表（M8-P0-3）
         if (pickOnResume) {
             pickOnResume = false;

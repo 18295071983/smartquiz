@@ -339,6 +339,20 @@ public final class ChatUiV2Chrome {
     }
 
     /**
+     * 带"电脑状态"的版本（2026-11-17）：顶栏就能看到电脑的会话数/设备数，
+     * 与电脑面板、手机自检页同一份 /status 数据，不用点进二级页才知道"谁连着"。
+     *
+     * <p>数值为 0 时**不追加**，保持旧格式（也保证原有单测不断言多余尾巴）。</p>
+     */
+    public static String remoteSubtitle(String phase, String followLabel, int pending, String flowLabel,
+                                        int devices, int sessionsCount) {
+        StringBuilder sb = new StringBuilder(remoteSubtitle(phase, followLabel, pending, flowLabel));
+        if (sessionsCount > 0) sb.append(" · 会话 ").append(sessionsCount);
+        if (devices > 0) sb.append(" · 设备 ").append(devices);
+        return sb.toString();
+    }
+
+    /**
      * 顶栏副标题宽度**按屏幕自适应**（2026-11-09，替代固定 180dp）。
      *
      * <p>副标题要同时容纳「引擎 · 加速后端 · 模型 · 状态」（如

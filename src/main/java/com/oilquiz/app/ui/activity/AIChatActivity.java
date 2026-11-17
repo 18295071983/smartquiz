@@ -17082,7 +17082,10 @@ public class AIChatActivity extends BaseActivity {
             com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.setRemoteSubtitle(this,
                     com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.remoteSubtitle(
                             remotePhaseText(live), follow, needsAttention ? st.approvalsPending : 0,
-                            dshFlowModeLabel()),
+                            dshFlowModeLabel(),
+                            // 电脑状态（2026-11-17）：/status 里已有的设备数/会话数，顶栏直接可见
+                            st != null && st.ok ? st.devices : 0,
+                            st != null && st.ok ? st.sessionsCount : 0),
                     dot);
             updateRemoteMetaLine(st);
             if (modeChanged) {
