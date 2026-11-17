@@ -4897,10 +4897,27 @@ function presetSvcOf(ctx) {
       },
       {
         kind: 'checks', title: '自检',
-        items: checks.map((c) => ({
-          state: c.ok ? 'ok' : (c.severity === 'error' ? 'error' : 'warn'),
-          name: c.name, detail: c.detail, hint: c.hint || null,
-        })),
+        items: [
+          ...checks.map((c) => ({
+            state: c.ok ? 'ok' : (c.severity === 'error' ? 'error' : 'warn'),
+            name: c.name, detail: c.detail, hint: c.hint || null,
+          })),
+          // 护栏与协议（2026-11-17）：手机「自检」页直接看到，不用再猜服务端有没有开
+          {
+            state: GUARD.enabled ? 'ok' : 'warn',
+            name: '护栏',
+            detail: GUARD.enabled
+              ? `Host/Origin 校验已开 · 已拦截 ${GUARD.rejected} 次` + (GUARD.last ? ` · 最近 ${GUARD.last}` : '')
+              : '已关闭（guardEnabled=false）',
+            hint: GUARD.enabled ? null : '在插件配置里设 guardEnabled: true',
+          },
+          {
+            state: 'ok',
+            name: '协议',
+            detail: `v2 · ${localRoutes.size} 条路由 · ${SERVER_CAPS.length} 项能力 · limits 已下发`,
+            hint: null,
+          },
+        ],
       },
       {
         kind: 'connections', title: '连接（呼吸）',

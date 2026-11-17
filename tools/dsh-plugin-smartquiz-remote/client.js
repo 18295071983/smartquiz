@@ -351,6 +351,19 @@ window.__ModuleLoader__.load({
             h('label', { style: Object.assign({}, row, { cursor: 'pointer' }) },
               h('input', { type: 'checkbox', checked: execAllowed, onChange: (e) => setAllowExec(e.target.checked) }),
               h('span', null, t('panel.execAllowed', '允许手机在电脑上执行命令')))),
+            // 护栏 / 协议（2026-11-17）：与手机「自检」页同一口径，电脑面板直接可见
+            (() => {
+              const g = (st && st.guard) || null;
+              const guardOn = !g || g.enabled !== false;
+              return h('div', { style: row },
+                h('span', { style: label }, t('panel.guard', '护栏')),
+                h('span', guardOn ? {} : { color: '#d9534f' },
+                  guardOn ? t('panel.guardOn', 'Host/Origin 已开') : t('panel.guardOff', '已关闭')),
+                h('span', { style: label }, '  ·  ' + t('panel.guardRejected', '已拦截') + ' '
+                  + ((g && g.rejected) || 0) + (g && g.last ? '（' + g.last + '）' : '')),
+                h('span', { style: label }, '  ·  ' + t('panel.protocol', '协议') + ' v2 · '
+                  + t('panel.caps', '能力') + ' ' + ((st && st.caps && st.caps.server_count) || '—')));
+            })(),
 
           // ---------- 客户端（手机） ----------
           h('div', { style: section },
