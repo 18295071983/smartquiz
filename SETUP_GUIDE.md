@@ -151,7 +151,7 @@ git checkout a809b47          # 与本项目对齐的提交
 | 文件 | 体积 | 获取 |
 | --- | --- | --- |
 | `src/main/assets/asr/model.int8.onnx` | 228 MB | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-asr-model.ps1` |
-| `viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so` | 171 MB | 从 [Release 附件](https://github.com/18295071983/smartquiz/releases/tag/binary-assets-v1) 下载（含 SHA256 校验） |
+| `viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so` | 187 MB | 从 [Release 附件](https://github.com/18295071983/smartquiz/releases/tag/binary-assets-v2) 下载（arm64 / 16KB 对齐，含 SHA256 校验） |
 
 `src/main/assets/asr/tokens.txt` 与 `silero_vad.onnx` **已在库中**，无需下载。
 

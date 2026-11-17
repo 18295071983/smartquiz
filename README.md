@@ -238,7 +238,7 @@ cd smartquiz
 
 # 4. 取得两个大二进制（缺了预检会直接报出来）
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-asr-model.ps1
-#    LO 引擎：从 https://github.com/18295071983/smartquiz/releases/tag/binary-assets-v1 下载
+#    LO 引擎：从 https://github.com/18295071983/smartquiz/releases/tag/binary-assets-v2 下载（arm64，16KB 对齐，196 MB）
 
 # 5. 构建
 ./gradlew assembleDebug          # 完整构建（含 native）

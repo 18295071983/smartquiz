@@ -115,6 +115,7 @@ llvm-readelf -l viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so | findstr
 | 项 | 值 |
 |---|---|
 | 来源 | F-Droid `org.documentfoundation.libreoffice_135.apk`（26.2.7.3，arm64，targetSdk 35） |
+| Release | <https://github.com/18295071983/smartquiz/releases/tag/binary-assets-v2>（旧 `binary-assets-v1` 已删除） |
 | APK SHA256 | `e921bfb14170824572eb1e33643538803681226427948c245084f5e6356c3775` |
 | `liblo-native-code.so` | 196,067,888 字节，SHA256 `96a80640c82d36c867c213844ec39e764a168129a669223991640fbd37ae5917` |
 | 对齐 | 14 个 `.so` 全部 `LOAD 0x4000`（含 libc++_shared） |
