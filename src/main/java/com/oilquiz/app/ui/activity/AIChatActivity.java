@@ -17084,10 +17084,7 @@ public class AIChatActivity extends BaseActivity {
             com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.setRemoteSubtitle(this,
                     com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.remoteSubtitle(
                             remotePhaseText(live), follow, needsAttention ? st.approvalsPending : 0,
-                            dshFlowModeLabel(),
-                            // 电脑状态（2026-11-17）：/status 里已有的设备数/会话数，顶栏直接可见
-                            st != null && st.ok ? st.devices : 0,
-                            st != null && st.ok ? st.sessionsCount : 0),
+                            dshFlowModeLabel()),
                     dot);
             // 连接灯呼吸 = 真实心跳（2026-11-17）：每次 /status 刷新成功才跳一次。
             // 不再用无限循环动画，否则服务断了灯还在呼吸，看着像活着。
@@ -17134,6 +17131,10 @@ public class AIChatActivity extends BaseActivity {
         if (model != null && !model.isEmpty()) sb.append(" · ").append(model);
         String effort = effortLabel(st == null ? "" : st.effort);
         if (!effort.isEmpty()) sb.append(" · 思考:").append(effort);
+        // 电脑状态（2026-11-17）：顶栏副标题宽度不够，把"设备 N 台"放到底部 meta 行，
+        // 与电脑面板「已配对设备」是同一个数（/status.devices）
+        if (st != null && st.ok && st.devices > 0) sb.append(" · 设备 ").append(st.devices);
+        if (st != null && st.ok && st.sessionsCount > 0) sb.append(" · 会话 ").append(st.sessionsCount);
         // 什么都不知道时别挂一句光秃秃的"电脑"（看起来像没加载完）
         if (sb.length() <= "电脑".length()) {
             remoteMetaText.setVisibility(View.GONE);
