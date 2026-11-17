@@ -1499,6 +1499,15 @@
                     android:layout_marginTop="@dimen/space_12"
                     android:text="打开调试控制台 · 本地运行智能体 / 观测外部注入"
                     android:textSize="@dimen/text_13"/>
+                <!-- 梯队 1.1：布局/卡片可视化预览台（样例列表 + 改 JSON 即时渲染） -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_ui_preview"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text="UI 预览台 · layout / 卡片样例即时渲染"
+                    android:textSize="@dimen/text_13"/>
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
