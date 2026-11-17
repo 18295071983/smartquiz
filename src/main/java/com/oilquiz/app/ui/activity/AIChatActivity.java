@@ -17185,7 +17185,12 @@ public class AIChatActivity extends BaseActivity {
             remoteMetaText.setVisibility(View.GONE);
             return;
         }
-        remoteMetaText.setText(sb.toString());
+        // 只在文案真的变了才 setText：心跳倒计时每秒都会重新拼一次字符串，
+        // 但内容相同时反复 setText 会白触发 measure/layout，底部状态条就会抖
+        final String meta = sb.toString();
+        if (!meta.contentEquals(remoteMetaText.getText())) {
+            remoteMetaText.setText(meta);
+        }
         remoteMetaText.setVisibility(View.VISIBLE);
     }
 

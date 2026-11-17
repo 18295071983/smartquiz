@@ -70,8 +70,10 @@ public final class RemoteLinkState {
         long silent = overdue / 1000L;
         if (overdue <= interval + 1000L) {
             int remain = (int) Math.max(0L, (interval - overdue + 999L) / 1000L);
-            String tail = remain > 0 ? "下次心跳 " + remain + "s" : "心跳刚到";
-            return new RemoteLinkState(State.HEALTHY, "连接正常 · " + tail, remain, silent, true, false);
+            // 文案长度保持恒定（永远是"下次心跳 Ns"）：以前到 0 会切成"心跳刚到"，
+            // 字数一变、居中的整行就会横向重排 —— 用户看到的是底部状态条在晃。
+            return new RemoteLinkState(State.HEALTHY, "连接正常 · 下次心跳 " + remain + "s",
+                    remain, silent, true, false);
         }
         if (overdue <= interval * 2) {
             return new RemoteLinkState(State.LAGGING,
