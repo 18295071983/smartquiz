@@ -4670,6 +4670,34 @@ function presetSvcOf(ctx) {
     sendJson(res, 200, { ok: true, v: 2, fields: FIELD_DICT }));
 
   /**
+   * GET /v2/manifest —— 协议自描述（2026-11-17，补 dsh-go-bridge 那种"协议即数据"的差距）。
+   *
+   * <p>客户端与排障脚本不必再猜：有哪些路由、服务端 caps、限额表、允许的反向指令。
+   * 路由表在注册完成后按需读取（localRoutes 由 route() 逐条登记）。</p>
+   */
+  route('exact', '/v2/manifest', (req, res) => {
+    if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    const routes = [...localRoutes.keys()]
+      .filter((p) => p.startsWith(prefix))
+      .map((p) => p.slice(prefix.length))
+      .sort();
+    return sendJson(res, 200, {
+      ok: true, v: 2,
+      manifest: {
+        name: 'smartquiz-remote',
+        version: 8,
+        protocol: 2,
+        prefix,
+        routes,
+        capabilities: [...SERVER_CAPS],
+        limits: LIMITS,
+        commands: [...CMD_ALLOW],
+      },
+      server_time: Date.now(),
+    });
+  });
+
+  /**
    * POST /v2/hello —— 握手 + 能力协商。
    * 客户端先问"你能给我什么"，再决定调哪些接口；不再靠猜版本。
    */
