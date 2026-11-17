@@ -251,6 +251,47 @@ public final class UiFx {
     }
 
     /**
+     * 单次"心跳呼吸"（2026-11-17）。
+     *
+     * <p>与 {@link #breathing(View)} 的区别：那个是无限循环动画，只要颜色是绿的就会一直动，
+     * 服务没响应也照样"呼吸"——看着有生命，其实已经卡死（用户原话：要连接到服务，
+     * 不要简单只做动画）。这里改成**每收到一次真实心跳才亮一下**：远程态的圆点在每次
+     * /status 刷新成功、连接页每次探测成功、WS/SSE 心跳帧到达时各调一次；
+     * 服务不响应就没有新的脉冲，灯自然静止（颜色同时由状态逻辑改成灰/黄）。</p>
+     *
+     * <p>节奏 700ms 单程；同一 view 上新的心跳会接管旧的（tag 记录当前动画），
+     * 不会叠加出一堆 Animator。</p>
+     */
+    public static void pulseOnce(View view) {
+        if (view == null) {
+            return;
+        }
+        try {
+            if (!android.animation.ValueAnimator.areAnimatorsEnabled()) return;
+            Object running = view.getTag(R.id.tag_breathing);
+            if (running instanceof android.animation.Animator) {
+                ((android.animation.Animator) running).cancel();
+            }
+            android.animation.ValueAnimator va = android.animation.ValueAnimator.ofFloat(1f, 0.35f, 1f);
+            va.setDuration(700L);
+            va.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+            va.addUpdateListener(a -> view.setAlpha(((Number) a.getAnimatedValue()).floatValue()));
+            va.addListener(new android.animation.AnimatorListenerAdapter() {
+                @Override public void onAnimationEnd(android.animation.Animator animation) {
+                    view.setAlpha(1f);
+                    if (view.getTag(R.id.tag_breathing) == animation) {
+                        view.setTag(R.id.tag_breathing, null);
+                    }
+                }
+            });
+            view.setTag(R.id.tag_breathing, va);
+            va.start();
+        } catch (Throwable ignored) {
+            // 动画失败不影响状态显示
+        }
+    }
+
+    /**
      * 内容块错峰入场：给"一条消息里多个 part 卡"用（每个 part 一张卡时，
      * 一起淡入会显得整条消息一起蹦出来）。淡入 + 上移 6dp，逐个延迟 {@code stepMs}（最多 6 档）。
      */

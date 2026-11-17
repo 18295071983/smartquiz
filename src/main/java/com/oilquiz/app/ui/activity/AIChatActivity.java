@@ -1419,6 +1419,8 @@ public class AIChatActivity extends BaseActivity {
 
     /** 抽屉里「电脑上的对话」的缓存：只有"要显示时"才去电脑拉一次 */
     private List<com.oilquiz.app.ai.chat.history.RemoteSessionRow> cachedRemoteRows;
+    /** 上一次"真实心跳"的 /status 抓取时间（2026-11-17）：只有它变化才让连接灯跳一次 */
+    private long lastRemoteBeatAt = 0L;
     private String cachedRemoteHint;
     private long remoteRowsFetchedAt;
 
@@ -17087,6 +17089,14 @@ public class AIChatActivity extends BaseActivity {
                             st != null && st.ok ? st.devices : 0,
                             st != null && st.ok ? st.sessionsCount : 0),
                     dot);
+            // 连接灯呼吸 = 真实心跳（2026-11-17）：每次 /status 刷新成功才跳一次。
+            // 不再用无限循环动画，否则服务断了灯还在呼吸，看着像活着。
+            if (st != null && st.ok && st.fetchedAt > 0 && st.fetchedAt != lastRemoteBeatAt) {
+                lastRemoteBeatAt = st.fetchedAt;
+                try {
+                    com.oilquiz.app.ui.UiFx.pulseOnce(findViewById(R.id.chat_v2_status_dot));
+                } catch (Throwable ignored) { /* 动画失败不影响状态 */ }
+            }
             updateRemoteMetaLine(st);
             if (modeChanged) {
                 boolean bound = com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.bindCenter(this,

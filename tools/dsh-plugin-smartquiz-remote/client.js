@@ -379,8 +379,12 @@ window.__ModuleLoader__.load({
         h('button', { style: smallBtn, onClick: () => { if (!copyText(it.base_url)) setNote(t('panel.copyFailed', '复制失败')); } },
           t('panel.copy', '复制')));
 
+      // 呼吸灯 = 真实服务信号（2026-11-17）：只有"有在线连接"且 /status 是最近 12 秒内
+      // 真拉回来的，才让它呼吸；数据陈旧（宿主卡死/网络断）就停 —— 不给动画骗人的机会。
+      const fresh = updatedAt > 0 && (Date.now() - updatedAt) < 12000;
+      const breathing = online && fresh;
       const statusDot = h('span', {
-        className: online ? 'sqr-breathe' : '',
+        className: breathing ? 'sqr-breathe' : '',
         style: { display: 'inline-block', width: 8, height: 8, borderRadius: 4,
           background: 'currentColor', opacity: online ? 1 : 0.4 },
       });

@@ -993,6 +993,10 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 @Override
                 public void onPulse(long serverTs, int seq) {
                     runOnUiThread(() -> {
+                        // 真实心跳帧到达 → 连接灯跳一次（2026-11-17：动画绑定服务，不是装饰）
+                        try {
+                            com.oilquiz.app.ui.UiFx.pulseOnce(statusDot);
+                        } catch (Throwable ignored) { /* 动画失败不影响状态 */ }
                         if (selfCheckCards != null) {
                             RemoteCardView.appendBreath(selfCheckCards, true, 0, null, null);
                         }
@@ -1599,11 +1603,11 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private void dot(int drawableId) {
         Drawable d = ContextCompat.getDrawable(this, drawableId);
         statusDot.setBackground(d);
-        // 2026-11-16：在线时让状态点"呼吸"，离线/异常时常亮。
-        // 之前圆点完全静止，旁边的耗时/状态文字又只在刷新时变，看着像时间卡死。
+        // 2026-11-17：连接灯由**真实探测/心跳**驱动 —— 每次探测成功（渲染绿色）调一次单脉冲；
+        // 不再用无限循环动画，服务没响应时灯就该静止。
         try {
             if (drawableId == R.drawable.circle_green) {
-                com.oilquiz.app.ui.UiFx.breathing(statusDot);
+                com.oilquiz.app.ui.UiFx.pulseOnce(statusDot);
             } else {
                 com.oilquiz.app.ui.UiFx.stopBreathing(statusDot);
             }
