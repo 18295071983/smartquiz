@@ -632,6 +632,41 @@ const sendJson = (res, status, obj) => {
   res.end(JSON.stringify(obj));
 };
 /**
+ * 日志/错误文案脱敏（2026-11-17，对齐 dsh-go-bridge 的做法）。
+ *
+ * <p>插件的错误与 debug 字段会把上游异常原样带给手机，凭据类文本（Bearer、token、
+ * api key）一旦出现在错里就会被转存到手机上。这里统一在"要出网关"的文案上做一遍替换；
+ * 正常的响应体（如 /pair/claim 返回 device_token）不走这里，不会被误伤。</p>
+ */
+function redactText(value) {
+  return String(value ?? '')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{6,}/gi, 'Bearer [redacted]')
+    .replace(/\b(?:sk|xox[baprs])-[A-Za-z0-9_-]{8,}\b/g, '[redacted]')
+    .replace(/((?:token|api[_-]?key|authorization)\s*[=:]\s*)[^\s,;"'<>]{6,}/gi, '$1[redacted]');
+}
+/**
+ * 协议限额单源表（2026-11-17，对齐 dsh-go-bridge 的 native/limits.js）。
+ *
+ * <p>以前这些数字散在 8 千行里，客户端只能猜。现在通过 /v2/hello 的 `limits` 下发，
+ * 手机与插件读同一份；改这里就是改契约。</p>
+ */
+const LIMITS = Object.freeze({
+  viewBytes: 32768,
+  viewNodes: 120,
+  toolCardBytes: 8192,
+  streamFrameBytes: 49152,
+  heartbeatSec: 15,
+  idleTimeoutSec: 60,
+  promptTimeoutMs: 120000,
+  execTimeoutMs: 120000,
+  maxReplyChars: 4000,
+  slotMax: 16,
+  cmdQueueMax: 50,
+  cmdTtlMs: 600000,
+  sessionListMax: 200,
+  deviceMax: 32,
+});
+/**
  * 有并发上限的 map（2026-11-17）。
  *
  * <p>会话列表要对每条会话 open 一次日志读头/尾；串行跑 100 条实测 7 秒，手机抽屉
@@ -1305,7 +1340,7 @@ function applyInner(ctx, config) {
         args: { id: 'remote/error', title: String(title || '这一轮失败了').slice(0, 40),
           // 手机端 RemoteCommandExecutor 只把 text/content 当正文（不认 detail），
           // 以前失败原因写了也不显示 —— 改用 text，红条上才看得到原因
-          text: String(detail || '').slice(0, 120),
+          text: redactText(detail).slice(0, 120),
           priority: SLOT_PRIORITY.p1, action: 'attention' },
       };
       cmdQueue.set(id, cmd);
@@ -4669,7 +4704,8 @@ function presetSvcOf(ctx) {
         view_timeline: !caps.missing.includes('view.cards.timeline'),
       },
       session: sid ? { id: sid, exists: await sessionExists(sid) } : null,
-      limits: { max_message_chars: 200000, stream_keepalive_ms: 15000, stream_max_ms: 600000 },
+      // 协议限额（2026-11-17）：旧三个下划线键保留兼容，新增键与客户端同一份契约
+      limits: { max_message_chars: 200000, stream_keepalive_ms: 15000, stream_max_ms: 600000, ...LIMITS },
       server_time: Date.now(),
     });
   });
@@ -4980,6 +5016,53 @@ function presetSvcOf(ctx) {
       }
     }
 
+    /**
+     * 会话归档 / 取消归档（2026-11-17，补接口）。
+     *
+     * <p>只走宿主 workspace 服务：存量 DSH 没有"删除会话"的 API，插件也**不碰文件系统**
+     * （手删 sessions/--*--/&lt;id&gt; 会让投影缓存/索引对不上；dsh-go-bridge 同样只认引擎
+     * 暴露的版本化 seam）。删除动作因此明确回 503，并给出可用替代。</p>
+     */
+    if (action === 'archive' || action === 'unarchive') {
+      const target = String(body?.session_id || '').trim();
+      if (!target) return sendJson(res, 400, { ok: false, v: 2, action, error: 'session_id required' });
+      const ws = (() => {
+        try { return ctx.get('workspace') ?? ctx.get('workspaceRegistry') ?? null; } catch { return null; }
+      })();
+      const fn = ws && (action === 'archive' ? ws.archiveSession : ws.unarchiveSession);
+      if (typeof fn !== 'function') {
+        return sendJson(res, 503, {
+          ok: false, v: 2, action, error: 'unsupported',
+          hint: '宿主没有 workspace 归档 API；插件不直接改会话文件（会损坏投影/索引）',
+        });
+      }
+      try {
+        await fn.call(ws, target);
+        archivedCache = { at: 0, ids: archivedCache.ids };
+        desktopCache = { ...desktopCache, at: 0 };
+        return sendJson(res, 200, {
+          ok: true, v: 2, action, session_id: target, archived: action === 'archive',
+        });
+      } catch (e) {
+        const tag = String(e?.code ?? e?.name ?? '');
+        const active = /active/i.test(tag);
+        const unknown = /unknown/i.test(tag);
+        return sendJson(res, active ? 409 : unknown ? 404 : 500, {
+          ok: false, v: 2, action, session_id: target,
+          error: active ? 'session-active' : unknown ? 'not-found' : 'failed',
+          detail: redactText(e?.message ?? e).slice(0, 200),
+        });
+      }
+    }
+
+    if (action === 'delete') {
+      return sendJson(res, 503, {
+        ok: false, v: 2, action, error: 'unsupported',
+        hint: '本机 DSH 没有会话删除 API。插件不直接删日志文件（会损坏投影/索引）；请改用 archive，或在桌面端删除。',
+        alternatives: ['archive'],
+      });
+    }
+
     if (action === 'attach') {
       const id = String(body?.session_id || '').trim();
       if (!id) return sendJson(res, 400, { ok: false, v: 2, action, error: 'session_id required' });
@@ -5067,7 +5150,7 @@ function presetSvcOf(ctx) {
       try {
         return await runPrompt(req, res, sid, text, true, runOpts);
       } catch (e) {
-        const msg = '电脑端这一轮失败：' + String(e?.message ?? e).slice(0, 200);
+        const msg = '电脑端这一轮失败：' + redactText(e?.message ?? e).slice(0, 200);
         try { res.write(`data: ${JSON.stringify({ type: 'error', action: 'prompt', session_id: sid, error: msg })}\n\n`); } catch { /* 已断开 */ }
         try { res.end(); } catch { /* 已断开 */ }
         return undefined;
@@ -5113,7 +5196,7 @@ function presetSvcOf(ctx) {
     try {
       await runPrompt(req, proxy, sid, text, false, runOpts);
     } catch (e) {
-      const msg = '电脑端这一轮失败：' + String(e?.message ?? e).slice(0, 200);
+      const msg = '电脑端这一轮失败：' + redactText(e?.message ?? e).slice(0, 200);
       try {
         if (!res.writableEnded) {
           sendJson(res, 500, { v: 2, ok: false, session_id: sid, reply: '', execution: executionInfo(targetSid), error: msg });
@@ -7951,7 +8034,7 @@ function presetSvcOf(ctx) {
         sessionCode: typeof body.session_code === 'string' ? body.session_code : '',
       });
     } catch (e) {
-      sendJson(res, 500, { ok: false, action, error: String(e?.message ?? e) });
+      sendJson(res, 500, { ok: false, action, error: redactText(e?.message ?? e) });
     }
   });
 
