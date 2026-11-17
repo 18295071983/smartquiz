@@ -216,6 +216,11 @@
             android:label="UI 工具包"
             android:theme="@style/Theme.OilQuizApp" />
         <activity
+            android:name=".infra.ComposeGalleryActivity"
+            android:exported="false"
+            android:label="组件画廊"
+            android:theme="@style/Theme.OilQuizApp" />
+        <activity
             android:name=".infra.UiPreviewConsoleActivity"
             android:exported="false"
             android:label="@string/ui_preview_console_title"
