@@ -315,6 +315,16 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
      * host_cwd 红就说明电脑上所有起子进程的工具都会报 ENOENT。
      */
     private void runSelfCheck() {
+        // 2026-11-19：内置模式不做电脑自检，避免页面出现"电脑端在线/组网地址"
+        if (RemoteDshTool.isPreferBuiltin(this)) {
+            if (selfCheckCards != null) selfCheckCards.setVisibility(View.GONE);
+            if (selfCheckText != null) {
+                selfCheckText.setVisibility(View.VISIBLE);
+                selfCheckText.setText("当前是【内置 DSH（本机）】模式，电脑端自检已跳过。\n"
+                        + "要用电脑：先关闭「使用内置 DSH」开关，再点「连接」。");
+            }
+            return;
+        }
         if (!RemoteDshTool.isConfigured(this)) {
             toast("还没配对电脑：先扫码或在下面填地址和令牌");
             return;
