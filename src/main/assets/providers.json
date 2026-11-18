@@ -1373,7 +1373,6 @@
       "baseUrl": "http://localhost:11434/v1",
       "urlKeywords": [
         "ollama",
-        "127.0.0.1",
         "localhost:11434"
       ],
       "auth": "none",
