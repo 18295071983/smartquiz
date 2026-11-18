@@ -219,12 +219,14 @@ public final class EmbeddedDsh {
             File v = new File(base(c), "dsh_layer.version");
             String cur = v.isFile() ? new String(java.nio.file.Files.readAllBytes(v.toPath()),
                     StandardCharsets.UTF_8).trim() : "";
-            if ("2".equals(cur)) return;
-            Log.i(TAG, "re-extract dsh layer (patch update)");
+            if ("3".equals(cur)) return;
+            Log.i(TAG, "re-extract dsh+plugin layer (patch update)");
             DshTarGz.extractAsset(c, "dsh_runtime/dsh.tar.bin", rootfs(c), "opt/dsh");
+            DshTarGz.extractAsset(c, "dsh_runtime/plugin.tar.bin", rootfs(c), "root/plugin");
+            stripPluginWebClient(new File(rootfs(c), "root/plugin"));
             try (Writer w = new OutputStreamWriter(new FileOutputStream(v),
                     StandardCharsets.UTF_8)) {
-                w.write("2");
+                w.write("3");
             }
         } catch (Throwable t) {
             Log.w(TAG, "ensureDshLayer failed: " + t.getMessage());
