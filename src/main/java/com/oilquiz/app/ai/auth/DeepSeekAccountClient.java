@@ -48,6 +48,7 @@ import java.util.UUID;
  * 走 {@code x-dsh-auth-token} 头（见 {@link #KEY_PREFIX}），不是 Bearer。
  * 过期即重新登录（DSH 同样没有 refresh token）。</p>
  */
+@Deprecated
 public final class DeepSeekAccountClient {
 
     private static final String TAG = "DeepSeekAccount";

@@ -1,5 +1,14 @@
 # 变更日志
 
+## [2026-11-18] chore(llm): 下线手机原生 DeepSeek 账号登录（B 方案）入口
+
+- 用户口径：B 是"模拟 DSH web 客户端"拿账号 token，属平台协议灰色地带，下线入口。
+- 模型配置弹窗移除「登录 DeepSeek 账号（手机原生）」按钮；`DeepSeekAccountClient` 标 `@Deprecated`
+  保留实现，恢复时把按钮加回并绑定 `fillDeepSeekAccount()` 即可。
+- 已有 `dsh_acct:` 配置不主动删（token 有效期内仍可用，过期 401 后自行删除）；
+  `ProviderConfigManager` 的 `x-dsh-auth-token` 映射保留。
+- 手机端保留两条正规路径：① 直接填 API Key ② 用电脑端账号/API Key（A 代理）。
+
 ## [2026-11-18] feat(remote): 电脑驱动手机 agent（agent_ask，走手机自己的 prompt/工具/模型）
 
 - 手机 `RemoteCommandExecutor` 新增 `agent_ask`：把电脑的 prompt 塞进聊天页的发送管线

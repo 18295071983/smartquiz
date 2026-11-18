@@ -408,29 +408,10 @@ public class OnlineModelConfigDialog {
         if (usePcAccountButton != null) {
             usePcAccountButton.setOnClickListener(v -> fillPcAccountProxy());
         }
-        // 2026-11-18：手机原生登录 DeepSeek 账号（PKCE + 浏览器授权 + x-dsh-auth-token）
-        MaterialButton dsLoginButton = dialog.findViewById(R.id.btn_ds_account_login);
-        if (dsLoginButton != null) {
-            dsLoginButton.setOnClickListener(v -> {
-                if (com.oilquiz.app.ai.auth.DeepSeekAccountClient.isSignedIn(context)) {
-                    fillDeepSeekAccount();
-                    return;
-                }
-                Toast.makeText(context, "正在打开浏览器登录 DeepSeek…", Toast.LENGTH_SHORT).show();
-                com.oilquiz.app.ai.auth.DeepSeekAccountClient.startLogin(context,
-                        new com.oilquiz.app.ai.auth.DeepSeekAccountClient.Listener() {
-                            @Override
-                            public void onSuccess(String token, String user) {
-                                fillDeepSeekAccount();
-                            }
-
-                            @Override
-                            public void onError(String message) {
-                                Toast.makeText(context, message, Toast.LENGTH_LONG).show();
-                            }
-                        });
-            });
-        }
+        // 2026-11-18：手机原生登录 DeepSeek 账号（B 方案）已下线入口。
+        // 原因：模拟 DSH web 客户端拿账号 token，属平台协议灰色地带（见 docs/远程联动设计）。
+        // 实现保留在 DeepSeekAccountClient（已 @Deprecated），已有 dsh_acct: 配置仍可继续用到 token 过期。
+        // 恢复入口时把 btn_ds_account_login 加回布局并绑定 fillDeepSeekAccount() 即可。
         saveButton = dialog.findViewById(R.id.btn_save);
         cancelButton = dialog.findViewById(R.id.btn_cancel);
         
@@ -1034,7 +1015,11 @@ public class OnlineModelConfigDialog {
                 Toast.LENGTH_LONG).show();
     }
 
-    /** 把已登录的 DeepSeek 账号填成模型配置（apiKey 用 dsh_acct: 前缀，鉴权走 x-dsh-auth-token）。 */
+    /**
+     * 已下线：B 方案入口关闭后不再调用；保留实现以便恢复时直接接回按钮。
+     * apiKey 用 {@code dsh_acct:} 前缀，ProviderConfigManager 会映射成 x-dsh-auth-token。
+     */
+    @Deprecated
     private void fillDeepSeekAccount() {
         String key = com.oilquiz.app.ai.auth.DeepSeekAccountClient.apiKeyOf(context);
         if (key.isEmpty()) {
