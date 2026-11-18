@@ -35,6 +35,8 @@ public final class EmbeddedDsh {
     private static final String TAG = "EmbeddedDsh";
     private static final Pattern TOKEN_RE = Pattern.compile("token=([A-Za-z0-9_-]+)");
     private static final Object LOCK = new Object();
+    /** 2026-11-19：内置插件的固定令牌（App 与插件两侧写死同一值，避免各生成一个导致 401）。 */
+    public static final String PLUGIN_TOKEN = "27ee33e102a1ff3a13b32ad74b960897";
 
     private static Process process;
     private static volatile String token = "";
@@ -125,18 +127,13 @@ public final class EmbeddedDsh {
         File pluginDir = new File(r, "root/plugin");
         pluginDir.mkdirs();
         stripPluginWebClient(pluginDir);
+        // 2026-11-19：固定令牌（不再随机生成），插件与 App 两边永远一致
         File tokFile = new File(pluginDir, ".token");
-        if (!tokFile.isFile() || tokFile.length() == 0) {
-            byte[] raw = new byte[16];
-            new java.security.SecureRandom().nextBytes(raw);
-            StringBuilder sb = new StringBuilder(32);
-            for (byte b : raw) sb.append(String.format("%02x", b));
-            try (Writer w = new OutputStreamWriter(new FileOutputStream(tokFile),
-                    StandardCharsets.UTF_8)) {
-                w.write(sb.toString());
-            }
-            chmod(tokFile, 0600);
+        try (Writer w = new OutputStreamWriter(new FileOutputStream(tokFile),
+                StandardCharsets.UTF_8)) {
+            w.write(PLUGIN_TOKEN);
         }
+        chmod(tokFile, 0600);
 
         // 首次启动需要的 phone profile（等价于 dsh plugin --profile phone add，免 pnpm）
         File prof = new File(r, "root/.dsh/profiles/phone");
@@ -163,7 +160,11 @@ public final class EmbeddedDsh {
                     + "  config:\n    welcomeNoticeVersion: 2026-09-28.1\n"
                     + "- id: agent-default-model\n"
                     + "  name: \"@deepseek-ai/dsh-agent-default-model\"\n"
-                    + "  config:\n    provider: deepseek-account\n    model: deepseek-flash\n");
+                    + "  config:\n    provider: deepseek-account\n    model: deepseek-flash\n"
+                    // 2026-11-19：插件令牌也写进 profile 配置，保证 cfg.token 与 .token 一致
+                    + "- id: smartquiz-remote\n"
+                    + "  name: \"@local/smartquiz-remote\"\n"
+                    + "  config:\n    token: \"" + PLUGIN_TOKEN + "\"\n");
         }
 
         // 工作区：guest 侧放一个真实空目录，启动时用 proot -b 把 App 工作区挂上去。
@@ -211,7 +212,7 @@ public final class EmbeddedDsh {
         }
     }
 
-    private static final String CONFIG_VERSION = "3";
+    private static final String CONFIG_VERSION = "6";
 
     /** DSH node_modules 层版本：补丁更新后强制重解压这一层（rootfs/node 不动）。 */
     private static void ensureDshLayer(Context c) {
