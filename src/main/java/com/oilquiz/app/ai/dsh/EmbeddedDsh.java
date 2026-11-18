@@ -83,6 +83,10 @@ public final class EmbeddedDsh {
             Log.i(TAG, "extract plugin");
             DshTarGz.extractAsset(c, "dsh_runtime/plugin.tar.bin", r, "root/plugin");
             writeRuntimeConfig(c, r);
+            try (Writer w = new OutputStreamWriter(new FileOutputStream(
+                    new File(base(c), "config.version")), StandardCharsets.UTF_8)) {
+                w.write(CONFIG_VERSION);
+            }
             Log.i(TAG, "runtime prepared");
         }
     }
@@ -115,6 +119,7 @@ public final class EmbeddedDsh {
         // 内置场景：预生成插件令牌，App 直接读用；不再走"电脑端配对/二维码/设备令牌"那套。
         File pluginDir = new File(r, "root/plugin");
         pluginDir.mkdirs();
+        stripPluginWebClient(pluginDir);
         File tokFile = new File(pluginDir, ".token");
         if (!tokFile.isFile() || tokFile.length() == 0) {
             byte[] raw = new byte[16];
@@ -156,16 +161,41 @@ public final class EmbeddedDsh {
                     + "  config:\n    provider: deepseek-account\n    model: deepseek-flash\n");
         }
 
-        // 工作区直接指到 App 公共工作区（proot 已 bind /sdcard）
+        // 工作区：guest 侧放一个真实空目录，启动时用 proot -b 把 App 工作区挂上去。
+        // （不要用软链：DSH 创建默认工作区时会因为"路径已存在"判定失败）
         File ws = new File(r, "root/Documents/deepseek-harness/default-workspace");
         File parent = ws.getParentFile();
         if (parent != null) parent.mkdirs();
-        deleteQuietly(ws);
+        deleteAnyFile(ws);
+        ws.mkdirs();
+    }
+
+    /**
+     * 2026-11-19：内置场景去掉插件的 Web UI 客户端注入。
+     *
+     * <p>插件的 client.js 依赖 DSH 网页宿主，在内置运行时里会报 "client.js 失败"，
+     * 而 App 只用它的 8218 服务端桥接，不需要网页面板。直接把 package.json 的
+     * {@code dsh.client} 段删掉即可让宿主跳过加载。</p>
+     */
+    private static void stripPluginWebClient(File pluginDir) {
         try {
-            Os.symlink("/sdcard/Download/OilQuiz/agent_workspace", ws.getAbsolutePath());
+            File pkg = new File(pluginDir, "package.json");
+            if (!pkg.isFile()) return;
+            String text = new String(java.nio.file.Files.readAllBytes(pkg.toPath()),
+                    StandardCharsets.UTF_8);
+            org.json.JSONObject root = new org.json.JSONObject(text);
+            org.json.JSONObject dsh = root.optJSONObject("dsh");
+            if (dsh == null) return;
+            if (dsh.has("client")) {
+                dsh.remove("client");
+                root.put("dsh", dsh);
+                try (Writer w = new OutputStreamWriter(new FileOutputStream(pkg),
+                        StandardCharsets.UTF_8)) {
+                    w.write(root.toString(2));
+                }
+            }
         } catch (Throwable t) {
-            Log.w(TAG, "workspace symlink failed: " + t.getMessage());
-            ws.mkdirs();
+            Log.w(TAG, "strip plugin client failed: " + t.getMessage());
         }
     }
 
@@ -176,12 +206,32 @@ public final class EmbeddedDsh {
         }
     }
 
+    private static final String CONFIG_VERSION = "2";
+
+    /** 配置版本升级：已解压的旧运行时也要重写工作区挂载/拉手，无需重新解压 300MB。 */
+    private static void ensureConfig(Context c) {
+        try {
+            File v = new File(base(c), "config.version");
+            String cur = v.isFile() ? new String(java.nio.file.Files.readAllBytes(v.toPath()),
+                    StandardCharsets.UTF_8).trim() : "";
+            if (CONFIG_VERSION.equals(cur)) return;
+            writeRuntimeConfig(c, rootfs(c));
+            try (Writer w = new OutputStreamWriter(new FileOutputStream(v),
+                    StandardCharsets.UTF_8)) {
+                w.write(CONFIG_VERSION);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "ensureConfig failed: " + t.getMessage());
+        }
+    }
+
     /** 启动（必要时先解压）。阻塞，后台线程调用。返回状态文字。 */
     public static String start(Context c) {
         synchronized (LOCK) {
             if (isRunning()) return "DSH 已在运行";
             try {
                 prepare(c);
+                ensureConfig(c);
             } catch (Throwable t) {
                 Log.e(TAG, "prepare failed", t);
                 return "运行时解压失败：" + t.getMessage();
@@ -221,6 +271,14 @@ public final class EmbeddedDsh {
         cmd.add("/sdcard");
         cmd.add("-b");
         cmd.add("/storage");
+        // 工作区挂载：guest 默认工作区 ← App 公共工作区（同一份文件，免来回拷）
+        String appWs = "/sdcard/Download/OilQuiz/agent_workspace";
+        File appWsFile = new File(appWs);
+        if (appWsFile.isDirectory()) {
+            cmd.add("-b");
+            cmd.add(appWs + ":" + new File(rootfs,
+                    "root/Documents/deepseek-harness/default-workspace").getAbsolutePath());
+        }
         cmd.add("-w");
         cmd.add("/root");
         cmd.add("/usr/local/bin/dsh");
