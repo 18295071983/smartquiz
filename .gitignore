@@ -374,3 +374,7 @@ replay_pid*.log
 # local DSH build staging (2026-11-19)
 .dsh-bundle/
 .dsh-rc1/
+
+# embedded DSH runtime assets (generated, ~300MB; see tools/dsh-runtime/README)
+src/main/assets/dsh_runtime/*.bin
+

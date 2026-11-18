@@ -288,6 +288,21 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 内置 DSH 启动/停止（方案 B 调试）：--es mode dsh_start / dsh_stop
+        if ("dsh_start".equals(getIntent().getStringExtra("mode"))) {
+            new Thread(() -> {
+                String msg = com.oilquiz.app.ai.dsh.EmbeddedDsh.start(this);
+                Log.i(TAG, "DSH_START: " + msg);
+            }, "dsh-start").start();
+            return;
+        }
+        if ("dsh_stop".equals(getIntent().getStringExtra("mode"))) {
+            com.oilquiz.app.ai.dsh.EmbeddedDsh.stop(this);
+            Log.i(TAG, "DSH_STOP");
+            finish();
+            return;
+        }
+
         // 重新导出 Termux 准备文件夹（清空重建用）：--es mode termux_export
         if ("termux_export".equals(getIntent().getStringExtra("mode"))) {
             new Thread(() -> {

@@ -66,6 +66,9 @@ public final class LocalDshManager {
      * App 读这个文件，避免用户手抄。读不到返回空串（退回旧的 "local"）。</p>
      */
     public static String pluginToken(Context c) {
+        // 方案 B：直接读内置 rootfs 里的插件令牌文件
+        String builtin = com.oilquiz.app.ai.dsh.EmbeddedDsh.pluginToken(c);
+        if (builtin != null && !builtin.isEmpty()) return builtin;
         SharedPreferences p = prefs(c);
         String cached = p.getString("local_dsh_token", "");
         if (cached != null && !cached.isEmpty()) return cached;
@@ -110,8 +113,16 @@ public final class LocalDshManager {
         prefs(c).edit().putInt(K_WEB_PORT, port <= 0 ? DEFAULT_WEB_PORT : port).apply();
     }
 
-    /** 本机插件是否活着（2 秒超时；localhost 请求插件侧 isLocal 直接放行，不需要令牌）。 */
+    /**
+     * 2026-11-19：方案 B —— 本机 DSH 改为 App 内置运行时（proot + rootfs + node + dsh 全内置，
+     * 不再依赖 Termux）。原有 Termux 版保留在 {@link #termuxStart} 等旧方法里作回退参考。
+     */
     public static boolean probe(Context c) {
+        if (com.oilquiz.app.ai.dsh.EmbeddedDsh.isRunning()) return true;
+        return probeHttp(c);
+    }
+
+    private static boolean probeHttp(Context c) {
         HttpURLConnection conn = null;
         try {
             conn = (HttpURLConnection) new URL(pluginUrl(c) + "/status").openConnection();
@@ -141,6 +152,16 @@ public final class LocalDshManager {
      * 需要：Termux 已装、已授 RUN_COMMAND、且已装好 dsh（用户已验证）。
      */
     public static String start(Context c) {
+        // 方案 B：内置运行时（首次会解压 ~3 分钟）
+        try {
+            return com.oilquiz.app.ai.dsh.EmbeddedDsh.start(c);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "embedded start failed: " + t.getMessage());
+            return "本机 DSH 启动失败：" + t.getMessage();
+        }
+    }
+
+    private static String termuxStart(Context c) {
         // 先体检 Termux 通道：不通就别发命令白等 60 秒
         TermuxChannel.Status st = TermuxChannel.check(c);
         if (!st.ok) {
@@ -188,8 +209,17 @@ public final class LocalDshManager {
         }
     }
 
-    /** 停掉本机 DSH（pkill）。 */
+    /** 停掉本机 DSH。 */
     public static String stop(Context c) {
+        try {
+            com.oilquiz.app.ai.dsh.EmbeddedDsh.stop(c);
+            return "已停止本机 DSH";
+        } catch (Throwable t) {
+            return "停止失败：" + t.getMessage();
+        }
+    }
+
+    private static String termuxStop(Context c) {
         try {
             TermuxEnvInstaller.ChannelResult r = TermuxEnvInstaller.runInTermuxAndWait(
                     c, "export PATH=\"$PREFIX/bin:$PATH\"; dsh-phone stop; echo stopped", 20);
@@ -204,6 +234,18 @@ public final class LocalDshManager {
      * 优先用 dsh-phone 落盘的带 token URL（每次启动 token 都会变）。
      */
     public static void openLogin(Context c) {
+        // 方案 B：内置 DSH 的 token 由进程输出解析
+        String builtin = com.oilquiz.app.ai.dsh.EmbeddedDsh.token();
+        if (builtin != null && !builtin.isEmpty()) {
+            try {
+                Intent it = new Intent(Intent.ACTION_VIEW,
+                        Uri.parse(com.oilquiz.app.ai.dsh.EmbeddedDsh.loginUrl()));
+                it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                c.startActivity(it);
+                return;
+            } catch (Throwable ignored) {
+            }
+        }
         String url = "http://127.0.0.1:" + webPort(c) + "/";
         try {
             String saved = PublicStorageWriter.readTail(c, "termux_env", "dsh_url.txt", 2048);
