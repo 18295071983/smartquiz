@@ -288,6 +288,22 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // Termux 通用执行（调试通道用）：--es mode termux_exec --es cmd "命令"
+        if ("termux_exec".equals(getIntent().getStringExtra("mode"))) {
+            final String cmd = getIntent().getStringExtra("cmd");
+            new Thread(() -> {
+                com.oilquiz.app.ai.tool.TermuxEnvInstaller.ChannelResult r =
+                        com.oilquiz.app.ai.tool.TermuxEnvInstaller.runInTermuxAndWait(
+                                this, cmd == null ? "echo empty" : cmd, 60);
+                Log.i(TAG, "TERMUX_EXEC ok=" + (r != null && r.ok)
+                        + "\nSTDOUT:\n" + (r == null ? "" : r.stdout)
+                        + "\nSTDERR:\n" + (r == null ? "" : r.stderr)
+                        + "\nERROR:" + (r == null ? "" : r.error));
+                finish();
+            }, "termux-exec").start();
+            return;
+        }
+
         // Termux / Ubuntu 环境探针：--es mode termux_probe
         if ("termux_probe".equals(getIntent().getStringExtra("mode"))) {
             new Thread(() -> {

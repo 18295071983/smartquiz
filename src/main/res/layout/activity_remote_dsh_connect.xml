@@ -184,6 +184,16 @@
                         app:cornerRadius="@dimen/radius_8"/>
                 </LinearLayout>
 
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_termux_channel"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_40"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text="通道检查 / 修复（Termux）"
+                    android:textSize="@dimen/text_12"
+                    android:textAllCaps="false"
+                    app:cornerRadius="@dimen/radius_8"/>
+
                 <TextView
                     android:id="@+id/local_dsh_hint"
                     android:layout_width="match_parent"

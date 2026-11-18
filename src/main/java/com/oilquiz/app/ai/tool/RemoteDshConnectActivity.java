@@ -194,6 +194,10 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         if (btnLocalRefresh != null) {
             btnLocalRefresh.setOnClickListener(v -> refreshLocalDsh(localDshStatus));
         }
+        android.view.View btnChannel = findViewById(R.id.btn_termux_channel);
+        if (btnChannel != null) {
+            btnChannel.setOnClickListener(v -> com.oilquiz.app.ai.tool.TermuxChannel.showDialog(this));
+        }
         refreshLocalDsh(localDshStatus);
 
         // 插件总开关（2026-11-18）：手机端默认关闭；关闭时禁用本页所有操作按钮并断开连接
