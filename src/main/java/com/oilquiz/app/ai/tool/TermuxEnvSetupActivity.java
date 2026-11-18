@@ -263,11 +263,39 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         boolean opened = TermuxEnvInstaller.openTermux(this);
         termuxReadState = "待复检（粘完初始化命令后回来）";
         refresh();
+        // MIUI 有时不更新剪贴板：把命令直接显示出来，可长按选择复制，不依赖剪贴板
+        showCopyableCommand("Termux 初始化命令（可长按选择复制）",
+                TermuxEnvInstaller.TERMUX_INIT_COMMAND);
         log("📋 已复制初始化命令（存储 + allow-external-apps 一次搞定）：\n\n"
                 + TermuxEnvInstaller.TERMUX_INIT_COMMAND + "\n\n"
                 + (opened ? "已打开 Termux：" : "请手动打开 Termux：")
                 + "长按终端 → 粘贴 → 回车；弹「允许访问文件」点允许。"
                 + "\n（若 Termux 提示 allow-external-apps 相关错误，重新打开一次 Termux 即可。）");
+    }
+
+    /** 把命令显示成可选文本 + 再复制一次；剪贴板被 MIUI 拦住时的兜底。 */
+    private void showCopyableCommand(String title, String cmd) {
+        try {
+            android.widget.TextView tv = new android.widget.TextView(this);
+            tv.setText(cmd);
+            tv.setTextIsSelectable(true);
+            tv.setPadding(48, 36, 48, 12);
+            tv.setTextSize(13f);
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                    .setTitle(title)
+                    .setView(tv)
+                    .setPositiveButton("再复制一次", (d, w) -> {
+                        android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                                getSystemService(CLIPBOARD_SERVICE);
+                        if (cm != null) {
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText("termux-cmd", cmd));
+                        }
+                        toast("已再次复制；若还不行，长按上面的命令手动选择复制");
+                    })
+                    .setNegativeButton("关闭", null)
+                    .show();
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 一键修 Termux 存储权限：复制 termux-setup-storage + 打开 Termux。 */
@@ -284,6 +312,8 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         boolean opened = TermuxEnvInstaller.openTermux(this);
         termuxReadState = "待复检（粘完 termux-setup-storage 并点允许后回来）";
         refresh();
+        showCopyableCommand("Termux 存储修复命令（可长按选择复制）",
+                TermuxEnvInstaller.TERMUX_STORAGE_FIX_COMMAND);
         log("📂 已复制 `" + TermuxEnvInstaller.TERMUX_STORAGE_FIX_COMMAND + "`"
                 + (opened ? "，并已打开 Termux。" : "，请手动打开 Termux。")
                 + "\n在 Termux 里长按 → 粘贴 → 回车，弹「允许访问文件」点允许；"
