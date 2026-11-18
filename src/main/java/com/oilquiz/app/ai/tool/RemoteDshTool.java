@@ -1840,6 +1840,42 @@ public class RemoteDshTool implements AITool {
         return u != null && !u.trim().isEmpty() && t != null && !t.trim().isEmpty();
     }
 
+    /** 2026-11-19：用户主动断开后置 true，所有"自动拉起连接"的入口都要先查它。 */
+    private static final String KEY_USER_DISCONNECTED = "remote_user_disconnected";
+    /** 2026-11-19：优先用内置（本机）DSH，电脑连接不自动拉起。 */
+    private static final String KEY_PREFER_BUILTIN = "remote_prefer_builtin";
+
+    public static boolean isUserDisconnected(Context c) {
+        try {
+            return prefsOf(c).getBoolean(KEY_USER_DISCONNECTED, false);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static void setUserDisconnected(Context c, boolean v) {
+        try {
+            prefsOf(c).edit().putBoolean(KEY_USER_DISCONNECTED, v).apply();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 默认 true：内置运行时装好后，不再自动连电脑；用户点「连接」才切回电脑模式。 */
+    public static boolean isPreferBuiltin(Context c) {
+        try {
+            return prefsOf(c).getBoolean(KEY_PREFER_BUILTIN, true);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static void setPreferBuiltin(Context c, boolean v) {
+        try {
+            prefsOf(c).edit().putBoolean(KEY_PREFER_BUILTIN, v).apply();
+        } catch (Throwable ignored) {
+        }
+    }
+
     /**
      * 是否处于"已连接"状态。
      * 语义：配对/手动连接后为 true；用户点「断开」后为 false（此时工具一律拒绝执行并提示去界面重新连接）。

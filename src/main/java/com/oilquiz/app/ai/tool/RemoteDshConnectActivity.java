@@ -1157,6 +1157,9 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 toast("还没配对过电脑：先「扫码配对」或在下面手动填写");
                 return;
             }
+            // 用户明确点「连接」→ 清掉"主动断开"，并切回电脑模式
+            RemoteDshTool.setUserDisconnected(this, false);
+            RemoteDshTool.setPreferBuiltin(this, false);
             probe(true, true);
         });
         // 「输入配对码」按钮：扫码不方便时的备选（6 位数字，一次性）
@@ -1188,6 +1191,8 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 return;
             }
             RemoteDshTool.disconnect(this);
+            // 2026-11-19：记住"用户主动断开"，阻止 MainActivity/AIChatActivity/开机广播再自动拉起
+            RemoteDshTool.setUserDisconnected(this, true);
             // 断开 = 停掉唯一通道（前台服务一并停），否则后台还会继续收
             com.oilquiz.app.ai.tool.RemoteConnection.get(this).stop();
             stopService(new android.content.Intent(this,
@@ -1476,7 +1481,15 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 dot(R.drawable.circle_yellow);
                 statusText.setText("已断开");
                 statusText.setTextColor(warnColor());
-                statusHint.setText("已停用：AI 会被拒绝执行。点「连接」重新接上。");
+                // 2026-11-19：内置（本机）DSH 就绪时，明确告诉用户当前用的是手机本机，不需要电脑
+                if (RemoteDshTool.isPreferBuiltin(this)
+                        && com.oilquiz.app.ai.dsh.EmbeddedDsh.isPrepared(this)) {
+                    statusHint.setText("当前使用【内置 DSH（本机）】· "
+                            + "上方「本机 DSH」卡片里启动/登录即可，不必连电脑。\n"
+                            + "想改用电脑端：点「连接」会切换为电脑模式。");
+                } else {
+                    statusHint.setText("已停用：AI 会被拒绝执行。点「连接」重新接上。");
+                }
             }
         }
         if (configured && text(urlInput).isEmpty()) {

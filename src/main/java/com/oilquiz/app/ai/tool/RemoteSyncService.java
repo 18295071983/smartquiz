@@ -56,6 +56,11 @@ public class RemoteSyncService extends Service {
             // 插件总开关关掉时不再拉起常驻连接（2026-11-18；配对信息保留，打开开关后自动恢复）
             if (!RemoteDshTool.isPluginEnabled(context)) return;
             if (!RemoteDshTool.isConfigured(context)) return;
+            // 2026-11-19：用户点过「断开」就别再自动拉起（否则"一直重连"就是这里造成的）
+            if (RemoteDshTool.isUserDisconnected(context)) return;
+            // 2026-11-19：内置（本机）DSH 模式：电脑连接不自动拉起，点「连接」才切过去
+            if (RemoteDshTool.isPreferBuiltin(context)
+                    && com.oilquiz.app.ai.dsh.EmbeddedDsh.isPrepared(context)) return;
             Intent svc = new Intent(context, RemoteSyncService.class);
             svc.setAction(ACTION_BOOT_START);
             String target = RemoteDshTool.getSyncTarget(context);
