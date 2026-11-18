@@ -200,6 +200,17 @@
                         app:cornerRadius="@dimen/radius_8"/>
 
                     <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_local_dsh_open_web"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_40"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="@dimen/space_8"
+                        android:text="最新网页"
+                        android:textSize="@dimen/text_12"
+                        android:textAllCaps="false"
+                        app:cornerRadius="@dimen/radius_8"/>
+
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_local_dsh_refresh"
                         android:layout_width="@dimen/size_0"
                         android:layout_height="@dimen/size_40"

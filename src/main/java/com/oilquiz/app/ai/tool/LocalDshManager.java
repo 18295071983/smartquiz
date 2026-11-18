@@ -304,6 +304,28 @@ public final class LocalDshManager {
     }
 
     /**
+     * 2026-11-19：用**当前进程的 token** 打开 DSH 网页（避免旧 token 导致 clientapi 连接失败）。
+     *
+     * <p>系统浏览器打开；没拿到 token 时先启服务并提示稍后重试。</p>
+     */
+    public static String openLatestWeb(Context c) {
+        String url = com.oilquiz.app.ai.dsh.EmbeddedDsh.currentLoginUrl(c);
+        if (url == null || !url.contains("token=")) {
+            com.oilquiz.app.ai.dsh.DshService.start(c);
+            return "DSH 刚启动，token 还没就绪：等 10 秒再点一次";
+        }
+        try {
+            android.content.Intent it = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
+            it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            c.startActivity(it);
+            return "已用最新 token 打开";
+        } catch (Throwable t) {
+            return "打开失败：" + t.getMessage();
+        }
+    }
+
+    /**
      * 打开本机 DSH 的 Web GUI（登录 DeepSeek 账号就在这里）。
      * 优先用 dsh-phone 落盘的带 token URL（每次启动 token 都会变）。
      */

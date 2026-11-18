@@ -170,6 +170,11 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         final android.widget.TextView localDshStatus = findViewById(R.id.local_dsh_status);
         android.view.View btnLocalStart = findViewById(R.id.btn_local_dsh_start);
         android.view.View btnLocalLogin = findViewById(R.id.btn_local_dsh_login);
+        android.view.View btnLocalOpenWeb = findViewById(R.id.btn_local_dsh_open_web);
+        if (btnLocalOpenWeb != null) {
+            btnLocalOpenWeb.setOnClickListener(v ->
+                    toast(com.oilquiz.app.ai.tool.LocalDshManager.openLatestWeb(this)));
+        }
         android.view.View btnLocalRefresh = findViewById(R.id.btn_local_dsh_refresh);
         if (btnLocalLogin != null) {
             btnLocalLogin.setOnClickListener(v -> {
