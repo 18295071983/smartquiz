@@ -131,6 +131,20 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         findViewById(R.id.btn_install_cli).setOnClickListener(v -> doInstallCliTools());
         // 2026-11-18：本机 DSH（Termux 里真 DSH；登录由 DSH 完成，App 只是 localhost 客户端）
         findViewById(R.id.btn_fix_termux_storage).setOnClickListener(v -> doFixTermuxStorage());
+        // 2026-11-18：setup-storage 不弹窗时，直接跳系统应用详情页手动开存储权限
+        findViewById(R.id.btn_open_termux_settings).setOnClickListener(v -> {
+            try {
+                Intent i = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:" + TermuxEnvInstaller.TERMUX_PACKAGE));
+                startActivity(i);
+                log("已打开 Termux 应用详情页：\n"
+                        + "· 小米：权限管理 → 存储 → 选择「允许」或「所有文件访问」\n"
+                        + "· 原生/Android 11+：权限 → 文件与媒体 → 允许管理所有文件\n"
+                        + "开完把 Termux 划掉重开一次（让权限生效），再回来点「刷新」。");
+            } catch (Throwable t) {
+                toast("打不开设置页：" + t.getMessage());
+            }
+        });
         findViewById(R.id.btn_setup_dsh).setOnClickListener(v -> doSetupDsh());
         findViewById(R.id.btn_start_dsh).setOnClickListener(v -> doStartDsh());
         findViewById(R.id.btn_ssh_autostart).setOnClickListener(v -> {
