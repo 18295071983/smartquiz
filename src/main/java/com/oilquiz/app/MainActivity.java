@@ -59,6 +59,13 @@ public class MainActivity extends BaseActivity {
         // 常驻连接（2026-11-13）：App 一启动就把前台服务拉起来。
         // 后台/锁屏的审批通知全靠它；放在这里而不是只在对话页，避免"从首页进"就没服务。
         com.oilquiz.app.ai.tool.RemoteSyncService.ensureStarted(this);
+
+        // 2026-11-19：内置 DSH 随 App 启动（首次会解压运行时，之后直接起）。
+        // 放在 App 前台启动路径里，避免后台启动前台服务被系统拒绝。
+        try {
+            com.oilquiz.app.ai.dsh.DshService.start(this);
+        } catch (Throwable ignored) {
+        }
         
         // 检查是否使用 WebView 视图
         boolean useWebView = resources.getConfigBoolean("home_view_web", false);
