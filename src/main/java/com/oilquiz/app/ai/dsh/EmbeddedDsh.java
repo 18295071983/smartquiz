@@ -109,6 +109,11 @@ public final class EmbeddedDsh {
         }
         chmod(xdg, 0755);
 
+        // proot -b 的 guest 挂载点必须存在，否则绑定静默失败 → DSH 里看不到手机存储
+        new File(r, "sdcard").mkdirs();
+        new File(r, "storage/emulated/0").mkdirs();
+        new File(r, "mnt/sdcard").mkdirs();
+
         new File(r, "root/Documents").mkdirs();
         new File(r, "root/.dsh").mkdirs();
         new File(r, "tmp").mkdirs();
@@ -206,7 +211,7 @@ public final class EmbeddedDsh {
         }
     }
 
-    private static final String CONFIG_VERSION = "2";
+    private static final String CONFIG_VERSION = "3";
 
     /** 配置版本升级：已解压的旧运行时也要重写工作区挂载/拉手，无需重新解压 300MB。 */
     private static void ensureConfig(Context c) {
@@ -271,6 +276,8 @@ public final class EmbeddedDsh {
         cmd.add("/sdcard");
         cmd.add("-b");
         cmd.add("/storage");
+        cmd.add("-b");
+        cmd.add("/storage/emulated/0:/mnt/sdcard");
         // 工作区挂载：guest 默认工作区 ← App 公共工作区（同一份文件，免来回拷）
         String appWs = "/sdcard/Download/OilQuiz/agent_workspace";
         File appWsFile = new File(appWs);
