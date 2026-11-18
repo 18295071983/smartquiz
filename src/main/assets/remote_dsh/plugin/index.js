@@ -3884,6 +3884,24 @@ function presetSvcOf(ctx) {
   // 推理层自己拼 /chat/completions、/models，两个都要有。
   route('exact', '/v2/llm/chat/completions', llmChatProxy);
   route('exact', '/v2/llm/chat', llmChatProxy);
+  // 2026-11-19：App 拼地址时会给 baseUrl 补 /v1（base 不以版本段结尾时），
+  // 于是请求变成 /v2/llm/v1/chat/completions —— 兼容路由必须存在，否则 404 not found。
+  route('exact', '/v2/llm/v1/chat/completions', llmChatProxy);
+  route('exact', '/v2/llm/v1/chat', llmChatProxy);
+  route('exact', '/v2/llm/v1/models', (req, res) => {
+    try {
+      if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      return sendJson(res, 200, {
+        object: 'list',
+        data: [
+          { id: 'deepseek-chat', object: 'model', owned_by: 'deepseek' },
+          { id: 'deepseek-reasoner', object: 'model', owned_by: 'deepseek' },
+        ],
+      });
+    } catch (e) {
+      return sendJson(res, 500, { ok: false, error: 'models_failed', detail: String(e?.message ?? e) });
+    }
+  });
   route('exact', '/v2/llm/models', (req, res) => {
     try {
       if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
