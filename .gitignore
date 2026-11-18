@@ -370,3 +370,7 @@ scripts/prune_dsh_cookies.log
 
 hs_err_pid*.log
 replay_pid*.log
+
+# local DSH build staging (2026-11-19)
+.dsh-bundle/
+.dsh-rc1/
