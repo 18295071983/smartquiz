@@ -290,24 +290,19 @@ public class DebugLayoutInjectActivity extends Activity {
 
         // 内置 DSH 启动/停止（方案 B 调试）：--es mode dsh_start / dsh_stop
         if ("dsh_start".equals(getIntent().getStringExtra("mode"))) {
-            new Thread(() -> {
-                String msg = com.oilquiz.app.ai.dsh.EmbeddedDsh.start(this);
-                Log.i(TAG, "DSH_START: " + msg);
-            }, "dsh-start").start();
+            com.oilquiz.app.ai.dsh.DshService.start(this);
+            Log.i(TAG, "DSH_START: service");
+            finish();
             return;
         }
         if ("dsh_login".equals(getIntent().getStringExtra("mode"))) {
-            new Thread(() -> {
-                com.oilquiz.app.ai.dsh.EmbeddedDsh.start(this);
-                runOnUiThread(() -> {
-                    try {
-                        startActivity(new android.content.Intent(this,
-                                com.oilquiz.app.ai.dsh.DshLoginActivity.class));
-                    } catch (Throwable t) {
-                        Log.e(TAG, "dsh_login launch failed", t);
-                    }
-                });
-            }, "dsh-login").start();
+            com.oilquiz.app.ai.dsh.DshService.start(this);
+            try {
+                startActivity(new android.content.Intent(this,
+                        com.oilquiz.app.ai.dsh.DshLoginActivity.class));
+            } catch (Throwable t) {
+                Log.e(TAG, "dsh_login launch failed", t);
+            }
             finish();
             return;
         }

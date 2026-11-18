@@ -152,9 +152,10 @@ public final class LocalDshManager {
      * 需要：Termux 已装、已授 RUN_COMMAND、且已装好 dsh（用户已验证）。
      */
     public static String start(Context c) {
-        // 方案 B：内置运行时（首次会解压 ~3 分钟）
+        // 方案 B：内置运行时，放前台服务里跑（否则 App 退后台就被系统杀掉）
         try {
-            return com.oilquiz.app.ai.dsh.EmbeddedDsh.start(c);
+            com.oilquiz.app.ai.dsh.DshService.start(c);
+            return "本机 DSH 启动中（首次解压约 15 秒，之后秒起）";
         } catch (Throwable t) {
             android.util.Log.w(TAG, "embedded start failed: " + t.getMessage());
             return "本机 DSH 启动失败：" + t.getMessage();
@@ -212,6 +213,7 @@ public final class LocalDshManager {
     /** 停掉本机 DSH。 */
     public static String stop(Context c) {
         try {
+            com.oilquiz.app.ai.dsh.DshService.stop(c);
             com.oilquiz.app.ai.dsh.EmbeddedDsh.stop(c);
             return "已停止本机 DSH";
         } catch (Throwable t) {
