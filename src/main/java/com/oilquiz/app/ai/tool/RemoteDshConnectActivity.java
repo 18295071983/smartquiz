@@ -219,8 +219,10 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             builtinSwitch.setOnCheckedChangeListener((btn, checked) -> {
                 RemoteDshTool.setPreferBuiltin(this, checked);
                 if (checked) {
-                    // 切到内置：停掉电脑连接，防止后台继续重连
+                    // 切到内置：停掉电脑连接，防止后台继续重连（connected 也要置 false，
+                    // 否则聊天侧 isConnected() 仍会把任务投给电脑）
                     RemoteDshTool.setUserDisconnected(this, true);
+                    RemoteDshTool.disconnect(this);
                     try {
                         com.oilquiz.app.ai.tool.RemoteConnection.get(this).stop();
                         stopService(new android.content.Intent(this,
@@ -1507,6 +1509,16 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             valueUrl.setText("(未配置)");
             valueToken.setText("(未配置)");
             valueSession.setText("(未创建)");
+        } else if (RemoteDshTool.isPreferBuiltin(this)) {
+            // 2026-11-19：内置模式不要显示电脑地址，否则看起来像"服务还指向电脑端"
+            dot(R.drawable.circle_green);
+            statusText.setText("内置 DSH");
+            statusText.setTextColor(okColor());
+            valueUrl.setText("127.0.0.1:8218（内置）");
+            valueToken.setText("App 自动读取");
+            valueSession.setText("（内置运行时不走电脑会话）");
+            statusHint.setText("当前使用【内置 DSH（本机）】· 上方卡片启动/登录即可，不必连电脑。\n"
+                    + "想改用电脑端：关闭上方开关，再点「连接」。");
         } else {
             valueUrl.setText(RemoteDshTool.configValue(this, "base_url"));
             valueToken.setText(mask(RemoteDshTool.configValue(this, "token")));
