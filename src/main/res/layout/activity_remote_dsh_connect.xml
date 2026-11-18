@@ -136,6 +136,15 @@
                     android:textStyle="bold"
                     android:textColor="?attr/colorControlText"/>
 
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_local_dsh_builtin"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text="使用内置 DSH（关闭则用电脑端）"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlText"/>
+
                 <TextView
                     android:id="@+id/local_dsh_status"
                     android:layout_width="match_parent"

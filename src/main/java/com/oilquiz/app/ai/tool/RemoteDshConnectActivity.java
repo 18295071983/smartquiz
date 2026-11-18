@@ -211,6 +211,32 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 btnChannel.setVisibility(android.view.View.GONE);
             }
         }
+        // 2026-11-19：连接方式开关（内置 ⇄ 电脑）——用户不用再靠点「连接」猜当前模式
+        com.google.android.material.switchmaterial.SwitchMaterial builtinSwitch =
+                findViewById(R.id.switch_local_dsh_builtin);
+        if (builtinSwitch != null) {
+            builtinSwitch.setChecked(RemoteDshTool.isPreferBuiltin(this));
+            builtinSwitch.setOnCheckedChangeListener((btn, checked) -> {
+                RemoteDshTool.setPreferBuiltin(this, checked);
+                if (checked) {
+                    // 切到内置：停掉电脑连接，防止后台继续重连
+                    RemoteDshTool.setUserDisconnected(this, true);
+                    try {
+                        com.oilquiz.app.ai.tool.RemoteConnection.get(this).stop();
+                        stopService(new android.content.Intent(this,
+                                com.oilquiz.app.ai.tool.RemoteSyncService.class));
+                    } catch (Throwable ignored) {
+                    }
+                    toast("已切换为【内置 DSH】：不连电脑，用上面卡片启动/登录");
+                } else {
+                    // 切到电脑：允许自动/手动连电脑
+                    RemoteDshTool.setUserDisconnected(this, false);
+                    toast("已切换为【电脑端】：点「连接」开始连接电脑");
+                }
+                refresh();
+                refreshLocalDsh(localDshStatus);
+            });
+        }
         refreshLocalDsh(localDshStatus);
 
         // 插件总开关（2026-11-18）：手机端默认关闭；关闭时禁用本页所有操作按钮并断开连接
