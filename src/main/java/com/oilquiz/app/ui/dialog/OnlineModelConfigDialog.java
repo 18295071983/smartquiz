@@ -403,6 +403,11 @@ public class OnlineModelConfigDialog {
 
         testConnectionButton = dialog.findViewById(R.id.btn_test_connection);
         fetchModelsButton = dialog.findViewById(R.id.btn_fetch_models);
+        // 2026-11-18：一键改用电脑端 DeepSeek 账号（经已配对插件代理；手机只拿到设备令牌，不存账号 token）
+        MaterialButton usePcAccountButton = dialog.findViewById(R.id.btn_use_pc_account);
+        if (usePcAccountButton != null) {
+            usePcAccountButton.setOnClickListener(v -> fillPcAccountProxy());
+        }
         saveButton = dialog.findViewById(R.id.btn_save);
         cancelButton = dialog.findViewById(R.id.btn_cancel);
         
@@ -974,6 +979,36 @@ public class OnlineModelConfigDialog {
             loadingProgress.setVisibility(View.GONE);
             loadingText.setVisibility(View.GONE);
         }
+    }
+
+    /**
+     * 把「电脑端 DeepSeek 账号」填成一次普通模型配置：
+     * apiUrl = 已配对电脑的 /v2/llm/chat，apiKey = 设备令牌（插件只认令牌，不碰账号 token）。
+     */
+    private void fillPcAccountProxy() {
+        String base = com.oilquiz.app.ai.tool.RemoteDshTool.configValue(context, "base_url");
+        String token = com.oilquiz.app.ai.tool.RemoteDshTool.configValue(context, "token");
+        if (token == null || token.trim().isEmpty()) {
+            token = com.oilquiz.app.ai.tool.RemoteDshTool.configValue(context, "main_token");
+        }
+        if (base == null || base.trim().isEmpty()) {
+            Toast.makeText(context, "还没配对电脑：先去「远程连接（电脑）」配对，再回来点这里",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        String b = base.trim();
+        while (b.endsWith("/")) b = b.substring(0, b.length() - 1);
+        // 基址给到 /v2/llm：推理层会自己拼 /chat/completions 与 /models
+        urlInput.setText(b + "/v2/llm");
+        keyInput.setText(token == null ? "" : token.trim());
+        if (nameInput.getText().toString().trim().isEmpty()) {
+            nameInput.setText("DeepSeek（电脑账号）");
+        }
+        if (selectedModelInput.getText().toString().trim().isEmpty()) {
+            selectedModelInput.setText("deepseek-chat");
+        }
+        Toast.makeText(context, "已填入电脑端账号代理；保存后生效（电脑需已登录 DeepSeek 账号）",
+                Toast.LENGTH_LONG).show();
     }
 
     private void saveConfig() {

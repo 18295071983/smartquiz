@@ -229,6 +229,19 @@
                 android:paddingStart="@dimen/space_4"
                 android:paddingEnd="@dimen/space_4"/>
 
+            <!-- 2026-11-18：一键改用电脑端 DeepSeek 账号（插件代理，手机不存账号 token） -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_use_pc_account"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/size_40"
+                android:layout_marginBottom="@dimen/space_8"
+                android:text="用电脑端 DeepSeek 账号（经插件代理）"
+                android:textSize="@dimen/text_12"
+                android:textAllCaps="false"
+                android:textColor="?attr/colorOnSecondaryContainer"
+                app:backgroundTint="?attr/colorSecondaryContainer"
+                app:cornerRadius="@dimen/radius_8"/>
+
             <!-- 操作按钮行 -->
             <LinearLayout
                 android:layout_width="match_parent"

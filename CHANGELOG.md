@@ -1,5 +1,31 @@
 # 变更日志
 
+## [2026-11-18] feat(llm): 手机可"用电脑端 DeepSeek 账号"（插件代理，A 方案）
+
+- **插件**：新增 OpenAI 兼容代理 `GET /v2/llm/models` + `POST /v2/llm/chat/completions`
+  （`/v2/llm/chat` 同义）。插件从 DSH credentials 读 `deepseek-account-platform/default`
+  的 grant token（`x-dsh-auth-token`）转发到 `api.deepseek.com`，响应含 SSE 流原样透传；
+  另加 `/v2/llm/account` 探测 `signed_in` + 失败原因。`inject` 增加 `credentials`。
+- **手机**：模型配置弹窗新增「用电脑端 DeepSeek 账号（经插件代理）」按钮，一键填入
+  `apiUrl = <已配对电脑>/v2/llm`、`apiKey = 设备令牌`、模型 `deepseek-chat`；
+  手机不接触账号 token，接口鉴权用设备令牌（插件 `authOk` 认）。
+- **实测**：电脑端 `signed_in=true`；`/v2/llm/models` 返回 deepseek-chat/reasoner；
+  用**手机设备令牌**调 `/v2/llm/chat/completions` 返回真实补全（`model=deepseek-flash`）。
+- 说明：账号 token 过期时上游 401，需电脑端重新登录；API Key 用户路径完全不变。
+
+## [2026-11-18] feat(phone-cli): 手机 CLI 只读子集（电脑远程调试手机 App / agent）
+
+- **手机**：`PhoneCli` 解释器（白名单）+ `RemoteCommandExecutor` 的 `case "cli"`；
+  命令：`help` / `version` / `tools list` / `tools show <name>` / `ui dump [--max-depth] [--json]` /
+  `ui find --text=`；`logcat` 明确返回"非 root 不可用"而不是假装成功。
+- **插件**：`phone_cli` 工具 + `POST /v2/cli {argv}`（同一条 `cmdQueue`，手机轮询执行、`cmd_ack` 回填）。
+- **事故修复**：`execPhoneCli` 原先定义在 `else` 块内、路由在顶层，调用时 `ReferenceError` 崩插件；
+  已挪到模块作用域，并给 `/v2/cli` 加 try/catch（异常退化为 JSON 500）。
+- **无设备快速失败**：`/v2/cli` 在无在线手机时返回 409 `no_device`，不占 20s 超时。
+- 真机实测：`version` → `exit=0 phone-cli/1.0 · Xiaomi 25113PN0EC · Android 17 (API 37)`；
+  `tools list` → `exit=0 tools=64 …`；`ui dump --max-depth 2` → `activity=RemoteDshConnectActivity size=1220x2656`。
+- 测试：`PhoneCliTest` 6 例（argv 分词 / 空命令 / help+version / tools list+show / 未知命令 / logcat 拒绝）。
+
 ## [2026-11-18] feat(canvas): 新版动态画布独立成工具 `ui_canvas`（不碰旧 `ui_component`）
 
 用户口径：「刚才做好的可以做个新工具，不要与现在的工具冲突就行」。

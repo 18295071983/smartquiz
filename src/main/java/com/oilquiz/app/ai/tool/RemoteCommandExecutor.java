@@ -47,6 +47,18 @@ public final class RemoteCommandExecutor {
                 h.post(() -> android.widget.Toast.makeText(ctx, msg,
                         android.widget.Toast.LENGTH_LONG).show());
                 return "toast shown";
+            case "cli": {
+                // 2026-11-18：手机 CLI（电脑远程调试 App / agent 的统一命令面）。
+                // 白名单解释器在 PhoneCli 内部；这里只负责跑并把 exit/stdout/stderr 拼回队列结果。
+                String argv = str(args == null ? null
+                        : (args.get("argv") != null ? args.get("argv") : args.get("command")));
+                PhoneCli.Result r = PhoneCli.exec(ctx, argv);
+                StringBuilder out = new StringBuilder();
+                out.append("exit=").append(r.code).append('\n');
+                if (!r.stdout.isEmpty()) out.append(r.stdout);
+                if (!r.stderr.isEmpty()) out.append("\n[stderr] ").append(r.stderr);
+                return out.toString().trim();
+            }
             case "ui_component": {
                 // C3 (2026-11-14): 带组件树的推送（args.props 里有 type）→ 交给通用渲染器开一屏；
                 // 否则仍按旧的"插槽"语义渲染。这样插件推新界面不需要手机发版。
