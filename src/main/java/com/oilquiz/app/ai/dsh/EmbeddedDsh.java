@@ -311,6 +311,29 @@ public final class EmbeddedDsh {
         return pb.start();
     }
 
+    private static final String K_URL = "dsh_web_url";
+
+    private static void saveUrl(Context c, String url) {
+        try {
+            c.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+                    .edit().putString(K_URL, url).apply();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 当前可用的 DSH 网页地址：优先用本次进程 token，其次用上次保存的（进程刚重启时）。 */
+    public static String currentLoginUrl(Context c) {
+        String t = token;
+        if (t != null && !t.isEmpty()) return "http://127.0.0.1:7788/?token=" + t;
+        try {
+            String saved = c.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+                    .getString(K_URL, "");
+            if (saved != null && !saved.isEmpty()) return saved;
+        } catch (Throwable ignored) {
+        }
+        return "http://127.0.0.1:7788/";
+    }
+
     private static void startLogPump(Context c, Process p) {
         File log = logFile(c);
         log.getParentFile().mkdirs();
@@ -326,7 +349,10 @@ public final class EmbeddedDsh {
                     w.write('\n');
                     w.flush();
                     Matcher m = TOKEN_RE.matcher(line);
-                    if (m.find()) token = m.group(1);
+                    if (m.find()) {
+                        token = m.group(1);
+                        saveUrl(c, "http://127.0.0.1:7788/?token=" + token);
+                    }
                 }
             } catch (Throwable ignored) {
             }

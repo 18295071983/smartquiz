@@ -245,6 +245,17 @@ public final class LocalDshManager {
             } catch (Throwable ignored) {
             }
         }
+        // 进程刚重启时 token 还没打印：先等它保存的地址，避免打开旧 token 报鉴权失败
+        try {
+            String saved = com.oilquiz.app.ai.dsh.EmbeddedDsh.currentLoginUrl(c);
+            if (saved != null && saved.contains("token=")) {
+                Intent it = new Intent(Intent.ACTION_VIEW, Uri.parse(saved));
+                it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                c.startActivity(it);
+                return;
+            }
+        } catch (Throwable ignored) {
+        }
         String url = "http://127.0.0.1:" + webPort(c) + "/";
         try {
             String saved = PublicStorageWriter.readTail(c, "termux_env", "dsh_url.txt", 2048);
