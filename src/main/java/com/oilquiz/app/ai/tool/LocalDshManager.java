@@ -6,6 +6,8 @@ import android.content.SharedPreferences;
 import android.net.Uri;
 import android.util.Log;
 
+import com.oilquiz.app.util.PublicStorageWriter;
+
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -29,8 +31,8 @@ public final class LocalDshManager {
     private static final String K_WEB_PORT = "local_dsh_web_port";
     /** 插件（smartquiz-remote）在本机 DSH 里的 HTTP 端口。 */
     public static final String DEFAULT_PLUGIN_URL = "http://127.0.0.1:8218";
-    /** 本机 DSH Web GUI 端口（登录/管理用）。 */
-    public static final int DEFAULT_WEB_PORT = 8788;
+    /** 本机 DSH Web GUI 端口（登录/管理用；dsh-phone 默认 7788，桥接 8218）。 */
+    public static final int DEFAULT_WEB_PORT = 7788;
 
     private LocalDshManager() {
     }
@@ -89,15 +91,18 @@ public final class LocalDshManager {
      */
     public static String start(Context c) {
         int port = webPort(c);
-        String cmd = "pkill -f 'dsh web' 2>/dev/null; "
-                + "nohup dsh web --host 127.0.0.1 --port " + port
-                + " >$HOME/.dsh-web.log 2>&1 & echo started:" + port;
+        // 用手机工作区实测过的 dsh-phone（网页 7788 + 桥接 8218 + token URL 落盘）
+        String cmd = "export PATH=\"$PREFIX/bin:$PATH\"; "
+                + "DSH_PORT=" + port + " dsh-phone start; "
+                + "mkdir -p /sdcard/Download/OilQuiz/termux_env 2>/dev/null; "
+                + "dsh-phone url > /sdcard/Download/OilQuiz/termux_env/dsh_url.txt 2>/dev/null; "
+                + "dsh-phone status";
         try {
             TermuxEnvInstaller.ChannelResult r =
-                    TermuxEnvInstaller.runInTermuxAndWait(c, cmd, 20);
+                    TermuxEnvInstaller.runInTermuxAndWait(c, cmd, 60);
             if (r == null) return "启动失败：没有回执";
             if (!r.ok) return "启动失败：" + (r.error == null ? "未知错误" : r.error);
-            return "已在 Termux 后台启动 dsh web（端口 " + port + "）";
+            return "已启动本机 DSH（网页 " + port + " / 桥接 8218）\n" + trim(r.stdout);
         } catch (Throwable t) {
             Log.w(TAG, "start failed: " + t.getMessage());
             return "启动失败：" + t.getMessage();
@@ -108,22 +113,40 @@ public final class LocalDshManager {
     public static String stop(Context c) {
         try {
             TermuxEnvInstaller.ChannelResult r = TermuxEnvInstaller.runInTermuxAndWait(
-                    c, "pkill -f 'dsh web' 2>/dev/null; echo stopped", 15);
+                    c, "export PATH=\"$PREFIX/bin:$PATH\"; dsh-phone stop; echo stopped", 20);
             return r != null && r.ok ? "已停止本机 DSH" : "停止失败：" + (r == null ? "无回执" : r.error);
         } catch (Throwable t) {
             return "停止失败：" + t.getMessage();
         }
     }
 
-    /** 打开本机 DSH 的 Web GUI（登录 DeepSeek 账号就在这里）。 */
+    /**
+     * 打开本机 DSH 的 Web GUI（登录 DeepSeek 账号就在这里）。
+     * 优先用 dsh-phone 落盘的带 token URL（每次启动 token 都会变）。
+     */
     public static void openLogin(Context c) {
+        String url = "http://127.0.0.1:" + webPort(c) + "/";
         try {
-            Intent it = new Intent(Intent.ACTION_VIEW,
-                    Uri.parse("http://127.0.0.1:" + webPort(c) + "/"));
+            String saved = PublicStorageWriter.readTail(c, "termux_env", "dsh_url.txt", 2048);
+            if (saved != null) {
+                java.util.regex.Matcher m = java.util.regex.Pattern
+                        .compile("http://127\\.0\\.0\\.1:\\d+/\\?token=[A-Za-z0-9_-]+")
+                        .matcher(saved);
+                if (m.find()) url = m.group();
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            Intent it = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
             it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             c.startActivity(it);
         } catch (Throwable t) {
             Log.w(TAG, "openLogin failed: " + t.getMessage());
         }
+    }
+
+    private static String trim(String s) {
+        if (s == null) return "";
+        return s.length() > 400 ? s.substring(0, 400) + "…" : s;
     }
 }

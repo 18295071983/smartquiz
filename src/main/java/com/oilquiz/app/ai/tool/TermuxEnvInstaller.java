@@ -578,29 +578,53 @@ public final class TermuxEnvInstaller {
      * Termux 正是这种"用户自己的 Linux 环境"；DSH 跑在里面才是真正的 DSH 客户端，
      * 登录/解析 token 都由 DSH 自己完成（App 只是 localhost 客户端）。</p>
      */
+    /** 内置的 DSH 安装/守护脚本（来自手机工作区实测版 dsh-install v1.0.1）。 */
+    public static final String[] DSH_SCRIPT_NAMES = {
+            "dsh-install.sh", "dsh-phone.sh", "dsh-launcher.sh", "dsh-serve.sh"};
+
+    /** 把内置 DSH 脚本导出到 Download/OilQuiz/termux_env/dsh/，Termux 侧直接读。 */
+    public static boolean exportDshScripts(Context ctx) {
+        boolean all = true;
+        for (String name : DSH_SCRIPT_NAMES) {
+            try (InputStream in = ctx.getAssets().open(ASSET_DIR + "/dsh/" + name)) {
+                String p = PublicStorageWriter.writeStream(ctx, EXPORT_SUBDIR + "/dsh",
+                        name, "text/x-shellscript", in);
+                all &= p != null;
+            } catch (Throwable t) {
+                all = false;
+            }
+        }
+        return all;
+    }
+
     public static String buildDshSetupScript() {
         return "set -o pipefail\n"
                 + "echo \"[dsh] 准备 DSH 环境 $(date '+%F %T')\"\n"
                 + "export PATH=\"$PREFIX/bin:$PATH\"\n"
-                + "command -v node >/dev/null 2>&1 || { echo \"[dsh] 安装 nodejs-lts\"; pkg install -y nodejs-lts || pkg install -y nodejs || true; }\n"
+                + "D=\"/sdcard/Download/OilQuiz/termux_env/dsh\"\n"
+                + "[ -f \"$D/dsh-install.sh\" ] || D=\"/sdcard/Download/OilQuiz/agent_workspace/files\"\n"
+                + "echo \"[dsh] 脚本目录 $D\"\n"
+                + "if [ ! -f \"$D/dsh-install.sh\" ]; then echo \"DSH_SETUP_FAIL: 找不到 dsh-install.sh\"; exit 1; fi\n"
+                + "for f in dsh-install dsh-phone dsh-launcher dsh-serve; do\n"
+                + "  src=\"$D/$f.sh\"; dst=\"$PREFIX/bin/$f\"\n"
+                + "  if [ -f \"$src\" ]; then cp \"$src\" \"$dst\" && chmod 700 \"$dst\"; fi\n"
+                + "done\n"
+                + "command -v node >/dev/null 2>&1 || { echo \"[dsh] 安装 nodejs-lts\"; pkg install -y nodejs-lts || true; }\n"
                 + "if ! command -v node >/dev/null 2>&1; then echo \"DSH_SETUP_FAIL: node 没装上\"; exit 1; fi\n"
+                + "command -v curl >/dev/null 2>&1 || pkg install -y curl >/dev/null 2>&1 || true\n"
                 + "echo \"[dsh] node $(node -v 2>/dev/null)\"\n"
-                + "if ! command -v dsh >/dev/null 2>&1; then\n"
-                + "  echo \"[dsh] npm install -g @deepseek-ai/dsh\"\n"
-                + "  npm install -g @deepseek-ai/dsh || { echo \"DSH_SETUP_FAIL: npm 安装失败\"; exit 1; }\n"
-                + "fi\n"
-                + "dsh --version 2>/dev/null || true\n"
+                + "dsh-install\n"
                 + "echo \"DSH_SETUP_OK $(date '+%F %T')\"\n";
     }
 
     /** 2026-11-18：在 Termux 后台启动本机 DSH Web（默认 127.0.0.1:8788）。 */
     public static String buildDshStartScript(int port) {
         return "export PATH=\"$PREFIX/bin:$PATH\"\n"
-                + "pkill -f 'dsh web' 2>/dev/null\n"
-                + "nohup dsh web --host 127.0.0.1 --port " + port
-                + " >$HOME/.dsh-web.log 2>&1 &\n"
-                + "sleep 2\n"
-                + "echo \"DSH_STARTED port=" + port + "\"\n";
+                + "if ! command -v dsh-phone >/dev/null 2>&1; then echo \"DSH_START_FAIL: dsh-phone 没装，先点「准备 DSH 环境」\"; exit 1; fi\n"
+                + "DSH_PORT=" + port + " dsh-phone start\n"
+                + "mkdir -p /sdcard/Download/OilQuiz/termux_env 2>/dev/null\n"
+                + "dsh-phone url > /sdcard/Download/OilQuiz/termux_env/dsh_url.txt 2>/dev/null || true\n"
+                + "dsh-phone status\n";
     }
 
     public static String buildSshEnableScript() {

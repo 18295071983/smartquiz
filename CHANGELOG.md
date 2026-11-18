@@ -3,8 +3,9 @@
 ## [2026-11-18] feat(termux): 本机 DSH 环境（Termux 里跑真 DSH，登录由 DSH 完成）
 
 - **Termux 配置页**新增两个入口：「准备 DSH 环境（Termux 装 Node + DSH）」
-  （`pkg install nodejs-lts` + `npm i -g @deepseek-ai/dsh`，超时 30 分钟）
-  与「启动本机 DSH」（后台 `dsh web --host 127.0.0.1 --port 8788`）。
+  与「启动本机 DSH」。**对齐手机工作区实测版**：内置 `dsh-install.sh / dsh-phone.sh /
+  dsh-launcher.sh / dsh-serve.sh`（dsh-install v1.0.1，含 flock/require-builtin/硬链接/
+  shebang 四处 Android 补丁），启动用 `dsh-phone start`（网页 7788 + 桥接 8218）。
 - **远程连接页**新增「本机 DSH（Termux）」卡片：状态探测（`GET 插件/status`，2s）、
   启动、打开登录页、刷新；插件地址默认 `http://127.0.0.1:8218`。
 - **模型配置**新增「用本机 DSH 账号（localhost 代理）」：填 `http://127.0.0.1:8218/v2/llm`，

@@ -1185,6 +1185,7 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
             toast("正在执行中，请稍候");
             return;
         }
+        boolean exported = TermuxEnvInstaller.exportDshScripts(this);
         java.io.File f = TermuxEnvInstaller.writeTextFile(this, "setup_dsh.sh",
                 TermuxEnvInstaller.buildDshSetupScript());
         if (f == null) {
@@ -1193,7 +1194,8 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         }
         busy = true;
         refresh();
-        log("🧠 正在 Termux 里准备 DSH 环境（装 Node + @deepseek-ai/dsh，需联网，几分钟到十几分钟）…");
+        log("🧠 正在 Termux 里准备 DSH 环境（内置 dsh-install 修补版，装 Node + @deepseek-ai/dsh，需联网）…"
+                + (exported ? "" : "\n（内置脚本没导出成功，会自动回退到工作区文件；再不行请检查存储权限）"));
         final String oneLine = "bash \"" + f.getAbsolutePath() + "\"";
         new Thread(() -> {
             TermuxEnvInstaller.ChannelResult r =
