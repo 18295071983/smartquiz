@@ -612,7 +612,9 @@ public final class TermuxEnvInstaller {
         boolean all = true;
         for (String name : DSH_SCRIPT_NAMES) {
             try (InputStream in = ctx.getAssets().open(ASSET_DIR + "/dsh/" + name)) {
-                String p = PublicStorageWriter.writeStream(ctx, EXPORT_SUBDIR + "/dsh",
+                // PublicStorageWriter 自己会拼 Download/OilQuiz 前缀；这里不能再带 EXPORT_SUBDIR，
+                // 否则会写到 Download/OilQuiz/OilQuiz/termux_env/dsh（真机踩到，Termux 读不到）。
+                String p = PublicStorageWriter.writeStream(ctx, "termux_env/dsh",
                         name, "text/x-shellscript", in);
                 all &= p != null;
             } catch (Throwable t) {

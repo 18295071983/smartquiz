@@ -288,6 +288,26 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 重新导出 Termux 准备文件夹（清空重建用）：--es mode termux_export
+        if ("termux_export".equals(getIntent().getStringExtra("mode"))) {
+            new Thread(() -> {
+                java.io.File setup = com.oilquiz.app.ai.tool.TermuxEnvInstaller.writeSetupScriptFile(this);
+                boolean pkgs = com.oilquiz.app.ai.tool.TermuxEnvInstaller.exportTermuxPkgs(this);
+                boolean dsh = com.oilquiz.app.ai.tool.TermuxEnvInstaller.exportDshScripts(this);
+                String root = null;
+                try {
+                    java.io.File r = com.oilquiz.app.ai.tool.TermuxEnvInstaller.exportRootfs(this);
+                    root = r == null ? null : r.getAbsolutePath();
+                } catch (Throwable t) {
+                    root = "ERR:" + t.getMessage();
+                }
+                Log.i(TAG, "TERMUX_EXPORT setup=" + (setup == null ? null : setup.getAbsolutePath())
+                        + " pkgs=" + pkgs + " dsh=" + dsh + " rootfs=" + root);
+                finish();
+            }, "termux-export").start();
+            return;
+        }
+
         // Termux 通用执行（调试通道用）：--es mode termux_exec --es cmd "命令"
         if ("termux_exec".equals(getIntent().getStringExtra("mode"))) {
             final String cmd = getIntent().getStringExtra("cmd");
