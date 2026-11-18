@@ -309,7 +309,8 @@ public final class EmbeddedDsh {
                     "root/Documents/deepseek-harness/default-workspace").getAbsolutePath());
         }
         cmd.add("-w");
-        cmd.add("/root");
+        // 2026-11-19：工作目录放到手机工作区（/sdcard 已挂载），不再停在 /root
+        cmd.add("/sdcard/Download/OilQuiz/agent_workspace");
         cmd.add("/usr/local/bin/dsh");
         cmd.add("phone");
         cmd.add("--no-open");
