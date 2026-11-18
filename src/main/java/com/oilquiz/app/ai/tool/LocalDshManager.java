@@ -138,6 +138,18 @@ public final class LocalDshManager {
      * App 读这个文件，避免用户手抄。读不到返回空串（退回旧的 "local"）。</p>
      */
     public static String pluginToken(Context c) {
+        // 2026-11-19：内置运行时用固定令牌，优先于任何缓存（旧缓存带垃圾会导致 8218 假 401）
+        try {
+            if (com.oilquiz.app.ai.dsh.EmbeddedDsh.isPrepared(c)) {
+                String fixed = com.oilquiz.app.ai.dsh.EmbeddedDsh.PLUGIN_TOKEN;
+                SharedPreferences sp = prefs(c);
+                if (!fixed.equals(sp.getString("local_dsh_token", ""))) {
+                    sp.edit().putString("local_dsh_token", fixed).apply();
+                }
+                return fixed;
+            }
+        } catch (Throwable ignored) {
+        }
         // 方案 B：直接读内置 rootfs 里的插件令牌文件
         String builtin = com.oilquiz.app.ai.dsh.EmbeddedDsh.pluginToken(c);
         if (builtin != null && !builtin.isEmpty()) return builtin;
