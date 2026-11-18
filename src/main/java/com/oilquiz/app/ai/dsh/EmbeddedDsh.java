@@ -213,6 +213,24 @@ public final class EmbeddedDsh {
 
     private static final String CONFIG_VERSION = "3";
 
+    /** DSH node_modules 层版本：补丁更新后强制重解压这一层（rootfs/node 不动）。 */
+    private static void ensureDshLayer(Context c) {
+        try {
+            File v = new File(base(c), "dsh_layer.version");
+            String cur = v.isFile() ? new String(java.nio.file.Files.readAllBytes(v.toPath()),
+                    StandardCharsets.UTF_8).trim() : "";
+            if ("2".equals(cur)) return;
+            Log.i(TAG, "re-extract dsh layer (patch update)");
+            DshTarGz.extractAsset(c, "dsh_runtime/dsh.tar.bin", rootfs(c), "opt/dsh");
+            try (Writer w = new OutputStreamWriter(new FileOutputStream(v),
+                    StandardCharsets.UTF_8)) {
+                w.write("2");
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "ensureDshLayer failed: " + t.getMessage());
+        }
+    }
+
     /** 配置版本升级：已解压的旧运行时也要重写工作区挂载/拉手，无需重新解压 300MB。 */
     private static void ensureConfig(Context c) {
         try {
@@ -236,6 +254,7 @@ public final class EmbeddedDsh {
             if (isRunning()) return "DSH 已在运行";
             try {
                 prepare(c);
+                ensureDshLayer(c);
                 ensureConfig(c);
             } catch (Throwable t) {
                 Log.e(TAG, "prepare failed", t);
