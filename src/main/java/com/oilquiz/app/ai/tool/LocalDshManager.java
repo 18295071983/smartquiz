@@ -59,6 +59,45 @@ public final class LocalDshManager {
     }
 
     /**
+     * 2026-11-19：清理自动创建的「本机 DSH（内置）」模型。
+     *
+     * <p>用户要求 App 不要自动建/切模型——只连插件即可。这里把之前自动创建的那条
+     * 127.0.0.1:8218 模型删掉；如果它正好是当前模型，回退到列表里第一条可用模型。</p>
+     */
+    public static String removeBuiltinModels(Context c) {
+        try {
+            com.oilquiz.app.ai.model.OnlineModelManager m =
+                    com.oilquiz.app.ai.model.OnlineModelManager.getInstance(c);
+            java.util.List<com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig> all =
+                    m.getModelList();
+            String removedId = null;
+            for (com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig cfg : all) {
+                if (cfg.apiUrl != null && cfg.apiUrl.contains("127.0.0.1:8218")) {
+                    removedId = cfg.id;
+                    m.removeModel(cfg.id);
+                }
+            }
+            if (removedId == null) return "没有自动创建的内置模型";
+            m.save();
+            String active = null;
+            try {
+                active = m.getActiveModel() == null ? null : m.getActiveModel().id;
+            } catch (Throwable ignored) {
+            }
+            if (removedId.equals(active)) {
+                java.util.List<com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig> left =
+                        m.getModelList();
+                if (!left.isEmpty()) {
+                    m.setActiveModel(left.get(0).id);
+                }
+            }
+            return "已移除自动创建的内置模型";
+        } catch (Throwable t) {
+            return "清理模型失败：" + t.getMessage();
+        }
+    }
+
+    /**
      * 2026-11-19：内置 DSH 就绪后，自动把 App 的模型切到本机代理。
      *
      * <p>用户之前配的是「DeepSeek（电脑账号）→ http://192.168.1.2:8218」，

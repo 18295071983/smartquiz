@@ -49,21 +49,9 @@ public class DshService extends Service {
         new Thread(() -> {
             String msg = EmbeddedDsh.start(this);
             Log.i(TAG, "start: " + msg);
-            // 不管是"刚启动"还是"已在运行"，只要不是失败，都确保模型切到本机代理
-            if (msg != null && !msg.contains("失败")) {
-                // 内置就绪 → 自动把 App 模型切到本机代理（否则还连着电脑地址会发不出消息）
-                for (int i = 0; i < 20; i++) {
-                    String r = com.oilquiz.app.ai.tool.LocalDshManager.ensureBuiltinModel(this);
-                    if (r.startsWith("已切换") || r.startsWith("已创建")) {
-                        Log.i(TAG, "model: " + r);
-                        break;
-                    }
-                    try {
-                        Thread.sleep(1500);
-                    } catch (InterruptedException ignored) {
-                    }
-                }
-            }
+            // 2026-11-19：用户要求"只连插件，不要 App 自动建/切模型"。
+            // 之前自动创建的「本机 DSH（内置）」模型在这里清掉，避免多出一条配置。
+            com.oilquiz.app.ai.tool.LocalDshManager.removeBuiltinModels(this);
         }, "dsh-service-start").start();
     }
 
