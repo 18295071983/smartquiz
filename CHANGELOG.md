@@ -1,5 +1,17 @@
 # 变更日志
 
+## [2026-11-18] fix(termux): 全新安装向导审计——修误判"就绪"、合并两次粘贴、真验容器
+
+- **误判就绪**：向导用 `channelState` 文案等值比较（`"不可用 ✗".equals(...)`），文案一带原因就永远
+  走"就绪"分支；改为布尔 `channelOk`。
+- **未验证容器**：过去只要前几步满足就宣称"Ubuntu 容器、Python 全部就绪"（实际 proot-distro 都没装）。
+  新增 `proot-distro login ubuntu -- true` 真探（`containerReady`），未就绪时给「第 7 步 · 一键准备环境」。
+- **fresh 两次粘贴**：存储 + allow-external-apps 合成一行 `TERMUX_INIT_COMMAND`，向导第 4 步一次粘贴完成。
+- **悬浮窗权限**不再阻塞主流程（建容器不需要它），从向导分支移除，保留原 action 供手动。
+- **proot-distro `-n` 兼容性**：`proot-distro install ubuntu <path>` 为主、带 `-n`/`file://` 兜底，
+  在线镜像同样双写法，避免版本差异导致"容器创建失败"。
+- 环境检查把"App 存储权限"和"Termux 读公共目录"分开显示（后者才是 setup.sh 的先决条件）。
+
 ## [2026-11-18] fix(termux): 修"读不到步骤脚本"——Termux 侧可读性检测 + 一键授存储
 
 - **根因**：App 自己的存储权限 ≠ Termux 的。环境检查显示"已授予 ✓"，`setup.sh` 进 Termux 后

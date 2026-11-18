@@ -586,6 +586,20 @@ public final class TermuxEnvInstaller {
     public static final String TERMUX_STORAGE_FIX_COMMAND = "termux-setup-storage";
 
     /**
+     * 2026-11-18：全新 Termux 的**一次粘贴**初始化：存储权限 + allow-external-apps。
+     *
+     * <p>以前 fresh 流程要粘两次（先 storage、再 allow-external-apps），两次都会弹窗/重启；
+     * 合并成一行：先弹存储授权，再写外部命令开关并重载设置。</p>
+     */
+    public static final String TERMUX_INIT_COMMAND =
+            "termux-setup-storage; "
+            + "mkdir -p ~/.termux; "
+            + "grep -q '^allow-external-apps' ~/.termux/termux.properties 2>/dev/null"
+            + " || echo 'allow-external-apps=true' >> ~/.termux/termux.properties; "
+            + "termux-reload-settings 2>/dev/null; "
+            + "echo '初始化完成：存储 + allow-external-apps'; exit";
+
+    /**
      * 2026-11-18：Termux 侧能否读到公共准备目录（/sdcard/Download/OilQuiz/termux_env）。
      *
      * <p>为什么需要它：App 自己的存储权限 ≠ Termux 的；之前环境检查显示"已授予 ✓"，
@@ -879,11 +893,16 @@ public final class TermuxEnvInstaller {
                 + "  done\n"
                 + "  if [ -n \"$ROOTFS\" ]; then\n"
                 + "    echo \"用本地安装包建容器（不联网）: $ROOTFS\"\n"
-                + "    proot-distro install -n ubuntu \"$ROOTFS\" || proot-distro install -n ubuntu \"file://$ROOTFS\" || echo \"（本地包安装失败，下面改用在线镜像重试）\"\n"
+                // 2026-11-18：proot-distro 5.9 不保证支持 -n（老版本/新版本参数不同），
+                // 先裸 alias 再带 -n 兜底，避免一条命令走死导致"容器创建失败"。
+                + "    proot-distro install ubuntu \"$ROOTFS\" || proot-distro install -n ubuntu \"$ROOTFS\""
+                + " || proot-distro install ubuntu \"file://$ROOTFS\""
+                + " || echo \"（本地包安装失败，下面改用在线镜像重试）\"\n"
                 + "  fi\n"
                 + "  if ! container_installed; then\n"
                 + "    echo \"联网下载 Ubuntu 根文件系统并建容器（清华镜像，约 30MB）…\"\n"
-                + "    proot-distro install -n ubuntu \"$TUNA_URL\" || true\n"
+                + "    proot-distro install ubuntu \"$TUNA_URL\""
+                + " || proot-distro install -n ubuntu \"$TUNA_URL\" || true\n"
                 + "  fi\n"
                 + "  if container_installed; then\n"
                 + "    ok \"容器 ubuntu 就绪\"\n"

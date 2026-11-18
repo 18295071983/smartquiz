@@ -76,6 +76,11 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
     /** Termux 侧能否读 /sdcard/Download/OilQuiz/termux_env（2026-11-18；与 App 自身存储权限无关） */
     private volatile String termuxReadState = "未检测（点「修复 Termux 存储」）";
     private volatile boolean termuxReadProbing = false;
+    /** 通道是否真的可用（布尔，供向导判断；不要再拿 channelState 文案做等值比较——文案带原因就失效） */
+    private volatile boolean channelOk = false;
+    /** Ubuntu 容器是否真能 login（null=未检测；向导据此决定"就绪"还是"建容器"） */
+    private volatile Boolean containerReady = null;
+    private volatile boolean containerProbing = false;
     /**
      * 最近一次通道探测的归因原文（由 {@link TermuxEnvInstaller} 的超时分类给出）。
      * 向导第 6 步靠它分档：进程没在跑 → 唤醒；进程活着但报错 → 才是 allow-external-apps。
@@ -208,6 +213,22 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         doQuickTermuxReadProbe();
     }
 
+    /** 2026-11-18：真探一次 Ubuntu 容器（proot-distro login -- true），别再凭"脚本文本"宣称就绪。 */
+    private void doProbeContainer() {
+        if (containerProbing || !channelOk) return;
+        containerProbing = true;
+        new Thread(() -> {
+            TermuxEnvInstaller.ChannelResult r = TermuxEnvInstaller.runInTermuxAndWait(
+                    this, "proot-distro login ubuntu -- true && echo CONTAINER_OK || echo CONTAINER_NO", 60);
+            boolean ok = r != null && r.ok && r.stdout != null && r.stdout.contains("CONTAINER_OK");
+            runOnUiThread(() -> {
+                containerProbing = false;
+                containerReady = ok;
+                refresh();
+            });
+        }, "container-probe").start();
+    }
+
     /** 2026-11-18：探测 Termux 侧能否读公共目录（setup.sh 的先决条件）。只读，不改配置。 */
     private void doQuickTermuxReadProbe() {
         if (termuxReadProbing) return;
@@ -226,6 +247,27 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                 refresh();
             });
         }, "termux-read-probe").start();
+    }
+
+    /** 2026-11-18：全新 Termux 一次粘贴初始化（存储 + allow-external-apps）。 */
+    private void doInitTermux() {
+        try {
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                        "termux-init", TermuxEnvInstaller.TERMUX_INIT_COMMAND));
+            }
+        } catch (Throwable ignored) {
+        }
+        boolean opened = TermuxEnvInstaller.openTermux(this);
+        termuxReadState = "待复检（粘完初始化命令后回来）";
+        refresh();
+        log("📋 已复制初始化命令（存储 + allow-external-apps 一次搞定）：\n\n"
+                + TermuxEnvInstaller.TERMUX_INIT_COMMAND + "\n\n"
+                + (opened ? "已打开 Termux：" : "请手动打开 Termux：")
+                + "长按终端 → 粘贴 → 回车；弹「允许访问文件」点允许。"
+                + "\n（若 Termux 提示 allow-external-apps 相关错误，重新打开一次 Termux 即可。）");
     }
 
     /** 一键修 Termux 存储权限：复制 termux-setup-storage + 打开 Termux。 */
@@ -266,6 +308,8 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                     channelCause = "allow_external_apps";
                     channelState = "不可用 ✗（allow-external-apps 未开，点下方复制修复命令）";
                 }
+                channelOk = probe != null && probe.ok;
+                if (channelOk) doProbeContainer();
                 refresh();
             });
         }, "quick-channel-probe").start();
@@ -397,15 +441,13 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
             progress = 40; title = "第 3 步 · 导出 Ubuntu 根文件系统";
             desc = "内置 28.5MB 包 → Download/OilQuiz/termux_env/。点一下自动导出，约几秒。";
             btnText = "📦 导出 Ubuntu 包（28.5MB）"; action = "rootfs";
-        } else if (!store) {
-            progress = 55; title = "第 4 步 · 设置 Termux 存储";
-            desc = "复制命令到 Termux 粘贴回车 → 系统弹「允许访问文件」点「允许」。做完切回来，我自动继续。";
-            btnText = "🔓 复制存储命令并打开 Termux"; action = "storage";
-        } else if (!overlay) {
-            progress = 70; title = "第 5 步 · 开启悬浮窗权限";
-            desc = "Termux 后台自动执行必需。点下面按钮跳到设置页，打开「显示在其他应用上层」开关后回来。";
-            btnText = "🪟 去开启悬浮窗权限"; action = "overlay";
-        } else if ("不可用 ✗".equals(channelState)) {
+        } else if (!"可读 ✓".equals(termuxReadState) || !channelOk) {
+            progress = 55; title = "第 4 步 · 初始化 Termux（一次粘贴）";
+            desc = "全新 Termux 需要两项设置：存储权限（读本地 29MB 包）+ allow-external-apps（App 才能下发命令）。"
+                    + "点下面按钮 → 命令已复制并打开 Termux → 长按粘贴、回车、系统弹「允许访问文件」点允许。"
+                    + "一行搞定两项，做完切回来我自动复检。";
+            btnText = "🔓 复制初始化命令并打开 Termux"; action = "init_termux";
+        } else if (!channelOk) {
             // 按探测归因码分档：看不到进程 ≠ 开关没开（开关没按时 Termux 会直接回一条写明原因的错误）
             boolean processDown = "process_invisible".equals(channelCause);
             progress = 80;
@@ -419,9 +461,19 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                 desc = "App 控制 Termux 的通道未通。复制一行命令到 Termux 粘贴，会自动重启 Termux 生效。做完切回来，我自动复检并继续。";
                 btnText = "⚡ 复制修复命令并打开 Termux"; action = "allowex";
             }
+        } else if (containerReady == null) {
+            progress = 85; title = "检测 Ubuntu 容器…";
+            desc = "正在通过通道验证 proot-distro/容器是否可用（最多 60 秒）。点击可重新检测。";
+            btnText = "🔄 重新检测容器"; action = "probe";
+        } else if (!containerReady) {
+            progress = 90; title = "第 7 步 · 一键准备环境（Ubuntu）";
+            desc = "离线装 proot-distro + 用本地 29MB rootfs 建 Ubuntu 容器，不联网。"
+                    + "点下面按钮，App 通过 Termux 通道执行 setup.sh（几分钟）；失败可重跑，已完成的步骤会自动跳过。";
+            btnText = "🚀 一键准备环境（离线）"; action = "run_setup";
         } else {
             progress = 100; title = "环境就绪 🎉";
-            desc = "Termux 通道、权限、Ubuntu 容器、Python 全部就绪。可在「更多工具」里进 Ubuntu 终端。";
+            desc = "Termux 通道 ✓、Termux 存储 ✓、Ubuntu 容器 ✓。"
+                    + "下一步：更多工具 →「准备 DSH 环境」把 Node + DSH 装进 Ubuntu。";
             btnText = "✅ 环境已就绪（点此重新检测）"; action = "done";
         }
         if (guideProgress != null) { guideProgress.setProgress(progress); }
@@ -600,6 +652,13 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                     + "（没有这项的话，走：设置 → 应用管理 → Termux → 高级/其他权限 → 显示在其他应用上层）");
         } else if ("allowex".equals(action)) {
             fixAllowExternalApps();
+        } else if ("init_termux".equals(action)) {
+            doInitTermux();
+        } else if ("run_setup".equals(action)) {
+            // 第 7 步：建 Ubuntu 容器（幂等，可重跑）
+            doRunSetup();
+        } else if ("probe".equals(action)) {
+            doQuickChannelProbe();
         } else if ("done".equals(action)) {
             // 已就绪：真正执行 8 步环境安装（proot/容器/Python/GUI）——向导全流程的收尾动作
             toast("环境准备开始…");
