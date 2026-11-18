@@ -69,7 +69,7 @@ public final class TermuxEnvInstaller {
             "mkdir -p ~/.termux; grep -q '^allow-external-apps' ~/.termux/termux.properties 2>/dev/null"
             + " || echo 'allow-external-apps=true' >> ~/.termux/termux.properties;"
             + " echo 'allow-external-apps:'; grep '^allow-external-apps' ~/.termux/termux.properties;"
-            + " termux-reload-settings 2>/dev/null; sleep 1; exit";
+            + " termux-reload-settings 2>/dev/null; echo '修复完成（会话保持不退出）'";
     private static final String SERVICE = "com.termux.app.RunCommandService";
     private static final String ACTION = "com.termux.RUN_COMMAND";
     private static final String E_PATH = "com.termux.RUN_COMMAND_PATH";
@@ -595,12 +595,14 @@ public final class TermuxEnvInstaller {
             // ~/storage 已存在时 termux-setup-storage 会问 "Do you want to continue? (y/n)"，
             // 直接粘一整行会卡在这个交互提示（真机踩到）；这里做两件事：
             // ① 只在存储真的不可用时才调用；② 自动喂 y，避免任何交互。
-            "{ [ -d ~/storage ] && [ -e ~/storage/downloads ]; } || printf 'y\\n' | termux-setup-storage; "
+            // 注意：不要再在末尾加 exit —— 会直接关掉 Termux 会话，用户看起来像"闪退"（真机踩到）。
+            "if [ -e ~/storage/downloads ]; then echo '存储已就绪，跳过 termux-setup-storage'; "
+            + "else termux-setup-storage; fi; "
             + "mkdir -p ~/.termux; "
             + "grep -q '^allow-external-apps' ~/.termux/termux.properties 2>/dev/null"
             + " || echo 'allow-external-apps=true' >> ~/.termux/termux.properties; "
             + "termux-reload-settings 2>/dev/null; "
-            + "echo '初始化完成：存储 + allow-external-apps'; exit";
+            + "echo '初始化完成：存储 + allow-external-apps（会话保持不退出）'";
 
     /**
      * 2026-11-18：Termux 侧能否读到公共准备目录（/sdcard/Download/OilQuiz/termux_env）。

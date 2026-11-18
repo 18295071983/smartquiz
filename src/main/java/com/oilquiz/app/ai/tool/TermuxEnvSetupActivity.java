@@ -444,8 +444,8 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         } else if (!"可读 ✓".equals(termuxReadState) || !channelOk) {
             progress = 55; title = "第 4 步 · 初始化 Termux（一次粘贴）";
             desc = "全新 Termux 需要两项设置：存储权限（读本地 29MB 包）+ allow-external-apps（App 才能下发命令）。"
-                    + "点下面按钮 → 命令已复制并打开 Termux → 长按粘贴、回车、系统弹「允许访问文件」点允许。"
-                    + "一行搞定两项，做完切回来我自动复检。";
+                    + "点下面按钮 → 命令已复制并打开 Termux → 长按粘贴、回车；若出现 (y/n) 就输入 y 再回车；"
+                    + "系统弹「允许访问文件」点允许。命令跑完会话不会退出（不会再像闪退）。做完切回来我自动复检。";
             btnText = "🔓 复制初始化命令并打开 Termux"; action = "init_termux";
         } else if (!channelOk) {
             // 按探测归因码分档：看不到进程 ≠ 开关没开（开关没按时 Termux 会直接回一条写明原因的错误）
