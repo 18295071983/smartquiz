@@ -592,7 +592,10 @@ public final class TermuxEnvInstaller {
      * 合并成一行：先弹存储授权，再写外部命令开关并重载设置。</p>
      */
     public static final String TERMUX_INIT_COMMAND =
-            "termux-setup-storage; "
+            // ~/storage 已存在时 termux-setup-storage 会问 "Do you want to continue? (y/n)"，
+            // 直接粘一整行会卡在这个交互提示（真机踩到）；这里做两件事：
+            // ① 只在存储真的不可用时才调用；② 自动喂 y，避免任何交互。
+            "{ [ -d ~/storage ] && [ -e ~/storage/downloads ]; } || printf 'y\\n' | termux-setup-storage; "
             + "mkdir -p ~/.termux; "
             + "grep -q '^allow-external-apps' ~/.termux/termux.properties 2>/dev/null"
             + " || echo 'allow-external-apps=true' >> ~/.termux/termux.properties; "

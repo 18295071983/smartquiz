@@ -1,5 +1,12 @@
 # 变更日志
 
+## [2026-11-18] fix(termux): 第 4 步初始化命令不再卡在 termux-setup-storage 交互确认
+
+- 真机现象：`~/storage` 已存在时 `termux-setup-storage` 会问
+  `Do you want to continue? (y/n)`，整行粘贴后卡住，后面的 allow-external-apps / reload 全不执行。
+- 修法：初始化命令改为 `{ [ -d ~/storage ] && [ -e ~/storage/downloads ]; } || printf 'y\n' | termux-setup-storage`，
+  只在存储真不可用时才调用，且自动喂 y；命令本身幂等、可重复粘。
+
 ## [2026-11-18] fix(storage): 同名目录/重复副本导致脚本跑不起来
 
 - **现象**：公共目录里若存在**同名目录** `setup.sh/`，`bash setup.sh` 直接报 Is a directory；
