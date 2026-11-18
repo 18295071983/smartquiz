@@ -582,6 +582,31 @@ public final class TermuxEnvInstaller {
     public static final String[] DSH_SCRIPT_NAMES = {
             "dsh-install.sh", "dsh-phone.sh", "dsh-launcher.sh", "dsh-serve.sh"};
 
+    /** 一次性授予 Termux 存储权限的命令（用户粘一次；之后 App 才能读公共目录）。 */
+    public static final String TERMUX_STORAGE_FIX_COMMAND = "termux-setup-storage";
+
+    /**
+     * 2026-11-18：Termux 侧能否读到公共准备目录（/sdcard/Download/OilQuiz/termux_env）。
+     *
+     * <p>为什么需要它：App 自己的存储权限 ≠ Termux 的；之前环境检查显示"已授予 ✓"，
+     * 结果 setup.sh 到 Termux 里才报"读不到步骤脚本"，用户以为是文件没导出。</p>
+     *
+     * @return true=可读；false=不可读；null=通道不可用（无法判断）
+     */
+    public static Boolean termuxPublicReadable(Context ctx) {
+        if (termuxVersion(ctx) == null || !hasRunCommandPermission(ctx)) return null;
+        // 注意：Android 11 分区存储下 `ls` 可能成功、真正读内容/执行才被拒（真机实测），
+        // 所以必须用 `cat` 真读一次，不能用 ls 判断。
+        TermuxEnvInstaller.ChannelResult r = runInTermuxAndWait(ctx,
+                "cat /sdcard/Download/OilQuiz/termux_env/setup.sh >/dev/null 2>&1 && echo READ_OK || echo READ_NO",
+                12);
+        if (r == null || !r.ok) return null;
+        String out = r.stdout == null ? "" : r.stdout;
+        if (out.contains("READ_OK")) return Boolean.TRUE;
+        if (out.contains("READ_NO")) return Boolean.FALSE;
+        return null;
+    }
+
     /** 把内置 DSH 脚本导出到 Download/OilQuiz/termux_env/dsh/，Termux 侧直接读。 */
     public static boolean exportDshScripts(Context ctx) {
         boolean all = true;

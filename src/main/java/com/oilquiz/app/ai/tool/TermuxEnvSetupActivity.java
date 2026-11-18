@@ -73,6 +73,9 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
     private volatile boolean busy;
     /** 通道自检结论（展示在状态区） */
     private String channelState = "未检测（点「自检并修复通道」）";
+    /** Termux 侧能否读 /sdcard/Download/OilQuiz/termux_env（2026-11-18；与 App 自身存储权限无关） */
+    private volatile String termuxReadState = "未检测（点「修复 Termux 存储」）";
+    private volatile boolean termuxReadProbing = false;
     /**
      * 最近一次通道探测的归因原文（由 {@link TermuxEnvInstaller} 的超时分类给出）。
      * 向导第 6 步靠它分档：进程没在跑 → 唤醒；进程活着但报错 → 才是 allow-external-apps。
@@ -122,6 +125,7 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         findViewById(R.id.btn_enable_ssh).setOnClickListener(v -> doEnableSsh());
         findViewById(R.id.btn_install_cli).setOnClickListener(v -> doInstallCliTools());
         // 2026-11-18：本机 DSH（Termux 里真 DSH；登录由 DSH 完成，App 只是 localhost 客户端）
+        findViewById(R.id.btn_fix_termux_storage).setOnClickListener(v -> doFixTermuxStorage());
         findViewById(R.id.btn_setup_dsh).setOnClickListener(v -> doSetupDsh());
         findViewById(R.id.btn_start_dsh).setOnClickListener(v -> doStartDsh());
         findViewById(R.id.btn_ssh_autostart).setOnClickListener(v -> {
@@ -200,6 +204,49 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                 && TermuxEnvInstaller.hasRunCommandPermission(this)) {
             doQuickChannelProbe();
         }
+        // 2026-11-18：每次进页都复检"Termux 能否读公共目录"（这是 setup.sh 报读不到脚本的真因）
+        doQuickTermuxReadProbe();
+    }
+
+    /** 2026-11-18：探测 Termux 侧能否读公共目录（setup.sh 的先决条件）。只读，不改配置。 */
+    private void doQuickTermuxReadProbe() {
+        if (termuxReadProbing) return;
+        if (TermuxEnvInstaller.termuxVersion(this) == null
+                || !TermuxEnvInstaller.hasRunCommandPermission(this)) {
+            termuxReadState = "未检测（先装 Termux / 授权通道）";
+            return;
+        }
+        termuxReadProbing = true;
+        new Thread(() -> {
+            Boolean can = TermuxEnvInstaller.termuxPublicReadable(this);
+            runOnUiThread(() -> {
+                termuxReadProbing = false;
+                termuxReadState = can == null ? "未检测（通道不可用）"
+                        : (can ? "可读 ✓" : "不可读 ✗（Termux 里跑一次 termux-setup-storage）");
+                refresh();
+            });
+        }, "termux-read-probe").start();
+    }
+
+    /** 一键修 Termux 存储权限：复制 termux-setup-storage + 打开 Termux。 */
+    private void doFixTermuxStorage() {
+        try {
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                        "termux-setup-storage", TermuxEnvInstaller.TERMUX_STORAGE_FIX_COMMAND));
+            }
+        } catch (Throwable ignored) {
+        }
+        boolean opened = TermuxEnvInstaller.openTermux(this);
+        termuxReadState = "待复检（粘完 termux-setup-storage 并点允许后回来）";
+        refresh();
+        log("📂 已复制 `" + TermuxEnvInstaller.TERMUX_STORAGE_FIX_COMMAND + "`"
+                + (opened ? "，并已打开 Termux。" : "，请手动打开 Termux。")
+                + "\n在 Termux 里长按 → 粘贴 → 回车，弹「允许访问文件」点允许；"
+                + "Android 11+ 若仍读不到，去系统设置 → 应用 → Termux → 打开「所有文件访问」。"
+                + "\n回来点「刷新」或重新进本页会自动复检。");
     }
 
     /** 轻量通道探测（8 秒）：只探测通断，不触发引导流程 */
@@ -285,9 +332,11 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         StringBuilder sb = new StringBuilder();
         sb.append("Termux：").append(ver == null ? "未安装 ✗" : ("已安装 ✓ v" + ver)).append("\n");
         sb.append("RUN_COMMAND 权限：").append(perm ? "已授予 ✓" : "未授予（需手点一次）").append("\n");
-        sb.append("Termux 存储权限：").append(store
+        sb.append("App 存储权限（导出脚本/包用）：").append(store
                 ? "已授予 ✓（用本地 28.5MB 包，不联网）"
                 : "未授予 ⚠️（读不到本地包 → 会联网下 30MB；一键准备时会弹授权框，请点『允许』）").append("\n");
+        // 2026-11-18：App 的存储权限 ≠ Termux 的；这一行才是 setup.sh 能不能读到脚本的关键
+        sb.append("Termux 读公共目录：").append(termuxReadState).append("\n");
         sb.append("Ubuntu 根文件系统：").append(rootfs == null ? "未导出 ✗" : ("已导出 ✓ " + mb(rootfs.length()))).append("\n");
         sb.append("Termux 签名：").append(ver == null ? "—"
                 : (TermuxEnvInstaller.termuxSignerMatchesBundled(this)
@@ -1187,6 +1236,13 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         }
         if (!TermuxEnvInstaller.hasRunCommandPermission(this)) {
             log("🔍 还没授予 RUN_COMMAND 权限，先点向导主按钮授权。");
+            return;
+        }
+        // 2026-11-18：Termux 读不到 /sdcard 时 setup 必然失败（"读不到步骤脚本"），先拦下来
+        Boolean canRead = TermuxEnvInstaller.termuxPublicReadable(this);
+        if (Boolean.FALSE.equals(canRead)) {
+            log("❌ Termux 读不到公共目录（/sdcard/Download/OilQuiz/termux_env）。"
+                    + "先在「更多工具」点「修复 Termux 存储权限」，把 termux-setup-storage 粘进 Termux 并点允许。");
             return;
         }
         if (busy) {

@@ -102,6 +102,22 @@ public final class LocalDshManager {
             return "Termux 通道不可用：" + st.summary()
                     + "\n先在「远程连接」页点「通道检查 / 修复（Termux）」。";
         }
+        // 2026-11-18：Termux 读不到 /sdcard 时 dsh-phone 的 URL 落盘会失败，先拦下来
+        Boolean canRead = TermuxEnvInstaller.termuxPublicReadable(c);
+        if (Boolean.FALSE.equals(canRead)) {
+            try {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                        c.getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm != null) {
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                            "termux-setup-storage", TermuxEnvInstaller.TERMUX_STORAGE_FIX_COMMAND));
+                }
+            } catch (Throwable ignored) {
+            }
+            TermuxEnvInstaller.openTermux(c);
+            return "Termux 读不到公共目录：已复制 termux-setup-storage 并打开 Termux，"
+                    + "粘贴执行、点允许后回来再点「启动」。";
+        }
         int port = webPort(c);
         // 用手机工作区实测过的 dsh-phone（网页 7788 + 桥接 8218 + token URL 落盘）
         String cmd = "export PATH=\"$PREFIX/bin:$PATH\"; "

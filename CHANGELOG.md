@@ -1,5 +1,16 @@
 # 变更日志
 
+## [2026-11-18] fix(termux): 修"读不到步骤脚本"——Termux 侧可读性检测 + 一键授存储
+
+- **根因**：App 自己的存储权限 ≠ Termux 的。环境检查显示"已授予 ✓"，`setup.sh` 进 Termux 后
+  才报"读不到步骤脚本"（`/sdcard/...` Permission denied）。
+- **探针修正**：Android 11 分区存储下 `ls` 可能成功、真读才被拒；`termuxPublicReadable()`
+  改用 `cat ... >/dev/null` 真读判断（之前的 `ls` 版本会误报"可读 ✓"）。
+- **环境检查新增一行**："Termux 读公共目录：可读/不可读（跑 termux-setup-storage）"，
+  不再把 App 权限和 Termux 权限混为一谈。
+- **一键修复**：更多工具新增「修复 Termux 存储权限（termux-setup-storage）」→ 复制命令 +
+  打开 Termux；「准备 DSH 环境」「启动本机 DSH」遇不可读会直接拦下并引导，不再跑一半才报错。
+
 ## [2026-11-18] fix(termux): allow-external-apps 单独归因 + 一键引导（通道修复拎出来）
 
 - **实测拦路虎**：Termux 回执 `RunCommandService requires allow-external-apps ...`
