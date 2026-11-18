@@ -606,6 +606,17 @@
             </intent-filter>
         </receiver>
 
+        <!-- 内置 DSH 开机自启（2026-11-19） -->
+        <receiver
+            android:name=".ai.dsh.DshBootReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".ai.tool.RemoteSyncService"
             android:exported="false"
