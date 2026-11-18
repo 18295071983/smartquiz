@@ -111,9 +111,10 @@ public class TodoCardView implements ChatComponent {
 
     private static android.graphics.drawable.Drawable cardBackground(Context context) {
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(ComponentColors.background(context));
+        // 2026-11-18: card background/outline go through component tokens (surface layer + outlineVariant)
+        gd.setColor(ComponentTheme.surface(context));
         gd.setCornerRadius(dp(context, 10));
-        gd.setStroke(dp(context, 1), ComponentColors.border(context));
+        gd.setStroke(dp(context, 1), ComponentTheme.outline(context));
         return gd;
     }
 

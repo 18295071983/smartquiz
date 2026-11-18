@@ -126,6 +126,20 @@ public class CodeCardView implements ChatComponent {
             Toast.makeText(context, "代码已复制", Toast.LENGTH_SHORT).show();
         });
         header.addView(copyBtn);
+        // 运行中：头部语言标签前一颗呼吸点（2026-11-18）。命令卡就是"执行效果"的主体，
+        // 之前只有一行静止的"运行中"；点用系统时钟相位，卡片重建后仍连续。
+        if (statusRunning) {
+            com.oilquiz.app.ui.widget.LiveDotsView dot =
+                    new com.oilquiz.app.ui.widget.LiveDotsView(context);
+            dot.setDotCount(1);
+            dot.setDotColor(ComponentColors.accent(context));
+            LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            dotLp.gravity = Gravity.CENTER_VERTICAL;
+            dotLp.rightMargin = Tokens.spaceSm(context);
+            header.addView(dot, 0, dotLp);
+            dot.start();
+        }
         card.addView(header);
 
         // 代码内容

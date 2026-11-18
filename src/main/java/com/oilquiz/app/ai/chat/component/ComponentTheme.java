@@ -32,24 +32,46 @@ public final class ComponentTheme {
 
     // ---------------------------------------------------------------- 颜色
 
-    /** 卡片底色 */
+    /** 卡片底色（最底层卡面） */
     public static int surface(Context context) {
         return orFallback(ThemeColors.attr(context, R.attr.colorSurface),
                 ComponentColors.background(context));
     }
 
-    /** 卡片内的次级底色（代码块、表头、输入底） */
-    public static int surfaceVariant(Context context) {
-        int fromTheme = ThemeColors.attr(context, R.attr.colorSurfaceVariant);
-        if (fromTheme == 0) {
-            fromTheme = ThemeColors.attr(context, R.attr.colorCardBackground);
+    /**
+     * M3 式"抬高"层：把 onSurface 按 4%/8%/12%/16% 叠到 surface 上。
+     *
+     * <p>为什么不用主题里的 colorSurfaceContainer*：预设 overlay 由生成器产出、只有
+     * surface/surfaceVariant 两级，容器五档在预设下会退化成同一个色（等于没层级）。
+     * 这里用"表面 + onSurface 叠色"现场算，浅色自动变暗、深色自动变亮，任何预设/换肤/
+     * 动态色都成立。level 0=卡面，1…4 依次抬高。</p>
+     */
+    public static int surfaceLayer(Context context, int level) {
+        final float[] ratio = {0f, 0.04f, 0.08f, 0.12f, 0.16f};
+        int idx = Math.max(0, Math.min(ratio.length - 1, level));
+        if (idx == 0) {
+            return surface(context);
         }
-        return orFallback(fromTheme, ComponentColors.fieldBg(context));
+        int tint = orFallback(ThemeColors.attr(context, R.attr.colorOnSurface), textPrimary(context));
+        return blend(surface(context), tint, ratio[idx]);
     }
 
-    /** 描边色 */
+    /** 卡片内的次级底色（代码块、表头、输入底）：等价"抬高一层"。 */
+    public static int surfaceVariant(Context context) {
+        return surfaceLayer(context, 2);
+    }
+
+    /**
+     * 描边色：优先 outlineVariant（分隔线/弱边框），再退回 border。
+     *
+     * <p>2026-11-18：主题里 colorOutline 已回归 M3 语义（组件描边 tone 50，很深），
+     * 卡片/分隔线继续用它会把卡片框画成深灰；这里改读 outlineVariant。</p>
+     */
     public static int outline(Context context) {
-        int fromTheme = ThemeColors.attr(context, R.attr.colorOutline);
+        int fromTheme = ThemeColors.attr(context, R.attr.colorOutlineVariant);
+        if (fromTheme == 0) {
+            fromTheme = ThemeColors.attr(context, R.attr.colorBorder);
+        }
         if (fromTheme == 0) {
             fromTheme = ThemeColors.attr(context, R.attr.colorDivider);
         }
@@ -77,19 +99,77 @@ public final class ComponentTheme {
                 ComponentColors.accent(context));
     }
 
-    /** 成功态 */
+    /** 成功态（attr 优先：预设换肤/深色能覆盖；之前直接读固定资源，换肤不跟） */
     public static int success(Context context) {
-        return ContextCompat.getColor(context, R.color.component_success);
+        return ComponentColors.success(context);
     }
 
     /** 警告态 */
     public static int warning(Context context) {
-        return ContextCompat.getColor(context, R.color.component_warning);
+        return ComponentColors.warning(context);
     }
 
     /** 危险/失败态 */
     public static int danger(Context context) {
-        return ContextCompat.getColor(context, R.color.component_error);
+        return ComponentColors.error(context);
+    }
+
+    // ---- 语义容器（提示条/状态块用"容器底 + on 文字"，不要 base 色配深字）----
+
+    public static int successContainer(Context context) {
+        return ComponentColors.successContainer(context);
+    }
+
+    public static int onSuccessContainer(Context context) {
+        return ComponentColors.onSuccessContainer(context);
+    }
+
+    public static int warningContainer(Context context) {
+        return ComponentColors.warningContainer(context);
+    }
+
+    public static int onWarningContainer(Context context) {
+        return ComponentColors.onWarningContainer(context);
+    }
+
+    public static int infoContainer(Context context) {
+        return ComponentColors.infoContainer(context);
+    }
+
+    public static int onInfoContainer(Context context) {
+        return ComponentColors.onInfoContainer(context);
+    }
+
+    /** 错误容器：复用主题 errorContainer（图片兜底色也用它，保持同一语义）。 */
+    public static int errorContainer(Context context) {
+        return ComponentColors.errorContainer(context);
+    }
+
+    public static int onErrorContainer(Context context) {
+        return ComponentColors.onErrorContainer(context);
+    }
+
+    /** 图表网格线 / 轴线 / 标签（此前借用 border + textSecondary）。 */
+    public static int chartGrid(Context context) {
+        return ComponentColors.chartGrid(context);
+    }
+
+    public static int chartAxis(Context context) {
+        return ComponentColors.chartAxis(context);
+    }
+
+    public static int chartLabel(Context context) {
+        return ComponentColors.chartLabel(context);
+    }
+
+    /** 按压状态层（半透明叠色，用于自绘可点区域的 feedback）。 */
+    public static int statePressed(Context context) {
+        return ComponentColors.statePressed(context);
+    }
+
+    /** 禁用态文字/图标。 */
+    public static int stateDisabledContent(Context context) {
+        return ComponentColors.stateDisabledContent(context);
     }
 
     /** 品牌色低透明度底（选中态背景）；只做透明度，不另起色系 */
@@ -227,6 +307,18 @@ public final class ComponentTheme {
                 // 十六进制/rgb() 等任意色值一律拒绝：宁可保持主题默认底色也不让模型改配色
                 return null;
         }
+    }
+
+    /** 线性混合两色（ratio=0 取 base，1 取 overlay），结果不透明。 */
+    private static int blend(int base, int overlay, float ratio) {
+        float r = Math.max(0f, Math.min(1f, ratio));
+        int red = Math.round(android.graphics.Color.red(base) * (1 - r)
+                + android.graphics.Color.red(overlay) * r);
+        int green = Math.round(android.graphics.Color.green(base) * (1 - r)
+                + android.graphics.Color.green(overlay) * r);
+        int blue = Math.round(android.graphics.Color.blue(base) * (1 - r)
+                + android.graphics.Color.blue(overlay) * r);
+        return android.graphics.Color.rgb(red, green, blue);
     }
 
     private static int orFallback(int fromTheme, int fallback) {

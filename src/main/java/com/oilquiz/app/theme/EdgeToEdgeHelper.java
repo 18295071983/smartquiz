@@ -136,8 +136,8 @@ public final class EdgeToEdgeHelper {
             // 主动请求一次 insets 分发（部分设备首次不自动回调，避免内容漏到状态栏下）
             ViewCompat.requestApplyInsets(root);
 
-            // 深浅图标：状态栏/导航条都按壁纸区的实际亮度（透明栏下两者看到的是同一层背景）
-            boolean light = isLightStatusArea(root, activity);
+            // 深浅图标：按状态栏区实际露出的背景亮度（全屏子 View / 壁纸 / 根背景），判不出才跟主题。
+            boolean light = wantsLightIcons(activity, root);
             WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(
                     activity.getWindow(), activity.getWindow().getDecorView());
             controller.setAppearanceLightStatusBars(light);
@@ -203,7 +203,7 @@ public final class EdgeToEdgeHelper {
             }
             WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(
                     activity.getWindow(), activity.getWindow().getDecorView());
-            boolean light = (root != null) ? isLightStatusArea(root, activity) : true;
+            boolean light = wantsLightIcons(activity, root);
             controller.setAppearanceLightNavigationBars(light);
         } catch (Throwable ignored) {
             // 静默降级
@@ -480,38 +480,132 @@ public final class EdgeToEdgeHelper {
 
     /**
      * 状态栏/导航栏图标深浅色全局同步（在壁纸应用后调用，含 AIChatActivity 等 insets 白名单页）：
-     * 按状态栏区实际背景（壁纸/背景图多点采样亮度）决定图标颜色，
-     * 避免「深色壁纸+深色图标」或「浅色壁纸+浅色图标」看不清。
+     * 按状态栏区**实际露出的那层背景**（全屏子 View / 壁纸 / 根背景）决定图标颜色，
+     * 避免「深色背景+深色图标」或「浅色背景+浅色图标」看不清。
      */
     public static void syncStatusBarIcons(Activity activity, View root) {
         try {
             if (activity == null || isWindowBgSyncSkipped(activity)) {
                 return;
             }
-            int c = 0;
-            if (root != null) {
-                c = sampleColor(root.getBackground());
-            }
-            if (c == 0) {
-                TypedValue tv = new TypedValue();
-                if (activity.getTheme().resolveAttribute(android.R.attr.colorBackground, tv, true)) {
-                    c = tv.data;
-                }
-            }
-            // 2026-11-16：不再一律靠"采样根布局背景色"猜深浅（那是补丁做法，动态色/渐变下会猜错）。
-            // 规则：页面不跟壁纸时，直接按主题深浅决定图标；跟壁纸时才看壁纸亮度。
-            boolean light;
-            if (com.oilquiz.app.theme.AppWallpaperManager.getMode(activity)
-                    == com.oilquiz.app.theme.AppWallpaperManager.MODE_OFF) {
-                light = !com.oilquiz.app.manager.ThemeManager.isDarkTheme(activity);
-            } else {
-                light = c == 0 || ColorUtils.calculateLuminance(c) > 0.5;
-            }
+            boolean light = wantsLightIcons(activity, root);
             WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(
                     activity.getWindow(), activity.getWindow().getDecorView());
             controller.setAppearanceLightStatusBars(light);
             controller.setAppearanceLightNavigationBars(light);
         } catch (Throwable ignored) {
+        }
+    }
+
+    /** 主题基线：浅色主题要深色图标（light=true）；深色 / OLED 要浅色图标。 */
+    private static boolean themeWantsLightIcons(Activity activity) {
+        return !com.oilquiz.app.manager.ThemeManager.isDarkTheme(activity);
+    }
+
+    /**
+     * 图标明暗判定（2026-11-18 修「浅色主题聊天气泡页白图标」）：
+     * 先看**状态栏区实际露出的那层背景**的亮度，判不出来才按主题。
+     *
+     * <p>历史：2026-11-16 起「壁纸开启 / 根背景是美术图」时采样，其余跟主题。但采样对象
+     * 一直是<b>根布局</b>：AI 对话页的根是 DrawerLayout（bg_home_full 深蓝渐变，只在抽屉里
+     * 可见），页面上真正铺满的是 main_content（chat_v2_bg，跟随深浅主题）。浅色主题下采到
+     * 深蓝渐变 → 判成"深背景" → 白色系统栏图标压在 #F7F6FB 上，时间/电量几乎看不见。
+     * 所以先找「铺满根容器、不透明、盖在状态栏区」的子 View，取它的背景色；没有这一层才
+     * 退回根背景／主题。</p>
+     */
+    private static boolean wantsLightIcons(Activity activity, View root) {
+        int c = statusBarSurfaceColor(root);
+        if (c != 0) {
+            return ColorUtils.calculateLuminance(c) > 0.5;
+        }
+        return themeWantsLightIcons(activity);
+    }
+
+    /**
+     * 状态栏区实际背景色（0 = 判不出来，交给主题）。
+     *
+     * <p>顺序：① 铺满根容器的不透明子 View（后绘制的优先，如聊天页 main_content 的
+     * chat_v2_bg）；② 根布局背景（壁纸 / 渐变 / 主题背景色）。</p>
+     */
+    private static int statusBarSurfaceColor(View root) {
+        if (root == null) {
+            return 0;
+        }
+        int child = fullBleedChildColor(root);
+        if (child != 0) {
+            return child;
+        }
+        return sampleColor(root.getBackground());
+    }
+
+    /**
+     * 取「铺满父容器、无外边距、不透明」子 View 的背景色（0 = 没有这样的一层）。
+     *
+     * <p>用 LayoutParams 判定而不依赖测量后的坐标：insets 回调 / onResume 时机不定，
+     * 这个判定在布局完成前也成立。DrawerLayout 的抽屉（固定宽、带 gravity）不是
+     * MATCH_PARENT 宽，会被自然跳过。</p>
+     */
+    private static int fullBleedChildColor(View root) {
+        if (!(root instanceof ViewGroup)) {
+            return 0;
+        }
+        if (root.getPaddingTop() > 0) {
+            // 根容器自己有顶部内边距（XML 里写死的）时，子 View 并没有铺到状态栏顶端，
+            // 状态栏区露出的仍是根背景，不做子 View 推断。
+            return 0;
+        }
+        ViewGroup group = (ViewGroup) root;
+        // 从后往前：同位置后添加的 View 画在上面，先看它
+        for (int i = group.getChildCount() - 1; i >= 0; i--) {
+            View child = group.getChildAt(i);
+            if (child == null || child.getVisibility() != View.VISIBLE || child.getAlpha() <= 0f) {
+                continue;
+            }
+            ViewGroup.LayoutParams lp = child.getLayoutParams();
+            if (lp == null
+                    || lp.width != ViewGroup.LayoutParams.MATCH_PARENT
+                    || lp.height != ViewGroup.LayoutParams.MATCH_PARENT) {
+                continue;
+            }
+            if (lp instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
+                if (mlp.leftMargin != 0 || mlp.topMargin != 0 || mlp.rightMargin != 0) {
+                    continue;
+                }
+            }
+            int c = sampleColor(child.getBackground());
+            if (Color.alpha(c) == 255) {
+                return c;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * 单独设置系统栏图标明暗（2026-11-17）。
+     *
+     * <p>给 {@link #apply(Activity)} 白名单页（如 AIChatActivity）用：这些页面不做 insets
+     * 接管，但状态栏图标仍要跟页面背景走，否则浅色主题下是白图标。
+     * 2026-11-18 起与 {@link #syncStatusBarIcons} 同一套判定（按状态栏区实际背景）。</p>
+     */
+    public static void applySystemBarIcons(Activity activity) {
+        try {
+            if (activity == null) {
+                return;
+            }
+            View root = null;
+            View content = activity.findViewById(android.R.id.content);
+            if (content instanceof ViewGroup) {
+                ViewGroup vg = (ViewGroup) content;
+                root = vg.getChildCount() > 0 ? vg.getChildAt(0) : vg;
+            }
+            boolean light = wantsLightIcons(activity, root);
+            WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(
+                    activity.getWindow(), activity.getWindow().getDecorView());
+            controller.setAppearanceLightStatusBars(light);
+            controller.setAppearanceLightNavigationBars(light);
+        } catch (Throwable ignored) {
+            // 设置失败保持系统默认
         }
     }
 
@@ -548,27 +642,6 @@ public final class EdgeToEdgeHelper {
         }
     }
 
-    /**
-     * 状态栏区背景亮度：一律按**页面根背景**（壁纸/渐变/背景色）采样。
-     *
-     * <p>2026-10-04：AppBar 已整体下移（状态栏区显示页面背景），不再采样 AppBar 背景
-     * —— 那会算出与真实背景相反的图标颜色。亮背景 → 深色图标。
-     */
-    private static boolean isLightStatusArea(View root, Activity activity) {
-        try {
-            int rc = sampleColor(root.getBackground());
-            if (rc != 0) {
-                return ColorUtils.calculateLuminance(rc) > 0.5;
-            }
-            TypedValue tv = new TypedValue();
-            if (activity.getTheme().resolveAttribute(android.R.attr.colorBackground, tv, true)) {
-                return ColorUtils.calculateLuminance(tv.data) > 0.5;
-            }
-        } catch (Throwable ignored) {
-        }
-        return true;
-    }
-
     /** 从背景 Drawable 采样代表色（0 表示无法采样）：Color/Bitmap/Gradient/Layer 逐层递归。 */
     private static int sampleColor(android.graphics.drawable.Drawable d) {
         if (d == null) {
@@ -602,9 +675,16 @@ public final class EdgeToEdgeHelper {
             }
             if (d instanceof android.graphics.drawable.GradientDrawable) {
                 try {
-                    Object c = ((android.graphics.drawable.GradientDrawable) d).getColor();
-                    if (c instanceof Integer) {
-                        return (Integer) c;
+                    android.graphics.drawable.GradientDrawable g =
+                            (android.graphics.drawable.GradientDrawable) d;
+                    ColorStateList solid = g.getColor();
+                    if (solid != null) {
+                        return solid.getDefaultColor();
+                    }
+                    int[] colors = g.getColors();
+                    if (colors != null && colors.length > 0 && Color.alpha(colors[0]) > 32) {
+                        // 渐变：取第一个颜色（顶部）代表状态栏区亮度（如首页深蓝渐变）
+                        return colors[0];
                     }
                 } catch (Throwable ignored) {
                 }

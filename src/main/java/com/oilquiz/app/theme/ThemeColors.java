@@ -52,11 +52,14 @@ public final class ThemeColors {
         ATTR_BY_RES.put(R.color.surface, R.attr.colorSurface);
         ATTR_BY_RES.put(R.color.surface_variant, R.attr.colorSurfaceVariant);
         ATTR_BY_RES.put(R.color.on_surface, R.attr.colorOnSurface);
-        ATTR_BY_RES.put(R.color.outline, R.attr.colorOutline);
+        // 2026-11-18：R.color.outline 是历史"细边框/分隔线"色（#E2E8F0），不是 M3 的组件描边。
+        // colorOutline 已回归 M3 语义（tone 50 深描边），直接把 outline 映射过去会让
+        // 8 处 Java 画的 1dp 卡片描边突然变深灰；这里改映射到 colorOutlineVariant。
+        ATTR_BY_RES.put(R.color.outline, R.attr.colorOutlineVariant);
         ATTR_BY_RES.put(R.color.card_background, R.attr.colorCardBackground);
         ATTR_BY_RES.put(R.color.text_primary, R.attr.colorControlText);
         ATTR_BY_RES.put(R.color.text_secondary, R.attr.colorControlTextSecondary);
-        ATTR_BY_RES.put(R.color.text_tertiary, R.attr.colorControlTextHint);
+        ATTR_BY_RES.put(R.color.text_tertiary, R.attr.colorControlTextTertiary);
         ATTR_BY_RES.put(R.color.text_hint, R.attr.colorControlTextHint);
         ATTR_BY_RES.put(R.color.background, R.attr.colorBackground);
         ATTR_BY_RES.put(R.color.on_background, R.attr.colorOnBackground);

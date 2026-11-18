@@ -86,6 +86,11 @@ public class ProgressCardView implements ChatComponent {
         ProgressBar progressBar = new ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setMax(100);
         progressBar.setProgress(progress);
+        // 2026-11-18：进度色/轨道走主题 token（品牌色 + 抬高一层容器），不再吃系统默认色
+        progressBar.setProgressTintList(android.content.res.ColorStateList.valueOf(
+                ComponentTheme.brand(context)));
+        progressBar.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                ComponentTheme.surfaceLayer(context, 3)));
         progressBar.setPadding(0, dp(context, 4), 0, 0);
         card.addView(progressBar, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 8)));
@@ -106,9 +111,10 @@ public class ProgressCardView implements ChatComponent {
 
     private static android.graphics.drawable.Drawable cardBackground(Context context) {
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(ComponentColors.background(context));
+        // 2026-11-18: card background/outline go through component tokens (surface layer + outlineVariant)
+        gd.setColor(ComponentTheme.surface(context));
         gd.setCornerRadius(dp(context, 10));
-        gd.setStroke(dp(context, 1), ComponentColors.border(context));
+        gd.setStroke(dp(context, 1), ComponentTheme.outline(context));
         return gd;
     }
 

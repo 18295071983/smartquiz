@@ -62,11 +62,64 @@
     
     <color name="outline">#3A3157</color>
     <color name="outline_variant">#2F2947</color>
+
+    <!-- ===== M3 颜色角色（夜间，2026-11-18）=====
+         surfaceContainer 五档在深色下必须"越高的容器越亮"（M3 的 elevation tint 逻辑），
+         否则 MDC 的日期/时间选择器、Chip、Card 会和底/卡糊成一片。 -->
+    <color name="outline_m3">#8A82A0</color>
+    <color name="surface_container_lowest">#0F0C15</color>
+    <color name="surface_container_low">#171221</color>
+    <color name="surface_container">#1E1830</color>
+    <color name="surface_container_high">#251E38</color>
+    <color name="surface_container_highest">#2D2545</color>
+    <color name="inverse_surface">#E6E0E9</color>
+    <color name="inverse_on_surface">#1E1830</color>
+    <color name="inverse_primary">#C4B5FD</color>
+
+    <!-- ===== 层级 / 状态 / 语义容器（夜间，2026-11-18 补全；口径同 values/colors.xml）===== -->
+    <color name="surface_dim">#110D18</color>
+    <color name="surface_bright">#3A3157</color>
+    <color name="surface_elevated_1">#1E1830</color>
+    <color name="surface_elevated_2">#241D33</color>
+    <color name="surface_elevated_3">#2B2342</color>
+
+    <color name="state_hover">#14E6E8EB</color>
+    <color name="state_focus">#1FE6E8EB</color>
+    <color name="state_pressed">#1FE6E8EB</color>
+    <color name="state_dragged">#29E6E8EB</color>
+    <color name="state_disabled_container">#0AE6E8EB</color>
+    <color name="state_disabled_content">#61E6E8EB</color>
+    <color name="primary_state_hover">#14C4B5FD</color>
+    <color name="primary_state_focus">#1FC4B5FD</color>
+    <color name="primary_state_pressed">#1FC4B5FD</color>
+
+    <color name="info">#7DD3FC</color>
+    <color name="info_container">#075985</color>
+    <color name="on_info">#0C4A6E</color>
+    <color name="on_info_container">#E0F2FE</color>
+
+    <color name="scrim">#B3000000</color>
+    <color name="border_strong">#4A4166</color>
+
+    <color name="chart_grid">#3A3157</color>
+    <color name="chart_axis">#8A82A0</color>
+    <color name="chart_label">#ABA2C6</color>
+
+    <color name="component_surface_low">#171221</color>
+    <color name="component_surface">#1E1830</color>
+    <color name="component_surface_high">#2B2342</color>
+    <color name="component_border_strong">#4A4166</color>
+    <color name="component_scrim">#B3000000</color>
+    <color name="component_on_success_container">#ECFDF5</color>
+    <color name="component_on_warning_container">#FFFBEB</color>
+    <color name="component_chart_grid">#3A3157</color>
+    <color name="component_chart_axis">#8A82A0</color>
+    <color name="component_chart_label">#ABA2C6</color>
     
     <!-- 文本颜色 - 暗色模式 -->
     <color name="text_primary">#E6E8EB</color>
     <color name="text_secondary">#ABA2C6</color>
-    <color name="text_tertiary">#6E7683</color>
+    <color name="text_tertiary">#868D9C</color>
     <color name="text_disabled">#4A515C</color>
     <color name="text_light">#F8FAFC</color>
     
@@ -206,9 +259,9 @@
     <color name="text_hint">#6E6585</color>
     <color name="divider_color">#2F2947</color>
     <color name="success_color">#6EE7B7</color>
-    <color name="info_color">#60A5FA</color>
-    <color name="error_color">#F87171</color>
-    <color name="warning_color">#FBBF24</color>
+    <color name="info_color">@color/info</color>
+    <color name="error_color">@color/error</color>
+    <color name="warning_color">@color/warning</color>
     
     <color name="colorEasy">#6EE7B7</color>
     <color name="colorMedium">#FBBF24</color>
@@ -274,7 +327,7 @@
     <!-- ========== 对话组件色板 - 暗色模式（覆盖 values/colors.xml 同名色，否则组件卡片在深色界面显示浅色底） ========== -->
     <color name="component_text_primary">#E6E8EB</color>
     <color name="component_text_secondary">#ABA2C6</color>
-    <color name="component_text_tertiary">#6E7683</color>
+    <color name="component_text_tertiary">#868D9C</color>
     <color name="component_accent">#C4B5FD</color>
     <color name="component_bg">#1E1830</color>
     <color name="component_border">#3A3157</color>

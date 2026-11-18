@@ -120,6 +120,28 @@ public class TurnPartsHostTest {
         assertSame("同 id 复用同一个 View 实例", first, host.views().get("a"));
     }
 
+    /**
+     * 新 part 入场动画的输入口径（2026-11-18）：{@code createdThisBind()} 只报**本次新建**的视图，
+     * 复用/重绑一律不报——否则流式每 120ms 重绑一次会把整条消息的卡片反复播入场。
+     */
+    @Test
+    public void createdThisBindReportsOnlyNewlyCreatedViews() {
+        host.bind(Arrays.asList(textPart("a", "A"), textPart("b", "B")));
+        assertEquals("首次 bind 两份都是新建", 2, host.createdThisBind().size());
+        View a = host.views().get("a");
+        View b = host.views().get("b");
+        assertSame(a, host.createdThisBind().get(0));
+        assertSame(b, host.createdThisBind().get(1));
+
+        host.bind(Arrays.asList(textPart("a", "A2"), textPart("b", "B2"))); // 内容变但复用
+        assertTrue("复用/重绑不能算新视图（否则每次流式重绑都会重播入场）",
+                host.createdThisBind().isEmpty());
+
+        host.bind(Arrays.asList(textPart("a", "A2"), textPart("b", "B2"), textPart("c", "C")));
+        assertEquals("只有新增的 c 算新视图", 1, host.createdThisBind().size());
+        assertSame(host.views().get("c"), host.createdThisBind().get(0));
+    }
+
     @Test
     public void contentChangeRebindsOnlyTheChangedPart() {
         host.bind(Arrays.asList(textPart("a", "A1"), textPart("b", "B1")));

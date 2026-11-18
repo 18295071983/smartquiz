@@ -108,18 +108,40 @@ public class StepsCardView implements ChatComponent {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.TOP);
         row.setPadding(0, ComponentTheme.dp(context, 3), 0, ComponentTheme.dp(context, 3));
+        if ("current".equals(status)) {
+            // 正在执行的这一步用"品牌色 12% 叠底"标出来（2026-11-18）：与呼吸点同色系，
+            // 不靠加粗/换字色硬拉注意力。
+            android.graphics.drawable.GradientDrawable rowBg =
+                    new android.graphics.drawable.GradientDrawable();
+            rowBg.setColor(ComponentTheme.brandOverlay(context));
+            rowBg.setCornerRadius(ComponentTheme.dp(context, 8));
+            row.setBackground(rowBg);
+            row.setPadding(ComponentTheme.dp(context, 6), ComponentTheme.dp(context, 3),
+                    ComponentTheme.dp(context, 6), ComponentTheme.dp(context, 3));
+        }
 
-        ImageView indicator = new ImageView(context);
         int size = ComponentTheme.dp(context, 16);
         LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(size, size);
         iconLp.topMargin = ComponentTheme.dp(context, 2);
         iconLp.setMarginEnd(ComponentTheme.dp(context, 8));
-        indicator.setLayoutParams(iconLp);
-        indicator.setImageResource(iconFor(status));
-        ImageViewCompat.setImageTintList(indicator,
-                ColorStateList.valueOf(colorFor(context, status)));
-        indicator.setContentDescription(statusLabel(context, status));
-        row.addView(indicator);
+        if ("current".equals(status)) {
+            // 正在跑的这一步用呼吸点替代静态图标（2026-11-18）：整张步骤卡里"哪一步在动"
+            // 比勾/圈更能说明它还活着；点用系统时钟相位，卡片重建后仍连续。
+            com.oilquiz.app.ui.widget.LiveDotsView live =
+                    new com.oilquiz.app.ui.widget.LiveDotsView(context);
+            live.setDotCount(1);
+            live.setDotColor(colorFor(context, status));
+            row.addView(live, iconLp);
+            live.start();
+        } else {
+            ImageView indicator = new ImageView(context);
+            indicator.setLayoutParams(iconLp);
+            indicator.setImageResource(iconFor(status));
+            ImageViewCompat.setImageTintList(indicator,
+                    ColorStateList.valueOf(colorFor(context, status)));
+            indicator.setContentDescription(statusLabel(context, status));
+            row.addView(indicator);
+        }
 
         LinearLayout textCol = new LinearLayout(context);
         textCol.setOrientation(LinearLayout.VERTICAL);

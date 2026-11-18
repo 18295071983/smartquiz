@@ -102,6 +102,19 @@ window.__ModuleLoader__.load({
       const [code, setCode] = React.useState(null);   // { code, expires_at }
       const [now, setNow] = React.useState(Date.now());
       const [updatedAt, setUpdatedAt] = React.useState(0);
+      // 2026-11-18：phone_ui / 插槽面板 —— 电脑端也能看到手机插槽并推送/移除
+      const [slots, setSlots] = React.useState([]);
+      const [conns, setConns] = React.useState([]);
+      const [formKind, setFormKind] = React.useState('slot');
+      const [formId, setFormId] = React.useState('phone_ui');
+      const [formTitle, setFormTitle] = React.useState('');
+      const [formDetail, setFormDetail] = React.useState('');
+      const [formLevel, setFormLevel] = React.useState('p4');
+      const [uiNote, setUiNote] = React.useState('');
+      // 当前会话 id：优先用宿主 slot 给的，拿不到就按全局插槽查
+      const sessionId = String(
+        (props && (props.sessionId || props.session_id
+          || (props.session && props.session.id) || props.id)) || '').trim();
       const dlgRef = React.useRef(null);
 
       // 每秒 tick：驱动「n 秒前」与配对码倒计时
@@ -163,6 +176,52 @@ window.__ModuleLoader__.load({
             ? (j.required ? t('panel.approvalOn', '已开启：新设备配对后需在此批准') : t('panel.approvalOff', '已关闭：配对后直接可用'))
             : t('panel.saveFailed', '设置失败'));
         }).catch(() => setNote(t('panel.saveFailed', '设置失败')));
+      };
+
+      // 2026-11-18：手机插槽 / 连接状态（面板内实时刷新）
+      const loadSlots = React.useCallback(() => {
+        const q = sessionId ? ('?session_id=' + encodeURIComponent(sessionId)) : '';
+        fetch('/v2/slots' + q, { cache: 'no-store' })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((j) => setSlots(j && Array.isArray(j.slots) ? j.slots : []))
+          .catch(() => setSlots([]));
+      }, [sessionId]);
+      const loadConns = React.useCallback(() => {
+        fetch('/v2/pulse', { cache: 'no-store' })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((j) => setConns(j && Array.isArray(j.connections) ? j.connections : []))
+          .catch(() => setConns([]));
+      }, []);
+
+      /** 推送到手机 / 移除插槽：slot 走 ui.slot，toast/notification 走 ui.notify */
+      const pushPhoneUi = (remove, onlyId) => {
+        const kind = String(formKind || 'slot');
+        const id = String(onlyId || formId || 'phone_ui').trim();
+        const title = remove ? '' : String(formTitle || '').trim();
+        const detail = remove ? '' : String(formDetail || '').trim();
+        if (!remove && !title && !detail) {
+          setUiNote(t('panel.slotNeedText', '标题或正文至少填一个'));
+          return;
+        }
+        const body = kind === 'slot'
+          ? { action: 'ui.slot', id, title, detail, level: formLevel,
+            ...(sessionId ? { session_id: sessionId } : {}) }
+          : { action: 'ui.notify', kind, title: title || detail, detail,
+            ...(sessionId ? { session_id: sessionId } : {}) };
+        setUiNote(t('panel.sending', '发送中…'));
+        fetch('/v2/action', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        }).then((r) => r.json().then((j) => ({ ok: r.ok, j }))).then(({ ok, j }) => {
+          if (ok && j && j.ok) {
+            setUiNote(remove ? t('panel.slotRemoved', '已移除') : t('panel.slotPushed', '已推送到手机'));
+            if (!remove) { setFormTitle(''); setFormDetail(''); }
+            loadSlots();
+          } else {
+            setUiNote((j && j.error) ? String(j.error) : t('panel.slotFailed', '推送失败'));
+          }
+        }).catch((e) => setUiNote(t('panel.slotFailed', '推送失败') + ': '
+          + String(e && e.message ? e.message : e)));
       };
 
       // 2026-11-16：配对码本地缓存 —— 关闭面板再打开、甚至刷新页面，
@@ -234,6 +293,14 @@ window.__ModuleLoader__.load({
       };
 
       React.useEffect(() => { if (open) { load(); loadCode(false); } }, [open, load, loadCode]);
+      // 插槽 / 连接状态：打开时拉一次，之后每 4 秒刷新（关闭面板就停，不打扰宿主）
+      React.useEffect(() => {
+        if (!open) return undefined;
+        loadSlots();
+        loadConns();
+        const timer = setInterval(() => { loadSlots(); loadConns(); }, 4000);
+        return () => clearInterval(timer);
+      }, [open, loadSlots, loadConns]);
       React.useEffect(() => {
         if (!open) return undefined;
         const timer = setInterval(load, 5000);
@@ -340,12 +407,22 @@ window.__ModuleLoader__.load({
         ? new Date(code.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         : '';
 
+      // 2026-11-18：加大点击热区（用户反馈"按钮不好点击、没定位好"）。
+      // 统一最小高度 + 足够内边距，行内按钮不再 1px 贴着文字。
       const chipStyle = {
-        display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12,
-        padding: '2px 10px', borderRadius: 999, cursor: 'pointer',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+        fontSize: 12.5, lineHeight: 1.2, minHeight: 28, padding: '5px 12px',
+        borderRadius: 999, cursor: 'pointer', touchAction: 'manipulation',
         border: '1px solid currentColor', background: 'transparent', color: 'inherit',
       };
-      const smallBtn = Object.assign({}, chipStyle, { padding: '1px 8px', fontSize: 11 });
+      const smallBtn = Object.assign({}, chipStyle, {
+        minHeight: 24, padding: '3px 10px', fontSize: 11.5,
+      });
+      const fieldStyle = {
+        minHeight: 26, padding: '3px 8px', fontSize: 12, borderRadius: 6,
+        border: '1px solid currentColor', background: 'transparent', color: 'inherit',
+        boxSizing: 'border-box', maxWidth: '100%',
+      };
       const label = { opacity: 0.7, fontSize: 11 };
       const mono = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 11.5, wordBreak: 'break-all' };
       const row = { display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 };
@@ -451,6 +528,76 @@ window.__ModuleLoader__.load({
                 }, (s.title || s.session_id || '')),
                 h('button', { style: smallBtn, onClick: () => archiveSession(s.session_id) },
                   t('panel.archive', '归档'))))),
+
+          // ---------- 插槽 · phone_ui（2026-11-18） ----------
+          h('div', { style: section },
+            h('div', { style: { fontWeight: 600 } },
+              '📌 ' + t('panel.slotTitle', '插槽 · phone_ui'),
+              h('span', { style: label }, '  ' + (conns.length > 0
+                ? t('panel.slotPhoneOnline', '手机在线') + ' ' + conns.length + ' 台'
+                : t('panel.slotPhoneOffline', '手机未连接'))),
+              h('span', { style: label }, '  · ' + (slots.length > 0
+                ? t('panel.slotCount', '当前') + ' ' + slots.length + ' 条'
+                : t('panel.slotNone', '暂无插槽')))),
+            h('div', { style: row },
+              h('button', { style: smallBtn, onClick: () => { loadSlots(); loadConns(); } },
+                t('panel.refresh', '刷新')),
+              slots.length === 0
+                ? h('span', { style: label }, t('panel.slotEmptyHint', '手机输入区上方还没有插槽'))
+                : null),
+            slots.slice(0, 8).map((s) => h('div', {
+              key: String(s.id),
+              style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, minWidth: 0 },
+            },
+              h('span', {
+                style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap', fontSize: 12 },
+                title: String(s.id || ''),
+              }, (s.level ? '[' + s.level + '] ' : '') + (s.title || s.id)
+                + (s.detail ? ' · ' + s.detail : '')),
+              h('span', { style: label }, s.ttl_ms > 0
+                ? Math.max(1, Math.round(s.ttl_ms / 1000)) + 's'
+                : t('panel.slotSticky', '常驻')),
+              h('button', { style: smallBtn, onClick: () => pushPhoneUi(true, s.id) },
+                t('panel.slotRemove', '移除')))),
+            h('div', { style: Object.assign({}, row, { marginTop: 8, flexWrap: 'wrap' }) },
+              h('select', {
+                style: Object.assign({}, fieldStyle, { minWidth: 92 }),
+                value: formKind, onChange: (e) => setFormKind(e.target.value),
+              },
+                h('option', { value: 'slot' }, 'slot 插槽'),
+                h('option', { value: 'toast' }, 'toast 提示'),
+                h('option', { value: 'notification' }, 'notification 通知')),
+              h('input', {
+                style: Object.assign({}, fieldStyle, { width: 96 }),
+                value: formId, placeholder: 'id（默认 phone_ui）',
+                onChange: (e) => setFormId(e.target.value),
+              }),
+              h('select', {
+                style: Object.assign({}, fieldStyle, { minWidth: 76 }),
+                value: formLevel, onChange: (e) => setFormLevel(e.target.value),
+              },
+                h('option', { value: 'p0' }, 'p0'),
+                h('option', { value: 'p1' }, 'p1'),
+                h('option', { value: 'p2' }, 'p2'),
+                h('option', { value: 'p3' }, 'p3'),
+                h('option', { value: 'p4' }, 'p4'),
+                h('option', { value: 'p5' }, 'p5'))),
+            h('div', { style: row },
+              h('input', {
+                style: Object.assign({}, fieldStyle, { flex: 1, minWidth: 0 }),
+                value: formTitle, placeholder: t('panel.slotTitlePh', '标题'),
+                onChange: (e) => setFormTitle(e.target.value),
+              })),
+            h('div', { style: row },
+              h('input', {
+                style: Object.assign({}, fieldStyle, { flex: 1, minWidth: 0 }),
+                value: formDetail, placeholder: t('panel.slotDetailPh', '正文 / 副标题'),
+                onChange: (e) => setFormDetail(e.target.value),
+              }),
+              h('button', { style: smallBtn, onClick: () => pushPhoneUi(false) },
+                t('panel.slotPush', '推送'))),
+            uiNote ? h('div', { style: Object.assign({}, label, { marginTop: 4 }) }, uiNote) : null),
 
           // ---------- 客户端（手机） ----------
           h('div', { style: section },

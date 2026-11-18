@@ -95,12 +95,22 @@ MaterialCardView card = AppCard.create(this);        // 空卡，自己 addView
 | 多 part 错峰入场 | `UiFx.staggerIn(host, 35, 220)` | 淡入 + 上移 6dp，最多 6 档 |
 | 折叠箭头 | `UiFx.rotateChevron(view, expanded)` | 90°/0°、180ms |
 | 内容淡入/淡出 | `UiFx.fadeIn / fadeOutGone` | 200 / 150ms |
+| **Agent 执行中的活动行** | `UiFx.shimmer(tv, true)` + `LiveDotsView` | 点阵 1.2s 错峰呼吸（21×14dp）；文字 1.4s 扫光、只调 alpha；结束即 `stop`/`stopShimmer` |
+| **执行类卡片（工具行/命令卡/步骤/子代理）** | `LiveDotsView.setDotCount(1)` | 只有"运行中"才挂；相位取系统时钟（卡片每 tick 重建也不归零）；结束不挂 |
+| **思考块容器** | `ReasoningShellView`（`setExpanded(expand, animate)` → `UiFx.animateHeight`） | 折叠头 32dp 胶囊（✦ + 呼吸点 + 文字 + ⌄）；正文容器左侧 2dp 引导线；**生成态**文字走主色 + 6% 主色底 + 呼吸点，**结束态**回次级色、留 700ms 后自动收起；没有正文时不显示箭头；展开 200ms / 收起 180ms，系统关动画时直接切 |
+| **思考手风琴（一轮一个头）** | `AssistantTurn.coalesceThinking` + `ThinkingPartRenderer` | 相邻 reasoning/tool_group 合成一个 `thinking` part；折叠体内按序排"思考段 + 工具行"，产物卡常显；开关 `thinking_group`（出厂开） |
+| **执行活动区 WebView PoC（默认关）** | `AgentPanelView` + `assets/agent_panel/agent_panel.html` | 开关 `agent_panel_web`；页面自带交互与统计，载荷与原生共用 `ThinkingSummary`；评估见 `docs/ui/agent-panel-web-poc.md` |
+| **新 part 入场** | `UiFx.riseIn(view, 220)` | 淡入 + 上移 6dp；只给流式消息里**新建**的 part（`TurnPartsHost.createdThisBind()`），历史/重绑不重播 |
+| **WebView 正文流式** | `MarkdownHtmlConverter` 的 CSS/JS（`qz-streaming` / `.qz-stream-tail` / `.qz-in`） | 2px 光标；新闭合块 180ms 淡入；定稿由 `swapBody(html,false)` 摘类 |
 
 规则：
 
 1. 新动效一律走 `UiFx`；对话页 Java 已由 `UiHardcodeGuardTest` 禁止 `new AlphaAnimation/TranslateAnimation/AnimationSet`、`ObjectAnimator.of`、`ValueAnimator.of`、`.animate()`；
 2. **动效原语只管形状、不管配色**：颜色由被动画的 View 按 `?attr` 取（`SegmentScraper` 的位移/时长是冻结口径，其配色完全来自 `tv_gen_phase` 等视图的 `?attr/colorControlTextSecondary`）；`motionPrimitivesAreColorAgnostic` 钉住这一点；
 3. `SegmentScraper`（刮刀滑入）是唯一实现、形状冻结；要改观感必须单独评审，不允许顺手优化。
+4. **不新增动画库**（2026-11-18）：Lottie 6.4 已在但只适合"矢量资源动画"（每条运行时文案要一个 json、颜色写死在资源里）；Shimmer 类库 2019 年后停更。agent 执行态的动效全部用平台 Animator 收敛在 `UiFx.shimmer` + `ui/widget/LiveDotsView`，真机目视入口：`UiKitGalleryActivity` 第 6 节。
+5. **WebView 正文动效**（2026-11-18）：消息正文（含思考正文）在 `MarkdownWebView` 里，动效只能落在文档自身的 CSS/JS——`MarkdownHtmlConverter.css()` 提供流式光标（`body.qz-streaming .qz-stream-tail::after`）与新块淡入（`.qz-in`），`bootstrapJs()` 的 `__qzStream` 负责切类、给尾巴打光标落点；`MarkdownWebView` 的整篇路径（`wrapDocument(..., streaming)` / `swapBody(html, streaming)`）必须同步这一帧的 `streaming` 真值，否则完成后光标会留在气泡里。不要在这两处之外另写一份 HTML 动效。
+
 
 ## 6. 附：IME（软键盘）标准（2026-11-16）
 

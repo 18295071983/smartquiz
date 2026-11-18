@@ -379,6 +379,49 @@ public class PartsCoverageTest {
         assertEquals("产物变了要重建", 2, prodF.created.size());
     }
 
+    /** 多工具折叠头要显示各自的展示名，而不是只有"已运行 N 个工具"。 */
+    @Test
+    public void groupHeaderShowsToolDisplayNames() {
+        ToolGroupPartRenderer r = new ToolGroupPartRenderer(new FakeFactory());
+        AssistantTurn.Part m1 = AssistantTurn.Part.toolCall(
+                "g:c1", "c1", "read_file", "{}", "success", 1L);
+        AssistantTurn.Part m2 = AssistantTurn.Part.toolCall(
+                "g:c2", "c2", "read_image", "{}", "success", 2L);
+        AssistantTurn.Part grp = AssistantTurn.Part.toolGroup("grp1",
+                new ArrayList<>(Arrays.asList(m1, m2)), 1L);
+
+        TestHost h = new TestHost(ctx);
+        View root = r.createView(h, container);
+        r.bindView(root, grp, h);
+
+        LinearLayout head = (LinearLayout) ((ViewGroup) root).getChildAt(0);
+        TextView header = (TextView) head.getChildAt(1);
+        assertEquals("读取文件、查看图片", header.getText().toString());
+    }
+
+    /** 超过 3 个不同工具时截断并报总数。 */
+    @Test
+    public void groupHeaderSummarizesWhenManyTools() {
+        ToolGroupPartRenderer r = new ToolGroupPartRenderer(new FakeFactory());
+        ArrayList<AssistantTurn.Part> members = new ArrayList<>();
+        String[] names = {"read_file", "read_image", "search", "pwsh"};
+        for (int i = 0; i < names.length; i++) {
+            members.add(AssistantTurn.Part.toolCall(
+                    "g:c" + i, "c" + i, names[i], "{}", "success", i + 1L));
+        }
+        AssistantTurn.Part grp = AssistantTurn.Part.toolGroup("grp2", members, 1L);
+
+        TestHost h = new TestHost(ctx);
+        View root = r.createView(h, container);
+        r.bindView(root, grp, h);
+
+        LinearLayout head = (LinearLayout) ((ViewGroup) root).getChildAt(0);
+        TextView header = (TextView) head.getChildAt(1);
+        String text = header.getText().toString();
+        assertTrue("前 3 个显示名要在：" + text, text.contains("读取文件、查看图片"));
+        assertTrue("超出部分报总数：" + text, text.contains("等 4 个工具"));
+    }
+
     /** 组卡同理：成员行每次重排（紧凑行很轻），产物区摘要没变就保留。 */
     @Test
     public void groupRebindKeepsProductsUntilTheyChange() {

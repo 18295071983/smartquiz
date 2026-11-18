@@ -20,16 +20,19 @@
     <color name="tertiary">#F59E0B</color>
     <color name="tertiary_container">#FEF3C7</color>
 
-    <color name="error">#EF4444</color>
+    <color name="error">#DC2626</color>
     <color name="error_container">#FEF2F2</color>
     <color name="on_error_container">#991B1B</color>
-    <color name="success">#10B981</color>
+    <color name="success">#047857</color>
     <color name="success_light">#6EE7B7</color>
     <color name="success_container">#ECFDF5</color>
     <color name="success_light_bg">#ECFDF5</color>
 
-    <color name="warning">#F59E0B</color>
+    <color name="warning">#B45309</color>
     <color name="accent">#06B6D4</color>
+    <!-- 提示（info）独立成角色（2026-11-18）：以前浅色借主紫、夜间借蓝，
+         两档色相不一致，且 on 色在夜间对比度只有 2.07。现在浅/夜统一天蓝系。 -->
+    <color name="info">#0369A1</color>
 
     <!-- 模式主题基础色（与night模式对齐） -->
     <color name="blue">#3B82F6</color>
@@ -54,8 +57,8 @@
     <color name="warning_container">#FFFBEB</color>
 
     <color name="text_primary">#1E293B</color>
-    <color name="text_secondary">#64748B</color>
-    <color name="text_tertiary">#94A3B8</color>
+    <color name="text_secondary">#5B6472</color>
+    <color name="text_tertiary">#667085</color>
     <color name="text_disabled">#94A3B8</color>
     <color name="text_hint">#94A3B8</color>
 
@@ -64,6 +67,78 @@
     <color name="transparent">#00000000</color>
     <color name="outline">#E2E8F0</color>
     <color name="divider">#E2E8F0</color>
+
+    <!-- ===== M3 颜色角色（2026-11-18）=====
+         之前只有部分 M3 名字，而且 colorOutline 被当成"边框色"（#E2E8F0）在用，M3 组件
+         拿它当描边会淡到看不见。这里按 M3 语义拆开：
+         - outline        = 组件描边（M3 tone 50，中性灰）
+         - outlineVariant = 分隔线/弱边框（M3 tone 80）
+         并补齐 surfaceContainer 五档 + inverse 三色：MDC 的日期/时间选择器、Chip、Card
+         读的就是这组 role，缺一个就会退回 colorSurface/透明（观感"不是 M3"的根因）。 -->
+    <color name="outline_m3">#64748B</color>
+    <color name="outline_variant">#E2E8F0</color>
+    <color name="surface_container_lowest">#FFFFFF</color>
+    <color name="surface_container_low">#F8FAFC</color>
+    <color name="surface_container">#F1F5F9</color>
+    <color name="surface_container_high">#E9EEF5</color>
+    <color name="surface_container_highest">#E2E8F0</color>
+    <color name="inverse_surface">#2F3033</color>
+    <color name="inverse_on_surface">#F1F0F4</color>
+    <color name="inverse_primary">#C4B5FD</color>
+
+    <!-- ===== 层级 / 状态 / 语义容器（2026-11-18 补全）=====
+         用户的判断是对的：之前"有颜色、没层级"——surface_elevated 与 surface 同值、
+         没有状态层、语义容器缺 on 色。这里按 M3 + 组件两套语义补成矩阵：
+         表面 8 档（background/surface/dim/bright/5 容器）→ 每层可用的边框 → 状态层 →
+         语义容器(on) → 组件别名（component_*，组件不用记 M3 role 名）。 -->
+
+    <!-- 表面：在 5 档容器之外补 dim/bright（M3 有；dim 用于降低层级、bright 用于强调） -->
+    <color name="surface_dim">#DDE4EE</color>
+    <color name="surface_bright">#FFFFFF</color>
+    <!-- 卡片/浮层三级"抬高"：浅色下靠边框与阴影区分，色值只做极轻微递进 -->
+    <color name="surface_elevated_1">#FFFFFF</color>
+    <color name="surface_elevated_2">#FBFCFE</color>
+    <color name="surface_elevated_3">#F6F8FB</color>
+
+    <!-- 状态层：M3 标准透明度叠在表面/主色上（hover 8% / focus 12% / pressed 12% / dragged 16%） -->
+    <color name="state_hover">#141E293B</color>
+    <color name="state_focus">#1F1E293B</color>
+    <color name="state_pressed">#1F1E293B</color>
+    <color name="state_dragged">#291E293B</color>
+    <color name="state_disabled_container">#0A1E293B</color>
+    <color name="state_disabled_content">#611E293B</color>
+    <color name="primary_state_hover">#148B5CF6</color>
+    <color name="primary_state_focus">#1F8B5CF6</color>
+    <color name="primary_state_pressed">#1F8B5CF6</color>
+
+    <!-- 语义容器：info 独立成套；success/warning 补 on 色。
+         on 色按 WCAG 计算：success 5.48:1 / warning 5.02:1 / error 4.83:1 / info 5.93:1（白字） -->
+    <color name="info_container">#E0F2FE</color>
+    <color name="on_info">#FFFFFF</color>
+    <color name="on_info_container">#075985</color>
+    <color name="on_success_container">#065F46</color>
+    <color name="on_warning_container">#78350F</color>
+
+    <!-- 遮罩 / 强边框（主题级；card_scrim 仍保留给压图浮标） -->
+    <color name="scrim">#99000000</color>
+    <color name="border_strong">#CBD5E1</color>
+
+    <!-- 图表专用：网格/轴线/标签（之前图表借 border/text_tertiary，深浅与换肤后不统一） -->
+    <color name="chart_grid">#E2E8F0</color>
+    <color name="chart_axis">#7C8798</color>
+    <color name="chart_label">#5B6472</color>
+
+    <!-- 组件别名：组件层用这套，不必直接记 M3 role 名；值跟随上面的层级/语义 -->
+    <color name="component_surface_low">#F8FAFC</color>
+    <color name="component_surface">#FFFFFF</color>
+    <color name="component_surface_high">#F1F5F9</color>
+    <color name="component_border_strong">#CBD5E1</color>
+    <color name="component_scrim">#99000000</color>
+    <color name="component_on_success_container">#065F46</color>
+    <color name="component_on_warning_container">#78350F</color>
+    <color name="component_chart_grid">#E2E8F0</color>
+    <color name="component_chart_axis">#7C8798</color>
+    <color name="component_chart_label">#5B6472</color>
     <color name="primary_alpha_10">#1A8B5CF6</color>
     <color name="primary_alpha_20">#338B5CF6</color>
     <color name="primary_alpha_50">#808B5CF6</color>
@@ -93,10 +168,10 @@
 
     <color name="gray_light">#E2E8F0</color>
     <color name="background_color">#F8FAFC</color>
-    <color name="error_color">#EF4444</color>
-    <color name="info_color">#8B5CF6</color>
+    <color name="error_color">@color/error</color>
+    <color name="info_color">@color/info</color>
     <color name="ai_color">#00BCD4</color>
-    <color name="warning_color">#F59E0B</color>
+    <color name="warning_color">@color/warning</color>
     <color name="lo_page_bg">#E9ECEF</color>
 
     <color name="green_50">#ECFDF5</color>
@@ -166,16 +241,18 @@
     <color name="log_warn">#F59E0B</color>
 
     <color name="on_primary">#FFFFFF</color>
-    <color name="on_secondary">#FFFFFF</color>
+    <color name="on_secondary">#083344</color>
     <color name="on_error">#FFFFFF</color>
-    <color name="on_success">#065F46</color>
+    <color name="on_success">#FFFFFF</color>
     <color name="on_background">#1E293B</color>
     <color name="on_surface">#1E293B</color>
-    <color name="on_surface_variant">#64748B</color>
+    <!-- 2026-11-18：onSurfaceVariant 要在 surfaceVariant(#F1F5F9) 上过 4.5:1，
+         #64748B 只有 4.34；降到 #5B6472（5.46）。text_secondary 同步跟随。 -->
+    <color name="on_surface_variant">#5B6472</color>
     <color name="on_warning">#FFFFFF</color>
     <color name="on_primary_container">#5B21B6</color>
     <color name="on_secondary_container">#155E75</color>
-    <color name="on_tertiary">#FFFFFF</color>
+    <color name="on_tertiary">#451A03</color>
     <color name="on_tertiary_container">#92400E</color>
     <color name="text_light">#FFFFFF</color>
     <color name="error_light">#FECACA</color>
@@ -308,7 +385,7 @@
     <!-- 强调/语义色与主题品牌色对齐（primary #8B5CF6 / accent #06B6D4 / success #10B981 / warning #F59E0B / error #EF4444） -->
     <color name="component_text_primary">#1F2937</color>
     <color name="component_text_secondary">#64748B</color>
-    <color name="component_text_tertiary">#94A3B8</color>
+    <color name="component_text_tertiary">#667085</color>
     <color name="component_accent">#8B5CF6</color>
     <color name="component_bg">#F8FAFC</color>
     <color name="component_border">#E2E8F0</color>
@@ -347,9 +424,9 @@
     <color name="chat_v2_on_brand">#FFFFFF</color>
     <!-- 图表系列色（与主题色板一致：主紫/青/绿/琥珀/红/蓝/粉/石板灰） -->
     <color name="chart_1">#8B5CF6</color>
-    <color name="chart_2">#06B6D4</color>
-    <color name="chart_3">#10B981</color>
-    <color name="chart_4">#F59E0B</color>
+    <color name="chart_2">#0891B2</color>
+    <color name="chart_3">#059669</color>
+    <color name="chart_4">#D97706</color>
     <color name="chart_5">#EF4444</color>
     <color name="chart_6">#3B82F6</color>
     <color name="chart_7">#EC4899</color>

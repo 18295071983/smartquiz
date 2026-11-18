@@ -21,9 +21,11 @@ import com.oilquiz.app.ai.chat.turn.AssistantTurn;
 public final class PartsTurnBinder {
 
     private final TurnPartsHost engine;
+    private final android.content.Context context;
 
     public PartsTurnBinder(ViewGroup container, PartRendererRegistry registry, PartHost host) {
         this.engine = new TurnPartsHost(container, registry, host);
+        this.context = container != null ? container.getContext() : null;
     }
 
     /** 绑定一条消息的 parts 到容器（增量复用）。msg 为 null 等价于清空。 */
@@ -33,7 +35,7 @@ public final class PartsTurnBinder {
 
     /** 绑定已构建好的 turn（供宿主先做能力覆盖判定后复用同一 turn，避免二次构建）。 */
     public void bind(AssistantTurn turn) {
-        engine.bind(turn != null ? turn.parts : null);
+        engine.bind(coalesced(turn != null ? turn.parts : null));
     }
 
     /** holder 回收/消息切换时清空（释放所有视图）。 */
@@ -45,7 +47,12 @@ public final class PartsTurnBinder {
         return engine.renderedCount();
     }
 
-    private static java.util.List<AssistantTurn.Part> partsOf(ChatMessage msg) {
+    /** 最近一次 bind 新建的视图（供宿主播"新 part 入场"；每次 bind 重置）。 */
+    public java.util.List<android.view.View> createdThisBind() {
+        return engine.createdThisBind();
+    }
+
+    private java.util.List<AssistantTurn.Part> partsOf(ChatMessage msg) {
         if (msg == null) {
             return null;
         }
@@ -55,6 +62,19 @@ public final class PartsTurnBinder {
                 ? msg.assistantTurn.copy()
                 : AssistantTurn.fromMessage(msg);
         AssistantTurn.expandInline(base);
-        return base != null ? base.parts : null;
+        return base != null ? coalesced(base.parts) : null;
+    }
+
+    /**
+     * 渲染前合并"思考手风琴"（2026-11-18）：相邻 reasoning / tool_group → 一个 thinking part。
+     *
+     * <p>只作用于本次绑定用的副本，上游（引擎的流式 id 寻址、消息模型）一点不动。
+     * 开关见 {@link ThinkingGroupFlag}，关掉即退回每段一个折叠头。</p>
+     */
+    private java.util.List<AssistantTurn.Part> coalesced(java.util.List<AssistantTurn.Part> parts) {
+        if (!ThinkingGroupFlag.enabled(context)) {
+            return parts;
+        }
+        return AssistantTurn.coalesceThinking(parts);
     }
 }

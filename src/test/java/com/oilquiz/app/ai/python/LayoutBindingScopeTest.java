@@ -8,8 +8,6 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
 
-import androidx.test.core.app.ApplicationProvider;
-
 import org.json.JSONObject;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -29,7 +27,10 @@ public class LayoutBindingScopeTest {
 
     @Test
     public void changingInputRecomputesFormulaAndWritesPropsData() throws Exception {
-        Context context = ApplicationProvider.getApplicationContext();
+        // 2026-11-18：input 节点已改成框架的 TextInputLayout（Material 组件），
+        // Robolectric 的裸 Application 上下文没套 Material 主题，Material 组件会拒绝创建；
+        // 真机上 Application/Activity 上下文都带清单里的 Theme.OilQuizApp，所以这里用带主题的上下文。
+        Context context = com.oilquiz.app.testsupport.ThemedAppContext.get();
         JSONObject props = new JSONObject();
         JSONObject data = new JSONObject();
         data.put("a", 2);

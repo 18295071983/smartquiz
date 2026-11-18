@@ -71,6 +71,7 @@ public final class PartRendererRegistry {
         ToolCallPartRenderer toolCall = new ToolCallPartRenderer();
         return new PartRendererRegistry()
                 .register(new TextPartRenderer())
+                .register(new ThinkingPartRenderer())
                 .register(new ReasoningPartRenderer())
                 .register(new ErrorPartRenderer())
                 .register(new ApprovalPartRenderer())

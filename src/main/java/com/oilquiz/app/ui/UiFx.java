@@ -292,6 +292,217 @@ public final class UiFx {
     }
 
     /**
+     * 文本"流光"：把一条由本行文字色派生的亮带扫过文字，表示"这一行正在跑"（2026-11-18）。
+     *
+     * <p><b>为什么需要</b>：agent 执行时气泡里只有一行静止的"正在运行 pwsh"/"正在思考…"，
+     * 一动不动的文字读起来像卡死（用户原话："agent 执行时没有引入动画"）。聊天类产品的通行
+     * 做法是让这行字自带走光，眼睛一瞥就知道还在跑。</p>
+     *
+     * <p><b>为什么不引库</b>：Lottie 已在项目里（6.4.0），但它是"矢量资源动画"——每句
+     * 运行时文案都要准备一个 json，且颜色写在 json 里、跟着换肤走不通；
+     * Shimmer 类库（{@code com.facebook.shimmer} 0.5.0）2019 年后停更，效果等价于
+     * 给 {@code Paint} 挂 {@link android.graphics.LinearGradient} + 本地矩阵，也就是下面这几十行。
+     * 结论：这一层用平台 Animator 更小、更可控。</p>
+     *
+     * <p><b>配色口径</b>：动效层不取色，只用 {@code text.getCurrentTextColor()} 做 alpha
+     * 调制（0.55 → 1 → 0.55，暗部不至于读不清），深浅色/换肤自动跟随；{@link #stopShimmer}
+     * 摘掉 shader 即恢复原 textColor，不污染控件状态。</p>
+     *
+     * <p><b>幂等</b>：状态挂在 {@code R.id.tag_shimmer} 上，同一个 TextView 反复调
+     * {@code shimmer(tv, true)}（流式每 120ms 重绑一次）不会叠出多个 Animator；
+     * 离屏自动暂停、回屏续跑。</p>
+     *
+     * @param text 目标文本；null 安全
+     * @param on   true 开始，false 停止并复位
+     */
+    public static void shimmer(android.widget.TextView text, boolean on) {
+        if (text == null) {
+            return;
+        }
+        Object tag = text.getTag(R.id.tag_shimmer);
+        Shimmer state = tag instanceof Shimmer ? (Shimmer) tag : null;
+        if (state == null) {
+            if (!on) {
+                return;
+            }
+            state = new Shimmer(text);
+            text.setTag(R.id.tag_shimmer, state);
+            text.addOnAttachStateChangeListener(state);
+        }
+        state.setEnabled(on);
+    }
+
+    /** 停止文本流光（等价 {@code shimmer(text, false)}，便于调用处表达"结束"语义）。 */
+    public static void stopShimmer(android.widget.TextView text) {
+        shimmer(text, false);
+    }
+
+    /**
+     * 单条文本上的流光状态机（挂在 View tag 上，保证同一 View 只有一个 Animator）。
+     *
+     * <p>亮带宽度取文字宽度的 60%，1.4s 扫一遍——比 pulse 慢一点，和"呼吸"区分开：
+     * 呼吸表示"还连着"，流光表示"正在产出"。</p>
+     */
+    private static final class Shimmer implements View.OnAttachStateChangeListener {
+
+        private static final long PERIOD_MS = 1400L;
+        private static final float BAND_RATIO = 0.6f;
+        private static final int BAND_MIN_PX = 24;
+
+        private final android.widget.TextView text;
+        private final android.graphics.Matrix matrix = new android.graphics.Matrix();
+        private android.animation.ValueAnimator animator;
+        private android.graphics.LinearGradient gradient;
+        private boolean enabled;
+        private int band = BAND_MIN_PX;
+
+        Shimmer(android.widget.TextView text) {
+            this.text = text;
+        }
+
+        void setEnabled(boolean on) {
+            enabled = on;
+            if (on) {
+                start();
+            } else {
+                stop();
+            }
+        }
+
+        private void start() {
+            if (animator != null) {
+                return; // 已在扫：流式重绑不重启，避免每帧归零
+            }
+            if (!android.animation.ValueAnimator.areAnimatorsEnabled()) {
+                clearShader(); // 系统关了动画：保持静态，别留一个跑着的 Animator
+                return;
+            }
+            if (!text.isAttachedToWindow()) {
+                return; // 回树时由 onViewAttachedToWindow 续上
+            }
+            buildGradient();
+            animator = android.animation.ValueAnimator.ofFloat(0f, 1f);
+            animator.setDuration(PERIOD_MS);
+            animator.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+            animator.setInterpolator(new android.view.animation.LinearInterpolator());
+            animator.addUpdateListener(a -> apply((float) a.getAnimatedValue()));
+            animator.start();
+            apply(0f);
+        }
+
+        private void stop() {
+            if (animator != null) {
+                animator.cancel();
+                animator = null;
+            }
+            clearShader();
+        }
+
+        private void apply(float t) {
+            int width = contentWidth();
+            int want = Math.max(BAND_MIN_PX, Math.round(width * BAND_RATIO));
+            // 文案里带"已运行 12 秒"这类每 120ms 变一次的数字：宽度微抖不重建渐变，
+            // 否则流式期间每秒白建好几次 LinearGradient。
+            if (gradient == null || Math.abs(want - band) > 4) {
+                band = want;
+                rebuildGradient();
+            }
+            if (gradient == null) {
+                return;
+            }
+            float travel = width + band * 2f;
+            matrix.setTranslate(-band + travel * t, 0f);
+            gradient.setLocalMatrix(matrix);
+            text.invalidate();
+        }
+
+        /**
+         * 用来分段的宽度：取"已布局宽度"与"文字测量宽度"的较小者。
+         *
+         * <p>不能用 View 宽度（那是整行）：文字只有半行时，亮带会在右侧空白里空扫半个周期，
+         * 看上去就是"字先变暗、隔一会儿才闪一下"。取 min 后亮带正好跑在文字上。</p>
+         */
+        private int contentWidth() {
+            int laidOut = text.getWidth();
+            CharSequence cs = text.getText();
+            int measured = 0;
+            if (cs != null && cs.length() > 0) {
+                measured = (int) Math.ceil(text.getPaint().measureText(cs, 0, cs.length()));
+            }
+            if (measured <= 0) {
+                return laidOut;
+            }
+            return laidOut > 0 ? Math.min(laidOut, measured) : measured;
+        }
+
+        private void buildGradient() {
+            band = Math.max(BAND_MIN_PX, Math.round(contentWidth() * BAND_RATIO));
+            rebuildGradient();
+        }
+
+        /**
+         * 重建渐变：暗部 = 当前文字色 55% alpha，亮部 = 原色。
+         * 只调 alpha 不换色，换肤/深色模式由文字色自己带过来。
+         */
+        private void rebuildGradient() {
+            int base = text.getCurrentTextColor();
+            int alpha = android.graphics.Color.alpha(base);
+            int dim = (base & 0x00FFFFFF) | (Math.round(alpha * 0.55f) << 24);
+            gradient = new android.graphics.LinearGradient(0f, 0f, Math.max(1, band), 0f,
+                    new int[]{dim, base, dim},
+                    new float[]{0f, 0.5f, 1f},
+                    android.graphics.Shader.TileMode.CLAMP);
+            text.getPaint().setShader(gradient);
+        }
+
+        private void clearShader() {
+            gradient = null;
+            text.getPaint().setShader(null);
+            text.invalidate();
+        }
+
+        @Override
+        public void onViewAttachedToWindow(View v) {
+            if (enabled && animator == null) {
+                start();
+            }
+        }
+
+        @Override
+        public void onViewDetachedFromWindow(View v) {
+            if (animator != null) {
+                animator.cancel();
+                animator = null;
+            }
+            // 离屏时摘掉 shader，避免回收池里的 View 还挂着渐变
+            gradient = null;
+            text.getPaint().setShader(null);
+        }
+    }
+
+    /**
+     * 单块入场：淡入 + 上移 6dp（{@link #staggerIn} 的"单个"版本，2026-11-18）。
+     *
+     * <p>用途：执行中**新出现**的一张 part 卡（工具卡 / 命令卡 / 思考块）给一次落点，
+     * 而不是整条消息陪着一起动。只做竖直位移——新卡总是长在内容底部，上移不会画出父容器边界；
+     * 横向滑入在 {@code partsContainer} 里会被 clipChildren 裁掉左边几个字。</p>
+     */
+    public static void riseIn(View view, long durationMs) {
+        if (view == null || !android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            return;
+        }
+        float dy = Tokens.spaceSm(view.getContext());
+        view.setAlpha(0f);
+        view.setTranslationY(dy);
+        view.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(durationMs)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                .start();
+    }
+
+    /**
      * 内容块错峰入场：给"一条消息里多个 part 卡"用（每个 part 一张卡时，
      * 一起淡入会显得整条消息一起蹦出来）。淡入 + 上移 6dp，逐个延迟 {@code stepMs}（最多 6 档）。
      */
@@ -404,6 +615,58 @@ public final class UiFx {
                 .setDuration(180L)
                 .setInterpolator(new android.view.animation.DecelerateInterpolator())
                 .start();
+    }
+
+    /**
+     * 高度动画（展开/收起容器用，2026-11-18）。
+     *
+     * <p>为什么放在动效层：对话页 Java 禁止手写 {@code ValueAnimator.of}（见
+     * {@code UiHardcodeGuardTest}），而"思考块展开"这类容器必须有高度过渡——纯切
+     * {@code VISIBLE}/{@code GONE} 会让消息列表瞬间跳一格。</p>
+     *
+     * <p>调用方负责把 {@code view} 的 {@code layoutParams.height} 在 {@code onEnd} 里
+     * 恢复成 {@code WRAP_CONTENT}（{@link com.oilquiz.app.ai.chat.ui.ReasoningShellView} 就是这么做的），
+     * 否则动画结束后容器会被钉死在固定高度、内容后来再长就不行了。</p>
+     */
+    public static void animateHeight(View view, int fromPx, int toPx, long durationMs,
+                                     Runnable onEnd) {
+        if (view == null) {
+            return;
+        }
+        if (fromPx == toPx || !android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            setViewHeight(view, toPx);
+            if (onEnd != null) {
+                onEnd.run();
+            }
+            return;
+        }
+        android.animation.ValueAnimator animator =
+                android.animation.ValueAnimator.ofInt(fromPx, toPx);
+        animator.setDuration(durationMs);
+        animator.setInterpolator(new android.view.animation.DecelerateInterpolator());
+        animator.addUpdateListener(a -> setViewHeight(view, (int) a.getAnimatedValue()));
+        animator.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                setViewHeight(view, toPx);
+                if (onEnd != null) {
+                    onEnd.run();
+                }
+            }
+        });
+        animator.start();
+    }
+
+    private static void setViewHeight(View view, int heightPx) {
+        if (view == null) {
+            return;
+        }
+        ViewGroup.LayoutParams lp = view.getLayoutParams();
+        if (lp == null || lp.height == heightPx) {
+            return;
+        }
+        lp.height = heightPx;
+        view.setLayoutParams(lp);
     }
 
     /** 内容淡入（先 VISIBLE 再从 0 → 1）。 */

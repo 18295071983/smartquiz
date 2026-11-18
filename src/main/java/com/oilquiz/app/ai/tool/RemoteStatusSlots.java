@@ -33,7 +33,8 @@ public final class RemoteStatusSlots {
         if (c == null) return;
         boolean configured = RemoteDshTool.isConfigured(c);
         boolean connected = RemoteDshTool.isConnected(c);
-        boolean barOn = RemoteDshTool.isBarEnabled(c);
+        // 插件总开关关掉时，连状态条也不该出现（2026-11-18）
+        boolean barOn = RemoteDshTool.isBarEnabled(c) && RemoteDshTool.isPluginEnabled(c);
         if (!configured || !barOn) {
             clear();
             return;

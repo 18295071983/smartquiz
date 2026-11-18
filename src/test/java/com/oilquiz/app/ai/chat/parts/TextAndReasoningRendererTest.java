@@ -18,6 +18,7 @@ import androidx.test.core.app.ApplicationProvider;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.turn.AssistantTurn;
 import com.oilquiz.app.ai.chat.ui.MarkdownWebView;
+import com.oilquiz.app.ai.chat.ui.ReasoningShellView;
 
 import org.junit.Test;
 import org.robolectric.Shadows;
@@ -78,12 +79,13 @@ public class TextAndReasoningRendererTest {
         assertFalse(r.canRender(part(AssistantTurn.Part.TYPE_TEXT, "t")));
 
         View view = r.createView(new TestHost(ctx, false), parent);
-        assertTrue(view instanceof LinearLayout);
-        LinearLayout row = (LinearLayout) view;
-        assertEquals("折叠头 + 正文区两段（动画只在折叠头）", 2, row.getChildCount());
-        assertTrue(row.getChildAt(0) instanceof TextView);
-        assertTrue(row.getChildAt(1) instanceof TextView);
-        assertEquals("正文区默认收起", View.GONE, row.getChildAt(1).getVisibility());
+        assertTrue("思考块要有自己的容器（ReasoningShellView）", view instanceof ReasoningShellView);
+        ReasoningShellView shell = (ReasoningShellView) view;
+        assertEquals("折叠头 + 正文容器两段", 2, shell.getChildCount());
+        assertTrue("折叠头是整行容器（图标 + 呼吸点 + 文字 + 箭头）",
+                shell.getChildAt(0) instanceof LinearLayout);
+        assertEquals("正文容器默认收起", View.GONE, shell.bodyHost().getVisibility());
+        assertTrue(shell.bodyHost().getChildAt(0) instanceof TextView);
     }
 
     @Test
@@ -110,11 +112,11 @@ public class TextAndReasoningRendererTest {
         RecordingHost host = new RecordingHost(ctx);
         ReasoningPartRenderer r = new ReasoningPartRenderer();
 
-        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
-        r.bindView(row, part(AssistantTurn.Part.TYPE_REASONING, "思考内容"), host);
+        ReasoningShellView shell = (ReasoningShellView) r.createView(host, new LinearLayout(ctx));
+        r.bindView(shell, part(AssistantTurn.Part.TYPE_REASONING, "思考内容"), host);
 
         assertEquals(1, host.mdCalls.size());
-        assertSame(row.getChildAt(1), host.mdTargets.get(0)); // 写进全文 body，不是 header
+        assertSame(shell.bodyHost().getChildAt(0), host.mdTargets.get(0)); // 写进全文 body，不是 header
         assertEquals("思考内容", host.mdCalls.get(0));
     }
 
@@ -127,23 +129,23 @@ public class TextAndReasoningRendererTest {
         RecordingHost host = new RecordingHost(ctx);
         ReasoningPartRenderer r = new ReasoningPartRenderer();
 
-        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
+        ReasoningShellView shell = (ReasoningShellView) r.createView(host, new LinearLayout(ctx));
         final String full = "第一步：通读题目，找出已知条件";
         AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, full);
         p.state = AssistantTurn.Part.STATE_STREAMING;
-        r.bindView(row, p, host);
+        r.bindView(shell, p, host);
 
-        TextView header = (TextView) row.getChildAt(0);
-        TextView body = (TextView) row.getChildAt(1);
+        TextView header = shell.label();
+        TextView body = (TextView) shell.bodyHost().getChildAt(0);
         assertTrue("折叠头只显示状态（" + header.getText() + "）",
                 header.getText().toString().contains("正在思考"));
         assertFalse("折叠头不该塞思考内容", header.getText().toString().contains("通读题目"));
-        assertEquals("思考中正文区要展开", View.VISIBLE, body.getVisibility());
+        assertEquals("思考中正文容器要展开", View.VISIBLE, shell.bodyHost().getVisibility());
         assertEquals("正文整块实时刷新，不做打字机", full, body.getText().toString());
         assertEquals("流式期间不走宿主的 markdown 渲染", 0, host.mdCalls.size());
 
         p.text = full + "\n第二步：列方程";
-        r.bindView(row, p, host);
+        r.bindView(shell, p, host);
         assertEquals("新内容到达就整块刷新", p.text, body.getText().toString());
     }
 
@@ -154,21 +156,21 @@ public class TextAndReasoningRendererTest {
         RecordingHost host = new RecordingHost(ctx);
         ReasoningPartRenderer r = new ReasoningPartRenderer();
 
-        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
+        ReasoningShellView shell = (ReasoningShellView) r.createView(host, new LinearLayout(ctx));
         AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, "第一段：读题\n\n");
         p.state = AssistantTurn.Part.STATE_STREAMING;
-        r.bindView(row, p, host);
-        TextView header = (TextView) row.getChildAt(0);
+        r.bindView(shell, p, host);
+        TextView header = shell.label();
         String first = header.getText().toString();
 
         p.text = "第一段：读题\n\n第二段：列方程\n\n";
-        r.bindView(row, p, host);
+        r.bindView(shell, p, host);
         assertEquals("换段也还是状态文案", first, header.getText().toString());
 
         idle(2500);
         assertEquals("没有任何延迟动画改文案", first, header.getText().toString());
         assertEquals("正文区跟着整块刷新成最新全文", p.text,
-                ((TextView) row.getChildAt(1)).getText().toString());
+                ((TextView) shell.bodyHost().getChildAt(0)).getText().toString());
     }
 
     /** 思考中用户点折叠头可收起正文；下一次绑定不会被自动顶开。 */
@@ -178,17 +180,17 @@ public class TextAndReasoningRendererTest {
         RecordingHost host = new RecordingHost(ctx);
         ReasoningPartRenderer r = new ReasoningPartRenderer();
 
-        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
+        ReasoningShellView shell = (ReasoningShellView) r.createView(host, new LinearLayout(ctx));
         AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, "一段思考正文\n\n");
         p.state = AssistantTurn.Part.STATE_STREAMING;
-        r.bindView(row, p, host);
+        r.bindView(shell, p, host);
 
-        row.getChildAt(0).performClick();
-        assertEquals(View.GONE, row.getChildAt(1).getVisibility());
+        shell.getChildAt(0).performClick(); // 折叠头整行
+        assertEquals(View.GONE, shell.bodyHost().getVisibility());
 
         p.text = "一段思考正文\n\n第二段";
-        r.bindView(row, p, host);
-        assertEquals("用户收起后，重绑不能自动展开", View.GONE, row.getChildAt(1).getVisibility());
+        r.bindView(shell, p, host);
+        assertEquals("用户收起后，重绑不能自动展开", View.GONE, shell.bodyHost().getVisibility());
     }
 
     /** 走一段虚拟时间（ticker 的停留：700ms / 900ms）。 */
@@ -226,12 +228,13 @@ public class TextAndReasoningRendererTest {
     public void reasoningRendererBuildsWebBodyWhenWebMarkdownEnabled() {
         Context ctx = ApplicationProvider.getApplicationContext();
         ReasoningPartRenderer r = new ReasoningPartRenderer();
-        LinearLayout row = (LinearLayout) r.createView(new TestHost(ctx, true), new LinearLayout(ctx));
+        ReasoningShellView shell = (ReasoningShellView) r.createView(
+                new TestHost(ctx, true), new LinearLayout(ctx));
 
-        assertEquals("折叠头 + 正文区两段", 2, row.getChildCount());
-        assertTrue(row.getChildAt(0) instanceof TextView);
+        assertEquals("折叠头 + 正文容器两段", 2, shell.getChildCount());
+        assertTrue(shell.getChildAt(0) instanceof LinearLayout);
         assertTrue("web 开 → 思考正文用 MarkdownWebView（与 TextPartRenderer 同通路）",
-                row.getChildAt(1) instanceof MarkdownWebView);
+                shell.bodyHost().getChildAt(0) instanceof MarkdownWebView);
     }
 
     /** 流式期：正文进 WebView；页面就绪后每个 tick 走块级尾巴（__qzStream），不是整篇重载。 */
@@ -240,15 +243,15 @@ public class TextAndReasoningRendererTest {
         Context ctx = ApplicationProvider.getApplicationContext();
         RecordingHost host = new RecordingHost(ctx, true);
         ReasoningPartRenderer r = new ReasoningPartRenderer();
-        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
+        ReasoningShellView shell = (ReasoningShellView) r.createView(host, new LinearLayout(ctx));
 
         AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, "第一段思考。\n\n");
         p.state = AssistantTurn.Part.STATE_STREAMING;
-        r.bindView(row, p, host);
+        r.bindView(shell, p, host);
         flushMarkdownBuild();
 
-        MarkdownWebView body = (MarkdownWebView) row.getChildAt(1);
-        assertEquals("思考中正文区默认展开", View.VISIBLE, body.getVisibility());
+        MarkdownWebView body = (MarkdownWebView) shell.bodyHost().getChildAt(0);
+        assertEquals("思考中正文容器默认展开", View.VISIBLE, shell.bodyHost().getVisibility());
         WebView inner = (WebView) body.getChildAt(0);
         ShadowWebView shadow = Shadows.shadowOf(inner);
         assertNotNull("首帧整篇加载", shadow.getLastLoadDataWithBaseURL());
@@ -263,7 +266,7 @@ public class TextAndReasoningRendererTest {
         // 页面就绪后下一 tick：markdown_stream_tail 出厂 true → 块级尾巴增量
         shadow.getWebViewClient().onPageFinished(inner, "file:///android_asset/");
         p.text = "第一段思考。\n\n第二段思考有 **加粗**。\n\n";
-        r.bindView(row, p, host);
+        r.bindView(shell, p, host);
 
         String js = shadow.getLastEvaluatedJavascript();
         assertNotNull("页面就绪后应走 JS 增量", js);
@@ -277,28 +280,33 @@ public class TextAndReasoningRendererTest {
         Context ctx = ApplicationProvider.getApplicationContext();
         RecordingHost host = new RecordingHost(ctx, true);
         ReasoningPartRenderer r = new ReasoningPartRenderer();
-        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
+        ReasoningShellView shell = (ReasoningShellView) r.createView(host, new LinearLayout(ctx));
 
         AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, "第一段思考。\n\n");
         p.state = AssistantTurn.Part.STATE_STREAMING;
-        r.bindView(row, p, host);
+        r.bindView(shell, p, host);
         flushMarkdownBuild();
 
-        MarkdownWebView body = (MarkdownWebView) row.getChildAt(1);
+        MarkdownWebView body = (MarkdownWebView) shell.bodyHost().getChildAt(0);
         WebView inner = (WebView) body.getChildAt(0);
         ShadowWebView shadow = Shadows.shadowOf(inner);
         shadow.getWebViewClient().onPageFinished(inner, "file:///android_asset/");
 
         p.state = null;
         p.durationMs = 3_200L;
-        r.bindView(row, p, host);
-        TextView header = (TextView) row.getChildAt(0);
-        assertEquals("定稿后正文收起", View.GONE, body.getVisibility());
+        r.bindView(shell, p, host);
+        TextView header = shell.label();
+        // 定稿后先留一拍（AUTO_COLLAPSE_MS=700ms）让人看完最后一句，再播收起
+        idle(900);
+        assertEquals("定稿后正文收起", View.GONE, shell.bodyHost().getVisibility());
         assertTrue("定稿 header 用上思考时长：" + header.getText(),
-                header.getText().toString().contains("已深度思考 3 秒"));
+                header.getText().toString().contains("深度思考 3 秒"));
+        assertTrue("收起态要露出思考过程摘要（ThinkingPreview 口径）：" + shell.summaryText(),
+                shell.summaryText().toString().contains("第一段思考"));
+        assertTrue("摘要行可见", shell.isSummaryVisible());
 
-        header.performClick();
-        assertEquals("点折叠头展开", View.VISIBLE, body.getVisibility());
+        shell.getChildAt(0).performClick();
+        assertEquals("点折叠头展开", View.VISIBLE, shell.bodyHost().getVisibility());
         flushMarkdownBuild();
         String js = shadow.getLastEvaluatedJavascript();
         assertNotNull("展开时把定稿全文交给 WebView", js);
@@ -330,10 +338,10 @@ public class TextAndReasoningRendererTest {
         ReasoningWebRenderFlag.setEnabled(ctx, false);
         try {
             ReasoningPartRenderer r = new ReasoningPartRenderer();
-            LinearLayout row = (LinearLayout) r.createView(
+            ReasoningShellView shell = (ReasoningShellView) r.createView(
                     new RecordingHost(ctx, true), new LinearLayout(ctx));
             assertTrue("关掉 reasoning_web_render → 正文退回 TextView",
-                    row.getChildAt(1) instanceof TextView);
+                    shell.bodyHost().getChildAt(0) instanceof TextView);
         } finally {
             ReasoningWebRenderFlag.setEnabled(ctx, true);
         }
@@ -345,13 +353,13 @@ public class TextAndReasoningRendererTest {
         RecordingHost host = new RecordingHost(ctx);
         ReasoningPartRenderer r = new ReasoningPartRenderer();
 
-        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
+        ReasoningShellView shell = (ReasoningShellView) r.createView(host, new LinearLayout(ctx));
         AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, "");
         p.state = AssistantTurn.Part.STATE_STREAMING;
-        r.bindView(row, p, host);
+        r.bindView(shell, p, host);
 
         assertTrue("还没有思考文本时退回'正在思考…'",
-                ((TextView) row.getChildAt(0)).getText().toString().contains("正在思考"));
+                shell.label().getText().toString().contains("正在思考"));
     }
 
     @Test
@@ -360,18 +368,17 @@ public class TextAndReasoningRendererTest {
         RecordingHost host = new RecordingHost(ctx);
         ReasoningPartRenderer r = new ReasoningPartRenderer();
 
-        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
+        ReasoningShellView shell = (ReasoningShellView) r.createView(host, new LinearLayout(ctx));
         AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_REASONING, "定稿思考");
         p.durationMs = 3_200L;
-        r.bindView(row, p, host);
+        r.bindView(shell, p, host);
 
-        TextView header = (TextView) row.getChildAt(0);
-        TextView body = (TextView) row.getChildAt(1);
-        assertEquals("定稿后正文收起", View.GONE, body.getVisibility());
-        assertTrue("定稿 header 用上思考时长", header.getText().toString().contains("已深度思考 3 秒"));
+        TextView header = shell.label();
+        assertEquals("定稿后正文收起", View.GONE, shell.bodyHost().getVisibility());
+        assertTrue("定稿 header 用上思考时长", header.getText().toString().contains("深度思考 3 秒"));
 
-        header.performClick();
-        assertEquals("点 header 能展开", View.VISIBLE, body.getVisibility());
+        shell.getChildAt(0).performClick();
+        assertEquals("点 header 能展开", View.VISIBLE, shell.bodyHost().getVisibility());
         assertTrue("展开后正文要有 markdown 渲染", host.mdCalls.size() >= 1);
         assertEquals("定稿思考", host.mdCalls.get(host.mdCalls.size() - 1));
     }

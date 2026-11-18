@@ -58,7 +58,7 @@
                     android:layout_width="@dimen/size_1"
                     android:layout_height="match_parent"
                     android:layout_marginHorizontal="@dimen/space_8"
-                    android:background="?attr/colorOutline"/>
+                    android:background="?attr/colorOutlineVariant"/>
 
                 <TextView
                     android:id="@+id/tv_model_format"

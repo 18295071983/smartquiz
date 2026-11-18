@@ -196,7 +196,7 @@
         <activity
             android:name=".infra.DebugLayoutInjectActivity"
             android:exported="${debugExported}"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+            android:theme="@style/Theme.App.Translucent" />
         <!-- UI 预览台（梯队 1.1）：DebugLayoutInjectActivity 无注入参数时转入本页；
              只从 App 内调试入口启动，不对外导出；release 由 Activity 内 FLAG_DEBUGGABLE 兜底。
              主题走 Theme.OilQuizApp → 深浅色/换肤由全局 ThemeOverlay 跟随。 -->
@@ -214,6 +214,23 @@
             android:name=".infra.UiKitGalleryActivity"
             android:exported="false"
             android:label="UI 工具包"
+            android:theme="@style/Theme.OilQuizApp" />
+        <!-- 执行活动区 WebView 组件 PoC（2026-11-18）：调试入口，不导出 -->
+        <activity
+            android:name=".infra.AgentPanelPoCActivity"
+            android:exported="false"
+            android:label="Agent 面板 PoC"
+            android:theme="@style/Theme.OilQuizApp" />
+        <!-- 工具详情卡调试页（2026-11-18）：验证图片 file_get 渲染链路 -->
+        <activity
+            android:name=".ui.activity.CodeReaderActivity"
+            android:exported="false"
+            android:label="代码阅读器"
+            android:theme="@style/Theme.OilQuizApp" />
+        <activity
+            android:name=".infra.ToolAssetDemoActivity"
+            android:exported="false"
+            android:label="工具详情卡"
             android:theme="@style/Theme.OilQuizApp" />
         <activity
             android:name=".infra.ComposeGalleryActivity"

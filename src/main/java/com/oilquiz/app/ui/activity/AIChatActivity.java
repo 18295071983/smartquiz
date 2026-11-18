@@ -1039,9 +1039,15 @@ public class AIChatActivity extends BaseActivity {
                 // 不再依赖 setupKeyboardListener 的 15% 阈值 + 100ms 延迟补滚。
                 final int[] lastBottomInset = {-1};
                 androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(mainContent, (v, insets) -> {
-                    int top = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top;
-                    int left = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars()).left;
-                    int right = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars()).right;
+                    // 2026-11-18：与 EdgeToEdgeHelper 同口径（systemBars | displayCutout）。
+                    // 之前只取 systemBars —— 横屏/挖孔机的左右 cutout 会压到内容上；
+                    // 顶部也只取 statusBars，挖孔比状态栏高时标题会顶进挖孔区。
+                    androidx.core.graphics.Insets bars = insets.getInsets(
+                            androidx.core.view.WindowInsetsCompat.Type.systemBars()
+                                    | androidx.core.view.WindowInsetsCompat.Type.displayCutout());
+                    int top = bars.top;
+                    int left = bars.left;
+                    int right = bars.right;
                     // 2026-09-23：targetSdk 35+ 强制 edge-to-edge，windowSoftInputMode=adjustResize 被忽略
                     // （Android 15+ 弃用）。必须手动消费 ime insets 把输入栏撑到键盘上方：
                     // 键盘弹出时 bottom=键盘高度；收起时回退到导航栏高度（手势条区域）
@@ -1051,6 +1057,9 @@ public class AIChatActivity extends BaseActivity {
                     // pinned 必须在改 padding 之前取（改完布局会触发 pinned 状态变化）
                     boolean pinnedBefore = stickToBottom != null && stickToBottom.isPinned();
                     v.setPadding(left, top, right, bottom);
+                    // 抽屉是 DrawerLayout 的兄弟节点，main_content 的 padding 管不到它们：
+                    // 不补的话「对话历史」标题会画进状态栏/挖孔区，底部按钮压到手势条。
+                    applyDrawerInsets(bars);
                     if (lastBottomInset[0] >= 0 && bottom != lastBottomInset[0] && stickToBottom != null) {
                         // 键盘动画期间会逐帧回调：pinned 时每帧贴底，unpinned 时保持阅读位置
                         stickToBottom.onViewportChanged(pinnedBefore);
@@ -1073,6 +1082,29 @@ public class AIChatActivity extends BaseActivity {
             showToast(getString(R.string.h_d8bd0728) + e.getMessage());
             finish();
         }
+    }
+
+    /**
+     * 给左右两个抽屉补系统栏内边距（2026-11-18）。
+     *
+     * <p>两个抽屉是 {@code DrawerLayout} 的兄弟节点，{@code main_content} 的 padding 管不到
+     * 它们：不补的话「对话历史」标题会画进状态栏/挖孔区，底部「回收站/清空」按钮压到手势条。
+     * 抽屉容器 XML 里没有自己的 padding，这里直接用 inset 值，重复回调是幂等的；
+     * 底部只算系统栏（不含键盘——输入法弹出时抽屉不在输入）。</p>
+     */
+    private void applyDrawerInsets(androidx.core.graphics.Insets bars) {
+        applyInsetPadding(findViewById(R.id.tool_drawer), bars);
+        applyInsetPadding(findViewById(R.id.history_drawer), bars);
+    }
+
+    /** 只在内边距真的变了才写（IME 动画期每帧回调，别让抽屉白 requestLayout）。 */
+    private static void applyInsetPadding(View drawer, androidx.core.graphics.Insets bars) {
+        if (drawer == null) return;
+        if (drawer.getPaddingLeft() == bars.left && drawer.getPaddingTop() == bars.top
+                && drawer.getPaddingRight() == bars.right && drawer.getPaddingBottom() == bars.bottom) {
+            return;
+        }
+        drawer.setPadding(bars.left, bars.top, bars.right, bars.bottom);
     }
 
     @Override
@@ -15054,6 +15086,12 @@ public class AIChatActivity extends BaseActivity {
     /** 断档判定 + 背压硬线（纯逻辑类，见单测） */
     private final com.oilquiz.app.ai.remote.EventFlowPolicy dshFlowPolicy =
             new com.oilquiz.app.ai.remote.EventFlowPolicy();
+    /**
+     * UI 呈现节拍器（2026-11-18）：合帧只解决主线程吞吐，还得给 UI 留反应时间。
+     * 两次投影至少隔 120ms，期间事件继续归约合并，UI 每次拿到的是完整自洽状态。
+     */
+    private final com.oilquiz.app.ai.remote.PresentationPacer dshPacer =
+            new com.oilquiz.app.ai.remote.PresentationPacer();
     private final android.os.Handler dshBatchHandler =
             new android.os.Handler(android.os.Looper.getMainLooper());
     private boolean dshBatchScheduled;
@@ -16093,8 +16131,9 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 一帧：最多取 {@link #DSH_EVENT_BATCH_MAX} 条连续归约，帧末投影一次；队列空就停循环
-     * （不再空转），有剩就下一帧（16ms）继续。
+     * 一帧：先把攒下的事件**归约成一次投影**（最多 50 条），再由 {@link #dshPacer} 决定是否
+     * 允许通知 UI——两次投影至少隔 120ms，给折叠/呼吸动画留反应时间。积压超过 50 条的，
+     * 下一拍继续（节流档内合并），不会一条事件刷一次 UI。
      */
     private void drainDshFrame() {
         if (isFinishing() || isDestroyed()) return;
@@ -16103,8 +16142,16 @@ public class AIChatActivity extends BaseActivity {
             scheduleDshDrain(50);
             return;
         }
+        long now = android.os.SystemClock.uptimeMillis();
+        if (!dshPacer.canPresent(now)) {
+            // 没到下一次投影时间：把事件留在队列里继续合并（不空转、不丢）
+            scheduleDshDrain(Math.max(DSH_EVENT_FRAME_MS, dshPacer.delayUntilNext(now)));
+            return;
+        }
+        int depth = dshEventQueue.depth();
+        int take = Math.min(depth, DSH_EVENT_BATCH_MAX);
         com.oilquiz.app.ai.remote.EventBatchQueue.Batch<org.json.JSONObject> batch =
-                dshEventQueue.drain(DSH_EVENT_BATCH_MAX);
+                dshEventQueue.drain(take);
         if (batch.isEmpty()) {
             dshPeakDepth = Math.max(dshPeakDepth, dshEventQueue.takePeakDepth());
             logFlowStats(true);
@@ -16148,7 +16195,13 @@ public class AIChatActivity extends BaseActivity {
             requestSnapshotResync("背压硬线（累计丢弃 " + dshDroppedTotal + " 条）", true);
             return;
         }
-        if (dshEventQueue.depth() > 0) scheduleDshDrain(DSH_EVENT_FRAME_MS);
+        // 先记下这次投影的时刻，再按节拍器算下一次最早什么时候能投——顺序反了会退化成 16ms 连发
+        long presentedAt = android.os.SystemClock.uptimeMillis();
+        dshPacer.notePresented(presentedAt);
+        if (dshEventQueue.depth() > 0) {
+            scheduleDshDrain(Math.max(DSH_EVENT_FRAME_MS,
+                    dshPacer.delayUntilNext(presentedAt)));
+        }
     }
 
     /**
@@ -16356,6 +16409,10 @@ public class AIChatActivity extends BaseActivity {
 
     private void attachDshConnection() {
         purgeLegacyDshHistoryOnce();
+        // 插件总开关关掉时：不挂远程连接监听，聊天页按纯本地渲染（2026-11-18）
+        if (!com.oilquiz.app.ai.tool.RemoteDshTool.isPluginEnabled(this)) {
+            return;
+        }
         com.oilquiz.app.ai.tool.RemoteConnection conn =
                 com.oilquiz.app.ai.tool.RemoteConnection.get(this);
         if (dshConnListener == null) {
@@ -16784,8 +16841,12 @@ public class AIChatActivity extends BaseActivity {
 
     /** 进入聊天页/连接就绪后启动；重复调用无副作用 */
     private void startDshCommandPolling() {
+        // 插件关闭/断开后主动停轮询（2026-11-18：关开关不能只"不启动"，已在跑的也要停）
+        if (!com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isActive(this)) {
+            stopDshCommandPolling();
+            return;
+        }
         if (dshCmdPolling) return;
-        if (!com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isActive(this)) return;
         dshCmdPolling = true;
         dshCmdHandler.postDelayed(dshCmdTick, 1500);
     }
@@ -17257,7 +17318,8 @@ public class AIChatActivity extends BaseActivity {
             return;
         }
         // 用户可关（✕ 或「远程连接（电脑）」里的开关）：关了就不再常驻显示
-        if (!com.oilquiz.app.ai.tool.RemoteDshTool.isBarEnabled(this)) {
+        if (!com.oilquiz.app.ai.tool.RemoteDshTool.isBarEnabled(this)
+                || !com.oilquiz.app.ai.tool.RemoteDshTool.isPluginEnabled(this)) {
             remoteDshBar.setVisibility(View.GONE);
             com.oilquiz.app.ai.tool.RemoteStatusSlots.clear();
             // 2026-11-14：这里以前直接 return —— 于是"关掉状态条"会连带把顶栏副标题 /
@@ -17754,6 +17816,10 @@ public class AIChatActivity extends BaseActivity {
             synchronized (dshDrainLock) {
                 dshBatchScheduled = false;
             }
+            // 队列里可能还压着即将上屏的 JSON：销毁即清空，别让 Activity 被队列引用住；
+            // 节拍器一并复位，重建后第一帧能立即投（不会被旧时间戳压 120ms）。
+            dshPacer.reset();
+            dshEventQueue.clear();
             // 标记 UI 已分离：此后生成回调只落盘、不再更新界面
             uiDetached = true;
             uiHandler.removeCallbacksAndMessages(null);

@@ -184,14 +184,41 @@ final class DshCardViews {
             head.setOrientation(LinearLayout.HORIZONTAL);
             head.setGravity(Gravity.CENTER_VERTICAL);
 
-            View dot = new View(context);
-            GradientDrawable dotBg = new GradientDrawable();
-            dotBg.setShape(GradientDrawable.OVAL);
-            dotBg.setColor(ComponentColors.accent(context));
-            dot.setBackground(dotBg);
-            LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(context, 7), dp(context, 7));
-            dotLp.setMargins(0, 0, dp(context, 8), 0);
-            head.addView(dot, dotLp);
+            // 还有步骤在跑（或刚起、还没有步骤）→ 呼吸点；否则静态圆点。
+            // 2026-11-18：子代理轨迹是"执行效果"最典型的卡，一行静止的圆点看不出它还在工作。
+            boolean running = steps == null || steps.length() == 0;
+            if (steps != null) {
+                for (int i = 0; i < steps.length(); i++) {
+                    JSONObject s = steps.optJSONObject(i);
+                    String st = s == null ? "" : s.optString("status", "running");
+                    if ("running".equals(st) || "pending".equals(st)) {
+                        running = true;
+                        break;
+                    }
+                }
+            }
+            if (running) {
+                com.oilquiz.app.ui.widget.LiveDotsView live =
+                        new com.oilquiz.app.ui.widget.LiveDotsView(context);
+                live.setDotCount(1);
+                live.setDotColor(ComponentColors.accent(context));
+                LinearLayout.LayoutParams liveLp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+                liveLp.gravity = Gravity.CENTER_VERTICAL;
+                liveLp.rightMargin = dp(context, 8);
+                head.addView(live, liveLp);
+                live.start();
+            } else {
+                View dot = new View(context);
+                GradientDrawable dotBg = new GradientDrawable();
+                dotBg.setShape(GradientDrawable.OVAL);
+                dotBg.setColor(ComponentColors.accent(context));
+                dot.setBackground(dotBg);
+                LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(context, 7), dp(context, 7));
+                dotLp.setMargins(0, 0, dp(context, 8), 0);
+                head.addView(dot, dotLp);
+            }
 
             TextView title = new TextView(context);
             title.setText("子代理 · " + label);

@@ -3,6 +3,14 @@
     <item name="thinking_expanded" type="id" />
     <!-- 呼吸动画的 tag key（UiFx.breathing/stopBreathing 用；2026-11-16） -->
     <item name="tag_breathing" type="id" />
+    <!-- 文本流光动画的 tag key（UiFx.shimmer 用：同一 TextView 上幂等、不重复起 Animator；2026-11-18） -->
+    <item name="tag_shimmer" type="id" />
     <!-- 产物区已挂载内容的摘要：工具卡重绑时用它判断"产物没变就别重建 WebView"（parts §11.3） -->
     <item name="product_mount_digest" type="id" />
+    <!-- 画布内“非提交类”可点控件（步进器 +/-、分段选择）的标记：按钮收集器据此跳过，
+         避免把它们误绑成“提交整张画布”（CanvasControls.markOwned；2026-11-18） -->
+    <item name="tag_canvas_owned" type="id" />
+    <!-- 壁纸应用前页面自己的背景（AppWallpaperManager 用）：壁纸关掉时还原，
+         避免"关了壁纸但页面还留着上一张壁纸"（2026-11-18） -->
+    <item name="tag_wallpaper_original_bg" type="id" />
 </resources>

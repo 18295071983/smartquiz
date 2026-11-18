@@ -1,15 +1,7 @@
 package com.oilquiz.app.theme;
 
 import android.content.Context;
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.LinearGradient;
-import android.graphics.Paint;
-import android.graphics.Path;
-import android.graphics.RadialGradient;
-import android.graphics.Shader;
 import android.net.Uri;
-
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -19,29 +11,51 @@ import java.util.List;
 
 /**
  * 壁纸库：内置壁纸 + 用户添加壁纸的统一管理。
+ *
  * <ul>
- *   <li>内置壁纸：首次访问时程序生成 10 张深色系壁纸（星空/极光/日落等），存入 files/wallpapers；</li>
- *   <li>用户壁纸：从相册/文件选择（PhotoPicker）复制到 files/wallpapers，可删除；</li>
+ *   <li><b>内置壁纸</b>：来自 {@code assets/wallpapers/builtin_XX.jpg} 的实拍图
+ *       （Unsplash，免费可商用；来源见 {@code assets/wallpapers/CREDITS.md}），
+ *       首次访问时拷贝到 {@code files/wallpapers}；</li>
+ *   <li><b>用户壁纸</b>：从相册/文件选择（PhotoPicker）复制到 files/wallpapers，可删除。</li>
  * </ul>
+ *
+ * <p><b>2026-11-18</b>：原先 10 张内置壁纸是代码画的深色渐变（星空/极光/日落），
+ * 又暗又糊，已全部替换为 11 张实拍照片；同时加了 {@link #BUILTIN_VERSION}
+ * 版本号，老用户升级后旧的自绘壁纸会被清掉重铺，不会和新图混在一起。</p>
  */
 public final class WallpaperStore {
 
     private static final String DIR = "wallpapers";
     private static final String BUILTIN_PREFIX = "builtin_";
     private static final String USER_PREFIX = "user_";
-    private static final int W = 720;
-    private static final int H = 1280;
 
-    /** 内置壁纸名称（与 createWallpaper 的 index 一一对应） */
+    /**
+     * 内置壁纸版本：内置图内容/数量变化时 +1，旧缓存（含老的自绘壁纸）会被清掉重铺。
+     * v1 = 代码绘制的 10 张深色渐变 + tomcat；v2 = 11 张实拍图（2026-11-18）。
+     */
+    private static final int BUILTIN_VERSION = 2;
+    private static final String VERSION_FILE = ".builtin_version";
+
+    /** 内置壁纸名称（与 BUILTIN_ASSETS 一一对应） */
     private static final String[] BUILTIN_NAMES = {
-            "深蓝星空", "紫色极光", "墨绿森林", "橙红日落", "粉色晚霞",
-            "深海涟漪", "午夜星夜", "雾蓝极简", "荧光青绿", "鎏金暖阳",
-            "猫和老鼠"
+            "雪山峡谷", "翡翠湖泊", "春日樱花", "黄金海岸", "草原落日", "红岩公路",
+            "黄色花海", "狸花小猫", "薰衣草田", "林间晨光", "镜面湖"
     };
 
-    /** 内置壁纸中来自 assets 的（index -> assets 文件名），其余为程序绘制 */
-    private static final String ASSETS_WALLPAPER = "wallpapers/tomcat.jpg";
-    private static final int ASSETS_WALLPAPER_INDEX = 10;
+    /** 内置壁纸素材：全部是 assets 里的实拍图，不再程序绘制 */
+    private static final String[] BUILTIN_ASSETS = {
+            "wallpapers/builtin_00.jpg",
+            "wallpapers/builtin_01.jpg",
+            "wallpapers/builtin_02.jpg",
+            "wallpapers/builtin_03.jpg",
+            "wallpapers/builtin_04.jpg",
+            "wallpapers/builtin_05.jpg",
+            "wallpapers/builtin_06.jpg",
+            "wallpapers/builtin_07.jpg",
+            "wallpapers/builtin_08.jpg",
+            "wallpapers/builtin_09.jpg",
+            "wallpapers/builtin_10.jpg",
+    };
 
     private WallpaperStore() {
     }
@@ -55,47 +69,39 @@ public final class WallpaperStore {
         return d;
     }
 
-    /** 确保内置壁纸已生成，返回内置壁纸文件（数量/版本不匹配自动重建） */
+    /** 确保内置壁纸已拷贝，返回内置壁纸文件（版本/数量不匹配自动重建） */
     public static List<File> ensureBuiltin(Context context) {
         File d = dir(context);
+        File versionFile = new File(d, VERSION_FILE);
         File[] old = d.listFiles((f, n) -> n.startsWith(BUILTIN_PREFIX));
-        if (old == null || old.length != BUILTIN_NAMES.length) {
+        boolean needRebuild = readVersion(versionFile) != BUILTIN_VERSION
+                || old == null
+                || old.length != BUILTIN_ASSETS.length;
+        if (needRebuild) {
             if (old != null) {
                 for (File f : old) {
                     //noinspection ResultOfMethodCallIgnored
                     f.delete();
                 }
             }
-            for (int i = 0; i < BUILTIN_NAMES.length; i++) {
+            boolean allCopied = true;
+            for (int i = 0; i < BUILTIN_ASSETS.length; i++) {
                 try {
-                    if (i == ASSETS_WALLPAPER_INDEX) {
-                        // 内置图片壁纸：从 assets 拷贝（保持原图，不二次绘制）
-                        InputStream in = context.getAssets().open(ASSETS_WALLPAPER);
-                        FileOutputStream fos = new FileOutputStream(new File(d, BUILTIN_PREFIX + i + ".jpg"));
-                        byte[] buf = new byte[8192];
-                        int n;
-                        while ((n = in.read(buf)) > 0) {
-                            fos.write(buf, 0, n);
-                        }
-                        fos.flush();
-                        fos.close();
-                        in.close();
-                    } else {
-                        Bitmap bmp = createWallpaper(i, W, H);
-                        FileOutputStream fos = new FileOutputStream(new File(d, BUILTIN_PREFIX + i + ".png"));
-                        bmp.compress(Bitmap.CompressFormat.PNG, 90, fos);
-                        fos.flush();
-                        fos.close();
-                        bmp.recycle();
-                    }
+                    copyAsset(context, BUILTIN_ASSETS[i], builtinFile(d, i));
                 } catch (Throwable notStored) {
-                    com.oilquiz.app.util.AILogger.w("WallpaperStore", "内置壁纸生成失败，这张会从选择列表里静默消失: " + notStored);
+                    allCopied = false;
+                    com.oilquiz.app.util.AILogger.w("WallpaperStore",
+                            "内置壁纸拷贝失败，这张会从选择列表里静默消失: " + notStored);
                 }
+            }
+            // 全部成功才记版本；有失败下次进壁纸库会重试
+            if (allCopied) {
+                writeVersion(versionFile, BUILTIN_VERSION);
             }
         }
         List<File> result = new ArrayList<>();
         for (int i = 0; i < BUILTIN_NAMES.length; i++) {
-            File f = new File(d, BUILTIN_PREFIX + i + ".png");
+            File f = builtinFile(d, i);
             if (f.exists()) {
                 result.add(f);
             }
@@ -170,152 +176,50 @@ public final class WallpaperStore {
         return ts > 0 ? java.text.SimpleDateFormat.getDateTimeInstance().format(new java.util.Date(ts)) : name;
     }
 
-    /** 按索引生成对应风格壁纸 */
-    private static Bitmap createWallpaper(int idx, int w, int h) {
-        Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bmp);
-        switch (idx) {
-            case 0: drawStarry(canvas, w, h, 0xFF0B1E3B, 0xFF1E3A8A, 0xFF60A5FA); break;
-            case 1: drawAurora(canvas, w, h, 0xFF1E1136, 0xFF4C1D95, 0xFFA78BFA); break;
-            case 2: drawForest(canvas, w, h, 0xFF06281F, 0xFF065F46, 0xFF34D399); break;
-            case 3: drawSunset(canvas, w, h, 0xFF431407, 0xFF9A3412, 0xFFFB923C); break;
-            case 4: drawDusk(canvas, w, h, 0xFF4C0519, 0xFF831843, 0xFFF9A8D4); break;
-            case 5: drawOcean(canvas, w, h, 0xFF082F49, 0xFF155E75, 0xFF22D3EE); break;
-            case 6: drawStarry(canvas, w, h, 0xFF2E1065, 0xFF4C1D95, 0xFFC4B5FD); break;
-            case 7: drawMinimal(canvas, w, h, 0xFF0F172A, 0xFF334155, 0xFF94A3B8); break;
-            case 8: drawAurora(canvas, w, h, 0xFF022C22, 0xFF065F46, 0xFF6EE7B7); break;
-            default: drawSunset(canvas, w, h, 0xFF451A03, 0xFFB45309, 0xFFFCD34D); break;
-        }
-        return bmp;
+    // ------------------------------------------------------------------
+    // 内部工具
+    // ------------------------------------------------------------------
+
+    private static File builtinFile(File dir, int index) {
+        return new File(dir, String.format(java.util.Locale.ROOT, "%s%02d.jpg", BUILTIN_PREFIX, index));
     }
 
-    private static void baseGradient(Canvas c, int w, int h, int s, int e) {
-        LinearGradient g = new LinearGradient(0, 0, w, h, s, e, Shader.TileMode.CLAMP);
-        Paint p = new Paint();
-        p.setShader(g);
-        c.drawRect(0, 0, w, h, p);
-    }
-
-    private static void glow(Canvas c, float cx, float cy, float r, int color) {
-        RadialGradient g = new RadialGradient(cx, cy, r, color, 0x00000000, Shader.TileMode.CLAMP);
-        Paint p = new Paint();
-        p.setShader(g);
-        c.drawCircle(cx, cy, r, p);
-    }
-
-    private static void stars(Canvas c, int w, int h, int n, int color, float maxR) {
-        java.util.Random rnd = new java.util.Random(2024);
-        Paint p = new Paint();
-        p.setColor(color);
-        for (int i = 0; i < n; i++) {
-            float x = rnd.nextFloat() * w;
-            float y = rnd.nextFloat() * h;
-            float r = 1 + rnd.nextFloat() * maxR;
-            c.drawCircle(x, y, r, p);
+    private static void copyAsset(Context context, String assetPath, File target) throws Exception {
+        try (InputStream in = context.getAssets().open(assetPath);
+             FileOutputStream out = new FileOutputStream(target)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                out.write(buf, 0, n);
+            }
+            out.flush();
         }
     }
 
-    /** 波浪光带 */
-    private static void band(Canvas c, int w, int h, int color, float y0, float amp, float strokeW) {
-        Paint p = new Paint();
-        p.setColor(color);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(strokeW);
-        p.setStrokeCap(Paint.Cap.ROUND);
-        Path path = new Path();
-        path.moveTo(0, y0);
-        for (float x = 0; x <= w; x += w / 24f) {
-            path.lineTo(x, y0 + (float) Math.sin(x / w * Math.PI * 2) * amp);
-        }
-        c.drawPath(path, p);
-    }
-
-    private static void drawStarry(Canvas c, int w, int h, int s, int e, int starColor) {
-        baseGradient(c, w, h, s, e);
-        glow(c, w * 0.22f, h * 0.18f, w * 0.55f, 0x33FFFFFF);
-        glow(c, w * 0.8f, h * 0.75f, w * 0.6f, 0x2EFFFFFF);
-        stars(c, w, h, 90, starColor | 0xCC000000, 2.2f);
-        stars(c, w, h, 30, 0xFFFFFFFF, 1.4f);
-    }
-
-    private static void drawAurora(Canvas c, int w, int h, int s, int e, int bandColor) {
-        baseGradient(c, w, h, s, e);
-        band(c, w, h, bandColor | 0x22000000, h * 0.42f, h * 0.10f, h * 0.10f);
-        band(c, w, h, bandColor | 0x55000000, h * 0.55f, h * 0.14f, h * 0.07f);
-        band(c, w, h, 0x33FFFFFF, h * 0.30f, h * 0.08f, h * 0.04f);
-        glow(c, w * 0.5f, h * 0.2f, w * 0.5f, 0x22FFFFFF);
-    }
-
-    private static void drawForest(Canvas c, int w, int h, int s, int e, int lightColor) {
-        baseGradient(c, w, h, s, e);
-        glow(c, w * 0.18f, h * 0.25f, w * 0.5f, 0x26FFFFFF);
-        glow(c, w * 0.75f, h * 0.7f, w * 0.65f, 0x22FFFFFF);
-        java.util.Random rnd = new java.util.Random(7);
-        Paint p = new Paint();
-        for (int i = 0; i < 14; i++) {
-            float x = rnd.nextFloat() * w;
-            float y = rnd.nextFloat() * h;
-            float r = 8 + rnd.nextFloat() * 26;
-            p.setColor(lightColor | ((int) (0x18 + rnd.nextFloat() * 0x14)) << 24);
-            c.drawCircle(x, y, r, p);
-        }
-        p.setColor(0x22000000);
-        for (int i = 0; i < 26; i++) {
-            float x = rnd.nextFloat() * w;
-            float y = rnd.nextFloat() * h;
-            float r = 3 + rnd.nextFloat() * 9;
-            c.drawCircle(x, y, r, p);
+    private static int readVersion(File f) {
+        try {
+            if (!f.exists()) {
+                return 0;
+            }
+            byte[] buf = new byte[16];
+            try (InputStream in = new java.io.FileInputStream(f)) {
+                int n = in.read(buf);
+                if (n <= 0) {
+                    return 0;
+                }
+                return Integer.parseInt(new String(buf, 0, n, "UTF-8").trim());
+            }
+        } catch (Throwable ignored) {
+            return 0;
         }
     }
 
-    private static void drawSunset(Canvas c, int w, int h, int s, int e, int sunColor) {
-        baseGradient(c, w, h, s, e);
-        glow(c, w * 0.5f, h * 0.42f, w * 0.38f, sunColor | 0x66000000);
-        glow(c, w * 0.5f, h * 0.42f, w * 0.18f, sunColor | 0x99FF0000);
-        c.drawCircle(w * 0.5f, h * 0.42f, w * 0.07f, (Paint) new Paint() {{ setColor(sunColor); }});
-        band(c, w, h, 0x22000000, h * 0.62f, h * 0.04f, h * 0.02f);
-        band(c, w, h, 0x33000000, h * 0.68f, h * 0.05f, h * 0.025f);
-    }
-
-    private static void drawDusk(Canvas c, int w, int h, int s, int e, int cloudColor) {
-        baseGradient(c, w, h, s, e);
-        glow(c, w * 0.3f, h * 0.35f, w * 0.5f, 0x33FFFFFF);
-        glow(c, w * 0.72f, h * 0.55f, w * 0.55f, 0x2EFFFFFF);
-        Paint p = new Paint();
-        p.setColor(cloudColor | 0x33000000);
-        java.util.Random rnd = new java.util.Random(9);
-        for (int i = 0; i < 10; i++) {
-            float x = rnd.nextFloat() * w;
-            float y = h * (0.2f + rnd.nextFloat() * 0.6f);
-            float rx = w * (0.08f + rnd.nextFloat() * 0.16f);
-            float ry = h * (0.02f + rnd.nextFloat() * 0.02f);
-            c.drawOval(x - rx / 2, y - ry / 2, x + rx / 2, y + ry / 2, p);
+    private static void writeVersion(File f, int version) {
+        try {
+            try (FileOutputStream out = new FileOutputStream(f)) {
+                out.write(Integer.toString(version).getBytes("UTF-8"));
+            }
+        } catch (Throwable ignored) {
         }
-        p.setColor(0x22FFFFFF);
-        for (int i = 0; i < 6; i++) {
-            float x = rnd.nextFloat() * w;
-            float y = h * (0.3f + rnd.nextFloat() * 0.5f);
-            float rx = w * (0.1f + rnd.nextFloat() * 0.14f);
-            c.drawOval(x - rx / 2, y - h * 0.008f, x + rx / 2, y + h * 0.008f, p);
-        }
-    }
-
-    private static void drawOcean(Canvas c, int w, int h, int s, int e, int waveColor) {
-        baseGradient(c, w, h, s, e);
-        band(c, w, h, waveColor | 0x44FF0000, h * 0.55f, h * 0.05f, h * 0.025f);
-        band(c, w, h, waveColor | 0x33FF0000, h * 0.66f, h * 0.07f, h * 0.02f);
-        band(c, w, h, 0x26FFFFFF, h * 0.80f, h * 0.04f, h * 0.012f);
-        glow(c, w * 0.5f, h * 0.15f, w * 0.45f, 0x22FFFFFF);
-    }
-
-    private static void drawMinimal(Canvas c, int w, int h, int s, int e, int lineColor) {
-        baseGradient(c, w, h, s, e);
-        Paint p = new Paint();
-        p.setColor(lineColor | 0x22000000);
-        p.setStrokeWidth(h * 0.004f);
-        for (float y = h * 0.2f; y < h; y += h * 0.09f) {
-            c.drawLine(w * 0.06f, y, w * 0.94f, y, p);
-        }
-        glow(c, w * 0.5f, h * 0.28f, w * 0.5f, 0x1AFFFFFF);
     }
 }

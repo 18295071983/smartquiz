@@ -137,6 +137,7 @@ final class ToolActivityRowView {
         if (state != null) {
             state.setText(ToolRowStyle.statusText(ctx, status));
             state.setTextColor(ToolRowStyle.statusColor(ctx, status));
+            addRunningDot(ctx, state, status);
         }
         View divider = line.findViewById(R.id.chat_v2_tool_row_divider);
         if (divider != null) {
@@ -167,7 +168,25 @@ final class ToolActivityRowView {
         }
         wrap.addView(line);
 
-        if (hasBody) {
+        // 所有带文件的结果都接同一个渲染器：<ref>、<path>、网络链接都算（不只图片）
+        final ToolAssetRef assetRef = ToolAssetRef.parse(body);
+        final String assetPath = assetRef != null ? assetRef.path
+                : com.oilquiz.app.ai.chat.util.ToolResultText.pathOf(body);
+        final String imageUrl = firstImageUrl(body);
+        final boolean hasAsset = hasBody
+                && (assetRef != null || !assetPath.isEmpty() || imageUrl != null);
+        final LinearLayout assetHost = new LinearLayout(ctx);
+        assetHost.setOrientation(LinearLayout.VERTICAL);
+        if (hasAsset) {
+            assetHost.setVisibility(expanded ? View.VISIBLE : View.GONE);
+            wrap.addView(assetHost, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            if (expanded) {
+                assetHost.addView(buildAsset(ctx, assetRef, imageUrl, assetPath,
+                        name0(ctx, call)));
+            }
+        }
+        if (hasBody && !hasAsset) {
             final TextView bodyTv = new TextView(ctx);
             bodyTv.setTextSize(Tokens.textSizeSp(bodyTv.getContext(), Tokens.TEXT_FOOTNOTE));
             bodyTv.setLineSpacing(0f, 1.6f);
@@ -175,7 +194,7 @@ final class ToolActivityRowView {
             bodyTv.setVisibility(expanded ? View.VISIBLE : View.GONE);
             bodyTv.setMovementMethod(LinkMovementMethod.getInstance());
             if (expanded) {
-                applyBody(ctx, host, bodyTv, body, name0(ctx, call));
+                applyBody(ctx, host, bodyTv, body, name0(ctx, call), call);
             }
             wrap.addView(bodyTv, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -185,7 +204,28 @@ final class ToolActivityRowView {
                 boolean now = host.toolRowExpanded(rowId); // 切换后回读，避免依赖宿主的返回值约定
                 bodyTv.setVisibility(now ? View.VISIBLE : View.GONE);
                 if (now) {
-                    applyBody(ctx, host, bodyTv, body, name0(ctx, call));
+                    applyBody(ctx, host, bodyTv, body, name0(ctx, call), call);
+                }
+                if (v instanceof ViewGroup && ((ViewGroup) v).getChildCount() > 1
+                        && ((ViewGroup) v).getChildAt(1) instanceof ViewGroup) {
+                    ViewGroup row2 = (ViewGroup) ((ViewGroup) v).getChildAt(1);
+                    for (int i = 0; i < row2.getChildCount(); i++) {
+                        if (row2.getChildAt(i) instanceof ImageView) {
+                            row2.getChildAt(i).setRotation(now ? 90f : 0f);
+                        }
+                    }
+                }
+                host.invalidateSize();
+            });
+        } else if (hasAsset) {
+            // 只出文件/图片卡，不铺代码串：展开时才按需 file_get
+            line.setOnClickListener(v -> {
+                host.toggleToolRow(rowId);
+                boolean now = host.toolRowExpanded(rowId);
+                assetHost.setVisibility(now ? View.VISIBLE : View.GONE);
+                if (now && assetHost.getChildCount() == 0) {
+                    assetHost.addView(buildAsset(ctx, assetRef, imageUrl, assetPath,
+                            name0(ctx, call)));
                 }
                 if (v instanceof ViewGroup && ((ViewGroup) v).getChildCount() > 1
                         && ((ViewGroup) v).getChildAt(1) instanceof ViewGroup) {
@@ -202,14 +242,83 @@ final class ToolActivityRowView {
         return wrap;
     }
 
+    /** 行内文件：ref / 本地路径 / 网络链接统一交给 {@link AssetRenderer}（图片/代码/pdf/文件卡）。 */
+    private static View buildAsset(Context ctx, ToolAssetRef ref, String url, String path,
+                                   String label) {
+        if (ref != null) {
+            return AssetRenderer.build(ctx, ref, label);
+        }
+        if (url != null && !url.isEmpty()) {
+            View v = AssetRenderer.buildUrl(ctx, url);
+            if (v != null) {
+                return v;
+            }
+        }
+        if (path != null && !path.isEmpty()) {
+            return AssetRenderer.build(ctx, ToolAssetRef.fromPath(path), label);
+        }
+        return new View(ctx);
+    }
+
+    /** 结果里的第一个 http(s) 图片链接（按扩展名判断，CDN 无后缀的交给工具自己给 ref）。 */
+    private static String firstImageUrl(String text) {
+        if (text == null || text.isEmpty()) {
+            return null;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("https?://[^\\s\"'<>]+").matcher(text);
+        while (m.find()) {
+            String u = m.group();
+            String lower = u.toLowerCase(java.util.Locale.US);
+            if (lower.contains(".png") || lower.contains(".jpg") || lower.contains(".jpeg")
+                    || lower.contains(".webp") || lower.contains(".gif")) {
+                return u;
+            }
+        }
+        return null;
+    }
+
     /** 展开态正文：预览 + 截断时"点开全文"（与 legacy 同一原语，不另设限长口径）。 */
-    private static void applyBody(Context ctx, PartHost host, TextView tv, String body, String title) {
-        ToolResultText.Preview preview = ToolResultText.preview(body);
+    private static void applyBody(Context ctx, PartHost host, TextView tv, String body, String title,
+                                  AssistantTurn.Part call) {
+        ToolResultText.Preview preview = ToolResultText.preview(
+                ToolResultText.renderable(body));
         tv.setText(preview.text);
         if (preview.truncated) {
-            tv.setOnClickListener(v -> host.showFullResult(
-                    ctx.getString(R.string.chat_v2_tool_result_title, title), body));
+            // 2026-11-18：长结果不再甩一坨等宽文本，走"工具详情专用卡"（参数分块 + 结果/diff）
+            tv.setOnClickListener(v -> ToolDetailCardView.showSheet(ctx, call));
         }
+    }
+
+    /**
+     * 运行中：在状态文字前插一颗呼吸点（2026-11-18）。
+     *
+     * <p>工具行每次重绑都会重建（{@code ToolGroupPartRenderer} 用 release+add 重排），所以点用
+     * {@link com.oilquiz.app.ui.widget.LiveDotsView} 的**系统时钟相位**，重建多少次都落在正确相位，
+     * 不会每 120ms 归零成一张静止图。结束态不插（状态文字本身就够）。</p>
+     */
+    private static void addRunningDot(Context ctx, View anchor, String status) {
+        if (!"running".equals(status) || anchor == null) {
+            return;
+        }
+        if (!(anchor.getParent() instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup parent = (ViewGroup) anchor.getParent();
+        int index = parent.indexOfChild(anchor);
+        if (index < 0) {
+            return;
+        }
+        com.oilquiz.app.ui.widget.LiveDotsView dot =
+                new com.oilquiz.app.ui.widget.LiveDotsView(ctx);
+        dot.setDotCount(1);
+        dot.setDotColor(com.oilquiz.app.ai.chat.component.ComponentColors.accent(ctx));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.gravity = android.view.Gravity.CENTER_VERTICAL;
+        lp.setMarginEnd(dp(ctx, 4));
+        parent.addView(dot, index, lp);
+        dot.start();
     }
 
     private static String name0(Context ctx, AssistantTurn.Part call) {

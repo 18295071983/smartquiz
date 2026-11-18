@@ -36,6 +36,61 @@ public final class ToolResultText {
     }
 
     /**
+     * 结果里的结构化标签 → 人话（2026-11-18）。
+     *
+     * <p>PC 侧部分工具（如 {@code read_image}）回的是
+     * {@code <path>…</path><type>…</type><content>…</content>}。直接平铺会把标签也显示出来，
+     * 用户看到的就是一坨 XML。这里只负责"拆成可读文本"：正文用 {@code content}，路径另起一行；
+     * 没有这些标签就原样返回（文本类结果完全不受影响）。</p>
+     */
+    public static String renderable(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return "";
+        }
+        String path = tag(raw, "path");
+        String type = tag(raw, "type");
+        String content = tag(raw, "content");
+        if (path.isEmpty() && type.isEmpty() && content.isEmpty()) {
+            return raw;
+        }
+        StringBuilder sb = new StringBuilder();
+        if (!content.isEmpty()) {
+            sb.append(content.trim());
+        } else if (!type.isEmpty()) {
+            sb.append(type.trim());
+        }
+        if (!path.isEmpty()) {
+            if (sb.length() > 0) sb.append('\n');
+            sb.append(path.trim());
+        }
+        return sb.length() > 0 ? sb.toString().trim() : raw;
+    }
+
+    /** 结果里 {@code <path>} 的内容（没有返回空串），详情卡用于补"路径"一行。 */
+    public static String pathOf(String raw) {
+        return tag(raw, "path");
+    }
+
+    /** 结果里 {@code <type>} 的内容（没有返回空串）。 */
+    public static String typeOf(String raw) {
+        return tag(raw, "type");
+    }
+
+    /** 取 {@code <tag>…</tag>} 内的文本（没有就返回空串）。 */
+    private static String tag(String raw, String name) {
+        if (raw == null || raw.isEmpty()) {
+            return "";
+        }
+        String open = "<" + name + ">";
+        int from = raw.indexOf(open);
+        if (from < 0) return "";
+        from += open.length();
+        int to = raw.indexOf("</" + name + ">", from);
+        if (to < 0) return "";
+        return raw.substring(from, to).trim();
+    }
+
+    /**
      * 取工具卡预览文本。
      *
      * <p>两个约束必须守住，否则截出来的字符串会显示成乱码或半个字形：

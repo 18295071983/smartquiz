@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>agent panel</title>
+<style>
+  :root {
+    --fg: #1f2937;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --border: #d1d5db;
+    --surface: rgba(37, 99, 235, .06);
+    --bg: transparent;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, 'PingFang SC', 'Roboto', 'Noto Sans SC', sans-serif;
+    font-size: 13px; -webkit-text-size-adjust: 100%;
+  }
+  .head {
+    display: flex; align-items: center; gap: 7px; min-height: 32px;
+    padding: 2px 8px 2px 2px; border-radius: 10px; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; user-select: none;
+  }
+  .head:active { background: rgba(0, 0, 0, .05); }
+  .panel.streaming .head { background: var(--surface); }
+  .panel:not(.open):not(.streaming) .head { background: var(--surface2, rgba(0, 0, 0, .04)); }
+  .spark { width: 14px; height: 14px; flex: 0 0 auto; color: var(--accent); }
+  .dots { display: none; gap: 3px; align-items: center; flex: 0 0 auto; }
+  .dots i {
+    display: block; width: 5px; height: 5px; border-radius: 50%;
+    background: var(--accent); animation: breath 1.2s infinite;
+  }
+  .dots i:nth-child(2) { animation-delay: .19s; }
+  .dots i:nth-child(3) { animation-delay: .38s; }
+  .panel.streaming .dots { display: flex; }
+  @keyframes breath {
+    0%, 100% { opacity: .4; transform: scale(.8); }
+    50% { opacity: 1; transform: scale(1); }
+  }
+  .label {
+    flex: 1 1 auto; min-width: 0; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .panel.streaming .label { color: var(--accent); }
+  .chev {
+    width: 13px; height: 13px; flex: 0 0 auto; opacity: .55;
+    transition: transform .18s ease;
+  }
+  .panel.open .chev { transform: rotate(90deg); }
+  .sub {
+    display: none; margin: 0 8px 3px 31px; color: var(--muted);
+    font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .panel:not(.open):not(.streaming) .sub { display: block; }
+  .panel:not(.open):not(.streaming) .sub:empty { display: none; }
+  .body {
+    display: none; overflow: hidden; margin: 1px 0 0 1px;
+    border-left: 2px solid var(--border); padding: 2px 8px 6px 11px;
+  }
+  .panel.open .body { display: block; }
+  .think {
+    white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
+    line-height: 1.6; color: var(--muted); padding: 4px 0 8px;
+  }
+  .step { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; border-top: 1px solid var(--border); }
+  .step:first-child { border-top: none; }
+  .step .st {
+    flex: 0 0 auto; width: 7px; height: 7px; margin-top: 6px;
+    border-radius: 50%; background: var(--muted);
+  }
+  .step.running .st { background: var(--accent); animation: breath 1.2s infinite; }
+  .step.success .st { background: #22c55e; }
+  .step.failed .st { background: #ef4444; }
+  .step .col { flex: 1 1 auto; min-width: 0; }
+  .step .row { display: flex; gap: 6px; align-items: baseline; }
+  .step .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .step .state { margin-left: auto; font-size: 11px; color: var(--muted); flex: 0 0 auto; }
+  .step .detail {
+    margin-top: 1px; font-size: 12px; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .step .out {
+    display: none; margin-top: 5px; padding: 6px 8px; border-radius: 6px;
+    background: rgba(0, 0, 0, .04); color: var(--muted);
+    font-family: ui-monospace, 'Roboto Mono', monospace; font-size: 11.5px;
+    white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto;
+  }
+  .step.open .out { display: block; }
+  #stats {
+    display: none; margin-top: 6px; padding: 4px 7px; border-radius: 6px;
+    background: rgba(0, 0, 0, .78); color: #fff;
+    font-family: ui-monospace, monospace; font-size: 10.5px; white-space: pre;
+  }
+  body.stats #stats { display: block; }
+</style>
+</head>
+<body>
+<div class="panel" id="panel">
+  <div class="head" id="head">
+    <svg class="spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"/></svg>
+    <span class="dots"><i></i><i></i><i></i></span>
+    <span class="label" id="label">正在思考…</span>
+    <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+  </div>
+  <div class="sub" id="sub"></div>
+  <div class="body" id="body"></div>
+</div>
+<div id="stats"></div>
+<script>
+(function () {
+  'use strict';
+  var panel = document.getElementById('panel');
+  var head = document.getElementById('head');
+  var bodyEl = document.getElementById('body');
+  var labelEl = document.getElementById('label');
+  var subEl = document.getElementById('sub');
+  var statsEl = document.getElementById('stats');
+
+  var steps = Object.create(null);   // id -> { node, think, name, state, detail, out }
+  var order = [];
+  var active = false;
+  var userChoice = null;             // null = 跟随状态；true/false = 用户点过
+  var collapseTimer = null;
+  var metrics = { updates: 0, apply: 0, max: 0, frames: 0, fps: 0, last: 0, since: 0 };
+  var pendingPaint = false;
+  var fpsLoop = 0;
+
+  /** 真实 FPS 计数：只在 ?stats / PoC 页打开（生产聊天页不跑常驻 rAF，省电）。 */
+  function startFpsLoop() {
+    if (fpsLoop) return;
+    function tick() {
+      metrics.frames++;
+      fpsLoop = requestAnimationFrame(tick);
+    }
+    fpsLoop = requestAnimationFrame(tick);
+  }
+
+  function setOpen(open) {
+    panel.classList.toggle('open', !!open);
+    panel.setAttribute('data-open', open ? '1' : '0');
+    // 展开/收起改变高度：过渡后再报一次，否则原生侧 WebView 会停在上一次的高度
+    // （表现就是收起后下面留一大块空白）。
+    sendHeightSoon(220);
+  }
+
+  /** 延迟回传高度（等 CSS 过渡/布局稳定）。 */
+  function sendHeightSoon(delay) {
+    setTimeout(function () {
+      if (window.Android && Android.onHeight) {
+        try { Android.onHeight(document.body.scrollHeight); } catch (e) {}
+      }
+    }, delay || 0);
+  }
+
+  head.addEventListener('click', function () {
+    userChoice = !panel.classList.contains('open');
+    clearTimeout(collapseTimer);
+    collapseTimer = null;
+    setOpen(userChoice);
+  });
+
+  function applyTheme(theme) {
+    if (!theme) return;
+    var root = document.documentElement.style;
+    if (theme.fg) root.setProperty('--fg', theme.fg);
+    if (theme.muted) root.setProperty('--muted', theme.muted);
+    if (theme.accent) root.setProperty('--accent', theme.accent);
+    if (theme.border) root.setProperty('--border', theme.border);
+    if (theme.surface) root.setProperty('--surface', theme.surface);
+    if (theme.surface2) root.setProperty('--surface2', theme.surface2);
+    if (theme.bg) root.setProperty('--bg', theme.bg);
+  }
+
+  function el(tag, cls) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    return n;
+  }
+
+  function createStep(step) {
+    var node = el('div', 'step ' + (step.status || 'running'));
+    var dot = el('span', 'st');
+    var col = el('div', 'col');
+    var row = el('div', 'row');
+    var name = el('span', 'name');
+    var state = el('span', 'state');
+    var detail = el('div', 'detail');
+    var out = el('div', 'out');
+    row.appendChild(name);
+    row.appendChild(state);
+    col.appendChild(row);
+    col.appendChild(detail);
+    col.appendChild(out);
+    node.appendChild(dot);
+    node.appendChild(col);
+    node.addEventListener('click', function () {
+      node.classList.toggle('open');
+    });
+    var cell = { node: node, name: name, state: state, detail: detail, out: out, status: '' };
+    bodyEl.appendChild(node);
+    return cell;
+  }
+
+  function createThink(text) {
+    var node = el('div', 'think');
+    node.textContent = text || '';
+    bodyEl.appendChild(node);
+    return node;
+  }
+
+  function upsert(step) {
+    if (step.kind === 'thinking') {
+      var cell = steps[step.id];
+      if (!cell || cell.kind !== 'thinking') {
+        if (cell) cell.node.remove();
+        cell = { kind: 'thinking', node: createThink(step.text) };
+        steps[step.id] = cell;
+        order.push(step.id);
+      }
+      if (cell.node.textContent !== (step.text || '')) {
+        cell.node.textContent = step.text || '';
+      }
+      return;
+    }
+    var c = steps[step.id];
+    if (!c || c.kind !== 'tool') {
+      if (c) c.node.remove();
+      c = createStep(step);
+      c.kind = 'tool';
+      steps[step.id] = c;
+      order.push(step.id);
+    }
+    var status = step.status || 'running';
+    if (c.status !== status) {
+      c.node.className = 'step ' + status;
+      c.status = status;
+    }
+    if (c.name.textContent !== (step.title || '')) c.name.textContent = step.title || '';
+    c.state.textContent = status === 'running' ? '运行中' : status === 'failed' ? '失败' : '完成';
+    var detail = step.detail || '';
+    c.detail.textContent = detail;
+    c.detail.style.display = detail ? 'block' : 'none';
+    var result = step.result || '';
+    c.out.textContent = result;
+    c.out.style.display = ''; // 显示与否交给 .step.open 控制（行内 style 会盖掉 CSS）
+  }
+
+  function report() {
+    var now = performance.now();
+    var span = now - metrics.since;
+    if (span >= 500) {
+      metrics.fps = Math.round(metrics.frames * 1000 / span);
+      metrics.frames = 0;
+      metrics.since = now;
+      var payload = {
+        updates: metrics.updates,
+        avgMs: Math.round(metrics.apply * 100) / 100,
+        maxMs: Math.round(metrics.max * 100) / 100,
+        fps: metrics.fps
+      };
+      if (document.body.classList.contains('stats')) {
+        statsEl.textContent = 'updates ' + payload.updates + '  avg ' + payload.avgMs +
+            'ms  max ' + payload.maxMs + 'ms  fps ' + payload.fps;
+      }
+      if (window.Android && Android.onStats) {
+        try { Android.onStats(JSON.stringify(payload)); } catch (e) {}
+      }
+    }
+    if (!pendingPaint) {
+      pendingPaint = true;
+      // 用 setTimeout 而不是 rAF 回传高度：Activity 退到后台/被其它 WebView 抢帧时 rAF 会被
+      // 节流甚至暂停，高度就永远停在上一帧（PoC 真机出现过"高度回传 0 次"）。60ms 合并抖动即可。
+      setTimeout(function () {
+        pendingPaint = false;
+        if (window.Android && Android.onHeight) {
+          try { Android.onHeight(document.body.scrollHeight); } catch (e) {}
+        }
+      }, 60);
+    }
+  }
+
+  function update(state) {
+    if (!state) return;
+    var t0 = performance.now();
+    metrics.updates++;
+    if (!metrics.since) metrics.since = t0;
+    var prev = active;
+    active = !!state.active;
+    panel.classList.toggle('streaming', active);
+    if (state.label) labelEl.textContent = state.label;
+    else if (!labelEl.textContent) labelEl.textContent = active ? '正在思考…' : '深度思考';
+    subEl.textContent = state.summary || '';
+    if (state.theme) applyTheme(state.theme);
+    if (state.stats) {
+      document.body.classList.add('stats');
+      startFpsLoop();
+    }
+
+    if (active) {
+      clearTimeout(collapseTimer);
+      collapseTimer = null;
+      if (userChoice === null) setOpen(true);
+    } else if (prev && userChoice === null) {
+      clearTimeout(collapseTimer);
+      collapseTimer = setTimeout(function () { setOpen(false); }, 700);
+    } else if (userChoice !== null) {
+      setOpen(userChoice);
+    }
+    var list = state.steps || [];
+    for (var i = 0; i < list.length; i++) upsert(list[i]);
+
+    // 成员被移除（重放/回退）时按 order 回收
+    var keep = Object.create(null);
+    for (var j = 0; j < list.length; j++) keep[list[j].id] = 1;
+    for (var k = order.length - 1; k >= 0; k--) {
+      var id = order[k];
+      if (!keep[id]) {
+        if (steps[id]) steps[id].node.remove();
+        delete steps[id];
+        order.splice(k, 1);
+      }
+    }
+
+    var dt = performance.now() - t0;
+    metrics.apply = metrics.apply ? metrics.apply * 0.8 + dt * 0.2 : dt;
+    if (dt > metrics.max) metrics.max = dt;
+    report();
+  }
+
+  window.qzAgent = {
+    update: update,
+    open: function (v) { userChoice = !!v; setOpen(userChoice); },
+    stats: function () { return metrics; }
+  };
+
+  // 供无头截图/真机调试核对视口：data-vw="430x520"
+  function markViewport() {
+    document.documentElement.setAttribute('data-vw', innerWidth + 'x' + innerHeight);
+  }
+  markViewport();
+  window.addEventListener('resize', markViewport);
+
+  // 浏览器里直接打开的预览/压测模式：?demo=1&updates=80&interval=60
+  if (location.search.indexOf('demo') >= 0) {
+    document.body.classList.add('stats');
+    startFpsLoop();
+    var q = location.search;
+    var total = parseInt((q.match(/updates=(\d+)/) || [])[1] || '60', 10);
+    var gap = parseInt((q.match(/interval=(\d+)/) || [])[1] || '60', 10);
+    var i = 0, text = '';
+    var timer = setInterval(function () {
+      i++;
+      text += '第 ' + i + ' 步：检查调用点、比对参数、确认返回值。';
+      var steps = [{ id: 'r1', kind: 'thinking', text: text }];
+      var n = Math.min(3, Math.max(1, Math.floor(i / 8)));
+      for (var t = 0; t < n; t++) {
+        steps.push({
+          id: 't' + t,
+          kind: 'tool',
+          title: t === 0 ? 'pwsh' : (t === 1 ? 'grep' : 'read_file'),
+          detail: t === 0 ? 'Get-ChildItem -Recurse | Select-String "onDraw"' : 'src/main/java/…',
+          status: i < total - 1 ? (t === n - 1 ? 'running' : 'success') : 'success',
+          result: t === 0 ? 'src/…/LiveDotsView.java:120  onDraw(Canvas)' : ''
+        });
+      }
+      update({
+        active: i < total,
+        label: i < total ? '正在核对第 ' + i + ' 处调用点…' : '深度思考 6 秒 · 调用 3 个工具',
+        steps: steps
+      });
+      if (i >= total) clearInterval(timer);
+    }, gap);
+  }
+})();
+</script>
+</body>
+</html>

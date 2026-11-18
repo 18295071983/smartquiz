@@ -383,7 +383,8 @@ public class ChartCardView implements ChatComponent {
         ChartView(Context context) {
             super(context);
             textPaint.setTextSize(sp(10));
-            textPaint.setColor(ComponentColors.textSecondary(context));
+            // 图表标签/网格用专用 token（2026-11-18）：深浅/换肤下与轴线统一，不再借文字/边框色
+            textPaint.setColor(ComponentTheme.chartLabel(context));
         }
 
         void setChartData(String type, List<String> cats, List<Series> series) {
@@ -434,7 +435,7 @@ public class ChartCardView implements ChatComponent {
             for (int i = 0; i <= 4; i++) {
                 float ratio = i / 4f;
                 float y = padTop + chartH * (1 - ratio);
-                paint.setColor(ComponentColors.border(getContext()));
+                paint.setColor(ComponentTheme.chartGrid(getContext()));
                 paint.setStrokeWidth(dp(1));
                 canvas.drawLine(padLeft, y, w - padRight, y, paint);
                 String label = String.valueOf(Math.round(maxVal * ratio));
@@ -582,7 +583,7 @@ public class ChartCardView implements ChatComponent {
             for (int i = 0; i <= 4; i++) {
                 float ratio = i / 4f;
                 float y = padTop + chartH * (1 - ratio);
-                paint.setColor(ComponentColors.border(getContext()));
+                paint.setColor(ComponentTheme.chartGrid(getContext()));
                 paint.setStrokeWidth(dp(1));
                 paint.setStyle(Paint.Style.STROKE);
                 canvas.drawLine(padLeft, y, w - padRight, y, paint);

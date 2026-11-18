@@ -26,6 +26,7 @@
         <item name="colorControlBackground">#FF0A0A0A</item>
         <item name="colorControlText">#FFEDEDED</item>
         <item name="colorControlTextSecondary">#FFA0A0A0</item>
+        <item name="colorControlTextTertiary">#FF8A8A8A</item>
         <item name="colorControlTextHint">#FF6E6E6E</item>
         <item name="colorControlTextDisabled">#FF4A4A4A</item>
         <item name="colorInputBackground">#FF0A0A0A</item>
@@ -33,7 +34,35 @@
         <item name="colorDivider">#FF1C1C1C</item>
         <item name="colorBorder">#FF1C1C1C</item>
         <item name="colorBorderStrong">#FF2A2A2A</item>
-        <item name="colorOutline">#FF232323</item>
+        <!-- 2026-11-18：outline 是组件描边（要在纯黑上看得见），分隔线走 outlineVariant -->
+        <item name="colorOutline">#FF6E6E6E</item>
+        <item name="colorOutlineVariant">#FF1C1C1C</item>
+        <item name="colorSurfaceContainerLowest">#FF000000</item>
+        <item name="colorSurfaceContainerLow">#FF050505</item>
+        <item name="colorSurfaceContainer">#FF0A0A0A</item>
+        <item name="colorSurfaceContainerHigh">#FF101010</item>
+        <item name="colorSurfaceContainerHighest">#FF161616</item>
+        <item name="colorInverseSurface">#FFEDEDED</item>
+        <item name="colorInverseOnSurface">#FF0A0A0A</item>
+        <item name="colorInversePrimary">#FFC4B5FD</item>
+        <!-- 2026-11-18：层级/状态/语义容器（纯黑档，状态层用白 alpha 才能在黑上看见） -->
+        <item name="colorSurfaceDim">#FF000000</item>
+        <item name="colorSurfaceBright">#FF161616</item>
+        <!-- 2026-11-18：info 独立成天蓝系（与 values-night 同口径），不再用主紫冒充 -->
+        <item name="colorInfoContainer">#FF075985</item>
+        <item name="colorOnInfo">#FF0C4A6E</item>
+        <item name="colorOnInfoContainer">#FFE0F2FE</item>
+        <item name="colorOnSuccessContainer">#FFD1FAE5</item>
+        <item name="colorOnWarningContainer">#FFFEF3C7</item>
+        <item name="colorStateHover">#14EDEDED</item>
+        <item name="colorStateFocus">#1FEDEDED</item>
+        <item name="colorStatePressed">#1FEDEDED</item>
+        <item name="colorStateDragged">#29EDEDED</item>
+        <item name="colorStateDisabledContainer">#0AEDEDED</item>
+        <item name="colorStateDisabledContent">#61EDEDED</item>
+        <item name="colorChartGrid">#FF1C1C1C</item>
+        <item name="colorChartAxis">#FF6E6E6E</item>
+        <item name="colorChartLabel">#FF9E9E9E</item>
         <item name="colorAppBarBackground">#FF000000</item>
         <item name="colorOnAppBar">#FFEDEDED</item>
         <item name="android:colorBackground">#FF000000</item>

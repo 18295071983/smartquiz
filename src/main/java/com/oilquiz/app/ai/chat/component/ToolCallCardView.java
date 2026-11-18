@@ -113,6 +113,20 @@ public class ToolCallCardView implements ChatComponent {
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         statusLp.leftMargin = Tokens.spaceXs(context);
         row1.addView(statusTv, statusLp);
+        // 运行中：状态文字前一颗呼吸点（2026-11-18）。卡片会被 ToolCallPartRenderer 每 tick 重建，
+        // 点用系统时钟相位（LiveDotsView），重建后相位仍连续，不会每 120ms 归零。
+        if (running) {
+            com.oilquiz.app.ui.widget.LiveDotsView dot =
+                    new com.oilquiz.app.ui.widget.LiveDotsView(context);
+            dot.setDotCount(1);
+            dot.setDotColor(ComponentColors.accent(context));
+            LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            dotLp.gravity = Gravity.CENTER_VERTICAL;
+            dotLp.rightMargin = Tokens.spaceXs(context);
+            row1.addView(dot, row1.indexOfChild(statusTv), dotLp);
+            dot.start();
+        }
         root.addView(row1, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 

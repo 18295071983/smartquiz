@@ -43,6 +43,13 @@ public final class TurnPartsHost {
     private final Map<String, String> fingerprintById = new HashMap<>();
     private final Map<String, PartRenderer> rendererById = new HashMap<>();
 
+    /**
+     * 本次 {@link #bind} 新建的视图（按创建顺序）。宿主拿它播"新 part 入场"——
+     * 执行中每出现一张新卡（工具卡/命令卡/思考块）给一次落点，而不是整条消息一起蹦出来。
+     * 下次 bind 先清空；纯 JVM 单测不看它就零影响。
+     */
+    private final List<View> createdThisBind = new ArrayList<>();
+
     /** 统计用：累计 createView 次数（单测据此断言"复用而非重建"）。 */
     int createCount;
     /** 统计用：累计 bindView 次数。 */
@@ -66,6 +73,11 @@ public final class TurnPartsHost {
         return Collections.unmodifiableMap(viewById);
     }
 
+    /** 本次 bind 新建的视图（只读）；宿主据此给"刚出现的 part"播入场动画。 */
+    public List<View> createdThisBind() {
+        return Collections.unmodifiableList(createdThisBind);
+    }
+
     /**
      * 把一组有序 parts 协调到容器：复用同 id、只绑变化项、删除消失项、按序对齐。
      *
@@ -77,6 +89,7 @@ public final class TurnPartsHost {
      * @param parts 权威顺序；null/空表示清空（释放并移除全部）。
      */
     public void bind(List<AssistantTurn.Part> parts) {
+        createdThisBind.clear();
         // 预解析：每个 part 的 renderer + 它要挂进的 anchor（若有）。
         Map<String, PartRenderer> rendererBy = new HashMap<>();
         Map<String, String> anchorBy = new HashMap<>();
@@ -177,6 +190,7 @@ public final class TurnPartsHost {
             rendererById.put(id, renderer);
             fingerprintById.remove(id); // 新视图强制首绑
             created = true;
+            createdThisBind.add(view);
         }
 
         // 只在内容指纹变化时重绑；指纹相同（含流式无变化）跳过。

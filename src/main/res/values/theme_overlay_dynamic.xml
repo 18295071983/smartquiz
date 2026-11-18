@@ -11,7 +11,11 @@
         - values-night 同名文件 = 深色档：沿用原来的深色映射；
         - 语义色（成功/警告/危险/边框/图表）在两边都补齐，动态色下不再掉回写死色。
 
-        资源只能用系统真实存在的档位（10/50/100/200/500/700/800/900/1000）。
+        资源只能用系统真实存在的档位（0/10/50/100/200/…/900/1000）。
+        2026-11-18：补齐 M3 角色（五档 container / outlineVariant / surfaceDim/Bright /
+        inverse）；系统没有按 role 命名的容器色（API 34 的 system_surface_container_* 在
+        minSdk 31 上不可用），这里用中性色阶近似，层级方向与 M3 一致。
+        图表系列色不再由 overlay 覆盖：数据可视化色板固定（浅/夜各一套），换肤不改变系列色。
     -->
     <style name="OilQuizDynamicOverlay">
         <item name="colorPrimary">@android:color/system_accent1_500</item>
@@ -30,9 +34,21 @@
 
         <item name="colorSurface">@android:color/system_neutral1_900</item>
         <item name="colorOnSurface">@android:color/system_neutral1_10</item>
+        <item name="colorSurfaceContainerLowest">@android:color/system_neutral1_1000</item>
+        <item name="colorSurfaceContainerLow">@android:color/system_neutral1_900</item>
+        <item name="colorSurfaceContainer">@android:color/system_neutral1_800</item>
+        <item name="colorSurfaceContainerHigh">@android:color/system_neutral1_700</item>
+        <item name="colorSurfaceContainerHighest">@android:color/system_neutral1_600</item>
         <item name="colorSurfaceVariant">@android:color/system_neutral2_200</item>
         <item name="colorOnSurfaceVariant">@android:color/system_neutral2_800</item>
+        <item name="colorSurfaceDim">@android:color/system_neutral1_800</item>
+        <item name="colorSurfaceBright">@android:color/system_neutral1_1000</item>
+        <item name="colorSurfaceTint">@android:color/system_accent1_500</item>
         <item name="colorOutline">@android:color/system_neutral2_500</item>
+        <item name="colorOutlineVariant">@android:color/system_neutral2_200</item>
+        <item name="colorInverseSurface">@android:color/system_neutral1_10</item>
+        <item name="colorInverseOnSurface">@android:color/system_neutral1_900</item>
+        <item name="colorInversePrimary">@android:color/system_accent1_200</item>
         <item name="colorBackground">@android:color/system_neutral1_900</item>
         <item name="colorOnBackground">@android:color/system_neutral1_10</item>
         <item name="android:windowBackground">@android:color/system_neutral1_900</item>
@@ -40,13 +56,14 @@
         <item name="colorControlBackground">@android:color/system_neutral2_200</item>
         <item name="colorControlText">@android:color/system_neutral1_10</item>
         <item name="colorControlTextSecondary">@android:color/system_neutral2_800</item>
+        <item name="colorControlTextTertiary">@android:color/system_neutral2_600</item>
         <item name="colorControlTextHint">@android:color/system_neutral2_800</item>
         <item name="colorControlTextDisabled">@android:color/system_neutral2_500</item>
         <item name="colorCardBackground">@android:color/system_neutral1_900</item>
         <item name="colorOnCard">@android:color/system_neutral1_10</item>
         <item name="colorInputBackground">@android:color/system_neutral2_200</item>
         <item name="colorOnInput">@android:color/system_neutral1_10</item>
-        <item name="colorDivider">@android:color/system_neutral2_500</item>
+        <item name="colorDivider">@android:color/system_neutral2_200</item>
         <item name="colorAppBarBackground">@android:color/system_neutral1_900</item>
         <item name="colorOnAppBar">@android:color/system_neutral1_10</item>
 
@@ -58,16 +75,12 @@
         <item name="colorOnDanger">@android:color/system_on_error_light</item>
         <item name="colorErrorContainer">@android:color/system_error_container_light</item>
         <item name="colorOnErrorContainer">@android:color/system_on_error_container_light</item>
-        <item name="colorBorder">@android:color/system_neutral2_500</item>
-        <item name="colorBorderStrong">@android:color/system_neutral2_800</item>
-        <item name="colorScrim">#66000000</item>
-        <item name="colorChart1">@android:color/system_accent1_500</item>
-        <item name="colorChart2">@android:color/system_accent2_500</item>
-        <item name="colorChart3">@android:color/system_accent3_500</item>
-        <item name="colorChart4">@android:color/system_accent1_700</item>
-        <item name="colorChart5">@android:color/system_accent2_700</item>
-        <item name="colorChart6">@android:color/system_accent1_100</item>
-        <item name="colorChart7">@android:color/system_accent2_100</item>
-        <item name="colorChart8">@android:color/system_accent3_100</item>
+        <item name="colorBorder">@android:color/system_neutral2_200</item>
+        <item name="colorBorderStrong">@android:color/system_neutral2_500</item>
+        <item name="colorScrim">#99000000</item>
+        <!-- 图表网格/轴线/标签跟随动态中性色；系列色由固定数据可视化色板提供 -->
+        <item name="colorChartGrid">@android:color/system_neutral2_200</item>
+        <item name="colorChartAxis">@android:color/system_neutral2_500</item>
+        <item name="colorChartLabel">@android:color/system_neutral2_800</item>
     </style>
 </resources>

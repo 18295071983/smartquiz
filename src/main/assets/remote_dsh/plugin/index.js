@@ -35,6 +35,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exec, execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import { SERVER_CAPS, CAP_VERSION, filterViewCards, eventAllowed, normalizeCaps, summarize, allows, clientCaps } from './caps.js';
 import { checkCard, describe } from './cardcheck.js';
 // 模块化第一批（2026-11-16）：把"零依赖工具"和"甲板优先级档位"从 8000 行主文件里拆出来。
@@ -531,7 +532,7 @@ function writeSecret(file, data) {
   } catch { return false; }
 }
 
-export const inject = ['webServer', 'agents', 'sessions', 'tools', 'tokenMeter'];   // tools：注册 phone_ui；tokenMeter：状态栏的 token/上下文
+export const inject = ['webServer', 'agents', 'sessions', 'tools', 'tokenMeter', 'credentials'];   // tools：注册 phone_ui；tokenMeter：状态栏；credentials：手机「用电脑账号」代理取 token
 // ==================== 鉴权升级：一次性配对码 + 设备令牌 + 白名单 ====================
 // 设计：主令牌（配置/环境变量/持久化文件）仍是"主人"凭证；
 //       手机用「一次性配对码」（5 分钟有效、一次性）换取「设备令牌」，之后只带设备令牌；
@@ -1325,6 +1326,83 @@ function applyInner(ctx, config) {
    *  - notification  : 通知栏，适合人不在手机旁
    *  - reminder      : 本地提醒（后续接日程；当前落成通知）
    */
+  /**
+   * 2026-11-18：手机 CLI 执行器（phone_cli 工具 + /v2/cli 路由共用）。
+   *
+   * <p><b>必须定义在模块作用域</b>：路由 `/v2/cli` 在顶层注册，如果这个函数定义在
+   * `if (!ctx.tools) {...} else {...}` 块里，路由回调运行时会 ReferenceError，
+   * 直接把插件进程带崩（2026-11-18 真机事故）。</p>
+   *
+   * <p>传输不另开通道：命令塞进 phone_ui 用的同一条 cmdQueue，手机端
+   * `RemoteCommandExecutor` 的 case "cli" 执行 PhoneCli，结果经 cmd_ack 回填，
+   * 这里只轮询队列条目是否 done。</p>
+   */
+  const execPhoneCli = async (argv, timeoutMs = 20000) => {
+    const cmd = String(argv ?? '').trim();
+    if (!cmd) return { ok: false, error: 'empty_argv' };
+    // 没有在线手机就别等了：直接返回，避免把 20s 超时拖给调用方
+    try {
+      if (typeof connectionSnapshot === 'function' && connectionSnapshot().length === 0) {
+        return { ok: false, error: 'no_device' };
+      }
+    } catch { /* 快照不可用就按老路等超时 */ }
+    try { pruneCommands(); } catch { /* 忽略 */ }
+    const id = randomBytes(8).toString('hex');
+    cmdQueue.set(id, {
+      id, tool: 'cli', args: { argv: cmd },
+      state: 'queued', createdAt: Date.now(), result: null,
+    });
+    const deadline = Date.now() + Math.max(1000, Number(timeoutMs) || 20000);
+    while (Date.now() < deadline) {
+      const c = cmdQueue.get(id);
+      if (c && c.state === 'done') {
+        return { ok: true, cmd_id: id, output: String(c.result ?? '') };
+      }
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    cmdQueue.delete(id);
+    return { ok: false, error: 'timeout', cmd_id: id };
+  };
+
+  /**
+   * 2026-11-18：电脑端 DeepSeek 账号 token 解析（供手机「使用电脑账号」代理）。
+   *
+   * <p>复用 DSH 官方 `resolveDeepSeekAccountToken`（与 deepseek-account provider 同口径），
+   * 插件不碰 credentials 内部结构；懒加载，解析器不可用时返回 null 而不是抛。</p>
+   */
+  let accountTokenReason = '';
+  /**
+   * 直接读 DSH credentials 里 DeepSeek 账号的记录：
+   * key = `deepseek-account-platform/default`，grant.payload = {version, token, issuer}。
+   * 这比动态 import `@deepseek-ai/dsh-llm-deepseek` 可靠（插件目录解析不到 DSH 的 node_modules）。
+   * token 过期时上游会 401，这里把 reason 带回去提示电脑端重新登录。
+   */
+  const resolveAccountTokenForApi = async () => {
+    try {
+      if (!ctx.credentials || typeof ctx.credentials.readRecord !== 'function') {
+        accountTokenReason = 'credentials_unavailable';
+        return null;
+      }
+      const rec = await ctx.credentials.readRecord('deepseek-account-platform/default');
+      if (!rec) {
+        accountTokenReason = 'no_record：电脑端 DSH 未登录 DeepSeek 账号';
+        return null;
+      }
+      const token = rec.kind === 'grant'
+        ? String((rec.payload && rec.payload.token) || '') : '';
+      if (!token) {
+        accountTokenReason = 'no_token_in_record';
+        return null;
+      }
+      accountTokenReason = '';
+      return token;
+    } catch (e) {
+      accountTokenReason = 'read_failed: ' + String(e?.message ?? e);
+      console.warn('[smartquiz-remote] 取账号 token 失败: ' + accountTokenReason);
+      return null;
+    }
+  };
+
   const CMD_ALLOW = new Set(['ui_component', 'toast', 'dialog', 'notification', 'reminder']);
   const CMD_MAX = 50;
   const CMD_TTL_MS = 10 * 60 * 1000;
@@ -2954,7 +3032,21 @@ function presetSvcOf(ctx) {
       PHONE_TOOL_STATE.error = 'no ctx.tools (inject 未生效?)';
       console.warn('[smartquiz-remote] 没有 tools 服务，跳过 phone_ui 注册');
     } else {
-      const phoneUiDef = {
+      const PHONE_CLI_PARAMS = {
+    type: 'object',
+    properties: {
+      command: {
+        type: 'string',
+        description: '手机 CLI 命令（argv 一整条），只读子集：help / version / tools list / '
+          + 'tools show <name> / ui dump [--max-depth N] [--json] / ui find --text=<关键字>',
+      },
+      timeout_ms: { type: 'number', description: '等待手机执行完成的毫秒数，默认 20000' },
+    },
+    required: ['command'],
+    additionalProperties: false,
+  };
+
+  const phoneUiDef = {
         name: 'phone_ui',
         description: '把一条 UI 指令推送到已配对的手机：slot（输入区上方的插槽；title/detail 都空按 remove 处理）'
           + '或 toast/notification（提醒）。只用于需要用户立刻看到的轻量提示，不要用于长文本。',
@@ -3012,6 +3104,37 @@ function presetSvcOf(ctx) {
       ctx.tools.register({ ...phoneUiDef, parameters: PHONE_UI_PARAMS });
       PHONE_TOOL_STATE.registered = true;
       console.log('[smartquiz-remote] 已注册工具 phone_ui（反向通道生产者）');
+
+      // 2026-11-18：手机 CLI（电脑远程调试手机 App / agent），与 phone_ui 共用命令队列
+      try {
+        ctx.tools.register({
+          name: 'phone_cli',
+          description: '在手机上执行只读 CLI（调试手机 App / agent / 工具系统）：'
+            + 'help、version、tools list、tools show <name>、ui dump、ui find。'
+            + '需要手机在线；结果原样返回（含 exit= 码）。',
+          parameters: PHONE_CLI_PARAMS,
+          output: {
+            schema: { type: 'string' },
+            render: (_args, value) => [{ type: 'text', text: String(value) }],
+          },
+          execute: async (args) => {
+            try {
+              const r = await execPhoneCli(args?.command, args?.timeout_ms);
+              if (!r.ok) {
+                if (r.error === 'no_device') return '手机未连接：先在手机「远程连接（电脑）」里打开插件开关并点连接';
+                if (r.error === 'timeout') return '手机未响应（超时）：确认手机 App 在运行且已连接';
+                return '未执行：' + r.error;
+              }
+              return r.output;
+            } catch (e) {
+              return '执行失败：' + String(e?.message ?? e);
+            }
+          },
+        });
+        console.log('[smartquiz-remote] 已注册工具 phone_cli（手机 CLI）');
+      } catch (e) {
+        console.warn('[smartquiz-remote] phone_cli 注册失败（忽略）: ' + String(e?.message ?? e));
+      }
     }
   } catch (e) {
     PHONE_TOOL_STATE.error = String(e?.message ?? e);
@@ -3612,6 +3735,125 @@ function presetSvcOf(ctx) {
    * 这里只放两个**无破坏性**的：清空任务列表（本地展示态）与重建时间线（resync）。
    * 计划开关走 /v2/plan（已有写权限校验），日程执行走 /v2/schedule，不在这里重复开口子。</p>
    */
+  /**
+   * POST /v2/cli { argv, timeout_ms } —— 手机 CLI 的 HTTP 入口（dsh-phone 本地 CLI / curl 用）。
+   * 与 phone_cli 工具共用 execPhoneCli（同一条 cmdQueue、同一套超时）。
+   */
+  /**
+   * 2026-11-18：手机「使用电脑端 DeepSeek 账号」的推理代理。
+   *
+   * <p>手机把 OpenAI 兼容的 chat/completions 请求原样发到这里；插件用电脑端 DSH 已登录的
+   * 账号 token（`x-dsh-auth-token`）转发到 api.deepseek.com，并把响应（含 SSE 流）透传回去。
+   * 手机端不接触账号 token。支持流式：上游响应体直接 pipe 给下游。</p>
+   */
+  const llmChatProxy = async (req, res) => {
+    try {
+      if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+        return sendJson(res, 405, { ok: false, error: 'use_post' });
+      }
+      const body = await readBody(req);
+      if (!body) return sendJson(res, 400, { ok: false, error: 'empty_body' });
+      const token = await resolveAccountTokenForApi();
+      if (!token) {
+        return sendJson(res, 503, {
+          ok: false, error: 'account_not_signed_in',
+          detail: '电脑端 DSH 未登录 DeepSeek 账号：先在电脑 DSH 里登录，再重试',
+          reason: accountTokenReason || 'unknown',
+        });
+      }
+      const upstream = httpsRequest({
+        hostname: 'api.deepseek.com',
+        port: 443,
+        path: '/chat/completions',
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: String(req.headers['accept'] || 'application/json'),
+          'accept-encoding': 'identity',
+          'x-dsh-auth-token': token,
+        },
+      }, (ur) => {
+        try {
+          res.writeHead(ur.statusCode || 502, {
+            'content-type': String(ur.headers['content-type'] || 'application/json; charset=utf-8'),
+            'cache-control': 'no-cache',
+            'x-proxy': 'smartquiz-remote',
+          });
+          ur.pipe(res);
+        } catch (e) {
+          try { res.end(); } catch { /* 忽略 */ }
+        }
+      });
+      upstream.on('error', (e) => {
+        try {
+          res.writeHead(502, { 'content-type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: false, error: 'upstream_failed', detail: String(e?.message ?? e) }));
+        } catch { /* 忽略 */ }
+      });
+      upstream.setTimeout(300000, () => {
+        try { upstream.destroy(new Error('upstream_timeout')); } catch { /* 忽略 */ }
+      });
+      upstream.end(body);
+    } catch (e) {
+      try {
+        return sendJson(res, 500, { ok: false, error: 'proxy_failed', detail: String(e?.message ?? e) });
+      } catch { return; }
+    }
+  };
+
+  // OpenAI 兼容基址：手机端把 apiUrl 设成 http://<电脑>:8218/v2/llm，
+  // 推理层自己拼 /chat/completions、/models，两个都要有。
+  route('exact', '/v2/llm/chat/completions', llmChatProxy);
+  route('exact', '/v2/llm/chat', llmChatProxy);
+  route('exact', '/v2/llm/models', (req, res) => {
+    try {
+      if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      return sendJson(res, 200, {
+        object: 'list',
+        data: [
+          { id: 'deepseek-chat', object: 'model', owned_by: 'deepseek' },
+          { id: 'deepseek-reasoner', object: 'model', owned_by: 'deepseek' },
+        ],
+      });
+    } catch (e) {
+      return sendJson(res, 500, { ok: false, error: 'models_failed', detail: String(e?.message ?? e) });
+    }
+  });
+
+  /** 账号可用性探测（手机端「使用电脑账号」开关用它决定是否可选）。 */
+  route('exact', '/v2/llm/account', async (req, res) => {
+    try {
+      if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const token = await resolveAccountTokenForApi();
+      return sendJson(res, 200, {
+        ok: true, v: 2, signed_in: Boolean(token), provider: 'deepseek-account',
+        ...(token ? {} : { reason: accountTokenReason || 'unknown' }),
+      });
+    } catch (e) {
+      return sendJson(res, 200, { ok: true, v: 2, signed_in: false, detail: String(e?.message ?? e) });
+    }
+  });
+
+  route('exact', '/v2/cli', async (req, res) => {
+    try {
+      if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      if (String(req.method || 'GET').toUpperCase() === 'GET') {
+        return sendJson(res, 405, { ok: false, error: 'use_post' });
+      }
+      let body = {};
+      try { body = JSON.parse((await readBody(req)) || '{}'); } catch { body = {}; }
+      const r = await execPhoneCli(body.argv ?? body.command, body.timeout_ms);
+      const status = r.ok ? 200 : (r.error === 'timeout' ? 504 : 409);
+      return sendJson(res, status, { ok: r.ok, v: 2, ...r });
+    } catch (e) {
+      // 任何异常都退化成 JSON 错误，绝不让路由把插件进程带崩
+      try {
+        return sendJson(res, 500, { ok: false, error: 'cli_failed', detail: String(e?.message ?? e) });
+      } catch { return; }
+    }
+  });
+
   route('exact', '/v2/action', async (req, res) => {
     if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     if (String(req.method || 'GET').toUpperCase() === 'GET') {
@@ -3652,6 +3894,28 @@ function presetSvcOf(ctx) {
         request: { toolName: tool, reason, callId: '' },
       });
       return sendJson(res, 200, { ok: true, v: 2, id, ttl_sec: ttlMs / 1000 });
+    }
+
+    /**
+     * 2026-11-18：面板推送 toast/notification（与 phone_ui 工具共用同一条命令队列）。
+     * 面板是本地 HTTP 也要按 caps 校验一次 cmd.ui，避免"面板能绕过手机能力声明"。
+     */
+    if (action === 'ui.notify') {
+      if (!allows(normalizeCaps(body.caps ?? ''), 'cmd.ui')) {
+        return sendJson(res, 403, { ok: false, error: 'caps_denied', need: 'cmd.ui' });
+      }
+      const kind = String(body.kind ?? 'toast') === 'notification' ? 'notification' : 'toast';
+      const title = String(body.title ?? '').trim();
+      const detail = String(body.detail ?? '').trim();
+      if (!title && !detail) return sendJson(res, 400, { ok: false, error: 'title_or_detail_required' });
+      try { pruneCommands(); } catch { /* 忽略 */ }
+      const id = randomBytes(8).toString('hex');
+      cmdQueue.set(id, {
+        id, tool: kind,
+        args: { title: title || detail, body: detail, text: title || detail },
+        state: 'queued', createdAt: Date.now(), result: null,
+      });
+      return sendJson(res, 200, { ok: true, v: 2, action, cmd_id: id, queued: true });
     }
 
     if (action === 'ui.slot') {
@@ -8506,7 +8770,14 @@ function presetSvcOf(ctx) {
             ],
           },
         };        const wss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024 });
-        const sendWs = (ws, o) => { try { ws.send(JSON.stringify(o)); } catch { /* 已断 */ } };
+        // 2026-11-18：对端已断时不再"写进空气"（readyState!==1 直接跳过；异常由连接
+        // 自己的 close/error 回调移除订阅）。
+        const sendWs = (ws, o) => {
+          try {
+            if (!ws || ws.readyState !== 1) return;
+            ws.send(JSON.stringify(o));
+          } catch { /* 已断 */ }
+        };
 
         /** 等 WS 发送缓冲降下来（大文件不能一把塞进内存） */
         const drain = async (ws) => {
@@ -8696,8 +8967,32 @@ function presetSvcOf(ctx) {
           // §20（2026-11-15）：插槽最近帧补发（rev/ttl 一起带上；过期的瞬时帧不发）
           try { replaySlots(sid, (frame) => sendWs(ws, frame)); } catch { /* 补发失败不影响连接 */ }
           sendWs(ws, { type: 'view_def', version: 1, views: VIEW_DEFS });
+          /**
+           * 2026-11-18：连接存活判定（用户实测：「手机断了电脑端还一直发」）。
+           *
+           * 旧实现每 15s 先 touchConnection 再 ping —— 等于自己给自己续命：不管对端
+           * 还在不在，连接快照永远 online、广播也照发。现在只有收到 pong（或任意入站帧）
+           * 才续 last_seen；连续 3 个周期（45s）没动静就主动 terminate，
+           * 触发 cleanup → STREAM_HUB 移除 + 连接快照掉线，手机侧会自行重连。
+           */
+          let lastRtt = Date.now();
+          ws.on('pong', () => {
+            lastRtt = Date.now();
+            touchConnection(sid, 'ws');
+          });
           const timer = setInterval(() => {
-            try { touchConnection(sid, 'ws'); ws.ping(); } catch { /* 已断 */ }
+            try {
+              if (ws.readyState !== 1) {
+                clearInterval(timer);
+                return;
+              }
+              if (Date.now() - lastRtt > 45000) {
+                clearInterval(timer);
+                try { ws.terminate(); } catch { /* 已断 */ }
+                return;
+              }
+              ws.ping();
+            } catch { /* 已断：等 close/error 回调清理 */ }
           }, 15000);
 
           // ---- 客户端 → 服务端（按端点白名单）----
@@ -8706,6 +9001,8 @@ function presetSvcOf(ctx) {
             try { m = JSON.parse(String(raw)); } catch { return; }
             const t = String(m.type ?? '');
             { const s = wsStatOf(chName); s.frames += 1; s.last_frame_at = Date.now(); }
+            // 任意入站帧都算活着（手机可能只发 pull/ack/ping，不依赖 pong）
+            touchConnection(sid, 'ws');
             if (!ch.inbound.has(t)) {
               // 该端点不接受这类请求：明确回错，别让客户端干等
               sendWs(ws, { type: 'error', code: 'frame_not_allowed', frame: t, channel: chName });
@@ -8751,6 +9048,12 @@ function presetSvcOf(ctx) {
             wsStatOf(chName).closes += 1;
             const n = (WS_CHANNEL_COUNT.get(chName) ?? 1) - 1;
             if (n > 0) WS_CHANNEL_COUNT.set(chName, n); else WS_CHANNEL_COUNT.delete(chName);
+            // 2026-11-18：这条会话已经没有别的连接（WS/SSE）时，立刻把连接快照标掉线，
+            // 不用等 30s TTL——否则电脑端 UI 还会显示"在线"并继续往空连接推。
+            try {
+              const still = [...STREAM_HUB].some((s) => s && s.sid === sid);
+              if (!still) dropConnection(sid);
+            } catch { /* 忽略 */ }
           };
           ws.on('close', cleanup);
           ws.on('error', cleanup);

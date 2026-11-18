@@ -13,7 +13,6 @@ import org.junit.Test;
  * "合并 → 丢弃 → 断"，没有"切拉模式"这一档。这里把每个边界钉住。</p>
  */
 public class EventFlowPolicyTest {
-
     // ===== B：断档 → 快照 =====
 
     @Test

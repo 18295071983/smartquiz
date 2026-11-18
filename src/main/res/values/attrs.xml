@@ -15,15 +15,47 @@
     <attr name="colorOnPrimary" format="color"/>
     <attr name="colorOnPrimaryContainer" format="color"/>
     <attr name="colorSecondary" format="color"/>
+    <attr name="colorOnSecondary" format="color"/>
     <attr name="colorSecondaryContainer" format="color"/>
     <attr name="colorOnSecondaryContainer" format="color"/>
+    <attr name="colorError" format="color"/>
+    <attr name="colorOnError" format="color"/>
     <attr name="colorTertiary" format="color"/>
+    <attr name="colorOnTertiary" format="color"/>
     <attr name="colorTertiaryContainer" format="color"/>
     <attr name="colorOnTertiaryContainer" format="color"/>
     <attr name="colorSurfaceVariant" format="color"/>
     <attr name="colorOnSurface" format="color"/>
     <attr name="colorOnSurfaceVariant" format="color"/>
     <attr name="colorOutline" format="color"/>
+    <!-- 2026-11-18：补齐 M3 角色（MDC 组件读这组 attr；app 侧也要显式声明，
+         否则 nonTransitiveRClass 下 Java 里没有 R.attr 符号）。 -->
+    <attr name="colorOutlineVariant" format="color"/>
+    <attr name="colorSurfaceContainerLowest" format="color"/>
+    <attr name="colorSurfaceContainerLow" format="color"/>
+    <attr name="colorSurfaceContainer" format="color"/>
+    <attr name="colorSurfaceContainerHigh" format="color"/>
+    <attr name="colorSurfaceContainerHighest" format="color"/>
+    <attr name="colorSurfaceTint" format="color"/>
+    <attr name="colorInverseSurface" format="color"/>
+    <attr name="colorInverseOnSurface" format="color"/>
+    <attr name="colorInversePrimary" format="color"/>
+    <!-- 2026-11-18：层级 / 状态 / 语义容器（组件层读这组，不用各自写 alpha/借用边框色） -->
+    <attr name="colorSurfaceDim" format="color"/>
+    <attr name="colorSurfaceBright" format="color"/>
+    <attr name="colorInfoContainer" format="color"/>
+    <attr name="colorOnInfoContainer" format="color"/>
+    <attr name="colorOnSuccessContainer" format="color"/>
+    <attr name="colorOnWarningContainer" format="color"/>
+    <attr name="colorStateHover" format="color"/>
+    <attr name="colorStateFocus" format="color"/>
+    <attr name="colorStatePressed" format="color"/>
+    <attr name="colorStateDragged" format="color"/>
+    <attr name="colorStateDisabledContainer" format="color"/>
+    <attr name="colorStateDisabledContent" format="color"/>
+    <attr name="colorChartGrid" format="color"/>
+    <attr name="colorChartAxis" format="color"/>
+    <attr name="colorChartLabel" format="color"/>
 
     <!-- ===== 控件色板（控件底色 + 控件文字色）=====
          由 Theme.OilQuizApp.Base 提供映射（31 个主题档位自动继承），
@@ -34,6 +66,8 @@
     <attr name="colorControlText" format="color"/>
     <!-- 控件次级文字色 -->
     <attr name="colorControlTextSecondary" format="color"/>
+    <!-- 控件三级文字色（弱化但仍需可读，区别于 placeholder 的 Hint 档） -->
+    <attr name="colorControlTextTertiary" format="color"/>
     <!-- 控件提示文字色 -->
     <attr name="colorControlTextHint" format="color"/>
     <!-- 控件禁用文字色 -->

@@ -11,6 +11,8 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.LayerDrawable;
 import android.view.View;
 
+import com.oilquiz.app.R;
+
 import java.io.File;
 
 /**
@@ -34,9 +36,9 @@ public final class AppWallpaperManager {
     private static final String KEY_PATH = "path";
     /** 黑色遮罩透明度（0-255）：0x59 ≈ 35%，兼顾壁纸观感与前景可读性 */
     private static final int SCRIM_ALPHA = 0x59;
-    /** 兜底壁纸：没有任何可用壁纸时的默认图（2026-11-04 换成自绘的深蓝青渐变，原「猫和老鼠」太花） */
-    private static final String FALLBACK_BUILTIN = "builtin_default.jpg";
-    private static final String FALLBACK_ASSET = "wallpapers/aurora_default.jpg";
+    /** 兜底壁纸：没有任何可用壁纸时的默认图（2026-11-18 起改用壁纸库第 1 张实拍图） */
+    private static final String FALLBACK_BUILTIN = "builtin_00.jpg";
+    private static final String FALLBACK_ASSET = "wallpapers/builtin_00.jpg";
 
     private AppWallpaperManager() {
     }
@@ -44,13 +46,15 @@ public final class AppWallpaperManager {
     /**
      * 当前应用壁纸模式。
      *
-     * <p>2026-11-04：默认值从「跟随系统」改成「使用内置壁纸」。原来默认跟随系统，用户手机壁纸
-     * 一花，应用每页都跟着花（实测那套猫和老鼠压在文字下面，标题几乎看不清）。跟随系统仍可在
-     * 壁纸设置里手动选。</p>
+     * <p>2026-11-18：默认值改成<b>关闭</b>（{@link #MODE_OFF}）。此前默认内置壁纸，
+     * 而内置库是深色渐变，压得内容发灰；现在默认走主题底色，壁纸改成纯可选项。</p>
+     *
+     * <p>2026-11-04 历史：默认曾从「跟随系统」改成「使用内置壁纸」（系统壁纸太花、
+     * 标题看不清）。跟随系统仍可在壁纸设置里手动选。</p>
      */
     public static int getMode(Context context) {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-                .getInt(KEY_MODE, MODE_LIBRARY);
+                .getInt(KEY_MODE, MODE_OFF);
     }
 
     public static void setMode(Context context, int mode) {
@@ -81,7 +85,7 @@ public final class AppWallpaperManager {
 
 
     /**
-     * 兜底默认壁纸：内置「猫和老鼠」（builtin_10.jpg）。
+     * 兜底默认壁纸：壁纸库第 1 张（builtin_00.jpg，雪山峡谷）。
      * 文件不存在时同步从 assets 拷贝（首装/卸载重装后立即可用），无需等待后台预生成。
      */
     private static Drawable getFallbackDrawable(Context context) {
@@ -538,20 +542,41 @@ public final class AppWallpaperManager {
     }
 
     /**
-     * 把当前应用壁纸设到页面根 View 背景。
-     * 模式为「关闭」时不操作（页面 XML 自带背景保留）；无壁纸可用也不操作。
+     * 把当前应用壁纸设到页面根 View 背景；壁纸关闭/不可用时把页面恢复成原背景。
+     *
+     * <p>2026-11-18：以前模式关闭时这里直接 return，页面根背景仍是上一次铺的壁纸，
+     * 必须重建页面才恢复。现在第一次铺壁纸前把页面自己的背景存进
+     * {@code R.id.tag_wallpaper_original_bg}，关闭时原位还原——主题设置里关掉壁纸，
+     * 返回聊天页立即回到 chat_v2_bg，不会残留旧壁纸。</p>
      *
      * @return 是否已应用壁纸
      */
     public static boolean applyTo(Context context, View root) {
-        if (root == null || getMode(context) == MODE_OFF) {
+        if (root == null) {
             return false;
         }
-        Drawable d = getWallpaperDrawable(context);
+        Drawable d = getMode(context) == MODE_OFF ? null : getWallpaperDrawable(context);
         if (d == null) {
+            restoreOriginalBackground(root);
             return false;
+        }
+        Object saved = root.getTag(R.id.tag_wallpaper_original_bg);
+        if (!(saved instanceof Drawable)) {
+            // 首次铺壁纸：保存页面原背景（可能为 null，用透明色占位以便关闭时还原）
+            Drawable original = root.getBackground();
+            root.setTag(R.id.tag_wallpaper_original_bg,
+                    original != null ? original : new ColorDrawable(0x00000000));
         }
         root.setBackground(d);
         return true;
+    }
+
+    /** 关掉壁纸/壁纸不可用时，把根 View 还原成铺壁纸前的背景。 */
+    private static void restoreOriginalBackground(View root) {
+        Object saved = root.getTag(R.id.tag_wallpaper_original_bg);
+        if (saved instanceof Drawable) {
+            root.setBackground((Drawable) saved);
+            root.setTag(R.id.tag_wallpaper_original_bg, null);
+        }
     }
 }

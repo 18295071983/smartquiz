@@ -6,7 +6,6 @@ import android.text.method.LinkMovementMethod;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.oilquiz.app.R;
@@ -14,6 +13,7 @@ import com.oilquiz.app.theme.ThemeColors;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.turn.AssistantTurn;
 import com.oilquiz.app.ai.chat.ui.MarkdownWebView;
+import com.oilquiz.app.ai.chat.ui.ReasoningShellView;
 
 /**
  * 推理/思考 part 渲染器（parts 架构升级 P2，2026-10-21）。
@@ -57,22 +57,11 @@ public final class ReasoningPartRenderer implements PartRenderer {
     @Override
     public View createView(PartHost host, ViewGroup parent) {
         Context ctx = host.context();
-        int pad = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12f,
-                ctx.getResources().getDisplayMetrics());
 
-        LinearLayout root = new LinearLayout(ctx);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setLayoutParams(new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        // 折叠头：只显示状态（正在思考... / 已深度思考 X 秒），不承载内容、不做动画
-        final TextView header = new TextView(ctx);
-        header.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
-        header.setPadding(pad, pad, pad, pad);
-        header.setText(HEADER_PLAIN);
-        header.setSingleLine(true);
-        header.setEllipsize(TextUtils.TruncateAt.END);
+        // 思考块自己的容器（2026-11-18）：折叠头（图标 + 呼吸点 + 文字 + 箭头，32dp 胶囊）
+        // + 正文容器（左侧 2dp 引导线）。原先这里是"裸 TextView 当折叠头 + 裸正文"，
+        // 展开动画/悬停底色/展开指示器都没有可挂的地方（用户原话："没有自己的容器"）。
+        final ReasoningShellView shell = new ReasoningShellView(ctx);
 
         // 正文区：默认与回答正文同一条 WebView 流式通路；开关关掉时退回原生 TextView。
         final boolean webBody = host.webMarkdownEnabled() && ReasoningWebRenderFlag.enabled(ctx);
@@ -85,32 +74,27 @@ public final class ReasoningPartRenderer implements PartRenderer {
             web.setReasoningStyle(true);
             // 与 TextPartRenderer 同口径：WebView 内部按内容高回调，宿主据此重排 item。
             web.setOnContentHeightChanged(heightPx -> host.invalidateSize());
-            web.setLayoutParams(new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             bodyText = null;
             bodyWeb = web;
         } else {
             TextView tv = new TextView(ctx);
             tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
-            tv.setPadding(pad, 0, pad, pad);
+            // 横向留白/底部留白统一由容器 bodyHost 给，避免和旧的 12dp 双重缩进
+            tv.setPadding(0, 0, 0, 0);
             tv.setTextIsSelectable(true);
             tv.setTextColor(secondaryTextColor(ctx));
             tv.setMovementMethod(LinkMovementMethod.getInstance());
-            tv.setLayoutParams(new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             bodyText = tv;
             bodyWeb = null;
         }
         View bodyView = bodyWeb != null ? bodyWeb : bodyText;
-        // 默认收起（思考中由绑定态展开、定稿后收起；与第一版一致）
-        bodyView.setVisibility(View.GONE);
+        shell.setBodyView(bodyView); // 默认收起（思考中由绑定态展开、定稿后收起；与第一版一致）
 
-        final Row row = new Row(header, bodyText, bodyWeb);
-        header.setOnClickListener(v -> {
+        final Row row = new Row(shell, bodyText, bodyWeb);
+        shell.setOnHeaderClickListener(v -> {
             boolean expanded = isExpanded(row, row.part != null && row.part.isStreaming());
             row.userExpandedOverride = !expanded;
-            applyBodyVisibility(row, !expanded);
-            applyHeader(row, !expanded);
+            shell.setExpanded(!expanded, true);
             if (!expanded) {
                 // 展开这一刻才真正渲染正文：
                 // - WebView：收起期间没 load（见 Row#webLoadedText），这里补一次；
@@ -130,24 +114,26 @@ public final class ReasoningPartRenderer implements PartRenderer {
             }
         });
 
-        root.addView(header);
-        root.addView(bodyView);
-        root.setTag(row);
-        return root;
+        shell.setTag(row);
+        return shell;
     }
 
     @Override
     public void bindView(View view, AssistantTurn.Part part, PartHost host) {
-        Row row = view instanceof LinearLayout ? (Row) ((LinearLayout) view).getTag() : null;
+        Row row = view instanceof ReasoningShellView ? (Row) view.getTag() : null;
         if (row == null) {
             return;
         }
         String text = part.text != null ? part.text : "";
         if (part.id != null && !part.id.equals(row.partId)) {
             // 视图复用到另一条 part：展开选择/WebView 正文加载状态都属于上一条，不能带过来
+            cancelAutoCollapse(row);
             row.partId = part.id;
             row.userExpandedOverride = null;
             row.webLoadedText = null;
+            row.previewSource = null;
+            row.previewText = null;
+            row.lastStreaming = false;
         }
         row.part = part;
         row.host = host;
@@ -155,8 +141,34 @@ public final class ReasoningPartRenderer implements PartRenderer {
 
         row.baseLabel = streaming ? activeLabel(row, part) : doneLabel(row, part);
         boolean expanded = isExpanded(row, streaming);
-        applyBodyVisibility(row, expanded);
-        applyHeader(row, expanded);
+        boolean justFinished = row.lastStreaming && !streaming;
+        row.lastStreaming = streaming;
+        applyLabel(row);
+        // 收起态的"思考过程"摘要（2026-11-18）：复用 2026-10-25 落下的 ThinkingPreview 口径
+        // （最新已完成段落首行，流式时退到上一段），折叠头上不只剩"深度思考"四个字。
+        // 文本没变就不重算：ThinkingPreview 会过 JNI 取模板标签，流式每 120ms 重绑没必要跑。
+        if (row.previewSource == null || !row.previewSource.equals(text)
+                || row.previewStreaming != streaming) {
+            row.previewSource = text;
+            row.previewStreaming = streaming;
+            row.previewText = com.oilquiz.app.ai.chat.ui.ThinkingPreview.of(text, streaming);
+            row.shell.setSummary(row.previewText);
+        }
+        row.shell.setStreaming(streaming);
+        row.shell.setCollapsible(!text.isEmpty());
+        if (justFinished && row.userExpandedOverride == null) {
+            // 对标业界（AI Elements Reasoning：streaming 自动展开、finished 自动收起）：
+            // 结束这一帧先保持展开，留一拍让人看完最后一句，再播收起动画。
+            row.shell.setExpanded(true, false);
+            scheduleAutoCollapse(row);
+        } else {
+            cancelAutoCollapse(row);
+            row.shell.setExpanded(expanded, false);
+        }
+        // 思考中让折叠头自带走光：模型还在产 token，这一行却是个静态句子，
+        // 长思考时看着像卡死（2026-11-18）。动效实现统一在 UiFx（对话页禁止手写 Animator，
+        // 见 UiHardcodeGuardTest），且幂等——流式每 120ms 重绑不会重启扫光。
+        com.oilquiz.app.ui.UiFx.shimmer(row.shell.label(), streaming);
 
         if (row.bodyWeb != null) {
             // WebView 正文：展开才上屏（收起期间不跑 WebView，历史列表滚动不为收起态思考白建页面）；
@@ -243,7 +255,7 @@ public final class ReasoningPartRenderer implements PartRenderer {
             String label = com.oilquiz.app.ai.chat.InferenceStatusLabel.shortLabel(phase);
             if (label != null) return label;
         }
-        return thinkingNow(row.header.getContext());
+        return thinkingNow(row.shell.getContext());
     }
 
     private static String doneLabel(Row row, AssistantTurn.Part part) {
@@ -251,9 +263,9 @@ public final class ReasoningPartRenderer implements PartRenderer {
                 ? row.host.message().stopReasonText : null;
         String suffix = (stopReason == null || stopReason.isEmpty()) ? "" : " · " + stopReason;
         if (part.durationMs > 0L) {
-            return "已深度思考 " + Math.round(part.durationMs / 1000.0) + " 秒" + suffix;
+            return "深度思考 " + Math.round(part.durationMs / 1000.0) + " 秒" + suffix;
         }
-        Context ctx = row.header.getContext();
+        Context ctx = row.shell.getContext();
         if (ctx != null) {
             try {
                 return ctx.getString(R.string.chat_v2_thought_done) + suffix;   // "已深度思考"
@@ -276,33 +288,64 @@ public final class ReasoningPartRenderer implements PartRenderer {
         return row.userExpandedOverride != null ? row.userExpandedOverride : streaming;
     }
 
-    private static View bodyView(Row row) {
-        return row.bodyWeb != null ? row.bodyWeb : row.bodyText;
+    /** 折叠头文字：展开态由容器里的箭头表达，不在文案前拼 ▾/▸（那是没有容器时的替代品）。 */
+    private static void applyLabel(Row row) {
+        row.shell.label().setText(row.baseLabel);
     }
 
-    private static void applyBodyVisibility(Row row, boolean expanded) {
-        View body = bodyView(row);
-        if (body != null) {
-            body.setVisibility(expanded ? View.VISIBLE : View.GONE);
+    /** 定稿后留一拍再收起：让人看完最后一句（对标 AI Elements 的"结束自动收起"）。 */
+    private static final long AUTO_COLLAPSE_MS = 700L;
+
+    /**
+     * 延迟收起用的 Handler：不用 {@code view.postDelayed}——part 视图在绑定那一刻可能还没 attach，
+     * 未 attach 的 {@code post} 会进 View 的待执行队列、不保证按点跑（真机上偶尔"该收没收到"）。
+     */
+    private static final android.os.Handler MAIN = new android.os.Handler(
+            android.os.Looper.getMainLooper());
+
+    private static void scheduleAutoCollapse(Row row) {
+        cancelAutoCollapse(row);
+        final String partId = row.partId;
+        row.collapseRunnable = () -> {
+            row.collapseRunnable = null;
+            if (row.userExpandedOverride != null) {
+                return; // 用户点过了：以用户选择为准
+            }
+            if (partId == null || !partId.equals(row.partId)) {
+                return; // 视图已被复用给另一条 part
+            }
+            if (row.part != null && row.part.isStreaming()) {
+                return; // 又开始流式了
+            }
+            row.shell.setExpanded(false, true);
+        };
+        MAIN.postDelayed(row.collapseRunnable, AUTO_COLLAPSE_MS);
+    }
+
+    private static void cancelAutoCollapse(Row row) {
+        if (row.collapseRunnable != null) {
+            MAIN.removeCallbacks(row.collapseRunnable);
+            row.collapseRunnable = null;
         }
-    }
-
-    private static void applyHeader(Row row, boolean expanded) {
-        row.header.setText((expanded ? "▾ " : "▸ ") + row.baseLabel);
     }
 
     @Override
     public void releaseView(View view) {
         // 无重资源；WebView 走 markdown 缓存/文档身份重置，避免复用串台。
-        Row row = view instanceof LinearLayout ? (Row) view.getTag() : null;
-        if (row != null && row.bodyWeb != null) {
-            row.bodyWeb.resetForReuse();
+        Row row = view instanceof ReasoningShellView ? (Row) view.getTag() : null;
+        if (row != null) {
+            cancelAutoCollapse(row);
+            // 视图离树即停扫光，别把 Animator 带进列表复用池
+            com.oilquiz.app.ui.UiFx.stopShimmer(row.shell.label());
+            if (row.bodyWeb != null) {
+                row.bodyWeb.resetForReuse();
+            }
         }
     }
 
-    /** 折叠行的子视图句柄，挂在 root 的 tag 上，bindView 复用同实例时取回。 */
+    /** 思考块的子视图句柄，挂在容器 tag 上，bindView 复用同实例时取回。 */
     private static final class Row {
-        final TextView header;
+        final ReasoningShellView shell;
         /** 原生正文；web 正文时 null。 */
         final TextView bodyText;
         /** WebView 正文；原生正文时 null。 */
@@ -314,12 +357,20 @@ public final class ReasoningPartRenderer implements PartRenderer {
         Boolean userExpandedOverride;
         AssistantTurn.Part part;
         PartHost host;
+        /** 上一绑的流式态：用于识别"流式→定稿"这一帧并播收起动画。 */
+        boolean lastStreaming;
+        /** 定稿后的延迟收起任务（用户点击/视图复用/重新流式时取消）。 */
+        Runnable collapseRunnable;
         /** 最近一次真正喂给 WebView 的文本与流式态，用于同内容复用早退。 */
         String webLoadedText;
         boolean webLoadedStreaming;
+        /** 收起态摘要的缓存（文本没变不重算 ThinkingPreview）。 */
+        String previewSource;
+        boolean previewStreaming;
+        String previewText;
 
-        Row(TextView header, TextView bodyText, MarkdownWebView bodyWeb) {
-            this.header = header;
+        Row(ReasoningShellView shell, TextView bodyText, MarkdownWebView bodyWeb) {
+            this.shell = shell;
             this.bodyText = bodyText;
             this.bodyWeb = bodyWeb;
         }

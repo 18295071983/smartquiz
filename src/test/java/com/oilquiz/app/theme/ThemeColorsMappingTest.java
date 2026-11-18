@@ -40,12 +40,15 @@ public class ThemeColorsMappingTest {
         assertEquals(R.attr.colorSurface, ThemeColors.attrForResId(R.color.surface));
         assertEquals(R.attr.colorSurfaceVariant, ThemeColors.attrForResId(R.color.surface_variant));
         assertEquals(R.attr.colorOnSurface, ThemeColors.attrForResId(R.color.on_surface));
-        assertEquals(R.attr.colorOutline, ThemeColors.attrForResId(R.color.outline));
+        // 2026-11-18：R.color.outline 是历史"细边框/分隔线"色，语义对应 outlineVariant；
+        // M3 的组件描边是另一档（colorOutline，tone 50 深灰）。
+        assertEquals(R.attr.colorOutlineVariant, ThemeColors.attrForResId(R.color.outline));
         assertEquals(R.attr.colorCardBackground, ThemeColors.attrForResId(R.color.card_background));
         assertEquals(R.attr.colorControlText, ThemeColors.attrForResId(R.color.text_primary));
         assertEquals(R.attr.colorControlTextSecondary,
                 ThemeColors.attrForResId(R.color.text_secondary));
-        assertEquals(R.attr.colorControlTextHint, ThemeColors.attrForResId(R.color.text_tertiary));
+        assertEquals(R.attr.colorControlTextTertiary,
+                ThemeColors.attrForResId(R.color.text_tertiary));
         assertEquals(R.attr.colorControlTextHint, ThemeColors.attrForResId(R.color.text_hint));
         assertEquals(R.attr.colorBackground, ThemeColors.attrForResId(R.color.background));
         assertEquals(R.attr.colorOnBackground, ThemeColors.attrForResId(R.color.on_background));

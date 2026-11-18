@@ -133,7 +133,10 @@ public class RemoteViewActivity extends Activity {
         }
         @Override public void refresh() { Toast.makeText(RemoteViewActivity.this, "刷新", Toast.LENGTH_SHORT).show(); }
         @Override public void patch(JSONObject data) { Toast.makeText(RemoteViewActivity.this, "数据已更新", Toast.LENGTH_SHORT).show(); }
-        @Override public void openFile(String path) { Toast.makeText(RemoteViewActivity.this, "打开文件：" + path, Toast.LENGTH_SHORT).show(); }
+        @Override public void openFile(String path) {
+        // 复用聊天里的文件渲染器（图片/代码/pdf/音视频/文件卡），不再只弹 Toast
+        com.oilquiz.app.ai.chat.parts.ToolAssetPreview.show(RemoteViewActivity.this, path);
+    }
     };
 
     private int dp(float v) {

@@ -453,7 +453,7 @@ public class MarkdownWebView extends FrameLayout {
                     bodyHtml = MarkdownHtmlConverter.resolveLocalImageSrcs(bodyHtml, c);
                     // 锚点同理：工作区相对路径的链接解析成绝对 file://，解析不到的保留原串交给点击路由
                     bodyHtml = MarkdownHtmlConverter.resolveLocalLinkHrefs(bodyHtml, c);
-                    doc = MarkdownHtmlConverter.wrapDocument(bodyHtml, nightSnap, themeSnap, reasoningSnap);
+                    doc = MarkdownHtmlConverter.wrapDocument(bodyHtml, nightSnap, themeSnap, reasoningSnap, streaming);
                 } catch (Throwable t) {
                     main.post(() -> applyBuildFailure(md, seq));
                     return;
@@ -481,7 +481,7 @@ public class MarkdownWebView extends FrameLayout {
         if (documentReady && !finalTableNeedsReload) {
             // 页面就是这份文档且已就绪：原地换 body，不重载（避免闪烁）
             lastStreamSplit = null;
-            swapBody(bodyHtml);
+            swapBody(bodyHtml, streaming);
             return;
         }
         String docHash = hashOf(doc);
@@ -505,7 +505,8 @@ public class MarkdownWebView extends FrameLayout {
             applyBuiltDocSyncFallback(md, false, lastStreaming);
         } catch (Throwable t) {
             String plain = md == null ? "" : md;
-            String doc = MarkdownHtmlConverter.wrapDocument(escapeHtml(plain), night, themeVars, reasoningStyle);
+            String doc = MarkdownHtmlConverter.wrapDocument(escapeHtml(plain), night, themeVars,
+                    reasoningStyle, lastStreaming);
             loadDocument(doc);
         }
     }
@@ -515,7 +516,7 @@ public class MarkdownWebView extends FrameLayout {
         String bodyHtml = MarkdownHtmlConverter.toBodyHtml(md);
         bodyHtml = MarkdownHtmlConverter.resolveLocalImageSrcs(bodyHtml, getContext());
         bodyHtml = MarkdownHtmlConverter.resolveLocalLinkHrefs(bodyHtml, getContext());
-        String doc = MarkdownHtmlConverter.wrapDocument(bodyHtml, night, themeVars, reasoningStyle);
+        String doc = MarkdownHtmlConverter.wrapDocument(bodyHtml, night, themeVars, reasoningStyle, streaming);
         applyBuiltDoc(bodyHtml, doc, wasStreaming, streaming, buildSeq);
     }
 
@@ -588,6 +589,9 @@ public class MarkdownWebView extends FrameLayout {
             }
             payload.put("blocks", html);
             payload.put("tail", split.tail == null ? "" : resolvedBlockHtml(split.tail));
+            // 块级路径只服务流式帧（见 setContent 的调用条件）：告诉 JS 打开光标类。
+            // 定稿不会走这里——定稿是整篇路径，body 类由 swapBody/文档构建时决定。
+            payload.put("streaming", true);
             String b64 = Base64.encodeToString(
                     payload.toString().getBytes(StandardCharsets.UTF_8),
                     Base64.NO_WRAP);
@@ -642,15 +646,24 @@ public class MarkdownWebView extends FrameLayout {
         webView.loadDataWithBaseURL("file:///android_asset/", fullHtml, "text/html", "UTF-8", null);
     }
 
-    /** 原地替换 body：base64 传 HTML 规避引号/转义问题；ResizeObserver 会自动重报高度。 */
-    private void swapBody(String bodyHtml) {
+    /**
+     * 原地替换 body：base64 传 HTML 规避引号/转义问题；ResizeObserver 会自动重报高度。
+     *
+     * <p>顺带按 {@code streaming} 切 {@code body.qz-streaming}：整篇路径（代码块/表格/公式
+     * 跨块回退）也会换 body，光标状态必须跟着这一帧的真值走，不能沿用上一帧的类。</p>
+     */
+    private void swapBody(String bodyHtml, boolean streaming) {
         streamUpdateSeq++;
         lastStreamSplit = null;
         String b64 = Base64.encodeToString(
                 (bodyHtml == null ? "" : bodyHtml).getBytes(StandardCharsets.UTF_8),
                 Base64.NO_WRAP);
         String js = "(function(){try{var h=decodeURIComponent(escape(atob('" + b64 + "')));"
-                + "document.body.innerHTML=h;if(window.__qzBoot)window.__qzBoot();}catch(e){}})();";
+                + "document.body.innerHTML=h;"
+                + (streaming
+                    ? "document.body.classList.add('qz-streaming');"
+                    : "document.body.classList.remove('qz-streaming');")
+                + "if(window.__qzBoot)window.__qzBoot();}catch(e){}})();";
         try {
             webView.evaluateJavascript(js, null);
         } catch (Throwable ignore) { }

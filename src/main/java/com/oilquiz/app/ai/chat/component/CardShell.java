@@ -475,7 +475,25 @@ public class CardShell extends LinearLayout {
     // ---------------------------------------------------------------- 杂项
 
     /** 点击水波：卡片本身可点时给出反馈（此前各卡各凭 TextView 自己变色） */
+    /**
+     * 卡片按压反馈（2026-11-18）：改走主题状态层 {@code colorStatePressed}，
+     * 形状用卡片圆角的 mask 裁切——和按钮/列表项同一套按压色，不再依赖各机型的
+     * {@code selectableItemBackground}（深浅/换肤下会偏色）。
+     */
     private void applyRipple() {
+        try {
+            android.graphics.drawable.GradientDrawable mask =
+                    new android.graphics.drawable.GradientDrawable();
+            // mask 只是形状裁切，用不透明白；不要写成 0xFF 字面量（对话页 Java 有护栏）
+            mask.setColor(android.graphics.Color.WHITE);
+            mask.setCornerRadius(ComponentTheme.radius(shellContext));
+            android.content.res.ColorStateList pressed = android.content.res.ColorStateList
+                    .valueOf(ComponentTheme.statePressed(shellContext));
+            setForeground(new android.graphics.drawable.RippleDrawable(pressed, null, mask));
+            return;
+        } catch (Throwable ignored) {
+            // 自绘 ripple 失败再退回系统水波
+        }
         android.content.res.TypedArray ta = shellContext.getTheme().obtainStyledAttributes(
                 new int[]{android.R.attr.selectableItemBackground});
         try {

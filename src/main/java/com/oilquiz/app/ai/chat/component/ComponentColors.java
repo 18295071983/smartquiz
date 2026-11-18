@@ -49,7 +49,7 @@ public final class ComponentColors {
 
     /** 弱化文字色 */
     public static int textTertiary(Context context) {
-        return themed(context, R.attr.colorControlTextHint, R.color.component_text_tertiary);
+        return themed(context, R.attr.colorControlTextTertiary, R.color.component_text_tertiary);
     }
 
     /** 强调色（按钮/链接） */
@@ -106,6 +106,133 @@ public final class ComponentColors {
     public static int accentOverlay(Context context) {
         int accent = accent(context);
         return (accent & 0x00FFFFFF) | 0x1A000000;
+    }
+
+    // ==================== 层级 / 状态 / 语义容器（2026-11-18 补全）====================
+    // 之前组件只有"底色/边框/输入底"三档，做层级只能各自写死 alpha 或借 text 色；
+    // 这里把主题的 8 档表面、状态层、语义容器收成同一入口（attr 优先、资源兜底）。
+
+    /** 表面层级：0=最低 … 4=最高（越界自动夹取）。 */
+    public static int surfaceContainer(Context context, int level) {
+        int attr;
+        switch (level) {
+            case 0:
+                attr = R.attr.colorSurfaceContainerLowest;
+                break;
+            case 1:
+                attr = R.attr.colorSurfaceContainerLow;
+                break;
+            case 3:
+                attr = R.attr.colorSurfaceContainerHigh;
+                break;
+            case 4:
+                attr = R.attr.colorSurfaceContainerHighest;
+                break;
+            case 2:
+            default:
+                attr = R.attr.colorSurfaceContainer;
+                break;
+        }
+        return themed(context, attr, R.color.component_surface);
+    }
+
+    /** 压低层级用的表面（如禁用的整块区域）。 */
+    public static int surfaceDim(Context context) {
+        return themed(context, R.attr.colorSurfaceDim, R.color.component_bg);
+    }
+
+    /** 抬高/强调用的表面（如浮层底座）。 */
+    public static int surfaceBright(Context context) {
+        return themed(context, R.attr.colorSurfaceBright, R.color.component_surface);
+    }
+
+    /** 强边框（L3 标签/选中态描边，比 border 重一档）。 */
+    public static int borderStrong(Context context) {
+        return themed(context, R.attr.colorBorderStrong, R.color.component_border_strong);
+    }
+
+    /** 弹层遮罩。 */
+    public static int scrim(Context context) {
+        return themed(context, R.attr.colorScrim, R.color.component_scrim);
+    }
+
+    /** 状态层：hover（8%）。 */
+    public static int stateHover(Context context) {
+        return themed(context, R.attr.colorStateHover, R.color.state_hover);
+    }
+
+    /** 状态层：focus（12%）。 */
+    public static int stateFocus(Context context) {
+        return themed(context, R.attr.colorStateFocus, R.color.state_focus);
+    }
+
+    /** 状态层：pressed（12%）。 */
+    public static int statePressed(Context context) {
+        return themed(context, R.attr.colorStatePressed, R.color.state_pressed);
+    }
+
+    /** 状态层：dragged（16%）。 */
+    public static int stateDragged(Context context) {
+        return themed(context, R.attr.colorStateDragged, R.color.state_dragged);
+    }
+
+    /** 禁用态底色。 */
+    public static int stateDisabledContainer(Context context) {
+        return themed(context, R.attr.colorStateDisabledContainer, R.color.state_disabled_container);
+    }
+
+    /** 禁用态文字/图标。 */
+    public static int stateDisabledContent(Context context) {
+        return themed(context, R.attr.colorStateDisabledContent, R.color.state_disabled_content);
+    }
+
+    /** 错误容器 / 其上的文字（提示条、图片兜底共用同一语义）。 */
+    public static int errorContainer(Context context) {
+        return themed(context, R.attr.colorErrorContainer, R.color.error_container);
+    }
+
+    public static int onErrorContainer(Context context) {
+        return themed(context, R.attr.colorOnErrorContainer, R.color.on_error_container);
+    }
+
+    /** 成功容器 / 其上的文字。 */
+    public static int successContainer(Context context) {
+        return themed(context, R.attr.colorSuccessContainer, R.color.success_container);
+    }
+
+    public static int onSuccessContainer(Context context) {
+        return themed(context, R.attr.colorOnSuccessContainer, R.color.component_on_success_container);
+    }
+
+    /** 警告容器 / 其上的文字。 */
+    public static int warningContainer(Context context) {
+        return themed(context, R.attr.colorWarningContainer, R.color.warning_container);
+    }
+
+    public static int onWarningContainer(Context context) {
+        return themed(context, R.attr.colorOnWarningContainer, R.color.component_on_warning_container);
+    }
+
+    /** 信息容器 / 其上的文字。 */
+    public static int infoContainer(Context context) {
+        return themed(context, R.attr.colorInfoContainer, R.color.info_container);
+    }
+
+    public static int onInfoContainer(Context context) {
+        return themed(context, R.attr.colorOnInfoContainer, R.color.on_info_container);
+    }
+
+    /** 图表：网格线 / 轴线 / 标签。 */
+    public static int chartGrid(Context context) {
+        return themed(context, R.attr.colorChartGrid, R.color.component_chart_grid);
+    }
+
+    public static int chartAxis(Context context) {
+        return themed(context, R.attr.colorChartAxis, R.color.component_chart_axis);
+    }
+
+    public static int chartLabel(Context context) {
+        return themed(context, R.attr.colorChartLabel, R.color.component_chart_label);
     }
 
     /**

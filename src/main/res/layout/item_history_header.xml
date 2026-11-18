@@ -27,7 +27,7 @@
         android:layout_width="@dimen/size_0"
         android:layout_height="@dimen/size_1"
         android:layout_weight="1"
-        android:background="?attr/colorOutline"
+        android:background="?attr/colorOutlineVariant"
         android:layout_marginStart="@dimen/space_8" />
 
 </LinearLayout>

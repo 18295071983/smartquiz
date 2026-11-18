@@ -3675,6 +3675,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     holder.partsContainer, partsRegistry, holder.partsHost);
         }
         holder.partsBinder.bind(partsTurn);
+        // 执行中新出现的 part 卡（工具卡/命令卡/思考块）给一次入场：只给还在生成的消息播，
+        // 历史滚动、重进会话都不重播（否则整屏历史会一起动）。竖直位移，不会被父容器横向裁掉。
+        if (isStreamingMessage(message)) {
+            for (View created : holder.partsBinder.createdThisBind()) {
+                com.oilquiz.app.ui.UiFx.riseIn(created, 220L);
+            }
+        }
         // 底部操作栏（复制 / 重新生成 / 更多）以前只在 legacy 绑定里接监听，
         // parts 接管的气泡（DSH 同步消息全走这条）按钮是死的。这里补上：
         // 完成态或失败可重试时显示，与 legacy 的同名判据保持一致。

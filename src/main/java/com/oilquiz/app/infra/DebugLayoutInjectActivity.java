@@ -288,6 +288,30 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 聊天页自检（页面不导出，用调试壳拉起）：--es mode chat_page
+        if ("chat_page".equals(getIntent().getStringExtra("mode"))) {
+            try {
+                startActivity(new android.content.Intent(this,
+                        com.oilquiz.app.ui.activity.AIChatActivity.class));
+            } catch (Throwable t) {
+                Log.e(TAG, "chat_page 失败: " + t.getMessage(), t);
+            }
+            finish();
+            return;
+        }
+
+        // 远程 DSH 页面自检（页面本身不导出，用调试壳拉起）：--es mode remote_page
+        if ("remote_page".equals(getIntent().getStringExtra("mode"))) {
+            try {
+                startActivity(new android.content.Intent(this,
+                        com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class));
+            } catch (Throwable t) {
+                Log.e(TAG, "remote_page 失败: " + t.getMessage(), t);
+            }
+            finish();
+            return;
+        }
+
         // 新版画布（独立工具 ui_canvas）自检：--es mode canvas_v2 --es template form|settings|dashboard
         if ("canvas_v2".equals(getIntent().getStringExtra("mode"))) {
             try {

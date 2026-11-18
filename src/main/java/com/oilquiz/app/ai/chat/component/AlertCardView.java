@@ -49,25 +49,36 @@ public class AlertCardView implements ChatComponent {
         // 只认 content 时，goal/team 这些卡会只剩标题、正文消失（2026-11-14 审计发现）。
         String content = p.optString("content", p.optString("text", ""));
 
-        // 按类型取色
+        // 按类型取色：2026-11-18 起用"语义容器 + on 色"（容器底 + 对比文字），
+        // 不再统一中性底 + 彩色条——四档级别在深浅/换肤下要能一眼区分。
         int accentColor;
+        int containerColor;
+        int contentColor;
         String icon;
         switch (type) {
             case "success":
-                accentColor = ComponentColors.success(context);
+                accentColor = ComponentTheme.success(context);
+                containerColor = ComponentTheme.successContainer(context);
+                contentColor = ComponentTheme.onSuccessContainer(context);
                 icon = "✅";
                 break;
             case "warning":
-                accentColor = ComponentColors.warning(context);
+                accentColor = ComponentTheme.warning(context);
+                containerColor = ComponentTheme.warningContainer(context);
+                contentColor = ComponentTheme.onWarningContainer(context);
                 icon = "⚠️";
                 break;
             case "error":
-                accentColor = ComponentColors.error(context);
+                accentColor = ComponentTheme.danger(context);
+                containerColor = ComponentTheme.errorContainer(context);
+                contentColor = ComponentTheme.onErrorContainer(context);
                 icon = "❌";
                 break;
             case "info":
             default:
-                accentColor = ComponentColors.accent(context);
+                accentColor = ComponentTheme.brand(context);
+                containerColor = ComponentTheme.infoContainer(context);
+                contentColor = ComponentTheme.onInfoContainer(context);
                 icon = "ℹ️";
                 break;
         }
@@ -75,7 +86,7 @@ public class AlertCardView implements ChatComponent {
         LinearLayout card = new LinearLayout(context);
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setPadding(dp(context, 12), dp(context, 10), dp(context, 12), dp(context, 10));
-        card.setBackground(cardBackground(context));
+        card.setBackground(cardBackground(context, containerColor, accentColor));
 
         // 左侧色条
         View colorBar = new View(context);
@@ -101,7 +112,7 @@ public class AlertCardView implements ChatComponent {
             TextView titleTv = new TextView(context);
             titleTv.setText(title);
             titleTv.setTextSize(Tokens.textSizeSp(titleTv.getContext(), Tokens.TEXT_LABEL));
-            titleTv.setTextColor(ComponentColors.textPrimary(context));
+            titleTv.setTextColor(contentColor);
             titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             textCol.addView(titleTv);
         }
@@ -110,7 +121,8 @@ public class AlertCardView implements ChatComponent {
             TextView contentTv = new TextView(context);
             contentTv.setText(content);
             contentTv.setTextSize(Tokens.textSizeSp(contentTv.getContext(), Tokens.TEXT_FOOTNOTE));
-            contentTv.setTextColor(ComponentColors.textSecondary(context));
+            // on 色略降透明度：保持与主文字同色系，但不抢标题
+            contentTv.setTextColor(ComponentTheme.withAlpha(contentColor, 0xD0));
             contentTv.setPadding(0, dp(context, 2), 0, 0);
             textCol.addView(contentTv);
         }
@@ -161,11 +173,14 @@ public class AlertCardView implements ChatComponent {
         return card;
     }
 
-    private static android.graphics.drawable.Drawable cardBackground(Context context) {
+    /** 卡片底：语义容器色 + 该语义基色的低透明度描边（四档级别一眼可分）。 */
+    private static android.graphics.drawable.Drawable cardBackground(Context context,
+                                                                    int containerColor,
+                                                                    int accentColor) {
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(ComponentColors.background(context));
+        gd.setColor(containerColor != 0 ? containerColor : ComponentColors.background(context));
         gd.setCornerRadius(dp(context, 10));
-        gd.setStroke(dp(context, 1), ComponentColors.border(context));
+        gd.setStroke(dp(context, 1), ComponentTheme.withAlpha(accentColor, 0x33));
         return gd;
     }
 

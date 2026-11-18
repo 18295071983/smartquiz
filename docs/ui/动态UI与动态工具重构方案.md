@@ -138,3 +138,82 @@ R3 的验收写的是"动态工具在 Agent 设置页的权限分级里可见"�
 `getDescription()` 同一份；工作区指南教表达式且不再自称 Java；`TOOL_DEFS_VERSION` 已抬版。
 `ToolSchemaShapeTest` 继续兜 strict/类型/枚举"形状"那一层。
 
+### 7. 画布控件接框架标准层（2026-11-18）
+
+> 用户口径：「动态画布工具可以运行，但控件、按钮等和我的框架不兼容」。
+
+#### 7.1 现状（改造前）
+
+外壳是框架的：`PythonToolManager.showLayoutCanvasDialog` 用 `AppDialog.builder(act)` →
+`MaterialAlertDialogBuilder` + `ThemeOverlay.App.Dialog`，深色/换肤/IME 都跟着标准层。
+**内容不是**：`NativeLayoutRenderer` 直接 `new android.widget.Button/EditText/Switch/
+CheckBox/SeekBar/Spinner`，背景用 `GradientDrawable` 手绘，字号 dp 字面量；与全项目 367 处
+`MaterialButton`、`UiWidgets`、`Tokens`、`AppCard` 完全两套。
+
+| 节点 | 改造前 | 改造后 |
+|---|---|---|
+| `button` | 平台 `Button` | `MaterialButton` + `Widget.App.Button.Canvas` |
+| `input`/`number`/`password`/`multiline`/`otp`/`email`/`tel`/`url`/`search`/`search_bar`/`file` | 裸 `EditText` + 手绘圆角 | `TextInputLayout`(outlined) + `TextInputEditText` |
+| `switch` | `android.widget.Switch` | `SwitchMaterial` |
+| `checkbox(_group)` / `radio(_group)` | `CheckBox` / `RadioButton` | `MaterialCheckBox` / `MaterialRadioButton` |
+| `select`/`dropdown` | `Spinner` + 系统 item 布局 | M2 exposed dropdown：`TextInputLayout` + `MaterialAutoCompleteTextView`（`UiWidgets.spinner` 会把 Spinner 背景换纯色、箭头丢失） |
+| `slider` / `slider_range` | 单个/两个 `SeekBar` | `Slider` / `RangeSlider` |
+| `date`/`time`/`datetime` | `TextView` + 系统选择器 | `TextInputLayout` 字段 + `MaterialDatePicker`/`MaterialTimePicker` |
+| `tag_input` | 手绘 TextView 标签 | `Chip`（带关闭图标）+ `ChipGroup` |
+| `toggle` | 手绘胶囊 + 写死白字 | `ChipGroup` 单选 + 主题状态色 |
+| `stepper` | 手绘 TextView 按钮（34dp） | `MaterialButton`（40dp，打"画布自有交互"标记） |
+| `card` | `LinearLayout` + `GradientDrawable` | `MaterialCardView`（`AppCard`）+ 内层 column |
+
+#### 7.2 三个必须一起改的点
+
+1. **取值口径**：`collectValues` 原来只认 `android.widget.Switch`，而 `SwitchMaterial` 继承
+   `SwitchCompat`（`CompoundButton`），不补分支就会"画布能画、值收不到"；`Slider` 同理
+   （不是 `SeekBar`）。`applyValues` 回填时 `Slider` 的值必须对齐 step，否则 `setValue` 抛异常。
+2. **提交按钮识别**：`PythonToolManager.collectButtons` 会把容器内所有 `Button` 绑成"提交整张
+   画布"。步进器 +/-、分段选择也是 `MaterialButton`，必须用 `CanvasControls.markOwned` 排除，
+   否则点 +/- 会被当成提交。真正提交的 `button` 节点不打标记，行为不变。
+3. **主题基准**：跟随 `Theme.MaterialComponents`（M2）+ token，不引入 `Theme.Material3.*`
+   （见 `docs/ui/M2-兼容UI库清单.md`：M3 与全站 M2 overlay 混用会"一半 M2 一半 M3"）。
+   `MaterialDatePicker`/`MaterialTimePicker` 需要 Fragment 宿主，宿主不是 `FragmentActivity`
+   或 `isStateSaved` 时回退系统选择器，保证功能不丢。
+
+#### 7.3 验收
+
+- `CanvasControlFrameworkTest`（Robolectric）：控件类型是框架组件 + `collectValues`/
+  `applyValues` 对 input/switch/slider/select/toggle/tag_input 的取值回填不变；
+- 真机：`ui_component(create, component_type=layout_canvas, layout=含 input/select/switch/
+  slider/date/button 的表单)`，检查涟漪、浮动标签、深色/换肤、提交取值。
+
+#### 7.4 真机踩坑（已修，别再踩）
+
+| 坑 | 现象 | 正确做法 |
+|---|---|---|
+| `new MaterialButton(ctx, null, R.style.X)` | 按钮/输入框退回默认样式：按钮没圆角、输入框只剩一条 EditText 下划线 | 第三参是 **defStyleAttr（主题属性）**，不是样式资源；代码创建一律构造后显式 `setCornerRadius/setBoxStrokeColor...` |
+| 先 `setText` 再 `til.addView(et)` | 已选值不显示（只剩 hint） | `addView` 之后再回填文本 |
+| `END_ICON_DROPDOWN_MENU` + `TextInputEditText` | 抛 "EditText needs to be an AutoCompleteTextView" | 下拉用 `MaterialAutoCompleteTextView`；只读选择字段用 `END_ICON_CUSTOM` + 箭头 drawable |
+| `ChipGroup` 单选 + 初始值 | 真机偶发选中最后一项 | 全部 chip 加完后 `clearCheck()` 再 `check(初始 id)`（Robolectric 与真机行为曾不一致，以真机为准） |
+
+### 8. 下一批（用户 2026-11-18 追加要求）
+
+| # | 要求 | 状态（2026-11-18） | 落点 |
+|---|---|---|---|
+| 8.1 | 主题里 M3 名字 ≠ M3 颜色 | ✅ 已完成 | 补 `surfaceContainer*/outlineVariant/inverse*` + 拆 outline/outlineVariant + `ThemeOverlay.App.M3Roles`；见 `docs/ui/M3-颜色角色对齐-2026-11-18.md` |
+| 8.2 | 画布浮层去壳、弹窗化 | ✅ 已完成 | `PythonToolManager.buildCanvasDialog`：自定义 Dialog + MaterialCardView（24dp 圆角、16dp 外边距、无标题栏/按钮栏、高度按屏幕封顶） |
+| 8.2b | 画布不使用壁纸 | ✅ 已完成 | `addCanvasBackdrop`：画布期间盖不透明 `?attr/colorBackground`，关闭即移除 |
+| 8.3 | agent 可取屏幕尺寸 | ✅ 已完成 | `ui_component(action=screen_info)` 返回 px/dp/密度/inset/推荐画布尺寸；顺带修了 `canvas_*` 参数未透传的 bug |
+| 8.4 | 模板化画布 | ✅ 已完成 | `CanvasTemplates`：`template=form|settings|dashboard`，默认 `canvas_height=auto`/`max=80%` |
+| 8.5 | 有 UI 的动态工具点击插槽 | ✅ 已完成 | `AgentToolView` 动态工具行：「▶ 运行」直接执行（不经模型）+「🖼 打开 UI」（同名 / `<工具名>_ui` / `_card` 已注册组件类型时） |
+
+#### 8.6 真机收口（2026-11-18，手机充电后实测）
+
+| 症状 | 根因 | 修复 |
+|---|---|---|
+| 小表单也开成半屏空白 | 未指定高度时固定 72% 屏高 | 默认 WRAP + 72% 封顶（`resolveCanvasSize`） |
+| 画布一打开就弹键盘 | AutoCompleteTextView/EditText attach 后自动聚焦 | onshow 隐藏 IME + clearFocus + 延迟再隐藏 |
+| 卡标题压在描边上、字段挤出卡片 | `MaterialCardView.setPadding` 不管内容区 | 改 `setContentPadding` |
+| 开关只画半个（灰色 "D"） | ScrollView+WRAP 下 track 固有宽度为 0 | `setSwitchMinWidth(52dp)` + thumb/track tint |
+| 模板画布直接崩（SwitchMaterial） | 宿主是系统 `Theme.Translucent` 无 Material 属性 | 新增 `Theme.App.Translucent`（继承 App 主题） |
+| 状态栏图标在纯色底上看不清 | 图标明暗按主题模式而非实际底色 | `syncStatusBarIcons(act, backdrop)` |
+
+真机截图：`docs/ui/canvas-shots/02-popup-template-light.png`、`03-popup-form-light.png`。
+

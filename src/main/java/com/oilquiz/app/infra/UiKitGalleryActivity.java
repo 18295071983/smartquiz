@@ -21,6 +21,7 @@ import com.oilquiz.app.R;
 import com.oilquiz.app.theme.ThemeColors;
 import com.oilquiz.app.theme.Tokens;
 import com.oilquiz.app.ui.UiFx;
+import com.oilquiz.app.ui.widget.LiveDotsView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -186,6 +187,70 @@ public class UiKitGalleryActivity extends AppCompatActivity {
         addAnimRow(content, "slide_in_left（左滑入）", () -> UiFx.slideInLeft(stage));
         addAnimRow(content, "slide_in_right（右滑入）", () -> UiFx.slideInRight(stage));
         addAnimRow(content, "button_state_list_animator（按钮状态）", () -> UiFx.buttonState(stage));
+
+        // ---------- 6. Agent 执行态动效（2026-11-18） ----------
+        // 对话页 agent 执行中的折叠头就是这一套：三颗呼吸点（形状）+ 文字流光（同一行扫光）。
+        // 放在这里是为了真机目视调参（点阵间距 3dp、流光 1.4s 是代码里的常量）。
+        content.addView(section("6. Agent 执行态动效（对话页折叠头在用）"));
+        content.addView(subtitle("三颗呼吸点 LiveDotsView（1.2s）+ 文字流光 UiFx.shimmer（1.4s）\n"
+                + "点下面的胶囊，整组开 / 关"));
+        LinearLayout agentRow = new LinearLayout(this);
+        agentRow.setOrientation(LinearLayout.HORIZONTAL);
+        agentRow.setGravity(Gravity.CENTER_VERTICAL);
+        final LiveDotsView liveDots = new LiveDotsView(this);
+        liveDots.setDotColor(ThemeColors.get(this, R.color.primary));
+        LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dotLp.setMarginEnd(Tokens.space(this, Tokens.SPACE_MD));
+        agentRow.addView(liveDots, dotLp);
+        final TextView liveLabel = new TextView(this);
+        liveLabel.setText("正在运行 pwsh · 已运行 12 秒");
+        Tokens.applyText(liveLabel, Tokens.TEXT_LABEL, Tokens.Weight.REGULAR,
+                ThemeColors.get(this, R.color.text_primary));
+        agentRow.addView(liveLabel);
+        content.addView(agentRow);
+
+        // 行内单点版：工具行 / 命令卡 / 子代理卡头部用的就是这一颗（同一套时钟相位）
+        LinearLayout statusRow = new LinearLayout(this);
+        statusRow.setOrientation(LinearLayout.HORIZONTAL);
+        statusRow.setGravity(Gravity.CENTER_VERTICAL);
+        final LiveDotsView singleDot = new LiveDotsView(this);
+        singleDot.setDotCount(1);
+        singleDot.setDotColor(ThemeColors.get(this, R.color.primary));
+        LinearLayout.LayoutParams singleLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        singleLp.setMarginEnd(Tokens.space(this, Tokens.SPACE_XS));
+        statusRow.addView(singleDot, singleLp);
+        final TextView statusLabel = new TextView(this);
+        statusLabel.setText("运行中（工具行 / 命令卡头部的行内状态点）");
+        Tokens.applyText(statusLabel, Tokens.TEXT_FOOTNOTE, Tokens.Weight.REGULAR,
+                ThemeColors.get(this, R.color.text_secondary));
+        statusRow.addView(statusLabel);
+        content.addView(statusRow);
+
+        final boolean[] liveOn = {true};
+        liveDots.start();
+        singleDot.start();
+        UiFx.shimmer(liveLabel, true);
+        addAnimRow(content, "Agent 执行态：开 / 关", () -> {
+            liveOn[0] = !liveOn[0];
+            if (liveOn[0]) {
+                liveDots.start();
+                singleDot.start();
+                UiFx.shimmer(liveLabel, true);
+            } else {
+                liveDots.stop();
+                singleDot.stop();
+                UiFx.shimmer(liveLabel, false);
+            }
+        });
+
+        // ---------- 7. 执行活动区 WebView 组件 PoC（2026-11-18） ----------
+        content.addView(section("7. 执行活动区 · WebView 组件 PoC"));
+        content.addView(subtitle("同一个 agent 活动区改用内嵌 WebView 渲染（assets/agent_panel/）：\n"
+                + "流式自动展开 / 结束收起 / 工具行可点开，页面自带注入耗时与 FPS 统计。"));
+        addAnimRow(content, "打开 PoC 页面（模拟 60 帧流）", () -> startActivity(
+                new android.content.Intent(this, AgentPanelPoCActivity.class)));
 
         scroll.addView(content);
 

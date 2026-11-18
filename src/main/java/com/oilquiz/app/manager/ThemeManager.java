@@ -46,6 +46,13 @@ public class ThemeManager {
     private static final String KEY_THEME = "current_theme";
     /** 新存储：主题色 ARGB int */
     private static final String KEY_THEME_COLOR_VALUE = "current_theme_color_value";
+    /**
+     * 用户是否手动选过主题色（2026-11-18）。
+     *
+     * <p>旧版本默认色是紫色，产品口径改成"蓝色为默认"后，需要把**没手动选过色**的
+     * 老用户一次性迁到蓝色；手动选过紫色的用户（此标记为 true）保持原选择。</p>
+     */
+    private static final String KEY_THEME_COLOR_PICKED = "theme_color_picked";
     /** 旧存储：主题色资源 id（仅迁移用） */
     private static final String KEY_THEME_COLOR_RES = "current_theme_color";
     private static final String KEY_USE_CUSTOM_COLOR = "use_custom_color";
@@ -69,6 +76,14 @@ public class ThemeManager {
     public static final int COLOR_PINK = 0xFFEC4899;
     public static final int COLOR_TEAL = 0xFF14B8A6;
     public static final int COLOR_INDIGO = 0xFF6366F1;
+
+    /**
+     * 默认主题色（2026-11-18 产品口径：蓝色为默认，不改任何色值）。
+     *
+     * <p>只影响"没选过主题色"时的默认选择：主题设置页会把蓝色标成当前选中，
+     * 并应用 {@code ThemeOverlay.SmartQuiz.Blue}。默认皮肤的标准预设里蓝色本来就排第一。</p>
+     */
+    public static final int DEFAULT_THEME_COLOR = COLOR_BLUE;
 
     /**
      * 预设色注册表（单一数据源）。
@@ -192,6 +207,7 @@ public class ThemeManager {
         prefs.edit()
                 .putString(KEY_SKIN, skin.id)
                 .putInt(KEY_THEME_COLOR_VALUE, skin.defaultArgb)
+                .putBoolean(KEY_THEME_COLOR_PICKED, true)
                 .putBoolean(KEY_USE_CUSTOM_COLOR, false)
                 .apply();
         PALETTE_CACHE.clear();
@@ -324,13 +340,26 @@ public class ThemeManager {
         }
 
         if (prefs.contains(KEY_THEME_COLOR_VALUE)) {
-            return prefs.getInt(KEY_THEME_COLOR_VALUE, COLOR_PURPLE);
+            int stored = prefs.getInt(KEY_THEME_COLOR_VALUE, DEFAULT_THEME_COLOR);
+            // 2026-11-18：旧版本默认紫 → 默认蓝。只迁移"没手动选过色"的旧数据，
+            // 手动选过色的（KEY_THEME_COLOR_PICKED=true）保持用户选择。
+            if (!prefs.getBoolean(KEY_THEME_COLOR_PICKED, false) && stored == COLOR_PURPLE) {
+                prefs.edit()
+                        .putInt(KEY_THEME_COLOR_VALUE, DEFAULT_THEME_COLOR)
+                        .putBoolean(KEY_THEME_COLOR_PICKED, true)
+                        .apply();
+                return DEFAULT_THEME_COLOR;
+            }
+            return stored;
         }
 
-        // 旧版本：current_theme_color 存的是资源 id，迁移为 ARGB
+        // 旧版本：current_theme_color 存的是资源 id，迁移为 ARGB（默认蓝色）
         int resId = prefs.getInt(KEY_THEME_COLOR_RES, R.color.theme_blue);
         int argb = ResourcesCompat.getColor(context.getResources(), resId, context.getTheme());
-        prefs.edit().putInt(KEY_THEME_COLOR_VALUE, argb).apply();
+        prefs.edit()
+                .putInt(KEY_THEME_COLOR_VALUE, argb)
+                .putBoolean(KEY_THEME_COLOR_PICKED, false)
+                .apply();
         return argb;
     }
 
@@ -362,6 +391,7 @@ public class ThemeManager {
         SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
         prefs.edit()
                 .putInt(KEY_THEME_COLOR_VALUE, argb)
+                .putBoolean(KEY_THEME_COLOR_PICKED, true)
                 .putBoolean(KEY_USE_CUSTOM_COLOR, false)
                 .apply();
         notifyThemeChanged(context);
@@ -373,11 +403,12 @@ public class ThemeManager {
         prefs.edit()
                 .putInt(KEY_CUSTOM_THEME_COLOR, argb)
                 .putBoolean(KEY_USE_CUSTOM_COLOR, true)
+                .putBoolean(KEY_THEME_COLOR_PICKED, true)
                 .apply();
         notifyThemeChanged(context);
     }
 
-    /** 兼容旧调用：当前主题色对应的资源 id（自定义色返回默认紫色） */
+    /** 兼容旧调用：当前主题色对应的资源 id（自定义色/未知值回退到默认蓝色） */
     public static int getThemeColorRes(Context context) {
         switch (getThemeColor(context)) {
             case COLOR_BLUE:
@@ -395,7 +426,7 @@ public class ThemeManager {
             case COLOR_INDIGO:
                 return R.color.theme_indigo;
             default:
-                return R.color.theme_purple;
+                return R.color.theme_blue;
         }
     }
 
@@ -453,14 +484,42 @@ public class ThemeManager {
                 activity.getTheme().applyStyle(overlayResId, true);
             }
             // OLED 纯黑档：在预设色 overlay 之后再叠一层，只改底色/卡片/边框，
-            // 不动主色 —— 所以"紫色 + 纯黑"这种组合也成立。
+            // 不动主色 —— 所以"蓝色 + 纯黑"这种组合也成立。
             if (isOled(activity)) {
                 activity.getTheme().applyStyle(R.style.ThemeOverlay_SmartQuiz_Oled, true);
             }
+            // 2026-11-18：M3 角色（surfaceContainer 五档 / outlineVariant / inverse / 状态层）
+            // 已由生成器写进每套预设 overlay（tools/GenOverlays.java），不再需要这里叠
+            // ThemeOverlay.App.M3Roles 的两档兜底——那层会把五档容器重新压回 surface/surfaceVariant。
         } catch (Throwable t) {
-            // 注入失败不阻断页面打开，回退默认紫色主题
+            // 注入失败不阻断页面打开，回退默认主题（蓝色）
             com.oilquiz.app.util.AILogger.w("ThemeManager",
                     "applyThemeOverlay failed: " + t.getMessage());
+        }
+    }
+
+    /**
+     * 状态栏/导航栏图标明暗由主题决定（2026-11-17）。
+     *
+     * <p>浅色主题 → 深色图标；深色 / OLED → 浅色图标。此前 styles.xml 写死
+     * {@code windowLightStatusBar=false}，浅色主题只能等 EdgeToEdgeHelper 在 onResume
+     * 采样背景后补一次，切换/首帧会闪白图标。现在在 onActivityPreCreated（setContentView
+     * 之前）就把对应的系统栏 overlay 叠进主题，窗口创建时即为正确值。</p>
+     *
+     * <p>壁纸开启时，状态栏区显示的是壁纸而不是主题底色，仍由
+     * {@code EdgeToEdgeHelper.syncStatusBarIcons} 在 onResume 按壁纸亮度覆盖。</p>
+     */
+    public static void applySystemBarAppearance(Activity activity) {
+        if (activity == null) {
+            return;
+        }
+        try {
+            int overlayResId = isDarkTheme(activity)
+                    ? R.style.ThemeOverlay_SystemBar_Dark
+                    : R.style.ThemeOverlay_SystemBar_Light;
+            activity.getTheme().applyStyle(overlayResId, true);
+        } catch (Throwable ignored) {
+            // 注入失败不影响页面；EdgeToEdgeHelper 的运行时兜底仍会生效
         }
     }
 }

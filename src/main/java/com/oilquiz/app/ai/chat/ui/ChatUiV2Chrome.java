@@ -183,10 +183,14 @@ public final class ChatUiV2Chrome {
 
         ViewGroup root = activity.findViewById(R.id.main_content);
         if (root == null) return;
-        // 页面底色：demo 的整套 token（surface/border/text）都是按"浅底/深底纯色"设计的，
-        // 坐在首页那张深蓝壁纸上会全部失配（深色字压深底）。v2 用 chat_v2_bg 把内容层铺成纯色，
-        // 壁纸留给抽屉本身（history_drawer / tool drawer 仍按原样）。
-        root.setBackgroundColor(ThemeColors.get(activity, R.color.chat_v2_bg));
+        // 2026-11-18：页面底色从 main_content 移到最底层 drawer_layout。
+        // 原来 main_content 不透明底色直接压在壁纸上，聊天页永远看不到 App 壁纸；
+        // 移到根布局后：壁纸开 → AppWallpaperManager 在 onResume 覆盖根背景显示壁纸；
+        // 壁纸关 → 根背景就是 chat_v2_bg（且跟随 OLED/换肤），和原来观感一致。
+        View drawerRoot = activity.findViewById(R.id.drawer_layout);
+        if (drawerRoot != null) {
+            drawerRoot.setBackgroundColor(ThemeColors.get(activity, R.color.chat_v2_bg));
+        }
         if (root.findViewWithTag(TAG_HEADER) != null) return;
 
         View header = buildHeader(activity, root);

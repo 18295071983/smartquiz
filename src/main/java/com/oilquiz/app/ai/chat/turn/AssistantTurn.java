@@ -95,6 +95,16 @@ public class AssistantTurn {
         /** 连续多工具折叠成的一张组卡（对齐 legacy "已运行N个工具"），成员在 {@link #group}。 */
         public static final String TYPE_TOOL_GROUP = "tool_group";
 
+        /**
+         * 思考手风琴（2026-11-18）：把相邻的 {@link #TYPE_REASONING} 与 {@link #TYPE_TOOL_GROUP}
+         * 合并成一个可折叠块——业界口径（assistant-ui GroupedParts / Telerik Chain of Thought）
+         * 是"一轮推理 + 工具调用共用一个折叠头"，而不是每段各一个。
+         *
+         * <p>只在渲染前由 {@link #coalesceThinking(java.util.List)} 生成，<b>不参与</b>引擎的
+         * 流式 id 寻址（那些仍按原始 reasoning/tool part 的 id 走）；成员放在 {@link #group} 里。</p>
+         */
+        public static final String TYPE_THINKING = "thinking";
+
         /** 生成态（对齐 AI SDK UIMessage part.state）。缺省/null 视为已定稿。 */
         public static final String STATE_STREAMING = "streaming";
         public static final String STATE_DONE = "done";
@@ -826,6 +836,71 @@ public class AssistantTurn {
 
     public static void expandInline(AssistantTurn base) {
         expandInline(base, false);
+    }
+
+    /**
+     * 把**相邻**的 reasoning / tool_group part 合并成一个 {@link Part#TYPE_THINKING} 手风琴
+     * （2026-11-18，对标 assistant-ui 的 GroupedParts / Telerik 的 Chain of Thought）。
+     *
+     * <p>只给渲染用：<b>不改</b> {@code base.parts}、不参与流式 id 寻址（引擎仍按原始
+     * reasoning/tool part 的 id 更新），所以它是 {@link #expandInline} 之后的纯函数变换。
+     * 文本、审批、反问、产物 part 都会切断分组——它们必须在手风琴之外。</p>
+     *
+     * <p>即使一段里只有 1 个成员也合并：这样"先只有思考、随后工具进来"时 part id
+     * （{@code <首个成员id>:cot}）保持稳定，视图被复用而不是重建（否则会闪一下）。</p>
+     *
+     * @return 新列表；入参 null 时返回 null
+     */
+    public static java.util.List<Part> coalesceThinking(java.util.List<Part> parts) {
+        if (parts == null) {
+            return null;
+        }
+        java.util.List<Part> out = new java.util.ArrayList<>(parts.size());
+        java.util.List<Part> run = new java.util.ArrayList<>();
+        for (Part p : parts) {
+            if (p != null && (Part.TYPE_REASONING.equals(p.type)
+                    || Part.TYPE_TOOL_GROUP.equals(p.type))) {
+                run.add(p);
+            } else {
+                flushThinkingRun(run, out);
+                out.add(p);
+            }
+        }
+        flushThinkingRun(run, out);
+        return out;
+    }
+
+    private static void flushThinkingRun(java.util.List<Part> run, java.util.List<Part> out) {
+        if (run.isEmpty()) {
+            return;
+        }
+        Part g = new Part();
+        g.id = (run.get(0).id != null ? run.get(0).id : "cot") + ":cot";
+        g.type = Part.TYPE_THINKING;
+        g.group = new java.util.ArrayList<>(run);
+        g.timestamp = run.get(0).timestamp;
+        g.state = thinkingRunStreaming(run) ? Part.STATE_STREAMING : null;
+        out.add(g);
+        run.clear();
+    }
+
+    private static boolean thinkingRunStreaming(java.util.List<Part> run) {
+        for (Part m : run) {
+            if (m == null) {
+                continue;
+            }
+            if (m.isStreaming()) {
+                return true;
+            }
+            if (Part.TYPE_TOOL_GROUP.equals(m.type) && m.group != null) {
+                for (Part t : m.group) {
+                    if (t != null && "running".equals(t.status)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**

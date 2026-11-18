@@ -302,12 +302,12 @@ public final class MarkdownHtmlConverter {
     }
 
     public static String wrapDocument(String bodyHtml, boolean night, String themeVars) {
-        return wrapDocument(bodyHtml, night, themeVars, false);
+        return wrapDocument(bodyHtml, night, themeVars, false, false);
     }
 
     /** 便捷重载：无自定义主题变量。 */
     public static String wrapDocument(String bodyHtml, boolean night) {
-        return wrapDocument(bodyHtml, night, null, false);
+        return wrapDocument(bodyHtml, night, null, false, false);
     }
 
     /**
@@ -321,10 +321,27 @@ public final class MarkdownHtmlConverter {
      */
     public static String wrapDocument(String bodyHtml, boolean night, String themeVars,
                                       boolean reasoning) {
+        return wrapDocument(bodyHtml, night, themeVars, reasoning, false);
+    }
+
+    /**
+     * 流式整篇构建（2026-11-18）：{@code streaming=true} 时给 body 再挂 {@code qz-streaming}，
+     * 由 CSS 在"最后一段正在长的内容"末尾画一个闪烁光标（见 {@link #css(boolean)} 的
+     * {@code .qz-stream-tail}）。
+     *
+     * <p>为什么要烤进文档而不是事后 JS 追加：整篇路径（首帧 / 代码块 / 表格 / 公式跨块回退）
+     * 会把 body 整个换掉，类若只在块级路径里加，这些帧就看不到光标——而它们恰恰是最容易
+     * "长时间没有任何反馈"的帧。</p>
+     */
+    public static String wrapDocument(String bodyHtml, boolean night, String themeVars,
+                                      boolean reasoning, boolean streaming) {
         String theme = night ? "dark" : "light";
         String vars = (themeVars == null || themeVars.trim().isEmpty()) ? "" : themeVars.trim();
         String hljsCss = night ? "css/hljs-github-dark.min.css" : "css/hljs-github.min.css";
         String bodyClass = reasoning ? theme + " qz-reasoning" : theme;
+        if (streaming) {
+            bodyClass += " qz-streaming";
+        }
         return "<!DOCTYPE html><html lang=\"zh\"><head><meta charset=\"UTF-8\">"
                 + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=1\">"
                 + "<link rel=\"stylesheet\" href=\"" + hljsCss + "\">"
@@ -369,6 +386,9 @@ public final class MarkdownHtmlConverter {
      *   <li>{@code __qzApply(basePrefix, prefix, append, tail)}：前缀没变时只追加新闭块、
      *       替换尾巴；新块插在旧尾巴节点之前。</li>
      * </ul>
+     * 两个入口都按 {@code p.streaming} 切 {@code body.qz-streaming}，并给"最后一段还在长的内容"
+     * 打 {@code .qz-stream-tail}（CSS 光标落点）；{@code apply} 追加的新闭块带 {@code .qz-in}
+     * 入场动画。光标/入场只发生在流式期，定稿整篇路径会摘掉 {@code qz-streaming}。
      * 只有新闭合块跑 hljs/katex/复制按钮；尾巴只做 linkify/图片/锚点装饰，闭合后才高亮。
      * 通过 QZ.copy / QZ.previewImage 回调 Android；不新增桥方法。
      */
@@ -432,26 +452,46 @@ public final class MarkdownHtmlConverter {
                 + "function qzHolder(html,doHl,doMath,doCopy){var holder=document.createElement('div');"
                 + "if(window.HTMLTemplateElement){var t=document.createElement('template');t.innerHTML=html;holder.appendChild(t.content);}"
                 + "else{holder.innerHTML=html;}qzDecorate(holder,doHl,doMath,doCopy);return holder;}"
-                + "function qzAppendBlock(html){var holder=qzHolder(html,true,true,true);var nodes=[];"
+                + "function qzSetStreaming(on){if(!document.body)return;"
+                + "if(on){document.body.classList.add('qz-streaming');}"
+                + "else{document.body.classList.remove('qz-streaming');}}"
+                // 光标落点：标在"最后一段还在长的内容"上（列表标到最后一项）。
+                // 每次换尾巴重打一次标记，CSS 的 ::after 自然跟着走，不需要搬 DOM。
+                + "function qzMarkTail(){var old=document.querySelectorAll('.qz-stream-tail');"
+                + "for(var i=0;i<old.length;i++){old[i].classList.remove('qz-stream-tail');}"
+                + "var ns=window.__qzTailNodes;if(!ns.length)return;var n=ns[ns.length-1];"
+                + "if(!n||n.nodeType!==1)return;"
+                + "if((n.tagName==='UL'||n.tagName==='OL')&&n.lastElementChild){n=n.lastElementChild;}"
+                + "n.classList.add('qz-stream-tail');}"
+                // 整篇路径没有尾巴节点数组：标在 body 最后一个真元素上（跳过 body 末尾的 script）
+                + "function qzMarkBodyTail(){var old=document.querySelectorAll('.qz-stream-tail');"
+                + "for(var i=0;i<old.length;i++){old[i].classList.remove('qz-stream-tail');}"
+                + "var n=document.body?document.body.lastElementChild:null;"
+                + "while(n&&(n.tagName==='SCRIPT'||n.tagName==='STYLE')){n=n.previousElementSibling;}"
+                + "if(!n)return;if((n.tagName==='UL'||n.tagName==='OL')&&n.lastElementChild){n=n.lastElementChild;}"
+                + "n.classList.add('qz-stream-tail');}"
+                + "function qzAppendBlock(html,animate){var holder=qzHolder(html,true,true,true);var nodes=[];"
                 + "var ref=window.__qzTailNodes.length?window.__qzTailNodes[0]:null;"
-                + "while(holder.firstChild){var n=holder.firstChild;holder.removeChild(n);document.body.insertBefore(n,ref);nodes.push(n);}"
+                + "while(holder.firstChild){var n=holder.firstChild;holder.removeChild(n);document.body.insertBefore(n,ref);"
+                + "if(animate&&n.nodeType===1){n.classList.add('qz-in');}nodes.push(n);}"
                 + "if(nodes.length){window.__qzBlocks.push({nodes:nodes});}}"
-                + "function qzAppendTail(html){if(!html)return;var holder=qzHolder(html,false,false,false);"
+                + "function qzAppendTail(html){if(html){var holder=qzHolder(html,false,false,false);"
                 + "while(holder.firstChild){var n=holder.firstChild;holder.removeChild(n);document.body.appendChild(n);window.__qzTailNodes.push(n);}}"
-                + "function qzReset(prefix,blocks,tail){document.body.innerHTML='';window.__qzPrefix=null;"
-                + "window.__qzBlocks=[];window.__qzTailNodes=[];for(var i=0;i<blocks.length;i++){qzAppendBlock(blocks[i]);}"
-                + "qzAppendTail(tail||'');window.__qzPrefix=prefix;}"
-                + "function qzApply(base,prefix,blocks,tail){if(window.__qzPrefix!==base)return false;"
-                + "for(var i=0;i<blocks.length;i++){qzAppendBlock(blocks[i]);}"
+                + "qzMarkTail();}"
+                + "function qzReset(prefix,blocks,tail,streaming){document.body.innerHTML='';window.__qzPrefix=null;"
+                + "window.__qzBlocks=[];window.__qzTailNodes=[];for(var i=0;i<blocks.length;i++){qzAppendBlock(blocks[i],false);}"
+                + "qzAppendTail(tail||'');window.__qzPrefix=prefix;qzSetStreaming(streaming);}"
+                + "function qzApply(base,prefix,blocks,tail,streaming){if(window.__qzPrefix!==base)return false;"
+                + "for(var i=0;i<blocks.length;i++){qzAppendBlock(blocks[i],true);}"
                 + "for(var j=0;j<window.__qzTailNodes.length;j++){var n=window.__qzTailNodes[j];if(n.parentNode)n.parentNode.removeChild(n);}"
-                + "window.__qzTailNodes=[];qzAppendTail(tail||'');window.__qzPrefix=prefix;return true;}"
+                + "window.__qzTailNodes=[];qzAppendTail(tail||'');window.__qzPrefix=prefix;qzSetStreaming(streaming);return true;}"
                 // 整篇路径：清空块状态并全量装饰（定稿/回退/主题重载仍走这里）
                 + "window.__qzBoot=function(){window.__qzPrefix=null;window.__qzBlocks=[];window.__qzTailNodes=[];"
-                + "qzDecorate(document.body,true,true,true);};"
+                + "qzDecorate(document.body,true,true,true);qzMarkBodyTail();};"
                 // Java -> JS 的唯一块级入口；返回 false 让 Java 下一 tick 整体重建
                 + "window.__qzStream=function(p){if(!p)return false;"
-                + "if(p.mode==='reset'){qzReset(p.prefix,p.blocks||[],p.tail||'');return true;}"
-                + "if(p.mode==='apply'){return qzApply(p.base,p.prefix,p.blocks||[],p.tail||'');}return false;};"
+                + "if(p.mode==='reset'){qzReset(p.prefix,p.blocks||[],p.tail||'',p.streaming!==false);return true;}"
+                + "if(p.mode==='apply'){return qzApply(p.base,p.prefix,p.blocks||[],p.tail||'',p.streaming!==false);}return false;};"
                 + "if(document.readyState==='complete'||document.readyState==='interactive'){window.__qzBoot();}"
                 + "else{document.addEventListener('DOMContentLoaded',function(){window.__qzBoot();});}";
     }
@@ -505,6 +545,21 @@ public final class MarkdownHtmlConverter {
                 + ".qz-footnotes{margin-top:1.2em;border-top:1px solid " + border + ";padding-top:.6em;font-size:.9em;color:" + muted + "}"
                 + ".qz-footnotes ol{margin:.4em 0;padding-left:1.4em}"
                 + ".qz-fn-ref{font-size:.75em;vertical-align:super;line-height:0}"
-                + ".qz-fn-back{text-decoration:none;margin-left:.3em}";
+                + ".qz-fn-back{text-decoration:none;margin-left:.3em}"
+                // ===== 流式光标 + 新块入场（2026-11-18）=====
+                // 光标挂在"最后一段正在长的内容"上：JS 每次换尾巴时给该节点打 .qz-stream-tail，
+                // 纯 CSS 的 ::after 跟着节点走——不搬 DOM 元素（搬动会让 CSS 动画重启）。
+                + "body.qz-streaming .qz-stream-tail::after{content:'';display:inline-block;"
+                + "width:2px;height:1em;margin-left:2px;vertical-align:-.12em;border-radius:1px;"
+                + "background:currentColor;opacity:.55;animation:qzCaret 1.05s steps(1,end) infinite}"
+                + "@keyframes qzCaret{0%,55%{opacity:.55}56%,100%{opacity:0}}"
+                // 新闭合块淡入：流式里"又多了一段"有落点，而不是凭空堆上去。
+                // 只动 opacity、不做位移——位移会改变 WebView 实测高度，列表 item 会跟着抖一下。
+                + "@keyframes qzBlockIn{from{opacity:0}to{opacity:1}}"
+                + ".qz-in{animation:qzBlockIn .18s ease-out both}"
+                // 尊重系统"减弱动态效果"：光标常亮不闪、新块不位移
+                + "@media (prefers-reduced-motion:reduce){"
+                + "body.qz-streaming .qz-stream-tail::after{animation:none;opacity:.55}"
+                + ".qz-in{animation:none}}";
     }
 }

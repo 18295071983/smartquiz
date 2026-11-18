@@ -50,4 +50,31 @@ public class MarkdownHtmlConverterTest {
         assertFalse(plain.contains("qz-reasoning"));
         assertTrue(plain.contains("font-size:15px"));
     }
+
+    /**
+     * 流式光标（2026-11-18）：消息正文在 WebView 里，agent 执行中"正文正在长"的唯一反馈
+     * 就是尾巴上的光标 + 新块淡入。钉住三件事：body 带 qz-streaming、CSS 有光标规则、
+     * JS 有给尾巴打标记的入口（否则类加了也没人用）。
+     */
+    @Test
+    public void streamingDocumentCarriesCaretClassAndHooks() {
+        String doc = MarkdownHtmlConverter.wrapDocument("<p>正在输出</p>", false, null, false, true);
+        assertTrue(doc.contains("class=\"light qz-streaming\""));
+        assertTrue(doc.contains("body.qz-streaming .qz-stream-tail::after"));
+        assertTrue(doc.contains("function qzMarkTail"));
+        assertTrue(doc.contains("function qzSetStreaming"));
+        assertTrue(doc.contains("p.streaming!==false"));
+
+        // 定稿文档不能带 streaming 类：否则消息完成后光标还在闪
+        String done = MarkdownHtmlConverter.wrapDocument("<p>输出完毕</p>", false, null, false, false);
+        assertTrue(done.contains("class=\"light\""));
+        assertFalse(done.contains("class=\"light qz-streaming\""));
+    }
+
+    /** 思考正文同样有光标：思考阶段是最容易"看不出在跑"的阶段。 */
+    @Test
+    public void streamingReasoningDocumentCarriesBothClasses() {
+        String doc = MarkdownHtmlConverter.wrapDocument("<p>思考</p>", true, null, true, true);
+        assertTrue(doc.contains("class=\"dark qz-reasoning qz-streaming\""));
+    }
 }
